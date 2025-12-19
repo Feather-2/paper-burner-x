@@ -419,14 +419,26 @@ function makePrompt(batch, designSystem, contentPackage, imageSlotsForBatch = []
     JSON.stringify(
       batch.map((s, idx) => {
         const normalized = normalizeSlideIntentContentForPrompt(s);
-        return {
+        const brainstormData = selected.bySlideIntentId.get(s.slideIntentId);
+        const result = {
           slideIntentId: s.slideIntentId,
           slideIndex: idx,
           pageType: s.pageType,
           title: s.title,
           keyPoints: (s.keyPoints || []).slice(0, 5),
           objective: s.objective ? String(s.objective).slice(0, 100) : undefined,
+          content: normalized.content,
+          contentMarkdown: normalized.contentMarkdown || "",
         };
+        // Include brainstorm data if available (from selectedIdeas)
+        if (brainstormData) {
+          result.brainstorm = {
+            atmosphere: brainstormData.atmosphere,
+            elementsMarkdown: brainstormData.elementsMarkdown,
+            visualSlots: brainstormData.visualSlots,
+          };
+        }
+        return result;
       }),
       null,
       0

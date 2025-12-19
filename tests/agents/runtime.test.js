@@ -25,7 +25,8 @@ test("Runtime Core: EventBus on/off/once/emit + EventRecord fields", async () =>
   assert.ok(isValidEventName("run.started"));
   assert.ok(isValidEventName("textprep.chunk.completed"));
   assert.equal(isValidEventName("Run.Started"), false);
-  assert.equal(isValidEventName("bad__name"), false);
+  assert.equal(isValidEventName("bad..name"), false);  // 连续点号不合法
+  assert.ok(isValidEventName("bad_name"));  // 下划线现在合法
 
   const bus = new EventBus({ runId: "run_2025-12-12_22-30-01_a3f9f" });
 
@@ -474,8 +475,8 @@ test("Runtime Core: Orchestrator run lifecycle + stage events", async () => {
   assert.ok(events.some((e) => e.name === "run.started"));
   assert.ok(events.some((e) => e.name === "textprep.chunk.started" && e.status === "started"));
   assert.ok(events.some((e) => e.name === "textprep.chunk.progress" && e.status === "progress"));
-  assert.ok(events.some((e) => e.name === "textprep.chunk.ended" && e.status === "ended"));
-  assert.ok(events.some((e) => e.name === "run.ended"));
+  assert.ok(events.some((e) => e.name === "textprep.chunk.completed" && e.status === "completed"));
+  assert.ok(events.some((e) => e.name === "run.completed"));
 });
 
 test("Runtime Core: Orchestrator error handling emits failed", async () => {

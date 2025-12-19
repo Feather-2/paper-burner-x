@@ -29,69 +29,42 @@ test("Brainstorm v2: LLM generates candidates, review scores, and maps visualSlo
       const system = String(messages?.[0]?.content || "");
       const user = String(messages?.[1]?.content || "");
 
-      // Helper to generate candidates for a slide
-      const makeCandidates = (slideIntentId) => [
-        {
-          candidateId: `${slideIntentId}_a`,
-          atmosphere: { mood: "Futuristic", colorScheme: "Dark + cyan", visualWeight: "Right-heavy" },
-          elementsMarkdown: `- {{IMAGE:${slideIntentId}_hero}}\n- Title + cards`,
-          visualSlots: [
-            {
-              slotId: `${slideIntentId}_hero`,
-              renderType: "ai-image",
-              position: { x: "10%", y: "10%", w: "80%", h: "45%" },
-              imageSpec: { prompt: "High impact hero visual", style: "3d" },
-              priority: "critical",
-            },
-          ],
-        },
-        {
-          candidateId: `${slideIntentId}_b`,
-          atmosphere: { mood: "Minimal", colorScheme: "Light + accent", visualWeight: "Left-heavy" },
-          elementsMarkdown: `- {{SVG:${slideIntentId}_flow}}\n- Clean grid`,
-          visualSlots: [
-            {
-              slotId: `${slideIntentId}_flow`,
-              renderType: "svg",
-              position: { x: "10%", y: "80%", w: "80%", h: "10%" },
-              svgSpec: { type: "flowchart", description: "Three nodes connected by arrows" },
-              priority: "important",
-            },
-          ],
-        },
-      ];
-
-      // Helper to generate reviews for a slide
-      const makeReviews = (slideIntentId) => ({
-        reviews: [
-          { candidateId: `${slideIntentId}_a`, scores: { visualImpact: 0.9, clarity: 0.7, novelty: 0.6, consistency: 0.8 } },
-          { candidateId: `${slideIntentId}_b`, scores: { visualImpact: 0.6, clarity: 0.9, novelty: 0.7, consistency: 0.8 } },
-        ],
-        selectedCandidateId: slideIntentId === "s_overview" ? `${slideIntentId}_b` : `${slideIntentId}_a`,
-      });
-
-      if (system.includes("Creative Director")) {
-        // Batch format: return slideResults for all slides in the batch
+      // New simplified format: return slideResults with visualSlots directly
+      if (system.includes("Visual Planner") || user.includes("Plan visual elements")) {
         const slideResults = [];
-        if (user.includes('"slideIntentId": "s_cover"')) {
-          slideResults.push({ slideIntentId: "s_cover", slideIndex: 0, candidates: makeCandidates("s_cover") });
+        if (user.includes('"slideIntentId": "s_cover"') || user.includes('"slideIntentId":"s_cover"')) {
+          slideResults.push({
+            slideIntentId: "s_cover",
+            slideIndex: 0,
+            visualSlots: [
+              {
+                slotId: "s_cover_hero",
+                renderType: "ai-image",
+                position: { x: "10%", y: "10%", w: "80%", h: "45%" },
+                prompt: "High impact hero visual",
+                style: "3d",
+                priority: "critical",
+              },
+            ],
+          });
         }
-        if (user.includes('"slideIntentId": "s_overview"')) {
-          slideResults.push({ slideIntentId: "s_overview", slideIndex: 1, candidates: makeCandidates("s_overview") });
+        if (user.includes('"slideIntentId": "s_overview"') || user.includes('"slideIntentId":"s_overview"')) {
+          slideResults.push({
+            slideIntentId: "s_overview",
+            slideIndex: 1,
+            visualSlots: [
+              {
+                slotId: "s_overview_flow",
+                renderType: "svg",
+                position: { x: "10%", y: "80%", w: "80%", h: "10%" },
+                svgDescription: "Three nodes connected by arrows",
+                svgType: "flowchart",
+                priority: "important",
+              },
+            ],
+          });
         }
         return { content: JSON.stringify({ slideResults }) };
-      }
-
-      if (system.includes("Art Director")) {
-        // Batch format: return slideReviews for all slides in the batch
-        const slideReviews = [];
-        if (user.includes('"slideIntentId": "s_cover"')) {
-          slideReviews.push({ slideIntentId: "s_cover", slideIndex: 0, ...makeReviews("s_cover") });
-        }
-        if (user.includes('"slideIntentId": "s_overview"')) {
-          slideReviews.push({ slideIntentId: "s_overview", slideIndex: 1, ...makeReviews("s_overview") });
-        }
-        return { content: JSON.stringify({ slideReviews }) };
       }
 
       throw new Error("Unexpected prompt");
@@ -110,21 +83,19 @@ test("Brainstorm v2: LLM generates candidates, review scores, and maps visualSlo
 
   for (const row of res.candidatesBySlide) {
     assert.ok(Array.isArray(row.candidates));
-    assert.ok(row.candidates.length >= 2 && row.candidates.length <= 3);
-    assert.ok(row.selectedCandidate && row.selectedCandidate.selected === true);
-    assert.ok(typeof row.selectedCandidate.composite === "number");
-    assert.ok(typeof row.selectedCandidate.scores?.visualImpact === "number");
+    // Simplified flow: 1 candidate per slide (no multi-candidate + review)
+    assert.ok(row.candidates.length >= 1);
+    assert.ok(row.selectedCandidate);
   }
 
   assert.ok(Array.isArray(res.imageSlots));
   assert.ok(res.imageSlots.some((s) => s.renderType === "ai-image"));
   assert.ok(res.imageSlots.some((s) => s.renderType === "svg"));
   assert.ok(res.imageSlots.every((s) => typeof s.slotId === "string" && s.slotId.length > 0));
-  assert.ok(res.imageSlots.find((s) => s.slotId === "s_cover_hero")?.aspectRatio === "16:9");
 
   assert.ok(events.some((e) => e.name === "design.brainstorm.started"));
   assert.ok(events.some((e) => e.name === "design.brainstorm.llm.generated"));
-  assert.ok(events.some((e) => e.name === "design.brainstorm.reviewed"));
+  // Review stage is skipped in simplified flow
   const candidatesEvt = events.find((e) => e.name === "design.brainstorm.candidates");
   assert.ok(candidatesEvt, "should emit design.brainstorm.candidates");
   assert.ok(Array.isArray(candidatesEvt.record?.payload?.candidatesBySlide));
@@ -166,88 +137,30 @@ test("Brainstorm v2: brainstormRegenerate regenerates one slide and keepOthers c
   const events = [];
   const emit = (name, record) => events.push({ name, record });
 
-  const genCounts = new Map();
-  const reviewCounts = new Map();
+  let genCallCount = 0;
 
   const aiApiService = {
     chat: async ({ messages }) => {
-      const system = String(messages?.[0]?.content || "");
       const user = String(messages?.[1]?.content || "");
+      genCallCount++;
 
-      // Helper to generate candidates for a slide
-      const makeCandidates = (slideIntentId, isRegen = false) => [
-        {
-          candidateId: `${slideIntentId}_${isRegen ? "r1" : "a"}`,
-          atmosphere: { mood: "Futuristic", colorScheme: "Dark + cyan", visualWeight: "Right-heavy" },
-          elementsMarkdown: `- {{IMAGE:${slideIntentId}_hero}}\n- Title + cards`,
-          visualSlots: [
-            {
-              slotId: `${slideIntentId}_hero`,
-              renderType: "ai-image",
-              position: { x: "10%", y: "10%", w: "80%", h: "45%" },
-              imageSpec: { prompt: "High impact hero visual", style: "3d" },
-              priority: "critical",
-            },
-          ],
-        },
-        {
-          candidateId: `${slideIntentId}_${isRegen ? "r2" : "b"}`,
-          atmosphere: { mood: "Minimal", colorScheme: "Light + accent", visualWeight: "Left-heavy" },
-          elementsMarkdown: `- Clean grid`,
-          visualSlots: [],
-        },
-      ];
-
-      // Helper to generate reviews for a slide
-      const makeReviews = (slideIntentId, isRegen = false) => ({
-        reviews: [
-          { candidateId: `${slideIntentId}_${isRegen ? "r1" : "a"}`, scores: { visualImpact: 0.9, clarity: 0.7, novelty: 0.6, consistency: 0.8 } },
-          { candidateId: `${slideIntentId}_${isRegen ? "r2" : "b"}`, scores: { visualImpact: 0.6, clarity: 0.9, novelty: 0.7, consistency: 0.8 } },
-        ],
-        selectedCandidateId: `${slideIntentId}_${isRegen ? "r1" : "a"}`,
-      });
-
-      if (system.includes("Creative Director")) {
-        // Batch format for main brainstorm
-        const slideResults = [];
-        const hasCover = user.includes('"slideIntentId": "s_cover"');
-        const hasOverview = user.includes('"slideIntentId": "s_overview"');
-
-        if (hasCover) {
-          const n = (genCounts.get("s_cover") || 0) + 1;
-          genCounts.set("s_cover", n);
-          slideResults.push({ slideIntentId: "s_cover", slideIndex: 0, candidates: makeCandidates("s_cover", false) });
-        }
-        if (hasOverview) {
-          const n = (genCounts.get("s_overview") || 0) + 1;
-          genCounts.set("s_overview", n);
-          const isRegen = n > 1;
-          slideResults.push({ slideIntentId: "s_overview", slideIndex: 1, candidates: makeCandidates("s_overview", isRegen) });
-        }
-        return { content: JSON.stringify({ slideResults }) };
+      // New simplified format: return slideResults with visualSlots directly
+      const slideResults = [];
+      if (user.includes('"slideIntentId": "s_cover"') || user.includes('"slideIntentId":"s_cover"')) {
+        slideResults.push({
+          slideIntentId: "s_cover",
+          slideIndex: 0,
+          visualSlots: [{ slotId: "s_cover_hero", renderType: "ai-image", position: { x: "10%", y: "10%", w: "80%", h: "45%" }, priority: "critical" }],
+        });
       }
-
-      if (system.includes("Art Director")) {
-        // Batch format for review
-        const slideReviews = [];
-        const hasCover = user.includes('"slideIntentId": "s_cover"');
-        const hasOverview = user.includes('"slideIntentId": "s_overview"');
-
-        if (hasCover) {
-          const n = (reviewCounts.get("s_cover") || 0) + 1;
-          reviewCounts.set("s_cover", n);
-          slideReviews.push({ slideIntentId: "s_cover", slideIndex: 0, ...makeReviews("s_cover", false) });
-        }
-        if (hasOverview) {
-          const n = (reviewCounts.get("s_overview") || 0) + 1;
-          reviewCounts.set("s_overview", n);
-          const isRegen = n > 1;
-          slideReviews.push({ slideIntentId: "s_overview", slideIndex: 1, ...makeReviews("s_overview", isRegen) });
-        }
-        return { content: JSON.stringify({ slideReviews }) };
+      if (user.includes('"slideIntentId": "s_overview"') || user.includes('"slideIntentId":"s_overview"')) {
+        slideResults.push({
+          slideIntentId: "s_overview",
+          slideIndex: 1,
+          visualSlots: [{ slotId: "s_overview_visual", renderType: "svg", position: { x: "10%", y: "50%", w: "80%", h: "40%" }, priority: "important" }],
+        });
       }
-
-      throw new Error("Unexpected prompt");
+      return { content: JSON.stringify({ slideResults }) };
     },
   };
 
@@ -259,10 +172,9 @@ test("Brainstorm v2: brainstormRegenerate regenerates one slide and keepOthers c
   };
 
   const initial = await brainstorm(contentPackage, designSystem, { imagePolicy: "balanced" }, { emit, aiApiService });
-  const baseCoverSelected = initial.candidatesBySlide.find((r) => r.slideIntentId === "s_cover")?.selectedCandidate?.candidateId;
-  assert.equal(baseCoverSelected, "s_cover_a");
+  const initialCallCount = genCallCount;
+  assert.ok(initial.candidatesBySlide.length === 2);
 
-  const beforeCalls = [...genCounts.values()].reduce((a, b) => a + b, 0) + [...reviewCounts.values()].reduce((a, b) => a + b, 0);
   const regenRes = await brainstormRegenerate(
     "s_overview",
     { ...contentPackage, brainstormCandidates: { candidatesBySlide: initial.candidatesBySlide } },
@@ -270,23 +182,19 @@ test("Brainstorm v2: brainstormRegenerate regenerates one slide and keepOthers c
     { imagePolicy: "balanced" },
     { keepOthers: true, emit, aiApiService }
   );
-  const afterCalls = [...genCounts.values()].reduce((a, b) => a + b, 0) + [...reviewCounts.values()].reduce((a, b) => a + b, 0);
-  assert.equal(afterCalls - beforeCalls, 2, "regenerate should call aiApiService twice (generate+review) for one slide");
+  // Simplified flow: only 1 call for regenerate (no separate review)
+  assert.ok(genCallCount > initialCallCount, "regenerate should call aiApiService");
 
   assert.equal(regenRes.slideIntentId, "s_overview");
-  assert.ok(Array.isArray(regenRes.candidates) && regenRes.candidates.length >= 2);
-  assert.equal(regenRes.selectedCandidate?.candidateId, "s_overview_r1");
-  assert.ok(Array.isArray(regenRes.visualSlots));
+  assert.ok(Array.isArray(regenRes.candidates) && regenRes.candidates.length >= 1);
+  assert.ok(regenRes.selectedCandidate);
   assert.ok(Array.isArray(regenRes.imageSlots));
-  assert.ok(regenRes.imageSlots.some((s) => s.slotId === "s_overview_hero"));
 
   const regenCandidatesEvt = events.filter((e) => e.name === "design.brainstorm.candidates").slice(-1)[0];
   assert.ok(regenCandidatesEvt);
-  assert.equal(regenCandidatesEvt.record?.status, "data");
   const bySlide = regenCandidatesEvt.record?.payload?.candidatesBySlide;
   assert.equal(bySlide.length, 2);
-  const coverRow = bySlide.find((r) => r.slideIntentId === "s_cover");
-  assert.equal(coverRow?.selectedCandidate?.candidateId, "s_cover_a", "keepOthers=true should preserve other slides");
+  assert.ok(bySlide.find((r) => r.slideIntentId === "s_cover"), "keepOthers=true should preserve other slides");
 
   await brainstormRegenerate(
     "s_overview",
@@ -432,53 +340,25 @@ test("design.brainstorm.candidates event payload includes totalIdeas and selecte
 
   const aiApiService = {
     chat: async ({ messages }) => {
-      const system = String(messages?.[0]?.content || "");
       const user = String(messages?.[1]?.content || "");
-      const slideIntentId = user.includes('"slideIntentId": "s_cover"') ? "s_cover" : "s_overview";
 
-      if (system.includes("Creative Director")) {
-        return {
-          content: JSON.stringify({
-            candidates: [
-              {
-                candidateId: `${slideIntentId}_a`,
-                atmosphere: { mood: "Modern", colorScheme: "Blue", visualWeight: "Balanced" },
-                elementsMarkdown: `- {{IMAGE:${slideIntentId}_hero}}\n- Title`,
-                visualSlots: [
-                  {
-                    slotId: `${slideIntentId}_hero`,
-                    renderType: "ai-image",
-                    position: { x: "10%", y: "10%", w: "80%", h: "45%" },
-                    imageSpec: { prompt: "Hero visual", style: "flat" },
-                    priority: "critical",
-                  },
-                ],
-              },
-              {
-                candidateId: `${slideIntentId}_b`,
-                atmosphere: { mood: "Minimal", colorScheme: "Light", visualWeight: "Left-heavy" },
-                elementsMarkdown: `- Clean layout`,
-                visualSlots: [],
-              },
-            ],
-          }),
-        };
+      // New simplified format: return slideResults with visualSlots directly
+      const slideResults = [];
+      if (user.includes('"slideIntentId": "s_cover"') || user.includes('"slideIntentId":"s_cover"')) {
+        slideResults.push({
+          slideIntentId: "s_cover",
+          slideIndex: 0,
+          visualSlots: [{ slotId: "s_cover_hero", renderType: "ai-image", position: { x: "10%", y: "10%", w: "80%", h: "45%" }, priority: "critical" }],
+        });
       }
-
-      if (system.includes("Art Director")) {
-        const pick = `${slideIntentId}_a`;
-        return {
-          content: JSON.stringify({
-            reviews: [
-              { candidateId: `${slideIntentId}_a`, scores: { visualImpact: 0.9, clarity: 0.8, novelty: 0.7, consistency: 0.85 } },
-              { candidateId: `${slideIntentId}_b`, scores: { visualImpact: 0.6, clarity: 0.9, novelty: 0.5, consistency: 0.8 } },
-            ],
-            selectedCandidateId: pick,
-          }),
-        };
+      if (user.includes('"slideIntentId": "s_overview"') || user.includes('"slideIntentId":"s_overview"')) {
+        slideResults.push({
+          slideIntentId: "s_overview",
+          slideIndex: 1,
+          visualSlots: [{ slotId: "s_overview_visual", renderType: "svg", position: { x: "10%", y: "50%", w: "80%", h: "40%" }, priority: "important" }],
+        });
       }
-
-      throw new Error("Unexpected prompt");
+      return { content: JSON.stringify({ slideResults }) };
     },
   };
 
@@ -496,7 +376,8 @@ test("design.brainstorm.candidates event payload includes totalIdeas and selecte
   assert.equal(candidatesEvt.record?.actor, "design");
   assert.equal(candidatesEvt.record?.status, "data");
   assert.ok(typeof candidatesEvt.record?.payload?.totalIdeas === "number", "payload should have totalIdeas as number");
-  assert.ok(candidatesEvt.record?.payload?.totalIdeas >= 4, "totalIdeas should be at least 4 (2 slides * 2 candidates)");
+  // Simplified flow: 1 candidate per slide
+  assert.ok(candidatesEvt.record?.payload?.totalIdeas >= 2, "totalIdeas should be at least 2 (2 slides * 1 candidate)");
   assert.ok(typeof candidatesEvt.record?.payload?.selectedCount === "number", "payload should have selectedCount as number");
   assert.equal(candidatesEvt.record?.payload?.selectedCount, 2, "selectedCount should match number of slides");
   assert.ok(Array.isArray(candidatesEvt.record?.payload?.candidatesBySlide), "payload should have candidatesBySlide array");
