@@ -224,7 +224,7 @@
 
 
     _backToScriptReview() {
-        this.state = 'script_review';
+        window.transitionWorkflow(this, window.WorkflowState.SCRIPT_REVIEW);
         this.renderPreviewArea?.();
     },
 

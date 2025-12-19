@@ -1,6 +1,6 @@
 const PPTGeneratorNavigation = {
     async showProjectList() {
-        this.state = 'idle';
+        window.forceWorkflowState(this, window.WorkflowState.IDLE);
         this.currentProject = null;
 
         let projects = [];
@@ -447,7 +447,7 @@ const PPTGeneratorNavigation = {
             this.slides = this.currentProject.slides;
         }
 
-        this.state = this.currentProject.status || 'idle';
+        window.forceWorkflowState(this, this.currentProject.status || window.WorkflowState.IDLE);
         this.enterWorkspace();
     },
 
