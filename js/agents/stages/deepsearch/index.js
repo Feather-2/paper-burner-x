@@ -18,6 +18,7 @@ import { mapConcurrent } from "../../shared/concurrency.js";
 import { CONCURRENCY_CONFIG, GAP_CONFIG, PhaseStatus, PHASE_TRANSITIONS } from "./constants.js";
 import { DeepSearchEvents } from "./events.js";
 import { createPhaseHandlers, subscribePhaseTransitions } from "./phase-handlers.js";
+import { GapStatus } from "./states.js";
 import { BudgetAction, createBudgetManager } from "./budget.js";
 import { validateUserConfig } from "./config-schema.js";
 import { extractServices } from "./stage-api.js";
@@ -48,7 +49,7 @@ function createEmitTap(emitFn, { maxListeners } = {}) {
     if (typeof handler !== "function") throw new TypeError("createEmitTap().on(name, handler): handler must be a function");
     const key = String(name || "");
     if (!key) throw new TypeError("createEmitTap().on(name, handler): name must be a non-empty string");
-    if (destroyed) return () => {};
+    if (destroyed) return () => { };
     let set = listeners.get(key);
     if (!set) {
       set = new Set();
@@ -318,12 +319,12 @@ export class DeepSearchStage {
     const baseEmitFn = typeof stageApi?.emit === "function" ? stageApi.emit.bind(stageApi) : null;
     const emitWithBus = baseEmitFn
       ? (name, record) => {
-          const result = baseEmitFn(name, record);
-          if (!stageApi?.eventBus) {
-            eventBus.emit(name, record);
-          }
-          return result;
+        const result = baseEmitFn(name, record);
+        if (!stageApi?.eventBus) {
+          eventBus.emit(name, record);
         }
+        return result;
+      }
       : eventBus.emit.bind(eventBus);
     const tap = createEmitTap(emitWithBus);
     const stageApiWithTap = { ...(isPlainObject(stageApi) ? stageApi : {}), emit: tap.emit, eventBus };
@@ -514,8 +515,8 @@ export class DeepSearchStage {
       budgetManager.onThresholdReached?.({ action: BudgetAction.DEGRADE, usage: budgetManager.usage, limits: budgetManager.limits, ratio: preflightMaxRatio });
     }
 
-    let unsubBudgetExceeded = () => {};
-    let unsubTokenUsage = () => {};
+    let unsubBudgetExceeded = () => { };
+    let unsubTokenUsage = () => { };
 
     unsubBudgetExceeded = eventBus.subscribe(
       DeepSearchEvents.BUDGET_EXCEEDED,
@@ -554,6 +555,19 @@ export class DeepSearchStage {
         budgetStopRequested = true;
       } else if (action === BudgetAction.DEGRADE) {
         applyBudgetDegrade({ ratio: Math.max(...Object.values(budgetManager.getUsageRatio())), reason: "token_usage" });
+      }
+    });
+
+    tap.on(DeepSearchEvents.GAP_STATUS_CHANGED, ({ record }) => {
+      const payload = isPlainObject(record) && "payload" in record ? record.payload : record;
+      const { gapId, from, to, reason, iteration } = payload ?? {};
+      if (!gapId) return;
+
+      state.planningTree?.recordGapStatusChange(gapId, { from, to, reason, iteration });
+
+      if (to === GapStatus.FILLED) {
+        if (!state.filledGapIds) state.filledGapIds = new Set();
+        state.filledGapIds.add(gapId);
       }
     });
 
@@ -641,18 +655,18 @@ export class DeepSearchStage {
         }
       }
 
-	      try {
-	        const value = await errorHandler.withRetry(fn, {
-	          signal: stageApiWithContext?.signal,
-	          onRetry: ({ attempt, delay, error }) => {
-	            const retryErr = normalizeError(error, { stage });
-          emit?.(DeepSearchEvents.NODE_FAILED, {
-            runId,
-            nodeId,
-            error: { message: String(retryErr?.message || ""), level: retryErr?.level },
-            recovered: false,
-            retrying: true,
-          });
+      try {
+        const value = await errorHandler.withRetry(fn, {
+          signal: stageApiWithContext?.signal,
+          onRetry: ({ attempt, delay, error }) => {
+            const retryErr = normalizeError(error, { stage });
+            emit?.(DeepSearchEvents.NODE_FAILED, {
+              runId,
+              nodeId,
+              error: { message: String(retryErr?.message || ""), level: retryErr?.level },
+              recovered: false,
+              retrying: true,
+            });
             stageState?.addTimeline?.({
               name: "deepsearch.retry",
               status: "warning",
@@ -689,12 +703,12 @@ export class DeepSearchStage {
 
     const wrapStageFn =
       (stage, stageFn, { fallbackValue } = {}) =>
-      async (rc, inp, api) => {
-        const stageState = inp?.state || inp;
-        const fallback = typeof fallbackValue === "function" ? fallbackValue(stageState) : fallbackValue;
-        const { value } = await callStage(stage, () => stageFn(rc, inp, api), { stageState, fallbackValue: fallback });
-        return value;
-      };
+        async (rc, inp, api) => {
+          const stageState = inp?.state || inp;
+          const fallback = typeof fallbackValue === "function" ? fallbackValue(stageState) : fallbackValue;
+          const { value } = await callStage(stage, () => stageFn(rc, inp, api), { stageState, fallbackValue: fallback });
+          return value;
+        };
 
     emit?.(DeepSearchEvents.STARTED, { runId: state.runId });
 
@@ -990,13 +1004,13 @@ export class DeepSearchStage {
           const searchGaps = suggested.length
             ? suggested.slice(0, 3).map((q, i) => ({ gapId: defaultGapId || `ext_${i}`, query: q, question: q, type: "external" }))
             : currentGaps
-                .map((g) => ({
-                  gapId: String(g?.gapId || ""),
-                  query: String(g?.question || g?.text || ""),
-                  question: String(g?.question || g?.text || ""),
-                  type: String(g?.type || "external"),
-                }))
-                .filter((g) => g.query);
+              .map((g) => ({
+                gapId: String(g?.gapId || ""),
+                query: String(g?.question || g?.text || ""),
+                question: String(g?.question || g?.text || ""),
+                type: String(g?.type || "external"),
+              }))
+              .filter((g) => g.query);
 
           if (searchGaps.length) {
             const { value: externalOut } = await callStage(
@@ -1243,80 +1257,80 @@ export class DeepSearchStage {
         emit?.(DeepSearchEvents.ABORTED, { iteration: state.iteration });
       }
 
-    const sources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
-    const assets = Array.isArray(state?.L0?.assets) ? state.L0.assets : [];
-    const slideIntents = Array.isArray(state?.L1?.slideIntents) ? state.L1.slideIntents : [];
-    const claims = Array.isArray(state?.L1?.claims) ? state.L1.claims : [];
-    const evidenceLedger = Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger : [];
-    const dataTables = Array.isArray(state?.L1?.dataTables) ? state.L1.dataTables : [];
+      const sources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
+      const assets = Array.isArray(state?.L0?.assets) ? state.L0.assets : [];
+      const slideIntents = Array.isArray(state?.L1?.slideIntents) ? state.L1.slideIntents : [];
+      const claims = Array.isArray(state?.L1?.claims) ? state.L1.claims : [];
+      const evidenceLedger = Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger : [];
+      const dataTables = Array.isArray(state?.L1?.dataTables) ? state.L1.dataTables : [];
 
-    if (!isPlainObject(state?.L1?.report)) {
-      state.L1.report = generateReport(claims, evidenceLedger, Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [], sources, String(state?.taskGoal || ""));
-    }
+      if (!isPlainObject(state?.L1?.report)) {
+        state.L1.report = generateReport(claims, evidenceLedger, Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [], sources, String(state?.taskGoal || ""));
+      }
 
-    const pkg = buildContentPackage(runContext || { runId: state.runId, mode: "deepsearch", constraints: {} }, sources, slideIntents, claims, evidenceLedger, dataTables, {
-      mode: "deepsearch",
-      scanSummary: state?.L1?.scanSummary || null,
-      gaps: Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [],
-      condensedMemory: state?.L1?.condensedMemory || null,
-      openQuestions: Array.isArray(state?.L1?.openQuestions) ? state.L1.openQuestions : [],
-      outlineCandidates: Array.isArray(state?.L1?.outlineCandidates) ? state.L1.outlineCandidates : [],
-      report: state?.L1?.report || null,
-      assets,
-    });
+      const pkg = buildContentPackage(runContext || { runId: state.runId, mode: "deepsearch", constraints: {} }, sources, slideIntents, claims, evidenceLedger, dataTables, {
+        mode: "deepsearch",
+        scanSummary: state?.L1?.scanSummary || null,
+        gaps: Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [],
+        condensedMemory: state?.L1?.condensedMemory || null,
+        openQuestions: Array.isArray(state?.L1?.openQuestions) ? state.L1.openQuestions : [],
+        outlineCandidates: Array.isArray(state?.L1?.outlineCandidates) ? state.L1.outlineCandidates : [],
+        report: state?.L1?.report || null,
+        assets,
+      });
 
-    if (pkg?.metrics) {
-      const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
-      const tokenUsageRaw = state?.L2?.tokenUsage;
-      const tokenUsage =
-        tokenUsageRaw && typeof tokenUsageRaw === "object"
-          ? {
+      if (pkg?.metrics) {
+        const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
+        const tokenUsageRaw = state?.L2?.tokenUsage;
+        const tokenUsage =
+          tokenUsageRaw && typeof tokenUsageRaw === "object"
+            ? {
               input: typeof tokenUsageRaw.input === "number" && Number.isFinite(tokenUsageRaw.input) ? tokenUsageRaw.input : 0,
               output: typeof tokenUsageRaw.output === "number" && Number.isFinite(tokenUsageRaw.output) ? tokenUsageRaw.output : 0,
               total: typeof tokenUsageRaw.total === "number" && Number.isFinite(tokenUsageRaw.total) ? tokenUsageRaw.total : 0,
               estimatedCostUSD:
                 typeof tokenUsageRaw.estimatedCostUSD === "number" && Number.isFinite(tokenUsageRaw.estimatedCostUSD) ? tokenUsageRaw.estimatedCostUSD : 0,
             }
-          : { input: 0, output: 0, total: 0, estimatedCostUSD: 0 };
-      pkg.metrics.deepsearch = {
-        sourceCount: Array.isArray(sources) ? sources.length : 0,
-        gapCount: gaps.filter(isOpenGap).length,
-        totalGaps: gaps.length,
-        retrievedCount: Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks.length : 0,
-        claimCount: claims.length,
-        evidenceCount: evidenceLedger.length,
-        slideCount: slideIntents.length,
-        iteration: state.iteration,
-        checkpointCount: Array.isArray(state?.checkpoints) ? state.checkpoints.length : 0,
-        tokenUsage,
-      };
-    }
-
-    emit?.(DeepSearchEvents.COMPLETED, { runId: state.runId, slideCount: slideIntents.length, claimCount: claims.length });
-
-    // 记录 DeepSearch 流程完成
-    currentStage = "deepsearch";
-    logger.info("DeepSearch pipeline completed", {
-      stage: "deepsearch",
-      data: {
-        runId: state.runId,
-        finalIteration: state.iteration,
-        slideCount: slideIntents.length,
-        claimCount: claims.length,
-        evidenceCount: evidenceLedger.length,
-        gapCount: Array.isArray(state?.L1?.gaps) ? state.L1.gaps.length : 0,
-      },
-    });
-
-    if (taskManager && taskId) {
-      const { signal } = extractServices(stageApi);
-      if (signal?.aborted && typeof taskManager.cancel === "function") {
-        taskManager.cancel(taskId, "aborted");
-      } else {
-        taskManager.complete(taskId, { runId: state.runId, metrics: pkg?.metrics?.deepsearch || null });
+            : { input: 0, output: 0, total: 0, estimatedCostUSD: 0 };
+        pkg.metrics.deepsearch = {
+          sourceCount: Array.isArray(sources) ? sources.length : 0,
+          gapCount: gaps.filter(isOpenGap).length,
+          totalGaps: gaps.length,
+          retrievedCount: Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks.length : 0,
+          claimCount: claims.length,
+          evidenceCount: evidenceLedger.length,
+          slideCount: slideIntents.length,
+          iteration: state.iteration,
+          checkpointCount: Array.isArray(state?.checkpoints) ? state.checkpoints.length : 0,
+          tokenUsage,
+        };
       }
-    }
-    return pkg;
+
+      emit?.(DeepSearchEvents.COMPLETED, { runId: state.runId, slideCount: slideIntents.length, claimCount: claims.length });
+
+      // 记录 DeepSearch 流程完成
+      currentStage = "deepsearch";
+      logger.info("DeepSearch pipeline completed", {
+        stage: "deepsearch",
+        data: {
+          runId: state.runId,
+          finalIteration: state.iteration,
+          slideCount: slideIntents.length,
+          claimCount: claims.length,
+          evidenceCount: evidenceLedger.length,
+          gapCount: Array.isArray(state?.L1?.gaps) ? state.L1.gaps.length : 0,
+        },
+      });
+
+      if (taskManager && taskId) {
+        const { signal } = extractServices(stageApi);
+        if (signal?.aborted && typeof taskManager.cancel === "function") {
+          taskManager.cancel(taskId, "aborted");
+        } else {
+          taskManager.complete(taskId, { runId: state.runId, metrics: pkg?.metrics?.deepsearch || null });
+        }
+      }
+      return pkg;
     } catch (err) {
       if (taskManager && taskId) taskManager.fail(taskId, err);
       throw err;

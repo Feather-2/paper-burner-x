@@ -1,3 +1,5 @@
+import { GapStatus, DecisionStage, DecisionOutcome, PlanNodeStatus } from "./states.js";
+
 export class PlanningTree {
   constructor({ rootGoal = '', runId = '' } = {}) {
     this.rootId = 'plan_root';
@@ -109,6 +111,46 @@ export class PlanningTree {
 
     node.decisions.push(record);
     return true;
+  }
+
+  /**
+   * 记录 Gap 状态变化到相关节点
+   * @param {string} gapId - Gap ID
+   * @param {object} params - 状态变化参数
+   * @param {string} params.from - 原状态
+   * @param {string} params.to - 目标状态
+   * @param {string} params.reason - 变化原因
+   * @param {number} params.iteration - 当前迭代
+   */
+  recordGapStatusChange(gapId, { from, to, reason, iteration }) {
+    const nodes = this.getNodesForGap(gapId);
+    if (!nodes.length) return;
+
+    const decision = {
+      stage: DecisionStage.RETRIEVE,
+      action: `gap_${to}`,
+      reason: reason || '',
+      outcome: to === GapStatus.FILLED
+        ? DecisionOutcome.SUCCESS
+        : to === GapStatus.BLOCKED
+          ? DecisionOutcome.FAIL
+          : DecisionOutcome.UNKNOWN,
+      metrics: { iteration, from, to },
+      timestamp: new Date().toISOString()
+    };
+
+    for (const node of nodes) {
+      if (!Array.isArray(node.decisions)) {
+        node.decisions = [];
+      }
+      node.decisions.push(decision);
+
+      if (to === GapStatus.FILLED) {
+        this.updateStatus(node.nodeId, PlanNodeStatus.COMPLETED);
+      } else if (to === GapStatus.BLOCKED) {
+        this.updateStatus(node.nodeId, PlanNodeStatus.FAILED);
+      }
+    }
   }
 
   /**
