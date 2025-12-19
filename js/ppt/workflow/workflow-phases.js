@@ -3,6 +3,8 @@
  * 阶段函数、状态转换、报告配置
  */
 
+import { WorkflowState, transitionWorkflow, forceWorkflowState } from './workflow-states.js';
+
 export const phasesMixin = {
     async phase2_Scripting() {
         console.log('[Workflow] phase2_Scripting 开始');
@@ -11,7 +13,10 @@ export const phasesMixin = {
         const iter = typeof this.workflowData?.deepsearchViz?.iteration === 'number' ? this.workflowData.deepsearchViz.iteration : null;
         this._onReportUpdated?.(reportMd, iter !== null ? `DeepSearch 报告（第 ${iter + 1} 轮）` : 'DeepSearch 报告');
 
-        this.state = 'script_review';
+        if (this.state === WorkflowState.RESEARCHING) {
+            transitionWorkflow(this, WorkflowState.DEEPSEARCH_REVIEW);
+        }
+        transitionWorkflow(this, WorkflowState.SCRIPT_REVIEW);
         console.log('[Workflow] 进入 script_review 状态');
         this.addChatMessage('ai', '研究报告已生成。请在中间区域审阅并编辑脚本内容，确认后进入页面规划。');
         this.updateTodos(this._runtimeTodoTexts.map((text, i) => {
@@ -125,7 +130,7 @@ export const phasesMixin = {
     },
 
     async submitAnswers() {
-        this.state = 'outline_review';
+        transitionWorkflow(this, WorkflowState.OUTLINE_REVIEW);
         this.renderPreviewArea();
         this.updateTodos(this._runtimeTodoTexts.map((text, i) => {
             if (i < 2) return { text, status: 'completed' };
@@ -135,7 +140,7 @@ export const phasesMixin = {
     },
 
     confirmOutline() {
-        this.state = 'scripting';
+        transitionWorkflow(this, WorkflowState.OUTLINE_PLANNING);
         this.renderPreviewArea();
         this.phase3_Scripting();
     },
@@ -205,7 +210,7 @@ export const phasesMixin = {
                 slideCount: Array.isArray(contentPackage?.slideIntents) ? contentPackage.slideIntents.length : undefined,
             });
 
-            this.state = 'page_layout';
+            transitionWorkflow(this, WorkflowState.PAGE_LAYOUT);
             this.renderPreviewArea?.();
             this.addChatMessage?.('ai', '页面规划完成。请审阅并编辑页面结构，确认后点击「继续设计」。');
         } catch (err) {
@@ -270,7 +275,7 @@ export const phasesMixin = {
         }
 
         console.log('[Workflow] 工作流完成，进入 completed 状态');
-        this.state = 'completed';
+        transitionWorkflow(this, WorkflowState.COMPLETED);
         this.currentProject.status = 'completed';
         this._saveProject();
 
@@ -368,7 +373,7 @@ export const phasesMixin = {
         } catch {
             // ignore
         }
-        this.state = 'failed';
+        forceWorkflowState(this, WorkflowState.FAILED);
         this.currentProject.status = 'failed';
         this._saveProject?.();
         this.addChatMessage('ai', `流程已中止：${msg}`);

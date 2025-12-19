@@ -3,6 +3,7 @@
  * DeepSearch 执行流程、可视化状态同步
  */
 
+import { WorkflowState, transitionWorkflow, forceWorkflowState } from './workflow-states.js';
 import { DEFAULT_TASK_GOAL } from './workflow-constants.js';
 
 export const deepsearchMixin = {
@@ -119,7 +120,7 @@ export const deepsearchMixin = {
         console.log('[Workflow] _startSimpleGeneration 开始');
 
         try {
-            this.state = 'reading';
+            transitionWorkflow(this, WorkflowState.READING);
             this.renderPreviewArea?.();
             this.addChatMessage?.('ai', '正在读取素材内容...');
 
@@ -145,7 +146,7 @@ export const deepsearchMixin = {
 
             if (!combinedContent.trim()) {
                 this.addChatMessage?.('ai', '未能读取到有效内容，请检查素材文件。');
-                this.state = 'idle';
+                transitionWorkflow(this, WorkflowState.IDLE);
                 this.renderPreviewArea?.();
                 return;
             }
@@ -175,21 +176,25 @@ export const deepsearchMixin = {
 
             // 调用设计引擎
             await this._ensureRuntime?.({ mode: 'textprep' });
-            this.state = 'designer';
+            transitionWorkflow(this, WorkflowState.SCRIPT_REVIEW);
+            transitionWorkflow(this, WorkflowState.PAGE_LAYOUT);
+            transitionWorkflow(this, WorkflowState.DESIGNER);
             this.renderPreviewArea?.();
 
             await this._orchestrator?.runStage?.('design.batch', {
                 contentPackage: this.workflowData.contentPackage
             });
 
-            this.state = 'completed';
+            transitionWorkflow(this, WorkflowState.COMPLETED);
             this.renderPreviewArea?.();
             this.addChatMessage?.('ai', '快速生成完成！');
 
         } catch (err) {
             console.error('[SimpleGeneration] 错误:', err);
             this.addChatMessage?.('ai', `生成出错: ${err.message}`);
-            this.state = 'idle';
+            const ok = transitionWorkflow(this, WorkflowState.FAILED, { reason: 'simple_generation', error: err?.message });
+            if (!ok) forceWorkflowState(this, WorkflowState.FAILED);
+            transitionWorkflow(this, WorkflowState.IDLE, { reason: 'simple_generation' });
             this.renderPreviewArea?.();
         } finally {
             this._workflowLock = false;
@@ -204,7 +209,7 @@ export const deepsearchMixin = {
         console.log('[Workflow] _startPlannedGeneration 开始');
 
         try {
-            this.state = 'scanning';
+            transitionWorkflow(this, WorkflowState.SCANNING);
             this.renderPreviewArea?.();
             this.addChatMessage?.('ai', '正在扫描素材结构...');
 
@@ -227,7 +232,7 @@ export const deepsearchMixin = {
 
             if (!combinedContent.trim()) {
                 this.addChatMessage?.('ai', '未能读取到有效内容，请检查素材文件。');
-                this.state = 'idle';
+                transitionWorkflow(this, WorkflowState.IDLE);
                 this.renderPreviewArea?.();
                 this._workflowLock = false;
                 return;
@@ -261,7 +266,7 @@ export const deepsearchMixin = {
             this.addChatMessage?.('ai', `已识别 ${suggestedOutline.length} 个章节，请在规划器中配置每页内容。`);
 
             // 进入规划界面
-            this.state = 'outline_planning';
+            transitionWorkflow(this, WorkflowState.OUTLINE_PLANNING);
             this.renderPreviewArea?.();
 
             // 释放锁（规划器是用户交互阶段）
@@ -275,7 +280,9 @@ export const deepsearchMixin = {
         } catch (err) {
             console.error('[PlannedGeneration] 错误:', err);
             this.addChatMessage?.('ai', `扫描出错: ${err.message}`);
-            this.state = 'idle';
+            const ok = transitionWorkflow(this, WorkflowState.FAILED, { reason: 'planned_generation', error: err?.message });
+            if (!ok) forceWorkflowState(this, WorkflowState.FAILED);
+            transitionWorkflow(this, WorkflowState.IDLE, { reason: 'planned_generation' });
             this.renderPreviewArea?.();
             this._workflowLock = false;
         }
@@ -398,7 +405,7 @@ export const deepsearchMixin = {
         }
 
         console.log('[Workflow] 非 Auto 模式，进入 deepsearch_review 状态');
-        this.state = 'deepsearch_review';
+        transitionWorkflow(this, WorkflowState.DEEPSEARCH_REVIEW);
         this.addChatMessage('ai', 'DeepSearch 已完成当前轮次。您可以继续下一轮迭代，或进入脚本编辑。');
         this.renderPreviewArea();
     },
@@ -482,7 +489,7 @@ export const deepsearchMixin = {
         state.maxIterations = Math.max(1, (typeof state.iteration === 'number' ? state.iteration : 0) + 1);
         this._syncDeepSearchVizFromState(state);
 
-        this.state = 'researching';
+        transitionWorkflow(this, WorkflowState.RESEARCHING);
         this.renderPreviewArea();
 
         try {
@@ -492,7 +499,7 @@ export const deepsearchMixin = {
             this.workflowData.slideIntents = pkg?.slideIntents || [];
             this._onReportUpdated?.(pkg?.report?.markdown || '', `DeepSearch 报告（第 ${state.iteration + 1} 轮）`);
             this._syncDeepSearchVizFromState(state);
-            this.state = 'deepsearch_review';
+            transitionWorkflow(this, WorkflowState.DEEPSEARCH_REVIEW);
             this.renderPreviewArea();
             await this._saveCheckpoint?.('deepsearch.complete', {
                 reportTitle: pkg?.report?.title,

@@ -3,6 +3,8 @@
  * 设计系统、报告审阅面板、运行时 orchestrator 与事件处理
  */
 
+import { WorkflowState, transitionWorkflow, forceWorkflowState } from './workflow-states.js';
+
 let _TextPrepStage = null;
 async function getTextPrepStage() {
     if (!_TextPrepStage) {
@@ -122,7 +124,7 @@ export const runtimeMixin = {
             markdownLength: typeof this.workflowData?.reportMarkdown === 'string' ? this.workflowData.reportMarkdown.length : undefined,
         });
 
-        this.state = 'page_layout';
+        transitionWorkflow(this, WorkflowState.PAGE_LAYOUT);
         this.renderPreviewArea?.();
         this.updateTodos?.(this._runtimeTodoTexts.map((text, i) => {
             if (i < 3) return { text, status: 'completed' };
@@ -432,11 +434,11 @@ export const runtimeMixin = {
         return ds;
     },
     openProjectBriefForm() {
-        this.state = 'briefing';
+        transitionWorkflow(this, WorkflowState.BRIEFING);
         this.renderPreviewArea?.();
     },
     cancelProjectBrief() {
-        this.state = 'idle';
+        transitionWorkflow(this, WorkflowState.IDLE);
         this.renderPreviewArea?.();
     },
     submitProjectBrief() {
@@ -456,7 +458,7 @@ export const runtimeMixin = {
         }
 
         this.setProjectBrief?.({ taskGoal, projectSummary, audience, tone });
-        this.state = 'idle';
+        transitionWorkflow(this, WorkflowState.IDLE);
         this.renderPreviewArea?.();
 
         if (this._pendingStartAfterBrief) {
@@ -656,11 +658,11 @@ export const runtimeMixin = {
 
         // Stage order drives todo/agent updates via subscribed events.
         this._runtimeStageUi = {
-            'deepsearch.ingest': { todoIndex: 0, agentId: 'reader', state: 'reading', started: 'Analyzing document structure...', ended: 'Sources Ingested' },
-            'deepsearch.pipeline': { todoIndex: 1, agentId: 'analyst', state: 'researching', started: 'Researching and generating report...', ended: 'Report Ready' },
-            'textprep.align': { todoIndex: 3, agentId: 'designer', state: 'page_layout', started: 'Planning slide layout...', ended: 'Layout Ready' },
-            'design.batch': { todoIndex: 4, agentId: 'designer', state: 'designer', started: 'Optimizing visual layout...', ended: 'Design Complete' },
-            'evaluate.hardgates': { todoIndex: 5, agentId: 'reviewer', state: 'reviewer', started: 'Final compliance check...', ended: 'Approved' }
+            'deepsearch.ingest': { todoIndex: 0, agentId: 'reader', state: WorkflowState.READING, started: 'Analyzing document structure...', ended: 'Sources Ingested' },
+            'deepsearch.pipeline': { todoIndex: 1, agentId: 'analyst', state: WorkflowState.RESEARCHING, started: 'Researching and generating report...', ended: 'Report Ready' },
+            'textprep.align': { todoIndex: 3, agentId: 'designer', state: WorkflowState.PAGE_LAYOUT, started: 'Planning slide layout...', ended: 'Layout Ready' },
+            'design.batch': { todoIndex: 4, agentId: 'designer', state: WorkflowState.DESIGNER, started: 'Optimizing visual layout...', ended: 'Design Complete' },
+            'evaluate.hardgates': { todoIndex: 5, agentId: 'reviewer', started: 'Final compliance check...', ended: 'Approved' }
         };
 
         this._runtimeDesignSubStageUi = {
@@ -701,7 +703,7 @@ export const runtimeMixin = {
 
         if (name === 'run.started') {
             this._resetFlowVizEventStore();
-            this.state = 'reading';
+            forceWorkflowState(this, WorkflowState.READING);
             this.updateTodos(this._runtimeTodoTexts.map((text, i) => ({ text, status: i === 0 ? 'active' : 'pending' })));
             this.renderPreviewArea();
             return;
@@ -954,8 +956,29 @@ export const runtimeMixin = {
         const ui = this._runtimeStageUi?.[stageName];
         if (!ui) return;
 
+        const ensureWorkflowState = (targetState, meta) => {
+            if (!targetState || this.state === targetState) return;
+
+            // Bridge common shortcuts used by some entry points/tests.
+            // Example: directly running `design.batch` after `run.started` leaves state at `reading`,
+            // while the UI state machine expects `page_layout → designer`.
+            if (targetState === WorkflowState.PAGE_LAYOUT) {
+                if (this.state === WorkflowState.READING) transitionWorkflow(this, WorkflowState.SCRIPT_REVIEW, meta);
+                if (this.state === WorkflowState.SCRIPT_REVIEW) transitionWorkflow(this, WorkflowState.PAGE_LAYOUT, meta);
+                if (this.state === targetState) return;
+            } else if (targetState === WorkflowState.DESIGNER) {
+                if (this.state === WorkflowState.READING) transitionWorkflow(this, WorkflowState.SCRIPT_REVIEW, meta);
+                if (this.state === WorkflowState.SCRIPT_REVIEW) transitionWorkflow(this, WorkflowState.PAGE_LAYOUT, meta);
+                if (this.state === WorkflowState.PAGE_LAYOUT) transitionWorkflow(this, WorkflowState.DESIGNER, meta);
+                if (this.state === targetState) return;
+            }
+
+            const ok = transitionWorkflow(this, targetState, meta);
+            if (!ok) forceWorkflowState(this, targetState);
+        };
+
         if (ui.state && stageStatus === 'started') {
-            this.state = ui.state;
+            ensureWorkflowState(ui.state, { stageName, event: name });
         }
 
         if (stageStatus === 'started') {

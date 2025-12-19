@@ -3,6 +3,8 @@
  * 非线性拓扑 - 支持并行轨迹、条件分支、回溯
  */
 
+import { FlowStage } from './workflow/workflow-states.js';
+
 const CDN = {
   react: "https://cdn.jsdelivr.net/npm/react@18.2.0/+esm",
   reactDom: "https://cdn.jsdelivr.net/npm/react-dom@18.2.0/+esm",
@@ -23,25 +25,25 @@ function loadScript(src) {
 
 // 阶段配置 - Premium Colors
 const STAGES = {
-  start: { icon: "▶", label: "Start", color: "#4F46E5" },
-  scan: { icon: "◎", label: "Scan", color: "#0EA5E9" },
-  gaps: { icon: "◇", label: "Gaps", color: "#F59E0B" },
-  retrieve: { icon: "⟳", label: "Retrieve", color: "#8B5CF6" },
-  understand: { icon: "◈", label: "Understand", color: "#10B981" },
-  write: { icon: "✎", label: "Write", color: "#EC4899" },
-  condense: { icon: "◆", label: "Condense", color: "#06B6D4" },
-  external: { icon: "⊕", label: "Search", color: "#3B82F6" },
-  checkpoint: { icon: "◉", label: "Save", color: "#F97316" },
-  iteration: { icon: "↻", label: "Iterate", color: "#6366F1" },
+  [FlowStage.START]: { icon: "▶", label: "Start", color: "#4F46E5" },
+  [FlowStage.SCAN]: { icon: "◎", label: "Scan", color: "#0EA5E9" },
+  [FlowStage.GAPS]: { icon: "◇", label: "Gaps", color: "#F59E0B" },
+  [FlowStage.RETRIEVE]: { icon: "⟳", label: "Retrieve", color: "#8B5CF6" },
+  [FlowStage.UNDERSTAND]: { icon: "◈", label: "Understand", color: "#10B981" },
+  [FlowStage.WRITE]: { icon: "✎", label: "Write", color: "#EC4899" },
+  [FlowStage.CONDENSE]: { icon: "◆", label: "Condense", color: "#06B6D4" },
+  [FlowStage.EXTERNAL]: { icon: "⊕", label: "Search", color: "#3B82F6" },
+  [FlowStage.CHECKPOINT]: { icon: "◉", label: "Save", color: "#F97316" },
+  [FlowStage.ITERATION]: { icon: "↻", label: "Iterate", color: "#6366F1" },
   // Design Flow (复用同一可视化引擎)
-  design_start: { icon: "▣", label: "Design", color: "#EC4899" },
-  design_theme: { icon: "✦", label: "Theme", color: "#F43F5E" },
-  design_brainstorm: { icon: "💡", label: "Brainstorm", color: "#F59E0B" },
-  design_batch: { icon: "▦", label: "Batch", color: "#8B5CF6" },
-  design_slide: { icon: "▤", label: "Slide", color: "#0EA5E9" },
-  design_qa: { icon: "✓", label: "QA", color: "#10B981" },
-  end: { icon: "✓", label: "Done", color: "#10B981" },
-  error: { icon: "✕", label: "Error", color: "#EF4444" },
+  [FlowStage.DESIGN_START]: { icon: "▣", label: "Design", color: "#EC4899" },
+  [FlowStage.DESIGN_THEME]: { icon: "✦", label: "Theme", color: "#F43F5E" },
+  [FlowStage.DESIGN_BRAINSTORM]: { icon: "💡", label: "Brainstorm", color: "#F59E0B" },
+  [FlowStage.DESIGN_BATCH]: { icon: "▦", label: "Batch", color: "#8B5CF6" },
+  [FlowStage.DESIGN_SLIDE]: { icon: "▤", label: "Slide", color: "#0EA5E9" },
+  [FlowStage.DESIGN_QA]: { icon: "✓", label: "QA", color: "#10B981" },
+  [FlowStage.END]: { icon: "✓", label: "Done", color: "#10B981" },
+  [FlowStage.ERROR]: { icon: "✕", label: "Error", color: "#EF4444" },
 };
 
 /**
@@ -87,7 +89,7 @@ export class FlowBuilder {
   }
 
   _addNode(id, type, data = {}) {
-    const config = STAGES[type] || STAGES.start;
+    const config = STAGES[type] || STAGES[FlowStage.START];
     let parentId = data.parentNodeId || this._getCurrentParent();
 
     // 如果 parentId 是 runId，尝试映射到实际的 start 节点
