@@ -86,3 +86,89 @@ test("BudgetManager.getRemaining/getUsageRatio/getStats/reset + createBudgetMana
   assert.equal(bm.getStats().stopped, false);
 });
 
+test("EventBus integration: BUDGET_EXCEEDED triggers budget actions", async () => {
+  const { EventBus } = await import("../../../js/agents/runtime/event-bus.js");
+  const { DeepSearchEvents } = await import("../../../js/agents/stages/deepsearch/events.js");
+  const { BudgetAction } = await import("../../../js/agents/stages/deepsearch/budget.js");
+
+  const eventBus = new EventBus({ runId: "test_run" });
+  let receivedPayload = null;
+  let actionTaken = null;
+
+  const unsub = eventBus.subscribe(
+    DeepSearchEvents.BUDGET_EXCEEDED,
+    ({ payload }) => {
+      receivedPayload = payload;
+      actionTaken = payload?.action ?? "warn";
+    },
+    { priority: 10 }
+  );
+
+  eventBus.emit(DeepSearchEvents.BUDGET_EXCEEDED, {
+    payload: { usage: { input: 1000, output: 500 }, action: "degrade" },
+  });
+
+  assert.ok(receivedPayload !== null, "Should receive payload");
+  assert.equal(actionTaken, "degrade");
+
+  unsub();
+
+  // After unsubscribe, should not receive
+  receivedPayload = null;
+  eventBus.emit(DeepSearchEvents.BUDGET_EXCEEDED, {
+    payload: { usage: { input: 2000, output: 1000 }, action: "stop" },
+  });
+  assert.equal(receivedPayload, null, "Should not receive after unsubscribe");
+});
+
+test("EventBus integration: TOKEN_USAGE accumulates and triggers degradation", async () => {
+  const { EventBus } = await import("../../../js/agents/runtime/event-bus.js");
+  const { DeepSearchEvents } = await import("../../../js/agents/stages/deepsearch/events.js");
+  const { BudgetManager, BudgetAction } = await import("../../../js/agents/stages/deepsearch/budget.js");
+
+  const eventBus = new EventBus({ runId: "test_run" });
+  const budgetManager = new BudgetManager({
+    maxInputTokens: 100,
+    maxOutputTokens: 100,
+    maxTotalTokens: 200,
+    degradeThreshold: 0.5,
+  });
+
+  let lastAction = null;
+
+  eventBus.subscribe(DeepSearchEvents.TOKEN_USAGE, ({ payload }) => {
+    const usage = payload?.usage;
+    const input = usage?.input ?? 0;
+    const output = usage?.output ?? 0;
+    lastAction = budgetManager.recordUsage({ input, output });
+  });
+
+  // First usage: below threshold
+  eventBus.emit(DeepSearchEvents.TOKEN_USAGE, { payload: { usage: { input: 30, output: 10 } } });
+  assert.equal(lastAction, BudgetAction.CONTINUE);
+
+  // Second usage: crosses degrade threshold
+  eventBus.emit(DeepSearchEvents.TOKEN_USAGE, { payload: { usage: { input: 30, output: 10 } } });
+  assert.equal(lastAction, BudgetAction.DEGRADE);
+
+  // Third usage: exceeds limit
+  eventBus.emit(DeepSearchEvents.TOKEN_USAGE, { payload: { usage: { input: 50, output: 50 } } });
+  assert.equal(lastAction, BudgetAction.STOP);
+});
+
+test("EventBus subscription priority: higher priority handlers execute first", async () => {
+  const { EventBus } = await import("../../../js/agents/runtime/event-bus.js");
+  const { DeepSearchEvents } = await import("../../../js/agents/stages/deepsearch/events.js");
+
+  const eventBus = new EventBus({ runId: "test_run" });
+  const callOrder = [];
+
+  eventBus.subscribe(DeepSearchEvents.BUDGET_EXCEEDED, () => callOrder.push("low"), { priority: 0 });
+  eventBus.subscribe(DeepSearchEvents.BUDGET_EXCEEDED, () => callOrder.push("high"), { priority: 10 });
+  eventBus.subscribe(DeepSearchEvents.BUDGET_EXCEEDED, () => callOrder.push("medium"), { priority: 5 });
+
+  eventBus.emit(DeepSearchEvents.BUDGET_EXCEEDED, { payload: {} });
+
+  assert.deepEqual(callOrder, ["high", "medium", "low"]);
+});
+
