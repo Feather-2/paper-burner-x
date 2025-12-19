@@ -1,3 +1,5 @@
+import { matchEventPattern } from "./events.js";
+
 const SCHEMA_VERSION = "0.1";
 
 function isObject(value) {
@@ -72,6 +74,7 @@ export class EventBus {
     this.runId = runId;
     this._seq = 0;
     this._listeners = new Map(); // name -> Set(fn)
+    this._wildcardListeners = new Map(); // pattern -> Set(fn)
     this._backpressure = null;
     this._persistenceAdapter = ensurePersistenceAdapter(persistenceAdapter);
   }
@@ -100,6 +103,38 @@ export class EventBus {
       handler(evt);
     });
     return off;
+  }
+
+  /**
+   * 订阅事件，支持通配符模式如 "deepsearch.*"
+   * @param {string} eventType - 事件类型或通配符模式
+   * @param {Function} handler - 事件处理器
+   * @returns {Function} 取消订阅函数
+   */
+  subscribe(eventType, handler) {
+    if (typeof handler !== "function") {
+      throw new TypeError("EventBus.subscribe(eventType, handler): handler must be a function");
+    }
+    if (typeof eventType !== "string" || !eventType.length) {
+      throw new Error("EventBus.subscribe(eventType, handler): eventType must be a non-empty string");
+    }
+
+    // 通配符模式使用 _wildcardListeners
+    if (eventType.includes("*")) {
+      let set = this._wildcardListeners.get(eventType);
+      if (!set) {
+        set = new Set();
+        this._wildcardListeners.set(eventType, set);
+      }
+      set.add(handler);
+      return () => {
+        set.delete(handler);
+        if (set.size === 0) this._wildcardListeners.delete(eventType);
+      };
+    }
+
+    // 精确匹配委托给 on
+    return this.on(eventType, handler);
   }
 
   off(name, handler) {
@@ -212,13 +247,23 @@ export class EventBus {
   }
 
   _dispatch(evt) {
+    // 精确匹配
     const direct = this._listeners.get(evt.name);
     if (direct) {
       for (const fn of [...direct]) fn(evt);
     }
+
+    // 全局通配符 "*"
     const any = this._listeners.get("*");
     if (any) {
       for (const fn of [...any]) fn(evt);
+    }
+
+    // 通配符模式匹配 (如 "deepsearch.*")
+    for (const [pattern, handlers] of this._wildcardListeners) {
+      if (matchEventPattern(pattern, evt.name)) {
+        for (const fn of [...handlers]) fn(evt);
+      }
     }
   }
 

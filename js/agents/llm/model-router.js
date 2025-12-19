@@ -1,4 +1,5 @@
 import { assertChatMessages, assertChatResponse, assertModelEntry, assertProvider, assertUsageConfig, normalizeModelTags } from "./provider.js";
+import { ModelUsage, isValidModelUsage } from "./constants.js";
 
 // 浏览器兼容的 EventEmitter 简易实现
 class EventEmitter {
@@ -207,11 +208,11 @@ export class ModelRouter extends EventEmitter {
   }
 
   _requiredTags({ usage, images } = {}) {
-    const u = toNonEmptyString(usage) || "worker";
+    const u = toNonEmptyString(usage) || ModelUsage.WORKER;
     const required = new Set();
 
     const hasImages = Array.isArray(images) && images.length > 0;
-    if (hasImages || u === "vision") required.add("vision");
+    if (hasImages || u === ModelUsage.VISION) required.add("vision");
     else required.add("text");
 
     const extra = this._usageTags.get(u) || [];
@@ -259,6 +260,9 @@ export class ModelRouter extends EventEmitter {
   async call({ usage, messages, images, _waitRetryCount } = {}) {
     const u = toNonEmptyString(usage);
     if (!u) throw new TypeError("call({usage, messages}): usage must be a non-empty string");
+    if (!isValidModelUsage(u)) {
+      console.warn(`[ModelRouter] Unknown usage type: ${u}, valid types: ${Object.values(ModelUsage).join(", ")}`);
+    }
     assertChatMessages(messages);
 
     const candidates = this._usageConfig[u];
