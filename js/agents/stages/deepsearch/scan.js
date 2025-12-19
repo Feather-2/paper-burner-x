@@ -3,6 +3,7 @@ import { getModelCaller } from "./model.js";
 import { createLogger } from "./logger.js";
 import { extractServices } from "./stage-api.js";
 import { isPlainObject, toNonEmptyString } from "../../shared/value-utils.js";
+import { DeepSearchSourceKind, normalizeDeepSearchSourceKind } from "./constants.js";
 
 function ensureState(runContext, input) {
   if (input instanceof DeepSearchState) return input;
@@ -30,9 +31,10 @@ function toSourceCardsWithProgress(sources, emit) {
 
   for (let i = 0; i < rows.length; i++) {
     const s = rows[i];
+    const kind = normalizeDeepSearchSourceKind(s?.kind || s?.type || DeepSearchSourceKind.UNKNOWN);
     const card = {
       sourceId: toNonEmptyString(s?.sourceId) || "source_unknown",
-      kind: toNonEmptyString(s?.kind) || "unknown",
+      kind,
       title: toNonEmptyString(s?.title),
       uri: toNonEmptyString(s?.uri),
       chars: typeof s?.sourceTextNormalized === "string" ? s.sourceTextNormalized.length : undefined,

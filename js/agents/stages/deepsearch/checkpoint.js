@@ -1,13 +1,16 @@
 import { isPlainObject, safeInt, toNonEmptyString } from "../../shared/value-utils.js";
+import { CheckpointMode } from "./constants.js";
 import { ensureTokenUsage } from "./state-utils.js";
 
 export const CHECKPOINT_SCHEMA_VERSION = "1.0";
 
-const DEFAULT_CHECKPOINT_STRATEGY = "lite";
+const DEFAULT_CHECKPOINT_STRATEGY = CheckpointMode.LITE;
 
 export function normalizeCheckpointStrategy(v) {
   const s = toNonEmptyString(v);
-  return s === "full" ? "full" : "lite";
+  if (s === CheckpointMode.FULL) return CheckpointMode.FULL;
+  if (s === CheckpointMode.MINIMAL) return CheckpointMode.MINIMAL;
+  return CheckpointMode.LITE;
 }
 
 export function getCheckpointStrategyFromState(state, override) {
@@ -104,7 +107,7 @@ export function buildLiteSnapshot(state) {
   const claims = Array.isArray(state?.L1?.claims) ? state.L1.claims : [];
 
   return {
-    snapshotStrategy: "lite",
+    snapshotStrategy: CheckpointMode.LITE,
     schemaVersion: state.schemaVersion,
     checkpointSchemaVersion: CHECKPOINT_SCHEMA_VERSION,
     runId: state.runId,
@@ -136,6 +139,19 @@ export function buildLiteSnapshot(state) {
     },
     todos: cloneValue(state.todos),
     timeline: cloneValue(state.timeline),
+  };
+}
+
+export function buildMinimalSnapshot(state) {
+  const lite = buildLiteSnapshot(state);
+  const tokenUsage = ensureTokenUsage(state?.L2?.tokenUsage);
+  return {
+    ...lite,
+    snapshotStrategy: CheckpointMode.MINIMAL,
+    L2: {
+      tokenUsage: cloneValue(tokenUsage),
+      incomplete: true,
+    },
   };
 }
 

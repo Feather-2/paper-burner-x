@@ -3,6 +3,8 @@
  * 封装与 PlanningTree 交互的决策记录逻辑
  */
 
+import { DecisionOutcome, DecisionStage } from "./states.js";
+
 /**
  * 记录检索决策
  * @param {object} state - DeepSearchState 实例
@@ -15,7 +17,7 @@ export function recordRetrieveDecision(state, gapId, decision) {
   const nodes = state.planningTree.getNodesForGap(gapId);
   for (const node of nodes) {
     state.planningTree.recordDecision(node.nodeId, {
-      stage: 'retrieve',
+      stage: DecisionStage.RETRIEVE,
       ...decision
     });
   }
@@ -33,7 +35,7 @@ export function recordUnderstandDecision(state, gapId, decision) {
   const nodes = state.planningTree.getNodesForGap(gapId);
   for (const node of nodes) {
     state.planningTree.recordDecision(node.nodeId, {
-      stage: 'understand',
+      stage: DecisionStage.UNDERSTAND,
       ...decision
     });
   }
@@ -51,7 +53,7 @@ export function recordGapDecision(state, gapId, decision) {
   const nodes = state.planningTree.getNodesForGap(gapId);
   for (const node of nodes) {
     state.planningTree.recordDecision(node.nodeId, {
-      stage: 'gaps',
+      stage: DecisionStage.GAPS,
       ...decision
     });
   }
@@ -64,7 +66,7 @@ export function trackIterativeRetrieve(state, gapId, iteration, retrieved, query
   recordRetrieveDecision(state, gapId, {
     action: `localRetriever (iteration ${iteration})`,
     reason: `Using queryHints: ${queryHints.slice(0, 3).join(', ')}`,
-    outcome: retrieved.length > 0 ? 'success' : 'fail',
+    outcome: retrieved.length > 0 ? DecisionOutcome.SUCCESS : DecisionOutcome.FAIL,
     metrics: { hits: retrieved.length, latency, iteration }
   });
 }
@@ -76,7 +78,7 @@ export function trackQueryRefinement(state, gapId, oldHints, newHints, iteration
   recordRetrieveDecision(state, gapId, {
     action: 'refine query hints',
     reason: `Refined from [${oldHints.join(', ')}] to [${newHints.join(', ')}]`,
-    outcome: 'success',
+    outcome: DecisionOutcome.SUCCESS,
     metrics: { iteration, oldHintCount: oldHints.length, newHintCount: newHints.length }
   });
 }
@@ -96,7 +98,7 @@ export function trackRerank(state, gaps, rerankStats) {
       reason: rerankStats.skipped
         ? `Skipped: ${rerankStats.reason || 'unknown'}`
         : `Reranked ${rerankStats.inputCount} chunks to ${rerankStats.outputCount}`,
-      outcome: rerankStats.skipped ? 'partial' : 'success',
+      outcome: rerankStats.skipped ? DecisionOutcome.PARTIAL : DecisionOutcome.SUCCESS,
       metrics: {
         inputCount: rerankStats.inputCount,
         outputCount: rerankStats.outputCount,
@@ -116,10 +118,10 @@ export function trackClaimExtraction(state, gapIds, claimCount, evidenceCount) {
     recordUnderstandDecision(state, gapId, {
       action: 'extract claims from evidence',
       reason: `Extracted ${claimCount} claims from ${evidenceCount} evidence`,
-      outcome: claimCount > 0 ? 'success' : 'fail',
-      metrics: { claimCount, evidenceCount }
-    });
-  }
+    outcome: claimCount > 0 ? DecisionOutcome.SUCCESS : DecisionOutcome.FAIL,
+    metrics: { claimCount, evidenceCount }
+  });
+}
 }
 
 /**
@@ -129,7 +131,7 @@ export function trackGapFill(state, gapId, filled, reason, metrics = {}) {
   recordGapDecision(state, gapId, {
     action: filled ? 'gap filled' : 'gap remains open',
     reason: String(reason || ''),
-    outcome: filled ? 'success' : 'partial',
+    outcome: filled ? DecisionOutcome.SUCCESS : DecisionOutcome.PARTIAL,
     metrics
   });
 }
@@ -141,7 +143,7 @@ export function trackGapMiss(state, gapId, missCount, reason) {
   recordGapDecision(state, gapId, {
     action: 'gap miss count increased',
     reason: String(reason || 'no evidence found in this iteration'),
-    outcome: 'fail',
+    outcome: DecisionOutcome.FAIL,
     metrics: { missCount }
   });
 }
@@ -153,7 +155,7 @@ export function trackExternalSearch(state, gapId, triggered, resultCount, reason
   recordRetrieveDecision(state, gapId, {
     action: triggered ? 'external search triggered' : 'external search skipped',
     reason: String(reason || ''),
-    outcome: triggered && resultCount > 0 ? 'success' : triggered ? 'partial' : 'fail',
+    outcome: triggered && resultCount > 0 ? DecisionOutcome.SUCCESS : triggered ? DecisionOutcome.PARTIAL : DecisionOutcome.FAIL,
     metrics: { resultCount }
   });
 }

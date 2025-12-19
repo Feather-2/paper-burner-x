@@ -1,3 +1,5 @@
+import { VisualDataStatus } from "./constants.js";
+
 function toNonEmptyString(v) {
   if (v === undefined || v === null) return "";
   const s = String(v).trim();
@@ -123,7 +125,7 @@ export function fillAssetPlaceholders(html, resolvedAssets) {
 
     const imgAttrs = { ...attrs };
     imgAttrs["data-el"] = "image";
-    imgAttrs["data-status"] = "filled";
+    imgAttrs["data-status"] = VisualDataStatus.FILLED;
     imgAttrs["data-render-type"] = "asset";
     delete imgAttrs["data-fallback"];
     delete imgAttrs["data-aspect-ratio"];
@@ -147,4 +149,3 @@ export function fillAssetPlaceholders(html, resolvedAssets) {
 
   return { html: out2, filledSlotIds: [...new Set(filledSlotIds)], skippedSlotIds: [...new Set(skippedSlotIds)] };
 }
-

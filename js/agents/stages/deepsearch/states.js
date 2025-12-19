@@ -105,6 +105,14 @@ export function isValidPlanNodeStatus(value) {
   return Object.values(PlanNodeStatus).includes(value);
 }
 
+export function isValidPlanNodeType(value) {
+  return Object.values(PlanNodeType).includes(value);
+}
+
 export function isValidDecisionOutcome(value) {
   return Object.values(DecisionOutcome).includes(value);
+}
+
+export function isValidDecisionStage(value) {
+  return Object.values(DecisionStage).includes(value);
 }

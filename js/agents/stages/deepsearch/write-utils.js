@@ -1,4 +1,5 @@
 import { isPlainObject, toNonEmptyString } from "../../shared/value-utils.js";
+import { normalizeReportLength, ReportLength } from "../../runtime/constants.js";
 
 export const REPORT_LENGTH_PRESETS = Object.freeze({
   brief: { minWords: 800, maxWords: 2000, targetWords: 1200 },
@@ -55,7 +56,7 @@ export function extractTitleFromMarkdown(markdown) {
 }
 
 export function resolveReportLengthConfig(userConfig) {
-  const lengthRaw = toNonEmptyString(userConfig?.reportLength)?.toLowerCase();
+  const lengthRaw = normalizeReportLength(userConfig?.reportLength);
   const preset = lengthRaw && REPORT_LENGTH_PRESETS[lengthRaw] ? lengthRaw : null;
 
   const targetFromUser = clampInt(userConfig?.reportTargetWords, 200, 50000);
@@ -79,7 +80,7 @@ export function resolveReportLengthConfig(userConfig) {
     };
   }
 
-  const chosen = preset || "standard";
+  const chosen = preset || ReportLength.STANDARD;
   const cfg = REPORT_LENGTH_PRESETS[chosen] || REPORT_LENGTH_PRESETS.standard;
   return {
     reportLength: chosen,

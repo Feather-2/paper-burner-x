@@ -19,6 +19,41 @@ test("Runtime Core: runId format & uniqueness", async () => {
   assert.notEqual(ctx1.runId, ctx2.runId);
 });
 
+test("Runtime Constants: report enums + quality mode normalization", async () => {
+  const {
+    ReportTone,
+    ReportAudience,
+    ReportLanguage,
+    ReportLength,
+    QualityMode,
+    normalizeReportTone,
+    normalizeReportAudience,
+    normalizeReportLanguage,
+    normalizeReportLength,
+    normalizeQualityMode,
+  } = await import("../../js/agents/runtime/constants.js");
+
+  assert.equal(normalizeReportTone("Business"), ReportTone.BUSINESS);
+  assert.equal(normalizeReportTone("ACADEMIC"), ReportTone.ACADEMIC);
+  assert.equal(normalizeReportTone("neutral"), undefined);
+
+  assert.equal(normalizeReportAudience("EXECUTIVE"), ReportAudience.EXECUTIVE);
+  assert.equal(normalizeReportAudience("expert"), ReportAudience.EXPERT);
+  assert.equal(normalizeReportAudience("student"), undefined);
+
+  assert.equal(normalizeReportLanguage("zh"), ReportLanguage.ZH);
+  assert.equal(normalizeReportLanguage("AUTO"), ReportLanguage.AUTO);
+  assert.equal(normalizeReportLanguage("fr"), undefined);
+
+  assert.equal(normalizeReportLength("detailed"), ReportLength.DETAILED);
+  assert.equal(normalizeReportLength("COMPREHENSIVE"), ReportLength.COMPREHENSIVE);
+  assert.equal(normalizeReportLength("long"), undefined);
+
+  assert.equal(normalizeQualityMode("HIGH"), QualityMode.HIGH);
+  assert.equal(normalizeQualityMode("standard"), QualityMode.STANDARD);
+  assert.equal(normalizeQualityMode("extreme"), undefined);
+});
+
 test("Runtime Core: EventBus on/off/once/emit + EventRecord fields", async () => {
   const { EventBus, isValidEventName } = await import("../../js/agents/runtime/event-bus.js");
 

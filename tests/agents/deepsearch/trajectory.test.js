@@ -752,7 +752,7 @@ test("trajectory.__test helpers: validateIteration, mergeGaps, signatures, ids",
     assert.equal(out.openCount, 1);
     assert.equal(state.L1.gaps[0].status, "open");
     assert.equal(state.L1.gaps[0].missCount, 0);
-    assert.equal(state.todos.find((t) => t.relatedGapId === "g2").status, "done");
+    assert.equal(state.todos.find((t) => t.relatedGapId === "g2").status, "completed");
     assert.equal(updates.length, 1);
     assert.equal(updates[0].status, "completed");
   }
@@ -785,7 +785,7 @@ test("trajectory.__test helpers: validateIteration, mergeGaps, signatures, ids",
     };
     __test.validateIteration(state, { blockAfterMisses: 2 });
     assert.equal(state.L1.gaps[0].status, "filled");
-    assert.equal(state.todos[0].status, "done");
+    assert.equal(state.todos[0].status, "completed");
   }
 
   {
@@ -1009,7 +1009,7 @@ test("trajectory.__test extra coverage: statusRank, evidenceKey, mergeConflicts,
     __test.validateIteration(state, { blockAfterMisses: 2 });
     assert.equal(state.L1.gaps[0].status, "blocked");
     assert.equal(state.L1.gaps[0].blockedReason, "custom");
-    assert.equal(state.todos[0].status, "blocked");
+    assert.equal(state.todos[0].status, "cancelled");
   }
 
   {
@@ -1132,8 +1132,8 @@ test("DeepSearchState methods: reopenGaps, addNewGaps, saveWriteSnapshot", async
         ],
       },
       todos: [
-        { todoId: "todo_1", relatedGapId: "gap_1", status: "done", text: "x" },
-        { todoId: "todo_2", relatedGapId: "gap_2", status: "blocked", text: "y" },
+        { todoId: "todo_1", relatedGapId: "gap_1", status: "completed", text: "x" },
+        { todoId: "todo_2", relatedGapId: "gap_2", status: "cancelled", text: "y" },
         { todoId: "todo_3", relatedGapId: "gap_3", status: "open", text: "z" },
       ],
     });

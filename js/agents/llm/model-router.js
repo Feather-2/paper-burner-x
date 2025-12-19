@@ -1,5 +1,5 @@
 import { assertChatMessages, assertChatResponse, assertModelEntry, assertProvider, assertUsageConfig, normalizeModelTags } from "./provider.js";
-import { ModelUsage, isValidModelUsage } from "./constants.js";
+import { ModelUsage, RouterStrategy, isValidModelUsage, normalizeRouterStrategy } from "./constants.js";
 
 // 浏览器兼容的 EventEmitter 简易实现
 class EventEmitter {
@@ -110,11 +110,14 @@ export class ModelRouter extends EventEmitter {
     super();
 
     if (debug !== undefined && typeof debug !== "boolean") throw new TypeError("ModelRouter: debug must be a boolean");
-    if (strategy !== "priority" && strategy !== "round_robin") throw new TypeError("ModelRouter: strategy must be 'priority' or 'round_robin'");
+    const normalizedStrategy = normalizeRouterStrategy(strategy, "");
+    if (!normalizedStrategy) {
+      throw new TypeError(`ModelRouter: strategy must be one of ${Object.values(RouterStrategy).join(", ")}`);
+    }
 
     this._debug = debug;
     this._logger = resolveLogger({ debug, logger });
-    this._strategy = strategy;
+    this._strategy = normalizedStrategy;
     this._rrNextIndexByUsage = new Map(); // usage -> next start index
 
     this._time = isPlainObject(time) && typeof time.now === "function" && typeof time.sleep === "function" ? time : defaultTime();

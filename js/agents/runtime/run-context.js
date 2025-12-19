@@ -1,3 +1,5 @@
+import { normalizeQualityMode } from "./constants.js";
+
 const SCHEMA_VERSION = "0.1";
 
 /**
@@ -54,7 +56,7 @@ export function parseConstraints(input = {}) {
   const tone = toOptionalString(raw.tone);
   const pageCount = toOptionalInt(raw.pageCount);
   const citationsPolicy = toOptionalString(raw.citationsPolicy);
-  const qualityMode = toOptionalString(raw.qualityMode);
+  const qualityMode = normalizeQualityMode(raw.qualityMode);
 
   return {
     ...(audience ? { audience } : {}),

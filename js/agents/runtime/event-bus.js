@@ -1,4 +1,5 @@
 import { matchEventPattern } from "./events.js";
+import { EventBusItemKind } from "./constants.js";
 
 const SCHEMA_VERSION = "0.1";
 
@@ -302,7 +303,7 @@ export class EventBus {
     bp.coalesced = new Map();
 
     for (const item of queue) {
-      if (item.kind === "event") {
+      if (item.kind === EventBusItemKind.EVENT) {
         this._dispatch(item.evt);
         continue;
       }
@@ -418,9 +419,9 @@ export class EventBus {
     if (shouldCoalesce) {
       const token = ++bp.token;
       bp.coalesced.set(name, { token, evt });
-      bp.queue.push({ kind: "coalesce", name, token });
+      bp.queue.push({ kind: EventBusItemKind.COALESCE, name, token });
     } else {
-      bp.queue.push({ kind: "event", evt });
+      bp.queue.push({ kind: EventBusItemKind.EVENT, evt });
     }
 
     this._scheduleFlush();

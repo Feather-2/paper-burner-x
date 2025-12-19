@@ -34,6 +34,12 @@ export const TrajectoryStatus = Object.freeze({
   ABANDONED: "abandoned",
 });
 
+// Trajectory 结果枚举
+export const TrajectoryOutcome = Object.freeze({
+  SUCCESS: "success",
+  FAILED: "failed",
+});
+
 function cloneValue(v) {
   return typeof structuredClone === "function" ? structuredClone(v) : JSON.parse(JSON.stringify(v));
 }
@@ -521,7 +527,7 @@ export class TrajectoryManager {
         runId,
         trajectoryId: trajectory.trajectoryId,
         iterationEnd: trajectory.iteration,
-        outcome: "success",
+        outcome: TrajectoryOutcome.SUCCESS,
         quality: this.computeQuality(trajectory),
       });
 
@@ -531,7 +537,7 @@ export class TrajectoryManager {
         runId,
         trajectoryId: trajectory.trajectoryId,
         iterationEnd: trajectory.iteration,
-        outcome: "failed",
+        outcome: TrajectoryOutcome.FAILED,
         quality: this.computeQuality(trajectory),
         error: { message: String(err?.message || err) },
       });

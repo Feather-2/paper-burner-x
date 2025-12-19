@@ -1,4 +1,5 @@
 import { normalizeText } from "../stages/textprep/normalize.js";
+import { AssetMimeType, normalizeAssetMimeType } from "./constants.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -11,12 +12,12 @@ function toNonEmptyString(v) {
 }
 
 function computeAssetHash(asset) {
-  const signature = JSON.stringify({
-    type: toNonEmptyString(asset?.type),
-    mimeType: toNonEmptyString(asset?.mimeType),
-    data: toNonEmptyString(asset?.data),
-  });
-  return normalizeText(signature).textHash;
+    const signature = JSON.stringify({
+      type: toNonEmptyString(asset?.type),
+      mimeType: toNonEmptyString(asset?.mimeType),
+      data: toNonEmptyString(asset?.data),
+    });
+    return normalizeText(signature).textHash;
 }
 
 function defaultAssetIdFromHash(hash) {
@@ -42,12 +43,13 @@ export class AssetManager {
     const docId = toNonEmptyString(asset.docId);
     if (!docId) throw new Error("AssetManager.addAsset(asset): asset.docId is required");
 
-    const hash = computeAssetHash(asset);
+    const normalized = { ...asset, mimeType: normalizeAssetMimeType(asset?.mimeType, AssetMimeType.OCTET_STREAM) };
+    const hash = computeAssetHash(normalized);
     const existingId = this.assetIdByHash.get(hash);
-    const canonicalId = existingId || toNonEmptyString(asset.assetId) || defaultAssetIdFromHash(hash);
+    const canonicalId = existingId || toNonEmptyString(normalized.assetId) || defaultAssetIdFromHash(hash);
 
     if (!existingId) {
-      const stored = { ...asset, assetId: canonicalId };
+      const stored = { ...normalized, assetId: canonicalId };
       this.assetsById.set(canonicalId, stored);
       this.assetIdByHash.set(hash, canonicalId);
     }
@@ -103,4 +105,3 @@ export class AssetManager {
     return this.assetsById.size;
   }
 }
-

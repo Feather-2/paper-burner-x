@@ -5,6 +5,7 @@ import { extractServices } from "./stage-api.js";
 import { search as toolChainSearch } from "../../retrieval/tool-chain.js";
 import { isPlainObject, toNonEmptyString, safeInt } from "../../shared/value-utils.js";
 import { GAP_CONFIG, GAP_TYPES } from "./constants.js";
+import { TodoStatus } from "./states.js";
 
 const ALLOWED_GAP_TYPES = new Set(["unknown", ...GAP_TYPES]);
 
@@ -299,7 +300,11 @@ function ensureTodosForGaps(state, gaps, emit) {
     const gid = toNonEmptyString(g?.gapId);
     if (!gid) continue;
     if (existingTodoByGapId.has(gid)) continue;
-    const t = state.addTodo({ text: `填补缺口: ${g.type} — ${g.question}`, relatedGapId: gid, status: g.status === "filled" ? "done" : "open" });
+    const t = state.addTodo({
+      text: `填补缺口: ${g.type} — ${g.question}`,
+      relatedGapId: gid,
+      status: g.status === "filled" ? TodoStatus.COMPLETED : TodoStatus.OPEN,
+    });
     todos.push(t);
     emit?.("deepsearch.todo.created", { todoId: t.todoId, relatedGapId: gid });
   }

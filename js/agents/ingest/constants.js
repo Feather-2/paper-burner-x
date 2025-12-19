@@ -77,6 +77,51 @@ export function normalizeSourceKind(value) {
 }
 
 /**
+ * 资产 MIME 类型枚举
+ * @readonly
+ * @enum {string}
+ */
+export const AssetMimeType = Object.freeze({
+  PNG: "image/png",
+  JPEG: "image/jpeg",
+  WEBP: "image/webp",
+  GIF: "image/gif",
+  SVG: "image/svg+xml",
+  BMP: "image/bmp",
+  TIFF: "image/tiff",
+  ICO: "image/x-icon",
+  HEIC: "image/heic",
+  HEIF: "image/heif",
+  EMF: "image/emf",
+  WMF: "image/wmf",
+  OCTET_STREAM: "application/octet-stream",
+});
+
+export const VALID_ASSET_MIME_TYPES = Object.freeze(
+  new Set(Object.values(AssetMimeType))
+);
+
+const ASSET_MIME_ALIASES = Object.freeze(
+  new Map([
+    ["image/jpg", AssetMimeType.JPEG],
+    ["image/pjpeg", AssetMimeType.JPEG],
+    ["image/x-png", AssetMimeType.PNG],
+    ["image/svg", AssetMimeType.SVG],
+  ])
+);
+
+export function isValidAssetMimeType(value) {
+  return VALID_ASSET_MIME_TYPES.has(value);
+}
+
+export function normalizeAssetMimeType(value, fallback = AssetMimeType.OCTET_STREAM) {
+  const raw = typeof value === "string" ? value.trim().toLowerCase() : "";
+  const base = raw.split(";")[0] || "";
+  const aliased = ASSET_MIME_ALIASES.get(base) || base;
+  return VALID_ASSET_MIME_TYPES.has(aliased) ? aliased : fallback;
+}
+
+/**
  * 导出格式枚举
  * @readonly
  * @enum {string}

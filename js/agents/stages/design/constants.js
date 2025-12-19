@@ -64,6 +64,25 @@ export const SlotPurpose = Object.freeze({
 });
 
 /**
+ * Visual slot data-status values used in DSL/HTML.
+ * @readonly
+ * @enum {string}
+ */
+export const VisualDataStatus = Object.freeze({
+  PENDING: "pending",
+  FILLED: "filled",
+});
+
+/**
+ * Slot selection status values.
+ * @readonly
+ * @enum {string}
+ */
+export const SlotSelectionStatus = Object.freeze({
+  AUTO_SELECTED: "auto_selected",
+});
+
+/**
  * Brainstorm 状态枚举
  * @readonly
  * @enum {string}

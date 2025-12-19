@@ -1,5 +1,5 @@
 import { buildPrompt } from "./image-prompt-builder.js";
-import { ImageTaskStatus, EventStatus } from "./constants.js";
+import { EventStatus, ImageTaskStatus, SlotSelectionStatus, VisualDataStatus } from "./constants.js";
 import { DesignEvents } from "./events.js";
 
 function nowMs() {
@@ -326,7 +326,7 @@ export class ImageGenerator {
 
           if (!toNonEmptyString(slot.selectedId)) {
             slot.selectedId = candidateId;
-            slot.selectionStatus = "auto_selected";
+            slot.selectionStatus = SlotSelectionStatus.AUTO_SELECTED;
           }
 
           safeEmit(emit, DesignEvents.IMAGE_GENERATE_SUCCEEDED, EventStatus.SUCCEEDED, {
@@ -500,7 +500,7 @@ export function fillImagePlaceholders(deckHtmlDsl, filledSlots = []) {
 
     const imgAttrs = { ...attrs };
     imgAttrs["data-el"] = "image";
-    imgAttrs["data-status"] = "filled";
+    imgAttrs["data-status"] = VisualDataStatus.FILLED;
     delete imgAttrs["data-fallback"];
     delete imgAttrs["data-aspect-ratio"];
 
@@ -525,7 +525,7 @@ export function fillImagePlaceholders(deckHtmlDsl, filledSlots = []) {
 
     const imgAttrs = { ...attrs };
     imgAttrs["data-el"] = "image";
-    imgAttrs["data-status"] = "filled";
+    imgAttrs["data-status"] = VisualDataStatus.FILLED;
     delete imgAttrs["data-fallback"];
     delete imgAttrs["data-aspect-ratio"];
 

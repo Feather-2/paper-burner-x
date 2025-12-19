@@ -23,6 +23,14 @@ import {
   resolveReportLengthConfig,
   resolveReviewerConfig,
 } from "./write-utils.js";
+import {
+  ReportAudience,
+  ReportLanguage,
+  ReportTone,
+  normalizeReportAudience,
+  normalizeReportLanguage,
+  normalizeReportTone,
+} from "../../runtime/constants.js";
 
 // 写作模式枚举
 export const WriterMode = Object.freeze({
@@ -45,6 +53,17 @@ function normalizeGapIds(v) {
 
 function normalizeEvidenceIds(v) {
   return normalizeStringArray(v);
+}
+
+function resolveReportVoice(state) {
+  const toneRaw = toNonEmptyString(state?.userConfig?.write?.tone) || toNonEmptyString(state?.userConfig?.tone);
+  const audienceRaw = toNonEmptyString(state?.userConfig?.write?.audience) || toNonEmptyString(state?.userConfig?.audience);
+  const languageRaw = toNonEmptyString(state?.userConfig?.write?.language) || toNonEmptyString(state?.userConfig?.language);
+  return {
+    tone: normalizeReportTone(toneRaw) ?? ReportTone.BUSINESS,
+    audience: normalizeReportAudience(audienceRaw) ?? ReportAudience.GENERAL,
+    language: normalizeReportLanguage(languageRaw) ?? ReportLanguage.AUTO,
+  };
 }
 
 function computeFeedbackToResearch(state, { minResolvedEvidencePerClaim = 1 } = {}) {
@@ -348,9 +367,7 @@ export async function runDeepSearchWriteStage(runContext, input, stageApi = {}) 
           minWords: reportConfig.minWords,
           maxWords: reportConfig.maxWords,
           hardLimit: 30,
-          tone: toNonEmptyString(state?.userConfig?.write?.tone),
-          audience: toNonEmptyString(state?.userConfig?.write?.audience),
-          language: toNonEmptyString(state?.userConfig?.write?.language),
+          ...resolveReportVoice(state),
           onStep: (step) => {
             lastStepNumber = step.stepNumber || lastStepNumber;
 
@@ -558,9 +575,10 @@ export async function runDeepSearchWriteStage(runContext, input, stageApi = {}) 
         for (let round = 1; round <= reviewerConfig.maxReviewRounds; round++) {
           rounds = round;
           const reportSkeleton = buildReportSkeleton(current, { targetWords: reportConfig.targetWords });
+          const { tone, audience } = resolveReportVoice(state);
           const constraints = {
-            tone: toNonEmptyString(state?.userConfig?.write?.tone) || toNonEmptyString(state?.userConfig?.tone) || "neutral",
-            audience: toNonEmptyString(state?.userConfig?.write?.audience) || toNonEmptyString(state?.userConfig?.audience) || "general",
+            tone,
+            audience,
             reportLength: String(reportConfig.reportLength || ""),
           };
 
@@ -617,9 +635,10 @@ export async function runDeepSearchWriteStage(runContext, input, stageApi = {}) 
       for (let round = 1; round <= reviewerConfig.maxReviewRounds; round++) {
         rounds = round;
         const reportSkeleton = buildReportSkeleton(current, { targetWords: reportConfig.targetWords });
+        const { tone, audience } = resolveReportVoice(state);
         const constraints = {
-          tone: toNonEmptyString(state?.userConfig?.write?.tone) || toNonEmptyString(state?.userConfig?.tone) || "neutral",
-          audience: toNonEmptyString(state?.userConfig?.write?.audience) || toNonEmptyString(state?.userConfig?.audience) || "general",
+          tone,
+          audience,
           reportLength: String(reportConfig.reportLength || ""),
         };
 

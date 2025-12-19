@@ -273,8 +273,8 @@ test("DeepSearch validateIteration helper: hit/no-evidence keeps open, blockAfte
     assert.equal(out.openCount, 1);
     assert.equal(state.L1.gaps[0].status, "open");
     assert.equal(state.L1.gaps[0].missCount, 0);
-    assert.equal(state.todos.find((t) => t.relatedGapId === "g2").status, "done");
-    assert.equal(state.todos.find((t) => t.relatedGapId === "g3").status, "blocked");
+    assert.equal(state.todos.find((t) => t.relatedGapId === "g2").status, "completed");
+    assert.equal(state.todos.find((t) => t.relatedGapId === "g3").status, "cancelled");
   }
 
   {
@@ -299,7 +299,7 @@ test("DeepSearch validateIteration helper: hit/no-evidence keeps open, blockAfte
     const out = __test.validateIteration(state, { blockAfterMisses: 2, roundHits: {} });
     assert.equal(out.openCount, 0);
     assert.equal(state.L1.gaps[0].status, "blocked");
-    assert.equal(state.todos[0].status, "blocked");
+    assert.equal(state.todos[0].status, "cancelled");
   }
 
   {

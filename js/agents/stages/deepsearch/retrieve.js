@@ -5,12 +5,13 @@ import { retrieve as retrieveWithRouter } from "../../retrieval/retrieval-router
 import { createMcpClient, parseExternalSearchConfig, runExternalSearch } from "./external-search.js";
 import { createLogger, trackToolCall } from "./logger.js";
 import { extractServices } from "./stage-api.js";
-import { search as toolChainSearch } from "../../retrieval/tool-chain.js";
+import { search as toolChainSearch, ToolChainStrategy, normalizeToolChainStrategy } from "../../retrieval/tool-chain.js";
 import { ShadowAgent, shouldValidateWithShadow } from "./shadow-agent.js";
 import { isPlainObject, toNonEmptyString, safeInt } from "../../shared/value-utils.js";
 import { LRUMap } from "../../shared/lru-map.js";
 import { mapConcurrent } from "../../shared/concurrency.js";
-import { CHUNK_CONFIG } from "./constants.js";
+import { CHUNK_CONFIG, RetrievalStrategy, normalizeRetrievalStrategy, normalizeDeepSearchSourceKind } from "./constants.js";
+import { DecisionOutcome, DecisionStage } from "./states.js";
 import { loadPrompt } from "../../prompts/prompt-loader.js";
 
 // 缓存的提示词
@@ -169,23 +170,23 @@ function emitRetrieveProgress(emit, { current, total, msg, detail }) {
 function collectSourceTypes(sources) {
   const sourceTypes = new Set();
   for (const src of Array.isArray(sources) ? sources : []) {
-    const kind = String(src?.kind || src?.type || "unknown").toLowerCase();
+    const kind = normalizeDeepSearchSourceKind(src?.kind || src?.type || "unknown");
     sourceTypes.add(kind);
   }
   return sourceTypes;
 }
 
 function buildStrategyRouterConfig(baseConfig, strategy) {
-  const s = String(strategy || "").toLowerCase();
+  const s = normalizeRetrievalStrategy(strategy);
   const out = { ...(baseConfig && typeof baseConfig === "object" ? baseConfig : {}) };
 
-  if (s === "grep") {
+  if (s === RetrievalStrategy.GREP) {
     out.useGrep = true;
     out.useBm25 = false;
-  } else if (s === "bm25") {
+  } else if (s === RetrievalStrategy.BM25) {
     out.useGrep = false;
     out.useBm25 = true;
-  } else if (s === "tool-chain") {
+  } else if (s === RetrievalStrategy.TOOL_CHAIN) {
     // Keep local router permissive; tool-chain is handled separately as an enhancement/override.
     out.useGrep = true;
     out.useBm25 = true;
@@ -677,7 +678,7 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
 
   const sources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
   const planningTree = state?.planningTree;
-  const selectedStrategy = planningTree?.getBestStrategy(sources) || "bm25";
+  const selectedStrategy = normalizeRetrievalStrategy(planningTree?.getBestStrategy(sources)) || RetrievalStrategy.BM25;
   const sourceTypes = collectSourceTypes(sources);
 
   logger.debug?.("Selected retrieval strategy", { stage: "retrieve", data: { strategy: selectedStrategy, sourceTypes: [...sourceTypes] } });
@@ -810,7 +811,7 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
       const retrievalStartTime = Date.now();
 
       const routerConfigForGap = buildStrategyRouterConfig(routerConfig, selectedStrategy);
-      const shouldForceToolChain = enableToolChain && selectedStrategy === "tool-chain";
+      const shouldForceToolChain = enableToolChain && selectedStrategy === RetrievalStrategy.TOOL_CHAIN;
 
       const queryHints = Array.isArray(g?.queryHints) ? g.queryHints : [];
       const question = toNonEmptyString(g?.question) || "";
@@ -821,11 +822,12 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
         if (keywords.length === 0 || allChunksForToolChain.length === 0) return null;
 
         try {
+          const normalizedToolChainStrategy = normalizeToolChainStrategy(toolChainConfig.strategy) || ToolChainStrategy.AUTO;
           const toolChainResult = await trackToolCall(logger, "toolChainSearch", { gapId, reason: reasonTag, keywords: keywords.slice(0, 10) }, async () =>
             toolChainSearch(
               allChunksForToolChain,
               {
-                strategy: toolChainConfig.strategy || "auto",
+                strategy: normalizedToolChainStrategy,
                 patterns: Array.isArray(toolChainConfig.patterns) ? toolChainConfig.patterns : [],
                 keywords: keywords.slice(0, 10),
               },
@@ -1138,13 +1140,13 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
 
       const hits = hitsByGapId.get(gapId) || 0;
       const latency = latencyByGapId.get(gapId);
-      planningTree.recordDecision(nodeId, {
-        stage: "retrieve",
-        action: `${selectedStrategy} search`,
-        reason: `Gap: ${String(gap?.question || gap?.text || "").slice(0, 50)}`,
-        outcome: hits > 0 ? "success" : "fail",
-        metrics: { hits, strategy: selectedStrategy, ...(typeof latency === "number" ? { latency } : {}) },
-      });
+        planningTree.recordDecision(nodeId, {
+          stage: DecisionStage.RETRIEVE,
+          action: `${selectedStrategy} search`,
+          reason: `Gap: ${String(gap?.question || gap?.text || "").slice(0, 50)}`,
+          outcome: hits > 0 ? DecisionOutcome.SUCCESS : DecisionOutcome.FAIL,
+          metrics: { hits, strategy: selectedStrategy, ...(typeof latency === "number" ? { latency } : {}) },
+        });
     }
   }
 

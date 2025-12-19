@@ -11,7 +11,7 @@ import { buildContentPackage } from "../textprep/build-content-package.js";
 import { createLogger } from "./logger.js";
 import { extractServices } from "./stage-api.js";
 import { isPlainObject, toNonEmptyString, safeInt } from "../../shared/value-utils.js";
-import { SMALL_DOC_THRESHOLD } from "./constants.js";
+import { DeepSearchSourceKind, normalizeDeepSearchSourceKind, SMALL_DOC_THRESHOLD } from "./constants.js";
 import { loadPrompt } from "../../prompts/prompt-loader.js";
 
 // 缓存的提示词
@@ -91,6 +91,8 @@ const DIRECT_ANALYSIS_PROMPT = `你是一个文档分析专家。请仔细阅读
 - 每个 claim 必须有至少一个 evidenceId
 - report.sections 中使用 [数字] 格式引用 evidenceLedger 中的证据`;
 
+const DIRECT_MERGED_SOURCE_ID = "direct_merged";
+
 /**
  * 检查是否应该使用直通模式
  * 默认禁用，需要显式启用：userConfig.directAnalysis.enabled = true
@@ -99,7 +101,7 @@ export function shouldUseDirectMode(state, { threshold } = {}) {
   const sources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
   const totalChars = sources.reduce((sum, s) => {
     const sourceId = toNonEmptyString(s?.sourceId);
-    if (sourceId === "direct_merged" || s?.kind === "direct_merged") return sum;
+    if (sourceId === DIRECT_MERGED_SOURCE_ID || normalizeDeepSearchSourceKind(s?.kind) === DeepSearchSourceKind.DIRECT_MERGED) return sum;
     return sum + (s?.sourceTextNormalized?.length || 0);
   }, 0);
   const th = safeInt(threshold) ?? safeInt(state?.userConfig?.directAnalysis?.threshold) ?? SMALL_DOC_THRESHOLD;
@@ -123,7 +125,7 @@ function mergeSourceTexts(sources) {
   const rows = Array.isArray(sources) ? sources : [];
   const eligible = rows.filter((s) => {
     const sourceId = toNonEmptyString(s?.sourceId);
-    if (sourceId === "direct_merged" || s?.kind === "direct_merged") return false;
+    if (sourceId === DIRECT_MERGED_SOURCE_ID || normalizeDeepSearchSourceKind(s?.kind) === DeepSearchSourceKind.DIRECT_MERGED) return false;
     const text = s?.sourceTextNormalized;
     return typeof text === "string" && text.trim();
   });
@@ -221,23 +223,22 @@ export async function runDirectAnalysis(runContext, input, stageApi = {}) {
   const sources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
   const sourcesWithText = sources.filter((s) => {
     const sourceId = toNonEmptyString(s?.sourceId);
-    if (sourceId === "direct_merged" || s?.kind === "direct_merged") return false;
+    if (sourceId === DIRECT_MERGED_SOURCE_ID || normalizeDeepSearchSourceKind(s?.kind) === DeepSearchSourceKind.DIRECT_MERGED) return false;
     return typeof s?.sourceTextNormalized === "string" && s.sourceTextNormalized.trim();
   });
   const fullText = mergeSourceTexts(sourcesWithText);
 
   const shouldMergeSources = sourcesWithText.length > 1;
-  const directMergedSourceId = "direct_merged";
   const evidenceSourceId = shouldMergeSources
-    ? directMergedSourceId
+    ? DIRECT_MERGED_SOURCE_ID
     : toNonEmptyString(sourcesWithText[0]?.sourceId) || toNonEmptyString(sources[0]?.sourceId) || "source_1";
 
   if (shouldMergeSources) {
-    const hasMergedAlready = sources.some((s) => toNonEmptyString(s?.sourceId) === directMergedSourceId);
+    const hasMergedAlready = sources.some((s) => toNonEmptyString(s?.sourceId) === DIRECT_MERGED_SOURCE_ID);
     if (!hasMergedAlready) {
       const mergedSource = {
-        sourceId: directMergedSourceId,
-        kind: "direct_merged",
+        sourceId: DIRECT_MERGED_SOURCE_ID,
+        kind: DeepSearchSourceKind.DIRECT_MERGED,
         title: "Direct merged sources",
         sourceTextNormalized: fullText,
       };

@@ -4,6 +4,8 @@
 // - One slide = one <section data-type="freeform" ...>...</section>
 // - Elements use `data-el` (text/shape/line/svg/image/card/icon...)
 
+import { VisualDataStatus } from "./constants.js";
+
 function escapeHtml(s) {
   return String(s ?? "")
     .replace(/&/g, "&amp;")
@@ -176,7 +178,7 @@ function makeImagePlaceholderEl(slot, box = {}) {
     `data-el="image-placeholder"`,
     `id="${escapeHtml(slotId)}"`,
     `data-slot-id="${escapeHtml(slotId)}"`,
-    `data-status="pending"`,
+    `data-status="${VisualDataStatus.PENDING}"`,
     `data-aspect-ratio="${escapeHtml(aspectRatio)}"`,
     `data-fallback="gradient"`,
   ];

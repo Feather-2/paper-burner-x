@@ -1,4 +1,5 @@
 import { McpProvider, McpToolDefinition, McpToolResult } from "./mcp-client.js";
+import { TransportKind } from "./constants.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -172,7 +173,7 @@ export class McpNexusProvider extends McpProvider {
           })
         );
         if (!isSuccessfulJsonRpc(resp)) continue;
-        this._transport = { kind: "jsonrpc", rpcUrl };
+        this._transport = { kind: TransportKind.JSONRPC, rpcUrl };
         return this._transport;
       } catch {
         // continue
@@ -191,7 +192,7 @@ export class McpNexusProvider extends McpProvider {
         );
         const tools = normalizeToolListFromToolApi(resp);
         if (tools.length === 0) continue;
-        this._transport = { kind: "toolapi", listUrl, executeUrl: candidatesToolApiExecute[0] };
+        this._transport = { kind: TransportKind.TOOLAPI, listUrl, executeUrl: candidatesToolApiExecute[0] };
         this._toolsCache = tools;
         return this._transport;
       } catch {
@@ -215,7 +216,7 @@ export class McpNexusProvider extends McpProvider {
 
         // Pair with a call URL best-effort.
         const callUrl = candidatesRestCall[0];
-        this._transport = { kind: "rest", listUrl, callUrl };
+        this._transport = { kind: TransportKind.REST, listUrl, callUrl };
         this._toolsCache = tools;
         return this._transport;
       } catch {
@@ -230,7 +231,7 @@ export class McpNexusProvider extends McpProvider {
     if (Array.isArray(this._toolsCache) && this._toolsCache.length) return this._toolsCache;
     const transport = await this._discoverTransport();
 
-    if (transport.kind === "jsonrpc") {
+    if (transport.kind === TransportKind.JSONRPC) {
       const resp = await withTimeout(this.timeoutMs, ({ signal }) =>
         fetchJson(this._fetch, transport.rpcUrl, {
           method: "POST",
@@ -245,7 +246,7 @@ export class McpNexusProvider extends McpProvider {
       return tools;
     }
 
-    if (transport.kind === "toolapi") {
+    if (transport.kind === TransportKind.TOOLAPI) {
       const resp = await withTimeout(this.timeoutMs, ({ signal }) =>
         fetchJson(this._fetch, transport.listUrl, {
           method: "GET",
@@ -276,7 +277,7 @@ export class McpNexusProvider extends McpProvider {
     const name = toNonEmptyString(toolName) || "unknown";
     const argumentsObj = isPlainObject(args) ? args : {};
 
-    if (transport.kind === "jsonrpc") {
+    if (transport.kind === TransportKind.JSONRPC) {
       try {
         const resp = await withTimeout(this.timeoutMs, ({ signal }) =>
           fetchJson(this._fetch, transport.rpcUrl, {
@@ -297,7 +298,7 @@ export class McpNexusProvider extends McpProvider {
       }
     }
 
-    if (transport.kind === "toolapi") {
+    if (transport.kind === TransportKind.TOOLAPI) {
       try {
         const resp = await withTimeout(this.timeoutMs, ({ signal }) =>
           fetchJson(this._fetch, transport.executeUrl, {

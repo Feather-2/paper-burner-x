@@ -1,5 +1,6 @@
 import { getDesignModelCaller, isNonRetryableError } from "./model.js";
 import { robustParseJson } from "../../shared/robust-json.js";
+import { VisualDataStatus } from "./constants.js";
 
 /**
  * Simple concurrency limiter (pLimit-style).
@@ -283,7 +284,7 @@ function applyVisualSlotHintsToSlideHtml(slideHtml, imageSlotsForSlide = [], slo
         "data-el": "image-placeholder",
         id: slotId,
         "data-slot-id": slotId,
-        "data-status": "pending",
+        "data-status": VisualDataStatus.PENDING,
         ...(toNonEmptyString(baseSlot?.aspectRatio) ? { "data-aspect-ratio": toNonEmptyString(baseSlot.aspectRatio) } : {}),
         "data-fallback": "gradient",
         ...(hint?.renderType ? { "data-render-type": hint.renderType } : {}),

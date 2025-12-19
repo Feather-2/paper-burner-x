@@ -24,6 +24,26 @@ function toNonEmptyString(v) {
   return s.length ? s : undefined;
 }
 
+/**
+ * ToolChain 策略枚举
+ * @readonly
+ * @enum {string}
+ */
+export const ToolChainStrategy = Object.freeze({
+  AUTO: "auto",
+  GLOB_THEN_GREP: "glob-then-grep",
+  GREP_ONLY: "grep-only",
+});
+
+/**
+ * 规范化 ToolChain 策略
+ */
+export function normalizeToolChainStrategy(value) {
+  const s = toNonEmptyString(value)?.toLowerCase();
+  if (!s) return undefined;
+  return Object.values(ToolChainStrategy).includes(s) ? s : undefined;
+}
+
 // 全局 glob 缓存（避免重复扫描）
 const globCache = new Map();
 const GLOB_CACHE_TTL = 60000; // 60s
@@ -261,7 +281,7 @@ export async function search(chunks, query = {}, tools = {}) {
     throw new TypeError("search(chunks, query, tools): query must be an object");
   }
 
-  const strategy = toNonEmptyString(query.strategy) || "auto";
+  const strategy = normalizeToolChainStrategy(query.strategy) || ToolChainStrategy.AUTO;
   const patterns = Array.isArray(query.patterns) ? query.patterns : [];
   const keywords = Array.isArray(query.keywords) ? query.keywords : [];
 
@@ -272,13 +292,13 @@ export async function search(chunks, query = {}, tools = {}) {
   let result;
 
   // 策略选择
-  if (strategy === "grep-only") {
+  if (strategy === ToolChainStrategy.GREP_ONLY) {
     result = strategyGrepOnly(chunks, { keywords }, tools);
     return { ...result, strategy: "grep-only" };
   }
 
   // glob-then-grep 需要有 patterns 才有意义，否则降级到 grep-only
-  if ((strategy === "glob-then-grep" || strategy === "auto") && patterns.length > 0) {
+  if ((strategy === ToolChainStrategy.GLOB_THEN_GREP || strategy === ToolChainStrategy.AUTO) && patterns.length > 0) {
     result = await strategyGlobThenGrep(chunks, { patterns, keywords }, tools);
 
     // 如果 glob-then-grep 失败，降级到 grep-only
@@ -286,18 +306,18 @@ export async function search(chunks, query = {}, tools = {}) {
       const fallbackResult = strategyGrepOnly(chunks, { keywords }, tools);
       return {
         ...fallbackResult,
-        strategy: "grep-only",
-        originalStrategy: "glob-then-grep",
+        strategy: ToolChainStrategy.GREP_ONLY,
+        originalStrategy: ToolChainStrategy.GLOB_THEN_GREP,
         fallbackReason: result.fallbackReason,
       };
     }
 
-    return { ...result, strategy: "glob-then-grep" };
+    return { ...result, strategy: ToolChainStrategy.GLOB_THEN_GREP };
   }
 
   // 默认：grep-only
   result = strategyGrepOnly(chunks, { keywords }, tools);
-  return { ...result, strategy: "grep-only" };
+  return { ...result, strategy: ToolChainStrategy.GREP_ONLY };
 }
 
 /**

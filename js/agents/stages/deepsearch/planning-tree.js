@@ -1,4 +1,5 @@
-import { GapStatus, DecisionStage, DecisionOutcome, PlanNodeStatus } from "./states.js";
+import { GapStatus, DecisionStage, DecisionOutcome, PlanNodeStatus, PlanNodeType, isValidDecisionOutcome, isValidDecisionStage } from "./states.js";
+import { RetrievalStrategy, isCodeSourceKind, isDocSourceKind, normalizeDeepSearchSourceKind, normalizeRetrievalStrategy } from "./constants.js";
 
 export class PlanningTree {
   constructor({ rootGoal = '', runId = '' } = {}) {
@@ -8,19 +9,19 @@ export class PlanningTree {
 
     // Strategy statistics: { strategy: { attempts, hits, totalLatency } }
     this.strategyStats = new Map([
-      ['grep', { attempts: 0, hits: 0, totalLatency: 0 }],
-      ['bm25', { attempts: 0, hits: 0, totalLatency: 0 }],
-      ['tool-chain', { attempts: 0, hits: 0, totalLatency: 0 }],
-      ['external', { attempts: 0, hits: 0, totalLatency: 0 }]
+      [RetrievalStrategy.GREP, { attempts: 0, hits: 0, totalLatency: 0 }],
+      [RetrievalStrategy.BM25, { attempts: 0, hits: 0, totalLatency: 0 }],
+      [RetrievalStrategy.TOOL_CHAIN, { attempts: 0, hits: 0, totalLatency: 0 }],
+      [RetrievalStrategy.EXTERNAL, { attempts: 0, hits: 0, totalLatency: 0 }]
     ]);
 
     // Create root node
     this.nodes.set(this.rootId, {
       nodeId: this.rootId,
       parentId: null,
-      type: 'goal',
+      type: PlanNodeType.GOAL,
       content: rootGoal,
-      status: 'active',
+      status: PlanNodeStatus.ACTIVE,
       children: [],
       decisions: [],
       metadata: { createdAt: new Date().toISOString(), iteration: 0 }
@@ -34,7 +35,7 @@ export class PlanningTree {
       parentId,
       type,
       content,
-      status: 'pending',
+      status: PlanNodeStatus.PENDING,
       children: [],
       decisions: [],
       metadata: { createdAt: new Date().toISOString(), ...metadata }
@@ -51,7 +52,7 @@ export class PlanningTree {
   }
 
   getActiveNodes() {
-    return [...this.nodes.values()].filter(n => n.status === 'active');
+    return [...this.nodes.values()].filter(n => n.status === PlanNodeStatus.ACTIVE);
   }
 
   getNodePath(nodeId) {
@@ -66,9 +67,9 @@ export class PlanningTree {
 
   expandFromGap(gap) {
     const parentId = this.rootId;
-    const subgoalId = this.addNode(parentId, 'subgoal', gap.question, { sourceGapId: gap.gapId });
+    const subgoalId = this.addNode(parentId, PlanNodeType.SUBGOAL, gap.question, { sourceGapId: gap.gapId });
     const queryIds = (gap.queryHints || []).map(hint => 
-      this.addNode(subgoalId, 'query', hint, { sourceGapId: gap.gapId })
+      this.addNode(subgoalId, PlanNodeType.QUERY, hint, { sourceGapId: gap.gapId })
     );
     return [subgoalId, ...queryIds];
   }
@@ -96,13 +97,14 @@ export class PlanningTree {
       node.decisions = [];
     }
 
+    const stage = isValidDecisionStage(decision?.stage) ? decision.stage : DecisionStage.UNKNOWN;
+    const outcome = isValidDecisionOutcome(decision?.outcome) ? decision.outcome : DecisionOutcome.UNKNOWN;
+
     const record = {
-      stage: String(decision?.stage || 'unknown'),
+      stage,
       action: String(decision?.action || ''),
       reason: String(decision?.reason || ''),
-      outcome: ['success', 'fail', 'partial'].includes(decision?.outcome)
-        ? decision.outcome
-        : 'unknown',
+      outcome,
       metrics: decision?.metrics && typeof decision.metrics === 'object'
         ? { ...decision.metrics }
         : {},
@@ -310,7 +312,9 @@ export class PlanningTree {
    * @param {number} result.latency - 执行耗时（毫秒）
    */
   recordStrategyResult(strategy, { hits = 0, latency = 0 } = {}) {
-    const strategyKey = String(strategy || '').toLowerCase();
+    const normalized = normalizeRetrievalStrategy(strategy);
+    const strategyKey = normalized || String(strategy || '').toLowerCase();
+    if (!strategyKey) return;
 
     // 初始化策略统计（如果不存在）
     if (!this.strategyStats.has(strategyKey)) {
@@ -329,14 +333,15 @@ export class PlanningTree {
    * @returns {number} 命中率 (0-1)，如果没有足够样本返回默认值
    */
   getStrategyHitRate(strategy) {
-    const strategyKey = String(strategy || '').toLowerCase();
+    const normalized = normalizeRetrievalStrategy(strategy);
+    const strategyKey = normalized || String(strategy || '').toLowerCase();
 
     // 默认命中率假设
     const defaults = {
-      'grep': 0.6,
-      'bm25': 0.5,
-      'tool-chain': 0.7,
-      'external': 0.4
+      [RetrievalStrategy.GREP]: 0.6,
+      [RetrievalStrategy.BM25]: 0.5,
+      [RetrievalStrategy.TOOL_CHAIN]: 0.7,
+      [RetrievalStrategy.EXTERNAL]: 0.4
     };
 
     const stats = this.strategyStats.get(strategyKey);
@@ -359,30 +364,31 @@ export class PlanningTree {
   getBestStrategy(sources = []) {
     // 分析 source 类型
     const sourceTypes = new Set();
+    let hasCode = false;
+    let hasDocs = false;
     for (const src of Array.isArray(sources) ? sources : []) {
-      const kind = String(src?.kind || src?.type || 'unknown').toLowerCase();
+      const kind = normalizeDeepSearchSourceKind(src?.kind || src?.type || 'unknown');
       sourceTypes.add(kind);
+      if (isCodeSourceKind(kind)) hasCode = true;
+      if (isDocSourceKind(kind)) hasDocs = true;
     }
 
     // 策略选择逻辑
-    const hasCode = sourceTypes.has('code') || sourceTypes.has('file');
-    const hasDocs = sourceTypes.has('url') || sourceTypes.has('pdf') || sourceTypes.has('doc');
-
     // 1. 纯代码类 source → 优先 grep
     if (hasCode && !hasDocs) {
-      const grepHitRate = this.getStrategyHitRate('grep');
-      const toolChainHitRate = this.getStrategyHitRate('tool-chain');
-      return grepHitRate >= toolChainHitRate ? 'grep' : 'tool-chain';
+      const grepHitRate = this.getStrategyHitRate(RetrievalStrategy.GREP);
+      const toolChainHitRate = this.getStrategyHitRate(RetrievalStrategy.TOOL_CHAIN);
+      return grepHitRate >= toolChainHitRate ? RetrievalStrategy.GREP : RetrievalStrategy.TOOL_CHAIN;
     }
 
     // 2. 纯文档类 source → 优先 BM25
     if (hasDocs && !hasCode) {
-      return 'bm25';
+      return RetrievalStrategy.BM25;
     }
 
     // 3. 混合类型或未知 → 根据历史命中率选择
-    const strategies = ['grep', 'bm25', 'tool-chain'];
-    let bestStrategy = 'bm25';
+    const strategies = [RetrievalStrategy.GREP, RetrievalStrategy.BM25, RetrievalStrategy.TOOL_CHAIN];
+    let bestStrategy = RetrievalStrategy.BM25;
     let bestHitRate = 0;
 
     for (const strategy of strategies) {

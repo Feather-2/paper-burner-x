@@ -23,6 +23,15 @@ test("ToolChain: grep-only strategy", async () => {
   assert.ok(result.stats.hits >= 3);
 });
 
+test("ToolChain: normalizeToolChainStrategy", async () => {
+  const { ToolChainStrategy, normalizeToolChainStrategy } = await import("../../../js/agents/retrieval/tool-chain.js");
+
+  assert.equal(normalizeToolChainStrategy("GLOB-THEN-GREP"), ToolChainStrategy.GLOB_THEN_GREP);
+  assert.equal(normalizeToolChainStrategy("grep-only"), ToolChainStrategy.GREP_ONLY);
+  assert.equal(normalizeToolChainStrategy("auto"), ToolChainStrategy.AUTO);
+  assert.equal(normalizeToolChainStrategy("unknown"), undefined);
+});
+
 test("ToolChain: glob-then-grep with cache", async () => {
   const { search, clearGlobCache, getGlobCacheStats } = await import("../../../js/agents/retrieval/tool-chain.js");
   clearGlobCache();

@@ -1,4 +1,5 @@
 import { normalizeText } from "../stages/textprep/normalize.js";
+import { normalizeAssetMimeType } from "./constants.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -127,7 +128,7 @@ export function extractAssetsFromMarkdown(markdown, images) {
     }
     if (!resolved) continue;
 
-    const mimeType = guessMimeTypeFromNameOrData(urlBasename || resolved.id, resolved.data);
+    const mimeType = normalizeAssetMimeType(guessMimeTypeFromNameOrData(urlBasename || resolved.id, resolved.data));
     const signature = JSON.stringify({ type: "image", mimeType, data: resolved.data });
     const hash = normalizeText(signature).textHash;
 
@@ -146,4 +147,3 @@ export function extractAssetsFromMarkdown(markdown, images) {
 
   return assets;
 }
-

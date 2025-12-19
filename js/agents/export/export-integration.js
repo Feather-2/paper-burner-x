@@ -1,3 +1,5 @@
+import { ExportFormat } from "./constants.js";
+
 const SCHEMA_VERSION = "0.1";
 
 function isPlainObject(v) {
@@ -89,9 +91,9 @@ export async function runExport(deckPackage, options = {}) {
   }
 
   const formatsWanted = {
-    pptx: options?.formats?.pptx !== false,
-    pdf: !!options?.formats?.pdf,
-    images: options?.formats?.images !== false, // default on (G3 can use images when pdf isn't supported)
+    [ExportFormat.PPTX]: options?.formats?.pptx !== false,
+    [ExportFormat.PDF]: !!options?.formats?.pdf,
+    [ExportFormat.IMAGES]: options?.formats?.images !== false, // default on (G3 can use images when pdf isn't supported)
   };
 
   let slides = Array.isArray(options?.slides) ? options.slides : null;
@@ -119,64 +121,64 @@ export async function runExport(deckPackage, options = {}) {
 
   if (parseError) {
     // If parsing failed, exporting any format is expected to fail too.
-    out.formats.pptx = { success: false, error: `parse_failed: ${parseError}` };
-    out.formats.pdf = { success: false, error: `parse_failed: ${parseError}` };
-    out.formats.images = { success: false, error: `parse_failed: ${parseError}` };
+    out.formats[ExportFormat.PPTX] = { success: false, error: `parse_failed: ${parseError}` };
+    out.formats[ExportFormat.PDF] = { success: false, error: `parse_failed: ${parseError}` };
+    out.formats[ExportFormat.IMAGES] = { success: false, error: `parse_failed: ${parseError}` };
     return out;
   }
 
   // PPTX
-  if (formatsWanted.pptx) {
+  if (formatsWanted[ExportFormat.PPTX]) {
     const t0 = Date.now();
     try {
       const res = exporters.pptx
         ? await maybeAwait(exporters.pptx({ slides, deckPackage, options }))
         : await exportPptxWithRenderer(slides, { filename: options?.pptxFilename || "presentation.pptx", rendererOptions: options?.rendererOptions });
-      out.formats.pptx = {
+      out.formats[ExportFormat.PPTX] = {
         success: true,
         durationMs: Date.now() - t0,
         ...(typeof res?.bytes === "number" ? { bytes: res.bytes } : {}),
         ...(includeBlobs && res?.blob ? { blob: res.blob } : {}),
       };
     } catch (e) {
-      out.formats.pptx = { success: false, durationMs: Date.now() - t0, error: String(e?.message || e) };
+      out.formats[ExportFormat.PPTX] = { success: false, durationMs: Date.now() - t0, error: String(e?.message || e) };
     }
   } else {
-    out.formats.pptx = { success: false, skipped: true };
+    out.formats[ExportFormat.PPTX] = { success: false, skipped: true };
   }
 
   // PDF (optional; may be provided by an injected exporter)
-  if (formatsWanted.pdf) {
+  if (formatsWanted[ExportFormat.PDF]) {
     const t0 = Date.now();
     try {
       const res = exporters.pdf ? await maybeAwait(exporters.pdf({ slides, deckPackage, options })) : null;
       if (!res) throw new Error("No PDF exporter provided");
-      out.formats.pdf = { success: true, durationMs: Date.now() - t0, ...(typeof res?.bytes === "number" ? { bytes: res.bytes } : {}) };
+      out.formats[ExportFormat.PDF] = { success: true, durationMs: Date.now() - t0, ...(typeof res?.bytes === "number" ? { bytes: res.bytes } : {}) };
     } catch (e) {
-      out.formats.pdf = { success: false, durationMs: Date.now() - t0, error: String(e?.message || e) };
+      out.formats[ExportFormat.PDF] = { success: false, durationMs: Date.now() - t0, error: String(e?.message || e) };
     }
   } else {
-    out.formats.pdf = { success: false, skipped: true };
+    out.formats[ExportFormat.PDF] = { success: false, skipped: true };
   }
 
   // Images (best-effort, supports injected exporter or html2canvas)
-  if (formatsWanted.images) {
+  if (formatsWanted[ExportFormat.IMAGES]) {
     const t0 = Date.now();
     try {
       const res = exporters.images
         ? await maybeAwait(exporters.images({ slides, deckPackage, options }))
         : await exportImagesWithHtml2Canvas(slides, { scale: options?.imageScale ?? 1 });
-      out.formats.images = {
+      out.formats[ExportFormat.IMAGES] = {
         success: true,
         durationMs: Date.now() - t0,
         ...(typeof res?.count === "number" ? { count: res.count } : {}),
         ...(includeBlobs && Array.isArray(res?.images) ? { images: res.images } : {}),
       };
     } catch (e) {
-      out.formats.images = { success: false, durationMs: Date.now() - t0, error: String(e?.message || e) };
+      out.formats[ExportFormat.IMAGES] = { success: false, durationMs: Date.now() - t0, error: String(e?.message || e) };
     }
   } else {
-    out.formats.images = { success: false, skipped: true };
+    out.formats[ExportFormat.IMAGES] = { success: false, skipped: true };
   }
 
   return out;

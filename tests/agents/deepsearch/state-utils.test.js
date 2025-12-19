@@ -143,6 +143,29 @@ test("DeepSearchState.saveCheckpoint: stamps checkpoint schema version", async (
   assert.equal(cp.stateSnapshot.checkpointSchemaVersion, "1.0");
 });
 
+test("DeepSearchState.saveCheckpoint: minimal strategy produces lean snapshot", async () => {
+  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
+
+  const state = new DeepSearchState({
+    runId: "run_ckpt_min",
+    taskGoal: "t",
+    userConfig: { checkpointStrategy: "minimal" },
+  });
+  state.L2.retrievedChunks = [{ chunkId: "c1", text: "x" }];
+  state.L2.tokenUsage = { input: 1, output: 2, total: 3, estimatedCostUSD: 0 };
+
+  const cp = state.saveCheckpoint({ checkpointId: "cp_min" });
+  assert.equal(cp.strategy, "minimal");
+  assert.equal(cp.stateSnapshot.snapshotStrategy, "minimal");
+  assert.equal("retrievedChunkIds" in cp.stateSnapshot.L2, false);
+
+  state.L2.retrievedChunks = [{ chunkId: "c2", text: "y" }];
+  state.restoreCheckpoint("cp_min");
+  assert.equal(state.L2.restoredFromMinimalCheckpoint, true);
+  assert.deepEqual(state.L2.retrievedChunks, []);
+  assert.equal(state.L2.tokenUsage.total, 3);
+});
+
 test("DeepSearchState.addTimeline: enforces maxTimeline cap", async () => {
   const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
 

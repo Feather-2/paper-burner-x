@@ -2,6 +2,7 @@ import { getDesignModelCaller } from "./model.js";
 import { robustParseJson } from "../../shared/robust-json.js";
 import { getCircuitBreaker } from "../../core/error-handler.js";
 import { loadPrompt } from "../../prompts/prompt-loader.js";
+import { VisualDataStatus } from "./constants.js";
 
 /**
  * Simple concurrency limiter (pLimit-style).
@@ -605,7 +606,7 @@ export function fillSvgPlaceholders(html, filledSlots) {
 
     const next = { ...attrs };
     next["data-el"] = "svg";
-    next["data-status"] = "filled";
+    next["data-status"] = VisualDataStatus.FILLED;
     next["data-render-type"] = "svg";
     delete next["data-fallback"];
     delete next["data-aspect-ratio"];

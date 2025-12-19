@@ -63,6 +63,8 @@ export const RouterStrategy = Object.freeze({
   LATENCY_OPTIMIZED: "latency_optimized",
 });
 
+const VALID_ROUTER_STRATEGIES = Object.freeze(new Set(Object.values(RouterStrategy)));
+
 /**
  * 传输类型
  * @readonly
@@ -79,4 +81,19 @@ export const TransportKind = Object.freeze({
  */
 export function isValidModelHealth(value) {
   return Object.values(ModelHealth).includes(value);
+}
+
+/**
+ * 验证 RouterStrategy 值
+ */
+export function isValidRouterStrategy(value) {
+  return VALID_ROUTER_STRATEGIES.has(value);
+}
+
+/**
+ * 规范化 RouterStrategy
+ */
+export function normalizeRouterStrategy(value, fallback = RouterStrategy.ROUND_ROBIN) {
+  const v = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return VALID_ROUTER_STRATEGIES.has(v) ? v : fallback;
 }

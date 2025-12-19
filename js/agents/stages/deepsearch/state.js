@@ -2,8 +2,11 @@ import { PlanningTree } from "./planning-tree.js";
 import { isPlainObject, safeInt, safeNumber, toNonEmptyString } from "../../shared/value-utils.js";
 import { EVENT_SCHEMA_VERSION, EventStatus, ensureTokenUsage, extractJsonCandidate, normalizeBudgetConfig, normalizeTokenUsage, stripThinkingTags } from "./state-utils.js";
 import { computeRoundHitsByGapId, GapStatus, normalizeRoundHits, transitionGap } from "./gap-utils.js";
+import { CheckpointMode } from "./constants.js";
+import { DecisionOutcome, DecisionStage, TodoStatus } from "./states.js";
 import {
   buildLiteSnapshot,
+  buildMinimalSnapshot,
   CHECKPOINT_SCHEMA_VERSION,
   cloneValue,
   getCheckpointStrategyFromState,
@@ -149,7 +152,7 @@ export function validateIteration(state, options = {}) {
     if (!nodeId) return;
 
     treeForDecisions.recordDecision(nodeId, {
-      stage: "gaps",
+      stage: DecisionStage.GAPS,
       action: `transition to ${newStatus}`,
       reason: String(reason || "auto"),
       outcome,
@@ -171,7 +174,7 @@ export function validateIteration(state, options = {}) {
       if (didTransition) {
         recordGapTransitionDecision(gid, GapStatus.FILLED, {
           reason: `evidence>=${effectiveMinEvidenceToFill}`,
-          outcome: "success",
+          outcome: DecisionOutcome.SUCCESS,
           metrics: { evidenceCount, missCount: safeInt(g?.missCount) ?? 0 },
         });
       }
@@ -201,7 +204,7 @@ export function validateIteration(state, options = {}) {
       if (didTransition) {
         recordGapTransitionDecision(gid, GapStatus.BLOCKED, {
           reason: blockedReason,
-          outcome: "fail",
+          outcome: DecisionOutcome.FAIL,
           metrics: { evidenceCount, missCount: misses },
         });
       }
@@ -221,8 +224,8 @@ export function validateIteration(state, options = {}) {
 
   const updateTodoStatus = (todo, nextStatus) => {
     if (!todo) return;
-    const from = toNonEmptyString(todo?.status) || "open";
-    const to = toNonEmptyString(nextStatus) || "open";
+    const from = toNonEmptyString(todo?.status) || TodoStatus.OPEN;
+    const to = toNonEmptyString(nextStatus) || TodoStatus.OPEN;
     if (from === to) return;
     todo.status = to;
     emitFn?.("deepsearch.todo.status.changed", {
@@ -240,8 +243,8 @@ export function validateIteration(state, options = {}) {
     if (!gid) continue;
     const todo = todoByGapId.get(gid);
     if (!todo) continue;
-    if (g.status === GapStatus.FILLED) updateTodoStatus(todo, "done");
-    if (g.status === GapStatus.BLOCKED) updateTodoStatus(todo, "blocked");
+    if (g.status === GapStatus.FILLED) updateTodoStatus(todo, TodoStatus.COMPLETED);
+    if (g.status === GapStatus.BLOCKED) updateTodoStatus(todo, TodoStatus.CANCELLED);
   }
 
   const tree = state?.planningTree;
@@ -387,7 +390,7 @@ export class DeepSearchState {
     return normalizeBudgetConfig(this?.userConfig?.budget);
   }
 
-  addTodo({ todoId, text, status = "open", relatedGapId } = {}) {
+  addTodo({ todoId, text, status = TodoStatus.OPEN, relatedGapId } = {}) {
     const id = toNonEmptyString(todoId) || `todo_${this.todos.length + 1}`;
     const t = toNonEmptyString(text) || "";
     const st = toNonEmptyString(status) || "open";
@@ -539,7 +542,7 @@ export class DeepSearchState {
         trajectoryId: this.trajectoryId,
       });
 
-      this.addTodo({ text: `Fill gap: ${row.type} — ${row.question}`, relatedGapId: gapId, status: "open" });
+      this.addTodo({ text: `Fill gap: ${row.type} — ${row.question}`, relatedGapId: gapId, status: TodoStatus.OPEN });
       this?.planningTree?.expandFromGap?.(row);
     }
     return added;
@@ -551,9 +554,11 @@ export class DeepSearchState {
 
     const checkpointStrategy = getCheckpointStrategyFromState(this);
     const snapshot =
-      checkpointStrategy === "full"
+      checkpointStrategy === CheckpointMode.FULL
         ? DeepSearchState.fromJSON(this.toJSON({ includeCheckpoints: false }))
-        : buildLiteSnapshot(this);
+        : checkpointStrategy === CheckpointMode.MINIMAL
+          ? buildMinimalSnapshot(this)
+          : buildLiteSnapshot(this);
 
     const gaps = Array.isArray(this?.L1?.gaps) ? this.L1.gaps : [];
     const openGapCount = gaps.filter((g) => (g?.status ? String(g.status) : "open") === "open").length;
@@ -604,17 +609,21 @@ export class DeepSearchState {
     if (!("stateSnapshot" in cp)) throw new Error(`Invalid checkpoint: missing stateSnapshot (${String(id)})`);
 
     const explicitStrategy = toNonEmptyString(cp?.strategy);
+    const snapshotStrategy = toNonEmptyString(cp?.stateSnapshot?.snapshotStrategy);
     const checkpointStrategy = explicitStrategy
       ? normalizeCheckpointStrategy(explicitStrategy)
       : cp?.stateSnapshot instanceof DeepSearchState
-        ? "full"
-        : toNonEmptyString(cp?.stateSnapshot?.snapshotStrategy) === "lite"
-          ? "lite"
-          : isPlainObject(cp?.stateSnapshot?.L2) && Array.isArray(cp.stateSnapshot.L2.retrievedChunkIds) && !Array.isArray(cp.stateSnapshot.L2.retrievedChunks)
-            ? "lite"
-            : "full";
+        ? CheckpointMode.FULL
+        : snapshotStrategy === CheckpointMode.MINIMAL
+          ? CheckpointMode.MINIMAL
+          : snapshotStrategy === CheckpointMode.LITE
+            ? CheckpointMode.LITE
+            : isPlainObject(cp?.stateSnapshot?.L2) && Array.isArray(cp.stateSnapshot.L2.retrievedChunkIds) && !Array.isArray(cp.stateSnapshot.L2.retrievedChunks)
+              ? CheckpointMode.LITE
+              : CheckpointMode.FULL;
     const preservedL0 = this.L0;
     const preservedL1 = this.L1;
+    const preservedL2 = this.L2;
     const snapshot = cp.stateSnapshot instanceof DeepSearchState ? cp.stateSnapshot : DeepSearchState.fromJSON(cp.stateSnapshot);
     const preservedCheckpoints = this.checkpoints;
 
@@ -626,8 +635,9 @@ export class DeepSearchState {
     this.userConfig = restored.userConfig;
     this.iteration = safeInt(restored.iteration) ?? 0;
     this.maxIterations = safeInt(restored.maxIterations) ?? DEFAULT_MAX_ITERATIONS;
-    this.L0 = checkpointStrategy === "lite" ? preservedL0 : restored.L0;
-    this.L1 = checkpointStrategy === "lite" ? preservedL1 : restored.L1;
+    const preserveCore = checkpointStrategy === CheckpointMode.LITE || checkpointStrategy === CheckpointMode.MINIMAL;
+    this.L0 = preserveCore ? preservedL0 : restored.L0;
+    this.L1 = preserveCore ? preservedL1 : restored.L1;
     this.L2 = restored.L2;
     this.planningTree =
       restored.planningTree instanceof PlanningTree
@@ -639,7 +649,7 @@ export class DeepSearchState {
     this.timeline = restored.timeline;
     this.checkpoints = preservedCheckpoints;
 
-    if (checkpointStrategy === "lite") {
+    if (checkpointStrategy === CheckpointMode.LITE) {
       const restoredIds = Array.isArray(restored?.L2?.retrievedChunkIds) ? restored.L2.retrievedChunkIds.map(String).filter(Boolean) : [];
       const tokenUsage = ensureTokenUsage(restored?.L2?.tokenUsage);
       this.L2 = {
@@ -651,6 +661,19 @@ export class DeepSearchState {
         logs: [],
         incomplete: true,
         restoredFromLiteCheckpoint: true,
+      };
+    }
+    if (checkpointStrategy === CheckpointMode.MINIMAL) {
+      const tokenUsage = ensureTokenUsage(restored?.L2?.tokenUsage);
+      this.L2 = {
+        ...preservedL2,
+        retrievedChunkIds: [],
+        retrievedChunks: [],
+        scratchpad: {},
+        logs: [],
+        tokenUsage,
+        incomplete: true,
+        restoredFromMinimalCheckpoint: true,
       };
     }
 

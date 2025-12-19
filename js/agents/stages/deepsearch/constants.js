@@ -54,8 +54,73 @@ export const RetrievalStrategy = Object.freeze({
   EXTERNAL: "external",
 });
 
+export function isValidRetrievalStrategy(value) {
+  return Object.values(RetrievalStrategy).includes(value);
+}
+
+export function normalizeRetrievalStrategy(value) {
+  const v = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return isValidRetrievalStrategy(v) ? v : undefined;
+}
+
+// DeepSearch 来源类型枚举（含 ingest + 合并/外部来源）
+export const DeepSearchSourceKind = Object.freeze({
+  CODE: "code",
+  FILE: "file",
+  URL: "url",
+  PDF: "pdf",
+  DOC: "doc",
+  DOCX: "docx",
+  EPUB: "epub",
+  PPTX: "pptx",
+  VIDEO: "video",
+  AUDIO: "audio",
+  HTML: "html",
+  MARKDOWN: "markdown",
+  USER_TEXT: "user_text",
+  DIRECT_MERGED: "direct_merged",
+  EXTERNAL_URL: "external_url",
+  UNKNOWN: "unknown",
+});
+
+const DOC_SOURCE_KINDS = Object.freeze(
+  new Set([
+    DeepSearchSourceKind.URL,
+    DeepSearchSourceKind.PDF,
+    DeepSearchSourceKind.DOC,
+    DeepSearchSourceKind.DOCX,
+    DeepSearchSourceKind.EPUB,
+    DeepSearchSourceKind.PPTX,
+    DeepSearchSourceKind.HTML,
+    DeepSearchSourceKind.MARKDOWN,
+    DeepSearchSourceKind.USER_TEXT,
+    DeepSearchSourceKind.DIRECT_MERGED,
+    DeepSearchSourceKind.EXTERNAL_URL,
+    DeepSearchSourceKind.AUDIO,
+    DeepSearchSourceKind.VIDEO,
+  ])
+);
+
+const CODE_SOURCE_KINDS = Object.freeze(
+  new Set([DeepSearchSourceKind.CODE, DeepSearchSourceKind.FILE])
+);
+
+export function normalizeDeepSearchSourceKind(value) {
+  const v = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (!v) return DeepSearchSourceKind.UNKNOWN;
+  return Object.values(DeepSearchSourceKind).includes(v) ? v : DeepSearchSourceKind.UNKNOWN;
+}
+
+export function isDocSourceKind(value) {
+  return DOC_SOURCE_KINDS.has(normalizeDeepSearchSourceKind(value));
+}
+
+export function isCodeSourceKind(value) {
+  return CODE_SOURCE_KINDS.has(normalizeDeepSearchSourceKind(value));
+}
+
 // Re-export from trajectory.js for convenience
-export { MergeStrategy, CachePolicy, DivergeAt, TrajectoryStatus } from "./trajectory.js";
+export { MergeStrategy, CachePolicy, DivergeAt, TrajectoryOutcome, TrajectoryStatus } from "./trajectory.js";
 
 // Checkpoint 模式枚举
 export const CheckpointMode = Object.freeze({
@@ -110,6 +175,8 @@ export {
   isValidGapPriority,
   isValidGapStatus,
   isValidPlanNodeStatus,
+  isValidPlanNodeType,
   isValidDecisionOutcome,
+  isValidDecisionStage,
 } from "./states.js";
 

@@ -1,4 +1,5 @@
 import { KEY_PAGE_TYPES, normalizePageType } from "../stages/textprep/constants.js";
+import { SlideElementType, normalizeSlideElementType } from "../../ppt/slide-constants.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -36,9 +37,11 @@ function flattenElements(elements) {
 
 function isEditableElement(el) {
   // Conservative: raster images are treated as non-editable; other schema elements are considered editable.
-  const t = String(el?.type || "").toLowerCase();
-  if (!t) return false;
-  if (t === "image") return false;
+  const raw = String(el?.type || "").trim();
+  if (!raw) return false;
+  const t = normalizeSlideElementType(raw);
+  if (!t) return true;
+  if (t === SlideElementType.IMAGE || t === SlideElementType.BAKED_ELEMENT) return false;
   return true;
 }
 
