@@ -1,6 +1,8 @@
 import { ImageGenerator } from "./image-generator.js";
 import { SVGGenerator } from "./svg-generator.js";
 import { AssetResolver } from "./asset-resolver.js";
+import { RenderType, EventStatus, SlotPriority, SlotPurpose } from "./constants.js";
+import { DesignEvents } from "./events.js";
 import { normalizeRenderType } from "../../shared/value-utils.js";
 
 function nowMs() {
@@ -46,19 +48,21 @@ function aspectRatioFromPosition(position) {
 
 function normalizePriority(p) {
   const s = String(p || "").trim().toLowerCase();
-  if (s === "critical" || s === "important" || s === "optional") return s;
-  return "important";
+  if (s === SlotPriority.CRITICAL) return SlotPriority.CRITICAL;
+  if (s === SlotPriority.IMPORTANT) return SlotPriority.IMPORTANT;
+  if (s === SlotPriority.OPTIONAL) return SlotPriority.OPTIONAL;
+  return SlotPriority.IMPORTANT;
 }
 
 function inferPurpose(slot) {
   const slotId = toNonEmptyString(slot?.slotId).toLowerCase();
   const explicit = toNonEmptyString(slot?.purpose);
   if (explicit) return explicit;
-  if (slotId.includes("hero") || slotId.includes("cover")) return "hero";
-  if (slotId.includes("icon")) return "icon";
-  if (slotId.includes("bg") || slotId.includes("background")) return "background";
-  if (slotId.includes("chart") || slotId.includes("fig") || slotId.includes("diagram")) return "chart_fallback";
-  return "illustration";
+  if (slotId.includes("hero") || slotId.includes("cover")) return SlotPurpose.HERO;
+  if (slotId.includes("icon")) return SlotPurpose.ICON;
+  if (slotId.includes("bg") || slotId.includes("background")) return SlotPurpose.BACKGROUND;
+  if (slotId.includes("chart") || slotId.includes("fig") || slotId.includes("diagram")) return SlotPurpose.CHART_FALLBACK;
+  return SlotPurpose.ILLUSTRATION;
 }
 
 function visualSlotToImageSlot(slot) {
@@ -90,7 +94,7 @@ function visualSlotToImageSlot(slot) {
     aspectRatio,
     ...(Array.isArray(slot?.claimIds) && slot.claimIds.length ? { claimIds: slot.claimIds.map((c) => String(c)).filter(Boolean) } : {}),
     ...(slot?.effects && typeof slot.effects === "object" ? { effects: { ...slot.effects } } : {}),
-    renderType: "ai-image",
+    renderType: RenderType.AI_IMAGE,
   };
 }
 
@@ -125,11 +129,11 @@ export class VisualRenderer {
       .map((s) => (s && typeof s === "object" ? { ...s, renderType: normalizeRenderType(s.renderType) } : null))
       .filter(Boolean);
 
-    const aiImageSlots = slots.filter((s) => s.renderType === "ai-image");
-    const svgSlots = slots.filter((s) => s.renderType === "svg");
-    const assetSlots = slots.filter((s) => s.renderType === "asset");
+    const aiImageSlots = slots.filter((s) => s.renderType === RenderType.AI_IMAGE);
+    const svgSlots = slots.filter((s) => s.renderType === RenderType.SVG);
+    const assetSlots = slots.filter((s) => s.renderType === RenderType.ASSET);
 
-    safeEmit(emit, "design.visual.render.started", "started", {
+    safeEmit(emit, DesignEvents.VISUAL_RENDER_STARTED, EventStatus.STARTED, {
       runId,
       planned: { total: slots.length, "ai-image": aiImageSlots.length, svg: svgSlots.length, asset: assetSlots.length },
     });
@@ -198,9 +202,9 @@ export class VisualRenderer {
     };
 
     if (errors.length) {
-      safeEmit(emit, "design.visual.render.failed", "failed", { runId, report });
+      safeEmit(emit, DesignEvents.VISUAL_RENDER_FAILED, EventStatus.FAILED, { runId, report });
     } else {
-      safeEmit(emit, "design.visual.render.completed", "completed", { runId, report });
+      safeEmit(emit, DesignEvents.VISUAL_RENDER_COMPLETED, EventStatus.COMPLETED, { runId, report });
     }
 
     return { imageResults, svgResults, assetResults, report, mergedSlots };

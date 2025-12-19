@@ -22,6 +22,8 @@ import {
 } from "./brainstorm-prompts.js";
 import { getDesignModelCaller, isNonRetryableError } from "./model.js";
 import { robustParseJson } from "../../shared/robust-json.js";
+import { RenderType, EventStatus, SlotPriority } from "./constants.js";
+import { DesignEvents } from "./events.js";
 
 /**
  * Simple concurrency limiter (pLimit-style).
@@ -146,16 +148,18 @@ function toNonEmptyString(v) {
 
 function normalizeRenderType(rt) {
   const t = String(rt || "").trim().toLowerCase();
-  if (t === "ai-image" || t === "ai_image" || t === "image") return "ai-image";
-  if (t === "svg") return "svg";
-  if (t === "asset" || t === "doc-asset" || t === "document-asset") return "asset";
-  return "ai-image";
+  if (t === "ai-image" || t === "ai_image" || t === "image") return RenderType.AI_IMAGE;
+  if (t === "svg") return RenderType.SVG;
+  if (t === "asset" || t === "doc-asset" || t === "document-asset") return RenderType.ASSET;
+  return RenderType.AI_IMAGE;
 }
 
 function normalizePriority(p) {
   const s = String(p || "").trim().toLowerCase();
-  if (s === "critical" || s === "important" || s === "optional") return s;
-  return "important";
+  if (s === "critical") return SlotPriority.CRITICAL;
+  if (s === "important") return SlotPriority.IMPORTANT;
+  if (s === "optional") return SlotPriority.OPTIONAL;
+  return SlotPriority.IMPORTANT;
 }
 
 // 简化版位置：left/right/center/background/fullscreen -> 粗略百分比
@@ -525,9 +529,9 @@ async function generateCandidatesForBatch(slideIntentsBatch, designSystem, { mod
       console.warn("[design.brainstorm] generateCandidatesForBatch failed", { batchSize: batch.length, attempt: attempt + 1, error: msg });
       // Emit error for UI visibility
       if (typeof emit === "function") {
-        emit("design.brainstorm.batch.error", {
+        emit(DesignEvents.BRAINSTORM_BATCH_ERROR, {
           actor: "design",
-          status: "error",
+          status: EventStatus.ERROR,
           payload: { batchSize: batch.length, attempt: attempt + 1, error: msg },
         });
       }
@@ -927,9 +931,9 @@ export async function brainstorm(contentPackage, designSystem, constraints = {},
   const modelCaller = getDesignModelCaller(stageApi, { usage: "designer", timeoutMs: 30_000 });
   const styleSpec = options?.styleSpec ?? designSystem?.styleReference?.extracted;
 
-  emit?.("design.brainstorm.started", {
+  emit?.(DesignEvents.BRAINSTORM_STARTED, {
     actor: "design",
-    status: "started",
+    status: EventStatus.STARTED,
     payload: { slideCount: slideIntents.length },
   });
 
@@ -1001,9 +1005,9 @@ export async function brainstorm(contentPackage, designSystem, constraints = {},
 
       const allCandidates = candidatesBySlide.flatMap((x) => (Array.isArray(x?.candidates) ? x.candidates : []));
 
-      emit?.("design.brainstorm.candidates", {
+      emit?.(DesignEvents.BRAINSTORM_CANDIDATES, {
         actor: "design",
-        status: "data",
+        status: EventStatus.DATA,
         payload: {
           candidatesBySlide,
           selectedIdeas: buildSelectedIdeasFromCandidatesBySlide(candidatesBySlide),
@@ -1013,9 +1017,9 @@ export async function brainstorm(contentPackage, designSystem, constraints = {},
         },
       });
 
-      emit?.("design.brainstorm.completed", {
+      emit?.(DesignEvents.BRAINSTORM_COMPLETED, {
         actor: "design",
-        status: "completed",
+        status: EventStatus.COMPLETED,
         payload: {
           totalCandidates: allCandidates.length,
           selectedCandidates: selectedCandidates.length,
@@ -1063,9 +1067,9 @@ export async function brainstorm(contentPackage, designSystem, constraints = {},
       if (stageApi.signal?.aborted) throw new Error(typeof stageApi.signal.reason === "string" ? stageApi.signal.reason : "Run cancelled");
 
       // Emit batch progress
-      emit?.("design.brainstorm.batch.started", {
+      emit?.(DesignEvents.BRAINSTORM_BATCH_STARTED, {
         actor: "design",
-        status: "progress",
+        status: EventStatus.PROGRESS,
         payload: { batchIndex, batchCount: batches.length, slideIndexes: batchSlides.map((s) => s.slideIndex) },
       });
 
@@ -1083,9 +1087,9 @@ export async function brainstorm(contentPackage, designSystem, constraints = {},
       } catch (e) {
         // Emit error and fallback
         const msg = e instanceof Error ? e.message : String(e);
-        emit?.("design.brainstorm.batch.error", {
+        emit?.(DesignEvents.BRAINSTORM_BATCH_ERROR, {
           actor: "design",
-          status: "error",
+          status: EventStatus.ERROR,
           payload: { batchIndex, error: msg, willFallback: true },
         });
       }
@@ -1107,9 +1111,9 @@ export async function brainstorm(contentPackage, designSystem, constraints = {},
           candidatesMap.set(si.slideIndex, candidates);
         }
 
-        emit?.("design.brainstorm.llm.generated", {
+        emit?.(DesignEvents.BRAINSTORM_LLM_GENERATED, {
           actor: "design",
-          status: "generated",
+          status: EventStatus.GENERATED,
           payload: { slideIndex: si.slideIndex, slideIntentId: si.slideIntentId, candidateCount: candidates.length },
         });
       }
@@ -1121,9 +1125,9 @@ export async function brainstorm(contentPackage, designSystem, constraints = {},
         const selected = candidates.find((c) => c.selected) || candidates[0] || null;
         const selectedCandidateId = selected?.candidateId || "";
 
-        emit?.("design.brainstorm.slide.completed", {
+        emit?.(DesignEvents.BRAINSTORM_SLIDE_COMPLETED, {
           actor: "design",
-          status: "completed",
+          status: EventStatus.COMPLETED,
           payload: {
             slideIndex: si.slideIndex,
             slideIntentId: si.slideIntentId,
@@ -1150,9 +1154,9 @@ export async function brainstorm(contentPackage, designSystem, constraints = {},
     const selectedVisualSlots = selectedCandidates.flatMap((c) => (Array.isArray(c?.visualSlots) ? c.visualSlots : []));
     const imageSlots = mapVisualSlotsToImageSlots(selectedVisualSlots, slideIntents);
 
-    emit?.("design.brainstorm.candidates", {
+    emit?.(DesignEvents.BRAINSTORM_CANDIDATES, {
       actor: "design",
-      status: "data",
+      status: EventStatus.DATA,
       payload: {
         candidatesBySlide,
         selectedIdeas: buildSelectedIdeasFromCandidatesBySlide(candidatesBySlide),
@@ -1161,9 +1165,9 @@ export async function brainstorm(contentPackage, designSystem, constraints = {},
       },
     });
 
-    emit?.("design.brainstorm.completed", {
+    emit?.(DesignEvents.BRAINSTORM_COMPLETED, {
       actor: "design",
-      status: "completed",
+      status: EventStatus.COMPLETED,
       payload: {
         totalCandidates: allCandidates.length,
         selectedCandidates: selectedCandidates.length,
@@ -1253,9 +1257,9 @@ export async function brainstorm(contentPackage, designSystem, constraints = {},
     };
   });
 
-  emit?.("design.brainstorm.candidates", {
+  emit?.(DesignEvents.BRAINSTORM_CANDIDATES, {
     actor: "design",
-    status: "data",
+    status: EventStatus.DATA,
     payload: {
       candidatesBySlide,
       selectedIdeas: buildSelectedIdeasFromCandidatesBySlide(candidatesBySlide),
@@ -1264,9 +1268,9 @@ export async function brainstorm(contentPackage, designSystem, constraints = {},
     },
   });
 
-  emit?.("design.brainstorm.completed", {
+  emit?.(DesignEvents.BRAINSTORM_COMPLETED, {
     actor: "design",
-    status: "completed",
+    status: EventStatus.COMPLETED,
     payload: {
       totalIdeas: ideaPool.length,
       selectedIdeas: selectedIdeas.length,
@@ -1414,9 +1418,9 @@ export async function brainstormRegenerate(
       })()
     : [row];
 
-  emitFn?.("design.brainstorm.candidates", {
+  emitFn?.(DesignEvents.BRAINSTORM_CANDIDATES, {
     actor: "design",
-    status: "data",
+    status: EventStatus.DATA,
     payload: {
       candidatesBySlide,
       selectedIdeas: buildSelectedIdeasFromCandidatesBySlide(candidatesBySlide),
