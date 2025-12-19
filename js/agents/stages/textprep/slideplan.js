@@ -3,7 +3,7 @@
 // The planner should NOT introduce new facts. It should only propose page structure
 // (page types/titles/objectives/keyPoints) based on the input chunks + constraints.
 
-const ALLOWED_PAGE_TYPES = new Set(["cover", "agenda", "overview", "comparison", "process", "summary", "appendix"]);
+import { ALLOWED_PAGE_TYPES, PageType } from "./constants.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);

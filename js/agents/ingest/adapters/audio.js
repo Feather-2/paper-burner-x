@@ -1,4 +1,5 @@
 import { BaseAdapter } from "./base.js";
+import { SourceKind } from "../constants.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -171,7 +172,7 @@ export class AudioAdapter extends BaseAdapter {
 
     const markdown = [`# ${filename}`, "", plainText].join("\n");
     const parsed = this.buildParsedDocument({
-      sourceType: "audio",
+      sourceType: SourceKind.AUDIO,
       origin: { filename, mimeType, size },
       markdown,
       assets: [],

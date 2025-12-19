@@ -131,7 +131,7 @@ export class PdfAdapter extends BaseAdapter {
     const label = fileLabel(input);
     const title = filename || label;
     const parsed = this.buildParsedDocument({
-      sourceType: "pdf",
+      sourceType: SourceKind.PDF,
       origin: { filename: title, mimeType, size },
       markdown,
       assets,

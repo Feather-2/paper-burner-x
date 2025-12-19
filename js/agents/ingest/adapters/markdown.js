@@ -1,4 +1,5 @@
 import { BaseAdapter } from "./base.js";
+import { SourceKind } from "../constants.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -73,7 +74,7 @@ export class MarkdownAdapter extends BaseAdapter {
 
     const title = filename;
     const parsed = this.buildParsedDocument({
-      sourceType: "markdown",
+      sourceType: SourceKind.MARKDOWN,
       origin: { filename, mimeType, size },
       markdown,
       assets: [],

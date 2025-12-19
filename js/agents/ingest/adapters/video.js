@@ -1,5 +1,6 @@
 import { BaseAdapter } from "./base.js";
 import { getVideoFrames } from "../tools/video-frames.js";
+import { SourceKind } from "../constants.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -211,7 +212,7 @@ export class VideoAdapter extends BaseAdapter {
 
     const markdown = [`# ${filename}`, "", plainText].join("\n");
     const parsed = this.buildParsedDocument({
-      sourceType: "video",
+      sourceType: SourceKind.VIDEO,
       origin: { filename, mimeType, size },
       markdown,
       assets: frameAssets,

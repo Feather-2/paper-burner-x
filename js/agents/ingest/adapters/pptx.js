@@ -1,5 +1,6 @@
 import { BaseAdapter } from "./base.js";
 import { extractAssetsFromMarkdown } from "../extract-assets.js";
+import { SourceKind } from "../constants.js";
 
 function toNonEmptyString(v) {
   if (v === undefined || v === null) return undefined;
@@ -188,7 +189,7 @@ export class PptxAdapter extends BaseAdapter {
     const assets = extractAssetsFromMarkdown(markdown, images).map((a) => ({ ...a, source: "extracted" }));
 
     const doc = this.buildParsedDocument({
-      sourceType: "pptx",
+      sourceType: SourceKind.PPTX,
       origin: { filename, mimeType, size },
       markdown,
       assets,

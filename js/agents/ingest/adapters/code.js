@@ -187,7 +187,7 @@ export class CodeAdapter extends BaseAdapter {
     const markdown = this.buildMarkdown(filename, code, lang);
 
     const parsed = this.buildParsedDocument({
-      sourceType: "code",
+      sourceType: SourceKind.CODE,
       origin: { filename, lang, size },
       markdown,
       assets: [],

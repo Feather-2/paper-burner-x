@@ -1,4 +1,5 @@
 import { BaseAdapter } from "./base.js";
+import { SourceKind } from "../constants.js";
 
 function toNonEmptyString(v) {
   if (v === undefined || v === null) return undefined;
@@ -23,7 +24,7 @@ export class RawTextAdapter extends BaseAdapter {
     if (!text.trim()) throw new Error("RawTextAdapter.parse(input): input.text is required");
 
     return this.buildParsedDocument({
-      sourceType: "user_text",
+      sourceType: SourceKind.USER_TEXT,
       origin: { title },
       markdown: text,
       assets: [],

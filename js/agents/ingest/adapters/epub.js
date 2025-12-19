@@ -1,5 +1,6 @@
 import { BaseAdapter } from "./base.js";
 import { extractAssetsFromMarkdown } from "../extract-assets.js";
+import { SourceKind } from "../constants.js";
 
 let DOMParserRef = null;
 
@@ -344,7 +345,7 @@ export class EpubAdapter extends BaseAdapter {
 
     const title = filename;
     const doc = this.buildParsedDocument({
-      sourceType: "epub",
+      sourceType: SourceKind.EPUB,
       origin: { filename, mimeType, size },
       markdown,
       assets,

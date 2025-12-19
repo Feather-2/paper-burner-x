@@ -1,5 +1,6 @@
 import { BaseAdapter } from "./base.js";
 import { extractAssetsFromMarkdown } from "../extract-assets.js";
+import { SourceKind } from "../constants.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -160,7 +161,7 @@ export class HtmlAdapter extends BaseAdapter {
 
     const title = filename;
     const parsed = this.buildParsedDocument({
-      sourceType: "html",
+      sourceType: SourceKind.HTML,
       origin: { filename, mimeType, size },
       markdown,
       assets,

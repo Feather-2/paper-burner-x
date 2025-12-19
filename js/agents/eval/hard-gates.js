@@ -1,3 +1,5 @@
+import { KEY_PAGE_TYPES, normalizePageType } from "../stages/textprep/constants.js";
+
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
 }
@@ -50,15 +52,6 @@ function computeSlideEditabilityRatio(slide) {
     ratio: total > 0 ? editable / total : 0,
   };
 }
-
-function normalizePageType(t) {
-  const s = String(t || "")
-    .trim()
-    .toLowerCase();
-  return s || null;
-}
-
-const KEY_PAGE_TYPES = new Set(["cover", "agenda", "architecture", "overview", "summary", "conclusion"]);
 
 function findSourceTextById(contentPackage) {
   // Best-effort: evaluation stage may not have L0 full text in the ContentPackage.
@@ -266,7 +259,4 @@ export function checkHardGates(contentPackage, deckPackage, exportResult, lintRe
   return { pass: failed.length === 0, failed, details };
 }
 
-export const HardGatesConstants = {
-  KEY_PAGE_TYPES,
-};
-
+export { KEY_PAGE_TYPES };
