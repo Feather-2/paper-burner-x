@@ -1,23 +1,4 @@
 /**
- * Slide generation state-machine statuses.
- * @readonly
- * @enum {string}
- */
-export const SlideStatus = Object.freeze({
-  PENDING: "pending",
-  BRAINSTORMING: "brainstorming",
-  GENERATING: "generating",
-  VALIDATING: "validating",
-  DEGRADED_L1: "degraded_l1",
-  DEGRADED_L2: "degraded_l2",
-  REFINING: "refining",
-  IMAGE_PENDING: "image_pending",
-  IMAGE_GENERATING: "image_generating",
-  COMPLETED: "completed",
-  FAILED: "failed",
-});
-
-/**
  * Image generation task lifecycle statuses.
  * @readonly
  * @enum {string}
@@ -126,3 +107,6 @@ export const DslEffect = Object.freeze({
 export function isValidBrainstormStatus(value) {
   return Object.values(BrainstormStatus).includes(value);
 }
+
+// Re-export from states.js
+export { SlideStatus, SLIDE_TRANSITIONS, slideMachine, DesignPhase } from "./states.js";

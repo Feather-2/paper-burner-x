@@ -1,15 +1,9 @@
 import { isPlainObject, safeInt, toNonEmptyString } from "../../shared/value-utils.js";
 import { GAP_CONFIG } from "./constants.js";
 import { DeepSearchEvents } from "./events.js";
+import { GapStatus, gapMachine } from "./states.js";
 
-export const GapStatus = Object.freeze({
-  OPEN: "open",
-  SEARCHING: "searching",       // 正在检索
-  UNDERSTANDING: "understanding", // 正在理解
-  FILLED: "filled",
-  BLOCKED: "blocked",
-  STALE: "stale",  // 新增：过期状态
-});
+export { GapStatus, gapMachine };
 
 /**
  * 统一的 gap 状态转换函数，确保字段一致性
