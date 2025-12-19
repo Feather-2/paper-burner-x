@@ -176,9 +176,9 @@ export class AgentOrchestrator {
   end({ payload } = {}) {
     if (this._state !== OrchestratorState.RUNNING) return;
     this._state = OrchestratorState.ENDED;
-    this.eventBus.emit(RuntimeEvents.RUN_ENDED, {
+    this.eventBus.emit(RuntimeEvents.RUN_COMPLETED, {
       actor: ActorType.SYSTEM,
-      status: "ended",
+      status: "completed",
       payload,
     });
   }
@@ -401,6 +401,12 @@ export class AgentOrchestrator {
       ]);
 
       const durationMs = Date.now() - startedAt;
+      this.eventBus.emit(`${name}.completed`, {
+        actor: stageActor,
+        status: "completed",
+        durationMs,
+      });
+      // 过渡期兼容：同时 emit .ended 别名
       this.eventBus.emit(`${name}.ended`, {
         actor: stageActor,
         status: "ended",
