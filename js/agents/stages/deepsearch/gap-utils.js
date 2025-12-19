@@ -1,8 +1,11 @@
 import { isPlainObject, safeInt, toNonEmptyString } from "../../shared/value-utils.js";
 import { GAP_CONFIG } from "./constants.js";
+import { DeepSearchEvents } from "./events.js";
 
 export const GapStatus = Object.freeze({
   OPEN: "open",
+  SEARCHING: "searching",       // 正在检索
+  UNDERSTANDING: "understanding", // 正在理解
   FILLED: "filled",
   BLOCKED: "blocked",
 });
@@ -15,6 +18,17 @@ export function transitionGap(g, to, { runId, iteration, reason, ts, evidenceCou
   if (from === to) return false; // 无转换
 
   const gapId = toNonEmptyString(g?.gapId) || "unknown";
+  const effectiveReason =
+    reason ||
+    (to === GapStatus.FILLED
+      ? "evidence"
+      : to === GapStatus.SEARCHING
+        ? "searching"
+        : to === GapStatus.UNDERSTANDING
+          ? "understanding"
+          : to === GapStatus.BLOCKED
+            ? "no_hits"
+            : "reopen");
 
   if (to === GapStatus.FILLED) {
     g.status = GapStatus.FILLED;
@@ -22,6 +36,27 @@ export function transitionGap(g, to, { runId, iteration, reason, ts, evidenceCou
     g.filledIteration = iteration;
     if (typeof evidenceCount === "number") g.evidenceCount = evidenceCount;
     // 清理 blocked 相关字段
+    delete g.blockedAt;
+    delete g.blockedReason;
+    // 清理中间状态字段
+    delete g.searchStartedAt;
+    delete g.understandStartedAt;
+  } else if (to === GapStatus.SEARCHING) {
+    g.status = GapStatus.SEARCHING;
+    g.searchStartedAt = ts;
+    // 清理终态相关字段
+    delete g.filledAt;
+    delete g.filledIteration;
+    delete g.evidenceCount;
+    delete g.blockedAt;
+    delete g.blockedReason;
+  } else if (to === GapStatus.UNDERSTANDING) {
+    g.status = GapStatus.UNDERSTANDING;
+    g.understandStartedAt = ts;
+    // 清理终态相关字段
+    delete g.filledAt;
+    delete g.filledIteration;
+    delete g.evidenceCount;
     delete g.blockedAt;
     delete g.blockedReason;
   } else if (to === GapStatus.BLOCKED) {
@@ -32,6 +67,9 @@ export function transitionGap(g, to, { runId, iteration, reason, ts, evidenceCou
     delete g.filledAt;
     delete g.filledIteration;
     delete g.evidenceCount;
+    // 清理中间状态字段
+    delete g.searchStartedAt;
+    delete g.understandStartedAt;
   } else {
     // OPEN
     g.status = GapStatus.OPEN;
@@ -41,14 +79,16 @@ export function transitionGap(g, to, { runId, iteration, reason, ts, evidenceCou
     delete g.evidenceCount;
     delete g.blockedAt;
     delete g.blockedReason;
+    delete g.searchStartedAt;
+    delete g.understandStartedAt;
   }
 
-  emitFn?.("deepsearch.gap.status.changed", {
+  emitFn?.(DeepSearchEvents.GAP_STATUS_CHANGED, {
     runId,
     gapId,
     from,
     to: g.status,
-    reason: reason || (to === GapStatus.FILLED ? "evidence" : to === GapStatus.BLOCKED ? "no_hits" : "reopen"),
+    reason: effectiveReason,
     iteration,
   });
 

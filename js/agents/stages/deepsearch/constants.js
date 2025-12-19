@@ -46,3 +46,23 @@ export const GAP_TYPES = Object.freeze([
 // 小文档阈值
 export const SMALL_DOC_THRESHOLD = 20000;
 
+// DeepSearch Phase 状态枚举
+export const PhaseStatus = Object.freeze({
+  SCAN: "scan",
+  GAPS: "gaps",
+  ROUND: "round", // retrieve + understand
+  WRITE: "write",
+  CONDENSE: "condense",
+  COMPLETED: "completed",
+});
+
+// Phase 状态转换表
+export const PHASE_TRANSITIONS = Object.freeze({
+  [PhaseStatus.SCAN]: [PhaseStatus.GAPS, PhaseStatus.COMPLETED],
+  [PhaseStatus.GAPS]: [PhaseStatus.ROUND, PhaseStatus.WRITE],
+  [PhaseStatus.ROUND]: [PhaseStatus.GAPS, PhaseStatus.WRITE],
+  [PhaseStatus.WRITE]: [PhaseStatus.CONDENSE, PhaseStatus.ROUND],
+  [PhaseStatus.CONDENSE]: [PhaseStatus.COMPLETED],
+  [PhaseStatus.COMPLETED]: [],
+});
+

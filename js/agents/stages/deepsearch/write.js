@@ -24,6 +24,18 @@ import {
   resolveReviewerConfig,
 } from "./write-utils.js";
 
+// 写作模式枚举
+export const WriterMode = Object.freeze({
+  REACT: "react", // 问题驱动的 ReAct 写作模式
+  LEGACY: "legacy", // 传统 JSON dump 模式
+});
+
+// 审阅模式枚举
+export const ReviewerMode = Object.freeze({
+  REACT: "react", // ReAct 审阅模式
+  LEGACY: "legacy", // 传统审阅模式
+});
+
 export { finalizeCitationsInMarkdown };
 export { generateReport };
 
@@ -309,12 +321,12 @@ export async function runDeepSearchWriteStage(runContext, input, stageApi = {}) 
 
   // 检查写作模式：react（问题驱动）或 legacy（JSON dump）
   // 默认使用 react 模式（问题驱动写作），可通过 userConfig.write.writerMode 配置
-  const writerMode = toNonEmptyString(state?.userConfig?.write?.writerMode) || "react";
+  const writerMode = toNonEmptyString(state?.userConfig?.write?.writerMode) || WriterMode.REACT;
 
   let report = null;
   let reportStrategy = "single";
 
-  if (writerMode === "react" && claimsForReport.length > 0) {
+  if (writerMode === WriterMode.REACT && claimsForReport.length > 0) {
     // ReAct Writer 模式：问题驱动的渐进式写作
     emit?.("deepsearch.write.mode", { mode: "react", reason: "问题驱动写作，逐步检索证据" });
 
@@ -465,9 +477,9 @@ export async function runDeepSearchWriteStage(runContext, input, stageApi = {}) 
   let reviewFeedback = { reviewed: false, rounds: 0, finalScore: 1, appliedPatches: 0 };
 
   if (reviewerConfig.enableReviewer) {
-    const reviewerMode = toNonEmptyString(state?.userConfig?.write?.reviewerMode) || "legacy";
+    const reviewerMode = toNonEmptyString(state?.userConfig?.write?.reviewerMode) || ReviewerMode.LEGACY;
 
-    if (reviewerMode === "react") {
+    if (reviewerMode === ReviewerMode.REACT) {
       // ReAct Reviewer 模式
       try {
         const toolExecutor = createToolExecutor({

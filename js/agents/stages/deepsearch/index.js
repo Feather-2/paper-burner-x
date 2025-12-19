@@ -15,7 +15,8 @@ import { SharedContext } from "./shared-context.js";
 import { shouldUseDirectMode, runDirectAnalysis } from "./direct-analysis.js";
 import { isPlainObject, safeInt } from "../../shared/value-utils.js";
 import { mapConcurrent } from "../../shared/concurrency.js";
-import { CONCURRENCY_CONFIG, GAP_CONFIG } from "./constants.js";
+import { CONCURRENCY_CONFIG, GAP_CONFIG, PhaseStatus, PHASE_TRANSITIONS } from "./constants.js";
+import { DeepSearchEvents } from "./events.js";
 import { BudgetAction, createBudgetManager } from "./budget.js";
 import { validateUserConfig } from "./config-schema.js";
 import { extractServices } from "./stage-api.js";
@@ -207,6 +208,35 @@ function getTrajectoryParallel(state) {
   return n !== null && n >= 1 ? n : CONCURRENCY_CONFIG.MAX_TRAJECTORY_PARALLEL;
 }
 
+/**
+ * Phase 状态转换函数，带日志追踪
+ */
+function transitionPhase(from, to, { emit, logger, runId, iteration, trajectoryId } = {}) {
+  const allowed = PHASE_TRANSITIONS[from] || [];
+  if (!allowed.includes(to)) {
+    logger?.warn(`Invalid phase transition: ${from} → ${to}`, {
+      stage: "deepsearch",
+      data: { from, to, allowed, runId, iteration, trajectoryId },
+    });
+    return false;
+  }
+
+  logger?.info(`Phase transition: ${from} → ${to}`, {
+    stage: "deepsearch",
+    data: { from, to, runId, iteration, trajectoryId },
+  });
+
+  emit?.(DeepSearchEvents.PHASE_TRANSITION, {
+    runId,
+    from,
+    to,
+    iteration,
+    trajectoryId,
+  });
+
+  return true;
+}
+
 function signatureForRetrievedChunk(r) {
   const gapId = String(r?.gapId || "");
   const sourceId = String(r?.sourceId || "");
@@ -352,7 +382,7 @@ export class DeepSearchStage {
       });
 
       emit?.(
-        "deepsearch.budget.degraded",
+        DeepSearchEvents.BUDGET_DEGRADED,
         {
           usage: budgetManager.usage,
           limits: budgetManager.limits,
@@ -377,7 +407,7 @@ export class DeepSearchStage {
           status: "warning",
           payload: { usage, limits, ratio },
         });
-        emit?.("deepsearch.budget.stop", { usage, limits, ratio }, { status: "warning", throttle: false });
+        emit?.(DeepSearchEvents.BUDGET_STOP, { usage, limits, ratio }, { status: "warning", throttle: false });
       }
     };
 
@@ -416,7 +446,11 @@ export class DeepSearchStage {
       status: preflightMaxRatio >= 1 ? "warning" : "info",
       payload: { estimate: preflightEstimate, limits: budgetManager.limits, ratio: preflightRatio, config: { preflightGapCount } },
     });
-    emit?.("deepsearch.budget.estimated", { estimate: preflightEstimate, limits: budgetManager.limits, ratio: preflightRatio }, { status: "info", throttle: false });
+    emit?.(
+      DeepSearchEvents.BUDGET_ESTIMATED,
+      { estimate: preflightEstimate, limits: budgetManager.limits, ratio: preflightRatio },
+      { status: "info", throttle: false }
+    );
     if (preflightMaxRatio >= 1) {
       budgetManager.stopped = true;
       budgetStopRequested = true;
@@ -425,7 +459,11 @@ export class DeepSearchStage {
         status: "warning",
         payload: { ratio: preflightMaxRatio, estimate: preflightEstimate, limits: budgetManager.limits },
       });
-      emit?.("deepsearch.budget.stop", { reason: "preflight", ratio: preflightMaxRatio, estimate: preflightEstimate, limits: budgetManager.limits }, { status: "warning", throttle: false });
+      emit?.(
+        DeepSearchEvents.BUDGET_STOP,
+        { reason: "preflight", ratio: preflightMaxRatio, estimate: preflightEstimate, limits: budgetManager.limits },
+        { status: "warning", throttle: false }
+      );
     } else if (preflightMaxRatio >= budgetManager.degradeThreshold) {
       budgetManager.degraded = true;
       budgetManager.onThresholdReached?.({ action: BudgetAction.DEGRADE, usage: budgetManager.usage, limits: budgetManager.limits, ratio: preflightMaxRatio });
@@ -479,7 +517,7 @@ export class DeepSearchStage {
     const saveErrorCheckpoint = (checkpointState, { stage, error } = {}) => {
       const checkpoint = checkpointState?.saveCheckpoint?.();
       if (!checkpoint) return null;
-      emit?.("deepsearch.checkpoint.saved", {
+      emit?.(DeepSearchEvents.CHECKPOINT_SAVED, {
         checkpointId: checkpoint.checkpointId,
         iteration: checkpoint.iteration,
         ...(checkpoint.metrics ? { metrics: checkpoint.metrics } : {}),
@@ -504,7 +542,7 @@ export class DeepSearchStage {
       const nodeId = generateNodeId(runId, "stage", { stage: stageLabel, iteration, trajectoryId });
       const parentNodeId = trajectoryId ? `${runId}_${trajectoryId}` : runId;
 
-      emit?.("deepsearch.node.started", {
+      emit?.(DeepSearchEvents.NODE_STARTED, {
         runId,
         nodeId,
         parentNodeId,
@@ -537,7 +575,7 @@ export class DeepSearchStage {
           budgetManager.stopped = true;
           const dsErr = new DeepSearchError("Budget stop requested", { level: ErrorLevel.DEGRADABLE, context: { stage: stageLabel } });
           const value = typeof fallbackValue === "function" ? fallbackValue(dsErr) : fallbackValue;
-          emit?.("deepsearch.node.failed", {
+          emit?.(DeepSearchEvents.NODE_FAILED, {
             runId,
             nodeId,
             error: { message: dsErr.message, level: dsErr.level },
@@ -558,13 +596,13 @@ export class DeepSearchStage {
 	          signal: stageApiWithContext?.signal,
 	          onRetry: ({ attempt, delay, error }) => {
 	            const retryErr = normalizeError(error, { stage });
-	            emit?.("deepsearch.node.failed", {
-	              runId,
-              nodeId,
-              error: { message: String(retryErr?.message || ""), level: retryErr?.level },
-              recovered: false,
-              retrying: true,
-            });
+          emit?.(DeepSearchEvents.NODE_FAILED, {
+            runId,
+            nodeId,
+            error: { message: String(retryErr?.message || ""), level: retryErr?.level },
+            recovered: false,
+            retrying: true,
+          });
             stageState?.addTimeline?.({
               name: "deepsearch.retry",
               status: "warning",
@@ -572,13 +610,13 @@ export class DeepSearchStage {
             });
           },
         });
-        emit?.("deepsearch.node.completed", { runId, nodeId, outcome: "success", summary: value?.summary });
+        emit?.(DeepSearchEvents.NODE_COMPLETED, { runId, nodeId, outcome: "success", summary: value?.summary });
         return { ok: true, value };
       } catch (err) {
         const dsErr = normalizeError(err, { stage });
         const recovered =
           dsErr.level === ErrorLevel.RECOVERABLE || dsErr.level === ErrorLevel.DEGRADABLE || dsErr.level === ErrorLevel.RETRYABLE;
-        emit?.("deepsearch.node.failed", {
+        emit?.(DeepSearchEvents.NODE_FAILED, {
           runId,
           nodeId,
           error: { message: dsErr.message, level: dsErr.level },
@@ -608,7 +646,7 @@ export class DeepSearchStage {
         return value;
       };
 
-    emit?.("deepsearch.started", { runId: state.runId });
+    emit?.(DeepSearchEvents.STARTED, { runId: state.runId });
 
     try {
       if (!budgetStopRequested) checkCancelled(stageApiWithContext);
@@ -617,17 +655,17 @@ export class DeepSearchStage {
       const directModeCheck = shouldUseDirectMode(state);
       if (directModeCheck.shouldUse) {
         if (budgetStopRequested) {
-          emit?.("deepsearch.aborted", { iteration: state.iteration, reason: "budget_preflight" });
+          emit?.(DeepSearchEvents.ABORTED, { iteration: state.iteration, reason: "budget_preflight" });
           state.addTimeline?.({ name: "deepsearch.aborted", status: "warning", payload: { iteration: state.iteration, reason: "budget_preflight" } });
           // Skip direct mode when budget is already exhausted by preflight.
         } else {
         currentStage = "deepsearch";
         logger.info("Using direct analysis mode for small document", { stage: "deepsearch", data: directModeCheck });
-        emit?.("deepsearch.direct.triggered", directModeCheck);
+        emit?.(DeepSearchEvents.DIRECT_TRIGGERED, directModeCheck);
 
         currentStage = "direct";
         const pkg = await runDirectAnalysis(runContext, { state }, stageApiWithContext);
-        emit?.("deepsearch.completed", { runId: state.runId, mode: "direct" });
+        emit?.(DeepSearchEvents.COMPLETED, { runId: state.runId, mode: "direct" });
         return pkg;
         }
       }
@@ -646,7 +684,7 @@ export class DeepSearchStage {
       });
 
       if (budgetStopRequested) {
-        emit?.("deepsearch.budget.stop", { iteration: state.iteration });
+        emit?.(DeepSearchEvents.BUDGET_STOP, { iteration: state.iteration });
       }
 
       if (!budgetStopRequested) {
@@ -662,7 +700,7 @@ export class DeepSearchStage {
           const manager = new TrajectoryManager(trajectoryCfg);
           state.trajectoryConfig = { ...manager.config };
 
-          emit?.("deepsearch.trajectory.forked", { n: manager.config.n, mergeStrategy: manager.config.mergeStrategy });
+          emit?.(DeepSearchEvents.TRAJECTORY_FORKED, { n: manager.config.n, mergeStrategy: manager.config.mergeStrategy });
 
           const trajectories = manager.fork(state);
           await mapConcurrent(
@@ -697,17 +735,25 @@ export class DeepSearchStage {
           const merged = manager.merge();
           if (merged) applyMergedState(state, merged);
 
-          emit?.("deepsearch.trajectory.merged", { mergeStrategy: manager.config.mergeStrategy });
+          emit?.(DeepSearchEvents.TRAJECTORY_MERGED, { mergeStrategy: manager.config.mergeStrategy });
           updateTaskProgress();
         }
 
-        let phase = useTrajectories ? "write" : "gaps";
+        let phase = useTrajectories ? PhaseStatus.WRITE : PhaseStatus.GAPS;
+        transitionPhase(useTrajectories ? PhaseStatus.ROUND : PhaseStatus.SCAN, phase, {
+          emit,
+          logger,
+          runId: state.runId,
+          iteration: state.iteration,
+          trajectoryId: state.trajectoryId,
+        });
         while (!stageApiWithContext?.signal?.aborted && !budgetStopRequested) {
           checkCancelled(stageApiWithContext);
 
-        if (phase === "gaps") {
+        if (phase === PhaseStatus.GAPS) {
           if (state.iteration >= state.maxIterations) {
-            phase = "write";
+            transitionPhase(phase, PhaseStatus.WRITE, { emit, logger, runId: state.runId, iteration: state.iteration, trajectoryId: state.trajectoryId });
+            phase = PhaseStatus.WRITE;
             continue;
           }
           await callStage("deepsearch.gaps", () => runDeepSearchGapsStage(runContext, { state }, stageApiWithContext), {
@@ -728,21 +774,25 @@ export class DeepSearchStage {
           });
 
           if (openGaps(state).length === 0) {
-            phase = "write";
+            transitionPhase(phase, PhaseStatus.WRITE, { emit, logger, runId: state.runId, iteration: state.iteration, trajectoryId: state.trajectoryId });
+            phase = PhaseStatus.WRITE;
             continue;
           }
 
-          phase = "round";
+          transitionPhase(phase, PhaseStatus.ROUND, { emit, logger, runId: state.runId, iteration: state.iteration, trajectoryId: state.trajectoryId });
+          phase = PhaseStatus.ROUND;
           continue;
         }
 
-        if (phase === "round") {
+        if (phase === PhaseStatus.ROUND) {
           if (state.iteration >= state.maxIterations) {
-            phase = "write";
+            transitionPhase(phase, PhaseStatus.WRITE, { emit, logger, runId: state.runId, iteration: state.iteration, trajectoryId: state.trajectoryId });
+            phase = PhaseStatus.WRITE;
             continue;
           }
           if (openGaps(state).length === 0) {
-            phase = "write";
+            transitionPhase(phase, PhaseStatus.WRITE, { emit, logger, runId: state.runId, iteration: state.iteration, trajectoryId: state.trajectoryId });
+            phase = PhaseStatus.WRITE;
             continue;
           }
 
@@ -756,7 +806,7 @@ export class DeepSearchStage {
             }
           }
 
-          emit?.("deepsearch.iteration.started", {
+          emit?.(DeepSearchEvents.ITERATION_STARTED, {
             runId: state.runId,
             iteration: state.iteration,
             openGapCount: openGaps(state).length,
@@ -889,10 +939,10 @@ export class DeepSearchStage {
 
           const completedIteration = state.iteration;
           const checkpoint = state.saveCheckpoint();
-          emit?.("deepsearch.checkpoint.saved", { checkpointId: checkpoint.checkpointId, iteration: checkpoint.iteration, metrics: checkpoint.metrics });
+          emit?.(DeepSearchEvents.CHECKPOINT_SAVED, { checkpointId: checkpoint.checkpointId, iteration: checkpoint.iteration, metrics: checkpoint.metrics });
           state.addTimeline({ name: "deepsearch.checkpoint.saved", status: "info", payload: { checkpointId: checkpoint.checkpointId, iteration: checkpoint.iteration } });
 
-          emit?.("deepsearch.iteration.completed", {
+          emit?.(DeepSearchEvents.ITERATION_COMPLETED, {
             runId: state.runId,
             iteration: completedIteration,
             hitCount,
@@ -918,11 +968,13 @@ export class DeepSearchStage {
           state.iteration += 1;
 
           lastRoundResult = { hitCount, qualityHitCount, noNewHitsRounds, openGapCount: openGaps(state).length };
-          phase = shouldContinue(state, lastRoundResult) ? "gaps" : "write";
+          const nextPhase = shouldContinue(state, lastRoundResult) ? PhaseStatus.GAPS : PhaseStatus.WRITE;
+          transitionPhase(phase, nextPhase, { emit, logger, runId: state.runId, iteration: state.iteration, trajectoryId: state.trajectoryId });
+          phase = nextPhase;
           continue;
         }
 
-        if (phase === "write") {
+        if (phase === PhaseStatus.WRITE) {
           const { value: writeOut } = await callStage("deepsearch.write", () => runDeepSearchWriteStage(runContext, { state }, stageApiWithContext), { stageState: state });
           updateTaskProgress();
           if (budgetStopRequested) break;
@@ -939,7 +991,8 @@ export class DeepSearchStage {
             (reopenGaps.length > 0 || newGaps.length > 0);
 
           if (!canBacktrack) {
-            phase = "condense";
+            transitionPhase(phase, PhaseStatus.CONDENSE, { emit, logger, runId: state.runId, iteration: state.iteration, trajectoryId: state.trajectoryId });
+            phase = PhaseStatus.CONDENSE;
             continue;
           }
 
@@ -964,11 +1017,13 @@ export class DeepSearchStage {
             payload: { writeBacktrackCount: state.writeBacktrackCount, maxWriteBacktrack, ...(feedbackToResearch ? { feedbackToResearch } : {}) },
           });
 
-          phase = openGaps(state).length > 0 ? "round" : "write";
+          const nextPhase = openGaps(state).length > 0 ? PhaseStatus.ROUND : PhaseStatus.WRITE;
+          transitionPhase(phase, nextPhase, { emit, logger, runId: state.runId, iteration: state.iteration, trajectoryId: state.trajectoryId });
+          phase = nextPhase;
           continue;
         }
 
-        if (phase === "condense") {
+        if (phase === PhaseStatus.CONDENSE) {
           await callStage("deepsearch.condense", () => runDeepSearchCondenseStage(runContext, { state }, stageApiWithContext), { stageState: state });
           updateTaskProgress();
           break;
@@ -981,7 +1036,7 @@ export class DeepSearchStage {
 
       if (stageApiWithContext?.signal?.aborted || budgetStopRequested) {
         state.addTimeline({ name: "deepsearch.aborted", status: "warning", payload: { iteration: state.iteration } });
-        emit?.("deepsearch.aborted", { iteration: state.iteration });
+        emit?.(DeepSearchEvents.ABORTED, { iteration: state.iteration });
       }
 
     const sources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
@@ -1033,7 +1088,7 @@ export class DeepSearchStage {
       };
     }
 
-    emit?.("deepsearch.completed", { runId: state.runId, slideCount: slideIntents.length, claimCount: claims.length });
+    emit?.(DeepSearchEvents.COMPLETED, { runId: state.runId, slideCount: slideIntents.length, claimCount: claims.length });
 
     // 记录 DeepSearch 流程完成
     currentStage = "deepsearch";

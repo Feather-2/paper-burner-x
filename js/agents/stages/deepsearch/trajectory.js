@@ -6,6 +6,34 @@ import { GAP_CONFIG } from "./constants.js";
 import { extractServices } from "./stage-api.js";
 import { isPlainObject, safeInt, toNonEmptyString } from "../../shared/value-utils.js";
 
+// Trajectory 合并策略枚举
+export const MergeStrategy = Object.freeze({
+  BEST: "best",
+  UNION: "union",
+  VOTE: "vote",
+});
+
+// 缓存策略枚举
+export const CachePolicy = Object.freeze({
+  SHARE: "share",
+  OFF: "off",
+});
+
+// 分叉点枚举
+export const DivergeAt = Object.freeze({
+  GAP: "gap",
+});
+
+// Trajectory 状态枚举
+export const TrajectoryStatus = Object.freeze({
+  PENDING: "pending",
+  FORKED: "forked",
+  RUNNING: "running",
+  MERGING: "merging",
+  MERGED: "merged",
+  ABANDONED: "abandoned",
+});
+
 function cloneValue(v) {
   return typeof structuredClone === "function" ? structuredClone(v) : JSON.parse(JSON.stringify(v));
 }
@@ -19,10 +47,14 @@ function clampInt(n, { min = 1, max = 8 } = {}) {
 function toTrajectoryConfig(raw) {
   const cfg = isPlainObject(raw) ? raw : {};
   const n = clampInt(cfg.n, { min: 1, max: 8 }) ?? 1;
-  const mergeStrategy = ["best", "union", "vote"].includes(String(cfg.mergeStrategy)) ? String(cfg.mergeStrategy) : "best";
+  const mergeStrategy = Object.values(MergeStrategy).includes(String(cfg.mergeStrategy))
+    ? String(cfg.mergeStrategy)
+    : MergeStrategy.BEST;
   const qualityMetrics = Array.isArray(cfg.qualityMetrics) ? cfg.qualityMetrics : [];
   const divergeAt = typeof cfg.divergeAt === "string" ? cfg.divergeAt : "gap";
-  const cachePolicy = ["share", "off"].includes(String(cfg.cachePolicy)) ? String(cfg.cachePolicy) : "share";
+  const cachePolicy = Object.values(CachePolicy).includes(String(cfg.cachePolicy))
+    ? String(cfg.cachePolicy)
+    : CachePolicy.SHARE;
   const cacheMaxSize = clampInt(cfg.cacheMaxSize, { min: 1, max: 5000 }) ?? 100;
   return { n, mergeStrategy, qualityMetrics, divergeAt, cachePolicy, cacheMaxSize };
 }
@@ -295,6 +327,7 @@ export class TrajectoryManager {
         L2: { retrievedChunks: [], scratchpad: {}, logs: [], tokenUsage: { input: 0, output: 0, total: 0 } },
       });
       clone.trajectoryId = `traj_${i}`;
+      clone.trajectoryStatus = TrajectoryStatus.FORKED;
       clone.trajectoryConfig = { ...this.config };
       return clone;
     });
@@ -316,6 +349,7 @@ export class TrajectoryManager {
     if (typeof runUnderstandStage !== "function") throw new TypeError("TrajectoryManager.runTrajectory(trajectory, stages): stages.runUnderstandStage must be a function");
 
     trajectory.trajectoryConfig = { ...this.config };
+    trajectory.trajectoryStatus = TrajectoryStatus.RUNNING;
 
     const runId = toNonEmptyString(trajectory?.runId) || toNonEmptyString(runContext?.runId) || "run_unknown";
     const trajectoryId = toNonEmptyString(trajectory?.trajectoryId) || "traj_unknown";
@@ -498,6 +532,10 @@ export class TrajectoryManager {
     const emit = typeof this.emit === "function" ? this.emit : null;
     const runId = toNonEmptyString(this.trajectories?.[0]?.runId) || "run_unknown";
 
+    for (const t of this.trajectories) {
+      t.trajectoryStatus = TrajectoryStatus.MERGING;
+    }
+
     if (emit) {
       emit?.("deepsearch.trajectory.merge.started", {
         runId,
@@ -526,6 +564,7 @@ export class TrajectoryManager {
       });
     }
 
+    if (merged) merged.trajectoryStatus = TrajectoryStatus.MERGED;
     return merged;
   }
 
