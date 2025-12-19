@@ -17,6 +17,7 @@ import { isPlainObject, safeInt } from "../../shared/value-utils.js";
 import { mapConcurrent } from "../../shared/concurrency.js";
 import { CONCURRENCY_CONFIG, GAP_CONFIG, PhaseStatus, PHASE_TRANSITIONS } from "./constants.js";
 import { DeepSearchEvents } from "./events.js";
+import { GapStatus } from "./states.js";
 import { BudgetAction, createBudgetManager } from "./budget.js";
 import { validateUserConfig } from "./config-schema.js";
 import { extractServices } from "./stage-api.js";
@@ -504,6 +505,19 @@ export class DeepSearchStage {
         budgetStopRequested = true;
       } else if (action === BudgetAction.DEGRADE) {
         applyBudgetDegrade({ ratio: Math.max(...Object.values(budgetManager.getUsageRatio())), reason: "token_usage" });
+      }
+    });
+
+    tap.on(DeepSearchEvents.GAP_STATUS_CHANGED, ({ record }) => {
+      const payload = isPlainObject(record) && "payload" in record ? record.payload : record;
+      const { gapId, from, to, reason, iteration } = payload ?? {};
+      if (!gapId) return;
+
+      state.planningTree?.recordGapStatusChange(gapId, { from, to, reason, iteration });
+
+      if (to === GapStatus.FILLED) {
+        if (!state.filledGapIds) state.filledGapIds = new Set();
+        state.filledGapIds.add(gapId);
       }
     });
 
