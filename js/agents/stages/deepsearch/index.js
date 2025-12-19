@@ -6,6 +6,7 @@ import { runDeepSearchScanStage } from "./scan.js";
 import { runDeepSearchGapsStage } from "./gaps.js";
 import { parseExternalSearchConfig, runDeepSearchRetrieveStage, runExternalSearch } from "./retrieve.js";
 import { runDeepSearchUnderstandStage } from "./understand.js";
+import { createShadowSubscriber } from "./shadow-agent.js";
 import { generateReport, runDeepSearchWriteStage } from "./write.js";
 import { runDeepSearchCondenseStage } from "./condense.js";
 import { TrajectoryManager } from "./trajectory.js";
@@ -282,6 +283,31 @@ export class DeepSearchStage {
     const baseEmitFn = typeof stageApi?.emit === "function" ? stageApi.emit.bind(stageApi) : null;
     const tap = createEmitTap(baseEmitFn);
     const stageApiWithTap = { ...(isPlainObject(stageApi) ? stageApi : {}), emit: tap.emit };
+    // Shadow Agent 异步订阅：监听 UNDERSTAND_COMPLETED 事件
+    const shadowConfig = isPlainObject(state?.userConfig?.shadow) ? state.userConfig.shadow : {};
+    let unsubShadow = () => {};
+    if (shadowConfig.enabled !== false) {
+      const shadowEventBus = {
+        subscribe: (eventName, handler) => tap.on(eventName, handler),
+        emit: tap.emit,
+        once: (eventName, handler) => {
+          const unsub = tap.on(eventName, (payload) => {
+            unsub();
+            handler(payload);
+          });
+          return unsub;
+        },
+      };
+      unsubShadow = createShadowSubscriber(shadowEventBus, stageApiWithTap, {
+        enabled: shadowConfig.enabled !== false,
+        state,
+        onValidated: (results, { gapId }) => {
+          // 可选：更新 state 中的验证结果
+          if (!state.shadowResults) state.shadowResults = {};
+          state.shadowResults[gapId || "global"] = results;
+        },
+      });
+    }
 
     let currentStage = "deepsearch";
     const logger = createLogger({
@@ -1142,6 +1168,7 @@ export class DeepSearchStage {
       if (taskManager && taskId) taskManager.fail(taskId, err);
       throw err;
     } finally {
+      unsubShadow();
       tap.destroy();
     }
   }
