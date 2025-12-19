@@ -81,3 +81,48 @@ export const SlotPurpose = Object.freeze({
   CHART_FALLBACK: "chart_fallback",
   ILLUSTRATION: "illustration",
 });
+
+/**
+ * Brainstorm 状态枚举
+ * @readonly
+ * @enum {string}
+ */
+export const BrainstormStatus = Object.freeze({
+  PENDING: "pending",
+  GENERATING: "generating",
+  REVIEWING: "reviewing",
+  COMPLETED: "completed",
+  FAILED: "failed",
+});
+
+/**
+ * Idea 类型枚举
+ * @readonly
+ * @enum {string}
+ */
+export const IdeaType = Object.freeze({
+  THEME: "theme",
+  LAYOUT: "layout",
+  CONTENT: "content",
+  VISUAL: "visual",
+});
+
+/**
+ * DSL 动效类型枚举
+ * @readonly
+ * @enum {string}
+ */
+export const DslEffect = Object.freeze({
+  NONE: "none",
+  FADE: "fade",
+  SLIDE: "slide",
+  ZOOM: "zoom",
+  BOUNCE: "bounce",
+});
+
+/**
+ * 验证 BrainstormStatus 值
+ */
+export function isValidBrainstormStatus(value) {
+  return Object.values(BrainstormStatus).includes(value);
+}

@@ -75,8 +75,20 @@ export class EventBus {
     this._seq = 0;
     this._listeners = new Map(); // name -> Set(fn)
     this._wildcardListeners = new Map(); // pattern -> Set(fn)
+    this._priorityListeners = new Map(); // name -> Map(priority -> Set(fn))
+    this._wildcardPriorityListeners = new Map(); // pattern -> Map(priority -> Set(fn))
+    this._sortedHandlersCache = new Map(); // eventName -> [{ fn, priority }]
+    this._cacheVersion = 0; // 递增版本号，用于失效缓存
     this._backpressure = null;
     this._persistenceAdapter = ensurePersistenceAdapter(persistenceAdapter);
+  }
+
+  /**
+   * 使缓存失效
+   */
+  _invalidateCache() {
+    this._cacheVersion++;
+    this._sortedHandlersCache.clear();
   }
 
   on(name, handler) {
@@ -93,6 +105,7 @@ export class EventBus {
       this._listeners.set(name, set);
     }
     set.add(handler);
+    this._invalidateCache();
 
     return () => this.off(name, handler);
   }
@@ -109,17 +122,67 @@ export class EventBus {
    * 订阅事件，支持通配符模式如 "deepsearch.*"
    * @param {string} eventType - 事件类型或通配符模式
    * @param {Function} handler - 事件处理器
+   * @param {Object} [options] - 订阅选项
+   * @param {number} [options.priority=0] - 优先级，数值越大越先执行
    * @returns {Function} 取消订阅函数
    */
-  subscribe(eventType, handler) {
+  subscribe(eventType, handler, { priority = 0 } = {}) {
     if (typeof handler !== "function") {
       throw new TypeError("EventBus.subscribe(eventType, handler): handler must be a function");
     }
     if (typeof eventType !== "string" || !eventType.length) {
       throw new Error("EventBus.subscribe(eventType, handler): eventType must be a non-empty string");
     }
+    if (typeof priority !== "number" || !Number.isFinite(priority)) {
+      throw new TypeError("EventBus.subscribe: priority must be a finite number");
+    }
 
-    // 通配符模式使用 _wildcardListeners
+    // 非零优先级使用优先级监听器
+    if (priority !== 0) {
+      if (eventType.includes("*")) {
+        // 通配符 + 优先级
+        let priorityMap = this._wildcardPriorityListeners.get(eventType);
+        if (!priorityMap) {
+          priorityMap = new Map();
+          this._wildcardPriorityListeners.set(eventType, priorityMap);
+        }
+        let set = priorityMap.get(priority);
+        if (!set) {
+          set = new Set();
+          priorityMap.set(priority, set);
+        }
+        set.add(handler);
+        this._invalidateCache();
+        return () => {
+          set.delete(handler);
+          if (set.size === 0) priorityMap.delete(priority);
+          if (priorityMap.size === 0) this._wildcardPriorityListeners.delete(eventType);
+          this._invalidateCache();
+        };
+      } else {
+        // 精确匹配 + 优先级
+        let priorityMap = this._priorityListeners.get(eventType);
+        if (!priorityMap) {
+          priorityMap = new Map();
+          this._priorityListeners.set(eventType, priorityMap);
+        }
+        let set = priorityMap.get(priority);
+        if (!set) {
+          set = new Set();
+          priorityMap.set(priority, set);
+        }
+        set.add(handler);
+        this._invalidateCache();
+        return () => {
+          set.delete(handler);
+          if (set.size === 0) priorityMap.delete(priority);
+          if (priorityMap.size === 0) this._priorityListeners.delete(eventType);
+          this._invalidateCache();
+        };
+      }
+    }
+
+    // 优先级为 0 的使用普通监听器
     if (eventType.includes("*")) {
       let set = this._wildcardListeners.get(eventType);
       if (!set) {
@@ -127,9 +190,11 @@ export class EventBus {
         this._wildcardListeners.set(eventType, set);
       }
       set.add(handler);
+      this._invalidateCache();
       return () => {
         set.delete(handler);
         if (set.size === 0) this._wildcardListeners.delete(eventType);
+        this._invalidateCache();
       };
     }
 
@@ -142,6 +207,7 @@ export class EventBus {
     if (!set) return;
     set.delete(handler);
     if (set.size === 0) this._listeners.delete(name);
+    this._invalidateCache();
   }
 
   enableBackpressure(options = {}) {
@@ -247,23 +313,60 @@ export class EventBus {
   }
 
   _dispatch(evt) {
-    // 精确匹配
+    // 收集所有匹配的 handlers 及其优先级
+    const handlers = []; // [{ fn, priority }]
+    let hasNonZeroPriority = false;
+
+    // 精确匹配 - 优先级监听器
+    const priorityMap = this._priorityListeners.get(evt.name);
+    if (priorityMap) {
+      for (const [priority, set] of priorityMap) {
+        for (const fn of set) {
+          handlers.push({ fn, priority });
+          if (priority !== 0) hasNonZeroPriority = true;
+        }
+      }
+    }
+
+    // 精确匹配 - 普通监听器 (优先级 0)
     const direct = this._listeners.get(evt.name);
     if (direct) {
-      for (const fn of [...direct]) fn(evt);
+      for (const fn of direct) handlers.push({ fn, priority: 0 });
     }
 
-    // 全局通配符 "*"
+    // 全局通配符 "*" (优先级 0)
     const any = this._listeners.get("*");
     if (any) {
-      for (const fn of [...any]) fn(evt);
+      for (const fn of any) handlers.push({ fn, priority: 0 });
     }
 
-    // 通配符模式匹配 (如 "deepsearch.*")
-    for (const [pattern, handlers] of this._wildcardListeners) {
+    // 通配符模式 - 优先级监听器
+    for (const [pattern, pMap] of this._wildcardPriorityListeners) {
       if (matchEventPattern(pattern, evt.name)) {
-        for (const fn of [...handlers]) fn(evt);
+        for (const [priority, set] of pMap) {
+          for (const fn of set) {
+            handlers.push({ fn, priority });
+            if (priority !== 0) hasNonZeroPriority = true;
+          }
+        }
       }
+    }
+
+    // 通配符模式 - 普通监听器 (优先级 0)
+    for (const [pattern, set] of this._wildcardListeners) {
+      if (matchEventPattern(pattern, evt.name)) {
+        for (const fn of set) handlers.push({ fn, priority: 0 });
+      }
+    }
+
+    // 只在有非零优先级时才排序（优化：大多数情况不需要排序）
+    if (hasNonZeroPriority) {
+      handlers.sort((a, b) => b.priority - a.priority);
+    }
+
+    // 执行所有 handlers
+    for (const { fn } of handlers) {
+      fn(evt);
     }
   }
 

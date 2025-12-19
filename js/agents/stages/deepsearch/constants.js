@@ -66,3 +66,125 @@ export const PHASE_TRANSITIONS = Object.freeze({
   [PhaseStatus.COMPLETED]: [],
 });
 
+// Gap 优先级枚举
+export const GapPriority = Object.freeze({
+  HIGH: "high",
+  MEDIUM: "medium",
+  LOW: "low",
+});
+
+// Gap 状态枚举
+export const GapStatus = Object.freeze({
+  OPEN: "open",
+  FILLED: "filled",
+  BLOCKED: "blocked",
+  STALE: "stale",
+});
+
+// Todo 状态枚举
+export const TodoStatus = Object.freeze({
+  OPEN: "open",
+  PENDING: "pending",
+  COMPLETED: "completed",
+  CANCELLED: "cancelled",
+});
+
+// PlanNode 状态枚举
+export const PlanNodeStatus = Object.freeze({
+  PENDING: "pending",
+  ACTIVE: "active",
+  COMPLETED: "completed",
+  FAILED: "failed",
+  BLOCKED: "blocked",
+});
+
+// PlanNode 类型枚举
+export const PlanNodeType = Object.freeze({
+  GOAL: "goal",
+  SUBGOAL: "subgoal",
+  QUERY: "query",
+});
+
+// Decision 结果枚举
+export const DecisionOutcome = Object.freeze({
+  SUCCESS: "success",
+  FAIL: "fail",
+  PARTIAL: "partial",
+  UNKNOWN: "unknown",
+});
+
+// Decision 阶段枚举
+export const DecisionStage = Object.freeze({
+  SCAN: "scan",
+  GAPS: "gaps",
+  RETRIEVE: "retrieve",
+  UNDERSTAND: "understand",
+  WRITE: "write",
+  CONDENSE: "condense",
+  UNKNOWN: "unknown",
+});
+
+// 检索策略枚举
+export const RetrievalStrategy = Object.freeze({
+  GREP: "grep",
+  BM25: "bm25",
+  TOOL_CHAIN: "tool-chain",
+  EXTERNAL: "external",
+});
+
+// 验证函数
+export function isValidGapPriority(value) {
+  return Object.values(GapPriority).includes(value);
+}
+
+export function isValidGapStatus(value) {
+  return Object.values(GapStatus).includes(value);
+}
+
+export function isValidPlanNodeStatus(value) {
+  return Object.values(PlanNodeStatus).includes(value);
+}
+
+export function isValidDecisionOutcome(value) {
+  return Object.values(DecisionOutcome).includes(value);
+}
+
+// Re-export from trajectory.js for convenience
+export { MergeStrategy, CachePolicy, DivergeAt, TrajectoryStatus } from "./trajectory.js";
+
+// Checkpoint 模式枚举
+export const CheckpointMode = Object.freeze({
+  FULL: "full",
+  LITE: "lite",
+  MINIMAL: "minimal",
+});
+
+// Writer 模式枚举
+export const WriterMode = Object.freeze({
+  STRUCTURED: "structured",
+  FREEFORM: "freeform",
+  HYBRID: "hybrid",
+});
+
+// Reviewer 模式枚举
+export const ReviewerMode = Object.freeze({
+  STRICT: "strict",
+  LENIENT: "lenient",
+  AUTO: "auto",
+});
+
+// Claim 重要性枚举
+export const ClaimImportance = Object.freeze({
+  HIGH: "high",
+  MEDIUM: "medium",
+  LOW: "low",
+});
+
+// Evidence 强度枚举
+export const EvidenceStrength = Object.freeze({
+  STRONG: "strong",
+  MODERATE: "moderate",
+  WEAK: "weak",
+  UNVERIFIED: "unverified",
+});
+

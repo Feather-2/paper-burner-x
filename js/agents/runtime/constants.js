@@ -37,3 +37,71 @@ export function isValidActorType(value) {
 export function isValidOrchestratorState(value) {
   return Object.values(OrchestratorState).includes(value);
 }
+
+/**
+ * TodoItem 状态枚举 (Workflow 层面)
+ * @readonly
+ * @enum {string}
+ */
+export const WorkflowTodoStatus = Object.freeze({
+  PENDING: "pending",
+  IN_PROGRESS: "in_progress",
+  COMPLETED: "completed",
+  FAILED: "failed",
+  SKIPPED: "skipped",
+});
+
+/**
+ * Report 长度配置枚举
+ * @readonly
+ * @enum {string}
+ */
+export const ReportLength = Object.freeze({
+  BRIEF: "brief",
+  STANDARD: "standard",
+  DETAILED: "detailed",
+  COMPREHENSIVE: "comprehensive",
+});
+
+/**
+ * Report 语气配置枚举
+ * @readonly
+ * @enum {string}
+ */
+export const ReportTone = Object.freeze({
+  FORMAL: "formal",
+  NEUTRAL: "neutral",
+  CASUAL: "casual",
+  TECHNICAL: "technical",
+});
+
+/**
+ * Report 受众配置枚举
+ * @readonly
+ * @enum {string}
+ */
+export const ReportAudience = Object.freeze({
+  GENERAL: "general",
+  TECHNICAL: "technical",
+  EXECUTIVE: "executive",
+  ACADEMIC: "academic",
+});
+
+/**
+ * Report 语言配置枚举
+ * @readonly
+ * @enum {string}
+ */
+export const ReportLanguage = Object.freeze({
+  ZH_CN: "zh-CN",
+  EN_US: "en-US",
+  JA_JP: "ja-JP",
+  AUTO: "auto",
+});
+
+/**
+ * 验证 ReportLength 值
+ */
+export function isValidReportLength(value) {
+  return Object.values(ReportLength).includes(value);
+}

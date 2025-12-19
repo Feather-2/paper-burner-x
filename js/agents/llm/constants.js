@@ -39,3 +39,44 @@ export function isValidModelUsage(value) {
 export function isValidMessageRole(value) {
   return Object.values(MessageRole).includes(value);
 }
+
+/**
+ * 模型健康状态
+ * @readonly
+ * @enum {string}
+ */
+export const ModelHealth = Object.freeze({
+  HEALTHY: "healthy",
+  DEGRADED: "degraded",
+  UNAVAILABLE: "unavailable",
+});
+
+/**
+ * 路由策略
+ * @readonly
+ * @enum {string}
+ */
+export const RouterStrategy = Object.freeze({
+  ROUND_ROBIN: "round_robin",
+  PRIORITY: "priority",
+  COST_OPTIMIZED: "cost_optimized",
+  LATENCY_OPTIMIZED: "latency_optimized",
+});
+
+/**
+ * 传输类型
+ * @readonly
+ * @enum {string}
+ */
+export const TransportKind = Object.freeze({
+  HTTP: "http",
+  WEBSOCKET: "websocket",
+  STREAMING: "streaming",
+});
+
+/**
+ * 验证 ModelHealth 值
+ */
+export function isValidModelHealth(value) {
+  return Object.values(ModelHealth).includes(value);
+}

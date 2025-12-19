@@ -75,3 +75,16 @@ export function normalizeSourceKind(value) {
     .toLowerCase();
   return VALID_SOURCE_KINDS.has(s) ? s : SourceKind.MARKDOWN;
 }
+
+/**
+ * 导出格式枚举
+ * @readonly
+ * @enum {string}
+ */
+export const ExportFormat = Object.freeze({
+  PPTX: "pptx",
+  PDF: "pdf",
+  HTML: "html",
+  MARKDOWN: "markdown",
+  JSON: "json",
+});
