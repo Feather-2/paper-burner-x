@@ -70,7 +70,7 @@ function makeContentPackage(slideCount = 3) {
   };
 }
 
-test('design.batch runs real DesignStage and populates deckHtmlDsl + slides', async () => {
+test('design.batch calls DesignAgentLoop and populates deckHtmlDsl + slides', async () => {
   setupDom('<!doctype html><html><body></body></html>');
   globalThis.SlideParser = require('../../js/ppt/slide-parser.js').SlideParser;
 
@@ -86,11 +86,17 @@ test('design.batch runs real DesignStage and populates deckHtmlDsl + slides', as
   await gen._ensureRuntime({ mode: 'textprep' });
 
   const design = await import('../../js/agents/stages/design/index.js');
-  const originalRun = design.DesignStage.prototype.run;
+  const originalExecute = design.DesignAgentLoop.prototype.execute;
   let runCalls = 0;
-  design.DesignStage.prototype.run = async function (...args) {
+  design.DesignAgentLoop.prototype.execute = async function () {
     runCalls += 1;
-    return originalRun.apply(this, args);
+    return {
+      schemaVersion: '0.1',
+      runId: 'run_test',
+      deckHtmlDsl: '<section data-type="freeform" data-layout="content"><h1>Ok</h1></section>',
+      slidesMeta: [{ slideNo: 1, degraded: false, qa: { pass: true, reasons: [] } }],
+      editHints: { degradedCount: 0 },
+    };
   };
 
   try {
@@ -103,11 +109,11 @@ test('design.batch runs real DesignStage and populates deckHtmlDsl + slides', as
     assert.ok(Array.isArray(gen.slides) && gen.slides.length > 0);
     assert.ok(gen.workflowData.deckHtmlDsl.includes('data-type="freeform"'));
   } finally {
-    design.DesignStage.prototype.run = originalRun;
+    design.DesignAgentLoop.prototype.execute = originalExecute;
   }
 });
 
-test('design.batch falls back to mock deck when DesignStage throws', async () => {
+test('design.batch falls back to mock deck when DesignAgentLoop throws', async () => {
   setupDom('<!doctype html><html><body></body></html>');
   globalThis.SlideParser = require('../../js/ppt/slide-parser.js').SlideParser;
 
@@ -123,8 +129,8 @@ test('design.batch falls back to mock deck when DesignStage throws', async () =>
   await gen._ensureRuntime({ mode: 'textprep' });
 
   const design = await import('../../js/agents/stages/design/index.js');
-  const originalRun = design.DesignStage.prototype.run;
-  design.DesignStage.prototype.run = async () => {
+  const originalExecute = design.DesignAgentLoop.prototype.execute;
+  design.DesignAgentLoop.prototype.execute = async () => {
     throw new Error('boom');
   };
 
@@ -135,58 +141,11 @@ test('design.batch falls back to mock deck when DesignStage throws', async () =>
     assert.ok(gen.workflowData.deckHtmlDsl.includes('mock-slide-'));
     assert.ok(Array.isArray(gen.slides) && gen.slides.length > 0);
   } finally {
-    design.DesignStage.prototype.run = originalRun;
+    design.DesignAgentLoop.prototype.execute = originalExecute;
   }
 });
 
-test('selectBrainstormCandidate updates workflowData.brainstormCandidates and marks source=user', async () => {
-  const gen = new globalThis.PPTGenerator();
-  gen.setAutoSaveNeeded = () => {};
-  gen._scheduleVizRerender = () => {};
-
-  gen.workflowData.brainstormCandidates = {
-    schemaVersion: '0.1',
-    source: 'auto',
-    updatedAt: 0,
-    candidatesBySlide: [
-      {
-        slideIntentId: 'si_1',
-        slideIndex: 0,
-        candidates: [{ candidateId: 'c1', selected: true }, { candidateId: 'c2', selected: false }],
-        selectedCandidateId: 'c1',
-        selectedCandidate: { candidateId: 'c1', selected: true, elementsMarkdown: '- A' },
-      },
-      {
-        slideIntentId: 'si_2',
-        slideIndex: 1,
-        candidates: [{ candidateId: 'd1', selected: true }, { candidateId: 'd2', selected: false }],
-        selectedCandidateId: 'd1',
-        selectedCandidate: { candidateId: 'd1', selected: true, elementsMarkdown: '- X' },
-      },
-    ],
-    selectedIdeas: [],
-  };
-
-  const before = Date.now();
-  assert.equal(gen.selectBrainstormCandidate('si_2', 'd2'), true);
-
-  const bc = gen.workflowData.brainstormCandidates;
-  assert.equal(bc.source, 'user');
-  assert.ok(typeof bc.updatedAt === 'number' && bc.updatedAt >= before);
-
-  const row = bc.candidatesBySlide.find((r) => r.slideIntentId === 'si_2');
-  assert.equal(row.selectedCandidateId, 'd2');
-  assert.equal(row.selectedCandidate.candidateId, 'd2');
-  assert.equal(row.selectedCandidate.selected, true);
-  assert.equal(row.candidates.find((c) => c.candidateId === 'd1').selected, false);
-  assert.equal(row.candidates.find((c) => c.candidateId === 'd2').selected, true);
-
-  assert.ok(Array.isArray(bc.selectedIdeas) && bc.selectedIdeas.length >= 2);
-  assert.equal(bc.selectedIdeas.find((x) => x.slideIntentId === 'si_2')?.candidateId, 'd2');
-  assert.equal(gen.selectBrainstormCandidate('si_2', 'missing'), false);
-});
-
-test('design.batch injects workflowData.brainstormCandidates into contentPackage', async () => {
+test('design.batch emits design.phase.transition and persists designPhase', async () => {
   setupDom('<!doctype html><html><body></body></html>');
   globalThis.SlideParser = require('../../js/ppt/slide-parser.js').SlideParser;
 
@@ -197,39 +156,14 @@ test('design.batch injects workflowData.brainstormCandidates into contentPackage
   gen.addChatMessage = () => {};
   gen._setAgentStatus = () => {};
 
-  gen.workflowData.contentPackage = makeContentPackage(2);
-  gen.workflowData.brainstormCandidates = {
-    schemaVersion: '0.1',
-    source: 'user',
-    updatedAt: Date.now(),
-    candidatesBySlide: [
-      {
-        slideIntentId: 'si_1',
-        slideIndex: 0,
-        candidates: [{ candidateId: 'si_1_a', selected: true }, { candidateId: 'si_1_b', selected: false }],
-        selectedCandidateId: 'si_1_a',
-        selectedCandidate: { candidateId: 'si_1_a', selected: true },
-      },
-      {
-        slideIntentId: 'si_2',
-        slideIndex: 1,
-        candidates: [{ candidateId: 'si_2_a', selected: true }, { candidateId: 'si_2_b', selected: false }],
-        selectedCandidateId: 'si_2_a',
-        selectedCandidate: { candidateId: 'si_2_a', selected: true },
-      },
-    ],
-    selectedIdeas: [],
-  };
+  gen.workflowData.contentPackage = makeContentPackage(1);
 
   await gen._ensureRuntime({ mode: 'textprep' });
 
   const design = await import('../../js/agents/stages/design/index.js');
-  const originalRun = design.DesignStage.prototype.run;
-  design.DesignStage.prototype.run = async function (contentPackage) {
-    assert.ok(contentPackage && typeof contentPackage === 'object');
-    assert.ok(contentPackage.brainstormCandidates && typeof contentPackage.brainstormCandidates === 'object');
-    assert.equal(contentPackage.brainstormCandidates.source, 'user');
-    assert.equal(contentPackage.brainstormCandidates, gen.workflowData.brainstormCandidates);
+  const originalExecute = design.DesignAgentLoop.prototype.execute;
+  design.DesignAgentLoop.prototype.execute = async function (_runContext, _contentPackage, stageApi) {
+    stageApi?.emit?.('design.phase.transition', { from: 'style_confirming', to: 'generating' }, { status: 'progress' });
     return {
       schemaVersion: '0.1',
       runId: 'run_test',
@@ -242,8 +176,9 @@ test('design.batch injects workflowData.brainstormCandidates into contentPackage
   try {
     const deckPackage = await gen._orchestrator.runStage('design.batch');
     assert.ok(deckPackage && typeof deckPackage.deckHtmlDsl === 'string');
+    assert.equal(gen.workflowData.designPhase?.status, 'generating');
   } finally {
-    design.DesignStage.prototype.run = originalRun;
+    design.DesignAgentLoop.prototype.execute = originalExecute;
   }
 });
 
@@ -259,16 +194,16 @@ test('_pushToProcessPanel derives slideRange from slideIndexes', () => {
   assert.deepEqual(steps[0].details, { slides: '1-4' });
 });
 
-test('_pushToProcessPanel supports totalCandidates as totalIdeas', () => {
+test('_pushToProcessPanel shows design phase transitions', () => {
   const gen = new globalThis.PPTGenerator();
   const steps = [];
   gen.addProcessPanelStep = (evt) => steps.push(evt);
 
-  gen._pushToProcessPanel('design.brainstorm.completed', { totalCandidates: 7 });
+  gen._pushToProcessPanel('design.phase.transition', { to: 'generating' });
 
   assert.equal(steps.length, 1);
-  assert.equal(steps[0].text, '脑暴完成：7 个候选');
-  assert.deepEqual(steps[0].details, { ideas: 7 });
+  assert.equal(steps[0].text, '设计阶段：生成页面');
+  assert.deepEqual(steps[0].details, { phase: '生成页面' });
 });
 
 test('_handleRuntimeEvent updates designer activity for design sub-stages', () => {
@@ -282,7 +217,6 @@ test('_handleRuntimeEvent updates designer activity for design sub-stages', () =
 
   gen._runtimeDesignSubStageUi = {
     'design.tokens': { label: '设计规范提取', agentId: 'designer' },
-    'design.brainstorm': { label: '创意构思', agentId: 'designer' },
     'design.image.planning': { label: '图片规划', agentId: 'designer' },
     'design.visual.render': { label: '视觉渲染', agentId: 'designer' },
     'design.refine': { label: '质量精炼', agentId: 'designer' },
@@ -306,6 +240,31 @@ test('_handleRuntimeEvent updates designer activity for design sub-stages', () =
   assert.deepEqual(agentCalls[5], { id: 'designer', status: 'active', activity: '降级渲染 (第 2 页)' });
 });
 
+test('_handleRuntimeEvent updates slideStatuses for design.slide events', () => {
+  const gen = new globalThis.PPTGenerator();
+  gen._pushFlowVizEvent = () => {};
+  gen._pushToProcessPanel = () => {};
+
+  gen._handleRuntimeEvent({
+    name: 'design.slide.started',
+    payload: { slideIndex: 0, slideIntent: { id: 'si_1' } }
+  });
+  assert.equal(gen.workflowData.slideStatuses.bySlideIntentId.si_1.status, 'generating');
+
+  gen._handleRuntimeEvent({
+    name: 'design.slide.completed',
+    payload: { slideIndex: 0, source: 'llm', duration: 1200 }
+  });
+  assert.equal(gen.workflowData.slideStatuses.byIndex[0].status, 'completed');
+  assert.equal(gen.workflowData.slideStatuses.byIndex[0].duration, 1200);
+
+  gen._handleRuntimeEvent({
+    name: 'design.degraded',
+    payload: { slideIndex: 0, reason: 'qa_failed' }
+  });
+  assert.equal(gen.workflowData.slideStatuses.byIndex[0].degraded, true);
+});
+
 test('_ensureRuntime populates _runtimeDesignSubStageUi mapping', async () => {
   const gen = new globalThis.PPTGenerator();
   gen.updateTodos = () => {};
@@ -318,4 +277,5 @@ test('_ensureRuntime populates _runtimeDesignSubStageUi mapping', async () => {
 
   assert.ok(gen._runtimeDesignSubStageUi && typeof gen._runtimeDesignSubStageUi === 'object');
   assert.deepEqual(gen._runtimeDesignSubStageUi['design.image.planning'], { label: '图片规划', agentId: 'designer' });
+  assert.equal(gen._runtimeDesignSubStageUi['design.brainstorm'], undefined);
 });

@@ -71,157 +71,47 @@ function makeContentPackage(count = 3) {
   };
 }
 
-function makeBrainstormCandidates({ slideIds = ['si_1'], candidatesPerSlide = 2 } = {}) {
-  return {
-    schemaVersion: '0.1',
-    source: 'auto',
-    updatedAt: Date.now(),
-    candidatesBySlide: slideIds.map((sid, i) => ({
-      slideIntentId: sid,
-      slideIndex: i,
-      candidates: Array.from({ length: candidatesPerSlide }, (_, j) => ({
-        candidateId: `${sid}_c${j + 1}`,
-        composite: 0.5 + j * 0.1,
-        atmosphere: { mood: `Mood ${j + 1}`, colorScheme: 'Use tokens', visualWeight: 'Balanced' },
-        elementsMarkdown: `- Element ${j + 1}\n- {{IMAGE:slot_${j + 1}}}`,
-        selected: j === 0,
-      })),
-      selectedCandidateId: `${sid}_c1`,
-      selectedCandidate: { candidateId: `${sid}_c1`, selected: true, elementsMarkdown: '- Element 1' },
-    })),
-    selectedIdeas: [],
-  };
-}
-
-test('_hasBrainstormCandidates detects candidatesBySlide', () => {
-  const gen = makeGenerator();
-  assert.equal(gen._hasBrainstormCandidates(), false);
-  gen.workflowData.brainstormCandidates = { candidatesBySlide: [] };
-  assert.equal(gen._hasBrainstormCandidates(), false);
-  gen.workflowData.brainstormCandidates = makeBrainstormCandidates({ slideIds: ['si_1'] });
-  assert.equal(gen._hasBrainstormCandidates(), true);
-});
-
-test('_setPageLayoutTab clamps max tab based on brainstormCandidates', () => {
+test('_setPageLayoutTab clamps max tab to 2', () => {
   const gen = makeGenerator();
   let renders = 0;
   gen.renderPreviewArea = () => {
     renders += 1;
   };
 
-  gen.workflowData.brainstormCandidates = null;
   gen._setPageLayoutTab(3);
   assert.equal(gen._pageLayoutTab, 2);
 
-  gen.workflowData.brainstormCandidates = makeBrainstormCandidates({ slideIds: ['si_1'] });
-  gen._setPageLayoutTab(3);
-  assert.equal(gen._pageLayoutTab, 3);
+  gen._setPageLayoutTab(1);
+  assert.equal(gen._pageLayoutTab, 1);
   assert.equal(renders >= 2, true);
 });
 
-test('_renderPageLayoutReview shows brainstorm tab only when data exists', () => {
+test('_renderPageLayoutReview shows design phase progress', () => {
   setupDom('<!doctype html><html><body></body></html>');
   const gen = makeGenerator();
   gen._renderPagePlanTab = () => '<div id="plan"></div>';
   gen._renderPageDetailTab = () => '<div id="detail"></div>';
   gen._renderDesignSpecView = () => '<div id="spec"></div>';
 
-  gen._pageLayoutTab = 3;
+  gen._pageLayoutTab = 2;
   gen.workflowData.contentPackage = makeContentPackage(2);
-  gen.workflowData.brainstormCandidates = makeBrainstormCandidates({ slideIds: ['si_1'] });
+  gen.workflowData.designPhase = { status: 'generating' };
   document.body.innerHTML = gen._renderPageLayoutReview();
-  assert.ok(document.body.textContent.includes('创意候选'));
-  assert.ok(document.querySelector('.brainstorm-candidates-panel'));
-
-  const gen2 = makeGenerator();
-  gen2._renderPagePlanTab = () => '<div id="plan"></div>';
-  gen2._renderPageDetailTab = () => '<div id="detail"></div>';
-  gen2._renderDesignSpecView = () => '<div id="spec"></div>';
-  gen2._pageLayoutTab = 3;
-  gen2.workflowData.contentPackage = makeContentPackage(2);
-  gen2.workflowData.brainstormCandidates = null;
-  document.body.innerHTML = gen2._renderPageLayoutReview();
-  assert.equal(document.body.textContent.includes('创意候选'), false);
-  assert.ok(document.querySelector('#spec'));
-  assert.equal(gen2._pageLayoutTab, 2);
+  assert.ok(document.body.textContent.includes('设计阶段进度'));
+  assert.ok(document.body.textContent.includes('生成页面'));
 });
 
-test('_renderBrainstormCandidatesPanel renders slide groups + cards with expected DOM structure', () => {
-  setupDom('<!doctype html><html><body></body></html>');
+test('_renderPagePlanTab shows slide status badges', () => {
   const gen = makeGenerator();
-  gen.workflowData.contentPackage = makeContentPackage(3);
-  gen.workflowData.brainstormCandidates = makeBrainstormCandidates({ slideIds: ['si_1', 'si_2'], candidatesPerSlide: 3 });
-
-  document.body.innerHTML = gen._renderBrainstormCandidatesPanel();
-  const panel = document.querySelector('.brainstorm-candidates-panel');
-  assert.ok(panel);
-
-  const groups = Array.from(document.querySelectorAll('.brainstorm-slide-group'));
-  assert.equal(groups.length, 2);
-
-  const cards = Array.from(document.querySelectorAll('.brainstorm-card'));
-  assert.equal(cards.length, 6);
-
-  const selected = Array.from(document.querySelectorAll('.brainstorm-card.selected'));
-  assert.equal(selected.length, 2);
-
-  assert.ok(document.querySelector('.brainstorm-card-actions'));
-  assert.ok(document.querySelector('.brainstorm-card-grid'));
-
-  const firstCard = cards[0];
-  assert.ok(firstCard.getAttribute('onclick')?.includes('_selectBrainstormCandidateFromUI'));
-  assert.ok(firstCard.getAttribute('data-slide-intent-id'));
-  assert.ok(firstCard.getAttribute('data-candidate-id'));
-});
-
-test('_selectBrainstormCandidateFromUI calls selectBrainstormCandidate and re-renders', () => {
-  const gen = makeGenerator();
-  let called = null;
-  let renders = 0;
-  gen.selectBrainstormCandidate = (sid, cid) => {
-    called = { sid, cid };
-    return true;
-  };
-  gen.renderPreviewArea = () => {
-    renders += 1;
+  gen.workflowData.contentPackage = makeContentPackage(1);
+  gen.workflowData.slideStatuses = {
+    schemaVersion: '0.1',
+    bySlideIntentId: { si_1: { status: 'completed' } },
+    byIndex: {}
   };
 
-  assert.equal(gen._selectBrainstormCandidateFromUI('si_1', 'c1'), true);
-  assert.deepEqual(called, { sid: 'si_1', cid: 'c1' });
-  assert.equal(renders, 1);
-});
-
-test('_selectBrainstormCandidateFromUI reports failure when API returns false', () => {
-  const gen = makeGenerator();
-  let msg = '';
-  gen.selectBrainstormCandidate = () => false;
-  gen.addChatMessage = (_role, text) => {
-    msg = String(text || '');
-  };
-  assert.equal(gen._selectBrainstormCandidateFromUI('si_1', 'missing'), false);
-  assert.ok(msg.includes('选择失败'));
-});
-
-test('_regenerateBrainstormForSlideFromUI tracks in-progress state and re-renders', async () => {
-  const gen = makeGenerator();
-  let renders = 0;
-  gen.renderPreviewArea = () => {
-    renders += 1;
-  };
-
-  let regenCalls = 0;
-  gen.regenerateBrainstormForSlide = async () => {
-    regenCalls += 1;
-  };
-
-  const p1 = gen._regenerateBrainstormForSlideFromUI('si_1');
-  const p2 = gen._regenerateBrainstormForSlideFromUI('si_1');
-  assert.equal(gen._brainstormRegenInProgress.si_1, true);
-  assert.equal(await p2, false);
-  assert.equal(await p1, true);
-  assert.equal(regenCalls, 1);
-  assert.equal(gen._brainstormRegenInProgress.si_1, undefined);
-  assert.ok(renders >= 2);
+  const html = gen._renderPagePlanTab();
+  assert.ok(html.includes('已完成'));
 });
 
 test('_getEditableContentPackage initializes workflowData.contentPackage and slideIntents', () => {
@@ -359,4 +249,3 @@ test('edit helpers update slide intents: updateSlideIntent, keypoints, merge, sp
   assert.equal(gen.workflowData.slideIntents.length, 2);
   assert.equal(gen.workflowData.slideIntents[0].keyPoints.length, 1);
 });
-

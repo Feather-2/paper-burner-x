@@ -539,6 +539,10 @@
 
         this.workflowData.files.push(pasteItem);
 
+        if (typeof this.startFromPastedText === 'function') {
+            this.startFromPastedText(content);
+        }
+
         this.closePasteDocumentModal();
 
         // 刷新界面显示

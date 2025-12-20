@@ -1,0 +1,823 @@
+import { generateDesignTokens } from "./design-tokens.js";
+import { generateDesignSystem } from "./design-system-generator.js";
+import { buildSlideHtml } from "./dsl-builder.js";
+import { generateBatch } from "./batch-generator.js";
+import { validateSlide } from "./qa-validator.js";
+import { fillImagePlaceholders } from "./image-generator.js";
+import { SVGGenerator, fillSvgPlaceholders } from "./svg-generator.js";
+import { fillAssetPlaceholders } from "./asset-resolver.js";
+import { VisualRenderer } from "./visual-renderer.js";
+import { getDslRules } from "./dsl-rules.js";
+import { brainstorm } from "./brainstorm.js";
+import { normalizeRenderType } from "../../shared/value-utils.js";
+import { DesignPhase, designPhaseMachine } from "./states.js";
+
+const SCHEMA_VERSION = "0.1";
+const USER_ACTION_PREFIX = "user.action";
+
+export const DESIGN_AGENT_TOOL_DEFINITIONS = Object.freeze([
+  {
+    name: "parse_outline",
+    description: "Parse source content into slide intents.",
+    parameters: {
+      type: "object",
+      properties: {
+        contentPackage: { type: "object" },
+      },
+    },
+  },
+  {
+    name: "extract_style",
+    description: "Extract or generate design system from inputs.",
+    parameters: {
+      type: "object",
+      properties: {
+        contentPackage: { type: "object" },
+        constraints: { type: "object" },
+        userConfig: { type: "object" },
+      },
+    },
+  },
+  {
+    name: "spawn_slide_agent",
+    description: "Spawn slide sub-agents to generate HTML DSL for slides.",
+    parameters: {
+      type: "object",
+      properties: {
+        slideIntents: { type: "array" },
+        contentPackage: { type: "object" },
+        designSystem: { type: "object" },
+      },
+    },
+  },
+  {
+    name: "take_screenshot",
+    description: "Capture slide screenshots for review.",
+    parameters: {
+      type: "object",
+      properties: {
+        slideIndex: { type: "number" },
+      },
+    },
+  },
+  {
+    name: "fix_slide",
+    description: "Apply fixes to a slide based on review feedback.",
+    parameters: {
+      type: "object",
+      properties: {
+        slideIndex: { type: "number" },
+        issues: { type: "array" },
+      },
+    },
+  },
+  {
+    name: "fill_visual",
+    description: "Fill visuals (images/SVG/assets) for slides.",
+    parameters: {
+      type: "object",
+      properties: {
+        visualSlots: { type: "array" },
+      },
+    },
+  },
+  {
+    name: "chat_ask",
+    description: "Ask user for feedback or confirmation.",
+    parameters: {
+      type: "object",
+      properties: {
+        message: { type: "string" },
+        actionName: { type: "string" },
+      },
+      required: ["message"],
+    },
+  },
+]);
+
+function getEmitFn(ctx) {
+  const emit = ctx?.emit || ctx?.eventBus?.emit;
+  return typeof emit === "function" ? emit : null;
+}
+
+function emitStage(emit, name, status, payload) {
+  emit?.(name, { actor: "design", status, payload });
+}
+
+function checkCancelled(signal) {
+  if (!signal?.aborted) return;
+  const reason = signal.reason;
+  throw new Error(typeof reason === "string" ? reason : "Run cancelled");
+}
+
+function hasImagePlanningConfig(constraints) {
+  if (!constraints || typeof constraints !== "object") return false;
+  return Object.prototype.hasOwnProperty.call(constraints, "imagePolicy") || Object.prototype.hasOwnProperty.call(constraints, "imageBudget");
+}
+
+function estimateSlotCostUSD(slot) {
+  const style = String(slot?.style || "").toLowerCase();
+  if (style.includes("3d") || style.includes("photo") || style.includes("hd") || style.includes("cinematic")) return 0.04;
+  return 0.003;
+}
+
+function loadDesignConcurrencyConfig() {
+  try {
+    const raw = typeof localStorage !== "undefined" ? localStorage.getItem("ppt_designConcurrency") : null;
+    if (raw) return JSON.parse(raw);
+  } catch (_) {}
+  return null;
+}
+
+function normalizeToolResult(result) {
+  if (result && typeof result === "object" && Object.prototype.hasOwnProperty.call(result, "ok")) {
+    return result;
+  }
+  if (result && typeof result === "object" && ("error" in result || "data" in result)) {
+    return { ok: !result.error, data: result.data, error: result.error };
+  }
+  return { ok: true, data: result };
+}
+
+function resolveToolExecutor(context) {
+  const executor = context?.toolExecutor || context?.tools;
+  if (typeof executor === "function") return executor;
+  if (executor && typeof executor.execute === "function") return (name, params) => executor.execute(name, params);
+  return null;
+}
+
+export class DesignAgentLoop {
+  constructor({ batchSize } = {}) {
+    const config = loadDesignConcurrencyConfig();
+    const defaultBatchSize = config?.batchSize || 4;
+    this.batchSize = Math.max(1, Number(batchSize) || defaultBatchSize);
+    this.batchConcurrency = Math.max(1, Number(config?.batchConcurrency) || 2);
+    this.imageConcurrency = Math.max(1, Number(config?.imageConcurrency) || 4);
+    this._tools = {
+      parse_outline: this._toolParseOutline.bind(this),
+      extract_style: this._toolExtractStyle.bind(this),
+      spawn_slide_agent: this._toolSpawnSlideAgent.bind(this),
+      take_screenshot: this._toolTakeScreenshot.bind(this),
+      fix_slide: this._toolFixSlide.bind(this),
+      fill_visual: this._toolFillVisual.bind(this),
+      chat_ask: this._toolChatAsk.bind(this),
+    };
+    this.phase = { status: DesignPhase.IDLE };
+  }
+
+  getToolDefinitions() {
+    return DESIGN_AGENT_TOOL_DEFINITIONS.slice();
+  }
+
+  async waitForUserAction(actionName, { timeout = 300000, eventBus, signal } = {}) {
+    const bus = eventBus || this.eventBus;
+    if (!bus || typeof bus.subscribe !== "function") {
+      throw new Error("waitForUserAction: eventBus with subscribe() is required");
+    }
+
+    return new Promise((resolve, reject) => {
+      let done = false;
+      const finish = (err, payload) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timeoutId);
+        off?.();
+        if (signal && typeof signal.removeEventListener === "function") {
+          signal.removeEventListener("abort", onAbort);
+        }
+        if (err) reject(err);
+        else resolve(payload);
+      };
+
+      const onAbort = () => {
+        finish(new Error("Run cancelled"));
+      };
+
+      if (signal && typeof signal.addEventListener === "function") {
+        signal.addEventListener("abort", onAbort, { once: true });
+      }
+
+      const timeoutId = setTimeout(() => {
+        finish(new Error(`Timeout waiting for user action: ${actionName}`));
+      }, timeout);
+
+      const off = bus.subscribe(`${USER_ACTION_PREFIX}.${actionName}`, (evt) => {
+        const payload = evt && typeof evt === "object" && "payload" in evt ? evt.payload : evt;
+        finish(null, payload);
+      });
+    });
+  }
+
+  _transitionPhase(state, next, { emit, runId, payload } = {}) {
+    const from = state.status;
+    const ok = designPhaseMachine.transition(state, next, { runId, from, to: next, ...payload });
+    if (!ok) {
+      throw new Error(`DesignPhase transition rejected: ${from} -> ${next}`);
+    }
+    emitStage(emit, "design.phase.transition", "progress", { runId, from, to: next, ...payload });
+    return next;
+  }
+
+  async _callTool(name, params, context) {
+    const executor = resolveToolExecutor(context);
+    if (executor) {
+      return normalizeToolResult(await executor(name, params, context));
+    }
+    const tool = this._tools[name];
+    if (!tool) {
+      return { ok: false, error: `Unknown tool: ${name}` };
+    }
+    try {
+      const data = await tool(params, context);
+      return { ok: true, data };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  async _initDesignSystem(contentPackage, context, constraints, userConfig) {
+    const modelRouter =
+      Object.prototype.hasOwnProperty.call(context || {}, "modelRouter") ? context.modelRouter : (context?.runContext && context.runContext.modelRouter) || null;
+
+    let designSystem;
+    try {
+      designSystem = await generateDesignSystem(
+        {
+          contentSummary: contentPackage?.summary || "",
+          tone: String(constraints?.tone || contentPackage?.constraints?.tone || "neutral"),
+          extractedPalette: contentPackage?.constraints?.extractedPalette || constraints?.extractedPalette,
+          userPreferences: userConfig,
+        },
+        { modelRouter, aiApiService: context.aiApiService, signal: context.signal, constraints }
+      );
+    } catch (e) {
+      checkCancelled(context.signal);
+      designSystem = generateDesignTokens(constraints);
+    }
+
+    if (!designSystem || !designSystem?.designTokens) {
+      designSystem = generateDesignTokens(constraints);
+    }
+
+    return designSystem;
+  }
+
+  _buildVisualSlots(brainstormResult, imageSlots, imageProvider) {
+    const candidatesBySlide = Array.isArray(brainstormResult?.candidatesBySlide) ? brainstormResult.candidatesBySlide : [];
+    const selectedVisualSlots = candidatesBySlide.flatMap((row) =>
+      Array.isArray(row?.selectedCandidate?.visualSlots) ? row.selectedCandidate.visualSlots : []
+    );
+
+    // When imageProvider is not available, fallback ai-image slots to svg
+    const shouldFallbackToSvg = !imageProvider;
+    const mapSlotRenderType = (slot) => {
+      const rt = normalizeRenderType(slot?.renderType);
+      if (shouldFallbackToSvg && rt === "ai-image") {
+        return {
+          ...slot,
+          renderType: "svg",
+          svgSpec: {
+            type: slot?.purpose === "chart_fallback" ? "chart" : "diagram",
+            description: slot?.imageSpec?.prompt || slot?.promptHint || slot?.purpose || "Visual element",
+          },
+        };
+      }
+      return { ...slot, renderType: rt };
+    };
+
+    return selectedVisualSlots.length
+      ? selectedVisualSlots.map(mapSlotRenderType)
+      : imageSlots.map((s) =>
+          mapSlotRenderType({
+            slotId: s.slotId,
+            slideIntentId: s.slideIntentId,
+            slideIndex: s.slideIndex,
+            renderType: normalizeRenderType(s.renderType),
+            priority: s.priority,
+            aspectRatio: s.aspectRatio,
+            purpose: s.purpose,
+            imageSpec: { prompt: s.promptHint, style: s.style },
+            ...(s.effects ? { effects: s.effects } : {}),
+            ...(s.assetId ? { assetSpec: { assetId: s.assetId } } : {}),
+          })
+        );
+  }
+
+  async _renderVisuals(
+    visualSlotsForRender,
+    contentPackage,
+    designSystem,
+    slideHtmls,
+    context,
+    runContext,
+    constraints,
+    imageSlots,
+    aiImageSlotIds
+  ) {
+    const emit = getEmitFn(context);
+    const modelRouter =
+      Object.prototype.hasOwnProperty.call(context || {}, "modelRouter") ? context.modelRouter : (context?.runContext && context.runContext.modelRouter) || null;
+
+    let imageReport = null;
+    let visualReport = null;
+    let finalImageSlots = imageSlots;
+    let deckHtmlDsl = slideHtmls.join("\n\n");
+    let pendingImages = aiImageSlotIds.slice();
+
+    if (!visualSlotsForRender.length) {
+      return { visualReport, imageReport, finalImageSlots, deckHtmlDsl, pendingImages };
+    }
+
+    const imageProvider = context.imageProvider || context.imageService;
+
+    try {
+      // Build slideHtmlBySlotId map for SVG generator context
+      const slideHtmlBySlotId = new Map();
+      for (const slot of visualSlotsForRender) {
+        const slotId = String(slot?.slotId || "").trim();
+        const slideIdx = Number.isFinite(slot?.slideIndex) ? slot.slideIndex : -1;
+        if (slotId && slideIdx >= 0 && slideIdx < slideHtmls.length) {
+          slideHtmlBySlotId.set(slotId, slideHtmls[slideIdx]);
+        }
+      }
+
+      const svgGenerator = Object.prototype.hasOwnProperty.call(context || {}, "svgGenerator") ? context.svgGenerator : new SVGGenerator();
+      const renderer = new VisualRenderer({
+        imageProvider: imageProvider || null,
+        svgGenerator,
+        assets: Array.isArray(context?.assets) ? context.assets : Array.isArray(contentPackage?.assets) ? contentPackage.assets : null,
+      });
+
+      const res = await renderer.render(visualSlotsForRender, contentPackage, designSystem, {
+        emit,
+        runId: runContext.runId,
+        policy: constraints?.imagePolicy,
+        budget: constraints?.imageBudget,
+        concurrency: this.imageConcurrency,
+        svgConcurrency: this.imageConcurrency,
+        aiApiService: context.aiApiService,
+        modelRouter,
+        signal: context.signal,
+        slideHtmlBySlotId,
+        imageProvider: imageProvider || null,
+      });
+
+      if (res?.report?.errors?.length) {
+        emitStage(emit, "design.visual.errors", "warn", {
+          errors: res.report.errors,
+          hasFatalError: res.report.hasFatalError || false,
+          svgReport: res.report.svgReport || null,
+        });
+      }
+
+      visualReport = res?.report ? { ...res.report, errors: Array.isArray(res.report.errors) ? res.report.errors : [] } : null;
+      imageReport = res?.imageResults?.report || visualReport?.imageReport || null;
+
+      const filledById = new Map(
+        (Array.isArray(res?.imageResults?.filledSlots) ? res.imageResults.filledSlots : []).map((s) => [String(s?.slotId || ""), s])
+      );
+      if (filledById.size) {
+        finalImageSlots = imageSlots.map((s) => (filledById.has(String(s?.slotId || "")) ? filledById.get(String(s?.slotId || "")) : s));
+      }
+
+      // Apply fills (ai-image/svg/asset) independently.
+      if (Array.isArray(res?.imageResults?.filledSlots) && res.imageResults.filledSlots.length) {
+        const filled = fillImagePlaceholders(deckHtmlDsl, res.imageResults.filledSlots);
+        deckHtmlDsl = filled.deckHtmlDsl;
+        pendingImages = aiImageSlotIds.filter((slotId) => !filled.filledSlotIds.includes(slotId));
+      }
+
+      if (Array.isArray(res?.svgResults) && res.svgResults.length) {
+        const filledSvg = fillSvgPlaceholders(deckHtmlDsl, res.svgResults);
+        deckHtmlDsl = filledSvg.html;
+      }
+
+      if (Array.isArray(res?.assetResults) && res.assetResults.length) {
+        const filledAssets = fillAssetPlaceholders(deckHtmlDsl, res.assetResults);
+        deckHtmlDsl = filledAssets.html;
+      }
+    } catch (e) {
+      checkCancelled(context.signal);
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      const errors = [{ renderer: "design.visual", error: errorMessage }];
+
+      emitStage(emit, "design.visual.errors", "warn", {
+        errors,
+        hasFatalError: true,
+        svgReport: null,
+      });
+
+      imageReport = {
+        schemaVersion: "0.1",
+        runId: runContext.runId,
+        policy: String(constraints?.imagePolicy || "balanced"),
+        budget: constraints?.imageBudget || null,
+        slots: imageSlots,
+        tasks: [],
+        summary: { planned: imageSlots.length, attempted: 0, succeeded: 0, failed: imageSlots.length, skipped: 0, totalCostUSD: 0, totalDurationMs: 0 },
+        error: errorMessage,
+      };
+
+      const planned = { total: visualSlotsForRender.length, "ai-image": 0, svg: 0, asset: 0 };
+      for (const slot of visualSlotsForRender) {
+        const t = normalizeRenderType(slot?.renderType);
+        if (t === "svg") planned.svg += 1;
+        else if (t === "asset") planned.asset += 1;
+        else planned["ai-image"] += 1;
+      }
+
+      visualReport = {
+        schemaVersion: "0.1",
+        runId: runContext.runId,
+        planned,
+        completed: { "ai-image": 0, svg: 0, asset: 0 },
+        durationMs: 0,
+        errors,
+        imageReport,
+        svgReport: null,
+        hasFatalError: true,
+      };
+    }
+
+    return { visualReport, imageReport, finalImageSlots, deckHtmlDsl, pendingImages };
+  }
+
+  async _runRefine(deckPackage, contentPackage, runContext, context, userConfig, emit) {
+    const { runReactRefiner } = await import("./react-refiner.js");
+    const { createToolExecutor } = await import("./react-refiner-tools.js");
+
+    const toolContext = {
+      deckPackage,
+      contentPackage,
+      stageApi: context,
+    };
+    const toolExecutor = createToolExecutor(toolContext);
+
+    const refineResult = await runReactRefiner(
+      toolContext.deckPackage,
+      { contentPackage, runContext, stageApi: context },
+      {
+        recommendedSteps: userConfig.refine.recommendedSteps || 5,
+        hardLimit: userConfig.refine.hardLimit || 15,
+        toolExecutor,
+        mode: "generation", // generation stage only enables base tools
+        onStep: (step) => emit?.("design.refine.step", { actor: "design", status: "step", payload: step }),
+      }
+    );
+
+    const deckHtmlDsl = refineResult.finalDeck?.deckHtmlDsl || toolContext.deckPackage.deckHtmlDsl;
+    const slidesMeta = refineResult.finalDeck?.slidesMeta || toolContext.deckPackage.slidesMeta;
+
+    emitStage(emit, "design.refine.ended", "ended", {
+      qualityScore: refineResult.qualityScore,
+      stepCount: refineResult.steps?.length || 0,
+      terminationReason: refineResult.terminationReason,
+    });
+
+    return { deckHtmlDsl, slidesMeta, refineResult };
+  }
+
+  async _toolParseOutline(params = {}) {
+    const pkg = params.contentPackage || null;
+    const slideIntents = Array.isArray(pkg?.slideIntents) ? pkg.slideIntents : [];
+    return { slideIntents, contentPackage: pkg };
+  }
+
+  async _toolExtractStyle(params = {}, context = {}) {
+    const contentPackage = params.contentPackage || null;
+    const constraints = params.constraints || {};
+    const userConfig = params.userConfig || {};
+    const designSystem = await this._initDesignSystem(contentPackage, context, constraints, userConfig);
+    return { designSystem };
+  }
+
+  async _toolSpawnSlideAgent(params = {}, context = {}) {
+    const slideIntents = Array.isArray(params.slideIntents) ? params.slideIntents : [];
+    const contentPackage = params.contentPackage || null;
+    const designSystem = params.designSystem || null;
+    const generated = await generateBatch(slideIntents, contentPackage, designSystem, {
+      batchSize: params.batchSize || this.batchSize,
+      batchConcurrency: params.batchConcurrency || this.batchConcurrency,
+      modelRouter: params.modelRouter || null,
+      aiApiService: params.aiApiService || context.aiApiService,
+      imageSlots: Array.isArray(params.imageSlots) ? params.imageSlots : [],
+      selectedIdeas: Array.isArray(params.selectedIdeas) ? params.selectedIdeas : [],
+      emit: params.emit || null,
+      signal: params.signal || context.signal,
+      dslRules: params.dslRules || null,
+    });
+    return { generated };
+  }
+
+  async _toolTakeScreenshot() {
+    return { screenshots: [] };
+  }
+
+  async _toolFixSlide() {
+    return { fixed: false };
+  }
+
+  async _toolFillVisual(params = {}, context = {}) {
+    return this._renderVisuals(
+      Array.isArray(params.visualSlotsForRender) ? params.visualSlotsForRender : [],
+      params.contentPackage || null,
+      params.designSystem || null,
+      Array.isArray(params.slideHtmls) ? params.slideHtmls : [],
+      context,
+      params.runContext || {},
+      params.constraints || {},
+      Array.isArray(params.imageSlots) ? params.imageSlots : [],
+      Array.isArray(params.aiImageSlotIds) ? params.aiImageSlotIds : []
+    );
+  }
+
+  async _toolChatAsk(params = {}, context = {}) {
+    const emit = getEmitFn(context);
+    emitStage(emit, "design.chat.ask", "progress", {
+      message: params.message || "",
+      actionName: params.actionName || "chat_reply",
+    });
+    if (!params.actionName) return { actionName: "chat_reply" };
+    const payload = await this.waitForUserAction(params.actionName, { eventBus: context.eventBus, signal: context.signal });
+    return { actionName: params.actionName, payload };
+  }
+
+  /**
+   * Stage interface (Runtime): execute(runContext, contentPackage) -> DeckPackage.
+   * @param {object} runContext
+   * @param {object} contentPackage ContentPackage v0.1
+   * @param {{emit?:Function,eventBus?:object,signal?:AbortSignal,aiApiService?:object,imageService?:any,imageProvider?:any}=} stageApi
+   */
+  async execute(runContext, contentPackage, stageApi = {}) {
+    return this.run(contentPackage, { ...stageApi, runContext });
+  }
+
+  /**
+   * Convenience adapter: run(contentPackage, context) -> DeckPackage.
+   * @param {object} contentPackage
+   * @param {{runContext?:object,emit?:Function,eventBus?:object,signal?:AbortSignal,aiApiService?:object,imageService?:any,imageProvider?:any}=} context
+   */
+  async run(contentPackage, context = {}) {
+    const emit = getEmitFn(context);
+    const runContext = context.runContext || { runId: contentPackage?.runId || "run_unknown", constraints: contentPackage?.constraints || {} };
+    this.eventBus = context.eventBus || null;
+    this.phase = { status: DesignPhase.IDLE };
+
+    emitStage(emit, "design.started", "started", {
+      runId: runContext.runId,
+      slideCount: Array.isArray(contentPackage?.slideIntents) ? contentPackage.slideIntents.length : 0,
+    });
+
+    this._transitionPhase(this.phase, DesignPhase.OUTLINE_PARSING, { emit, runId: runContext.runId });
+    checkCancelled(context.signal);
+
+    const outlineResult = await this._callTool("parse_outline", { contentPackage }, context);
+    if (!outlineResult.ok) throw new Error(outlineResult.error || "parse_outline failed");
+    const outlineData = outlineResult.data || {};
+    const parsedContentPackage = outlineData.contentPackage || contentPackage;
+    let slideIntents = Array.isArray(outlineData.slideIntents) ? outlineData.slideIntents : Array.isArray(parsedContentPackage?.slideIntents) ? parsedContentPackage.slideIntents : [];
+
+    this._transitionPhase(this.phase, DesignPhase.OUTLINE_CONFIRMING, { emit, runId: runContext.runId });
+    if (context?.interactionMode?.outlineConfirm && context.interactionMode.outlineConfirm !== "skip") {
+      const outlineConfirm = await this.waitForUserAction("confirm_outline", { eventBus: context.eventBus, signal: context.signal });
+      if (Array.isArray(outlineConfirm?.slideIntents)) slideIntents = outlineConfirm.slideIntents;
+    }
+
+    if (slideIntents.length === 0) throw new Error("DesignAgentLoop: contentPackage.slideIntents is required");
+
+    this._transitionPhase(this.phase, DesignPhase.STYLE_EXTRACTING, { emit, runId: runContext.runId });
+    checkCancelled(context.signal);
+
+    const constraints = runContext.constraints || {};
+    const userConfig =
+      (runContext && typeof runContext === "object" ? runContext.userConfig : undefined) ||
+      (contentPackage && typeof contentPackage === "object" ? contentPackage.userConfig : undefined) ||
+      (context && typeof context === "object" ? context.userConfig : undefined) ||
+      {};
+
+    const styleResult = await this._callTool("extract_style", { contentPackage: parsedContentPackage, constraints, userConfig }, context);
+    if (!styleResult.ok) throw new Error(styleResult.error || "extract_style failed");
+    const designSystem = styleResult.data?.designSystem || styleResult.data;
+
+    emitStage(emit, "design.tokens.ended", "ended", { theme: designSystem?.theme });
+    checkCancelled(context.signal);
+
+    this._transitionPhase(this.phase, DesignPhase.STYLE_CONFIRMING, { emit, runId: runContext.runId });
+    if (context?.interactionMode?.styleConfirm && context.interactionMode.styleConfirm !== "skip") {
+      await this.waitForUserAction("confirm_style", { eventBus: context.eventBus, signal: context.signal });
+    }
+    this._transitionPhase(this.phase, DesignPhase.GENERATING, { emit, runId: runContext.runId });
+
+    const modelRouter =
+      Object.prototype.hasOwnProperty.call(context || {}, "modelRouter") ? context.modelRouter : (context?.runContext && context.runContext.modelRouter) || null;
+
+    if (context?.pauseOnPhase === DesignPhase.GENERATING || context?.pauseGenerating) {
+      this._transitionPhase(this.phase, DesignPhase.GENERATING_PAUSED, { emit, runId: runContext.runId });
+      const resume = await this.waitForUserAction("resume_generating", { eventBus: context.eventBus, signal: context.signal });
+      const shouldSkip = resume && typeof resume === "object" && resume.action === "skip_review";
+      this._transitionPhase(this.phase, shouldSkip ? DesignPhase.REVIEWING : DesignPhase.GENERATING, { emit, runId: runContext.runId });
+    }
+
+    if (this.phase.status === DesignPhase.GENERATING) {
+      const brainstormResult =
+        context?.brainstormResult ||
+        (context?.skipBrainstorm
+          ? { ideaPool: [], selectedIdeas: [], imageSlots: [], candidatesBySlide: [] }
+          : await brainstorm(parsedContentPackage, designSystem, constraints, {
+              emit,
+              modelRouter,
+              aiApiService: context.aiApiService,
+              signal: context.signal,
+              batchConcurrency: this.batchConcurrency,
+            }));
+      const { imageSlots } = brainstormResult;
+      const selectedIdeasForPrompt = Array.isArray(brainstormResult?.candidatesBySlide)
+        ? brainstormResult.candidatesBySlide
+            .map((row) => ({
+              slideIntentId: String(row?.slideIntentId || "").trim(),
+              slideIndex: Number.isFinite(row?.slideIndex) ? row.slideIndex : undefined,
+              atmosphere: row?.selectedCandidate?.atmosphere,
+              elementsMarkdown: row?.selectedCandidate?.elementsMarkdown,
+              visualSlots: row?.selectedCandidate?.visualSlots,
+            }))
+            .filter((x) => x.slideIntentId)
+        : [];
+
+      let pendingImages = imageSlots.map((s) => s.slotId);
+      const estimatedCostUSD = imageSlots.reduce((sum, s) => sum + estimateSlotCostUSD(s), 0);
+      if (hasImagePlanningConfig(constraints)) {
+        emitStage(emit, "design.image.planning.completed", "completed", {
+          policy: String(constraints?.imagePolicy || "balanced"),
+          planned: imageSlots.length,
+          pendingImages,
+          estimatedCostUSD: Number(estimatedCostUSD.toFixed(4)),
+        });
+        checkCancelled(context.signal);
+      }
+
+      const dslRules = await getDslRules();
+      checkCancelled(context.signal);
+
+      const genResult = await this._callTool(
+        "spawn_slide_agent",
+        {
+          slideIntents,
+          contentPackage: parsedContentPackage,
+          designSystem,
+          batchSize: this.batchSize,
+          batchConcurrency: this.batchConcurrency,
+          modelRouter,
+          aiApiService: context.aiApiService,
+          imageSlots,
+          selectedIdeas: selectedIdeasForPrompt,
+          emit,
+          signal: context.signal,
+          dslRules,
+        },
+        context
+      );
+
+      if (!genResult.ok) throw new Error(genResult.error || "spawn_slide_agent failed");
+      const generated = Array.isArray(genResult.data?.generated) ? genResult.data.generated : Array.isArray(genResult.data) ? genResult.data : [];
+
+      emitStage(emit, "design.generate.ended", "ended", { slides: generated.length });
+      checkCancelled(context.signal);
+
+      this._transitionPhase(this.phase, DesignPhase.REVIEWING, { emit, runId: runContext.runId });
+
+      let slidesMeta = [];
+      let slideHtmls = [];
+      let degradedCount = 0;
+
+      for (let i = 0; i < slideIntents.length; i++) {
+        const slideIntent = slideIntents[i];
+        const slideNo = i + 1;
+        const imageSlotsForSlide = imageSlots.filter((s) => s.slideIndex === i);
+
+        let slideHtml = generated[i]?.slideHtml;
+        let qa = validateSlide(slideHtml);
+        let degraded = false;
+
+        if (!qa.pass) {
+          degraded = true;
+          degradedCount++;
+          emit?.("design.degraded", { actor: "design", status: "warn", payload: { slideNo, slideIntentId: slideIntent.slideIntentId } });
+          slideHtml = buildSlideHtml(slideIntent, designSystem, parsedContentPackage, { safeMode: true, slideNo, imageSlotsForSlide });
+          qa = validateSlide(slideHtml);
+        }
+
+        if (!qa.pass) {
+          // Last-last resort: title-only safe slide.
+          degraded = true;
+          degradedCount++;
+          emit?.("design.degraded", {
+            actor: "design",
+            status: "warn",
+            payload: { slideNo, slideIntentId: slideIntent.slideIntentId, reason: "qa_failed_after_safe" },
+          });
+          slideHtml = buildSlideHtml({ ...slideIntent, keyPoints: [], claimIds: [] }, designSystem, parsedContentPackage, {
+            safeMode: true,
+            slideNo,
+            imageSlotsForSlide,
+          });
+          qa = validateSlide(slideHtml);
+        }
+
+        slideHtmls.push(slideHtml);
+        slidesMeta.push({
+          slideNo,
+          slideIntentId: slideIntent?.slideIntentId,
+          pageType: slideIntent?.pageType,
+          title: slideIntent?.title,
+          degraded,
+          source: generated[i]?.source || "fallback",
+          qa,
+        });
+      }
+
+      if (degradedCount > 0) emitStage(emit, "design.degraded", "warn", { degradedCount });
+      emitStage(emit, "design.qa.ended", "ended", { slides: slideHtmls.length, degradedCount });
+
+      this._transitionPhase(this.phase, DesignPhase.VISUAL_FILLING, { emit, runId: runContext.runId });
+
+      let imageReport = null;
+      let visualReport = null;
+      let refineResult = null;
+      let finalImageSlots = imageSlots;
+      let deckHtmlDsl = slideHtmls.join("\n\n");
+
+      const imageProvider = context.imageProvider || context.imageService;
+      const visualSlotsForRender = this._buildVisualSlots(brainstormResult, imageSlots, imageProvider);
+      const aiImageSlotIds = imageSlots.filter((s) => normalizeRenderType(s.renderType) === "ai-image").map((s) => s.slotId);
+
+      const fillResult = await this._callTool(
+        "fill_visual",
+        {
+          visualSlotsForRender,
+          contentPackage: parsedContentPackage,
+          designSystem,
+          slideHtmls,
+          runContext,
+          constraints,
+          imageSlots,
+          aiImageSlotIds,
+        },
+        context
+      );
+
+      if (!fillResult.ok) throw new Error(fillResult.error || "fill_visual failed");
+      const fillData = fillResult.data || {};
+      visualReport = fillData.visualReport ?? visualReport;
+      imageReport = fillData.imageReport ?? imageReport;
+      finalImageSlots = fillData.finalImageSlots ?? finalImageSlots;
+      deckHtmlDsl = fillData.deckHtmlDsl ?? deckHtmlDsl;
+      pendingImages = fillData.pendingImages ?? pendingImages;
+
+      // If refine is enabled (userConfig.refine?.enabled), run ReAct loop after VisualRenderer.
+      if (userConfig?.refine?.enabled) {
+        const deckPackage = { deckHtmlDsl, slidesMeta, designSystem, imageSlots: finalImageSlots };
+        const refineOut = await this._runRefine(deckPackage, parsedContentPackage, runContext, context, userConfig, emit);
+        deckHtmlDsl = refineOut.deckHtmlDsl;
+        slidesMeta = refineOut.slidesMeta;
+        refineResult = refineOut.refineResult;
+      }
+
+      this._transitionPhase(this.phase, DesignPhase.COMPLETED, { emit, runId: runContext.runId });
+      emitStage(emit, "design.ended", "ended", { slides: slideHtmls.length, degradedCount });
+
+      return {
+        schemaVersion: SCHEMA_VERSION,
+        runId: runContext.runId,
+        designSystem,
+        deckHtmlDsl,
+        slidesMeta,
+        editHints: { degradedCount },
+        imageSlots: finalImageSlots,
+        imageReport,
+        visualReport,
+        pendingImages,
+        refineReport: refineResult || null,
+      };
+    }
+
+    if (this.phase.status !== DesignPhase.COMPLETED) {
+      this._transitionPhase(this.phase, DesignPhase.COMPLETED, { emit, runId: runContext.runId });
+    }
+
+    emitStage(emit, "design.ended", "ended", { slides: 0, degradedCount: 0 });
+
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      runId: runContext.runId,
+      designSystem: null,
+      deckHtmlDsl: "",
+      slidesMeta: [],
+      editHints: { degradedCount: 0 },
+      imageSlots: [],
+      imageReport: null,
+      visualReport: null,
+      pendingImages: [],
+      refineReport: null,
+    };
+  }
+}

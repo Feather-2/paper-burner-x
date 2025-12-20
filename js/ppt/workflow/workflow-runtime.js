@@ -18,32 +18,25 @@ async function getTextPrepStage() {
     return _TextPrepStage;
 }
 
-function toNonEmptyString(v) {
-    if (v === undefined || v === null) return '';
-    const s = String(v).trim();
-    return s.length ? s : '';
-}
+const DESIGN_PHASE_LABELS = {
+    outline_parsing: '解析大纲',
+    outline_confirming: '确认大纲',
+    style_extracting: '提取风格',
+    style_confirming: '确认风格',
+    generating: '生成页面',
+    generating_paused: '生成暂停',
+    reviewing: '质量审阅',
+    fixing: '修复页面',
+    visual_filling: '填充视觉',
+    completed: '完成设计',
+    failed: '设计失败',
+    editing: '进入编辑'
+};
 
-function buildSelectedIdeasFromCandidatesBySlide(candidatesBySlide) {
-    const rows = Array.isArray(candidatesBySlide) ? candidatesBySlide : [];
-    return rows
-        .map((row) => {
-            const slideIntentId = toNonEmptyString(row?.slideIntentId);
-            if (!slideIntentId) return null;
-            const slideIndex = Number.isFinite(row?.slideIndex) ? row.slideIndex : undefined;
-            const selectedCandidate = row?.selectedCandidate && typeof row.selectedCandidate === 'object' ? row.selectedCandidate : null;
-            return {
-                slideIntentId,
-                ...(slideIndex !== undefined ? { slideIndex } : {}),
-                candidateId: toNonEmptyString(row?.selectedCandidateId) || toNonEmptyString(selectedCandidate?.candidateId),
-                atmosphere: selectedCandidate?.atmosphere,
-                elementsMarkdown: selectedCandidate?.elementsMarkdown,
-                visualSlots: selectedCandidate?.visualSlots,
-                scores: selectedCandidate?.scores,
-                composite: selectedCandidate?.composite,
-            };
-        })
-        .filter(Boolean);
+function formatDesignPhaseLabel(value) {
+    const key = typeof value === 'string' ? value.trim() : '';
+    if (!key) return '';
+    return DESIGN_PHASE_LABELS[key] || key;
 }
 
 export const runtimeMixin = {
@@ -141,102 +134,6 @@ export const runtimeMixin = {
         this._reportReviewPanel?.close?.();
         this._confirmScriptToPageLayout();
     },
-    async regenerateBrainstormForSlide(slideIntentId, { keepOthers = true } = {}) {
-        const contentPackage = this.workflowData?.contentPackage;
-        const designSystem = this.workflowData?.deckPackage?.designSystem;
-        const constraints = this._orchestrator?.runContext?.constraints || contentPackage?.constraints || {};
-
-        if (!contentPackage) throw new Error('regenerateBrainstormForSlide: contentPackage not ready');
-        if (!designSystem) throw new Error('regenerateBrainstormForSlide: designSystem not ready');
-
-        const { brainstormRegenerate } = await import('../../agents/stages/design/brainstorm.js');
-        const cached = this.workflowData?.brainstormCandidates;
-        const pkg = contentPackage && typeof contentPackage === 'object' ? { ...contentPackage, brainstormCandidates: cached } : contentPackage;
-
-        const emit = this._orchestrator?.eventBus?.emit
-            ? (name, record) => this._orchestrator.eventBus.emit(name, record)
-            : null;
-
-        const aiApiService =
-            this._orchestrator?._services?.aiApiService ||
-            (typeof window !== 'undefined' && window.aiApiService ? window.aiApiService : null);
-
-        const modelRouter =
-            this._orchestrator?._services?.modelRouter ||
-            (typeof window !== 'undefined' && window.modelRouter ? window.modelRouter : null);
-
-        const res = await brainstormRegenerate(slideIntentId, pkg, designSystem, constraints, { keepOthers, emit, aiApiService, modelRouter });
-
-        if (!emit) {
-            const row = {
-                slideIntentId: res?.slideIntentId,
-                candidates: res?.candidates,
-                selectedCandidateId: res?.selectedCandidate?.candidateId,
-                selectedCandidate: res?.selectedCandidate,
-            };
-            const existing = Array.isArray(this.workflowData?.brainstormCandidates?.candidatesBySlide)
-                ? this.workflowData.brainstormCandidates.candidatesBySlide
-                : [];
-            const candidatesBySlide = keepOthers
-                ? (() => {
-                    const next = existing.map(r => (r?.slideIntentId === row.slideIntentId ? row : r));
-                    if (!next.some(r => r?.slideIntentId === row.slideIntentId)) next.push(row);
-                    return next;
-                })()
-                : [row];
-            this.workflowData.brainstormCandidates = {
-                schemaVersion: '0.1',
-                candidatesBySlide,
-                selectedIdeas: buildSelectedIdeasFromCandidatesBySlide(candidatesBySlide),
-                updatedAt: Date.now(),
-                source: typeof this.workflowData?.brainstormCandidates?.source === 'string' ? this.workflowData.brainstormCandidates.source : 'auto',
-            };
-        }
-
-        return res;
-    },
-    selectBrainstormCandidate(slideIntentId, candidateId) {
-        const bc = this.workflowData?.brainstormCandidates;
-        if (!bc?.candidatesBySlide) return false;
-
-        const targetSlideIntentId = toNonEmptyString(slideIntentId);
-        const targetCandidateId = toNonEmptyString(candidateId);
-        if (!targetSlideIntentId || !targetCandidateId) return false;
-
-        const rows = Array.isArray(bc.candidatesBySlide) ? bc.candidatesBySlide : null;
-        if (!rows) return false;
-
-        const rowIndex = rows.findIndex((r) => toNonEmptyString(r?.slideIntentId) === targetSlideIntentId);
-        if (rowIndex < 0) return false;
-
-        const row = rows[rowIndex] && typeof rows[rowIndex] === 'object' ? rows[rowIndex] : {};
-        const candidates = Array.isArray(row?.candidates) ? row.candidates : [];
-        const picked = candidates.find((c) => toNonEmptyString(c?.candidateId) === targetCandidateId);
-        if (!picked) return false;
-
-        const nextCandidates = candidates.map((c) => ({
-            ...(c && typeof c === 'object' ? c : {}),
-            selected: toNonEmptyString(c?.candidateId) === targetCandidateId,
-        }));
-
-        const nextSelectedCandidate = { ...(picked && typeof picked === 'object' ? picked : {}), selected: true };
-        const nextRow = {
-            ...row,
-            selectedCandidateId: targetCandidateId,
-            selectedCandidate: nextSelectedCandidate,
-            candidates: nextCandidates,
-        };
-
-        rows[rowIndex] = nextRow;
-        bc.candidatesBySlide = rows;
-        bc.schemaVersion = typeof bc.schemaVersion === 'string' ? bc.schemaVersion : '0.1';
-        bc.selectedIdeas = buildSelectedIdeasFromCandidatesBySlide(rows);
-        bc.source = 'user';
-        bc.updatedAt = Date.now();
-        this.setAutoSaveNeeded?.();
-        this._scheduleVizRerender?.();
-        return true;
-    },
     _ensureFlowVizEventStore() {
         if (!this.workflowData) this.workflowData = {};
         if (!this.workflowData.flowVizEvents || typeof this.workflowData.flowVizEvents !== 'object') {
@@ -273,8 +170,9 @@ export const runtimeMixin = {
             }
         }
 
-        // Compat: totalCandidates vs totalIdeas
         const totalIdeas = normalizedPayload.totalIdeas ?? normalizedPayload.totalCandidates;
+        const phaseValue = typeof normalizedPayload?.to === 'string' ? normalizedPayload.to : normalizedPayload?.phase;
+        const phaseLabel = formatDesignPhaseLabel(phaseValue);
 
         // Map event names to human-readable descriptions
         const eventDescriptions = {
@@ -320,13 +218,9 @@ export const runtimeMixin = {
             'design.started': '开始视觉设计',
             'design.tokens.started': '正在提取设计规范',
             'design.tokens.ended': '设计规范已确定',
-            'design.brainstorm.started': '正在进行创意脑暴',
-            'design.brainstorm.batch.started': `脑暴批次 ${(normalizedPayload?.batchIndex || 0) + 1}/${normalizedPayload?.batchCount || '?'}：幻灯片 ${normalizedPayload?.slideIndexes?.map(i => i + 1).join(', ') || ''}`,
-            'design.brainstorm.batch.error': `脑暴批次失败：${normalizedPayload?.error || '未知错误'}${normalizedPayload?.willFallback ? '（将使用备选方案）' : ''}`,
-            'design.brainstorm.slide.completed': `幻灯片 ${(normalizedPayload?.slideIndex ?? 0) + 1} 规划了 ${normalizedPayload?.visualSlotCount || 0} 个视觉槽位`,
-            'design.brainstorm.completed': `脑暴完成：${Number.isFinite(totalIdeas) ? totalIdeas : 0} 个候选`,
             'design.image.planning.completed': `图片规划完成：计划 ${normalizedPayload?.planned || 0} 张`,
             'design.generate.ended': `页面生成完成：${normalizedPayload?.slides || 0} 页`,
+            'design.phase.transition': phaseLabel ? `设计阶段：${phaseLabel}` : '设计阶段推进',
             'design.visual.render.started': `视觉渲染开始：${normalizedPayload?.planned?.total || 0} 个槽位`,
             'design.visual.render.completed': `视觉渲染完成：图片 ${normalizedPayload?.report?.completed?.['ai-image'] || 0}/${normalizedPayload?.report?.planned?.['ai-image'] || 0}`,
             'design.visual.render.failed': `视觉渲染失败：图片 ${normalizedPayload?.report?.completed?.['ai-image'] || 0}/${normalizedPayload?.report?.planned?.['ai-image'] || 0}`,
@@ -348,6 +242,7 @@ export const runtimeMixin = {
             details:
                 normalizedPayload?.totalGaps ? { gaps: normalizedPayload.totalGaps } :
                 normalizedPayload?.iteration !== undefined ? { iteration: normalizedPayload.iteration + 1 } :
+                phaseLabel ? { phase: phaseLabel } :
                 normalizedPayload?.slideRange ? { slides: normalizedPayload.slideRange.join('-') } :
                 Number.isFinite(totalIdeas) ? { ideas: totalIdeas } :
                 typeof normalizedPayload?.planned === 'number' ? { planned: normalizedPayload.planned } :
@@ -690,7 +585,6 @@ export const runtimeMixin = {
 
         this._runtimeDesignSubStageUi = {
             'design.tokens': { label: '设计规范提取', agentId: 'designer' },
-            'design.brainstorm': { label: '创意构思', agentId: 'designer' },
             'design.image.planning': { label: '图片规划', agentId: 'designer' },
             'design.visual.render': { label: '视觉渲染', agentId: 'designer' },
             'design.refine': { label: '质量精炼', agentId: 'designer' },
@@ -827,20 +721,71 @@ export const runtimeMixin = {
             }
         }
 
-        if (name === 'design.brainstorm.candidates') {
+        if (name === 'design.phase.transition') {
             if (!this.workflowData) this.workflowData = {};
-            const prev = this.workflowData.brainstormCandidates && typeof this.workflowData.brainstormCandidates === 'object'
-                ? this.workflowData.brainstormCandidates
-                : {};
-            const sourceCandidate = typeof payload?.source === 'string' ? payload.source : prev.source;
-            const source = String(sourceCandidate || 'auto').trim() === 'user' ? 'user' : 'auto';
-            this.workflowData.brainstormCandidates = {
-                schemaVersion: typeof prev.schemaVersion === 'string' ? prev.schemaVersion : '0.1',
-                candidatesBySlide: Array.isArray(payload?.candidatesBySlide) ? payload.candidatesBySlide : [],
-                selectedIdeas: Array.isArray(payload?.selectedIdeas) ? payload.selectedIdeas : [],
+            const phase = typeof payload?.to === 'string' ? payload.to : payload?.phase;
+            this.workflowData.designPhase = {
+                status: typeof phase === 'string' ? phase : 'unknown',
+                from: payload?.from,
+                to: payload?.to,
                 updatedAt: Date.now(),
-                source,
             };
+            const label = formatDesignPhaseLabel(phase);
+            if (label && typeof this._setAgentStatus === 'function') {
+                this._setAgentStatus('designer', 'active', `设计阶段：${label}`);
+            }
+            this._scheduleVizRerender?.();
+        }
+
+        if (name.startsWith('design.slide.') || name === 'design.degraded') {
+            if (!this.workflowData) this.workflowData = {};
+            if (!this.workflowData.slideStatuses || typeof this.workflowData.slideStatuses !== 'object') {
+                this.workflowData.slideStatuses = { schemaVersion: '0.1', bySlideIntentId: {}, byIndex: {}, updatedAt: 0 };
+            }
+
+            const slideIntentId = typeof payload?.slideIntent?.id === 'string'
+                ? payload.slideIntent.id
+                : (typeof payload?.slideIntentId === 'string' ? payload.slideIntentId : null);
+            const slideIndex = Number.isFinite(payload?.slideIndex) ? payload.slideIndex : (Number.isFinite(payload?.slideNo) ? payload.slideNo - 1 : null);
+            const keyId = slideIntentId ? String(slideIntentId) : null;
+            const keyIndex = slideIndex !== null ? Number(slideIndex) : null;
+            const now = Date.now();
+            const current =
+                (keyId && this.workflowData.slideStatuses.bySlideIntentId[keyId]) ||
+                (keyIndex !== null && this.workflowData.slideStatuses.byIndex[keyIndex]) ||
+                {};
+
+            const next = {
+                ...current,
+                ...(keyId ? { slideIntentId: keyId } : {}),
+                ...(keyIndex !== null ? { slideIndex: keyIndex } : {}),
+                updatedAt: now,
+            };
+
+            if (name === 'design.slide.started') {
+                next.status = 'generating';
+            } else if (name === 'design.slide.completed') {
+                next.status = 'completed';
+                if (typeof payload?.source === 'string') next.source = payload.source;
+                if (typeof payload?.duration === 'number') next.duration = payload.duration;
+            } else if (name === 'design.slide.failed') {
+                next.status = 'failed';
+                next.error = payload?.error?.message || payload?.error || 'unknown';
+            } else if (name === 'design.slide.retrying') {
+                next.status = 'generating';
+                if (Number.isFinite(payload?.attempt)) next.attempt = payload.attempt;
+            } else if (name === 'design.slide.progress') {
+                next.status = next.status || 'generating';
+                if (typeof payload?.step === 'string') next.step = payload.step;
+                if (typeof payload?.msg === 'string') next.msg = payload.msg;
+            } else if (name === 'design.degraded') {
+                next.degraded = true;
+                next.degradedReason = payload?.reason || next.degradedReason;
+            }
+
+            if (keyId) this.workflowData.slideStatuses.bySlideIntentId[keyId] = next;
+            if (keyIndex !== null) this.workflowData.slideStatuses.byIndex[keyIndex] = next;
+            this.workflowData.slideStatuses.updatedAt = now;
             this._scheduleVizRerender?.();
         }
 
@@ -1290,15 +1235,8 @@ export const runtimeMixin = {
         orch.registerStage('design.batch', async (ctx, input, api) => {
             if (!this.workflowData) this.workflowData = {};
             this._ensureDesignSystemInitialized();
-            const brainstormCandidates =
-                Object.prototype.hasOwnProperty.call(input || {}, 'brainstormCandidates')
-                    ? input.brainstormCandidates
-                    : this.workflowData?.brainstormCandidates;
             const baseContentPackage = input?.contentPackage || this.workflowData?.contentPackage;
-            const contentPackage =
-                baseContentPackage && typeof baseContentPackage === 'object' && brainstormCandidates && typeof brainstormCandidates === 'object'
-                    ? { ...baseContentPackage, brainstormCandidates }
-                    : baseContentPackage;
+            const contentPackage = baseContentPackage && typeof baseContentPackage === 'object' ? baseContentPackage : null;
             const slideCount = Array.isArray(contentPackage?.slideIntents) ? contentPackage.slideIntents.length : 0;
 
             const getSlideParser = () => {
@@ -1362,37 +1300,10 @@ export const runtimeMixin = {
                     const p = recordOrPayload?.payload || recordOrPayload || {};
                     if (p?.theme) progress(`主题已确定: ${p.theme}`, 'highlight');
                 }
-                if (eventName === 'design.brainstorm.started') {
-                    progress('正在进行创意脑暴...', 'normal');
-                }
-                if (eventName === 'design.brainstorm.batch.started') {
+                if (eventName === 'design.phase.transition') {
                     const p = recordOrPayload?.payload || recordOrPayload || {};
-                    const slides = Array.isArray(p.slideIndexes) ? p.slideIndexes.map(i => i + 1).join(', ') : '';
-                    progress(`脑暴批次 ${(p.batchIndex || 0) + 1}/${p.batchCount || '?'}：幻灯片 ${slides}`, 'normal');
-                }
-                if (eventName === 'design.brainstorm.batch.error') {
-                    const p = recordOrPayload?.payload || recordOrPayload || {};
-                    progress(`脑暴批次失败：${p.error || '未知错误'}`, 'error');
-                }
-                if (eventName === 'design.brainstorm.slide.completed') {
-                    const p = recordOrPayload?.payload || recordOrPayload || {};
-                    const slotCount = p.visualSlotCount || 0;
-                    progress(`幻灯片 ${(p.slideIndex ?? 0) + 1} 已规划 ${slotCount} 个视觉槽位`, 'detail');
-                }
-                if (eventName === 'design.brainstorm.completed') {
-                    const p = recordOrPayload?.payload || recordOrPayload || {};
-                    progress(`脑暴完成：${p.totalCandidates || p.totalIdeas || 0} 个候选，${p.imageSlots || p.visualSlots || 0} 个图像槽位`, 'highlight');
-                }
-                if (eventName === 'design.brainstorm.candidates') {
-                    const p = recordOrPayload?.payload || recordOrPayload || {};
-                    const candidates = Array.isArray(p.candidatesBySlide) ? p.candidatesBySlide : [];
-                    if (candidates.length > 0) {
-                        const details = candidates.slice(0, 6).map((c, i) => {
-                            const title = c?.selectedCandidate?.atmosphere?.mood || c?.selectedCandidate?.candidateId || `方案${i + 1}`;
-                            return `P${(c?.slideIndex ?? i) + 1}: ${title}`;
-                        }).join(' | ');
-                        progress(`已选方案: ${details}${candidates.length > 6 ? ' ...' : ''}`, 'detail');
-                    }
+                    const label = formatDesignPhaseLabel(p?.to || p?.phase);
+                    if (label) progress(`设计阶段：${label}`, 'detail');
                 }
                 if (eventName === 'design.batch.started') {
                     const p = recordOrPayload?.payload || recordOrPayload || {};
@@ -1469,21 +1380,25 @@ export const runtimeMixin = {
             try {
                 progress(slideCount ? `正在生成 ${slideCount} 页的页面布局...` : '正在生成页面布局...', 'normal');
 
-                const { DesignStage } = await import('../../agents/stages/design/index.js');
+                const { DesignAgentLoop } = await import('../../agents/stages/design/index.js');
                 const batchSize = Number(this.workflowData?.batchSize) || Number(this.workflowData?.designBatchSize) || undefined;
-                const stage = new DesignStage(batchSize ? { batchSize } : undefined);
+                const stage = new DesignAgentLoop(batchSize ? { batchSize } : undefined);
 
-                const deckPackage = await stage.run(contentPackage, {
-                    runContext: { ...(ctx || {}), userConfig: this._getDesignStageUserConfig() },
-                    emit: forwardEmit,
-                    signal: api.signal,
-                    aiApiService: api.aiApiService,
-                    modelRouter: api.modelRouter
-                });
+                const deckPackage = await stage.execute(
+                    { ...(ctx || {}), userConfig: this._getDesignStageUserConfig() },
+                    contentPackage,
+                    {
+                        emit: forwardEmit,
+                        eventBus: this._orchestrator?.eventBus,
+                        signal: api.signal,
+                        aiApiService: api.aiApiService,
+                        modelRouter: api.modelRouter
+                    }
+                );
 
                 const deckHtmlDsl = deckPackage?.deckHtmlDsl;
                 if (typeof deckHtmlDsl !== 'string' || !deckHtmlDsl.includes('<section')) {
-                    throw new Error('DesignStage returned invalid deckHtmlDsl');
+                    throw new Error('DesignAgentLoop returned invalid deckHtmlDsl');
                 }
 
                 this.workflowData.deckPackage = deckPackage;
@@ -1495,7 +1410,7 @@ export const runtimeMixin = {
                 return deckPackage;
             } catch (err) {
                 const msg = err instanceof Error ? err.message : String(err || 'unknown error');
-                console.warn('[design.batch] DesignStage.run failed, falling back to mock:', err);
+                console.warn('[design.batch] DesignAgentLoop failed, falling back to mock:', err);
                 progress(`设计引擎异常，降级为模板：${msg}`, 'warning');
 
                 const deckHtmlDsl = makeMockDeckHtmlDsl();

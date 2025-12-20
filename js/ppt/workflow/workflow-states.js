@@ -18,6 +18,7 @@ export const WorkflowState = Object.freeze({
   DESIGN_PREFERENCES: "design_preferences",  // 新增：色卡/参考选择
   DESIGNER: "designer",
   COMPLETED: "completed",
+  EDITING: "editing",
   QUESTIONING: "questioning",
   SCRIPTING: "scripting",
   FAILED: "failed",
@@ -39,7 +40,8 @@ export const WORKFLOW_TRANSITIONS = {
   [WorkflowState.PAGE_LAYOUT]: [WorkflowState.DESIGN_PREFERENCES],
   [WorkflowState.DESIGN_PREFERENCES]: [WorkflowState.DESIGNER],
   [WorkflowState.DESIGNER]: [WorkflowState.COMPLETED, WorkflowState.FAILED],
-  [WorkflowState.COMPLETED]: [WorkflowState.IDLE],
+  [WorkflowState.COMPLETED]: [WorkflowState.IDLE, WorkflowState.EDITING],
+  [WorkflowState.EDITING]: [WorkflowState.COMPLETED, WorkflowState.IDLE],
   [WorkflowState.FAILED]: [WorkflowState.IDLE],
 };
 
@@ -89,7 +91,6 @@ export const FlowStage = Object.freeze({
   // Design Flow
   DESIGN_START: "design_start",
   DESIGN_THEME: "design_theme",
-  DESIGN_BRAINSTORM: "design_brainstorm",
   DESIGN_BATCH: "design_batch",
   DESIGN_SLIDE: "design_slide",
   DESIGN_QA: "design_qa",

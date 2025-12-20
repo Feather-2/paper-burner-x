@@ -1,3 +1,12 @@
+import {
+  DesignPhase,
+  SlideStatus,
+  VisualSlotStatus,
+  EditSessionStatus,
+  SubAgentStatus,
+  ReviewStatus,
+} from "./states.js";
+
 /**
  * Image generation task lifecycle statuses.
  * @readonly
@@ -20,6 +29,88 @@ export const RenderType = Object.freeze({
   AI_IMAGE: "ai-image",
   SVG: "svg",
   ASSET: "asset",
+});
+
+/**
+ * Visual content type.
+ * @readonly
+ * @enum {string}
+ */
+export const VisualType = Object.freeze({
+  ILLUSTRATION: "illustration",
+  PHOTO: "photo",
+  ICON: "icon",
+  BACKGROUND_IMAGE: "bg-image",
+  BACKGROUND_GRADIENT: "bg-gradient",
+  BACKGROUND_PATTERN: "bg-pattern",
+  CHART: "chart",
+  DIAGRAM: "diagram",
+  INFOGRAPHIC: "infographic",
+  DECORATION: "decoration",
+  DIVIDER: "divider",
+  SVG: "svg",
+});
+
+/**
+ * User interaction checkpoints for the design flow.
+ * @readonly
+ * @enum {string}
+ */
+export const InteractionCheckpoint = Object.freeze({
+  OUTLINE_CONFIRM: "outline_confirm",
+  STYLE_CONFIRM: "style_confirm",
+  MIDWAY_FEEDBACK: "midway_feedback",
+  SLIDE_REVIEW: "slide_review",
+  FINAL_CONFIRM: "final_confirm",
+});
+
+/**
+ * Edit operation types for edit mode.
+ * @readonly
+ * @enum {string}
+ */
+export const EditOperationType = Object.freeze({
+  ADD_SLIDE: "add_slide",
+  DELETE_SLIDE: "delete_slide",
+  REORDER_SLIDES: "reorder_slides",
+  DUPLICATE_SLIDE: "duplicate_slide",
+  CHANGE_COLOR_SCHEME: "change_color_scheme",
+  CHANGE_FONT: "change_font",
+  APPLY_THEME: "apply_theme",
+  EDIT_ELEMENT: "edit_element",
+  DELETE_ELEMENT: "delete_element",
+  ADD_ELEMENT: "add_element",
+  MOVE_ELEMENT: "move_element",
+  RESIZE_ELEMENT: "resize_element",
+  UNDO: "undo",
+  REDO: "redo",
+});
+
+/**
+ * Review issue severities.
+ * @readonly
+ * @enum {string}
+ */
+export const ReviewIssueSeverity = Object.freeze({
+  CRITICAL: "critical",
+  MAJOR: "major",
+  MINOR: "minor",
+  INFO: "info",
+});
+
+/**
+ * Review issue categories.
+ * @readonly
+ * @enum {string}
+ */
+export const ReviewIssueType = Object.freeze({
+  LAYOUT: "layout",
+  TEXT: "text",
+  COLOR: "color",
+  VISUAL: "visual",
+  ALIGNMENT: "alignment",
+  OVERFLOW: "overflow",
+  ACCESSIBILITY: "accessibility",
 });
 
 /**
@@ -127,5 +218,70 @@ export function isValidBrainstormStatus(value) {
   return Object.values(BrainstormStatus).includes(value);
 }
 
+export function isValidDesignPhase(value) {
+  return Object.values(DesignPhase).includes(value);
+}
+
+export function isValidSlideStatus(value) {
+  return Object.values(SlideStatus).includes(value);
+}
+
+export function isValidVisualSlotStatus(value) {
+  return Object.values(VisualSlotStatus).includes(value);
+}
+
+export function isValidEditSessionStatus(value) {
+  return Object.values(EditSessionStatus).includes(value);
+}
+
+export function isValidSubAgentStatus(value) {
+  return Object.values(SubAgentStatus).includes(value);
+}
+
+export function isValidReviewStatus(value) {
+  return Object.values(ReviewStatus).includes(value);
+}
+
+export function isValidVisualType(value) {
+  return Object.values(VisualType).includes(value);
+}
+
+export function isValidInteractionCheckpoint(value) {
+  return Object.values(InteractionCheckpoint).includes(value);
+}
+
+export function isValidEditOperationType(value) {
+  return Object.values(EditOperationType).includes(value);
+}
+
+export function isValidReviewIssueSeverity(value) {
+  return Object.values(ReviewIssueSeverity).includes(value);
+}
+
+export function isValidReviewIssueType(value) {
+  return Object.values(ReviewIssueType).includes(value);
+}
+
 // Re-export from states.js
-export { SlideStatus, SLIDE_TRANSITIONS, slideMachine, DesignPhase } from "./states.js";
+export {
+  DesignPhase,
+  DESIGN_PHASE_TRANSITIONS,
+  designPhaseMachine,
+  SlideStatus,
+  SLIDE_STATUS_TRANSITIONS,
+  SLIDE_TRANSITIONS,
+  slideStatusMachine,
+  slideMachine,
+  VisualSlotStatus,
+  VISUAL_SLOT_TRANSITIONS,
+  visualSlotMachine,
+  EditSessionStatus,
+  EDIT_SESSION_TRANSITIONS,
+  editSessionMachine,
+  SubAgentStatus,
+  SUB_AGENT_TRANSITIONS,
+  subAgentMachine,
+  ReviewStatus,
+  REVIEW_TRANSITIONS,
+  reviewMachine,
+} from "./states.js";

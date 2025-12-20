@@ -25,7 +25,6 @@
     { id: 'worker', name: '通用执行', desc: '通用任务处理', icon: 'carbon:task', group: 'shared' },
     // Design 角色
     { id: 'design_tokens', name: '设计规范', desc: '提取设计系统 Tokens', icon: 'carbon:color-palette', group: 'design' },
-    { id: 'design_brainstorm', name: '创意策划', desc: '脑暴视觉创意方案', icon: 'carbon:idea', group: 'design' },
     { id: 'design_layout', name: '布局排版', desc: '页面结构和元素布局', icon: 'carbon:grid', group: 'design' },
     { id: 'design_svg', name: 'SVG 绘制', desc: '矢量图形和图标生成', icon: 'carbon:svg', group: 'design' },
     { id: 'design_image', name: '图像生成', desc: 'AI 配图和素材生成', icon: 'carbon:image-search', group: 'design' },
@@ -34,7 +33,7 @@
 
   const ROLE_SHORT = {
     analyst: 'A', planner: 'P', writer: 'W', reviewer: 'R', vision: 'V', worker: 'K',
-    design_tokens: 'T', design_brainstorm: 'B', design_layout: 'L', design_svg: 'S', design_image: 'I', design_review: 'Q'
+    design_tokens: 'T', design_layout: 'L', design_svg: 'S', design_image: 'I', design_review: 'Q'
   };
 
   const ROLE_DISPLAY_ORDER = [
@@ -43,23 +42,23 @@
     // DeepSearch
     'analyst', 'planner', 'writer', 'reviewer',
     // Design
-    'design_tokens', 'design_brainstorm', 'design_layout', 'design_svg', 'design_image', 'design_review'
+    'design_tokens', 'design_layout', 'design_svg', 'design_image', 'design_review'
   ];
 
   const ROLE_NAMES = {
     analyst: '分析师', planner: '规划师', writer: '撰写者', reviewer: '审阅者', vision: '视觉', worker: '通用',
-    design_tokens: '规范', design_brainstorm: '脑暴', design_layout: '布局', design_svg: 'SVG', design_image: '配图', design_review: '审阅'
+    design_tokens: '规范', design_layout: '布局', design_svg: 'SVG', design_image: '配图', design_review: '审阅'
   };
 
   const ROLE_NAMES_TABLE = {
     analyst: '分析', planner: '规划', writer: '撰写', reviewer: '审阅', vision: '视觉', worker: '通用',
-    design_tokens: '规范', design_brainstorm: '脑暴', design_layout: '布局', design_svg: 'SVG', design_image: '配图', design_review: '审阅'
+    design_tokens: '规范', design_layout: '布局', design_svg: 'SVG', design_image: '配图', design_review: '审阅'
   };
 
   const ROLE_GROUPS = {
     shared: { name: '通用', roles: ['worker', 'vision'] },
     deepsearch: { name: 'DeepSearch', roles: ['analyst', 'planner', 'writer', 'reviewer'] },
-    design: { name: 'Design', roles: ['design_tokens', 'design_brainstorm', 'design_layout', 'design_svg', 'design_image', 'design_review'] }
+    design: { name: 'Design', roles: ['design_tokens', 'design_layout', 'design_svg', 'design_image', 'design_review'] }
   };
 
   const TRANSCRIPTION_PROVIDERS = [
@@ -113,4 +112,3 @@
     MANUAL_MODEL_ID_PROVIDERS
   });
 })(typeof window !== 'undefined' ? window : this);
-

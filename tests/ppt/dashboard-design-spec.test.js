@@ -160,7 +160,7 @@ test('visualPreference.mode change updates UI + userConfig', () => {
   assert.ok(btn.classList.contains('active'));
 });
 
-test('visualPreference is passed into DesignStage via runContext.userConfig', async () => {
+test('visualPreference is passed into DesignAgentLoop via runContext.userConfig', async () => {
   setupDom('<!doctype html><html><head></head><body></body></html>');
 
   globalThis.SlideParser = { parse: () => [{ id: 's1' }] };
@@ -185,13 +185,13 @@ test('visualPreference is passed into DesignStage via runContext.userConfig', as
   await gen._ensureRuntime({ mode: 'textprep' });
 
   const design = await import('../../js/agents/stages/design/index.js');
-  const originalRun = design.DesignStage.prototype.run;
+  const originalExecute = design.DesignAgentLoop.prototype.execute;
   let seenUserConfig = null;
-  design.DesignStage.prototype.run = async function (_contentPackage, context) {
-    seenUserConfig = context?.runContext?.userConfig || null;
+  design.DesignAgentLoop.prototype.execute = async function (runContext) {
+    seenUserConfig = runContext?.userConfig || null;
     return {
       schemaVersion: '0.1',
-      runId: context?.runContext?.runId || 'run_test',
+      runId: runContext?.runId || 'run_test',
       deckHtmlDsl: '<section data-type="freeform" id="s1"></section>',
       slidesMeta: [],
     };
@@ -202,6 +202,6 @@ test('visualPreference is passed into DesignStage via runContext.userConfig', as
     assert.ok(seenUserConfig && typeof seenUserConfig === 'object');
     assert.equal(seenUserConfig.designSystemOverrides.visualPreference.mode, 'ai-first');
   } finally {
-    design.DesignStage.prototype.run = originalRun;
+    design.DesignAgentLoop.prototype.execute = originalExecute;
   }
 });

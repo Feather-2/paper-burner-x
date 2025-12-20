@@ -247,13 +247,9 @@ export const phasesMixin = {
             this._ensureDesignSystemInitialized();
             console.log('[Workflow] 执行 design.batch');
             const baseContentPackage = this.workflowData?.contentPackage;
-            const brainstormCandidates = this.workflowData?.brainstormCandidates;
-            const contentPackage =
-                baseContentPackage && typeof baseContentPackage === 'object' && brainstormCandidates && typeof brainstormCandidates === 'object'
-                    ? { ...baseContentPackage, brainstormCandidates }
-                    : baseContentPackage;
+            const contentPackage = baseContentPackage && typeof baseContentPackage === 'object' ? baseContentPackage : null;
 
-            const deckPackage = await this._orchestrator.runStage('design.batch', { contentPackage, brainstormCandidates });
+            const deckPackage = await this._orchestrator.runStage('design.batch', { contentPackage });
 
             await this._saveCheckpoint?.('design.batch', {
                 slideCount: Array.isArray(deckPackage?.slidesMeta) ? deckPackage.slidesMeta.length : undefined,

@@ -1,16 +1,29 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { parseHTML } = require('linkedom');
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function setupDom(html = '<!doctype html><html><head></head><body></body></html>') {
+  const { window, document } = parseHTML(html);
+  globalThis.window = window;
+  globalThis.document = document;
+  return { window, document };
+}
+
+function teardownDom() {
+  delete globalThis.window;
+  delete globalThis.document;
+}
+
 test.beforeEach(() => {
-  globalThis.window = globalThis;
+  setupDom();
 });
 
 test.afterEach(() => {
-  delete globalThis.window;
+  teardownDom();
   delete globalThis.IntentParser;
   delete globalThis.PPTGenerator;
 });

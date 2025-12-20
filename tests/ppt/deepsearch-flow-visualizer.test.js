@@ -11,42 +11,24 @@ test('FlowBuilder initializes with empty state', () => {
   assert.equal(builder.nodeMap.size, 0);
   assert.equal(builder.idCounter, 0);
   assert.equal(builder.lastUpdatedNodeId, null);
-  assert.equal(builder._brainstormNodeId, undefined);
   assert.equal(builder._refineStepNodeId, null);
 });
 
-// Test 1: design.brainstorm.candidates updates metrics
-test('design.brainstorm.candidates updates brainstorm node metrics', () => {
+// Test 1: design.phase.transition creates phase nodes
+test('design.phase.transition creates phase node with status', () => {
   const builder = new FlowBuilder();
+  builder.processEvent({ name: 'design.started', payload: { runId: 'run_1' } });
 
-  // Create brainstorm node first
-  builder.processEvent({ name: 'design.brainstorm.started', payload: { slideCount: 5 } });
-  const brainstormId = builder._brainstormNodeId;
-  assert.ok(brainstormId, 'brainstorm node should be created');
-
-  // Update with candidates
   builder.processEvent({
-    name: 'design.brainstorm.candidates',
-    payload: { totalIdeas: 10, selectedCount: 3 }
+    name: 'design.phase.transition',
+    payload: { from: 'style_confirming', to: 'generating' }
   });
 
-  const node = builder.nodeMap.get(brainstormId);
-  assert.ok(node, 'brainstorm node should exist');
-  assert.equal(node.data.metrics.candidates, 10);
-  assert.equal(node.data.metrics.selected, 3);
-});
-
-test('design.brainstorm.candidates handles missing brainstorm node', () => {
-  const builder = new FlowBuilder();
-
-  // Try to update without creating node first
-  builder.processEvent({
-    name: 'design.brainstorm.candidates',
-    payload: { totalIdeas: 10, selectedCount: 3 }
-  });
-
-  // Should not crash, just no-op
-  assert.equal(builder.nodes.length, 0);
+  const node = builder.nodes.find(n => n.data.label === 'Generate Slides');
+  assert.ok(node, 'phase node should be created');
+  assert.equal(node.data.status, 'running');
+  assert.equal(node.data.metrics.from, 'style_confirming');
+  assert.equal(node.data.metrics.to, 'generating');
 });
 
 // Test 2: design.image.generate.started creates image generation node
@@ -351,18 +333,18 @@ test('reset() clears all design flow state', () => {
 
   // Populate design state
   builder.processEvent({ name: 'design.started', payload: {} });
-  builder.processEvent({ name: 'design.brainstorm.started', payload: {} });
+  builder.processEvent({ name: 'design.phase.transition', payload: { from: 'style_confirming', to: 'generating' } });
   builder.processEvent({ name: 'design.batch.started', payload: { batchIndex: 0 } });
   builder.processEvent({ name: 'design.slide.started', payload: { slideIndex: 0 } });
   builder.processEvent({ name: 'design.image.generate.started', payload: { imageId: 'img1' } });
   builder.processEvent({ name: 'design.refine.step', payload: { step: 'test' } });
 
   assert.ok(builder.nodes.length > 0);
-  assert.ok(builder._brainstormNodeId);
   assert.ok(builder._refineStepNodeId);
   assert.ok(builder.designBatchNodes.size > 0);
   assert.ok(builder.designSlideNodes.size > 0);
   assert.ok(builder.designImageNodes.size > 0);
+  assert.ok(builder.designPhaseNodes.size > 0);
 
   // Reset
   builder.reset();
@@ -375,8 +357,9 @@ test('reset() clears all design flow state', () => {
   assert.equal(builder.designBatchNodes.size, 0);
   assert.equal(builder.designSlideNodes.size, 0);
   assert.equal(builder.designImageNodes.size, 0);
+  assert.equal(builder.designPhaseNodes.size, 0);
+  assert.equal(builder._activeDesignPhaseId, null);
   assert.equal(builder._refineStepNodeId, null);
-  // Note: _brainstormNodeId is not explicitly cleared in reset, but it's safe since nodeMap is cleared
 });
 
 // Test 10: Complete design flow integration
@@ -386,24 +369,26 @@ test('complete design flow creates correct node hierarchy', () => {
   // Full design flow
   builder.processEvent({ name: 'design.started', payload: { runId: 'run_1', slideCount: 3 } });
   builder.processEvent({ name: 'design.tokens.ended', payload: { theme: 'corporate' } });
-  builder.processEvent({ name: 'design.brainstorm.started', payload: { slideCount: 3 } });
-  builder.processEvent({ name: 'design.brainstorm.candidates', payload: { totalIdeas: 9, selectedCount: 3 } });
-  builder.processEvent({ name: 'design.brainstorm.completed', payload: { totalIdeas: 9, selectedIdeas: 3, imageSlots: 2 } });
+  builder.processEvent({ name: 'design.phase.transition', payload: { from: 'style_confirming', to: 'generating' } });
+  builder.processEvent({ name: 'design.phase.transition', payload: { from: 'generating', to: 'reviewing' } });
   builder.processEvent({ name: 'design.image.planning.completed', payload: { planned: 2, estimatedCostUSD: 0.08 } });
   builder.processEvent({ name: 'design.batch.started', payload: { batchIndex: 0, slideIndexes: [0, 1, 2] } });
   builder.processEvent({ name: 'design.slide.started', payload: { slideIndex: 0, slideIntent: { title: 'Cover' } } });
   builder.processEvent({ name: 'design.slide.completed', payload: { slideIndex: 0, duration: 1200 } });
   builder.processEvent({ name: 'design.batch.completed', payload: { batchIndex: 0, duration: 5000 } });
   builder.processEvent({ name: 'design.generate.ended', payload: { slideCount: 3, batchCount: 1 } });
+  builder.processEvent({ name: 'design.phase.transition', payload: { from: 'reviewing', to: 'visual_filling' } });
   builder.processEvent({ name: 'design.refine.step', payload: { step: 'final-polish', iteration: 0 } });
   builder.processEvent({ name: 'design.refine.ended', payload: { improvements: 2 } });
   builder.processEvent({ name: 'design.qa.ended', payload: { degradedCount: 0, slides: 3 } });
+  builder.processEvent({ name: 'design.phase.transition', payload: { from: 'visual_filling', to: 'completed' } });
   builder.processEvent({ name: 'design.ended', payload: { slides: 3, degradedCount: 0 } });
 
   // Verify key nodes exist
   assert.ok(builder.nodes.find(n => n.data.label === 'Design Started'));
   assert.ok(builder.nodes.find(n => n.data.label === 'Theme'));
-  assert.ok(builder.nodes.find(n => n.data.label === 'Brainstorm'));
+  assert.ok(builder.nodes.find(n => n.data.label === 'Generate Slides'));
+  assert.ok(builder.nodes.find(n => n.data.label === 'Review'));
   assert.ok(builder.nodes.find(n => n.data.label === 'Image Plan'));
   assert.ok(builder.nodes.find(n => n.data.label === 'Batch #1'));
   assert.ok(builder.nodes.find(n => n.data.label === 'S1 Cover'));
@@ -427,14 +412,14 @@ test('lastUpdatedNodeId tracks most recent update', () => {
   const startId = builder.lastUpdatedNodeId;
   assert.ok(startId);
 
-  builder.processEvent({ name: 'design.brainstorm.started', payload: {} });
-  const brainstormId = builder.lastUpdatedNodeId;
-  assert.ok(brainstormId);
-  assert.notEqual(brainstormId, startId);
+  builder.processEvent({ name: 'design.phase.transition', payload: { from: 'style_confirming', to: 'generating' } });
+  const phaseId = builder.lastUpdatedNodeId;
+  assert.ok(phaseId);
+  assert.notEqual(phaseId, startId);
 
-  builder.processEvent({ name: 'design.brainstorm.candidates', payload: { totalIdeas: 5, selectedCount: 2 } });
-  // Should update to brainstorm node id (same node, updated)
-  assert.equal(builder.lastUpdatedNodeId, brainstormId);
+  builder.processEvent({ name: 'design.phase.transition', payload: { from: 'style_confirming', to: 'generating' } });
+  // Should update to same phase node id
+  assert.equal(builder.lastUpdatedNodeId, phaseId);
 });
 
 // Test 12: Parent-child relationships
@@ -466,19 +451,24 @@ test('design events create correct parent-child relationships', () => {
 test('_updateNode preserves existing metrics', () => {
   const builder = new FlowBuilder();
 
-  builder.processEvent({ name: 'design.brainstorm.started', payload: { slideCount: 5 } });
-  const brainstormId = builder._brainstormNodeId;
+  builder.processEvent({ name: 'design.started', payload: {} });
+  builder.processEvent({
+    name: 'design.image.generate.started',
+    payload: { imageId: 'img_10', provider: 'flux' }
+  });
 
-  let node = builder.nodeMap.get(brainstormId);
-  assert.equal(node.data.metrics.slides, 5);
+  const nodeId = builder.designImageNodes.get('img_10');
+  let node = builder.nodeMap.get(nodeId);
+  assert.equal(node.data.metrics.provider, 'flux');
 
-  // Update with additional metrics
-  builder.processEvent({ name: 'design.brainstorm.candidates', payload: { totalIdeas: 10, selectedCount: 3 } });
+  builder.processEvent({
+    name: 'design.image.generate.succeeded',
+    payload: { imageId: 'img_10', durationMs: 1200 }
+  });
 
-  node = builder.nodeMap.get(brainstormId);
-  assert.equal(node.data.metrics.slides, 5, 'should preserve original metrics');
-  assert.equal(node.data.metrics.candidates, 10);
-  assert.equal(node.data.metrics.selected, 3);
+  node = builder.nodeMap.get(nodeId);
+  assert.equal(node.data.metrics.provider, 'flux', 'should preserve original metrics');
+  assert.equal(node.data.metrics.duration, 1200);
 });
 
 // Test 14: Details array handling
@@ -508,7 +498,7 @@ test('handles empty payload gracefully', () => {
   const builder = new FlowBuilder();
 
   // Should not crash with empty payloads
-  builder.processEvent({ name: 'design.brainstorm.candidates', payload: {} });
+  builder.processEvent({ name: 'design.phase.transition', payload: {} });
   builder.processEvent({ name: 'design.image.generate.succeeded', payload: {} });
   builder.processEvent({ name: 'design.refine.ended', payload: {} });
 
@@ -530,7 +520,7 @@ test('getFlowData returns immutable snapshots', () => {
   builder.processEvent({ name: 'design.started', payload: {} });
 
   const data1 = builder.getFlowData();
-  builder.processEvent({ name: 'design.brainstorm.started', payload: {} });
+  builder.processEvent({ name: 'design.phase.transition', payload: { from: 'style_confirming', to: 'generating' } });
   const data2 = builder.getFlowData();
 
   // Should return different snapshots
@@ -540,6 +530,21 @@ test('getFlowData returns immutable snapshots', () => {
 });
 
 // === Additional event handler tests ===
+
+test('design.visual.errors creates error node', () => {
+  const builder = new FlowBuilder();
+  builder.processEvent({ name: 'design.started', payload: {} });
+
+  builder.processEvent({
+    name: 'design.visual.errors',
+    payload: { errors: [{ renderer: 'ai-image', error: 'timeout' }] }
+  });
+
+  const node = builder.nodes.find(n => n.data.label === 'Visual Errors');
+  assert.ok(node, 'visual error node should be created');
+  assert.equal(node.data.status, 'failed');
+  assert.equal(node.data.details[0].text, 'ai-image: timeout');
+});
 
 test('design.image.generate.failed updates image node to failed', () => {
   const builder = new FlowBuilder();

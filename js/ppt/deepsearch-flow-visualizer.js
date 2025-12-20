@@ -38,7 +38,7 @@ const STAGES = {
   // Design Flow (复用同一可视化引擎)
   [FlowStage.DESIGN_START]: { icon: "▣", label: "Design", color: "#EC4899" },
   [FlowStage.DESIGN_THEME]: { icon: "✦", label: "Theme", color: "#F43F5E" },
-  [FlowStage.DESIGN_BRAINSTORM]: { icon: "💡", label: "Brainstorm", color: "#F59E0B" },
+  design_phase: { icon: "◧", label: "Phase", color: "#F97316" },
   [FlowStage.DESIGN_BATCH]: { icon: "▦", label: "Batch", color: "#8B5CF6" },
   [FlowStage.DESIGN_SLIDE]: { icon: "▤", label: "Slide", color: "#0EA5E9" },
   [FlowStage.DESIGN_QA]: { icon: "✓", label: "QA", color: "#10B981" },
@@ -76,6 +76,8 @@ export class FlowBuilder {
     this.designBatchNodes = new Map(); // batchIndex -> nodeId
     this.designSlideNodes = new Map(); // slideIndex -> nodeId
     this.designImageNodes = new Map(); // imageId -> nodeId
+    this.designPhaseNodes = new Map(); // phase -> nodeId
+    this._activeDesignPhaseId = null;
     this._refineStepNodeId = null;
     this._visualRenderNodeId = null;
     this._allEvents = []; // 存储所有处理过的事件用于点选查询
@@ -738,45 +740,54 @@ export class FlowBuilder {
         break;
       }
 
-      case "design.brainstorm.started": {
+      case "design.phase.transition": {
         const parentId = this._getCurrentParent();
-        const id = this._genId("brainstorm");
-        this._addNode(id, "design_brainstorm", {
-          label: "Brainstorm",
-          status: "running",
-          parentNodeId: parentId,
-          metrics: { slides: payload.slideCount }
-        });
-        this._brainstormNodeId = id;
-        break;
-      }
+        const to = payload?.to || payload?.phase;
+        const from = payload?.from;
+        if (!to) break;
 
-      case "design.brainstorm.completed": {
-        const id = this._brainstormNodeId || this._genId("brainstorm");
-        if (this._brainstormNodeId) {
+        const phaseLabels = {
+          outline_parsing: "Outline Parse",
+          outline_confirming: "Outline Confirm",
+          style_extracting: "Style Extract",
+          style_confirming: "Style Confirm",
+          generating: "Generate Slides",
+          generating_paused: "Generate Paused",
+          reviewing: "Review",
+          fixing: "Fix",
+          visual_filling: "Visual Fill",
+          completed: "Completed",
+          failed: "Failed",
+          editing: "Editing"
+        };
+        const label = phaseLabels[to] || to;
+        const status = to === "completed" ? "completed" : to === "failed" ? "failed" : "running";
+        const existingId = this.designPhaseNodes.get(to);
+        const id = existingId || this._genId(`phase_${to}`);
+
+        if (this._activeDesignPhaseId && this._activeDesignPhaseId !== id) {
+          this._updateNode(this._activeDesignPhaseId, { status: "completed" });
+        }
+        if (from && this.designPhaseNodes.has(from)) {
+          this._updateNode(this.designPhaseNodes.get(from), { status: "completed" });
+        }
+
+        if (existingId) {
           this._updateNode(id, {
-            status: "completed",
-            metrics: { ideas: payload.totalIdeas, selected: payload.selectedIdeas, images: payload.imageSlots }
+            status,
+            metrics: { from, to }
           });
         } else {
-          const parentId = this._getCurrentParent();
-          this._addNode(id, "design_brainstorm", {
-            label: "Brainstorm",
-            status: "completed",
+          this._addNode(id, "design_phase", {
+            label,
+            status,
             parentNodeId: parentId,
-            metrics: { ideas: payload.totalIdeas, selected: payload.selectedIdeas, images: payload.imageSlots }
+            metrics: { from, to }
           });
         }
-        break;
-      }
 
-      case "design.brainstorm.candidates": {
-        const id = this._brainstormNodeId;
-        if (id) {
-          this._updateNode(id, {
-            metrics: { candidates: payload.totalIdeas, selected: payload.selectedCount }
-          });
-        }
+        this.designPhaseNodes.set(to, id);
+        this._activeDesignPhaseId = status === "running" ? id : null;
         break;
       }
 
@@ -914,6 +925,19 @@ export class FlowBuilder {
         break;
       }
 
+      case "design.visual.errors": {
+        const parentId = this._getCurrentParent();
+        const id = this._genId("visual_err");
+        const errors = Array.isArray(payload?.errors) ? payload.errors : [];
+        this._addNode(id, "error", {
+          label: "Visual Errors",
+          status: "failed",
+          parentNodeId: parentId,
+          details: errors.map(e => ({ text: `${e.renderer || "visual"}: ${e.error || "unknown"}` }))
+        });
+        break;
+      }
+
       case "design.batch.started": {
         const batchIndex = typeof payload.batchIndex === "number" ? payload.batchIndex : 0;
         const slideIndexes = Array.isArray(payload.slideIndexes) ? payload.slideIndexes : [];
@@ -948,7 +972,7 @@ export class FlowBuilder {
           label: "Generation Done",
           status: "completed",
           parentNodeId: parentId,
-          metrics: { slides: payload.slideCount, batches: payload.batchCount }
+          metrics: { slides: payload.slides ?? payload.slideCount, batches: payload.batchCount }
         });
         break;
       }
@@ -1144,6 +1168,8 @@ export class FlowBuilder {
     this.designBatchNodes.clear();
     this.designSlideNodes.clear();
     this.designImageNodes.clear();
+    this.designPhaseNodes.clear();
+    this._activeDesignPhaseId = null;
     this._refineStepNodeId = null;
     this._visualRenderNodeId = null;
     this._allEvents = [];

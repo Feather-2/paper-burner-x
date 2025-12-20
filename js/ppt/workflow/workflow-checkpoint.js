@@ -46,7 +46,8 @@ export const checkpointMixin = {
 
         const contentPackage = this.workflowData?.contentPackage;
         const reportMarkdown = this.workflowData?.reportMarkdown;
-        const brainstormCandidates = this.workflowData?.brainstormCandidates;
+        const designPhase = this.workflowData?.designPhase;
+        const slideStatuses = this.workflowData?.slideStatuses;
         const includeDeck = stage === 'design.batch';
         const deckPackage = includeDeck ? this.workflowData?.deckPackage : null;
 
@@ -55,7 +56,8 @@ export const checkpointMixin = {
             ...(contentPackage ? { contentPackage } : {}),
             ...(deckPackage ? { deckPackage } : {}),
             ...(typeof reportMarkdown === 'string' ? { reportMarkdown } : {}),
-            ...(brainstormCandidates && typeof brainstormCandidates === 'object' ? { brainstormCandidates } : {}),
+            ...(designPhase && typeof designPhase === 'object' ? { designPhase } : {}),
+            ...(slideStatuses && typeof slideStatuses === 'object' ? { slideStatuses } : {}),
             workflowUiState: this.state,
         };
     },
@@ -92,7 +94,8 @@ export const checkpointMixin = {
         if (typeof st.deckPackage?.deckHtmlDsl === 'string') this.workflowData.deckHtmlDsl = st.deckPackage.deckHtmlDsl;
         if (typeof st.deckHtmlDsl === 'string' && typeof this.workflowData.deckHtmlDsl !== 'string') this.workflowData.deckHtmlDsl = st.deckHtmlDsl;
         if (typeof st.reportMarkdown === 'string') this.workflowData.reportMarkdown = st.reportMarkdown;
-        if (st.brainstormCandidates && typeof st.brainstormCandidates === 'object') this.workflowData.brainstormCandidates = st.brainstormCandidates;
+        if (st.designPhase && typeof st.designPhase === 'object') this.workflowData.designPhase = st.designPhase;
+        if (st.slideStatuses && typeof st.slideStatuses === 'object') this.workflowData.slideStatuses = st.slideStatuses;
 
         this._syncDeepSearchVizFromState?.(this._deepsearchState);
         return true;

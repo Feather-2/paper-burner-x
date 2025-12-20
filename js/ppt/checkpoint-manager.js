@@ -109,7 +109,6 @@ export const STAGE_NAMES = {
   'deepsearch.write': 'DeepSearch: 写作',
   'deepsearch.complete': 'DeepSearch: 完成',
   'design.system': 'Design: 设计系统',
-  'design.brainstorm': 'Design: 创意',
   'design.script': 'Design: 脚本确认',
   'design.layout': 'Design: 页面规划',
   'design.batch': 'Design: 生成',
@@ -120,4 +119,3 @@ export const STAGE_NAMES = {
 export function getStageName(stage) {
   return STAGE_NAMES[stage] || stage;
 }
-
