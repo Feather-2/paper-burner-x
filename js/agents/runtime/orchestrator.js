@@ -363,6 +363,7 @@ export class AgentOrchestrator {
     const stageApi = {
       runContext: this.runContext,
       signal,
+      eventBus: this.eventBus,
       emit: (eventName, record) => this.eventBus.emit(eventName, record),
       progress: (progressPayload, extra = {}) =>
         this.eventBus.emit(`${name}.progress`, {

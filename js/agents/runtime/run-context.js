@@ -58,7 +58,10 @@ export function parseConstraints(input = {}) {
   const citationsPolicy = toOptionalString(raw.citationsPolicy);
   const qualityMode = normalizeQualityMode(raw.qualityMode);
 
+
+  // Preserve unknown constraints, then apply normalized known ones
   return {
+    ...raw,
     ...(audience ? { audience } : {}),
     ...(tone ? { tone } : {}),
     ...(typeof pageCount === "number" ? { pageCount } : {}),

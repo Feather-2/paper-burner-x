@@ -7,7 +7,7 @@
 // Core infrastructure
 export { EventBus } from "./event-bus.js";
 export { createStateMachine } from "./state-machine.js";
-export { Orchestrator } from "./orchestrator.js";
+export { AgentOrchestrator, AgentOrchestrator as Orchestrator, topologicalSort } from "./orchestrator.js";
 export { RunContext, createRunContext } from "./run-context.js";
 export { BaseAgentLoop } from "./agent-loop.js";
 export { RequirementAnalyzer, ComplexityLevel } from "./requirement-analyzer.js";

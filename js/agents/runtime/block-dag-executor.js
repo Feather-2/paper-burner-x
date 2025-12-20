@@ -1,17 +1,5 @@
 import { topologicalSort as sortStages } from "./orchestrator.js";
-
-function isPlainObject(value) {
-  if (value === null || typeof value !== "object") return false;
-  if (Array.isArray(value)) return false;
-  const proto = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null;
-}
-
-function toNonEmptyString(value) {
-  if (typeof value !== "string") return "";
-  const trimmed = value.trim();
-  return trimmed.length ? trimmed : "";
-}
+import { isPlainObject, toNonEmptyString } from "../shared/value-utils.js";
 
 function normalizeDag(dag) {
   if (!isPlainObject(dag)) {
