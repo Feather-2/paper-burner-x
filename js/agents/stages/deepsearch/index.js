@@ -1391,6 +1391,8 @@ export function registerDeepSearchStages(orchestrator, { timeoutMs = 30_000 } = 
   orchestrator.registerStage("deepsearch.pipeline", runDeepSearchStage, { actor: "deepsearch", timeoutMs });
 }
 
+export { registerDeepSearchBlocks, DEEPSEARCH_DAG } from "./blocks.js";
+
 export const __test = {
   ensureState,
   applyMergedState,

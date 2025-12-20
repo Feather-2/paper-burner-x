@@ -172,6 +172,58 @@ test("RouterAgent.plan assembles a DAG with strong models", async () => {
   assert.ok(seenPrompt.includes("## scan (v1.0.0)"));
 });
 
+test("RouterAgent.assemblePipeline uses modelRouter.call and preserves dependencies", async () => {
+  const { RouterAgent } = await import("../../../js/agents/runtime/router-agent.js");
+
+  const calls = [];
+  const modelRouter = {
+    call: async ({ usage, messages }) => {
+      calls.push({ usage, messages });
+      return {
+        content: JSON.stringify({
+          stages: ["scan", "retrieve", "write", "condense"],
+          dependsOn: { retrieve: ["scan"], write: ["retrieve"], condense: ["scan"] },
+          reasoning: "ok",
+        }),
+      };
+    },
+  };
+
+  const registry = await makeRegistry([makeManifest("scan"), makeManifest("retrieve"), makeManifest("write"), makeManifest("condense")]);
+  const agent = new RouterAgent({ blockRegistry: registry, modelRouter });
+  const pipeline = await agent.assemblePipeline({ taskGoal: "Task" }, { sources: [] });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].usage, "planner");
+  assert.equal(pipeline.mode, "assembled_dag");
+  assert.deepEqual(pipeline.stages, [
+    { name: "scan", dependsOn: [] },
+    { name: "retrieve", dependsOn: ["scan"] },
+    { name: "write", dependsOn: ["retrieve"] },
+    { name: "condense", dependsOn: ["scan"] },
+  ]);
+
+  const dag = agent.assembleDAG(pipeline.stages);
+  assert.deepEqual(dag.nodes, [
+    { id: "scan", block: "scan", dependsOn: [] },
+    { id: "retrieve", block: "retrieve", dependsOn: ["scan"] },
+    { id: "write", block: "write", dependsOn: ["retrieve"] },
+    { id: "condense", block: "condense", dependsOn: ["scan"] },
+  ]);
+});
+
+test("RouterAgent.assemblePipeline falls back when modelRouter fails", async () => {
+  const { RouterAgent } = await import("../../../js/agents/runtime/router-agent.js");
+
+  const modelRouter = { call: async () => { throw new Error("boom"); } };
+  const registry = await makeRegistry([makeManifest("scan")]);
+  const agent = new RouterAgent({ blockRegistry: registry, modelRouter });
+
+  const pipeline = await agent.assemblePipeline({ taskGoal: "Task" }, { sources: [] });
+  assert.equal(pipeline.mode, "enhanced_pipeline");
+  assert.deepEqual(pipeline.stages, agent.getEnhancedPipeline());
+});
+
 test("RouterAgent.assemblePipeline falls back on invalid response", async () => {
   const { RouterAgent, ModelTier } = await import("../../../js/agents/runtime/router-agent.js");
 
@@ -192,7 +244,7 @@ test("RouterAgent.assemblePipeline supports modelRouter.call fallback signature"
     call: async function (messages, options) {
       calls += 1;
       if (!Array.isArray(messages)) throw new Error("expected array");
-      void options;
+      assert.equal(options.usage, "planner");
       return { content: JSON.stringify({ stages: ["scan"], dependsOn: {}, reasoning: "ok" }) };
     },
   };
@@ -201,7 +253,122 @@ test("RouterAgent.assemblePipeline supports modelRouter.call fallback signature"
   const agent = new RouterAgent({ blockRegistry: registry, modelRouter });
   const pipeline = await agent.assemblePipeline({ taskGoal: "Task" }, { sources: [] });
 
-  assert.equal(calls, 2);
+  assert.equal(calls, 1);
   assert.equal(pipeline.mode, "assembled_dag");
   assert.deepEqual(pipeline.stages, [{ name: "scan", dependsOn: [] }]);
+});
+
+test("RouterAgent.evaluateComplexity computes routing metrics", async () => {
+  const { RouterAgent } = await import("../../../js/agents/runtime/router-agent.js");
+  const agent = new RouterAgent();
+
+  const metricsFromTokens = agent.evaluateComplexity(
+    { taskGoal: "Summarize", estimatedTokens: 1200, needsExternalSearch: true },
+    { sources: [{ type: "pdf" }, { type: "html" }] }
+  );
+  assert.equal(metricsFromTokens.estimatedTokens, 1200);
+  assert.equal(metricsFromTokens.needsExternalSearch, true);
+  assert.equal(metricsFromTokens.typeCount, 2);
+
+  const metricsFromChars = agent.evaluateComplexity(
+    { taskGoal: "Short goal" },
+    { sources: [{ type: "pdf" }], totalChars: 8000 }
+  );
+  assert.equal(metricsFromChars.estimatedTokens, 2000);
+  assert.equal(metricsFromChars.typeCount, 1);
+});
+
+test("RouterAgent.determineLevel maps metrics to levels", async () => {
+  const { RouterAgent } = await import("../../../js/agents/runtime/router-agent.js");
+  const agent = new RouterAgent();
+
+  assert.equal(agent.determineLevel({ sourceCount: 2, estimatedTokens: 4000 }), 0);
+  assert.equal(agent.determineLevel({ sourceCount: 5, estimatedTokens: 15000 }), 1);
+  assert.equal(agent.determineLevel({ sourceCount: 12, estimatedTokens: 25000, needsExternalSearch: true }), 2);
+  assert.equal(agent.determineLevel({ sourceCount: 25, estimatedTokens: 40000 }), 3);
+  assert.equal(agent.determineLevel({ sourceCount: 15, estimatedTokens: 40000 }), 1);
+});
+
+test("RouterAgent.assembleDAG builds nodes and parallel groups", async () => {
+  const { RouterAgent } = await import("../../../js/agents/runtime/router-agent.js");
+  const agent = new RouterAgent();
+
+  const linear = agent.assembleDAG(["scan", "retrieve", "write"]);
+  assert.deepEqual(linear.nodes, [
+    { id: "scan", block: "scan", dependsOn: [] },
+    { id: "retrieve", block: "retrieve", dependsOn: ["scan"] },
+    { id: "write", block: "write", dependsOn: ["retrieve"] },
+  ]);
+
+  const dag = agent.assembleDAG([
+    { name: "classify" },
+    { name: "ocr", dependsOn: ["classify"] },
+    { name: "fetch", dependsOn: ["classify"] },
+    { name: "merge", dependsOn: ["ocr", "fetch"] },
+  ]);
+  assert.ok(dag.parallelGroups.some((group) => group.includes("ocr") && group.includes("fetch")));
+});
+
+test("RouterAgent.routeTask executes DAG for Level 3", async () => {
+  const { RouterAgent } = await import("../../../js/agents/runtime/router-agent.js");
+  const runContext = { runId: "run_1" };
+  const blockApi = { emit: () => {} };
+  let captured = null;
+
+  const dagExecutor = {
+    execute: async (...args) => {
+      captured = args;
+      return { ok: true };
+    },
+  };
+
+  const agent = new RouterAgent({ dagExecutor });
+  agent.evaluateComplexity = () => ({ sourceCount: 25, estimatedTokens: 40000 });
+  agent.selectBlocks = () => ["scan", "write"];
+
+  const result = await agent.routeTask({ taskGoal: "Task" }, { runContext, blockApi });
+  assert.deepEqual(result, { ok: true });
+  assert.ok(captured);
+  assert.deepEqual(captured[0].nodes, [
+    { id: "scan", block: "scan", dependsOn: [] },
+    { id: "write", block: "write", dependsOn: ["scan"] },
+  ]);
+  assert.equal(captured[1], runContext);
+  assert.equal(captured[2].taskGoal, "Task");
+  assert.equal(captured[3], blockApi);
+});
+
+test("RouterAgent.routeTask uses plan for levels 0-2", async () => {
+  const { RouterAgent } = await import("../../../js/agents/runtime/router-agent.js");
+  let executeCalls = 0;
+  let planCalls = 0;
+
+  const dagExecutor = {
+    execute: async () => {
+      executeCalls += 1;
+    },
+  };
+
+  const agent = new RouterAgent({ dagExecutor });
+  agent.plan = async () => {
+    planCalls += 1;
+    if (planCalls === 1) return { mode: "direct", stages: [] };
+    if (planCalls === 2) return { mode: "recommended_pipeline", stages: [] };
+    return { mode: "enhanced_pipeline", stages: [] };
+  };
+
+  agent.evaluateComplexity = () => ({ sourceCount: 1, estimatedTokens: 1000 });
+  const level0 = await agent.routeTask({ taskGoal: "Simple" }, { sources: [] });
+  assert.equal(level0.mode, "direct");
+
+  agent.evaluateComplexity = () => ({ sourceCount: 5, estimatedTokens: 10000 });
+  const level1 = await agent.routeTask({ taskGoal: "Medium" }, { sources: [] });
+  assert.equal(level1.mode, "recommended_pipeline");
+
+  agent.evaluateComplexity = () => ({ sourceCount: 12, estimatedTokens: 25000, needsExternalSearch: true });
+  const level2 = await agent.routeTask({ taskGoal: "Search" }, { sources: [] });
+  assert.equal(level2.mode, "enhanced_pipeline");
+
+  assert.equal(executeCalls, 0);
+  assert.equal(planCalls, 3);
 });

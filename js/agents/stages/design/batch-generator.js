@@ -1,6 +1,7 @@
 import { getDesignModelCaller, isNonRetryableError } from "./model.js";
 import { robustParseJson } from "../../shared/robust-json.js";
 import { VisualDataStatus } from "./constants.js";
+import { buildSlideHtml } from "./dsl-builder.js";
 
 /**
  * Simple concurrency limiter (pLimit-style).
@@ -546,23 +547,8 @@ Follow the DSL spec and examples in the prompt. Summarize content - never copy v
     });
   }
 
-  // Minimal fallback - just title and key points, no complex template
-  const title = String(si.title || "Slide").slice(0, 40);
-  const keyPoints = Array.isArray(si.keyPoints) ? si.keyPoints.slice(0, 4) : [];
-  const colors = designSystem?.designTokens?.colors || designSystem?.colors || {};
-  const bg = colors.bg || "#ffffff";
-  const textColor = colors.text || "#0f172a";
-  const mutedColor = colors.muted || "#64748b";
-
-  const escTitle = title.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-  const bodyHtml = keyPoints.length
-    ? keyPoints.map(p => `• ${String(p || "").slice(0, 60).replace(/</g, "&lt;")}`).join("<br>")
-    : "(内容生成失败，请重试)";
-
-  const fallbackHtml = `<section data-type="freeform" data-layout="content" data-bg="${bg}" data-title="${escTitle}">
-  <div data-el="text" data-x="8%" data-y="10%" data-w="84%" data-h="auto" data-font="36" data-color="${textColor}" data-bold="true">${escTitle}</div>
-  <div data-el="text" data-x="8%" data-y="24%" data-w="84%" data-h="auto" data-font="16" data-color="${mutedColor}" data-line-height="1.8">${bodyHtml}</div>
-</section>`;
+  // Use buildSlideHtml for fallback to include image placeholders
+  const fallbackHtml = buildSlideHtml(si, designSystem, contentPackage, { safeMode: true, slideNo, imageSlotsForSlide });
 
   return { slideIntentId, slideHtml: applyVisualSlotHintsToSlideHtml(fallbackHtml, imageSlotsForSlide, slotHintsBySlotId), source: "fallback" };
 }

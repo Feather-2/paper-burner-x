@@ -8,7 +8,7 @@ import { SVGGenerator, fillSvgPlaceholders } from "./svg-generator.js";
 import { fillAssetPlaceholders } from "./asset-resolver.js";
 import { VisualRenderer } from "./visual-renderer.js";
 import { getDslRules } from "./dsl-rules.js";
-import { brainstorm } from "./brainstorm.js";
+import { ImagePlanner } from "./image-planner.js";
 import { normalizeRenderType } from "../../shared/value-utils.js";
 import { DesignPhase, designPhaseMachine } from "./states.js";
 
@@ -262,14 +262,20 @@ export class DesignAgentLoop {
     return designSystem;
   }
 
-  _buildVisualSlots(brainstormResult, imageSlots, imageProvider) {
+  _buildVisualSlots(brainstormResult, imageSlots, imageProvider, hasModelCapability = true) {
+    // If no rendering capability at all (no imageProvider and no model for SVG),
+    // return empty array to skip rendering and keep placeholders intact.
+    if (!imageProvider && !hasModelCapability) {
+      return [];
+    }
+
     const candidatesBySlide = Array.isArray(brainstormResult?.candidatesBySlide) ? brainstormResult.candidatesBySlide : [];
     const selectedVisualSlots = candidatesBySlide.flatMap((row) =>
       Array.isArray(row?.selectedCandidate?.visualSlots) ? row.selectedCandidate.visualSlots : []
     );
 
-    // When imageProvider is not available, fallback ai-image slots to svg
-    const shouldFallbackToSvg = !imageProvider;
+    // When imageProvider is not available but model is, fallback ai-image slots to svg
+    const shouldFallbackToSvg = !imageProvider && hasModelCapability;
     const mapSlotRenderType = (slot) => {
       const rt = normalizeRenderType(slot?.renderType);
       if (shouldFallbackToSvg && rt === "ai-image") {
@@ -619,17 +625,13 @@ export class DesignAgentLoop {
     }
 
     if (this.phase.status === DesignPhase.GENERATING) {
-      const brainstormResult =
-        context?.brainstormResult ||
-        (context?.skipBrainstorm
-          ? { ideaPool: [], selectedIdeas: [], imageSlots: [], candidatesBySlide: [] }
-          : await brainstorm(parsedContentPackage, designSystem, constraints, {
-              emit,
-              modelRouter,
-              aiApiService: context.aiApiService,
-              signal: context.signal,
-              batchConcurrency: this.batchConcurrency,
-            }));
+      // Use provided brainstormResult or plan imageSlots via ImagePlanner
+      const brainstormResult = context?.brainstormResult || {
+        ideaPool: [],
+        selectedIdeas: [],
+        imageSlots: ImagePlanner.plan(slideIntents, designSystem, constraints),
+        candidatesBySlide: [],
+      };
       const { imageSlots } = brainstormResult;
       const selectedIdeasForPrompt = Array.isArray(brainstormResult?.candidatesBySlide)
         ? brainstormResult.candidatesBySlide
@@ -747,8 +749,15 @@ export class DesignAgentLoop {
       let deckHtmlDsl = slideHtmls.join("\n\n");
 
       const imageProvider = context.imageProvider || context.imageService;
-      const visualSlotsForRender = this._buildVisualSlots(brainstormResult, imageSlots, imageProvider);
-      const aiImageSlotIds = imageSlots.filter((s) => normalizeRenderType(s.renderType) === "ai-image").map((s) => s.slotId);
+      const hasModelCapability = !!(context.modelRouter || context.aiApiService);
+      const visualSlotsForRender = this._buildVisualSlots(brainstormResult, imageSlots, imageProvider, hasModelCapability);
+      // Slots without explicit renderType default to ai-image for pending tracking
+      const aiImageSlotIds = imageSlots
+        .filter((s) => {
+          const rt = normalizeRenderType(s.renderType);
+          return rt === "ai-image" || rt === "";
+        })
+        .map((s) => s.slotId);
 
       const fillResult = await this._callTool(
         "fill_visual",

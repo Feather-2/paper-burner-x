@@ -1,4 +1,5 @@
 import { validateBlockManifest } from "../shared/block-manifest.js";
+import { createBlockExecutor } from "./block-executor.js";
 
 export class BlockRegistry {
   constructor() {
@@ -26,6 +27,18 @@ export class BlockRegistry {
   }
 
   /**
+   * Register a block with a stage function by wrapping it in an executor.
+   * @param {object} manifest
+   * @param {Function} stageFn
+   * @returns {Function}
+   */
+  registerWithExecutor(manifest, stageFn) {
+    const executor = createBlockExecutor(stageFn, manifest);
+    this.register(manifest, executor);
+    return executor;
+  }
+
+  /**
    * Return all registered block manifests.
    * @returns {object[]}
    */
@@ -40,6 +53,15 @@ export class BlockRegistry {
    */
   getExecutor(name) {
     return this._blocks.get(name)?.executor;
+  }
+
+  /**
+   * Get the block executor for a block name.
+   * @param {string} name
+   * @returns {Function|undefined}
+   */
+  getBlockExecutor(name) {
+    return this.getExecutor(name);
   }
 
   /**

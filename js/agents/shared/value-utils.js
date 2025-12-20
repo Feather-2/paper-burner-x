@@ -34,6 +34,42 @@ export function toNonEmptyString(v) {
 }
 
 /**
+ * Safely converts to finite number; invalid values return null.
+ * @param {any} value
+ * @returns {number|null}
+ */
+export function toNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Converts value to boolean with flexible parsing.
+ * @param {any} value
+ * @returns {boolean}
+ */
+export function toBoolean(value) {
+  if (value === true || value === false) return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const trimmed = value.trim().toLowerCase();
+    if (["true", "1", "yes", "y", "on"].includes(trimmed)) return true;
+    if (["false", "0", "no", "n", "off"].includes(trimmed)) return false;
+  }
+  return false;
+}
+
+/**
+ * Normalize string to lowercase alphanumeric key for matching.
+ * @param {any} value
+ * @returns {string}
+ */
+export function normalizeKey(value) {
+  if (value === null || value === undefined) return "";
+  return String(value).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+/**
  * Safely converts to a finite number; invalid values return `null`.
  * Accepts numbers and non-empty numeric strings (via `Number()`).
  *

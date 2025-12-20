@@ -93,10 +93,11 @@ export const RetrieveBlockManifest = {
   input: {
     type: "object",
     properties: {
+      state: { type: "object", description: "DeepSearchState with sources and gaps" },
       gaps: { type: "array", description: "Knowledge gaps to fill" },
       sources: { type: "array", description: "Sources to search" },
     },
-    required: ["gaps", "sources"],
+    required: ["state"],
   },
   output: {
     type: "object",
@@ -123,6 +124,8 @@ export const ScanBlockManifest = {
     type: "object",
     properties: {
       sources: { type: "array", description: "Sources to scan" },
+      taskGoal: { type: "string", description: "Task goal or question to guide scanning" },
+      userConfig: { type: "object", description: "User configuration for scan heuristics" },
       hints: { type: "array", description: "Optional hints for scanning" },
     },
     required: ["sources"],
@@ -140,6 +143,35 @@ export const ScanBlockManifest = {
   estimatedCost: "low",
   estimatedTokens: 2000,
   timeoutMs: 15000,
+  retryable: true,
+};
+
+export const GapsBlockManifest = {
+  name: "gaps",
+  version: "1.0.0",
+  description: "Analyze sources to identify knowledge gaps for targeted retrieval.",
+  capabilities: ["gap_detection", "priority_ranking", "clustering"],
+  input: {
+    type: "object",
+    properties: {
+      state: { type: "object", description: "DeepSearchState with L0 sources" },
+      scanSummary: { type: "object", description: "Summary from scan stage" },
+    },
+    required: ["state"],
+  },
+  output: {
+    type: "object",
+    properties: {
+      gaps: { type: "array", description: "Detected knowledge gaps" },
+      gapTree: { type: "object", description: "Hierarchical gap structure" },
+    },
+  },
+  whenToUse: "Use after scan to identify what information is missing.",
+  dependsOn: ["scan"],
+  incompatibleWith: [],
+  estimatedCost: "medium",
+  estimatedTokens: 4000,
+  timeoutMs: 30000,
   retryable: true,
 };
 
@@ -236,6 +268,7 @@ export const CondenseBlockManifest = {
  */
 export const DeepSearchBlockManifests = [
   ScanBlockManifest,
+  GapsBlockManifest,
   RetrieveBlockManifest,
   UnderstandBlockManifest,
   WriteBlockManifest,

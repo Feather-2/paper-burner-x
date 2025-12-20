@@ -818,13 +818,13 @@ test("Runtime Core: EventBus subscribe with wildcard pattern", async () => {
   const deepSearchEvents = [];
   const designEvents = [];
 
-  bus.subscribe("deepsearch.*", (e) => deepSearchEvents.push(e));
-  bus.subscribe("design.*", (e) => designEvents.push(e));
+	  bus.subscribe("deepsearch.*", (e) => deepSearchEvents.push(e));
+	  bus.subscribe("design.*", (e) => designEvents.push(e));
 
-  bus.emit("deepsearch.scan.started", { status: "started" });
-  bus.emit("deepsearch.gaps.completed", { status: "completed" });
-  bus.emit("design.brainstorm.started", { status: "started" });
-  bus.emit("run.started", { status: "started" });
+	  bus.emit("deepsearch.scan.started", { status: "started" });
+	  bus.emit("deepsearch.gaps.completed", { status: "completed" });
+	  bus.emit("design.started", { status: "started" });
+	  bus.emit("run.started", { status: "started" });
 
   assert.equal(deepSearchEvents.length, 2);
   assert.equal(designEvents.length, 1);

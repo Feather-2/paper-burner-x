@@ -1,5 +1,5 @@
 import { WatchdogEvents } from "./events.js";
-import { CicadaCompressor } from "../shared/cicada-compressor.js";
+import { CicadaCompressor } from "./cicada-compressor.js";
 import { toNonEmptyString } from "../shared/value-utils.js";
 
 export const DelegationMode = Object.freeze({

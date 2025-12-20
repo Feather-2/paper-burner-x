@@ -76,8 +76,6 @@ test("Design: DesignStage generates design tokens + emits design.* events", asyn
 
   assert.ok(events.some((e) => e.name === "design.started"));
   assert.ok(events.some((e) => e.name === "design.tokens.ended"));
-  assert.ok(events.some((e) => e.name === "design.brainstorm.started"));
-  assert.ok(events.some((e) => e.name === "design.brainstorm.completed"));
   assert.ok(events.some((e) => e.name === "design.generate.ended"));
   assert.ok(events.some((e) => e.name === "design.qa.ended"));
   assert.ok(events.some((e) => e.name === "design.ended"));
@@ -812,44 +810,6 @@ test("Design: DesignStage prefers dynamic design system generation when AI is av
         return { content: JSON.stringify(system) };
       }
 
-      if (joined.includes("Plan visual elements for")) {
-        calls.push("brainstorm.generate");
-        return {
-          content: JSON.stringify({
-            slideResults: [
-              {
-                slideIntentId: "s_cover",
-                slideIndex: 0,
-                visualSlots: [
-                  {
-                    slotId: "img_s0_hero",
-                    renderType: "ai-image",
-                    position: { x: "0%", y: "0%", w: "100%", h: "100%" },
-                    effects: { opacity: 0.9, blend: "multiply" },
-                    priority: "critical",
-                    prompt: "Abstract hero background",
-                    style: "illustration",
-                  },
-                ],
-              },
-            ],
-          }),
-        };
-      }
-
-      if (joined.includes("Review the candidates for the given slide")) {
-        calls.push("brainstorm.review");
-        return {
-          content: JSON.stringify({
-            reviews: [
-              { candidateId: "cand_1", scores: { visualImpact: 0.8, clarity: 0.7, novelty: 0.6, consistency: 0.7 } },
-              { candidateId: "cand_2", scores: { visualImpact: 0.6, clarity: 0.8, novelty: 0.4, consistency: 0.8 } },
-            ],
-            selectedCandidateId: "cand_1",
-          }),
-        };
-      }
-
       calls.push("slides");
       prompts.push(joined);
       const batch = extractSlideIntentsFromPrompt(joined);
@@ -866,13 +826,11 @@ test("Design: DesignStage prefers dynamic design system generation when AI is av
   const deck = await stage.run(contentPackage, { runContext: { runId: "run_test", constraints: contentPackage.constraints }, aiApiService });
 
   assert.equal(calls[0], "designSystem");
-  assert.ok(calls.includes("brainstorm.generate"));
-  // Review stage is skipped in simplified flow
+  assert.ok(!calls.some((c) => c.startsWith("brainstorm.")));
   assert.equal(calls[calls.length - 1], "slides");
   assert.equal(deck.designSystem?.colors?.accent?.primary, "#7c3aed");
   assert.ok(deck.designSystem?.designTokens?.colors?.primary);
 
-  // Simplified flow: brainstorm returns visualSlots directly, not elementsMarkdown candidates
   // Just verify batch-generator received the slide intent
   const promptIntents = extractSlideIntentsFromPrompt(prompts[0]);
   assert.equal(promptIntents[0].slideIntentId, "s_cover");

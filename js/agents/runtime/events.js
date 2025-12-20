@@ -51,6 +51,14 @@ export const WatchdogEvents = Object.freeze({
 });
 
 /**
+ * CicadaCompressor 事件
+ */
+export const CicadaEvents = Object.freeze({
+  LAYER_COMPLETED: "cicada.layer.completed",
+  SHED_COMPLETED: "cicada.shed.completed",
+});
+
+/**
  * DeepSearch 事件（合并自 runtime 和 stages/deepsearch）
  */
 export const DeepSearchEvents = Object.freeze({

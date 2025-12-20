@@ -1,5 +1,6 @@
 import { RouterEvents } from "./events.js";
 import { robustParseJson } from "../shared/robust-json.js";
+import { ModelUsage, isValidModelUsage } from "../llm/constants.js";
 
 export const ComplexityTier = Object.freeze({
   SIMPLE: "simple",
@@ -13,6 +14,8 @@ export const ModelTier = Object.freeze({
   STRONG: "strong",
 });
 
+const DEFAULT_MODEL_USAGE = ModelUsage.PLANNER;
+
 const DEFAULT_PIPELINE = ["scan", "gaps", "retrieve", "understand", "write"];
 const RECOMMENDED_PIPELINE = ["scan", "retrieve", "write"];
 const ENHANCED_PIPELINE = ["scan", "gaps", "retrieve", "understand", "write", "condense"];
@@ -20,6 +23,7 @@ const ENHANCED_PIPELINE = ["scan", "gaps", "retrieve", "understand", "write", "c
 const LARGE_CHAR_THRESHOLD = 200000;
 const LARGE_PDF_PAGE_THRESHOLD = 30;
 const LARGE_PDF_BYTES_THRESHOLD = 5_000_000;
+const ESTIMATED_CHARS_PER_TOKEN = 4;
 
 const COMPLEXITY_SCORE_SIMPLE_MAX = 1;
 const COMPLEXITY_SCORE_MODERATE_MAX = 3;
@@ -34,9 +38,20 @@ function toNonEmptyString(value) {
   return trimmed.length ? trimmed : "";
 }
 
+function normalizeModelUsage(value) {
+  const usage = toNonEmptyString(value);
+  return isValidModelUsage(usage) ? usage : DEFAULT_MODEL_USAGE;
+}
+
 function toNumber(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
+}
+
+function estimateTokensFromChars(value) {
+  const chars = toNumber(value);
+  if (chars === null) return null;
+  return Math.ceil(chars / ESTIMATED_CHARS_PER_TOKEN);
 }
 
 function normalizeText(value) {
@@ -56,12 +71,26 @@ function scoreCost(cost) {
   return 0;
 }
 
+function resolveSourceType(source) {
+  if (!isPlainObject(source)) return "";
+  const typeHint = normalizeText(source.kind || source.type || source.sourceType || source.mediaType || source.format);
+  if (typeHint) return typeHint.toLowerCase();
+  const mimeType = normalizeText(source.mimeType || source.mimetype);
+  if (mimeType) return mimeType.toLowerCase();
+  const filename = normalizeText(source.filename || source.name || source.path);
+  const extMatch = filename.match(/\.([a-z0-9]+)$/i);
+  if (extMatch) return extMatch[1].toLowerCase();
+  return "";
+}
+
 export class RouterAgent {
-  constructor({ modelRouter, blockRegistry, modelTier = ModelTier.STANDARD, eventBus } = {}) {
+  constructor({ modelRouter, blockRegistry, blocks, modelTier = ModelTier.STANDARD, modelUsage, eventBus, dagExecutor } = {}) {
     this.modelRouter = modelRouter || null;
-    this.blocks = blockRegistry || null;
+    this.blocks = blocks || blockRegistry || null;
     this.modelTier = Object.values(ModelTier).includes(modelTier) ? modelTier : ModelTier.STANDARD;
+    this.modelUsage = normalizeModelUsage(modelUsage);
     this.eventBus = eventBus || null;
+    this.dagExecutor = dagExecutor || null;
   }
 
   _emit(name, payload) {
@@ -156,6 +185,72 @@ export class RouterAgent {
     return tier;
   }
 
+  evaluateComplexity(task, context) {
+    const base = this._collectComplexityMetrics(task, context);
+    const sources = this._extractSources(context);
+    const estimatedTokens =
+      toNumber(task?.estimatedTokens ?? context?.estimatedTokens) ??
+      estimateTokensFromChars(base.totalChars) ??
+      estimateTokensFromChars(base.goalLength) ??
+      0;
+    const needsExternalSearch = Boolean(
+      task?.needsExternalSearch ||
+        task?.requiresExternalSearch ||
+        task?.needsWebSearch ||
+        context?.needsExternalSearch ||
+        context?.requiresExternalSearch ||
+        context?.needsWebSearch
+    );
+    const needsStrongModel = Boolean(
+      task?.needsStrongModel || task?.requiresStrongModel || context?.needsStrongModel || context?.requiresStrongModel
+    );
+    const typeSet = new Set();
+    for (const source of sources) {
+      const type = resolveSourceType(source);
+      if (type) typeSet.add(type);
+    }
+
+    return {
+      sourceCount: base.sourceCount,
+      estimatedTokens,
+      needsExternalSearch,
+      needsStrongModel,
+      typeCount: typeSet.size,
+      hasHeavyProcessing: base.hasHeavyProcessing,
+      estimatedTime: base.estimatedTime,
+      totalChars: base.totalChars,
+      goalLength: base.goalLength,
+    };
+  }
+
+  determineLevel(metrics) {
+    const safeMetrics = isPlainObject(metrics) ? metrics : {};
+    const sourceCount = toNumber(safeMetrics.sourceCount) ?? 0;
+    const estimatedTokens = toNumber(safeMetrics.estimatedTokens) ?? 0;
+    const needsExternalSearch = Boolean(safeMetrics.needsExternalSearch);
+    const needsStrongModel = Boolean(safeMetrics.needsStrongModel);
+    const typeCount = toNumber(safeMetrics.typeCount) ?? 0;
+    const hasHeavyProcessing = Boolean(safeMetrics.hasHeavyProcessing);
+
+    // Level 0: Simple direct execution
+    if (sourceCount <= 3 && estimatedTokens < 5000) {
+      return 0;
+    }
+    // Level 1: Sub-agent parallel
+    if (sourceCount <= 10 && estimatedTokens < 20000) {
+      return 1;
+    }
+    // Level 2: MCP-Nexus enhanced
+    if (needsExternalSearch || needsStrongModel) {
+      return 2;
+    }
+    // Level 3: DAG/Pipeline for complex tasks
+    if (sourceCount > 20 || typeCount >= 3 || hasHeavyProcessing) {
+      return 3;
+    }
+    return 1; // Default to Level 1
+  }
+
   async plan(task, context) {
     this._emit(RouterEvents.ROUTER_PLAN_START, {
       modelTier: this.modelTier,
@@ -211,6 +306,20 @@ export class RouterAgent {
     });
 
     return plan;
+  }
+
+  selectBlocks(metrics) {
+    const useEnhanced =
+      metrics?.hasHeavyProcessing ||
+      (toNumber(metrics?.sourceCount) ?? 0) > 10 ||
+      (toNumber(metrics?.typeCount) ?? 0) >= 3;
+    const stages = useEnhanced ? this.getEnhancedPipeline() : this.getRecommendedPipeline();
+    const names = stages.map((stage) => stage.name).filter(Boolean);
+    const manifests = this.blocks && typeof this.blocks.getManifests === "function" ? this.blocks.getManifests() : [];
+    if (!manifests.length) return names;
+    const registered = new Set(manifests.map((manifest) => manifest.name));
+    const filtered = names.filter((name) => registered.has(name));
+    return filtered.length ? filtered : names;
   }
 
   selectBestBlock(task) {
@@ -275,6 +384,30 @@ export class RouterAgent {
     return stages;
   }
 
+  _filterStages(stages) {
+    const list = Array.isArray(stages) ? stages : [];
+    const manifests = this.blocks && typeof this.blocks.getManifests === "function" ? this.blocks.getManifests() : [];
+    if (manifests.length === 0) return list;
+    const allowed = new Set(manifests.map((manifest) => manifest.name));
+    const filtered = list.filter((stage) => allowed.has(stage.name));
+    if (filtered.length === 0) return [];
+    const allowedNames = new Set(filtered.map((stage) => stage.name));
+    return filtered.map((stage) => ({
+      ...stage,
+      dependsOn: Array.isArray(stage.dependsOn) ? stage.dependsOn.filter((dep) => allowedNames.has(dep)) : [],
+    }));
+  }
+
+  _buildDependsOnMap(stages) {
+    const map = {};
+    for (const stage of Array.isArray(stages) ? stages : []) {
+      if (!stage || !toNonEmptyString(stage.name)) continue;
+      const deps = Array.isArray(stage.dependsOn) ? stage.dependsOn : [];
+      if (deps.length > 0) map[stage.name] = deps.slice();
+    }
+    return map;
+  }
+
   async assemblePipeline(task, context) {
     const catalog = this.blocks && typeof this.blocks.buildCatalogPrompt === "function"
       ? this.blocks.buildCatalogPrompt()
@@ -305,28 +438,97 @@ export class RouterAgent {
       "}",
     ].join("\n");
 
+    const fallback = (reason) => ({
+      mode: "enhanced_pipeline",
+      stages: this.getEnhancedPipeline(task),
+      reason,
+    });
+
     let raw = null;
     try {
       raw = await this._callModel([{ role: "user", content: prompt }]);
     } catch {
-      raw = null;
+      return fallback("assembly_model_error");
     }
 
     const parsed = this._parsePipelineResponse(raw);
     if (!parsed || parsed.stages.length === 0) {
-      return {
-        mode: "enhanced_pipeline",
-        stages: this.getEnhancedPipeline(task),
-        reason: "assembly_failed_fallback",
-      };
+      return fallback("assembly_invalid_response");
+    }
+
+    const filteredStages = this._filterStages(parsed.stages);
+    if (filteredStages.length === 0) {
+      return fallback("assembly_empty_after_filter");
     }
 
     return {
       mode: "assembled_dag",
-      stages: parsed.stages,
+      stages: filteredStages,
       reason: parsed.reasoning || "ai_assembled",
-      dependsOn: parsed.dependsOn,
+      dependsOn: this._buildDependsOnMap(filteredStages),
     };
+  }
+
+  assembleDAG(blocks, metrics = {}) {
+    const list = Array.isArray(blocks) ? blocks : [];
+    const nodes = [];
+    const seen = new Map();
+    let prevId = null;
+
+    const ensureUniqueId = (baseId) => {
+      const count = seen.get(baseId) || 0;
+      if (count === 0) {
+        seen.set(baseId, 1);
+        return baseId;
+      }
+      const nextCount = count + 1;
+      seen.set(baseId, nextCount);
+      return `${baseId}_${nextCount}`;
+    };
+
+    for (const entry of list) {
+      if (!entry) continue;
+      const blockName = toNonEmptyString(entry?.block || entry?.name || entry?.id || entry);
+      if (!blockName) continue;
+      const rawId = toNonEmptyString(entry?.id || entry?.name || entry?.block || blockName);
+      const id = ensureUniqueId(rawId);
+      const explicitDeps = Array.isArray(entry?.dependsOn)
+        ? entry.dependsOn.map((dep) => toNonEmptyString(dep)).filter(Boolean)
+        : null;
+      const dependsOn = explicitDeps ?? (prevId ? [prevId] : []);
+      nodes.push({ id, block: blockName, dependsOn });
+      prevId = id;
+    }
+
+    if (nodes.length === 0) {
+      return { nodes: [{ id: "direct", block: "direct", dependsOn: [] }], parallelGroups: [], metrics };
+    }
+
+    const groupMap = new Map();
+    for (const node of nodes) {
+      const deps = Array.isArray(node.dependsOn) ? node.dependsOn : [];
+      const key = deps.length ? deps.join("|") : "__root__";
+      if (!groupMap.has(key)) groupMap.set(key, []);
+      groupMap.get(key).push(node.id);
+    }
+    const parallelGroups = [];
+    for (const group of groupMap.values()) {
+      if (group.length > 1) parallelGroups.push(group);
+    }
+
+    return { nodes, parallelGroups, metrics };
+  }
+
+  async routeTask(task, context = {}) {
+    const metrics = this.evaluateComplexity(task, context);
+    const level = this.determineLevel(metrics);
+
+    if (level === 3 && this.dagExecutor) {
+      const dag = this.assembleDAG(this.selectBlocks(metrics), metrics);
+      return this.dagExecutor.execute(dag, context.runContext, task, context.blockApi);
+    }
+
+    return this.plan(task, context);
   }
 
   _parsePipelineResponse(raw) {
@@ -373,18 +575,16 @@ export class RouterAgent {
     };
   }
 
-  async _callModel(messages) {
+  async _callModel(messages, options = {}) {
+    const usage = normalizeModelUsage(this.modelUsage);
+    const forwardOpts = isPlainObject(options) ? options : {};
+
     if (this.modelRouter && typeof this.modelRouter.call === "function") {
-      try {
-        const resp = await this.modelRouter.call({ usage: "router", messages });
-        return resp?.content ?? resp?.text ?? resp;
-      } catch (err) {
-        if (this.modelRouter.call.length >= 2) {
-          const resp = await this.modelRouter.call(messages, { usage: "router" });
-          return resp?.content ?? resp?.text ?? resp;
-        }
-        throw err;
-      }
+      const isLegacy = this.modelRouter.call.length >= 2;
+      const resp = isLegacy
+        ? await this.modelRouter.call(messages, { usage, ...forwardOpts })
+        : await this.modelRouter.call({ usage, messages, ...forwardOpts });
+      return resp?.content ?? resp?.text ?? resp;
     }
 
     if (this.modelRouter && typeof this.modelRouter.chat === "function") {
