@@ -1,4 +1,5 @@
 import { createStateMachine } from "../../runtime/state-machine.js";
+import { StateMachineRegistry } from "../../runtime/state-machine-registry.js";
 
 export const DesignPhase = Object.freeze({
   IDLE: "idle",
@@ -162,3 +163,41 @@ export const reviewMachine = createStateMachine(REVIEW_TRANSITIONS, "Review");
 
 export const SLIDE_TRANSITIONS = SLIDE_STATUS_TRANSITIONS;
 export const slideMachine = slideStatusMachine;
+
+const registry = StateMachineRegistry.getInstance();
+registry.register("design.phase", designPhaseMachine, {
+  module: "design",
+  description: "Design phase lifecycle",
+  states: Object.values(DesignPhase),
+  transitions: DESIGN_PHASE_TRANSITIONS,
+});
+registry.register("design.slide", slideMachine, {
+  module: "design",
+  description: "Slide status lifecycle",
+  states: Object.values(SlideStatus),
+  transitions: SLIDE_STATUS_TRANSITIONS,
+});
+registry.register("design.visualSlot", visualSlotMachine, {
+  module: "design",
+  description: "Visual slot lifecycle",
+  states: Object.values(VisualSlotStatus),
+  transitions: VISUAL_SLOT_TRANSITIONS,
+});
+registry.register("design.editSession", editSessionMachine, {
+  module: "design",
+  description: "Edit session lifecycle",
+  states: Object.values(EditSessionStatus),
+  transitions: EDIT_SESSION_TRANSITIONS,
+});
+registry.register("design.subAgent", subAgentMachine, {
+  module: "design",
+  description: "Sub-agent lifecycle",
+  states: Object.values(SubAgentStatus),
+  transitions: SUB_AGENT_TRANSITIONS,
+});
+registry.register("design.review", reviewMachine, {
+  module: "design",
+  description: "Review lifecycle",
+  states: Object.values(ReviewStatus),
+  transitions: REVIEW_TRANSITIONS,
+});

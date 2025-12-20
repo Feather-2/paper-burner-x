@@ -31,6 +31,26 @@ export const RuntimeEvents = Object.freeze({
 });
 
 /**
+ * RouterAgent 事件
+ */
+export const RouterEvents = Object.freeze({
+  ROUTER_PLAN_START: "router.plan.start",
+  ROUTER_COMPLEXITY_ASSESSED: "router.complexity.assessed",
+  ROUTER_PIPELINE_ASSEMBLED: "router.pipeline.assembled",
+  ROUTER_BLOCK_SELECTED: "router.block.selected",
+});
+
+/**
+ * Watchdog 事件
+ */
+export const WatchdogEvents = Object.freeze({
+  WATCHDOG_DELEGATED: "watchdog.delegated",
+  WATCHDOG_DECISION: "watchdog.decision",
+  WATCHDOG_COMPRESSED: "watchdog.compressed",
+  WATCHDOG_INTERVENTION: "watchdog.intervention",
+});
+
+/**
  * DeepSearch 事件（合并自 runtime 和 stages/deepsearch）
  */
 export const DeepSearchEvents = Object.freeze({

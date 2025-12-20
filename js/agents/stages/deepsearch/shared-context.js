@@ -45,6 +45,9 @@ export class SharedContext {
     // L2: 语义索引 (keyword → Set<id>)
     this._index = new Map();
 
+    // L2: 阶段索引 (stage → index object)
+    this._stageIndex = new Map();
+
     // L3: 完整数据 (id → full object)
     this._store = new Map();
 
@@ -139,6 +142,36 @@ export class SharedContext {
   }
 
   /**
+   * 设置阶段索引
+   */
+  setIndex(stage, index) {
+    const s = toNonEmptyString(stage);
+    if (!s) return;
+    let stored = index;
+    if (index instanceof Map) {
+      stored = Object.fromEntries(index);
+    } else if (!isPlainObject(index)) {
+      stored = { value: index };
+    }
+    this._stageIndex.set(s, stored);
+
+    const keywords = Array.isArray(stored?.keywords) ? stored.keywords : [];
+    const ids = Array.isArray(stored?.ids) ? stored.ids : [];
+    const paths = Array.isArray(stored?.paths) ? stored.paths : [];
+    for (const token of [...keywords, ...ids, ...paths]) {
+      const kw = toNonEmptyString(token);
+      if (kw) this.addToIndex(kw, s);
+    }
+  }
+
+  /**
+   * 获取阶段索引
+   */
+  getIndex(stage) {
+    return this._stageIndex.get(String(stage || "")) || null;
+  }
+
+  /**
    * 按关键词搜索
    */
   search(keyword) {
@@ -197,6 +230,22 @@ export class SharedContext {
     return this._store.has(String(id || ""));
   }
 
+  /**
+   * 清理阶段存储
+   */
+  clearStore(stage) {
+    const s = toNonEmptyString(stage);
+    if (!s) {
+      this._store.clear();
+      return;
+    }
+    for (const key of this._store.keys()) {
+      if (String(key).startsWith(`${s}_`)) {
+        this._store.delete(key);
+      }
+    }
+  }
+
   // ===== 便捷方法: commit =====
 
   /**
@@ -238,13 +287,18 @@ export class SharedContext {
   /**
    * 发送信号
    */
-  signal(stage, payload) {
-    const s = toNonEmptyString(stage) || "unknown";
+  signal(name, data) {
+    const nameStr = toNonEmptyString(name);
+    const stage = toNonEmptyString(data?.stage) || nameStr || "unknown";
+    let type = toNonEmptyString(data?.type);
+    if (!type) {
+      type = toNonEmptyString(data?.stage) ? (nameStr || "info") : "info";
+    }
     const sig = {
       id: `sig_${this._signals.length + 1}`,
-      stage: s,
-      type: toNonEmptyString(payload?.type) || "info",
-      payload: isPlainObject(payload) ? payload : { value: payload },
+      stage,
+      type,
+      payload: isPlainObject(data) ? data : { value: data },
       ts: Date.now(),
     };
     this._signals.push(sig);

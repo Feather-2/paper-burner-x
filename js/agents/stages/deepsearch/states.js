@@ -1,4 +1,5 @@
 import { createStateMachine } from "../../runtime/state-machine.js";
+import { StateMachineRegistry } from "../../runtime/state-machine-registry.js";
 
 // === Phase 状态 ===
 export const PhaseStatus = Object.freeze({
@@ -41,6 +42,20 @@ export const GAP_TRANSITIONS = Object.freeze({
 });
 
 export const gapMachine = createStateMachine(GAP_TRANSITIONS, "Gap");
+
+const registry = StateMachineRegistry.getInstance();
+registry.register("deepsearch.phase", phaseMachine, {
+  module: "deepsearch",
+  description: "DeepSearch phase lifecycle",
+  states: Object.values(PhaseStatus),
+  transitions: PHASE_TRANSITIONS,
+});
+registry.register("deepsearch.gap", gapMachine, {
+  module: "deepsearch",
+  description: "DeepSearch gap lifecycle",
+  states: Object.values(GapStatus),
+  transitions: GAP_TRANSITIONS,
+});
 
 // === Gap 优先级 ===
 export const GapPriority = Object.freeze({
