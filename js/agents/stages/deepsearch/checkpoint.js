@@ -168,14 +168,24 @@ export function loadCheckpoint(checkpoint) {
   const version = toNonEmptyString(checkpoint?.schemaVersion) || "0.0";
   if (version === CHECKPOINT_SCHEMA_VERSION) return checkpoint;
 
+  const snapshotDescriptor = Object.getOwnPropertyDescriptor(checkpoint, "stateSnapshot");
+
   const migrate = CHECKPOINT_MIGRATIONS[version];
   if (typeof migrate === "function") {
     const migrated = migrate(checkpoint);
     if (!isPlainObject(migrated)) throw new TypeError(`Checkpoint migration ${version} -> ${CHECKPOINT_SCHEMA_VERSION} must return an object`);
-    return { ...migrated, schemaVersion: CHECKPOINT_SCHEMA_VERSION };
+
+    migrated.schemaVersion = CHECKPOINT_SCHEMA_VERSION;
+    if (snapshotDescriptor && !Object.getOwnPropertyDescriptor(migrated, "stateSnapshot")) {
+      try {
+        Object.defineProperty(migrated, "stateSnapshot", snapshotDescriptor);
+      } catch {
+        // ignore descriptor copy failures
+      }
+    }
+    return migrated;
   }
 
   console.warn(`Unknown checkpoint schema version: ${version} (expected ${CHECKPOINT_SCHEMA_VERSION}); attempting to load anyway`);
   return checkpoint;
 }
-

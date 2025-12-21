@@ -1,16 +1,51 @@
-import { BaseAgentLoop, checkCancelled } from "./agent-loop.js";
+import { BaseAgentLoop, checkCancelledOrPaused } from "./agent-loop.js";
+import { ensureRuntimeState, LoopRuntimeStatuses } from "./loop-runtime-state.js";
 import { RequirementAnalyzer } from "./requirement-analyzer.js";
 import { CapabilityLoader } from "./capability-loader.js";
 import { RouterAgent } from "./router-agent.js";
 import { CicadaCompressor } from "./cicada-compressor.js";
 import { BlockDAGExecutor } from "./block-dag-executor.js";
-import { EventStatus, RuntimeEvents } from "./events.js";
+import { Archive, MapAdapter } from "../shared/archive.js";
+import { AsyncCompressor } from "./async-compressor.js";
+import { ReviewRules } from "./review-rules.js";
+import { ArchiveEvents, CompressionEvents, EventStatus, ReviewEvents, RuntimeEvents } from "./events.js";
 import { createStageApi } from "../shared/stage-api.js";
+import { StagePausedError } from "./stage-errors.js";
+
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+async function recordPausedRun(runStore, runId, { checkpointId, reason, timestamp } = {}) {
+  const store = runStore && typeof runStore === "object" ? runStore : null;
+  if (!store) return;
+  if (typeof store.updateManifest !== "function") return;
+
+  try {
+    const existing = typeof store.getManifest === "function" ? await store.getManifest(runId) : null;
+    const manifest = isPlainObject(existing)
+      ? { ...existing }
+      : { schemaVersion: "0.1", runId, createdAt: new Date().toISOString(), artifacts: [] };
+
+    const runtime = isPlainObject(manifest.runtime) ? { ...manifest.runtime } : {};
+    runtime.status = "paused";
+    runtime.pausedCheckpointId = typeof checkpointId === "string" && checkpointId ? checkpointId : null;
+    runtime.pausedReason = typeof reason === "string" && reason ? reason : null;
+    runtime.pausedAt = typeof timestamp === "string" && timestamp ? timestamp : new Date().toISOString();
+    manifest.runtime = runtime;
+
+    await store.updateManifest(runId, manifest);
+  } catch {
+    // ignore runStore persistence errors
+  }
+}
 
 export const defaultOptions = Object.freeze({
   maxIterations: 0,
   timeout: 0,
   enableCompression: true,
+  enableReview: true,
+  enableAsyncCompression: true,
   compressionLayers: ["tool_output", "session_history", "llm_summary"],
 });
 
@@ -22,6 +57,8 @@ function withDefaults(opts = {}) {
     maxIterations: Number.isFinite(raw.maxIterations) ? raw.maxIterations : defaultOptions.maxIterations,
     timeout: Number.isFinite(raw.timeout) ? raw.timeout : defaultOptions.timeout,
     enableCompression: raw.enableCompression !== false,
+    enableReview: raw.enableReview !== false,
+    enableAsyncCompression: raw.enableAsyncCompression !== false,
     compressionLayers:
       Array.isArray(raw.compressionLayers) && raw.compressionLayers.length
         ? raw.compressionLayers
@@ -92,6 +129,23 @@ export class OrchestratorLoop extends BaseAgentLoop {
 
     this.opts = withDefaults(opts);
 
+    const rawOpts = opts && typeof opts === "object" ? opts : {};
+    const injectedArchive = deps.archive;
+    const isArchiveAdapter =
+      injectedArchive &&
+      typeof injectedArchive === "object" &&
+      typeof injectedArchive.get === "function" &&
+      typeof injectedArchive.set === "function" &&
+      typeof injectedArchive.delete === "function" &&
+      typeof injectedArchive.keys === "function";
+
+    this.archive =
+      injectedArchive && typeof injectedArchive === "object" && typeof injectedArchive.save === "function"
+        ? injectedArchive
+        : isArchiveAdapter
+          ? new Archive(injectedArchive)
+          : new Archive(new MapAdapter());
+
     this.analyzer =
       deps.requirementAnalyzer ??
       new RequirementAnalyzer({
@@ -117,7 +171,23 @@ export class OrchestratorLoop extends BaseAgentLoop {
 
     this.compressor =
       deps.cicadaCompressor ??
-      new CicadaCompressor({ modelRouter: deps.modelRouter, archive: deps.archive, eventBus: deps.eventBus });
+      new CicadaCompressor({
+        modelRouter: deps.modelRouter,
+        archive: this.archive?.storage ?? injectedArchive,
+        eventBus: deps.eventBus,
+      });
+
+    this.asyncCompressor =
+      deps.asyncCompressor ??
+      new AsyncCompressor({
+        cicada: this.compressor,
+        layers:
+          Array.isArray(rawOpts.compressionLayers) && rawOpts.compressionLayers.length
+            ? rawOpts.compressionLayers
+            : ["tool_output"],
+      });
+
+    this.reviewRules = deps.reviewRules ?? new ReviewRules();
 
     this.dagExecutor = deps.dagExecutor ?? (deps.blockRegistry ? new BlockDAGExecutor(deps.blockRegistry, { eventBus: deps.eventBus }) : null);
 
@@ -145,24 +215,46 @@ export class OrchestratorLoop extends BaseAgentLoop {
       timeoutId = setTimeout(() => controller.abort("timeout"), this.opts.timeout);
     }
 
-    const signal = mergeSignals(context.signal, timeoutSignal) || context.signal || timeoutSignal || null;
+    const signal = mergeSignals(context.signal, timeoutSignal) || context.signal || timeoutSignal || new AbortController().signal;
 
     const runContext = {
       ...(context.runContext && typeof context.runContext === "object" ? context.runContext : {}),
       runId,
     };
 
-    const stageContext = { ...context, runId, signal, runContext };
+    const stageResults =
+      context?.stageResults && (typeof context.stageResults === "object" || context.stageResults instanceof Map)
+        ? context.stageResults
+        : {};
+
+    const stageContext = { ...context, runId, signal, runContext, stageResults };
+
+    const runtimeState = ensureRuntimeState(signal, {
+      status: LoopRuntimeStatuses.RUNNING,
+      cursor: null,
+      pausedReason: null,
+      lastCheckpointId: null,
+    });
 
     this._emit(RuntimeEvents.RUN_STARTED, { runId, task }, EventStatus.STARTED);
     this._iteration = 0;
 
+    let checkpointClockMs = 0;
+    const nextCheckpointTimestamp = () => {
+      const now = Date.now();
+      checkpointClockMs = Math.max(now, checkpointClockMs + 1);
+      return new Date(checkpointClockMs).toISOString();
+    };
+
+    let analysis = null;
+    let plan = null;
+
     try {
-      const analysis = await this._runStage(runId, "analyze", signal, () => this.analyzer.analyze(task, stageContext), "analysis");
+      analysis = await this._runStage(runId, "analyze", signal, () => this.analyzer.analyze(task, stageContext), "analysis");
 
       await this._runStage(runId, "load_capabilities", signal, () => this.loader.loadRequired(analysis.requiredCapabilities));
 
-      const plan = await this._runStage(runId, "plan", signal, () => this.router.plan(task, { ...stageContext, analysis }), "plan");
+      plan = await this._runStage(runId, "plan", signal, () => this.router.plan(task, { ...stageContext, analysis }), "plan");
 
       const initialInput = this._buildInitialInput(task, context);
 
@@ -176,8 +268,86 @@ export class OrchestratorLoop extends BaseAgentLoop {
         localRetriever: context.localRetriever,
         externalSearchProvider: context.externalSearchProvider,
         logger: context.logger,
-        checkCancelled: () => checkCancelled(signal),
+        checkCancelled: () => checkCancelledOrPaused(signal),
+        stageResults,
       });
+
+      const snapshotStageResults = () => {
+        if (stageResults instanceof Map) {
+          return Object.fromEntries(stageResults.entries());
+        }
+        if (stageResults && typeof stageResults === "object") {
+          return { ...stageResults };
+        }
+        return {};
+      };
+
+      const applyReadyCompressions = () => {
+        if (!this.opts.enableAsyncCompression || !this.asyncCompressor) return;
+        const ready = this.asyncCompressor.getStatus().ready;
+        if (ready.length === 0) return;
+        this.asyncCompressor.applyReady(stageContext);
+        for (const stageId of ready) {
+          this._emit(CompressionEvents.COMPRESSION_APPLIED, { stageId, status: "applied" }, EventStatus.INFO);
+        }
+      };
+
+      const scheduleCompression = (stageId, result) => {
+        if (!this.opts.enableAsyncCompression || !this.asyncCompressor) return;
+        try {
+          this.asyncCompressor.schedule(stageId, result);
+          this._emit(CompressionEvents.COMPRESSION_SCHEDULED, { stageId, status: "scheduled" }, EventStatus.INFO);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          this._emit(
+            CompressionEvents.COMPRESSION_FAILED,
+            { stageId, status: "failed", error: message },
+            EventStatus.FAILED
+          );
+        }
+      };
+
+      const runReview = (stageId, result) => {
+        if (!this.opts.enableReview || !this.reviewRules) return;
+
+        this._emit(ReviewEvents.REVIEW_STARTED, { stageId }, EventStatus.STARTED);
+        try {
+          const review = this.reviewRules.check(stageId, result);
+          this._emit(
+            ReviewEvents.REVIEW_COMPLETED,
+            {
+              stageId,
+              pass: review.pass,
+              severity: review.severity,
+              reason: review.reason,
+              suggestions: review.suggestions,
+            },
+            EventStatus.COMPLETED
+          );
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          this._emit(ReviewEvents.REVIEW_FAILED, { stageId, error: message }, EventStatus.FAILED);
+        }
+      };
+
+      const saveCheckpoint = async ({ stageId, final = false } = {}) => {
+        if (!this.archive || typeof this.archive.save !== "function") return null;
+
+        const timestamp = nextCheckpointTimestamp();
+        const nodeStates = snapshotStageResults();
+        const checkpointId = await this.archive.save(runId, {
+          nodeStates,
+          timestamp,
+          metadata: { stageId: stageId ?? null, final },
+        });
+        runtimeState.lastCheckpointId = checkpointId;
+        this._emit(
+          ArchiveEvents.CHECKPOINT_SAVED,
+          { runId, checkpointId, timestamp, nodeStates },
+          EventStatus.COMPLETED
+        );
+        return checkpointId;
+      };
 
       const result = await this._runStage(
         runId,
@@ -198,19 +368,51 @@ export class OrchestratorLoop extends BaseAgentLoop {
           }
 
           const wrappedRegistry = Object.create(baseRegistry);
+          const executor = new BlockDAGExecutor(wrappedRegistry, { eventBus, parallel: false });
+
           wrappedRegistry.getBlockExecutor = (name) => {
-            const executor = baseRegistry.getBlockExecutor(name);
-            if (typeof executor !== "function") return executor;
-            return async (...args) => {
+            const executorFn = baseRegistry.getBlockExecutor(name);
+            if (typeof executorFn !== "function") return executorFn;
+
+            return async (innerRunContext, input, innerApi) => {
               if (this.opts.maxIterations > 0 && this._iteration++ >= this.opts.maxIterations) {
                 throw new Error("OrchestratorLoop: max iterations reached");
               }
-              return executor(...args);
+
+              const stageId = name;
+              applyReadyCompressions();
+
+              const out = await executorFn(innerRunContext, input, innerApi);
+
+              if (stageResults instanceof Map) stageResults.set(stageId, out);
+              else stageResults[stageId] = out;
+
+              runReview(stageId, out);
+              scheduleCompression(stageId, out);
+              await saveCheckpoint({ stageId });
+
+              return out;
             };
           };
 
-          const executor = new BlockDAGExecutor(wrappedRegistry, { eventBus, parallel: false });
           const { results } = await executor.execute({ id: runId, nodes }, runContext, initialInput, blockApi);
+
+          if (this.opts.enableAsyncCompression && this.asyncCompressor) {
+            applyReadyCompressions();
+            const summary = await this.asyncCompressor.flush();
+            for (const item of summary.failed || []) {
+              const message = item?.error instanceof Error ? item.error.message : String(item?.error ?? "");
+              this._emit(
+                CompressionEvents.COMPRESSION_FAILED,
+                { stageId: item.stageId, status: "failed", error: message },
+                EventStatus.FAILED
+              );
+            }
+            applyReadyCompressions();
+          }
+
+          await saveCheckpoint({ stageId: "final", final: true });
+
           return results;
         },
         "result"
@@ -229,6 +431,38 @@ export class OrchestratorLoop extends BaseAgentLoop {
       this._emit(RuntimeEvents.RUN_COMPLETED, { runId, result, compressed }, EventStatus.COMPLETED);
       return { result, compressed, plan, analysis };
     } catch (err) {
+      if (err instanceof StagePausedError) {
+        runtimeState.status = LoopRuntimeStatuses.PAUSED;
+        runtimeState.pausedReason = err.reason ?? runtimeState.pausedReason ?? null;
+        runtimeState.lastCheckpointId = err.checkpointId ?? runtimeState.lastCheckpointId ?? null;
+        await recordPausedRun(context?.runStore, runId, {
+          checkpointId: runtimeState.lastCheckpointId,
+          reason: runtimeState.pausedReason,
+          timestamp: err.timestamp,
+        });
+
+        this._emit(
+          RuntimeEvents.RUN_FAILED,
+          {
+            runId,
+            error: err.message,
+            status: "paused",
+            checkpointId: runtimeState.lastCheckpointId,
+            reason: runtimeState.pausedReason,
+            timestamp: err.timestamp,
+          },
+          EventStatus.INFO
+        );
+
+        return {
+          paused: true,
+          checkpointId: runtimeState.lastCheckpointId,
+          reason: runtimeState.pausedReason,
+          plan,
+          analysis,
+        };
+      }
+
       const message = err instanceof Error ? err.message : String(err);
       const event = signal?.aborted ? RuntimeEvents.RUN_CANCELLED : RuntimeEvents.RUN_FAILED;
       const status = signal?.aborted ? "cancelled" : EventStatus.FAILED;
@@ -241,7 +475,7 @@ export class OrchestratorLoop extends BaseAgentLoop {
 
   async _runStage(runId, stage, signal, fn, key) {
     this._emit(RuntimeEvents.STAGE_STARTED, { runId, stage }, EventStatus.STARTED);
-    checkCancelled(signal);
+    checkCancelledOrPaused(signal);
     const value = await fn();
     this._emit(RuntimeEvents.STAGE_COMPLETED, { runId, stage, ...(key ? { [key]: value } : {}) }, EventStatus.COMPLETED);
     return value;

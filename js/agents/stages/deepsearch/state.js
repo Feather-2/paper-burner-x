@@ -21,6 +21,112 @@ export { loadCheckpoint };
 const STATE_SCHEMA_VERSION = "0.1";
 const DEFAULT_MAX_ITERATIONS = 5;
 
+function isWeakCollection(value) {
+  return value instanceof WeakMap || value instanceof WeakSet;
+}
+
+function sanitizeForJson(value, seen = new WeakSet()) {
+  if (value === null) return null;
+
+  const type = typeof value;
+  if (type === "string" || type === "boolean") return value;
+  if (type === "number") return Number.isFinite(value) ? value : null;
+  if (type === "bigint") return value.toString();
+  if (type === "undefined" || type === "function" || type === "symbol") return undefined;
+
+  if (type !== "object") return value;
+  if (isWeakCollection(value)) return undefined;
+  if (seen.has(value)) return "[Circular]";
+  seen.add(value);
+
+  if (value instanceof Date) return value.toISOString();
+  if (value instanceof RegExp) return value.toString();
+
+  if (Array.isArray(value)) {
+    return value.map((item) => {
+      const next = sanitizeForJson(item, seen);
+      return next === undefined ? null : next;
+    });
+  }
+
+  if (value instanceof Set) {
+    return Array.from(value.values()).map((item) => {
+      const next = sanitizeForJson(item, seen);
+      return next === undefined ? null : next;
+    });
+  }
+
+  if (value instanceof Map) {
+    let allStringKeys = true;
+    for (const key of value.keys()) {
+      if (typeof key !== "string") {
+        allStringKeys = false;
+        break;
+      }
+    }
+
+    if (allStringKeys) {
+      const out = {};
+      for (const [k, v] of value.entries()) {
+        const next = sanitizeForJson(v, seen);
+        if (next !== undefined) out[k] = next;
+      }
+      return out;
+    }
+
+    return Array.from(value.entries()).map(([k, v]) => {
+      const nextKey = sanitizeForJson(k, seen);
+      const nextVal = sanitizeForJson(v, seen);
+      return [nextKey === undefined ? null : nextKey, nextVal === undefined ? null : nextVal];
+    });
+  }
+
+  const out = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
+    const next = sanitizeForJson(v, seen);
+    if (next === undefined) continue;
+    out[k] = next;
+  }
+  return out;
+}
+
+function buildCheckpointReferences(checkpoints) {
+  const rows = Array.isArray(checkpoints) ? checkpoints : [];
+  return rows.map((checkpoint) => {
+    const raw = checkpoint && typeof checkpoint === "object" ? checkpoint : {};
+    const { schemaVersion, checkpointId, iteration, timestamp, strategy, metrics } = raw;
+    return { schemaVersion, checkpointId, iteration, timestamp, strategy, metrics };
+  });
+}
+
+function buildStateSnapshot(state, { includeCheckpoints = true, includeCheckpointSnapshots = true } = {}) {
+  const snapshot = {
+    schemaVersion: state.schemaVersion,
+    runId: state.runId,
+    createdAt: state.createdAt,
+    taskGoal: state.taskGoal,
+    userConfig: state.userConfig,
+    planningTree: state.planningTree?.serialize ? state.planningTree.serialize() : null,
+    ...(toNonEmptyString(state.trajectoryId) ? { trajectoryId: state.trajectoryId } : {}),
+    ...(isPlainObject(state.trajectoryConfig) ? { trajectoryConfig: state.trajectoryConfig } : {}),
+    iteration: state.iteration,
+    maxIterations: state.maxIterations,
+    ...(includeCheckpoints
+      ? { checkpoints: includeCheckpointSnapshots ? state.checkpoints : buildCheckpointReferences(state.checkpoints) }
+      : {}),
+    writeBacktrackCount: state.writeBacktrackCount,
+    writeSnapshots: state.writeSnapshots,
+    L0: state.L0,
+    L1: state.L1,
+    L2: state.L2,
+    todos: state.todos,
+    timeline: state.timeline,
+  };
+
+  return snapshot;
+}
+
 export function makeStageEmitter(stageApi, actor = "deepsearch", getContext) {
   const emitFn =
     typeof stageApi?.emit === "function"
@@ -555,7 +661,7 @@ export class DeepSearchState {
     const checkpointStrategy = getCheckpointStrategyFromState(this);
     const snapshot =
       checkpointStrategy === CheckpointMode.FULL
-        ? DeepSearchState.fromJSON(this.toJSON({ includeCheckpoints: false }))
+        ? DeepSearchState.fromJSON(cloneValue(buildStateSnapshot(this, { includeCheckpoints: false })))
         : checkpointStrategy === CheckpointMode.MINIMAL
           ? buildMinimalSnapshot(this)
           : buildLiteSnapshot(this);
@@ -627,7 +733,10 @@ export class DeepSearchState {
     const snapshot = cp.stateSnapshot instanceof DeepSearchState ? cp.stateSnapshot : DeepSearchState.fromJSON(cp.stateSnapshot);
     const preservedCheckpoints = this.checkpoints;
 
-    const restored = snapshot.toJSON({ includeCheckpoints: false });
+    const restored =
+      checkpointStrategy === CheckpointMode.FULL && typeof snapshot?.toSnapshot === "function"
+        ? snapshot.toSnapshot({ includeCheckpoints: false })
+        : snapshot.toJSON({ includeCheckpoints: false });
     this.schemaVersion = restored.schemaVersion;
     this.runId = restored.runId;
     this.createdAt = restored.createdAt;
@@ -682,26 +791,11 @@ export class DeepSearchState {
   }
 
   toJSON({ includeCheckpoints = true } = {}) {
-    return cloneValue({
-      schemaVersion: this.schemaVersion,
-      runId: this.runId,
-      createdAt: this.createdAt,
-      taskGoal: this.taskGoal,
-      userConfig: this.userConfig,
-      planningTree: this.planningTree?.serialize ? this.planningTree.serialize() : null,
-      ...(toNonEmptyString(this.trajectoryId) ? { trajectoryId: this.trajectoryId } : {}),
-      ...(isPlainObject(this.trajectoryConfig) ? { trajectoryConfig: this.trajectoryConfig } : {}),
-      iteration: this.iteration,
-      maxIterations: this.maxIterations,
-      ...(includeCheckpoints ? { checkpoints: this.checkpoints } : {}),
-      writeBacktrackCount: this.writeBacktrackCount,
-      writeSnapshots: this.writeSnapshots,
-      L0: this.L0,
-      L1: this.L1,
-      L2: this.L2,
-      todos: this.todos,
-      timeline: this.timeline,
-    });
+    return sanitizeForJson(buildStateSnapshot(this, { includeCheckpoints, includeCheckpointSnapshots: false }));
+  }
+
+  toSnapshot({ includeCheckpoints = true } = {}) {
+    return cloneValue(buildStateSnapshot(this, { includeCheckpoints, includeCheckpointSnapshots: true }));
   }
 
   serialize({ pretty = false } = {}) {
@@ -709,7 +803,7 @@ export class DeepSearchState {
   }
 
   clone({ includeCheckpoints = true } = {}) {
-    const snapshotObj = this.toJSON({ includeCheckpoints });
+    const snapshotObj = this.toSnapshot({ includeCheckpoints });
     return DeepSearchState.fromJSON(snapshotObj);
   }
 

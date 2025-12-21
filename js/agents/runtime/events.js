@@ -32,6 +32,33 @@ export const RuntimeEvents = Object.freeze({
 });
 
 /**
+ * ReviewRules 事件
+ */
+export const ReviewEvents = Object.freeze({
+  REVIEW_STARTED: "review.started",
+  REVIEW_COMPLETED: "review.completed",
+  REVIEW_FAILED: "review.failed",
+});
+
+/**
+ * AsyncCompressor 事件
+ */
+export const CompressionEvents = Object.freeze({
+  COMPRESSION_SCHEDULED: "compression.scheduled",
+  COMPRESSION_APPLIED: "compression.applied",
+  COMPRESSION_FAILED: "compression.failed",
+});
+
+/**
+ * Archive 事件
+ */
+export const ArchiveEvents = Object.freeze({
+  CHECKPOINT_SAVED: "archive.checkpoint.saved",
+  CHECKPOINT_RESTORED: "archive.checkpoint.restored",
+  CHECKPOINT_DELETED: "archive.checkpoint.deleted",
+});
+
+/**
  * RouterAgent 事件
  */
 export const RouterEvents = Object.freeze({

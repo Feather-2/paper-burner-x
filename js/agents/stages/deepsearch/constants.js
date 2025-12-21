@@ -43,8 +43,11 @@ export const GAP_TYPES = Object.freeze([
   "question",
 ]);
 
-// 小文档阈值
-export const SMALL_DOC_THRESHOLD = 20000;
+// 小文档阈值（token 数，约 60K tokens）
+// 估算：中文 1 token ≈ 1.5 字符，英文 1 token ≈ 4 字符
+export const SMALL_DOC_TOKEN_THRESHOLD = 60000;
+/** @deprecated 使用 SMALL_DOC_TOKEN_THRESHOLD */
+export const SMALL_DOC_THRESHOLD = SMALL_DOC_TOKEN_THRESHOLD;
 
 // 检索策略枚举
 export const RetrievalStrategy = Object.freeze({
@@ -172,11 +175,15 @@ export {
   PlanNodeType,
   DecisionOutcome,
   DecisionStage,
+  AgentLoopStatus,
+  AGENT_LOOP_TRANSITIONS,
+  agentLoopMachine,
   isValidGapPriority,
   isValidGapStatus,
   isValidPlanNodeStatus,
   isValidPlanNodeType,
   isValidDecisionOutcome,
   isValidDecisionStage,
+  isValidAgentLoopStatus,
 } from "./states.js";
 

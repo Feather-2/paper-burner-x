@@ -1,4 +1,6 @@
 import { createStageApi } from "../shared/stage-api.js";
+import { StagePausedError } from "./stage-errors.js";
+import { getRuntimeState } from "./loop-runtime-state.js";
 
 const USER_ACTION_PREFIX = "user.action";
 
@@ -11,6 +13,23 @@ export function checkCancelled(signal) {
   if (!signal?.aborted) return;
   const reason = signal.reason;
   throw new Error(typeof reason === "string" ? reason : "Run cancelled");
+}
+
+export function checkPaused(signal) {
+  const runtimeState = getRuntimeState(signal);
+  if (!runtimeState) return;
+  if (runtimeState.status !== "paused") return;
+
+  throw new StagePausedError("Run paused", {
+    checkpointId: runtimeState.lastCheckpointId ?? null,
+    reason: runtimeState.pausedReason ?? null,
+    timestamp: Date.now(),
+  });
+}
+
+export function checkCancelledOrPaused(signal) {
+  checkCancelled(signal);
+  checkPaused(signal);
 }
 
 export function normalizeToolResult(result) {
@@ -209,5 +228,9 @@ export class BaseAgentLoop {
     this.eventBus = stageApi.eventBus || this.eventBus || null;
     this.emit = getEmitFn(stageApi) || this.emit || this.eventBus?.emit || null;
     return this.run(input, context);
+  }
+
+  _checkPaused(signal) {
+    checkPaused(signal);
   }
 }

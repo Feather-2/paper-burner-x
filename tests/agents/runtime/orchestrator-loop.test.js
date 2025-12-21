@@ -121,6 +121,8 @@ test("OrchestratorLoop constructor merges custom options (withDefaults pattern)"
 test("OrchestratorLoop.run orchestrates analyze→load→plan→execute(DAG)→compress and emits events", async () => {
   const { OrchestratorLoop } = await import("../../../js/agents/runtime/orchestrator-loop.js");
   const { RuntimeEvents } = await import("../../../js/agents/runtime/events.js");
+  const { setRuntimeState, LoopRuntimeStatuses } = await import("../../../js/agents/runtime/loop-runtime-state.js");
+  const { StagePausedError } = await import("../../../js/agents/runtime/stage-errors.js");
 
   const bus = makeEventBus();
   const analysis = { level: 3, requiredCapabilities: ["scan", "retrieve"] };
@@ -201,6 +203,25 @@ test("OrchestratorLoop.run orchestrates analyze→load→plan→execute(DAG)→c
   assert.equal(bus.events[0].record.status, "started");
   assert.equal(bus.events.at(-1).record.status, "completed");
   assert.ok(bus.events.every((evt) => evt.record.actor === "orchestrator"));
+
+  // When runtime is marked as paused, orchestrator should return paused state.
+  const pausedController = new AbortController();
+  setRuntimeState(pausedController.signal, {
+    status: LoopRuntimeStatuses.PAUSED,
+    pausedReason: "user",
+    lastCheckpointId: "ckpt_1",
+  });
+
+  const pausedOut = await loop.run(task, {
+    runId: "run_orch_pause",
+    eventBus: bus,
+    sources: [{ id: 1 }],
+    signal: pausedController.signal,
+  });
+
+  assert.equal(pausedOut.paused, true);
+  assert.equal(pausedOut.checkpointId, "ckpt_1");
+  assert.equal(pausedOut.reason, "user");
 });
 
 test("OrchestratorLoop.run executes blocks sequentially when level < 3", async () => {
@@ -344,4 +365,44 @@ test("OrchestratorLoop timeout aborts the run via internal AbortController", asy
   assert.equal(calls.loadRequired.length, 0);
   assert.equal(bus.events.at(-1).name, RuntimeEvents.RUN_CANCELLED);
   assert.equal(bus.events.at(-1).record.payload.error, "timeout");
+});
+
+test("OrchestratorLoop.run captures StagePausedError and persists checkpointId to runStore", async () => {
+  const { OrchestratorLoop } = await import("../../../js/agents/runtime/orchestrator-loop.js");
+  const { setRuntimeState, LoopRuntimeStatuses } = await import("../../../js/agents/runtime/loop-runtime-state.js");
+
+  const bus = makeEventBus();
+  const { deps, calls } = makeDeps();
+  const loop = new OrchestratorLoop({ ...deps, eventBus: bus }, { enableCompression: false });
+
+  const controller = new AbortController();
+  setRuntimeState(controller.signal, {
+    status: LoopRuntimeStatuses.PAUSED,
+    pausedReason: "user",
+    lastCheckpointId: "ckpt_99",
+  });
+
+  const manifests = [];
+  const runStore = {
+    getManifest: async () => null,
+    updateManifest: async (runId, manifest) => {
+      manifests.push({ runId, manifest });
+    },
+  };
+
+  const out = await loop.run(
+    { taskGoal: "paused" },
+    { runId: "run_orch_paused", eventBus: bus, signal: controller.signal, runStore }
+  );
+
+  assert.equal(out.paused, true);
+  assert.equal(out.checkpointId, "ckpt_99");
+  assert.equal(out.reason, "user");
+
+  assert.equal(calls.analyze.length, 0);
+  assert.equal(manifests.length, 1);
+  assert.equal(manifests[0].runId, "run_orch_paused");
+  assert.equal(manifests[0].manifest.runtime.status, "paused");
+  assert.equal(manifests[0].manifest.runtime.pausedCheckpointId, "ckpt_99");
+  assert.equal(manifests[0].manifest.runtime.pausedReason, "user");
 });

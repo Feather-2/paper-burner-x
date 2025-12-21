@@ -11,8 +11,16 @@ import { buildContentPackage } from "../textprep/build-content-package.js";
 import { createLogger } from "./logger.js";
 import { extractServices } from "./stage-api.js";
 import { isPlainObject, toNonEmptyString, safeInt } from "../../shared/value-utils.js";
-import { DeepSearchSourceKind, normalizeDeepSearchSourceKind, SMALL_DOC_THRESHOLD } from "./constants.js";
+import { DeepSearchSourceKind, normalizeDeepSearchSourceKind, SMALL_DOC_TOKEN_THRESHOLD } from "./constants.js";
 import { loadPrompt } from "../../prompts/prompt-loader.js";
+
+/**
+ * 估算字符数对应的 token 数
+ * 混合文本（中英文）采用保守估算：1 token ≈ 2 字符
+ */
+function estimateTokens(charCount) {
+  return Math.ceil(charCount / 2);
+}
 
 // 缓存的提示词
 let _directAnalysisPrompt = null;
@@ -96,6 +104,7 @@ const DIRECT_MERGED_SOURCE_ID = "direct_merged";
 /**
  * 检查是否应该使用直通模式
  * 默认禁用，需要显式启用：userConfig.directAnalysis.enabled = true
+ * 阈值单位：token（默认 60000）
  */
 export function shouldUseDirectMode(state, { threshold } = {}) {
   const sources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
@@ -104,18 +113,19 @@ export function shouldUseDirectMode(state, { threshold } = {}) {
     if (sourceId === DIRECT_MERGED_SOURCE_ID || normalizeDeepSearchSourceKind(s?.kind) === DeepSearchSourceKind.DIRECT_MERGED) return sum;
     return sum + (s?.sourceTextNormalized?.length || 0);
   }, 0);
-  const th = safeInt(threshold) ?? safeInt(state?.userConfig?.directAnalysis?.threshold) ?? SMALL_DOC_THRESHOLD;
+  const estimatedTokens = estimateTokens(totalChars);
+  const th = safeInt(threshold) ?? safeInt(state?.userConfig?.directAnalysis?.threshold) ?? SMALL_DOC_TOKEN_THRESHOLD;
 
   // 默认禁用，需要显式启用
   if (state?.userConfig?.directAnalysis?.enabled !== true) {
-    return { shouldUse: false, reason: "not_explicitly_enabled", totalChars, threshold: th };
+    return { shouldUse: false, reason: "not_explicitly_enabled", totalChars, estimatedTokens, threshold: th };
   }
 
-  if (totalChars <= th) {
-    return { shouldUse: true, reason: "small_document", totalChars, threshold: th };
+  if (estimatedTokens <= th) {
+    return { shouldUse: true, reason: "small_document", totalChars, estimatedTokens, threshold: th };
   }
 
-  return { shouldUse: false, reason: "document_too_large", totalChars, threshold: th };
+  return { shouldUse: false, reason: "document_too_large", totalChars, estimatedTokens, threshold: th };
 }
 
 /**
