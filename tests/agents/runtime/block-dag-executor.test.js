@@ -261,3 +261,158 @@ test("BlockDAGExecutor reports missing executors", async () => {
   const dag = { nodes: [{ id: "missing", block: "missing", dependsOn: [] }] };
   await assert.rejects(() => executor.execute(dag, {}, {}), /missing executor/i);
 });
+
+test("BlockDAGExecutor emits StageTimeoutError payload on timeout", async () => {
+  const { BlockDAGExecutor } = await import("../../../js/agents/runtime/block-dag-executor.js");
+
+  const registry = await makeRegistry([
+    {
+      name: "slow",
+      stageFn: async () => {
+        await delay(50);
+        return { state: { ok: true } };
+      },
+    },
+  ]);
+
+  const events = [];
+  const bus = { emit: (name, record) => events.push({ name, record }) };
+  const executor = new BlockDAGExecutor(registry, { eventBus: bus, parallel: false });
+
+  const dag = { nodes: [{ id: "slow", block: "slow", dependsOn: [], timeoutMs: 5 }] };
+  await assert.rejects(
+    () => executor.execute(dag, {}, {}),
+    (err) => {
+      assert.equal(err?.name, "StageTimeoutError");
+      return true;
+    }
+  );
+
+  const failed = events.find((evt) => evt.name === "slow.failed");
+  assert.ok(failed);
+  assert.equal(failed.record.status, "failed");
+  assert.equal(failed.record.payload.name, "StageTimeoutError");
+  assert.equal(failed.record.payload.stageName, "slow");
+  assert.equal(failed.record.payload.timeoutMs, 5);
+});
+
+test("BlockDAGExecutor skips nodes when condition returns false", async () => {
+  const { BlockDAGExecutor } = await import("../../../js/agents/runtime/block-dag-executor.js");
+
+  let calls = 0;
+  const registry = await makeRegistry([
+    {
+      name: "a",
+      stageFn: async () => {
+        calls += 1;
+        return { state: { ok: true } };
+      },
+    },
+    {
+      name: "b",
+      stageFn: async () => {
+        calls += 1;
+        return { state: { ok: true } };
+      },
+    },
+  ]);
+
+  const events = [];
+  const bus = { emit: (name, record) => events.push({ name, record }) };
+  const executor = new BlockDAGExecutor(registry, { eventBus: bus, parallel: false });
+
+  const dag = {
+    nodes: [
+      { id: "a", block: "a", dependsOn: [], condition: () => false },
+      { id: "b", block: "b", dependsOn: ["a"] },
+    ],
+  };
+
+  const { results } = await executor.execute(dag, {}, {});
+  assert.deepEqual(results, {});
+  assert.equal(calls, 0);
+
+  const skippedA = events.find((evt) => evt.name === "a.skipped");
+  assert.ok(skippedA);
+  assert.equal(skippedA.record.status, "skipped");
+  assert.equal(skippedA.record.payload.reason, "condition_false");
+
+  const skippedB = events.find((evt) => evt.name === "b.skipped");
+  assert.ok(skippedB);
+  assert.equal(skippedB.record.payload.reason, "dependency_skipped");
+});
+
+test("AgentOrchestrator.runDAG cancels same-layer stages on failure", async () => {
+  const { AgentOrchestrator } = await import("../../../js/agents/runtime/orchestrator.js");
+
+  const events = [];
+  const bus = { emit: (name, record) => events.push({ name, record }) };
+
+  const orchestrator = new AgentOrchestrator({ eventBus: bus });
+  let cancelledSeen = false;
+
+  orchestrator.registerStage(
+    "slow",
+    async (_runContext, _input, stageApi) => {
+      stageApi.signal.addEventListener(
+        "abort",
+        () => {
+          cancelledSeen = true;
+        },
+        { once: true }
+      );
+      await delay(80);
+      return { ok: true };
+    },
+    { dependsOn: [] }
+  );
+
+  orchestrator.registerStage(
+    "fail",
+    async () => {
+      await delay(10);
+      throw new Error("boom");
+    },
+    { dependsOn: [] }
+  );
+
+  await assert.rejects(() => orchestrator.runDAG({ parallel: true }), /boom/);
+  assert.equal(cancelledSeen, true);
+
+  const slowFailed = events.find((evt) => evt.name === "slow.failed");
+  assert.ok(slowFailed);
+  assert.equal(slowFailed.record.status, "failed");
+  assert.equal(slowFailed.record.payload.name, "StageCancelledError");
+});
+
+test("AgentOrchestrator.runStage emits StageTimeoutError payload", async () => {
+  const { AgentOrchestrator } = await import("../../../js/agents/runtime/orchestrator.js");
+
+  const events = [];
+  const bus = { emit: (name, record) => events.push({ name, record }) };
+
+  const orchestrator = new AgentOrchestrator({ eventBus: bus });
+
+  orchestrator.registerStage(
+    "slow",
+    async () => {
+      await delay(40);
+      return { ok: true };
+    },
+    { timeoutMs: 5 }
+  );
+
+  await assert.rejects(
+    () => orchestrator.runStage("slow", {}),
+    (err) => {
+      assert.equal(err?.name, "StageTimeoutError");
+      return true;
+    }
+  );
+
+  const failed = events.find((evt) => evt.name === "slow.failed");
+  assert.ok(failed);
+  assert.equal(failed.record.payload.name, "StageTimeoutError");
+  assert.equal(failed.record.payload.stageName, "slow");
+  assert.equal(failed.record.payload.timeoutMs, 5);
+});

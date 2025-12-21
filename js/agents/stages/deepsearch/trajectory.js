@@ -330,7 +330,12 @@ export class TrajectoryManager {
         maxIterations: baseState.maxIterations,
         L0: baseState.L0, // 共享引用（源文档不可变）
         L1: JSON.parse(JSON.stringify(baseState.L1 || {})),
-        L2: { retrievedChunks: [], scratchpad: {}, logs: [], tokenUsage: { input: 0, output: 0, total: 0 } },
+        L2: {
+          retrievedChunks: [],
+          scratchpad: {},
+          logs: [],
+          tokenUsage: isPlainObject(baseState?.L2?.tokenUsage) ? baseState.L2.tokenUsage : { input: 0, output: 0, total: 0, estimatedCostUSD: 0 },
+        },
       });
       clone.trajectoryId = `traj_${i}`;
       clone.trajectoryStatus = TrajectoryStatus.FORKED;

@@ -191,3 +191,55 @@ test("BaseAgentLoop waitForUserAction requires an event bus", async () => {
   const loop = await createTestLoop();
   await assert.rejects(loop.waitForUserAction("confirm"), /eventBus/);
 });
+
+test("BaseStage execute emits lifecycle and delegates to run", async () => {
+  const { BaseStage } = await import("../../../js/agents/runtime/agent-loop.js");
+
+  const calls = [];
+  const emit = (name, record) => calls.push({ name, record });
+
+  class TestStage extends BaseStage {
+    constructor() {
+      super({ name: "unit" });
+    }
+
+    async run(input, context) {
+      assert.equal(context.runContext.runId, "run_1");
+      return { ok: true, input, hasEmit: typeof context.emit === "function" };
+    }
+  }
+
+  const stage = new TestStage();
+  const result = await stage.execute({ runId: "run_1" }, { value: 1 }, { emit });
+
+  assert.deepEqual(result, { ok: true, input: { value: 1 }, hasEmit: true });
+  assert.equal(calls[0].name, "unit.started");
+  assert.equal(calls[0].record.actor, "unit");
+  assert.equal(calls[0].record.status, "started");
+  assert.equal(calls[1].name, "unit.completed");
+  assert.equal(calls[1].record.status, "completed");
+});
+
+test("BaseStage execute emits failed when cancelled during run", async () => {
+  const { BaseStage } = await import("../../../js/agents/runtime/agent-loop.js");
+
+  const calls = [];
+  const emit = (name, record) => calls.push({ name, record });
+  const controller = new AbortController();
+
+  class TestStage extends BaseStage {
+    constructor() {
+      super({ name: "cancel" });
+    }
+
+    async run(_input, context) {
+      controller.abort("stop");
+      context.checkCancelled();
+      return "unreachable";
+    }
+  }
+
+  const stage = new TestStage();
+  await assert.rejects(() => stage.execute({ runId: "run_cancel" }, { value: 1 }, { emit, signal: controller.signal }), /stop|cancel/i);
+  assert.ok(calls.some((e) => e.name === "cancel.failed"));
+});

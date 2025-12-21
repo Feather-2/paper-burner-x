@@ -1,5 +1,31 @@
 import { topologicalSort as sortStages } from "./orchestrator.js";
 import { isPlainObject, toNonEmptyString } from "../shared/value-utils.js";
+import { createStageApi } from "../shared/stage-api.js";
+import { EventStatus } from "./events.js";
+import { StageCancelledError, StageTimeoutError, cancelledErrorFromSignal, toErrorPayload } from "./stage-errors.js";
+
+function makeCombinedSignal(signals) {
+  const alive = signals.filter(Boolean);
+  if (alive.length === 0) return undefined;
+  if (alive.length === 1) return alive[0];
+
+  if (typeof AbortSignal !== "undefined" && typeof AbortSignal.any === "function") {
+    return AbortSignal.any(alive);
+  }
+
+  const ctrl = new AbortController();
+  for (const s of alive) {
+    if (s.aborted) return s;
+    s.addEventListener(
+      "abort",
+      () => {
+        ctrl.abort(s.reason);
+      },
+      { once: true }
+    );
+  }
+  return ctrl.signal;
+}
 
 function normalizeDag(dag) {
   if (!isPlainObject(dag)) {
@@ -22,8 +48,13 @@ function buildNodeMap(nodes) {
     }
     const block = toNonEmptyString(node?.block);
     if (!block) throw new Error(`BlockDAGExecutor: node "${id}" missing block`);
+
     const dependsOn = Array.isArray(node?.dependsOn) ? node.dependsOn : [];
-    nodeById.set(id, { id, block, dependsOn });
+    const timeoutMs =
+      typeof node?.timeoutMs === "number" && Number.isFinite(node.timeoutMs) && node.timeoutMs > 0 ? node.timeoutMs : null;
+    const condition = typeof node?.condition === "function" ? node.condition : null;
+
+    nodeById.set(id, { id, block, dependsOn, timeoutMs, condition });
   }
   return nodeById;
 }
@@ -68,6 +99,11 @@ function emitEvent(emit, name, status, payload, extra = {}) {
   });
 }
 
+function emitStageEvent(emit, stageName, actor, status, payload, extra = {}) {
+  if (typeof emit !== "function") return;
+  emit(stageName, { actor, status, payload, ...extra });
+}
+
 function wrapNodeEmitter({ emit, nodeId, block, startTimeRef }) {
   if (typeof emit !== "function") return undefined;
   return (name, record = {}) => {
@@ -99,10 +135,12 @@ export class BlockDAGExecutor {
     }
     this.blockRegistry = blockRegistry;
     this.parallel = options.parallel !== false;
+
     const continueOnError = options.continueOnError;
     const failFast = options.failFast;
     this.continueOnError =
       typeof continueOnError === "boolean" ? continueOnError : typeof failFast === "boolean" ? !failFast : false;
+
     this.eventBus = options.eventBus || null;
   }
 
@@ -120,6 +158,7 @@ export class BlockDAGExecutor {
     if (!Array.isArray(sorted)) {
       throw new TypeError("BlockDAGExecutor.buildLayers(sorted): sorted must be an array");
     }
+
     const { nodes } = normalizeDag(dag);
     const nodeById = buildNodeMap(nodes);
     const levels = new Map();
@@ -128,6 +167,7 @@ export class BlockDAGExecutor {
     for (const nodeId of sorted) {
       const node = nodeById.get(nodeId);
       if (!node) throw new Error(`BlockDAGExecutor.buildLayers: missing node "${nodeId}"`);
+
       const deps = Array.isArray(node.dependsOn) ? node.dependsOn : [];
       let level = 0;
       for (const dep of deps) {
@@ -137,6 +177,7 @@ export class BlockDAGExecutor {
         }
         level = Math.max(level, depLevel + 1);
       }
+
       levels.set(nodeId, level);
       if (!layers[level]) layers[level] = [];
       layers[level].push(nodeId);
@@ -164,7 +205,9 @@ export class BlockDAGExecutor {
     const checkpoints = [];
     const completedNodes = new Set();
     const nodeStates = {};
+    const skippedNodes = new Set();
     const latestCheckpointRef = { current: checkpoint || null };
+
     const emit = resolveEmitter(this.eventBus, blockApi);
     const baseBlockApi = blockApi && typeof blockApi === "object" ? blockApi : null;
 
@@ -182,7 +225,7 @@ export class BlockDAGExecutor {
     }
 
     const startedAt = Date.now();
-    emitEvent(emit, "dag.started", "started", { dagId, nodeCount: nodes.length });
+    emitEvent(emit, "dag.started", EventStatus.STARTED, { dagId, nodeCount: nodes.length });
 
     for (let layerIndex = 0; layerIndex < layers.length; layerIndex += 1) {
       const layer = layers[layerIndex] || [];
@@ -190,7 +233,7 @@ export class BlockDAGExecutor {
       if (runnable.length === 0) continue;
 
       const layerStartedAt = Date.now();
-      emitEvent(emit, "dag.layer.started", "started", { layer: layerIndex, nodes: runnable });
+      emitEvent(emit, "dag.layer.started", EventStatus.STARTED, { layer: layerIndex, nodes: runnable });
 
       await this.executeLayer(runnable, {
         nodeById,
@@ -199,6 +242,7 @@ export class BlockDAGExecutor {
         results,
         completedNodes,
         nodeStates,
+        skippedNodes,
         checkpoints,
         latestCheckpointRef,
         emit,
@@ -206,10 +250,13 @@ export class BlockDAGExecutor {
         dagId,
       });
 
-      emitEvent(emit, "dag.layer.completed", "completed", { layer: layerIndex, duration: Date.now() - layerStartedAt });
+      emitEvent(emit, "dag.layer.completed", EventStatus.COMPLETED, {
+        layer: layerIndex,
+        duration: Date.now() - layerStartedAt,
+      });
     }
 
-    emitEvent(emit, "dag.completed", "completed", {
+    emitEvent(emit, "dag.completed", EventStatus.COMPLETED, {
       dagId,
       duration: Date.now() - startedAt,
       results,
@@ -219,23 +266,53 @@ export class BlockDAGExecutor {
   }
 
   async executeLayer(layer, context) {
-    const runNode = async (nodeId) => this._executeNode(nodeId, context);
+    const runNode = async (nodeId, extra = null) =>
+      this._executeNode(nodeId, extra && typeof extra === "object" ? { ...context, ...extra } : context);
+
     const errors = [];
 
     if (this.parallel && layer.length > 1) {
-      const settled = await Promise.all(
-        layer.map(async (nodeId) => {
-          try {
-            const result = await runNode(nodeId);
-            return { status: "fulfilled", nodeId, result };
-          } catch (err) {
-            return { status: "rejected", nodeId, error: err };
-          }
-        })
-      );
+      if (this.continueOnError) {
+        const settled = await Promise.all(
+          layer.map(async (nodeId) => {
+            try {
+              const result = await runNode(nodeId);
+              return { status: "fulfilled", nodeId, result };
+            } catch (err) {
+              return { status: "rejected", nodeId, error: err };
+            }
+          })
+        );
 
-      for (const item of settled) {
-        if (item.status === "rejected") errors.push(item.error);
+        for (const item of settled) {
+          if (item.status === "rejected") errors.push(item.error);
+        }
+      } else {
+        const layerAbort = new AbortController();
+        let firstError = null;
+
+        await Promise.all(
+          layer.map(async (nodeId) => {
+            if (layerAbort.signal.aborted) {
+              return { status: "cancelled", nodeId };
+            }
+
+            try {
+              const result = await runNode(nodeId, { layerSignal: layerAbort.signal });
+              return { status: "fulfilled", nodeId, result };
+            } catch (err) {
+              if (!firstError && !(err instanceof StageCancelledError && layerAbort.signal.aborted)) {
+                firstError = err;
+                layerAbort.abort(err);
+              }
+              return { status: "rejected", nodeId, error: err };
+            }
+          })
+        );
+
+        if (firstError) {
+          throw firstError;
+        }
       }
     } else {
       for (const nodeId of layer) {
@@ -254,15 +331,44 @@ export class BlockDAGExecutor {
   }
 
   async _executeNode(nodeId, context) {
-    const { nodeById, runContext, initialInput, results, completedNodes, nodeStates } = context;
+    const { nodeById, runContext, initialInput, results, completedNodes, nodeStates, skippedNodes } = context;
+
     const node = nodeById.get(nodeId);
     if (!node) throw new Error(`BlockDAGExecutor: unknown node "${nodeId}"`);
 
     const deps = Array.isArray(node.dependsOn) ? node.dependsOn : [];
+
+    const skippedDeps = deps.filter((dep) => skippedNodes.has(dep));
+    if (skippedDeps.length) {
+      skippedNodes.add(nodeId);
+      emitStageEvent(context.emit, nodeId + ".skipped", "block:" + node.block, EventStatus.SKIPPED, {
+        reason: "dependency_skipped",
+        skippedDeps,
+      });
+      return { skipped: true, reason: "dependency_skipped", skippedDeps };
+    }
+
     const missingDeps = deps.filter((dep) => !Object.prototype.hasOwnProperty.call(results, dep));
     if (missingDeps.length) {
-      if (this.continueOnError) return { skipped: true, reason: "missing_dependencies", missingDeps };
+      if (this.continueOnError) {
+        emitStageEvent(context.emit, nodeId + ".skipped", "block:" + node.block, EventStatus.SKIPPED, {
+          reason: "missing_dependencies",
+          missingDeps,
+        });
+        return { skipped: true, reason: "missing_dependencies", missingDeps };
+      }
       throw new Error(`BlockDAGExecutor: missing dependency results for "${nodeId}": ${missingDeps.join(", ")}`);
+    }
+
+    if (typeof node.condition === "function") {
+      const shouldRun = await node.condition(runContext, new Map(Object.entries(results)));
+      if (!shouldRun) {
+        skippedNodes.add(nodeId);
+        emitStageEvent(context.emit, nodeId + ".skipped", "block:" + node.block, EventStatus.SKIPPED, {
+          reason: "condition_false",
+        });
+        return { skipped: true, reason: "condition_false" };
+      }
     }
 
     const input =
@@ -277,49 +383,128 @@ export class BlockDAGExecutor {
 
     const executor = this.blockRegistry.getBlockExecutor(node.block);
     if (typeof executor !== "function") {
-      emitEvent(context.emit, "dag.node.failed", "failed", {
+      const err = new Error(`Missing executor for block "${node.block}"`);
+      err.name = "BlockNotRegistered";
+      emitEvent(context.emit, "dag.node.failed", EventStatus.FAILED, {
         nodeId,
         block: node.block,
-        error: { message: `Missing executor for block "${node.block}"`, name: "BlockNotRegistered" },
+        error: toErrorPayload(err),
       });
-      if (this.continueOnError) return { skipped: true, reason: "missing_executor" };
+      emitStageEvent(context.emit, nodeId + ".failed", "block:" + node.block, EventStatus.FAILED, toErrorPayload(err));
+      if (this.continueOnError) {
+        emitStageEvent(context.emit, nodeId + ".skipped", "block:" + node.block, EventStatus.SKIPPED, {
+          reason: "missing_executor",
+        });
+        return { skipped: true, reason: "missing_executor" };
+      }
       throw new Error(`BlockDAGExecutor: missing executor for block "${node.block}"`);
+    }
+
+    const stageActor = `block:${node.block}`;
+    const stageStartedAt = Date.now();
+    emitStageEvent(context.emit, nodeId + ".started", stageActor, EventStatus.STARTED, undefined);
+
+    const nodeTimeoutMs =
+      typeof node.timeoutMs === "number" && Number.isFinite(node.timeoutMs) && node.timeoutMs > 0
+        ? node.timeoutMs
+        : typeof this.blockRegistry.getManifest === "function"
+          ? this.blockRegistry.getManifest(node.block)?.timeoutMs
+          : null;
+
+    const timeoutCtrl =
+      typeof nodeTimeoutMs === "number" && Number.isFinite(nodeTimeoutMs) && nodeTimeoutMs > 0 ? new AbortController() : null;
+    let timer = null;
+    if (timeoutCtrl) {
+      timer = setTimeout(() => timeoutCtrl.abort("timeout"), nodeTimeoutMs);
     }
 
     const startTimeRef = { current: Date.now() };
     const baseApi = context.baseBlockApi;
-    const nodeBlockApi = Object.assign(Object.create(baseApi || null), {
+    const signal = makeCombinedSignal([baseApi?.signal, timeoutCtrl?.signal, context.layerSignal]);
+
+    const nodeBlockApi = createStageApi({
+      ...(baseApi && typeof baseApi === "object" ? baseApi : {}),
+      runContext,
+      signal,
+      eventBus: this.eventBus,
       emit: wrapNodeEmitter({ emit: context.emit, nodeId, block: node.block, startTimeRef }),
       getCheckpoint:
         baseApi && typeof baseApi.getCheckpoint === "function" ? baseApi.getCheckpoint.bind(baseApi) : () => context.latestCheckpointRef.current,
+      progress: (progressPayload, extra = {}) =>
+        emitStageEvent(context.emit, nodeId + ".progress", stageActor, EventStatus.PROGRESS, progressPayload, extra),
+      checkCancelled: () => {
+        if (!signal?.aborted) return;
+        if (timeoutCtrl?.signal.aborted) {
+          throw new StageTimeoutError(`Stage timed out: ${nodeId}`, { stageName: nodeId, timeoutMs: nodeTimeoutMs });
+        }
+        throw cancelledErrorFromSignal(signal, nodeId);
+      },
     });
 
-    const result = await executor(runContext, input, nodeBlockApi);
-    results[nodeId] = result;
+    const nodePromise = (async () => executor(runContext, input, nodeBlockApi))();
 
-    const state = result?.state;
-    let stateCheckpoint = null;
-    if (state && typeof state.saveCheckpoint === "function") {
-      const checkpointId = `ckpt_${nodeId}_${completedNodes.size + 1}`;
-      stateCheckpoint = state.saveCheckpoint({ checkpointId });
+    try {
+      const result = await Promise.race([
+        nodePromise,
+        new Promise((_, reject) => {
+          if (!signal) return;
+          if (signal.aborted) {
+            if (timeoutCtrl?.signal.aborted) {
+              return reject(new StageTimeoutError("Stage timed out: " + nodeId, { stageName: nodeId, timeoutMs: nodeTimeoutMs }));
+            }
+            return reject(cancelledErrorFromSignal(signal, nodeId));
+          }
+          signal.addEventListener(
+            "abort",
+            () => {
+              if (timeoutCtrl?.signal.aborted) {
+                reject(new StageTimeoutError(`Stage timed out: ${nodeId}`, { stageName: nodeId, timeoutMs: nodeTimeoutMs }));
+              } else {
+                reject(cancelledErrorFromSignal(signal, nodeId));
+              }
+            },
+            { once: true }
+          );
+        }),
+      ]);
+
+      results[nodeId] = result;
+
+      const state = result?.state;
+      let stateCheckpoint = null;
+      if (state && typeof state.saveCheckpoint === "function") {
+        const checkpointId = `ckpt_${nodeId}_${completedNodes.size + 1}`;
+        stateCheckpoint = state.saveCheckpoint({ checkpointId });
+      }
+
+      completedNodes.add(nodeId);
+      const serializedState = stateCheckpoint?.stateSnapshot ?? serializeState(state);
+      nodeStates[nodeId] = serializedState;
+
+      const checkpointId = `ckpt_${nodeId}_${completedNodes.size}`;
+      const snapshot = {
+        dagId: context.dagId,
+        completedNodes: Array.from(completedNodes),
+        nodeStates: { ...nodeStates },
+        timestamp: new Date().toISOString(),
+        checkpointId,
+      };
+      context.checkpoints.push(snapshot);
+      context.latestCheckpointRef.current = snapshot;
+      emitEvent(context.emit, "dag.checkpoint", EventStatus.INFO, { nodeId, checkpointId });
+
+      emitStageEvent(context.emit, nodeId + ".completed", stageActor, EventStatus.COMPLETED, undefined, {
+        durationMs: Date.now() - stageStartedAt,
+      });
+
+      return result;
+    } catch (err) {
+      emitStageEvent(context.emit, nodeId + ".failed", stageActor, EventStatus.FAILED, toErrorPayload(err), {
+        durationMs: Date.now() - stageStartedAt,
+      });
+      throw err;
+    } finally {
+      if (timer) clearTimeout(timer);
     }
-
-    completedNodes.add(nodeId);
-    const serializedState = stateCheckpoint?.stateSnapshot ?? serializeState(state);
-    nodeStates[nodeId] = serializedState;
-
-    const checkpointId = `ckpt_${nodeId}_${completedNodes.size}`;
-    const snapshot = {
-      dagId: context.dagId,
-      completedNodes: Array.from(completedNodes),
-      nodeStates: { ...nodeStates },
-      timestamp: new Date().toISOString(),
-      checkpointId,
-    };
-    context.checkpoints.push(snapshot);
-    context.latestCheckpointRef.current = snapshot;
-    emitEvent(context.emit, "dag.checkpoint", "info", { nodeId, checkpointId });
-
-    return result;
   }
 }

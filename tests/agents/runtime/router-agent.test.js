@@ -335,7 +335,11 @@ test("RouterAgent.routeTask executes DAG for Level 3", async () => {
   ]);
   assert.equal(captured[1], runContext);
   assert.equal(captured[2].taskGoal, "Task");
-  assert.equal(captured[3], blockApi);
+  assert.ok(captured[3]);
+  assert.equal(captured[3].runContext, runContext);
+  assert.equal(typeof captured[3].emit, "function");
+  assert.ok(captured[3].signal);
+  assert.equal(captured[3].signal.aborted, false);
 });
 
 test("RouterAgent.routeTask uses plan for levels 0-2", async () => {
@@ -371,4 +375,72 @@ test("RouterAgent.routeTask uses plan for levels 0-2", async () => {
 
   assert.equal(executeCalls, 0);
   assert.equal(planCalls, 3);
+});
+
+test("RouterAgent.routeTask emits skipped events when conditions are false", async () => {
+  const { RouterAgent } = await import("../../../js/agents/runtime/router-agent.js");
+  const { BlockDAGExecutor } = await import("../../../js/agents/runtime/block-dag-executor.js");
+
+  const events = [];
+  const bus = { emit: (name, record) => events.push({ name, record }) };
+
+  const registry = {
+    getBlockExecutor: () => async () => ({ state: { ok: true } }),
+  };
+
+  const dagExecutor = new BlockDAGExecutor(registry, { eventBus: bus, parallel: false });
+  const agent = new RouterAgent({ dagExecutor });
+
+  agent.evaluateComplexity = () => ({ sourceCount: 25, estimatedTokens: 40000 });
+  agent.selectBlocks = () => [
+    { name: "a", condition: () => false },
+    { name: "b", dependsOn: ["a"] },
+  ];
+
+  const out = await agent.routeTask({ taskGoal: "Task" }, { runContext: { runId: "run_router" }, eventBus: bus });
+  assert.deepEqual(out, { results: {}, checkpoints: [] });
+
+  const skippedA = events.find((evt) => evt.name === "a.skipped");
+  assert.ok(skippedA);
+  assert.equal(skippedA.record.status, "skipped");
+  assert.equal(skippedA.record.payload.reason, "condition_false");
+
+  const skippedB = events.find((evt) => evt.name === "b.skipped");
+  assert.ok(skippedB);
+  assert.equal(skippedB.record.payload.reason, "dependency_skipped");
+});
+
+test("RouterAgent.routeTask surfaces StageTimeoutError for Level 3 DAG execution", async () => {
+  const { RouterAgent } = await import("../../../js/agents/runtime/router-agent.js");
+  const { BlockDAGExecutor } = await import("../../../js/agents/runtime/block-dag-executor.js");
+
+  const events = [];
+  const bus = { emit: (name, record) => events.push({ name, record }) };
+
+  const registry = {
+    getBlockExecutor: () => async () => {
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      return { state: { ok: true } };
+    },
+  };
+
+  const dagExecutor = new BlockDAGExecutor(registry, { eventBus: bus, parallel: false });
+  const agent = new RouterAgent({ dagExecutor });
+
+  agent.evaluateComplexity = () => ({ sourceCount: 25, estimatedTokens: 40000 });
+  agent.selectBlocks = () => [{ name: "slow", timeoutMs: 5 }];
+
+  await assert.rejects(
+    () => agent.routeTask({ taskGoal: "Task" }, { runContext: { runId: "run_router" }, eventBus: bus }),
+    (err) => {
+      assert.equal(err?.name, "StageTimeoutError");
+      return true;
+    }
+  );
+
+  const failed = events.find((evt) => evt.name === "slow.failed");
+  assert.ok(failed);
+  assert.equal(failed.record.payload.name, "StageTimeoutError");
+  assert.equal(failed.record.payload.stageName, "slow");
+  assert.equal(failed.record.payload.timeoutMs, 5);
 });

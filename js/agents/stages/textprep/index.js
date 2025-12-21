@@ -5,6 +5,8 @@ import { chunkText } from "./chunk.js";
 import { planSlides } from "./slideplan.js";
 import { extractClaims } from "./claims.js";
 import { buildContentPackage } from "./build-content-package.js";
+import { BaseStage } from "../../runtime/agent-loop.js";
+import { createStageApi } from "../../shared/stage-api.js";
 
 function toRawText(input) {
   if (typeof input === "string") return input;
@@ -32,20 +34,6 @@ function extractJsonCandidate(text) {
   if (firstBracket >= 0 && lastBracket > firstBracket) return s.slice(firstBracket, lastBracket + 1);
 
   return s;
-}
-
-function makeEmitter(stageApi) {
-  const emitFn = stageApi?.emit || stageApi?.eventBus?.emit;
-  if (typeof emitFn !== "function") return null;
-  return (name, payload) => emitFn.call(stageApi?.eventBus || null, name, { actor: "textprep", status: "completed", payload });
-}
-
-function checkCancelled(stageApi) {
-  if (typeof stageApi?.checkCancelled === "function") stageApi.checkCancelled();
-  if (stageApi?.signal?.aborted) {
-    const reason = stageApi.signal.reason;
-    throw new Error(typeof reason === "string" ? reason : "Run cancelled");
-  }
 }
 
 function alignClaimsHeuristic(slideIntents, claims) {
@@ -143,62 +131,59 @@ async function alignClaimsToSlides(slideIntents, claims, constraints = {}) {
   return alignClaimsHeuristic(slideIntents, claims);
 }
 
-export class TextPrepStage {
-  constructor({ defaultChunkOptions } = {}) {
+export class TextPrepStage extends BaseStage {
+  constructor({ defaultChunkOptions, eventBus, logger } = {}) {
+    super({ name: "textprep", eventBus, logger });
     this.defaultChunkOptions = defaultChunkOptions || { chunkSize: 2000, overlap: 200, includeLineNumbers: true };
   }
 
-  /**
-   * Stage interface (Runtime): execute(runContext, input) -> ContentPackage.
-   * @param {object} runContext
-   * @param {string|{text?:string,rawText?:string,chunkOptions?:object}} input
-   * @param {{emit?:Function,eventBus?:object,signal?:AbortSignal,checkCancelled?:Function,aiApiService?:object}=} stageApi
-   * @returns {Promise<object>} ContentPackage v0.1
-   */
-  async execute(runContext, input, stageApi = {}) {
-    const emit = makeEmitter(stageApi);
+  async run(input, context = {}) {
+    const api = createStageApi(context);
+    const runContext = api.runContext || { runId: "run_unknown", constraints: {} };
+
+    const emit = (name, payload) => api.emit(name, { actor: "textprep", status: "completed", payload });
     const rawText = toRawText(input);
 
-    checkCancelled(stageApi);
+    api.checkCancelled();
     const normalized = normalizeText(rawText);
-    emit?.("textprep.normalize.completed", {
+    emit("textprep.normalize.completed", {
       textHash: normalized.textHash,
       normalizedChars: normalized.normalized.length,
       normalization: normalized.normalization,
     });
 
-    checkCancelled(stageApi);
+    api.checkCancelled();
     const chunkOptions = { ...this.defaultChunkOptions, ...(toChunkOptions(input) || {}) };
     const chunks = chunkText(normalized.normalized, chunkOptions);
-    emit?.("textprep.chunk.completed", {
+    emit("textprep.chunk.completed", {
       chunkCount: chunks.length,
       chunkSize: chunkOptions.chunkSize,
       overlap: chunkOptions.overlap,
     });
 
-    checkCancelled(stageApi);
+    api.checkCancelled();
     const slideIntents = await planSlides(chunks, {
       ...(runContext?.constraints || {}),
-      __services: { aiApiService: stageApi.aiApiService },
+      __services: { aiApiService: api.aiApiService },
     });
-    emit?.("textprep.slideplan.completed", { slideCount: slideIntents.length });
+    emit("textprep.slideplan.completed", { slideCount: slideIntents.length });
 
-    checkCancelled(stageApi);
+    api.checkCancelled();
     const { claims, evidenceLedger } = extractClaims(chunks, slideIntents, {
       sourceId: "user_text",
       sourceTextNormalized: normalized.normalized,
       maxQuoteLen: 220,
     });
-    emit?.("textprep.claims.completed", { claimCount: claims.length, evidenceCount: evidenceLedger.length });
+    emit("textprep.claims.completed", { claimCount: claims.length, evidenceCount: evidenceLedger.length });
 
-    checkCancelled(stageApi);
+    api.checkCancelled();
     const alignedSlides = await alignClaimsToSlides(slideIntents, claims, {
       ...(runContext?.constraints || {}),
-      __services: { aiApiService: stageApi.aiApiService },
+      __services: { aiApiService: api.aiApiService },
     });
-    emit?.("textprep.align.completed", { slideCount: alignedSlides.length });
+    emit("textprep.align.completed", { slideCount: alignedSlides.length });
 
-    checkCancelled(stageApi);
+    api.checkCancelled();
     const sources = [
       {
         sourceId: "user_text",
@@ -211,14 +196,9 @@ export class TextPrepStage {
       },
     ];
 
-    const pkg = buildContentPackage(runContext || { runId: "run_unknown", constraints: {} }, sources, alignedSlides, claims, evidenceLedger, []);
+    const pkg = buildContentPackage(runContext, sources, alignedSlides, claims, evidenceLedger, []);
     if (pkg?.metrics?.textprep) pkg.metrics.textprep.chunkCount = chunks.length;
     return pkg;
-  }
-
-  // Convenience for existing code: run(input, context) (like DesignStage).
-  async run(input, context = {}) {
-    return this.execute(context.runContext || { runId: "run_unknown", constraints: {} }, input, context);
   }
 }
 
@@ -227,4 +207,3 @@ export async function runTextPrepStage(runContext, input, stageApi = {}) {
   const stage = new TextPrepStage();
   return stage.execute(runContext, input, stageApi);
 }
-

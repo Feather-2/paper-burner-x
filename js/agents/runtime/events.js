@@ -9,6 +9,7 @@ export const EventStatus = Object.freeze({
   PROGRESS: "progress",
   COMPLETED: "completed",
   FAILED: "failed",
+  SKIPPED: "skipped",
   WARNING: "warning",
   INFO: "info",
 });

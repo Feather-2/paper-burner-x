@@ -22,8 +22,9 @@ import { createPhaseHandlers, subscribePhaseTransitions } from "./phase-handlers
 import { GapStatus } from "./states.js";
 import { BudgetAction, createBudgetManager } from "./budget.js";
 import { validateUserConfig } from "./config-schema.js";
-import { extractServices } from "./stage-api.js";
+import { extractServices } from "../../shared/stage-api.js";
 import { EventBus } from "../../runtime/event-bus.js";
+import { BaseStage } from "../../runtime/agent-loop.js";
 
 function validateSourceChunksOrThrow(sources) {
   for (const s of Array.isArray(sources) ? sources : []) {
@@ -269,7 +270,7 @@ function transitionPhase(from, to, { emit, logger, runId, iteration, trajectoryI
     to,
     iteration,
     trajectoryId,
-  });
+  }, { throttle: false });
 
   return true;
 }
@@ -301,7 +302,11 @@ export function shouldContinue(state, roundResult) {
   return true;
 }
 
-export class DeepSearchStage {
+export class DeepSearchStage extends BaseStage {
+  constructor({ eventBus, logger } = {}) {
+    super({ name: "deepsearch.pipeline", eventBus, logger });
+  }
+
   /**
    * Stage interface (Runtime): execute(runContext, input) -> ContentPackage.
    * @param {object} runContext
@@ -309,7 +314,8 @@ export class DeepSearchStage {
    * @param {{emit?:Function,eventBus?:object,signal?:AbortSignal,checkCancelled?:Function,aiApiService?:object,taskManager?:object}=} stageApi
    * @returns {Promise<object>} ContentPackage v0.1
    */
-  async execute(runContext, input, stageApi = {}) {
+  async run(input, stageApi = {}) {
+    const runContext = stageApi?.runContext;
     const state = ensureState(runContext, input);
     if (runContext?.runId) state.runId = String(runContext.runId);
 
@@ -1273,7 +1279,7 @@ export class DeepSearchStage {
           to: PhaseStatus.SCAN,
           iteration: state.iteration,
           trajectoryId: state.trajectoryId,
-        });
+        }, { throttle: false });
         await phaseDone;
       } finally {
         unsubscribePhaseTransitions?.();
@@ -1369,10 +1375,7 @@ export class DeepSearchStage {
     }
   }
 
-  // Convenience adapter: run(input, context) -> ContentPackage.
-  async run(input, context = {}) {
-    return this.execute(context.runContext || { runId: "run_unknown", mode: "deepsearch", constraints: {} }, input, context);
-  }
+  // Convenience adapter is provided by BaseStage.execute.
 }
 
 // Convenience adapter to register with AgentOrchestrator.registerStage(name, fn).

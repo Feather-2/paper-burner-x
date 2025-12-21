@@ -1,3 +1,5 @@
+import { createStageApi } from "../shared/stage-api.js";
+
 const USER_ACTION_PREFIX = "user.action";
 
 export function getEmitFn(ctx) {
@@ -26,6 +28,43 @@ export function resolveToolExecutor(context) {
   if (typeof executor === "function") return executor;
   if (executor && typeof executor.execute === "function") return (name, params) => executor.execute(name, params);
   return null;
+}
+
+export class BaseStage {
+  constructor({ name, eventBus, logger } = {}) {
+    this.name = name || "stage";
+    this.eventBus = eventBus || null;
+    this.logger = logger || null;
+  }
+
+  // Standard stage entrypoint.
+  async execute(runContext, input, stageApi = {}) {
+    const base = stageApi && typeof stageApi === "object" ? stageApi : {};
+    const api = createStageApi({ ...base, eventBus: base.eventBus || this.eventBus });
+    api.checkCancelled?.();
+
+    this._emitStage("started", {}, api);
+    try {
+      const result = await this.run(input, { runContext, ...api });
+      this._emitStage("completed", { result }, api);
+      return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this._emitStage("failed", { error: message }, api);
+      throw err;
+    }
+  }
+
+  // Subclasses must implement.
+  async run(_input, _context) {
+    throw new Error("Subclass must implement run()");
+  }
+
+  _emitStage(status, payload, api) {
+    const stageName = String(this.name || "").trim();
+    if (!stageName) return;
+    api.emit?.(`${stageName}.${status}`, { actor: stageName, status, payload });
+  }
 }
 
 export class BaseAgentLoop {

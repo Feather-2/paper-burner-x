@@ -3,18 +3,12 @@ import { runExport } from "../export/export-integration.js";
 import { checkHardGates } from "./hard-gates.js";
 import { computeScenarioScore } from "./scenario-scorer.js";
 import { generateEvaluationReport } from "./evaluation-report.js";
-
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
+import { isPlainObject } from "../shared/value-utils.js";
+import { BaseStage } from "../runtime/agent-loop.js";
+import { createStageApi } from "../shared/stage-api.js";
 
 function safeArray(v) {
   return Array.isArray(v) ? v : [];
-}
-
-function getEmitFn(stageApi) {
-  const emit = stageApi?.emit || stageApi?.eventBus?.emit;
-  return typeof emit === "function" ? emit : null;
 }
 
 function extractSlideSections(deckHtmlDsl) {
@@ -108,8 +102,9 @@ function computeMetrics(contentPackage, deckPackage, exportResult, lintReport, h
   };
 }
 
-export class EvaluateStage {
+export class EvaluateStage extends BaseStage {
   constructor({ editabilityThreshold = 0.6 } = {}) {
+    super({ name: "evaluate" });
     this.editabilityThreshold = editabilityThreshold;
   }
 
@@ -118,7 +113,7 @@ export class EvaluateStage {
    * Also supports orchestrator shape: execute(runContext, {contentPackage,deckPackage}, stageApi)
    */
   async execute(runContext, contentPackageOrInput, deckPackageMaybe, stageApi = {}) {
-    const emit = getEmitFn(stageApi);
+    const api = createStageApi({ ...stageApi, runContext });
     const runId = String(runContext?.runId || contentPackageOrInput?.runId || deckPackageMaybe?.runId || "run_unknown");
 
     const { contentPackage, deckPackage } =
@@ -149,9 +144,9 @@ export class EvaluateStage {
       editabilityThreshold: this.editabilityThreshold,
     });
 
-    emit?.("evaluate.hardgates.completed", {
+    api.emit("evaluate.hardgates.completed", {
       actor: "evaluate",
-      status: "ended",
+      status: "completed",
       payload: { pass: hardGates.pass, failed: hardGates.failed },
     });
 
@@ -161,14 +156,14 @@ export class EvaluateStage {
     const scenarioScore = scenario ? computeScenarioScore(scenario, metrics) : undefined;
     if (scenarioScore) {
       // Backward compatible event name (tests + UI listeners).
-      emit?.("evaluate.scenario_score.completed", {
+      api.emit("evaluate.scenario_score.completed", {
         actor: "evaluate",
-        status: "ended",
+        status: "completed",
         payload: { scenario, score: scenarioScore.score },
       });
-      emit?.("evaluate.scenarioscore.completed", {
+      api.emit("evaluate.scenarioscore.completed", {
         actor: "evaluate",
-        status: "ended",
+        status: "completed",
         payload: { scenario, score: scenarioScore.score },
       });
     }

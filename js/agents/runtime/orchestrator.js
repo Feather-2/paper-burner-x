@@ -1,7 +1,9 @@
 import { EventBus } from "./event-bus.js";
 import { RunContext } from "./run-context.js";
-import { ActorType, OrchestratorState, isValidOrchestratorState } from "./constants.js";
-import { RuntimeEvents } from "./events.js";
+import { ActorType, OrchestratorState } from "./constants.js";
+import { EventStatus, RuntimeEvents } from "./events.js";
+import { createStageApi } from "../shared/stage-api.js";
+import { StageCancelledError, StageTimeoutError, cancelledErrorFromSignal, toErrorPayload } from "./stage-errors.js";
 
 /**
  * 拓扑排序 - 计算 Stage 执行顺序
@@ -60,23 +62,6 @@ function topologicalSort(stages) {
   return { sorted, layers };
 }
 
-class StageTimeoutError extends Error {
-  constructor(message, { stageName, timeoutMs } = {}) {
-    super(message);
-    this.name = "StageTimeoutError";
-    this.stageName = stageName;
-    this.timeoutMs = timeoutMs;
-  }
-}
-
-class StageCancelledError extends Error {
-  constructor(message, { stageName } = {}) {
-    super(message);
-    this.name = "StageCancelledError";
-    this.stageName = stageName;
-  }
-}
-
 function makeCombinedSignal(signals) {
   const alive = signals.filter(Boolean);
   if (alive.length === 0) return undefined;
@@ -87,18 +72,19 @@ function makeCombinedSignal(signals) {
   }
 
   const ctrl = new AbortController();
-  const onAbort = () => ctrl.abort();
+
   for (const s of alive) {
     if (s.aborted) return s;
-    s.addEventListener("abort", onAbort, { once: true });
+    s.addEventListener(
+      "abort",
+      () => {
+        ctrl.abort(s.reason);
+      },
+      { once: true }
+    );
   }
-  return ctrl.signal;
-}
 
-function abortErrorFromSignal(signal, stageName) {
-  const reason = signal?.reason;
-  const msg = typeof reason === "string" ? reason : "Run cancelled";
-  return new StageCancelledError(msg, { stageName });
+  return ctrl.signal;
 }
 
 export class AgentOrchestrator {
@@ -152,7 +138,7 @@ export class AgentOrchestrator {
     this._state = OrchestratorState.RUNNING;
     this.eventBus.emit(RuntimeEvents.RUN_STARTED, {
       actor: ActorType.SYSTEM,
-      status: "started",
+      status: EventStatus.STARTED,
       payload: {
         mode: this.runContext.mode,
         scenario: this.runContext.scenario,
@@ -178,7 +164,7 @@ export class AgentOrchestrator {
     this._state = OrchestratorState.ENDED;
     this.eventBus.emit(RuntimeEvents.RUN_COMPLETED, {
       actor: ActorType.SYSTEM,
-      status: "completed",
+      status: EventStatus.COMPLETED,
       payload,
     });
   }
@@ -194,8 +180,8 @@ export class AgentOrchestrator {
       this._state = OrchestratorState.FAILED;
       this.eventBus.emit(RuntimeEvents.RUN_FAILED, {
         actor: ActorType.SYSTEM,
-        status: "failed",
-        payload: { message: err?.message, name: err?.name },
+        status: EventStatus.FAILED,
+        payload: toErrorPayload(err),
       });
       throw err;
     }
@@ -222,50 +208,46 @@ export class AgentOrchestrator {
       for (const layer of layers) {
         if (this._state !== OrchestratorState.RUNNING) break;
 
-        // 过滤掉条件不满足的 Stage
         const toRun = [];
         for (const name of layer) {
           const stage = this._stages.get(name);
 
-          // 检查依赖是否被跳过
           if (skipOnDependencySkipped && stage.dependsOn?.length) {
             const hasSkippedDep = stage.dependsOn.some((dep) => skipped.has(dep));
             if (hasSkippedDep) {
               skipped.add(name);
               this.eventBus.emit(`${name}.skipped`, {
                 actor: stage.actor || "system",
-                status: "skipped",
+                status: EventStatus.SKIPPED,
                 payload: { reason: "dependency_skipped" },
               });
               continue;
             }
           }
 
-          // 检查条件
           if (stage.condition) {
             const shouldRun = await stage.condition(this.runContext, results);
             if (!shouldRun) {
               skipped.add(name);
               this.eventBus.emit(`${name}.skipped`, {
                 actor: stage.actor || "system",
-                status: "skipped",
+                status: EventStatus.SKIPPED,
                 payload: { reason: "condition_false" },
               });
               continue;
             }
           }
+
           toRun.push(name);
         }
 
         if (toRun.length === 0) continue;
 
-        // 收集依赖的输出作为输入
         const getInput = (name) => {
           const stage = this._stages.get(name);
           const deps = stage.dependsOn || [];
           if (deps.length === 0) return initialInput;
           if (deps.length === 1) return results.get(deps[0]);
-          // 多依赖时合并为对象
           const merged = {};
           for (const dep of deps) {
             merged[dep] = results.get(dep);
@@ -274,39 +256,40 @@ export class AgentOrchestrator {
         };
 
         if (parallel && toRun.length > 1) {
-          // 并行执行同层 Stage，使用 AbortController 支持取消
           const layerAbort = new AbortController();
           let firstError = null;
 
-          const promises = toRun.map(async (name) => {
-            try {
-              // 如果已经有错误，直接返回
-              if (layerAbort.signal.aborted) {
-                return { name, status: "cancelled" };
-              }
-              const input = getInput(name);
-              const result = await this.runStage(name, input);
-              results.set(name, result);
-              onStageResult?.(name, result);
-              return { name, status: "success", result };
-            } catch (err) {
-              // 第一个错误触发取消
-              if (!firstError) {
-                firstError = err;
-                layerAbort.abort(err.message);
-              }
-              return { name, status: "failed", error: err };
-            }
-          });
+          await Promise.all(
+            toRun.map(async (name) => {
+              try {
+                if (layerAbort.signal.aborted) {
+                  return { name, status: "cancelled" };
+                }
 
-          const settled = await Promise.all(promises);
+                const input = getInput(name);
+                const result = await this.runStage(name, input, { signal: layerAbort.signal });
+                results.set(name, result);
+                onStageResult?.(name, result);
+                return { name, status: "success", result };
+              } catch (err) {
+                if (err instanceof StageCancelledError && layerAbort.signal.aborted) {
+                  return { name, status: "cancelled", error: err };
+                }
 
-          // 如果有失败的，抛出第一个错误
+                if (!firstError) {
+                  firstError = err;
+                  layerAbort.abort(err);
+                }
+
+                return { name, status: "failed", error: err };
+              }
+            })
+          );
+
           if (firstError) {
             throw firstError;
           }
         } else {
-          // 顺序执行
           for (const name of toRun) {
             const input = getInput(name);
             const result = await this.runStage(name, input);
@@ -325,14 +308,14 @@ export class AgentOrchestrator {
       this._state = OrchestratorState.FAILED;
       this.eventBus.emit(RuntimeEvents.RUN_FAILED, {
         actor: ActorType.SYSTEM,
-        status: "failed",
-        payload: { message: err?.message, name: err?.name, results: [...results.keys()] },
+        status: EventStatus.FAILED,
+        payload: { ...toErrorPayload(err), results: [...results.keys()] },
       });
       throw err;
     }
   }
 
-  async runStage(name, input, { timeoutMs, actor, payload } = {}) {
+  async runStage(name, input, { timeoutMs, actor, payload, signal: extraSignal } = {}) {
     if (this._state === OrchestratorState.IDLE) this.start();
     if (this._state !== OrchestratorState.RUNNING) {
       throw new Error(`Cannot run stage when orchestrator state=${this._state}`);
@@ -349,7 +332,7 @@ export class AgentOrchestrator {
 
     this.eventBus.emit(`${name}.started`, {
       actor: stageActor,
-      status: "started",
+      status: EventStatus.STARTED,
       payload,
     });
 
@@ -359,25 +342,28 @@ export class AgentOrchestrator {
       timer = setTimeout(() => timeoutCtrl.abort("timeout"), stageTimeoutMs);
     }
 
-    const signal = makeCombinedSignal([this._runAbort.signal, timeoutCtrl?.signal]);
-    const stageApi = {
+    const signal = makeCombinedSignal([this._runAbort.signal, timeoutCtrl?.signal, extraSignal]);
+
+    const stageApi = createStageApi({
       runContext: this.runContext,
       signal,
       eventBus: this.eventBus,
-      emit: (eventName, record) => this.eventBus.emit(eventName, record),
       progress: (progressPayload, extra = {}) =>
         this.eventBus.emit(`${name}.progress`, {
           actor: stageActor,
-          status: "progress",
+          status: EventStatus.PROGRESS,
           payload: progressPayload,
           ...extra,
         }),
       checkCancelled: () => {
-        if (signal?.aborted) throw abortErrorFromSignal(signal, name);
+        if (!signal?.aborted) return;
+        if (timeoutCtrl?.signal.aborted) {
+          throw new StageTimeoutError(`Stage timed out: ${name}`, { stageName: name, timeoutMs: stageTimeoutMs });
+        }
+        throw cancelledErrorFromSignal(signal, name);
       },
-      // Inject services (aiApiService, modelRouter, visionApi, etc.)
       ...this._services,
-    };
+    });
 
     const stagePromise = (async () => stage.fn(this.runContext, input, stageApi))();
 
@@ -386,14 +372,19 @@ export class AgentOrchestrator {
         stagePromise,
         new Promise((_, reject) => {
           if (!signal) return;
-          if (signal.aborted) return reject(abortErrorFromSignal(signal, name));
+          if (signal.aborted) {
+            if (timeoutCtrl?.signal.aborted) {
+              return reject(new StageTimeoutError("Stage timed out: " + name, { stageName: name, timeoutMs: stageTimeoutMs }));
+            }
+            return reject(cancelledErrorFromSignal(signal, name));
+          }
           signal.addEventListener(
             "abort",
             () => {
               if (timeoutCtrl?.signal.aborted) {
                 reject(new StageTimeoutError(`Stage timed out: ${name}`, { stageName: name, timeoutMs: stageTimeoutMs }));
               } else {
-                reject(abortErrorFromSignal(signal, name));
+                reject(cancelledErrorFromSignal(signal, name));
               }
             },
             { once: true }
@@ -404,13 +395,15 @@ export class AgentOrchestrator {
       const durationMs = Date.now() - startedAt;
       this.eventBus.emit(`${name}.completed`, {
         actor: stageActor,
-        status: "completed",
+        status: EventStatus.COMPLETED,
+        payload: undefined,
         durationMs,
       });
       // 过渡期兼容：同时 emit .ended 别名
       this.eventBus.emit(`${name}.ended`, {
         actor: stageActor,
-        status: "ended",
+        status: EventStatus.COMPLETED,
+        payload: undefined,
         durationMs,
       });
       return result;
@@ -418,9 +411,9 @@ export class AgentOrchestrator {
       const durationMs = Date.now() - startedAt;
       this.eventBus.emit(`${name}.failed`, {
         actor: stageActor,
-        status: "failed",
+        status: EventStatus.FAILED,
         durationMs,
-        payload: { message: err?.message, name: err?.name },
+        payload: toErrorPayload(err),
       });
       throw err;
     } finally {
@@ -429,9 +422,7 @@ export class AgentOrchestrator {
   }
 }
 
-// Expose common error types without exporting extra classes from this module.
 AgentOrchestrator.StageTimeoutError = StageTimeoutError;
 AgentOrchestrator.StageCancelledError = StageCancelledError;
 
-// Export topologicalSort for testing
 export { topologicalSort };

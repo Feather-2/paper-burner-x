@@ -1,6 +1,8 @@
-import { RouterEvents } from "./events.js";
+import { EventStatus, RouterEvents } from "./events.js";
 import { robustParseJson } from "../shared/robust-json.js";
 import { ModelUsage, isValidModelUsage } from "../llm/constants.js";
+import { isPlainObject, toNonEmptyString, toNumber } from "../shared/value-utils.js";
+import { createStageApi } from "../shared/stage-api.js";
 
 export const ComplexityTier = Object.freeze({
   SIMPLE: "simple",
@@ -28,24 +30,9 @@ const ESTIMATED_CHARS_PER_TOKEN = 4;
 const COMPLEXITY_SCORE_SIMPLE_MAX = 1;
 const COMPLEXITY_SCORE_MODERATE_MAX = 3;
 
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function toNonEmptyString(value) {
-  if (typeof value !== "string") return "";
-  const trimmed = value.trim();
-  return trimmed.length ? trimmed : "";
-}
-
 function normalizeModelUsage(value) {
   const usage = toNonEmptyString(value);
   return isValidModelUsage(usage) ? usage : DEFAULT_MODEL_USAGE;
-}
-
-function toNumber(value) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : null;
 }
 
 function estimateTokensFromChars(value) {
@@ -95,13 +82,13 @@ export class RouterAgent {
 
   _emit(name, payload) {
     if (!this.eventBus || typeof this.eventBus.emit !== "function") return;
-    this.eventBus.emit(name, { actor: "router", status: "info", payload });
+    this.eventBus.emit(name, { actor: "router", status: EventStatus.INFO, payload });
   }
 
   _normalizeTaskGoal(task) {
     if (typeof task === "string") return task;
     if (!isPlainObject(task)) return "";
-    return toNonEmptyString(task.taskGoal || task.goal || task.intent);
+    return toNonEmptyString(task.taskGoal || task.goal || task.intent) || "";
   }
 
   _extractSources(context) {
@@ -496,7 +483,16 @@ export class RouterAgent {
         ? entry.dependsOn.map((dep) => toNonEmptyString(dep)).filter(Boolean)
         : null;
       const dependsOn = explicitDeps ?? (prevId ? [prevId] : []);
-      nodes.push({ id, block: blockName, dependsOn });
+      const timeoutMs =
+        typeof entry?.timeoutMs === "number" && Number.isFinite(entry.timeoutMs) && entry.timeoutMs > 0 ? entry.timeoutMs : null;
+      const condition = typeof entry?.condition === "function" ? entry.condition : null;
+      nodes.push({
+        id,
+        block: blockName,
+        dependsOn,
+        ...(timeoutMs ? { timeoutMs } : {}),
+        ...(condition ? { condition } : {}),
+      });
       prevId = id;
     }
 
@@ -525,7 +521,28 @@ export class RouterAgent {
 
     if (level === 3 && this.dagExecutor) {
       const dag = this.assembleDAG(this.selectBlocks(metrics), metrics);
-      return this.dagExecutor.execute(dag, context.runContext, task, context.blockApi);
+
+      const eventBus = context.eventBus || this.eventBus || null;
+      if (this.dagExecutor && eventBus) this.dagExecutor.eventBus = eventBus;
+
+      const runContext = context.runContext && typeof context.runContext === "object" ? context.runContext : {};
+      const baseBlockApi = context.blockApi && typeof context.blockApi === "object" ? context.blockApi : {};
+      const signal = context.signal || baseBlockApi.signal || null;
+
+      const blockApi = createStageApi({
+        ...baseBlockApi,
+        runContext,
+        ...(signal ? { signal } : {}),
+        ...(eventBus ? { eventBus } : {}),
+        ...(typeof context.emit === "function" ? { emit: context.emit } : {}),
+        modelRouter: context.modelRouter || this.modelRouter || null,
+        aiApiService: context.aiApiService,
+        localRetriever: context.localRetriever,
+        externalSearchProvider: context.externalSearchProvider,
+        logger: context.logger,
+      });
+
+      return this.dagExecutor.execute(dag, runContext, task, blockApi);
     }
 
     return this.plan(task, context);
