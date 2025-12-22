@@ -18,15 +18,20 @@ export const AutoPausePolicy = {
       pauseCallback(`signal_${signal}`);
     };
 
+    if (typeof process === "undefined" || typeof process.on !== "function") {
+      return () => {};
+    }
+
     const onSigInt = () => handler("SIGINT");
     const onSigTerm = () => handler("SIGTERM");
+    const off = typeof process.off === "function" ? process.off.bind(process) : process.removeListener.bind(process);
 
     process.on("SIGINT", onSigInt);
     process.on("SIGTERM", onSigTerm);
 
     return () => {
-      process.off("SIGINT", onSigInt);
-      process.off("SIGTERM", onSigTerm);
+      off("SIGINT", onSigInt);
+      off("SIGTERM", onSigTerm);
     };
   },
 };

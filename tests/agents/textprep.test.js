@@ -254,6 +254,38 @@ test("TextPrep E2E: TextPrepStage produces a valid ContentPackage and emits prog
   }
 });
 
+test("TextPrep Stage: accepts Ingest output input", async () => {
+  const { IngestStage } = await import("../../js/agents/ingest/ingest-stage.js");
+  const { TextPrepStage } = await import("../../js/agents/stages/textprep/index.js");
+  const { normalizeText } = await import("../../js/agents/stages/textprep/normalize.js");
+
+  const ingest = new IngestStage({ defaultChunkOptions: { chunkSize: 40, overlap: 0, includeLineNumbers: true } });
+  const ingestOut = await ingest.execute(
+    { runId: "run_ingest_textprep", constraints: {} },
+    {
+      rawTexts: [
+        { text: "Alpha line one.\nBeta line two.\n", title: "Doc A" },
+        { text: "Gamma line three.\nDelta line four.\n", title: "Doc B" },
+      ],
+    }
+  );
+
+  const stage = new TextPrepStage({ defaultChunkOptions: { chunkSize: 80, overlap: 0, includeLineNumbers: true } });
+  const pkg = await stage.run(ingestOut, { runContext: { runId: "run_textprep_from_ingest", constraints: { pageCount: 4 } } });
+
+  assert.equal(pkg.mode, "textprep");
+  assert.ok(Array.isArray(pkg.slideIntents) && pkg.slideIntents.length >= 4);
+  assert.ok(Array.isArray(pkg.claims) && pkg.claims.length >= 1);
+
+  const merged = ingestOut.sources
+    .map((s) => s.sourceTextNormalized || s.text || "")
+    .filter(Boolean)
+    .join("\n\n---\n\n");
+  const normalizedMerged = normalizeText(merged).normalized;
+
+  assert.equal(pkg.metrics.textprep.sourceChars, normalizedMerged.length);
+});
+
 test("TextPrep Stage: cancellation via AbortSignal stops execution", async () => {
   const { TextPrepStage } = await import("../../js/agents/stages/textprep/index.js");
 

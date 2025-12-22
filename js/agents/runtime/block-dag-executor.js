@@ -4,6 +4,8 @@ import { createStageApi } from "../shared/stage-api.js";
 import { EventStatus } from "./events.js";
 import { StageCancelledError, StageTimeoutError, cancelledErrorFromSignal, toErrorPayload } from "./stage-errors.js";
 
+const DEFAULT_CHECKPOINT_STRATEGY = "full";
+
 function makeCombinedSignal(signals) {
   const alive = signals.filter(Boolean);
   if (alive.length === 0) return undefined;
@@ -135,6 +137,7 @@ export class BlockDAGExecutor {
     }
     this.blockRegistry = blockRegistry;
     this.parallel = options.parallel !== false;
+    this.checkpointStrategy = toNonEmptyString(options.checkpointStrategy) || DEFAULT_CHECKPOINT_STRATEGY;
 
     const continueOnError = options.continueOnError;
     const failFast = options.failFast;
@@ -474,7 +477,7 @@ export class BlockDAGExecutor {
       let stateCheckpoint = null;
       if (state && typeof state.saveCheckpoint === "function") {
         const checkpointId = `ckpt_${nodeId}_${completedNodes.size + 1}`;
-        stateCheckpoint = state.saveCheckpoint({ checkpointId });
+        stateCheckpoint = state.saveCheckpoint({ checkpointId, strategy: this.checkpointStrategy });
       }
 
       completedNodes.add(nodeId);

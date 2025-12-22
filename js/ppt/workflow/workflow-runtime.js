@@ -1329,6 +1329,28 @@ export const runtimeMixin = {
                 }
             };
 
+            const persistDeckPackage = (deckPackage) => {
+                if (!deckPackage || typeof deckPackage !== 'object') return;
+                const deckHtmlDsl = deckPackage.deckHtmlDsl;
+                if (typeof deckHtmlDsl === 'string') {
+                    this.workflowData.deckPackage = deckPackage;
+                    this.workflowData.deckHtmlDsl = deckHtmlDsl;
+                    this.sampleHTML = deckHtmlDsl;
+                    parseAndStoreSlides(deckHtmlDsl);
+                } else {
+                    this.workflowData.deckPackage = deckPackage;
+                }
+
+                if (deckPackage?.degraded) {
+                    forwardEmit('design.degraded', {
+                        reason: deckPackage.degradedReason,
+                        error: deckPackage.degradedError,
+                        degradedAt: deckPackage.degradedAt,
+                        ...(slideCount > 0 ? { degradedCount: slideCount } : {}),
+                    }, { status: 'warn' });
+                }
+            };
+
             // PPTX deck branch: if upstream provides a ready HTML DSL template, skip generation.
             const templateDeckHtmlDsl =
                 typeof contentPackage?.templateDeckHtmlDsl === 'string' ? contentPackage.templateDeckHtmlDsl : null;
@@ -1352,10 +1374,7 @@ export const runtimeMixin = {
                     editHints: { degradedCount: 0 },
                 };
 
-                this.workflowData.deckPackage = deckPackage;
-                this.workflowData.deckHtmlDsl = templateDeckHtmlDsl;
-                this.sampleHTML = templateDeckHtmlDsl;
-                parseAndStoreSlides(templateDeckHtmlDsl);
+                persistDeckPackage(deckPackage);
                 progress(`模板载入完成：${slidesMeta.length || slideCount || 0} 页`, 'success');
                 return deckPackage;
             }
@@ -1370,10 +1389,7 @@ export const runtimeMixin = {
                     slidesMeta: []
                 };
 
-                this.workflowData.deckPackage = deckPackage;
-                this.workflowData.deckHtmlDsl = deckHtmlDsl;
-                this.sampleHTML = deckHtmlDsl;
-                parseAndStoreSlides(deckHtmlDsl);
+                persistDeckPackage(deckPackage);
                 return deckPackage;
             }
 
@@ -1401,10 +1417,7 @@ export const runtimeMixin = {
                     throw new Error('DesignAgentLoop returned invalid deckHtmlDsl');
                 }
 
-                this.workflowData.deckPackage = deckPackage;
-                this.workflowData.deckHtmlDsl = deckHtmlDsl;
-                this.sampleHTML = deckHtmlDsl;
-                parseAndStoreSlides(deckHtmlDsl);
+                persistDeckPackage(deckPackage);
 
                 progress(`设计完成：已生成 ${Array.isArray(deckPackage?.slidesMeta) ? deckPackage.slidesMeta.length : slideCount} 页`, 'success');
                 return deckPackage;
@@ -1418,13 +1431,14 @@ export const runtimeMixin = {
                     schemaVersion: '0.1',
                     runId: ctx?.runId || 'run_unknown',
                     deckHtmlDsl,
-                    slidesMeta: []
+                    slidesMeta: [],
+                    degraded: true,
+                    degradedReason: 'design_failed',
+                    degradedError: msg,
+                    degradedAt: Date.now(),
                 };
 
-                this.workflowData.deckPackage = deckPackage;
-                this.workflowData.deckHtmlDsl = deckHtmlDsl;
-                this.sampleHTML = deckHtmlDsl;
-                parseAndStoreSlides(deckHtmlDsl);
+                persistDeckPackage(deckPackage);
                 return deckPackage;
             }
         }, { actor: 'design', timeoutMs: (() => {

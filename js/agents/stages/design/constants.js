@@ -1,5 +1,6 @@
 import {
   DesignPhase,
+  DesignLoopStatus,
   SlideStatus,
   VisualSlotStatus,
   EditSessionStatus,
@@ -222,6 +223,10 @@ export function isValidDesignPhase(value) {
   return Object.values(DesignPhase).includes(value);
 }
 
+export function isValidDesignLoopStatus(value) {
+  return Object.values(DesignLoopStatus).includes(value);
+}
+
 export function isValidSlideStatus(value) {
   return Object.values(SlideStatus).includes(value);
 }
@@ -267,6 +272,9 @@ export {
   DesignPhase,
   DESIGN_PHASE_TRANSITIONS,
   designPhaseMachine,
+  DesignLoopStatus,
+  DESIGN_LOOP_TRANSITIONS,
+  designLoopMachine,
   SlideStatus,
   SLIDE_STATUS_TRANSITIONS,
   SLIDE_TRANSITIONS,

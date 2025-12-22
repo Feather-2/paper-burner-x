@@ -40,6 +40,29 @@ test("Archive.save: generates checkpointId {runId}:{timestamp}", async () => {
   await assert.rejects(() => archive.save("run:bad", { nodeStates: {} }), /must not include ':'/);
 });
 
+test("Archive.save: avoids checkpointId collisions within same millisecond", async () => {
+  const { Archive, MapAdapter } = await loadModule();
+  const archive = new Archive(new MapAdapter());
+  const originalNow = Date.now;
+
+  try {
+    Date.now = () => 1234567890;
+    const ids = [];
+    for (let i = 0; i < 3; i += 1) {
+      ids.push(await archive.save("run_collision", { nodeStates: { i } }));
+    }
+
+    assert.deepEqual(ids, [
+      "run_collision:1234567890",
+      "run_collision:1234567890-1",
+      "run_collision:1234567890-2",
+    ]);
+    assert.equal(new Set(ids).size, ids.length);
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
 test("Archive.load: missing key returns null", async () => {
   const { Archive, MapAdapter } = await loadModule();
   const archive = new Archive(new MapAdapter());
@@ -73,6 +96,27 @@ test("Archive.restore: returns full snapshot", async () => {
   await assert.rejects(() => archive.restore("run_restore:missing"), /Checkpoint not found/);
 });
 
+test("Archive.restore: supports checkpointId with counter suffix", async () => {
+  const { Archive, MapAdapter } = await loadModule();
+  const archive = new Archive(new MapAdapter());
+  const originalNow = Date.now;
+
+  try {
+    Date.now = () => 777;
+    await archive.save("run_restore_counter", { nodeStates: { a: 1 } });
+    const checkpointId = await archive.save("run_restore_counter", { nodeStates: { a: 2 } });
+
+    const restored = await archive.restore(checkpointId);
+    assert.deepEqual(restored, {
+      nodeStates: { a: 2 },
+      timestamp: "777",
+      metadata: undefined,
+    });
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
 test("Archive.listCheckpoints: sorts by timestamp desc", async () => {
   const { Archive, MapAdapter } = await loadModule();
   const storage = new MapAdapter();
@@ -87,6 +131,33 @@ test("Archive.listCheckpoints: sorts by timestamp desc", async () => {
   assert.deepEqual(
     list.map((entry) => entry.checkpointId),
     ["run_sort:200", "run_sort:100", "run_sort:zzz", "run_sort:abc"],
+  );
+});
+
+test("Archive.listCheckpoints: sorts by timestamp and counter desc", async () => {
+  const { Archive, MapAdapter } = await loadModule();
+  const archive = new Archive(new MapAdapter());
+  const originalNow = Date.now;
+  let base;
+  let first;
+  let second;
+  let later;
+
+  try {
+    Date.now = () => 1000;
+    base = await archive.save("run_sort_counter", { nodeStates: { v: 1 } });
+    first = await archive.save("run_sort_counter", { nodeStates: { v: 2 } });
+    second = await archive.save("run_sort_counter", { nodeStates: { v: 3 } });
+    Date.now = () => 1001;
+    later = await archive.save("run_sort_counter", { nodeStates: { v: 4 } });
+  } finally {
+    Date.now = originalNow;
+  }
+
+  const list = await archive.listCheckpoints("run_sort_counter");
+  assert.deepEqual(
+    list.map((entry) => entry.checkpointId),
+    [later, second, first, base],
   );
 });
 
@@ -114,6 +185,25 @@ test("Archive.deleteOlderThan: deletes old snapshots", async () => {
 
   assert.equal(await archive.load(`run_gc:${oldTs}`), null);
   assert.ok(await archive.load(`run_gc:${keepTs}`));
+});
+
+test("Archive.save: throws after too many collisions", async () => {
+  const { Archive, MapAdapter } = await loadModule();
+  const storage = new MapAdapter();
+  const archive = new Archive(storage);
+  const originalNow = Date.now;
+
+  try {
+    Date.now = () => 555;
+    await storage.set("run_limit:555", { nodeStates: {} });
+    for (let i = 1; i <= 100; i += 1) {
+      await storage.set(`run_limit:555-${i}`, { nodeStates: {} });
+    }
+
+    await assert.rejects(() => archive.save("run_limit", { nodeStates: {} }), /CHECKPOINT_ID_COLLISION/);
+  } finally {
+    Date.now = originalNow;
+  }
 });
 
 test("MapAdapter.keys: supports wildcard pattern", async () => {

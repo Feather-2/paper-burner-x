@@ -654,11 +654,11 @@ export class DeepSearchState {
     return added;
   }
 
-  saveCheckpoint({ checkpointId, timestamp, metrics } = {}) {
+  saveCheckpoint({ checkpointId, timestamp, metrics, strategy } = {}) {
     const id = toNonEmptyString(checkpointId) || `cp_${this.checkpoints.length + 1}`;
     const ts = toNonEmptyString(timestamp) || new Date().toISOString();
 
-    const checkpointStrategy = getCheckpointStrategyFromState(this);
+    const checkpointStrategy = getCheckpointStrategyFromState(this, strategy);
     const snapshot =
       checkpointStrategy === CheckpointMode.FULL
         ? DeepSearchState.fromJSON(cloneValue(buildStateSnapshot(this, { includeCheckpoints: false })))

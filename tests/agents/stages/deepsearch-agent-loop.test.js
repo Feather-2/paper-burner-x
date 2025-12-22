@@ -534,6 +534,7 @@ test("DeepSearchAgentLoop pre-action checkpoint stores serializable metadata", a
 
   const restored = await agentLoop.archive.restore(executing.checkpointId);
   assert.ok(restored);
+  assert.equal(restored.schemaVersion, "1.0");
   assert.ok(restored.nodeStates);
   assert.doesNotThrow(() => JSON.stringify(restored.nodeStates));
   assert.deepEqual(
@@ -848,6 +849,67 @@ test("DeepSearchAgentLoop._mergeSubAgentResults handles no-success scenario", as
 
   await agentLoop._mergeSubAgentResults(state, [{ success: false, error: "boom" }], {}, { logger });
   assert.ok(Array.isArray(state.L1.claims));
+});
+
+test("DeepSearchAgentLoop._mergeSubAgentResults remaps ids and deduplicates evidence/claims", async () => {
+  const { DeepSearchAgentLoop, DeepSearchState } = await loadModules();
+  const agentLoop = new DeepSearchAgentLoop({ eventBus: makeEventBus() });
+  const state = new DeepSearchState({ runId: "merge_ids" });
+  const logger = { info: () => {}, warn: () => {} };
+
+  const subAgentResults = [
+    {
+      success: true,
+      index: 0,
+      result: {
+        claims: [
+          { claimId: "c_1", text: "Same claim", evidenceIds: ["e_1"] },
+          { claimId: "c_2", text: "Unique claim A", evidenceIds: ["e_2"] },
+        ],
+        evidenceLedger: [
+          { evidenceId: "e_1", sourceId: "s1", quote: "Alpha", locator: { charStart: 0, charEnd: 5 } },
+          { evidenceId: "e_2", sourceId: "s1", quote: "Beta", locator: { charStart: 6, charEnd: 10 } },
+        ],
+        gaps: [],
+      },
+    },
+    {
+      success: true,
+      index: 1,
+      result: {
+        claims: [
+          { claimId: "c_1", text: "Same claim", evidenceIds: ["e_1"] },
+          { claimId: "c_3", text: "Unique claim B", evidenceIds: ["e_3"] },
+        ],
+        evidenceLedger: [
+          { evidenceId: "e_1", sourceId: "s1", quote: "Alpha", locator: { charStart: 0, charEnd: 5 } },
+          { evidenceId: "e_3", sourceId: "s2", quote: "Gamma", locator: { charStart: 0, charEnd: 5 } },
+        ],
+        gaps: [],
+      },
+    },
+  ];
+
+  await agentLoop._mergeSubAgentResults(state, subAgentResults, {}, { logger });
+
+  assert.equal(state.L1.evidenceLedger.length, 3);
+  assert.equal(state.L1.claims.length, 3);
+  assert.equal(state.L1.evidenceLedger.filter((e) => e.quote === "Alpha").length, 1);
+  assert.equal(state.L1.claims.filter((c) => c.text === "Same claim").length, 1);
+
+  const evidenceIds = state.L1.evidenceLedger.map((e) => e.evidenceId);
+  assert.equal(new Set(evidenceIds).size, evidenceIds.length);
+  assert.ok(evidenceIds.every((id) => id.startsWith("sub")));
+
+  const claimIds = state.L1.claims.map((c) => c.claimId);
+  assert.ok(claimIds.every((id) => id.startsWith("sub")));
+
+  const evidenceIdSet = new Set(evidenceIds);
+  for (const c of state.L1.claims) {
+    for (const eid of Array.isArray(c?.evidenceIds) ? c.evidenceIds : []) {
+      assert.ok(evidenceIdSet.has(eid));
+    }
+  }
 });
 
 test("DeepSearchAgentLoop._review covers rules/shadow/custom branches", async () => {

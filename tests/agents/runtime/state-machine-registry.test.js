@@ -131,6 +131,7 @@ test("StateMachineRegistry registers deepsearch and design machines", async () =
     "deepsearch.phase",
     "deepsearch.gap",
     "design.phase",
+    "design.agentLoop",
     "design.slide",
     "design.visualSlot",
     "design.editSession",

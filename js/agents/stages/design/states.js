@@ -23,7 +23,7 @@ export const DESIGN_PHASE_TRANSITIONS = Object.freeze({
   [DesignPhase.OUTLINE_CONFIRMING]: [DesignPhase.STYLE_EXTRACTING, DesignPhase.OUTLINE_PARSING, DesignPhase.IDLE],
   [DesignPhase.STYLE_EXTRACTING]: [DesignPhase.STYLE_CONFIRMING, DesignPhase.FAILED],
   [DesignPhase.STYLE_CONFIRMING]: [DesignPhase.GENERATING, DesignPhase.STYLE_EXTRACTING],
-  [DesignPhase.GENERATING]: [DesignPhase.REVIEWING, DesignPhase.GENERATING_PAUSED, DesignPhase.FAILED],
+  [DesignPhase.GENERATING]: [DesignPhase.REVIEWING, DesignPhase.VISUAL_FILLING, DesignPhase.GENERATING_PAUSED, DesignPhase.FAILED],
   [DesignPhase.GENERATING_PAUSED]: [DesignPhase.GENERATING, DesignPhase.REVIEWING, DesignPhase.IDLE],
   [DesignPhase.REVIEWING]: [DesignPhase.FIXING, DesignPhase.VISUAL_FILLING, DesignPhase.COMPLETED],
   [DesignPhase.FIXING]: [DesignPhase.REVIEWING, DesignPhase.FAILED],
@@ -34,6 +34,41 @@ export const DESIGN_PHASE_TRANSITIONS = Object.freeze({
 });
 
 export const designPhaseMachine = createStateMachine(DESIGN_PHASE_TRANSITIONS, "DesignPhase");
+
+export const DesignLoopStatus = Object.freeze({
+  IDLE: "idle",
+  RUNNING: "running",
+  OBSERVING: "observing",
+  THINKING: "thinking",
+  EXECUTING: "executing",
+  REVIEWING: "reviewing",
+  PAUSED: "paused",
+  COMPLETED: "completed",
+  ABORTED: "aborted",
+});
+
+export const DESIGN_LOOP_TRANSITIONS = Object.freeze({
+  [DesignLoopStatus.IDLE]: [DesignLoopStatus.RUNNING],
+  [DesignLoopStatus.RUNNING]: [DesignLoopStatus.OBSERVING, DesignLoopStatus.COMPLETED, DesignLoopStatus.ABORTED],
+  [DesignLoopStatus.OBSERVING]: [DesignLoopStatus.THINKING, DesignLoopStatus.COMPLETED],
+  [DesignLoopStatus.THINKING]: [DesignLoopStatus.EXECUTING, DesignLoopStatus.PAUSED, DesignLoopStatus.ABORTED],
+  [DesignLoopStatus.EXECUTING]: [DesignLoopStatus.REVIEWING, DesignLoopStatus.ABORTED],
+  [DesignLoopStatus.REVIEWING]: [DesignLoopStatus.OBSERVING, DesignLoopStatus.COMPLETED, DesignLoopStatus.ABORTED],
+  [DesignLoopStatus.PAUSED]: [DesignLoopStatus.RUNNING, DesignLoopStatus.ABORTED],
+  [DesignLoopStatus.COMPLETED]: [],
+  [DesignLoopStatus.ABORTED]: [],
+});
+
+export const designLoopMachine = createStateMachine(DESIGN_LOOP_TRANSITIONS, "DesignLoop");
+
+/**
+ * Design Agent checkpoint schema (Archive):
+ * {
+ *   nodeStates: { phase, loopStatus, statusHistory?, slidesMeta?, imageSlots?, ... },
+ *   timestamp,
+ *   metadata: { runId, iteration, type }
+ * }
+ */
 
 export const SlideStatus = Object.freeze({
   PENDING: "pending",
@@ -170,6 +205,12 @@ registry.register("design.phase", designPhaseMachine, {
   description: "Design phase lifecycle",
   states: Object.values(DesignPhase),
   transitions: DESIGN_PHASE_TRANSITIONS,
+});
+registry.register("design.agentLoop", designLoopMachine, {
+  module: "design",
+  description: "Design loop execution lifecycle",
+  states: Object.values(DesignLoopStatus),
+  transitions: DESIGN_LOOP_TRANSITIONS,
 });
 registry.register("design.slide", slideMachine, {
   module: "design",

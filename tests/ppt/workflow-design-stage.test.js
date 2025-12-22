@@ -137,6 +137,10 @@ test('design.batch falls back to mock deck when DesignAgentLoop throws', async (
   try {
     const deckPackage = await gen._orchestrator.runStage('design.batch');
     assert.ok(deckPackage && typeof deckPackage === 'object');
+    assert.equal(deckPackage.degraded, true);
+    assert.equal(deckPackage.degradedReason, 'design_failed');
+    assert.equal(deckPackage.degradedError, 'boom');
+    assert.equal(typeof deckPackage.degradedAt, 'number');
     assert.ok(typeof gen.workflowData.deckHtmlDsl === 'string' && gen.workflowData.deckHtmlDsl.includes('<section'));
     assert.ok(gen.workflowData.deckHtmlDsl.includes('mock-slide-'));
     assert.ok(Array.isArray(gen.slides) && gen.slides.length > 0);

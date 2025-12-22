@@ -354,6 +354,17 @@ test("DeepSearch ensureState helper: constructs state and applies userConfig.max
   assert.equal(s2.maxIterations, 2);
 });
 
+test("DeepSearch ensureState helper: merges assets from input", async () => {
+  const { __test } = await import("../../../js/agents/stages/deepsearch/index.js");
+
+  const assets = [{ assetId: "asset_1", type: "image", uri: "asset://img-1" }];
+  const state = __test.ensureState({ runId: "run_assets" }, { sources: [], assets, taskGoal: "x" });
+
+  assert.ok(Array.isArray(state.L0.assets));
+  assert.equal(state.L0.assets.length, 1);
+  assert.deepEqual(state.L0.assets, assets);
+});
+
 test("DeepSearchStage: run adapter + runDeepSearchStage + registerDeepSearchStages", async () => {
   const { DeepSearchStage, runDeepSearchStage, registerDeepSearchStages } = await import("../../../js/agents/stages/deepsearch/index.js");
 

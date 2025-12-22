@@ -26,9 +26,20 @@ function splitCheckpointId(checkpointId) {
   if (!id) return null;
   const idx = id.indexOf(":");
   if (idx <= 0) return null;
+  const runId = id.slice(0, idx);
+  const timestampPart = id.slice(idx + 1);
+  const match = timestampPart.match(/^(\d+)(?:-(\d+))?$/);
+  if (match) {
+    return {
+      runId,
+      timestamp: match[1],
+      counter: match[2] ? Number(match[2]) : null,
+    };
+  }
   return {
-    runId: id.slice(0, idx),
-    timestamp: id.slice(idx + 1),
+    runId,
+    timestamp: timestampPart,
+    counter: null,
   };
 }
 
@@ -61,13 +72,14 @@ export class Archive {
    */
   constructor(storage) {
     this.storage = assertStorageAdapter(storage);
+    this._saveCounter = 0;
   }
 
   /**
    * 保存快照
    * @param {string} runId - 运行ID
    * @param {Object} data - 快照数据 { nodeStates, timestamp?, metadata? }
-   * @returns {Promise<string>} checkpointId (格式: {runId}:{timestamp})
+   * @returns {Promise<string>} checkpointId (格式: {runId}:{timestamp} 或 {runId}:{timestamp}-{counter})
    */
   async save(runId, data) {
     const normalizedRunId = toNonEmptyString(runId);
@@ -80,9 +92,22 @@ export class Archive {
 
     const payload = isPlainObject(data) ? data : {};
     const timestamp = toNonEmptyString(payload.timestamp) ?? String(Date.now());
-    const checkpointId = `${normalizedRunId}:${timestamp}`;
+    const schemaVersion = toNonEmptyString(payload.schemaVersion);
+    let checkpointId = `${normalizedRunId}:${timestamp}`;
+    let attempts = 0;
+    let existing = await this.storage.get(checkpointId);
+    while (existing != null && attempts < 100) {
+      this._saveCounter += 1;
+      checkpointId = `${normalizedRunId}:${timestamp}-${this._saveCounter}`;
+      attempts += 1;
+      existing = await this.storage.get(checkpointId);
+    }
+    if (existing != null) {
+      throw new Error("CHECKPOINT_ID_COLLISION: too many saves in same millisecond");
+    }
 
     const snapshot = {
+      ...(schemaVersion ? { schemaVersion } : {}),
       nodeStates: payload.nodeStates ?? {},
       timestamp,
       metadata: payload.metadata,
@@ -132,7 +157,10 @@ export class Archive {
     const parsed = splitCheckpointId(normalizedId);
     const timestamp = snapshot.timestamp ?? parsed?.timestamp ?? null;
 
+    const schemaVersion = toNonEmptyString(snapshot.schemaVersion);
+
     return {
+      ...(schemaVersion ? { schemaVersion } : {}),
       nodeStates: snapshot.nodeStates ?? {},
       timestamp,
       metadata: snapshot.metadata,
@@ -142,7 +170,7 @@ export class Archive {
   /**
    * 列出某个 runId 下的所有 checkpoint
    * @param {string} runId
-   * @returns {Promise<Array<{checkpointId, timestamp, nodeStates}>>} 按 timestamp 降序
+   * @returns {Promise<Array<{checkpointId, timestamp, nodeStates}>>} 按 timestamp/counter 降序
    */
   async listCheckpoints(runId) {
     const normalizedRunId = toNonEmptyString(runId);
@@ -157,16 +185,22 @@ export class Archive {
 
       const parsed = splitCheckpointId(key);
       const timestamp = snapshot.timestamp ?? parsed?.timestamp ?? "";
+      const counter = Number.isFinite(parsed?.counter) ? parsed.counter : 0;
 
       checkpoints.push({
         checkpointId: key,
         timestamp,
         nodeStates: snapshot.nodeStates ?? {},
+        counter,
       });
     }
 
-    checkpoints.sort((a, b) => compareTimestampDesc(a.timestamp, b.timestamp));
-    return checkpoints;
+    checkpoints.sort((a, b) => {
+      const timeCompare = compareTimestampDesc(a.timestamp, b.timestamp);
+      if (timeCompare !== 0) return timeCompare;
+      return b.counter - a.counter;
+    });
+    return checkpoints.map(({ counter, ...entry }) => entry);
   }
 
   /**
@@ -234,4 +268,3 @@ export class MapAdapter {
     return matches;
   }
 }
-

@@ -154,10 +154,11 @@ function ensureState(runContext, input) {
   if (isPlainObject(input?.state)) return DeepSearchState.fromJSON(input.state);
 
   const sources = Array.isArray(input?.sources) ? input.sources : [];
+  const assets = Array.isArray(input?.assets) ? input.assets : [];
   validateSourceChunksOrThrow(sources);
   const taskGoal = typeof input?.taskGoal === "string" ? input.taskGoal : "";
   const userConfig = isPlainObject(input?.userConfig) ? input.userConfig : {};
-  const s = new DeepSearchState({ runId: runContext?.runId, taskGoal, userConfig, L0: { sources } });
+  const s = new DeepSearchState({ runId: runContext?.runId, taskGoal, userConfig, L0: { sources, assets } });
   const maxIt = safeInt(userConfig?.maxIterations);
   if (maxIt !== null && maxIt >= 1) s.maxIterations = maxIt;
   return s;
@@ -310,7 +311,7 @@ export class DeepSearchStage extends BaseStage {
   /**
    * Stage interface (Runtime): execute(runContext, input) -> ContentPackage.
    * @param {object} runContext
-   * @param {DeepSearchState|{state?:DeepSearchState|object,sources?:Array<object>,taskGoal?:string,userConfig?:object}} input
+   * @param {DeepSearchState|{state?:DeepSearchState|object,sources?:Array<object>,assets?:Array<object>,taskGoal?:string,userConfig?:object}} input
    * @param {{emit?:Function,eventBus?:object,signal?:AbortSignal,checkCancelled?:Function,aiApiService?:object,taskManager?:object}=} stageApi
    * @returns {Promise<object>} ContentPackage v0.1
    */
@@ -1188,7 +1189,16 @@ export class DeepSearchStage extends BaseStage {
           (reopenGaps.length > 0 || newGaps.length > 0);
 
         if (!canBacktrack) {
-          transitionPhase(PhaseStatus.WRITE, PhaseStatus.CONDENSE, { emit, logger, runId: state.runId, iteration: state.iteration, trajectoryId: state.trajectoryId });
+          const ok = transitionPhase(PhaseStatus.WRITE, PhaseStatus.CONDENSE, {
+            emit,
+            logger,
+            runId: state.runId,
+            iteration: state.iteration,
+            trajectoryId: state.trajectoryId,
+          });
+          if (!ok) {
+            throw new Error(`Invalid phase transition: ${PhaseStatus.WRITE} → ${PhaseStatus.CONDENSE}`);
+          }
           return;
         }
 
@@ -1213,8 +1223,12 @@ export class DeepSearchStage extends BaseStage {
           payload: { writeBacktrackCount: state.writeBacktrackCount, maxWriteBacktrack: phaseRuntime.maxWriteBacktrack, ...(feedbackToResearch ? { feedbackToResearch } : {}) },
         });
 
-        const nextPhase = openGaps(state).length > 0 ? PhaseStatus.ROUND : PhaseStatus.WRITE;
-        transitionPhase(PhaseStatus.WRITE, nextPhase, { emit, logger, runId: state.runId, iteration: state.iteration, trajectoryId: state.trajectoryId });
+        const openGapCount = openGaps(state).length;
+        const nextPhase = openGapCount > 0 ? PhaseStatus.ROUND : PhaseStatus.CONDENSE;
+        const ok = transitionPhase(PhaseStatus.WRITE, nextPhase, { emit, logger, runId: state.runId, iteration: state.iteration, trajectoryId: state.trajectoryId });
+        if (!ok) {
+          throw new Error(`Invalid phase transition: ${PhaseStatus.WRITE} → ${nextPhase}`);
+        }
       };
 
       const runCondense = async () => {

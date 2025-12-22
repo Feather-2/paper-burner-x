@@ -559,6 +559,126 @@ test("DesignAgentLoop._transitionPhase rejects invalid moves", async () => {
   );
 });
 
+test("DesignAgentLoop loop status records history", async () => {
+  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
+  const { DesignLoopStatus } = await import("../../../js/agents/stages/design/states.js");
+
+  const loop = new DesignAgentLoop();
+  assert.equal(loop.loopStatus, DesignLoopStatus.IDLE);
+  assert.equal(loop.statusHistory.length, 0);
+
+  await loop._transitionTo(DesignLoopStatus.RUNNING, { runId: "run_loop" });
+  await loop._transitionTo(DesignLoopStatus.OBSERVING, { iteration: 1 });
+
+  assert.equal(loop.loopStatus, DesignLoopStatus.OBSERVING);
+  assert.equal(loop.statusHistory.length, 2);
+  assert.deepEqual(
+    loop.statusHistory.map((entry) => entry.to),
+    [DesignLoopStatus.RUNNING, DesignLoopStatus.OBSERVING]
+  );
+  assert.equal(loop.statusHistory[0].from, DesignLoopStatus.IDLE);
+  assert.equal(loop.statusHistory[0].runId, "run_loop");
+  assert.equal(typeof loop.statusHistory[0].timestamp, "number");
+});
+
+test("DesignAgentLoop loop status rejects invalid transitions", async () => {
+  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
+  const { DesignLoopStatus } = await import("../../../js/agents/stages/design/states.js");
+
+  const loop = new DesignAgentLoop();
+
+  await assert.rejects(
+    loop._transitionTo(DesignLoopStatus.EXECUTING),
+    (err) => {
+      assert.equal(err.code, "INVALID_STATE_TRANSITION");
+      return /Invalid DesignLoop state transition/.test(err.message);
+    }
+  );
+
+  assert.equal(loop.statusHistory.length, 0);
+  assert.equal(loop.loopStatus, DesignLoopStatus.IDLE);
+});
+
+test("DesignAgentLoop.pause sets pause flag and isPaused getter", async () => {
+  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
+
+  const loop = new DesignAgentLoop();
+  assert.equal(loop.isPaused, false);
+
+  loop.pause();
+
+  assert.equal(loop.isPaused, true);
+});
+
+test("DesignAgentLoop._transitionTo throws StagePausedError when pause requested", async () => {
+  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
+  const { DesignLoopStatus } = await import("../../../js/agents/stages/design/states.js");
+  const { StagePausedError } = await import("../../../js/agents/runtime/stage-errors.js");
+
+  const loop = new DesignAgentLoop();
+
+  await loop._transitionTo(DesignLoopStatus.RUNNING, { runId: "run_pause" });
+  await loop._transitionTo(DesignLoopStatus.OBSERVING, { runId: "run_pause" });
+  await loop._transitionTo(DesignLoopStatus.THINKING, { runId: "run_pause" });
+
+  loop.pause("manual_pause");
+
+  await assert.rejects(
+    () => loop._transitionTo(DesignLoopStatus.EXECUTING, { runId: "run_pause", checkpointId: "cp_pause" }),
+    (err) => {
+      assert.ok(err instanceof StagePausedError);
+      assert.equal(err.reason, "manual_pause");
+      assert.equal(err.checkpointId, "cp_pause");
+      return true;
+    }
+  );
+
+  assert.equal(loop.loopStatus, DesignLoopStatus.PAUSED);
+});
+
+test("DesignAgentLoop run pauses before executing and persists checkpoint", async () => {
+  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
+  const { DesignLoopStatus } = await import("../../../js/agents/stages/design/states.js");
+  const { StagePausedError } = await import("../../../js/agents/runtime/stage-errors.js");
+  const { Archive, MapAdapter } = await import("../../../js/agents/shared/archive.js");
+
+  const archive = new Archive(new MapAdapter());
+  const loop = new DesignAgentLoop({ archive });
+  const contentPackage = makeContentPackage({ slideCount: 1 });
+  const calls = [];
+
+  const toolExecutor = async (name) => {
+    calls.push(name);
+    if (name === "parse_outline") return { ok: true, data: { contentPackage, slideIntents: contentPackage.slideIntents } };
+    if (name === "extract_style") return { ok: true, data: { designSystem: makeDesignSystem() } };
+    return { ok: false, error: `Unexpected tool: ${name}` };
+  };
+
+  loop.pause("manual_pause");
+
+  let pauseError = null;
+  try {
+    await loop.run(contentPackage, {
+      runContext: { runId: "run_pause", constraints: contentPackage.constraints },
+      toolExecutor,
+    });
+  } catch (err) {
+    pauseError = err;
+  }
+
+  assert.ok(pauseError instanceof StagePausedError);
+  assert.equal(pauseError.reason, "manual_pause");
+  assert.ok(typeof pauseError.checkpointId === "string" && pauseError.checkpointId.includes(":"));
+
+  const snapshot = await archive.restore(pauseError.checkpointId);
+  assert.equal(snapshot.metadata.type, "pre-action");
+  assert.equal(snapshot.metadata.runId, "run_pause");
+  assert.equal(snapshot.metadata.iteration, 1);
+
+  assert.deepEqual(calls, ["parse_outline"]);
+  assert.equal(loop.loopStatus, DesignLoopStatus.PAUSED);
+});
+
 test("DesignAgentLoop._toolTakeScreenshot and _toolFixSlide return defaults", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
 
@@ -704,7 +824,7 @@ test("DesignAgentLoop runs refine when enabled", async () => {
   assert.ok(deck.refineReport, "refine report should be present when enabled");
 });
 
-test("DesignAgentLoop can skip generating and return empty deck", async () => {
+test("DesignAgentLoop skip_review still generates deck", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
   const { EventBus } = await import("../../../js/agents/runtime/event-bus.js");
   const { DesignPhase } = await import("../../../js/agents/stages/design/states.js");
@@ -714,10 +834,15 @@ test("DesignAgentLoop can skip generating and return empty deck", async () => {
   const eventBus = new EventBus({ runId: "run_skip" });
   const calls = [];
 
-  const toolExecutor = async (name) => {
+  const toolExecutor = async (name, params) => {
     calls.push(name);
     if (name === "parse_outline") return { ok: true, data: { contentPackage, slideIntents: contentPackage.slideIntents } };
     if (name === "extract_style") return { ok: true, data: { designSystem } };
+    if (name === "spawn_slide_agent") {
+      const slideHtml = await makeSlideHtml(contentPackage.slideIntents[0], designSystem, contentPackage);
+      return { ok: true, data: { generated: [{ slideHtml, source: "mock" }] } };
+    }
+    if (name === "fill_visual") return { ok: true, data: { deckHtmlDsl: params.slideHtmls.join("\n\n"), pendingImages: [] } };
     return { ok: false, error: `Unexpected tool: ${name}` };
   };
 
@@ -734,8 +859,185 @@ test("DesignAgentLoop can skip generating and return empty deck", async () => {
     emit,
     eventBus,
     pauseGenerating: true,
+    brainstormResult: { ideaPool: [], selectedIdeas: [], imageSlots: [], candidatesBySlide: [] },
   });
 
-  assert.equal(deck.slidesMeta.length, 0);
-  assert.ok(!calls.includes("spawn_slide_agent"));
+  assert.equal(deck.slidesMeta.length, 1);
+  assert.ok(deck.deckHtmlDsl.includes("<section"));
+  assert.ok(calls.includes("spawn_slide_agent"));
+});
+
+test("DesignAgentLoop saves pre-action checkpoint before executing", async () => {
+  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
+  const { DesignLoopStatus, DesignPhase } = await import("../../../js/agents/stages/design/states.js");
+  const { Archive, MapAdapter } = await import("../../../js/agents/shared/archive.js");
+
+  const archive = new Archive(new MapAdapter());
+  const loop = new DesignAgentLoop({ archive });
+  const runId = "run_checkpoint";
+  const nodeStates = { slidesMeta: [{ slideNo: 1 }], imageSlots: [{ slotId: "img_1" }] };
+
+  loop.phase = { status: DesignPhase.REVIEWING };
+
+  await loop._transitionTo(DesignLoopStatus.RUNNING, { runId });
+  await loop._transitionTo(DesignLoopStatus.OBSERVING, { runId, iteration: 1 });
+  await loop._transitionTo(DesignLoopStatus.THINKING, { runId, iteration: 1 });
+
+  const checkpointId = await loop._transitionTo(DesignLoopStatus.EXECUTING, { runId, iteration: 1, nodeStates });
+
+  assert.ok(typeof checkpointId === "string" && checkpointId.includes(":"));
+  const snapshot = await archive.restore(checkpointId);
+  assert.equal(snapshot.schemaVersion, "1.0");
+  assert.equal(snapshot.metadata.type, "pre-action");
+  assert.equal(snapshot.metadata.runId, runId);
+  assert.equal(snapshot.nodeStates.phase, DesignPhase.REVIEWING);
+  assert.equal(snapshot.nodeStates.loopStatus, DesignLoopStatus.THINKING);
+  assert.deepEqual(snapshot.nodeStates.slidesMeta, nodeStates.slidesMeta);
+  assert.deepEqual(snapshot.nodeStates.imageSlots, nodeStates.imageSlots);
+  assert.ok(Array.isArray(snapshot.nodeStates.statusHistory));
+});
+
+test("resumeDesignAgentLoop returns DeckPackage", async () => {
+  const { resumeDesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
+  const { DesignLoopStatus, DesignPhase } = await import("../../../js/agents/stages/design/states.js");
+  const { Archive, MapAdapter } = await import("../../../js/agents/shared/archive.js");
+
+  const archive = new Archive(new MapAdapter());
+  const contentPackage = makeContentPackage({ runId: "run_resume_pkg", slideCount: 1 });
+  const designSystem = makeDesignSystem();
+  const slideHtml = await makeSlideHtml(contentPackage.slideIntents[0], designSystem, contentPackage);
+  const generated = [{ slideHtml, source: "resume" }];
+
+  const checkpointId = await archive.save(contentPackage.runId, {
+    nodeStates: {
+      phase: DesignPhase.VISUAL_FILLING,
+      loopStatus: DesignLoopStatus.THINKING,
+      statusHistory: [],
+      contentPackage,
+      slideIntents: contentPackage.slideIntents,
+      designSystem,
+      generated,
+      slideHtmls: [slideHtml],
+      deckHtmlDsl: slideHtml,
+      slidesMeta: [
+        {
+          slideNo: 1,
+          slideIntentId: contentPackage.slideIntents[0].slideIntentId,
+          pageType: contentPackage.slideIntents[0].pageType,
+          title: contentPackage.slideIntents[0].title,
+          degraded: false,
+          source: "resume",
+          qa: { pass: true },
+        },
+      ],
+      imageSlots: [],
+    },
+    timestamp: Date.now(),
+    metadata: { runId: contentPackage.runId, iteration: 1, type: "pre-action" },
+  });
+
+  const calls = [];
+  const toolExecutor = async (name, params) => {
+    calls.push(name);
+    if (name === "fill_visual") {
+      return { ok: true, data: { deckHtmlDsl: params.slideHtmls.join("\n\n"), pendingImages: [] } };
+    }
+    return { ok: false, error: `Unexpected tool: ${name}` };
+  };
+
+  const deck = await resumeDesignAgentLoop(checkpointId, {
+    archive,
+    toolExecutor,
+    brainstormResult: { ideaPool: [], selectedIdeas: [], imageSlots: [], candidatesBySlide: [] },
+  });
+
+  assert.ok(deck);
+  assert.equal(deck.runId, contentPackage.runId);
+  assert.ok(deck.designSystem);
+  assert.ok(deck.deckHtmlDsl.includes("<section"));
+  assert.equal(deck.slidesMeta.length, 1);
+  assert.deepEqual(calls, ["fill_visual"]);
+});
+
+test("resumeDesignAgentLoop continues after pause checkpoint", async () => {
+  const { DesignAgentLoop, resumeDesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
+  const { StagePausedError } = await import("../../../js/agents/runtime/stage-errors.js");
+  const { Archive, MapAdapter } = await import("../../../js/agents/shared/archive.js");
+
+  const archive = new Archive(new MapAdapter());
+  const loop = new DesignAgentLoop({ archive });
+  const contentPackage = makeContentPackage({ runId: "run_resume_pause", slideCount: 1 });
+  const designSystem = makeDesignSystem();
+
+  const toolExecutor = async (name, params) => {
+    if (name === "parse_outline") return { ok: true, data: { contentPackage, slideIntents: contentPackage.slideIntents } };
+    if (name === "extract_style") return { ok: true, data: { designSystem } };
+    if (name === "spawn_slide_agent") {
+      const slideHtml = await makeSlideHtml(contentPackage.slideIntents[0], designSystem, contentPackage);
+      return { ok: true, data: { generated: [{ slideHtml, source: "mock" }] } };
+    }
+    if (name === "fill_visual") return { ok: true, data: { deckHtmlDsl: params.slideHtmls.join("\n\n"), pendingImages: [] } };
+    return { ok: false, error: `Unexpected tool: ${name}` };
+  };
+
+  loop.pause("manual_pause");
+
+  let checkpointId;
+  await assert.rejects(
+    () =>
+      loop.run(contentPackage, {
+        runContext: { runId: contentPackage.runId, constraints: contentPackage.constraints },
+        toolExecutor,
+      }),
+    (err) => {
+      assert.ok(err instanceof StagePausedError);
+      checkpointId = err.checkpointId;
+      assert.ok(typeof checkpointId === "string" && checkpointId.includes(":"));
+      return true;
+    }
+  );
+
+  const calls = [];
+  const resumedExecutor = async (name, params) => {
+    calls.push(name);
+    return toolExecutor(name, params);
+  };
+
+  const deck = await resumeDesignAgentLoop(checkpointId, {
+    archive,
+    toolExecutor: resumedExecutor,
+    brainstormResult: { ideaPool: [], selectedIdeas: [], imageSlots: [], candidatesBySlide: [] },
+  });
+
+  assert.ok(deck);
+  assert.equal(deck.runId, contentPackage.runId);
+  assert.equal(deck.slidesMeta.length, 1);
+  assert.ok(deck.designSystem);
+  assert.ok(!calls.includes("parse_outline"));
+});
+
+test("DesignAgentLoop checkpoint snapshot is JSON serializable", async () => {
+  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
+  const { DesignLoopStatus } = await import("../../../js/agents/stages/design/states.js");
+  const { Archive, MapAdapter } = await import("../../../js/agents/shared/archive.js");
+
+  const archive = new Archive(new MapAdapter());
+  const loop = new DesignAgentLoop({ archive });
+  const runId = "run_serial";
+
+  await loop._transitionTo(DesignLoopStatus.RUNNING, { runId });
+  await loop._transitionTo(DesignLoopStatus.OBSERVING, { runId });
+  await loop._transitionTo(DesignLoopStatus.THINKING, { runId });
+
+  const checkpointId = await loop._transitionTo(DesignLoopStatus.EXECUTING, {
+    runId,
+    nodeStates: { slidesMeta: [{ slideNo: 1 }], imageSlots: [] },
+  });
+
+  const snapshot = await archive.restore(checkpointId);
+  const serialized = JSON.stringify(snapshot);
+  const roundtrip = JSON.parse(serialized);
+
+  assert.equal(roundtrip.nodeStates.loopStatus, DesignLoopStatus.THINKING);
+  assert.ok(Array.isArray(roundtrip.nodeStates.statusHistory));
 });

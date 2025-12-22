@@ -149,6 +149,20 @@ function makeMockAiApiService(options = {}) {
   };
 }
 
+async function withTimeout(promise, ms, label) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label || "operation"} timed out after ${ms}ms`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function assertContentPackageBasics(pkg) {
   assert.ok(pkg && typeof pkg === "object");
   assert.equal(pkg.schemaVersion, "0.1");
@@ -899,6 +913,47 @@ test("P1 E2E: Write backtrack (feedbackToResearch) returns to retrieve", async (
 
   const retrieveAfter = events.slice(backtrackAt + 1).some((e) => e.name === "deepsearch.retrieve.completed");
   assert.equal(retrieveAfter, true);
+});
+
+test("P1 E2E: Write backtrack without open gaps skips to condense", async () => {
+  const { PhaseStatus } = await import("../../../js/agents/stages/deepsearch/states.js");
+  const aiApiService = makeMockAiApiService({
+    handlers: {
+      understand: async () => ({
+        content: JSON.stringify({
+          claims: [{ claimId: "c_1", text: "Alpha definition claim", importance: "core", gapIds: ["gap_1"] }],
+        }),
+      }),
+    },
+  });
+
+  const run = runDeepSearchE2E({
+    runId: "run_ds_e2e_write_backtrack_no_open_gaps",
+    taskGoal: "Define Alpha and cite key metrics",
+    maxIterations: 6,
+    userConfig: { retrieval: { topK: 2, windowSize: 0, useBm25: true, useGrep: true }, gaps: { blockAfterMisses: 10 } },
+    rawTexts: [{ title: "Only Definition", text: "Definition: Alpha is a thing with clear scope.\n" }],
+    aiApiService,
+    onEmit: (name, record, events, { state }) => {
+      if (name === "deepsearch.write.completed" && state?.L1) {
+        state.L1.gaps = [];
+      }
+    },
+  });
+
+  const { events } = await withTimeout(run, 3000, "write backtrack without open gaps");
+
+  const backtrackAt = events.findIndex((e) => e.name === "deepsearch.write.backtrack.requested");
+  assert.ok(backtrackAt >= 0, "expected deepsearch.write.backtrack.requested");
+
+  const transitionsAfter = events
+    .slice(backtrackAt + 1)
+    .filter((e) => e.name === "deepsearch.phase.transition")
+    .map((e) => e.record?.payload);
+  const writeTransition = transitionsAfter.find((payload) => payload?.from === PhaseStatus.WRITE);
+  assert.ok(writeTransition, "expected phase transition after write backtrack");
+  assert.equal(writeTransition?.to, PhaseStatus.CONDENSE);
+  assert.ok(events.some((e) => e.name === "deepsearch.condense.completed"));
 });
 
 test("P1 E2E: Write backtrack respects maxWriteBacktrack=3", async () => {

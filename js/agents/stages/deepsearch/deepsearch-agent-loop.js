@@ -14,12 +14,13 @@ import { DeepSearchState } from "./state.js";
 import { createLogger } from "./logger.js";
 import { shouldUseDirectMode, runDirectAnalysis } from "./direct-analysis.js";
 import { SMALL_DOC_TOKEN_THRESHOLD, AgentLoopStatus, agentLoopMachine } from "./constants.js";
-import { isPlainObject, safeInt } from "../../shared/value-utils.js";
+import { isPlainObject, safeInt, toNonEmptyString } from "../../shared/value-utils.js";
 import { createStageApi } from "../../shared/stage-api.js";
 import { buildContentPackage } from "../textprep/build-content-package.js";
 import { ShadowAgent, createShadowAgent } from "./shadow-agent.js";
 import { ReviewRules } from "../../runtime/review-rules.js";
 import { Archive, MapAdapter } from "../../shared/archive.js";
+import { CheckpointType, createCheckpoint, migrateCheckpoint } from "../../shared/checkpoint-schema.js";
 import { SharedContext } from "./shared-context.js";
 
 /**
@@ -121,6 +122,40 @@ export const StreamingThinkConfig = Object.freeze({
   THOUGHT_DELTA_EVENT: "deepsearch.agent.thought.delta",
   THOUGHT_COMPLETE_EVENT: "deepsearch.agent.thought.complete",
 });
+
+function collapseWhitespace(s) {
+  return String(s || "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function simpleHash(str) {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash + str.charCodeAt(i)) >>> 0;
+  }
+  return hash.toString(36);
+}
+
+function contentHash(value) {
+  return `h_${simpleHash(String(value || ""))}`;
+}
+
+function claimContentKey(claim) {
+  const text = collapseWhitespace(claim?.text);
+  return text ? text.toLowerCase() : "";
+}
+
+function evidenceContentKey(evidence) {
+  const sourceId = toNonEmptyString(evidence?.sourceId) || "";
+  const charStart = safeInt(evidence?.locator?.charStart);
+  const charEnd = safeInt(evidence?.locator?.charEnd);
+  if (charStart !== null && charEnd !== null) {
+    return `${sourceId}::${charStart}-${charEnd}`;
+  }
+  const quote = collapseWhitespace(evidence?.quote);
+  return `${sourceId}::${quote}`;
+}
 
 /**
  * Agent 观察结果
@@ -366,7 +401,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
           ...historyMeta,
           runId,
           iteration,
-          type: "pause",
+          type: CheckpointType.PAUSE,
           reason,
           ...(checkpointMetadata && typeof checkpointMetadata === "object" ? checkpointMetadata : {}),
         });
@@ -411,17 +446,13 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
 
     const meta = metadata && typeof metadata === "object" ? metadata : {};
     const runId = meta.runId || state.runId;
-    const ts = Date.now();
-
-    const checkpointId = await this.archive.save(runId, {
-      nodeStates: state.toJSON ? state.toJSON() : state,
-      timestamp: ts,
-      metadata: { ...meta, type: "pre-action" },
-    });
+    const snapshot = state.toJSON ? state.toJSON() : state;
+    const checkpoint = createCheckpoint(snapshot, { ...meta, type: CheckpointType.PRE_ACTION });
+    const checkpointId = await this.archive.save(runId, checkpoint);
 
     if (typeof state?.saveCheckpoint === "function") {
       try {
-        state.saveCheckpoint({ checkpointId, timestamp: String(ts) });
+        state.saveCheckpoint({ checkpointId, timestamp: String(checkpoint.timestamp) });
       } catch {
         // ignore checkpoint record errors (archive is source of truth)
       }
@@ -438,16 +469,13 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
       if (!state) return null;
       const meta = stateOrMetadata && typeof stateOrMetadata === "object" ? stateOrMetadata : {};
       const effectiveRunId = meta.runId || state.runId;
-      const ts = Date.now();
-      const checkpointId = await this.archive.save(effectiveRunId, {
-        nodeStates: state.toJSON ? state.toJSON() : state,
-        timestamp: ts,
-        metadata: meta,
-      });
+      const snapshot = state.toJSON ? state.toJSON() : state;
+      const checkpoint = createCheckpoint(snapshot, meta);
+      const checkpointId = await this.archive.save(effectiveRunId, checkpoint);
 
       if (typeof state?.saveCheckpoint === "function") {
         try {
-          state.saveCheckpoint({ checkpointId, timestamp: String(ts) });
+          state.saveCheckpoint({ checkpointId, timestamp: String(checkpoint.timestamp) });
         } catch {
           // ignore checkpoint record errors (archive is source of truth)
         }
@@ -460,25 +488,28 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     if (!this.archive) return null;
     if (!state) return null;
 
-    const ts = Date.now();
-    const checkpointId = await this.archive.save(runId || state.runId, {
-      nodeStates: state?.toJSON ? state.toJSON() : state,
-      timestamp: ts,
-      metadata: {
-        kind: kind || null,
-        decision: decision?.action || null,
-        decisionReason: decision?.reason || null,
-        iteration: iteration ?? state.iteration,
-        isSubAgent: this.isSubAgent,
-        parentAgentId: this.parentAgentId,
-        ...(metadata && typeof metadata === "object" ? metadata : {}),
-      },
-    });
+    const extraMetadata = metadata && typeof metadata === "object" ? { ...metadata } : {};
+    if (extraMetadata.type === undefined) delete extraMetadata.type;
+    const defaultType = kind === "memory_compress" ? CheckpointType.COMPRESS : CheckpointType.ARCHIVE;
+    const checkpointMetadata = {
+      type: defaultType,
+      runId: runId || state.runId,
+      kind: kind || null,
+      decision: decision?.action || null,
+      decisionReason: decision?.reason || null,
+      iteration: iteration ?? state.iteration,
+      isSubAgent: this.isSubAgent,
+      parentAgentId: this.parentAgentId,
+      ...extraMetadata,
+    };
+    const snapshot = state?.toJSON ? state.toJSON() : state;
+    const checkpoint = createCheckpoint(snapshot, checkpointMetadata);
+    const checkpointId = await this.archive.save(runId || state.runId, checkpoint);
 
     // 在 state 中记录 checkpoint（可序列化）
     if (typeof state?.saveCheckpoint === "function") {
       try {
-        state.saveCheckpoint({ checkpointId, timestamp: String(ts) });
+        state.saveCheckpoint({ checkpointId, timestamp: String(checkpoint.timestamp) });
       } catch {
         // ignore checkpoint record errors (archive is source of truth)
       }
@@ -639,7 +670,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
               checkpoints.length >= 2 ? checkpoints[checkpoints.length - 2]?.checkpointId : null;
             const checkpointId = review.checkpointId || fallbackCheckpointId;
             if (checkpointId) {
-              const restored = await this.archive.restore(checkpointId);
+              const restored = migrateCheckpoint(await this.archive.restore(checkpointId));
               if (restored?.nodeStates) {
                 const restoredState = DeepSearchState.fromJSON(restored.nodeStates);
                 Object.assign(state, restoredState);
@@ -1098,20 +1129,28 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
       return;
     }
 
-    // 合并 claims
     const allClaims = [];
     const allEvidence = [];
     const allGaps = [];
 
-    for (const { result } of successResults) {
-      if (result?.claims) allClaims.push(...result.claims);
-      if (result?.evidenceLedger) allEvidence.push(...result.evidenceLedger);
-      if (result?.gaps) allGaps.push(...result.gaps);
+    for (const [i, entry] of successResults.entries()) {
+      const subIndex = Number.isFinite(entry?.index) ? entry.index : i;
+      const { claims, evidenceLedger } = this._remapSubAgentResult(entry?.result, subIndex);
+      if (claims.length) allClaims.push(...claims);
+      if (evidenceLedger.length) allEvidence.push(...evidenceLedger);
+      if (entry?.result?.gaps) allGaps.push(...entry.result.gaps);
     }
 
-    // 去重 + 合并到主状态
-    state.L1.claims = this._deduplicateClaims(allClaims);
-    state.L1.evidenceLedger = allEvidence;
+    const { evidenceLedger, evidenceIdMap } = this._deduplicateEvidenceLedger(allEvidence);
+    const remappedClaims = allClaims.map((c) => {
+      const evidenceIds = this._normalizeIdList(c?.evidenceIds);
+      const mapped = evidenceIds.map((eid) => evidenceIdMap.get(eid) || eid);
+      const uniqueEvidenceIds = Array.from(new Set(mapped));
+      return { ...c, evidenceIds: uniqueEvidenceIds };
+    });
+
+    state.L1.claims = this._deduplicateClaims(remappedClaims);
+    state.L1.evidenceLedger = evidenceLedger;
     state.L1.gaps = this._mergeGaps(allGaps);
 
     logger.info("SubAgent results merged", {
@@ -1120,17 +1159,111 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     });
   }
 
+  _normalizeIdList(values) {
+    const out = [];
+    const seen = new Set();
+    for (const v of Array.isArray(values) ? values : []) {
+      const id = toNonEmptyString(v);
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      out.push(id);
+    }
+    return out;
+  }
+
+  _remapSubAgentResult(result, subIndex) {
+    const prefix = `sub${subIndex}_`;
+    const idMap = new Map();
+
+    const evidenceLedger = Array.isArray(result?.evidenceLedger) ? result.evidenceLedger : [];
+    const claims = Array.isArray(result?.claims) ? result.claims : [];
+
+    const remappedEvidence = evidenceLedger.map((e, i) => {
+      const baseId = toNonEmptyString(e?.evidenceId) || toNonEmptyString(e?.id) || `e_${i + 1}`;
+      const newId = baseId.startsWith(prefix) ? baseId : `${prefix}${baseId}`;
+      idMap.set(baseId, newId);
+      const updated = { ...e, evidenceId: newId };
+      if ("id" in e) updated.id = newId;
+      return updated;
+    });
+
+    const remappedClaims = claims.map((c, i) => {
+      const baseId = toNonEmptyString(c?.claimId) || toNonEmptyString(c?.id) || `c_${i + 1}`;
+      const newId = baseId.startsWith(prefix) ? baseId : `${prefix}${baseId}`;
+      const evidenceIds = this._normalizeIdList(c?.evidenceIds);
+      const remappedEvidenceIds = evidenceIds
+        .map((eid) => idMap.get(eid) || (eid.startsWith(prefix) ? eid : `${prefix}${eid}`))
+        .filter(Boolean);
+      const updated = { ...c, claimId: newId, evidenceIds: Array.from(new Set(remappedEvidenceIds)) };
+      if ("id" in c) updated.id = newId;
+      return updated;
+    });
+
+    return { claims: remappedClaims, evidenceLedger: remappedEvidence };
+  }
+
+  _deduplicateEvidenceLedger(evidenceLedger) {
+    const byHash = new Map();
+    const evidenceIdMap = new Map();
+    const deduped = [];
+
+    for (const e of Array.isArray(evidenceLedger) ? evidenceLedger : []) {
+      if (!e) continue;
+      const evidenceId = toNonEmptyString(e?.evidenceId) || toNonEmptyString(e?.id);
+      if (!evidenceId) continue;
+
+      const key = evidenceContentKey(e) || evidenceId;
+      const hash = contentHash(key);
+      const existing = byHash.get(hash);
+      if (!existing) {
+        const normalized = { ...e, evidenceId };
+        if ("id" in e) normalized.id = evidenceId;
+        byHash.set(hash, { evidenceId, index: deduped.length });
+        evidenceIdMap.set(evidenceId, evidenceId);
+        deduped.push(normalized);
+        continue;
+      }
+
+      evidenceIdMap.set(evidenceId, existing.evidenceId);
+    }
+
+    return { evidenceLedger: deduped, evidenceIdMap };
+  }
+
   /**
    * 去重 claims
    */
   _deduplicateClaims(claims) {
-    const seen = new Set();
-    return claims.filter(c => {
-      const key = c?.text?.toLowerCase().trim();
-      if (!key || seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+    const seen = new Map();
+    const deduped = [];
+
+    for (const c of Array.isArray(claims) ? claims : []) {
+      if (!c) continue;
+      const key = claimContentKey(c);
+      if (!key) continue;
+
+      const hash = contentHash(key);
+      const existing = seen.get(hash);
+      if (!existing) {
+        const evidenceIds = this._normalizeIdList(c?.evidenceIds);
+        const gapIds = this._normalizeIdList(c?.gapIds);
+        const normalized = { ...c, evidenceIds, ...(gapIds.length ? { gapIds } : {}) };
+        deduped.push(normalized);
+        seen.set(hash, { index: deduped.length - 1 });
+        continue;
+      }
+
+      const prior = deduped[existing.index];
+      const mergedEvidenceIds = Array.from(new Set([...this._normalizeIdList(prior?.evidenceIds), ...this._normalizeIdList(c?.evidenceIds)]));
+      const mergedGapIds = Array.from(new Set([...this._normalizeIdList(prior?.gapIds), ...this._normalizeIdList(c?.gapIds)]));
+      deduped[existing.index] = {
+        ...prior,
+        evidenceIds: mergedEvidenceIds,
+        ...(mergedGapIds.length ? { gapIds: mergedGapIds } : {}),
+      };
+    }
+
+    return deduped;
   }
 
   /**
@@ -1361,7 +1494,7 @@ export async function resumeDeepSearchAgentLoop(checkpointId, stageApi = {}) {
   const archive = stageApi?.archive || new Archive(new MapAdapter());
 
   // 加载 checkpoint
-  const snapshot = await archive.restore(checkpointId);
+  const snapshot = migrateCheckpoint(await archive.restore(checkpointId));
   if (!snapshot?.nodeStates) {
     throw new Error(`Checkpoint not found or invalid: ${checkpointId}`);
   }

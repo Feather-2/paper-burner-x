@@ -102,9 +102,15 @@ test("BlockDAGExecutor saves checkpoints and emits checkpoint events", async () 
   const saveCalls = [];
   const makeState = (id) => ({
     id,
-    saveCheckpoint: ({ checkpointId } = {}) => {
-      saveCalls.push({ id, checkpointId });
-      return { checkpointId, stateSnapshot: { id } };
+    saveCheckpoint: ({ checkpointId, strategy } = {}) => {
+      saveCalls.push({ id, checkpointId, strategy });
+      return {
+        checkpointId,
+        stateSnapshot: {
+          id,
+          L0: { sources: strategy === "full" ? [{ sourceId: id }] : [] },
+        },
+      };
     },
     toJSON: () => ({ id }),
   });
@@ -135,11 +141,12 @@ test("BlockDAGExecutor saves checkpoints and emits checkpoint events", async () 
   const { checkpoints } = await executor.execute(dag, {}, {});
 
   assert.equal(saveCalls.length, 2);
+  assert.ok(saveCalls.every((call) => call.strategy === "full"));
   assert.equal(checkpoints.length, 2);
   assert.equal(checkpoints[0].dagId, "dag_checkpoint");
   assert.ok(checkpoints[1].completedNodes.includes("one"));
   assert.ok(checkpoints[1].completedNodes.includes("two"));
-  assert.deepEqual(checkpoints[1].nodeStates.two, { id: "two" });
+  assert.equal(checkpoints[1].nodeStates.two.L0.sources[0].sourceId, "two");
 
   const checkpointEvents = events.filter((evt) => evt.name === "dag.checkpoint");
   assert.equal(checkpointEvents.length, 2);

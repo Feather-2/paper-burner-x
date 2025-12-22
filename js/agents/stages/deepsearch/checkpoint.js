@@ -7,7 +7,8 @@ export const CHECKPOINT_SCHEMA_VERSION = "1.0";
 const DEFAULT_CHECKPOINT_STRATEGY = CheckpointMode.LITE;
 
 export function normalizeCheckpointStrategy(v) {
-  const s = toNonEmptyString(v);
+  const raw = toNonEmptyString(v);
+  const s = raw ? raw.toLowerCase() : "";
   if (s === CheckpointMode.FULL) return CheckpointMode.FULL;
   if (s === CheckpointMode.MINIMAL) return CheckpointMode.MINIMAL;
   return CheckpointMode.LITE;

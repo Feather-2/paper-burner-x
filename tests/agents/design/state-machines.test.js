@@ -70,6 +70,8 @@ test("state enums and transition tables are frozen and complete", async () => {
   const {
     DesignPhase,
     DESIGN_PHASE_TRANSITIONS,
+    DesignLoopStatus,
+    DESIGN_LOOP_TRANSITIONS,
     SlideStatus,
     SLIDE_STATUS_TRANSITIONS,
     VisualSlotStatus,
@@ -92,6 +94,7 @@ test("state enums and transition tables are frozen and complete", async () => {
 
   const enums = [
     [DesignPhase, "DesignPhase"],
+    [DesignLoopStatus, "DesignLoopStatus"],
     [SlideStatus, "SlideStatus"],
     [VisualSlotStatus, "VisualSlotStatus"],
     [EditSessionStatus, "EditSessionStatus"],
@@ -110,6 +113,7 @@ test("state enums and transition tables are frozen and complete", async () => {
 
   const transitions = [
     [DesignPhase, DESIGN_PHASE_TRANSITIONS, "DesignPhase"],
+    [DesignLoopStatus, DESIGN_LOOP_TRANSITIONS, "DesignLoopStatus"],
     [SlideStatus, SLIDE_STATUS_TRANSITIONS, "SlideStatus"],
     [VisualSlotStatus, VISUAL_SLOT_TRANSITIONS, "VisualSlotStatus"],
     [EditSessionStatus, EDIT_SESSION_TRANSITIONS, "EditSessionStatus"],
@@ -127,6 +131,7 @@ test("design index exports new state machines and enums", async () => {
   const design = await import("../../../js/agents/stages/design/index.js");
 
   assert.ok(design.DesignPhase, "DesignPhase should be exported");
+  assert.ok(design.DesignLoopStatus, "DesignLoopStatus should be exported");
   assert.ok(design.SlideStatus, "SlideStatus should be exported");
   assert.ok(design.VisualSlotStatus, "VisualSlotStatus should be exported");
   assert.ok(design.EditSessionStatus, "EditSessionStatus should be exported");
@@ -139,6 +144,7 @@ test("design index exports new state machines and enums", async () => {
   assert.ok(design.ReviewIssueType, "ReviewIssueType should be exported");
 
   assert.equal(typeof design.designPhaseMachine?.transition, "function");
+  assert.equal(typeof design.designLoopMachine?.transition, "function");
   assert.equal(typeof design.slideStatusMachine?.transition, "function");
   assert.equal(typeof design.visualSlotMachine?.transition, "function");
   assert.equal(typeof design.editSessionMachine?.transition, "function");
@@ -158,6 +164,9 @@ test("state machines expose transition rules", async () => {
     DesignPhase,
     DESIGN_PHASE_TRANSITIONS,
     designPhaseMachine,
+    DesignLoopStatus,
+    DESIGN_LOOP_TRANSITIONS,
+    designLoopMachine,
     SlideStatus,
     SLIDE_STATUS_TRANSITIONS,
     slideStatusMachine,
@@ -177,6 +186,7 @@ test("state machines expose transition rules", async () => {
 
   const machines = [
     [DesignPhase, DESIGN_PHASE_TRANSITIONS, designPhaseMachine, "DesignPhase"],
+    [DesignLoopStatus, DESIGN_LOOP_TRANSITIONS, designLoopMachine, "DesignLoopStatus"],
     [SlideStatus, SLIDE_STATUS_TRANSITIONS, slideStatusMachine, "SlideStatus"],
     [VisualSlotStatus, VISUAL_SLOT_TRANSITIONS, visualSlotMachine, "VisualSlotStatus"],
     [EditSessionStatus, EDIT_SESSION_TRANSITIONS, editSessionMachine, "EditSessionStatus"],
@@ -198,6 +208,9 @@ test("state machines transition entities and reject invalid moves", async () => 
     DesignPhase,
     DESIGN_PHASE_TRANSITIONS,
     designPhaseMachine,
+    DesignLoopStatus,
+    DESIGN_LOOP_TRANSITIONS,
+    designLoopMachine,
     SlideStatus,
     SLIDE_STATUS_TRANSITIONS,
     slideStatusMachine,
@@ -217,6 +230,7 @@ test("state machines transition entities and reject invalid moves", async () => 
 
   const machines = [
     [DesignPhase, DESIGN_PHASE_TRANSITIONS, designPhaseMachine, "DesignPhase"],
+    [DesignLoopStatus, DESIGN_LOOP_TRANSITIONS, designLoopMachine, "DesignLoopStatus"],
     [SlideStatus, SLIDE_STATUS_TRANSITIONS, slideStatusMachine, "SlideStatus"],
     [VisualSlotStatus, VISUAL_SLOT_TRANSITIONS, visualSlotMachine, "VisualSlotStatus"],
     [EditSessionStatus, EDIT_SESSION_TRANSITIONS, editSessionMachine, "EditSessionStatus"],
@@ -264,6 +278,7 @@ test("state machines transition entities and reject invalid moves", async () => 
 test("validators accept valid enum values", async () => {
   const {
     DesignPhase,
+    DesignLoopStatus,
     SlideStatus,
     VisualSlotStatus,
     EditSessionStatus,
@@ -279,6 +294,7 @@ test("validators accept valid enum values", async () => {
     ReviewIssueType,
     BrainstormStatus,
     isValidDesignPhase,
+    isValidDesignLoopStatus,
     isValidSlideStatus,
     isValidVisualSlotStatus,
     isValidEditSessionStatus,
@@ -293,6 +309,7 @@ test("validators accept valid enum values", async () => {
   } = await import("../../../js/agents/stages/design/constants.js");
 
   assertValidator(DesignPhase, isValidDesignPhase, "DesignPhase");
+  assertValidator(DesignLoopStatus, isValidDesignLoopStatus, "DesignLoopStatus");
   assertValidator(SlideStatus, isValidSlideStatus, "SlideStatus");
   assertValidator(VisualSlotStatus, isValidVisualSlotStatus, "VisualSlotStatus");
   assertValidator(EditSessionStatus, isValidEditSessionStatus, "EditSessionStatus");

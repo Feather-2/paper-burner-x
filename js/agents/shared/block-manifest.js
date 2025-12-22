@@ -221,7 +221,14 @@ export const WriteBlockManifest = {
   output: {
     type: "object",
     properties: {
-      report: { type: "string", description: "Generated markdown report" },
+      report: {
+        type: "object",
+        description: "Generated report object (markdown + metadata)",
+        properties: {
+          markdown: { type: "string" },
+          title: { type: "string" },
+        },
+      },
       title: { type: "string", description: "Report title" },
       wordCount: { type: "number" },
     },

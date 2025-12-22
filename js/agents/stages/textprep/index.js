@@ -13,6 +13,21 @@ function toRawText(input) {
   if (input && typeof input === "object") {
     if (typeof input.text === "string") return input.text;
     if (typeof input.rawText === "string") return input.rawText;
+    if (Array.isArray(input.sources)) {
+      const merged = input.sources
+        .map((s) => {
+          if (typeof s === "string") return s;
+          if (!s || typeof s !== "object") return "";
+          if (typeof s.sourceTextNormalized === "string") return s.sourceTextNormalized;
+          if (typeof s.textNormalized === "string") return s.textNormalized;
+          if (typeof s.text === "string") return s.text;
+          if (typeof s.rawText === "string") return s.rawText;
+          return "";
+        })
+        .filter(Boolean)
+        .join("\n\n---\n\n");
+      if (merged) return merged;
+    }
   }
   return "";
 }
