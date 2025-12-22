@@ -6,8 +6,11 @@
 import { WorkflowState, transitionWorkflow, forceWorkflowState } from './workflow-states.js';
 import { WorkflowTodoStatus } from '../../agents/runtime/constants.js';
 import { RunStoreAdapter } from '../../agents/runtime/event-bus.js';
+import { StageApiFactory } from '../../agents/runtime/stage-api-factory.js';
 import { RunStore } from '../../agents/storage/run-store.js';
 import { DesignDensity, DesignVisualMode, normalizeDesignDensity, normalizeDesignVisualMode } from '../design-preferences.js';
+import { EventHandlerRegistry, createWorkflowEventRegistry } from './event-handler-registry.js';
+import { StateSynchronizer, inferWorkflowStateFromEvent } from './unified-state-mapping.js';
 
 let _TextPrepStage = null;
 async function getTextPrepStage() {
@@ -668,13 +671,38 @@ export const runtimeMixin = {
         const bus = this._orchestrator?.eventBus;
         if (!bus) return;
 
+        this._stateSynchronizer = new StateSynchronizer(this);
+
+        if (this._eventRegistry instanceof EventHandlerRegistry) {
+            this._eventRegistry.clear();
+        }
+
+        this._eventRegistry = createWorkflowEventRegistry({
+            updateTodos: (todos) => {
+                if (Array.isArray(todos)) this.updateTodos?.(todos);
+            },
+            onRunCompleted: (payload) => this._onRunCompleted?.(payload),
+            onRunFailed: (payload) => this._onRunFailed?.(payload),
+            onDesignPhaseChange: (from, to) => this._onDesignPhaseChange?.(from, to),
+            logTerminal: (...args) => this.logTerminal?.(...args),
+            onError: (eventName, error) => this._onError?.(eventName, error),
+        });
+
+        this._registerWorkflowEventHandlers();
+
         this._runtimeUnsubs.push(bus.on('*', (evt) => this._handleRuntimeEvent(evt)));
     },
-    _handleRuntimeEvent(evt) {
-        const name = evt?.name || '';
-        const payload = evt?.payload || {};
+    _registerWorkflowEventHandlers() {
+        const registry = this._eventRegistry;
+        if (!registry) return;
 
-        if (name === 'run.started') {
+        const scheduleVizRerender = () => this._scheduleVizRerender?.();
+        const captureFlowEvent = (kind) => (eventName, payload) => {
+            this._pushFlowVizEvent(kind, eventName, payload);
+            this._pushToProcessPanel(eventName, payload);
+        };
+
+        registry.register('run.started', () => {
             this._resetFlowVizEventStore();
             forceWorkflowState(this, WorkflowState.READING);
             this.updateTodos(this._runtimeTodoTexts.map((text, i) => ({
@@ -682,23 +710,17 @@ export const runtimeMixin = {
                 status: i === 0 ? WorkflowTodoStatus.ACTIVE : WorkflowTodoStatus.PENDING,
             })));
             this.renderPreviewArea();
-            return;
-        }
+        });
 
-        // Capture flow events for premium visualizers (store minimal {name,payload} only).
-        if (name.startsWith('deepsearch.') || name === 'iteration.completed' || name === 'deepsearch.iteration.completed') {
-            this._pushFlowVizEvent('deepsearch', name, payload);
-            // Also push to floating process panel
-            this._pushToProcessPanel(name, payload);
-        } else if (name.startsWith('design.')) {
-            this._pushFlowVizEvent('design', name, payload);
-            this._pushToProcessPanel(name, payload);
-        }
+        // FlowViz 事件捕获
+        registry.register('deepsearch.*', captureFlowEvent('deepsearch'));
+        registry.register('iteration.completed', captureFlowEvent('deepsearch'));
+        registry.register('design.*', captureFlowEvent('design'));
 
         // Design sub-stage UI: update agent activity based on fine-grained events.
-        // (These events don't match _runtimeStageUi, so we handle them separately.)
-        if (name.startsWith('design.') && this._runtimeDesignSubStageUi && typeof this._setAgentStatus === 'function') {
-            const m = name.match(/^(.*)\.(started|ended|completed|failed)$/);
+        registry.register('design.*', (eventName, payload) => {
+            if (!this._runtimeDesignSubStageUi || typeof this._setAgentStatus !== 'function') return;
+            const m = eventName.match(/^(.*)\.(started|ended|completed|failed)$/);
             if (m) {
                 const subStage = m[1];
                 const status = m[2];
@@ -711,7 +733,7 @@ export const runtimeMixin = {
                 }
             }
 
-            if (name === 'design.degraded') {
+            if (eventName === 'design.degraded') {
                 const ui = this._runtimeDesignSubStageUi['design.qa'] || { label: '质量检查', agentId: 'designer' };
                 const detail =
                     typeof payload?.slideNo === 'number' ? `第 ${payload.slideNo} 页` :
@@ -719,9 +741,9 @@ export const runtimeMixin = {
                     '';
                 this._setAgentStatus(ui.agentId, 'active', `降级渲染${detail ? ` (${detail})` : ''}`);
             }
-        }
+        });
 
-        if (name === 'design.phase.transition') {
+        registry.register('design.phase.transition', (eventName, payload) => {
             if (!this.workflowData) this.workflowData = {};
             const phase = typeof payload?.to === 'string' ? payload.to : payload?.phase;
             this.workflowData.designPhase = {
@@ -734,10 +756,10 @@ export const runtimeMixin = {
             if (label && typeof this._setAgentStatus === 'function') {
                 this._setAgentStatus('designer', 'active', `设计阶段：${label}`);
             }
-            this._scheduleVizRerender?.();
-        }
+            scheduleVizRerender();
+        });
 
-        if (name.startsWith('design.slide.') || name === 'design.degraded') {
+        const updateSlideStatus = (eventName, payload) => {
             if (!this.workflowData) this.workflowData = {};
             if (!this.workflowData.slideStatuses || typeof this.workflowData.slideStatuses !== 'object') {
                 this.workflowData.slideStatuses = { schemaVersion: '0.1', bySlideIntentId: {}, byIndex: {}, updatedAt: 0 };
@@ -762,23 +784,23 @@ export const runtimeMixin = {
                 updatedAt: now,
             };
 
-            if (name === 'design.slide.started') {
+            if (eventName === 'design.slide.started') {
                 next.status = 'generating';
-            } else if (name === 'design.slide.completed') {
+            } else if (eventName === 'design.slide.completed') {
                 next.status = 'completed';
                 if (typeof payload?.source === 'string') next.source = payload.source;
                 if (typeof payload?.duration === 'number') next.duration = payload.duration;
-            } else if (name === 'design.slide.failed') {
+            } else if (eventName === 'design.slide.failed') {
                 next.status = 'failed';
                 next.error = payload?.error?.message || payload?.error || 'unknown';
-            } else if (name === 'design.slide.retrying') {
+            } else if (eventName === 'design.slide.retrying') {
                 next.status = 'generating';
                 if (Number.isFinite(payload?.attempt)) next.attempt = payload.attempt;
-            } else if (name === 'design.slide.progress') {
+            } else if (eventName === 'design.slide.progress') {
                 next.status = next.status || 'generating';
                 if (typeof payload?.step === 'string') next.step = payload.step;
                 if (typeof payload?.msg === 'string') next.msg = payload.msg;
-            } else if (name === 'design.degraded') {
+            } else if (eventName === 'design.degraded') {
                 next.degraded = true;
                 next.degradedReason = payload?.reason || next.degradedReason;
             }
@@ -786,11 +808,13 @@ export const runtimeMixin = {
             if (keyId) this.workflowData.slideStatuses.bySlideIntentId[keyId] = next;
             if (keyIndex !== null) this.workflowData.slideStatuses.byIndex[keyIndex] = next;
             this.workflowData.slideStatuses.updatedAt = now;
-            this._scheduleVizRerender?.();
-        }
+            scheduleVizRerender();
+        };
 
-        // DeepSearch UI integration (T1 event bus)
-        if (name === 'iteration.completed' || name === 'deepsearch.iteration.completed') {
+        registry.register('design.slide.*', updateSlideStatus);
+        registry.register('design.degraded', updateSlideStatus);
+
+        const updateDeepSearchIteration = (eventName, payload) => {
             this._ensureDeepSearchViz();
             const viz = this.workflowData.deepsearchViz;
             const completed = typeof payload.iteration === 'number' ? payload.iteration : null;
@@ -799,33 +823,36 @@ export const runtimeMixin = {
             if (typeof payload.iteration === 'number') viz.iteration = payload.iteration + 1;
             viz.updatedAt = Date.now();
             this._scheduleVizRerender();
-        }
+        };
 
-        if (name === 'deepsearch.started') {
+        registry.register('iteration.completed', updateDeepSearchIteration);
+        registry.register('deepsearch.iteration.completed', updateDeepSearchIteration);
+
+        registry.register('deepsearch.started', (eventName, payload) => {
             this._ensureDeepSearchViz();
             this.workflowData.deepsearchViz.runId = payload?.runId || this.workflowData.deepsearchViz.runId;
             this.workflowData.deepsearchViz.startedAt = Date.now();
             this.workflowData.deepsearchViz.updatedAt = Date.now();
             this._scheduleVizRerender();
-        }
+        });
 
-        if (name === 'deepsearch.completed') {
+        registry.register('deepsearch.completed', () => {
             this._ensureDeepSearchViz();
             this.workflowData.deepsearchViz.completedAt = Date.now();
             this.workflowData.deepsearchViz.updatedAt = Date.now();
             this._scheduleVizRerender();
-        }
+        });
 
-        if (name === 'deepsearch.gaps.completed') {
+        registry.register('deepsearch.gaps.completed', (eventName, payload) => {
             this._ensureDeepSearchViz();
             if (typeof payload.gapCount === 'number') this.workflowData.deepsearchViz.openGapCount = payload.gapCount;
             if (typeof payload.totalGaps === 'number') this.workflowData.deepsearchViz.totalGaps = payload.totalGaps;
             this.workflowData.deepsearchViz.updatedAt = Date.now();
             if (this._deepsearchState) this._syncDeepSearchVizFromState(this._deepsearchState);
             this._scheduleVizRerender();
-        }
+        });
 
-        if (name === 'deepsearch.checkpoint.saved') {
+        registry.register('deepsearch.checkpoint.saved', (eventName, payload) => {
             this._ensureDeepSearchViz();
             const checkpoints = Array.isArray(this.workflowData.deepsearchViz.checkpoints) ? this.workflowData.deepsearchViz.checkpoints : [];
             const row = {
@@ -838,10 +865,10 @@ export const runtimeMixin = {
             this.workflowData.deepsearchViz.checkpoints = checkpoints.slice(-50);
             this.workflowData.deepsearchViz.updatedAt = Date.now();
             this._scheduleVizRerender();
-        }
+        });
 
         // === 外搜事件追踪 ===
-        if (name === 'deepsearch.external.triggered') {
+        registry.register('deepsearch.external.triggered', (eventName, payload) => {
             this._ensureDeepSearchViz();
             this.workflowData.deepsearchViz.externalSearch = {
                 status: 'triggered',
@@ -853,9 +880,9 @@ export const runtimeMixin = {
             this.workflowData.deepsearchViz.updatedAt = Date.now();
             this.logTerminal('AI 搜索', `本地结果不足 (${payload?.localHitCount}/${payload?.minLocalHits})，启动外部搜索...`, 'info');
             this._scheduleVizRerender();
-        }
+        });
 
-        if (name === 'deepsearch.external.started') {
+        registry.register('deepsearch.external.started', (eventName, payload) => {
             this._ensureDeepSearchViz();
             const ext = this.workflowData.deepsearchViz.externalSearch || {};
             this.workflowData.deepsearchViz.externalSearch = {
@@ -868,9 +895,9 @@ export const runtimeMixin = {
             this.workflowData.deepsearchViz.updatedAt = Date.now();
             this.logTerminal('AI 搜索', `外搜启动：${(payload?.providers || []).join(', ')}`, 'normal');
             this._scheduleVizRerender();
-        }
+        });
 
-        if (name === 'deepsearch.external.completed') {
+        registry.register('deepsearch.external.completed', (eventName, payload) => {
             this._ensureDeepSearchViz();
             const ext = this.workflowData.deepsearchViz.externalSearch || {};
             this.workflowData.deepsearchViz.externalSearch = {
@@ -884,9 +911,9 @@ export const runtimeMixin = {
             this.workflowData.deepsearchViz.updatedAt = Date.now();
             this.logTerminal('AI 搜索', `外搜完成：获取 ${payload?.documentsCount || 0} 个文档，${payload?.chunksCount || 0} 个片段`, 'success');
             this._scheduleVizRerender();
-        }
+        });
 
-        if (name === 'deepsearch.external.error') {
+        registry.register('deepsearch.external.error', (eventName, payload) => {
             this._ensureDeepSearchViz();
             const ext = this.workflowData.deepsearchViz.externalSearch || {};
             this.workflowData.deepsearchViz.externalSearch = {
@@ -898,9 +925,9 @@ export const runtimeMixin = {
             this.workflowData.deepsearchViz.updatedAt = Date.now();
             this.logTerminal('AI 搜索', `外搜错误：${payload?.message || '未知错误'}`, 'error');
             this._scheduleVizRerender();
-        }
+        });
 
-        if (name === 'deepsearch.external.skipped') {
+        registry.register('deepsearch.external.skipped', (eventName, payload) => {
             this._ensureDeepSearchViz();
             this.workflowData.deepsearchViz.externalSearch = {
                 status: 'skipped',
@@ -910,54 +937,55 @@ export const runtimeMixin = {
             };
             this.workflowData.deepsearchViz.updatedAt = Date.now();
             this._scheduleVizRerender();
-        }
+        });
         // === 外搜事件追踪结束 ===
 
         // Allow DeepSearch stages to update gaps list, then fall through to progress logger.
-        if (name === 'deepsearch.gaps.progress') {
+        registry.register('deepsearch.gaps.progress', (eventName, payload) => {
             this._ensureDeepSearchViz();
             const detail = payload?.detail && typeof payload.detail === 'object' ? payload.detail : null;
             if (detail?.gapId) this._upsertDeepSearchVizGap(detail);
             this.workflowData.deepsearchViz.updatedAt = Date.now();
             this._scheduleVizRerender();
-        }
+        });
 
-        // 追踪阶段变化
-        if (name.endsWith('.progress') && payload.phase) {
-            this._ensureDeepSearchViz();
-            const viz = this.workflowData.deepsearchViz;
-            const phase = payload.phase;
+        // 追踪阶段变化 + 进度日志
+        registry.register('*.progress', (eventName, payload) => {
+            if (payload.phase) {
+                this._ensureDeepSearchViz();
+                const viz = this.workflowData.deepsearchViz;
+                const phase = payload.phase;
 
-            // 更新当前阶段
-            if (viz.currentPhase !== phase) {
-                // 记录上一阶段结束
-                if (viz.currentPhase && viz.stageMetrics[viz.currentPhase]) {
-                    viz.stageMetrics[viz.currentPhase].status = 'completed';
-                    viz.stageMetrics[viz.currentPhase].completedAt = Date.now();
+                // 更新当前阶段
+                if (viz.currentPhase !== phase) {
+                    // 记录上一阶段结束
+                    if (viz.currentPhase && viz.stageMetrics[viz.currentPhase]) {
+                        viz.stageMetrics[viz.currentPhase].status = 'completed';
+                        viz.stageMetrics[viz.currentPhase].completedAt = Date.now();
+                    }
+                    // 开始新阶段
+                    viz.currentPhase = phase;
+                    if (viz.stageMetrics[phase]) {
+                        viz.stageMetrics[phase].status = 'active';
+                        viz.stageMetrics[phase].startedAt = Date.now();
+                    }
+                    // 添加到历史
+                    viz.phaseHistory.push({ phase, iteration: viz.iteration, ts: Date.now() });
                 }
-                // 开始新阶段
-                viz.currentPhase = phase;
+
+                // 更新阶段详情
                 if (viz.stageMetrics[phase]) {
-                    viz.stageMetrics[phase].status = 'active';
-                    viz.stageMetrics[phase].startedAt = Date.now();
+                    viz.stageMetrics[phase].lastProgress = {
+                        current: payload.current,
+                        total: payload.total,
+                        msg: payload.msg,
+                        step: payload.step,
+                    };
                 }
-                // 添加到历史
-                viz.phaseHistory.push({ phase, iteration: viz.iteration, ts: Date.now() });
             }
 
-            // 更新阶段详情
-            if (viz.stageMetrics[phase]) {
-                viz.stageMetrics[phase].lastProgress = {
-                    current: payload.current,
-                    total: payload.total,
-                    msg: payload.msg,
-                    step: payload.step,
-                };
-            }
-        }
-
-        if (name.endsWith('.progress')) {
             const msg = payload.msg;
+            const actor = this._runtimeEventMeta?.actor;
             const agent =
                 payload.agent ||
                 (payload.phase === 'scan' ? 'AI 研究' :
@@ -965,16 +993,43 @@ export const runtimeMixin = {
                         payload.phase === 'retrieve' ? 'AI 搜索' :
                             payload.phase === 'understand' ? 'AI 提取' :
                                 payload.phase === 'write' ? 'AI 写作' :
-                                    (evt?.actor === 'ingest' ? 'AI 阅读' :
-                                        evt?.actor === 'deepsearch' ? 'AI 研究' :
-                                            evt?.actor === 'textprep' ? 'AI 分析' :
-                                                evt?.actor === 'design' ? 'AI 设计' :
-                                                    evt?.actor === 'evaluate' ? 'AI 审查' : 'AI'));
-            const type = payload.type || (payload.phase ? 'normal' : 'normal');
+                                    (actor === 'ingest' ? 'AI 阅读' :
+                                        actor === 'deepsearch' ? 'AI 研究' :
+                                            actor === 'textprep' ? 'AI 分析' :
+                                                actor === 'design' ? 'AI 设计' :
+                                                    actor === 'evaluate' ? 'AI 审查' : 'AI'));
+            const type = payload.type || 'normal';
             if (agent && msg) this.logTerminal(agent, msg, type);
-            return;
-        }
+        });
+    },
+    _handleRuntimeEvent(evt) {
+        const name = evt?.name || '';
+        const payload = evt?.payload || {};
 
+        const prevEvent = this._runtimeEventMeta;
+        this._runtimeEventMeta = evt;
+
+        try {
+            // 使用 StateSynchronizer 同步状态
+            if (this._stateSynchronizer) {
+                this._stateSynchronizer.handleAgentEvent(name, payload);
+            } else {
+                const suggested = inferWorkflowStateFromEvent(name, this.state, payload);
+                if (suggested && suggested !== this.state) {
+                    transitionWorkflow(this, suggested, { triggeredBy: name });
+                }
+            }
+
+            // 分发到 EventHandlerRegistry
+            this._eventRegistry?.dispatch(name, payload);
+
+            // 处理 stage 开始/结束/失败事件 (保留原逻辑用于 UI 更新)
+            this._handleStageLifecycleEvent(name, payload, evt);
+        } finally {
+            this._runtimeEventMeta = prevEvent;
+        }
+    },
+    _handleStageLifecycleEvent(name, payload, evt) {
         const match = name.match(/^(.*)\.(started|ended|failed)$/);
         if (!match) return;
 
@@ -1047,6 +1102,23 @@ export const runtimeMixin = {
 
         const runtimeMode = orch?.runContext?.mode || 'deepsearch';
 
+        // 创建统一的 StageApi 工厂
+        const stageApiFactory = StageApiFactory.fromWorkflowContext({
+            signal: orch.signal,
+            eventBus: orch.eventBus,
+            emit: orch.emit,
+            aiApiService: orch.runContext?.aiApiService,
+            modelRouter: orch.runContext?.modelRouter,
+            localRetriever: orch.runContext?.localRetriever,
+            externalSearchProvider: orch.runContext?.externalSearchProvider,
+            storageAdapter: orch.runContext?.storageAdapter,
+            ocr: orch.runContext?.ocr,
+            imageProvider: orch.runContext?.imageProvider || orch.runContext?.imageService,
+            svgGenerator: orch.runContext?.svgGenerator,
+            archive: orch.runContext?.archive,
+            logger: orch.runContext?.logger,
+        });
+
         if (runtimeMode === 'deepsearch') {
             orch.registerStage('deepsearch.ingest', async (ctx, input, api) => {
                 const baseEmit = api.emit;
@@ -1079,17 +1151,14 @@ export const runtimeMixin = {
                 const { IngestStage } = await import('../../agents/ingest/ingest-stage.js');
                 const stage = new IngestStage();
 
-                const out = await stage.execute(ctx, input, {
+                const stageApi = stageApiFactory.createDeepSearchApi({
                     emit: forwardEmit,
                     signal: api.signal,
                     checkCancelled: api.checkCancelled,
-                    storageAdapter: api.storageAdapter,
-                    ocr: api.ocr,
-                    aiApiService: api.aiApiService,
-                    modelRouter: api.modelRouter,
                     visionApi: api.visionApi,
-                    whisperApi: api.whisperApi
+                    whisperApi: api.whisperApi,
                 });
+                const out = await stage.execute(ctx, input, stageApi);
                 return out;
             }, { actor: 'deepsearch', timeoutMs: 120_000 });
 

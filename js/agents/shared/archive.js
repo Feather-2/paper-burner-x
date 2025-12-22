@@ -268,3 +268,170 @@ export class MapAdapter {
     return matches;
   }
 }
+
+/**
+ * IndexedDB 存储适配器（浏览器持久化）
+ * 解决问题：MapAdapter 是内存存储，刷新即丢失
+ */
+export class IndexedDBAdapter {
+  constructor(dbName = "ppt_archive", storeName = "checkpoints") {
+    this.dbName = dbName;
+    this.storeName = storeName;
+    this._db = null;
+    this._initPromise = null;
+  }
+
+  async _ensureDb() {
+    if (this._db) return this._db;
+    if (this._initPromise) return this._initPromise;
+
+    this._initPromise = new Promise((resolve, reject) => {
+      if (typeof indexedDB === "undefined") {
+        reject(new Error("IndexedDB not available"));
+        return;
+      }
+
+      const request = indexedDB.open(this.dbName, 1);
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        this._db = request.result;
+        resolve(this._db);
+      };
+
+      request.onupgradeneeded = (event) => {
+        const db = event.target.result;
+        if (!db.objectStoreNames.contains(this.storeName)) {
+          db.createObjectStore(this.storeName, { keyPath: "key" });
+        }
+      };
+    });
+
+    return this._initPromise;
+  }
+
+  async get(key) {
+    const db = await this._ensureDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(this.storeName, "readonly");
+      const store = tx.objectStore(this.storeName);
+      const request = store.get(String(key));
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const result = request.result;
+        resolve(result ? result.value : null);
+      };
+    });
+  }
+
+  async set(key, value) {
+    const db = await this._ensureDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(this.storeName, "readwrite");
+      const store = tx.objectStore(this.storeName);
+      const request = store.put({ key: String(key), value });
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(true);
+    });
+  }
+
+  async delete(key) {
+    const db = await this._ensureDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(this.storeName, "readwrite");
+      const store = tx.objectStore(this.storeName);
+      const request = store.delete(String(key));
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(true);
+    });
+  }
+
+  async keys(pattern) {
+    const db = await this._ensureDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(this.storeName, "readonly");
+      const store = tx.objectStore(this.storeName);
+      const request = store.getAllKeys();
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const allKeys = request.result || [];
+        const p = toNonEmptyString(pattern) ?? "*";
+        const escaped = p.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
+        const regex = new RegExp(`^${escaped.replace(/\*/g, ".*")}$`);
+        const matches = allKeys.filter((key) => regex.test(key));
+        matches.sort();
+        resolve(matches);
+      };
+    });
+  }
+
+  async clear() {
+    const db = await this._ensureDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(this.storeName, "readwrite");
+      const store = tx.objectStore(this.storeName);
+      const request = store.clear();
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(true);
+    });
+  }
+
+  close() {
+    if (this._db) {
+      this._db.close();
+      this._db = null;
+      this._initPromise = null;
+    }
+  }
+}
+
+/**
+ * 降级适配器：优先 IndexedDB，失败时回退到 MapAdapter
+ */
+export class FallbackAdapter {
+  constructor(dbName = "ppt_archive", storeName = "checkpoints") {
+    this._primary = null;
+    this._fallback = new MapAdapter();
+    this._useFallback = false;
+    this._dbName = dbName;
+    this._storeName = storeName;
+  }
+
+  async _ensureAdapter() {
+    if (this._useFallback) return this._fallback;
+    if (this._primary) return this._primary;
+
+    try {
+      if (typeof indexedDB === "undefined") {
+        throw new Error("IndexedDB not available");
+      }
+      this._primary = new IndexedDBAdapter(this._dbName, this._storeName);
+      await this._primary._ensureDb();
+      return this._primary;
+    } catch (err) {
+      console.warn("[FallbackAdapter] IndexedDB unavailable, using MapAdapter:", err?.message);
+      this._useFallback = true;
+      return this._fallback;
+    }
+  }
+
+  async get(key) {
+    const adapter = await this._ensureAdapter();
+    return adapter.get(key);
+  }
+
+  async set(key, value) {
+    const adapter = await this._ensureAdapter();
+    return adapter.set(key, value);
+  }
+
+  async delete(key) {
+    const adapter = await this._ensureAdapter();
+    return adapter.delete(key);
+  }
+
+  async keys(pattern) {
+    const adapter = await this._ensureAdapter();
+    return adapter.keys(pattern);
+  }
+}
