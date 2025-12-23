@@ -223,13 +223,13 @@ export class RouterAgent {
     if (sourceCount <= 3 && estimatedTokens < 5000) {
       return 0;
     }
-    // Level 1: Sub-agent parallel
-    if (sourceCount <= 10 && estimatedTokens < 20000) {
-      return 1;
-    }
     // Level 2: MCP-Nexus enhanced
     if (needsExternalSearch || needsStrongModel) {
       return 2;
+    }
+    // Level 1: Sub-agent parallel
+    if (sourceCount <= 10 && estimatedTokens < 20000) {
+      return 1;
     }
     // Level 3: DAG/Pipeline for complex tasks
     if (sourceCount > 20 || typeCount >= 3 || hasHeavyProcessing) {

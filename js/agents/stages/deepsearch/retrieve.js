@@ -184,7 +184,6 @@ function buildStrategyRouterConfig(baseConfig, strategy) {
     out.useGrep = true;
     out.useBm25 = false;
   } else if (s === RetrievalStrategy.BM25) {
-    out.useGrep = false;
     out.useBm25 = true;
   } else if (s === RetrievalStrategy.TOOL_CHAIN) {
     // Keep local router permissive; tool-chain is handled separately as an enhancement/override.

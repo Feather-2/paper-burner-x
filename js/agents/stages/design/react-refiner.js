@@ -13,6 +13,7 @@
  */
 
 import { robustParseJson } from "../../shared/robust-json.js";
+import { injectSystemHint } from "../../shared/message-utils.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -309,6 +310,7 @@ export async function runReactRefiner(deckPackage, context, options = {}) {
   const stageApi = context.stageApi || {};
   const emit = makeStageEmitter(stageApi, "design");
   const aiApiService = stageApi?.aiApiService || context?.runContext?.aiApiService || context?.aiApiService;
+  const systemHint = stageApi?.runtimeHints?.system || context?.runtimeHints?.system;
   if (!aiApiService || typeof aiApiService.chat !== "function") {
     throw new Error("runReactRefiner: stageApi.aiApiService.chat is required");
   }
@@ -331,12 +333,13 @@ export async function runReactRefiner(deckPackage, context, options = {}) {
       stepIndex,
       mode,
     });
+    const hintedMessages = injectSystemHint(messages, systemHint);
 
     const startTime = Date.now();
     let modelResp;
     try {
       modelResp = await aiApiService.chat({
-        messages,
+        messages: hintedMessages,
         temperature: 0.2,
         maxTokens: 8000,
       });
@@ -366,7 +369,7 @@ export async function runReactRefiner(deckPackage, context, options = {}) {
     if (parseError) {
       try {
         const retryResp = await aiApiService.chat({
-          messages: [{ role: "system", content: "只返回严格 JSON，不要输出任何多余文本。" }, ...messages],
+          messages: [{ role: "system", content: "只返回严格 JSON，不要输出任何多余文本。" }, ...hintedMessages],
           temperature: 0.1,
           maxTokens: 8000,
         });

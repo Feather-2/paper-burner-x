@@ -44,7 +44,7 @@ export const DESIGN_AGENT_TOOL_DEFINITIONS = Object.freeze([
   },
   {
     name: "spawn_slide_agent",
-    description: "Spawn slide sub-agents to generate HTML DSL for slides.",
+    description: "Generate slide HTML DSL in parallel batches.",
     parameters: {
       type: "object",
       properties: {

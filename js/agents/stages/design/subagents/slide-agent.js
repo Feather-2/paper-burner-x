@@ -1,11 +1,26 @@
-import { promises as fs } from "node:fs";
-import path from "node:path";
 import { generateSingleSlide } from "../batch-generator.js";
 import { getDslRules } from "../dsl-rules.js";
 import { SlideStatus, VisualSlotStatus, slideStatusMachine } from "../states.js";
 import { normalizeRenderType } from "../../../shared/value-utils.js";
 
 const MAX_LINKED_FILE_CHARS = 1200;
+const isBrowser = typeof window !== "undefined" && typeof window.document !== "undefined";
+let fsPromises = null;
+let pathModule = null;
+
+async function ensureNodeModules() {
+  if (fsPromises && pathModule) return true;
+  if (isBrowser) return false;
+  try {
+    const fsMod = await import("node:fs");
+    const pathMod = await import("node:path");
+    fsPromises = fsMod.promises || (fsMod.default && fsMod.default.promises) || fsMod;
+    pathModule = pathMod.default || pathMod;
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function toNonEmptyString(value) {
   if (value === undefined || value === null) return "";
@@ -34,15 +49,21 @@ async function readLinkedFiles(linkedFiles = []) {
   const files = Array.isArray(linkedFiles) ? linkedFiles : [];
   const sections = [];
 
+  if (!files.length) return "";
+  const ready = await ensureNodeModules();
+  if (!ready || !fsPromises?.readFile) return "";
+
   for (const filePath of files) {
     const file = toNonEmptyString(filePath);
     if (!file) continue;
     try {
-      const raw = await fs.readFile(file, "utf8");
+      const raw = await fsPromises.readFile(file, "utf8");
       const trimmed = raw.length > MAX_LINKED_FILE_CHARS
         ? `${raw.slice(0, MAX_LINKED_FILE_CHARS)}\n...(truncated)`
         : raw;
-      const label = path.basename(file);
+      const label = typeof pathModule?.basename === "function"
+        ? pathModule.basename(file)
+        : (file.split(/[/\\]/).pop() || file);
       sections.push(`--- ${label} ---\n${trimmed}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

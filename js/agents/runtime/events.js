@@ -47,6 +47,8 @@ export const CompressionEvents = Object.freeze({
   COMPRESSION_SCHEDULED: "compression.scheduled",
   COMPRESSION_APPLIED: "compression.applied",
   COMPRESSION_FAILED: "compression.failed",
+  COMPRESSION_ADVISED: "compression.advised",
+  COMPRESSION_FORCED: "compression.forced",
 });
 
 /**

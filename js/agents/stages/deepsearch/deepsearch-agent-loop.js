@@ -13,7 +13,7 @@ import { getRuntimeState } from "../../runtime/loop-runtime-state.js";
 import { DeepSearchState } from "./state.js";
 import { createLogger } from "./logger.js";
 import { shouldUseDirectMode, runDirectAnalysis } from "./direct-analysis.js";
-import { SMALL_DOC_TOKEN_THRESHOLD, AgentLoopStatus, agentLoopMachine } from "./constants.js";
+import { CONCURRENCY_CONFIG, SMALL_DOC_TOKEN_THRESHOLD, AgentLoopStatus, agentLoopMachine } from "./constants.js";
 import { isPlainObject, safeInt, toNonEmptyString } from "../../shared/value-utils.js";
 import { createStageApi } from "../../shared/stage-api.js";
 import { buildContentPackage } from "../textprep/build-content-package.js";
@@ -22,6 +22,7 @@ import { ReviewRules } from "../../runtime/review-rules.js";
 import { Archive, MapAdapter } from "../../shared/archive.js";
 import { CheckpointType, createCheckpoint, migrateCheckpoint } from "../../shared/checkpoint-schema.js";
 import { SharedContext } from "./shared-context.js";
+import { mapConcurrent } from "../../shared/concurrency.js";
 
 /**
  * Agent 可用能力定义
@@ -205,12 +206,57 @@ function observe(state) {
   };
 }
 
+function decorateEventRecord(record, meta) {
+  if (!record || typeof record !== "object") return record;
+  const base = { ...record };
+  const existingMeta = isPlainObject(base.meta) ? base.meta : {};
+  const nextMeta = isPlainObject(meta) ? meta : null;
+  if (nextMeta) {
+    base.meta = { ...existingMeta, ...nextMeta };
+  }
+  return base;
+}
+
+function wrapEventBus(eventBus, meta) {
+  if (!eventBus || typeof eventBus.emit !== "function") return eventBus;
+  return {
+    emit: (name, record) => eventBus.emit(name, decorateEventRecord(record, meta)),
+    subscribe: typeof eventBus.subscribe === "function" ? eventBus.subscribe.bind(eventBus) : undefined,
+    once: typeof eventBus.once === "function" ? eventBus.once.bind(eventBus) : undefined,
+    on: typeof eventBus.on === "function" ? eventBus.on.bind(eventBus) : undefined,
+    off: typeof eventBus.off === "function" ? eventBus.off.bind(eventBus) : undefined,
+  };
+}
+
+function wrapEmit(emit, meta) {
+  if (typeof emit !== "function") return emit;
+  return (name, record) => emit(name, decorateEventRecord(record, meta));
+}
+
+function resolveSubAgentConcurrency(state) {
+  const subagentConfig = isPlainObject(state?.userConfig?.subagents) ? state.userConfig.subagents : {};
+  const requested =
+    safeInt(subagentConfig?.concurrency) ??
+    safeInt(state?.userConfig?.subagentConcurrency);
+  const fallback = Number.isFinite(CONCURRENCY_CONFIG?.DEFAULT_PARALLEL)
+    ? CONCURRENCY_CONFIG.DEFAULT_PARALLEL
+    : 5;
+  return Math.max(1, requested ?? fallback);
+}
+
+function buildSubAgentSummaryKey(parentRunId, subIndex) {
+  const parent = toNonEmptyString(parentRunId) || "run";
+  const indexLabel = Number.isFinite(subIndex) ? String(subIndex) : "x";
+  return `deepsearch_sub_${parent}_${indexLabel}`;
+}
+
 /**
  * Agent 思考：决定下一步动作
  */
 function think(observation, context = {}) {
   const { openGapCount, hasReport, iteration, maxIterations, isLargeDoc, claimCount, evidenceCount } = observation;
   const { budgetExhausted, aborted } = context;
+  const subagentsForked = Boolean(context?.subagentsForked);
 
   // 中止条件
   if (aborted) {
@@ -221,7 +267,7 @@ function think(observation, context = {}) {
   }
 
   // 大文档：需要分治
-  if (isLargeDoc && iteration === 0 && !context.isSubAgent) {
+  if (isLargeDoc && iteration === 0 && !context.isSubAgent && !subagentsForked) {
     return { action: "fork_subagents", reason: "large_document" };
   }
 
@@ -272,6 +318,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     this.budgetManager = options.budgetManager || null;
     this.isSubAgent = options.isSubAgent || false;
     this.parentAgentId = options.parentAgentId || null;
+    this.subAgentIndex = Number.isFinite(options.subAgentIndex) ? options.subAgentIndex : null;
 
     // ReviewRules: 规则引擎
     this.reviewRules = options.reviewRules || new ReviewRules(options.customRules);
@@ -542,6 +589,8 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
       eventBus: context.eventBus || this.eventBus,
       ...context,
     });
+    this.eventBus = stageApi.eventBus || this.eventBus;
+    this.emit = typeof stageApi.emit === "function" ? stageApi.emit : this.emit;
 
     // 初始化状态
     const state = this._ensureState(runContext, input);
@@ -608,6 +657,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
           budgetExhausted: this.budgetManager?.stopped,
           aborted: stageApi?.signal?.aborted,
           isSubAgent: this.isSubAgent,
+          subagentsForked: Boolean(state?.L2?.subagentsForked),
           logger,
         });
 
@@ -1060,11 +1110,19 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
       return { forked: false, reason: "single_source" };
     }
 
+    if (!isPlainObject(state.L2)) state.L2 = {};
+    if (state.L2.subagentsForked) {
+      return { forked: false, reason: "already_forked" };
+    }
+    state.L2.subagentsForked = true;
+
     // 创建共享的 SharedContext（如果没有）
     const sharedContext = this.sharedContext || new SharedContext({
       runId: state.runId,
-      maxL1Entries: 20,
-      maxL2Entries: 100,
+      limits: {
+        summariesMax: 20,
+        indexKeywordsMax: 100,
+      },
     });
 
     // 设置 Lead Agent 的初始摘要
@@ -1074,14 +1132,15 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
       startedAt: new Date().toISOString(),
     });
 
-    // 为每个来源创建 SubAgent
-    const subAgentResults = [];
-    const subAgentPromises = [];
+    const parentRunId = state.runId;
+    const concurrency = resolveSubAgentConcurrency(state);
+    state.L2.subagentConcurrency = concurrency;
 
-    for (let i = 0; i < sources.length; i++) {
-      const source = sources[i];
+    const subAgentResults = await mapConcurrent(sources, async (source, i) => {
+      checkCancelled(stageApi?.signal);
+      const subRunId = `${parentRunId}_sub_${i}`;
       const subState = new DeepSearchState({
-        runId: `${state.runId}_sub_${i}`,
+        runId: subRunId,
         taskGoal: state.taskGoal,
         userConfig: state.userConfig,
         L0: { sources: [source] },
@@ -1095,25 +1154,36 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         reviewRules: this.reviewRules, // 共享规则
         shadowConfig: this._shadowConfig,
         isSubAgent: true,
-        parentAgentId: state.runId,
+        parentAgentId: parentRunId,
+        subAgentIndex: i,
         sharedContext, // 共享 SharedContext（只读 L1/L2）
       });
 
-      // 并行执行 SubAgents
-      const promise = subAgent.run({ state: subState }, { ...stageApi, runContext })
-        .then(result => ({ sourceId: source.sourceId, result, success: true, index: i }))
-        .catch(err => ({ sourceId: source.sourceId, error: err.message, success: false, index: i }));
+      const subMeta = {
+        runId: subRunId,
+        parentRunId,
+        isSubAgent: true,
+        subIndex: i,
+      };
+      const baseEventBus = stageApi?.eventBus || this.eventBus;
+      const subEventBus = wrapEventBus(baseEventBus, subMeta);
+      const subEmit = wrapEmit(stageApi?.emit, subMeta) || (subEventBus ? subEventBus.emit : null);
 
-      subAgentPromises.push(promise);
-    }
-
-    // 等待所有 SubAgent 完成
-    const results = await Promise.all(subAgentPromises);
-    subAgentResults.push(...results);
+      try {
+        const result = await subAgent.run(
+          { state: subState },
+          { ...stageApi, runContext, eventBus: subEventBus, emit: subEmit }
+        );
+        return { sourceId: source.sourceId, result, success: true, index: i };
+      } catch (err) {
+        return { sourceId: source.sourceId, error: err?.message, success: false, index: i };
+      }
+    }, concurrency);
 
     // 合并结果
     await this._mergeSubAgentResults(state, subAgentResults, stageApi, { logger, sharedContext });
 
+    state.iteration++;
     return { forked: true, subAgentCount: sources.length, results: subAgentResults };
   }
 
@@ -1405,7 +1475,10 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
 
     // 4. 更新 SharedContext（如果有）
     if (this.sharedContext && typeof this.sharedContext.setSummary === "function") {
-      this.sharedContext.setSummary(`deepsearch_${state.iteration}`, state.L1.condensedMemory);
+      const summaryKey = this.isSubAgent
+        ? buildSubAgentSummaryKey(this.parentAgentId || state.runId, this.subAgentIndex)
+        : `deepsearch_${state.iteration}`;
+      this.sharedContext.setSummary(summaryKey, state.L1.condensedMemory);
     }
   }
 

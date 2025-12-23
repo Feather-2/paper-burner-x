@@ -58,16 +58,13 @@ export function parseConstraints(input = {}) {
   const citationsPolicy = toOptionalString(raw.citationsPolicy);
   const qualityMode = normalizeQualityMode(raw.qualityMode);
 
-
-  // Preserve unknown constraints, then apply normalized known ones
-  return {
-    ...raw,
-    ...(audience ? { audience } : {}),
-    ...(tone ? { tone } : {}),
-    ...(typeof pageCount === "number" ? { pageCount } : {}),
-    ...(citationsPolicy ? { citationsPolicy } : {}),
-    ...(qualityMode ? { qualityMode } : {}),
-  };
+  const out = {};
+  if (audience) out.audience = audience;
+  if (tone) out.tone = tone;
+  if (typeof pageCount === "number") out.pageCount = pageCount;
+  if (citationsPolicy) out.citationsPolicy = citationsPolicy;
+  if (qualityMode) out.qualityMode = qualityMode;
+  return out;
 }
 
 export class RunContext {
@@ -91,4 +88,3 @@ export class RunContext {
     };
   }
 }
-

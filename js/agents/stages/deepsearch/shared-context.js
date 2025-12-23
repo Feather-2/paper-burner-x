@@ -24,10 +24,20 @@ function contentFingerprint(text, maxLen = 200) {
   return `fp_${Math.abs(hash).toString(36)}`;
 }
 
+function normalizeLimit(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.floor(n);
+}
+
 export class SharedContext {
-  constructor({ runId, limits } = {}) {
+  constructor({ runId, limits, maxL1Entries, maxL2Entries } = {}) {
     this.runId = toNonEmptyString(runId) || `ctx_${Date.now()}`;
     this.createdAt = new Date().toISOString();
+
+    const providedLimits = limits && typeof limits === "object" ? limits : {};
+    const summaryLimit = normalizeLimit(maxL1Entries ?? providedLimits.maxL1Entries ?? providedLimits.summariesMax);
+    const indexLimit = normalizeLimit(maxL2Entries ?? providedLimits.maxL2Entries ?? providedLimits.indexKeywordsMax);
 
     this.limits = {
       storeMax: 50,
@@ -36,8 +46,11 @@ export class SharedContext {
       seenMax: 5000,
       indexKeywordsMax: 500,
       indexIdsPerKeywordMax: 20,
-      ...(limits && typeof limits === "object" ? limits : {}),
+      ...providedLimits,
     };
+
+    if (summaryLimit !== null) this.limits.summariesMax = summaryLimit;
+    if (indexLimit !== null) this.limits.indexKeywordsMax = indexLimit;
 
     // L1: 压缩摘要 (stage → summary string)
     this._summaries = new Map();
@@ -83,6 +96,9 @@ export class SharedContext {
     const s = toNonEmptyString(stage);
     if (!s) return;
     this._summaries.set(s, String(summary || ""));
+    if (Number.isFinite(this.limits.summariesMax)) {
+      this._pruneMap(this._summaries, this.limits.summariesMax);
+    }
   }
 
   /**

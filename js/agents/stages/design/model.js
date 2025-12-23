@@ -9,6 +9,8 @@
  * - Adds a soft timeout (default 30s) via Promise.race (does not abort underlying fetch if unsupported).
  */
 
+import { injectSystemHint } from "../../shared/message-utils.js";
+
 // Error class for non-retryable errors (config missing, auth failed, etc.)
 export class NonRetryableError extends Error {
   constructor(message) {
@@ -81,6 +83,7 @@ export function getDesignModelCaller(stageApi, options = {}) {
 
   const usage = toNonEmptyString(options?.usage) || "designer";
   const defaultTimeoutMs = Number.isFinite(options?.timeoutMs) ? Math.max(0, Math.floor(options.timeoutMs)) : 30_000;
+  const systemHint = stageApi?.runtimeHints?.system;
 
   const routerCall = stageApi?.modelRouter?.call;
   if (typeof routerCall === "function") {
@@ -96,7 +99,8 @@ export function getDesignModelCaller(stageApi, options = {}) {
       const { timeoutMs: _timeoutMs, ...forwardOpts } = opts;
       console.log("[design.model] call via ModelRouter", { usage, timeoutMs });
       if (signal?.aborted) throw abortErrorFromSignal(signal);
-      return withTimeout(baseCall(messages, { ...forwardOpts, ...(signal ? { signal } : {}) }), timeoutMs, signal);
+      const hintedMessages = injectSystemHint(messages, systemHint);
+      return withTimeout(baseCall(hintedMessages, { ...forwardOpts, ...(signal ? { signal } : {}) }), timeoutMs, signal);
     };
   }
 
@@ -112,10 +116,10 @@ export function getDesignModelCaller(stageApi, options = {}) {
       const { timeoutMs: _timeoutMs, signal: _signal, ...forwardOpts } = opts;
       console.log("[design.model] call via aiApiService.chat", { usage, timeoutMs });
       if (signal?.aborted) throw abortErrorFromSignal(signal);
-      return withTimeout(baseCall(messages, forwardOpts), timeoutMs, signal);
+      const hintedMessages = injectSystemHint(messages, systemHint);
+      return withTimeout(baseCall(hintedMessages, forwardOpts), timeoutMs, signal);
     };
   }
 
   return null;
 }
-

@@ -4,6 +4,7 @@
 // (page types/titles/objectives/keyPoints) based on the input chunks + constraints.
 
 import { ALLOWED_PAGE_TYPES, PageType } from "./constants.js";
+import { injectSystemHint } from "../../shared/message-utils.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -153,6 +154,7 @@ function heuristicPlan(chunks, constraints) {
  */
 export async function planSlides(chunks, constraints = {}) {
   const aiApiService = constraints?.__services?.aiApiService || globalThis?.aiApiService;
+  const systemHint = constraints?.__services?.runtimeHints?.system || constraints?.runtimeHints?.system;
 
   if (aiApiService && typeof aiApiService.chat === "function") {
     const messages = [
@@ -179,9 +181,15 @@ export async function planSlides(chunks, constraints = {}) {
         ),
       },
     ];
+    const hintedMessages = injectSystemHint(messages, systemHint);
 
     try {
-      const result = await aiApiService.chat({ messages, model: constraints?.model || "auto", temperature: 0.2, maxTokens: 1200 });
+      const result = await aiApiService.chat({
+        messages: hintedMessages,
+        model: constraints?.model || "auto",
+        temperature: 0.2,
+        maxTokens: 1200,
+      });
       const parsed = tryParseSlideIntentsFromContent(result?.content);
       if (parsed) {
         const normalized = parsed.map((it, i) => normalizeIntent(it, i));
@@ -197,4 +205,3 @@ export async function planSlides(chunks, constraints = {}) {
 
 // Back-compat alias (older tests/code may call generateSlideIntents).
 export const generateSlideIntents = planSlides;
-

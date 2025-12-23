@@ -7,6 +7,7 @@ import { extractClaims } from "./claims.js";
 import { buildContentPackage } from "./build-content-package.js";
 import { BaseStage } from "../../runtime/agent-loop.js";
 import { createStageApi } from "../../shared/stage-api.js";
+import { injectSystemHint } from "../../shared/message-utils.js";
 
 function toRawText(input) {
   if (typeof input === "string") return input;
@@ -88,6 +89,7 @@ function alignClaimsHeuristic(slideIntents, claims) {
 
 async function alignClaimsToSlides(slideIntents, claims, constraints = {}) {
   const aiApiService = constraints?.__services?.aiApiService || globalThis?.aiApiService;
+  const systemHint = constraints?.__services?.runtimeHints?.system || constraints?.runtimeHints?.system;
   const claimIdSet = new Set((Array.isArray(claims) ? claims : []).map((c) => c?.claimId).filter(Boolean));
   const slideIdSet = new Set((Array.isArray(slideIntents) ? slideIntents : []).map((s) => s?.slideIntentId).filter(Boolean));
 
@@ -117,9 +119,15 @@ async function alignClaimsToSlides(slideIntents, claims, constraints = {}) {
         ),
       },
     ];
+    const hintedMessages = injectSystemHint(messages, systemHint);
 
     try {
-      const result = await aiApiService.chat({ messages, model: constraints?.model || "auto", temperature: 0.1, maxTokens: 1200 });
+      const result = await aiApiService.chat({
+        messages: hintedMessages,
+        model: constraints?.model || "auto",
+        temperature: 0.1,
+        maxTokens: 1200,
+      });
       const candidate = extractJsonCandidate(result?.content);
       if (candidate) {
         const parsed = JSON.parse(candidate);
@@ -179,7 +187,7 @@ export class TextPrepStage extends BaseStage {
     api.checkCancelled();
     const slideIntents = await planSlides(chunks, {
       ...(runContext?.constraints || {}),
-      __services: { aiApiService: api.aiApiService },
+      __services: { aiApiService: api.aiApiService, runtimeHints: api.runtimeHints },
     });
     emit("textprep.slideplan.completed", { slideCount: slideIntents.length });
 
@@ -194,7 +202,7 @@ export class TextPrepStage extends BaseStage {
     api.checkCancelled();
     const alignedSlides = await alignClaimsToSlides(slideIntents, claims, {
       ...(runContext?.constraints || {}),
-      __services: { aiApiService: api.aiApiService },
+      __services: { aiApiService: api.aiApiService, runtimeHints: api.runtimeHints },
     });
     emit("textprep.align.completed", { slideCount: alignedSlides.length });
 

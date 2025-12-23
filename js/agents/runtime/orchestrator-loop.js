@@ -11,6 +11,7 @@ import { ReviewRules } from "./review-rules.js";
 import { ArchiveEvents, CompressionEvents, EventStatus, ReviewEvents, RuntimeEvents } from "./events.js";
 import { createStageApi } from "../shared/stage-api.js";
 import { StagePausedError } from "./stage-errors.js";
+import { safeInt, safeNumber } from "../shared/value-utils.js";
 
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -123,6 +124,126 @@ function buildDagFromStages(stages) {
   return { nodes };
 }
 
+const DEFAULT_COMPRESSION_POLICY = Object.freeze({
+  maxContextTokens: 0,
+  reserveOutputTokens: 0,
+  safetyBufferTokens: 0,
+  targetUsage: 0.6,
+  highWater: 0.75,
+  lowWater: 0.55,
+  critical: 0.95,
+  horizonSteps: 2,
+  cooldownTurns: 2,
+  minDeltaTokens: 1200,
+  graceTurns: 1,
+  autoCompress: false,
+  estimateTarget: "results",
+});
+
+function clampRatio(value, fallback) {
+  const n = safeNumber(value);
+  if (n === null) return fallback;
+  if (n <= 0) return 0;
+  if (n >= 1) return 1;
+  return n;
+}
+
+function normalizeInt(value, fallback) {
+  const n = safeInt(value);
+  return n === null ? fallback : Math.max(0, n);
+}
+
+function normalizeCompressionPolicy(raw, fallback) {
+  const base = isPlainObject(fallback) ? fallback : {};
+  const cfg = isPlainObject(raw) ? raw : {};
+
+  const maxContextTokens = safeInt(cfg.maxContextTokens ?? cfg.maxTokens ?? cfg.contextTokens ?? base.maxContextTokens) ?? 0;
+  const reserveOutputTokens = safeInt(cfg.reserveOutputTokens ?? cfg.reserveTokens ?? base.reserveOutputTokens) ?? 0;
+  const safetyBufferTokens = safeInt(cfg.safetyBufferTokens ?? cfg.safetyBuffer ?? base.safetyBufferTokens) ?? 0;
+  const targetUsage = clampRatio(cfg.targetUsage ?? base.targetUsage ?? DEFAULT_COMPRESSION_POLICY.targetUsage, DEFAULT_COMPRESSION_POLICY.targetUsage);
+  const highWater = clampRatio(cfg.highWater ?? cfg.softHigh ?? base.highWater ?? DEFAULT_COMPRESSION_POLICY.highWater, DEFAULT_COMPRESSION_POLICY.highWater);
+  const lowWater = clampRatio(cfg.lowWater ?? cfg.softLow ?? base.lowWater ?? DEFAULT_COMPRESSION_POLICY.lowWater, DEFAULT_COMPRESSION_POLICY.lowWater);
+  const critical = clampRatio(cfg.critical ?? cfg.forceAt ?? base.critical ?? DEFAULT_COMPRESSION_POLICY.critical, DEFAULT_COMPRESSION_POLICY.critical);
+  const horizonSteps = normalizeInt(cfg.horizonSteps ?? base.horizonSteps ?? DEFAULT_COMPRESSION_POLICY.horizonSteps, DEFAULT_COMPRESSION_POLICY.horizonSteps);
+  const cooldownTurns = normalizeInt(cfg.cooldownTurns ?? base.cooldownTurns ?? DEFAULT_COMPRESSION_POLICY.cooldownTurns, DEFAULT_COMPRESSION_POLICY.cooldownTurns);
+  const minDeltaTokens = normalizeInt(cfg.minDeltaTokens ?? base.minDeltaTokens ?? DEFAULT_COMPRESSION_POLICY.minDeltaTokens, DEFAULT_COMPRESSION_POLICY.minDeltaTokens);
+  const graceTurns = normalizeInt(cfg.graceTurns ?? base.graceTurns ?? DEFAULT_COMPRESSION_POLICY.graceTurns, DEFAULT_COMPRESSION_POLICY.graceTurns);
+  const autoCompress = cfg.autoCompress === true || base.autoCompress === true;
+  const estimateTarget = typeof cfg.estimateTarget === "string"
+    ? cfg.estimateTarget
+    : (typeof base.estimateTarget === "string" ? base.estimateTarget : DEFAULT_COMPRESSION_POLICY.estimateTarget);
+  const estimateTokens =
+    typeof cfg.estimateTokens === "function"
+      ? cfg.estimateTokens
+      : (typeof base.estimateTokens === "function" ? base.estimateTokens : null);
+
+  const enabled = cfg.enabled !== undefined
+    ? Boolean(cfg.enabled)
+    : maxContextTokens > 0;
+
+  return {
+    ...DEFAULT_COMPRESSION_POLICY,
+    ...base,
+    ...cfg,
+    maxContextTokens,
+    reserveOutputTokens,
+    safetyBufferTokens,
+    targetUsage,
+    highWater,
+    lowWater,
+    critical,
+    horizonSteps,
+    cooldownTurns,
+    minDeltaTokens,
+    graceTurns,
+    autoCompress,
+    estimateTarget,
+    estimateTokens,
+    enabled,
+  };
+}
+
+function estimateTokensForValue(value) {
+  if (value === null || value === undefined) return 0;
+  if (typeof value === "string") return Math.ceil(value.length / 4);
+  try {
+    const text = JSON.stringify(value);
+    return Math.ceil(text.length / 4);
+  } catch {
+    return Math.ceil(String(value ?? "").length / 4);
+  }
+}
+
+function selectCompressionLayers(pressure, policy, fallbackLayers) {
+  const forceLayers = Array.isArray(policy?.forceLayers) ? policy.forceLayers : fallbackLayers;
+  const mediumLayers = Array.isArray(policy?.mediumLayers)
+    ? policy.mediumLayers
+    : ["tool_output", "session_history"];
+  const lowLayers = Array.isArray(policy?.lowLayers)
+    ? policy.lowLayers
+    : ["tool_output"];
+
+  if (typeof pressure !== "number" || !Number.isFinite(pressure)) return lowLayers;
+  if (pressure >= policy.critical) return forceLayers;
+  if (pressure >= policy.highWater + 0.08) return mediumLayers;
+  return lowLayers;
+}
+
+function buildCompressionHint(advice) {
+  if (!advice) return "";
+  const mode = advice.mode;
+  if (mode !== "advice" && mode !== "force") return "";
+  const pct = Math.round((advice.pressure || 0) * 100);
+  const predicted = safeInt(advice.predictedTokens) ?? 0;
+  const budget = safeInt(advice.budgetTokens) ?? 0;
+  const layers = Array.isArray(advice.suggestedLayers) ? advice.suggestedLayers.join(", ") : "";
+  const action = mode === "force"
+    ? "Context near limit; compression forced. Older details may be summarized."
+    : "Context pressure high; you may compress older memory if needed.";
+  const layerHint = layers ? ` Suggested layers: ${layers}.` : "";
+  return `Context pressure ${pct}% (predicted ${predicted}/${budget} tokens). ${action}${layerHint}`;
+}
+
 export class OrchestratorLoop extends BaseAgentLoop {
   constructor(deps = {}, opts = {}) {
     super({ eventBus: deps.eventBus, actor: "orchestrator", stageName: "orchestrator" });
@@ -192,6 +313,11 @@ export class OrchestratorLoop extends BaseAgentLoop {
     this.dagExecutor = deps.dagExecutor ?? (deps.blockRegistry ? new BlockDAGExecutor(deps.blockRegistry, { eventBus: deps.eventBus }) : null);
 
     this._iteration = 0;
+    this._compressionState = {
+      lastTokens: null,
+      lastAdviceTurn: -Infinity,
+      lastForcedTurn: -Infinity,
+    };
   }
 
   async run(task, context = {}) {
@@ -227,7 +353,8 @@ export class OrchestratorLoop extends BaseAgentLoop {
         ? context.stageResults
         : {};
 
-    const stageContext = { ...context, runId, signal, runContext, stageResults };
+    const runtimeHints = isPlainObject(context?.runtimeHints) ? { ...context.runtimeHints } : {};
+    const stageContext = { ...context, runId, signal, runContext, stageResults, runtimeHints };
 
     const runtimeState = ensureRuntimeState(signal, {
       status: LoopRuntimeStatuses.RUNNING,
@@ -238,6 +365,19 @@ export class OrchestratorLoop extends BaseAgentLoop {
 
     this._emit(RuntimeEvents.RUN_STARTED, { runId, task }, EventStatus.STARTED);
     this._iteration = 0;
+    this._compressionState = {
+      lastTokens: null,
+      lastAdviceTurn: -Infinity,
+      lastForcedTurn: -Infinity,
+    };
+
+    const compressionPolicy = normalizeCompressionPolicy(
+      context?.compressionPolicy ??
+        (isPlainObject(context) && safeInt(context?.maxContextTokens) ? { maxContextTokens: context.maxContextTokens } : {}),
+      this.opts.compressionPolicy
+    );
+    const policyEnabled = compressionPolicy.enabled === true;
+    let turnCount = 0;
 
     let checkpointClockMs = 0;
     const nextCheckpointTimestamp = () => {
@@ -270,6 +410,7 @@ export class OrchestratorLoop extends BaseAgentLoop {
         logger: context.logger,
         checkCancelled: () => checkCancelledOrPaused(signal),
         stageResults,
+        runtimeHints,
       });
 
       const snapshotStageResults = () => {
@@ -292,8 +433,168 @@ export class OrchestratorLoop extends BaseAgentLoop {
         }
       };
 
-      const scheduleCompression = (stageId, result) => {
-        if (!this.opts.enableAsyncCompression || !this.asyncCompressor) return;
+      const evaluateCompression = (stageId, result, turn) => {
+        if (!policyEnabled) return null;
+        const target =
+          compressionPolicy.estimateTarget === "stage"
+            ? result
+            : snapshotStageResults();
+        const estimator = typeof compressionPolicy.estimateTokens === "function"
+          ? compressionPolicy.estimateTokens
+          : estimateTokensForValue;
+        const currentTokens = Math.max(0, estimator(target));
+        const prevTokens =
+          typeof this._compressionState.lastTokens === "number"
+            ? this._compressionState.lastTokens
+            : currentTokens;
+        const growthTokens = currentTokens - prevTokens;
+        this._compressionState.lastTokens = currentTokens;
+
+        const budgetTokens = Math.max(
+          0,
+          (compressionPolicy.maxContextTokens || 0) -
+            compressionPolicy.reserveOutputTokens -
+            compressionPolicy.safetyBufferTokens
+        );
+        const predictedTokens = Math.max(0, currentTokens + growthTokens * compressionPolicy.horizonSteps);
+        const pressure = budgetTokens > 0 ? predictedTokens / budgetTokens : 1;
+
+        let mode = "none";
+        if (budgetTokens <= 0 || predictedTokens >= budgetTokens || pressure >= compressionPolicy.critical) {
+          mode = "force";
+        } else if (turn >= compressionPolicy.graceTurns && pressure >= compressionPolicy.highWater) {
+          const cooldownOk =
+            turn - this._compressionState.lastAdviceTurn >= compressionPolicy.cooldownTurns ||
+            Math.abs(growthTokens) >= compressionPolicy.minDeltaTokens;
+          if (cooldownOk) mode = "advice";
+        }
+
+        if (mode === "advice") this._compressionState.lastAdviceTurn = turn;
+        if (mode === "force") this._compressionState.lastForcedTurn = turn;
+
+        const suggestedLayers = selectCompressionLayers(pressure, compressionPolicy, this.opts.compressionLayers);
+
+        return {
+          mode,
+          stageId,
+          currentTokens,
+          predictedTokens,
+          budgetTokens,
+          pressure,
+          headroomTokens: budgetTokens - predictedTokens,
+          growthTokens,
+          maxContextTokens: compressionPolicy.maxContextTokens || 0,
+          suggestedLayers,
+        };
+      };
+
+      const applyCompressionHints = (decision) => {
+        if (!policyEnabled) return;
+        const hints = stageContext.runtimeHints && typeof stageContext.runtimeHints === "object"
+          ? stageContext.runtimeHints
+          : {};
+
+        if (decision) {
+          hints.compression = { ...decision };
+          hints.system = buildCompressionHint(decision);
+        } else {
+          hints.compression = null;
+          hints.system = "";
+        }
+
+        stageContext.runtimeHints = hints;
+        blockApi.runtimeHints = hints;
+      };
+
+      const scheduleCompression = async (stageId, result, turn) => {
+        const canScheduleAsync = this.opts.enableAsyncCompression && this.asyncCompressor;
+
+        if (!policyEnabled) {
+          if (!canScheduleAsync) return;
+          try {
+            this.asyncCompressor.schedule(stageId, result);
+            this._emit(CompressionEvents.COMPRESSION_SCHEDULED, { stageId, status: "scheduled" }, EventStatus.INFO);
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            this._emit(
+              CompressionEvents.COMPRESSION_FAILED,
+              { stageId, status: "failed", error: message },
+              EventStatus.FAILED
+            );
+          }
+          return;
+        }
+
+        const decision = evaluateCompression(stageId, result, turn);
+        applyCompressionHints(decision);
+
+        if (decision?.mode === "force") {
+          this._emit(
+            CompressionEvents.COMPRESSION_FORCED,
+            {
+              stageId,
+              status: "forced",
+              pressure: decision.pressure,
+              currentTokens: decision.currentTokens,
+              predictedTokens: decision.predictedTokens,
+              budgetTokens: decision.budgetTokens,
+              headroomTokens: decision.headroomTokens,
+              growthTokens: decision.growthTokens,
+              maxContextTokens: decision.maxContextTokens,
+              suggestedLayers: decision.suggestedLayers,
+            },
+            EventStatus.WARNING
+          );
+
+          if (this.opts.enableCompression && this.compressor) {
+            try {
+              const forced = await this.compressor.compress(result, {
+                layers: this.opts.compressionLayers,
+                archiveKey: runId,
+              });
+              const compressed =
+                forced && typeof forced === "object" && Object.prototype.hasOwnProperty.call(forced, "context")
+                  ? forced.context
+                  : forced;
+              if (stageResults instanceof Map) stageResults.set(stageId, compressed);
+              else stageResults[stageId] = compressed;
+
+              this._emit(CompressionEvents.COMPRESSION_APPLIED, { stageId, status: "forced" }, EventStatus.WARNING);
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              this._emit(
+                CompressionEvents.COMPRESSION_FAILED,
+                { stageId, status: "failed", error: message },
+                EventStatus.FAILED
+              );
+            }
+          }
+          return;
+        }
+
+        if (decision?.mode === "advice") {
+          this._emit(
+            CompressionEvents.COMPRESSION_ADVISED,
+            {
+              stageId,
+              status: "advised",
+              pressure: decision.pressure,
+              currentTokens: decision.currentTokens,
+              predictedTokens: decision.predictedTokens,
+              budgetTokens: decision.budgetTokens,
+              headroomTokens: decision.headroomTokens,
+              growthTokens: decision.growthTokens,
+              maxContextTokens: decision.maxContextTokens,
+              suggestedLayers: decision.suggestedLayers,
+            },
+            EventStatus.INFO
+          );
+
+          if (!compressionPolicy.autoCompress) return;
+        }
+
+        if (!compressionPolicy.autoCompress || !canScheduleAsync) return;
+
         try {
           this.asyncCompressor.schedule(stageId, result);
           this._emit(CompressionEvents.COMPRESSION_SCHEDULED, { stageId, status: "scheduled" }, EventStatus.INFO);
@@ -381,6 +682,7 @@ export class OrchestratorLoop extends BaseAgentLoop {
 
               const stageId = name;
               applyReadyCompressions();
+              const stageTurn = (turnCount += 1);
 
               const out = await executorFn(innerRunContext, input, innerApi);
 
@@ -388,7 +690,7 @@ export class OrchestratorLoop extends BaseAgentLoop {
               else stageResults[stageId] = out;
 
               runReview(stageId, out);
-              scheduleCompression(stageId, out);
+              await scheduleCompression(stageId, out, stageTurn);
               await saveCheckpoint({ stageId });
 
               return out;
