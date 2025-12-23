@@ -309,6 +309,39 @@
         reader.readAsDataURL(file);
     },
 
+    _bindDesignSpecInteractions() {
+        const dropzone = document.getElementById('pptStyleRefDropzone');
+        if (!dropzone || dropzone.dataset.bound === '1') return;
+        dropzone.dataset.bound = '1';
+
+        const onDragOver = (e) => {
+            e.preventDefault();
+            dropzone.classList.add('dragover');
+        };
+        const onDragLeave = () => {
+            dropzone.classList.remove('dragover');
+        };
+        const onDrop = (e) => {
+            e.preventDefault();
+            dropzone.classList.remove('dragover');
+            this._handleStyleRefDrop?.(e);
+        };
+        const onClick = () => {
+            document.getElementById('pptStyleRefInput')?.click();
+        };
+
+        dropzone.addEventListener('dragover', onDragOver);
+        dropzone.addEventListener('dragleave', onDragLeave);
+        dropzone.addEventListener('drop', onDrop);
+        dropzone.addEventListener('click', onClick);
+
+        const input = document.getElementById('pptStyleRefInput');
+        if (input && input.dataset.bound !== '1') {
+            input.dataset.bound = '1';
+            input.addEventListener('change', (event) => this._handleStyleRefFileSelect?.(event));
+        }
+    },
+
 
     _renderDesignSpecView() {
         const ds = this._ensureDesignSpecInitialized();
@@ -348,18 +381,18 @@
                     <div class="ppt-design-spec-color-value">${this._escapeHtml(value)}</div>
                 </div>
                 <input id="pptDesignColor-${this._escapeAttr(key)}" class="ppt-design-spec-color-input" type="color" value="${this._escapeAttr(value)}"
-                    oninput="window.PPTGenerator.updateDesignSystemColor('${this._escapeAttr(key)}', this.value)">
+                    data-action="updateDesignSystemColor" data-event="input" data-key="${this._escapeAttr(key)}">
             </div>
         `;
 
         const segBtn = (group, value, label, active) => `
             <button class="ppt-design-spec-seg-btn ${active ? 'active' : ''}" type="button"
-                onclick="window.PPTGenerator.${group}('${this._escapeAttr(value)}')">${this._escapeHtml(label)}</button>
+                data-action="${group}" data-mode="${this._escapeAttr(value)}">${this._escapeHtml(label)}</button>
         `;
 
         const segBtnNum = (group, value, label, active) => `
             <button class="ppt-design-spec-seg-btn ${active ? 'active' : ''}" type="button"
-                onclick="window.PPTGenerator.${group}(${Number(value)})">${this._escapeHtml(label)}</button>
+                data-action="${group}" data-size="${Number(value)}">${this._escapeHtml(label)}</button>
         `;
 
         return `
@@ -390,18 +423,18 @@
                             <label class="ppt-design-spec-field">
                                 <span>Title Font</span>
                                 <input id="pptDesignFont-titleFont" class="ppt-input-field" value="${this._escapeAttr(titleFont)}"
-                                    oninput="window.PPTGenerator.updateDesignSystemFont('titleFont', this.value)">
+                                    data-action="updateDesignSystemFont" data-event="input" data-key="titleFont">
                             </label>
                             <label class="ppt-design-spec-field">
                                 <span>Body Font</span>
                                 <input id="pptDesignFont-bodyFont" class="ppt-input-field" value="${this._escapeAttr(bodyFont)}"
-                                    oninput="window.PPTGenerator.updateDesignSystemFont('bodyFont', this.value)">
+                                    data-action="updateDesignSystemFont" data-event="input" data-key="bodyFont">
                             </label>
                             <label class="ppt-design-spec-field">
                                 <span>Font Size</span>
                                 <input id="pptDesignFont-fontSize" class="ppt-input-field" type="number" min="10" max="60" step="1"
                                     value="${this._escapeAttr(String(fontSize))}"
-                                    oninput="window.PPTGenerator.updateDesignSystemFontSize(this.value)">
+                                    data-action="updateDesignSystemFontSize" data-event="input">
                             </label>
                         </div>
                     </div>
@@ -417,8 +450,8 @@
                         <div class="ppt-design-spec-row">
                             <label>Refiner (ReAct)</label>
                             <div class="ppt-design-spec-toggle">
-                                <button onclick="window.PPTGenerator.updateRefineEnabled(false)" class="ppt-design-spec-seg-btn ${!refineEnabled ? 'active' : ''}">关闭</button>
-                                <button onclick="window.PPTGenerator.updateRefineEnabled(true)" class="ppt-design-spec-seg-btn ${refineEnabled ? 'active' : ''}">启用</button>
+                                <button data-action="updateRefineEnabled" data-enabled="false" class="ppt-design-spec-seg-btn ${!refineEnabled ? 'active' : ''}">关闭</button>
+                                <button data-action="updateRefineEnabled" data-enabled="true" class="ppt-design-spec-seg-btn ${refineEnabled ? 'active' : ''}">启用</button>
                             </div>
                         </div>
                     </div>
@@ -439,7 +472,7 @@
                         </div>
 
                         <div class="ppt-design-spec-section-title" style="margin-top: 14px;">Model</div>
-                        <select id="pptDesignModel" class="ppt-input-field" onchange="window.PPTGenerator.updateDesignSystemModel(this.value)">
+                        <select id="pptDesignModel" class="ppt-input-field" data-action="updateDesignSystemModel" data-event="change">
                             ${modelOptions.map(o => `
                                 <option value="${this._escapeAttr(o.value)}" ${o.value === selectedModel ? 'selected' : ''}>
                                     ${this._escapeHtml(o.label)}
@@ -486,7 +519,7 @@
                 <img src="${this._escapeAttr(img.thumbnail)}" alt="参考图">
                 ${img.status === StyleReferenceStatus.ANALYZING ? '<div class="ppt-style-ref-loading"><iconify-icon icon="carbon:loading"></iconify-icon></div>' : ''}
                 ${img.status === StyleReferenceStatus.ERROR ? '<div class="ppt-style-ref-error"><iconify-icon icon="carbon:warning-alt"></iconify-icon></div>' : ''}
-                <button class="ppt-style-ref-remove" onclick="window.PPTGenerator.removeStyleReference('${this._escapeAttr(img.id)}')" title="删除">
+                <button class="ppt-style-ref-remove" data-action="removeStyleReference" data-id="${this._escapeAttr(img.id)}" title="删除">
                     <iconify-icon icon="carbon:close"></iconify-icon>
                 </button>
             </div>
@@ -521,15 +554,10 @@
                 </div>
 
                 <div class="ppt-style-ref-body">
-                    <div class="ppt-style-ref-upload"
-                        ondrop="window.PPTGenerator._handleStyleRefDrop(event)"
-                        ondragover="event.preventDefault(); event.currentTarget.classList.add('dragover')"
-                        ondragleave="event.currentTarget.classList.remove('dragover')"
-                        onclick="document.getElementById('pptStyleRefInput').click()">
+                    <div class="ppt-style-ref-upload" id="pptStyleRefDropzone">
                         <iconify-icon icon="carbon:cloud-upload"></iconify-icon>
                         <span>拖拽图片到此处，或点击上传</span>
-                        <input type="file" id="pptStyleRefInput" accept="image/*" style="display:none"
-                            onchange="window.PPTGenerator._handleStyleRefFileSelect(event)">
+                        <input type="file" id="pptStyleRefInput" accept="image/*" style="display:none">
                     </div>
 
                     ${images.length > 0 ? `
@@ -545,7 +573,7 @@
                             <span>备注（可选）</span>
                             <textarea id="pptStyleRefNotes" class="ppt-input-field" rows="2"
                                 placeholder="例如：参考 Apple 发布会风格"
-                                onchange="window.PPTGenerator.updateStyleReferenceNotes(this.value)">${this._escapeHtml(notes)}</textarea>
+                                data-action="updateStyleReferenceNotes" data-event="change">${this._escapeHtml(notes)}</textarea>
                         </label>
                     </div>
                 </div>

@@ -18,6 +18,7 @@
         }
 
         const html = `
+            <div class="ppt-outline-root">
             <div class="ppt-question-form">
                 <div class="form-header" style="padding-bottom: 16px; margin-bottom: 16px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
@@ -27,10 +28,10 @@
                             <span style="font-size: 13px; color: var(--ppt-text-muted);">请确认或调整</span>
                         </div>
                         <div style="display: flex; gap: 8px;">
-                            <button class="ppt-btn-secondary" onclick="window.PPTGenerator.addOutlineItem()" style="font-size: 12px; padding: 6px 12px;">
+                            <button class="ppt-btn-secondary" data-action="addOutlineItem" style="font-size: 12px; padding: 6px 12px;">
                                 <iconify-icon icon="carbon:add-alt"></iconify-icon> 添加章节
                             </button>
-                            <button class="ppt-btn-secondary" onclick="window.PPTGenerator.toggleOutlineEditMode()" style="font-size: 12px; padding: 6px 12px;">
+                            <button class="ppt-btn-secondary" data-action="toggleOutlineEditMode" style="font-size: 12px; padding: 6px 12px;">
                                 <iconify-icon icon="carbon:edit"></iconify-icon> Markdown
                             </button>
                         </div>
@@ -40,25 +41,25 @@
 
                     <div id="pptOutlineVisualEditor" class="ppt-outline-editor" style="padding-bottom: 100px;">
                         ${outline.map((item, i) => `
-                            <div class="outline-node-card" draggable="true" ondragstart="window.PPTGenerator.handleDragStart(event, ${i})" ondragover="window.PPTGenerator.handleDragOver(event)" ondrop="window.PPTGenerator.handleDrop(event, ${i})" style="margin-bottom: 16px; padding: 16px; border: 1px solid var(--ppt-border); border-radius: 8px; position: relative; cursor: grab;">
-                                <button class="ppt-icon-btn" onclick="window.PPTGenerator.removeOutlineItem(${i})" title="删除章节" style="position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; padding: 4px; z-index: 10;">
+                            <div class="outline-node-card" draggable="true" data-index="${i}" style="margin-bottom: 16px; padding: 16px; border: 1px solid var(--ppt-border); border-radius: 8px; position: relative; cursor: grab;">
+                                <button class="ppt-icon-btn" data-action="removeOutlineItem" data-index="${i}" title="删除章节" style="position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; padding: 4px; z-index: 10;">
                                     <iconify-icon icon="carbon:trash-can"></iconify-icon>
                                 </button>
                                 <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding-right: 30px;">
                                     <span style="font-weight: 600; color: var(--ppt-accent); cursor: move;"><iconify-icon icon="carbon:draggable"></iconify-icon> ${i + 1}.</span>
-                                    <input type="text" class="ppt-input-field" value="${item.title}" style="flex: 1; min-width: 0; font-weight: 600;" onchange="window.PPTGenerator.updateOutlineTitle(${i}, this.value)">
+                                    <input type="text" class="ppt-input-field" value="${item.title}" style="flex: 1; min-width: 0; font-weight: 600;" data-action="updateOutlineTitle" data-event="change" data-index="${i}">
                                 </div>
                                 <div style="padding-left: 24px;">
                                     ${item.subs.map((sub, j) => `
                                         <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
                                             <iconify-icon icon="carbon:dot-mark" style="color: var(--ppt-text-muted); font-size: 10px;"></iconify-icon>
-                                            <input type="text" class="ppt-input-field" value="${sub}" style="flex: 1; min-width: 0; font-size: 13px; padding: 6px 8px;" onchange="window.PPTGenerator.updateOutlineSub(${i}, ${j}, this.value)">
-                                            <button class="ppt-icon-btn" onclick="window.PPTGenerator.removeOutlineSub(${i}, ${j})" title="删除子项" style="padding: 4px; width: 24px; height: 24px; flex-shrink: 0;">
+                                            <input type="text" class="ppt-input-field" value="${sub}" style="flex: 1; min-width: 0; font-size: 13px; padding: 6px 8px;" data-action="updateOutlineSub" data-event="change" data-index="${i}" data-sub-index="${j}">
+                                            <button class="ppt-icon-btn" data-action="removeOutlineSub" data-index="${i}" data-sub-index="${j}" title="删除子项" style="padding: 4px; width: 24px; height: 24px; flex-shrink: 0;">
                                                 <iconify-icon icon="carbon:close"></iconify-icon>
                                             </button>
                                         </div>
                                     `).join('')}
-                                    <button class="ppt-btn-secondary" onclick="window.PPTGenerator.addOutlineSub(${i})" style="margin-top: 8px; padding: 4px 12px; font-size: 12px;">
+                                    <button class="ppt-btn-secondary" data-action="addOutlineSub" data-index="${i}" style="margin-top: 8px; padding: 4px 12px; font-size: 12px;">
                                         <iconify-icon icon="carbon:add"></iconify-icon> 添加子项
                                     </button>
                                 </div>
@@ -68,9 +69,9 @@
 
                     <div id="pptOutlineMarkdownEditor" class="hidden" style="flex: 1; min-height: 0; gap: 20px; display: none;">
                         <div style="flex: 1; display: flex; flex-direction: column; min-height: 0;">
-                            <textarea id="pptOutlineMarkdownInput" class="w-full p-4 border border-slate-200 rounded-lg font-mono text-sm" style="flex: 1; resize: none; margin-bottom: 8px;" placeholder="# 章节标题&#10;- 子项内容" oninput="window.PPTGenerator.updateMindMapPreview()"></textarea>
+                            <textarea id="pptOutlineMarkdownInput" class="w-full p-4 border border-slate-200 rounded-lg font-mono text-sm" style="flex: 1; resize: none; margin-bottom: 8px;" placeholder="# 章节标题&#10;- 子项内容" data-action="updateMindMapPreview" data-event="input"></textarea>
                             <div style="text-align: right; flex-shrink: 0;">
-                                <button class="ppt-btn-primary" onclick="window.PPTGenerator.saveMarkdownOutline()">
+                                <button class="ppt-btn-primary" data-action="saveMarkdownOutline">
                                     <iconify-icon icon="carbon:save"></iconify-icon> 保存并返回
                                 </button>
                             </div>
@@ -91,10 +92,10 @@
                     </div>
                 </div>
                 <div class="form-footer">
-                    <button class="ppt-btn-secondary" onclick="window.PPTGenerator.regenerateOutline()">
+                    <button class="ppt-btn-secondary" data-action="regenerateOutline">
                         <iconify-icon icon="carbon:renew"></iconify-icon> 重新生成
                     </button>
-                    <button class="ppt-btn-primary" onclick="window.PPTGenerator.confirmOutline()">
+                    <button class="ppt-btn-primary" data-action="confirmOutline">
                         确认大纲 <iconify-icon icon="carbon:arrow-right"></iconify-icon>
                     </button>
                 </div>
@@ -102,24 +103,19 @@
 
             <!-- Context Menu -->
             <div id="pptMindMapContextMenu" class="ppt-context-menu">
-                <div class="ppt-context-menu-item" onclick="window.PPTGenerator.triggerContextAction('edit')">
+                <div class="ppt-context-menu-item" data-action="triggerContextAction" data-context="edit">
                     <iconify-icon icon="carbon:edit"></iconify-icon> 编辑内容
                 </div>
-                <div class="ppt-context-menu-item" onclick="window.PPTGenerator.triggerContextAction('add')">
+                <div class="ppt-context-menu-item" data-action="triggerContextAction" data-context="add">
                     <iconify-icon icon="carbon:add-alt"></iconify-icon> 添加子节点
                 </div>
                 <div class="ppt-context-menu-divider"></div>
-                <div class="ppt-context-menu-item danger" onclick="window.PPTGenerator.triggerContextAction('delete')">
+                <div class="ppt-context-menu-item danger" data-action="triggerContextAction" data-context="delete">
                     <iconify-icon icon="carbon:trash-can"></iconify-icon> 删除节点
                 </div>
             </div>
+            </div>
         `;
-
-        // Add global click listener to close menu
-        setTimeout(() => {
-            document.removeEventListener('click', this._closeContextMenuHandler);
-            document.addEventListener('click', this._closeContextMenuHandler);
-        }, 0);
 
         return html;
     },
@@ -136,7 +132,8 @@
     handleDragStart(e, index) {
         this.draggedItemIndex = index;
         e.dataTransfer.effectAllowed = 'move';
-        e.target.style.opacity = '0.5';
+        const card = e.target?.closest?.('.outline-node-card') || e.target;
+        if (card?.style) card.style.opacity = '0.5';
     },
 
 
@@ -212,6 +209,22 @@
         const nodeWidth = 120; // Increased width for better text visibility
         const xGap = 180; // Increased gap
         const yGap = 15;
+        const escapeAttr = typeof this._escapeAttr === 'function'
+            ? this._escapeAttr.bind(this)
+            : (value) => String(value ?? '')
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#39;');
+        const escapeHtml = typeof this._escapeHtml === 'function'
+            ? this._escapeHtml.bind(this)
+            : (value) => String(value ?? '')
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#39;');
 
         // Calculate subtree heights first
         function calculateHeight(node) {
@@ -292,19 +305,16 @@
 
             // Truncate text if too long
             const maxChars = 14;
-            const displayText = node.text.length > maxChars ? node.text.substring(0, maxChars) + '...' : node.text;
-
-            // Add onclick event to update markdown
-            const clickHandler = `window.PPTGenerator.handleMindMapNodeClick('${node.id}', '${node.text.replace(/'/g, "\\'")}')`;
-
-            // Add context menu event for right click
-            const contextMenuHandler = `window.PPTGenerator.handleMindMapContextMenu(event, '${node.id}')`;
+            const rawText = String(node.text ?? '');
+            const displayText = rawText.length > maxChars ? rawText.substring(0, maxChars) + '...' : rawText;
+            const safeDisplayText = escapeHtml(displayText);
+            const safeText = escapeHtml(rawText);
 
             nodesSvg += `
-                <g transform="translate(${node.x}, ${node.y})" onclick="${clickHandler}" oncontextmenu="${contextMenuHandler}" style="cursor: pointer;">
+                <g class="ppt-mindmap-node" data-node-id="${escapeAttr(node.id)}" data-node-text="${escapeAttr(rawText)}" transform="translate(${node.x}, ${node.y})" style="cursor: pointer;">
                     <rect width="${nodeWidth}" height="${nodeHeight}" rx="6" fill="${bgColor}" stroke="${color}" stroke-width="${strokeWidth}" filter="drop-shadow(0 1px 2px rgb(0 0 0 / 0.05))" />
-                    <text x="${nodeWidth/2}" y="19" text-anchor="middle" fill="${textColor}" style="pointer-events: none; font-weight: ${node.level === 0 ? '600' : '400'}">${displayText}</text>
-                    <title>${node.text} (左键编辑，右键菜单)</title>
+                    <text x="${nodeWidth/2}" y="19" text-anchor="middle" fill="${textColor}" style="pointer-events: none; font-weight: ${node.level === 0 ? '600' : '400'}">${safeDisplayText}</text>
+                    <title>${safeText} (左键编辑，右键菜单)</title>
                 </g>
             `;
             if (node.children) {
@@ -319,11 +329,12 @@
     },
 
 
-    handleMindMapContextMenu(e, nodeId) {
+    handleMindMapContextMenu(e, nodeId, nodeText) {
         e.preventDefault();
         e.stopPropagation();
 
         this.activeContextNodeId = nodeId;
+        this.activeContextNodeText = nodeText || '';
 
         const menu = document.getElementById('pptMindMapContextMenu');
         if (!menu) return;
@@ -350,12 +361,7 @@
         if (!this.activeContextNodeId) return;
 
         if (action === 'edit') {
-            // Find current text to prepopulate
-            // We don't have easy access to text here without parsing again or passing it in.
-            // For now, let's just trigger the click handler which does the prompt.
-            // A better way would be to store the text in the node element dataset.
-            const nodeEl = document.querySelector(`g[onclick*="${this.activeContextNodeId}"] text`);
-            const currentText = nodeEl ? nodeEl.textContent : "";
+            const currentText = this.activeContextNodeText || '';
             this.handleMindMapNodeClick(this.activeContextNodeId, currentText);
         } else if (action === 'add') {
             this.addMindMapChild(this.activeContextNodeId);
@@ -534,5 +540,101 @@
     },
 
   });
+
+  const bindOutlineInteractions = (ctx, root) => {
+    const cleanupFns = [];
+    const visualEditor = root?.querySelector?.('#pptOutlineVisualEditor') || document.getElementById('pptOutlineVisualEditor');
+    if (visualEditor) {
+      const onDragStart = (e) => {
+        const card = e.target?.closest?.('.outline-node-card');
+        if (!card) return;
+        const idx = Number.parseInt(card.dataset.index || '', 10);
+        if (!Number.isFinite(idx)) return;
+        ctx.handleDragStart?.(e, idx);
+      };
+      const onDragOver = (e) => {
+        if (!e.target?.closest?.('.outline-node-card')) return;
+        ctx.handleDragOver?.(e);
+      };
+      const onDrop = (e) => {
+        const card = e.target?.closest?.('.outline-node-card');
+        if (!card) return;
+        const idx = Number.parseInt(card.dataset.index || '', 10);
+        if (!Number.isFinite(idx)) return;
+        ctx.handleDrop?.(e, idx);
+      };
+      visualEditor.addEventListener('dragstart', onDragStart);
+      visualEditor.addEventListener('dragover', onDragOver);
+      visualEditor.addEventListener('drop', onDrop);
+      cleanupFns.push(() => {
+        visualEditor.removeEventListener('dragstart', onDragStart);
+        visualEditor.removeEventListener('dragover', onDragOver);
+        visualEditor.removeEventListener('drop', onDrop);
+      });
+    }
+
+    const mindMapContainer = root?.querySelector?.('#pptMindMapContainer') || document.getElementById('pptMindMapContainer');
+    if (mindMapContainer) {
+      const onClick = (e) => {
+        const node = e.target?.closest?.('.ppt-mindmap-node');
+        if (!node) return;
+        ctx.handleMindMapNodeClick?.(node.dataset.nodeId, node.dataset.nodeText || '');
+      };
+      const onContextMenu = (e) => {
+        const node = e.target?.closest?.('.ppt-mindmap-node');
+        if (!node) return;
+        ctx.handleMindMapContextMenu?.(e, node.dataset.nodeId, node.dataset.nodeText || '');
+      };
+      mindMapContainer.addEventListener('click', onClick);
+      mindMapContainer.addEventListener('contextmenu', onContextMenu);
+      cleanupFns.push(() => {
+        mindMapContainer.removeEventListener('click', onClick);
+        mindMapContainer.removeEventListener('contextmenu', onContextMenu);
+      });
+    }
+
+    if (typeof ctx._closeContextMenuHandler === 'function') {
+      const onDocClick = ctx._closeContextMenuHandler;
+      document.addEventListener('click', onDocClick);
+      cleanupFns.push(() => document.removeEventListener('click', onDocClick));
+    }
+
+    return () => {
+      cleanupFns.forEach((fn) => {
+        try { fn(); } catch { /* ignore */ }
+      });
+    };
+  };
+
+  const getOutlineActions = (ctx) => ({
+    addOutlineItem: () => ctx.addOutlineItem?.(),
+    toggleOutlineEditMode: () => ctx.toggleOutlineEditMode?.(),
+    removeOutlineItem: ({ payload }) => ctx.removeOutlineItem?.(payload.index),
+    updateOutlineTitle: ({ payload, value }) => ctx.updateOutlineTitle?.(payload.index, value),
+    updateOutlineSub: ({ payload, value }) => ctx.updateOutlineSub?.(payload.index, payload.subIndex, value),
+    removeOutlineSub: ({ payload }) => ctx.removeOutlineSub?.(payload.index, payload.subIndex),
+    addOutlineSub: ({ payload }) => ctx.addOutlineSub?.(payload.index),
+    updateMindMapPreview: () => ctx.updateMindMapPreview?.(),
+    saveMarkdownOutline: () => ctx.saveMarkdownOutline?.(),
+    regenerateOutline: () => ctx.regenerateOutline?.(),
+    confirmOutline: () => ctx.confirmOutline?.(),
+    triggerContextAction: ({ payload }) => ctx.triggerContextAction?.(payload.context),
+  });
+
+  if (window.PPTFlowViews?.register) {
+    window.PPTFlowViews.register('outline_review', {
+      render: (ctx) => ctx._renderOutlineReview?.(),
+      actions: getOutlineActions,
+      onMount: (ctx, root) => {
+        ctx._outlineUiCleanup = bindOutlineInteractions(ctx, root);
+      },
+      onUnmount: (ctx) => {
+        if (typeof ctx._outlineUiCleanup === 'function') {
+          ctx._outlineUiCleanup();
+        }
+        ctx._outlineUiCleanup = null;
+      },
+    });
+  }
 
 })();

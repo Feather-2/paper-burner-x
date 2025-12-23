@@ -2,112 +2,16 @@
   window.PPTDashboard = window.PPTDashboard || {};
   const NS = window.PPTDashboard;
   NS.deepsearch = NS.deepsearch || {};
-
-  const FALLBACK_UI_FLOW_CONFIG = NS.defaultUiFlowConfig || {
-    stateOrder: [
-      'idle',
-      'briefing',
-      'reading',
-      'scanning',
-      'researching',
-      'deepsearch_review',
-      'questioning',
-      'script_review',
-      'scripting',
-      'outline_review',
-      'outline_planning',
-      'page_layout',
-      'design_preferences',
-      'designer',
-      'completed',
-      'failed'
-    ],
-    deepsearchStepper: [
-      { state: 'reading', label: '阅读' },
-      { state: 'researching', label: '研究' },
-      { state: 'script_review', label: '脚本' },
-      { state: 'page_layout', label: '规划' },
-      { state: 'designer', label: '设计' }
-    ],
-    viewMap: {
-      idle: 'upload',
-      briefing: 'briefing',
-      deepsearch_review: 'deepsearch_review',
-      script_review: 'script_review',
-      questioning: 'questioning',
-      outline_review: 'outline_review',
-      page_layout: 'page_layout'
-    },
-    defaultView: 'deepsearch_premium',
-    stateAliases: {}
-  };
-
-  const mergeUiFlowConfig = (base, override) => {
-    if (!override || typeof override !== 'object') return base;
-    return {
-      ...base,
-      ...override,
-      stateOrder: Array.isArray(override.stateOrder) && override.stateOrder.length
-        ? override.stateOrder
-        : base.stateOrder,
-      deepsearchStepper: Array.isArray(override.deepsearchStepper) && override.deepsearchStepper.length
-        ? override.deepsearchStepper
-        : base.deepsearchStepper,
-      viewMap: {
-        ...base.viewMap,
-        ...(override.viewMap && typeof override.viewMap === 'object' ? override.viewMap : {})
-      },
-      stateAliases: {
-        ...base.stateAliases,
-        ...(override.stateAliases && typeof override.stateAliases === 'object' ? override.stateAliases : {})
-      },
-      defaultView: typeof override.defaultView === 'string' && override.defaultView
-        ? override.defaultView
-        : base.defaultView
-    };
-  };
-
-  const getUiFlowConfig = () => {
-    if (typeof NS.getUiFlowConfig === 'function') return NS.getUiFlowConfig();
-    if (!NS.defaultUiFlowConfig) NS.defaultUiFlowConfig = FALLBACK_UI_FLOW_CONFIG;
-    return mergeUiFlowConfig(NS.defaultUiFlowConfig, NS.uiFlowConfig);
-  };
-
-  const getWorkflowStateOrder = () => {
-    const config = getUiFlowConfig();
-    return Array.isArray(config.stateOrder) && config.stateOrder.length ? config.stateOrder : [];
-  };
-
-  const getAliasedState = (state) => {
-    const config = getUiFlowConfig();
-    const aliases = config.stateAliases && typeof config.stateAliases === 'object' ? config.stateAliases : {};
-    return aliases[state] || state;
-  };
-
-  const getStateIndex = (state) => {
-    const order = getWorkflowStateOrder();
-    const effective = getAliasedState(state);
-    return order.indexOf(effective);
-  };
-
-  const getDeepsearchStepper = () => {
-    const config = getUiFlowConfig();
-    const steps = Array.isArray(config.deepsearchStepper) && config.deepsearchStepper.length
-      ? config.deepsearchStepper
-      : [];
-    return steps.map((step) => {
-      if (step && typeof step === 'object') {
-        return {
-          state: typeof step.state === 'string' ? step.state : '',
-          label: typeof step.label === 'string' ? step.label : (typeof step.state === 'string' ? step.state : '')
-        };
-      }
-      if (typeof step === 'string') {
-        return { state: step, label: step };
-      }
-      return { state: '', label: '' };
-    }).filter(step => step.state);
-  };
+  const FlowConfig = NS.PPTFlowConfig || {};
+  const getAliasedState = (state) => (
+    typeof FlowConfig.getAliasedState === 'function' ? FlowConfig.getAliasedState(state) : state
+  );
+  const getStateIndex = (state) => (
+    typeof FlowConfig.getStateIndex === 'function' ? FlowConfig.getStateIndex(state) : -1
+  );
+  const getDeepsearchStepper = () => (
+    typeof FlowConfig.getDeepsearchStepper === 'function' ? FlowConfig.getDeepsearchStepper() : []
+  );
   Object.assign(NS.deepsearch, {
     _renderDeepSearchReview() {
         const md = typeof this.workflowData?.reportMarkdown === 'string'
@@ -136,10 +40,10 @@
                     </div>
                 </div>
                 <div class="form-footer">
-                    <button class="ppt-btn-secondary" ${hasContinue ? '' : 'disabled'} onclick="${hasContinue ? 'window.PPTGenerator.continueDeepSearchIteration()' : ''}">
+                    <button class="ppt-btn-secondary" ${hasContinue ? '' : 'disabled'} data-action="continueDeepSearchIteration">
                         <iconify-icon icon="carbon:renew"></iconify-icon> 下一轮迭代
                     </button>
-                    <button class="ppt-btn-primary" ${hasProceed ? '' : 'disabled'} onclick="${hasProceed ? 'window.PPTGenerator.proceedToScriptReview()' : ''}">
+                    <button class="ppt-btn-primary" ${hasProceed ? '' : 'disabled'} data-action="proceedToScriptReview">
                         进入脚本编辑 <iconify-icon icon="carbon:arrow-right"></iconify-icon>
                     </button>
                 </div>
@@ -209,6 +113,17 @@
                         <span class="ds-panel-title">执行日志</span>
                         <span class="ds-panel-hint" id="dsPanelStatusSub">${this._getCurrentStatusDesc()}</span>
                     </div>
+                    <div class="ds-context-panel" id="dsContextPanel">
+                        <div class="ds-context-row">
+                            <span class="ds-context-title">上下文压力</span>
+                            <span class="ds-context-mode" id="dsContextMode">--</span>
+                        </div>
+                        <div class="ds-context-bar">
+                            <div class="ds-context-bar-fill" id="dsContextBarFill"></div>
+                        </div>
+                        <div class="ds-context-meta" id="dsContextMeta">暂无压缩指标</div>
+                        <div class="ds-context-spark is-empty" id="dsContextSpark"></div>
+                    </div>
                     <div class="ds-process-content" id="dsProcessList">
                         <!-- Step items will be appended here -->
                     </div>
@@ -253,6 +168,46 @@
         const list = document.getElementById('dsProcessList');
         if (!list || !event?.text) return;
 
+        const rawName = typeof event.name === 'string' ? event.name : '';
+        const isLogEvent = rawName.startsWith('log.');
+        const rawDetails = event.details && typeof event.details === 'object' ? { ...event.details } : null;
+        if (isLogEvent && rawDetails && rawDetails.agent) delete rawDetails.agent;
+
+        const resolveStageLabel = () => {
+            if (isLogEvent) {
+                const agent = event.details?.agent;
+                return typeof agent === 'string' && agent.trim() ? agent : '日志';
+            }
+
+            if (rawName === 'deepsearch.started' || rawName === 'deepsearch.completed') return '研究';
+            if (rawName === 'iteration.completed' || rawName === 'deepsearch.iteration.completed') return '迭代';
+            if (rawName.startsWith('deepsearch.')) {
+                const phase = rawName.split('.')[1] || '';
+                const labels = {
+                    scan: '扫描',
+                    gaps: '缺口',
+                    retrieve: '检索',
+                    understand: '理解',
+                    write: '写作',
+                    condense: '压缩'
+                };
+                return labels[phase] || phase || '研究';
+            }
+
+            if (rawName.startsWith('design.')) return '设计';
+            if (rawName.startsWith('compression.')) return '压缩';
+
+            const fallback = rawName.split('.')[1];
+            return fallback || 'event';
+        };
+
+        const stageLabel = resolveStageLabel();
+        const signature = JSON.stringify({
+            name: rawName,
+            text: event.text,
+            details: rawDetails
+        });
+
         // Check if this is a progress update that should merge with previous
         const progressMatch = event.text.match(/(\d+)\s*\/\s*(\d+)/);
         if (progressMatch) {
@@ -273,8 +228,18 @@
             }
         }
 
+        const lastItem = list.lastElementChild;
+        if (lastItem && lastItem.dataset.signature === signature) {
+            const descEl = lastItem.querySelector('.ds-step-desc');
+            const timeEl = lastItem.querySelector('.ds-step-time');
+            if (descEl) descEl.textContent = event.text;
+            if (timeEl) timeEl.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+            return;
+        }
+
         const div = document.createElement('div');
         div.className = 'ds-step-item';
+        div.dataset.signature = signature;
 
         // Mark as progress item if it contains X/Y pattern
         if (progressMatch) {
@@ -289,12 +254,16 @@
             div.classList.add('running');
         } else if (event.name?.includes('external')) {
             div.classList.add('info');
+        } else if (event.name?.startsWith('compression.forced')) {
+            div.classList.add('warning');
+        } else if (event.name?.startsWith('compression.advised')) {
+            div.classList.add('info');
         } else if (event.name?.includes('warning') || event.name?.includes('error')) {
             div.classList.add('warning');
         }
 
         const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-        const stageName = event.name?.split('.')[1] || 'event';
+        const stageName = stageLabel;
 
         // Determine icon
         let icon = '<iconify-icon icon="solar:record-circle-outline"></iconify-icon>';
@@ -305,10 +274,10 @@
 
         // Build details HTML (skip for progress items to keep compact)
         let detailsHtml = '';
-        if (!progressMatch && event.details && Object.keys(event.details).length > 0) {
+        if (!progressMatch && rawDetails && Object.keys(rawDetails).length > 0) {
             detailsHtml = `
                 <div class="ds-step-details">
-                    ${Object.entries(event.details).map(([k, v]) => `
+                    ${Object.entries(rawDetails).map(([k, v]) => `
                         <div class="ds-detail-row">
                             <span class="ds-detail-label">${this._escapeHtml(k)}:</span>
                             <span class="ds-detail-val">${this._escapeHtml(String(v))}</span>
@@ -371,6 +340,79 @@
             sub.textContent = '报告已生成';
             badge.innerHTML = '<iconify-icon icon="solar:check-circle-bold"></iconify-icon>';
             badge.classList.add('success');
+        }
+    },
+
+    _updateCompressionPanel(metrics) {
+        const panel = document.getElementById('dsContextPanel');
+        if (!panel) return;
+
+        const latest = metrics && typeof metrics === 'object' ? metrics.latest : null;
+        const pressure = typeof latest?.pressure === 'number' ? latest.pressure : null;
+        const pct = typeof pressure === 'number' ? Math.round(pressure * 100) : null;
+        const predicted = Number.isFinite(latest?.predictedTokens) ? Math.round(latest.predictedTokens) : null;
+        const budget = Number.isFinite(latest?.budgetTokens) ? Math.round(latest.budgetTokens) : null;
+        const headroom = Number.isFinite(latest?.headroomTokens) ? Math.round(latest.headroomTokens) : null;
+        const growth = Number.isFinite(latest?.growthTokens) ? Math.round(latest.growthTokens) : null;
+        const stageId = typeof latest?.stageId === 'string' ? latest.stageId : '';
+        const layers = Array.isArray(latest?.suggestedLayers) ? latest.suggestedLayers : [];
+        const mode = typeof latest?.mode === 'string' ? latest.mode : '';
+
+        panel.classList.remove('mode-forced', 'mode-advised', 'mode-none');
+        if (mode === 'forced') panel.classList.add('mode-forced');
+        else if (mode === 'advised') panel.classList.add('mode-advised');
+        else panel.classList.add('mode-none');
+
+        const modeEl = document.getElementById('dsContextMode');
+        if (modeEl) {
+            modeEl.textContent =
+                mode === 'forced' ? '强制压缩' :
+                mode === 'advised' ? '建议压缩' :
+                '--';
+        }
+
+        const fill = document.getElementById('dsContextBarFill');
+        if (fill) {
+            fill.style.width = pct !== null ? `${Math.min(100, Math.max(0, pct))}%` : '0%';
+            fill.classList.remove('level-low', 'level-mid', 'level-high');
+            if (pressure !== null) {
+                if (pressure >= 0.95) fill.classList.add('level-high');
+                else if (pressure >= 0.8) fill.classList.add('level-mid');
+                else fill.classList.add('level-low');
+            }
+        }
+
+        const metaEl = document.getElementById('dsContextMeta');
+        if (metaEl) {
+            const parts = [];
+            if (pct !== null) parts.push(`压力 ${pct}%`);
+            if (predicted !== null && budget !== null) parts.push(`预测 ${predicted}/${budget}`);
+            if (headroom !== null) parts.push(`余量 ${headroom}`);
+            if (growth !== null && growth !== 0) parts.push(`增长 ${growth > 0 ? `+${growth}` : `${growth}`}`);
+            if (stageId) parts.push(`阶段 ${stageId}`);
+            if (layers.length) parts.push(`层 ${layers.join(', ')}`);
+            metaEl.textContent = parts.length ? parts.join(' · ') : '暂无压缩指标';
+        }
+
+        const spark = document.getElementById('dsContextSpark');
+        if (spark) {
+            const history = Array.isArray(metrics?.history) ? metrics.history : [];
+            const tail = history.slice(-24);
+            if (!tail.length) {
+                spark.classList.add('is-empty');
+                spark.innerHTML = '';
+                return;
+            }
+            spark.classList.remove('is-empty');
+            spark.innerHTML = tail.map((point) => {
+                const p = typeof point?.pressure === 'number' ? point.pressure : 0;
+                const height = Math.max(3, Math.min(16, Math.round(p * 16)));
+                const level =
+                    p >= 0.95 ? 'level-high' :
+                    p >= 0.8 ? 'level-mid' :
+                    'level-low';
+                return `<span class="ds-context-spark-bar ${level}" style="height:${height}px"></span>`;
+            }).join('');
         }
     },
 
@@ -467,8 +509,25 @@
         }
         if (!viz) return;
 
-        // Replay stored events (minimal {name,payload}) to rebuild graph.
-        const events = this.workflowData?.flowVizEvents?.[k];
+        if (typeof this._ensureTelemetrySubscription === 'function') {
+            try {
+                this._ensureTelemetrySubscription();
+            } catch {
+                // ignore
+            }
+        }
+
+        // Replay events from RunStore to rebuild graph.
+        let events = null;
+        if (typeof this._loadFlowVizEvents === 'function') {
+            try {
+                const replay = await this._loadFlowVizEvents();
+                events = replay?.[k];
+            } catch (e) {
+                console.warn('[flow-viz] failed to load replay events:', e);
+            }
+        }
+
         if (Array.isArray(events) && events.length) {
             try {
                 viz.processEvents(events);
@@ -478,7 +537,7 @@
         }
 
         // Live subscribe.
-        const bus = this._orchestrator?.eventBus;
+        const bus = this._agentEventBridge;
         if (!this._flowVizUnsubs || typeof this._flowVizUnsubs !== 'object') this._flowVizUnsubs = {};
         if (bus && typeof viz.subscribe === 'function') {
             try {
@@ -520,5 +579,20 @@
     },
 
   });
+
+  const getDeepsearchReviewActions = (ctx) => ({
+    continueDeepSearchIteration: () => ctx.continueDeepSearchIteration?.(),
+    proceedToScriptReview: () => ctx.proceedToScriptReview?.(),
+  });
+
+  if (window.PPTFlowViews?.register) {
+    window.PPTFlowViews.register('deepsearch_review', {
+      render: (ctx) => ctx._renderDeepSearchReview?.(),
+      actions: getDeepsearchReviewActions,
+    });
+    window.PPTFlowViews.register('deepsearch_premium', {
+      render: (ctx) => ctx._renderDeepSearchPremiumUI?.(),
+    });
+  }
 
 })();

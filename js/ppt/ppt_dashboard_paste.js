@@ -55,7 +55,7 @@
                         <iconify-icon icon="carbon:list-checked"></iconify-icon>
                         大纲规划
                     </div>
-                    <button class="ppt-modal-close" onclick="window.PPTGenerator.closeOutlinePlanner()" aria-label="关闭">
+                    <button class="ppt-modal-close" data-action="closeOutlinePlanner" aria-label="关闭">
                         <iconify-icon icon="carbon:close"></iconify-icon>
                     </button>
                 </div>
@@ -67,7 +67,7 @@
                     <div class="ppt-planner-sections" id="pptPlannerSections">
                         ${this._plannerOutline.map(renderSectionItem).join('')}
                     </div>
-                    <button class="ppt-planner-add-section" onclick="window.PPTGenerator.addPlannerSection()">
+                    <button class="ppt-planner-add-section" data-action="addPlannerSection">
                         <iconify-icon icon="carbon:add"></iconify-icon>
                         添加章节
                     </button>
@@ -76,8 +76,8 @@
                     <div class="ppt-planner-summary">
                         共 <span id="pptPlannerTotalPages">${this._plannerOutline.reduce((sum, s) => sum + (s.suggestedPages || 1), 0)}</span> 页
                     </div>
-                    <button class="ppt-btn-secondary" onclick="window.PPTGenerator.closeOutlinePlanner()">取消</button>
-                    <button class="ppt-btn-primary" onclick="window.PPTGenerator.confirmOutlinePlanner()">
+                    <button class="ppt-btn-secondary" data-action="closeOutlinePlanner">取消</button>
+                    <button class="ppt-btn-primary" data-action="confirmOutlinePlanner">
                         <iconify-icon icon="carbon:rocket"></iconify-icon>
                         开始生成
                     </button>
@@ -91,6 +91,14 @@
 
         const host = this.elements?.overlay || document.body;
         host.appendChild(overlay);
+
+        if (window.PPTUIActions?.bindActions) {
+            window.PPTUIActions.bindActions(overlay, {
+                closeOutlinePlanner: () => this.closeOutlinePlanner(),
+                addPlannerSection: () => this.addPlannerSection(),
+                confirmOutlinePlanner: () => this.confirmOutlinePlanner(),
+            });
+        }
 
         // 绑定事件
         this._bindPlannerEvents();
@@ -391,8 +399,18 @@
     openPasteDocumentModal() {
         const modalId = 'pptPasteDocumentModal';
         const existing = document.getElementById(modalId);
+        const bindPasteActions = (modal) => {
+            if (!modal || modal.dataset.actionsBound === '1') return;
+            if (!window.PPTUIActions?.bindActions) return;
+            modal.dataset.actionsBound = '1';
+            window.PPTUIActions.bindActions(modal, {
+                closePasteDocumentModal: () => this.closePasteDocumentModal(),
+                confirmPasteDocument: () => this.confirmPasteDocument(),
+            });
+        };
         if (existing) {
             existing.classList.add('open');
+            bindPasteActions(existing);
             return;
         }
 
@@ -406,7 +424,7 @@
                         <iconify-icon icon="carbon:paste"></iconify-icon>
                         粘贴文档内容
                     </div>
-                    <button class="ppt-modal-close" onclick="window.PPTGenerator.closePasteDocumentModal()" aria-label="关闭">
+                    <button class="ppt-modal-close" data-action="closePasteDocumentModal" aria-label="关闭">
                         <iconify-icon icon="carbon:close"></iconify-icon>
                     </button>
                 </div>
@@ -428,8 +446,8 @@
                     </div>
                 </div>
                 <div class="ppt-modal-footer">
-                    <button class="ppt-btn-secondary" onclick="window.PPTGenerator.closePasteDocumentModal()">取消</button>
-                    <button class="ppt-btn-primary" onclick="window.PPTGenerator.confirmPasteDocument()">
+                    <button class="ppt-btn-secondary" data-action="closePasteDocumentModal">取消</button>
+                    <button class="ppt-btn-primary" data-action="confirmPasteDocument">
                         <iconify-icon icon="carbon:add"></iconify-icon> 添加到素材
                     </button>
                 </div>
@@ -447,6 +465,7 @@
 
         const host = this.elements?.overlay || document.body;
         host.appendChild(overlay);
+        bindPasteActions(overlay);
 
         this._pasteDocumentModalTimer = setTimeout(() => {
             const fallback = document.getElementById('pasteDocumentFallback');
@@ -557,4 +576,3 @@
     },
   });
 })();
-

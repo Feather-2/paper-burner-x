@@ -6,9 +6,11 @@
 import { WorkflowState, transitionWorkflow, forceWorkflowState } from './workflow-states.js';
 import { WorkflowTodoStatus } from '../../agents/runtime/constants.js';
 import { RunStoreAdapter } from '../../agents/runtime/event-bus.js';
+import { subscribeTelemetry } from '../../agents/runtime/runstore-telemetry.js';
 import { StageApiFactory } from '../../agents/runtime/stage-api-factory.js';
 import { RunStore } from '../../agents/storage/run-store.js';
 import { DesignDensity, DesignVisualMode, normalizeDesignDensity, normalizeDesignVisualMode } from '../design-preferences.js';
+import { AgentEventBridge } from './agent-event-bridge.js';
 import { EventHandlerRegistry, createWorkflowEventRegistry } from './event-handler-registry.js';
 import { StateSynchronizer, inferWorkflowStateFromEvent } from './unified-state-mapping.js';
 
@@ -176,6 +178,34 @@ export const runtimeMixin = {
         const totalIdeas = normalizedPayload.totalIdeas ?? normalizedPayload.totalCandidates;
         const phaseValue = typeof normalizedPayload?.to === 'string' ? normalizedPayload.to : normalizedPayload?.phase;
         const phaseLabel = formatDesignPhaseLabel(phaseValue);
+        const pressure = typeof normalizedPayload?.pressure === 'number' ? normalizedPayload.pressure : null;
+        const pressurePct = typeof pressure === 'number' ? Math.round(pressure * 100) : null;
+        const predictedTokens = Number.isFinite(normalizedPayload?.predictedTokens) ? Math.round(normalizedPayload.predictedTokens) : null;
+        const budgetTokens = Number.isFinite(normalizedPayload?.budgetTokens) ? Math.round(normalizedPayload.budgetTokens) : null;
+        const headroomTokens = Number.isFinite(normalizedPayload?.headroomTokens) ? Math.round(normalizedPayload.headroomTokens) : null;
+        const growthTokens = Number.isFinite(normalizedPayload?.growthTokens) ? Math.round(normalizedPayload.growthTokens) : null;
+        const suggestedLayers = Array.isArray(normalizedPayload?.suggestedLayers) ? normalizedPayload.suggestedLayers : null;
+        const layerText = suggestedLayers && suggestedLayers.length ? suggestedLayers.join(', ') : '';
+        const compressionSummary = (mode) => {
+            const parts = [];
+            if (pressurePct !== null) parts.push(`上下文压力 ${pressurePct}%`);
+            if (predictedTokens !== null && budgetTokens !== null) {
+                parts.push(`预测 ${predictedTokens}/${budgetTokens} tokens`);
+            }
+            const prefix = parts.length ? parts.join('，') : '上下文压力较高';
+            return mode === 'forced' ? `${prefix}，已强制压缩` : `${prefix}，建议压缩`;
+        };
+        const compressionDetails = (() => {
+            if (!name.startsWith('compression.')) return null;
+            const details = {};
+            if (normalizedPayload?.stageId) details.stage = normalizedPayload.stageId;
+            if (pressurePct !== null) details.pressure = `${pressurePct}%`;
+            if (predictedTokens !== null && budgetTokens !== null) details.predicted = `${predictedTokens}/${budgetTokens}`;
+            if (headroomTokens !== null) details.headroom = headroomTokens;
+            if (growthTokens !== null) details.growth = growthTokens;
+            if (layerText) details.layers = layerText;
+            return Object.keys(details).length ? details : null;
+        })();
 
         // Map event names to human-readable descriptions
         const eventDescriptions = {
@@ -234,6 +264,8 @@ export const runtimeMixin = {
             'design.batch.started': `正在生成页面 ${normalizedPayload?.slideRange?.join?.('-') || ''}`,
             'design.batch.completed': '批次生成完成',
             'design.ended': '设计阶段完成',
+            'compression.advised': compressionSummary('advised'),
+            'compression.forced': compressionSummary('forced'),
         };
 
         const text = eventDescriptions[name];
@@ -243,6 +275,7 @@ export const runtimeMixin = {
             name,
             text,
             details:
+                compressionDetails ? compressionDetails :
                 normalizedPayload?.totalGaps ? { gaps: normalizedPayload.totalGaps } :
                 normalizedPayload?.iteration !== undefined ? { iteration: normalizedPayload.iteration + 1 } :
                 phaseLabel ? { phase: phaseLabel } :
@@ -561,12 +594,23 @@ export const runtimeMixin = {
             this._runStore = null;
         }
 
+        if (this._telemetrySubscription?.unsubscribe) {
+            try {
+                this._telemetrySubscription.unsubscribe();
+            } catch {
+                // ignore
+            }
+        }
+        this._telemetrySubscription = null;
+
         // 创建 EventBus（有或没有持久化适配器）
         const { EventBus } = await import('../../agents/runtime/event-bus.js');
         const eventBus = new EventBus({
             runId: this._currentRunId,
             ...(persistenceAdapter ? { persistenceAdapter } : {})
         });
+
+        this._ensureTelemetrySubscription?.(eventBus);
 
         this._orchestrator = new AgentOrchestrator({
             mode,
@@ -608,6 +652,20 @@ export const runtimeMixin = {
     },
     _getRunStorePath() {
         return 'PPTWorkflowDB';
+    },
+    _ensureTelemetrySubscription(eventBus) {
+        if (this._telemetrySubscription) return this._telemetrySubscription;
+        const bus = eventBus || this._orchestrator?.eventBus;
+        if (!bus || !this._runStore) return null;
+
+        try {
+            this._telemetrySubscription = subscribeTelemetry(bus, this._runStore);
+        } catch (err) {
+            console.warn('[Workflow] Telemetry subscription failed:', err?.message || err);
+            this._telemetrySubscription = null;
+        }
+
+        return this._telemetrySubscription;
     },
 
     async _loadFlowVizEvents() {
@@ -668,6 +726,15 @@ export const runtimeMixin = {
         }
         this._runtimeUnsubs = [];
 
+        if (this._agentEventBridge) {
+            try {
+                this._agentEventBridge.stop?.();
+            } catch {
+                // ignore
+            }
+            this._agentEventBridge = null;
+        }
+
         const bus = this._orchestrator?.eventBus;
         if (!bus) return;
 
@@ -690,20 +757,21 @@ export const runtimeMixin = {
 
         this._registerWorkflowEventHandlers();
 
-        this._runtimeUnsubs.push(bus.on('*', (evt) => this._handleRuntimeEvent(evt)));
+        this._agentEventBridge = new AgentEventBridge(bus);
+        this._agentEventBridge.start();
+        this._runtimeUnsubs.push(() => this._agentEventBridge?.stop?.());
+        this._runtimeUnsubs.push(this._agentEventBridge.on('*', (evt) => this._handleRuntimeEvent(evt)));
     },
     _registerWorkflowEventHandlers() {
         const registry = this._eventRegistry;
         if (!registry) return;
 
         const scheduleVizRerender = () => this._scheduleVizRerender?.();
-        const captureFlowEvent = (kind) => (eventName, payload) => {
-            this._pushFlowVizEvent(kind, eventName, payload);
+        const captureFlowEvent = () => (eventName, payload) => {
             this._pushToProcessPanel(eventName, payload);
         };
 
         registry.register('run.started', () => {
-            this._resetFlowVizEventStore();
             forceWorkflowState(this, WorkflowState.READING);
             this.updateTodos(this._runtimeTodoTexts.map((text, i) => ({
                 text,
@@ -716,6 +784,7 @@ export const runtimeMixin = {
         registry.register('deepsearch.*', captureFlowEvent('deepsearch'));
         registry.register('iteration.completed', captureFlowEvent('deepsearch'));
         registry.register('design.*', captureFlowEvent('design'));
+        registry.register('compression.*', captureFlowEvent('runtime'));
 
         // Design sub-stage UI: update agent activity based on fine-grained events.
         registry.register('design.*', (eventName, payload) => {
@@ -1002,32 +1071,88 @@ export const runtimeMixin = {
             if (agent && msg) this.logTerminal(agent, msg, type);
         });
     },
+    _ensureCompressionMetrics() {
+        if (!this.workflowData) this.workflowData = {};
+        const existing = this.workflowData.runtimeCompression;
+        if (!existing || typeof existing !== 'object') {
+            this.workflowData.runtimeCompression = {
+                history: [],
+                latest: null,
+                updatedAt: 0,
+            };
+        } else {
+            if (!Array.isArray(existing.history)) existing.history = [];
+        }
+        return this.workflowData.runtimeCompression;
+    },
+    _recordCompressionEvent(eventName, payload) {
+        if (typeof eventName !== 'string' || !eventName.startsWith('compression.')) return null;
+        const metrics = this._ensureCompressionMetrics();
+
+        const toNumber = (value) => (Number.isFinite(value) ? value : null);
+        const predictedTokens = toNumber(payload?.predictedTokens);
+        const budgetTokens = toNumber(payload?.budgetTokens);
+        let pressure = toNumber(payload?.pressure);
+        if (pressure === null && predictedTokens !== null && budgetTokens) {
+            pressure = predictedTokens / budgetTokens;
+        }
+        if (!Number.isFinite(pressure)) pressure = null;
+
+        const entry = {
+            ts: Date.now(),
+            event: eventName,
+            mode:
+                eventName.endsWith('.forced') ? 'forced' :
+                eventName.endsWith('.advised') ? 'advised' :
+                'info',
+            stageId: typeof payload?.stageId === 'string' ? payload.stageId : null,
+            pressure,
+            predictedTokens,
+            budgetTokens,
+            headroomTokens: toNumber(payload?.headroomTokens),
+            growthTokens: toNumber(payload?.growthTokens),
+            maxContextTokens: toNumber(payload?.maxContextTokens),
+            suggestedLayers: Array.isArray(payload?.suggestedLayers) ? payload.suggestedLayers : null,
+        };
+
+        metrics.latest = entry;
+        metrics.updatedAt = entry.ts;
+
+        if (pressure !== null) {
+            metrics.history.push({ ts: entry.ts, pressure });
+            if (metrics.history.length > 24) {
+                metrics.history.splice(0, metrics.history.length - 24);
+            }
+        }
+
+        return metrics;
+    },
     _handleRuntimeEvent(evt) {
+        if (!evt) return;
         const name = evt?.name || '';
         const payload = evt?.payload || {};
 
-        const prevEvent = this._runtimeEventMeta;
         this._runtimeEventMeta = evt;
 
-        try {
-            // 使用 StateSynchronizer 同步状态
-            if (this._stateSynchronizer) {
-                this._stateSynchronizer.handleAgentEvent(name, payload);
-            } else {
-                const suggested = inferWorkflowStateFromEvent(name, this.state, payload);
-                if (suggested && suggested !== this.state) {
-                    transitionWorkflow(this, suggested, { triggeredBy: name });
-                }
+        // 使用 StateSynchronizer 同步状态
+        if (this._stateSynchronizer) {
+            this._stateSynchronizer.handleAgentEvent(name, payload);
+        } else {
+            const suggested = inferWorkflowStateFromEvent(name, this.state, payload);
+            if (suggested && suggested !== this.state) {
+                transitionWorkflow(this, suggested, { triggeredBy: name });
             }
-
-            // 分发到 EventHandlerRegistry
-            this._eventRegistry?.dispatch(name, payload);
-
-            // 处理 stage 开始/结束/失败事件 (保留原逻辑用于 UI 更新)
-            this._handleStageLifecycleEvent(name, payload, evt);
-        } finally {
-            this._runtimeEventMeta = prevEvent;
         }
+
+        // 分发到 EventHandlerRegistry
+        this._eventRegistry?.dispatch(name, payload);
+        if (name === 'compression.advised' || name === 'compression.forced') {
+            const metrics = this._recordCompressionEvent(name, payload);
+            if (metrics) this._updateCompressionPanel?.(metrics);
+        }
+
+        // 处理 stage 开始/结束/失败事件 (保留原逻辑用于 UI 更新)
+        this._handleStageLifecycleEvent(name, payload, evt);
     },
     _handleStageLifecycleEvent(name, payload, evt) {
         const match = name.match(/^(.*)\.(started|ended|failed)$/);

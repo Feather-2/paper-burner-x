@@ -13,13 +13,13 @@
                 <div class="ppt-page-layout-editor">
                     ${this._renderDesignPhaseProgress?.() || ''}
                     <div class="ppt-page-layout-tabs">
-                        <div class="ppt-page-layout-tab ${activeTab === 0 ? 'active' : ''}" onclick="window.PPTGenerator._setPageLayoutTab(0)">
+                        <div class="ppt-page-layout-tab ${activeTab === 0 ? 'active' : ''}" data-action="setPageLayoutTab" data-tab="0">
                             <iconify-icon icon="carbon:list"></iconify-icon> 页面规划
                         </div>
-                        <div class="ppt-page-layout-tab ${activeTab === 1 ? 'active' : ''}" onclick="window.PPTGenerator._setPageLayoutTab(1)">
+                        <div class="ppt-page-layout-tab ${activeTab === 1 ? 'active' : ''}" data-action="setPageLayoutTab" data-tab="1">
                             <iconify-icon icon="carbon:edit"></iconify-icon> 页面详情
                         </div>
-                        <div class="ppt-page-layout-tab ${activeTab === 2 ? 'active' : ''}" onclick="window.PPTGenerator._setPageLayoutTab(2)">
+                        <div class="ppt-page-layout-tab ${activeTab === 2 ? 'active' : ''}" data-action="setPageLayoutTab" data-tab="2">
                             <iconify-icon icon="carbon:color-palette"></iconify-icon> 设计规范
                         </div>
                     </div>
@@ -29,10 +29,10 @@
                           this._renderDesignSpecView()}
                     </div>
                     <div class="ppt-page-layout-footer">
-                        <button class="ppt-btn-secondary" onclick="window.PPTGenerator._backToScriptReview()">
+                        <button class="ppt-btn-secondary" data-action="backToScriptReview">
                             <iconify-icon icon="carbon:arrow-left"></iconify-icon> 返回脚本
                         </button>
-                        <button class="ppt-btn-primary" onclick="window.PPTGenerator.phase5_DesignOptimization()">
+                        <button class="ppt-btn-primary" data-action="phase5DesignOptimization">
                             继续设计 <iconify-icon icon="carbon:arrow-right"></iconify-icon>
                         </button>
                     </div>
@@ -190,13 +190,13 @@
                             ${keyPointsPreview ? `<div style="margin-top: 8px; color: var(--ppt-text-secondary); font-size: 13px; line-height: 1.5;">${keyPointsPreview}</div>` : `<div style="margin-top: 8px; color: var(--ppt-text-muted); font-size: 13px;">（暂无要点）</div>`}
                         </div>
                         <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
-                            <button class="ppt-icon-btn" title="编辑" onclick="window.PPTGenerator._selectSlideIntent(${JSON.stringify(id)})">
+                            <button class="ppt-icon-btn" title="编辑" data-action="selectSlideIntent" data-id="${this._escapeAttr(id)}">
                                 <iconify-icon icon="carbon:edit"></iconify-icon>
                             </button>
-                            <button class="ppt-icon-btn" title="复制" onclick="window.PPTGenerator.duplicateSlideIntent(${JSON.stringify(id)})">
+                            <button class="ppt-icon-btn" title="复制" data-action="duplicateSlideIntent" data-id="${this._escapeAttr(id)}">
                                 <iconify-icon icon="carbon:copy"></iconify-icon>
                             </button>
-                            <button class="ppt-icon-btn" title="删除" onclick="window.PPTGenerator.deleteSlideIntent(${JSON.stringify(id)})">
+                            <button class="ppt-icon-btn" title="删除" data-action="deleteSlideIntent" data-id="${this._escapeAttr(id)}">
                                 <iconify-icon icon="carbon:trash-can"></iconify-icon>
                             </button>
                         </div>
@@ -211,7 +211,7 @@
                     <iconify-icon icon="carbon:layout"></iconify-icon>
                     <span>SlideIntents（${slides.length}）</span>
                 </div>
-                <button class="ppt-btn-secondary" onclick="window.PPTGenerator.addSlideIntent()">
+                <button class="ppt-btn-secondary" data-action="addSlideIntent">
                     <iconify-icon icon="carbon:add"></iconify-icon> 添加页面
                 </button>
             </div>
@@ -434,12 +434,12 @@
                 <div>
                     <div style="font-size: 13px; font-weight: 800; margin-bottom: 6px; color: var(--ppt-text-main);">标题</div>
                     <input class="ppt-input-field" type="text" value="${title}"
-                        oninput="window.PPTGenerator.updateSlideIntent(${JSON.stringify(id)}, { title: this.value })">
+                        data-action="updateSlideIntentField" data-event="input" data-id="${this._escapeAttr(id)}" data-field="title">
                 </div>
 
                 <div>
                     <div style="font-size: 13px; font-weight: 800; margin-bottom: 6px; color: var(--ppt-text-main);">页面类型</div>
-                    <select class="ppt-input-field" onchange="window.PPTGenerator.updateSlideIntent(${JSON.stringify(id)}, { pageType: this.value })">
+                    <select class="ppt-input-field" data-action="updateSlideIntentField" data-event="change" data-id="${this._escapeAttr(id)}" data-field="pageType">
                         ${typeOptions.map((t) => `<option value="${this._escapeAttr(t)}" ${t === currentType ? 'selected' : ''}>${this._escapeHtml(t)}</option>`).join('')}
                     </select>
                 </div>
@@ -447,13 +447,13 @@
                 <div>
                     <div style="font-size: 13px; font-weight: 800; margin-bottom: 6px; color: var(--ppt-text-main);">目标说明</div>
                     <textarea class="ppt-input-field" rows="4" style="line-height: 1.5;"
-                        oninput="window.PPTGenerator.updateSlideIntent(${JSON.stringify(id)}, { objective: this.value })">${objective}</textarea>
+                        data-action="updateSlideIntentField" data-event="input" data-id="${this._escapeAttr(id)}" data-field="objective">${objective}</textarea>
                 </div>
 
                 <div>
                     <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom: 8px;">
                         <div style="font-size: 13px; font-weight: 800; color: var(--ppt-text-main);">要点（KeyPoints）</div>
-                        <button class="ppt-btn-secondary" onclick="window.PPTGenerator.addSlideIntentKeyPoint(${JSON.stringify(id)})">
+                        <button class="ppt-btn-secondary" data-action="addSlideIntentKeyPoint" data-id="${this._escapeAttr(id)}">
                             <iconify-icon icon="carbon:add"></iconify-icon> 添加要点
                         </button>
                     </div>
@@ -461,8 +461,8 @@
                         ${keyPoints.length ? keyPoints.map((kp, i) => `
                             <div style="display:flex; gap:8px; align-items:center;">
                                 <input class="ppt-input-field" type="text" style="flex:1;" value="${this._escapeAttr(kp || '')}"
-                                    oninput="window.PPTGenerator.updateSlideIntentKeyPoint(${JSON.stringify(id)}, ${i}, this.value)">
-                                <button class="ppt-icon-btn" title="删除要点" onclick="window.PPTGenerator.removeSlideIntentKeyPoint(${JSON.stringify(id)}, ${i})">
+                                    data-action="updateSlideIntentKeyPoint" data-event="input" data-id="${this._escapeAttr(id)}" data-index="${i}">
+                                <button class="ppt-icon-btn" title="删除要点" data-action="removeSlideIntentKeyPoint" data-id="${this._escapeAttr(id)}" data-index="${i}">
                                     <iconify-icon icon="carbon:close"></iconify-icon>
                                 </button>
                             </div>
@@ -478,13 +478,13 @@
                 </div>
 
                 <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; padding-top: 6px;">
-                    <button class="ppt-btn-secondary" ${prevId ? '' : 'disabled'} onclick="window.PPTGenerator.mergeSlideIntents(${JSON.stringify(prevId)}, ${JSON.stringify(id)})" title="将当前页合并到上一页">
+                    <button class="ppt-btn-secondary" ${prevId ? 'data-action="mergeSlideIntents" data-from="' + this._escapeAttr(prevId) + '" data-to="' + this._escapeAttr(id) + '"' : 'disabled'} title="将当前页合并到上一页">
                         <iconify-icon icon="carbon:arrow-up"></iconify-icon> 合并到上一页
                     </button>
-                    <button class="ppt-btn-secondary" ${nextId ? '' : 'disabled'} onclick="window.PPTGenerator.mergeSlideIntents(${JSON.stringify(id)}, ${JSON.stringify(nextId)})" title="将下一页合并到当前页">
+                    <button class="ppt-btn-secondary" ${nextId ? 'data-action="mergeSlideIntents" data-from="' + this._escapeAttr(id) + '" data-to="' + this._escapeAttr(nextId) + '"' : 'disabled'} title="将下一页合并到当前页">
                         <iconify-icon icon="carbon:arrow-down"></iconify-icon> 合并下一页
                     </button>
-                    <button class="ppt-btn-secondary" onclick="window.PPTGenerator.splitSlideIntent(${JSON.stringify(id)})" title="按要点拆分为多页">
+                    <button class="ppt-btn-secondary" data-action="splitSlideIntent" data-id="${this._escapeAttr(id)}" title="按要点拆分为多页">
                         <iconify-icon icon="carbon:split"></iconify-icon> 拆分为多页
                     </button>
                 </div>
@@ -660,5 +660,47 @@
     },
 
   });
+
+  const getPageLayoutActions = (ctx) => ({
+    setPageLayoutTab: ({ payload }) => ctx._setPageLayoutTab?.(payload.tab),
+    backToScriptReview: () => ctx._backToScriptReview?.(),
+    phase5DesignOptimization: () => ctx.phase5_DesignOptimization?.(),
+    addSlideIntent: () => ctx.addSlideIntent?.(),
+    selectSlideIntent: ({ payload }) => ctx._selectSlideIntent?.(payload.id),
+    duplicateSlideIntent: ({ payload }) => ctx.duplicateSlideIntent?.(payload.id),
+    deleteSlideIntent: ({ payload }) => ctx.deleteSlideIntent?.(payload.id),
+    updateSlideIntentField: ({ payload, value }) => {
+      if (!payload?.field) return;
+      const patch = { [payload.field]: value };
+      ctx.updateSlideIntent?.(payload.id, patch);
+    },
+    addSlideIntentKeyPoint: ({ payload }) => ctx.addSlideIntentKeyPoint?.(payload.id),
+    updateSlideIntentKeyPoint: ({ payload, value }) => ctx.updateSlideIntentKeyPoint?.(payload.id, payload.index, value),
+    removeSlideIntentKeyPoint: ({ payload }) => ctx.removeSlideIntentKeyPoint?.(payload.id, payload.index),
+    mergeSlideIntents: ({ payload }) => ctx.mergeSlideIntents?.(payload.from, payload.to),
+    splitSlideIntent: ({ payload }) => ctx.splitSlideIntent?.(payload.id),
+    updateDesignSystemColor: ({ payload, value }) => ctx.updateDesignSystemColor?.(payload.key, value),
+    updateDesignSystemFont: ({ payload, value }) => ctx.updateDesignSystemFont?.(payload.key, value),
+    updateDesignSystemFontSize: ({ value }) => ctx.updateDesignSystemFontSize?.(value),
+    updateVisualPreferenceMode: ({ payload }) => ctx.updateVisualPreferenceMode?.(payload.mode),
+    updateRefineEnabled: ({ payload }) => ctx.updateRefineEnabled?.(payload.enabled),
+    updateDesignSystemDensity: ({ payload }) => ctx.updateDesignSystemDensity?.(payload.mode),
+    updateBatchSize: ({ payload }) => ctx.updateBatchSize?.(payload.size),
+    updateDesignSystemModel: ({ value }) => ctx.updateDesignSystemModel?.(value),
+    removeStyleReference: ({ payload }) => ctx.removeStyleReference?.(payload.id),
+    updateStyleReferenceNotes: ({ value }) => ctx.updateStyleReferenceNotes?.(value),
+  });
+
+  if (window.PPTFlowViews?.register) {
+    window.PPTFlowViews.register('page_layout', {
+      render: (ctx) => ctx._renderPageLayoutReview?.(),
+      actions: getPageLayoutActions,
+      onMount: (ctx) => {
+        if (typeof ctx._bindDesignSpecInteractions === 'function') {
+          ctx._bindDesignSpecInteractions();
+        }
+      },
+    });
+  }
 
 })();

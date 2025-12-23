@@ -26,7 +26,7 @@
                         <iconify-icon icon="solar:history-bold-duotone"></iconify-icon>
                         <span>历史项目</span>
                     </div>
-                    <button class="ppt-modal-close" onclick="document.getElementById('${modalId}').classList.remove('open')">
+                    <button class="ppt-modal-close" data-action="closeHistoryModal">
                         <iconify-icon icon="carbon:close"></iconify-icon>
                     </button>
                 </div>
@@ -61,154 +61,21 @@
                     </div>
                 </div>
                 <div class="ppt-modal-footer">
-                    <button class="ppt-btn ppt-btn-secondary" onclick="document.getElementById('${modalId}').classList.remove('open')">取消</button>
+                    <button class="ppt-btn ppt-btn-secondary" data-action="closeHistoryModal">取消</button>
                     <button class="ppt-btn ppt-btn-primary" id="pptHistoryImportBtn" disabled>
                         导入选中项目
                     </button>
                 </div>
             </div>
-            <style>
-                .ppt-history-selector-modal {
-                    width: min(720px, 90vw);
-                    max-height: 80vh;
-                }
-                .ppt-history-tabs {
-                    display: flex;
-                    gap: 8px;
-                    padding: 0 0 16px 0;
-                    border-bottom: 1px solid var(--ppt-border);
-                    margin-bottom: 16px;
-                }
-                .ppt-history-tab {
-                    display: flex;
-                    align-items: center;
-                    gap: 6px;
-                    padding: 8px 16px;
-                    background: transparent;
-                    border: 1px solid var(--ppt-border);
-                    border-radius: 8px;
-                    font-size: 13px;
-                    color: var(--ppt-text-secondary);
-                    cursor: pointer;
-                    transition: all 0.15s;
-                }
-                .ppt-history-tab:hover {
-                    background: var(--ppt-bg-subtle);
-                    color: var(--ppt-text-main);
-                }
-                .ppt-history-tab.active {
-                    background: var(--ppt-primary-subtle);
-                    border-color: var(--ppt-primary);
-                    color: var(--ppt-primary);
-                }
-                .ppt-history-tab iconify-icon {
-                    font-size: 16px;
-                }
-                .ppt-history-content {
-                    min-height: 300px;
-                    max-height: 400px;
-                    overflow-y: auto;
-                }
-                .ppt-history-panel {
-                    display: none;
-                }
-                .ppt-history-panel.active {
-                    display: block;
-                }
-                .ppt-history-list {
-                    display: flex;
-                    flex-direction: column;
-                    gap: 8px;
-                }
-                .ppt-history-loading {
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    gap: 8px;
-                    padding: 40px;
-                    color: var(--ppt-text-muted);
-                    font-size: 13px;
-                }
-                .ppt-history-empty {
-                    text-align: center;
-                    padding: 40px;
-                    color: var(--ppt-text-muted);
-                    font-size: 13px;
-                }
-                .ppt-history-item {
-                    display: flex;
-                    align-items: flex-start;
-                    gap: 12px;
-                    padding: 12px 14px;
-                    background: var(--ppt-bg-subtle);
-                    border: 1px solid transparent;
-                    border-radius: 10px;
-                    cursor: pointer;
-                    transition: all 0.15s;
-                }
-                .ppt-history-item:hover {
-                    background: white;
-                    border-color: var(--ppt-border);
-                }
-                .ppt-history-item.selected {
-                    background: var(--ppt-primary-subtle);
-                    border-color: var(--ppt-primary);
-                }
-                .ppt-history-item-check {
-                    width: 18px;
-                    height: 18px;
-                    border: 2px solid var(--ppt-border);
-                    border-radius: 4px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    flex-shrink: 0;
-                    margin-top: 2px;
-                    transition: all 0.15s;
-                }
-                .ppt-history-item.selected .ppt-history-item-check {
-                    background: var(--ppt-primary);
-                    border-color: var(--ppt-primary);
-                    color: white;
-                }
-                .ppt-history-item-info {
-                    flex: 1;
-                    min-width: 0;
-                }
-                .ppt-history-item-title {
-                    font-size: 14px;
-                    font-weight: 500;
-                    color: var(--ppt-text-main);
-                    margin-bottom: 4px;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
-                }
-                .ppt-history-item-meta {
-                    display: flex;
-                    align-items: center;
-                    gap: 12px;
-                    font-size: 12px;
-                    color: var(--ppt-text-muted);
-                }
-                .ppt-history-item-meta iconify-icon {
-                    margin-right: 4px;
-                }
-                .ppt-history-item-badge {
-                    padding: 2px 8px;
-                    background: var(--ppt-bg-subtle);
-                    border-radius: 4px;
-                    font-size: 11px;
-                    color: var(--ppt-text-secondary);
-                }
-                .ppt-history-item.selected .ppt-history-item-badge {
-                    background: rgba(79, 70, 229, 0.15);
-                    color: var(--ppt-primary);
-                }
-            </style>
         `;
 
         document.body.appendChild(overlay);
+
+        if (window.PPTUIActions?.bindActions) {
+            window.PPTUIActions.bindActions(overlay, {
+                closeHistoryModal: () => overlay.classList.remove('open'),
+            });
+        }
 
         // Tab switching
         overlay.querySelectorAll('.ppt-history-tab').forEach(tab => {
@@ -425,4 +292,3 @@
 
   });
 })();
-

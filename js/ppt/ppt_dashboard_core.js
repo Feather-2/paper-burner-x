@@ -1,99 +1,16 @@
 (()=>{
   window.PPTDashboard = window.PPTDashboard || {};
   const NS = window.PPTDashboard;
-
-  const FALLBACK_UI_FLOW_CONFIG = NS.defaultUiFlowConfig || {
-    stateOrder: [
-      'idle',
-      'briefing',
-      'reading',
-      'scanning',
-      'researching',
-      'deepsearch_review',
-      'questioning',
-      'script_review',
-      'scripting',
-      'outline_review',
-      'outline_planning',
-      'page_layout',
-      'design_preferences',
-      'designer',
-      'completed',
-      'failed'
-    ],
-    deepsearchStepper: [
-      { state: 'reading', label: '阅读' },
-      { state: 'researching', label: '研究' },
-      { state: 'script_review', label: '脚本' },
-      { state: 'page_layout', label: '规划' },
-      { state: 'designer', label: '设计' }
-    ],
-    viewMap: {
-      idle: 'upload',
-      briefing: 'briefing',
-      deepsearch_review: 'deepsearch_review',
-      script_review: 'script_review',
-      questioning: 'questioning',
-      outline_review: 'outline_review',
-      page_layout: 'page_layout'
-    },
-    defaultView: 'deepsearch_premium',
-    stateAliases: {}
-  };
-
-  const mergeUiFlowConfig = (base, override) => {
-    if (!override || typeof override !== 'object') return base;
-    return {
-      ...base,
-      ...override,
-      stateOrder: Array.isArray(override.stateOrder) && override.stateOrder.length
-        ? override.stateOrder
-        : base.stateOrder,
-      deepsearchStepper: Array.isArray(override.deepsearchStepper) && override.deepsearchStepper.length
-        ? override.deepsearchStepper
-        : base.deepsearchStepper,
-      viewMap: {
-        ...base.viewMap,
-        ...(override.viewMap && typeof override.viewMap === 'object' ? override.viewMap : {})
-      },
-      stateAliases: {
-        ...base.stateAliases,
-        ...(override.stateAliases && typeof override.stateAliases === 'object' ? override.stateAliases : {})
-      },
-      defaultView: typeof override.defaultView === 'string' && override.defaultView
-        ? override.defaultView
-        : base.defaultView
-    };
-  };
-
-  const getUiFlowConfig = () => {
-    if (typeof NS.getUiFlowConfig === 'function') return NS.getUiFlowConfig();
-    if (!NS.defaultUiFlowConfig) NS.defaultUiFlowConfig = FALLBACK_UI_FLOW_CONFIG;
-    return mergeUiFlowConfig(NS.defaultUiFlowConfig, NS.uiFlowConfig);
-  };
-
-  const getWorkflowStateOrder = () => {
-    const config = getUiFlowConfig();
-    return Array.isArray(config.stateOrder) && config.stateOrder.length ? config.stateOrder : [];
-  };
-
-  const getAliasedState = (state) => {
-    const config = getUiFlowConfig();
-    const aliases = config.stateAliases && typeof config.stateAliases === 'object' ? config.stateAliases : {};
-    return aliases[state] || state;
-  };
-
-  const getStateIndex = (state) => {
-    const order = getWorkflowStateOrder();
-    const effective = getAliasedState(state);
-    return order.indexOf(effective);
-  };
-
-  const getViewKey = (state) => {
-    const config = getUiFlowConfig();
-    const viewMap = config.viewMap && typeof config.viewMap === 'object' ? config.viewMap : {};
-    return viewMap[state] || config.defaultView || 'deepsearch_premium';
-  };
+  const FlowConfig = NS.PPTFlowConfig || {};
+  const getAliasedState = (state) => (
+    typeof FlowConfig.getAliasedState === 'function' ? FlowConfig.getAliasedState(state) : state
+  );
+  const getStateIndex = (state) => (
+    typeof FlowConfig.getStateIndex === 'function' ? FlowConfig.getStateIndex(state) : -1
+  );
+  const getViewKey = (state) => (
+    typeof FlowConfig.getViewKey === 'function' ? FlowConfig.getViewKey(state) : (state || 'deepsearch_premium')
+  );
 
   const PPTGeneratorAgentDashboard = {};
   Object.assign(PPTGeneratorAgentDashboard,
@@ -122,12 +39,13 @@
         }
 
         this._syncWorkflowModeAndBriefFromData();
+
         const prevState = this._prevState;
         const prevViewKey = prevState ? getViewKey(getAliasedState(prevState)) : null;
         const effectiveState = getAliasedState(this.state);
         const viewKey = getViewKey(effectiveState);
 
-        // Flow vizzes mount React roots; always destroy before we replace innerHTML.
+        // Flow vizzes mount React roots; always destroy before we replace UI.
         this._destroyFlowViz?.('deepsearch');
         this._destroyFlowViz?.('design');
 
@@ -183,6 +101,7 @@
 
         // Mount premium flow visualizers (async).
         this._mountActiveFlowVisualizers?.();
+        this._updateCompressionPanel?.(this.workflowData?.runtimeCompression);
     },
 
 
@@ -234,7 +153,7 @@
                                 </div>
                                 <div class="form-custom-input-wrapper">
                                     <input type="text" class="ppt-input-field" placeholder="或输入自定义回答..." name="q_${i}_custom">
-                                    <button class="ppt-icon-btn" title="咨询 AI 助手" onclick="window.PPTGenerator.askAssistantAboutQuestion(${i})">
+                                    <button class="ppt-icon-btn" title="咨询 AI 助手" data-action="askAssistantAboutQuestion" data-index="${i}">
                                         <iconify-icon icon="carbon:chat-bot"></iconify-icon>
                                     </button>
                                 </div>
@@ -247,10 +166,10 @@
                         <iconify-icon icon="carbon:information"></iconify-icon>
                         <span>您也可以在右侧聊天栏直接提出修改意见</span>
                     </div>
-                    <button class="ppt-btn-secondary" onclick="window.PPTGenerator.autoFillAnswers()">
+                    <button class="ppt-btn-secondary" data-action="autoFillAnswers">
                         <iconify-icon icon="carbon:magic-wand"></iconify-icon> AI 自动决策
                     </button>
-                    <button class="ppt-btn-primary" onclick="window.PPTGenerator.submitAnswers()">
+                    <button class="ppt-btn-primary" data-action="submitAnswers">
                         确认并继续 <iconify-icon icon="carbon:arrow-right"></iconify-icon>
                     </button>
                 </div>
@@ -273,7 +192,7 @@
                         <h3><iconify-icon icon="carbon:document"></iconify-icon> 研究报告（可编辑）</h3>
                     </div>
                     <div class="form-header-right">
-                        <button class="ppt-btn-primary ppt-btn-sm" onclick="window.PPTGenerator.confirmScript()">
+                        <button class="ppt-btn-primary ppt-btn-sm" data-action="confirmScript">
                             打开审阅并确认 <iconify-icon icon="carbon:arrow-right"></iconify-icon>
                         </button>
                     </div>
@@ -477,6 +396,27 @@
     }
     }
   );
+
+  const getQuestionActions = (ctx) => ({
+    askAssistantAboutQuestion: ({ payload }) => ctx.askAssistantAboutQuestion?.(payload.index),
+    autoFillAnswers: () => ctx.autoFillAnswers?.(),
+    submitAnswers: () => ctx.submitAnswers?.(),
+  });
+
+  const getScriptReviewActions = (ctx) => ({
+    confirmScript: () => ctx.confirmScript?.(),
+  });
+
+  if (window.PPTFlowViews?.register) {
+    window.PPTFlowViews.register('questioning', {
+      render: (ctx) => ctx._renderQuestionForm?.(),
+      actions: getQuestionActions,
+    });
+    window.PPTFlowViews.register('script_review', {
+      render: (ctx) => ctx._renderScriptReview?.(),
+      actions: getScriptReviewActions,
+    });
+  }
 
   NS.PPTGeneratorAgentDashboard = PPTGeneratorAgentDashboard;
 

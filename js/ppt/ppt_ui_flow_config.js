@@ -65,6 +65,49 @@
     return next;
   };
 
+  const getUiFlowConfig = () => mergeConfig(DEFAULT_UI_FLOW_CONFIG, NS.uiFlowConfig);
+
+  const getAliasedState = (state) => {
+    const config = getUiFlowConfig();
+    const aliases = config.stateAliases && typeof config.stateAliases === 'object' ? config.stateAliases : {};
+    return aliases[state] || state;
+  };
+
+  const getStateIndex = (state) => {
+    const config = getUiFlowConfig();
+    const order = Array.isArray(config.stateOrder) ? config.stateOrder : [];
+    const effective = getAliasedState(state);
+    return order.indexOf(effective);
+  };
+
+  const getViewKey = (state) => {
+    const config = getUiFlowConfig();
+    const viewMap = config.viewMap && typeof config.viewMap === 'object' ? config.viewMap : {};
+    return viewMap[state] || config.defaultView || 'deepsearch_premium';
+  };
+
+  const getDeepsearchStepper = () => {
+    const config = getUiFlowConfig();
+    const steps = Array.isArray(config.deepsearchStepper) ? config.deepsearchStepper : [];
+    return steps.map((step) => {
+      if (step && typeof step === 'object') {
+        return {
+          state: typeof step.state === 'string' ? step.state : '',
+          label: typeof step.label === 'string' ? step.label : (typeof step.state === 'string' ? step.state : '')
+        };
+      }
+      if (typeof step === 'string') return { state: step, label: step };
+      return { state: '', label: '' };
+    }).filter((step) => step.state);
+  };
+
   NS.defaultUiFlowConfig = DEFAULT_UI_FLOW_CONFIG;
-  NS.getUiFlowConfig = () => mergeConfig(DEFAULT_UI_FLOW_CONFIG, NS.uiFlowConfig);
+  NS.getUiFlowConfig = getUiFlowConfig;
+  NS.PPTFlowConfig = {
+    getUiFlowConfig,
+    getAliasedState,
+    getStateIndex,
+    getViewKey,
+    getDeepsearchStepper
+  };
 })();
