@@ -686,7 +686,7 @@
     updateRefineEnabled: ({ payload }) => ctx.updateRefineEnabled?.(payload.enabled),
     updateDesignSystemDensity: ({ payload }) => ctx.updateDesignSystemDensity?.(payload.mode),
     updateBatchSize: ({ payload }) => ctx.updateBatchSize?.(payload.size),
-    updateDesignSystemModel: ({ value }) => ctx.updateDesignSystemModel?.(value),
+    openModelConfig: () => ctx.openModelConfig?.(),
     removeStyleReference: ({ payload }) => ctx.removeStyleReference?.(payload.id),
     updateStyleReferenceNotes: ({ value }) => ctx.updateStyleReferenceNotes?.(value),
   });

@@ -44,6 +44,17 @@ function formatDesignPhaseLabel(value) {
     return DESIGN_PHASE_LABELS[key] || key;
 }
 
+function emitUiV2Event(name, payload) {
+    if (typeof window === 'undefined') return;
+    const bus = window.PPTUIV2?.instance?.eventBus;
+    if (!bus || typeof bus.emit !== 'function') return;
+    try {
+        bus.emit(name, payload);
+    } catch (err) {
+        console.warn('[Workflow] UI V2 event bridge failed:', err);
+    }
+}
+
 export const runtimeMixin = {
     _getDesignStageUserConfig() {
         const ds = this._ensureDesignSystemInitialized();
@@ -350,7 +361,8 @@ export const runtimeMixin = {
 
         ds.density = normalizeDesignDensity(ds.density, DesignDensity.BALANCED);
 
-        if (typeof ds.model !== 'string') ds.model = 'gemini-1.5-pro';
+        // Model selection is now centralized in PPT model config; drop legacy per-project setting.
+        if (Object.prototype.hasOwnProperty.call(ds, 'model')) delete ds.model;
 
         // Initialize refiner config (ReAct)
         if (!ds.refine || typeof ds.refine !== 'object') ds.refine = {};
@@ -1144,7 +1156,13 @@ export const runtimeMixin = {
             }
         }
 
+        emitUiV2Event(name, payload);
+
         // 分发到 EventHandlerRegistry
+        if (!this._eventRegistry) {
+            this._eventRegistry = new EventHandlerRegistry(this);
+            this._registerWorkflowEventHandlers();
+        }
         this._eventRegistry?.dispatch(name, payload);
         if (name === 'compression.advised' || name === 'compression.forced') {
             const metrics = this._recordCompressionEvent(name, payload);

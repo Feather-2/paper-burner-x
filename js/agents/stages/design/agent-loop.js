@@ -13,11 +13,11 @@ import { normalizeRenderType } from "../../shared/value-utils.js";
 import { Archive, MapAdapter } from "../../shared/archive.js";
 import { CheckpointType, createCheckpoint, migrateCheckpoint } from "../../shared/checkpoint-schema.js";
 import { DesignPhase, designPhaseMachine, DesignLoopStatus, designLoopMachine } from "./states.js";
+import { BaseAgentLoop, checkCancelled, getEmitFn, resolveToolExecutor } from "../../runtime/agent-loop.js";
 import { StagePausedError } from "../../runtime/stage-errors.js";
 import { getRuntimeState } from "../../runtime/loop-runtime-state.js";
 
 const SCHEMA_VERSION = "0.1";
-const USER_ACTION_PREFIX = "user.action";
 
 export const DESIGN_AGENT_TOOL_DEFINITIONS = Object.freeze([
   {
@@ -99,19 +99,8 @@ export const DESIGN_AGENT_TOOL_DEFINITIONS = Object.freeze([
   },
 ]);
 
-function getEmitFn(ctx) {
-  const emit = ctx?.emit || ctx?.eventBus?.emit;
-  return typeof emit === "function" ? emit : null;
-}
-
 function emitStage(emit, name, status, payload) {
   emit?.(name, { actor: "design", status, payload });
-}
-
-function checkCancelled(signal) {
-  if (!signal?.aborted) return;
-  const reason = signal.reason;
-  throw new Error(typeof reason === "string" ? reason : "Run cancelled");
 }
 
 function hasImagePlanningConfig(constraints) {
@@ -133,25 +122,9 @@ function loadDesignConcurrencyConfig() {
   return null;
 }
 
-function normalizeToolResult(result) {
-  if (result && typeof result === "object" && Object.prototype.hasOwnProperty.call(result, "ok")) {
-    return result;
-  }
-  if (result && typeof result === "object" && ("error" in result || "data" in result)) {
-    return { ok: !result.error, data: result.data, error: result.error };
-  }
-  return { ok: true, data: result };
-}
-
-function resolveToolExecutor(context) {
-  const executor = context?.toolExecutor || context?.tools;
-  if (typeof executor === "function") return executor;
-  if (executor && typeof executor.execute === "function") return (name, params) => executor.execute(name, params);
-  return null;
-}
-
-export class DesignAgentLoop {
-  constructor({ batchSize, archive } = {}) {
+export class DesignAgentLoop extends BaseAgentLoop {
+  constructor({ batchSize, archive, eventBus, tools } = {}) {
+    super({ actor: "design", stageName: "design", eventBus });
     const config = loadDesignConcurrencyConfig();
     const defaultBatchSize = config?.batchSize || 4;
     this.batchSize = Math.max(1, Number(batchSize) || defaultBatchSize);
@@ -166,11 +139,16 @@ export class DesignAgentLoop {
       fill_visual: this._toolFillVisual.bind(this),
       chat_ask: this._toolChatAsk.bind(this),
     };
+    this.registerTools(this._tools);
+    if (tools) this.registerTools(tools);
     this.phase = { status: DesignPhase.IDLE };
     this._loopStatus = DesignLoopStatus.IDLE;
     this._statusHistory = [];
-    this._pauseRequested = false;
-    this._pauseReason = null;
+    this.initLoopStatus({
+      status: DesignLoopStatus.IDLE,
+      machine: designLoopMachine,
+      eventName: "design.agent.status.changed",
+    });
     this.archive = archive || null;
   }
 
@@ -178,53 +156,6 @@ export class DesignAgentLoop {
     return DESIGN_AGENT_TOOL_DEFINITIONS.slice();
   }
 
-  pause(reason = "user_requested") {
-    this._pauseRequested = true;
-    this._pauseReason = reason;
-  }
-
-  get isPaused() {
-    return this._pauseRequested;
-  }
-
-  async waitForUserAction(actionName, { timeout = 300000, eventBus, signal } = {}) {
-    const bus = eventBus || this.eventBus;
-    if (!bus || typeof bus.subscribe !== "function") {
-      throw new Error("waitForUserAction: eventBus with subscribe() is required");
-    }
-
-    return new Promise((resolve, reject) => {
-      let done = false;
-      const finish = (err, payload) => {
-        if (done) return;
-        done = true;
-        clearTimeout(timeoutId);
-        off?.();
-        if (signal && typeof signal.removeEventListener === "function") {
-          signal.removeEventListener("abort", onAbort);
-        }
-        if (err) reject(err);
-        else resolve(payload);
-      };
-
-      const onAbort = () => {
-        finish(new Error("Run cancelled"));
-      };
-
-      if (signal && typeof signal.addEventListener === "function") {
-        signal.addEventListener("abort", onAbort, { once: true });
-      }
-
-      const timeoutId = setTimeout(() => {
-        finish(new Error(`Timeout waiting for user action: ${actionName}`));
-      }, timeout);
-
-      const off = bus.subscribe(`${USER_ACTION_PREFIX}.${actionName}`, (evt) => {
-        const payload = evt && typeof evt === "object" && "payload" in evt ? evt.payload : evt;
-        finish(null, payload);
-      });
-    });
-  }
 
   _transitionPhase(state, next, { emit, runId, payload } = {}) {
     const from = state.status;
@@ -271,7 +202,7 @@ export class DesignAgentLoop {
         if (runtimeState && resolvedCheckpointId) runtimeState.lastCheckpointId = resolvedCheckpointId;
 
         if (designLoopMachine.canTransition(oldStatus, DesignLoopStatus.PAUSED)) {
-          this._statusHistory.push({
+          this._recordLoopStatusTransition({
             from: oldStatus,
             to: DesignLoopStatus.PAUSED,
             timestamp,
@@ -279,7 +210,6 @@ export class DesignAgentLoop {
             ...(resolvedCheckpointId ? { checkpointId: resolvedCheckpointId } : {}),
             pausedReason: reason,
           });
-          this._loopStatus = DesignLoopStatus.PAUSED;
         }
 
         throw new StagePausedError("Run paused", {
@@ -291,14 +221,13 @@ export class DesignAgentLoop {
       }
     }
 
-    this._statusHistory.push({
+    this._recordLoopStatusTransition({
       from: oldStatus,
       to: newStatus,
       timestamp,
       ...historyMeta,
       ...(checkpointId ? { checkpointId } : {}),
     });
-    this._loopStatus = newStatus;
 
     return checkpointId;
   }
@@ -328,23 +257,6 @@ export class DesignAgentLoop {
 
   get statusHistory() {
     return [...this._statusHistory];
-  }
-
-  async _callTool(name, params, context) {
-    const executor = resolveToolExecutor(context);
-    if (executor) {
-      return normalizeToolResult(await executor(name, params, context));
-    }
-    const tool = this._tools[name];
-    if (!tool) {
-      return { ok: false, error: `Unknown tool: ${name}` };
-    }
-    try {
-      const data = await tool(params, context);
-      return { ok: true, data };
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
-    }
   }
 
   async _initDesignSystem(contentPackage, context, constraints, userConfig) {
@@ -667,7 +579,7 @@ export class DesignAgentLoop {
    * @param {{emit?:Function,eventBus?:object,signal?:AbortSignal,aiApiService?:object,imageService?:any,imageProvider?:any}=} stageApi
    */
   async execute(runContext, contentPackage, stageApi = {}) {
-    return this.run(contentPackage, { ...stageApi, runContext });
+    return super.execute(runContext, contentPackage, stageApi);
   }
 
   /**
@@ -676,10 +588,14 @@ export class DesignAgentLoop {
    * @param {{runContext?:object,emit?:Function,eventBus?:object,signal?:AbortSignal,aiApiService?:object,imageService?:any,imageProvider?:any}=} context
    */
   async run(contentPackage, context = {}) {
-    const emit = getEmitFn(context);
     const runContext = context.runContext || { runId: contentPackage?.runId || "run_unknown", constraints: contentPackage?.constraints || {} };
     const runId = runContext.runId || contentPackage?.runId || "run_unknown";
-    this.eventBus = context.eventBus || null;
+    this.eventBus = context.eventBus || this.eventBus || null;
+    let emit = getEmitFn(context);
+    if ((!emit || emit === this.eventBus?.emit) && this.eventBus?.emit) {
+      emit = this.eventBus.emit.bind(this.eventBus);
+    }
+    this.emit = emit || this.emit || null;
     this.phase = { status: DesignPhase.IDLE };
 
     const stageApi = { signal: context.signal };
@@ -701,10 +617,17 @@ export class DesignAgentLoop {
       await this._transitionTo(DesignLoopStatus.THINKING, baseMeta);
       const execMeta = nodeStates ? { ...baseMeta, nodeStates } : baseMeta;
       await this._transitionTo(DesignLoopStatus.EXECUTING, execMeta);
-      return loopIteration;
+      const stepInfo = this._beginStep({
+        name: step,
+        runId,
+        iteration: loopIteration,
+        meta: nodeStates,
+      }, context);
+      return { loopIteration, stepInfo };
     };
-    const finishExecution = async (step, loopIteration) => {
+    const finishExecution = async (step, loopIteration, stepInfo) => {
       await this._transitionTo(DesignLoopStatus.REVIEWING, buildLoopMeta(step, loopIteration));
+      this._endStep(stepInfo, { status: "completed" });
     };
 
     try {
@@ -740,32 +663,35 @@ export class DesignAgentLoop {
       checkCancelled(context.signal);
 
       const constraints = runContext.constraints || {};
-      const userConfig =
+      let userConfig =
         (runContext && typeof runContext === "object" ? runContext.userConfig : undefined) ||
         (contentPackage && typeof contentPackage === "object" ? contentPackage.userConfig : undefined) ||
         (context && typeof context === "object" ? context.userConfig : undefined) ||
         {};
+      userConfig = this.applyUserInputsToConfig(userConfig);
 
-      const styleIteration = await startExecution("style_extracting", {
+      const { loopIteration: styleIteration, stepInfo: styleStep } = await startExecution("style_extracting", {
         contentPackage: parsedContentPackage,
         slideIntents,
         constraints,
         userConfig,
       });
-      const styleResult = await this._callTool("extract_style", { contentPackage: parsedContentPackage, constraints, userConfig }, context);
+      const styleContext = styleStep.context;
+      const styleResult = await this._callTool("extract_style", { contentPackage: parsedContentPackage, constraints, userConfig }, styleContext);
       if (!styleResult.ok) throw new Error(styleResult.error || "extract_style failed");
       const designSystem = styleResult.data?.designSystem || styleResult.data;
 
       emitStage(emit, "design.tokens.ended", "ended", { theme: designSystem?.theme });
-      checkCancelled(context.signal);
+      checkCancelled(styleContext.signal);
 
-      await finishExecution("style_extracting", styleIteration);
+      await finishExecution("style_extracting", styleIteration, styleStep);
 
       this._transitionPhase(this.phase, DesignPhase.STYLE_CONFIRMING, { emit, runId: runContext.runId });
       if (context?.interactionMode?.styleConfirm && context.interactionMode.styleConfirm !== "skip") {
         await this.waitForUserAction("confirm_style", { eventBus: context.eventBus, signal: context.signal });
       }
       this._transitionPhase(this.phase, DesignPhase.GENERATING, { emit, runId: runContext.runId });
+      userConfig = this.applyUserInputsToConfig(userConfig);
 
       const modelRouter =
         Object.prototype.hasOwnProperty.call(context || {}, "modelRouter") ? context.modelRouter : (context?.runContext && context.runContext.modelRouter) || null;
@@ -779,13 +705,14 @@ export class DesignAgentLoop {
       }
 
       if (this.phase.status === DesignPhase.GENERATING) {
-        const generatingIteration = await startExecution("generating", {
+        const { loopIteration: generatingIteration, stepInfo: generatingStep } = await startExecution("generating", {
           contentPackage: parsedContentPackage,
           slideIntents,
           designSystem,
           constraints,
           userConfig,
         });
+        const generatingContext = generatingStep.context;
         // Use provided brainstormResult or plan imageSlots via ImagePlanner
         const brainstormResult = context?.brainstormResult || {
           ideaPool: [],
@@ -815,11 +742,11 @@ export class DesignAgentLoop {
             pendingImages,
             estimatedCostUSD: Number(estimatedCostUSD.toFixed(4)),
           });
-          checkCancelled(context.signal);
+          checkCancelled(generatingContext.signal);
         }
 
         const dslRules = await getDslRules();
-        checkCancelled(context.signal);
+        checkCancelled(generatingContext.signal);
 
         const genResult = await this._callTool(
           "spawn_slide_agent",
@@ -834,22 +761,22 @@ export class DesignAgentLoop {
             imageSlots,
             selectedIdeas: selectedIdeasForPrompt,
             emit,
-            signal: context.signal,
+            signal: generatingContext.signal,
             dslRules,
           },
-          context
+          generatingContext
         );
 
         if (!genResult.ok) throw new Error(genResult.error || "spawn_slide_agent failed");
         const generated = Array.isArray(genResult.data?.generated) ? genResult.data.generated : Array.isArray(genResult.data) ? genResult.data : [];
 
         emitStage(emit, "design.generate.ended", "ended", { slides: generated.length });
-        checkCancelled(context.signal);
+        checkCancelled(generatingContext.signal);
 
         if (!skipReview) {
           this._transitionPhase(this.phase, DesignPhase.REVIEWING, { emit, runId: runContext.runId });
         }
-        await finishExecution("generating", generatingIteration);
+        await finishExecution("generating", generatingIteration, generatingStep);
 
         let slidesMeta = [];
         let slideHtmls = [];
@@ -906,8 +833,9 @@ export class DesignAgentLoop {
 
         const baseDeckHtmlDsl = slideHtmls.join("\n\n");
 
+        userConfig = this.applyUserInputsToConfig(userConfig);
         this._transitionPhase(this.phase, DesignPhase.VISUAL_FILLING, { emit, runId: runContext.runId });
-        const visualIteration = await startExecution("visual_filling", {
+        const { loopIteration: visualIteration, stepInfo: visualStep } = await startExecution("visual_filling", {
           contentPackage: parsedContentPackage,
           slideIntents,
           designSystem,
@@ -918,6 +846,7 @@ export class DesignAgentLoop {
           deckHtmlDsl: baseDeckHtmlDsl,
           pendingImages,
         });
+        const visualContext = visualStep.context;
 
         let imageReport = null;
         let visualReport = null;
@@ -948,7 +877,7 @@ export class DesignAgentLoop {
             imageSlots,
             aiImageSlotIds,
           },
-          context
+          visualContext
         );
 
         if (!fillResult.ok) throw new Error(fillResult.error || "fill_visual failed");
@@ -962,13 +891,13 @@ export class DesignAgentLoop {
         // If refine is enabled (userConfig.refine?.enabled), run ReAct loop after VisualRenderer.
         if (userConfig?.refine?.enabled) {
           const deckPackage = { deckHtmlDsl, slidesMeta, designSystem, imageSlots: finalImageSlots };
-          const refineOut = await this._runRefine(deckPackage, parsedContentPackage, runContext, context, userConfig, emit);
+          const refineOut = await this._runRefine(deckPackage, parsedContentPackage, runContext, visualContext, userConfig, emit);
           deckHtmlDsl = refineOut.deckHtmlDsl;
           slidesMeta = refineOut.slidesMeta;
           refineResult = refineOut.refineResult;
         }
 
-        await finishExecution("visual_filling", visualIteration);
+        await finishExecution("visual_filling", visualIteration, visualStep);
         this._transitionPhase(this.phase, DesignPhase.COMPLETED, { emit, runId: runContext.runId });
         await this._transitionTo(DesignLoopStatus.COMPLETED, {
           runId,
@@ -1020,8 +949,16 @@ export class DesignAgentLoop {
         refineReport: null,
       };
     } catch (err) {
+      const pauseLike = this._shouldPauseFromError(err, context.signal);
+      if (this._activeStep) {
+        const message = err instanceof Error ? err.message : String(err);
+        this._endStep(null, { status: pauseLike ? "paused" : "failed", error: message });
+      }
       if (err instanceof StagePausedError) {
         throw err;
+      }
+      if (pauseLike) {
+        throw this._createPauseError({ signal: context.signal, runId });
       }
 
       try {

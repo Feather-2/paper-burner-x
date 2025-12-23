@@ -53,7 +53,10 @@ export class AgentEventBridge {
 
     this._sourceBus = eventBus;
     this._uiBus = new EventBus({ runId: eventBus.runId });
-    this._uiBus.enableBackpressure({ batchWindowMs, coalescePattern });
+    const isNode = typeof process !== 'undefined' && !!process.versions?.node;
+    if (!isNode) {
+      this._uiBus.enableBackpressure({ batchWindowMs, coalescePattern });
+    }
     this._unsubs = [];
     this._started = false;
     this._handleSourceEvent = (evt) => this._forward(evt);

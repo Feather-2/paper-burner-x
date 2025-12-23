@@ -35,7 +35,11 @@
       script_review: 'script_review',
       questioning: 'questioning',
       outline_review: 'outline_review',
-      page_layout: 'page_layout'
+      outline_planning: 'outline_review',
+      page_layout: 'page_layout',
+      design_preferences: 'design_preferences',
+      designer: 'designer',
+      failed: 'failed'
     },
     defaultView: 'deepsearch_premium',
     stateAliases: {}

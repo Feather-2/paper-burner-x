@@ -91,7 +91,8 @@
 
         ds.density = normalizeDesignDensity(ds.density, DesignDensity.BALANCED);
 
-        if (typeof ds.model !== 'string') ds.model = 'gemini-1.5-pro';
+        // Model selection is now centralized in PPT model config; drop legacy per-project setting.
+        if (Object.prototype.hasOwnProperty.call(ds, 'model')) delete ds.model;
 
         // Initialize refiner config (ReAct)
         if (!ds.refine || typeof ds.refine !== 'object') ds.refine = {};
@@ -199,11 +200,13 @@
         this.renderPreviewArea?.();
     },
 
-
-    updateDesignSystemModel(value) {
-        const ds = this._ensureDesignSpecInitialized();
-        ds.model = String(value || '').trim() || ds.model;
-        this.renderPreviewArea?.();
+    openModelConfig() {
+        const modal = typeof window !== 'undefined' ? window.PPTModelConfigModal : null;
+        if (modal && typeof modal.openModal === 'function') {
+            modal.openModal();
+            return;
+        }
+        console.warn('[DesignSpec] PPTModelConfigModal not available');
     },
 
     // Style Reference methods
@@ -365,14 +368,6 @@
 
         const densityPad = density === 'compact' ? 10 : (density === 'spacious' ? 18 : 14);
 
-        const modelOptions = [
-            { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
-            { value: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash' },
-            { value: 'gpt-4o-mini', label: 'GPT-4o mini' },
-            { value: 'gpt-4o', label: 'GPT-4o' }
-        ];
-        const selectedModel = typeof ds.model === 'string' && ds.model.trim() ? ds.model.trim() : 'gemini-1.5-pro';
-
         const colorRow = (key, label, value) => `
             <div class="ppt-design-spec-color-row" data-design-color="${this._escapeAttr(key)}">
                 <div class="ppt-design-spec-swatch" style="background: ${this._escapeAttr(value)};"></div>
@@ -402,7 +397,7 @@
                         <iconify-icon icon="carbon:color-palette"></iconify-icon>
                         <span>Design Spec</span>
                     </div>
-                    <div class="ppt-design-spec-subtitle">配置色板/字体/密度/批量与模型，并实时预览</div>
+                    <div class="ppt-design-spec-subtitle">配置色板/字体/密度/批量，模型由 PPT 模型配置统一管理</div>
                 </div>
 
                 <div class="ppt-design-spec-grid">
@@ -464,22 +459,22 @@
                             ${segBtn('updateDesignSystemDensity', 'spacious', 'Spacious', density === 'spacious')}
                         </div>
 
-                        <div class="ppt-design-spec-section-title" style="margin-top: 14px;">Batch Size</div>
-                        <div class="ppt-design-spec-seg">
-                            ${segBtnNum('updateBatchSize', 1, '1', batchSize === 1)}
-                            ${segBtnNum('updateBatchSize', 2, '2', batchSize === 2)}
-                            ${segBtnNum('updateBatchSize', 4, '4', batchSize === 4)}
-                        </div>
-
-                        <div class="ppt-design-spec-section-title" style="margin-top: 14px;">Model</div>
-                        <select id="pptDesignModel" class="ppt-input-field" data-action="updateDesignSystemModel" data-event="change">
-                            ${modelOptions.map(o => `
-                                <option value="${this._escapeAttr(o.value)}" ${o.value === selectedModel ? 'selected' : ''}>
-                                    ${this._escapeHtml(o.label)}
-                                </option>
-                            `).join('')}
-                        </select>
+                    <div class="ppt-design-spec-section-title" style="margin-top: 14px;">Batch Size</div>
+                    <div class="ppt-design-spec-seg">
+                        ${segBtnNum('updateBatchSize', 1, '1', batchSize === 1)}
+                        ${segBtnNum('updateBatchSize', 2, '2', batchSize === 2)}
+                        ${segBtnNum('updateBatchSize', 4, '4', batchSize === 4)}
                     </div>
+
+                    <div class="ppt-design-spec-section-title" style="margin-top: 14px;">Model</div>
+                    <div class="ppt-design-spec-row">
+                        <label>模型由「PPT 模型配置」统一管理</label>
+                        <button class="ppt-btn-secondary" type="button" data-action="openModelConfig">
+                            <iconify-icon icon="carbon:settings-adjust"></iconify-icon>
+                            打开模型配置
+                        </button>
+                    </div>
+                </div>
 
                     <div class="ppt-design-spec-preview" data-density="${this._escapeAttr(density)}"
                         style="--ds-bg:${this._escapeAttr(bg)}; --ds-text:${this._escapeAttr(text)}; --ds-primary:${this._escapeAttr(primary)}; --ds-secondary:${this._escapeAttr(secondary)}; --ds-accent:${this._escapeAttr(accent)}; padding:${densityPad}px;">

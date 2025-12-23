@@ -49,6 +49,28 @@ export function resolveToolExecutor(context) {
   return null;
 }
 
+function mergeSignals(a, b) {
+  const signals = [a, b].filter(Boolean);
+  if (signals.length === 0) return null;
+  if (signals.length === 1) return signals[0];
+  if (typeof AbortSignal !== "undefined" && typeof AbortSignal.any === "function") return AbortSignal.any(signals);
+
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  for (const s of signals) {
+    if (s.aborted) return s;
+    s.addEventListener?.("abort", abort, { once: true });
+  }
+  return controller.signal;
+}
+
+let _stepSeq = 0;
+function buildStepId(prefix) {
+  _stepSeq += 1;
+  const base = prefix && typeof prefix === "string" ? prefix : "step";
+  return `${base}_${Date.now().toString(36)}_${_stepSeq}`;
+}
+
 export class BaseStage {
   constructor({ name, eventBus, logger } = {}) {
     this.name = name || "stage";
@@ -95,6 +117,18 @@ export class BaseAgentLoop {
     this.emit = typeof emit === "function" ? emit : null;
     this._tools = {};
     this.registerTools(tools);
+    this._loopMachine = null;
+    this._loopEventName = null;
+    this._loopStatus = null;
+    this._statusHistory = [];
+    this._pauseRequested = false;
+    this._pauseReason = null;
+    this._activeStep = null;
+    this._userInputs = [];
+    this._userInputUnsub = null;
+    this._userInputBus = null;
+    this._userInputEvent = "user.input";
+    this._pauseListenerUnsub = null;
   }
 
   registerTools(tools) {
@@ -227,10 +261,244 @@ export class BaseAgentLoop {
     const context = { ...stageApi, runContext };
     this.eventBus = stageApi.eventBus || this.eventBus || null;
     this.emit = getEmitFn(stageApi) || this.emit || this.eventBus?.emit || null;
+    if (this.eventBus) {
+      this._attachUserInputListener(this.eventBus);
+      this._attachPauseListener(this.eventBus);
+    }
     return this.run(input, context);
   }
 
   _checkPaused(signal) {
     checkPaused(signal);
+  }
+
+  pause(reason = "user_requested") {
+    this._pauseRequested = true;
+    this._pauseReason = reason;
+    this._abortActiveStep(reason);
+  }
+
+  resume() {
+    this._pauseRequested = false;
+    this._pauseReason = null;
+  }
+
+  get loopStatus() {
+    return this._loopStatus;
+  }
+
+  get isPaused() {
+    return this._pauseRequested;
+  }
+
+  get statusHistory() {
+    return Array.isArray(this._statusHistory) ? [...this._statusHistory] : [];
+  }
+
+  initLoopStatus({ status, machine, eventName } = {}) {
+    if (machine) this._loopMachine = machine;
+    if (eventName) this._loopEventName = eventName;
+    if (status) this._loopStatus = status;
+    if (!Array.isArray(this._statusHistory)) this._statusHistory = [];
+  }
+
+  _emitAgentStatusChanged(payload, { eventName } = {}) {
+    const emit = this.emit || this.eventBus?.emit;
+    if (typeof emit !== "function") return;
+    const name = eventName || this._loopEventName || `${this.stageName}.agent.status.changed`;
+    emit(name, { actor: this.actor, status: "info", payload });
+  }
+
+  _recordLoopStatusTransition({ from, to, timestamp, ...meta } = {}) {
+    const ts = typeof timestamp === "number" ? timestamp : Date.now();
+    const entry = { from, to, timestamp: ts, ...meta };
+    if (!Array.isArray(this._statusHistory)) this._statusHistory = [];
+    this._statusHistory.push(entry);
+    this._loopStatus = to;
+    this._emitAgentStatusChanged(entry);
+    return entry;
+  }
+
+  _transitionLoopStatus(newStatus, metadata = {}) {
+    const oldStatus = this._loopStatus;
+    if (oldStatus === newStatus) return null;
+    if (this._loopMachine && typeof this._loopMachine.canTransition === "function") {
+      if (!this._loopMachine.canTransition(oldStatus, newStatus)) {
+        const err = new Error(`Invalid AgentLoop state transition: ${oldStatus} -> ${newStatus}`);
+        err.code = "INVALID_STATE_TRANSITION";
+        throw err;
+      }
+    }
+    return this._recordLoopStatusTransition({ from: oldStatus, to: newStatus, ...metadata });
+  }
+
+  _attachUserInputListener(eventBus, { eventName } = {}) {
+    if (!eventBus || typeof eventBus.subscribe !== "function") return;
+    const resolvedEvent = typeof eventName === "string" && eventName ? eventName : this._userInputEvent;
+    if (this._userInputBus === eventBus && this._userInputEvent === resolvedEvent) return;
+    if (typeof this._userInputUnsub === "function") this._userInputUnsub();
+    this._userInputBus = eventBus;
+    this._userInputEvent = resolvedEvent;
+    this._userInputUnsub = eventBus.subscribe(resolvedEvent, (evt) => {
+      const payload = evt && typeof evt === "object" && "payload" in evt ? evt.payload : evt;
+      this.recordUserInput(payload);
+    });
+  }
+
+  _attachPauseListener(eventBus) {
+    if (!eventBus || typeof eventBus.subscribe !== "function") return;
+    if (this._pauseListenerUnsub) return;
+    this._pauseListenerUnsub = eventBus.subscribe("user.action.pause", (evt) => {
+      const payload = evt && typeof evt === "object" && "payload" in evt ? evt.payload : evt;
+      const reason = payload?.reason || payload?.message || payload;
+      this.pause(typeof reason === "string" ? reason : "user_requested");
+    });
+  }
+
+  recordUserInput(payload) {
+    const entry = {
+      payload,
+      ts: Date.now(),
+    };
+    this._userInputs.push(entry);
+    const emit = this.emit || this.eventBus?.emit;
+    if (typeof emit === "function") {
+      emit(`${this.stageName}.user.input`, { actor: this.actor, status: "info", payload: entry });
+    }
+    return entry;
+  }
+
+  consumeUserInputs({ clear = true } = {}) {
+    const items = Array.isArray(this._userInputs) ? [...this._userInputs] : [];
+    if (clear) this._userInputs = [];
+    return items;
+  }
+
+  drainUserInputsAsText({ clear = true } = {}) {
+    const items = this.consumeUserInputs({ clear });
+    const text = this.formatUserInputs(items);
+    return { items, text };
+  }
+
+  applyUserInputsToConfig(userConfig, { key = "userNotes" } = {}) {
+    const { items, text } = this.drainUserInputsAsText({ clear: true });
+    if (!text) return userConfig;
+    const next = userConfig && typeof userConfig === "object" ? { ...userConfig } : {};
+    const existing = Array.isArray(next[key]) ? next[key] : typeof next[key] === "string" ? [next[key]] : [];
+    next[key] = [...existing, text];
+    next._lastUserNote = text;
+    next._lastUserNoteAt = Date.now();
+    next._rawUserInputs = Array.isArray(next._rawUserInputs) ? [...next._rawUserInputs, ...items] : [...items];
+    return next;
+  }
+
+  hasPendingUserInputs() {
+    return Array.isArray(this._userInputs) && this._userInputs.length > 0;
+  }
+
+  formatUserInputs(items) {
+    const list = Array.isArray(items) ? items : [];
+    const lines = [];
+    for (const item of list) {
+      const payload = item?.payload ?? item;
+      if (payload == null) continue;
+      if (typeof payload === "string") {
+        lines.push(payload.trim());
+        continue;
+      }
+      if (typeof payload?.text === "string") {
+        lines.push(payload.text.trim());
+        continue;
+      }
+      if (typeof payload?.message === "string") {
+        lines.push(payload.message.trim());
+        continue;
+      }
+      try {
+        lines.push(JSON.stringify(payload));
+      } catch {
+        lines.push(String(payload));
+      }
+    }
+    return lines.filter(Boolean).join("\n");
+  }
+
+  _beginStep(stepMeta = {}, context = {}) {
+    const meta = stepMeta && typeof stepMeta === "object" ? stepMeta : {};
+    const stepId = meta.stepId || buildStepId(this.stageName);
+    const startedAt = Date.now();
+    const { signal, controller } = this._createStepSignal(context.signal);
+    const step = {
+      stepId,
+      name: meta.name || meta.step || "step",
+      runId: meta.runId || null,
+      iteration: meta.iteration ?? null,
+      startedAt,
+      meta: meta.meta || null,
+    };
+    this._activeStep = { ...step, signal, controller };
+    this._emitStepEvent("started", step);
+    return {
+      step,
+      context: { ...context, signal },
+    };
+  }
+
+  _endStep(stepInfo, { status = "completed", error, result } = {}) {
+    const step = stepInfo?.step || this._activeStep;
+    if (!step) return;
+    const payload = { ...step };
+    if (error) payload.error = error;
+    if (result !== undefined) payload.result = result;
+    this._emitStepEvent(status, payload);
+    if (this._activeStep && this._activeStep.stepId === step.stepId) {
+      this._activeStep = null;
+    }
+  }
+
+  _emitStepEvent(status, payload) {
+    const emit = this.emit || this.eventBus?.emit;
+    if (typeof emit !== "function") return;
+    emit(`${this.stageName}.step.${status}`, { actor: this.actor, status, payload });
+  }
+
+  _abortActiveStep(reason) {
+    const controller = this._activeStep?.controller;
+    if (!controller || controller.signal.aborted) return;
+    controller.abort(reason || "paused");
+  }
+
+  _createStepSignal(parentSignal) {
+    const controller = new AbortController();
+    const signal = mergeSignals(parentSignal, controller.signal) || controller.signal;
+    return { signal, controller };
+  }
+
+  _isAbortError(err, signal) {
+    if (!err) return false;
+    if (signal?.aborted) return true;
+    const name = err.name || err.code;
+    if (name === "AbortError" || name === "CanceledError" || name === "CancelledError") return true;
+    const msg = err instanceof Error ? err.message : String(err);
+    return msg.toLowerCase().includes("aborted") || msg.toLowerCase().includes("cancelled");
+  }
+
+  _shouldPauseFromError(err, signal) {
+    const runtimeState = getRuntimeState(signal);
+    const pauseRequested = this._pauseRequested || runtimeState?.status === "paused";
+    if (!pauseRequested) return false;
+    return this._isAbortError(err, signal);
+  }
+
+  _createPauseError({ signal, runId } = {}) {
+    const runtimeState = getRuntimeState(signal);
+    const reason = runtimeState?.pausedReason || this._pauseReason || null;
+    const checkpointId = runtimeState?.lastCheckpointId ?? null;
+    return new StagePausedError("Run paused", {
+      checkpointId,
+      reason,
+      timestamp: Date.now(),
+      runId,
+    });
   }
 }

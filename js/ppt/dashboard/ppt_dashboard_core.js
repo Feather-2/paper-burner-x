@@ -49,6 +49,28 @@
         this._destroyFlowViz?.('deepsearch');
         this._destroyFlowViz?.('design');
 
+        const isResearchStage = effectiveState === 'reading' || effectiveState === 'scanning' || effectiveState === 'researching';
+        const uiV2Views = new Set([
+            'upload',
+            'briefing',
+            'deepsearch_premium',
+            'deepsearch_review',
+            'questioning',
+            'script_review',
+            'outline_review',
+            'page_layout',
+            'design_preferences',
+            'designer',
+            'failed'
+        ]);
+        const useUiV2 = uiV2Views.has(viewKey) && (viewKey !== 'deepsearch_premium' || isResearchStage);
+        if (!useUiV2) {
+            this._teardownUiV2?.();
+        } else if (this._renderUiV2?.(viewKey, container)) {
+            this._prevState = this.state;
+            return;
+        }
+
         if (this.state === 'completed') {
             if (prevViewKey === 'script_review' && typeof VditorAdapter !== 'undefined') VditorAdapter.destroy();
             this._prevState = this.state;
@@ -102,6 +124,70 @@
         // Mount premium flow visualizers (async).
         this._mountActiveFlowVisualizers?.();
         this._updateCompressionPanel?.(this.workflowData?.runtimeCompression);
+    },
+
+    _renderUiV2(viewKey, container) {
+        const supported = viewKey === 'upload' || viewKey === 'briefing' || viewKey === 'deepsearch_premium'
+            || viewKey === 'deepsearch_review' || viewKey === 'questioning'
+            || viewKey === 'script_review' || viewKey === 'outline_review'
+            || viewKey === 'page_layout' || viewKey === 'design_preferences'
+            || viewKey === 'designer' || viewKey === 'failed';
+        if (!container || !supported) return false;
+
+        if (this._uiV2Instance) {
+            if (!this._uiV2Mounted) {
+                this._uiV2Instance.router?.mount?.(container);
+                this._uiV2Mounted = true;
+            }
+            this._syncUiV2State?.(viewKey);
+            return true;
+        }
+
+        if (this._uiV2Promise) return false;
+
+        this._uiV2Promise = import('../ui-v2/index.js')
+            .then((mod) => {
+                const starter = mod?.startPptUiV2;
+                if (typeof starter !== 'function') {
+                    throw new Error('UI V2 starter not found');
+                }
+                this._uiV2Instance = starter({ container, generator: this });
+                this._uiV2Mounted = true;
+                this._syncUiV2State?.(viewKey);
+            })
+            .catch((err) => {
+                console.warn('[PPT UI V2] Failed to load:', err);
+            })
+            .finally(() => {
+                this._uiV2Promise = null;
+            });
+
+        return false;
+    },
+
+    _syncUiV2State(viewKey) {
+        const instance = this._uiV2Instance;
+        if (!instance || !instance.stateStore) return;
+
+        instance.adapter?.setGenerator?.(this);
+        instance.adapter?.syncFromGenerator?.();
+
+        const step = this._uploadStep === 2 ? 2 : 1;
+        const nextView = viewKey;
+        instance.stateStore.set('ui.uploadStep', step);
+        instance.stateStore.set('ui.pendingStart', !!this._pendingStartAfterBrief);
+        if (typeof this.state === 'string') instance.stateStore.set('workflow.state', this.state);
+        if (nextView) instance.stateStore.set('ui.view', nextView);
+    },
+
+    _teardownUiV2() {
+        if (!this._uiV2Instance || !this._uiV2Mounted) return;
+        try {
+            this._uiV2Instance.router?.unmount?.();
+        } catch {
+            // ignore
+        }
+        this._uiV2Mounted = false;
     },
 
 

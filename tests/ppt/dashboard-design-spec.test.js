@@ -81,9 +81,9 @@ test('design spec: renders with defaults and current values', () => {
   assert.ok(modeBalanced);
   assert.ok(modeBalanced.classList.contains('active'));
 
-  const modelSelect = document.getElementById('pptDesignModel');
-  assert.ok(modelSelect);
-  assert.equal(modelSelect.value, 'gemini-1.5-pro');
+  const modelButton = document.querySelector('[data-action="openModelConfig"]');
+  assert.ok(modelButton);
+  assert.match(modelButton.textContent || '', /模型配置/);
 });
 
 test('color edit updates workflowData.designSystem.colors.primary', () => {
@@ -130,20 +130,6 @@ test('batch size change updates workflowData.batchSize', () => {
   const btn = document.querySelector("button[onclick*='updateBatchSize(2)']");
   assert.ok(btn);
   assert.ok(btn.classList.contains('active'));
-});
-
-test('model selection updates designSystem.model', () => {
-  setupDom('<!doctype html><html><head></head><body><div id=\"pptPreviewArea\"></div></body></html>');
-
-  const gen = new globalThis.PPTGenerator();
-  gen.renderPreviewArea();
-
-  gen.updateDesignSystemModel('gpt-4o');
-  assert.equal(gen.workflowData.designSystem.model, 'gpt-4o');
-
-  const modelSelect = document.getElementById('pptDesignModel');
-  assert.ok(modelSelect);
-  assert.equal(modelSelect.value, 'gpt-4o');
 });
 
 test('visualPreference.mode change updates UI + userConfig', () => {

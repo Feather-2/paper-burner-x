@@ -228,6 +228,11 @@ function wrapEventBus(eventBus, meta) {
   };
 }
 
+function getOpenGapCount(state) {
+  const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
+  return gaps.filter(g => g?.status === "open" || !g?.status).length;
+}
+
 function wrapEmit(emit, meta) {
   if (typeof emit !== "function") return emit;
   return (name, record) => emit(name, decorateEventRecord(record, meta));
@@ -355,11 +360,10 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
   }
 
   /**
-   * 请求暂停：在下一个安全边界（EXECUTING 前）触发
+   * 请求暂停：立即中断当前步骤，并在安全边界进入暂停态
    */
   pause(reason = "user_requested") {
-    this._pauseRequested = true;
-    this._pauseReason = reason;
+    super.pause(reason);
   }
 
   get isPaused() {
@@ -579,6 +583,15 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     return [...this._statusHistory];
   }
 
+  _getLastCheckpointId() {
+    const history = Array.isArray(this._statusHistory) ? this._statusHistory : [];
+    for (let i = history.length - 1; i >= 0; i--) {
+      const id = history[i]?.checkpointId;
+      if (id) return id;
+    }
+    return null;
+  }
+
   /**
    * 主执行循环
    */
@@ -595,6 +608,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     // 初始化状态
     const state = this._ensureState(runContext, input);
     if (runContext?.runId) state.runId = String(runContext.runId);
+    this._currentState = state;
 
     const logger = createLogger({
       emit: stageApi?.emit,
@@ -611,6 +625,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     });
 
     this._emit("deepsearch.agent.started", { runId: state.runId, isSubAgent: this.isSubAgent });
+    this._emitLegacy("deepsearch.started", { runId: state.runId });
 
     try {
       await this._transitionTo(AgentLoopStatus.RUNNING, { runId: state.runId });
@@ -628,6 +643,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
           mode: "direct",
         });
         this._emit("deepsearch.agent.completed", { runId: state.runId, mode: "direct" });
+        this._emitLegacy("deepsearch.completed", { runId: state.runId, iterations: state.iteration, mode: "direct" });
         return pkg;
       }
 
@@ -639,113 +655,170 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         loopCount++;
         checkCancelled(stageApi?.signal);
 
-        await this._transitionTo(AgentLoopStatus.OBSERVING, {
-          runId: state.runId,
-          iteration: loopCount,
-        });
+        const { step: stepMeta, context: stepContext } = this._beginStep(
+          { name: "deepsearch.iteration", runId: state.runId, iteration: loopCount },
+          stageApi
+        );
+        const stepSignal = stepContext.signal;
+        const stepApi = { ...stageApi, signal: stepSignal };
 
-        // 1. 观察
-        const observation = observe(state);
+        try {
+          await this._transitionTo(AgentLoopStatus.OBSERVING, {
+            runId: state.runId,
+            iteration: loopCount,
+          });
 
-        await this._transitionTo(AgentLoopStatus.THINKING, {
-          runId: state.runId,
-          iteration: loopCount,
-        });
+          // 1. 观察
+          const observation = observe(state);
 
-        // 2. 思考（支持交错思考）
-        const decision = await this._think(observation, state, stageApi, {
-          budgetExhausted: this.budgetManager?.stopped,
-          aborted: stageApi?.signal?.aborted,
-          isSubAgent: this.isSubAgent,
-          subagentsForked: Boolean(state?.L2?.subagentsForked),
-          logger,
-        });
+          await this._transitionTo(AgentLoopStatus.THINKING, {
+            runId: state.runId,
+            iteration: loopCount,
+          });
 
-        logger.info(`Agent decision: ${decision.action}`, {
-          stage: "deepsearch-agent-loop",
-          data: {
-            action: decision.action,
-            reason: decision.reason,
-            iteration: state.iteration,
-            thought: decision.thought?.slice(0, 100), // 截断思考内容
-            mode: this.thinkingMode,
-          },
-        });
+          // 2. 思考（支持交错思考）
+          const decision = await this._think(observation, state, stepApi, {
+            budgetExhausted: this.budgetManager?.stopped,
+            aborted: stageApi?.signal?.aborted,
+            isSubAgent: this.isSubAgent,
+            subagentsForked: Boolean(state?.L2?.subagentsForked),
+            logger,
+          });
 
-        // 3. 执行
-        await this._transitionTo(AgentLoopStatus.EXECUTING, {
-          runId: state.runId,
-          iteration: loopCount,
-          state,
-          stageApi,
-          decision,
-        });
-        const result = await this._execute(decision, state, stageApi, { logger, runContext });
-
-        // 4. 评估 + 自审查
-        await this._transitionTo(AgentLoopStatus.REVIEWING, {
-          runId: state.runId,
-          iteration: loopCount,
-        });
-        const review = await this._review(decision, result, state, stageApi);
-
-        // 5. 决策
-        if (review.decision === AgentDecision.COMPLETE) {
-          await this._transitionTo(AgentLoopStatus.COMPLETED, { runId: state.runId });
-          break;
-        }
-        if (review.decision === AgentDecision.ABORT) {
-          throw new Error(review.reason || "Agent aborted");
-        }
-        if (review.decision === AgentDecision.BACKTRACK && this.archive) {
-          // 春秋蝉: 检查回溯次数限制
-          if (this._backtrackCount >= this.maxBacktracks) {
-            logger.warn("春秋蝉: Backtrack limit reached, forcing completion", {
-              stage: "deepsearch-agent-loop",
-              data: { backtrackCount: this._backtrackCount, maxBacktracks: this.maxBacktracks },
-            });
-            this._emit("deepsearch.agent.backtrack_limit", {
-              runId: state.runId,
-              backtrackCount: this._backtrackCount,
-              maxBacktracks: this.maxBacktracks,
-            });
-            // 强制完成，不再回溯
-            break;
+          if (decision?.action && stepMeta) {
+            stepMeta.name = decision.action;
+            stepMeta.meta = {
+              ...(stepMeta.meta || {}),
+              action: decision.action,
+              reason: decision.reason,
+            };
           }
 
-          // 执行回溯
-          try {
-            const checkpoints = Array.isArray(state?.checkpoints) ? state.checkpoints : [];
-            const fallbackCheckpointId =
-              checkpoints.length >= 2 ? checkpoints[checkpoints.length - 2]?.checkpointId : null;
-            const checkpointId = review.checkpointId || fallbackCheckpointId;
-            if (checkpointId) {
-              const restored = migrateCheckpoint(await this.archive.restore(checkpointId));
-              if (restored?.nodeStates) {
-                const restoredState = DeepSearchState.fromJSON(restored.nodeStates);
-                Object.assign(state, restoredState);
-                this._backtrackCount++;
-                logger.info("春秋蝉: State restored from checkpoint", {
+          logger.info(`Agent decision: ${decision.action}`, {
+            stage: "deepsearch-agent-loop",
+            data: {
+              action: decision.action,
+              reason: decision.reason,
+              iteration: state.iteration,
+              thought: decision.thought?.slice(0, 100), // 截断思考内容
+              mode: this.thinkingMode,
+            },
+          });
+
+          // 3. 执行
+          await this._transitionTo(AgentLoopStatus.EXECUTING, {
+            runId: state.runId,
+            iteration: loopCount,
+            state,
+            stageApi,
+            decision,
+          });
+          const result = await this._execute(decision, state, stepApi, { logger, runContext });
+
+          // 4. 评估 + 自审查
+          await this._transitionTo(AgentLoopStatus.REVIEWING, {
+            runId: state.runId,
+            iteration: loopCount,
+          });
+          const review = await this._review(decision, result, state, stageApi);
+
+          // 5. 决策
+          if (review.decision === AgentDecision.COMPLETE) {
+            await this._transitionTo(AgentLoopStatus.COMPLETED, { runId: state.runId });
+            this._endStep({ step: stepMeta }, { status: "completed" });
+            break;
+          }
+          if (review.decision === AgentDecision.ABORT) {
+            throw new Error(review.reason || "Agent aborted");
+          }
+
+          let shouldBreak = false;
+          if (review.decision === AgentDecision.BACKTRACK && this.archive) {
+            // 春秋蝉: 检查回溯次数限制
+            if (this._backtrackCount >= this.maxBacktracks) {
+              logger.warn("春秋蝉: Backtrack limit reached, forcing completion", {
+                stage: "deepsearch-agent-loop",
+                data: { backtrackCount: this._backtrackCount, maxBacktracks: this.maxBacktracks },
+              });
+              this._emit("deepsearch.agent.backtrack_limit", {
+                runId: state.runId,
+                backtrackCount: this._backtrackCount,
+                maxBacktracks: this.maxBacktracks,
+              });
+              // 强制完成，不再回溯
+              shouldBreak = true;
+            } else {
+              // 执行回溯
+              try {
+                const checkpoints = Array.isArray(state?.checkpoints) ? state.checkpoints : [];
+                const fallbackCheckpointId =
+                  checkpoints.length >= 2 ? checkpoints[checkpoints.length - 2]?.checkpointId : null;
+                const checkpointId = review.checkpointId || fallbackCheckpointId;
+                if (checkpointId) {
+                  const restored = migrateCheckpoint(await this.archive.restore(checkpointId));
+                  if (restored?.nodeStates) {
+                    const restoredState = DeepSearchState.fromJSON(restored.nodeStates);
+                    Object.assign(state, restoredState);
+                    this._backtrackCount++;
+                    logger.info("春秋蝉: State restored from checkpoint", {
+                      stage: "deepsearch-agent-loop",
+                      data: {
+                        checkpointId,
+                        backtrackCount: this._backtrackCount,
+                        remaining: this.maxBacktracks - this._backtrackCount,
+                      },
+                    });
+                  }
+                }
+              } catch (err) {
+                logger.warn("春秋蝉: Backtrack failed", {
                   stage: "deepsearch-agent-loop",
-                  data: {
-                    checkpointId,
-                    backtrackCount: this._backtrackCount,
-                    remaining: this.maxBacktracks - this._backtrackCount,
-                  },
+                  data: { error: err?.message },
                 });
               }
             }
-          } catch (err) {
-            logger.warn("春秋蝉: Backtrack failed", {
-              stage: "deepsearch-agent-loop",
-              data: { error: err?.message },
-            });
           }
-        }
 
-        // 压缩记忆（金蝉脱壳）
-        if (loopCount % 3 === 0) {
-          await this._compressMemory(state, stageApi);
+          // 压缩记忆（金蝉脱壳）
+          if (!shouldBreak && loopCount % 3 === 0) {
+            await this._compressMemory(state, stepApi);
+          }
+
+          this._endStep({ step: stepMeta }, { status: "completed" });
+          if (shouldBreak) break;
+        } catch (err) {
+          if (err instanceof StagePausedError) {
+            this._endStep({ step: stepMeta }, { status: "paused", error: err.message });
+            throw err;
+          }
+
+          const pauseLike = this._shouldPauseFromError(err, stepSignal);
+          if (pauseLike) {
+            const message = err instanceof Error ? err.message : String(err);
+            const fallbackCheckpointId = this._getLastCheckpointId();
+            this._endStep({ step: stepMeta }, { status: "paused", error: message });
+            if (this._loopStatus !== AgentLoopStatus.PAUSED) {
+              try {
+                this._applyTransition(AgentLoopStatus.PAUSED, {
+                  runId: state.runId,
+                  iteration: loopCount,
+                  ...(fallbackCheckpointId ? { checkpointId: fallbackCheckpointId } : {}),
+                  pausedReason: message,
+                });
+              } catch {
+                // ignore invalid transition
+              }
+            }
+            const pauseError = this._createPauseError({ signal: stageApi.signal, runId: state.runId });
+            if (!pauseError.checkpointId && fallbackCheckpointId) {
+              pauseError.checkpointId = fallbackCheckpointId;
+            }
+            throw pauseError;
+          }
+
+          const message = err instanceof Error ? err.message : String(err);
+          this._endStep({ step: stepMeta }, { status: "failed", error: message });
+          throw err;
         }
       }
 
@@ -769,6 +842,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
       });
 
       this._emit("deepsearch.agent.completed", { runId: state.runId, iterations: state.iteration });
+      this._emitLegacy("deepsearch.completed", { runId: state.runId, iterations: state.iteration });
 
       return pkg;
     } catch (err) {
@@ -796,6 +870,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         data: { runId: state.runId, error: err.message },
       });
       this._emit("deepsearch.agent.failed", { runId: state.runId, error: err.message });
+      this._emitLegacy("deepsearch.failed", { runId: state.runId, error: err.message });
       throw err;
     }
   }
@@ -809,9 +884,13 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
    */
   async _think(observation, state, stageApi, context = {}) {
     const { budgetExhausted, aborted, isSubAgent, logger } = context;
+    const hasUserNotes = this.hasPendingUserInputs();
 
     // 规则模式：使用纯规则决策
     if (this.thinkingMode === ThinkingMode.RULES) {
+      if (hasUserNotes) {
+        return this._thinkWithLLM(observation, state, stageApi, context);
+      }
       return think(observation, { budgetExhausted, aborted, isSubAgent });
     }
 
@@ -822,6 +901,18 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
 
     // 混合模式：规则优先，复杂/不确定情况用 LLM
     const rulesDecision = think(observation, { budgetExhausted, aborted, isSubAgent });
+
+    if (hasUserNotes) {
+      try {
+        return await this._thinkWithLLM(observation, state, stageApi, context);
+      } catch (err) {
+        logger?.warn("交错思考: 用户意见触发的 LLM 思考失败，回退规则", {
+          stage: "deepsearch-agent-loop",
+          data: { error: err?.message },
+        });
+        return rulesDecision;
+      }
+    }
 
     // 触发 LLM 思考的条件
     const shouldUseLLM =
@@ -874,6 +965,21 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
       return think(observation, context);
     }
 
+    const { items: userInputItems, text: userNotes } = this.drainUserInputsAsText();
+    if (userNotes) {
+      const baseConfig = isPlainObject(state?.userConfig) ? state.userConfig : {};
+      const existing = Array.isArray(baseConfig.userNotes) ? baseConfig.userNotes : [];
+      state.userConfig = {
+        ...baseConfig,
+        userNotes: [...existing, userNotes],
+        _lastUserNote: userNotes,
+        _lastUserNoteAt: Date.now(),
+        _rawUserInputs: Array.isArray(baseConfig._rawUserInputs)
+          ? [...baseConfig._rawUserInputs, ...userInputItems]
+          : [...userInputItems],
+      };
+    }
+
     // 构建 ReAct prompt
     const prompt = REACT_THINK_PROMPT
       .replace("{taskGoal}", state.taskGoal || "分析文档")
@@ -887,11 +993,14 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
       .replace("{hasReport}", String(observation.hasReport))
       .replace("{isLargeDoc}", String(observation.isLargeDoc))
       .replace("{isSubAgent}", String(this.isSubAgent));
+    const finalPrompt = userNotes
+      ? `${prompt}\n\n## 用户意见\n${userNotes}`
+      : prompt;
 
     try {
       const result = await callModel(
-        [{ role: "user", content: prompt }],
-        { temperature: 0.3, maxTokens: 500 }
+        [{ role: "user", content: finalPrompt }],
+        { temperature: 0.3, maxTokens: 500, signal: stageApi?.signal }
       );
 
       const candidate = extractJsonCandidate(result?.content);
@@ -1057,6 +1166,12 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
    */
   async _executeRetrieveAndExtract(state, stageApi, { logger }) {
     logger.info("Executing: retrieve_and_extract", { stage: "deepsearch-agent-loop", data: { iteration: state.iteration } });
+    const iteration = state.iteration;
+    this._emitLegacy("deepsearch.iteration.started", {
+      runId: state.runId,
+      iteration,
+      openGapCount: getOpenGapCount(state),
+    });
 
     // 调用能力
     if (this.capabilities.retrieveAndExtract) {
@@ -1072,6 +1187,12 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     await runDeepSearchRetrieveStage({}, { state }, stageApi);
     await runDeepSearchUnderstandStage({}, { state }, stageApi);
 
+    this._saveUiCheckpoint(state);
+    this._emitLegacy("deepsearch.iteration.completed", {
+      runId: state.runId,
+      iteration,
+      openGapCount: getOpenGapCount(state),
+    });
     state.iteration++;
     return { retrieved: true, extracted: true };
   }
@@ -1103,6 +1224,12 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
    */
   async _executeForkSubAgents(state, stageApi, { logger, runContext }) {
     logger.info("Executing: fork_subagents", { stage: "deepsearch-agent-loop" });
+    const iteration = state.iteration;
+    this._emitLegacy("deepsearch.iteration.started", {
+      runId: state.runId,
+      iteration,
+      openGapCount: getOpenGapCount(state),
+    });
 
     const sources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
     if (sources.length <= 1) {
@@ -1183,6 +1310,12 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     // 合并结果
     await this._mergeSubAgentResults(state, subAgentResults, stageApi, { logger, sharedContext });
 
+    this._saveUiCheckpoint(state);
+    this._emitLegacy("deepsearch.iteration.completed", {
+      runId: state.runId,
+      iteration,
+      openGapCount: getOpenGapCount(state),
+    });
     state.iteration++;
     return { forked: true, subAgentCount: sources.length, results: subAgentResults };
   }
@@ -1540,6 +1673,28 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     const emit = this.emit || this.eventBus?.emit;
     if (typeof emit === "function") {
       emit(name, { actor: "deepsearch-agent-loop", status: "info", payload });
+    }
+  }
+
+  _emitLegacy(name, payload) {
+    if (this.isSubAgent) return;
+    this._emit(name, payload);
+  }
+
+  _saveUiCheckpoint(state) {
+    if (this.isSubAgent || typeof state?.saveCheckpoint !== "function") return null;
+    try {
+      const checkpoint = state.saveCheckpoint();
+      if (checkpoint?.checkpointId) {
+        this._emit("deepsearch.checkpoint.saved", {
+          checkpointId: checkpoint.checkpointId,
+          iteration: checkpoint.iteration,
+          metrics: checkpoint.metrics,
+        });
+      }
+      return checkpoint;
+    } catch {
+      return null;
     }
   }
 }

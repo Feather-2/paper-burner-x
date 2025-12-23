@@ -1,5 +1,10 @@
 import { createStateMachine } from "../../runtime/state-machine.js";
 import { StateMachineRegistry } from "../../runtime/state-machine-registry.js";
+import {
+  AgentLoopStatus,
+  AGENT_LOOP_TRANSITIONS,
+  createAgentLoopMachine,
+} from "../../runtime/agent-loop-status.js";
 
 export const DesignPhase = Object.freeze({
   IDLE: "idle",
@@ -35,31 +40,11 @@ export const DESIGN_PHASE_TRANSITIONS = Object.freeze({
 
 export const designPhaseMachine = createStateMachine(DESIGN_PHASE_TRANSITIONS, "DesignPhase");
 
-export const DesignLoopStatus = Object.freeze({
-  IDLE: "idle",
-  RUNNING: "running",
-  OBSERVING: "observing",
-  THINKING: "thinking",
-  EXECUTING: "executing",
-  REVIEWING: "reviewing",
-  PAUSED: "paused",
-  COMPLETED: "completed",
-  ABORTED: "aborted",
-});
+export const DesignLoopStatus = AgentLoopStatus;
 
-export const DESIGN_LOOP_TRANSITIONS = Object.freeze({
-  [DesignLoopStatus.IDLE]: [DesignLoopStatus.RUNNING],
-  [DesignLoopStatus.RUNNING]: [DesignLoopStatus.OBSERVING, DesignLoopStatus.COMPLETED, DesignLoopStatus.ABORTED],
-  [DesignLoopStatus.OBSERVING]: [DesignLoopStatus.THINKING, DesignLoopStatus.COMPLETED],
-  [DesignLoopStatus.THINKING]: [DesignLoopStatus.EXECUTING, DesignLoopStatus.PAUSED, DesignLoopStatus.ABORTED],
-  [DesignLoopStatus.EXECUTING]: [DesignLoopStatus.REVIEWING, DesignLoopStatus.ABORTED],
-  [DesignLoopStatus.REVIEWING]: [DesignLoopStatus.OBSERVING, DesignLoopStatus.COMPLETED, DesignLoopStatus.ABORTED],
-  [DesignLoopStatus.PAUSED]: [DesignLoopStatus.RUNNING, DesignLoopStatus.ABORTED],
-  [DesignLoopStatus.COMPLETED]: [],
-  [DesignLoopStatus.ABORTED]: [],
-});
+export const DESIGN_LOOP_TRANSITIONS = AGENT_LOOP_TRANSITIONS;
 
-export const designLoopMachine = createStateMachine(DESIGN_LOOP_TRANSITIONS, "DesignLoop");
+export const designLoopMachine = createAgentLoopMachine("DesignLoop");
 
 /**
  * Design Agent checkpoint schema (Archive):

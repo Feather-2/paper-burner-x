@@ -2,7 +2,7 @@
  * PPT Model Bridge - 将 PPT 模型配置桥接到 Agent Runtime
  *
  * 从 localStorage 读取 PPT 模型配置，转换为 aiApiService 可用的格式
- * 支持 usage-based 路由：analyst/planner/writer/reviewer/worker/designer/vision
+ * 支持 usage-based 路由：analyst/planner/writer/reviewer/worker/designer/vision (+ reranker/shadow/think/codesearch)
  */
 
 const STORAGE_KEYS = {
@@ -22,6 +22,10 @@ const USAGE_TO_CONFIG = {
   worker: 'lang',     // 通用任务
   reviewer: 'lang',   // 审阅
   designer: 'lang',   // 设计阶段（Design / Brainstorm / DSL）
+  reranker: 'lang',   // 检索重排
+  shadow: 'lang',     // Shadow Agent
+  think: 'lang',      // Think / Reflection
+  codesearch: 'lang', // Code/Tool Search
   vision: 'vision',   // 图像理解
   image: 'img'        // 图像生成
 };
@@ -53,7 +57,7 @@ function normalizePptModelTags(raw) {
 
 function normalizePptRolePriority(raw) {
   // 基础角色（与 agent runtime 对应）
-  const baseRoles = ['analyst', 'planner', 'writer', 'reviewer', 'vision', 'worker'];
+  const baseRoles = ['analyst', 'planner', 'writer', 'reviewer', 'vision', 'worker', 'reranker', 'shadow', 'think', 'codesearch'];
   // Design 子角色（UI 配置中使用的）
   const designSubRoles = ['design_tokens', 'design_brainstorm', 'design_layout', 'design_svg', 'design_image', 'design_review'];
 
@@ -198,6 +202,21 @@ export function buildPptUsageConfigForModelRouter() {
     let candidates = priority[role];
     if (!candidates || candidates.length === 0) {
       candidates = legacyLang ? [legacyLang] : [];
+    }
+    result[role] = filterByCapability(candidates, 'lang');
+  }
+
+  const aliasRoles = {
+    reranker: 'planner',
+    shadow: 'reviewer',
+    think: 'analyst',
+    codesearch: 'worker'
+  };
+
+  for (const [role, fallbackRole] of Object.entries(aliasRoles)) {
+    let candidates = priority[role];
+    if (!candidates || candidates.length === 0) {
+      candidates = result[fallbackRole] || (legacyLang ? [legacyLang] : []);
     }
     result[role] = filterByCapability(candidates, 'lang');
   }

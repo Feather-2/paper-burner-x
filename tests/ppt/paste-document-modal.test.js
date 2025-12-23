@@ -55,7 +55,7 @@ test.afterEach(() => {
 test('upload view: renders "直接粘贴文档" button', () => {
   const gen = new globalThis.PPTGenerator();
   const html = gen._renderUploadView();
-  assert.ok(html.includes('openPasteDocumentModal()'));
+  assert.ok(html.includes('data-action="openPasteDocumentModal"'));
   assert.ok(html.includes('carbon:paste'));
   assert.ok(html.includes('直接粘贴文档'));
 });

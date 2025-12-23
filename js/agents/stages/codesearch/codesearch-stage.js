@@ -18,10 +18,13 @@ import { CODESEARCH_SYSTEM_PROMPT, CODESEARCH_STEP_PROMPT, CODESEARCH_SUMMARIZE_
 
 // 复用 DeepSearch 基础设施
 import { createBudgetManager, BudgetAction } from "../deepsearch/budget.js";
-import { checkCancelled, makeStageEmitter } from "../deepsearch/state.js";
+import { makeStageEmitter } from "../deepsearch/state.js";
 import { createLogger } from "../deepsearch/logger.js";
 import { getModelCaller } from "../deepsearch/model.js";
 import { isPlainObject, toNonEmptyString } from "../../shared/value-utils.js";
+import { BaseAgentLoop, checkCancelled } from "../../runtime/agent-loop.js";
+import { AgentLoopStatus, createAgentLoopMachine } from "../../runtime/agent-loop-status.js";
+import { StagePausedError } from "../../runtime/stage-errors.js";
 
 const DEFAULT_MAX_STEPS = 20;
 const DEFAULT_TIMEOUT_MS = 120_000; // 2 分钟
@@ -99,10 +102,16 @@ function formatToolResult(toolName, result) {
   }
 }
 
-export class CodeSearchStage {
+export class CodeSearchStage extends BaseAgentLoop {
   constructor(options = {}) {
+    super({ actor: "codesearch", stageName: "codesearch", eventBus: options.eventBus });
     this.maxSteps = options.maxSteps || DEFAULT_MAX_STEPS;
     this.timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
+    this.initLoopStatus({
+      status: AgentLoopStatus.IDLE,
+      machine: createAgentLoopMachine("CodeSearchLoop"),
+      eventName: "codesearch.agent.status.changed",
+    });
   }
 
   /**
@@ -114,7 +123,10 @@ export class CodeSearchStage {
    * @param {object} input.userConfig - 用户配置
    * @param {object} stageApi - Stage API
    */
-  async execute(runContext, input, stageApi = {}) {
+  async run(input, context = {}) {
+    const runContext = context.runContext || {};
+    const stageApi = context;
+    const runId = runContext?.runId || input?.runId || "run_unknown";
     const query = toNonEmptyString(input?.query) || "分析这个代码库的架构";
     const userConfig = isPlainObject(input?.userConfig) ? input.userConfig : {};
 
@@ -141,8 +153,8 @@ export class CodeSearchStage {
     const emit = makeStageEmitter(stageApi, "codesearch");
 
     // 取消检查
-    const checkStop = () => {
-      checkCancelled(stageApi);
+    const checkStop = (signal) => {
+      checkCancelled(signal);
       if (budgetStopRequested) {
         throw new Error("CodeSearch: Budget exceeded");
       }
@@ -161,11 +173,12 @@ export class CodeSearchStage {
       throw new Error("CodeSearch: No LLM model available. Provide stageApi.modelRouter or stageApi.aiApiService.");
     }
 
+    this._transitionLoopStatus(AgentLoopStatus.RUNNING, { runId, iteration: 0 });
     logger.info("CodeSearch started", { stage: "codesearch", data: { query, maxSteps: this.maxSteps } });
     emit?.("codesearch.started", { query, maxSteps: this.maxSteps });
 
     // Agent Loop 上下文
-    const context = {
+    const loopState = {
       query,
       steps: [],
       observations: [],
@@ -176,91 +189,166 @@ export class CodeSearchStage {
 
     let step = 0;
     let done = false;
+    let aborted = false;
 
     while (!done && step < this.maxSteps) {
-      checkStop();
       step++;
+      const { step: stepMeta, context: stepContext } = this._beginStep(
+        { name: "codesearch.step", runId, iteration: step },
+        stageApi
+      );
+      const stepSignal = stepContext.signal;
 
-      logger.info(`Step ${step}`, { stage: "codesearch", data: { step } });
-      emit?.("codesearch.step.started", { step, total: this.maxSteps });
-
-      // 构建当前 prompt
-      const stepPrompt = CODESEARCH_STEP_PROMPT
-        .replace("{QUERY}", query)
-        .replace("{STEP}", String(step))
-        .replace("{MAX_STEPS}", String(this.maxSteps))
-        .replace("{OBSERVATIONS}", context.observations.slice(-10).join("\n\n---\n\n") || "(无)");
-
-      // 调用 LLM 决定下一步
-      let llmResponse;
       try {
-        const messages = [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: stepPrompt },
-        ];
+        checkStop(stepSignal);
+        await this._transitionLoopStatus(AgentLoopStatus.OBSERVING, { runId, iteration: step, stepId: stepMeta.stepId });
+        await this._transitionLoopStatus(AgentLoopStatus.THINKING, { runId, iteration: step, stepId: stepMeta.stepId });
 
-        llmResponse = await callModel(messages, {
-          model: "auto",
-          temperature: 0.3,
-          maxTokens: 1000,
+        logger.info(`Step ${step}`, { stage: "codesearch", data: { step } });
+        emit?.("codesearch.step.started", { step, total: this.maxSteps });
+
+        const { text: userNotes } = this.drainUserInputsAsText();
+
+        // 构建当前 prompt
+        const basePrompt = CODESEARCH_STEP_PROMPT
+          .replace("{QUERY}", query)
+          .replace("{STEP}", String(step))
+          .replace("{MAX_STEPS}", String(this.maxSteps))
+          .replace("{OBSERVATIONS}", loopState.observations.slice(-10).join("\n\n---\n\n") || "(无)");
+        const stepPrompt = userNotes
+          ? `${basePrompt}\n\n用户意见:\n${userNotes}`
+          : basePrompt;
+
+        // 调用 LLM 决定下一步
+        let llmResponse;
+        try {
+          const messages = [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: stepPrompt },
+          ];
+
+          llmResponse = await callModel(messages, {
+            model: "auto",
+            temperature: 0.3,
+            maxTokens: 1000,
+            signal: stepSignal,
+          });
+
+          // 记录 token 消耗
+          if (llmResponse?.usage) {
+            budgetManager.recordUsage({
+              input: llmResponse.usage.input || llmResponse.usage.prompt_tokens || 0,
+              output: llmResponse.usage.output || llmResponse.usage.completion_tokens || 0,
+            });
+          }
+        } catch (err) {
+          const pauseLike = this._shouldPauseFromError(err, stepSignal);
+          const message = err instanceof Error ? err.message : String(err);
+          this._endStep({ step: stepMeta }, { status: pauseLike ? "paused" : "failed", error: message });
+          if (pauseLike) {
+            if (this.loopStatus !== AgentLoopStatus.PAUSED) {
+              await this._transitionLoopStatus(AgentLoopStatus.PAUSED, {
+                runId,
+                iteration: step,
+                stepId: stepMeta.stepId,
+                reason: message,
+              });
+            }
+            throw this._createPauseError({ signal: stepSignal, runId });
+          }
+          logger.error("LLM call failed", { stage: "codesearch", data: { error: message } });
+          emit?.("codesearch.step.failed", { step, error: message });
+          aborted = true;
+          await this._transitionLoopStatus(AgentLoopStatus.ABORTED, {
+            runId,
+            iteration: step,
+            stepId: stepMeta.stepId,
+            error: message,
+          });
+          break;
+        }
+
+        const responseText = llmResponse?.content || llmResponse?.text || "";
+
+        // 解析 action
+        const action = parseAction(responseText);
+
+        if (!action) {
+          logger.warn("Failed to parse action", { stage: "codesearch", data: { response: responseText.slice(0, 200) } });
+          loopState.observations.push(`[Step ${step}] Failed to parse LLM response`);
+          await this._transitionLoopStatus(AgentLoopStatus.REVIEWING, { runId, iteration: step, stepId: stepMeta.stepId });
+          this._endStep({ step: stepMeta }, { status: "failed", error: "parse_failed" });
+          continue;
+        }
+
+        // 检查是否完成
+        if (action.action === "done" || action.done) {
+          done = true;
+          loopState.finalThought = action.thought || action.summary || responseText;
+          emit?.("codesearch.step.completed", { step, action: "done" });
+          await this._transitionLoopStatus(AgentLoopStatus.REVIEWING, { runId, iteration: step, stepId: stepMeta.stepId });
+          this._endStep({ step: stepMeta }, { status: "completed" });
+          break;
+        }
+
+        await this._transitionLoopStatus(AgentLoopStatus.EXECUTING, { runId, iteration: step, stepId: stepMeta.stepId });
+
+        // 执行工具
+        const toolName = action.action || action.tool;
+        const toolArgs = action.args || {};
+
+        logger.info(`Executing tool: ${toolName}`, { stage: "codesearch", data: { toolName, args: toolArgs } });
+
+        let result;
+        try {
+          result = await tools.execute(toolName, toolArgs);
+        } catch (err) {
+          result = { error: err.message };
+        }
+
+        // 格式化结果
+        const formattedResult = formatToolResult(toolName, result);
+        loopState.observations.push(`[Step ${step}] ${formattedResult}`);
+        loopState.steps.push({ step, tool: toolName, args: toolArgs, result });
+
+        emit?.("codesearch.step.completed", {
+          step,
+          tool: toolName,
+          args: toolArgs,
+          resultSummary: result.error || `${toolName} completed`,
         });
 
-        // 记录 token 消耗
-        if (llmResponse?.usage) {
-          budgetManager.recordUsage({
-            input: llmResponse.usage.input || llmResponse.usage.prompt_tokens || 0,
-            output: llmResponse.usage.output || llmResponse.usage.completion_tokens || 0,
+        await this._transitionLoopStatus(AgentLoopStatus.REVIEWING, { runId, iteration: step, stepId: stepMeta.stepId });
+        this._endStep({ step: stepMeta }, { status: "completed" });
+      } catch (err) {
+        if (err instanceof StagePausedError) {
+          throw err;
+        }
+        const pauseLike = this._shouldPauseFromError(err, stepSignal);
+        if (pauseLike) {
+          this._endStep({ step: stepMeta }, { status: "paused", error: err?.message });
+          if (this.loopStatus !== AgentLoopStatus.PAUSED) {
+            await this._transitionLoopStatus(AgentLoopStatus.PAUSED, {
+              runId,
+              iteration: step,
+              stepId: stepMeta.stepId,
+              reason: err?.message,
+            });
+          }
+          throw this._createPauseError({ signal: stepSignal, runId });
+        }
+        this._endStep({ step: stepMeta }, { status: "failed", error: err?.message });
+        aborted = true;
+        if (this.loopStatus !== AgentLoopStatus.ABORTED) {
+          await this._transitionLoopStatus(AgentLoopStatus.ABORTED, {
+            runId,
+            iteration: step,
+            stepId: stepMeta.stepId,
+            error: err?.message,
           });
         }
-      } catch (err) {
-        logger.error("LLM call failed", { stage: "codesearch", data: { error: err.message } });
-        emit?.("codesearch.step.failed", { step, error: err.message });
-        break;
+        throw err;
       }
-
-      const responseText = llmResponse?.content || llmResponse?.text || "";
-
-      // 解析 action
-      const action = parseAction(responseText);
-
-      if (!action) {
-        logger.warn("Failed to parse action", { stage: "codesearch", data: { response: responseText.slice(0, 200) } });
-        context.observations.push(`[Step ${step}] Failed to parse LLM response`);
-        continue;
-      }
-
-      // 检查是否完成
-      if (action.action === "done" || action.done) {
-        done = true;
-        context.finalThought = action.thought || action.summary || responseText;
-        emit?.("codesearch.step.completed", { step, action: "done" });
-        break;
-      }
-
-      // 执行工具
-      const toolName = action.action || action.tool;
-      const toolArgs = action.args || {};
-
-      logger.info(`Executing tool: ${toolName}`, { stage: "codesearch", data: { toolName, args: toolArgs } });
-
-      let result;
-      try {
-        result = await tools.execute(toolName, toolArgs);
-      } catch (err) {
-        result = { error: err.message };
-      }
-
-      // 格式化结果
-      const formattedResult = formatToolResult(toolName, result);
-      context.observations.push(`[Step ${step}] ${formattedResult}`);
-      context.steps.push({ step, tool: toolName, args: toolArgs, result });
-
-      emit?.("codesearch.step.completed", {
-        step,
-        tool: toolName,
-        args: toolArgs,
-        resultSummary: result.error || `${toolName} completed`,
-      });
     }
 
     // 生成最终总结
@@ -271,7 +359,7 @@ export class CodeSearchStage {
     try {
       const summarizePrompt = CODESEARCH_SUMMARIZE_PROMPT
         .replace("{QUERY}", query)
-        .replace("{OBSERVATIONS}", context.observations.join("\n\n---\n\n"));
+        .replace("{OBSERVATIONS}", loopState.observations.join("\n\n---\n\n"));
 
       const messages = [
         { role: "system", content: "你是代码分析专家。根据探索结果生成结构化的分析报告。使用 Markdown 格式，包含 Mermaid 架构图。" },
@@ -284,24 +372,31 @@ export class CodeSearchStage {
         maxTokens: 2000,
       });
 
-      summary = summaryResponse?.content || summaryResponse?.text || context.finalThought || "分析完成";
+      summary = summaryResponse?.content || summaryResponse?.text || loopState.finalThought || "分析完成";
     } catch (err) {
       logger.error("Summary generation failed", { stage: "codesearch", data: { error: err.message } });
-      summary = context.finalThought || `分析完成，共 ${step} 步`;
+      summary = loopState.finalThought || `分析完成，共 ${step} 步`;
     }
 
     const result = {
       query,
       summary,
-      steps: context.steps,
+      steps: loopState.steps,
       totalSteps: step,
       budgetUsage: budgetManager.getStats(),
     };
 
     logger.info("CodeSearch completed", { stage: "codesearch", data: { totalSteps: step } });
     emit?.("codesearch.completed", { totalSteps: step });
+    if (!aborted) {
+      this._transitionLoopStatus(AgentLoopStatus.COMPLETED, { runId, iteration: step });
+    }
 
     return result;
+  }
+
+  async execute(runContext, input, stageApi = {}) {
+    return super.execute(runContext, input, stageApi);
   }
 
   async _getDefaultFs() {

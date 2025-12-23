@@ -1,5 +1,11 @@
 import { createStateMachine } from "../../runtime/state-machine.js";
 import { StateMachineRegistry } from "../../runtime/state-machine-registry.js";
+import {
+  AgentLoopStatus,
+  AGENT_LOOP_TRANSITIONS,
+  createAgentLoopMachine,
+  isValidAgentLoopStatus,
+} from "../../runtime/agent-loop-status.js";
 
 // === Phase 状态 ===
 export const PhaseStatus = Object.freeze({
@@ -108,31 +114,8 @@ export const DecisionStage = Object.freeze({
 });
 
 // === Agent Loop 执行状态 ===
-export const AgentLoopStatus = Object.freeze({
-  IDLE: "idle",           // 未启动
-  RUNNING: "running",     // 运行中（进入主循环）
-  OBSERVING: "observing", // 观察当前状态
-  THINKING: "thinking",   // 思考下一步
-  EXECUTING: "executing", // 执行动作
-  REVIEWING: "reviewing", // 审查结果
-  PAUSED: "paused",       // 暂停（等待外部输入）
-  COMPLETED: "completed", // 正常完成
-  ABORTED: "aborted",     // 异常终止
-});
-
-export const AGENT_LOOP_TRANSITIONS = Object.freeze({
-  [AgentLoopStatus.IDLE]: [AgentLoopStatus.RUNNING],
-  [AgentLoopStatus.RUNNING]: [AgentLoopStatus.OBSERVING, AgentLoopStatus.COMPLETED, AgentLoopStatus.ABORTED],
-  [AgentLoopStatus.OBSERVING]: [AgentLoopStatus.THINKING, AgentLoopStatus.COMPLETED],
-  [AgentLoopStatus.THINKING]: [AgentLoopStatus.EXECUTING, AgentLoopStatus.PAUSED, AgentLoopStatus.ABORTED],
-  [AgentLoopStatus.EXECUTING]: [AgentLoopStatus.REVIEWING, AgentLoopStatus.ABORTED],
-  [AgentLoopStatus.REVIEWING]: [AgentLoopStatus.OBSERVING, AgentLoopStatus.COMPLETED, AgentLoopStatus.ABORTED],
-  [AgentLoopStatus.PAUSED]: [AgentLoopStatus.RUNNING, AgentLoopStatus.ABORTED],
-  [AgentLoopStatus.COMPLETED]: [],
-  [AgentLoopStatus.ABORTED]: [],
-});
-
-export const agentLoopMachine = createStateMachine(AGENT_LOOP_TRANSITIONS, "AgentLoop");
+export { AgentLoopStatus, AGENT_LOOP_TRANSITIONS, isValidAgentLoopStatus };
+export const agentLoopMachine = createAgentLoopMachine("AgentLoop");
 
 registry.register("deepsearch.agentLoop", agentLoopMachine, {
   module: "deepsearch",
@@ -166,6 +149,4 @@ export function isValidDecisionStage(value) {
   return Object.values(DecisionStage).includes(value);
 }
 
-export function isValidAgentLoopStatus(value) {
-  return Object.values(AgentLoopStatus).includes(value);
-}
+// isValidAgentLoopStatus re-exported from runtime/agent-loop-status.js
