@@ -19,12 +19,12 @@ function teardownDom() {
 
 test.afterEach(() => {
   teardownDom();
-  delete require.cache[require.resolve('../../js/ppt/ppt_generator_workflow.js')];
+  delete require.cache[require.resolve('../../js/ppt/generator/ppt_generator_workflow.js')];
 });
 
 test('import PPTX as deck: parsed → slideIntents set → design.batch template branch populates deckHtmlDsl', async () => {
   setupDom('<!doctype html><html><body></body></html>');
-  globalThis.SlideParser = require('../../js/ppt/slide-parser.js').SlideParser;
+  globalThis.SlideParser = require('../../js/ppt/core/slide-parser.js').SlideParser;
 
   globalThis.PPTGenerator = class PPTGenerator {
     constructor() {
@@ -40,7 +40,7 @@ test('import PPTX as deck: parsed → slideIntents set → design.batch template
     }
   };
 
-  require('../../js/ppt/ppt_generator_workflow.js');
+  require('../../js/ppt/generator/ppt_generator_workflow.js');
 
   const gen = new globalThis.PPTGenerator();
   gen.updateTodos = () => {};
@@ -126,7 +126,7 @@ test('import PPTX as deck: parse failure falls back to manual flow', async () =>
     }
   };
 
-  require('../../js/ppt/ppt_generator_workflow.js');
+  require('../../js/ppt/generator/ppt_generator_workflow.js');
 
   const gen = new globalThis.PPTGenerator();
   gen.updateTodos = () => {};

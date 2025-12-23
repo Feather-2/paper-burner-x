@@ -35,7 +35,7 @@ if (!globalThis.PPTGenerator) {
   };
 }
 
-require('../../js/ppt/ppt_generator_workflow.js');
+require('../../js/ppt/generator/ppt_generator_workflow.js');
 
 test.afterEach(() => {
   teardownDom();

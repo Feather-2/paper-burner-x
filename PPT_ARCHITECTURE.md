@@ -6,37 +6,72 @@
 
 ```
 js/ppt/
-├── 核心系统
+├── core/                        # 核心系统
 │   ├── slide-system.js          # 统一入口，注册全局对象
 │   ├── slide-parser.js          # 幻灯片 HTML 解析器 (15KB)
-│   └── slide-styles.js          # 预定义样式和主题 (20KB)
+│   ├── slide-parser-pptx.js     # PPTX 解析器
+│   ├── slide-styles.js          # 预定义样式和主题 (20KB)
+│   ├── slide-constants.js       # 元素类型与常量
+│   └── math-converter.js        # LaTeX → OMML 转换 (13KB)
 │
-├── 渲染器
+├── renderers/                   # 渲染器
 │   ├── slide-renderer-html.js   # HTML 预览渲染 (39KB)
 │   ├── slide-renderer-pptx.js   # PPTX 导出渲染核心 (37KB)
 │   └── slide-renderer-pptx-freeform.js  # PPTX Freeform 渲染 Mixin (26KB)
 │
-├── PPT 生成器 (Mixin 架构)
+├── generator/                   # PPT 生成器 (Mixin 架构)
+│   ├── ppt_generation.js        # 初始化入口
 │   ├── ppt_generator_core.js    # 核心类定义 (5KB)
 │   ├── ppt_generator_presentation.js  # 演示界面 UI (48KB)
 │   ├── ppt_generator_navigation.js    # 幻灯片导航 (28KB)
 │   ├── ppt_generator_workflow.js      # AI 工作流 (16KB)
 │   ├── ppt_generator_utilities.js     # 工具函数 (7KB)
-│   └── ppt_generator_deletion.js      # 删除逻辑 (4KB)
+│   ├── ppt_generator_deletion.js      # 删除逻辑 (4KB)
+│   ├── ppt_generator_editor.js        # 编辑器集成
+│   └── export/                  # 导出模块 (按依赖顺序加载)
+│       ├── ppt_generator_export_image.js   # 图片处理、Mask烘焙、Canvas截图 (20KB)
+│       ├── ppt_generator_export_baking.js  # 特效检测、分层烘焙 (24KB)
+│       ├── ppt_generator_export_formats.js # PDF/HTML/图片导出 (18KB)
+│       └── ppt_generator_export_core.js    # UI进度、选项、PPTX核心 (15KB)
 │
-├── 导出模块 (按依赖顺序加载)
-│   ├── ppt_generator_export_image.js   # 图片处理、Mask烘焙、Canvas截图 (20KB)
-│   ├── ppt_generator_export_baking.js  # 特效检测、分层烘焙 (24KB)
-│   ├── ppt_generator_export_formats.js # PDF/HTML/图片导出 (18KB)
-│   └── ppt_generator_export_core.js    # UI进度、选项、PPTX核心 (15KB)
+├── dashboard/                   # Dashboard 与可视化
+│   ├── ppt_ui_flow_config.js    # UI 流程配置
+│   ├── ppt_dashboard_*.js       # 各步骤 UI 模块
+│   ├── ppt_generator_agent_dashboard.js   # 兼容加载器
+│   ├── deepsearch-flow-visualizer.js      # Flow 可视化
+│   ├── report-review-panel.js   # 报告审阅面板
+│   ├── vditor_adapter.js        # Vditor 适配器
+│   └── ui-event-adapter.js      # UI 事件适配器
 │
-├── 辅助模块
-│   ├── math-converter.js        # LaTeX → OMML 转换 (13KB)
+├── model-config/                # 模型配置模块
+│   ├── ppt_model_config_constants.js
+│   ├── ppt_model_config_utils.js
+│   ├── ppt_model_config_styles.js
+│   ├── ppt_model_config_sources.js
+│   ├── ppt_model_config_roles.js
+│   ├── ppt_model_config_tabs.js
+│   ├── ppt_model_config_table.js
+│   ├── ppt_model_config_advanced.js
+│   ├── ppt_model_config_core.js
+│   └── ppt_model_config_modal.js
+│
+├── design/                      # 设计偏好与阶段配置
+│   ├── design-preferences.js
+│   └── design-phases-config.js
+│
+├── storage/                     # 存储
 │   ├── ppt_storage.js           # 项目存储 (4KB)
-│   └── ppt_model_config_modal.js  # AI 模型配置 (24KB)
+│   └── checkpoint-manager.js    # 检查点管理
 │
-└── 示例数据
-    └── ppt_generator.sample.js  # 示例数据 (96KB)
+├── data/                        # 示例数据
+│   ├── ppt_generator.sample.js  # 示例数据 (96KB)
+│   ├── ppt_landing_sample.js
+│   └── ppt_landing_sample_mk.js
+│
+├── editor/                      # 编辑器子系统
+├── workflow/                    # 工作流子系统
+├── dsl/                         # DSL 工具
+└── vision/                      # 视觉转 DSL
 ```
 
 ---
@@ -131,7 +166,7 @@ _extractSvgTexts()
 
 ---
 
-### 4. 导出系统 (`ppt_generator_export.js`)
+### 4. 导出系统 (`ppt_generator_export_core.js`)
 
 **导出选项:**
 ```javascript
@@ -200,7 +235,7 @@ slide-system.js
 
 ppt_generator_core.js (PPTGenerator 类)
     ├── ppt_generator_presentation.js (Mixin)
-    ├── ppt_generator_export.js (Mixin)
+    ├── ppt_generator_export_core.js (Mixin entry)
     ├── ppt_generator_navigation.js (Mixin)
     ├── ppt_generator_workflow.js (Mixin)
     ├── ppt_generator_utilities.js (Mixin)
@@ -225,13 +260,12 @@ css/ppt/
 
 ## 🚀 待优化项
 
-1. **`ppt_generator_export.js` 过大 (107KB)**
+1. **`ppt_generator_export_core.js` 过大 (107KB)**
    - 可拆分：烘焙逻辑、图片处理、PDF 导出
 
 2. **已清理文件：**
 - ~~`slide-renderer-pptx-new.js`~~ (已删除)
 - ~~`ppt_generator_export_legacy.js`~~ (已删除)
-- ~~`ppt_generator_export_baking.js`~~ (已删除) - 已合并到 export.js
 
 3. **SVG 文字位置精度**
    - 当前使用数学估算，可考虑 Canvas 测量实际宽度

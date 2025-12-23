@@ -12,8 +12,8 @@ function installDomAndSlideParser() {
   // slide-parser.js is not an ESM module; it defines a top-level `SlideParser` class.
   // We must only evaluate it once per Node process, otherwise redeclaration throws.
   if (!globalThis.SlideParser) {
-    const slideParserSrc = fs.readFileSync("js/ppt/slide-parser.js", "utf8") + "\n;globalThis.SlideParser = SlideParser;";
-    vm.runInThisContext(slideParserSrc, { filename: "js/ppt/slide-parser.js" });
+    const slideParserSrc = fs.readFileSync("js/ppt/core/slide-parser.js", "utf8") + "\n;globalThis.SlideParser = SlideParser;";
+    vm.runInThisContext(slideParserSrc, { filename: "js/ppt/core/slide-parser.js" });
   }
 
   assert.ok(globalThis.SlideParser && typeof globalThis.SlideParser.parse === "function");

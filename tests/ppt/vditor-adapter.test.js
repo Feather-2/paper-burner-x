@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { parseHTML } = require('linkedom');
 
-const VditorAdapter = require('../../js/ppt/vditor_adapter.js');
+const VditorAdapter = require('../../js/ppt/dashboard/vditor_adapter.js');
 
 function setupDom(html = '<!doctype html><html><head></head><body></body></html>') {
   const { window, document } = parseHTML(html);

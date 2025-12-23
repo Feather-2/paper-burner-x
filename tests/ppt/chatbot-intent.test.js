@@ -46,7 +46,7 @@ test('chatbot: "把标题改成xxx" routes to edit (OperationPlanner via execute
     }
   };
 
-  reload('../../js/ppt/ppt_generator_utilities.js');
+  reload('../../js/ppt/generator/ppt_generator_utilities.js');
 
   // Real IntentParser (with parse alias)
   reload('../../js/ppt/editor/intent/intent-parser.js');
@@ -92,7 +92,7 @@ test('chatbot: "重新设计第3页" routes to generation (Design Agent)', async
     }
   };
 
-  reload('../../js/ppt/ppt_generator_utilities.js');
+  reload('../../js/ppt/generator/ppt_generator_utilities.js');
   reload('../../js/ppt/editor/intent/intent-parser.js');
 
   const gen = new globalThis.PPTGenerator();
@@ -127,7 +127,7 @@ test('chatbot: IntentParser failure returns friendly message', async () => {
     }
   };
 
-  reload('../../js/ppt/ppt_generator_utilities.js');
+  reload('../../js/ppt/generator/ppt_generator_utilities.js');
 
   window.IntentParser = {
     parse: async () => {
@@ -154,7 +154,7 @@ test('chatbot: concurrent intents are queued (no overlap)', async () => {
     }
   };
 
-  reload('../../js/ppt/ppt_generator_utilities.js');
+  reload('../../js/ppt/generator/ppt_generator_utilities.js');
   reload('../../js/ppt/editor/intent/intent-parser.js');
 
   const gen = new globalThis.PPTGenerator();

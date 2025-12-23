@@ -7,7 +7,7 @@
  * 3. 进度计算硬编码在 UI 中
  */
 
-import { DESIGN_PHASES_CONFIG, calculateDesignProgress } from './design-phases-config.js';
+import { DESIGN_PHASES_CONFIG, calculateDesignProgress } from '../design/design-phases-config.js';
 
 /**
  * UI 事件适配器

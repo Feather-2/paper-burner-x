@@ -74,7 +74,7 @@ async function loadPptxSlideParserFromScript() {
   const jszipMod = await import("jszip");
   const JSZip = jszipMod?.default || jszipMod;
 
-  const srcUrl = new URL("../../../ppt/slide-parser-pptx.js", import.meta.url);
+  const srcUrl = new URL("../../../ppt/core/slide-parser-pptx.js", import.meta.url);
   const code = await readFile(srcUrl, "utf8");
 
   const sandbox = {
@@ -201,4 +201,3 @@ export class PptxAdapter extends BaseAdapter {
     return doc;
   }
 }
-

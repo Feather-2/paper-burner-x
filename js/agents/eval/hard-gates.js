@@ -1,5 +1,5 @@
 import { KEY_PAGE_TYPES, normalizePageType } from "../stages/textprep/constants.js";
-import { SlideElementType, normalizeSlideElementType } from "../../ppt/slide-constants.js";
+import { SlideElementType, normalizeSlideElementType } from "../../ppt/core/slide-constants.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);

@@ -7,7 +7,7 @@ test('Design phases config: labels, ordering, terminal states', async () => {
     getDesignPhaseOrder,
     getDesignPhaseLabel,
     isDesignPhaseTerminal,
-  } = await import('../../js/ppt/design-phases-config.js');
+  } = await import('../../js/ppt/design/design-phases-config.js');
 
   assert.equal(DESIGN_PHASES_CONFIG.generating.label, '生成页面');
   assert.equal(getDesignPhaseLabel('style_extracting', 'en'), 'Extracting Style');
@@ -26,7 +26,7 @@ test('Design phases config: labels, ordering, terminal states', async () => {
 });
 
 test('Design phases config: calculateDesignProgress', async () => {
-  const { calculateDesignProgress } = await import('../../js/ppt/design-phases-config.js');
+  const { calculateDesignProgress } = await import('../../js/ppt/design/design-phases-config.js');
 
   assert.equal(calculateDesignProgress('unknown'), 0);
   assert.equal(calculateDesignProgress('failed'), 0);

@@ -1,5 +1,5 @@
 /**
- * @file js/ppt/ppt_storage.js
+ * @file js/ppt/storage/ppt_storage.js
  * @description
  * PPT Project Storage Layer - Uses IndexedDB to store PPT projects.
  */

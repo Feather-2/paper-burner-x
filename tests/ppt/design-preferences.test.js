@@ -9,7 +9,7 @@ test("Design Preferences: enums + normalization", async () => {
     normalizeDesignVisualMode,
     normalizeDesignDensity,
     normalizeStyleReferenceStatus,
-  } = await import("../../js/ppt/design-preferences.js");
+  } = await import("../../js/ppt/design/design-preferences.js");
 
   assert.equal(normalizeDesignVisualMode("SVG-FIRST"), DesignVisualMode.SVG_FIRST);
   assert.equal(normalizeDesignVisualMode("unknown", DesignVisualMode.AI_FIRST), DesignVisualMode.AI_FIRST);

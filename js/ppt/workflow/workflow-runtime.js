@@ -9,7 +9,7 @@ import { RunStoreAdapter } from '../../agents/runtime/event-bus.js';
 import { subscribeTelemetry } from '../../agents/runtime/runstore-telemetry.js';
 import { StageApiFactory } from '../../agents/runtime/stage-api-factory.js';
 import { RunStore } from '../../agents/storage/run-store.js';
-import { DesignDensity, DesignVisualMode, normalizeDesignDensity, normalizeDesignVisualMode } from '../design-preferences.js';
+import { DesignDensity, DesignVisualMode, normalizeDesignDensity, normalizeDesignVisualMode } from '../design/design-preferences.js';
 import { AgentEventBridge } from './agent-event-bridge.js';
 import { EventHandlerRegistry, createWorkflowEventRegistry } from './event-handler-registry.js';
 import { StateSynchronizer, inferWorkflowStateFromEvent } from './unified-state-mapping.js';

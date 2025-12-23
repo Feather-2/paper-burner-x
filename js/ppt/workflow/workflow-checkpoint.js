@@ -9,7 +9,7 @@ import { WorkflowTodoStatus } from '../../agents/runtime/constants.js';
 let _CheckpointModule = null;
 async function getCheckpointModule() {
     if (_CheckpointModule) return _CheckpointModule;
-    const mod = await import('../checkpoint-manager.js');
+    const mod = await import('../storage/checkpoint-manager.js');
     _CheckpointModule = mod;
     return mod;
 }

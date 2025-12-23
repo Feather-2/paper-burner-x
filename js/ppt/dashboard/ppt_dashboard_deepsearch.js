@@ -463,7 +463,7 @@
     async _getFlowVizModule() {
         if (this._flowVizModulePromise) return this._flowVizModulePromise;
         // This file is loaded as a classic script; resolve import relative to the document.
-        this._flowVizModulePromise = import(new URL('js/ppt/deepsearch-flow-visualizer.js', document.baseURI).href);
+        this._flowVizModulePromise = import(new URL('js/ppt/dashboard/deepsearch-flow-visualizer.js', document.baseURI).href);
         return this._flowVizModulePromise;
     },
 

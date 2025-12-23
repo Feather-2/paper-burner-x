@@ -517,8 +517,8 @@ test("Design: DesignStage triggers last-resort downgrade and deckHtmlDsl is pars
   globalThis.window = window;
   // Load the browser-oriented SlideParser into the current context for testing.
   // slide-parser.js is not an ESM module, so we evaluate it and export the class to globalThis.
-  const slideParserSrc = fs.readFileSync("js/ppt/slide-parser.js", "utf8") + "\n;globalThis.SlideParser = SlideParser;";
-  vm.runInThisContext(slideParserSrc, { filename: "js/ppt/slide-parser.js" });
+  const slideParserSrc = fs.readFileSync("js/ppt/core/slide-parser.js", "utf8") + "\n;globalThis.SlideParser = SlideParser;";
+  vm.runInThisContext(slideParserSrc, { filename: "js/ppt/core/slide-parser.js" });
   assert.ok(globalThis.SlideParser && typeof globalThis.SlideParser.parse === "function");
 
   const events = [];

@@ -83,50 +83,45 @@
     </div>
 
     <!-- PPT JS 模块 -->
-    <script src="js/ppt/slide-styles.js"></script>
-    <script src="js/ppt/slide-parser.js"></script>
-    <script src="js/ppt/slide-parser-pptx.js"></script>
-    <script src="js/ppt/slide-renderer-html.js"></script>
-    <script src="js/ppt/math-converter.js"></script>
+    <script src="js/ppt/core/slide-styles.js"></script>
+    <script src="js/ppt/core/slide-parser.js"></script>
+    <script src="js/ppt/core/slide-parser-pptx.js"></script>
+    <script src="js/ppt/renderers/slide-renderer-html.js"></script>
+    <script src="js/ppt/core/math-converter.js"></script>
     
     <!-- PPTX Renderer -->
-    <script src="js/ppt/slide-renderer-pptx-freeform.js"></script>
-    <script src="js/ppt/slide-renderer-pptx.js"></script>
+    <script src="js/ppt/renderers/slide-renderer-pptx-freeform.js"></script>
+    <script src="js/ppt/renderers/slide-renderer-pptx.js"></script>
     
-    <script src="js/ppt/slide-system.js"></script>
-    <script src="js/ppt/ppt_generator.sample.js"></script>
-    <script src="js/ppt/ppt_landing_sample.js"></script>
-    <script src="js/ppt/ppt_generator_core.js"></script>
-    <script src="js/ppt/ppt_generator_navigation.js"></script>
-    <script src="js/ppt/vditor_adapter.js"></script>
-    <script src="js/ppt/report-review-panel.js"></script>
-    <script src="js/ppt/ppt_ui_flow_config.js"></script>
-    <script src="js/ppt/ui/ppt_ui_dom.js"></script>
-    <script src="js/ppt/ui/ppt_ui_actions.js"></script>
-    <script src="js/ppt/ui/ppt_ui_registry.js"></script>
-    <script src="js/ppt/flow/ppt_flow_actions.js"></script>
-    <script src="js/ppt/ui/ppt_flow_ui.js"></script>
-    <script src="js/ppt/ppt_dashboard_utils.js"></script>
-    <script src="js/ppt/ppt_dashboard_upload.js"></script>
-    <script src="js/ppt/ppt_dashboard_history.js"></script>
-    <script src="js/ppt/ppt_dashboard_url_input.js"></script>
-    <script src="js/ppt/ppt_dashboard_paste.js"></script>
-    <script src="js/ppt/ppt_dashboard_modals.js"></script>
-    <script src="js/ppt/ppt_dashboard_deepsearch.js"></script>
-    <script src="js/ppt/ppt_dashboard_page_layout.js"></script>
-    <script src="js/ppt/ppt_dashboard_design_spec.js"></script>
-    <script src="js/ppt/ppt_dashboard_outline.js"></script>
-    <script src="js/ppt/ppt_dashboard_core.js"></script>
-    <script src="js/ppt/ppt_generator_workflow.js"></script>
-    <script src="js/ppt/ppt_generator_presentation.js"></script>
-    <script src="js/ppt/ppt_generator_utilities.js"></script>
-    <script src="js/ppt/ppt_generator_deletion.js"></script>
+    <script src="js/ppt/core/slide-system.js"></script>
+    <script src="js/ppt/data/ppt_generator.sample.js"></script>
+    <script src="js/ppt/data/ppt_landing_sample.js"></script>
+    <script src="js/ppt/generator/ppt_generator_core.js"></script>
+    <script src="js/ppt/generator/ppt_generator_navigation.js"></script>
+    <script src="js/ppt/dashboard/vditor_adapter.js"></script>
+    <script src="js/ppt/dashboard/report-review-panel.js"></script>
+    <script src="js/ppt/dashboard/ppt_ui_flow_config.js"></script>
+    <script src="js/ppt/dashboard/ppt_dashboard_utils.js"></script>
+    <script src="js/ppt/dashboard/ppt_dashboard_upload.js"></script>
+    <script src="js/ppt/dashboard/ppt_dashboard_history.js"></script>
+    <script src="js/ppt/dashboard/ppt_dashboard_url_input.js"></script>
+    <script src="js/ppt/dashboard/ppt_dashboard_paste.js"></script>
+    <script src="js/ppt/dashboard/ppt_dashboard_modals.js"></script>
+    <script src="js/ppt/dashboard/ppt_dashboard_deepsearch.js"></script>
+    <script src="js/ppt/dashboard/ppt_dashboard_page_layout.js"></script>
+    <script src="js/ppt/dashboard/ppt_dashboard_design_spec.js"></script>
+    <script src="js/ppt/dashboard/ppt_dashboard_outline.js"></script>
+    <script src="js/ppt/dashboard/ppt_dashboard_core.js"></script>
+    <script src="js/ppt/generator/ppt_generator_workflow.js"></script>
+    <script src="js/ppt/generator/ppt_generator_presentation.js"></script>
+    <script src="js/ppt/generator/ppt_generator_utilities.js"></script>
+    <script src="js/ppt/generator/ppt_generator_deletion.js"></script>
     
     <!-- Export 模块（按依赖顺序加载） -->
-    <script src="js/ppt/ppt_generator_export_image.js"></script>
-    <script src="js/ppt/ppt_generator_export_baking.js"></script>
-    <script src="js/ppt/ppt_generator_export_formats.js"></script>
-    <script src="js/ppt/ppt_generator_export_core.js"></script>
+    <script src="js/ppt/generator/export/ppt_generator_export_image.js"></script>
+    <script src="js/ppt/generator/export/ppt_generator_export_baking.js"></script>
+    <script src="js/ppt/generator/export/ppt_generator_export_formats.js"></script>
+    <script src="js/ppt/generator/export/ppt_generator_export_core.js"></script>
     
     <!-- Editor 模块（按依赖顺序加载） -->
     <script src="js/ppt/editor/event-emitter.js"></script>
@@ -140,8 +135,8 @@
     <script src="js/ppt/editor/panels/property-panel.js"></script>
     <script src="js/ppt/editor/panels/layer-panel.js"></script>
     
-    <script src="js/ppt/ppt_generation.js"></script>
-    <script src="js/ppt/ppt_storage.js"></script>
+    <script src="js/ppt/generator/ppt_generation.js"></script>
+    <script src="js/ppt/storage/ppt_storage.js"></script>
     
     <!-- 核心存储模块（提供 loadModelKeys, loadAllCustomSourceSites 等） -->
     <script src="js/storage/storage.js"></script>
@@ -152,18 +147,18 @@
     <script src="js/process/image-generation.js"></script>
     <!-- PDF OCR 解析 -->
     <script src="js/process/ocr-manager.js"></script>
-    <script src="js/ppt/ppt_model_config_constants.js"></script>
-    <script src="js/ppt/ppt_model_config_utils.js"></script>
-    <script src="js/ppt/ppt_model_config_styles.js"></script>
-    <script src="js/ppt/ppt_model_config_sources.js"></script>
-    <script src="js/ppt/ppt_model_config_roles.js"></script>
-    <script src="js/ppt/ppt_model_config_tabs.js"></script>
-    <script src="js/ppt/ppt_model_config_table.js"></script>
-    <script src="js/ppt/ppt_model_config_advanced.js"></script>
-    <script src="js/ppt/ppt_model_config_core.js"></script>
+    <script src="js/ppt/model-config/ppt_model_config_constants.js"></script>
+    <script src="js/ppt/model-config/ppt_model_config_utils.js"></script>
+    <script src="js/ppt/model-config/ppt_model_config_styles.js"></script>
+    <script src="js/ppt/model-config/ppt_model_config_sources.js"></script>
+    <script src="js/ppt/model-config/ppt_model_config_roles.js"></script>
+    <script src="js/ppt/model-config/ppt_model_config_tabs.js"></script>
+    <script src="js/ppt/model-config/ppt_model_config_table.js"></script>
+    <script src="js/ppt/model-config/ppt_model_config_advanced.js"></script>
+    <script src="js/ppt/model-config/ppt_model_config_core.js"></script>
     
     <!-- 编辑器集成（必须在 ppt_generation.js 之后） -->
-    <script src="js/ppt/ppt_generator_editor.js"></script>
+    <script src="js/ppt/generator/ppt_generator_editor.js"></script>
 
     <script>
         // 独立页面初始化

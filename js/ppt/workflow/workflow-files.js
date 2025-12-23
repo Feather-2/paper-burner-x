@@ -280,7 +280,7 @@ export const filesMixin = {
         if (typeof document !== 'undefined' && document?.createElement) {
             await new Promise((resolve, reject) => {
                 const script = document.createElement('script');
-                script.src = 'js/ppt/slide-parser-pptx.js';
+                script.src = 'js/ppt/core/slide-parser-pptx.js';
                 script.async = true;
                 script.onload = () => resolve();
                 script.onerror = () => reject(new Error('加载 slide-parser-pptx.js 失败'));

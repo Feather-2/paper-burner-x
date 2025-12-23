@@ -39,8 +39,8 @@ if (!globalThis.PPTGenerator) {
   };
 }
 
-require('../../js/ppt/ppt_dashboard_utils.js');
-require('../../js/ppt/ppt_dashboard_page_layout.js');
+require('../../js/ppt/dashboard/ppt_dashboard_utils.js');
+require('../../js/ppt/dashboard/ppt_dashboard_page_layout.js');
 
 Object.assign(globalThis.PPTGenerator.prototype, window.PPTDashboard.utils, window.PPTDashboard.pageLayout);
 

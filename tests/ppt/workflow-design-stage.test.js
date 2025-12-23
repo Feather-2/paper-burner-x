@@ -39,7 +39,7 @@ if (!globalThis.PPTGenerator) {
   };
 }
 
-require('../../js/ppt/ppt_generator_workflow.js');
+require('../../js/ppt/generator/ppt_generator_workflow.js');
 
 test.before(async () => {
   // Ensure async mixins have been installed before calling non-stubbed methods.
@@ -72,7 +72,7 @@ function makeContentPackage(slideCount = 3) {
 
 test('design.batch calls DesignAgentLoop and populates deckHtmlDsl + slides', async () => {
   setupDom('<!doctype html><html><body></body></html>');
-  globalThis.SlideParser = require('../../js/ppt/slide-parser.js').SlideParser;
+  globalThis.SlideParser = require('../../js/ppt/core/slide-parser.js').SlideParser;
 
   const gen = new globalThis.PPTGenerator();
   gen.updateTodos = () => {};
@@ -115,7 +115,7 @@ test('design.batch calls DesignAgentLoop and populates deckHtmlDsl + slides', as
 
 test('design.batch falls back to mock deck when DesignAgentLoop throws', async () => {
   setupDom('<!doctype html><html><body></body></html>');
-  globalThis.SlideParser = require('../../js/ppt/slide-parser.js').SlideParser;
+  globalThis.SlideParser = require('../../js/ppt/core/slide-parser.js').SlideParser;
 
   const gen = new globalThis.PPTGenerator();
   gen.updateTodos = () => {};
@@ -151,7 +151,7 @@ test('design.batch falls back to mock deck when DesignAgentLoop throws', async (
 
 test('design.batch emits design.phase.transition and persists designPhase', async () => {
   setupDom('<!doctype html><html><body></body></html>');
-  globalThis.SlideParser = require('../../js/ppt/slide-parser.js').SlideParser;
+  globalThis.SlideParser = require('../../js/ppt/core/slide-parser.js').SlideParser;
 
   const gen = new globalThis.PPTGenerator();
   gen.updateTodos = () => {};

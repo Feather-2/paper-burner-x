@@ -52,11 +52,11 @@
             { deepsearchMixin },
             { runtimeMixin }
         ] = await Promise.all([
-            import('./workflow/workflow-checkpoint.js'),
-            import('./workflow/workflow-files.js'),
-            import('./workflow/workflow-phases.js'),
-            import('./workflow/workflow-deepsearch.js'),
-            import('./workflow/workflow-runtime.js')
+            import('../workflow/workflow-checkpoint.js'),
+            import('../workflow/workflow-files.js'),
+            import('../workflow/workflow-phases.js'),
+            import('../workflow/workflow-deepsearch.js'),
+            import('../workflow/workflow-runtime.js')
         ]);
 
         const PPTGeneratorWorkflow = {

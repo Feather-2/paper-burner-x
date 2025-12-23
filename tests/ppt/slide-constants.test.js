@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 test("Slide Constants: element type validation + normalization", async () => {
-  const { SlideElementType, isValidSlideElementType, normalizeSlideElementType } = await import("../../js/ppt/slide-constants.js");
+  const { SlideElementType, isValidSlideElementType, normalizeSlideElementType } = await import("../../js/ppt/core/slide-constants.js");
 
   assert.equal(isValidSlideElementType(SlideElementType.TEXT), true);
   assert.equal(isValidSlideElementType(SlideElementType.BAKED_ELEMENT), true);

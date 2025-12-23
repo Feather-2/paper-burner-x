@@ -10,7 +10,7 @@ function setupBrowserGlobals() {
   // EventEmitter + SlideDocument（脚本风格，挂到 window）
   require("../../js/ppt/editor/event-emitter.js");
   require("../../js/ppt/editor/document.js");
-  require("../../js/ppt/slide-parser.js");
+  require("../../js/ppt/core/slide-parser.js");
 }
 
 test("IntentParser: regex intents", async () => {

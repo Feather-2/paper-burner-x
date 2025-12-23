@@ -15,7 +15,7 @@
   if (ns._legacyModalLoader.loading) return;
 
   const current = document.currentScript;
-  const base = current && current.src ? current.src.replace(/[^/]+$/, '') : 'js/ppt/';
+  const base = current && current.src ? current.src.replace(/[^/]+$/, '') : 'js/ppt/model-config/';
 
   const files = [
     'ppt_model_config_constants.js',

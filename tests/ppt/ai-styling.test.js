@@ -36,7 +36,7 @@ class Emitter {
 test.afterEach(() => {
   teardownDom();
   delete require.cache[require.resolve('../../js/ppt/editor/panels/property-panel.js')];
-  delete require.cache[require.resolve('../../js/ppt/ppt_generator_editor.js')];
+  delete require.cache[require.resolve('../../js/ppt/generator/ppt_generator_editor.js')];
 });
 
 test('AI 微调: property-panel button triggers ImagePlanner → editor.updateElement → syncDSL', async () => {
@@ -67,7 +67,7 @@ test('AI 微调: property-panel button triggers ImagePlanner → editor.updateEl
   };
   window.PPTGenerator = gen;
 
-  require('../../js/ppt/ppt_generator_editor.js');
+  require('../../js/ppt/generator/ppt_generator_editor.js');
   gen.editor = editor;
   gen.syncDSL = (opts) => calls.sync.push(opts);
 
@@ -126,7 +126,7 @@ test('AI 微调: blend/opacity/mask patches applied for image elements', async (
   };
   window.PPTGenerator = gen;
 
-  require('../../js/ppt/ppt_generator_editor.js');
+  require('../../js/ppt/generator/ppt_generator_editor.js');
   gen.editor = editor;
   gen.syncDSL = (opts) => calls.sync.push(opts);
 

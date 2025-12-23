@@ -1,6 +1,25 @@
 const PPTGeneratorNavigation = {
+    async _ensureWorkflowReady() {
+        if (!this.__pptWorkflowMixinsReady) return;
+        try {
+            await this.__pptWorkflowMixinsReady;
+        } catch {
+            // ignore workflow load failures, fall back to local state
+        }
+    },
+
+    _forceWorkflowStateSafe(state) {
+        const target = state || window.WorkflowState?.IDLE || 'idle';
+        if (window.forceWorkflowState && window.WorkflowState) {
+            window.forceWorkflowState(this, target);
+        } else {
+            this.state = target;
+        }
+    },
+
     async showProjectList() {
-        window.forceWorkflowState(this, window.WorkflowState.IDLE);
+        await this._ensureWorkflowReady();
+        this._forceWorkflowStateSafe(window.WorkflowState?.IDLE);
         this.currentProject = null;
 
         let projects = [];
@@ -447,7 +466,7 @@ const PPTGeneratorNavigation = {
             this.slides = this.currentProject.slides;
         }
 
-        window.forceWorkflowState(this, this.currentProject.status || window.WorkflowState.IDLE);
+        this._forceWorkflowStateSafe(this.currentProject.status || window.WorkflowState?.IDLE);
         this.enterWorkspace();
     },
 
@@ -720,7 +739,7 @@ const PPTGeneratorNavigation = {
                 // 检查 PPTXSlideParser 是否已加载
                 if (typeof PPTXSlideParser === 'undefined') {
                     // 动态加载
-                    await this._loadScript('js/ppt/slide-parser-pptx.js');
+                    await this._loadScript('js/ppt/core/slide-parser-pptx.js');
                 }
                 
                 const parser = new PPTXSlideParser();

@@ -5,18 +5,18 @@
   const NS = window.PPTDashboard;
 
   const browserPaths = [
-    'js/ppt/ppt_ui_flow_config.js',
-    'js/ppt/ppt_dashboard_utils.js',
-    'js/ppt/ppt_dashboard_upload.js',
-    'js/ppt/ppt_dashboard_history.js',
-    'js/ppt/ppt_dashboard_url_input.js',
-    'js/ppt/ppt_dashboard_paste.js',
-    'js/ppt/ppt_dashboard_modals.js',
-    'js/ppt/ppt_dashboard_deepsearch.js',
-    'js/ppt/ppt_dashboard_page_layout.js',
-    'js/ppt/ppt_dashboard_design_spec.js',
-    'js/ppt/ppt_dashboard_outline.js',
-    'js/ppt/ppt_dashboard_core.js',
+    'js/ppt/dashboard/ppt_ui_flow_config.js',
+    'js/ppt/dashboard/ppt_dashboard_utils.js',
+    'js/ppt/dashboard/ppt_dashboard_upload.js',
+    'js/ppt/dashboard/ppt_dashboard_history.js',
+    'js/ppt/dashboard/ppt_dashboard_url_input.js',
+    'js/ppt/dashboard/ppt_dashboard_paste.js',
+    'js/ppt/dashboard/ppt_dashboard_modals.js',
+    'js/ppt/dashboard/ppt_dashboard_deepsearch.js',
+    'js/ppt/dashboard/ppt_dashboard_page_layout.js',
+    'js/ppt/dashboard/ppt_dashboard_design_spec.js',
+    'js/ppt/dashboard/ppt_dashboard_outline.js',
+    'js/ppt/dashboard/ppt_dashboard_core.js',
   ];
 
   // CommonJS (unit tests): load local files directly.

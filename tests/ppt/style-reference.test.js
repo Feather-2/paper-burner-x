@@ -22,17 +22,17 @@ test.afterEach(() => {
 
 // Load the split dashboard modules once and reuse the mixin across tests.
 setupDom();
-require('../../js/ppt/ppt_dashboard_utils.js');
-require('../../js/ppt/ppt_dashboard_upload.js');
-require('../../js/ppt/ppt_dashboard_history.js');
-require('../../js/ppt/ppt_dashboard_url_input.js');
-require('../../js/ppt/ppt_dashboard_paste.js');
-require('../../js/ppt/ppt_dashboard_modals.js');
-require('../../js/ppt/ppt_dashboard_deepsearch.js');
-require('../../js/ppt/ppt_dashboard_page_layout.js');
-require('../../js/ppt/ppt_dashboard_design_spec.js');
-require('../../js/ppt/ppt_dashboard_outline.js');
-require('../../js/ppt/ppt_dashboard_core.js');
+require('../../js/ppt/dashboard/ppt_dashboard_utils.js');
+require('../../js/ppt/dashboard/ppt_dashboard_upload.js');
+require('../../js/ppt/dashboard/ppt_dashboard_history.js');
+require('../../js/ppt/dashboard/ppt_dashboard_url_input.js');
+require('../../js/ppt/dashboard/ppt_dashboard_paste.js');
+require('../../js/ppt/dashboard/ppt_dashboard_modals.js');
+require('../../js/ppt/dashboard/ppt_dashboard_deepsearch.js');
+require('../../js/ppt/dashboard/ppt_dashboard_page_layout.js');
+require('../../js/ppt/dashboard/ppt_dashboard_design_spec.js');
+require('../../js/ppt/dashboard/ppt_dashboard_outline.js');
+require('../../js/ppt/dashboard/ppt_dashboard_core.js');
 const DASHBOARD_MIXIN = globalThis.window?.PPTDashboard?.PPTGeneratorAgentDashboard || {};
 
 // Test 1: VLM prompt includes styleDescription schema for style_reference intent

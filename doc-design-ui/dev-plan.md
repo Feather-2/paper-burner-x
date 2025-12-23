@@ -9,7 +9,7 @@
 - **ID**: task-1
 - **Description**: 替换 ppt_generator_workflow.js 中 line 526 的 mock 逻辑，接入真实 DesignStage.run()，输出动态生成的 HTML DSL 并更新 workflowData.deckPackage、deckHtmlDsl、sampleHTML、slides 四个核心数据字段
 - **File Scope**:
-  - js/ppt/ppt_generator_workflow.js (line 526 附近，Design.batch mock 替换)
+  - js/ppt/generator/ppt_generator_workflow.js (line 526 附近，Design.batch mock 替换)
   - js/agents/stages/design/design-stage.js (确保输出符合 workflow 预期格式)
 - **Dependencies**: None
 - **Test Command**:
@@ -19,7 +19,7 @@
     --test-coverage-lines=90 \
     --test-coverage-functions=90 \
     --test-coverage-branches=85 \
-    --test-coverage-include=js/ppt/ppt_generator_workflow.js
+    --test-coverage-include=js/ppt/generator/ppt_generator_workflow.js
   ```
 - **Test Focus**:
   - Design.batch 调用成功返回 slides 数组
@@ -56,8 +56,8 @@
 - **ID**: task-3
 - **Description**: 在 Dashboard 添加 Design Spec 视图，展示 DesignSystem 色板/字体/密度，支持实时预览与编辑，添加批量配置（batch size 1/2/4）和模型选择，同步更新 workflowData.designSystem
 - **File Scope**:
-  - js/ppt/ppt_generator_agent_dashboard.js (新增 DesignSpecView 模块，注册到 renderStageSpecificUI)
-  - js/ppt/ppt_generator_workflow.js (确保 designSystem 初始化与更新逻辑)
+  - js/ppt/dashboard/ppt_generator_agent_dashboard.js (新增 DesignSpecView 模块，注册到 renderStageSpecificUI)
+  - js/ppt/generator/ppt_generator_workflow.js (确保 designSystem 初始化与更新逻辑)
   - css/ppt/dashboard.css 或新建 css/ppt/design-spec.css (色板/字体预览样式)
 - **Dependencies**: task-1 (依赖 workflowData.designSystem 字段已接入 DesignStage)
 - **Test Command**:
@@ -67,7 +67,7 @@
     --test-coverage-lines=90 \
     --test-coverage-functions=90 \
     --test-coverage-branches=85 \
-    --test-coverage-include=js/ppt/ppt_generator_agent_dashboard.js
+    --test-coverage-include=js/ppt/dashboard/ppt_generator_agent_dashboard.js
   ```
 - **Test Focus**:
   - 色板编辑：修改 primary 色后 workflowData.designSystem.colors.primary 更新
@@ -80,8 +80,8 @@
 - **ID**: task-4
 - **Description**: 替换 ppt_generator_utilities.js 的 mock handleUserMessage()，接入 IntentParser 解析用户输入，路由编辑类 intent 到 OperationPlanner，生成类 intent 到 Design Agent；在 ppt_generator_editor.js 所有编辑操作后调用 documentToHtml() 将 DOM 变更同步回 workflowData.deckHtmlDsl
 - **File Scope**:
-  - js/ppt/ppt_generator_utilities.js (handleUserMessage 真实实现，调用 IntentParser + 路由逻辑)
-  - js/ppt/ppt_generator_editor.js (添加 DSL sync hook，documentToHtml() 调用点)
+  - js/ppt/generator/ppt_generator_utilities.js (handleUserMessage 真实实现，调用 IntentParser + 路由逻辑)
+  - js/ppt/generator/ppt_generator_editor.js (添加 DSL sync hook，documentToHtml() 调用点)
   - js/agents/intent-parser.js (如不存在则新建，参考 docs 中的 IntentParser 定义)
 - **Dependencies**: task-1 (依赖 workflowData.deckHtmlDsl 已建立)
 - **Test Command**:
@@ -91,7 +91,7 @@
     --test-coverage-lines=90 \
     --test-coverage-functions=90 \
     --test-coverage-branches=85 \
-    --test-coverage-include=js/ppt/ppt_generator_utilities.js,js/ppt/ppt_generator_editor.js
+    --test-coverage-include=js/ppt/generator/ppt_generator_utilities.js,js/ppt/generator/ppt_generator_editor.js
   ```
 - **Test Focus**:
   - Intent 分类："把标题改成 xxx" → edit intent → OperationPlanner
@@ -105,8 +105,8 @@
 - **Description**: 在 property-panel.js 添加"AI 微调"按钮，提取当前元素 → ImagePlanner + PromptBuilder → patch 回 DOM；在 ppt_generator_workflow.js 添加 PPTX 导入逻辑，解析布局/图片/内容后作为 deck 分支进入主流程，更新 workflowData.deckPackage
 - **File Scope**:
   - js/ppt/editor/panels/property-panel.js (AI 微调 UI 与元素提取逻辑)
-  - js/ppt/ppt_generator_editor.js (applyAIStyling 方法，调用 ImagePlanner)
-  - js/ppt/ppt_generator_workflow.js (PPTX 导入入口，调用 pptx-parser → 转为 slideIntents)
+  - js/ppt/generator/ppt_generator_editor.js (applyAIStyling 方法，调用 ImagePlanner)
+  - js/ppt/generator/ppt_generator_workflow.js (PPTX 导入入口，调用 pptx-parser → 转为 slideIntents)
   - js/agents/stages/design/image-planner.js (确保可接受单元素输入)
 - **Dependencies**: task-4 (依赖 IntentParser + DSL sync 已建立，确保 AI 修改可回写)
 - **Test Command**:
@@ -116,7 +116,7 @@
     --test-coverage-lines=90 \
     --test-coverage-functions=90 \
     --test-coverage-branches=85 \
-    --test-coverage-include=js/ppt/editor/**/*.js,js/ppt/ppt_generator_workflow.js
+    --test-coverage-include=js/ppt/editor/**/*.js,js/ppt/generator/ppt_generator_workflow.js
   ```
 - **Test Focus**:
   - AI 微调：选中标题 → 点击"AI 微调" → ImagePlanner 返回样式建议 → DOM 更新
