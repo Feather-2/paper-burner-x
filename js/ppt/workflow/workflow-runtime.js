@@ -1287,9 +1287,85 @@ export const runtimeMixin = {
                 return out;
             }, { actor: 'deepsearch', timeoutMs: 120_000 });
 
-            // Real DeepSearch pipeline (scan/gaps/retrieve/understand/write/condense + build ContentPackage).
-            const { registerDeepSearchStages } = await import('../../agents/stages/deepsearch/index.js');
-            registerDeepSearchStages(orch, { timeoutMs: 900_000 }); // 15 minutes for real LLM calls
+            // DeepSearch Agent Loop (V2 架构：Agent 自主决策)
+            orch.registerStage('deepsearch.pipeline', async (ctx, input, api) => {
+                const baseEmit = api.emit;
+                const forwardEmit = (eventName, record) => {
+                    baseEmit?.(eventName, record);
+                    const p = record?.payload || record || {};
+
+                    // 转发关键进度事件到 UI
+                    if (eventName === 'deepsearch.agent.started') {
+                        api.progress?.({ agent: 'AI 分析', msg: '深度搜索引擎启动...', type: 'normal' });
+                    }
+                    if (eventName === 'deepsearch.agent.status.changed') {
+                        const statusMap = {
+                            'observing': '观察当前状态...',
+                            'thinking': '分析与决策...',
+                            'acting': '执行操作...',
+                            'reviewing': '审查结果...',
+                        };
+                        const msg = statusMap[p.to] || p.to;
+                        if (msg) api.progress?.({ agent: 'AI 分析', msg, type: 'normal' });
+                    }
+                    if (eventName.includes('.progress')) {
+                        const msg = p.msg || p.message || p.step;
+                        if (msg) api.progress?.({ agent: 'AI 分析', msg: String(msg), type: 'normal' });
+                    }
+                    if (eventName === 'deepsearch.agent.completed') {
+                        api.progress?.({ agent: 'AI 分析', msg: '深度搜索完成', type: 'success' });
+                    }
+                    if (eventName === 'deepsearch.agent.failed') {
+                        api.progress?.({ agent: 'AI 分析', msg: `搜索失败: ${p.error || '未知错误'}`, type: 'error' });
+                    }
+                };
+
+                try {
+                    const { DeepSearchAgentLoop } = await import('../../agents/stages/deepsearch/deepsearch-agent-loop.js');
+
+                    const agentLoop = new DeepSearchAgentLoop({
+                        eventBus: this._orchestrator?.eventBus,
+                    });
+
+                    const stageApi = stageApiFactory.createDeepSearchApi({
+                        emit: forwardEmit,
+                        signal: api.signal,
+                        checkCancelled: api.checkCancelled,
+                        aiApiService: api.aiApiService,
+                        modelRouter: api.modelRouter,
+                        localRetriever: api.localRetriever,
+                        externalSearchProvider: api.externalSearchProvider,
+                    });
+
+                    // 从 ingest 阶段获取 sources
+                    const sources = this.workflowData?.sources || [];
+                    const taskGoal = this.workflowData?.taskGoal || this._projectBrief?.taskGoal || '';
+                    const userConfig = {
+                        title: this._projectBrief?.projectSummary || taskGoal,
+                        audience: this._projectBrief?.audience,
+                        tone: this._projectBrief?.tone,
+                        ...this.workflowData?.userConfig,
+                    };
+
+                    const contentPackage = await agentLoop.execute(
+                        { runId: ctx?.runId || this._currentRunId, mode: 'deepsearch' },
+                        { sources, taskGoal, userConfig },
+                        stageApi
+                    );
+
+                    // 保存结果
+                    this.workflowData.contentPackage = contentPackage;
+                    this.workflowData.reportMarkdown = contentPackage?.report?.markdown || '';
+                    this._deepsearchState = agentLoop._state; // 保留状态用于可视化
+
+                    return contentPackage;
+                } catch (err) {
+                    const msg = err instanceof Error ? err.message : String(err || 'unknown error');
+                    console.error('[deepsearch.pipeline] DeepSearchAgentLoop failed:', err);
+                    api.progress?.({ agent: 'AI 分析', msg: `深度搜索失败: ${msg}`, type: 'error' });
+                    throw err;
+                }
+            }, { actor: 'deepsearch', timeoutMs: 900_000 }); // 15 minutes for real LLM calls
 
             orch.registerStage('deepsearch.questions', async (ctx, input, api) => {
                 api.progress?.({ agent: 'AI 分析', msg: '正在分析内容特征...', type: 'normal' });
