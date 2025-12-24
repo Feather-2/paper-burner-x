@@ -102,6 +102,12 @@ export function inferWorkflowStateFromEvent(eventName, currentWorkflowState, pay
 
   // Design 事件
   if (eventName.startsWith("design.")) {
+    if (eventName === "design.agent.status.changed" || eventName === "design.loop.status.changed") {
+      const agentStatus = payload?.to;
+      if (agentStatus && AgentToWorkflowMap.design[agentStatus]) {
+        return AgentToWorkflowMap.design[agentStatus];
+      }
+    }
     if (eventName === "design.started") {
       return WorkflowState.DESIGNER;
     }
@@ -163,7 +169,7 @@ export class StateSynchronizer {
     if (eventName === "deepsearch.agent.status.changed") {
       this._agentStatus.deepsearch = payload?.to || this._agentStatus.deepsearch;
     }
-    if (eventName === "design.loop.status.changed") {
+    if (eventName === "design.agent.status.changed" || eventName === "design.loop.status.changed") {
       this._agentStatus.design = payload?.to || this._agentStatus.design;
     }
 

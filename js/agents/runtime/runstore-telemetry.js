@@ -67,6 +67,7 @@ export function subscribeTelemetry(eventBus, runStore) {
   let pending = Promise.resolve();
 
   const handler = (evt) => {
+    if (evt?.meta?.replay) return;
     timeline.push(toTimelineRow(evt));
 
     if (String(evt?.name || "").includes("todo.")) upsertTodo(todosById, evt);

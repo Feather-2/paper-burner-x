@@ -629,6 +629,28 @@ export class DesignAgentLoop extends BaseAgentLoop {
       await this._transitionTo(DesignLoopStatus.REVIEWING, buildLoopMeta(step, loopIteration));
       this._endStep(stepInfo, { status: "completed" });
     };
+    const buildDeckSignature = (deckHtmlDsl) => {
+      if (typeof deckHtmlDsl !== "string") return null;
+      const head = deckHtmlDsl.slice(0, 64);
+      const tail = deckHtmlDsl.slice(-64);
+      return `${deckHtmlDsl.length}:${head}:${tail}`;
+    };
+    let lastDeckSignature = null;
+    const emitDeckUpdate = (deckHtmlDsl, slidesMeta, { source } = {}) => {
+      if (!emit || typeof deckHtmlDsl !== "string") return;
+      if (!deckHtmlDsl.includes("<section")) return;
+      const signature = buildDeckSignature(deckHtmlDsl);
+      if (signature && signature === lastDeckSignature) return;
+      lastDeckSignature = signature;
+      emitStage(emit, "design.deck.updated", "progress", {
+        runId,
+        source: source || "update",
+        phase: this.phase?.status,
+        slides: Array.isArray(slidesMeta) ? slidesMeta.length : undefined,
+        deckHtmlDsl,
+        slidesMeta: Array.isArray(slidesMeta) ? slidesMeta : undefined,
+      });
+    };
 
     try {
       await this._transitionTo(DesignLoopStatus.RUNNING, {
@@ -832,6 +854,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
         emitStage(emit, "design.qa.ended", "ended", { slides: slideHtmls.length, degradedCount });
 
         const baseDeckHtmlDsl = slideHtmls.join("\n\n");
+        emitDeckUpdate(baseDeckHtmlDsl, slidesMeta, { source: "qa" });
 
         userConfig = this.applyUserInputsToConfig(userConfig);
         this._transitionPhase(this.phase, DesignPhase.VISUAL_FILLING, { emit, runId: runContext.runId });
@@ -887,6 +910,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
         finalImageSlots = fillData.finalImageSlots ?? finalImageSlots;
         deckHtmlDsl = fillData.deckHtmlDsl ?? deckHtmlDsl;
         pendingImages = fillData.pendingImages ?? pendingImages;
+        emitDeckUpdate(deckHtmlDsl, slidesMeta, { source: "visual_fill" });
 
         // If refine is enabled (userConfig.refine?.enabled), run ReAct loop after VisualRenderer.
         if (userConfig?.refine?.enabled) {
@@ -895,6 +919,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
           deckHtmlDsl = refineOut.deckHtmlDsl;
           slidesMeta = refineOut.slidesMeta;
           refineResult = refineOut.refineResult;
+          emitDeckUpdate(deckHtmlDsl, slidesMeta, { source: "refine" });
         }
 
         await finishExecution("visual_filling", visualIteration, visualStep);

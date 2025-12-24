@@ -9,6 +9,21 @@
 
 import { DESIGN_PHASES_CONFIG, calculateDesignProgress } from '../design/design-phases-config.js';
 
+const LOOP_RUNNING_STATUSES = new Set(['running', 'observing', 'thinking', 'executing', 'reviewing']);
+const LOOP_PAUSED_STATUSES = new Set(['paused']);
+const LOOP_COMPLETED_STATUSES = new Set(['completed']);
+const LOOP_FAILED_STATUSES = new Set(['aborted', 'failed']);
+
+function normalizeLoopStatus(loopStatus) {
+  if (!loopStatus || typeof loopStatus !== 'string') return null;
+  if (LOOP_RUNNING_STATUSES.has(loopStatus)) return 'running';
+  if (LOOP_PAUSED_STATUSES.has(loopStatus)) return 'paused';
+  if (LOOP_COMPLETED_STATUSES.has(loopStatus)) return 'completed';
+  if (LOOP_FAILED_STATUSES.has(loopStatus)) return 'failed';
+  if (loopStatus === 'idle') return 'idle';
+  return null;
+}
+
 /**
  * UI 事件适配器
  * - 聚合 DeepSearch/Design/Runtime 事件
@@ -83,6 +98,10 @@ export class UIEventAdapter {
 
   _updateState(name, payload) {
     if (name.startsWith('deepsearch.')) {
+      if (name === 'deepsearch.agent.status.changed') {
+        const status = normalizeLoopStatus(payload?.to);
+        if (status) this._state.deepsearch.status = status;
+      }
       if (name === 'deepsearch.started') {
         this._state.deepsearch = { ...this._state.deepsearch, status: 'running', phase: 'scan', iteration: 0 };
       }
@@ -105,6 +124,10 @@ export class UIEventAdapter {
     }
 
     if (name.startsWith('design.')) {
+      if (name === 'design.agent.status.changed') {
+        const status = normalizeLoopStatus(payload?.to);
+        if (status) this._state.design.status = status;
+      }
       if (name === 'design.started') {
         this._state.design = { ...this._state.design, status: 'running', phase: 'outline_parsing' };
         this._state.design.totalSlides = payload?.slideCount || 0;

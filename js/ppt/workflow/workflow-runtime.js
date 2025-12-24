@@ -7,6 +7,7 @@ import { WorkflowState, transitionWorkflow, forceWorkflowState } from './workflo
 import { WorkflowTodoStatus } from '../../agents/runtime/constants.js';
 import { RunStoreAdapter } from '../../agents/runtime/event-bus.js';
 import { subscribeTelemetry } from '../../agents/runtime/runstore-telemetry.js';
+import { RunReplayController } from '../../agents/runtime/replay-controller.js';
 import { StageApiFactory } from '../../agents/runtime/stage-api-factory.js';
 import { RunStore } from '../../agents/storage/run-store.js';
 import { DesignDensity, DesignVisualMode, normalizeDesignDensity, normalizeDesignVisualMode } from '../design/design-preferences.js';
@@ -718,6 +719,62 @@ export const runtimeMixin = {
             console.error('[Workflow] Replay failed:', err);
             return [];
         }
+    },
+
+    async getReplayController({ runId, speed, maxDelayMs } = {}) {
+        if (!this._orchestrator?.eventBus || !this._runStore) {
+            console.warn('[Workflow] Cannot replay: runStore/eventBus not available');
+            return null;
+        }
+
+        if (!this._replayController) {
+            this._replayController = new RunReplayController({
+                runStore: this._runStore,
+                eventBus: this._orchestrator.eventBus,
+                speed,
+                maxDelayMs,
+            });
+        } else {
+            if (Number.isFinite(speed)) this._replayController.setSpeed(speed);
+            if (Number.isFinite(maxDelayMs)) this._replayController.maxDelayMs = Math.max(0, Number(maxDelayMs));
+        }
+
+        if (runId) {
+            await this._replayController.load(runId);
+        }
+
+        return this._replayController;
+    },
+
+    async startReplay(runId, options = {}) {
+        const controller = await this.getReplayController({ runId, ...options });
+        if (!controller) return null;
+        controller.play({ fromIndex: options.fromIndex, speed: options.speed });
+        return controller;
+    },
+
+    pauseReplay() {
+        this._replayController?.pause();
+    },
+
+    resumeReplay() {
+        this._replayController?.play();
+    },
+
+    stopReplay() {
+        this._replayController?.stop();
+    },
+
+    seekReplay({ index, offsetMs } = {}) {
+        this._replayController?.seek({ index, offsetMs });
+    },
+
+    stepReplay() {
+        this._replayController?.step();
+    },
+
+    getReplayState() {
+        return this._replayController?.state || null;
     },
 
     async listRuns() {

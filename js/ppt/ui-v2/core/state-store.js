@@ -4,17 +4,13 @@
  */
 
 import { getUIEventBus } from './event-bus.js';
+import { WorkflowState as RuntimeWorkflowState } from '../../workflow/workflow-states.js';
 
-// 工作流状态
+// 工作流状态（对齐 workflow-states.js）
 export const WorkflowState = Object.freeze({
-  IDLE: 'idle',
-  BRIEFING: 'briefing',
-  READING: 'reading',
-  RESEARCHING: 'researching',
-  REVIEWING: 'reviewing',
-  DESIGNING: 'designing',
-  COMPLETED: 'completed',
-  FAILED: 'failed'
+  ...RuntimeWorkflowState,
+  REVIEWING: RuntimeWorkflowState.SCRIPT_REVIEW,
+  DESIGNING: RuntimeWorkflowState.DESIGNER
 });
 
 // Agent 状态
@@ -42,6 +38,87 @@ export const ViewType = Object.freeze({
   FAILED: 'failed'
 });
 
+const DEEPSEARCH_VIEW_STATES = new Set([
+  WorkflowState.READING,
+  WorkflowState.SCANNING,
+  WorkflowState.RESEARCHING,
+  WorkflowState.DEEPSEARCH_REVIEW
+]);
+
+const LOOP_RUNNING_STATUSES = new Set(['running', 'observing', 'thinking', 'executing', 'reviewing']);
+const LOOP_PAUSED_STATUSES = new Set(['paused']);
+const LOOP_COMPLETED_STATUSES = new Set(['completed']);
+const LOOP_FAILED_STATUSES = new Set(['aborted', 'failed']);
+
+function normalizeAgentStatus(loopStatus) {
+  if (!loopStatus || typeof loopStatus !== 'string') return AgentStatus.IDLE;
+  if (LOOP_RUNNING_STATUSES.has(loopStatus)) return AgentStatus.RUNNING;
+  if (LOOP_PAUSED_STATUSES.has(loopStatus)) return AgentStatus.PAUSED;
+  if (LOOP_COMPLETED_STATUSES.has(loopStatus)) return AgentStatus.COMPLETED;
+  if (LOOP_FAILED_STATUSES.has(loopStatus)) return AgentStatus.FAILED;
+  if (loopStatus === 'idle') return AgentStatus.IDLE;
+  return AgentStatus.RUNNING;
+}
+
+function mapDeepsearchWorkflowState(loopStatus) {
+  if (!loopStatus) return null;
+  if (['running', 'observing', 'thinking', 'executing'].includes(loopStatus)) {
+    return WorkflowState.RESEARCHING;
+  }
+  if (loopStatus === 'reviewing' || loopStatus === 'paused') {
+    return WorkflowState.DEEPSEARCH_REVIEW;
+  }
+  if (loopStatus === 'completed') return WorkflowState.SCRIPT_REVIEW;
+  if (loopStatus === 'aborted') return WorkflowState.FAILED;
+  return null;
+}
+
+function mapDesignWorkflowState(loopStatus) {
+  if (!loopStatus) return null;
+  if (['running', 'observing', 'thinking', 'executing', 'reviewing', 'paused'].includes(loopStatus)) {
+    return WorkflowState.DESIGNER;
+  }
+  if (loopStatus === 'completed') return WorkflowState.COMPLETED;
+  if (loopStatus === 'aborted') return WorkflowState.FAILED;
+  return null;
+}
+
+function resolveViewForWorkflowState(state) {
+  if (!state) return null;
+  if (DEEPSEARCH_VIEW_STATES.has(state)) return ViewType.DEEPSEARCH_PREMIUM;
+  if (typeof window !== 'undefined') {
+    const view = window.PPTDashboard?.PPTFlowConfig?.getViewKey?.(state);
+    if (view) return view;
+  }
+  switch (state) {
+    case WorkflowState.IDLE:
+      return ViewType.UPLOAD;
+    case WorkflowState.BRIEFING:
+      return ViewType.BRIEFING;
+    case WorkflowState.DEEPSEARCH_REVIEW:
+      return ViewType.DEEPSEARCH_REVIEW;
+    case WorkflowState.SCRIPT_REVIEW:
+      return ViewType.SCRIPT_REVIEW;
+    case WorkflowState.QUESTIONING:
+      return ViewType.QUESTIONING;
+    case WorkflowState.OUTLINE_REVIEW:
+    case WorkflowState.OUTLINE_PLANNING:
+      return ViewType.OUTLINE_REVIEW;
+    case WorkflowState.PAGE_LAYOUT:
+      return ViewType.PAGE_LAYOUT;
+    case WorkflowState.DESIGN_PREFERENCES:
+      return ViewType.DESIGN_PREFERENCES;
+    case WorkflowState.DESIGNER:
+      return ViewType.DESIGNER;
+    case WorkflowState.COMPLETED:
+      return ViewType.COMPLETED;
+    case WorkflowState.FAILED:
+      return ViewType.FAILED;
+    default:
+      return ViewType.DEEPSEARCH_PREMIUM;
+  }
+}
+
 // 初始状态
 const createInitialState = () => ({
   workflow: {
@@ -53,6 +130,7 @@ const createInitialState = () => ({
   },
   deepsearch: {
     status: AgentStatus.IDLE,
+    loopStatus: null,
     iteration: 0,
     maxIterations: 5,
     gaps: [],
@@ -69,6 +147,7 @@ const createInitialState = () => ({
   },
   design: {
     status: AgentStatus.IDLE,
+    loopStatus: null,
     phase: null,
     slides: [],
     currentSlide: 0,
@@ -229,22 +308,41 @@ export class StateStore {
       }
     };
 
-    const markDeepsearchStarted = (payload) => {
-      this.update({
-        'workflow.state': WorkflowState.RESEARCHING,
-        'workflow.startedAt': Date.now(),
-        'deepsearch.status': AgentStatus.RUNNING,
-        'ui.view': ViewType.DEEPSEARCH_PREMIUM
-      });
+    const applyAgentLoopStatus = (agentKey, loopStatus, payload) => {
+      if (!loopStatus || typeof loopStatus !== 'string') return;
+      const normalized = normalizeAgentStatus(loopStatus);
+      const updates = {
+        [`${agentKey}.loopStatus`]: loopStatus,
+        [`${agentKey}.status`]: normalized
+      };
+      const workflowState = agentKey === 'deepsearch'
+        ? mapDeepsearchWorkflowState(loopStatus)
+        : agentKey === 'design'
+          ? mapDesignWorkflowState(loopStatus)
+          : null;
+
+      if (workflowState) {
+        updates['workflow.state'] = workflowState;
+        const view = resolveViewForWorkflowState(workflowState);
+        if (view) updates['ui.view'] = view;
+        if (workflowState === WorkflowState.COMPLETED) {
+          updates['workflow.completedAt'] = Date.now();
+        }
+        if (workflowState === WorkflowState.RESEARCHING && !this.get('workflow.startedAt')) {
+          updates['workflow.startedAt'] = Date.now();
+        }
+      }
+
+      this.update(updates);
       setRunIdIfPresent(payload);
     };
 
+    const markDeepsearchStarted = (payload) => {
+      applyAgentLoopStatus('deepsearch', 'running', payload);
+    };
+
     const markDeepsearchCompleted = (payload) => {
-      this.update({
-        'deepsearch.status': AgentStatus.COMPLETED,
-        'workflow.state': WorkflowState.REVIEWING,
-        'ui.view': ViewType.DEEPSEARCH_REVIEW
-      });
+      applyAgentLoopStatus('deepsearch', 'completed', payload);
       if (typeof payload?.iterations === 'number') {
         this.set('deepsearch.iteration', payload.iterations);
       } else if (typeof payload?.iteration === 'number') {
@@ -253,26 +351,60 @@ export class StateStore {
     };
 
     const markDeepsearchFailed = (payload) => {
-      this.update({
-        'deepsearch.status': AgentStatus.FAILED,
-        'workflow.state': WorkflowState.FAILED,
-        'workflow.error': payload?.error || 'Unknown error'
-      });
+      applyAgentLoopStatus('deepsearch', 'aborted', payload);
+      this.set('workflow.error', payload?.error || 'Unknown error');
     };
+
+    const markRunStarted = (payload) => {
+      this.update({
+        'workflow.state': WorkflowState.READING,
+        'workflow.startedAt': Date.now(),
+        'ui.view': ViewType.DEEPSEARCH_PREMIUM
+      });
+      setRunIdIfPresent(payload);
+    };
+
+    const markIngestStarted = (payload) => {
+      this.update({
+        'workflow.state': WorkflowState.READING,
+        'ui.view': ViewType.DEEPSEARCH_PREMIUM
+      });
+      setRunIdIfPresent(payload);
+    };
+
+    const markIngestCompleted = (payload) => {
+      this.update({
+        'workflow.state': WorkflowState.SCANNING,
+        'ui.view': ViewType.DEEPSEARCH_PREMIUM
+      });
+      setRunIdIfPresent(payload);
+    };
+
+    const markDesignStarted = (payload) => {
+      applyAgentLoopStatus('design', 'running', payload);
+    };
+
+    const markDesignCompleted = (payload) => {
+      applyAgentLoopStatus('design', 'completed', payload);
+    };
+
+    bus.on('run.started', (_, p) => markRunStarted(p));
+    bus.on('ingest.started', (_, p) => markIngestStarted(p));
+    bus.on('ingest.completed', (_, p) => markIngestCompleted(p));
 
     // DeepSearch Agent 事件
     bus.on('deepsearch.agent.started', (_, p) => markDeepsearchStarted(p));
     bus.on('deepsearch.started', (_, p) => markDeepsearchStarted(p));
 
     bus.on('deepsearch.agent.status.changed', (_, p) => {
-      this.set('deepsearch.status', p?.to || AgentStatus.RUNNING);
+      applyAgentLoopStatus('deepsearch', p?.to, p);
     });
 
     bus.on('deepsearch.agent.completed', (_, p) => markDeepsearchCompleted(p));
     bus.on('deepsearch.completed', (_, p) => markDeepsearchCompleted(p));
 
-    bus.on('deepsearch.agent.paused', () => {
-      this.set('deepsearch.status', AgentStatus.PAUSED);
+    bus.on('deepsearch.agent.paused', (_, p) => {
+      applyAgentLoopStatus('deepsearch', 'paused', p);
     });
 
     bus.on('deepsearch.agent.failed', (_, p) => markDeepsearchFailed(p));
@@ -306,22 +438,13 @@ export class StateStore {
     });
 
     // Design Agent 事件
-    bus.on('design.started', () => {
-      this.update({
-        'design.status': AgentStatus.RUNNING,
-        'workflow.state': WorkflowState.DESIGNING,
-        'ui.view': ViewType.DESIGNER
-      });
+    bus.on('design.agent.status.changed', (_, p) => {
+      applyAgentLoopStatus('design', p?.to, p);
     });
 
-    bus.on('design.completed', () => {
-      this.update({
-        'design.status': AgentStatus.COMPLETED,
-        'workflow.state': WorkflowState.COMPLETED,
-        'workflow.completedAt': Date.now(),
-        'ui.view': ViewType.COMPLETED
-      });
-    });
+    bus.on('design.started', (_, p) => markDesignStarted(p));
+    bus.on('design.ended', (_, p) => markDesignCompleted(p));
+    bus.on('design.completed', (_, p) => markDesignCompleted(p));
   }
 
   /**

@@ -236,6 +236,9 @@ export const DesignEvents = Object.freeze({
   STARTED: "design.started",
   COMPLETED: "design.completed",
 
+  // Deck
+  DECK_UPDATED: "design.deck.updated",
+
   // Tokens
   TOKENS_STARTED: "design.tokens.started",
   TOKENS_COMPLETED: "design.tokens.completed",

@@ -142,7 +142,7 @@ test("StateSynchronizer updates workflow and tracks agent status", async () => {
   sync.handleAgentEvent("design.started");
   assert.equal(context.state, WorkflowState.DESIGNER);
 
-  sync.handleAgentEvent("design.loop.status.changed", {
+  sync.handleAgentEvent("design.agent.status.changed", {
     to: DesignLoopStatus.EXECUTING,
   });
   const report = sync.checkConsistency();
