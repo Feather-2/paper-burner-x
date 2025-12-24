@@ -66,11 +66,11 @@ function toTrajectoryConfig(raw) {
 }
 
 function signatureForRetrievedChunk(r) {
-  const gapId = String(r?.gapId || "");
+  const primaryId = toNonEmptyString(r?.todoId) || toNonEmptyString(r?.gapId) || "";
   const sourceId = String(r?.sourceId || "");
   const charStart = safeInt(r?.locator?.charStart) ?? -1;
   const charEnd = safeInt(r?.locator?.charEnd) ?? -1;
-  return `${gapId}::${sourceId}::${charStart}-${charEnd}`;
+  return `${primaryId}::${sourceId}::${charStart}-${charEnd}`;
 }
 
 function isOpenGap(g) {
@@ -196,12 +196,35 @@ function mergeGaps(trajectories) {
   return { gaps, gapIdMapping };
 }
 
+function deriveTodoIdFromGapId(gapId) {
+  if (!gapId) return "";
+  const raw = String(gapId);
+  const m = raw.match(/^gap_(\d+)$/);
+  if (m) return `todo_${m[1]}`;
+  return `todo_${raw}`;
+}
+
+function buildTodoIdMappingFromGaps(gapIdMapping) {
+  const mapping = new Map();
+  if (!gapIdMapping || typeof gapIdMapping.entries !== "function") return mapping;
+  for (const [oldGapId, newGapId] of gapIdMapping.entries()) {
+    const oldTodoId = deriveTodoIdFromGapId(oldGapId);
+    const newTodoId = deriveTodoIdFromGapId(newGapId);
+    if (oldTodoId && newTodoId) mapping.set(oldTodoId, newTodoId);
+  }
+  return mapping;
+}
+
 function rewriteGapIds(items, gapIdMapping) {
   if (!gapIdMapping || typeof gapIdMapping.get !== "function") return;
   if (!Array.isArray(items)) return;
 
+  const todoIdMapping = buildTodoIdMappingFromGaps(gapIdMapping);
   for (const item of items) {
     if (!item || typeof item !== "object") continue;
+    if (Array.isArray(item.todoIds)) item.todoIds = item.todoIds.map((tid) => todoIdMapping.get(String(tid)) || tid);
+    if (item.todoId) item.todoId = todoIdMapping.get(String(item.todoId)) || item.todoId;
+    if (Array.isArray(item.matchedTodoIds)) item.matchedTodoIds = item.matchedTodoIds.map((tid) => todoIdMapping.get(String(tid)) || tid);
     if (Array.isArray(item.gapIds)) item.gapIds = item.gapIds.map((gid) => gapIdMapping.get(String(gid)) || gid);
     if (item.gapId) item.gapId = gapIdMapping.get(String(item.gapId)) || item.gapId;
     if (Array.isArray(item.matchedGapIds)) item.matchedGapIds = item.matchedGapIds.map((gid) => gapIdMapping.get(String(gid)) || gid);
@@ -254,13 +277,15 @@ function withUniqueIds(trajectory) {
     const claimId = `${prefix}::${String(c?.claimId || "") || "c"}`;
     const evidenceIds = (Array.isArray(c?.evidenceIds) ? c.evidenceIds : []).map((e) => `${prefix}::${String(e || "")}`);
     const gapIds = Array.isArray(c?.gapIds) ? c.gapIds.map(String).filter(Boolean) : [];
-    return { ...c, claimId, evidenceIds, ...(gapIds.length ? { gapIds } : {}) };
+    const todoIds = Array.isArray(c?.todoIds) ? c.todoIds.map(String).filter(Boolean) : [];
+    return { ...c, claimId, evidenceIds, ...(gapIds.length ? { gapIds } : {}), ...(todoIds.length ? { todoIds } : {}) };
   });
 
   const evidenceLedger = (Array.isArray(trajectory?.L1?.evidenceLedger) ? trajectory.L1.evidenceLedger : []).map((e) => {
     const evidenceId = `${prefix}::${String(e?.evidenceId || "") || "e"}`;
     const gapIds = Array.isArray(e?.gapIds) ? e.gapIds.map(String).filter(Boolean) : [];
-    return { ...e, evidenceId, ...(gapIds.length ? { gapIds } : {}) };
+    const todoIds = Array.isArray(e?.todoIds) ? e.todoIds.map(String).filter(Boolean) : [];
+    return { ...e, evidenceId, ...(gapIds.length ? { gapIds } : {}), ...(todoIds.length ? { todoIds } : {}) };
   });
 
   return { claims, evidenceLedger };
@@ -680,7 +705,8 @@ export class TrajectoryManager {
 
       const evidenceIds = Array.from(new Set(candidates.flatMap((c) => (Array.isArray(c?.evidenceIds) ? c.evidenceIds : [])).map(String).filter(Boolean)));
       const gapIds = Array.from(new Set(candidates.flatMap((c) => (Array.isArray(c?.gapIds) ? c.gapIds : [])).map(String).filter(Boolean)));
-      votedClaims.push({ ...winner, evidenceIds, ...(gapIds.length ? { gapIds } : {}) });
+      const todoIds = Array.from(new Set(candidates.flatMap((c) => (Array.isArray(c?.todoIds) ? c.todoIds : [])).map(String).filter(Boolean)));
+      votedClaims.push({ ...winner, evidenceIds, ...(gapIds.length ? { gapIds } : {}), ...(todoIds.length ? { todoIds } : {}) });
     }
 
     const dedupedClaims = dedupeClaims(votedClaims, { mergeEvidence: true });

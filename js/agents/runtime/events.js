@@ -114,6 +114,10 @@ export const DeepSearchEvents = Object.freeze({
   GAP_UPSERTED: "deepsearch.gap.upserted",
   GAP_STATUS_CHANGED: "deepsearch.gap.status.changed",
 
+  // Todos
+  TODOS_STARTED: "deepsearch.todos.started",
+  TODOS_COMPLETED: "deepsearch.todos.completed",
+
   // Retrieve
   RETRIEVE_STARTED: "deepsearch.retrieve.started",
   RETRIEVE_PROGRESS: "deepsearch.retrieve.progress",

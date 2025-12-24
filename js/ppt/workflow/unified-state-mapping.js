@@ -165,6 +165,11 @@ export class StateSynchronizer {
    * @param {object} payload - 事件载荷
    */
   handleAgentEvent(eventName, payload = {}) {
+    // 终态不再处理状态转换事件
+    if (this.context.state === WorkflowState.FAILED || this.context.state === WorkflowState.COMPLETED) {
+      return;
+    }
+
     // 更新内部 agent 状态跟踪
     if (eventName === "deepsearch.agent.status.changed") {
       this._agentStatus.deepsearch = payload?.to || this._agentStatus.deepsearch;

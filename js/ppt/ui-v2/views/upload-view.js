@@ -375,7 +375,10 @@ export class UploadView extends BaseView {
 
   _onOpenProjectBrief() {
     this.setState('ui.pendingStart', false);
-    if (this._adapter?.openProjectBriefForm) {
+    const modalManager = window.PPTUIV2?.instance?.modalManager;
+    if (modalManager && typeof modalManager.openBriefingModal === 'function') {
+      modalManager.openBriefingModal();
+    } else if (this._adapter?.openProjectBriefForm) {
       this._adapter.openProjectBriefForm();
     } else {
       this.navigate(ViewType.BRIEFING);
@@ -387,7 +390,10 @@ export class UploadView extends BaseView {
     const taskGoal = typeof brief.taskGoal === 'string' ? brief.taskGoal.trim() : '';
     if (!taskGoal) {
       this.setState('ui.pendingStart', true);
-      if (this._adapter?.openProjectBriefForm) {
+      const modalManager = window.PPTUIV2?.instance?.modalManager;
+      if (modalManager && typeof modalManager.openBriefingModal === 'function') {
+        modalManager.openBriefingModal();
+      } else if (this._adapter?.openProjectBriefForm) {
         this._adapter.openProjectBriefForm();
       } else {
         this.navigate(ViewType.BRIEFING);

@@ -650,7 +650,7 @@ test("DeepSearch checkpoints: restore remains backward compatible for old full c
   assert.equal(state.L2.retrievedChunks[0].chunkId, "s1::chunk_1");
 });
 
-test("DeepSearch write: feedbackToResearch flags missing gap coverage", async () => {
+test("DeepSearch write: feedbackToResearch flags missing todo coverage", async () => {
   const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
   const { runDeepSearchWriteStage } = await import("../../js/agents/stages/deepsearch/write.js");
 
@@ -663,6 +663,7 @@ test("DeepSearch write: feedbackToResearch flags missing gap coverage", async ()
       claims: [],
       evidenceLedger: [],
     },
+    todos: [{ todoId: "todo_1", text: "Define the core scope", status: "completed", priority: "high", relatedGapId: "gap_1", source: "user" }],
   });
 
   const events = [];
@@ -671,8 +672,9 @@ test("DeepSearch write: feedbackToResearch flags missing gap coverage", async ()
   const out = await runDeepSearchWriteStage({ runId: "run_write_feedback" }, { state }, { emit });
   assert.ok(out.feedbackToResearch);
   assert.equal(out.feedbackToResearch.needsMoreResearch, true);
-  assert.deepEqual(out.feedbackToResearch.reopenGaps, ["gap_1"]);
-  assert.deepEqual(out.feedbackToResearch.newGaps, []);
+  assert.deepEqual(out.feedbackToResearch.todoIds, ["todo_1"]);
+  assert.deepEqual(out.feedbackToResearch.newTodos, []);
+  assert.deepEqual(out.feedbackToResearch.gapIds, ["gap_1"]);
 });
 
 test("DeepSearch pipeline: write backtrack triggers once then completes", async () => {
@@ -714,21 +716,18 @@ test("DeepSearch pipeline: write backtrack triggers once then completes", async 
   assert.ok(Array.isArray(state.L1.claims));
 });
 
-test("DeepSearch pipeline: maxWriteBacktrack limits repeated write backtracks", async () => {
+test("DeepSearch pipeline: maxWriteBacktrack limits write backtracks", async () => {
   const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
   const { runDeepSearchStage } = await import("../../js/agents/stages/deepsearch/index.js");
 
   const state = new DeepSearchState({
     runId: "run_write_backtrack_limit",
     taskGoal: "Test Goal",
-    userConfig: { title: "Test Deck", maxIterations: 12 },
-    maxIterations: 12,
+    userConfig: { title: "Test Deck", maxIterations: 6, maxWriteBacktrack: 1 },
+    maxIterations: 6,
     L0: { sources: [] },
-    L1: {
-      gaps: [{ gapId: "gap_1", type: "definition", question: "What are the core definitions and scope?", priority: "high", status: "filled" }],
-      claims: [],
-      evidenceLedger: [],
-    },
+    L1: { gaps: [], claims: [], evidenceLedger: [] },
+    todos: [{ todoId: "todo_1", text: "Define the core scope", status: "completed", priority: "high", source: "user" }],
   });
 
   const events = [];
@@ -738,9 +737,8 @@ test("DeepSearch pipeline: maxWriteBacktrack limits repeated write backtracks", 
   assert.equal(pkg.mode, "deepsearch");
 
   const backtrackEvents = events.filter((e) => e.name === "deepsearch.write.backtrack.requested");
-  // backtrack 次数可能是 2-3，取决于迭代策略配置
-  assert.ok(backtrackEvents.length >= 2 && backtrackEvents.length <= 3, `expected 2-3 backtracks, got ${backtrackEvents.length}`);
-  assert.ok(state.writeBacktrackCount >= 2 && state.writeBacktrackCount <= 3);
+  assert.equal(backtrackEvents.length, 1);
+  assert.equal(state.writeBacktrackCount, 1);
 });
 
 test("DeepSearch scan: optional LLM parsing + fallback", async () => {
@@ -879,29 +877,29 @@ test("DeepSearch scan.ensureState: no state constructs new DeepSearchState from 
   assert.equal(out.state.L0.sources[0].sourceId, "s1");
 });
 
-test("generateReport: groups claims by gapIds + assigns citations", async () => {
+test("generateReport: groups claims by todoIds + assigns citations", async () => {
   const { generateReport } = await import("../../js/agents/stages/deepsearch/write.js");
 
   const sources = [
     { sourceId: "s1", kind: "user_text", title: "Doc A", uri: "a.txt", sourceTextNormalized: "Alpha beta gamma" },
     { sourceId: "s2", kind: "url", title: "Doc B", uri: "https://example.com", sourceTextNormalized: "Delta epsilon zeta" },
   ];
-  const gaps = [
-    { gapId: "gap_1", type: "definition", question: "What is Alpha?" },
-    { gapId: "gap_2", type: "data", question: "What are key numbers?" },
+  const todos = [
+    { todoId: "todo_1", text: "What is Alpha?", status: "open" },
+    { todoId: "todo_2", text: "What are key numbers?", status: "open" },
   ];
   const evidenceLedger = [
     { evidenceId: "e1", sourceId: "s1", locator: { charStart: 0, charEnd: 5 }, quote: "Alpha" },
     { evidenceId: "e2", sourceId: "s2", locator: { charStart: 0, charEnd: 5 }, quote: "Delta" },
   ];
   const claims = [
-    { claimId: "c1", text: "Alpha is important.", evidenceIds: ["e1"], gapIds: ["gap_1"] },
-    { claimId: "c2", text: "A key number is 42.", evidenceIds: ["e2", "e1"], gapIds: ["gap_2"] },
-    { claimId: "c3", text: "Unknown gap claim.", evidenceIds: ["e2"], gapIds: ["gap_unknown"] },
+    { claimId: "c1", text: "Alpha is important.", evidenceIds: ["e1"], todoIds: ["todo_1"] },
+    { claimId: "c2", text: "A key number is 42.", evidenceIds: ["e2", "e1"], todoIds: ["todo_2"] },
+    { claimId: "c3", text: "Unknown todo claim.", evidenceIds: ["e2"], todoIds: ["todo_gap_unknown"] },
     { claimId: "c4", text: "Uncategorized claim.", evidenceIds: ["e1"] },
   ];
 
-  const out = generateReport(claims, evidenceLedger, gaps, sources, "Test Goal");
+  const out = generateReport(claims, evidenceLedger, todos, sources, "Test Goal");
 
   assert.ok(typeof out.markdown === "string" && out.markdown.includes("# Test Goal"));
   assert.ok(out.markdown.includes("## What is Alpha?"));
@@ -1265,7 +1263,7 @@ test("DeepSearch gaps/retrieve/understand/write/condense: placeholder IO contrac
   }
 });
 
-test("DeepSearch pipeline: SharedContext summary is injected into gaps prompt", async () => {
+test("DeepSearch pipeline: SharedContext summary is injected into todos prompt", async () => {
   const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
   const { runDeepSearchStage } = await import("../../js/agents/stages/deepsearch/index.js");
 
@@ -1286,17 +1284,17 @@ test("DeepSearch pipeline: SharedContext summary is injected into gaps prompt", 
       };
     }
 
-    if (system.includes("DeepSearch gap planner")) {
+    if (system.includes("DeepSearch todo planner")) {
       const user = String(messages?.[1]?.content || "");
-      assert.ok(user.startsWith("## 已知上下文\n"), "expected context header in gaps prompt");
+      assert.ok(user.startsWith("## Context\n"), "expected context header in todos prompt");
       assert.ok(user.includes("[scan]"), "expected scan summary included in context summary");
       assert.ok(user.includes("主题：GoalXYZ"), "expected taskGoal included in scan summary");
       assert.ok(user.includes("5 字符"), "expected char count included in scan summary");
-      ac.abort("stop after verifying gaps prompt");
-      return { content: JSON.stringify({ gaps: [] }, null, 2) };
+      ac.abort("stop after verifying todos prompt");
+      return { content: JSON.stringify([{ text: "Todo", priority: "high", queryHints: ["alpha"], expectedEvidence: "definition" }], null, 2) };
     }
 
-    return { content: JSON.stringify({ gaps: [] }, null, 2) };
+    return { content: JSON.stringify([], null, 2) };
   });
 
   const state = new DeepSearchState({
@@ -1312,8 +1310,8 @@ test("DeepSearch pipeline: SharedContext summary is injected into gaps prompt", 
     { emit: () => {}, modelRouter, signal: ac.signal, checkCancelled: () => {} }
   );
 
-  assert.ok(ac.signal.aborted, "expected run to abort after gaps prompt verification");
-  assert.ok(modelRouter.calls.length >= 2, "expected scan + gaps LLM calls");
+  assert.ok(ac.signal.aborted, "expected run to abort after todos prompt verification");
+  assert.ok(modelRouter.calls.length >= 2, "expected scan + todos LLM calls");
 });
 
 test("DeepSearch gaps: injects context summary into LLM prompt when provided", async () => {
@@ -1454,7 +1452,7 @@ test("DeepSearch gaps.gap: invalid type degrades to 'unknown' and warns", async 
   }
 });
 
-test("DeepSearch retrieve: invalid gaps/sources/config are skipped and emit events", async () => {
+test("DeepSearch retrieve: invalid todos/sources/config are skipped and emit events", async () => {
   const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
   const { runDeepSearchRetrieveStage } = await import("../../js/agents/stages/deepsearch/retrieve.js");
 
@@ -1477,23 +1475,22 @@ test("DeepSearch retrieve: invalid gaps/sources/config are skipped and emit even
         { sourceId: "s1", kind: "user_text", title: "ok", sourceTextNormalized: "alpha beta gamma" },
       ],
     },
-    L1: {
-      gaps: [
-        { type: "definition", status: "open" }, // invalid (missing gapId)
-        { gapId: "gap_no_query", status: "open", queryHints: [] }, // invalid (missing question + queryHints)
-        { gapId: "gap_1", type: "definition", question: "What is alpha?", status: "open", queryHints: [] },
-      ],
-    },
+    L1: { gaps: [], claims: [], evidenceLedger: [] },
+    todos: [
+      { text: "Missing id", status: "open" }, // invalid (missing todoId)
+      { todoId: "todo_no_query", text: "", status: "open", queryHints: [] }, // invalid (missing text + queryHints)
+      { todoId: "todo_1", text: "What is alpha?", status: "open", queryHints: [] },
+    ],
     L2: { retrievedChunks: [] },
   });
 
   const events = [];
   const emit = (name, record) => events.push({ name, record });
 
-  const localRetriever = (sourceIndex, gaps) => {
+  const localRetriever = (sourceIndex, todos) => {
     assert.equal(sourceIndex.sourceId, "s1");
-    assert.equal(gaps.length, 1);
-    assert.equal(gaps[0].gapId, "gap_1");
+    assert.equal(todos.length, 1);
+    assert.equal(todos[0].todoId, "todo_1");
 
     const first = sourceIndex.chunks[0];
     return [
@@ -1504,7 +1501,7 @@ test("DeepSearch retrieve: invalid gaps/sources/config are skipped and emit even
         text: first.text,
         score: 1,
         relevance: "hit",
-        matchedGapIds: ["gap_1"],
+        matchedTodoIds: ["todo_1"],
       },
     ];
   };
@@ -1601,20 +1598,27 @@ test("buildContentPackage: mode=deepsearch includes scanSummary/gaps/condensedMe
   const slideIntents = [{ slideIntentId: "s1", pageType: "overview", title: "Overview", claimIds: ["c1"] }];
   const claims = [{ claimId: "c1", text: "Alpha beta", evidenceIds: ["e1"] }];
   const evidenceLedger = [{ evidenceId: "e1", sourceId: "s1", locator: { charStart: 0, charEnd: 10 }, quote: "Alpha beta" }];
+  const todos = [{ todoId: "todo_1", text: "Define Alpha", status: "completed", priority: "high" }];
 
   const report = { markdown: "# Report", sections: [], citations: [{ citationId: 1, evidenceId: "e1", sourceId: "s1" }] };
   const pkg = buildContentPackage(runContext, sources, slideIntents, claims, evidenceLedger, [], {
     mode: "deepsearch",
     scanSummary: { summaryText: "Scan summary" },
     gaps: [{ gapId: "gap_1", type: "definition", question: "Define Alpha" }],
+    todos,
     condensedMemory: { summary: "Condensed summary" },
     openQuestions: [{ questionId: "q_1", text: "What is Beta?", status: "open" }],
+    completionReason: "All todos completed.",
+    todoCompletionStats: { total: 1, completed: 1, cancelled: 0 },
     report,
   });
 
   assert.equal(pkg.mode, "deepsearch");
   assert.equal(pkg.scanSummary.summaryText, "Scan summary");
   assert.equal(pkg.gaps.length, 1);
+  assert.equal(pkg.todos.length, 1);
+  assert.equal(pkg.todoCompletionStats.completed, 1);
+  assert.equal(pkg.completionReason, "All todos completed.");
   assert.equal(pkg.condensedMemory.summary, "Condensed summary");
   assert.equal(pkg.openQuestions.length, 1);
   assert.equal(pkg.report.markdown, "# Report");
@@ -1635,11 +1639,12 @@ test("AgentOrchestrator: deepsearch stages register + emit internal events", asy
     runId: "run_orch",
     taskGoal: "Compare Alpha vs Beta",
     L0: { sources: [{ sourceId: "s1", kind: "user_text", title: "Input", sourceTextNormalized: "Alpha vs Beta. Definition: Alpha." }] },
+    todos: [{ todoId: "todo_1", text: "Define Alpha", status: "open", priority: "high", source: "user" }],
   });
 
   const pkg = await orch.run(async (o) => {
     await o.runStage("deepsearch.scan", { state });
-    await o.runStage("deepsearch.gaps", { state });
+    await o.runStage("deepsearch.todos", { state });
     await o.runStage("deepsearch.retrieve", { state });
     await o.runStage("deepsearch.understand", { state });
     await o.runStage("deepsearch.write", { state });
@@ -1652,7 +1657,7 @@ test("AgentOrchestrator: deepsearch stages register + emit internal events", asy
 
   assert.ok(events.some((e) => e.name === "deepsearch.scan.started" && e.status === "started"));
   assert.ok(events.some((e) => e.name === "deepsearch.scan.completed" && e.actor === "deepsearch" && e.status === "completed"));
-  assert.ok(events.some((e) => e.name === "deepsearch.gaps.completed" && e.actor === "deepsearch"));
+  assert.ok(events.some((e) => e.name === "deepsearch.todos.completed" && e.actor === "deepsearch"));
   assert.ok(events.some((e) => e.name === "deepsearch.retrieve.completed" && e.actor === "deepsearch"));
   assert.ok(events.some((e) => e.name === "deepsearch.understand.completed" && e.actor === "deepsearch"));
   assert.ok(events.some((e) => e.name === "deepsearch.write.completed" && e.actor === "deepsearch"));
@@ -1775,8 +1780,14 @@ test("DeepSearch pipeline: metrics.deepsearch includes tokenUsage", async () => 
           usage: { prompt_tokens: 11, completion_tokens: 3 },
         };
       }
-      if (sys.includes("DeepSearch gap planner")) {
-        return { content: "```json\n" + JSON.stringify({ gaps: [] }) + "\n```", usage: { prompt_tokens: 5, completion_tokens: 2 } };
+      if (sys.includes("DeepSearch todo planner")) {
+        return {
+          content:
+            "```json\n" +
+            JSON.stringify([{ text: "Define Alpha", priority: "high", queryHints: ["alpha", "definition"], expectedEvidence: "definition" }]) +
+            "\n```",
+          usage: { prompt_tokens: 6, completion_tokens: 2 },
+        };
       }
       if (sys.includes("DeepSearch claim extractor")) {
         return { content: "```json\n" + JSON.stringify({ claims: [] }) + "\n```", usage: { prompt_tokens: 7, completion_tokens: 1 } };
@@ -1799,7 +1810,7 @@ test("DeepSearch pipeline: metrics.deepsearch includes tokenUsage", async () => 
 
   const pkg = await runDeepSearchStage({ runId: "run_pkg_tokens", mode: "deepsearch", constraints: {} }, { state }, { emit, aiApiService, checkCancelled: () => {} });
   assert.ok(pkg?.metrics?.deepsearch?.tokenUsage);
-  // Token counts may vary based on which stages execute (gaps=[] skips understand)
+  // Token counts may vary based on which stages execute (todos=[] skips understand)
   assert.ok(pkg.metrics.deepsearch.tokenUsage.input >= 20);
   assert.ok(pkg.metrics.deepsearch.tokenUsage.output >= 5);
   assert.ok(pkg.metrics.deepsearch.tokenUsage.total >= 25);
@@ -1927,9 +1938,12 @@ test("DeepSearch pipeline: budget.exceeded action=degrade clamps maxIterations",
           model: "m1",
         };
       }
-      if (sys.includes("DeepSearch gap planner")) {
+      if (sys.includes("DeepSearch todo planner")) {
         return {
-          content: "```json\n" + JSON.stringify({ gaps: [{ type: "definition", question: "What is Alpha?", status: "open" }] }) + "\n```",
+          content:
+            "```json\n" +
+            JSON.stringify([{ text: "What is Alpha?", priority: "high", queryHints: ["alpha"], expectedEvidence: "definition" }]) +
+            "\n```",
           usage: { prompt_tokens: 0, completion_tokens: 0 },
           model: "m1",
         };

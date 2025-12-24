@@ -88,12 +88,14 @@ test("DeepSearch retrieve: LRU trims oldest when exceeding maxChunks", async () 
     userConfig: { retrieval: { chunkSize: 200, overlap: 0, topK: 1, windowSize: 0, useBm25: false, useGrep: true, maxChunks: 3 } },
     L0: { sources: [{ sourceId: "s1", kind: "user_text", title: "Doc", sourceTextNormalized: text }] },
     L1: { gaps: [] },
+    todos: [],
   });
 
   const emit = () => {};
   for (let i = 1; i <= 5; i++) {
-    state.L1.gaps.push({ gapId: `gap_${i}`, status: "open", question: `Find TOKEN_${i}`, queryHints: [`TOKEN_${i}`] });
-    for (const g of state.L1.gaps) g.status = g.gapId === `gap_${i}` ? "open" : "filled";
+    state.todos = [
+      { todoId: `todo_${i}`, text: `Find TOKEN_${i}`, status: "open", priority: "high", queryHints: [`TOKEN_${i}`] },
+    ];
     await runDeepSearchRetrieveStage({ runId: state.runId }, { state }, { emit });
     assert.ok(state.L2.retrievedChunks.length <= 3);
   }

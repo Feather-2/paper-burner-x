@@ -361,9 +361,10 @@ test("交错思考: _think method exists and works in RULES mode", async () => {
     totalChars: 1000,
     estimatedTokens: 500,
     isLargeDoc: false,
-    totalGaps: 0,
-    openGapCount: 0,
-    filledGapCount: 0,
+    totalTodos: 0,
+    openTodoCount: 0,
+    completedTodoCount: 0,
+    blockedTodoCount: 0,
     claimCount: 1,
     evidenceCount: 1,
     hasReport: true,
@@ -374,7 +375,7 @@ test("交错思考: _think method exists and works in RULES mode", async () => {
   const decision = await agentLoop._think(observation, {}, {}, {});
 
   assert.equal(decision.action, "complete");
-  assert.equal(decision.reason, "all_gaps_filled");
+  assert.equal(decision.reason, "all_todos_resolved");
 });
 
 test("流式思考: StreamingThinkConfig exports correct constants", async () => {
@@ -615,9 +616,10 @@ test("DeepSearchAgentLoop._think covers key RULES branches", async () => {
     totalChars: 100,
     estimatedTokens: 50,
     isLargeDoc: false,
-    totalGaps: 1,
-    openGapCount: 0,
-    filledGapCount: 0,
+    totalTodos: 1,
+    openTodoCount: 0,
+    completedTodoCount: 0,
+    blockedTodoCount: 0,
     claimCount: 0,
     evidenceCount: 0,
     hasReport: false,
@@ -638,16 +640,16 @@ test("DeepSearchAgentLoop._think covers key RULES branches", async () => {
   const maxIt = await agentLoop._think({ ...base, iteration: 5, maxIterations: 5 }, {}, {}, { isSubAgent: false });
   assert.equal(maxIt.reason, "max_iterations");
 
-  const retrieve = await agentLoop._think({ ...base, openGapCount: 2, totalGaps: 2 }, {}, {}, { isSubAgent: false });
+  const retrieve = await agentLoop._think({ ...base, openTodoCount: 2, totalTodos: 2 }, {}, {}, { isSubAgent: false });
   assert.equal(retrieve.action, "retrieve_and_extract");
 
   const write = await agentLoop._think({ ...base, claimCount: 1, evidenceCount: 1 }, {}, {}, { isSubAgent: false });
   assert.equal(write.action, "generate_report");
 
-  const scan = await agentLoop._think({ ...base, totalGaps: 0 }, {}, {}, { isSubAgent: false });
+  const scan = await agentLoop._think({ ...base, totalTodos: 0 }, {}, {}, { isSubAgent: false });
   assert.equal(scan.action, "scan_and_identify_gaps");
 
-  const noop = await agentLoop._think({ ...base, totalGaps: 1 }, {}, {}, { isSubAgent: false });
+  const noop = await agentLoop._think({ ...base, totalTodos: 1 }, {}, {}, { isSubAgent: false });
   assert.equal(noop.action, "complete");
   assert.equal(noop.reason, "no_action_needed");
 });
@@ -676,7 +678,7 @@ test("DeepSearchAgentLoop._think supports HYBRID mode (use LLM + fallback)", asy
   const agentLoop = new DeepSearchAgentLoop({ eventBus: bus, thinkingMode: ThinkingMode.HYBRID });
   const logger = { info: () => {}, warn: () => {} };
   const observation = {
-    openGapCount: 1,
+    openTodoCount: 1,
     claimCount: 1,
     hasReport: false,
     iteration: 0,
@@ -704,8 +706,9 @@ test("DeepSearchAgentLoop._thinkWithLLM uses modelRouter and emits thought event
     sourceCount: 1,
     claimCount: 0,
     evidenceCount: 0,
-    openGapCount: 0,
-    filledGapCount: 0,
+    openTodoCount: 0,
+    completedTodoCount: 0,
+    blockedTodoCount: 0,
     hasReport: false,
     isLargeDoc: false,
     iteration: 0,
@@ -737,9 +740,10 @@ test("DeepSearchAgentLoop._thinkWithLLM falls back to rules when model call fail
     sourceCount: 1,
     claimCount: 1,
     evidenceCount: 1,
-    openGapCount: 0,
-    filledGapCount: 0,
-    totalGaps: 1,
+    openTodoCount: 0,
+    completedTodoCount: 0,
+    blockedTodoCount: 0,
+    totalTodos: 1,
     hasReport: false,
     isLargeDoc: false,
     iteration: 0,
@@ -1059,6 +1063,46 @@ test("DeepSearchAgentLoop pause(): defaults reason to user_requested when omitte
   );
 });
 
+test("DeepSearchAgentLoop pauses when awaitUserFeedback flag is set", async () => {
+  const { DeepSearchAgentLoop, DeepSearchState } = await loadModules();
+  const { StagePausedError } = await import("../../../js/agents/runtime/stage-errors.js");
+  const bus = makeEventBus();
+
+  const agentLoop = new DeepSearchAgentLoop({ eventBus: bus });
+  const state = makeMinimalCompleteState(DeepSearchState, { runId: "pause_l2" });
+  state.L2.awaitUserFeedback = true;
+  state.L2.reason = "need user input";
+
+  await assert.rejects(
+    () => agentLoop.run({ state }, { runContext: { runId: "pause_l2" }, eventBus: bus }),
+    (err) => {
+      assert.ok(err instanceof StagePausedError);
+      assert.equal(err.reason, "need user input");
+      return true;
+    }
+  );
+});
+
+test("DeepSearchAgentLoop completes when taskImpossible flag is set", async () => {
+  const { DeepSearchAgentLoop, DeepSearchState } = await loadModules();
+  const bus = makeEventBus();
+
+  const agentLoop = new DeepSearchAgentLoop({ eventBus: bus });
+  const state = new DeepSearchState({
+    runId: "task_impossible",
+    taskGoal: "Test",
+    L0: { sources: [{ sourceId: "s1", sourceTextNormalized: "Test content" }] },
+  });
+  state.todos = [{ todoId: "todo_1", text: "Do thing", status: "completed" }];
+  state.L2.taskImpossible = true;
+  state.L2.reason = "No data available";
+
+  const pkg = await agentLoop.run({ state }, { runContext: { runId: "task_impossible" }, eventBus: bus });
+  assert.ok(pkg);
+  assert.equal(pkg.completionReason, "No data available");
+  assert.equal(pkg.todoCompletionStats?.total, 1);
+});
+
 test("DeepSearchAgentLoop._saveCheckpoint ignores state.saveCheckpoint errors", async () => {
   const { DeepSearchAgentLoop } = await loadModules();
   const bus = makeEventBus();
@@ -1198,7 +1242,7 @@ test("DeepSearchAgentLoop._think uses _thinkWithLLM in LLM mode", async () => {
   const agentLoop = new DeepSearchAgentLoop({ eventBus: bus, thinkingMode: ThinkingMode.LLM });
 
   agentLoop._thinkWithLLM = async () => ({ action: "complete", reason: "llm" });
-  const decision = await agentLoop._think({ openGapCount: 0, hasReport: false }, {}, {}, { isSubAgent: false });
+  const decision = await agentLoop._think({ openTodoCount: 0, hasReport: false }, {}, {}, { isSubAgent: false });
   assert.equal(decision.reason, "llm");
 });
 
@@ -1211,7 +1255,7 @@ test("DeepSearchAgentLoop._think HYBRID covers late-iteration/backtrack triggers
   agentLoop._thinkWithLLM = async () => ({ action: "complete", reason: "llm" });
 
   const lateIteration = await agentLoop._think(
-    { openGapCount: 1, claimCount: 0, hasReport: false, iteration: 3, maxIterations: 4, totalGaps: 1 },
+    { openTodoCount: 1, claimCount: 0, hasReport: false, iteration: 3, maxIterations: 4, totalTodos: 1 },
     {},
     {},
     { logger, isSubAgent: false }
@@ -1220,7 +1264,7 @@ test("DeepSearchAgentLoop._think HYBRID covers late-iteration/backtrack triggers
 
   agentLoop._backtrackCount = 1;
   const backtrackTriggered = await agentLoop._think(
-    { openGapCount: 0, claimCount: 0, hasReport: false, iteration: 0, maxIterations: 5, totalGaps: 1 },
+    { openTodoCount: 0, claimCount: 0, hasReport: false, iteration: 0, maxIterations: 5, totalTodos: 1 },
     {},
     {},
     { logger, isSubAgent: false }
@@ -1232,7 +1276,7 @@ test("DeepSearchAgentLoop._think HYBRID covers late-iteration/backtrack triggers
     throw new Error("should_not_call");
   };
   const noLlMNeeded = await agentLoop._think(
-    { openGapCount: 0, claimCount: 0, hasReport: false, iteration: 0, maxIterations: 5, totalGaps: 1 },
+    { openTodoCount: 0, claimCount: 0, hasReport: false, iteration: 0, maxIterations: 5, totalTodos: 1 },
     {},
     {},
     { logger, isSubAgent: false }
@@ -1251,9 +1295,10 @@ test("DeepSearchAgentLoop._thinkWithLLM falls back to rules when no model config
     sourceCount: 1,
     claimCount: 1,
     evidenceCount: 1,
-    openGapCount: 0,
-    filledGapCount: 0,
-    totalGaps: 1,
+    openTodoCount: 0,
+    completedTodoCount: 0,
+    blockedTodoCount: 0,
+    totalTodos: 1,
     hasReport: false,
     isLargeDoc: false,
     iteration: 0,
@@ -1274,9 +1319,10 @@ test("DeepSearchAgentLoop._thinkWithLLM falls back when response has no JSON can
     sourceCount: 1,
     claimCount: 1,
     evidenceCount: 1,
-    openGapCount: 0,
-    filledGapCount: 0,
-    totalGaps: 1,
+    openTodoCount: 0,
+    completedTodoCount: 0,
+    blockedTodoCount: 0,
+    totalTodos: 1,
     hasReport: false,
     isLargeDoc: false,
     iteration: 0,
@@ -1308,7 +1354,7 @@ test("DeepSearchAgentLoop._emitThoughtStream ignores onThoughtDelta errors", asy
   assert.ok(deltaEvents.length > 0);
 });
 
-test("DeepSearchAgentLoop._executeScanAndIdentifyGaps default runs scan + gaps stages", async () => {
+test("DeepSearchAgentLoop._executeScanAndIdentifyGaps default runs scan + todos stages", async () => {
   const { DeepSearchAgentLoop, DeepSearchState } = await loadModules();
   const bus = makeEventBus();
 
@@ -1320,12 +1366,14 @@ test("DeepSearchAgentLoop._executeScanAndIdentifyGaps default runs scan + gaps s
     taskGoal: "Goal",
     L0: { sources: [{ sourceId: "src_1", sourceTextNormalized: "Test content here" }] },
   });
+  state.todos = [{ todoId: "todo_1", text: "User todo", source: "user" }];
 
   const result = await agentLoop._executeScanAndIdentifyGaps(state, {}, { logger: { info: () => {}, warn: () => {} } });
   assert.equal(result.scanned, true);
   assert.equal(result.gapsIdentified, true);
-  assert.ok(Array.isArray(state.L1.gaps));
-  assert.ok(state.L1.gaps.length > 0);
+  assert.equal(result.todosIdentified, true);
+  assert.ok(Array.isArray(state.todos));
+  assert.ok(state.todos.length > 0);
 });
 
 test("DeepSearchAgentLoop._review creates ShadowAgent and swallows validation errors", async () => {
@@ -1380,7 +1428,8 @@ test("DeepSearchAgentLoop._executeRetrieveAndExtract default runs retrieve + und
     userConfig: { retrieval: { enableToolChain: false } },
     L0: { sources: [{ sourceId: "src_1", sourceTextNormalized: "Test content here" }] },
   });
-  state.L1.gaps = [{ gapId: "g1", question: "What is Test?", status: "open", queryHints: ["Test"] }];
+  state.todos = [{ todoId: "todo_1", text: "What is Test?", status: "open", queryHints: ["Test"] }];
+  state.L1.gaps = [];
 
   const result = await agentLoop._executeRetrieveAndExtract(state, {}, { logger: { info: () => {}, warn: () => {} } });
   assert.equal(result.retrieved, true);

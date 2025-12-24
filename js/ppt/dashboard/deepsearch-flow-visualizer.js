@@ -27,6 +27,7 @@ function loadScript(src) {
 const STAGES = {
   [FlowStage.START]: { icon: "▶", label: "Start", color: "#4F46E5" },
   [FlowStage.SCAN]: { icon: "◎", label: "Scan", color: "#0EA5E9" },
+  [FlowStage.TODOS]: { icon: "☑", label: "Todos", color: "#F59E0B" },
   [FlowStage.GAPS]: { icon: "◇", label: "Gaps", color: "#F59E0B" },
   [FlowStage.RETRIEVE]: { icon: "⟳", label: "Retrieve", color: "#8B5CF6" },
   [FlowStage.UNDERSTAND]: { icon: "◈", label: "Understand", color: "#10B981" },
@@ -67,6 +68,7 @@ export class FlowBuilder {
 
     // 累计数据
     this.gaps = new Map();
+    this.todos = new Map();
     this.claims = [];
     this.sections = [];
     this.tokenUsage = { input: 0, output: 0, cost: 0 };
@@ -312,7 +314,7 @@ export class FlowBuilder {
 
       // === 迭代 ===
       case "deepsearch.iteration.started": {
-        const { iteration, openGapCount, trajectoryId } = payload;
+        const { iteration, openTodoCount, openGapCount, trajectoryId } = payload;
         this.currentIteration = iteration;
 
         // 确定父节点：如果在轨迹内，用轨迹节点；否则用当前栈顶
@@ -326,6 +328,7 @@ export class FlowBuilder {
           status: "running",
           parentNodeId: parentId,
           metrics: {
+            openTodos: typeof openTodoCount === "number" ? openTodoCount : openGapCount,
             openGaps: openGapCount,
           }
         });
@@ -336,7 +339,7 @@ export class FlowBuilder {
 
       case "iteration.completed":
       case "deepsearch.iteration.completed": {
-        const { iteration, hitCount, noNewHitsRounds, openGapCount } = payload;
+        const { iteration, hitCount, noNewHitsRounds, openTodoCount, openGapCount } = payload;
         const id = this.iterationNodes.get(iteration);
         if (id) {
           this._updateNode(id, {
@@ -344,6 +347,7 @@ export class FlowBuilder {
             metrics: {
               hits: hitCount,
               noHitRounds: noNewHitsRounds,
+              openTodos: typeof openTodoCount === "number" ? openTodoCount : openGapCount,
               openGaps: openGapCount
             }
           });
@@ -419,6 +423,106 @@ export class FlowBuilder {
               sources: payload.sourceCount,
               steps: payload.plannedSteps
             }
+          });
+        }
+        break;
+      }
+
+      // === Todos 阶段 ===
+      case "deepsearch.todos.started": {
+        const id = this._getLatestStageNode("todos");
+        const parentId = this._getCurrentParent();
+        if (!id) {
+          const nodeId = this._genId("todos");
+          this._addNode(nodeId, "todos", {
+            status: "running",
+            parentNodeId: parentId,
+            metrics: {
+              existing: payload.existingTodoCount,
+              hasUserTodos: payload.hasUserTodos
+            }
+          });
+          this.stageLatestNodeId.set("todos", nodeId);
+        } else {
+          this._updateNode(id, {
+            status: "running",
+            metrics: {
+              existing: payload.existingTodoCount,
+              hasUserTodos: payload.hasUserTodos
+            }
+          });
+        }
+        break;
+      }
+
+      case "deepsearch.todos.completed": {
+        const id = this._getLatestStageNode("todos");
+        if (id) {
+          this._updateNode(id, {
+            status: "completed",
+            metrics: {
+              totalTodos: payload.todoCount,
+              createdTodos: payload.createdCount,
+              skippedLLM: payload.skippedLLM,
+              source: payload.source
+            }
+          });
+        }
+        break;
+      }
+
+      case "deepsearch.todo.created": {
+        const { todoId, status, priority, source, text } = payload;
+        if (todoId) {
+          this.todos.set(todoId, { todoId, status, priority, source, text });
+        }
+        const id = this._getLatestStageNode("todos");
+        if (id) {
+          const summary = this._summarizeTodos();
+          this._updateNode(id, {
+            metrics: {
+              totalTodos: summary.total,
+              openTodos: summary.open,
+              completedTodos: summary.completed,
+              cancelledTodos: summary.cancelled
+            },
+            details: [
+              {
+                type: "todo",
+                id: todoId,
+                text: text || todoId,
+                priority,
+                status
+              }
+            ]
+          });
+        }
+        break;
+      }
+
+      case "deepsearch.todo.status.changed": {
+        const { todoId, to } = payload;
+        if (todoId && this.todos.has(todoId)) {
+          const row = this.todos.get(todoId);
+          this.todos.set(todoId, { ...row, status: to || row.status });
+        }
+        const id = this._getLatestStageNode("todos");
+        if (id) {
+          const summary = this._summarizeTodos();
+          this._updateNode(id, {
+            metrics: {
+              totalTodos: summary.total,
+              openTodos: summary.open,
+              completedTodos: summary.completed,
+              cancelledTodos: summary.cancelled
+            },
+            details: [
+              {
+                type: "todo_status",
+                id: todoId,
+                text: `Todo ${todoId}: ${payload.from} → ${payload.to}`
+              }
+            ]
           });
         }
         break;
@@ -679,9 +783,9 @@ export class FlowBuilder {
       case "deepsearch.write.backtrack.requested": {
         // 回溯请求 - 添加回溯边
         const writeId = this._getLatestStageNode("write");
-        const gapsId = this._getLatestStageNode("gaps");
-        if (writeId && gapsId) {
-          this._addEdge(writeId, gapsId, {
+        const todosId = this._getLatestStageNode("todos") || this._getLatestStageNode("gaps");
+        if (writeId && todosId) {
+          this._addEdge(writeId, todosId, {
             animated: true,
             style: { stroke: "#f59e0b", strokeDasharray: "5,5" },
             label: "Backtrack"
@@ -1115,9 +1219,24 @@ export class FlowBuilder {
     };
   }
 
+  _summarizeTodos() {
+    const todos = [...this.todos.values()];
+    const statusOf = (todo) => {
+      const raw = String(todo?.status || "open").toLowerCase();
+      if (raw === "completed") return "completed";
+      if (raw === "cancelled") return "cancelled";
+      return "open";
+    };
+    const completed = todos.filter((t) => statusOf(t) === "completed").length;
+    const cancelled = todos.filter((t) => statusOf(t) === "cancelled").length;
+    const open = Math.max(0, todos.length - completed - cancelled);
+    return { total: todos.length, open, completed, cancelled };
+  }
+
   getStats() {
     return {
       gaps: this.gaps,
+      todos: this.todos,
       claims: this.claims,
       sections: this.sections,
       tokenUsage: this.tokenUsage,
@@ -1142,6 +1261,7 @@ export class FlowBuilder {
     return this._allEvents.filter(e => {
       if (filter.nodeId && e.payload?.nodeId !== filter.nodeId) return false;
       if (filter.gapId && e.payload?.gapId !== filter.gapId) return false;
+      if (filter.todoId && e.payload?.todoId !== filter.todoId) return false;
       if (filter.trajectoryId && e.payload?.trajectoryId !== filter.trajectoryId) return false;
       if (filter.stage && !e.name?.includes(filter.stage)) return false;
       return true;
@@ -1161,6 +1281,7 @@ export class FlowBuilder {
     this.stageLatestNodeId.clear();
     this.runIdToStartNode.clear();
     this.gaps.clear();
+    this.todos.clear();
     this.claims = [];
     this.sections = [];
     this.tokenUsage = { input: 0, output: 0, cost: 0 };

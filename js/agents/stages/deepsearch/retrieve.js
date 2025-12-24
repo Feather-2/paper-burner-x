@@ -13,6 +13,7 @@ import { mapConcurrent } from "../../shared/concurrency.js";
 import { CHUNK_CONFIG, RetrievalStrategy, normalizeRetrievalStrategy, normalizeDeepSearchSourceKind } from "./constants.js";
 import { DecisionOutcome, DecisionStage } from "./states.js";
 import { loadPrompt } from "../../prompts/prompt-loader.js";
+import { migratGapToTodo } from "./todo-utils.js";
 
 // 缓存的提示词
 let _rerankPrompt = null;
@@ -39,6 +40,58 @@ function isObjectLike(v) {
 
 function isFiniteNumber(v) {
   return typeof v === "number" && Number.isFinite(v);
+}
+
+function normalizeIdList(value) {
+  const raw = Array.isArray(value) ? value : value ? [value] : [];
+  return raw.map((x) => String(x || "").trim()).filter(Boolean);
+}
+
+function ensureTodos(state) {
+  const existing = Array.isArray(state?.todos) ? state.todos : [];
+  if (existing.length) return existing;
+
+  const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
+  if (!gaps.length) {
+    if (!Array.isArray(state?.todos)) state.todos = [];
+    return state.todos;
+  }
+
+  const migrated = [];
+  for (const gap of gaps) {
+    const todo = migratGapToTodo(gap);
+    if (todo) migrated.push(todo);
+  }
+  state.todos = migrated;
+  return state.todos;
+}
+
+function buildTodoLookup(todos) {
+  const todoById = new Map();
+  const todoIdByGapId = new Map();
+  const gapIdByTodoId = new Map();
+  for (const t of Array.isArray(todos) ? todos : []) {
+    const todoId = toNonEmptyString(t?.todoId);
+    if (!todoId) continue;
+    todoById.set(todoId, t);
+    const gapId = toNonEmptyString(t?.relatedGapId);
+    if (gapId) {
+      todoIdByGapId.set(gapId, todoId);
+      gapIdByTodoId.set(todoId, gapId);
+    }
+  }
+  return { todoById, todoIdByGapId, gapIdByTodoId };
+}
+
+function todoQuestion(todo) {
+  return toNonEmptyString(todo?.text) || toNonEmptyString(todo?.question) || toNonEmptyString(todo?.title) || "";
+}
+
+function todoNeedsNumericEvidence(todo) {
+  const expectedRaw = toNonEmptyString(todo?.expectedEvidence);
+  const expected = expectedRaw ? expectedRaw.toLowerCase() : "";
+  if (!expected) return false;
+  return /data|metric|stat|number|numeric|percent|ratio/.test(expected);
 }
 
 function emitInvalidInput(emit, name, payload) {
@@ -119,14 +172,26 @@ export function deduplicateChunks(newChunks, existingChunks) {
     const existing = existingByIdMatch || existingByTextMatch;
 
     if (existing) {
+      const newTodoIds = Array.isArray(c?.matchedTodoIds) ? c.matchedTodoIds : c?.todoId ? [c.todoId] : [];
+      const existingTodoIds = Array.isArray(existing.matchedTodoIds) ? existing.matchedTodoIds : [];
+      const existingTodoIdsNormalized = existingTodoIds.map(String).filter(Boolean);
+      const mergedTodoIds = Array.from(new Set([...existingTodoIdsNormalized, ...newTodoIds.map(String).filter(Boolean)]));
+
+      if (mergedTodoIds.length > existingTodoIdsNormalized.length) {
+        existing.matchedTodoIds = mergedTodoIds;
+        if (!toNonEmptyString(existing.todoId) && mergedTodoIds.length) existing.todoId = mergedTodoIds[0];
+        // 重要：清除 consumed 标记，让 understand 阶段能重新处理
+        existing.consumed = false;
+      }
+
       const newGapIds = Array.isArray(c?.matchedGapIds) ? c.matchedGapIds : c?.gapId ? [c.gapId] : [];
       const existingGapIds = Array.isArray(existing.matchedGapIds) ? existing.matchedGapIds : [];
       const existingGapIdsNormalized = existingGapIds.map(String).filter(Boolean);
-      const merged = Array.from(new Set([...existingGapIdsNormalized, ...newGapIds.map(String).filter(Boolean)]));
+      const mergedGapIds = Array.from(new Set([...existingGapIdsNormalized, ...newGapIds.map(String).filter(Boolean)]));
 
-      if (merged.length > existingGapIdsNormalized.length) {
-        existing.matchedGapIds = merged;
-        if (!toNonEmptyString(existing.gapId) && merged.length) existing.gapId = merged[0];
+      if (mergedGapIds.length > existingGapIdsNormalized.length) {
+        existing.matchedGapIds = mergedGapIds;
+        if (!toNonEmptyString(existing.gapId) && mergedGapIds.length) existing.gapId = mergedGapIds[0];
         // 重要：清除 consumed 标记，让 understand 阶段能重新处理
         existing.consumed = false;
       }
@@ -614,7 +679,7 @@ async function iterativeRetrieve(gap, sourceIndexes, localRetriever, routerConfi
  * S4 Retrieval Router wrapper: TOC-scope -> BM25/grep -> readAround.
  *
  * DI injection points (`stageApi`):
- * - `localRetriever(sourceIndex, gaps, routerConfig)`: override local retrieval implementation (defaults to `retrieval-router`).
+ * - `localRetriever(sourceIndex, todos, routerConfig)`: override local retrieval implementation (defaults to `retrieval-router`).
  * - `modelRouter.call(...)` / `aiApiService.chat(...)`: used by rerank LLM calls (via `getModelCaller`).
  * - `externalSearchProvider`: used by `runExternalSearch` (re-exported from this module).
  * - `emit` / `eventBus`: event emission (via `makeStageEmitter`).
@@ -658,11 +723,17 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
 
   checkCancelled(stageApi);
 
+  const todosAll = ensureTodos(state);
+  const gapsAll = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
+  const openGapsCount = gapsAll.filter((g) => String(g?.status || "open") === "open").length;
+  const openTodosRaw = (Array.isArray(todosAll) ? todosAll : []).filter((t) => String(t?.status || "open") === "open");
+
   // 记录 retrieve 阶段开始
   logger.info("Retrieve stage started", {
     stage: "retrieve",
     data: {
-      openGaps: Array.isArray(state?.L1?.gaps) ? state.L1.gaps.filter((g) => String(g?.status || "open") === "open").length : 0,
+      openTodos: openTodosRaw.length,
+      openGaps: openGapsCount,
       existingChunks: Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks.length : 0,
     },
   });
@@ -682,25 +753,58 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
 
   logger.debug?.("Selected retrieval strategy", { stage: "retrieve", data: { strategy: selectedStrategy, sourceTypes: [...sourceTypes] } });
 
-  const gapsAll = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
-  const openGapsRaw = gapsAll.filter((g) => String(g?.status || "open") === "open");
-  const gaps = [];
-  for (let i = 0; i < openGapsRaw.length; i++) {
-    const g = openGapsRaw[i];
-    const gapId = toNonEmptyString(g?.gapId);
-    const question = toNonEmptyString(g?.question) || toNonEmptyString(g?.text);
-    const queryHints = Array.isArray(g?.queryHints) ? g.queryHints : [];
+  const { todoById, todoIdByGapId, gapIdByTodoId } = buildTodoLookup(todosAll);
+  const gapsById = new Map(gapsAll.map((g) => [String(g?.gapId || ""), g]).filter(([id]) => id));
+  const resolveMatchedIds = (row, { todoId, gapId } = {}) => {
+    const todoIdsFromRow = normalizeIdList(row?.matchedTodoIds || row?.todoId);
+    const gapIdsFromRow = normalizeIdList(row?.matchedGapIds || row?.gapId);
+
+    let matchedTodoIds = todoIdsFromRow;
+    if (!matchedTodoIds.length && gapIdsFromRow.length) {
+      matchedTodoIds = gapIdsFromRow.map((gid) => todoIdByGapId.get(gid)).filter(Boolean);
+    }
+    if (!matchedTodoIds.length && todoId) matchedTodoIds = [todoId];
+    if (todoId && !matchedTodoIds.includes(todoId)) matchedTodoIds.unshift(todoId);
+
+    let matchedGapIds = gapIdsFromRow;
+    if (!matchedGapIds.length && matchedTodoIds.length) {
+      matchedGapIds = matchedTodoIds.map((tid) => gapIdByTodoId.get(tid)).filter(Boolean);
+    }
+    if (!matchedGapIds.length && gapId) matchedGapIds = [gapId];
+    if (gapId && !matchedGapIds.includes(gapId)) matchedGapIds.unshift(gapId);
+
+    return { matchedTodoIds, matchedGapIds };
+  };
+  const todos = [];
+  for (let i = 0; i < openTodosRaw.length; i++) {
+    const t = openTodosRaw[i];
+    const todoId = toNonEmptyString(t?.todoId);
+    const gapId = toNonEmptyString(t?.relatedGapId) || todoId || null;
+    const relatedGap = gapId ? gapsById.get(String(gapId)) : null;
+    const question = toNonEmptyString(relatedGap?.question) || todoQuestion(t);
+    const queryHints = Array.isArray(t?.queryHints) && t.queryHints.length
+      ? t.queryHints
+      : Array.isArray(relatedGap?.queryHints)
+        ? relatedGap.queryHints
+        : [];
     const hasHint = queryHints.some((h) => Boolean(toNonEmptyString(h)));
-    if (!gapId || (!question && !hasHint)) {
+    if (!todoId || (!question && !hasHint)) {
       emitInvalidInput(emit, "deepsearch.gap.invalid", {
         stage: "retrieve",
-        gapIndex: i,
+        todoIndex: i,
+        todoId: todoId || null,
         gapId: gapId || null,
-        issue: !gapId ? "missing_gapId" : "missing_question_and_queryHints",
+        issue: !todoId ? "missing_todoId" : "missing_text_and_queryHints",
       });
       continue;
     }
-    gaps.push(g);
+    todos.push({
+      ...t,
+      todoId,
+      gapId: gapId || undefined,
+      question,
+      queryHints,
+    });
   }
   const existingChunks = Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks : [];
 
@@ -794,16 +898,22 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
     : [];
   const allChunksForToolChainById = new Map(allChunksForToolChain.map((c) => [String(c?.chunkId || ""), c]).filter(([id]) => id));
 
-  const latencyByGapId = new Map();
-  const gapResults = await mapConcurrent(gaps, async (g, i) => {
-      const gapId = toNonEmptyString(g?.gapId) || `gap_${i + 1}`;
-      const gapType = toNonEmptyString(g?.type) || "";
+  const latencyByTodoId = new Map();
+  const todoResults = await mapConcurrent(todos, async (t, i) => {
+      const todoId = toNonEmptyString(t?.todoId) || `todo_${i + 1}`;
+      const gapId = toNonEmptyString(t?.gapId) || toNonEmptyString(t?.relatedGapId) || todoId;
+      const requiresNumericEvidence = todoNeedsNumericEvidence(t);
 
       emitRetrieveProgress(emit, {
         current: i + 1,
-        total: gaps.length,
-        msg: `正在检索 ${gapId} 的证据${g?.question ? `：${String(g.question).slice(0, 80)}` : ""}`,
-        detail: { gapId, type: toNonEmptyString(g?.type) || "unknown", priority: toNonEmptyString(g?.priority) || "medium", question: toNonEmptyString(g?.question) || "" },
+        total: todos.length,
+        msg: `正在检索 ${todoId} 的证据${t?.question ? `：${String(t.question).slice(0, 80)}` : ""}`,
+        detail: {
+          todoId,
+          gapId,
+          priority: toNonEmptyString(t?.priority) || "medium",
+          text: toNonEmptyString(t?.text) || toNonEmptyString(t?.question) || "",
+        },
       });
 
       // 获取推荐的检索策略
@@ -812,8 +922,8 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
       const routerConfigForGap = buildStrategyRouterConfig(routerConfig, selectedStrategy);
       const shouldForceToolChain = enableToolChain && selectedStrategy === RetrievalStrategy.TOOL_CHAIN;
 
-      const queryHints = Array.isArray(g?.queryHints) ? g.queryHints : [];
-      const question = toNonEmptyString(g?.question) || "";
+      const queryHints = Array.isArray(t?.queryHints) ? t.queryHints : [];
+      const question = toNonEmptyString(t?.question) || "";
       const keywords = [...queryHints.map((h) => String(h || "").trim()).filter(Boolean), ...question.split(/\s+/).slice(0, 5)];
 
       const runToolChainForGap = async (reasonTag) => {
@@ -822,7 +932,7 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
 
         try {
           const normalizedToolChainStrategy = normalizeToolChainStrategy(toolChainConfig.strategy) || ToolChainStrategy.AUTO;
-          const toolChainResult = await trackToolCall(logger, "toolChainSearch", { gapId, reason: reasonTag, keywords: keywords.slice(0, 10) }, async () =>
+          const toolChainResult = await trackToolCall(logger, "toolChainSearch", { gapId, todoId, reason: reasonTag, keywords: keywords.slice(0, 10) }, async () =>
             toolChainSearch(
               allChunksForToolChain,
               {
@@ -844,6 +954,7 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
         } catch (err) {
           emit?.("deepsearch.retrieve.toolchain_error", {
             gapId,
+            todoId,
             error: String(err?.message || err),
           });
           return null;
@@ -865,6 +976,7 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
             text: chunk.text,
             score: Math.log(1 + (tcr.matchCount || 0)),
             relevance: "hit",
+            matchedTodoIds: [todoId],
             matchedGapIds: [gapId],
             toolChainStrategy: tcr.strategy,
           });
@@ -882,6 +994,7 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
           appendToolChainResults(retrieved, toolChainResult);
           emit?.("deepsearch.retrieve.toolchain", {
             gapId,
+            todoId,
             strategy: toolChainResult.strategy,
             hits: toolChainResult.results?.length || 0,
             stats: toolChainResult.stats,
@@ -891,8 +1004,8 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
       }
 
       if (enableIterative && maxIterations > 1) {
-        const iterativeOut = await trackToolCall(logger, "iterativeRetrieve", { gapId, maxIterations }, async () =>
-          iterativeRetrieve({ ...g, gapId }, sourceIndexes, localRetriever, routerConfigForGap, stageApi, state, emit, maxIterations)
+        const iterativeOut = await trackToolCall(logger, "iterativeRetrieve", { gapId, todoId, maxIterations }, async () =>
+          iterativeRetrieve({ ...t, gapId, todoId }, sourceIndexes, localRetriever, routerConfigForGap, stageApi, state, emit, maxIterations)
         );
         retrieved = Array.isArray(retrieved) ? retrieved : [];
         retrieved.push(...(Array.isArray(iterativeOut) ? iterativeOut : []));
@@ -900,8 +1013,8 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
         // 单次检索（向后兼容）
         retrieved = Array.isArray(retrieved) ? retrieved : [];
         for (const sourceIndex of sourceIndexes) {
-          const result = await trackToolCall(logger, "localRetriever", { gapId, sourceId: sourceIndex.sourceId }, async () =>
-            localRetriever(sourceIndex, [{ ...g, gapId }], routerConfigForGap)
+          const result = await trackToolCall(logger, "localRetriever", { gapId, todoId, sourceId: sourceIndex.sourceId }, async () =>
+            localRetriever(sourceIndex, [{ ...t, gapId, todoId }], routerConfigForGap)
           );
           retrieved.push(...result);
         }
@@ -914,6 +1027,7 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
           appendToolChainResults(retrieved, toolChainResult);
           emit?.("deepsearch.retrieve.toolchain", {
             gapId,
+            todoId,
             strategy: toolChainResult.strategy,
             hits: toolChainResult.results?.length || 0,
             stats: toolChainResult.stats,
@@ -924,7 +1038,7 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
 
       // 记录检索策略结果（包含 tool-chain 增强在内的整体耗时）
       const retrievalLatency = Date.now() - retrievalStartTime;
-      latencyByGapId.set(gapId, retrievalLatency);
+      latencyByTodoId.set(todoId, retrievalLatency);
       if (planningTree) {
         const uniqueHits = new Set(retrieved.map((r) => String(r?.chunkId || "")).filter(Boolean)).size;
         planningTree.recordStrategyResult(selectedStrategy, {
@@ -934,6 +1048,7 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
 
         emit?.("deepsearch.retrieve.strategy", {
           gapId,
+          todoId,
           strategy: selectedStrategy,
           hits: uniqueHits,
           latency: retrievalLatency,
@@ -941,14 +1056,14 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
         });
       }
 
-      return { gapId, gapType, retrieved, gap: g };
+      return { todoId, gapId, requiresNumericEvidence, retrieved, todo: t };
   });
 
-  for (const { gapId, gapType, retrieved } of gapResults) {
+  for (const { todoId, gapId, requiresNumericEvidence, retrieved } of todoResults) {
     for (const r of retrieved) {
-      // Heuristic: data/metrics gaps should be supported by numeric evidence; avoid
-      // attributing non-numeric chunks to data gaps to prevent false "hits" and fills.
-      if (gapType === "data") {
+      // Heuristic: data/metrics todos should be supported by numeric evidence; avoid
+      // attributing non-numeric chunks to data todos to prevent false "hits" and fills.
+      if (requiresNumericEvidence) {
         const text = typeof r?.text === "string" ? r.text : "";
         if (!/[0-9]/.test(text)) continue;
       }
@@ -956,8 +1071,7 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
       const chunkId = String(r?.chunkId || "");
       if (!chunkId) continue;
 
-      const matchedGapIds = Array.isArray(r?.matchedGapIds) ? r.matchedGapIds.map(String).filter(Boolean) : [gapId];
-      if (!matchedGapIds.includes(gapId)) matchedGapIds.unshift(gapId);
+      const { matchedTodoIds, matchedGapIds } = resolveMatchedIds(r, { todoId, gapId });
 
       const existing = retrievedByChunkId.get(chunkId);
       if (!existing) {
@@ -968,15 +1082,25 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
           text: String(r?.text || ""),
           ...(typeof r?.score === "number" && Number.isFinite(r.score) ? { score: r.score } : {}),
           ...(toNonEmptyString(r?.relevance) ? { relevance: String(r.relevance) } : {}),
+          matchedTodoIds: matchedTodoIds.slice(),
+          todoId: matchedTodoIds[0],
           matchedGapIds: matchedGapIds.slice(),
           gapId: matchedGapIds[0],
         });
         continue;
       }
 
+      const mergedTodoIds = Array.from(new Set([...(Array.isArray(existing.matchedTodoIds) ? existing.matchedTodoIds : []), ...matchedTodoIds]));
+      if (mergedTodoIds.length) {
+        existing.matchedTodoIds = mergedTodoIds;
+        existing.todoId = existing.todoId || mergedTodoIds[0];
+      }
+
       const mergedGapIds = Array.from(new Set([...(Array.isArray(existing.matchedGapIds) ? existing.matchedGapIds : []), ...matchedGapIds]));
-      existing.matchedGapIds = mergedGapIds;
-      existing.gapId = existing.gapId || mergedGapIds[0];
+      if (mergedGapIds.length) {
+        existing.matchedGapIds = mergedGapIds;
+        existing.gapId = existing.gapId || mergedGapIds[0];
+      }
       if (
         (existing.sourceId === "source_unknown" || !toNonEmptyString(existing.sourceId)) &&
         toNonEmptyString(r?.sourceId) &&
@@ -1003,17 +1127,17 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
   let rerankedChunks = roundChunks;
 
   if (rerankConfig.enabled && roundChunks.length >= rerankConfig.minChunksToRerank) {
-    // 构建 rerank 查询：合并所有 gap 的问题
-    const rerankQuery = gaps
-      .map((g) => toNonEmptyString(g?.question) || toNonEmptyString(g?.text) || "")
+    // 构建 rerank 查询：合并所有 todo 的问题
+    const rerankQuery = todos
+      .map((t) => toNonEmptyString(t?.question) || toNonEmptyString(t?.text) || "")
       .filter(Boolean)
       .slice(0, 3)
       .join("; ");
 
     if (rerankQuery) {
       emitRetrieveProgress(emit, {
-        current: gaps.length,
-        total: gaps.length,
+        current: todos.length,
+        total: todos.length,
         msg: `正在使用 LLM 重排 ${roundChunks.length} 个检索结果...`,
         detail: { step: "rerank", inputCount: roundChunks.length },
       });
@@ -1048,26 +1172,27 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
   if (enableShadow && rerankedChunks.length > 0) {
     const shadowAgent = new ShadowAgent(stageApi, state, shadowConfig);
     const iteration = safeInt(state?.iteration) ?? 0;
-    const gapsById = new Map(gaps.map(g => [g.gapId, g]));
+    const targetsByTodoId = new Map(todos.map((t) => [String(t?.todoId || ""), t]).filter(([id]) => id));
 
     emitRetrieveProgress(emit, {
-      current: gaps.length,
-      total: gaps.length,
+      current: todos.length,
+      total: todos.length,
       msg: `正在验证灰色地带 chunks...`,
       detail: { step: "shadow_validation", chunkCount: rerankedChunks.length },
     });
 
     // 并行验证（但受预算控制）
     const validationPromises = rerankedChunks.map(async (chunk) => {
-      const gapId = chunk.gapId || (chunk.matchedGapIds?.[0]);
-      const gap = gapId ? gapsById.get(gapId) : null;
+      const chunkTodoId = toNonEmptyString(chunk?.todoId) || normalizeIdList(chunk?.matchedTodoIds || [])[0];
+      const resolvedTodoId = chunkTodoId || todoIdByGapId.get(toNonEmptyString(chunk?.gapId) || "");
+      const todo = resolvedTodoId ? targetsByTodoId.get(resolvedTodoId) || todoById.get(resolvedTodoId) : null;
 
-      const decision = shouldValidateWithShadow(chunk, gap, shadowConfig);
+      const decision = shouldValidateWithShadow(chunk, todo, shadowConfig);
       if (!decision.shouldValidate) {
         return { chunk, validated: false, reason: decision.reason };
       }
 
-      const verdict = await shadowAgent.validateRelevance(chunk, gap, { round: iteration });
+      const verdict = await shadowAgent.validateRelevance(chunk, todo, { round: iteration });
       if (verdict.skipped) {
         return { chunk, validated: false, reason: verdict.reason };
       }
@@ -1120,32 +1245,43 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
   }
   // ===== Shadow Agent 验证结束 =====
 
-  // 记录每个 gap 的检索决策（基于最终进入 understand 的 chunks）
-  if (planningTree && gaps.length > 0) {
-    const hitsByGapId = new Map();
+  // 记录每个 todo 的检索决策（基于最终进入 understand 的 chunks）
+  if (planningTree && todos.length > 0) {
+    const hitsByTodoId = new Map();
     for (const c of Array.isArray(rerankedChunks) ? rerankedChunks : []) {
-      const matched = Array.isArray(c?.matchedGapIds) ? c.matchedGapIds.map(String).filter(Boolean) : [];
-      const primary = toNonEmptyString(c?.gapId);
-      const gapIds = matched.length ? matched : primary ? [primary] : [];
-      for (const gid of gapIds) hitsByGapId.set(gid, (hitsByGapId.get(gid) || 0) + 1);
+      const matchedTodoIds = normalizeIdList(c?.matchedTodoIds || c?.todoId);
+      let todoIds = matchedTodoIds;
+      if (!todoIds.length) {
+        const gapIds = normalizeIdList(c?.matchedGapIds || c?.gapId);
+        todoIds = gapIds.map((gid) => todoIdByGapId.get(gid)).filter(Boolean);
+      }
+      for (const tid of todoIds) hitsByTodoId.set(tid, (hitsByTodoId.get(tid) || 0) + 1);
     }
 
-    for (const gap of gaps) {
-      const gapId = toNonEmptyString(gap?.gapId);
-      if (!gapId) continue;
-      const nodes = planningTree.getNodesForGap(gapId) || [];
-      const nodeId = nodes[0]?.nodeId;
+    for (const todo of todos) {
+      const todoId = toNonEmptyString(todo?.todoId);
+      if (!todoId) continue;
+      const relatedGapId = toNonEmptyString(todo?.gapId) || toNonEmptyString(todo?.relatedGapId);
+      const nodes =
+        typeof planningTree.getNodesForTodo === "function"
+          ? planningTree.getNodesForTodo(todoId, { relatedGapId }) || []
+          : [];
+      const fallbackNodes =
+        !nodes.length && relatedGapId && typeof planningTree.getNodesForGap === "function"
+          ? planningTree.getNodesForGap(relatedGapId) || []
+          : [];
+      const nodeId = (nodes[0] || fallbackNodes[0])?.nodeId;
       if (!nodeId) continue;
 
-      const hits = hitsByGapId.get(gapId) || 0;
-      const latency = latencyByGapId.get(gapId);
-        planningTree.recordDecision(nodeId, {
-          stage: DecisionStage.RETRIEVE,
-          action: `${selectedStrategy} search`,
-          reason: `Gap: ${String(gap?.question || gap?.text || "").slice(0, 50)}`,
-          outcome: hits > 0 ? DecisionOutcome.SUCCESS : DecisionOutcome.FAIL,
-          metrics: { hits, strategy: selectedStrategy, ...(typeof latency === "number" ? { latency } : {}) },
-        });
+      const hits = hitsByTodoId.get(todoId) || 0;
+      const latency = latencyByTodoId.get(todoId);
+      planningTree.recordDecision(nodeId, {
+        stage: DecisionStage.RETRIEVE,
+        action: `${selectedStrategy} search`,
+        reason: `Todo: ${String(todo?.text || todo?.question || "").slice(0, 50)}`,
+        outcome: hits > 0 ? DecisionOutcome.SUCCESS : DecisionOutcome.FAIL,
+        metrics: { hits, todoId, gapId: relatedGapId, strategy: selectedStrategy, ...(typeof latency === "number" ? { latency } : {}) },
+      });
     }
   }
 
@@ -1160,6 +1296,12 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
   for (const r of rerankedChunks) {
     const existing = existingByChunkId.get(String(r?.chunkId || ""));
     if (!existing) continue;
+    const existingTodoIds = Array.isArray(existing.matchedTodoIds) ? existing.matchedTodoIds.map(String).filter(Boolean) : [];
+    const incomingTodoIds = Array.isArray(r.matchedTodoIds) ? r.matchedTodoIds.map(String).filter(Boolean) : [];
+    const mergedTodoIds = Array.from(new Set([...existingTodoIds, ...incomingTodoIds])).filter(Boolean);
+    if (mergedTodoIds.length) existing.matchedTodoIds = mergedTodoIds;
+    if (!toNonEmptyString(existing.todoId) && toNonEmptyString(r.todoId)) existing.todoId = String(r.todoId);
+    if (mergedTodoIds.length) existing.todoId = existing.todoId || mergedTodoIds[0];
     const existingGapIds = Array.isArray(existing.matchedGapIds) ? existing.matchedGapIds.map(String).filter(Boolean) : [];
     const incomingGapIds = Array.isArray(r.matchedGapIds) ? r.matchedGapIds.map(String).filter(Boolean) : [];
     const mergedGapIds = Array.from(new Set([...existingGapIds, ...incomingGapIds])).filter(Boolean);
@@ -1208,6 +1350,8 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
       retrievedId: c.retrievedId,
       chunkId: c.chunkId,
       sourceId: c.sourceId,
+      todoId: c.todoId,
+      matchedTodoIds: c.matchedTodoIds,
       gapId: c.gapId,
       matchedGapIds: c.matchedGapIds,
       score: c.score,
@@ -1234,7 +1378,10 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
       totalRetrieved: trimmed.length,
       evictedCount,
       maxChunks,
-      gapCount: gaps.length,
+      todoCount: todos.length,
+      totalTodos: todosAll.length,
+      gapCount: openGapsCount,
+      totalGaps: gapsAll.length,
       usedRerank: rerankConfig.enabled && rerankStats && !rerankStats.skipped,
       rerankStats: rerankStats || undefined,
     },
@@ -1251,6 +1398,10 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
       maxChunks,
       externalSearchTriggered,
       externalChunksCount: externalChunks.length,
+      todoCount: todos.length,
+      totalTodos: todosAll.length,
+      gapCount: openGapsCount,
+      totalGaps: gapsAll.length,
       ...(rerankStats ? { rerank: rerankStats } : {}),
       ...(shadowStats ? { shadow: shadowStats } : {}),
     },
@@ -1262,7 +1413,9 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
     totalRetrieved: trimmed.length,
     evictedCount,
     maxChunks,
-    gapCount: gaps.length,
+    todoCount: todos.length,
+    totalTodos: todosAll.length,
+    gapCount: openGapsCount,
     totalGaps: gapsAll.length,
     externalSearchTriggered,
     externalChunksCount: externalChunks.length,

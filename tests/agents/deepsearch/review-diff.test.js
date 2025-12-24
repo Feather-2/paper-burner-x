@@ -169,9 +169,10 @@ test("Write stage: reviewer rounds obey maxReviewRounds + emits events + writes 
     taskGoal: "Alpha",
     userConfig: { reportLength: "brief", write: { enableReviewer: true, maxReviewRounds: 1 } },
     L0: { sources: [{ sourceId: "s1", kind: "user_text", title: "Doc", uri: "https://example.com", sourceTextNormalized: "Alpha is first." }] },
+    todos: [{ todoId: "todo_1", text: "Explain Alpha", priority: "medium", status: "open", source: "system", relatedGapId: "g1" }],
     L1: {
       gaps: [{ gapId: "g1", type: "definition", question: "What is Alpha?", status: "open" }],
-      claims: [{ claimId: "c1", text: "Alpha is first.", evidenceIds: ["e1"], gapIds: ["g1"] }],
+      claims: [{ claimId: "c1", text: "Alpha is first.", evidenceIds: ["e1"], todoIds: ["todo_1"], gapIds: ["g1"] }],
       evidenceLedger: [{ evidenceId: "e1", sourceId: "s1", quote: "Alpha is first.", locator: { charStart: 0, charEnd: 14 } }],
     },
   });
@@ -215,9 +216,10 @@ test("Write stage: reviewer runs multiple rounds when allowed", async () => {
     taskGoal: "Alpha",
     userConfig: { reportLength: "brief", write: { enableReviewer: true, maxReviewRounds: 2 } },
     L0: { sources: [{ sourceId: "s1", kind: "user_text", title: "Doc", sourceTextNormalized: "Alpha is first." }] },
+    todos: [{ todoId: "todo_1", text: "Explain Alpha", priority: "medium", status: "open", source: "system", relatedGapId: "g1" }],
     L1: {
       gaps: [{ gapId: "g1", type: "definition", question: "What is Alpha?", status: "open" }],
-      claims: [{ claimId: "c1", text: "Alpha is first.", evidenceIds: ["e1"], gapIds: ["g1"] }],
+      claims: [{ claimId: "c1", text: "Alpha is first.", evidenceIds: ["e1"], todoIds: ["todo_1"], gapIds: ["g1"] }],
       evidenceLedger: [{ evidenceId: "e1", sourceId: "s1", quote: "Alpha is first.", locator: { charStart: 0, charEnd: 14 } }],
     },
   });
@@ -330,6 +332,21 @@ test("Write: finalizeCitationsInMarkdown newline handling + empty/null input", a
   assert.ok(outWithCite.markdown.endsWith("\n"));
 });
 
+test("Report generator: placeholder report includes completion stats + reason", async () => {
+  const { generatePlaceholderReport } = await import("../../../js/agents/stages/deepsearch/write.js");
+
+  const todos = [
+    { todoId: "todo_1", status: "completed" },
+    { todoId: "todo_2", status: "cancelled" },
+  ];
+
+  const report = generatePlaceholderReport({ taskGoal: "Test Goal", todos, completionReason: "All done" });
+  assert.equal(report.isPlaceholder, true);
+  assert.equal(report.completionReason, "All done");
+  assert.deepEqual(report.todoCompletionStats, { total: 2, completed: 1, cancelled: 1 });
+  assert.ok(report.markdown.includes("All done"));
+});
+
 test("ReAct writer: strips duplicate leading heading matching section title", async () => {
   const { stripLeadingDuplicateHeading } = await import("../../../js/agents/stages/deepsearch/react-writer.js");
 
@@ -348,10 +365,11 @@ test("ReAct writer: tracks used claims across sections via cited evidence IDs", 
 
   const toolExecutor = createWriterToolExecutor({
     state: {},
+    todos: [{ todoId: "todo_1", text: "Explain Alpha", priority: "medium", status: "open", relatedGapId: "g1" }],
     gaps: [{ gapId: "g1", type: "definition", question: "What is Alpha?", status: "open" }],
     claims: [
-      { claimId: "c1", text: "Alpha is first.", evidenceIds: ["e1"], gapIds: ["g1"] },
-      { claimId: "c2", text: "Beta is second.", evidenceIds: ["e2"], gapIds: ["g1"] },
+      { claimId: "c1", text: "Alpha is first.", evidenceIds: ["e1"], todoIds: ["todo_1"], gapIds: ["g1"] },
+      { claimId: "c2", text: "Beta is second.", evidenceIds: ["e2"], todoIds: ["todo_1"], gapIds: ["g1"] },
     ],
     evidenceLedger: [
       { evidenceId: "e1", sourceId: "s1", quote: "Alpha is first." },
@@ -360,23 +378,23 @@ test("ReAct writer: tracks used claims across sections via cited evidence IDs", 
     sources: [{ sourceId: "s1", title: "Doc", sourceTextNormalized: "Alpha. Beta." }],
   });
 
-  const before = await toolExecutor.execute("getClaimsForGap", { gapId: "g1" });
+  const before = await toolExecutor.execute("getClaimsForTodo", { todoId: "todo_1" });
   assert.equal(before.claims.find((c) => c.claimId === "c1").usedInOtherSection, false);
   assert.equal(before.claims.find((c) => c.claimId === "c2").usedInOtherSection, false);
 
   await toolExecutor.execute("writeSection", {
     sectionId: "sec_1",
-    gapId: "g1",
+    todoId: "todo_1",
     title: "Intro",
     markdown: "Text {{cite:e1}}.",
   });
 
-  const afterWrite = await toolExecutor.execute("getClaimsForGap", { gapId: "g1" });
+  const afterWrite = await toolExecutor.execute("getClaimsForTodo", { todoId: "todo_1" });
   assert.equal(afterWrite.claims.find((c) => c.claimId === "c1").usedInOtherSection, true);
   assert.equal(afterWrite.claims.find((c) => c.claimId === "c2").usedInOtherSection, false);
 
   await toolExecutor.execute("editSection", { sectionId: "sec_1", markdown: "Revised {{cite:e2}}." });
-  const afterEdit = await toolExecutor.execute("getClaimsForGap", { gapId: "g1" });
+  const afterEdit = await toolExecutor.execute("getClaimsForTodo", { todoId: "todo_1" });
   assert.equal(afterEdit.claims.find((c) => c.claimId === "c1").usedInOtherSection, false);
   assert.equal(afterEdit.claims.find((c) => c.claimId === "c2").usedInOtherSection, true);
 });
@@ -406,14 +424,19 @@ test("ReAct writer: createWriterToolExecutor tools cover happy + error paths", a
   const sourceText = "Alpha is first.\nBeta is second.\nGamma is third.";
   const ctx = {
     state: {},
+    todos: [
+      { todoId: "todo_1", text: "Explain Alpha", status: "open", priority: 1, relatedGapId: "g1" },
+      { todoId: "todo_2", text: "Closed gap", status: "cancelled", priority: 2, relatedGapId: "g2" },
+      { todoId: "todo_3", text: "Filled gap", status: "completed", priority: 3, relatedGapId: "g3" },
+    ],
     gaps: [
       { gapId: "g1", type: "definition", question: "What is Alpha?", status: "open", priority: 1 },
       { gapId: "g2", type: "other", question: "Closed gap", status: "closed", priority: 2 },
       { gapId: "g3", type: "other", question: "Filled gap", status: "filled", priority: 3 },
     ],
     claims: [
-      { claimId: "c1", text: "Alpha is first.", importance: "support", evidenceIds: ["e1"], gapIds: ["g1"] },
-      { claimId: "c2", text: "Beta is second.", importance: "support", evidenceIds: ["e2"], gapIds: ["g1"] },
+      { claimId: "c1", text: "Alpha is first.", importance: "support", evidenceIds: ["e1"], todoIds: ["todo_1"], gapIds: ["g1"] },
+      { claimId: "c2", text: "Beta is second.", importance: "support", evidenceIds: ["e2"], todoIds: ["todo_1"], gapIds: ["g1"] },
     ],
     evidenceLedger: [
       { evidenceId: "e1", sourceId: "s1", quote: "Alpha is first.", locator: { charStart: 0, charEnd: 14 } },
@@ -429,6 +452,13 @@ test("ReAct writer: createWriterToolExecutor tools cover happy + error paths", a
 
   assert.deepEqual(await toolExecutor.execute("unknownTool", {}), { error: "Unknown tool: unknownTool" });
 
+  const todos = await toolExecutor.execute("getTodos", {});
+  assert.equal(todos.totalTodos, 2);
+  assert.deepEqual(
+    new Set(todos.todos.map((t) => t.todoId)),
+    new Set(["todo_1", "todo_3"])
+  );
+
   const gaps = await toolExecutor.execute("getGaps", {});
   assert.equal(gaps.totalGaps, 2);
   assert.deepEqual(
@@ -436,14 +466,14 @@ test("ReAct writer: createWriterToolExecutor tools cover happy + error paths", a
     new Set(["g1", "g3"])
   );
 
-  assert.deepEqual(await toolExecutor.execute("getGapDetail", {}), { error: "gapId is required" });
-  assert.deepEqual(await toolExecutor.execute("getGapDetail", { gapId: "g404" }), { error: "Gap not found: g404" });
-  const detail = await toolExecutor.execute("getGapDetail", { gapId: "g1" });
+  assert.deepEqual(await toolExecutor.execute("getTodoDetail", {}), { error: "todoId is required" });
+  assert.deepEqual(await toolExecutor.execute("getTodoDetail", { todoId: "todo_404" }), { error: "Todo not found: todo_404" });
+  const detail = await toolExecutor.execute("getTodoDetail", { todoId: "todo_1" });
   assert.equal(detail.claims.length, 2);
   assert.equal(detail.claims[0].evidenceCount, 1);
 
-  assert.deepEqual(await toolExecutor.execute("getClaimsForGap", {}), { error: "gapId is required" });
-  const noClaims = await toolExecutor.execute("getClaimsForGap", { gapId: "g404" });
+  assert.deepEqual(await toolExecutor.execute("getClaimsForTodo", {}), { error: "todoId is required" });
+  const noClaims = await toolExecutor.execute("getClaimsForTodo", { todoId: "todo_404" });
   assert.equal(noClaims.claims.length, 0);
   assert.match(noClaims.message, /No claims found/i);
 
@@ -466,25 +496,25 @@ test("ReAct writer: createWriterToolExecutor tools cover happy + error paths", a
   assert.equal(search.results[0].evidenceId, "e2");
 
   assert.deepEqual(await toolExecutor.execute("planOutline", {}), { error: "sections array is required" });
-  const outline = await toolExecutor.execute("planOutline", { sections: [{ sectionId: "sec_1", title: "Intro", gapIds: ["g1"], targetWords: 50 }] });
+  const outline = await toolExecutor.execute("planOutline", { sections: [{ sectionId: "sec_1", title: "Intro", todoIds: ["todo_1"], targetWords: 50 }] });
   assert.equal(outline.success, true);
   assert.equal(outline.outline.length, 1);
 
   assert.deepEqual(await toolExecutor.execute("editSection", { sectionId: "sec_1" }), { error: "sectionId and markdown required" });
   assert.deepEqual(await toolExecutor.execute("editSection", { sectionId: "sec_404", markdown: "X" }), { error: "Section not found: sec_404" });
 
-  assert.deepEqual(await toolExecutor.execute("writeSection", { sectionId: "sec_1", gapId: "g1", title: "Intro", markdown: "" }), { error: "markdown content is required" });
-  await toolExecutor.execute("writeSection", { sectionId: "sec_1", gapId: "g1", title: "Intro", markdown: "Body {{cite:e1}}." });
-  await toolExecutor.execute("writeSection", { sectionId: "sec_1", gapId: "g1", title: "Intro", markdown: "Updated {{cite:e2}}." });
+  assert.deepEqual(await toolExecutor.execute("writeSection", { sectionId: "sec_1", todoId: "todo_1", title: "Intro", markdown: "" }), { error: "markdown content is required" });
+  await toolExecutor.execute("writeSection", { sectionId: "sec_1", todoId: "todo_1", title: "Intro", markdown: "Body {{cite:e1}}." });
+  await toolExecutor.execute("writeSection", { sectionId: "sec_1", todoId: "todo_1", title: "Intro", markdown: "Updated {{cite:e2}}." });
   const progress = await toolExecutor.execute("getProgress", {});
   assert.equal(progress.sectionsWritten, 1);
   assert.equal(progress.sectionsRemaining, 0);
 
-  const claimsAfter = await toolExecutor.execute("getClaimsForGap", { gapId: "g1" });
+  const claimsAfter = await toolExecutor.execute("getClaimsForTodo", { todoId: "todo_1" });
   assert.equal(claimsAfter.claims.find((c) => c.claimId === "c2").usedInOtherSection, true);
 
   await toolExecutor.execute("editSection", { sectionId: "sec_1", markdown: "Edited {{cite:e1}}." });
-  const claimsAfterEdit = await toolExecutor.execute("getClaimsForGap", { gapId: "g1" });
+  const claimsAfterEdit = await toolExecutor.execute("getClaimsForTodo", { todoId: "todo_1" });
   assert.equal(claimsAfterEdit.claims.find((c) => c.claimId === "c1").usedInOtherSection, true);
 
   const finished1 = await toolExecutor.execute("finishReport", {});
@@ -497,14 +527,20 @@ test("ReAct writer: runReactWriter end-to-end covers tool loop + heading de-dup 
 
   // No model caller => hard error
   await assert.rejects(
-    () => runReactWriter({ state: { taskGoal: "X", L1: { gaps: [] } }, claims: [], evidenceLedger: [], sources: [], stageApi: {} }),
+    () => runReactWriter({ state: { taskGoal: "X", todos: [], L1: { gaps: [] } }, claims: [], evidenceLedger: [], sources: [], stageApi: {} }),
     /No model caller available/i
   );
 
   const sourceText = "Alpha is first.\nBeta is second.";
-  const state = { taskGoal: "Alpha report", L1: { gaps: [{ gapId: "g1", type: "definition", question: "What is Alpha?", status: "open" }] } };
-  const claims = [{ claimId: "c1", text: "Alpha is first.", importance: "support", evidenceIds: ["e1"], gapIds: ["g1"] }];
-  const evidenceLedger = [{ evidenceId: "e1", sourceId: "s1", quote: "Alpha is first.", locator: { charStart: 0, charEnd: 14 }, gapIds: ["g1"] }];
+  const state = {
+    taskGoal: "Alpha report",
+    todos: [{ todoId: "todo_1", text: "Explain Alpha", status: "open", relatedGapId: "g1" }],
+    L1: { gaps: [{ gapId: "g1", type: "definition", question: "What is Alpha?", status: "open" }] },
+  };
+  const claims = [{ claimId: "c1", text: "Alpha is first.", importance: "support", evidenceIds: ["e1"], todoIds: ["todo_1"], gapIds: ["g1"] }];
+  const evidenceLedger = [
+    { evidenceId: "e1", sourceId: "s1", quote: "Alpha is first.", locator: { charStart: 0, charEnd: 14 }, todoIds: ["todo_1"], gapIds: ["g1"] },
+  ];
   const sources = [{ sourceId: "s1", title: "Doc", uri: "https://example.com", sourceTextNormalized: sourceText }];
 
   const modelOutputs = [
@@ -513,17 +549,17 @@ test("ReAct writer: runReactWriter end-to-end covers tool loop + heading de-dup 
     JSON.stringify({ thought: "missing action+finish", foo: "bar" }),
     JSON.stringify({ thought: "missing tool", action: { params: {} } }),
     JSON.stringify({ thought: "unknown tool", action: { tool: "doesNotExist", params: {} } }),
-    JSON.stringify({ thought: "get gaps", action: { tool: "getGaps", params: {} } }),
+    JSON.stringify({ thought: "get todos", action: { tool: "getTodos", params: {} } }),
     JSON.stringify({
       thought: "plan outline",
-      action: { tool: "planOutline", params: { sections: [{ sectionId: "sec_1", title: "Intro", gapIds: ["g1"], targetWords: 120 }] } },
+      action: { tool: "planOutline", params: { sections: [{ sectionId: "sec_1", title: "Intro", todoIds: ["todo_1"], targetWords: 120 }] } },
     }),
-    JSON.stringify({ thought: "get claims", action: { tool: "getClaimsForGap", params: { gapId: "g1" } } }),
+    JSON.stringify({ thought: "get claims", action: { tool: "getClaimsForTodo", params: { todoId: "todo_1" } } }),
     JSON.stringify({
       thought: "write",
       action: {
         tool: "writeSection",
-        params: { sectionId: "sec_1", gapId: "g1", title: "Intro", markdown: "### Intro\n\nBody {{cite:e1}}." },
+        params: { sectionId: "sec_1", todoId: "todo_1", title: "Intro", markdown: "### Intro\n\nBody {{cite:e1}}." },
       },
     }),
     JSON.stringify({ thought: "progress", action: { tool: "getProgress", params: {} } }),
@@ -563,7 +599,7 @@ test("ReAct writer: runReactWriter end-to-end covers tool loop + heading de-dup 
 
   // Cover language branches + action-path finishReport break.
   const modelOutputs2 = [
-    JSON.stringify({ thought: "write", action: { tool: "writeSection", params: { gapId: "g1", markdown: "Body {{cite:e1}}." } } }),
+    JSON.stringify({ thought: "write", action: { tool: "writeSection", params: { todoId: "todo_1", markdown: "Body {{cite:e1}}." } } }),
     JSON.stringify({ thought: "finish", action: { tool: "finishReport", params: { title: "Alpha2", summary: "S2" } } }),
   ];
   let callIdx2 = 0;
@@ -601,10 +637,11 @@ test("ReAct writer: covers execute() error catch + branchy search/preview defaul
 
   const toolExecutor = createWriterToolExecutor({
     state: {},
+    todos: [{ todoId: "todo_1", text: "Q", status: "open", relatedGapId: "g1" }],
     gaps: [{ gapId: "g1", question: "Q", status: undefined }],
     claims: [
-      { claimId: "c1", text: "t", evidenceIds: ["e_missing"], gapIds: ["g1"] },
-      { claimId: "c2", text: "t2", evidenceIds: ["e_num"], gapIds: ["g1"] },
+      { claimId: "c1", text: "t", evidenceIds: ["e_missing"], todoIds: ["todo_1"], gapIds: ["g1"] },
+      { claimId: "c2", text: "t2", evidenceIds: ["e_num"], todoIds: ["todo_1"], gapIds: ["g1"] },
     ],
     evidenceLedger: [
       badEvidence,
@@ -616,9 +653,9 @@ test("ReAct writer: covers execute() error catch + branchy search/preview defaul
   const caught = await toolExecutor.execute("searchEvidence", { query: "a" });
   assert.match(caught.error, /boom/);
 
-  const claimsForGap = await toolExecutor.execute("getClaimsForGap", { gapId: "g1" });
-  assert.equal(claimsForGap.claims[0].evidencePreviews[0].error, "not found");
-  assert.equal(claimsForGap.claims[1].evidencePreviews[0].quotePreview, "");
+  const claimsForTodo = await toolExecutor.execute("getClaimsForTodo", { todoId: "todo_1" });
+  assert.equal(claimsForTodo.claims[0].evidencePreviews[0].error, "not found");
+  assert.equal(claimsForTodo.claims[1].evidencePreviews[0].quotePreview, "");
 
   const eNum = await toolExecutor.execute("getEvidence", { evidenceId: "e_num" });
   assert.equal(eNum.sourceTitle, "Unknown Source");
@@ -656,10 +693,14 @@ test("ReAct writer: drives remaining branch outcomes for coverage thresholds", a
 
   const toolExecutor = createWriterToolExecutor({
     state: {},
-    gaps: [{ gapId: "g1", question: "Q1", status: " " }, { question: "no id", status: "open" }],
+    todos: [
+      { todoId: "todo_1", text: "Q1", status: " ", relatedGapId: "g1" },
+      { todoId: "todo_2", text: "Q2", status: "open" },
+    ],
+    gaps: [{ gapId: "g1", question: "Q1", status: " " }],
     claims: [
       { text: "missing claimId", evidenceIds: [null], gapIds: "nope" },
-      { claimId: "c1", text: "Claim 1", evidenceIds: ["e1", null], gapIds: ["g1"] },
+      { claimId: "c1", text: "Claim 1", evidenceIds: ["e1", null], todoIds: ["todo_1"], gapIds: ["g1"] },
     ],
     evidenceLedger: [
       { sourceId: "s1", quote: "missing evidenceId" },
@@ -671,15 +712,15 @@ test("ReAct writer: drives remaining branch outcomes for coverage thresholds", a
     ],
   });
 
-  // getGaps: status missing => default "open" path
-  const gaps = await toolExecutor.execute("getGaps", {});
-  assert.equal(gaps.totalGaps, 2);
+  // getTodos: status missing => default "open" path
+  const todos = await toolExecutor.execute("getTodos", {});
+  assert.equal(todos.totalTodos, 2);
 
   // planOutline: default sectionId/title/targetWords
   const outline = await toolExecutor.execute("planOutline", { sections: [{}] });
   assert.equal(outline.outline[0].sectionId, "sec_1");
   assert.equal(outline.outline[0].title, "Section 1");
-  assert.ok(Array.isArray(outline.outline[0].gapIds));
+  assert.ok(Array.isArray(outline.outline[0].todoIds));
 
   // getProgress: remaining path (planned but not written)
   const progress = await toolExecutor.execute("getProgress", {});

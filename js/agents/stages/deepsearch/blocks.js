@@ -1,12 +1,12 @@
 import { runDeepSearchScanStage } from "./scan.js";
-import { runDeepSearchGapsStage } from "./gaps.js";
+import { runDeepSearchTodosStage } from "./todos.js";
 import { runDeepSearchRetrieveStage } from "./retrieve.js";
 import { runDeepSearchUnderstandStage } from "./understand.js";
 import { runDeepSearchWriteStage } from "./write.js";
 import { runDeepSearchCondenseStage } from "./condense.js";
 import {
   ScanBlockManifest,
-  GapsBlockManifest,
+  TodosBlockManifest,
   RetrieveBlockManifest,
   UnderstandBlockManifest,
   WriteBlockManifest,
@@ -15,7 +15,7 @@ import {
 
 export function registerDeepSearchBlocks(registry) {
   registry.registerWithExecutor(ScanBlockManifest, runDeepSearchScanStage);
-  registry.registerWithExecutor(GapsBlockManifest, runDeepSearchGapsStage);
+  registry.registerWithExecutor(TodosBlockManifest, runDeepSearchTodosStage);
   registry.registerWithExecutor(RetrieveBlockManifest, runDeepSearchRetrieveStage);
   registry.registerWithExecutor(UnderstandBlockManifest, runDeepSearchUnderstandStage);
   registry.registerWithExecutor(WriteBlockManifest, runDeepSearchWriteStage);
@@ -25,8 +25,8 @@ export function registerDeepSearchBlocks(registry) {
 export const DEEPSEARCH_DAG = {
   nodes: [
     { id: "scan", block: "scan", dependsOn: [] },
-    { id: "gaps", block: "gaps", dependsOn: ["scan"] },
-    { id: "retrieve", block: "retrieve", dependsOn: ["gaps"] },
+    { id: "todos", block: "todos", dependsOn: ["scan"] },
+    { id: "retrieve", block: "retrieve", dependsOn: ["todos"] },
     { id: "understand", block: "understand", dependsOn: ["retrieve"] },
     { id: "write", block: "write", dependsOn: ["understand"] },
     { id: "condense", block: "condense", dependsOn: ["understand"] },

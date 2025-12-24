@@ -1,24 +1,26 @@
 /**
  * ReAct Writer - 问题驱动的渐进式报告生成
  *
- * 核心理念：让 AI 按问题（gap）逐个检索证据并写作，而不是一次性 dump 所有数据
+ * 核心理念：让 AI 按待办（todo）逐个检索证据并写作，而不是一次性 dump 所有数据
  *
  * 工具集：
- * - getGaps(): 获取待回答的问题列表
- * - getGapDetail(gapId): 获取问题详情及关联的论点
- * - getClaimsForGap(gapId): 获取问题关联的所有论点
+ * - getTodos(): 获取待回答的 todo 列表
+ * - getTodoDetail(todoId): 获取 todo 详情及关联的论点
+ * - getClaimsForTodo(todoId): 获取 todo 关联的所有论点
  * - getEvidence(evidenceId): 获取证据详情（含原文引用）
  * - getSourceChunk(sourceId, start, end): 读取更多原文上下文
  * - searchEvidence(query): 语义搜索证据库
  * - planOutline(sections): 规划报告大纲
- * - writeSection({sectionId?, gapId?, title?, markdown}): 写入/更新一个章节
+ * - writeSection({sectionId?, todoId?, gapId?, title?, markdown}): 写入/更新一个章节
  * - editSection({sectionId, markdown}): 编辑已写章节
  * - getProgress(): 获取写作进度
  * - finishReport({title, executiveSummary}): 完成报告
  *
+ * 兼容：保留 getGaps/getGapDetail/getClaimsForGap 作为别名
+ *
  * 流程：
- * 1. AI 调用 getGaps() 了解需要回答的问题
- * 2. 对每个问题，调用 getGapDetail/getClaimsForGap 获取关联论点
+ * 1. AI 调用 getTodos() 了解需要回答的 todo
+ * 2. 对每个 todo，调用 getTodoDetail/getClaimsForTodo 获取关联论点
  * 3. 对每个论点，调用 getEvidence 获取支撑证据
  * 4. 如需更多上下文，调用 getSourceChunk 读取原文
  * 5. 调用 writeSection 写入该问题的章节
@@ -83,11 +85,27 @@ export function stripLeadingDuplicateHeading(markdown, title) {
   return md;
 }
 
+function deriveTodoIdFromGapId(gapId) {
+  if (!gapId) return "";
+  const raw = String(gapId);
+  const m = raw.match(/^gap_(\d+)$/);
+  if (m) return `todo_${m[1]}`;
+  return `todo_${raw}`;
+}
+
+function resolveTodoStatusFromGapStatus(gapStatus) {
+  const s = String(gapStatus || "").toLowerCase();
+  if (s === "filled") return "completed";
+  if (s === "blocked") return "cancelled";
+  if (!s || s === "open" || s === "searching" || s === "understanding") return "open";
+  return "open";
+}
+
 /**
  * 创建 ReAct Writer 的工具执行器
  */
 export function createWriterToolExecutor(context) {
-  const { state, claims, evidenceLedger, sources, gaps } = context;
+  const { state, claims, evidenceLedger, sources, todos, gaps } = context;
   const targetWords = safeInt(context?._targetWords) ?? 3500;
 
   // 索引构建
@@ -124,16 +142,76 @@ export function createWriterToolExecutor(context) {
     }
   }
 
+  const gapRows = Array.isArray(gaps) ? gaps : [];
+  const todoRows = Array.isArray(todos) ? todos : [];
   const gapById = new Map();
-  for (const g of Array.isArray(gaps) ? gaps : []) {
+  const todoById = new Map();
+  const todoIdByGapId = new Map();
+  const todoList = todoRows.slice();
+
+  for (const g of gapRows) {
     const gid = toNonEmptyString(g?.gapId);
-    if (gid) gapById.set(gid, g);
+    if (gid && !gapById.has(gid)) gapById.set(gid, g);
   }
 
-  // 按 gapId 分组 claims
+  for (const t of todoRows) {
+    const tid = toNonEmptyString(t?.todoId);
+    if (!tid || todoById.has(tid)) continue;
+    todoById.set(tid, t);
+    const gapId = toNonEmptyString(t?.relatedGapId) || toNonEmptyString(t?.gapId);
+    if (gapId && !todoIdByGapId.has(gapId)) todoIdByGapId.set(gapId, tid);
+  }
+
+  for (const g of gapById.values()) {
+    const gid = toNonEmptyString(g?.gapId);
+    if (!gid || todoIdByGapId.has(gid)) continue;
+    const fallback = {
+      todoId: deriveTodoIdFromGapId(gid) || `todo_${Date.now().toString(36)}`,
+      text: toNonEmptyString(g?.question) || `Gap: ${gid}`,
+      priority: g?.priority,
+      status: resolveTodoStatusFromGapStatus(g?.status),
+      relatedGapId: gid,
+    };
+    todoList.push(fallback);
+    todoById.set(fallback.todoId, fallback);
+    todoIdByGapId.set(gid, fallback.todoId);
+  }
+
+  const resolveTodoIdsForClaim = (claim) => {
+    let todoIds = Array.isArray(claim?.todoIds) ? claim.todoIds : [];
+    if (!todoIds.length) {
+      const gapIds = Array.isArray(claim?.gapIds) ? claim.gapIds : [];
+      if (gapIds.length) {
+        todoIds = gapIds
+          .map((gid) => todoIdByGapId.get(String(gid)) || deriveTodoIdFromGapId(gid))
+          .map((id) => String(id || "").trim())
+          .filter(Boolean);
+      }
+    }
+    return todoIds;
+  };
+
+  // 按 todoId 分组 claims
+  const claimsByTodoId = new Map();
+  for (const c of Array.isArray(claims) ? claims : []) {
+    const todoIds = resolveTodoIdsForClaim(c);
+    for (const tid of todoIds) {
+      const key = String(tid);
+      if (!claimsByTodoId.has(key)) claimsByTodoId.set(key, []);
+      claimsByTodoId.get(key).push(c);
+    }
+  }
+
+  // 兼容：按 gapId 分组 claims
   const claimsByGapId = new Map();
   for (const c of Array.isArray(claims) ? claims : []) {
-    const gapIds = Array.isArray(c?.gapIds) ? c.gapIds : [];
+    let gapIds = Array.isArray(c?.gapIds) ? c.gapIds : [];
+    if (!gapIds.length) {
+      const todoIds = resolveTodoIdsForClaim(c);
+      gapIds = todoIds
+        .map((tid) => toNonEmptyString(todoById.get(String(tid))?.relatedGapId))
+        .filter(Boolean);
+    }
     for (const gid of gapIds) {
       const key = String(gid);
       if (!claimsByGapId.has(key)) claimsByGapId.set(key, []);
@@ -168,49 +246,170 @@ export function createWriterToolExecutor(context) {
   let reportTitle = "";
   let reportSummary = "";
 
+  const resolveTodoId = ({ todoId, gapId }) => {
+    const tid = toNonEmptyString(todoId);
+    if (tid) return tid;
+    const gid = toNonEmptyString(gapId);
+    if (!gid) return "";
+    return todoIdByGapId.get(gid) || deriveTodoIdFromGapId(gid);
+  };
+
+  const resolveGapIdForTodo = (todo) => toNonEmptyString(todo?.relatedGapId) || toNonEmptyString(todo?.gapId) || "";
+
+  const getTodosImpl = async () => {
+    const visibleTodos = todoList.filter((t) => {
+      const status = toNonEmptyString(t?.status) || "open";
+      return status !== "cancelled";
+    });
+
+    return {
+      totalTodos: visibleTodos.length,
+      todos: visibleTodos.map((t) => {
+        const tid = toNonEmptyString(t?.todoId);
+        const relatedGapId = resolveGapIdForTodo(t);
+        return {
+          todoId: tid,
+          text: t?.text,
+          priority: t?.priority,
+          status: t?.status,
+          expectedEvidence: t?.expectedEvidence,
+          queryHints: Array.isArray(t?.queryHints) ? t.queryHints : [],
+          ...(relatedGapId ? { relatedGapId } : {}),
+          ...(relatedGapId ? { gapId: relatedGapId } : {}),
+          claimCount: tid ? (claimsByTodoId.get(String(tid)) || []).length : 0,
+        };
+      }),
+    };
+  };
+
+  const getTodoDetailImpl = async ({ todoId, gapId }) => {
+    const tid = resolveTodoId({ todoId, gapId });
+    if (!tid) return { error: "todoId is required" };
+
+    const todo = todoById.get(tid);
+    if (!todo) return { error: `Todo not found: ${tid}` };
+
+    const relatedClaims = claimsByTodoId.get(String(tid)) || [];
+    const relatedGapId = resolveGapIdForTodo(todo);
+
+    return {
+      todoId: toNonEmptyString(todo?.todoId) || tid,
+      text: todo?.text,
+      priority: todo?.priority,
+      status: todo?.status,
+      expectedEvidence: todo?.expectedEvidence,
+      queryHints: Array.isArray(todo?.queryHints) ? todo.queryHints : [],
+      ...(relatedGapId ? { relatedGapId } : {}),
+      ...(relatedGapId ? { gapId: relatedGapId } : {}),
+      claims: relatedClaims.map((c) => ({
+        claimId: c.claimId,
+        text: c.text,
+        importance: c.importance,
+        evidenceCount: Array.isArray(c.evidenceIds) ? c.evidenceIds.length : 0,
+        evidenceIds: c.evidenceIds,
+        todoIds: c.todoIds,
+        gapIds: c.gapIds,
+      })),
+    };
+  };
+
+  const getClaimsForTodoImpl = async ({ todoId, gapId }) => {
+    const tid = resolveTodoId({ todoId, gapId });
+    if (!tid) return { error: "todoId is required" };
+
+    const relatedClaims = claimsByTodoId.get(String(tid)) || [];
+    if (!relatedClaims.length) {
+      return { todoId: tid, claims: [], message: `No claims found for todo: ${tid}` };
+    }
+
+    return {
+      todoId: tid,
+      claims: relatedClaims.map((c) => ({
+        claimId: c.claimId,
+        text: c.text,
+        importance: c.importance,
+        evidenceIds: c.evidenceIds,
+        todoIds: c.todoIds,
+        gapIds: c.gapIds,
+        usedInOtherSection: usedClaimIds.has(String(c.claimId)),
+        // 预览每个 evidence 的引用
+        evidencePreviews: (Array.isArray(c.evidenceIds) ? c.evidenceIds : []).slice(0, 5).map((eid) => {
+          const e = evidenceById.get(String(eid));
+          if (!e) return { evidenceId: eid, error: "not found" };
+          return {
+            evidenceId: e.evidenceId,
+            sourceId: e.sourceId,
+            sourceTitle: sourceById.get(String(e.sourceId))?.title || "Unknown",
+            quotePreview: typeof e.quote === "string" ? e.quote.slice(0, 150) + (e.quote.length > 150 ? "..." : "") : "",
+          };
+        }),
+      })),
+    };
+  };
+
   const tools = {
     /**
-     * 获取所有待回答的问题（按优先级排序）
+     * 获取所有待回答的 todo（按优先级排序）
+     */
+    getTodos: getTodosImpl,
+
+    /**
+     * 获取 todo 详情及关联的论点概要
+     */
+    getTodoDetail: getTodoDetailImpl,
+
+    /**
+     * 获取 todo 关联的所有论点（完整信息）
+     */
+    getClaimsForTodo: getClaimsForTodoImpl,
+
+    /**
+     * 兼容：获取问题列表
      */
     getGaps: async () => {
-      const gapList = Array.isArray(gaps) ? gaps : [];
-      const openGaps = gapList.filter(g => {
-        const status = toNonEmptyString(g?.status) || "open";
-        return status === "open" || status === "filled"; // filled 也需要写
-      });
-
+      const out = await getTodosImpl();
       return {
-        totalGaps: openGaps.length,
-        gaps: openGaps.map(g => ({
-          gapId: g.gapId,
-          question: g.question,
-          type: g.type,
-          priority: g.priority,
-          status: g.status,
-          claimCount: (claimsByGapId.get(String(g.gapId)) || []).length,
+        totalGaps: out.totalTodos,
+        gaps: (out.todos || []).map((t) => ({
+          gapId: t.relatedGapId || t.gapId || t.todoId,
+          question: t.text,
+          type: "todo",
+          priority: t.priority,
+          status: t.status,
+          claimCount: t.claimCount,
         })),
       };
     },
 
     /**
-     * 获取问题详情及关联的论点概要
+     * 兼容：获取问题详情及关联的论点概要
      */
     getGapDetail: async ({ gapId }) => {
       const gid = toNonEmptyString(gapId);
       if (!gid) return { error: "gapId is required" };
-
+      const tid = todoIdByGapId.get(gid);
+      if (tid) {
+        const out = await getTodoDetailImpl({ todoId: tid });
+        if (out?.error) return out;
+        return {
+          gapId: gid,
+          question: out.text,
+          type: "todo",
+          priority: out.priority,
+          status: out.status,
+          claims: out.claims,
+        };
+      }
       const gap = gapById.get(gid);
       if (!gap) return { error: `Gap not found: ${gid}` };
-
       const relatedClaims = claimsByGapId.get(gid) || [];
-
       return {
         gapId: gap.gapId,
         question: gap.question,
         type: gap.type,
         priority: gap.priority,
         status: gap.status,
-        claims: relatedClaims.map(c => ({
+        claims: relatedClaims.map((c) => ({
           claimId: c.claimId,
           text: c.text,
           importance: c.importance,
@@ -221,27 +420,30 @@ export function createWriterToolExecutor(context) {
     },
 
     /**
-     * 获取问题关联的所有论点（完整信息）
+     * 兼容：获取问题关联的所有论点（完整信息）
      */
     getClaimsForGap: async ({ gapId }) => {
       const gid = toNonEmptyString(gapId);
       if (!gid) return { error: "gapId is required" };
-
+      const tid = todoIdByGapId.get(gid);
+      if (tid) {
+        const out = await getClaimsForTodoImpl({ todoId: tid });
+        if (out?.error) return out;
+        return { gapId: gid, claims: out.claims, message: out.message };
+      }
       const relatedClaims = claimsByGapId.get(gid) || [];
       if (!relatedClaims.length) {
         return { claims: [], message: `No claims found for gap: ${gid}` };
       }
-
       return {
         gapId: gid,
-        claims: relatedClaims.map(c => ({
+        claims: relatedClaims.map((c) => ({
           claimId: c.claimId,
           text: c.text,
           importance: c.importance,
           evidenceIds: c.evidenceIds,
           usedInOtherSection: usedClaimIds.has(String(c.claimId)),
-          // 预览每个 evidence 的引用
-          evidencePreviews: (Array.isArray(c.evidenceIds) ? c.evidenceIds : []).slice(0, 5).map(eid => {
+          evidencePreviews: (Array.isArray(c.evidenceIds) ? c.evidenceIds : []).slice(0, 5).map((eid) => {
             const e = evidenceById.get(String(eid));
             if (!e) return { evidenceId: eid, error: "not found" };
             return {
@@ -266,6 +468,13 @@ export function createWriterToolExecutor(context) {
       if (!e) return { error: `Evidence not found: ${eid}` };
 
       const source = sourceById.get(String(e.sourceId));
+      let todoIds = Array.isArray(e?.todoIds) ? e.todoIds : [];
+      if (!todoIds.length && Array.isArray(e?.gapIds)) {
+        todoIds = e.gapIds
+          .map((gid) => todoIdByGapId.get(String(gid)) || deriveTodoIdFromGapId(gid))
+          .map((id) => String(id || "").trim())
+          .filter(Boolean);
+      }
 
       return {
         evidenceId: e.evidenceId,
@@ -274,6 +483,7 @@ export function createWriterToolExecutor(context) {
         sourceUri: source?.uri,
         quote: e.quote,
         locator: e.locator,
+        todoIds,
         gapIds: e.gapIds,
         // 提示：可以用 getSourceChunk 获取更多上下文
         hint: e.locator ? "Use getSourceChunk to read more context around this quote" : null,
@@ -324,12 +534,20 @@ export function createWriterToolExecutor(context) {
         const score = quote.toLowerCase().includes(queryLower) ? 1 : 0;
         if (score > 0 || results.length < 3) { // 保证至少返回一些结果
           const source = sourceById.get(String(e.sourceId));
+          let todoIds = Array.isArray(e?.todoIds) ? e.todoIds : [];
+          if (!todoIds.length && Array.isArray(e?.gapIds)) {
+            todoIds = e.gapIds
+              .map((gid) => todoIdByGapId.get(String(gid)) || deriveTodoIdFromGapId(gid))
+              .map((id) => String(id || "").trim())
+              .filter(Boolean);
+          }
           results.push({
             evidenceId: e.evidenceId,
             sourceId: e.sourceId,
             sourceTitle: source?.title || "Unknown",
             quotePreview: quote.slice(0, 200) + (quote.length > 200 ? "..." : ""),
             relevanceScore: score,
+            todoIds,
             gapIds: e.gapIds,
           });
         }
@@ -354,7 +572,8 @@ export function createWriterToolExecutor(context) {
       context._plannedOutline = sections.map((s, i) => ({
         sectionId: s.sectionId || `sec_${i + 1}`,
         title: s.title || `Section ${i + 1}`,
-        gapIds: Array.isArray(s.gapIds) ? s.gapIds : [],
+        todoIds: Array.isArray(s.todoIds) ? s.todoIds : toNonEmptyString(s.todoId) ? [String(s.todoId)] : [],
+        gapIds: Array.isArray(s.gapIds) ? s.gapIds : toNonEmptyString(s.gapId) ? [String(s.gapId)] : [],
         targetWords: s.targetWords || Math.floor(targetWords / sections.length),
       }));
 
@@ -409,21 +628,26 @@ export function createWriterToolExecutor(context) {
     /**
      * 写入一个章节（问题驱动）
      */
-    writeSection: async ({ sectionId, gapId, title, markdown }) => {
+    writeSection: async ({ sectionId, todoId, gapId, title, markdown }) => {
       const md = toNonEmptyString(markdown);
       if (!md) return { error: "markdown content is required" };
 
       const sid = toNonEmptyString(sectionId) || `sec_${writtenSections.length + 1}`;
-      const gid = toNonEmptyString(gapId);
+      const tid = resolveTodoId({ todoId, gapId });
+      const todo = tid ? todoById.get(tid) : null;
+      const gid = toNonEmptyString(gapId) || resolveGapIdForTodo(todo);
       const gap = gid ? gapById.get(gid) : null;
-      const sectionTitle = toNonEmptyString(title) || (gap ? gap.question : `Section ${writtenSections.length + 1}`);
+      const sectionTitle =
+        toNonEmptyString(title) || (todo?.text ? String(todo.text) : gap?.question ? String(gap.question) : `Section ${writtenSections.length + 1}`);
 
       // 检查是否已存在该 sectionId，如果是则更新
       const existingIdx = writtenSections.findIndex(s => s.sectionId === sid);
+      const resolvedTodoId = tid || (existingIdx !== -1 ? writtenSections[existingIdx]?.todoId : null) || null;
       const resolvedGapId = gid || (existingIdx !== -1 ? writtenSections[existingIdx]?.gapId : null) || null;
       if (existingIdx !== -1) {
         writtenSections[existingIdx] = {
           ...writtenSections[existingIdx],
+          todoId: resolvedTodoId,
           gapId: resolvedGapId,
           title: sectionTitle,
           markdown: md,
@@ -432,6 +656,7 @@ export function createWriterToolExecutor(context) {
       } else {
         writtenSections.push({
           sectionId: sid,
+          todoId: resolvedTodoId,
           gapId: resolvedGapId,
           title: sectionTitle,
           markdown: md,
@@ -446,6 +671,7 @@ export function createWriterToolExecutor(context) {
 
       return {
         success: true,
+        todoId: resolvedTodoId,
         gapId: resolvedGapId,
         sectionId: sid,
         title: sectionTitle,
@@ -524,14 +750,14 @@ const WRITER_SYSTEM_PROMPT = `You are an expert research report writer. Your tas
 4. **Conclusion**: Key takeaways, implications, recommendations
 
 ## Available Tools
-- getGaps(): Get research questions to understand scope
-- getGapDetail({gapId}): Get question details and claims
-- getClaimsForGap({gapId}): Get all claims with evidence
+- getTodos(): Get todos to understand scope
+- getTodoDetail({todoId}): Get todo details and claims
+- getClaimsForTodo({todoId}): Get all claims with evidence
 - getEvidence({evidenceId}): Get full quote and source
 - getSourceChunk({sourceId, start, end}): Read more context
 - searchEvidence({query}): Search evidence by keyword
 - planOutline({sections}): Plan report structure BEFORE writing
-- writeSection({sectionId, title, markdown}): Write a section
+- writeSection({sectionId, todoId, title, markdown}): Write a section
 - editSection({sectionId, markdown}): Edit existing section
 - getProgress(): Check current word count vs target
 - finishReport({title, executiveSummary}): Complete with summary
@@ -543,7 +769,7 @@ const WRITER_SYSTEM_PROMPT = `You are an expert research report writer. Your tas
 }
 
 ## Writing Process
-1. FIRST: Call getGaps() to understand all questions
+1. FIRST: Call getTodos() to understand all tasks
 2. THEN: Call planOutline() to design report structure
 3. FOR EACH section: gather evidence, then writeSection
 4. PERIODICALLY: call getProgress() to check word count
@@ -572,7 +798,7 @@ const WRITER_INITIAL_PROMPT = `## Research Task
 - Target audience: {audience}
 
 ## Instructions
-1. Start by calling getGaps() to see all research questions
+1. Start by calling getTodos() to see all tasks
 2. Then call planOutline() to design your report structure
 3. Write sections that SYNTHESIZE findings (don't just answer questions one by one)
 4. Check getProgress() periodically to stay on target
@@ -583,8 +809,9 @@ Begin now.`;
  * 运行 ReAct Writer
  */
 export async function runReactWriter(context, options = {}) {
-  const { state, claims, evidenceLedger, sources, stageApi } = context;
-  const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
+  const { state, claims, evidenceLedger, sources, stageApi, todos, gaps } = context;
+  const gapRows = Array.isArray(gaps) ? gaps : Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
+  const todoRows = Array.isArray(todos) ? todos : Array.isArray(state?.todos) ? state.todos : [];
 
   const {
     targetWords = 2000,
@@ -606,7 +833,8 @@ export async function runReactWriter(context, options = {}) {
     claims,
     evidenceLedger,
     sources,
-    gaps,
+    todos: todoRows,
+    gaps: gapRows,
     // 新增：传递配置
     _targetWords: targetWords,
     _minWords: minWords,

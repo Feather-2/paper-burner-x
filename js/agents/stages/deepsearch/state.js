@@ -4,6 +4,7 @@ import { EVENT_SCHEMA_VERSION, EventStatus, ensureTokenUsage, extractJsonCandida
 import { computeRoundHitsByGapId, GapStatus, normalizeRoundHits, transitionGap } from "./gap-utils.js";
 import { CheckpointMode } from "./constants.js";
 import { DecisionOutcome, DecisionStage, TodoStatus } from "./states.js";
+import { createTodo } from "./todo-utils.js";
 import {
   buildLiteSnapshot,
   buildMinimalSnapshot,
@@ -455,12 +456,18 @@ export class DeepSearchState {
           scratchpad: isPlainObject(L2?.scratchpad) ? L2.scratchpad : {},
           logs: Array.isArray(L2?.logs) ? L2.logs : [],
           tokenUsage: ensureTokenUsage(L2?.tokenUsage),
+          awaitUserFeedback: typeof L2?.awaitUserFeedback === "boolean" ? L2.awaitUserFeedback : false,
+          taskImpossible: typeof L2?.taskImpossible === "boolean" ? L2.taskImpossible : false,
+          reason: toNonEmptyString(L2?.reason) || "",
         }
       : {
           retrievedChunks: [],
           scratchpad: {},
           logs: [],
           tokenUsage: { input: 0, output: 0, total: 0, estimatedCostUSD: 0 },
+          awaitUserFeedback: false,
+          taskImpossible: false,
+          reason: "",
         };
 
     this.todos = Array.isArray(todos) ? todos : [];
@@ -476,6 +483,9 @@ export class DeepSearchState {
     if (!delta) return this?.L2?.tokenUsage || { input: 0, output: 0, total: 0, estimatedCostUSD: 0 };
 
     if (!isPlainObject(this.L2)) this.L2 = {};
+    if (typeof this.L2.awaitUserFeedback !== "boolean") this.L2.awaitUserFeedback = false;
+    if (typeof this.L2.taskImpossible !== "boolean") this.L2.taskImpossible = false;
+    if (!toNonEmptyString(this.L2.reason)) this.L2.reason = "";
     if (!isPlainObject(this.L2.tokenUsage)) this.L2.tokenUsage = { input: 0, output: 0, total: 0, estimatedCostUSD: 0 };
 
     const cur = this.L2.tokenUsage;
@@ -496,13 +506,31 @@ export class DeepSearchState {
     return normalizeBudgetConfig(this?.userConfig?.budget);
   }
 
-  addTodo({ todoId, text, status = TodoStatus.OPEN, relatedGapId } = {}) {
-    const id = toNonEmptyString(todoId) || `todo_${this.todos.length + 1}`;
-    const t = toNonEmptyString(text) || "";
-    const st = toNonEmptyString(status) || "open";
-    const row = { todoId: id, text: t, status: st, ...(toNonEmptyString(relatedGapId) ? { relatedGapId: String(relatedGapId) } : {}) };
+  addTodo(params = {}) {
+    const raw = isPlainObject(params) ? params : {};
+    const id = toNonEmptyString(raw.todoId) || `todo_${this.todos.length + 1}`;
+    const row = createTodo({ ...raw, todoId: id });
     this.todos.push(row);
     return row;
+  }
+
+  setAwaitUserFeedback(value, reason) {
+    if (!isPlainObject(this.L2)) this.L2 = {};
+    this.L2.awaitUserFeedback = Boolean(value);
+    if (toNonEmptyString(reason)) this.L2.reason = String(reason);
+    if (!this.L2.awaitUserFeedback && !this.L2.taskImpossible && !toNonEmptyString(reason)) {
+      this.L2.reason = "";
+    }
+    return this.L2.awaitUserFeedback;
+  }
+
+  setTaskImpossible(reason) {
+    if (!isPlainObject(this.L2)) this.L2 = {};
+    this.L2.taskImpossible = true;
+    this.L2.awaitUserFeedback = false;
+    if (toNonEmptyString(reason)) this.L2.reason = String(reason);
+    if (!toNonEmptyString(this.L2.reason)) this.L2.reason = "";
+    return this.L2.taskImpossible;
   }
 
   addTimeline({ name, status = "info", payload } = {}) {
@@ -562,28 +590,6 @@ export class DeepSearchState {
       if (toNonEmptyString(reason)) g.reopenedReason = String(reason);
 
       reopened.push(gid);
-    }
-
-    const todoByGapId = new Map();
-    for (const t of Array.isArray(this?.todos) ? this.todos : []) {
-      const rgid = toNonEmptyString(t?.relatedGapId);
-      if (!rgid) continue;
-      todoByGapId.set(rgid, t);
-    }
-    for (const gid of reopened) {
-      const t = todoByGapId.get(gid);
-      if (!t) continue;
-      const from = toNonEmptyString(t?.status) || "open";
-      if (from === "open") continue;
-      t.status = "open";
-      emit?.("deepsearch.todo.status.changed", {
-        runId: this.runId,
-        todoId: toNonEmptyString(t?.todoId) || "todo_unknown",
-        relatedGapId: toNonEmptyString(t?.relatedGapId),
-        from,
-        to: "open",
-        iteration: this.iteration,
-      });
     }
 
     const tree = this?.planningTree;
@@ -774,6 +780,19 @@ export class DeepSearchState {
     }
     if (checkpointStrategy === CheckpointMode.MINIMAL) {
       const tokenUsage = ensureTokenUsage(restored?.L2?.tokenUsage);
+      const awaitUserFeedback =
+        typeof restored?.L2?.awaitUserFeedback === "boolean"
+          ? restored.L2.awaitUserFeedback
+          : typeof preservedL2?.awaitUserFeedback === "boolean"
+            ? preservedL2.awaitUserFeedback
+            : false;
+      const taskImpossible =
+        typeof restored?.L2?.taskImpossible === "boolean"
+          ? restored.L2.taskImpossible
+          : typeof preservedL2?.taskImpossible === "boolean"
+            ? preservedL2.taskImpossible
+            : false;
+      const reason = toNonEmptyString(restored?.L2?.reason) || toNonEmptyString(preservedL2?.reason) || "";
       this.L2 = {
         ...preservedL2,
         retrievedChunkIds: [],
@@ -781,6 +800,9 @@ export class DeepSearchState {
         scratchpad: {},
         logs: [],
         tokenUsage,
+        awaitUserFeedback,
+        taskImpossible,
+        reason,
         incomplete: true,
         restoredFromMinimalCheckpoint: true,
       };

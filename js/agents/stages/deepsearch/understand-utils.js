@@ -91,6 +91,11 @@ export function normalizeGapIds(v) {
   return Array.from(new Set(raw.map((x) => String(x || "").trim()).filter(Boolean)));
 }
 
+export function normalizeTodoIds(v) {
+  const raw = Array.isArray(v) ? v : v ? [v] : [];
+  return Array.from(new Set(raw.map((x) => String(x || "").trim()).filter(Boolean)));
+}
+
 export function ensureState(_runContext, input) {
   if (input instanceof DeepSearchState) return input;
   if (input?.state instanceof DeepSearchState) return input.state;
@@ -254,4 +259,3 @@ export function assertHardGates({ sources, sourceTextById, claims, evidenceLedge
     if (slice !== quote) throw new Error("Hard gate H3 failed: evidence.quote must exactly match sourceTextNormalized at locator");
   }
 }
-

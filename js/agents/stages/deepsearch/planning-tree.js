@@ -67,15 +67,25 @@ export class PlanningTree {
 
   expandFromGap(gap) {
     const parentId = this.rootId;
-    const subgoalId = this.addNode(parentId, PlanNodeType.SUBGOAL, gap.question, { sourceGapId: gap.gapId });
-    const queryIds = (gap.queryHints || []).map(hint => 
-      this.addNode(subgoalId, PlanNodeType.QUERY, hint, { sourceGapId: gap.gapId })
+    const sourceGapId = gap?.gapId;
+    const sourceTodoId = gap?.todoId;
+    const content = gap?.question || gap?.text || "";
+    const subgoalId = this.addNode(parentId, PlanNodeType.SUBGOAL, content, { sourceGapId, sourceTodoId });
+    const queryIds = (gap?.queryHints || []).map(hint =>
+      this.addNode(subgoalId, PlanNodeType.QUERY, hint, { sourceGapId, sourceTodoId })
     );
     return [subgoalId, ...queryIds];
   }
 
   getNodesForGap(gapId) {
     return [...this.nodes.values()].filter(n => n.metadata?.sourceGapId === gapId);
+  }
+
+  getNodesForTodo(todoId, { relatedGapId } = {}) {
+    const tid = String(todoId || "");
+    if (!tid) return [];
+    const related = relatedGapId ? String(relatedGapId) : "";
+    return [...this.nodes.values()].filter(n => n.metadata?.sourceTodoId === tid || (related && n.metadata?.sourceGapId === related));
   }
 
   /**

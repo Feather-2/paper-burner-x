@@ -1,12 +1,62 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
+function createDeepSearchAiApiService() {
+  const calls = [];
+  return {
+    calls,
+    chat: async ({ messages, usage } = {}) => {
+      calls.push({ messages, usage });
+      const system = String(messages?.[0]?.content || "");
+      const systemLower = system.toLowerCase();
+
+      if (usage === "planner" && (systemLower.includes("todo planner") || systemLower.includes("deepsearch todo"))) {
+        return {
+          content: JSON.stringify([
+            {
+              text: "Define Alpha and scope",
+              priority: "high",
+              queryHints: ["Alpha", "definition", "scope"],
+              expectedEvidence: "definition",
+            },
+          ]),
+        };
+      }
+
+      if (system.includes("DeepSearch scanner")) {
+        return {
+          content: JSON.stringify({
+            scanSummary: { summaryText: "Scan summary", topSources: [{ sourceId: "s1", reason: "mock" }] },
+            deepDivePlan: { steps: [{ action: "review_source", sourceId: "s1", notes: "mock" }] },
+          }),
+        };
+      }
+
+      if (usage === "writer") {
+        return {
+          content: JSON.stringify({
+            finish: { tool: "finishReport", params: { title: "Mock Report", summary: "Summary." } },
+          }),
+        };
+      }
+
+      return { content: "{}" };
+    },
+  };
+}
+
 test("Product Flow: Orchestrator (ingest -> deepsearch.pipeline) produces ContentPackage with report/slideIntents", async () => {
   const { AgentOrchestrator } = await import("../../js/agents/runtime/orchestrator.js");
   const { IngestStage } = await import("../../js/agents/ingest/ingest-stage.js");
   const { registerDeepSearchStages } = await import("../../js/agents/stages/deepsearch/index.js");
 
-  const orch = new AgentOrchestrator({ mode: "deepsearch", scenario: "test", constraints: { pageCount: 8 } });
+  const aiApiService = createDeepSearchAiApiService();
+  const orch = new AgentOrchestrator({
+    mode: "deepsearch",
+    scenario: "test",
+    constraints: { pageCount: 8 },
+    services: { aiApiService },
+  });
   const events = [];
   orch.eventBus.on("*", (e) => events.push(e));
 
@@ -92,7 +142,19 @@ test("Product Flow: Orchestrator (ingest -> deepsearch.pipeline) produces Conten
     "expected at least one deepsearch.iteration.completed or completion event"
   );
   if (iterationEvents.length >= 1) {
-    assert.ok(iterationEvents.every((e) => typeof e.payload?.hitCount === "number" && Number.isFinite(e.payload.hitCount)));
+    assert.ok(
+      iterationEvents.every(
+        (e) =>
+          typeof e.payload?.openTodoCount === "number" &&
+          Number.isFinite(e.payload.openTodoCount) &&
+          typeof e.payload?.completedTodoCount === "number" &&
+          Number.isFinite(e.payload.completedTodoCount) &&
+          typeof e.payload?.blockedTodoCount === "number" &&
+          Number.isFinite(e.payload.blockedTodoCount) &&
+          typeof e.payload?.totalTodos === "number" &&
+          Number.isFinite(e.payload.totalTodos)
+      )
+    );
   }
 });
 
@@ -100,7 +162,8 @@ test("Product Flow: DeepSearch pipeline error propagates and aborts orchestrator
   const { AgentOrchestrator } = await import("../../js/agents/runtime/orchestrator.js");
   const { registerDeepSearchStages } = await import("../../js/agents/stages/deepsearch/index.js");
 
-  const orch = new AgentOrchestrator({ mode: "deepsearch", scenario: "test" });
+  const aiApiService = createDeepSearchAiApiService();
+  const orch = new AgentOrchestrator({ mode: "deepsearch", scenario: "test", services: { aiApiService } });
   const events = [];
   orch.eventBus.on("*", (e) => events.push(e));
 
@@ -124,7 +187,11 @@ test("Product Flow: DeepSearch pipeline error propagates and aborts orchestrator
         o.runStage("deepsearch.pipeline", {
           sources: badSources,
           taskGoal: "Define Alpha and cite key numbers",
-          userConfig: { gaps: { blockAfterMisses: 1 }, retrieval: { topK: 2, windowSize: 0, useBm25: false, useGrep: true } },
+          userConfig: {
+            gaps: { blockAfterMisses: 1 },
+            retrieval: { topK: 2, windowSize: 0, useBm25: false, useGrep: true },
+            understanding: { strictMode: true },
+          },
         })
       ),
     (err) => {
@@ -137,4 +204,3 @@ test("Product Flow: DeepSearch pipeline error propagates and aborts orchestrator
   assert.ok(events.some((e) => e.name === "deepsearch.pipeline.failed"));
   assert.ok(events.some((e) => e.name === "run.failed"));
 });
-

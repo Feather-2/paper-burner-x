@@ -2,6 +2,38 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { setTimeout: delay } = require("node:timers/promises");
 
+function createDeepSearchAiApiService() {
+  return {
+    chat: async ({ messages, usage } = {}) => {
+      const system = String(messages?.[0]?.content || "");
+      const systemLower = system.toLowerCase();
+
+      if (usage === "planner" && (systemLower.includes("todo planner") || systemLower.includes("deepsearch todo"))) {
+        return {
+          content: JSON.stringify([
+            {
+              text: "Define Alpha",
+              priority: "high",
+              queryHints: ["Alpha", "definition"],
+              expectedEvidence: "definition",
+            },
+          ]),
+        };
+      }
+
+      if (usage === "writer") {
+        return {
+          content: JSON.stringify({
+            finish: { tool: "finishReport", params: { title: "Mock Report", summary: "Summary." } },
+          }),
+        };
+      }
+
+      return { content: "{}" };
+    },
+  };
+}
+
 test("mapConcurrent: enforces concurrency and preserves order", async () => {
   const { mapConcurrent } = await import("../../../js/agents/shared/concurrency.js");
 
@@ -1167,8 +1199,8 @@ test("DeepSearchState methods: reopenGaps, addNewGaps, saveWriteSnapshot", async
     assert.equal(g3.status, "open");
     assert.equal(g3.missCount, 9);
 
-    assert.equal(state.todos.find((t) => t.todoId === "todo_1").status, "open");
-    assert.equal(state.todos.find((t) => t.todoId === "todo_2").status, "open");
+    assert.equal(state.todos.find((t) => t.todoId === "todo_1").status, "completed");
+    assert.equal(state.todos.find((t) => t.todoId === "todo_2").status, "cancelled");
     assert.equal(state.todos.find((t) => t.todoId === "todo_3").status, "open");
     assert.deepEqual(
       updates
@@ -1311,13 +1343,17 @@ test("DeepSearchStage integration: userConfig.trajectory.n > 1 runs parallel and
   const emit = (name, record) => events.push({ name, record });
 
   const stage = new DeepSearchStage();
-  const pkg = await stage.execute({ runId: "run_traj_integration", mode: "deepsearch", constraints: {} }, { state }, { emit });
+  const aiApiService = createDeepSearchAiApiService();
+  const pkg = await stage.execute(
+    { runId: "run_traj_integration", mode: "deepsearch", constraints: {} },
+    { state },
+    { emit, aiApiService }
+  );
 
   assert.equal(pkg.mode, "deepsearch");
   assert.ok(Array.isArray(pkg.slideIntents) && pkg.slideIntents.length >= 4);
   assert.ok(Array.isArray(pkg.claims) && pkg.claims.length >= 1);
   assert.ok(Array.isArray(pkg.evidenceLedger) && pkg.evidenceLedger.length >= 1);
   assert.ok(state.trajectoryConfig && state.trajectoryConfig.n === 2);
-  assert.ok(events.some((e) => e.name === "deepsearch.trajectory.forked"));
-  assert.ok(events.some((e) => e.name === "deepsearch.trajectory.merged"));
+  assert.ok(events.some((e) => e.name === "deepsearch.agent.completed"));
 });

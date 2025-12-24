@@ -9,6 +9,140 @@ function clampProgress(progress) {
   return Math.max(0, Math.min(1, progress));
 }
 
+function deriveTodoIdFromGapId(gapId) {
+  if (!gapId) return "";
+  const raw = String(gapId);
+  const m = raw.match(/^gap_(\d+)$/);
+  if (m) return `todo_${m[1]}`;
+  return `todo_${raw}`;
+}
+
+function deriveGapIdFromTodoId(todoId) {
+  if (!todoId) return "";
+  const raw = String(todoId);
+  const m = raw.match(/^todo_(\d+)$/);
+  if (m) return `gap_${m[1]}`;
+  if (raw.startsWith("todo_")) return raw.slice(5);
+  return "";
+}
+
+function normalizeTodoAndGapRows(input) {
+  const rows = Array.isArray(input) ? input : [];
+  const todoRows = [];
+  const gapRows = [];
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+    if (toNonEmptyString(row.todoId)) todoRows.push(row);
+    if (toNonEmptyString(row.gapId)) gapRows.push(row);
+  }
+  return { todoRows, gapRows };
+}
+
+function resolveTodoStatusFromGapStatus(gapStatus) {
+  const s = String(gapStatus || "").toLowerCase();
+  if (s === "filled") return "completed";
+  if (s === "blocked") return "cancelled";
+  if (!s || s === "open" || s === "searching" || s === "understanding") return "open";
+  return "open";
+}
+
+function createTodoFromGap(gap) {
+  const gapId = toNonEmptyString(gap?.gapId);
+  const todoId = deriveTodoIdFromGapId(gapId);
+  const text = toNonEmptyString(gap?.question) || (gapId ? `Gap: ${gapId}` : "Research task");
+  const status = resolveTodoStatusFromGapStatus(gap?.status);
+  return {
+    todoId: todoId || `todo_${Date.now().toString(36)}`,
+    text,
+    priority: gap?.priority,
+    status,
+    relatedGapId: gapId || undefined,
+  };
+}
+
+function buildTodoLookups(todoRows, gapRows) {
+  const todoById = new Map();
+  const gapById = new Map();
+  const todoIdByGapId = new Map();
+
+  for (const g of Array.isArray(gapRows) ? gapRows : []) {
+    const gid = toNonEmptyString(g?.gapId);
+    if (!gid || gapById.has(gid)) continue;
+    gapById.set(gid, g);
+  }
+
+  for (const t of Array.isArray(todoRows) ? todoRows : []) {
+    const tid = toNonEmptyString(t?.todoId);
+    if (!tid || todoById.has(tid)) continue;
+    todoById.set(tid, t);
+    const gapId = toNonEmptyString(t?.relatedGapId) || toNonEmptyString(t?.gapId);
+    if (gapId && !todoIdByGapId.has(gapId)) todoIdByGapId.set(gapId, tid);
+  }
+
+  for (const g of gapById.values()) {
+    const gid = toNonEmptyString(g?.gapId);
+    if (!gid || todoIdByGapId.has(gid)) continue;
+    const fallback = createTodoFromGap(g);
+    if (!todoById.has(fallback.todoId)) todoById.set(fallback.todoId, fallback);
+    todoIdByGapId.set(gid, fallback.todoId);
+  }
+
+  return { todoById, gapById, todoIdByGapId };
+}
+
+function resolveTodoIdsForClaim(claim, todoIdByGapId) {
+  let todoIds = normalizeStringArray(claim?.todoIds);
+  if (!todoIds.length) {
+    const gapIds = normalizeStringArray(claim?.gapIds);
+    if (gapIds.length) {
+      todoIds = gapIds
+        .map((gid) => todoIdByGapId.get(gid) || deriveTodoIdFromGapId(gid))
+        .map((id) => String(id || "").trim())
+        .filter(Boolean);
+    }
+  }
+  return todoIds;
+}
+
+function summarizeTodoCompletion(todos) {
+  const rows = Array.isArray(todos) ? todos : [];
+  let completed = 0;
+  let cancelled = 0;
+  for (const t of rows) {
+    const status = toNonEmptyString(t?.status) || "open";
+    if (status === "completed") completed += 1;
+    if (status === "cancelled") cancelled += 1;
+  }
+  return { total: rows.length, completed, cancelled };
+}
+
+export function generatePlaceholderReport({ taskGoal, todos, completionReason } = {}) {
+  const title = toNonEmptyString(taskGoal) || "Research Report";
+  const reason = toNonEmptyString(completionReason) || "All todos completed.";
+  const stats = summarizeTodoCompletion(todos);
+  const lines = [
+    `# ${title}`,
+    "",
+    "_Report generation skipped because all todos are complete._",
+    "",
+    `Reason: ${reason}`,
+    "",
+    `Todo completion: total ${stats.total}, completed ${stats.completed}, cancelled ${stats.cancelled}.`,
+    "",
+  ];
+  const draftMarkdown = lines.join("\n");
+  return {
+    title,
+    draftMarkdown,
+    markdown: draftMarkdown,
+    sections: [],
+    citations: [],
+    isPlaceholder: true,
+    completionReason: reason,
+    todoCompletionStats: stats,
+  };
+}
+
 export function emitWriteProgress(emit, { current, total, step, msg, detail }) {
   emit?.(
     "deepsearch.write.progress",
@@ -41,23 +175,18 @@ export function finalizeReportKeepingCitations(report, evidenceLedger, sources) 
  * Generate a Markdown report from claims + evidence.
  * @param {Array<object>} claims
  * @param {Array<object>} evidenceLedger
- * @param {Array<object>} gaps
+ * @param {Array<object>} todos
  * @param {Array<object>} sources
  * @param {string} taskGoal
  * @returns {{markdown:string,sections:Array<object>,citations:Array<object>}}
  */
-export function generateReport(claims, evidenceLedger, gaps, sources, taskGoal) {
+export function generateReport(claims, evidenceLedger, todos, sources, taskGoal) {
   const claimRows = Array.isArray(claims) ? claims : [];
   const evidenceRows = Array.isArray(evidenceLedger) ? evidenceLedger : [];
-  const gapRows = Array.isArray(gaps) ? gaps : [];
+  const { todoRows, gapRows } = normalizeTodoAndGapRows(todos);
   const sourceRows = Array.isArray(sources) ? sources : [];
 
-  const gapById = new Map();
-  for (const g of gapRows) {
-    const gid = toNonEmptyString(g?.gapId);
-    if (!gid || gapById.has(gid)) continue;
-    gapById.set(gid, g);
-  }
+  const { todoById, gapById, todoIdByGapId } = buildTodoLookups(todoRows, gapRows);
 
   const sourceById = new Map();
   for (const s of sourceRows) {
@@ -73,48 +202,62 @@ export function generateReport(claims, evidenceLedger, gaps, sources, taskGoal) 
     evidenceById.set(eid, e);
   }
 
-  const claimsByGapId = new Map();
+  const claimsByTodoId = new Map();
   const uncategorized = [];
-  const referencedUnknownGapIds = new Set();
+  const referencedUnknownTodoIds = new Set();
 
   for (const c of claimRows) {
     if (!c) continue;
-    const gidList = normalizeStringArray(c?.gapIds);
-    if (!gidList.length) {
+    const todoIds = resolveTodoIdsForClaim(c, todoIdByGapId);
+    if (!todoIds.length) {
       uncategorized.push(c);
       continue;
     }
-    for (const gid of gidList) {
-      if (!claimsByGapId.has(gid)) claimsByGapId.set(gid, []);
-      claimsByGapId.get(gid).push(c);
-      if (!gapById.has(gid)) referencedUnknownGapIds.add(gid);
+    for (const tid of todoIds) {
+      if (!claimsByTodoId.has(tid)) claimsByTodoId.set(tid, []);
+      claimsByTodoId.get(tid).push(c);
+      if (!todoById.has(tid)) referencedUnknownTodoIds.add(tid);
     }
   }
 
-  const sectionGapIds = [];
-  for (const g of gapRows) {
-    const gid = toNonEmptyString(g?.gapId);
-    if (!gid) continue;
-    if (claimsByGapId.has(gid)) sectionGapIds.push(gid);
+  const sectionTodoIds = [];
+  for (const t of todoRows) {
+    const tid = toNonEmptyString(t?.todoId);
+    if (!tid) continue;
+    if (claimsByTodoId.has(tid)) sectionTodoIds.push(tid);
   }
-  for (const gid of referencedUnknownGapIds) sectionGapIds.push(gid);
+  for (const tid of referencedUnknownTodoIds) sectionTodoIds.push(tid);
 
   const sections = [];
   let secNo = 0;
 
-  for (const gid of sectionGapIds) {
+  for (const tid of sectionTodoIds) {
     secNo += 1;
-    const g = gapById.get(gid);
-    const title = toNonEmptyString(g?.question) || `Gap: ${String(gid)}`;
-    const rows = claimsByGapId.get(gid) || [];
+    const t = todoById.get(tid);
+    const relatedGapId =
+      toNonEmptyString(t?.relatedGapId) || toNonEmptyString(t?.gapId) || (!t ? deriveGapIdFromTodoId(tid) : "");
+    const g = relatedGapId ? gapById.get(relatedGapId) : null;
+    const title =
+      toNonEmptyString(t?.text) || toNonEmptyString(g?.question) || (relatedGapId ? `Gap: ${String(relatedGapId)}` : `Todo: ${String(tid)}`);
+    const rows = claimsByTodoId.get(tid) || [];
     const claimIds = rows.map((x) => toNonEmptyString(x?.claimId)).filter(Boolean);
-    sections.push({ sectionId: `sec_${secNo}`, gapId: String(gid), title, claimIds });
+    const completionStatus =
+      toNonEmptyString(t?.status) || (g ? resolveTodoStatusFromGapStatus(g?.status) : null) || undefined;
+    sections.push({
+      sectionId: `sec_${secNo}`,
+      todoId: String(tid),
+      todoIds: [String(tid)],
+      ...(relatedGapId ? { gapId: String(relatedGapId) } : {}),
+      title,
+      claimIds,
+      ...(completionStatus ? { completionStatus } : {}),
+    });
   }
 
   if (uncategorized.length) {
     secNo += 1;
     const claimIds = uncategorized.map((x) => toNonEmptyString(x?.claimId)).filter(Boolean);
-    sections.push({ sectionId: `sec_${secNo}`, gapId: null, title: "Other Findings", claimIds });
+    sections.push({ sectionId: `sec_${secNo}`, todoId: null, todoIds: [], gapId: null, title: "Other Findings", claimIds });
   }
 
   const cite = (evidenceId) => {
@@ -142,9 +285,9 @@ export function generateReport(claims, evidenceLedger, gaps, sources, taskGoal) 
     const sClaimIds = new Set(Array.isArray(s.claimIds) ? s.claimIds : []);
 
     const rows =
-      s.gapId === null
+      s.todoId === null
         ? uncategorized
-        : (claimsByGapId.get(String(s.gapId)) || []).filter((c) => sClaimIds.has(String(c?.claimId || "")));
+        : (claimsByTodoId.get(String(s.todoId)) || []).filter((c) => sClaimIds.has(String(c?.claimId || "")));
 
     for (const c of rows) {
       const text = toNonEmptyString(c?.text) || "";
@@ -170,7 +313,7 @@ export function generateReport(claims, evidenceLedger, gaps, sources, taskGoal) 
 function buildReportTocPrompt({ taskGoal, targetWords, reportLength, sectionHints, claimRows }) {
   const claimPreview = (Array.isArray(claimRows) ? claimRows : [])
     .slice(0, 32)
-    .map((c) => ({ claimId: c?.claimId, text: c?.text, gapIds: c?.gapIds, evidenceIds: c?.evidenceIds }));
+    .map((c) => ({ claimId: c?.claimId, text: c?.text, todoIds: c?.todoIds, gapIds: c?.gapIds, evidenceIds: c?.evidenceIds }));
 
   return [
     {
@@ -201,6 +344,7 @@ function buildSingleReportPrompt({ taskGoal, targetWords, minWords, maxWords, re
   const claimPreview = (Array.isArray(claims) ? claims : []).slice(0, 48).map((c) => ({
     claimId: c?.claimId,
     text: c?.text,
+    todoIds: c?.todoIds,
     gapIds: c?.gapIds,
     evidenceIds: c?.evidenceIds,
   }));
@@ -249,6 +393,7 @@ function buildSectionPrompt({ taskGoal, sectionPlan, sectionIndex, sectionCount,
   const claimPreview = (Array.isArray(claims) ? claims : []).slice(0, 40).map((c) => ({
     claimId: c?.claimId,
     text: c?.text,
+    todoIds: c?.todoIds,
     evidenceIds: c?.evidenceIds,
   }));
   const evidencePreview = (Array.isArray(evidenceLedger) ? evidenceLedger : []).slice(0, 64).map((e) => ({
@@ -341,11 +486,12 @@ function allocateSectionTargets(sections, targetWords) {
   });
 }
 
-export async function generateReportSingleWithLLM(state, { claims, evidenceLedger, gaps, sources, config }, stageApi) {
+export async function generateReportSingleWithLLM(state, { claims, evidenceLedger, todos, gaps, sources, config }, stageApi) {
   const callModel = getModelCaller(stageApi, { usage: "writer", state });
   if (!callModel) return null;
 
-  const skeleton = generateReport(claims, evidenceLedger, gaps, sources, String(state?.taskGoal || ""));
+  const todoInput = Array.isArray(todos) && todos.length ? todos : gaps;
+  const skeleton = generateReport(claims, evidenceLedger, todoInput, sources, String(state?.taskGoal || ""));
   const messages = buildSingleReportPrompt({
     taskGoal: String(state?.taskGoal || ""),
     targetWords: config.targetWords,
@@ -379,17 +525,29 @@ export async function generateReportSingleWithLLM(state, { claims, evidenceLedge
   return { draftMarkdown, markdown: finalized.markdown, sections: skeleton.sections, citations: finalized.citations };
 }
 
-export async function generateReportTocBasedWithLLM(state, { claims, evidenceLedger, gaps, sources, config }, stageApi, emit) {
+export async function generateReportTocBasedWithLLM(state, { claims, evidenceLedger, todos, gaps, sources, config }, stageApi, emit) {
   const callModel = getModelCaller(stageApi, { usage: "writer", state });
   if (!callModel) return null;
 
   const claimRows = Array.isArray(claims) ? claims : [];
   const allClaimIds = claimRows.map((c) => toNonEmptyString(c?.claimId)).filter(Boolean);
-  const skeleton = generateReport(claims, evidenceLedger, gaps, sources, String(state?.taskGoal || ""));
+  const todoInput = Array.isArray(todos) && todos.length ? todos : gaps;
+  const { todoRows, gapRows } = normalizeTodoAndGapRows(todoInput);
+  const { todoById, todoIdByGapId } = buildTodoLookups(todoRows, gapRows);
+  const skeleton = generateReport(claims, evidenceLedger, todoInput, sources, String(state?.taskGoal || ""));
+  const claimTodoIdsById = new Map();
+  for (const c of claimRows) {
+    const cid = toNonEmptyString(c?.claimId);
+    if (!cid) continue;
+    const resolved = resolveTodoIdsForClaim(c, todoIdByGapId);
+    if (resolved.length) claimTodoIdsById.set(cid, resolved);
+  }
   const sectionHints = (Array.isArray(skeleton.sections) ? skeleton.sections : []).map((s) => ({
     sectionId: s.sectionId,
     title: s.title,
     claimIds: s.claimIds,
+    todoId: s.todoId ?? null,
+    todoIds: Array.isArray(s.todoIds) ? s.todoIds : s.todoId ? [s.todoId] : [],
   }));
 
   emitWriteProgress(emit, { current: 0, total: 2 + Math.max(1, sectionHints.length), step: "report_toc", msg: "正在规划报告目录" });
@@ -522,12 +680,22 @@ export async function generateReportTocBasedWithLLM(state, { claims, evidenceLed
       detail: doneDetail,
     });
 
+    const sectionTodoIds = Array.from(
+      new Set(mergedClaimIds.flatMap((cid) => claimTodoIdsById.get(String(cid)) || []).filter(Boolean))
+    );
+    const sectionTodoId = sectionTodoIds.length === 1 ? sectionTodoIds[0] : null;
+    const relatedGapId = sectionTodoId ? toNonEmptyString(todoById.get(sectionTodoId)?.relatedGapId) : null;
+    const completionStatus = sectionTodoId ? toNonEmptyString(todoById.get(sectionTodoId)?.status) : null;
+
     return {
       sectionId: String(plan.sectionId || `sec_${i + 1}`),
-      gapId: null,
+      ...(sectionTodoId ? { todoId: sectionTodoId } : {}),
+      ...(sectionTodoIds.length ? { todoIds: sectionTodoIds } : {}),
+      ...(relatedGapId ? { gapId: relatedGapId } : {}),
       title: sectionTitle,
       claimIds: mergedClaimIds,
       content,
+      ...(completionStatus ? { completionStatus } : {}),
     };
   });
 

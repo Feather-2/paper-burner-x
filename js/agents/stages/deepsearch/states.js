@@ -78,6 +78,22 @@ export const TodoStatus = Object.freeze({
   CANCELLED: "cancelled",
 });
 
+export const TODO_TRANSITIONS = Object.freeze({
+  [TodoStatus.OPEN]: [TodoStatus.PENDING, TodoStatus.COMPLETED, TodoStatus.CANCELLED],
+  [TodoStatus.PENDING]: [TodoStatus.OPEN, TodoStatus.COMPLETED, TodoStatus.CANCELLED],
+  [TodoStatus.COMPLETED]: [TodoStatus.OPEN],
+  [TodoStatus.CANCELLED]: [TodoStatus.OPEN],
+});
+
+export const todoMachine = createStateMachine(TODO_TRANSITIONS, "Todo");
+
+registry.register("deepsearch.todo", todoMachine, {
+  module: "deepsearch",
+  description: "DeepSearch todo lifecycle",
+  states: Object.values(TodoStatus),
+  transitions: TODO_TRANSITIONS,
+});
+
 // === PlanNode 状态 ===
 export const PlanNodeStatus = Object.freeze({
   PENDING: "pending",
@@ -133,6 +149,10 @@ export function isValidGapStatus(value) {
   return Object.values(GapStatus).includes(value);
 }
 
+export function isValidTodoStatus(value) {
+  return Object.values(TodoStatus).includes(value);
+}
+
 export function isValidPlanNodeStatus(value) {
   return Object.values(PlanNodeStatus).includes(value);
 }
@@ -147,6 +167,10 @@ export function isValidDecisionOutcome(value) {
 
 export function isValidDecisionStage(value) {
   return Object.values(DecisionStage).includes(value);
+}
+
+export function transitionTodo(todo, to, context = {}) {
+  return todoMachine.transition(todo, to, context);
 }
 
 // isValidAgentLoopStatus re-exported from runtime/agent-loop-status.js

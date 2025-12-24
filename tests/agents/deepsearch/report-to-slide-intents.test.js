@@ -19,8 +19,8 @@ test("deriveSlideIntentsFromReport: basic conversion + per-slide citations", asy
   const report = {
     title: "My Report",
     sections: [
-      { sectionId: "sec_1", title: "Background", gapId: "g1", claimIds: ["c1"], content: "- Finding A {{cite:e1}}\n- Finding B" },
-      { sectionId: "sec_2", title: "Method", gapId: "g2", claimIds: ["c2"], content: "- Method detail (no cites)" },
+      { sectionId: "sec_1", title: "Background", todoId: "todo_1", gapId: "g1", claimIds: ["c1"], content: "- Finding A {{cite:e1}}\n- Finding B" },
+      { sectionId: "sec_2", title: "Method", todoId: "todo_2", gapId: "g2", claimIds: ["c2"], content: "- Method detail (no cites)" },
     ],
     citations: [
       { citationId: 1, evidenceId: "e1", sourceId: "s1", sourceTitle: "Source 1", quote: "Alpha" },
@@ -40,6 +40,8 @@ test("deriveSlideIntentsFromReport: basic conversion + per-slide citations", asy
   const contents = contentSlides(out);
   assert.equal(contents.length, 2);
   assert.equal(contents[0].title, "Background");
+  assert.equal(contents[0].todoId, "todo_1");
+  assert.deepEqual(contents[0].todoIds, ["todo_1"]);
   assert.equal(contents[0].gapId, "g1");
   assert.deepEqual(contents[0].sectionIds, ["sec_1"]);
   assert.deepEqual(contents[0].claimIds, ["c1"]);
@@ -49,6 +51,8 @@ test("deriveSlideIntentsFromReport: basic conversion + per-slide citations", asy
   assert.equal(contents[0].citations[0].evidenceId, "e1");
 
   assert.equal(contents[1].title, "Method");
+  assert.equal(contents[1].todoId, "todo_2");
+  assert.deepEqual(contents[1].todoIds, ["todo_2"]);
   assert.equal(contents[1].gapId, "g2");
   assert.deepEqual(contents[1].sectionIds, ["sec_2"]);
   assert.deepEqual(contents[1].claimIds, ["c2"]);
@@ -159,4 +163,3 @@ test("deriveSlideIntentsFromReport: keepClaimIds/keepContentString options trim 
   assert.equal("claimIds" in out[1], false);
   assert.equal("content" in out[1], false);
 });
-

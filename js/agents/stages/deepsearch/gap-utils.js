@@ -1,6 +1,6 @@
 import { isPlainObject, safeInt, toNonEmptyString } from "../../shared/value-utils.js";
 import { GAP_CONFIG } from "./constants.js";
-import { DeepSearchEvents } from "./events.js";
+import { DeepSearchEvents } from "../../runtime/events.js";
 import { GapStatus, gapMachine } from "./states.js";
 
 export { GapStatus, gapMachine };

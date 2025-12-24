@@ -5,6 +5,7 @@
 
 import { WorkflowState, transitionWorkflow, forceWorkflowState } from './workflow-states.js';
 import { WorkflowTodoStatus } from '../../agents/runtime/constants.js';
+import { StagePausedError } from '../../agents/runtime/stage-errors.js';
 import { RunStoreAdapter } from '../../agents/runtime/event-bus.js';
 import { subscribeTelemetry } from '../../agents/runtime/runstore-telemetry.js';
 import { RunReplayController } from '../../agents/runtime/replay-controller.js';
@@ -224,6 +225,8 @@ export const runtimeMixin = {
             'deepsearch.started': '开始深度分析流程',
             'deepsearch.scan.started': '正在扫描文档结构',
             'deepsearch.scan.completed': '文档扫描完成',
+            'deepsearch.todos.started': '正在生成研究待办',
+            'deepsearch.todos.completed': `生成了 ${normalizedPayload?.todoCount || 0} 条研究待办`,
             'deepsearch.gaps.started': '正在识别知识空白',
             'deepsearch.gaps.completed': `识别了 ${normalizedPayload?.totalGaps || 0} 个研究问题`,
             'deepsearch.retrieve.started': '正在检索相关内容',
@@ -288,6 +291,8 @@ export const runtimeMixin = {
             text,
             details:
                 compressionDetails ? compressionDetails :
+                normalizedPayload?.todoCount ? { todos: normalizedPayload.todoCount } :
+                normalizedPayload?.totalTodos ? { todos: normalizedPayload.totalTodos } :
                 normalizedPayload?.totalGaps ? { gaps: normalizedPayload.totalGaps } :
                 normalizedPayload?.iteration !== undefined ? { iteration: normalizedPayload.iteration + 1 } :
                 phaseLabel ? { phase: phaseLabel } :
@@ -957,6 +962,10 @@ export const runtimeMixin = {
             const viz = this.workflowData.deepsearchViz;
             const completed = typeof payload.iteration === 'number' ? payload.iteration : null;
             if (completed !== null) viz.lastCompletedIteration = completed;
+            if (typeof payload.openTodoCount === 'number') viz.openTodoCount = payload.openTodoCount;
+            if (typeof payload.completedTodoCount === 'number') viz.completedTodoCount = payload.completedTodoCount;
+            if (typeof payload.blockedTodoCount === 'number') viz.blockedTodoCount = payload.blockedTodoCount;
+            if (typeof payload.totalTodos === 'number') viz.totalTodos = payload.totalTodos;
             if (typeof payload.openGapCount === 'number') viz.openGapCount = payload.openGapCount;
             if (typeof payload.iteration === 'number') viz.iteration = payload.iteration + 1;
             viz.updatedAt = Date.now();
@@ -981,10 +990,19 @@ export const runtimeMixin = {
             this._scheduleVizRerender();
         });
 
+        registry.register('deepsearch.todos.completed', (eventName, payload) => {
+            this._ensureDeepSearchViz();
+            if (typeof payload.todoCount === 'number') this.workflowData.deepsearchViz.totalTodos = payload.todoCount;
+            this.workflowData.deepsearchViz.updatedAt = Date.now();
+            if (this._deepsearchState) this._syncDeepSearchVizFromState(this._deepsearchState);
+            this._scheduleVizRerender();
+        });
+
         registry.register('deepsearch.gaps.completed', (eventName, payload) => {
             this._ensureDeepSearchViz();
             if (typeof payload.gapCount === 'number') this.workflowData.deepsearchViz.openGapCount = payload.gapCount;
             if (typeof payload.totalGaps === 'number') this.workflowData.deepsearchViz.totalGaps = payload.totalGaps;
+            if (typeof payload.todoCount === 'number') this.workflowData.deepsearchViz.totalTodos = payload.todoCount;
             this.workflowData.deepsearchViz.updatedAt = Date.now();
             if (this._deepsearchState) this._syncDeepSearchVizFromState(this._deepsearchState);
             this._scheduleVizRerender();
@@ -1087,6 +1105,33 @@ export const runtimeMixin = {
             this._scheduleVizRerender();
         });
 
+        registry.register('deepsearch.todo.created', (eventName, payload) => {
+            this._ensureDeepSearchViz();
+            if (payload?.todoId) {
+                this._upsertDeepSearchVizTodo({
+                    todoId: payload.todoId,
+                    text: payload.text,
+                    status: payload.status,
+                    priority: payload.priority,
+                    source: payload.source,
+                });
+                this.workflowData.deepsearchViz.updatedAt = Date.now();
+                this._scheduleVizRerender();
+            }
+        });
+
+        registry.register('deepsearch.todo.status.changed', (eventName, payload) => {
+            this._ensureDeepSearchViz();
+            if (payload?.todoId) {
+                this._upsertDeepSearchVizTodo({
+                    todoId: payload.todoId,
+                    status: payload.to,
+                });
+                this.workflowData.deepsearchViz.updatedAt = Date.now();
+                this._scheduleVizRerender();
+            }
+        });
+
         // 追踪阶段变化 + 进度日志
         registry.register('*.progress', (eventName, payload) => {
             if (payload.phase) {
@@ -1127,8 +1172,9 @@ export const runtimeMixin = {
             const agent =
                 payload.agent ||
                 (payload.phase === 'scan' ? 'AI 研究' :
-                    payload.phase === 'gaps' ? 'AI 分析' :
-                        payload.phase === 'retrieve' ? 'AI 搜索' :
+                    payload.phase === 'todos' ? 'AI 规划' :
+                        payload.phase === 'gaps' ? 'AI 分析' :
+                            payload.phase === 'retrieve' ? 'AI 搜索' :
                             payload.phase === 'understand' ? 'AI 提取' :
                                 payload.phase === 'write' ? 'AI 写作' :
                                     (actor === 'ingest' ? 'AI 阅读' :
@@ -1422,11 +1468,27 @@ export const runtimeMixin = {
                         ...this.workflowData?.userConfig,
                     };
 
-                    const contentPackage = await agentLoop.execute(
-                        { runId: ctx?.runId || this._currentRunId, mode: 'deepsearch' },
-                        { sources, taskGoal, userConfig },
-                        stageApi
-                    );
+                    let contentPackage;
+                    try {
+                        contentPackage = await agentLoop.execute(
+                            { runId: ctx?.runId || this._currentRunId, mode: 'deepsearch' },
+                            { sources, taskGoal, userConfig },
+                            stageApi
+                        );
+                    } catch (err) {
+                        if (err instanceof StagePausedError) {
+                            const reason = err.reason || 'Awaiting user input';
+                            api.progress?.({ agent: 'AI 分析', msg: `深度搜索已暂停：${reason}`, type: 'warning' });
+                            this.workflowData.deepsearchPaused = {
+                                reason,
+                                checkpointId: err.checkpointId,
+                                pausedAt: Date.now(),
+                            };
+                            this._deepsearchState = agentLoop._state;
+                            return { paused: true, reason, checkpointId: err.checkpointId };
+                        }
+                        throw err;
+                    }
 
                     // 保存结果
                     this.workflowData.contentPackage = contentPackage;

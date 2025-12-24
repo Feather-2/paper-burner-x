@@ -1,6 +1,7 @@
 import { isPlainObject, safeInt, toNonEmptyString } from "../../shared/value-utils.js";
 import { CheckpointMode } from "./constants.js";
 import { ensureTokenUsage } from "./state-utils.js";
+import { migratGapToTodo } from "./todo-utils.js";
 
 export const CHECKPOINT_SCHEMA_VERSION = "1.0";
 
@@ -107,6 +108,10 @@ export function buildLiteSnapshot(state) {
   const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
   const claims = Array.isArray(state?.L1?.claims) ? state.L1.claims : [];
 
+  const awaitUserFeedback = typeof state?.L2?.awaitUserFeedback === "boolean" ? state.L2.awaitUserFeedback : false;
+  const taskImpossible = typeof state?.L2?.taskImpossible === "boolean" ? state.L2.taskImpossible : false;
+  const reason = toNonEmptyString(state?.L2?.reason) || "";
+
   return {
     snapshotStrategy: CheckpointMode.LITE,
     schemaVersion: state.schemaVersion,
@@ -137,6 +142,9 @@ export function buildLiteSnapshot(state) {
       retrievedChunkIds,
       tokenUsage: cloneValue(ensureTokenUsage(state?.L2?.tokenUsage)),
       incomplete: true,
+      awaitUserFeedback,
+      taskImpossible,
+      reason,
     },
     todos: cloneValue(state.todos),
     timeline: cloneValue(state.timeline),
@@ -146,12 +154,18 @@ export function buildLiteSnapshot(state) {
 export function buildMinimalSnapshot(state) {
   const lite = buildLiteSnapshot(state);
   const tokenUsage = ensureTokenUsage(state?.L2?.tokenUsage);
+  const awaitUserFeedback = typeof state?.L2?.awaitUserFeedback === "boolean" ? state.L2.awaitUserFeedback : false;
+  const taskImpossible = typeof state?.L2?.taskImpossible === "boolean" ? state.L2.taskImpossible : false;
+  const reason = toNonEmptyString(state?.L2?.reason) || "";
   return {
     ...lite,
     snapshotStrategy: CheckpointMode.MINIMAL,
     L2: {
       tokenUsage: cloneValue(tokenUsage),
       incomplete: true,
+      awaitUserFeedback,
+      taskImpossible,
+      reason,
     },
   };
 }
@@ -163,11 +177,47 @@ const CHECKPOINT_MIGRATIONS = Object.freeze({
   "0.0": (checkpoint) => ({ ...checkpoint, schemaVersion: CHECKPOINT_SCHEMA_VERSION }),
 });
 
+function ensureCheckpointTodos(snapshot) {
+  if (!snapshot) return snapshot;
+  const existing = Array.isArray(snapshot.todos) ? snapshot.todos : null;
+  if (existing && existing.length) return snapshot;
+
+  const gaps = Array.isArray(snapshot?.L1?.gaps) ? snapshot.L1.gaps : [];
+  if (!gaps.length) {
+    snapshot.todos = existing || [];
+    return snapshot;
+  }
+
+  const todos = [];
+  for (const gap of gaps) {
+    const migrated = migratGapToTodo(gap);
+    if (migrated) todos.push(migrated);
+  }
+  snapshot.todos = todos;
+  return snapshot;
+}
+
+function ensureCheckpointL2Flags(snapshot) {
+  if (!snapshot) return snapshot;
+  const rawL2 = isPlainObject(snapshot?.L2) ? snapshot.L2 : {};
+  const awaitUserFeedback = typeof rawL2.awaitUserFeedback === "boolean" ? rawL2.awaitUserFeedback : false;
+  const taskImpossible = typeof rawL2.taskImpossible === "boolean" ? rawL2.taskImpossible : false;
+  const reason = toNonEmptyString(rawL2.reason) || "";
+  snapshot.L2 = { ...rawL2, awaitUserFeedback, taskImpossible, reason };
+  return snapshot;
+}
+
 export function loadCheckpoint(checkpoint) {
   if (!isPlainObject(checkpoint)) throw new TypeError("loadCheckpoint(checkpoint): checkpoint must be an object");
 
   const version = toNonEmptyString(checkpoint?.schemaVersion) || "0.0";
-  if (version === CHECKPOINT_SCHEMA_VERSION) return checkpoint;
+  if (version === CHECKPOINT_SCHEMA_VERSION) {
+    if (checkpoint?.stateSnapshot && typeof checkpoint.stateSnapshot === "object") {
+      ensureCheckpointTodos(checkpoint.stateSnapshot);
+      ensureCheckpointL2Flags(checkpoint.stateSnapshot);
+    }
+    return checkpoint;
+  }
 
   const snapshotDescriptor = Object.getOwnPropertyDescriptor(checkpoint, "stateSnapshot");
 
@@ -177,6 +227,10 @@ export function loadCheckpoint(checkpoint) {
     if (!isPlainObject(migrated)) throw new TypeError(`Checkpoint migration ${version} -> ${CHECKPOINT_SCHEMA_VERSION} must return an object`);
 
     migrated.schemaVersion = CHECKPOINT_SCHEMA_VERSION;
+    if (migrated?.stateSnapshot && typeof migrated.stateSnapshot === "object") {
+      ensureCheckpointTodos(migrated.stateSnapshot);
+      ensureCheckpointL2Flags(migrated.stateSnapshot);
+    }
     if (snapshotDescriptor && !Object.getOwnPropertyDescriptor(migrated, "stateSnapshot")) {
       try {
         Object.defineProperty(migrated, "stateSnapshot", snapshotDescriptor);

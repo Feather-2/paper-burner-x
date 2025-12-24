@@ -25,10 +25,11 @@
             <div class="ppt-question-form">
                 <div class="form-header">
                     <h3><iconify-icon icon="carbon:search"></iconify-icon> DeepSearch 结果审阅</h3>
-                    <p>查看 gaps 覆盖情况与迭代进度；可继续下一轮或进入脚本编辑。</p>
+                    <p>查看 todos 覆盖情况与迭代进度；可继续下一轮或进入脚本编辑。</p>
                 </div>
                 <div class="form-body custom-scrollbar">
                     ${this._renderDeepSearchVisualization({ compact: false })}
+                    ${this._renderDeepSearchTodos()}
 
                     <div style="margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--ppt-border);">
                         <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
@@ -47,6 +48,70 @@
                         进入脚本编辑 <iconify-icon icon="carbon:arrow-right"></iconify-icon>
                     </button>
                 </div>
+            </div>
+        `;
+    },
+
+    _getDeepSearchTodos() {
+        const pkgTodos = Array.isArray(this.workflowData?.contentPackage?.todos)
+            ? this.workflowData.contentPackage.todos
+            : [];
+        const vizTodos = Array.isArray(this.workflowData?.deepsearchViz?.todos)
+            ? this.workflowData.deepsearchViz.todos
+            : [];
+        const fallback = Array.isArray(this.workflowData?.todos) ? this.workflowData.todos : [];
+
+        if (pkgTodos.length) return pkgTodos;
+        if (vizTodos.length) return vizTodos;
+        return fallback;
+    },
+
+    _renderDeepSearchTodos() {
+        const todos = this._getDeepSearchTodos();
+        const total = todos.length;
+
+        const statusMeta = (status) => {
+            const raw = String(status || 'open').toLowerCase();
+            if (raw === 'completed') return { label: '已完成', color: '#16a34a', bg: 'rgba(22,163,74,0.12)' };
+            if (raw === 'cancelled') return { label: '已取消', color: '#dc2626', bg: 'rgba(220,38,38,0.12)' };
+            if (raw === 'pending') return { label: '进行中', color: '#2563eb', bg: 'rgba(37,99,235,0.12)' };
+            return { label: '待处理', color: '#0f172a', bg: 'rgba(15,23,42,0.08)' };
+        };
+
+        const priorityMeta = (priority) => {
+            const raw = String(priority || 'medium').toLowerCase();
+            if (raw === 'high') return { label: '高优先', color: '#b91c1c', bg: 'rgba(185,28,28,0.12)' };
+            if (raw === 'low') return { label: '低优先', color: '#0f172a', bg: 'rgba(15,23,42,0.08)' };
+            return { label: '中优先', color: '#7c3aed', bg: 'rgba(124,58,237,0.12)' };
+        };
+
+        const rows = (Array.isArray(todos) ? todos : []).slice(0, 12).map((todo) => {
+            const text = this._escapeHtml(todo?.text || todo?.question || todo?.title || 'Untitled');
+            const hints = Array.isArray(todo?.queryHints) ? todo.queryHints.filter(Boolean).slice(0, 4) : [];
+            const status = statusMeta(todo?.status);
+            const priority = priorityMeta(todo?.priority);
+            const metaLine = hints.length ? `提示：${this._escapeHtml(hints.join(' · '))}` : '';
+            return `
+                <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:10px 12px; border:1px solid var(--ppt-border); border-radius:10px; background:var(--ppt-panel-bg);">
+                    <div style="flex:1; min-width:0;">
+                        <div style="font-weight:600; color:var(--ppt-text);">${text}</div>
+                        ${metaLine ? `<div style="margin-top:4px; font-size:12px; color:var(--ppt-text-secondary);">${metaLine}</div>` : ''}
+                    </div>
+                    <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px; white-space:nowrap;">
+                        <span style="padding:2px 8px; border-radius:999px; font-size:12px; color:${status.color}; background:${status.bg};">${status.label}</span>
+                        <span style="padding:2px 8px; border-radius:999px; font-size:12px; color:${priority.color}; background:${priority.bg};">${priority.label}</span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        return `
+            <div style="margin-top: 14px; padding: 12px; border: 1px solid var(--ppt-border); border-radius: 12px; background: var(--ppt-panel-bg);">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px;">
+                    <div style="font-weight:650; color: var(--ppt-text);">研究待办</div>
+                    <div style="font-size:12px; color: var(--ppt-text-secondary);">共 ${total} 条</div>
+                </div>
+                ${rows || '<div style="font-size:12px; color: var(--ppt-text-secondary);">暂无待办</div>'}
             </div>
         `;
     },
@@ -185,6 +250,7 @@
                 const phase = rawName.split('.')[1] || '';
                 const labels = {
                     scan: '扫描',
+                    todos: '待办',
                     gaps: '缺口',
                     retrieve: '检索',
                     understand: '理解',
@@ -318,6 +384,9 @@
         if (event.name?.includes('scan')) {
             sub.textContent = '正在扫描文档...';
             badge.innerHTML = '<iconify-icon icon="solar:scanner-outline"></iconify-icon>';
+        } else if (event.name?.includes('todos')) {
+            sub.textContent = '正在生成研究待办...';
+            badge.innerHTML = '<iconify-icon icon="solar:list-check-outline"></iconify-icon>';
         } else if (event.name?.includes('gaps')) {
             sub.textContent = '正在分析知识空白...';
             badge.innerHTML = '<iconify-icon icon="solar:atom-outline"></iconify-icon>';

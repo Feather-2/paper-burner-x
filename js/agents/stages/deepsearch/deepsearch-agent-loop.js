@@ -23,6 +23,9 @@ import { Archive, MapAdapter } from "../../shared/archive.js";
 import { CheckpointType, createCheckpoint, migrateCheckpoint } from "../../shared/checkpoint-schema.js";
 import { SharedContext } from "./shared-context.js";
 import { mapConcurrent } from "../../shared/concurrency.js";
+import { BacktrackManager } from "./backtrack-manager.js";
+import { observe, think, AgentDecision } from "./step-runner.js";
+import { BudgetAction, createBudgetManager } from "./budget.js";
 
 /**
  * Agent 可用能力定义
@@ -52,17 +55,8 @@ export const AgentCapabilities = Object.freeze({
   MERGE_RESULTS: "merge_results",         // 合并结果
 });
 
-/**
- * Agent 决策类型
- */
-export const AgentDecision = Object.freeze({
-  CONTINUE: "continue",     // 继续当前动作
-  RETRY: "retry",           // 重试当前动作
-  BACKTRACK: "backtrack",   // 回溯到之前状态
-  REPLAN: "replan",         // 重新规划
-  COMPLETE: "complete",     // 完成
-  ABORT: "abort",           // 中止
-});
+// AgentDecision 从 step-runner.js 导入
+export { AgentDecision } from "./step-runner.js";
 
 /**
  * 思考模式
@@ -84,14 +78,15 @@ const REACT_THINK_PROMPT = `你是一个文档分析 Agent，正在执行深度�
 - 来源文档数: {sourceCount}
 - 已提取论点: {claimCount}
 - 已收集证据: {evidenceCount}
-- 开放缺口数: {openGapCount}
-- 已填充缺口: {filledGapCount}
+- 待办事项: {openTodoCount}
+- 已完成待办: {completedTodoCount}
+- 已阻塞待办: {blockedTodoCount}
 - 是否有报告: {hasReport}
 - 是否大文档: {isLargeDoc}
 - 是否子代理: {isSubAgent}
 
 ## 可用动作
-1. scan_and_identify_gaps - 扫描文档，识别知识缺口
+1. scan_and_identify_gaps - 扫描文档，生成研究待办
 2. retrieve_and_extract - 检索相关内容，提取论点和证据
 3. generate_report - 生成最终报告
 4. fork_subagents - 分叉子代理处理大文档
@@ -158,54 +153,6 @@ function evidenceContentKey(evidence) {
   return `${sourceId}::${quote}`;
 }
 
-/**
- * Agent 观察结果
- */
-function observe(state) {
-  const sources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
-  const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
-  const claims = Array.isArray(state?.L1?.claims) ? state.L1.claims : [];
-  const evidenceLedger = Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger : [];
-  const report = state?.L1?.report;
-
-  const openGaps = gaps.filter(g => g?.status === "open" || !g?.status);
-  const filledGaps = gaps.filter(g => g?.status === "filled");
-
-  // 计算文档总 token 数
-  const totalChars = sources.reduce((sum, s) => sum + (s?.sourceTextNormalized?.length || 0), 0);
-  const estimatedTokens = Math.ceil(totalChars / 2);
-
-  return {
-    // 文档状态
-    sourceCount: sources.length,
-    totalChars,
-    estimatedTokens,
-    isLargeDoc: estimatedTokens > SMALL_DOC_TOKEN_THRESHOLD,
-
-    // 缺口状态
-    totalGaps: gaps.length,
-    openGapCount: openGaps.length,
-    filledGapCount: filledGaps.length,
-    openGaps,
-
-    // 内容状态
-    claimCount: claims.length,
-    evidenceCount: evidenceLedger.length,
-    hasReport: !!report,
-
-    // 迭代状态
-    iteration: state?.iteration || 0,
-    maxIterations: state?.maxIterations || 5,
-
-    // 原始引用
-    sources,
-    gaps,
-    claims,
-    evidenceLedger,
-    report,
-  };
-}
-
 function decorateEventRecord(record, meta) {
   if (!record || typeof record !== "object") return record;
   const base = { ...record };
@@ -228,9 +175,63 @@ function wrapEventBus(eventBus, meta) {
   };
 }
 
-function getOpenGapCount(state) {
+function getTodoStats(state) {
+  const todos = Array.isArray(state?.todos) ? state.todos : [];
   const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
-  return gaps.filter(g => g?.status === "open" || !g?.status).length;
+  const useTodos = todos.length > 0;
+  const items = useTodos ? todos : gaps;
+  const statusOf = (item) => {
+    const raw = String(item?.status || "open").toLowerCase();
+    if (useTodos) {
+      if (raw === "completed") return "completed";
+      if (raw === "cancelled") return "blocked";
+      if (raw === "pending") return "open";
+      return "open";
+    }
+    if (raw === "filled") return "completed";
+    if (raw === "blocked") return "blocked";
+    if (raw === "searching" || raw === "understanding") return "open";
+    return "open";
+  };
+
+  const openTodos = items.filter((t) => statusOf(t) === "open");
+  const completedTodos = items.filter((t) => statusOf(t) === "completed");
+  const blockedTodos = items.filter((t) => statusOf(t) === "blocked");
+  const openGaps = gaps.filter((g) => g?.status === "open" || !g?.status);
+  const filledGaps = gaps.filter((g) => g?.status === "filled");
+  const totalGaps = gaps.length || items.length;
+  const openGapCount = gaps.length ? openGaps.length : openTodos.length;
+  const filledGapCount = gaps.length ? filledGaps.length : completedTodos.length;
+
+  return {
+    totalTodos: items.length,
+    openTodoCount: openTodos.length,
+    completedTodoCount: completedTodos.length,
+    blockedTodoCount: blockedTodos.length,
+    openTodos,
+    completedTodos,
+    blockedTodos,
+    totalGaps,
+    openGapCount,
+    filledGapCount,
+  };
+}
+
+function resolveL2Guard(state) {
+  const l2 = isPlainObject(state?.L2) ? state.L2 : {};
+  if (l2.awaitUserFeedback) {
+    return {
+      action: "pause",
+      reason: toNonEmptyString(l2.reason) || "Awaiting user feedback.",
+    };
+  }
+  if (l2.taskImpossible) {
+    return {
+      action: "complete",
+      reason: toNonEmptyString(l2.reason) || "Task marked impossible.",
+    };
+  }
+  return null;
 }
 
 function wrapEmit(emit, meta) {
@@ -253,56 +254,6 @@ function buildSubAgentSummaryKey(parentRunId, subIndex) {
   const parent = toNonEmptyString(parentRunId) || "run";
   const indexLabel = Number.isFinite(subIndex) ? String(subIndex) : "x";
   return `deepsearch_sub_${parent}_${indexLabel}`;
-}
-
-/**
- * Agent 思考：决定下一步动作
- */
-function think(observation, context = {}) {
-  const { openGapCount, hasReport, iteration, maxIterations, isLargeDoc, claimCount, evidenceCount } = observation;
-  const { budgetExhausted, aborted } = context;
-  const subagentsForked = Boolean(context?.subagentsForked);
-
-  // 中止条件
-  if (aborted) {
-    return { action: "abort", reason: "user_aborted" };
-  }
-  if (budgetExhausted) {
-    return { action: "complete", reason: "budget_exhausted", forceOutput: true };
-  }
-
-  // 大文档：需要分治
-  if (isLargeDoc && iteration === 0 && !context.isSubAgent && !subagentsForked) {
-    return { action: "fork_subagents", reason: "large_document" };
-  }
-
-  // 已有报告且无开放缺口：完成
-  if (hasReport && openGapCount === 0) {
-    return { action: "complete", reason: "all_gaps_filled" };
-  }
-
-  // 达到最大迭代次数
-  if (iteration >= maxIterations) {
-    return { action: "complete", reason: "max_iterations", forceOutput: true };
-  }
-
-  // 有开放缺口：检索 + 提取
-  if (openGapCount > 0) {
-    return { action: "retrieve_and_extract", reason: "open_gaps_exist", gapCount: openGapCount };
-  }
-
-  // 有内容但无报告：生成报告
-  if (claimCount > 0 && evidenceCount > 0 && !hasReport) {
-    return { action: "generate_report", reason: "content_ready" };
-  }
-
-  // 初始状态：扫描识别缺口
-  if (observation.totalGaps === 0) {
-    return { action: "scan_and_identify_gaps", reason: "initial_state" };
-  }
-
-  // 默认：完成
-  return { action: "complete", reason: "no_action_needed" };
 }
 
 /**
@@ -335,9 +286,16 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     // SharedContext: 分层记忆（SubAgent 分治时共享）
     this.sharedContext = options.sharedContext || null;
 
-    // 春秋蝉: 回溯次数限制（最多3次）
+    // 春秋蝉: 回溯管理器
     this.maxBacktracks = safeInt(options.maxBacktracks) ?? 3;
-    this._backtrackCount = 0;
+    this._backtrackManager = new BacktrackManager({
+      archive: this.archive,
+      maxBacktracks: this.maxBacktracks,
+      emit: (name, payload) => this._emit(name, payload),
+      logger: createLogger("backtrack-manager"),
+    });
+    this._budgetStopRequested = false;
+    this._budgetDegradeApplied = false;
 
     // 交错思考: 思考模式配置
     this.thinkingMode = options.thinkingMode || ThinkingMode.RULES;
@@ -583,6 +541,16 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     return [...this._statusHistory];
   }
 
+  get _backtrackCount() {
+    return this._backtrackManager?.backtrackCount ?? 0;
+  }
+
+  set _backtrackCount(value) {
+    if (!this._backtrackManager) return;
+    const next = Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+    this._backtrackManager._backtrackCount = next;
+  }
+
   _getLastCheckpointId() {
     const history = Array.isArray(this._statusHistory) ? this._statusHistory : [];
     for (let i = history.length - 1; i >= 0; i--) {
@@ -609,6 +577,134 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     const state = this._ensureState(runContext, input);
     if (runContext?.runId) state.runId = String(runContext.runId);
     this._currentState = state;
+    this._budgetStopRequested = false;
+    this._budgetDegradeApplied = false;
+    if (!isPlainObject(state.L2)) state.L2 = {};
+    if (!isPlainObject(state?.L1?.report)) {
+      const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
+      const claims = Array.isArray(state?.L1?.claims) ? state.L1.claims : [];
+      const evidenceLedger = Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger : [];
+      const todoStats = getTodoStats(state);
+      if (
+        todoStats.openTodoCount === 0 &&
+        (todoStats.totalTodos > 0 || gaps.length > 0 || claims.length > 0 || evidenceLedger.length > 0)
+      ) {
+        state.L2.needsWrite = true;
+      }
+    }
+
+    const sharedContext =
+      stageApi?.sharedContext ||
+      this.sharedContext ||
+      (this.isSubAgent ? null : new SharedContext({ runId: state.runId }));
+    if (sharedContext) {
+      this.sharedContext = sharedContext;
+      stageApi.sharedContext = sharedContext;
+      if (typeof stageApi.getContextSummary !== "function") {
+        stageApi.getContextSummary = () => sharedContext.buildSummaryText();
+      }
+    }
+
+    const budgetConfig = typeof state?.getBudgetConfig === "function" ? state.getBudgetConfig() : null;
+    const budgetManager = this.budgetManager || stageApi?.budgetManager || createBudgetManager(state?.userConfig);
+    this.budgetManager = budgetManager;
+    stageApi.budgetManager = budgetManager;
+    stageApi.getBudgetStats = () => budgetManager.getStats();
+    if (typeof budgetManager?.reset === "function") {
+      budgetManager.reset();
+    }
+
+    const applyBudgetDegrade = ({ reason } = {}) => {
+      if (this._budgetDegradeApplied) return;
+      this._budgetDegradeApplied = true;
+      budgetManager.degraded = true;
+
+      if (!isPlainObject(state.userConfig)) state.userConfig = {};
+      if (!isPlainObject(state.userConfig.retrieval)) state.userConfig.retrieval = {};
+
+      if (!isPlainObject(state.userConfig.retrieval.rerank)) state.userConfig.retrieval.rerank = {};
+      state.userConfig.retrieval.rerank.enabled = false;
+
+      if (!isPlainObject(state.userConfig.retrieval.shadow)) state.userConfig.retrieval.shadow = {};
+      state.userConfig.retrieval.shadow.enabled = false;
+
+      if (!isPlainObject(state.userConfig.externalSearch)) state.userConfig.externalSearch = {};
+      state.userConfig.externalSearch.autoTrigger = false;
+
+      const curIt = safeInt(state.iteration) ?? 0;
+      const nextMax = curIt + 1;
+      const prevMax = safeInt(state.maxIterations) ?? nextMax;
+      state.maxIterations = Math.min(prevMax, nextMax);
+
+      state.addTimeline?.({
+        name: "deepsearch.budget.degraded",
+        status: "warning",
+        payload: { maxIterations: state.maxIterations, iteration: state.iteration, ...(reason ? { reason: String(reason) } : {}) },
+      });
+    };
+
+    const requestBudgetStop = ({ reason, payload } = {}) => {
+      if (this._budgetStopRequested) return;
+      this._budgetStopRequested = true;
+      budgetManager.stopped = true;
+      state.addTimeline?.({
+        name: "deepsearch.budget.stop",
+        status: "warning",
+        payload: { ...(payload && typeof payload === "object" ? payload : {}), ...(reason ? { reason: String(reason) } : {}) },
+      });
+    };
+
+    const extractPayload = (record) => {
+      if (record && typeof record === "object" && "payload" in record) return record.payload;
+      return record;
+    };
+
+    const handleTokenUsage = (record) => {
+      const payload = extractPayload(record);
+      const usage = payload && typeof payload === "object" ? payload.usage : null;
+      const input = safeInt(usage?.input) ?? 0;
+      const output = safeInt(usage?.output) ?? 0;
+      const action = budgetManager.recordUsage({ input, output });
+      if (action === BudgetAction.STOP) {
+        requestBudgetStop({ reason: "token_usage" });
+      } else if (action === BudgetAction.DEGRADE) {
+        applyBudgetDegrade({ reason: "token_usage" });
+      }
+    };
+
+    const handleBudgetExceeded = (record) => {
+      const payload = extractPayload(record);
+      const action = typeof budgetConfig?.action === "string" ? budgetConfig.action : "warn";
+      if (action === "degrade") {
+        applyBudgetDegrade({ reason: "budget_exceeded" });
+        return;
+      }
+      if (action === "stop") {
+        requestBudgetStop({ reason: "budget_exceeded", payload });
+      }
+    };
+
+    if (typeof stageApi.emit === "function") {
+      const baseEmit = stageApi.emit;
+      stageApi.emit = (name, record, ...rest) => {
+        const result = baseEmit(name, record, ...rest);
+        if (name === "deepsearch.token.usage") {
+          try {
+            handleTokenUsage(record);
+          } catch {
+            // ignore handler errors
+          }
+        } else if (name === "deepsearch.budget.exceeded") {
+          try {
+            handleBudgetExceeded(record);
+          } catch {
+            // ignore handler errors
+          }
+        }
+        return result;
+      };
+      this.emit = stageApi.emit;
+    }
 
     const logger = createLogger({
       emit: stageApi?.emit,
@@ -632,7 +728,8 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
 
       // 小文档直通模式检测
       const directModeCheck = shouldUseDirectMode(state);
-      if (directModeCheck.shouldUse && !this.isSubAgent) {
+      const preLoopGuard = resolveL2Guard(state);
+      if (directModeCheck.shouldUse && !this.isSubAgent && !preLoopGuard) {
         logger.info("Using direct analysis mode", { stage: "deepsearch-agent-loop", data: directModeCheck });
         const pkg = await runDirectAnalysis(runContext, { state }, stageApi);
         await this._transitionTo(AgentLoopStatus.COMPLETED, {
@@ -654,6 +751,16 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
       while (loopCount < maxLoops) {
         loopCount++;
         checkCancelled(stageApi?.signal);
+
+        const guard = resolveL2Guard(state);
+        if (guard?.action === "pause") {
+          throw new StagePausedError("Run paused", { runId: state.runId, reason: guard.reason });
+        }
+        if (guard?.action === "complete") {
+          if (!isPlainObject(state.L2)) state.L2 = {};
+          if (!toNonEmptyString(state.L2.reason)) state.L2.reason = guard.reason;
+          break;
+        }
 
         const { step: stepMeta, context: stepContext } = this._beginStep(
           { name: "deepsearch.iteration", runId: state.runId, iteration: loopCount },
@@ -733,49 +840,12 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
           }
 
           let shouldBreak = false;
-          if (review.decision === AgentDecision.BACKTRACK && this.archive) {
-            // 春秋蝉: 检查回溯次数限制
-            if (this._backtrackCount >= this.maxBacktracks) {
-              logger.warn("春秋蝉: Backtrack limit reached, forcing completion", {
-                stage: "deepsearch-agent-loop",
-                data: { backtrackCount: this._backtrackCount, maxBacktracks: this.maxBacktracks },
-              });
-              this._emit("deepsearch.agent.backtrack_limit", {
-                runId: state.runId,
-                backtrackCount: this._backtrackCount,
-                maxBacktracks: this.maxBacktracks,
-              });
-              // 强制完成，不再回溯
+          if (review.decision === AgentDecision.BACKTRACK) {
+            const backtrackResult = await this._backtrackManager.backtrack(state, review.checkpointId);
+            if (backtrackResult.success && backtrackResult.state) {
+              Object.assign(state, backtrackResult.state);
+            } else if (backtrackResult.reason === "limit_reached") {
               shouldBreak = true;
-            } else {
-              // 执行回溯
-              try {
-                const checkpoints = Array.isArray(state?.checkpoints) ? state.checkpoints : [];
-                const fallbackCheckpointId =
-                  checkpoints.length >= 2 ? checkpoints[checkpoints.length - 2]?.checkpointId : null;
-                const checkpointId = review.checkpointId || fallbackCheckpointId;
-                if (checkpointId) {
-                  const restored = migrateCheckpoint(await this.archive.restore(checkpointId));
-                  if (restored?.nodeStates) {
-                    const restoredState = DeepSearchState.fromJSON(restored.nodeStates);
-                    Object.assign(state, restoredState);
-                    this._backtrackCount++;
-                    logger.info("春秋蝉: State restored from checkpoint", {
-                      stage: "deepsearch-agent-loop",
-                      data: {
-                        checkpointId,
-                        backtrackCount: this._backtrackCount,
-                        remaining: this.maxBacktracks - this._backtrackCount,
-                      },
-                    });
-                  }
-                }
-              } catch (err) {
-                logger.warn("春秋蝉: Backtrack failed", {
-                  stage: "deepsearch-agent-loop",
-                  data: { error: err?.message },
-                });
-              }
             }
           }
 
@@ -833,6 +903,30 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         });
       }
 
+      // 确保 report 存在（H5 hard gate 要求）
+      if (!isPlainObject(state?.L1?.report)) {
+        const { generateReport, generatePlaceholderReport } = await import("./write.js");
+        const sources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
+        const claims = Array.isArray(state?.L1?.claims) ? state.L1.claims : [];
+        const evidenceLedger = Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger : [];
+        const todos = Array.isArray(state?.todos) ? state.todos : [];
+        const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
+        const todoInput = todos.length ? todos : gaps;
+        const allTodosResolved =
+          todos.length > 0 &&
+          todos.every((t) => {
+            const status = typeof t?.status === "string" ? t.status : "open";
+            return status === "completed" || status === "cancelled";
+          });
+        const completionReason =
+          toNonEmptyString(state?.L2?.reason) ||
+          (state?.L2?.taskImpossible ? "Task marked impossible." : "All todos completed.");
+        state.L1.report = allTodosResolved
+          ? generatePlaceholderReport({ taskGoal: state?.taskGoal, todos, completionReason })
+          : generateReport(claims, evidenceLedger, todoInput, sources, String(state?.taskGoal || ""));
+        logger.warn("Generated fallback report for H5 gate", { stage: "deepsearch-agent-loop" });
+      }
+
       // 构建输出
       const pkg = this._buildOutput(state, runContext);
 
@@ -854,6 +948,43 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
           timestamp: err.timestamp,
         });
         throw err;
+      }
+
+      if (stageApi?.signal?.aborted) {
+        const reason = typeof stageApi.signal.reason === "string" ? stageApi.signal.reason : err?.message;
+        state.addTimeline?.({ name: "deepsearch.aborted", status: "warning", payload: { iteration: state.iteration, reason } });
+        this._emit("deepsearch.agent.aborted", { runId: state.runId, reason });
+        this._emitLegacy("deepsearch.aborted", { runId: state.runId, reason, iteration: state.iteration });
+        try {
+          await this._transitionTo(AgentLoopStatus.ABORTED, {
+            runId: state.runId,
+            error: reason,
+          });
+        } catch {
+          // ignore secondary transition failures
+        }
+        if (!isPlainObject(state?.L1?.report)) {
+          const { generateReport, generatePlaceholderReport } = await import("./write.js");
+          const sources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
+          const claims = Array.isArray(state?.L1?.claims) ? state.L1.claims : [];
+          const evidenceLedger = Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger : [];
+          const todos = Array.isArray(state?.todos) ? state.todos : [];
+          const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
+          const todoInput = todos.length ? todos : gaps;
+          const allTodosResolved =
+            todos.length > 0 &&
+            todos.every((t) => {
+              const status = typeof t?.status === "string" ? t.status : "open";
+              return status === "completed" || status === "cancelled";
+            });
+          const completionReason =
+            toNonEmptyString(state?.L2?.reason) ||
+            (state?.L2?.taskImpossible ? "Task marked impossible." : "All todos completed.");
+          state.L1.report = allTodosResolved
+            ? generatePlaceholderReport({ taskGoal: state?.taskGoal, todos, completionReason })
+            : generateReport(claims, evidenceLedger, todoInput, sources, String(state?.taskGoal || ""));
+        }
+        return this._buildOutput(state, runContext);
       }
 
       try {
@@ -917,9 +1048,9 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     // 触发 LLM 思考的条件
     const shouldUseLLM =
       // 情况不明确（多个可能动作）
-      (observation.openGapCount > 0 && observation.claimCount > 0 && !observation.hasReport) ||
-      // 迭代次数过半仍有缺口
-      (observation.iteration > observation.maxIterations / 2 && observation.openGapCount > 0) ||
+      (observation.openTodoCount > 0 && observation.claimCount > 0 && !observation.hasReport) ||
+      // 迭代次数过半仍有待办
+      (observation.iteration > observation.maxIterations / 2 && observation.openTodoCount > 0) ||
       // 回溯后需要重新评估
       (this._backtrackCount > 0);
 
@@ -988,8 +1119,9 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
       .replace("{sourceCount}", String(observation.sourceCount))
       .replace("{claimCount}", String(observation.claimCount))
       .replace("{evidenceCount}", String(observation.evidenceCount))
-      .replace("{openGapCount}", String(observation.openGapCount))
-      .replace("{filledGapCount}", String(observation.filledGapCount))
+      .replace("{openTodoCount}", String(observation.openTodoCount))
+      .replace("{completedTodoCount}", String(observation.completedTodoCount))
+      .replace("{blockedTodoCount}", String(observation.blockedTodoCount))
       .replace("{hasReport}", String(observation.hasReport))
       .replace("{isLargeDoc}", String(observation.isLargeDoc))
       .replace("{isSubAgent}", String(this.isSubAgent));
@@ -1038,7 +1170,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
       this._thinkingHistory.push({
         iteration: observation.iteration,
         observation: {
-          openGapCount: observation.openGapCount,
+          openTodoCount: observation.openTodoCount,
           claimCount: observation.claimCount,
           hasReport: observation.hasReport,
         },
@@ -1144,6 +1276,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
    */
   async _executeScanAndIdentifyGaps(state, stageApi, { logger }) {
     logger.info("Executing: scan_and_identify_gaps", { stage: "deepsearch-agent-loop" });
+    const sharedContext = stageApi?.sharedContext || this.sharedContext;
 
     // 调用能力
     if (this.capabilities.scanAndIdentifyGaps) {
@@ -1151,14 +1284,42 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
       return result;
     }
 
-    // 默认实现：使用现有的 scan + gaps 函数
+    // 默认实现：使用现有的 scan + todos 函数
     const { runDeepSearchScanStage } = await import("./scan.js");
-    const { runDeepSearchGapsStage } = await import("./gaps.js");
+    const { runDeepSearchTodosStage } = await import("./todos.js");
 
     await runDeepSearchScanStage({}, { state }, stageApi);
-    await runDeepSearchGapsStage({}, { state }, stageApi);
+    if (sharedContext && typeof sharedContext.commit === "function") {
+      const scanSources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
+      const totalChars = scanSources.reduce((sum, s) => sum + (s?.sourceTextNormalized?.length || 0), 0);
+      sharedContext.commit("scan", {
+        summary: `${scanSources.length} 个来源，共 ${totalChars} 字符，主题：${String(state?.taskGoal || "").slice(0, 60)}`,
+        keywords: [state?.taskGoal, ...(state?.L1?.scanSummary?.keyTopics || [])].filter(Boolean).slice(0, 10),
+      });
+    }
 
-    return { scanned: true, gapsIdentified: true };
+    if (this._budgetStopRequested || this.budgetManager?.stopped) {
+      return { completed: true, reason: "budget_stop", forceOutput: true };
+    }
+
+    await runDeepSearchTodosStage({}, { state }, stageApi);
+    if (sharedContext && typeof sharedContext.commit === "function") {
+      const todoStats = getTodoStats(state);
+      const openTodos = todoStats.openTodos || [];
+      const keywords = openTodos.map((t) => t?.text || t?.question).filter(Boolean).slice(0, 8);
+      sharedContext.commit("todos", {
+        summary: `${openTodos.length}/${todoStats.totalTodos} 个待办待处理`,
+        keywords,
+        full: openTodos,
+      });
+      sharedContext.commit("gaps", {
+        summary: `${todoStats.openGapCount}/${todoStats.totalGaps} 个缺口待处理`,
+        keywords,
+        full: openTodos,
+      });
+    }
+
+    return { scanned: true, gapsIdentified: true, todosIdentified: true };
   }
 
   /**
@@ -1167,10 +1328,16 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
   async _executeRetrieveAndExtract(state, stageApi, { logger }) {
     logger.info("Executing: retrieve_and_extract", { stage: "deepsearch-agent-loop", data: { iteration: state.iteration } });
     const iteration = state.iteration;
+    const sharedContext = stageApi?.sharedContext || this.sharedContext;
+    const todoStats = getTodoStats(state);
     this._emitLegacy("deepsearch.iteration.started", {
       runId: state.runId,
       iteration,
-      openGapCount: getOpenGapCount(state),
+      openTodoCount: todoStats.openTodoCount,
+      completedTodoCount: todoStats.completedTodoCount,
+      blockedTodoCount: todoStats.blockedTodoCount,
+      totalTodos: todoStats.totalTodos,
+      openGapCount: todoStats.openGapCount,
     });
 
     // 调用能力
@@ -1184,14 +1351,51 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     const { runDeepSearchRetrieveStage } = await import("./retrieve.js");
     const { runDeepSearchUnderstandStage } = await import("./understand.js");
 
-    await runDeepSearchRetrieveStage({}, { state }, stageApi);
-    await runDeepSearchUnderstandStage({}, { state }, stageApi);
+    const retOut = await runDeepSearchRetrieveStage({}, { state }, stageApi);
+    if (sharedContext && typeof sharedContext.commit === "function") {
+      const retrievedChunks = Array.isArray(retOut?.retrievedChunks) ? retOut.retrievedChunks : state?.L2?.retrievedChunks;
+      const totalRetrieved = Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks.length : 0;
+      const hitCount = Array.isArray(retrievedChunks) ? retrievedChunks.length : 0;
+      sharedContext.commit("retrieve", {
+        summary: `检索 ${hitCount} 个 chunk，累计 ${totalRetrieved} 个`,
+        keywords: Array.isArray(retrievedChunks)
+          ? retrievedChunks
+              .slice(0, 5)
+              .flatMap((r) => r?.matchedTodoIds || r?.matchedGapIds || [])
+              .filter(Boolean)
+          : [],
+      });
+    }
 
+    if (this._budgetStopRequested || this.budgetManager?.stopped) {
+      return { completed: true, reason: "budget_stop", forceOutput: true };
+    }
+
+    await runDeepSearchUnderstandStage({}, { state }, stageApi);
+    if (sharedContext && typeof sharedContext.commit === "function") {
+      const claims = Array.isArray(state?.L1?.claims) ? state.L1.claims : [];
+      const evidenceCount = Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger.length : 0;
+      const updatedStats = getTodoStats(state);
+      const filledGapsCount = updatedStats.filledGapCount;
+      const completedTodoCount = updatedStats.completedTodoCount;
+      sharedContext.commit("understand", {
+        summary: `提取 ${claims.length} 个论点，${evidenceCount} 条证据，${completedTodoCount} 个待办已完成`,
+        keywords: claims.slice(0, 5).map((c) => c?.text?.slice(0, 30)).filter(Boolean),
+      });
+    }
+
+    if (!isPlainObject(state.L2)) state.L2 = {};
+    state.L2.needsWrite = true;
     this._saveUiCheckpoint(state);
+    const completedStats = getTodoStats(state);
     this._emitLegacy("deepsearch.iteration.completed", {
       runId: state.runId,
       iteration,
-      openGapCount: getOpenGapCount(state),
+      openTodoCount: completedStats.openTodoCount,
+      completedTodoCount: completedStats.completedTodoCount,
+      blockedTodoCount: completedStats.blockedTodoCount,
+      totalTodos: completedStats.totalTodos,
+      openGapCount: completedStats.openGapCount,
     });
     state.iteration++;
     return { retrieved: true, extracted: true };
@@ -1211,9 +1415,101 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
 
     // 默认实现
     const { runDeepSearchWriteStage } = await import("./write.js");
-    await runDeepSearchWriteStage({}, { state }, stageApi);
+    if (isPlainObject(state.L2)) state.L2.needsWrite = false;
+    const emit = typeof stageApi?.emit === "function" ? stageApi.emit : stageApi?.eventBus?.emit;
+    const writeOut = await runDeepSearchWriteStage({}, { state }, stageApi);
 
-    return { reportGenerated: true };
+    const feedbackToResearch = writeOut?.feedbackToResearch;
+    const needsMoreResearch = Boolean(feedbackToResearch?.needsMoreResearch);
+    const todoIds = Array.isArray(feedbackToResearch?.todoIds) ? feedbackToResearch.todoIds : [];
+    const newTodos = Array.isArray(feedbackToResearch?.newTodos) ? feedbackToResearch.newTodos : [];
+    let feedbackPayload = feedbackToResearch;
+    const maxWriteBacktrack =
+      safeInt(state?.userConfig?.write?.maxWriteBacktrack) ??
+      safeInt(state?.userConfig?.maxWriteBacktrack) ??
+      3;
+    const writeBacktrackCount = safeInt(state.writeBacktrackCount) ?? 0;
+
+    const canBacktrack =
+      needsMoreResearch &&
+      state.iteration < state.maxIterations &&
+      writeBacktrackCount < maxWriteBacktrack &&
+      (todoIds.length > 0 || newTodos.length > 0);
+
+    if (canBacktrack) {
+      state.saveWriteSnapshot?.();
+      state.writeBacktrackCount = writeBacktrackCount + 1;
+
+      const todoById = new Map(
+        (Array.isArray(state?.todos) ? state.todos : [])
+          .map((t) => [toNonEmptyString(t?.todoId), t])
+          .filter(([id]) => id)
+      );
+      const createdTodos = [];
+      const gapIdsToReopen = new Set(Array.isArray(feedbackToResearch?.gapIds) ? feedbackToResearch.gapIds : []);
+
+      const normalizedTodoIds = Array.from(new Set(todoIds.map((t) => String(t || "").trim()).filter(Boolean)));
+      for (const tid of normalizedTodoIds) {
+        const base = todoById.get(tid);
+        const baseText = toNonEmptyString(base?.text) || `Todo ${tid}`;
+        const text = `Follow up: ${baseText}`;
+        const created = state.addTodo({
+          text,
+          priority: toNonEmptyString(base?.priority) || "high",
+          source: "system",
+          ...(Array.isArray(base?.queryHints) ? { queryHints: base.queryHints } : {}),
+          ...(toNonEmptyString(base?.expectedEvidence) ? { expectedEvidence: base.expectedEvidence } : {}),
+          ...(toNonEmptyString(base?.relatedGapId) ? { relatedGapId: base.relatedGapId } : {}),
+        });
+        createdTodos.push(created);
+        if (toNonEmptyString(base?.relatedGapId)) gapIdsToReopen.add(String(base.relatedGapId));
+      }
+
+      for (const row of newTodos) {
+        const text = toNonEmptyString(row?.text) || toNonEmptyString(row?.question);
+        if (!text) continue;
+        const created = state.addTodo({
+          text: String(text),
+          ...(toNonEmptyString(row?.priority) ? { priority: String(row.priority) } : {}),
+          ...(Array.isArray(row?.queryHints) ? { queryHints: row.queryHints } : {}),
+          ...(toNonEmptyString(row?.expectedEvidence) ? { expectedEvidence: String(row.expectedEvidence) } : {}),
+          ...(toNonEmptyString(row?.relatedGapId) ? { relatedGapId: String(row.relatedGapId) } : {}),
+          source: "system",
+        });
+        createdTodos.push(created);
+        if (toNonEmptyString(row?.relatedGapId)) gapIdsToReopen.add(String(row.relatedGapId));
+      }
+
+      if (gapIdsToReopen.size) {
+        state.reopenGaps(Array.from(gapIdsToReopen), { reason: feedbackToResearch?.reason }, emit);
+      }
+
+      const createdTodoIds = createdTodos.map((t) => toNonEmptyString(t?.todoId)).filter(Boolean);
+      feedbackPayload = {
+        ...(feedbackToResearch || {}),
+        ...(createdTodoIds.length ? { createdTodoIds } : {}),
+      };
+
+      if (typeof emit === "function") {
+        emit("deepsearch.write.backtrack.requested", {
+          writeBacktrackCount: state.writeBacktrackCount,
+          maxWriteBacktrack,
+          feedbackToResearch: feedbackPayload,
+        });
+      }
+
+      state.addTimeline?.({
+        name: "deepsearch.write.backtrack.requested",
+        status: "info",
+        payload: {
+          writeBacktrackCount: state.writeBacktrackCount,
+          maxWriteBacktrack,
+          ...(feedbackPayload ? { feedbackToResearch: feedbackPayload } : {}),
+        },
+      });
+    }
+
+    return { reportGenerated: true, ...(canBacktrack ? { backtrackRequested: true, feedbackToResearch: feedbackPayload } : {}) };
   }
 
   /**
@@ -1225,10 +1521,15 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
   async _executeForkSubAgents(state, stageApi, { logger, runContext }) {
     logger.info("Executing: fork_subagents", { stage: "deepsearch-agent-loop" });
     const iteration = state.iteration;
+    const todoStats = getTodoStats(state);
     this._emitLegacy("deepsearch.iteration.started", {
       runId: state.runId,
       iteration,
-      openGapCount: getOpenGapCount(state),
+      openTodoCount: todoStats.openTodoCount,
+      completedTodoCount: todoStats.completedTodoCount,
+      blockedTodoCount: todoStats.blockedTodoCount,
+      totalTodos: todoStats.totalTodos,
+      openGapCount: todoStats.openGapCount,
     });
 
     const sources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
@@ -1311,10 +1612,15 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     await this._mergeSubAgentResults(state, subAgentResults, stageApi, { logger, sharedContext });
 
     this._saveUiCheckpoint(state);
+    const completedStats = getTodoStats(state);
     this._emitLegacy("deepsearch.iteration.completed", {
       runId: state.runId,
       iteration,
-      openGapCount: getOpenGapCount(state),
+      openTodoCount: completedStats.openTodoCount,
+      completedTodoCount: completedStats.completedTodoCount,
+      blockedTodoCount: completedStats.blockedTodoCount,
+      totalTodos: completedStats.totalTodos,
+      openGapCount: completedStats.openGapCount,
     });
     state.iteration++;
     return { forked: true, subAgentCount: sources.length, results: subAgentResults };
@@ -1576,13 +1882,16 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     } else {
       // 默认压缩策略：保留 claims + evidence IDs，丢弃中间过程
       const claims = Array.isArray(state?.L1?.claims) ? state.L1.claims : [];
-      const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
+      const todoStats = getTodoStats(state);
 
       state.L1.condensedMemory = {
         claimCount: claims.length,
         claimSummary: claims.slice(0, 10).map(c => c?.text?.slice(0, 100)),
-        openGapCount: gaps.filter(g => g?.status === "open").length,
-        filledGapCount: gaps.filter(g => g?.status === "filled").length,
+        openTodoCount: todoStats.openTodoCount,
+        completedTodoCount: todoStats.completedTodoCount,
+        blockedTodoCount: todoStats.blockedTodoCount,
+        openGapCount: todoStats.openGapCount,
+        filledGapCount: todoStats.filledGapCount,
         iteration: state.iteration,
         compressedAt: new Date().toISOString(),
       };
@@ -1625,8 +1934,22 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     const slideIntents = Array.isArray(state?.L1?.slideIntents) ? state.L1.slideIntents : [];
     const dataTables = Array.isArray(state?.L1?.dataTables) ? state.L1.dataTables : [];
     const assets = Array.isArray(state?.L0?.assets) ? state.L0.assets : [];
+    const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
+    const todos = Array.isArray(state?.todos) ? state.todos : [];
+    const openQuestions = Array.isArray(state?.L1?.openQuestions) ? state.L1.openQuestions : [];
+    const outlineCandidates = Array.isArray(state?.L1?.outlineCandidates) ? state.L1.outlineCandidates : [];
+    const todoStats = getTodoStats(state);
+    const allTodosResolved = todoStats.totalTodos > 0 && todoStats.openTodoCount === 0;
+    const completionReason =
+      toNonEmptyString(state?.L2?.reason) ||
+      (state?.L2?.taskImpossible ? "Task marked impossible." : allTodosResolved ? "All todos completed." : "");
+    const todoCompletionStats = {
+      total: todoStats.totalTodos,
+      completed: todoStats.completedTodoCount,
+      cancelled: todoStats.blockedTodoCount,
+    };
 
-    return buildContentPackage(
+    const pkg = buildContentPackage(
       runContext || { runId: state.runId, mode: "deepsearch", constraints: {} },
       sources,
       slideIntents,
@@ -1636,12 +1959,49 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
       {
         mode: "deepsearch",
         scanSummary: state?.L1?.scanSummary || null,
-        gaps: Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [],
+        gaps,
+        todos,
+        completionReason,
+        todoCompletionStats,
         condensedMemory: state?.L1?.condensedMemory || null,
+        openQuestions,
+        outlineCandidates,
         report: state?.L1?.report || null,
         assets,
       }
     );
+    if (pkg?.metrics) {
+      const tokenUsageRaw = state?.L2?.tokenUsage;
+      const tokenUsage =
+        tokenUsageRaw && typeof tokenUsageRaw === "object"
+          ? {
+              input: typeof tokenUsageRaw.input === "number" && Number.isFinite(tokenUsageRaw.input) ? tokenUsageRaw.input : 0,
+              output: typeof tokenUsageRaw.output === "number" && Number.isFinite(tokenUsageRaw.output) ? tokenUsageRaw.output : 0,
+              total: typeof tokenUsageRaw.total === "number" && Number.isFinite(tokenUsageRaw.total) ? tokenUsageRaw.total : 0,
+              estimatedCostUSD:
+                typeof tokenUsageRaw.estimatedCostUSD === "number" && Number.isFinite(tokenUsageRaw.estimatedCostUSD)
+                  ? tokenUsageRaw.estimatedCostUSD
+                  : 0,
+            }
+          : { input: 0, output: 0, total: 0, estimatedCostUSD: 0 };
+      pkg.metrics.deepsearch = {
+        sourceCount: Array.isArray(sources) ? sources.length : 0,
+        todoCount: todoStats.totalTodos,
+        openTodoCount: todoStats.openTodoCount,
+        completedTodoCount: todoStats.completedTodoCount,
+        cancelledTodoCount: todoStats.blockedTodoCount,
+        gapCount: todoStats.openGapCount,
+        totalGaps: todoStats.totalGaps,
+        retrievedCount: Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks.length : 0,
+        claimCount: claims.length,
+        evidenceCount: evidenceLedger.length,
+        slideCount: slideIntents.length,
+        iteration: state.iteration,
+        checkpointCount: Array.isArray(state?.checkpoints) ? state.checkpoints.length : 0,
+        tokenUsage,
+      };
+    }
+    return pkg;
   }
 
   /**
@@ -1653,6 +2013,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     if (isPlainObject(input?.state)) return DeepSearchState.fromJSON(input.state);
 
     const sources = Array.isArray(input?.sources) ? input.sources : [];
+    const assets = Array.isArray(input?.assets) ? input.assets : [];
     const taskGoal = typeof input?.taskGoal === "string" ? input.taskGoal : "";
     const userConfig = isPlainObject(input?.userConfig) ? input.userConfig : {};
 
@@ -1660,7 +2021,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
       runId: runContext?.runId,
       taskGoal,
       userConfig,
-      L0: { sources },
+      L0: { sources, assets },
     });
 
     const maxIt = safeInt(userConfig?.maxIterations);

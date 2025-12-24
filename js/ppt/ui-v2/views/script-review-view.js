@@ -22,8 +22,12 @@ export class ScriptReviewView extends BaseView {
       clearTimeout(this._tocTimer);
       this._tocTimer = null;
     }
-    if (typeof VditorAdapter !== 'undefined') {
-      VditorAdapter.destroy?.();
+    try {
+      if (typeof VditorAdapter !== 'undefined' && VditorAdapter.isAvailable?.()) {
+        VditorAdapter.destroy?.();
+      }
+    } catch {
+      // ignore destroy errors
     }
   }
 
@@ -162,29 +166,33 @@ export class ScriptReviewView extends BaseView {
 
     renderToc(md);
 
-    if (typeof VditorAdapter !== 'undefined' && VditorAdapter.isAvailable()) {
-      VditorAdapter.mount({
-        container: 'vditorScriptEditor',
-        value: md,
-        onInput: (value) => {
-          this._adapter?.updateReportMarkdown?.(value);
-          scheduleTocRender(value);
-        },
-        mode: 'ir'
-      });
-      scheduleTocRender(VditorAdapter.getValue?.() ?? md);
-    } else if (typeof VditorAdapter !== 'undefined') {
-      container.innerHTML = `
-        <textarea class="ppt-input-field" style="width: 100%; min-height: 360px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; line-height: 1.5;">${escapeHtml(md)}</textarea>
-      `;
-      const textarea = container.querySelector?.('textarea');
-      if (textarea) {
-        textarea.addEventListener('input', () => {
-          this._adapter?.updateReportMarkdown?.(textarea.value);
-          scheduleTocRender(textarea.value);
+    try {
+      if (typeof VditorAdapter !== 'undefined' && VditorAdapter.isAvailable()) {
+        VditorAdapter.mount({
+          container: 'vditorScriptEditor',
+          value: md,
+          onInput: (value) => {
+            this._adapter?.updateReportMarkdown?.(value);
+            scheduleTocRender(value);
+          },
+          mode: 'ir'
         });
+        scheduleTocRender(VditorAdapter.getValue?.() ?? md);
+      } else if (typeof VditorAdapter !== 'undefined') {
+        container.innerHTML = `
+          <textarea class="ppt-input-field" style="width: 100%; min-height: 360px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; line-height: 1.5;">${escapeHtml(md)}</textarea>
+        `;
+        const textarea = container.querySelector?.('textarea');
+        if (textarea) {
+          textarea.addEventListener('input', () => {
+            this._adapter?.updateReportMarkdown?.(textarea.value);
+            scheduleTocRender(textarea.value);
+          });
+        }
+        scheduleTocRender(md);
       }
-      scheduleTocRender(md);
+    } catch (err) {
+      console.warn('[ScriptReviewView] Vditor mount error:', err?.message);
     }
   }
 

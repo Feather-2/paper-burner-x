@@ -138,3 +138,50 @@ test("rerankWithLLM: external cancellation aborts via forwarded signal and falls
   assert.equal(stats.skipped, true);
   assert.equal(stats.reason, "User cancelled");
 });
+
+test("DeepSearch retrieve: todoId/matchedTodoIds are populated with gap aliases", async () => {
+  const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
+  const { runDeepSearchRetrieveStage } = await import("../../js/agents/stages/deepsearch/retrieve.js");
+
+  const sourceText = "Alpha is first.\nBeta is second.";
+  const state = new DeepSearchState({
+    runId: "run_todo_retrieve",
+    L0: { sources: [{ sourceId: "s1", kind: "user_text", title: "Doc", sourceTextNormalized: sourceText }] },
+    todos: [
+      {
+        todoId: "todo_1",
+        text: "Find Alpha definition",
+        status: "open",
+        queryHints: ["Alpha"],
+        relatedGapId: "gap_1",
+      },
+    ],
+  });
+
+  const localRetriever = (sourceIndex, todos) => {
+    assert.equal(sourceIndex.sourceId, "s1");
+    assert.equal(Array.isArray(todos), true);
+    assert.equal(todos[0].todoId, "todo_1");
+    assert.equal(todos[0].gapId, "gap_1");
+    return [
+      {
+        chunkId: "ch_1",
+        sourceId: sourceIndex.sourceId,
+        locator: { charStart: 0, charEnd: 5 },
+        text: "Alpha",
+        score: 1.0,
+        matchedGapIds: ["gap_1"],
+      },
+    ];
+  };
+
+  await runDeepSearchRetrieveStage({ runId: state.runId }, { state }, { localRetriever });
+
+  assert.ok(Array.isArray(state.L2.retrievedChunks));
+  assert.ok(state.L2.retrievedChunks.length >= 1);
+  const row = state.L2.retrievedChunks[0];
+  assert.equal(row.todoId, "todo_1");
+  assert.deepEqual(row.matchedTodoIds, ["todo_1"]);
+  assert.equal(row.gapId, "gap_1");
+  assert.deepEqual(row.matchedGapIds, ["gap_1"]);
+});

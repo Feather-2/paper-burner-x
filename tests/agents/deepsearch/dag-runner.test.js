@@ -14,7 +14,7 @@ test("DeepSearch blocks register with executors", async () => {
   const { registerDeepSearchBlocks } = await import("../../../js/agents/stages/deepsearch/blocks.js");
   const {
     ScanBlockManifest,
-    GapsBlockManifest,
+    TodosBlockManifest,
     RetrieveBlockManifest,
     UnderstandBlockManifest,
     WriteBlockManifest,
@@ -26,7 +26,7 @@ test("DeepSearch blocks register with executors", async () => {
 
   const manifests = [
     ScanBlockManifest,
-    GapsBlockManifest,
+    TodosBlockManifest,
     RetrieveBlockManifest,
     UnderstandBlockManifest,
     WriteBlockManifest,
@@ -50,7 +50,7 @@ test("DEEPSEARCH_DAG builds a valid plan", async () => {
   const layers = executor.buildLayers(plan.sorted, DEEPSEARCH_DAG);
 
   assert.ok(plan.sorted.includes("scan"));
-  assert.ok(plan.sorted.indexOf("scan") < plan.sorted.indexOf("gaps"));
+  assert.ok(plan.sorted.indexOf("scan") < plan.sorted.indexOf("todos"));
   assert.ok(plan.sorted.indexOf("retrieve") < plan.sorted.indexOf("understand"));
   assert.ok(plan.sorted.indexOf("understand") < plan.sorted.indexOf("write"));
   assert.ok(layers.length >= 4);
@@ -72,6 +72,6 @@ test("DeepSearch DAG runner works with mocked executors", async () => {
 
   assert.ok(results.write);
   assert.ok(results.condense);
-  assert.deepEqual(results.write.state.executed, ["scan", "gaps", "retrieve", "understand", "write"]);
-  assert.deepEqual(results.condense.state.executed, ["scan", "gaps", "retrieve", "understand", "condense"]);
+  assert.deepEqual(results.write.state.executed, ["scan", "todos", "retrieve", "understand", "write"]);
+  assert.deepEqual(results.condense.state.executed, ["scan", "todos", "retrieve", "understand", "condense"]);
 });

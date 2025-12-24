@@ -40,6 +40,12 @@ function normalizeReportSections(report) {
     if (!isPlainObject(s)) continue;
     const sectionId = toNonEmptyString(s.sectionId);
     const title = toNonEmptyString(s.title);
+    const todoId = toNonEmptyString(s.todoId) || null;
+    const todoIds = (() => {
+      const ids = normalizeStringArray(s.todoIds);
+      if (!ids.length && todoId) ids.push(todoId);
+      return ids;
+    })();
     const gapId = toNonEmptyString(s.gapId) || null;
     const claimIds = normalizeStringArray(s.claimIds);
     const content = toNonEmptyString(s.content) || toNonEmptyString(s.markdown) || "";
@@ -47,6 +53,8 @@ function normalizeReportSections(report) {
     sections.push({
       sectionId: sectionId || `sec_${sections.length + 1}`,
       title: title || `Section ${sections.length + 1}`,
+      todoId,
+      todoIds,
       gapId,
       claimIds,
       content,
@@ -241,6 +249,7 @@ function mergeSectionsToSegment(sections) {
   const rows = Array.isArray(sections) ? sections : [];
   const sectionIds = [];
   const claimIds = [];
+  const todoIds = [];
   const gapIds = [];
   const titles = [];
   const contents = [];
@@ -248,6 +257,8 @@ function mergeSectionsToSegment(sections) {
   for (const s of rows) {
     if (!s) continue;
     sectionIds.push(String(s.sectionId));
+    if (toNonEmptyString(s.todoId)) todoIds.push(String(s.todoId));
+    if (Array.isArray(s.todoIds) && s.todoIds.length) todoIds.push(...s.todoIds.map((id) => String(id)));
     if (toNonEmptyString(s.gapId)) gapIds.push(String(s.gapId));
     claimIds.push(...normalizeStringArray(s.claimIds));
     if (toNonEmptyString(s.title)) titles.push(String(s.title));
@@ -255,6 +266,7 @@ function mergeSectionsToSegment(sections) {
     if (content) contents.push(content);
   }
 
+  const uniqueTodoIds = Array.from(new Set(todoIds.map((x) => String(x || "").trim()).filter(Boolean)));
   const uniqueGapIds = Array.from(new Set(gapIds));
   const title = titles.length === 1 ? titles[0] : titles.length ? `${titles[0]} + ${titles.length - 1} more` : "Content";
   const content = contents.join("\n\n---\n\n").trim();
@@ -262,6 +274,8 @@ function mergeSectionsToSegment(sections) {
   return {
     sectionIds,
     title,
+    todoId: uniqueTodoIds.length === 1 ? uniqueTodoIds[0] : null,
+    todoIds: uniqueTodoIds,
     gapId: uniqueGapIds.length === 1 ? uniqueGapIds[0] : null,
     gapIds: uniqueGapIds,
     claimIds: normalizeStringArray(claimIds),
@@ -363,6 +377,8 @@ function buildContentSlideIntents(segments, reportCitations, { idPrefix, keepCla
       pageType: "content",
       title: String(seg?.title || `Slide ${i + 1}`),
       sectionIds: Array.isArray(seg?.sectionIds) ? seg.sectionIds.slice() : [],
+      ...(toNonEmptyString(seg?.todoId) ? { todoId: String(seg.todoId) } : {}),
+      ...(Array.isArray(seg?.todoIds) && seg.todoIds.length ? { todoIds: seg.todoIds.slice() } : {}),
       ...(toNonEmptyString(seg?.gapId) ? { gapId: String(seg.gapId) } : {}),
       ...(Array.isArray(seg?.gapIds) && seg.gapIds.length ? { gapIds: seg.gapIds.slice() } : {}),
       ...(keepContentString ? { content } : {}),
@@ -404,6 +420,8 @@ function buildSegmentsFromReportSections(sections, desiredContentSlides) {
       segments.push({
         sectionIds: [String(s.sectionId)],
         title,
+        todoId: s.todoId || null,
+        todoIds: Array.isArray(s.todoIds) ? s.todoIds.slice() : s.todoId ? [String(s.todoId)] : [],
         gapId: s.gapId,
         gapIds: s.gapId ? [String(s.gapId)] : [],
         claimIds: claimParts[p] || [],
@@ -420,6 +438,8 @@ function buildSegmentsFromReportSections(sections, desiredContentSlides) {
       segments.push({
         sectionIds: [String(last.sectionId)],
         title: `${last.title} (Part ${partsBySection[rows.length - 1] + i + 1})`,
+        todoId: last.todoId || null,
+        todoIds: Array.isArray(last.todoIds) ? last.todoIds.slice() : last.todoId ? [String(last.todoId)] : [],
         gapId: last.gapId,
         gapIds: last.gapId ? [String(last.gapId)] : [],
         claimIds: [],
@@ -465,6 +485,8 @@ export function deriveSlideIntentsFromReport(report, options = {}) {
         {
           sectionId: "sec_1",
           title: "Content",
+          todoId: null,
+          todoIds: [],
           gapId: null,
           claimIds: [],
           content: md,

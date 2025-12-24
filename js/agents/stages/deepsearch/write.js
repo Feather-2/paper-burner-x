@@ -12,6 +12,7 @@ import {
   emitWriteProgress,
   finalizeReportKeepingCitations,
   generateReport,
+  generatePlaceholderReport,
   generateReportSingleWithLLM,
   generateReportTocBasedWithLLM,
 } from "./report-generator.js";
@@ -46,8 +47,13 @@ export const ReviewerMode = Object.freeze({
 
 export { finalizeCitationsInMarkdown };
 export { generateReport };
+export { generatePlaceholderReport };
 
 function normalizeGapIds(v) {
+  return normalizeStringArray(v);
+}
+
+function normalizeTodoIds(v) {
   return normalizeStringArray(v);
 }
 
@@ -67,7 +73,7 @@ function resolveReportVoice(state) {
 }
 
 function computeFeedbackToResearch(state, { minResolvedEvidencePerClaim = 1 } = {}) {
-  const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
+  const todos = Array.isArray(state?.todos) ? state.todos : [];
   const claims = Array.isArray(state?.L1?.claims) ? state.L1.claims : [];
   const evidenceLedger = Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger : [];
 
@@ -78,22 +84,47 @@ function computeFeedbackToResearch(state, { minResolvedEvidencePerClaim = 1 } = 
     evidenceById.set(String(eid), e);
   }
 
-  const claimCountByGapId = new Map();
+  const todoById = new Map();
+  const todoIdByGapId = new Map();
+  for (const t of todos) {
+    const tid = toNonEmptyString(t?.todoId);
+    if (tid && !todoById.has(tid)) todoById.set(tid, t);
+    const gapId = toNonEmptyString(t?.relatedGapId);
+    if (gapId && tid && !todoIdByGapId.has(gapId)) todoIdByGapId.set(gapId, tid);
+  }
+
+  const resolveTodoIdsForClaim = (claim) => {
+    let todoIds = normalizeTodoIds(claim?.todoIds);
+    if (!todoIds.length) {
+      const gapIds = normalizeGapIds(claim?.gapIds);
+      if (gapIds.length) {
+        todoIds = gapIds
+          .map((gid) => todoIdByGapId.get(gid))
+          .map((id) => String(id || "").trim())
+          .filter(Boolean);
+      }
+    }
+    return todoIds;
+  };
+
+  const claimCountByTodoId = new Map();
   for (const c of claims) {
-    const gapIds = normalizeGapIds(c?.gapIds);
-    for (const gid of gapIds) claimCountByGapId.set(gid, (claimCountByGapId.get(gid) || 0) + 1);
+    const todoIds = resolveTodoIdsForClaim(c);
+    for (const tid of todoIds) claimCountByTodoId.set(tid, (claimCountByTodoId.get(tid) || 0) + 1);
   }
 
-  const reopenGaps = [];
-  const missingGapIds = [];
-  for (const g of gaps) {
-    const gid = toNonEmptyString(g?.gapId);
-    if (!gid) continue;
-    const count = claimCountByGapId.get(String(gid)) || 0;
-    if (count < 1) missingGapIds.push(String(gid));
+  const todoIdsNeedingResearch = [];
+  const missingTodoIds = [];
+  for (const t of todos) {
+    const tid = toNonEmptyString(t?.todoId);
+    if (!tid) continue;
+    const status = toNonEmptyString(t?.status) || "open";
+    if (status === "cancelled") continue;
+    const count = claimCountByTodoId.get(String(tid)) || 0;
+    if (count < 1) missingTodoIds.push(String(tid));
   }
 
-  const newGaps = [];
+  const newTodos = [];
   const insufficientEvidenceClaims = [];
 
   const minEvidence = Number.isFinite(minResolvedEvidencePerClaim) ? Math.max(0, Math.floor(minResolvedEvidencePerClaim)) : 1;
@@ -104,41 +135,58 @@ function computeFeedbackToResearch(state, { minResolvedEvidencePerClaim = 1 } = 
     if (resolved.length >= minEvidence) continue;
 
     if (claimId) insufficientEvidenceClaims.push(claimId);
-    const gapIds = normalizeGapIds(c?.gapIds);
-    if (gapIds.length) {
-      for (const gid of gapIds) reopenGaps.push(String(gid));
+    const todoIds = resolveTodoIdsForClaim(c);
+    if (todoIds.length) {
+      for (const tid of todoIds) todoIdsNeedingResearch.push(String(tid));
     } else {
       const text = toNonEmptyString(c?.text);
-      if (text) newGaps.push({ question: `Find evidence to support: ${String(text).slice(0, 140)}`, priority: "high" });
+      if (text) newTodos.push({ text: `Find evidence to support: ${String(text).slice(0, 140)}`, priority: "high" });
     }
   }
 
-  for (const gid of missingGapIds) reopenGaps.push(String(gid));
+  for (const tid of missingTodoIds) todoIdsNeedingResearch.push(String(tid));
 
-  const normalizedReopen = Array.from(new Set(reopenGaps.map((x) => String(x || "").trim()).filter(Boolean)));
+  const normalizedTodoIds = Array.from(new Set(todoIdsNeedingResearch.map((x) => String(x || "").trim()).filter(Boolean)));
   const normalizedNew = [];
   const newKey = new Set();
-  for (const g of Array.isArray(newGaps) ? newGaps : []) {
-    const q = toNonEmptyString(g?.question);
-    if (!q) continue;
-    const key = q.toLowerCase();
+  for (const t of Array.isArray(newTodos) ? newTodos : []) {
+    const text = toNonEmptyString(t?.text) || toNonEmptyString(t?.question);
+    if (!text) continue;
+    const key = text.toLowerCase();
     if (newKey.has(key)) continue;
     newKey.add(key);
-    const priority = toNonEmptyString(g?.priority);
-    normalizedNew.push({ question: String(q), ...(priority ? { priority: String(priority) } : {}) });
+    const priority = toNonEmptyString(t?.priority);
+    const queryHints = Array.isArray(t?.queryHints) ? t.queryHints : [];
+    const expectedEvidence = toNonEmptyString(t?.expectedEvidence);
+    const relatedGapId = toNonEmptyString(t?.relatedGapId);
+    normalizedNew.push({
+      text: String(text),
+      ...(priority ? { priority: String(priority) } : {}),
+      ...(queryHints.length ? { queryHints } : {}),
+      ...(expectedEvidence ? { expectedEvidence: String(expectedEvidence) } : {}),
+      ...(relatedGapId ? { relatedGapId: String(relatedGapId) } : {}),
+    });
   }
 
-  const needsMoreResearch = normalizedReopen.length > 0 || normalizedNew.length > 0 || (gaps.length > 0 && claims.length === 0);
+  const needsMoreResearch = normalizedTodoIds.length > 0 || normalizedNew.length > 0 || (todos.length > 0 && claims.length === 0);
   const parts = [];
-  if (missingGapIds.length) parts.push(`missingClaimsForGaps=${missingGapIds.length}`);
+  if (missingTodoIds.length) parts.push(`missingClaimsForTodos=${missingTodoIds.length}`);
   if (insufficientEvidenceClaims.length) parts.push(`insufficientEvidenceClaims=${insufficientEvidenceClaims.length}`);
-  if (gaps.length > 0 && claims.length === 0) parts.push("noClaims");
+  if (todos.length > 0 && claims.length === 0) parts.push("noClaims");
   const reason = parts.length ? parts.join("; ") : undefined;
+
+  const relatedGapIds = [];
+  for (const tid of normalizedTodoIds) {
+    const gapId = toNonEmptyString(todoById.get(tid)?.relatedGapId);
+    if (gapId) relatedGapIds.push(String(gapId));
+  }
+  const normalizedGapIds = Array.from(new Set(relatedGapIds.map((x) => String(x || "").trim()).filter(Boolean)));
 
   return {
     needsMoreResearch,
-    reopenGaps: normalizedReopen,
-    newGaps: normalizedNew,
+    todoIds: normalizedTodoIds,
+    newTodos: normalizedNew,
+    ...(normalizedGapIds.length ? { gapIds: normalizedGapIds } : {}),
     ...(reason ? { reason } : {}),
   };
 }
@@ -227,7 +275,13 @@ async function tryLLMSlidePlan(state, { title, claimIds, claims }, stageApi) {
           title: String(title || ""),
           targetSlideCount: suggestedSlideCount,
           claimIds: Array.isArray(claimIds) ? claimIds : [],
-          claims: (Array.isArray(claims) ? claims : []).slice(0, 30).map((c) => ({ claimId: c?.claimId, text: c?.text, importance: c?.importance, gapIds: c?.gapIds })),
+          claims: (Array.isArray(claims) ? claims : []).slice(0, 30).map((c) => ({
+            claimId: c?.claimId,
+            text: c?.text,
+            importance: c?.importance,
+            todoIds: c?.todoIds,
+            gapIds: c?.gapIds,
+          })),
         },
         null,
         2
@@ -268,12 +322,14 @@ export async function runDeepSearchWriteStage(runContext, input, stageApi = {}) 
   // 诊断日志：检查 write 阶段获取的数据
   const evidenceLedger = Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger : [];
   const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
+  const todos = Array.isArray(state?.todos) ? state.todos : [];
   const sources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
   console.log("[DeepSearch] write stage data check:", {
     claimCount: claims.length,
     claimIds: claimIds.slice(0, 5),
     evidenceCount: evidenceLedger.length,
     gapCount: gaps.length,
+    todoCount: todos.length,
     sourceCount: sources.length,
     iteration: state?.iteration,
     hasL1: !!state?.L1,
@@ -335,8 +391,10 @@ export async function runDeepSearchWriteStage(runContext, input, stageApi = {}) 
   const reportConfig = resolveReportLengthConfig(state?.userConfig);
   const claimsForReport = Array.isArray(state?.L1?.claims) ? state.L1.claims : [];
   const evidenceForReport = Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger : [];
+  const todosForReport = Array.isArray(state?.todos) ? state.todos : [];
   const gapsForReport = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
   const sourcesForReport = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
+  const todoInputForReport = todosForReport.length ? todosForReport : gapsForReport;
 
   // 检查写作模式：react（问题驱动）或 legacy（JSON dump）
   // 默认使用 react 模式（问题驱动写作），可通过 userConfig.write.writerMode 配置
@@ -357,6 +415,8 @@ export async function runDeepSearchWriteStage(runContext, input, stageApi = {}) 
       const reactWriterResult = await runReactWriter(
         {
           state,
+          todos: todosForReport,
+          gaps: gapsForReport,
           claims: claimsForReport,
           evidenceLedger: evidenceForReport,
           sources: sourcesForReport,
@@ -379,9 +439,12 @@ export async function runDeepSearchWriteStage(runContext, input, stageApi = {}) 
 
             // 保存中间结果（writeSection 时）
             if (step.action?.tool === 'writeSection' && params.markdown) {
+              const resolvedTodoId = toNonEmptyString(params.todoId) || toNonEmptyString(params.gapId);
               partialSections.push({
                 sectionId: params.sectionId || `sec_${partialSections.length + 1}`,
                 title: params.title || '未命名章节',
+                ...(resolvedTodoId ? { todoId: resolvedTodoId } : {}),
+                ...(toNonEmptyString(params.gapId) ? { gapId: params.gapId } : {}),
                 markdown: params.markdown,
               });
               // 保存到 state 以便恢复
@@ -399,6 +462,7 @@ export async function runDeepSearchWriteStage(runContext, input, stageApi = {}) 
               toolParams: {
                 sectionId: params.sectionId,
                 title: params.title,
+                todoId: params.todoId,
                 gapId: params.gapId,
               },
               markdownPreview,
@@ -465,7 +529,14 @@ export async function runDeepSearchWriteStage(runContext, input, stageApi = {}) 
     if (reportConfig.strategy === "toc-based") {
       report = await generateReportTocBasedWithLLM(
         state,
-        { claims: claimsForReport, evidenceLedger: evidenceForReport, gaps: gapsForReport, sources: sourcesForReport, config: reportConfig },
+        {
+          claims: claimsForReport,
+          evidenceLedger: evidenceForReport,
+          todos: todosForReport,
+          gaps: gapsForReport,
+          sources: sourcesForReport,
+          config: reportConfig,
+        },
         stageApi,
         emit
       );
@@ -475,10 +546,32 @@ export async function runDeepSearchWriteStage(runContext, input, stageApi = {}) 
       report =
         (await generateReportSingleWithLLM(
           state,
-          { claims: claimsForReport, evidenceLedger: evidenceForReport, gaps: gapsForReport, sources: sourcesForReport, config: reportConfig },
+          {
+            claims: claimsForReport,
+            evidenceLedger: evidenceForReport,
+            todos: todosForReport,
+            gaps: gapsForReport,
+            sources: sourcesForReport,
+            config: reportConfig,
+          },
           stageApi
-        )) || generateReport(claimsForReport, evidenceForReport, gapsForReport, sourcesForReport, String(state?.taskGoal || ""));
+        )) || generateReport(claimsForReport, evidenceForReport, todoInputForReport, sourcesForReport, String(state?.taskGoal || ""));
     }
+  }
+
+  const allTodosResolved =
+    todosForReport.length > 0 &&
+    todosForReport.every((t) => {
+      const status = toNonEmptyString(t?.status) || "open";
+      return status === "completed" || status === "cancelled";
+    });
+  const completionReason =
+    toNonEmptyString(state?.L2?.reason) ||
+    (state?.L2?.taskImpossible ? "Task marked impossible." : "All todos completed.");
+  const hasReportContent = isPlainObject(report) && (typeof report?.markdown === "string" || typeof report?.draftMarkdown === "string");
+  if ((!hasReportContent || (!claimsForReport.length && allTodosResolved)) && allTodosResolved) {
+    report = generatePlaceholderReport({ taskGoal: state?.taskGoal, todos: todosForReport, completionReason });
+    reportStrategy = "placeholder";
   }
 
   report = {

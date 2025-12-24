@@ -503,7 +503,7 @@
 /* ==================== Workflow Mode (Upload View) ==================== */
 .ppt-workmode-panel {
     width: 100%;
-    max-width: 900px;
+    max-width: 840px;
     margin: 0 auto 20px;
 }
 
@@ -511,38 +511,38 @@
     background: rgba(255, 255, 255, 0.72);
     border: 1px solid var(--ppt-border);
     border-radius: var(--ppt-radius-xl);
-    padding: 18px;
+    padding: 16px;
     box-shadow: var(--ppt-shadow-sm);
     backdrop-filter: blur(6px);
 }
 
 .ppt-workmode-header {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
     gap: 16px;
-    margin-bottom: 14px;
+    margin-bottom: 12px;
 }
 
 .ppt-workmode-title {
     font-weight: 750;
-    font-size: 14px;
+    font-size: 13px;
     color: var(--ppt-text-main);
     letter-spacing: -0.01em;
 }
 
 .ppt-workmode-desc {
-    font-size: 12px;
+    font-size: 11px;
     color: var(--ppt-text-secondary);
-    margin-top: 4px;
-    line-height: 1.45;
-    max-width: 52ch;
+    margin-top: 2px;
+    line-height: 1.4;
+    max-width: 60ch;
 }
 
 .ppt-workmode-edit-btn {
-    padding: 8px 10px;
-    border-radius: 10px;
-    font-size: 12px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    font-size: 11px;
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -552,7 +552,7 @@
 .ppt-workmode-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 12px;
+    gap: 10px;
 }
 
 @media (max-width: 860px) {
@@ -565,8 +565,8 @@
     display: flex;
     align-items: flex-start;
     gap: 10px;
-    padding: 14px 14px 12px;
-    border-radius: 14px;
+    padding: 10px 12px 10px;
+    border-radius: 12px;
     border: 1px solid var(--ppt-border);
     background: rgba(255, 255, 255, 0.85);
     box-shadow: var(--ppt-shadow-sm);
@@ -589,9 +589,9 @@
 }
 
 .ppt-workmode-option-icon {
-    width: 30px;
-    height: 30px;
-    border-radius: 10px;
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -612,15 +612,15 @@
 
 .ppt-workmode-option-title {
     font-weight: 650;
-    font-size: 13px;
+    font-size: 12px;
     color: var(--ppt-text-main);
 }
 
 .ppt-workmode-option-desc {
-    font-size: 12px;
+    font-size: 10.5px;
     color: var(--ppt-text-secondary);
-    margin-top: 3px;
-    line-height: 1.4;
+    margin-top: 2px;
+    line-height: 1.35;
 }
 
 .ppt-workmode-brief {
@@ -1084,9 +1084,10 @@
 }
 
 .ppt-question-form:not(.page-layout) {
-    max-width: 900px;
-    height: calc(100vh - 120px); /* Account for header and margins */
-    margin: 24px auto;
+    max-width: 1000px;
+    height: auto;
+    max-height: calc(100vh - 100px);
+    margin: 20px auto;
 }
 
 .ppt-question-form.page-layout {
@@ -1433,32 +1434,32 @@
 
 .form-group {
     background: white;
-    padding: 20px 24px;
+    padding: 16px 20px;
     border-radius: var(--ppt-radius-lg);
     border: 1px solid var(--ppt-border);
     transition: all 0.2s;
-    box-shadow: var(--ppt-shadow-sm);
+    box-shadow: none;
 }
 
 .form-group:hover {
     border-color: var(--ppt-primary-light);
-    box-shadow: var(--ppt-shadow-md);
+    box-shadow: var(--ppt-shadow-sm);
 }
 
 .form-group label {
     display: block;
-    font-size: 17px;
+    font-size: 15px;
     font-weight: 600;
     color: var(--ppt-text-main);
-    margin-bottom: 20px;
+    margin-bottom: 12px;
 }
 
 /* Radio Group Grid */
 .form-radio-group {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    gap: 16px;
-    margin-bottom: 20px;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
 }
 
 /* Radio Option Card */
@@ -1466,19 +1467,18 @@
     position: relative;
     display: flex;
     align-items: center;
-    padding: 20px;
+    padding: 14px 16px;
     background: white;
-    border: 2px solid transparent;
+    border: 2px solid var(--ppt-border);
     border-radius: var(--ppt-radius-md);
     cursor: pointer;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: var(--ppt-shadow-sm);
+    box-shadow: none;
 }
 
 .radio-option:hover {
     border-color: var(--ppt-primary-light);
-    transform: translateY(-2px);
-    box-shadow: var(--ppt-shadow-md);
+    background: var(--ppt-bg-subtle);
 }
 
 /* Hide default radio */
@@ -1498,14 +1498,14 @@
 }
 
 .radio-label {
-    font-size: 15px;
+    font-size: 14px;
     color: var(--ppt-text-secondary);
     font-weight: 500;
     line-height: 1.4;
 }
 
 .radio-check-icon {
-    font-size: 22px;
+    font-size: 20px;
     color: var(--ppt-primary);
     opacity: 0;
     transform: scale(0.5);
@@ -1517,7 +1517,7 @@
 .radio-option:has(input:checked) {
     border-color: var(--ppt-primary);
     background: var(--ppt-primary-subtle);
-    box-shadow: 0 4px 12px -2px rgba(79, 70, 229, 0.15);
+    box-shadow: 0 2px 8px -2px rgba(79, 70, 229, 0.1);
 }
 
 .radio-option input:checked + .radio-content .radio-label {
@@ -1533,38 +1533,61 @@
 /* Custom Input Wrapper */
 .form-custom-input-wrapper {
     display: flex;
-    gap: 12px;
-    padding-top: 20px;
+    gap: 10px;
+    padding-top: 16px;
     border-top: 1px dashed var(--ppt-border);
 }
 
 .form-custom-input-wrapper .ppt-input-field {
-    background: white;
+    background: var(--ppt-bg-subtle);
     border: 1px solid var(--ppt-border);
     transition: all 0.2s;
-    height: 44px;
+    height: 40px;
     border-radius: var(--ppt-radius-md);
-    padding: 0 16px;
+    padding: 0 14px;
+    font-size: 13.5px;
 }
 
 .form-custom-input-wrapper .ppt-input-field:focus {
+    background: white;
     border-color: var(--ppt-primary);
     box-shadow: 0 0 0 3px var(--ppt-primary-light);
 }
 
 .form-custom-input-wrapper .ppt-icon-btn {
-    width: 44px;
-    height: 44px;
-    background: white;
+    width: 40px;
+    height: 40px;
+    background: var(--ppt-bg-subtle);
     border: 1px solid var(--ppt-border);
-    color: var(--ppt-primary);
+    color: var(--ppt-text-secondary);
     border-radius: var(--ppt-radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
 }
 
 .form-custom-input-wrapper .ppt-icon-btn:hover {
     background: var(--ppt-primary);
     color: white;
     border-color: var(--ppt-primary);
+}
+
+.form-group textarea.ppt-input-field {
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid var(--ppt-border);
+    border-radius: var(--ppt-radius-md);
+    background: var(--ppt-bg-subtle);
+    font-size: 14px;
+    transition: all 0.2s;
+    outline: none;
+}
+
+.form-group textarea.ppt-input-field:focus {
+    background: white;
+    border-color: var(--ppt-primary);
+    box-shadow: 0 0 0 3px var(--ppt-primary-light);
 }
 
 /* ==================== DeepSearch Premium UI ==================== */

@@ -19,14 +19,14 @@
 4. **结论**：关键要点、启示、建议
 
 ## 可用工具
-- getGaps(): 获取研究问题以了解范围
-- getGapDetail({gapId}): 获取问题详情和论点
-- getClaimsForGap({gapId}): 获取问题的所有论点及证据
+- getTodos(): 获取研究待办以了解范围
+- getTodoDetail({todoId}): 获取待办详情和论点
+- getClaimsForTodo({todoId}): 获取待办的所有论点及证据
 - getEvidence({evidenceId}): 获取完整引文和来源
 - getSourceChunk({sourceId, start, end}): 读取更多上下文
 - searchEvidence({query}): 按关键词搜索证据
 - planOutline({sections}): 写作前先规划报告结构
-- writeSection({sectionId, title, markdown}): 撰写章节
+- writeSection({sectionId, todoId, title, markdown}): 撰写章节
 - editSection({sectionId, markdown}): 编辑已有章节
 - getProgress(): 检查当前字数与目标字数
 - finishReport({title, executiveSummary}): 完成报告并添加摘要
@@ -38,7 +38,7 @@
 }
 
 ## 写作流程
-1. 首先：调用 getGaps() 了解所有问题
+1. 首先：调用 getTodos() 了解所有待办
 2. 然后：调用 planOutline() 设计报告结构
 3. 对于每个章节：收集证据，然后 writeSection
 4. 定期：调用 getProgress() 检查字数

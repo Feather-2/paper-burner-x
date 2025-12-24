@@ -40,6 +40,27 @@ export const deepsearchMixin = {
         viz.gaps = gaps;
     },
 
+    _upsertDeepSearchVizTodo(detail) {
+        if (!detail || typeof detail !== 'object') return;
+        const tid = typeof detail.todoId === 'string' ? detail.todoId : String(detail.todoId || '').trim();
+        if (!tid) return;
+
+        const viz = this.workflowData.deepsearchViz;
+        const todos = Array.isArray(viz.todos) ? viz.todos : [];
+        const idx = todos.findIndex(t => t?.todoId === tid);
+        const next = {
+            ...(idx >= 0 && todos[idx] && typeof todos[idx] === 'object' ? todos[idx] : {}),
+            todoId: tid,
+            ...(detail.text ? { text: detail.text } : {}),
+            ...(detail.priority ? { priority: detail.priority } : {}),
+            ...(detail.status ? { status: detail.status } : {}),
+            ...(detail.source ? { source: detail.source } : {}),
+        };
+        if (idx >= 0) todos[idx] = next;
+        else todos.push(next);
+        viz.todos = todos;
+    },
+
     _scheduleVizRerender() {
         if (this._vizRerenderTimer) return;
         this._vizRerenderTimer = setTimeout(() => {
@@ -388,6 +409,15 @@ export const deepsearchMixin = {
             throw err;
         }
 
+        if (pkg?.paused) {
+            const reason = pkg.reason || 'Awaiting user input';
+            this.workflowData.deepsearchPaused = { reason, checkpointId: pkg.checkpointId, pausedAt: Date.now() };
+            transitionWorkflow(this, WorkflowState.DEEPSEARCH_REVIEW);
+            this.addChatMessage('ai', `DeepSearch 已暂停：${reason}。请补充待办后继续。`);
+            this.renderPreviewArea();
+            return;
+        }
+
         this.workflowData.contentPackage = pkg;
         this.workflowData.report = pkg?.report || null;
         this.workflowData.slideIntents = pkg?.slideIntents || [];
@@ -493,6 +523,14 @@ export const deepsearchMixin = {
 
         try {
             const pkg = await this._orchestrator.runStage('deepsearch.pipeline', { state });
+            if (pkg?.paused) {
+                const reason = pkg.reason || 'Awaiting user input';
+                this.workflowData.deepsearchPaused = { reason, checkpointId: pkg.checkpointId, pausedAt: Date.now() };
+                transitionWorkflow(this, WorkflowState.DEEPSEARCH_REVIEW);
+                this.addChatMessage('ai', `DeepSearch 已暂停：${reason}。请补充待办后继续。`);
+                this.renderPreviewArea();
+                return;
+            }
             this.workflowData.contentPackage = pkg;
             this.workflowData.report = pkg?.report || null;
             this.workflowData.slideIntents = pkg?.slideIntents || [];
@@ -523,14 +561,20 @@ export const deepsearchMixin = {
             iteration: 0,
             maxIterations: 1,
             lastCompletedIteration: null,
+            totalTodos: 0,
+            openTodoCount: 0,
+            completedTodoCount: 0,
+            blockedTodoCount: 0,
             openGapCount: 0,
             gaps: [],
+            todos: [],
             updatedAt: Date.now(),
             // 新增：阶段追踪
             currentPhase: null,          // 当前阶段: scan, gaps, retrieve, understand, write, condense
             phaseHistory: [],             // 阶段历史记录
             stageMetrics: {               // 每个阶段的指标
                 scan: { status: 'pending', startedAt: null, completedAt: null, detail: null },
+                todos: { status: 'pending', startedAt: null, completedAt: null, detail: null },
                 gaps: { status: 'pending', startedAt: null, completedAt: null, detail: null },
                 retrieve: { status: 'pending', startedAt: null, completedAt: null, detail: null },
                 understand: { status: 'pending', startedAt: null, completedAt: null, detail: null },
@@ -545,7 +589,16 @@ export const deepsearchMixin = {
 
         viz.iteration = typeof state?.iteration === 'number' ? state.iteration : 0;
         viz.maxIterations = typeof state?.maxIterations === 'number' ? state.maxIterations : viz.maxIterations;
+        const todos = Array.isArray(state?.todos) ? state.todos : [];
         const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
+        viz.todos = todos.map(t => ({
+            todoId: t?.todoId,
+            text: t?.text,
+            priority: t?.priority,
+            status: t?.status,
+            source: t?.source,
+            relatedGapId: t?.relatedGapId,
+        }));
         viz.gaps = gaps.map(g => ({
             gapId: g?.gapId,
             type: g?.type,
@@ -555,7 +608,20 @@ export const deepsearchMixin = {
             missCount: g?.missCount,
             blockedReason: g?.blockedReason,
         }));
-        viz.openGapCount = gaps.filter(g => (g?.status ? String(g.status) : 'open') === 'open').length;
+        const statusOf = (todo) => {
+            const raw = String(todo?.status || 'open').toLowerCase();
+            if (raw === 'completed') return 'completed';
+            if (raw === 'cancelled') return 'blocked';
+            if (raw === 'pending') return 'open';
+            return 'open';
+        };
+        viz.totalTodos = todos.length;
+        viz.openTodoCount = todos.filter(t => statusOf(t) === 'open').length;
+        viz.completedTodoCount = todos.filter(t => statusOf(t) === 'completed').length;
+        viz.blockedTodoCount = todos.filter(t => statusOf(t) === 'blocked').length;
+        viz.openGapCount = gaps.length
+            ? gaps.filter(g => (g?.status ? String(g.status) : 'open') === 'open').length
+            : viz.openTodoCount;
         viz.updatedAt = Date.now();
     },
 };

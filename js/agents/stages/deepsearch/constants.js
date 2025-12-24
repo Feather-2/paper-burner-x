@@ -171,6 +171,8 @@ export {
   gapMachine,
   GapPriority,
   TodoStatus,
+  TODO_TRANSITIONS,
+  todoMachine,
   PlanNodeStatus,
   PlanNodeType,
   DecisionOutcome,
@@ -180,10 +182,11 @@ export {
   agentLoopMachine,
   isValidGapPriority,
   isValidGapStatus,
+  isValidTodoStatus,
   isValidPlanNodeStatus,
   isValidPlanNodeType,
   isValidDecisionOutcome,
   isValidDecisionStage,
+  transitionTodo,
   isValidAgentLoopStatus,
 } from "./states.js";
-

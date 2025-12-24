@@ -17,6 +17,7 @@ import OutlineReviewView from './views/outline-review-view.js';
 import PageLayoutView from './views/page-layout-view.js';
 import DesignPreferencesView from './views/design-preferences-view.js';
 import DesignerView from './views/designer-view.js';
+import ModernResearchView from './views/modern-research-view.js';
 import FailedView from './views/failed-view.js';
 
 export function startPptUiV2({ container = '#pptPreviewArea', generator } = {}) {
@@ -41,7 +42,7 @@ export function startPptUiV2({ container = '#pptPreviewArea', generator } = {}) 
   router
     .register(ViewType.UPLOAD, UploadView)
     .register(ViewType.BRIEFING, BriefingView)
-    .register(ViewType.DEEPSEARCH_PREMIUM, ResearchView)
+    .register(ViewType.DEEPSEARCH_PREMIUM, ModernResearchView)
     .register(ViewType.DEEPSEARCH_REVIEW, DeepsearchReviewView)
     .register(ViewType.QUESTIONING, QuestioningView)
     .register(ViewType.SCRIPT_REVIEW, ScriptReviewView)

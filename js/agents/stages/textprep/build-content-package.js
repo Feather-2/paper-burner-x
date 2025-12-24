@@ -175,6 +175,26 @@ export function buildContentPackage(runContext, sources, slideIntents, claims, e
   const outlineCandidates = Array.isArray(extra.outlineCandidates) ? extra.outlineCandidates : [];
   const scanSummary = isPlainObject(extra.scanSummary) ? extra.scanSummary : null;
   const gaps = Array.isArray(extra.gaps) ? extra.gaps : [];
+  const todos = Array.isArray(extra.todos) ? extra.todos : [];
+  const completionReason = toNonEmptyString(extra.completionReason);
+  const todoStats = (() => {
+    const fallback = { total: todos.length, completed: 0, cancelled: 0, open: 0 };
+    if (isPlainObject(extra.todoCompletionStats)) {
+      const total = Number.isFinite(extra.todoCompletionStats.total) ? extra.todoCompletionStats.total : fallback.total;
+      const completed = Number.isFinite(extra.todoCompletionStats.completed) ? extra.todoCompletionStats.completed : 0;
+      const cancelled = Number.isFinite(extra.todoCompletionStats.cancelled) ? extra.todoCompletionStats.cancelled : 0;
+      return { total, completed, cancelled, open: Math.max(0, total - completed - cancelled) };
+    }
+    const statusOf = (todo) => {
+      const raw = String(todo?.status || "open").toLowerCase();
+      if (raw === "completed") return "completed";
+      if (raw === "cancelled") return "cancelled";
+      return "open";
+    };
+    const completed = todos.filter((t) => statusOf(t) === "completed").length;
+    const cancelled = todos.filter((t) => statusOf(t) === "cancelled").length;
+    return { total: todos.length, completed, cancelled, open: Math.max(0, todos.length - completed - cancelled) };
+  })();
   const condensedMemory = extra.condensedMemory !== undefined ? extra.condensedMemory : null;
   const report = isPlainObject(extra.report) ? extra.report : null;
 
@@ -212,11 +232,18 @@ export function buildContentPackage(runContext, sources, slideIntents, claims, e
   if (mode === "deepsearch") {
     pkg.scanSummary = scanSummary;
     pkg.gaps = gaps;
+    pkg.todos = todos;
     pkg.condensedMemory = condensedMemory;
     pkg.metrics.deepsearch = {
       sourceCount: Array.isArray(srcRefs) ? srcRefs.length : 0,
+      todoCount: todoStats.total,
+      openTodoCount: todoStats.open,
+      completedTodoCount: todoStats.completed,
+      cancelledTodoCount: todoStats.cancelled,
       gapCount: gaps.length,
     };
+    pkg.todoCompletionStats = { total: todoStats.total, completed: todoStats.completed, cancelled: todoStats.cancelled };
+    if (completionReason) pkg.completionReason = completionReason;
   }
 
   assertHardGates({

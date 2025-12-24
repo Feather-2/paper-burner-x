@@ -175,6 +175,34 @@ export const GapsBlockManifest = {
   retryable: true,
 };
 
+export const TodosBlockManifest = {
+  name: "todos",
+  version: "1.0.0",
+  description: "Generate research todos from scan summary and task goal.",
+  capabilities: ["todo_planning", "priority_ranking", "query_hinting"],
+  input: {
+    type: "object",
+    properties: {
+      state: { type: "object", description: "DeepSearchState with scan summary" },
+      scanSummary: { type: "object", description: "Summary from scan stage" },
+    },
+    required: ["state"],
+  },
+  output: {
+    type: "object",
+    properties: {
+      todos: { type: "array", description: "Generated research todos" },
+    },
+  },
+  whenToUse: "Use after scan to plan research tasks as todos.",
+  dependsOn: ["scan"],
+  incompatibleWith: [],
+  estimatedCost: "medium",
+  estimatedTokens: 3000,
+  timeoutMs: 30000,
+  retryable: true,
+};
+
 export const UnderstandBlockManifest = {
   name: "understand",
   version: "1.0.0",
@@ -275,7 +303,7 @@ export const CondenseBlockManifest = {
  */
 export const DeepSearchBlockManifests = [
   ScanBlockManifest,
-  GapsBlockManifest,
+  TodosBlockManifest,
   RetrieveBlockManifest,
   UnderstandBlockManifest,
   WriteBlockManifest,

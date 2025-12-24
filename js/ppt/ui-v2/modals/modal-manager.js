@@ -34,6 +34,7 @@ export class ModalManager {
     this._pendingUrls = [];
     this._selectedUrlIndex = -1;
     this._plannerOutline = [];
+    this._briefingFormTimer = null;
     this._pasteDocumentModalTimer = null;
     this._pasteDocumentModalKeyHandler = null;
     this._subscriptions = [];
@@ -79,7 +80,133 @@ export class ModalManager {
     generator.openUrlInput = (...args) => this.openUrlInput(...args);
     generator.openPasteDocumentModal = (...args) => this.openPasteDocumentModal(...args);
     generator.openOutlinePlanner = (...args) => this.openOutlinePlanner(...args);
+    generator.openBriefingModal = (...args) => this.openBriefingModal(...args);
     generator.confirmDialog = (...args) => this.confirmDialog(...args);
+  }
+
+  openBriefingModal() {
+    const generator = this._ensureGenerator();
+    if (!generator || typeof document === 'undefined') return;
+
+    const modalId = 'pptBriefingModal';
+    const existing = document.getElementById(modalId);
+    if (existing) existing.remove();
+
+    const brief = this.stateStore.getState('data.projectBrief') || {};
+    const taskGoal = typeof brief.taskGoal === 'string' ? brief.taskGoal : '';
+    const projectSummary = typeof brief.projectSummary === 'string' ? brief.projectSummary : '';
+    const audience = typeof brief.audience === 'string' ? brief.audience : '';
+    const tone = typeof brief.tone === 'string' ? brief.tone : '';
+    const workflowMode = this.stateStore.getState('data.workflowMode') || 'auto';
+    const modeLabel = workflowMode === 'auto'
+      ? 'Auto-pilot'
+      : (workflowMode === 'guided' ? 'Guided' : 'Manual');
+
+    const overlay = document.createElement('div');
+    overlay.id = modalId;
+    overlay.className = 'ppt-modal-overlay open';
+    overlay.innerHTML = `
+      <div class="ppt-modal" style="width: min(800px, 95vw); max-height: 90vh; display: flex; flex-direction: column;">
+        <div class="ppt-modal-header">
+          <div class="ppt-modal-title">
+            <iconify-icon icon="carbon:target"></iconify-icon>
+            <span>项目需求配置 (Project Brief)</span>
+          </div>
+          <button class="ppt-modal-close" data-action="closeBriefingModal">
+            <iconify-icon icon="carbon:close"></iconify-icon>
+          </button>
+        </div>
+        <div class="ppt-modal-body custom-scrollbar" style="flex: 1; padding: 24px; overflow-y: auto;">
+          <div style="margin-bottom: 20px; font-size: 13px; color: var(--ppt-text-secondary);">
+            用于约束 DeepSearch 与 PPT 生成方向（当前模式：${modeLabel}）。
+          </div>
+          <div class="form-group" style="margin-bottom: 20px;">
+            <label>1. 任务目标（必填）</label>
+            <input id="pptBriefTaskGoal" type="text" class="ppt-input-field" style="width: 100%;" placeholder="例如：生成一份面向高管的市场分析汇报，突出竞争格局与关键指标" value="${escapeAttr(taskGoal)}">
+          </div>
+          <div class="form-group" style="margin-bottom: 20px;">
+            <label>2. 侧重点 / 项目摘要</label>
+            <textarea id="pptBriefProjectSummary" class="ppt-input-field" style="width: 100%; min-height: 140px; line-height: 1.5;" placeholder="希望重点关注哪些结论、证据、结构或风格？">${escapeHtml(projectSummary)}</textarea>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+            <div class="form-group">
+              <label>3. 受众（可选）</label>
+              <input id="pptBriefAudience" type="text" class="ppt-input-field" style="width: 100%;" placeholder="例如：非技术高管 / 技术团队" value="${escapeAttr(audience)}">
+            </div>
+            <div class="form-group">
+              <label>4. 语气（可选）</label>
+              <input id="pptBriefTone" type="text" class="ppt-input-field" style="width: 100%;" placeholder="例如：商务严谨 / 科技感" value="${escapeAttr(tone)}">
+            </div>
+          </div>
+        </div>
+        <div class="ppt-modal-footer">
+          <button class="ppt-btn ppt-btn-secondary" data-action="closeBriefingModal">取消</button>
+          <button class="ppt-btn ppt-btn-primary" data-action="submitBriefingModal">
+            保存修改 <iconify-icon icon="carbon:checkmark"></iconify-icon>
+          </button>
+        </div>
+      </div>
+    `;
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) this.closeBriefingModal();
+    });
+
+    const host = getModalHost(generator);
+    host?.appendChild(overlay);
+
+    this._briefingFormTimer = setTimeout(() => {
+      document.getElementById('pptBriefTaskGoal')?.focus();
+    }, 100);
+
+    bindActionEvents(overlay, (action) => {
+      switch (action) {
+        case 'closeBriefingModal':
+          return () => this.closeBriefingModal();
+        case 'submitBriefingModal':
+          return () => this.submitBriefingModal();
+        default:
+          return null;
+      }
+    });
+  }
+
+  closeBriefingModal() {
+    if (this._briefingFormTimer) {
+      clearTimeout(this._briefingFormTimer);
+      this._briefingFormTimer = null;
+    }
+    const modal = document.getElementById('pptBriefingModal');
+    if (modal) {
+      modal.classList.remove('open');
+      setTimeout(() => modal.remove(), 300);
+    }
+  }
+
+  submitBriefingModal() {
+    const taskGoal = document.getElementById('pptBriefTaskGoal')?.value?.trim() || '';
+    if (!taskGoal) {
+      alert('请填写「任务目标」(taskGoal)，否则无法开始。');
+      return;
+    }
+
+    const projectSummary = document.getElementById('pptBriefProjectSummary')?.value?.trim() || '';
+    const audience = document.getElementById('pptBriefAudience')?.value?.trim() || '';
+    const tone = document.getElementById('pptBriefTone')?.value?.trim() || '';
+
+    const brief = { taskGoal, projectSummary, audience, tone };
+    
+    this.stateStore.setState('data.projectBrief', brief);
+    this.stateStore.setState('data.taskGoal', brief.taskGoal || '');
+    this.adapter?.setProjectBrief?.(brief);
+
+    this.closeBriefingModal();
+    
+    // If we were pending start, trigger it
+    if (this.stateStore.getState('ui.pendingStart')) {
+      this.stateStore.setState('ui.pendingStart', false);
+      this.adapter?.startWorkflow?.({ skipBriefCheck: true });
+    }
   }
 
   openHistorySelector() {

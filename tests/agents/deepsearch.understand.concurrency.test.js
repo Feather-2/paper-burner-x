@@ -10,22 +10,22 @@ function extractChunk0Text(prompt) {
   return (next >= 0 ? after.slice(0, next) : after).trimEnd();
 }
 
-test("DeepSearch S5: understand per-gap LLM calls are concurrency-limited", async () => {
+test("DeepSearch S5: understand per-todo LLM calls are concurrency-limited", async () => {
   const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
   const { runDeepSearchUnderstandStage } = await import("../../js/agents/stages/deepsearch/understand.js");
 
-  const gapCount = 25;
-  const lines = Array.from({ length: gapCount }, (_, i) => `Gap ${i + 1}: Alpha ${i + 1} is valid.`);
+  const todoCount = 25;
+  const lines = Array.from({ length: todoCount }, (_, i) => `Todo ${i + 1}: Alpha ${i + 1} is valid.`);
   const sourceText = lines.join("\n");
 
-  const gaps = Array.from({ length: gapCount }, (_, i) => ({
-    gapId: `g_${i + 1}`,
+  const todos = Array.from({ length: todoCount }, (_, i) => ({
+    todoId: `todo_${i + 1}`,
     status: "open",
-    type: "unknown",
-    question: `Question ${i + 1}`,
+    text: `Question ${i + 1}`,
+    queryHints: [`Alpha_${i + 1}`],
   }));
 
-  const retrievedChunks = gaps.map((g, i) => {
+  const retrievedChunks = todos.map((t, i) => {
     const quote = lines[i];
     const charStart = sourceText.indexOf(quote);
     const charEnd = charStart + quote.length;
@@ -35,13 +35,14 @@ test("DeepSearch S5: understand per-gap LLM calls are concurrency-limited", asyn
       locator: { charStart, charEnd },
       text: quote,
       score: 1.0,
-      matchedGapIds: [g.gapId],
+      todoId: t.todoId,
+      matchedTodoIds: [t.todoId],
     };
   });
 
   let active = 0;
   let maxActive = 0;
-  let perGapCalls = 0;
+  let perTodoCalls = 0;
   let releaseGate;
   const gate = new Promise((resolve) => {
     releaseGate = resolve;
@@ -56,9 +57,9 @@ test("DeepSearch S5: understand per-gap LLM calls are concurrency-limited", asyn
     async call(messages, _opts) {
       const sys = String(messages?.[0]?.content || "");
 
-      // per-gap extractor (generateClaimsWithLLM)
+      // per-todo extractor (generateClaimsWithLLM)
       if (sys.includes("你是一个严谨的研究助手")) {
-        perGapCalls += 1;
+        perTodoCalls += 1;
         active += 1;
         maxActive = Math.max(maxActive, active);
         if (!reachedLimit && active >= 10) {
@@ -89,7 +90,7 @@ test("DeepSearch S5: understand per-gap LLM calls are concurrency-limited", asyn
     taskGoal: "Test concurrency limit",
     userConfig: { reflect: { enabled: false } },
     L0: { sources: [{ sourceId: "s1", kind: "user_text", title: "Doc", sourceTextNormalized: sourceText }] },
-    L1: { gaps },
+    todos,
     L2: { retrievedChunks },
   });
 
@@ -98,8 +99,10 @@ test("DeepSearch S5: understand per-gap LLM calls are concurrency-limited", asyn
   releaseGate();
   const out = await runPromise;
 
-  assert.equal(perGapCalls, gapCount);
+  assert.equal(perTodoCalls, todoCount);
   assert.ok(maxActive <= 10, `maxActive=${maxActive} should be <= 10`);
   assert.ok(out.claims.length >= 1);
   assert.ok(out.evidenceLedger.length >= 1);
+  assert.ok(out.claims.every((c) => Array.isArray(c.todoIds) && c.todoIds.length >= 1));
+  assert.ok(out.evidenceLedger.every((e) => Array.isArray(e.todoIds) && e.todoIds.length >= 1));
 });

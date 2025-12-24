@@ -17,6 +17,7 @@ import {
   indexSourceTextById,
   locateQuoteInSourceSlice,
   normalizeGapIds,
+  normalizeTodoIds,
   normalizeImportance,
   normalizeUnderstandClaimEditsCacheKeyInputs,
   quoteFromSourceLocator,
@@ -25,6 +26,7 @@ import {
   truncate,
   validateSingleEvidence,
 } from "./understand-utils.js";
+import { migratGapToTodo } from "./todo-utils.js";
 
 export function computeGapFill(gaps, { claims, evidenceLedger } = {}) {
   const gapList = Array.isArray(gaps) ? gaps : [];
@@ -46,6 +48,46 @@ export function computeGapFill(gaps, { claims, evidenceLedger } = {}) {
     else remainingGaps.push(g);
   }
   return { filledGapIds, remainingGaps };
+}
+
+function ensureTodos(state) {
+  const existing = Array.isArray(state?.todos) ? state.todos : [];
+  if (existing.length) return existing;
+
+  const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
+  if (!gaps.length) {
+    if (!Array.isArray(state?.todos)) state.todos = [];
+    return state.todos;
+  }
+
+  const migrated = [];
+  for (const gap of gaps) {
+    const todo = migratGapToTodo(gap);
+    if (todo) migrated.push(todo);
+  }
+  state.todos = migrated;
+  return state.todos;
+}
+
+function buildTodoLookup(todos) {
+  const todoById = new Map();
+  const todoIdByGapId = new Map();
+  const gapIdByTodoId = new Map();
+  for (const t of Array.isArray(todos) ? todos : []) {
+    const todoId = toNonEmptyString(t?.todoId);
+    if (!todoId) continue;
+    todoById.set(todoId, t);
+    const gapId = toNonEmptyString(t?.relatedGapId);
+    if (gapId) {
+      todoIdByGapId.set(gapId, todoId);
+      gapIdByTodoId.set(todoId, gapId);
+    }
+  }
+  return { todoById, todoIdByGapId, gapIdByTodoId };
+}
+
+function todoDisplayText(todo) {
+  return toNonEmptyString(todo?.text) || toNonEmptyString(todo?.question) || toNonEmptyString(todo?.title) || "";
 }
 /**
  * S5 Understanding wrapper (placeholder): convert retrievedChunks to claims[] + evidenceLedger[].
@@ -87,24 +129,26 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
   }
 
   /**
-   * Generate claims with LLM for a specific gap, grounded in provided chunks.
+   * Generate claims with LLM for a specific todo, grounded in provided chunks.
    * - Returns null on "LLM unavailable" or fatal errors so caller can fallback to rules.
    * - Skips any claim whose quote cannot be precisely located in sourceTextNormalized.
    *
-   * @param {{gapId?:string,question?:string,type?:string}} gap
+   * @param {{todoId?:string,text?:string,question?:string,expectedEvidence?:string}} todo
    * @param {Array<{chunkId:string,sourceId:string,locator:{charStart:number,charEnd:number},text:string,score?:number}>} chunks
    * @param {object} stageApi
    * @param {import("./state.js").DeepSearchState} state
    * @param {{maxQuoteLen:number}} options
    * @returns {Promise<null|{claims:any[],evidences:any[]}>}
    */
-  async function generateClaimsWithLLM(gap, chunks, stageApi, state, { maxQuoteLen }) {
+  async function generateClaimsWithLLM(todo, chunks, stageApi, state, { maxQuoteLen }) {
     const callModel = getModelCaller(stageApi, { usage: "analyst", state });
     if (!callModel) return null;
 
     const contextSummary = stageApi?.getContextSummary?.() || "";
-    const gapQuestion = toNonEmptyString(gap?.question);
-    if (!gapQuestion) return null;
+    const todoQuestion = todoDisplayText(todo);
+    if (!todoQuestion) return null;
+    const expectedEvidence = toNonEmptyString(todo?.expectedEvidence);
+    const promptQuestion = expectedEvidence ? `${todoQuestion}\nExpected evidence: ${expectedEvidence}` : todoQuestion;
 
     const sourceTextById = indexSourceTextById(state?.L0?.sources);
 
@@ -114,13 +158,13 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
 
     if (!promptChunks.length) return null;
 
-    const prompt = LLM_CLAIMS_PROMPT.replace("{gapQuestion}", gapQuestion).replace("{chunkTexts}", formatChunksForLLM(promptChunks));
+    const prompt = LLM_CLAIMS_PROMPT.replace("{gapQuestion}", promptQuestion).replace("{chunkTexts}", formatChunksForLLM(promptChunks));
 
     const promptWithContext = contextSummary ? `## 已知上下文\n${contextSummary}\n\n${prompt}` : prompt;
 
     const cacheKeyInputs = {
-      gapId: toNonEmptyString(gap?.gapId) || "",
-      question: truncate(gapQuestion, 220),
+      todoId: toNonEmptyString(todo?.todoId) || "",
+      question: truncate(promptQuestion, 220),
       chunkPreviews: promptChunks.map((c) => truncate(c?.text, 240)),
     };
 
@@ -236,15 +280,32 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
    * Reflect: LLM 自主判断当前证据是否充分
    * @returns {{sufficient: boolean, confidence: number, reason: string, missingAspects: string[], suggestedQueries: string[]}}
    */
-  async function reflectOnEvidence(state, { claims, evidenceLedger, gaps }, stageApi) {
+  async function reflectOnEvidence(state, { claims, evidenceLedger, todos, gaps }, stageApi) {
     const callModel = getModelCaller(stageApi, { usage: "analyst", state });
     const contextSummary = stageApi?.getContextSummary?.() || "";
 
     // 计算覆盖统计
-    const allGaps = Array.isArray(gaps) ? gaps : [];
-    const openGaps = allGaps.filter((g) => String(g?.status || "open") === "open");
-    const filledGaps = allGaps.filter((g) => g?.status === "filled");
-    const blockedGaps = allGaps.filter((g) => g?.status === "blocked");
+    const todoList = Array.isArray(todos) ? todos : [];
+    const gapList = Array.isArray(gaps) ? gaps : [];
+    const useTodos = todoList.length > 0;
+
+    const statusOf = (item) => {
+      const raw = String(item?.status || "open");
+      if (!useTodos) {
+        if (raw === "filled") return "completed";
+        if (raw === "blocked") return "blocked";
+        return "open";
+      }
+      if (raw === "completed") return "completed";
+      if (raw === "cancelled") return "blocked";
+      if (raw === "pending") return "open";
+      return "open";
+    };
+
+    const allItems = useTodos ? todoList : gapList;
+    const openItems = allItems.filter((item) => statusOf(item) === "open");
+    const completedItems = allItems.filter((item) => statusOf(item) === "completed");
+    const blockedItems = allItems.filter((item) => statusOf(item) === "blocked");
 
     const allClaims = Array.isArray(claims) ? claims : [];
     const coreClaims = allClaims.filter((c) => c?.importance === "core");
@@ -252,20 +313,40 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
 
     const evidenceCount = Array.isArray(evidenceLedger) ? evidenceLedger.length : 0;
 
-    // 计算 gap 覆盖率
+    const { todoIdByGapId } = buildTodoLookup(Array.isArray(state?.todos) ? state.todos : []);
+    const coveredTodoIds = new Set();
     const coveredGapIds = new Set();
+
     for (const c of allClaims) {
-      for (const gid of Array.isArray(c?.gapIds) ? c.gapIds : []) {
-        coveredGapIds.add(String(gid));
+      for (const tid of normalizeTodoIds(c?.todoIds)) coveredTodoIds.add(tid);
+      for (const gid of normalizeGapIds(c?.gapIds)) coveredGapIds.add(gid);
+    }
+    for (const e of Array.isArray(evidenceLedger) ? evidenceLedger : []) {
+      for (const tid of normalizeTodoIds(e?.todoIds)) coveredTodoIds.add(tid);
+      for (const gid of normalizeGapIds(e?.gapIds)) coveredGapIds.add(gid);
+    }
+
+    if (useTodos && coveredGapIds.size > 0) {
+      for (const gid of coveredGapIds) {
+        const tid = todoIdByGapId.get(gid);
+        if (tid) coveredTodoIds.add(tid);
       }
     }
 
-    const uncoveredGaps = openGaps.filter((g) => !coveredGapIds.has(String(g?.gapId)));
-    const coverageRate = allGaps.length > 0 ? filledGaps.length / allGaps.length : 1;
+    const uncoveredItems = openItems.filter((item) => {
+      if (useTodos) {
+        const tid = toNonEmptyString(item?.todoId);
+        return tid ? !coveredTodoIds.has(tid) : false;
+      }
+      const gid = toNonEmptyString(item?.gapId);
+      return gid ? !coveredGapIds.has(gid) : false;
+    });
+
+    const coverageRate = allItems.length > 0 ? completedItems.length / allItems.length : 1;
 
     // === 健壮性：快速路径 ===
     // 如果没有 gaps 或者所有 gaps 都已填充，直接返回 sufficient
-    if (allGaps.length === 0 || openGaps.length === 0) {
+    if (allItems.length === 0 || openItems.length === 0) {
       return {
         sufficient: true,
         confidence: 0.9,
@@ -288,12 +369,12 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
 
     if (!callModel) {
       // 没有 LLM，fallback 到规则判断
-      const sufficient = uncoveredGaps.length === 0 || coverageRate >= 0.7;
+      const sufficient = uncoveredItems.length === 0 || coverageRate >= 0.7;
       return {
         sufficient,
         confidence: 0.5,
-        reason: `Fallback rule: ${uncoveredGaps.length} uncovered gaps, coverage ${(coverageRate * 100).toFixed(0)}%`,
-        missingAspects: uncoveredGaps.slice(0, 3).map((g) => g?.question || g?.text || "unknown"),
+        reason: `Fallback rule: ${uncoveredItems.length} uncovered gaps, coverage ${(coverageRate * 100).toFixed(0)}%`,
+        missingAspects: uncoveredItems.slice(0, 3).map((item) => todoDisplayText(item) || item?.question || item?.text || "unknown"),
         suggestedQueries: [],
       };
     }
@@ -301,20 +382,26 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
     // 准备 prompt 数据
     const taskGoal = String(state?.taskGoal || state?.userConfig?.taskGoal || "未指定");
 
+    const coverageLabel = useTodos ? "Todos" : "Gaps";
     const coverageStats = [
-      `- 总 Gaps: ${allGaps.length}`,
-      `- 已填充: ${filledGaps.length} (${(coverageRate * 100).toFixed(0)}%)`,
-      `- 未覆盖: ${uncoveredGaps.length}`,
-      `- 已阻塞: ${blockedGaps.length}`,
+      `- 总 ${coverageLabel}: ${allItems.length}`,
+      `- 已填充: ${completedItems.length} (${(coverageRate * 100).toFixed(0)}%)`,
+      `- 未覆盖: ${uncoveredItems.length}`,
+      `- 已阻塞: ${blockedItems.length}`,
       `- 总论点: ${allClaims.length} (核心: ${coreClaims.length}, 支持: ${supportClaims.length})`,
       `- 总证据: ${evidenceCount}`,
     ].join("\n");
 
     const uncoveredGapsStr =
-      uncoveredGaps.length > 0
-        ? uncoveredGaps
+      uncoveredItems.length > 0
+        ? uncoveredItems
             .slice(0, 5)
-            .map((g, i) => `${i + 1}. [${g?.type || "?"}] ${g?.question || g?.text || "?"}`)
+            .map((item, i) => {
+              if (!useTodos) return `${i + 1}. [${item?.type || "?"}] ${item?.question || item?.text || "?"}`;
+              const expected = toNonEmptyString(item?.expectedEvidence);
+              const prefix = expected ? `(${expected}) ` : "";
+              return `${i + 1}. ${prefix}${todoDisplayText(item) || "?"}`;
+            })
             .join("\n")
         : "无 (所有缺口已覆盖)";
 
@@ -371,7 +458,7 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
           sufficient: coverageRate >= 0.6,
           confidence: 0.4,
           reason: "Failed to parse LLM response, using coverage fallback",
-          missingAspects: uncoveredGaps.slice(0, 3).map((g) => g?.question || "?"),
+          missingAspects: uncoveredItems.slice(0, 3).map((item) => todoDisplayText(item) || item?.question || "?"),
           suggestedQueries: [],
         };
       }
@@ -402,7 +489,7 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
         sufficient: coverageRate >= 0.6,
         confidence: 0.3,
         reason: `Reflect error: ${String(err?.message || err).slice(0, 100)}`,
-        missingAspects: uncoveredGaps.slice(0, 3).map((g) => g?.question || "?"),
+        missingAspects: uncoveredItems.slice(0, 3).map((item) => todoDisplayText(item) || item?.question || "?"),
         suggestedQueries: [],
       };
     }
@@ -839,28 +926,37 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
     if (sig) existingEvidenceIdBySignature.set(sig, String(evidenceId));
   }
 
-  // === per-gap 模式：按 gapId 分组生成 claims ===
-  const chunksByGapId = new Map();
+  const todosAll = ensureTodos(state);
+  const { todoById, todoIdByGapId, gapIdByTodoId } = buildTodoLookup(todosAll);
+  const gapsById = new Map(
+    (Array.isArray(state?.L1?.gaps) ? state.L1.gaps : []).map((g) => [String(g?.gapId || ""), g]).filter(([id]) => id)
+  );
+
+  // === per-todo 模式：按 todoId 分组生成 claims ===
+  const chunksByTodoId = new Map();
   /** @type {any[]} */
   const ungappedChunks = [];
   for (const r of newRetrieved) {
-    const gapIds = normalizeGapIds(r?.matchedGapIds || r?.gapId);
-    if (!gapIds.length) {
+    let todoIds = normalizeTodoIds(r?.matchedTodoIds || r?.todoId);
+    if (!todoIds.length) {
+      const gapIds = normalizeGapIds(r?.matchedGapIds || r?.gapId);
+      if (gapIds.length) {
+        todoIds = gapIds.map((gid) => todoIdByGapId.get(gid)).filter(Boolean);
+      }
+    }
+    if (!todoIds.length) {
       ungappedChunks.push(r);
       continue;
     }
-    for (const gapId of gapIds) {
-      const gid = String(gapId);
-      if (!chunksByGapId.has(gid)) chunksByGapId.set(gid, []);
-      chunksByGapId.get(gid).push(r);
+    if (!normalizeTodoIds(r?.matchedTodoIds || r?.todoId).length) {
+      r.matchedTodoIds = todoIds.slice();
+      if (!toNonEmptyString(r.todoId)) r.todoId = todoIds[0];
     }
-  }
-
-  const gapsById = new Map();
-  for (const g of Array.isArray(state?.L1?.gaps) ? state.L1.gaps : []) {
-    const gid = toNonEmptyString(g?.gapId);
-    if (!gid) continue;
-    gapsById.set(String(gid), g);
+    for (const todoId of todoIds) {
+      const tid = String(todoId);
+      if (!chunksByTodoId.has(tid)) chunksByTodoId.set(tid, []);
+      chunksByTodoId.get(tid).push(r);
+    }
   }
 
   /** @type {any[]} */
@@ -870,43 +966,56 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
   let nextSeedClaimNum = 0;
   let nextSeedEvidenceNum = 0;
 
-  // 并行调用所有 gap 的 LLM（后续 ID rebase 仍按原顺序串行执行，保持行为稳定）
-  const gapEntries = Array.from(chunksByGapId.entries());
+  // 并行调用所有 todo 的 LLM（后续 ID rebase 仍按原顺序串行执行，保持行为稳定）
+  const todoEntries = Array.from(chunksByTodoId.entries());
   const llmResults = await mapConcurrentWithPool(
-    gapEntries,
-    async ([gapId, chunksForGap]) => {
-      const deduped = dedupeChunksByChunkId(chunksForGap);
-      const gap = gapsById.get(String(gapId)) || { gapId: String(gapId) };
+    todoEntries,
+    async ([todoId, chunksForTodo]) => {
+      const deduped = dedupeChunksByChunkId(chunksForTodo);
+      const todo = todoById.get(String(todoId)) || { todoId: String(todoId), text: String(todoId) };
+      const relatedGapId = gapIdByTodoId.get(String(todoId));
+      const relatedGap = relatedGapId ? gapsById.get(String(relatedGapId)) : null;
+      const promptTodo =
+        relatedGap && toNonEmptyString(relatedGap?.question)
+          ? { ...todo, text: relatedGap.question, question: relatedGap.question }
+          : todo;
 
       let seed = null;
       if (useLLMClaims) {
         try {
-          seed = await generateClaimsWithLLM(gap, deduped, stageApi, state, { maxQuoteLen });
+          seed = await generateClaimsWithLLM(promptTodo, deduped, stageApi, state, { maxQuoteLen });
         } catch (err) {
-          console.error("[DeepSearch] understand generateClaimsWithLLM failed:", { gapId, err });
+          console.error("[DeepSearch] understand generateClaimsWithLLM failed:", { todoId, err });
           seed = null;
         }
       }
       if (!isValidSeed(seed)) {
-        seed = claimsFromChunksWithDiagnostics(deduped, { label: "gap", gapId });
+        seed = claimsFromChunksWithDiagnostics(deduped, { label: "todo", gapId: todoId });
       }
       if (!isValidSeed(seed)) {
-        seed = basicSeedFromChunks(deduped, { label: "gap", gapId });
+        seed = basicSeedFromChunks(deduped, { label: "todo", gapId: todoId });
       }
       if (!seed || !Array.isArray(seed.claims) || !Array.isArray(seed.evidences)) seed = { claims: [], evidences: [] };
 
-      return { gapId, seed };
+      return { todoId, seed };
     },
     10
   );
 
-  for (const { gapId, seed } of llmResults) {
+  for (const { todoId, seed } of llmResults) {
     const rebased = rebaseSeedIds(seed, { nextSeedClaimNum, nextSeedEvidenceNum });
     nextSeedClaimNum = rebased.nextSeedClaimNum;
     nextSeedEvidenceNum = rebased.nextSeedEvidenceNum;
 
-    for (const c of rebased.claims) c.gapIds = [String(gapId)];
-    for (const e of rebased.evidences) e.gapIds = [String(gapId)];
+    const relatedGapId = gapIdByTodoId.get(String(todoId));
+    for (const c of rebased.claims) {
+      c.todoIds = [String(todoId)];
+      if (relatedGapId) c.gapIds = [String(relatedGapId)];
+    }
+    for (const e of rebased.evidences) {
+      e.todoIds = [String(todoId)];
+      if (relatedGapId) e.gapIds = [String(relatedGapId)];
+    }
     seedClaimsRaw.push(...rebased.claims);
     seedEvidencesRaw.push(...rebased.evidences);
   }
@@ -982,10 +1091,21 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
       }
     }
     const retrievedRow = retrievedByChunkId.get(String(seed.chunkId));
+    let todoIds = Array.from(
+      new Set([
+        ...normalizeTodoIds(retrievedRow?.matchedTodoIds || retrievedRow?.todoId),
+        ...normalizeTodoIds(seed?.todoIds),
+      ])
+    );
+    if (!todoIds.length) {
+      const gapIdsFromRow = normalizeGapIds(retrievedRow?.matchedGapIds || retrievedRow?.gapId);
+      todoIds = gapIdsFromRow.map((gid) => todoIdByGapId.get(gid)).filter(Boolean);
+    }
     const gapIds = Array.from(
       new Set([
         ...normalizeGapIds(retrievedRow?.matchedGapIds || retrievedRow?.gapId),
         ...normalizeGapIds(seed?.gapIds),
+        ...todoIds.map((tid) => gapIdByTodoId.get(tid)).filter(Boolean),
       ])
     );
 
@@ -995,6 +1115,7 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
       sourceId: String(sourceId),
       locator: derived.locator,
       quote: derived.quote,
+      todoIds,
       gapIds,
     };
 
@@ -1004,9 +1125,15 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
       if (existingEvidenceId) {
         seedToFinalEvidenceId.set(seedEvidenceId, existingEvidenceId);
         const existing = existingEvidenceById.get(existingEvidenceId);
-        if (existing && gapIds.length) {
-          const mergedGapIds = Array.from(new Set([...normalizeGapIds(existing?.gapIds), ...gapIds]));
-          if (mergedGapIds.length) existing.gapIds = mergedGapIds;
+        if (existing) {
+          if (todoIds.length) {
+            const mergedTodoIds = Array.from(new Set([...normalizeTodoIds(existing?.todoIds), ...todoIds]));
+            if (mergedTodoIds.length) existing.todoIds = mergedTodoIds;
+          }
+          if (gapIds.length) {
+            const mergedGapIds = Array.from(new Set([...normalizeGapIds(existing?.gapIds), ...gapIds]));
+            if (mergedGapIds.length) existing.gapIds = mergedGapIds;
+          }
         }
         continue;
       }
@@ -1087,6 +1214,8 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
         const winner = keptBySig.get(sig);
         if (winner && toNonEmptyString(winner?.evidenceId)) {
           evidenceIdRemap.set(evidenceId, String(winner.evidenceId));
+          const mergedTodoIds = Array.from(new Set([...normalizeTodoIds(winner?.todoIds), ...normalizeTodoIds(e?.todoIds)]));
+          if (mergedTodoIds.length) winner.todoIds = mergedTodoIds;
           const mergedGapIds = Array.from(new Set([...normalizeGapIds(winner?.gapIds), ...normalizeGapIds(e?.gapIds)]));
           if (mergedGapIds.length) winner.gapIds = mergedGapIds;
         }
@@ -1116,17 +1245,28 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
   }
 
   const evidenceGapIdsById = new Map();
+  const evidenceTodoIdsById = new Map();
   for (const e of evidenceLedger) {
     const eid = toNonEmptyString(e?.evidenceId);
     if (!eid) continue;
     evidenceGapIdsById.set(eid, normalizeGapIds(e?.gapIds));
+    evidenceTodoIdsById.set(eid, normalizeTodoIds(e?.todoIds));
   }
 
   for (const c of claims) {
+    const todoIds = [...normalizeTodoIds(c?.todoIds)];
     const gapIds = [...normalizeGapIds(c?.gapIds)];
     for (const eid of Array.isArray(c?.evidenceIds) ? c.evidenceIds : []) {
+      for (const tid of evidenceTodoIdsById.get(String(eid)) || []) todoIds.push(tid);
       for (const gid of evidenceGapIdsById.get(String(eid)) || []) gapIds.push(gid);
     }
+    if (!todoIds.length && gapIds.length) {
+      for (const gid of gapIds) {
+        const tid = todoIdByGapId.get(String(gid));
+        if (tid) todoIds.push(tid);
+      }
+    }
+    c.todoIds = Array.from(new Set(todoIds));
     c.gapIds = Array.from(new Set(gapIds));
   }
 
@@ -1258,6 +1398,7 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
     claims: finalClaims.map((c) => ({
       claimId: c.claimId,
       importance: c.importance,
+      todoIds: c.todoIds,
       gapIds: c.gapIds,
       evidenceIds: c.evidenceIds,
       textPreview: c.text?.slice(0, 100),
@@ -1265,6 +1406,7 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
     edges: {
       claimToEvidence: finalClaims.flatMap((c) => (Array.isArray(c.evidenceIds) ? c.evidenceIds : []).map((eid) => ({ claimId: c.claimId, evidenceId: eid }))),
       claimToGap: finalClaims.flatMap((c) => (Array.isArray(c.gapIds) ? c.gapIds : []).map((gid) => ({ claimId: c.claimId, gapId: gid }))),
+      claimToTodo: finalClaims.flatMap((c) => (Array.isArray(c.todoIds) ? c.todoIds : []).map((tid) => ({ claimId: c.claimId, todoId: tid }))),
     },
   });
 
@@ -1277,10 +1419,12 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
       sourceId: e.sourceId,
       locator: e.locator,
       quoteLen: e.quote?.length || 0,
+      todoIds: e.todoIds,
       gapIds: e.gapIds,
     })),
     edges: {
       evidenceToGap: finalEvidenceLedger.flatMap((e) => (Array.isArray(e.gapIds) ? e.gapIds : []).map((gid) => ({ evidenceId: e.evidenceId, gapId: gid }))),
+      evidenceToTodo: finalEvidenceLedger.flatMap((e) => (Array.isArray(e.todoIds) ? e.todoIds : []).map((tid) => ({ evidenceId: e.evidenceId, todoId: tid }))),
     },
   });
 
@@ -1292,7 +1436,7 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
 
   // 默认不额外消耗一次 LLM 调用；显式开启 reflect 或外搜自动触发时才启用 LLM 反思。
   const reflectStageApi = shouldRunReflectLLM ? stageApi : { ...(isPlainObject(stageApi) ? stageApi : {}), modelRouter: null, aiApiService: null };
-  const reflectResult = await reflectOnEvidence(state, { claims: finalClaims, evidenceLedger: finalEvidenceLedger, gaps }, reflectStageApi);
+  const reflectResult = await reflectOnEvidence(state, { claims: finalClaims, evidenceLedger: finalEvidenceLedger, todos: todosAll, gaps }, reflectStageApi);
 
   // 记录 reflect 结果到 state
   state.L1.reflectResult = reflectResult;
