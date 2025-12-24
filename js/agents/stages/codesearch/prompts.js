@@ -95,6 +95,17 @@ export const CODESEARCH_SYSTEM_PROMPT = `你是一个代码分析专家 Agent。
 - 忽略 node_modules、.git、dist 等目录
 `;
 
+export const CODESEARCH_TODO_PLANNER_PROMPT = `你是 CodeSearch 的待办规划器。根据用户查询生成 3-6 个代码探索 todo。
+
+输出 **仅** 为 JSON 数组，每个元素包含：
+- text: 待办内容（必需）
+- priority: high | medium | low
+- queryHints: 3-6 个关键词/短语
+- expectedEvidence: 期望看到的证据（可简短）
+
+用户查询：{QUERY}
+`;
+
 export const CODESEARCH_STEP_PROMPT = `## 当前任务
 
 用户查询：{QUERY}
@@ -103,15 +114,40 @@ export const CODESEARCH_STEP_PROMPT = `## 当前任务
 
 当前步骤：{STEP} / {MAX_STEPS}
 
+## 当前待办 (open todos)
+
+{OPEN_TODOS}
+
 ## 已有观察
 
 {OBSERVATIONS}
 
 ## 你的下一步
 
-根据已有信息，决定下一步操作。如果已经有足够信息回答用户问题，输出 "action": "done"。
+根据已有信息，从 open todos 中选择一个执行；如果发现新的待办，可补充 newTodos。
+如果已满足需求且没有 open todos，输出 "action": "done"。
 
-请输出 JSON 格式的决定：`;
+请输出 JSON 格式的决定（仅一个工具调用）：
+
+\`\`\`json
+{
+  "thought": "我的思考...",
+  "todoId": "todo_x" | null,
+  "todoIndex": 1,
+  "action": "tool_name",
+  "args": { "param": "value" },
+  "todoStatus": "pending|completed|cancelled",
+  "newTodos": [
+    { "text": "...", "priority": "medium", "queryHints": ["..."], "expectedEvidence": "..." }
+  ]
+}
+\`\`\`
+
+仅新增待办时：
+\`\`\`json
+{ "thought": "...", "action": "add_todo", "newTodos": [ ... ] }
+\`\`\`
+`;
 
 export const CODESEARCH_SUMMARIZE_PROMPT = `## 任务
 

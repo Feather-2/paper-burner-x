@@ -15,10 +15,22 @@ const projectRoot = join(__dirname, "../../../..");
 
 // Mock LLM 响应序列
 const MOCK_RESPONSES = [
+  // Todo planner
+  {
+    content: JSON.stringify([
+      {
+        text: "Analyze CodeSearch module structure",
+        priority: "high",
+        queryHints: ["codesearch", "entry", "structure"],
+        expectedEvidence: "module entry points and layout",
+      },
+    ]),
+  },
   // Step 1: 先看目录结构
   {
     content: JSON.stringify({
       thought: "先了解项目整体结构",
+      todoIndex: 1,
       action: "tree",
       args: { path: "js/agents/stages/codesearch", depth: 2 }
     })
@@ -27,6 +39,7 @@ const MOCK_RESPONSES = [
   {
     content: JSON.stringify({
       thought: "查看模块入口",
+      todoIndex: 1,
       action: "read_file",
       args: { path: "js/agents/stages/codesearch/index.js" }
     })
@@ -35,6 +48,7 @@ const MOCK_RESPONSES = [
   {
     content: JSON.stringify({
       thought: "查看主逻辑",
+      todoIndex: 1,
       action: "read_file",
       args: { path: "js/agents/stages/codesearch/codesearch-stage.js", startLine: 1, endLine: 50 }
     })
@@ -43,6 +57,8 @@ const MOCK_RESPONSES = [
   {
     content: JSON.stringify({
       thought: "已了解 CodeSearch 模块结构",
+      todoIndex: 1,
+      todoStatus: "completed",
       action: "done"
     })
   },

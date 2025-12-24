@@ -8,13 +8,18 @@
 
 当前步骤：{STEP} / {MAX_STEPS}
 
+## 当前待办 (open todos)
+
+{OPEN_TODOS}
+
 ## 已有观察
 
 {OBSERVATIONS}
 
 ## 你的下一步
 
-根据已有信息，决定下一步操作。如果已经有足够信息回答用户问题，输出 "action": "done"。
+根据已有信息，从 open todos 中选择一个执行；如果发现新的待办，可补充 newTodos。
+如果已满足需求且没有 open todos，输出 "action": "done"。
 
 ## 输出格式（严格 JSON）
 
@@ -23,19 +28,25 @@
 ```json
 {
   "thought": "我的思考...",
+  "todoId": "todo_x",
+  "todoIndex": 1,
   "action": "tool_name",
-  "args": { "param": "value" }
+  "args": { "param": "value" },
+  "todoStatus": "pending|completed|cancelled",
+  "newTodos": [
+    { "text": "...", "priority": "medium", "queryHints": ["..."], "expectedEvidence": "..." }
+  ]
 }
 ```
 
-### 批量工具调用（独立操作可并行）
+### 仅新增待办
 
 ```json
 {
-  "thought": "我需要同时执行多个独立操作...",
-  "actions": [
-    { "action": "grep", "args": { "pattern": "..." } },
-    { "action": "read_file", "args": { "path": "..." } }
+  "thought": "补充待办...",
+  "action": "add_todo",
+  "newTodos": [
+    { "text": "...", "priority": "medium", "queryHints": ["..."], "expectedEvidence": "..." }
   ]
 }
 ```
