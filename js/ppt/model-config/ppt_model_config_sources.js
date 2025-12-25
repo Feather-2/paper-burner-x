@@ -301,11 +301,29 @@
     // 动态计算位置，使用 fixed 定位避免被裁剪
     if (search) {
         const rect = search.getBoundingClientRect();
+        const winHeight = window.innerHeight;
+        const dropdownHeight = 280; // max-height in CSS
+        const spaceBelow = winHeight - rect.bottom;
+        const spaceAbove = rect.top;
+        
         dropdown.style.position = 'fixed';
-        dropdown.style.top = (rect.bottom + 6) + 'px';
-        dropdown.style.left = rect.left + 'px';
         dropdown.style.width = rect.width + 'px';
+        dropdown.style.left = rect.left + 'px';
         dropdown.style.right = 'auto';
+        
+        if (spaceBelow < dropdownHeight && spaceAbove > spaceBelow) {
+            // 向上弹出
+            dropdown.style.top = 'auto';
+            dropdown.style.bottom = (winHeight - rect.top + 6) + 'px';
+            dropdown.style.marginTop = '0';
+            dropdown.style.marginBottom = '6px';
+        } else {
+            // 向下弹出
+            dropdown.style.bottom = 'auto';
+            dropdown.style.top = (rect.bottom + 6) + 'px';
+            dropdown.style.marginTop = '6px';
+            dropdown.style.marginBottom = '0';
+        }
     }
 
     // Show

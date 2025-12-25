@@ -226,75 +226,113 @@
   function renderModelTable(container) {
     if (!container) return;
 
-    const sources = getAllConfigurableModels();
-    const selectedSourceKey = String(uiState.tableSourceKey || '');
-
-    container.className = 'px-4 pt-4';
+    container.className = 'pmc-model-explorer';
     container.innerHTML = `
-      <div class="space-y-4">
-        <div id="pmc-role-overview-container"></div>
-
-        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-          <div class="p-4 border-b border-slate-200 bg-white">
-            <div class="flex flex-wrap items-center gap-2">
-              <div class="text-sm font-semibold text-slate-800 mr-auto">
-                全部模型 (<span id="pmc-model-total-count">0</span>)
-              </div>
-              <input id="pmc-model-search" class="pmc-input w-[240px]" placeholder="搜索模型..." autocomplete="off" value="${safe(uiState.tableSearch || '')}">
-              <select id="pmc-model-source-filter" class="pmc-select w-[180px]">
-                <option value="">全部来源</option>
-                ${sources.map((s) => `<option value="${safe(s.key)}" ${selectedSourceKey === s.key ? 'selected' : ''}>${safe(s.name || s.key)}</option>`).join('')}
-              </select>
-              <label class="inline-flex items-center gap-2 text-xs text-slate-600 px-2 py-2 rounded-lg border border-slate-200 bg-white">
-                <input id="pmc-model-configured-only" type="checkbox" ${uiState.tableConfiguredOnly ? 'checked' : ''}>
-                仅显示已配置
-              </label>
-              <button id="pmc-model-refresh" class="pmc-btn-secondary" type="button">
-                <iconify-icon icon="carbon:renew" width="16"></iconify-icon>
-                刷新
-              </button>
+      <div class="pmc-explorer-sidebar">
+        <div class="pmc-sidebar-header">
+          <iconify-icon icon="carbon:cloud-service-management" width="16"></iconify-icon>
+          <span>模型来源</span>
+        </div>
+        <div id="pmc-source-sidebar-list" class="pmc-sidebar-list"></div>
+      </div>
+      
+      <div class="pmc-explorer-main">
+        <div class="bg-white border-b border-slate-200 p-4">
+          <div class="flex flex-wrap items-center gap-3">
+            <div class="text-sm font-semibold text-slate-800 mr-auto">
+              <span id="pmc-active-source-name">全部模型</span>
+              (<span id="pmc-model-total-count">0</span>)
             </div>
+            <div class="relative flex items-center">
+              <iconify-icon icon="carbon:search" class="absolute left-3 text-slate-400" width="16"></iconify-icon>
+              <input id="pmc-model-search" class="pmc-input pl-9 w-[240px]" placeholder="在当前源中搜索..." autocomplete="off" value="${safe(uiState.tableSearch || '')}">
+            </div>
+            <label class="inline-flex items-center gap-2 text-xs text-slate-600 px-3 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 cursor-pointer transition-colors">
+              <input id="pmc-model-configured-only" type="checkbox" ${uiState.tableConfiguredOnly ? 'checked' : ''}>
+              仅显示已配置
+            </label>
+            <button id="pmc-model-refresh" class="pmc-btn-secondary" type="button" title="刷新模型列表">
+              <iconify-icon icon="carbon:renew" width="16"></iconify-icon>
+              刷新
+            </button>
           </div>
+        </div>
 
-          <div class="overflow-auto">
-            <table class="min-w-full text-sm">
-              <thead class="bg-slate-50 text-slate-700">
-                <tr class="border-b border-slate-200">
-                  <th class="px-4 py-3 text-left font-semibold whitespace-nowrap">模型名称</th>
-                  <th class="px-4 py-3 text-left font-semibold whitespace-nowrap">来源</th>
-                  <th class="px-4 py-3 text-left font-semibold whitespace-nowrap">能力</th>
-                  <th class="px-4 py-3 text-left font-semibold whitespace-nowrap">Key状态</th>
-                  <th class="px-4 py-3 text-left font-semibold whitespace-nowrap">角色分配</th>
-                  <th class="px-4 py-3 text-right font-semibold whitespace-nowrap">操作</th>
-                </tr>
-              </thead>
-              <tbody id="pmc-model-table-body" class="divide-y divide-slate-100 bg-white"></tbody>
-            </table>
-          </div>
-
-          <div id="pmc-model-table-footer" class="px-4 py-3 border-t border-slate-200 bg-white text-xs text-slate-500"></div>
+        <div class="flex-1 overflow-auto bg-slate-50/30">
+          <table class="min-w-full text-sm" style="table-layout: fixed;">
+            <thead class="bg-white text-slate-700 sticky top-0 z-10 shadow-sm">
+              <tr class="border-b border-slate-200">
+                <th class="px-4 py-3 text-left font-semibold whitespace-nowrap" style="width: 30%;">模型名称</th>
+                <th class="px-4 py-3 text-left font-semibold whitespace-nowrap" style="width: 15%;">来源</th>
+                <th class="px-4 py-3 text-left font-semibold whitespace-nowrap" style="width: 15%;">能力</th>
+                <th class="px-4 py-3 text-left font-semibold whitespace-nowrap" style="width: 12%;">Key状态</th>
+                <th class="px-4 py-3 text-left font-semibold whitespace-nowrap" style="width: 18%;">角色分配</th>
+                <th class="px-4 py-3 text-right font-semibold whitespace-nowrap" style="width: 10%;">操作</th>
+              </tr>
+            </thead>
+            <tbody id="pmc-model-table-body" class="divide-y divide-slate-100 bg-white"></tbody>
+          </table>
+          <div id="pmc-model-table-footer" class="px-4 py-3 bg-white text-xs text-slate-500 border-t border-slate-100"></div>
         </div>
       </div>
     `;
 
-    const roleOverviewEl = container.querySelector('#pmc-role-overview-container');
+    const sidebarListEl = container.querySelector('#pmc-source-sidebar-list');
+    const activeSourceNameEl = container.querySelector('#pmc-active-source-name');
     const totalCountEl = container.querySelector('#pmc-model-total-count');
     const searchEl = container.querySelector('#pmc-model-search');
-    const sourceFilterEl = container.querySelector('#pmc-model-source-filter');
     const configuredOnlyEl = container.querySelector('#pmc-model-configured-only');
     const bodyEl = container.querySelector('#pmc-model-table-body');
     const footerEl = container.querySelector('#pmc-model-table-footer');
     const refreshBtn = container.querySelector('#pmc-model-refresh');
 
     const rerender = () => {
-      const rows = buildModelTableRows();
-      if (totalCountEl) totalCountEl.textContent = String(rows.length);
+      const allRows = buildModelTableRows();
+      let sources = getAllConfigurableModels();
+      
+      // 统计各源站模型数量
+      const sourceStats = new Map();
+      allRows.forEach(r => {
+          sourceStats.set(r.sourceKey, (sourceStats.get(r.sourceKey) || 0) + 1);
+      });
 
+      // 按照模型数量从多到少排序源站列表
+      sources.sort((a, b) => {
+          const countA = sourceStats.get(a.key) || 0;
+          const countB = sourceStats.get(b.key) || 0;
+          return countB - countA; // 降序
+      });
+
+      const sidebarHtml = `
+        <div class="pmc-sidebar-item ${!uiState.tableSourceKey ? 'active' : ''}" data-source-key="">
+          <iconify-icon icon="carbon:list" width="16"></iconify-icon>
+          <span class="pmc-sidebar-label">全部模型</span>
+          <span class="pmc-sidebar-count">${allRows.length}</span>
+        </div>
+        ${sources.map(s => {
+            const count = sourceStats.get(s.key) || 0;
+            const active = uiState.tableSourceKey === s.key ? 'active' : '';
+            const icon = s.key.startsWith('custom_source_') ? 'carbon:settings' : 'carbon:cloud';
+            return `
+              <div class="pmc-sidebar-item ${active}" data-source-key="${safe(s.key)}">
+                <iconify-icon icon="${icon}" width="16"></iconify-icon>
+                <span class="pmc-sidebar-label" title="${safe(s.name || s.key)}">${safe(s.name || s.key)}</span>
+                <span class="pmc-sidebar-count">${count}</span>
+              </div>
+            `;
+        }).join('')}
+      `;
+      
+      if (sidebarListEl.innerHTML !== sidebarHtml) {
+          sidebarListEl.innerHTML = sidebarHtml;
+      }
+
+      // 过滤逻辑
       const q = String(uiState.tableSearch || '').trim().toLowerCase();
       const sourceKey = String(uiState.tableSourceKey || '');
       const configuredOnly = !!uiState.tableConfiguredOnly;
 
-      const filtered = rows.filter((r) => {
+      const filtered = allRows.filter((r) => {
         if (sourceKey && r.sourceKey !== sourceKey) return false;
         if (configuredOnly && !Object.values(r.agentRoles || {}).some((x) => Number(x) > 0)) return false;
         if (!q) return true;
@@ -305,24 +343,64 @@
         );
       });
 
-      renderRoleOverview(roleOverviewEl, rows, rerender);
+      if (activeSourceNameEl) {
+          const currentSource = sources.find(s => s.key === sourceKey);
+          activeSourceNameEl.textContent = currentSource ? (currentSource.name || currentSource.key) : '全部模型';
+      }
+      
+      if (totalCountEl) totalCountEl.textContent = String(filtered.length);
 
-      bodyEl.innerHTML = filtered.length
-        ? filtered.map(renderModelRow).join('')
+      // 只有在角色分配 Tab 处于非激活状态或需要跨 Tab 同步时才更新外部容器
+      const roleOverviewElTab = document.getElementById('pmc-role-overview-container-tab');
+      if (roleOverviewElTab) {
+          renderRoleOverview(roleOverviewElTab, allRows, uiState._refreshModelTable);
+      }
+
+      // 性能优化：首屏渲染限制
+      const DISPLAY_LIMIT = 200;
+      const displayRows = filtered.slice(0, DISPLAY_LIMIT);
+      
+      const nextHtml = filtered.length
+        ? displayRows.map(renderModelRow).join('') + (filtered.length > DISPLAY_LIMIT ? `<tr><td colspan="6" class="py-4 text-center text-slate-400">还有 ${filtered.length - DISPLAY_LIMIT} 个模型，请使用搜索进行筛选</td></tr>` : '')
         : `<tr><td class="px-4 py-8 text-center text-slate-400" colspan="6">没有匹配的模型</td></tr>`;
+
+      if (bodyEl.innerHTML !== nextHtml) {
+          bodyEl.innerHTML = nextHtml;
+      }
 
       const inflightCount = Object.keys(tab1ModelsSession.inflight || {}).length;
       const errCount = Object.values(tab1ModelsSession.error || {}).filter(Boolean).length;
       const hint = [];
-      hint.push(`显示 ${filtered.length}/${rows.length}`);
-      if (inflightCount) hint.push(`预加载中：${inflightCount}`);
+      hint.push(`显示 ${displayRows.length}/${filtered.length}`);
+      if (inflightCount) hint.push(`正在后台探测 ${inflightCount} 个源站的模型...`);
       if (errCount) hint.push(`获取失败：${errCount}`);
       footerEl.textContent = hint.join(' · ');
+      
+      if (footerEl) {
+          footerEl.style.color = inflightCount > 0 ? 'var(--pmc-primary)' : '';
+          footerEl.style.fontWeight = inflightCount > 0 ? '600' : '';
+      }
 
-      uiState._refreshModelTable = rerender;
+      uiState._refreshModelTable = () => {
+          if (uiState._refreshInflight) return;
+          uiState._refreshInflight = true;
+          requestAnimationFrame(() => {
+              rerender();
+              uiState._refreshInflight = false;
+          });
+      };
     };
 
+    sidebarListEl.addEventListener('click', (e) => {
+        const item = e.target.closest('.pmc-sidebar-item');
+        if (!item) return;
+        const key = item.getAttribute('data-source-key') || '';
+        uiState.tableSourceKey = key;
+        rerender();
+    });
+
     const onRefresh = async () => {
+      if (refreshBtn) refreshBtn.disabled = true;
       const sourceKey = String(uiState.tableSourceKey || '');
       const sourcesToRefresh = sourceKey ? [sourceKey] : getAllConfigurableModels().map((s) => s.key);
 
@@ -332,9 +410,17 @@
       }
 
       rerender();
-      await Promise.allSettled(sourcesToRefresh.map((k) => fetchModelsForSource(k)));
-      rerender();
+      
+      // 迭代刷新，提高及时感
+      for (const k of sourcesToRefresh) {
+        try {
+            await fetchModelsForSource(k);
+            rerender(); // 每拿完一个源就刷一次
+        } catch (e) {}
+      }
+      
       showSaveSuccess('模型列表已刷新');
+      if (refreshBtn) refreshBtn.disabled = false;
     };
 
     const openConfigForFullKey = (fullKey) => {
@@ -344,14 +430,13 @@
       renderModelConfigPopup(model);
     };
 
+    let searchDebounceTimer = null;
     searchEl?.addEventListener('input', () => {
-      uiState.tableSearch = String(searchEl.value || '');
-      rerender();
-    });
-
-    sourceFilterEl?.addEventListener('change', () => {
-      uiState.tableSourceKey = String(sourceFilterEl.value || '');
-      rerender();
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = setTimeout(() => {
+          uiState.tableSearch = String(searchEl.value || '');
+          rerender();
+      }, 300);
     });
 
     configuredOnlyEl?.addEventListener('change', () => {
@@ -392,12 +477,12 @@
 
     const popup = document.createElement('div');
     popup.className = 'fixed inset-0 flex items-center justify-center';
-    popup.style.zIndex = '9999';
+    popup.style.zIndex = '11000';
 
     popup.innerHTML = `
       <div class="absolute inset-0 bg-black/40"></div>
-      <div class="relative w-[min(760px,95vw)] max-h-[90vh] overflow-auto bg-white rounded-2xl shadow-2xl border border-slate-200">
-        <div class="px-5 py-4 border-b border-slate-200 flex items-start justify-between gap-4">
+      <div class="relative w-[min(760px,95vw)] max-h-[90vh] overflow-hidden bg-white rounded-2xl shadow-2xl border border-slate-200" style="display:flex; flex-direction:column;">
+        <div class="px-5 py-4 border-b border-slate-200 flex items-start justify-between gap-4 flex-shrink-0">
           <div>
             <div class="text-base font-semibold text-slate-900">模型配置</div>
             <div class="text-xs text-slate-500 mt-1 font-mono">${safe(model.sourceKey)}:${safe(model.modelId)}</div>
@@ -407,7 +492,7 @@
           </button>
         </div>
 
-        <div class="p-5 space-y-6">
+        <div class="p-5 space-y-6 overflow-y-auto flex-1">
           <div>
             <div class="text-sm font-semibold text-slate-800 mb-3">能力</div>
             <div class="flex flex-wrap gap-2">
@@ -448,7 +533,7 @@
           </div>
         </div>
 
-        <div class="px-5 py-4 border-t border-slate-200 bg-white flex items-center justify-end gap-2">
+        <div class="px-5 py-4 border-t border-slate-200 bg-white flex items-center justify-end gap-2 flex-shrink-0">
           <button class="pmc-btn-secondary" data-action="cancel" type="button">取消</button>
           <button class="pmc-btn-save" data-action="save" type="button">
             <iconify-icon icon="carbon:save" width="16"></iconify-icon>
@@ -570,10 +655,16 @@
     const sources = getAllConfigurableModels();
     if (!sources.length) return;
 
-    Promise.allSettled(sources.map((s) => fetchModelsForSource(s.key)))
-      .finally(() => {
-        if (typeof uiState._refreshModelTable === 'function') uiState._refreshModelTable();
-      });
+    // 性能优化：并发拉取，但每个源完成后都立即触发局部刷新
+    sources.forEach(async (s) => {
+        try {
+            await fetchModelsForSource(s.key);
+            // 这里不直接 rerender，而是请求一次刷新
+            if (typeof uiState._refreshModelTable === 'function') {
+                uiState._refreshModelTable();
+            }
+        } catch (e) {}
+    });
   }
 
   Object.assign(ns.table, {

@@ -21,7 +21,7 @@
   const { ROLES = [] } = ns.constants || {};
 
   const uiState = ns.core.uiState || (ns.core.uiState = {});
-  if (uiState.activeTab == null) uiState.activeTab = 'tags';
+  if (uiState.activeTab == null) uiState.activeTab = 'models';
   if (uiState.tagsActiveModelKey == null) uiState.tagsActiveModelKey = null;
   if (!Array.isArray(uiState.tagsExpandedSources)) uiState.tagsExpandedSources = [];
   if (uiState.priorityActiveRole == null) uiState.priorityActiveRole = ROLES[0]?.id || 'analyst';
@@ -50,6 +50,9 @@
   function saveConfig(key, value) {
     const storageKey = resolveStorageKey(key);
     localStorage.setItem(storageKey, JSON.stringify(value));
+    
+    // 分发配置变更事件，以便其他模块（如健康检查卡片）能够及时刷新
+    document.dispatchEvent(new CustomEvent('ppt-model-config-updated', { detail: { key, value } }));
   }
 
   function getModalRoot() {
@@ -88,194 +91,51 @@
     modal.id = 'ppt-model-config-modal';
     modal.className = 'pmc-modal-overlay';
 
-    // 构建 HTML 结构
-    modal.innerHTML = `
-      <div id="ppt-model-config-overlay" class="pmc-overlay-bg"></div>
-      <div class="pmc-modal-container">
-        <!-- Header -->
-        <div class="pmc-header">
-          <div class="pmc-header-left">
-            <div class="pmc-header-icon">
-              <iconify-icon icon="carbon:settings-adjust" width="24"></iconify-icon>
-            </div>
-            <div>
-              <div class="pmc-title">PPT 模型配置</div>
-              <div class="pmc-subtitle">独立于翻译/聊天模型，专用于 PPT 文案与配图</div>
-            </div>
-          </div>
-          <button id="ppt-model-config-close" class="pmc-close-btn" title="关闭">
-            <iconify-icon icon="carbon:close" width="24"></iconify-icon>
-          </button>
-        </div>
-
-        <!-- Scrollable Content -->
-        <div class="pmc-scroll-content">
-          <!-- 表格优先：统一模型视图 -->
-          <div id="pmc-model-table-container"></div>
-
-          <!-- 音频配置（折叠） -->
-          <div class="pmc-audio-collapse">
-            <button class="pmc-audio-collapse-header" type="button">
-              <span style="display:flex; align-items:center; gap:8px;">
-                <iconify-icon icon="carbon:microphone" width="16"></iconify-icon>
-                音频配置
-              </span>
-              <iconify-icon class="pmc-audio-collapse-chevron" icon="carbon:chevron-down" width="18"></iconify-icon>
-            </button>
-            <div class="pmc-audio-collapse-body"></div>
-          </div>
-
-            <!-- Advanced Settings (Image Processor) -->
-            <div id="pmc-image-settings-panel" class="pmc-advanced-settings">
-                <div class="pmc-advanced-header">
-                    <iconify-icon icon="carbon:settings-check" width="16"></iconify-icon>
-                    图片智能处理参数
-                </div>
-                <div class="pmc-advanced-body">
-                    <!-- Left Col -->
-                    <div class="pmc-col" style="border:none; padding:0; background:transparent;">
-                        <div class="pmc-form-group">
-                            <label class="pmc-label">OCR 引擎优先级</label>
-                            <div class="pmc-radio-group">
-                                <label class="pmc-radio-item">
-                                    <input type="radio" name="pmc-ocr-priority" value="mineru">
-                                    <span>MinerU 优先 <span class="pmc-hint-text">(精确 bbox)</span></span>
-                                </label>
-                                <label class="pmc-radio-item">
-                                    <input type="radio" name="pmc-ocr-priority" value="vlm">
-                                    <span>视觉模型优先 <span class="pmc-hint-text">(复杂排版)</span></span>
-                                </label>
-                                <label class="pmc-radio-item">
-                                    <input type="radio" name="pmc-ocr-priority" value="auto">
-                                    <span>自动选择</span>
-                                </label>
-                            </div>
-                            <div id="pmc-ocr-status" class="pmc-status-text"></div>
-                        </div>
-                    </div>
-                    <!-- Right Col -->
-                    <div class="pmc-col" style="border:none; padding:0; background:transparent;">
-                        <div class="pmc-form-group">
-                            <label class="pmc-label">矢量化预设</label>
-                            <select id="pmc-vectorize-preset" class="pmc-select" style="width:100%;">
-                                <option value="auto" selected>自动推荐</option>
-                                <option value="logo">Logo / 图标</option>
-                                <option value="illustration">插画</option>
-                                <option value="lineart">线稿</option>
-                                <option value="photo">照片</option>
-                                <option value="simple">简化</option>
-                            </select>
-                        </div>
-                        <div style="margin-top: 20px; display:flex; flex-direction:column; gap:16px;">
-                            <div class="pmc-form-group">
-                                <label class="pmc-label">
-                                    边缘阈值
-                                    <span id="pmc-edge-val" class="pmc-value-badge">30</span>
-                                </label>
-                                <div style="display:flex; align-items:center; gap:10px;">
-                                    <span style="font-size:11px; color:#94a3b8;">10</span>
-                                    <input type="range" id="pmc-edge-threshold" min="10" max="100" value="30" class="pmc-range">
-                                    <span style="font-size:11px; color:#94a3b8;">100</span>
-                                </div>
-                            </div>
-                            <div class="pmc-form-group">
-                                <label class="pmc-label">
-                                    颜色容差
-                                    <span id="pmc-color-val" class="pmc-value-badge">25</span>
-                                </label>
-                                <div style="display:flex; align-items:center; gap:10px;">
-                                    <span style="font-size:11px; color:#94a3b8;">5</span>
-                                    <input type="range" id="pmc-color-tolerance" min="5" max="50" value="25" class="pmc-range">
-                                    <span style="font-size:11px; color:#94a3b8;">50</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Concurrency Settings -->
-            <div id="pmc-concurrency-settings-panel" class="pmc-advanced-settings" style="margin-top: 12px;">
-                <div class="pmc-advanced-header">
-                    <iconify-icon icon="carbon:meter" width="16"></iconify-icon>
-                    Design Agent 并发设置
-                </div>
-                <div class="pmc-advanced-body">
-                    <div class="pmc-col" style="border:none; padding:0; background:transparent;">
-                        <div class="pmc-form-group">
-                            <label class="pmc-label">批量大小 (batchSize)</label>
-                            <input type="number" id="pmc-batch-size" class="pmc-input" min="1" style="width: 100%;">
-                            <div class="pmc-hint-text">每批处理的幻灯片数量</div>
-                        </div>
-                        <div class="pmc-form-group" style="margin-top: 12px;">
-                            <label class="pmc-label">批量并发 (batchConcurrency)</label>
-                            <input type="number" id="pmc-batch-concurrency" class="pmc-input" min="1" style="width: 100%;">
-                            <div class="pmc-hint-text">同时处理的批次数</div>
-                        </div>
-                    </div>
-                    <div class="pmc-col" style="border:none; padding:0; background:transparent;">
-                        <div class="pmc-form-group">
-                            <label class="pmc-label">图片并发 (imageConcurrency)</label>
-                            <input type="number" id="pmc-image-concurrency" class="pmc-input" min="1" style="width: 100%;">
-                            <div class="pmc-hint-text">同时生成的图片数</div>
-                        </div>
-                        <div class="pmc-form-group" style="margin-top: 12px;">
-                            <button id="pmc-save-concurrency" class="pmc-btn-save" style="width: 100%;">
-                                <iconify-icon icon="carbon:save" width="16"></iconify-icon>
-                                保存并发设置
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Footer -->
-        <div class="pmc-footer">
-          <button id="ppt-image-processor-settings" class="pmc-btn-secondary">
-            <iconify-icon icon="carbon:chevron-down" width="16" id="pmc-settings-chevron"></iconify-icon>
-            展开高级设置
-          </button>
-          <div id="ppt-image-gen-stats" class="pmc-stats"></div>
-        </div>
-      </div>
-    `;
+    // 构建 HTML 结构 (使用分离的视图模板)
+    modal.innerHTML = ns.view?.getModalTemplate ? ns.view.getModalTemplate() : '';
     document.body.appendChild(modal);
 
-    // 图片处理设置按钮 - Toggle
-    document.getElementById('ppt-image-processor-settings')?.addEventListener('click', () => {
-      ns.advanced?.toggleAdvancedSettings?.();
-    });
+    // 初始化 Tab 切换逻辑
+    ns.tabs?.initTabSwitching?.();
 
-    // 绑定 Image Settings 事件
+    // 绑定 Image Settings 事件（只需绑定一次，面板在 Tab 3）
     ns.advanced?.bindImageSettingsEvents?.();
 
-    // 并发设置初始化
-    initConcurrencySettings();
-
-    // Table + Audio
-    ns.table?.initModelTableView?.();
+    // 并发设置保存按钮事件绑定
+    document.getElementById('pmc-save-concurrency')?.addEventListener('click', () => {
+      const batchSize = Math.max(1, parseInt(document.getElementById('pmc-batch-size')?.value) || 4);
+      const batchConcurrency = Math.max(1, parseInt(document.getElementById('pmc-batch-concurrency')?.value) || 2);
+      const imageConcurrency = Math.max(1, parseInt(document.getElementById('pmc-image-concurrency')?.value) || 4);
+      localStorage.setItem('ppt_designConcurrency', JSON.stringify({ batchSize, batchConcurrency, imageConcurrency }));
+      showSaveSuccess('并发设置已保存');
+    });
   }
 
   function openModal() {
     renderModal();
 
-    // 每次打开都刷新表格/音频配置（避免源站列表/配置变更后不更新）
-    ns.table?.initModelTableView?.({ forceRender: true });
+    // 激活当前 Tab（默认为 models）
+    if (ns.tabs?.activateTab) {
+        ns.tabs.activateTab(uiState.activeTab || 'models');
+    }
 
-    // 保持图片处理设置可用
-    ns.advanced?.loadImageSettings?.();
-    ns.advanced?.updateStatsDisplay?.();
+    // 保持配置可用
     const modal = document.getElementById('ppt-model-config-modal');
-    if (modal) modal.style.display = 'flex';
+    if (modal) {
+      modal.classList.add('open');
+      modal.style.display = 'flex';
+    }
 
-    // 预加载：并发拉取所有源站模型列表（会话缓存）
-    ns.table?.preloadAllSourcesModels?.();
+    // 性能优化：不再自动全量探测所有源，改为按需加载（在用户点击左侧源站时触发）
+    // ns.table?.preloadAllSourcesModels?.();
   }
 
   function closeModal() {
     const modal = document.getElementById('ppt-model-config-modal');
-    if (modal) modal.style.display = 'none';
+    if (modal) {
+      modal.classList.remove('open');
+      modal.style.display = 'none';
+    }
   }
 
   function showSaveSuccess(msg) {

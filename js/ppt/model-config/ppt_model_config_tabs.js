@@ -69,11 +69,29 @@
     if (!panel) return;
 
     if (panel.dataset.rendered === '1') return;
-    panel.dataset.rendered = '1';
+    // panel.dataset.rendered = '1'; // 允许重复渲染以保持更新
 
-    if (tab === 'tags') renderTab1Content(panel);
-    else if (tab === 'priority') renderTab2Content(panel);
-    else if (tab === 'audio') renderTab3Content(panel);
+    if (tab === 'models') {
+        ns.table?.initModelTableView?.({ forceRender: true });
+    } else if (tab === 'roles') {
+        const roleContainer = root.querySelector('#pmc-role-overview-container-tab');
+        if (roleContainer) {
+            const rows = ns.table?.buildModelTableRows?.() || [];
+            ns.roles?.renderRoleOverview?.(roleContainer, rows, () => {
+                // 回调：当角色配置变动时，刷新数据
+                if (typeof uiState._refreshModelTable === 'function') uiState._refreshModelTable();
+            });
+        }
+    } else if (tab === 'audio') {
+        renderTab3Content(panel);
+    } else if (tab === 'advanced') {
+        // 初始化音频配置区
+        const audioContainer = root.querySelector('#pmc-audio-container');
+        if (audioContainer) renderTab3Content(audioContainer);
+        // 并发和图片设置已经在模板中，这里只需确保事件绑定
+        ns.advanced?.loadImageSettings?.();
+        ns.advanced?.updateStatsDisplay?.();
+    }
   }
 
 

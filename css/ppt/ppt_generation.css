@@ -1026,7 +1026,7 @@
 
 .ppt-health-card-container {
     width: 100%;
-    max-width: 540px;
+    max-width: 640px;
     padding: 20px;
     perspective: 1000px;
 }
@@ -1036,22 +1036,32 @@
     border-radius: 32px;
     border: 1px solid var(--ppt-border);
     box-shadow: var(--ppt-shadow-xl);
-    overflow: hidden;
+    overflow-y: auto;
+    max-height: 85vh;
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 48px 40px;
+    padding: 40px;
     text-align: center;
 }
 
+.ppt-health-card::-webkit-scrollbar {
+    width: 6px;
+}
+
+.ppt-health-card::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: 3px;
+}
+
 .ppt-health-visual {
-    width: 160px;
-    height: 160px;
-    margin-bottom: 32px;
+    width: 120px;
+    height: 120px;
+    margin-bottom: 24px;
 }
 
 .ppt-health-content h2 {
-    font-size: 28px;
+    font-size: 24px;
     font-weight: 800;
     color: var(--ppt-text-main);
     margin-bottom: 8px;
@@ -1059,17 +1069,17 @@
 }
 
 .ppt-health-content .subtitle {
-    font-size: 15px;
+    font-size: 14px;
     color: var(--ppt-text-secondary);
-    margin-bottom: 40px;
+    margin-bottom: 32px;
 }
 
 .health-sections {
     width: 100%;
     display: flex;
     flex-direction: column;
-    gap: 16px;
-    margin-bottom: 40px;
+    gap: 12px;
+    margin-bottom: 32px;
 }
 
 .health-section {
@@ -1106,6 +1116,7 @@
 .section-info {
     display: flex;
     flex-direction: column;
+    flex: 1;
     min-width: 0;
 }
 
@@ -1126,9 +1137,8 @@
     font-size: 11px;
     color: var(--ppt-text-muted);
     font-family: 'Inter', monospace;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    word-break: break-all;
+    line-height: 1.4;
 }
 
 .health-actions {
@@ -1145,6 +1155,26 @@
 
 .animate-slide-up {
     animation: slideUpFade 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.quick-apply-btn {
+    padding: 4px 10px;
+    background: var(--ppt-primary-subtle);
+    color: var(--ppt-primary);
+    border: 1px solid var(--ppt-primary-light);
+    border-radius: 8px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: var(--ppt-shadow-sm);
+}
+
+.quick-apply-btn:hover {
+    background: var(--ppt-primary);
+    color: white;
+    transform: translateY(-1px);
+    box-shadow: var(--ppt-shadow-md);
 }
 
 @keyframes slideUpFade {

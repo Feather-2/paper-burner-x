@@ -20,6 +20,7 @@
   const files = [
     'ppt_model_config_constants.js',
     'ppt_model_config_utils.js',
+    'ppt_model_config_view.js',
     'ppt_model_config_styles.js',
     'ppt_model_config_sources.js',
     'ppt_model_config_roles.js',

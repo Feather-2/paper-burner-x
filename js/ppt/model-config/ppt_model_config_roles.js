@@ -46,7 +46,7 @@
 
     const popup = document.createElement('div');
     popup.className = 'fixed inset-0 flex items-center justify-center';
-    popup.style.zIndex = '9999';
+    popup.style.zIndex = '11000';
 
     const rowsById = new Map((Array.isArray(rows) ? rows : []).map((r) => [r.id, r]));
     let currentList = Array.isArray(roleCfg?.[roleId]) ? [...roleCfg[roleId]] : [];
@@ -105,8 +105,8 @@
 
     popup.innerHTML = `
       <div class="absolute inset-0 bg-black/40"></div>
-      <div class="relative w-[min(480px,95vw)] max-h-[85vh] overflow-auto bg-white rounded-2xl shadow-2xl border border-slate-200">
-        <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-4">
+      <div class="relative w-[min(480px,95vw)] max-h-[85vh] overflow-hidden flex flex-direction-column bg-white rounded-2xl shadow-2xl border border-slate-200" style="display:flex; flex-direction:column;">
+        <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-4 flex-shrink-0">
           <div class="flex items-center gap-3">
             <div class="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-600">
               <iconify-icon icon="${safe(role.icon)}" width="20"></iconify-icon>
@@ -121,7 +121,7 @@
           </button>
         </div>
 
-        <div class="p-5">
+        <div class="p-5 overflow-y-auto flex-1">
           <div class="text-xs font-medium text-slate-500 mb-2">热备模型（按优先级排序，可拖拽调整）</div>
           <div id="pmc-hotspare-list" class="pmc-hotspare-list border border-slate-200 rounded-xl overflow-hidden min-h-[100px]"></div>
 
@@ -131,7 +131,7 @@
           </button>
         </div>
 
-        <div class="px-5 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2">
+        <div class="px-5 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2 flex-shrink-0">
           <button class="pmc-btn-secondary" data-action="cancel" type="button">取消</button>
           <button class="pmc-btn-save" data-action="save" type="button">
             <iconify-icon icon="carbon:save" width="16"></iconify-icon>
@@ -174,25 +174,27 @@
 
     const popup = document.createElement('div');
     popup.className = 'fixed inset-0 flex items-center justify-center';
-    popup.style.zIndex = '9999';
+    popup.style.zIndex = '11000';
 
     const rowsById = new Map((Array.isArray(rows) ? rows : []).map((r) => [r.id, r]));
     const current = new Set(Array.isArray(roleCfg?.[roleId]) ? roleCfg[roleId] : []);
 
     popup.innerHTML = `
       <div class="absolute inset-0 bg-black/40"></div>
-      <div class="relative w-[min(720px,95vw)] max-h-[85vh] overflow-auto bg-white rounded-2xl shadow-2xl border border-slate-200">
-        <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-4">
+      <div class="relative w-[min(720px,95vw)] max-h-[85vh] overflow-hidden bg-white rounded-2xl shadow-2xl border border-slate-200" style="display:flex; flex-direction:column;">
+        <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-4 flex-shrink-0">
           <div class="text-sm font-semibold text-slate-900">添加到「${safe(ROLE_NAMES[roleId] || roleId)}」</div>
           <button class="w-9 h-9 inline-flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-500" data-action="close" type="button" title="关闭">
             <iconify-icon icon="carbon:close" width="20"></iconify-icon>
           </button>
         </div>
-        <div class="p-5">
+        <div class="p-5 flex-shrink-0 border-b border-slate-100 bg-slate-50/50">
           <div class="pmc-form-group">
             <input class="pmc-input w-full" id="pmc-role-add-search" placeholder="搜索模型..." autocomplete="off">
           </div>
-          <div id="pmc-role-add-list" class="mt-3 border border-slate-200 rounded-xl overflow-hidden"></div>
+        </div>
+        <div class="flex-1 overflow-y-auto p-2">
+          <div id="pmc-role-add-list" class="border border-slate-200 rounded-xl overflow-hidden"></div>
         </div>
       </div>
     `;
@@ -288,7 +290,7 @@
 
     const roleById = new Map(ROLES.map(r => [r.id, r]));
 
-    container.innerHTML = `
+    const nextOverviewHtml = `
       <div class="pmc-role-overview">
         <div class="pmc-role-overview-title">
           <iconify-icon icon="carbon:user-role" width="16"></iconify-icon>
@@ -304,6 +306,12 @@
         `).join('')}
       </div>
     `;
+
+    if (container.innerHTML !== nextOverviewHtml) {
+        container.innerHTML = nextOverviewHtml;
+    } else {
+        return; // 内容没变，跳过事件绑定，节省性能
+    }
 
     const columns = Array.from(container.querySelectorAll('.pmc-role-dnd-list'));
     columns.forEach((col) => {
