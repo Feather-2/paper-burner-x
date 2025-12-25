@@ -94,68 +94,122 @@ export class UploadView extends BaseView {
   }
 
   _renderUploadStep1() {
+    return `
+      <div class="rd-layout" style="justify-content: center; align-items: center; left: 0; background: transparent;">
+        <div class="rd-intent-full-container">
+          <div class="rd-header" style="margin-bottom: 0;">
+            <h2 class="rd-title-hero">开始你的 PPT 创作</h2>
+            <p class="rd-subtitle-hero">选择一个最适合你当前任务的 AI 路径</p>
+          </div>
+
+          <div class="rd-path-grid">
+            <div class="rd-path-card" data-action="setUploadPath" data-path="deepsearch">
+              <div class="rd-path-visual" style="background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);">
+                <iconify-icon icon="solar:magnifer-zoom-in-bold-duotone"></iconify-icon>
+              </div>
+              <div class="rd-path-content">
+                <h3>AI 深度调研</h3>
+                <p>基于主题或素材，联网进行深度分析，生成专业报告及 PPT。</p>
+                <div class="rd-path-badge">适合：市场调研、报告速成</div>
+              </div>
+            </div>
+
+            <div class="rd-path-card" data-action="setUploadPath" data-path="codesearch">
+              <div class="rd-path-visual" style="background: linear-gradient(135deg, #3b82f6 0%, #2dd4bf 100%);">
+                <iconify-icon icon="solar:code-bold-duotone"></iconify-icon>
+              </div>
+              <div class="rd-path-content">
+                <h3>CodeSearch 源码分析</h3>
+                <p>深度解析代码仓库，基于逻辑生成技术文档及架构 PPT。</p>
+                <div class="rd-path-badge">适合：技术分享、架构汇报</div>
+              </div>
+            </div>
+
+            <div class="rd-path-card" data-action="setUploadPath" data-path="import">
+              <div class="rd-path-visual" style="background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%);">
+                <iconify-icon icon="solar:file-text-bold-duotone"></iconify-icon>
+              </div>
+              <div class="rd-path-content">
+                <h3>从现有 PPT 导入</h3>
+                <p>上传 .pptx 文件，转换为 DSL 并通过 AI 进行重塑修改。</p>
+                <div class="rd-path-badge">适合：旧版优化、风格迁移</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="rd-path-footer" style="margin-top: 60px; text-align: center;">
+             <button class="rd-btn rd-btn-ghost" data-action="openHistorySelector" style="font-weight: 700; color: var(--ppt-primary);">
+                <iconify-icon icon="solar:history-bold-duotone" style="font-size: 18px;"></iconify-icon> 查找过往的创作灵感
+             </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderUploadStep2() {
+    const path = this.getState('ui.uploadPath') || 'deepsearch';
     const files = this._getFiles();
     const hasFiles = files.length > 0;
+    const brief = this._getProjectBrief();
+    const taskGoal = typeof brief.taskGoal === 'string' ? brief.taskGoal.trim() : '';
 
     return `
       <div class="rd-layout">
+        <button class="rd-back-btn" data-action="setUploadStep" data-step="1" title="返回重新选择路径">
+          <iconify-icon icon="solar:arrow-left-linear"></iconify-icon>
+        </button>
         ${this._renderFileSidebar()}
         <div class="rd-main">
           <div class="rd-card">
-            <div class="rd-header">
-              <h2 class="rd-title">开始新的研究</h2>
-              <p class="rd-subtitle">上传文档或导入链接，AI 将为您生成深度报告</p>
+            <div class="rd-header" style="text-align: left; display: flex; align-items: center; gap: 12px; margin-bottom: 24px; padding-left: 56px;">
+               <div>
+                 <h2 class="rd-title" style="font-size: 20px;">配置 ${path === 'deepsearch' ? '深度调研' : (path === 'codesearch' ? '源码分析' : 'PPT 导入')}</h2>
+                 <p class="rd-subtitle">请提供必要的素材和配置，以便 AI 更好地为您工作</p>
+               </div>
             </div>
 
-            <div class="rd-dropzone" data-action="triggerFilePicker">
-              <iconify-icon icon="solar:cloud-upload-bold-duotone" class="rd-dropzone-icon"></iconify-icon>
-              <div class="rd-dropzone-title">点击或拖拽文件至此处</div>
-              <div class="rd-dropzone-hint">支持 PDF, DOCX, MD, TXT (最大 50MB)</div>
-              <input type="file" id="pptFileInput" style="display:none;" multiple data-action="handleFileUpload" data-event="change">
-            </div>
+            <div class="rd-config-body custom-scrollbar" style="flex: 1; overflow-y: auto;">
+              <div class="rd-section-title">1. 添加参考素材</div>
+              <div class="rd-dropzone" data-action="triggerFilePicker">
+                <iconify-icon icon="solar:cloud-upload-bold-duotone" class="rd-dropzone-icon"></iconify-icon>
+                <div class="rd-dropzone-title">拖拽文件或点击上传</div>
+                <div class="rd-dropzone-hint">${path === 'import' ? '仅支持 .pptx 格式' : '支持 PDF, DOCX, MD, TXT, 代码包'}</div>
+                <input type="file" id="pptFileInput" style="display:none;" multiple data-action="handleFileUpload" data-event="change">
+              </div>
 
-            <div class="rd-upload-grid">
-              <button class="rd-source-btn" type="button" data-action="openHistorySelector">
-                <div class="rd-source-icon">
-                  <iconify-icon icon="solar:history-bold-duotone"></iconify-icon>
-                </div>
-                <div class="rd-source-info">
-                  <h3>历史项目</h3>
-                  <p>从过往项目提取</p>
-                </div>
+              <div class="rd-upload-grid">
+                <button class="rd-source-btn" type="button" data-action="openUrlInput">
+                  <div class="rd-source-icon"><iconify-icon icon="solar:link-circle-bold-duotone"></iconify-icon></div>
+                  <div class="rd-source-info"><h3>网页链接</h3><p>解析 URL 内容</p></div>
+                </button>
+                <button class="rd-source-btn" type="button" data-action="openPasteDocumentModal">
+                  <div class="rd-source-icon"><iconify-icon icon="carbon:paste"></iconify-icon></div>
+                  <div class="rd-source-info"><h3>粘贴内容</h3><p>直接输入文本</p></div>
+                </button>
+              </div>
+
+              <div class="rd-section-title" style="margin-top: 24px;">2. 明确创作需求</div>
+              <button class="rd-source-btn" type="button" data-action="openProjectBrief" style="width: 100%; justify-content: center; padding: 20px;">
+                  <div class="rd-source-icon" style="width: 44px; height: 44px; font-size: 24px;"><iconify-icon icon="solar:pen-2-bold-duotone"></iconify-icon></div>
+                  <div class="rd-source-info">
+                    <h3 style="font-size: 16px;">填写/修改项目需求 (Project Brief)</h3>
+                    <p>当前状态：${taskGoal ? '已填写 ✓' : '未填写'}</p>
+                  </div>
               </button>
-              <button class="rd-source-btn" type="button" data-action="openUrlInput">
-                <div class="rd-source-icon">
-                  <iconify-icon icon="solar:link-circle-bold-duotone"></iconify-icon>
-                </div>
-                <div class="rd-source-info">
-                  <h3>网页链接</h3>
-                  <p>解析 URL 内容</p>
-                </div>
-              </button>
-              <button class="rd-source-btn" type="button" data-action="openPasteDocumentModal">
-                <div class="rd-source-icon">
-                  <iconify-icon icon="carbon:paste"></iconify-icon>
-                </div>
-                <div class="rd-source-info">
-                  <h3>直接粘贴文档</h3>
-                  <p>粘贴 / 输入内容</p>
-                </div>
-              </button>
-              <button class="rd-source-btn" type="button" data-action="importPptxAsDeckFromPicker">
-                <div class="rd-source-icon">
-                  <iconify-icon icon="solar:file-text-bold-duotone"></iconify-icon>
-                </div>
-                <div class="rd-source-info">
-                  <h3>导入模板</h3>
-                  <p>使用现有 PPTX</p>
-                </div>
-              </button>
+
+              <div class="rd-section-title" style="margin-top: 24px;">3. 其他高级选项</div>
+              <div class="rd-form-panel">
+                 <div style="display: flex; align-items: center; justify-content: space-between;">
+                   <span style="font-size: 13px; color: var(--ppt-text-secondary);">自动选择最佳模型</span>
+                   <iconify-icon icon="solar:check-circle-bold" style="color: var(--ppt-success); font-size: 20px;"></iconify-icon>
+                 </div>
+              </div>
             </div>
 
             <div class="rd-footer">
-              <button class="rd-btn rd-btn-primary" ${hasFiles ? 'data-action="setUploadStep" data-step="2"' : 'disabled'}>
-                下一步：配置选项 <iconify-icon icon="solar:arrow-right-linear"></iconify-icon>
+              <button class="rd-btn rd-btn-primary" ${hasFiles && taskGoal ? 'data-action="startWorkflow"' : 'disabled'}>
+                立即开启创作 <iconify-icon icon="solar:rocket-bold-duotone"></iconify-icon>
               </button>
             </div>
           </div>
@@ -164,8 +218,26 @@ export class UploadView extends BaseView {
     `;
   }
 
+  _onSetUploadPath({ payload }) {
+    const path = payload?.path;
+    if (!path) return;
+    this.setState('ui.uploadPath', path);
+    
+    // 同步设置生成模式
+    const modeMap = {
+      'deepsearch': 'deepsearch',
+      'codesearch': 'codesearch',
+      'import': 'simple'
+    };
+    this.setState('data.generationMode', modeMap[path]);
+    
+    // 跳转到 Step 2
+    this.setState('ui.uploadStep', 2);
+  }
+
   _renderUploadStep2() {
     const mode = this._getWorkflowMode();
+    const genMode = this._getGenerationMode();
     const brief = this._getProjectBrief();
     const taskGoal = typeof brief.taskGoal === 'string' ? brief.taskGoal.trim() : '';
     const summary = typeof brief.projectSummary === 'string' ? brief.projectSummary.trim() : '';
@@ -188,21 +260,42 @@ export class UploadView extends BaseView {
 
     const startAction = taskGoal ? 'startWorkflow' : 'openProjectBrief';
 
+    // 映射当前生成的友好标题
+    const genModeTitles = {
+      'simple': '结构化速成',
+      'planned': '规划模式',
+      'deepsearch': 'AI 深度调研'
+    };
+
     return `
       <div class="rd-layout">
         ${this._renderFileSidebar()}
         <div class="rd-main">
           <div class="rd-card">
-            <div class="rd-header">
-              <h2 class="rd-title">生成配置</h2>
-              <p class="rd-subtitle">选择生成模式并调整参数</p>
+            <div class="rd-header" style="display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 24px;">
+               <div style="padding: 4px 12px; background: rgba(79, 70, 229, 0.08); border-radius: 20px; color: var(--ppt-primary); font-size: 12px; font-weight: 700;">
+                 ${genModeTitles[genMode] || '配置选项'}
+               </div>
+               <h2 class="rd-title" style="margin: 0;">精细化配置参数</h2>
             </div>
+
+            ${genMode === 'deepsearch' ? `
+              <div class="rd-section-title">研究选项</div>
+              <div class="rd-form-panel" style="margin-bottom: 20px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; font-size: 13px;">
+                  <span style="color: var(--ppt-text-secondary);">包含联网深度搜索</span>
+                  <div style="color: var(--ppt-success); font-weight: 600; display: flex; align-items: center; gap: 4px;">
+                    <iconify-icon icon="solar:check-circle-bold"></iconify-icon> 已开启
+                  </div>
+                </div>
+              </div>
+            ` : ''}
 
             <div class="rd-section-title">生成模式</div>
             <div class="rd-mode-grid" style="margin-bottom: 20px;">
-              ${this._renderGenerationModeCard('simple', '快速生成', '直接通读素材，按结构生成页面', 'solar:bolt-bold-duotone')}
-              ${this._renderGenerationModeCard('planned', '规划模式', 'AI 扫描后，您来配置每页内容和参考资料', 'solar:clipboard-list-bold-duotone')}
-              ${this._renderGenerationModeCard('deepsearch', '深度研究', 'DeepSearch 深度分析、联网扩展信息', 'solar:magnifer-zoom-in-bold-duotone')}
+              ${this._renderGenerationModeCard('simple', '快速生成', '通读素材，直接生成页面', 'solar:bolt-bold-duotone')}
+              ${this._renderGenerationModeCard('planned', '规划模式', '先配置每页内容大纲', 'solar:clipboard-list-bold-duotone')}
+              ${this._renderGenerationModeCard('deepsearch', '深度研究', '联网搜索、深度分析信息', 'solar:magnifer-zoom-in-bold-duotone')}
             </div>
 
             <div class="rd-section-title">工作模式</div>
@@ -335,11 +428,17 @@ export class UploadView extends BaseView {
     }
   }
 
-  _onSetGenerationMode({ payload }) {
+  _onSetGenerationMode({ payload, target }) {
     const mode = payload?.mode;
     if (!mode) return;
     this.setState('data.generationMode', mode);
     this._adapter?.setGenerationMode?.(mode);
+
+    // 如果指定了跳转步数
+    const stepTo = target?.closest('[data-step-to]')?.dataset.stepTo;
+    if (stepTo) {
+      this._onSetUploadStep({ payload: { step: stepTo } });
+    }
   }
 
   _onSetWorkflowMode({ payload }) {

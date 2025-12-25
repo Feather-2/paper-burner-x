@@ -81,7 +81,6 @@ export const FlowStage = Object.freeze({
   START: "start",
   SCAN: "scan",
   TODOS: "todos",
-  GAPS: "gaps",
   RETRIEVE: "retrieve",
   UNDERSTAND: "understand",
   WRITE: "write",

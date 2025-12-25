@@ -109,6 +109,15 @@ const PPTGeneratorNavigation = {
                             <div class="ppt-hero-features">
                                 <div class="ppt-feature-item">
                                     <div class="ppt-feature-icon">
+                                        <iconify-icon icon="carbon:search-advanced"></iconify-icon>
+                                    </div>
+                                    <div class="ppt-feature-text">
+                                        <strong>深度研究</strong>
+                                        <span>DeepSearch 增强</span>
+                                    </div>
+                                </div>
+                                <div class="ppt-feature-item">
+                                    <div class="ppt-feature-icon">
                                         <iconify-icon icon="carbon:ibm-watson-discovery"></iconify-icon>
                                     </div>
                                     <div class="ppt-feature-text">
@@ -269,7 +278,31 @@ const PPTGeneratorNavigation = {
                                     </div>
                                 `}
                             </div>
-                        ` : ''}
+                        ` : `
+                            <!-- Empty State for Recent Projects -->
+                            <div class="ppt-projects-section">
+                                <div class="ppt-section-header">
+                                    <div class="ppt-section-tabs">
+                                        <button class="ppt-section-tab active">
+                                            最近项目
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="ppt-empty-projects">
+                                    <div class="ppt-empty-state-icon">
+                                        <iconify-icon icon="carbon:document-blank"></iconify-icon>
+                                    </div>
+                                    <h3>暂无最近项目</h3>
+                                    <p>您的创作历史将在这里显示。现在就开启一段新的灵感旅程吧！</p>
+                                    <div class="ppt-empty-state-actions">
+                                        <button class="ppt-cta-btn" onclick="window.PPTGenerator.createNewProject()">
+                                            <iconify-icon icon="carbon:add-large"></iconify-icon>
+                                            立即开始
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        `}
                     </div>
                 </main>
             </div>
@@ -415,6 +448,12 @@ const PPTGeneratorNavigation = {
     },
 
     async createNewProject(template = 'default') {
+        // 健康检查拦截
+        if (window.PPTHealthCheck) {
+            const isReady = await window.PPTHealthCheck.checkAndShow(true);
+            if (!isReady) return; // 拦截，等待配置完成
+        }
+
         const titles = {
             'academic': '未命名学术报告',
             'business': '未命名商业计划',

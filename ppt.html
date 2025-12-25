@@ -65,15 +65,50 @@
             padding: 0;
             height: 100%;
             overflow: hidden;
+            background: #f8fafc;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
         }
+
         #pptGeneratorOverlay {
             position: fixed;
             inset: 0;
             display: flex;
             flex-direction: column;
+            background: radial-gradient(circle at top right, rgba(79, 70, 229, 0.05), transparent 40%),
+                        radial-gradient(circle at bottom left, rgba(124, 58, 237, 0.05), transparent 40%);
         }
-        #pptGeneratorOverlay.hidden {
-            display: flex;
+
+        /* 极简精致滚动条 */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(0, 0, 0, 0.1);
+            border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        /* 增强背景质感 */
+        .ocean-gradient-bg {
+            background: #f8fafc;
+            position: relative;
+        }
+        .ocean-gradient-bg::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 100vh;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.8) 0%, rgba(248, 250, 252, 0) 100%);
+            pointer-events: none;
+            z-index: 0;
         }
     </style>
 </head>
@@ -85,6 +120,7 @@
 
     <!-- PPT JS 模块 -->
     <script src="js/ppt/core/slide-styles.js"></script>
+    <script src="js/ppt/core/health-check.js"></script>
     <script src="js/ppt/core/slide-parser.js"></script>
     <script src="js/ppt/core/slide-parser-pptx.js"></script>
     <script src="js/ppt/renderers/slide-renderer-html.js"></script>
@@ -164,6 +200,11 @@
     <script>
         // 独立页面初始化
         document.addEventListener('DOMContentLoaded', async () => {
+            // 启动健康检查
+            if (window.PPTHealthCheck) {
+                await window.PPTHealthCheck.checkAndShow();
+            }
+
             // 等待 ppt_generation.js 初始化完成
             setTimeout(() => {
                 if (window.PPTGenerator && window.PPTGenerator.show) {

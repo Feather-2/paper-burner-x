@@ -28,7 +28,6 @@ const STAGES = {
   [FlowStage.START]: { icon: "▶", label: "Start", color: "#4F46E5" },
   [FlowStage.SCAN]: { icon: "◎", label: "Scan", color: "#0EA5E9" },
   [FlowStage.TODOS]: { icon: "☑", label: "Todos", color: "#F59E0B" },
-  [FlowStage.GAPS]: { icon: "◇", label: "Gaps", color: "#F59E0B" },
   [FlowStage.RETRIEVE]: { icon: "⟳", label: "Retrieve", color: "#8B5CF6" },
   [FlowStage.UNDERSTAND]: { icon: "◈", label: "Understand", color: "#10B981" },
   [FlowStage.WRITE]: { icon: "✎", label: "Write", color: "#EC4899" },
@@ -67,7 +66,6 @@ export class FlowBuilder {
     this.runIdToStartNode = new Map(); // runId -> start node id (修复边连接问题)
 
     // 累计数据
-    this.gaps = new Map();
     this.todos = new Map();
     this.claims = [];
     this.sections = [];
@@ -528,40 +526,6 @@ export class FlowBuilder {
         break;
       }
 
-      // === Gaps 阶段 ===
-      case "deepsearch.gaps.completed": {
-        const id = this._getLatestStageNode("gaps");
-        if (id) {
-          this._updateNode(id, {
-            metrics: {
-              newGaps: payload.gapCount,
-              totalGaps: payload.totalGaps,
-              todos: payload.todoCount
-            }
-          });
-        }
-        break;
-      }
-
-      case "deepsearch.gap.upserted": {
-        const { gapId, question, status, priority, type } = payload;
-        this.gaps.set(gapId, { gapId, question, status, priority, type });
-
-        const id = this._getLatestStageNode("gaps");
-        if (id && question) {
-          this._updateNode(id, {
-            details: [{
-              type: "gap",
-              id: gapId,
-              text: question,
-              priority,
-              status
-            }]
-          });
-        }
-        break;
-      }
-
       // === Retrieve 阶段 ===
       case "deepsearch.retrieve.completed": {
         const id = this._getLatestStageNode("retrieve");
@@ -783,7 +747,7 @@ export class FlowBuilder {
       case "deepsearch.write.backtrack.requested": {
         // 回溯请求 - 添加回溯边
         const writeId = this._getLatestStageNode("write");
-        const todosId = this._getLatestStageNode("todos") || this._getLatestStageNode("gaps");
+        const todosId = this._getLatestStageNode("todos");
         if (writeId && todosId) {
           this._addEdge(writeId, todosId, {
             animated: true,
@@ -1235,7 +1199,6 @@ export class FlowBuilder {
 
   getStats() {
     return {
-      gaps: this.gaps,
       todos: this.todos,
       claims: this.claims,
       sections: this.sections,
@@ -1280,7 +1243,6 @@ export class FlowBuilder {
     this.iterationNodes.clear();
     this.stageLatestNodeId.clear();
     this.runIdToStartNode.clear();
-    this.gaps.clear();
     this.todos.clear();
     this.claims = [];
     this.sections = [];

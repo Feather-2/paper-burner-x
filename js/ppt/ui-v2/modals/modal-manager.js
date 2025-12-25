@@ -106,43 +106,71 @@ export class ModalManager {
     overlay.id = modalId;
     overlay.className = 'ppt-modal-overlay open';
     overlay.innerHTML = `
-      <div class="ppt-modal" style="width: min(800px, 95vw); max-height: 90vh; display: flex; flex-direction: column;">
-        <div class="ppt-modal-header">
-          <div class="ppt-modal-title">
-            <iconify-icon icon="carbon:target"></iconify-icon>
-            <span>项目需求配置 (Project Brief)</span>
+      <div class="ppt-modal" style="width: min(800px, 95vw); max-height: 90vh; display: flex; flex-direction: column; border-radius: 24px; overflow: hidden; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 20px 50px -12px rgba(0,0,0,0.15);">
+        <div class="ppt-modal-header" style="padding: 20px 24px; background: #fff; border-bottom: 1px solid rgba(0,0,0,0.05);">
+          <div class="ppt-modal-title" style="display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 750; color: var(--ppt-text-main);">
+            <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(79, 70, 229, 0.08); color: var(--ppt-primary); display: flex; align-items: center; justify-content: center; font-size: 20px;">
+              <iconify-icon icon="solar:target-bold-duotone"></iconify-icon>
+            </div>
+            <span>项目需求配置</span>
           </div>
-          <button class="ppt-modal-close" data-action="closeBriefingModal">
-            <iconify-icon icon="carbon:close"></iconify-icon>
+          <button class="ppt-modal-close" data-action="closeBriefingModal" style="width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; border: none; background: transparent; cursor: pointer; color: var(--ppt-text-muted);">
+            <iconify-icon icon="solar:close-circle-linear" style="font-size: 22px;"></iconify-icon>
           </button>
         </div>
-        <div class="ppt-modal-body custom-scrollbar" style="flex: 1; padding: 24px; overflow-y: auto;">
-          <div style="margin-bottom: 20px; font-size: 13px; color: var(--ppt-text-secondary);">
-            用于约束 DeepSearch 与 PPT 生成方向（当前模式：${modeLabel}）。
+        <div class="ppt-modal-body custom-scrollbar" style="flex: 1; padding: 28px 32px; overflow-y: auto; background: #fcfcfd;">
+          <div style="margin-bottom: 24px; padding: 12px 16px; background: rgba(79, 70, 229, 0.04); border-radius: 12px; border: 1px solid rgba(79, 70, 229, 0.08); font-size: 13px; color: var(--ppt-primary); display: flex; align-items: center; gap: 10px;">
+            <iconify-icon icon="solar:info-circle-bold-duotone" style="font-size: 18px;"></iconify-icon>
+            <span>用于约束 DeepSearch 与 PPT 生成方向（当前模式：<strong>${modeLabel}</strong>）。</span>
           </div>
-          <div class="form-group" style="margin-bottom: 20px;">
-            <label>1. 任务目标（必填）</label>
-            <input id="pptBriefTaskGoal" type="text" class="ppt-input-field" style="width: 100%;" placeholder="例如：生成一份面向高管的市场分析汇报，突出竞争格局与关键指标" value="${escapeAttr(taskGoal)}">
+
+          <div class="form-group" style="margin-bottom: 24px; background: transparent; border: none; padding: 0; box-shadow: none;">
+            <label style="display: block; font-size: 14px; font-weight: 700; color: var(--ppt-text-main); margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
+              <span style="width: 6px; height: 6px; border-radius: 50%; background: var(--ppt-primary);"></span>
+              1. 任务目标
+              <span style="font-weight: 500; font-size: 11px; color: #ef4444; background: #fef2f2; padding: 1px 6px; border-radius: 4px; margin-left: 4px;">必填</span>
+            </label>
+            <input id="pptBriefTaskGoal" type="text" class="ppt-input-field" 
+              style="width: 100%; height: 46px; padding: 0 16px; border-radius: 12px; border: 1.5px solid var(--ppt-border); font-size: 14px; transition: all 0.2s; box-shadow: none;" 
+              placeholder="例如：生成一份面向高管的市场分析汇报，突出竞争格局与关键指标" value="${escapeAttr(taskGoal)}">
           </div>
-          <div class="form-group" style="margin-bottom: 20px;">
-            <label>2. 侧重点 / 项目摘要</label>
-            <textarea id="pptBriefProjectSummary" class="ppt-input-field" style="width: 100%; min-height: 140px; line-height: 1.5;" placeholder="希望重点关注哪些结论、证据、结构或风格？">${escapeHtml(projectSummary)}</textarea>
+
+          <div class="form-group" style="margin-bottom: 24px; background: transparent; border: none; padding: 0; box-shadow: none;">
+            <label style="display: block; font-size: 14px; font-weight: 700; color: var(--ppt-text-main); margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
+              <span style="width: 6px; height: 6px; border-radius: 50%; background: #94a3b8;"></span>
+              2. 侧重点 / 项目摘要
+            </label>
+            <textarea id="pptBriefProjectSummary" class="ppt-input-field" 
+              style="width: 100%; min-height: 140px; padding: 14px 16px; border-radius: 12px; border: 1.5px solid var(--ppt-border); font-size: 14px; line-height: 1.6; transition: all 0.2s; resize: vertical; box-shadow: none;" 
+              placeholder="希望重点关注哪些结论、证据、结构或风格？">${escapeHtml(projectSummary)}</textarea>
           </div>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-            <div class="form-group">
-              <label>3. 受众（可选）</label>
-              <input id="pptBriefAudience" type="text" class="ppt-input-field" style="width: 100%;" placeholder="例如：非技术高管 / 技术团队" value="${escapeAttr(audience)}">
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+            <div class="form-group" style="background: transparent; border: none; padding: 0; box-shadow: none;">
+              <label style="display: block; font-size: 14px; font-weight: 700; color: var(--ppt-text-main); margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
+                <span style="width: 6px; height: 6px; border-radius: 50%; background: #94a3b8;"></span>
+                3. 受众（可选）
+              </label>
+              <input id="pptBriefAudience" type="text" class="ppt-input-field" 
+                style="width: 100%; height: 42px; padding: 0 14px; border-radius: 10px; border: 1.5px solid var(--ppt-border); font-size: 13.5px; box-shadow: none;" 
+                placeholder="例如：非技术高管 / 技术团队" value="${escapeAttr(audience)}">
             </div>
-            <div class="form-group">
-              <label>4. 语气（可选）</label>
-              <input id="pptBriefTone" type="text" class="ppt-input-field" style="width: 100%;" placeholder="例如：商务严谨 / 科技感" value="${escapeAttr(tone)}">
+            <div class="form-group" style="background: transparent; border: none; padding: 0; box-shadow: none;">
+              <label style="display: block; font-size: 14px; font-weight: 700; color: var(--ppt-text-main); margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
+                <span style="width: 6px; height: 6px; border-radius: 50%; background: #94a3b8;"></span>
+                4. 语气（可选）
+              </label>
+              <input id="pptBriefTone" type="text" class="ppt-input-field" 
+                style="width: 100%; height: 42px; padding: 0 14px; border-radius: 10px; border: 1.5px solid var(--ppt-border); font-size: 13.5px; box-shadow: none;" 
+                placeholder="例如：商务严谨 / 科技感" value="${escapeAttr(tone)}">
             </div>
           </div>
         </div>
-        <div class="ppt-modal-footer">
-          <button class="ppt-btn ppt-btn-secondary" data-action="closeBriefingModal">取消</button>
-          <button class="ppt-btn ppt-btn-primary" data-action="submitBriefingModal">
-            保存修改 <iconify-icon icon="carbon:checkmark"></iconify-icon>
+        <div class="ppt-modal-footer" style="padding: 18px 24px; background: #fff; border-top: 1px solid rgba(0,0,0,0.05); display: flex; justify-content: flex-end; gap: 12px;">
+          <button class="rd-btn rd-btn-ghost" data-action="closeBriefingModal" type="button" style="padding: 10px 20px;">取消</button>
+          <button class="rd-btn rd-btn-primary" data-action="submitBriefingModal" type="button" style="padding: 10px 24px; border-radius: 12px; gap: 8px;">
+            <span>保存修改</span>
+            <iconify-icon icon="solar:check-read-linear" style="font-size: 18px;"></iconify-icon>
           </button>
         </div>
       </div>

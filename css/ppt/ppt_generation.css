@@ -480,59 +480,90 @@
 .ppt-project-list-item {
     display: flex;
     align-items: center;
-    padding: 16px 24px;
-    background: white;
+    padding: 12px 20px;
+    background: var(--ppt-surface);
     border: 1px solid var(--ppt-border);
     border-radius: 12px;
     cursor: pointer;
     transition: all 0.2s var(--ppt-ease);
-    gap: 20px;
+    gap: 16px;
+    position: relative;
 }
 
 .ppt-project-list-item:hover {
-    border-color: var(--ppt-primary-light);
-    box-shadow: var(--ppt-shadow-md);
-    transform: translateX(4px);
+    border-color: var(--ppt-border-hover);
+    background: var(--ppt-bg-subtle);
+    transform: translateY(-1px);
+    box-shadow: var(--ppt-shadow-sm);
 }
 
 .ppt-list-icon {
-    width: 40px;
-    height: 40px;
-    background: var(--ppt-primary-subtle);
-    color: var(--ppt-primary);
+    width: 44px;
+    height: 44px;
+    background: var(--ppt-bg-app);
+    color: var(--ppt-text-secondary);
+    border: 1px solid var(--ppt-border);
     border-radius: 10px;
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 20px;
     flex-shrink: 0;
+    transition: all 0.2s;
+}
+
+.ppt-project-list-item:hover .ppt-list-icon {
+    background: var(--ppt-primary);
+    color: white;
+    border-color: var(--ppt-primary);
 }
 
 .ppt-list-info {
     flex: 1;
     display: flex;
-    flex-direction: column;
-    gap: 4px;
+    align-items: center;
+    justify-content: space-between;
+    min-width: 0;
 }
 
 .ppt-list-title {
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 600;
     color: var(--ppt-text-main);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 400px;
 }
 
 .ppt-list-meta {
-    font-size: 13px;
+    font-size: 12px;
     color: var(--ppt-text-muted);
+    font-family: 'Inter', var(--ppt-font-sans);
 }
 
 .ppt-list-actions {
+    display: flex;
+    gap: 8px;
     opacity: 0;
     transition: opacity 0.2s;
 }
 
 .ppt-project-list-item:hover .ppt-list-actions {
     opacity: 1;
+}
+
+.ppt-list-actions .ppt-icon-btn {
+    width: 32px;
+    height: 32px;
+    font-size: 16px;
+    border-radius: 8px;
+    color: var(--ppt-text-muted);
+}
+
+.ppt-list-actions .ppt-icon-btn:hover {
+    background: #fee2e2;
+    color: var(--ppt-danger);
 }
 
 /* Projects Section */
@@ -780,55 +811,61 @@
     border-radius: 16px;
     overflow: hidden;
     cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all 0.3s var(--ppt-ease);
     position: relative;
+    display: flex;
+    flex-direction: column;
 }
 
 .ppt-template-card:hover {
     transform: translateY(-4px);
-    box-shadow: var(--ppt-shadow-lg);
+    box-shadow: var(--ppt-shadow-md);
     border-color: var(--ppt-primary-light);
 }
 
 .ppt-template-preview {
-    height: 120px;
+    height: 110px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 40px;
+    font-size: 32px;
     position: relative;
     overflow: hidden;
+    transition: all 0.3s ease;
+    background: var(--ppt-bg-subtle);
 }
 
-.ppt-template-preview::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.02) 100%);
-}
+.ppt-template-preview.t-academic { color: #4f46e5; }
+.ppt-template-preview.t-business { color: #059669; }
+.ppt-template-preview.t-creative { color: #c026d3; }
+.ppt-template-preview.t-minimal { color: #64748b; }
 
-.ppt-template-preview.t-academic { background: #e0e7ff; color: #4f46e5; }
-.ppt-template-preview.t-business { background: #ecfdf5; color: #10b981; }
-.ppt-template-preview.t-creative { background: #fdf4ff; color: #d946ef; }
-.ppt-template-preview.t-minimal { background: #f8fafc; color: #64748b; }
+.ppt-template-card:hover .ppt-template-preview {
+    background: var(--ppt-bg-app);
+}
 
 .ppt-template-info {
-    padding: 16px;
-    border-top: 1px solid var(--ppt-border);
+    padding: 12px 16px;
+    background: white;
+    text-align: left;
 }
 
 .ppt-template-info h4 {
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 600;
     color: var(--ppt-text-main);
-    margin: 0 0 4px 0;
+    margin: 0 0 2px 0;
 }
 
 .ppt-template-info p {
     font-size: 12px;
     color: var(--ppt-text-secondary);
     margin: 0;
+    line-height: 1.4;
+    opacity: 0.8;
 }
+
+
 
 @media (max-width: 1024px) {
     .ppt-template-grid {
@@ -981,11 +1018,139 @@
     margin: 0 auto;
 }
 
-@keyframes ppt-spin {
-    to { transform: rotate(360deg); }
+/* ==================== Health Check Card ==================== */
+.health-check-overlay {
+    background: rgba(16, 24, 40, 0.4);
+    backdrop-filter: blur(8px);
 }
 
-/* Responsive adjustments for the new layout */
+.ppt-health-card-container {
+    width: 100%;
+    max-width: 540px;
+    padding: 20px;
+    perspective: 1000px;
+}
+
+.ppt-health-card {
+    background: var(--ppt-surface);
+    border-radius: 32px;
+    border: 1px solid var(--ppt-border);
+    box-shadow: var(--ppt-shadow-xl);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 48px 40px;
+    text-align: center;
+}
+
+.ppt-health-visual {
+    width: 160px;
+    height: 160px;
+    margin-bottom: 32px;
+}
+
+.ppt-health-content h2 {
+    font-size: 28px;
+    font-weight: 800;
+    color: var(--ppt-text-main);
+    margin-bottom: 8px;
+    letter-spacing: -0.02em;
+}
+
+.ppt-health-content .subtitle {
+    font-size: 15px;
+    color: var(--ppt-text-secondary);
+    margin-bottom: 40px;
+}
+
+.health-sections {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-bottom: 40px;
+}
+
+.health-section {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 20px;
+    background: var(--ppt-bg-subtle);
+    border-radius: 20px;
+    text-align: left;
+    border: 1px solid transparent;
+    transition: all 0.2s;
+}
+
+.health-section.status-ok {
+    border-color: rgba(7, 148, 85, 0.1);
+    background: #f6fef9;
+}
+
+.health-section.status-warn {
+    border-color: rgba(220, 104, 3, 0.1);
+    background: #fffcf5;
+}
+
+.section-icon {
+    font-size: 24px;
+    flex-shrink: 0;
+}
+
+.status-ok .section-icon { color: var(--ppt-success); }
+.status-warn .section-icon { color: var(--ppt-warning); }
+.status-info .section-icon { color: var(--ppt-primary); }
+
+.section-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.section-info h4 {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--ppt-text-main);
+    margin: 0 0 2px 0;
+}
+
+.section-info span {
+    font-size: 13px;
+    color: var(--ppt-text-secondary);
+    margin-bottom: 4px;
+}
+
+.section-info small {
+    font-size: 11px;
+    color: var(--ppt-text-muted);
+    font-family: 'Inter', monospace;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.health-actions {
+    display: flex;
+    gap: 12px;
+    width: 100%;
+}
+
+.health-actions button {
+    flex: 1;
+    height: 48px;
+    justify-content: center;
+}
+
+.animate-slide-up {
+    animation: slideUpFade 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideUpFade {
+    from { opacity: 0; transform: translateY(40px) scale(0.95); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
 @media (max-width: 1024px) {
     .ppt-main-container {
         padding: 0 20px 40px;
