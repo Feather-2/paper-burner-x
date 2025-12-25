@@ -13,7 +13,13 @@ import { getRuntimeState } from "../../runtime/loop-runtime-state.js";
 import { DeepSearchState } from "./state.js";
 import { createLogger } from "./logger.js";
 import { shouldUseDirectMode, runDirectAnalysis } from "./direct-analysis.js";
-import { CONCURRENCY_CONFIG, SMALL_DOC_TOKEN_THRESHOLD, AgentLoopStatus, agentLoopMachine } from "./constants.js";
+import {
+  AGENT_LOOP_CONFIG,
+  CONCURRENCY_CONFIG,
+  SMALL_DOC_TOKEN_THRESHOLD,
+  AgentLoopStatus,
+  agentLoopMachine,
+} from "./constants.js";
 import { isPlainObject, safeInt, toNonEmptyString } from "../../shared/value-utils.js";
 import { createStageApi, createRunTool } from "../../shared/stage-api.js";
 import { buildContentPackage } from "../textprep/build-content-package.js";
@@ -26,6 +32,7 @@ import { mapConcurrent } from "../../shared/concurrency.js";
 import { BacktrackManager } from "./backtrack-manager.js";
 import { observe, think, AgentDecision } from "./step-runner.js";
 import { BudgetAction, createBudgetManager } from "./budget.js";
+import { collectMetrics, formatMetricsReport } from "./metrics.js";
 
 /**
  * Agent 可用能力定义
@@ -287,7 +294,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     this.sharedContext = options.sharedContext || null;
 
     // 春秋蝉: 回溯管理器
-    this.maxBacktracks = safeInt(options.maxBacktracks) ?? 3;
+    this.maxBacktracks = safeInt(options.maxBacktracks) ?? AGENT_LOOP_CONFIG.MAX_BACKTRACKS;
     this._backtrackManager = new BacktrackManager({
       archive: this.archive,
       maxBacktracks: this.maxBacktracks,
@@ -867,8 +874,17 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
             }
           }
 
-          // 压缩记忆（金蝉脱壳）
-          if (!shouldBreak && loopCount % 3 === 0) {
+          // 压缩记忆（金蝉脱壳）：根据 Context 填充率动态触发
+          const tokenStats = this.budgetManager?.getStats()?.usage || {};
+          const currentTotalTokens = tokenStats.total || 0;
+          const maxTotalTokens = this.budgetManager?.limits?.total || 100000;
+          const fillRatio = currentTotalTokens / maxTotalTokens;
+          const shouldCompress =
+            !shouldBreak &&
+            (fillRatio > AGENT_LOOP_CONFIG.COMPRESS_FILL_RATIO ||
+              loopCount % AGENT_LOOP_CONFIG.COMPRESS_INTERVAL_LOOPS === 0);
+
+          if (shouldCompress) {
             await this._compressMemory(state, stepApi);
           }
 
@@ -1882,6 +1898,15 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
       };
     }
 
+    // Layer 4: 收集度量衡并 emit
+    const metrics = collectMetrics(state, this._backtrackManager);
+    this._emit("deepsearch.metrics", {
+      runId: state.runId,
+      iteration: state.iteration,
+      metrics,
+      summary: formatMetricsReport(metrics),
+    });
+
     return { decision: AgentDecision.CONTINUE };
   }
 
@@ -1889,8 +1914,15 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
    * 压缩记忆（金蝉脱壳）
    * - Working Memory → Condensed Memory (精华)
    * - 完整状态 → Archive (冷存储)
+   * - 极端压力下：头部修剪 (Truncate first items)
    */
   async _compressMemory(state, stageApi) {
+    const logger = createLogger("compress-memory");
+    const tokenStats = this.budgetManager?.getStats()?.usage || {};
+    const currentTotalTokens = tokenStats.total || 0;
+    const maxTotalTokens = this.budgetManager?.limits?.total || 100000;
+    const fillRatio = currentTotalTokens / maxTotalTokens;
+
     // 1. 使用能力注入的压缩器（如 CicadaCompressor）
     if (this.capabilities.compressMemory) {
       const compressed = await this.capabilities.compressMemory(state, stageApi);
@@ -1920,7 +1952,58 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
       state.L2.retrievedChunks = state.L2.retrievedChunks.slice(-50);
     }
 
-    // 3. 归档完整状态到 Archive（蝉蜕存档）
+    // 3. 头部修剪保底策略 (借鉴常用方法)
+    // 当 Context 压力极大（如 > 90%）时，强制删除最早的 20% 证据/论点，保留最近的上下文
+    if (fillRatio > AGENT_LOOP_CONFIG.CRITICAL_FILL_RATIO) {
+      logger.warn("Critical context pressure detected, applying head-truncation", {
+        fillRatio,
+        currentTotalTokens,
+        maxTotalTokens
+      });
+
+      if (
+        Array.isArray(state.L1?.evidenceLedger) &&
+        state.L1.evidenceLedger.length > AGENT_LOOP_CONFIG.MIN_EVIDENCE_FOR_TRUNCATE
+      ) {
+        const removeCount = Math.floor(state.L1.evidenceLedger.length * AGENT_LOOP_CONFIG.HEAD_TRUNCATE_RATIO);
+        state.L1.evidenceLedger = state.L1.evidenceLedger.slice(removeCount);
+        logger.info(`Truncated ${removeCount} early evidences`);
+      }
+
+      if (
+        Array.isArray(state.L1?.claims) &&
+        state.L1.claims.length > AGENT_LOOP_CONFIG.MIN_CLAIMS_FOR_TRUNCATE
+      ) {
+        const removeCount = Math.floor(state.L1.claims.length * AGENT_LOOP_CONFIG.HEAD_TRUNCATE_RATIO);
+        state.L1.claims = state.L1.claims.slice(removeCount);
+        logger.info(`Truncated ${removeCount} early claims`);
+      }
+    }
+
+    // 4. 决策记忆固化：提取最近 3 条决策到 L1
+    const thoughtHistory = Array.isArray(state.L2?.thoughtHistory)
+      ? state.L2.thoughtHistory
+      : [];
+    const recentDecisions = thoughtHistory
+      .filter((t) => t && t.action) // 只保留有效决策
+      .slice(-3)
+      .map((t) => ({
+        action: t.action || "unknown",
+        reason: t.reason || "",
+        outcome: t.outcome || "unknown",
+        iteration: typeof t.iteration === "number" ? t.iteration : state.iteration,
+        ts: t.ts || new Date().toISOString()
+      }));
+
+    if (!state.L1.condensedMemory) state.L1.condensedMemory = {};
+    state.L1.condensedMemory.decisionTrace = recentDecisions;
+
+    logger.debug("Decision trace captured", {
+      count: recentDecisions.length,
+      actions: recentDecisions.map((d) => d.action)
+    });
+
+    // 5. 归档完整状态到 Archive（蝉蜕存档）
     if (this.archive) {
       try {
         await this._saveCheckpoint(state, {
@@ -1933,7 +2016,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
       }
     }
 
-    // 4. 更新 SharedContext（如果有）
+    // 6. 更新 SharedContext（如果有）
     if (this.sharedContext && typeof this.sharedContext.setSummary === "function") {
       const summaryKey = this.isSubAgent
         ? buildSubAgentSummaryKey(this.parentAgentId || state.runId, this.subAgentIndex)

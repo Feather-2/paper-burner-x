@@ -5,7 +5,7 @@ import { migratGapToTodo } from "./todo-utils.js";
 
 export const CHECKPOINT_SCHEMA_VERSION = "1.0";
 
-const DEFAULT_CHECKPOINT_STRATEGY = CheckpointMode.LITE;
+const DEFAULT_CHECKPOINT_STRATEGY = () => CheckpointMode.LITE;
 
 export function normalizeCheckpointStrategy(v) {
   const raw = toNonEmptyString(v);
@@ -17,7 +17,7 @@ export function normalizeCheckpointStrategy(v) {
 
 export function getCheckpointStrategyFromState(state, override) {
   const direct = override !== undefined ? override : state?.userConfig?.checkpointStrategy;
-  return normalizeCheckpointStrategy(direct || DEFAULT_CHECKPOINT_STRATEGY);
+  return normalizeCheckpointStrategy(direct || DEFAULT_CHECKPOINT_STRATEGY());
 }
 
 function cloneValueFallback(v, seen) {

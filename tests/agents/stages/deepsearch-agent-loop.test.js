@@ -1040,7 +1040,98 @@ test("DeepSearchAgentLoop._compressMemory covers default + archive error + share
 
   agentLoop.capabilities.compressMemory = async () => ({ summary: { hello: "world" } });
   await agentLoop._compressMemory(state, {});
-  assert.deepEqual(state.L1.condensedMemory, { hello: "world" });
+  assert.equal(state.L1.condensedMemory.hello, "world");
+  assert.deepEqual(state.L1.condensedMemory.decisionTrace, []);
+});
+
+test("DeepSearchAgentLoop._compressMemory captures last 3 decisions when history length is 3", async () => {
+  const { DeepSearchAgentLoop, DeepSearchState } = await loadModules();
+  const bus = makeEventBus();
+  const agentLoop = new DeepSearchAgentLoop({ eventBus: bus });
+  const state = makeMinimalCompleteState(DeepSearchState, { runId: "decision_trace_3" });
+
+  state.L2.thoughtHistory = [
+    { action: "retrieve", reason: "need sources", outcome: "ok", iteration: 1, ts: "2024-01-01T00:00:00.000Z" },
+    { action: "extract", reason: "parse evidence", outcome: "ok", iteration: 2, ts: "2024-01-02T00:00:00.000Z" },
+    { action: "review", reason: "check quality", outcome: "ok", iteration: 3, ts: "2024-01-03T00:00:00.000Z" },
+  ];
+
+  await agentLoop._compressMemory(state, {});
+
+  assert.equal(state.L1.condensedMemory.decisionTrace.length, 3);
+  assert.deepEqual(
+    state.L1.condensedMemory.decisionTrace.map((d) => d.action),
+    ["retrieve", "extract", "review"]
+  );
+});
+
+test("DeepSearchAgentLoop._compressMemory writes empty decisionTrace when thoughtHistory is empty", async () => {
+  const { DeepSearchAgentLoop, DeepSearchState } = await loadModules();
+  const bus = makeEventBus();
+  const agentLoop = new DeepSearchAgentLoop({ eventBus: bus });
+  const state = makeMinimalCompleteState(DeepSearchState, { runId: "decision_trace_empty" });
+
+  state.L2.thoughtHistory = [];
+
+  await agentLoop._compressMemory(state, {});
+
+  assert.deepEqual(state.L1.condensedMemory.decisionTrace, []);
+});
+
+test("DeepSearchAgentLoop._compressMemory keeps only last 3 decisions when history exceeds 3", async () => {
+  const { DeepSearchAgentLoop, DeepSearchState } = await loadModules();
+  const bus = makeEventBus();
+  const agentLoop = new DeepSearchAgentLoop({ eventBus: bus });
+  const state = makeMinimalCompleteState(DeepSearchState, { runId: "decision_trace_overflow" });
+
+  state.L2.thoughtHistory = [
+    { action: "a1", reason: "r1", outcome: "o1", iteration: 1, ts: "2024-01-01T00:00:00.000Z" },
+    { action: "a2", reason: "r2", outcome: "o2", iteration: 2, ts: "2024-01-02T00:00:00.000Z" },
+    { action: "a3", reason: "r3", outcome: "o3", iteration: 3, ts: "2024-01-03T00:00:00.000Z" },
+    { action: "a4", reason: "r4", outcome: "o4", iteration: 4, ts: "2024-01-04T00:00:00.000Z" },
+  ];
+
+  await agentLoop._compressMemory(state, {});
+
+  assert.deepEqual(
+    state.L1.condensedMemory.decisionTrace.map((d) => d.action),
+    ["a2", "a3", "a4"]
+  );
+});
+
+test("DeepSearchAgentLoop._compressMemory maps decision fields with defaults", async () => {
+  const { DeepSearchAgentLoop, DeepSearchState } = await loadModules();
+  const bus = makeEventBus();
+  const agentLoop = new DeepSearchAgentLoop({ eventBus: bus });
+  const state = makeMinimalCompleteState(DeepSearchState, { runId: "decision_trace_mapping" });
+  state.iteration = 7;
+
+  state.L2.thoughtHistory = [
+    { action: "replan", reason: "missing data", outcome: "retry", iteration: 5, ts: "2024-02-01T00:00:00.000Z" },
+    { action: "complete" },
+    { action: "abort", outcome: "stopped" },
+  ];
+
+  await agentLoop._compressMemory(state, {});
+
+  const [first, second, third] = state.L1.condensedMemory.decisionTrace;
+  assert.deepEqual(first, {
+    action: "replan",
+    reason: "missing data",
+    outcome: "retry",
+    iteration: 5,
+    ts: "2024-02-01T00:00:00.000Z"
+  });
+  assert.equal(second.action, "complete");
+  assert.equal(second.reason, "");
+  assert.equal(second.outcome, "unknown");
+  assert.equal(second.iteration, 7);
+  assert.ok(typeof second.ts === "string");
+  assert.equal(third.action, "abort");
+  assert.equal(third.reason, "");
+  assert.equal(third.outcome, "stopped");
+  assert.equal(third.iteration, 7);
+  assert.ok(typeof third.ts === "string");
 });
 
 test("DeepSearchAgentLoop pause(): defaults reason to user_requested when omitted", async () => {
@@ -1183,7 +1274,7 @@ test("DeepSearchAgentLoop backtrack: swallows missing checkpoint restore errors"
   assert.equal(loop._backtrackCount, 0);
 });
 
-test("DeepSearchAgentLoop run(): triggers _compressMemory when loopCount % 3 === 0", async () => {
+test("DeepSearchAgentLoop run(): triggers _compressMemory when loopCount hits interval", async () => {
   const { DeepSearchAgentLoop, DeepSearchState, AgentDecision } = await loadModules();
   const bus = makeEventBus();
 
@@ -1201,7 +1292,7 @@ test("DeepSearchAgentLoop run(): triggers _compressMemory when loopCount % 3 ===
   loop._think = async () => ({ action: "complete", reason: "noop" });
   loop._review = async () => {
     reviewCalls += 1;
-    if (reviewCalls <= 3) return { decision: AgentDecision.CONTINUE };
+    if (reviewCalls <= 5) return { decision: AgentDecision.CONTINUE };
     return { decision: AgentDecision.COMPLETE, reason: "done" };
   };
 

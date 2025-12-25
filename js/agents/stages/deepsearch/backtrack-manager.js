@@ -35,7 +35,7 @@ export class BacktrackManager {
    * 执行回溯
    * @returns {{ success: boolean, reason: string, state?: DeepSearchState }}
    */
-  async backtrack(state, checkpointId) {
+  async backtrack(state, checkpointId, { failReason, correctionHint, sharedContext } = {}) {
     if (!this.archive) {
       return { success: false, reason: "no_archive" };
     }
@@ -106,8 +106,22 @@ export class BacktrackManager {
         runId: state.runId,
         checkpointId: targetId,
         backtrackCount: this._backtrackCount,
+        failReason: failReason || null,
+        correctionHint: correctionHint || null,
         todoContext: buildTodoContext(restoredState),
       });
+
+      // 注入语义信号到 SharedContext
+      if (sharedContext && typeof sharedContext.signal === "function") {
+        sharedContext.signal("backtrack_hint", {
+          type: "backtrack_hint",
+          stage: "backtrack-manager",
+          failReason: failReason || "unknown",
+          correctionHint: correctionHint || null,
+          checkpointId: targetId,
+          backtrackCount: this._backtrackCount,
+        });
+      }
 
       return { success: true, reason: "restored", state: restoredState };
     } catch (err) {

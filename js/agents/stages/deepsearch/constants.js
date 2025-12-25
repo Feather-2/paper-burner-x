@@ -190,3 +190,19 @@ export {
   transitionTodo,
   isValidAgentLoopStatus,
 } from "./states.js";
+
+// Agent Loop 配置
+export const AGENT_LOOP_CONFIG = Object.freeze({
+  // 压缩触发阈值
+  COMPRESS_FILL_RATIO: 0.7,
+  CRITICAL_FILL_RATIO: 0.9,
+  HEAD_TRUNCATE_RATIO: 0.2,
+  COMPRESS_INTERVAL_LOOPS: 5,
+
+  // 头部修剪最小数量
+  MIN_EVIDENCE_FOR_TRUNCATE: 20,
+  MIN_CLAIMS_FOR_TRUNCATE: 10,
+
+  // 回溯控制
+  MAX_BACKTRACKS: 3,
+});
