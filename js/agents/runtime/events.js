@@ -29,6 +29,7 @@ export const RuntimeEvents = Object.freeze({
   STAGE_PROGRESS: "stage.progress",
   STAGE_COMPLETED: "stage.completed",
   STAGE_FAILED: "stage.failed",
+  STAGE_INJECTED: "stage.injected",
 });
 
 /**

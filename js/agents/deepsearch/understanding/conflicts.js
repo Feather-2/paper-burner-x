@@ -159,11 +159,59 @@ export function detectConflicts(claims, config = {}) {
 
       conflicts.push({ claimId1: String(a.claimId), claimId2: String(b.claimId), reason });
       openQuestions.push({
-        question: `Resolve contradiction between claims ${String(a.claimId)} and ${String(b.claimId)}.`,
+        question: `Resolve contradiction: ${reason} between claims ${String(a.claimId)} and ${String(b.claimId)}.`,
         relatedClaimIds: [String(a.claimId), String(b.claimId)],
       });
     }
   }
 
   return { conflicts, openQuestions };
+}
+
+/**
+ * AI-Native conflict detection.
+ * Leverages LLM to understand nuanced semantic contradictions that keyword-based polarity misses.
+ *
+ * @param {object} stageApi
+ * @param {Array<any>} claims
+ * @returns {Promise<{conflicts:Array<any>,openQuestions:Array<any>}>}
+ */
+export async function detectConflictsAI(stageApi, claims) {
+  if (!claims || claims.length < 2) return { conflicts: [], openQuestions: [] };
+
+  // 1. Identify "Conflict Suspects" using fast topic overlap
+  const suspects = [];
+  for (let i = 0; i < claims.length; i++) {
+    for (let j = i + 1; j < claims.length; j++) {
+      if (topicSimilarity(claims[i].text, claims[j].text) >= 0.5) {
+        suspects.push([claims[i], claims[j]]);
+      }
+    }
+  }
+
+  if (suspects.length === 0) return { conflicts: [], openQuestions: [] };
+
+  // 2. Batch analyze suspects using AI
+  // To optimize, we group multiple suspect pairs into one prompt if there are many
+  try {
+    const analysis = await stageApi.runTool("analyze_conflicts", {
+      pairs: suspects.map((pair) => ({
+        a: { id: pair[0].claimId, text: pair[0].text },
+        b: { id: pair[1].claimId, text: pair[1].text },
+      })),
+    });
+
+    if (analysis && Array.isArray(analysis.conflicts)) {
+      const openQuestions = analysis.conflicts.map((c) => ({
+        question: c.resolutionTask || `Investigate conflicting claims: ${c.reason}`,
+        relatedClaimIds: [c.claimId1, c.claimId2],
+      }));
+      return { conflicts: analysis.conflicts, openQuestions };
+    }
+  } catch (e) {
+    console.warn("AI Conflict Detection failed, falling back to algorithmic:", e);
+  }
+
+  // Fallback
+  return detectConflicts(claims);
 }

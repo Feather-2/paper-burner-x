@@ -346,23 +346,24 @@ function trackSeenChunkIds(state, chunkIds, { maxSize } = {}) {
 
 // ===== LLM-based Rerank =====
 
-const RERANK_PROMPT = `你是一个检索结果排序助手。根据用户问题，对以下检索结果按相关性从高到低排序。
+const RERANK_PROMPT = `你是一个检索结果排序助手。根据用户问题及预期的证据类型，对以下检索结果按相关性从高到低排序。
 
-## 用户问题
-{query}
+## 用户问题与预期
+{query_with_expectations}
 
 ## 检索结果
 {chunks}
 
 ## 任务
-1. 评估每个结果与问题的相关性（0-10分）
-2. 按相关性从高到低排序
-3. 过滤掉完全不相关的结果（相关性 < 3）
+1. 评估每个结果与问题及【预期证据类型】的相关性（0-10分）。
+2. 特别注意：如果用户预期的是数值、百分比或具体指标，而结果中仅有描述性文字，分数应适当降低；反之亦然。
+3. 按相关性从高到低排序。
+4. 过滤掉完全不相关的结果（相关性 < 3）。
 
 ## 输出格式（严格 JSON）
 {
   "ranked": [
-    { "id": "结果ID", "score": 8, "reason": "简短理由" }
+    { "id": "结果ID", "score": 8, "reason": "简短理由（如：符合数值预期）" }
   ]
 }
 
@@ -410,7 +411,7 @@ async function rerankWithLLM(chunks, query, { stageApi, state, emit, topK = 10, 
     })
     .join("\n\n---\n\n");
 
-  const prompt = RERANK_PROMPT.replace("{query}", String(query || "")).replace("{chunks}", chunksText);
+  const prompt = RERANK_PROMPT.replace("{query_with_expectations}", String(query || "")).replace("{chunks}", chunksText);
 
   const controller = new AbortController();
   let timeoutId = null;
@@ -1061,11 +1062,17 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
 
   for (const { todoId, gapId, requiresNumericEvidence, retrieved } of todoResults) {
     for (const r of retrieved) {
-      // Heuristic: data/metrics todos should be supported by numeric evidence; avoid
-      // attributing non-numeric chunks to data todos to prevent false "hits" and fills.
+      // Heuristic: data/metrics todos should be supported by numeric evidence;
+      // But we use a soft approach to avoid losing textual descriptions of percentages (e.g. "one fifth").
       if (requiresNumericEvidence) {
         const text = typeof r?.text === "string" ? r.text : "";
-        if (!/[0-9]/.test(text)) continue;
+        const hasDigits = /[0-9]/.test(text);
+        const hasTextualNumbers = /percent|percentage|proportion|ratio|fifth|quarter|half/.test(text.toLowerCase());
+        
+        if (!hasDigits && !hasTextualNumbers) {
+          // If no numeric indicators at all, we lower the score instead of hard continue
+          if (typeof r.score === "number") r.score *= 0.5;
+        }
       }
 
       const chunkId = String(r?.chunkId || "");
@@ -1138,11 +1145,22 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
       emitRetrieveProgress(emit, {
         current: todos.length,
         total: todos.length,
-        msg: `正在使用 LLM 重排 ${roundChunks.length} 个检索结果...`,
+        msg: `正在使用 LLM 重排 ${roundChunks.length} 个检索结果 (Todo-First)...`,
         detail: { step: "rerank", inputCount: roundChunks.length },
       });
 
-      const { ranked, stats } = await rerankWithLLM(roundChunks, rerankQuery, {
+      // 增强 Rerank Query，包含每个 Todo 的预期证据类型
+      const rerankQueryWithExpectations = todos
+        .map((t) => {
+          const q = toNonEmptyString(t?.question) || toNonEmptyString(t?.text) || "";
+          const exp = toNonEmptyString(t?.expectedEvidence);
+          return `- 问题: ${q}${exp ? `\n  预期证据: ${exp}` : ""}`;
+        })
+        .filter(Boolean)
+        .slice(0, 5)
+        .join("\n");
+
+      const { ranked, stats } = await rerankWithLLM(roundChunks, rerankQueryWithExpectations, {
         stageApi,
         state,
         emit,

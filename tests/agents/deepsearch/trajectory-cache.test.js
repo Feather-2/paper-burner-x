@@ -88,7 +88,7 @@ test("TrajectoryManager: shared cache dedupes gaps + understand LLM calls across
           "\n```",
       };
     }
-    if (sys.includes("DeepSearch claim extractor")) {
+    if (sys.includes("资深主编") || sys.includes("Lead Agent")) {
       return { content: "```json\n" + JSON.stringify({ claims: [] }) + "\n```" };
     }
     return { content: "```json\n{}\n```" };
@@ -127,7 +127,10 @@ test("TrajectoryManager: shared cache dedupes gaps + understand LLM calls across
   // gaps planner + claim edits extractor + reflect-on-evidence (deduped via shared cache)
   assert.equal(calls.length, 3);
   assert.ok(calls.some((c) => String(c.messages?.[0]?.content || "").includes("DeepSearch gap planner")));
-  assert.ok(calls.some((c) => String(c.messages?.[0]?.content || "").includes("DeepSearch claim extractor")));
+  assert.ok(calls.some((c) => {
+    const sys = String(c.messages?.[0]?.content || "");
+    return sys.includes("资深主编") || sys.includes("Lead Agent");
+  }));
 });
 
 test("TrajectoryManager: cachePolicy=off does not dedupe LLM calls", async () => {
@@ -151,7 +154,7 @@ test("TrajectoryManager: cachePolicy=off does not dedupe LLM calls", async () =>
     if (sys.includes("DeepSearch gap planner")) {
       return { content: "```json\n" + JSON.stringify({ gaps: [] }) + "\n```" };
     }
-    if (sys.includes("DeepSearch claim extractor")) {
+    if (sys.includes("资深主编") || sys.includes("Lead Agent")) {
       return { content: "```json\n" + JSON.stringify({ claims: [] }) + "\n```" };
     }
     return { content: "```json\n{}\n```" };

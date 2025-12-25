@@ -15,7 +15,7 @@ import { createLogger } from "./logger.js";
 import { shouldUseDirectMode, runDirectAnalysis } from "./direct-analysis.js";
 import { CONCURRENCY_CONFIG, SMALL_DOC_TOKEN_THRESHOLD, AgentLoopStatus, agentLoopMachine } from "./constants.js";
 import { isPlainObject, safeInt, toNonEmptyString } from "../../shared/value-utils.js";
-import { createStageApi } from "../../shared/stage-api.js";
+import { createStageApi, createRunTool } from "../../shared/stage-api.js";
 import { buildContentPackage } from "../textprep/build-content-package.js";
 import { ShadowAgent, createShadowAgent } from "./shadow-agent.js";
 import { ReviewRules } from "../../runtime/review-rules.js";
@@ -570,6 +570,14 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
       eventBus: context.eventBus || this.eventBus,
       ...context,
     });
+    // 自动注入 runTool（如果 modelRouter 存在且 runTool 未提供）
+    if (!stageApi.runTool && stageApi.modelRouter) {
+      stageApi.runTool = createRunTool({
+        modelRouter: stageApi.modelRouter,
+        signal: stageApi.signal,
+        logger: stageApi.logger,
+      });
+    }
     this.eventBus = stageApi.eventBus || this.eventBus;
     this.emit = typeof stageApi.emit === "function" ? stageApi.emit : this.emit;
 
@@ -601,7 +609,17 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
       this.sharedContext = sharedContext;
       stageApi.sharedContext = sharedContext;
       if (typeof stageApi.getContextSummary !== "function") {
-        stageApi.getContextSummary = () => sharedContext.buildSummaryText();
+        stageApi.getContextSummary = () => {
+          let text = sharedContext.buildSummaryText();
+          const history = state?.L2?.thoughtHistory;
+          if (Array.isArray(history) && history.length > 0) {
+            const historyText = history
+              .map((h) => `[Retry/Correction] Previous failure in ${h.stage}: ${h.reason}`)
+              .join("\n");
+            text = `## 历史经验 (Self-Correction)\n${historyText}\n\n${text}`;
+          }
+          return text;
+        };
       }
     }
 

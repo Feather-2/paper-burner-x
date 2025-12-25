@@ -77,7 +77,7 @@ test("DeepSearch S5: understand per-todo LLM calls are concurrency-limited", asy
       }
 
       // claim edits (tryLLMClaimEdits)
-      if (sys.includes("You are a DeepSearch claim extractor")) {
+      if (sys.includes("资深主编") || sys.includes("Lead Agent")) {
         return { content: JSON.stringify({ claims: [] }) };
       }
 

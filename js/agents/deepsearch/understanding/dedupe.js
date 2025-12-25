@@ -157,3 +157,76 @@ export function dedupeClaims(claims, config = {}) {
 
   return kept;
 }
+
+/**
+ * AI-Native deduplication and synthesis.
+ * Instead of simple threshold filtering, it uses the LLM to understand if two claims are semantically identical,
+ * or if they should be synthesized into a more comprehensive one.
+ *
+ * @param {object} stageApi
+ * @param {Array<any>} claims
+ * @returns {Promise<Array<any>>}
+ */
+export async function dedupeClaimsAI(stageApi, claims) {
+  if (!claims || claims.length < 2) return claims;
+
+  // 1. Group suspects using cheap Jaccard first to reduce token usage
+  // We use a lower threshold to capture more potential duplicates for AI to review
+  const suspects = [];
+  const processed = new Set();
+
+  for (let i = 0; i < claims.length; i++) {
+    if (processed.has(i)) continue;
+    const cluster = [claims[i]];
+    processed.add(i);
+
+    for (let j = i + 1; j < claims.length; j++) {
+      if (processed.has(j)) continue;
+      // Lower threshold for "potential" overlap
+      if (similarity(claims[i].text, claims[j].text) >= 0.6) {
+        cluster.push(claims[j]);
+        processed.add(j);
+      }
+    }
+    suspects.push(cluster);
+  }
+
+  const results = [];
+  for (const cluster of suspects) {
+    if (cluster.length === 1) {
+      results.push(cluster[0]);
+      continue;
+    }
+
+    // 2. Let AI decide for each cluster
+    try {
+      const synthesized = await stageApi.runTool("synthesize_claims", {
+        claims: cluster.map((c) => ({ id: c.claimId, text: c.text, importance: c.importance })),
+      });
+
+      if (synthesized && Array.isArray(synthesized.mergedClaims)) {
+        // Map back evidence and gaps
+        for (const mc of synthesized.mergedClaims) {
+          const originalSources = cluster.filter((c) => mc.sourceIds.includes(c.claimId));
+          const evidenceIds = Array.from(new Set(originalSources.flatMap((c) => c.evidenceIds || [])));
+          const gapIds = Array.from(new Set(originalSources.flatMap((c) => normalizeGapIds(c.gapIds))));
+
+          results.push({
+            ...mc,
+            claimId: mc.id || `ai-syn-${Math.random().toString(36).slice(2, 7)}`,
+            evidenceIds,
+            ...(gapIds.length ? { gapIds } : {}),
+          });
+        }
+      } else {
+        // Fallback to traditional dedupe for this cluster if AI fails
+        results.push(...dedupeClaims(cluster, { threshold: 0.82 }));
+      }
+    } catch (e) {
+      console.warn("AI Dedupe failed, falling back to algorithmic:", e);
+      results.push(...dedupeClaims(cluster, { threshold: 0.82 }));
+    }
+  }
+
+  return results;
+}

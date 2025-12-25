@@ -454,6 +454,7 @@ export class DeepSearchState {
           ...L2,
           retrievedChunks: Array.isArray(L2?.retrievedChunks) ? L2.retrievedChunks : [],
           scratchpad: isPlainObject(L2?.scratchpad) ? L2.scratchpad : {},
+          thoughtHistory: Array.isArray(L2?.thoughtHistory) ? L2.thoughtHistory : [],
           logs: Array.isArray(L2?.logs) ? L2.logs : [],
           tokenUsage: ensureTokenUsage(L2?.tokenUsage),
           awaitUserFeedback: typeof L2?.awaitUserFeedback === "boolean" ? L2.awaitUserFeedback : false,
@@ -463,6 +464,7 @@ export class DeepSearchState {
       : {
           retrievedChunks: [],
           scratchpad: {},
+          thoughtHistory: [],
           logs: [],
           tokenUsage: { input: 0, output: 0, total: 0, estimatedCostUSD: 0 },
           awaitUserFeedback: false,

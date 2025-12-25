@@ -126,10 +126,24 @@ export class AgentOrchestrator {
   }
 
   /**
+   * 动态注入一个 Stage（在运行时）
+   */
+  injectStage(name, fn, options = {}) {
+    this.registerStage(name, fn, options);
+    this._planNeedsRebuild = true;
+    this.eventBus.emit(RuntimeEvents.STAGE_INJECTED, {
+      actor: ActorType.SYSTEM,
+      status: "info",
+      payload: { name, dependsOn: options.dependsOn },
+    });
+  }
+
+  /**
    * 获取 Stage 的拓扑排序结果
    * @returns {{ sorted: string[], layers: string[][] }}
    */
   getExecutionPlan() {
+    this._planNeedsRebuild = false;
     return topologicalSort(this._stages);
   }
 
@@ -201,13 +215,17 @@ export class AgentOrchestrator {
 
     const results = new Map();
     const skipped = new Set();
+    const completed = new Set();
 
     try {
-      const { layers } = this.getExecutionPlan();
+      while (this._state === OrchestratorState.RUNNING) {
+        const { layers } = this.getExecutionPlan();
+        
+        // 寻找第一个包含尚未运行节点的层级
+        const nextLayer = layers.find(layer => layer.some(name => !completed.has(name) && !skipped.has(name)));
+        if (!nextLayer) break;
 
-      for (const layer of layers) {
-        if (this._state !== OrchestratorState.RUNNING) break;
-
+        const layer = nextLayer;
         const toRun = [];
         for (const name of layer) {
           const stage = this._stages.get(name);
@@ -269,6 +287,7 @@ export class AgentOrchestrator {
                 const input = getInput(name);
                 const result = await this.runStage(name, input, { signal: layerAbort.signal });
                 results.set(name, result);
+                completed.add(name);
                 onStageResult?.(name, result);
                 return { name, status: "success", result };
               } catch (err) {
@@ -294,6 +313,7 @@ export class AgentOrchestrator {
             const input = getInput(name);
             const result = await this.runStage(name, input);
             results.set(name, result);
+            completed.add(name);
             onStageResult?.(name, result);
           }
         }
@@ -362,6 +382,7 @@ export class AgentOrchestrator {
         }
         throw cancelledErrorFromSignal(signal, name);
       },
+      injectStage: (n, f, o) => this.injectStage(n, f, o),
       ...this._services,
     });
 

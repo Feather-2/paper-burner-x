@@ -66,6 +66,19 @@ export const checkpointMixin = {
         const mgr = await this._ensureCheckpointManager();
         if (!mgr) return null;
 
+        // 语义存证：如果 metadata 中包含 failureReason，则存入 state
+        if (metadata.failureReason && this._deepsearchState) {
+            if (!this._deepsearchState.L2) this._deepsearchState.L2 = {};
+            if (!Array.isArray(this._deepsearchState.L2.thoughtHistory)) {
+                this._deepsearchState.L2.thoughtHistory = [];
+            }
+            this._deepsearchState.L2.thoughtHistory.push({
+                ts: new Date().toISOString(),
+                stage,
+                reason: metadata.failureReason
+            });
+        }
+
         const snapshot = this._buildCheckpointStateSnapshot(stage);
         const cp = mgr.save(stage, snapshot, metadata);
         this._refreshRecoveryButton?.();

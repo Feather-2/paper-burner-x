@@ -43,6 +43,15 @@ export class BudgetManager {
     this.usage = { input: 0, output: 0, total: 0 };
     this.degraded = false;
     this.stopped = false;
+    this.complexityMultiplier = 1.0;
+  }
+
+  /**
+   * Adjust estimates based on task complexity or document properties.
+   * @param {number} multiplier - e.g., 1.5 for dense technical docs, 0.8 for simple lists.
+   */
+  setComplexity(multiplier) {
+    this.complexityMultiplier = Math.max(0.1, Math.min(10, multiplier));
   }
 
   /**
@@ -61,16 +70,17 @@ export class BudgetManager {
     // sourceCount 暂不参与估算；保留字段用于未来更精细的估算策略
     void sourceCount;
 
+    const m = this.complexityMultiplier;
     const perIteration = {
-      scan: this.estimates.scan,
-      gaps: { input: (this.estimates.gaps.input * gapCount) / 5, output: this.estimates.gaps.output },
-      retrieve: { input: this.estimates.retrieve.input * gapCount, output: this.estimates.retrieve.output * gapCount },
-      understand: { input: this.estimates.understand.input * gapCount, output: this.estimates.understand.output * gapCount },
-      write: this.estimates.write,
+      scan: { input: this.estimates.scan.input * m, output: this.estimates.scan.output },
+      gaps: { input: (this.estimates.gaps.input * gapCount * m) / 5, output: this.estimates.gaps.output },
+      retrieve: { input: this.estimates.retrieve.input * gapCount * m, output: this.estimates.retrieve.output * gapCount },
+      understand: { input: this.estimates.understand.input * gapCount * m, output: this.estimates.understand.output * gapCount },
+      write: { input: this.estimates.write.input * m, output: this.estimates.write.output },
     };
 
     if (enableRerank) {
-      perIteration.rerank = this.estimates.rerank;
+      perIteration.rerank = { input: this.estimates.rerank.input * m, output: this.estimates.rerank.output };
     }
     if (enableShadow) {
       perIteration.shadow = {

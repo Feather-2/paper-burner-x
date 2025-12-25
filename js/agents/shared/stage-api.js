@@ -28,6 +28,7 @@ export const StageApiSpec = {
     externalSearchProvider: null, // MCP provider
     logger: null, // Logger 实例
     checkCancelled: null, // () => void (throws if cancelled)
+    runTool: null, // (toolName, args) => Promise - AI 工具调用
   },
 };
 
@@ -140,6 +141,7 @@ export function extractServices(stageApi) {
     localRetriever: api.localRetriever || null,
     externalSearchProvider: api.externalSearchProvider || null,
     logger: api.logger || null,
+    runTool: typeof api.runTool === "function" ? api.runTool : null,
     checkCancelled:
       typeof api.checkCancelled === "function"
         ? api.checkCancelled
@@ -175,5 +177,95 @@ export function mergeStageApis(...apis) {
  */
 export function createChildApi(parentApi, overrides = {}) {
   return createStageApi({ ...parentApi, ...overrides });
+}
+
+/**
+ * 创建基于 modelRouter 的 runTool 实现
+ * @param {object} options - { modelRouter, signal, logger }
+ * @returns {function} runTool 函数
+ */
+export function createRunTool({ modelRouter, signal, logger } = {}) {
+  if (!modelRouter || typeof modelRouter.call !== "function") {
+    return null;
+  }
+
+  const toolSchemas = {
+    synthesize_claims: {
+      name: "synthesize_claims",
+      description: "合并语义相似的论点为更全面的表述",
+      parameters: {
+        type: "object",
+        properties: {
+          claims: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                id: { type: "string" },
+                text: { type: "string" },
+                importance: { type: "string" },
+              },
+            },
+          },
+        },
+        required: ["claims"],
+      },
+    },
+    analyze_conflicts: {
+      name: "analyze_conflicts",
+      description: "分析论点对之间的语义冲突",
+      parameters: {
+        type: "object",
+        properties: {
+          pairs: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                a: { type: "object" },
+                b: { type: "object" },
+              },
+            },
+          },
+        },
+        required: ["pairs"],
+      },
+    },
+  };
+
+  return async function runTool(toolName, args) {
+    const schema = toolSchemas[toolName];
+    if (!schema) {
+      throw new Error(`Unknown tool: ${toolName}`);
+    }
+
+    const systemPrompt =
+      toolName === "synthesize_claims"
+        ? `你是一个知识综合助手。分析给定的论点，识别语义重复或高度相似的论点，并将它们合并为更全面的表述。
+输出格式：{"mergedClaims":[{"id":"新ID","text":"合并后文本","importance":"core或support","sourceIds":["原始ID1","原始ID2"]}]}`
+        : `你是一个冲突检测助手。分析给定的论点对，判断它们是否存在语义冲突。
+输出格式：{"conflicts":[{"claimId1":"ID1","claimId2":"ID2","reason":"冲突原因","resolutionTask":"解决任务"}]}`;
+
+    try {
+      const result = await modelRouter.call({
+        taskType: "tool_call",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: JSON.stringify(args) },
+        ],
+        responseFormat: { type: "json_object" },
+        signal,
+      });
+
+      const content = result?.choices?.[0]?.message?.content || result?.content;
+      if (typeof content === "string") {
+        return JSON.parse(content);
+      }
+      return content;
+    } catch (err) {
+      logger?.warn?.(`runTool(${toolName}) failed:`, err?.message);
+      throw err;
+    }
+  };
 }
 

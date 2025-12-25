@@ -1,0 +1,19 @@
+# 规范换行符
+* text=auto eol=lf
+
+# 确保脚本使用 LF
+*.js text eol=lf
+*.ts text eol=lf
+*.json text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# 二进制文件
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.pdf binary

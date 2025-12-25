@@ -1367,7 +1367,7 @@ test("DeepSearch understand: injects context summary into claimEdits and reflect
 
   const modelRouter = createMockModelRouter(async (messages) => {
     const system = messages?.[0]?.role === "system" ? String(messages[0].content || "") : "";
-    if (system.includes("DeepSearch claim extractor")) {
+    if (system.includes("资深主编") || system.includes("Lead Agent")) {
       return { content: JSON.stringify({ claims: [] }, null, 2) };
     }
     return {
@@ -1402,7 +1402,10 @@ test("DeepSearch understand: injects context summary into claimEdits and reflect
     { emit: () => {}, modelRouter, getContextSummary: () => "ctx_line" }
   );
 
-  const claimEditsCall = modelRouter.calls.find((c) => String(c?.messages?.[0]?.content || "").includes("DeepSearch claim extractor"));
+  const claimEditsCall = modelRouter.calls.find((c) => {
+    const sys = String(c?.messages?.[0]?.content || "");
+    return sys.includes("资深主编") || sys.includes("Lead Agent");
+  });
   assert.ok(claimEditsCall, "expected claimEdits LLM call");
   assert.ok(String(claimEditsCall.messages[1].content).startsWith("## 已知上下文\nctx_line\n\n"));
 
@@ -1789,7 +1792,7 @@ test("DeepSearch pipeline: metrics.deepsearch includes tokenUsage", async () => 
           usage: { prompt_tokens: 6, completion_tokens: 2 },
         };
       }
-      if (sys.includes("DeepSearch claim extractor")) {
+      if (sys.includes("资深主编") || sys.includes("Lead Agent")) {
         return { content: "```json\n" + JSON.stringify({ claims: [] }) + "\n```", usage: { prompt_tokens: 7, completion_tokens: 1 } };
       }
       if (sys.includes("PPT slide planner")) {
@@ -1948,7 +1951,7 @@ test("DeepSearch pipeline: budget.exceeded action=degrade clamps maxIterations",
           model: "m1",
         };
       }
-      if (sys.includes("DeepSearch claim extractor")) {
+      if (sys.includes("资深主编") || sys.includes("Lead Agent")) {
         return { content: "```json\n" + JSON.stringify({ claims: [] }) + "\n```", usage: { prompt_tokens: 0, completion_tokens: 0 }, model: "m1" };
       }
       if (sys.includes("PPT slide planner")) {

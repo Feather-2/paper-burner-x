@@ -1,8 +1,8 @@
 import { checkCancelled, extractJsonCandidate, makeStageEmitter } from "./state.js";
 import { getModelCaller } from "./model.js";
 import { claimsFromChunks } from "../../deepsearch/understanding/claims-from-chunks.js";
-import { dedupeClaims } from "../../deepsearch/understanding/dedupe.js";
-import { detectConflicts } from "../../deepsearch/understanding/conflicts.js";
+import { dedupeClaims, dedupeClaimsAI } from "../../deepsearch/understanding/dedupe.js";
+import { detectConflicts, detectConflictsAI } from "../../deepsearch/understanding/conflicts.js";
 import { createLogger } from "./logger.js";
 import { extractServices } from "./stage-api.js";
 import { isPlainObject, toNonEmptyString, safeInt } from "../../shared/value-utils.js";
@@ -177,7 +177,10 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
         {
           role: "system",
           content:
-            "你是一个严谨的研究助手。只能基于提供的文档片段提取论点，不得编造。输出必须为严格 JSON，且 quote 必须为原文精确片段。",
+            "你是一个高效率的实录采集员 (SubAgent)。你的任务是从文档片段中提取所有可能的、有证据支持的论点。\n" +
+            "1. 追求高覆盖率：不要担心冗余，我们会后续处理。提取尽可能细致的信息点。\n" +
+            "2. 严谨性：必须基于提供的片段，不得编造。quote 必须是原文精确片段。\n" +
+            "3. 格式：输出必须为严格 JSON。",
         },
         { role: "user", content: promptWithContext },
       ];
@@ -516,9 +519,11 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
       {
         role: "system",
         content:
-          "You are a DeepSearch claim extractor. Improve the provided draft claims for PPT use.\n" +
-          "Return ONLY JSON: {claims:[{claimId,text,importance}]}. importance must be 'core' or 'support'.\n" +
-          "Do not invent facts; only rephrase/summarize what's supported by the evidence quotes.",
+          "你是一个资深主编 (Lead Agent)。你的任务是审核并综合 SubAgent 提取的初步论点。\n" +
+          "1. 综合 (Synthesis)：将相似、冗余的初步论点合并为更全面、更有洞察力的表述。\n" +
+          "2. 润色：使论点更符合 PPT 演讲稿的需求，语言精炼且专业。\n" +
+          "3. 证据链：确保综合后的论点依然有原始引文证据支持。\n" +
+          "4. 格式：仅返回 JSON: {claims:[{claimId,text,importance}]}。importance 必须为 'core' 或 'support'。",
       },
       {
         role: "user",
@@ -1032,7 +1037,7 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
     seedEvidencesRaw.push(...rebased.evidences);
   }
 
-  const seedClaims = dedupeClaims(seedClaimsRaw, { threshold: dedupeThreshold, mergeEvidence: true });
+  const seedClaims = await (useLLMClaims ? dedupeClaimsAI(stageApi, seedClaimsRaw) : dedupeClaims(seedClaimsRaw, { threshold: dedupeThreshold, mergeEvidence: true }));
 
   const referencedSeedEvidenceIds = new Set(
     seedClaims.flatMap((c) => (Array.isArray(c?.evidenceIds) ? c.evidenceIds : [])).map(String)
@@ -1174,7 +1179,7 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
   }
 
   const combinedClaims = [...existingClaims, ...newClaims];
-  const claims = dedupeClaims(combinedClaims, { threshold: dedupeThreshold, mergeEvidence: true });
+  const claims = await (useLLMClaims ? dedupeClaimsAI(stageApi, combinedClaims) : dedupeClaims(combinedClaims, { threshold: dedupeThreshold, mergeEvidence: true }));
 
   for (let i = 0; i < claims.length; i++) {
     const c = claims[i];
@@ -1286,10 +1291,12 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
     }
   }
 
-  const { conflicts, openQuestions: conflictQuestions } = detectConflicts(claims, {
-    topicThreshold: typeof understandingConfig.conflictTopicThreshold === "number" ? understandingConfig.conflictTopicThreshold : 0.6,
-    numericThreshold: typeof understandingConfig.conflictNumericThreshold === "number" ? understandingConfig.conflictNumericThreshold : 0.78,
-  });
+  const { conflicts, openQuestions: conflictQuestions } = await (useLLMClaims
+    ? detectConflictsAI(stageApi, claims)
+    : detectConflicts(claims, {
+        topicThreshold: typeof understandingConfig.conflictTopicThreshold === "number" ? understandingConfig.conflictTopicThreshold : 0.6,
+        numericThreshold: typeof understandingConfig.conflictNumericThreshold === "number" ? understandingConfig.conflictNumericThreshold : 0.78,
+      }));
 
   const openQuestions = [];
   let qn = 0;
