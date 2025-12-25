@@ -100,15 +100,6 @@
 
     // 绑定 Image Settings 事件（只需绑定一次，面板在 Tab 3）
     ns.advanced?.bindImageSettingsEvents?.();
-
-    // 并发设置保存按钮事件绑定
-    document.getElementById('pmc-save-concurrency')?.addEventListener('click', () => {
-      const batchSize = Math.max(1, parseInt(document.getElementById('pmc-batch-size')?.value) || 4);
-      const batchConcurrency = Math.max(1, parseInt(document.getElementById('pmc-batch-concurrency')?.value) || 2);
-      const imageConcurrency = Math.max(1, parseInt(document.getElementById('pmc-image-concurrency')?.value) || 4);
-      localStorage.setItem('ppt_designConcurrency', JSON.stringify({ batchSize, batchConcurrency, imageConcurrency }));
-      showSaveSuccess('并发设置已保存');
-    });
   }
 
   function openModal() {
@@ -132,8 +123,13 @@
 
     if (ns.sources?.populateModelIds) {
         if (langCfg.modelKey) ns.sources.populateModelIds('lang', langCfg.modelKey, langCfg.modelId);
+        else ns.sources.populateModelIds('lang', 'auto');
+
         if (imgCfg.modelKey) ns.sources.populateModelIds('img', imgCfg.modelKey, imgCfg.modelId);
+        else ns.sources.populateModelIds('img', 'auto');
+
         if (visionCfg.modelKey) ns.sources.populateModelIds('vision', visionCfg.modelKey, visionCfg.modelId);
+        else ns.sources.populateModelIds('vision', 'auto');
     }
 
     // 保持配置可用
@@ -164,31 +160,33 @@
         position: fixed;
         bottom: 24px;
         left: 50%;
-        transform: translateX(-50%);
+        transform: translateX(-50%) translateY(20px);
         background: #10b981;
         color: white;
         padding: 12px 24px;
         border-radius: 8px;
         font-size: 14px;
         font-weight: 500;
-        box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+        box-shadow: 0 10px 15px -3px rgba(16, 185, 129, 0.2), 0 4px 6px -2px rgba(16, 185, 129, 0.1);
         z-index: 99999;
         display: flex;
         align-items: center;
-        gap: 8px;
-        transition: opacity 0.3s, transform 0.3s;
+        gap: 10px;
+        transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        opacity: 0;
+        pointer-events: none;
       `;
       document.body.appendChild(toast);
     }
 
-    toast.innerHTML = `<iconify-icon icon="carbon:checkmark-filled" width="18"></iconify-icon> ${msg}`;
+    toast.innerHTML = `<iconify-icon icon="carbon:checkmark-filled" width="20"></iconify-icon> <span>${msg}</span>`;
     toast.style.opacity = '1';
     toast.style.transform = 'translateX(-50%) translateY(0)';
 
     setTimeout(() => {
       toast.style.opacity = '0';
       toast.style.transform = 'translateX(-50%) translateY(10px)';
-    }, 2000);
+    }, 2500);
   }
 
   function bindModalEvents() {

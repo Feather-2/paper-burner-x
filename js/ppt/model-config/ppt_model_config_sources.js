@@ -357,8 +357,12 @@
   }
 
   function selectModelId(type, id) {
-      const { search } = getModelIdElements(type);
-      if (search) search.value = id;
+      const { search, dropdown } = getModelIdElements(type);
+      if (search) {
+          search.value = id;
+          // 触发 input 事件以便其他逻辑感知变化
+          search.dispatchEvent(new Event('input', { bubbles: true }));
+      }
       hideModelDropdown(type);
   }
 
@@ -597,8 +601,12 @@
 
     // 显示加载状态
     const originalPlaceholder = controls.search.placeholder;
+    const originalBtnInner = controls.refresh.innerHTML;
+    
     controls.search.placeholder = '正在获取模型列表...';
     controls.search.disabled = true;
+    controls.refresh.disabled = true;
+    controls.refresh.innerHTML = '<iconify-icon icon="line-md:loading-twotone-loop"></iconify-icon>';
 
     try {
       const ids = await fetchModelIdsByProvider(modelKey, apiKey);
@@ -619,10 +627,12 @@
         console.log(`[PPT Model Config] 探测到 ${ids.length} 个模型:`, ids.slice(0, 5));
       }
     } catch (e) {
-      console.error('[PPT] fetchModelIdsByProvider error:', e);
+      console.error('[PPT] fetchAndPopulateModelIds error:', e);
       controls.search.placeholder = '探测失败，请检查配置';
     } finally {
       controls.search.disabled = false;
+      controls.refresh.disabled = false;
+      controls.refresh.innerHTML = originalBtnInner;
     }
   }
 

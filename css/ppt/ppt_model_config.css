@@ -1,3 +1,116 @@
+/* Modern Card organization */
+.modern-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.modern-card {
+    background: #fff;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: all 0.2s;
+}
+
+.modern-card:hover {
+    border-color: var(--pmc-primary);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}
+
+.card-header {
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: #f8fafc;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.card-icon {
+    width: 36px; height: 36px;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+}
+
+.card-meta h3 { margin: 0; font-size: 15px; font-weight: 600; color: #1e293b; }
+.card-meta p { margin: 1px 0 0; font-size: 11px; color: #64748b; }
+
+.card-content {
+    padding: 16px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.form-item { display: flex; flex-direction: column; gap: 4px; }
+.form-item label { font-size: 11px; font-weight: 600; color: #64748b; padding-left: 2px; }
+
+.modern-select, .modern-input {
+    width: 100%;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    background: #fff;
+    font-size: 13px;
+    color: #1e293b;
+    transition: border-color 0.2s;
+    outline: none;
+}
+
+.input-group { position: relative; display: flex; align-items: center; }
+.icon-action {
+    position: absolute; right: 6px;
+    width: 24px; height: 24px;
+    border-radius: 4px;
+    border: none; background: #f1f5f9;
+    color: #475569; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+}
+
+.card-footer { padding: 12px 16px; border-top: 1px solid #f1f5f9; }
+
+.modern-btn-save {
+    width: 100%;
+    padding: 8px;
+    border-radius: 8px;
+    border: none;
+    background: #1e293b;
+    color: #fff;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+/* Themes */
+.theme-blue .card-icon { background: #e0f2fe; color: #0284c7; }
+.theme-blue .modern-btn-save { background: #0284c7; }
+.theme-purple .card-icon { background: #f3e8ff; color: #9333ea; }
+.theme-purple .modern-btn-save { background: #9333ea; }
+.theme-emerald .card-icon { background: #dcfce7; color: #16a34a; }
+.theme-emerald .modern-btn-save { background: #16a34a; }
+.theme-rose .card-icon { background: #ffe4e6; color: #e11d48; }
+.theme-rose .modern-btn-save { background: #e11d48; }
+
+.modern-info-banner {
+    padding: 12px 16px;
+    background: #f0f9ff;
+    border-radius: 8px;
+    border: 1px solid #e0f2fe;
+    color: #0369a1;
+    font-size: 12px;
+    display: flex; align-items: center; gap: 8px;
+}
+
+@media (max-width: 1024px) {
+    .modern-grid { grid-template-columns: 1fr; }
+}
+
 :root {
   --pmc-primary: #6366f1;
   --pmc-primary-hover: #4f46e5;
@@ -28,12 +141,28 @@
 .pmc-modal-container {
   position: relative; z-index: 1;
   width: 95vw; max-width: 1200px; height: auto; max-height: 90vh;
+  min-height: 600px;
   background: #fff;
   border-radius: var(--pmc-radius);
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
   display: flex; flex-direction: column;
   overflow: hidden;
   border: 1px solid rgba(255,255,255,0.1);
+}
+
+/* 高级设置 (Tab 3) 内部布局 */
+.pmc-tab3-container {
+    padding: 24px;
+    max-width: 1000px;
+    margin: 0 auto;
+    width: 100%;
+}
+
+@media (max-height: 800px) {
+    .pmc-modal-container {
+        height: 95vh;
+        max-height: 95vh;
+    }
 }
 
 /* Header */
@@ -184,6 +313,7 @@
   background: #f8fafc;
   display: flex; flex-direction: column;
   min-height: 0;
+  padding-bottom: 40px;
 }
 
 /* 统一列表高度限制，防止无限延伸 */

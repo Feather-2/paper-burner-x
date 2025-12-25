@@ -31,6 +31,42 @@
   const normalizeRolePriorityConfig = (...args) => (ns.roles && typeof ns.roles.normalizeRolePriorityConfig === 'function' ? ns.roles.normalizeRolePriorityConfig(...args) : ({}));
   const setupDragAndDrop = (...args) => { if (ns.roles && typeof ns.roles.setupDragAndDrop === 'function') ns.roles.setupDragAndDrop(...args); };
 
+  function activateTab(tab) {
+    const root = getModalRoot();
+    if (!root) return;
+
+    uiState.activeTab = tab;
+
+    // 更新顶部 Tab 按钮状态
+    const btns = root.querySelectorAll('.pmc-tab-btn');
+    btns.forEach((b) => b.classList.toggle('active', b.getAttribute('data-tab') === tab));
+
+    // 更新面板显示
+    const panels = root.querySelectorAll('.pmc-tab-panel');
+    panels.forEach((p) => p.classList.toggle('active', p.getAttribute('data-panel') === tab));
+
+    const panel = root.querySelector(`.pmc-tab-panel[data-panel="${tab}"]`);
+    if (!panel) return;
+
+    if (tab === 'quick') {
+        // 快捷指派内容已在模板中
+    } else if (tab === 'models') {
+        ns.table?.initModelTableView?.({ forceRender: true });
+    } else if (tab === 'roles') {
+        const roleContainer = root.querySelector('#pmc-role-overview-container-tab');
+        if (roleContainer) {
+            const rows = ns.table?.buildModelTableRows?.() || [];
+            ns.roles?.renderRoleOverview?.(roleContainer, rows, () => {
+                if (typeof uiState._refreshModelTable === 'function') uiState._refreshModelTable();
+            });
+        }
+    } else if (tab === 'advanced') {
+        renderTab3Content(panel);
+        ns.advanced?.loadImageSettings?.();
+        ns.advanced?.updateStatsDisplay?.();
+    }
+  }
+
   function initTabSwitching() {
     const root = getModalRoot();
     if (!root) return;
@@ -47,54 +83,9 @@
       activateTab(tab);
     });
 
-    // 初始渲染当前 active tab
     const initialBtn = nav.querySelector('.pmc-tab-btn.active') || nav.querySelector('.pmc-tab-btn');
-    const tab = initialBtn?.getAttribute('data-tab') || 'tags';
+    const tab = initialBtn?.getAttribute('data-tab') || 'quick';
     activateTab(tab);
-  }
-
-  function activateTab(tab) {
-    const root = getModalRoot();
-    if (!root) return;
-
-    uiState.activeTab = tab;
-
-    const btns = root.querySelectorAll('.pmc-tab-btn');
-    btns.forEach((b) => b.classList.toggle('active', b.getAttribute('data-tab') === tab));
-
-    const panels = root.querySelectorAll('.pmc-tab-panel');
-    panels.forEach((p) => p.classList.toggle('active', p.getAttribute('data-panel') === tab));
-
-    const panel = root.querySelector(`.pmc-tab-panel[data-panel="${tab}"]`);
-    if (!panel) return;
-
-    if (panel.dataset.rendered === '1') return;
-    // panel.dataset.rendered = '1'; // 允许重复渲染以保持更新
-
-    if (tab === 'quick') {
-        // 快捷指派 Tab 不需要额外的渲染逻辑，模板中已经包含
-        // 但我们需要确保源站列表已填充（在 openModal 中已经触发了 refreshSourceList）
-    } else if (tab === 'models') {
-        ns.table?.initModelTableView?.({ forceRender: true });
-    } else if (tab === 'roles') {
-        const roleContainer = root.querySelector('#pmc-role-overview-container-tab');
-        if (roleContainer) {
-            const rows = ns.table?.buildModelTableRows?.() || [];
-            ns.roles?.renderRoleOverview?.(roleContainer, rows, () => {
-                // 回调：当角色配置变动时，刷新数据
-                if (typeof uiState._refreshModelTable === 'function') uiState._refreshModelTable();
-            });
-        }
-    } else if (tab === 'audio') {
-        renderTab3Content(panel);
-    } else if (tab === 'advanced') {
-        // 初始化音频配置区
-        const audioContainer = root.querySelector('#pmc-audio-container');
-        if (audioContainer) renderTab3Content(audioContainer);
-        // 并发和图片设置已经在模板中，这里只需确保事件绑定
-        ns.advanced?.loadImageSettings?.();
-        ns.advanced?.updateStatsDisplay?.();
-    }
   }
 
 
@@ -598,72 +589,66 @@
     const cfg = normalizeAudioConfig(loadConfig('audio'));
 
     panel.innerHTML = `
-      <div class="p-6 space-y-8">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div class="pmc-tab3-container">
+        <div class="modern-grid">
           <!-- 转录配置 (STT) -->
-          <div class="pmc-quick-card bg-white rounded-xl border border-slate-200 p-6 shadow-sm hover:border-amber-300 transition-colors">
-            <div class="flex items-center gap-3 mb-6">
-              <div class="w-10 h-10 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
-                <iconify-icon icon="carbon:audio-console" width="24"></iconify-icon>
-              </div>
-              <div>
-                <div class="text-sm font-semibold text-slate-800">转录配置</div>
-                <div class="text-[11px] text-slate-500">Speech-to-Text</div>
+          <div class="modern-card theme-blue">
+            <div class="card-header">
+              <div class="card-icon"><iconify-icon icon="carbon:audio-console" width="24"></iconify-icon></div>
+              <div class="card-meta">
+                <h3>转录配置</h3>
+                <p>Speech-to-Text</p>
               </div>
             </div>
-            
-            <div class="space-y-4">
-              <div class="space-y-1.5">
-                <label class="text-[11px] font-medium text-slate-500 ml-1">Provider</label>
-                <select id="pmc-stt-provider" class="pmc-select w-full"></select>
+            <div class="card-content">
+              <div class="form-item">
+                <label>Provider</label>
+                <select id="pmc-stt-provider" class="modern-select"></select>
               </div>
-              <div class="space-y-1.5">
-                <label class="text-[11px] font-medium text-slate-500 ml-1">API Key</label>
-                <input id="pmc-stt-api-key" class="pmc-input w-full" type="password" placeholder="输入转录 API Key">
+              <div class="form-item">
+                <label>API Key</label>
+                <input id="pmc-stt-api-key" class="modern-input" type="password" placeholder="输入转录 API Key">
               </div>
-              <div class="space-y-1.5">
-                <label class="text-[11px] font-medium text-slate-500 ml-1">Model</label>
-                <select id="pmc-stt-model-select" class="pmc-select w-full"></select>
-                <input id="pmc-stt-model-input" class="pmc-input w-full" placeholder="输入模型 ID" style="display:none;">
+              <div class="form-item">
+                <label>Model</label>
+                <select id="pmc-stt-model-select" class="modern-select"></select>
+                <input id="pmc-stt-model-input" class="modern-input" placeholder="输入模型 ID" style="display:none;">
               </div>
             </div>
           </div>
 
           <!-- 合成配置 (TTS) -->
-          <div class="pmc-quick-card bg-white rounded-xl border border-slate-200 p-6 shadow-sm hover:border-rose-300 transition-colors">
-            <div class="flex items-center gap-3 mb-6">
-              <div class="w-10 h-10 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center">
-                <iconify-icon icon="carbon:volume-up" width="24"></iconify-icon>
-              </div>
-              <div>
-                <div class="text-sm font-semibold text-slate-800">合成配置</div>
-                <div class="text-[11px] text-slate-500">Text-to-Speech</div>
+          <div class="modern-card theme-rose">
+            <div class="card-header">
+              <div class="card-icon"><iconify-icon icon="carbon:volume-up" width="24"></iconify-icon></div>
+              <div class="card-meta">
+                <h3>合成配置</h3>
+                <p>Text-to-Speech</p>
               </div>
             </div>
-            
-            <div class="space-y-4">
-              <div class="space-y-1.5">
-                <label class="text-[11px] font-medium text-slate-500 ml-1">Provider</label>
-                <select id="pmc-tts-provider" class="pmc-select w-full"></select>
+            <div class="card-content">
+              <div class="form-item">
+                <label>Provider</label>
+                <select id="pmc-tts-provider" class="modern-select"></select>
               </div>
-              <div class="space-y-1.5">
-                <label class="text-[11px] font-medium text-slate-500 ml-1">API Key</label>
-                <input id="pmc-tts-api-key" class="pmc-input w-full" type="password" placeholder="输入合成 API Key">
+              <div class="form-item">
+                <label>API Key</label>
+                <input id="pmc-tts-api-key" class="modern-input" type="password" placeholder="输入合成 API Key">
               </div>
-              <div class="space-y-1.5">
-                <label class="text-[11px] font-medium text-slate-500 ml-1">Model</label>
-                <select id="pmc-tts-model-select" class="pmc-select w-full"></select>
+              <div class="form-item">
+                <label>Model</label>
+                <select id="pmc-tts-model-select" class="modern-select"></select>
               </div>
-              <div class="space-y-1.5">
-                <label class="text-[11px] font-medium text-slate-500 ml-1">Voice</label>
-                <input id="pmc-tts-voice" class="pmc-input w-full" placeholder="例如: alloy / aria / 自定义 voice">
+              <div class="form-item">
+                <label>Voice</label>
+                <input id="pmc-tts-voice" class="modern-input" placeholder="alloy / aria / 自定义">
               </div>
             </div>
           </div>
         </div>
 
-        <div class="flex justify-end">
-          <button id="pmc-audio-save" class="pmc-btn-save" style="width: auto; padding: 10px 32px; margin-top: 0;">
+        <div class="flex justify-end" style="margin-top: 24px;">
+          <button id="pmc-audio-save" class="modern-btn-save" style="width: auto; padding: 12px 48px;">
             <iconify-icon icon="carbon:save" width="18"></iconify-icon>
             保存音频配置
           </button>
@@ -671,6 +656,7 @@
       </div>
     `;
 
+    // 后续绑定逻辑保持不变...
     const sttProviderEl = panel.querySelector('#pmc-stt-provider');
     const sttApiKeyEl = panel.querySelector('#pmc-stt-api-key');
     const sttModelSelectEl = panel.querySelector('#pmc-stt-model-select');
