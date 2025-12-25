@@ -39,9 +39,13 @@
             <iconify-icon icon="carbon:list" width="16"></iconify-icon>
             全部模型
           </button>
+          <button class="pmc-tab-btn" data-tab="quick">
+            <iconify-icon icon="carbon:flash-filled" width="16"></iconify-icon>
+            快捷指派
+          </button>
           <button class="pmc-tab-btn" data-tab="roles">
             <iconify-icon icon="carbon:user-role" width="16"></iconify-icon>
-            角色分配
+            角色优先级
           </button>
           <button class="pmc-tab-btn" data-tab="advanced">
             <iconify-icon icon="carbon:settings" width="16"></iconify-icon>
@@ -51,6 +55,119 @@
 
         <!-- Scrollable Content -->
         <div class="pmc-scroll-content">
+          <!-- Tab 0: 快捷指派 (NEW) -->
+          <div class="pmc-tab-panel" data-panel="quick">
+            <div class="p-6 space-y-8">
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <!-- 文字模型 -->
+                <div class="pmc-quick-card bg-white rounded-xl border border-slate-200 p-5 shadow-sm hover:border-blue-300 transition-colors">
+                  <div class="flex items-center gap-3 mb-4">
+                    <div class="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+                      <iconify-icon icon="carbon:text-annotation-toggle" width="24"></iconify-icon>
+                    </div>
+                    <div>
+                      <div class="text-sm font-semibold text-slate-800">文字模型</div>
+                      <div class="text-[11px] text-slate-500">大纲生成与正文润色</div>
+                    </div>
+                  </div>
+                  <div class="space-y-4">
+                    <div class="space-y-1.5">
+                        <label class="text-[11px] font-medium text-slate-500 ml-1">模型来源</label>
+                        <select id="ppt-model-lang-select" class="pmc-select w-full"></select>
+                    </div>
+                    <div class="space-y-1.5">
+                        <label class="text-[11px] font-medium text-slate-500 ml-1">模型 ID</label>
+                        <div class="flex items-center gap-2">
+                          <div class="relative flex-1">
+                            <input id="ppt-model-lang-id-search" class="pmc-input w-full pr-8" placeholder="探测或输入 ID">
+                            <div id="ppt-model-lang-dropdown" class="pmc-dropdown"></div>
+                          </div>
+                          <button id="ppt-model-lang-refresh-models" class="pmc-btn-icon bg-slate-50 border-slate-200 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition-all" title="探测可用模型">
+                            <iconify-icon icon="carbon:ibm-watson-discovery" width="18"></iconify-icon>
+                          </button>
+                        </div>
+                    </div>
+                    <button id="ppt-model-lang-save" class="pmc-btn-primary w-full py-2.5 rounded-lg font-medium shadow-sm shadow-blue-100">保存文字配置</button>
+                  </div>
+                </div>
+
+                <!-- 配图模型 -->
+                <div class="pmc-quick-card bg-white rounded-xl border border-slate-200 p-5 shadow-sm hover:border-purple-300 transition-colors">
+                  <div class="flex items-center gap-3 mb-4">
+                    <div class="w-10 h-10 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
+                      <iconify-icon icon="carbon:image" width="24"></iconify-icon>
+                    </div>
+                    <div>
+                      <div class="text-sm font-semibold text-slate-800">配图模型</div>
+                      <div class="text-[11px] text-slate-500">幻灯片插图生成</div>
+                    </div>
+                  </div>
+                  <div class="space-y-4">
+                    <div class="space-y-1.5">
+                        <label class="text-[11px] font-medium text-slate-500 ml-1">模型来源</label>
+                        <select id="ppt-model-img-select" class="pmc-select w-full"></select>
+                    </div>
+                    <div class="space-y-1.5">
+                        <label class="text-[11px] font-medium text-slate-500 ml-1">模型 ID</label>
+                        <div class="flex items-center gap-2">
+                          <div class="relative flex-1">
+                            <input id="ppt-model-img-id-search" class="pmc-input w-full pr-8" placeholder="探测或输入 ID">
+                            <div id="ppt-model-img-dropdown" class="pmc-dropdown"></div>
+                          </div>
+                          <button id="ppt-model-img-refresh-models" class="pmc-btn-icon bg-slate-50 border-slate-200 hover:bg-purple-50 hover:text-purple-600 hover:border-purple-200 transition-all" title="探测可用模型">
+                            <iconify-icon icon="carbon:ibm-watson-discovery" width="18"></iconify-icon>
+                          </button>
+                        </div>
+                    </div>
+                    <button id="ppt-model-img-save" class="pmc-btn-primary w-full py-2.5 rounded-lg font-medium shadow-sm shadow-purple-100 bg-purple-600 hover:bg-purple-700 border-purple-600">保存配图配置</button>
+                  </div>
+                </div>
+
+                <!-- 视觉模型 -->
+                <div class="pmc-quick-card bg-white rounded-xl border border-slate-200 p-5 shadow-sm hover:border-emerald-300 transition-colors">
+                  <div class="flex items-center gap-3 mb-4">
+                    <div class="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                      <iconify-icon icon="carbon:view" width="24"></iconify-icon>
+                    </div>
+                    <div>
+                      <div class="text-sm font-semibold text-slate-800">视觉模型</div>
+                      <div class="text-[11px] text-slate-500">参考图解析与排版</div>
+                    </div>
+                  </div>
+                  <div class="space-y-4">
+                    <div class="space-y-1.5">
+                        <label class="text-[11px] font-medium text-slate-500 ml-1">模型来源</label>
+                        <select id="ppt-model-vision-select" class="pmc-select w-full"></select>
+                    </div>
+                    <div class="space-y-1.5">
+                        <label class="text-[11px] font-medium text-slate-500 ml-1">模型 ID</label>
+                        <div class="flex items-center gap-2">
+                          <div class="relative flex-1">
+                            <input id="ppt-model-vision-id-search" class="pmc-input w-full pr-8" placeholder="探测或输入 ID">
+                            <div id="ppt-model-vision-dropdown" class="pmc-dropdown"></div>
+                          </div>
+                          <button id="ppt-model-vision-refresh-models" class="pmc-btn-icon bg-slate-50 border-slate-200 hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-200 transition-all" title="探测可用模型">
+                            <iconify-icon icon="carbon:ibm-watson-discovery" width="18"></iconify-icon>
+                          </button>
+                        </div>
+                    </div>
+                    <button id="ppt-model-vision-save" class="pmc-btn-primary w-full py-2.5 rounded-lg font-medium shadow-sm shadow-emerald-100 bg-emerald-600 hover:bg-emerald-700 border-emerald-600">保存视觉配置</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 统一密钥管理提示 -->
+              <div class="bg-blue-50/50 border border-blue-100 rounded-xl p-4 flex items-start gap-3">
+                <iconify-icon icon="carbon:information" class="text-blue-500 mt-0.5" width="20"></iconify-icon>
+                <div class="text-xs text-blue-800/80 leading-relaxed">
+                  <div class="font-bold mb-1 text-blue-900">复用现有配置</div>
+                  上述配置直接复用主界面的“模型管理”与“API Key”设置。如果您在这里选择了某个源站（如 DeepSeek），它将自动使用您在主界面为 DeepSeek 配置的 Key。
+                  您可以点击左侧“全部模型”查看更详细的能力分布。
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Tab 1: 全部模型 -->
           <div class="pmc-tab-panel active" data-panel="models">
             <div id="pmc-model-table-container"></div>

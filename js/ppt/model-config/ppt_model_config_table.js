@@ -360,9 +360,27 @@
       const DISPLAY_LIMIT = 200;
       const displayRows = filtered.slice(0, DISPLAY_LIMIT);
       
+      const isLoading = sourceKey && !!tab1ModelsSession.inflight[sourceKey];
+      const error = sourceKey ? tab1ModelsSession.error[sourceKey] : '';
+
       const nextHtml = filtered.length
         ? displayRows.map(renderModelRow).join('') + (filtered.length > DISPLAY_LIMIT ? `<tr><td colspan="6" class="py-4 text-center text-slate-400">还有 ${filtered.length - DISPLAY_LIMIT} 个模型，请使用搜索进行筛选</td></tr>` : '')
-        : `<tr><td class="px-4 py-8 text-center text-slate-400" colspan="6">没有匹配的模型</td></tr>`;
+        : isLoading
+          ? `<tr><td class="px-4 py-20 text-center" colspan="6">
+               <div class="flex flex-col items-center gap-3">
+                 <iconify-icon icon="carbon:progress-bar-round" class="animate-spin text-slate-400" width="32"></iconify-icon>
+                 <div class="text-slate-500 font-medium">正在探测模型列表…</div>
+               </div>
+             </td></tr>`
+          : error
+            ? `<tr><td class="px-4 py-20 text-center" colspan="6">
+                 <div class="flex flex-col items-center gap-3 text-red-500">
+                   <iconify-icon icon="carbon:warning" width="32"></iconify-icon>
+                   <div class="font-medium">${safe(error)}</div>
+                   <div class="text-xs text-slate-400">请检查 API Key 或网络代理设置</div>
+                 </div>
+               </td></tr>`
+            : `<tr><td class="px-4 py-8 text-center text-slate-400" colspan="6">没有匹配的模型</td></tr>`;
 
       if (bodyEl.innerHTML !== nextHtml) {
           bodyEl.innerHTML = nextHtml;
@@ -391,12 +409,23 @@
       };
     };
 
-    sidebarListEl.addEventListener('click', (e) => {
-        const item = e.target.closest('.pmc-sidebar-item');
+    sidebarListEl.addEventListener('click', async (e) => {
+        const item = e.target?.closest('.pmc-sidebar-item');
         if (!item) return;
         const key = item.getAttribute('data-source-key') || '';
         uiState.tableSourceKey = key;
+        
         rerender();
+
+        // 性能优化：按需探测。如果该源尚未加载模型且不是“全部”，则在切换时触发探测
+        if (key && !Array.isArray(tab1ModelsSession.cache[key]) && !tab1ModelsSession.inflight[key]) {
+            try {
+                await fetchModelsForSource(key);
+                if (typeof uiState._refreshModelTable === 'function') {
+                    uiState._refreshModelTable();
+                }
+            } catch (err) {}
+        }
     });
 
     const onRefresh = async () => {

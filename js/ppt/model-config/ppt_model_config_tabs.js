@@ -71,7 +71,10 @@
     if (panel.dataset.rendered === '1') return;
     // panel.dataset.rendered = '1'; // 允许重复渲染以保持更新
 
-    if (tab === 'models') {
+    if (tab === 'quick') {
+        // 快捷指派 Tab 不需要额外的渲染逻辑，模板中已经包含
+        // 但我们需要确保源站列表已填充（在 openModal 中已经触发了 refreshSourceList）
+    } else if (tab === 'models') {
         ns.table?.initModelTableView?.({ forceRender: true });
     } else if (tab === 'roles') {
         const roleContainer = root.querySelector('#pmc-role-overview-container-tab');
@@ -595,53 +598,73 @@
     const cfg = normalizeAudioConfig(loadConfig('audio'));
 
     panel.innerHTML = `
-      <div class="pmc-audio-grid">
-        <div class="pmc-audio-section">
-          <div class="pmc-panel-title">
-            <iconify-icon icon="carbon:audio-console" width="18"></iconify-icon>
-            转录配置（Speech-to-Text）
+      <div class="p-6 space-y-8">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <!-- 转录配置 (STT) -->
+          <div class="pmc-quick-card bg-white rounded-xl border border-slate-200 p-6 shadow-sm hover:border-amber-300 transition-colors">
+            <div class="flex items-center gap-3 mb-6">
+              <div class="w-10 h-10 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+                <iconify-icon icon="carbon:audio-console" width="24"></iconify-icon>
+              </div>
+              <div>
+                <div class="text-sm font-semibold text-slate-800">转录配置</div>
+                <div class="text-[11px] text-slate-500">Speech-to-Text</div>
+              </div>
+            </div>
+            
+            <div class="space-y-4">
+              <div class="space-y-1.5">
+                <label class="text-[11px] font-medium text-slate-500 ml-1">Provider</label>
+                <select id="pmc-stt-provider" class="pmc-select w-full"></select>
+              </div>
+              <div class="space-y-1.5">
+                <label class="text-[11px] font-medium text-slate-500 ml-1">API Key</label>
+                <input id="pmc-stt-api-key" class="pmc-input w-full" type="password" placeholder="输入转录 API Key">
+              </div>
+              <div class="space-y-1.5">
+                <label class="text-[11px] font-medium text-slate-500 ml-1">Model</label>
+                <select id="pmc-stt-model-select" class="pmc-select w-full"></select>
+                <input id="pmc-stt-model-input" class="pmc-input w-full" placeholder="输入模型 ID" style="display:none;">
+              </div>
+            </div>
           </div>
-          <div class="pmc-form-group">
-            <label class="pmc-label">Provider</label>
-            <select id="pmc-stt-provider" class="pmc-select"></select>
-          </div>
-          <div class="pmc-form-group">
-            <label class="pmc-label">API Key</label>
-            <input id="pmc-stt-api-key" class="pmc-input" type="password" placeholder="输入转录 API Key">
-          </div>
-          <div class="pmc-form-group">
-            <label class="pmc-label">Model</label>
-            <select id="pmc-stt-model-select" class="pmc-select"></select>
-            <input id="pmc-stt-model-input" class="pmc-input" placeholder="输入模型 ID" style="display:none;">
+
+          <!-- 合成配置 (TTS) -->
+          <div class="pmc-quick-card bg-white rounded-xl border border-slate-200 p-6 shadow-sm hover:border-rose-300 transition-colors">
+            <div class="flex items-center gap-3 mb-6">
+              <div class="w-10 h-10 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center">
+                <iconify-icon icon="carbon:volume-up" width="24"></iconify-icon>
+              </div>
+              <div>
+                <div class="text-sm font-semibold text-slate-800">合成配置</div>
+                <div class="text-[11px] text-slate-500">Text-to-Speech</div>
+              </div>
+            </div>
+            
+            <div class="space-y-4">
+              <div class="space-y-1.5">
+                <label class="text-[11px] font-medium text-slate-500 ml-1">Provider</label>
+                <select id="pmc-tts-provider" class="pmc-select w-full"></select>
+              </div>
+              <div class="space-y-1.5">
+                <label class="text-[11px] font-medium text-slate-500 ml-1">API Key</label>
+                <input id="pmc-tts-api-key" class="pmc-input w-full" type="password" placeholder="输入合成 API Key">
+              </div>
+              <div class="space-y-1.5">
+                <label class="text-[11px] font-medium text-slate-500 ml-1">Model</label>
+                <select id="pmc-tts-model-select" class="pmc-select w-full"></select>
+              </div>
+              <div class="space-y-1.5">
+                <label class="text-[11px] font-medium text-slate-500 ml-1">Voice</label>
+                <input id="pmc-tts-voice" class="pmc-input w-full" placeholder="例如: alloy / aria / 自定义 voice">
+              </div>
+            </div>
           </div>
         </div>
 
-        <div class="pmc-audio-section">
-          <div class="pmc-panel-title">
-            <iconify-icon icon="carbon:volume-up" width="18"></iconify-icon>
-            合成配置（Text-to-Speech）
-          </div>
-          <div class="pmc-form-group">
-            <label class="pmc-label">Provider</label>
-            <select id="pmc-tts-provider" class="pmc-select"></select>
-          </div>
-          <div class="pmc-form-group">
-            <label class="pmc-label">API Key</label>
-            <input id="pmc-tts-api-key" class="pmc-input" type="password" placeholder="输入合成 API Key">
-          </div>
-          <div class="pmc-form-group">
-            <label class="pmc-label">Model</label>
-            <select id="pmc-tts-model-select" class="pmc-select"></select>
-          </div>
-          <div class="pmc-form-group">
-            <label class="pmc-label">Voice</label>
-            <input id="pmc-tts-voice" class="pmc-input" placeholder="例如: alloy / aria / 自定义 voice">
-          </div>
-        </div>
-
-        <div class="pmc-audio-actions">
-          <button id="pmc-audio-save" class="pmc-btn-save">
-            <iconify-icon icon="carbon:save" width="16"></iconify-icon>
+        <div class="flex justify-end">
+          <button id="pmc-audio-save" class="pmc-btn-save" style="width: auto; padding: 10px 32px; margin-top: 0;">
+            <iconify-icon icon="carbon:save" width="18"></iconify-icon>
             保存音频配置
           </button>
         </div>

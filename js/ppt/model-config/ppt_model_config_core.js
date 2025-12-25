@@ -114,9 +114,26 @@
   function openModal() {
     renderModal();
 
-    // 激活当前 Tab（默认为 models）
+    // 激活当前 Tab（优先展示快捷指派）
     if (ns.tabs?.activateTab) {
-        ns.tabs.activateTab(uiState.activeTab || 'models');
+        ns.tabs.activateTab(uiState.activeTab || 'quick');
+    }
+
+    // 初始化各个分类的源站列表与当前选中的模型 ID
+    if (ns.sources?.refreshSourceList) {
+        ns.sources.refreshSourceList('lang');
+        ns.sources.refreshSourceList('img');
+        ns.sources.refreshSourceList('vision');
+    }
+
+    const langCfg = loadConfig('lang') || {};
+    const imgCfg = loadConfig('img') || {};
+    const visionCfg = loadConfig('vision') || {};
+
+    if (ns.sources?.populateModelIds) {
+        if (langCfg.modelKey) ns.sources.populateModelIds('lang', langCfg.modelKey, langCfg.modelId);
+        if (imgCfg.modelKey) ns.sources.populateModelIds('img', imgCfg.modelKey, imgCfg.modelId);
+        if (visionCfg.modelKey) ns.sources.populateModelIds('vision', visionCfg.modelKey, visionCfg.modelId);
     }
 
     // 保持配置可用
@@ -188,48 +205,60 @@
     document.addEventListener('click', (e) => {
       if (e.target.closest('#ppt-model-config-close')) closeModal();
       if (e.target && e.target.id === 'ppt-model-config-overlay') closeModal();
+      
+      // 文字模型保存
       if (e.target.closest('#ppt-model-lang-save')) {
         const sel = document.getElementById('ppt-model-lang-select');
+        const search = document.getElementById('ppt-model-lang-id-search');
         const modelKey = sel ? sel.value : '';
+        const modelId = search ? search.value.trim() : '';
         if (modelKey) {
-          saveConfig('lang', { modelKey, modelId: getModelIdValue('lang', modelKey) });
+          saveConfig('lang', { modelKey, modelId });
           showSaveSuccess('文字模型配置已保存');
         } else {
-          alert('请选择文字模型');
+          alert('请选择文字模型源');
         }
       }
+      // 配图模型保存
       if (e.target.closest('#ppt-model-img-save')) {
         const sel = document.getElementById('ppt-model-img-select');
+        const search = document.getElementById('ppt-model-img-id-search');
         const modelKey = sel ? sel.value : '';
+        const modelId = search ? search.value.trim() : '';
         if (modelKey) {
-          saveConfig('img', { modelKey, modelId: getModelIdValue('img', modelKey) });
+          saveConfig('img', { modelKey, modelId });
           showSaveSuccess('配图模型配置已保存');
         } else {
-          alert('请选择配图模型');
+          alert('请选择配图模型源');
         }
       }
+      // 视觉模型保存
       if (e.target.closest('#ppt-model-vision-save')) {
         const sel = document.getElementById('ppt-model-vision-select');
+        const search = document.getElementById('ppt-model-vision-id-search');
         const modelKey = sel ? sel.value : '';
+        const modelId = search ? search.value.trim() : '';
         if (modelKey) {
-          saveConfig('vision', { modelKey, modelId: getModelIdValue('vision', modelKey) });
+          saveConfig('vision', { modelKey, modelId });
           showSaveSuccess('视觉模型配置已保存');
         } else {
-          alert('请选择视觉模型');
+          alert('请选择视觉模型源');
         }
       }
+
       if (e.target && e.target.id === 'ppt-model-lang-refresh') refreshSourceList('lang');
       if (e.target && e.target.id === 'ppt-model-img-refresh') refreshSourceList('img');
       if (e.target && e.target.id === 'ppt-model-vision-refresh') refreshSourceList('vision');
-      if (e.target && e.target.id === 'ppt-model-lang-refresh-models') {
+      
+      if (e.target.closest('#ppt-model-lang-refresh-models')) {
         const sel = document.getElementById('ppt-model-lang-select');
         fetchAndPopulateModelIds('lang', sel ? sel.value : '');
       }
-      if (e.target && e.target.id === 'ppt-model-img-refresh-models') {
+      if (e.target.closest('#ppt-model-img-refresh-models')) {
         const sel = document.getElementById('ppt-model-img-select');
         fetchAndPopulateModelIds('img', sel ? sel.value : '');
       }
-      if (e.target && e.target.id === 'ppt-model-vision-refresh-models') {
+      if (e.target.closest('#ppt-model-vision-refresh-models')) {
         const sel = document.getElementById('ppt-model-vision-select');
         fetchAndPopulateModelIds('vision', sel ? sel.value : '');
       }
@@ -291,6 +320,9 @@
     injectStyles,
     showSaveSuccess
   });
+
+  // 公开给全局，方便其他模块调用
+  global.PPTModelConfigCore = ns.core;
 
   ns.PPTModelConfigModal = PPTModelConfigModal;
 

@@ -236,14 +236,18 @@
     const { search, refresh } = getModelIdElements(type);
     const manual = shouldUseManualModelId(type, providerKey);
 
-    if (refresh) refresh.style.display = manual ? 'none' : '';
+    if (refresh) refresh.style.display = manual || providerKey === 'auto' ? 'none' : '';
 
     if (search) {
       search.value = value || '';
+      search.disabled = providerKey === 'auto';
       if (manual && providerKey === 'volcano') {
         search.placeholder = '请输入火山模型 ID，例如 doubao-1-5-pro-32k-250115';
+      } else if (providerKey === 'auto') {
+        search.placeholder = '自动选择模式';
+        search.value = '';
       } else {
-        search.placeholder = '输入或探测模型 ID...';
+        search.placeholder = '探测或输入模型 ID...';
       }
     }
   }
@@ -414,7 +418,7 @@
     const baseModels = getSupportedModels().filter(m => m.group === 'translation' && m.key !== 'custom' && m.key !== 'deeplx');
     const models = [
       // Auto 选项：自动选择第一个可用模型
-      { key: 'auto', name: '🔄 自动选择 (推荐)', description: '自动使用第一个可用的模型' }
+      { key: 'auto', name: '自动选择 (推荐)', description: '自动使用第一个可用的模型' }
     ];
 
     // 为预设模型标记 Key 状态
@@ -458,7 +462,7 @@
 
   function gatherImageSources() {
     const models = [
-      { key: 'auto', name: '🔄 自动选择 (推荐)', description: '自动使用第一个可用的模型' }
+      { key: 'auto', name: '自动选择 (推荐)', description: '自动使用第一个可用的模型' }
     ];
 
     // 从 supportedModelsForKeyManager 获取 image 分组的模型
@@ -469,7 +473,7 @@
       const validKeys = keys.filter(k => k.status !== 'invalid' && k.value);
       models.push({ 
         key: m.key, 
-        name: m.name + (validKeys.length ? ` (${validKeys.length} Key)` : ' ⚠️'), 
+        name: m.name + (validKeys.length ? ` (${validKeys.length} Key)` : ' (无 Key)'), 
         description: '' 
       });
     });
@@ -504,7 +508,7 @@
     // 和文字模型使用相同逻辑，从 supportedModelsForKeyManager 获取
     const baseModels = getSupportedModels().filter(m => m.group === 'translation' && m.key !== 'custom' && m.key !== 'deeplx');
     const models = [
-      { key: 'auto', name: '🔄 自动选择 (推荐)', description: '自动使用第一个可用的模型' }
+      { key: 'auto', name: '自动选择 (推荐)', description: '自动使用第一个可用的模型' }
     ];
 
     // 为预设模型标记 Key 状态
@@ -559,7 +563,7 @@
       || cfg.preferredModelId
       || cfg.modelId
       || (customSite ? (customSite.modelId || (Array.isArray(customSite.availableModels) && customSite.availableModels[0]?.id) || '') : '')
-      || getDefaultModelId(modelKey);
+      || (modelKey !== 'auto' ? getDefaultModelId(modelKey) : '');
 
     setModelIdField(type, modelKey, existingId);
   }
@@ -568,14 +572,16 @@
     const controls = getModelIdElements(type);
     if (!controls.search || !modelKey) return;
 
-    if (shouldUseManualModelId(type, modelKey)) {
-      alert('火山引擎模型 ID 请手动填写');
-      populateModelIds(type, modelKey);
+    if (modelKey === 'auto') {
+      alert('自动选择模式下无需探测模型 ID');
       return;
     }
 
-    // 配图模型也支持探测
-    // if (type === 'img') return;
+    if (shouldUseManualModelId(type, modelKey)) {
+      alert('该引擎模型 ID 请手动填写');
+      populateModelIds(type, modelKey);
+      return;
+    }
 
     // 取第一个可用 Key
     let apiKey = '';
@@ -585,46 +591,38 @@
       if (usable.length > 0) apiKey = usable[0].value;
     }
     if (!apiKey) {
-      alert(`请先为 ${modelKey} 配置有效的 API Key`);
+      alert(`请先在主界面为 ${modelKey} 配置有效的 API Key`);
       return;
     }
 
     // 显示加载状态
-    if (controls.search) {
-      controls.search.placeholder = '获取中...';
-      controls.search.disabled = true;
-    }
+    const originalPlaceholder = controls.search.placeholder;
+    controls.search.placeholder = '正在获取模型列表...';
+    controls.search.disabled = true;
 
     try {
       const ids = await fetchModelIdsByProvider(modelKey, apiKey);
       if (!ids || !ids.length) {
         // 探测失败时退回已保存/默认模型 ID
         populateModelIds(type, modelKey);
-        if (controls.search) {
-          controls.search.placeholder = '未探测到模型，可手动输入';
-        }
+        controls.search.placeholder = '探测不到模型，请检查 Key 或网络';
       } else {
-        // 显示 Dropdown
+        // 更新缓存并显示 Dropdown
+        modelIdCache[type] = ids;
         showModelDropdown(type, ids);
         
         // 如果当前没有值，选择第一个
-        if (controls.search && !controls.search.value) {
+        if (!controls.search.value) {
           controls.search.value = ids[0];
         }
-        if (controls.search) {
-          controls.search.placeholder = `已探测到 ${ids.length} 个模型`;
-        }
+        controls.search.placeholder = `已探测到 ${ids.length} 个模型`;
         console.log(`[PPT Model Config] 探测到 ${ids.length} 个模型:`, ids.slice(0, 5));
       }
     } catch (e) {
       console.error('[PPT] fetchModelIdsByProvider error:', e);
-      if (controls.search) {
-          controls.search.placeholder = '探测失败，请手动输入';
-      }
+      controls.search.placeholder = '探测失败，请检查配置';
     } finally {
-      if (controls.search) {
-        controls.search.disabled = false;
-      }
+      controls.search.disabled = false;
     }
   }
 

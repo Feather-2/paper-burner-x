@@ -373,6 +373,16 @@
 .pmc-range::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; background: var(--pmc-primary); border-radius: 50%; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
 .pmc-value-badge { background: #e0e7ff; color: #4338ca; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-family: monospace; }
 
+.pmc-dropdown {
+  position: absolute; top: 100%; left: 0; right: 0;
+  background: #fff; border: 1px solid var(--pmc-border);
+  border-radius: 8px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.15);
+  max-height: 280px; overflow-y: auto; z-index: 12000;
+  margin-top: 6px;
+  display: none;
+}
+.pmc-dropdown.active { display: block; animation: fadeIn 0.15s ease; }
+
 /* Custom Dropdown */
 .pmc-dropdown-wrapper { position: relative; flex: 1; display: flex; }
 .pmc-dropdown-list {
