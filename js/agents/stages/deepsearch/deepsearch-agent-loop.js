@@ -276,6 +276,10 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     });
 
     this.capabilities = options.capabilities || {};
+    // CapabilityLoader: 动态能力发现（第二优先级）
+    this.capabilityLoader = options.capabilityLoader || null;
+    // TempSkillStore: 临时 Skill 存储
+    this.tempSkillStore = options.tempSkillStore || null;
     // Archive: 使用传入的或创建默认内存存储
     this.archive = options.archive || new Archive(new MapAdapter());
     this.budgetManager = options.budgetManager || null;
@@ -333,6 +337,43 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
 
   get isPaused() {
     return this._pauseRequested;
+  }
+
+  /**
+   * 动态能力解析
+   * 优先级：capabilities 注入 > CapabilityLoader > TempSkillStore > null
+   * @param {string} name - 能力名称
+   * @param {Object} state - 当前状态
+   * @param {Object} stageApi - Stage API
+   * @returns {Promise<Function|null>}
+   */
+  async _resolveCapability(name, state, stageApi) {
+    // 1. 已在调用方检查过 capabilities 注入，这里跳过
+
+    // 2. 尝试 CapabilityLoader
+    if (this.capabilityLoader?.hasCapability(name)) {
+      await this.capabilityLoader.loadRequired([name]);
+      // CapabilityLoader 加载后，能力可能在 skills/blocks/mcp 中
+      // 返回一个包装函数，通过 stageApi 调用
+      return async (s, api) => {
+        // 如果 CapabilityLoader 有 execute 方法
+        if (typeof this.capabilityLoader.execute === "function") {
+          return this.capabilityLoader.execute(name, s, api);
+        }
+        // 否则返回 null，让调用方使用默认实现
+        return null;
+      };
+    }
+
+    // 3. 尝试 TempSkillStore
+    if (this.tempSkillStore?.hasCapability(name)) {
+      const skill = await this.tempSkillStore.get(name);
+      if (skill?.handler) {
+        return skill.handler;
+      }
+    }
+
+    return null;
   }
 
   _applyTransition(newStatus, metadata = {}) {
@@ -1312,13 +1353,20 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     logger.info("Executing: scan_and_identify_gaps", { stage: "deepsearch-agent-loop" });
     const sharedContext = stageApi?.sharedContext || this.sharedContext;
 
-    // 调用能力
+    // 1. 优先使用注入的 capabilities
     if (this.capabilities.scanAndIdentifyGaps) {
       const result = await this.capabilities.scanAndIdentifyGaps(state, stageApi);
       return result;
     }
 
-    // 默认实现：使用现有的 scan + todos 函数
+    // 2. 尝试 CapabilityLoader 动态发现
+    const dynamicHandler = await this._resolveCapability("scanAndIdentifyGaps", state, stageApi);
+    if (dynamicHandler) {
+      const result = await dynamicHandler(state, stageApi);
+      return result;
+    }
+
+    // 3. 默认实现：使用现有的 scan + todos 函数
     const { runDeepSearchScanStage } = await import("./scan.js");
     const { runDeepSearchTodosStage } = await import("./todos.js");
 
@@ -1374,14 +1422,22 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
       openGapCount: todoStats.openGapCount,
     });
 
-    // 调用能力
+    // 1. 优先使用注入的 capabilities
     if (this.capabilities.retrieveAndExtract) {
       const result = await this.capabilities.retrieveAndExtract(state, stageApi);
       state.iteration++;
       return result;
     }
 
-    // 默认实现
+    // 2. 尝试 CapabilityLoader 动态发现
+    const dynamicHandler = await this._resolveCapability("retrieveAndExtract", state, stageApi);
+    if (dynamicHandler) {
+      const result = await dynamicHandler(state, stageApi);
+      state.iteration++;
+      return result;
+    }
+
+    // 3. 默认实现
     const { runDeepSearchRetrieveStage } = await import("./retrieve.js");
     const { runDeepSearchUnderstandStage } = await import("./understand.js");
 
@@ -1441,13 +1497,20 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
   async _executeGenerateReport(state, stageApi, { logger }) {
     logger.info("Executing: generate_report", { stage: "deepsearch-agent-loop" });
 
-    // 调用能力
+    // 1. 优先使用注入的 capabilities
     if (this.capabilities.generateReport) {
       const result = await this.capabilities.generateReport(state, stageApi);
       return result;
     }
 
-    // 默认实现
+    // 2. 尝试 CapabilityLoader 动态发现
+    const dynamicHandler = await this._resolveCapability("generateReport", state, stageApi);
+    if (dynamicHandler) {
+      const result = await dynamicHandler(state, stageApi);
+      return result;
+    }
+
+    // 3. 默认实现
     const { runDeepSearchWriteStage } = await import("./write.js");
     if (isPlainObject(state.L2)) state.L2.needsWrite = false;
     const emit = typeof stageApi?.emit === "function" ? stageApi.emit : stageApi?.eventBus?.emit;

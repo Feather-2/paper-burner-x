@@ -323,6 +323,55 @@ export class SharedContext {
   }
 
   /**
+   * 更新或插入信号（用于状态同步）
+   * @param {object} data - { type, id, status, keywords, by, ts }
+   */
+  upsertSignal(data) {
+    if (!isPlainObject(data)) return null;
+    const type = toNonEmptyString(data.type);
+    const id = toNonEmptyString(data.id);
+    if (!type || !id) return null;
+
+    const key = `${type}:${id}`;
+    const existing = this._signals.findIndex(s =>
+      s.payload?._syncKey === key
+    );
+
+    const sig = {
+      id: existing >= 0 ? this._signals[existing].id : `sig_${this._signals.length + 1}`,
+      stage: type,
+      type: "sync",
+      payload: {
+        _syncKey: key,
+        type,
+        id,
+        status: toNonEmptyString(data.status) || "unknown",
+        keywords: Array.isArray(data.keywords) ? data.keywords.slice(0, 5) : [],
+        by: data.by,
+      },
+      ts: data.ts || Date.now(),
+    };
+
+    if (existing >= 0) {
+      this._signals[existing] = sig;
+    } else {
+      this._signals.push(sig);
+      this._pruneArray(this._signals, this.limits.signalsMax);
+    }
+    return sig;
+  }
+
+  /**
+   * 获取同步信号表格（按 type 分组）
+   */
+  getSyncTable(type) {
+    const signals = this._signals.filter(s =>
+      s.type === "sync" && (!type || s.payload?.type === type)
+    );
+    return signals.map(s => s.payload).filter(Boolean);
+  }
+
+  /**
    * 获取所有信号
    */
   getSignals(filter) {

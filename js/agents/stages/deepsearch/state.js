@@ -399,10 +399,14 @@ export class DeepSearchState {
     trajectoryConfig,
     writeBacktrackCount,
     writeSnapshots,
+    sharedContext,
+    subAgentIndex,
   } = {}) {
     this.schemaVersion = toNonEmptyString(schemaVersion) || STATE_SCHEMA_VERSION;
     this.runId = toNonEmptyString(runId) || "run_unknown";
     this.createdAt = toNonEmptyString(createdAt) || new Date().toISOString();
+    this.sharedContext = sharedContext || null;
+    this.subAgentIndex = Number.isFinite(subAgentIndex) ? subAgentIndex : null;
 
     this.taskGoal = toNonEmptyString(taskGoal) || "";
     this.userConfig = isPlainObject(userConfig) ? userConfig : {};
@@ -480,6 +484,17 @@ export class DeepSearchState {
     this.writeSnapshots = Array.isArray(writeSnapshots) ? writeSnapshots : [];
   }
 
+  _syncToShared(type, id, summary) {
+    if (!this.sharedContext || typeof this.sharedContext.upsertSignal !== "function") return;
+    this.sharedContext.upsertSignal({
+      type,
+      id,
+      ...summary,
+      by: this.subAgentIndex,
+      ts: Date.now(),
+    });
+  }
+
   addTokenUsage(usage) {
     const delta = normalizeTokenUsage(usage);
     if (!delta) return this?.L2?.tokenUsage || { input: 0, output: 0, total: 0, estimatedCostUSD: 0 };
@@ -513,6 +528,10 @@ export class DeepSearchState {
     const id = toNonEmptyString(raw.todoId) || `todo_${this.todos.length + 1}`;
     const row = createTodo({ ...raw, todoId: id });
     this.todos.push(row);
+    this._syncToShared("todo", row.todoId, {
+      status: row.status || "pending",
+      keywords: [row.text?.slice(0, 50)].filter(Boolean),
+    });
     return row;
   }
 
@@ -592,6 +611,7 @@ export class DeepSearchState {
       if (toNonEmptyString(reason)) g.reopenedReason = String(reason);
 
       reopened.push(gid);
+      this._syncToShared("gap", gid, { status: "open" });
     }
 
     const tree = this?.planningTree;
@@ -642,6 +662,10 @@ export class DeepSearchState {
         createdAt: now,
       };
       gaps.push(row);
+      this._syncToShared("gap", gapId, {
+        status: "open",
+        keywords: [row.question?.slice(0, 50)].filter(Boolean),
+      });
       added.push(row);
 
       emit?.("deepsearch.gap.upserted", {

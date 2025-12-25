@@ -50,10 +50,11 @@ function formatSection(title, entries) {
 }
 
 export class CapabilityLoader {
-  constructor({ blockRegistry, skillRegistry, mcpNexus } = {}) {
+  constructor({ blockRegistry, skillRegistry, mcpNexus, tempSkillStore } = {}) {
     this.blocks = blockRegistry || null;
     this.skills = skillRegistry || null;
     this.mcp = mcpNexus || null;
+    this.tempSkills = tempSkillStore || null;
     this.loaded = new Set();
     this._mcpToolsCache = null;
   }
@@ -72,6 +73,9 @@ export class CapabilityLoader {
       } else if (this._skillsHasCapability(cap)) {
         await this._loadSkillCapability(cap);
         loaded = true;
+      } else if (this._tempSkillsHasCapability(cap)) {
+        await this._loadTempSkillCapability(cap);
+        loaded = true;
       } else if (await this._mcpHasCapability(cap)) {
         await this._loadMcpCapability(cap);
         loaded = true;
@@ -86,6 +90,7 @@ export class CapabilityLoader {
     if (!cap) return false;
     if (this._blocksHasCapability(cap)) return true;
     if (this._skillsHasCapability(cap)) return true;
+    if (this._tempSkillsHasCapability(cap)) return true;
     if (this._mcpHasCapabilitySync(cap)) return true;
     return false;
   }
@@ -107,6 +112,7 @@ export class CapabilityLoader {
     const sections = [
       this._buildBlockSection(allowed),
       this._buildSkillSection(allowed),
+      this._buildTempSkillSection(allowed),
       this._buildMcpSection(allowed),
     ].filter(Boolean);
 
@@ -218,6 +224,42 @@ export class CapabilityLoader {
       await this.skills.load(skillName);
     }
     return true;
+  }
+
+  // TempSkillStore methods (第四层能力源)
+
+  _tempSkillsHasCapability(capability) {
+    if (!this.tempSkills) return false;
+    if (typeof this.tempSkills.hasCapability === "function") {
+      return this.tempSkills.hasCapability(capability);
+    }
+    return false;
+  }
+
+  async _loadTempSkillCapability(capability) {
+    if (!this.tempSkills) return false;
+    const skill = await this.tempSkills.get(capability);
+    return skill !== null;
+  }
+
+  _getTempSkillDefinitions() {
+    if (!this.tempSkills) return [];
+    // 同步返回缓存中的 skill names
+    const names = Array.from(this.tempSkills._cache || []);
+    return names.map((name) => ({ name, source: "temp" }));
+  }
+
+  _buildTempSkillSection(allowed) {
+    const definitions = this._getTempSkillDefinitions();
+    if (definitions.length === 0) return "";
+
+    const entries = [];
+    for (const def of definitions) {
+      if (!capabilityIsAllowed(def.name, allowed)) continue;
+      entries.push({ capability: def.name, providers: ["TempSkillStore"] });
+    }
+
+    return formatSection("Temporary Skill Capabilities", entries);
   }
 
   _getMcpToolsSync() {
