@@ -14,13 +14,19 @@ export { RequirementAnalyzer, ComplexityLevel } from "./requirement-analyzer.js"
 export { CapabilityLoader } from "./capability-loader.js";
 
 // Agent Loop infrastructure (Phase 0)
-export { BlockRegistry } from "./block-registry.js";
-export { createBlockExecutor } from "./block-executor.js";
-export { BlockDAGExecutor } from "./block-dag-executor.js";
 export { RouterAgent, ComplexityTier, ModelTier } from "./router-agent.js";
 export { stateMachineRegistry } from "./state-machine-registry.js";
 export { Watchdog, DelegationMode } from "./watchdog.js";
 export { CicadaCompressor, CompressionLayer } from "./cicada-compressor.js";
+export { AsyncCompressor } from "./async-compressor.js";
+export {
+  RemoteCompactor,
+  CompactProvider,
+  FastModelProvider,
+  LocalCompactProvider,
+  CompactionStrategy,
+  CompactionStatus,
+} from "./remote-compactor.js";
 
 // Skills system (Phase 1)
 export { SkillRegistry, SkillStatus, getSkillRegistry } from "./skill-registry.js";

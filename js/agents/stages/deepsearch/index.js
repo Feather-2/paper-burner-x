@@ -17,8 +17,6 @@ import { runDeepSearchWriteStage } from "./write.js";
 import { runDeepSearchCondenseStage } from "./condense.js";
 import { isPlainObject, safeInt } from "../../shared/value-utils.js";
 
-export { registerDeepSearchBlocks, DEEPSEARCH_DAG } from "./blocks.js";
-
 /**
  * 判断是否应该继续迭代
  * @deprecated 使用 DeepSearchAgentLoop 的内部逻辑
