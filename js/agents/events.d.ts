@@ -20,6 +20,111 @@ export interface EventRecord<T = unknown> {
 }
 
 // ============================================================================
+// 用户交互事件（UI → Agent）
+// ============================================================================
+
+/**
+ * 用户可以通过以下事件介入 Agent 流程：
+ */
+export namespace UserActionEvents {
+  /** user.action.pause - 请求暂停 Agent */
+  export interface Pause {
+    reason?: string;
+  }
+
+  /** user.action.resume - 请求恢复 Agent */
+  export interface Resume {
+    checkpointId?: string;
+  }
+
+  /** user.action.cancel - 请求取消 Agent */
+  export interface Cancel {
+    reason?: string;
+  }
+
+  /** user.input - 用户输入（响应 chat.ask） */
+  export interface Input {
+    text?: string;
+    choice?: string;
+    data?: unknown;
+  }
+
+  /** user.action.confirm - 用户确认（如大纲确认） */
+  export interface Confirm {
+    confirmed: boolean;
+    feedback?: string;
+  }
+
+  /** user.action.edit - 用户编辑请求 */
+  export interface Edit {
+    target: "outline" | "slide" | "style";
+    slideIndex?: number;
+    content?: string;
+  }
+}
+
+/** 用户交互事件映射表 */
+export interface UserActionEventMap {
+  "user.action.pause": UserActionEvents.Pause;
+  "user.action.resume": UserActionEvents.Resume;
+  "user.action.cancel": UserActionEvents.Cancel;
+  "user.input": UserActionEvents.Input;
+  "user.action.confirm": UserActionEvents.Confirm;
+  "user.action.edit": UserActionEvents.Edit;
+}
+
+// ============================================================================
+// 可交互阶段说明
+// ============================================================================
+
+/**
+ * ## 用户可介入的流程节点
+ *
+ * ### DeepSearch Agent
+ * | 阶段 | 可介入操作 | 触发事件 |
+ * |------|-----------|---------|
+ * | 任意时刻 | 暂停 | user.action.pause |
+ * | 暂停后 | 恢复 | user.action.resume |
+ * | 任意时刻 | 取消 | user.action.cancel |
+ *
+ * ### Design Agent
+ * | 阶段 | 可介入操作 | 触发事件 | Agent 响应事件 |
+ * |------|-----------|---------|---------------|
+ * | outline_confirming | 确认/修改大纲 | user.action.confirm | design.phase.transition |
+ * | generating | 实时预览 | - | design.deck.updated |
+ * | reviewing | 查看 QA 结果 | - | design.qa.ended |
+ * | visual_filling | 查看渲染错误 | - | design.visual.errors |
+ * | 任意时刻 | 暂停 | user.action.pause | design.agent.status.changed |
+ * | 暂停后 | 恢复 | user.action.resume | design.agent.status.changed |
+ * | 任意时刻 | 取消 | user.action.cancel | - |
+ * | chat_ask 工具调用 | 回复问题 | user.input | - |
+ *
+ * ### 暂停/恢复机制
+ *
+ * ```
+ * UI 发送: eventBus.emit('user.action.pause', { reason: '用户请求' })
+ *     ↓
+ * Agent 响应: design.agent.status.changed { from: 'running', to: 'paused', checkpointId }
+ *     ↓
+ * UI 发送: eventBus.emit('user.action.resume', { checkpointId })
+ *     ↓
+ * Agent 响应: design.agent.status.changed { from: 'paused', to: 'running' }
+ * ```
+ *
+ * ### 用户输入机制（chat_ask）
+ *
+ * ```
+ * Agent 发送: design.chat.ask { question: '请选择配色方案', options: ['方案A', '方案B'] }
+ *     ↓
+ * UI 展示选项，等待用户选择
+ *     ↓
+ * UI 发送: eventBus.emit('user.input', { choice: '方案A' })
+ *     ↓
+ * Agent 继续执行
+ * ```
+ */
+
+// ============================================================================
 // DeepSearch Agent 事件
 // ============================================================================
 
