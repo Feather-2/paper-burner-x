@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 test("VisualRenderer: dispatches by renderType + emits unified events", async () => {
-  const { VisualRenderer } = await import("../../../js/agents/stages/design/visual-renderer.js");
+  const { VisualRenderer } = await import("../../../js/agents/stages/design/image/visual-renderer.js");
 
   const calls = { image: null, svg: null, asset: null };
   const imageGenerator = {
@@ -68,7 +68,7 @@ test("VisualRenderer: dispatches by renderType + emits unified events", async ()
 });
 
 test("SVGGenerator: generates deterministic SVG and fillSvgPlaceholders patches HTML", async () => {
-  const { SVGGenerator, fillSvgPlaceholders } = await import("../../../js/agents/stages/design/svg-generator.js");
+  const { SVGGenerator, fillSvgPlaceholders } = await import("../../../js/agents/stages/design/generators/svg-generator.js");
 
   const gen = new SVGGenerator();
   const { results: res } = await gen.generate(
@@ -100,7 +100,7 @@ test("SVGGenerator: generates deterministic SVG and fillSvgPlaceholders patches 
 });
 
 test("AssetResolver: resolves assetId and fillAssetPlaceholders patches HTML", async () => {
-  const { AssetResolver, fillAssetPlaceholders } = await import("../../../js/agents/stages/design/asset-resolver.js");
+  const { AssetResolver, fillAssetPlaceholders } = await import("../../../js/agents/stages/design/image/asset-resolver.js");
 
   const assets = [{ assetId: "asset_001", type: "image", mimeType: "image/png", data: "QUJD", width: 100, height: 80 }];
   const resolver = new AssetResolver(assets);
@@ -117,7 +117,7 @@ test("AssetResolver: resolves assetId and fillAssetPlaceholders patches HTML", a
 });
 
 test("SVGGenerator: classifySvgError categorizes errors correctly", async () => {
-  const { SVGGenerator } = await import("../../../js/agents/stages/design/svg-generator.js");
+  const { SVGGenerator } = await import("../../../js/agents/stages/design/generators/svg-generator.js");
 
   const gen = new SVGGenerator();
   const events = [];
@@ -144,7 +144,7 @@ test("SVGGenerator: classifySvgError categorizes errors correctly", async () => 
 });
 
 test("SVGGenerator: emits design.svg.batch.failed on error", async () => {
-  const { SVGGenerator } = await import("../../../js/agents/stages/design/svg-generator.js");
+  const { SVGGenerator } = await import("../../../js/agents/stages/design/generators/svg-generator.js");
 
   const gen = new SVGGenerator();
   const events = [];
@@ -162,7 +162,7 @@ test("SVGGenerator: emits design.svg.batch.failed on error", async () => {
 });
 
 test("SVGGenerator: returns structured report with errors array", async () => {
-  const { SVGGenerator } = await import("../../../js/agents/stages/design/svg-generator.js");
+  const { SVGGenerator } = await import("../../../js/agents/stages/design/generators/svg-generator.js");
 
   const gen = new SVGGenerator();
   const { report } = await gen.generate(

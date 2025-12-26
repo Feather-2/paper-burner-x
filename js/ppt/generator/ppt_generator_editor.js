@@ -1256,7 +1256,7 @@ const PPTGeneratorEditor = {
 
             const slide = Array.isArray(this.slides) ? this.slides[slideIndex] : null;
 
-            const mod = await import('../agents/stages/design/image-planner.js');
+            const mod = await import('../agents/stages/design/image/image-planner.js');
             const ImagePlanner = mod?.ImagePlanner;
             if (!ImagePlanner || typeof ImagePlanner.suggestElementPatch !== 'function') {
                 return { ok: false, message: 'image_planner_unavailable' };

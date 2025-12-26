@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 test("validateStageApi: rejects non-objects and reports missing required fields", async () => {
-  const { validateStageApi } = await import("../../../js/agents/stages/deepsearch/stage-api.js");
+  const { validateStageApi } = await import("../../../js/agents/stages/deepsearch/utils/stage-api.js");
 
   {
     const out = validateStageApi(null);
@@ -25,7 +25,7 @@ test("validateStageApi: rejects non-objects and reports missing required fields"
 });
 
 test("validateStageApi: emits warnings for invalid optional field types", async () => {
-  const { validateStageApi } = await import("../../../js/agents/stages/deepsearch/stage-api.js");
+  const { validateStageApi } = await import("../../../js/agents/stages/deepsearch/utils/stage-api.js");
 
   const controller = new AbortController();
   const out = validateStageApi({
@@ -42,7 +42,7 @@ test("validateStageApi: emits warnings for invalid optional field types", async 
 });
 
 test("createStageApi: fills defaults (signal, emit, checkCancelled) and supports strict warnings", async () => {
-  const { createStageApi } = await import("../../../js/agents/stages/deepsearch/stage-api.js");
+  const { createStageApi } = await import("../../../js/agents/stages/deepsearch/utils/stage-api.js");
 
   {
     const api = createStageApi();
@@ -90,7 +90,7 @@ test("createStageApi: fills defaults (signal, emit, checkCancelled) and supports
 });
 
 test("extractServices: provides safe fallbacks and binds emit correctly", async () => {
-  const { extractServices } = await import("../../../js/agents/stages/deepsearch/stage-api.js");
+  const { extractServices } = await import("../../../js/agents/stages/deepsearch/utils/stage-api.js");
 
   {
     const { signal, emit, checkCancelled, eventBus } = extractServices(null);
@@ -129,7 +129,7 @@ test("extractServices: provides safe fallbacks and binds emit correctly", async 
 });
 
 test("mergeStageApis: merges non-null/undefined values and returns a complete api", async () => {
-  const { mergeStageApis } = await import("../../../js/agents/stages/deepsearch/stage-api.js");
+  const { mergeStageApis } = await import("../../../js/agents/stages/deepsearch/utils/stage-api.js");
 
   const a = new AbortController();
   const b = new AbortController();
@@ -151,7 +151,7 @@ test("mergeStageApis: merges non-null/undefined values and returns a complete ap
 });
 
 test("createChildApi: inherits parent values and allows overrides", async () => {
-  const { createChildApi } = await import("../../../js/agents/stages/deepsearch/stage-api.js");
+  const { createChildApi } = await import("../../../js/agents/stages/deepsearch/utils/stage-api.js");
 
   const controller = new AbortController();
   const parent = { signal: controller.signal, logger: { info: () => {} } };

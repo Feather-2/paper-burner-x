@@ -4,7 +4,7 @@
  */
 
 import { WorkflowState, transitionWorkflow, forceWorkflowState } from './workflow-states.js';
-import { WorkflowTodoStatus } from '../../agents/runtime/constants.js';
+import { WorkflowTodoStatus } from '../../agents/runtime/core/constants.js';
 
 export const filesMixin = {
     handleFileUpload(fileList) {

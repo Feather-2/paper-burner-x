@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 async function loadModule() {
-  return import("../../../js/agents/shared/checkpoint-schema.js");
+  return import("../../../js/agents/shared/archive/checkpoint-schema.js");
 }
 
 test("createCheckpoint: builds schema with defaults", async () => {

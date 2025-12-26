@@ -13,4 +13,4 @@ export {
   CODESEARCH_SUMMARIZE_PROMPT,
   PROMPTS,
 } from "./prompts.js";
-export { CodeSearchPhase, codesearchPhaseMachine, TodoStatus, TODO_TRANSITIONS, todoMachine } from "./states.js";
+export { CodeSearchPhase, TodoStatus, isValidTodoStatus, isValidCodeSearchPhase } from "./states.js";

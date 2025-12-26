@@ -1,5 +1,5 @@
-import { isPlainObject, safeInt, safeNumber, toNonEmptyString } from "../../shared/value-utils.js";
-import { EVENT_SCHEMA_VERSION, EventStatus, ensureTokenUsage, extractJsonCandidate, normalizeBudgetConfig, normalizeTokenUsage, stripThinkingTags } from "./state-utils.js";
+import { isPlainObject, safeInt, safeNumber, toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { EVENT_SCHEMA_VERSION, EventStatus, ensureTokenUsage, extractJsonCandidate, normalizeBudgetConfig, normalizeTokenUsage, stripThinkingTags } from "./utils/state-utils.js";
 import { CheckpointMode } from "./constants.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -61,7 +61,7 @@ class PlanningTree {
 }
 
 import { DecisionOutcome, DecisionStage, TodoStatus } from "./states.js";
-import { createTodo } from "./todo-utils.js";
+import { createTodo } from "./utils/todo-utils.js";
 import {
   buildLiteSnapshot,
   buildMinimalSnapshot,
@@ -70,7 +70,7 @@ import {
   getCheckpointStrategyFromState,
   loadCheckpoint,
   normalizeCheckpointStrategy,
-} from "./checkpoint.js";
+} from "./runtime/checkpoint.js";
 
 export { EVENT_SCHEMA_VERSION, EventStatus, extractJsonCandidate, normalizeBudgetConfig, stripThinkingTags };
 export { loadCheckpoint };

@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 test("isPlainObject: basic shape checks", async () => {
-  const { isPlainObject } = await import("../../../js/agents/shared/value-utils.js");
+  const { isPlainObject } = await import("../../../js/agents/shared/utils/value-utils.js");
 
   assert.equal(isPlainObject(null), false);
   assert.equal(isPlainObject(undefined), false);
@@ -13,7 +13,7 @@ test("isPlainObject: basic shape checks", async () => {
 });
 
 test("isPlainObject: excludes built-ins and custom prototypes", async () => {
-  const { isPlainObject } = await import("../../../js/agents/shared/value-utils.js");
+  const { isPlainObject } = await import("../../../js/agents/shared/utils/value-utils.js");
 
   class X {}
 
@@ -28,7 +28,7 @@ test("isPlainObject: excludes built-ins and custom prototypes", async () => {
 });
 
 test("toNonEmptyString: nullish and empty values -> undefined", async () => {
-  const { toNonEmptyString } = await import("../../../js/agents/shared/value-utils.js");
+  const { toNonEmptyString } = await import("../../../js/agents/shared/utils/value-utils.js");
 
   assert.equal(toNonEmptyString(undefined), undefined);
   assert.equal(toNonEmptyString(null), undefined);
@@ -37,7 +37,7 @@ test("toNonEmptyString: nullish and empty values -> undefined", async () => {
 });
 
 test("toNonEmptyString: trims and converts via String()", async () => {
-  const { toNonEmptyString } = await import("../../../js/agents/shared/value-utils.js");
+  const { toNonEmptyString } = await import("../../../js/agents/shared/utils/value-utils.js");
 
   assert.equal(toNonEmptyString("  hello  "), "hello");
   assert.equal(toNonEmptyString(0), "0");
@@ -47,7 +47,7 @@ test("toNonEmptyString: trims and converts via String()", async () => {
 });
 
 test("safeNumber: accepts finite numbers and numeric strings", async () => {
-  const { safeNumber } = await import("../../../js/agents/shared/value-utils.js");
+  const { safeNumber } = await import("../../../js/agents/shared/utils/value-utils.js");
 
   assert.equal(safeNumber(0), 0);
   assert.equal(safeNumber(-2.5), -2.5);
@@ -59,7 +59,7 @@ test("safeNumber: accepts finite numbers and numeric strings", async () => {
 });
 
 test("safeNumber: rejects invalid, non-finite, and non-string non-number", async () => {
-  const { safeNumber } = await import("../../../js/agents/shared/value-utils.js");
+  const { safeNumber } = await import("../../../js/agents/shared/utils/value-utils.js");
 
   assert.equal(safeNumber(NaN), null);
   assert.equal(safeNumber(Infinity), null);
@@ -77,7 +77,7 @@ test("safeNumber: rejects invalid, non-finite, and non-string non-number", async
 });
 
 test("safeInt: floors finite numeric input and rejects invalid", async () => {
-  const { safeInt } = await import("../../../js/agents/shared/value-utils.js");
+  const { safeInt } = await import("../../../js/agents/shared/utils/value-utils.js");
 
   assert.equal(safeInt(2), 2);
   assert.equal(safeInt(2.9), 2);
@@ -96,7 +96,7 @@ test("safeInt: floors finite numeric input and rejects invalid", async () => {
 });
 
 test("normalizeRenderType: handles ai-image variants", async () => {
-  const { normalizeRenderType } = await import("../../../js/agents/shared/value-utils.js");
+  const { normalizeRenderType } = await import("../../../js/agents/shared/utils/value-utils.js");
 
   assert.equal(normalizeRenderType("ai-image"), "ai-image");
   assert.equal(normalizeRenderType("ai_image"), "ai-image");
@@ -106,7 +106,7 @@ test("normalizeRenderType: handles ai-image variants", async () => {
 });
 
 test("normalizeRenderType: handles svg", async () => {
-  const { normalizeRenderType } = await import("../../../js/agents/shared/value-utils.js");
+  const { normalizeRenderType } = await import("../../../js/agents/shared/utils/value-utils.js");
 
   assert.equal(normalizeRenderType("svg"), "svg");
   assert.equal(normalizeRenderType("SVG"), "svg");
@@ -114,7 +114,7 @@ test("normalizeRenderType: handles svg", async () => {
 });
 
 test("normalizeRenderType: handles asset variants", async () => {
-  const { normalizeRenderType } = await import("../../../js/agents/shared/value-utils.js");
+  const { normalizeRenderType } = await import("../../../js/agents/shared/utils/value-utils.js");
 
   assert.equal(normalizeRenderType("asset"), "asset");
   assert.equal(normalizeRenderType("doc-asset"), "asset");
@@ -123,7 +123,7 @@ test("normalizeRenderType: handles asset variants", async () => {
 });
 
 test("normalizeRenderType: defaults to ai-image for unknown/empty", async () => {
-  const { normalizeRenderType } = await import("../../../js/agents/shared/value-utils.js");
+  const { normalizeRenderType } = await import("../../../js/agents/shared/utils/value-utils.js");
 
   assert.equal(normalizeRenderType(""), "ai-image");
   assert.equal(normalizeRenderType(null), "ai-image");

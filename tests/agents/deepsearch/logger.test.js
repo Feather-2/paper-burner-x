@@ -22,7 +22,7 @@ function withPatchedConsole(fn) {
 }
 
 test("Logger: createLogger emits structured events", async () => {
-  const { createLogger } = await import("../../../js/agents/stages/deepsearch/logger.js");
+  const { createLogger } = await import("../../../js/agents/stages/deepsearch/runtime/logger.js");
 
   await withPatchedConsole(async (calls) => {
     const emitted = [];
@@ -51,7 +51,7 @@ test("Logger: createLogger emits structured events", async () => {
 });
 
 test("Logger: warn/error choose console method + status", async () => {
-  const { createLogger } = await import("../../../js/agents/stages/deepsearch/logger.js");
+  const { createLogger } = await import("../../../js/agents/stages/deepsearch/runtime/logger.js");
 
   await withPatchedConsole(async (calls) => {
     const emitted = [];
@@ -75,7 +75,7 @@ test("Logger: warn/error choose console method + status", async () => {
 });
 
 test("Logger: data overrides context fields", async () => {
-  const { createLogger } = await import("../../../js/agents/stages/deepsearch/logger.js");
+  const { createLogger } = await import("../../../js/agents/stages/deepsearch/runtime/logger.js");
 
   await withPatchedConsole(async () => {
     const emitted = [];
@@ -92,7 +92,7 @@ test("Logger: data overrides context fields", async () => {
 });
 
 test("Logger: enabled=false suppresses emit + console", async () => {
-  const { createLogger } = await import("../../../js/agents/stages/deepsearch/logger.js");
+  const { createLogger } = await import("../../../js/agents/stages/deepsearch/runtime/logger.js");
 
   await withPatchedConsole(async (calls) => {
     const emitted = [];
@@ -106,7 +106,7 @@ test("Logger: enabled=false suppresses emit + console", async () => {
 });
 
 test("Logger: multiple instances concurrent do not conflict", async () => {
-  const { createLogger } = await import("../../../js/agents/stages/deepsearch/logger.js");
+  const { createLogger } = await import("../../../js/agents/stages/deepsearch/runtime/logger.js");
 
   await withPatchedConsole(async () => {
     const emitted = [];
@@ -156,7 +156,7 @@ test("Logger: multiple instances concurrent do not conflict", async () => {
 });
 
 test("Logger: trackToolCall success + failure", async () => {
-  const { createLogger, trackToolCall } = await import("../../../js/agents/stages/deepsearch/logger.js");
+  const { createLogger, trackToolCall } = await import("../../../js/agents/stages/deepsearch/runtime/logger.js");
 
   await withPatchedConsole(async () => {
     const emitted = [];
@@ -183,7 +183,7 @@ test("Logger: trackToolCall success + failure", async () => {
 });
 
 test("Logger: deprecated logEvent exists", async () => {
-  const { logEvent } = await import("../../../js/agents/stages/deepsearch/logger.js");
+  const { logEvent } = await import("../../../js/agents/stages/deepsearch/runtime/logger.js");
 
   await withPatchedConsole(async (calls) => {
     logEvent({ message: "legacy" });

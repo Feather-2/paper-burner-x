@@ -3,7 +3,7 @@
  *
  * Tracks warning/exceeded state in `state.L2.budgetState` and emits budget-related events.
  */
-import { isPlainObject, safeInt, safeNumber } from "../../../shared/value-utils.js";
+import { isPlainObject, safeInt, safeNumber } from "../../../shared/utils/value-utils.js";
 
 export function ensureBudgetState(state) {
   if (!state || typeof state !== "object") return null;

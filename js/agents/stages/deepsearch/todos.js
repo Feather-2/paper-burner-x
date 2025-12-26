@@ -1,10 +1,10 @@
 import { DeepSearchState, checkCancelled, extractJsonCandidate, makeStageEmitter, EventStatus } from "./state.js";
 import { getModelCaller } from "./model.js";
 import { loadPrompt } from "../../prompts/prompt-loader.js";
-import { createTodo, validateTodo } from "./todo-utils.js";
-import { createLogger } from "./logger.js";
-import { extractServices } from "./stage-api.js";
-import { isPlainObject, toNonEmptyString } from "../../shared/value-utils.js";
+import { createTodo, validateTodo } from "./utils/todo-utils.js";
+import { createLogger } from "./runtime/logger.js";
+import { extractServices } from "./utils/stage-api.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
 
 const FALLBACK_REASON = "LLM unavailable or invalid output; using heuristic todos";
 const DEFAULT_PROMPT =

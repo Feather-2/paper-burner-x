@@ -1,23 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-test("Runtime Core: runId format & uniqueness", async () => {
-  const { RunContext, generateRunId } = await import("../../js/agents/runtime/run-context.js");
-
-  const now = new Date("2025-12-12T22:30:01.000Z");
-  let i = 0;
-  const ids = new Set();
-  for (; i < 100; i++) {
-    const id = generateRunId(now, () => (i + 1) / 1000);
-    assert.match(id, /^run_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_[a-f0-9]{5}$/);
-    ids.add(id);
-  }
-  assert.equal(ids.size, 100);
-
-  const ctx1 = new RunContext({ mode: "textprep" });
-  const ctx2 = new RunContext({ mode: "textprep" });
-  assert.notEqual(ctx1.runId, ctx2.runId);
-});
+// 以下测试引用了已删除的 run-context.js，已移除
 
 test("Runtime Constants: report enums + quality mode normalization", async () => {
   const {
@@ -31,7 +15,7 @@ test("Runtime Constants: report enums + quality mode normalization", async () =>
     normalizeReportLanguage,
     normalizeReportLength,
     normalizeQualityMode,
-  } = await import("../../js/agents/runtime/constants.js");
+  } = await import("../../js/agents/runtime/core/constants.js");
 
   assert.equal(normalizeReportTone("Business"), ReportTone.BUSINESS);
   assert.equal(normalizeReportTone("ACADEMIC"), ReportTone.ACADEMIC);
@@ -55,7 +39,7 @@ test("Runtime Constants: report enums + quality mode normalization", async () =>
 });
 
 test("Runtime Core: EventBus on/off/once/emit + EventRecord fields", async () => {
-  const { EventBus, isValidEventName } = await import("../../js/agents/runtime/event-bus.js");
+  const { EventBus, isValidEventName } = await import("../../js/agents/runtime/events/event-bus.js");
 
   assert.ok(isValidEventName("run.started"));
   assert.ok(isValidEventName("textprep.chunk.completed"));
@@ -106,7 +90,7 @@ test("Runtime Core: EventBus on/off/once/emit + EventRecord fields", async () =>
 });
 
 test("Runtime Core: EventBus backpressure default stays synchronous", async () => {
-  const { EventBus } = await import("../../js/agents/runtime/event-bus.js");
+  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
 
   const bus = new EventBus({ runId: "run_test" });
   let hits = 0;
@@ -119,7 +103,7 @@ test("Runtime Core: EventBus backpressure default stays synchronous", async () =
 });
 
 test("Runtime Core: EventBus backpressure batching + coalesce + order + seq", async () => {
-  const { EventBus } = await import("../../js/agents/runtime/event-bus.js");
+  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const seqOf = (evt) => Number(String(evt.eventId).split("_").at(-1));
@@ -165,7 +149,7 @@ test("Runtime Core: EventBus backpressure batching + coalesce + order + seq", as
 });
 
 test("Runtime Core: EventBus backpressure custom coalescePattern + disable restores sync", async () => {
-  const { EventBus } = await import("../../js/agents/runtime/event-bus.js");
+  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -204,7 +188,7 @@ test("Runtime Core: EventBus backpressure custom coalescePattern + disable resto
 });
 
 test("Runtime Core: EventBus backpressure batchWindowMs controls flush timing", async () => {
-  const { EventBus } = await import("../../js/agents/runtime/event-bus.js");
+  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -225,7 +209,7 @@ test("Runtime Core: EventBus backpressure batchWindowMs controls flush timing", 
 });
 
 test("Runtime Core: EventBus backpressure rAF scheduling branch", async () => {
-  const { EventBus } = await import("../../js/agents/runtime/event-bus.js");
+  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
 
   const originalRaf = globalThis.requestAnimationFrame;
   const originalCancel = globalThis.cancelAnimationFrame;
@@ -256,7 +240,7 @@ test("Runtime Core: EventBus backpressure rAF scheduling branch", async () => {
 });
 
 test("Runtime Core: EventBus validation errors", async () => {
-  const { EventBus, createEventRecord } = await import("../../js/agents/runtime/event-bus.js");
+  const { EventBus, createEventRecord } = await import("../../js/agents/runtime/events/event-bus.js");
 
   assert.throws(() => createEventRecord({ name: "Bad.Name" }), /Invalid event name/);
 
@@ -270,7 +254,7 @@ test("Runtime Core: EventBus validation errors", async () => {
 });
 
 test("Runtime Core: EventBus backpressure re-enable flushes queued and cancels timer", async () => {
-  const { EventBus } = await import("../../js/agents/runtime/event-bus.js");
+  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -297,7 +281,7 @@ test("Runtime Core: EventBus backpressure re-enable flushes queued and cancels t
 });
 
 test("Runtime Core: EventBus persistence adapter best-effort appendEvents", async () => {
-  const { EventBus } = await import("../../js/agents/runtime/event-bus.js");
+  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -343,7 +327,7 @@ test("Runtime Core: EventBus persistence adapter best-effort appendEvents", asyn
 });
 
 test("Runtime Core: EventBus replay loads events and marks meta.replay", async () => {
-  const { EventBus } = await import("../../js/agents/runtime/event-bus.js");
+  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
 
   // No adapter -> clear error.
   await assert.rejects(() => new EventBus().replay("run_test"), /persistenceAdapter is required/);
@@ -398,7 +382,7 @@ test("Runtime Core: EventBus replay loads events and marks meta.replay", async (
 });
 
 test("Runtime Core: RunStoreAdapter validation + appendEvents branches", async () => {
-  const { RunStoreAdapter } = await import("../../js/agents/runtime/event-bus.js");
+  const { RunStoreAdapter } = await import("../../js/agents/runtime/events/event-bus.js");
 
   assert.throws(() => new RunStoreAdapter(null), /runStore.getEvents must be a function/);
   assert.throws(() => new RunStoreAdapter({ getEvents: async () => [] }), /appendEvents\/appendEvent/);
@@ -454,365 +438,10 @@ test("Runtime Core: RunStoreAdapter validation + appendEvents branches", async (
   }
 });
 
-test("Runtime Core: RunContext constraints parsing + serialization", async () => {
-  const { RunContext, parseConstraints } = await import("../../js/agents/runtime/run-context.js");
-
-  assert.deepEqual(parseConstraints(null), {});
-  assert.deepEqual(parseConstraints({}), {});
-
-  const c = parseConstraints({
-    audience: "技术团队",
-    tone: "Academic",
-    pageCount: "12",
-    citationsPolicy: "footnotes",
-    qualityMode: "high",
-    ignored: "x",
-  });
-  assert.deepEqual(c, {
-    audience: "技术团队",
-    tone: "Academic",
-    pageCount: 12,
-    citationsPolicy: "footnotes",
-    qualityMode: "high",
-  });
-
-  const ctx = new RunContext({ mode: "deepsearch", scenario: "business", constraints: c, runId: "run_test" });
-  const json = ctx.toJSON();
-  assert.equal(json.schemaVersion, "0.1");
-  assert.equal(json.runId, "run_test");
-  assert.equal(json.mode, "deepsearch");
-  assert.equal(json.scenario, "business");
-  assert.deepEqual(json.constraints, c);
-  assert.ok(typeof json.startedAt === "string" && json.startedAt.includes("T"));
-});
-
-test("Runtime Core: Orchestrator run lifecycle + stage events", async () => {
-  const { AgentOrchestrator } = await import("../../js/agents/runtime/orchestrator.js");
-
-  const orch = new AgentOrchestrator({ mode: "textprep", scenario: "test" });
-  const events = [];
-  orch.eventBus.on("*", (e) => events.push(e));
-
-  orch.registerStage(
-    "textprep.chunk",
-    async (_ctx, input, api) => {
-      assert.deepEqual(input, { inputChars: 123 });
-      api.progress({ step: 1 });
-      api.progress({ step: 2 });
-      return { chunks: 3 };
-    },
-    { actor: "textprep", timeoutMs: 1000 }
-  );
-
-  const out = await orch.run(async (o) => o.runStage("textprep.chunk", { inputChars: 123 }));
-  assert.deepEqual(out, { chunks: 3 });
-
-  assert.ok(events.some((e) => e.name === "run.started"));
-  assert.ok(events.some((e) => e.name === "textprep.chunk.started" && e.status === "started"));
-  assert.ok(events.some((e) => e.name === "textprep.chunk.progress" && e.status === "progress"));
-  assert.ok(events.some((e) => e.name === "textprep.chunk.completed" && e.status === "completed"));
-  assert.ok(events.some((e) => e.name === "run.completed"));
-});
-
-test("Runtime Core: Orchestrator error handling emits failed", async () => {
-  const { AgentOrchestrator } = await import("../../js/agents/runtime/orchestrator.js");
-
-  const orch = new AgentOrchestrator({ mode: "textprep" });
-  const events = [];
-  orch.eventBus.on("*", (e) => events.push(e));
-
-  orch.registerStage("design.batch", async () => {
-    throw new Error("boom");
-  }, { actor: "design" });
-
-  await assert.rejects(() => orch.run(async (o) => o.runStage("design.batch")), /boom/);
-
-  assert.ok(events.some((e) => e.name === "design.batch.failed" && e.status === "failed"));
-  assert.ok(events.some((e) => e.name === "run.failed" && e.status === "failed"));
-});
-
-test("Runtime Core: Orchestrator timeout + stop cancellation", async () => {
-  const { AgentOrchestrator } = await import("../../js/agents/runtime/orchestrator.js");
-  const { StageTimeoutError, StageCancelledError } = AgentOrchestrator;
-
-  // Timeout
-  {
-    const orch = new AgentOrchestrator({ mode: "textprep" });
-    const events = [];
-    orch.eventBus.on("*", (e) => events.push(e));
-
-    orch.registerStage("deepsearch.scan", async () => new Promise(() => {}), { actor: "deepsearch", timeoutMs: 20 });
-
-    await assert.rejects(() => orch.run(async (o) => o.runStage("deepsearch.scan")), (err) => {
-      assert.ok(err instanceof StageTimeoutError);
-      assert.equal(err.stageName, "deepsearch.scan");
-      return true;
-    });
-
-    assert.ok(events.some((e) => e.name === "deepsearch.scan.failed"));
-    assert.ok(events.some((e) => e.name === "run.failed"));
-  }
-
-  // Stop/cancel
-  {
-    const orch = new AgentOrchestrator({ mode: "textprep" });
-    const events = [];
-    orch.eventBus.on("*", (e) => events.push(e));
-
-    orch.registerStage(
-      "textprep.normalize",
-      async (_ctx, _input, api) =>
-        new Promise((resolve, reject) => {
-          if (api.signal?.aborted) return reject(new Error("aborted-too-early"));
-          api.signal?.addEventListener("abort", () => reject(new StageCancelledError("cancelled", { stageName: "textprep.normalize" })), { once: true });
-        }),
-      { actor: "textprep", timeoutMs: 10_000 }
-    );
-
-    const p = orch.run(async (o) => o.runStage("textprep.normalize"));
-    orch.stop("user_cancel");
-
-    await assert.rejects(() => p, (err) => {
-      assert.ok(err instanceof StageCancelledError);
-      return true;
-    });
-
-    assert.ok(events.some((e) => e.name === "run.cancelled" && e.status === "cancelled"));
-  }
-});
-
-test("Runtime Core: topologicalSort basic ordering", async () => {
-  const { topologicalSort } = await import("../../js/agents/runtime/orchestrator.js");
-
-  // Simple chain: A -> B -> C
-  const stages = new Map([
-    ["a", { fn: () => {}, dependsOn: [] }],
-    ["b", { fn: () => {}, dependsOn: ["a"] }],
-    ["c", { fn: () => {}, dependsOn: ["b"] }],
-  ]);
-
-  const { sorted, layers } = topologicalSort(stages);
-  assert.deepEqual(sorted, ["a", "b", "c"]);
-  assert.deepEqual(layers, [["a"], ["b"], ["c"]]);
-});
-
-test("Runtime Core: topologicalSort parallel layers", async () => {
-  const { topologicalSort } = await import("../../js/agents/runtime/orchestrator.js");
-
-  // Diamond: A -> B, A -> C, B -> D, C -> D
-  const stages = new Map([
-    ["a", { fn: () => {}, dependsOn: [] }],
-    ["b", { fn: () => {}, dependsOn: ["a"] }],
-    ["c", { fn: () => {}, dependsOn: ["a"] }],
-    ["d", { fn: () => {}, dependsOn: ["b", "c"] }],
-  ]);
-
-  const { sorted, layers } = topologicalSort(stages);
-  assert.equal(sorted[0], "a");
-  assert.equal(sorted[3], "d");
-  assert.ok(sorted.includes("b") && sorted.includes("c"));
-
-  assert.deepEqual(layers[0], ["a"]);
-  assert.ok(layers[1].includes("b") && layers[1].includes("c"));
-  assert.deepEqual(layers[2], ["d"]);
-});
-
-test("Runtime Core: topologicalSort circular dependency detection", async () => {
-  const { topologicalSort } = await import("../../js/agents/runtime/orchestrator.js");
-
-  const stages = new Map([
-    ["a", { fn: () => {}, dependsOn: ["c"] }],
-    ["b", { fn: () => {}, dependsOn: ["a"] }],
-    ["c", { fn: () => {}, dependsOn: ["b"] }],
-  ]);
-
-  assert.throws(() => topologicalSort(stages), /Circular dependency/);
-});
-
-test("Runtime Core: topologicalSort unknown dependency detection", async () => {
-  const { topologicalSort } = await import("../../js/agents/runtime/orchestrator.js");
-
-  const stages = new Map([
-    ["a", { fn: () => {}, dependsOn: ["unknown"] }],
-  ]);
-
-  assert.throws(() => topologicalSort(stages), /depends on unknown stage/);
-});
-
-test("Runtime Core: Orchestrator registerStage with dependsOn validation", async () => {
-  const { AgentOrchestrator } = await import("../../js/agents/runtime/orchestrator.js");
-
-  const orch = new AgentOrchestrator({ mode: "test" });
-
-  // Valid dependsOn
-  orch.registerStage("a", () => {}, { dependsOn: [] });
-  orch.registerStage("b", () => {}, { dependsOn: ["a"] });
-
-  // Invalid dependsOn (not array)
-  assert.throws(() => orch.registerStage("c", () => {}, { dependsOn: "a" }), /dependsOn must be an array/);
-
-  // Invalid condition (not function)
-  assert.throws(() => orch.registerStage("d", () => {}, { condition: "true" }), /condition must be a function/);
-});
-
-test("Runtime Core: Orchestrator getExecutionPlan returns correct layers", async () => {
-  const { AgentOrchestrator } = await import("../../js/agents/runtime/orchestrator.js");
-
-  const orch = new AgentOrchestrator({ mode: "test" });
-  orch.registerStage("scan", () => {}, { dependsOn: [] });
-  orch.registerStage("gaps", () => {}, { dependsOn: ["scan"] });
-  orch.registerStage("retrieve", () => {}, { dependsOn: ["gaps"] });
-  orch.registerStage("understand", () => {}, { dependsOn: ["retrieve"] });
-  orch.registerStage("write", () => {}, { dependsOn: ["understand"] });
-
-  const { sorted, layers } = orch.getExecutionPlan();
-  assert.deepEqual(sorted, ["scan", "gaps", "retrieve", "understand", "write"]);
-  assert.equal(layers.length, 5);
-});
-
-test("Runtime Core: Orchestrator runDAG executes stages in order", async () => {
-  const { AgentOrchestrator } = await import("../../js/agents/runtime/orchestrator.js");
-
-  const orch = new AgentOrchestrator({ mode: "test" });
-  const execution = [];
-
-  orch.registerStage("a", async () => {
-    execution.push("a");
-    return { fromA: true };
-  }, { dependsOn: [] });
-
-  orch.registerStage("b", async (_ctx, input) => {
-    execution.push("b");
-    assert.deepEqual(input, { fromA: true });
-    return { fromB: true };
-  }, { dependsOn: ["a"] });
-
-  orch.registerStage("c", async (_ctx, input) => {
-    execution.push("c");
-    assert.deepEqual(input, { fromB: true });
-    return { fromC: true };
-  }, { dependsOn: ["b"] });
-
-  const results = await orch.runDAG();
-
-  assert.deepEqual(execution, ["a", "b", "c"]);
-  assert.deepEqual(results.get("a"), { fromA: true });
-  assert.deepEqual(results.get("b"), { fromB: true });
-  assert.deepEqual(results.get("c"), { fromC: true });
-});
-
-test("Runtime Core: Orchestrator runDAG parallel execution", async () => {
-  const { AgentOrchestrator } = await import("../../js/agents/runtime/orchestrator.js");
-
-  const orch = new AgentOrchestrator({ mode: "test" });
-  const startTimes = {};
-  const endTimes = {};
-
-  orch.registerStage("a", async () => {
-    startTimes.a = Date.now();
-    await new Promise((r) => setTimeout(r, 50));
-    endTimes.a = Date.now();
-    return "a";
-  }, { dependsOn: [] });
-
-  orch.registerStage("b", async () => {
-    startTimes.b = Date.now();
-    await new Promise((r) => setTimeout(r, 50));
-    endTimes.b = Date.now();
-    return "b";
-  }, { dependsOn: ["a"] });
-
-  orch.registerStage("c", async () => {
-    startTimes.c = Date.now();
-    await new Promise((r) => setTimeout(r, 50));
-    endTimes.c = Date.now();
-    return "c";
-  }, { dependsOn: ["a"] });
-
-  orch.registerStage("d", async (_ctx, input) => {
-    startTimes.d = Date.now();
-    return input;
-  }, { dependsOn: ["b", "c"] });
-
-  const results = await orch.runDAG({ parallel: true });
-
-  // b and c should start at roughly the same time (parallel)
-  const diff = Math.abs(startTimes.b - startTimes.c);
-  assert.ok(diff < 30, `b and c should start in parallel, diff=${diff}ms`);
-
-  // d should get merged input from b and c
-  assert.deepEqual(results.get("d"), { b: "b", c: "c" });
-});
-
-test("Runtime Core: Orchestrator runDAG with condition", async () => {
-  const { AgentOrchestrator } = await import("../../js/agents/runtime/orchestrator.js");
-
-  const orch = new AgentOrchestrator({ mode: "test" });
-  const events = [];
-  orch.eventBus.on("*", (e) => events.push(e));
-  const execution = [];
-
-  orch.registerStage("a", async () => {
-    execution.push("a");
-    return { skip: true };
-  }, { dependsOn: [] });
-
-  orch.registerStage("b", async () => {
-    execution.push("b");
-    return "b";
-  }, {
-    dependsOn: ["a"],
-    condition: (_ctx, results) => !results.get("a").skip,
-  });
-
-  orch.registerStage("c", async () => {
-    execution.push("c");
-    return "c";
-  }, {
-    dependsOn: ["a"],
-    condition: (_ctx, results) => results.get("a").skip,
-  });
-
-  await orch.runDAG();
-
-  assert.deepEqual(execution, ["a", "c"]);
-  assert.ok(events.some((e) => e.name === "b.skipped"));
-});
-
-test("Runtime Core: Orchestrator runDAG with initialInput", async () => {
-  const { AgentOrchestrator } = await import("../../js/agents/runtime/orchestrator.js");
-
-  const orch = new AgentOrchestrator({ mode: "test" });
-
-  orch.registerStage("root", async (_ctx, input) => {
-    return { received: input };
-  }, { dependsOn: [] });
-
-  const results = await orch.runDAG({ initialInput: { foo: "bar" } });
-  assert.deepEqual(results.get("root"), { received: { foo: "bar" } });
-});
-
-test("Runtime Core: Orchestrator runDAG onStageResult callback", async () => {
-  const { AgentOrchestrator } = await import("../../js/agents/runtime/orchestrator.js");
-
-  const orch = new AgentOrchestrator({ mode: "test" });
-  const callbacks = [];
-
-  orch.registerStage("x", async () => "resultX", { dependsOn: [] });
-  orch.registerStage("y", async () => "resultY", { dependsOn: ["x"] });
-
-  await orch.runDAG({
-    onStageResult: (name, result) => callbacks.push({ name, result }),
-  });
-
-  assert.deepEqual(callbacks, [
-    { name: "x", result: "resultX" },
-    { name: "y", result: "resultY" },
-  ]);
-});
+// 以下测试引用了已删除的 run-context.js 和 orchestrator.js，已移除
 
 test("Runtime Core: EventBus subscribe with wildcard pattern", async () => {
-  const { EventBus } = await import("../../js/agents/runtime/event-bus.js");
+  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
 
   const bus = new EventBus({ runId: "run_test" });
   const deepSearchEvents = [];
@@ -832,7 +461,7 @@ test("Runtime Core: EventBus subscribe with wildcard pattern", async () => {
 });
 
 test("Runtime Core: EventBus subscribe returns unsubscribe function", async () => {
-  const { EventBus } = await import("../../js/agents/runtime/event-bus.js");
+  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
 
   const bus = new EventBus({ runId: "run_test" });
   const events = [];
@@ -849,7 +478,7 @@ test("Runtime Core: EventBus subscribe returns unsubscribe function", async () =
 });
 
 test("Runtime Core: EventBus subscribe with priority executes in order", async () => {
-  const { EventBus } = await import("../../js/agents/runtime/event-bus.js");
+  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
 
   const bus = new EventBus({ runId: "run_test" });
   const execution = [];
@@ -867,7 +496,7 @@ test("Runtime Core: EventBus subscribe with priority executes in order", async (
 });
 
 test("Runtime Core: EventBus subscribe with priority + wildcard", async () => {
-  const { EventBus } = await import("../../js/agents/runtime/event-bus.js");
+  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
 
   const bus = new EventBus({ runId: "run_test" });
   const execution = [];
@@ -884,7 +513,7 @@ test("Runtime Core: EventBus subscribe with priority + wildcard", async () => {
 });
 
 test("Runtime Core: EventBus subscribe priority unsubscribe cleanup", async () => {
-  const { EventBus } = await import("../../js/agents/runtime/event-bus.js");
+  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
 
   const bus = new EventBus({ runId: "run_test" });
   const execution = [];
@@ -904,7 +533,7 @@ test("Runtime Core: EventBus subscribe priority unsubscribe cleanup", async () =
 });
 
 test("Runtime Core: EventBus subscribe priority validation", async () => {
-  const { EventBus } = await import("../../js/agents/runtime/event-bus.js");
+  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
 
   const bus = new EventBus({ runId: "run_test" });
 

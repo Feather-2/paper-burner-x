@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 async function loadRefiner() {
-  return import("../../../js/agents/stages/design/react-refiner.js");
+  return import("../../../js/agents/stages/design/refiner/react-refiner.js");
 }
 
 test("ReactRefiner: validateStepSchema validates action steps", async () => {
@@ -36,13 +36,15 @@ test("ReactRefiner: validateStepSchema validates finish steps and catches errors
   assert.match(validateStepSchema({ finish: { qualityScore: 7, remainingIssues: 0, refinements: "nope" } }).error, /refinements array/);
 });
 
-test("ReactRefiner: validateFinishConditions enforces score/issues thresholds", async () => {
+test("ReactRefiner: validateFinishConditions accepts valid finish data (AI decides quality)", async () => {
   const { __test } = await loadRefiner();
   const { validateFinishConditions } = __test;
 
+  // AI 自主决定质量，只要数据格式有效就接受
   assert.deepStrictEqual(validateFinishConditions({ qualityScore: 7, remainingIssues: 3 }), { accepted: true });
-  assert.match(validateFinishConditions({ qualityScore: 6, remainingIssues: 0 }).reason, /below minimum 7/);
-  assert.match(validateFinishConditions({ qualityScore: 9, remainingIssues: 4 }).reason, /exceeds maximum 3/);
+  assert.deepStrictEqual(validateFinishConditions({ qualityScore: 6, remainingIssues: 0 }), { accepted: true });
+  assert.deepStrictEqual(validateFinishConditions({ qualityScore: 9, remainingIssues: 4 }), { accepted: true });
+  // 无效数据仍然拒绝
   assert.match(validateFinishConditions({ qualityScore: "x", remainingIssues: 0 }).reason, /Invalid finish data/);
 });
 
@@ -86,13 +88,8 @@ test("ReactRefiner: runReactRefiner basic flow with mocked model and toolExecuto
         JSON.stringify({ thought: "update title", action: { tool: "editSlide", params: { slideIndex: 0, changes: { title: "Updated" } } } }) +
         "\n```",
     },
-    { content: "```json\n" + JSON.stringify({ thought: "finish?", finish: { qualityScore: 6, remainingIssues: 2, refinements: [] } }) + "\n```" },
-    {
-      content:
-        "```json\n" +
-        JSON.stringify({ thought: "done", finish: { qualityScore: 8, remainingIssues: 2, refinements: [{ issue: "contrast", fix: "tune colors" }] } }) +
-        "\n```",
-    },
+    // AI 自主决定完成，第一个有效 finish 就会被接受
+    { content: "```json\n" + JSON.stringify({ thought: "done", finish: { qualityScore: 8, remainingIssues: 2, refinements: [{ issue: "contrast", fix: "tune colors" }] } }) + "\n```" },
   ];
 
   const stageApi = {
@@ -131,10 +128,11 @@ test("ReactRefiner: runReactRefiner basic flow with mocked model and toolExecuto
   assert.equal(res.toolCalls[0].tool, "editSlide");
   assert.ok(res.finalDeck.deckHtmlDsl.includes('data-title="Updated"'));
 
-  assert.equal(chatCalls.length, 5);
+  // 4 responses: NOT_JSON, addSlide (fail), editSlide (success), finish
+  assert.equal(chatCalls.length, 4);
   assert.ok(chatCalls[1].messages.some((m) => String(m.content || "").includes("只返回严格 JSON")));
 
-  assert.equal(onSteps.length, 4);
+  assert.equal(onSteps.length, 3);
   assert.ok(events.some((e) => e.name === "design.refine.finish_accepted"));
 });
 

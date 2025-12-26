@@ -1,7 +1,7 @@
 import { normalizeText } from "../../stages/textprep/normalize.js";
 import { chunkText } from "../../stages/textprep/chunk.js";
 import { buildToc } from "../../retrieval/toc-builder.js";
-import { isPlainObject, toNonEmptyString } from "../../shared/value-utils.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
 
 function safeDocId(sourceType, textHash) {
   const kind = toNonEmptyString(sourceType) || "doc";

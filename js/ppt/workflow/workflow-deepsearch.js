@@ -4,7 +4,7 @@
  */
 
 import { WorkflowState, transitionWorkflow, forceWorkflowState } from './workflow-states.js';
-import { ReportAudience, ReportLength, ReportTone } from '../../agents/runtime/constants.js';
+import { ReportAudience, ReportLength, ReportTone } from '../../agents/runtime/core/constants.js';
 import { DEFAULT_TASK_GOAL } from './workflow-constants.js';
 
 const REPORT_LENGTHS = new Set(Object.values(ReportLength));

@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 async function loadTools() {
-  return import("../../../js/agents/stages/design/react-refiner-tools.js");
+  return import("../../../js/agents/stages/design/refiner/react-refiner-tools.js");
 }
 
 function makeDeckHtmlDsl() {

@@ -2,7 +2,7 @@
  * manage-todos skill handler
  */
 
-import { createTodo, validateTodo } from "../../todo-utils.js";
+import { createTodo, validateTodo } from "../../utils/todo-utils.js";
 import { TodoStatus } from "../../states.js";
 
 export const definition = {

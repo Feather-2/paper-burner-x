@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 test("TodoStatus transitions update status/history and reject invalid moves", async () => {
-  const { createTodo, transitionTodoStatus } = await import("../../../js/agents/stages/deepsearch/todo-utils.js");
+  const { createTodo, transitionTodoStatus } = await import("../../../js/agents/stages/deepsearch/utils/todo-utils.js");
 
   const todo = createTodo({
     todoId: "t1",
@@ -20,13 +20,13 @@ test("TodoStatus transitions update status/history and reject invalid moves", as
   assert.equal(transitionTodoStatus(todo, "completed"), true);
   assert.equal(todo.status, "completed");
 
-  // completed -> cancelled is not allowed
-  assert.equal(transitionTodoStatus(todo, "cancelled"), false);
-  assert.equal(todo.status, "completed");
+  // 简化后允许任意有效状态转换
+  assert.equal(transitionTodoStatus(todo, "cancelled"), true);
+  assert.equal(todo.status, "cancelled");
 });
 
 test("validateTodo enforces schema requirements", async () => {
-  const { createTodo, validateTodo } = await import("../../../js/agents/stages/deepsearch/todo-utils.js");
+  const { createTodo, validateTodo } = await import("../../../js/agents/stages/deepsearch/utils/todo-utils.js");
 
   const validTodo = createTodo({
     todoId: "t_valid",
@@ -74,7 +74,7 @@ test("L2 control flags serialize/deserialize across minimal checkpoints", async 
 });
 
 test("loadCheckpoint migrates gaps into todos and stamps L2 flags", async () => {
-  const { loadCheckpoint } = await import("../../../js/agents/stages/deepsearch/checkpoint.js");
+  const { loadCheckpoint } = await import("../../../js/agents/stages/deepsearch/runtime/checkpoint.js");
 
   const checkpoint = {
     schemaVersion: "1.0",
@@ -113,7 +113,7 @@ test("loadCheckpoint migrates gaps into todos and stamps L2 flags", async () => 
   assert.equal(loaded.stateSnapshot.L2.taskImpossible, false);
 });
 
-test("states helpers validate enums and transition todos", async () => {
+test("states helpers validate enums", async () => {
   const {
     GapPriority,
     GapStatus,
@@ -129,8 +129,8 @@ test("states helpers validate enums and transition todos", async () => {
     isValidPlanNodeType,
     isValidDecisionOutcome,
     isValidDecisionStage,
-    transitionTodo,
   } = await import("../../../js/agents/stages/deepsearch/states.js");
+  const { transitionTodoStatus } = await import("../../../js/agents/stages/deepsearch/utils/todo-utils.js");
 
   assert.equal(isValidGapPriority(GapPriority.HIGH), true);
   assert.equal(isValidGapPriority("urgent"), false);
@@ -148,6 +148,6 @@ test("states helpers validate enums and transition todos", async () => {
   assert.equal(isValidDecisionStage("draft"), false);
 
   const todo = { status: TodoStatus.OPEN };
-  assert.equal(transitionTodo(todo, TodoStatus.PENDING), true);
+  assert.equal(transitionTodoStatus(todo, TodoStatus.PENDING), true);
   assert.equal(todo.status, TodoStatus.PENDING);
 });

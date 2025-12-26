@@ -4,12 +4,12 @@
  */
 
 import { WorkflowState, transitionWorkflow, forceWorkflowState } from './workflow-states.js';
-import { WorkflowTodoStatus } from '../../agents/runtime/constants.js';
-import { StagePausedError } from '../../agents/runtime/stage-errors.js';
-import { RunStoreAdapter } from '../../agents/runtime/event-bus.js';
-import { subscribeTelemetry } from '../../agents/runtime/runstore-telemetry.js';
-import { RunReplayController } from '../../agents/runtime/replay-controller.js';
-import { StageApiFactory } from '../../agents/runtime/stage-api-factory.js';
+import { WorkflowTodoStatus } from '../../agents/runtime/core/constants.js';
+import { StagePausedError } from '../../agents/runtime/core/stage-errors.js';
+import { RunStoreAdapter } from '../../agents/runtime/events/event-bus.js';
+import { subscribeTelemetry } from '../../agents/runtime/telemetry/runstore-telemetry.js';
+import { RunReplayController } from '../../agents/runtime/telemetry/replay-controller.js';
+import { StageApiFactory } from '../../agents/runtime/api/stage-api-factory.js';
 import { RunStore } from '../../agents/storage/run-store.js';
 import { DesignDensity, DesignVisualMode, normalizeDesignDensity, normalizeDesignVisualMode } from '../design/design-preferences.js';
 import { AgentEventBridge } from './agent-event-bridge.js';

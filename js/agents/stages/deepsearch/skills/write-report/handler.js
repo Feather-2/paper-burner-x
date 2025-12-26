@@ -2,8 +2,8 @@
  * write-report skill handler
  */
 
-import { generateReport } from "../../report-generator.js";
-import { isPlainObject, toNonEmptyString } from "../../../../shared/value-utils.js";
+import { generateReport } from "../../report/report-generator.js";
+import { isPlainObject, toNonEmptyString } from "../../../../shared/utils/value-utils.js";
 
 export const definition = {
   name: "write-report",

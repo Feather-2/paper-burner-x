@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 async function loadModules() {
-  const { BacktrackManager } = await import("../../../js/agents/stages/deepsearch/backtrack-manager.js");
+  const { BacktrackManager } = await import("../../../js/agents/stages/deepsearch/runtime/backtrack-manager.js");
   const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
   return { BacktrackManager, DeepSearchState };
 }
@@ -331,7 +331,7 @@ test("BacktrackManager reset clears count and canBacktrack respects limits", asy
 });
 
 test("createBacktrackManager returns a BacktrackManager instance", async () => {
-  const { createBacktrackManager, BacktrackManager } = await import("../../../js/agents/stages/deepsearch/backtrack-manager.js");
+  const { createBacktrackManager, BacktrackManager } = await import("../../../js/agents/stages/deepsearch/runtime/backtrack-manager.js");
   const manager = createBacktrackManager({ maxBacktracks: 4, logger: makeLogger() });
 
   assert.ok(manager instanceof BacktrackManager);

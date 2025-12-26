@@ -4,7 +4,7 @@
 // (page types/titles/objectives/keyPoints) based on the input chunks + constraints.
 
 import { ALLOWED_PAGE_TYPES, PageType } from "./constants.js";
-import { injectSystemHint } from "../../shared/message-utils.js";
+import { injectSystemHint } from "../../shared/utils/message-utils.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);

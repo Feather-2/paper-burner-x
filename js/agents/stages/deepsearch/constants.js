@@ -175,22 +175,16 @@ export const EvidenceStrength = Object.freeze({
 // Re-export from states.js
 export {
   PhaseStatus,
-  PHASE_TRANSITIONS,
-  phaseMachine,
   GapStatus,
-  GAP_TRANSITIONS,
-  gapMachine,
   GapPriority,
   TodoStatus,
-  TODO_TRANSITIONS,
-  todoMachine,
   PlanNodeStatus,
   PlanNodeType,
   DecisionOutcome,
   DecisionStage,
   AgentLoopStatus,
-  AGENT_LOOP_TRANSITIONS,
-  agentLoopMachine,
+  AgentStatus,
+  StepStatus,
   isValidGapPriority,
   isValidGapStatus,
   isValidTodoStatus,
@@ -198,8 +192,9 @@ export {
   isValidPlanNodeType,
   isValidDecisionOutcome,
   isValidDecisionStage,
-  transitionTodo,
   isValidAgentLoopStatus,
+  isValidAgentStatus,
+  isValidStepStatus,
 } from "./states.js";
 
 // Agent Loop 配置

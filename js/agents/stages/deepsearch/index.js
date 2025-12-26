@@ -8,7 +8,7 @@ import DeepSearchAgentLoop, { AgentStatus } from "./deepsearch-agent-loop.js";
 import { DeepSearchState } from "./state.js";
 import { runDeepSearchTodosStage } from "./todos.js";
 import { skills, executeSkill, getSkillCatalogPrompt } from "./skills/index.js";
-import { isPlainObject, safeInt } from "../../shared/value-utils.js";
+import { isPlainObject, safeInt } from "../../shared/utils/value-utils.js";
 
 /**
  * 创建状态对象

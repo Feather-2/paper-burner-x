@@ -14,7 +14,7 @@ import {
     normalizeReportLanguage,
     normalizeReportLength,
     normalizeReportTone,
-} from '../../agents/runtime/constants.js';
+} from '../../agents/runtime/core/constants.js';
 
 const REPORT_LENGTHS = new Set(Object.values(ReportLength));
 const REPORT_TONES = new Set(Object.values(ReportTone));

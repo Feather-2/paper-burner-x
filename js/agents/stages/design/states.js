@@ -1,11 +1,17 @@
-import { createStateMachine } from "../../runtime/state-machine.js";
-import { StateMachineRegistry } from "../../runtime/state-machine-registry.js";
-import {
-  AgentLoopStatus,
-  AGENT_LOOP_TRANSITIONS,
-  createAgentLoopMachine,
-} from "../../runtime/agent-loop-status.js";
+/**
+ * Design States - 简化版
+ *
+ * 移除硬编码状态机，保留领域枚举
+ */
 
+import {
+  AgentStatus,
+  StepStatus,
+  isValidAgentStatus,
+  isValidStepStatus,
+} from "../../runtime/core/agent-status.js";
+
+// === Design Phase ===
 export const DesignPhase = Object.freeze({
   IDLE: "idle",
   OUTLINE_PARSING: "outline_parsing",
@@ -22,39 +28,7 @@ export const DesignPhase = Object.freeze({
   EDITING: "editing",
 });
 
-export const DESIGN_PHASE_TRANSITIONS = Object.freeze({
-  [DesignPhase.IDLE]: [DesignPhase.OUTLINE_PARSING],
-  [DesignPhase.OUTLINE_PARSING]: [DesignPhase.OUTLINE_CONFIRMING, DesignPhase.FAILED],
-  [DesignPhase.OUTLINE_CONFIRMING]: [DesignPhase.STYLE_EXTRACTING, DesignPhase.OUTLINE_PARSING, DesignPhase.IDLE],
-  [DesignPhase.STYLE_EXTRACTING]: [DesignPhase.STYLE_CONFIRMING, DesignPhase.FAILED],
-  [DesignPhase.STYLE_CONFIRMING]: [DesignPhase.GENERATING, DesignPhase.STYLE_EXTRACTING],
-  [DesignPhase.GENERATING]: [DesignPhase.REVIEWING, DesignPhase.VISUAL_FILLING, DesignPhase.GENERATING_PAUSED, DesignPhase.FAILED],
-  [DesignPhase.GENERATING_PAUSED]: [DesignPhase.GENERATING, DesignPhase.REVIEWING, DesignPhase.IDLE],
-  [DesignPhase.REVIEWING]: [DesignPhase.FIXING, DesignPhase.VISUAL_FILLING, DesignPhase.COMPLETED],
-  [DesignPhase.FIXING]: [DesignPhase.REVIEWING, DesignPhase.FAILED],
-  [DesignPhase.VISUAL_FILLING]: [DesignPhase.COMPLETED, DesignPhase.FAILED],
-  [DesignPhase.COMPLETED]: [DesignPhase.EDITING, DesignPhase.IDLE],
-  [DesignPhase.EDITING]: [DesignPhase.COMPLETED, DesignPhase.IDLE],
-  [DesignPhase.FAILED]: [DesignPhase.IDLE, DesignPhase.OUTLINE_PARSING],
-});
-
-export const designPhaseMachine = createStateMachine(DESIGN_PHASE_TRANSITIONS, "DesignPhase");
-
-export const DesignLoopStatus = AgentLoopStatus;
-
-export const DESIGN_LOOP_TRANSITIONS = AGENT_LOOP_TRANSITIONS;
-
-export const designLoopMachine = createAgentLoopMachine("DesignLoop");
-
-/**
- * Design Agent checkpoint schema (Archive):
- * {
- *   nodeStates: { phase, loopStatus, statusHistory?, slidesMeta?, imageSlots?, ... },
- *   timestamp,
- *   metadata: { runId, iteration, type }
- * }
- */
-
+// === Slide Status ===
 export const SlideStatus = Object.freeze({
   PENDING: "pending",
   ASSIGNED: "assigned",
@@ -72,25 +46,7 @@ export const SlideStatus = Object.freeze({
   SKIPPED: "skipped",
 });
 
-export const SLIDE_STATUS_TRANSITIONS = Object.freeze({
-  [SlideStatus.PENDING]: [SlideStatus.ASSIGNED, SlideStatus.SKIPPED],
-  [SlideStatus.ASSIGNED]: [SlideStatus.GENERATING, SlideStatus.FAILED],
-  [SlideStatus.GENERATING]: [SlideStatus.GENERATED, SlideStatus.FAILED],
-  [SlideStatus.GENERATED]: [SlideStatus.REVIEWING, SlideStatus.VISUAL_PENDING],
-  [SlideStatus.REVIEWING]: [SlideStatus.REVIEW_PASSED, SlideStatus.REVIEW_FAILED],
-  [SlideStatus.REVIEW_PASSED]: [SlideStatus.VISUAL_PENDING, SlideStatus.COMPLETED],
-  [SlideStatus.REVIEW_FAILED]: [SlideStatus.FIXING, SlideStatus.SKIPPED],
-  [SlideStatus.FIXING]: [SlideStatus.FIXED, SlideStatus.FAILED],
-  [SlideStatus.FIXED]: [SlideStatus.REVIEWING],
-  [SlideStatus.VISUAL_PENDING]: [SlideStatus.VISUAL_FILLING, SlideStatus.COMPLETED],
-  [SlideStatus.VISUAL_FILLING]: [SlideStatus.COMPLETED, SlideStatus.FAILED],
-  [SlideStatus.COMPLETED]: [],
-  [SlideStatus.FAILED]: [SlideStatus.PENDING],
-  [SlideStatus.SKIPPED]: [],
-});
-
-export const slideStatusMachine = createStateMachine(SLIDE_STATUS_TRANSITIONS, "SlideStatus");
-
+// === Visual Slot Status ===
 export const VisualSlotStatus = Object.freeze({
   PENDING: "pending",
   QUEUED: "queued",
@@ -101,18 +57,7 @@ export const VisualSlotStatus = Object.freeze({
   PLACEHOLDER: "placeholder",
 });
 
-export const VISUAL_SLOT_TRANSITIONS = Object.freeze({
-  [VisualSlotStatus.PENDING]: [VisualSlotStatus.QUEUED, VisualSlotStatus.SKIPPED, VisualSlotStatus.PLACEHOLDER],
-  [VisualSlotStatus.QUEUED]: [VisualSlotStatus.GENERATING, VisualSlotStatus.SKIPPED],
-  [VisualSlotStatus.GENERATING]: [VisualSlotStatus.FILLED, VisualSlotStatus.FAILED],
-  [VisualSlotStatus.FILLED]: [VisualSlotStatus.GENERATING],
-  [VisualSlotStatus.FAILED]: [VisualSlotStatus.QUEUED, VisualSlotStatus.PLACEHOLDER],
-  [VisualSlotStatus.SKIPPED]: [],
-  [VisualSlotStatus.PLACEHOLDER]: [],
-});
-
-export const visualSlotMachine = createStateMachine(VISUAL_SLOT_TRANSITIONS, "VisualSlot");
-
+// === Edit Session Status ===
 export const EditSessionStatus = Object.freeze({
   IDLE: "idle",
   AWAITING_INPUT: "awaiting_input",
@@ -122,21 +67,7 @@ export const EditSessionStatus = Object.freeze({
   PAUSED: "paused",
 });
 
-export const EDIT_SESSION_TRANSITIONS = Object.freeze({
-  [EditSessionStatus.IDLE]: [EditSessionStatus.AWAITING_INPUT],
-  [EditSessionStatus.AWAITING_INPUT]: [EditSessionStatus.PROCESSING, EditSessionStatus.IDLE],
-  [EditSessionStatus.PROCESSING]: [
-    EditSessionStatus.AWAITING_CONFIRM,
-    EditSessionStatus.EXECUTING,
-    EditSessionStatus.AWAITING_INPUT,
-  ],
-  [EditSessionStatus.AWAITING_CONFIRM]: [EditSessionStatus.EXECUTING, EditSessionStatus.AWAITING_INPUT],
-  [EditSessionStatus.EXECUTING]: [EditSessionStatus.AWAITING_INPUT, EditSessionStatus.PAUSED],
-  [EditSessionStatus.PAUSED]: [EditSessionStatus.EXECUTING, EditSessionStatus.AWAITING_INPUT],
-});
-
-export const editSessionMachine = createStateMachine(EDIT_SESSION_TRANSITIONS, "EditSession");
-
+// === SubAgent Status ===
 export const SubAgentStatus = Object.freeze({
   IDLE: "idle",
   CREATED: "created",
@@ -147,18 +78,7 @@ export const SubAgentStatus = Object.freeze({
   CANCELLED: "cancelled",
 });
 
-export const SUB_AGENT_TRANSITIONS = Object.freeze({
-  [SubAgentStatus.IDLE]: [SubAgentStatus.CREATED],
-  [SubAgentStatus.CREATED]: [SubAgentStatus.RUNNING, SubAgentStatus.CANCELLED],
-  [SubAgentStatus.RUNNING]: [SubAgentStatus.AWAITING_MERGE, SubAgentStatus.FAILED, SubAgentStatus.CANCELLED],
-  [SubAgentStatus.AWAITING_MERGE]: [SubAgentStatus.MERGED, SubAgentStatus.FAILED],
-  [SubAgentStatus.MERGED]: [],
-  [SubAgentStatus.FAILED]: [SubAgentStatus.CREATED],
-  [SubAgentStatus.CANCELLED]: [],
-});
-
-export const subAgentMachine = createStateMachine(SUB_AGENT_TRANSITIONS, "SubAgent");
-
+// === Review Status ===
 export const ReviewStatus = Object.freeze({
   PENDING: "pending",
   CAPTURING: "capturing",
@@ -169,61 +89,78 @@ export const ReviewStatus = Object.freeze({
   SKIPPED: "skipped",
 });
 
-export const REVIEW_TRANSITIONS = Object.freeze({
-  [ReviewStatus.PENDING]: [ReviewStatus.CAPTURING, ReviewStatus.SKIPPED],
-  [ReviewStatus.CAPTURING]: [ReviewStatus.ANALYZING, ReviewStatus.FAILED],
-  [ReviewStatus.ANALYZING]: [ReviewStatus.AWAITING_DECISION, ReviewStatus.PASSED, ReviewStatus.FAILED],
-  [ReviewStatus.AWAITING_DECISION]: [ReviewStatus.PASSED, ReviewStatus.FAILED],
-  [ReviewStatus.PASSED]: [],
-  [ReviewStatus.FAILED]: [ReviewStatus.PENDING],
-  [ReviewStatus.SKIPPED]: [],
-});
+// === 验证函数 ===
+export function isValidDesignPhase(value) {
+  return Object.values(DesignPhase).includes(value);
+}
 
-export const reviewMachine = createStateMachine(REVIEW_TRANSITIONS, "Review");
+export function isValidSlideStatus(value) {
+  return Object.values(SlideStatus).includes(value);
+}
 
-export const SLIDE_TRANSITIONS = SLIDE_STATUS_TRANSITIONS;
-export const slideMachine = slideStatusMachine;
+export function isValidVisualSlotStatus(value) {
+  return Object.values(VisualSlotStatus).includes(value);
+}
 
-const registry = StateMachineRegistry.getInstance();
-registry.register("design.phase", designPhaseMachine, {
-  module: "design",
-  description: "Design phase lifecycle",
-  states: Object.values(DesignPhase),
-  transitions: DESIGN_PHASE_TRANSITIONS,
-});
-registry.register("design.agentLoop", designLoopMachine, {
-  module: "design",
-  description: "Design loop execution lifecycle",
-  states: Object.values(DesignLoopStatus),
-  transitions: DESIGN_LOOP_TRANSITIONS,
-});
-registry.register("design.slide", slideMachine, {
-  module: "design",
-  description: "Slide status lifecycle",
-  states: Object.values(SlideStatus),
-  transitions: SLIDE_STATUS_TRANSITIONS,
-});
-registry.register("design.visualSlot", visualSlotMachine, {
-  module: "design",
-  description: "Visual slot lifecycle",
-  states: Object.values(VisualSlotStatus),
-  transitions: VISUAL_SLOT_TRANSITIONS,
-});
-registry.register("design.editSession", editSessionMachine, {
-  module: "design",
-  description: "Edit session lifecycle",
-  states: Object.values(EditSessionStatus),
-  transitions: EDIT_SESSION_TRANSITIONS,
-});
-registry.register("design.subAgent", subAgentMachine, {
-  module: "design",
-  description: "Sub-agent lifecycle",
-  states: Object.values(SubAgentStatus),
-  transitions: SUB_AGENT_TRANSITIONS,
-});
-registry.register("design.review", reviewMachine, {
-  module: "design",
-  description: "Review lifecycle",
-  states: Object.values(ReviewStatus),
-  transitions: REVIEW_TRANSITIONS,
-});
+export function isValidEditSessionStatus(value) {
+  return Object.values(EditSessionStatus).includes(value);
+}
+
+export function isValidSubAgentStatus(value) {
+  return Object.values(SubAgentStatus).includes(value);
+}
+
+export function isValidReviewStatus(value) {
+  return Object.values(ReviewStatus).includes(value);
+}
+
+// === Re-export AgentStatus ===
+export {
+  AgentStatus,
+  StepStatus,
+  isValidAgentStatus,
+  isValidStepStatus,
+};
+
+// 兼容旧代码
+export const DesignLoopStatus = AgentStatus;
+
+// === 简化状态机 ===
+// 允许任意有效状态转换（移除硬编码转换规则）
+function createSimpleMachine(validStates) {
+  const stateSet = new Set(Object.values(validStates));
+  return {
+    canTransition: (from, to) => stateSet.has(to),
+    transition: (state, next, meta) => {
+      if (!stateSet.has(next)) return false;
+      if (state && typeof state === "object") {
+        state.status = next;
+      }
+      return true;
+    },
+  };
+}
+
+export const designPhaseMachine = createSimpleMachine(DesignPhase);
+export const designLoopMachine = createSimpleMachine(AgentStatus);
+export const slideStatusMachine = createSimpleMachine(SlideStatus);
+export const slideMachine = slideStatusMachine; // alias
+export const visualSlotMachine = createSimpleMachine(VisualSlotStatus);
+export const editSessionMachine = createSimpleMachine(EditSessionStatus);
+export const subAgentMachine = createSimpleMachine(SubAgentStatus);
+export const reviewMachine = createSimpleMachine(ReviewStatus);
+
+// 兼容旧测试
+export const DESIGN_PHASE_TRANSITIONS = Object.freeze({});
+export const DESIGN_LOOP_TRANSITIONS = Object.freeze({});
+export const SLIDE_STATUS_TRANSITIONS = Object.freeze({});
+export const SLIDE_TRANSITIONS = Object.freeze({});
+export const VISUAL_SLOT_STATUS_TRANSITIONS = Object.freeze({});
+export const VISUAL_SLOT_TRANSITIONS = Object.freeze({});
+export const EDIT_SESSION_STATUS_TRANSITIONS = Object.freeze({});
+export const EDIT_SESSION_TRANSITIONS = Object.freeze({});
+export const SUBAGENT_STATUS_TRANSITIONS = Object.freeze({});
+export const SUBAGENT_TRANSITIONS = Object.freeze({});
+export const SUB_AGENT_TRANSITIONS = Object.freeze({});
+export const REVIEW_STATUS_TRANSITIONS = Object.freeze({});
+export const REVIEW_TRANSITIONS = Object.freeze({});

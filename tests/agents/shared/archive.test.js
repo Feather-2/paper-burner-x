@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 async function loadModule() {
-  return import("../../../js/agents/shared/archive.js");
+  return import("../../../js/agents/shared/archive/archive.js");
 }
 
 test("Archive.save: generates checkpointId {runId}:{timestamp}", async () => {

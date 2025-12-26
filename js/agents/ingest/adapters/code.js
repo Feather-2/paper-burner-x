@@ -1,4 +1,5 @@
 import { BaseAdapter, toNonEmptyString } from "./base.js";
+import { SourceKind } from "../constants.js";
 
 // 支持的代码文件扩展名 -> 语言映射
 const EXT_TO_LANG = {

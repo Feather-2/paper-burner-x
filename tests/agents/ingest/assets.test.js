@@ -121,7 +121,7 @@ test("PdfAdapter: throws when OCR missing (no stageApi.ocr and no globalThis.Ocr
   try {
     delete globalThis.OcrManager;
     const adapter = new PdfAdapter();
-    await assert.rejects(() => adapter.parse(makePdfFile(), {}), /OCR engine is required/);
+    await assert.rejects(() => adapter.parse(makePdfFile(), {}), /OCR engine required/);
   } finally {
     globalThis.OcrManager = prior;
   }

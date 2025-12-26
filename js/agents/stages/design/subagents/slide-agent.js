@@ -1,7 +1,7 @@
-import { generateSingleSlide } from "../batch-generator.js";
-import { getDslRules } from "../dsl-rules.js";
+import { generateSingleSlide } from "../generators/batch-generator.js";
+import { getDslRules } from "../dsl/dsl-rules.js";
 import { SlideStatus, VisualSlotStatus, slideStatusMachine } from "../states.js";
-import { normalizeRenderType } from "../../../shared/value-utils.js";
+import { normalizeRenderType } from "../../../shared/utils/value-utils.js";
 
 const MAX_LINKED_FILE_CHARS = 1200;
 const isBrowser = typeof window !== "undefined" && typeof window.document !== "undefined";

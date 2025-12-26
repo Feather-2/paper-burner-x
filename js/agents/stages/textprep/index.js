@@ -5,9 +5,9 @@ import { chunkText } from "./chunk.js";
 import { planSlides } from "./slideplan.js";
 import { extractClaims } from "./claims.js";
 import { buildContentPackage } from "./build-content-package.js";
-import { BaseStage } from "../../runtime/agent-loop.js";
-import { createStageApi } from "../../shared/stage-api.js";
-import { injectSystemHint } from "../../shared/message-utils.js";
+import { BaseStage } from "../../runtime/core/agent-loop.js";
+import { createStageApi } from "../../shared/utils/stage-api.js";
+import { injectSystemHint } from "../../shared/utils/message-utils.js";
 
 function toRawText(input) {
   if (typeof input === "string") return input;

@@ -9,7 +9,7 @@
  * - Adds a soft timeout (default 30s) via Promise.race (does not abort underlying fetch if unsupported).
  */
 
-import { injectSystemHint } from "../../shared/message-utils.js";
+import { injectSystemHint } from "../../shared/utils/message-utils.js";
 
 // Error class for non-retryable errors (config missing, auth failed, etc.)
 export class NonRetryableError extends Error {

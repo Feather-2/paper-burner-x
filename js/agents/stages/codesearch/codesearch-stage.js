@@ -20,19 +20,19 @@ import {
   CODESEARCH_STEP_PROMPT,
   CODESEARCH_SUMMARIZE_PROMPT,
 } from "./prompts.js";
-import { CodeSearchPhase, codesearchPhaseMachine, TodoStatus, isValidTodoStatus } from "./states.js";
+import { CodeSearchPhase, TodoStatus, isValidTodoStatus } from "./states.js";
+import { AgentStatus } from "../../runtime/core/agent-status.js";
 
 // 复用 DeepSearch 基础设施
-import { createBudgetManager, BudgetAction } from "../../shared/budget.js";
+import { createBudgetManager, BudgetAction } from "../../shared/utils/budget.js";
 import { makeStageEmitter } from "../deepsearch/state.js";
-import { createLogger } from "../deepsearch/logger.js";
+import { createLogger } from "../deepsearch/runtime/logger.js";
 import { getModelCaller } from "../deepsearch/model.js";
-import { createTodo, transitionTodoStatus, validateTodo } from "../deepsearch/todo-utils.js";
-import { extractJsonCandidate } from "../deepsearch/state-utils.js";
-import { isPlainObject, toNonEmptyString } from "../../shared/value-utils.js";
-import { BaseAgentLoop, checkCancelled } from "../../runtime/agent-loop.js";
-import { AgentLoopStatus, createAgentLoopMachine } from "../../runtime/agent-loop-status.js";
-import { StagePausedError } from "../../runtime/stage-errors.js";
+import { createTodo, transitionTodoStatus, validateTodo } from "../deepsearch/utils/todo-utils.js";
+import { extractJsonCandidate } from "../deepsearch/utils/state-utils.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { BaseAgentLoop, checkCancelled } from "../../runtime/core/agent-loop.js";
+import { StagePausedError } from "../../runtime/core/stage-errors.js";
 
 const DEFAULT_MAX_STEPS = 20;
 const DEFAULT_TIMEOUT_MS = 120_000; // 2 分钟
@@ -231,12 +231,11 @@ function formatToolResult(toolName, result) {
 
 export class CodeSearchStage extends BaseAgentLoop {
   constructor(options = {}) {
-    super({ actor: "codesearch", stageName: "codesearch", eventBus: options.eventBus, stateMachine: codesearchPhaseMachine });
+    super({ actor: "codesearch", stageName: "codesearch", eventBus: options.eventBus });
     this.maxSteps = options.maxSteps || DEFAULT_MAX_STEPS;
     this.timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
     this.initLoopStatus({
-      status: AgentLoopStatus.IDLE,
-      machine: createAgentLoopMachine("CodeSearchLoop"),
+      status: AgentStatus.IDLE,
       eventName: "codesearch.agent.status.changed",
     });
   }
@@ -297,7 +296,7 @@ export class CodeSearchStage extends BaseAgentLoop {
     // 初始化 LLM
     const callModel = getModelCaller(stageApi, { usage: "codesearch" });
 
-    this._transitionLoopStatus(AgentLoopStatus.RUNNING, { runId, iteration: 0 });
+    this._transitionLoopStatus(AgentStatus.RUNNING, { runId, iteration: 0 });
     logger.info("CodeSearch started", { stage: "codesearch", data: { query, maxSteps: this.maxSteps } });
     emit?.("codesearch.started", { query, maxSteps: this.maxSteps });
 
@@ -327,8 +326,8 @@ export class CodeSearchStage extends BaseAgentLoop {
     const pauseForUserFeedback = async (reason) => {
       loopState.awaitUserFeedback = true;
       loopState.pauseReason = reason;
-      if (this.loopStatus !== AgentLoopStatus.PAUSED) {
-        await this._transitionLoopStatus(AgentLoopStatus.PAUSED, { runId, iteration: 0, reason });
+      if (this.loopStatus !== AgentStatus.PAUSED) {
+        await this._transitionLoopStatus(AgentStatus.PAUSED, { runId, iteration: 0, reason });
       }
       const err = new StagePausedError("Run paused", { runId, reason });
       err.awaitUserFeedback = true;
@@ -413,8 +412,8 @@ export class CodeSearchStage extends BaseAgentLoop {
 
       try {
         checkStop(stepSignal);
-        await this._transitionLoopStatus(AgentLoopStatus.OBSERVING, { runId, iteration: step, stepId: stepMeta.stepId });
-        await this._transitionLoopStatus(AgentLoopStatus.THINKING, { runId, iteration: step, stepId: stepMeta.stepId });
+        await this._transitionLoopStatus(AgentStatus.RUNNING, { runId, iteration: step, stepId: stepMeta.stepId });
+        await this._transitionLoopStatus(AgentStatus.RUNNING, { runId, iteration: step, stepId: stepMeta.stepId });
 
         logger.info(`Step ${step}`, { stage: "codesearch", data: { step } });
         emit?.("codesearch.step.started", { step, total: this.maxSteps });
@@ -459,8 +458,8 @@ export class CodeSearchStage extends BaseAgentLoop {
           const message = err instanceof Error ? err.message : String(err);
           this._endStep({ step: stepMeta }, { status: pauseLike ? "paused" : "failed", error: message });
           if (pauseLike) {
-            if (this.loopStatus !== AgentLoopStatus.PAUSED) {
-              await this._transitionLoopStatus(AgentLoopStatus.PAUSED, {
+            if (this.loopStatus !== AgentStatus.PAUSED) {
+              await this._transitionLoopStatus(AgentStatus.PAUSED, {
                 runId,
                 iteration: step,
                 stepId: stepMeta.stepId,
@@ -472,7 +471,7 @@ export class CodeSearchStage extends BaseAgentLoop {
           logger.error("LLM call failed", { stage: "codesearch", data: { error: message } });
           emit?.("codesearch.step.failed", { step, error: message });
           aborted = true;
-          await this._transitionLoopStatus(AgentLoopStatus.ABORTED, {
+          await this._transitionLoopStatus(AgentStatus.FAILED, {
             runId,
             iteration: step,
             stepId: stepMeta.stepId,
@@ -492,7 +491,7 @@ export class CodeSearchStage extends BaseAgentLoop {
         if (!decision || (!decision.done && !actionName && !hasNewTodos)) {
           logger.warn("Failed to parse action", { stage: "codesearch", data: { response: responseText.slice(0, 200) } });
           loopState.observations.push(`[Step ${step}] Failed to parse LLM response`);
-          await this._transitionLoopStatus(AgentLoopStatus.REVIEWING, { runId, iteration: step, stepId: stepMeta.stepId });
+          await this._transitionLoopStatus(AgentStatus.RUNNING, { runId, iteration: step, stepId: stepMeta.stepId });
           this._endStep({ step: stepMeta }, { status: "failed", error: "parse_failed" });
           continue;
         }
@@ -512,7 +511,7 @@ export class CodeSearchStage extends BaseAgentLoop {
           done = true;
           loopState.finalThought = decision.thought || responseText;
           emit?.("codesearch.step.completed", { step, action: "done" });
-          await this._transitionLoopStatus(AgentLoopStatus.REVIEWING, { runId, iteration: step, stepId: stepMeta.stepId });
+          await this._transitionLoopStatus(AgentStatus.RUNNING, { runId, iteration: step, stepId: stepMeta.stepId });
           this._endStep({ step: stepMeta }, { status: "completed" });
           break;
         }
@@ -526,7 +525,7 @@ export class CodeSearchStage extends BaseAgentLoop {
             todoId: null,
           });
           emit?.("codesearch.step.completed", { step, action: "add_todo", createdTodos: createdTodos.length });
-          await this._transitionLoopStatus(AgentLoopStatus.REVIEWING, { runId, iteration: step, stepId: stepMeta.stepId });
+          await this._transitionLoopStatus(AgentStatus.RUNNING, { runId, iteration: step, stepId: stepMeta.stepId });
           this._endStep({ step: stepMeta }, { status: "completed" });
           continue;
         }
@@ -538,12 +537,12 @@ export class CodeSearchStage extends BaseAgentLoop {
 
         if (!actionName) {
           loopState.observations.push(`[Step ${step}] Missing tool action in LLM response`);
-          await this._transitionLoopStatus(AgentLoopStatus.REVIEWING, { runId, iteration: step, stepId: stepMeta.stepId });
+          await this._transitionLoopStatus(AgentStatus.RUNNING, { runId, iteration: step, stepId: stepMeta.stepId });
           this._endStep({ step: stepMeta }, { status: "failed", error: "missing_action" });
           continue;
         }
 
-        await this._transitionLoopStatus(AgentLoopStatus.EXECUTING, { runId, iteration: step, stepId: stepMeta.stepId });
+        await this._transitionLoopStatus(AgentStatus.RUNNING, { runId, iteration: step, stepId: stepMeta.stepId });
 
         // 执行工具
         const toolName = actionName;
@@ -582,7 +581,7 @@ export class CodeSearchStage extends BaseAgentLoop {
           resultSummary: result.error || `${toolName} completed`,
         });
 
-        await this._transitionLoopStatus(AgentLoopStatus.REVIEWING, { runId, iteration: step, stepId: stepMeta.stepId });
+        await this._transitionLoopStatus(AgentStatus.RUNNING, { runId, iteration: step, stepId: stepMeta.stepId });
         this._endStep({ step: stepMeta }, { status: "completed" });
       } catch (err) {
         if (err instanceof StagePausedError) {
@@ -591,8 +590,8 @@ export class CodeSearchStage extends BaseAgentLoop {
         const pauseLike = this._shouldPauseFromError(err, stepSignal);
         if (pauseLike) {
           this._endStep({ step: stepMeta }, { status: "paused", error: err?.message });
-          if (this.loopStatus !== AgentLoopStatus.PAUSED) {
-            await this._transitionLoopStatus(AgentLoopStatus.PAUSED, {
+          if (this.loopStatus !== AgentStatus.PAUSED) {
+            await this._transitionLoopStatus(AgentStatus.PAUSED, {
               runId,
               iteration: step,
               stepId: stepMeta.stepId,
@@ -603,8 +602,8 @@ export class CodeSearchStage extends BaseAgentLoop {
         }
         this._endStep({ step: stepMeta }, { status: "failed", error: err?.message });
         aborted = true;
-        if (this.loopStatus !== AgentLoopStatus.ABORTED) {
-          await this._transitionLoopStatus(AgentLoopStatus.ABORTED, {
+        if (this.loopStatus !== AgentStatus.FAILED) {
+          await this._transitionLoopStatus(AgentStatus.FAILED, {
             runId,
             iteration: step,
             stepId: stepMeta.stepId,
@@ -668,7 +667,7 @@ export class CodeSearchStage extends BaseAgentLoop {
     emit?.("codesearch.completed", { totalSteps: step });
     if (!aborted) {
       transitionPhase(CodeSearchPhase.COMPLETED);
-      this._transitionLoopStatus(AgentLoopStatus.COMPLETED, { runId, iteration: step });
+      this._transitionLoopStatus(AgentStatus.COMPLETED, { runId, iteration: step });
     }
 
     return result;

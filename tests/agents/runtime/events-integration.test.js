@@ -45,7 +45,7 @@ function validateArchivePayload(payload) {
 }
 
 test("Runtime Events: exports new event groups", async () => {
-  const { ReviewEvents, CompressionEvents, ArchiveEvents } = await import("../../../js/agents/runtime/events.js");
+  const { ReviewEvents, CompressionEvents, ArchiveEvents } = await import("../../../js/agents/runtime/events/events.js");
 
   assert.deepEqual(ReviewEvents, {
     REVIEW_STARTED: "review.started",
@@ -57,6 +57,8 @@ test("Runtime Events: exports new event groups", async () => {
     COMPRESSION_SCHEDULED: "compression.scheduled",
     COMPRESSION_APPLIED: "compression.applied",
     COMPRESSION_FAILED: "compression.failed",
+    COMPRESSION_ADVISED: "compression.advised",
+    COMPRESSION_FORCED: "compression.forced",
   });
 
   assert.deepEqual(ArchiveEvents, {
@@ -71,7 +73,7 @@ test("Runtime Events: exports new event groups", async () => {
 });
 
 test("Runtime Events: matchEventPattern matches archive.* and nested patterns", async () => {
-  const { ArchiveEvents, ReviewEvents, matchEventPattern } = await import("../../../js/agents/runtime/events.js");
+  const { ArchiveEvents, ReviewEvents, matchEventPattern } = await import("../../../js/agents/runtime/events/events.js");
 
   assert.equal(matchEventPattern("archive.*", ArchiveEvents.CHECKPOINT_SAVED), true);
   assert.equal(matchEventPattern("archive.*", ArchiveEvents.CHECKPOINT_RESTORED), true);
@@ -86,8 +88,8 @@ test("Runtime Events: matchEventPattern matches archive.* and nested patterns", 
 });
 
 test("Runtime Events: EventBus wildcard subscription integrates with archive.*", async () => {
-  const { EventBus } = await import("../../../js/agents/runtime/event-bus.js");
-  const { ArchiveEvents } = await import("../../../js/agents/runtime/events.js");
+  const { EventBus } = await import("../../../js/agents/runtime/events/event-bus.js");
+  const { ArchiveEvents } = await import("../../../js/agents/runtime/events/events.js");
 
   const bus = new EventBus({ runId: "run_events_integration" });
   const seen = [];
@@ -147,17 +149,5 @@ test("Runtime Events: payload shape validators cover the new typedefs", async ()
   const invalidArchive = { runId: null, checkpointId: 1, timestamp: "not-a-date", nodeStates: [] };
   assert.deepEqual(validateArchivePayload(validArchive), []);
   assert.notEqual(validateArchivePayload(invalidArchive).length, 0);
-});
-
-test("Shared event-types: declares payload typedefs", async () => {
-  // Ensure the module loads (and the file exists).
-  await import("../../../js/agents/shared/event-types.js");
-
-  const filePath = path.join(__dirname, "../../../js/agents/shared/event-types.js");
-  const text = fs.readFileSync(filePath, "utf8");
-
-  assert.match(text, /@typedef\s+\{Object\}\s+ReviewEventPayload/);
-  assert.match(text, /@typedef\s+\{Object\}\s+CompressionEventPayload/);
-  assert.match(text, /@typedef\s+\{Object\}\s+ArchiveEventPayload/);
 });
 

@@ -51,7 +51,7 @@ test("CodeSearch todos: planner generates todos and completion stats", async () 
 
 test("CodeSearch todos: LLM unavailable triggers awaitUserFeedback pause", async () => {
   const { CodeSearchStage } = await import("../../../js/agents/stages/codesearch/codesearch-stage.js");
-  const { StagePausedError } = await import("../../../js/agents/runtime/stage-errors.js");
+  const { StagePausedError } = await import("../../../js/agents/runtime/core/stage-errors.js");
 
   const stage = new CodeSearchStage({ maxSteps: 1 });
 

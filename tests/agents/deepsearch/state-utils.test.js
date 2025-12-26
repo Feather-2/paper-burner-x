@@ -203,7 +203,7 @@ test("DeepSearchState.saveCheckpoint: enforces maxCheckpoints cap", async () => 
 });
 
 test("SharedContext: prunes store, signals, decisions, seen, and index", async () => {
-  const { SharedContext } = await import("../../../js/agents/stages/deepsearch/shared-context.js");
+  const { SharedContext } = await import("../../../js/agents/stages/deepsearch/runtime/shared-context.js");
 
   {
     const ctx = new SharedContext({ runId: "ctx_store", limits: { storeMax: 2 } });

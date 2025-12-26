@@ -72,7 +72,7 @@ test("DeepSearch todos: invalid LLM output falls back to heuristic todos", async
 test("DeepSearch todos: skips LLM when user todos exist", async () => {
   const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
   const { runDeepSearchTodosStage } = await import("../../../js/agents/stages/deepsearch/todos.js");
-  const { createTodo } = await import("../../../js/agents/stages/deepsearch/todo-utils.js");
+  const { createTodo } = await import("../../../js/agents/stages/deepsearch/utils/todo-utils.js");
 
   const events = [];
   const bus = { emit: (name, record) => events.push({ name, record }) };

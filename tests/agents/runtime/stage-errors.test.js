@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 test("StagePausedError serializes and restores", async () => {
-  const { StagePausedError } = await import("../../../js/agents/runtime/stage-errors.js");
+  const { StagePausedError } = await import("../../../js/agents/runtime/core/stage-errors.js");
 
   const err = new StagePausedError("Paused", {
     checkpointId: "ckpt_1",
@@ -38,7 +38,7 @@ test("StagePausedError serializes and restores", async () => {
 });
 
 test("StagePausedError.fromJSON normalizes values", async () => {
-  const { StagePausedError } = await import("../../../js/agents/runtime/stage-errors.js");
+  const { StagePausedError } = await import("../../../js/agents/runtime/core/stage-errors.js");
 
   const restored = StagePausedError.fromJSON({
     message: "",
@@ -58,7 +58,7 @@ test("StagePausedError.fromJSON normalizes values", async () => {
 });
 
 test("toErrorPayload includes pause metadata", async () => {
-  const { StagePausedError, toErrorPayload } = await import("../../../js/agents/runtime/stage-errors.js");
+  const { StagePausedError, toErrorPayload } = await import("../../../js/agents/runtime/core/stage-errors.js");
 
   const err = new StagePausedError("Paused", {
     checkpointId: "ckpt_2",
@@ -78,7 +78,7 @@ test("toErrorPayload includes pause metadata", async () => {
 });
 
 test("StagePausedError constructor normalizes timestamp and strings", async () => {
-  const { StagePausedError } = await import("../../../js/agents/runtime/stage-errors.js");
+  const { StagePausedError } = await import("../../../js/agents/runtime/core/stage-errors.js");
 
   const err = new StagePausedError("Paused", {
     checkpointId: " ckpt_3 ",
@@ -94,7 +94,7 @@ test("StagePausedError constructor normalizes timestamp and strings", async () =
 });
 
 test("StagePausedError constructor falls back to ISO timestamp", async () => {
-  const { StagePausedError } = await import("../../../js/agents/runtime/stage-errors.js");
+  const { StagePausedError } = await import("../../../js/agents/runtime/core/stage-errors.js");
 
   const err = new StagePausedError("Paused", { timestamp: "  " });
   assert.equal(typeof err.timestamp, "string");
@@ -102,7 +102,7 @@ test("StagePausedError constructor falls back to ISO timestamp", async () => {
 });
 
 test("StagePausedError.fromJSON accepts non-object payloads", async () => {
-  const { StagePausedError } = await import("../../../js/agents/runtime/stage-errors.js");
+  const { StagePausedError } = await import("../../../js/agents/runtime/core/stage-errors.js");
 
   const err = StagePausedError.fromJSON(null);
   assert.equal(err.name, "StagePausedError");
@@ -112,7 +112,7 @@ test("StagePausedError.fromJSON accepts non-object payloads", async () => {
 });
 
 test("toErrorPayload falls back for empty message/name and non-empty-string conversion", async () => {
-  const { toErrorPayload } = await import("../../../js/agents/runtime/stage-errors.js");
+  const { toErrorPayload } = await import("../../../js/agents/runtime/core/stage-errors.js");
 
   const err = new Error("");
   err.name = "";
@@ -122,7 +122,7 @@ test("toErrorPayload falls back for empty message/name and non-empty-string conv
 });
 
 test("StageTimeoutError/StageCancelledError carry metadata", async () => {
-  const { StageTimeoutError, StageCancelledError } = await import("../../../js/agents/runtime/stage-errors.js");
+  const { StageTimeoutError, StageCancelledError } = await import("../../../js/agents/runtime/core/stage-errors.js");
 
   const timeout = new StageTimeoutError("Timeout", { stageName: "unit", timeoutMs: 123 });
   assert.equal(timeout.name, "StageTimeoutError");
@@ -137,7 +137,7 @@ test("StageTimeoutError/StageCancelledError carry metadata", async () => {
 });
 
 test("abortReasonToMessage handles strings, errors, and fallback", async () => {
-  const { abortReasonToMessage } = await import("../../../js/agents/runtime/stage-errors.js");
+  const { abortReasonToMessage } = await import("../../../js/agents/runtime/core/stage-errors.js");
 
   assert.equal(abortReasonToMessage("stop"), "stop");
   assert.equal(abortReasonToMessage("  ", "fallback"), "fallback");
@@ -146,7 +146,7 @@ test("abortReasonToMessage handles strings, errors, and fallback", async () => {
 });
 
 test("cancelledErrorFromSignal returns StageCancelledError", async () => {
-  const { cancelledErrorFromSignal } = await import("../../../js/agents/runtime/stage-errors.js");
+  const { cancelledErrorFromSignal } = await import("../../../js/agents/runtime/core/stage-errors.js");
 
   const controller = new AbortController();
   controller.abort("stop");
@@ -158,7 +158,7 @@ test("cancelledErrorFromSignal returns StageCancelledError", async () => {
 });
 
 test("toErrorPayload formats common error shapes", async () => {
-  const { StageTimeoutError, StageCancelledError, toErrorPayload } = await import("../../../js/agents/runtime/stage-errors.js");
+  const { StageTimeoutError, StageCancelledError, toErrorPayload } = await import("../../../js/agents/runtime/core/stage-errors.js");
 
   assert.deepEqual(toErrorPayload(), { message: "Unknown error", name: "Error" });
   assert.deepEqual(toErrorPayload("bad"), { message: "bad", name: "Error" });

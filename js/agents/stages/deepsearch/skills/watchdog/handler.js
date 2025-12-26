@@ -7,7 +7,7 @@
  * - handoff: 生成交接文档，换脑子重来
  */
 
-import { Watchdog, DelegationMode, DelegationReason } from "../../../../runtime/watchdog.js";
+import { Watchdog, DelegationMode, DelegationReason } from "../../../../runtime/compression/watchdog.js";
 
 export const definition = {
   name: "watchdog",

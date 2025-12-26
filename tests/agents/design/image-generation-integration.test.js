@@ -66,9 +66,9 @@ function makeSlot({ slotId, slideIndex, priority = "critical", aspectRatio = "16
 }
 
 test("ImageGeneration E2E: ImagePlanner -> PromptBuilder -> ImageGenerator (happy path)", async () => {
-  const { ImagePlanner } = await import("../../../js/agents/stages/design/image-planner.js");
-  const { buildPrompt } = await import("../../../js/agents/stages/design/image-prompt-builder.js");
-  const { ImageGenerator } = await import("../../../js/agents/stages/design/image-generator.js");
+  const { ImagePlanner } = await import("../../../js/agents/stages/design/image/image-planner.js");
+  const { buildPrompt } = await import("../../../js/agents/stages/design/image/image-prompt-builder.js");
+  const { ImageGenerator } = await import("../../../js/agents/stages/design/generators/image-generator.js");
 
   const contentPackage = makeContentPackage({
     constraints: { imagePolicy: "rich", imageBudget: { maxImages: 10, maxCostUSD: 10, candidatesPerSlot: 1 } },
@@ -102,7 +102,7 @@ test("ImageGeneration E2E: ImagePlanner -> PromptBuilder -> ImageGenerator (happ
 });
 
 test("ImageGeneration E2E: PromptBuilder includes claim-derived keywords (integration)", async () => {
-  const { buildPrompt } = await import("../../../js/agents/stages/design/image-prompt-builder.js");
+  const { buildPrompt } = await import("../../../js/agents/stages/design/image/image-prompt-builder.js");
   const contentPackage = makeContentPackage();
 
   const slot = {
@@ -213,7 +213,7 @@ test("ImageGeneration E2E: DesignStage uses VisualRenderer and emits design.visu
 
 test("ImageGeneration E2E: async fill replaces placeholder with <img data-el=\"image\"> (base64)", async () => {
   const { DesignStage } = await import("../../../js/agents/stages/design/design-agent.js");
-  const { ImageGenerator, fillImagePlaceholders } = await import("../../../js/agents/stages/design/image-generator.js");
+  const { ImageGenerator, fillImagePlaceholders } = await import("../../../js/agents/stages/design/generators/image-generator.js");
 
   const contentPackage = makeContentPackage({
     constraints: { imagePolicy: "minimal", imageBudget: { maxImages: 10, maxCostUSD: 10 } },
@@ -235,7 +235,7 @@ test("ImageGeneration E2E: async fill replaces placeholder with <img data-el=\"i
 });
 
 test("ImageGeneration E2E: async fill emits per-task events + design.image.fill.completed", async () => {
-  const { ImageGenerator } = await import("../../../js/agents/stages/design/image-generator.js");
+  const { ImageGenerator } = await import("../../../js/agents/stages/design/generators/image-generator.js");
 
   const events = [];
   const emit = (name, record) => events.push({ name, record });
@@ -250,7 +250,7 @@ test("ImageGeneration E2E: async fill emits per-task events + design.image.fill.
 
 test("ImageGeneration E2E: provider failure retries then succeeds (retryCount=1) and fills placeholder", async () => {
   const { DesignStage } = await import("../../../js/agents/stages/design/design-agent.js");
-  const { ImageGenerator, fillImagePlaceholders } = await import("../../../js/agents/stages/design/image-generator.js");
+  const { ImageGenerator, fillImagePlaceholders } = await import("../../../js/agents/stages/design/generators/image-generator.js");
 
   const contentPackage = makeContentPackage({
     constraints: { imagePolicy: "minimal", imageBudget: { maxImages: 10, maxCostUSD: 10 } },
@@ -285,7 +285,7 @@ test("ImageGeneration E2E: provider failure retries then succeeds (retryCount=1)
 
 test("ImageGeneration E2E: exceeds maxRetries leaves placeholder (degraded) and reports failed", async () => {
   const { DesignStage } = await import("../../../js/agents/stages/design/design-agent.js");
-  const { ImageGenerator, fillImagePlaceholders } = await import("../../../js/agents/stages/design/image-generator.js");
+  const { ImageGenerator, fillImagePlaceholders } = await import("../../../js/agents/stages/design/generators/image-generator.js");
 
   const contentPackage = makeContentPackage({
     constraints: { imagePolicy: "minimal", imageBudget: { maxImages: 10, maxCostUSD: 10 } },
@@ -319,7 +319,7 @@ test("ImageGeneration E2E: exceeds maxRetries leaves placeholder (degraded) and 
 });
 
 test("ImageGeneration E2E: over maxCostUSD skips optional slots first (priority ordering)", async () => {
-  const { ImageGenerator } = await import("../../../js/agents/stages/design/image-generator.js");
+  const { ImageGenerator } = await import("../../../js/agents/stages/design/generators/image-generator.js");
 
   const provider = {
     provider: "openai-image",

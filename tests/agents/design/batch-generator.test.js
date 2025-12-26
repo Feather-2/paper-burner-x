@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 test("batch-generator module exports generateBatch and generateSingleSlide", async () => {
-  const module = await import("../../../js/agents/stages/design/batch-generator.js");
+  const module = await import("../../../js/agents/stages/design/generators/batch-generator.js");
   assert.ok(typeof module.generateBatch === "function", "generateBatch should be exported as a function");
   assert.ok(typeof module.generateSingleSlide === "function", "generateSingleSlide should be exported as a function");
 });
@@ -48,7 +48,7 @@ function makeContentPackage(slideIntents) {
 }
 
 test("design.slide.started event payload includes complete slideIntent fields", async () => {
-  const { generateBatch } = await import("../../../js/agents/stages/design/batch-generator.js");
+  const { generateBatch } = await import("../../../js/agents/stages/design/generators/batch-generator.js");
 
   const events = [];
   const emit = (name, record) => events.push({ name, record });
@@ -100,7 +100,7 @@ test("design.slide.started event payload includes complete slideIntent fields", 
 });
 
 test("design.slide.failed event payload contains error object with message and stack", async () => {
-  const { generateBatch } = await import("../../../js/agents/stages/design/batch-generator.js");
+  const { generateBatch } = await import("../../../js/agents/stages/design/generators/batch-generator.js");
 
   const events = [];
   const emit = (name, record) => events.push({ name, record });
@@ -147,7 +147,7 @@ test("design.slide.failed event payload contains error object with message and s
 });
 
 test("design.slide.completed event is emitted with correct payload after successful generation", async () => {
-  const { generateBatch } = await import("../../../js/agents/stages/design/batch-generator.js");
+  const { generateBatch } = await import("../../../js/agents/stages/design/generators/batch-generator.js");
 
   const events = [];
   const emit = (name, record) => events.push({ name, record });
@@ -180,7 +180,7 @@ test("design.slide.completed event is emitted with correct payload after success
 });
 
 test("design.batch.started and design.batch.completed events are emitted with correct structure", async () => {
-  const { generateBatch } = await import("../../../js/agents/stages/design/batch-generator.js");
+  const { generateBatch } = await import("../../../js/agents/stages/design/generators/batch-generator.js");
 
   const events = [];
   const emit = (name, record) => events.push({ name, record });
@@ -222,7 +222,7 @@ test("design.batch.started and design.batch.completed events are emitted with co
 });
 
 test("generateBatch handles image slots and applies visual slot hints", async () => {
-  const { generateBatch } = await import("../../../js/agents/stages/design/batch-generator.js");
+  const { generateBatch } = await import("../../../js/agents/stages/design/generators/batch-generator.js");
 
   const events = [];
   const emit = (name, record) => events.push({ name, record });
@@ -282,7 +282,7 @@ test("generateBatch handles image slots and applies visual slot hints", async ()
 });
 
 test("fallback generation creates valid slide HTML when model fails", async () => {
-  const { generateSingleSlide } = await import("../../../js/agents/stages/design/batch-generator.js");
+  const { generateSingleSlide } = await import("../../../js/agents/stages/design/generators/batch-generator.js");
 
   const slideIntent = makeSlideIntent("s_fallback", "Fallback Slide", "overview");
   const designSystem = makeDesignSystem();

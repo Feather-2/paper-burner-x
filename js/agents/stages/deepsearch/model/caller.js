@@ -4,8 +4,8 @@
  * Provides a single "call(messages, opts)" function backed by either `stageApi.modelRouter.call`
  * (preferred) or the legacy `stageApi.aiApiService.chat`.
  */
-import { extractServices } from "../stage-api.js";
-import { injectSystemHint } from "../../../shared/message-utils.js";
+import { extractServices } from "../utils/stage-api.js";
+import { injectSystemHint } from "../../../shared/utils/message-utils.js";
 
 export function buildBaseCaller(stageApi, { usage = "worker" } = {}) {
   const { signal: defaultSignal, modelRouter, aiApiService } = extractServices(stageApi);

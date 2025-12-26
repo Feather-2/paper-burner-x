@@ -40,14 +40,15 @@ function makeAgentLoop({ processMemory, result, withAddToContext = true } = {}) 
 }
 
 test("Watchdog.decideDelegationMode applies rules and emits events", async () => {
-  const { Watchdog, DelegationMode, DelegationReason } = await import("../../../js/agents/runtime/watchdog.js");
-  const { WatchdogEvents } = await import("../../../js/agents/runtime/events.js");
+  const { Watchdog, DelegationMode, DelegationReason } = await import("../../../js/agents/runtime/compression/watchdog.js");
+  const { WatchdogEvents } = await import("../../../js/agents/runtime/events/events.js");
   const bus = makeEventBus();
   const watchdog = new Watchdog({ eventBus: bus, cicadaCompressor: makeCompressor("noop") });
 
-  let decision = watchdog.decideDelegationMode({ confidenceScore: 0.4 }, {});
+  // 默认复杂任务 → watchdog
+  let decision = watchdog.decideDelegationMode({}, {});
   assert.equal(decision.mode, DelegationMode.WATCHDOG);
-  assert.equal(decision.reason, DelegationReason.GRAY_ZONE_DECISION);
+  assert.equal(decision.reason, DelegationReason.COMPLEX_DEFAULT);
 
   decision = watchdog.decideDelegationMode({ requiresHistory: true }, {});
   assert.equal(decision.reason, DelegationReason.CONTEXT_DEPENDENT);
@@ -72,8 +73,8 @@ test("Watchdog.decideDelegationMode applies rules and emits events", async () =>
 });
 
 test("Watchdog.watchdogDelegate shares context and compresses", async () => {
-  const { Watchdog } = await import("../../../js/agents/runtime/watchdog.js");
-  const { WatchdogEvents } = await import("../../../js/agents/runtime/events.js");
+  const { Watchdog } = await import("../../../js/agents/runtime/compression/watchdog.js");
+  const { WatchdogEvents } = await import("../../../js/agents/runtime/events/events.js");
   const bus = makeEventBus();
   const compressor = makeCompressor({ text: "compressed" }, "arch_2");
   const agentLoop = makeAgentLoop();
@@ -101,7 +102,7 @@ test("Watchdog.watchdogDelegate shares context and compresses", async () => {
 });
 
 test("Watchdog.watchdogDelegate defaults stage key and keeps string summary", async () => {
-  const { Watchdog } = await import("../../../js/agents/runtime/watchdog.js");
+  const { Watchdog } = await import("../../../js/agents/runtime/compression/watchdog.js");
   const compressor = makeCompressor("short summary", "arch_3");
   const agentLoop = makeAgentLoop({ withAddToContext: false });
   const watchdog = new Watchdog({ cicadaCompressor: compressor });
@@ -114,8 +115,8 @@ test("Watchdog.watchdogDelegate defaults stage key and keeps string summary", as
 });
 
 test("Watchdog.observe and intervene notify handlers", async () => {
-  const { Watchdog } = await import("../../../js/agents/runtime/watchdog.js");
-  const { WatchdogEvents } = await import("../../../js/agents/runtime/events.js");
+  const { Watchdog } = await import("../../../js/agents/runtime/compression/watchdog.js");
+  const { WatchdogEvents } = await import("../../../js/agents/runtime/events/events.js");
   const watchdog = new Watchdog({ cicadaCompressor: makeCompressor("noop") });
 
   let seen = null;

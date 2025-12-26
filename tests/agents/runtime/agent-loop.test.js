@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 async function createTestLoop(options) {
-  const { BaseAgentLoop } = await import("../../../js/agents/runtime/agent-loop.js");
+  const { BaseAgentLoop } = await import("../../../js/agents/runtime/core/agent-loop.js");
   class TestLoop extends BaseAgentLoop {
     async run(input, context) {
       return { input, context };
@@ -19,9 +19,9 @@ test("BaseAgentLoop helpers normalize and resolve", async () => {
     checkCancelledOrPaused,
     normalizeToolResult,
     resolveToolExecutor,
-  } = await import("../../../js/agents/runtime/agent-loop.js");
+  } = await import("../../../js/agents/runtime/core/agent-loop.js");
 
-  const { setRuntimeState, LoopRuntimeStatuses } = await import("../../../js/agents/runtime/loop-runtime-state.js");
+  const { setRuntimeState, LoopRuntimeStatuses } = await import("../../../js/agents/runtime/telemetry/loop-runtime-state.js");
 
   const emit = () => {};
   assert.equal(getEmitFn({ emit }), emit);
@@ -108,26 +108,6 @@ test("BaseAgentLoop uses tool executor when provided", async () => {
   assert.equal(failed.error, "nope");
 });
 
-test("BaseAgentLoop transitions state and emits", async () => {
-  const { createStateMachine } = await import("../../../js/agents/runtime/state-machine.js");
-
-  const stateMachine = createStateMachine({ idle: ["next"] }, "TestLoop");
-  const events = [];
-  const emit = (name, record) => events.push({ name, record });
-
-  const loop = await createTestLoop({ stateMachine, stageName: "design", actor: "design" });
-  const state = { status: "idle" };
-
-  loop._transitionPhase(state, "next", { emit, runId: "run_1", payload: { note: "ok" } });
-
-  assert.equal(state.status, "next");
-  assert.equal(events.length, 1);
-  assert.equal(events[0].name, "design.phase.transition");
-  assert.equal(events[0].record.actor, "design");
-  assert.equal(events[0].record.status, "progress");
-  assert.deepEqual(events[0].record.payload, { runId: "run_1", from: "idle", to: "next", note: "ok" });
-});
-
 test("BaseAgentLoop transitions without a state machine", async () => {
   const loop = await createTestLoop({ stageName: "simple", actor: "simple" });
   const events = [];
@@ -146,16 +126,6 @@ test("BaseAgentLoop transitions without state object", async () => {
   assert.equal(loop._transitionPhase(null, "next"), "next");
 });
 
-test("BaseAgentLoop rejects invalid transitions", async () => {
-  const { createStateMachine } = await import("../../../js/agents/runtime/state-machine.js");
-
-  const stateMachine = createStateMachine({ idle: [] }, "TestLoop");
-  const loop = await createTestLoop({ stateMachine, stageName: "design" });
-  const state = { status: "idle" };
-
-  assert.throws(() => loop._transitionPhase(state, "bad", { emit: () => {} }), /transition rejected/);
-});
-
 test("BaseAgentLoop emits stages with actor", async () => {
   const events = [];
   const emit = (name, record) => events.push({ name, record });
@@ -171,8 +141,8 @@ test("BaseAgentLoop emits stages with actor", async () => {
 });
 
 test("BaseAgentLoop _checkPaused delegates to runtime pause check", async () => {
-  const { BaseAgentLoop } = await import("../../../js/agents/runtime/agent-loop.js");
-  const { setRuntimeState, LoopRuntimeStatuses } = await import("../../../js/agents/runtime/loop-runtime-state.js");
+  const { BaseAgentLoop } = await import("../../../js/agents/runtime/core/agent-loop.js");
+  const { setRuntimeState, LoopRuntimeStatuses } = await import("../../../js/agents/runtime/telemetry/loop-runtime-state.js");
 
   class TestLoop extends BaseAgentLoop {
     async run() {
@@ -203,7 +173,7 @@ test("BaseAgentLoop reports tool errors", async () => {
 });
 
 test("BaseAgentLoop waitForUserAction resolves, aborts, and times out", async () => {
-  const { EventBus } = await import("../../../js/agents/runtime/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/runtime/events/event-bus.js");
 
   const eventBus = new EventBus({ runId: "run_wait" });
   const loop = await createTestLoop({ eventBus });
@@ -223,7 +193,7 @@ test("BaseAgentLoop waitForUserAction resolves, aborts, and times out", async ()
 });
 
 test("BaseAgentLoop execute adapts stage inputs", async () => {
-  const { EventBus } = await import("../../../js/agents/runtime/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/runtime/events/event-bus.js");
 
   const eventBus = new EventBus({ runId: "run_exec" });
   const loop = await createTestLoop({ eventBus, stageName: "exec" });
@@ -235,7 +205,7 @@ test("BaseAgentLoop execute adapts stage inputs", async () => {
 });
 
 test("BaseAgentLoop.run throws by default", async () => {
-  const { BaseAgentLoop } = await import("../../../js/agents/runtime/agent-loop.js");
+  const { BaseAgentLoop } = await import("../../../js/agents/runtime/core/agent-loop.js");
   const loop = new BaseAgentLoop();
 
   await assert.rejects(() => loop.run(), /not implemented/);
@@ -247,7 +217,7 @@ test("BaseAgentLoop waitForUserAction requires an event bus", async () => {
 });
 
 test("BaseStage execute emits lifecycle and delegates to run", async () => {
-  const { BaseStage } = await import("../../../js/agents/runtime/agent-loop.js");
+  const { BaseStage } = await import("../../../js/agents/runtime/core/agent-loop.js");
 
   const calls = [];
   const emit = (name, record) => calls.push({ name, record });
@@ -275,7 +245,7 @@ test("BaseStage execute emits lifecycle and delegates to run", async () => {
 });
 
 test("BaseStage execute emits failed when cancelled during run", async () => {
-  const { BaseStage } = await import("../../../js/agents/runtime/agent-loop.js");
+  const { BaseStage } = await import("../../../js/agents/runtime/core/agent-loop.js");
 
   const calls = [];
   const emit = (name, record) => calls.push({ name, record });

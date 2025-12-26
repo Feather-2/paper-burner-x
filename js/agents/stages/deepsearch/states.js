@@ -1,13 +1,19 @@
-import { createStateMachine } from "../../runtime/state-machine.js";
-import { StateMachineRegistry } from "../../runtime/state-machine-registry.js";
-import {
-  AgentLoopStatus,
-  AGENT_LOOP_TRANSITIONS,
-  createAgentLoopMachine,
-  isValidAgentLoopStatus,
-} from "../../runtime/agent-loop-status.js";
+/**
+ * DeepSearch States - 简化版
+ *
+ * 移除硬编码状态机，改用 todos + events 做进度追踪
+ */
 
-// === Phase 状态 ===
+import {
+  AgentStatus,
+  StepStatus,
+  isValidAgentStatus,
+  isValidStepStatus,
+  isAgentActive,
+  isAgentTerminal,
+} from "../../runtime/core/agent-status.js";
+
+// === Phase 状态（保留枚举，移除状态机）===
 export const PhaseStatus = Object.freeze({
   SCAN: "scan",
   GAPS: "gaps",
@@ -17,18 +23,7 @@ export const PhaseStatus = Object.freeze({
   COMPLETED: "completed",
 });
 
-export const PHASE_TRANSITIONS = Object.freeze({
-  [PhaseStatus.SCAN]: [PhaseStatus.GAPS, PhaseStatus.COMPLETED],
-  [PhaseStatus.GAPS]: [PhaseStatus.ROUND, PhaseStatus.WRITE],
-  [PhaseStatus.ROUND]: [PhaseStatus.GAPS, PhaseStatus.WRITE],
-  [PhaseStatus.WRITE]: [PhaseStatus.CONDENSE, PhaseStatus.ROUND],
-  [PhaseStatus.CONDENSE]: [PhaseStatus.COMPLETED],
-  [PhaseStatus.COMPLETED]: [],
-});
-
-export const phaseMachine = createStateMachine(PHASE_TRANSITIONS, "DeepSearchPhase");
-
-// === Gap 状态（完整版，含 SEARCHING/UNDERSTANDING）===
+// === Gap 状态 ===
 export const GapStatus = Object.freeze({
   OPEN: "open",
   SEARCHING: "searching",
@@ -38,31 +33,6 @@ export const GapStatus = Object.freeze({
   STALE: "stale",
 });
 
-export const GAP_TRANSITIONS = Object.freeze({
-  [GapStatus.OPEN]: [GapStatus.SEARCHING, GapStatus.BLOCKED],
-  [GapStatus.SEARCHING]: [GapStatus.UNDERSTANDING, GapStatus.OPEN, GapStatus.BLOCKED],
-  [GapStatus.UNDERSTANDING]: [GapStatus.FILLED, GapStatus.SEARCHING, GapStatus.BLOCKED],
-  [GapStatus.FILLED]: [GapStatus.OPEN, GapStatus.STALE],
-  [GapStatus.BLOCKED]: [GapStatus.OPEN],
-  [GapStatus.STALE]: [GapStatus.OPEN],
-});
-
-export const gapMachine = createStateMachine(GAP_TRANSITIONS, "Gap");
-
-const registry = StateMachineRegistry.getInstance();
-registry.register("deepsearch.phase", phaseMachine, {
-  module: "deepsearch",
-  description: "DeepSearch phase lifecycle",
-  states: Object.values(PhaseStatus),
-  transitions: PHASE_TRANSITIONS,
-});
-registry.register("deepsearch.gap", gapMachine, {
-  module: "deepsearch",
-  description: "DeepSearch gap lifecycle",
-  states: Object.values(GapStatus),
-  transitions: GAP_TRANSITIONS,
-});
-
 // === Gap 优先级 ===
 export const GapPriority = Object.freeze({
   HIGH: "high",
@@ -70,28 +40,13 @@ export const GapPriority = Object.freeze({
   LOW: "low",
 });
 
-// === Todo 状态 ===
+// === Todo 状态（对齐 StepStatus）===
 export const TodoStatus = Object.freeze({
   OPEN: "open",
   PENDING: "pending",
+  IN_PROGRESS: "in_progress",
   COMPLETED: "completed",
   CANCELLED: "cancelled",
-});
-
-export const TODO_TRANSITIONS = Object.freeze({
-  [TodoStatus.OPEN]: [TodoStatus.PENDING, TodoStatus.COMPLETED, TodoStatus.CANCELLED],
-  [TodoStatus.PENDING]: [TodoStatus.OPEN, TodoStatus.COMPLETED, TodoStatus.CANCELLED],
-  [TodoStatus.COMPLETED]: [TodoStatus.OPEN],
-  [TodoStatus.CANCELLED]: [TodoStatus.OPEN],
-});
-
-export const todoMachine = createStateMachine(TODO_TRANSITIONS, "Todo");
-
-registry.register("deepsearch.todo", todoMachine, {
-  module: "deepsearch",
-  description: "DeepSearch todo lifecycle",
-  states: Object.values(TodoStatus),
-  transitions: TODO_TRANSITIONS,
 });
 
 // === PlanNode 状态 ===
@@ -129,17 +84,6 @@ export const DecisionStage = Object.freeze({
   UNKNOWN: "unknown",
 });
 
-// === Agent Loop 执行状态 ===
-export { AgentLoopStatus, AGENT_LOOP_TRANSITIONS, isValidAgentLoopStatus };
-export const agentLoopMachine = createAgentLoopMachine("AgentLoop");
-
-registry.register("deepsearch.agentLoop", agentLoopMachine, {
-  module: "deepsearch",
-  description: "Agent Loop execution lifecycle",
-  states: Object.values(AgentLoopStatus),
-  transitions: AGENT_LOOP_TRANSITIONS,
-});
-
 // === 验证函数 ===
 export function isValidGapPriority(value) {
   return Object.values(GapPriority).includes(value);
@@ -169,8 +113,22 @@ export function isValidDecisionStage(value) {
   return Object.values(DecisionStage).includes(value);
 }
 
-export function transitionTodo(todo, to, context = {}) {
-  return todoMachine.transition(todo, to, context);
+export function isValidPhaseStatus(value) {
+  return Object.values(PhaseStatus).includes(value);
 }
 
-// isValidAgentLoopStatus re-exported from runtime/agent-loop-status.js
+// === Re-export AgentStatus ===
+export {
+  AgentStatus,
+  StepStatus,
+  isValidAgentStatus,
+  isValidStepStatus,
+  isAgentActive,
+  isAgentTerminal,
+};
+
+// 兼容旧代码
+export const AgentLoopStatus = AgentStatus;
+export function isValidAgentLoopStatus(value) {
+  return isValidAgentStatus(value);
+}

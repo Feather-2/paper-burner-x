@@ -4,35 +4,38 @@
  * Core components for the Skills-based Agent Loop architecture.
  */
 
-// Core infrastructure
-export { EventBus } from "./event-bus.js";
-export { createStateMachine } from "./state-machine.js";
-export { stateMachineRegistry } from "./state-machine-registry.js";
-export { BaseAgentLoop } from "./agent-loop.js";
-
-// Watchdog + Compression
-export { Watchdog, DelegationMode, DelegationReason } from "./watchdog.js";
-export { CicadaCompressor, CompressionLayer } from "./cicada-compressor.js";
-export { AsyncCompressor } from "./async-compressor.js";
+// Core
+export { BaseAgentLoop, checkCancelled, checkPaused } from "./core/agent-loop.js";
 export {
-  RemoteCompactor,
-  CompactProvider,
-  FastModelProvider,
-  LocalCompactProvider,
-  CompactionStrategy,
-  CompactionStatus,
-} from "./remote-compactor.js";
-
-// Capability (保留观察)
-export { CapabilityLoader } from "./capability-loader.js";
+  AgentStatus,
+  StepStatus,
+  isValidAgentStatus,
+  isValidStepStatus,
+  isAgentActive,
+  isAgentTerminal,
+} from "./core/agent-status.js";
+export { StagePausedError, StageAbortedError } from "./core/stage-errors.js";
+export { ActorType, OrchestratorState, isValidActorType } from "./core/constants.js";
 
 // Events
+export { EventBus } from "./events/event-bus.js";
 export {
   RuntimeEvents,
-  PhaseEvents,
   WatchdogEvents,
   CicadaEvents,
-} from "./events.js";
+  DeepSearchEvents,
+  DesignEvents,
+  IngestEvents,
+} from "./events/events.js";
 
-// Constants
-export { RuntimeConstants } from "./constants.js";
+// Compression + Watchdog
+export { Watchdog, DelegationMode, DelegationReason } from "./compression/watchdog.js";
+export { CicadaCompressor, CompressionLayer } from "./compression/cicada-compressor.js";
+
+// Telemetry
+export { getRuntimeState, setRuntimeState } from "./telemetry/loop-runtime-state.js";
+export { RunReplayController } from "./telemetry/replay-controller.js";
+export { subscribeTelemetry } from "./telemetry/runstore-telemetry.js";
+
+// API
+export { StageApiFactory } from "./api/stage-api-factory.js";

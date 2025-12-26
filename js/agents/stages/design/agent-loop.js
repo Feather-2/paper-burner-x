@@ -1,21 +1,22 @@
-import { generateDesignTokens } from "./design-tokens.js";
-import { generateDesignSystem } from "./design-system-generator.js";
-import { buildSlideHtml } from "./dsl-builder.js";
-import { generateBatch } from "./batch-generator.js";
-import { validateSlide } from "./qa-validator.js";
-import { fillImagePlaceholders } from "./image-generator.js";
-import { SVGGenerator, fillSvgPlaceholders } from "./svg-generator.js";
-import { fillAssetPlaceholders } from "./asset-resolver.js";
-import { VisualRenderer } from "./visual-renderer.js";
-import { getDslRules } from "./dsl-rules.js";
-import { ImagePlanner } from "./image-planner.js";
-import { normalizeRenderType } from "../../shared/value-utils.js";
-import { Archive, MapAdapter } from "../../shared/archive.js";
-import { CheckpointType, createCheckpoint, migrateCheckpoint } from "../../shared/checkpoint-schema.js";
-import { DesignPhase, designPhaseMachine, DesignLoopStatus, designLoopMachine } from "./states.js";
-import { BaseAgentLoop, checkCancelled, getEmitFn, resolveToolExecutor } from "../../runtime/agent-loop.js";
-import { StagePausedError } from "../../runtime/stage-errors.js";
-import { getRuntimeState } from "../../runtime/loop-runtime-state.js";
+import { generateDesignTokens } from "./generators/design-tokens.js";
+import { generateDesignSystem } from "./generators/design-system-generator.js";
+import { buildSlideHtml } from "./dsl/dsl-builder.js";
+import { generateBatch } from "./generators/batch-generator.js";
+import { validateSlide } from "./refiner/qa-validator.js";
+import { fillImagePlaceholders } from "./generators/image-generator.js";
+import { SVGGenerator, fillSvgPlaceholders } from "./generators/svg-generator.js";
+import { fillAssetPlaceholders } from "./image/asset-resolver.js";
+import { VisualRenderer } from "./image/visual-renderer.js";
+import { getDslRules } from "./dsl/dsl-rules.js";
+import { ImagePlanner } from "./image/image-planner.js";
+import { normalizeRenderType } from "../../shared/utils/value-utils.js";
+import { Archive, MapAdapter } from "../../shared/archive/archive.js";
+import { CheckpointType, createCheckpoint, migrateCheckpoint } from "../../shared/archive/checkpoint-schema.js";
+import { DesignPhase, designPhaseMachine } from "./states.js";
+import { AgentStatus } from "../../runtime/core/agent-status.js";
+import { BaseAgentLoop, checkCancelled, getEmitFn, resolveToolExecutor } from "../../runtime/core/agent-loop.js";
+import { StagePausedError } from "../../runtime/core/stage-errors.js";
+import { getRuntimeState } from "../../runtime/telemetry/loop-runtime-state.js";
 
 const SCHEMA_VERSION = "0.1";
 
@@ -142,13 +143,8 @@ export class DesignAgentLoop extends BaseAgentLoop {
     this.registerTools(this._tools);
     if (tools) this.registerTools(tools);
     this.phase = { status: DesignPhase.IDLE };
-    this._loopStatus = DesignLoopStatus.IDLE;
+    this._loopStatus = AgentStatus.IDLE;
     this._statusHistory = [];
-    this.initLoopStatus({
-      status: DesignLoopStatus.IDLE,
-      machine: designLoopMachine,
-      eventName: "design.agent.status.changed",
-    });
     this.archive = archive || null;
   }
 
@@ -171,7 +167,16 @@ export class DesignAgentLoop extends BaseAgentLoop {
     const oldStatus = this._loopStatus;
     if (oldStatus === newStatus) return null;
 
-    if (!designLoopMachine.canTransition(oldStatus, newStatus)) {
+    // 简化状态机：只验证基本转换
+    const validTransitions = {
+      [AgentStatus.IDLE]: [AgentStatus.RUNNING],
+      [AgentStatus.RUNNING]: [AgentStatus.COMPLETED, AgentStatus.FAILED, AgentStatus.PAUSED],
+      [AgentStatus.PAUSED]: [AgentStatus.RUNNING, AgentStatus.FAILED],
+      [AgentStatus.COMPLETED]: [],
+      [AgentStatus.FAILED]: [],
+    };
+    const allowed = validTransitions[oldStatus] || [];
+    if (!allowed.includes(newStatus)) {
       const err = new Error(`Invalid DesignLoop state transition: ${oldStatus} -> ${newStatus}`);
       err.code = "INVALID_STATE_TRANSITION";
       throw err;
@@ -184,44 +189,41 @@ export class DesignAgentLoop extends BaseAgentLoop {
     const runtimePauseRequested = runtimeState?.status === "paused";
     let checkpointId = null;
 
-    if (newStatus === DesignLoopStatus.EXECUTING) {
-      if (this.archive) {
-        checkpointId = await this._savePreActionCheckpoint({
-          ...historyMeta,
-          ...(nodeStates && typeof nodeStates === "object" ? { nodeStates } : {}),
-        });
-      }
-
+    // 在 RUNNING 状态下检查暂停请求
+    if (newStatus === AgentStatus.RUNNING && this.archive) {
+      checkpointId = await this._savePreActionCheckpoint({
+        ...historyMeta,
+        ...(nodeStates && typeof nodeStates === "object" ? { nodeStates } : {}),
+      });
       if (runtimeState && checkpointId) runtimeState.lastCheckpointId = checkpointId;
-
-      const shouldPause = this._pauseRequested || runtimePauseRequested;
-      if (shouldPause) {
-        const reason = runtimeState?.pausedReason || this._pauseReason || null;
-        const resolvedCheckpointId = checkpointId ?? historyMeta.checkpointId ?? runtimeState?.lastCheckpointId ?? null;
-
-        if (runtimeState && resolvedCheckpointId) runtimeState.lastCheckpointId = resolvedCheckpointId;
-
-        if (designLoopMachine.canTransition(oldStatus, DesignLoopStatus.PAUSED)) {
-          this._recordLoopStatusTransition({
-            from: oldStatus,
-            to: DesignLoopStatus.PAUSED,
-            timestamp,
-            ...historyMeta,
-            ...(resolvedCheckpointId ? { checkpointId: resolvedCheckpointId } : {}),
-            pausedReason: reason,
-          });
-        }
-
-        throw new StagePausedError("Run paused", {
-          checkpointId: resolvedCheckpointId,
-          reason,
-          timestamp,
-          runId: historyMeta.runId ?? null,
-        });
-      }
     }
 
-    this._recordLoopStatusTransition({
+    const shouldPause = this._pauseRequested || runtimePauseRequested;
+    if (shouldPause && newStatus === AgentStatus.RUNNING) {
+      const reason = runtimeState?.pausedReason || this._pauseReason || null;
+      const resolvedCheckpointId = checkpointId ?? historyMeta.checkpointId ?? runtimeState?.lastCheckpointId ?? null;
+      if (runtimeState && resolvedCheckpointId) runtimeState.lastCheckpointId = resolvedCheckpointId;
+
+      this._loopStatus = AgentStatus.PAUSED;
+      this._statusHistory.push({
+        from: oldStatus,
+        to: AgentStatus.PAUSED,
+        timestamp,
+        ...historyMeta,
+        ...(resolvedCheckpointId ? { checkpointId: resolvedCheckpointId } : {}),
+        pausedReason: reason,
+      });
+
+      throw new StagePausedError("Run paused", {
+        checkpointId: resolvedCheckpointId,
+        reason,
+        timestamp,
+        runId: historyMeta.runId ?? null,
+      });
+    }
+
+    this._loopStatus = newStatus;
+    this._statusHistory.push({
       from: oldStatus,
       to: newStatus,
       timestamp,
@@ -473,8 +475,8 @@ export class DesignAgentLoop extends BaseAgentLoop {
   }
 
   async _runRefine(deckPackage, contentPackage, runContext, context, userConfig, emit) {
-    const { runReactRefiner } = await import("./react-refiner.js");
-    const { createToolExecutor } = await import("./react-refiner-tools.js");
+    const { runReactRefiner } = await import("./refiner/react-refiner.js");
+    const { createToolExecutor } = await import("./refiner/react-refiner-tools.js");
 
     const toolContext = {
       deckPackage,
@@ -612,11 +614,8 @@ export class DesignAgentLoop extends BaseAgentLoop {
     });
     const startExecution = async (step, nodeStates) => {
       const loopIteration = ++iteration;
-      const baseMeta = buildLoopMeta(step, loopIteration);
-      await this._transitionTo(DesignLoopStatus.OBSERVING, baseMeta);
-      await this._transitionTo(DesignLoopStatus.THINKING, baseMeta);
-      const execMeta = nodeStates ? { ...baseMeta, nodeStates } : baseMeta;
-      await this._transitionTo(DesignLoopStatus.EXECUTING, execMeta);
+      // 用事件替代复杂状态转换
+      emitStage(emit, "design.step.started", "progress", { runId, step, iteration: loopIteration });
       const stepInfo = this._beginStep({
         name: step,
         runId,
@@ -626,7 +625,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
       return { loopIteration, stepInfo };
     };
     const finishExecution = async (step, loopIteration, stepInfo) => {
-      await this._transitionTo(DesignLoopStatus.REVIEWING, buildLoopMeta(step, loopIteration));
+      emitStage(emit, "design.step.completed", "progress", { runId, step, iteration: loopIteration });
       this._endStep(stepInfo, { status: "completed" });
     };
     const buildDeckSignature = (deckHtmlDsl) => {
@@ -653,7 +652,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
     };
 
     try {
-      await this._transitionTo(DesignLoopStatus.RUNNING, {
+      await this._transitionTo(AgentStatus.RUNNING, {
         runId,
         stageApi,
         state: buildLoopState("run_start"),
@@ -924,7 +923,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
 
         await finishExecution("visual_filling", visualIteration, visualStep);
         this._transitionPhase(this.phase, DesignPhase.COMPLETED, { emit, runId: runContext.runId });
-        await this._transitionTo(DesignLoopStatus.COMPLETED, {
+        await this._transitionTo(AgentStatus.COMPLETED, {
           runId,
           iteration,
           stageApi,
@@ -951,7 +950,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
         this._transitionPhase(this.phase, DesignPhase.COMPLETED, { emit, runId: runContext.runId });
       }
 
-      await this._transitionTo(DesignLoopStatus.COMPLETED, {
+      await this._transitionTo(AgentStatus.COMPLETED, {
         runId,
         iteration,
         stageApi,
@@ -987,10 +986,10 @@ export class DesignAgentLoop extends BaseAgentLoop {
       }
 
       try {
-        await this._transitionTo(DesignLoopStatus.ABORTED, {
+        await this._transitionTo(AgentStatus.FAILED, {
           runId,
           stageApi,
-          state: buildLoopState("aborted"),
+          state: buildLoopState("failed"),
           error: err?.message,
         });
       } catch {
@@ -1013,10 +1012,10 @@ export async function resumeDesignAgentLoop(checkpointId, stageApi = {}) {
   const nodeStates = snapshot.nodeStates || {};
 
   const agentLoop = new DesignAgentLoop({ ...stageApi, archive });
-  const restoredLoopStatus = nodeStates.loopStatus || DesignLoopStatus.IDLE;
+  const restoredLoopStatus = nodeStates.loopStatus || AgentStatus.IDLE;
   const restoredPhase = nodeStates.phase || DesignPhase.IDLE;
 
-  agentLoop._loopStatus = DesignLoopStatus.IDLE;
+  agentLoop._loopStatus = AgentStatus.IDLE;
   agentLoop.phase = { status: restoredPhase };
   if (Array.isArray(nodeStates.statusHistory)) {
     agentLoop._statusHistory = nodeStates.statusHistory.map((entry) => ({ ...entry }));

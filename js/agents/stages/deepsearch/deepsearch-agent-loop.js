@@ -4,17 +4,18 @@
  * 极简核心 + 可插拔机制
  */
 
-import { BaseAgentLoop } from "../../runtime/agent-loop.js";
+import { BaseAgentLoop } from "../../runtime/core/agent-loop.js";
 import { DeepSearchState } from "./state.js";
 import { getModelCaller } from "./model.js";
-import { createLogger } from "./logger.js";
+import { createLogger } from "./runtime/logger.js";
 import { skills, executeSkill } from "./skills/index.js";
-import { isPlainObject } from "../../shared/value-utils.js";
+import { isPlainObject } from "../../shared/utils/value-utils.js";
 
 // 可选机制（按需加载）
 let BudgetManager = null;
 let CheckpointManager = null;
 let SharedContext = null;
+let BacktrackManager = null;
 
 async function loadMechanisms() {
   try {
@@ -22,12 +23,16 @@ async function loadMechanisms() {
     BudgetManager = budget.BudgetManager || budget.default;
   } catch {}
   try {
-    const checkpoint = await import("./checkpoint.js");
+    const checkpoint = await import("./runtime/checkpoint.js");
     CheckpointManager = checkpoint.CheckpointManager || checkpoint.default;
   } catch {}
   try {
-    const shared = await import("./shared-context.js");
+    const shared = await import("./runtime/shared-context.js");
     SharedContext = shared.SharedContext || shared.default;
+  } catch {}
+  try {
+    const backtrack = await import("./runtime/backtrack-manager.js");
+    BacktrackManager = backtrack.BacktrackManager || backtrack.default;
   } catch {}
 }
 
@@ -62,7 +67,7 @@ const SYSTEM_PROMPT = `你是一个文档分析助手。
 
 export class DeepSearchAgentLoop extends BaseAgentLoop {
   constructor(options = {}) {
-    super(options);
+    super({ actor: "deepsearch", stageName: "deepsearch", ...options });
 
     this.status = AgentStatus.IDLE;
     this.state = null;
@@ -74,6 +79,8 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     this.budget = options.budget || null;
     this.checkpoint = options.checkpoint || null;
     this.sharedContext = options.sharedContext || null;
+    this.backtrackManager = options.backtrackManager || null;
+    this.maxBacktracks = options.maxBacktracks ?? 3;
 
     this._logger = createLogger("agent-loop");
   }
@@ -99,6 +106,14 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     }
     if (SharedContext && !this.sharedContext) {
       this.sharedContext = new SharedContext();
+    }
+    if (BacktrackManager && !this.backtrackManager) {
+      this.backtrackManager = new BacktrackManager({
+        archive: stageApi.archive,
+        maxBacktracks: this.maxBacktracks,
+        emit: (n, p) => this._emit(n, p),
+        logger: this._logger,
+      });
     }
 
     this._emit("agent.started", { runId: this.state.runId });
@@ -169,6 +184,27 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
           stageApi,
           sharedContext: this.sharedContext,
         });
+
+        // watchdog handoff 触发回溯
+        if (result?.mode === "handoff" && this.backtrackManager?.canBacktrack?.()) {
+          const backtrackResult = await this.backtrackManager.backtrack(
+            this.state,
+            null, // 使用最近的 checkpoint
+            {
+              failReason: result.handoff?.reason || "watchdog_handoff",
+              correctionHint: result.handoff?.hint,
+              sharedContext: this.sharedContext,
+            }
+          );
+          if (backtrackResult.success && backtrackResult.state) {
+            this.state = backtrackResult.state;
+            this.messages.push({
+              role: "user",
+              content: `已回溯到之前的状态。原因: ${result.handoff?.reason || "重新开始"}\n\n请基于新状态继续。`,
+            });
+            continue;
+          }
+        }
 
         // 保存 checkpoint
         if (this.checkpoint) {

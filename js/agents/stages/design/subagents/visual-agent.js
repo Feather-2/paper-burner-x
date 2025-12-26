@@ -1,8 +1,8 @@
-import { ImageGenerator } from "../image-generator.js";
-import { SVGGenerator } from "../svg-generator.js";
+import { ImageGenerator } from "../generators/image-generator.js";
+import { SVGGenerator } from "../generators/svg-generator.js";
 import { VisualSlotStatus, visualSlotMachine } from "../states.js";
 import { VisualType } from "../constants.js";
-import { normalizeRenderType } from "../../../shared/value-utils.js";
+import { normalizeRenderType } from "../../../shared/utils/value-utils.js";
 
 function toNonEmptyString(value) {
   if (value === undefined || value === null) return "";
