@@ -86,7 +86,9 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
   }
 
   _emit(name, payload) {
-    this.eventBus?.emit?.(name, { actor: "deepsearch", ...payload });
+    // 添加 deepsearch. 前缀，确保事件能被 workflow 层正确捕获
+    const eventName = name.startsWith("deepsearch.") ? name : `deepsearch.${name}`;
+    this.eventBus?.emit?.(eventName, { actor: "deepsearch", ...payload });
   }
 
   async run(input, context = {}) {
@@ -97,7 +99,9 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
 
     // 初始化
     this.state = this._ensureState(input);
+    const oldStatus = this.status;
     this.status = AgentStatus.RUNNING;
+    this._emit("agent.status.changed", { from: oldStatus, to: AgentStatus.RUNNING });
     this.messages = [];
 
     // 初始化机制
@@ -135,6 +139,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
       iteration++;
 
       if (signal?.aborted) {
+        this._emit("agent.status.changed", { from: this.status, to: AgentStatus.FAILED });
         this.status = AgentStatus.FAILED;
         throw new Error("Aborted");
       }
@@ -226,6 +231,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
       }
     }
 
+    this._emit("agent.status.changed", { from: this.status, to: AgentStatus.COMPLETED });
     this.status = AgentStatus.COMPLETED;
     this._emit("agent.completed", { runId: this.state.runId, iterations: iteration });
 

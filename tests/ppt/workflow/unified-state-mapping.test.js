@@ -9,34 +9,30 @@ async function loadWorkflowStates() {
   return await import("../../../js/ppt/workflow/workflow-states.js");
 }
 
-async function loadDeepsearchStates() {
-  return await import("../../../js/agents/stages/deepsearch/states.js");
-}
-
-async function loadDesignStates() {
-  return await import("../../../js/agents/stages/design/states.js");
+async function loadAgentStatus() {
+  return await import("../../../js/agents/runtime/core/agent-status.js");
 }
 
 test("AgentToWorkflowMap maps deepsearch and design statuses", async () => {
   const { AgentToWorkflowMap } = await loadUnifiedModule();
   const { WorkflowState } = await loadWorkflowStates();
-  const { AgentLoopStatus } = await loadDeepsearchStates();
-  const { DesignLoopStatus } = await loadDesignStates();
+  const { AgentStatus } = await loadAgentStatus();
 
+  // 简化后只有 IDLE, RUNNING, PAUSED, COMPLETED, FAILED
   assert.equal(
-    AgentToWorkflowMap.deepsearch[AgentLoopStatus.REVIEWING],
+    AgentToWorkflowMap.deepsearch[AgentStatus.PAUSED],
     WorkflowState.DEEPSEARCH_REVIEW
   );
   assert.equal(
-    AgentToWorkflowMap.deepsearch[AgentLoopStatus.COMPLETED],
+    AgentToWorkflowMap.deepsearch[AgentStatus.COMPLETED],
     WorkflowState.SCRIPT_REVIEW
   );
   assert.equal(
-    AgentToWorkflowMap.design[DesignLoopStatus.IDLE],
-    WorkflowState.PAGE_LAYOUT
+    AgentToWorkflowMap.design[AgentStatus.IDLE],
+    null // IDLE 不映射到任何 WorkflowState
   );
   assert.equal(
-    AgentToWorkflowMap.design[DesignLoopStatus.COMPLETED],
+    AgentToWorkflowMap.design[AgentStatus.COMPLETED],
     WorkflowState.COMPLETED
   );
 });
@@ -44,7 +40,7 @@ test("AgentToWorkflowMap maps deepsearch and design statuses", async () => {
 test("inferWorkflowStateFromEvent handles deepsearch/design/ingest events", async () => {
   const { inferWorkflowStateFromEvent } = await loadUnifiedModule();
   const { WorkflowState } = await loadWorkflowStates();
-  const { AgentLoopStatus } = await loadDeepsearchStates();
+  const { AgentStatus } = await loadAgentStatus();
 
   assert.equal(
     inferWorkflowStateFromEvent("deepsearch.agent.started", WorkflowState.READING),
@@ -62,11 +58,12 @@ test("inferWorkflowStateFromEvent handles deepsearch/design/ingest events", asyn
     inferWorkflowStateFromEvent("deepsearch.agent.paused", WorkflowState.RESEARCHING),
     WorkflowState.DEEPSEARCH_REVIEW
   );
+  // 简化后 status.changed 使用 AgentStatus.RUNNING
   assert.equal(
     inferWorkflowStateFromEvent(
       "deepsearch.agent.status.changed",
       WorkflowState.RESEARCHING,
-      { to: AgentLoopStatus.THINKING }
+      { to: AgentStatus.RUNNING }
     ),
     WorkflowState.RESEARCHING
   );
@@ -99,25 +96,27 @@ test("inferWorkflowStateFromEvent handles deepsearch/design/ingest events", asyn
 test("validateStateConsistency checks expected status ranges", async () => {
   const { validateStateConsistency } = await loadUnifiedModule();
   const { WorkflowState } = await loadWorkflowStates();
-  const { AgentLoopStatus } = await loadDeepsearchStates();
-  const { DesignLoopStatus } = await loadDesignStates();
+  const { AgentStatus } = await loadAgentStatus();
 
+  // 简化后 RESEARCHING 期望 RUNNING
   const ok = validateStateConsistency(
     WorkflowState.RESEARCHING,
-    AgentLoopStatus.EXECUTING
+    AgentStatus.RUNNING
   );
   assert.equal(ok.consistent, true);
-  assert.ok(ok.expected.includes(AgentLoopStatus.EXECUTING));
+  assert.ok(ok.expected.includes(AgentStatus.RUNNING));
 
+  // FAILED 不在 READING 的期望范围内
   const bad = validateStateConsistency(
     WorkflowState.READING,
-    AgentLoopStatus.ABORTED
+    AgentStatus.FAILED
   );
   assert.equal(bad.consistent, false);
 
+  // DESIGNER 期望 RUNNING 或 PAUSED
   const designOk = validateStateConsistency(
     WorkflowState.DESIGNER,
-    DesignLoopStatus.EXECUTING,
+    AgentStatus.RUNNING,
     "design"
   );
   assert.equal(designOk.consistent, true);
@@ -126,26 +125,25 @@ test("validateStateConsistency checks expected status ranges", async () => {
 test("StateSynchronizer updates workflow and tracks agent status", async () => {
   const { StateSynchronizer } = await loadUnifiedModule();
   const { WorkflowState } = await loadWorkflowStates();
-  const { AgentLoopStatus } = await loadDeepsearchStates();
-  const { DesignLoopStatus } = await loadDesignStates();
+  const { AgentStatus } = await loadAgentStatus();
 
   const context = { state: WorkflowState.READING };
   const sync = new StateSynchronizer(context);
 
   sync.handleAgentEvent("deepsearch.agent.status.changed", {
-    to: AgentLoopStatus.RUNNING,
+    to: AgentStatus.RUNNING,
   });
   assert.equal(context.state, WorkflowState.RESEARCHING);
-  assert.equal(sync.getAgentStatus("deepsearch"), AgentLoopStatus.RUNNING);
+  assert.equal(sync.getAgentStatus("deepsearch"), AgentStatus.RUNNING);
 
   context.state = WorkflowState.DESIGN_PREFERENCES;
   sync.handleAgentEvent("design.started");
   assert.equal(context.state, WorkflowState.DESIGNER);
 
   sync.handleAgentEvent("design.agent.status.changed", {
-    to: DesignLoopStatus.EXECUTING,
+    to: AgentStatus.RUNNING,
   });
   const report = sync.checkConsistency();
   assert.equal(report.consistent, true);
-  assert.equal(report.design.actual, DesignLoopStatus.EXECUTING);
+  assert.equal(report.design.actual, AgentStatus.RUNNING);
 });

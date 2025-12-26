@@ -214,6 +214,9 @@ export class DesignAgentLoop extends BaseAgentLoop {
         pausedReason: reason,
       });
 
+      // 发出暂停状态变更事件
+      this._emitAgentStatusChanged({ from: oldStatus, to: AgentStatus.PAUSED, timestamp, pausedReason: reason });
+
       throw new StagePausedError("Run paused", {
         checkpointId: resolvedCheckpointId,
         reason,
@@ -230,6 +233,9 @@ export class DesignAgentLoop extends BaseAgentLoop {
       ...historyMeta,
       ...(checkpointId ? { checkpointId } : {}),
     });
+
+    // 发出状态变更事件，供 UI/Workflow 层监听
+    this._emitAgentStatusChanged({ from: oldStatus, to: newStatus, timestamp, ...historyMeta });
 
     return checkpointId;
   }
