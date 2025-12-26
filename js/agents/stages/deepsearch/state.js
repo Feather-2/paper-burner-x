@@ -1,8 +1,65 @@
-import { PlanningTree } from "./planning-tree.js";
 import { isPlainObject, safeInt, safeNumber, toNonEmptyString } from "../../shared/value-utils.js";
 import { EVENT_SCHEMA_VERSION, EventStatus, ensureTokenUsage, extractJsonCandidate, normalizeBudgetConfig, normalizeTokenUsage, stripThinkingTags } from "./state-utils.js";
-import { computeRoundHitsByGapId, GapStatus, normalizeRoundHits, transitionGap } from "./gap-utils.js";
 import { CheckpointMode } from "./constants.js";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Gap Utils (内联自 gap-utils.js)
+// ─────────────────────────────────────────────────────────────────────────────
+export const GapStatus = Object.freeze({
+  OPEN: "open",
+  FILLED: "filled",
+  BLOCKED: "blocked",
+});
+
+export function transitionGap(gap, newStatus, meta, emitFn) {
+  if (!gap) return false;
+  const oldStatus = gap.status || GapStatus.OPEN;
+  if (oldStatus === newStatus) return false;
+  gap.status = newStatus;
+  gap.updatedAt = meta?.ts || Date.now();
+  if (emitFn) {
+    emitFn("deepsearch.gap.transitioned", { gapId: gap.gapId, from: oldStatus, to: newStatus });
+  }
+  return true;
+}
+
+export function computeRoundHitsByGapId(gaps) {
+  const result = new Map();
+  for (const g of gaps || []) {
+    if (g?.gapId) result.set(g.gapId, g.hitCount || 0);
+  }
+  return result;
+}
+
+function normalizeRoundHits(hits) {
+  if (hits instanceof Map) return hits;
+  if (typeof hits === "object" && hits !== null) return new Map(Object.entries(hits));
+  return new Map();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PlanningTree (内联自 planning-tree.js - 最小兼容实现)
+// ─────────────────────────────────────────────────────────────────────────────
+class PlanningTree {
+  constructor(options = {}) {
+    this.rootGoal = options.rootGoal || "";
+    this.runId = options.runId || "";
+    this.nodes = new Map();
+  }
+  expandFromGap() {}
+  expandFromTodo() {}
+  serialize() {
+    return { rootGoal: this.rootGoal, runId: this.runId };
+  }
+  toJSON() {
+    return this.serialize();
+  }
+  static fromJSON(json) {
+    if (!json || typeof json !== "object") return new PlanningTree();
+    return new PlanningTree({ rootGoal: json.rootGoal || "", runId: json.runId || "" });
+  }
+}
+
 import { DecisionOutcome, DecisionStage, TodoStatus } from "./states.js";
 import { createTodo } from "./todo-utils.js";
 import {
@@ -16,7 +73,6 @@ import {
 } from "./checkpoint.js";
 
 export { EVENT_SCHEMA_VERSION, EventStatus, extractJsonCandidate, normalizeBudgetConfig, stripThinkingTags };
-export { computeRoundHitsByGapId, GapStatus, transitionGap };
 export { loadCheckpoint };
 
 const STATE_SCHEMA_VERSION = "0.1";

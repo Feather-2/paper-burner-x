@@ -1,6 +1,6 @@
 /**
  * StageApiFactory - 统一 StageApi 创建
- * 
+ *
  * 解决问题：
  * 1. workflow-runtime.js 中 18 个参数手动注入
  * 2. stageApi 字段遗漏导致运行时错误
@@ -13,6 +13,16 @@ import { createStageApi } from "../shared/stage-api.js";
 const REQUIRED_FIELDS = ["signal", "emit"];
 const DEEPSEARCH_REQUIRED = [...REQUIRED_FIELDS, "aiApiService"];
 const DESIGN_REQUIRED = [...REQUIRED_FIELDS, "aiApiService"];
+
+/**
+ * 过滤掉 undefined 和 null 的值，避免覆盖已有配置
+ */
+function filterDefinedValues(obj) {
+  if (!obj || typeof obj !== 'object') return {};
+  return Object.fromEntries(
+    Object.entries(obj).filter(([, v]) => v !== undefined && v !== null)
+  );
+}
 
 export class StageApiFactory {
   constructor(services = {}) {
@@ -28,10 +38,12 @@ export class StageApiFactory {
    * 创建基础 StageApi
    */
   createBaseApi(overrides = {}) {
+    // 过滤 undefined 值，避免覆盖已有配置
+    const filtered = filterDefinedValues(overrides);
     return createStageApi({
       ...this.baseConfig,
       ...this.services,
-      ...overrides,
+      ...filtered,
     });
   }
 

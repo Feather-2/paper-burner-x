@@ -17,7 +17,7 @@ export class DeepsearchReviewView extends BaseView {
     this._adapter?.mountActiveFlowVisualizers?.();
     this.subscribeState((event) => {
       if (!this._mounted) return;
-      if (event.path === '' || event.path.startsWith('data.report')) {
+      if (event.path === '' || event.path.startsWith('data.report') || event.path.startsWith('ui.')) {
         this._adapter?.destroyFlowViz?.('deepsearch');
         this._container.innerHTML = this.render();
         this._adapter?.mountActiveFlowVisualizers?.();
@@ -33,6 +33,8 @@ export class DeepsearchReviewView extends BaseView {
     const markdown = this._getReportMarkdown();
     const hasContinue = typeof this._adapter?.continueDeepSearchIteration === 'function';
     const hasProceed = typeof this._adapter?.proceedToScriptReview === 'function';
+    const logs = this._getLogs();
+    const runLogs = this._getRunLogs();
 
     return `
       <div class="ppt-question-form">
@@ -42,6 +44,7 @@ export class DeepsearchReviewView extends BaseView {
         </div>
         <div class="form-body custom-scrollbar">
           ${this._renderDeepSearchVisualization()}
+          ${this._renderLogsPanel(logs, runLogs)}
 
           <div style="margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--ppt-border);">
             <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
@@ -83,6 +86,58 @@ export class DeepsearchReviewView extends BaseView {
     const stored = this.getState('data.reportMarkdown');
     if (typeof stored === 'string' && stored) return stored;
     return this._adapter?.getReportMarkdown?.() || '';
+  }
+
+  _getLogs() {
+    const logs = this.getState('ui.logs');
+    return Array.isArray(logs) ? logs : [];
+  }
+
+  _getRunLogs() {
+    const logs = this.getState('data.runLogs');
+    return Array.isArray(logs) ? logs : [];
+  }
+
+  _renderLogsPanel(logs, runLogs) {
+    const source = Array.isArray(logs) && logs.length ? logs : (Array.isArray(runLogs) ? runLogs : []);
+    const items = source.slice(-60).reverse();
+    if (!items.length) return '';
+
+    const badge = (level) => {
+      const lv = String(level || 'info');
+      if (lv === 'error') return { text: 'ERR', fg: '#dc2626', bg: 'rgba(220,38,38,0.12)' };
+      if (lv === 'warning' || lv === 'warn') return { text: 'WARN', fg: '#f59e0b', bg: 'rgba(245,158,11,0.14)' };
+      if (lv === 'debug') return { text: 'DBG', fg: '#64748b', bg: 'rgba(100,116,139,0.12)' };
+      return { text: 'INFO', fg: '#2563eb', bg: 'rgba(37,99,235,0.12)' };
+    };
+
+    const rows = items.map((log) => {
+      const ts = typeof log?.timestamp === 'number' ? new Date(log.timestamp).toLocaleTimeString() : '';
+      const lv = badge(log?.level);
+      const scope = typeof log?.scope === 'string' ? log.scope : 'log';
+      const stage = typeof log?.stage === 'string' && log.stage ? log.stage : '';
+      const title = stage ? `${scope}:${stage}` : scope;
+      const msg = escapeHtml(log?.message || '');
+      return `
+        <div style="display:flex; gap:10px; padding:10px 12px; border:1px solid var(--ppt-border); border-radius:10px; background:var(--ppt-panel-bg);">
+          <span style="flex:0 0 auto; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:650; color:${lv.fg}; background:${lv.bg};">${lv.text}</span>
+          <div style="flex:1; min-width:0;">
+            <div style="font-size:12px; color:var(--ppt-text-secondary);">${escapeHtml(title)}${ts ? ` · ${escapeHtml(ts)}` : ''}</div>
+            <div style="margin-top:2px; color:var(--ppt-text); white-space:pre-wrap; word-break:break-word;">${msg}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div style="margin-top: 14px; padding: 12px; border: 1px solid var(--ppt-border); border-radius: 12px; background: var(--ppt-panel-bg);">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px;">
+          <div style="font-weight:650; color: var(--ppt-text);">执行日志</div>
+          <div style="font-size:12px; color: var(--ppt-text-secondary);">最近 ${items.length} 条</div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:8px;">${rows}</div>
+      </div>
+    `;
   }
 
   _onContinueDeepSearchIteration() {

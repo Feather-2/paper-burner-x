@@ -23,7 +23,7 @@ import {
 import { CodeSearchPhase, codesearchPhaseMachine, TodoStatus, isValidTodoStatus } from "./states.js";
 
 // 复用 DeepSearch 基础设施
-import { createBudgetManager, BudgetAction } from "../deepsearch/budget.js";
+import { createBudgetManager, BudgetAction } from "../../shared/budget.js";
 import { makeStageEmitter } from "../deepsearch/state.js";
 import { createLogger } from "../deepsearch/logger.js";
 import { getModelCaller } from "../deepsearch/model.js";

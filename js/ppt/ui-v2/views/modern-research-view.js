@@ -30,7 +30,7 @@ export class ModernResearchView extends BaseView {
       if (!this._mounted) return;
       
       // 当文件、大纲或工作流状态变化时更新
-      if (event.path.startsWith('data.') || event.path.startsWith('workflow.')) {
+      if (event.path.startsWith('data.') || event.path.startsWith('workflow.') || event.path.startsWith('ui.')) {
         this._syncState();
       }
     });
@@ -44,10 +44,11 @@ export class ModernResearchView extends BaseView {
   _syncState() {
     const state = this._getWorkflowState();
     const data = this.getState('data') || {};
+    const ui = this.getState('ui') || {};
     
     this._updateStatusUI(state);
     this._updateFileSystem(data.files || []);
-    this._updateTimeline(state, data);
+    this._updateTimeline(state, data, ui);
     this._adapter?.updateCompressionPanel?.();
   }
 
@@ -82,32 +83,35 @@ export class ModernResearchView extends BaseView {
     `).join('');
   }
 
-  _updateTimeline(state, data) {
+  _updateTimeline(state, data, ui) {
     const timelineEl = this.$('#modernTimeline');
     if (!timelineEl) return;
 
-    // 这里可以根据历史日志或当前状态生成时间线
-    // 暂时用静态逻辑模拟 Cursor 式时间线
     const meta = STATUS_META[state] || STATUS_META.idle;
-    
-    // 模拟历史节点
-    const history = [
-      { state: 'idle', title: '启动系统', desc: '工作流引擎已就绪' }
-    ];
+    const runLogs = Array.isArray(data?.runLogs) ? data.runLogs : [];
+    const items = runLogs.slice(-18).reverse().map((log) => {
+      const level = typeof log?.level === 'string' ? log.level : 'info';
+      const scope = typeof log?.scope === 'string' ? log.scope : 'system';
+      const stage = typeof log?.stage === 'string' ? log.stage : '';
+      const title = stage ? `${scope}:${stage}` : scope;
+      const desc = typeof log?.message === 'string' ? log.message : '';
+      const active = level === 'error' || level === 'warning';
+      return { title, desc, active };
+    });
 
-    if (state !== 'idle') {
-      history.push({ state, title: meta.title, desc: meta.desc, active: true });
+    if (!items.length) {
+      items.push({ title: meta.title, desc: meta.desc, active: state !== 'idle' });
     }
 
-    timelineEl.innerHTML = history.reverse().map(item => `
-      <div class="timeline-item ${item.active ? 'active' : ''}">
-        <div class="timeline-dot"></div>
-        <div class="timeline-content">
-          <div class="timeline-title">${item.title}</div>
-          <div class="timeline-desc">${item.desc}</div>
+    timelineEl.innerHTML = items.map(item => `
+        <div class="timeline-item ${item.active ? 'active' : ''}">
+          <div class="timeline-dot"></div>
+          <div class="timeline-content">
+            <div class="timeline-title">${item.title}</div>
+            <div class="timeline-desc">${item.desc}</div>
+          </div>
         </div>
-      </div>
-    `).join('');
+      `).join('');
   }
 
   render() {

@@ -267,8 +267,10 @@ if (process.env.NODE_ENV === 'production' && process.env.FILE_VALIDATION_STRICT 
 const rootPath = join(__dirname, '../../');
 const staticOptions = {
   dotfiles: 'ignore',
-  maxAge: isProd ? '7d' : 0,
-  immutable: isProd,
+  // 由于静态资源文件名未做 hash/version，默认禁用强缓存，避免前端更新后仍命中旧缓存。
+  // 如需生产环境启用强缓存，请显式设置 STATIC_MAX_AGE（例如 "7d"）并配合 STATIC_IMMUTABLE=true 与资源版本化策略。
+  maxAge: process.env.STATIC_MAX_AGE || 0,
+  immutable: String(process.env.STATIC_IMMUTABLE || '').toLowerCase() === 'true',
   // 避免 /admin 被 express.static 重定向到 /admin/，影响测试与直达路由
   redirect: false,
 };

@@ -6,10 +6,27 @@
 import { FlowStage } from '../workflow/workflow-states.js';
 
 const CDN = {
-  react: "https://cdn.jsdelivr.net/npm/react@18.2.0/+esm",
-  reactDom: "https://cdn.jsdelivr.net/npm/react-dom@18.2.0/+esm",
-  reactFlow: "https://cdn.jsdelivr.net/npm/reactflow@11.7.4/+esm",
-  dagre: "https://cdn.jsdelivr.net/npm/dagre@0.8.5/dist/dagre.min.js",
+  react: [
+    "https://cdn.jsdelivr.net/npm/react@18.2.0/+esm",
+    "https://esm.sh/react@18.2.0",
+    "https://unpkg.com/react@18.2.0?module",
+  ],
+  reactDom: [
+    "https://cdn.jsdelivr.net/npm/react-dom@18.2.0/+esm",
+    "https://esm.sh/react-dom@18.2.0",
+    "https://esm.sh/react-dom@18.2.0/client",
+    "https://unpkg.com/react-dom@18.2.0?module",
+    "https://unpkg.com/react-dom@18.2.0/client?module",
+  ],
+  reactFlow: [
+    "https://cdn.jsdelivr.net/npm/reactflow@11.7.4/+esm",
+    "https://esm.sh/reactflow@11.7.4",
+    "https://unpkg.com/reactflow@11.7.4?module",
+  ],
+  dagre: [
+    "https://cdn.jsdelivr.net/npm/dagre@0.8.5/dist/dagre.min.js",
+    "https://unpkg.com/dagre@0.8.5/dist/dagre.min.js",
+  ],
 };
 
 function loadScript(src) {
@@ -21,6 +38,44 @@ function loadScript(src) {
     s.onerror = reject;
     document.head.appendChild(s);
   });
+}
+
+function ensureArray(value) {
+  if (Array.isArray(value)) return value.filter(Boolean);
+  return value ? [value] : [];
+}
+
+async function importEsmWithFallback(urls, label = "module") {
+  const candidates = ensureArray(urls);
+  let lastErr = null;
+  for (const url of candidates) {
+    try {
+      return await import(url);
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  const hint = candidates.length ? `Tried: ${candidates.join(", ")}` : "No candidates provided";
+  const err = lastErr instanceof Error ? lastErr : new Error(String(lastErr || "unknown error"));
+  err.message = `[flow-viz] Failed to import ${label}. ${hint}. Last error: ${err.message}`;
+  throw err;
+}
+
+async function loadScriptWithFallback(urls, label = "script") {
+  const candidates = ensureArray(urls);
+  let lastErr = null;
+  for (const url of candidates) {
+    try {
+      await loadScript(url);
+      return;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  const hint = candidates.length ? `Tried: ${candidates.join(", ")}` : "No candidates provided";
+  const err = lastErr instanceof Error ? lastErr : new Error(String(lastErr || "unknown error"));
+  err.message = `[flow-viz] Failed to load ${label}. ${hint}. Last error: ${err.message}`;
+  throw err;
 }
 
 // 阶段配置 - Premium Colors
@@ -1342,11 +1397,11 @@ export async function initDeepSearchFlow(containerId, options = {}) {
   } = options;
 
   const [ReactMod, ReactDOMMod, RFMod] = await Promise.all([
-    import(CDN.react),
-    import(CDN.reactDom),
-    import(CDN.reactFlow),
+    importEsmWithFallback(CDN.react, "react"),
+    importEsmWithFallback(CDN.reactDom, "react-dom"),
+    importEsmWithFallback(CDN.reactFlow, "reactflow"),
   ]);
-  await loadScript(CDN.dagre);
+  await loadScriptWithFallback(CDN.dagre, "dagre");
 
   const React = ReactMod.default || ReactMod;
   const ReactDOM = ReactDOMMod.default || ReactDOMMod;

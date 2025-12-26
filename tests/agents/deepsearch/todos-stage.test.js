@@ -41,26 +41,22 @@ test("DeepSearch todos: LLM success generates todos and emits events", async () 
   assert.equal(events.some((e) => e.name === "deepsearch.todos.completed"), true);
 });
 
-test("DeepSearch todos: LLM unavailable triggers pause + awaitUserFeedback", async () => {
+test("DeepSearch todos: LLM unavailable falls back to heuristic todos", async () => {
   const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
   const { runDeepSearchTodosStage } = await import("../../../js/agents/stages/deepsearch/todos.js");
-  const { StagePausedError } = await import("../../../js/agents/runtime/stage-errors.js");
 
   const state = new DeepSearchState({ runId: "run_todos_pause", taskGoal: "Explain Beta" });
 
-  await assert.rejects(
-    runDeepSearchTodosStage({ runId: "run_todos_pause" }, { state }, {}),
-    (err) => err instanceof StagePausedError
-  );
+  const result = await runDeepSearchTodosStage({ runId: "run_todos_pause" }, { state }, {});
 
-  assert.equal(state.L2.awaitUserFeedback, true);
-  assert.equal(state.L2.reason, "LLM unavailable, awaiting user input");
+  assert.equal(Array.isArray(result.todos), true);
+  assert.equal(result.todos.length > 0, true);
+  assert.equal(state.L2.awaitUserFeedback, false);
 });
 
-test("DeepSearch todos: invalid LLM output triggers pause", async () => {
+test("DeepSearch todos: invalid LLM output falls back to heuristic todos", async () => {
   const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
   const { runDeepSearchTodosStage } = await import("../../../js/agents/stages/deepsearch/todos.js");
-  const { StagePausedError } = await import("../../../js/agents/runtime/stage-errors.js");
 
   const modelRouter = {
     call: async () => ({ content: "not-json", usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } }),
@@ -68,12 +64,9 @@ test("DeepSearch todos: invalid LLM output triggers pause", async () => {
 
   const state = new DeepSearchState({ runId: "run_todos_bad", taskGoal: "Explain Gamma" });
 
-  await assert.rejects(
-    runDeepSearchTodosStage({ runId: "run_todos_bad" }, { state }, { modelRouter }),
-    (err) => err instanceof StagePausedError
-  );
-
-  assert.equal(state.L2.awaitUserFeedback, true);
+  const result = await runDeepSearchTodosStage({ runId: "run_todos_bad" }, { state }, { modelRouter });
+  assert.equal(result.todos.length > 0, true);
+  assert.equal(state.L2.awaitUserFeedback, false);
 });
 
 test("DeepSearch todos: skips LLM when user todos exist", async () => {

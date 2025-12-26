@@ -5,6 +5,7 @@
 
 import { getUIEventBus } from './event-bus.js';
 import { WorkflowState as RuntimeWorkflowState } from '../../workflow/workflow-states.js';
+import { mapWorkflowStateFromLoopStatus, normalizeLoopStatusForUi } from '../../workflow/unified-state-mapping.js';
 
 // 工作流状态（对齐 workflow-states.js）
 export const WorkflowState = Object.freeze({
@@ -41,47 +42,8 @@ export const ViewType = Object.freeze({
 const DEEPSEARCH_VIEW_STATES = new Set([
   WorkflowState.READING,
   WorkflowState.SCANNING,
-  WorkflowState.RESEARCHING,
-  WorkflowState.DEEPSEARCH_REVIEW
+  WorkflowState.RESEARCHING
 ]);
-
-const LOOP_RUNNING_STATUSES = new Set(['running', 'observing', 'thinking', 'executing', 'reviewing']);
-const LOOP_PAUSED_STATUSES = new Set(['paused']);
-const LOOP_COMPLETED_STATUSES = new Set(['completed']);
-const LOOP_FAILED_STATUSES = new Set(['aborted', 'failed']);
-
-function normalizeAgentStatus(loopStatus) {
-  if (!loopStatus || typeof loopStatus !== 'string') return AgentStatus.IDLE;
-  if (LOOP_RUNNING_STATUSES.has(loopStatus)) return AgentStatus.RUNNING;
-  if (LOOP_PAUSED_STATUSES.has(loopStatus)) return AgentStatus.PAUSED;
-  if (LOOP_COMPLETED_STATUSES.has(loopStatus)) return AgentStatus.COMPLETED;
-  if (LOOP_FAILED_STATUSES.has(loopStatus)) return AgentStatus.FAILED;
-  if (loopStatus === 'idle') return AgentStatus.IDLE;
-  return AgentStatus.RUNNING;
-}
-
-function mapDeepsearchWorkflowState(loopStatus) {
-  if (!loopStatus) return null;
-  if (['running', 'observing', 'thinking', 'executing'].includes(loopStatus)) {
-    return WorkflowState.RESEARCHING;
-  }
-  if (loopStatus === 'reviewing' || loopStatus === 'paused') {
-    return WorkflowState.DEEPSEARCH_REVIEW;
-  }
-  if (loopStatus === 'completed') return WorkflowState.SCRIPT_REVIEW;
-  if (loopStatus === 'aborted') return WorkflowState.FAILED;
-  return null;
-}
-
-function mapDesignWorkflowState(loopStatus) {
-  if (!loopStatus) return null;
-  if (['running', 'observing', 'thinking', 'executing', 'reviewing', 'paused'].includes(loopStatus)) {
-    return WorkflowState.DESIGNER;
-  }
-  if (loopStatus === 'completed') return WorkflowState.COMPLETED;
-  if (loopStatus === 'aborted') return WorkflowState.FAILED;
-  return null;
-}
 
 function resolveViewForWorkflowState(state) {
   if (!state) return null;
@@ -177,6 +139,7 @@ const createInitialState = () => ({
   data: {
     files: [],
     sources: [],
+    runLogs: [],
     generationMode: 'deepsearch',
     workflowMode: 'auto',
     reportConfig: {
@@ -308,18 +271,35 @@ export class StateStore {
       }
     };
 
+    const addAgentLog = (eventName, payload) => {
+      const m = typeof eventName === 'string' ? eventName.match(/^(deepsearch|design)\\.log\\.(debug|info|warn|error)$/) : null;
+      if (!m) return;
+      const scope = m[1];
+      const level = m[2] === 'warn' ? 'warning' : m[2];
+      const message = typeof payload?.message === 'string' ? payload.message : '';
+      if (!message) return;
+      const stage = typeof payload?.stage === 'string' ? payload.stage : '';
+      const iteration = typeof payload?.iteration === 'number' ? payload.iteration : null;
+      const data = payload?.data && typeof payload.data === 'object' ? payload.data : null;
+
+      this.addLog({
+        scope,
+        level,
+        message,
+        stage,
+        iteration: iteration !== null ? iteration + 1 : null,
+        reason: typeof data?.reason === 'string' ? data.reason : null,
+      });
+    };
+
     const applyAgentLoopStatus = (agentKey, loopStatus, payload) => {
       if (!loopStatus || typeof loopStatus !== 'string') return;
-      const normalized = normalizeAgentStatus(loopStatus);
+      const normalized = normalizeLoopStatusForUi(loopStatus, { empty: AgentStatus.IDLE, unknown: AgentStatus.RUNNING });
       const updates = {
         [`${agentKey}.loopStatus`]: loopStatus,
         [`${agentKey}.status`]: normalized
       };
-      const workflowState = agentKey === 'deepsearch'
-        ? mapDeepsearchWorkflowState(loopStatus)
-        : agentKey === 'design'
-          ? mapDesignWorkflowState(loopStatus)
-          : null;
+      const workflowState = mapWorkflowStateFromLoopStatus(agentKey, loopStatus, this.get('workflow.state'));
 
       if (workflowState) {
         updates['workflow.state'] = workflowState;
@@ -347,6 +327,19 @@ export class StateStore {
         this.set('deepsearch.iteration', payload.iterations);
       } else if (typeof payload?.iteration === 'number') {
         this.set('deepsearch.iteration', payload.iteration + 1);
+      }
+
+      const workflowMode = this.get('data.workflowMode') || 'auto';
+      if (workflowMode === 'auto') {
+        this.update({
+          'workflow.state': WorkflowState.SCRIPT_REVIEW,
+          'ui.view': ViewType.SCRIPT_REVIEW,
+        });
+      } else {
+        this.update({
+          'workflow.state': WorkflowState.DEEPSEARCH_REVIEW,
+          'ui.view': ViewType.DEEPSEARCH_REVIEW,
+        });
       }
     };
 
@@ -395,6 +388,7 @@ export class StateStore {
     // DeepSearch Agent 事件
     bus.on('deepsearch.agent.started', (_, p) => markDeepsearchStarted(p));
     bus.on('deepsearch.started', (_, p) => markDeepsearchStarted(p));
+    bus.on('deepsearch.log.*', (name, p) => addAgentLog(name, p));
 
     bus.on('deepsearch.agent.status.changed', (_, p) => {
       applyAgentLoopStatus('deepsearch', p?.to, p);
@@ -445,6 +439,7 @@ export class StateStore {
     bus.on('design.started', (_, p) => markDesignStarted(p));
     bus.on('design.ended', (_, p) => markDesignCompleted(p));
     bus.on('design.completed', (_, p) => markDesignCompleted(p));
+    bus.on('design.log.*', (name, p) => addAgentLog(name, p));
   }
 
   /**

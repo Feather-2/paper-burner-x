@@ -58,6 +58,27 @@ function emitUiV2Event(name, payload) {
 }
 
 export const runtimeMixin = {
+    _ensureRunLogStore() {
+        if (!this.workflowData) this.workflowData = {};
+        if (!Array.isArray(this.workflowData.runLogs)) this.workflowData.runLogs = [];
+        return this.workflowData.runLogs;
+    },
+    _appendRunLog(entry) {
+        const logs = this._ensureRunLogStore();
+        if (!entry || typeof entry !== 'object') return;
+        const coalesceKey = typeof entry.coalesceKey === 'string' ? entry.coalesceKey : '';
+        const last = logs.length ? logs[logs.length - 1] : null;
+        if (coalesceKey && last && typeof last === 'object' && last.coalesceKey === coalesceKey) {
+            last.timestamp = entry.timestamp;
+            last.message = entry.message;
+            last.details = entry.details;
+            last.level = entry.level;
+            last.eventName = entry.eventName;
+        } else {
+            logs.push(entry);
+        }
+        if (logs.length > 800) this.workflowData.runLogs = logs.slice(-800);
+    },
     _getDesignStageUserConfig() {
         const ds = this._ensureDesignSystemInitialized();
         const prefs = ds?.designPreferences && typeof ds.designPreferences === 'object' ? ds.designPreferences : {};
@@ -175,7 +196,7 @@ export const runtimeMixin = {
         if (list.length > limit) this.workflowData.flowVizEvents[kind] = list.slice(-limit);
     },
     _pushToProcessPanel(name, payload) {
-        if (typeof this.addProcessPanelStep !== 'function') return;
+        const canRenderPanel = typeof this.addProcessPanelStep === 'function';
 
         // Compat: slideIndexes (0-based) -> slideRange (1-based inclusive)
         const normalizedPayload = payload && typeof payload === 'object' ? { ...payload } : {};
@@ -186,6 +207,57 @@ export const runtimeMixin = {
                 const max = Math.max(...nums);
                 normalizedPayload.slideRange = [min + 1, max + 1];
             }
+        }
+
+        // Pipe agent-side structured logs into the same process panel (legacy dashboard).
+        // Agents emit `deepsearch.log.<level>` and `design.log.<level>`; surface them as `log.*`.
+        const logMatch = typeof name === 'string'
+            ? name.match(/^(deepsearch|design)\.log\.(debug|info|warn|error)$/)
+            : null;
+        if (logMatch) {
+            const domain = logMatch[1];
+            const level = logMatch[2];
+            const message = typeof normalizedPayload?.message === 'string' ? normalizedPayload.message : '';
+            const stage = typeof normalizedPayload?.stage === 'string' ? normalizedPayload.stage : '';
+            const details = {};
+            const label = domain === 'design' ? 'Design' : 'DeepSearch';
+            details.agent = stage ? `${label}:${stage}` : label;
+
+            const extra = normalizedPayload?.data && typeof normalizedPayload.data === 'object' ? normalizedPayload.data : null;
+            if (extra?.reason) details.reason = extra.reason;
+            if (extra?.error) details.error = extra.error;
+            if (typeof normalizedPayload?.iteration === 'number') details.iteration = normalizedPayload.iteration + 1;
+
+            const mappedLevel = level === 'warn' ? 'warning' : level;
+            if (message) {
+                this._appendRunLog({
+                    timestamp: Date.now(),
+                    scope: domain,
+                    level: mappedLevel,
+                    eventName: name,
+                    message,
+                    stage: stage || null,
+                    iteration: typeof normalizedPayload?.iteration === 'number' ? normalizedPayload.iteration + 1 : null,
+                    details,
+                });
+            }
+            if (mappedLevel === 'warning' || mappedLevel === 'error') {
+                try {
+                    this.logTerminal?.(details.agent || label, message, mappedLevel === 'error' ? 'warning' : 'normal');
+                } catch {
+                    // ignore
+                }
+            }
+            if (message) {
+                if (canRenderPanel) {
+                    this.addProcessPanelStep({
+                        name: `log.${mappedLevel}`,
+                        text: message,
+                        details,
+                    });
+                }
+            }
+            return;
         }
 
         const totalIdeas = normalizedPayload.totalIdeas ?? normalizedPayload.totalCandidates;
@@ -286,24 +358,41 @@ export const runtimeMixin = {
         const text = eventDescriptions[name];
         if (!text) return; // Skip events we don't want to show
 
-        this.addProcessPanelStep({
-            name,
-            text,
-            details:
-                compressionDetails ? compressionDetails :
-                normalizedPayload?.todoCount ? { todos: normalizedPayload.todoCount } :
-                normalizedPayload?.totalTodos ? { todos: normalizedPayload.totalTodos } :
-                normalizedPayload?.totalGaps ? { gaps: normalizedPayload.totalGaps } :
-                normalizedPayload?.iteration !== undefined ? { iteration: normalizedPayload.iteration + 1 } :
-                phaseLabel ? { phase: phaseLabel } :
-                normalizedPayload?.slideRange ? { slides: normalizedPayload.slideRange.join('-') } :
-                Number.isFinite(totalIdeas) ? { ideas: totalIdeas } :
-                typeof normalizedPayload?.planned === 'number' ? { planned: normalizedPayload.planned } :
-                typeof normalizedPayload?.slides === 'number' ? { slides: normalizedPayload.slides } :
-                typeof normalizedPayload?.degradedCount === 'number' ? { degraded: normalizedPayload.degradedCount } :
-                typeof normalizedPayload?.slideNo === 'number' ? { slide: normalizedPayload.slideNo } :
-                null
+        const details =
+            compressionDetails ? compressionDetails :
+            normalizedPayload?.todoCount ? { todos: normalizedPayload.todoCount } :
+            normalizedPayload?.totalTodos ? { todos: normalizedPayload.totalTodos } :
+            normalizedPayload?.totalGaps ? { gaps: normalizedPayload.totalGaps } :
+            normalizedPayload?.iteration !== undefined ? { iteration: normalizedPayload.iteration + 1 } :
+            phaseLabel ? { phase: phaseLabel } :
+            normalizedPayload?.slideRange ? { slides: normalizedPayload.slideRange.join('-') } :
+            Number.isFinite(totalIdeas) ? { ideas: totalIdeas } :
+            typeof normalizedPayload?.planned === 'number' ? { planned: normalizedPayload.planned } :
+            typeof normalizedPayload?.slides === 'number' ? { slides: normalizedPayload.slides } :
+            typeof normalizedPayload?.degradedCount === 'number' ? { degraded: normalizedPayload.degradedCount } :
+            typeof normalizedPayload?.slideNo === 'number' ? { slide: normalizedPayload.slideNo } :
+            null;
+
+        const progressMatch = String(text).match(/(\d+)\s*\/\s*(\d+)/);
+        const progressPrefix = progressMatch ? String(text).replace(/\d+\s*\/\s*\d+.*$/, '').trim() : '';
+        const level =
+            String(name).includes('failed') || String(name).includes('.error') ? 'error' :
+            String(name).startsWith('compression.forced') ? 'warning' :
+            String(name).includes('paused') ? 'warning' :
+            'info';
+        this._appendRunLog({
+            timestamp: Date.now(),
+            scope: String(name).split('.')[0] || 'event',
+            level,
+            eventName: name,
+            message: text,
+            details,
+            ...(progressPrefix ? { coalesceKey: `progress:${progressPrefix}` } : {}),
         });
+
+        if (!canRenderPanel) return;
+
+        this.addProcessPanelStep({ name, text, details });
     },
     _ensureDesignSystemInitialized() {
         if (!this.workflowData) this.workflowData = {};
@@ -1353,16 +1442,16 @@ export const runtimeMixin = {
             signal: orch.signal,
             eventBus: orch.eventBus,
             emit: orch.emit,
-            aiApiService: orch.runContext?.aiApiService,
-            modelRouter: orch.runContext?.modelRouter,
-            localRetriever: orch.runContext?.localRetriever,
-            externalSearchProvider: orch.runContext?.externalSearchProvider,
-            storageAdapter: orch.runContext?.storageAdapter,
-            ocr: orch.runContext?.ocr,
-            imageProvider: orch.runContext?.imageProvider || orch.runContext?.imageService,
-            svgGenerator: orch.runContext?.svgGenerator,
-            archive: orch.runContext?.archive,
-            logger: orch.runContext?.logger,
+            aiApiService: orch._services?.aiApiService,
+            modelRouter: orch._services?.modelRouter,
+            localRetriever: orch._services?.localRetriever,
+            externalSearchProvider: orch._services?.externalSearchProvider,
+            storageAdapter: orch._services?.storageAdapter,
+            ocr: orch._services?.ocr,
+            imageProvider: orch._services?.imageProvider || orch._services?.imageService,
+            svgGenerator: orch._services?.svgGenerator,
+            archive: orch._services?.archive,
+            logger: orch._services?.logger,
         });
 
         if (runtimeMode === 'deepsearch') {

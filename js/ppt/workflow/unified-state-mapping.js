@@ -1,4 +1,4 @@
-/**
+  /**
  * UnifiedStateMapping - 统一 WorkflowState 和 AgentLoopStatus
  *
  * 解决问题：
@@ -11,6 +11,39 @@ import { WorkflowState, transitionWorkflow } from "./workflow-states.js";
 import { AgentLoopStatus } from "../../agents/stages/deepsearch/states.js";
 import { DesignLoopStatus } from "../../agents/stages/design/states.js";
 
+const LOOP_RUNNING_STATUSES = new Set([
+  AgentLoopStatus.RUNNING,
+  AgentLoopStatus.OBSERVING,
+  AgentLoopStatus.THINKING,
+  AgentLoopStatus.EXECUTING,
+  AgentLoopStatus.REVIEWING,
+]);
+const LOOP_PAUSED_STATUSES = new Set([AgentLoopStatus.PAUSED]);
+const LOOP_COMPLETED_STATUSES = new Set([AgentLoopStatus.COMPLETED]);
+const LOOP_FAILED_STATUSES = new Set([AgentLoopStatus.ABORTED, "failed"]);
+
+export const UiAgentStatus = Object.freeze({
+  IDLE: "idle",
+  RUNNING: "running",
+  PAUSED: "paused",
+  COMPLETED: "completed",
+  FAILED: "failed",
+});
+
+export function normalizeLoopStatusForUi(
+  loopStatus,
+  { empty = UiAgentStatus.IDLE, unknown = UiAgentStatus.RUNNING } = {}
+) {
+  if (!loopStatus || typeof loopStatus !== "string") return empty;
+  if (LOOP_RUNNING_STATUSES.has(loopStatus)) return UiAgentStatus.RUNNING;
+  if (LOOP_PAUSED_STATUSES.has(loopStatus)) return UiAgentStatus.PAUSED;
+  if (LOOP_COMPLETED_STATUSES.has(loopStatus)) return UiAgentStatus.COMPLETED;
+  if (LOOP_FAILED_STATUSES.has(loopStatus)) return UiAgentStatus.FAILED;
+  if (loopStatus === AgentLoopStatus.IDLE) return UiAgentStatus.IDLE;
+  if (Object.values(UiAgentStatus).includes(loopStatus)) return loopStatus;
+  return unknown;
+}
+
 /**
  * AgentLoopStatus → WorkflowState 映射
  * 根据当前 workflow 阶段和 agent 状态，推断 UI 应显示的状态
@@ -18,7 +51,7 @@ import { DesignLoopStatus } from "../../agents/stages/design/states.js";
 export const AgentToWorkflowMap = Object.freeze({
   // DeepSearch Agent 状态映射
   deepsearch: {
-    [AgentLoopStatus.IDLE]: WorkflowState.IDLE,
+    [AgentLoopStatus.IDLE]: null,
     [AgentLoopStatus.RUNNING]: WorkflowState.RESEARCHING,
     [AgentLoopStatus.OBSERVING]: WorkflowState.RESEARCHING,
     [AgentLoopStatus.THINKING]: WorkflowState.RESEARCHING,
@@ -31,7 +64,7 @@ export const AgentToWorkflowMap = Object.freeze({
 
   // Design Agent 状态映射
   design: {
-    [DesignLoopStatus.IDLE]: WorkflowState.PAGE_LAYOUT,
+    [DesignLoopStatus.IDLE]: null,
     [DesignLoopStatus.RUNNING]: WorkflowState.DESIGNER,
     [DesignLoopStatus.OBSERVING]: WorkflowState.DESIGNER,
     [DesignLoopStatus.THINKING]: WorkflowState.DESIGNER,
@@ -42,6 +75,20 @@ export const AgentToWorkflowMap = Object.freeze({
     [DesignLoopStatus.ABORTED]: WorkflowState.FAILED,
   },
 });
+
+export function mapWorkflowStateFromLoopStatus(agentType, loopStatus, currentWorkflowState) {
+  if (!agentType || typeof agentType !== "string") return null;
+  if (!loopStatus || typeof loopStatus !== "string") return null;
+
+  const terminalStates = [WorkflowState.FAILED, WorkflowState.COMPLETED, WorkflowState.DEEPSEARCH_REVIEW];
+  if (terminalStates.includes(currentWorkflowState)) {
+    return null;
+  }
+
+  const map = agentType === "design" ? AgentToWorkflowMap.design : AgentToWorkflowMap.deepsearch;
+  const mapped = map?.[loopStatus];
+  return typeof mapped === "string" && mapped ? mapped : null;
+}
 
 /**
  * WorkflowState → 预期 AgentLoopStatus 范围
@@ -56,6 +103,7 @@ export const WorkflowToAgentExpectation = Object.freeze({
     AgentLoopStatus.EXECUTING,
   ],
   [WorkflowState.DEEPSEARCH_REVIEW]: [
+    AgentLoopStatus.EXECUTING, // 允许在执行末尾进入审阅态
     AgentLoopStatus.REVIEWING,
     AgentLoopStatus.PAUSED,
     AgentLoopStatus.COMPLETED,
@@ -93,20 +141,14 @@ export function inferWorkflowStateFromEvent(eventName, currentWorkflowState, pay
       return WorkflowState.DEEPSEARCH_REVIEW;
     }
     if (eventName === "deepsearch.agent.status.changed") {
-      const agentStatus = payload?.to;
-      if (agentStatus && AgentToWorkflowMap.deepsearch[agentStatus]) {
-        return AgentToWorkflowMap.deepsearch[agentStatus];
-      }
+      return mapWorkflowStateFromLoopStatus("deepsearch", payload?.to, currentWorkflowState);
     }
   }
 
   // Design 事件
   if (eventName.startsWith("design.")) {
     if (eventName === "design.agent.status.changed" || eventName === "design.loop.status.changed") {
-      const agentStatus = payload?.to;
-      if (agentStatus && AgentToWorkflowMap.design[agentStatus]) {
-        return AgentToWorkflowMap.design[agentStatus];
-      }
+      return mapWorkflowStateFromLoopStatus("design", payload?.to, currentWorkflowState);
     }
     if (eventName === "design.started") {
       return WorkflowState.DESIGNER;
@@ -174,8 +216,26 @@ export class StateSynchronizer {
     if (eventName === "deepsearch.agent.status.changed") {
       this._agentStatus.deepsearch = payload?.to || this._agentStatus.deepsearch;
     }
+    if (eventName === "deepsearch.agent.started" || eventName === "deepsearch.started") {
+      if (this._agentStatus.deepsearch === AgentLoopStatus.IDLE) this._agentStatus.deepsearch = AgentLoopStatus.RUNNING;
+    }
+    if (eventName === "deepsearch.agent.paused") {
+      this._agentStatus.deepsearch = AgentLoopStatus.PAUSED;
+    }
+    if (eventName === "deepsearch.agent.completed") {
+      this._agentStatus.deepsearch = AgentLoopStatus.COMPLETED;
+    }
+    if (eventName === "deepsearch.agent.aborted" || eventName === "deepsearch.agent.failed") {
+      this._agentStatus.deepsearch = AgentLoopStatus.ABORTED;
+    }
     if (eventName === "design.agent.status.changed" || eventName === "design.loop.status.changed") {
       this._agentStatus.design = payload?.to || this._agentStatus.design;
+    }
+    if (eventName === "design.ended" || eventName === "design.agent.completed" || eventName === "design.completed") {
+      this._agentStatus.design = DesignLoopStatus.COMPLETED;
+    }
+    if (eventName === "design.failed" || eventName === "design.agent.failed" || eventName === "design.agent.aborted") {
+      this._agentStatus.design = DesignLoopStatus.ABORTED;
     }
 
     // 推断 workflow 状态
@@ -195,6 +255,18 @@ export class StateSynchronizer {
         console.warn(`[StateSynchronizer] 无法转换到 ${suggested}，当前状态 ${this.context.state}`);
       }
     }
+
+    // 监测状态一致性
+    const consistency = this.checkConsistency();
+    if (!consistency.consistent && consistency.primary) {
+      console.warn(`[StateSynchronizer] ${eventName} 触发后检测到状态不一致:`, {
+        workflowState: consistency.primary.workflowState,
+        agentStatus: consistency.primary.actual,
+        expected: consistency.primary.expected,
+        agentType: consistency.primary.agentType,
+        payload,
+      });
+    }
   }
 
   /**
@@ -208,22 +280,21 @@ export class StateSynchronizer {
    * 检查状态一致性
    */
   checkConsistency() {
-    const deepsearchResult = validateStateConsistency(
-      this.context.state,
-      this._agentStatus.deepsearch,
-      "deepsearch"
-    );
-    const designResult = validateStateConsistency(
-      this.context.state,
-      this._agentStatus.design,
-      "design"
-    );
+    const state = this.context.state;
+    const deepsearchRelevant = new Set([WorkflowState.READING, WorkflowState.RESEARCHING, WorkflowState.DEEPSEARCH_REVIEW]);
+    const designRelevant = new Set([WorkflowState.DESIGNER]);
 
-    return {
-      consistent: deepsearchResult.consistent && designResult.consistent,
-      deepsearch: deepsearchResult,
-      design: designResult,
-    };
+    if (designRelevant.has(state)) {
+      const designResult = validateStateConsistency(state, this._agentStatus.design, "design");
+      return { consistent: designResult.consistent, primary: designResult, deepsearch: null, design: designResult };
+    }
+
+    if (deepsearchRelevant.has(state)) {
+      const deepsearchResult = validateStateConsistency(state, this._agentStatus.deepsearch, "deepsearch");
+      return { consistent: deepsearchResult.consistent, primary: deepsearchResult, deepsearch: deepsearchResult, design: null };
+    }
+
+    return { consistent: true, primary: null, deepsearch: null, design: null };
   }
 }
 

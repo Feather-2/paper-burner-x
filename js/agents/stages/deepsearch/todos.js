@@ -4,10 +4,9 @@ import { loadPrompt } from "../../prompts/prompt-loader.js";
 import { createTodo, validateTodo } from "./todo-utils.js";
 import { createLogger } from "./logger.js";
 import { extractServices } from "./stage-api.js";
-import { StagePausedError } from "../../runtime/stage-errors.js";
 import { isPlainObject, toNonEmptyString } from "../../shared/value-utils.js";
 
-const PAUSE_REASON = "LLM unavailable, awaiting user input";
+const FALLBACK_REASON = "LLM unavailable or invalid output; using heuristic todos";
 const DEFAULT_PROMPT =
   "You are a DeepSearch todo planner. Return ONLY a JSON array of todos " +
   "with fields: text, priority, queryHints, expectedEvidence. " +
@@ -46,6 +45,65 @@ function normalizeTodosCacheKeyInputs(taskGoal, scanSummary) {
     summaryText,
     keyTopics,
   };
+}
+
+function uniqueStrings(values) {
+  const out = [];
+  const seen = new Set();
+  for (const v of values) {
+    const s = typeof v === "string" ? v.trim() : "";
+    if (!s) continue;
+    const key = s.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(s);
+  }
+  return out;
+}
+
+function buildFallbackTodos(state, scanSummary) {
+  const taskGoal = truncate(state?.taskGoal || "", 160);
+  const topics = Array.isArray(scanSummary?.keyTopics) ? scanSummary.keyTopics.map((t) => truncate(t, 60)) : [];
+  const summary = truncate(scanSummary?.summaryText || "", 240);
+  const baseHints = uniqueStrings([taskGoal, ...topics]).slice(0, 6);
+
+  const todos = [];
+
+  const mainText = taskGoal
+    ? `围绕目标“${taskGoal}”检索关键事实并整理可引用证据`
+    : "围绕用户目标检索关键事实并整理可引用证据";
+  todos.push({
+    text: mainText,
+    priority: "high",
+    queryHints: baseHints.length ? baseHints : [],
+    expectedEvidence: "可引用的原文片段/数据/权威结论",
+    source: "system",
+  });
+
+  const topicTodos = topics.filter(Boolean).slice(0, 2);
+  for (const topic of topicTodos) {
+    const hints = uniqueStrings([topic, ...baseHints]).slice(0, 6);
+    todos.push({
+      text: `聚焦主题“${topic}”：提取定义、关键指标与结论`,
+      priority: "medium",
+      queryHints: hints,
+      expectedEvidence: "定义/数据/对比/结论（含出处）",
+      source: "system",
+    });
+  }
+
+  if (!topicTodos.length) {
+    const hints = uniqueStrings([taskGoal, ...(summary ? [summary] : [])]).slice(0, 6);
+    todos.push({
+      text: "从现有来源中提炼 5-10 条关键论点，并为每条论点补充证据",
+      priority: "medium",
+      queryHints: hints,
+      expectedEvidence: "论点 + 支撑证据（引用片段/出处）",
+      source: "system",
+    });
+  }
+
+  return todos.filter((t) => toNonEmptyString(t?.text)).slice(0, 4);
 }
 
 async function loadTodosPrompt() {
@@ -149,23 +207,9 @@ export async function runDeepSearchTodosStage(runContext, input, stageApi = {}) 
   const scanSummary = isPlainObject(input?.scanSummary) ? input.scanSummary : isPlainObject(state?.L1?.scanSummary) ? state.L1.scanSummary : {};
   const rawTodos = await tryLLMTodos(state, scanSummary, stageApi);
 
-  if (!Array.isArray(rawTodos)) {
-    logger.warn("Todos stage paused: LLM unavailable or invalid output", { stage: "todos", data: { reason: PAUSE_REASON } });
-    state.setAwaitUserFeedback(true, PAUSE_REASON);
-    throw new StagePausedError("Run paused", { runId: state.runId, reason: PAUSE_REASON });
-  }
-
   const created = [];
-  for (const item of rawTodos) {
-    const normalized = normalizeTodoInput(item);
-    if (!normalized) continue;
-    const row = state.addTodo(normalized);
-    const { valid } = validateTodo(row);
-    if (!valid) {
-      state.todos.pop();
-      continue;
-    }
-    created.push(row);
+
+  const emitCreated = (row) => {
     emit?.(
       "deepsearch.todo.created",
       {
@@ -177,19 +221,56 @@ export async function runDeepSearchTodosStage(runContext, input, stageApi = {}) 
       },
       { throttle: false }
     );
+  };
+
+  const createTodos = (items) => {
+    for (const item of items) {
+      const row = state.addTodo(item);
+      const { valid } = validateTodo(row);
+      if (!valid) {
+        state.todos.pop();
+        continue;
+      }
+      created.push(row);
+      emitCreated(row);
+    }
+  };
+
+  if (Array.isArray(rawTodos)) {
+    const normalized = rawTodos.map((item) => normalizeTodoInput(item)).filter(Boolean);
+    createTodos(normalized);
   }
 
   if (!created.length) {
-    logger.warn("Todos stage paused: no valid todos parsed", { stage: "todos", data: { reason: PAUSE_REASON } });
-    state.setAwaitUserFeedback(true, PAUSE_REASON);
-    throw new StagePausedError("Run paused", { runId: state.runId, reason: PAUSE_REASON });
+    logger.warn("Todos stage fallback: LLM unavailable or invalid output", { stage: "todos", data: { reason: FALLBACK_REASON } });
+    const fallbackTodos = buildFallbackTodos(state, scanSummary);
+    createTodos(fallbackTodos);
   }
 
-  state.setAwaitUserFeedback(false);
+  if (!created.length) {
+    // Last-resort fallback: ensure at least one todo to avoid agent loop stalling.
+    createTodos([
+      {
+        text: "基于现有来源生成一份结构化研究摘要（含关键结论与出处）",
+        priority: "high",
+        queryHints: [],
+        expectedEvidence: "摘要 + 关键引用/出处",
+        source: "system",
+      },
+    ]);
+  }
+
+  state.setAwaitUserFeedback(false, "");
 
   emit?.(
     "deepsearch.todos.completed",
-    { runId: state.runId, todoCount: state.todos.length, createdCount: created.length, skippedLLM: false },
+    {
+      runId: state.runId,
+      todoCount: state.todos.length,
+      createdCount: created.length,
+      skippedLLM: Array.isArray(rawTodos) ? false : true,
+      source: Array.isArray(rawTodos) ? "llm" : "system_fallback",
+    },
     { status: EventStatus.COMPLETED, throttle: false }
   );
 

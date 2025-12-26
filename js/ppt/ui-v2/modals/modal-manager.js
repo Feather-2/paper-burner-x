@@ -92,12 +92,12 @@ export class ModalManager {
     const existing = document.getElementById(modalId);
     if (existing) existing.remove();
 
-    const brief = this.stateStore.getState('data.projectBrief') || {};
+    const brief = this.stateStore.get('data.projectBrief') || {};
     const taskGoal = typeof brief.taskGoal === 'string' ? brief.taskGoal : '';
     const projectSummary = typeof brief.projectSummary === 'string' ? brief.projectSummary : '';
     const audience = typeof brief.audience === 'string' ? brief.audience : '';
     const tone = typeof brief.tone === 'string' ? brief.tone : '';
-    const workflowMode = this.stateStore.getState('data.workflowMode') || 'auto';
+    const workflowMode = this.stateStore.get('data.workflowMode') || 'auto';
     const modeLabel = workflowMode === 'auto'
       ? 'Auto-pilot'
       : (workflowMode === 'guided' ? 'Guided' : 'Manual');
@@ -224,15 +224,15 @@ export class ModalManager {
 
     const brief = { taskGoal, projectSummary, audience, tone };
     
-    this.stateStore.setState('data.projectBrief', brief);
-    this.stateStore.setState('data.taskGoal', brief.taskGoal || '');
+    this.stateStore.set('data.projectBrief', brief);
+    this.stateStore.set('data.taskGoal', brief.taskGoal || '');
     this.adapter?.setProjectBrief?.(brief);
 
     this.closeBriefingModal();
     
     // If we were pending start, trigger it
-    if (this.stateStore.getState('ui.pendingStart')) {
-      this.stateStore.setState('ui.pendingStart', false);
+    if (this.stateStore.get('ui.pendingStart')) {
+      this.stateStore.set('ui.pendingStart', false);
       this.adapter?.startWorkflow?.({ skipBriefCheck: true });
     }
   }

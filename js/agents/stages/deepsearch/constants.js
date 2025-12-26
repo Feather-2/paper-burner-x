@@ -122,8 +122,19 @@ export function isCodeSourceKind(value) {
   return CODE_SOURCE_KINDS.has(normalizeDeepSearchSourceKind(value));
 }
 
-// Re-export from trajectory.js for convenience
-export { MergeStrategy, CachePolicy, DivergeAt, TrajectoryOutcome, TrajectoryStatus } from "./trajectory.js";
+// Trajectory 相关枚举（原 trajectory.js，已移除）
+export const MergeStrategy = Object.freeze({
+  CONCAT: "concat",
+  DEDUPE: "dedupe",
+  PRIORITY: "priority",
+});
+
+export const TrajectoryStatus = Object.freeze({
+  PENDING: "pending",
+  RUNNING: "running",
+  COMPLETED: "completed",
+  FAILED: "failed",
+});
 
 // Checkpoint 模式枚举
 export const CheckpointMode = Object.freeze({

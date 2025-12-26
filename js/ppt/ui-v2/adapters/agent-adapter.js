@@ -104,6 +104,23 @@ function safeClone(value) {
   return value;
 }
 
+function normalizeRunLogs(raw) {
+  const logs = Array.isArray(raw) ? raw : [];
+  return logs
+    .filter((e) => e && typeof e === 'object' && typeof e.message === 'string' && e.message)
+    .slice(-200)
+    .map((e) => ({
+      timestamp: typeof e.timestamp === 'number' ? e.timestamp : Date.now(),
+      scope: typeof e.scope === 'string' ? e.scope : 'event',
+      level: typeof e.level === 'string' ? e.level : 'info',
+      message: e.message,
+      stage: typeof e.stage === 'string' ? e.stage : null,
+      iteration: typeof e.iteration === 'number' ? e.iteration : null,
+      eventName: typeof e.eventName === 'string' ? e.eventName : null,
+      details: e.details && typeof e.details === 'object' ? safeClone(e.details) : null
+    }));
+}
+
 function ensureWorkflowData(generator) {
   if (!generator.workflowData) generator.workflowData = {};
   return generator.workflowData;
@@ -141,11 +158,13 @@ export class PptGeneratorAdapter {
     const workflowMode = typeof generator.workflowMode === 'string' && generator.workflowMode
       ? generator.workflowMode
       : (typeof data.workflowMode === 'string' ? data.workflowMode : 'auto');
+    const runLogs = normalizeRunLogs(data.runLogs);
 
     this.stateStore.update({
       'data.files': [...files],
       'data.generationMode': generationMode,
       'data.workflowMode': workflowMode,
+      'data.runLogs': runLogs,
       'data.reportConfig': reportConfig,
       'data.projectBrief': brief,
       'data.taskGoal': brief.taskGoal,
