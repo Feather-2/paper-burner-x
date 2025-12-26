@@ -1,22 +1,17 @@
 /**
  * Runtime Layer - Agent Loop Infrastructure
  *
- * Core components for the Agent Loop + Pipeline hybrid architecture.
+ * Core components for the Skills-based Agent Loop architecture.
  */
 
 // Core infrastructure
 export { EventBus } from "./event-bus.js";
 export { createStateMachine } from "./state-machine.js";
-export { AgentOrchestrator, AgentOrchestrator as Orchestrator, topologicalSort } from "./orchestrator.js";
-export { RunContext, createRunContext } from "./run-context.js";
-export { BaseAgentLoop } from "./agent-loop.js";
-export { RequirementAnalyzer, ComplexityLevel } from "./requirement-analyzer.js";
-export { CapabilityLoader } from "./capability-loader.js";
-
-// Agent Loop infrastructure (Phase 0)
-export { RouterAgent, ComplexityTier, ModelTier } from "./router-agent.js";
 export { stateMachineRegistry } from "./state-machine-registry.js";
-export { Watchdog, DelegationMode } from "./watchdog.js";
+export { BaseAgentLoop } from "./agent-loop.js";
+
+// Watchdog + Compression
+export { Watchdog, DelegationMode, DelegationReason } from "./watchdog.js";
 export { CicadaCompressor, CompressionLayer } from "./cicada-compressor.js";
 export { AsyncCompressor } from "./async-compressor.js";
 export {
@@ -28,28 +23,13 @@ export {
   CompactionStatus,
 } from "./remote-compactor.js";
 
-// Skills system (Phase 1)
-export { SkillRegistry, SkillStatus, getSkillRegistry } from "./skill-registry.js";
-export { SkillLoader } from "./skill-loader.js";
-export { loadFromFS, loadSupportFiles, parseFrontMatter } from "./skill-fs-loader.js";
-export {
-  keywordMatcher,
-  tagMatcher,
-  traitMatcher,
-  phaseMatcher,
-  budgetMatcher,
-  combinedMatcher,
-  matchSkills,
-} from "./skill-matchers.js";
-
-// MCP-Nexus integration
-export { NexusSkillProvider } from "../mcp/nexus-skill-provider.js";
+// Capability (保留观察)
+export { CapabilityLoader } from "./capability-loader.js";
 
 // Events
 export {
   RuntimeEvents,
   PhaseEvents,
-  RouterEvents,
   WatchdogEvents,
   CicadaEvents,
 } from "./events.js";

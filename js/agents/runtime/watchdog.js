@@ -5,6 +5,7 @@ import { toNonEmptyString } from "../shared/value-utils.js";
 export const DelegationMode = Object.freeze({
   WATCHDOG: "watchdog",
   SUBAGENT: "subagent",
+  HANDOFF: "handoff",  // 清除重来，换脑子
 });
 
 export const DelegationReason = Object.freeze({
@@ -14,12 +15,9 @@ export const DelegationReason = Object.freeze({
   EXTERNAL_TOOL: "external_tool",
   SIMPLE_TASK: "simple_task",
   COMPLEX_DEFAULT: "complex_default",
+  STUCK_OR_WRONG: "stuck_or_wrong",  // 卡住或怀疑自己错了
+  CONTEXT_FULL: "context_full",      // context 满了
 });
-
-function normalizeConfidence(value) {
-  const num = Number(value);
-  return Number.isFinite(num) ? num : null;
-}
 
 export class Watchdog {
   constructor({ eventBus, cicadaCompressor, archive } = {}) {
@@ -66,21 +64,31 @@ export class Watchdog {
     };
   }
 
+  /**
+   * 决定委托模式（基于任务特征，不使用硬编码阈值）
+   * 注意：AI 应主动调用 watchdog skill，而不是依赖此方法的自动判断
+   */
   decideDelegationMode(task = {}, context = {}) {
-    const confidence = normalizeConfidence(task.confidenceScore ?? task.confidence);
     let decision = null;
 
-    if (confidence !== null && confidence >= 0.3 && confidence <= 0.5) {
-      decision = { mode: DelegationMode.WATCHDOG, reason: DelegationReason.GRAY_ZONE_DECISION };
-    } else if (task.requiresHistory || task.requiresPriorResults || context.requiresHistory || context.requiresPriorResults) {
+    // AI 明确请求 handoff
+    if (task.requestHandoff || context.requestHandoff) {
+      decision = { mode: DelegationMode.HANDOFF, reason: DelegationReason.STUCK_OR_WRONG };
+    }
+    // 需要历史上下文 → watchdog 深度思考
+    else if (task.requiresHistory || task.requiresPriorResults || context.requiresHistory || context.requiresPriorResults) {
       decision = { mode: DelegationMode.WATCHDOG, reason: DelegationReason.CONTEXT_DEPENDENT };
-    } else if (task.parallelizable && task.independent) {
+    }
+    // 可并行且独立 → subagent
+    else if (task.parallelizable && task.independent) {
       decision = {
         mode: DelegationMode.SUBAGENT,
         reason: DelegationReason.PARALLEL_INDEPENDENT,
         parallel: true,
       };
-    } else {
+    }
+    // 外部工具 → subagent
+    else {
       const toolType = String(task.toolType || "").toLowerCase();
       if (toolType === "mcp" || toolType === "external") {
         decision = { mode: DelegationMode.SUBAGENT, reason: DelegationReason.EXTERNAL_TOOL };
@@ -155,6 +163,76 @@ export class Watchdog {
     const payload = { action, decision, options };
     this._emit(WatchdogEvents.WATCHDOG_INTERVENTION, payload);
     return payload;
+  }
+
+  /**
+   * 构建 Handoff 交接文档
+   * @param {Object} state - agent 状态
+   * @param {Object} sharedContext - 共享上下文
+   * @returns {Object} handoff 文档
+   */
+  buildHandoff(state, sharedContext) {
+    const todos = Array.isArray(state?.todos) ? state.todos : [];
+    const pending = todos.filter(t => t.status !== "done" && t.status !== "completed");
+    const completed = todos.filter(t => t.status === "done" || t.status === "completed");
+
+    return {
+      runId: state?.runId,
+      timestamp: new Date().toISOString(),
+
+      // 已完成
+      accomplished: {
+        summary: sharedContext?.buildSummaryText?.() || "",
+        completedTodos: completed.map(t => t.content || t.title),
+        claimCount: state?.L1?.claims?.length || 0,
+      },
+
+      // 待办
+      pending: {
+        todos: pending.map(t => ({ content: t.content || t.title, priority: t.priority })),
+        taskGoal: state?.taskGoal || "",
+      },
+
+      // 关键决策（最近5条）
+      decisions: sharedContext?.getDecisions?.()?.slice(-5) || [],
+
+      // 继续指南
+      resumeGuide: {
+        nextAction: pending[0]?.content || pending[0]?.title || null,
+        context: sharedContext?.getAllSummaries?.() || {},
+        warnings: state?.L2?.warnings || [],
+        iteration: state?.iteration || 0,
+      },
+    };
+  }
+
+  /**
+   * 执行 Handoff - 生成交接文档并归档
+   * @param {Object} state - agent 状态
+   * @param {Object} sharedContext - 共享上下文
+   * @param {Object} options - { archive, reason }
+   * @returns {Object} { handoff, archiveId }
+   */
+  async handoff(state, sharedContext, options = {}) {
+    const handoff = this.buildHandoff(state, sharedContext);
+    const reason = options.reason || DelegationReason.STUCK_OR_WRONG;
+
+    let archiveId = null;
+    if (this.archive && typeof this.archive.save === "function") {
+      const runId = toNonEmptyString(state?.runId) || `handoff_${Date.now()}`;
+      archiveId = await this.archive.save(runId, {
+        nodeStates: { handoff, fullState: state },
+        metadata: { type: "handoff", reason },
+      });
+    }
+
+    this._emit(WatchdogEvents.WATCHDOG_HANDOFF || "watchdog.handoff", {
+      handoff,
+      archiveId,
+      reason,
+    });
+
+    return { handoff, archiveId };
   }
 }
 

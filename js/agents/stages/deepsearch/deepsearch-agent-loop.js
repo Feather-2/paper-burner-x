@@ -44,10 +44,13 @@ const SYSTEM_PROMPT = `你是一个文档分析助手。
 - manage-todos: 管理任务列表（创建、更新、完成）
 - search-docs: 搜索文档内容
 - write-report: 生成报告
+- watchdog: 当你不确定、怀疑自己错了、或陷入死胡同时调用
+  - mode: "think" (深度思考) 或 "handoff" (换脑子重来)
 
 ## 工作方式
 - 自由决定使用哪些技能
 - 信息足够时就完成，不必完成所有任务
+- 如果卡住或不确定，主动调用 watchdog
 
 ## 输出格式
 {

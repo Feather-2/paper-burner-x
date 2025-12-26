@@ -7,11 +7,13 @@
 import manageTodos from "./manage-todos/handler.js";
 import searchDocs from "./search-docs/handler.js";
 import writeReport from "./write-report/handler.js";
+import watchdog from "./watchdog/handler.js";
 
 export const skills = {
   "manage-todos": manageTodos,
   "search-docs": searchDocs,
   "write-report": writeReport,
+  "watchdog": watchdog,
 };
 
 /**
