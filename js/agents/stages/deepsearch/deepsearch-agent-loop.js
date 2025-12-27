@@ -1,7 +1,7 @@
 /**
  * DeepSearch Agent Loop
  *
- * 极简核心 + 可插拔机制
+ * 极简核心 + 可插拔
  */
 
 import { BaseAgentLoop } from "../../runtime/core/agent-loop.js";
@@ -16,24 +16,25 @@ let BudgetManager = null;
 let CheckpointManager = null;
 let SharedContext = null;
 let BacktrackManager = null;
+let DiscoveryManager = null;
 
 async function loadMechanisms() {
   try {
     const budget = await import("./budget.js");
     BudgetManager = budget.BudgetManager || budget.default;
-  } catch {}
+  } catch { }
   try {
     const checkpoint = await import("./runtime/checkpoint.js");
     CheckpointManager = checkpoint.CheckpointManager || checkpoint.default;
-  } catch {}
+  } catch { }
   try {
     const shared = await import("./runtime/shared-context.js");
     SharedContext = shared.SharedContext || shared.default;
-  } catch {}
+  } catch { }
   try {
-    const backtrack = await import("./runtime/backtrack-manager.js");
-    BacktrackManager = backtrack.BacktrackManager || backtrack.default;
-  } catch {}
+    const discovery = await import("../../sdk/DiscoveryManager.js");
+    DiscoveryManager = discovery.DiscoveryManager || discovery.default;
+  } catch { }
 }
 
 export const AgentStatus = Object.freeze({
@@ -47,8 +48,14 @@ const SYSTEM_PROMPT = `你是一个文档分析助手。
 
 ## 可用技能
 - manage-todos: 管理任务列表（创建、更新、完成）
-- search-docs: 搜索文档内容
-- write-report: 生成报告
+- search-docs: 搜索文档内容 (可关联 gapId 存储证据)
+- evaluate-gaps: 评估缺口是否已满足 (语义判定，替代死板计数)
+- cross-verify: 对冲突点进行交叉验证 (对质不同信源)
+- refine-planning: 当找不到信息或研究受阻时，灵活调整研究计划和 Todo
+- Task: 启动一个新的专项子代理（如 Explore, Coder）来处理复杂的子任务，实现上下文隔离
+- Recall: 获取被压缩或归档的详细记忆（按事实 ID 或关键词检索）
+- Backtrack: 时空回溯（春秋蝉），当执行路径严重偏离时回切到之前的正确状态
+- write-report: 生成最终报告
 - watchdog: 当你不确定、怀疑自己错了、或陷入死胡同时调用
   - mode: "think" (深度思考) 或 "handoff" (换脑子重来)
 
@@ -80,6 +87,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     this.checkpoint = options.checkpoint || null;
     this.sharedContext = options.sharedContext || null;
     this.backtrackManager = options.backtrackManager || null;
+    this.discoveryManager = options.discoveryManager || null;
     this.maxBacktracks = options.maxBacktracks ?? 3;
 
     this._logger = createLogger("agent-loop");
@@ -119,6 +127,14 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         logger: this._logger,
       });
     }
+    if (DiscoveryManager && !this.discoveryManager) {
+      this.discoveryManager = new DiscoveryManager({
+        sharedContext: this.sharedContext,
+        runId: this.state.runId,
+        logger: this._logger
+      });
+    }
+
 
     this._emit("agent.started", { runId: this.state.runId });
 
@@ -152,9 +168,25 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
 
       this._emit("agent.iteration", { iteration });
 
+      // [Shadow System] 注入潜意识信号 (上下文工程：即时性、不留痕)
+      const shadow = stageApi.agent?.shadow || context.agent?.shadow;
+      let transientMessages = this.messages;
+      if (shadow) {
+        // [元认知] 传入当前 messages，让影子系统判断是否有必要注入
+        const subconsciousAlert = shadow.getInjectedPrompt(this.messages);
+        if (subconsciousAlert) {
+          this._logger.info("[Shadow] Injecting subconscious alert (ephemeral)");
+          // 仅为当前调用注入，不改变持久的 this.messages
+          transientMessages = [
+            ...this.messages,
+            { role: "user", content: subconsciousAlert }
+          ];
+        }
+      }
+
       try {
-        // 调用模型
-        const response = await callModel(this.messages, {
+        // 调用模型 (使用 transientMessages)
+        const response = await callModel(transientMessages, {
           temperature: 0.3,
           maxTokens: 1000,
           signal,
@@ -162,6 +194,8 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
 
         const content = response?.content || "";
         this.messages.push({ role: "assistant", content });
+
+        this._emit("model.responded", { content, usage: response.usage });
 
         // 记录 token 使用
         this.budget?.recordUsage?.(response?.usage);
@@ -188,6 +222,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
           emit: (n, p) => this._emit(n, p),
           stageApi,
           sharedContext: this.sharedContext,
+          discoveryManager: this.discoveryManager,
         });
 
         // watchdog handoff 触发回溯

@@ -575,9 +575,9 @@ export async function generateReportTocBasedWithLLM(state, { claims, evidenceLed
   const tocSectionsRaw = tocPlan.sections.length
     ? tocPlan.sections
     : allocateSectionTargets(
-        sectionHints.map((s) => ({ ...s, level: 1 })),
-        config.targetWords
-      );
+      sectionHints.map((s) => ({ ...s, level: 1 })),
+      config.targetWords
+    );
   const tocSections = allocateSectionTargets(tocSectionsRaw, config.targetWords);
 
   const seenClaims = new Set();

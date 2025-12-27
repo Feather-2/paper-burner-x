@@ -1,0 +1,99 @@
+/**
+ * SDK 使用示例
+ *
+ * 展示如何使用 @paper-burner/agents SDK 构建自定义 Agent
+ */
+
+import { createAgent, createLogger } from "../index.js";
+
+// ============================================================================
+// 示例 1: 基础用法 - 流式构建
+// ============================================================================
+
+const basicAgent = createAgent({ actor: "demo" })
+    .useSkill("echo", async (args) => ({
+        success: true,
+        data: { echoed: args.text },
+    }))
+    .useSkill("greet", {
+        definition: {
+            name: "greet",
+            description: "向用户问好",
+            activation: { keywords: ["hello", "hi", "你好"] },
+        },
+        handler: async (args) => ({
+            success: true,
+            data: { message: `Hello, ${args.name || "World"}!` },
+        }),
+    })
+    .onEvent("demo.*", (event) => {
+        console.log("[Event]", event);
+    })
+    .build();
+
+// ============================================================================
+// 示例 2: 带 Hook 的 Agent
+// ============================================================================
+
+const auditLogger = createLogger({ actor: "audit" });
+
+const agentWithHooks = createAgent({ actor: "audited" })
+    .useSkill("search", async (args) => ({
+        success: true,
+        data: { results: [`Result for: ${args.query}`] },
+    }))
+    // Before hook: 记录所有工具调用
+    .useHook("before", async ({ tool, params }) => {
+        auditLogger.info(`Calling tool: ${tool}`, { params });
+        // 返回 undefined 继续执行
+    })
+    // Before hook: 可以跳过某些调用
+    .useHook("before", async ({ tool, params }) => {
+        if (params.blocked) {
+            return { skip: true, value: { blocked: true } };
+        }
+    })
+    // After hook: 添加执行时间戳
+    .useHook("after", async ({ tool, result }) => {
+        return { ...result, _timestamp: Date.now() };
+    })
+    .build();
+
+// ============================================================================
+// 示例 3: 懒加载 Skill
+// ============================================================================
+
+const lazyAgent = createAgent({ actor: "lazy" })
+    .useSkill("heavy-task", {
+        definition: {
+            name: "heavy-task",
+            description: "需要懒加载的重型任务",
+            lazy: true, // 默认就是 true
+        },
+        module: "./heavy-task-handler.js", // 按需加载
+    })
+    .build();
+
+// ============================================================================
+// 运行示例
+// ============================================================================
+
+async function runExamples() {
+    console.log("=== Basic Agent ===");
+    console.log("Skills:", basicAgent.getSkillDefinitions());
+
+    console.log("\n=== Agent with Hooks ===");
+    const hookResult = await agentWithHooks.run({ query: "test" });
+    console.log("Result:", hookResult);
+
+    console.log("\n=== Lazy Agent ===");
+    console.log("Lazy skills:", lazyAgent.getSkillDefinitions());
+}
+
+// 导出供测试使用
+export { basicAgent, agentWithHooks, lazyAgent, runExamples };
+
+// 如果直接运行
+if (import.meta.url === `file://${process.argv[1]}`) {
+    runExamples().catch(console.error);
+}

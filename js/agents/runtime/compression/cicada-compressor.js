@@ -251,7 +251,12 @@ export class CicadaCompressor {
 
     const archiveKey = toNonEmptyString(options.archiveKey || options.stageKey || context?.stageKey);
     if (archiveKey) {
-      metadata.archiveId = await this.archive(archiveKey, { context: current, metadata });
+      // 关键修正：存档时保留 base (原始全量内容)，而不是 current (压缩后内容)
+      metadata.archiveId = await this.archive(archiveKey, {
+        context: base, // 存档原件
+        metadata,     // 包含压缩统计
+        summary: metadata.llmSummary?.summary || "" // 冗余一份 summary 方便 Recall 工具搜索
+      });
     }
 
     // SharedContext 集成 (from shared/)
@@ -435,15 +440,24 @@ export class CicadaCompressor {
   async archive(stageKey, data) {
     const key = toNonEmptyString(stageKey) || `archive_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
     const adapter = this.archiveAdapter;
+
+    // 增加元数据：时间戳和摘要
+    const entry = {
+      ...data,
+      timestamp: data.timestamp || Date.now(),
+      summary: data.metadata?.llmSummary?.summary || data.summary || "",
+      stageKey: key,
+    };
+
     if (adapter) {
-      if (typeof adapter.store === "function") return adapter.store(key, data);
+      if (typeof adapter.store === "function") return adapter.store(key, entry);
       if (typeof adapter.set === "function") {
-        adapter.set(key, data);
+        adapter.set(key, entry);
         return key;
       }
-      if (typeof adapter.archive === "function") return adapter.archive(key, data);
+      if (typeof adapter.archive === "function") return adapter.archive(key, entry);
     }
-    this._archiveStore.set(key, data);
+    this._archiveStore.set(key, entry);
     return key;
   }
 
@@ -457,6 +471,36 @@ export class CicadaCompressor {
       if (typeof adapter.restore === "function") return adapter.restore(key);
     }
     return this._archiveStore.get(key) ?? null;
+  }
+
+  /**
+   * 列出所有存档（支持过滤）
+   * @param {Object} options 
+   * @returns {Promise<Array>}
+   */
+  async listArchives(options = {}) {
+    const { limit = 10, pattern = "" } = options;
+    const all = [];
+
+    // 从内存 store 中获取
+    for (const [key, entry] of this._archiveStore.entries()) {
+      all.push({
+        id: key,
+        timestamp: entry.timestamp,
+        summary: entry.summary,
+        stageKey: entry.stageKey,
+      });
+    }
+
+    // 如果有适配器，可能需要特殊的列出逻辑（这里先处理内存部分）
+    let filtered = all;
+    if (pattern) {
+      const regex = new RegExp(pattern, "i");
+      filtered = all.filter(e => regex.test(e.summary) || regex.test(e.id));
+    }
+
+    filtered.sort((a, b) => b.timestamp - a.timestamp);
+    return filtered.slice(0, limit);
   }
 }
 

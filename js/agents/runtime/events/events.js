@@ -90,147 +90,39 @@ export const CicadaEvents = Object.freeze({
 });
 
 /**
- * DeepSearch 事件（合并自 runtime 和 stages/deepsearch）
+ * DeepSearch 事件（新 Agent Loop + Skills 架构）
+ *
+ * 旧 Phase-Based 架构的事件已移除，仅保留：
+ * - Agent Loop 生命周期事件
+ * - Skills 发出的事件
  */
 export const DeepSearchEvents = Object.freeze({
-  // 生命周期
-  STARTED: "deepsearch.started",
-  COMPLETED: "deepsearch.completed",
-  ABORTED: "deepsearch.aborted",
+  // Agent Loop 生命周期
+  AGENT_STATUS_CHANGED: "deepsearch.agent.status.changed",
+  AGENT_STARTED: "deepsearch.agent.started",
+  AGENT_COMPLETED: "deepsearch.agent.completed",
+  AGENT_FAILED: "deepsearch.agent.failed",
+  AGENT_PAUSED: "deepsearch.agent.paused",
+  AGENT_ITERATION: "deepsearch.agent.iteration",
 
-  // Phase
-  PHASE_STARTED: "deepsearch.phase.started",
-  PHASE_COMPLETED: "deepsearch.phase.completed",
-  PHASE_TRANSITION: "deepsearch.phase.transition",
+  // write-report skill
+  SECTION_WRITTEN: "deepsearch.section.written",
+  REPORT_GENERATED: "deepsearch.report.generated",
+  EVIDENCE_SYNTHESIZED: "deepsearch.evidence.synthesized",
+  DRAFT_UPDATED: "deepsearch.draft.updated",
 
-  // Scan
-  SCAN_STARTED: "deepsearch.scan.started",
-  SCAN_PROGRESS: "deepsearch.scan.progress",
-  SCAN_COMPLETED: "deepsearch.scan.completed",
-
-  // Gaps
-  GAPS_STARTED: "deepsearch.gaps.started",
-  GAPS_PROGRESS: "deepsearch.gaps.progress",
-  GAPS_COMPLETED: "deepsearch.gaps.completed",
-  GAP_UPSERTED: "deepsearch.gap.upserted",
-  GAP_STATUS_CHANGED: "deepsearch.gap.status.changed",
-
-  // Todos
-  TODOS_STARTED: "deepsearch.todos.started",
-  TODOS_COMPLETED: "deepsearch.todos.completed",
-
-  // Retrieve
-  RETRIEVE_STARTED: "deepsearch.retrieve.started",
-  RETRIEVE_PROGRESS: "deepsearch.retrieve.progress",
-  RETRIEVE_COMPLETED: "deepsearch.retrieve.completed",
-  RETRIEVE_DEDUPED: "deepsearch.retrieve.deduped",
-  RETRIEVE_REFINE: "deepsearch.retrieve.refine",
-  RETRIEVE_STRATEGY: "deepsearch.retrieve.strategy",
-  RETRIEVE_TOOLCHAIN: "deepsearch.retrieve.toolchain",
-  RETRIEVE_TOOLCHAIN_ERROR: "deepsearch.retrieve.toolchain_error",
-  CHUNKS_ADDED: "deepsearch.chunks.added",
-  RERANK_COMPLETED: "deepsearch.rerank.completed",
-  RERANK_FAILED: "deepsearch.rerank.failed",
-
-  // Understand
-  UNDERSTAND_STARTED: "deepsearch.understand.started",
-  UNDERSTAND_PROGRESS: "deepsearch.understand.progress",
-  UNDERSTAND_COMPLETED: "deepsearch.understand.completed",
-  CLAIM_SNAPSHOT: "deepsearch.claim.snapshot",
-  CLAIM_ORPHANED: "deepsearch.claim.orphaned",
-  EVIDENCE_SNAPSHOT: "deepsearch.evidence.snapshot",
-  EVIDENCE_INVALID: "deepsearch.evidence.invalid",
-  REFLECT_NEEDSMORE: "deepsearch.reflect.needsmore",
-  HARDGATE_DEGRADED: "deepsearch.hardgate.degraded",
-  SHADOW_COMPLETED: "deepsearch.shadow.completed",
-
-  // Write
-  WRITE_STARTED: "deepsearch.write.started",
-  WRITE_PROGRESS: "deepsearch.write.progress",
-  WRITE_COMPLETED: "deepsearch.write.completed",
-  WRITE_MODE: "deepsearch.write.mode",
-  WRITE_TOC_PLANNED: "deepsearch.write.toc.planned",
-  WRITE_SECTION_STARTED: "deepsearch.write.section.started",
-  WRITE_SECTION_COMPLETED: "deepsearch.write.section.completed",
-  WRITE_REVIEW_STARTED: "deepsearch.write.review.started",
-  WRITE_REVIEW_COMPLETED: "deepsearch.write.review.completed",
-  WRITE_PATCH_APPLIED: "deepsearch.write.patch.applied",
-  WRITE_BACKTRACK_REQUESTED: "deepsearch.write.backtrack.requested",
-  WRITE_PARTIAL_RECOVERED: "deepsearch.write.partial.recovered",
-  // ReAct 系列
-  WRITE_REACT_STEP: "deepsearch.write.react.step",
-  WRITE_REACT_FAILED: "deepsearch.write.react.failed",
-  WRITE_REACT_ERROR: "deepsearch.write.react.error",
-  WRITE_REACT_PARSE_RETRY: "deepsearch.write.react.parse_retry",
-  WRITE_REACT_PARSE_ERROR: "deepsearch.write.react.parse_error",
-  WRITE_REACT_VALIDATION_ERROR: "deepsearch.write.react.validation_error",
-  WRITE_REACT_LEVEL_UPGRADE: "deepsearch.write.react.level_upgrade",
-  WRITE_REACT_FINISH_REJECTED: "deepsearch.write.react.finish_rejected",
-  WRITE_REACT_FINISH_ACCEPTED: "deepsearch.write.react.finish_accepted",
-  WRITE_REACT_HARD_LIMIT: "deepsearch.write.react.hard_limit",
-  WRITE_REACT_FALLBACK: "deepsearch.write.react.fallback",
-
-  // Condense
-  CONDENSE_STARTED: "deepsearch.condense.started",
-  CONDENSE_PROGRESS: "deepsearch.condense.progress",
-  CONDENSE_COMPLETED: "deepsearch.condense.completed",
-
-  // Review
-  REVIEW_STARTED: "deepsearch.review.started",
-  REVIEW_PROGRESS: "deepsearch.review.progress",
-  REVIEW_COMPLETED: "deepsearch.review.completed",
-
-  // External
-  EXTERNAL_STARTED: "deepsearch.external.started",
-  EXTERNAL_PROGRESS: "deepsearch.external.progress",
-  EXTERNAL_COMPLETED: "deepsearch.external.completed",
-  EXTERNAL_SKIPPED: "deepsearch.external.skipped",
-  EXTERNAL_ERROR: "deepsearch.external.error",
-  EXTERNAL_TRIGGERED: "deepsearch.external.triggered",
-  EXTERNAL_REFLECT_TRIGGERED: "deepsearch.external.reflecttriggered",
-
-  // Trajectory
-  TRAJECTORY_STARTED: "deepsearch.trajectory.started",
-  TRAJECTORY_COMPLETED: "deepsearch.trajectory.completed",
-  TRAJECTORY_FORKED: "deepsearch.trajectory.forked",
-  TRAJECTORY_MERGED: "deepsearch.trajectory.merged",
-  TRAJECTORY_MERGE_STARTED: "deepsearch.trajectory.merge.started",
-  TRAJECTORY_MERGE_COMPLETED: "deepsearch.trajectory.merge.completed",
-
-  // Node
-  NODE_STARTED: "deepsearch.node.started",
-  NODE_COMPLETED: "deepsearch.node.completed",
-  NODE_FAILED: "deepsearch.node.failed",
-
-  // Iteration
-  ITERATION_STARTED: "deepsearch.iteration.started",
-  ITERATION_COMPLETED: "deepsearch.iteration.completed",
-
-  // Checkpoint
-  CHECKPOINT_SAVED: "deepsearch.checkpoint.saved",
-  CHECKPOINT_RESTORED: "deepsearch.checkpoint.restored",
-
-  // Budget
-  BUDGET_ESTIMATED: "deepsearch.budget.estimated",
-  BUDGET_WARNING: "deepsearch.budget.warning",
-  BUDGET_EXCEEDED: "deepsearch.budget.exceeded",
-  BUDGET_DEGRADED: "deepsearch.budget.degraded",
-  BUDGET_STOP: "deepsearch.budget.stop",
-
-  // Direct
-  DIRECT_STARTED: "deepsearch.direct.started",
-  DIRECT_COMPLETED: "deepsearch.direct.completed",
-  DIRECT_TRIGGERED: "deepsearch.direct.triggered",
-
-  // Todo
+  // manage-todos skill
   TODO_CREATED: "deepsearch.todo.created",
-  TODO_STATUS_CHANGED: "deepsearch.todo.status.changed",
+  TODO_UPDATED: "deepsearch.todo.updated",
+  TODO_COMPLETED: "deepsearch.todo.completed",
+  TODO_CANCELLED: "deepsearch.todo.cancelled",
 
-  // Config
-  CONFIG_VALIDATION: "deepsearch.config.validation",
+  // search-docs skill
+  SEARCH_COMPLETED: "deepsearch.search.completed",
 
-  // Token
-  TOKEN_USAGE: "deepsearch.token.usage",
+  // Backtrack (from backtrack-manager)
+  AGENT_BACKTRACKED: "deepsearch.agent.backtracked",
+  AGENT_BACKTRACK_LIMIT: "deepsearch.agent.backtrack_limit",
 });
 
 /**

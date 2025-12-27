@@ -1,0 +1,455 @@
+:root {
+    --forge-bg: transparent;
+    --forge-sidebar: #f9fafb;
+    --forge-primary: #6366f1;
+    --forge-primary-soft: rgba(99, 102, 241, 0.05);
+    --forge-text: #1e293b;
+    --forge-border: #f1f5f9;
+    --grid-color: rgba(99, 102, 241, 0.02);
+    --glass-bg: rgba(255, 255, 255, 0.9);
+    --card-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+}
+
+.ocean-gradient-bg {
+    background: #f8fafc;
+    position: relative;
+}
+.ocean-gradient-bg::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 100vh;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.8) 0%, rgba(248, 250, 252, 0) 100%);
+    pointer-events: none;
+    z-index: 0;
+}
+
+body.forge-body {
+    background-color: var(--forge-bg);
+    background-image: 
+        radial-gradient(circle at 1px 1px, var(--grid-color) 1px, transparent 0);
+    background-size: 32px 32px;
+    color: var(--forge-text);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* 噪点纹理叠加 */
+.forge-body::after {
+    content: "";
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    opacity: 0.02;
+    z-index: 100;
+    pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+}
+
+/* 统一顶栏样式 */
+.app-header {
+    background: var(--glass-bg);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--forge-border);
+    height: 52px;
+    width: 100%;
+}
+
+/* 极简侧边栏 */
+.forge-sidebar {
+    background: var(--forge-sidebar);
+    border-right: 1px solid var(--forge-border);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    flex-direction: column;
+}
+
+.sidebar-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0 12px;
+    margin-bottom: 8px;
+}
+
+.nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    color: #475569;
+    transition: all 0.2s;
+    cursor: pointer;
+    margin: 1px 8px;
+}
+
+.nav-item:hover {
+    background: rgba(0,0,0,0.03);
+    color: var(--forge-text);
+}
+
+.nav-item.active {
+    background: white;
+    color: var(--forge-primary);
+    box-shadow: var(--card-shadow);
+}
+
+/* 通知消息样式 */
+.notification-toast {
+    color: var(--forge-text);
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    transform: translateY(-20px);
+    opacity: 0;
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--forge-primary-soft);
+    border: 1px solid rgba(99, 102, 241, 0.1);
+    margin-bottom: 8px;
+}
+
+.notification-toast.show {
+    transform: translateY(0);
+    opacity: 1;
+}
+
+/* 迷你地图样式 */
+.mini-map-container {
+    height: 100px;
+    background: white;
+    border: 1px solid var(--forge-border);
+    border-radius: 8px;
+    position: relative;
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.mini-map-container:hover {
+    border-color: var(--forge-primary);
+}
+
+.mini-map-view {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.6;
+}
+
+.view-switcher {
+    position: absolute;
+    bottom: 6px;
+    left: 6px;
+    right: 6px;
+    display: flex;
+    background: rgba(255,255,255,0.9);
+    backdrop-filter: blur(4px);
+    border: 1px solid var(--forge-border);
+    border-radius: 4px;
+    padding: 2px;
+}
+
+.view-btn {
+    flex: 1;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 3px;
+    text-align: center;
+    border-radius: 3px;
+    color: #94a3b8;
+    transition: all 0.2s;
+}
+
+.view-btn.active {
+    background: white;
+    color: var(--forge-primary);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+
+/* 背景装饰层 */
+.bg-glow {
+    position: absolute;
+    width: 800px;
+    height: 800px;
+    background: radial-gradient(circle, rgba(79, 70, 229, 0.07) 0%, transparent 70%);
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: -1;
+    filter: blur(60px);
+}
+
+/* 务实核心：正在书写的文档 */
+.document-forge {
+    background: white;
+    box-shadow: 
+        0 0 0 1px rgba(0,0,0,0.03),
+        0 2px 4px rgba(0,0,0,0.02),
+        0 12px 24px rgba(0,0,0,0.03),
+        0 32px 64px rgba(0,0,0,0.04);
+    border: 1px solid rgba(226, 232, 240, 0.8);
+    border-radius: 2px;
+    width: 95%;
+    max-width: 935px;
+    min-height: 1100px;
+    padding: 60px 80px;
+    position: relative;
+    z-index: 10;
+    user-select: none;
+    margin: 0 auto;
+    transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.6s;
+}
+
+/* 视图模式切换样式 */
+.view-mode-flow .document-forge {
+    transform: scale(0.8) translateY(100px) rotateX(10deg);
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+.document-forge::before {
+    content: 'FORGE 协议 V4.2 // 综合生成中';
+    position: absolute;
+    top: 25px;
+    left: 50px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: #cbd5e1;
+    letter-spacing: 1px;
+}
+
+.document-forge::after {
+    content: '© 2025 PAPER BURNER X // 加密草稿';
+    position: absolute;
+    bottom: 25px;
+    right: 50px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: #cbd5e1;
+}
+
+.watermark {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(-25deg);
+    font-size: 100px;
+    font-weight: 900;
+    color: rgba(99, 102, 241, 0.02);
+    pointer-events: none;
+    white-space: nowrap;
+    user-select: none;
+    z-index: 0;
+}
+
+/* 连线花活 */
+.logic-line {
+    position: absolute;
+    height: 1px;
+    background: linear-gradient(90deg, 
+        rgba(79, 70, 229, 0) 0%, 
+        rgba(79, 70, 229, 0.3) 20%, 
+        rgba(79, 70, 229, 0.3) 80%, 
+        rgba(79, 70, 229, 0) 100%
+    );
+    transform-origin: left center;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 5;
+    transition: opacity 0.8s ease;
+}
+
+.logic-line.active {
+    opacity: 1;
+}
+
+.logic-line::after {
+    content: '';
+    position: absolute;
+    top: -1px;
+    left: 0;
+    height: 3px;
+    width: 40px;
+    background: linear-gradient(90deg, transparent, var(--forge-primary), transparent);
+    filter: blur(1px);
+    animation: flow-data 2.5s infinite cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes flow-data {
+    0% { left: -10%; opacity: 0; }
+    20% { opacity: 1; }
+    80% { opacity: 1; }
+    100% { left: 110%; opacity: 0; }
+}
+
+/* 知识节点 */
+.knowledge-node {
+    position: absolute;
+    background: var(--glass-bg);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    padding: 14px;
+    border-radius: 14px;
+    font-size: 11px;
+    box-shadow: 
+        0 4px 6px -1px rgba(0, 0, 0, 0.05),
+        0 10px 15px -3px rgba(0, 0, 0, 0.05);
+    width: 220px;
+    z-index: 5;
+    transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+    opacity: 0;
+    transform: translateY(20px) scale(0.92);
+}
+
+.knowledge-node.visible {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+}
+
+.knowledge-node.active {
+    border-color: var(--forge-primary);
+    box-shadow: 
+        0 20px 25px -5px rgba(0, 0, 0, 0.1),
+        0 10px 10px -5px rgba(79, 70, 229, 0.1);
+    transform: scale(1.04);
+    background: white;
+}
+
+.node-progress {
+    height: 2px;
+    background: #f1f5f9;
+    width: 100%;
+    border-radius: 2px;
+    margin-top: 10px;
+    overflow: hidden;
+}
+
+.node-progress-bar {
+    height: 100%;
+    background: var(--forge-primary);
+    width: 0%;
+    transition: width 2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* TODO Section */
+.todo-section {
+    background: white;
+    margin: 8px;
+    border-radius: 12px;
+    border: 1px solid var(--forge-border);
+    box-shadow: 0 1px 2px 0 rgba(0,0,0,0.03);
+    overflow: hidden;
+    transition: all 0.3s ease;
+}
+
+.todo-section.collapsed {
+    max-height: 44px;
+}
+
+/* 来源处理进度 */
+.processing-source {
+    position: relative;
+    padding-bottom: 12px !important;
+}
+
+.source-progress-container {
+    position: absolute;
+    bottom: 6px;
+    left: 38px;
+    right: 12px;
+    height: 3px;
+    background: #f1f5f9;
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.source-progress-fill {
+    height: 100%;
+    background: var(--forge-primary);
+    width: 0%;
+    transition: width 0.3s ease;
+}
+
+.processing-tag {
+    font-size: 9px;
+    padding: 1px 4px;
+    background: var(--forge-primary-soft);
+    color: var(--forge-primary);
+    border-radius: 4px;
+    margin-left: auto;
+    animation: pulse-light 2s infinite;
+}
+
+@keyframes pulse-light {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* 打字机效果模拟 */
+.typing-content {
+    border-right: 2px solid var(--forge-primary);
+    animation: caret 1s step-end infinite;
+    padding-right: 4px;
+}
+
+@keyframes caret {
+    50% { border-color: transparent; }
+}
+
+/* 滚动条美化 */
+.custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #e2e8f0;
+    border-radius: 10px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #cbd5e1;
+}
+
+.add-section-btn {
+    width: 100%;
+    padding: 12px;
+    border: 2px dashed #e2e8f0;
+    border-radius: 12px;
+    color: #94a3b8;
+    font-size: 13px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 24px;
+    transition: all 0.2s;
+}
+
+.add-section-btn:hover {
+    border-color: var(--forge-primary);
+    color: var(--forge-primary);
+    background: var(--forge-primary-soft);
+}
+
+#pptGeneratorOverlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    background: radial-gradient(circle at top right, rgba(79, 70, 229, 0.05), transparent 40%),
+                radial-gradient(circle at bottom left, rgba(124, 58, 237, 0.05), transparent 40%);
+}

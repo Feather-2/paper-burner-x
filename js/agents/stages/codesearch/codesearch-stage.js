@@ -26,7 +26,7 @@ import { AgentStatus } from "../../runtime/core/agent-status.js";
 // 复用 DeepSearch 基础设施
 import { createBudgetManager, BudgetAction } from "../../shared/utils/budget.js";
 import { makeStageEmitter } from "../deepsearch/state.js";
-import { createLogger } from "../deepsearch/runtime/logger.js";
+import { createLogger } from "../../shared/utils/logger.js";
 import { getModelCaller } from "../deepsearch/model.js";
 import { createTodo, transitionTodoStatus, validateTodo } from "../deepsearch/utils/todo-utils.js";
 import { extractJsonCandidate } from "../deepsearch/utils/state-utils.js";

@@ -60,6 +60,23 @@ export async function handler(args, context) {
     if (!state.L1) state.L1 = {};
     state.L1.report = report;
 
+    // Emit evidence.synthesized for each evidence used (for Forge UI knowledge nodes)
+    for (const e of evidenceLedger.slice(0, 5)) {
+      emit?.("deepsearch.evidence.synthesized", {
+        evidenceId: e.evidenceId,
+        source: e.sourceId || "unknown",
+        content: (e.quote || "").slice(0, 100),
+      });
+    }
+
+    // Emit draft.updated for real-time document preview
+    if (report?.markdown) {
+      emit?.("deepsearch.draft.updated", {
+        phrase: report.markdown.slice(0, 200) + (report.markdown.length > 200 ? "..." : ""),
+        isComplete: true,
+      });
+    }
+
     emit?.("deepsearch.report.generated", {
       runId: state.runId,
       hasReport: true,

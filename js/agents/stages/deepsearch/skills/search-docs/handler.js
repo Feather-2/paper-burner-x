@@ -19,11 +19,12 @@ export const definition = {
  * @param {string} args.query - 搜索查询
  * @param {string[]} [args.sources] - 限定的文档 ID 列表
  * @param {number} [args.limit=10] - 返回数量限制
- * @param {Object} context - { state, emit, retriever }
+ * @param {string} [args.gapId] - 关联的缺口 ID
+ * @param {Object} context - { state, emit, retriever, discoveryManager }
  */
 export async function handler(args, context) {
-  const { state, emit, retriever } = context;
-  const { query, sources, limit = 10 } = args;
+  const { state, emit, retriever, discoveryManager } = context;
+  const { query, sources, limit = 10, gapId } = args;
 
   if (!query || typeof query !== "string") {
     return { success: false, error: "query is required" };
@@ -43,7 +44,20 @@ export async function handler(args, context) {
   if (retriever && typeof retriever.search === "function") {
     try {
       const results = await retriever.search(query, { sources: targetSources, limit });
-      emit?.("deepsearch.search.completed", { query, resultCount: results.length });
+
+      // 如果指定了 gapId，自动将结果作为证据存入黑板
+      if (gapId && discoveryManager) {
+        for (const res of results) {
+          discoveryManager.addEvidence(gapId, {
+            query,
+            sourceId: res.sourceId,
+            snippet: res.snippet,
+            confidence: res.score,
+          });
+        }
+      }
+
+      emit?.("deepsearch.search.completed", { query, gapId, resultCount: results.length });
       return { success: true, results };
     } catch (err) {
       return { success: false, error: err.message };

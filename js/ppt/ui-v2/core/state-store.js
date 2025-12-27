@@ -99,6 +99,7 @@ const createInitialState = () => ({
     claims: [],
     evidences: [],
     report: null,
+    draftPreview: null,  // 实时草稿预览 (Forge demo)
     progress: {
       phase: null,
       step: null,
@@ -111,8 +112,14 @@ const createInitialState = () => ({
     status: AgentStatus.IDLE,
     loopStatus: null,
     phase: null,
+    currentPhase: 'idle',      // 当前设计阶段 (Timeline demo)
+    previousPhase: null,
     slides: [],
-    currentSlide: 0,
+    currentSlide: null,        // 当前生成的幻灯片
+    currentBatch: null,        // 当前批次信息
+    deckHtmlDsl: null,         // 实时 deck 内容
+    slidesMeta: [],            // 幻灯片元数据
+    pendingChatAsk: null,      // 待用户回答的问题
     designSystem: null,
     progress: {
       step: null,
@@ -440,6 +447,95 @@ export class StateStore {
     bus.on('design.ended', (_, p) => markDesignCompleted(p));
     bus.on('design.completed', (_, p) => markDesignCompleted(p));
     bus.on('design.log.*', (name, p) => addAgentLog(name, p));
+
+    // =========================================================================
+    // 新增事件处理器（events.d.ts 适配）
+    // =========================================================================
+
+    // DeepSearch 证据/草稿事件（Forge demo）
+    bus.on('deepsearch.evidence.synthesized', (_, p) => {
+      const evidences = this.get('deepsearch.evidences') || [];
+      if (p?.evidenceId) {
+        evidences.push({ id: p.evidenceId, source: p.source, content: p.content });
+        this.set('deepsearch.evidences', evidences.slice(-20)); // 保留最近20条
+      }
+    });
+
+    bus.on('deepsearch.draft.updated', (_, p) => {
+      if (p?.phrase) {
+        this.set('deepsearch.draftPreview', {
+          sectionId: p.sectionId,
+          phrase: p.phrase,
+          isComplete: p.isComplete || false,
+          updatedAt: Date.now()
+        });
+      }
+    });
+
+    // Design 阶段事件（Timeline demo）
+    bus.on('design.phase.transition', (_, p) => {
+      if (p?.to) this.set('design.currentPhase', p.to);
+      if (p?.from) this.set('design.previousPhase', p.from);
+    });
+
+    bus.on('design.batch.started', (_, p) => {
+      if (typeof p?.batchIndex === 'number') {
+        this.set('design.currentBatch', {
+          batchIndex: p.batchIndex,
+          batchSize: p.batchSize || 0,
+          slideIds: p.slideIds || [],
+          status: 'running'
+        });
+      }
+    });
+
+    bus.on('design.batch.completed', (_, p) => {
+      if (typeof p?.batchIndex === 'number') {
+        this.set('design.currentBatch', {
+          batchIndex: p.batchIndex,
+          slidesGenerated: p.slidesGenerated || 0,
+          duration: p.duration || 0,
+          status: 'completed'
+        });
+      }
+    });
+
+    bus.on('design.slide.started', (_, p) => {
+      if (typeof p?.slideIndex === 'number') {
+        this.set('design.currentSlide', {
+          slideId: p.slideId,
+          slideIndex: p.slideIndex,
+          slideIntentId: p.slideIntentId,
+          title: p.title || '',
+          status: 'generating'
+        });
+      }
+    });
+
+    bus.on('design.slide.completed', (_, p) => {
+      if (typeof p?.slideIndex === 'number') {
+        this.set('design.currentSlide', {
+          slideId: p.slideId,
+          slideIndex: p.slideIndex,
+          status: p.status || 'success'
+        });
+      }
+    });
+
+    bus.on('design.deck.updated', (_, p) => {
+      if (p?.deckHtmlDsl) this.set('design.deckHtmlDsl', p.deckHtmlDsl);
+      if (Array.isArray(p?.slidesMeta)) this.set('design.slidesMeta', p.slidesMeta);
+    });
+
+    bus.on('design.chat.ask', (_, p) => {
+      if (p?.question) {
+        this.set('design.pendingChatAsk', {
+          question: p.question,
+          options: p.options || [],
+          timestamp: Date.now()
+        });
+      }
+    });
   }
 
   /**

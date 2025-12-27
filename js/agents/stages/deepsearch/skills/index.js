@@ -8,12 +8,18 @@ import manageTodos from "./manage-todos/handler.js";
 import searchDocs from "./search-docs/handler.js";
 import writeReport from "./write-report/handler.js";
 import watchdog from "./watchdog/handler.js";
+import evaluateGaps from "./evaluate-gaps/handler.js";
+import crossVerify from "./cross-verify/handler.js";
+import refinePlanning from "./refine-planning/handler.js";
 
 export const skills = {
   "manage-todos": manageTodos,
   "search-docs": searchDocs,
   "write-report": writeReport,
   "watchdog": watchdog,
+  "evaluate-gaps": evaluateGaps,
+  "cross-verify": crossVerify,
+  "refine-planning": refinePlanning,
 };
 
 /**

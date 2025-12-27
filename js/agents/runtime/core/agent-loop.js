@@ -109,13 +109,14 @@ export class BaseStage {
 }
 
 export class BaseAgentLoop {
-  constructor({ eventBus, stateMachine, tools, actor, stageName, emit } = {}) {
+  constructor({ eventBus, stateMachine, tools, actor, stageName, emit, hooks } = {}) {
     this.eventBus = eventBus || null;
     this.stateMachine = stateMachine || null;
     this.actor = actor || stageName || "agent";
     this.stageName = stageName || actor || "agent";
     this.emit = typeof emit === "function" ? emit : null;
     this._tools = {};
+    this._hooks = { before: [], after: [], ...(hooks || {}) };
     this.registerTools(tools);
     this._loopMachine = null;
     this._loopEventName = null;
@@ -164,6 +165,23 @@ export class BaseAgentLoop {
     this._tools[name] = fn;
   }
 
+  /**
+   * 注册 Hook (SDK 风格)
+   * @param {"before"|"after"} phase
+   * @param {Function} fn
+   * @returns {BaseAgentLoop}
+   */
+  useHook(phase, fn) {
+    if (phase !== "before" && phase !== "after") {
+      throw new Error(`Invalid hook phase: ${phase}`);
+    }
+    if (typeof fn !== "function") {
+      throw new Error("Hook must be a function");
+    }
+    this._hooks[phase].push(fn);
+    return this;
+  }
+
   _emitStage(name, status, payload) {
     const emit = this.emit || this.eventBus?.emit;
     if (typeof emit !== "function") return;
@@ -171,20 +189,46 @@ export class BaseAgentLoop {
   }
 
   async _callTool(name, params, context) {
+    // Before hooks - can skip or modify params
+    let finalParams = params;
+    for (const hook of this._hooks.before) {
+      const hookResult = await hook({ tool: name, params: finalParams, context });
+      if (hookResult?.skip) {
+        return normalizeToolResult(hookResult.value);
+      }
+      if (hookResult?.params) {
+        finalParams = hookResult.params;
+      }
+    }
+
+    // Execute tool
     const executor = resolveToolExecutor(context);
+    let result;
     if (executor) {
-      return normalizeToolResult(await executor(name, params, context));
+      result = normalizeToolResult(await executor(name, finalParams, context));
+    } else {
+      const tool = this._tools[name];
+      if (!tool) {
+        result = { ok: false, error: `Unknown tool: ${name}` };
+      } else {
+        try {
+          const data = await tool(finalParams, context);
+          result = { ok: true, data };
+        } catch (err) {
+          result = { ok: false, error: err instanceof Error ? err.message : String(err) };
+        }
+      }
     }
-    const tool = this._tools[name];
-    if (!tool) {
-      return { ok: false, error: `Unknown tool: ${name}` };
+
+    // After hooks - can transform result
+    for (const hook of this._hooks.after) {
+      const hookResult = await hook({ tool: name, params: finalParams, result, context });
+      if (hookResult !== undefined) {
+        result = normalizeToolResult(hookResult);
+      }
     }
-    try {
-      const data = await tool(params, context);
-      return { ok: true, data };
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
-    }
+
+    return result;
   }
 
   _transitionPhase(state, next, { emit, runId, payload, eventName } = {}) {

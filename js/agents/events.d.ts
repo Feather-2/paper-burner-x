@@ -61,6 +61,28 @@ export namespace UserActionEvents {
     slideIndex?: number;
     content?: string;
   }
+
+  // ============================================================================
+  // Demo 相关用户交互事件
+  // ============================================================================
+
+  /** user.action.toggleView - 切换视图模式 */
+  export interface ToggleView {
+    from: "document" | "knowledgeGraph";
+    to: "document" | "knowledgeGraph";
+  }
+
+  /** user.action.startDesignFlow - 启动设计流程 */
+  export interface StartDesignFlow {
+    outline?: unknown[];
+    options?: Record<string, unknown>;
+  }
+
+  /** user.action.acceptDesign - 验收设计 */
+  export interface AcceptDesign {
+    slideCount: number;
+    enterEditMode?: boolean;
+  }
 }
 
 /** 用户交互事件映射表 */
@@ -71,6 +93,9 @@ export interface UserActionEventMap {
   "user.input": UserActionEvents.Input;
   "user.action.confirm": UserActionEvents.Confirm;
   "user.action.edit": UserActionEvents.Edit;
+  "user.action.toggleView": UserActionEvents.ToggleView;
+  "user.action.startDesignFlow": UserActionEvents.StartDesignFlow;
+  "user.action.acceptDesign": UserActionEvents.AcceptDesign;
 }
 
 // ============================================================================
@@ -125,10 +150,14 @@ export interface UserActionEventMap {
  */
 
 // ============================================================================
-// DeepSearch Agent 事件
+// DeepSearch Agent 事件（新 Agent Loop + Skills 架构）
 // ============================================================================
 
 export namespace DeepSearchEvents {
+  // ─────────────────────────────────────────────────────────────────────────
+  // Agent Loop 生命周期
+  // ─────────────────────────────────────────────────────────────────────────
+
   /** deepsearch.agent.status.changed - 状态变更 */
   export interface StatusChanged {
     from: AgentStatus;
@@ -165,13 +194,98 @@ export namespace DeepSearchEvents {
     iteration: number;
   }
 
-  /** deepsearch.progress - 通用进度 */
-  export interface Progress {
-    msg?: string;
-    message?: string;
-    step?: string;
+  // ─────────────────────────────────────────────────────────────────────────
+  // write-report skill 事件
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /** deepsearch.section.written - 单个章节写入完成 */
+  export interface SectionWritten {
+    sectionId: string;
+    title: string;
+  }
+
+  /** deepsearch.report.generated - 报告生成完成 */
+  export interface ReportGenerated {
+    runId?: string;
+    hasReport: boolean;
+    claimCount: number;
+  }
+
+  /** deepsearch.evidence.synthesized - 证据/知识节点生成 (Forge demo) */
+  export interface EvidenceSynthesized {
+    evidenceId?: string;
+    source: string;
+    content: string;
+  }
+
+  /** deepsearch.draft.updated - 草稿实时更新 (Forge demo) */
+  export interface DraftUpdated {
+    sectionId?: string;
+    phrase: string;
+    isComplete?: boolean;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // manage-todos skill 事件
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /** deepsearch.todo.created - Todo 创建 */
+  export interface TodoCreated {
+    todoId: string;
+    text: string;
+    visibility?: TodoVisibility;
+    activeForm?: string; // 进行时描述，如 "Researching backend"
+  }
+
+  /** deepsearch.todo.updated - Todo 更新 */
+  export interface TodoUpdated {
+    todoId: string;
+    status: string;
+    visibility?: TodoVisibility;
+    text?: string;
+  }
+
+  /** deepsearch.todo.completed - Todo 完成 */
+  export interface TodoCompleted {
+    todoId: string;
+  }
+
+  /** deepsearch.todo.cancelled - Todo 取消 */
+  export interface TodoCancelled {
+    todoId: string;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // search-docs skill 事件
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /** deepsearch.search.completed - 搜索完成 */
+  export interface SearchCompleted {
+    query: string;
+    resultCount: number;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Backtrack 事件 (from backtrack-manager)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /** deepsearch.agent.backtracked - 回溯完成 */
+  export interface AgentBacktracked {
+    runId?: string;
+    checkpointId: string;
+    reason?: string;
+  }
+
+  /** deepsearch.agent.backtrack_limit - 达到回溯上限 */
+  export interface AgentBacktrackLimit {
+    runId?: string;
+    count: number;
+    limit: number;
   }
 }
+
+/** Todo 可见性 */
+export type TodoVisibility = "public" | "private";
 
 // ============================================================================
 // Design Agent 事件
@@ -272,6 +386,41 @@ export namespace DesignEvents {
   export interface ChatAsk {
     question: string;
     options?: string[];
+  }
+
+  // ============================================================================
+  // 批次/幻灯片级别事件（Timeline Demo 需要）
+  // ============================================================================
+
+  /** design.batch.started - 批次开始 */
+  export interface BatchStarted {
+    runId: string;
+    batchIndex: number;
+    batchSize: number;
+    slideIds: string[];
+  }
+
+  /** design.batch.completed - 批次完成 */
+  export interface BatchCompleted {
+    runId: string;
+    batchIndex: number;
+    slidesGenerated: number;
+    duration?: number;
+  }
+
+  /** design.slide.started - 单张幻灯片开始生成 */
+  export interface SlideStarted {
+    slideId?: string;
+    slideIndex: number;
+    slideIntentId?: string;
+    title?: string;
+  }
+
+  /** design.slide.completed - 单张幻灯片完成 */
+  export interface SlideCompleted {
+    slideId: string;
+    slideIndex: number;
+    status: "success" | "degraded" | "failed";
   }
 }
 
@@ -481,15 +630,30 @@ export namespace CodeSearchEvents {
 // 事件名 → Payload 类型映射
 // ============================================================================
 
-/** DeepSearch 事件映射表 */
+/** DeepSearch 事件映射表 (新 Agent Loop + Skills 架构) */
 export interface DeepSearchEventMap {
+  // Agent Loop 生命周期
   "deepsearch.agent.status.changed": EventRecord<DeepSearchEvents.StatusChanged>;
   "deepsearch.agent.started": EventRecord<DeepSearchEvents.AgentStarted>;
   "deepsearch.agent.completed": EventRecord<DeepSearchEvents.AgentCompleted>;
   "deepsearch.agent.failed": EventRecord<DeepSearchEvents.AgentFailed>;
   "deepsearch.agent.paused": EventRecord<DeepSearchEvents.AgentPaused>;
   "deepsearch.agent.iteration": EventRecord<DeepSearchEvents.AgentIteration>;
-  "deepsearch.progress": EventRecord<DeepSearchEvents.Progress>;
+  // write-report skill
+  "deepsearch.section.written": EventRecord<DeepSearchEvents.SectionWritten>;
+  "deepsearch.report.generated": EventRecord<DeepSearchEvents.ReportGenerated>;
+  "deepsearch.evidence.synthesized": EventRecord<DeepSearchEvents.EvidenceSynthesized>;
+  "deepsearch.draft.updated": EventRecord<DeepSearchEvents.DraftUpdated>;
+  // manage-todos skill
+  "deepsearch.todo.created": EventRecord<DeepSearchEvents.TodoCreated>;
+  "deepsearch.todo.updated": EventRecord<DeepSearchEvents.TodoUpdated>;
+  "deepsearch.todo.completed": EventRecord<DeepSearchEvents.TodoCompleted>;
+  "deepsearch.todo.cancelled": EventRecord<DeepSearchEvents.TodoCancelled>;
+  // search-docs skill
+  "deepsearch.search.completed": EventRecord<DeepSearchEvents.SearchCompleted>;
+  // Backtrack
+  "deepsearch.agent.backtracked": EventRecord<DeepSearchEvents.AgentBacktracked>;
+  "deepsearch.agent.backtrack_limit": EventRecord<DeepSearchEvents.AgentBacktrackLimit>;
 }
 
 /** Design 事件映射表 */
@@ -510,6 +674,11 @@ export interface DesignEventMap {
   "design.refine.ended": EventRecord<DesignEvents.RefineEnded>;
   "design.degraded": EventRecord<DesignEvents.Degraded>;
   "design.chat.ask": EventRecord<DesignEvents.ChatAsk>;
+  // 批次/幻灯片级别事件
+  "design.batch.started": EventRecord<DesignEvents.BatchStarted>;
+  "design.batch.completed": EventRecord<DesignEvents.BatchCompleted>;
+  "design.slide.started": EventRecord<DesignEvents.SlideStarted>;
+  "design.slide.completed": EventRecord<DesignEvents.SlideCompleted>;
 }
 
 /** CodeSearch 事件映射表 */
@@ -524,7 +693,7 @@ export interface CodeSearchEventMap {
 }
 
 /** 所有 Agent 事件映射表 */
-export interface AgentEventMap extends DeepSearchEventMap, DesignEventMap, CodeSearchEventMap {}
+export interface AgentEventMap extends DeepSearchEventMap, DesignEventMap, CodeSearchEventMap { }
 
 /** 事件名称类型 */
 export type AgentEventName = keyof AgentEventMap;
