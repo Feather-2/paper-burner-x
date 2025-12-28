@@ -1,4 +1,4 @@
-import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString, estimateTokenCount } from "../../shared/utils/value-utils.js";
 import { robustParseJson } from "../../shared/utils/robust-json.js";
 import { CicadaEvents } from "../events/events.js";
 
@@ -71,7 +71,7 @@ function safeStringify(value) {
 
 function estimateTokens(text) {
   if (!text) return 0;
-  return Math.ceil(text.length / 4);
+  return estimateTokenCount(text);
 }
 
 function truncateText(text, maxChars) {

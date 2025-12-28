@@ -92,6 +92,26 @@ export class EventBus {
     this._sortedHandlersCache.clear();
   }
 
+  /**
+   * 清除所有监听器和缓存（Alias for dispose）
+   */
+  clear() {
+    return this.dispose();
+  }
+
+  /**
+   * 彻底清理 EventBus，释放资源
+   */
+  dispose() {
+    this._listeners.clear();
+    this._wildcardListeners.clear();
+    this._priorityListeners.clear();
+    this._wildcardPriorityListeners.clear();
+    this._invalidateCache();
+    this.disableBackpressure();
+    return this;
+  }
+
   on(name, handler) {
     if (typeof handler !== "function") {
       throw new TypeError("EventBus.on(name, handler): handler must be a function");
@@ -378,7 +398,7 @@ export class EventBus {
     queueMicrotask(() => {
       try {
         const res = this._persistenceAdapter.appendEvents(events);
-        if (res && typeof res.then === "function") res.catch(() => {});
+        if (res && typeof res.then === "function") res.catch(() => { });
       } catch {
         // ignore persistence errors; EventBus is best-effort by default
       }

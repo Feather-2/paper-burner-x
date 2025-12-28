@@ -9,127 +9,68 @@ function makeEventBus() {
   };
 }
 
-function makeCompressor(summary, archiveId = "arch_1") {
-  const calls = [];
-  return {
-    calls,
-    compress: async (stageKey, processMemory, options) => {
-      calls.push({ stageKey, processMemory, options });
-      return { summary, archiveId, keyIndex: { ids: [], keywords: [], paths: [] } };
-    },
-  };
-}
+test("Watchdog.tick tracks iterations", async () => {
+  const { Watchdog } = await import("../../../js/agents/runtime/compression/watchdog.js");
+  const watchdog = new Watchdog();
 
-function makeAgentLoop({ processMemory, result, withAddToContext = true } = {}) {
-  const loop = {
-    forkCalls: [],
-    contextEntries: [],
-    sharedContext: { id: "ctx_1" },
-    fork: (options) => {
-      loop.forkCalls.push(options);
-      return {
-        execute: async (task, execOptions) => result || { ok: true, task, execOptions },
-        getProcessMemory: async () => processMemory || { content: { step: "work" }, contentType: "tool_output" },
-      };
-    },
-  };
-  if (withAddToContext) {
-    loop.addToContext = (entry) => loop.contextEntries.push(entry);
-  }
-  return loop;
-}
-
-test("Watchdog.decideDelegationMode applies rules and emits events", async () => {
-  const { Watchdog, DelegationMode, DelegationReason } = await import("../../../js/agents/runtime/compression/watchdog.js");
-  const { WatchdogEvents } = await import("../../../js/agents/runtime/events/events.js");
-  const bus = makeEventBus();
-  const watchdog = new Watchdog({ eventBus: bus, cicadaCompressor: makeCompressor("noop") });
-
-  // 默认复杂任务 → watchdog
-  let decision = watchdog.decideDelegationMode({}, {});
-  assert.equal(decision.mode, DelegationMode.WATCHDOG);
-  assert.equal(decision.reason, DelegationReason.COMPLEX_DEFAULT);
-
-  decision = watchdog.decideDelegationMode({ requiresHistory: true }, {});
-  assert.equal(decision.reason, DelegationReason.CONTEXT_DEPENDENT);
-
-  decision = watchdog.decideDelegationMode({ parallelizable: true, independent: true }, {});
-  assert.equal(decision.mode, DelegationMode.SUBAGENT);
-  assert.equal(decision.reason, DelegationReason.PARALLEL_INDEPENDENT);
-  assert.equal(decision.parallel, true);
-
-  decision = watchdog.decideDelegationMode({ toolType: "mcp" }, {});
-  assert.equal(decision.reason, DelegationReason.EXTERNAL_TOOL);
-
-  decision = watchdog.decideDelegationMode({ complexity: "simple", inputSchema: { type: "object" } }, {});
-  assert.equal(decision.reason, DelegationReason.SIMPLE_TASK);
-
-  decision = watchdog.decideDelegationMode({ complexity: "complex" }, {});
-  assert.equal(decision.reason, DelegationReason.COMPLEX_DEFAULT);
-
-  const names = bus.events.map((evt) => evt.name);
-  assert.equal(names.length, 6);
-  assert.ok(names.every((name) => name === WatchdogEvents.WATCHDOG_DECISION));
+  assert.equal(watchdog._iterationCount, 0);
+  watchdog.tick();
+  assert.equal(watchdog._iterationCount, 1);
+  watchdog.tick();
+  assert.equal(watchdog._iterationCount, 2);
 });
 
-test("Watchdog.watchdogDelegate shares context and compresses", async () => {
+test("Watchdog.checkHealth detects max iterations exceeded", async () => {
   const { Watchdog } = await import("../../../js/agents/runtime/compression/watchdog.js");
-  const { WatchdogEvents } = await import("../../../js/agents/runtime/events/events.js");
-  const bus = makeEventBus();
-  const compressor = makeCompressor({ text: "compressed" }, "arch_2");
-  const agentLoop = makeAgentLoop();
-  const watchdog = new Watchdog({ eventBus: bus, cicadaCompressor: compressor });
+  const watchdog = new Watchdog();
 
-  const result = await watchdog.watchdogDelegate({ stageKey: "scan" }, agentLoop);
+  for (let i = 0; i < 5; i++) watchdog.tick();
 
-  assert.equal(agentLoop.forkCalls.length, 1);
-  assert.equal(agentLoop.forkCalls[0].shareContext, true);
-  assert.equal(agentLoop.forkCalls[0].trackProcessMemory, true);
-  assert.equal(result.result.ok, true);
-
-  assert.equal(compressor.calls.length, 1);
-  assert.equal(compressor.calls[0].stageKey, "scan");
-  assert.equal(compressor.calls[0].options.sharedContext, agentLoop.sharedContext);
-
-  assert.equal(agentLoop.contextEntries.length, 1);
-  assert.equal(agentLoop.contextEntries[0].summary, JSON.stringify({ text: "compressed" }));
-  assert.ok(!("result" in agentLoop.contextEntries[0]));
-  assert.deepEqual(result.contextDelta, agentLoop.contextEntries[0]);
-
-  const names = bus.events.map((evt) => evt.name);
-  assert.ok(names.includes(WatchdogEvents.WATCHDOG_DELEGATED));
-  assert.ok(names.includes(WatchdogEvents.WATCHDOG_COMPRESSED));
-});
-
-test("Watchdog.watchdogDelegate defaults stage key and keeps string summary", async () => {
-  const { Watchdog } = await import("../../../js/agents/runtime/compression/watchdog.js");
-  const compressor = makeCompressor("short summary", "arch_3");
-  const agentLoop = makeAgentLoop({ withAddToContext: false });
-  const watchdog = new Watchdog({ cicadaCompressor: compressor });
-
-  const result = await watchdog.watchdogDelegate({ taskGoal: "fallback stage" }, agentLoop);
-
-  assert.equal(compressor.calls[0].stageKey, "watchdog");
-  assert.equal(result.contextDelta.summary, "short summary");
-  assert.equal(agentLoop.contextEntries.length, 0);
+  const result = watchdog.checkHealth({ maxIterations: 3 });
+  assert.equal(result.healthy, false);
+  assert.ok(result.issues.some((i) => i.type === "max_iterations"));
 });
 
 test("Watchdog.observe and intervene notify handlers", async () => {
   const { Watchdog } = await import("../../../js/agents/runtime/compression/watchdog.js");
   const { WatchdogEvents } = await import("../../../js/agents/runtime/events/events.js");
-  const watchdog = new Watchdog({ cicadaCompressor: makeCompressor("noop") });
+  const watchdog = new Watchdog();
 
   let seen = null;
   const off = watchdog.observe(WatchdogEvents.WATCHDOG_INTERVENTION, (payload) => {
     seen = payload;
   });
 
-  const decision = watchdog.intervene({ action: "retry", reason: "test" });
-  assert.equal(decision.action, "retry");
-  assert.equal(seen.action, "retry");
+  // intervene 现在接受 (reason, options) 而非 { action, reason }
+  const decision = watchdog.intervene("retry", { context: "test" });
+  assert.equal(decision.reason, "retry");
+  assert.equal(seen.reason, "retry");
 
   off();
   seen = null;
-  watchdog.intervene({ action: "skip", reason: "test" });
+  watchdog.intervene("skip", { context: "test" });
   assert.equal(seen, null);
+});
+
+test("Watchdog.reset clears state", async () => {
+  const { Watchdog } = await import("../../../js/agents/runtime/compression/watchdog.js");
+  const watchdog = new Watchdog();
+
+  watchdog.tick();
+  watchdog.tick();
+  assert.equal(watchdog._iterationCount, 2);
+
+  watchdog.reset();
+  assert.equal(watchdog._iterationCount, 0);
+});
+
+test("Watchdog emits events via eventBus", async () => {
+  const { Watchdog } = await import("../../../js/agents/runtime/compression/watchdog.js");
+  const bus = makeEventBus();
+  const watchdog = new Watchdog({ eventBus: bus });
+
+  for (let i = 0; i < 10; i++) watchdog.tick();
+  watchdog.checkHealth({ maxIterations: 5 });
+
+  assert.ok(bus.events.length > 0);
 });

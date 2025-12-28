@@ -409,11 +409,17 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         // 每轮同步底层组件数据
         this.memory.syncAll();
 
-        // 同步 agent-loop 的 messages 到 MemoryStore
-        this.memory.L1.messages = this._messages.map(m => ({
-          role: m.role,
-          content: typeof m.content === "string" ? m.content.slice(0, 500) : JSON.stringify(m.content).slice(0, 500),
-        }));
+        // 优化：仅同步新增的消息到 MemoryStore，而非每轮全量映射
+        const lastSyncedCount = this._lastSyncedMessageCount || 0;
+        const newMessages = this._messages.slice(lastSyncedCount);
+        if (newMessages.length > 0) {
+          const simplifiedNew = newMessages.map(m => ({
+            role: m.role,
+            content: typeof m.content === "string" ? m.content.slice(0, 500) : JSON.stringify(m.content).slice(0, 500),
+          }));
+          this.memory.L1.messages.push(...simplifiedNew);
+          this._lastSyncedMessageCount = this._messages.length;
+        }
 
         // 同步 state.todos 到 MemoryStore
         if (Array.isArray(this.state?.todos)) {

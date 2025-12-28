@@ -46,8 +46,8 @@ class PlanningTree {
     this.runId = options.runId || "";
     this.nodes = new Map();
   }
-  expandFromGap() {}
-  expandFromTodo() {}
+  expandFromGap() { }
+  expandFromTodo() { }
   serialize() {
     return { rootGoal: this.rootGoal, runId: this.runId };
   }
@@ -157,8 +157,11 @@ function buildCheckpointReferences(checkpoints) {
   });
 }
 
+import { Deque } from "../../shared/utils/deque.js";
+
 function buildStateSnapshot(state, { includeCheckpoints = true, includeCheckpointSnapshots = true } = {}) {
-  const snapshot = {
+  // 浅拷贝基础字段，并在序列化时按需处理复杂对象
+  return {
     schemaVersion: state.schemaVersion,
     runId: state.runId,
     createdAt: state.createdAt,
@@ -178,10 +181,8 @@ function buildStateSnapshot(state, { includeCheckpoints = true, includeCheckpoin
     L1: state.L1,
     L2: state.L2,
     todos: state.todos,
-    timeline: state.timeline,
+    timeline: state.timeline instanceof Deque ? state.timeline.toArray() : state.timeline,
   };
-
-  return snapshot;
 }
 
 export function makeStageEmitter(stageApi, actor = "deepsearch", getContext) {
@@ -327,16 +328,14 @@ export function validateIteration(state, options = {}) {
     const gid = toNonEmptyString(g?.gapId);
     if (!gid) continue;
 
-    const oldStatus = toNonEmptyString(g?.status) || GapStatus.OPEN;
-    if (oldStatus === GapStatus.FILLED || oldStatus === GapStatus.BLOCKED) continue;
-
     const evidenceCount = evidenceCountByGapId.get(gid) || 0;
     // 只有当 evidence 数量 >= minEvidenceToFill 时才标记为 filled
+    // [增强]: 即使以前是 BLOCKED，如果现在有足够证据，也应允许解封并转为 FILLED
     if (evidenceCount >= effectiveMinEvidenceToFill) {
       const didTransition = transitionGap(g, GapStatus.FILLED, { runId, iteration, ts: now, evidenceCount }, emitFn);
       if (didTransition) {
         recordGapTransitionDecision(gid, GapStatus.FILLED, {
-          reason: `evidence>=${effectiveMinEvidenceToFill}`,
+          reason: `unblocked_by_evidence_count:${evidenceCount}`,
           outcome: DecisionOutcome.SUCCESS,
           metrics: { evidenceCount, missCount: safeInt(g?.missCount) ?? 0 },
         });
@@ -344,6 +343,9 @@ export function validateIteration(state, options = {}) {
       filledCount++;
       continue;
     }
+
+    // 如果已经完成或阻塞，且证据不足以解封，则跳过
+    if (oldStatus === GapStatus.FILLED || oldStatus === GapStatus.BLOCKED) continue;
 
     const roundQualityHits = qualityHitsByGapIdMap.get(gid) || 0;
     const roundAllHits = hitsByGapId.get(gid) || 0;
@@ -487,53 +489,53 @@ export class DeepSearchState {
     this.L0 = isPlainObject(L0)
       ? L0
       : {
-          sources: [],
-          sourceIndex: null,
-        };
+        sources: [],
+        sourceIndex: null,
+      };
 
     this.L1 = isPlainObject(L1)
       ? L1
       : {
-          scanSummary: null,
-          deepDivePlan: null,
-          gaps: [],
-          retrieved: [],
-          claims: [],
-          evidenceLedger: [],
-          dataTables: [],
-          slideIntents: [],
-          outlineCandidates: [],
-          report: null,
-          conflicts: [],
-          openQuestions: [],
-          condensedMemory: null,
-        };
+        scanSummary: null,
+        deepDivePlan: null,
+        gaps: [],
+        retrieved: [],
+        claims: [],
+        evidenceLedger: [],
+        dataTables: [],
+        slideIntents: [],
+        outlineCandidates: [],
+        report: null,
+        conflicts: [],
+        openQuestions: [],
+        condensedMemory: null,
+      };
 
     this.L2 = isPlainObject(L2)
       ? {
-          ...L2,
-          retrievedChunks: Array.isArray(L2?.retrievedChunks) ? L2.retrievedChunks : [],
-          scratchpad: isPlainObject(L2?.scratchpad) ? L2.scratchpad : {},
-          thoughtHistory: Array.isArray(L2?.thoughtHistory) ? L2.thoughtHistory : [],
-          logs: Array.isArray(L2?.logs) ? L2.logs : [],
-          tokenUsage: ensureTokenUsage(L2?.tokenUsage),
-          awaitUserFeedback: typeof L2?.awaitUserFeedback === "boolean" ? L2.awaitUserFeedback : false,
-          taskImpossible: typeof L2?.taskImpossible === "boolean" ? L2.taskImpossible : false,
-          reason: toNonEmptyString(L2?.reason) || "",
-        }
+        ...L2,
+        retrievedChunks: Array.isArray(L2?.retrievedChunks) ? L2.retrievedChunks : [],
+        scratchpad: isPlainObject(L2?.scratchpad) ? L2.scratchpad : {},
+        thoughtHistory: Array.isArray(L2?.thoughtHistory) ? L2.thoughtHistory : [],
+        logs: Array.isArray(L2?.logs) ? L2.logs : [],
+        tokenUsage: ensureTokenUsage(L2?.tokenUsage),
+        awaitUserFeedback: typeof L2?.awaitUserFeedback === "boolean" ? L2.awaitUserFeedback : false,
+        taskImpossible: typeof L2?.taskImpossible === "boolean" ? L2.taskImpossible : false,
+        reason: toNonEmptyString(L2?.reason) || "",
+      }
       : {
-          retrievedChunks: [],
-          scratchpad: {},
-          thoughtHistory: [],
-          logs: [],
-          tokenUsage: { input: 0, output: 0, total: 0, estimatedCostUSD: 0 },
-          awaitUserFeedback: false,
-          taskImpossible: false,
-          reason: "",
-        };
+        retrievedChunks: [],
+        scratchpad: {},
+        thoughtHistory: [],
+        logs: [],
+        tokenUsage: { input: 0, output: 0, total: 0, estimatedCostUSD: 0 },
+        awaitUserFeedback: false,
+        taskImpossible: false,
+        reason: "",
+      };
 
     this.todos = Array.isArray(todos) ? todos : [];
-    this.timeline = Array.isArray(timeline) ? timeline : [];
+    this.timeline = new Deque(Array.isArray(timeline) ? timeline : []);
 
     const wbc = safeInt(writeBacktrackCount);
     this.writeBacktrackCount = wbc !== null && wbc >= 0 ? wbc : 0;
@@ -617,7 +619,7 @@ export class DeepSearchState {
     this.timeline.push(row);
 
     const max = Math.max(0, safeInt(this?.userConfig?.memory?.maxTimeline) ?? 1000);
-    while (this.timeline.length > max) this.timeline.shift();
+    while (this.timeline.size > max) this.timeline.shift();
     return row;
   }
 
@@ -747,9 +749,10 @@ export class DeepSearchState {
     const ts = toNonEmptyString(timestamp) || new Date().toISOString();
 
     const checkpointStrategy = getCheckpointStrategyFromState(this, strategy);
+    // 优化：移除冗余的 fromJSON 包装。cloneValue 已足够创建独立副本。
     const snapshot =
       checkpointStrategy === CheckpointMode.FULL
-        ? DeepSearchState.fromJSON(cloneValue(buildStateSnapshot(this, { includeCheckpoints: false })))
+        ? cloneValue(buildStateSnapshot(this, { includeCheckpoints: false }))
         : checkpointStrategy === CheckpointMode.MINIMAL
           ? buildMinimalSnapshot(this)
           : buildLiteSnapshot(this);
@@ -763,11 +766,11 @@ export class DeepSearchState {
     const m = isPlainObject(metrics)
       ? metrics
       : {
-          gapCount: openGapCount,
-          claimCount: claims.length,
-          evidenceCount: evidenceLedger.length,
-          retrievedCount: retrievedChunks.length,
-        };
+        gapCount: openGapCount,
+        claimCount: claims.length,
+        evidenceCount: evidenceLedger.length,
+        retrievedCount: retrievedChunks.length,
+      };
 
     const checkpoint = {
       schemaVersion: CHECKPOINT_SCHEMA_VERSION,

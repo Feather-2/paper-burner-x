@@ -11,13 +11,29 @@ function toNonEmptyString(v) {
   return s.length ? s : "";
 }
 
+/**
+ * 计算资产内容哈希 (优化版)
+ * 对于大型数据，使用采样策略（长度+前缀+后缀）避免全量字符串化
+ */
 function computeAssetHash(asset) {
-    const signature = JSON.stringify({
-      type: toNonEmptyString(asset?.type),
-      mimeType: toNonEmptyString(asset?.mimeType),
-      data: toNonEmptyString(asset?.data),
-    });
-    return normalizeText(signature).textHash;
+  const type = toNonEmptyString(asset?.type);
+  const mimeType = toNonEmptyString(asset?.mimeType);
+  const rawData = toNonEmptyString(asset?.data);
+
+  // 优化：对于超过 4KB 的数据，使用采样签名而非全量
+  const SAMPLE_THRESHOLD = 4096;
+  let dataSignature;
+  if (rawData.length > SAMPLE_THRESHOLD) {
+    // 采样策略：长度 + 前 512 字符 + 后 512 字符
+    const prefix = rawData.slice(0, 512);
+    const suffix = rawData.slice(-512);
+    dataSignature = `${rawData.length}:${prefix}:${suffix}`;
+  } else {
+    dataSignature = rawData;
+  }
+
+  const signature = JSON.stringify({ type, mimeType, data: dataSignature });
+  return normalizeText(signature).textHash;
 }
 
 function defaultAssetIdFromHash(hash) {

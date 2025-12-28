@@ -51,7 +51,8 @@ export class SubagentRegistry {
 
         const lines = ["## 可用子代理 (Subagents)", "当需要处理复杂、多步或需要独立上下文的任务时，使用 Task 工具启动这些专用的子代理："];
         for (const [type, entry] of this._subagents) {
-            lines.push(`- **${type}**: ${entry.description}`);
+            const displayType = type.toLowerCase();
+            lines.push(`- **${displayType}**: ${entry.description}`);
         }
         return lines.join("\n");
     }

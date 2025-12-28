@@ -2,6 +2,8 @@ function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
 }
 
+import { createSafeRegex } from "../shared/utils/safe-regex.js";
+
 function compileRegex(pattern, caseSensitive) {
   if (pattern instanceof RegExp) {
     const flags = pattern.flags.includes("g") ? pattern.flags : pattern.flags + "g";
@@ -12,7 +14,7 @@ function compileRegex(pattern, caseSensitive) {
   }
   const src = String(pattern || "");
   const flags = caseSensitive ? "gu" : "giu";
-  return new RegExp(src, flags);
+  return createSafeRegex(src, flags);
 }
 
 function findAllLiteral(haystack, needle) {

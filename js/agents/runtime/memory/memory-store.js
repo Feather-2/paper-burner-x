@@ -8,7 +8,7 @@
  * - L3: Archive (归档) - snapshots, index, checkpoints
  */
 
-import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString, estimateTokenCount, deepClone } from "../../shared/utils/value-utils.js";
 
 // 默认配置
 const DEFAULT_CONFIG = Object.freeze({
@@ -23,8 +23,8 @@ const DEFAULT_CONFIG = Object.freeze({
 // Token 估算 (4 chars ≈ 1 token)
 function estimateTokens(text) {
   if (!text) return 0;
-  if (typeof text === "string") return Math.ceil(text.length / 4);
-  return Math.ceil(JSON.stringify(text).length / 4);
+  const rawText = typeof text === "string" ? text : JSON.stringify(text);
+  return estimateTokenCount(rawText);
 }
 
 // 截断文本
@@ -357,25 +357,14 @@ export class MemoryStore {
 
   checkpoint() {
     const id = genId("ckpt");
+    // 使用 deepClone 确保 Map/Set 和深层嵌套对象被完整保留且解耦
     const snapshot = {
       id,
       runId: this.runId,
       ts: Date.now(),
-      L0: JSON.parse(JSON.stringify(this.L0)),
-      L1: {
-        messages: [...this.L1.messages],
-        signals: [...this.L1.signals],
-        decisions: [...this.L1.decisions],
-        syncTable: {
-          discoveries: Object.fromEntries(this.L1.syncTable.discoveries),
-          subagents: Object.fromEntries(this.L1.syncTable.subagents),
-        },
-      },
-      L2: {
-        historySummary: this.L2.historySummary,
-        stageSummaries: Object.fromEntries(this.L2.stageSummaries),
-        claims: [...this.L2.claims],
-      },
+      L0: deepClone(this.L0),
+      L1: deepClone(this.L1),
+      L2: deepClone(this.L2),
     };
     this.L3.checkpoints.push(snapshot);
     return id;
@@ -385,15 +374,10 @@ export class MemoryStore {
     const ckpt = this.L3.checkpoints.find(c => c.id === checkpointId);
     if (!ckpt) return false;
 
-    this.L0 = JSON.parse(JSON.stringify(ckpt.L0));
-    this.L1.messages = [...ckpt.L1.messages];
-    this.L1.signals = [...ckpt.L1.signals];
-    this.L1.decisions = [...ckpt.L1.decisions];
-    this.L1.syncTable.discoveries = new Map(Object.entries(ckpt.L1.syncTable.discoveries));
-    this.L1.syncTable.subagents = new Map(Object.entries(ckpt.L1.syncTable.subagents));
-    this.L2.historySummary = ckpt.L2.historySummary;
-    this.L2.stageSummaries = new Map(Object.entries(ckpt.L2.stageSummaries));
-    this.L2.claims = [...ckpt.L2.claims];
+    // 同样使用 deepClone 恢复，防止后续修改影响 L3 中的快照副本
+    this.L0 = deepClone(ckpt.L0);
+    this.L1 = deepClone(ckpt.L1);
+    this.L2 = deepClone(ckpt.L2);
 
     return true;
   }
@@ -606,24 +590,26 @@ export class MemoryStore {
   syncFromSharedContext() {
     if (!this._sharedContext) return;
 
-    // 同步 signals
+    // 同步 signals - 优化查找性能
     const signals = this._sharedContext.getSignals?.() || [];
+    const existingSignalIds = new Set(this.L1.signals.map(s => s.id));
     for (const sig of signals) {
-      if (!this.L1.signals.find(s => s.id === sig.id)) {
+      if (!existingSignalIds.has(sig.id)) {
         this.L1.signals.push({ ...sig, ts: sig.ts || Date.now() });
       }
     }
 
-    // 同步 stage summaries (注意：SharedContext 用 getAllSummaries)
+    // 同步 stage summaries
     const summaries = this._sharedContext.getAllSummaries?.() || {};
     for (const [stage, summary] of Object.entries(summaries)) {
       this.L2.stageSummaries.set(stage, summary);
     }
 
-    // 同步 decisions
+    // 同步 decisions - 优化查找性能
     const decisions = this._sharedContext.getDecisions?.() || [];
+    const existingDecisionIds = new Set(this.L1.decisions.map(d => d.id));
     for (const d of decisions) {
-      if (!this.L1.decisions.find(x => x.id === d.id)) {
+      if (!existingDecisionIds.has(d.id)) {
         this.L1.decisions.push({ ...d, ts: d.ts || Date.now() });
       }
     }

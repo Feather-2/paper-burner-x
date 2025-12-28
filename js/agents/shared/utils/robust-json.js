@@ -126,12 +126,18 @@ function fixCommonJsonIssues(jsonStr) {
   // 移除末尾的不完整内容（逗号、冒号等）
   fixed = fixed.replace(/[,:\s]+$/, '');
 
+  const needsFix = (openBrackets > closeBrackets) || (openBraces > closeBraces);
+
   // 添加缺少的闭合括号
   for (let i = 0; i < openBrackets - closeBrackets; i++) {
     fixed += ']';
   }
   for (let i = 0; i < openBraces - closeBraces; i++) {
     fixed += '}';
+  }
+
+  if (needsFix) {
+    // console.warn("[RobustJSON] JSON was truncated and auto-fixed. Content might be incomplete.");
   }
 
   return fixed;

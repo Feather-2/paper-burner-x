@@ -179,9 +179,11 @@ test("DeepSearchState.addTimeline: enforces maxTimeline cap", async () => {
   state.addTimeline({ name: "e2" });
   state.addTimeline({ name: "e3" });
 
-  assert.equal(state.timeline.length, 2);
-  assert.equal(state.timeline[0].name, "e2");
-  assert.equal(state.timeline[1].name, "e3");
+  // timeline 是 Deque，使用 size 和 toArray()
+  assert.equal(state.timeline.size, 2);
+  const arr = state.timeline.toArray();
+  assert.equal(arr[0].name, "e2");
+  assert.equal(arr[1].name, "e3");
 });
 
 test("DeepSearchState.saveCheckpoint: enforces maxCheckpoints cap", async () => {
@@ -361,7 +363,8 @@ test("Checkpoint E2E: 保存完整状态并恢复", async () => {
 
   assert.equal(cp.schemaVersion, "1.0");
   assert.equal(cp.strategy, "full");
-  assert.ok(cp.stateSnapshot instanceof DeepSearchState);
+  // 优化后快照是普通对象而非 DeepSearchState 实例（restoreCheckpoint 时重建）
+  assert.ok(typeof cp.stateSnapshot === "object" && cp.stateSnapshot !== null);
 
   assert.notEqual(cp.stateSnapshot, state);
   assert.notEqual(cp.stateSnapshot.L1, state.L1);

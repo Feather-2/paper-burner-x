@@ -21,6 +21,7 @@
 
 import { generateReport } from "../../report/report-generator.js";
 import { isPlainObject, toNonEmptyString } from "../../../../shared/utils/value-utils.js";
+import { createSafeRegex } from "../../../../../shared/utils/safe-regex.js";
 
 // 分析门槛配置（写报告前必须满足）- 从 config 读取或使用默认值
 const DEFAULT_ANALYSIS_GATES = {
@@ -259,8 +260,8 @@ function validateReport(content, mode = "wider", state = null) {
 
   // 检查信息缺口 - wider/deeper 模式强制要求
   const hasGapSection = content.includes("缺口") || content.includes("gap") ||
-                        content.includes("未覆盖") || content.includes("不足") ||
-                        content.includes("❓");
+    content.includes("未覆盖") || content.includes("不足") ||
+    content.includes("❓");
   if (!hasGapSection) {
     if (mode === "quick") {
       warnings.push("建议明确标注信息缺口");
@@ -650,12 +651,12 @@ export async function handler(args, context) {
           // 找到第二次及之后的出现，删除到下一个同级或更高级标题
           let searchStart = firstIdx + heading.length;
           let match;
-          const regex = new RegExp(`^${escaped}`, "gm");
+          const regex = createSafeRegex(`^${escaped}`, "gm");
           regex.lastIndex = searchStart;
           while ((match = regex.exec(fixed)) !== null) {
             // 找到下一个同级或更高级标题
             const afterDup = fixed.slice(match.index + heading.length);
-            const nextHeadingMatch = afterDup.match(new RegExp(`^#{1,${level}}\\s`, "m"));
+            const nextHeadingMatch = afterDup.match(createSafeRegex(`^#{1,${level}}\\s`, "m"));
             const endIdx = nextHeadingMatch
               ? match.index + heading.length + nextHeadingMatch.index
               : match.index + heading.length;

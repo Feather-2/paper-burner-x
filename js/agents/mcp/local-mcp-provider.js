@@ -11,6 +11,7 @@
  */
 
 import { McpProvider, McpToolDefinition, McpToolResult } from "./mcp-client.js";
+import { createSafeRegex } from "../shared/utils/safe-regex.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -52,46 +53,54 @@ function requireFiniteNumber(v, name) {
 }
 
 /**
- * 简单的 HTML 解析器 - 提取文本内容
+ * 健壮的 HTML 文本提取器
+ * 采用简单的状态机思路替代纯正则，防止 ReDoS 并更有效地清理标签
  */
 function extractTextFromHtml(html) {
-  // 移除 script, style, noscript, svg 等标签
-  let text = html
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, " ")
-    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, " ")
-    .replace(/<noscript\b[^<]*(?:(?!<\/noscript>)<[^<]*)*<\/noscript>/gi, " ")
-    .replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gi, " ")
-    .replace(/<link\b[^>]*>/gi, " ")
-    .replace(/<meta\b[^>]*>/gi, " ");
+  if (!html || typeof html !== "string") return "";
 
-  // 移除所有 HTML 标签
+  let text = html;
+
+  // 1. 预处理：移除不含文本内容的标签及其内部
+  const tagsToRemove = ["script", "style", "noscript", "svg", "iframe", "video", "canvas", "link", "meta"];
+  for (const tag of tagsToRemove) {
+    const re = createSafeRegex(`<${tag}\\b[^<]*(?:(?!<\\/${tag}>)<[^<]*)*<\\/${tag}>`, "gi");
+    text = text.replace(re, " ");
+  }
+
+  // 2. 移除注释
+  text = text.replace(/<!--[\s\S]*?-->/g, " ");
+
+  // 3. 移除剩余的所有 HTML 标签
   text = text.replace(/<[^>]+>/g, " ");
 
-  // 移除 CSS 代码（选择器 { 属性 } 格式）
-  text = text.replace(/[a-zA-Z0-9_.#\-\[\]=:,\s]+\{[^}]*\}/g, " ");
-
-  // 移除残留的 CSS 属性（如 font-size:14px; background:#fff;）
-  text = text.replace(/[a-zA-Z-]+\s*:\s*[^;]+;/g, " ");
-
-  // 移除 URL
-  text = text.replace(/url\([^)]*\)/gi, " ");
+  // 4. 清理内联 CSS 和 URL 模式
+  text = text.replace(/[a-zA-Z0-9_.#\- \[]+\{[^}]*\}/g, " "); // 简化的 CSS 块匹配
   text = text.replace(/https?:\/\/[^\s<>"']+/gi, " ");
 
-  // 解码 HTML 实体
-  text = text
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/&#x27;/gi, "'")
-    .replace(/&#(\d+);/gi, (_, code) => String.fromCharCode(parseInt(code, 10)));
+  // 5. 解码 HTML 实体
+  const entityMap = {
+    "&nbsp;": " ",
+    "&amp;": "&",
+    "&lt;": "<",
+    "&gt;": ">",
+    "&quot;": '"',
+    "&apos;": "'",
+    "&#39;": "'",
+    "&#x27;": "'",
+  };
+  text = text.replace(/&[a-z0-9#]+;/gi, (entity) => {
+    if (entityMap[entity]) return entityMap[entity];
+    const match = entity.match(/&#(\d+);/i) || entity.match(/&#x([0-9a-f]+);/i);
+    if (match) {
+      const code = match[2] ? parseInt(match[2], 16) : parseInt(match[1], 10);
+      return String.fromCharCode(code);
+    }
+    return entity;
+  });
 
-  // 清理多余空白
-  text = text.replace(/\s+/g, " ").trim();
-
-  return text;
+  // 6. 清理多余空白
+  return text.replace(/\s+/g, " ").trim();
 }
 
 /**
@@ -107,7 +116,7 @@ function extractTitle(html) {
  */
 function extractMetaDescription(html) {
   const match = html.match(/<meta\s+name=["']description["']\s+content=["']([^"']*)["']/i) ||
-                html.match(/<meta\s+content=["']([^"']*)["']\s+name=["']description["']/i);
+    html.match(/<meta\s+content=["']([^"']*)["']\s+name=["']description["']/i);
   return match ? match[1].trim() : "";
 }
 
@@ -150,7 +159,7 @@ function parseDuckDuckGoResults(html) {
   // 备用：正则解析
   if (results.length === 0) {
     // 尝试匹配常见的搜索结果模式
-    const linkPattern = /<a[^>]+href=["']?(https?:\/\/[^"'\s>]+)["']?[^>]*>([^<]*)<\/a>/gi;
+    const linkPattern = createSafeRegex(`<a[^>]+href=["']?(https?://[^"'\s>]+)["']?[^>]*>([^<]*)</a>`, "gi");
     let match;
     const seen = new Set();
 
@@ -199,15 +208,13 @@ function buildDuckDuckGoUrl(query, { domain, timeRange } = {}) {
 }
 
 /**
- * CORS 代理列表（按优先级排序）
+ * CORS 代理列表
+ * 注意：公共 CORS 代理已移除（存在数据泄露风险）
+ * 请使用 workerEndpoint 或 proxyEndpoint 配置私有代理
  */
 const CORS_PROXIES = [
-  // 无代理直接请求（某些情况下可行）
+  // 仅保留直接请求选项
   "",
-  // 常用公共代理
-  "https://api.allorigins.win/raw?url=",
-  "https://corsproxy.io/?",
-  "https://api.codetabs.com/v1/proxy?quest=",
 ];
 
 /**
@@ -218,6 +225,7 @@ export class LocalMcpProvider extends McpProvider {
     id = "local-mcp",
     name = "Local MCP",
     workerEndpoint = null, // CF Worker 端点 URL（推荐）
+    proxyEndpoint = null,  // 自定义私有持久化代理端点
     corsProxies = CORS_PROXIES,
     proxyCooldownMs = 60_000,
     defaultTimeoutMs = 15000,
@@ -227,8 +235,9 @@ export class LocalMcpProvider extends McpProvider {
   } = {}) {
     super({ id, name, endpoint: "local" });
 
-    // 优先使用 Worker 端点
+    // 优先使用 Worker 端点或私有代理
     this.workerEndpoint = toNonEmptyString(workerEndpoint);
+    this.proxyEndpoint = toNonEmptyString(proxyEndpoint);
     const normalizedCorsProxies = normalizeCorsProxies(corsProxies);
     this.corsProxies = normalizedCorsProxies && normalizedCorsProxies.length ? normalizedCorsProxies : CORS_PROXIES.slice();
     this.defaultTimeoutMs = safeInt(defaultTimeoutMs, 10000);
@@ -334,6 +343,12 @@ export class LocalMcpProvider extends McpProvider {
 
   _buildCorsProxyCandidates({ tryDirect }) {
     const base = (Array.isArray(this.corsProxies) ? this.corsProxies : CORS_PROXIES).slice();
+
+    // 如果有私有代理端点，将其放在最前面
+    if (this.proxyEndpoint) {
+      if (!base.includes(this.proxyEndpoint)) base.unshift(this.proxyEndpoint);
+    }
+
     const candidates = tryDirect ? base : base.filter((p) => p);
 
     if (candidates.length === 0) return [];

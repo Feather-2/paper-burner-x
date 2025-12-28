@@ -1,3 +1,5 @@
+import { deepClone } from "../shared/utils/value-utils.js";
+
 /**
  * GenericBacktrackManager - 通用回溯管理 (春秋蝉)
  * 
@@ -42,8 +44,14 @@ export class BacktrackManager {
         // 如果没有指定 ID，尝试通过 listArchives 找到上一个快照
         if (!targetId && this.compressor) {
             const archives = await this.compressor.listArchives({ limit: 2 });
-            // 通常索引 0 是当前的，索引 1 是上一个
-            targetId = archives.length >= 2 ? archives[1].id : (archives.length === 1 ? archives[0].id : null);
+            // archives 通常按时间倒序排列
+            // 索引 0 是当前的运行点快照，索引 1 才是真正的“过去”
+            if (archives.length >= 2) {
+                targetId = archives[1].id;
+            } else {
+                // 如果只有一个存档，说明还没有产生过历史记录
+                return { success: false, reason: "no_previous_checkpoint" };
+            }
         }
 
         if (!targetId) {
@@ -59,7 +67,8 @@ export class BacktrackManager {
 
             return {
                 success: true,
-                state: snapshot.context || snapshot,
+                // 使用 deepClone 彻底断开与 Snapshot 存档的引用，防止代理循环修改回溯后的状态时污染存档
+                state: deepClone(snapshot.context || snapshot),
                 checkpointId: targetId
             };
         } catch (err) {

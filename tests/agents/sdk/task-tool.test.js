@@ -44,7 +44,7 @@ describe("TaskTool", () => {
     assert.equal(receivedContext.handoff, undefined);
   });
 
-  it("shared mode: passes messages", async () => {
+  it("shared mode: passes sharedContext only (no messages)", async () => {
     const registry = new SubagentRegistry();
     let receivedContext = null;
 
@@ -69,7 +69,8 @@ describe("TaskTool", () => {
     await handler({ subagent_type: "test", prompt: "do something", context_mode: "shared" }, context);
 
     assert.ok(receivedContext);
-    assert.deepEqual(receivedContext.messages, [{ role: "user", content: "hello" }]);
+    // shared 模式不再传 messages（避免上下文膨胀）
+    assert.equal(receivedContext.messages, undefined);
     assert.deepEqual(receivedContext.sharedContext, { shared: true });
   });
 

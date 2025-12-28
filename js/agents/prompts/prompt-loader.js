@@ -48,6 +48,17 @@ function getBasePath() {
 }
 
 /**
+ * 验证提示词 Key 是否安全，防止路径穿越
+ */
+function validateKey(key) {
+  if (typeof key !== "string") return false;
+  // 仅允许字母、数字、下划线、中划线和斜杠
+  // 严禁 ".." 路径
+  if (key.includes("..")) return false;
+  return /^[a-zA-Z0-9_\-\/]+$/.test(key);
+}
+
+/**
  * 异步加载提示词文件
  * @param {string} name - 提示词名称，如 "dsl/ppt-html-dsl" (不需要 .md 后缀)
  * @param {object} options - 选项
@@ -57,12 +68,15 @@ function getBasePath() {
 export async function loadPrompt(name, { cache = true } = {}) {
   const key = String(name).replace(/\.md$/i, "");
 
+  if (!validateKey(key)) {
+    throw new Error(`Invalid prompt key: "${name}". Path traversal is forbidden.`);
+  }
+
   if (cache && promptCache.has(key)) {
     return promptCache.get(key);
   }
 
   const basePath = getBasePath();
-
   let content;
 
   // 浏览器环境 - 使用 fetch
@@ -83,8 +97,13 @@ export async function loadPrompt(name, { cache = true } = {}) {
     try {
       const fs = await import("fs/promises");
       const pathModule = await import("path");
-      // 使用 path.join 正确处理路径分隔符
-      const fullPath = pathModule.join(basePath, `${key}.md`);
+
+      // 进一步确保路径安全
+      const fullPath = pathModule.resolve(basePath, `${key}.md`);
+      if (!fullPath.startsWith(pathModule.resolve(basePath))) {
+        throw new Error("Path security violation: resulting path is outside base directory");
+      }
+
       content = await fs.readFile(fullPath, "utf-8");
     } catch (e) {
       throw new Error(`Failed to load prompt "${name}": ${e.message}`);
@@ -99,6 +118,27 @@ export async function loadPrompt(name, { cache = true } = {}) {
 }
 
 /**
+ * 获取 Node.js 模块（安全处理 ESM/CJS 兼容性）
+ */
+function getSyncNodeModules() {
+  if (typeof window !== "undefined") return null;
+  try {
+    // 使用动态方式获取 fs 和 path，避免在 ESM 环境预加载阶段崩溃
+    // 如果 require 不存在，说明是原生 ESM 且未处理兼容，抛出可控错误
+    if (typeof require === "undefined") {
+      // 在原生 ESM 环境下，通过 import.meta 获取
+      return null;
+    }
+    return {
+      fs: require("fs"),
+      path: require("path")
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * 同步加载提示词 (仅 Node.js 环境)
  * @param {string} name - 提示词名称
  * @param {object} options - 选项
@@ -107,21 +147,33 @@ export async function loadPrompt(name, { cache = true } = {}) {
 export function loadPromptSync(name, { cache = true } = {}) {
   const key = String(name).replace(/\.md$/i, "");
 
+  if (!validateKey(key)) {
+    throw new Error(`Invalid prompt key: "${name}". Path traversal is forbidden.`);
+  }
+
   if (cache && promptCache.has(key)) {
     return promptCache.get(key);
   }
 
-  // 仅支持 Node.js
+  // 浏览器环境检查
   if (typeof window !== "undefined") {
     throw new Error("loadPromptSync is not supported in browser environment");
   }
 
+  const modules = getSyncNodeModules();
+  if (!modules) {
+    throw new Error("loadPromptSync failed: Sync file access is unavailable in this environment (likely native ESM without require shim). Use async loadPrompt instead.");
+  }
+
   try {
-    // 动态 require fs
-    const fs = require("fs");
-    const path = require("path");
+    const { fs, path } = modules;
     const basePath = getBasePath();
     const fullPath = path.resolve(basePath, `${key}.md`);
+
+    if (!fullPath.startsWith(path.resolve(basePath))) {
+      throw new Error("Path security violation");
+    }
+
     const content = fs.readFileSync(fullPath, "utf-8").trim();
 
     if (cache) {

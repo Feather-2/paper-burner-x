@@ -29,6 +29,7 @@ test("Logger: createLogger emits structured events", async () => {
     const logger = createLogger({
       emit: (name, payload, meta) => emitted.push({ name, payload, meta }),
       getContext: () => ({ runId: "run_1", iteration: 2, stage: "scan" }),
+      actor: "deepsearch", // 显式指定 actor
     });
 
     logger.info("hello", { data: { sourceCount: 3 } });
@@ -45,7 +46,7 @@ test("Logger: createLogger emits structured events", async () => {
     assert.ok(typeof emitted[0].payload.timestamp === "string");
 
     assert.equal(calls.log.length, 1);
-    assert.equal(calls.log[0][0], "[DeepSearch:scan]");
+    assert.equal(calls.log[0][0], "[deepsearch:scan]");
     assert.equal(calls.log[0][1], "hello");
   });
 });
@@ -58,6 +59,7 @@ test("Logger: warn/error choose console method + status", async () => {
     const logger = createLogger({
       emit: (name, payload, meta) => emitted.push({ name, payload, meta }),
       getContext: () => ({ runId: "run_2", stage: "gaps" }),
+      actor: "deepsearch", // 显式指定 actor
     });
 
     logger.warn("w1");
@@ -188,6 +190,7 @@ test("Logger: deprecated logEvent exists", async () => {
   await withPatchedConsole(async (calls) => {
     logEvent({ message: "legacy" });
     assert.equal(calls.log.length, 1);
-    assert.equal(calls.log[0][0], "[DeepSearch]");
+    // logEvent 现在使用通用 [Agent] 前缀
+    assert.equal(calls.log[0][0], "[Agent]");
   });
 });

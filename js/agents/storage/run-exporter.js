@@ -66,30 +66,35 @@ export async function exportRunAsZip(runId, { runStore = new RunStore() } = {}) 
   const manifest = await ensureManifest(runStore, runId);
   zip.file("manifest.json", JSON.stringify(manifest, null, 2));
 
+  // 处理 events.jsonl
   const eventsJsonl = (await runStore.getArtifact(runId, "events.jsonl")) || "";
   zip.file("events.jsonl", eventsJsonl);
 
+  // 顺序处理附件，避免同时持有大量内存
   for (const item of manifest.artifacts || []) {
     if (!item || typeof item !== "object") continue;
     const type = item.type;
-    if (!type || typeof type !== "string") continue;
-    if (type === "events.jsonl") continue;
+    if (!type || typeof type !== "string" || type === "events.jsonl") continue;
 
-    const data = await runStore.getArtifact(runId, type);
+    // 每次迭代只加载一个附件
+    let data = await runStore.getArtifact(runId, type);
     if (data === null || data === undefined) continue;
 
-    if (typeof data === "string") {
-      zip.file(type, data);
-    } else if (isPlainObject(data) || Array.isArray(data)) {
-      zip.file(type, JSON.stringify(data, null, 2));
-    } else if (typeof Blob !== "undefined" && data instanceof Blob) {
-      zip.file(type, data);
-    } else if (data instanceof ArrayBuffer) {
-      zip.file(type, data);
-    } else if (ArrayBuffer.isView(data)) {
-      zip.file(type, data);
-    } else {
-      zip.file(type, String(data));
+    try {
+      if (typeof data === "string") {
+        zip.file(type, data);
+      } else if (isPlainObject(data) || Array.isArray(data)) {
+        zip.file(type, JSON.stringify(data, null, 2));
+      } else if (typeof Blob !== "undefined" && data instanceof Blob) {
+        zip.file(type, data);
+      } else if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
+        zip.file(type, data);
+      } else {
+        zip.file(type, String(data));
+      }
+    } finally {
+      // 显式释放对大型数据的引用，辅助垃圾回收
+      data = null;
     }
   }
 

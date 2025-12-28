@@ -1,6 +1,7 @@
 import { createStageApi } from "../../shared/utils/stage-api.js";
 import { StagePausedError } from "./stage-errors.js";
 import { getRuntimeState } from "../telemetry/loop-runtime-state.js";
+import { estimateTokenCount } from "../../shared/utils/value-utils.js";
 
 const USER_ACTION_PREFIX = "user.action";
 
@@ -16,8 +17,8 @@ const DEFAULT_CONTEXT_CONFIG = Object.freeze({
 // 简单 token 估算 (4 chars ≈ 1 token)
 function estimateTokens(text) {
   if (!text) return 0;
-  if (typeof text === "string") return Math.ceil(text.length / 4);
-  return Math.ceil(JSON.stringify(text).length / 4);
+  const rawText = typeof text === "string" ? text : JSON.stringify(text);
+  return estimateTokenCount(rawText);
 }
 
 export function getEmitFn(ctx) {
@@ -125,8 +126,9 @@ export class BaseStage {
 }
 
 export class BaseAgentLoop {
-  constructor({ eventBus, stateMachine, tools, actor, stageName, emit, hooks, contextConfig } = {}) {
+  constructor({ eventBus, stateMachine, tools, actor, stageName, emit, hooks, contextConfig, logger } = {}) {
     this.eventBus = eventBus || null;
+    this.logger = logger || null;
     this.stateMachine = stateMachine || null;
     this.actor = actor || stageName || "agent";
     this.stageName = stageName || actor || "agent";
@@ -169,7 +171,10 @@ export class BaseAgentLoop {
    */
   addMessage(message) {
     this._messages.push(message);
-    this._updateTokenUsage();
+    // 增量更新 Token 计数
+    const messageTokens = estimateTokens(message.content);
+    this._tokenUsage.input += messageTokens;
+    this._tokenUsage.total += messageTokens;
 
     // 检查是否需要压缩
     if (this._shouldCompress()) {
@@ -183,10 +188,14 @@ export class BaseAgentLoop {
    * 批量添加消息
    */
   addMessages(messages) {
+    let addedTokens = 0;
     for (const msg of messages) {
       this._messages.push(msg);
+      addedTokens += estimateTokens(msg.content);
     }
-    this._updateTokenUsage();
+    // 增量更新 Token 计数
+    this._tokenUsage.input += addedTokens;
+    this._tokenUsage.total += addedTokens;
 
     if (this._shouldCompress()) {
       this._scheduleCompression();
@@ -194,9 +203,9 @@ export class BaseAgentLoop {
   }
 
   /**
-   * 更新 token 使用统计
+   * 全量重算 token 使用统计（仅在压缩或回溯后调用）
    */
-  _updateTokenUsage() {
+  _recalculateTokenUsage() {
     let total = 0;
     for (const msg of this._messages) {
       total += estimateTokens(msg.content);
@@ -222,7 +231,7 @@ export class BaseAgentLoop {
     if (this._compressionPending) return;
     this._compressionPending = true;
     queueMicrotask(() => {
-      this._compressMessages().catch(() => {}).finally(() => {
+      this._compressMessages().catch(() => { }).finally(() => {
         this._compressionPending = false;
       });
     });
@@ -269,7 +278,7 @@ export class BaseAgentLoop {
       }
     }
 
-    this._updateTokenUsage();
+    this._recalculateTokenUsage();
     this._recordCompression(beforeCount, beforeTokens);
   }
 
@@ -303,7 +312,7 @@ export class BaseAgentLoop {
       ...kept,
     ];
 
-    this._updateTokenUsage();
+    this._recalculateTokenUsage();
     this._recordCompression(beforeCount, beforeTokens);
   }
 
@@ -427,13 +436,18 @@ export class BaseAgentLoop {
   async _callTool(name, params, context) {
     // Before hooks - can skip or modify params
     let finalParams = params;
+    // Before hooks - can skip or modify params (isolated)
     for (const hook of this._hooks.before) {
-      const hookResult = await hook({ tool: name, params: finalParams, context });
-      if (hookResult?.skip) {
-        return normalizeToolResult(hookResult.value);
-      }
-      if (hookResult?.params) {
-        finalParams = hookResult.params;
+      try {
+        const hookResult = await hook({ tool: name, params: finalParams, context });
+        if (hookResult?.skip) {
+          return normalizeToolResult(hookResult.value);
+        }
+        if (hookResult?.params) {
+          finalParams = hookResult.params;
+        }
+      } catch (e) {
+        this.logger?.warn(`[agent-loop] BeforeHook failed for ${name}: ${e.message}`);
       }
     }
 
@@ -457,10 +471,15 @@ export class BaseAgentLoop {
     }
 
     // After hooks - can transform result
+    // After hooks - can transform result (isolated)
     for (const hook of this._hooks.after) {
-      const hookResult = await hook({ tool: name, params: finalParams, result, context });
-      if (hookResult !== undefined) {
-        result = normalizeToolResult(hookResult);
+      try {
+        const hookResult = await hook({ tool: name, params: finalParams, result, context });
+        if (hookResult !== undefined) {
+          result = normalizeToolResult(hookResult);
+        }
+      } catch (e) {
+        this.logger?.warn(`[agent-loop] AfterHook failed for ${name}: ${e.message}`);
       }
     }
 

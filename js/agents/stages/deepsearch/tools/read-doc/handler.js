@@ -103,28 +103,54 @@ export async function handler(args, context) {
   // 按章节读取
   else if (section) {
     readMode = "section";
-    const sectionPattern = new RegExp(
-      `^(${section.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})\\s*\\n([\\s\\S]*?)(?=^#{1,6}\\s|$)`,
-      "m"
-    );
-    const match = fullContent.match(sectionPattern);
-    if (match) {
-      content = match[1] + "\n" + match[2].trim();
-      rangeInfo = { section, found: true };
-    } else {
-      // 尝试模糊匹配
-      const fuzzyPattern = new RegExp(`^(#{1,6}\\s*.*${section.replace(/^#+\s*/, "")}.*?)\\n([\\s\\S]*?)(?=^#{1,6}\\s|$)`, "im");
-      const fuzzyMatch = fullContent.match(fuzzyPattern);
-      if (fuzzyMatch) {
-        content = fuzzyMatch[1] + "\n" + fuzzyMatch[2].trim();
-        rangeInfo = { section, found: true, fuzzyMatch: fuzzyMatch[1] };
-      } else {
-        return {
-          success: false,
-          error: `Section not found: ${section}`,
-          hint: "可用章节：" + (fullContent.match(/^#{1,6}\s+.+$/gm) || []).slice(0, 10).join(", "),
-        };
+    const lines = fullContent.split("\n");
+    const targetSection = section.trim().toLowerCase();
+    const targetSectionNoHash = targetSection.replace(/^#+\s*/, "");
+
+    let startIndex = -1;
+    let endIndex = -1;
+    let foundHeader = "";
+
+    // 1. 寻找匹配的标题行
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line.startsWith("#")) continue;
+
+      const lineLower = line.toLowerCase();
+      // 精确匹配 (忽略大小写) 或 模糊匹配 (包含关键词)
+      if (lineLower === targetSection || lineLower.includes(targetSectionNoHash)) {
+        startIndex = i;
+        foundHeader = lines[i];
+        break;
       }
+    }
+
+    if (startIndex !== -1) {
+      // 2. 寻找下一个标题行作为结束位置
+      for (let j = startIndex + 1; j < lines.length; j++) {
+        if (lines[j].trim().startsWith("#")) {
+          endIndex = j;
+          break;
+        }
+      }
+
+      const sectionLines = endIndex === -1
+        ? lines.slice(startIndex)
+        : lines.slice(startIndex, endIndex);
+
+      content = sectionLines.join("\n").trim();
+      rangeInfo = {
+        section,
+        found: true,
+        foundHeader,
+        isFuzzy: !foundHeader.toLowerCase().includes(targetSection)
+      };
+    } else {
+      return {
+        success: false,
+        error: `Section not found: ${section}`,
+        hint: "可用章节：" + (fullContent.match(/^#{1,6}\s+.+$/gm) || []).slice(0, 10).join(", "),
+      };
     }
   }
   // 按行范围读取
