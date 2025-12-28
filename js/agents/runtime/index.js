@@ -42,3 +42,6 @@ export { StageApiFactory } from "./api/stage-api-factory.js";
 
 // Context
 export { UnifiedAgentContext } from "./context/unified-agent-context.js";
+
+// Tools
+export { ToolExecutor, createToolExecutor } from "./tools/tool-executor.js";

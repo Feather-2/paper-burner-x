@@ -142,145 +142,17 @@ export async function executeTool(name, args, context) {
   }
 }
 
+// 复用 runtime 统一的 ToolExecutor
+import { ToolExecutor as BaseToolExecutor, createToolExecutor } from "../../../runtime/tools/tool-executor.js";
+export { createToolExecutor };
+export { BaseToolExecutor as ToolExecutor };
+
 /**
- * ToolExecutor - 工具执行器 (增强版)
- * 
- * 提供统一的工具执行抽象层:
- * - 统一的日志记录
- * - 超时保护
- * - 重试机制
- * - 标准化结果格式
- * 
- * 解决架构问题 #9: 缺少工具执行器抽象层
+ * 创建预配置的 DeepSearch ToolExecutor
  */
-export class ToolExecutor {
-  constructor(options = {}) {
-    this.tools = options.tools || tools;
-    this.logger = options.logger || console;
-    this.defaultTimeoutMs = options.timeoutMs || 30000;
-    this.maxRetries = options.maxRetries || 1;
-    this.emitFn = options.emit || null;
-  }
-
-  /**
-   * 执行单个工具
-   * @param {string} name - 工具名称
-   * @param {Object} args - 工具参数
-   * @param {Object} context - 执行上下文
-   * @param {Object} options - 执行选项
-   * @returns {Promise<ToolResult>}
-   */
-  async execute(name, args, context, options = {}) {
-    const tool = this.tools[name];
-    if (!tool) {
-      return this._buildResult(false, null, `Unknown tool: ${name}`);
-    }
-
-    const timeoutMs = options.timeoutMs || this.defaultTimeoutMs;
-    const retries = options.retries ?? this.maxRetries;
-    const startTime = Date.now();
-
-    let lastError = null;
-    for (let attempt = 0; attempt <= retries; attempt++) {
-      try {
-        const result = await this._executeWithTimeout(
-          tool.handler, args, context, timeoutMs
-        );
-
-        const duration = Date.now() - startTime;
-        this._log("info", `Tool ${name} completed`, { duration, attempt });
-        this._emit("tool.completed", { tool: name, args, result, duration });
-
-        return this._normalizeResult(result);
-      } catch (err) {
-        lastError = err;
-        this._log("warn", `Tool ${name} failed (attempt ${attempt + 1})`, { error: err.message });
-
-        if (attempt < retries) {
-          await this._delay(100 * (attempt + 1)); // Exponential backoff
-        }
-      }
-    }
-
-    const duration = Date.now() - startTime;
-    this._emit("tool.failed", { tool: name, args, error: lastError?.message, duration });
-    return this._buildResult(false, null, lastError?.message || "Unknown error");
-  }
-
-  /**
-   * 批量执行工具 (并发)
-   * @param {Array<{action: string, args: Object}>} actions
-   * @param {Object} context
-   * @param {Object} options
-   * @returns {Promise<Array<ToolResult>>}
-   */
-  async executeBatch(actions, context, options = {}) {
-    const concurrency = options.concurrency || actions.length;
-    const results = [];
-
-    // Simple implementation: execute all in parallel
-    const promises = actions.map(item =>
-      this.execute(item.action, item.args || {}, context, options)
-        .then(result => ({ tool: item.action, ...result }))
-        .catch(err => ({ tool: item.action, success: false, error: err.message }))
-    );
-
-    return Promise.all(promises);
-  }
-
-  async _executeWithTimeout(handler, args, context, timeoutMs) {
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        reject(new Error(`Tool execution timed out after ${timeoutMs}ms`));
-      }, timeoutMs);
-
-      Promise.resolve(handler(args, context))
-        .then(result => {
-          clearTimeout(timer);
-          resolve(result);
-        })
-        .catch(err => {
-          clearTimeout(timer);
-          reject(err);
-        });
-    });
-  }
-
-  _normalizeResult(result) {
-    if (result === null || result === undefined) {
-      return this._buildResult(true, null);
-    }
-
-    // Handle various result formats (Problem #16)
-    if (typeof result === "object") {
-      const success = result.success ?? result.ok ?? !result.error;
-      const data = result.data ?? result.result ?? result;
-      const error = result.error ?? null;
-      return { success: Boolean(success), data, error, raw: result };
-    }
-
-    return this._buildResult(true, result);
-  }
-
-  _buildResult(success, data, error = null) {
-    return { success, data, error };
-  }
-
-  _log(level, message, data = {}) {
-    if (this.logger && typeof this.logger[level] === "function") {
-      this.logger[level](`[ToolExecutor] ${message}`, data);
-    }
-  }
-
-  _emit(name, payload) {
-    if (typeof this.emitFn === "function") {
-      this.emitFn(name, payload);
-    }
-  }
-
-  _delay(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
+export function createDeepSearchToolExecutor(options = {}) {
+  return new BaseToolExecutor({ tools, ...options });
 }
 
 export default tools;
+
