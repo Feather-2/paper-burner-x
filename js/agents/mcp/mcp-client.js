@@ -8,15 +8,7 @@
  * 业务层仅通过 tool schema + MCP 调用，不感知具体 endpoint。
  */
 
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
-}
+import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
 
 /**
  * MCP 工具定义

@@ -1,7 +1,4 @@
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
+import { isPlainObject } from "../shared/utils/value-utils.js";
 import { createSafeRegex } from "../shared/utils/safe-regex.js";
 
 function compileRegex(pattern, caseSensitive) {

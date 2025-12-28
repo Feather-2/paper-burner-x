@@ -12,19 +12,12 @@
 
 import { McpProvider, McpToolDefinition, McpToolResult } from "./mcp-client.js";
 import { createSafeRegex } from "../shared/utils/safe-regex.js";
+import { isPlainObject, toNonEmptyString, safeInt as _safeInt } from "../shared/utils/value-utils.js";
 
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
-}
-
+// Wrapper to provide default fallback value (value-utils safeInt returns null for invalid)
 function safeInt(n, fallback = 0) {
-  return typeof n === "number" && Number.isFinite(n) ? Math.floor(n) : fallback;
+  const v = _safeInt(n);
+  return v !== null ? v : fallback;
 }
 
 function normalizeCorsProxies(v) {
