@@ -104,6 +104,8 @@ export const DeepSearchEvents = Object.freeze({
   AGENT_FAILED: "deepsearch.agent.failed",
   AGENT_PAUSED: "deepsearch.agent.paused",
   AGENT_ITERATION: "deepsearch.agent.iteration",
+  AGENT_ERROR: "deepsearch.agent.error",
+  MODEL_RESPONDED: "deepsearch.model.responded",
 
   // write-report skill
   SECTION_WRITTEN: "deepsearch.section.written",

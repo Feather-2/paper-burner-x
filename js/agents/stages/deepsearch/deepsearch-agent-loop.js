@@ -12,6 +12,9 @@ import { tools, executeTool, getToolCatalogPrompt } from "./tools/index.js";
 import { isPlainObject } from "../../shared/utils/value-utils.js";
 import { robustParseJson } from "../../shared/utils/robust-json.js";
 import { loadPrompt } from "../../prompts/prompt-loader.js";
+import { DeepSearchEvents } from "../../runtime/events/events.js";
+import { ModelResponseHandler } from "./runtime/model-response-handler.js";
+import { WritingPhaseHandler } from "./runtime/writing-phase-handler.js";
 
 // Skills 系统（动态加载）
 let SkillsManager = null;
@@ -225,7 +228,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     }
     const oldStatus = this.status;
     this.status = AgentStatus.RUNNING;
-    this._emit("agent.status.changed", { from: oldStatus, to: AgentStatus.RUNNING });
+    this._emit(DeepSearchEvents.AGENT_STATUS_CHANGED, { from: oldStatus, to: AgentStatus.RUNNING });
     // 清空消息（使用父类的 _messages）
     this._messages = [];
 
@@ -277,7 +280,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     }
 
 
-    this._emit("agent.started", { runId: this.state.runId, mode: this.mode });
+    this._emit(DeepSearchEvents.AGENT_STARTED, { runId: this.state.runId, mode: this.mode });
 
     // 构建初始消息
     const sources = this.state.L0?.sources || [];
@@ -324,16 +327,22 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     const callModel = getModelCaller(stageApi, { usage: "agent", state: this.state });
     if (!callModel) throw new Error("No model available");
 
+    // 模型响应处理器（封装重试逻辑）
+    const responseHandler = new ModelResponseHandler({
+      logger: this._logger,
+      emit: (n, p) => this._emit(n, p),
+      parseDecision: (content) => this._parseDecision(content),
+      maxRetries: 5,
+    });
+
     // 主循环
     let iteration = 0;
     let toolCallCount = 0;  // 工具调用计数
-    let retryCount = 0;
-    const maxRetries = 5; // 单轮最大重试次数
 
     while (iteration < this.maxIterations) {
       // 检查工具调用次数限制
       if (toolCallCount >= this.maxToolCalls) {
-        console.log(`[agent-loop] 工具调用次数达到上限 (${toolCallCount}/${this.maxToolCalls})，强制进入写作阶段`);
+        this._logger.info(`工具调用次数达到上限 (${toolCallCount}/${this.maxToolCalls})，强制进入写作阶段`);
         break;
       }
 
@@ -344,11 +353,11 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         ? Math.round((totalTokens / contextStatus.contextWindow) * 100)
         : 0;
       const compressFlag = contextStatus.needsCompression ? " [COMPRESS]" : "";
-      const retryInfo = retryCount > 0 ? ` (retry ${retryCount}/${maxRetries})` : "";
-      console.log(`[agent-loop] Iteration ${iteration + 1}/${this.maxIterations}${retryInfo} | Tokens: ${totalTokens} (${tokenPct}%)${compressFlag} | Messages: ${this._messages.length}`);
+      const retryInfo = responseHandler.retryCount > 0 ? ` (retry ${responseHandler.retryCount}/${responseHandler.maxRetries})` : "";
+      this._logger.debug(`Iteration ${iteration + 1}/${this.maxIterations}${retryInfo} | Tokens: ${totalTokens} (${tokenPct}%)${compressFlag} | Messages: ${this._messages.length}`);
 
       if (signal?.aborted) {
-        this._emit("agent.status.changed", { from: this.status, to: AgentStatus.FAILED });
+        this._emit(DeepSearchEvents.AGENT_STATUS_CHANGED, { from: this.status, to: AgentStatus.FAILED });
         this.status = AgentStatus.FAILED;
         throw new Error("Aborted");
       }
@@ -359,7 +368,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         break;
       }
 
-      this._emit("agent.iteration", { iteration: iteration + 1, retry: retryCount });
+      this._emit(DeepSearchEvents.AGENT_ITERATION, { iteration: iteration + 1, retry: responseHandler.retryCount });
 
       // [Shadow System] 注入潜意识信号 (上下文工程：即时性、不留痕)
       const shadow = stageApi.agent?.shadow || context.agent?.shadow;
@@ -382,20 +391,11 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         const blackboardPrompt = this.sharedContext.buildBlackboardPrompt?.();
         if (blackboardPrompt) {
           this._logger.info("[Blackboard] Injecting context summary (ephemeral)");
-          console.log(`[agent:?] [Blackboard] Injecting context summary (ephemeral)`, {});
           // 显示黑板内容摘要
           const claimIds = this.sharedContext.search?.("finding_claim") || [];
           const gapIds = this.sharedContext.search?.("finding_gap") || [];
           if (claimIds.length > 0 || gapIds.length > 0) {
-            console.log(`[Blackboard] 📊 Claims: ${claimIds.length}, Gaps: ${gapIds.length}`);
-            claimIds.slice(-2).forEach(id => {
-              const c = this.sharedContext.getDetail?.(id);
-              console.log(`  💡 ${c?.content?.slice(0, 80) || id}`);
-            });
-            gapIds.slice(-2).forEach(id => {
-              const g = this.sharedContext.getDetail?.(id);
-              console.log(`  ❓ ${g?.content?.slice(0, 80) || id}`);
-            });
+            this._logger.debug(`Blackboard: Claims=${claimIds.length}, Gaps=${gapIds.length}`);
           }
           transientMessages = [
             ...transientMessages,
@@ -426,7 +426,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
           this.memory.L0.todos = this.state.todos.map(t => {
             const content = t.text || t.content || "";
             if (!content) {
-              console.warn(`[MemoryStore] Todo ${t.todoId || t.id} has no text/content:`, JSON.stringify(t).slice(0, 200));
+              this._logger.warn(`Todo ${t.todoId || t.id} has no text/content`);
             }
             return {
               id: t.todoId || t.id,
@@ -445,12 +445,11 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
 
         // 打印 MemoryStore 状态
         const stats = this.memory.getStats();
-        console.log(`[MemoryStore] L0: todos=${stats.todoCount} | L1: msgs=${stats.messageCount} sigs=${stats.signalCount} decs=${stats.decisionCount} disc=${stats.discoveryCount} | L2: claims=${stats.claimCount} | L3: arch=${stats.archiveCount}`);
+        this._logger.debug(`MemoryStore L0: todos=${stats.todoCount} | L1: msgs=${stats.messageCount} sigs=${stats.signalCount} | L2: claims=${stats.claimCount} | L3: arch=${stats.archiveCount}`);
 
         const memoryContext = this.memory.buildPromptContext();
         if (memoryContext) {
           this._logger.info("[Memory] Injecting unified context (ephemeral)");
-          console.log(`[MemoryStore] Context:\n${memoryContext.slice(0, 500)}${memoryContext.length > 500 ? "..." : ""}`);
           transientMessages = [
             ...transientMessages,
             { role: "system", content: `<memory>\n${memoryContext}\n</memory>` }
@@ -507,101 +506,34 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
           signal,
         });
 
-        const content = response?.content || "";
+        // 使用 ModelResponseHandler 处理响应
+        const result = await responseHandler.handleResponse(response, {
+          stageApi,
+          addMessage: (msg) => this.addMessage(msg),
+          budget: this.budget,
+        });
 
-        // 检测空响应 - 不计入有效迭代
-        if (!content.trim()) {
-          retryCount++;
-          console.log(`[agent-loop] ⚠️ Empty response (retry ${retryCount}/${maxRetries})`);
-
-          if (retryCount >= maxRetries) {
-            this._logger.error("Too many empty responses, pausing");
-            this._emit("agent.error", { error: "Too many empty responses", recoverable: true });
-
-            // 暂停等待用户决定
-            if (typeof stageApi?.waitForUserInput === "function") {
-              const choice = await stageApi.waitForUserInput({
-                question: `连续 ${maxRetries} 次空响应，是否继续？`,
-                options: ["继续重试", "跳过本轮", "停止执行"],
-              });
-              if (choice === "继续重试") {
-                retryCount = 0;
-                continue;
-              } else if (choice === "跳过本轮") {
-                retryCount = 0;
-                iteration++;
-                continue;
-              }
-            }
-            break;
-          }
-
-          // 添加提示让模型重新输出
-          this.addMessage({
-            role: "user",
-            content: "请按照指定的 JSON 格式输出你的决策：{\"thought\": \"...\", \"action\": \"...\", \"args\": {...}}",
-          });
+        // 根据处理结果决定下一步
+        if (result.status === "retry") {
           continue; // 不增加 iteration
         }
-
-        this.addMessage({ role: "assistant", content });
-
-        // 打印模型响应摘要
-        const contentPreview = content.length > 200 ? content.slice(0, 200) + "..." : content;
-        console.log(`[agent-loop] Model response: ${contentPreview}`);
-
-        this._emit("model.responded", { content, usage: response.usage });
-
-        // 记录 token 使用
-        this.budget?.recordUsage?.(response?.usage);
-
-        // 解析决策
-        const decision = this._parseDecision(content);
-
-        // 无法解析 - 不计入有效迭代
-        if (!decision) {
-          retryCount++;
-          console.log(`[agent-loop] ⚠️ Failed to parse decision (retry ${retryCount}/${maxRetries})`);
-
-          if (retryCount >= maxRetries) {
-            this._logger.error("Too many parse failures, pausing");
-            this._emit("agent.error", { error: "Too many parse failures", recoverable: true });
-
-            // 暂停等待用户决定
-            if (typeof stageApi?.waitForUserInput === "function") {
-              const choice = await stageApi.waitForUserInput({
-                question: `连续 ${maxRetries} 次解析失败，是否继续？`,
-                options: ["继续重试", "跳过本轮", "停止执行"],
-              });
-              if (choice === "继续重试") {
-                retryCount = 0;
-                continue;
-              } else if (choice === "跳过本轮") {
-                retryCount = 0;
-                iteration++;
-                continue;
-              }
-            }
-            break;
-          }
-
-          // 添加提示让模型重新输出
-          this.addMessage({
-            role: "user",
-            content: "无法解析你的响应。请严格按照 JSON 格式输出：{\"thought\": \"你的思考\", \"action\": \"工具名称\", \"args\": {...}}",
-          });
-          continue; // 不增加 iteration
+        if (result.status === "skip") {
+          iteration++;
+          continue;
+        }
+        if (result.status === "stop") {
+          break;
         }
 
-        // 有效响应，重置重试计数，增加迭代次数
-        retryCount = 0;
+        // 成功解析，增加迭代次数
+        const decision = result.decision;
         iteration++;
         this.state.iteration = iteration; // 同步到 state 供门槛检查使用
 
         // 打印思考过程
         if (decision.thought) {
           const thoughtPreview = decision.thought.length > 150 ? decision.thought.slice(0, 150) + "..." : decision.thought;
-          console.log(`[agent-loop] 💭 Thought: ${thoughtPreview}`);
+          this._logger.debug(`Thought: ${thoughtPreview}`);
         }
 
         // 记录决策到 MemoryStore
@@ -626,7 +558,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
 
         // 批量执行 tools（并发）
         if (decision.actions) {
-          console.log(`[agent-loop] Executing ${decision.actions.length} tools in parallel`);
+          this._logger.info(`Executing ${decision.actions.length} tools in parallel`);
           const results = await Promise.all(
             decision.actions.map(async (item) => {
               const toolName = item.action;
@@ -646,7 +578,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
               }
             })
           );
-          console.log(`[agent-loop] Batch results:`, JSON.stringify(results).slice(0, 500));
+          this._logger.debug(`Batch results: ${results.length} tools completed`);
           toolCallCount += results.length;  // 计数批量调用
 
           // 保存 checkpoint
@@ -663,7 +595,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         }
 
         // 执行单个 tool
-        console.log(`[agent-loop] Executing tool: ${decision.action}`, decision.args);
+        this._logger.info(`Executing tool: ${decision.action}`);
         const result = await executeTool(decision.action, decision.args || {}, {
           state: this.state,
           emit: (n, p) => this._emit(n, p),
@@ -673,7 +605,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
           memory: this.memory,
         });
         toolCallCount++;  // 计数单个调用
-        console.log(`[agent-loop] Tool result:`, JSON.stringify(result).slice(0, 300));
+        this._logger.debug(`Tool result: ${JSON.stringify(result).slice(0, 200)}`);
 
         // watchdog handoff 触发回溯
         if (result?.mode === "handoff" && this.backtrackManager?.canBacktrack?.()) {
@@ -717,118 +649,40 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     }
 
     // ===== 写作阶段：如果报告未完成，额外给 writeIterations 轮 =====
-    const report = this.state.L1?.report;
-    const reportContent = report?.markdown || "";
-    const wordCount = reportContent.replace(/\s+/g, "").length;
-    const reportConfig = this.globalConfig?.report?.[this.mode] || {};
-    const minWords = reportConfig.minWords || { quick: 4000, wider: 6000, deeper: 10000 }[this.mode] || 4000;
-    const writeIterations = this.writeIterations || 5;
+    const writingHandler = new WritingPhaseHandler({
+      logger: this._logger,
+      emit: (n, p) => this._emit(n, p),
+      parseDecision: (content) => this._parseDecision(content),
+      executeTool,
+      maxIterations: this.writeIterations || 5,
+      maxParseFailures: 3,
+    });
 
-    // 修复：工具调用达上限或迭代达上限都应进入写作阶段
-    const shouldEnterWritingPhase = wordCount < minWords && (iteration >= this.maxIterations || toolCallCount >= this.maxToolCalls);
+    const shouldEnterWritingPhase = writingHandler.shouldEnter({
+      state: this.state,
+      mode: this.mode,
+      globalConfig: this.globalConfig,
+      iteration,
+      maxIterations: this.maxIterations,
+      toolCallCount,
+      maxToolCalls: this.maxToolCalls,
+    });
 
     if (shouldEnterWritingPhase) {
-      console.log(`[agent-loop] 报告未完成 (${wordCount}/${minWords} 字)，进入写作阶段 (最多 ${writeIterations} 轮)`);
-
-      // 统计 todo 完成情况
-      const todos = this.state?.todos || [];
-      const doneTodos = todos.filter(t => t.status === "done" || t.status === "completed").length;
-      const todoStats = `${doneTodos}/${todos.length}`;
-
-      // 注入写作阶段提示
-      this.addMessage({
-        role: "user",
-        content: `⚠️ 研究阶段已结束，报告字数不足 (${wordCount}/${minWords} 字)。
-待办完成: ${todoStats}
-
-进入**写作阶段**（${writeIterations} 轮）。
-
-**重要**：每次只追加 500-800 字，避免 JSON 过长导致解析失败。
-
-步骤：
-1. get-findings - 回顾发现
-2. append - 分批追加内容
-3. submit - 提交
-
-示例：{"thought":"补充内容","action":"write-report","args":{"action":"append","content":"## 章节\\n\\n内容..."}}`,
+      await writingHandler.run({
+        state: this.state,
+        stageApi,
+        sharedContext: this.sharedContext,
+        callModel,
+        addMessage: (msg) => this.addMessage(msg),
+        messages: () => this.messages,
+        signal,
       });
-
-      let writingIteration = 0;
-      let parseFailures = 0;
-      const maxParseFailures = 3;
-
-      while (writingIteration < writeIterations) {
-        writingIteration++;
-        console.log(`[agent-loop] Writing phase ${writingIteration}/${writeIterations}`);
-
-        if (signal?.aborted) break;
-
-        try {
-          const response = await callModel(this.messages, { temperature: 0.3, maxTokens: 1000, signal });
-          const content = response?.content || "";
-
-          if (!content.trim()) {
-            parseFailures++;
-            console.log(`[agent-loop] Writing phase empty response ${parseFailures}/${maxParseFailures}`);
-            if (parseFailures >= maxParseFailures) break;
-            continue;
-          }
-
-          this.addMessage({ role: "assistant", content });
-          const decision = this._parseDecision(content);
-
-          if (!decision) {
-            parseFailures++;
-            console.log(`[agent-loop] Writing phase parse failure ${parseFailures}/${maxParseFailures}`);
-            if (parseFailures >= maxParseFailures) {
-              console.log(`[agent-loop] Too many parse failures in writing phase, stopping`);
-              break;
-            }
-            // 提示模型修正格式
-            this.addMessage({
-              role: "user",
-              content: `JSON 解析失败，请确保输出有效的 JSON 格式：{"thought": "...", "action": "write-report", "args": {...}}`,
-            });
-            continue;
-          }
-
-          parseFailures = 0; // 重置失败计数
-
-          // 只允许 write-report
-          const actions = decision.actions || [{ action: decision.action, args: decision.args }];
-          for (const item of actions) {
-            if (item.action === "write-report") {
-              const result = await executeTool("write-report", item.args || {}, {
-                state: this.state,
-                emit: (n, p) => this._emit(n, p),
-                stageApi,
-                sharedContext: this.sharedContext,
-              });
-              this.addMessage({
-                role: "user",
-                content: `结果: ${JSON.stringify(result, null, 2)}`,
-              });
-
-              // 检查是否提交成功
-              if (item.args?.action === "submit" && result.success) {
-                console.log(`[agent-loop] 报告提交成功`);
-                writingIteration = writeIterations; // 退出写作阶段
-                break;
-              }
-            } else if (item.action === "complete") {
-              writingIteration = writeIterations;
-              break;
-            }
-          }
-        } catch (err) {
-          this._logger.error("Writing phase error", { error: err.message });
-        }
-      }
     }
 
-    this._emit("agent.status.changed", { from: this.status, to: AgentStatus.COMPLETED });
+    this._emit(DeepSearchEvents.AGENT_STATUS_CHANGED, { from: this.status, to: AgentStatus.COMPLETED });
     this.status = AgentStatus.COMPLETED;
-    this._emit("agent.completed", { runId: this.state.runId, iterations: iteration });
+    this._emit(DeepSearchEvents.AGENT_COMPLETED, { runId: this.state.runId, iterations: iteration });
 
     return this._buildOutput();
   }
