@@ -139,11 +139,16 @@ export async function handler(args, context) {
         : lines.slice(startIndex, endIndex);
 
       content = sectionLines.join("\n").trim();
+      // 行号使用 1-based，符合引用规范
+      const lineStart = startIndex + 1;
+      const lineEnd = endIndex === -1 ? lines.length : endIndex;
       rangeInfo = {
         section,
         found: true,
         foundHeader,
-        isFuzzy: !foundHeader.toLowerCase().includes(targetSection)
+        isFuzzy: !foundHeader.toLowerCase().includes(targetSection),
+        lineStart,
+        lineEnd,
       };
     } else {
       return {
@@ -160,7 +165,7 @@ export async function handler(args, context) {
     const start = Math.max(1, startLine || 1) - 1; // 转为 0-based
     const end = Math.min(lines.length, endLine || lines.length);
     content = lines.slice(start, end).join("\n");
-    rangeInfo = { startLine: start + 1, endLine: end, totalLines: lines.length };
+    rangeInfo = { startLine: start + 1, endLine: end, totalLines: lines.length, lineStart: start + 1, lineEnd: end };
   }
   // 按字符范围读取
   else if (start !== undefined || end !== undefined) {
@@ -168,7 +173,18 @@ export async function handler(args, context) {
     const s = Math.max(0, start || 0);
     const e = Math.min(fullContent.length, end || fullContent.length);
     content = fullContent.slice(s, e);
-    rangeInfo = { start: s, end: e, totalLength: fullContent.length };
+    // 计算字符范围对应的行号
+    const beforeStart = fullContent.slice(0, s);
+    const lineStart = (beforeStart.match(/\n/g) || []).length + 1;
+    const selectedText = fullContent.slice(s, e);
+    const lineEnd = lineStart + (selectedText.match(/\n/g) || []).length;
+    rangeInfo = { start: s, end: e, totalLength: fullContent.length, lineStart, lineEnd };
+  }
+  // 完整读取
+  else {
+    readMode = "full";
+    const lines = fullContent.split("\n");
+    rangeInfo = { lineStart: 1, lineEnd: lines.length, totalLines: lines.length };
   }
 
   // 应用 maxLength 限制

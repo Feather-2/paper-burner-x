@@ -178,3 +178,85 @@ export function deepClone(v) {
   return result;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// JSON Serialization Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+function isWeakCollection(value) {
+  return value instanceof WeakMap || value instanceof WeakSet;
+}
+
+/**
+ * 递归清理值以确保 JSON 可序列化。
+ * 处理循环引用、WeakMap/WeakSet、Date、RegExp、Map、Set 等。
+ *
+ * @param {any} value - 要清理的值
+ * @param {WeakSet} [seen] - 用于检测循环引用的集合
+ * @returns {any} JSON 安全的值
+ */
+export function sanitizeForJson(value, seen = new WeakSet()) {
+  if (value === null) return null;
+
+  const type = typeof value;
+  if (type === "string" || type === "boolean") return value;
+  if (type === "number") return Number.isFinite(value) ? value : null;
+  if (type === "bigint") return value.toString();
+  if (type === "undefined" || type === "function" || type === "symbol") return undefined;
+
+  if (type !== "object") return value;
+  if (isWeakCollection(value)) return undefined;
+  if (seen.has(value)) return "[Circular]";
+  seen.add(value);
+
+  if (value instanceof Date) return value.toISOString();
+  if (value instanceof RegExp) return value.toString();
+
+  if (Array.isArray(value)) {
+    return value.map((item) => {
+      const next = sanitizeForJson(item, seen);
+      return next === undefined ? null : next;
+    });
+  }
+
+  if (value instanceof Set) {
+    return Array.from(value.values()).map((item) => {
+      const next = sanitizeForJson(item, seen);
+      return next === undefined ? null : next;
+    });
+  }
+
+  if (value instanceof Map) {
+    let allStringKeys = true;
+    for (const key of value.keys()) {
+      if (typeof key !== "string") {
+        allStringKeys = false;
+        break;
+      }
+    }
+
+    if (allStringKeys) {
+      const out = {};
+      for (const [k, v] of value.entries()) {
+        const next = sanitizeForJson(v, seen);
+        if (next !== undefined) out[k] = next;
+      }
+      return out;
+    }
+
+    return Array.from(value.entries()).map(([k, v]) => {
+      const nextKey = sanitizeForJson(k, seen);
+      const nextVal = sanitizeForJson(v, seen);
+      return [nextKey === undefined ? null : nextKey, nextVal === undefined ? null : nextVal];
+    });
+  }
+
+  const out = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
+    const next = sanitizeForJson(v, seen);
+    if (next === undefined) continue;
+    out[k] = next;
+  }
+  return out;
+}
+

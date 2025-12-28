@@ -70,11 +70,29 @@ export function buildEvidenceIndex(evidenceLedger, sources) {
 }
 
 /**
+ * 构建标准引用格式 [sourceId:L{start}-L{end}]
+ * @param {string} sourceId
+ * @param {number|null} lineStart
+ * @param {number|null} lineEnd
+ * @returns {string}
+ */
+export function formatRef(sourceId, lineStart, lineEnd) {
+  if (!sourceId) return "";
+  if (Number.isFinite(lineStart) && Number.isFinite(lineEnd) && lineStart !== lineEnd) {
+    return `[${sourceId}:L${lineStart}-L${lineEnd}]`;
+  }
+  if (Number.isFinite(lineStart)) {
+    return `[${sourceId}:L${lineStart}]`;
+  }
+  return `[${sourceId}]`;
+}
+
+/**
  * Builds an ordered citation list from evidence IDs (deduplicated), enriching with source metadata where available.
  * @param {string[]} evidenceIdsInOrder
  * @param {Array} evidenceLedger
  * @param {Array} sources
- * @returns {Array<{citationId:number,evidenceId:string,sourceId?:string,sourceTitle?:string,sourceUri?:string,locator?:any,quote?:string,chunkId?:string}>}
+ * @returns {Array<{citationId:number,evidenceId:string,sourceId?:string,sourceTitle?:string,sourceUri?:string,locator?:any,quote?:string,chunkId?:string,ref?:string,lineStart?:number,lineEnd?:number}>}
  */
 export function buildCitationsFromEvidenceIds(evidenceIdsInOrder, evidenceLedger, sources) {
   const { evidenceById, sourceById } = buildEvidenceIndex(evidenceLedger, sources);
@@ -89,6 +107,9 @@ export function buildCitationsFromEvidenceIds(evidenceIdsInOrder, evidenceLedger
     const n = citations.length + 1;
     const sourceId = toNonEmptyString(row?.sourceId);
     const src = sourceId ? sourceById.get(String(sourceId)) : null;
+    const lineStart = Number.isFinite(row?.lineStart) ? row.lineStart : null;
+    const lineEnd = Number.isFinite(row?.lineEnd) ? row.lineEnd : null;
+    const ref = formatRef(sourceId, lineStart, lineEnd);
     citations.push({
       citationId: n,
       evidenceId: String(eid),
@@ -98,13 +119,22 @@ export function buildCitationsFromEvidenceIds(evidenceIdsInOrder, evidenceLedger
       ...(row?.locator ? { locator: row.locator } : {}),
       ...(toNonEmptyString(row?.quote) ? { quote: String(row.quote) } : {}),
       ...(toNonEmptyString(row?.chunkId) ? { chunkId: String(row.chunkId) } : {}),
+      ...(lineStart !== null ? { lineStart } : {}),
+      ...(lineEnd !== null ? { lineEnd } : {}),
+      ...(ref ? { ref } : {}),
     });
   }
   return citations;
 }
 
 /**
- * Rewrites `{{cite:<evidenceId>}}` markers into numbered citations and appends a `## References` section.
+ * Rewrites `{{cite:<evidenceId>}}` markers into precise reference format and appends a `## 参考文献` section.
+ *
+ * 引用格式规范 v1.0:
+ * - 有行号范围: [sourceId:L{start}-L{end}]
+ * - 仅起始行: [sourceId:L{start}]
+ * - 无行号: [sourceId]
+ *
  * @param {string} markdown
  * @param {Array} evidenceLedger
  * @param {Array} sources
@@ -115,25 +145,27 @@ export function finalizeCitationsInMarkdown(markdown, evidenceLedger, sources) {
   const evidenceIdsInOrder = extractEvidenceIdsFromMarkdownCitations(src);
 
   const citations = buildCitationsFromEvidenceIds(evidenceIdsInOrder, evidenceLedger, Array.isArray(sources) ? sources : []);
-  const citationNoByEvidenceId = new Map(citations.map((c) => [c.evidenceId, c.citationId]));
+  // 构建 evidenceId -> ref 映射（优先使用精确引用格式）
+  const refByEvidenceId = new Map(citations.map((c) => [c.evidenceId, c.ref || `[${c.citationId}]`]));
 
   const replaced = src.replace(CITE_REGEX, (_full, evidenceId) => {
     const eid = toNonEmptyString(evidenceId);
-    const n = eid ? citationNoByEvidenceId.get(String(eid)) : null;
-    return n ? `[${n}]` : "";
+    return eid ? (refByEvidenceId.get(String(eid)) || "") : "";
   });
 
   const md = replaced.trimEnd().length ? replaced.trimEnd() + "\n" : replaced;
   if (!citations.length) return { markdown: md, citations };
 
-  if (/\n##\s+References\s*\n/i.test(md)) return { markdown: md, citations };
+  if (/\n##\s+(References|参考文献)\s*\n/i.test(md)) return { markdown: md, citations };
 
-  const lines = [md.trimEnd(), "", "## References", ""];
+  const lines = [md.trimEnd(), "", "## 参考文献", ""];
   for (const c of citations) {
     const label =
       toNonEmptyString(c?.sourceTitle) || toNonEmptyString(c?.sourceUri) || toNonEmptyString(c?.sourceId) || "source_unknown";
     const quote = formatQuoteForCitation(c?.quote);
-    lines.push(`- [${c.citationId}] ${label}${quote ? ` — “${quote}”` : ""}`);
+    // 使用精确引用格式作为标识
+    const refLabel = c.ref || `[${c.citationId}]`;
+    lines.push(`- ${refLabel} ${label}${quote ? ` — "${quote}"` : ""}`);
   }
   lines.push("");
   return { markdown: lines.join("\n"), citations };

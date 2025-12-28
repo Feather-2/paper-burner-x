@@ -10,20 +10,24 @@ export const definition = {
   description: `记录研究发现（支持批量）。用于记录 claims（论点）、gaps（信息缺口）、conflicts（矛盾点）。
 
 **单条记录**:
-- record-finding { type: "claim", content: "...", source: "文档:页码", confidence: 0.8 }
+- record-finding { type: "claim", content: "...", source: "文档ID", lineStart: 18, lineEnd: 26, confidence: 0.8 }
 
 **批量记录（推荐）**:
-- record-finding { findings: [{ type: "claim", content: "...", source: "..." }, { type: "gap", content: "..." }] }`,
+- record-finding { findings: [{ type: "claim", content: "...", source: "文档ID", lineStart: 18, lineEnd: 26 }, { type: "gap", content: "..." }] }
+
+**引用格式**: 记录时请提供 source（文档ID）和 lineStart/lineEnd（行号范围），用于生成可跳转引用 [source:L{start}-L{end}]`,
   layer: 0,
   activation: {
     keywords: ["记录", "发现", "claim", "gap", "conflict", "矛盾", "缺口"],
     phases: ["researching", "analyzing"],
   },
   parameters: {
-    findings: "批量发现数组（推荐），每项包含 type/content/source 等字段",
+    findings: "批量发现数组（推荐），每项包含 type/content/source/lineStart/lineEnd 等字段",
     type: "发现类型：claim | gap | conflict（单条时必需）",
     content: "发现内容（单条时必需）",
-    source: "来源引用（如 '研报A:P12'）",
+    source: "来源文档ID（与 read-doc 返回的 sourceId 一致）",
+    lineStart: "起始行号（1-based，来自 read-doc 返回）",
+    lineEnd: "结束行号（1-based，来自 read-doc 返回）",
     sources: "多来源引用（用于 conflict）",
     confidence: "置信度 0-1（用于 claim）",
     priority: "优先级：high | medium | low（用于 gap）",
@@ -44,7 +48,7 @@ function extractKeywords(text, maxCount = 5) {
  */
 function processSingleFinding(item, context) {
   const { state, emit, sharedContext } = context;
-  const { type, content, source, sources, confidence, priority, tags } = item;
+  const { type, content, source, sources, confidence, priority, tags, lineStart, lineEnd } = item;
 
   if (!type || !["claim", "gap", "conflict"].includes(type)) {
     return { success: false, error: "type must be one of: claim, gap, conflict" };
@@ -59,11 +63,26 @@ function processSingleFinding(item, context) {
     return { success: false, error: "duplicate", content: trimmedContent.slice(0, 50) };
   }
 
+  // 构建标准引用格式
+  let ref = null;
+  if (source) {
+    if (lineStart && lineEnd && lineStart !== lineEnd) {
+      ref = `[${source}:L${lineStart}-L${lineEnd}]`;
+    } else if (lineStart) {
+      ref = `[${source}:L${lineStart}]`;
+    } else {
+      ref = `[${source}]`;
+    }
+  }
+
   const finding = {
     id: `${type}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     type,
     content: trimmedContent,
     source: source || null,
+    lineStart: Number.isFinite(lineStart) ? lineStart : null,
+    lineEnd: Number.isFinite(lineEnd) ? lineEnd : null,
+    ref, // 标准引用格式
     sources: Array.isArray(sources) ? sources : (source ? [source] : []),
     confidence: type === "claim" ? (Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0.7) : null,
     priority: type === "gap" ? (priority || "medium") : null,

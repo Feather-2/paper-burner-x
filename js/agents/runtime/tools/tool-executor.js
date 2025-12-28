@@ -6,9 +6,12 @@
  * - 超时保护
  * - 重试机制
  * - 标准化结果格式
+ * - Pre-execution Schema 验证
  *
  * 所有 Agent 应通过此类执行工具，而非直接调用 handler。
  */
+
+import { validateArgs } from "./schema-validator.js";
 
 export class ToolExecutor {
   constructor(options = {}) {
@@ -18,6 +21,8 @@ export class ToolExecutor {
     this.maxRetries = options.maxRetries || 1;
     this.emitFn = options.emit || null;
     this.hooks = options.hooks || { before: [], after: [] };
+    this.validateSchema = options.validateSchema ?? true; // 默认开启验证
+    this.strictValidation = options.strictValidation ?? false; // 严格模式：验证失败直接返回错误
   }
 
   /**
@@ -57,6 +62,25 @@ export class ToolExecutor {
     const tool = this.tools[name];
     if (!tool) {
       return this._buildResult(false, null, `Unknown tool: ${name}`);
+    }
+
+    // --- Pre-execution Schema Validation ---
+    const shouldValidate = options.validateSchema ?? this.validateSchema;
+    const strictMode = options.strictValidation ?? this.strictValidation;
+
+    if (shouldValidate) {
+      const schema = tool.parameters || tool.definition?.parameters;
+      if (schema) {
+        const { valid, errors } = validateArgs(args, schema);
+        if (!valid) {
+          this._log("warn", `Schema validation failed for ${name}`, { errors });
+          this._emit("tool.validation.failed", { tool: name, args, errors });
+
+          if (strictMode) {
+            return this._buildResult(false, null, `Validation failed: ${errors.join("; ")}`);
+          }
+        }
+      }
     }
 
     // --- Before Hooks ---
