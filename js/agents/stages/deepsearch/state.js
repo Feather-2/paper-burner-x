@@ -459,12 +459,14 @@ export class DeepSearchState {
     writeSnapshots,
     sharedContext,
     subAgentIndex,
+    memoryStore,  // Memory 2.0: 可选的 MemoryStore 引用
   } = {}) {
     this.schemaVersion = toNonEmptyString(schemaVersion) || STATE_SCHEMA_VERSION;
     this.runId = toNonEmptyString(runId) || "run_unknown";
     this.createdAt = toNonEmptyString(createdAt) || new Date().toISOString();
     this.sharedContext = sharedContext || null;
     this.subAgentIndex = Number.isFinite(subAgentIndex) ? subAgentIndex : null;
+    this._memoryStore = memoryStore || null;  // Memory 2.0: 代理层
 
     this.taskGoal = toNonEmptyString(taskGoal) || "";
     this.userConfig = isPlainObject(userConfig) ? userConfig : {};
@@ -543,6 +545,15 @@ export class DeepSearchState {
   }
 
   _syncToShared(type, id, summary) {
+    // Memory 2.0: 优先使用 MemoryStore 的 syncDiscovery
+    if (this._memoryStore?.syncDiscovery) {
+      this._memoryStore.syncDiscovery(id, {
+        type,
+        ...summary,
+        by: this.subAgentIndex,
+      });
+    }
+    // 保持 SharedContext 兼容
     if (!this.sharedContext || typeof this.sharedContext.upsertSignal !== "function") return;
     this.sharedContext.upsertSignal({
       type,
@@ -551,6 +562,51 @@ export class DeepSearchState {
       by: this.subAgentIndex,
       ts: Date.now(),
     });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Memory 2.0: Scratchpad 代理
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  getScratchpad(key) {
+    // 优先从 MemoryStore 读取
+    if (this._memoryStore?.getScratchpad) {
+      return this._memoryStore.getScratchpad(key);
+    }
+    // 回退到本地 L2
+    if (key === undefined) return { ...this.L2.scratchpad };
+    return this.L2.scratchpad?.[key];
+  }
+
+  setScratchpad(key, value) {
+    // 同步到 MemoryStore
+    if (this._memoryStore?.setScratchpad) {
+      this._memoryStore.setScratchpad(key, value);
+    }
+    // 保持本地副本
+    if (!isPlainObject(this.L2)) this.L2 = { scratchpad: {} };
+    if (!isPlainObject(this.L2.scratchpad)) this.L2.scratchpad = {};
+    if (isPlainObject(key) && value === undefined) {
+      Object.assign(this.L2.scratchpad, key);
+    } else {
+      this.L2.scratchpad[key] = value;
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Memory 2.0: MemoryStore 绑定
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  bindMemoryStore(memoryStore) {
+    this._memoryStore = memoryStore;
+    // 同步当前状态到 MemoryStore
+    if (memoryStore) {
+      if (this.L2?.awaitUserFeedback) memoryStore.awaitUserFeedback = true;
+      if (this.L2?.taskImpossible) memoryStore.taskImpossible = true;
+      if (isPlainObject(this.L2?.scratchpad)) {
+        memoryStore.setScratchpad(this.L2.scratchpad);
+      }
+    }
   }
 
   addTokenUsage(usage) {
@@ -594,6 +650,10 @@ export class DeepSearchState {
   }
 
   setAwaitUserFeedback(value, reason) {
+    // Memory 2.0: 代理到 MemoryStore
+    if (this._memoryStore) {
+      this._memoryStore.awaitUserFeedback = Boolean(value);
+    }
     if (!isPlainObject(this.L2)) this.L2 = {};
     this.L2.awaitUserFeedback = Boolean(value);
     if (toNonEmptyString(reason)) this.L2.reason = String(reason);
@@ -604,6 +664,11 @@ export class DeepSearchState {
   }
 
   setTaskImpossible(reason) {
+    // Memory 2.0: 代理到 MemoryStore
+    if (this._memoryStore) {
+      this._memoryStore.taskImpossible = true;
+      this._memoryStore.awaitUserFeedback = false;
+    }
     if (!isPlainObject(this.L2)) this.L2 = {};
     this.L2.taskImpossible = true;
     this.L2.awaitUserFeedback = false;

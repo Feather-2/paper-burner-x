@@ -65,6 +65,12 @@ export class MemoryStore {
         discoveries: new Map(),  // id → {id, status, keywords, by, ts}
         subagents: new Map(),    // id → {id, status, progress, ts}
       },
+      // Memory 2.0: 统一运行时状态
+      scratchpad: {},           // 阶段临时数据
+      flags: {
+        awaitUserFeedback: false,
+        taskImpossible: false,
+      },
     };
 
     // L2: Condensed (压缩记忆)
@@ -199,6 +205,54 @@ export class MemoryStore {
 
   getDecisions(limit = 10) {
     return this.L1.decisions.slice(-limit);
+  }
+
+  // ===== L1: Scratchpad & Flags (Memory 2.0) =====
+
+  getScratchpad(key) {
+    if (key === undefined) return { ...this.L1.scratchpad };
+    return this.L1.scratchpad[key];
+  }
+
+  setScratchpad(key, value) {
+    if (isPlainObject(key) && value === undefined) {
+      Object.assign(this.L1.scratchpad, key);
+    } else {
+      this.L1.scratchpad[key] = value;
+    }
+    this._emitUpdate("scratchpad", { key, value });
+  }
+
+  clearScratchpad() {
+    this.L1.scratchpad = {};
+    this._emitUpdate("scratchpad", { cleared: true });
+  }
+
+  getFlags() {
+    return { ...this.L1.flags };
+  }
+
+  setFlag(name, value) {
+    if (name in this.L1.flags) {
+      this.L1.flags[name] = Boolean(value);
+      this._emitUpdate("flags", { [name]: value });
+    }
+  }
+
+  get awaitUserFeedback() {
+    return this.L1.flags.awaitUserFeedback;
+  }
+
+  set awaitUserFeedback(value) {
+    this.setFlag("awaitUserFeedback", value);
+  }
+
+  get taskImpossible() {
+    return this.L1.flags.taskImpossible;
+  }
+
+  set taskImpossible(value) {
+    this.setFlag("taskImpossible", value);
   }
 
   // ===== L1: SyncTable (跨 SubAgent 同步) =====
@@ -537,6 +591,13 @@ export class MemoryStore {
     if (this.eventBus?.emit) {
       this.eventBus.emit(name, { actor: "memory", payload });
     }
+  }
+
+  /**
+   * PushSync: 状态变更时触发 memory.updated 事件
+   */
+  _emitUpdate(field, delta) {
+    this._emit("memory.updated", { field, delta, ts: Date.now() });
   }
 
   // ===== Stats =====

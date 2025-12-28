@@ -17,6 +17,7 @@ export class ToolExecutor {
     this.defaultTimeoutMs = options.timeoutMs || 30000;
     this.maxRetries = options.maxRetries || 1;
     this.emitFn = options.emit || null;
+    this.hooks = options.hooks || { before: [], after: [] };
   }
 
   /**
@@ -58,6 +59,24 @@ export class ToolExecutor {
       return this._buildResult(false, null, `Unknown tool: ${name}`);
     }
 
+    // --- Before Hooks ---
+    let finalArgs = args;
+    const hooks = options.hooks || this.hooks || { before: [], after: [] };
+
+    for (const hook of (hooks.before || [])) {
+      try {
+        const hookResult = await hook({ tool: name, params: finalArgs, context });
+        if (hookResult?.skip) {
+          return this._normalizeResult(hookResult.value);
+        }
+        if (hookResult?.params) {
+          finalArgs = hookResult.params;
+        }
+      } catch (hookErr) {
+        this._log("warn", `Before hook failed for ${name}`, { error: hookErr.message });
+      }
+    }
+
     const handler = typeof tool === "function" ? tool : tool.handler;
     if (typeof handler !== "function") {
       return this._buildResult(false, null, `Tool ${name} has no handler`);
@@ -70,13 +89,27 @@ export class ToolExecutor {
     let lastError = null;
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
-        const result = await this._executeWithTimeout(handler, args, context, timeoutMs);
+        const result = await this._executeWithTimeout(handler, finalArgs, context, timeoutMs);
         const duration = Date.now() - startTime;
 
         this._log("debug", `Tool ${name} completed`, { duration, attempt });
-        this._emit("tool.completed", { tool: name, args, result, duration });
+        this._emit("tool.completed", { tool: name, args: finalArgs, result, duration });
 
-        return this._normalizeResult(result);
+        let normalized = this._normalizeResult(result);
+
+        // --- After Hooks ---
+        for (const hook of (hooks.after || [])) {
+          try {
+            const hookOverride = await hook({ tool: name, params: finalArgs, result: normalized.data, context });
+            if (hookOverride !== undefined && hookOverride !== null) {
+              normalized.data = hookOverride;
+            }
+          } catch (hookErr) {
+            this._log("warn", `After hook failed for ${name}`, { error: hookErr.message });
+          }
+        }
+
+        return normalized;
       } catch (err) {
         lastError = err;
         this._log("warn", `Tool ${name} failed (attempt ${attempt + 1})`, { error: err.message });

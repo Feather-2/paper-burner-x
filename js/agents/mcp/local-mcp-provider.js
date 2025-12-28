@@ -225,6 +225,7 @@ export class LocalMcpProvider extends McpProvider {
     searchTimeoutMs = 60000, // 搜索需要尝试多个实例，给更长时间
     maxResults = 10,
     fetchImpl,
+    memoryStore = null,  // Memory 2.0: 可选的 MemoryStore 引用
   } = {}) {
     super({ id, name, endpoint: "local" });
 
@@ -236,6 +237,7 @@ export class LocalMcpProvider extends McpProvider {
     this.defaultTimeoutMs = safeInt(defaultTimeoutMs, 10000);
     this.searchTimeoutMs = safeInt(searchTimeoutMs, 15000);
     this.maxResults = safeInt(maxResults, 10);
+    this._memoryStore = memoryStore;  // Memory 2.0
 
     if (fetchImpl !== undefined && typeof fetchImpl !== "function") throw new Error("fetchImpl must be a function");
     this._fetch = typeof fetchImpl === "function" ? fetchImpl : globalThis.fetch;
@@ -455,6 +457,9 @@ export class LocalMcpProvider extends McpProvider {
         .map((r) => `[${r.index}] ${r.title}\n    URL: ${r.url}\n    ${r.snippet}`)
         .join("\n\n");
 
+      // Memory 2.0: 记录搜索结果到 MemoryStore
+      this._recordSearchDiscoveries(q, formatted);
+
       return new McpToolResult({
         success: true,
         isError: false,
@@ -519,6 +524,9 @@ export class LocalMcpProvider extends McpProvider {
       const textOutput = formatted
         .map((r) => `[${r.index}] ${r.title}\n    URL: ${r.url}\n    ${r.snippet}`)
         .join("\n\n");
+
+      // Memory 2.0: 记录搜索结果到 MemoryStore
+      this._recordSearchDiscoveries(query, formatted);
 
       return new McpToolResult({
         success: true,

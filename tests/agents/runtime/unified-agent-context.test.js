@@ -159,8 +159,15 @@ describe("UnifiedAgentContext", () => {
       ctx._state = { toSnapshot: () => ({ iteration: 5 }) };
       ctx._memory = {
         L0: { taskGoal: "test" },
-        L1: { messages: [{ role: "user" }], decisions: [] },
-        L2: { historySummary: "summary", claims: [] },
+        L1: {
+          messages: [{ role: "user" }],
+          decisions: [],
+          signals: [],
+          syncTable: { discoveries: new Map(), subagents: new Map() },
+          scratchpad: {},
+          flags: { awaitUserFeedback: false, taskImpossible: false },
+        },
+        L2: { historySummary: "summary", claims: [], stageSummaries: new Map() },
       };
       ctx._sharedContext = { serialize: () => ({ signals: [] }) };
 
@@ -179,7 +186,18 @@ describe("UnifiedAgentContext", () => {
       let restoredShared = null;
 
       ctx._state = { fromSnapshot: (s) => { restoredState = s; } };
-      ctx._memory = { L0: {}, L1: { messages: [], decisions: [] }, L2: { historySummary: "", claims: [] } };
+      ctx._memory = {
+        L0: {},
+        L1: {
+          messages: [],
+          decisions: [],
+          signals: [],
+          syncTable: { discoveries: new Map(), subagents: new Map() },
+          scratchpad: {},
+          flags: { awaitUserFeedback: false, taskImpossible: false },
+        },
+        L2: { historySummary: "", claims: [], stageSummaries: new Map() },
+      };
       ctx._sharedContext = { deserialize: (s) => { restoredShared = s; } };
 
       const checkpoint = {

@@ -126,6 +126,50 @@ export class UnifiedAgentContext {
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
+  // Scratchpad (Memory 2.0)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  get scratchpad() {
+    return this._memory?.getScratchpad?.() || {};
+  }
+
+  setScratchpad(key, value) {
+    if (this._memory?.setScratchpad) this._memory.setScratchpad(key, value);
+  }
+
+  clearScratchpad() {
+    if (this._memory?.clearScratchpad) this._memory.clearScratchpad();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Feedback Flags (Memory 2.0)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  get feedbackFlags() {
+    return this._memory?.getFlags?.() || { awaitUserFeedback: false, taskImpossible: false };
+  }
+
+  setFeedbackFlag(name, value) {
+    if (this._memory?.setFlag) this._memory.setFlag(name, value);
+  }
+
+  get awaitUserFeedback() {
+    return this._memory?.awaitUserFeedback || false;
+  }
+
+  set awaitUserFeedback(value) {
+    if (this._memory) this._memory.awaitUserFeedback = value;
+  }
+
+  get taskImpossible() {
+    return this._memory?.taskImpossible || false;
+  }
+
+  set taskImpossible(value) {
+    if (this._memory) this._memory.taskImpossible = value;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
   // Report (统一入口)
   // ─────────────────────────────────────────────────────────────────────────────
 
@@ -166,10 +210,18 @@ export class UnifiedAgentContext {
         L1: {
           messages: [...this._memory.L1.messages],
           decisions: [...this._memory.L1.decisions],
+          signals: [...this._memory.L1.signals],
+          syncTable: {
+            discoveries: Array.from(this._memory.L1.syncTable.discoveries.entries()),
+            subagents: Array.from(this._memory.L1.syncTable.subagents.entries()),
+          },
+          scratchpad: deepClone(this._memory.L1.scratchpad || {}),
+          flags: { ...this._memory.L1.flags },
         },
         L2: {
           historySummary: this._memory.L2.historySummary,
           claims: [...this._memory.L2.claims],
+          stageSummaries: Array.from(this._memory.L2.stageSummaries.entries()),
         },
       } : null,
       sharedContext: this._sharedContext?.serialize?.() || null,
@@ -193,8 +245,21 @@ export class UnifiedAgentContext {
       Object.assign(this._memory.L0, checkpoint.memory.L0 || {});
       this._memory.L1.messages = checkpoint.memory.L1?.messages || [];
       this._memory.L1.decisions = checkpoint.memory.L1?.decisions || [];
+      this._memory.L1.signals = checkpoint.memory.L1?.signals || [];
+      // 恢复 syncTable (Map 结构)
+      if (checkpoint.memory.L1?.syncTable) {
+        this._memory.L1.syncTable.discoveries = new Map(checkpoint.memory.L1.syncTable.discoveries || []);
+        this._memory.L1.syncTable.subagents = new Map(checkpoint.memory.L1.syncTable.subagents || []);
+      }
+      // 恢复 scratchpad 和 flags
+      this._memory.L1.scratchpad = checkpoint.memory.L1?.scratchpad || {};
+      this._memory.L1.flags = checkpoint.memory.L1?.flags || { awaitUserFeedback: false, taskImpossible: false };
       this._memory.L2.historySummary = checkpoint.memory.L2?.historySummary || "";
       this._memory.L2.claims = checkpoint.memory.L2?.claims || [];
+      // 恢复 stageSummaries (Map 结构)
+      if (checkpoint.memory.L2?.stageSummaries) {
+        this._memory.L2.stageSummaries = new Map(checkpoint.memory.L2.stageSummaries);
+      }
     }
 
     if (checkpoint.sharedContext && this._sharedContext?.deserialize) {

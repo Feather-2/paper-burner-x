@@ -32,6 +32,7 @@ import { CicadaCompressor } from "../runtime/compression/cicada-compressor.js";
 import { BacktrackManager } from "./BacktrackManager.js";
 import { DiscoveryManager } from "./DiscoveryManager.js";
 import { AlertMonitor } from "./AlertMonitor.js";
+import { ToolExecutor } from "../runtime/tools/tool-executor.js";
 
 /**
  * @typedef {Object} CapabilityDefinition
@@ -352,35 +353,20 @@ export class AgentBuilder {
             });
         }
 
+        const executor = new ToolExecutor({
+            tools: Object.fromEntries(capabilities),
+            hooks,
+            logger,
+            emit: (e, p) => eventBus.emit(e, p),
+        });
+
         const toolExecutor = async (name, params, context) => {
-            // Before hooks
-            let finalParams = params;
-            for (const hook of hooks.before) {
-                const result = await hook({ tool: name, params: finalParams, context });
-                if (result?.skip) {
-                    return result.value;
-                }
-                if (result?.params) {
-                    finalParams = result.params;
-                }
-            }
-
-            // 执行 capability
+            // 劫持执行逻辑以处理 AgentBuilder 特有的懒加载和上下文注入
             const capability = capabilities.get(name);
-            if (!capability) {
-                throw new Error(`Unknown capability: ${name}`);
-            }
-
-            // 懒加载 handler
-            let handler = capability.handler;
-            if (!handler && capability._module) {
+            if (capability?._module && !capability.handler) {
                 const mod = await import(capability._module);
-                handler = mod.default?.handler || mod.handler;
-                capability.handler = handler;
-            }
-
-            if (!handler) {
-                throw new Error(`Capability "${name}" has no handler`);
+                capability.handler = mod.default?.handler || mod.handler;
+                executor.register(name, capability);
             }
 
             const capabilityContext = {
@@ -391,14 +377,7 @@ export class AgentBuilder {
                 discoveryManager,
             };
 
-            let result = await handler(finalParams, capabilityContext);
-
-            // After hooks
-            for (const hook of hooks.after) {
-                result = await hook({ tool: name, params: finalParams, result, context }) ?? result;
-            }
-
-            return result;
+            return executor.execute(name, params, capabilityContext);
         };
 
         agent.toolExecutor = toolExecutor;
