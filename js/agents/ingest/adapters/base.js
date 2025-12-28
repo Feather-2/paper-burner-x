@@ -1,5 +1,5 @@
 import { normalizeText } from "../../stages/textprep/normalize.js";
-import { chunkText } from "../../stages/textprep/chunk.js";
+import { chunkText, smartChunk, ChunkStrategy } from "../../stages/textprep/chunk.js";
 import { buildToc } from "../../retrieval/toc-builder.js";
 import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
 
@@ -31,10 +31,28 @@ export class BaseAdapter {
     throw new Error(`${this.constructor.name}.parse(): not implemented`);
   }
 
-  buildParsedDocument({ sourceType, origin, markdown, assets, metadata, parseInfo, docId, chunkOptions } = {}) {
+  buildParsedDocument({ sourceType, origin, markdown, assets, metadata, parseInfo, docId, chunkOptions, useSmartChunk = true } = {}) {
     const md = String(markdown || "");
     const normalized = normalizeText(md);
-    const chunks = chunkText(normalized.normalized, { ...this.defaultChunkOptions, ...(isPlainObject(chunkOptions) ? chunkOptions : {}) });
+
+    // 智能分块：自动选择最佳策略
+    let chunks, chunkStrategy, chunkMeta;
+    const maxSize = chunkOptions?.chunkSize || this.defaultChunkOptions.chunkSize || 2000;
+
+    if (useSmartChunk) {
+      const result = smartChunk(normalized.normalized, {
+        maxSize,
+        forceStrategy: chunkOptions?.forceStrategy,
+      });
+      chunks = result.chunks;
+      chunkStrategy = result.strategy;
+      chunkMeta = result.meta;
+    } else {
+      chunks = chunkText(normalized.normalized, { ...this.defaultChunkOptions, ...(isPlainObject(chunkOptions) ? chunkOptions : {}) });
+      chunkStrategy = ChunkStrategy.FIXED;
+      chunkMeta = { totalLength: normalized.normalized.length, chunkCount: chunks.length };
+    }
+
     const tocRes = buildToc(normalized.normalized, {});
     const toc = (Array.isArray(tocRes?.tocNodes) && tocRes.tocNodes.length ? tocRes.tocNodes : tocRes?.fallbackSections) || [];
 
@@ -50,6 +68,8 @@ export class BaseAdapter {
       textHash: normalized.textHash,
       toc,
       chunks,
+      chunkStrategy,  // 记录使用的分块策略
+      chunkMeta,      // 分块元信息
       assets: outAssets,
       metadata: isPlainObject(metadata) ? metadata : {},
       parseInfo: isPlainObject(parseInfo)

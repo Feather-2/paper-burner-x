@@ -132,6 +132,50 @@ export class SharedContext {
     return lines.join("\n");
   }
 
+  /**
+   * 构建完整黑板摘要（用于注入到模型上下文）
+   * 包含：L1 摘要 + 最近信号 + 最近决策
+   * @param {object} options
+   * @param {number} options.maxSignals - 最多包含的信号数（默认 5）
+   * @param {number} options.maxDecisions - 最多包含��决策数（默认 3）
+   * @returns {string}
+   */
+  buildBlackboardPrompt({ maxSignals = 5, maxDecisions = 3 } = {}) {
+    const sections = [];
+
+    // L1 摘要
+    const summaryText = this.buildSummaryText();
+    if (summaryText) {
+      sections.push(`## 阶段摘要\n${summaryText}`);
+    }
+
+    // 最近信号（过滤掉 sync 类型，只保留有���义的发现）
+    const recentSignals = this._signals
+      .filter(s => s.type !== "sync")
+      .slice(-maxSignals);
+    if (recentSignals.length > 0) {
+      const signalLines = recentSignals.map(s => {
+        const payload = s.payload || {};
+        const msg = payload.message || payload.reason || payload.value || JSON.stringify(payload);
+        return `- [${s.type}] ${msg}`;
+      });
+      sections.push(`## 待处理信号\n${signalLines.join("\n")}`);
+    }
+
+    // 最近决策
+    const recentDecisions = this._decisions.slice(-maxDecisions);
+    if (recentDecisions.length > 0) {
+      const decisionLines = recentDecisions.map(d => {
+        const action = d.action || d.type || "unknown";
+        const reason = d.reason || d.result || "";
+        return `- ${action}${reason ? `: ${reason}` : ""}`;
+      });
+      sections.push(`## 最近决策\n${decisionLines.join("\n")}`);
+    }
+
+    return sections.join("\n\n");
+  }
+
   // ===== L2: Semantic Index =====
 
   /**

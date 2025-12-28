@@ -4,6 +4,22 @@ import { getRuntimeState } from "../telemetry/loop-runtime-state.js";
 
 const USER_ACTION_PREFIX = "user.action";
 
+// 默认上下文配置
+const DEFAULT_CONTEXT_CONFIG = Object.freeze({
+  contextWindow: 128000,      // 默认 128K tokens
+  maxOutputTokens: 4096,      // 默认输出限制
+  compressThreshold: 0.9,     // 90% 触发压缩
+  keepLastTurns: 6,           // 保留最近 6 轮
+  userMessageBuffer: 20000,   // 用户消息缓冲区 20K tokens
+});
+
+// 简单 token 估算 (4 chars ≈ 1 token)
+function estimateTokens(text) {
+  if (!text) return 0;
+  if (typeof text === "string") return Math.ceil(text.length / 4);
+  return Math.ceil(JSON.stringify(text).length / 4);
+}
+
 export function getEmitFn(ctx) {
   const emit = ctx?.emit || ctx?.eventBus?.emit;
   return typeof emit === "function" ? emit : null;
@@ -109,7 +125,7 @@ export class BaseStage {
 }
 
 export class BaseAgentLoop {
-  constructor({ eventBus, stateMachine, tools, actor, stageName, emit, hooks } = {}) {
+  constructor({ eventBus, stateMachine, tools, actor, stageName, emit, hooks, contextConfig } = {}) {
     this.eventBus = eventBus || null;
     this.stateMachine = stateMachine || null;
     this.actor = actor || stageName || "agent";
@@ -130,6 +146,226 @@ export class BaseAgentLoop {
     this._userInputBus = null;
     this._userInputEvent = "user.input";
     this._pauseListenerUnsub = null;
+
+    // 消息管理
+    this._messages = [];
+    this._contextConfig = { ...DEFAULT_CONTEXT_CONFIG, ...contextConfig };
+    this._compressor = null;  // 懒加载
+    this._tokenUsage = { input: 0, output: 0, total: 0 };
+    this._compressionHistory = [];
+  }
+
+  // ===== 消息管理 =====
+
+  /**
+   * 获取当前消息列表
+   */
+  get messages() {
+    return this._messages;
+  }
+
+  /**
+   * 添加消息并检查是否需要压缩
+   */
+  addMessage(message) {
+    this._messages.push(message);
+    this._updateTokenUsage();
+
+    // 检查是否需要压缩
+    if (this._shouldCompress()) {
+      this._scheduleCompression();
+    }
+
+    return message;
+  }
+
+  /**
+   * 批量添加消息
+   */
+  addMessages(messages) {
+    for (const msg of messages) {
+      this._messages.push(msg);
+    }
+    this._updateTokenUsage();
+
+    if (this._shouldCompress()) {
+      this._scheduleCompression();
+    }
+  }
+
+  /**
+   * 更新 token 使用统计
+   */
+  _updateTokenUsage() {
+    let total = 0;
+    for (const msg of this._messages) {
+      total += estimateTokens(msg.content);
+    }
+    this._tokenUsage.input = total;
+    this._tokenUsage.total = total;
+  }
+
+  /**
+   * 检查是否需要压缩
+   */
+  _shouldCompress() {
+    const { contextWindow, compressThreshold } = this._contextConfig;
+    const threshold = contextWindow * compressThreshold;
+    return this._tokenUsage.total >= threshold;
+  }
+
+  /**
+   * 调度压缩（异步，不阻塞主流程）
+   */
+  _scheduleCompression() {
+    // 防止重复调度
+    if (this._compressionPending) return;
+    this._compressionPending = true;
+    queueMicrotask(() => {
+      this._compressMessages().catch(() => {}).finally(() => {
+        this._compressionPending = false;
+      });
+    });
+  }
+
+  /**
+   * 执行消息压缩（委托给 CicadaCompressor）
+   */
+  async _compressMessages() {
+    const { keepLastTurns } = this._contextConfig;
+    const beforeCount = this._messages.length;
+    const beforeTokens = this._tokenUsage.total;
+
+    // 懒加载 CicadaCompressor
+    if (!this._compressor) {
+      try {
+        const { CicadaCompressor } = await import("../compression/cicada-compressor.js");
+        this._compressor = new CicadaCompressor({
+          maxTokens: this._contextConfig.maxOutputTokens,
+          eventBus: this.eventBus,
+        });
+      } catch {
+        // 回退到简单压缩
+        return this._simpleCompress();
+      }
+    }
+
+    // 使用 CicadaCompressor 的 SESSION_HISTORY 层
+    const result = await this._compressor.compress(
+      { messages: this._messages },
+      { keepLastTurns, layers: ["session_history"] }
+    );
+
+    this._messages = result.context.messages || this._messages;
+
+    // 如果有摘要，插入到开头
+    if (result.context.sessionSummary) {
+      const summaryMsg = { role: "system", content: `[Context Summary]\n${result.context.sessionSummary}` };
+      const hasSystemSummary = this._messages[0]?.content?.startsWith("[Context Summary]");
+      if (hasSystemSummary) {
+        this._messages[0] = summaryMsg;
+      } else {
+        this._messages.unshift(summaryMsg);
+      }
+    }
+
+    this._updateTokenUsage();
+    this._recordCompression(beforeCount, beforeTokens);
+  }
+
+  /**
+   * 简单压缩回退（无 CicadaCompressor 时）
+   */
+  _simpleCompress() {
+    const { keepLastTurns } = this._contextConfig;
+    const beforeCount = this._messages.length;
+    const beforeTokens = this._tokenUsage.total;
+
+    const kept = [];
+    const toCompress = [];
+    let turnCount = 0;
+
+    for (let i = this._messages.length - 1; i >= 0; i--) {
+      const msg = this._messages[i];
+      if (turnCount < keepLastTurns) {
+        kept.unshift(msg);
+        if (msg.role === "assistant") turnCount++;
+      } else {
+        toCompress.unshift(msg);
+      }
+    }
+
+    if (toCompress.length === 0) return;
+
+    const summary = this._buildCompressionSummary(toCompress);
+    this._messages = [
+      { role: "system", content: `[Context Summary]\n${summary}` },
+      ...kept,
+    ];
+
+    this._updateTokenUsage();
+    this._recordCompression(beforeCount, beforeTokens);
+  }
+
+  /**
+   * 记录压缩历史
+   */
+  _recordCompression(beforeCount, beforeTokens) {
+    const record = {
+      timestamp: Date.now(),
+      beforeCount,
+      afterCount: this._messages.length,
+      beforeTokens,
+      afterTokens: this._tokenUsage.total,
+    };
+    this._compressionHistory.push(record);
+
+    const emit = this.emit || this.eventBus?.emit;
+    if (typeof emit === "function") {
+      emit(`${this.stageName}.context.compressed`, {
+        actor: this.actor,
+        status: "info",
+        payload: record,
+      });
+    }
+  }
+
+  /**
+   * 构建压缩摘要
+   */
+  _buildCompressionSummary(messages) {
+    const lines = [];
+    for (const msg of messages) {
+      const role = msg.role || "unknown";
+      const content = String(msg.content || "").slice(0, 200);
+      if (content) {
+        lines.push(`[${role}] ${content}${msg.content?.length > 200 ? "..." : ""}`);
+      }
+    }
+    return lines.join("\n");
+  }
+
+  /**
+   * 获取上下文状态
+   */
+  getContextStatus() {
+    const { contextWindow, compressThreshold } = this._contextConfig;
+    return {
+      messageCount: this._messages.length,
+      tokenUsage: { ...this._tokenUsage },
+      contextWindow,
+      fillRatio: this._tokenUsage.total / contextWindow,
+      compressThreshold,
+      needsCompression: this._shouldCompress(),
+      compressionCount: this._compressionHistory.length,
+    };
+  }
+
+  /**
+   * 设置上下文配置（支持运行时调整）
+   */
+  setContextConfig(config) {
+    this._contextConfig = { ...this._contextConfig, ...config };
   }
 
   registerTools(tools) {

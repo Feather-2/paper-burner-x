@@ -502,6 +502,47 @@ export class CicadaCompressor {
     filtered.sort((a, b) => b.timestamp - a.timestamp);
     return filtered.slice(0, limit);
   }
+
+  /**
+   * 构建 Handoff 交接文档
+   * @param {Object} state - agent 状态
+   * @param {Object} sharedContext - 共享上下文
+   * @returns {Object} handoff 文档
+   */
+  buildHandoff(state, sharedContext) {
+    const todos = Array.isArray(state?.todos) ? state.todos : [];
+    const pending = todos.filter(t => t.status !== "done" && t.status !== "completed");
+    const completed = todos.filter(t => t.status === "done" || t.status === "completed");
+
+    return {
+      runId: state?.runId,
+      timestamp: new Date().toISOString(),
+
+      // 已完成
+      accomplished: {
+        summary: sharedContext?.buildSummaryText?.() || state?.L1?.condensedMemory?.summary || "",
+        completedTodos: completed.map(t => t.content || t.title || t.text),
+        claimCount: state?.L1?.claims?.length || 0,
+      },
+
+      // 待办
+      pending: {
+        todos: pending.map(t => ({ content: t.content || t.title || t.text, priority: t.priority })),
+        taskGoal: state?.taskGoal || "",
+      },
+
+      // 关键决策（最近5条）
+      decisions: sharedContext?.getDecisions?.()?.slice(-5) || state?.L1?.condensedMemory?.decisionTrace || [],
+
+      // 继续指南
+      resumeGuide: {
+        nextAction: pending[0]?.content || pending[0]?.title || pending[0]?.text || null,
+        context: sharedContext?.getAllSummaries?.() || {},
+        warnings: state?.L2?.warnings || [],
+        iteration: state?.iteration || 0,
+      },
+    };
+  }
 }
 
 export default CicadaCompressor;

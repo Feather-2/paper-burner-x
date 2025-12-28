@@ -2,7 +2,7 @@
  * AgentBuilder - 流式构建 Agent 实例
  *
  * 提供链式 API 配置 Agent，支持：
- * - Skill 注册（默认懒加载）
+ * - Capability 注册（默认懒加载）
  * - Hook 机制（before/after）
  * - MCP 集成
  * - 事件订阅
@@ -12,7 +12,7 @@
  * import { createAgent } from '@paper-burner/agents';
  *
  * const agent = createAgent()
- *   .useSkill('search-docs', searchDocsHandler)
+ *   .useCapability('search-docs', searchDocsHandler)
  *   .useHook('before', auditLogger)
  *   .onEvent('deepsearch.*', progressHandler)
  *   .build();
@@ -31,12 +31,12 @@ import { createBacktrackTool, BACKTRACK_TOOL_DEFINITION } from "../runtime/tools
 import { CicadaCompressor } from "../runtime/compression/cicada-compressor.js";
 import { BacktrackManager } from "./BacktrackManager.js";
 import { DiscoveryManager } from "./DiscoveryManager.js";
-import { ShadowSystem } from "./ShadowSystem.js";
+import { AlertMonitor } from "./AlertMonitor.js";
 
 /**
- * @typedef {Object} SkillDefinition
- * @property {string} name - Skill 名称
- * @property {string} description - Skill 描述
+ * @typedef {Object} CapabilityDefinition
+ * @property {string} name - Capability 名称
+ * @property {string} description - Capability 描述
  * @property {Object} [activation] - 激活配置
  * @property {string[]} [activation.keywords] - 触发关键词
  * @property {number} [activation.priority] - 优先级
@@ -45,7 +45,7 @@ import { ShadowSystem } from "./ShadowSystem.js";
  */
 
 /**
- * @typedef {Object} SkillContext
+ * @typedef {Object} CapabilityContext
  * @property {Object} state - Agent 状态
  * @property {Function} emit - 事件发射函数
  * @property {AbortSignal} signal - 取消信号
@@ -53,13 +53,13 @@ import { ShadowSystem } from "./ShadowSystem.js";
  */
 
 /**
- * @typedef {(args: Object, context: SkillContext) => Promise<Object>} SkillHandler
+ * @typedef {(args: Object, context: CapabilityContext) => Promise<Object>} CapabilityHandler
  */
 
 /**
- * @typedef {Object} Skill
- * @property {SkillDefinition} definition
- * @property {SkillHandler} [handler] - 如果懒加载，初始为 null
+ * @typedef {Object} Capability
+ * @property {CapabilityDefinition} definition
+ * @property {CapabilityHandler} [handler] - 如果懒加载，初始为 null
  * @property {string} [_module] - 懒加载时的模块路径
  */
 
@@ -81,8 +81,8 @@ import { ShadowSystem } from "./ShadowSystem.js";
 
 export class AgentBuilder {
     constructor(options = {}) {
-        /** @type {Map<string, Skill>} */
-        this._skills = new Map();
+        /** @type {Map<string, Capability>} */
+        this._capabilities = new Map();
 
         /** @type {{before: BeforeHook[], after: AfterHook[]}} */
         this._hooks = { before: [], after: [] };
@@ -104,43 +104,49 @@ export class AgentBuilder {
     }
 
     /**
-     * 注册 Skill
-     * @param {string} name - Skill 名称
-     * @param {Skill|SkillHandler|{definition: SkillDefinition, handler?: SkillHandler, module?: string}} config
+     * 注册 Capability (能力)
+     * @param {string} name - Capability 名称
+     * @param {Capability|CapabilityHandler|{definition: CapabilityDefinition, handler?: CapabilityHandler, module?: string}} config
      * @returns {AgentBuilder}
      */
-    useSkill(name, config) {
+    useCapability(name, config) {
         if (typeof config === "function") {
             // 简写：直接传入 handler
-            this._skills.set(name, {
-                definition: { name, description: `Skill: ${name}`, lazy: false },
+            this._capabilities.set(name, {
+                definition: { name, description: `Capability: ${name}`, lazy: false },
                 handler: config,
             });
         } else if (config.definition) {
             // 完整配置
-            const skill = {
+            const capability = {
                 definition: { ...config.definition, lazy: config.definition.lazy !== false },
                 handler: config.handler || null,
                 _module: config.module || null,
             };
-            this._skills.set(name, skill);
+            this._capabilities.set(name, capability);
         } else {
-            throw new Error(`Invalid skill config for "${name}"`);
+            throw new Error(`Invalid capability config for "${name}"`);
         }
         return this;
     }
 
     /**
-     * 批量注册 Skills
-     * @param {Object<string, Skill>} skillsMap
+     * 批量注册 Capabilities
+     * @param {Object<string, Capability>} capabilitiesMap
      * @returns {AgentBuilder}
      */
-    useSkills(skillsMap) {
-        for (const [name, config] of Object.entries(skillsMap)) {
-            this.useSkill(name, config);
+    useCapabilities(capabilitiesMap) {
+        for (const [name, config] of Object.entries(capabilitiesMap)) {
+            this.useCapability(name, config);
         }
         return this;
     }
+
+    // === 向后兼容别名 ===
+    /** @deprecated Use useCapability instead */
+    useSkill(name, config) { return this.useCapability(name, config); }
+    /** @deprecated Use useCapabilities instead */
+    useSkills(skillsMap) { return this.useCapabilities(skillsMap); }
 
     /**
      * 注册 Hook
@@ -194,11 +200,11 @@ export class AgentBuilder {
     }
 
     /**
-     * 配置 Watchdog 监控
-     * @param {Object} config - Watchdog 配置
+     * 配置 Watchdog 健康监控
+     * @param {Object} config - { maxIterations, maxTimeMs, stuckThresholdMs }
      * @returns {AgentBuilder}
      */
-    useWatchdog(config) {
+    useWatchdog(config = {}) {
         this._watchdogConfig = config;
         return this;
     }
@@ -214,12 +220,12 @@ export class AgentBuilder {
     }
 
     /**
-     * 配置影子系统 (意识/潜意识)
-     * @param {Object} config - 影子系统配置
+     * 配置告警监控器
+     * @param {Object} config - AlertMonitor 配置
      * @returns {AgentBuilder}
      */
-    useShadow(config = {}) {
-        this._shadowConfig = config;
+    useAlertMonitor(config = {}) {
+        this._alertMonitorConfig = config;
         return this;
     }
 
@@ -269,7 +275,7 @@ export class AgentBuilder {
             eventBus.subscribe(pattern, handler);
         }
 
-        const skills = this._skills;
+        const capabilities = this._capabilities;
         const hooks = this._hooks;
         const subagentRegistry = this._subagentRegistry;
 
@@ -282,7 +288,7 @@ export class AgentBuilder {
             });
 
             // 自动添加 Recall 工具
-            this.useSkill("Recall", {
+            this.useCapability("Recall", {
                 definition: RECALL_TOOL_DEFINITION,
                 handler: createRecallTool({ compressor }),
             });
@@ -298,7 +304,7 @@ export class AgentBuilder {
             });
 
             // 自动添加 Backtrack 工具 (春秋蝉)
-            this.useSkill("Backtrack", {
+            this.useCapability("Backtrack", {
                 definition: BACKTRACK_TOOL_DEFINITION,
                 handler: createBacktrackTool({ backtrackManager }),
             });
@@ -317,7 +323,7 @@ export class AgentBuilder {
 
         // 如果注册了子代理，自动添加 Task 工具
         if (subagentRegistry.getAvailableTypes().length > 0) {
-            this.useSkill("Task", {
+            this.useCapability("Task", {
                 definition: TASK_TOOL_DEFINITION,
                 handler: createTaskTool({ registry: subagentRegistry }),
             });
@@ -326,7 +332,7 @@ export class AgentBuilder {
         const agent = new AgentInstance({
             eventBus,
             logger,
-            skills,
+            capabilities,
             toolExecutor: null, // 将在下方定义
             mcpConfig: this._mcpConfig,
             subagentRegistry,
@@ -337,12 +343,12 @@ export class AgentBuilder {
             options: this._options,
         });
 
-        // 初始化影子系统 (意识/潜意识)
-        if (this._shadowConfig) {
-            agent.shadow = new ShadowSystem({
+        // 初始化 AlertMonitor
+        if (this._alertMonitorConfig) {
+            agent.alertMonitor = new AlertMonitor({
                 agent,
                 logger,
-                ...this._shadowConfig,
+                ...this._alertMonitorConfig,
             });
         }
 
@@ -359,25 +365,25 @@ export class AgentBuilder {
                 }
             }
 
-            // 执行 skill
-            const skill = skills.get(name);
-            if (!skill) {
-                throw new Error(`Unknown skill: ${name}`);
+            // 执行 capability
+            const capability = capabilities.get(name);
+            if (!capability) {
+                throw new Error(`Unknown capability: ${name}`);
             }
 
             // 懒加载 handler
-            let handler = skill.handler;
-            if (!handler && skill._module) {
-                const mod = await import(skill._module);
+            let handler = capability.handler;
+            if (!handler && capability._module) {
+                const mod = await import(capability._module);
                 handler = mod.default?.handler || mod.handler;
-                skill.handler = handler;
+                capability.handler = handler;
             }
 
             if (!handler) {
-                throw new Error(`Skill "${name}" has no handler`);
+                throw new Error(`Capability "${name}" has no handler`);
             }
 
-            const skillContext = {
+            const capabilityContext = {
                 state: context.state,
                 emit: (event, payload) => eventBus.emit(event, payload),
                 signal: context.signal,
@@ -385,7 +391,7 @@ export class AgentBuilder {
                 discoveryManager,
             };
 
-            let result = await handler(finalParams, skillContext);
+            let result = await handler(finalParams, capabilityContext);
 
             // After hooks
             for (const hook of hooks.after) {
@@ -404,44 +410,106 @@ export class AgentBuilder {
  * Agent 实例 - 由 AgentBuilder.build() 创建
  */
 export class AgentInstance {
-    constructor({ eventBus, logger, skills, toolExecutor, mcpConfig, subagentRegistry, compressor, backtrackManager, discoveryManager, actor, options }) {
+    constructor({ eventBus, logger, capabilities, toolExecutor, mcpConfig, subagentRegistry, compressor, backtrackManager, discoveryManager, actor, options }) {
         this.eventBus = eventBus;
         this.logger = logger;
-        this.skills = skills;
+        this.capabilities = capabilities;
         this.toolExecutor = toolExecutor;
         this.mcpConfig = mcpConfig;
         this.subagentRegistry = subagentRegistry;
         this.memory = compressor; // CicadaCompressor 实例
         this.backtrack = backtrackManager; // BacktrackManager 实例
         this.discovery = discoveryManager; // DiscoveryManager 实例
-        this.shadow = null; // 影子系统实例 (意识/潜意识)
+        this.alertMonitor = null; // AlertMonitor 实例
         this.actor = actor;
         this.options = options;
         this._loop = null;
     }
 
-    /**
-     * 获取所有 skill 定义
-     * @returns {SkillDefinition[]}
-     */
-    getSkillDefinitions() {
-        return Array.from(this.skills.values()).map(s => s.definition);
+    /** @deprecated Use capabilities instead */
+    get skills() {
+        return this.capabilities;
     }
 
     /**
-     * 获取 skill catalog prompt
+     * 获取所有 capability 定义
+     * @returns {CapabilityDefinition[]}
+     */
+    getCapabilityDefinitions() {
+        return Array.from(this.capabilities.values()).map(s => s.definition);
+    }
+
+    /** @deprecated Use getCapabilityDefinitions instead */
+    getSkillDefinitions() {
+        return this.getCapabilityDefinitions();
+    }
+
+    /**
+     * 获取 capability catalog prompt (按优先级排序)
+     * 
+     * 三层优先级机制:
+     * - critical: 核心能力，始终在最前面
+     * - important: 重要能力，紧随其后
+     * - optional: 可选能力，放在最后
+     * 
      * @returns {string}
      */
-    getSkillCatalogPrompt() {
-        const lines = ["## 可用技能\n"];
+    getCapabilityCatalogPrompt() {
+        // 按优先级分组
+        const critical = [];
+        const important = [];
+        const optional = [];
 
-        for (const [name, skill] of this.skills) {
-            lines.push(`### ${name}`);
-            lines.push(skill.definition.description);
-            if (skill.definition.activation?.keywords?.length) {
-                lines.push(`触发词: ${skill.definition.activation.keywords.join(", ")}`);
+        for (const [name, capability] of this.capabilities) {
+            const priority = capability.definition.priority || capability.definition.activation?.priority || "important";
+            const entry = { name, capability, priority };
+
+            if (priority === "critical" || priority === 0) {
+                critical.push(entry);
+            } else if (priority === "optional" || priority === 2) {
+                optional.push(entry);
+            } else {
+                important.push(entry);
             }
-            lines.push("");
+        }
+
+        // 构建 prompt，按优先级顺序
+        const lines = ["## 可用能力\n"];
+
+        // Critical 能力
+        if (critical.length > 0) {
+            lines.push("### 🔴 核心能力\n");
+            for (const { name, capability } of critical) {
+                lines.push(`**${name}**: ${capability.definition.description}`);
+                if (capability.definition.activation?.keywords?.length) {
+                    lines.push(`  触发词: ${capability.definition.activation.keywords.join(", ")}`);
+                }
+                lines.push("");
+            }
+        }
+
+        // Important 能力
+        if (important.length > 0) {
+            lines.push("### 🟡 重要能力\n");
+            for (const { name, capability } of important) {
+                lines.push(`**${name}**: ${capability.definition.description}`);
+                if (capability.definition.activation?.keywords?.length) {
+                    lines.push(`  触发词: ${capability.definition.activation.keywords.join(", ")}`);
+                }
+                lines.push("");
+            }
+        }
+
+        // Optional 能力
+        if (optional.length > 0) {
+            lines.push("### ⚪ 辅助能力\n");
+            for (const { name, capability } of optional) {
+                lines.push(`**${name}**: ${capability.definition.description}`);
+                if (capability.definition.activation?.keywords?.length) {
+                    lines.push(`  触发词: ${capability.definition.activation.keywords.join(", ")}`);
+                }
+                lines.push("");
+            }
         }
 
         if (this.subagentRegistry) {
@@ -453,6 +521,11 @@ export class AgentInstance {
         }
 
         return lines.join("\n");
+    }
+
+    /** @deprecated Use getCapabilityCatalogPrompt instead */
+    getSkillCatalogPrompt() {
+        return this.getCapabilityCatalogPrompt();
     }
 
     /**
@@ -472,10 +545,10 @@ export class AgentInstance {
                 return await this._loop.run(input, context);
             }
 
-            // 简单模式：直接返回 skill 列表
+            // 简单模式：直接返回 capability 列表
             return {
                 success: true,
-                skills: this.getSkillDefinitions(),
+                capabilities: this.getCapabilityDefinitions(),
                 message: "Agent ready. Set a loop implementation for full execution.",
             };
         } catch (error) {

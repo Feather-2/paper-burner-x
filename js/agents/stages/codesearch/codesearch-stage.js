@@ -33,6 +33,7 @@ import { extractJsonCandidate } from "../deepsearch/utils/state-utils.js";
 import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
 import { BaseAgentLoop, checkCancelled } from "../../runtime/core/agent-loop.js";
 import { StagePausedError } from "../../runtime/core/stage-errors.js";
+import { loadMechanisms, initMechanisms } from "../../runtime/core/mechanisms.js";
 
 const DEFAULT_MAX_STEPS = 20;
 const DEFAULT_TIMEOUT_MS = 120_000; // 2 分钟
@@ -130,8 +131,12 @@ function parseStepDecision(text) {
   const raw = isPlainObject(parsed) ? parsed : parseAction(text);
   if (!isPlainObject(raw)) return null;
 
+  // 支持批量 actions
+  const batchActions = Array.isArray(raw.actions) && raw.actions.length > 0 ? raw.actions : null;
+
   return {
     action: toNonEmptyString(raw.action || raw.tool),
+    actions: batchActions, // 批量模式
     args: isPlainObject(raw.args) ? raw.args : {},
     done: raw.done === true || String(raw.action || "").toLowerCase() === "done",
     todoId: toNonEmptyString(raw.todoId || raw.todo_id || raw.todo),
@@ -234,6 +239,7 @@ export class CodeSearchStage extends BaseAgentLoop {
     super({ actor: "codesearch", stageName: "codesearch", eventBus: options.eventBus });
     this.maxSteps = options.maxSteps || DEFAULT_MAX_STEPS;
     this.timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
+    this.maxBacktracks = options.maxBacktracks ?? 3;
     this.initLoopStatus({
       status: AgentStatus.IDLE,
       eventName: "codesearch.agent.status.changed",
@@ -263,6 +269,15 @@ export class CodeSearchStage extends BaseAgentLoop {
         runId: runContext?.runId,
         stage: "codesearch",
       }),
+    });
+
+    // 初始化共享机制 (Checkpoint, BacktrackManager, SharedContext)
+    await loadMechanisms();
+    initMechanisms(this, {
+      stageApi,
+      emit: stageApi?.emit,
+      logger,
+      runId,
     });
 
     // 初始化预算管理
@@ -544,7 +559,53 @@ export class CodeSearchStage extends BaseAgentLoop {
 
         await this._transitionLoopStatus(AgentStatus.RUNNING, { runId, iteration: step, stepId: stepMeta.stepId });
 
-        // 执行工具
+        // 批量执行工具（并发）
+        if (decision.actions) {
+          logger.info(`Executing ${decision.actions.length} tools in parallel`, { stage: "codesearch" });
+          const batchResults = await Promise.all(
+            decision.actions.map(async (item) => {
+              const toolName = toNonEmptyString(item.action || item.tool);
+              const toolArgs = isPlainObject(item.args) ? item.args : {};
+              if (!toolName) return { tool: "unknown", error: "missing tool name" };
+              try {
+                const result = await tools.execute(toolName, toolArgs);
+                return { tool: toolName, args: toolArgs, success: true, result };
+              } catch (err) {
+                return { tool: toolName, args: toolArgs, success: false, error: err.message };
+              }
+            })
+          );
+
+          // 格式化批量结果
+          const batchObservation = batchResults
+            .map((r, i) => `${i + 1}. ${r.tool}: ${r.success ? formatToolResult(r.tool, r.result) : `错误: ${r.error}`}`)
+            .join("\n");
+          loopState.observations.push(`[Step ${step}] Batch (${batchResults.length} tools):\n${batchObservation}`);
+          loopState.steps.push({
+            step,
+            tool: "batch",
+            args: { count: batchResults.length },
+            result: batchResults,
+            todoId: selectedTodo?.todoId || null,
+          });
+
+          const nextStatus = decision.todoStatus || (decision.completeTodo ? TodoStatus.COMPLETED : "");
+          if (selectedTodo && nextStatus) {
+            transitionTodoStatus(selectedTodo, nextStatus);
+          }
+
+          emit?.("codesearch.step.completed", {
+            step,
+            tool: "batch",
+            count: batchResults.length,
+            resultSummary: `Executed ${batchResults.length} tools in parallel`,
+          });
+
+          this._endStep({ step: stepMeta }, { status: "completed" });
+          continue;
+        }
+
+        // 执行单个工具
         const toolName = actionName;
         const toolArgs = decision.args || {};
 

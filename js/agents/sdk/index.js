@@ -17,10 +17,15 @@ export { EventBus } from "../runtime/events/event-bus.js";
 export { AgentStatus, StepStatus, isAgentActive, isAgentTerminal } from "../runtime/core/agent-status.js";
 export { StagePausedError, StageCancelledError } from "../runtime/core/stage-errors.js";
 
-// Context Management (Cicada + Watchdog + Shadow)
+// Context Management (Cicada + Watchdog + AlertMonitor)
 export { CicadaCompressor, CompressionLayer } from "../runtime/compression/cicada-compressor.js";
-export { Watchdog, DelegationMode, DelegationReason } from "../runtime/compression/watchdog.js";
-export { ShadowSystem } from "./ShadowSystem.js";
+export { Watchdog } from "../runtime/compression/watchdog.js";
+export { AlertMonitor } from "./AlertMonitor.js";
+
+// Tools
+export { createTaskTool, ContextMode, TASK_TOOL_DEFINITION } from "../runtime/tools/TaskTool.js";
+export { createRecallTool, RECALL_TOOL_DEFINITION } from "../runtime/tools/RecallTool.js";
+export { createBacktrackTool, BACKTRACK_TOOL_DEFINITION } from "../runtime/tools/BacktrackTool.js";
 
 // Shared 工具
 export { createLogger, trackToolCall } from "../shared/utils/logger.js";

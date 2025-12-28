@@ -85,11 +85,16 @@ function fixCommonJsonIssues(jsonStr) {
   // 2. 移除控制字符（除了常见的空白字符）
   fixed = fixed.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
 
-  // 3. 修复单引号 -> 双引号（在键名位置）
-  // 谨慎处理，只替换明显是键名的单引号
+  // 3. 修复字符串值中的实际换行符（JSON 规范不允许）
+  // 在双引号字符串内部，将实际换行替换为 \n
+  fixed = fixed.replace(/"([^"\\]|\\.)*"/g, (match) => {
+    return match.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t');
+  });
+
+  // 4. 修复单引号 -> 双引号（在键名位置）
   fixed = fixed.replace(/([{,]\s*)'([^']+)'(\s*:)/g, '$1"$2"$3');
 
-  // 4. 移除尾部逗号（对象和数组）
+  // 5. 移除尾部逗号（对象和数组）
   fixed = fixed.replace(/,(\s*[}\]])/g, '$1');
 
   // 5. 修复未闭合的字符串（行尾缺少引号）
@@ -106,13 +111,20 @@ function fixCommonJsonIssues(jsonStr) {
   fixed = fixedLines.join('\n');
 
   // 6. 修复可能被截断的 JSON（尝试闭合括号）
+  // 先尝试闭合未完成的字符串
+  const quoteCount = (fixed.match(/"/g) || []).length;
+  if (quoteCount % 2 !== 0) {
+    // 奇数个引号，尝试闭合
+    fixed = fixed.replace(/,?\s*$/, '') + '"';
+  }
+
   const openBraces = (fixed.match(/{/g) || []).length;
   const closeBraces = (fixed.match(/}/g) || []).length;
   const openBrackets = (fixed.match(/\[/g) || []).length;
   const closeBrackets = (fixed.match(/]/g) || []).length;
 
-  // 移除末尾的不完整内容
-  fixed = fixed.replace(/,\s*$/, '');
+  // 移除末尾的不完整内容（逗号、冒号等）
+  fixed = fixed.replace(/[,:\s]+$/, '');
 
   // 添加缺少的闭合括号
   for (let i = 0; i < openBrackets - closeBrackets; i++) {

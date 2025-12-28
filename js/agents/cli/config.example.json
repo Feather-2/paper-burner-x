@@ -1,0 +1,45 @@
+{
+  "$comment": "复制为 config.json 并填入 API Key",
+  "models": {
+    "advanced": {
+      "$comment": "高级模型 - 复杂推理、规划、写作",
+      "baseUrl": "https://api.deepseek.com/v1",
+      "model": "deepseek-chat",
+      "apiKey": "",
+      "contextWindow": 128000,
+      "maxOutputTokens": 8192
+    },
+    "normal": {
+      "$comment": "普通模型 - 常规任务",
+      "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "model": "qwen-plus",
+      "apiKey": "",
+      "contextWindow": 131072,
+      "maxOutputTokens": 8192
+    },
+    "fast": {
+      "$comment": "快速模型 - 简单任务",
+      "baseUrl": "http://localhost:11434/v1",
+      "model": "qwen2.5:7b",
+      "apiKey": "ollama",
+      "contextWindow": 32768,
+      "maxOutputTokens": 4096
+    },
+    "vision": {
+      "$comment": "视觉模型 - 图像理解",
+      "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "model": "qwen-vl-max",
+      "apiKey": "",
+      "contextWindow": 32000,
+      "maxOutputTokens": 2048
+    }
+  },
+  "tiers": {
+    "$comment": "角色到模型层级的映射",
+    "advanced": ["planner", "writer", "analyst", "reviewer", "architect"],
+    "normal": ["agent", "worker", "designer", "codesearch", "researcher"],
+    "fast": ["cicada_summary", "subagent_fast", "summarizer", "extractor"],
+    "vision": ["vision", "image_analysis", "ocr"]
+  },
+  "default": "normal"
+}

@@ -2,6 +2,7 @@
  * SDK 使用示例
  *
  * 展示如何使用 @paper-burner/agents SDK 构建自定义 Agent
+ * 注意：此示例已更新为使用 useCapability API（useSkill 仍可作为向后兼容别名使用）
  */
 
 import { createAgent, createLogger } from "../index.js";
@@ -11,11 +12,11 @@ import { createAgent, createLogger } from "../index.js";
 // ============================================================================
 
 const basicAgent = createAgent({ actor: "demo" })
-    .useSkill("echo", async (args) => ({
+    .useCapability("echo", async (args) => ({
         success: true,
         data: { echoed: args.text },
     }))
-    .useSkill("greet", {
+    .useCapability("greet", {
         definition: {
             name: "greet",
             description: "向用户问好",
@@ -38,7 +39,7 @@ const basicAgent = createAgent({ actor: "demo" })
 const auditLogger = createLogger({ actor: "audit" });
 
 const agentWithHooks = createAgent({ actor: "audited" })
-    .useSkill("search", async (args) => ({
+    .useCapability("search", async (args) => ({
         success: true,
         data: { results: [`Result for: ${args.query}`] },
     }))
@@ -60,11 +61,11 @@ const agentWithHooks = createAgent({ actor: "audited" })
     .build();
 
 // ============================================================================
-// 示例 3: 懒加载 Skill
+// 示例 3: 懒加载 Capability
 // ============================================================================
 
 const lazyAgent = createAgent({ actor: "lazy" })
-    .useSkill("heavy-task", {
+    .useCapability("heavy-task", {
         definition: {
             name: "heavy-task",
             description: "需要懒加载的重型任务",
@@ -80,14 +81,14 @@ const lazyAgent = createAgent({ actor: "lazy" })
 
 async function runExamples() {
     console.log("=== Basic Agent ===");
-    console.log("Skills:", basicAgent.getSkillDefinitions());
+    console.log("Capabilities:", basicAgent.getCapabilityDefinitions());
 
     console.log("\n=== Agent with Hooks ===");
     const hookResult = await agentWithHooks.run({ query: "test" });
     console.log("Result:", hookResult);
 
     console.log("\n=== Lazy Agent ===");
-    console.log("Lazy skills:", lazyAgent.getSkillDefinitions());
+    console.log("Lazy capabilities:", lazyAgent.getCapabilityDefinitions());
 }
 
 // 导出供测试使用

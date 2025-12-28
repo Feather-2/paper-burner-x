@@ -56,6 +56,12 @@ export function createTodo(params = {}) {
   const now = new Date().toISOString();
   const todoId = toNonEmptyString(raw.todoId) || `todo_${Date.now().toString(36)}`;
   const text = toNonEmptyString(raw.text) || "";
+
+  // 如果 text 为空，记录警告
+  if (!text) {
+    console.warn(`[createTodo] Creating todo ${todoId} with empty text:`, JSON.stringify(raw).slice(0, 200));
+  }
+
   const priority = normalizePriority(raw.priority);
   const status = normalizeStatus(raw.status);
   const queryHints = normalizeStringArray(raw.queryHints);

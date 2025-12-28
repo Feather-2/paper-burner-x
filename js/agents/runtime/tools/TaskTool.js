@@ -1,67 +1,154 @@
 /**
  * Task 工具 - 模型主动启动子代理的工具实现
  *
- * 参考 cc.md:
- * Launch a new agent to handle complex, multi-step tasks autonomously...
+ * 支持三种上下文模式：
+ * - isolated: 纯净启动，只传 sharedContext 引用
+ * - shared: 共享 sharedContext（不再传 messages）
+ * - handoff: 传入压缩后的交接文档
+ *
+ * 结果回传：通过 SharedContext.commit() 分层存储，只返回轻量引用
  */
 
 import { globalSubagentRegistry } from "../../sdk/SubagentRegistry.js";
-import { normalizeToolResult } from "../core/agent-loop.js";
+
+export const ContextMode = Object.freeze({
+    ISOLATED: "isolated",
+    SHARED: "shared",
+    HANDOFF: "handoff",
+});
+
+/**
+ * 从结果中提取摘要（~100 tokens）
+ */
+function extractSummary(result, type) {
+    if (!result) return `${type}: no result`;
+    if (typeof result.summary === "string") return result.summary;
+    if (typeof result.message === "string") return result.message;
+    if (result.ok === false && result.error) return `${type} failed: ${result.error}`;
+    // 截断 JSON 作为兜底
+    const json = JSON.stringify(result);
+    return json.length > 200 ? json.slice(0, 197) + "..." : json;
+}
+
+/**
+ * 从结果中提取关键词（用于语义索引）
+ */
+function extractKeywords(result) {
+    if (!result) return [];
+    if (Array.isArray(result.keywords)) return result.keywords.slice(0, 10);
+    if (Array.isArray(result.tags)) return result.tags.slice(0, 10);
+    // 从 keys 中提取
+    const keys = Object.keys(result).filter(k => !["ok", "error", "summary"].includes(k));
+    return keys.slice(0, 5);
+}
 
 /**
  * 创建 Task 工具 Handler
  * @param {Object} options
  * @param {SubagentRegistry} [options.registry] - 注册表，默认使用全局
- * @param {AgentInstance} [options.parentAgent] - 父代理实例，用于共享配置或信号
+ * @param {AgentInstance} [options.parentAgent] - 父代理实例
+ * @param {Function} [options.buildHandoff] - 构建交接文档的函数
  * @returns {Function}
  */
-export function createTaskTool({ registry = globalSubagentRegistry, parentAgent } = {}) {
+export function createTaskTool({ registry = globalSubagentRegistry, parentAgent, buildHandoff } = {}) {
     /**
      * Task 工具实现
      * @param {Object} args
-     * @param {string} args.subagent_type - 子代理类型 (如 Explore, Coder)
+     * @param {string} args.subagent_type - 子代理类型
      * @param {string} args.prompt - 任务描述
-     * @param {string} [args.model] - 指定模型 (sonnet, haiku 等)
-     * @param {Object} context - Skill 上下文
+     * @param {string} [args.context_mode="isolated"] - 上下文模式
+     * @param {string} [args.model_tier="fast"] - 模型等级
      */
     return async function taskHandler(args, context) {
-        const { subagent_type, prompt, model } = args;
-        const { emit, logger, signal } = context;
+        const { subagent_type, prompt, context_mode = ContextMode.ISOLATED, model_tier = "fast" } = args;
+        const { emit, logger, signal, state } = context;
 
-        logger.info(`Launching subagent: ${subagent_type}`, { prompt, model });
+        logger.info(`Launching subagent: ${subagent_type}`, { prompt, model_tier, context_mode });
 
         const factory = registry.getFactory(subagent_type);
         if (!factory) {
             return {
                 ok: false,
-                error: `Unknown subagent type: ${subagent_type}. Available types: ${registry.getAvailableTypes().map(t => t.type).join(", ")}`,
+                error: `Unknown subagent type: ${subagent_type}. Available: ${registry.getAvailableTypes().map(t => t.type).join(", ")}`,
             };
         }
 
         try {
-            // 1. 创建子代理实例
-            // 工厂函数应接受配置并返回一个 AgentInstance 或类似对象
+            // 根据 context_mode 准备上下文
+            let inheritedContext = null;
+
+            // 获取 sharedContext 引用
+            const sharedContext = parentAgent?.memory?.sharedContext || state?.sharedContext;
+
+            if (context_mode === ContextMode.SHARED) {
+                // 共享 sharedContext（不传 messages，避免上下文膨胀）
+                inheritedContext = { sharedContext };
+            } else if (context_mode === ContextMode.HANDOFF) {
+                // 构建交接文档
+                if (typeof buildHandoff === "function") {
+                    inheritedContext = {
+                        handoff: await buildHandoff(state, sharedContext),
+                        sharedContext,
+                    };
+                } else {
+                    // 简单的交接文档
+                    inheritedContext = {
+                        handoff: {
+                            taskGoal: state?.taskGoal,
+                            iteration: state?.iteration,
+                            pendingTodos: state?.todos?.filter(t => t.status !== "completed") || [],
+                            summary: state?.L1?.condensedMemory?.summary || "",
+                        },
+                        sharedContext,
+                    };
+                }
+            } else {
+                // isolated: 只传 sharedContext 引用
+                inheritedContext = { sharedContext };
+            }
+
+            // 创建子代理实例
             const subagent = await factory({
                 prompt,
-                model: model || parentAgent?.options?.model || "haiku",
+                modelTier: model_tier, // fast/normal/advanced
+                usage: `subagent_${model_tier}`, // 用于 modelRouter 路由
                 parent: parentAgent,
+                inheritedContext,
             });
 
             if (!subagent || typeof subagent.run !== "function") {
                 throw new Error(`Factory for "${subagent_type}" did not return a valid AgentInstance`);
             }
 
-            // 2. 继承事件订阅（可选，或者由工厂决定）
-            // subagent.on('*', (evt) => emit(`subagent.${subagent_type}.${evt.name}`, evt.payload));
-
-            // 3. 执行任务 (隔离上下文)
-            emit("subagent.started", { type: subagent_type, prompt });
+            emit("subagent.started", { type: subagent_type, prompt, context_mode });
 
             const result = await subagent.run({ task: prompt }, { signal });
 
-            emit("subagent.completed", { type: subagent_type, result });
+            // 通过 SharedContext 分层存储结果
+            const resultId = `task_${subagent_type}_${Date.now()}`;
+            if (sharedContext && typeof sharedContext.commit === "function") {
+                sharedContext.commit(resultId, {
+                    full: result,
+                    summary: extractSummary(result, subagent_type),
+                    keywords: extractKeywords(result),
+                });
+                sharedContext.signal("subagent.completed", {
+                    type: subagent_type,
+                    resultId,
+                    ok: result?.ok !== false,
+                });
+            }
 
-            return normalizeToolResult(result);
+            emit("subagent.completed", { type: subagent_type, resultId });
+
+            // 只返回轻量引用，父 agent 按需通过 sharedContext 获取详情
+            return {
+                ok: result?.ok !== false,
+                resultId,
+                summary: extractSummary(result, subagent_type),
+                // 提示父 agent 如何获取详情
+                hint: sharedContext ? `Use sharedContext.getDetail("${resultId}") for full result` : null,
+            };
         } catch (err) {
             const error = err instanceof Error ? err.message : String(err);
             logger.error(`Subagent "${subagent_type}" failed: ${error}`);
@@ -76,22 +163,27 @@ export function createTaskTool({ registry = globalSubagentRegistry, parentAgent 
  */
 export const TASK_TOOL_DEFINITION = {
     name: "Task",
-    description: "Launch a new specialized agent to handle a complex task autonomously. Use this when the current context is too full or the task is highly specialized (e.g. searching a codebase).",
+    description: "Launch a specialized agent to handle a complex task. Supports different context modes and model tiers.",
     parameters: {
         type: "object",
         properties: {
             subagent_type: {
                 type: "string",
-                description: "The type of specialized agent to use (e.g. Explore, Coder, Writer)",
+                description: "The type of specialized agent (e.g. Explore, Coder, Writer)",
             },
             prompt: {
                 type: "string",
                 description: "Detailed description of what the subagent should do.",
             },
-            model: {
+            context_mode: {
                 type: "string",
-                enum: ["sonnet", "haiku", "opus"],
-                description: "Optional model to use. Use haiku for simple/searching tasks to save context/cost.",
+                enum: ["isolated", "shared", "handoff"],
+                description: "Context mode: 'isolated' (clean start), 'shared' (inherit messages), 'handoff' (compressed summary). Default: isolated.",
+            },
+            model_tier: {
+                type: "string",
+                enum: ["fast", "normal", "advanced"],
+                description: "Model tier: 'fast' for simple tasks, 'normal' for regular tasks, 'advanced' for complex reasoning. Default: fast.",
             },
         },
         required: ["subagent_type", "prompt"],

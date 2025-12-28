@@ -9,7 +9,7 @@ import { createAgent, createLogger } from "../index.js";
 // 1. 定义子代理工厂
 const createExplorer = async ({ prompt, model }) => {
     return createAgent({ actor: "explorer" })
-        .useSkill("search", async (args) => {
+        .useCapability("search", async (args) => {
             return { success: true, results: [`Search results for "${args.query}"`] };
         })
         .build();
@@ -17,7 +17,7 @@ const createExplorer = async ({ prompt, model }) => {
 
 const createWriter = async ({ prompt, model }) => {
     return createAgent({ actor: "writer" })
-        .useSkill("write", async (args) => {
+        .useCapability("write", async (args) => {
             return { success: true, text: `Drafting content: ${args.topic}` };
         })
         .build();
@@ -31,8 +31,8 @@ const bossAgent = createAgent({ actor: "boss" })
 
 // 3. 运行演示
 async function runDemo() {
-    console.log("=== Boss Agent Skill Catalog ===");
-    console.log(bossAgent.getSkillCatalogPrompt());
+    console.log("=== Boss Agent Capability Catalog ===");
+    console.log(bossAgent.getCapabilityCatalogPrompt());
 
     console.log("\n=== Example Model Decision ===");
     console.log("Model would call Task tool like this:");
