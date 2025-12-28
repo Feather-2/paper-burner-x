@@ -21,7 +21,7 @@
 
 import { generateReport } from "../../report/report-generator.js";
 import { isPlainObject, toNonEmptyString } from "../../../../shared/utils/value-utils.js";
-import { createSafeRegex } from "../../../../../shared/utils/safe-regex.js";
+import { createSafeRegex } from "../../../../shared/utils/safe-regex.js";
 
 // 分析门槛配置（写报告前必须满足）- 从 config 读取或使用默认值
 const DEFAULT_ANALYSIS_GATES = {

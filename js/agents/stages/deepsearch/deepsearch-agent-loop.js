@@ -617,7 +617,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
 
         // 执行单个 tool
         this._logger.info(`Executing tool: ${decision.action}`);
-        const result = await executeTool(decision.action, decision.args || {}, {
+        const toolResult = await executeTool(decision.action, decision.args || {}, {
           state: this.state,
           emit: (n, p) => this._emit(n, p),
           stageApi,
@@ -626,16 +626,16 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
           memory: this.memory,
         });
         toolCallCount++;  // 计数单个调用
-        this._logger.debug(`Tool result: ${JSON.stringify(result).slice(0, 200)}`);
+        this._logger.debug(`Tool result: ${JSON.stringify(toolResult).slice(0, 200)}`);
 
         // watchdog handoff 触发回溯
-        if (result?.mode === "handoff" && this.backtrackManager?.canBacktrack?.()) {
+        if (toolResult?.mode === "handoff" && this.backtrackManager?.canBacktrack?.()) {
           const backtrackResult = await this.backtrackManager.backtrack(
             this.state,
             null, // 使用最近的 checkpoint
             {
-              failReason: result.handoff?.reason || "watchdog_handoff",
-              correctionHint: result.handoff?.hint,
+              failReason: toolResult.handoff?.reason || "watchdog_handoff",
+              correctionHint: toolResult.handoff?.hint,
               sharedContext: this.sharedContext,
             }
           );
@@ -643,7 +643,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
             this.state = backtrackResult.state;
             this.addMessage({
               role: "user",
-              content: `已回溯到之前的状态。原因: ${result.handoff?.reason || "重新开始"}\n\n请基于新状态继续。`,
+              content: `已回溯到之前的状态。原因: ${toolResult.handoff?.reason || "重新开始"}\n\n请基于新状态继续。`,
             });
             continue;
           }
@@ -657,7 +657,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         // 添加结果到消息
         this.addMessage({
           role: "user",
-          content: `结果: ${JSON.stringify(result, null, 2)}\n\n请继续。`,
+          content: `结果: ${JSON.stringify(toolResult, null, 2)}\n\n请继续。`,
         });
 
       } catch (err) {

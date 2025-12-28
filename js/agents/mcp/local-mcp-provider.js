@@ -678,6 +678,37 @@ export class LocalMcpProvider extends McpProvider {
       clearTimeout(timeoutId);
     }
   }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Memory 2.0: MemoryStore 集成
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * 绑定 MemoryStore（延迟绑定）
+   */
+  bindMemoryStore(memoryStore) {
+    this._memoryStore = memoryStore;
+  }
+
+  /**
+   * 记录搜索结果到 MemoryStore.syncTable.discoveries
+   */
+  _recordSearchDiscoveries(query, results) {
+    if (!this._memoryStore?.syncDiscovery) return;
+    const keywords = query.split(/\s+/).filter(k => k.length >= 2);
+    for (const r of results) {
+      const id = `search_${Date.now()}_${r.index}`;
+      this._memoryStore.syncDiscovery(id, {
+        type: "search_result",
+        status: "open",
+        keywords,
+        title: r.title,
+        url: r.url,
+        snippet: r.snippet,
+        by: "mcp",
+      });
+    }
+  }
 }
 
 /**
