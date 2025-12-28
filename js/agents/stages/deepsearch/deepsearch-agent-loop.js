@@ -32,6 +32,7 @@ let SharedContext = null;
 let BacktrackManager = null;
 let DiscoveryManager = null;
 let MemoryStore = null;
+let UnifiedAgentContext = null;
 
 async function loadMechanisms() {
   try {
@@ -53,6 +54,10 @@ async function loadMechanisms() {
   try {
     const memory = await import("../../runtime/memory/memory-store.js");
     MemoryStore = memory.MemoryStore || memory.default;
+  } catch { }
+  try {
+    const unified = await import("../../runtime/context/unified-agent-context.js");
+    UnifiedAgentContext = unified.UnifiedAgentContext || unified.default;
   } catch { }
 }
 
@@ -201,6 +206,9 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     this.memory = options.memory || null;
     this.memoryConfig = options.memoryConfig || options.userConfig?.memory || null;
 
+    // 统一上下文（门面）
+    this.context = options.context || null;
+
     this._logger = createLogger("agent-loop");
   }
 
@@ -279,6 +287,18 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
       });
     }
 
+    // 初始化统一上下文（门面模式）
+    if (UnifiedAgentContext && !this.context) {
+      this.context = new UnifiedAgentContext({
+        runId: this.state.runId,
+        eventBus: this.eventBus,
+      });
+      this.context.bind({
+        state: this.state,
+        memory: this.memory,
+        sharedContext: this.sharedContext,
+      });
+    }
 
     this._emit(DeepSearchEvents.AGENT_STARTED, { runId: this.state.runId, mode: this.mode });
 
@@ -528,7 +548,9 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         // 成功解析，增加迭代次数
         const decision = result.decision;
         iteration++;
-        this.state.iteration = iteration; // 同步到 state 供门槛检查使用
+        // 同步到 state/context 供门槛检查使用
+        if (this.context) this.context.iteration = iteration;
+        else this.state.iteration = iteration;
 
         // 打印思考过程
         if (decision.thought) {
@@ -536,12 +558,11 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
           this._logger.debug(`Thought: ${thoughtPreview}`);
         }
 
-        // 记录决策到 MemoryStore
-        if (this.memory && decision.action) {
-          this.memory.recordDecision({
-            action: decision.action,
-            reason: decision.thought || "",
-          });
+        // 记录决策到 context/MemoryStore
+        if (decision.action) {
+          const decisionRecord = { action: decision.action, reason: decision.thought || "" };
+          if (this.context) this.context.recordDecision(decisionRecord);
+          else if (this.memory) this.memory.recordDecision(decisionRecord);
         }
 
         // 完成
@@ -712,12 +733,14 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
   }
 
   _buildOutput() {
+    // 优先使用 context（统一入口），回退到 state
+    const ctx = this.context;
     return {
-      runId: this.state.runId,
+      runId: ctx?.runId || this.state.runId,
       status: this.status,
-      report: this.state.L1?.report || null,
-      todos: this.state.todos || [],
-      claims: this.state.L1?.claims || [],
+      report: ctx?.report || this.state.L1?.report || null,
+      todos: ctx?.todos || this.state.todos || [],
+      claims: ctx?.claims || this.state.L1?.claims || [],
     };
   }
 
@@ -727,6 +750,19 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     if (isPlainObject(input?.state)) return DeepSearchState.fromJSON(input.state);
     if (isPlainObject(input)) return DeepSearchState.fromJSON(input);
     return new DeepSearchState();
+  }
+
+  /**
+   * 获取上下文状态（统一入口）
+   */
+  getAgentContextStatus() {
+    if (this.context) return this.context.getContextStatus();
+    return {
+      runId: this.state?.runId,
+      iteration: this.state?.iteration || 0,
+      todoCount: this.state?.todos?.length || 0,
+      claimCount: this.state?.L1?.claims?.length || 0,
+    };
   }
 }
 
