@@ -2,41 +2,27 @@ import { isPlainObject, safeInt, safeNumber, toNonEmptyString, sanitizeForJson }
 import { EVENT_SCHEMA_VERSION, EventStatus, ensureTokenUsage, extractJsonCandidate, normalizeBudgetConfig, stripThinkingTags } from "./utils/state-utils.js";
 import { normalizeTokenUsage } from "./model/usage.js";
 import { CheckpointMode } from "./constants.js";
-import { GapStatus } from "./states.js";
 import { makeStageEmitter, generateNodeId, checkCancelled } from "./stage-utils.js";
+import {
+  transitionGap,
+  computeRoundHitsByGapId,
+  validateIteration,
+  addTodo as addTodoLogic,
+  setAwaitUserFeedback as setAwaitUserFeedbackLogic,
+  setTaskImpossible as setTaskImpossibleLogic,
+  addTimeline as addTimelineLogic,
+  saveWriteSnapshot as saveWriteSnapshotLogic,
+  reopenGaps as reopenGapsLogic,
+  addNewGaps as addNewGapsLogic,
+} from "./state-logic.js";
 
 // Re-export stage utils for backward compatibility
 export { makeStageEmitter, generateNodeId, checkCancelled };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Gap Utils
+// Gap / Todo business rules (decoupled)
 // ─────────────────────────────────────────────────────────────────────────────
-
-export function transitionGap(gap, newStatus, meta, emitFn) {
-  if (!gap) return false;
-  const oldStatus = gap.status || GapStatus.OPEN;
-  if (oldStatus === newStatus) return false;
-  gap.status = newStatus;
-  gap.updatedAt = meta?.ts || Date.now();
-  if (emitFn) {
-    emitFn("deepsearch.gap.transitioned", { gapId: gap.gapId, from: oldStatus, to: newStatus });
-  }
-  return true;
-}
-
-export function computeRoundHitsByGapId(gaps) {
-  const result = new Map();
-  for (const g of gaps || []) {
-    if (g?.gapId) result.set(g.gapId, g.hitCount || 0);
-  }
-  return result;
-}
-
-function normalizeRoundHits(hits) {
-  if (hits instanceof Map) return hits;
-  if (typeof hits === "object" && hits !== null) return new Map(Object.entries(hits));
-  return new Map();
-}
+export { transitionGap, computeRoundHitsByGapId, validateIteration };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PlanningTree (最小兼容实现)
@@ -61,8 +47,6 @@ class PlanningTree {
   }
 }
 
-import { DecisionOutcome, DecisionStage, TodoStatus } from "./states.js";
-import { createTodo, transitionTodoStatus } from "./utils/todo-utils.js";
 import {
   buildLiteSnapshot,
   buildMinimalSnapshot,
@@ -114,209 +98,6 @@ function buildStateSnapshot(state, { includeCheckpoints = true, includeCheckpoin
     todos: state.todos,
     timeline: state.timeline instanceof Deque ? state.timeline.toArray() : state.timeline,
   };
-}
-
-export function validateIteration(state, options = {}) {
-  const runId = toNonEmptyString(state?.runId) || "run_unknown";
-  const iteration = safeInt(state?.iteration) ?? 0;
-  const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
-  const retrieved = Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks : [];
-  const evidenceLedger = Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger : [];
-
-  const opts = options && typeof options === "object" ? options : {};
-  const roundHits = opts.roundHits;
-  const allHitsRaw = roundHits && typeof roundHits === "object" && roundHits.allHits instanceof Map ? roundHits.allHits : roundHits;
-  const qualityHitsRaw =
-    opts.qualityHitsByGapId ?? (roundHits && typeof roundHits === "object" && roundHits.qualityHits instanceof Map ? roundHits.qualityHits : null);
-  const bam = safeInt(opts.blockAfterMisses);
-  const effectiveBlockAfterMisses = bam !== null && bam >= 1 ? bam : 2;
-  const emitFn = typeof opts.emit === "function" ? opts.emit : null;
-
-  const configuredMinEvidence = (() => {
-    const cfg = isPlainObject(state?.userConfig?.gaps) ? state.userConfig.gaps : {};
-    const n = safeInt(cfg.minEvidenceToFill);
-    return n !== null && n >= 1 ? n : null;
-  })();
-  const effectiveMinEvidenceToFill = (() => {
-    const n = safeInt(opts.minEvidenceToFill);
-    if (n !== null && n >= 1) return n;
-    return configuredMinEvidence ?? 2;
-  })();
-
-  const hitsByGapId = normalizeRoundHits(allHitsRaw);
-  const qualityHitsByGapIdMap = normalizeRoundHits(qualityHitsRaw);
-
-  const retrievedByChunkId = new Map();
-  for (const r of retrieved) {
-    const chunkId = toNonEmptyString(r?.chunkId);
-    if (chunkId) retrievedByChunkId.set(chunkId, r);
-  }
-
-  // 计算每个 gap 的 evidence 数量
-  const evidenceCountByGapId = new Map();
-  for (const e of evidenceLedger) {
-    const gapIds = Array.isArray(e?.gapIds) ? e.gapIds.map(String).filter(Boolean) : [];
-    if (gapIds.length) {
-      for (const gid of gapIds) {
-        evidenceCountByGapId.set(gid, (evidenceCountByGapId.get(gid) || 0) + 1);
-      }
-      continue;
-    }
-
-    const chunkId = toNonEmptyString(e?.chunkId);
-    const row = chunkId ? retrievedByChunkId.get(chunkId) : null;
-    if (!row) continue;
-
-    const matched = Array.isArray(row?.matchedGapIds) ? row.matchedGapIds.map(String).filter(Boolean) : [];
-    if (matched.length) {
-      for (const gid of matched) {
-        evidenceCountByGapId.set(gid, (evidenceCountByGapId.get(gid) || 0) + 1);
-      }
-      continue;
-    }
-
-    const gid = toNonEmptyString(row?.gapId);
-    if (gid) {
-      evidenceCountByGapId.set(gid, (evidenceCountByGapId.get(gid) || 0) + 1);
-    }
-  }
-
-  let filledCount = 0;
-  let blockedCount = 0;
-  let stillOpenCount = 0;
-  const now = new Date().toISOString();
-  const treeForDecisions = state?.planningTree;
-  const canRecordDecision =
-    typeof treeForDecisions?.getNodesForGap === "function" && typeof treeForDecisions?.recordDecision === "function";
-
-  const recordGapTransitionDecision = (gapId, newStatus, { reason, outcome, metrics } = {}) => {
-    if (!canRecordDecision) return;
-    const nodes = treeForDecisions.getNodesForGap(gapId) || [];
-    const nodeId = toNonEmptyString(nodes?.[0]?.nodeId);
-    if (!nodeId) return;
-
-    treeForDecisions.recordDecision(nodeId, {
-      stage: DecisionStage.GAPS,
-      action: `transition to ${newStatus}`,
-      reason: String(reason || "auto"),
-      outcome,
-      metrics: isPlainObject(metrics) ? { ...metrics } : {},
-    });
-  };
-
-  for (const g of gaps) {
-    const gid = toNonEmptyString(g?.gapId);
-    if (!gid) continue;
-
-    const oldStatus = toNonEmptyString(g?.status) || GapStatus.OPEN;
-    const evidenceCount = evidenceCountByGapId.get(gid) || 0;
-    // 只有当 evidence 数量 >= minEvidenceToFill 时才标记为 filled
-    // [增强]: 即使以前是 BLOCKED，如果现在有足够证据，也应允许解封并转为 FILLED
-    if (evidenceCount >= effectiveMinEvidenceToFill) {
-      const didTransition = transitionGap(g, GapStatus.FILLED, { runId, iteration, ts: now, evidenceCount }, emitFn);
-      if (didTransition) {
-        recordGapTransitionDecision(gid, GapStatus.FILLED, {
-          reason: `unblocked_by_evidence_count:${evidenceCount}`,
-          outcome: DecisionOutcome.SUCCESS,
-          metrics: { evidenceCount, missCount: safeInt(g?.missCount) ?? 0 },
-        });
-      }
-      filledCount++;
-      continue;
-    }
-
-    // 如果已经完成或阻塞，且证据不足以解封，则跳过
-    if (oldStatus === GapStatus.FILLED || oldStatus === GapStatus.BLOCKED) continue;
-
-    const roundQualityHits = qualityHitsByGapIdMap.get(gid) || 0;
-    const roundAllHits = hitsByGapId.get(gid) || 0;
-    if (roundQualityHits > 0) {
-      g.missCount = 0;
-      stillOpenCount++;
-      continue;
-    }
-    if (roundAllHits > 0) {
-      stillOpenCount++;
-      continue;
-    }
-
-    const priorMisses = safeInt(g?.missCount) ?? 0;
-    const misses = Math.max(0, priorMisses) + 1;
-    g.missCount = misses;
-
-    if (misses >= effectiveBlockAfterMisses) {
-      const blockedReason = String(g.blockedReason || "no_retrieval_hits");
-      const didTransition = transitionGap(g, GapStatus.BLOCKED, { runId, iteration, reason: blockedReason, ts: now }, emitFn);
-      if (didTransition) {
-        recordGapTransitionDecision(gid, GapStatus.BLOCKED, {
-          reason: blockedReason,
-          outcome: DecisionOutcome.FAIL,
-          metrics: { evidenceCount, missCount: misses },
-        });
-      }
-      blockedCount++;
-    } else {
-      stillOpenCount++;
-    }
-  }
-
-  const todos = Array.isArray(state?.todos) ? state.todos : [];
-  const todoByGapId = new Map();
-  for (const t of todos) {
-    const rgid = toNonEmptyString(t?.relatedGapId);
-    if (!rgid) continue;
-    todoByGapId.set(rgid, t);
-  }
-
-  const updateTodoStatus = (todo, nextStatus) => {
-    if (!todo) return;
-    const from = (toNonEmptyString(todo?.status) || TodoStatus.OPEN).toLowerCase();
-    const to = (toNonEmptyString(nextStatus) || TodoStatus.OPEN).toLowerCase();
-    if (from === to) return;
-    const didTransition = transitionTodoStatus(todo, to);
-    if (!didTransition) return;
-    emitFn?.("deepsearch.todo.status.changed", {
-      runId,
-      todoId: toNonEmptyString(todo?.todoId) || "todo_unknown",
-      relatedGapId: toNonEmptyString(todo?.relatedGapId),
-      from,
-      to,
-      iteration,
-    });
-  };
-
-  for (const g of gaps) {
-    const gid = toNonEmptyString(g?.gapId);
-    if (!gid) continue;
-    const todo = todoByGapId.get(gid);
-    if (!todo) continue;
-    if (g.status === GapStatus.FILLED) updateTodoStatus(todo, TodoStatus.COMPLETED);
-    if (g.status === GapStatus.BLOCKED) updateTodoStatus(todo, TodoStatus.CANCELLED);
-  }
-
-  const tree = state?.planningTree;
-  if (typeof tree?.getNodesForGap === "function" && typeof tree?.updateStatus === "function") {
-    for (const g of gaps) {
-      const gid = toNonEmptyString(g?.gapId);
-      if (!gid) continue;
-      if (g.status !== GapStatus.FILLED && g.status !== GapStatus.BLOCKED) continue;
-      const next = g.status === GapStatus.FILLED ? "completed" : "blocked";
-      const nodes = tree.getNodesForGap(gid) || [];
-      for (const n of Array.isArray(nodes) ? nodes : []) {
-        const nodeId = toNonEmptyString(n?.nodeId) || toNonEmptyString(n?.planNodeId) || toNonEmptyString(n?.id);
-        if (nodeId) tree.updateStatus(nodeId, next);
-      }
-    }
-  }
-
-  const openCount = gaps.filter((g) => (toNonEmptyString(g?.status) || GapStatus.OPEN) === GapStatus.OPEN).length;
-  state?.addTimeline?.({
-    name: "deepsearch.validate",
-    status: "completed",
-    payload: { filledCount, blockedCount, openCount },
-  });
-
-  return { filledCount, blockedCount, openCount, stillOpenCount };
 }
 
 export class DeepSearchState {
@@ -521,175 +302,31 @@ export class DeepSearchState {
   }
 
   addTodo(params = {}) {
-    const raw = isPlainObject(params) ? params : {};
-    const id = toNonEmptyString(raw.todoId) || `todo_${this.todos.length + 1}`;
-    const row = createTodo({ ...raw, todoId: id });
-    this.todos.push(row);
-    this._syncToShared("todo", row.todoId, {
-      status: row.status || "pending",
-      keywords: [row.text?.slice(0, 50)].filter(Boolean),
-    });
-    return row;
+    return addTodoLogic(this, params);
   }
 
   setAwaitUserFeedback(value, reason) {
-    // Memory 2.0: 代理到 MemoryStore
-    if (this._memoryStore) {
-      this._memoryStore.awaitUserFeedback = Boolean(value);
-    }
-    if (!isPlainObject(this.L2)) this.L2 = {};
-    this.L2.awaitUserFeedback = Boolean(value);
-    if (toNonEmptyString(reason)) this.L2.reason = String(reason);
-    if (!this.L2.awaitUserFeedback && !this.L2.taskImpossible && !toNonEmptyString(reason)) {
-      this.L2.reason = "";
-    }
-    return this.L2.awaitUserFeedback;
+    return setAwaitUserFeedbackLogic(this, value, reason);
   }
 
   setTaskImpossible(reason) {
-    // Memory 2.0: 代理到 MemoryStore
-    if (this._memoryStore) {
-      this._memoryStore.taskImpossible = true;
-      this._memoryStore.awaitUserFeedback = false;
-    }
-    if (!isPlainObject(this.L2)) this.L2 = {};
-    this.L2.taskImpossible = true;
-    this.L2.awaitUserFeedback = false;
-    if (toNonEmptyString(reason)) this.L2.reason = String(reason);
-    if (!toNonEmptyString(this.L2.reason)) this.L2.reason = "";
-    return this.L2.taskImpossible;
+    return setTaskImpossibleLogic(this, reason);
   }
 
   addTimeline({ name, status = "info", payload } = {}) {
-    const n = toNonEmptyString(name) || "deepsearch.event";
-    const st = toNonEmptyString(status) || "info";
-    const row = { ts: new Date().toISOString(), name: n, status: st, ...(payload !== undefined ? { payload } : {}) };
-    this.timeline.push(row);
-
-    const max = Math.max(0, safeInt(this?.userConfig?.memory?.maxTimeline) ?? 1000);
-    while (this.timeline.size > max) this.timeline.shift();
-    return row;
+    return addTimelineLogic(this, { name, status, payload });
   }
 
   saveWriteSnapshot({ timestamp } = {}) {
-    const ts = toNonEmptyString(timestamp) || new Date().toISOString();
-    const snapshot = {
-      snapshotId: `wcp_${this.writeSnapshots.length + 1}`,
-      iteration: this.iteration,
-      timestamp: String(ts),
-      slideIntents: Array.isArray(this?.L1?.slideIntents) ? cloneValue(this.L1.slideIntents) : [],
-      report: isPlainObject(this?.L1?.report) ? cloneValue(this.L1.report) : null,
-    };
-    this.writeSnapshots.push(snapshot);
-    return snapshot;
+    return saveWriteSnapshotLogic(this, { timestamp });
   }
 
   reopenGaps(gapIds, { reason, timestamp } = {}, emit = null) {
-    const ids = Array.from(new Set((Array.isArray(gapIds) ? gapIds : gapIds ? [gapIds] : []).map((x) => String(x || "").trim()).filter(Boolean)));
-    if (!ids.length) return { reopened: [], missing: [] };
-
-    if (!isPlainObject(this.L1)) this.L1 = {};
-    if (!Array.isArray(this.L1.gaps)) this.L1.gaps = [];
-    const gaps = this.L1.gaps;
-
-    const now = toNonEmptyString(timestamp) || new Date().toISOString();
-    const reopened = [];
-    const missing = new Set(ids);
-
-    for (const g of gaps) {
-      const gid = toNonEmptyString(g?.gapId);
-      if (!gid) continue;
-      if (!missing.has(gid)) continue;
-      missing.delete(gid);
-
-      const didTransition = transitionGap(g, GapStatus.OPEN, { runId: this.runId, iteration: this.iteration, reason: "backtrack", ts: now }, emit);
-      if (!didTransition) {
-        // Even when status is already OPEN, normalize fields without emitting.
-        g.status = GapStatus.OPEN;
-        g.missCount = 0;
-        delete g.filledAt;
-        delete g.filledIteration;
-        delete g.evidenceCount;
-        delete g.blockedAt;
-        delete g.blockedReason;
-      }
-      g.reopenedAt = now;
-      if (toNonEmptyString(reason)) g.reopenedReason = String(reason);
-
-      reopened.push(gid);
-      this._syncToShared("gap", gid, { status: "open" });
-    }
-
-    const tree = this?.planningTree;
-    if (tree && typeof tree.getNodesForGap === "function" && typeof tree.updateStatus === "function") {
-      for (const gid of reopened) {
-        for (const n of tree.getNodesForGap(gid)) tree.updateStatus(n.nodeId, "pending");
-      }
-    }
-
-    return { reopened, missing: Array.from(missing) };
+    return reopenGapsLogic(this, gapIds, { reason, timestamp }, emit);
   }
 
   addNewGaps(newGaps, { timestamp } = {}, emit = null) {
-    const rows = Array.isArray(newGaps) ? newGaps : [];
-    if (!rows.length) return [];
-
-    if (!isPlainObject(this.L1)) this.L1 = {};
-    if (!Array.isArray(this.L1.gaps)) this.L1.gaps = [];
-    const gaps = this.L1.gaps;
-
-    const existingId = new Set(gaps.map((g) => toNonEmptyString(g?.gapId)).filter(Boolean));
-    let max = 0;
-    for (const gid of existingId) {
-      const m = String(gid).match(/^gap_(\d+)$/);
-      if (!m) continue;
-      const n = safeInt(Number(m[1]));
-      if (n !== null && n > max) max = n;
-    }
-
-    const now = toNonEmptyString(timestamp) || new Date().toISOString();
-    const added = [];
-    for (const g of rows) {
-      const question = toNonEmptyString(g?.question);
-      if (!question) continue;
-      const priority = toNonEmptyString(g?.priority) || "medium";
-
-      let gapId = `gap_${(max += 1)}`;
-      while (existingId.has(gapId)) gapId = `gap_${(max += 1)}`;
-      existingId.add(gapId);
-
-      const row = {
-        gapId,
-        type: "write_backtrack",
-        question: String(question),
-        priority: String(priority),
-        status: "open",
-        queryHints: [],
-        createdAt: now,
-      };
-      gaps.push(row);
-      this._syncToShared("gap", gapId, {
-        status: "open",
-        keywords: [row.question?.slice(0, 50)].filter(Boolean),
-      });
-      added.push(row);
-
-      emit?.("deepsearch.gap.upserted", {
-        runId: this.runId,
-        gapId,
-        status: "open",
-        type: row.type,
-        priority: row.priority,
-        question: row.question,
-        missCount: 0,
-        iteration: this.iteration,
-        trajectoryId: this.trajectoryId,
-      });
-
-      this.addTodo({ text: `Fill gap: ${row.type} — ${row.question}`, relatedGapId: gapId, status: TodoStatus.OPEN });
-      this?.planningTree?.expandFromGap?.(row);
-    }
-    return added;
+    return addNewGapsLogic(this, newGaps, { timestamp }, emit);
   }
 
   saveCheckpoint({ checkpointId, timestamp, metrics, strategy } = {}) {
