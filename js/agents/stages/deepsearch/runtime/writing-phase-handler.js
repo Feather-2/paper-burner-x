@@ -73,12 +73,15 @@ export class WritingPhaseHandler {
 示例：{"thought":"补充内容","action":"write-report","args":{"action":"append","content":"## 章节\\n\\n内容..."}}`,
     });
 
-    let iteration = 0;
+    let iteration = 0; // 已完成的写作轮次
     let parseFailures = 0;
+    let systemRetryCount = 0;
 
     while (iteration < this.maxIterations) {
-      iteration++;
-      this._logger.debug(`Writing phase ${iteration}/${this.maxIterations}`);
+      const plannedIteration = iteration + 1;
+      this._logger.debug(
+        `Writing phase ${plannedIteration}/${this.maxIterations} (parseFailures ${parseFailures}/${this.maxParseFailures})`
+      );
 
       if (signal?.aborted) break;
 
@@ -90,7 +93,7 @@ export class WritingPhaseHandler {
           parseFailures++;
           this._logger.warn(`Writing phase empty response ${parseFailures}/${this.maxParseFailures}`);
           if (parseFailures >= this.maxParseFailures) break;
-          continue;
+          continue; // 系统重试：不扣减写作轮次
         }
 
         addMessage({ role: "assistant", content });
@@ -107,10 +110,11 @@ export class WritingPhaseHandler {
             role: "user",
             content: `JSON 解析失败，请确保输出有效的 JSON 格式：{"thought": "...", "action": "write-report", "args": {...}}`,
           });
-          continue;
+          continue; // 系统重试：不扣减写作轮次
         }
 
         parseFailures = 0;
+        systemRetryCount = 0;
 
         // 只允许 write-report
         const actions = decision.actions || [{ action: decision.action, args: decision.args }];
@@ -140,9 +144,16 @@ export class WritingPhaseHandler {
           }
         }
 
+        // 本轮写作成功完成（即使不退出），才扣减轮次
+        iteration = plannedIteration;
         if (shouldExit) break;
       } catch (err) {
         this._logger.error("Writing phase error", { error: err.message });
+        systemRetryCount += 1;
+        if (systemRetryCount >= this.maxParseFailures) {
+          this._logger.warn(`Too many system retries in writing phase (${systemRetryCount}), stopping`);
+          break;
+        }
       }
     }
 

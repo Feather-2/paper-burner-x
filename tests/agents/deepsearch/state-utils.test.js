@@ -713,3 +713,83 @@ test("report-postprocess: returns issues on invalid reports", async () => {
   const progress = getReportProgress({ markdown: badReport }, "quick", state);
   assert.equal(progress.isReady, false);
 });
+
+test("WritingPhaseHandler: system retries do not consume writing iterations", async () => {
+  const { WritingPhaseHandler } = await import("../../../js/agents/stages/deepsearch/runtime/writing-phase-handler.js");
+
+  let calls = 0;
+  const responses = [
+    { content: "" },
+    { content: "not json" },
+    { content: JSON.stringify({ thought: "t", action: "write-report", args: { action: "append", content: "x" } }) },
+  ];
+
+  const handler = new WritingPhaseHandler({
+    logger: { info: () => {}, debug: () => {}, warn: () => {}, error: () => {} },
+    emit: () => {},
+    parseDecision: (content) => {
+      try {
+        return JSON.parse(content);
+      } catch {
+        return null;
+      }
+    },
+    executeTool: async () => ({ success: true }),
+    maxIterations: 1,
+    maxParseFailures: 3,
+  });
+
+  const state = { L1: { report: { markdown: "" } }, todos: [], userConfig: { mode: "quick" }, globalConfig: { report: { quick: { minWords: 0 } } } };
+  const addMessage = () => {};
+  const messages = () => [];
+  const signal = new AbortController().signal;
+
+  const result = await handler.run({
+    state,
+    stageApi: {},
+    sharedContext: null,
+    callModel: async () => responses[calls++] || responses.at(-1),
+    addMessage,
+    messages,
+    signal,
+  });
+
+  assert.equal(calls, 3);
+  assert.equal(result.iterations, 1);
+});
+
+test("DeepSearchAgentLoop: caps system retries without consuming iteration budget", async () => {
+  const { DeepSearchAgentLoop, AgentStatus } = await import("../../../js/agents/stages/deepsearch/deepsearch-agent-loop.js");
+
+  let calls = 0;
+  const stageApi = {
+    signal: new AbortController().signal,
+    modelRouter: {
+      call: async () => {
+        calls += 1;
+        throw new Error("transient");
+      },
+    },
+  };
+
+  const agent = new DeepSearchAgentLoop({
+    mode: "quick",
+    maxIterations: 2,
+    config: { report: { quick: { minWords: 0 } }, agent: { quick: { writeIterations: 1 } } },
+  });
+
+  const output = await agent.run(
+    {
+      runId: "run_system_retry_cap",
+      taskGoal: "t",
+      userConfig: { maxSystemRetriesPerIteration: 2 },
+      L0: { sources: [] },
+      // Avoid entering writing phase during this test.
+      L1: { report: { markdown: "x".repeat(5000) } },
+    },
+    { stageApi }
+  );
+
+  assert.equal(calls, 4);
+  assert.equal(output.status, AgentStatus.COMPLETED);
+});

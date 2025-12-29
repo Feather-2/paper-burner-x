@@ -403,8 +403,15 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     // 主循环
     let iteration = 0;
     let toolCallCount = 0;  // 工具调用计数
+    let systemRetryCount = 0;
+    const maxSystemRetriesPerIteration = (() => {
+      const raw = this.state?.userConfig?.budget?.maxSystemRetriesPerIteration ?? this.state?.userConfig?.maxSystemRetriesPerIteration;
+      const n = typeof raw === "number" && Number.isFinite(raw) ? Math.floor(raw) : null;
+      return n !== null && n >= 1 ? n : 3;
+    })();
 
     while (iteration < this.maxIterations) {
+      const plannedIteration = iteration + 1;
       // 检查工具调用次数限制
       if (toolCallCount >= this.maxToolCalls) {
         this._logger.info(`工具调用次数达到上限 (${toolCallCount}/${this.maxToolCalls})，强制进入写作阶段`);
@@ -419,7 +426,11 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         : 0;
       const compressFlag = contextStatus.needsCompression ? " [COMPRESS]" : "";
       const retryInfo = responseHandler.retryCount > 0 ? ` (retry ${responseHandler.retryCount}/${responseHandler.maxRetries})` : "";
-      this._logger.debug(`Iteration ${iteration + 1}/${this.maxIterations}${retryInfo} | Tokens: ${totalTokens} (${tokenPct}%)${compressFlag} | Messages: ${this._messages.length}`);
+      const systemRetryInfo =
+        systemRetryCount > 0 ? ` (sys-retry ${systemRetryCount}/${maxSystemRetriesPerIteration})` : "";
+      this._logger.debug(
+        `Iteration ${plannedIteration}/${this.maxIterations}${retryInfo}${systemRetryInfo} | Tokens: ${totalTokens} (${tokenPct}%)${compressFlag} | Messages: ${this._messages.length}`
+      );
 
       if (signal?.aborted) {
         this._emit(DeepSearchEvents.AGENT_STATUS_CHANGED, { from: this.status, to: AgentStatus.FAILED });
@@ -433,7 +444,11 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         break;
       }
 
-      this._emit(DeepSearchEvents.AGENT_ITERATION, { iteration: iteration + 1, retry: responseHandler.retryCount });
+      this._emit(DeepSearchEvents.AGENT_ITERATION, {
+        iteration: plannedIteration,
+        retry: responseHandler.retryCount,
+        systemRetry: systemRetryCount,
+      });
 
       // [Shadow System] 注入潜意识信号 (上下文工程：即时性、不留痕)
       const shadow = stageApi.agent?.shadow || context.agent?.shadow;
@@ -516,8 +531,9 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
 
       // ===== 预算进度提示 =====
       const writeStartIteration = this.maxIterations - this.writeIterations + 1;
-      const phase = iteration < writeStartIteration * 0.6 ? "收集" : iteration < writeStartIteration ? "验证" : "写作";
-      const budgetStatus = `[预算] 迭代 ${iteration + 1}/${this.maxIterations} | 工具 ${toolCallCount}/${this.maxToolCalls} | 阶段: ${phase}`;
+      const phase =
+        plannedIteration < writeStartIteration * 0.6 ? "收集" : plannedIteration < writeStartIteration ? "验证" : "写作";
+      const budgetStatus = `[预算] 迭代 ${plannedIteration}/${this.maxIterations} | 工具 ${toolCallCount}/${this.maxToolCalls} | 阶段: ${phase}`;
       ephemeralMessages.push({ role: "system", content: `<budget>${budgetStatus}</budget>` });
 
       // ===== 待办状态检查提醒 =====
@@ -576,19 +592,20 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
           continue; // 不增加 iteration
         }
         if (result.status === "skip") {
-          iteration++;
+          iteration = plannedIteration;
+          if (this.context) this.context.iteration = iteration;
+          else this.state.iteration = iteration;
+          systemRetryCount = 0;
           continue;
         }
         if (result.status === "stop") {
           break;
         }
 
-        // 成功解析，增加迭代次数
+        // 成功解析，先写入 plannedIteration（给 tools 作为本轮标识），但仅在本轮完成后才提交 iteration 计数
         const decision = result.decision;
-        iteration++;
-        // 同步到 state/context 供门槛检查使用
-        if (this.context) this.context.iteration = iteration;
-        else this.state.iteration = iteration;
+        if (this.context) this.context.iteration = plannedIteration;
+        else this.state.iteration = plannedIteration;
 
         // 打印思考过程
         if (decision.thought) {
@@ -612,6 +629,8 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
               stageApi,
             });
           }
+          iteration = plannedIteration;
+          systemRetryCount = 0;
           break;
         }
 
@@ -650,7 +669,12 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
 
           // 保存 checkpoint
           if (this.checkpoint) {
-            await this.checkpoint.save?.(this.state, { iteration });
+            try {
+              await this.checkpoint.save?.(this.state, { iteration: plannedIteration });
+            } catch (err) {
+              const errorMessage = err instanceof Error ? err.message : String(err);
+              this._logger.warn(`Checkpoint save failed (ignored): ${errorMessage}`);
+            }
           }
 
           // 添加批量结果到消息
@@ -665,6 +689,8 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
               )
               .join("\n")}\n\n请继续。`,
           });
+          iteration = plannedIteration;
+          systemRetryCount = 0;
           continue;
         }
 
@@ -686,28 +712,40 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
 
         // watchdog handoff 触发回溯
         if (toolResult?.mode === "handoff" && this.backtrackManager?.canBacktrack?.()) {
-          const backtrackResult = await this.backtrackManager.backtrack(
-            this.state,
-            null, // 使用最近的 checkpoint
-            {
-              failReason: toolResult.handoff?.reason || "watchdog_handoff",
-              correctionHint: toolResult.handoff?.hint,
-              sharedContext: this.sharedContext,
+          try {
+            const backtrackResult = await this.backtrackManager.backtrack(
+              this.state,
+              null, // 使用最近的 checkpoint
+              {
+                failReason: toolResult.handoff?.reason || "watchdog_handoff",
+                correctionHint: toolResult.handoff?.hint,
+                sharedContext: this.sharedContext,
+              }
+            );
+            if (backtrackResult.success && backtrackResult.state) {
+              this.state = backtrackResult.state;
+              this.addMessage({
+                role: "user",
+                content: `已回溯到之前的状态。原因: ${toolResult.handoff?.reason || "重新开始"}\n\n请基于新状态继续。`,
+              });
+              iteration = plannedIteration;
+              systemRetryCount = 0;
+              continue;
             }
-          );
-          if (backtrackResult.success && backtrackResult.state) {
-            this.state = backtrackResult.state;
-            this.addMessage({
-              role: "user",
-              content: `已回溯到之前的状态。原因: ${toolResult.handoff?.reason || "重新开始"}\n\n请基于新状态继续。`,
-            });
-            continue;
+          } catch (err) {
+            const errorMessage = err instanceof Error ? err.message : String(err);
+            this._logger.warn(`Backtrack failed (ignored): ${errorMessage}`);
           }
         }
 
         // 保存 checkpoint
         if (this.checkpoint) {
-          await this.checkpoint.save?.(this.state, { iteration });
+          try {
+            await this.checkpoint.save?.(this.state, { iteration: plannedIteration });
+          } catch (err) {
+            const errorMessage = err instanceof Error ? err.message : String(err);
+            this._logger.warn(`Checkpoint save failed (ignored): ${errorMessage}`);
+          }
         }
 
         // 添加结果到消息
@@ -715,6 +753,8 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
           role: "user",
           content: `结果: ${JSON.stringify(toolResult, null, 2)}\n\n请继续。`,
         });
+        iteration = plannedIteration;
+        systemRetryCount = 0;
 
       } catch (err) {
         this._logger.error("Iteration error", { error: err.message });
@@ -722,6 +762,22 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
           role: "user",
           content: `错误: ${err.message}\n\n请尝试其他方法。`,
         });
+        systemRetryCount += 1;
+
+        // 回滚 state/context 的 iteration（系统错误不扣减研究轮次）
+        if (this.context) this.context.iteration = iteration;
+        else this.state.iteration = iteration;
+
+        if (systemRetryCount >= maxSystemRetriesPerIteration) {
+          iteration = plannedIteration;
+          if (this.context) this.context.iteration = iteration;
+          else this.state.iteration = iteration;
+          systemRetryCount = 0;
+          this.addMessage({
+            role: "user",
+            content: `系统错误已连续发生 ${maxSystemRetriesPerIteration} 次，为避免卡死，已计入 1 轮迭代并继续。`,
+          });
+        }
       }
     }
 
