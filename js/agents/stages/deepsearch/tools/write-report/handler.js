@@ -22,6 +22,7 @@
 import { generateReport } from "../../report/report-generator.js";
 import { isPlainObject, toNonEmptyString } from "../../../../shared/utils/value-utils.js";
 import { createSafeRegex } from "../../../../shared/utils/safe-regex.js";
+import SourceManager from "../../source-manager.js";
 
 // 分析门槛配置（写报告前必须满足）- 从 config 读取或使用默认值
 const DEFAULT_ANALYSIS_GATES = {
@@ -519,41 +520,39 @@ export async function handler(args, context) {
 
   // ===== get-source: 获取原文内容（用于引用验证）=====
   if (action === "get-source") {
+    const manager = context?.sourceManager instanceof SourceManager ? context.sourceManager : new SourceManager(state?.L0?.sources || []);
+    manager.syncSources(state?.L0?.sources);
+
     const sourceId = toNonEmptyString(args.sourceId);
     if (!sourceId) {
       // 返回所有可用源文档列表
-      const sources = state?.L0?.sources || [];
+      const sources = manager.listSources();
       return {
         success: true,
         action: "get-source",
-        available: sources.map(s => ({
-          sourceId: s.sourceId,
-          name: s.name,
-          length: (s.sourceText || "").length,
-        })),
+        available: sources.map((s) => ({ sourceId: s.sourceId, name: s.name, length: s.size })),
         hint: "请指定 sourceId 查看原文",
       };
     }
 
-    const sources = state?.L0?.sources || [];
-    const source = sources.find(s => s.sourceId === sourceId || s.name === sourceId);
-    if (!source) {
+    const info = manager.getSourceInfo(sourceId);
+    if (!info) {
       return { success: false, error: `Source not found: ${sourceId}` };
     }
 
     // 返回原文（可选截取）
     const maxLength = args.maxLength || 5000;
     const start = args.start || 0;
-    const text = (source.sourceText || "").slice(start, start + maxLength);
+    const text = info.text.slice(start, start + maxLength);
 
     return {
       success: true,
       action: "get-source",
-      sourceId: source.sourceId,
-      name: source.name,
+      sourceId: info.sourceId,
+      name: info.name,
       content: text,
-      totalLength: (source.sourceText || "").length,
-      truncated: (source.sourceText || "").length > start + maxLength,
+      totalLength: info.text.length,
+      truncated: info.text.length > start + maxLength,
     };
   }
 

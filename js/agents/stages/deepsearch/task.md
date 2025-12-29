@@ -3,13 +3,13 @@
 - [x] 初始代码库分析
 - [x] 架构评估与优雅度评估
 - [x] 创建实施计划
-- [/] 状态与逻辑重构
-    - [ ] 创建 `state-logic.js`
-    - [ ] 重构 `DeepSearchState.js`
-- [ ] 内存与缓存优化
-    - [ ] 创建 `source-manager.js`
-    - [ ] 集成到工具处理器中
-    - [ ] 重构 `agent-loop.js` 中的迭代同步
+- [x] 状态与逻辑重构
+    - [x] 创建 `state-logic.js`
+    - [x] 重构 `DeepSearchState.js`
+- [x] 内存与缓存优化
+    - [x] 创建 `source-manager.js`
+    - [x] 集成到工具处理器中
+    - [x] 重构 `agent-loop.js` 中的迭代同步
 - [ ] 报告系统整合
     - [ ] 提取报告后期处理工具函数
     - [ ] 重构 `report-generator.js` 和 `write-report` 处理器
@@ -17,5 +17,5 @@
     - [ ] 更新迭代预算逻辑
     - [ ] 审计并硬化正则
 - [ ] 验证与测试
-    - [ ] 运行自动化测试
+    - [x] 运行自动化测试
     - [ ] 执行手动研究任务验证

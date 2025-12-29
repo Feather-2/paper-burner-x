@@ -2,6 +2,8 @@
  * list-docs skill handler
  */
 
+import SourceManager from "../../source-manager.js";
+
 export const definition = {
   name: "list-docs",
   description: "列出所有可用文档的名称和 ID",
@@ -19,13 +21,9 @@ export const definition = {
 export async function handler(args, context) {
   const { state, emit } = context;
 
-  const sources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
-
-  const docs = sources.map(s => ({
-    sourceId: s.sourceId,
-    name: s.name || s.sourceId,
-    size: (s.sourceText || "").length,
-  }));
+  const manager = context?.sourceManager instanceof SourceManager ? context.sourceManager : new SourceManager(state?.L0?.sources || []);
+  manager.syncSources(state?.L0?.sources);
+  const docs = manager.listSources().map((d) => ({ sourceId: d.sourceId, name: d.name, size: d.size }));
 
   emit?.("deepsearch.docs.listed", { count: docs.length });
 

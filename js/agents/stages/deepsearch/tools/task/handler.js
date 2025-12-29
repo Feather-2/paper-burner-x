@@ -9,6 +9,7 @@
 import { globalSubagentRegistry } from "../../../../sdk/SubagentRegistry.js";
 // 确保子代理已注册
 import "../../subagents.js";
+import SourceManager from "../../source-manager.js";
 
 function toPositiveInt(value, fallback) {
   const n = Number.parseInt(String(value ?? ""), 10);
@@ -166,11 +167,14 @@ export async function handler(args, context) {
     };
   }
 
-  // 准备文档子集
-  const sources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
-  const targetSources = sourceIds?.length
-    ? sources.filter(s => sourceIds.includes(s.sourceId))
-    : sources;
+  const manager = context?.sourceManager instanceof SourceManager ? context.sourceManager : new SourceManager(state?.L0?.sources || []);
+  manager.syncSources(state?.L0?.sources);
+
+  const targetSources = Array.isArray(sourceIds) && sourceIds.length
+    ? sourceIds.map((id) => manager.getSource(id)).filter(Boolean)
+    : Array.isArray(state?.L0?.sources)
+      ? state.L0.sources
+      : [];
 
   const reservation = reserveRunningTaskSlot();
   if (!reservation.ok) {

@@ -505,3 +505,116 @@ test("Checkpoint E2E: 中断恢复场景", async () => {
   assert.equal(resumed.iteration, 5);
   assert.deepEqual(resumed.L2.scratchpad.rounds, [1, 2, 3, 4, 5]);
 });
+
+test("SourceManager: reads docs with consistent modes and caches line indexes", async () => {
+  const { SourceManager } = await import("../../../js/agents/stages/deepsearch/source-manager.js");
+
+  const doc1 = {
+    sourceId: "doc_1",
+    name: "Doc One",
+    sourceText: "# Title\n\n## A\nA1\nA2\n\n## B\nB1\n",
+  };
+  const doc2 = {
+    sourceId: "doc_2",
+    title: "Doc Two",
+    sourceTextNormalized: "Line1\nLine2\nLine3",
+  };
+
+  const manager = new SourceManager([doc1, doc2], { maxCachedLineIndexes: 1 });
+
+  const full = manager.read("doc_1", { maxLength: 10000 });
+  assert.equal(full.success, true);
+  assert.equal(full.readMode, "full");
+  assert.equal(full.lineStart, 1);
+  assert.equal(typeof full.lineEnd, "number");
+
+  const preview = manager.read("doc_1", { preview: true, maxLength: 10000 });
+  assert.equal(preview.success, true);
+  assert.equal(preview.readMode, "preview");
+  assert.ok(preview.content.includes("## 文档结构"));
+  assert.ok(preview.content.includes("## 内容预览"));
+  assert.equal(typeof preview.headingCount, "number");
+
+  const section = manager.read("doc_1", { section: "## A", maxLength: 10000 });
+  assert.equal(section.success, true);
+  assert.equal(section.readMode, "section");
+  assert.ok(section.content.includes("## A"));
+  assert.ok(section.content.includes("A1"));
+  assert.ok(section.lineStart >= 1);
+  assert.ok(section.lineEnd >= section.lineStart);
+
+  const lines = manager.read("doc_2", { startLine: 2, endLine: 2, maxLength: 10000 });
+  assert.equal(lines.success, true);
+  assert.equal(lines.readMode, "lines");
+  assert.equal(lines.content.trim(), "Line2");
+  assert.equal(lines.lineStart, 2);
+  assert.equal(lines.lineEnd, 2);
+
+  // LRU cap keeps only the most recent entry
+  assert.equal(manager._lineStartsCache.size, 1);
+  assert.equal(manager._lineStartsCache.has("doc_2"), true);
+
+  const chars = manager.read("doc_2", { start: 0, end: 1, maxLength: 10000 });
+  assert.equal(chars.success, true);
+  assert.equal(chars.readMode, "chars");
+  assert.equal(chars.lineStart, 1);
+  assert.equal(chars.lineEnd, 1);
+});
+
+test("read-doc/search-docs tools: share SourceManager and keep outputs stable", async () => {
+  const { default: SourceManager } = await import("../../../js/agents/stages/deepsearch/source-manager.js");
+  const { handler: readDoc } = await import("../../../js/agents/stages/deepsearch/tools/read-doc/handler.js");
+  const { handler: searchDocs } = await import("../../../js/agents/stages/deepsearch/tools/search-docs/handler.js");
+
+  const state = {
+    L0: {
+      sources: [
+        { sourceId: "s1", name: "S1", sourceText: "alpha\nbeta\ngamma\n" },
+        { sourceId: "s2", name: "S2", sourceText: "delta\nepsilon\n" },
+      ],
+    },
+    L1: {},
+    L2: {},
+    todos: [],
+  };
+
+  const events = [];
+  const manager = new SourceManager(state.L0.sources, { maxCachedLineIndexes: 2 });
+
+  const readRes = await readDoc(
+    { sourceId: "s1", startLine: 2, endLine: 2, maxLength: 5000 },
+    {
+      state,
+      emit: (name, payload) => events.push({ name, payload }),
+      sourceManager: manager,
+    }
+  );
+  assert.equal(readRes.success, true);
+  assert.equal(readRes.readMode, "lines");
+  assert.equal(readRes.content.trim(), "beta");
+  assert.deepEqual(state.L1.readDocIds, ["s1"]);
+  assert.ok(events.some((e) => e.name === "deepsearch.doc.read"));
+
+  const searchRes = await searchDocs(
+    { query: "alpha", limit: 10 },
+    {
+      state,
+      emit: () => {},
+      sourceManager: manager,
+    }
+  );
+  assert.equal(searchRes.success, true);
+  assert.equal(Array.isArray(searchRes.results), true);
+  assert.equal(searchRes.results.some((r) => r.sourceId === "s1"), true);
+
+  const restricted = await searchDocs(
+    { query: "alpha", sources: ["s2"], limit: 10 },
+    {
+      state,
+      emit: () => {},
+      sourceManager: manager,
+    }
+  );
+  assert.equal(restricted.success, true);
+  assert.equal(restricted.results.length, 0);
+});

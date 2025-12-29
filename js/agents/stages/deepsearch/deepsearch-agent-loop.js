@@ -15,6 +15,7 @@ import { loadPrompt } from "../../prompts/prompt-loader.js";
 import { DeepSearchEvents } from "../../runtime/events/events.js";
 import { ModelResponseHandler } from "./runtime/model-response-handler.js";
 import { WritingPhaseHandler } from "./runtime/writing-phase-handler.js";
+import SourceManager from "./source-manager.js";
 
 // Skills 系统（动态加载）
 let SkillsManager = null;
@@ -223,6 +224,8 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
 
     this.eventBus = options.eventBus || null;
 
+    this.sourceManager = options.sourceManager || null;
+
     // 可插拔机制
     this.budget = options.budget || null;
     this.checkpoint = options.checkpoint || null;
@@ -256,6 +259,12 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
 
     // 初始化
     this.state = this._ensureState(input);
+
+    if (!this.sourceManager) {
+      this.sourceManager = new SourceManager(this.state?.L0?.sources || []);
+    } else {
+      this.sourceManager.syncSources(this.state?.L0?.sources);
+    }
     // 同步 mode 到 state（供 tools 使用）
     if (!this.state.userConfig) this.state.userConfig = {};
     this.state.userConfig.mode = this.mode;
@@ -614,6 +623,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
               const toolName = item.action;
               const toolArgs = item.args || {};
               try {
+                this.sourceManager?.syncSources?.(this.state?.L0?.sources);
                 const result = await executeTool(toolName, toolArgs, {
                   state: this.state,
                   emit: (n, p) => this._emit(n, p),
@@ -621,6 +631,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
                   sharedContext: this.sharedContext,
                   discoveryManager: this.discoveryManager,
                   memory: this.memory,
+                  sourceManager: this.sourceManager,
                 });
                 const toolSuccess = typeof result?.success === "boolean" ? result.success : true;
                 if (toolSuccess) return { tool: toolName, success: true, result };
@@ -659,6 +670,8 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
 
         // 执行单个 tool
         this._logger.info(`Executing tool: ${decision.action}`);
+
+        this.sourceManager?.syncSources?.(this.state?.L0?.sources);
         const toolResult = await executeTool(decision.action, decision.args || {}, {
           state: this.state,
           emit: (n, p) => this._emit(n, p),
@@ -666,6 +679,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
           sharedContext: this.sharedContext,
           discoveryManager: this.discoveryManager,
           memory: this.memory,
+          sourceManager: this.sourceManager,
         });
         toolCallCount++;  // 计数单个调用
         this._logger.debug(`Tool result: ${JSON.stringify(toolResult).slice(0, 200)}`);
@@ -712,11 +726,15 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     }
 
     // ===== 写作阶段：如果报告未完成，额外给 writeIterations 轮 =====
+    const executeToolWithSources = (name, args, ctx) => {
+      this.sourceManager?.syncSources?.(this.state?.L0?.sources);
+      return executeTool(name, args, { ...ctx, sourceManager: this.sourceManager });
+    };
     const writingHandler = new WritingPhaseHandler({
       logger: this._logger,
       emit: (n, p) => this._emit(n, p),
       parseDecision: (content) => this._parseDecision(content),
-      executeTool,
+      executeTool: executeToolWithSources,
       maxIterations: this.writeIterations || 5,
       maxParseFailures: 3,
     });

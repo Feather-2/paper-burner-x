@@ -2,20 +2,7 @@
  * search-docs skill handler
  */
 
-const sourceLinesCache = new WeakMap();
-
-function getSourceLines(source) {
-  if (!source || typeof source !== "object") return null;
-  const text = source.sourceTextNormalized || source.sourceText || "";
-  if (!text) return null;
-
-  const cached = sourceLinesCache.get(source);
-  if (cached?.text === text) return cached.lines;
-
-  const lines = text.split("\n");
-  sourceLinesCache.set(source, { text, lines });
-  return lines;
-}
+import SourceManager from "../../source-manager.js";
 
 export const definition = {
   name: "search-docs",
@@ -43,11 +30,15 @@ export async function handler(args, context) {
     return { success: false, error: "query is required" };
   }
 
-  // 获取可搜索的文档
-  const allSources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
-  const targetSources = sources?.length
-    ? allSources.filter(s => sources.includes(s.sourceId))
-    : allSources;
+  const manager = context?.sourceManager instanceof SourceManager ? context.sourceManager : new SourceManager(state?.L0?.sources || []);
+  manager.syncSources(state?.L0?.sources);
+
+  const requested = Array.isArray(sources) ? sources : [];
+  const targetSources = requested.length
+    ? requested.map((id) => manager.getSource(id)).filter(Boolean)
+    : Array.isArray(state?.L0?.sources)
+      ? state.L0.sources
+      : [];
 
   if (!targetSources.length) {
     return { success: true, results: [], message: "No sources available" };
@@ -78,35 +69,7 @@ export async function handler(args, context) {
   }
 
   // 简单的关键词匹配回退（分词匹配）
-  const results = [];
-  const queryLower = query.toLowerCase();
-  // 分词：按空格分割，过滤掉太短的词
-  const keywords = queryLower.split(/\s+/).filter(w => w.length >= 2);
-
-  for (const source of targetSources) {
-    const lines = getSourceLines(source);
-    if (!lines) continue;
-
-    for (let i = 0; i < lines.length; i++) {
-      const lineLower = lines[i].toLowerCase();
-      // 任意一个关键词匹配即可
-      const matched = keywords.some(kw => lineLower.includes(kw));
-      if (matched) {
-        const start = Math.max(0, i - 1);
-        const end = Math.min(lines.length, i + 2);
-        results.push({
-          sourceId: source.sourceId,
-          sourceName: source.name || source.sourceId,
-          line: i + 1,
-          snippet: lines.slice(start, end).join("\n"),
-          score: 1.0,
-        });
-
-        if (results.length >= limit) break;
-      }
-    }
-    if (results.length >= limit) break;
-  }
+  const results = manager.search(query, { sources: targetSources, limit });
 
   emit?.("deepsearch.search.completed", { query, resultCount: results.length });
   return { success: true, results };
