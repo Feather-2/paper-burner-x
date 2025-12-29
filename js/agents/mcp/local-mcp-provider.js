@@ -47,32 +47,12 @@ function requireFiniteNumber(v, name) {
 
 /**
  * 健壮的 HTML 文本提取器
- * 采用简单的状态机思路替代纯正则，防止 ReDoS 并更有效地清理标签
+ * 采用轻量级状态机（单次线性扫描）替代多轮 replace，降低大文档的内存/CPU 压力。
  */
 function extractTextFromHtml(html) {
   if (!html || typeof html !== "string") return "";
 
-  let text = html;
-
-  // 1. 预处理：移除不含文本内容的标签及其内部
-  const tagsToRemove = ["script", "style", "noscript", "svg", "iframe", "video", "canvas", "link", "meta"];
-  for (const tag of tagsToRemove) {
-    const re = createSafeRegex(`<${tag}\\b[^<]*(?:(?!<\\/${tag}>)<[^<]*)*<\\/${tag}>`, "gi");
-    text = text.replace(re, " ");
-  }
-
-  // 2. 移除注释
-  text = text.replace(/<!--[\s\S]*?-->/g, " ");
-
-  // 3. 移除剩余的所有 HTML 标签
-  text = text.replace(/<[^>]+>/g, " ");
-
-  // 4. 清理内联 CSS 和 URL 模式
-  text = text.replace(/[a-zA-Z0-9_.#\- \[]+\{[^}]*\}/g, " "); // 简化的 CSS 块匹配
-  text = text.replace(/https?:\/\/[^\s<>"']+/gi, " ");
-
-  // 5. 解码 HTML 实体
-  const entityMap = {
+  const ENTITY_MAP = {
     "&nbsp;": " ",
     "&amp;": "&",
     "&lt;": "<",
@@ -85,8 +65,8 @@ function extractTextFromHtml(html) {
     "&mdash;": "—",
     "&lsquo;": "'",
     "&rsquo;": "'",
-    "&ldquo;": """,
-    "&rdquo;": """,
+    "&ldquo;": '"',
+    "&rdquo;": '"',
     "&bull;": "•",
     "&hellip;": "…",
     "&copy;": "©",
@@ -97,23 +77,151 @@ function extractTextFromHtml(html) {
     "&yen;": "¥",
     "&cent;": "¢",
   };
-  text = text.replace(/&[a-z0-9#]+;/gi, (entity) => {
-    const lower = entity.toLowerCase();
-    if (entityMap[lower]) return entityMap[lower];
-    // 十进制: &#123;
-    const decMatch = entity.match(/&#(\d+);/i);
-    if (decMatch) {
-      return String.fromCharCode(parseInt(decMatch[1], 10));
-    }
-    // 十六进制: &#x1F;
-    const hexMatch = entity.match(/&#x([0-9a-f]+);/i);
-    if (hexMatch) {
-      return String.fromCharCode(parseInt(hexMatch[1], 16));
-    }
-    return entity;
-  });
 
-  // 6. 清理多余空白
+  const SKIP_TAGS = new Set(["script", "style", "noscript", "svg", "iframe", "video", "canvas"]);
+
+  const isWs = (c) => c === " " || c === "\n" || c === "\r" || c === "\t" || c === "\f";
+  const isNameChar = (c) => {
+    const code = c.charCodeAt(0);
+    return (
+      (code >= 48 && code <= 57) || // 0-9
+      (code >= 65 && code <= 90) || // A-Z
+      (code >= 97 && code <= 122) || // a-z
+      c === "-" ||
+      c === "_" ||
+      c === ":"
+    );
+  };
+
+  const findTagEnd = (s, start) => {
+    let quote = null;
+    for (let i = start; i < s.length; i++) {
+      const ch = s[i];
+      if (quote) {
+        if (ch === quote) quote = null;
+        continue;
+      }
+      if (ch === '"' || ch === "'") {
+        quote = ch;
+        continue;
+      }
+      if (ch === ">") return i;
+    }
+    return -1;
+  };
+
+  const readTagName = (s, start) => {
+    let i = start;
+    while (i < s.length && isWs(s[i])) i++;
+    const nameStart = i;
+    while (i < s.length && isNameChar(s[i])) i++;
+    if (i === nameStart) return "";
+    return s.slice(nameStart, i).toLowerCase();
+  };
+
+  const skipUntilCloseTag = (s, start, tagName) => {
+    let i = start;
+    while (i < s.length) {
+      const lt = s.indexOf("<", i);
+      if (lt === -1) return s.length;
+      if (s.startsWith("<!--", lt)) {
+        const end = s.indexOf("-->", lt + 4);
+        i = end === -1 ? s.length : end + 3;
+        continue;
+      }
+      if (s[lt + 1] !== "/") {
+        i = lt + 1;
+        continue;
+      }
+      const closeName = readTagName(s, lt + 2);
+      const end = findTagEnd(s, lt + 2);
+      if (end === -1) return s.length;
+      if (closeName === tagName) return end + 1;
+      i = end + 1;
+    }
+    return s.length;
+  };
+
+  const decodeEntityAt = (s, i) => {
+    // Fast path: must start with '&'
+    if (s[i] !== "&") return null;
+    const maxLen = 16;
+    let j = i + 1;
+    while (j < s.length && j - i <= maxLen) {
+      const ch = s[j];
+      if (ch === ";") {
+        j++;
+        break;
+      }
+      if (isWs(ch) || ch === "<" || ch === ">" || ch === "&") break;
+      j++;
+    }
+    if (j <= i + 1 || s[j - 1] !== ";") return null;
+    const entity = s.slice(i, j);
+    const lower = entity.toLowerCase();
+    if (ENTITY_MAP[lower]) return { text: ENTITY_MAP[lower], nextIndex: j };
+    const dec = lower.match(/^&#(\d+);$/);
+    if (dec) return { text: String.fromCharCode(parseInt(dec[1], 10)), nextIndex: j };
+    const hex = lower.match(/^&#x([0-9a-f]+);$/);
+    if (hex) return { text: String.fromCharCode(parseInt(hex[1], 16)), nextIndex: j };
+    return { text: entity, nextIndex: j };
+  };
+
+  const out = [];
+  let i = 0;
+  while (i < html.length) {
+    const ch = html[i];
+
+    if (ch === "<") {
+      // HTML comment
+      if (html.startsWith("<!--", i)) {
+        const end = html.indexOf("-->", i + 4);
+        i = end === -1 ? html.length : end + 3;
+        out.push(" ");
+        continue;
+      }
+
+      // doctype / directives
+      if (html[i + 1] === "!") {
+        const end = html.indexOf(">", i + 2);
+        i = end === -1 ? html.length : end + 1;
+        out.push(" ");
+        continue;
+      }
+
+      const isClose = html[i + 1] === "/";
+      const nameStart = isClose ? i + 2 : i + 1;
+      const tagName = readTagName(html, nameStart);
+      const end = findTagEnd(html, nameStart);
+      if (end === -1) break;
+
+      // Skip full blocks for non-text tags.
+      if (!isClose && SKIP_TAGS.has(tagName)) {
+        i = skipUntilCloseTag(html, end + 1, tagName);
+        out.push(" ");
+        continue;
+      }
+
+      i = end + 1;
+      out.push(" ");
+      continue;
+    }
+
+    if (ch === "&") {
+      const decoded = decodeEntityAt(html, i);
+      if (decoded) {
+        out.push(decoded.text);
+        i = decoded.nextIndex;
+        continue;
+      }
+    }
+
+    out.push(isWs(ch) ? " " : ch);
+    i++;
+  }
+
+  // 清理 URL 与多余空白（仅 2 次线性 pass）
+  const text = out.join("").replace(/https?:\/\/[^\s<>"']+/gi, " ");
   return text.replace(/\s+/g, " ").trim();
 }
 

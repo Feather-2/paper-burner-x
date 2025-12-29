@@ -56,11 +56,17 @@ function upsertTodo(todosById, evt) {
  * Subscribe EventBus telemetry into RunStore, while aggregating timeline/todos for UI.
  * @param {object} eventBus EventBus
  * @param {object} runStore RunStore
+ * @param {object} [options]
+ * @param {number} [options.maxTimelineEntries=2000] Sliding window size for in-memory timeline (<=0 disables limit).
  * @returns {{timeline:Array<object>,todos:Array<object>,flush:Function,unsubscribe:Function,snapshot:Function}}
  */
-export function subscribeTelemetry(eventBus, runStore) {
+export function subscribeTelemetry(eventBus, runStore, options = {}) {
   const bus = ensureEventBus(eventBus);
   const store = ensureRunStore(runStore);
+
+  const maxTimelineEntriesRaw = typeof options?.maxTimelineEntries === "number" ? options.maxTimelineEntries : null;
+  const maxTimelineEntries =
+    maxTimelineEntriesRaw === null || !Number.isFinite(maxTimelineEntriesRaw) ? 2000 : maxTimelineEntriesRaw <= 0 ? Infinity : Math.floor(maxTimelineEntriesRaw);
 
   const timeline = [];
   const todosById = new Map();
@@ -69,6 +75,9 @@ export function subscribeTelemetry(eventBus, runStore) {
   const handler = (evt) => {
     if (evt?.meta?.replay) return;
     timeline.push(toTimelineRow(evt));
+    if (maxTimelineEntries !== Infinity && timeline.length > maxTimelineEntries) {
+      timeline.splice(0, timeline.length - maxTimelineEntries);
+    }
 
     if (String(evt?.name || "").includes("todo.")) upsertTodo(todosById, evt);
 

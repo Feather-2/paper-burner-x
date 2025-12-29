@@ -102,6 +102,63 @@ function getTokenContainer(state) {
   return designSystem;
 }
 
+// === STYLE LOCK SYNC: Validate edits against locked design system ===
+
+/**
+ * Get the locked style from designSystem (established during generation).
+ * @param {object} state
+ * @returns {object|null}
+ */
+function getLockedStyle(state) {
+  const ds = ensureDesignSystem(state);
+  // Style lock is stored as a snapshot of the first batch's visual characteristics
+  return ds.styleLock || null;
+}
+
+/**
+ * Validate a color against the locked palette.
+ * Returns { valid: boolean, warning?: string, suggestion?: string }
+ */
+function validateColorAgainstLock(colorKey, colorValue, lockedStyle) {
+  if (!lockedStyle || !lockedStyle.colors) return { valid: true };
+
+  const lockedColor = lockedStyle.colors[colorKey];
+  if (!lockedColor) return { valid: true };
+
+  // Simple hex comparison (case-insensitive)
+  const normalize = (c) => String(c || '').toLowerCase().trim();
+  if (normalize(colorValue) === normalize(lockedColor)) {
+    return { valid: true };
+  }
+
+  return {
+    valid: false,
+    warning: `Color "${colorKey}" (${colorValue}) deviates from locked style (${lockedColor})`,
+    suggestion: lockedColor,
+    key: colorKey,
+    requested: colorValue,
+    locked: lockedColor,
+  };
+}
+
+/**
+ * Emit a style deviation warning.
+ */
+function emitStyleWarning(context, deviations) {
+  if (!Array.isArray(deviations) || deviations.length === 0) return;
+  const emit = context?.emit;
+  if (typeof emit !== 'function') return;
+
+  emit('edit.style.deviation', {
+    actor: 'design',
+    status: 'warning',
+    payload: {
+      deviations,
+      message: `Style edit deviates from locked design system. Consider using: ${deviations.map(d => `${d.key}=${d.locked}`).join(', ')}`,
+    },
+  });
+}
+
 function replaceArrayContents(target, source) {
   target.splice(0, target.length, ...source);
 }
@@ -319,11 +376,28 @@ function applyChangeColorScheme(params, context) {
   if (params?.primary) updates.primary = params.primary;
   if (params?.accent) updates.accent = params.accent;
   if (params?.background) updates.background = params.background;
+
+  // === STYLE LOCK SYNC: Validate against locked design system ===
+  const lockedStyle = getLockedStyle(state);
+  const deviations = [];
+
+  for (const [key, value] of Object.entries(updates)) {
+    const validation = validateColorAgainstLock(key, value, lockedStyle);
+    if (!validation.valid) {
+      deviations.push(validation);
+    }
+  }
+
+  // Emit warning for deviations (but don't block the operation)
+  if (deviations.length > 0) {
+    emitStyleWarning(context, deviations);
+  }
+
   tokens.colors = { ...tokens.colors, ...updates };
   const nextColors = clone(tokens.colors);
 
   return {
-    data: { colors: tokens.colors },
+    data: { colors: tokens.colors, styleDeviations: deviations.length > 0 ? deviations : undefined },
     operation: {
       type: EditOperationType.CHANGE_COLOR_SCHEME,
       undo: () => {

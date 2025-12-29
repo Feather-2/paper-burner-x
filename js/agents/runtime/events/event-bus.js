@@ -71,7 +71,7 @@ export function createEventRecord({
 }
 
 export class EventBus {
-  constructor({ runId, persistenceAdapter } = {}) {
+  constructor({ runId, persistenceAdapter, onListenerError } = {}) {
     this.runId = runId;
     this._seq = 0;
     this._listeners = new Map(); // name -> Set(fn)
@@ -82,6 +82,7 @@ export class EventBus {
     this._cacheVersion = 0; // 递增版本号，用于失效缓存
     this._backpressure = null;
     this._persistenceAdapter = ensurePersistenceAdapter(persistenceAdapter);
+    this._onListenerError = typeof onListenerError === "function" ? onListenerError : null;
   }
 
   /**
@@ -387,7 +388,26 @@ export class EventBus {
 
     // 执行所有 handlers
     for (const { fn } of handlers) {
-      fn(evt);
+      try {
+        const res = fn(evt);
+        if (res && typeof res.then === "function") {
+          Promise.resolve(res).catch((err) => {
+            if (!this._onListenerError) return;
+            try {
+              this._onListenerError(err, evt, fn);
+            } catch {
+              // ignore error handler failures
+            }
+          });
+        }
+      } catch (err) {
+        if (!this._onListenerError) continue;
+        try {
+          this._onListenerError(err, evt, fn);
+        } catch {
+          // ignore error handler failures
+        }
+      }
     }
   }
 
@@ -530,4 +550,3 @@ export class RunStoreAdapter {
     return this.runStore.getEvents(runId);
   }
 }
-

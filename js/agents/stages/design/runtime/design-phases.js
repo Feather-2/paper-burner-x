@@ -422,6 +422,32 @@ export async function runGeneratingPhase(loop, {
   const qaFailed = slidesMeta.filter((m) => !m.qa?.pass).length;
   emitStage(emit, "design.qa.ended", "ended", { slides: slidesMeta.length, qaFailed, degradedCount });
 
+  // === STYLE LOCK: Establish the locked style from designSystem for edit mode ===
+  // This captures the approved color/font settings so edit mode can validate against them
+  const colors = designSystem?.designTokens?.colors || designSystem?.colors || {};
+  const styleLock = {
+    colors: {
+      primary: colors.primary,
+      accent: colors.accent,
+      bg: colors.bg || colors.background,
+      text: colors.text,
+    },
+    typography: designSystem?.designTokens?.typography || designSystem?.typography || {},
+    theme: designSystem?.theme,
+    lockedAt: Date.now(),
+  };
+
+  // Store styleLock in designSystem for edit mode to access
+  if (designSystem && typeof designSystem === 'object') {
+    designSystem.styleLock = styleLock;
+  }
+
+  // Log to blackboard
+  loop._blackboard?.logDecision("style_lock_established", "Style lock created from first batch generation", {
+    colors: styleLock.colors,
+    theme: styleLock.theme,
+  });
+
   return {
     generated,
     slideHtmls,
@@ -431,6 +457,7 @@ export async function runGeneratingPhase(loop, {
     pendingImages,
     baseDeckHtmlDsl: slideHtmls.join("\n\n"),
     degradedCount,
+    styleLock, // Export for downstream phases
   };
 }
 

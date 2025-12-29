@@ -116,6 +116,18 @@ test("AssetResolver: resolves assetId and fillAssetPlaceholders patches HTML", a
   assert.ok(!patched.html.includes('data-el="image-placeholder" id="fig_1"'));
 });
 
+test("AssetResolver: fillAssetPlaceholders handles unquoted attrs + self-closing placeholder", async () => {
+  const { fillAssetPlaceholders } = await import("../../../js/agents/stages/design/image/asset-resolver.js");
+
+  const html = `<section><div id=fig_1 data-slot-id=fig_1 data-render-type=asset data-el=image-placeholder/></section>`;
+  const patched = fillAssetPlaceholders(html, [{ slotId: "fig_1", assetUri: "data:image/png;base64,QUJD", width: 10, height: 10 }]);
+
+  assert.ok(patched.html.includes('data-el="image"'));
+  assert.ok(patched.html.includes('data-render-type="asset"'));
+  assert.ok(patched.html.includes('data-src="data:image/png;base64,QUJD"'));
+  assert.equal(patched.html.includes("image-placeholder"), false);
+});
+
 test("SVGGenerator: classifySvgError categorizes errors correctly", async () => {
   const { SVGGenerator } = await import("../../../js/agents/stages/design/generators/svg-generator.js");
 
@@ -180,4 +192,3 @@ test("SVGGenerator: returns structured report with errors array", async () => {
   assert.equal(typeof report.fallback, "number");
   assert.ok(Array.isArray(report.errors));
 });
-

@@ -540,3 +540,62 @@ test("Runtime Core: EventBus subscribe priority validation", async () => {
   assert.throws(() => bus.subscribe("test.event", () => {}, { priority: "high" }), /priority must be a finite number/);
   assert.throws(() => bus.subscribe("test.event", () => {}, { priority: Infinity }), /priority must be a finite number/);
 });
+
+test("Runtime Core: EventBus listener errors are isolated (sync + async)", async () => {
+  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
+
+  const errors = [];
+  const bus = new EventBus({
+    runId: "run_listener_errors",
+    onListenerError(err, evt) {
+      errors.push({ message: String(err?.message || err), name: evt?.name });
+    },
+  });
+
+  const order = [];
+  bus.on("run.log", () => {
+    order.push("a");
+    throw new Error("boom_sync");
+  });
+  bus.on("run.log", async () => {
+    order.push("b");
+    throw new Error("boom_async");
+  });
+  bus.on("run.log", () => {
+    order.push("c");
+  });
+
+  assert.doesNotThrow(() => bus.emit("run.log", { msg: "x" }));
+  assert.deepEqual(order, ["a", "b", "c"]);
+
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(errors.length, 2);
+  assert.ok(errors.some((e) => e.message.includes("boom_sync") && e.name === "run.log"));
+  assert.ok(errors.some((e) => e.message.includes("boom_async") && e.name === "run.log"));
+});
+
+test("Runtime Telemetry: subscribeTelemetry keeps bounded in-memory timeline", async () => {
+  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
+  const { subscribeTelemetry } = await import("../../js/agents/runtime/telemetry/runstore-telemetry.js");
+
+  const bus = new EventBus({ runId: "run_telemetry" });
+  const stored = [];
+  const runStore = {
+    async appendEvent(runId, evt) {
+      stored.push({ runId, evt });
+    },
+  };
+
+  const sub = subscribeTelemetry(bus, runStore, { maxTimelineEntries: 3 });
+  for (let i = 0; i < 5; i++) bus.emit("run.progress", { i });
+  await sub.flush();
+
+  assert.equal(stored.length, 5);
+  assert.equal(sub.timeline.length, 3);
+  assert.deepEqual(
+    sub.timeline.map((r) => r.payload?.i),
+    [2, 3, 4]
+  );
+  assert.equal(sub.snapshot().timeline.length, 3);
+  sub.unsubscribe();
+});

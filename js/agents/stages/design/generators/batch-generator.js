@@ -3,11 +3,42 @@ import { robustParseJson } from "../../../shared/utils/robust-json.js";
 import { VisualDataStatus } from "../constants.js";
 import { buildSlideHtml } from "../dsl/dsl-builder.js";
 import { resolveLayoutType } from "./layout-protocol.js";
+import { loadPrompt } from "../../../prompts/prompt-loader.js";
 
 // === 可配置常量 ===
 const BATCH_GENERATOR_DEFAULTS = {
   maxContentLength: 800, // markdown 截断长度
 };
+
+// === Prompt Centralization: External system prompt loading ===
+let _cachedSystemPrompt = null;
+let _systemPromptLoadPromise = null;
+
+/**
+ * Load external system prompt for batch generation.
+ * Falls back to a minimal inline prompt if loading fails.
+ */
+async function getSystemPrompt() {
+  if (_cachedSystemPrompt !== null) return _cachedSystemPrompt;
+  if (_systemPromptLoadPromise) return _systemPromptLoadPromise;
+
+  _systemPromptLoadPromise = loadPrompt("design/batch-generator-system")
+    .then(content => {
+      _cachedSystemPrompt = content;
+      return content;
+    })
+    .catch(err => {
+      console.warn("[batch-generator] Failed to load external prompt, using fallback:", err.message);
+      _cachedSystemPrompt = FALLBACK_SYSTEM_PROMPT;
+      return _cachedSystemPrompt;
+    });
+
+  return _systemPromptLoadPromise;
+}
+
+const FALLBACK_SYSTEM_PROMPT = `You are a PPT slide generator. Output JSON: [{"slideIntentId":string,"slideHtml":string}]
+Follow the DSL spec and examples in the prompt. Summarize content - never copy verbatim.`;
+
 
 /**
  * Simple concurrency limiter (pLimit-style).
@@ -142,7 +173,7 @@ function ensureSectionAttr(slideHtml, name, value) {
   const m = slideHtml.match(/<section\b[^>]*>/i);
   if (!m) return slideHtml;
   const tag = m[0];
-  if (new RegExp(`\\b${name}=`,"i").test(tag)) return slideHtml;
+  if (new RegExp(`\\b${name}=`, "i").test(tag)) return slideHtml;
   const patched = tag.replace(/<section\b/i, `<section ${name}="${String(value).replace(/"/g, "&quot;")}"`);
   return slideHtml.replace(tag, patched);
 }
@@ -381,7 +412,7 @@ function buildPlaceholderUrl(width, height, bgColor, textColor, text) {
   return `https://placehold.co/${w}x${h}/${bg}/${fg}?text=${label}`;
 }
 
-function makePrompt(batch, designSystem, contentPackage, imageSlotsForBatch = [], dslRules = "", selectedIdeas = []) {
+function makePrompt(batch, designSystem, contentPackage, imageSlotsForBatch = [], dslRules = "", selectedIdeas = [], dslExamples = []) {
   const slots = Array.isArray(imageSlotsForBatch) ? imageSlotsForBatch : [];
   const rulesText = normalizeDslRules(dslRules);
   const selected = normalizeSelectedIdeas(selectedIdeas);
@@ -390,6 +421,7 @@ function makePrompt(batch, designSystem, contentPackage, imageSlotsForBatch = []
   const primaryColor = colors.primary || "#0ea5e9";
   const accentColor = colors.accent || "#22c55e";
   const bgColor = colors.bg || "#ffffff";
+  const examples = Array.isArray(dslExamples) ? dslExamples.filter(e => e && typeof e.slideHtml === "string" && e.slideHtml.trim()) : [];
 
   const promptParts = [];
 
@@ -417,6 +449,25 @@ function makePrompt(batch, designSystem, contentPackage, imageSlotsForBatch = []
     "- Generate inline SVG for decorative visuals (icons, diagrams, abstract shapes)",
     ""
   );
+
+  // 3b. Style Lock: Inject DSL examples from first batch (few-shot learning)
+  if (examples.length > 0) {
+    promptParts.push(
+      "=== STYLE REFERENCE (MUST FOLLOW) ===",
+      "The following slides have been generated and approved. Your output MUST match their visual style, element positioning patterns, color usage, and typography exactly.",
+      ""
+    );
+    for (let i = 0; i < Math.min(examples.length, 3); i++) {
+      const ex = examples[i];
+      promptParts.push(`--- Example ${i + 1} (${ex.slideIntentId || 'slide'}) ---`);
+      promptParts.push(ex.slideHtml.trim());
+      promptParts.push("");
+    }
+    promptParts.push(
+      "Replicate the above styling patterns: same data-* attribute conventions, same layout proportions, same color applications, same SVG styling.",
+      ""
+    );
+  }
 
   // 4. Image placeholder guide (for photos to be replaced later)
   const placeholderBg = bgColor.replace("#", "");
@@ -513,14 +564,21 @@ export async function generateSingleSlide(slideIntent, designSystem, dslRules, o
     typeof options.modelCaller === "function"
       ? options.modelCaller
       : getDesignModelCaller(
-          { modelRouter: options.modelRouter, aiApiService: options.aiApiService, signal: options.signal },
-          { usage: "designer", timeoutMs: 30_000 }
-        );
+        { modelRouter: options.modelRouter, aiApiService: options.aiApiService, signal: options.signal },
+        { usage: "designer", timeoutMs: 30_000 }
+      );
 
   if (typeof modelCaller === "function") {
-    const prompt = makePrompt([si], designSystem, contentPackage, imageSlotsForSlide, dslRules, selectedIdeas);
-    const systemPrompt = `You are a PPT slide generator. Output JSON: [{"slideIntentId":string,"slideHtml":string}]
-Follow the DSL spec and examples in the prompt. Summarize content - never copy verbatim.`;
+    // Support dslExamples for style lock
+    const dslExamples = Array.isArray(options.dslExamples) ? options.dslExamples : [];
+    const prompt = makePrompt([si], designSystem, contentPackage, imageSlotsForSlide, dslRules, selectedIdeas, dslExamples);
+
+    // Load external system prompt (with style lock suffix if applicable)
+    const baseSystemPrompt = await getSystemPrompt();
+    const styleLockSuffix = dslExamples.length > 0
+      ? '\n\nCRITICAL: Match the exact visual style of the provided example slides.'
+      : '';
+    const systemPrompt = baseSystemPrompt + styleLockSuffix;
 
     const messages = [
       { role: "system", content: systemPrompt },
@@ -531,15 +589,15 @@ Follow the DSL spec and examples in the prompt. Summarize content - never copy v
     for (let attempt = 0; attempt < 2; attempt++) {
       if (options.signal?.aborted) throw new Error(typeof options.signal.reason === "string" ? options.signal.reason : "Run cancelled");
       try {
-	        const resp = await modelCaller(messages, { temperature: 0.2, maxTokens: 8000, signal: options.signal, timeoutMs: 180_000 });
+        const resp = await modelCaller(messages, { temperature: 0.2, maxTokens: 8000, signal: options.signal, timeoutMs: 180_000 });
 
-	        const jsonStr = extractJsonCandidate(resp?.content);
-	        const parsed = robustParseJson(jsonStr);
-	        if (parsed === null) throw new Error("Failed to parse slide DSL JSON");
-	        const candidate = Array.isArray(parsed)
-	          ? parsed.find((x) => x?.slideIntentId === slideIntentId) || parsed[0]
-	          : parsed && typeof parsed === "object"
-	            ? parsed
+        const jsonStr = extractJsonCandidate(resp?.content);
+        const parsed = robustParseJson(jsonStr);
+        if (parsed === null) throw new Error("Failed to parse slide DSL JSON");
+        const candidate = Array.isArray(parsed)
+          ? parsed.find((x) => x?.slideIntentId === slideIntentId) || parsed[0]
+          : parsed && typeof parsed === "object"
+            ? parsed
             : null;
 
         let slideHtml = typeof candidate?.slideHtml === "string" ? candidate.slideHtml : "";
@@ -631,12 +689,17 @@ export async function generateBatch(slideIntents, contentPackage, designSystemOr
     else slotsBySlide.set(idx, [slot]);
   }
 
-  // Process batches with concurrency limit
-  const limiter = createLimiter(batchConcurrency);
-  await Promise.all(batchList.map((slideIndexes, batchIndex) => limiter(async () => {
+  // === STYLE LOCK MECHANISM ===
+  // First batch runs synchronously to establish the visual style.
+  // Subsequent batches receive first batch DSL as examples (few-shot learning).
+  /** @type {Array<{slideIntentId:string,slideHtml:string,source:string}>} */
+  let dslExamples = [];
+
+  // Helper: process a single batch
+  const processBatch = async (slideIndexes, batchIndex, currentExamples) => {
     if (signal?.aborted) throw new Error(typeof signal.reason === "string" ? signal.reason : "Run cancelled");
 
-    safeEmit(emit, "design.batch.started", "started", { batchIndex, slideIndexes });
+    safeEmit(emit, "design.batch.started", "started", { batchIndex, slideIndexes, styleLock: batchIndex > 0 });
 
     const tBatch = nowMs();
     await Promise.all(
@@ -673,6 +736,7 @@ export async function generateBatch(slideIntents, contentPackage, designSystemOr
             imageSlotsForSlide,
             selectedIdeas,
             slotHintsBySlotId: selected.bySlotId,
+            dslExamples: currentExamples, // Style Lock: inject examples
           });
 
           out[slideIndex] = res;
@@ -695,6 +759,7 @@ export async function generateBatch(slideIntents, contentPackage, designSystemOr
             imageSlotsForSlide,
             selectedIdeas,
             slotHintsBySlotId: selected.bySlotId,
+            dslExamples: currentExamples,
           });
           out[slideIndex] = res;
           const duration = nowMs() - t0;
@@ -704,7 +769,35 @@ export async function generateBatch(slideIntents, contentPackage, designSystemOr
     );
 
     safeEmit(emit, "design.batch.completed", "completed", { batchIndex, slideIndexes, duration: nowMs() - tBatch });
-  })));
+  };
+
+  // Step 1: Process first batch synchronously to lock the style
+  if (batchList.length > 0) {
+    await processBatch(batchList[0], 0, []);
+
+    // Collect successful LLM results as style examples (max 3)
+    dslExamples = batchList[0]
+      .map(idx => out[idx])
+      .filter(r => r && r.source === "llm" && r.slideHtml && r.slideHtml.trim())
+      .slice(0, 3);
+
+    if (dslExamples.length > 0) {
+      safeEmit(emit, "design.styleLock.established", "progress", {
+        exampleCount: dslExamples.length,
+        exampleIds: dslExamples.map(e => e.slideIntentId),
+      });
+    }
+  }
+
+  // Step 2: Process remaining batches with style lock (examples from first batch)
+  if (batchList.length > 1) {
+    const limiter = createLimiter(batchConcurrency);
+    await Promise.all(
+      batchList.slice(1).map((slideIndexes, idx) =>
+        limiter(() => processBatch(slideIndexes, idx + 1, dslExamples))
+      )
+    );
+  }
 
   return out;
 }
