@@ -78,10 +78,35 @@ export async function runPreparationPhase(loop, {
 
   await finishExecution("style_extracting", styleIteration, styleStep);
 
-  // Style confirmation
+  // Style confirmation with full designTokens preview
   loop._transitionPhase(loop.phase, DesignPhase.STYLE_CONFIRMING, { emit, runId: runContext.runId });
+
+  // Emit style preview for UI
+  emitStage(emit, "design.style.preview", "awaiting_confirm", {
+    runId: runContext.runId,
+    designSystem,
+    designTokens: {
+      theme: designSystem?.theme,
+      colorScheme: designSystem?.colorScheme,
+      fontFamily: designSystem?.fontFamily,
+      accentColor: designSystem?.accentColor,
+    },
+    slideCount: slideIntents.length,
+  });
+
   if (context?.interactionMode?.styleConfirm && context.interactionMode.styleConfirm !== "skip") {
-    await loop.waitForUserAction("confirm_style", { eventBus: context.eventBus, signal: context.signal });
+    const styleConfirmResult = await loop.waitForUserAction("confirm_style", { eventBus: context.eventBus, signal: context.signal });
+
+    // Apply user overrides if provided
+    if (styleConfirmResult && typeof styleConfirmResult === "object") {
+      if (styleConfirmResult.colorScheme) designSystem.colorScheme = styleConfirmResult.colorScheme;
+      if (styleConfirmResult.fontFamily) designSystem.fontFamily = styleConfirmResult.fontFamily;
+      if (styleConfirmResult.accentColor) designSystem.accentColor = styleConfirmResult.accentColor;
+      if (styleConfirmResult.theme) designSystem.theme = styleConfirmResult.theme;
+
+      // Log override to blackboard
+      loop._blackboard?.logDecision("style_override", "User modified design tokens", { overrides: styleConfirmResult });
+    }
   }
 
   return {

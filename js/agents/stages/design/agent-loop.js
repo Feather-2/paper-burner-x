@@ -8,6 +8,7 @@ import { getRuntimeState } from "../../runtime/telemetry/loop-runtime-state.js";
 import { DESIGN_AGENT_TOOL_DEFINITIONS, createDesignToolHandlers } from "./design-tools.js";
 import { VisualHandler } from "./runtime/visual-handler.js";
 import { runPreparationPhase, runGeneratingPhase, runVisualPhase } from "./runtime/design-phases.js";
+import { DesignBlackboard } from "./runtime/design-blackboard.js";
 
 const SCHEMA_VERSION = "0.1";
 
@@ -43,6 +44,11 @@ export class DesignAgentLoop extends BaseAgentLoop {
     this._loopStatus = AgentStatus.IDLE;
     this._statusHistory = [];
     this.archive = archive || null;
+    // Blackboard for cross-phase communication
+    this._blackboard = new DesignBlackboard();
+    // Loop control
+    this._maxIterations = 10;
+    this._iteration = 0;
     // Expose tool methods for backward compatibility (tests)
     this._toolParseOutline = this._tools.parse_outline;
     this._toolExtractStyle = this._tools.extract_style;
@@ -51,6 +57,30 @@ export class DesignAgentLoop extends BaseAgentLoop {
     this._toolFixSlide = this._tools.fix_slide;
     this._toolFillVisual = this._tools.fill_visual;
     this._toolChatAsk = this._tools.chat_ask;
+  }
+
+  get blackboard() {
+    return this._blackboard;
+  }
+
+  // === Version Management ===
+
+  saveVersion(label) {
+    if (!this._blackboard) return null;
+    const snapshot = {
+      phase: this.phase?.status,
+      loopStatus: this._loopStatus,
+      timestamp: Date.now(),
+    };
+    return this._blackboard.saveVersion(label, snapshot);
+  }
+
+  getVersion(label) {
+    return this._blackboard?.getVersion(label) || null;
+  }
+
+  listVersions() {
+    return this._blackboard?.listVersions() || [];
   }
 
   getToolDefinitions() {
@@ -230,6 +260,9 @@ export class DesignAgentLoop extends BaseAgentLoop {
     }
     this.emit = emit || this.emit || null;
     this.phase = { status: DesignPhase.IDLE };
+    // Reset blackboard for new run
+    this._blackboard = new DesignBlackboard({ runId });
+    this._iteration = 0;
 
     const stageApi = { signal: context.signal };
     let iteration = 0;
@@ -306,6 +339,11 @@ export class DesignAgentLoop extends BaseAgentLoop {
       const { parsedContentPackage, slideIntents, designSystem, constraints } = prepResult;
       let { userConfig } = prepResult;
 
+      // Update blackboard with preparation results
+      this._blackboard.setSummary("outline", `${slideIntents.length} slides parsed`);
+      this._blackboard.setSummary("style", designSystem?.theme || "default");
+      this._blackboard.logDecision("preparation_complete", `Parsed ${slideIntents.length} slides with theme: ${designSystem?.theme || "default"}`);
+
       this._transitionPhase(this.phase, DesignPhase.GENERATING, { emit, runId: runContext.runId });
       userConfig = this.applyUserInputsToConfig(userConfig);
 
@@ -370,6 +408,17 @@ export class DesignAgentLoop extends BaseAgentLoop {
         });
 
         const degradedCount = genPhaseResult.degradedCount;
+        // Update blackboard with final results
+        this._blackboard.setSummary("generation", `${genPhaseResult.slideHtmls.length} slides generated, ${degradedCount} degraded`);
+        this._blackboard.logDecision("generation_complete", `Generated ${genPhaseResult.slideHtmls.length} slides`);
+
+        // Save version snapshot
+        this._blackboard.saveVersion("final", {
+          deckHtmlDsl: visualPhaseResult.deckHtmlDsl,
+          designSystem,
+          slidesMeta: visualPhaseResult.slidesMeta,
+        });
+
         emitStage(emit, "design.ended", "ended", { slides: genPhaseResult.slideHtmls.length, degradedCount });
 
         return {
