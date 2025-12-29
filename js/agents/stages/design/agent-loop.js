@@ -7,7 +7,7 @@ import { StagePausedError } from "../../runtime/core/stage-errors.js";
 import { getRuntimeState } from "../../runtime/telemetry/loop-runtime-state.js";
 import { DESIGN_AGENT_TOOL_DEFINITIONS, createDesignToolHandlers } from "./design-tools.js";
 import { VisualHandler } from "./runtime/visual-handler.js";
-import { runPreparationPhase, runGeneratingPhase, runVisualPhase } from "./runtime/design-phases.js";
+import { runPreparationPhase, runGeneratingPhase, runVisualPhase, runReviewPhase, runPlanningPhase } from "./runtime/design-phases.js";
 import { DesignBlackboard } from "./runtime/design-blackboard.js";
 
 const SCHEMA_VERSION = "0.1";
@@ -344,6 +344,20 @@ export class DesignAgentLoop extends BaseAgentLoop {
       this._blackboard.setSummary("style", designSystem?.theme || "default");
       this._blackboard.logDecision("preparation_complete", `Parsed ${slideIntents.length} slides with theme: ${designSystem?.theme || "default"}`);
 
+      // Planning phase: generate plan and wait for user confirmation
+      let plans = null;
+      if (context?.enablePlanning !== false) {
+        const planningResult = await runPlanningPhase(this, {
+          slideIntents,
+          designSystem,
+          context,
+          runContext,
+          emit,
+        });
+        plans = planningResult.plans;
+        this._blackboard.setSummary("plan", `${plans.length} slides planned`);
+      }
+
       this._transitionPhase(this.phase, DesignPhase.GENERATING, { emit, runId: runContext.runId });
       userConfig = this.applyUserInputsToConfig(userConfig);
 
@@ -373,6 +387,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
           finishExecution,
           emitDeckUpdate,
           skipReview,
+          plans, // 传递规划信息
         });
 
         userConfig = this.applyUserInputsToConfig(userConfig);
@@ -398,6 +413,24 @@ export class DesignAgentLoop extends BaseAgentLoop {
           finishExecution,
           emitDeckUpdate,
         });
+
+        // Run review phase (optional)
+        let reviewResult = null;
+        if (context?.enableReview !== false) {
+          this._transitionPhase(this.phase, DesignPhase.REVIEWING, { emit, runId: runContext.runId });
+          const reviewPhaseResult = await runReviewPhase(this, {
+            deckHtmlDsl: visualPhaseResult.deckHtmlDsl,
+            slidesMeta: visualPhaseResult.slidesMeta,
+            designSystem,
+            context,
+            runContext,
+            emit,
+          });
+          reviewResult = reviewPhaseResult.reviewResult;
+
+          // Update blackboard with review results
+          this._blackboard.setSummary("review", `Score: ${reviewResult?.score || 0}, Pass: ${reviewResult?.pass || false}`);
+        }
 
         this._transitionPhase(this.phase, DesignPhase.COMPLETED, { emit, runId: runContext.runId });
         await this._transitionTo(AgentStatus.COMPLETED, {
@@ -433,6 +466,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
           visualReport: visualPhaseResult.visualReport,
           pendingImages: visualPhaseResult.pendingImages,
           refineReport: visualPhaseResult.refineResult || null,
+          reviewReport: reviewResult || null,
         };
       }
 

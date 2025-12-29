@@ -85,9 +85,20 @@ function chunkIndexes(len, size) {
   return out;
 }
 
+/**
+ * ReDoS-safe HTML validation
+ * Uses indexOf + substring instead of vulnerable regex patterns
+ */
 function looksLikeSlideHtml(html) {
   if (typeof html !== "string") return false;
-  return /<section\b[^>]*\bdata-type="freeform"[^>]*>/i.test(html) && /\bdata-el=/i.test(html);
+  const lower = html.toLowerCase();
+  // Check for <section with data-type="freeform" and data-el=
+  const sectionIdx = lower.indexOf("<section");
+  if (sectionIdx === -1) return false;
+  const closeIdx = lower.indexOf(">", sectionIdx);
+  if (closeIdx === -1) return false;
+  const tag = lower.slice(sectionIdx, closeIdx + 1);
+  return tag.includes('data-type="freeform"') && lower.includes("data-el=");
 }
 
 // Try to fix common issues with AI-generated slideHtml

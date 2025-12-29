@@ -11,6 +11,7 @@ import { ImagePlanner } from "../image/image-planner.js";
 import { normalizeRenderType } from "../../../shared/utils/value-utils.js";
 import { checkCancelled, getEmitFn } from "../../../runtime/core/agent-loop.js";
 import { DesignPhase } from "../states.js";
+import { planDeck, applyUserEdits, formatPlanForDialog } from "./deck-planner.js";
 
 function emitStage(emit, name, status, payload) {
   emit?.(name, { actor: "design", status, payload });
@@ -115,6 +116,74 @@ export async function runPreparationPhase(loop, {
     designSystem,
     constraints,
     userConfig,
+  };
+}
+
+/**
+ * 规划阶段：生成预案并等待用户确认
+ */
+export async function runPlanningPhase(loop, {
+  slideIntents,
+  designSystem,
+  context,
+  runContext,
+  emit,
+}) {
+  loop._transitionPhase(loop.phase, DesignPhase.DECK_PLANNING, { emit, runId: runContext.runId });
+  checkCancelled(context.signal);
+
+  // 生成规划
+  const planResult = planDeck(slideIntents, designSystem);
+  let plans = planResult.plans;
+
+  // Emit 规划预览
+  const dialogFormat = formatPlanForDialog(plans);
+  emitStage(emit, "design.plan.preview", "awaiting_confirm", {
+    runId: runContext.runId,
+    plans,
+    dialogFormat,
+    slideCount: plans.length,
+    summary: planResult.summary,
+  });
+
+  // Log to blackboard
+  loop._blackboard?.logDecision("plan_generated", `Generated ${plans.length} slide plans`, {
+    summary: planResult.summary,
+  });
+
+  // 等待用户确认/调整
+  loop._transitionPhase(loop.phase, DesignPhase.PLAN_CONFIRMING, { emit, runId: runContext.runId });
+
+  if (context?.interactionMode?.planConfirm && context.interactionMode.planConfirm !== "skip") {
+    const planConfirmResult = await loop.waitForUserAction("confirm_plan", {
+      eventBus: context.eventBus,
+      signal: context.signal,
+    });
+
+    // 应用用户修改
+    if (planConfirmResult && typeof planConfirmResult === "object") {
+      if (Array.isArray(planConfirmResult.edits)) {
+        plans = applyUserEdits(plans, planConfirmResult.edits);
+        loop._blackboard?.logDecision("plan_edited", "User modified slide plans", {
+          editCount: planConfirmResult.edits.length,
+        });
+      }
+      // 支持直接传入修改后的 plans
+      if (Array.isArray(planConfirmResult.plans)) {
+        plans = planConfirmResult.plans;
+      }
+    }
+  }
+
+  emitStage(emit, "design.plan.confirmed", "confirmed", {
+    runId: runContext.runId,
+    plans,
+    slideCount: plans.length,
+  });
+
+  return {
+    plans,
+    planResult,
   };
 }
 
@@ -448,4 +517,45 @@ async function runRefine(deckPackage, contentPackage, runContext, context, userC
   });
 
   return { deckHtmlDsl, slidesMeta, refineResult };
+}
+
+/**
+ * Review 阶段处理 - 全局风格检查
+ */
+export async function runReviewPhase(loop, {
+  deckHtmlDsl,
+  slidesMeta,
+  designSystem,
+  context,
+  runContext,
+  emit,
+}) {
+  const { runAutoReview } = await import("../reviewer/auto-reviewer.js");
+
+  emitStage(emit, "design.review.started", "started", {
+    runId: runContext?.runId,
+    slideCount: slidesMeta?.length || 0,
+  });
+
+  const deckPackage = { deckHtmlDsl, slidesMeta };
+  const reviewResult = await runAutoReview(deckPackage, designSystem, {
+    signal: context?.signal,
+  });
+
+  // Log to blackboard
+  loop._blackboard?.logDecision("review_complete", `Score: ${reviewResult.score}, Issues: ${reviewResult.issues?.length || 0}`);
+
+  emitStage(emit, "design.review.ended", "ended", {
+    runId: runContext?.runId,
+    score: reviewResult.score,
+    pass: reviewResult.pass,
+    issueCount: reviewResult.issues?.length || 0,
+    summary: reviewResult.summary,
+  });
+
+  return {
+    reviewResult,
+    fixedDeckHtmlDsl: deckHtmlDsl, // 暂不自动修复，返回原始 DSL
+    fixes: reviewResult.fixes || [],
+  };
 }

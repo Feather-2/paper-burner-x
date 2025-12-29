@@ -19,6 +19,7 @@ export const DesignPhase = Object.freeze({
   STYLE_EXTRACTING: "style_extracting",
   STYLE_CONFIRMING: "style_confirming",
   DECK_PLANNING: "deck_planning",
+  PLAN_CONFIRMING: "plan_confirming",
   GENERATING: "generating",
   GENERATING_PAUSED: "generating_paused",
   REVIEWING: "reviewing",

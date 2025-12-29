@@ -1,0 +1,328 @@
+/**
+ * DeckEditor - 共享编辑层
+ *
+ * 为 Reviewer 和 Edit Agent 提供统一的编辑能力：
+ * - 元素编辑
+ * - 幻灯片编辑
+ * - 批量编辑
+ * - 风格修复
+ */
+
+import { parseSections, joinSections } from "../refiner/react-refiner-tools.js";
+
+/**
+ * 编辑器配置
+ */
+export const EDITOR_CONFIG = {
+  maxHistoryLength: 50,
+};
+
+function isPlainObject(v) {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+/**
+ * DeckEditor 类
+ */
+export class DeckEditor {
+  constructor(options = {}) {
+    this._toolExecutor = options.toolExecutor;
+    this._deckPackage = options.deckPackage || { deckHtmlDsl: "" };
+    this._history = [];
+    this._historyIndex = -1;
+    this._config = { ...EDITOR_CONFIG, ...options.config };
+  }
+
+  /**
+   * 设置 deck package
+   */
+  setDeckPackage(deckPackage) {
+    this._deckPackage = deckPackage;
+  }
+
+  /**
+   * 获取当前 deck HTML DSL
+   */
+  getDeckHtmlDsl() {
+    return this._deckPackage?.deckHtmlDsl || "";
+  }
+
+  /**
+   * 编辑元素
+   */
+  async editElement(slideIndex, elementId, changes) {
+    if (this._toolExecutor) {
+      const result = await this._toolExecutor("editElement", { slideIndex, elementId, changes });
+      if (result.success) {
+        this._pushHistory("editElement", { slideIndex, elementId, changes });
+        this._deckPackage.deckHtmlDsl = result.data?.deckPackage?.deckHtmlDsl || this._deckPackage.deckHtmlDsl;
+      }
+      return result;
+    }
+
+    // 直接编辑模式
+    return this._directEditElement(slideIndex, elementId, changes);
+  }
+
+  /**
+   * 编辑幻灯片
+   */
+  async editSlide(slideIndex, changes) {
+    if (this._toolExecutor) {
+      const result = await this._toolExecutor("editSlide", { slideIndex, changes });
+      if (result.success) {
+        this._pushHistory("editSlide", { slideIndex, changes });
+        this._deckPackage.deckHtmlDsl = result.data?.deckPackage?.deckHtmlDsl || this._deckPackage.deckHtmlDsl;
+      }
+      return result;
+    }
+
+    // 直接编辑模式
+    return this._directEditSlide(slideIndex, changes);
+  }
+
+  /**
+   * 批量编辑
+   */
+  async batchEdit(edits) {
+    if (!Array.isArray(edits) || edits.length === 0) {
+      return { success: false, error: "edits must be a non-empty array" };
+    }
+
+    const results = [];
+    let successCount = 0;
+
+    for (const edit of edits) {
+      let result;
+      if (edit.type === "element") {
+        result = await this.editElement(edit.slideIndex, edit.elementId, edit.changes);
+      } else if (edit.type === "slide") {
+        result = await this.editSlide(edit.slideIndex, edit.changes);
+      } else {
+        result = { success: false, error: `Unknown edit type: ${edit.type}` };
+      }
+
+      results.push({ ...edit, result });
+      if (result.success) successCount++;
+    }
+
+    return {
+      success: successCount > 0,
+      data: {
+        total: edits.length,
+        success: successCount,
+        failed: edits.length - successCount,
+        results,
+      },
+    };
+  }
+
+  /**
+   * 应用风格修复
+   */
+  async applyStyleFix(fix) {
+    if (!isPlainObject(fix)) {
+      return { success: false, error: "fix must be an object" };
+    }
+
+    const edits = [];
+
+    // 颜色修复
+    if (fix.colorFixes && Array.isArray(fix.colorFixes)) {
+      for (const colorFix of fix.colorFixes) {
+        edits.push({
+          type: "element",
+          slideIndex: colorFix.slideIndex,
+          elementId: colorFix.elementId,
+          changes: { style: colorFix.newStyle },
+        });
+      }
+    }
+
+    // 字体修复
+    if (fix.fontFixes && Array.isArray(fix.fontFixes)) {
+      for (const fontFix of fix.fontFixes) {
+        edits.push({
+          type: "element",
+          slideIndex: fontFix.slideIndex,
+          elementId: fontFix.elementId,
+          changes: { style: fontFix.newStyle },
+        });
+      }
+    }
+
+    // 布局修复
+    if (fix.layoutFixes && Array.isArray(fix.layoutFixes)) {
+      for (const layoutFix of fix.layoutFixes) {
+        edits.push({
+          type: "slide",
+          slideIndex: layoutFix.slideIndex,
+          changes: { layout: layoutFix.newLayout },
+        });
+      }
+    }
+
+    // 直接 HTML 替换
+    if (fix.htmlReplacements && Array.isArray(fix.htmlReplacements)) {
+      for (const replacement of fix.htmlReplacements) {
+        edits.push({
+          type: "slide",
+          slideIndex: replacement.slideIndex,
+          changes: { html: replacement.newHtml },
+        });
+      }
+    }
+
+    if (edits.length === 0) {
+      return { success: true, data: { message: "No fixes to apply" } };
+    }
+
+    return this.batchEdit(edits);
+  }
+
+  /**
+   * 替换整个幻灯片 HTML
+   */
+  replaceSlideHtml(slideIndex, newHtml) {
+    const sections = parseSections(this._deckPackage.deckHtmlDsl);
+    if (slideIndex < 0 || slideIndex >= sections.length) {
+      return { success: false, error: `Invalid slideIndex: ${slideIndex}` };
+    }
+
+    const prevHtml = sections[slideIndex];
+    sections[slideIndex] = newHtml;
+    this._deckPackage.deckHtmlDsl = joinSections(sections);
+    this._pushHistory("replaceSlideHtml", { slideIndex, prevHtml, newHtml });
+
+    return { success: true, data: { slideIndex, newHtml } };
+  }
+
+  /**
+   * 撤销
+   */
+  undo() {
+    if (this._historyIndex < 0) {
+      return { success: false, error: "Nothing to undo" };
+    }
+
+    const entry = this._history[this._historyIndex];
+    this._historyIndex--;
+
+    // 恢复之前的状态
+    if (entry.prevDeckHtmlDsl) {
+      this._deckPackage.deckHtmlDsl = entry.prevDeckHtmlDsl;
+    }
+
+    return { success: true, data: { undone: entry } };
+  }
+
+  /**
+   * 重做
+   */
+  redo() {
+    if (this._historyIndex >= this._history.length - 1) {
+      return { success: false, error: "Nothing to redo" };
+    }
+
+    this._historyIndex++;
+    const entry = this._history[this._historyIndex];
+
+    // 恢复之后的状态
+    if (entry.nextDeckHtmlDsl) {
+      this._deckPackage.deckHtmlDsl = entry.nextDeckHtmlDsl;
+    }
+
+    return { success: true, data: { redone: entry } };
+  }
+
+  /**
+   * 获取历史记录
+   */
+  getHistory() {
+    return {
+      entries: this._history.slice(),
+      currentIndex: this._historyIndex,
+      canUndo: this._historyIndex >= 0,
+      canRedo: this._historyIndex < this._history.length - 1,
+    };
+  }
+
+  // 私有方法
+
+  _pushHistory(action, params) {
+    const entry = {
+      action,
+      params,
+      timestamp: Date.now(),
+      prevDeckHtmlDsl: this._deckPackage.deckHtmlDsl,
+    };
+
+    // 截断 redo 历史
+    this._history = this._history.slice(0, this._historyIndex + 1);
+    this._history.push(entry);
+    this._historyIndex = this._history.length - 1;
+
+    // 限制历史长度
+    if (this._history.length > this._config.maxHistoryLength) {
+      this._history.shift();
+      this._historyIndex--;
+    }
+  }
+
+  async _directEditElement(slideIndex, elementId, changes) {
+    const sections = parseSections(this._deckPackage.deckHtmlDsl);
+    if (slideIndex < 0 || slideIndex >= sections.length) {
+      return { success: false, error: `Invalid slideIndex: ${slideIndex}` };
+    }
+
+    let sectionHtml = sections[slideIndex];
+    const selector = `data-el="${elementId}"`;
+
+    if (!sectionHtml.includes(selector)) {
+      return { success: false, error: `Element not found: ${elementId}` };
+    }
+
+    // 简单的文本替换
+    if (changes.text !== undefined) {
+      const regex = new RegExp(`(data-el="${elementId}"[^>]*>)[^<]*(<)`, "g");
+      sectionHtml = sectionHtml.replace(regex, `$1${changes.text}$2`);
+    }
+
+    if (changes.style !== undefined) {
+      const regex = new RegExp(`(data-el="${elementId}"[^>]*style=")[^"]*"`, "g");
+      if (sectionHtml.match(regex)) {
+        sectionHtml = sectionHtml.replace(regex, `$1${changes.style}"`);
+      }
+    }
+
+    sections[slideIndex] = sectionHtml;
+    this._deckPackage.deckHtmlDsl = joinSections(sections);
+    this._pushHistory("editElement", { slideIndex, elementId, changes });
+
+    return { success: true, data: { slideIndex, elementId } };
+  }
+
+  async _directEditSlide(slideIndex, changes) {
+    const sections = parseSections(this._deckPackage.deckHtmlDsl);
+    if (slideIndex < 0 || slideIndex >= sections.length) {
+      return { success: false, error: `Invalid slideIndex: ${slideIndex}` };
+    }
+
+    if (changes.html) {
+      sections[slideIndex] = changes.html;
+    }
+
+    if (changes.layout) {
+      sections[slideIndex] = sections[slideIndex].replace(/data-layout="[^"]*"/, `data-layout="${changes.layout}"`);
+    }
+
+    this._deckPackage.deckHtmlDsl = joinSections(sections);
+    this._pushHistory("editSlide", { slideIndex, changes });
+
+    return { success: true, data: { slideIndex } };
+  }
+}
+
+export function createDeckEditor(options = {}) {
+  return new DeckEditor(options);
+}
