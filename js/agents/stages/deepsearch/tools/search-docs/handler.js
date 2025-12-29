@@ -2,7 +2,20 @@
  * search-docs skill handler
  */
 
-import { isPlainObject } from "../../../../shared/utils/value-utils.js";
+const sourceLinesCache = new WeakMap();
+
+function getSourceLines(source) {
+  if (!source || typeof source !== "object") return null;
+  const text = source.sourceTextNormalized || source.sourceText || "";
+  if (!text) return null;
+
+  const cached = sourceLinesCache.get(source);
+  if (cached?.text === text) return cached.lines;
+
+  const lines = text.split("\n");
+  sourceLinesCache.set(source, { text, lines });
+  return lines;
+}
 
 export const definition = {
   name: "search-docs",
@@ -71,9 +84,8 @@ export async function handler(args, context) {
   const keywords = queryLower.split(/\s+/).filter(w => w.length >= 2);
 
   for (const source of targetSources) {
-    const text = source.sourceTextNormalized || source.sourceText || "";
-    if (!text) continue;
-    const lines = text.split("\n");
+    const lines = getSourceLines(source);
+    if (!lines) continue;
 
     for (let i = 0; i < lines.length; i++) {
       const lineLower = lines[i].toLowerCase();

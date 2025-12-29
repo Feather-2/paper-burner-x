@@ -74,6 +74,20 @@ export class SharedContext {
     this._seenFingerprints = new Set();
   }
 
+  _normalizeTargetTaskId(targetTaskId) {
+    const v = toNonEmptyString(targetTaskId);
+    return v ? String(v) : null;
+  }
+
+  _signalMatchesTargetTaskId(signal, targetTaskId) {
+    const scopedId = this._normalizeTargetTaskId(targetTaskId);
+    if (!scopedId) return true;
+    const payload = signal?.payload;
+    const sigTarget = toNonEmptyString(payload?.targetTaskId);
+    if (!sigTarget) return true; // broadcast signal
+    return sigTarget === scopedId;
+  }
+
   _pruneArray(arr, max) {
     const cap = Number.isFinite(max) ? Math.max(0, Math.floor(max)) : 0;
     while (arr.length > cap) arr.shift();
@@ -138,9 +152,10 @@ export class SharedContext {
    * @param {object} options
    * @param {number} options.maxSignals - 最多包含的信号数（默认 5）
    * @param {number} options.maxDecisions - 最多包含��决策数（默认 3）
+   * @param {string} [options.targetTaskId] - 仅展示该 task 的定向信号（无 targetTaskId 的广播信号仍可见）
    * @returns {string}
    */
-  buildBlackboardPrompt({ maxSignals = 5, maxDecisions = 3 } = {}) {
+  buildBlackboardPrompt({ maxSignals = 5, maxDecisions = 3, targetTaskId } = {}) {
     const sections = [];
 
     // L1 摘要
@@ -152,6 +167,7 @@ export class SharedContext {
     // 最近信号（过滤掉 sync 类型，只保留有���义的发现）
     const recentSignals = this._signals
       .filter(s => s.type !== "sync")
+      .filter(s => this._signalMatchesTargetTaskId(s, targetTaskId))
       .slice(-maxSignals);
     if (recentSignals.length > 0) {
       const signalLines = recentSignals.map(s => {
@@ -291,6 +307,14 @@ export class SharedContext {
   }
 
   /**
+   * 获取 store 的所有 keys（只读快照）
+   * @returns {string[]}
+   */
+  getStoreKeys() {
+    return Array.from(this._store.keys());
+  }
+
+  /**
    * 清理阶段存储
    */
   clearStore(stage) {
@@ -419,6 +443,20 @@ export class SharedContext {
    * 获取所有信号
    */
   getSignals(filter) {
+    if (isPlainObject(filter)) {
+      const includeSync = filter.includeSync !== false;
+      const type = toNonEmptyString(filter.type);
+      const stage = toNonEmptyString(filter.stage);
+      const targetTaskId = this._normalizeTargetTaskId(filter.targetTaskId);
+
+      return this._signals.filter(s => {
+        if (!includeSync && s.type === "sync") return false;
+        if (type && s.type !== type) return false;
+        if (stage && s.stage !== stage) return false;
+        if (!this._signalMatchesTargetTaskId(s, targetTaskId)) return false;
+        return true;
+      });
+    }
     if (typeof filter === "function") {
       return this._signals.filter(filter);
     }

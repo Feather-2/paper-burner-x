@@ -1,4 +1,5 @@
-import { isPlainObject, safeInt, toNonEmptyString } from "../../../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString } from "../../../shared/utils/value-utils.js";
+import { createCheckpoint, CheckpointType as ArchiveCheckpointType } from "../../../shared/archive/checkpoint-schema.js";
 import { CheckpointMode } from "../constants.js";
 import { ensureTokenUsage } from "../utils/state-utils.js";
 import { migratGapToTodo } from "../utils/todo-utils.js";
@@ -51,40 +52,61 @@ function hasCycle(root) {
   if (root === null || typeof root !== "object") return false;
 
   const visited = new WeakSet();
-  const stack = new WeakSet();
+  const inPath = new WeakSet();
+  const stack = [];
 
-  const walk = (v) => {
+  const getIterator = (v) => {
+    if (Array.isArray(v)) return v.values();
+    if (v instanceof Map) {
+      const entries = v.entries();
+      let pending = null;
+      return {
+        next() {
+          if (pending) {
+            const value = pending[1];
+            pending = null;
+            return { value, done: false };
+          }
+          const step = entries.next();
+          if (step.done) return { value: undefined, done: true };
+          pending = step.value;
+          return { value: pending[0], done: false };
+        },
+        [Symbol.iterator]() {
+          return this;
+        },
+      };
+    }
+    if (v instanceof Set) return v.values();
+    return Object.values(v)[Symbol.iterator]();
+  };
+
+  const push = (v) => {
     if (v === null || typeof v !== "object") return false;
-    if (stack.has(v)) return true;
+    if (inPath.has(v)) return true;
     if (visited.has(v)) return false;
 
     visited.add(v);
-    stack.add(v);
-
-    if (Array.isArray(v)) {
-      for (const item of v) if (walk(item)) return true;
-      stack.delete(v);
-      return false;
-    }
-
-    if (v instanceof Map) {
-      for (const [k, val] of v.entries()) if (walk(k) || walk(val)) return true;
-      stack.delete(v);
-      return false;
-    }
-
-    if (v instanceof Set) {
-      for (const item of v.values()) if (walk(item)) return true;
-      stack.delete(v);
-      return false;
-    }
-
-    for (const val of Object.values(v)) if (walk(val)) return true;
-    stack.delete(v);
+    inPath.add(v);
+    stack.push({ node: v, iterator: getIterator(v) });
     return false;
   };
 
-  return walk(root);
+  if (push(root)) return true;
+
+  while (stack.length) {
+    const frame = stack[stack.length - 1];
+    const step = frame.iterator.next();
+    if (step.done) {
+      inPath.delete(frame.node);
+      stack.pop();
+      continue;
+    }
+
+    if (push(step.value)) return true;
+  }
+
+  return false;
 }
 
 export function cloneValue(v, seen = new WeakSet()) {
@@ -244,3 +266,56 @@ export function loadCheckpoint(checkpoint) {
   console.warn(`Unknown checkpoint schema version: ${version} (expected ${CHECKPOINT_SCHEMA_VERSION}); attempting to load anyway`);
   return checkpoint;
 }
+
+export class CheckpointManager {
+  constructor({ archive, emit, logger } = {}) {
+    this.archive = archive || null;
+    this._emit = typeof emit === "function" ? emit : null;
+    this._logger = logger || console;
+  }
+
+  async save(state, { iteration, metadata } = {}) {
+    const meta = isPlainObject(metadata) ? metadata : {};
+    const runId = toNonEmptyString(state?.runId) || toNonEmptyString(meta.runId) || "run_unknown";
+
+    if (!this.archive || typeof this.archive.save !== "function") {
+      this._logger?.warn?.("[deepsearch] CheckpointManager.save skipped: no archive available");
+      return null;
+    }
+
+    const nodeStates =
+      state && typeof state.toJSON === "function" ? state.toJSON({ includeCheckpoints: false }) : isPlainObject(state) ? state : {};
+
+    const checkpoint = createCheckpoint(nodeStates, {
+      type: meta.type || ArchiveCheckpointType.ARCHIVE,
+      runId,
+      iteration: Number.isFinite(iteration) ? iteration : state?.iteration,
+      ...meta,
+    });
+
+    const checkpointId = await this.archive.save(runId, checkpoint);
+
+    if (state && typeof state.saveCheckpoint === "function") {
+      try {
+        state.saveCheckpoint({
+          checkpointId,
+          timestamp: checkpoint.timestamp,
+          ...(meta.metrics ? { metrics: meta.metrics } : {}),
+          ...(meta.strategy ? { strategy: meta.strategy } : {}),
+        });
+      } catch (err) {
+        this._logger?.warn?.("[deepsearch] Failed to record checkpoint in state:", err);
+      }
+    }
+
+    this._emit?.("deepsearch.checkpoint.saved", {
+      runId,
+      checkpointId,
+      iteration: Number.isFinite(iteration) ? iteration : state?.iteration,
+    });
+
+    return checkpointId;
+  }
+}
+
+export default CheckpointManager;

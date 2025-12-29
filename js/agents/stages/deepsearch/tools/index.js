@@ -32,6 +32,7 @@ export const tools = {
   "cross-verify": crossVerify,
   "refine-planning": refinePlanning,
   "Task": task,
+  "task": task,
   "ask-user": askUser,
   "get-task-result": getTaskResult,
   "advise-task": adviseTask,
@@ -155,4 +156,3 @@ export function createDeepSearchToolExecutor(options = {}) {
 }
 
 export default tools;
-

@@ -10,8 +10,118 @@ import { globalSubagentRegistry } from "../../../../sdk/SubagentRegistry.js";
 // 确保子代理已注册
 import "../../subagents.js";
 
-// 运行中的任务注册表
+function toPositiveInt(value, fallback) {
+  const n = Number.parseInt(String(value ?? ""), 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+// 运行中的任务注册表（含已完成任务的短暂缓存）
+const env = typeof process !== "undefined" ? process.env : {};
+const MAX_RUNNING_TASKS = toPositiveInt(env.DEEPSEARCH_MAX_RUNNING_TASKS, 50);
+const COMPLETED_TASK_TTL_MS = toPositiveInt(env.DEEPSEARCH_TASK_TTL_MS, 30 * 60 * 1000);
+const CLEANUP_INTERVAL_MS = toPositiveInt(env.DEEPSEARCH_TASK_CLEANUP_INTERVAL_MS, 5 * 60 * 1000);
+const RESULT_PREVIEW_CHARS = toPositiveInt(env.DEEPSEARCH_TASK_RESULT_PREVIEW_CHARS, 2000);
+
 const runningTasks = new Map();
+
+function compactResult(result) {
+  if (!result || typeof result !== "object") return result;
+
+  const out = {};
+  if ("ok" in result) out.ok = result.ok;
+  if (typeof result.summary === "string") out.summary = result.summary;
+
+  if (typeof result.report === "string") {
+    out.reportPreview = result.report.slice(0, RESULT_PREVIEW_CHARS);
+  }
+  if (typeof result.analysis === "string") {
+    out.analysisPreview = result.analysis.slice(0, RESULT_PREVIEW_CHARS);
+  }
+  if (typeof result.findings === "string") {
+    out.findingsPreview = result.findings.slice(0, RESULT_PREVIEW_CHARS);
+  }
+  if (Array.isArray(result.findings)) {
+    out.findingsCount = result.findings.length;
+  }
+
+  return out;
+}
+
+function compactTaskRecord(task) {
+  return {
+    taskId: task.taskId,
+    type: task.type,
+    prompt: task.prompt,
+    status: task.status,
+    summary: task.summary,
+    error: task.error,
+    startedAt: task.startedAt,
+    completedAt: task.completedAt,
+    expiresAt: task.expiresAt,
+    result: task.status === "completed" ? compactResult(task.result) : undefined,
+    compacted: task.status === "completed",
+  };
+}
+
+function pruneRunningTasks({ now = Date.now() } = {}) {
+  // 1) TTL: 清理已完成/失败任务
+  for (const [taskId, task] of runningTasks) {
+    if (!task || task.status === "running") continue;
+    const expiresAt = Number(task.expiresAt);
+    const completedAt = Number(task.completedAt);
+    const expired = Number.isFinite(expiresAt)
+      ? expiresAt <= now
+      : Number.isFinite(completedAt) && (now - completedAt) > COMPLETED_TASK_TTL_MS;
+    if (expired) runningTasks.delete(taskId);
+  }
+
+  // 2) 上限：只淘汰最旧的已完成/失败任务，永不淘汰运行中任务
+  if (runningTasks.size <= MAX_RUNNING_TASKS) return;
+
+  const evictable = [];
+  for (const [taskId, task] of runningTasks) {
+    if (!task || task.status === "running") continue;
+    const ts = Number(task.completedAt) || Number(task.startedAt) || 0;
+    evictable.push([ts, taskId]);
+  }
+  evictable.sort((a, b) => a[0] - b[0]);
+
+  for (const [, taskId] of evictable) {
+    if (runningTasks.size <= MAX_RUNNING_TASKS) break;
+    runningTasks.delete(taskId);
+  }
+}
+
+function reserveRunningTaskSlot() {
+  pruneRunningTasks();
+  if (runningTasks.size < MAX_RUNNING_TASKS) return { ok: true };
+
+  // 尝试清理一个最旧的已完成任务，为新任务腾位置
+  let oldestKey = null;
+  let oldestTs = Infinity;
+  for (const [taskId, task] of runningTasks) {
+    if (!task || task.status === "running") continue;
+    const ts = Number(task.completedAt) || Number(task.startedAt) || 0;
+    if (ts < oldestTs) {
+      oldestTs = ts;
+      oldestKey = taskId;
+    }
+  }
+  if (oldestKey) {
+    runningTasks.delete(oldestKey);
+    return { ok: true, evictedTaskId: oldestKey };
+  }
+
+  return {
+    ok: false,
+    error: `Too many running tasks (${runningTasks.size}/${MAX_RUNNING_TASKS}). Try again later.`,
+  };
+}
+
+if (typeof setInterval === "function" && CLEANUP_INTERVAL_MS > 0) {
+  const timer = setInterval(() => pruneRunningTasks(), CLEANUP_INTERVAL_MS);
+  timer.unref?.();
+}
 
 export const definition = {
   name: "Task",
@@ -62,8 +172,18 @@ export async function handler(args, context) {
     ? sources.filter(s => sourceIds.includes(s.sourceId))
     : sources;
 
+  const reservation = reserveRunningTaskSlot();
+  if (!reservation.ok) {
+    return {
+      success: false,
+      error: reservation.error,
+      hint: "任务过多时会拒绝新任务，请稍后重试或调高 DEEPSEARCH_MAX_RUNNING_TASKS",
+    };
+  }
+
   // 生成任务 ID
   const taskId = `task_${subagent_type}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  const startedAt = Date.now();
 
   emit?.("deepsearch.subagent.started", { taskId, type: subagent_type, prompt, sourceCount: targetSources.length, async: isAsync });
 
@@ -72,10 +192,12 @@ export async function handler(args, context) {
     try {
       // 创建独立子代理实例
       const subagent = await factory({
+        taskId,
         prompt,
         modelTier: subagent_type === "analyzer" ? "normal" : "fast",
         parentStageApi: stageApi,
         inheritedContext: {
+          taskId,
           sharedContext,
           L0: { sources: targetSources },
         },
@@ -88,10 +210,11 @@ export async function handler(args, context) {
       // 运行子代理
       const result = await subagent.run(
         { task: prompt, L0: { sources: targetSources } },
-        { signal: stageApi?.signal, stageApi }
+        { signal: stageApi?.signal, stageApi, taskId }
       );
 
       // 存储结果
+      const completedAt = Date.now();
       const taskResult = {
         taskId,
         type: subagent_type,
@@ -99,7 +222,9 @@ export async function handler(args, context) {
         status: "completed",
         result,
         summary: result?.summary || result?.report?.slice(0, 300) || "Completed",
-        completedAt: Date.now(),
+        startedAt,
+        completedAt,
+        expiresAt: completedAt + COMPLETED_TASK_TTL_MS,
       };
 
       // 存储到 sharedContext
@@ -109,23 +234,28 @@ export async function handler(args, context) {
       }
 
       // 更新任务注册表
-      runningTasks.set(taskId, taskResult);
+      runningTasks.set(taskId, compactTaskRecord(taskResult));
+      pruneRunningTasks({ now: completedAt });
 
       emit?.("deepsearch.subagent.completed", { taskId, type: subagent_type, ok: result?.ok !== false });
 
       return taskResult;
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
+      const completedAt = Date.now();
       const taskResult = {
         taskId,
         type: subagent_type,
         prompt,
         status: "failed",
         error,
-        completedAt: Date.now(),
+        startedAt,
+        completedAt,
+        expiresAt: completedAt + COMPLETED_TASK_TTL_MS,
       };
 
-      runningTasks.set(taskId, taskResult);
+      runningTasks.set(taskId, compactTaskRecord(taskResult));
+      pruneRunningTasks({ now: completedAt });
       if (sharedContext?.store) {
         sharedContext.store(taskId, taskResult);
       }
@@ -136,18 +266,18 @@ export async function handler(args, context) {
     }
   };
 
+  const taskPromise = executeTask();
+  runningTasks.set(taskId, {
+    taskId,
+    type: subagent_type,
+    prompt,
+    status: "running",
+    promise: taskPromise,
+    startedAt,
+  });
+
   if (isAsync) {
     // 异步模式：立即返回，后台执行
-    const taskPromise = executeTask();
-    runningTasks.set(taskId, {
-      taskId,
-      type: subagent_type,
-      prompt,
-      status: "running",
-      promise: taskPromise,
-      startedAt: Date.now(),
-    });
-
     return {
       success: true,
       taskId,
@@ -157,7 +287,7 @@ export async function handler(args, context) {
     };
   } else {
     // 同步模式：等待完成
-    const result = await executeTask();
+    const result = await taskPromise;
     return {
       success: result.status === "completed",
       taskId,
@@ -172,6 +302,7 @@ export async function handler(args, context) {
  * 获取任务状态（供 get-task-result 使用）
  */
 export function getTaskStatus(taskId) {
+  pruneRunningTasks();
   return runningTasks.get(taskId);
 }
 
@@ -179,6 +310,7 @@ export function getTaskStatus(taskId) {
  * 等待任务完成
  */
 export async function waitForTask(taskId, timeout = 60000) {
+  pruneRunningTasks();
   const task = runningTasks.get(taskId);
   if (!task) return null;
 

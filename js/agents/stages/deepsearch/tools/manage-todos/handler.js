@@ -2,7 +2,7 @@
  * manage-todos skill handler
  */
 
-import { createTodo, validateTodo } from "../../utils/todo-utils.js";
+import { createTodo, transitionTodoStatus, validateTodo } from "../../utils/todo-utils.js";
 import { TodoStatus } from "../../states.js";
 
 export const definition = {
@@ -28,47 +28,73 @@ export async function handler(args, context) {
 
   switch (action) {
     case "create": {
-      const text = args.todo?.text || args.text;
+      const text = args.todo?.text ?? args.text ?? args.todo?.content ?? args.content ?? args.todo?.title ?? args.title;
       if (!text || typeof text !== "string" || !text.trim()) {
         return { success: false, error: "text is required for creating a todo" };
       }
-      const todo = state.addTodo({
+
+      const draft = createTodo({
+        ...(args.todo && typeof args.todo === "object" ? args.todo : {}),
+        todoId: args.todoId ?? args.todo?.todoId ?? args.todo?.id,
         text: text.trim(),
-        priority: args.todo?.priority || args.priority || "medium",
-        queryHints: args.todo?.queryHints || args.queryHints || [],
-        status: TodoStatus.OPEN,
+        priority: args.todo?.priority ?? args.priority ?? "medium",
+        queryHints: args.todo?.queryHints ?? args.queryHints ?? [],
+        status: args.todo?.status ?? args.status ?? TodoStatus.OPEN,
+        source: args.todo?.source ?? "user",
       });
+      const { valid, issues } = validateTodo(draft);
+      if (!valid) return { success: false, error: issues.join("; "), issues };
+
+      const todo =
+        typeof state?.addTodo === "function"
+          ? state.addTodo(draft)
+          : (state.todos = Array.isArray(state.todos) ? state.todos : [], state.todos.push(draft), draft);
       emit?.("deepsearch.todo.created", { todoId: todo.todoId, text: todo.text });
       return { success: true, todo };
     }
 
     case "update": {
+      const todoId = args.todoId ?? args.todo?.todoId ?? args.todo?.id;
+      if (!todoId) return { success: false, error: "todoId is required" };
+
       const todos = state.todos || [];
-      const todo = todos.find(t => t.todoId === args.todoId);
+      const todo = todos.find((t) => t.todoId === todoId);
       if (!todo) return { success: false, error: "Todo not found" };
 
-      if (args.status) todo.status = args.status;
-      if (args.text) todo.text = args.text;
-      emit?.("deepsearch.todo.updated", { todoId: todo.todoId, status: todo.status });
+      const nextText = args.text ?? args.todo?.text;
+      if (typeof nextText === "string" && nextText.trim()) {
+        todo.text = nextText.trim();
+        todo.updatedAt = new Date().toISOString();
+      }
+
+      const nextStatus = args.status ?? args.todo?.status;
+      if (typeof nextStatus === "string" && nextStatus.trim()) {
+        transitionTodoStatus(todo, nextStatus, emit);
+      }
+
+      const { valid, issues } = validateTodo(todo);
+      if (!valid) return { success: false, error: issues.join("; "), issues };
+
+      emit?.("deepsearch.todo.updated", { todoId: todo.todoId, status: todo.status, ...(todo.text ? { text: todo.text } : {}) });
       return { success: true, todo };
     }
 
     case "complete": {
       const todos = state.todos || [];
-      const todo = todos.find(t => t.todoId === args.todoId);
+      const todo = todos.find((t) => t.todoId === args.todoId);
       if (!todo) return { success: false, error: "Todo not found" };
 
-      todo.status = TodoStatus.COMPLETED;
+      transitionTodoStatus(todo, TodoStatus.COMPLETED, emit);
       emit?.("deepsearch.todo.completed", { todoId: todo.todoId });
       return { success: true, todo };
     }
 
     case "cancel": {
       const todos = state.todos || [];
-      const todo = todos.find(t => t.todoId === args.todoId);
+      const todo = todos.find((t) => t.todoId === args.todoId);
       if (!todo) return { success: false, error: "Todo not found" };
 
-      todo.status = TodoStatus.CANCELLED;
+      transitionTodoStatus(todo, TodoStatus.CANCELLED, emit);
       emit?.("deepsearch.todo.cancelled", { todoId: todo.todoId });
       return { success: true, todo };
     }
@@ -77,7 +103,7 @@ export async function handler(args, context) {
       const todos = state.todos || [];
       return {
         success: true,
-        todos: todos.map(t => ({
+        todos: todos.map((t) => ({
           todoId: t.todoId,
           text: t.text,
           status: t.status,

@@ -8,6 +8,8 @@
  */
 
 import { CicadaCompressor } from "../../../../runtime/compression/cicada-compressor.js";
+import { createTodo, validateTodo } from "../../utils/todo-utils.js";
+import { TodoStatus } from "../../states.js";
 
 /** @enum {string} */
 const WatchdogMode = Object.freeze({
@@ -97,11 +99,21 @@ function buildThinkPrompt(state, sharedContext, { reason, question }) {
   }
 
   // 添加待办
-  const todos = state?.todos?.filter(t => t.status !== "done") || [];
+  const rawTodos = Array.isArray(state?.todos) ? state.todos : [];
+  const todos = rawTodos
+    .map((t) => {
+      if (!t || typeof t !== "object") return null;
+      const normalized = createTodo(t);
+      const { valid } = validateTodo(normalized);
+      return valid ? normalized : null;
+    })
+    .filter(Boolean)
+    .filter((t) => t.status !== TodoStatus.COMPLETED && t.status !== TodoStatus.CANCELLED);
+
   if (todos.length) {
     lines.push("\n### 待完成");
     for (const t of todos.slice(0, 5)) {
-      lines.push(`- ${t.content || t.title}`);
+      lines.push(`- ${t.text}`);
     }
   }
 

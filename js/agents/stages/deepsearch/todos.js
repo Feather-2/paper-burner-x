@@ -1,7 +1,7 @@
 import { DeepSearchState, checkCancelled, extractJsonCandidate, makeStageEmitter, EventStatus } from "./state.js";
 import { getModelCaller } from "./model.js";
 import { loadPrompt } from "../../prompts/prompt-loader.js";
-import { createTodo, validateTodo } from "./utils/todo-utils.js";
+import { validateTodo } from "./utils/todo-utils.js";
 import { createLogger } from "./runtime/logger.js";
 import { extractServices } from "./utils/stage-api.js";
 import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";

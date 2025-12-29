@@ -133,6 +133,27 @@ test("DeepSearchState.clone: falls back safely for function/symbol values", asyn
   }
 });
 
+test("cloneValue: avoids recursion overflow in hasCycle for deep objects", async () => {
+  const { cloneValue } = await import("../../../js/agents/stages/deepsearch/runtime/checkpoint.js");
+
+  const originalStructuredClone = globalThis.structuredClone;
+  globalThis.structuredClone = (value) => value;
+  try {
+    const depth = 20000;
+    const root = {};
+    let cursor = root;
+    for (let i = 0; i < depth; i++) {
+      cursor.next = {};
+      cursor = cursor.next;
+    }
+
+    const cloned = cloneValue(root);
+    assert.equal(cloned, root);
+  } finally {
+    globalThis.structuredClone = originalStructuredClone;
+  }
+});
+
 test("DeepSearchState.saveCheckpoint: stamps checkpoint schema version", async () => {
   const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
 
@@ -288,6 +309,31 @@ test("SharedContext: prunes store, signals, decisions, seen, and index", async (
       Date.now = originalNow;
     }
   }
+});
+
+test("SharedContext: filters signals by targetTaskId (keeps broadcast signals)", async () => {
+  const { SharedContext } = await import("../../../js/agents/stages/deepsearch/runtime/shared-context.js");
+
+  const ctx = new SharedContext({ runId: "ctx_task_scope" });
+  ctx.signal("advice", { type: "advice", targetTaskId: "task_a", message: "for A" });
+  ctx.signal("advice", { type: "advice", targetTaskId: "task_b", message: "for B" });
+  ctx.signal("notice", { type: "notice", message: "broadcast" });
+
+  const scopedPrompt = ctx.buildBlackboardPrompt({ maxSignals: 10, targetTaskId: "task_a" });
+  assert.ok(scopedPrompt.includes("for A"));
+  assert.ok(scopedPrompt.includes("broadcast"));
+  assert.equal(scopedPrompt.includes("for B"), false);
+
+  const allPrompt = ctx.buildBlackboardPrompt({ maxSignals: 10 });
+  assert.ok(allPrompt.includes("for A"));
+  assert.ok(allPrompt.includes("for B"));
+  assert.ok(allPrompt.includes("broadcast"));
+
+  const scopedSignals = ctx.getSignals({ targetTaskId: "task_a" });
+  const scopedMsgs = scopedSignals.map((s) => s?.payload?.message).filter(Boolean);
+  assert.ok(scopedMsgs.includes("for A"));
+  assert.ok(scopedMsgs.includes("broadcast"));
+  assert.equal(scopedMsgs.includes("for B"), false);
 });
 
 test("DeepSearchState.restoreCheckpoint: migrates legacy checkpoints without schemaVersion", async () => {

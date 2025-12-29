@@ -130,6 +130,19 @@ export class VisualHandler {
       return { visualReport, imageReport, finalImageSlots, deckHtmlDsl, pendingImages };
     }
 
+    const planned = { total: visualSlotsForRender.length, "ai-image": 0, svg: 0, asset: 0 };
+    for (const slot of visualSlotsForRender) {
+      const t = normalizeRenderType(slot?.renderType);
+      if (t === "svg") planned.svg += 1;
+      else if (t === "asset") planned.asset += 1;
+      else planned["ai-image"] += 1;
+    }
+
+    emitStage(emit, "design.visual.render.started", "started", {
+      runId: runContext.runId,
+      planned,
+    });
+
     const imageProvider = context.imageProvider || context.imageService;
 
     try {
@@ -204,6 +217,12 @@ export class VisualHandler {
         const filledAssets = fillAssetPlaceholders(deckHtmlDsl, res.assetResults);
         deckHtmlDsl = filledAssets.html;
       }
+
+      emitStage(emit, "design.visual.render.completed", "completed", {
+        runId: runContext.runId,
+        planned,
+        pendingImages,
+      });
     } catch (e) {
       checkCancelled(context.signal);
       const errorMessage = e instanceof Error ? e.message : String(e);
@@ -234,14 +253,6 @@ export class VisualHandler {
         error: errorMessage,
       };
 
-      const planned = { total: visualSlotsForRender.length, "ai-image": 0, svg: 0, asset: 0 };
-      for (const slot of visualSlotsForRender) {
-        const t = normalizeRenderType(slot?.renderType);
-        if (t === "svg") planned.svg += 1;
-        else if (t === "asset") planned.asset += 1;
-        else planned["ai-image"] += 1;
-      }
-
       visualReport = {
         schemaVersion: "0.1",
         runId: runContext.runId,
@@ -253,6 +264,13 @@ export class VisualHandler {
         svgReport: null,
         hasFatalError: true,
       };
+
+      emitStage(emit, "design.visual.render.completed", "failed", {
+        runId: runContext.runId,
+        planned,
+        pendingImages,
+        error: errorMessage,
+      });
     }
 
     return { visualReport, imageReport, finalImageSlots, deckHtmlDsl, pendingImages };

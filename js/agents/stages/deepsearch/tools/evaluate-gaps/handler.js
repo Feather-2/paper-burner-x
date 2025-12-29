@@ -5,6 +5,13 @@
  */
 
 import { DiscoveryStatus } from "../../../../sdk/DiscoveryManager.js";
+import { GapStatus } from "../../states.js";
+
+function mapDiscoveryStatusToGapStatus(status) {
+    if (status === DiscoveryStatus.SATISFIED) return GapStatus.FILLED;
+    if (status === DiscoveryStatus.BLOCKED) return GapStatus.BLOCKED;
+    return GapStatus.OPEN;
+}
 
 export const definition = {
     name: "evaluate-gaps",
@@ -41,8 +48,11 @@ export async function handler(args, context) {
     const evidences = discoveryManager ? discoveryManager.getEvidences(gapId) : [];
 
     // 3. 更新状态
-    gap.status = status;
+    const gapStatus = mapDiscoveryStatusToGapStatus(status);
+    gap.status = gapStatus;
     gap.evaluation = {
+        discoveryStatus: status,
+        gapStatus,
         analysis,
         evidenceIds: evidences.map(e => e.id),
         updatedAt: new Date().toISOString()
@@ -63,14 +73,15 @@ export async function handler(args, context) {
         });
     }
 
-    emit?.("deepsearch.gap.evaluated", { gapId, status, analysis });
+    emit?.("deepsearch.gap.evaluated", { gapId, status, gapStatus, analysis });
 
     return {
         success: true,
         gapId,
-        newStatus: status,
+        discoveryStatus: status,
+        newStatus: gapStatus,
         evidenceCount: evidences.length,
-        message: `Gap ${gapId} evaluated as ${status}.`
+        message: `Gap ${gapId} evaluated as ${status} (${gapStatus}).`
     };
 }
 

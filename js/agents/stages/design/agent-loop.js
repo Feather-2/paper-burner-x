@@ -643,7 +643,9 @@ export class DesignAgentLoop extends BaseAgentLoop {
         this.state.visualReport = visualPhaseResult.visualReport;
         this.state.imageReport = visualPhaseResult.imageReport;
         this.state.refineResult = visualPhaseResult.refineResult;
-        this.state.pendingImages = visualPhaseResult.pendingImages;
+        if (Array.isArray(visualPhaseResult.pendingImages)) {
+          this.state.pendingImages = visualPhaseResult.pendingImages;
+        }
 
         // --- 7. Final Review Phase (Optional final audit) ---
         const skipReview = context?.skipReview === true || context?.interactionMode?.finalReview === "skip";

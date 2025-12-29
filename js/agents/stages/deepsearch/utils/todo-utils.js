@@ -1,12 +1,11 @@
 import { isPlainObject, toNonEmptyString } from "../../../shared/utils/value-utils.js";
-import { DeepSearchEvents } from "../../../runtime/events/events.js";
 import { TodoStatus, isValidTodoStatus } from "../states.js";
 
 export const TodoSchema = Object.freeze({
   todoId: "string (required)",
   text: "string (required)",
   priority: "high|medium|low",
-  status: "open|pending|completed|cancelled",
+  status: "open|pending|in_progress|completed|cancelled",
   queryHints: "string[]",
   expectedEvidence: "string",
   source: "user|llm|system",
@@ -33,8 +32,22 @@ function normalizeSource(value) {
   return TODO_SOURCES.has(v) ? v : "system";
 }
 
-function normalizeStatus(value) {
-  const v = String(value || "").toLowerCase();
+function normalizeStatus(value, raw) {
+  if (typeof value === "boolean") return value ? TodoStatus.COMPLETED : TodoStatus.OPEN;
+  const r = isPlainObject(raw) ? raw : {};
+  if (r.done === true || r.completed === true) return TodoStatus.COMPLETED;
+
+  const v = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (v === "done") return TodoStatus.COMPLETED;
+  if (v === "complete") return TodoStatus.COMPLETED;
+  if (v === "canceled") return TodoStatus.CANCELLED;
+  if (v === "cancel") return TodoStatus.CANCELLED;
+  if (v === "inprogress") return TodoStatus.IN_PROGRESS;
+  if (v === "in-progress") return TodoStatus.IN_PROGRESS;
+  if (v === "in progress") return TodoStatus.IN_PROGRESS;
+  if (v === "progress") return TodoStatus.IN_PROGRESS;
   return isValidTodoStatus(v) ? v : TodoStatus.OPEN;
 }
 
@@ -54,8 +67,8 @@ function deriveTodoIdFromGapId(gapId) {
 export function createTodo(params = {}) {
   const raw = isPlainObject(params) ? params : {};
   const now = new Date().toISOString();
-  const todoId = toNonEmptyString(raw.todoId) || `todo_${Date.now().toString(36)}`;
-  const text = toNonEmptyString(raw.text) || "";
+  const todoId = toNonEmptyString(raw.todoId) || toNonEmptyString(raw.id) || `todo_${Date.now().toString(36)}`;
+  const text = toNonEmptyString(raw.text) || toNonEmptyString(raw.content) || toNonEmptyString(raw.title) || "";
 
   // 如果 text 为空，记录警告
   if (!text) {
@@ -63,7 +76,7 @@ export function createTodo(params = {}) {
   }
 
   const priority = normalizePriority(raw.priority);
-  const status = normalizeStatus(raw.status);
+  const status = normalizeStatus(raw.status, raw);
   const queryHints = normalizeStringArray(raw.queryHints);
   const expectedEvidence = toNonEmptyString(raw.expectedEvidence) || "";
   const source = normalizeSource(raw.source);
@@ -109,7 +122,7 @@ export function validateTodo(todo) {
 
   const status = toNonEmptyString(todo.status);
   if (status && !isValidTodoStatus(status.toLowerCase())) {
-    issues.push("status must be open|pending|completed|cancelled");
+    issues.push("status must be open|pending|in_progress|completed|cancelled");
   }
 
   if ("queryHints" in todo) {
@@ -160,7 +173,7 @@ export function transitionTodoStatus(todo, newStatus, emit) {
   if (!Array.isArray(todo.history)) todo.history = [];
   todo.history.push({ from, to, ts: now });
 
-  emit?.(DeepSearchEvents.TODO_STATUS_CHANGED, {
+  emit?.("deepsearch.todo.status.changed", {
     todoId: toNonEmptyString(todo.todoId) || "todo_unknown",
     from,
     to,

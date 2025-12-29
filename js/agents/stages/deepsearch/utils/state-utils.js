@@ -1,4 +1,7 @@
 import { isPlainObject, safeInt, safeNumber, toNonEmptyString } from "../../../shared/utils/value-utils.js";
+import { normalizeTokenUsage } from "../model/usage.js";
+
+export { normalizeTokenUsage };
 
 export const EVENT_SCHEMA_VERSION = "deepsearch.event.v1";
 
@@ -32,47 +35,15 @@ const DEFAULT_MODEL_PRICES_USD_PER_1K = Object.freeze({
   // Gemini & others: default to unknown/0 unless configured.
 });
 
-export function normalizeTokenUsage(usage) {
-  if (!isPlainObject(usage)) return null;
-
-  const promptTokens = safeInt(
-    usage.prompt_tokens ??
-      usage.promptTokens ??
-      usage.input_tokens ??
-      usage.inputTokens ??
-      usage.input ??
-      usage.prompt ??
-      usage.promptTokensUsed
-  );
-  const completionTokens = safeInt(
-    usage.completion_tokens ??
-      usage.completionTokens ??
-      usage.output_tokens ??
-      usage.outputTokens ??
-      usage.output ??
-      usage.completion ??
-      usage.completionTokensUsed
-  );
-  const totalTokens = safeInt(usage.total_tokens ?? usage.totalTokens ?? usage.total);
-
-  const hasAny = promptTokens !== null || completionTokens !== null || totalTokens !== null;
-  if (!hasAny) return null;
-
-  const input = Math.max(0, promptTokens ?? 0);
-  const output = Math.max(0, completionTokens ?? 0);
-  const total = Math.max(0, totalTokens ?? input + output);
-  const estimatedCostUSD = safeNumber(usage.estimatedCostUSD ?? usage.costUSD);
-  return { input, output, total, ...(estimatedCostUSD !== null ? { estimatedCostUSD: Math.max(0, estimatedCostUSD) } : {}) };
-}
-
 export function ensureTokenUsage(v) {
   const normalized = normalizeTokenUsage(v);
   if (normalized) {
+    const estimatedCostUSD = safeNumber(v?.estimatedCostUSD ?? v?.costUSD);
     return {
       input: normalized.input,
       output: normalized.output,
       total: normalized.total,
-      estimatedCostUSD: safeNumber(normalized.estimatedCostUSD) ?? 0,
+      estimatedCostUSD: estimatedCostUSD !== null ? Math.max(0, estimatedCostUSD) : 0,
     };
   }
   return { input: 0, output: 0, total: 0, estimatedCostUSD: 0 };
@@ -144,25 +115,70 @@ export function extractJsonCandidate(text) {
 
   // Try to extract a valid JSON value (supports {} and []), even when the text
   // contains multiple brace/bracket pairs or trailing noise.
-  const pairs = [
-    ["{", "}"],
-    ["[", "]"],
-  ]
-    .map(([open, close]) => ({ open, close, first: s.indexOf(open) }))
-    .filter((p) => p.first >= 0)
-    .sort((a, b) => a.first - b.first);
+  //
+  // Performance note: the previous implementation scanned backwards from the end
+  // and attempted JSON.parse many times (O(n²) on long outputs). Here we use a
+  // bracket stack to locate balanced candidates in a forward scan, then only
+  // attempt JSON.parse on those candidates.
+  const findBalancedEnd = (startIdx) => {
+    const openCh = s[startIdx];
+    if (openCh !== "{" && openCh !== "[") return -1;
 
-  for (const { open, close, first } of pairs) {
-    for (let j = s.length - 1; j > first; j--) {
-      if (s[j] !== close) continue;
-      const candidate = s.slice(first, j + 1);
-      try {
-        JSON.parse(candidate);
-        return candidate;
-      } catch {}
+    const stack = [openCh];
+    let inString = false;
+    let escape = false;
+
+    for (let i = startIdx + 1; i < s.length; i++) {
+      const ch = s[i];
+
+      if (inString) {
+        if (escape) {
+          escape = false;
+          continue;
+        }
+        if (ch === "\\") {
+          escape = true;
+          continue;
+        }
+        if (ch === '"') inString = false;
+        continue;
+      }
+
+      if (ch === '"') {
+        inString = true;
+        continue;
+      }
+
+      if (ch === "{" || ch === "[") {
+        stack.push(ch);
+        continue;
+      }
+
+      if (ch === "}" || ch === "]") {
+        const top = stack[stack.length - 1];
+        const matches = (ch === "}" && top === "{") || (ch === "]" && top === "[");
+        if (!matches) continue;
+
+        stack.pop();
+        if (!stack.length) return i;
+      }
     }
+
+    return -1;
+  };
+
+  const starts = [s.indexOf("{"), s.indexOf("[")].filter((idx) => idx >= 0).sort((a, b) => a - b);
+
+  for (const startIdx of starts) {
+    const endIdx = findBalancedEnd(startIdx);
+    if (endIdx < 0) continue;
+
+    const candidate = s.slice(startIdx, endIdx + 1);
+    try {
+      JSON.parse(candidate);
+      return candidate;
+    } catch {}
   }
 
   return s;
 }
-
