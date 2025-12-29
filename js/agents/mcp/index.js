@@ -34,7 +34,6 @@ export function createMcpClient(options = {}) {
     }));
   }
 
-  // TODO: 添加 mcp-nexus provider
   if (options.nexusEndpoint) {
     client.addProvider(
       new McpNexusProvider({

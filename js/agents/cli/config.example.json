@@ -41,5 +41,72 @@
     "fast": ["cicada_summary", "subagent_fast", "summarizer", "extractor"],
     "vision": ["vision", "image_analysis", "ocr"]
   },
-  "default": "normal"
+  "default": "normal",
+  "agent": {
+    "$comment": "Agent 执行配置",
+    "quick": {
+      "maxIterations": 15,
+      "writeIterations": 5,
+      "maxToolCalls": 50
+    },
+    "wider": {
+      "maxIterations": 30,
+      "writeIterations": 10,
+      "maxToolCalls": 100
+    },
+    "deeper": {
+      "maxIterations": 50,
+      "writeIterations": 15,
+      "maxToolCalls": 200
+    }
+  },
+  "memory": {
+    "$comment": "记忆管理配置",
+    "maxMessages": 20,
+    "maxSignals": 50,
+    "maxDecisions": 30,
+    "keepLastTurns": 6,
+    "compressThreshold": 0.8,
+    "contextWindow": 128000
+  },
+  "report": {
+    "$comment": "报告生成配置 - 可自定义字数和章节要求",
+    "quick": {
+      "minWords": 4000,
+      "minReferences": 1,
+      "requiredSections": ["摘要", "发现"],
+      "recommendedSections": ["信息缺口", "结论"],
+      "sectionWordLimits": {
+        "摘要": 200,
+        "发现": 600
+      }
+    },
+    "wider": {
+      "minWords": 6000,
+      "minReferences": 3,
+      "requiredSections": ["摘要", "核心发现", "共识与分歧", "信息缺口"],
+      "recommendedSections": ["方法说明", "结论", "下一步建议"],
+      "sectionWordLimits": {
+        "摘要": 300,
+        "核心发现": 1000,
+        "共识与分歧": 500,
+        "信息缺口": 300
+      }
+    },
+    "deeper": {
+      "minWords": 10000,
+      "minReferences": 5,
+      "requiredSections": ["摘要", "核心发现", "共识与分歧", "信息缺口", "方法论评价", "局限性"],
+      "recommendedSections": ["详细分析", "证据链", "结论", "下一步建议"],
+      "sectionWordLimits": {
+        "摘要": 400,
+        "核心发现": 2000,
+        "共识与分歧": 800,
+        "信息缺口": 500,
+        "方法论评价": 600,
+        "局限性": 300
+      }
+    }
+  }
 }
+

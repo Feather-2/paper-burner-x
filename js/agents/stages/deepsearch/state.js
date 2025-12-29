@@ -2,11 +2,14 @@ import { isPlainObject, safeInt, safeNumber, toNonEmptyString, sanitizeForJson }
 import { EVENT_SCHEMA_VERSION, EventStatus, ensureTokenUsage, extractJsonCandidate, normalizeBudgetConfig, normalizeTokenUsage, stripThinkingTags } from "./utils/state-utils.js";
 import { CheckpointMode } from "./constants.js";
 import { GapStatus } from "./states.js";
+import { makeStageEmitter, generateNodeId, checkCancelled } from "./stage-utils.js";
+
+// Re-export stage utils for backward compatibility
+export { makeStageEmitter, generateNodeId, checkCancelled };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Gap Utils
 // ─────────────────────────────────────────────────────────────────────────────
-export { GapStatus };
 
 export function transitionGap(gap, newStatus, meta, emitFn) {
   if (!gap) return false;
@@ -110,57 +113,6 @@ function buildStateSnapshot(state, { includeCheckpoints = true, includeCheckpoin
     todos: state.todos,
     timeline: state.timeline instanceof Deque ? state.timeline.toArray() : state.timeline,
   };
-}
-
-export function makeStageEmitter(stageApi, actor = "deepsearch", getContext) {
-  const emitFn =
-    typeof stageApi?.emit === "function"
-      ? stageApi.emit.bind(stageApi)
-      : typeof stageApi?.eventBus?.emit === "function"
-        ? stageApi.eventBus.emit.bind(stageApi.eventBus)
-        : null;
-
-  if (!emitFn) return null;
-
-  // 简单限流：同一事件名 100ms 内只发一次
-  const lastEmitTime = new Map();
-  const MIN_INTERVAL_MS = 100;
-
-  return (name, payload, { status = EventStatus.COMPLETED, throttle = true } = {}) => {
-    if (throttle) {
-      const now = Date.now();
-      const last = lastEmitTime.get(name);
-      if (typeof last === "number" && now - last < MIN_INTERVAL_MS) return; // 限流
-      lastEmitTime.set(name, now);
-    }
-
-    const ctx = typeof getContext === "function" ? getContext() : {};
-    emitFn(name, {
-      schemaVersion: EVENT_SCHEMA_VERSION,
-      name,
-      ts: new Date().toISOString(),
-      actor,
-      status,
-      ...ctx,
-      payload,
-    });
-  };
-}
-
-export function generateNodeId(runId, kind, { stage, iteration, trajectoryId } = {}) {
-  const parts = [runId || "run", kind];
-  if (stage) parts.push(stage);
-  if (typeof iteration === "number") parts.push(`i${iteration}`);
-  if (trajectoryId) parts.push(trajectoryId);
-  return parts.join("_") + "_" + Date.now().toString(36);
-}
-
-export function checkCancelled(stageApi) {
-  if (typeof stageApi?.checkCancelled === "function") stageApi.checkCancelled();
-  if (stageApi?.signal?.aborted) {
-    const reason = stageApi.signal.reason;
-    throw new Error(typeof reason === "string" ? reason : "Run cancelled");
-  }
 }
 
 export function validateIteration(state, options = {}) {
