@@ -31,11 +31,12 @@ function makeDesignSystem() {
         border: "#e5e7eb",
         panel: "#ffffff",
       },
+      fontFamily: "Inter",
       typography: {
         minFont: 12,
         titleFont: 44,
         subtitleFont: 18,
-        bodyFont: 16,
+        smallFont: 12,
       },
     },
   };
@@ -105,8 +106,12 @@ test("DesignAgentLoop runs phases, uses tools, emits events", async () => {
     DesignPhase.OUTLINE_CONFIRMING,
     DesignPhase.STYLE_EXTRACTING,
     DesignPhase.STYLE_CONFIRMING,
+    DesignPhase.DECK_PLANNING,
+    DesignPhase.PLAN_CONFIRMING,
+    DesignPhase.LAYOUT_DEVELOPING,
+    DesignPhase.LAYOUT_CONFIRMING,
     DesignPhase.GENERATING,
-    DesignPhase.REVIEWING,
+    DesignPhase.REPAIR,
     DesignPhase.VISUAL_FILLING,
     DesignPhase.COMPLETED,
   ]);
@@ -118,7 +123,7 @@ test("DesignAgentLoop runs phases, uses tools, emits events", async () => {
   assert.ok(events.some((evt) => evt.name === "design.ended"));
 });
 
-test("DesignAgentLoop waits for confirmations and resume", async () => {
+test("DesignAgentLoop waits for confirmations across phases", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
   const { DesignPhase } = await import("../../../js/agents/stages/design/states.js");
   const { EventBus } = await import("../../../js/agents/runtime/events/event-bus.js");
@@ -166,8 +171,11 @@ test("DesignAgentLoop waits for confirmations and resume", async () => {
     if (name === "design.phase.transition" && record.payload.to === DesignPhase.STYLE_CONFIRMING) {
       setTimeout(() => eventBus.emit("user.action.confirm_style", { ok: true }), 0);
     }
-    if (name === "design.phase.transition" && record.payload.to === DesignPhase.GENERATING_PAUSED) {
-      setTimeout(() => eventBus.emit("user.action.resume_generating", { action: "resume" }), 0);
+    if (name === "design.phase.transition" && record.payload.to === DesignPhase.PLAN_CONFIRMING) {
+      setTimeout(() => eventBus.emit("user.action.confirm_plan", { ok: true }), 0);
+    }
+    if (name === "design.phase.transition" && record.payload.to === DesignPhase.LAYOUT_CONFIRMING) {
+      setTimeout(() => eventBus.emit("user.action.confirm_layout", { ok: true }), 0);
     }
   };
 
@@ -177,17 +185,17 @@ test("DesignAgentLoop waits for confirmations and resume", async () => {
     toolExecutor,
     emit,
     eventBus,
-    interactionMode: { outlineConfirm: "confirm", styleConfirm: "confirm" },
-    pauseGenerating: true,
+    interactionMode: { outlineConfirm: "confirm", styleConfirm: "confirm", planConfirm: "confirm", layoutConfirm: "confirm" },
     brainstormResult: { ideaPool: [], selectedIdeas: [], imageSlots: [], candidatesBySlide: [] },
   });
 
   assert.equal(deck.slidesMeta.length, updatedSlides.length);
-  assert.ok(events.some((evt) => evt.name === "design.phase.transition" && evt.record.payload.to === DesignPhase.GENERATING_PAUSED));
+  assert.ok(events.some((evt) => evt.name === "design.phase.transition" && evt.record.payload.to === DesignPhase.PLAN_CONFIRMING));
+  assert.ok(events.some((evt) => evt.name === "design.phase.transition" && evt.record.payload.to === DesignPhase.LAYOUT_CONFIRMING));
   assert.ok(calls.includes("spawn_slide_agent"));
 });
 
-test("DesignAgentLoop downgrades when QA fails", async () => {
+test("DesignAgentLoop reports QA failures and keeps degraded count", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
 
   const contentPackage = makeContentPackage({ slideCount: 1 });
@@ -226,18 +234,19 @@ test("DesignAgentLoop downgrades when QA fails", async () => {
   });
 
   assert.equal(deck.editHints.degradedCount, 1);
-  assert.equal(deck.slidesMeta[0].degraded, true);
-  assert.ok(events.some((evt) => evt.name === "design.degraded"));
+  assert.equal(deck.slidesMeta[0].qa.pass, false);
+  assert.ok(events.some((evt) => evt.name === "design.qa.ended" && evt.record.payload?.degradedCount === 1));
+  assert.ok(events.some((evt) => evt.name === "design.repair.failed"));
 });
 
 test("DesignAgentLoop._renderVisuals fills placeholders", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-  const { VisualRenderer } = await import("../../../js/agents/stages/design/image/visual-renderer.js");
+  const { VisualSubAgent } = await import("../../../js/agents/stages/design/subagents/visual-agent.js");
 
   const loop = new DesignAgentLoop();
-  const originalRender = VisualRenderer.prototype.render;
+  const originalRun = VisualSubAgent.prototype.run;
 
-  VisualRenderer.prototype.render = async () => ({
+  VisualSubAgent.prototype.run = async () => ({
     report: { errors: [], hasFatalError: false, svgReport: null },
     imageResults: {
       filledSlots: [{ slotId: "img1", candidates: [{ url: "https://example.com/i.png" }] }],
@@ -280,18 +289,18 @@ test("DesignAgentLoop._renderVisuals fills placeholders", async () => {
     assert.ok(result.deckHtmlDsl.includes("data-render-type=\"asset\""));
     assert.deepEqual(result.pendingImages, []);
   } finally {
-    VisualRenderer.prototype.render = originalRender;
+    VisualSubAgent.prototype.run = originalRun;
   }
 });
 
 test("DesignAgentLoop._renderVisuals handles renderer errors", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-  const { VisualRenderer } = await import("../../../js/agents/stages/design/image/visual-renderer.js");
+  const { VisualSubAgent } = await import("../../../js/agents/stages/design/subagents/visual-agent.js");
 
   const loop = new DesignAgentLoop();
-  const originalRender = VisualRenderer.prototype.render;
+  const originalRun = VisualSubAgent.prototype.run;
 
-  VisualRenderer.prototype.render = async () => {
+  VisualSubAgent.prototype.run = async () => {
     throw new Error("Render exploded");
   };
 
@@ -312,7 +321,7 @@ test("DesignAgentLoop._renderVisuals handles renderer errors", async () => {
     assert.ok(result.imageReport.error.includes("Render exploded"));
     assert.deepEqual(result.pendingImages, ["img1"]);
   } finally {
-    VisualRenderer.prototype.render = originalRender;
+    VisualSubAgent.prototype.run = originalRun;
   }
 });
 
@@ -552,10 +561,9 @@ test("DesignAgentLoop._transitionPhase rejects invalid states", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
 
   const loop = new DesignAgentLoop();
-  // 简化后的状态机只拒绝无效状态值，不拒绝状态转换顺序
   assert.throws(
     () => loop._transitionPhase({ status: "idle" }, "invalid_state", { emit: () => {} }),
-    /transition rejected/
+    /Invalid state transition/
   );
 });
 
@@ -676,7 +684,7 @@ test("DesignAgentLoop._toolTakeScreenshot and _toolFixSlide return defaults", as
   const fix = await loop._toolFixSlide();
 
   assert.deepEqual(shot, { screenshots: [] });
-  assert.deepEqual(fix, { fixed: false });
+  assert.equal(typeof fix.fixedHtml, "string");
 });
 
 test("DesignAgentLoop.execute proxies to run", async () => {
@@ -715,13 +723,13 @@ test("DesignAgentLoop falls back when design system overrides are invalid", asyn
 
 test("DesignAgentLoop._renderVisuals emits visual error events", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-  const { VisualRenderer } = await import("../../../js/agents/stages/design/image/visual-renderer.js");
+  const { VisualSubAgent } = await import("../../../js/agents/stages/design/subagents/visual-agent.js");
 
   const loop = new DesignAgentLoop();
-  const originalRender = VisualRenderer.prototype.render;
+  const originalRun = VisualSubAgent.prototype.run;
   const events = [];
 
-  VisualRenderer.prototype.render = async () => ({
+  VisualSubAgent.prototype.run = async () => ({
     report: { errors: [{ type: "svg", message: "bad svg" }], hasFatalError: false, svgReport: { errors: ["bad svg"] } },
     imageResults: { filledSlots: [], report: { schemaVersion: "0.1" } },
     svgResults: [],
@@ -741,43 +749,64 @@ test("DesignAgentLoop._renderVisuals emits visual error events", async () => {
       []
     );
   } finally {
-    VisualRenderer.prototype.render = originalRender;
+    VisualSubAgent.prototype.run = originalRun;
   }
 
   assert.ok(events.some((evt) => evt.name === "design.visual.errors"));
 });
 
-test("DesignAgentLoop runs title-only fallback when safe slide still fails QA", async () => {
+test("DesignAgentLoop serializes and hydrates node states", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
 
-  const contentPackage = makeContentPackage({ slideCount: 1 });
-  const designSystem = {
-    designTokens: {
-      colors: { bg: "#ffffff", text: "#111111" },
-      typography: { minFont: 8, titleFont: 8, subtitleFont: 8, bodyFont: 8 },
-    },
-  };
-
-  const invalidSlide = "<section data-type=\"freeform\" data-bg=\"#ffffff\"><div data-el=\"text\" data-font=\"8\">Bad</div></section>";
-  const events = [];
-  const toolExecutor = async (name) => {
-    if (name === "parse_outline") return { ok: true, data: { contentPackage, slideIntents: contentPackage.slideIntents } };
-    if (name === "extract_style") return { ok: true, data: { designSystem } };
-    if (name === "spawn_slide_agent") return { ok: true, data: { generated: [{ slideHtml: invalidSlide, source: "mock" }] } };
-    if (name === "fill_visual") return { ok: true, data: { deckHtmlDsl: invalidSlide, pendingImages: [] } };
-    return { ok: false, error: `Unexpected tool: ${name}` };
-  };
+  const contentPackage = makeContentPackage({ runId: "run_state", slideCount: 1 });
+  const designSystem = makeDesignSystem();
+  const slideHtml = "<section data-type=\"freeform\" data-bg=\"#ffffff\"></section>";
+  const imageSlots = [{ slotId: "img_1", renderType: "ai-image" }];
+  const visualSlots = [{ slotId: "img_1", slideIndex: 0, renderType: "ai-image" }];
 
   const loop = new DesignAgentLoop();
-  const deck = await loop.run(contentPackage, {
-    runContext: { runId: "run_safe_fail", constraints: contentPackage.constraints },
-    toolExecutor,
-    emit: (name, record) => events.push({ name, record }),
-    brainstormResult: { ideaPool: [], selectedIdeas: [], imageSlots: [], candidatesBySlide: [] },
-  });
+  loop.state.contentPackage = contentPackage;
+  loop.state.slideIntents = contentPackage.slideIntents;
+  loop.state.designSystem = designSystem;
+  loop.state.slideHtmls = [slideHtml];
+  loop.state.deckHtmlDsl = slideHtml;
+  loop.state.imageSlots = imageSlots;
+  loop.state.visualSlots = visualSlots;
 
-  assert.equal(deck.editHints.degradedCount, 2);
-  assert.ok(events.some((evt) => evt.name === "design.degraded" && evt.record.payload?.reason === "qa_failed_after_safe"));
+  const serialized = loop.serializeNodeStates();
+  loop.state.contentPackage.runId = "mutated";
+
+  assert.equal(serialized.contentPackage.runId, "run_state");
+  assert.deepEqual(serialized.imageSlots, imageSlots);
+  assert.deepEqual(serialized.visualSlots, visualSlots);
+
+  const restored = new DesignAgentLoop();
+  restored.hydrateFromNodeStates(serialized);
+
+  assert.equal(restored.state.contentPackage.runId, "run_state");
+  assert.deepEqual(restored.state.slideIntents, contentPackage.slideIntents);
+  assert.deepEqual(restored.state.slideHtmls, [slideHtml]);
+  assert.deepEqual(restored.state.imageSlots, imageSlots);
+  assert.deepEqual(restored.state.visualSlots, visualSlots);
+});
+
+test("DesignAgentLoop.backtrackTo restores blackboard version", async () => {
+  const { DesignAgentLoop, BacktrackError } = await import("../../../js/agents/stages/design/agent-loop.js");
+  const { DesignPhase } = await import("../../../js/agents/stages/design/states.js");
+
+  const loop = new DesignAgentLoop();
+  loop.phase = { status: DesignPhase.GENERATING };
+  loop.state.contentPackage = makeContentPackage({ runId: "run_backtrack", slideCount: 1 });
+  loop.saveVersion("v1");
+
+  try {
+    loop.backtrackTo("v1", "test");
+    assert.fail("Expected backtrackTo to throw BacktrackError");
+  } catch (err) {
+    assert.ok(err instanceof BacktrackError);
+    assert.equal(err.targetPhase, DesignPhase.GENERATING);
+    assert.equal(loop.blackboard._currentVersion, "v1");
+  }
 });
 
 test("DesignAgentLoop runs refine when enabled", async () => {
@@ -813,47 +842,47 @@ test("DesignAgentLoop runs refine when enabled", async () => {
   assert.ok(deck.refineReport, "refine report should be present when enabled");
 });
 
-test("DesignAgentLoop skip_review still generates deck", async () => {
-  const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-  const { EventBus } = await import("../../../js/agents/runtime/events/event-bus.js");
+test("resumeDesignAgentLoop skips outline/style tools at deck planning checkpoint", async () => {
+  const { resumeDesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
   const { DesignPhase } = await import("../../../js/agents/stages/design/states.js");
+  const { Archive, MapAdapter } = await import("../../../js/agents/shared/archive/archive.js");
 
-  const contentPackage = makeContentPackage({ slideCount: 1 });
+  const archive = new Archive(new MapAdapter());
+  const contentPackage = makeContentPackage({ runId: "run_resume_planning", slideCount: 1 });
   const designSystem = makeDesignSystem();
-  const eventBus = new EventBus({ runId: "run_skip" });
-  const calls = [];
 
+  const checkpointId = await archive.save(contentPackage.runId, {
+    nodeStates: {
+      phase: DesignPhase.DECK_PLANNING,
+      loopStatus: "running",
+      statusHistory: [],
+      contentPackage,
+      slideIntents: contentPackage.slideIntents,
+      designSystem,
+    },
+    timestamp: Date.now(),
+    metadata: { runId: contentPackage.runId, iteration: 1, type: "pre-action" },
+  });
+
+  const calls = [];
   const toolExecutor = async (name, params) => {
     calls.push(name);
-    if (name === "parse_outline") return { ok: true, data: { contentPackage, slideIntents: contentPackage.slideIntents } };
-    if (name === "extract_style") return { ok: true, data: { designSystem } };
     if (name === "spawn_slide_agent") {
-      const slideHtml = await makeSlideHtml(contentPackage.slideIntents[0], designSystem, contentPackage);
+      const slideHtml = await makeSlideHtml(params.slideIntents[0], designSystem, params.contentPackage);
       return { ok: true, data: { generated: [{ slideHtml, source: "mock" }] } };
     }
     if (name === "fill_visual") return { ok: true, data: { deckHtmlDsl: params.slideHtmls.join("\n\n"), pendingImages: [] } };
     return { ok: false, error: `Unexpected tool: ${name}` };
   };
 
-  const loop = new DesignAgentLoop();
-  const emit = (name, record) => {
-    if (name === "design.phase.transition" && record.payload.to === DesignPhase.GENERATING_PAUSED) {
-      setTimeout(() => eventBus.emit("user.action.resume_generating", { action: "skip_review" }), 0);
-    }
-  };
-
-  const deck = await loop.run(contentPackage, {
-    runContext: { runId: "run_skip", constraints: contentPackage.constraints },
+  const deck = await resumeDesignAgentLoop(checkpointId, {
+    archive,
     toolExecutor,
-    emit,
-    eventBus,
-    pauseGenerating: true,
     brainstormResult: { ideaPool: [], selectedIdeas: [], imageSlots: [], candidatesBySlide: [] },
   });
 
-  assert.equal(deck.slidesMeta.length, 1);
   assert.ok(deck.deckHtmlDsl.includes("<section"));
-  assert.ok(calls.includes("spawn_slide_agent"));
+  assert.deepEqual(calls, ["spawn_slide_agent", "fill_visual"]);
 });
 
 test("DesignAgentLoop saves pre-action checkpoint before executing", async () => {
@@ -865,7 +894,18 @@ test("DesignAgentLoop saves pre-action checkpoint before executing", async () =>
   const archive = new Archive(new MapAdapter());
   const loop = new DesignAgentLoop({ archive });
   const runId = "run_checkpoint";
-  const nodeStates = { slidesMeta: [{ slideNo: 1 }], imageSlots: [{ slotId: "img_1" }] };
+  const contentPackage = makeContentPackage({ runId, slideCount: 1 });
+  const designSystem = makeDesignSystem();
+
+  loop.state.contentPackage = contentPackage;
+  loop.state.slideIntents = contentPackage.slideIntents;
+  loop.state.designSystem = designSystem;
+  loop.state.slideHtmls = ["<section data-type=\"freeform\"></section>"];
+  loop.state.deckHtmlDsl = loop.state.slideHtmls[0];
+  loop.state.imageSlots = [{ slotId: "img_state" }];
+  loop.state.visualSlots = [{ slotId: "vis_state" }];
+
+  const nodeStates = { slidesMeta: [{ slideNo: 1 }], imageSlots: [{ slotId: "img_override" }] };
 
   loop.phase = { status: DesignPhase.REVIEWING };
 
@@ -879,7 +919,14 @@ test("DesignAgentLoop saves pre-action checkpoint before executing", async () =>
   assert.equal(snapshot.nodeStates.phase, DesignPhase.REVIEWING);
   assert.equal(snapshot.nodeStates.loopStatus, AgentStatus.IDLE);
   assert.deepEqual(snapshot.nodeStates.slidesMeta, nodeStates.slidesMeta);
+  // nodeStates override serialized values for conflicts
   assert.deepEqual(snapshot.nodeStates.imageSlots, nodeStates.imageSlots);
+  assert.deepEqual(snapshot.nodeStates.contentPackage, contentPackage);
+  assert.deepEqual(snapshot.nodeStates.slideIntents, contentPackage.slideIntents);
+  assert.deepEqual(snapshot.nodeStates.designSystem, designSystem);
+  assert.deepEqual(snapshot.nodeStates.slideHtmls, loop.state.slideHtmls);
+  assert.equal(snapshot.nodeStates.deckHtmlDsl, loop.state.deckHtmlDsl);
+  assert.deepEqual(snapshot.nodeStates.visualSlots, loop.state.visualSlots);
   assert.ok(Array.isArray(snapshot.nodeStates.statusHistory));
 });
 

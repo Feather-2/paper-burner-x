@@ -20,6 +20,8 @@ export const DesignPhase = Object.freeze({
   STYLE_CONFIRMING: "style_confirming",
   DECK_PLANNING: "deck_planning",
   PLAN_CONFIRMING: "plan_confirming",
+  LAYOUT_ANALYZING: "layout_analyzing",    // 布局分析
+  LAYOUT_GENERATING: "layout_generating",  // 布局生成
   LAYOUT_DEVELOPING: "layout_developing",  // 布局/原型生成
   LAYOUT_CONFIRMING: "layout_confirming",  // 布局确认
   GENERATING: "generating",
@@ -136,8 +138,9 @@ function createSimpleMachine(validStates, transitions = null) {
   const stateSet = new Set(Object.values(validStates));
   const transitionMap = transitions ? new Map(Object.entries(transitions)) : null;
   return {
-    canTransition: (from, to) => {
+    canTransition(from, to) {
       if (!stateSet.has(to)) return false;
+      if (from === to) return true;
       // 如果定义了转换规则，则严格验证
       if (transitionMap && from) {
         const allowed = transitionMap.get(from);
@@ -145,8 +148,14 @@ function createSimpleMachine(validStates, transitions = null) {
       }
       return true; // 无规则时允许任意转换
     },
-    transition: (state, next, meta) => {
-      if (!stateSet.has(next)) return false;
+    transition(state, next, meta) {
+      const from =
+        meta && typeof meta === "object" && typeof meta.from === "string"
+          ? meta.from
+          : (state && typeof state === "object" && typeof state.status === "string" ? state.status : null);
+      if (!this.canTransition(from, next)) {
+        throw new Error(`Invalid state transition: ${from || "null"} -> ${next}`);
+      }
       if (state && typeof state === "object") {
         state.status = next;
       }
@@ -161,17 +170,39 @@ const DESIGN_PHASE_VALID_TRANSITIONS = {
   [DesignPhase.OUTLINE_PARSING]: [DesignPhase.OUTLINE_CONFIRMING, DesignPhase.FAILED],
   [DesignPhase.OUTLINE_CONFIRMING]: [DesignPhase.STYLE_EXTRACTING, DesignPhase.OUTLINE_PARSING, DesignPhase.FAILED],
   [DesignPhase.STYLE_EXTRACTING]: [DesignPhase.STYLE_CONFIRMING, DesignPhase.FAILED],
-  [DesignPhase.STYLE_CONFIRMING]: [DesignPhase.DECK_PLANNING, DesignPhase.STYLE_EXTRACTING, DesignPhase.FAILED],
+  [DesignPhase.STYLE_CONFIRMING]: [DesignPhase.DECK_PLANNING, DesignPhase.GENERATING, DesignPhase.STYLE_EXTRACTING, DesignPhase.FAILED],
   [DesignPhase.DECK_PLANNING]: [DesignPhase.PLAN_CONFIRMING, DesignPhase.FAILED],
-  [DesignPhase.PLAN_CONFIRMING]: [DesignPhase.LAYOUT_DEVELOPING, DesignPhase.GENERATING, DesignPhase.DECK_PLANNING, DesignPhase.FAILED],
+  [DesignPhase.PLAN_CONFIRMING]: [
+    DesignPhase.LAYOUT_ANALYZING,
+    DesignPhase.LAYOUT_GENERATING,
+    DesignPhase.LAYOUT_DEVELOPING,
+    DesignPhase.GENERATING,
+    DesignPhase.DECK_PLANNING,
+    DesignPhase.FAILED,
+  ],
+  [DesignPhase.LAYOUT_ANALYZING]: [DesignPhase.LAYOUT_GENERATING, DesignPhase.LAYOUT_CONFIRMING, DesignPhase.FAILED],
+  [DesignPhase.LAYOUT_GENERATING]: [DesignPhase.LAYOUT_CONFIRMING, DesignPhase.FAILED],
   [DesignPhase.LAYOUT_DEVELOPING]: [DesignPhase.LAYOUT_CONFIRMING, DesignPhase.FAILED],
-  [DesignPhase.LAYOUT_CONFIRMING]: [DesignPhase.GENERATING, DesignPhase.LAYOUT_DEVELOPING, DesignPhase.FAILED],
-  [DesignPhase.GENERATING]: [DesignPhase.GENERATING_PAUSED, DesignPhase.REVIEWING, DesignPhase.VISUAL_FILLING, DesignPhase.COMPLETED, DesignPhase.FAILED],
+  [DesignPhase.LAYOUT_CONFIRMING]: [
+    DesignPhase.GENERATING,
+    DesignPhase.LAYOUT_ANALYZING,
+    DesignPhase.LAYOUT_GENERATING,
+    DesignPhase.LAYOUT_DEVELOPING,
+    DesignPhase.FAILED,
+  ],
+  [DesignPhase.GENERATING]: [
+    DesignPhase.GENERATING_PAUSED,
+    DesignPhase.REPAIR,
+    DesignPhase.REVIEWING,
+    DesignPhase.VISUAL_FILLING,
+    DesignPhase.COMPLETED,
+   b DesignPhase.FAILED,
+  ],
   [DesignPhase.GENERATING_PAUSED]: [DesignPhase.GENERATING, DesignPhase.FAILED],
   [DesignPhase.REVIEWING]: [DesignPhase.FIXING, DesignPhase.VISUAL_FILLING, DesignPhase.COMPLETED, DesignPhase.FAILED],
   [DesignPhase.FIXING]: [DesignPhase.REVIEWING, DesignPhase.REPAIR, DesignPhase.FAILED],
-  [DesignPhase.REPAIR]: [DesignPhase.REVIEWING, DesignPhase.FAILED],
-  [DesignPhase.VISUAL_FILLING]: [DesignPhase.COMPLETED, DesignPhase.FAILED],
+  [DesignPhase.REPAIR]: [DesignPhase.VISUAL_FILLING, DesignPhase.REVIEWING, DesignPhase.FAILED],
+  [DesignPhase.VISUAL_FILLING]: [DesignPhase.REVIEWING, DesignPhase.COMPLETED, DesignPhase.FAILED],
   [DesignPhase.COMPLETED]: [DesignPhase.EDITING],
   [DesignPhase.FAILED]: [DesignPhase.IDLE],
   [DesignPhase.EDITING]: [DesignPhase.COMPLETED, DesignPhase.FAILED],

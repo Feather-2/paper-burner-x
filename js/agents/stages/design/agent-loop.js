@@ -100,6 +100,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
       slideHtmls: [],
       slidesMeta: [],
       imageSlots: [],
+      visualSlots: [],
       deckHtmlDsl: "",
       pendingImages: [],
       brainstormResult: null,
@@ -183,6 +184,54 @@ export class DesignAgentLoop extends BaseAgentLoop {
 
   getToolDefinitions() {
     return DESIGN_AGENT_TOOL_DEFINITIONS.slice();
+  }
+
+  serializeNodeStates() {
+    const state = this.state && typeof this.state === "object" ? this.state : {};
+    const out = {
+      contentPackage: state.contentPackage ?? null,
+      slideIntents: Array.isArray(state.slideIntents) ? state.slideIntents : [],
+      designSystem: state.designSystem ?? null,
+      slideHtmls: Array.isArray(state.slideHtmls) ? state.slideHtmls : [],
+      deckHtmlDsl: typeof state.deckHtmlDsl === "string" ? state.deckHtmlDsl : "",
+      imageSlots: Array.isArray(state.imageSlots) ? state.imageSlots : [],
+      visualSlots: Array.isArray(state.visualSlots) ? state.visualSlots : [],
+    };
+    return deepClone(out);
+  }
+
+  hydrateFromNodeStates(nodeStates) {
+    const source = nodeStates && typeof nodeStates === "object" ? nodeStates : {};
+    if (!this.state || typeof this.state !== "object") this.state = {};
+
+    const contentPackage = source.contentPackage || source.parsedContentPackage || null;
+    if (contentPackage && typeof contentPackage === "object") {
+      this.state.contentPackage = deepClone(contentPackage);
+    }
+
+    if (Array.isArray(source.slideIntents)) {
+      this.state.slideIntents = deepClone(source.slideIntents);
+    }
+
+    if (source.designSystem && typeof source.designSystem === "object") {
+      this.state.designSystem = deepClone(source.designSystem);
+    }
+
+    if (Array.isArray(source.slideHtmls)) {
+      this.state.slideHtmls = deepClone(source.slideHtmls);
+    }
+
+    if (typeof source.deckHtmlDsl === "string") {
+      this.state.deckHtmlDsl = source.deckHtmlDsl;
+    }
+
+    if (Array.isArray(source.imageSlots)) {
+      this.state.imageSlots = deepClone(source.imageSlots);
+    }
+
+    if (Array.isArray(source.visualSlots)) {
+      this.state.visualSlots = deepClone(source.visualSlots);
+    }
   }
 
 
@@ -277,11 +326,16 @@ export class DesignAgentLoop extends BaseAgentLoop {
     if (!this.archive) return null;
     const meta = metadata && typeof metadata === "object" ? metadata : {};
     const { nodeStates, ...metadataRest } = meta;
+    const serialized = this.serializeNodeStates();
+    const mergedNodeStates = {
+      ...(serialized && typeof serialized === "object" ? serialized : {}),
+      ...(nodeStates && typeof nodeStates === "object" ? nodeStates : {}),
+    };
     const state = {
       phase: this.phase?.status,
       loopStatus: this._loopStatus,
       statusHistory: this._statusHistory.map((entry) => ({ ...entry })),
-      ...(nodeStates && typeof nodeStates === "object" ? nodeStates : {}),
+      ...mergedNodeStates,
     };
 
     const checkpoint = createCheckpoint(state, {
@@ -320,6 +374,9 @@ export class DesignAgentLoop extends BaseAgentLoop {
     imageSlots,
     aiImageSlotIds
   ) {
+    if (this.state && typeof this.state === "object") {
+      this.state.visualSlots = Array.isArray(visualSlotsForRender) ? deepClone(visualSlotsForRender) : [];
+    }
     return this._visualHandler.renderVisuals(
       visualSlotsForRender,
       contentPackage,
@@ -552,7 +609,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
           designSystem: this.state.designSystem,
           contentPackage: this.state.contentPackage,
           baseDeckHtmlDsl: this.state.baseDeckHtmlDsl
-        }, context);
+        }, { context, runContext, emit });
 
         this.state.deckHtmlDsl = repairResult.deckHtmlDsl;
         this.state.slidesMeta = repairResult.slidesMeta;
@@ -586,9 +643,11 @@ export class DesignAgentLoop extends BaseAgentLoop {
         this.state.visualReport = visualPhaseResult.visualReport;
         this.state.imageReport = visualPhaseResult.imageReport;
         this.state.refineResult = visualPhaseResult.refineResult;
+        this.state.pendingImages = visualPhaseResult.pendingImages;
 
         // --- 7. Final Review Phase (Optional final audit) ---
-        if (context?.enableFinalReview === true) {
+        const skipReview = context?.skipReview === true || context?.interactionMode?.finalReview === "skip";
+        if (context?.enableFinalReview === true && !skipReview) {
           this._transitionPhase(this.phase, DesignPhase.REVIEWING, { emit, runId: runId });
           const finalReviewResult = await runReviewPhase(this, {
             deckHtmlDsl: this.state.deckHtmlDsl,
@@ -696,7 +755,8 @@ export async function resumeDesignAgentLoop(checkpointId, stageApi = {}) {
   const restoredPhase = nodeStates.phase || DesignPhase.IDLE;
 
   agentLoop._loopStatus = AgentStatus.IDLE;
-  agentLoop.phase = { status: restoredPhase };
+  // Start from a valid "forward" phase to avoid illegal transitions when resuming.
+  agentLoop.phase = { status: DesignPhase.IDLE };
   if (Array.isArray(nodeStates.statusHistory)) {
     agentLoop._statusHistory = nodeStates.statusHistory.map((entry) => ({ ...entry }));
   }
@@ -704,18 +764,21 @@ export async function resumeDesignAgentLoop(checkpointId, stageApi = {}) {
   agentLoop._pauseRequested = false;
   agentLoop._pauseReason = null;
 
+  agentLoop.hydrateFromNodeStates(nodeStates);
+
   const resumeState = {
     phase: restoredPhase,
     loopStatus: restoredLoopStatus,
-    contentPackage: nodeStates.contentPackage || nodeStates.parsedContentPackage || null,
+    contentPackage: agentLoop.state?.contentPackage || null,
     parsedContentPackage: nodeStates.parsedContentPackage || null,
-    slideIntents: Array.isArray(nodeStates.slideIntents) ? nodeStates.slideIntents : null,
-    designSystem: nodeStates.designSystem || null,
+    slideIntents: Array.isArray(agentLoop.state?.slideIntents) ? agentLoop.state.slideIntents : null,
+    designSystem: agentLoop.state?.designSystem || null,
     generated: Array.isArray(nodeStates.generated) ? nodeStates.generated : null,
-    slideHtmls: Array.isArray(nodeStates.slideHtmls) ? nodeStates.slideHtmls : null,
-    deckHtmlDsl: typeof nodeStates.deckHtmlDsl === "string" ? nodeStates.deckHtmlDsl : "",
+    slideHtmls: Array.isArray(agentLoop.state?.slideHtmls) ? agentLoop.state.slideHtmls : null,
+    deckHtmlDsl: typeof agentLoop.state?.deckHtmlDsl === "string" ? agentLoop.state.deckHtmlDsl : "",
     slidesMeta: Array.isArray(nodeStates.slidesMeta) ? nodeStates.slidesMeta : null,
-    imageSlots: Array.isArray(nodeStates.imageSlots) ? nodeStates.imageSlots : null,
+    imageSlots: Array.isArray(agentLoop.state?.imageSlots) ? agentLoop.state.imageSlots : null,
+    visualSlots: Array.isArray(agentLoop.state?.visualSlots) ? agentLoop.state.visualSlots : null,
     imageReport: nodeStates.imageReport || null,
     visualReport: nodeStates.visualReport || null,
     pendingImages: Array.isArray(nodeStates.pendingImages) ? nodeStates.pendingImages : null,
@@ -731,6 +794,9 @@ export async function resumeDesignAgentLoop(checkpointId, stageApi = {}) {
   if (!contentPackage || typeof contentPackage !== "object") {
     throw new Error(`Checkpoint missing contentPackage: ${checkpointId}`);
   }
+  if (agentLoop.state && typeof agentLoop.state === "object" && !agentLoop.state.contentPackage) {
+    agentLoop.state.contentPackage = deepClone(contentPackage);
+  }
 
   const runIdFromMeta = snapshot?.metadata?.runId;
   const resolvedRunId =
@@ -744,13 +810,20 @@ export async function resumeDesignAgentLoop(checkpointId, stageApi = {}) {
   const phaseRank = {
     [DesignPhase.IDLE]: 0,
     [DesignPhase.OUTLINE_PARSING]: 1,
-    [DesignPhase.OUTLINE_CONFIRMING]: 2,
-    [DesignPhase.STYLE_EXTRACTING]: 3,
-    [DesignPhase.STYLE_CONFIRMING]: 4,
+    [DesignPhase.OUTLINE_CONFIRMING]: 1,
+    [DesignPhase.STYLE_EXTRACTING]: 1,
+    [DesignPhase.STYLE_CONFIRMING]: 2,
+    [DesignPhase.DECK_PLANNING]: 2,
+    [DesignPhase.PLAN_CONFIRMING]: 2,
+    [DesignPhase.LAYOUT_ANALYZING]: 3,
+    [DesignPhase.LAYOUT_GENERATING]: 4,
+    [DesignPhase.LAYOUT_DEVELOPING]: 4,
+    [DesignPhase.LAYOUT_CONFIRMING]: 4,
     [DesignPhase.GENERATING]: 5,
     [DesignPhase.GENERATING_PAUSED]: 5,
     [DesignPhase.REVIEWING]: 6,
     [DesignPhase.FIXING]: 6,
+    [DesignPhase.REPAIR]: 6,
     [DesignPhase.VISUAL_FILLING]: 7,
     [DesignPhase.COMPLETED]: 8,
     [DesignPhase.EDITING]: 8,

@@ -186,12 +186,15 @@ export class VisualSubAgent {
     });
 
     let aiImageSlots = resolved.filter((s) => s.renderType === "ai-image");
-    let svgSlots = resolved.filter((s) => s.renderType === "svg").map(ensureSvgSpec);
+    let svgSlots = resolved.filter((s) => s.renderType === "svg");
+    for (const slot of svgSlots) Object.assign(slot, ensureSvgSpec(slot));
     let assetSlots = resolved.filter((s) => s.renderType === "asset");
 
     if (!imageGenerator && svgGenerator && aiImageSlots.length) {
       for (const slot of aiImageSlots) {
-        svgSlots.push(ensureSvgSpec({ ...slot, renderType: "svg" }));
+        slot.renderType = "svg";
+        Object.assign(slot, ensureSvgSpec(slot));
+        svgSlots.push(slot);
       }
       aiImageSlots = [];
     }

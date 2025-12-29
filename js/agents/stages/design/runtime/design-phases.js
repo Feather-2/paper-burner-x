@@ -281,7 +281,6 @@ export async function runGeneratingPhase(loop, {
   startExecution,
   finishExecution,
   emitDeckUpdate,
-  skipReview,
 }) {
   const modelRouter = context?.modelRouter ?? context?.runContext?.modelRouter ?? null;
 
@@ -360,15 +359,9 @@ export async function runGeneratingPhase(loop, {
   emitStage(emit, "design.generate.ended", "ended", { slides: generated.length });
   checkCancelled(generatingContext.signal);
 
-  if (!skipReview) {
-    loop._transitionPhase(loop.phase, DesignPhase.REVIEWING, { emit, runId: runContext.runId });
-  }
   await finishExecution("generating", loopIteration, stepInfo);
 
-  // Perform Health Check (Initial QA + Style Alignment Check)
-  loop._transitionPhase(loop.phase, DesignPhase.REVIEWING, { emit, runId: runContext.runId });
-
-  // Update state with generated HTMLs for the tools to see
+  // Perform Health Check (Initial QA)
   const initialHtmls = generated.map(g => g.slideHtml);
   const initialMeta = slideIntents.map((intent, i) => ({
     slideNo: i + 1,
@@ -377,6 +370,12 @@ export async function runGeneratingPhase(loop, {
     title: intent.title,
     qa: validateSlide(initialHtmls[i])
   }));
+  const degradedCount = initialMeta.filter(m => !m.qa?.pass).length;
+
+  emitStage(emit, "design.qa.ended", "ended", {
+    slides: initialMeta.length,
+    degradedCount,
+  });
 
   return {
     generated,
@@ -386,7 +385,7 @@ export async function runGeneratingPhase(loop, {
     brainstormResult,
     pendingImages,
     baseDeckHtmlDsl: initialHtmls.join("\n\n"),
-    degradedCount: initialMeta.filter(m => !m.qa?.pass).length,
+    degradedCount,
   };
 }
 
@@ -526,6 +525,15 @@ export async function runVisualPhase(loop, {
     })
     .map((s) => s.slotId);
 
+  // Emit render started event when imageProvider is available
+  if (imageProvider) {
+    emitStage(emit, "design.visual.render.started", "started", {
+      runId: runContext.runId,
+      slotCount: visualSlotsForRender.length,
+      aiImageSlotCount: aiImageSlotIds.length,
+    });
+  }
+
   const fillResult = await loop._callTool(
     "fill_visual",
     {
@@ -549,6 +557,15 @@ export async function runVisualPhase(loop, {
   deckHtmlDsl = fillData.deckHtmlDsl ?? deckHtmlDsl;
   pendingImages = fillData.pendingImages ?? pendingImages;
   emitDeckUpdate(deckHtmlDsl, slidesMeta, { source: "visual_fill" });
+
+  // Emit render completed event when imageProvider was used
+  if (imageProvider) {
+    emitStage(emit, "design.visual.render.completed", "completed", {
+      runId: runContext.runId,
+      imageReport,
+      visualReport,
+    });
+  }
 
   // Refine if enabled
   if (userConfig?.refine?.enabled) {

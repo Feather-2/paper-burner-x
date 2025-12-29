@@ -8,6 +8,7 @@ import {
   isPlainObject,
   toNonEmptyString,
   parseSections,
+  clearParseCache,
   joinSections,
   extractElements,
 } from "../shared/design-utils.js";
@@ -32,6 +33,24 @@ function escapeAttrSelectorValue(value) {
 }
 
 const TOOL_OPTIONS = Symbol("reactRefinerToolOptions");
+
+const SCREENSHOT_CONCURRENCY = (() => {
+  // Priority: localStorage > env > default
+  try {
+    const raw = typeof localStorage !== "undefined" ? localStorage.getItem("ppt_screenshotConcurrency") : null;
+    const n = raw ? parseInt(raw, 10) : 0;
+    if (n > 0) return n;
+  } catch { }
+  const env = typeof process !== "undefined" ? process.env : {};
+  const n = parseInt(env.SCREENSHOT_CONCURRENCY || env.DESIGN_SCREENSHOT_CONCURRENCY, 10);
+  return n > 0 ? n : 3;
+})();
+
+function clampPositiveInt(v, fallback) {
+  const n = typeof v === "number" && Number.isFinite(v) ? Math.floor(v) : safeIntLike(v);
+  if (n === null || n <= 0) return fallback;
+  return n;
+}
 
 async function parseSectionDom(sectionHtml) {
   const html = typeof sectionHtml === "string" ? sectionHtml : "";
@@ -225,16 +244,43 @@ async function screenshotAll(context, params) {
     if (!sections.length) return { success: false, error: "screenshotAll: deckHtmlDsl contains no <section> slides" };
 
     const scale = Number.isFinite(params?.scale) ? params.scale : 1; // 缩略图用较小 scale
-    const results = [];
+    const concurrency = Math.min(sections.length, clampPositiveInt(params?.concurrency, SCREENSHOT_CONCURRENCY));
+    const results = new Array(sections.length);
 
-    for (let i = 0; i < sections.length; i++) {
-      const result = await screenshot(context, { slideIndex: i, scale });
-      results.push({
-        slideIndex: i,
-        base64: result.success ? result.data?.base64 : null,
-        error: result.success ? null : result.error,
-        mock: result.data?.mock || false,
-      });
+    let nextIndex = 0;
+    const workers = Array.from({ length: Math.max(1, concurrency) }, async () => {
+      while (true) {
+        const i = nextIndex++;
+        if (i >= sections.length) break;
+        try {
+          const result = await screenshot(context, { slideIndex: i, scale });
+          results[i] = {
+            slideIndex: i,
+            base64: result.success ? result.data?.base64 : null,
+            error: result.success ? null : result.error,
+            mock: result.data?.mock || false,
+          };
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e || "Unknown error");
+          results[i] = { slideIndex: i, base64: null, error: `screenshotAll: ${msg}`, mock: true };
+        }
+      }
+    });
+    await Promise.all(workers);
+
+    // Optional: stitch screenshots into a small set of overview grids (token saver).
+    let overview = null;
+    if (params?.stitch) {
+      try {
+        const { createDeckOverview } = await import("../runtime/screenshot-stitcher.js");
+        overview = await createDeckOverview(
+          results.map((r) => (r && typeof r.base64 === "string" ? r.base64 : null)),
+          isPlainObject(params?.stitchOptions) ? params.stitchOptions : {}
+        );
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e || "Unknown error");
+        overview = { error: `stitch failed: ${msg}` };
+      }
     }
 
     return {
@@ -242,6 +288,7 @@ async function screenshotAll(context, params) {
       data: {
         slideCount: sections.length,
         screenshots: results,
+        ...(overview ? { overview } : {}),
         note: "Use these thumbnails to assess visual quality, style consistency, and identify issues.",
       },
     };
@@ -310,6 +357,7 @@ async function editSlide(context, params) {
     const nextDeckHtmlDsl = joinSections(sections);
     if (!context.deckPackage) context.deckPackage = {};
     context.deckPackage.deckHtmlDsl = nextDeckHtmlDsl;
+    clearParseCache();
 
     return {
       success: true,
@@ -378,6 +426,7 @@ async function editElement(context, params) {
     const nextDeckHtmlDsl = joinSections(sections);
     if (!context.deckPackage) context.deckPackage = {};
     context.deckPackage.deckHtmlDsl = nextDeckHtmlDsl;
+    clearParseCache();
 
     return {
       success: true,

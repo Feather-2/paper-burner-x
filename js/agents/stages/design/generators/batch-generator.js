@@ -621,6 +621,16 @@ export async function generateBatch(slideIntents, contentPackage, designSystemOr
   const out = new Array(intents.length);
   const batchList = chunkIndexes(intents.length, batchSize);
 
+  // Pre-index image slots by slideIndex (hot path: avoid O(slides * slots) filtering).
+  const slotsBySlide = new Map();
+  for (const slot of imageSlots) {
+    const idx = slot?.slideIndex;
+    if (typeof idx !== "number" || !Number.isFinite(idx)) continue;
+    const existing = slotsBySlide.get(idx);
+    if (existing) existing.push(slot);
+    else slotsBySlide.set(idx, [slot]);
+  }
+
   // Process batches with concurrency limit
   const limiter = createLimiter(batchConcurrency);
   await Promise.all(batchList.map((slideIndexes, batchIndex) => limiter(async () => {
@@ -632,7 +642,7 @@ export async function generateBatch(slideIntents, contentPackage, designSystemOr
     await Promise.all(
       slideIndexes.map(async (slideIndex) => {
         const slideIntent = intents[slideIndex];
-        const imageSlotsForSlide = imageSlots.filter((s) => s.slideIndex === slideIndex);
+        const imageSlotsForSlide = slotsBySlide.get(slideIndex) || [];
 
         const t0 = nowMs();
         safeEmit(emit, "design.slide.started", "started", {

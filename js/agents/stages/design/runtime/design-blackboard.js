@@ -126,6 +126,15 @@ export class DesignBlackboard {
     return this._versions.map((v) => ({ label: v.label, timestamp: v.timestamp }));
   }
 
+  restoreVersion(versionId) {
+    const label = toNonEmptyString(versionId);
+    if (!label) return null;
+    const version = this.getVersion(label);
+    if (!version) return null;
+    this._currentVersion = version.label;
+    return version.snapshot ?? null;
+  }
+
   // ===== Blackboard Prompt =====
 
   buildBlackboardPrompt({ maxSignals = 5, maxDecisions = 3 } = {}) {

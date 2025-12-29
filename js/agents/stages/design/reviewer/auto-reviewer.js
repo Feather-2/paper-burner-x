@@ -149,9 +149,9 @@ function checkFontConsistency(context) {
   const tokens = designSystem?.designTokens || designSystem?.tokens || designSystem || {};
   const expectedFonts = new Set();
 
-  if (tokens.fontFamily) expectedFonts.add(tokens.fontFamily.toLowerCase());
-  if (tokens.typography?.headingFont) expectedFonts.add(tokens.typography.headingFont.toLowerCase());
-  if (tokens.typography?.bodyFont) expectedFonts.add(tokens.typography.bodyFont.toLowerCase());
+  if (typeof tokens.fontFamily === 'string') expectedFonts.add(tokens.fontFamily.toLowerCase());
+  if (typeof tokens.typography?.headingFont === 'string') expectedFonts.add(tokens.typography.headingFont.toLowerCase());
+  if (typeof tokens.typography?.bodyFont === 'string') expectedFonts.add(tokens.typography.bodyFont.toLowerCase());
 
   for (const slide of allDsl) {
     const fontMatches = slide.html.matchAll(/font-family:\s*([^;'"]+)/gi);

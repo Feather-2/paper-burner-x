@@ -7,6 +7,29 @@
 import { generateBatch } from "./generators/batch-generator.js";
 import { getEmitFn } from "../../runtime/core/agent-loop.js";
 
+function normalizeToolParams(toolName, params, state) {
+  const normalized = params && typeof params === "object" ? { ...params } : {};
+
+  if (toolName === "fill_visual") {
+    const hasSlotsForRender = Array.isArray(normalized.visualSlotsForRender);
+    const hasSlots = Array.isArray(normalized.visualSlots);
+    if (!hasSlotsForRender && hasSlots) {
+      normalized.visualSlotsForRender = normalized.visualSlots;
+    }
+  }
+
+  if (toolName === "fix_slide") {
+    if (normalized.currentHtml == null && typeof state?.deckHtmlDsl === "string") {
+      normalized.currentHtml = state.deckHtmlDsl;
+    }
+    if (normalized.designSystem == null && state?.designSystem != null) {
+      normalized.designSystem = state.designSystem;
+    }
+  }
+
+  return normalized;
+}
+
 /**
  * 工具定义 (给模型选择用)
  */
@@ -151,7 +174,8 @@ export function createDesignToolHandlers(agentLoop) {
     },
 
     fix_slide: async (params = {}, context = {}) => {
-      const { slideIndex, slideIntent, currentHtml, issues, designSystem, contentPackage } = params;
+      const normalized = normalizeToolParams("fix_slide", params, agentLoop?.state);
+      const { slideIndex, currentHtml, issues, designSystem } = normalized;
       const { runSingleSlideRepair } = await import("./refiner/batch-repair-agent.js");
       const fixed = await runSingleSlideRepair(
         { slideIndex, currentHtml, issues, designSystem },
@@ -161,16 +185,17 @@ export function createDesignToolHandlers(agentLoop) {
     },
 
     fill_visual: async (params = {}, context = {}) => {
+      const normalized = normalizeToolParams("fill_visual", params, agentLoop?.state);
       return agentLoop._renderVisuals(
-        Array.isArray(params.visualSlotsForRender) ? params.visualSlotsForRender : [],
-        params.contentPackage || null,
-        params.designSystem || null,
-        Array.isArray(params.slideHtmls) ? params.slideHtmls : [],
+        Array.isArray(normalized.visualSlotsForRender) ? normalized.visualSlotsForRender : [],
+        normalized.contentPackage || null,
+        normalized.designSystem || null,
+        Array.isArray(normalized.slideHtmls) ? normalized.slideHtmls : [],
         context,
-        params.runContext || {},
-        params.constraints || {},
-        Array.isArray(params.imageSlots) ? params.imageSlots : [],
-        Array.isArray(params.aiImageSlotIds) ? params.aiImageSlotIds : []
+        normalized.runContext || {},
+        normalized.constraints || {},
+        Array.isArray(normalized.imageSlots) ? normalized.imageSlots : [],
+        Array.isArray(normalized.aiImageSlotIds) ? normalized.aiImageSlotIds : []
       );
     },
 

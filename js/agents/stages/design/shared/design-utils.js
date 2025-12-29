@@ -37,10 +37,12 @@ export function nowMs() {
 }
 
 /**
- * Safely parses a number, returning null if invalid.
+ * Safely parses a number, returning fallback if invalid.
+ * @param {*} n - value to parse
+ * @param {*} [fallback=null] - value to return if n is not a finite number
  */
-export function safeNumber(n) {
-    return typeof n === "number" && Number.isFinite(n) ? n : null;
+export function safeNumber(n, fallback = null) {
+    return typeof n === "number" && Number.isFinite(n) ? n : fallback;
 }
 
 /**
@@ -53,9 +55,25 @@ export function safeInt(n) {
 /**
  * Parses deckHtmlDsl into an array of <section> HTML strings.
  */
+const PARSE_SECTIONS_CACHE_LIMIT = 32;
+const parseSectionsCache = new Map();
+
+/**
+ * Clears the internal parseSections cache.
+ *
+ * Useful when callers mutate parsed section arrays and/or when the deck is
+ * frequently regenerated (to avoid holding old deck strings in memory).
+ */
+export function clearParseCache() {
+    parseSectionsCache.clear();
+}
+
 export function parseSections(deckHtmlDsl) {
     const html = typeof deckHtmlDsl === "string" ? deckHtmlDsl : "";
     if (!html) return [];
+
+    const cached = parseSectionsCache.get(html);
+    if (cached) return cached.slice();
 
     const lower = html.toLowerCase();
     const sections = [];
@@ -72,7 +90,17 @@ export function parseSections(deckHtmlDsl) {
         cursor = end;
     }
 
-    return sections;
+    // Store the parsed array in cache, but always return a shallow copy so
+    // callers can freely mutate their returned array (e.g., edit workflows)
+    // without corrupting cache entries.
+    parseSectionsCache.set(html, sections);
+    if (parseSectionsCache.size > PARSE_SECTIONS_CACHE_LIMIT) {
+        // Best-effort FIFO eviction to avoid unbounded growth.
+        const firstKey = parseSectionsCache.keys().next().value;
+        if (firstKey !== undefined) parseSectionsCache.delete(firstKey);
+    }
+
+    return sections.slice();
 }
 
 /**
