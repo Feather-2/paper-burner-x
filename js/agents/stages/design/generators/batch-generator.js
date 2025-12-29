@@ -3,6 +3,11 @@ import { robustParseJson } from "../../../shared/utils/robust-json.js";
 import { VisualDataStatus } from "../constants.js";
 import { buildSlideHtml } from "../dsl/dsl-builder.js";
 
+// === 可配置常量 ===
+const BATCH_GENERATOR_DEFAULTS = {
+  maxContentLength: 800, // markdown 截断长度
+};
+
 /**
  * Simple concurrency limiter (pLimit-style).
  * @param {number} concurrency Max concurrent tasks
@@ -169,9 +174,9 @@ function normalizeSlideIntentContentForPrompt(slideIntent) {
   }
 
   // Limit content length to prevent text overflow in slides
-  // Keep first 800 chars max - LLM should summarize, not copy verbatim
-  if (markdown.length > 800) {
-    markdown = markdown.slice(0, 800) + "\n...(content truncated, summarize key points only)";
+  const maxLen = BATCH_GENERATOR_DEFAULTS.maxContentLength;
+  if (markdown.length > maxLen) {
+    markdown = markdown.slice(0, maxLen) + "\n...(content truncated, summarize key points only)";
   }
 
   return { content: content || null, contentMarkdown: markdown };
@@ -249,6 +254,37 @@ function buildPatchedPlaceholder(tag, innerHtml, hint) {
   return `<div ${attrPairs.join(" ")}>${innerHtml}</div>`;
 }
 
+/**
+ * ReDoS-safe: 迭代查找 image-placeholder div，避免 [^>]* 正则
+ */
+function findImagePlaceholders(html) {
+  const results = [];
+  let pos = 0;
+  while (pos < html.length) {
+    const divStart = html.toLowerCase().indexOf("<div", pos);
+    if (divStart === -1) break;
+    const tagEnd = html.indexOf(">", divStart);
+    if (tagEnd === -1) break;
+    const openTag = html.slice(divStart, tagEnd + 1);
+    const tagLower = openTag.toLowerCase();
+    if (tagLower.includes('data-el="image-placeholder"') || tagLower.includes("data-el='image-placeholder'")) {
+      const isSelfClosing = openTag.trimEnd().endsWith("/>");
+      if (isSelfClosing) {
+        results.push({ start: divStart, end: tagEnd + 1, openTag, inner: "", isSelfClosing: true });
+      } else {
+        const closeTag = "</div>";
+        const closeIdx = html.toLowerCase().indexOf(closeTag, tagEnd);
+        if (closeIdx !== -1) {
+          const inner = html.slice(tagEnd + 1, closeIdx);
+          results.push({ start: divStart, end: closeIdx + closeTag.length, openTag, inner, isSelfClosing: false });
+        }
+      }
+    }
+    pos = tagEnd + 1;
+  }
+  return results;
+}
+
 function applyVisualSlotHintsToSlideHtml(slideHtml, imageSlotsForSlide = [], slotHintsBySlotId) {
   const html = typeof slideHtml === "string" ? slideHtml : "";
   const slots = Array.isArray(imageSlotsForSlide) ? imageSlotsForSlide : [];
@@ -260,30 +296,24 @@ function applyVisualSlotHintsToSlideHtml(slideHtml, imageSlotsForSlide = [], slo
   const slotById = new Map(slots.map((s) => [toNonEmptyString(s?.slotId), s]).filter((row) => row[0]));
   const seen = new Set();
 
-  const placeholderRe = /<div\b[^>]*\bdata-el=(["'])image-placeholder\1[^>]*>([\s\S]*?)<\/div>/gi;
-  const patched = html.replace(placeholderRe, (match, _q, inner) => {
-    const tagMatch = match.match(/^<div\b[^>]*>/i);
-    if (!tagMatch) return match;
-    const attrs = parseTagAttributes(tagMatch[0]);
+  // ReDoS-safe: 使用迭代字符串解析替代 [^>]* 正则
+  const placeholders = findImagePlaceholders(html);
+  let patched2 = html;
+  // 从后向前替换，避免偏移量变化
+  for (let i = placeholders.length - 1; i >= 0; i--) {
+    const { start, end, openTag, inner, isSelfClosing } = placeholders[i];
+    const attrs = parseTagAttributes(openTag);
     const slotId = toNonEmptyString(attrs["data-slot-id"]) || toNonEmptyString(attrs.id);
-    if (!slotId || !needed.has(slotId)) return match;
+    if (!slotId || !needed.has(slotId)) continue;
     const hint = slotHintsBySlotId.get(slotId);
-    if (!hint) return match;
+    if (!hint) continue;
     seen.add(slotId);
-    return buildPatchedPlaceholder(tagMatch[0], inner, hint) || match;
-  });
-
-  const selfClosingRe = /<div\b[^>]*\bdata-el=(["'])image-placeholder\1[^>]*\/>/gi;
-  const patched2 = patched.replace(selfClosingRe, (match) => {
-    const attrs = parseTagAttributes(match);
-    const slotId = toNonEmptyString(attrs["data-slot-id"]) || toNonEmptyString(attrs.id);
-    if (!slotId || !needed.has(slotId)) return match;
-    const hint = slotHintsBySlotId.get(slotId);
-    if (!hint) return match;
-    seen.add(slotId);
-    const tag = match.replace(/\/>$/i, ">");
-    return buildPatchedPlaceholder(tag, "", hint) || match;
-  });
+    const tag = isSelfClosing ? openTag.replace(/\/>$/i, ">") : openTag;
+    const replacement = buildPatchedPlaceholder(tag, inner, hint);
+    if (replacement) {
+      patched2 = patched2.slice(0, start) + replacement + patched2.slice(end);
+    }
+  }
 
   const missing = [...needed].filter((slotId) => !seen.has(slotId) && slotHintsBySlotId.has(slotId));
   if (missing.length === 0) return patched2;

@@ -20,6 +20,8 @@ export const DesignPhase = Object.freeze({
   STYLE_CONFIRMING: "style_confirming",
   DECK_PLANNING: "deck_planning",
   PLAN_CONFIRMING: "plan_confirming",
+  LAYOUT_DEVELOPING: "layout_developing",  // 布局/原型生成
+  LAYOUT_CONFIRMING: "layout_confirming",  // 布局确认
   GENERATING: "generating",
   GENERATING_PAUSED: "generating_paused",
   REVIEWING: "reviewing",
@@ -129,11 +131,20 @@ export {
 export const DesignLoopStatus = AgentStatus;
 
 // === 简化状态机 ===
-// 允许任意有效状态转换（移除硬编码转换规则）
-function createSimpleMachine(validStates) {
+// 支持严格转换验证（可选）
+function createSimpleMachine(validStates, transitions = null) {
   const stateSet = new Set(Object.values(validStates));
+  const transitionMap = transitions ? new Map(Object.entries(transitions)) : null;
   return {
-    canTransition: (from, to) => stateSet.has(to),
+    canTransition: (from, to) => {
+      if (!stateSet.has(to)) return false;
+      // 如果定义了转换规则，则严格验证
+      if (transitionMap && from) {
+        const allowed = transitionMap.get(from);
+        return Array.isArray(allowed) && allowed.includes(to);
+      }
+      return true; // 无规则时允许任意转换
+    },
     transition: (state, next, meta) => {
       if (!stateSet.has(next)) return false;
       if (state && typeof state === "object") {
@@ -144,7 +155,29 @@ function createSimpleMachine(validStates) {
   };
 }
 
-export const designPhaseMachine = createSimpleMachine(DesignPhase);
+// DesignPhase 有效转换路径
+const DESIGN_PHASE_VALID_TRANSITIONS = {
+  [DesignPhase.IDLE]: [DesignPhase.OUTLINE_PARSING, DesignPhase.FAILED],
+  [DesignPhase.OUTLINE_PARSING]: [DesignPhase.OUTLINE_CONFIRMING, DesignPhase.FAILED],
+  [DesignPhase.OUTLINE_CONFIRMING]: [DesignPhase.STYLE_EXTRACTING, DesignPhase.OUTLINE_PARSING, DesignPhase.FAILED],
+  [DesignPhase.STYLE_EXTRACTING]: [DesignPhase.STYLE_CONFIRMING, DesignPhase.FAILED],
+  [DesignPhase.STYLE_CONFIRMING]: [DesignPhase.DECK_PLANNING, DesignPhase.STYLE_EXTRACTING, DesignPhase.FAILED],
+  [DesignPhase.DECK_PLANNING]: [DesignPhase.PLAN_CONFIRMING, DesignPhase.FAILED],
+  [DesignPhase.PLAN_CONFIRMING]: [DesignPhase.LAYOUT_DEVELOPING, DesignPhase.GENERATING, DesignPhase.DECK_PLANNING, DesignPhase.FAILED],
+  [DesignPhase.LAYOUT_DEVELOPING]: [DesignPhase.LAYOUT_CONFIRMING, DesignPhase.FAILED],
+  [DesignPhase.LAYOUT_CONFIRMING]: [DesignPhase.GENERATING, DesignPhase.LAYOUT_DEVELOPING, DesignPhase.FAILED],
+  [DesignPhase.GENERATING]: [DesignPhase.GENERATING_PAUSED, DesignPhase.REVIEWING, DesignPhase.VISUAL_FILLING, DesignPhase.COMPLETED, DesignPhase.FAILED],
+  [DesignPhase.GENERATING_PAUSED]: [DesignPhase.GENERATING, DesignPhase.FAILED],
+  [DesignPhase.REVIEWING]: [DesignPhase.FIXING, DesignPhase.VISUAL_FILLING, DesignPhase.COMPLETED, DesignPhase.FAILED],
+  [DesignPhase.FIXING]: [DesignPhase.REVIEWING, DesignPhase.REPAIR, DesignPhase.FAILED],
+  [DesignPhase.REPAIR]: [DesignPhase.REVIEWING, DesignPhase.FAILED],
+  [DesignPhase.VISUAL_FILLING]: [DesignPhase.COMPLETED, DesignPhase.FAILED],
+  [DesignPhase.COMPLETED]: [DesignPhase.EDITING],
+  [DesignPhase.FAILED]: [DesignPhase.IDLE],
+  [DesignPhase.EDITING]: [DesignPhase.COMPLETED, DesignPhase.FAILED],
+};
+
+export const designPhaseMachine = createSimpleMachine(DesignPhase, DESIGN_PHASE_VALID_TRANSITIONS);
 export const designLoopMachine = createSimpleMachine(AgentStatus);
 export const slideStatusMachine = createSimpleMachine(SlideStatus);
 export const slideMachine = slideStatusMachine; // alias

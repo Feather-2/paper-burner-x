@@ -136,8 +136,21 @@ export function createDesignToolHandlers(agentLoop) {
       return { screenshots: [] };
     },
 
-    fix_slide: async () => {
-      return { fixed: false };
+    fix_slide: async (params = {}, context = {}) => {
+      const { slideIndex, slideIntent, currentHtml, issues, designSystem, contentPackage } = params;
+      const { runSlideFixer } = await import("./refiner/slide-fixer.js");
+      const fixed = await runSlideFixer({
+        slideIndex,
+        slideIntent,
+        currentHtml,
+        issues,
+        designSystem,
+        contentPackage,
+        aiApiService: context.aiApiService,
+        modelRouter: context.modelRouter,
+        signal: context.signal,
+      });
+      return { fixedHtml: fixed };
     },
 
     fill_visual: async (params = {}, context = {}) => {

@@ -1,3 +1,36 @@
+/**
+ * ReDoS-safe: 查找指定标签的开始标记
+ */
+function findTagStart(html, tagName, startPos = 0) {
+  const lower = html.toLowerCase();
+  const pattern = `<${tagName.toLowerCase()}`;
+  const idx = lower.indexOf(pattern, startPos);
+  if (idx === -1) return null;
+  const endIdx = html.indexOf(">", idx);
+  if (endIdx === -1) return null;
+  return { start: idx, end: endIdx + 1, tag: html.slice(idx, endIdx + 1) };
+}
+
+/**
+ * ReDoS-safe: 查找所有带 data-el 属性的元素
+ */
+function findDataElElements(html) {
+  const results = [];
+  let pos = 0;
+  while (pos < html.length) {
+    const tagStart = html.indexOf("<", pos);
+    if (tagStart === -1) break;
+    const tagEnd = html.indexOf(">", tagStart);
+    if (tagEnd === -1) break;
+    const tag = html.slice(tagStart, tagEnd + 1);
+    if (tag.includes("data-el=")) {
+      results.push({ start: tagStart, end: tagEnd + 1, tag });
+    }
+    pos = tagEnd + 1;
+  }
+  return results;
+}
+
 function parseAttrs(tag) {
   const attrs = {};
   const re = /([a-zA-Z_:][\w:.-]*)="([^"]*)"/g;
@@ -79,15 +112,16 @@ export function validateSlide(slideHtml) {
   const issues = [];
   const html = typeof slideHtml === "string" ? slideHtml : "";
 
-  const sectionTag = html.match(/<section\b[^>]*>/i)?.[0] || "";
+  // ReDoS-safe: 使用安全的标签查找
+  const sectionResult = findTagStart(html, "section");
+  const sectionTag = sectionResult?.tag || "";
   const sectionAttrs = parseAttrs(sectionTag);
   const bgRaw = sectionAttrs["data-bg"] || "#ffffff";
   const bgRgb = hexToRgb(bgRaw) || hexToRgb("#ffffff");
 
-  const elRe = /<([a-z]+)\b([^>]*)\bdata-el="([^"]+)"([^>]*)>/gi;
-  let m;
-  while ((m = elRe.exec(html))) {
-    const tag = `<${m[1]}${m[2]} data-el="${m[3]}"${m[4]}>`;
+  // ReDoS-safe: 使用迭代查找替代 [^>]* 正则
+  const dataElElements = findDataElElements(html);
+  for (const { tag } of dataElElements) {
     const attrs = parseAttrs(tag);
     const type = attrs["data-el"];
     const elementId = attrs.id;

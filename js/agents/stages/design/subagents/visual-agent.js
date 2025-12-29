@@ -118,8 +118,7 @@ function ensureSvgSpec(slot) {
     toNonEmptyString(slot?.promptHint) ||
     toNonEmptyString(slot?.imageSpec?.prompt) ||
     type;
-  slot.svgSpec = { type, description };
-  return slot;
+  return { ...slot, svgSpec: { type, description } };
 }
 
 function resolveSlotRenderType(slot, assetRegistry) {
@@ -149,6 +148,14 @@ export class VisualSubAgent {
     this.assetRegistry = assetRegistry || null;
     this.imageGenerator = imageGenerator || (imageProvider ? new ImageGenerator({ imageProvider }) : null);
     this.svgGenerator = svgGenerator || null;
+    this.transitionLog = [];
+  }
+
+  getTransitionLog() {
+    return [...this.transitionLog];
+  }
+
+  clearTransitionLog() {
     this.transitionLog = [];
   }
 
@@ -184,8 +191,7 @@ export class VisualSubAgent {
 
     if (!imageGenerator && svgGenerator && aiImageSlots.length) {
       for (const slot of aiImageSlots) {
-        slot.renderType = "svg";
-        svgSlots.push(ensureSvgSpec(slot));
+        svgSlots.push(ensureSvgSpec({ ...slot, renderType: "svg" }));
       }
       aiImageSlots = [];
     }

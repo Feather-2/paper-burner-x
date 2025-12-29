@@ -1,4 +1,5 @@
 import { Archive, MapAdapter } from "../../shared/archive/archive.js";
+import { deepClone } from "../../shared/utils/value-utils.js";
 import { CheckpointType, createCheckpoint, migrateCheckpoint } from "../../shared/archive/checkpoint-schema.js";
 import { DesignPhase, designPhaseMachine } from "./states.js";
 import { AgentStatus } from "../../runtime/core/agent-status.js";
@@ -7,10 +8,34 @@ import { StagePausedError } from "../../runtime/core/stage-errors.js";
 import { getRuntimeState } from "../../runtime/telemetry/loop-runtime-state.js";
 import { DESIGN_AGENT_TOOL_DEFINITIONS, createDesignToolHandlers } from "./design-tools.js";
 import { VisualHandler } from "./runtime/visual-handler.js";
-import { runPreparationPhase, runGeneratingPhase, runVisualPhase, runReviewPhase, runPlanningPhase } from "./runtime/design-phases.js";
+import { runPreparationPhase, runGeneratingPhase, runVisualPhase, runReviewPhase, runPlanningPhase, runLayoutPhase } from "./runtime/design-phases.js";
 import { DesignBlackboard } from "./runtime/design-blackboard.js";
 
 const SCHEMA_VERSION = "0.1";
+
+// === 可配置常量 ===
+const DESIGN_LOOP_DEFAULTS = {
+  batchSize: 4,
+  batchConcurrency: 2,
+  imageConcurrency: 4,
+  maxIterations: 10,
+  maxBacktrackAttempts: 3,
+  signatureLength: 64, // deck 签名截取长度
+};
+
+/**
+ * BacktrackError - 回溯信号异常
+ * 抛出此异常触发主循环从目标阶段重启
+ */
+export class BacktrackError extends Error {
+  constructor(targetPhase, label, reason) {
+    super(`Backtrack to ${targetPhase} (${label}): ${reason}`);
+    this.name = "BacktrackError";
+    this.targetPhase = targetPhase;
+    this.label = label;
+    this.reason = reason;
+  }
+}
 
 // Re-export for backward compatibility
 export { DESIGN_AGENT_TOOL_DEFINITIONS };
@@ -20,10 +45,23 @@ function emitStage(emit, name, status, payload) {
 }
 
 function loadDesignConcurrencyConfig() {
+  // 优先级: localStorage > 环境变量 > 进程参数 > 默认值
   try {
     const raw = typeof localStorage !== "undefined" ? localStorage.getItem("ppt_designConcurrency") : null;
     if (raw) return JSON.parse(raw);
-  } catch (_) {}
+  } catch (_) { }
+  // 环境变量回退
+  const env = typeof process !== "undefined" ? process.env : {};
+  const batchSize = parseInt(env.DESIGN_BATCH_SIZE, 10);
+  const batchConcurrency = parseInt(env.DESIGN_BATCH_CONCURRENCY, 10);
+  const imageConcurrency = parseInt(env.DESIGN_IMAGE_CONCURRENCY, 10);
+  if (batchSize > 0 || batchConcurrency > 0 || imageConcurrency > 0) {
+    return {
+      ...(batchSize > 0 ? { batchSize } : {}),
+      ...(batchConcurrency > 0 ? { batchConcurrency } : {}),
+      ...(imageConcurrency > 0 ? { imageConcurrency } : {}),
+    };
+  }
   return null;
 }
 
@@ -31,10 +69,10 @@ export class DesignAgentLoop extends BaseAgentLoop {
   constructor({ batchSize, archive, eventBus, tools } = {}) {
     super({ actor: "design", stageName: "design", eventBus });
     const config = loadDesignConcurrencyConfig();
-    const defaultBatchSize = config?.batchSize || 4;
+    const defaultBatchSize = config?.batchSize || DESIGN_LOOP_DEFAULTS.batchSize;
     this.batchSize = Math.max(1, Number(batchSize) || defaultBatchSize);
-    this.batchConcurrency = Math.max(1, Number(config?.batchConcurrency) || 2);
-    this.imageConcurrency = Math.max(1, Number(config?.imageConcurrency) || 4);
+    this.batchConcurrency = Math.max(1, Number(config?.batchConcurrency) || DESIGN_LOOP_DEFAULTS.batchConcurrency);
+    this.imageConcurrency = Math.max(1, Number(config?.imageConcurrency) || DESIGN_LOOP_DEFAULTS.imageConcurrency);
     // Inject VisualHandler
     this._visualHandler = new VisualHandler({ imageConcurrency: this.imageConcurrency });
     this._tools = createDesignToolHandlers(this);
@@ -47,8 +85,26 @@ export class DesignAgentLoop extends BaseAgentLoop {
     // Blackboard for cross-phase communication
     this._blackboard = new DesignBlackboard();
     // Loop control
-    this._maxIterations = 10;
+    this._maxIterations = DESIGN_LOOP_DEFAULTS.maxIterations;
     this._iteration = 0;
+
+    // Runtime state (春秋蝉模式)
+    this.state = {
+      contentPackage: null,
+      slideIntents: [],
+      designSystem: null,
+      constraints: {},
+      userConfig: {},
+      plans: null,
+      generated: [],
+      slideHtmls: [],
+      slidesMeta: [],
+      imageSlots: [],
+      deckHtmlDsl: "",
+      pendingImages: [],
+      brainstormResult: null,
+    };
+
     // Expose tool methods for backward compatibility (tests)
     this._toolParseOutline = this._tools.parse_outline;
     this._toolExtractStyle = this._tools.extract_style;
@@ -70,6 +126,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
     const snapshot = {
       phase: this.phase?.status,
       loopStatus: this._loopStatus,
+      state: deepClone(this.state), // 保存当前执行快照
       timestamp: Date.now(),
     };
     return this._blackboard.saveVersion(label, snapshot);
@@ -81,6 +138,47 @@ export class DesignAgentLoop extends BaseAgentLoop {
 
   listVersions() {
     return this._blackboard?.listVersions() || [];
+  }
+
+  /**
+   * 回溯到指定版本（抛出 BacktrackError 触发主循环重启）
+   * @param {string} label - 版本标签
+   * @param {string} [reason] - 回溯原因
+   * @throws {BacktrackError} 触发主循环从目标阶段重启
+   */
+  backtrackTo(label, reason = "user_requested") {
+    if (!this._blackboard) throw new Error("Cannot backtrack: no blackboard");
+    const version = this._blackboard.getVersion(label);
+    if (!version) throw new Error(`Cannot backtrack: version "${label}" not found`);
+    // 恢复状态
+    const targetPhase = version.snapshot?.phase || DesignPhase.IDLE;
+    if (version.snapshot?.phase) this.phase.status = version.snapshot.phase;
+    if (version.snapshot?.loopStatus) this._loopStatus = version.snapshot.loopStatus;
+
+    // 深度恢复 state (对照 BacktrackManager)
+    if (version.snapshot?.state) {
+      this.state = deepClone(version.snapshot.state);
+    }
+
+    this._blackboard.restoreVersion(label);
+    this._emit?.("design.backtrack", { label, targetPhase, reason, timestamp: Date.now() });
+
+    // 标记正在回溯，防止 _runCore 重置状态
+    this._isBacktracking = true;
+    // 抛出 BacktrackError 触发主循环重启
+    throw new BacktrackError(targetPhase, label, reason);
+  }
+
+  /**
+   * 回溯到最近的 checkpoint
+   * @param {string} [reason] - 回溯原因
+   * @throws {BacktrackError} 触发主循环从目标阶段重启
+   */
+  backtrackToLastCheckpoint(reason = "auto_recovery") {
+    const versions = this.listVersions();
+    if (versions.length === 0) throw new Error("Cannot backtrack: no versions available");
+    const latest = versions[versions.length - 1];
+    this.backtrackTo(latest.label, reason);
   }
 
   getToolDefinitions() {
@@ -247,10 +345,41 @@ export class DesignAgentLoop extends BaseAgentLoop {
 
   /**
    * Convenience adapter: run(contentPackage, context) -> DeckPackage.
+   * 支持 BacktrackError 自动重启机制
    * @param {object} contentPackage
    * @param {{runContext?:object,emit?:Function,eventBus?:object,signal?:AbortSignal,aiApiService?:object,imageService?:any,imageProvider?:any}=} context
    */
   async run(contentPackage, context = {}) {
+    let backtrackAttempts = 0;
+    const maxAttempts = DESIGN_LOOP_DEFAULTS.maxBacktrackAttempts;
+
+    // BacktrackError 重启循环
+    while (backtrackAttempts <= maxAttempts) {
+      try {
+        return await this._runCore(contentPackage, context);
+      } catch (err) {
+        if (err instanceof BacktrackError && backtrackAttempts < maxAttempts) {
+          backtrackAttempts++;
+          this._emit?.("design.backtrack.restart", {
+            attempt: backtrackAttempts,
+            maxAttempts,
+            targetPhase: err.targetPhase,
+            reason: err.reason,
+          });
+          // 继续循环，从恢复的状态重新执行
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new Error(`Max backtrack attempts (${maxAttempts}) exceeded`);
+  }
+
+  /**
+   * 核心执行逻辑（从 run 提取）
+   * @private
+   */
+  async _runCore(contentPackage, context = {}) {
     const runContext = context.runContext || { runId: contentPackage?.runId || "run_unknown", constraints: contentPackage?.constraints || {} };
     const runId = runContext.runId || contentPackage?.runId || "run_unknown";
     this.eventBus = context.eventBus || this.eventBus || null;
@@ -259,10 +388,15 @@ export class DesignAgentLoop extends BaseAgentLoop {
       emit = this.eventBus.emit.bind(this.eventBus);
     }
     this.emit = emit || this.emit || null;
-    this.phase = { status: DesignPhase.IDLE };
-    // Reset blackboard for new run
-    this._blackboard = new DesignBlackboard({ runId });
-    this._iteration = 0;
+
+    // 仅在初始运行时初始化状态，回溯重启时保留已恢复的状态
+    if (!context.resumed && !this._isBacktracking) {
+      this.phase = { status: DesignPhase.IDLE };
+      this._blackboard = new DesignBlackboard({ runId });
+      this._iteration = 0;
+      this.state.contentPackage = contentPackage;
+    }
+    this._isBacktracking = false;
 
     const stageApi = { signal: context.signal };
     let iteration = 0;
@@ -294,8 +428,9 @@ export class DesignAgentLoop extends BaseAgentLoop {
     };
     const buildDeckSignature = (deckHtmlDsl) => {
       if (typeof deckHtmlDsl !== "string") return null;
-      const head = deckHtmlDsl.slice(0, 64);
-      const tail = deckHtmlDsl.slice(-64);
+      const sigLen = DESIGN_LOOP_DEFAULTS.signatureLength;
+      const head = deckHtmlDsl.slice(0, sigLen);
+      const tail = deckHtmlDsl.slice(-sigLen);
       return `${deckHtmlDsl.length}:${head}:${tail}`;
     };
     let lastDeckSignature = null;
@@ -324,88 +459,106 @@ export class DesignAgentLoop extends BaseAgentLoop {
 
       emitStage(emit, "design.started", "started", {
         runId: runContext.runId,
-        slideCount: Array.isArray(contentPackage?.slideIntents) ? contentPackage.slideIntents.length : 0,
+        slideCount: Array.isArray(this.state.contentPackage?.slideIntents) ? this.state.contentPackage.slideIntents.length : 0,
       });
 
-      // Preparation phase: outline parsing + style extraction
-      const prepResult = await runPreparationPhase(this, {
-        contentPackage,
-        context,
-        runContext,
-        emit,
-        startExecution,
-        finishExecution,
-      });
-      const { parsedContentPackage, slideIntents, designSystem, constraints } = prepResult;
-      let { userConfig } = prepResult;
+      // --- 1. Preparation Phase (Outline + Style) ---
+      if (!this.phase.status || this.phase.status === DesignPhase.IDLE || this.phase.status === DesignPhase.OUTLINE_PARSING) {
+        const prepResult = await runPreparationPhase(this, {
+          contentPackage: this.state.contentPackage,
+          context,
+          runContext,
+          emit,
+          startExecution,
+          finishExecution,
+        });
+        // 更新持久化状态
+        this.state.contentPackage = prepResult.parsedContentPackage;
+        this.state.slideIntents = prepResult.slideIntents;
+        this.state.designSystem = prepResult.designSystem;
+        this.state.constraints = prepResult.constraints;
+        this.state.userConfig = prepResult.userConfig;
 
-      // Update blackboard with preparation results
-      this._blackboard.setSummary("outline", `${slideIntents.length} slides parsed`);
-      this._blackboard.setSummary("style", designSystem?.theme || "default");
-      this._blackboard.logDecision("preparation_complete", `Parsed ${slideIntents.length} slides with theme: ${designSystem?.theme || "default"}`);
+        this._blackboard.setSummary("outline", `${this.state.slideIntents.length} slides parsed`);
+        this._blackboard.setSummary("style", this.state.designSystem?.theme || "default");
+        this._blackboard.logDecision("preparation_complete", `Parsed ${this.state.slideIntents.length} slides`);
+      }
 
-      // Planning phase: generate plan and wait for user confirmation
-      let plans = null;
-      if (context?.enablePlanning !== false) {
+      // --- 2. Planning Phase ---
+      if (context?.enablePlanning !== false && (!this.state.plans || this.phase.status === DesignPhase.DECK_PLANNING)) {
         const planningResult = await runPlanningPhase(this, {
-          slideIntents,
-          designSystem,
+          slideIntents: this.state.slideIntents,
+          designSystem: this.state.designSystem,
           context,
           runContext,
           emit,
         });
-        plans = planningResult.plans;
-        this._blackboard.setSummary("plan", `${plans.length} slides planned`);
+        this.state.plans = planningResult.plans;
+        this._blackboard.setSummary("plan", `${this.state.plans.length} slides planned`);
+      }
+
+      // --- 3. Layout Phase (New!) ---
+      if (context?.enableLayout !== false && (!this.state.layoutData || this.phase.status === DesignPhase.LAYOUT_DEVELOPING)) {
+        const layoutResult = await runLayoutPhase(this, {
+          slideIntents: this.state.slideIntents,
+          designSystem: this.state.designSystem,
+          plans: this.state.plans,
+          context,
+          runContext,
+          emit,
+          startExecution,
+          finishExecution,
+        });
+        this.state.layoutData = layoutResult;
+        this._blackboard.setSummary("layout", "Wireframes generated");
       }
 
       this._transitionPhase(this.phase, DesignPhase.GENERATING, { emit, runId: runContext.runId });
-      userConfig = this.applyUserInputsToConfig(userConfig);
+      this.state.userConfig = this.applyUserInputsToConfig(this.state.userConfig);
 
-      const modelRouter =
-        Object.prototype.hasOwnProperty.call(context || {}, "modelRouter") ? context.modelRouter : (context?.runContext && context.runContext.modelRouter) || null;
-
-      let skipReview = false;
-      if (context?.pauseOnPhase === DesignPhase.GENERATING || context?.pauseGenerating) {
-        this._transitionPhase(this.phase, DesignPhase.GENERATING_PAUSED, { emit, runId: runContext.runId });
-        const resume = await this.waitForUserAction("resume_generating", { eventBus: context.eventBus, signal: context.signal });
-        skipReview = resume && typeof resume === "object" && resume.action === "skip_review";
-        this._transitionPhase(this.phase, DesignPhase.GENERATING, { emit, runId: runContext.runId });
-      }
-
+      // --- 4. Generating Phase ---
       if (this.phase.status === DesignPhase.GENERATING) {
-        // Run generating phase
         const genPhaseResult = await runGeneratingPhase(this, {
-          slideIntents,
-          contentPackage: parsedContentPackage,
-          designSystem,
-          constraints,
-          userConfig,
+          slideIntents: this.state.slideIntents,
+          contentPackage: this.state.contentPackage,
+          designSystem: this.state.designSystem,
+          constraints: this.state.constraints,
+          userConfig: this.state.userConfig,
           context,
           runContext,
           emit,
           startExecution,
           finishExecution,
           emitDeckUpdate,
-          skipReview,
-          plans, // 传递规划信息
+          plans: this.state.plans,
+          layoutData: this.state.layoutData,
         });
 
-        userConfig = this.applyUserInputsToConfig(userConfig);
+        this.state.generated = genPhaseResult.generated;
+        this.state.slideHtmls = genPhaseResult.slideHtmls;
+        this.state.slidesMeta = genPhaseResult.slidesMeta;
+        this.state.imageSlots = genPhaseResult.imageSlots;
+        this.state.baseDeckHtmlDsl = genPhaseResult.baseDeckHtmlDsl;
+        this.state.pendingImages = genPhaseResult.pendingImages;
+        this.state.brainstormResult = genPhaseResult.brainstormResult;
+        this.state.degradedCount = genPhaseResult.degradedCount;
 
-        // Run visual phase
+        this.state.userConfig = this.applyUserInputsToConfig(this.state.userConfig);
+
+        // --- 5. Visual Filling Phase ---
         const visualPhaseResult = await runVisualPhase(this, {
-          contentPackage: parsedContentPackage,
-          slideIntents,
-          designSystem,
-          generated: genPhaseResult.generated,
-          slideHtmls: genPhaseResult.slideHtmls,
-          slidesMeta: genPhaseResult.slidesMeta,
-          imageSlots: genPhaseResult.imageSlots,
-          baseDeckHtmlDsl: genPhaseResult.baseDeckHtmlDsl,
-          pendingImages: genPhaseResult.pendingImages,
-          brainstormResult: genPhaseResult.brainstormResult,
-          constraints,
-          userConfig,
+          contentPackage: this.state.contentPackage,
+          slideIntents: this.state.slideIntents,
+          designSystem: this.state.designSystem,
+          generated: this.state.generated,
+          slideHtmls: this.state.slideHtmls,
+          slidesMeta: this.state.slidesMeta,
+          imageSlots: this.state.imageSlots,
+          baseDeckHtmlDsl: this.state.baseDeckHtmlDsl,
+          pendingImages: this.state.pendingImages,
+          brainstormResult: this.state.brainstormResult,
+          constraints: this.state.constraints,
+          userConfig: this.state.userConfig,
           context,
           runContext,
           emit,
@@ -414,22 +567,26 @@ export class DesignAgentLoop extends BaseAgentLoop {
           emitDeckUpdate,
         });
 
-        // Run review phase (optional)
-        let reviewResult = null;
+        this.state.deckHtmlDsl = visualPhaseResult.deckHtmlDsl;
+        this.state.slidesMeta = visualPhaseResult.slidesMeta;
+        this.state.finalImageSlots = visualPhaseResult.imageSlots;
+        this.state.visualReport = visualPhaseResult.visualReport;
+        this.state.imageReport = visualPhaseResult.imageReport;
+        this.state.refineResult = visualPhaseResult.refineResult;
+
+        // --- 6. Review Phase ---
         if (context?.enableReview !== false) {
           this._transitionPhase(this.phase, DesignPhase.REVIEWING, { emit, runId: runContext.runId });
           const reviewPhaseResult = await runReviewPhase(this, {
-            deckHtmlDsl: visualPhaseResult.deckHtmlDsl,
-            slidesMeta: visualPhaseResult.slidesMeta,
-            designSystem,
+            deckHtmlDsl: this.state.deckHtmlDsl,
+            slidesMeta: this.state.slidesMeta,
+            designSystem: this.state.designSystem,
             context,
             runContext,
             emit,
           });
-          reviewResult = reviewPhaseResult.reviewResult;
-
-          // Update blackboard with review results
-          this._blackboard.setSummary("review", `Score: ${reviewResult?.score || 0}, Pass: ${reviewResult?.pass || false}`);
+          this.state.reviewResult = reviewPhaseResult.reviewResult;
+          this._blackboard.setSummary("review", `Score: ${this.state.reviewResult?.score || 0}`);
         }
 
         this._transitionPhase(this.phase, DesignPhase.COMPLETED, { emit, runId: runContext.runId });
@@ -440,38 +597,29 @@ export class DesignAgentLoop extends BaseAgentLoop {
           state: buildLoopState("completed"),
         });
 
-        const degradedCount = genPhaseResult.degradedCount;
-        // Update blackboard with final results
-        this._blackboard.setSummary("generation", `${genPhaseResult.slideHtmls.length} slides generated, ${degradedCount} degraded`);
-        this._blackboard.logDecision("generation_complete", `Generated ${genPhaseResult.slideHtmls.length} slides`);
-
-        // Save version snapshot
+        this._blackboard.setSummary("generation", `${this.state.slideHtmls.length} slides generated`);
         this._blackboard.saveVersion("final", {
-          deckHtmlDsl: visualPhaseResult.deckHtmlDsl,
-          designSystem,
-          slidesMeta: visualPhaseResult.slidesMeta,
+          deckHtmlDsl: this.state.deckHtmlDsl,
+          designSystem: this.state.designSystem,
+          slidesMeta: this.state.slidesMeta,
         });
 
-        emitStage(emit, "design.ended", "ended", { slides: genPhaseResult.slideHtmls.length, degradedCount });
+        emitStage(emit, "design.ended", "ended", { slides: this.state.slideHtmls.length, degradedCount: this.state.degradedCount });
 
         return {
           schemaVersion: SCHEMA_VERSION,
           runId: runContext.runId,
-          designSystem,
-          deckHtmlDsl: visualPhaseResult.deckHtmlDsl,
-          slidesMeta: visualPhaseResult.slidesMeta,
-          editHints: { degradedCount },
-          imageSlots: visualPhaseResult.imageSlots,
-          imageReport: visualPhaseResult.imageReport,
-          visualReport: visualPhaseResult.visualReport,
-          pendingImages: visualPhaseResult.pendingImages,
-          refineReport: visualPhaseResult.refineResult || null,
-          reviewReport: reviewResult || null,
+          designSystem: this.state.designSystem,
+          deckHtmlDsl: this.state.deckHtmlDsl,
+          slidesMeta: this.state.slidesMeta,
+          editHints: { degradedCount: this.state.degradedCount },
+          imageSlots: this.state.finalImageSlots,
+          imageReport: this.state.imageReport,
+          visualReport: this.state.visualReport,
+          pendingImages: this.state.pendingImages,
+          refineReport: this.state.refineResult || null,
+          reviewReport: this.state.reviewResult || null,
         };
-      }
-
-      if (this.phase.status !== DesignPhase.COMPLETED) {
-        this._transitionPhase(this.phase, DesignPhase.COMPLETED, { emit, runId: runContext.runId });
       }
 
       await this._transitionTo(AgentStatus.COMPLETED, {
@@ -481,22 +629,18 @@ export class DesignAgentLoop extends BaseAgentLoop {
         state: buildLoopState("completed"),
       });
 
-      emitStage(emit, "design.ended", "ended", { slides: 0, degradedCount: 0 });
-
       return {
         schemaVersion: SCHEMA_VERSION,
         runId: runContext.runId,
         designSystem: null,
         deckHtmlDsl: "",
         slidesMeta: [],
-        editHints: { degradedCount: 0 },
-        imageSlots: [],
-        imageReport: null,
-        visualReport: null,
-        pendingImages: [],
-        refineReport: null,
       };
     } catch (err) {
+      // BacktrackError: 重新抛出让外层 while 循环处理
+      if (err instanceof BacktrackError) {
+        throw err;
+      }
       const pauseLike = this._shouldPauseFromError(err, context.signal);
       if (this._activeStep) {
         const message = err instanceof Error ? err.message : String(err);

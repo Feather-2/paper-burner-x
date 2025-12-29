@@ -137,11 +137,19 @@ function extractVisualSlotsFromHtml(html, { slideIntentId, slideIndex }) {
 
   const slots = [];
   const seen = new Set();
-  const placeholderRe = /<div\b[^>]*\bdata-el=(['"])image-placeholder\1[^>]*>/gi;
-  let match;
+  // ReDoS-safe: 使用迭代字符串解析替代 [^>]* 正则
+  let pos = 0;
+  while (pos < input.length) {
+    const divStart = input.toLowerCase().indexOf("<div", pos);
+    if (divStart === -1) break;
+    const tagEnd = input.indexOf(">", divStart);
+    if (tagEnd === -1) break;
+    const tag = input.slice(divStart, tagEnd + 1);
+    const tagLower = tag.toLowerCase();
+    pos = tagEnd + 1;
+    if (!tagLower.includes('data-el="image-placeholder"') && !tagLower.includes("data-el='image-placeholder'")) continue;
 
-  while ((match = placeholderRe.exec(input))) {
-    const attrs = parseTagAttributes(match[0]);
+    const attrs = parseTagAttributes(tag);
     const slotId = toNonEmptyString(attrs["data-slot-id"]) || toNonEmptyString(attrs.id);
     if (!slotId || seen.has(slotId)) continue;
     seen.add(slotId);

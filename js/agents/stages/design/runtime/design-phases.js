@@ -12,6 +12,15 @@ import { normalizeRenderType } from "../../../shared/utils/value-utils.js";
 import { checkCancelled, getEmitFn } from "../../../runtime/core/agent-loop.js";
 import { DesignPhase } from "../states.js";
 import { planDeck, applyUserEdits, formatPlanForDialog } from "./deck-planner.js";
+import { generateLayoutBatch } from "../generators/layout-generator.js";
+
+// === 可配置常量 ===
+const DESIGN_PHASE_DEFAULTS = {
+  costPerHDSlot: 0.04,    // HD/3D/photo 风格每槽成本 USD
+  costPerBasicSlot: 0.003, // 基础风格每槽成本 USD
+  refineRecommendedSteps: 5,
+  refineHardLimit: 15,
+};
 
 function emitStage(emit, name, status, payload) {
   emit?.(name, { actor: "design", status, payload });
@@ -39,8 +48,8 @@ export async function runPreparationPhase(loop, {
   let slideIntents = Array.isArray(outlineData.slideIntents)
     ? outlineData.slideIntents
     : Array.isArray(parsedContentPackage?.slideIntents)
-    ? parsedContentPackage.slideIntents
-    : [];
+      ? parsedContentPackage.slideIntents
+      : [];
 
   // Outline confirmation
   loop._transitionPhase(loop.phase, DesignPhase.OUTLINE_CONFIRMING, { emit, runId: runContext.runId });
@@ -187,6 +196,60 @@ export async function runPlanningPhase(loop, {
   };
 }
 
+/**
+ * 布局阶段：生成线框图并等待用户确认
+ */
+export async function runLayoutPhase(loop, {
+  slideIntents,
+  plans,
+  designSystem,
+  context,
+  runContext,
+  emit,
+}) {
+  loop._transitionPhase(loop.phase, DesignPhase.LAYOUT_DEVELOPING, { emit, runId: runContext.runId });
+  checkCancelled(context.signal);
+
+  // 生成布局
+  const layouts = generateLayoutBatch(slideIntents, plans);
+
+  // 组装预览 HTML
+  const previewHtml = layouts.map((l) => l.layoutHtml).join("\n");
+
+  emitStage(emit, "design.layout.preview", "awaiting_confirm", {
+    runId: runContext.runId,
+    layouts,
+    previewHtml,
+    slideCount: layouts.length,
+  });
+
+  loop._blackboard?.logDecision("layout_generated", `Generated ${layouts.length} layout wireframes`);
+
+  // 等待用户确认
+  loop._transitionPhase(loop.phase, DesignPhase.LAYOUT_CONFIRMING, { emit, runId: runContext.runId });
+
+  if (context?.interactionMode?.layoutConfirm && context.interactionMode.layoutConfirm !== "skip") {
+    const layoutConfirmResult = await loop.waitForUserAction("confirm_layout", {
+      eventBus: context.eventBus,
+      signal: context.signal,
+    });
+
+    // 支持用户修改布局
+    if (layoutConfirmResult && typeof layoutConfirmResult === "object" && Array.isArray(layoutConfirmResult.layouts)) {
+      layouts.splice(0, layouts.length, ...layoutConfirmResult.layouts);
+      loop._blackboard?.logDecision("layout_edited", "User modified layouts");
+    }
+  }
+
+  emitStage(emit, "design.layout.confirmed", "confirmed", {
+    runId: runContext.runId,
+    layouts,
+    slideCount: layouts.length,
+  });
+
+  return { layouts };
+}
+
 function hasImagePlanningConfig(constraints) {
   if (!constraints || typeof constraints !== "object") return false;
   return (
@@ -198,9 +261,9 @@ function hasImagePlanningConfig(constraints) {
 function estimateSlotCostUSD(slot) {
   const style = String(slot?.style || "").toLowerCase();
   if (style.includes("3d") || style.includes("photo") || style.includes("hd") || style.includes("cinematic")) {
-    return 0.04;
+    return DESIGN_PHASE_DEFAULTS.costPerHDSlot;
   }
-  return 0.003;
+  return DESIGN_PHASE_DEFAULTS.costPerBasicSlot;
 }
 
 /**
@@ -242,14 +305,14 @@ export async function runGeneratingPhase(loop, {
 
   const selectedIdeasForPrompt = Array.isArray(brainstormResult?.candidatesBySlide)
     ? brainstormResult.candidatesBySlide
-        .map((row) => ({
-          slideIntentId: String(row?.slideIntentId || "").trim(),
-          slideIndex: Number.isFinite(row?.slideIndex) ? row.slideIndex : undefined,
-          atmosphere: row?.selectedCandidate?.atmosphere,
-          elementsMarkdown: row?.selectedCandidate?.elementsMarkdown,
-          visualSlots: row?.selectedCandidate?.visualSlots,
-        }))
-        .filter((x) => x.slideIntentId)
+      .map((row) => ({
+        slideIntentId: String(row?.slideIntentId || "").trim(),
+        slideIndex: Number.isFinite(row?.slideIndex) ? row.slideIndex : undefined,
+        atmosphere: row?.selectedCandidate?.atmosphere,
+        elementsMarkdown: row?.selectedCandidate?.elementsMarkdown,
+        visualSlots: row?.selectedCandidate?.visualSlots,
+      }))
+      .filter((x) => x.slideIntentId)
     : [];
 
   let pendingImages = imageSlots.map((s) => s.slotId);
@@ -291,8 +354,8 @@ export async function runGeneratingPhase(loop, {
   const generated = Array.isArray(genResult.data?.generated)
     ? genResult.data.generated
     : Array.isArray(genResult.data)
-    ? genResult.data
-    : [];
+      ? genResult.data
+      : [];
 
   emitStage(emit, "design.generate.ended", "ended", { slides: generated.length });
   checkCancelled(generatingContext.signal);
@@ -315,21 +378,28 @@ export async function runGeneratingPhase(loop, {
     let slideHtml = generated[i]?.slideHtml;
     let qa = validateSlide(slideHtml);
     let degraded = false;
+    let fixRounds = 0;
+    const maxFixRounds = 2;
 
-    if (!qa.pass) {
-      degraded = true;
-      degradedCount++;
-      emit?.("design.degraded", {
-        actor: "design",
-        status: "warn",
-        payload: { slideNo, slideIntentId: slideIntent.slideIntentId },
-      });
-      slideHtml = buildSlideHtml(slideIntent, designSystem, contentPackage, {
-        safeMode: true,
-        slideNo,
-        imageSlotsForSlide,
-      });
-      qa = validateSlide(slideHtml);
+    while (!qa.pass && fixRounds < maxFixRounds) {
+      fixRounds++;
+      emitStage(emit, "design.slide.fixing", "progress", { slideNo, slideIntentId: slideIntent.slideIntentId, round: fixRounds, issues: qa.issues });
+
+      const fixResult = await loop._callTool("fix_slide", {
+        slideIndex: i,
+        slideIntent,
+        currentHtml: slideHtml,
+        issues: qa.issues,
+        designSystem,
+        contentPackage
+      }, generatingContext);
+
+      if (fixResult.ok && fixResult.data?.fixedHtml) {
+        slideHtml = fixResult.data.fixedHtml;
+        qa = validateSlide(slideHtml);
+      } else {
+        break; // 修复失败或无结果，尝试下一轮或进入安全模式
+      }
     }
 
     if (!qa.pass) {
@@ -338,14 +408,13 @@ export async function runGeneratingPhase(loop, {
       emit?.("design.degraded", {
         actor: "design",
         status: "warn",
-        payload: { slideNo, slideIntentId: slideIntent.slideIntentId, reason: "qa_failed_after_safe" },
+        payload: { slideNo, slideIntentId: slideIntent.slideIntentId, reason: "auto_fix_failed" },
       });
-      slideHtml = buildSlideHtml(
-        { ...slideIntent, keyPoints: [], claimIds: [] },
-        designSystem,
-        contentPackage,
-        { safeMode: true, slideNo, imageSlotsForSlide }
-      );
+      slideHtml = buildSlideHtml(slideIntent, designSystem, contentPackage, {
+        safeMode: true,
+        slideNo,
+        imageSlotsForSlide,
+      });
       qa = validateSlide(slideHtml);
     }
 
@@ -402,6 +471,9 @@ export async function runVisualPhase(loop, {
   finishExecution,
   emitDeckUpdate,
 }) {
+  // deferredVisuals: 延迟生图模式，只生成占位符不实际渲染
+  const deferredVisuals = context?.deferredVisuals === true;
+
   loop._transitionPhase(loop.phase, DesignPhase.VISUAL_FILLING, { emit, runId: runContext.runId });
 
   const { loopIteration, stepInfo } = await startExecution("visual_filling", {
@@ -414,6 +486,7 @@ export async function runVisualPhase(loop, {
     imageSlots,
     deckHtmlDsl: baseDeckHtmlDsl,
     pendingImages,
+    deferredVisuals,
   });
   const visualContext = stepInfo.context;
 
@@ -422,6 +495,24 @@ export async function runVisualPhase(loop, {
   let refineResult = null;
   let finalImageSlots = imageSlots;
   let deckHtmlDsl = baseDeckHtmlDsl;
+
+  // 延迟生图模式：跳过实际渲染，保留占位符
+  if (deferredVisuals) {
+    emit?.("design.visual.deferred", {
+      runId: runContext.runId,
+      imageSlotCount: imageSlots.length,
+      message: "Visual rendering deferred - placeholders retained",
+    });
+    await finishExecution("visual_filling", loopIteration, stepInfo);
+    return {
+      deckHtmlDsl: baseDeckHtmlDsl,
+      slidesMeta,
+      imageSlots,
+      imageReport: { deferred: true, slotCount: imageSlots.length },
+      visualReport: null,
+      pendingImages: imageSlots.map((s) => s.slotId),
+    };
+  }
 
   const imageProvider = context.imageProvider || context.imageService;
   const hasModelCapability = !!(context.modelRouter || context.aiApiService);
@@ -499,8 +590,8 @@ async function runRefine(deckPackage, contentPackage, runContext, context, userC
     toolContext.deckPackage,
     { contentPackage, runContext, stageApi: context },
     {
-      recommendedSteps: userConfig.refine.recommendedSteps || 5,
-      hardLimit: userConfig.refine.hardLimit || 15,
+      recommendedSteps: userConfig.refine.recommendedSteps || DESIGN_PHASE_DEFAULTS.refineRecommendedSteps,
+      hardLimit: userConfig.refine.hardLimit || DESIGN_PHASE_DEFAULTS.refineHardLimit,
       toolExecutor,
       mode: "generation",
       onStep: (step) => emit?.("design.refine.step", { actor: "design", status: "step", payload: step }),

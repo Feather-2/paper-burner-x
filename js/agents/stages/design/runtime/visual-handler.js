@@ -12,7 +12,7 @@ import { generateDesignSystem } from "../generators/design-system-generator.js";
 import { fillImagePlaceholders } from "../generators/image-generator.js";
 import { SVGGenerator, fillSvgPlaceholders } from "../generators/svg-generator.js";
 import { fillAssetPlaceholders } from "../image/asset-resolver.js";
-import { VisualRenderer } from "../image/visual-renderer.js";
+import { VisualSubAgent } from "../subagents/visual-agent.js";
 import { normalizeRenderType } from "../../../shared/utils/value-utils.js";
 import { checkCancelled, getEmitFn } from "../../../runtime/core/agent-loop.js";
 
@@ -88,19 +88,19 @@ export class VisualHandler {
     return selectedVisualSlots.length
       ? selectedVisualSlots.map(mapSlotRenderType)
       : imageSlots.map((s) =>
-          mapSlotRenderType({
-            slotId: s.slotId,
-            slideIntentId: s.slideIntentId,
-            slideIndex: s.slideIndex,
-            renderType: normalizeRenderType(s.renderType),
-            priority: s.priority,
-            aspectRatio: s.aspectRatio,
-            purpose: s.purpose,
-            imageSpec: { prompt: s.promptHint, style: s.style },
-            ...(s.effects ? { effects: s.effects } : {}),
-            ...(s.assetId ? { assetSpec: { assetId: s.assetId } } : {}),
-          })
-        );
+        mapSlotRenderType({
+          slotId: s.slotId,
+          slideIntentId: s.slideIntentId,
+          slideIndex: s.slideIndex,
+          renderType: normalizeRenderType(s.renderType),
+          priority: s.priority,
+          aspectRatio: s.aspectRatio,
+          purpose: s.purpose,
+          imageSpec: { prompt: s.promptHint, style: s.style },
+          ...(s.effects ? { effects: s.effects } : {}),
+          ...(s.assetId ? { assetSpec: { assetId: s.assetId } } : {}),
+        })
+      );
   }
 
   /**
@@ -143,25 +143,29 @@ export class VisualHandler {
       }
 
       const svgGenerator = context?.svgGenerator ?? new SVGGenerator();
-      const renderer = new VisualRenderer({
+      const subAgent = new VisualSubAgent({
+        assetRegistry: context?.assetRegistry ?? (context?.assets || contentPackage?.assets ? { getAsset: (id) => (context?.assets || contentPackage?.assets)?.find(a => a.id === id || a.assetId === id) } : null),
+        imageGenerator: context.imageGenerator || null,
         imageProvider: imageProvider || null,
         svgGenerator,
-        assets: context?.assets ?? contentPackage?.assets ?? null,
       });
 
-      const res = await renderer.render(visualSlotsForRender, contentPackage, designSystem, {
+      const res = await subAgent.run(visualSlotsForRender, designSystem, contentPackage, {
         emit,
         runId: runContext.runId,
         policy: constraints?.imagePolicy,
         budget: constraints?.imageBudget,
-        concurrency: this.imageConcurrency,
+        imageConcurrency: this.imageConcurrency,
         svgConcurrency: this.imageConcurrency,
         aiApiService: context.aiApiService,
         modelRouter,
         signal: context.signal,
         slideHtmlBySlotId,
-        imageProvider: imageProvider || null,
+        imageProvider,
       });
+
+      // 提取状态转换日志供遥测使用
+      this.lastTransitionLog = subAgent.getTransitionLog();
 
       if (res?.report?.errors?.length) {
         emitStage(emit, "design.visual.errors", "warn", {
