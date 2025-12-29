@@ -618,3 +618,98 @@ test("read-doc/search-docs tools: share SourceManager and keep outputs stable", 
   assert.equal(restricted.success, true);
   assert.equal(restricted.results.length, 0);
 });
+
+test("report-postprocess: review/reorder/validate share a single implementation", async () => {
+  const {
+    reviewReportMarkdown,
+    reorderReportSections,
+    validateReport,
+    getReportProgress,
+    prepareReportForSubmit,
+  } = await import("../../../js/agents/stages/deepsearch/report/report-postprocess.js");
+
+  const longPara = `Paragraph:${"x".repeat(80)}`;
+  const markdown = [
+    "## A",
+    "",
+    "keep",
+    "",
+    "## A",
+    "",
+    "REMOVE_ME",
+    "",
+    "## B",
+    "",
+    longPara,
+    "",
+    longPara,
+    "",
+    "**",
+    "",
+    "**建议",
+    "",
+  ].join("\n");
+
+  const reviewed = reviewReportMarkdown(markdown);
+  assert.equal(reviewed.fixed, true);
+  assert.equal(reviewed.markdown.includes("REMOVE_ME"), false);
+  assert.equal(reviewed.markdown.includes("**\n\n**"), false);
+  assert.equal(reviewed.issues.some((i) => i.type === "duplicate_heading"), true);
+  assert.equal(reviewed.issues.some((i) => i.type === "duplicate_paragraph"), true);
+  assert.equal(reviewed.issues.some((i) => i.type === "broken_formatting"), true);
+
+  const reordered = reorderReportSections(
+    ["## X", "", "x", "", "## 参考文献", "", "ref1", "", "## Y", "", "y", "", "## 参考文献", "", "ref2"].join("\n")
+  );
+  assert.equal((reordered.match(/## 参考文献/g) || []).length, 1);
+  assert.equal(reordered.indexOf("## Y") < reordered.indexOf("## 参考文献"), true);
+  assert.equal(reordered.includes("ref1"), true);
+  assert.equal(reordered.includes("ref2"), true);
+
+  const state = { globalConfig: { report: { quick: { minWords: 10, minReferences: 1 } } } };
+  const okReport = "## 摘要\n\n内容 [doc:L1]\n\n## 发现\n\nOK";
+  const ok = validateReport(okReport, "quick", state);
+  assert.equal(ok.valid, true);
+  assert.equal(ok.warnings.some((w) => w.includes("信息缺口")), true);
+
+  const progress = getReportProgress({ markdown: okReport }, "quick", state);
+  assert.equal(progress.isReady, true);
+
+  const processed = prepareReportForSubmit(
+    "## 摘要\n\n内容 [doc:L1]\n\n## 发现\n\nOK\n\n## 参考文献\n\nrefA\n\n## 参考文献\n\nrefB\n",
+    "quick",
+    state
+  );
+  assert.equal(processed.validation.valid, true);
+  assert.equal((processed.markdown.match(/## 参考文献/g) || []).length, 1);
+  assert.equal(processed.markdown.includes("refA"), true);
+  assert.equal(processed.markdown.includes("refB"), true);
+  assert.equal(processed.review.fixed, false);
+});
+
+test("report-postprocess: returns issues on invalid reports", async () => {
+  const { reviewReportMarkdown, validateReport, getReportProgress } = await import(
+    "../../../js/agents/stages/deepsearch/report/report-postprocess.js"
+  );
+
+  const empty = reviewReportMarkdown("");
+  assert.equal(empty.fixed, false);
+  assert.deepEqual(empty.issues, []);
+
+  const state = {
+    globalConfig: {
+      report: {
+        quick: { minWords: 1, minReferences: 1, requiredSections: ["摘要"], recommendedSections: ["结论"] },
+      },
+    },
+  };
+  const badReport = "no sections and no refs";
+  const bad = validateReport(badReport, "quick", state);
+  assert.equal(bad.valid, false);
+  assert.equal(bad.issues.some((i) => i.includes("缺少必需章节")), true);
+  assert.equal(bad.issues.some((i) => i.includes("引用不足")), true);
+  assert.equal(bad.warnings.some((w) => w.includes("建议添加章节")), true);
+
+  const progress = getReportProgress({ markdown: badReport }, "quick", state);
+  assert.equal(progress.isReady, false);
+});

@@ -21,7 +21,7 @@
 
 import { generateReport } from "../../report/report-generator.js";
 import { isPlainObject, toNonEmptyString } from "../../../../shared/utils/value-utils.js";
-import { createSafeRegex } from "../../../../shared/utils/safe-regex.js";
+import { getReportProgress, prepareReportForSubmit, reviewReportMarkdown } from "../../report/report-postprocess.js";
 import SourceManager from "../../source-manager.js";
 
 // 分析门槛配置（写报告前必须满足）- 从 config 读取或使用默认值
@@ -30,32 +30,6 @@ const DEFAULT_ANALYSIS_GATES = {
   wider: { minIterations: 8, minDocsRead: 3, minGaps: 2 },
   deeper: { minIterations: 15, minDocsRead: 5, minGaps: 3 },
 };
-
-/**
- * 从 state.globalConfig 或默认值获取报告配置
- */
-function getReportConfig(state, mode) {
-  const globalConfig = state?.globalConfig?.report?.[mode];
-  const stateConfig = state?.reportConfig?.[mode];
-
-  // 优先级：state.reportConfig > globalConfig > 内置默认值
-  const defaults = {
-    quick: { minWords: 4000, minReferences: 1, requiredSections: ["摘要", "发现"], recommendedSections: ["信息缺口", "结论"] },
-    wider: { minWords: 6000, minReferences: 3, requiredSections: ["摘要", "核心发现", "共识与分歧", "信息缺口"], recommendedSections: ["方法说明", "结论", "下一步建议"] },
-    deeper: { minWords: 10000, minReferences: 5, requiredSections: ["摘要", "核心发现", "共识与分歧", "信息缺口", "方法论评价", "局限性"], recommendedSections: ["详细分析", "证据链", "结论", "下一步建议"] },
-  };
-
-  const base = defaults[mode] || defaults.wider;
-  const config = { ...base, ...globalConfig, ...stateConfig };
-
-  return {
-    minWords: config.minWords ?? base.minWords,
-    minReferences: config.minReferences ?? base.minReferences,
-    requiredSections: config.requiredSections ?? base.requiredSections,
-    recommendedSections: config.recommendedSections ?? base.recommendedSections,
-    sectionWordLimits: config.sectionWordLimits || {},
-  };
-}
 
 /**
  * 获取分析门槛配置
@@ -98,58 +72,6 @@ function checkAnalysisGates(state, mode) {
     required: gates,
   };
 }
-
-/**
- * 重排序报告章节：将参考文献/附录移到最后，并合并重复章节
- */
-function reorderReportSections(markdown) {
-  const lines = markdown.split("\n");
-  const sections = [];
-  let current = { lines: [], isTrailing: false, title: "" };
-
-  // 需要移到最后的章节标题模式
-  const trailingPatterns = [/^##?\s*参考文献/i, /^##?\s*references/i, /^##?\s*附录/i, /^##?\s*appendix/i];
-  // 需要去重的章节（只保留最后一个）
-  const dedupePatterns = [/^##?\s*参考文献/i, /^##?\s*references/i, /^##?\s*结论/i, /^##?\s*conclusion/i];
-
-  for (const line of lines) {
-    if (/^##?\s+/.test(line)) {
-      if (current.lines.length > 0) sections.push(current);
-      const isTrailing = trailingPatterns.some(p => p.test(line));
-      current = { lines: [line], isTrailing, title: line.replace(/^#+\s*/, "").trim().toLowerCase() };
-    } else {
-      current.lines.push(line);
-    }
-  }
-  if (current.lines.length > 0) sections.push(current);
-
-  // 去重：对于参考文献/结论等章节，只保留最后一个
-  const seen = new Map();
-  for (let i = sections.length - 1; i >= 0; i--) {
-    const s = sections[i];
-    const shouldDedupe = dedupePatterns.some(p => p.test(s.lines[0] || ""));
-    if (shouldDedupe) {
-      const key = s.title.replace(/[^a-z\u4e00-\u9fa5]/g, ""); // 标准化 key
-      if (seen.has(key)) {
-        // 合并内容到已存在的章节
-        const existing = seen.get(key);
-        existing.lines.push(...s.lines.slice(1)); // 跳过标题行
-        sections.splice(i, 1); // 删除当前重复章节
-      } else {
-        seen.set(key, s);
-      }
-    }
-  }
-
-  // 分离：普通章节 + 尾部章节
-  const normal = sections.filter(s => !s.isTrailing);
-  const trailing = sections.filter(s => s.isTrailing);
-
-  return [...normal, ...trailing].map(s => s.lines.join("\n")).join("\n");
-}
-
-// getRequirements 已被 getReportConfig 替代，保留别名以兼容
-const getRequirements = getReportConfig;
 
 export const definition = {
   name: "write-report",
@@ -209,118 +131,6 @@ export const definition = {
 `,
 };
 
-/**
- * 验证报告质量
- * @param {string} content - 报告内容
- * @param {string} mode - 模式 (quick/wider/deeper)
- * @param {Object} state - 状态对象（用于读取用户自定义配置）
- */
-function validateReport(content, mode = "wider", state = null) {
-  const requirements = getRequirements(state, mode);
-  const issues = [];
-  const warnings = [];
-
-  // 检查字数
-  const wordCount = content.replace(/\s+/g, "").length;
-  if (wordCount < requirements.minWords) {
-    issues.push(`字数不足：当前 ${wordCount} 字，${mode} 模式要求至少 ${requirements.minWords} 字`);
-  }
-
-  // 检查必需章节
-  for (const section of requirements.requiredSections) {
-    if (!content.includes(section)) {
-      issues.push(`缺少必需章节：${section}`);
-    }
-  }
-
-  // 检查推荐章节
-  for (const section of requirements.recommendedSections) {
-    if (!content.includes(section)) {
-      warnings.push(`建议添加章节：${section}`);
-    }
-  }
-
-  // 检查证据引用 - 使用配置的 minReferences
-  const referencePattern = /\[([^\]]+)[:：]([^\]]+)\]/g;
-  const references = content.match(referencePattern) || [];
-  const minReferences = requirements.minReferences || { quick: 1, wider: 3, deeper: 5 }[mode] || 3;
-
-  if (references.length < minReferences) {
-    issues.push(`引用不足：当前 ${references.length} 处引用，${mode} 模式要求至少 ${minReferences} 处 [来源:页码] 格式引用`);
-  }
-
-  // 检查空洞的高置信度标注 - 有 🟢 但附近没有引用
-  const highConfidencePattern = /🟢[^🟢🟡🔴\n]{0,200}/g;
-  const highConfidenceMatches = content.match(highConfidencePattern) || [];
-  for (const match of highConfidenceMatches) {
-    referencePattern.lastIndex = 0;
-    if (!referencePattern.test(match)) {
-      issues.push(`空洞断言：标注了 🟢高置信度 但没有引用支撑`);
-      break; // 只报告一次
-    }
-  }
-
-  // 检查信息缺口 - wider/deeper 模式强制要求
-  const hasGapSection = content.includes("缺口") || content.includes("gap") ||
-    content.includes("未覆盖") || content.includes("不足") ||
-    content.includes("❓");
-  if (!hasGapSection) {
-    if (mode === "quick") {
-      warnings.push("建议明确标注信息缺口");
-    } else {
-      issues.push(`缺少信息缺口：${mode} 模式必须包含信息缺口章节`);
-    }
-  }
-
-  return {
-    valid: issues.length === 0,
-    issues,
-    warnings,
-    wordCount,
-    referenceCount: references.length,
-    mode,
-    requirements, // 返回使用的要求配置
-  };
-}
-
-/**
- * 计算报告进度和达标情况
- */
-function getReportProgress(report, mode, state) {
-  const markdown = report.markdown || "";
-  const requirements = getRequirements(state, mode);
-  const wordCount = markdown.replace(/\s+/g, "").length;
-  const referenceCount = (markdown.match(/\[([^\]]+)[:：]([^\]]+)\]/g) || []).length;
-
-  // 检查必需章节
-  const missingSections = requirements.requiredSections.filter(s => !markdown.includes(s));
-
-  // 计算进度百分比
-  const wordProgress = Math.min(100, Math.round((wordCount / requirements.minWords) * 100));
-  const refProgress = Math.min(100, Math.round((referenceCount / (requirements.minReferences || 3)) * 100));
-  const sectionProgress = Math.round(((requirements.requiredSections.length - missingSections.length) / requirements.requiredSections.length) * 100);
-  const overallProgress = Math.round((wordProgress + refProgress + sectionProgress) / 3);
-
-  return {
-    wordCount,
-    wordTarget: requirements.minWords,
-    wordProgress: `${wordProgress}%`,
-    referenceCount,
-    referenceTarget: requirements.minReferences || 3,
-    refProgress: `${refProgress}%`,
-    missingSections,
-    sectionProgress: `${sectionProgress}%`,
-    overallProgress: `${overallProgress}%`,
-    isReady: wordProgress >= 100 && refProgress >= 100 && missingSections.length === 0,
-    hint: wordProgress < 100
-      ? `还需 ${requirements.minWords - wordCount} 字`
-      : missingSections.length > 0
-        ? `缺少章节: ${missingSections.join(", ")}`
-        : referenceCount < (requirements.minReferences || 3)
-          ? `还需 ${(requirements.minReferences || 3) - referenceCount} 处引用`
-          : "✅ 可以提交",
-  };
-}
 
 /**
  * 确保 report 结构存在
@@ -558,23 +368,30 @@ export async function handler(args, context) {
 
   // ===== submit: 最终提交，严格验证 =====
   if (action === "submit" || action === "finalize") {
-    let markdown = report.markdown || "";
+    const markdown = report.markdown || "";
     if (!markdown) {
       return { success: false, error: "报告为空，无法提交" };
     }
 
-    // 结构重排序：将参考文献移到最后
-    markdown = reorderReportSections(markdown);
-    report.markdown = markdown;
+    const processed = prepareReportForSubmit(markdown, mode, state);
+    if (processed.markdown !== markdown) {
+      report.markdown = processed.markdown;
+      report.draftMarkdown = processed.markdown;
+      recordHistory(report, "submit.postprocess", {
+        originalLength: markdown.length,
+        fixedLength: processed.markdown.length,
+      });
+    }
 
     // 严格验证
-    const validation = validateReport(markdown, mode, state);
+    const validation = processed.validation;
     if (!validation.valid) {
       const progress = getReportProgress(report, mode, state);
       return {
         success: false,
         error: "报告质量不达标，无法提交",
         validation,
+        review: processed.review,
         progress,
         hint: `请修改后重新提交。问题：${validation.issues.join("; ")}`,
       };
@@ -596,6 +413,7 @@ export async function handler(args, context) {
       action: "submit",
       message: "报告提交成功",
       validation,
+      review: processed.review,
       version: report.version,
     };
   }
@@ -628,88 +446,20 @@ export async function handler(args, context) {
       return { success: false, error: "报告为空，无需审查" };
     }
 
-    const issues = [];
-    let fixed = markdown;
-
-    // 1. 检测重复的标题行（## 1. xxx 出现多次）
-    const headingPattern = /^(#{1,6}\s+\d*\.?\s*.+)$/gm;
-    const headings = [...markdown.matchAll(headingPattern)].map(m => m[1].trim());
-    const headingCounts = {};
-    for (const h of headings) {
-      headingCounts[h] = (headingCounts[h] || 0) + 1;
-    }
-    const duplicateHeadings = Object.entries(headingCounts).filter(([, c]) => c > 1);
-    if (duplicateHeadings.length > 0) {
-      issues.push({ type: "duplicate_heading", items: duplicateHeadings.map(([h, c]) => `${h} (${c}次)`) });
-      // 修复：保留第一次出现，删除后续重复的标题及其后续内容直到下一个同级标题
-      for (const [heading] of duplicateHeadings) {
-        const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const level = (heading.match(/^#+/) || [""])[0].length;
-        // 找到第一次出现的位置
-        const firstIdx = fixed.indexOf(heading);
-        if (firstIdx >= 0) {
-          // 找到第二次及之后的出现，删除到下一个同级或更高级标题
-          let searchStart = firstIdx + heading.length;
-          let match;
-          const regex = createSafeRegex(`^${escaped}`, "gm");
-          regex.lastIndex = searchStart;
-          while ((match = regex.exec(fixed)) !== null) {
-            // 找到下一个同级或更高级标题
-            const afterDup = fixed.slice(match.index + heading.length);
-            const nextHeadingMatch = afterDup.match(createSafeRegex(`^#{1,${level}}\\s`, "m"));
-            const endIdx = nextHeadingMatch
-              ? match.index + heading.length + nextHeadingMatch.index
-              : match.index + heading.length;
-            // 删除这段重复内容
-            fixed = fixed.slice(0, match.index) + fixed.slice(endIdx);
-            regex.lastIndex = match.index;
-          }
-        }
-      }
-    }
-
-    // 2. 检测重复的段落（连续出现相同的段落）
-    const paragraphs = fixed.split(/\n\n+/);
-    const seen = new Set();
-    const dedupedParagraphs = [];
-    let duplicateParagraphCount = 0;
-    for (const p of paragraphs) {
-      const normalized = p.trim();
-      if (!normalized) continue;
-      // 只对较长的段落去重（避免误删短标题）
-      if (normalized.length > 50 && seen.has(normalized)) {
-        duplicateParagraphCount++;
-        continue;
-      }
-      seen.add(normalized);
-      dedupedParagraphs.push(p);
-    }
-    if (duplicateParagraphCount > 0) {
-      issues.push({ type: "duplicate_paragraph", count: duplicateParagraphCount });
-      fixed = dedupedParagraphs.join("\n\n");
-    }
-
-    // 3. 检测断裂的内容（如 `**\n\n**建议**`）
-    const brokenBold = fixed.match(/\*\*\s*\n+\s*\*\*/g);
-    if (brokenBold) {
-      issues.push({ type: "broken_formatting", count: brokenBold.length });
-      fixed = fixed.replace(/\*\*\s*\n+\s*\*\*/g, "**");
-    }
-
-    // 应用修复
-    if (fixed !== markdown) {
-      report.markdown = fixed;
-      report.draftMarkdown = fixed;
-      recordHistory(report, "review", { issues, fixedLength: fixed.length });
+    const reviewed = reviewReportMarkdown(markdown);
+    if (reviewed.fixed) {
+      report.markdown = reviewed.markdown;
+      report.draftMarkdown = reviewed.markdown;
+      recordHistory(report, "review", { issues: reviewed.issues, fixedLength: reviewed.fixedLength });
     }
 
     return {
       success: true,
       action: "review",
-      issues,
-      fixed: fixed !== markdown,
-      originalLength: markdown.length,
-      fixedLength: fixed.length,
+      issues: reviewed.issues,
+      fixed: reviewed.fixed,
+      originalLength: reviewed.originalLength,
+      fixedLength: reviewed.fixedLength,
       version: report.version,
     };
   }
@@ -986,14 +736,15 @@ export async function handler(args, context) {
 
     // full action 应该替换整个报告，而不是追加
     // 如果需要保留历史，使用 append action
-    report.markdown = generated?.markdown || "";
+    const processed = prepareReportForSubmit(generated?.markdown || "", mode, state);
+    report.markdown = processed.markdown;
     report.sections = generated?.sections || [];
     report.citations = generated?.citations || [];
     report.draftMarkdown = report.markdown;
     recordHistory(report, "full", `${claims.length} claims`);
 
     // 验证报告质量（传入 state 以支持用户自定义配置）
-    const validation = validateReport(report.markdown, mode, state);
+    const validation = processed.validation;
     report.validation = validation;
 
     emit?.("deepsearch.report.generated", {
