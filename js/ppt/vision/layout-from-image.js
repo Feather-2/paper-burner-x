@@ -98,14 +98,14 @@ function normalizeLayoutJson(input, { intentHint } = {}) {
       const bounds = normalizeBounds(e.bounds);
 
       const content = e.content !== undefined ? asString(e.content) : undefined;
-      const styleIn = e.style && typeof e.style === "object" ? e.style : undefined;
-      const style = styleIn
-        ? {
-            fontSize: styleIn.fontSize !== undefined ? Number(styleIn.fontSize) : undefined,
-            color: styleIn.color !== undefined ? asString(styleIn.color) : undefined,
-            fontWeight: styleIn.fontWeight !== undefined ? asString(styleIn.fontWeight) : undefined,
-          }
-        : undefined;
+	      const styleIn = e.style && typeof e.style === "object" ? e.style : undefined;
+	      const style = styleIn
+	        ? {
+	            fontSize: styleIn.fontSize !== undefined ? Math.max(8, Math.min(200, Number(styleIn.fontSize) || 16)) : undefined,
+	            color: styleIn.color !== undefined ? asString(styleIn.color) : undefined,
+	            fontWeight: styleIn.fontWeight !== undefined ? asString(styleIn.fontWeight) : undefined,
+	          }
+	        : undefined;
 
       return { type, bounds, ...(content !== undefined ? { content } : {}), ...(style ? { style } : {}) };
     })
@@ -220,4 +220,3 @@ module.exports = {
     normalizeBounds,
   },
 };
-

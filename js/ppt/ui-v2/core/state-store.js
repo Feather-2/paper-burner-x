@@ -184,6 +184,7 @@ export class StateStore {
     this._eventBus = eventBus || getUIEventBus();
     this._state = createInitialState();
     this._subscribers = new Set();
+    this._unsubscribers = [];
     this._setupAgentEventListeners();
   }
 
@@ -388,28 +389,28 @@ export class StateStore {
       applyAgentLoopStatus('design', 'completed', payload);
     };
 
-    bus.on('run.started', (_, p) => markRunStarted(p));
-    bus.on('ingest.started', (_, p) => markIngestStarted(p));
-    bus.on('ingest.completed', (_, p) => markIngestCompleted(p));
+    this._unsubscribers.push(bus.on('run.started', (_, p) => markRunStarted(p)));
+    this._unsubscribers.push(bus.on('ingest.started', (_, p) => markIngestStarted(p)));
+    this._unsubscribers.push(bus.on('ingest.completed', (_, p) => markIngestCompleted(p)));
 
     // DeepSearch Agent 事件
-    bus.on('deepsearch.agent.started', (_, p) => markDeepsearchStarted(p));
-    bus.on('deepsearch.started', (_, p) => markDeepsearchStarted(p));
-    bus.on('deepsearch.log.*', (name, p) => addAgentLog(name, p));
+    this._unsubscribers.push(bus.on('deepsearch.agent.started', (_, p) => markDeepsearchStarted(p)));
+    this._unsubscribers.push(bus.on('deepsearch.started', (_, p) => markDeepsearchStarted(p)));
+    this._unsubscribers.push(bus.on('deepsearch.log.*', (name, p) => addAgentLog(name, p)));
 
-    bus.on('deepsearch.agent.status.changed', (_, p) => {
+    this._unsubscribers.push(bus.on('deepsearch.agent.status.changed', (_, p) => {
       applyAgentLoopStatus('deepsearch', p?.to, p);
-    });
+    }));
 
-    bus.on('deepsearch.agent.completed', (_, p) => markDeepsearchCompleted(p));
-    bus.on('deepsearch.completed', (_, p) => markDeepsearchCompleted(p));
+    this._unsubscribers.push(bus.on('deepsearch.agent.completed', (_, p) => markDeepsearchCompleted(p)));
+    this._unsubscribers.push(bus.on('deepsearch.completed', (_, p) => markDeepsearchCompleted(p)));
 
-    bus.on('deepsearch.agent.paused', (_, p) => {
+    this._unsubscribers.push(bus.on('deepsearch.agent.paused', (_, p) => {
       applyAgentLoopStatus('deepsearch', 'paused', p);
-    });
+    }));
 
-    bus.on('deepsearch.agent.failed', (_, p) => markDeepsearchFailed(p));
-    bus.on('deepsearch.failed', (_, p) => markDeepsearchFailed(p));
+    this._unsubscribers.push(bus.on('deepsearch.agent.failed', (_, p) => markDeepsearchFailed(p)));
+    this._unsubscribers.push(bus.on('deepsearch.failed', (_, p) => markDeepsearchFailed(p)));
 
     const updateIteration = (payload) => {
       if (typeof payload?.iteration === 'number') {
@@ -417,15 +418,15 @@ export class StateStore {
       }
     };
 
-    bus.on('deepsearch.iteration.completed', (_, p) => updateIteration(p));
-    bus.on('iteration.completed', (_, p) => updateIteration(p));
+    this._unsubscribers.push(bus.on('deepsearch.iteration.completed', (_, p) => updateIteration(p)));
+    this._unsubscribers.push(bus.on('iteration.completed', (_, p) => updateIteration(p)));
 
-    bus.on('deepsearch.gaps.completed', (_, p) => {
+    this._unsubscribers.push(bus.on('deepsearch.gaps.completed', (_, p) => {
       if (Array.isArray(p?.gaps)) this.set('deepsearch.gaps', p.gaps);
-    });
+    }));
 
     // 进度事件
-    bus.on('deepsearch.*', (eventName, p) => {
+    this._unsubscribers.push(bus.on('deepsearch.*', (eventName, p) => {
       if (eventName.includes('.progress')) {
         const progress = {
           phase: p?.phase || this.get('deepsearch.progress.phase'),
@@ -436,32 +437,32 @@ export class StateStore {
         };
         this.set('deepsearch.progress', progress);
       }
-    });
+    }));
 
     // Design Agent 事件
-    bus.on('design.agent.status.changed', (_, p) => {
+    this._unsubscribers.push(bus.on('design.agent.status.changed', (_, p) => {
       applyAgentLoopStatus('design', p?.to, p);
-    });
+    }));
 
-    bus.on('design.started', (_, p) => markDesignStarted(p));
-    bus.on('design.ended', (_, p) => markDesignCompleted(p));
-    bus.on('design.completed', (_, p) => markDesignCompleted(p));
-    bus.on('design.log.*', (name, p) => addAgentLog(name, p));
+    this._unsubscribers.push(bus.on('design.started', (_, p) => markDesignStarted(p)));
+    this._unsubscribers.push(bus.on('design.ended', (_, p) => markDesignCompleted(p)));
+    this._unsubscribers.push(bus.on('design.completed', (_, p) => markDesignCompleted(p)));
+    this._unsubscribers.push(bus.on('design.log.*', (name, p) => addAgentLog(name, p)));
 
     // =========================================================================
     // 新增事件处理器（events.d.ts 适配）
     // =========================================================================
 
     // DeepSearch 证据/草稿事件（Forge demo）
-    bus.on('deepsearch.evidence.synthesized', (_, p) => {
+    this._unsubscribers.push(bus.on('deepsearch.evidence.synthesized', (_, p) => {
       const evidences = this.get('deepsearch.evidences') || [];
       if (p?.evidenceId) {
         evidences.push({ id: p.evidenceId, source: p.source, content: p.content });
         this.set('deepsearch.evidences', evidences.slice(-20)); // 保留最近20条
       }
-    });
+    }));
 
-    bus.on('deepsearch.draft.updated', (_, p) => {
+    this._unsubscribers.push(bus.on('deepsearch.draft.updated', (_, p) => {
       if (p?.phrase) {
         this.set('deepsearch.draftPreview', {
           sectionId: p.sectionId,
@@ -470,15 +471,15 @@ export class StateStore {
           updatedAt: Date.now()
         });
       }
-    });
+    }));
 
     // Design 阶段事件（Timeline demo）
-    bus.on('design.phase.transition', (_, p) => {
+    this._unsubscribers.push(bus.on('design.phase.transition', (_, p) => {
       if (p?.to) this.set('design.currentPhase', p.to);
       if (p?.from) this.set('design.previousPhase', p.from);
-    });
+    }));
 
-    bus.on('design.batch.started', (_, p) => {
+    this._unsubscribers.push(bus.on('design.batch.started', (_, p) => {
       if (typeof p?.batchIndex === 'number') {
         this.set('design.currentBatch', {
           batchIndex: p.batchIndex,
@@ -487,9 +488,9 @@ export class StateStore {
           status: 'running'
         });
       }
-    });
+    }));
 
-    bus.on('design.batch.completed', (_, p) => {
+    this._unsubscribers.push(bus.on('design.batch.completed', (_, p) => {
       if (typeof p?.batchIndex === 'number') {
         this.set('design.currentBatch', {
           batchIndex: p.batchIndex,
@@ -498,9 +499,9 @@ export class StateStore {
           status: 'completed'
         });
       }
-    });
+    }));
 
-    bus.on('design.slide.started', (_, p) => {
+    this._unsubscribers.push(bus.on('design.slide.started', (_, p) => {
       if (typeof p?.slideIndex === 'number') {
         this.set('design.currentSlide', {
           slideId: p.slideId,
@@ -510,9 +511,9 @@ export class StateStore {
           status: 'generating'
         });
       }
-    });
+    }));
 
-    bus.on('design.slide.completed', (_, p) => {
+    this._unsubscribers.push(bus.on('design.slide.completed', (_, p) => {
       if (typeof p?.slideIndex === 'number') {
         this.set('design.currentSlide', {
           slideId: p.slideId,
@@ -520,14 +521,14 @@ export class StateStore {
           status: p.status || 'success'
         });
       }
-    });
+    }));
 
-    bus.on('design.deck.updated', (_, p) => {
+    this._unsubscribers.push(bus.on('design.deck.updated', (_, p) => {
       if (p?.deckHtmlDsl) this.set('design.deckHtmlDsl', p.deckHtmlDsl);
       if (Array.isArray(p?.slidesMeta)) this.set('design.slidesMeta', p.slidesMeta);
-    });
+    }));
 
-    bus.on('design.chat.ask', (_, p) => {
+    this._unsubscribers.push(bus.on('design.chat.ask', (_, p) => {
       if (p?.question) {
         this.set('design.pendingChatAsk', {
           question: p.question,
@@ -535,7 +536,7 @@ export class StateStore {
           timestamp: Date.now()
         });
       }
-    });
+    }));
   }
 
   /**
@@ -556,6 +557,18 @@ export class StateStore {
     }].slice(-100);
     this.set('ui.logs', logs);
   }
+
+  destroy() {
+    for (const unsubscribe of this._unsubscribers) {
+      try {
+        if (typeof unsubscribe === 'function') unsubscribe();
+      } catch (err) {
+        console.error('[StateStore] Failed to unsubscribe listener:', err);
+      }
+    }
+    this._unsubscribers = [];
+    this._subscribers.clear();
+  }
 }
 
 // 全局单例
@@ -571,6 +584,7 @@ export function getStateStore() {
 export function resetStateStore() {
   if (_instance) {
     _instance.reset();
+    _instance.destroy();
     _instance = null;
   }
 }

@@ -8,20 +8,39 @@ const PPT_DB_NAME = 'PaperBurnerPPTDB';
 const PPT_DB_VERSION = 1;
 const PPT_PROJECTS_STORE = 'ppt_projects';
 
+let _dbInstance = null;
+let _dbOpenPromise = null;
+
 /**
  * Open IndexedDB database
  */
 function openPPTDB() {
-    return new Promise((resolve, reject) => {
+    if (_dbInstance) return Promise.resolve(_dbInstance);
+    if (_dbOpenPromise) return _dbOpenPromise;
+
+    _dbOpenPromise = new Promise((resolve, reject) => {
         const request = indexedDB.open(PPT_DB_NAME, PPT_DB_VERSION);
 
         request.onerror = () => {
             console.error('Failed to open PPT database:', request.error);
+            _dbOpenPromise = null;
             reject(request.error);
         };
 
+        request.onblocked = () => {
+            console.warn('[PPTStorage] Database open blocked (another tab?)');
+        };
+
         request.onsuccess = () => {
-            resolve(request.result);
+            _dbInstance = request.result;
+            _dbOpenPromise = null;
+            _dbInstance.onversionchange = () => {
+                try {
+                    _dbInstance.close();
+                } catch {}
+                _dbInstance = null;
+            };
+            resolve(_dbInstance);
         };
 
         request.onupgradeneeded = (event) => {
@@ -37,6 +56,8 @@ function openPPTDB() {
             console.log('PPT database schema created');
         };
     });
+
+    return _dbOpenPromise;
 }
 
 /**

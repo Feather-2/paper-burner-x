@@ -285,16 +285,20 @@
             const item = document.createElement('div');
             item.className = 'pmc-dropdown-item';
             // 高亮匹配部分
-            if (filterLower) {
-                const idx = id.toLowerCase().indexOf(filterLower);
-                if (idx >= 0) {
-                    item.innerHTML = id.substring(0, idx) + 
-                        '<strong style="color:var(--pmc-primary)">' + id.substring(idx, idx + filterLower.length) + '</strong>' +
-                        id.substring(idx + filterLower.length);
-                } else {
-                    item.textContent = id;
-                }
-            } else {
+	            if (filterLower) {
+	                const idx = id.toLowerCase().indexOf(filterLower);
+	                if (idx >= 0) {
+	                    item.textContent = '';
+	                    item.appendChild(document.createTextNode(id.substring(0, idx)));
+	                    const strong = document.createElement('strong');
+	                    strong.style.color = 'var(--pmc-primary)';
+	                    strong.textContent = id.substring(idx, idx + filterLower.length);
+	                    item.appendChild(strong);
+	                    item.appendChild(document.createTextNode(id.substring(idx + filterLower.length)));
+	                } else {
+	                    item.textContent = id;
+	                }
+	            } else {
                 item.textContent = id;
             }
             item.onclick = () => selectModelId(type, id);

@@ -42,19 +42,29 @@
     attrs[k] = s;
   }
 
-  function escapeAttr(v) {
-    return String(v)
-      .replace(/&/g, "&amp;")
-      .replace(/"/g, "&quot;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
-  }
+	  function escapeAttr(v) {
+	    return String(v)
+	      .replace(/&/g, "&amp;")
+	      .replace(/"/g, "&quot;")
+	      .replace(/</g, "&lt;")
+	      .replace(/>/g, "&gt;");
+	  }
 
-  function attrsToString(attrs) {
-    return Object.entries(attrs)
-      .map(([k, v]) => ` ${k}="${escapeAttr(v)}"`)
-      .join("");
-  }
+	  function escapeHtml(str) {
+	    if (str == null) return "";
+	    return String(str)
+	      .replace(/&/g, "&amp;")
+	      .replace(/</g, "&lt;")
+	      .replace(/>/g, "&gt;")
+	      .replace(/"/g, "&quot;")
+	      .replace(/'/g, "&#39;");
+	  }
+
+	  function attrsToString(attrs) {
+	    return Object.entries(attrs)
+	      .map(([k, v]) => ` ${k}="${escapeAttr(v)}"`)
+	      .join("");
+	  }
 
   function cssEscapeIdent(id) {
     const s = String(id);
@@ -84,18 +94,18 @@
     setAttr(attrs, "data-effect", el.effect);
 
     switch (el.type) {
-      case "text": {
-        setAttr(attrs, "data-font", el.fontSize ?? el.font);
-        setAttr(attrs, "data-color", el.color);
-        setAttr(attrs, "data-bold", el.bold);
+	      case "text": {
+	        setAttr(attrs, "data-font", el.fontSize ?? el.font);
+	        setAttr(attrs, "data-color", el.color);
+	        setAttr(attrs, "data-bold", el.bold);
         setAttr(attrs, "data-italic", el.italic);
         setAttr(attrs, "data-align", el.align);
         setAttr(attrs, "data-valign", el.valign);
-        setAttr(attrs, "data-line-height", el.lineHeight);
-        setAttr(attrs, "data-font-family", el.fontFamily);
-        const content = el.content ?? "";
-        return `<div${attrsToString(attrs)}>${content}</div>`;
-      }
+	        setAttr(attrs, "data-line-height", el.lineHeight);
+	        setAttr(attrs, "data-font-family", el.fontFamily);
+	        const content = el.content ?? "";
+	        return `<div${attrsToString(attrs)}>${escapeHtml(content)}</div>`;
+	      }
 
       case "shape": {
         setAttr(attrs, "data-shape", el.shape ?? el.shapeType);
@@ -136,23 +146,23 @@
         return `<div${attrsToString(attrs)}></div>`;
       }
 
-      case "chart": {
-        setAttr(attrs, "data-chart-type", el.chartType);
-        setAttr(attrs, "data-chart-data", el.chartData);
-        setAttr(attrs, "data-colors", el.colors);
-        const title = el.title ?? "";
-        return `<div${attrsToString(attrs)}>${title}</div>`;
-      }
+	      case "chart": {
+	        setAttr(attrs, "data-chart-type", el.chartType);
+	        setAttr(attrs, "data-chart-data", el.chartData);
+	        setAttr(attrs, "data-colors", el.colors);
+	        const title = el.title ?? "";
+	        return `<div${attrsToString(attrs)}>${escapeHtml(title)}</div>`;
+	      }
 
-      case "formula": {
-        setAttr(attrs, "data-latex", el.latex);
-        setAttr(attrs, "data-font", el.font);
-        setAttr(attrs, "data-color", el.color);
-        setAttr(attrs, "data-align", el.align);
-        setAttr(attrs, "data-display-mode", el.displayMode);
-        const latex = el.latex ?? "";
-        return `<div${attrsToString(attrs)}>${latex}</div>`;
-      }
+	      case "formula": {
+	        setAttr(attrs, "data-latex", el.latex);
+	        setAttr(attrs, "data-font", el.font);
+	        setAttr(attrs, "data-color", el.color);
+	        setAttr(attrs, "data-align", el.align);
+	        setAttr(attrs, "data-display-mode", el.displayMode);
+	        const latex = el.latex ?? "";
+	        return `<div${attrsToString(attrs)}>${escapeHtml(latex)}</div>`;
+	      }
 
       case "svg": {
         setAttr(attrs, "data-svg", el.content ? "inline" : undefined);

@@ -1656,7 +1656,8 @@ class SlideEditor extends EventEmitter {
         });
 
         // 键盘事件
-        document.addEventListener('keydown', (e) => this._handleKeyDown(e));
+        this._globalKeydownHandler = (e) => this._handleKeyDown(e);
+        document.addEventListener('keydown', this._globalKeydownHandler);
     }
 
     _handleKeyDown(e) {
@@ -2681,6 +2682,11 @@ class SlideEditor extends EventEmitter {
      */
     destroy() {
         this.history.stopAutoSave();
+        if (this._globalKeydownHandler) {
+            document.removeEventListener('keydown', this._globalKeydownHandler);
+            this._globalKeydownHandler = null;
+        }
+        this._removeGroupEditOverlay();
         this.clear();
         if (this.overlayContainer) {
             this.overlayContainer.remove();

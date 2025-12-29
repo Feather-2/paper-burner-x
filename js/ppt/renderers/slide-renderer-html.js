@@ -1,3 +1,13 @@
+function escapeAttr(str) {
+    if (str == null) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
 class HTMLSlideRenderer {
     constructor(options = {}) {
         this.styles = SlideStyles;
@@ -213,7 +223,7 @@ class HTMLSlideRenderer {
         }
         // 自动注入 data-element-id（在第一个 > 之前插入）
         if (html && el.id) {
-            html = html.replace(/^<(\w+)/, `<$1 data-element-id="${el.id}"`);
+            html = html.replace(/^<(\w+)/, `<$1 data-element-id="${escapeAttr(el.id)}"`);
         }
         return html;
     }
@@ -359,7 +369,7 @@ class HTMLSlideRenderer {
         }
 
         if (el.src) {
-            return `<div style="${containerStyle}"><img src="${el.src}" alt="${el.alt}" style="${innerImgStyle}"></div>`;
+            return `<div style="${containerStyle}"><img src="${escapeAttr(el.src)}" alt="${escapeAttr(el.alt || '')}" style="${innerImgStyle}"></div>`;
         } else {
             // 占位符
             return `
@@ -381,7 +391,7 @@ class HTMLSlideRenderer {
             justify-content: center;
         `.replace(/\s+/g, ' ').trim();
 
-        return `<div style="${iconStyle}"><iconify-icon icon="${el.icon}"></iconify-icon></div>`;
+        return `<div style="${iconStyle}"><iconify-icon icon="${escapeAttr(el.icon)}"></iconify-icon></div>`;
     }
 
     renderFreeformLine(el, containerW, containerH) {

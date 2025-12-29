@@ -32,6 +32,12 @@ class TransformController extends EventEmitter {
         this._onMouseUp = this._onMouseUp.bind(this);
     }
 
+    _removeListeners() {
+        if (typeof document === 'undefined') return;
+        document.removeEventListener('mousemove', this._onMouseMove);
+        document.removeEventListener('mouseup', this._onMouseUp);
+    }
+
     /**
      * 解析百分比或数字值
      */
@@ -47,6 +53,7 @@ class TransformController extends EventEmitter {
      * 开始变换
      */
     start(handleType, mousePos) {
+        this._removeListeners();
         const selection = this.editor.selection.getSelection();
         if (selection.length === 0) return;
 
@@ -298,8 +305,7 @@ class TransformController extends EventEmitter {
     _onMouseUp(e) {
         if (!this.active) return;
 
-        document.removeEventListener('mousemove', this._onMouseMove);
-        document.removeEventListener('mouseup', this._onMouseUp);
+        this._removeListeners();
 
         // 记录历史操作 - 使用百分比字符串格式
         const slideIndex = this.editor.currentSlideIndex;
@@ -357,8 +363,7 @@ class TransformController extends EventEmitter {
     cancel() {
         if (!this.active) return;
 
-        document.removeEventListener('mousemove', this._onMouseMove);
-        document.removeEventListener('mouseup', this._onMouseUp);
+        this._removeListeners();
 
         // 恢复初始状态
         // 说明：拖拽过程中我们同步更新了 document 与 PPTGenerator.slides；取消时也必须同时回滚两者，
