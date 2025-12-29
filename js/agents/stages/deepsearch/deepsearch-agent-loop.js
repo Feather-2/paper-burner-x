@@ -8,7 +8,7 @@ import { BaseAgentLoop } from "../../runtime/core/agent-loop.js";
 import { DeepSearchState } from "./state.js";
 import { getModelCaller } from "./model.js";
 import { createLogger } from "./runtime/logger.js";
-import { tools, executeTool, getToolCatalogPrompt } from "./tools/index.js";
+import { executeTool, getToolCatalogPrompt } from "./tools/index.js";
 import { isPlainObject } from "../../shared/utils/value-utils.js";
 import { robustParseJson } from "../../shared/utils/robust-json.js";
 import { loadPrompt } from "../../prompts/prompt-loader.js";
@@ -22,7 +22,10 @@ async function loadSkillsSystem() {
   try {
     const skills = await import("../../skills/index.js");
     SkillsManager = skills.SkillsManager || skills.default;
-  } catch { }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn("[deepsearch] Failed to load skills system:", msg);
+  }
 }
 
 // 可选机制（按需加载）
@@ -36,29 +39,54 @@ let UnifiedAgentContext = null;
 
 async function loadMechanisms() {
   try {
-    const budget = await import("./budget.js");
+    const budget = await import("../../shared/utils/budget.js");
     BudgetManager = budget.BudgetManager || budget.default;
-  } catch { }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn("[deepsearch] Failed to load BudgetManager:", msg);
+  }
   try {
     const checkpoint = await import("./runtime/checkpoint.js");
     CheckpointManager = checkpoint.CheckpointManager || checkpoint.default;
-  } catch { }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn("[deepsearch] Failed to load CheckpointManager:", msg);
+  }
   try {
     const shared = await import("./runtime/shared-context.js");
     SharedContext = shared.SharedContext || shared.default;
-  } catch { }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn("[deepsearch] Failed to load SharedContext:", msg);
+  }
+  try {
+    const backtrack = await import("./runtime/backtrack-manager.js");
+    BacktrackManager = backtrack.BacktrackManager || backtrack.default;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn("[deepsearch] Failed to load BacktrackManager:", msg);
+  }
   try {
     const discovery = await import("../../sdk/DiscoveryManager.js");
     DiscoveryManager = discovery.DiscoveryManager || discovery.default;
-  } catch { }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn("[deepsearch] Failed to load DiscoveryManager:", msg);
+  }
   try {
     const memory = await import("../../runtime/memory/memory-store.js");
     MemoryStore = memory.MemoryStore || memory.default;
-  } catch { }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn("[deepsearch] Failed to load MemoryStore:", msg);
+  }
   try {
     const unified = await import("../../runtime/context/unified-agent-context.js");
     UnifiedAgentContext = unified.UnifiedAgentContext || unified.default;
-  } catch { }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn("[deepsearch] Failed to load UnifiedAgentContext:", msg);
+  }
 }
 
 export const AgentStatus = Object.freeze({
@@ -114,7 +142,7 @@ let _systemPromptTemplate = null;
  * 支持的占位符:
  * - {{TOOLS_CATALOG}}: 由 getToolCatalogPrompt() 动态生成，按优先级排序
  * - {{SKILLS_CATALOG}}: 由 SkillsManager 动态生成，基于任务目标匹配
- * - {{CURRENT_DATE}}: 当前日期
+ * - {{currentDate}}: 当前日期（兼容 {{CURRENT_DATE}}）
  * 
  * @param {Object} options
  * @param {string} options.skillsPrompt - Skills 注入内容
@@ -150,9 +178,10 @@ async function getSystemPrompt({ skillsPrompt = "", config = null, mode = "wider
     prompt = prompt + "\n\n" + skillsPrompt;
   }
 
-  // 替换 {{CURRENT_DATE}} 或 {{currentDate}}
+  // 替换 {{currentDate}}（兼容 {{CURRENT_DATE}}）
   const currentDate = new Date().toISOString().split("T")[0];
   prompt = prompt.replace(/\{\{currentDate\}\}/gi, currentDate);
+  prompt = prompt.replace(/\{\{CURRENT_DATE\}\}/gi, currentDate);
 
   // 替换配置相关占位符
   const reportConfig = config?.report || {};
@@ -246,6 +275,13 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     }
     if (SharedContext && !this.sharedContext) {
       this.sharedContext = new SharedContext();
+    }
+    if (CheckpointManager && !this.checkpoint && stageApi.archive) {
+      this.checkpoint = new CheckpointManager({
+        archive: stageApi.archive,
+        emit: (n, p) => this._emit(n, p),
+        logger: this._logger,
+      });
     }
     if (BacktrackManager && !this.backtrackManager) {
       this.backtrackManager = new BacktrackManager({
@@ -392,17 +428,15 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
 
       // [Shadow System] 注入潜意识信号 (上下文工程：即时性、不留痕)
       const shadow = stageApi.agent?.shadow || context.agent?.shadow;
-      let transientMessages = this.messages;
+      const baseMessages = this.messages;
+      const ephemeralMessages = [];
       if (shadow) {
         // [元认知] 传入当前 messages，让影子系统判断是否有必要注入
-        const subconsciousAlert = shadow.getInjectedPrompt(this.messages);
+        const subconsciousAlert = shadow.getInjectedPrompt(baseMessages);
         if (subconsciousAlert) {
           this._logger.info("[Shadow] Injecting subconscious alert (ephemeral)");
-          // 仅为当前调用注入，不改变持久的 this.messages
-          transientMessages = [
-            ...this.messages,
-            { role: "user", content: subconsciousAlert }
-          ];
+          // 仅为当前调用注入，不改变持久的 messages
+          ephemeralMessages.push({ role: "user", content: subconsciousAlert });
         }
       }
 
@@ -417,10 +451,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
           if (claimIds.length > 0 || gapIds.length > 0) {
             this._logger.debug(`Blackboard: Claims=${claimIds.length}, Gaps=${gapIds.length}`);
           }
-          transientMessages = [
-            ...transientMessages,
-            { role: "system", content: `<blackboard>\n${blackboardPrompt}\n</blackboard>` }
-          ];
+          ephemeralMessages.push({ role: "system", content: `<blackboard>\n${blackboardPrompt}\n</blackboard>` });
         }
       }
 
@@ -470,10 +501,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         const memoryContext = this.memory.buildPromptContext();
         if (memoryContext) {
           this._logger.info("[Memory] Injecting unified context (ephemeral)");
-          transientMessages = [
-            ...transientMessages,
-            { role: "system", content: `<memory>\n${memoryContext}\n</memory>` }
-          ];
+          ephemeralMessages.push({ role: "system", content: `<memory>\n${memoryContext}\n</memory>` });
         }
       }
 
@@ -481,10 +509,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
       const writeStartIteration = this.maxIterations - this.writeIterations + 1;
       const phase = iteration < writeStartIteration * 0.6 ? "收集" : iteration < writeStartIteration ? "验证" : "写作";
       const budgetStatus = `[预算] 迭代 ${iteration + 1}/${this.maxIterations} | 工具 ${toolCallCount}/${this.maxToolCalls} | 阶段: ${phase}`;
-      transientMessages = [
-        ...transientMessages,
-        { role: "system", content: `<budget>${budgetStatus}</budget>` }
-      ];
+      ephemeralMessages.push({ role: "system", content: `<budget>${budgetStatus}</budget>` });
 
       // ===== 待办状态检查提醒 =====
       const todos = this.state?.todos || [];
@@ -511,12 +536,16 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
           reminders.push(`⚠️ 发现记录不足：当前 ${findingCount} 条，需要至少 ${minFindings} 条`);
         }
         if (reminders.length > 0) {
-          transientMessages = [
-            ...transientMessages,
-            { role: "system", content: `<reminder>\n${reminders.join("\n\n")}\n\n请优先处理以上问题，不要跳过待办直接写报告。\n</reminder>` }
-          ];
+          ephemeralMessages.push({
+            role: "system",
+            content: `<reminder>\n${reminders.join("\n\n")}\n\n请优先处理以上问题，不要跳过待办直接写报告。\n</reminder>`,
+          });
         }
       }
+
+      const transientMessages = ephemeralMessages.length > 0
+        ? [...baseMessages, ...ephemeralMessages]
+        : baseMessages;
 
       try {
         // 调用模型 (使用 transientMessages)
@@ -593,9 +622,15 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
                   discoveryManager: this.discoveryManager,
                   memory: this.memory,
                 });
-                return { tool: toolName, success: true, result };
+                const toolSuccess = typeof result?.success === "boolean" ? result.success : true;
+                if (toolSuccess) return { tool: toolName, success: true, result };
+
+                const errorMessage =
+                  typeof result?.error === "string" && result.error ? result.error : "Tool returned success:false";
+                return { tool: toolName, success: false, error: errorMessage, result };
               } catch (err) {
-                return { tool: toolName, success: false, error: err.message };
+                const errorMessage = err instanceof Error ? err.message : String(err);
+                return { tool: toolName, success: false, error: errorMessage };
               }
             })
           );
@@ -610,7 +645,14 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
           // 添加批量结果到消息
           this.addMessage({
             role: "user",
-            content: `批量执行结果:\n${results.map((r, i) => `${i + 1}. ${r.tool}: ${r.success ? JSON.stringify(r.result) : `错误: ${r.error}`}`).join("\n")}\n\n请继续。`,
+            content: `批量执行结果:\n${results
+              .map(
+                (r, i) =>
+                  `${i + 1}. ${r.tool}: ${r.success
+                    ? JSON.stringify(r.result)
+                    : JSON.stringify(r.result ?? { success: false, error: r.error })}`
+              )
+              .join("\n")}\n\n请继续。`,
           });
           continue;
         }

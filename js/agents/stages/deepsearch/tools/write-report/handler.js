@@ -252,6 +252,7 @@ function validateReport(content, mode = "wider", state = null) {
   const highConfidencePattern = /🟢[^🟢🟡🔴\n]{0,200}/g;
   const highConfidenceMatches = content.match(highConfidencePattern) || [];
   for (const match of highConfidenceMatches) {
+    referencePattern.lastIndex = 0;
     if (!referencePattern.test(match)) {
       issues.push(`空洞断言：标注了 🟢高置信度 但没有引用支撑`);
       break; // 只报告一次

@@ -4,6 +4,9 @@
  */
 import { EVENT_SCHEMA_VERSION, EventStatus } from "./utils/state-utils.js";
 
+let nodeIdLastTs = 0;
+let nodeIdCounter = 0;
+
 /**
  * 创建带限流的 stage 事件发射器
  */
@@ -49,7 +52,14 @@ export function generateNodeId(runId, kind, { stage, iteration, trajectoryId } =
   if (stage) parts.push(stage);
   if (typeof iteration === "number") parts.push(`i${iteration}`);
   if (trajectoryId) parts.push(trajectoryId);
-  return parts.join("_") + "_" + Date.now().toString(36);
+  const now = Date.now();
+  if (now > nodeIdLastTs) {
+    nodeIdLastTs = now;
+    nodeIdCounter = 0;
+  } else {
+    nodeIdCounter += 1;
+  }
+  return `${parts.join("_")}_${nodeIdLastTs.toString(36)}_${nodeIdCounter.toString(36)}`;
 }
 
 /**

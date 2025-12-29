@@ -2,7 +2,12 @@ import { buildPrompt } from "../image/image-prompt-builder.js";
 import { EventStatus, ImageTaskStatus, SlotSelectionStatus, VisualDataStatus } from "../constants.js";
 import { DesignEvents } from "../../../runtime/events/events.js";
 
-import { nowMs, toNonEmptyString, safeNumber, escapeHtml as escapeAttr } from "../shared/design-utils.js";
+import { nowMs, toNonEmptyString, escapeHtml as escapeAttr } from "../shared/design-utils.js";
+
+function safeNumber(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
 
 function normalizeBudget(budget = {}) {
   return {

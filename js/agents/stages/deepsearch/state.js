@@ -1,5 +1,6 @@
 import { isPlainObject, safeInt, safeNumber, toNonEmptyString, sanitizeForJson } from "../../shared/utils/value-utils.js";
-import { EVENT_SCHEMA_VERSION, EventStatus, ensureTokenUsage, extractJsonCandidate, normalizeBudgetConfig, normalizeTokenUsage, stripThinkingTags } from "./utils/state-utils.js";
+import { EVENT_SCHEMA_VERSION, EventStatus, ensureTokenUsage, extractJsonCandidate, normalizeBudgetConfig, stripThinkingTags } from "./utils/state-utils.js";
+import { normalizeTokenUsage } from "./model/usage.js";
 import { CheckpointMode } from "./constants.js";
 import { GapStatus } from "./states.js";
 import { makeStageEmitter, generateNodeId, checkCancelled } from "./stage-utils.js";
@@ -61,7 +62,7 @@ class PlanningTree {
 }
 
 import { DecisionOutcome, DecisionStage, TodoStatus } from "./states.js";
-import { createTodo } from "./utils/todo-utils.js";
+import { createTodo, transitionTodoStatus } from "./utils/todo-utils.js";
 import {
   buildLiteSnapshot,
   buildMinimalSnapshot,
@@ -207,6 +208,7 @@ export function validateIteration(state, options = {}) {
     const gid = toNonEmptyString(g?.gapId);
     if (!gid) continue;
 
+    const oldStatus = toNonEmptyString(g?.status) || GapStatus.OPEN;
     const evidenceCount = evidenceCountByGapId.get(gid) || 0;
     // 只有当 evidence 数量 >= minEvidenceToFill 时才标记为 filled
     // [增强]: 即使以前是 BLOCKED，如果现在有足够证据，也应允许解封并转为 FILLED
@@ -268,10 +270,11 @@ export function validateIteration(state, options = {}) {
 
   const updateTodoStatus = (todo, nextStatus) => {
     if (!todo) return;
-    const from = toNonEmptyString(todo?.status) || TodoStatus.OPEN;
-    const to = toNonEmptyString(nextStatus) || TodoStatus.OPEN;
+    const from = (toNonEmptyString(todo?.status) || TodoStatus.OPEN).toLowerCase();
+    const to = (toNonEmptyString(nextStatus) || TodoStatus.OPEN).toLowerCase();
     if (from === to) return;
-    todo.status = to;
+    const didTransition = transitionTodoStatus(todo, to);
+    if (!didTransition) return;
     emitFn?.("deepsearch.todo.status.changed", {
       runId,
       todoId: toNonEmptyString(todo?.todoId) || "todo_unknown",
@@ -491,6 +494,8 @@ export class DeepSearchState {
   addTokenUsage(usage) {
     const delta = normalizeTokenUsage(usage);
     if (!delta) return this?.L2?.tokenUsage || { input: 0, output: 0, total: 0, estimatedCostUSD: 0 };
+    const estimatedCostUSDDeltaRaw = safeNumber(usage?.estimatedCostUSD ?? usage?.costUSD);
+    const estimatedCostUSDDelta = estimatedCostUSDDeltaRaw !== null ? Math.max(0, estimatedCostUSDDeltaRaw) : null;
 
     if (!isPlainObject(this.L2)) this.L2 = {};
     if (typeof this.L2.awaitUserFeedback !== "boolean") this.L2.awaitUserFeedback = false;
@@ -507,8 +512,7 @@ export class DeepSearchState {
     cur.input = curInput + delta.input;
     cur.output = curOutput + delta.output;
     cur.total = curTotal + delta.total;
-    if (safeNumber(delta.estimatedCostUSD) !== null) cur.estimatedCostUSD = curCost + (safeNumber(delta.estimatedCostUSD) ?? 0);
-    else cur.estimatedCostUSD = curCost;
+    cur.estimatedCostUSD = estimatedCostUSDDelta !== null ? curCost + estimatedCostUSDDelta : curCost;
     return cur;
   }
 

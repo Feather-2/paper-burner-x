@@ -530,6 +530,25 @@ export async function generateReportTocBasedWithLLM(state, { claims, evidenceLed
   if (!callModel) return null;
 
   const claimRows = Array.isArray(claims) ? claims : [];
+  const claimById = new Map();
+  const claimIndexById = new Map();
+  for (let i = 0; i < claimRows.length; i++) {
+    const cid = toNonEmptyString(claimRows[i]?.claimId);
+    if (!cid || claimById.has(cid)) continue;
+    claimById.set(cid, claimRows[i]);
+    claimIndexById.set(cid, i);
+  }
+
+  const evidenceRows = Array.isArray(evidenceLedger) ? evidenceLedger : [];
+  const evidenceById = new Map();
+  const evidenceIndexById = new Map();
+  for (let i = 0; i < evidenceRows.length; i++) {
+    const eid = toNonEmptyString(evidenceRows[i]?.evidenceId);
+    if (!eid || evidenceById.has(eid)) continue;
+    evidenceById.set(eid, evidenceRows[i]);
+    evidenceIndexById.set(eid, i);
+  }
+
   const allClaimIds = claimRows.map((c) => toNonEmptyString(c?.claimId)).filter(Boolean);
   const todoInput = Array.isArray(todos) && todos.length ? todos : gaps;
   const { todoRows, gapRows } = normalizeTodoAndGapRows(todoInput);
@@ -636,9 +655,28 @@ export async function generateReportTocBasedWithLLM(state, { claims, evidenceLed
       detail: { ...detailBase, sectionStatus: "started" },
     });
 
-    const relevantClaims = claimRows.filter((c) => plan.claimIds.includes(String(c?.claimId || "")));
+    const relevantClaimPairs = [];
+    const seenClaimIds = new Set();
+    for (const rawId of Array.isArray(plan?.claimIds) ? plan.claimIds : []) {
+      const cid = toNonEmptyString(rawId);
+      if (!cid || seenClaimIds.has(cid)) continue;
+      seenClaimIds.add(cid);
+      const claim = claimById.get(cid);
+      if (!claim) continue;
+      relevantClaimPairs.push([claimIndexById.get(cid) ?? Number.POSITIVE_INFINITY, claim]);
+    }
+    relevantClaimPairs.sort((a, b) => a[0] - b[0]);
+    const relevantClaims = relevantClaimPairs.map(([, c]) => c);
+
     const relevantEvidenceIds = new Set(relevantClaims.flatMap((c) => normalizeStringArray(c?.evidenceIds)));
-    const relevantEvidence = (Array.isArray(evidenceLedger) ? evidenceLedger : []).filter((e) => relevantEvidenceIds.has(String(e?.evidenceId || "")));
+    const relevantEvidencePairs = [];
+    for (const eid of relevantEvidenceIds) {
+      const evidence = evidenceById.get(eid);
+      if (!evidence) continue;
+      relevantEvidencePairs.push([evidenceIndexById.get(eid) ?? Number.POSITIVE_INFINITY, evidence]);
+    }
+    relevantEvidencePairs.sort((a, b) => a[0] - b[0]);
+    const relevantEvidence = relevantEvidencePairs.map(([, e]) => e);
 
     const previousTitles = tocSections.slice(0, i).map((s) => toNonEmptyString(s?.title)).filter(Boolean);
     const sectionMessages = buildSectionPrompt({

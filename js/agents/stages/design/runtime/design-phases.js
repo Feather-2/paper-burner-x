@@ -7,6 +7,7 @@
 import { buildSlideHtml } from "../dsl/dsl-builder.js";
 import { validateSlide } from "../refiner/qa-validator.js";
 import { getDslRules } from "../dsl/dsl-rules.js";
+import { escapeHtml } from "../shared/design-utils.js";
 import { ImagePlanner } from "../image/image-planner.js";
 import { normalizeRenderType } from "../../../shared/utils/value-utils.js";
 import { checkCancelled, getEmitFn } from "../../../runtime/core/agent-loop.js";
@@ -369,24 +370,67 @@ export async function runGeneratingPhase(loop, {
   loop._transitionPhase(loop.phase, DesignPhase.REVIEWING, { emit, runId: runContext.runId });
 
   // Update state with generated HTMLs for the tools to see
-  const initialHtmls = generated.map(g => g.slideHtml);
-  const initialMeta = slideIntents.map((intent, i) => ({
+  let slideHtmls = generated.map((g) => g.slideHtml);
+  let slidesMeta = slideIntents.map((intent, i) => ({
     slideNo: i + 1,
     slideIntentId: intent.slideIntentId,
     pageType: intent.pageType,
     title: intent.title,
-    qa: validateSlide(initialHtmls[i])
+    qa: validateSlide(slideHtmls[i])
   }));
+
+  // Last-resort downgrade: if QA fails, replace with safe templates; if still failing, use title-only fallback.
+  let degradedCount = 0;
+  let degradedReason = "";
+  for (let i = 0; i < slidesMeta.length; i++) {
+    const meta = slidesMeta[i];
+    if (meta?.qa?.pass) continue;
+
+    const slideIntent = slideIntents[i] || {};
+    const imageSlotsForSlide = imageSlots.filter((s) => Number(s?.slideIndex) === i);
+    const safeHtml = buildSlideHtml(slideIntent, designSystem, contentPackage, { safeMode: true, slideNo: i + 1, imageSlotsForSlide });
+    degradedCount += 1;
+
+    const safeQa = validateSlide(safeHtml);
+    slideHtmls[i] = safeHtml;
+    slidesMeta[i] = { ...meta, qa: safeQa, degraded: true };
+    if (Array.isArray(generated) && generated[i]) generated[i] = { ...generated[i], slideHtml: safeHtml, source: "fallback" };
+
+    if (!safeQa?.pass) {
+      degradedReason = "qa_failed_after_safe";
+      const title = String(slideIntent?.title || "Untitled");
+      const id = `slide-${i + 1}`;
+      const titleOnly = `
+<section data-type="freeform" data-layout="safe" id="${escapeHtml(id)}" data-title="${escapeHtml(title)}" data-bg="#ffffff">
+  <div data-el="text" data-x="8%" data-y="10%" data-w="84%" data-h="auto" data-font="32" data-color="#0f172a" data-bold="true">${escapeHtml(title)}</div>
+</section>`.trim();
+      degradedCount += 1;
+      const titleQa = validateSlide(titleOnly);
+      slideHtmls[i] = titleOnly;
+      slidesMeta[i] = { ...slidesMeta[i], qa: titleQa, degraded: true };
+      if (Array.isArray(generated) && generated[i]) generated[i] = { ...generated[i], slideHtml: titleOnly, source: "fallback" };
+    }
+  }
+
+  if (degradedCount > 0) {
+    emitStage(emit, "design.degraded", "warn", {
+      degradedCount,
+      reason: degradedReason || "qa_failed",
+    });
+  }
+
+  const qaFailed = slidesMeta.filter((m) => !m.qa?.pass).length;
+  emitStage(emit, "design.qa.ended", "ended", { slides: slidesMeta.length, qaFailed, degradedCount });
 
   return {
     generated,
-    slideHtmls: initialHtmls,
-    slidesMeta: initialMeta,
+    slideHtmls,
+    slidesMeta,
     imageSlots,
     brainstormResult,
     pendingImages,
-    baseDeckHtmlDsl: initialHtmls.join("\n\n"),
-    degradedCount: initialMeta.filter(m => !m.qa?.pass).length,
+    baseDeckHtmlDsl: slideHtmls.join("\n\n"),
+    degradedCount,
   };
 }
 

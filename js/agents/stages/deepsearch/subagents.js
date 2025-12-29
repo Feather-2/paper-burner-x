@@ -5,19 +5,69 @@
  */
 
 import { globalSubagentRegistry } from "../../sdk/SubagentRegistry.js";
-import { DeepSearchAgentLoop } from "./deepsearch-agent-loop.js";
 import { EventBus } from "../../runtime/events/event-bus.js";
+
+let _DeepSearchAgentLoop = null;
+async function getDeepSearchAgentLoop() {
+  if (_DeepSearchAgentLoop) return _DeepSearchAgentLoop;
+  const mod = await import("./deepsearch-agent-loop.js");
+  _DeepSearchAgentLoop = mod.DeepSearchAgentLoop || mod.default;
+  return _DeepSearchAgentLoop;
+}
+
+function toTaskId(value) {
+  const v = typeof value === "string" ? value.trim() : String(value || "").trim();
+  return v ? v : null;
+}
+
+function createTaskScopedSharedContext(sharedContext, taskId) {
+  const scopedTaskId = toTaskId(taskId);
+  if (!sharedContext || !scopedTaskId) return sharedContext;
+
+  return new Proxy(sharedContext, {
+    get(target, prop) {
+      if (prop === "buildBlackboardPrompt") {
+        return (options = {}) => target.buildBlackboardPrompt?.({ ...options, targetTaskId: scopedTaskId });
+      }
+      if (prop === "getSignals") {
+        return (filter) => {
+          if (filter && typeof filter === "object" && !Array.isArray(filter)) {
+            return target.getSignals?.({ ...filter, targetTaskId: scopedTaskId }) || [];
+          }
+          if (typeof filter === "string") {
+            return target.getSignals?.((s) => (
+              (s?.type === filter || s?.stage === filter) &&
+              (!s?.payload?.targetTaskId || String(s.payload.targetTaskId) === scopedTaskId)
+            )) || [];
+          }
+          if (typeof filter === "function") {
+            return target.getSignals?.((s) => (
+              (!s?.payload?.targetTaskId || String(s.payload.targetTaskId) === scopedTaskId) &&
+              filter(s)
+            )) || [];
+          }
+          return target.getSignals?.({ targetTaskId: scopedTaskId }) || [];
+        };
+      }
+
+      const value = target[prop];
+      if (typeof value === "function") return value.bind(target);
+      return value;
+    },
+  });
+}
 
 /**
  * 创建轻量级研究子代理
  */
 function createResearcherFactory() {
-  return async ({ prompt, inheritedContext, modelTier = "fast", parentStageApi }) => {
+  return async ({ prompt, taskId, inheritedContext, modelTier = "fast", parentStageApi }) => {
     const eventBus = new EventBus();
+    const DeepSearchAgentLoop = await getDeepSearchAgentLoop();
     const agent = new DeepSearchAgentLoop({
       maxIterations: 10,
       eventBus,
-      sharedContext: inheritedContext?.sharedContext,
+      sharedContext: createTaskScopedSharedContext(inheritedContext?.sharedContext, taskId || inheritedContext?.taskId),
     });
 
     return {
@@ -54,12 +104,13 @@ function createResearcherFactory() {
  * 创建分析子代理（更深入，迭代更多）
  */
 function createAnalyzerFactory() {
-  return async ({ prompt, inheritedContext, modelTier = "normal", parentStageApi }) => {
+  return async ({ prompt, taskId, inheritedContext, modelTier = "normal", parentStageApi }) => {
     const eventBus = new EventBus();
+    const DeepSearchAgentLoop = await getDeepSearchAgentLoop();
     const agent = new DeepSearchAgentLoop({
       maxIterations: 15,
       eventBus,
-      sharedContext: inheritedContext?.sharedContext,
+      sharedContext: createTaskScopedSharedContext(inheritedContext?.sharedContext, taskId || inheritedContext?.taskId),
     });
 
     return {

@@ -552,7 +552,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
           designSystem: this.state.designSystem,
           contentPackage: this.state.contentPackage,
           baseDeckHtmlDsl: this.state.baseDeckHtmlDsl
-        }, context);
+        }, { context, runContext, emit });
 
         this.state.deckHtmlDsl = repairResult.deckHtmlDsl;
         this.state.slidesMeta = repairResult.slidesMeta;
@@ -586,6 +586,9 @@ export class DesignAgentLoop extends BaseAgentLoop {
         this.state.visualReport = visualPhaseResult.visualReport;
         this.state.imageReport = visualPhaseResult.imageReport;
         this.state.refineResult = visualPhaseResult.refineResult;
+        if (Array.isArray(visualPhaseResult.pendingImages)) {
+          this.state.pendingImages = visualPhaseResult.pendingImages;
+        }
 
         // --- 7. Final Review Phase (Optional final audit) ---
         if (context?.enableFinalReview === true) {

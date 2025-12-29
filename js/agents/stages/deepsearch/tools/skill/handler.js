@@ -4,8 +4,7 @@
  * 参考 agentsdk-go 的 SkillTool 设计
  */
 
-import { loadSkills, loadSkillFromPath } from "../../../../skills/loader.js";
-import { SkillScope } from "../../../../skills/model.js";
+import { loadSkills } from "../../../../skills/loader.js";
 
 // 缓存已加载的 Skills
 let _skillsCache = null;

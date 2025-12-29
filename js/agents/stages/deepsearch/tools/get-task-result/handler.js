@@ -50,15 +50,18 @@ export async function handler(args, context) {
 
   // 3. 如果任务注册表有结果
   if (task) {
+    // 如果 runningTasks 里是压缩结果，优先用 sharedContext 里的完整数据补全
+    const detail = sharedContext?.getDetail?.(taskId);
+    const merged = detail && typeof detail === "object" ? { ...task, ...detail } : task;
     return {
-      success: task.status === "completed",
+      success: merged.status === "completed",
       taskId,
-      status: task.status,
-      summary: task.summary,
-      result: task.result,
-      error: task.error,
-      startedAt: task.startedAt,
-      completedAt: task.completedAt,
+      status: merged.status,
+      summary: merged.summary,
+      result: merged.result,
+      error: merged.error,
+      startedAt: merged.startedAt,
+      completedAt: merged.completedAt,
     };
   }
 
@@ -79,9 +82,10 @@ export async function handler(args, context) {
 
   // 5. 列出可用的任务 ID
   const available = [];
-  if (sharedContext?._store instanceof Map) {
-    for (const key of sharedContext._store.keys()) {
-      if (key.startsWith("task_")) {
+  const storeKeys = sharedContext?.getStoreKeys?.();
+  if (Array.isArray(storeKeys)) {
+    for (const key of storeKeys) {
+      if (typeof key === "string" && key.startsWith("task_")) {
         available.push(key);
       }
     }
