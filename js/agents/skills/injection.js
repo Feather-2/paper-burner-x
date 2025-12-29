@@ -28,15 +28,25 @@ import { promises as fs } from "fs";
  * @property {MatchResult} matchResult
  */
 
+// ============ Helpers ============
+
+/**
+ * 转义正则特殊字符
+ */
+function escapeRegExp(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 // ============ Matchers ============
 
 /**
  * 显式提及匹配器
  */
 function matchExplicit(input, skill) {
+  const escapedName = escapeRegExp(skill.metadata.name);
   const patterns = [
-    new RegExp(`\\$${skill.metadata.name}\\b`, "i"),
-    new RegExp(`@${skill.metadata.name}\\b`, "i"),
+    new RegExp(`\\$${escapedName}\\b`, "i"),
+    new RegExp(`@${escapedName}\\b`, "i"),
   ];
 
   for (const pattern of patterns) {

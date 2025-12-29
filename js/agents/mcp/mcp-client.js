@@ -115,19 +115,28 @@ export class McpClient {
    * 列出所有可用工具（合并所有 provider）
    */
   async listAllTools() {
-    const allTools = [];
-    for (const [providerId, provider] of this._providers) {
-      try {
+    const entries = Array.from(this._providers.entries());
+
+    // 并行调用所有 provider
+    const results = await Promise.allSettled(
+      entries.map(async ([providerId, provider]) => {
         const tools = await provider.listTools();
-        for (const tool of tools) {
-          allTools.push({
-            ...tool,
-            providerId,
-            providerName: provider.name,
-          });
-        }
-      } catch (err) {
-        console.warn(`[McpClient] Failed to list tools from ${providerId}:`, err?.message);
+        return tools.map(tool => ({
+          ...tool,
+          providerId,
+          providerName: provider.name,
+        }));
+      })
+    );
+
+    const allTools = [];
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      if (result.status === "fulfilled") {
+        allTools.push(...result.value);
+      } else {
+        const providerId = entries[i][0];
+        console.warn(`[McpClient] Failed to list tools from ${providerId}:`, result.reason?.message);
       }
     }
     return allTools;
