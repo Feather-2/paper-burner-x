@@ -188,10 +188,11 @@ async function parseSkillFile(filePath, scope) {
     : [];
 
   // 提取正文（frontmatter 之后的内容）
+  // 从第4个字符开始找第二个 ---，确保 bodyStart > 3
   const bodyStart = contents.indexOf("---", 4);
-  const body = bodyStart > 0 ? contents.slice(bodyStart + 3).trim() : "";
+  const body = bodyStart > 3 ? contents.slice(bodyStart + 3).trim() : "";
 
-  return {
+  const skill = {
     metadata: {
       name,
       description,

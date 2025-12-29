@@ -81,13 +81,34 @@ function extractTextFromHtml(html) {
     "&apos;": "'",
     "&#39;": "'",
     "&#x27;": "'",
+    "&ndash;": "–",
+    "&mdash;": "—",
+    "&lsquo;": "'",
+    "&rsquo;": "'",
+    "&ldquo;": """,
+    "&rdquo;": """,
+    "&bull;": "•",
+    "&hellip;": "…",
+    "&copy;": "©",
+    "&reg;": "®",
+    "&trade;": "™",
+    "&euro;": "€",
+    "&pound;": "£",
+    "&yen;": "¥",
+    "&cent;": "¢",
   };
   text = text.replace(/&[a-z0-9#]+;/gi, (entity) => {
-    if (entityMap[entity]) return entityMap[entity];
-    const match = entity.match(/&#(\d+);/i) || entity.match(/&#x([0-9a-f]+);/i);
-    if (match) {
-      const code = match[2] ? parseInt(match[2], 16) : parseInt(match[1], 10);
-      return String.fromCharCode(code);
+    const lower = entity.toLowerCase();
+    if (entityMap[lower]) return entityMap[lower];
+    // 十进制: &#123;
+    const decMatch = entity.match(/&#(\d+);/i);
+    if (decMatch) {
+      return String.fromCharCode(parseInt(decMatch[1], 10));
+    }
+    // 十六进制: &#x1F;
+    const hexMatch = entity.match(/&#x([0-9a-f]+);/i);
+    if (hexMatch) {
+      return String.fromCharCode(parseInt(hexMatch[1], 16));
     }
     return entity;
   });
@@ -696,8 +717,12 @@ export class LocalMcpProvider extends McpProvider {
   _recordSearchDiscoveries(query, results) {
     if (!this._memoryStore?.syncDiscovery) return;
     const keywords = query.split(/\s+/).filter(k => k.length >= 2);
-    for (const r of results) {
-      const id = `search_${Date.now()}_${r.index}`;
+    const now = Date.now();
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
+      // 使用 timestamp + index + 随机数避免冲突
+      const rand = Math.random().toString(36).slice(2, 8);
+      const id = `search_${now}_${i}_${rand}`;
       this._memoryStore.syncDiscovery(id, {
         type: "search_result",
         status: "open",
