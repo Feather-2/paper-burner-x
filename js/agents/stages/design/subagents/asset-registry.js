@@ -121,4 +121,15 @@ export class AssetRegistry {
       slideAssetMapping: mapping,
     };
   }
+
+  /** JSON.stringify 自动调用 */
+  toJSON() {
+    return { _v: 1, ...this.export() };
+  }
+
+  /** 从 JSON 反序列化 */
+  static fromJSON(json) {
+    if (!json || typeof json !== "object") return new AssetRegistry();
+    return new AssetRegistry(json);
+  }
 }

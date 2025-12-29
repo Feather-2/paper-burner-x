@@ -348,9 +348,51 @@ export function parseSimpleFeedback(feedback, plans) {
   return edits;
 }
 
+/**
+ * 使用 LLM 解析复杂反馈
+ * @param {string} feedback - 用户反馈
+ * @param {Array} plans - 当前规划
+ * @param {Function} llmCall - LLM 调用函数 (prompt) => Promise<string>
+ * @returns {Promise<Array>} 解析出的编辑列表
+ */
+export async function parseFeedbackWithLLM(feedback, plans, llmCall) {
+  if (!feedback || typeof feedback !== "string" || !llmCall) {
+    return parseSimpleFeedback(feedback, plans);
+  }
+
+  const planSummary = plans
+    .map((p, i) => `${i + 1}. [${p.pageType}] ${p.title || "(untitled)"} - ${p.layoutHint}`)
+    .join("\n");
+
+  const prompt = `解析用户对幻灯片规划的修改意图。
+
+当前规划：
+${planSummary}
+
+用户反馈：
+${feedback}
+
+输出 JSON 数组，每项包含：
+- slideIndex: 页码索引（从0开始）
+- layoutHint?: 新布局（hero/two-column/timeline/chart-focus/image-focus/list/waterfall）
+- visualIntent?: 新的视觉初衷
+- sellingPoint?: 新的核心卖点
+
+仅输出 JSON，无其他文字。`;
+
+  try {
+    const result = await llmCall(prompt);
+    const parsed = JSON.parse(result.replace(/```json?\n?|\n?```/g, "").trim());
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return parseSimpleFeedback(feedback, plans);
+  }
+}
+
 export class DeckPlanner {
   constructor(options = {}) {
     this.options = options;
+    this.llmCall = options.llmCall || null;
   }
 
   plan(slideIntents, designSystem) {
@@ -370,6 +412,13 @@ export class DeckPlanner {
   }
 
   parseSimpleFeedback(feedback, plans) {
+    return parseSimpleFeedback(feedback, plans);
+  }
+
+  async parseFeedback(feedback, plans) {
+    if (this.llmCall) {
+      return parseFeedbackWithLLM(feedback, plans, this.llmCall);
+    }
     return parseSimpleFeedback(feedback, plans);
   }
 }

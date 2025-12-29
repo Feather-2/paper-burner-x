@@ -6,6 +6,69 @@
  */
 
 /**
+ * Node.js canvas 适配器
+ * 尝试动态加载 canvas 包，失败则返回 null
+ */
+let nodeCanvas = null;
+let nodeCanvasAvailable = null; // null = 未检测, true/false = 检测结果
+
+async function getNodeCanvas() {
+  if (nodeCanvasAvailable === false) return null;
+  if (nodeCanvas) return nodeCanvas;
+
+  try {
+    // 动态导入，避免在浏览器环境报错
+    // @ts-ignore - 打包工具应配置 canvas 为 external
+    const mod = await import(/* webpackIgnore: true */ "canvas");
+    nodeCanvas = mod;
+    nodeCanvasAvailable = true;
+    return nodeCanvas;
+  } catch {
+    nodeCanvasAvailable = false;
+    return null;
+  }
+}
+
+/**
+ * 创建 Canvas（跨环境）
+ */
+async function createCanvas(width, height) {
+  if (isBrowserEnv()) {
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    return canvas;
+  }
+
+  const nc = await getNodeCanvas();
+  if (nc?.createCanvas) {
+    return nc.createCanvas(width, height);
+  }
+  return null;
+}
+
+/**
+ * 加载图片（跨环境）
+ */
+async function loadImageCrossEnv(base64DataUrl) {
+  if (isBrowserEnv()) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = (e) => reject(new Error(`Failed to load image: ${e}`));
+      img.src = base64DataUrl;
+    });
+  }
+
+  const nc = await getNodeCanvas();
+  if (nc?.loadImage) {
+    // canvas 包的 loadImage 支持 data URL
+    return nc.loadImage(base64DataUrl);
+  }
+  throw new Error("No image loader available in Node.js environment");
+}
+
+/**
  * 拼接配置
  */
 export const STITCHER_CONFIG = {
@@ -31,22 +94,6 @@ function isBrowserEnv() {
 }
 
 /**
- * 从 base64 data URL 创建 Image 对象
- */
-async function loadImage(base64DataUrl) {
-  if (!isBrowserEnv()) {
-    throw new Error("loadImage requires browser environment");
-  }
-
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = (e) => reject(new Error(`Failed to load image: ${e}`));
-    img.src = base64DataUrl;
-  });
-}
-
-/**
  * 拼接截图为网格
  *
  * @param {string[]} screenshots - base64 data URL 数组
@@ -62,22 +109,21 @@ export async function stitchScreenshots(screenshots, options = {}) {
     return null;
   }
 
-  // Node.js 环境：返回占位符或原始数组
-  if (!isBrowserEnv()) {
+  const canvasWidth = cols * slideWidth + (cols + 1) * padding;
+  const canvasHeight = rows * slideHeight + (rows + 1) * padding;
+
+  // 尝试创建 canvas（浏览器或 Node.js）
+  const canvas = await createCanvas(canvasWidth, canvasHeight);
+  if (!canvas) {
+    // 无可用 canvas 实现，返回占位符
     return {
       type: "placeholder",
-      message: "Screenshot stitching requires browser environment",
+      message: "Screenshot stitching requires browser or canvas package",
       screenshots: validScreenshots,
       grid: { cols, rows },
     };
   }
 
-  const canvasWidth = cols * slideWidth + (cols + 1) * padding;
-  const canvasHeight = rows * slideHeight + (rows + 1) * padding;
-
-  const canvas = document.createElement("canvas");
-  canvas.width = canvasWidth;
-  canvas.height = canvasHeight;
   const ctx = canvas.getContext("2d");
 
   // 填充背景
@@ -95,7 +141,7 @@ export async function stitchScreenshots(screenshots, options = {}) {
     const y = padding + row * (slideHeight + padding);
 
     try {
-      const img = await loadImage(slidesToDraw[i]);
+      const img = await loadImageCrossEnv(slidesToDraw[i]);
       ctx.drawImage(img, x, y, slideWidth, slideHeight);
 
       // 添加页码标签
@@ -114,7 +160,16 @@ export async function stitchScreenshots(screenshots, options = {}) {
     }
   }
 
-  return canvas.toDataURL("image/png");
+  // 导出为 data URL
+  if (typeof canvas.toDataURL === "function") {
+    return canvas.toDataURL("image/png");
+  }
+  // Node.js canvas 使用 toBuffer
+  if (typeof canvas.toBuffer === "function") {
+    const buffer = canvas.toBuffer("image/png");
+    return `data:image/png;base64,${buffer.toString("base64")}`;
+  }
+  return null;
 }
 
 /**

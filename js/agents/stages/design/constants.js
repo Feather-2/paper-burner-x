@@ -213,6 +213,26 @@ export const DslEffect = Object.freeze({
 });
 
 /**
+ * 图片/视觉渲染的启发式阈值配置
+ * @readonly
+ */
+export const VisualHeuristics = Object.freeze({
+  // 宽高比阈值 (visual-renderer.js)
+  ASPECT_RATIO_16_9: 1.55, // > 此值判定为 16:9
+  ASPECT_RATIO_4_3: 1.15, // > 此值判定为 4:3，否则 1:1
+  ASPECT_RATIO_SQUARE_MIN: 0.85, // 接近正方形的下限
+  ASPECT_RATIO_SQUARE_MAX: 1.15, // 接近正方形的上限
+
+  // 成本估算 (image-planner.js)
+  COST_HD_IMAGE: 0.04, // 3D/photo/HD/cinematic 风格
+  COST_STANDARD_IMAGE: 0.003, // 标准图片
+
+  // 透明度 (image-planner.js)
+  OPACITY_IMAGE: 0.95,
+  OPACITY_SHAPE: 0.98,
+});
+
+/**
  * 验证 BrainstormStatus 值
  */
 export function isValidBrainstormStatus(value) {

@@ -71,3 +71,43 @@ export async function runBatchRepair(params, context) {
 
     return runReactRefiner(deckPackage, enrichedContext, options);
 }
+
+/**
+ * 单页修复 - 轻量级适配器
+ * 
+ * @param {object} params - { slideIndex, currentHtml, issues, designSystem }
+ * @param {object} context - { aiApiService, modelRouter, signal }
+ * @returns {string} 修复后的 HTML
+ */
+export async function runSingleSlideRepair(params, context) {
+    const { slideIndex, currentHtml, issues, designSystem } = params;
+    const { aiApiService, modelRouter, signal } = context;
+
+    if (!aiApiService || !issues?.length) return currentHtml;
+
+    const systemPrompt = `You are a Slide Fixer. Fix the specific issues in the HTML DSL.
+Rules:
+1. Fix overflow by adjusting data-x/y/w/h within 0-100 range
+2. Fix small fonts by increasing to at least 12px
+3. Maintain all data-el attributes
+4. Return ONLY the <section>...</section> block, no markdown fences`;
+
+    const userPrompt = `Current HTML:\n${currentHtml}\n\nIssues to fix:\n${JSON.stringify(issues, null, 2)}\n\nDesign System:\n${JSON.stringify(designSystem)}`;
+
+    try {
+        const response = await aiApiService.chat({
+            messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userPrompt },
+            ],
+            model: typeof modelRouter === "function" ? modelRouter("fixer") : undefined,
+            signal,
+        });
+
+        let fixed = (response.text || "").replace(/```html/g, "").replace(/```/g, "").trim();
+        return fixed.includes("<section") ? fixed : currentHtml;
+    } catch (err) {
+        console.error("[SingleSlideRepair] Failed:", err.message);
+        return currentHtml;
+    }
+}

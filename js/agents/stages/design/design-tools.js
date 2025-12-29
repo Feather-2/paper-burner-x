@@ -152,18 +152,11 @@ export function createDesignToolHandlers(agentLoop) {
 
     fix_slide: async (params = {}, context = {}) => {
       const { slideIndex, slideIntent, currentHtml, issues, designSystem, contentPackage } = params;
-      const { runSlideFixer } = await import("./refiner/slide-fixer.js");
-      const fixed = await runSlideFixer({
-        slideIndex,
-        slideIntent,
-        currentHtml,
-        issues,
-        designSystem,
-        contentPackage,
-        aiApiService: context.aiApiService,
-        modelRouter: context.modelRouter,
-        signal: context.signal,
-      });
+      const { runSingleSlideRepair } = await import("./refiner/batch-repair-agent.js");
+      const fixed = await runSingleSlideRepair(
+        { slideIndex, currentHtml, issues, designSystem },
+        { aiApiService: context.aiApiService, modelRouter: context.modelRouter, signal: context.signal }
+      );
       return { fixedHtml: fixed };
     },
 

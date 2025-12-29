@@ -1,7 +1,7 @@
 import { ImageGenerator } from "../generators/image-generator.js";
 import { SVGGenerator } from "../generators/svg-generator.js";
 import { AssetResolver } from "./asset-resolver.js";
-import { RenderType, EventStatus, SlotPriority, SlotPurpose } from "../constants.js";
+import { RenderType, EventStatus, SlotPriority, SlotPurpose, VisualHeuristics } from "../constants.js";
 import { DesignEvents } from "../../../runtime/events/events.js";
 import { normalizeRenderType } from "../../../shared/utils/value-utils.js";
 
@@ -40,8 +40,8 @@ function aspectRatioFromPosition(position) {
   const hPct = parsePercent(position?.h);
   if (wPct === null || hPct === null || hPct === 0) return "";
   const r = wPct / hPct;
-  if (r > 1.55) return "16:9";
-  if (r > 1.15) return "4:3";
+  if (r > VisualHeuristics.ASPECT_RATIO_16_9) return "16:9";
+  if (r > VisualHeuristics.ASPECT_RATIO_4_3) return "4:3";
   if (r > 0.9 && r < 1.1) return "1:1";
   return r >= 1 ? "4:3" : "3:4";
 }
@@ -210,4 +210,3 @@ export class VisualRenderer {
     return { imageResults, svgResults, assetResults, report, mergedSlots };
   }
 }
-

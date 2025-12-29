@@ -1,3 +1,5 @@
+import { VisualHeuristics } from "../constants.js";
+
 function normalizeImagePolicy(policy) {
   const p = String(policy || "balanced").toLowerCase();
   if (p === "rich" || p === "balanced" || p === "minimal" || p === "none") return p;
@@ -39,8 +41,8 @@ function defaultStyleForPriority(priority) {
 
 function estimateCostUSD(style) {
   const s = String(style || "").toLowerCase();
-  if (s.includes("3d") || s.includes("photo") || s.includes("hd") || s.includes("cinematic")) return 0.04;
-  return 0.003;
+  if (s.includes("3d") || s.includes("photo") || s.includes("hd") || s.includes("cinematic")) return VisualHeuristics.COST_HD_IMAGE;
+  return VisualHeuristics.COST_STANDARD_IMAGE;
 }
 
 function totalEstimatedCostUSD(slots) {
@@ -200,8 +202,8 @@ export class ImagePlanner {
 
     // Opacity: keep if explicitly set; otherwise suggest a subtle non-1 opacity for images.
     if (element.opacity === undefined || element.opacity === null) {
-      if (type === "image") patch.opacity = 0.95;
-      else if (type === "shape") patch.opacity = 0.98;
+      if (type === "image") patch.opacity = VisualHeuristics.OPACITY_IMAGE;
+      else if (type === "shape") patch.opacity = VisualHeuristics.OPACITY_SHAPE;
       else patch.opacity = 1;
     }
 
@@ -219,7 +221,12 @@ export class ImagePlanner {
     // Mask: only for images (rounded corners default).
     if (type === "image" && (element.mask === undefined || element.mask === null || element.mask === "")) {
       const ratio = w !== null && h !== null && h !== 0 ? w / h : null;
-      if (ratio !== null && ratio > 0.85 && ratio < 1.15) patch.mask = "circle";
+      if (
+        ratio !== null &&
+        ratio > VisualHeuristics.ASPECT_RATIO_SQUARE_MIN &&
+        ratio < VisualHeuristics.ASPECT_RATIO_SQUARE_MAX
+      )
+        patch.mask = "circle";
       else patch.mask = "rounded:12";
     }
 
@@ -243,4 +250,3 @@ export class ImagePlanner {
     return { patch, meta: { reason: "heuristic_v1" } };
   }
 }
-

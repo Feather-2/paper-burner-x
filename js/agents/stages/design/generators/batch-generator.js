@@ -2,6 +2,7 @@ import { getDesignModelCaller, isNonRetryableError } from "../model.js";
 import { robustParseJson } from "../../../shared/utils/robust-json.js";
 import { VisualDataStatus } from "../constants.js";
 import { buildSlideHtml } from "../dsl/dsl-builder.js";
+import { resolveLayoutType } from "./layout-protocol.js";
 
 // === 可配置常量 ===
 const BATCH_GENERATOR_DEFAULTS = {
@@ -146,16 +147,8 @@ function ensureSectionAttr(slideHtml, name, value) {
   return slideHtml.replace(tag, patched);
 }
 
-function layoutFromPageType(pageType) {
-  const t = String(pageType || "overview").toLowerCase();
-  if (t === "cover") return "cover";
-  if (t === "agenda") return "agenda";
-  if (t === "comparison") return "two_column";
-  if (t === "process" || t === "roadmap") return "process";
-  if (t === "summary") return "summary";
-  if (t === "appendix") return "appendix";
-  return "content";
-}
+// 使用统一布局协议
+const layoutFromPageType = resolveLayoutType;
 
 function normalizeDslRules(dslRules) {
   if (typeof dslRules === "string") return dslRules.trim();

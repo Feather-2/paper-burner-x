@@ -16,6 +16,7 @@ import { createDeckEditor } from "./runtime/deck-editor.js";
 import { createScreenshotStitcher } from "./runtime/screenshot-stitcher.js";
 import { DesignBlackboard } from "./runtime/design-blackboard.js";
 import { parseSections } from "./refiner/react-refiner-tools.js";
+import { EditModeAgentLoop } from "./edit-mode/edit-loop.js";
 
 /**
  * 编辑请求类型
@@ -71,6 +72,10 @@ export class EditAgentLoop extends BaseAgentLoop {
     this._imageGenerator = options.imageGenerator;
     this._aiApiService = options.aiApiService;
     this._modelRouter = options.modelRouter;
+    this._intentInterpreter = new EditModeAgentLoop({
+      modelRouter: options.modelRouter,
+      tools: options.editTools,
+    });
   }
 
   /**
@@ -403,28 +408,67 @@ export class EditAgentLoop extends BaseAgentLoop {
   }
 
   async _aiEditElement(slideIndex, elementId, command, { emit, signal }) {
-    // 简化实现：直接应用文本修改
-    // 完整实现需要调用 AI 解析意图
-    if (command.includes("颜色") || command.includes("color")) {
-      const colorMatch = command.match(/#[0-9a-fA-F]{6}|#[0-9a-fA-F]{3}|\b(red|blue|green|yellow|black|white)\b/i);
-      if (colorMatch) {
-        return this._editor.editElement(slideIndex, elementId, {
-          style: `color: ${colorMatch[0]}`,
-        });
-      }
+    const sections = parseSections(this._editor.getDeckHtmlDsl());
+    const currentDsl = sections[slideIndex] || "";
+
+    const intent = await this._intentInterpreter._interpretIntent({
+      userMessage: command,
+      currentDsl,
+      state: { currentSlideIndex: slideIndex },
+      selectedElement: elementId,
+      modelRouter: this._modelRouter,
+    });
+
+    if (!intent?.operations?.length) {
+      return { success: false, error: intent?.response || "无法解析编辑意图" };
     }
 
-    return { success: false, error: "AI edit not implemented for this command" };
+    // 执行第一个操作
+    const op = intent.operations[0];
+    if (op.tool === "edit_element" && op.params) {
+      return this._editor.editElement(slideIndex, elementId, op.params.changes || op.params);
+    }
+
+    return { success: false, error: `不支持的操作: ${op.tool}` };
   }
 
   async _aiAnalyzeAndEdit(slideIndex, context, { emit, signal }) {
-    // 简化实现
-    return { success: false, error: "AI analyze and edit not implemented" };
+    const intent = await this._intentInterpreter._interpretIntent({
+      userMessage: context.command,
+      currentDsl: context.slideHtml,
+      screenshot: context.screenshot,
+      state: { currentSlideIndex: slideIndex },
+      modelRouter: this._modelRouter,
+    });
+
+    if (!intent?.operations?.length) {
+      return { success: false, error: intent?.response || "无法解析编辑意图" };
+    }
+
+    const results = [];
+    for (const op of intent.operations) {
+      if (op.tool === "edit_element" && op.params?.elementId) {
+        const r = await this._editor.editElement(slideIndex, op.params.elementId, op.params.changes || op.params);
+        results.push(r);
+      }
+    }
+
+    return { success: results.every((r) => r.success), operations: results };
   }
 
   async _aiGlobalEdit(context, { emit, signal }) {
-    // 简化实现
-    return { success: false, error: "AI global edit not implemented" };
+    const results = [];
+
+    for (let i = 0; i < context.allDsl.length; i++) {
+      const slideContext = {
+        command: context.command,
+        slideHtml: context.allDsl[i]?.html || "",
+      };
+      const r = await this._aiAnalyzeAndEdit(i, slideContext, { emit, signal });
+      if (r.success) results.push(r);
+    }
+
+    return { success: results.length > 0, slidesModified: results.length };
   }
 
   /**
