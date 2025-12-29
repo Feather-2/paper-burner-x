@@ -67,8 +67,21 @@ class SlideParser {
         let container;
 
         if (typeof htmlInput === 'string') {
-            container = document.createElement('div');
-            container.innerHTML = htmlInput;
+            const DOMParserCtor = (typeof DOMParser !== 'undefined' && DOMParser) || (typeof window !== 'undefined' && window.DOMParser);
+            if (typeof DOMParserCtor !== 'function') {
+                throw new Error('[SlideParser] DOMParser is not available in this environment');
+            }
+            const parser = new DOMParserCtor();
+            const doc = parser.parseFromString(htmlInput, 'text/html');
+            container = doc.body || document.createElement('div');
+            // linkedom DOMParser('text/html') may leave doc.body empty while doc itself contains nodes
+            if (container === doc.body) {
+                const hasSectionsInBody = doc.body?.querySelector?.('section[data-type]');
+                if (!hasSectionsInBody) {
+                    const hasSectionsInDoc = doc.querySelector?.('section[data-type]');
+                    if (hasSectionsInDoc) container = doc;
+                }
+            }
             console.log('[SlideParser] Input is string, length:', htmlInput.length);
         } else {
             container = htmlInput;

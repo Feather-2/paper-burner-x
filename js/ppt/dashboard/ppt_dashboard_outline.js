@@ -1,8 +1,19 @@
-(()=>{
-  window.PPTDashboard = window.PPTDashboard || {};
-  const NS = window.PPTDashboard;
-  NS.outline = NS.outline || {};
-  Object.assign(NS.outline, {
+	(()=>{
+	  window.PPTDashboard = window.PPTDashboard || {};
+	  const NS = window.PPTDashboard;
+	  NS.outline = NS.outline || {};
+
+	  function escapeAttr(str) {
+	    if (str == null) return '';
+	    return String(str)
+	      .replace(/&/g, '&amp;')
+	      .replace(/"/g, '&quot;')
+	      .replace(/'/g, '&#39;')
+	      .replace(/</g, '&lt;')
+	      .replace(/>/g, '&gt;');
+	  }
+
+	  Object.assign(NS.outline, {
     _renderOutlineReview() {
         // Mock outline data if not present or empty
         let outline = this.workflowData.outline;
@@ -47,13 +58,13 @@
                                 </button>
                                 <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding-right: 30px;">
                                     <span style="font-weight: 600; color: var(--ppt-accent); cursor: move;"><iconify-icon icon="carbon:draggable"></iconify-icon> ${i + 1}.</span>
-                                    <input type="text" class="ppt-input-field" value="${item.title}" style="flex: 1; min-width: 0; font-weight: 600;" data-action="updateOutlineTitle" data-event="change" data-index="${i}">
+	                                    <input type="text" class="ppt-input-field" value="${escapeAttr(item.title)}" style="flex: 1; min-width: 0; font-weight: 600;" data-action="updateOutlineTitle" data-event="change" data-index="${i}">
                                 </div>
                                 <div style="padding-left: 24px;">
                                     ${item.subs.map((sub, j) => `
                                         <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
                                             <iconify-icon icon="carbon:dot-mark" style="color: var(--ppt-text-muted); font-size: 10px;"></iconify-icon>
-                                            <input type="text" class="ppt-input-field" value="${sub}" style="flex: 1; min-width: 0; font-size: 13px; padding: 6px 8px;" data-action="updateOutlineSub" data-event="change" data-index="${i}" data-sub-index="${j}">
+	                                            <input type="text" class="ppt-input-field" value="${escapeAttr(sub)}" style="flex: 1; min-width: 0; font-size: 13px; padding: 6px 8px;" data-action="updateOutlineSub" data-event="change" data-index="${i}" data-sub-index="${j}">
                                             <button class="ppt-icon-btn" data-action="removeOutlineSub" data-index="${i}" data-sub-index="${j}" title="删除子项" style="padding: 4px; width: 24px; height: 24px; flex-shrink: 0;">
                                                 <iconify-icon icon="carbon:close"></iconify-icon>
                                             </button>

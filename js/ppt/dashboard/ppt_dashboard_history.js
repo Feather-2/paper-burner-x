@@ -3,17 +3,21 @@
   const NS = window.PPTDashboard;
   NS.history = NS.history || {};
   Object.assign(NS.history, {
-    async openHistorySelector() {
-        // Ensure files array exists
-        if (!this.workflowData.files) this.workflowData.files = [];
-
-        const modalId = 'pptHistorySelectorModal';
-        let existing = document.getElementById(modalId);
-        if (existing) {
-            existing.classList.add('open');
-            this._loadHistoryData();
-            return;
-        }
+	    async openHistorySelector() {
+	        // Ensure files array exists
+	        if (!this.workflowData.files) this.workflowData.files = [];
+	
+	        const modalId = 'pptHistorySelectorModal';
+	        let existing = document.getElementById(modalId);
+	        if (existing) {
+	            if (existing._pptRemoveTimer) {
+	                clearTimeout(existing._pptRemoveTimer);
+	                existing._pptRemoveTimer = null;
+	            }
+	            existing.classList.add('open');
+	            this._loadHistoryData();
+	            return;
+	        }
 
         // Create modal
         const overlay = document.createElement('div');
@@ -68,14 +72,22 @@
                 </div>
             </div>
         `;
+	
+	        document.body.appendChild(overlay);
 
-        document.body.appendChild(overlay);
+	        const closeAndRemoveModal = () => {
+	            const modal = document.getElementById(modalId);
+	            if (!modal) return;
+	            modal.classList.remove('open');
+	            if (modal._pptRemoveTimer) clearTimeout(modal._pptRemoveTimer);
+	            modal._pptRemoveTimer = setTimeout(() => modal.remove(), 300);
+	        };
 
-        if (window.PPTUIActions?.bindActions) {
-            window.PPTUIActions.bindActions(overlay, {
-                closeHistoryModal: () => overlay.classList.remove('open'),
-            });
-        }
+	        if (window.PPTUIActions?.bindActions) {
+	            window.PPTUIActions.bindActions(overlay, {
+	                closeHistoryModal: closeAndRemoveModal,
+	            });
+	        }
 
         // Tab switching
         overlay.querySelectorAll('.ppt-history-tab').forEach(tab => {
@@ -88,16 +100,16 @@
         });
 
         // Import button
-        const importBtn = document.getElementById('pptHistoryImportBtn');
-        importBtn.addEventListener('click', () => {
-            this._importSelectedHistoryItems();
-            overlay.classList.remove('open');
-        });
+	        const importBtn = document.getElementById('pptHistoryImportBtn');
+	        importBtn.addEventListener('click', () => {
+	            this._importSelectedHistoryItems();
+	            closeAndRemoveModal();
+	        });
 
         // Close on overlay click
-        overlay.addEventListener('click', (e) => {
-            if (e.target === overlay) overlay.classList.remove('open');
-        });
+	        overlay.addEventListener('click', (e) => {
+	            if (e.target === overlay) closeAndRemoveModal();
+	        });
 
         overlay.classList.add('open');
         this._loadHistoryData();

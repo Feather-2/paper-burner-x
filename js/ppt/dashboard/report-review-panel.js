@@ -117,15 +117,15 @@ class ReportReviewPanel {
 
         const sidebar = hasVersions
             ? this.versions.slice().reverse().map((v, i) => {
-                const idx = this.versions.length - 1 - i;
-                const isActive = idx === selectedIndex;
-                return `
-                    <div class="ppt-rr-version-item ${v.isNew ? 'new' : ''} ${isActive ? 'active' : ''}"
-                         onclick="window.PPTGenerator.selectReportVersion(${idx})">
-                        <div class="ppt-rr-version-label">${this._escapeHtml(v.label)}</div>
-                        <div class="ppt-rr-version-time">${this._escapeHtml(this.formatTime(v.timestamp))}</div>
-                    </div>
-                `;
+	                const idx = this.versions.length - 1 - i;
+	                const isActive = idx === selectedIndex;
+	                return `
+	                    <div class="ppt-rr-version-item ${v.isNew ? 'new' : ''} ${isActive ? 'active' : ''}"
+	                         onclick="window.PPTGenerator.selectReportVersion(${parseInt(idx, 10) || 0})">
+	                        <div class="ppt-rr-version-label">${this._escapeHtml(v.label)}</div>
+	                        <div class="ppt-rr-version-time">${this._escapeHtml(this.formatTime(v.timestamp))}</div>
+	                    </div>
+	                `;
             }).join('')
             : `<div class="ppt-rr-empty">暂无版本</div>`;
 
@@ -271,4 +271,3 @@ class ReportReviewPanel {
 if (typeof globalThis !== 'undefined') {
     globalThis.ReportReviewPanel = ReportReviewPanel;
 }
-

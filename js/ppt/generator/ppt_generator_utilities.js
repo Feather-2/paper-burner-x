@@ -1,3 +1,10 @@
+function sanitizeHtml(html) {
+    if (!html) return '';
+    return String(html)
+        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+        .replace(/\bon\w+\s*=/gi, 'data-removed-handler=');
+}
+
 const PPTGeneratorUtilities = {
     updateTodos(newTodos) {
         this.todos = newTodos;
@@ -129,16 +136,16 @@ const PPTGeneratorUtilities = {
             `;
         }
 
-        div.innerHTML = `
-            ${avatarHtml}
-            <div class="ppt-bubble">
-                ${attachmentsHtml}
-                ${msg.content ? marked.parse(msg.content) : ''}
-                ${msg.action ? `<div class="ppt-bubble-action">${msg.action}</div>` : ''}
-            </div>
-        `;
-        container.appendChild(div);
-    },
+	        div.innerHTML = `
+	            ${avatarHtml}
+	            <div class="ppt-bubble">
+	                ${attachmentsHtml}
+	                ${msg.content ? sanitizeHtml(marked.parse(msg.content)) : ''}
+	                ${msg.action ? `<div class="ppt-bubble-action">${msg.action}</div>` : ''}
+	            </div>
+	        `;
+	        container.appendChild(div);
+	    },
 
     _scrollToBottom() {
         const container = document.getElementById('pptChatHistory');

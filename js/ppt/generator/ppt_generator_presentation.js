@@ -123,18 +123,29 @@ const PPTGeneratorPresentation = {
             </div>
         `;
         
-        // 初始化缩略图 resizer
-        this._bindThumbResizerEvents();
-        // 初始化 canvas 自适应尺寸
-        this._updateCanvasSize();
-        // 监听窗口大小变化
-        this._resizeHandler = () => this._updateCanvasSize();
-        window.addEventListener('resize', this._resizeHandler);
-    },
+	        // 初始化缩略图 resizer
+	        this._bindThumbResizerEvents();
+	        // 初始化 canvas 自适应尺寸
+	        this._updateCanvasSize();
+	        // 监听窗口大小变化
+	        if (this._presentationResizeHandler) {
+	            window.removeEventListener('resize', this._presentationResizeHandler);
+	            this._presentationResizeHandler = null;
+	        }
+		        this._presentationResizeHandler = () => this._updateCanvasSize();
+		        window.addEventListener('resize', this._presentationResizeHandler);
+		    },
 
-    /**
-     * 计算并更新 canvas 尺寸，保持 16:9 比例并最大化利用可用空间
-     * 使用 transform scale 整体缩放，保持元素相对位置不变
+	    cleanupPresentationMode() {
+	        if (this._presentationResizeHandler && typeof window !== 'undefined') {
+	            window.removeEventListener('resize', this._presentationResizeHandler);
+	            this._presentationResizeHandler = null;
+	        }
+	    },
+
+	    /**
+	     * 计算并更新 canvas 尺寸，保持 16:9 比例并最大化利用可用空间
+	     * 使用 transform scale 整体缩放，保持元素相对位置不变
      */
     _updateCanvasSize() {
         const slideContainer = document.querySelector('.pres-slide-container');

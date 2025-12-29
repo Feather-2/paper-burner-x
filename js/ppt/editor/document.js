@@ -515,7 +515,19 @@ class SlideDocument extends EventEmitter {
     }
 
     _getElementByLocation(location) {
-        const slide = this.slides?.[location?.slideIndex];
+        if (!location || typeof location !== 'object') return null;
+        
+        const { slideIndex, elementIndex } = location;
+        
+        // 验证索引有效性
+        if (!Number.isInteger(slideIndex) || slideIndex < 0 || slideIndex >= this.slides.length) {
+            return null;
+        }
+        if (!Number.isInteger(elementIndex) || elementIndex < 0) {
+            return null;
+        }
+        
+        const slide = this.slides?.[slideIndex];
         if (!slide?.elements) return null;
 
         let elements = slide.elements;
@@ -526,7 +538,7 @@ class SlideDocument extends EventEmitter {
             elements = group.children;
         }
 
-        return elements?.[location?.elementIndex] || null;
+        return elements?.[elementIndex] || null;
     }
 
     _generateId() {
@@ -588,9 +600,18 @@ class SlideDocument extends EventEmitter {
 
         const applied = [];
 
+        const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
         const applyChangeByPath = (obj, path, value) => {
             if (!obj || !path) return;
             const parts = String(path).split('.');
+            
+            // 检查危险属性
+            if (parts.some(p => DANGEROUS_KEYS.has(p.split('[')[0]))) {
+                console.warn('[Security] Blocked dangerous property access:', path);
+                return;
+            }
+            
             let current = obj;
             for (let i = 0; i < parts.length - 1; i++) {
                 const part = parts[i];

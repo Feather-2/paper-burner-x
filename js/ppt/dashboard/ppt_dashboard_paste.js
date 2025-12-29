@@ -396,23 +396,70 @@
             .replace(/>/g, '&gt;');
     },
 
-    openPasteDocumentModal() {
-        const modalId = 'pptPasteDocumentModal';
-        const existing = document.getElementById(modalId);
-        const bindPasteActions = (modal) => {
-            if (!modal || modal.dataset.actionsBound === '1') return;
-            if (!window.PPTUIActions?.bindActions) return;
-            modal.dataset.actionsBound = '1';
+	    openPasteDocumentModal() {
+	        if (this._pasteDocumentModalTimer) {
+	            clearTimeout(this._pasteDocumentModalTimer);
+	            this._pasteDocumentModalTimer = null;
+	        }
+	        if (this._pasteDocumentModalKeyHandler) {
+	            document.removeEventListener('keydown', this._pasteDocumentModalKeyHandler);
+	            this._pasteDocumentModalKeyHandler = null;
+	        }
+
+	        const modalId = 'pptPasteDocumentModal';
+	        const existing = document.getElementById(modalId);
+	        const scheduleEditorMount = () => {
+	            this._pasteDocumentModalTimer = setTimeout(() => {
+	                const fallback = document.getElementById('pasteDocumentFallback');
+	                const textarea = document.getElementById('pasteDocumentTextarea');
+
+	                if (typeof VditorAdapter !== 'undefined' && VditorAdapter.isAvailable()) {
+	                    const mounted = VditorAdapter.mount({
+	                        container: 'pasteDocumentEditor',
+	                        value: '',
+	                        onInput: () => {},
+	                        mode: 'ir'
+	                    });
+	                    if (mounted) {
+	                        if (fallback) fallback.style.display = 'none';
+	                    } else if (fallback && textarea) {
+	                        fallback.style.display = 'block';
+	                        textarea.focus?.();
+	                    }
+	                } else if (fallback && textarea) {
+	                    fallback.style.display = 'block';
+	                    textarea.focus?.();
+	                }
+
+	                this._pasteDocumentModalTimer = null;
+	            }, 100);
+	        };
+	        const bindPasteActions = (modal) => {
+	            if (!modal || modal.dataset.actionsBound === '1') return;
+	            if (!window.PPTUIActions?.bindActions) return;
+	            modal.dataset.actionsBound = '1';
             window.PPTUIActions.bindActions(modal, {
                 closePasteDocumentModal: () => this.closePasteDocumentModal(),
                 confirmPasteDocument: () => this.confirmPasteDocument(),
             });
-        };
-        if (existing) {
-            existing.classList.add('open');
-            bindPasteActions(existing);
-            return;
-        }
+	        };
+	        if (existing) {
+	            existing.classList.add('open');
+	            bindPasteActions(existing);
+
+	            this._pasteDocumentModalKeyHandler = (e) => {
+	                if (e.key === 'Escape') this.closePasteDocumentModal();
+	            };
+	            document.addEventListener('keydown', this._pasteDocumentModalKeyHandler);
+
+	            const vditorAlreadyMounted =
+	                typeof VditorAdapter !== 'undefined' &&
+	                VditorAdapter.isAvailable?.() &&
+	                VditorAdapter._instance &&
+	                VditorAdapter._containerId === 'pasteDocumentEditor';
+	            if (!vditorAlreadyMounted) scheduleEditorMount();
+	            return;
+	        }
 
         const overlay = document.createElement('div');
         overlay.id = modalId;
@@ -463,33 +510,11 @@
         };
         document.addEventListener('keydown', this._pasteDocumentModalKeyHandler);
 
-        const host = this.elements?.overlay || document.body;
-        host.appendChild(overlay);
-        bindPasteActions(overlay);
-
-        this._pasteDocumentModalTimer = setTimeout(() => {
-            const fallback = document.getElementById('pasteDocumentFallback');
-            const textarea = document.getElementById('pasteDocumentTextarea');
-
-            if (typeof VditorAdapter !== 'undefined' && VditorAdapter.isAvailable()) {
-                const mounted = VditorAdapter.mount({
-                    container: 'pasteDocumentEditor',
-                    value: '',
-                    onInput: () => {},
-                    mode: 'ir'
-                });
-                if (mounted) {
-                    if (fallback) fallback.style.display = 'none';
-                } else if (fallback && textarea) {
-                    fallback.style.display = 'block';
-                    textarea.focus?.();
-                }
-            } else if (fallback && textarea) {
-                fallback.style.display = 'block';
-                textarea.focus?.();
-            }
-        }, 100);
-    },
+	        const host = this.elements?.overlay || document.body;
+	        host.appendChild(overlay);
+	        bindPasteActions(overlay);
+	        scheduleEditorMount();
+	    },
 
 
     closePasteDocumentModal() {

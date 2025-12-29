@@ -17,10 +17,16 @@ const PPTGeneratorNavigation = {
         }
     },
 
-    async showProjectList() {
-        await this._ensureWorkflowReady();
-        this._forceWorkflowStateSafe(window.WorkflowState?.IDLE);
-        this.currentProject = null;
+	    async showProjectList() {
+	        if (this._carouselTimer) {
+	            clearInterval(this._carouselTimer);
+	            this._carouselTimer = null;
+	        }
+	        this.cleanupPresentationMode?.();
+
+	        await this._ensureWorkflowReady();
+	        this._forceWorkflowStateSafe(window.WorkflowState?.IDLE);
+	        this.currentProject = null;
 
         let projects = [];
         if (window.pptStorage) {

@@ -93,6 +93,12 @@ export class AgentEventBridge {
     this._started = false;
   }
 
+  destroy() {
+    this.stop();
+    this._sourceBus = null;
+    this._uiBus = null;
+  }
+
   on(name, handler) {
     return this._uiBus.on(name, handler);
   }

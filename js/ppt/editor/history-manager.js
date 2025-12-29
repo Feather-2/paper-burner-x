@@ -18,6 +18,7 @@ class HistoryManager extends EventEmitter {
 
         // 自动保存定时器
         this._autoSaveTimer = null;
+        this._isSaving = false;
     }
 
     /**
@@ -367,12 +368,16 @@ class HistoryManager extends EventEmitter {
     startAutoSave() {
         this.stopAutoSave();
         this._autoSaveTimer = setInterval(async () => {
+            if (this._isSaving) return;
             if (this.dirty && this.editor.currentProject) {
+                this._isSaving = true;
                 try {
                     await this.editor.saveProject();
                     console.log('[HistoryManager] 自动保存完成');
                 } catch (e) {
                     console.error('[HistoryManager] 自动保存失败:', e);
+                } finally {
+                    this._isSaving = false;
                 }
             }
         }, HistoryManager.AUTO_SAVE_INTERVAL);

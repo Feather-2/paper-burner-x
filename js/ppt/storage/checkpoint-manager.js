@@ -93,8 +93,15 @@ export class CheckpointManager {
   _load() {
     try {
       const raw = localStorage.getItem(this.storageKey);
-      return raw ? JSON.parse(raw) : [];
-    } catch {
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) {
+        console.warn('[CheckpointManager] Invalid data format, resetting');
+        return [];
+      }
+      return parsed;
+    } catch (e) {
+      console.warn('[CheckpointManager] Failed to load checkpoints:', e);
       return [];
     }
   }
