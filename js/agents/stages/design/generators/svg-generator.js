@@ -8,7 +8,7 @@ let getCircuitBreaker = null;
 try {
   const mod = await import("../../core/error-handler.js");
   getCircuitBreaker = mod.getCircuitBreaker;
-} catch {}
+} catch { }
 
 /**
  * Simple concurrency limiter (pLimit-style).
@@ -37,11 +37,7 @@ function createLimiter(concurrency) {
   });
 }
 
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return "";
-  const s = String(v).trim();
-  return s.length ? s : "";
-}
+import { toNonEmptyString, escapeHtml as escapeAttr } from "../shared/design-utils.js";
 
 function safeNumber(v, fallback) {
   const n = Number(v);
@@ -159,13 +155,7 @@ function getSvgCircuitBreaker(name = "svg-generator") {
   return fallbackBreaker;
 }
 
-function escapeAttr(s) {
-  return String(s ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
+// escapeAttr is now imported from design-utils as escapeAttr
 
 function parseTagAttributes(tag) {
   const attrs = {};

@@ -17,9 +17,7 @@ export const EDITOR_CONFIG = {
   maxHistoryLength: 50,
 };
 
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
+import { isPlainObject } from "../shared/design-utils.js";
 
 /**
  * DeckEditor 类

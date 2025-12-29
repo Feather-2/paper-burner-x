@@ -35,11 +35,7 @@ export function isNonRetryableError(err) {
   );
 }
 
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return "";
-  const s = String(v).trim();
-  return s.length ? s : "";
-}
+import { toNonEmptyString } from "./shared/design-utils.js";
 
 function abortErrorFromSignal(signal) {
   const reason = signal?.reason;

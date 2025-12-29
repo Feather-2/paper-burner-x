@@ -8,7 +8,7 @@ import { StagePausedError } from "../../runtime/core/stage-errors.js";
 import { getRuntimeState } from "../../runtime/telemetry/loop-runtime-state.js";
 import { DESIGN_AGENT_TOOL_DEFINITIONS, createDesignToolHandlers } from "./design-tools.js";
 import { VisualHandler } from "./runtime/visual-handler.js";
-import { runPreparationPhase, runGeneratingPhase, runVisualPhase, runReviewPhase, runPlanningPhase, runLayoutPhase } from "./runtime/design-phases.js";
+import { runPreparationPhase, runGeneratingPhase, runBatchRepairPhase, runVisualPhase, runReviewPhase, runPlanningPhase, runLayoutPhase } from "./runtime/design-phases.js";
 import { DesignBlackboard } from "./runtime/design-blackboard.js";
 
 const SCHEMA_VERSION = "0.1";
@@ -545,6 +545,19 @@ export class DesignAgentLoop extends BaseAgentLoop {
 
         this.state.userConfig = this.applyUserInputsToConfig(this.state.userConfig);
 
+        // --- 5. Batch Repair Phase (Orchestrated Health Check & Fix) ---
+        const repairResult = await runBatchRepairPhase(this, {
+          slideHtmls: this.state.slideHtmls,
+          slidesMeta: this.state.slidesMeta,
+          designSystem: this.state.designSystem,
+          contentPackage: this.state.contentPackage,
+          baseDeckHtmlDsl: this.state.baseDeckHtmlDsl
+        }, context);
+
+        this.state.deckHtmlDsl = repairResult.deckHtmlDsl;
+        this.state.slidesMeta = repairResult.slidesMeta;
+        this.state.baseDeckHtmlDsl = repairResult.deckHtmlDsl; // Update base for next steps
+
         // --- 5. Visual Filling Phase ---
         const visualPhaseResult = await runVisualPhase(this, {
           contentPackage: this.state.contentPackage,
@@ -574,10 +587,10 @@ export class DesignAgentLoop extends BaseAgentLoop {
         this.state.imageReport = visualPhaseResult.imageReport;
         this.state.refineResult = visualPhaseResult.refineResult;
 
-        // --- 6. Review Phase ---
-        if (context?.enableReview !== false) {
-          this._transitionPhase(this.phase, DesignPhase.REVIEWING, { emit, runId: runContext.runId });
-          const reviewPhaseResult = await runReviewPhase(this, {
+        // --- 7. Final Review Phase (Optional final audit) ---
+        if (context?.enableFinalReview === true) {
+          this._transitionPhase(this.phase, DesignPhase.REVIEWING, { emit, runId: runId });
+          const finalReviewResult = await runReviewPhase(this, {
             deckHtmlDsl: this.state.deckHtmlDsl,
             slidesMeta: this.state.slidesMeta,
             designSystem: this.state.designSystem,
@@ -585,8 +598,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
             runContext,
             emit,
           });
-          this.state.reviewResult = reviewPhaseResult.reviewResult;
-          this._blackboard.setSummary("review", `Score: ${this.state.reviewResult?.score || 0}`);
+          this.state.reviewResult = finalReviewResult.reviewResult;
         }
 
         this._transitionPhase(this.phase, DesignPhase.COMPLETED, { emit, runId: runContext.runId });

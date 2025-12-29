@@ -2,20 +2,7 @@ import { buildPrompt } from "../image/image-prompt-builder.js";
 import { EventStatus, ImageTaskStatus, SlotSelectionStatus, VisualDataStatus } from "../constants.js";
 import { DesignEvents } from "../../../runtime/events/events.js";
 
-function nowMs() {
-  return Date.now();
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return "";
-  const s = String(v).trim();
-  return s.length ? s : "";
-}
-
-function safeNumber(v, fallback) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
-}
+import { nowMs, toNonEmptyString, safeNumber, escapeHtml as escapeAttr } from "../shared/design-utils.js";
 
 function normalizeBudget(budget = {}) {
   return {
@@ -431,13 +418,7 @@ export async function generateImages(imageSlots, contentPackage, designSystem, o
   return generator.generate(imageSlots, contentPackage, designSystem, opts);
 }
 
-function escapeAttr(s) {
-  return String(s ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
+// escapeAttr is now imported from design-utils as escapeAttr
 
 function parseTagAttributes(tag) {
   const attrs = {};

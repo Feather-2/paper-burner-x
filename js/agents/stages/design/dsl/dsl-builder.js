@@ -6,14 +6,7 @@
 
 import { VisualDataStatus } from "../constants.js";
 
-function escapeHtml(s) {
-  return String(s ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
+import { escapeHtml } from "../shared/design-utils.js";
 
 function normalizePageType(pageType) {
   return String(pageType || "overview").toLowerCase();
@@ -359,28 +352,28 @@ export function buildSlideHtml(slideIntent, designSystem, arg3, arg4, arg5) {
   const subtitle =
     pageType === "cover" && slideIntent?.objective
       ? makeTextEl({
-          x: "8%",
-          y: bodyY,
-          w: "84%",
-          font: subtitleFont,
-          color: colors.muted,
-          lineHeight: 1.4,
-          content: escapeHtml(slideIntent.objective),
-        })
+        x: "8%",
+        y: bodyY,
+        w: "84%",
+        font: subtitleFont,
+        color: colors.muted,
+        lineHeight: 1.4,
+        content: escapeHtml(slideIntent.objective),
+      })
       : "";
 
   const body =
     pageType === "cover"
       ? ""
       : makeTextEl({
-          x: "12%",
-          y: bodyY,
-          w: "76%",
-          font: bodyFont,
-          color: colors.text,
-          lineHeight: 1.6,
-          content: bodyHtml,
-        });
+        x: "12%",
+        y: bodyY,
+        w: "76%",
+        font: bodyFont,
+        color: colors.text,
+        lineHeight: 1.6,
+        content: bodyHtml,
+      });
 
   const imagePlaceholders = buildImagePlaceholdersHtml(slideIntent, options);
   const imageLayer = imagePlaceholders ? `  ${imagePlaceholders}\n` : "";

@@ -4,15 +4,13 @@
  * 所有工具返回统一格式：{success: boolean, data?: any, error?: string}
  */
 
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return "";
-  const s = String(v).trim();
-  return s.length ? s : "";
-}
+import {
+  isPlainObject,
+  toNonEmptyString,
+  parseSections,
+  joinSections,
+  extractElements,
+} from "../shared/design-utils.js";
 
 function safeIntLike(v) {
   if (typeof v === "number" && Number.isFinite(v)) return Math.floor(v);
@@ -34,83 +32,6 @@ function escapeAttrSelectorValue(value) {
 }
 
 const TOOL_OPTIONS = Symbol("reactRefinerToolOptions");
-
-// 解析 deckHtmlDsl 中的 <section> 元素
-function parseSections(deckHtmlDsl) {
-  const html = typeof deckHtmlDsl === "string" ? deckHtmlDsl : "";
-  if (!html) return [];
-
-  const lower = html.toLowerCase();
-  const sections = [];
-  let cursor = 0;
-
-  while (cursor < html.length) {
-    const start = lower.indexOf("<section", cursor);
-    if (start < 0) break;
-    const endTag = lower.indexOf("</section>", start);
-    if (endTag < 0) break;
-    const end = endTag + "</section>".length;
-    const sectionHtml = html.slice(start, end).trim();
-    if (sectionHtml) sections.push(sectionHtml);
-    cursor = end;
-  }
-
-  return sections;
-}
-
-// 将修改后的 sections 重新拼接
-function joinSections(sections) {
-  const parts = Array.isArray(sections) ? sections : [];
-  return parts
-    .map((s) => (typeof s === "string" ? s.trim() : ""))
-    .filter(Boolean)
-    .join("\n\n");
-}
-
-// 从 HTML 中提取元素信息（基于 data-el）
-function extractElements(sectionHtml) {
-  const html = typeof sectionHtml === "string" ? sectionHtml : "";
-  if (!html) return [];
-
-  const out = [];
-  const elRe = /<([a-zA-Z][a-zA-Z0-9-]*)\b([^>]*)\bdata-el="([^"]+)"([^>]*)>/g;
-  let m;
-  while ((m = elRe.exec(html)) !== null) {
-    const tag = String(m[1] || "").toLowerCase();
-    const dataEl = String(m[3] || "");
-    const attrsText = `${m[2] || ""} data-el="${dataEl}" ${m[4] || ""}`.trim();
-
-    const attrs = {};
-    const attrRe = /([:@a-zA-Z0-9_-]+)\s*=\s*"([^"]*)"/g;
-    let am;
-    while ((am = attrRe.exec(attrsText)) !== null) {
-      attrs[am[1]] = am[2];
-    }
-
-    let textPreview = "";
-    const start = m.index + m[0].length;
-    const rest = html.slice(start);
-    const closeRe = new RegExp(`</${tag}\\s*>`, "i");
-    const closeIdx = rest.search(closeRe);
-    if (closeIdx >= 0) {
-      const inner = rest.slice(0, closeIdx);
-      if (inner && !inner.includes("<")) {
-        textPreview = inner.trim().slice(0, 160);
-      }
-    }
-
-    out.push({
-      elementId: dataEl,
-      tag,
-      id: attrs.id,
-      class: attrs.class,
-      attrs,
-      ...(textPreview ? { textPreview } : {}),
-    });
-  }
-
-  return out;
-}
 
 async function parseSectionDom(sectionHtml) {
   const html = typeof sectionHtml === "string" ? sectionHtml : "";
@@ -289,7 +210,7 @@ async function screenshot(context, params) {
     } finally {
       try {
         document.body.removeChild(container);
-      } catch {}
+      } catch { }
     }
   } catch (err) {
     return { success: false, error: `screenshot failed: ${err.message}` };

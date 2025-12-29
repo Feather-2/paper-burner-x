@@ -15,23 +15,12 @@
 import { robustParseJson } from "../../../shared/utils/robust-json.js";
 import { injectSystemHint } from "../../../shared/utils/message-utils.js";
 
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return "";
-  const s = String(v).trim();
-  return s.length ? s : "";
-}
-
-function safeInt(n) {
-  return typeof n === "number" && Number.isFinite(n) ? Math.floor(n) : null;
-}
-
-function safeNumber(n) {
-  return typeof n === "number" && Number.isFinite(n) ? n : null;
-}
+import {
+  isPlainObject,
+  toNonEmptyString,
+  safeInt,
+  safeNumber,
+} from "../shared/design-utils.js";
 
 function stripThinkingTags(text) {
   // Remove <think>...</think> blocks (some models emit them)
@@ -199,8 +188,8 @@ function summarizeDeck(deckPackage) {
   };
 }
 
-function buildReactPrompt({ deckPackage, designSystem, availableTools, previousSteps, recommendedSteps, stepIndex, mode }) {
-  const systemContent = `你是"视觉设计审阅专家"，使用 ReAct（Reason + Act）迭代精修幻灯片 deck。
+function buildReactPrompt({ deckPackage, designSystem, availableTools, previousSteps, recommendedSteps, stepIndex, mode, systemPromptOverride }) {
+  const systemContent = systemPromptOverride || `你是"视觉设计审阅专家"，使用 ReAct（Reason + Act）迭代精修幻灯片 deck。
 
 你的职责：
 1. **首先调用 screenshotAll** 获取所有页面缩略图，整体评估视觉质量和风格一致性
@@ -342,6 +331,7 @@ export async function runReactRefiner(deckPackage, context, options = {}) {
       recommendedSteps,
       stepIndex,
       mode,
+      systemPromptOverride: options.systemPromptOverride,
     });
     const hintedMessages = injectSystemHint(messages, systemHint);
 

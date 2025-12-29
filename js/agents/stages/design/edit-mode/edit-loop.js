@@ -3,9 +3,7 @@ import { EditOperationType } from "../constants.js";
 import { EditModeTools, createEditToolExecutor } from "./tools.js";
 import { EditHistoryManager } from "./history.js";
 
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
+import { isPlainObject } from "../shared/design-utils.js";
 
 function ensureState(initialState) {
   if (!isPlainObject(initialState)) throw new TypeError("Edit loop: initialState must be an object");
@@ -81,9 +79,9 @@ export class EditModeAgentLoop {
       this.waitForUserAction ||
       (actionQueue
         ? async () => {
-            if (actionQueue.length === 0) return { type: "exit" };
-            return actionQueue.shift();
-          }
+          if (actionQueue.length === 0) return { type: "exit" };
+          return actionQueue.shift();
+        }
         : null);
 
     if (typeof waitForUserAction !== "function") {

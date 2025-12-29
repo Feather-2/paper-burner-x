@@ -365,86 +365,87 @@ export async function runGeneratingPhase(loop, {
   }
   await finishExecution("generating", loopIteration, stepInfo);
 
-  // QA validation
-  let slidesMeta = [];
-  let slideHtmls = [];
-  let degradedCount = 0;
+  // Perform Health Check (Initial QA + Style Alignment Check)
+  loop._transitionPhase(loop.phase, DesignPhase.REVIEWING, { emit, runId: runContext.runId });
 
-  for (let i = 0; i < slideIntents.length; i++) {
-    const slideIntent = slideIntents[i];
-    const slideNo = i + 1;
-    const imageSlotsForSlide = imageSlots.filter((s) => s.slideIndex === i);
-
-    let slideHtml = generated[i]?.slideHtml;
-    let qa = validateSlide(slideHtml);
-    let degraded = false;
-    let fixRounds = 0;
-    const maxFixRounds = 2;
-
-    while (!qa.pass && fixRounds < maxFixRounds) {
-      fixRounds++;
-      emitStage(emit, "design.slide.fixing", "progress", { slideNo, slideIntentId: slideIntent.slideIntentId, round: fixRounds, issues: qa.issues });
-
-      const fixResult = await loop._callTool("fix_slide", {
-        slideIndex: i,
-        slideIntent,
-        currentHtml: slideHtml,
-        issues: qa.issues,
-        designSystem,
-        contentPackage
-      }, generatingContext);
-
-      if (fixResult.ok && fixResult.data?.fixedHtml) {
-        slideHtml = fixResult.data.fixedHtml;
-        qa = validateSlide(slideHtml);
-      } else {
-        break; // 修复失败或无结果，尝试下一轮或进入安全模式
-      }
-    }
-
-    if (!qa.pass) {
-      degraded = true;
-      degradedCount++;
-      emit?.("design.degraded", {
-        actor: "design",
-        status: "warn",
-        payload: { slideNo, slideIntentId: slideIntent.slideIntentId, reason: "auto_fix_failed" },
-      });
-      slideHtml = buildSlideHtml(slideIntent, designSystem, contentPackage, {
-        safeMode: true,
-        slideNo,
-        imageSlotsForSlide,
-      });
-      qa = validateSlide(slideHtml);
-    }
-
-    slideHtmls.push(slideHtml);
-    slidesMeta.push({
-      slideNo,
-      slideIntentId: slideIntent?.slideIntentId,
-      pageType: slideIntent?.pageType,
-      title: slideIntent?.title,
-      degraded,
-      source: generated[i]?.source || "fallback",
-      qa,
-    });
-  }
-
-  if (degradedCount > 0) emitStage(emit, "design.degraded", "warn", { degradedCount });
-  emitStage(emit, "design.qa.ended", "ended", { slides: slideHtmls.length, degradedCount });
-
-  const baseDeckHtmlDsl = slideHtmls.join("\n\n");
-  emitDeckUpdate(baseDeckHtmlDsl, slidesMeta, { source: "qa" });
+  // Update state with generated HTMLs for the tools to see
+  const initialHtmls = generated.map(g => g.slideHtml);
+  const initialMeta = slideIntents.map((intent, i) => ({
+    slideNo: i + 1,
+    slideIntentId: intent.slideIntentId,
+    pageType: intent.pageType,
+    title: intent.title,
+    qa: validateSlide(initialHtmls[i])
+  }));
 
   return {
     generated,
-    slideHtmls,
-    slidesMeta,
+    slideHtmls: initialHtmls,
+    slidesMeta: initialMeta,
     imageSlots,
     brainstormResult,
     pendingImages,
-    baseDeckHtmlDsl,
-    degradedCount,
+    baseDeckHtmlDsl: initialHtmls.join("\n\n"),
+    degradedCount: initialMeta.filter(m => !m.qa?.pass).length,
+  };
+}
+
+/**
+ * 批量编排修复阶段 - 整合 QA 与风格对齐
+ */
+export async function runBatchRepairPhase(loop, state, { context, runContext, emit }) {
+  const { slideHtmls, slidesMeta, designSystem, contentPackage } = state;
+  const deckHtmlDsl = state.baseDeckHtmlDsl;
+
+  loop._transitionPhase(loop.phase, DesignPhase.REPAIR, { emit, runId: runContext.runId });
+
+  // 1. 运行全局风格审计
+  const { runAutoReview } = await import("../reviewer/auto-reviewer.js");
+  const reviewResult = await runAutoReview({ deckHtmlDsl, slidesMeta }, designSystem, { signal: context.signal });
+
+  // 2. 收集 QA 报错
+  const qaIssues = slidesMeta.filter(m => !m.qa?.pass).map(m => ({
+    slideIndex: m.slideNo - 1,
+    issues: m.qa.issues
+  }));
+
+  // 3. 判断是否需要修复
+  if (qaIssues.length === 0 && reviewResult.pass) {
+    emitStage(emit, "design.repair.skipped", "progress", { reason: "healthy" });
+    return { deckHtmlDsl, slidesMeta };
+  }
+
+  // 4. 调用批量编排工具 (BatchRepairAgent)
+  emitStage(emit, "design.repair.started", "progress", {
+    qaIssueCount: qaIssues.length,
+    styleIssueCount: reviewResult.issues?.length || 0,
+    consistencyScore: reviewResult.score
+  });
+
+  const repairResult = await loop._callTool("orchestrate_batch_repair", {
+    deckPackage: { deckHtmlDsl, slidesMeta },
+    qaIssues,
+    styleIssues: reviewResult.issues,
+    designSystem
+  }, context);
+
+  if (!repairResult.ok) {
+    emitStage(emit, "design.repair.failed", "warn", { error: repairResult.error });
+    return { deckHtmlDsl, slidesMeta };
+  }
+
+  const finalDeck = repairResult.data?.finalDeck || repairResult.data || {};
+  const finalHtmls = finalDeck.deckHtmlDsl || deckHtmlDsl;
+  const finalMeta = finalDeck.slidesMeta || slidesMeta;
+
+  emitStage(emit, "design.repair.ended", "ended", {
+    finalScore: repairResult.data?.qualityScore,
+    steps: repairResult.data?.steps?.length
+  });
+
+  return {
+    deckHtmlDsl: finalHtmls,
+    slidesMeta: finalMeta
   };
 }
 

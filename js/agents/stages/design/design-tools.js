@@ -88,6 +88,20 @@ export const DESIGN_AGENT_TOOL_DEFINITIONS = Object.freeze([
       required: ["message"],
     },
   },
+  {
+    name: "orchestrate_batch_repair",
+    description: "Orchestrate multiple repairs for slides and global style alignment across the deck.",
+    parameters: {
+      type: "object",
+      properties: {
+        deckPackage: { type: "object" },
+        qaIssues: { type: "array" },
+        styleIssues: { type: "array" },
+        designSystem: { type: "object" },
+      },
+      required: ["deckPackage", "designSystem"],
+    },
+  },
 ]);
 
 function emitStage(emit, name, status, payload) {
@@ -179,6 +193,14 @@ export function createDesignToolHandlers(agentLoop) {
         signal: context.signal,
       });
       return { actionName: params.actionName, payload };
+    },
+
+    orchestrate_batch_repair: async (params = {}, context = {}) => {
+      const { runBatchRepair } = await import("./refiner/batch-repair-agent.js");
+      return runBatchRepair(params, {
+        ...context,
+        stageApi: agentLoop, // Pass the master agent loop as stageApi for tool execution
+      });
     },
   };
 }
