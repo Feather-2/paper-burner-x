@@ -182,6 +182,41 @@ test("Design: generateSingleSlide returns valid HTML", async () => {
   assert.ok(res.slideHtml.includes('data-el="'));
 });
 
+test("Design: generateSingleSlide repairs invalid DSL via reflection before falling back", async () => {
+  const { generateSingleSlide } = await import("../../js/agents/stages/design/batch-generator.js");
+
+  const contentPackage = makeContentPackage({ slideCount: 1 });
+  const designSystem = { designTokens: { colors: { bg: "#fff", text: "#111" } } };
+  const slideIntent = { ...contentPackage.slideIntents[0], slideIntentId: "s_repair", pageType: "overview", title: "Repair" };
+
+  let sawRepairPrompt = false;
+
+  const modelCaller = async (messages) => {
+    const system = String(messages?.[0]?.content || "");
+    if (system.includes("[DSL Repair]")) {
+      sawRepairPrompt = true;
+      return { content: '<section data-type="freeform"><div data-el="text">Fixed</div></section>' };
+    }
+    return {
+      content: JSON.stringify([
+        { slideIntentId: "s_repair", slideHtml: '<section data-type="freeform"></section>' },
+      ]),
+    };
+  };
+
+  const res = await generateSingleSlide(slideIntent, designSystem, "Use percent positions only.", {
+    contentPackage,
+    slideIndex: 0,
+    slideNo: 1,
+    modelCaller,
+  });
+
+  assert.equal(sawRepairPrompt, true);
+  assert.equal(res.source, "llm");
+  assert.ok(typeof res.slideHtml === "string" && res.slideHtml.includes('data-type="freeform"'));
+  assert.ok(res.slideHtml.includes('data-el="'));
+});
+
 test("Design: batch-generator respects concurrency, emits events, and retries once on failure", async () => {
   const { generateBatch } = await import("../../js/agents/stages/design/batch-generator.js");
 

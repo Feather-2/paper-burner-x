@@ -168,6 +168,70 @@ function tryFixSlideHtml(html, slideIntent) {
   return s;
 }
 
+function stripHtmlFences(text) {
+  let s = String(text || "").trim();
+  if (!s) return "";
+  s = s.replace(/^```(?:html)?[\s\n]*/i, "").replace(/[\s\n]*```$/i, "");
+  return s.trim();
+}
+
+function extractSectionBlock(text) {
+  const s = stripHtmlFences(text);
+  if (!s) return "";
+  const lower = s.toLowerCase();
+  const start = lower.indexOf("<section");
+  if (start < 0) return s;
+  const end = lower.lastIndexOf("</section>");
+  if (end > start) return s.slice(start, end + "</section>".length);
+  return s.slice(start);
+}
+
+async function repairSlideHtmlWithModel(modelCaller, slideIntent, slideHtml, options = {}) {
+  if (typeof modelCaller !== "function") return null;
+  if (options.signal?.aborted) return null;
+
+  const rules = normalizeDslRules(options.dslRules);
+  const layout = toNonEmptyString(options.layout) || "";
+  const slideIntentId = toNonEmptyString(slideIntent?.slideIntentId || slideIntent?.slideIntentID) || "";
+  const title = toNonEmptyString(slideIntent?.title) || "Slide";
+
+  const systemPrompt = [
+    "[DSL Repair]",
+    "You are a PPT HTML DSL repair assistant.",
+    "Fix the provided broken slideHtml to conform to the DSL spec.",
+    "Return ONLY a single <section ...>...</section> block (no markdown fences, no JSON).",
+    "Requirements:",
+    '- Must include <section data-type="freeform" ...>',
+    "- Must include at least one element with a data-el attribute (e.g. data-el=\"text\").",
+    "- Preserve existing IDs/data-slot-id attributes where possible.",
+  ].join("\n");
+
+  const userPrompt = [
+    `slideIntentId: ${slideIntentId}`,
+    `title: ${title}`,
+    `pageType: ${String(slideIntent?.pageType || "")}`,
+    layout ? `expected data-layout: ${layout}` : "",
+    rules ? `DSL rules:\n${rules}` : "",
+    "Broken slideHtml:",
+    String(slideHtml || ""),
+    "",
+    "Return repaired HTML now.",
+  ].filter(Boolean).join("\n");
+
+  const messages = [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: userPrompt },
+  ];
+
+  const resp = await modelCaller(messages, { temperature: 0, maxTokens: 2500, signal: options.signal, timeoutMs: 120_000 });
+  const rawText = typeof resp?.content === "string" ? resp.content : typeof resp?.text === "string" ? resp.text : String(resp || "");
+  const candidate = extractSectionBlock(rawText);
+  if (!candidate) return null;
+
+  const fixed = tryFixSlideHtml(candidate, slideIntent);
+  return fixed || null;
+}
+
 function ensureSectionAttr(slideHtml, name, value) {
   if (typeof slideHtml !== "string") return slideHtml;
   const m = slideHtml.match(/<section\b[^>]*>/i);
@@ -585,6 +649,7 @@ export async function generateSingleSlide(slideIntent, designSystem, dslRules, o
       { role: "user", content: prompt },
     ];
 
+    let repairAttempted = false;
     let lastErr = null;
     for (let attempt = 0; attempt < 2; attempt++) {
       if (options.signal?.aborted) throw new Error(typeof options.signal.reason === "string" ? options.signal.reason : "Run cancelled");
@@ -610,9 +675,24 @@ export async function generateSingleSlide(slideIntent, designSystem, dslRules, o
           if (fixed) {
             slideHtml = ensureSectionAttr(fixed, "data-layout", layoutFromPageType(si.pageType));
             slideHtml = applyVisualSlotHintsToSlideHtml(slideHtml, imageSlotsForSlide, slotHintsBySlotId);
+          } else if (!repairAttempted) {
+            repairAttempted = true;
+            const repaired = await repairSlideHtmlWithModel(modelCaller, si, slideHtml, {
+              signal: options.signal,
+              dslRules,
+              layout: layoutFromPageType(si.pageType),
+            });
+            if (repaired) {
+              slideHtml = ensureSectionAttr(repaired, "data-layout", layoutFromPageType(si.pageType));
+              slideHtml = applyVisualSlotHintsToSlideHtml(slideHtml, imageSlotsForSlide, slotHintsBySlotId);
+            }
           } else {
             throw new Error("Invalid slideHtml returned by model");
           }
+        }
+
+        if (!looksLikeSlideHtml(slideHtml)) {
+          throw new Error("Invalid slideHtml returned by model");
         }
 
         return { slideIntentId, slideHtml, source: "llm" };
