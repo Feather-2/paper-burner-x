@@ -13,6 +13,8 @@
 
 import { promises as fs } from "fs";
 
+const _skillIndexCache = new WeakMap();
+
 /**
  * @typedef {Object} MatchResult
  * @property {boolean} matched
@@ -35,6 +37,107 @@ import { promises as fs } from "fs";
  */
 function escapeRegExp(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function isPlainObject(v) {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+function extractTokensForIndex(text) {
+  const s = String(text || "").toLowerCase();
+  const tokens = new Set();
+  const wordTokens = s.match(/[a-z0-9][a-z0-9_-]{1,}/g) || [];
+  const cjkTokens = s.match(/[\u4e00-\u9fff]{2,}/g) || [];
+
+  for (const t of wordTokens) tokens.add(t);
+  for (const t of cjkTokens) tokens.add(t);
+
+  // Fallback: whitespace tokens (for short tokens like "ai")
+  for (const t of s.split(/\s+/g)) {
+    const trimmed = t.trim();
+    if (trimmed.length >= 2) tokens.add(trimmed);
+  }
+
+  return tokens;
+}
+
+function buildSkillIndex(skills) {
+  const list = Array.isArray(skills) ? skills : [];
+  const byName = new Map(); // lowerName -> skill
+  const byToken = new Map(); // token -> Set<skill>
+  const tagOrTraitSkills = new Set();
+
+  const addToken = (token, skill) => {
+    const t = String(token || "").toLowerCase().trim();
+    if (!t) return;
+    if (!byToken.has(t)) byToken.set(t, new Set());
+    byToken.get(t).add(skill);
+  };
+
+  for (const skill of list) {
+    const name = String(skill?.metadata?.name || "").trim();
+    if (name) byName.set(name.toLowerCase(), skill);
+
+    const meta = skill?.metadata || {};
+    const keywordsAll = Array.isArray(meta.keywordsAll) ? meta.keywordsAll : [];
+    const keywordsAny = Array.isArray(meta.keywords) ? meta.keywords : [];
+    const description = typeof meta.description === "string" ? meta.description : "";
+
+    for (const kw of [...keywordsAll, ...keywordsAny]) {
+      for (const token of extractTokensForIndex(kw)) addToken(token, skill);
+      // Also index the full keyword phrase for substring-style matches.
+      addToken(String(kw || "").toLowerCase().trim(), skill);
+    }
+
+    // Light semantic prefilter: description words (keeps candidate set small).
+    for (const token of extractTokensForIndex(description)) addToken(token, skill);
+
+    if (isPlainObject(meta.tags) || (Array.isArray(meta.traits) && meta.traits.length > 0)) {
+      tagOrTraitSkills.add(skill);
+    }
+  }
+
+  return { byName, byToken, tagOrTraitSkills };
+}
+
+function getSkillIndex(skills) {
+  if (!Array.isArray(skills)) return buildSkillIndex([]);
+  const cached = _skillIndexCache.get(skills);
+  if (cached) return cached;
+  const built = buildSkillIndex(skills);
+  _skillIndexCache.set(skills, built);
+  return built;
+}
+
+function collectCandidateSkills(input, skills, context) {
+  const { byName, byToken, tagOrTraitSkills } = getSkillIndex(skills);
+  const inputLower = String(input || "").toLowerCase();
+  const candidates = new Set();
+
+  // 1) Explicit mentions: $SkillName or @SkillName
+  const mentionRe = /[$@]([A-Za-z0-9_-]{2,})/g;
+  for (const m of inputLower.matchAll(mentionRe)) {
+    const name = String(m?.[1] || "").toLowerCase();
+    const hit = byName.get(name);
+    if (hit) candidates.add(hit);
+  }
+
+  // 2) Token index (keywords + description tokens)
+  for (const token of extractTokensForIndex(inputLower)) {
+    const bucket = byToken.get(token);
+    if (!bucket) continue;
+    for (const skill of bucket) candidates.add(skill);
+  }
+
+  // 3) Tag/trait-driven matches depend on context, not input content.
+  const ctx = isPlainObject(context) ? context : {};
+  const hasTags = isPlainObject(ctx.tags) && Object.keys(ctx.tags).length > 0;
+  const hasTraits = Array.isArray(ctx.traits) && ctx.traits.length > 0;
+  if (hasTags || hasTraits) {
+    for (const skill of tagOrTraitSkills) candidates.add(skill);
+  }
+
+  return candidates.size > 0 ? Array.from(candidates) : (Array.isArray(skills) ? skills : []);
 }
 
 // ============ Matchers ============
@@ -268,7 +371,8 @@ export function collectSkillsToInject(input, skills, options = {}) {
 
   const matches = [];
 
-  for (const skill of skills) {
+  const candidates = collectCandidateSkills(input, skills, context);
+  for (const skill of candidates) {
     const result = matchSkill(input, skill, context);
     if (result.matched && result.score >= minScore) {
       matches.push({ skill, matchResult: result });
