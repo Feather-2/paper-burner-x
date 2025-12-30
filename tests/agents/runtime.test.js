@@ -627,3 +627,45 @@ test("Runtime Tools: ToolExecutor worker isolation enforces hard timeout for syn
   assert.ok(String(result.error || "").includes("timed out"));
   assert.ok(elapsedMs < 300);
 });
+
+test("Runtime Compression: anchors preserve initial system prompts across repeated compression", async () => {
+  const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
+
+  const loop = new BaseAgentLoop({
+    stageName: "test",
+    actor: "test",
+    contextConfig: { keepLastTurns: 2, contextWindow: 100000, compressThreshold: 0.9 },
+  });
+
+  const anchor1 = "ANCHOR: Keep this verbatim (goal + constraints)";
+  const anchor2 = "ANCHOR: Second pinned instruction";
+
+  loop.addMessage({ role: "system", content: anchor1 });
+  loop.addMessage({ role: "system", content: anchor2 });
+
+  for (let i = 0; i < 12; i++) {
+    loop.addMessage({ role: "user", content: `u${i}` });
+    loop.addMessage({ role: "assistant", content: `a${i}` });
+  }
+
+  await loop._compressMessages();
+
+  assert.equal(loop.messages[0].content, anchor1);
+  assert.equal(loop.messages[1].content, anchor2);
+  const summaryIdx1 = loop.messages.findIndex((m) => m?.role === "system" && String(m.content || "").startsWith("[Context Summary]"));
+  assert.equal(summaryIdx1, 2);
+  assert.equal(loop.messages.filter((m) => m?.role === "system" && String(m.content || "").startsWith("[Context Summary]")).length, 1);
+
+  for (let i = 12; i < 24; i++) {
+    loop.addMessage({ role: "user", content: `u${i}` });
+    loop.addMessage({ role: "assistant", content: `a${i}` });
+  }
+
+  await loop._compressMessages();
+
+  assert.equal(loop.messages[0].content, anchor1);
+  assert.equal(loop.messages[1].content, anchor2);
+  const summaryIdx2 = loop.messages.findIndex((m) => m?.role === "system" && String(m.content || "").startsWith("[Context Summary]"));
+  assert.equal(summaryIdx2, 2);
+  assert.equal(loop.messages.filter((m) => m?.role === "system" && String(m.content || "").startsWith("[Context Summary]")).length, 1);
+});

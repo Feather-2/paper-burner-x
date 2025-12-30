@@ -122,6 +122,13 @@ function normalizeLayerList(layers) {
   return DEFAULT_LAYERS.filter((layer) => requested.has(layer));
 }
 
+function isContextSummaryMessage(message) {
+  if (!message || typeof message !== "object") return false;
+  if (message.role !== "system") return false;
+  const content = String(message.content || "").trim();
+  return content.startsWith("[Context Summary]");
+}
+
 function isSmallValue(value, maxChars) {
   if (value === null || value === undefined) return true;
   if (typeof value === "number" || typeof value === "boolean") return true;
@@ -361,7 +368,8 @@ export class CicadaCompressor {
         continue;
       }
       const last = merged[merged.length - 1];
-      if (last && last.role === message.role) {
+      // Avoid merging system messages; system is reserved for pinned prompts/anchors/summaries.
+      if (last && last.role === message.role && message.role !== "system") {
         last.content = [last.content, message.content].filter(Boolean).join("\n");
         stats.mergedMessages += 1;
       } else {
@@ -369,9 +377,24 @@ export class CicadaCompressor {
       }
     }
 
-    const start = Math.max(merged.length - keepLastTurns, 0);
-    const kept = merged.slice(start);
-    const older = merged.slice(0, start);
+    // Anchors: keep leading system prompts verbatim (except context summaries).
+    // This reduces semantic drift by preventing repeated summarization of the initial constraints.
+    const anchors = [];
+    let anchorEnd = 0;
+    while (anchorEnd < merged.length) {
+      const msg = merged[anchorEnd];
+      if (msg?.role === "system" && !isContextSummaryMessage(msg)) {
+        anchors.push(msg);
+        anchorEnd += 1;
+        continue;
+      }
+      break;
+    }
+
+    const compressible = merged.slice(anchorEnd);
+    const start = Math.max(compressible.length - keepLastTurns, 0);
+    const kept = [...anchors, ...compressible.slice(start)];
+    const older = compressible.slice(0, start);
     stats.keptMessages = kept.length;
     stats.summarizedMessages = older.length;
 
