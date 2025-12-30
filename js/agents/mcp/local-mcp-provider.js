@@ -284,7 +284,7 @@ function extractMetaDescription(html) {
 /**
  * 解析 DuckDuckGo HTML 搜索结果
  */
-function parseDuckDuckGoResults(html) {
+async function parseDuckDuckGoResults(html) {
   const results = [];
 
   const normalizeDuckDuckGoUrl = (raw) => {
@@ -306,10 +306,18 @@ function parseDuckDuckGoResults(html) {
   };
 
   // DuckDuckGo 结果在 class="result" 的 div 中
-  // 由于我们在浏览器环境，可以用 DOMParser
-  if (typeof DOMParser !== "undefined") {
+  // Browser: use DOMParser; Node: fallback to linkedom DOMParser when available.
+  let DOMParserImpl = typeof globalThis.DOMParser !== "undefined" ? globalThis.DOMParser : null;
+  if (!DOMParserImpl) {
     try {
-      const parser = new DOMParser();
+      const mod = await import("linkedom");
+      DOMParserImpl = mod?.DOMParser || null;
+    } catch { }
+  }
+
+  if (DOMParserImpl) {
+    try {
+      const parser = new DOMParserImpl();
       const doc = parser.parseFromString(html, "text/html");
       const seen = new Set();
       const pushResult = (url, title, snippet) => {
@@ -658,7 +666,7 @@ export class LocalMcpProvider extends McpProvider {
         tryDirect: false, // DuckDuckGo 需要代理
       });
 
-      const results = parseDuckDuckGoResults(html).slice(0, maxResults);
+      const results = (await parseDuckDuckGoResults(html)).slice(0, maxResults);
 
       // 格式化为 MCP 标准输出
       const formatted = results.map((r, i) => ({

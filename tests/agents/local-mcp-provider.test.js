@@ -264,6 +264,45 @@ test("LocalMcpProvider: all proxies fail -> AggregateError includes all reasons"
   );
 });
 
+test("LocalMcpProvider: Node search parsing falls back to linkedom when DOMParser is unavailable", async () => {
+  const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
+
+  const hadDomParser = Object.prototype.hasOwnProperty.call(globalThis, "DOMParser");
+  const prevDomParser = globalThis.DOMParser;
+  globalThis.DOMParser = undefined;
+
+  try {
+    const fetchMock = createFetchMock();
+    fetchMock.when(
+      (url) => url.startsWith("https://p1/?"),
+      async () =>
+        makeTextResponse(
+          [
+            "<!doctype html><html><head></head><body>",
+            '<div class="not-ddg-result"><a href="https://example.com"><span>Example</span> Title</a></div>',
+            "</body></html>",
+          ].join("")
+        )
+    );
+
+    const provider = new LocalMcpProvider({
+      corsProxies: ["https://p1/?"],
+      fetchImpl: fetchMock,
+      searchTimeoutMs: 2000,
+    });
+
+    const out = await provider.callTool("search", { query: "hello", limit: 1 });
+    assert.equal(out.success, true);
+
+    const json = out.content.find((c) => c.type === "json")?.data;
+    assert.ok(json?.results?.length >= 1);
+    assert.equal(json.results[0].title, "Example Title");
+  } finally {
+    if (!hadDomParser) delete globalThis.DOMParser;
+    else globalThis.DOMParser = prevDomParser;
+  }
+});
+
 test("LocalMcpProvider: DOMParser fallback extracts nested anchor titles", async () => {
   const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
   const { DOMParser } = await import("linkedom");
