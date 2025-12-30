@@ -24,6 +24,12 @@ function contentFingerprint(text, maxLen = 200) {
   return `fp_${Math.abs(hash).toString(36)}`;
 }
 
+function sanitizeIdPart(value) {
+  const s = toNonEmptyString(value);
+  if (!s) return "";
+  return s.replace(/[^a-zA-Z0-9_-]+/g, "_").slice(0, 80);
+}
+
 function normalizeLimit(value) {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return null;
@@ -46,6 +52,7 @@ export class SharedContext {
       seenMax: 5000,
       indexKeywordsMax: 500,
       indexIdsPerKeywordMax: 20,
+      actionsMax: 1000,
       ...providedLimits,
     };
 
@@ -72,6 +79,155 @@ export class SharedContext {
 
     // 内容指纹 (去重用)
     this._seenFingerprints = new Set();
+
+    // Concurrency + merge support:
+    // - unique IDs (avoid Date.now collisions under parallel writes)
+    // - monotonic version & bounded action log (for future action-stream merges)
+    this._seq = 0;
+    this._version = 0;
+    this._actions = [];
+    this._suppressActionRecording = false;
+    this._applyingActions = false;
+
+    // Per-instance salt to avoid cross-context collisions when rehydrating/merging.
+    this._instanceId = Math.random().toString(36).slice(2, 8);
+  }
+
+  _nextId(prefix) {
+    this._seq += 1;
+    const base = sanitizeIdPart(prefix) || "id";
+    const ts = Date.now().toString(36);
+    return `${base}_${this._instanceId}_${ts}_${this._seq}`;
+  }
+
+  _recordAction(kind, payload) {
+    if (this._suppressActionRecording || this._applyingActions) return;
+    const k = toNonEmptyString(kind);
+    if (!k) return;
+    this._version += 1;
+    const action = {
+      id: this._nextId("act"),
+      version: this._version,
+      kind: k,
+      payload: payload ?? null,
+      ts: Date.now(),
+    };
+    this._actions.push(action);
+    this._pruneArray(this._actions, this.limits.actionsMax);
+  }
+
+  getVersion() {
+    return this._version;
+  }
+
+  getActions({ sinceVersion = 0, limit = 200 } = {}) {
+    const since = Number.isFinite(sinceVersion) ? Math.max(0, Math.floor(sinceVersion)) : 0;
+    const cap = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : 200;
+    const filtered = this._actions.filter((a) => (Number(a?.version) || 0) > since);
+    return cap > 0 ? filtered.slice(-cap) : filtered;
+  }
+
+  applyActions(actions) {
+    const list = Array.isArray(actions) ? actions : [];
+    if (list.length === 0) return;
+
+    let maxIncomingVersion = this._version;
+
+    const prev = this._applyingActions;
+    this._applyingActions = true;
+    try {
+      for (const action of list) {
+        const version = Number(action?.version);
+        if (Number.isFinite(version)) maxIncomingVersion = Math.max(maxIncomingVersion, Math.floor(version));
+        this._applyAction(action);
+      }
+    } finally {
+      this._applyingActions = prev;
+    }
+
+    // Preserve monotonicity even when rehydrating a fresh context.
+    this._version = Math.max(this._version, maxIncomingVersion);
+
+    // Keep a bounded action log for downstream merges/debugging.
+    for (const action of list) {
+      if (!isPlainObject(action)) continue;
+      const id = toNonEmptyString(action.id);
+      if (id && this._actions.some((a) => a?.id === id)) continue;
+      this._actions.push(action);
+    }
+    this._pruneArray(this._actions, this.limits.actionsMax);
+  }
+
+  _applyAction(action) {
+    const a = isPlainObject(action) ? action : {};
+    const kind = toNonEmptyString(a.kind);
+    const payload = a.payload;
+    if (!kind) return;
+
+    if (kind === "setSummary") {
+      if (isPlainObject(payload)) this.setSummary(payload.stage, payload.summary);
+      return;
+    }
+    if (kind === "setIndex") {
+      if (isPlainObject(payload)) this.setIndex(payload.stage, payload.index);
+      return;
+    }
+    if (kind === "store") {
+      if (isPlainObject(payload)) this.store(payload.id, payload.data);
+      return;
+    }
+    if (kind === "addToIndex") {
+      if (isPlainObject(payload)) this.addToIndex(payload.keyword, payload.id);
+      return;
+    }
+    if (kind === "indexMany") {
+      if (isPlainObject(payload)) this.indexMany(payload.keywords, payload.id);
+      return;
+    }
+    if (kind === "signal") {
+      if (isPlainObject(payload?.signal)) {
+        this._signals.push(payload.signal);
+        this._pruneArray(this._signals, this.limits.signalsMax);
+      }
+      return;
+    }
+    if (kind === "upsertSignal") {
+      if (isPlainObject(payload?.signal)) {
+        const syncKey = toNonEmptyString(payload.signal?.payload?._syncKey);
+        if (syncKey) {
+          const existing = this._signals.findIndex((s) => s?.payload?._syncKey === syncKey);
+          if (existing >= 0) this._signals[existing] = payload.signal;
+          else this._signals.push(payload.signal);
+          this._pruneArray(this._signals, this.limits.signalsMax);
+        } else {
+          this._signals.push(payload.signal);
+          this._pruneArray(this._signals, this.limits.signalsMax);
+        }
+      }
+      return;
+    }
+    if (kind === "decision") {
+      if (isPlainObject(payload?.decision)) {
+        this._decisions.push(payload.decision);
+        this._pruneArray(this._decisions, this.limits.decisionsMax);
+      }
+      return;
+    }
+    if (kind === "commit") {
+      if (!isPlainObject(payload)) return;
+      const prevSuppress = this._suppressActionRecording;
+      this._suppressActionRecording = true;
+      try {
+        this.commit(payload.stage, {
+          id: payload.id,
+          full: payload.full,
+          summary: payload.summary,
+          keywords: payload.keywords,
+        });
+      } finally {
+        this._suppressActionRecording = prevSuppress;
+      }
+    }
   }
 
   _normalizeTargetTaskId(targetTaskId) {
@@ -113,6 +269,7 @@ export class SharedContext {
     if (Number.isFinite(this.limits.summariesMax)) {
       this._pruneMap(this._summaries, this.limits.summariesMax);
     }
+    this._recordAction("setSummary", { stage: s, summary: this._summaries.get(s) });
   }
 
   /**
@@ -206,15 +363,24 @@ export class SharedContext {
     this._index.get(kw).add(String(id));
     this._pruneMap(this._index.get(kw), this.limits.indexIdsPerKeywordMax);
     this._pruneMap(this._index, this.limits.indexKeywordsMax);
+    this._recordAction("addToIndex", { keyword: kw, id: String(id) });
   }
 
   /**
    * 批量添加索引
    */
   indexMany(keywords, id) {
-    for (const kw of Array.isArray(keywords) ? keywords : []) {
-      this.addToIndex(kw, id);
+    const list = Array.isArray(keywords) ? keywords : [];
+    const prevSuppress = this._suppressActionRecording;
+    this._suppressActionRecording = true;
+    try {
+      for (const kw of list) {
+        this.addToIndex(kw, id);
+      }
+    } finally {
+      this._suppressActionRecording = prevSuppress;
     }
+    this._recordAction("indexMany", { keywords: list.slice(), id: String(id) });
   }
 
   /**
@@ -234,10 +400,17 @@ export class SharedContext {
     const keywords = Array.isArray(stored?.keywords) ? stored.keywords : [];
     const ids = Array.isArray(stored?.ids) ? stored.ids : [];
     const paths = Array.isArray(stored?.paths) ? stored.paths : [];
-    for (const token of [...keywords, ...ids, ...paths]) {
-      const kw = toNonEmptyString(token);
-      if (kw) this.addToIndex(kw, s);
+    const prevSuppress = this._suppressActionRecording;
+    this._suppressActionRecording = true;
+    try {
+      for (const token of [...keywords, ...ids, ...paths]) {
+        const kw = toNonEmptyString(token);
+        if (kw) this.addToIndex(kw, s);
+      }
+    } finally {
+      this._suppressActionRecording = prevSuppress;
     }
+    this._recordAction("setIndex", { stage: s, index: stored });
   }
 
   /**
@@ -290,6 +463,7 @@ export class SharedContext {
     if (!key) return;
     this._store.set(key, data);
     this._pruneMap(this._store, this.limits.storeMax);
+    this._recordAction("store", { id: key, data });
   }
 
   /**
@@ -337,33 +511,41 @@ export class SharedContext {
    * @param {string} stage - 阶段名
    * @param {object} data - { full, summary, keywords }
    */
-  commit(stage, { full, summary, keywords } = {}) {
+  commit(stage, { id, full, summary, keywords } = {}) {
     const s = toNonEmptyString(stage);
     if (!s) return null;
 
-    const id = `${s}_${Date.now()}`;
+    const commitId = toNonEmptyString(id) || this._nextId(s);
 
-    // L3: 存储完整数据
-    if (full !== undefined) {
-      this.store(id, full);
+    const prevSuppress = this._suppressActionRecording;
+    this._suppressActionRecording = true;
+    try {
+      // L3: 存储完整数据
+      if (full !== undefined) {
+        this.store(commitId, full);
+      }
+
+      // L1: 设置摘要
+      if (summary) {
+        this.setSummary(s, summary);
+      }
+
+      // L2: 建立索引
+      if (Array.isArray(keywords)) {
+        this.indexMany(keywords, commitId);
+      }
+
+      this._pruneMap(this._index, this.limits.indexKeywordsMax);
+      for (const ids of this._index.values()) {
+        this._pruneMap(ids, this.limits.indexIdsPerKeywordMax);
+      }
+    } finally {
+      this._suppressActionRecording = prevSuppress;
     }
 
-    // L1: 设置摘要
-    if (summary) {
-      this.setSummary(s, summary);
-    }
+    this._recordAction("commit", { stage: s, id: commitId, full, summary, keywords });
 
-    // L2: 建立索引
-    if (Array.isArray(keywords)) {
-      this.indexMany(keywords, id);
-    }
-
-    this._pruneMap(this._index, this.limits.indexKeywordsMax);
-    for (const ids of this._index.values()) {
-      this._pruneMap(ids, this.limits.indexIdsPerKeywordMax);
-    }
-
-    return id;
+    return commitId;
   }
 
   // ===== 信号机制 =====
@@ -379,7 +561,7 @@ export class SharedContext {
       type = toNonEmptyString(data?.stage) ? (nameStr || "info") : "info";
     }
     const sig = {
-      id: `sig_${this._signals.length + 1}`,
+      id: this._nextId("sig"),
       stage,
       type,
       payload: isPlainObject(data) ? data : { value: data },
@@ -387,6 +569,7 @@ export class SharedContext {
     };
     this._signals.push(sig);
     this._pruneArray(this._signals, this.limits.signalsMax);
+    this._recordAction("signal", { signal: sig });
     return sig;
   }
 
@@ -406,7 +589,7 @@ export class SharedContext {
     );
 
     const sig = {
-      id: existing >= 0 ? this._signals[existing].id : `sig_${this._signals.length + 1}`,
+      id: existing >= 0 ? this._signals[existing].id : this._nextId("sig"),
       stage: type,
       type: "sync",
       payload: {
@@ -426,6 +609,7 @@ export class SharedContext {
       this._signals.push(sig);
       this._pruneArray(this._signals, this.limits.signalsMax);
     }
+    this._recordAction("upsertSignal", { signal: sig });
     return sig;
   }
 
@@ -491,12 +675,13 @@ export class SharedContext {
    */
   recordDecision(decision) {
     const d = {
-      id: `dec_${this._decisions.length + 1}`,
+      id: this._nextId("dec"),
       ...(isPlainObject(decision) ? decision : { action: decision }),
       ts: Date.now(),
     };
     this._decisions.push(d);
     this._pruneArray(this._decisions, this.limits.decisionsMax);
+    this._recordAction("decision", { decision: d });
     return d;
   }
 
@@ -548,12 +733,14 @@ export class SharedContext {
   getStats() {
     return {
       runId: this.runId,
+      version: this._version,
       summaryCount: this._summaries.size,
       indexKeywords: this._index.size,
       storeItems: this._store.size,
       signalCount: this._signals.length,
       decisionCount: this._decisions.length,
       seenCount: this._seenFingerprints.size,
+      actionCount: this._actions.length,
     };
   }
 
@@ -563,12 +750,17 @@ export class SharedContext {
     return {
       runId: this.runId,
       createdAt: this.createdAt,
+      version: this._version,
       summaries: Object.fromEntries(this._summaries),
       // index 和 store 可能太大，只序列化 keys
       indexKeys: Array.from(this._index.keys()),
       storeKeys: Array.from(this._store.keys()),
       signals: this._signals,
       decisions: this._decisions,
+      actionsMeta: {
+        actionCount: this._actions.length,
+        maxActions: this.limits.actionsMax,
+      },
     };
   }
 }

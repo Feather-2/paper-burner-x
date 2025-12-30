@@ -241,24 +241,28 @@ test("SharedContext: prunes store, signals, decisions, seen, and index", async (
 
   {
     const ctx = new SharedContext({ runId: "ctx_sig", limits: { signalsMax: 2 } });
-    ctx.signal("s", { type: "t1" });
-    ctx.signal("s", { type: "t2" });
-    ctx.signal("s", { type: "t3" });
+    const s1 = ctx.signal("s", { type: "t1" });
+    const s2 = ctx.signal("s", { type: "t2" });
+    const s3 = ctx.signal("s", { type: "t3" });
     assert.deepEqual(
       ctx.getSignals().map((s) => s.id),
-      ["sig_2", "sig_3"]
+      [s2.id, s3.id]
     );
+    assert.notEqual(s1.id, s2.id);
+    assert.notEqual(s2.id, s3.id);
   }
 
   {
     const ctx = new SharedContext({ runId: "ctx_dec", limits: { decisionsMax: 2 } });
-    ctx.recordDecision({ action: "a" });
-    ctx.recordDecision({ action: "b" });
-    ctx.recordDecision({ action: "c" });
+    const d1 = ctx.recordDecision({ action: "a" });
+    const d2 = ctx.recordDecision({ action: "b" });
+    const d3 = ctx.recordDecision({ action: "c" });
     assert.deepEqual(
       ctx.getDecisions().map((d) => d.id),
-      ["dec_2", "dec_3"]
+      [d2.id, d3.id]
     );
+    assert.notEqual(d1.id, d2.id);
+    assert.notEqual(d2.id, d3.id);
   }
 
   {
@@ -308,6 +312,77 @@ test("SharedContext: prunes store, signals, decisions, seen, and index", async (
     } finally {
       Date.now = originalNow;
     }
+  }
+});
+
+test("SharedContext: action stream rehydrates state and preserves version", async () => {
+  const { SharedContext } = await import("../../../js/agents/stages/deepsearch/runtime/shared-context.js");
+
+  const originalNow = Date.now;
+  Date.now = () => 1_700_000_000_000; // constant time to stress ID collisions
+
+  try {
+    const ctx1 = new SharedContext({
+      runId: "ctx_actions_src",
+      limits: {
+        actionsMax: 200,
+        storeMax: 50,
+        signalsMax: 50,
+        decisionsMax: 50,
+        indexKeywordsMax: 200,
+        indexIdsPerKeywordMax: 20,
+      },
+    });
+
+    assert.equal(ctx1.getVersion(), 0);
+
+    ctx1.setSummary("stageA", "sumA");
+    const sig = ctx1.signal("advice", { type: "advice", message: "hello" });
+    const dec = ctx1.recordDecision({ action: "do", reason: "because" });
+    ctx1.addToIndex("k", "id123");
+    ctx1.store("id123", { v: 1 });
+    const commitId = ctx1.commit("finding", { full: { x: 1 }, summary: "sumFinding", keywords: ["k2"] });
+    ctx1.setIndex("design", { keywords: ["kw"], paths: ["p"], ids: ["i"] });
+
+    assert.ok(ctx1.getVersion() > 0);
+
+    const actions = ctx1.getActions({ sinceVersion: 0, limit: 500 });
+    assert.ok(actions.length >= 6);
+    assert.equal(actions.every((a) => typeof a?.kind === "string" && a.kind.length > 0), true);
+    assert.equal(actions.every((a) => Number.isFinite(Number(a?.version))), true);
+
+    const ctx2 = new SharedContext({
+      runId: "ctx_actions_dst",
+      limits: {
+        actionsMax: 200,
+        storeMax: 50,
+        signalsMax: 50,
+        decisionsMax: 50,
+        indexKeywordsMax: 200,
+        indexIdsPerKeywordMax: 20,
+      },
+    });
+
+    ctx2.applyActions(actions);
+
+    assert.equal(ctx2.getVersion(), ctx1.getVersion());
+    assert.equal(ctx2.getSummary("stageA"), "sumA");
+    assert.equal(ctx2.has("id123"), true);
+    assert.equal(ctx2.has(commitId), true);
+    assert.equal(ctx2.search("k").includes("id123"), true);
+    assert.equal(ctx2.search("k2").includes(commitId), true);
+
+    const appliedSignals = ctx2.getSignals();
+    assert.equal(appliedSignals.length > 0, true);
+    assert.equal(appliedSignals.some((s) => s?.id === sig.id), true);
+    assert.equal(appliedSignals.some((s) => s?.payload?.message === "hello"), true);
+
+    const appliedDecisions = ctx2.getDecisions();
+    assert.equal(appliedDecisions.length > 0, true);
+    assert.equal(appliedDecisions.some((d) => d?.id === dec.id), true);
+    assert.equal(appliedDecisions.some((d) => d?.action === "do"), true);
+  } finally {
+    Date.now = originalNow;
   }
 });
 
@@ -833,4 +908,59 @@ test("DeepSearchAgentLoop: fail-fast on non-recoverable model errors", async () 
 
   assert.equal(calls, 1);
   assert.equal(agent.status, AgentStatus.FAILED);
+});
+
+test("Skills injection: candidate index preserves explicit/keyword/tag matches", async () => {
+  const { collectSkillsToInject } = await import("../../../js/agents/skills/injection.js");
+
+  const skills = [
+    {
+      metadata: {
+        name: "Alpha",
+        description: "Handles greeting tasks",
+        path: "/dev/null",
+        keywords: ["hello"],
+        keywordsAll: [],
+      },
+      body: "# alpha",
+    },
+    {
+      metadata: {
+        name: "Beta",
+        description: "Handles world tasks",
+        path: "/dev/null",
+        keywords: ["world"],
+        keywordsAll: [],
+      },
+      body: "# beta",
+    },
+    {
+      metadata: {
+        name: "Gamma",
+        description: "Tag-driven skill",
+        path: "/dev/null",
+        tags: { env: "prod" },
+      },
+      body: "# gamma",
+    },
+  ];
+
+  {
+    const hits = collectSkillsToInject("hello there", skills, { maxInjections: 5, minScore: 0.4 });
+    assert.equal(hits.some((h) => h.skill.metadata.name === "Alpha"), true);
+  }
+
+  {
+    const hits = collectSkillsToInject("$Beta please", skills, { maxInjections: 5, minScore: 0.4 });
+    assert.equal(hits.some((h) => h.skill.metadata.name === "Beta"), true);
+  }
+
+  {
+    const hits = collectSkillsToInject("no keywords here", skills, {
+      context: { tags: { env: "prod" } },
+      maxInjections: 5,
+      minScore: 0.4,
+    });
+    assert.equal(hits.some((h) => h.skill.metadata.name === "Gamma"), true);
+  }
 });
