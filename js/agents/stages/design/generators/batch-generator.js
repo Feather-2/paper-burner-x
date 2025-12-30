@@ -138,36 +138,6 @@ function looksLikeSlideHtml(html) {
   return tag.includes('data-type="freeform"') && lower.includes("data-el=");
 }
 
-// Try to fix common issues with AI-generated slideHtml
-function tryFixSlideHtml(html, slideIntent) {
-  if (typeof html !== "string" || !html.trim()) return null;
-  let s = html.trim();
-
-  // If no <section>, wrap content in a section
-  if (!/<section\b/i.test(s)) {
-    const title = String(slideIntent?.title || "Slide").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    s = `<section data-type="freeform" data-bg="#ffffff" data-title="${title}">${s}</section>`;
-  }
-
-  // Ensure data-type="freeform"
-  if (!/<section\b[^>]*data-type=/i.test(s)) {
-    s = s.replace(/<section\b/i, '<section data-type="freeform"');
-  }
-
-  // If no data-el elements, try to convert common elements
-  if (!/\bdata-el=/i.test(s)) {
-    // Convert <div> or <p> to data-el="text"
-    s = s.replace(/<(div|p)\b([^>]*)>/gi, '<div data-el="text"$2>');
-    // Convert <h1>-<h6> to data-el="text" with bold
-    s = s.replace(/<h[1-6]\b([^>]*)>/gi, '<div data-el="text" data-bold="true"$1>');
-    s = s.replace(/<\/h[1-6]>/gi, '</div>');
-  }
-
-  // Still invalid? Return null to trigger fallback
-  if (!looksLikeSlideHtml(s)) return null;
-  return s;
-}
-
 function stripHtmlFences(text) {
   let s = String(text || "").trim();
   if (!s) return "";
@@ -227,9 +197,7 @@ async function repairSlideHtmlWithModel(modelCaller, slideIntent, slideHtml, opt
   const rawText = typeof resp?.content === "string" ? resp.content : typeof resp?.text === "string" ? resp.text : String(resp || "");
   const candidate = extractSectionBlock(rawText);
   if (!candidate) return null;
-
-  const fixed = tryFixSlideHtml(candidate, slideIntent);
-  return fixed || null;
+  return looksLikeSlideHtml(candidate) ? candidate.trim() : null;
 }
 
 function ensureSectionAttr(slideHtml, name, value) {
@@ -669,13 +637,9 @@ export async function generateSingleSlide(slideIntent, designSystem, dslRules, o
         slideHtml = ensureSectionAttr(slideHtml, "data-layout", layoutFromPageType(si.pageType));
         slideHtml = applyVisualSlotHintsToSlideHtml(slideHtml, imageSlotsForSlide, slotHintsBySlotId);
 
-        // Try to fix if validation fails
+        // If validation fails, use LLM repair (reflection) once, then fallback.
         if (!looksLikeSlideHtml(slideHtml)) {
-          const fixed = tryFixSlideHtml(slideHtml, si);
-          if (fixed) {
-            slideHtml = ensureSectionAttr(fixed, "data-layout", layoutFromPageType(si.pageType));
-            slideHtml = applyVisualSlotHintsToSlideHtml(slideHtml, imageSlotsForSlide, slotHintsBySlotId);
-          } else if (!repairAttempted) {
+          if (!repairAttempted) {
             repairAttempted = true;
             const repaired = await repairSlideHtmlWithModel(modelCaller, si, slideHtml, {
               signal: options.signal,
@@ -686,8 +650,6 @@ export async function generateSingleSlide(slideIntent, designSystem, dslRules, o
               slideHtml = ensureSectionAttr(repaired, "data-layout", layoutFromPageType(si.pageType));
               slideHtml = applyVisualSlotHintsToSlideHtml(slideHtml, imageSlotsForSlide, slotHintsBySlotId);
             }
-          } else {
-            throw new Error("Invalid slideHtml returned by model");
           }
         }
 
