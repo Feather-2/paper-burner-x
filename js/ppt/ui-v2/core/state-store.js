@@ -365,6 +365,41 @@ export class StateStore {
       setRunIdIfPresent(payload);
     };
 
+    const markRunCompleted = (payload) => {
+      this.update({
+        'workflow.state': WorkflowState.COMPLETED,
+        'workflow.completedAt': Date.now(),
+        'ui.view': ViewType.COMPLETED,
+      });
+      setRunIdIfPresent(payload);
+    };
+
+    const markRunFailed = (payload) => {
+      const error =
+        (payload && typeof payload === 'object' ? (payload.error || payload.message || payload.reason) : null) ||
+        'Run failed';
+      this.update({
+        'workflow.state': WorkflowState.FAILED,
+        'workflow.error': String(error),
+        'workflow.completedAt': Date.now(),
+        'ui.view': ViewType.FAILED,
+      });
+      setRunIdIfPresent(payload);
+    };
+
+    const markRunCancelled = (payload) => {
+      const reason =
+        (payload && typeof payload === 'object' ? (payload.reason || payload.message) : null) ||
+        'cancelled';
+      this.update({
+        'workflow.state': WorkflowState.IDLE,
+        'workflow.error': String(reason),
+        'workflow.completedAt': Date.now(),
+        'ui.view': ViewType.UPLOAD,
+      });
+      setRunIdIfPresent(payload);
+    };
+
     const markIngestStarted = (payload) => {
       this.update({
         'workflow.state': WorkflowState.READING,
@@ -390,6 +425,9 @@ export class StateStore {
     };
 
     this._unsubscribers.push(bus.on('run.started', (_, p) => markRunStarted(p)));
+    this._unsubscribers.push(bus.on('run.completed', (_, p) => markRunCompleted(p)));
+    this._unsubscribers.push(bus.on('run.failed', (_, p) => markRunFailed(p)));
+    this._unsubscribers.push(bus.on('run.cancelled', (_, p) => markRunCancelled(p)));
     this._unsubscribers.push(bus.on('ingest.started', (_, p) => markIngestStarted(p)));
     this._unsubscribers.push(bus.on('ingest.completed', (_, p) => markIngestCompleted(p)));
 

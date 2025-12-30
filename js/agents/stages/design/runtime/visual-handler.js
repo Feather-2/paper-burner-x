@@ -222,6 +222,7 @@ export class VisualHandler {
         runId: runContext.runId,
         planned,
         pendingImages,
+        report: visualReport,
       });
     } catch (e) {
       checkCancelled(context.signal);
@@ -265,11 +266,12 @@ export class VisualHandler {
         hasFatalError: true,
       };
 
-      emitStage(emit, "design.visual.render.completed", "failed", {
+      emitStage(emit, "design.visual.render.failed", "failed", {
         runId: runContext.runId,
         planned,
         pendingImages,
         error: errorMessage,
+        report: visualReport,
       });
     }
 

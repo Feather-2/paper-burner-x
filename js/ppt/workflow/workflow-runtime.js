@@ -1334,7 +1334,14 @@ export const runtimeMixin = {
     _handleRuntimeEvent(evt) {
         if (!evt) return;
         const name = evt?.name || '';
-        const payload = evt?.payload || {};
+        const rawPayload = Object.prototype.hasOwnProperty.call(evt, 'payload') ? evt.payload : undefined;
+        const runId = typeof evt?.runId === 'string' ? evt.runId : null;
+        let payload = rawPayload === undefined || rawPayload === null ? {} : rawPayload;
+
+        // Ensure UI/workflow handlers can always access runId from payload (AgentEventBridge strips record meta)
+        if (runId && payload && typeof payload === 'object' && !Array.isArray(payload) && typeof payload.runId !== 'string') {
+            payload = { ...payload, runId };
+        }
 
         this._runtimeEventMeta = evt;
 
@@ -1365,11 +1372,11 @@ export const runtimeMixin = {
         this._handleStageLifecycleEvent(name, payload, evt);
     },
     _handleStageLifecycleEvent(name, payload, evt) {
-        const match = name.match(/^(.*)\.(started|ended|failed)$/);
+        const match = name.match(/^(.*)\.(started|ended|completed|failed)$/);
         if (!match) return;
 
         const stageName = match[1];
-        const stageStatus = match[2];
+        const stageStatus = match[2] === 'completed' ? 'ended' : match[2];
         const ui = this._runtimeStageUi?.[stageName];
         if (!ui) return;
 
@@ -1420,7 +1427,12 @@ export const runtimeMixin = {
 
         if (stageStatus === 'failed') {
             this._setAgentStatus(ui.agentId, 'idle', 'Failed');
-            const msg = payload?.message || evt?.payload?.message || 'Stage failed';
+            const msg =
+                payload?.message ||
+                payload?.error ||
+                evt?.payload?.message ||
+                evt?.payload?.error ||
+                'Stage failed';
             this.logTerminal('系统', `${stageName} 失败: ${msg}`, 'warning');
             try {
                 this._orchestrator?.stop?.('stage_failed');

@@ -38,6 +38,8 @@ function normalizeEvent(evt) {
 
 function isUiEventName(name) {
   return typeof name === 'string' && (
+    name.startsWith('run.') ||
+    name.startsWith('ingest.') ||
     name === 'iteration.completed' ||
     name.startsWith('compression.') ||
     name.startsWith('deepsearch.') ||
@@ -66,6 +68,8 @@ export class AgentEventBridge {
     if (this._started) return;
 
     if (typeof this._sourceBus.subscribe === 'function') {
+      this._unsubs.push(this._sourceBus.subscribe('run.*', this._handleSourceEvent));
+      this._unsubs.push(this._sourceBus.subscribe('ingest.*', this._handleSourceEvent));
       this._unsubs.push(this._sourceBus.subscribe('deepsearch.*', this._handleSourceEvent));
       this._unsubs.push(this._sourceBus.subscribe('design.*', this._handleSourceEvent));
       this._unsubs.push(this._sourceBus.subscribe('iteration.completed', this._handleSourceEvent));

@@ -246,10 +246,19 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     this._failureReported = false;
   }
 
-  _emit(name, payload) {
+  _emit(name, payload, { actor = "deepsearch", status } = {}) {
     // 添加 deepsearch. 前缀，确保事件能被 workflow 层正确捕获
     const eventName = name.startsWith("deepsearch.") ? name : `deepsearch.${name}`;
-    this.eventBus?.emit?.(eventName, { actor: "deepsearch", ...payload });
+    const record = {
+      actor,
+      ...(typeof status === "string" && status ? { status } : {}),
+      ...(payload !== undefined ? { payload } : {}),
+    };
+    if (typeof this.emit === "function") {
+      this.emit(eventName, record);
+      return;
+    }
+    this.eventBus?.emit?.(eventName, record);
   }
 
   _markFailed(err, classification) {
@@ -265,6 +274,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     if (!this._failureReported) {
       this._emit(DeepSearchEvents.AGENT_ERROR, payload);
       this._emit(DeepSearchEvents.AGENT_FAILED, { runId: this.state?.runId, ...payload });
+      this._emit("deepsearch.failed", { runId: this.state?.runId, error: payload.error }, { status: "failed" });
       this._failureReported = true;
     }
 
@@ -373,6 +383,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     }
 
     this._emit(DeepSearchEvents.AGENT_STARTED, { runId: this.state.runId, mode: this.mode });
+    this._emit("deepsearch.started", { runId: this.state.runId }, { status: "started" });
 
     // 构建初始消息
     const sources = this.state.L0?.sources || [];
@@ -436,6 +447,41 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
       const n = typeof raw === "number" && Number.isFinite(raw) ? Math.floor(raw) : null;
       return n !== null && n >= 1 ? n : 3;
     })();
+
+    const getIterationMetrics = () => {
+      const todos = Array.isArray(this.context?.todos)
+        ? this.context.todos
+        : Array.isArray(this.state?.todos)
+          ? this.state.todos
+          : [];
+      const normalize = (value) => (typeof value === "string" ? value.trim().toLowerCase() : "");
+      let completedTodoCount = 0;
+      let blockedTodoCount = 0;
+      for (const todo of todos) {
+        const status = normalize(todo?.status);
+        if (status === "completed" || status === "done") completedTodoCount += 1;
+        else if (status === "cancelled" || status === "blocked") blockedTodoCount += 1;
+      }
+      const totalTodos = todos.length;
+      const openTodoCount = Math.max(0, totalTodos - completedTodoCount - blockedTodoCount);
+
+      const gaps = Array.isArray(this.state?.L1?.gaps) ? this.state.L1.gaps : [];
+      let openGapCount = 0;
+      for (const gap of gaps) {
+        const status = normalize(gap?.status) || "open";
+        if (status === "open") openGapCount += 1;
+      }
+
+      return { openTodoCount, completedTodoCount, blockedTodoCount, totalTodos, openGapCount };
+    };
+
+    const emitIterationCompleted = (plannedIteration) => {
+      const completedIteration = Number.isFinite(plannedIteration) ? plannedIteration - 1 : null;
+      if (completedIteration === null || completedIteration < 0) return;
+      const payload = { iteration: completedIteration, ...getIterationMetrics() };
+      this._emit("deepsearch.iteration.completed", payload, { status: "completed" });
+      this.eventBus?.emit?.("iteration.completed", { actor: "deepsearch", status: "completed", payload });
+    };
 
     while (iteration < this.maxIterations) {
       const plannedIteration = iteration + 1;
@@ -627,6 +673,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
           if (this.context) this.context.iteration = iteration;
           else this.state.iteration = iteration;
           systemRetryCount = 0;
+          emitIterationCompleted(plannedIteration);
           continue;
         }
         if (result.status === "stop") {
@@ -662,6 +709,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
           }
           iteration = plannedIteration;
           systemRetryCount = 0;
+          emitIterationCompleted(plannedIteration);
           break;
         }
 
@@ -722,6 +770,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
           });
           iteration = plannedIteration;
           systemRetryCount = 0;
+          emitIterationCompleted(plannedIteration);
           continue;
         }
 
@@ -761,6 +810,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
               });
               iteration = plannedIteration;
               systemRetryCount = 0;
+              emitIterationCompleted(plannedIteration);
               continue;
             }
           } catch (err) {
@@ -786,6 +836,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         });
         iteration = plannedIteration;
         systemRetryCount = 0;
+        emitIterationCompleted(plannedIteration);
 
       } catch (err) {
         const info = classifyDeepSearchError(err);
@@ -826,6 +877,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
             role: "user",
             content: `系统错误已连续发生 ${maxSystemRetriesPerIteration} 次，为避免卡死，已计入 1 轮迭代并继续。`,
           });
+          emitIterationCompleted(plannedIteration);
         }
       }
     }
@@ -870,6 +922,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     this._emit(DeepSearchEvents.AGENT_STATUS_CHANGED, { from: this.status, to: AgentStatus.COMPLETED });
     this.status = AgentStatus.COMPLETED;
     this._emit(DeepSearchEvents.AGENT_COMPLETED, { runId: this.state.runId, iterations: iteration });
+    this._emit("deepsearch.completed", { runId: this.state.runId, iterations: iteration }, { status: "completed" });
 
     return this._buildOutput();
     } catch (err) {

@@ -93,10 +93,73 @@ export class AgentOrchestrator {
     this.signal = this._abortController.signal;
 
     this.state = OrchestratorState.IDLE;
+    this._runStarted = false;
+    this._runEnded = false;
+    this._runCompleted = false;
+    this._runFailed = false;
+    this._runCancelled = false;
     this._stages = new Map(); // stageName -> { handler, options }
     this._queue = Promise.resolve();
 
     this.emit = (name, record) => this.eventBus.emit(name, record);
+  }
+
+  _emitRunStarted() {
+    if (this._runStarted) return;
+    this._runStarted = true;
+    this.emit("run.started", {
+      actor: ActorType.SYSTEM,
+      status: "started",
+      payload: {
+        runId: this.runId,
+        mode: this.runContext.mode,
+        scenario: this.runContext.scenario,
+      },
+    });
+  }
+
+  _emitRunCancelled(reason) {
+    if (this._runCancelled) return;
+    this._runCancelled = true;
+    this.emit("run.cancelled", {
+      actor: ActorType.SYSTEM,
+      status: "cancelled",
+      payload: { reason: toNonEmptyString(reason) || "cancelled", runId: this.runId },
+    });
+  }
+
+  _emitRunFailed({ error, stage } = {}) {
+    if (this._runFailed) return;
+    this._runFailed = true;
+    const message = toNonEmptyString(error) || "Unknown error";
+    this.emit("run.failed", {
+      actor: ActorType.SYSTEM,
+      status: "failed",
+      payload: {
+        runId: this.runId,
+        error: message,
+        ...(toNonEmptyString(stage) ? { stage: toNonEmptyString(stage) } : {}),
+      },
+    });
+  }
+
+  _emitRunCompleted({ reason } = {}) {
+    if (this._runCompleted) return;
+    this._runCompleted = true;
+    const r = toNonEmptyString(reason) || "completed";
+    // Compat: 일부旧 workflow 仍监听 run.completed
+    this.emit("run.completed", { actor: ActorType.SYSTEM, status: "completed", payload: { reason: r, runId: this.runId } });
+  }
+
+  _emitRunEnded({ reason } = {}) {
+    if (this._runEnded) return;
+    this._runEnded = true;
+    const r = toNonEmptyString(reason);
+    this.emit("run.ended", {
+      actor: ActorType.SYSTEM,
+      status: "ended",
+      ...(r ? { payload: { reason: r, runId: this.runId } } : { payload: { runId: this.runId } }),
+    });
   }
 
   registerStage(name, handler, options = {}) {
@@ -119,25 +182,32 @@ export class AgentOrchestrator {
   start() {
     if (this.state === OrchestratorState.RUNNING) return;
     this.state = OrchestratorState.RUNNING;
-    this.emit("run.started", {
-      actor: ActorType.SYSTEM,
-      status: "started",
-      payload: { mode: this.runContext.mode, scenario: this.runContext.scenario },
-    });
+    this._emitRunStarted();
   }
 
   stop(reason = "cancelled") {
     if (this.signal.aborted) return;
-    this.state = OrchestratorState.CANCELLED;
-    this._abortController.abort(reason);
-    this.emit("run.cancelled", { actor: ActorType.SYSTEM, status: "cancelled", payload: { reason } });
+    const r = toNonEmptyString(reason) || "cancelled";
+    const isFailure =
+      r === "stage_failed" ||
+      r === "workflow_failed" ||
+      r.endsWith(".failed") ||
+      r.endsWith("_failed") ||
+      r.includes("failed");
+
+    this.state = isFailure ? OrchestratorState.FAILED : OrchestratorState.CANCELLED;
+    this._abortController.abort(r);
+    if (isFailure) this._emitRunFailed({ error: r });
+    else this._emitRunCancelled(r);
+    this._emitRunEnded({ reason: r });
   }
 
-  end() {
+  end(reason = "completed") {
     if (this.state === OrchestratorState.ENDED) return;
     if (this.state === OrchestratorState.RUNNING) {
       this.state = OrchestratorState.ENDED;
-      this.emit("run.ended", { actor: ActorType.SYSTEM, status: "ended" });
+      this._emitRunCompleted({ reason });
+      this._emitRunEnded({ reason });
       return;
     }
     this.state = OrchestratorState.ENDED;
@@ -184,12 +254,14 @@ export class AgentOrchestrator {
       this.eventBus.emit(`${stageName}.completed`, { actor: stageActor, status: "completed" });
       return out;
     } catch (err) {
-      this.eventBus.emit(`${stageName}.failed`, { actor: stageActor, status: "failed", payload: { error: String(err?.message || err) } });
+      const message = String(err?.message || err);
+      this.eventBus.emit(`${stageName}.failed`, { actor: stageActor, status: "failed", payload: { error: message } });
       this.state = OrchestratorState.FAILED;
+      this._emitRunFailed({ error: message, stage: stageName });
+      this._emitRunEnded({ reason: "failed" });
       throw err;
     } finally {
       cleanup();
     }
   }
 }
-

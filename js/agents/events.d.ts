@@ -199,6 +199,7 @@ export interface UserActionEventMap {
 export namespace RunEvents {
   /** run.started - Run 启动 */
   export interface Started {
+    runId?: string;
     mode?: string;
     scenario?: string;
     todos?: unknown;
@@ -206,16 +207,19 @@ export namespace RunEvents {
 
   /** run.ended - Run 结束（可能是正常结束，也可能是由上层主动结束） */
   export interface Ended {
+    runId?: string;
     reason?: string;
   }
 
   /** run.cancelled - Run 被取消 */
   export interface Cancelled {
+    runId?: string;
     reason: string;
   }
 
   /** run.failed - Run 失败（如果有上层聚合事件） */
   export interface Failed {
+    runId?: string;
     error: string;
     stage?: string;
   }
@@ -225,6 +229,7 @@ export namespace RunEvents {
    * 建议新代码使用 run.ended。
    */
   export interface Completed {
+    runId?: string;
     reason?: string;
   }
 }
@@ -355,6 +360,34 @@ export interface IterationEventMap {
   "deepsearch.iteration.completed": EventRecord<IterationEvents.Completed>;
 }
 
+export namespace AgentLogEvents {
+  /** *.log.* - 结构化日志（由 createLogger 发射） */
+  export interface LogPayload {
+    level: EventLevel;
+    message: string;
+    timestamp: string;
+    stage?: string;
+    iteration?: number;
+    trajectoryId?: string;
+    data?: unknown;
+  }
+}
+
+export interface AgentLogEventMap {
+  "deepsearch.log.debug": EventRecord<AgentLogEvents.LogPayload>;
+  "deepsearch.log.info": EventRecord<AgentLogEvents.LogPayload>;
+  "deepsearch.log.warn": EventRecord<AgentLogEvents.LogPayload>;
+  "deepsearch.log.error": EventRecord<AgentLogEvents.LogPayload>;
+  "design.log.debug": EventRecord<AgentLogEvents.LogPayload>;
+  "design.log.info": EventRecord<AgentLogEvents.LogPayload>;
+  "design.log.warn": EventRecord<AgentLogEvents.LogPayload>;
+  "design.log.error": EventRecord<AgentLogEvents.LogPayload>;
+  "codesearch.log.debug": EventRecord<AgentLogEvents.LogPayload>;
+  "codesearch.log.info": EventRecord<AgentLogEvents.LogPayload>;
+  "codesearch.log.warn": EventRecord<AgentLogEvents.LogPayload>;
+  "codesearch.log.error": EventRecord<AgentLogEvents.LogPayload>;
+}
+
 // ============================================================================
 // DeepSearch Agent 事件（新 Agent Loop + Skills 架构）
 // ============================================================================
@@ -374,6 +407,7 @@ export namespace DeepSearchEvents {
   /** deepsearch.agent.started - Agent 启动 */
   export interface AgentStarted {
     runId: string;
+    mode?: string;
   }
 
   /** deepsearch.agent.completed - Agent 完成 */
@@ -398,6 +432,8 @@ export namespace DeepSearchEvents {
   /** deepsearch.agent.iteration - 迭代进度 */
   export interface AgentIteration {
     iteration: number;
+    retry?: number;
+    systemRetry?: number;
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -469,6 +505,154 @@ export namespace DeepSearchEvents {
   export interface SearchCompleted {
     query: string;
     resultCount: number;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // DeepSearch legacy/stage 事件（workflow/ui-v2 仍在消费）
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /** deepsearch.started - DeepSearch 流程开始（兼容） */
+  export interface Started {
+    runId?: string;
+  }
+
+  /** deepsearch.completed - DeepSearch 流程结束（兼容） */
+  export interface Completed {
+    runId?: string;
+    iterations?: number;
+  }
+
+  /** deepsearch.failed - DeepSearch 流程失败（兼容） */
+  export interface Failed {
+    runId?: string;
+    error: string;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 外部搜索事件（workflow-runtime.js 使用）
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /** deepsearch.external.triggered - 外部搜索触发 */
+  export interface ExternalTriggered {
+    runId?: string;
+    reason?: string;
+    localHitCount?: number;
+    minLocalHits?: number;
+  }
+
+  /** deepsearch.external.started - 外部搜索开始 */
+  export interface ExternalStarted {
+    runId?: string;
+    providers?: string[];
+    gapCount?: number;
+  }
+
+  /** deepsearch.external.completed - 外部搜索完成 */
+  export interface ExternalCompleted {
+    runId?: string;
+    providers?: string[];
+    chunksCount?: number;
+    documentsCount?: number;
+    evidencesCount?: number;
+  }
+
+  /** deepsearch.external.error - 外部搜索错误 */
+  export interface ExternalError {
+    runId?: string;
+    message: string;
+  }
+
+  /** deepsearch.external.skipped - 外部搜索跳过 */
+  export interface ExternalSkipped {
+    runId?: string;
+    reason?: string;
+    localHitCount?: number;
+  }
+
+  /** deepsearch.todos.started - Todo 阶段开始（legacy stage） */
+  export interface TodosStarted {
+    runId?: string;
+    existingTodoCount?: number;
+    hasUserTodos?: boolean;
+  }
+
+  /** deepsearch.todos.completed - Todo 阶段完成（legacy stage） */
+  export interface TodosCompleted {
+    runId?: string;
+    todoCount: number;
+    createdCount?: number;
+    skippedLLM?: boolean;
+    source?: string;
+  }
+
+  /** deepsearch.gaps.completed - Gaps 阶段完成（部分 UI 仍依赖） */
+  export interface GapsCompleted {
+    runId?: string;
+    gapCount?: number;
+    totalGaps?: number;
+    todoCount?: number;
+    gaps?: unknown[];
+  }
+
+  /** deepsearch.todo.status.changed - Todo 状态变化（与 todo.updated 并存） */
+  export interface TodoStatusChanged {
+    todoId: string;
+    from: string;
+    to: string;
+    ts?: string;
+  }
+
+  /** deepsearch.checkpoint.saved - 检查点已保存 */
+  export interface CheckpointSaved {
+    runId?: string;
+    checkpointId: string;
+    iteration?: number;
+    trajectoryId?: string;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 报告写作阶段事件（report-generator.js 使用）
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /** deepsearch.write.progress - 写作进度 */
+  export interface WriteProgress {
+    phase?: string;
+    step?: string;
+    current?: number;
+    total?: number;
+    progress?: number;
+    msg?: string;
+    detail?: unknown;
+  }
+
+  /** deepsearch.write.toc.planned - 目录/章节规划 */
+  export interface WriteTocPlanned {
+    runId?: string;
+    iteration?: number;
+    sectionCount: number;
+    maxParallel?: number;
+    sections?: Array<{
+      sectionId: string;
+      title: string;
+      targetWords?: number;
+      claimIds?: string[];
+    }>;
+  }
+
+  /** deepsearch.write.section.started - 单章节开始 */
+  export interface WriteSectionStarted {
+    sectionId: string;
+    sectionTitle?: string;
+    sectionIndex: number;
+    sectionCount: number;
+    workerIndex?: number;
+    claimCount?: number;
+    targetWords?: number;
+  }
+
+  /** deepsearch.write.section.completed - 单章节完成 */
+  export interface WriteSectionCompleted extends WriteSectionStarted {
+    sectionStatus?: string;
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -548,6 +732,11 @@ export namespace DesignEvents {
     theme?: string;
   }
 
+  /** design.tokens.started - 设计 Token 提取开始（部分 UI 仍在监听） */
+  export interface TokensStarted {
+    runId?: string;
+  }
+
   /** design.generate.ended - 幻灯片生成完成 */
   export interface GenerateEnded {
     slides: number;
@@ -556,12 +745,15 @@ export namespace DesignEvents {
   /** design.qa.ended - QA 检查完成 */
   export interface QaEnded {
     slides: number;
+    qaFailed?: number;
     degradedCount: number;
   }
 
   /** design.visual.errors - 视觉渲染错误 */
   export interface VisualErrors {
-    errors: Array<{ slideIndex: number; error: string }>;
+    errors: Array<{ renderer?: string; error: string; slideIndex?: number }>;
+    hasFatalError?: boolean;
+    svgReport?: unknown;
   }
 
   /** design.image.planning.completed - 图片规划完成 */
@@ -578,14 +770,15 @@ export namespace DesignEvents {
 
   /** design.refine.ended - Refine 结束 */
   export interface RefineEnded {
-    iterations: number;
-    terminationReason: "quality_met" | "hard_limit" | "error";
-    finalScore?: number;
+    qualityScore?: number;
+    stepCount?: number;
+    terminationReason?: "quality_met" | "hard_limit" | "error" | string;
   }
 
   /** design.degraded - 降级警告 */
   export interface Degraded {
     degradedCount: number;
+    reason?: string;
   }
 
   /** design.chat.ask - 需要用户输入 */
@@ -595,38 +788,172 @@ export namespace DesignEvents {
   }
 
   // ============================================================================
+  // 预览/确认事件（浏览器端交互）
+  // ============================================================================
+
+  /** design.style.preview - 设计规范预览（等待确认） */
+  export interface StylePreview {
+    runId: string;
+    designSystem?: unknown;
+    designTokens?: unknown;
+    slideCount?: number;
+  }
+
+  /** design.plan.preview - 方案预览（等待确认） */
+  export interface PlanPreview {
+    runId: string;
+    plans: unknown[];
+    dialogFormat?: string;
+    slideCount: number;
+    summary?: unknown;
+  }
+
+  /** design.plan.confirmed - 方案已确认 */
+  export interface PlanConfirmed {
+    runId: string;
+    plans: unknown[];
+    slideCount: number;
+  }
+
+  /** design.layout.preview - 线框布局预览（等待确认） */
+  export interface LayoutPreview {
+    runId: string;
+    layouts: unknown[];
+    previewHtml?: string;
+    slideCount: number;
+  }
+
+  /** design.layout.confirmed - 线框布局已确认 */
+  export interface LayoutConfirmed {
+    runId: string;
+    layouts: unknown[];
+    slideCount: number;
+  }
+
+  // ============================================================================
+  // Repair / Review / Visual Render
+  // ============================================================================
+
+  /** design.repair.skipped - 跳过修复 */
+  export interface RepairSkipped {
+    reason: string;
+  }
+
+  /** design.repair.started - 开始修复 */
+  export interface RepairStarted {
+    qaIssueCount?: number;
+    styleIssueCount?: number;
+    consistencyScore?: number;
+  }
+
+  /** design.repair.failed - 修复失败 */
+  export interface RepairFailed {
+    error: string;
+  }
+
+  /** design.repair.ended - 修复完成 */
+  export interface RepairEnded {
+    finalScore?: number;
+    steps?: number;
+  }
+
+  /** design.review.started - 全局审阅开始 */
+  export interface ReviewStarted {
+    runId?: string;
+    slideCount?: number;
+  }
+
+  /** design.review.ended - 全局审阅结束 */
+  export interface ReviewEnded {
+    runId?: string;
+    score?: number;
+    pass?: boolean;
+    issueCount?: number;
+    summary?: string;
+  }
+
+  /** design.visual.render.started - 视觉渲染开始 */
+  export interface VisualRenderStarted {
+    runId: string;
+    planned: { total: number; "ai-image": number; svg: number; asset: number };
+  }
+
+  /** design.visual.render.completed - 视觉渲染完成 */
+  export interface VisualRenderCompleted {
+    runId: string;
+    planned: { total: number; "ai-image": number; svg: number; asset: number };
+    pendingImages?: string[];
+    report?: unknown;
+  }
+
+  /** design.visual.render.failed - 视觉渲染失败 */
+  export interface VisualRenderFailed extends VisualRenderCompleted {
+    error?: string;
+  }
+
+  // ============================================================================
   // 批次/幻灯片级别事件（Timeline Demo 需要）
   // ============================================================================
 
   /** design.batch.started - 批次开始 */
   export interface BatchStarted {
-    runId: string;
     batchIndex: number;
-    batchSize: number;
-    slideIds: string[];
+    slideIndexes: number[];
+    styleLock?: boolean;
+    runId?: string;
   }
 
   /** design.batch.completed - 批次完成 */
   export interface BatchCompleted {
-    runId: string;
     batchIndex: number;
-    slidesGenerated: number;
+    slideIndexes: number[];
     duration?: number;
+    runId?: string;
   }
 
   /** design.slide.started - 单张幻灯片开始生成 */
   export interface SlideStarted {
-    slideId?: string;
     slideIndex: number;
-    slideIntentId?: string;
-    title?: string;
+    slideIntent?: {
+      id?: string;
+      title?: string;
+      pageType?: string;
+      objective?: string;
+      keyPoints?: unknown;
+      claimIds?: string[];
+      dataTableIds?: string[];
+    };
+    slideIntentId?: string; // compat
+    title?: string; // compat
   }
 
   /** design.slide.completed - 单张幻灯片完成 */
   export interface SlideCompleted {
-    slideId: string;
     slideIndex: number;
-    status: "success" | "degraded" | "failed";
+    html?: string;
+    duration?: number;
+    source?: string;
+    status?: "success" | "degraded" | "failed" | string;
+  }
+
+  /** design.slide.failed - 单张幻灯片失败 */
+  export interface SlideFailed {
+    slideIndex: number;
+    error: { message: string; stack?: string } | string;
+    attempt?: number;
+  }
+
+  /** design.slide.retrying - 单张幻灯片重试 */
+  export interface SlideRetrying {
+    slideIndex: number;
+    attempt: number;
+  }
+
+  /** design.slide.progress - 单张幻灯片进度 */
+  export interface SlideProgress {
+    slideIndex: number;
+    step?: string;
+    msg?: string;
   }
 }
 
@@ -636,10 +963,22 @@ export type DesignPhase =
   | "outline_parsing"
   | "outline_confirming"
   | "style_extracting"
+  | "style_confirming"
+  | "deck_planning"
+  | "plan_confirming"
+  | "layout_analyzing"
+  | "layout_generating"
+  | "layout_developing"
+  | "layout_confirming"
   | "generating"
+  | "generating_paused"
   | "reviewing"
+  | "fixing"
+  | "repair"
   | "visual_filling"
-  | "completed";
+  | "completed"
+  | "failed"
+  | "editing";
 
 /** 幻灯片元数据 */
 export interface SlideMeta {
@@ -845,6 +1184,28 @@ export interface DeepSearchEventMap {
   "deepsearch.agent.failed": EventRecord<DeepSearchEvents.AgentFailed>;
   "deepsearch.agent.paused": EventRecord<DeepSearchEvents.AgentPaused>;
   "deepsearch.agent.iteration": EventRecord<DeepSearchEvents.AgentIteration>;
+  // 兼容/legacy DeepSearch 流程事件
+  "deepsearch.started": EventRecord<DeepSearchEvents.Started>;
+  "deepsearch.completed": EventRecord<DeepSearchEvents.Completed>;
+  "deepsearch.failed": EventRecord<DeepSearchEvents.Failed>;
+  // external search
+  "deepsearch.external.triggered": EventRecord<DeepSearchEvents.ExternalTriggered>;
+  "deepsearch.external.started": EventRecord<DeepSearchEvents.ExternalStarted>;
+  "deepsearch.external.completed": EventRecord<DeepSearchEvents.ExternalCompleted>;
+  "deepsearch.external.error": EventRecord<DeepSearchEvents.ExternalError>;
+  "deepsearch.external.skipped": EventRecord<DeepSearchEvents.ExternalSkipped>;
+  // legacy stage
+  "deepsearch.todos.started": EventRecord<DeepSearchEvents.TodosStarted>;
+  "deepsearch.todos.completed": EventRecord<DeepSearchEvents.TodosCompleted>;
+  "deepsearch.gaps.completed": EventRecord<DeepSearchEvents.GapsCompleted>;
+  // checkpoints + todo status
+  "deepsearch.checkpoint.saved": EventRecord<DeepSearchEvents.CheckpointSaved>;
+  "deepsearch.todo.status.changed": EventRecord<DeepSearchEvents.TodoStatusChanged>;
+  // writing/report generator
+  "deepsearch.write.progress": EventRecord<DeepSearchEvents.WriteProgress>;
+  "deepsearch.write.toc.planned": EventRecord<DeepSearchEvents.WriteTocPlanned>;
+  "deepsearch.write.section.started": EventRecord<DeepSearchEvents.WriteSectionStarted>;
+  "deepsearch.write.section.completed": EventRecord<DeepSearchEvents.WriteSectionCompleted>;
   // write-report skill
   "deepsearch.section.written": EventRecord<DeepSearchEvents.SectionWritten>;
   "deepsearch.report.generated": EventRecord<DeepSearchEvents.ReportGenerated>;
@@ -871,11 +1232,26 @@ export interface DesignEventMap {
   "design.step.started": EventRecord<DesignEvents.StepProgress>;
   "design.step.completed": EventRecord<DesignEvents.StepProgress>;
   "design.deck.updated": EventRecord<DesignEvents.DeckUpdated>;
+  "design.tokens.started": EventRecord<DesignEvents.TokensStarted>;
   "design.tokens.ended": EventRecord<DesignEvents.TokensEnded>;
+  "design.style.preview": EventRecord<DesignEvents.StylePreview>;
+  "design.plan.preview": EventRecord<DesignEvents.PlanPreview>;
+  "design.plan.confirmed": EventRecord<DesignEvents.PlanConfirmed>;
+  "design.layout.preview": EventRecord<DesignEvents.LayoutPreview>;
+  "design.layout.confirmed": EventRecord<DesignEvents.LayoutConfirmed>;
   "design.generate.ended": EventRecord<DesignEvents.GenerateEnded>;
   "design.qa.ended": EventRecord<DesignEvents.QaEnded>;
   "design.visual.errors": EventRecord<DesignEvents.VisualErrors>;
+  "design.visual.render.started": EventRecord<DesignEvents.VisualRenderStarted>;
+  "design.visual.render.completed": EventRecord<DesignEvents.VisualRenderCompleted>;
+  "design.visual.render.failed": EventRecord<DesignEvents.VisualRenderFailed>;
   "design.image.planning.completed": EventRecord<DesignEvents.ImagePlanningCompleted>;
+  "design.repair.skipped": EventRecord<DesignEvents.RepairSkipped>;
+  "design.repair.started": EventRecord<DesignEvents.RepairStarted>;
+  "design.repair.failed": EventRecord<DesignEvents.RepairFailed>;
+  "design.repair.ended": EventRecord<DesignEvents.RepairEnded>;
+  "design.review.started": EventRecord<DesignEvents.ReviewStarted>;
+  "design.review.ended": EventRecord<DesignEvents.ReviewEnded>;
   "design.refine.step": EventRecord<DesignEvents.RefineStep>;
   "design.refine.ended": EventRecord<DesignEvents.RefineEnded>;
   "design.degraded": EventRecord<DesignEvents.Degraded>;
@@ -885,6 +1261,9 @@ export interface DesignEventMap {
   "design.batch.completed": EventRecord<DesignEvents.BatchCompleted>;
   "design.slide.started": EventRecord<DesignEvents.SlideStarted>;
   "design.slide.completed": EventRecord<DesignEvents.SlideCompleted>;
+  "design.slide.failed": EventRecord<DesignEvents.SlideFailed>;
+  "design.slide.retrying": EventRecord<DesignEvents.SlideRetrying>;
+  "design.slide.progress": EventRecord<DesignEvents.SlideProgress>;
 }
 
 /** CodeSearch 事件映射表 */
@@ -899,7 +1278,15 @@ export interface CodeSearchEventMap {
 }
 
 /** 所有 Agent 事件映射表 */
-export interface AgentEventMap extends DeepSearchEventMap, DesignEventMap, CodeSearchEventMap { }
+export interface AgentEventMap
+  extends RunEventMap,
+    IngestEventMap,
+    CompressionEventMap,
+    IterationEventMap,
+    AgentLogEventMap,
+    DeepSearchEventMap,
+    DesignEventMap,
+    CodeSearchEventMap { }
 
 /** 事件名称类型 */
 export type AgentEventName = keyof AgentEventMap;

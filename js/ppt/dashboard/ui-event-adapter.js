@@ -21,7 +21,7 @@ export class UIEventAdapter {
     this.eventBus = eventBus;
     this.listeners = new Map(); // eventPattern -> Set<callback>
     this._state = {
-      deepsearch: { phase: 'idle', iteration: 0, progress: 0, todos: [], status: 'idle' },
+      deepsearch: { phase: 'idle', iteration: 0, progress: 0, todos: [], gaps: [], status: 'idle' },
       design: { phase: 'idle', progress: 0, currentSlide: 0, totalSlides: 0, status: 'idle' },
     };
     this._unsubscribes = [];
@@ -101,6 +101,9 @@ export class UIEventAdapter {
       if (name === 'deepsearch.todos.completed') {
         this._state.deepsearch.todos = payload?.todos || [];
       }
+      if (name === 'deepsearch.gaps.completed') {
+        this._state.deepsearch.gaps = Array.isArray(payload?.gaps) ? payload.gaps : [];
+      }
       if (name === 'deepsearch.completed') {
         this._state.deepsearch.status = 'completed';
       }
@@ -138,7 +141,7 @@ export class UIEventAdapter {
     const computed = {};
 
     if (name.startsWith('deepsearch.')) {
-      const phases = ['scan', 'todos', 'retrieve', 'understand', 'write'];
+      const phases = ['scan', 'gaps', 'retrieve', 'understand', 'write'];
       const currentIdx = phases.indexOf(this._state.deepsearch.phase);
       computed.deepsearchProgress = currentIdx >= 0 ? Math.round(((currentIdx + 1) / phases.length) * 100) : 0;
     }
