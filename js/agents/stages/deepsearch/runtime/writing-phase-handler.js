@@ -52,7 +52,7 @@ export class WritingPhaseHandler {
   /**
    * 执行写作阶段
    */
-  async run({ state, stageApi, sharedContext, callModel, addMessage, messages, signal }) {
+  async run({ state, stageApi, sharedContext, callModel, addMessage, messages, signal, flushMessages }) {
     const stats = this.getStats({ state, mode: state.userConfig?.mode, globalConfig: state.globalConfig });
     this._logger.info(`报告未完成 (${stats.wordCount}/${stats.minWords} 字)，进入写作阶段 (最多 ${this.maxIterations} 轮)`);
 
@@ -87,6 +87,7 @@ export class WritingPhaseHandler {
       if (signal?.aborted) break;
 
       try {
+        await flushMessages?.();
         const response = await callModel(messages(), { temperature: 0.3, maxTokens: 1000, signal });
         const content = response?.content || "";
 

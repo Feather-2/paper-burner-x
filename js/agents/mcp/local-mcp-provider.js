@@ -45,6 +45,45 @@ function requireFiniteNumber(v, name) {
   return v;
 }
 
+function isSensitiveQueryParamKey(key) {
+  const k = String(key || "").toLowerCase().trim();
+  if (!k) return false;
+
+  if (k === "token" || k === "access_token" || k === "refresh_token" || k === "id_token") return true;
+  if (k === "api_key" || k === "apikey" || k === "key") return true;
+  if (k === "secret" || k === "client_secret" || k === "private_key") return true;
+  if (k === "signature" || k === "sig" || k.endsWith("signature") || k.endsWith("sig")) return true;
+  if (k === "password" || k === "passwd" || k === "pwd") return true;
+  if (k === "authorization" || k === "auth" || k.startsWith("auth_") || k.includes("auth")) return true;
+  if (k.startsWith("x-amz-") && (k.includes("credential") || k.includes("signature") || k.includes("security-token"))) return true;
+
+  return false;
+}
+
+function redactUrlForLog(rawUrl) {
+  const url = toNonEmptyString(rawUrl);
+  if (!url) return "";
+
+  try {
+    const u = new URL(url);
+
+    if (u.username) u.username = "REDACTED";
+    if (u.password) u.password = "REDACTED";
+
+    const keys = [...u.searchParams.keys()];
+    for (const key of keys) {
+      if (isSensitiveQueryParamKey(key)) u.searchParams.set(key, "REDACTED");
+    }
+
+    return u.toString();
+  } catch {
+    return url.replace(
+      /([?&](?:token|access_token|refresh_token|id_token|api_key|apikey|key|secret|client_secret|signature|sig|password|passwd|pwd)=)[^&]*/gi,
+      "$1REDACTED"
+    );
+  }
+}
+
 /**
  * 健壮的 HTML 文本提取器
  * 采用轻量级状态机（单次线性扫描）替代多轮 replace，降低大文档的内存/CPU 压力。
@@ -248,12 +287,37 @@ function extractMetaDescription(html) {
 function parseDuckDuckGoResults(html) {
   const results = [];
 
+  const normalizeDuckDuckGoUrl = (raw) => {
+    const href = String(raw || "").trim();
+    if (!href) return "";
+
+    try {
+      if (href.startsWith("/l/?")) {
+        const u = new URL(`https://duckduckgo.com${href}`);
+        return u.searchParams.get("uddg") || href;
+      }
+      if (href.includes("duckduckgo.com/l/?")) {
+        const u = new URL(href);
+        return u.searchParams.get("uddg") || href;
+      }
+    } catch { }
+
+    return href;
+  };
+
   // DuckDuckGo 结果在 class="result" 的 div 中
   // 由于我们在浏览器环境，可以用 DOMParser
   if (typeof DOMParser !== "undefined") {
     try {
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, "text/html");
+      const seen = new Set();
+      const pushResult = (url, title, snippet) => {
+        const u = toNonEmptyString(url);
+        if (!u || seen.has(u) || u.includes("duckduckgo.com")) return;
+        seen.add(u);
+        results.push({ url: u, title: title || "", snippet: snippet || "" });
+      };
 
       // 尝试多种选择器
       const resultElements = doc.querySelectorAll(".result, .results_links, [data-testid='result']");
@@ -264,13 +328,34 @@ function parseDuckDuckGoResults(html) {
         const snippetEl = el.querySelector(".result__snippet, .result__body, .snippet");
 
         if (linkEl) {
-          const url = linkEl.href || linkEl.getAttribute("href") || "";
+          const url = normalizeDuckDuckGoUrl(linkEl.href || linkEl.getAttribute("href") || "");
           const title = titleEl ? titleEl.textContent?.trim() : "";
           const snippet = snippetEl ? snippetEl.textContent?.trim() : "";
 
-          if (url && url.startsWith("http") && !url.includes("duckduckgo.com")) {
-            results.push({ url, title, snippet });
+          if (url && url.startsWith("http")) pushResult(url, title, snippet);
+        }
+      }
+
+      // Fallback: DOM-based extraction without relying on brittle DuckDuckGo CSS classes.
+      if (results.length === 0) {
+        const anchors = doc.querySelectorAll("a[href]");
+        for (const a of anchors) {
+          const url = normalizeDuckDuckGoUrl(a.href || a.getAttribute("href") || "");
+          if (!url || !url.startsWith("http") || url.includes("duckduckgo.com")) continue;
+
+          const title = (a.textContent || a.getAttribute("aria-label") || a.getAttribute("title") || "").trim();
+          if (!title || title.length < 3) continue;
+
+          let snippet = "";
+          const container = typeof a.closest === "function" ? a.closest("article, section, div, li") : a.parentElement;
+          if (container) {
+            snippet = String(container.textContent || "").replace(/\s+/g, " ").trim();
+            if (snippet.startsWith(title)) snippet = snippet.slice(title.length).trim();
+            if (snippet.length > 280) snippet = snippet.slice(0, 280) + "...";
           }
+
+          pushResult(url, title, snippet);
+          if (results.length >= 20) break;
         }
       }
     } catch (e) {
@@ -502,6 +587,7 @@ export class LocalMcpProvider extends McpProvider {
   async _fetchWithCorsFallback(url, { timeoutMs = 10000, tryDirect = true } = {}) {
     const candidates = this._filterCorsProxyCooldown(this._buildCorsProxyCandidates({ tryDirect }));
     const errors = [];
+    const redactedUrl = redactUrlForLog(url);
 
     for (const proxy of candidates) {
       const targetUrl = proxy ? `${proxy}${encodeURIComponent(url)}` : url;
@@ -539,7 +625,7 @@ export class LocalMcpProvider extends McpProvider {
       }
     }
 
-    throw new AggregateError(errors, `All CORS proxy attempts failed for ${url}`);
+    throw new AggregateError(errors, `All CORS proxy attempts failed for ${redactedUrl || url}`);
   }
 
   /**

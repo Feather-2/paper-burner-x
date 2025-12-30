@@ -477,6 +477,10 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         systemRetry: systemRetryCount,
       });
 
+      // Fail-safe: ensure any scheduled compression has actually applied before the model call.
+      // Avoids a microtask race where we schedule compression but still send an oversized context.
+      await this.flushCompression?.();
+
       // [Shadow System] 注入潜意识信号 (上下文工程：即时性、不留痕)
       const shadow = stageApi.agent?.shadow || context.agent?.shadow;
       const baseMessages = this.messages;
@@ -859,6 +863,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         addMessage: (msg) => this.addMessage(msg),
         messages: () => this.messages,
         signal,
+        flushMessages: () => this.flushCompression?.(),
       });
     }
 

@@ -93,6 +93,28 @@ test("BaseAgentLoop registers tools and calls them", async () => {
   assert.match(missing.error, /Unknown tool/);
 });
 
+test("BaseAgentLoop flushCompression waits for scheduled compression", async () => {
+  const loop = await createTestLoop({
+    contextConfig: { contextWindow: 800, compressThreshold: 0.9, keepLastTurns: 1 },
+  });
+
+  loop.addMessage({ role: "user", content: "x".repeat(5000) });
+  loop.addMessage({ role: "assistant", content: "ok" });
+
+  assert.equal(loop.getContextStatus().needsCompression, true);
+
+  await loop.flushCompression();
+
+  const ctx = loop.getContextStatus();
+  assert.equal(ctx.compressionPending, false);
+  assert.equal(ctx.needsCompression, false);
+
+  assert.equal(loop.messages.length, 2);
+  assert.equal(loop.messages[0].role, "system");
+  assert.ok(loop.messages[0].content.startsWith("[Context Summary]"));
+  assert.equal(loop.messages[1].content, "ok");
+});
+
 test("BaseAgentLoop uses tool executor when provided", async () => {
   const loop = await createTestLoop();
 

@@ -264,6 +264,72 @@ test("LocalMcpProvider: all proxies fail -> AggregateError includes all reasons"
   );
 });
 
+test("LocalMcpProvider: DOMParser fallback extracts nested anchor titles", async () => {
+  const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
+  const { DOMParser } = await import("linkedom");
+
+  const prevDomParser = globalThis.DOMParser;
+  globalThis.DOMParser = DOMParser;
+  try {
+    const fetchMock = createFetchMock();
+    fetchMock.when(
+      (url) => url.startsWith("https://p1/?"),
+      async () =>
+        makeTextResponse(
+          [
+            "<!doctype html><html><head></head><body>",
+            '<div class="not-ddg-result"><a href="https://example.com"><span>Example</span> Title</a></div>',
+            "</body></html>",
+          ].join("")
+        )
+    );
+
+    const provider = new LocalMcpProvider({
+      corsProxies: ["https://p1/?"],
+      fetchImpl: fetchMock,
+      searchTimeoutMs: 2000,
+    });
+
+    const out = await provider.callTool("search", { query: "hello", limit: 1 });
+    assert.equal(out.success, true);
+
+    const json = out.content.find((c) => c.type === "json")?.data;
+    assert.ok(json?.results?.length >= 1);
+    assert.equal(json.results[0].title, "Example Title");
+  } finally {
+    if (prevDomParser === undefined) delete globalThis.DOMParser;
+    else globalThis.DOMParser = prevDomParser;
+  }
+});
+
+test("LocalMcpProvider: proxy failure redacts sensitive query params in error message", async () => {
+  const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
+
+  const fetchMock = createFetchMock();
+  fetchMock.when((url) => url.startsWith("https://p1/?"), async () => {
+    throw new Error("p1");
+  });
+  fetchMock.when((url) => url.startsWith("https://p2/?"), async () => {
+    throw new Error("p2");
+  });
+
+  const provider = new LocalMcpProvider({
+    corsProxies: ["https://p1/?", "https://p2/?"],
+    fetchImpl: fetchMock,
+    proxyCooldownMs: 0,
+  });
+
+  await assert.rejects(
+    () => provider._fetchWithCorsFallback("https://target.example/page?token=abc&x=1", { timeoutMs: 50, tryDirect: false }),
+    (err) => {
+      assert.ok(err instanceof AggregateError);
+      assert.equal(String(err.message).includes("token=abc"), false);
+      assert.ok(String(err.message).includes("token=REDACTED"));
+      return true;
+    }
+  );
+});
+
 test("LocalMcpProvider: last-good proxy is preferred on next request", async () => {
   const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
 

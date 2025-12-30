@@ -154,6 +154,8 @@ export class BaseAgentLoop {
     this._contextConfig = { ...DEFAULT_CONTEXT_CONFIG, ...contextConfig };
     this._compressor = null;  // 懒加载
     this._tokenUsage = { input: 0, output: 0, total: 0 };
+    this._compressionPending = false;
+    this._compressionPromise = null;
     this._compressionHistory = [];
   }
 
@@ -230,11 +232,58 @@ export class BaseAgentLoop {
     // 防止重复调度
     if (this._compressionPending) return;
     this._compressionPending = true;
-    queueMicrotask(() => {
-      this._compressMessages().catch(() => { }).finally(() => {
-        this._compressionPending = false;
-      });
+
+    let resolve = null;
+    const done = new Promise((r) => {
+      resolve = r;
     });
+    this._compressionPromise = done;
+
+    queueMicrotask(() => {
+      Promise.resolve()
+        .then(() => this._compressMessages())
+        .catch(() => { })
+        .finally(() => {
+          this._compressionPending = false;
+          if (this._compressionPromise === done) this._compressionPromise = null;
+          resolve?.();
+        });
+    });
+  }
+
+  /**
+   * Flush pending compression, and optionally enforce compression before a model call.
+   * This makes compression a synchronous barrier to avoid "schedule but not applied" races.
+   *
+   * @param {object} [options]
+   * @param {number} [options.maxRounds=2] Max extra compression rounds if still above threshold.
+   */
+  async flushCompression(options = {}) {
+    const maxRoundsRaw = typeof options?.maxRounds === "number" && Number.isFinite(options.maxRounds) ? options.maxRounds : 2;
+    const maxRounds = Math.max(0, Math.floor(maxRoundsRaw));
+
+    if (this._compressionPromise) {
+      try {
+        await this._compressionPromise;
+      } catch { }
+    }
+
+    let rounds = 0;
+    while (this._shouldCompress() && rounds < maxRounds) {
+      rounds += 1;
+      this._compressionPending = true;
+      const p = Promise.resolve()
+        .then(() => this._compressMessages())
+        .catch(() => { })
+        .finally(() => {
+          this._compressionPending = false;
+        });
+      this._compressionPromise = p;
+      try {
+        await p;
+      } catch { }
+      if (this._compressionPromise === p) this._compressionPromise = null;
+    }
   }
 
   /**
@@ -366,6 +415,7 @@ export class BaseAgentLoop {
       fillRatio: this._tokenUsage.total / contextWindow,
       compressThreshold,
       needsCompression: this._shouldCompress(),
+      compressionPending: !!this._compressionPending,
       compressionCount: this._compressionHistory.length,
     };
   }
