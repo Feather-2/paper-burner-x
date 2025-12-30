@@ -653,7 +653,7 @@ test("Runtime Compression: anchors preserve initial system prompts across repeat
   assert.equal(loop.messages[0].content, anchor1);
   assert.equal(loop.messages[1].content, anchor2);
   const summaryIdx1 = loop.messages.findIndex((m) => m?.role === "system" && String(m.content || "").startsWith("[Context Summary]"));
-  assert.equal(summaryIdx1, 2);
+  assert.equal(summaryIdx1, loop.messages.length - 1);
   assert.equal(loop.messages.filter((m) => m?.role === "system" && String(m.content || "").startsWith("[Context Summary]")).length, 1);
 
   for (let i = 12; i < 24; i++) {
@@ -666,6 +666,6 @@ test("Runtime Compression: anchors preserve initial system prompts across repeat
   assert.equal(loop.messages[0].content, anchor1);
   assert.equal(loop.messages[1].content, anchor2);
   const summaryIdx2 = loop.messages.findIndex((m) => m?.role === "system" && String(m.content || "").startsWith("[Context Summary]"));
-  assert.equal(summaryIdx2, 2);
+  assert.equal(summaryIdx2, loop.messages.length - 1);
   assert.equal(loop.messages.filter((m) => m?.role === "system" && String(m.content || "").startsWith("[Context Summary]")).length, 1);
 });

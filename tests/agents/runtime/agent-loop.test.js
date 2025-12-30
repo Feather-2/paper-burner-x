@@ -110,9 +110,9 @@ test("BaseAgentLoop flushCompression waits for scheduled compression", async () 
   assert.equal(ctx.needsCompression, false);
 
   assert.equal(loop.messages.length, 2);
-  assert.equal(loop.messages[0].role, "system");
-  assert.ok(loop.messages[0].content.startsWith("[Context Summary]"));
-  assert.equal(loop.messages[1].content, "ok");
+  assert.equal(loop.messages[0].content, "ok");
+  assert.equal(loop.messages[1].role, "system");
+  assert.ok(loop.messages[1].content.startsWith("[Context Summary]"));
 });
 
 test("BaseAgentLoop uses tool executor when provided", async () => {

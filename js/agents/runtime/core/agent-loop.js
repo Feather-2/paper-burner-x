@@ -297,6 +297,17 @@ export class BaseAgentLoop {
     const isContextSummaryMessage = (msg) =>
       msg && typeof msg === "object" && msg.role === "system" && String(msg.content || "").startsWith("[Context Summary]");
 
+    const extractContextSummaryBody = (msg) => {
+      if (!isContextSummaryMessage(msg)) return "";
+      const raw = String(msg?.content ?? "");
+      const newline = raw.indexOf("\n");
+      return newline >= 0 ? raw.slice(newline + 1).trim() : "";
+    };
+
+    // Preserve any prior summary text (do NOT include it in the compression input to avoid re-summarizing).
+    const priorSummaryMsg = this._messages.find(isContextSummaryMessage);
+    const priorSummary = extractContextSummaryBody(priorSummaryMsg);
+
     // Anchors: keep system prompts verbatim; exclude prior summaries from the compression input.
     const messagesForCompression = this._messages.filter((msg) => !isContextSummaryMessage(msg));
 
@@ -316,34 +327,16 @@ export class BaseAgentLoop {
 
     // 使用 CicadaCompressor 的 SESSION_HISTORY 层
     const result = await this._compressor.compress(
-      { messages: messagesForCompression },
+      { messages: messagesForCompression, ...(priorSummary ? { sessionSummary: priorSummary } : {}) },
       { keepLastTurns, layers: ["session_history"] }
     );
 
     this._messages = result.context.messages || messagesForCompression;
 
-    // 如果有摘要，插入到开头
+    // 如果有摘要，追加到末尾（更利于 prompt caching：前缀保持稳定）
     if (result.context.sessionSummary) {
       const summaryMsg = { role: "system", content: `[Context Summary]\n${result.context.sessionSummary}` };
-      const anchorInsertIndex = (() => {
-        let i = 0;
-        while (i < this._messages.length) {
-          const msg = this._messages[i];
-          if (msg?.role === "system" && !isContextSummaryMessage(msg)) {
-            i += 1;
-            continue;
-          }
-          break;
-        }
-        return i;
-      })();
-
-      const existingIndex = this._messages.findIndex(isContextSummaryMessage);
-      if (existingIndex >= 0) {
-        this._messages[existingIndex] = summaryMsg;
-      } else {
-        this._messages.splice(anchorInsertIndex, 0, summaryMsg);
-      }
+      this._messages.push(summaryMsg);
     }
 
     this._recalculateTokenUsage();
@@ -360,6 +353,16 @@ export class BaseAgentLoop {
 
     const isContextSummaryMessage = (msg) =>
       msg && typeof msg === "object" && msg.role === "system" && String(msg.content || "").startsWith("[Context Summary]");
+
+    const extractContextSummaryBody = (msg) => {
+      if (!isContextSummaryMessage(msg)) return "";
+      const raw = String(msg?.content ?? "");
+      const newline = raw.indexOf("\n");
+      return newline >= 0 ? raw.slice(newline + 1).trim() : "";
+    };
+
+    const priorSummaryMsg = this._messages.find(isContextSummaryMessage);
+    const priorSummary = extractContextSummaryBody(priorSummaryMsg);
 
     // Exclude prior summaries from the compression input (they are derived).
     const messagesForCompression = this._messages.filter((msg) => !isContextSummaryMessage(msg));
@@ -395,7 +398,8 @@ export class BaseAgentLoop {
     if (toCompress.length === 0) return;
 
     const summary = this._buildCompressionSummary(toCompress);
-    this._messages = [...anchors, { role: "system", content: `[Context Summary]\n${summary}` }, ...kept];
+    const combined = priorSummary ? `${priorSummary}\n${summary}` : summary;
+    this._messages = [...anchors, ...kept, { role: "system", content: `[Context Summary]\n${combined}` }];
 
     this._recalculateTokenUsage();
     this._recordCompression(beforeCount, beforeTokens);

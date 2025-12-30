@@ -8,19 +8,30 @@ export function injectSystemHint(messages, hint) {
 
   if (!text) return list;
 
-  if (list.length === 0) {
-    return [{ role: "system", content: text }];
+  // Avoid duplicating hints when multiple wrappers call injectSystemHint().
+  for (const msg of list) {
+    if (!msg || typeof msg !== "object" || msg.role !== "system") continue;
+    const content = typeof msg.content === "string" ? msg.content : String(msg.content ?? "");
+    if (content.includes(text)) return list;
   }
 
-  const first = list[0];
-  if (first && typeof first === "object" && first.role === "system") {
-    const content = typeof first.content === "string" ? first.content : String(first.content ?? "");
-    if (!content.includes(text)) {
-      list[0] = { ...first, content: content ? `${text}\n\n${content}` : text };
+  const hintMsg = { role: "system", content: text };
+
+  if (list.length === 0) return [hintMsg];
+
+  // Cache-friendly strategy: do NOT mutate the prefix (system[0]) or unshift.
+  // Insert the hint as late as possible (before the last user/tool turn) so the
+  // historical prefix stays stable for prompt caching.
+  let insertAt = list.length;
+  for (let i = list.length - 1; i >= 0; i--) {
+    const msg = list[i];
+    if (!msg || typeof msg !== "object") continue;
+    if (msg.role === "user" || msg.role === "tool") {
+      insertAt = i;
+      break;
     }
-    return list;
   }
 
-  list.unshift({ role: "system", content: text });
+  list.splice(insertAt, 0, hintMsg);
   return list;
 }

@@ -338,8 +338,28 @@ class AIApiService {
         if (model.type === 'custom' && model.endpointMode === 'auto') {
             // 自动补全端点
             endpoint = endpoint.replace(/\/+$/, '');
-            if (!endpoint.includes('/chat/completions') && !endpoint.includes('/v1/')) {
-                endpoint += '/v1/chat/completions';
+            const format = (model.format || 'openai').toLowerCase();
+            if (format === 'anthropic') {
+                // Anthropic Messages API: /v1/messages
+                if (!endpoint.includes('/messages')) {
+                    endpoint = endpoint.replace(/\/v1$/, '');
+                    endpoint += '/v1/messages';
+                }
+            } else if (format === 'openai') {
+                // OpenAI Chat Completions: /v1/chat/completions
+                if (!endpoint.includes('/chat/completions')) {
+                    endpoint = endpoint.replace(/\/v1$/, '');
+                    endpoint += '/v1/chat/completions';
+                }
+            } else if (format === 'gemini') {
+                // Gemini uses per-call endpoint construction in _callApi; keep base URL as-is.
+                endpoint = endpoint;
+            } else {
+                // Unknown formats: best-effort fallback to OpenAI Chat Completions.
+                if (!endpoint.includes('/chat/completions')) {
+                    endpoint = endpoint.replace(/\/v1$/, '');
+                    endpoint += '/v1/chat/completions';
+                }
             }
         }
         
@@ -449,15 +469,195 @@ class AIApiService {
         let endpoint = config.endpoint;
         let headers = { 'Content-Type': 'application/json' };
         let body;
+
+        const shouldEnablePromptCaching = (cfg, fmt) => {
+            const rawSite = cfg?._rawModel?._site;
+            if (rawSite && typeof rawSite === 'object') {
+                if (rawSite.enablePromptCaching !== undefined) return !!rawSite.enablePromptCaching;
+                if (rawSite.promptCaching !== undefined) return !!rawSite.promptCaching;
+                if (rawSite.cacheControl !== undefined) return !!rawSite.cacheControl;
+            }
+            if (String(fmt || '').toLowerCase() === 'anthropic') return true;
+            const haystack = `${cfg?.name || ''} ${cfg?.model || ''} ${cfg?.endpoint || ''}`.toLowerCase();
+            return haystack.includes('anthropic') || haystack.includes('claude') || haystack.includes('minimax');
+        };
+
+        const normalizeAnthropicCacheTtl = (cfg) => {
+            const rawSite = cfg?._rawModel?._site;
+            if (!rawSite || typeof rawSite !== 'object') return null;
+            const ttl = String(rawSite.promptCachingTtl ?? rawSite.promptCachingTTL ?? rawSite.cacheTtl ?? rawSite.cacheTTL ?? '').trim();
+            if (!ttl) return null;
+            return ttl === '5m' || ttl === '1h' ? ttl : null;
+        };
+
+        const addAnthropicCacheBreakpoint = (blocks, { ttl = null } = {}) => {
+            const list = Array.isArray(blocks) ? blocks : [];
+            for (let i = list.length - 1; i >= 0; i--) {
+                const block = list[i];
+                if (!block || typeof block !== 'object') continue;
+                // Prefer a text block breakpoint; skip images/unknown blocks.
+                if (block.type !== 'text') continue;
+                block.cache_control = ttl ? { type: 'ephemeral', ttl } : { type: 'ephemeral' };
+                return true;
+            }
+            return false;
+        };
+
+        const toAnthropicTextBlocks = (content) => {
+            const mk = (text) => ({ type: 'text', text: String(text ?? '') });
+
+            if (typeof content === 'string') {
+                return [mk(content)];
+            }
+            if (Array.isArray(content)) {
+                const texts = [];
+                for (const part of content) {
+                    if (part && typeof part === 'object' && part.type === 'text' && typeof part.text === 'string') {
+                        texts.push(part.text);
+                    } else if (typeof part === 'string') {
+                        texts.push(part);
+                    } else if (part && typeof part === 'object' && typeof part.text === 'string') {
+                        texts.push(part.text);
+                    }
+                }
+                return [mk(texts.join('\n'))];
+            }
+            return [mk(String(content ?? ''))];
+        };
+
+        const toAnthropicContentBlocks = (content) => {
+            if (typeof content === 'string') {
+                return [{ type: 'text', text: content }];
+            }
+            if (!Array.isArray(content)) {
+                return [{ type: 'text', text: String(content ?? '') }];
+            }
+
+            const blocks = [];
+            for (const part of content) {
+                if (!part || typeof part !== 'object') {
+                    if (part !== undefined && part !== null) blocks.push({ type: 'text', text: String(part) });
+                    continue;
+                }
+
+                // Already Anthropic-style blocks
+                if (part.type === 'text' && typeof part.text === 'string') {
+                    blocks.push({ type: 'text', text: part.text });
+                    continue;
+                }
+                if (part.type === 'image' && part.source && typeof part.source === 'object') {
+                    blocks.push(part);
+                    continue;
+                }
+
+                // OpenAI-style parts
+                if (part.type === 'text' && typeof part.text === 'string') {
+                    blocks.push({ type: 'text', text: part.text });
+                    continue;
+                }
+                if (part.type === 'image_url') {
+                    const url = part.image_url?.url || '';
+                    if (typeof url === 'string' && url.includes(',')) {
+                        const [prefix, data] = url.split(',', 2);
+                        const mediaMatch = String(prefix || '').match(/^data:([^;]+);base64$/i);
+                        const media_type = mediaMatch ? mediaMatch[1] : 'image/png';
+                        blocks.push({ type: 'image', source: { type: 'base64', media_type, data } });
+                        continue;
+                    }
+                    // Fallback: keep as text if we cannot inline base64
+                    blocks.push({ type: 'text', text: `[image_url] ${String(url)}` });
+                    continue;
+                }
+
+                blocks.push({ type: 'text', text: String(part.text ?? part.content ?? '') });
+            }
+
+            return blocks.length ? blocks : [{ type: 'text', text: '' }];
+        };
         
         if (format === 'anthropic') {
             // Anthropic Claude
             headers['x-api-key'] = config.apiKey;
             headers['anthropic-version'] = '2023-06-01';
+            const enableCacheControl = shouldEnablePromptCaching(config, format);
+            const cacheTtl = enableCacheControl ? normalizeAnthropicCacheTtl(config) : null;
+
+            // Convert OpenAI-style [{role, content}] into Anthropic {system, messages}
+            const list = Array.isArray(messages) ? messages : [];
+            let idx = 0;
+            const systemBlocks = [];
+            while (idx < list.length && list[idx]?.role === 'system') {
+                systemBlocks.push(...toAnthropicTextBlocks(list[idx]?.content));
+                idx += 1;
+            }
+
+            const anthropicMessages = [];
+            const originalIndices = [];
+            for (let i = idx; i < list.length; i++) {
+                const msg = list[i] && typeof list[i] === 'object' ? list[i] : null;
+                if (!msg) continue;
+                const roleRaw = String(msg.role || '').trim();
+                const role = roleRaw === 'assistant' ? 'assistant' : 'user';
+                if (roleRaw === 'system') {
+                    // Anthropic doesn't support mid-history system; treat it as user content.
+                    anthropicMessages.push({ role: 'user', content: toAnthropicTextBlocks(msg.content) });
+                    originalIndices.push(i);
+                } else {
+                    anthropicMessages.push({ role, content: toAnthropicContentBlocks(msg.content) });
+                    originalIndices.push(i);
+                }
+            }
+
+            if (enableCacheControl) {
+                // Cache breakpoint strategy:
+                // - Prefer caching the stable prefix (system + prior conversation history).
+                // - Exclude the final user/tool turn (dynamic input) and any injected system/tool messages near the end.
+                let breakpointOriginalIndex = null;
+                for (let i = list.length - 1; i >= 0; i--) {
+                    const msg = list[i];
+                    if (!msg || typeof msg !== 'object') continue;
+                    const role = String(msg.role || '').trim();
+                    if (role === 'user' || role === 'tool') {
+                        breakpointOriginalIndex = i;
+                        break;
+                    }
+                }
+
+                if (breakpointOriginalIndex !== null) {
+                    // Place the breakpoint on the last user/assistant message BEFORE the final user/tool input,
+                    // skipping any injected system messages near the end.
+                    let targetOriginal = null;
+                    for (let i = breakpointOriginalIndex - 1; i >= 0; i--) {
+                        const msg = list[i];
+                        if (!msg || typeof msg !== 'object') continue;
+                        const role = String(msg.role || '').trim();
+                        if (role === 'assistant' || role === 'user') {
+                            targetOriginal = i;
+                            break;
+                        }
+                    }
+
+                    if (targetOriginal !== null) {
+                        const msgIndex = originalIndices.lastIndexOf(targetOriginal);
+                        if (msgIndex >= 0) {
+                            addAnthropicCacheBreakpoint(anthropicMessages[msgIndex]?.content, { ttl: cacheTtl });
+                        }
+                    } else {
+                        // No prior conversation history; fall back to caching system blocks.
+                        addAnthropicCacheBreakpoint(systemBlocks, { ttl: cacheTtl });
+                    }
+                } else {
+                    // No user/tool message found; best-effort cache system blocks.
+                    addAnthropicCacheBreakpoint(systemBlocks, { ttl: cacheTtl });
+                }
+            }
+
             body = {
                 model: config.model,
                 max_tokens: maxTokens,
-                messages
+                temperature,
+                messages: anthropicMessages,
+                ...(systemBlocks.length ? { system: systemBlocks } : {}),
             };
         } else if (format === 'gemini') {
             // Google Gemini 原生格式

@@ -295,9 +295,37 @@ export function createShadowSystemMiddleware(options = {}) {
         ctx.shadowHints = hints;
         // 如果有 messages，注入到系统消息
         if (Array.isArray(ctx.messages) && hints.system) {
-          const systemMsg = ctx.messages.find(m => m.role === "system");
-          if (systemMsg) {
-            systemMsg.content += `\n\n[Shadow System]\n${hints.system}`;
+          const shadowText = String(hints.system || "").trim();
+          if (shadowText) {
+            // Cache-friendly: do not mutate the historical system[0] prefix in-place.
+            // Instead, inject an extra system message near the end (before the last user/tool turn).
+            const list = ctx.messages.map((m) => (m && typeof m === "object" ? { ...m } : m));
+            const block = `[Shadow System]\n${shadowText}`;
+
+            let alreadyInjected = false;
+            for (const msg of list) {
+              if (!msg || typeof msg !== "object" || msg.role !== "system") continue;
+              const content = typeof msg.content === "string" ? msg.content : String(msg.content ?? "");
+              if (content.includes(block)) {
+                alreadyInjected = true;
+                break;
+              }
+            }
+
+            if (!alreadyInjected) {
+              let insertAt = list.length;
+              for (let i = list.length - 1; i >= 0; i--) {
+                const msg = list[i];
+                if (!msg || typeof msg !== "object") continue;
+                if (msg.role === "user" || msg.role === "tool") {
+                  insertAt = i;
+                  break;
+                }
+              }
+              list.splice(insertAt, 0, { role: "system", content: block });
+            }
+
+            ctx.messages = list;
           }
         }
       }

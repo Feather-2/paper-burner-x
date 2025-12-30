@@ -84,6 +84,24 @@
     return [{ type: 'text', text: userContent }]; // 假设为字符串
   };
 
+  const normalizePromptCachingTtl = (ttl) => {
+    const t = String(ttl ?? '').trim();
+    if (!t) return null;
+    return t === '5m' || t === '1h' ? t : null;
+  };
+
+  const addAnthropicCacheBreakpoint = (blocks, ttl) => {
+    const list = Array.isArray(blocks) ? blocks : [];
+    for (let i = list.length - 1; i >= 0; i--) {
+      const block = list[i];
+      if (!block || typeof block !== 'object') continue;
+      if (block.type !== 'text') continue;
+      block.cache_control = ttl ? { type: 'ephemeral', ttl } : { type: 'ephemeral' };
+      return true;
+    }
+    return false;
+  };
+
   const appendPathSegment = (base, segment) => {
     if (!base) return segment || '';
     if (!segment) return base;
@@ -187,6 +205,11 @@
     };
 
     const normalizedFormat = (resolvedRequestFormat || 'openai').toLowerCase();
+    const enablePromptCaching =
+      options && typeof options === 'object' && options.enablePromptCaching !== undefined
+        ? !!options.enablePromptCaching
+        : (normalizedFormat === 'anthropic');
+    const promptCachingTtl = normalizePromptCachingTtl(options?.promptCachingTtl ?? options?.promptCachingTTL);
 
     switch (normalizedFormat) {
       case 'openai':
@@ -254,18 +277,51 @@
         config.headers['anthropic-version'] = '2023-06-01';
         config.bodyBuilder = (sys_prompt, user_content) => ({
           model: modelId,
-          system: sys_prompt,
+          ...(sys_prompt
+            ? {
+                system: (() => {
+                  const blocks = [{ type: 'text', text: sys_prompt }];
+                  if (enablePromptCaching) addAnthropicCacheBreakpoint(blocks, promptCachingTtl);
+                  return blocks;
+                })(),
+              }
+            : {}),
           messages: [{ role: "user", content: convertOpenAIToAnthropicContent(user_content) }],
           temperature: temperature ?? 0.5,
           max_tokens: max_tokens ?? 8000
         });
         config.streamBodyBuilder = (sys, msgs, user_content) => {
+          const systemBlocks = sys ? [{ type: 'text', text: sys }] : [];
+
+          const convertedHistory = Array.isArray(msgs)
+            ? msgs
+                .map(m => {
+                  if (!m || typeof m !== 'object') return null;
+                  const role = m.role === 'assistant' ? 'assistant' : 'user';
+                  if (m.role === 'system') {
+                    // Anthropic messages don't support mid-history system; treat it as user content.
+                    return { role: 'user', content: [{ type: 'text', text: String(m.content ?? '') }] };
+                  }
+                  return { role, content: convertOpenAIToAnthropicContent(m.content) };
+                })
+                .filter(Boolean)
+            : [];
+
+          if (enablePromptCaching) {
+            // Cache the stable prefix: system + prior conversation history (exclude final user message).
+            if (convertedHistory.length > 0) {
+              addAnthropicCacheBreakpoint(convertedHistory[convertedHistory.length - 1]?.content, promptCachingTtl);
+            } else if (systemBlocks.length > 0) {
+              addAnthropicCacheBreakpoint(systemBlocks, promptCachingTtl);
+            }
+          }
+
           return {
             model: modelId,
-            system: sys,
-            messages: msgs.length ?
-              [...msgs, { role: 'user', content: convertOpenAIToAnthropicContent(user_content) }] :
-              [{ role: 'user', content: convertOpenAIToAnthropicContent(user_content) }],
+            ...(systemBlocks.length ? { system: systemBlocks } : {}),
+            messages: convertedHistory.length
+              ? [...convertedHistory, { role: 'user', content: convertOpenAIToAnthropicContent(user_content) }]
+              : [{ role: 'user', content: convertOpenAIToAnthropicContent(user_content) }],
             max_tokens: max_tokens ?? 8000,
             temperature: temperature ?? 0.5,
             stream: true

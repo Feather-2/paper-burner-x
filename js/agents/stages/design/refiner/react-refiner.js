@@ -369,7 +369,7 @@ export async function runReactRefiner(deckPackage, context, options = {}) {
     if (parseError) {
       try {
         const retryResp = await aiApiService.chat({
-          messages: [{ role: "system", content: "只返回严格 JSON，不要输出任何多余文本。" }, ...hintedMessages],
+          messages: [...hintedMessages, { role: "user", content: "上一次输出不是有效 JSON。只返回严格 JSON，不要输出任何多余文本。" }],
           temperature: 0.1,
           maxTokens: 8000,
         });

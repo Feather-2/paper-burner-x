@@ -573,13 +573,44 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
         modelName: 'claude-3-sonnet-20240229',
         headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
         bodyBuilder: (sys, msgs, user_content) => {
+          const ttlRaw = config?.cms?.promptCachingTtl ?? config?.cms?.promptCachingTTL ?? config?.settings?.promptCachingTtl ?? config?.settings?.promptCachingTTL;
+          const ttl = ttlRaw === '5m' || ttlRaw === '1h' ? ttlRaw : null;
+          const addCacheBreakpoint = (blocks) => {
+            const list = Array.isArray(blocks) ? blocks : [];
+            for (let i = list.length - 1; i >= 0; i--) {
+              const block = list[i];
+              if (!block || typeof block !== 'object') continue;
+              if (block.type !== 'text') continue;
+              block.cache_control = ttl ? { type: 'ephemeral', ttl } : { type: 'ephemeral' };
+              return true;
+            }
+            return false;
+          };
+
+          const systemBlocks = sys ? [{ type: 'text', text: sys }] : [];
+          const history = Array.isArray(msgs)
+            ? msgs
+                .map(m => {
+                  if (!m || typeof m !== 'object') return null;
+                  if (m.role === 'system') {
+                    return { role: 'user', content: [{ type: 'text', text: String(m.content ?? '') }] };
+                  }
+                  const role = m.role === 'assistant' ? 'assistant' : 'user';
+                  return { role, content: convertOpenAIToAnthropicContent(m.content) };
+                })
+                .filter(Boolean)
+            : [];
+
+          // Prompt caching: cache stable prefix (system + prior conversation history), exclude final user message.
+          if (history.length > 0) addCacheBreakpoint(history[history.length - 1]?.content);
+          else if (systemBlocks.length > 0) addCacheBreakpoint(systemBlocks);
+
           return {
             model: apiConfig.modelName || 'claude-3-sonnet-20240229',
-            system: sys,
-            messages: msgs.length ?
-              [...msgs.map(m => ({role: m.role, content: convertOpenAIToAnthropicContent(m.content)})),
-               { role: 'user', content: convertOpenAIToAnthropicContent(user_content) }] :
-              [{ role: 'user', content: convertOpenAIToAnthropicContent(user_content) }],
+            ...(systemBlocks.length ? { system: systemBlocks } : {}),
+            messages: history.length
+              ? [...history, { role: 'user', content: convertOpenAIToAnthropicContent(user_content) }]
+              : [{ role: 'user', content: convertOpenAIToAnthropicContent(user_content) }],
             max_tokens: 2048,
             stream: true
           };
@@ -1787,12 +1818,44 @@ async function singleChunkSummary(sysPrompt, userInput, config, apiKey) {
         modelName: 'claude-3-sonnet-20240229',
         headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
         bodyBuilder: (sys, msgs, user_content) => {
+          const ttlRaw = config?.cms?.promptCachingTtl ?? config?.cms?.promptCachingTTL ?? config?.settings?.promptCachingTtl ?? config?.settings?.promptCachingTTL;
+          const ttl = ttlRaw === '5m' || ttlRaw === '1h' ? ttlRaw : null;
+          const addCacheBreakpoint = (blocks) => {
+            const list = Array.isArray(blocks) ? blocks : [];
+            for (let i = list.length - 1; i >= 0; i--) {
+              const block = list[i];
+              if (!block || typeof block !== 'object') continue;
+              if (block.type !== 'text') continue;
+              block.cache_control = ttl ? { type: 'ephemeral', ttl } : { type: 'ephemeral' };
+              return true;
+            }
+            return false;
+          };
+
+          const systemBlocks = sys ? [{ type: 'text', text: sys }] : [];
+          const history = Array.isArray(msgs)
+            ? msgs
+                .map(m => {
+                  if (!m || typeof m !== 'object') return null;
+                  if (m.role === 'system') {
+                    return { role: 'user', content: [{ type: 'text', text: String(m.content ?? '') }] };
+                  }
+                  const role = m.role === 'assistant' ? 'assistant' : 'user';
+                  return { role, content: convertOpenAIToAnthropicContent(m.content) };
+                })
+                .filter(Boolean)
+            : [];
+
+          // Prompt caching: cache stable prefix (system + prior conversation history), exclude final user message.
+          if (history.length > 0) addCacheBreakpoint(history[history.length - 1]?.content);
+          else if (systemBlocks.length > 0) addCacheBreakpoint(systemBlocks);
+
           return {
             model: apiConfig.modelName || 'claude-3-sonnet-20240229',
-            system: sys,
-            messages: msgs.length ?
-              [...msgs, { role: 'user', content: convertOpenAIToAnthropicContent(user_content) }] :
-              [{ role: 'user', content: convertOpenAIToAnthropicContent(user_content) }],
+            ...(systemBlocks.length ? { system: systemBlocks } : {}),
+            messages: history.length
+              ? [...history, { role: 'user', content: convertOpenAIToAnthropicContent(user_content) }]
+              : [{ role: 'user', content: convertOpenAIToAnthropicContent(user_content) }],
             max_tokens: 2048,
             stream: true
           };
