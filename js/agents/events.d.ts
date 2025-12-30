@@ -12,10 +12,53 @@
 /** Agent 状态（简化版，统一使用） */
 export type AgentStatus = "idle" | "running" | "paused" | "completed" | "failed";
 
+/**
+ * EventBus 事件记录（最终形态）
+ * - 与 `js/agents/runtime/events/event-bus.js` 的 `createEventRecord()` 对齐
+ * - workflow/UI 层默认订阅到的就是这种结构
+ */
+export type EventSchemaVersion = "0.1";
+
+/** 事件来源（actor） */
+export type EventActor =
+  | "system"
+  | "agent"
+  | "deepsearch"
+  | "design"
+  | "codesearch"
+  | "ingest"
+  | "textprep"
+  | "evaluate";
+
+/** 事件状态（status） */
+export type EventStatus =
+  | "started"
+  | "progress"
+  | "ended"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "skipped"
+  | "warn"
+  | "warning"
+  | "info"
+  | "step";
+
+/** 事件等级（level，可选） */
+export type EventLevel = "debug" | "info" | "warn" | "error";
+
 /** 事件记录基础结构 */
 export interface EventRecord<T = unknown> {
-  actor: "deepsearch" | "design" | "codesearch";
-  status?: "started" | "progress" | "ended" | "completed" | "warn" | "error" | "info" | "step";
+  schemaVersion: EventSchemaVersion;
+  eventId: string;
+  runId: string;
+  ts: string;
+  name: string;
+  actor: EventActor;
+  level?: EventLevel;
+  durationMs?: number;
+  meta?: unknown;
+  status?: EventStatus;
   payload?: T;
 }
 
@@ -148,6 +191,169 @@ export interface UserActionEventMap {
  * Agent 继续执行
  * ```
  */
+
+// ============================================================================
+// Runtime / Workflow 通用事件（Run / Ingest / Compression / Iteration）
+// ============================================================================
+
+export namespace RunEvents {
+  /** run.started - Run 启动 */
+  export interface Started {
+    mode?: string;
+    scenario?: string;
+    todos?: unknown;
+  }
+
+  /** run.ended - Run 结束（可能是正常结束，也可能是由上层主动结束） */
+  export interface Ended {
+    reason?: string;
+  }
+
+  /** run.cancelled - Run 被取消 */
+  export interface Cancelled {
+    reason: string;
+  }
+
+  /** run.failed - Run 失败（如果有上层聚合事件） */
+  export interface Failed {
+    error: string;
+    stage?: string;
+  }
+
+  /**
+   * run.completed - 兼容事件（部分旧 workflow 会监听）
+   * 建议新代码使用 run.ended。
+   */
+  export interface Completed {
+    reason?: string;
+  }
+}
+
+export interface RunEventMap {
+  "run.started": EventRecord<RunEvents.Started>;
+  "run.ended": EventRecord<RunEvents.Ended>;
+  "run.cancelled": EventRecord<RunEvents.Cancelled>;
+  "run.failed": EventRecord<RunEvents.Failed>;
+  "run.completed": EventRecord<RunEvents.Completed>;
+}
+
+export namespace IngestEvents {
+  /** ingest.started - 摄取开始 */
+  export interface Started {
+    inputCount: number;
+    runId?: string;
+  }
+
+  /** ingest.completed - 摄取完成 */
+  export interface Completed {
+    runId?: string;
+    sourceCount?: number;
+    successDocs?: number;
+    failedDocs?: number;
+    durationMs?: number;
+    parseErrors?: Array<{ origin: string; error: string }>;
+  }
+
+  /** ingest.doc.started - 单个输入开始解析 */
+  export interface DocStarted {
+    origin: string;
+    historyId?: string;
+    url?: string;
+    fileName?: string;
+  }
+
+  /** ingest.doc.completed - 单个输入解析完成 */
+  export interface DocCompleted {
+    docId: string;
+    chunkCount: number;
+    assetCount?: number;
+  }
+
+  /** ingest.doc.failed - 单个输入解析失败 */
+  export interface DocFailed {
+    origin: string;
+    error: string;
+  }
+
+  /** ingest.assets.understanding.started - 资产理解开始 */
+  export interface AssetsUnderstandingStarted {
+    steps?: number;
+  }
+
+  /** ingest.assets.understanding.progress - 资产理解进度 */
+  export interface AssetsUnderstandingProgress {
+    current?: number;
+    total?: number;
+    step?: number;
+    steps?: number;
+  }
+
+  /** ingest.assets.understanding.completed - 资产理解完成 */
+  export interface AssetsUnderstandingCompleted {
+    assetsCount?: number;
+  }
+
+  /** ingest.assets.understanding.failed - 资产理解失败 */
+  export interface AssetsUnderstandingFailed {
+    error: string;
+  }
+}
+
+export interface IngestEventMap {
+  "ingest.started": EventRecord<IngestEvents.Started>;
+  "ingest.completed": EventRecord<IngestEvents.Completed>;
+  "ingest.doc.started": EventRecord<IngestEvents.DocStarted>;
+  "ingest.doc.completed": EventRecord<IngestEvents.DocCompleted>;
+  "ingest.doc.failed": EventRecord<IngestEvents.DocFailed>;
+  "ingest.assets.understanding.started": EventRecord<IngestEvents.AssetsUnderstandingStarted>;
+  "ingest.assets.understanding.progress": EventRecord<IngestEvents.AssetsUnderstandingProgress>;
+  "ingest.assets.understanding.completed": EventRecord<IngestEvents.AssetsUnderstandingCompleted>;
+  "ingest.assets.understanding.failed": EventRecord<IngestEvents.AssetsUnderstandingFailed>;
+}
+
+export namespace CompressionEvents {
+  /** compression.* - 上下文压力与压缩事件（Cicada/压缩器） */
+  export interface Notice {
+    stageId?: string;
+    pressure?: number;
+    predictedTokens?: number;
+    budgetTokens?: number;
+    headroomTokens?: number;
+    growthTokens?: number;
+    maxContextTokens?: number;
+    suggestedLayers?: string[];
+  }
+
+  /** compression.failed - 压缩失败 */
+  export interface Failed extends Notice {
+    error: string;
+  }
+}
+
+export interface CompressionEventMap {
+  "compression.scheduled": EventRecord<CompressionEvents.Notice>;
+  "compression.applied": EventRecord<CompressionEvents.Notice>;
+  "compression.advised": EventRecord<CompressionEvents.Notice>;
+  "compression.forced": EventRecord<CompressionEvents.Notice>;
+  "compression.failed": EventRecord<CompressionEvents.Failed>;
+}
+
+export namespace IterationEvents {
+  /** iteration.completed / deepsearch.iteration.completed - 单轮迭代完成（用于可视化/统计） */
+  export interface Completed {
+    iteration: number;
+    openTodoCount?: number;
+    completedTodoCount?: number;
+    blockedTodoCount?: number;
+    totalTodos?: number;
+    openGapCount?: number;
+  }
+}
+
+export interface IterationEventMap {
+  "iteration.completed": EventRecord<IterationEvents.Completed>;
+  "deepsearch.iteration.completed": EventRecord<IterationEvents.Completed>;
+}
 
 // ============================================================================
 // DeepSearch Agent 事件（新 Agent Loop + Skills 架构）
