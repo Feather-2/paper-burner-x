@@ -15,6 +15,7 @@ import { loadPrompt } from "../../prompts/prompt-loader.js";
 import { DeepSearchEvents } from "../../runtime/events/events.js";
 import { ModelResponseHandler } from "./runtime/model-response-handler.js";
 import { WritingPhaseHandler } from "./runtime/writing-phase-handler.js";
+import { classifyDeepSearchError } from "./runtime/error-classifier.js";
 import SourceManager from "./source-manager.js";
 
 // Skills 系统（动态加载）
@@ -242,12 +243,36 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     this.context = options.context || null;
 
     this._logger = createLogger("agent-loop");
+    this._failureReported = false;
   }
 
   _emit(name, payload) {
     // 添加 deepsearch. 前缀，确保事件能被 workflow 层正确捕获
     const eventName = name.startsWith("deepsearch.") ? name : `deepsearch.${name}`;
     this.eventBus?.emit?.(eventName, { actor: "deepsearch", ...payload });
+  }
+
+  _markFailed(err, classification) {
+    const info = classification || classifyDeepSearchError(err);
+    const payload = {
+      error: info.message,
+      recoverable: info.recoverable,
+      category: info.category,
+      ...(typeof info.statusCode === "number" ? { statusCode: info.statusCode } : {}),
+      ...(typeof info.code === "string" && info.code ? { code: info.code } : {}),
+    };
+
+    if (!this._failureReported) {
+      this._emit(DeepSearchEvents.AGENT_ERROR, payload);
+      this._emit(DeepSearchEvents.AGENT_FAILED, { runId: this.state?.runId, ...payload });
+      this._failureReported = true;
+    }
+
+    if (this.status !== AgentStatus.FAILED) {
+      const from = this.status;
+      this._emit(DeepSearchEvents.AGENT_STATUS_CHANGED, { from, to: AgentStatus.FAILED });
+      this.status = AgentStatus.FAILED;
+    }
   }
 
   async run(input, context = {}) {
@@ -275,9 +300,11 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     const oldStatus = this.status;
     this.status = AgentStatus.RUNNING;
     this._emit(DeepSearchEvents.AGENT_STATUS_CHANGED, { from: oldStatus, to: AgentStatus.RUNNING });
+    this._failureReported = false;
     // 清空消息（使用父类的 _messages）
     this._messages = [];
 
+    try {
     // 初始化机制
     if (BudgetManager && !this.budget) {
       this.budget = new BudgetManager(this.state);
@@ -757,10 +784,28 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         systemRetryCount = 0;
 
       } catch (err) {
-        this._logger.error("Iteration error", { error: err.message });
+        const info = classifyDeepSearchError(err);
+        const errorMessage = info.message;
+        this._logger.error("Iteration error", {
+          error: errorMessage,
+          category: info.category,
+          recoverable: info.recoverable,
+          ...(typeof info.statusCode === "number" ? { statusCode: info.statusCode } : {}),
+          ...(typeof info.code === "string" && info.code ? { code: info.code } : {}),
+        });
+
+        if (!info.recoverable) {
+          this.addMessage({
+            role: "user",
+            content: `致命错误: ${errorMessage}\n\n请检查配置/权限/网络后重试。`,
+          });
+          this._markFailed(err, info);
+          throw err;
+        }
+
         this.addMessage({
           role: "user",
-          content: `错误: ${err.message}\n\n请尝试其他方法。`,
+          content: `错误: ${errorMessage}\n\n请尝试其他方法。`,
         });
         systemRetryCount += 1;
 
@@ -822,6 +867,18 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     this._emit(DeepSearchEvents.AGENT_COMPLETED, { runId: this.state.runId, iterations: iteration });
 
     return this._buildOutput();
+    } catch (err) {
+      const info = classifyDeepSearchError(err);
+      this._logger.error("DeepSearch run failed", {
+        error: info.message,
+        category: info.category,
+        recoverable: info.recoverable,
+        ...(typeof info.statusCode === "number" ? { statusCode: info.statusCode } : {}),
+        ...(typeof info.code === "string" && info.code ? { code: info.code } : {}),
+      });
+      this._markFailed(err, info);
+      throw err;
+    }
   }
 
   _parseDecision(content) {

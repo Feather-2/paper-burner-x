@@ -8,6 +8,7 @@
  */
 
 import { DeepSearchEvents } from "../../../runtime/events/events.js";
+import { classifyDeepSearchError } from "./error-classifier.js";
 
 export class WritingPhaseHandler {
   constructor({ logger, emit, parseDecision, executeTool, maxIterations = 5, maxParseFailures = 3 }) {
@@ -148,7 +149,26 @@ export class WritingPhaseHandler {
         iteration = plannedIteration;
         if (shouldExit) break;
       } catch (err) {
-        this._logger.error("Writing phase error", { error: err.message });
+        const info = classifyDeepSearchError(err);
+        this._logger.error("Writing phase error", {
+          error: info.message,
+          category: info.category,
+          recoverable: info.recoverable,
+          ...(typeof info.statusCode === "number" ? { statusCode: info.statusCode } : {}),
+          ...(typeof info.code === "string" && info.code ? { code: info.code } : {}),
+        });
+
+        if (!info.recoverable) {
+          this._emit?.(DeepSearchEvents.AGENT_ERROR, {
+            error: info.message,
+            recoverable: false,
+            category: info.category,
+            ...(typeof info.statusCode === "number" ? { statusCode: info.statusCode } : {}),
+            ...(typeof info.code === "string" && info.code ? { code: info.code } : {}),
+          });
+          throw err;
+        }
+
         systemRetryCount += 1;
         if (systemRetryCount >= this.maxParseFailures) {
           this._logger.warn(`Too many system retries in writing phase (${systemRetryCount}), stopping`);

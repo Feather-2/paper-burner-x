@@ -145,6 +145,170 @@ function cleanText(text) {
 }
 
 /**
+ * HTML 纯文本提取（单次线性扫描）
+ * - Node 环境无 DOMParser 时可用
+ * - 避免多轮大正则 replace 带来的内存/CPU 压力
+ */
+function extractPlainTextFromHtml(html, { maxLength = 50000 } = {}) {
+  if (!html || typeof html !== 'string') return '';
+
+  const ENTITY_MAP = {
+    '&nbsp;': ' ',
+    '&amp;': '&',
+    '&lt;': '<',
+    '&gt;': '>',
+    '&quot;': '"',
+    '&apos;': "'",
+    '&#39;': "'",
+    '&#x27;': "'",
+  };
+
+  const SKIP_TAGS = new Set(['script', 'style', 'noscript', 'template', 'svg', 'iframe', 'canvas']);
+  const isWs = (c) => c === ' ' || c === '\n' || c === '\r' || c === '\t' || c === '\f';
+  const isNameChar = (c) => {
+    const code = c.charCodeAt(0);
+    return (
+      (code >= 48 && code <= 57) || // 0-9
+      (code >= 65 && code <= 90) || // A-Z
+      (code >= 97 && code <= 122) || // a-z
+      c === '-' ||
+      c === '_' ||
+      c === ':'
+    );
+  };
+
+  const findTagEnd = (s, start) => {
+    let quote = null;
+    for (let i = start; i < s.length; i++) {
+      const ch = s[i];
+      if (quote) {
+        if (ch === quote) quote = null;
+        continue;
+      }
+      if (ch === '"' || ch === "'") {
+        quote = ch;
+        continue;
+      }
+      if (ch === '>') return i;
+    }
+    return -1;
+  };
+
+  const readTagName = (s, start) => {
+    let i = start;
+    while (i < s.length && isWs(s[i])) i++;
+    const nameStart = i;
+    while (i < s.length && isNameChar(s[i])) i++;
+    if (i === nameStart) return '';
+    return s.slice(nameStart, i).toLowerCase();
+  };
+
+  const skipUntilCloseTag = (s, start, tagName) => {
+    let i = start;
+    while (i < s.length) {
+      const lt = s.indexOf('<', i);
+      if (lt === -1) return s.length;
+      if (s.startsWith('<!--', lt)) {
+        const end = s.indexOf('-->', lt + 4);
+        i = end === -1 ? s.length : end + 3;
+        continue;
+      }
+      if (s[lt + 1] !== '/') {
+        i = lt + 1;
+        continue;
+      }
+      const closeName = readTagName(s, lt + 2);
+      const end = findTagEnd(s, lt + 2);
+      if (end === -1) return s.length;
+      if (closeName === tagName) return end + 1;
+      i = end + 1;
+    }
+    return s.length;
+  };
+
+  const decodeEntityAt = (s, i) => {
+    if (s[i] !== '&') return null;
+    const maxLen = 16;
+    let j = i + 1;
+    while (j < s.length && j - i <= maxLen) {
+      const ch = s[j];
+      if (ch === ';') {
+        j++;
+        break;
+      }
+      if (isWs(ch) || ch === '<' || ch === '>' || ch === '&') break;
+      j++;
+    }
+    if (j <= i + 1 || s[j - 1] !== ';') return null;
+    const entity = s.slice(i, j);
+    const lower = entity.toLowerCase();
+    if (ENTITY_MAP[lower]) return { text: ENTITY_MAP[lower], nextIndex: j };
+
+    const dec = lower.match(/^&#(\d+);$/);
+    if (dec) return { text: String.fromCharCode(parseInt(dec[1], 10)), nextIndex: j };
+    const hex = lower.match(/^&#x([0-9a-f]+);$/);
+    if (hex) return { text: String.fromCharCode(parseInt(hex[1], 16)), nextIndex: j };
+
+    return { text: entity, nextIndex: j };
+  };
+
+  const out = [];
+  let i = 0;
+  while (i < html.length) {
+    const ch = html[i];
+
+    if (ch === '<') {
+      // HTML comment
+      if (html.startsWith('<!--', i)) {
+        const end = html.indexOf('-->', i + 4);
+        i = end === -1 ? html.length : end + 3;
+        out.push(' ');
+        continue;
+      }
+
+      // doctype / directives
+      if (html[i + 1] === '!') {
+        const end = html.indexOf('>', i + 2);
+        i = end === -1 ? html.length : end + 1;
+        out.push(' ');
+        continue;
+      }
+
+      const isClose = html[i + 1] === '/';
+      const nameStart = isClose ? i + 2 : i + 1;
+      const tagName = readTagName(html, nameStart);
+      const end = findTagEnd(html, nameStart);
+      if (end === -1) break;
+
+      if (!isClose && SKIP_TAGS.has(tagName)) {
+        i = skipUntilCloseTag(html, end + 1, tagName);
+        out.push(' ');
+        continue;
+      }
+
+      i = end + 1;
+      out.push(' ');
+      continue;
+    }
+
+    if (ch === '&') {
+      const decoded = decodeEntityAt(html, i);
+      if (decoded) {
+        out.push(decoded.text);
+        i = decoded.nextIndex;
+        continue;
+      }
+    }
+
+    out.push(isWs(ch) ? ' ' : ch);
+    i++;
+  }
+
+  const text = out.join('').replace(/\s+/g, ' ').trim();
+  return maxLength > 0 && text.length > maxLength ? text.slice(0, maxLength) : text;
+}
+
+/**
  * 从 DOM 元素提取结构化 Markdown
  */
 function elementToMarkdown(el, depth = 0) {
@@ -608,6 +772,17 @@ export function extractSmartContent(html, options = {}) {
     };
   }
 
+  const canUseDomParser = typeof DOMParser !== 'undefined' && typeof DOMParser === 'function';
+  if (!canUseDomParser) {
+    const plainText = extractPlainTextFromHtml(html, { maxLength });
+    return {
+      markdown: plainText,
+      plainText,
+      metadata: { title: '', description: '', author: '', publishDate: '', wordCount: plainText.length, headings: [], links: [], images: [] },
+      structure: { mainContentSelector: 'fallback(no-dom)', removedElements: 0, extractedSections: 0 },
+    };
+  }
+
   try {
     // 解析 HTML
     const parser = new DOMParser();
@@ -673,13 +848,7 @@ export function extractSmartContent(html, options = {}) {
 
     if (fallbackOnError) {
       // Fallback: 简单文本提取
-      const plainText = html
-        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, ' ')
-        .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, ' ')
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .slice(0, maxLength);
+      const plainText = extractPlainTextFromHtml(html, { maxLength });
 
       return {
         markdown: plainText,

@@ -175,3 +175,27 @@ test("McpNexusProvider: Tool API (/api/tools + /api/tools/execute) happy path", 
   assert.ok(calls.some((c) => c.url.endsWith("/api/tools") && c.method === "GET"));
   assert.ok(calls.some((c) => c.url.endsWith("/api/tools/execute") && c.method === "POST"));
 });
+
+test("SmartContentExtractor: works without DOMParser (fallback)", async () => {
+  const { extractSmartContent } = await import("../../js/agents/mcp/smart-content-extractor.js");
+
+  const html = [
+    "<html><head>",
+    "<title>t</title>",
+    "<style>.x{color:red}</style>",
+    "<script>bad()</script>",
+    "</head><body>",
+    "<h1>Hello</h1><p>World</p>",
+    "</body></html>",
+  ].join("");
+
+  const out = extractSmartContent(html, { maxLength: 1000 });
+  assert.equal(typeof out.plainText, "string");
+  assert.ok(out.plainText.includes("Hello"));
+  assert.ok(out.plainText.includes("World"));
+  assert.equal(out.plainText.includes("bad()"), false);
+
+  if (typeof globalThis.DOMParser === "undefined") {
+    assert.equal(out.structure.mainContentSelector, "fallback(no-dom)");
+  }
+});

@@ -793,3 +793,44 @@ test("DeepSearchAgentLoop: caps system retries without consuming iteration budge
   assert.equal(calls, 4);
   assert.equal(output.status, AgentStatus.COMPLETED);
 });
+
+test("DeepSearchAgentLoop: fail-fast on non-recoverable model errors", async () => {
+  const { DeepSearchAgentLoop, AgentStatus } = await import("../../../js/agents/stages/deepsearch/deepsearch-agent-loop.js");
+
+  let calls = 0;
+  const stageApi = {
+    signal: new AbortController().signal,
+    modelRouter: {
+      call: async () => {
+        calls += 1;
+        const err = new Error("Unauthorized");
+        err.status = 401;
+        throw err;
+      },
+    },
+  };
+
+  const agent = new DeepSearchAgentLoop({
+    mode: "quick",
+    maxIterations: 3,
+    config: { report: { quick: { minWords: 0 } }, agent: { quick: { writeIterations: 1 } } },
+  });
+
+  await assert.rejects(
+    () =>
+      agent.run(
+        {
+          runId: "run_fail_fast_auth",
+          taskGoal: "t",
+          userConfig: {},
+          L0: { sources: [] },
+          L1: { report: { markdown: "x".repeat(5000) } },
+        },
+        { stageApi }
+      ),
+    /Unauthorized/
+  );
+
+  assert.equal(calls, 1);
+  assert.equal(agent.status, AgentStatus.FAILED);
+});
