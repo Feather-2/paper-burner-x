@@ -13,6 +13,16 @@
 
 import { validateArgs } from "./schema-validator.js";
 
+function normalizeIsolationMode(mode) {
+  if (mode === true) return "worker";
+  const m = typeof mode === "string" ? mode.trim().toLowerCase() : "";
+  return m === "worker" ? "worker" : "none";
+}
+
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 export class ToolExecutor {
   constructor(options = {}) {
     this.tools = options.tools || {};
@@ -23,6 +33,7 @@ export class ToolExecutor {
     this.hooks = options.hooks || { before: [], after: [] };
     this.validateSchema = options.validateSchema ?? true; // 默认开启验证
     this.strictValidation = options.strictValidation ?? false; // 严格模式：验证失败直接返回错误
+    this.defaultIsolation = normalizeIsolationMode(options.isolation);
   }
 
   /**
@@ -108,12 +119,17 @@ export class ToolExecutor {
 
     const timeoutMs = options.timeoutMs || this.defaultTimeoutMs;
     const retries = options.retries ?? this.maxRetries;
+    const isolationMode = normalizeIsolationMode(options.isolation ?? tool.isolation ?? this.defaultIsolation);
     const startTime = Date.now();
 
     let lastError = null;
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
-        const result = await this._executeWithTimeout(handler, finalArgs, context, timeoutMs);
+        const result = await this._executeWithTimeout(handler, finalArgs, context, timeoutMs, {
+          isolationMode,
+          tool,
+          toolName: name,
+        });
         const duration = Date.now() - startTime;
 
         this._log("debug", `Tool ${name} completed`, { duration, attempt });
@@ -161,7 +177,18 @@ export class ToolExecutor {
     return Promise.all(promises);
   }
 
-  async _executeWithTimeout(handler, args, context, timeoutMs) {
+  async _executeWithTimeout(handler, args, context, timeoutMs, options = {}) {
+    const isolationMode = normalizeIsolationMode(options?.isolationMode);
+    if (isolationMode === "worker") {
+      const workerConfig = isPlainObject(options?.tool?.worker) ? options.tool.worker : null;
+      const moduleUrl = typeof workerConfig?.moduleUrl === "string" ? workerConfig.moduleUrl : null;
+      const exportName = typeof workerConfig?.exportName === "string" ? workerConfig.exportName : null;
+
+      if (moduleUrl) {
+        return this._executeInWorker(moduleUrl, exportName, args, context, timeoutMs);
+      }
+    }
+
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         reject(new Error(`Tool execution timed out after ${timeoutMs}ms`));
@@ -176,6 +203,98 @@ export class ToolExecutor {
           clearTimeout(timer);
           reject(err);
         });
+    });
+  }
+
+  _createWorkerContextSnapshot(context) {
+    if (!context || typeof context !== "object") return {};
+
+    const snapshot = {};
+
+    // Commonly used by tool handlers; keep this intentionally small.
+    if ("state" in context) snapshot.state = context.state;
+    if ("runId" in context) snapshot.runId = context.runId;
+
+    try {
+      // Ensure cloneability for worker_threads postMessage.
+      return structuredClone(snapshot);
+    } catch {
+      return {};
+    }
+  }
+
+  async _executeInWorker(moduleUrl, exportName, args, context, timeoutMs) {
+    const { Worker } = await import("node:worker_threads");
+
+    const worker = new Worker(new URL("./tool-executor-worker.js", import.meta.url), { type: "module" });
+    const workerContext = this._createWorkerContextSnapshot(context);
+
+    return new Promise((resolve, reject) => {
+      let settled = false;
+
+      const cleanup = async () => {
+        if (settled) return;
+        settled = true;
+        try {
+          await worker.terminate();
+        } catch {
+          // ignore terminate errors
+        }
+      };
+
+      const timer = setTimeout(() => {
+        cleanup().finally(() => {
+          const err = new Error(`Tool execution timed out after ${timeoutMs}ms`);
+          err.name = "TimeoutError";
+          err.code = "ETIMEDOUT";
+          reject(err);
+        });
+      }, timeoutMs);
+
+      worker.on("message", (msg) => {
+        if (settled) return;
+        const type = msg?.type;
+
+        if (type === "result") {
+          clearTimeout(timer);
+          cleanup().finally(() => resolve(msg.result));
+          return;
+        }
+
+        if (type === "error") {
+          clearTimeout(timer);
+          const err = new Error(msg?.error?.message || "Tool worker error");
+          if (msg?.error?.name) err.name = msg.error.name;
+          if (msg?.error?.stack) err.stack = msg.error.stack;
+          cleanup().finally(() => reject(err));
+        }
+      });
+
+      worker.on("error", (err) => {
+        if (settled) return;
+        clearTimeout(timer);
+        cleanup().finally(() => reject(err));
+      });
+
+      worker.on("exit", (code) => {
+        if (settled) return;
+        if (code === 0) return;
+        clearTimeout(timer);
+        cleanup().finally(() => reject(new Error(`Tool worker exited with code ${code}`)));
+      });
+
+      try {
+        worker.postMessage({
+          type: "execute",
+          moduleUrl,
+          exportName,
+          args,
+          context: workerContext,
+        });
+      } catch (err) {
+        clearTimeout(timer);
+        cleanup().finally(() => reject(err));
+      }
     });
   }
 

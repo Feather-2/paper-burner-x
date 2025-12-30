@@ -599,3 +599,31 @@ test("Runtime Telemetry: subscribeTelemetry keeps bounded in-memory timeline", a
   assert.equal(sub.snapshot().timeline.length, 3);
   sub.unsubscribe();
 });
+
+test("Runtime Tools: ToolExecutor worker isolation enforces hard timeout for sync work", async () => {
+  const path = require("node:path");
+  const { pathToFileURL } = require("node:url");
+  const { ToolExecutor } = await import("../../js/agents/runtime/tools/tool-executor.js");
+
+  const fixturePath = path.join(__dirname, "../fixtures/tool-executor/busy-loop.mjs");
+  const moduleUrl = pathToFileURL(fixturePath).href;
+
+  const executor = new ToolExecutor({
+    tools: {
+      busy: {
+        handler: async () => ({ ok: true, ran: "main" }),
+        worker: { moduleUrl, exportName: "handler" },
+      },
+    },
+    timeoutMs: 50,
+    maxRetries: 0,
+  });
+
+  const started = Date.now();
+  const result = await executor.execute("busy", { durationMs: 500 }, {}, { isolation: "worker" });
+  const elapsedMs = Date.now() - started;
+
+  assert.equal(result.success, false);
+  assert.ok(String(result.error || "").includes("timed out"));
+  assert.ok(elapsedMs < 300);
+});
