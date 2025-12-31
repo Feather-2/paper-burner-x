@@ -305,3 +305,50 @@
 .chat-send-btn:hover {
   background: var(--ppt-primary-hover);
 }
+
+/* --- Slash Command Palette --- */
+.chat-command-palette {
+  display: none;
+  max-height: 180px;
+  overflow-y: auto;
+  background: var(--ppt-surface);
+  border-top: 1px solid var(--ppt-border);
+}
+
+.chat-command-palette.visible {
+  display: block;
+}
+
+.chat-command-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.chat-command-item:hover,
+.chat-command-item.active {
+  background: var(--ppt-bg-app);
+}
+
+.chat-command-cmd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  color: var(--ppt-text-main);
+}
+
+.chat-command-desc {
+  font-size: 12px;
+  color: var(--ppt-text-secondary);
+  text-align: right;
+  flex: 1;
+}
+
+.chat-command-empty {
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--ppt-text-secondary);
+}

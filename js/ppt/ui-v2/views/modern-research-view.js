@@ -19,12 +19,16 @@ export class ModernResearchView extends BaseView {
     super(options);
     this._adapter = options.adapter || getPptGeneratorAdapter();
     this._flowCanvasId = 'modernFlowCanvas';
+    this._commandState = { visible: false, query: '', selectedIndex: 0, matches: [] };
+    this._globalKeydownHandler = null;
   }
 
   onMount() {
     this._adapter?.syncFromGenerator?.();
     this._adapter?.mountActiveFlowVisualizers?.();
     this._syncState();
+    this._bindChatUi();
+    this._bindGlobalCommandShortcut();
 
     this.subscribeState((event) => {
       if (!this._mounted) return;
@@ -39,6 +43,7 @@ export class ModernResearchView extends BaseView {
   onUnmount() {
     this._adapter?.destroyFlowViz?.('deepsearch');
     this._adapter?.destroyFlowViz?.('design');
+    this._unbindGlobalCommandShortcut();
   }
 
   _syncState() {
@@ -164,9 +169,10 @@ export class ModernResearchView extends BaseView {
                 AI: 我正在处理您的请求，请稍候...
               </div>
             </div>
+            <div class="chat-command-palette" id="modernChatCommandPalette"></div>
             <div class="chat-input-area">
-              <textarea placeholder="询问 AI 或输入指令..." rows="1"></textarea>
-              <button class="chat-send-btn">
+              <textarea id="modernChatInput" placeholder="询问 AI 或输入指令（/help）..." rows="1"></textarea>
+              <button class="chat-send-btn" type="button" id="modernChatSendBtn">
                 <iconify-icon icon="carbon:send-filled"></iconify-icon>
               </button>
             </div>
@@ -174,6 +180,249 @@ export class ModernResearchView extends BaseView {
         </aside>
       </div>
     `;
+  }
+
+  _bindChatUi() {
+    const input = this.$('#modernChatInput');
+    const sendBtn = this.$('#modernChatSendBtn');
+    const palette = this.$('#modernChatCommandPalette');
+    if (!input || !sendBtn || !palette) return;
+
+    const onInput = () => {
+      this._updateCommandPalette(input.value);
+      this._autoGrowTextArea(input);
+    };
+
+    const onKeyDown = (e) => {
+      if (!e) return;
+
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        this._handleChatSend();
+        return;
+      }
+
+      if (!this._commandState.visible) return;
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        this._selectCommandDelta(1);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        this._selectCommandDelta(-1);
+        return;
+      }
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        this._applySelectedCommandToInput();
+      }
+    };
+
+    const onSend = () => this._handleChatSend();
+    const onPaletteClick = (e) => {
+      const el = e?.target?.closest?.('[data-cmd]');
+      if (!el || !palette.contains(el)) return;
+      const cmd = el.getAttribute('data-cmd') || '';
+      this._executeSlashCommand(cmd);
+    };
+
+    input.addEventListener('input', onInput);
+    input.addEventListener('keydown', onKeyDown);
+    sendBtn.addEventListener('click', onSend);
+    palette.addEventListener('click', onPaletteClick);
+
+    this._subscriptions.push(() => {
+      try { input.removeEventListener('input', onInput); } catch { }
+      try { input.removeEventListener('keydown', onKeyDown); } catch { }
+      try { sendBtn.removeEventListener('click', onSend); } catch { }
+      try { palette.removeEventListener('click', onPaletteClick); } catch { }
+    });
+
+    // Initial render
+    this._updateCommandPalette(input.value);
+    this._autoGrowTextArea(input);
+  }
+
+  _bindGlobalCommandShortcut() {
+    if (this._globalKeydownHandler) return;
+    this._globalKeydownHandler = (e) => {
+      // Cmd/Ctrl + K -> focus chat and open palette
+      const isK = e?.key?.toLowerCase?.() === 'k';
+      const wants = isK && (e.metaKey || e.ctrlKey);
+      if (!wants) return;
+      const input = this.$('#modernChatInput');
+      if (!input) return;
+      e.preventDefault();
+      input.focus();
+      if (!String(input.value || '').trim()) {
+        input.value = '/';
+        this._updateCommandPalette(input.value);
+      }
+    };
+    document.addEventListener('keydown', this._globalKeydownHandler);
+  }
+
+  _unbindGlobalCommandShortcut() {
+    if (!this._globalKeydownHandler) return;
+    try {
+      document.removeEventListener('keydown', this._globalKeydownHandler);
+    } catch { }
+    this._globalKeydownHandler = null;
+  }
+
+  _autoGrowTextArea(textarea) {
+    if (!textarea) return;
+    try {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${Math.min(100, textarea.scrollHeight)}px`;
+    } catch { }
+  }
+
+  _getSlashCommands() {
+    return [
+      { cmd: '/help', desc: '显示可用命令' },
+      { cmd: '/plans', desc: '打开 Plans Manager', action: { type: 'openPlansManager' } },
+      { cmd: '/artifacts', desc: '打开 Artifacts Browser', action: { type: 'openArtifactsBrowser' } },
+      { cmd: '/approvals', desc: '打开 Approvals', action: { type: 'openApprovalsModal' } },
+      { cmd: '/policy', desc: '打开 Policy Rules', action: { type: 'openPolicyRulesManager' } },
+      { cmd: '/skills', desc: '打开 Skills Manager', action: { type: 'openSkillsManager' } },
+      { cmd: '/history', desc: '打开 Run History（含导入/导出）', action: { type: 'openHistorySelector' } },
+      { cmd: '/paste', desc: '粘贴文档开始', action: { type: 'openPasteDocumentModal' } },
+      { cmd: '/url', desc: '添加 URL', action: { type: 'openUrlInput' } },
+      { cmd: '/status', desc: '显示当前状态' },
+    ];
+  }
+
+  _updateCommandPalette(rawValue) {
+    const palette = this.$('#modernChatCommandPalette');
+    if (!palette) return;
+
+    const value = typeof rawValue === 'string' ? rawValue : String(rawValue ?? '');
+    const trimmed = value.trimStart();
+    const isSlash = trimmed.startsWith('/');
+
+    if (!isSlash) {
+      this._commandState = { visible: false, query: '', selectedIndex: 0, matches: [] };
+      palette.classList.remove('visible');
+      palette.innerHTML = '';
+      return;
+    }
+
+    const token = trimmed.split(/\s+/)[0].toLowerCase();
+    const commands = this._getSlashCommands();
+    const matches = commands.filter((c) => c.cmd.startsWith(token));
+
+    this._commandState.visible = true;
+    this._commandState.query = token;
+    this._commandState.matches = matches;
+    this._commandState.selectedIndex = Math.max(0, Math.min(this._commandState.selectedIndex, Math.max(0, matches.length - 1)));
+
+    palette.classList.add('visible');
+    palette.innerHTML = matches.length
+      ? matches
+        .map((c, idx) => `
+            <div class="chat-command-item ${idx === this._commandState.selectedIndex ? 'active' : ''}" data-cmd="${c.cmd}">
+              <div class="chat-command-cmd">${c.cmd}</div>
+              <div class="chat-command-desc">${c.desc || ''}</div>
+            </div>
+          `)
+        .join('')
+      : `<div class="chat-command-empty">无匹配命令（输入 /help 查看）。</div>`;
+  }
+
+  _selectCommandDelta(delta) {
+    const matches = Array.isArray(this._commandState.matches) ? this._commandState.matches : [];
+    if (matches.length === 0) return;
+    const next = (this._commandState.selectedIndex || 0) + (delta || 0);
+    this._commandState.selectedIndex = Math.max(0, Math.min(matches.length - 1, next));
+    const input = this.$('#modernChatInput');
+    this._updateCommandPalette(input?.value || '');
+  }
+
+  _applySelectedCommandToInput() {
+    const input = this.$('#modernChatInput');
+    if (!input) return;
+    const matches = Array.isArray(this._commandState.matches) ? this._commandState.matches : [];
+    if (matches.length === 0) return;
+    const selected = matches[this._commandState.selectedIndex || 0];
+    if (!selected?.cmd) return;
+    input.value = `${selected.cmd} `;
+    input.focus();
+    this._updateCommandPalette(input.value);
+  }
+
+  _appendChatMessage(text, { role = 'ai' } = {}) {
+    const host = this.$('#modernChatMessages');
+    if (!host) return;
+    const msg = typeof text === 'string' ? text : String(text ?? '');
+    const el = document.createElement('div');
+    el.className = `chat-msg ${role === 'user' ? 'user' : 'ai'}`;
+    el.textContent = msg;
+    host.appendChild(el);
+    try {
+      host.scrollTop = host.scrollHeight;
+    } catch { }
+  }
+
+  _handleChatSend() {
+    const input = this.$('#modernChatInput');
+    if (!input) return;
+    const value = typeof input.value === 'string' ? input.value.trim() : '';
+    if (!value) return;
+
+    if (value.startsWith('/')) {
+      this._executeSlashCommand(value);
+      input.value = '';
+      this._updateCommandPalette('');
+      this._autoGrowTextArea(input);
+      return;
+    }
+
+    this._appendChatMessage(value, { role: 'user' });
+    this._appendChatMessage('当前 Chat 仅支持 slash commands（输入 /help）。', { role: 'ai' });
+    input.value = '';
+    this._autoGrowTextArea(input);
+  }
+
+  _executeSlashCommand(raw) {
+    const input = typeof raw === 'string' ? raw.trim() : String(raw ?? '').trim();
+    const cmd = input.split(/\s+/)[0].toLowerCase();
+    const commands = this._getSlashCommands();
+    const entry = commands.find((c) => c.cmd === cmd);
+
+    this._appendChatMessage(cmd, { role: 'user' });
+
+    if (!entry) {
+      this._appendChatMessage(`未知命令：${cmd}（输入 /help 查看）。`, { role: 'ai' });
+      return;
+    }
+
+    if (cmd === '/help') {
+      const lines = commands.map((c) => `${c.cmd} - ${c.desc || ''}`).join('\n');
+      this._appendChatMessage(lines, { role: 'ai' });
+      return;
+    }
+
+    if (cmd === '/status') {
+      const wf = this.getState('workflow') || {};
+      const data = this.getState('data') || {};
+      const runId = typeof wf?.runId === 'string' ? wf.runId : (this._adapter?.getRunId?.() || '');
+      const state = typeof wf?.state === 'string' ? wf.state : this._getWorkflowState();
+      const fileCount = Array.isArray(data?.files) ? data.files.length : 0;
+      const msg = `state=${state || 'unknown'}\nrunId=${runId || 'n/a'}\nfiles=${fileCount}`;
+      this._appendChatMessage(msg, { role: 'ai' });
+      return;
+    }
+
+    if (entry.action) {
+      this.emit('ui.action', entry.action);
+      this._appendChatMessage(entry.desc || '已执行。', { role: 'ai' });
+      return;
+    }
+
+    this._appendChatMessage('命令已识别，但未绑定动作。', { role: 'ai' });
   }
 }
 
