@@ -95,7 +95,7 @@
 ### 1.9 `doc-design-ui/analysis-jsagent/extensions-assistance.md`
 
 - Prompts 外部化（Markdown）— `done` — Repo: `js/agents/prompts/` + `js/agents/prompts/prompt-loader.js`
-- “提示词延迟渲染/变量注入” — `partial` — Repo: 变量替换主要发生在 stage（例如 `js/agents/stages/deepsearch/deepsearch-agent-loop.js` 替换 `{{TOOLS_CATALOG}}/{{SKILLS_CATALOG}}/{{currentDate}}`），而非 `prompt-loader.js`
+- “提示词延迟渲染/变量注入” — `partial` — Repo: `js/agents/prompts/prompt-loader.js` 已提供 `renderPromptTemplate()`，DeepSearch system prompt 已迁移（`js/agents/stages/deepsearch/deepsearch-agent-loop.js`）；缺口：其他 stage 的模板/Builder 仍未统一收口
 - Skills 动态注入 — `done` — Repo: `js/agents/skills/manager.js` + `js/agents/skills/loader.browser.js` + `js/agents/skills/user-store.js`
 - Mock 测试套件 — `done` — Repo: `js/agents/testing/mock-suite.js`
 - “Mock 录制 → Case 转换” — `partial` — Repo: 现有 mock-suite 可模拟/回放，但未形成“一键录制真实交互并转 mock”的产品化命令
@@ -122,14 +122,14 @@
 - Extended Thinking 展示/记录 — `partial` — Ref: `ref/claude-code-open-main/src/core/loop.ts` — Repo: 主要以事件/日志形式展示（`deepsearch.log.*`/ProcessPanel）；未形成显式的 `Thinking/Answer` 分块渲染
 - Persisted Output（大输出落盘 + 预览）— `done` — Ref: `ref/claude-code-open-main/src/core/loop.ts`（persisted-output 语义）— Repo: `js/agents/runtime/persisted-output.js` + `js/agents/stages/deepsearch/tools/get-artifact/handler.js` + UI: `js/ppt/ui-v2/modals/modal-manager.js`（Artifacts Browser）
 - 权限控制（会话级 “always allow”）— `done` — Ref: `ref/claude-code-open-main/src/permissions/` — Repo: `js/agents/runtime/policy/manager.js`（`remember:"always"` 写规则）+ UI: `js/ppt/ui-v2/modals/modal-manager.js`
-- Session（消息/usage/权限设置持久化）— `partial` — Ref: `ref/claude-code-open-main/src/core/session.ts` — Repo: `js/agents/storage/run-store.js`（events/artifacts）+ `js/agents/storage/run-exporter.js`（zip 导出/导入）+ UI Runs 列表（`js/ppt/ui-v2/modals/modal-manager.js` History Selector 的 Runs tab）；缺口：run rename/标签化仍未做
-- Agents: plan/explore/resume/parallel — `partial` — Ref: `ref/claude-code-open-main/src/agents/` — Repo: 以 Stage 划分替代（codesearch/deepsearch/design）；缺口：显式的 `plan` 模式/`resume` 语义仍主要靠 replay/import-run
+- Session（消息/usage/权限设置持久化）— `partial` — Ref: `ref/claude-code-open-main/src/core/session.ts` — Repo: `js/agents/storage/run-store.js`（events/artifacts）+ `js/agents/storage/run-exporter.js`（zip 导出/导入）+ UI Runs 列表/编辑/删除（`js/ppt/ui-v2/modals/modal-manager.js` + `js/ppt/workflow/workflow-runtime.js` + `js/agents/storage/run-store.js#updateRunContext`）；缺口：更细粒度 session prefs（usage/模型/权限）仍未产品化
+- Agents: plan/explore/resume/parallel — `partial` — Ref: `ref/claude-code-open-main/src/agents/` — Repo: 以 Stage 划分替代（codesearch/deepsearch/design）；已支持 `/resume runId [step]` 调用 `resumeWorkflowFromPlan`（UI: `js/ppt/ui-v2/views/modern-research-view.js` + `js/ppt/ui-v2/modals/modal-manager.js`；Runtime: `js/ppt/workflow/workflow-runtime.js`）；缺口：explore/parallel 等仍未产品化
 - cleanOldPersistedOutputs（旧大输出清理）— `done` — Ref: `ref/claude-code-open-main/src/core/loop.ts` — Repo: persisted tool outputs 默认注入“最小引用”（无 preview）+ kept 消息会剔除旧 preview 并做硬截断保护（`js/agents/runtime/persisted-output.js`、`js/agents/runtime/core/agent-loop.js`）
 - 智能截断（优先换行）— `partial` — Ref: `ref/claude-code-open-main/src/core/loop.ts` — Repo: persisted preview/kept message 已优先按换行/空格截断（`js/agents/runtime/persisted-output.js`、`js/agents/runtime/core/agent-loop.js`）；缺口：其他散落 `slice()` 仍未统一收口
 
 ### 2.2 `doc-design-ui/analysis-cc/prompts-tools.md`
 
-- SystemPromptBuilder（模块化拼接）— `partial` — Ref: `ref/claude-code-open-main/src/prompt/builder.ts` — Repo: Prompts 外部化 + stage 内替换（`js/agents/prompts/*` + `js/agents/stages/deepsearch/deepsearch-agent-loop.js`），但缺少“模板组件化 + 多 attachment 组合”的统一 Builder
+- SystemPromptBuilder（模块化拼接）— `partial` — Ref: `ref/claude-code-open-main/src/prompt/builder.ts` — Repo: Prompts 外部化 + `js/agents/prompts/prompt-loader.js#renderPromptTemplate` 统一变量注入（DeepSearch 已接入）；缺口：模板组件化 + 多 attachment 组合的统一 Builder
 - AttachmentManager（环境附件）— `partial` — Ref: `ref/claude-code-open-main/src/prompt/attachments.ts` — Repo: 目前主要注入 Tools/Skills Catalog；缺口：Git/诊断/环境信息作为可选附件体系
 - PromptCache（hash 缓存构建）— `partial` — Ref: `ref/claude-code-open-main/src/prompt/cache.ts` — Repo: `js/agents/prompts/prompt-loader.js`（按 key 缓存加载）
 - ToolRegistry — `partial` — Ref: `ref/claude-code-open-main/src/agents/tools.ts` — Repo: `js/agents/runtime/tools/tool-executor.js`（执行与校验）；工具注册分散在各 stage（如 `js/agents/stages/deepsearch/tools/index.js`）
@@ -159,7 +159,7 @@
 ### 2.5 `doc-design-ui/analysis-cc/ui-renderer.md`
 
 - 终端 UI（Ink/TSX）— `n-a` — 本仓库为浏览器 UI（`js/ppt/ui-v2/*`）
-- Autocomplete（/command、@mention、path）— `partial` — Ref: `ref/claude-code-open-main/src/ui/autocomplete/` — Repo: 已有 slash commands palette（`js/ppt/ui-v2/views/modern-research-view.js`）；缺口：@mention/path 自动补全未做
+- Autocomplete（/command、@mention、path）— `partial` — Ref: `ref/claude-code-open-main/src/ui/autocomplete/` — Repo: slash commands palette + runId/steps 补全（`js/ppt/ui-v2/views/modern-research-view.js`）；缺口：@mention/path 自动补全未做
 - MarkdownBlock 分块渲染 — `partial` — Ref: `ref/claude-code-open-main/src/ui/markdown-renderer.ts` — Repo: UI 侧对 artifacts/diff/approvals 有分块展示，但对消息输出未形成统一 block renderer
 - DiffView（side-by-side/unified）— `done` — Ref: `ref/claude-code-open-main/src/ui/components/DiffView.tsx` — Repo: `vfs_checkpoint.json`（`js/agents/vfs/diff.js`）+ UI 支持 unified/side-by-side 切换与 Restore（`js/ppt/ui-v2/modals/modal-manager.js`）
 - PermissionPrompt（交互式确认）— `done` — Ref: `ref/claude-code-open-main/src/ui/*` — Repo: `js/ppt/ui-v2/modals/modal-manager.js`（Approvals modal）
