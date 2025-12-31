@@ -9,77 +9,160 @@ function asHeadersObject(headers) {
   return {};
 }
 
-/**
- * Create a minimal SSE parser.
- *
- * - Accepts arbitrary chunk boundaries.
- * - Emits one event per SSE "dispatch" block (separated by blank line).
- *
- * @param {object} opts
- * @param {(evt: {event: string, data: string, id: string|null, retry: number|null}) => void} opts.onEvent
- */
-export function createSseParser({ onEvent } = {}) {
-  const emit = typeof onEvent === "function" ? onEvent : () => {};
-
-  let buffer = "";
-
-  const drainBlock = (block) => {
-    const lines = block.split("\n");
-    let event = "message";
-    let id = null;
-    let retry = null;
-    const dataLines = [];
-
-    for (const raw of lines) {
-      const line = typeof raw === "string" ? raw : String(raw ?? "");
-      if (!line) continue;
-      if (line.startsWith(":")) continue; // comment
-
-      const idx = line.indexOf(":");
-      const field = (idx === -1 ? line : line.slice(0, idx)).trim();
-      const valueRaw = idx === -1 ? "" : line.slice(idx + 1);
-      const value = valueRaw.startsWith(" ") ? valueRaw.slice(1) : valueRaw;
-
-      if (field === "event") event = toNonEmptyString(value) || "message";
-      else if (field === "data") dataLines.push(value);
-      else if (field === "id") id = toNonEmptyString(value) || null;
-      else if (field === "retry") {
-        const n = Number(value);
-        retry = Number.isFinite(n) ? Math.max(0, Math.floor(n)) : null;
-      }
-    }
-
-    const data = dataLines.join("\n");
-    emit({ event, data, id, retry });
-  };
-
-  const feed = (chunkText) => {
-    const text = typeof chunkText === "string" ? chunkText : String(chunkText ?? "");
-    if (!text) return;
-    buffer += text;
-
-    // SSE events are separated by a blank line (double LF). Normalize CRLF.
-    buffer = buffer.replace(/\r\n/g, "\n");
-
-    while (true) {
-      const sep = buffer.indexOf("\n\n");
-      if (sep === -1) break;
-      const block = buffer.slice(0, sep);
-      buffer = buffer.slice(sep + 2);
-      if (block.trim()) drainBlock(block);
-    }
-  };
-
-  const flush = () => {
-    const rest = buffer.replace(/\r\n/g, "\n").trim();
-    buffer = "";
-    if (rest) drainBlock(rest);
-  };
-
-  return { feed, flush };
+function splitFirst(str, separator) {
+  const s = typeof str === "string" ? str : String(str ?? "");
+  const idx = s.indexOf(separator);
+  if (idx === -1) return [s, "", ""];
+  return [s.slice(0, idx), separator, s.slice(idx + separator.length)];
 }
 
-async function* readStreamTextChunks(stream, { signal } = {}) {
+let _utf8Decoder = null;
+function decodeUtf8(bytes) {
+  if (!isTextDecoderAvailable()) throw new Error("SSE: TextDecoder unavailable");
+  if (!_utf8Decoder) _utf8Decoder = new TextDecoder("utf-8");
+  return _utf8Decoder.decode(bytes);
+}
+
+function concatUint8Arrays(arrays) {
+  let totalLength = 0;
+  for (const arr of arrays) totalLength += arr?.length || 0;
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const arr of arrays) {
+    if (!arr || arr.length === 0) continue;
+    result.set(arr, offset);
+    offset += arr.length;
+  }
+  return result;
+}
+
+/**
+ * A minimal, spec-aligned SSE decoder (line-based).
+ *
+ * - Supports multi-line `data:`
+ * - Supports `event:`, `id:` and `retry:`
+ * - Keeps `id` and `retry` across events (per SSE spec)
+ */
+export class SseDecoder {
+  constructor() {
+    this._eventType = null;
+    this._dataLines = [];
+    this._eventId = null;
+    this._retry = null;
+  }
+
+  decode(line) {
+    const text = typeof line === "string" ? line : String(line ?? "");
+
+    // Empty line dispatches the event.
+    if (!text.trim()) {
+      if (this._dataLines.length === 0) {
+        this._resetCurrent();
+        return null;
+      }
+
+      const evt = {
+        event: this._eventType || "message",
+        data: this._dataLines.join("\n"),
+        id: this._eventId,
+        retry: this._retry,
+      };
+
+      this._resetCurrent();
+      return evt;
+    }
+
+    // Comment line (": ...").
+    if (text.startsWith(":")) return null;
+
+    const [field, , valueRaw] = splitFirst(text, ":");
+    const value = valueRaw.startsWith(" ") ? valueRaw.slice(1) : valueRaw;
+
+    if (field === "event") {
+      this._eventType = toNonEmptyString(value) || "message";
+    } else if (field === "data") {
+      this._dataLines.push(value);
+    } else if (field === "id") {
+      this._eventId = toNonEmptyString(value) || null;
+    } else if (field === "retry") {
+      const n = Number.parseInt(value, 10);
+      if (Number.isFinite(n) && n >= 0) this._retry = Math.floor(n);
+    }
+
+    return null;
+  }
+
+  flush() {
+    if (this._dataLines.length === 0) return null;
+    const evt = {
+      event: this._eventType || "message",
+      data: this._dataLines.join("\n"),
+      id: this._eventId,
+      retry: this._retry,
+    };
+    this._resetCurrent();
+    return evt;
+  }
+
+  _resetCurrent() {
+    this._eventType = null;
+    this._dataLines = [];
+    // id/retry persist across events (per spec).
+  }
+}
+
+/**
+ * Byte-level newline decoder (CRLF + LF).
+ */
+export class NewlineDecoder {
+  constructor() {
+    this._buffer = new Uint8Array();
+    this._carriageIndex = null;
+  }
+
+  decode(chunk) {
+    const bytes = chunk instanceof Uint8Array ? chunk : new Uint8Array();
+    if (bytes.length) this._buffer = concatUint8Arrays([this._buffer, bytes]);
+
+    const lines = [];
+    while (true) {
+      const lineEnd = this._findNewline();
+      if (!lineEnd) break;
+
+      const lineBytes = this._buffer.subarray(0, lineEnd.preceding);
+      lines.push(decodeUtf8(lineBytes));
+
+      this._buffer = this._buffer.subarray(lineEnd.index);
+      this._carriageIndex = null;
+    }
+
+    return lines;
+  }
+
+  flush() {
+    if (this._buffer.length === 0) return [];
+    const lines = [decodeUtf8(this._buffer)];
+    this._buffer = new Uint8Array();
+    this._carriageIndex = null;
+    return lines;
+  }
+
+  _findNewline() {
+    const startIndex = this._carriageIndex ?? 0;
+    for (let i = startIndex; i < this._buffer.length; i++) {
+      const byte = this._buffer[i];
+      if (byte === 0x0d) {
+        this._carriageIndex = i;
+      } else if (byte === 0x0a) {
+        const preceding = this._carriageIndex !== null && this._carriageIndex === i - 1 ? i - 1 : i;
+        return { index: i + 1, preceding };
+      }
+    }
+    return null;
+  }
+}
+
+export async function* parseSseStream(stream, { signal } = {}) {
   if (!stream || typeof stream.getReader !== "function") {
     throw new Error("SSE: response body is not a readable stream");
   }
@@ -88,22 +171,105 @@ async function* readStreamTextChunks(stream, { signal } = {}) {
   }
 
   const reader = stream.getReader();
-  const decoder = new TextDecoder("utf-8");
+  const newlineDecoder = new NewlineDecoder();
+  const decoder = new SseDecoder();
 
-  while (true) {
-    if (signal?.aborted) {
-      try {
-        reader.cancel();
-      } catch {
-        // ignore
+  try {
+    while (true) {
+      if (signal?.aborted) {
+        try {
+          await reader.cancel(signal.reason);
+        } catch {
+          // ignore
+        }
+        break;
       }
-      return;
+
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+
+      for (const line of newlineDecoder.decode(value)) {
+        const evt = decoder.decode(line);
+        if (evt) yield evt;
+      }
     }
-    const { done, value } = await reader.read();
-    if (done) return;
-    if (!value) continue;
-    yield decoder.decode(value, { stream: true });
+
+    for (const line of newlineDecoder.flush()) {
+      const evt = decoder.decode(line);
+      if (evt) yield evt;
+    }
+
+    const last = decoder.flush();
+    if (last) yield last;
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      // ignore
+    }
   }
+}
+
+/**
+ * Create an SSE parser that can be fed with text chunks (for tests / manual usage).
+ *
+ * @param {object} opts
+ * @param {(evt: {event: string, data: string, id: string|null, retry: number|null}) => void} opts.onEvent
+ */
+export function createSseParser({ onEvent } = {}) {
+  const emit = typeof onEvent === "function" ? onEvent : () => {};
+  const decoder = new SseDecoder();
+  let buffer = "";
+
+  const emitIfReady = (evt) => {
+    if (!evt) return;
+    emit({
+      event: evt.event,
+      data: evt.data,
+      id: evt.id ?? null,
+      retry: evt.retry ?? null,
+    });
+  };
+
+  const processLine = (line) => emitIfReady(decoder.decode(line));
+
+  const feed = (chunkText) => {
+    const text = typeof chunkText === "string" ? chunkText : String(chunkText ?? "");
+    if (!text) return;
+    buffer += text;
+
+    let i = 0;
+    while (i < buffer.length) {
+      const c = buffer.charCodeAt(i);
+      if (c === 0x0a) {
+        const line = buffer.slice(0, i);
+        buffer = buffer.slice(i + 1);
+        i = 0;
+        processLine(line);
+        continue;
+      }
+      if (c === 0x0d) {
+        if (i + 1 >= buffer.length) break;
+        const hasLf = buffer.charCodeAt(i + 1) === 0x0a;
+        const line = buffer.slice(0, i);
+        buffer = buffer.slice(i + (hasLf ? 2 : 1));
+        i = 0;
+        processLine(line);
+        continue;
+      }
+      i += 1;
+    }
+  };
+
+  const flush = () => {
+    const rest = buffer.endsWith("\r") ? buffer.slice(0, -1) : buffer;
+    buffer = "";
+    if (rest) processLine(rest);
+    emitIfReady(decoder.flush());
+  };
+
+  return { feed, flush };
 }
 
 /**
@@ -131,7 +297,7 @@ export async function consumeSse({
   if (typeof fetchFn !== "function") throw new Error("consumeSse: fetch unavailable");
 
   const hdrs = asHeadersObject(headers);
-  const parser = createSseParser({ onEvent });
+  const emit = typeof onEvent === "function" ? onEvent : () => {};
 
   const controller = new AbortController();
   const onAbort = () => controller.abort(signal?.reason || "aborted");
@@ -156,12 +322,15 @@ export async function consumeSse({
       throw new Error(`SSE: unexpected content-type: ${ctype || "unknown"}`);
     }
 
-    for await (const chunkText of readStreamTextChunks(res.body, { signal: controller.signal })) {
+    for await (const evt of parseSseStream(res.body, { signal: controller.signal })) {
       if (controller.signal.aborted) break;
-      parser.feed(chunkText);
+      emit({
+        event: evt.event,
+        data: evt.data,
+        id: evt.id ?? null,
+        retry: evt.retry ?? null,
+      });
     }
-
-    parser.flush();
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
     signal?.removeEventListener?.("abort", onAbort);
@@ -203,4 +372,7 @@ export default {
   createSseParser,
   consumeSse,
   consumeSseJson,
+  parseSseStream,
+  SseDecoder,
+  NewlineDecoder,
 };
