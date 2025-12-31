@@ -1,6 +1,7 @@
 const SCHEMA_VERSION = "0.1";
 
 export const SUPPORTED_ARTIFACT_TYPES = [
+  "ingest_result.json",
   "content_package.json",
   "deck_package.json",
   "lint_report.json",
