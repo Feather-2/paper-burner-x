@@ -1,5 +1,6 @@
 import { McpProvider, McpToolDefinition, McpToolResult } from "./mcp-client.js";
 import { TransportKind } from "./constants.js";
+import { consumeSseJson } from "./sse.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -77,6 +78,92 @@ function normalizeToolListFromToolApi(payload) {
     .filter(Boolean);
 }
 
+function normalizeResourceDef(raw) {
+  if (!isPlainObject(raw)) return null;
+  const uri = toNonEmptyString(raw.uri);
+  if (!uri) return null;
+  const name = toNonEmptyString(raw.name) || uri;
+  const description = toNonEmptyString(raw.description) || "";
+  const mimeType = toNonEmptyString(raw.mimeType) || toNonEmptyString(raw.mime_type) || "";
+  const annotations = isPlainObject(raw.annotations) ? raw.annotations : null;
+  return { uri, name, description, ...(mimeType ? { mimeType } : {}), ...(annotations ? { annotations } : {}) };
+}
+
+function normalizeResourceList(payload) {
+  if (Array.isArray(payload)) return payload.map(normalizeResourceDef).filter(Boolean);
+  if (isPlainObject(payload)) {
+    const resources = payload.resources ?? payload.data?.resources ?? payload.result?.resources ?? payload.result ?? payload.items ?? payload.data;
+    if (Array.isArray(resources)) return resources.map(normalizeResourceDef).filter(Boolean);
+  }
+  return [];
+}
+
+function normalizeResourceTemplateDef(raw) {
+  if (!isPlainObject(raw)) return null;
+  const uriTemplate = toNonEmptyString(raw.uriTemplate || raw.uri_template || raw.template);
+  if (!uriTemplate) return null;
+  const name = toNonEmptyString(raw.name) || uriTemplate;
+  const description = toNonEmptyString(raw.description) || "";
+  const mimeType = toNonEmptyString(raw.mimeType) || toNonEmptyString(raw.mime_type) || "";
+  return { uriTemplate, name, description, ...(mimeType ? { mimeType } : {}) };
+}
+
+function normalizeResourceTemplates(payload) {
+  if (Array.isArray(payload)) return payload.map(normalizeResourceTemplateDef).filter(Boolean);
+  if (isPlainObject(payload)) {
+    const templates =
+      payload.resourceTemplates ??
+      payload.resource_templates ??
+      payload.templates ??
+      payload.items ??
+      payload.result?.resourceTemplates ??
+      payload.result?.templates;
+    if (Array.isArray(templates)) return templates.map(normalizeResourceTemplateDef).filter(Boolean);
+  }
+  return [];
+}
+
+function base64ToUint8Array(base64) {
+  const s = toNonEmptyString(base64);
+  if (!s) return null;
+
+  // Node.js
+  try {
+    if (typeof Buffer !== "undefined") return Uint8Array.from(Buffer.from(s, "base64"));
+  } catch {
+    // ignore
+  }
+
+  // Browser
+  try {
+    if (typeof atob === "function") {
+      const bin = atob(s);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return bytes;
+    }
+  } catch {
+    // ignore
+  }
+
+  return null;
+}
+
+function normalizeResourceReadResult(payload) {
+  if (!isPlainObject(payload)) return null;
+  const contents = Array.isArray(payload.contents) ? payload.contents : Array.isArray(payload.content) ? payload.content : null;
+  if (!contents || contents.length === 0) return null;
+  const first = contents[0];
+  if (!isPlainObject(first)) return null;
+  const uri = toNonEmptyString(first.uri);
+  if (!uri) return null;
+  const mimeType = toNonEmptyString(first.mimeType || first.mime_type) || "application/octet-stream";
+  const text = toNonEmptyString(first.text);
+  const blob64 = toNonEmptyString(first.blob);
+  const blob = blob64 ? base64ToUint8Array(blob64) : null;
+  return { uri, mimeType, ...(text ? { text } : {}), ...(blob ? { blob } : {}) };
+}
+
 function normalizeToolResult(payload) {
   if (payload instanceof McpToolResult) return payload;
   if (payload && typeof payload === "object" && "success" in payload && "content" in payload) {
@@ -132,6 +219,10 @@ export class McpNexusProvider extends McpProvider {
     authToken,
     timeoutMs = 15_000,
     discoveryTimeoutMs = 5_000,
+    sseEndpoint,
+    sseConnectTimeoutMs = 10_000,
+    sseReconnectBaseMs = 1_000,
+    sseReconnectMaxMs = 30_000,
     fetchImpl,
   } = {}) {
     super({ id, name, endpoint });
@@ -151,6 +242,16 @@ export class McpNexusProvider extends McpProvider {
     this._transport = null; // { kind:'jsonrpc'|'rest'|'toolapi', rpcUrl?, listUrl?, callUrl?, executeUrl? }
     this._toolsCache = null;
     this._health = null;
+
+    this._sseEndpoint = toNonEmptyString(sseEndpoint) || null;
+    this._sseConnectTimeoutMs =
+      typeof sseConnectTimeoutMs === "number" && Number.isFinite(sseConnectTimeoutMs) ? Math.max(200, Math.floor(sseConnectTimeoutMs)) : 10_000;
+    this._sseReconnectBaseMs =
+      typeof sseReconnectBaseMs === "number" && Number.isFinite(sseReconnectBaseMs) ? Math.max(50, Math.floor(sseReconnectBaseMs)) : 1_000;
+    this._sseReconnectMaxMs =
+      typeof sseReconnectMaxMs === "number" && Number.isFinite(sseReconnectMaxMs) ? Math.max(200, Math.floor(sseReconnectMaxMs)) : 30_000;
+
+    this._notificationState = null; // { subscribers:Set<fn>, controller, promise }
   }
 
   seedToolsCache(tools) {
@@ -237,6 +338,174 @@ export class McpNexusProvider extends McpProvider {
     return { ...base };
   }
 
+  _getSseUrlCandidates() {
+    const out = [];
+    const seen = new Set();
+    const push = (u) => {
+      const s = toNonEmptyString(u);
+      if (!s) return;
+      if (seen.has(s)) return;
+      seen.add(s);
+      out.push(s);
+    };
+
+    const base = this.baseUrl;
+
+    if (this._sseEndpoint) {
+      try {
+        push(new URL(this._sseEndpoint, base).toString().replace(/\/+$/, ""));
+      } catch {
+        push(String(this._sseEndpoint).replace(/\/+$/, ""));
+      }
+    }
+
+    // pb-mcpgateway convention: /http -> /sse
+    if (base.endsWith("/http")) push(base.replace(/\/http$/, "/sse"));
+
+    push(`${base}/sse`);
+    push(`${base}/events`);
+    push(`${base}/mcp/sse`);
+    push(`${base}/mcp/events`);
+    push(`${base}/mcp/stream`);
+
+    return out;
+  }
+
+  subscribeNotifications(handler, { signal, reconnect = true } = {}) {
+    if (typeof handler !== "function") throw new TypeError("subscribeNotifications(handler): handler must be a function");
+
+    if (!this._notificationState) {
+      this._notificationState = {
+        subscribers: new Set(),
+        controller: null,
+        promise: null,
+      };
+    }
+
+    const state = this._notificationState;
+    state.subscribers.add(handler);
+
+    const unsubscribe = () => {
+      state.subscribers.delete(handler);
+      if (state.subscribers.size === 0) this._stopNotificationLoop();
+    };
+
+    if (signal && typeof signal.addEventListener === "function") {
+      if (signal.aborted) {
+        unsubscribe();
+      } else {
+        signal.addEventListener("abort", () => unsubscribe(), { once: true });
+      }
+    }
+
+    if (!state.controller) this._startNotificationLoop({ reconnect: reconnect !== false });
+    return unsubscribe;
+  }
+
+  _stopNotificationLoop() {
+    const state = this._notificationState;
+    if (!state?.controller) return;
+    try {
+      state.controller.abort("no_subscribers");
+    } catch {
+      // ignore
+    }
+    state.controller = null;
+    state.promise = null;
+  }
+
+  async _startNotificationLoop({ reconnect = true } = {}) {
+    const state = this._notificationState;
+    if (!state) return;
+    if (state.controller) return;
+
+    const controller = new AbortController();
+    state.controller = controller;
+
+    const delay = (ms) =>
+      new Promise((resolve) => {
+        if (controller.signal.aborted) return resolve();
+        const t = setTimeout(resolve, ms);
+        controller.signal.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(t);
+            resolve();
+          },
+          { once: true }
+        );
+      });
+
+    const backoffMs = (attempt) => {
+      const exp = Math.min(10, Math.max(0, attempt));
+      const base = this._sseReconnectBaseMs;
+      const max = this._sseReconnectMaxMs;
+      const ms = Math.min(max, base * Math.pow(2, exp));
+      const jitter = Math.floor(Math.random() * 200);
+      return ms + jitter;
+    };
+
+    const candidates = this._getSseUrlCandidates();
+    state.promise = (async () => {
+      let attempt = 0;
+      while (!controller.signal.aborted) {
+        let connected = false;
+        for (const url of candidates) {
+          if (controller.signal.aborted) break;
+          try {
+            await consumeSseJson({
+              fetchImpl: this._fetch,
+              url,
+              headers: this.headers,
+              signal: controller.signal,
+              connectTimeoutMs: this._sseConnectTimeoutMs,
+              onJson: (msg) => this._handleNotificationMessage(msg),
+            });
+            connected = true;
+            break;
+          } catch {
+            connected = false;
+          }
+        }
+
+        if (controller.signal.aborted) break;
+        if (!reconnect) break;
+
+        attempt += 1;
+        const waitMs = backoffMs(attempt);
+        await delay(waitMs);
+
+        // If we never connected and there are no subscribers now, stop.
+        if (this._notificationState?.subscribers?.size === 0) break;
+        // If we did connect and stream ended, we also reconnect.
+        if (connected) continue;
+      }
+    })()
+      .catch(() => { })
+      .finally(() => {
+        if (state.controller === controller) {
+          state.controller = null;
+          state.promise = null;
+        }
+      });
+  }
+
+  _handleNotificationMessage(msg) {
+    if (!isPlainObject(msg)) return;
+
+    const method = toNonEmptyString(msg.method);
+    if (method === "notifications/tools/list_changed") this._toolsCache = null;
+
+    const subs = Array.from(this._notificationState?.subscribers || []);
+    for (const fn of subs) {
+      try {
+        fn(msg);
+      } catch {
+        // ignore subscriber errors
+      }
+    }
+  }
+
   async _discoverTransport() {
     if (this._transport) return this._transport;
 
@@ -258,7 +527,9 @@ export class McpNexusProvider extends McpProvider {
           })
         );
         if (!isSuccessfulJsonRpc(resp)) continue;
+        const tools = normalizeToolList(resp.result);
         this._transport = { kind: TransportKind.JSONRPC, rpcUrl };
+        if (tools.length) this._toolsCache = tools;
         return this._transport;
       } catch {
         // continue
@@ -315,6 +586,7 @@ export class McpNexusProvider extends McpProvider {
   async listTools() {
     if (Array.isArray(this._toolsCache) && this._toolsCache.length) return this._toolsCache;
     const transport = await this._discoverTransport();
+    if (Array.isArray(this._toolsCache) && this._toolsCache.length) return this._toolsCache;
 
     if (transport.kind === TransportKind.JSONRPC) {
       const resp = await withTimeout(this.timeoutMs, ({ signal }) =>
@@ -355,6 +627,99 @@ export class McpNexusProvider extends McpProvider {
     const tools = normalizeToolList(resp);
     this._toolsCache = tools;
     return tools;
+  }
+
+  async listResources() {
+    const transport = await this._discoverTransport();
+    if (transport.kind !== TransportKind.JSONRPC) return [];
+
+    const resp = await withTimeout(this.timeoutMs, ({ signal }) =>
+      fetchJson(this._fetch, transport.rpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...this.headers },
+        body: { jsonrpc: "2.0", id: 11, method: "resources/list", params: {} },
+        signal,
+      })
+    );
+    if (!isSuccessfulJsonRpc(resp)) throw new Error("MCP-Nexus resources/list: unexpected response");
+    return normalizeResourceList(resp.result);
+  }
+
+  async listResourceTemplates() {
+    const transport = await this._discoverTransport();
+    if (transport.kind !== TransportKind.JSONRPC) return [];
+
+    const resp = await withTimeout(this.timeoutMs, ({ signal }) =>
+      fetchJson(this._fetch, transport.rpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...this.headers },
+        body: { jsonrpc: "2.0", id: 12, method: "resources/templates/list", params: {} },
+        signal,
+      })
+    );
+    if (!isSuccessfulJsonRpc(resp)) throw new Error("MCP-Nexus resources/templates/list: unexpected response");
+    return normalizeResourceTemplates(resp.result);
+  }
+
+  async readResource(uri, { stream = false } = {}) {
+    const transport = await this._discoverTransport();
+    if (transport.kind !== TransportKind.JSONRPC) throw new Error("MCP-Nexus resources/read: unsupported transport");
+
+    const u = toNonEmptyString(uri);
+    if (!u) throw new Error("readResource(uri): uri is required");
+
+    const resp = await withTimeout(this.timeoutMs, ({ signal }) =>
+      fetchJson(this._fetch, transport.rpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...this.headers },
+        body: { jsonrpc: "2.0", id: 13, method: "resources/read", params: { uri: u, ...(stream ? { stream: true } : {}) } },
+        signal,
+      })
+    );
+    if (!isSuccessfulJsonRpc(resp)) throw new Error("MCP-Nexus resources/read: unexpected response");
+    const content = normalizeResourceReadResult(resp.result);
+    if (!content) throw new Error(`Resource not found: ${u}`);
+    return content;
+  }
+
+  async subscribeResource(uri) {
+    const transport = await this._discoverTransport();
+    if (transport.kind !== TransportKind.JSONRPC) return false;
+    const u = toNonEmptyString(uri);
+    if (!u) return false;
+    try {
+      const resp = await withTimeout(this.timeoutMs, ({ signal }) =>
+        fetchJson(this._fetch, transport.rpcUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...this.headers },
+          body: { jsonrpc: "2.0", id: 14, method: "resources/subscribe", params: { uri: u } },
+          signal,
+        })
+      );
+      return isSuccessfulJsonRpc(resp);
+    } catch {
+      return false;
+    }
+  }
+
+  async unsubscribeResource(uri) {
+    const transport = await this._discoverTransport();
+    if (transport.kind !== TransportKind.JSONRPC) return false;
+    const u = toNonEmptyString(uri);
+    if (!u) return false;
+    try {
+      const resp = await withTimeout(this.timeoutMs, ({ signal }) =>
+        fetchJson(this._fetch, transport.rpcUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...this.headers },
+          body: { jsonrpc: "2.0", id: 15, method: "resources/unsubscribe", params: { uri: u } },
+          signal,
+        })
+      );
+      return isSuccessfulJsonRpc(resp);
+    } catch {
+      return false;
+    }
   }
 
   async callTool(toolName, args = {}) {
@@ -427,5 +792,8 @@ export const __test = {
   normalizeToolList,
   normalizeToolListFromToolApi,
   normalizeToolResult,
+  normalizeResourceList,
+  normalizeResourceTemplates,
+  normalizeResourceReadResult,
   normalizeBaseUrl,
 };

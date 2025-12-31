@@ -12,6 +12,8 @@ import { McpProvider, McpClient, McpToolDefinition, McpToolResult } from "./mcp-
 import { LocalMcpProvider, createLocalMcpProvider } from "./local-mcp-provider.js";
 import { McpNexusProvider } from "./mcp-nexus-provider.js";
 import { createAutoMcpClient, preloadMcpTools } from "./auto-discovery.js";
+import { McpResourceManager } from "./resource-manager.js";
+import { createSseParser, consumeSse, consumeSseJson } from "./sse.js";
 
 export {
   McpProvider,
@@ -23,6 +25,10 @@ export {
   McpNexusProvider,
   createAutoMcpClient,
   preloadMcpTools,
+  McpResourceManager,
+  createSseParser,
+  consumeSse,
+  consumeSseJson,
 };
 
 // 便捷方法：创建配置好的 MCP 客户端

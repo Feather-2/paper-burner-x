@@ -81,12 +81,14 @@ function normalizeNexusConfig(raw) {
   if (isPlainObject(parsed)) {
     const endpoint = normalizeEndpoint(parsed.endpoint || parsed.url || parsed.baseUrl);
     if (!endpoint) return null;
+    const sseEndpoint = normalizeEndpoint(parsed.sseEndpoint || parsed.sseUrl || parsed.sse || parsed.eventsEndpoint || parsed.eventsUrl);
     return {
       id: "mcp-nexus",
       endpoint,
       authToken: toNonEmptyString(parsed.authToken || parsed.token),
       headers: normalizeHeaders(parsed.headers),
       enabled: parsed.enabled !== false,
+      ...(sseEndpoint ? { sseEndpoint } : {}),
     };
   }
 
@@ -110,6 +112,7 @@ function normalizeMcpServersConfig(raw) {
 
     const endpoint = normalizeEndpoint(defRaw.endpoint || defRaw.url || defRaw.baseUrl);
     if (!endpoint) continue;
+    const sseEndpoint = normalizeEndpoint(defRaw.sseEndpoint || defRaw.sseUrl || defRaw.sse || defRaw.eventsEndpoint || defRaw.eventsUrl);
 
     out.push({
       id,
@@ -117,6 +120,7 @@ function normalizeMcpServersConfig(raw) {
       authToken: toNonEmptyString(defRaw.authToken || defRaw.token),
       headers: normalizeHeaders(defRaw.headers),
       enabled: defRaw.enabled !== false,
+      ...(sseEndpoint ? { sseEndpoint } : {}),
     });
   }
 
@@ -205,6 +209,7 @@ export async function createAutoMcpClient({
         endpoint,
         ...(server.authToken ? { authToken: server.authToken } : {}),
         ...(server.headers ? { headers: server.headers } : {}),
+        ...(server.sseEndpoint ? { sseEndpoint: server.sseEndpoint } : {}),
         ...(typeof fetchImpl === "function" ? { fetchImpl } : {}),
       });
       if (cachedTools?.providers?.[id]) seedProviderToolsCache(provider, cachedTools.providers[id]?.tools);
@@ -222,6 +227,7 @@ export async function createAutoMcpClient({
         endpoint: nexusCfg.endpoint,
         ...(nexusCfg.authToken ? { authToken: nexusCfg.authToken } : {}),
         ...(nexusCfg.headers ? { headers: nexusCfg.headers } : {}),
+        ...(nexusCfg.sseEndpoint ? { sseEndpoint: nexusCfg.sseEndpoint } : {}),
         ...(typeof fetchImpl === "function" ? { fetchImpl } : {}),
       });
       if (cachedTools?.providers?.[nexusCfg.id]) seedProviderToolsCache(provider, cachedTools.providers[nexusCfg.id]?.tools);

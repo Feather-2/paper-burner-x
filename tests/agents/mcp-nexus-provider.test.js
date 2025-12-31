@@ -346,3 +346,239 @@ test("MCP preload refresh: healthCheck hits network even when tools are seeded",
   await preloadMcpTools({ client, storage, ttlMs: 60_000, refresh: true });
   assert.ok(calls.some((c) => c.url.endsWith("/mcp") && c.body?.method === "tools/list"));
 });
+
+test("SSE parser: handles chunk boundaries and multi-line data", async () => {
+  const { createSseParser } = await import("../../js/agents/mcp/sse.js");
+
+  const events = [];
+  const parser = createSseParser({
+    onEvent: (evt) => events.push(evt),
+  });
+
+  parser.feed("data: {\"a\":1}\n\n");
+  parser.feed("event: custom\n");
+  parser.feed("data: x\n");
+  parser.feed("data: y\n\n");
+  parser.flush();
+
+  assert.equal(events.length, 2);
+  assert.equal(events[0].event, "message");
+  assert.equal(events[0].data, "{\"a\":1}");
+  assert.equal(events[1].event, "custom");
+  assert.equal(events[1].data, "x\ny");
+});
+
+test("McpNexusProvider: subscribeNotifications consumes SSE and invalidates tools cache", async () => {
+  const { McpNexusProvider } = await import("../../js/agents/mcp/mcp-nexus-provider.js");
+
+  const encoder = new TextEncoder();
+  const makeSseResponse = (chunks) =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          for (const c of chunks) controller.enqueue(encoder.encode(c));
+          controller.close();
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } }
+    );
+
+  let listCalls = 0;
+  const fetchImpl = async (url, init) => {
+    const u = String(url);
+    if (u.endsWith("/sse")) {
+      return makeSseResponse([
+        `data: ${JSON.stringify({ jsonrpc: "2.0", method: "notifications/tools/list_changed", params: {} })}\n\n`,
+      ]);
+    }
+
+    const body = init?.body ? JSON.parse(String(init.body)) : null;
+    if (u.endsWith("/mcp") && body?.method === "tools/list") {
+      listCalls += 1;
+      return {
+        ok: true,
+        status: 200,
+        async text() {
+          return JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            result: {
+              tools: [
+                { name: "search.query", description: "q", inputSchema: { type: "object", properties: { query: { type: "string" } } } },
+                { name: "search.fetch", description: "f", inputSchema: { type: "object", properties: { url: { type: "string" } } } },
+              ],
+            },
+          });
+        },
+      };
+    }
+
+    return {
+      ok: false,
+      status: 404,
+      async text() {
+        return JSON.stringify({ error: "not found" });
+      },
+    };
+  };
+
+  const p = new McpNexusProvider({
+    endpoint: "http://nexus.local/http",
+    fetchImpl,
+    timeoutMs: 2000,
+    discoveryTimeoutMs: 2000,
+    sseReconnectBaseMs: 50,
+    sseReconnectMaxMs: 100,
+  });
+
+  const t1 = await p.listTools();
+  assert.equal(t1.length, 2);
+  assert.equal(listCalls, 1);
+
+  let off = null;
+  await new Promise((resolve) => {
+    off = p.subscribeNotifications(
+      (msg) => {
+        if (msg?.method === "notifications/tools/list_changed") {
+          off?.();
+          resolve();
+        }
+      },
+      { reconnect: false }
+    );
+  });
+
+  const t2 = await p.listTools();
+  assert.equal(t2.length, 2);
+  assert.equal(listCalls, 2);
+});
+
+test("McpResourceManager: subscribeResource triggers read on notifications/resources/updated", async () => {
+  const { McpClient } = await import("../../js/agents/mcp/mcp-client.js");
+  const { McpNexusProvider } = await import("../../js/agents/mcp/mcp-nexus-provider.js");
+  const { McpResourceManager } = await import("../../js/agents/mcp/resource-manager.js");
+
+  const encoder = new TextEncoder();
+  const makeSseResponse = (chunks) =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          for (const c of chunks) controller.enqueue(encoder.encode(c));
+          controller.close();
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } }
+    );
+
+  let readCalls = 0;
+  let subscribeCalls = 0;
+  let unsubscribeCalls = 0;
+
+  const fetchImpl = async (url, init) => {
+    const u = String(url);
+    if (u.endsWith("/sse")) {
+      return makeSseResponse([
+        `data: ${JSON.stringify({ jsonrpc: "2.0", method: "notifications/resources/updated", params: { uri: "file:///a.txt" } })}\n\n`,
+      ]);
+    }
+
+    const body = init?.body ? JSON.parse(String(init.body)) : null;
+    if (u.endsWith("/mcp") && body?.method === "tools/list") {
+      return {
+        ok: true,
+        status: 200,
+        async text() {
+          return JSON.stringify({ jsonrpc: "2.0", id: body.id, result: { tools: [] } });
+        },
+      };
+    }
+
+    if (u.endsWith("/mcp") && body?.method === "resources/list") {
+      return {
+        ok: true,
+        status: 200,
+        async text() {
+          return JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            result: { resources: [{ uri: "file:///a.txt", name: "a.txt", mimeType: "text/plain" }] },
+          });
+        },
+      };
+    }
+
+    if (u.endsWith("/mcp") && body?.method === "resources/read") {
+      readCalls += 1;
+      return {
+        ok: true,
+        status: 200,
+        async text() {
+          return JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            result: { contents: [{ uri: body?.params?.uri, mimeType: "text/plain", text: `v${readCalls}` }] },
+          });
+        },
+      };
+    }
+
+    if (u.endsWith("/mcp") && body?.method === "resources/subscribe") {
+      subscribeCalls += 1;
+      return { ok: true, status: 200, async text() { return JSON.stringify({ jsonrpc: "2.0", id: body.id, result: {} }); } };
+    }
+
+    if (u.endsWith("/mcp") && body?.method === "resources/unsubscribe") {
+      unsubscribeCalls += 1;
+      return { ok: true, status: 200, async text() { return JSON.stringify({ jsonrpc: "2.0", id: body.id, result: {} }); } };
+    }
+
+    return {
+      ok: false,
+      status: 404,
+      async text() {
+        return JSON.stringify({ error: "not found" });
+      },
+    };
+  };
+
+  const provider = new McpNexusProvider({
+    id: "mcp-nexus",
+    endpoint: "http://nexus.local/http",
+    fetchImpl,
+    timeoutMs: 2000,
+    discoveryTimeoutMs: 2000,
+    sseReconnectBaseMs: 50,
+    sseReconnectMaxMs: 100,
+  });
+
+  const client = new McpClient({ providers: [provider], defaultProvider: "mcp-nexus" });
+  const rm = new McpResourceManager({ client, storage: null, defaultTtlMs: 60_000 });
+
+  const resources = await rm.listResources({ providerId: "mcp-nexus" });
+  assert.equal(resources.length, 1);
+
+  const r0 = await rm.readResource({ providerId: "mcp-nexus", uri: "file:///a.txt" });
+  assert.equal(r0.text, "v1");
+
+  let resolveDone = null;
+  const done = new Promise((resolve) => {
+    resolveDone = resolve;
+  });
+
+  const sub = await rm.subscribeResource({
+    providerId: "mcp-nexus",
+    uri: "file:///a.txt",
+    callback: (evt) => {
+      assert.equal(evt.providerId, "mcp-nexus");
+      assert.equal(evt.uri, "file:///a.txt");
+      assert.equal(evt.content?.text, "v2");
+      resolveDone?.();
+    },
+  });
+
+  await done;
+  await sub.unsubscribe();
+
+  assert.equal(subscribeCalls, 1);
+  assert.equal(unsubscribeCalls, 1);
+});

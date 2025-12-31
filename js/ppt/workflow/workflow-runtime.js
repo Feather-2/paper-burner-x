@@ -910,6 +910,14 @@ export const runtimeMixin = {
             services.mcpClient = mcpClient;
             if (!services.externalSearchProvider) services.externalSearchProvider = mcpClient;
             if (typeof window !== 'undefined') window.mcpClient = mcpClient;
+            try {
+                const { McpResourceManager } = await import('../../agents/mcp/resource-manager.js');
+                const mcpResources = new McpResourceManager({ client: mcpClient, storage: typeof localStorage !== 'undefined' ? localStorage : null });
+                services.mcpResources = mcpResources;
+                if (typeof window !== 'undefined') window.mcpResources = mcpResources;
+            } catch {
+                // ignore
+            }
             preloadMcpTools({ client: mcpClient, storage: typeof localStorage !== 'undefined' ? localStorage : null, refresh: true }).catch(() => { });
         } catch {
             // ignore
