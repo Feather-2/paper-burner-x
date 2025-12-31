@@ -670,6 +670,41 @@ test("Runtime Compression: anchors preserve initial system prompts across repeat
   assert.equal(loop.messages.filter((m) => m?.role === "system" && String(m.content || "").startsWith("[Context Summary]")).length, 1);
 });
 
+test("Runtime Compression: title-only mode trims old messages aggressively", async () => {
+  const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
+
+  const loop = new BaseAgentLoop({
+    stageName: "test",
+    actor: "test",
+    contextConfig: {
+      keepLastTurns: 1,
+      contextWindow: 100,
+      compressThreshold: 0.9,
+      titleOnlySummaryThreshold: 0, // always title-only during compression
+      titleOnlySummaryMaxWords: 10,
+      titleOnlySummaryMaxChars: 80,
+    },
+  });
+
+  loop.addMessage({ role: "system", content: "ANCHOR" });
+
+  const words = Array.from({ length: 20 }, (_, i) => `w${i + 1}`).join(" ");
+
+  for (let i = 0; i < 6; i++) {
+    loop.addMessage({ role: "user", content: words });
+    loop.addMessage({ role: "assistant", content: "ok" });
+  }
+
+  await loop._compressMessages();
+
+  const summaryMsg = loop.messages.find((m) => m?.role === "system" && String(m.content || "").startsWith("[Context Summary]"));
+  assert.ok(summaryMsg);
+  const body = String(summaryMsg.content || "").split("\n").slice(1).join("\n");
+
+  // When title-only is enabled, we should not include words beyond the first 10.
+  assert.equal(body.includes("w11"), false);
+});
+
 test("PromptLoader: LRU cache evicts oldest prompts", async () => {
   const {
     loadPrompt,

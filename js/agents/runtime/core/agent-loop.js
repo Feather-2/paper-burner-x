@@ -467,7 +467,13 @@ export class BaseAgentLoop {
     // 使用 CicadaCompressor 的 SESSION_HISTORY 层
     const result = await this._compressor.compress(
       { messages: messagesForCompression, ...(priorSummary ? { sessionSummary: priorSummary } : {}) },
-      { keepLastTurns, layers: ["session_history"] }
+      {
+        keepLastTurns,
+        layers: ["session_history"],
+        ...(titleOnly ? { titleOnly: true } : {}),
+        titleMaxWords: this._contextConfig.titleOnlySummaryMaxWords,
+        titleMaxChars: this._contextConfig.titleOnlySummaryMaxChars,
+      }
     );
 
     this._messages = result.context.messages || messagesForCompression;

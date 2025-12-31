@@ -83,6 +83,33 @@ function truncateText(text, maxChars) {
   return text.slice(0, head) + "..." + (tail ? text.slice(text.length - tail) : "");
 }
 
+function containsCjk(text) {
+  return /[\u4e00-\u9fff]/.test(String(text || ""));
+}
+
+function normalizeTitleText(text) {
+  return String(text || "").replace(/\s+/g, " ").trim();
+}
+
+function toTitle(text, { maxWords = 10, maxChars = 80 } = {}) {
+  const normalized = normalizeTitleText(text);
+  if (!normalized) return "";
+
+  const maxW = Number.isFinite(Number(maxWords)) ? Math.max(1, Math.floor(Number(maxWords))) : 10;
+  const maxC = Number.isFinite(Number(maxChars)) ? Math.max(10, Math.floor(Number(maxChars))) : 80;
+
+  if (containsCjk(normalized)) {
+    const clipped = normalized.slice(0, maxC);
+    return clipped + (normalized.length > clipped.length ? "..." : "");
+  }
+
+  const words = normalized.split(" ").filter(Boolean);
+  const sliced = words.slice(0, maxW).join(" ");
+  const clipped = sliced.length > maxC ? sliced.slice(0, maxC) : sliced;
+  const truncated = words.length > maxW || normalized.length > clipped.length;
+  return clipped + (truncated ? "..." : "");
+}
+
 function isThinkingMessage(message) {
   if (!message || typeof message !== "object") return false;
   if (message.thinking === true || message.internal === true) return true;
@@ -104,13 +131,15 @@ function normalizeMessage(message) {
   return { role: "assistant", content: "" };
 }
 
-function summarizeMessages(messages, lineLimit) {
+function summarizeMessages(messages, lineLimit, { titleOnly = false, titleMaxWords = 10, titleMaxChars = 80 } = {}) {
   const lines = [];
   for (const msg of messages) {
     const role = String(msg.role || "unknown");
     const content = String(msg.content || "").replace(/\s+/g, " ").trim();
     if (!content) continue;
-    const line = `${role}: ${truncateText(content, lineLimit)}`;
+    const line = titleOnly
+      ? `${role}: ${toTitle(content, { maxWords: titleMaxWords, maxChars: titleMaxChars })}`
+      : `${role}: ${truncateText(content, lineLimit)}`;
     lines.push(line);
   }
   return lines.join("\n");
@@ -345,6 +374,9 @@ export class CicadaCompressor {
   _compressSessionHistory(context, options = {}) {
     const keepLastTurns = Number.isFinite(options.keepLastTurns) ? options.keepLastTurns : 6;
     const summaryLineChars = Number.isFinite(options.summaryLineChars) ? options.summaryLineChars : 120;
+    const titleOnly = options.titleOnly === true;
+    const titleMaxWords = Number.isFinite(options.titleMaxWords) ? Math.max(1, Math.floor(options.titleMaxWords)) : 10;
+    const titleMaxChars = Number.isFinite(options.titleMaxChars) ? Math.max(10, Math.floor(options.titleMaxChars)) : 80;
     const stats = {
       totalMessages: 0,
       mergedMessages: 0,
@@ -400,7 +432,7 @@ export class CicadaCompressor {
 
     const updated = { ...context, [historyKey]: kept };
     if (older.length) {
-      const summary = summarizeMessages(older, summaryLineChars);
+      const summary = summarizeMessages(older, summaryLineChars, { titleOnly, titleMaxWords, titleMaxChars });
       const existing = toNonEmptyString(context.sessionSummary || context.historySummary) || "";
       updated.sessionSummary = existing ? `${existing}\n${summary}` : summary;
     }
