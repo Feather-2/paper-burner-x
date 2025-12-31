@@ -283,9 +283,10 @@ export class ModernResearchView extends BaseView {
   _getSlashCommands() {
     return [
       { cmd: '/help', desc: '显示可用命令' },
-      { cmd: '/undo', desc: '撤销最近一次文件写入（VFS checkpoint）', action: { type: 'undoLastVfsCheckpoint' } },
-      { cmd: '/plans', desc: '打开 Plans Manager', action: { type: 'openPlansManager' } },
-      { cmd: '/artifacts', desc: '打开 Artifacts Browser', action: { type: 'openArtifactsBrowser' } },
+      { cmd: '/undo', desc: '撤销最近 N 次文件写入（默认 1）：/undo 3', action: { type: 'undoLastVfsCheckpoint' } },
+      { cmd: '/plans', desc: '打开 Plans Manager（可选 runId）：/plans run_xxx', action: { type: 'openPlansManager' } },
+      { cmd: '/artifacts', desc: '打开 Artifacts Browser（可选 runId）：/artifacts run_xxx', action: { type: 'openArtifactsBrowser' } },
+      { cmd: '/replay', desc: '回放指定 run：/replay run_xxx', action: { type: 'startReplay' } },
       { cmd: '/approvals', desc: '打开 Approvals', action: { type: 'openApprovalsModal' } },
       { cmd: '/policy', desc: '打开 Policy Rules', action: { type: 'openPolicyRulesManager' } },
       { cmd: '/skills', desc: '打开 Skills Manager', action: { type: 'openSkillsManager' } },
@@ -374,7 +375,7 @@ export class ModernResearchView extends BaseView {
     if (!value) return;
 
     if (value.startsWith('/')) {
-      this._executeSlashCommand(value);
+      void this._executeSlashCommand(value);
       input.value = '';
       this._updateCommandPalette('');
       this._autoGrowTextArea(input);
@@ -387,9 +388,11 @@ export class ModernResearchView extends BaseView {
     this._autoGrowTextArea(input);
   }
 
-  _executeSlashCommand(raw) {
+  async _executeSlashCommand(raw) {
     const input = typeof raw === 'string' ? raw.trim() : String(raw ?? '').trim();
-    const cmd = input.split(/\s+/)[0].toLowerCase();
+    const parts = input.split(/\s+/).filter(Boolean);
+    const cmd = (parts[0] || '').toLowerCase();
+    const args = parts.slice(1);
     const commands = this._getSlashCommands();
     const entry = commands.find((c) => c.cmd === cmd);
 
@@ -415,6 +418,48 @@ export class ModernResearchView extends BaseView {
       const msg = `state=${state || 'unknown'}\nrunId=${runId || 'n/a'}\nfiles=${fileCount}`;
       this._appendChatMessage(msg, { role: 'ai' });
       return;
+    }
+
+    if (cmd === '/undo') {
+      const n = parseInt(String(args[0] || ''), 10);
+      const steps = Number.isFinite(n) && n > 0 ? n : 1;
+      const requestId = `undo_${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 10)}`;
+
+      const off = this.subscribeEvent('ui.undo.result', (_name, payload) => {
+        if (payload?.requestId !== requestId) return;
+        off?.();
+        const ok = payload?.ok !== false;
+        const rolledBack = typeof payload?.rolledBack === 'number' ? payload.rolledBack : 0;
+        const failures = Array.isArray(payload?.failures) ? payload.failures : [];
+        const msg = ok
+          ? `撤销完成：rolledBack=${rolledBack}${failures.length ? `（failures=${failures.length}）` : ''}`
+          : `撤销失败：${payload?.error || payload?.reason || 'unknown'}`;
+        this._appendChatMessage(msg, { role: 'ai' });
+      });
+
+      this.emit('ui.action', { type: 'undoLastVfsCheckpoint', steps, reason: 'ui:/undo', requestId });
+      this._appendChatMessage(`已请求撤销最近 ${steps} 次文件写入...`, { role: 'ai' });
+      return;
+    }
+
+    if (cmd === '/replay') {
+      const runId = typeof args[0] === 'string' ? args[0].trim() : '';
+      if (!runId) {
+        this._appendChatMessage('用法：/replay run_xxx', { role: 'ai' });
+        return;
+      }
+      this.emit('ui.action', { type: 'startReplay', runId });
+      this._appendChatMessage(`已请求回放：${runId}`, { role: 'ai' });
+      return;
+    }
+
+    if (cmd === '/plans' || cmd === '/artifacts') {
+      const runId = typeof args[0] === 'string' ? args[0].trim() : '';
+      if (entry.action) {
+        this.emit('ui.action', runId ? { ...entry.action, runId } : entry.action);
+        this._appendChatMessage(entry.desc || '已执行。', { role: 'ai' });
+        return;
+      }
     }
 
     if (entry.action) {

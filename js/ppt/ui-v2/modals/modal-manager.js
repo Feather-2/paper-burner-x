@@ -1854,6 +1854,9 @@ export class ModalManager {
 	        case 'undoLastVfsCheckpoint':
 	          void this.undoLastVfsCheckpoint(payload);
 	          break;
+	        case 'startReplay':
+	          void this.startReplay(payload);
+	          break;
 	        default:
 	          break;
 	      }
@@ -2254,29 +2257,56 @@ export class ModalManager {
 		    `;
 		  }
 
-		  async undoLastVfsCheckpoint({ steps, reason } = {}) {
+		  async undoLastVfsCheckpoint({ steps, reason, requestId } = {}) {
 		    const generator = this._ensureGenerator();
 		    const sideEffects = generator?._sideEffects || (typeof window !== 'undefined' ? window.pbSideEffects : null);
 		    if (!sideEffects || typeof sideEffects.getCursor !== 'function' || typeof sideEffects.rollbackToCursor !== 'function') {
 		      console.warn('[UI] undoLastVfsCheckpoint skipped: SideEffectJournal unavailable.');
-		      return { ok: false, reason: 'missing_side_effect_journal' };
+		      const out = { ok: false, reason: 'missing_side_effect_journal' };
+		      this.eventBus?.emit?.('ui.undo.result', { requestId, ...out });
+		      return out;
 		    }
 
 		    const n = Number.isFinite(Number(steps)) ? Math.max(1, Math.floor(Number(steps))) : 1;
 		    const cursor = sideEffects.getCursor();
 		    if (!Number.isFinite(cursor) || cursor <= 0) {
-		      return { ok: true, rolledBack: 0, cursor: 0 };
+		      const out = { ok: true, rolledBack: 0, cursor: 0 };
+		      this.eventBus?.emit?.('ui.undo.result', { requestId, ...out });
+		      return out;
 		    }
 
 		    const target = Math.max(0, cursor - n);
 		    try {
-		      return await sideEffects.rollbackToCursor(target, {
+		      const out = await sideEffects.rollbackToCursor(target, {
 		        reason: typeof reason === 'string' && reason.trim() ? reason.trim() : 'ui:/undo',
 		      });
+		      this.eventBus?.emit?.('ui.undo.result', { requestId, ...out });
+		      return out;
 		    } catch (err) {
 		      const msg = err instanceof Error ? err.message : String(err);
 		      console.warn('[UI] undoLastVfsCheckpoint failed:', msg);
-		      return { ok: false, reason: 'rollback_failed', error: msg };
+		      const out = { ok: false, reason: 'rollback_failed', error: msg };
+		      this.eventBus?.emit?.('ui.undo.result', { requestId, ...out });
+		      return out;
+		    }
+		  }
+
+		  async startReplay({ runId } = {}) {
+		    const generator = this._ensureGenerator();
+		    const id = typeof runId === 'string' ? runId.trim() : '';
+		    if (!generator || typeof generator.startReplay !== 'function') {
+		      console.warn('[UI] startReplay skipped: generator.startReplay unavailable.');
+		      return { ok: false, reason: 'missing_startReplay' };
+		    }
+		    if (!id) return { ok: false, reason: 'missing_runId' };
+
+		    try {
+		      await generator.startReplay(id, {});
+		      return { ok: true, runId: id };
+		    } catch (err) {
+		      const msg = err instanceof Error ? err.message : String(err);
+		      console.warn('[UI] startReplay failed:', msg);
+		      return { ok: false, reason: 'replay_failed', error: msg };
 		    }
 		  }
 	
