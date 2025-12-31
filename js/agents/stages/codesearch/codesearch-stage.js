@@ -332,6 +332,10 @@ export class CodeSearchStage extends BaseAgentLoop {
       basePath: input?.basePath || ".",
       logger,
       emit,
+      policy: stageApi?.policy,
+      runStore: stageApi?.runStore,
+      runId,
+      stageApi,
     });
 
     // 初始化 LLM

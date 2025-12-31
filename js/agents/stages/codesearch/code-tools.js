@@ -12,6 +12,7 @@
 import { grepChunks } from "../../retrieval/grep.js";
 import SymbolIndexer from "./indexing/symbol-indexer.js";
 import { computeSha256 } from "../../storage/artifact-manager.js";
+import { multiEditTextFileWithPolicy, writeTextFileWithPolicy } from "../../vfs/operations.js";
 
 // 工具定义（供 LLM 理解）
 export const TOOL_DEFINITIONS = [
@@ -55,6 +56,34 @@ export const TOOL_DEFINITIONS = [
       { path: "src/index.ts" },
       { path: "package.json", startLine: 1, endLine: 20 },
       { path: "src/main.ts", startLine: 50, endLine: 100 },
+    ],
+  },
+  {
+    name: "write_file",
+    description: "写入文件内容（整文件覆盖）。Browser-first：优先使用 VFS，并记录 vfs_checkpoint.json 以支持撤销/回滚。",
+    parameters: {
+      path: { type: "string", description: "文件路径", required: true },
+      content: { type: "string", description: "写入内容（文本）", required: true },
+      checkpoint: { type: "boolean", description: "是否记录 VFS checkpoint（默认 true）", required: false },
+    },
+    examples: [
+      { path: "notes/todo.md", content: "# TODO\n- item\n" },
+    ],
+  },
+  {
+    name: "multi_edit",
+    description: "对单文件执行多处精确替换（事务语义：全部成功才写入；失败则不写入）。默认要求每个 old_string 在文件中唯一。",
+    parameters: {
+      path: { type: "string", description: "文件路径", required: true },
+      edits: {
+        type: "array",
+        description: "编辑列表：{old_string,new_string}",
+        required: true,
+      },
+      checkpoint: { type: "boolean", description: "是否记录 VFS checkpoint（默认 true）", required: false },
+    },
+    examples: [
+      { path: "src/app.js", edits: [{ old_string: "const x = 1", new_string: "const x = 2" }] },
     ],
   },
   {
@@ -137,6 +166,10 @@ export function createToolExecutor(options = {}) {
     workspaceId,
     logger,
     emit,
+    policy,
+    runStore,
+    runId,
+    stageApi,
   } = options;
 
   // 路径安全检查
@@ -312,6 +345,60 @@ export function createToolExecutor(options = {}) {
       };
     } catch (err) {
       return { error: String(err?.message || err), content: null };
+    }
+  }
+
+  async function write_file({ path, content, checkpoint = true } = {}) {
+    if (!path) throw new Error("write_file: path is required");
+    if (!vfs || typeof vfs.writeText !== "function") {
+      return { error: "vfs.writeText not available (Browser-only write requires VFS)" };
+    }
+
+    const filePath = safePath(path);
+    const text = typeof content === "string" ? content : String(content ?? "");
+    if (text.length > maxFileSize) {
+      return { error: `Content too large: ${text.length} chars (max ${maxFileSize})` };
+    }
+
+    try {
+      const res = await writeTextFileWithPolicy({
+        vfs,
+        path: filePath,
+        text,
+        policy: policy || stageApi?.policy,
+        runStore: runStore || stageApi?.runStore,
+        runId: runId || stageApi?.runContext?.runId,
+        stageApi: stageApi || { emit },
+        checkpoint: checkpoint !== false,
+      });
+      return { ok: true, ...res };
+    } catch (err) {
+      return { error: String(err?.message || err) };
+    }
+  }
+
+  async function multi_edit({ path, edits, checkpoint = true } = {}) {
+    if (!path) throw new Error("multi_edit: path is required");
+    if (!vfs || typeof vfs.writeText !== "function") {
+      return { error: "vfs.writeText not available (Browser-only write requires VFS)" };
+    }
+
+    const filePath = safePath(path);
+
+    try {
+      const res = await multiEditTextFileWithPolicy({
+        vfs,
+        path: filePath,
+        edits: Array.isArray(edits) ? edits : [],
+        policy: policy || stageApi?.policy,
+        runStore: runStore || stageApi?.runStore,
+        runId: runId || stageApi?.runContext?.runId,
+        stageApi: stageApi || { emit },
+        checkpoint: checkpoint !== false,
+      });
+      return { ok: true, ...res };
+    } catch (err) {
+      return { error: String(err?.message || err) };
     }
   }
 
@@ -533,6 +620,8 @@ export function createToolExecutor(options = {}) {
     glob,
     grep,
     read_file,
+    write_file,
+    multi_edit,
     list_dir,
     tree,
     index_symbols,
@@ -543,7 +632,7 @@ export function createToolExecutor(options = {}) {
 
     // 执行工具
     async execute(toolName, args) {
-      const tools = { glob, grep, read_file, list_dir, tree, index_symbols, find_symbol };
+      const tools = { glob, grep, read_file, write_file, multi_edit, list_dir, tree, index_symbols, find_symbol };
       const fn = tools[toolName];
       if (!fn) {
         return { error: `Unknown tool: ${toolName}` };
