@@ -86,6 +86,6 @@
 
 ## 3. 下一步（建议按 P0→P1 推进）
 
-1. **Side-effect Journal（P1）**：把 `vfs.checkpoint` 作为“可撤销副作用”的最小单元，并把 journal index 写入 `createCheckpoint(...metadata)`，回溯时自动 restore。
-2. **RunStore 增量化（P2）**：将 state/todos/timeline 分片 + patch 化，避免 stringify 瓶颈。
-3. **Ingest 可续传（P2/P1）**：将 ingest 队列与进度持久化到 RunStore，提供 resume 入口（UI 或 Tool）。
+1. **RunStore 增量化（P2）**：将 state/todos/timeline 分片 + patch 化（或 JSON Patch），进一步降低大状态树写入成本。
+2. **SideEffectJournal 体验增强（P1）**：补齐“分组撤销/多步撤销”（例如 `/undo 3`）与 side-effect entry 的 UI 可视化（让用户知道撤销了什么）。
+3. **不可逆副作用标注（P1）**：对网络/外部系统写入做显式标注与审计（可撤销/不可撤销），避免回溯时产生因果错位的误解。
