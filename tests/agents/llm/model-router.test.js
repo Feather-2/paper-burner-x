@@ -655,3 +655,134 @@ test("ModelRouter: throws clear errors for unknown model and missing provider; _
     /Missing provider: p1/
   );
 });
+
+test("TokenBucketRateLimiter: normalize + load defaults", async () => {
+  const { normalizeRateLimitConfig, loadRateLimitConfig } = await import("../../../js/agents/llm/rate-limit.js");
+
+  assert.deepEqual(
+    normalizeRateLimitConfig({ enabled: false, rps: 5, burst: 3, concurrency: 2, maxQueue: 0 }),
+    { enabled: false, rps: 5, burst: 3, concurrency: 2, maxQueue: 0 }
+  );
+
+  assert.deepEqual(
+    normalizeRateLimitConfig({ rps: 0, burst: 0, concurrency: 0, maxQueue: -1 }),
+    { enabled: true, rps: Infinity, burst: 1, concurrency: 1, maxQueue: 500 }
+  );
+
+  const cfg = loadRateLimitConfig();
+  assert.equal(cfg.enabled, true);
+  assert.equal(typeof cfg.rps, "number");
+  assert.ok(cfg.burst >= 1);
+  assert.ok(cfg.concurrency >= 1);
+});
+
+test("TokenBucketRateLimiter: respects token bucket pacing", async () => {
+  const { TokenBucketRateLimiter } = await import("../../../js/agents/llm/rate-limit.js");
+
+  const time = createFakeTime(0);
+  const limiter = new TokenBucketRateLimiter({ rps: 2, burst: 2, concurrency: 1, time });
+
+  const starts = [];
+  const mk = (id) =>
+    limiter.schedule(async () => {
+      starts.push({ id, t: time.now() });
+      return id;
+    });
+
+  const out = await Promise.all([mk("a"), mk("b"), mk("c")]);
+  assert.deepEqual(out, ["a", "b", "c"]);
+  assert.deepEqual(starts.map((s) => s.t), [0, 0, 500]);
+});
+
+test("TokenBucketRateLimiter: enforces concurrency and starts next after release", async () => {
+  const { TokenBucketRateLimiter } = await import("../../../js/agents/llm/rate-limit.js");
+
+  const time = createFakeTime(0);
+  const limiter = new TokenBucketRateLimiter({ rps: Infinity, burst: 1, concurrency: 2, time });
+
+  const started = [];
+  const gates = new Map();
+  const gate = (id) =>
+    new Promise((resolve) => {
+      gates.set(id, resolve);
+    });
+
+  const p1 = limiter.schedule(async () => {
+    started.push("a");
+    await gate("a");
+    return "a";
+  });
+  const p2 = limiter.schedule(async () => {
+    started.push("b");
+    await gate("b");
+    return "b";
+  });
+  const p3 = limiter.schedule(async () => {
+    started.push("c");
+    return "c";
+  });
+
+  await Promise.resolve();
+  assert.deepEqual(started, ["a", "b"]);
+
+  gates.get("a")?.();
+  await p1;
+  await Promise.resolve();
+
+  assert.deepEqual(started, ["a", "b", "c"]);
+  assert.equal(await p3, "c");
+
+  gates.get("b")?.();
+  assert.equal(await p2, "b");
+});
+
+test("TokenBucketRateLimiter: queued task abort rejects without running", async () => {
+  const { TokenBucketRateLimiter } = await import("../../../js/agents/llm/rate-limit.js");
+
+  const time = createFakeTime(0);
+  const limiter = new TokenBucketRateLimiter({ rps: Infinity, burst: 1, concurrency: 1, time });
+
+  let release = null;
+  const hold = new Promise((resolve) => {
+    release = resolve;
+  });
+
+  const p1 = limiter.schedule(async () => {
+    await hold;
+    return "a";
+  });
+
+  const ac = new AbortController();
+  let ran = false;
+  const p2 = limiter.schedule(
+    async () => {
+      ran = true;
+      return "b";
+    },
+    { signal: ac.signal, label: "b" }
+  );
+
+  ac.abort();
+  await assert.rejects(p2, (err) => err?.name === "AbortError");
+  assert.equal(ran, false);
+
+  release?.();
+  assert.equal(await p1, "a");
+});
+
+test("TokenBucketRateLimiter: blockFor delays execution", async () => {
+  const { TokenBucketRateLimiter } = await import("../../../js/agents/llm/rate-limit.js");
+
+  const time = createFakeTime(0);
+  const limiter = new TokenBucketRateLimiter({ rps: Infinity, burst: 1, concurrency: 1, time });
+  limiter.blockFor(1000);
+
+  const startedAt = [];
+  const out = await limiter.schedule(() => {
+    startedAt.push(time.now());
+    return "ok";
+  });
+
+  assert.equal(out, "ok");
+  assert.deepEqual(startedAt, [1000]);
+});

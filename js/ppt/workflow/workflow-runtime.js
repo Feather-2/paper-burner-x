@@ -558,13 +558,33 @@ export const runtimeMixin = {
         const mod = await import('../../agents/runtime/orchestrator.js');
         const { AgentOrchestrator } = mod;
 
-        const baseAiApiService = typeof window !== 'undefined' && window.aiApiService ? window.aiApiService : null;
-        const visionApi = typeof window !== 'undefined' && window.visionApi ? window.visionApi : null;
-        const whisperApi = typeof window !== 'undefined' && window.whisperApi ? window.whisperApi : null;
-
-        // Inject global AI services + ModelRouter (for pptRolePriority-aware routing)
-        let aiApiService = baseAiApiService;
-        let modelRouter = null;
+	        const baseAiApiService = typeof window !== 'undefined' && window.aiApiService ? window.aiApiService : null;
+	        const visionApi = typeof window !== 'undefined' && window.visionApi ? window.visionApi : null;
+	        const whisperApi = typeof window !== 'undefined' && window.whisperApi ? window.whisperApi : null;
+	        const isNode = typeof process !== 'undefined' && !!process.versions?.node;
+	
+	        // Browser-only LLM rate limiting (kept disabled in Node/test runs).
+	        let llmRateLimiter = null;
+	        if (!isNode) {
+	            try {
+	                const { TokenBucketRateLimiter, loadRateLimitConfig } = await import('../../agents/llm/rate-limit.js');
+	                const cfg = loadRateLimitConfig();
+	                if (cfg?.enabled !== false) {
+	                    llmRateLimiter = new TokenBucketRateLimiter(cfg);
+	                    this._llmRateLimiter = llmRateLimiter;
+	                    if (typeof window !== 'undefined') window.pbLlmRateLimiter = llmRateLimiter;
+	                }
+	            } catch (err) {
+	                console.warn('[PPTGeneratorWorkflow] RateLimiter init skipped:', err);
+	                this._llmRateLimiter = null;
+	            }
+	        } else {
+	            this._llmRateLimiter = null;
+	        }
+	
+	        // Inject global AI services + ModelRouter (for pptRolePriority-aware routing)
+	        let aiApiService = baseAiApiService;
+	        let modelRouter = null;
         try {
             const { buildPptUsageConfigForModelRouter, createPptAwareAiApiService } = await import('../../agents/llm/ppt-model-bridge.js');
             aiApiService = typeof createPptAwareAiApiService === 'function' ? createPptAwareAiApiService(baseAiApiService) : baseAiApiService;
@@ -649,11 +669,11 @@ export const runtimeMixin = {
 
                         if (!baseAiApiService) throw new Error('aiApiService not available');
 
-                        // 重试逻辑：对于 401/429 错误，等待后重试一次
-                        const attemptCall = async () => {
-                            if (typeof baseAiApiService?._resolveModelConfig === 'function' && typeof baseAiApiService?._callApi === 'function') {
-                                const idx = modelId.indexOf(':');
-                                const sourceKey = idx > 0 ? modelId.slice(0, idx) : modelId;
+	                        // 重试逻辑：对于 401/429 错误，等待后重试一次
+	                        const attemptCall = async () => {
+	                            if (typeof baseAiApiService?._resolveModelConfig === 'function' && typeof baseAiApiService?._callApi === 'function') {
+	                                const idx = modelId.indexOf(':');
+	                                const sourceKey = idx > 0 ? modelId.slice(0, idx) : modelId;
                                 const specificModel = idx > 0 ? modelId.slice(idx + 1) : null;
 
                                 console.log('[PPTGeneratorWorkflow] _resolveModelConfig:', { sourceKey, specificModel });
@@ -667,23 +687,33 @@ export const runtimeMixin = {
                             }
 
                             if (typeof baseAiApiService?.chat !== 'function') throw new Error('aiApiService.chat not available');
-                            return await baseAiApiService.chat({ messages, model: modelId || 'auto', temperature, maxTokens });
-                        };
-
-                        try {
-                            return await attemptCall();
-                        } catch (err) {
-                            const status = err?.status || err?.response?.status || (err?.message?.match?.(/4\d{2}/)?.[0]);
-                            // 对于 401/429，等待 2 秒后重试一次（可能是限流）
-                            if (status === 401 || status === 429 || status === '401' || status === '429') {
-                                console.warn('[PPTGeneratorWorkflow] Rate limit detected, retrying in 2s...', { status });
-                                await new Promise(r => setTimeout(r, 2000));
-                                return await attemptCall();
-                            }
-                            throw err;
-                        }
-                    }
-                };
+	                            return await baseAiApiService.chat({ messages, model: modelId || 'auto', temperature, maxTokens });
+	                        };
+	
+	                        const runAttempt = () => {
+	                            if (!llmRateLimiter) return attemptCall();
+	                            return llmRateLimiter.schedule(() => attemptCall(), {
+	                                signal,
+	                                label: `provider.chat:${modelId || 'auto'}`
+	                            });
+	                        };
+	
+	                        try {
+	                            return await runAttempt();
+	                        } catch (err) {
+	                            if (err?.name === 'AbortError') throw err;
+	                            const status = err?.status || err?.response?.status || (err?.message?.match?.(/4\d{2}/)?.[0]);
+	                            // 对于 401/429，等待 2 秒后重试一次（可能是限流）
+	                            if (status === 401 || status === 429 || status === '401' || status === '429') {
+	                                console.warn('[PPTGeneratorWorkflow] Rate limit detected, retrying in 2s...', { status });
+	                                if (llmRateLimiter) llmRateLimiter.blockFor(2000);
+	                                else await new Promise(r => setTimeout(r, 2000));
+	                                return await runAttempt();
+	                            }
+	                            throw err;
+	                        }
+	                    }
+	                };
 
                 const router = new ModelRouter({
                     models,
@@ -722,16 +752,47 @@ export const runtimeMixin = {
                 this._modelRouter = modelRouter;
                 if (typeof window !== 'undefined') window.modelRouter = modelRouter;
             }
-        } catch (e) {
-            console.warn('[PPTGeneratorWorkflow] ModelRouter init skipped:', e);
-            aiApiService = baseAiApiService;
-            modelRouter = null;
-        }
-
-        const services = {
-            aiApiService,
-            modelRouter,
-            visionApi,
+	        } catch (e) {
+	            console.warn('[PPTGeneratorWorkflow] ModelRouter init skipped:', e);
+	            aiApiService = baseAiApiService;
+	            modelRouter = null;
+	        }
+	
+	        if (llmRateLimiter && aiApiService && typeof aiApiService.chat === 'function') {
+	            try {
+	                const rawChat = aiApiService.chat.bind(aiApiService);
+	                const rawCallApi = typeof aiApiService._callApi === 'function' ? aiApiService._callApi.bind(aiApiService) : null;
+	
+	                aiApiService = {
+	                    ...aiApiService,
+	                    chat: async (opts = {}) => {
+	                        const signal = opts?.signal;
+	                        try {
+	                            return await llmRateLimiter.schedule(() => rawChat(opts), { signal, label: 'aiApiService.chat' });
+	                        } catch (err) {
+	                            if (err?.name === 'AbortError') throw err;
+	                            const status = err?.status || err?.response?.status || (err?.message?.match?.(/4\\d{2}/)?.[0]);
+	                            if (status === 429 || status === '429') llmRateLimiter.blockFor(2000);
+	                            throw err;
+	                        }
+	                    },
+	                    ...(rawCallApi ? {
+	                        _callApi: (...args) => {
+	                            const maybeOpts = args?.[4];
+	                            const signal = maybeOpts?.signal;
+	                            return llmRateLimiter.schedule(() => rawCallApi(...args), { signal, label: 'aiApiService._callApi' });
+	                        }
+	                    } : {})
+	                };
+	            } catch (err) {
+	                console.warn('[PPTGeneratorWorkflow] Rate-limited aiApiService wrapper failed:', err);
+	            }
+	        }
+	
+	        const services = {
+	            aiApiService,
+	            modelRouter,
+	            visionApi,
             whisperApi,
         };
 

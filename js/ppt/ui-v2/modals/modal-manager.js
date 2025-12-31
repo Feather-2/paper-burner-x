@@ -29,6 +29,216 @@ function escapeCssSelector(value) {
   return s.replace(/[^a-zA-Z0-9_-]/g, (m) => `\\${m}`);
 }
 
+function parseUnifiedDiffText(diffText) {
+  const text = typeof diffText === 'string' ? diffText : '';
+  if (!text) return { hunks: [] };
+
+  const hunks = [];
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  let current = null;
+
+  for (const raw of lines) {
+    const line = typeof raw === 'string' ? raw : '';
+    if (!line) continue;
+    if (line.startsWith('--- ') || line.startsWith('+++ ')) continue;
+
+    const header = line.match(/^@@ -(\d+),(\d+) \+(\d+),(\d+) @@/);
+    if (header) {
+      current = {
+        aStart: Number(header[1]),
+        aCount: Number(header[2]),
+        bStart: Number(header[3]),
+        bCount: Number(header[4]),
+        lines: [],
+      };
+      hunks.push(current);
+      continue;
+    }
+
+    if (!current) continue;
+    const tag = line[0];
+    if (tag === ' ' || tag === '-' || tag === '+') {
+      current.lines.push({ tag, line: line.slice(1) });
+    }
+  }
+
+  return { hunks };
+}
+
+function buildSideBySideRowsFromUnifiedHunk(hunk) {
+  const rows = [];
+  const lines = Array.isArray(hunk?.lines) ? hunk.lines : [];
+  let aLineNo = Number(hunk?.aStart) || 1;
+  let bLineNo = Number(hunk?.bStart) || 1;
+
+  for (let i = 0; i < lines.length; i++) {
+    const item = lines[i];
+    const tag = item?.tag;
+    const content = typeof item?.line === 'string' ? item.line : String(item?.line ?? '');
+
+    if (tag === ' ') {
+      rows.push({
+        kind: 'context',
+        old: { no: aLineNo, text: content },
+        next: { no: bLineNo, text: content },
+      });
+      aLineNo += 1;
+      bLineNo += 1;
+      continue;
+    }
+
+    if (tag === '-' || tag === '+') {
+      const deletes = [];
+      const inserts = [];
+
+      while (i < lines.length && lines[i]?.tag === '-') {
+        const text = typeof lines[i]?.line === 'string' ? lines[i].line : String(lines[i]?.line ?? '');
+        deletes.push({ no: aLineNo, text });
+        aLineNo += 1;
+        i += 1;
+      }
+
+      while (i < lines.length && lines[i]?.tag === '+') {
+        const text = typeof lines[i]?.line === 'string' ? lines[i].line : String(lines[i]?.line ?? '');
+        inserts.push({ no: bLineNo, text });
+        bLineNo += 1;
+        i += 1;
+      }
+
+      const max = Math.max(deletes.length, inserts.length);
+      for (let j = 0; j < max; j++) {
+        const del = deletes[j] || null;
+        const ins = inserts[j] || null;
+        const kind = del && ins ? 'modify' : (del ? 'delete' : 'add');
+        rows.push({
+          kind,
+          old: del ? { no: del.no, text: del.text } : { no: null, text: '' },
+          next: ins ? { no: ins.no, text: ins.text } : { no: null, text: '' },
+        });
+      }
+
+      i -= 1;
+      continue;
+    }
+  }
+
+  return rows;
+}
+
+function renderSideBySideDiffHtml({ hunks, maxRows = 1800 } = {}) {
+  const rowsLimit = Number.isFinite(maxRows) ? Math.max(50, Math.floor(maxRows)) : 1800;
+  const list = Array.isArray(hunks) ? hunks : [];
+  const parts = [];
+
+  let renderedRows = 0;
+
+  const headerStyle = [
+    'padding: 8px 10px',
+    'border-top: 1px solid rgba(148,163,184,0.25)',
+    'border-bottom: 1px solid rgba(148,163,184,0.25)',
+    'background: rgba(15,23,42,0.03)',
+    'font-weight: 800',
+    'font-size: 12px',
+    'color: var(--ppt-text-main)',
+    'font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace',
+  ].join(';');
+
+  const rowGridStyle = [
+    'display: grid',
+    'grid-template-columns: 56px 1fr 1px 56px 1fr',
+    'gap: 0',
+    'align-items: stretch',
+    'font-size: 12px',
+    'line-height: 1.45',
+    'font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace',
+  ].join(';');
+
+  const numberCellStyle = [
+    'padding: 2px 8px',
+    'text-align: right',
+    'user-select: none',
+    'white-space: pre',
+  ].join(';');
+
+  const codeCellStyle = [
+    'padding: 2px 8px',
+    'white-space: pre-wrap',
+    'word-break: break-word',
+  ].join(';');
+
+  const dividerStyle = 'background: rgba(148,163,184,0.25);';
+
+  const safeLineNo = (no) => (Number.isFinite(no) && no > 0 ? String(no) : '');
+  const safeText = (value) => (typeof value === 'string' ? value : String(value ?? ''));
+
+  const legendStyle = [
+    rowGridStyle,
+    'border-bottom: 1px solid rgba(148,163,184,0.25)',
+    'background: rgba(15,23,42,0.02)',
+    'font-weight: 800',
+    'color: var(--ppt-text-secondary)',
+  ].join(';');
+
+  parts.push(
+    `<div style="${legendStyle}">` +
+    `<div style="${numberCellStyle}">${escapeHtml('Ln')}</div>` +
+    `<div style="${codeCellStyle}">${escapeHtml('Before')}</div>` +
+    `<div style="${dividerStyle}"></div>` +
+    `<div style="${numberCellStyle}">${escapeHtml('Ln')}</div>` +
+    `<div style="${codeCellStyle}">${escapeHtml('After')}</div>` +
+    `</div>`
+  );
+
+  for (const hunk of list) {
+    if (renderedRows >= rowsLimit) break;
+    const aStart = Number.isFinite(Number(hunk?.aStart)) ? Number(hunk.aStart) : 0;
+    const aCount = Number.isFinite(Number(hunk?.aCount)) ? Number(hunk.aCount) : 0;
+    const bStart = Number.isFinite(Number(hunk?.bStart)) ? Number(hunk.bStart) : 0;
+    const bCount = Number.isFinite(Number(hunk?.bCount)) ? Number(hunk.bCount) : 0;
+    const header = `@@ -${aStart},${aCount} +${bStart},${bCount} @@`;
+
+    parts.push(`<div style="${headerStyle}">${escapeHtml(header)}</div>`);
+
+    const rows = buildSideBySideRowsFromUnifiedHunk(hunk);
+    for (const row of rows) {
+      if (renderedRows >= rowsLimit) break;
+      renderedRows += 1;
+
+      const kind = row?.kind;
+      const oldNo = safeLineNo(row?.old?.no);
+      const newNo = safeLineNo(row?.next?.no);
+      const oldText = safeText(row?.old?.text);
+      const newText = safeText(row?.next?.text);
+
+      const oldBg = kind === 'delete' || kind === 'modify' ? 'rgba(248,113,113,0.10)' : 'transparent';
+      const newBg = kind === 'add' || kind === 'modify' ? 'rgba(34,197,94,0.10)' : 'transparent';
+
+      const oldNumColor = kind === 'delete' || kind === 'modify'
+        ? '#ef4444'
+        : (oldNo ? 'rgba(100,116,139,0.9)' : 'rgba(148,163,184,0.6)');
+      const newNumColor = kind === 'add' || kind === 'modify'
+        ? '#22c55e'
+        : (newNo ? 'rgba(100,116,139,0.9)' : 'rgba(148,163,184,0.6)');
+
+      parts.push(
+        `<div style="${rowGridStyle}">` +
+        `<div style="${numberCellStyle} color:${oldNumColor};">${escapeHtml(oldNo)}</div>` +
+        `<div style="${codeCellStyle} background:${oldBg};">${escapeHtml(oldText)}</div>` +
+        `<div style="${dividerStyle}"></div>` +
+        `<div style="${numberCellStyle} color:${newNumColor};">${escapeHtml(newNo)}</div>` +
+        `<div style="${codeCellStyle} background:${newBg};">${escapeHtml(newText)}</div>` +
+        `</div>`
+      );
+    }
+  }
+
+  if (renderedRows >= rowsLimit) {
+    parts.push(`<div style="padding:10px; font-size: 12px; color: var(--ppt-text-secondary);">...(truncated)</div>`);
+  }
+
+  return parts.join('');
+}
+
 export class ModalManager {
   constructor({ adapter, eventBus, stateStore, generator } = {}) {
     this.adapter = adapter || null;
@@ -2927,27 +3137,40 @@ export class ModalManager {
 
     if (text.length > 20000) text = text.slice(0, 20000) + '\n...(truncated)';
 
-    if (artifact.type === 'vfs_checkpoint.json' && data && typeof data === 'object' && !Array.isArray(data)) {
-      const canRestore = !!generator?._vfs && typeof store?.getArtifactById === 'function';
-      const checkpointPath = typeof data.path === 'string' ? data.path : '';
-      const diffText = typeof data?.diff?.text === 'string' ? data.diff.text : '';
-
-      const beforePreview = typeof data?.before?.preview === 'string' ? data.before.preview : '';
-      const afterPreview = typeof data?.after?.preview === 'string' ? data.after.preview : '';
-
-      const metaLine = checkpointPath ? ` · <code>${escapeHtml(checkpointPath)}</code>` : '';
-      const restoreBtn = canRestore
-        ? `<button class="ppt-btn ppt-btn-primary" data-action="restoreVfsCheckpoint" data-artifact-id="${escapeAttr(artifact.artifactId)}">Restore</button>`
-        : `<button class="ppt-btn ppt-btn-secondary" disabled>Restore (VFS unavailable)</button>`;
-
-      const body = diffText
-        ? `<pre class="custom-scrollbar" style="white-space: pre; word-break: break-word; font-size: 12px; line-height: 1.45; margin: 0;">${escapeHtml(diffText.length > 20000 ? diffText.slice(0, 20000) + '\\n...(truncated)' : diffText)}</pre>`
-        : `<pre class="custom-scrollbar" style="white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.45; margin: 0;">${escapeHtml(text)}</pre>`;
-
-      previewEl.innerHTML = `
-        <div style="display:flex; align-items:center; justify-content:space-between; gap: 10px; margin-bottom: 10px;">
-          <div style="font-weight: 750; color: var(--ppt-text-main);">${escapeHtml(artifact.type)}</div>
-          <div style="font-size: 12px; color: var(--ppt-text-secondary);"><code>${escapeHtml(artifact.artifactId)}</code>${metaLine}</div>
+	    if (artifact.type === 'vfs_checkpoint.json' && data && typeof data === 'object' && !Array.isArray(data)) {
+	      const canRestore = !!generator?._vfs && typeof store?.getArtifactById === 'function';
+	      const checkpointPath = typeof data.path === 'string' ? data.path : '';
+	      const diffText = typeof data?.diff?.text === 'string' ? data.diff.text : '';
+	
+	      const beforePreview = typeof data?.before?.preview === 'string' ? data.before.preview : '';
+	      const afterPreview = typeof data?.after?.preview === 'string' ? data.after.preview : '';
+	      const beforeText = typeof data?.before?.text === 'string' ? data.before.text : null;
+	      const afterText = typeof data?.after?.text === 'string' ? data.after.text : null;
+	      const canSideBySide = typeof beforeText === 'string' && typeof afterText === 'string';
+	
+	      const diffModeKey = 'vfsDiffModeByArtifactId';
+	      if (!state[diffModeKey] || typeof state[diffModeKey] !== 'object') state[diffModeKey] = {};
+	      const savedMode = state[diffModeKey][artifact.artifactId];
+	      const initialMode = (savedMode === 'unified' || savedMode === 'side-by-side')
+	        ? savedMode
+	        : (canSideBySide ? 'side-by-side' : 'unified');
+	
+	      const metaLine = checkpointPath ? ` · <code>${escapeHtml(checkpointPath)}</code>` : '';
+	      const restoreBtn = canRestore
+	        ? `<button class="ppt-btn ppt-btn-primary" data-action="restoreVfsCheckpoint" data-artifact-id="${escapeAttr(artifact.artifactId)}">Restore</button>`
+	        : `<button class="ppt-btn ppt-btn-secondary" disabled>Restore (VFS unavailable)</button>`;
+	
+	      const modeButton = (mode, label, enabled) => {
+	        const isActive = initialMode === mode;
+	        const disabledAttr = enabled ? '' : 'disabled';
+	        const activeStyle = isActive ? 'background: rgba(79,70,229,0.10); border-color: rgba(79,70,229,0.35);' : '';
+	        return `<button class="ppt-btn ppt-btn-secondary" type="button" data-diff-mode="${escapeAttr(mode)}" ${disabledAttr} style="${activeStyle}">${label}</button>`;
+	      };
+	
+	      previewEl.innerHTML = `
+	        <div style="display:flex; align-items:center; justify-content:space-between; gap: 10px; margin-bottom: 10px;">
+	          <div style="font-weight: 750; color: var(--ppt-text-main);">${escapeHtml(artifact.type)}</div>
+	          <div style="font-size: 12px; color: var(--ppt-text-secondary);"><code>${escapeHtml(artifact.artifactId)}</code>${metaLine}</div>
         </div>
         <div style="display:flex; align-items:center; justify-content:space-between; gap: 10px; margin-bottom: 10px;">
           <div style="font-size: 12px; color: var(--ppt-text-secondary);">before/after preview</div>
@@ -2959,14 +3182,113 @@ export class ModalManager {
             <pre class="custom-scrollbar" style="white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.45; margin: 0; max-height: 140px; overflow:auto;">${escapeHtml(beforePreview || '(no preview)')}</pre>
           </div>
           <div style="border: 1px solid rgba(148,163,184,0.25); border-radius: 12px; padding: 10px; background: rgba(15,23,42,0.02);">
-            <div style="font-weight: 700; font-size: 12px; color: var(--ppt-text-main); margin-bottom: 6px;">After</div>
-            <pre class="custom-scrollbar" style="white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.45; margin: 0; max-height: 140px; overflow:auto;">${escapeHtml(afterPreview || '(no preview)')}</pre>
-          </div>
-        </div>
-        ${body}
-      `;
-      return;
-    }
+	            <div style="font-weight: 700; font-size: 12px; color: var(--ppt-text-main); margin-bottom: 6px;">After</div>
+	            <pre class="custom-scrollbar" style="white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.45; margin: 0; max-height: 140px; overflow:auto;">${escapeHtml(afterPreview || '(no preview)')}</pre>
+	          </div>
+	        </div>
+	        <div style="display:flex; align-items:center; justify-content:space-between; gap: 10px; margin-bottom: 10px;">
+	          <div style="font-size: 12px; color: var(--ppt-text-secondary);">diff</div>
+	          <div style="display:flex; align-items:center; gap: 8px;">
+	            ${modeButton('unified', 'Unified', true)}
+	            ${modeButton('side-by-side', 'Side-by-side', canSideBySide)}
+	          </div>
+	        </div>
+	        <div id="${escapeAttr(modalId)}_checkpointDiff" style="border: 1px solid rgba(148,163,184,0.25); border-radius: 12px; background: rgba(255,255,255,0.7); overflow-x:auto;">
+	          <div style="padding:10px; color: var(--ppt-text-secondary); font-size: 12px;">Loading diff...</div>
+	        </div>
+	      `;
+	
+	      const diffHost = previewEl.querySelector(`#${escapeCssSelector(modalId)}_checkpointDiff`);
+	      const modeButtons = Array.from(previewEl.querySelectorAll('[data-diff-mode]'));
+	      let currentMode = initialMode;
+	
+	      const updateModeButtons = (active) => {
+	        for (const btn of modeButtons) {
+	          const mode = btn?.dataset?.diffMode;
+	          const isActive = mode === active;
+	          if (isActive) {
+	            btn.style.background = 'rgba(79,70,229,0.10)';
+	            btn.style.borderColor = 'rgba(79,70,229,0.35)';
+	          } else {
+	            btn.style.background = '';
+	            btn.style.borderColor = '';
+	          }
+	        }
+	      };
+	
+	      const renderUnified = () => {
+	        if (!diffHost) return;
+	        if (diffText) {
+	          const shown = diffText.length > 20000 ? diffText.slice(0, 20000) + '\n...(truncated)' : diffText;
+	          diffHost.innerHTML = `<pre class="custom-scrollbar" style="white-space: pre; word-break: break-word; font-size: 12px; line-height: 1.45; margin: 0; padding: 10px;">${escapeHtml(shown)}</pre>`;
+	          return;
+	        }
+	        diffHost.innerHTML = `<pre class="custom-scrollbar" style="white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.45; margin: 0; padding: 10px;">${escapeHtml(text)}</pre>`;
+	      };
+	
+	      const renderSideBySide = async () => {
+	        if (!diffHost) return;
+	        diffHost.innerHTML = `<div style="padding:10px; color: var(--ppt-text-secondary); font-size: 12px;">Computing side-by-side diff...</div>`;
+	
+	        const hunksCacheKey = 'vfsCheckpointHunksByArtifactId';
+	        if (!state[hunksCacheKey] || typeof state[hunksCacheKey] !== 'object') state[hunksCacheKey] = {};
+	
+	        let hunks = state[hunksCacheKey][artifact.artifactId] || null;
+	        if (!Array.isArray(hunks) || hunks.length === 0) {
+	          try {
+	            const parsed = parseUnifiedDiffText(diffText);
+	            hunks = Array.isArray(parsed?.hunks) ? parsed.hunks : [];
+	          } catch {
+	            hunks = [];
+	          }
+	        }
+	
+	        if ((!Array.isArray(hunks) || hunks.length === 0) && canSideBySide) {
+	          try {
+	            const { createUnifiedDiff } = await import('../../../agents/vfs/diff.js');
+	            const path = checkpointPath || 'file';
+	            const diff = createUnifiedDiff({ path, beforeText, afterText, context: 3 });
+	            hunks = Array.isArray(diff?.hunks) ? diff.hunks : [];
+	          } catch {
+	            hunks = [];
+	          }
+	        }
+	
+	        if (!Array.isArray(hunks) || hunks.length === 0) {
+	          diffHost.innerHTML = `<div style="padding:10px; color: var(--ppt-text-secondary); font-size: 12px;">No diff available for side-by-side view.</div>`;
+	          return;
+	        }
+	
+	        state[hunksCacheKey][artifact.artifactId] = hunks;
+	        diffHost.innerHTML = renderSideBySideDiffHtml({ hunks });
+	      };
+	
+	      updateModeButtons(currentMode);
+	      if (currentMode === 'side-by-side' && canSideBySide) {
+	        await renderSideBySide();
+	      } else {
+	        renderUnified();
+	      }
+	
+	      for (const btn of modeButtons) {
+	        if (!btn || btn.dataset.bound === '1') continue;
+	        btn.dataset.bound = '1';
+	        btn.addEventListener('click', async () => {
+	          const mode = btn?.dataset?.diffMode;
+	          if (mode !== 'unified' && mode !== 'side-by-side') return;
+	          if (mode === 'side-by-side' && !canSideBySide) return;
+	          currentMode = mode;
+	          state[diffModeKey][artifact.artifactId] = mode;
+	          updateModeButtons(mode);
+	          if (mode === 'side-by-side') {
+	            await renderSideBySide();
+	          } else {
+	            renderUnified();
+	          }
+	        });
+	      }
+	      return;
+	    }
 
     previewEl.innerHTML = `
       <div style="display:flex; align-items:center; justify-content:space-between; gap: 10px; margin-bottom: 10px;">
