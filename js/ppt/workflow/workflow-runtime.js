@@ -878,6 +878,27 @@ export const runtimeMixin = {
             // ignore (policy is optional)
         }
 
+        // SideEffectJournal (optional): track reversible side effects (e.g. VFS writes via vfs_checkpoint.json)
+        // so Backtrack/undo can restore "physical" state along with in-memory state.
+        try {
+            const { SideEffectJournal } = await import('../../agents/runtime/side-effects/side-effect-journal.js');
+            const sideEffects = new SideEffectJournal({
+                runStore: this._runStore,
+                runId: this._currentRunId,
+                vfs: services.vfs,
+                eventBus,
+                logger: console,
+            });
+            sideEffects.attachEventBus(eventBus);
+            // Best-effort hydration when resuming a run.
+            await sideEffects.loadFromRunStore({ runId: this._currentRunId }).catch(() => { });
+            services.sideEffects = sideEffects;
+            this._sideEffects = sideEffects;
+            if (typeof window !== 'undefined') window.pbSideEffects = sideEffects;
+        } catch {
+            // ignore
+        }
+
         this._ensureTelemetrySubscription?.(eventBus);
 
         this._orchestrator = new AgentOrchestrator({

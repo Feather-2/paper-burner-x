@@ -336,6 +336,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         maxBacktracks: this.maxBacktracks,
         emit: (n, p) => this._emit(n, p),
         logger: this._logger,
+        sideEffects: stageApi?.sideEffects || null,
       });
     }
     if (DiscoveryManager && !this.discoveryManager) {
@@ -758,7 +759,14 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
           // 保存 checkpoint
           if (this.checkpoint) {
             try {
-              await this.checkpoint.save?.(this.state, { iteration: plannedIteration });
+              await this.checkpoint.save?.(this.state, {
+                iteration: plannedIteration,
+                metadata: {
+                  ...(stageApi?.sideEffects && typeof stageApi.sideEffects.getCursor === "function"
+                    ? { sideEffectsCursor: stageApi.sideEffects.getCursor() }
+                    : {}),
+                },
+              });
             } catch (err) {
               const errorMessage = err instanceof Error ? err.message : String(err);
               this._logger.warn(`Checkpoint save failed (ignored): ${errorMessage}`);
@@ -848,7 +856,14 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         // 保存 checkpoint
         if (this.checkpoint) {
           try {
-            await this.checkpoint.save?.(this.state, { iteration: plannedIteration });
+            await this.checkpoint.save?.(this.state, {
+              iteration: plannedIteration,
+              metadata: {
+                ...(stageApi?.sideEffects && typeof stageApi.sideEffects.getCursor === "function"
+                  ? { sideEffectsCursor: stageApi.sideEffects.getCursor() }
+                  : {}),
+              },
+            });
           } catch (err) {
             const errorMessage = err instanceof Error ? err.message : String(err);
             this._logger.warn(`Checkpoint save failed (ignored): ${errorMessage}`);

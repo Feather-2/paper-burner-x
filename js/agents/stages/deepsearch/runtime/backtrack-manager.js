@@ -17,6 +17,7 @@ export class BacktrackManager {
     this._backtrackCount = 0;
     this._emit = options.emit || (() => {});
     this._logger = options.logger || console;
+    this.sideEffects = options.sideEffects || null;
   }
 
   get backtrackCount() {
@@ -93,12 +94,31 @@ export class BacktrackManager {
       const restoredState = DeepSearchState.fromJSON(restored.nodeStates);
       this._backtrackCount++;
 
+      // Best-effort: roll back reversible "physical" side effects to the cursor captured in checkpoint metadata.
+      let sideEffectsRollback = null;
+      const cursor = restored?.metadata?.sideEffectsCursor;
+      if (this.sideEffects && typeof this.sideEffects.rollbackToCursor === "function") {
+        try {
+          sideEffectsRollback = await this.sideEffects.rollbackToCursor(cursor, {
+            reason: `backtrack:${targetId}`,
+          });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          sideEffectsRollback = { ok: false, reason: "rollback_failed", error: msg };
+          this._logger.warn("春秋蝉: SideEffects rollback failed (ignored)", {
+            stage: "backtrack-manager",
+            data: { checkpointId: targetId, cursor, error: msg },
+          });
+        }
+      }
+
       this._logger.info("春秋蝉: State restored from checkpoint", {
         stage: "backtrack-manager",
         data: {
           checkpointId: targetId,
           backtrackCount: this._backtrackCount,
           remaining: this.remaining,
+          ...(sideEffectsRollback ? { sideEffectsRollback } : {}),
         },
       });
 
@@ -109,6 +129,7 @@ export class BacktrackManager {
         failReason: failReason || null,
         correctionHint: correctionHint || null,
         todoContext: buildTodoContext(restoredState),
+        ...(sideEffectsRollback ? { sideEffectsRollback } : {}),
       });
 
       // 注入语义信号到 SharedContext
