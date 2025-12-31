@@ -1,4 +1,4 @@
-import { Archive, MapAdapter } from "../../shared/archive/archive.js";
+import { Archive, FallbackAdapter, MapAdapter } from "../../shared/archive/archive.js";
 import { deepClone } from "../../shared/utils/value-utils.js";
 import { CheckpointType, createCheckpoint, migrateCheckpoint } from "../../shared/archive/checkpoint-schema.js";
 import { DesignPhase, designPhaseMachine } from "./states.js";
@@ -746,7 +746,9 @@ export class DesignAgentLoop extends BaseAgentLoop {
 }
 
 export async function resumeDesignAgentLoop(checkpointId, stageApi = {}) {
-  const archive = stageApi?.archive || new Archive(new MapAdapter());
+  const archive =
+    stageApi?.archive ||
+    new Archive(typeof indexedDB !== "undefined" ? new FallbackAdapter("PPTArchiveDB", "checkpoints") : new MapAdapter());
 
   const snapshot = migrateCheckpoint(await archive.restore(checkpointId));
   if (!snapshot?.nodeStates) {

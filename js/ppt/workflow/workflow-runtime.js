@@ -820,11 +820,12 @@ export const runtimeMixin = {
         }
 
         // 尝试创建持久化 EventBus，IndexedDB 不可用时降级为内存模式
-        let persistenceAdapter = null;
-        try {
-            this._runStore = new RunStore({ dbName: 'PPTWorkflowDB' });
-            await this._runStore.open();
-            persistenceAdapter = new RunStoreAdapter(this._runStore);
+	        let persistenceAdapter = null;
+	        try {
+	            this._runStore = new RunStore({ dbName: 'PPTWorkflowDB' });
+	            await this._runStore.open();
+	            persistenceAdapter = new RunStoreAdapter(this._runStore);
+                services.runStore = this._runStore;
 
             // Best-effort run registry (enables listRuns() to work for locally created runs).
             if (typeof this._runStore?.getRun === 'function' && typeof this._runStore?.createRun === 'function') {
@@ -853,10 +854,24 @@ export const runtimeMixin = {
                     // ignore
                 }
             }
-        } catch (err) {
-            console.warn('[Workflow] IndexedDB not available, running without persistence:', err?.message || err);
-            this._runStore = null;
-        }
+	        } catch (err) {
+	            console.warn('[Workflow] IndexedDB not available, running without persistence:', err?.message || err);
+	            this._runStore = null;
+	        }
+
+            // Persistent Archive for checkpoints (Design resume). IndexedDB preferred; memory fallback.
+            if (!services.archive) {
+                try {
+                    const { Archive, FallbackAdapter, MapAdapter } = await import('../../agents/shared/archive/archive.js');
+                    const adapter =
+                        typeof indexedDB !== 'undefined'
+                            ? new FallbackAdapter('PPTArchiveDB', 'checkpoints')
+                            : new MapAdapter();
+                    services.archive = new Archive(adapter);
+                } catch {
+                    // ignore
+                }
+            }
 
         if (this._telemetrySubscription?.unsubscribe) {
             try {
@@ -2697,7 +2712,10 @@ export const runtimeMixin = {
 
                 const { DesignAgentLoop } = await import('../../agents/stages/design/index.js');
                 const batchSize = Number(this.workflowData?.batchSize) || Number(this.workflowData?.designBatchSize) || undefined;
-                const stage = new DesignAgentLoop(batchSize ? { batchSize } : undefined);
+                const stage = new DesignAgentLoop({
+                    ...(batchSize ? { batchSize } : {}),
+                    archive: api.archive,
+                });
 
                 const deckPackage = await stage.execute(
                     { ...(ctx || {}), userConfig: this._getDesignStageUserConfig() },
@@ -2707,7 +2725,8 @@ export const runtimeMixin = {
                         eventBus: this._orchestrator?.eventBus,
                         signal: api.signal,
                         aiApiService: api.aiApiService,
-                        modelRouter: api.modelRouter
+                        modelRouter: api.modelRouter,
+                        archive: api.archive,
                     }
                 );
 
