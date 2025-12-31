@@ -6,6 +6,7 @@
 import { WorkflowState, transitionWorkflow, forceWorkflowState } from './workflow-states.js';
 import { WorkflowTodoStatus } from '../../agents/runtime/core/constants.js';
 import { StagePausedError } from '../../agents/runtime/core/stage-errors.js';
+import { StepStatus } from '../../agents/runtime/core/agent-status.js';
 import { RunStoreAdapter } from '../../agents/runtime/events/event-bus.js';
 import { subscribeTelemetry } from '../../agents/runtime/telemetry/runstore-telemetry.js';
 import { RunReplayController } from '../../agents/runtime/telemetry/replay-controller.js';
@@ -16,6 +17,7 @@ import { DesignDensity, DesignVisualMode, normalizeDesignDensity, normalizeDesig
 import { AgentEventBridge } from './agent-event-bridge.js';
 import { EventHandlerRegistry, createWorkflowEventRegistry } from './event-handler-registry.js';
 import { StateSynchronizer, inferWorkflowStateFromEvent } from './unified-state-mapping.js';
+import { PLAN_ARTIFACT_TYPE, PlanLifecycleStatus, createPlan, savePlan, setPlanLifecycleStatus, setPlanStepStatus } from '../../agents/runtime/plan/plan-store.js';
 
 let _TextPrepStage = null;
 async function getTextPrepStage() {
@@ -46,6 +48,35 @@ function formatDesignPhaseLabel(value) {
     if (!key) return '';
     return DESIGN_PHASE_LABELS[key] || key;
 }
+
+const WORKFLOW_PLAN_KIND = "workflow_plan";
+const WORKFLOW_PLAN_STEP_ORDER = Object.freeze([
+    "deepsearch.ingest",
+    "deepsearch.pipeline",
+    "workflow.script_review",
+    "textprep.align",
+    "design.batch",
+    "evaluate.hardgates",
+]);
+
+const WORKFLOW_PLAN_STEP_TODO_INDEX = Object.freeze({
+    "deepsearch.ingest": 0,
+    "deepsearch.pipeline": 1,
+    "workflow.script_review": 2,
+    "textprep.align": 3,
+    "design.batch": 4,
+    "evaluate.hardgates": 5,
+});
+
+const WORKFLOW_PLAN_STAGE_MAP = Object.freeze({
+    "deepsearch.ingest": { stepId: "deepsearch.ingest", completesStep: true },
+    "deepsearch.pipeline": { stepId: "deepsearch.pipeline", completesStep: true },
+    // textprep.slideplan is part of "page layout & mapping" but does not complete the step alone.
+    "textprep.slideplan": { stepId: "textprep.align", completesStep: false },
+    "textprep.align": { stepId: "textprep.align", completesStep: true },
+    "design.batch": { stepId: "design.batch", completesStep: true },
+    "evaluate.hardgates": { stepId: "evaluate.hardgates", completesStep: true },
+});
 
 function emitUiV2Event(name, payload) {
     if (typeof window === 'undefined') return;
@@ -160,6 +191,16 @@ export const runtimeMixin = {
             slideCount: Array.isArray(contentPackage?.slideIntents) ? contentPackage.slideIntents.length : undefined,
             markdownLength: typeof this.workflowData?.reportMarkdown === 'string' ? this.workflowData.reportMarkdown.length : undefined,
         });
+
+        // Plan step boundary (manual confirmation step).
+        this._setWorkflowPlanStepStatus?.("workflow.script_review", StepStatus.COMPLETED, {
+            reason: "script_confirmed",
+            select: false,
+        })?.catch?.(() => { });
+        this._setWorkflowPlanStepStatus?.("textprep.align", StepStatus.IN_PROGRESS, {
+            reason: "script_confirmed.next",
+            select: true,
+        })?.catch?.(() => { });
 
         transitionWorkflow(this, WorkflowState.PAGE_LAYOUT);
         this.renderPreviewArea?.();
@@ -505,8 +546,14 @@ export const runtimeMixin = {
             this.startMultiAgentWorkflow({ skipBriefCheck: true });
         }
     },
-    async _ensureRuntime({ mode = 'deepsearch', scenario = 'business', constraints = {} } = {}) {
-        if (this._orchestrator && this._orchestrator.state === 'running') return;
+    async _ensureRuntime({ mode = 'deepsearch', scenario = 'business', constraints = {}, runId } = {}) {
+        const requestedRunId = typeof runId === 'string' && runId.trim() ? runId.trim() : null;
+
+        if (this._orchestrator && this._orchestrator.state === 'running') {
+            const activeRunId = this._orchestrator?.runId || this._currentRunId;
+            if (!requestedRunId || requestedRunId === activeRunId) return;
+            throw new Error(`_ensureRuntime({ runId }): cannot switch runId while running (current=${activeRunId}, requested=${requestedRunId})`);
+        }
 
         const mod = await import('../../agents/runtime/orchestrator.js');
         const { AgentOrchestrator } = mod;
@@ -701,8 +748,15 @@ export const runtimeMixin = {
             }
         }
 
-        // 生成 runId
-        this._currentRunId = `run_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        // runId: allow resuming an existing run (browser-only).
+        const resolvedRunId = requestedRunId || `run_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        this._currentRunId = resolvedRunId;
+
+        const keepPlan = this._workflowPlan && this._workflowPlan.runId === resolvedRunId;
+        if (!keepPlan) {
+            this._workflowPlan = null;
+            this._workflowPlanLatestArtifactId = null;
+        }
 
         // 尝试创建持久化 EventBus，IndexedDB 不可用时降级为内存模式
         let persistenceAdapter = null;
@@ -710,6 +764,25 @@ export const runtimeMixin = {
             this._runStore = new RunStore({ dbName: 'PPTWorkflowDB' });
             await this._runStore.open();
             persistenceAdapter = new RunStoreAdapter(this._runStore);
+
+            // Best-effort run registry (enables listRuns() to work for locally created runs).
+            if (typeof this._runStore?.getRun === 'function' && typeof this._runStore?.createRun === 'function') {
+                try {
+                    const existing = await this._runStore.getRun(this._currentRunId);
+                    if (!existing) {
+                        await this._runStore.createRun({
+                            schemaVersion: '0.1',
+                            runId: this._currentRunId,
+                            mode,
+                            scenario,
+                            constraints,
+                            startedAt: new Date().toISOString(),
+                        });
+                    }
+                } catch {
+                    // ignore
+                }
+            }
         } catch (err) {
             console.warn('[Workflow] IndexedDB not available, running without persistence:', err?.message || err);
             this._runStore = null;
@@ -800,6 +873,218 @@ export const runtimeMixin = {
         }
 
         return this._telemetrySubscription;
+    },
+
+    _emitPlanEvent(name, payload, { status = "info", actor = "system" } = {}) {
+        const bus = this._orchestrator?.eventBus;
+        if (!bus || typeof bus.emit !== "function") return null;
+        try {
+            return bus.emit(name, { actor, status, payload });
+        } catch (err) {
+            console.warn("[Workflow] Failed to emit plan event:", err?.message || err);
+            return null;
+        }
+    },
+
+    _getWorkflowPlanTitle() {
+        const mode = this._orchestrator?.runContext?.mode;
+        if (typeof mode === "string" && mode) return `Workflow Plan (${mode})`;
+        return "Workflow Plan";
+    },
+
+    _getWorkflowPlanStepTitle(stepId) {
+        const idx = WORKFLOW_PLAN_STEP_TODO_INDEX[stepId];
+        const rows = Array.isArray(this._runtimeTodoTexts) ? this._runtimeTodoTexts : [];
+        if (Number.isFinite(idx) && typeof rows[idx] === "string" && rows[idx]) return rows[idx];
+        return stepId;
+    },
+
+    async _ensureWorkflowPlan({ runId } = {}) {
+        const id = typeof runId === "string" && runId ? runId : (this._currentRunId || this._orchestrator?.runId);
+        if (!id) return null;
+
+        if (this._workflowPlan && this._workflowPlan.runId === id) return this._workflowPlan;
+
+        const steps = WORKFLOW_PLAN_STEP_ORDER.map((stepId, i) => ({
+            stepId,
+            title: this._getWorkflowPlanStepTitle(stepId),
+            status: StepStatus.PENDING,
+        }));
+
+        const plan = createPlan({
+            runId: id,
+            kind: WORKFLOW_PLAN_KIND,
+            title: this._getWorkflowPlanTitle(),
+            steps,
+            selectedStepIndex: 0,
+            lifecycleStatus: PlanLifecycleStatus.APPROVED,
+            meta: {
+                mode: this._orchestrator?.runContext?.mode,
+                scenario: this._orchestrator?.runContext?.scenario,
+            },
+        });
+
+        this._workflowPlan = plan;
+
+        if (this._runStore) {
+            try {
+                const artifactId = await savePlan({ runStore: this._runStore, runId: id, plan, type: PLAN_ARTIFACT_TYPE });
+                this._workflowPlanLatestArtifactId = artifactId;
+                this._emitPlanEvent("plan.created", {
+                    runId: id,
+                    planId: plan.planId,
+                    kind: plan.kind,
+                    title: plan.title,
+                    lifecycleStatus: plan.lifecycleStatus,
+                    artifactId,
+                    stepCount: plan.steps.length,
+                }, { status: "created" });
+            } catch (err) {
+                console.warn("[Workflow] Failed to persist initial plan:", err?.message || err);
+            }
+        } else {
+            this._emitPlanEvent("plan.created", {
+                runId: id,
+                planId: plan.planId,
+                kind: plan.kind,
+                title: plan.title,
+                lifecycleStatus: plan.lifecycleStatus,
+                artifactId: null,
+                stepCount: plan.steps.length,
+            }, { status: "created" });
+        }
+
+        return this._workflowPlan;
+    },
+
+    async _persistWorkflowPlan({ reason, eventName } = {}) {
+        const plan = this._workflowPlan;
+        const runId = this._currentRunId || plan?.runId;
+        if (!plan || !runId) return null;
+
+        let artifactId = this._workflowPlanLatestArtifactId || null;
+        if (this._runStore) {
+            try {
+                artifactId = await savePlan({ runStore: this._runStore, runId, plan, type: PLAN_ARTIFACT_TYPE });
+                this._workflowPlanLatestArtifactId = artifactId;
+            } catch (err) {
+                console.warn("[Workflow] Failed to persist plan:", err?.message || err);
+            }
+        }
+
+        const steps = Array.isArray(plan.steps) ? plan.steps : [];
+        this._emitPlanEvent("plan.updated", {
+            runId,
+            planId: plan.planId,
+            kind: plan.kind,
+            title: plan.title,
+            artifactId,
+            lifecycleStatus: plan.lifecycleStatus,
+            selectedStepIndex: plan.selectedStepIndex,
+            stepCount: steps.length,
+            steps: steps.map((s) => ({ stepId: s.stepId, status: s.status })),
+            reason: typeof reason === "string" ? reason : null,
+            eventName: typeof eventName === "string" ? eventName : null,
+        }, { status: "updated" });
+
+        return artifactId;
+    },
+
+    async _setWorkflowPlanLifecycleStatus(status, { reason, runId, force = false } = {}) {
+        const plan = await this._ensureWorkflowPlan({ runId: typeof runId === "string" ? runId : this._currentRunId });
+        if (!plan) return null;
+
+        let next;
+        try {
+            next = setPlanLifecycleStatus(plan, status, { force });
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.warn(`[Workflow] Failed to update plan lifecycleStatus: ${msg}`);
+            return null;
+        }
+
+        if (next === plan) return null;
+        this._workflowPlan = next;
+        return await this._persistWorkflowPlan({
+            reason: typeof reason === "string" ? reason : `lifecycle:${String(status)}`,
+        });
+    },
+
+    async _setWorkflowPlanStepStatus(stepId, status, { reason, select = true } = {}) {
+        const plan = await this._ensureWorkflowPlan({ runId: this._currentRunId });
+        if (!plan) return null;
+
+        const next = setPlanStepStatus(plan, stepId, status, { select });
+        if (next === plan) return null;
+        this._workflowPlan = next;
+
+        return await this._persistWorkflowPlan({
+            reason: typeof reason === "string" ? reason : `manual:${String(stepId)}`,
+        });
+    },
+
+    _updateWorkflowPlanFromStageLifecycle(stageName, stageStatus, payload, evt) {
+        const stage = typeof stageName === "string" ? stageName : "";
+        const mapping = WORKFLOW_PLAN_STAGE_MAP[stage];
+        if (!mapping) return;
+
+        const status = typeof stageStatus === "string" ? stageStatus : "";
+        const runId = this._currentRunId || payload?.runId;
+
+        const doUpdate = async () => {
+            await this._ensureWorkflowPlan({ runId });
+
+            let plan = this._workflowPlan;
+            if (!plan) return;
+
+            if (status === "started") {
+                plan = setPlanStepStatus(plan, mapping.stepId, StepStatus.IN_PROGRESS);
+                try {
+                    plan = setPlanLifecycleStatus(plan, PlanLifecycleStatus.IN_PROGRESS);
+                } catch {
+                    plan = setPlanLifecycleStatus(plan, PlanLifecycleStatus.IN_PROGRESS, { force: true });
+                }
+            } else if (status === "failed") {
+                plan = setPlanStepStatus(plan, mapping.stepId, StepStatus.FAILED);
+                try {
+                    plan = setPlanLifecycleStatus(plan, PlanLifecycleStatus.FAILED);
+                } catch {
+                    plan = setPlanLifecycleStatus(plan, PlanLifecycleStatus.FAILED, { force: true });
+                }
+            } else if (status === "ended") {
+                if (mapping.completesStep) {
+                    plan = setPlanStepStatus(plan, mapping.stepId, StepStatus.COMPLETED, { select: false });
+                }
+            }
+
+            // Manual gap: deepsearch pipeline ends -> script review begins (no stage boundary).
+            if (stage === "deepsearch.pipeline" && status === "ended") {
+                plan = setPlanStepStatus(plan, "workflow.script_review", StepStatus.IN_PROGRESS);
+            }
+
+            // When all steps are completed, mark the plan as completed.
+            if (status === "ended") {
+                const steps = Array.isArray(plan.steps) ? plan.steps : [];
+                const allDone = steps.length > 0 && steps.every((s) => s?.status === StepStatus.COMPLETED);
+                if (allDone) {
+                    try {
+                        plan = setPlanLifecycleStatus(plan, PlanLifecycleStatus.COMPLETED);
+                    } catch {
+                        plan = setPlanLifecycleStatus(plan, PlanLifecycleStatus.COMPLETED, { force: true });
+                    }
+                }
+            }
+
+            if (plan !== this._workflowPlan) {
+                this._workflowPlan = plan;
+                await this._persistWorkflowPlan({
+                    reason: `stage:${stage}.${status}`,
+                    eventName: evt?.name,
+                });
+            }
+        };
+
+        return doUpdate().catch(() => { });
     },
 
     async _loadFlowVizEvents() {
@@ -957,6 +1242,204 @@ export const runtimeMixin = {
         const runId = await importRunFromZip(file, { runStore: this._runStore, overwrite });
         return runId;
     },
+
+    async _ensureRunStoreOpen() {
+        if (this._runStore) return this._runStore;
+        try {
+            this._runStore = new RunStore({ dbName: 'PPTWorkflowDB' });
+            await this._runStore.open();
+        } catch (err) {
+            console.warn('[Workflow] RunStore unavailable:', err?.message || err);
+            this._runStore = null;
+        }
+        return this._runStore;
+    },
+
+    async _loadLatestWorkflowPlanArtifact(runId) {
+        const store = await this._ensureRunStoreOpen();
+        const id = typeof runId === 'string' && runId.trim() ? runId.trim() : null;
+        if (!store || !id || typeof store.listArtifacts !== 'function') return null;
+
+        let artifacts = [];
+        try {
+            artifacts = await store.listArtifacts(id);
+        } catch {
+            artifacts = [];
+        }
+
+        const plans = artifacts
+            .filter((a) => a && typeof a === 'object' && a.type === PLAN_ARTIFACT_TYPE && typeof a.artifactId === 'string')
+            .sort((a, b) => Number(b.seq || 0) - Number(a.seq || 0));
+
+        const latest = plans[0];
+        if (!latest) return null;
+
+        let plan = null;
+        try {
+            plan =
+                typeof store.getArtifactById === 'function'
+                    ? await store.getArtifactById(latest.artifactId)
+                    : await store.getArtifact(id, PLAN_ARTIFACT_TYPE);
+        } catch {
+            plan = null;
+        }
+
+        if (!plan || typeof plan !== 'object' || Array.isArray(plan)) return null;
+        this._workflowPlan = plan;
+        this._workflowPlanLatestArtifactId = latest.artifactId;
+        return plan;
+    },
+
+    async _hydrateWorkflowFromRunArtifacts(runId) {
+        const store = await this._ensureRunStoreOpen();
+        const id = typeof runId === 'string' && runId.trim() ? runId.trim() : null;
+        if (!store || !id) return null;
+
+        if (!this.workflowData) this.workflowData = {};
+
+        const readJson = async (type) => {
+            try {
+                const data = await store.getArtifact(id, type);
+                if (!data) return null;
+                if (typeof data === 'string') {
+                    try { return JSON.parse(data); } catch { return null; }
+                }
+                return data;
+            } catch {
+                return null;
+            }
+        };
+
+        const contentPackage = await readJson('content_package.json');
+        if (contentPackage && typeof contentPackage === 'object' && !Array.isArray(contentPackage)) {
+            this.workflowData.contentPackage = contentPackage;
+            this.workflowData.report = contentPackage.report || null;
+            this.workflowData.slideIntents = contentPackage.slideIntents || [];
+            this.workflowData.reportMarkdown = contentPackage?.report?.markdown || this.workflowData.reportMarkdown || '';
+        }
+
+        const deckPackage = await readJson('deck_package.json');
+        if (deckPackage && typeof deckPackage === 'object' && !Array.isArray(deckPackage)) {
+            this.workflowData.deckPackage = deckPackage;
+            if (typeof deckPackage.deckHtmlDsl === 'string' && deckPackage.deckHtmlDsl) {
+                this.workflowData.deckHtmlDsl = deckPackage.deckHtmlDsl;
+                this._parseAndStoreSlides?.(deckPackage.deckHtmlDsl);
+            }
+        }
+
+        const evaluationReport = await readJson('evaluation_report.json');
+        if (evaluationReport && typeof evaluationReport === 'object' && !Array.isArray(evaluationReport)) {
+            this.workflowData.evaluationReport = evaluationReport;
+        }
+
+        const deepsearchStateJson = await readJson('deepsearch_state.json');
+        if (deepsearchStateJson && typeof deepsearchStateJson === 'object' && !Array.isArray(deepsearchStateJson)) {
+            try {
+                const { DeepSearchState } = await import('../../agents/stages/deepsearch/state.js');
+                this._deepsearchState = DeepSearchState.fromJSON(deepsearchStateJson);
+                this._syncDeepSearchVizFromState?.(this._deepsearchState);
+            } catch {
+                // ignore
+            }
+        }
+
+        return { contentPackage, deckPackage, evaluationReport, deepsearchState: this._deepsearchState || null };
+    },
+
+    async resumeWorkflowFromPlan({ runId, stepIdOrIndex } = {}) {
+        const requestedRunId = typeof runId === 'string' && runId.trim() ? runId.trim() : null;
+        const id =
+            requestedRunId ||
+            (typeof this._workflowPlan?.runId === 'string' ? this._workflowPlan.runId : null) ||
+            this._currentRunId;
+
+        if (!id) throw new Error('resumeWorkflowFromPlan({ runId }): missing runId');
+
+        // Ensure plan is loaded (prefer current plan; fallback to latest artifact).
+        if (!this._workflowPlan || this._workflowPlan.runId !== id) {
+            await this._loadLatestWorkflowPlanArtifact(id);
+        }
+
+        // Boot a runtime for this runId (keeps the existing plan object if it matches runId).
+        const planMeta = this._workflowPlan?.meta && typeof this._workflowPlan.meta === 'object' ? this._workflowPlan.meta : {};
+        const brief = this.workflowData?.projectBrief || {};
+        const constraints = {
+            ...(typeof brief?.audience === 'string' && brief.audience.trim() ? { audience: brief.audience.trim() } : {}),
+            ...(typeof brief?.tone === 'string' && brief.tone.trim() ? { tone: brief.tone.trim() } : {}),
+        };
+
+        await this._ensureRuntime({
+            mode: typeof planMeta?.mode === 'string' && planMeta.mode ? planMeta.mode : 'deepsearch',
+            scenario: typeof planMeta?.scenario === 'string' && planMeta.scenario ? planMeta.scenario : 'business',
+            constraints,
+            runId: id,
+        });
+
+        await this._hydrateWorkflowFromRunArtifacts(id);
+
+        // Ensure orchestrator is running (emits run.started, which will NOT create a new plan if we already loaded one).
+        this._orchestrator?.start?.();
+
+        // Determine resume step.
+        const plan = this._workflowPlan;
+        const steps = Array.isArray(plan?.steps) ? plan.steps : [];
+        const pickStepId = () => {
+            if (typeof stepIdOrIndex === 'string' && stepIdOrIndex.trim()) return stepIdOrIndex.trim();
+            if (typeof stepIdOrIndex === 'number' && Number.isFinite(stepIdOrIndex)) {
+                const idx = Math.max(0, Math.floor(stepIdOrIndex));
+                return steps[idx]?.stepId || steps[0]?.stepId || null;
+            }
+
+            const selected = typeof plan?.selectedStepIndex === 'number' ? plan.selectedStepIndex : 0;
+            const selectedStep = steps[selected];
+            if (selectedStep && selectedStep.status !== StepStatus.COMPLETED) return selectedStep.stepId;
+            const firstOpen = steps.find((s) => s?.status !== StepStatus.COMPLETED);
+            return firstOpen?.stepId || steps.at(-1)?.stepId || null;
+        };
+
+        const stepId = pickStepId();
+        if (!stepId) throw new Error('resumeWorkflowFromPlan(): plan has no steps');
+
+        // Ensure plan lifecycle allows execution.
+        const lifecycle = typeof plan?.lifecycleStatus === 'string' ? plan.lifecycleStatus : PlanLifecycleStatus.DRAFT;
+        if (lifecycle === PlanLifecycleStatus.DRAFT) {
+            await this._setWorkflowPlanLifecycleStatus(PlanLifecycleStatus.APPROVED, { runId: id, reason: 'resume.approve', force: true });
+        }
+        await this._setWorkflowPlanLifecycleStatus(PlanLifecycleStatus.IN_PROGRESS, { runId: id, reason: `resume:${stepId}`, force: true });
+
+        // Resume execution.
+        if (stepId === 'deepsearch.ingest') {
+            await this.phase1_DeepReading?.();
+            return { runId: id, resumedAt: stepId };
+        }
+        if (stepId === 'deepsearch.pipeline') {
+            if (this._deepsearchState) {
+                await this._orchestrator?.runStage?.('deepsearch.pipeline', { state: this._deepsearchState });
+            } else {
+                await this.phase1_DeepReading?.();
+            }
+            await this.phase2_Scripting?.();
+            return { runId: id, resumedAt: stepId };
+        }
+        if (stepId === 'workflow.script_review') {
+            await this.phase2_Scripting?.();
+            return { runId: id, resumedAt: stepId };
+        }
+        if (stepId === 'textprep.align') {
+            await this.phase3_PageLayout?.();
+            return { runId: id, resumedAt: stepId };
+        }
+        if (stepId === 'design.batch') {
+            await this.phase5_DesignOptimization?.();
+            return { runId: id, resumedAt: stepId };
+        }
+        if (stepId === 'evaluate.hardgates') {
+            await this.phase6_FinalReview?.();
+            return { runId: id, resumedAt: stepId };
+        }
+
+        throw new Error(`resumeWorkflowFromPlan(): unsupported stepId: ${stepId}`);
+    },
     _attachRuntimeEventHandlers() {
         if (this._runtimeUnsubs) {
             this._runtimeUnsubs.forEach(fn => fn());
@@ -1008,13 +1491,41 @@ export const runtimeMixin = {
             this._pushToProcessPanel(eventName, payload);
         };
 
-        registry.register('run.started', () => {
+        registry.register('run.started', (_eventName, payload) => {
             forceWorkflowState(this, WorkflowState.READING);
             this.updateTodos(this._runtimeTodoTexts.map((text, i) => ({
                 text,
                 status: i === 0 ? WorkflowTodoStatus.ACTIVE : WorkflowTodoStatus.PENDING,
             })));
             this.renderPreviewArea();
+
+            // Create the workflow plan on first run start (skip during replay to avoid generating new artifacts).
+            const isReplay = Boolean(this._runtimeEventMeta?.meta?.replay);
+            if (!isReplay) {
+                const runId = typeof payload?.runId === "string" ? payload.runId : this._currentRunId;
+                this._ensureWorkflowPlan({ runId }).catch(() => { });
+            }
+        });
+
+        registry.register('run.completed', (_eventName, payload) => {
+            const isReplay = Boolean(this._runtimeEventMeta?.meta?.replay);
+            if (isReplay) return;
+            const runId = typeof payload?.runId === "string" ? payload.runId : this._currentRunId;
+            this._setWorkflowPlanLifecycleStatus?.(PlanLifecycleStatus.COMPLETED, { runId, reason: 'run.completed', force: true })?.catch?.(() => { });
+        });
+
+        registry.register('run.failed', (_eventName, payload) => {
+            const isReplay = Boolean(this._runtimeEventMeta?.meta?.replay);
+            if (isReplay) return;
+            const runId = typeof payload?.runId === "string" ? payload.runId : this._currentRunId;
+            this._setWorkflowPlanLifecycleStatus?.(PlanLifecycleStatus.FAILED, { runId, reason: 'run.failed', force: true })?.catch?.(() => { });
+        });
+
+        registry.register('run.cancelled', (_eventName, payload) => {
+            const isReplay = Boolean(this._runtimeEventMeta?.meta?.replay);
+            if (isReplay) return;
+            const runId = typeof payload?.runId === "string" ? payload.runId : this._currentRunId;
+            this._setWorkflowPlanLifecycleStatus?.(PlanLifecycleStatus.CANCELLED, { runId, reason: 'run.cancelled', force: true })?.catch?.(() => { });
         });
 
         // FlowViz 事件捕获
@@ -1453,6 +1964,7 @@ export const runtimeMixin = {
 
         const stageName = match[1];
         const stageStatus = match[2] === 'completed' ? 'ended' : match[2];
+        this._updateWorkflowPlanFromStageLifecycle(stageName, stageStatus, payload, evt);
         const ui = this._runtimeStageUi?.[stageName];
         if (!ui) return;
 
@@ -1544,6 +2056,19 @@ export const runtimeMixin = {
             logger: orch._services?.logger,
         });
 
+        const saveArtifact = async (runId, type, data, options = {}) => {
+            const store = this._runStore;
+            const id = typeof runId === 'string' && runId.trim() ? runId.trim() : null;
+            const t = typeof type === 'string' && type.trim() ? type.trim() : null;
+            if (!store || !id || !t || typeof store.saveArtifact !== 'function') return null;
+            try {
+                return await store.saveArtifact(id, t, data, options);
+            } catch (err) {
+                console.warn(`[Workflow] Failed to persist artifact: ${t}`, err?.message || err);
+                return null;
+            }
+        };
+
         if (runtimeMode === 'deepsearch') {
             orch.registerStage('deepsearch.ingest', async (ctx, input, api) => {
                 const baseEmit = api.emit;
@@ -1623,6 +2148,7 @@ export const runtimeMixin = {
 
                 try {
                     const { DeepSearchAgentLoop } = await import('../../agents/stages/deepsearch/deepsearch-agent-loop.js');
+                    const { DeepSearchState } = await import('../../agents/stages/deepsearch/state.js');
 
                     const agentLoop = new DeepSearchAgentLoop({
                         eventBus: this._orchestrator?.eventBus,
@@ -1639,21 +2165,56 @@ export const runtimeMixin = {
                         runStore: this._runStore,
                     });
 
-                    // 从 ingest 阶段获取 sources
-                    const sources = this.workflowData?.sources || [];
-                    const taskGoal = this.workflowData?.taskGoal || this._projectBrief?.taskGoal || '';
-                    const userConfig = {
-                        title: this._projectBrief?.projectSummary || taskGoal,
-                        audience: this._projectBrief?.audience,
-                        tone: this._projectBrief?.tone,
-                        ...this.workflowData?.userConfig,
-                    };
+                    const runId = ctx?.runId || this._currentRunId;
+
+                    // Prefer an explicit DeepSearchState (phase1/continueDeepSearchIteration passes { state }).
+                    const rawState = input?.state ?? input;
+                    let state = null;
+                    try {
+                        if (rawState instanceof DeepSearchState) {
+                            state = rawState;
+                        } else if (rawState && typeof rawState === 'object' && !Array.isArray(rawState)) {
+                            // Backward-compat: some callers used `{sources, taskGoal, userConfig}` (no L0),
+                            // normalize it into the DeepSearchState snapshot shape.
+                            const hasL0 = rawState && typeof rawState.L0 === 'object' && rawState.L0 !== null;
+                            const normalized = hasL0 ? rawState : {
+                                ...rawState,
+                                ...(Array.isArray(rawState.sources) ? { L0: { sources: rawState.sources } } : {}),
+                            };
+                            state = DeepSearchState.fromJSON(normalized);
+                        }
+                    } catch {
+                        state = null;
+                    }
+
+                    if (!state) {
+                        const sources =
+                            Array.isArray(this.workflowData?._deepsearchInput?.sources) ? this.workflowData._deepsearchInput.sources :
+                            Array.isArray(this.workflowData?.ingest?.sources) ? this.workflowData.ingest.sources :
+                            [];
+                        const assets =
+                            Array.isArray(this.workflowData?._deepsearchInput?.assets) ? this.workflowData._deepsearchInput.assets :
+                            Array.isArray(this.workflowData?.ingest?.assets) ? this.workflowData.ingest.assets :
+                            [];
+                        const taskGoal = this._deriveTaskGoal?.() || this.workflowData?.taskGoal || this._projectBrief?.taskGoal || '';
+                        const userConfig = {
+                            title: this._projectBrief?.projectSummary || taskGoal,
+                            audience: this._projectBrief?.audience,
+                            tone: this._projectBrief?.tone,
+                            ...this.workflowData?.userConfig,
+                        };
+                        state = new DeepSearchState({ runId, taskGoal, userConfig, L0: { sources, assets } });
+                    }
+
+                    if (typeof state.runId !== 'string' || !state.runId || state.runId === 'run_unknown') {
+                        state.runId = runId || state.runId;
+                    }
 
                     let contentPackage;
                     try {
                         contentPackage = await agentLoop.execute(
-                            { runId: ctx?.runId || this._currentRunId, mode: 'deepsearch' },
-                            { sources, taskGoal, userConfig },
+                            { runId, mode: 'deepsearch' },
+                            state,
                             stageApi
                         );
                     } catch (err) {
@@ -1673,8 +2234,16 @@ export const runtimeMixin = {
 
                     // 保存结果
                     this.workflowData.contentPackage = contentPackage;
+                    this.workflowData.report = contentPackage?.report || null;
+                    this.workflowData.slideIntents = contentPackage?.slideIntents || [];
                     this.workflowData.reportMarkdown = contentPackage?.report?.markdown || '';
                     this._deepsearchState = agentLoop._state; // 保留状态用于可视化
+
+                    // Persist artifacts for export/resume (best-effort, browser-only).
+                    await saveArtifact(runId, 'content_package.json', contentPackage, { mime: 'application/json' });
+                    if (agentLoop?._state && typeof agentLoop._state.toJSON === 'function') {
+                        await saveArtifact(runId, 'deepsearch_state.json', agentLoop._state.toJSON({ includeCheckpoints: false }), { mime: 'application/json' });
+                    }
 
                     return contentPackage;
                 } catch (err) {
@@ -1786,6 +2355,10 @@ export const runtimeMixin = {
                 // 更新 workflowData
                 this.workflowData.contentPackage = contentPackage;
                 this.workflowData.slideIntents = contentPackage?.slideIntents || [];
+
+                // Persist content package for export/resume (best-effort).
+                const runId = ctx?.runId || this._currentRunId;
+                await saveArtifact(runId, 'content_package.json', contentPackage, { mime: 'application/json' });
 
                 const slideCount = contentPackage?.slideIntents?.length || 0;
                 const claimCount = contentPackage?.claims?.length || 0;
@@ -2007,6 +2580,10 @@ export const runtimeMixin = {
 
                 persistDeckPackage(deckPackage);
 
+                // Persist deck package for export/resume (best-effort).
+                const runId = ctx?.runId || this._currentRunId;
+                await saveArtifact(runId, 'deck_package.json', deckPackage, { mime: 'application/json' });
+
                 progress(`设计完成：已生成 ${Array.isArray(deckPackage?.slidesMeta) ? deckPackage.slidesMeta.length : slideCount} 页`, 'success');
                 return deckPackage;
             } catch (err) {
@@ -2027,6 +2604,8 @@ export const runtimeMixin = {
                 };
 
                 persistDeckPackage(deckPackage);
+                const runId = ctx?.runId || this._currentRunId;
+                await saveArtifact(runId, 'deck_package.json', deckPackage, { mime: 'application/json' });
                 return deckPackage;
             }
         }, { actor: 'design', timeoutMs: (() => {
@@ -2074,6 +2653,8 @@ export const runtimeMixin = {
                 }
 
                 this.workflowData.evaluationReport = report;
+                const runId = ctx?.runId || this._currentRunId;
+                await saveArtifact(runId, 'evaluation_report.json', report, { mime: 'application/json' });
                 return report;
             } catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);

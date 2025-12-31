@@ -89,6 +89,17 @@ const NOISE_SELECTORS = [
   '.tags', '.tag-list', '.categories', '.meta', '.post-meta',
 ];
 
+const _unsupportedNoiseSelectorWarned = new Set();
+function warnUnsupportedNoiseSelectorOnce(selector, err) {
+  const key = typeof selector === "string" ? selector : String(selector ?? "");
+  if (!key) return;
+  if (_unsupportedNoiseSelectorWarned.has(key)) return;
+  _unsupportedNoiseSelectorWarned.add(key);
+
+  const message = err instanceof Error ? err.message : String(err);
+  console.warn(`[SmartContentExtractor] Unsupported selector "${key}": ${message}`);
+}
+
 // 跳过的文本模式
 const SKIP_PATTERNS = [
   /^https?:\/\/[^\s]+$/i,                          // 纯 URL
@@ -532,7 +543,9 @@ function removeNoiseElements(container) {
             el.remove();
             removed++;
           }
-        } catch (_) {}
+        } catch (err) {
+          warnUnsupportedNoiseSelectorOnce(sel, err);
+        }
       }
     }
   }

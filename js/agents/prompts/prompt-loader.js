@@ -4,8 +4,66 @@
  * 支持浏览器和 Node.js 环境
  */
 
-// 缓存已加载的提示词
+// 缓存已加载的提示词（LRU：避免长期运行内存无限增长）
 const promptCache = new Map();
+let promptCacheMaxEntries = 128;
+
+function resolvePromptCacheMaxEntries() {
+  const env = typeof process !== "undefined" ? process.env : null;
+  const fromEnv = env?.PB_PROMPT_CACHE_MAX_ENTRIES;
+  if (fromEnv !== undefined && fromEnv !== null) {
+    const parsed = parseInt(String(fromEnv), 10);
+    if (Number.isFinite(parsed)) return Math.max(0, parsed);
+  }
+
+  try {
+    const raw = typeof localStorage !== "undefined" ? localStorage.getItem("pb_promptCacheMaxEntries") : null;
+    if (raw) {
+      const parsed = parseInt(String(raw), 10);
+      if (Number.isFinite(parsed)) return Math.max(0, parsed);
+    }
+  } catch {}
+
+  return 128;
+}
+
+promptCacheMaxEntries = resolvePromptCacheMaxEntries();
+
+function enforcePromptCacheLimit() {
+  const limit = promptCacheMaxEntries;
+  if (!Number.isFinite(limit) || limit <= 0) return;
+  while (promptCache.size > limit) {
+    const oldest = promptCache.keys().next().value;
+    promptCache.delete(oldest);
+  }
+}
+
+function lruGet(key) {
+  if (!promptCache.has(key)) return undefined;
+  const value = promptCache.get(key);
+  // Refresh insertion order (Map iteration order) to approximate LRU.
+  promptCache.delete(key);
+  promptCache.set(key, value);
+  return value;
+}
+
+function lruSet(key, value) {
+  if (promptCache.has(key)) promptCache.delete(key);
+  promptCache.set(key, value);
+  enforcePromptCacheLimit();
+}
+
+export function configurePromptCache({ maxEntries } = {}) {
+  if (maxEntries !== undefined) {
+    const parsed = parseInt(String(maxEntries), 10);
+    if (!Number.isFinite(parsed)) {
+      throw new Error("configurePromptCache({ maxEntries }): maxEntries must be a finite integer");
+    }
+    promptCacheMaxEntries = Math.max(0, parsed);
+    enforcePromptCacheLimit();
+  }
+  return { maxEntries: promptCacheMaxEntries, size: promptCache.size };
+}
 
 /**
  * 获取提示词目录的基础路径
@@ -73,7 +131,7 @@ export async function loadPrompt(name, { cache = true } = {}) {
   }
 
   if (cache && promptCache.has(key)) {
-    return promptCache.get(key);
+    return lruGet(key);
   }
 
   const basePath = getBasePath();
@@ -112,7 +170,7 @@ export async function loadPrompt(name, { cache = true } = {}) {
 
   const trimmed = content.trim();
   if (cache) {
-    promptCache.set(key, trimmed);
+    lruSet(key, trimmed);
   }
   return trimmed;
 }
@@ -152,7 +210,7 @@ export function loadPromptSync(name, { cache = true } = {}) {
   }
 
   if (cache && promptCache.has(key)) {
-    return promptCache.get(key);
+    return lruGet(key);
   }
 
   // 浏览器环境检查
@@ -177,7 +235,7 @@ export function loadPromptSync(name, { cache = true } = {}) {
     const content = fs.readFileSync(fullPath, "utf-8").trim();
 
     if (cache) {
-      promptCache.set(key, content);
+      lruSet(key, content);
     }
     return content;
   } catch (e) {
@@ -231,4 +289,5 @@ export default {
   preloadPrompts,
   clearPromptCache,
   getCachedPromptNames,
+  configurePromptCache,
 };

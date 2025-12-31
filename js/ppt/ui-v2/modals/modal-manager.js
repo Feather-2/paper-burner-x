@@ -73,6 +73,7 @@ export class ModalManager {
         openPasteDocumentModal: generator.openPasteDocumentModal,
         openOutlinePlanner: generator.openOutlinePlanner,
         openArtifactsBrowser: generator.openArtifactsBrowser,
+        openPlansManager: generator.openPlansManager,
         openSkillsManager: generator.openSkillsManager,
         openApprovalsModal: generator.openApprovalsModal,
         confirmDialog: generator.confirmDialog
@@ -95,6 +96,7 @@ export class ModalManager {
     generator.openOutlinePlanner = (...args) => this.openOutlinePlanner(...args);
     generator.openBriefingModal = (...args) => this.openBriefingModal(...args);
     generator.openArtifactsBrowser = (...args) => this.openArtifactsBrowser(...args);
+    generator.openPlansManager = (...args) => this.openPlansManager(...args);
     generator.openSkillsManager = (...args) => this.openSkillsManager(...args);
     generator.openApprovalsModal = (...args) => this.openApprovalsModal(...args);
     generator.confirmDialog = (...args) => this.confirmDialog(...args);
@@ -326,16 +328,20 @@ export class ModalManager {
             </div>
           </div>
                 </div>
-                <div class="ppt-modal-footer">
-                    <button class="ppt-btn ppt-btn-secondary" data-action="closeHistoryModal">取消</button>
-                    <button class="ppt-btn ppt-btn-secondary" data-action="openArtifactsBrowser">
-                        <iconify-icon icon="solar:box-bold-duotone"></iconify-icon>
-                        Artifacts
-                    </button>
-                    <button class="ppt-btn ppt-btn-secondary" data-action="openSkillsManager">
-                        <iconify-icon icon="solar:book-2-bold-duotone"></iconify-icon>
-                        Skills
-                    </button>
+	                <div class="ppt-modal-footer">
+	                    <button class="ppt-btn ppt-btn-secondary" data-action="closeHistoryModal">取消</button>
+	                    <button class="ppt-btn ppt-btn-secondary" data-action="openArtifactsBrowser">
+	                        <iconify-icon icon="solar:box-bold-duotone"></iconify-icon>
+	                        Artifacts
+	                    </button>
+	                    <button class="ppt-btn ppt-btn-secondary" data-action="openPlansManager">
+	                        <iconify-icon icon="solar:clipboard-list-bold-duotone"></iconify-icon>
+	                        Plans
+	                    </button>
+	                    <button class="ppt-btn ppt-btn-secondary" data-action="openSkillsManager">
+	                        <iconify-icon icon="solar:book-2-bold-duotone"></iconify-icon>
+	                        Skills
+	                    </button>
                     <button class="ppt-btn ppt-btn-secondary" data-action="exportCurrentRunZip">
                         <iconify-icon icon="solar:download-minimalistic-bold-duotone"></iconify-icon>
                         导出当前 Run
@@ -366,14 +372,17 @@ export class ModalManager {
         if (action === 'importRunZip') {
           return () => this.importRunZip();
         }
-        if (action === 'openArtifactsBrowser') {
-          return () => this.openArtifactsBrowser();
-        }
-        if (action === 'openSkillsManager') {
-          return () => this.openSkillsManager();
-        }
-        return null;
-      });
+	        if (action === 'openArtifactsBrowser') {
+	          return () => this.openArtifactsBrowser();
+	        }
+	        if (action === 'openPlansManager') {
+	          return () => this.openPlansManager();
+	        }
+	        if (action === 'openSkillsManager') {
+	          return () => this.openSkillsManager();
+	        }
+	        return null;
+	      });
     }
 
     overlay.querySelectorAll('.ppt-history-tab').forEach((tab) => {
@@ -1608,14 +1617,17 @@ export class ModalManager {
         case 'openOutlinePlanner':
           this.openOutlinePlanner(payload?.suggestedOutline || payload?.outline);
           break;
-        case 'openArtifactsBrowser':
-          this.openArtifactsBrowser(payload);
-          break;
-        case 'openSkillsManager':
-          this.openSkillsManager(payload);
-          break;
-        case 'openApprovalsModal':
-          this.openApprovalsModal(payload);
+	        case 'openArtifactsBrowser':
+	          this.openArtifactsBrowser(payload);
+	          break;
+	        case 'openPlansManager':
+	          this.openPlansManager(payload);
+	          break;
+	        case 'openSkillsManager':
+	          this.openSkillsManager(payload);
+	          break;
+	        case 'openApprovalsModal':
+	          this.openApprovalsModal(payload);
           break;
         default:
           break;
@@ -1737,12 +1749,12 @@ export class ModalManager {
     }
   }
 
-  async openArtifactsBrowser({ runId } = {}) {
-    const generator = this._ensureGenerator();
-    const store = generator?._runStore;
-    const id = typeof runId === 'string' && runId.trim()
-      ? runId.trim()
-      : (typeof generator?._currentRunId === 'string' ? generator._currentRunId : null);
+	  async openArtifactsBrowser({ runId } = {}) {
+	    const generator = this._ensureGenerator();
+	    const store = generator?._runStore;
+	    const id = typeof runId === 'string' && runId.trim()
+	      ? runId.trim()
+	      : (typeof generator?._currentRunId === 'string' ? generator._currentRunId : null);
 
     const modalId = 'pptArtifactsBrowserModal';
     const overlay = this._openOrCreateModal({
@@ -1832,8 +1844,378 @@ export class ModalManager {
       </div>
     `;
 
-    await this._selectArtifact(modalId, this[stateKey].selected);
-  }
+	    await this._selectArtifact(modalId, this[stateKey].selected);
+	  }
+
+	  async openPlansManager({ runId } = {}) {
+	    const generator = this._ensureGenerator();
+	    const store = generator?._runStore;
+	    const id = typeof runId === 'string' && runId.trim()
+	      ? runId.trim()
+	      : (typeof generator?._currentRunId === 'string' ? generator._currentRunId : null);
+
+	    const modalId = 'pptPlansManagerModal';
+	    const overlay = this._openOrCreateModal({
+	      id: modalId,
+	      className: 'ppt-plans-manager-modal',
+	      titleHtml: `
+	        <iconify-icon icon="solar:clipboard-list-bold-duotone"></iconify-icon>
+	        <span>Plans</span>
+	      `,
+	      bodyHtml: `<div class="ppt-history-loading"><iconify-icon icon="svg-spinners:180-ring"></iconify-icon> 加载中...</div>`,
+	      footerHtml: `
+	        <button class="ppt-btn ppt-btn-primary" data-action="resumeSelectedPlan">继续执行</button>
+	        <button class="ppt-btn ppt-btn-secondary" data-action="restoreSelectedPlan">仅恢复</button>
+	        <button class="ppt-btn ppt-btn-secondary" data-action="refreshPlans">刷新</button>
+	        <button class="ppt-btn ppt-btn-secondary" data-action="openArtifactsBrowser">打开 Artifacts</button>
+	        <button class="ppt-btn ppt-btn-secondary" data-action="closeModal" data-modal-id="${escapeAttr(modalId)}">关闭</button>
+	      `,
+	      actions: {
+	        restoreSelectedPlan: () => this._restorePlanArtifact?.(modalId, this[`__plans_${modalId}`]?.selected),
+	        resumeSelectedPlan: () => this._resumePlanArtifact?.(modalId, this[`__plans_${modalId}`]?.selected),
+	        refreshPlans: () => this.openPlansManager({ runId: id }),
+	        openArtifactsBrowser: () => this.openArtifactsBrowser({ runId: id }),
+	        selectPlanArtifact: ({ payload }) => this._selectPlanArtifact?.(modalId, payload?.artifactId),
+	      },
+	    });
+
+	    if (!overlay) return;
+
+	    if (!store || !id) {
+	      overlay.querySelector('.ppt-modal-body').innerHTML = `<div style="padding:12px;color:var(--ppt-text-secondary);">RunStore 或 runId 不可用，无法浏览 plans。</div>`;
+	      return;
+	    }
+
+	    let artifacts = [];
+	    try {
+	      artifacts = await store.listArtifacts(id);
+	    } catch {
+	      artifacts = [];
+	    }
+
+	    const plans = artifacts
+	      .filter((a) => a && typeof a === 'object' && a.type === 'plan.json')
+	      .sort((a, b) => Number(b.seq || 0) - Number(a.seq || 0));
+
+	    const stateKey = `__plans_${modalId}`;
+	    this[stateKey] = {
+	      runId: id,
+	      artifacts: plans,
+	      selected: this[stateKey]?.selected || plans[0]?.artifactId || null,
+	    };
+
+	    const renderListItem = (a) => {
+	      const selected = a.artifactId === this[stateKey].selected ? 'style="background: rgba(79,70,229,0.10); border-color: rgba(79,70,229,0.35);"' : '';
+	      const createdAt = typeof a.createdAt === 'string' ? a.createdAt : '';
+	      const bytes = typeof a.bytes === 'number' ? formatSize(a.bytes) : '';
+	      return `
+	        <button class="ppt-btn ppt-btn-secondary" data-action="selectPlanArtifact" data-artifact-id="${escapeAttr(a.artifactId)}" ${selected}
+	          style="width:100%; text-align:left; justify-content:flex-start; gap:10px; padding:10px 12px; border-radius: 12px; display:flex; flex-direction:column; align-items:flex-start;">
+	          <div style="display:flex; width:100%; align-items:center; justify-content:space-between; gap:8px;">
+	            <div style="font-weight:700; font-size: 13px; color: var(--ppt-text-main);">plan.json · #${escapeHtml(String(a.seq ?? ''))}</div>
+	            <div style="font-size: 12px; color: var(--ppt-text-secondary);">${escapeHtml(bytes)}</div>
+	          </div>
+	          <div style="font-size: 12px; color: var(--ppt-text-secondary);">
+	            <code>${escapeHtml(a.artifactId)}</code>${createdAt ? ` · ${escapeHtml(createdAt)}` : ''}
+	          </div>
+	        </button>
+	      `;
+	    };
+
+	    overlay.querySelector('.ppt-modal-body').innerHTML = `
+	      <div style="display:grid; grid-template-columns: 320px 1fr; gap: 12px; min-height: 420px;">
+	        <div class="custom-scrollbar" style="overflow:auto; max-height: 70vh; padding-right: 4px;">
+	          ${plans.length ? plans.map(renderListItem).join('') : `<div style="padding:12px;color:var(--ppt-text-secondary);">暂无 plan.json artifacts。</div>`}
+	        </div>
+	        <div id="${escapeAttr(modalId)}_preview" class="custom-scrollbar" style="overflow:auto; max-height: 70vh; border: 1px solid rgba(148,163,184,0.25); border-radius: 14px; padding: 12px; background: rgba(15,23,42,0.02);">
+	          <div style="color: var(--ppt-text-secondary); font-size: 12px;">选择一个 plan artifact 以预览</div>
+	        </div>
+	      </div>
+	    `;
+
+	    if (this[stateKey].selected) {
+	      await this._selectPlanArtifact(modalId, this[stateKey].selected);
+	    }
+	  }
+
+	  async _selectPlanArtifact(modalId, artifactId) {
+	    if (!modalId || typeof document === 'undefined') return;
+	    const overlay = document.getElementById(modalId);
+	    if (!overlay) return;
+	    const generator = this._ensureGenerator();
+	    const store = generator?._runStore;
+	    const stateKey = `__plans_${modalId}`;
+	    const state = this[stateKey];
+	    if (!state || !store) return;
+	    const id = typeof artifactId === 'string' ? artifactId : null;
+	    if (!id) return;
+	    state.selected = id;
+
+	    overlay.querySelectorAll('[data-action="selectPlanArtifact"]').forEach((btn) => {
+	      if (btn.dataset.artifactId === id) {
+	        btn.style.background = 'rgba(79,70,229,0.10)';
+	        btn.style.borderColor = 'rgba(79,70,229,0.35)';
+	      } else {
+	        btn.style.background = '';
+	        btn.style.borderColor = '';
+	      }
+	    });
+
+	    const previewEl = overlay.querySelector(`#${escapeCssSelector(modalId)}_preview`);
+	    if (!previewEl) return;
+
+	    let data = null;
+	    try {
+	      if (typeof store.getArtifactById === 'function') {
+	        data = await store.getArtifactById(id);
+	      } else {
+	        data = await store.getArtifact(state.runId, 'plan.json');
+	      }
+	    } catch (err) {
+	      data = { error: err instanceof Error ? err.message : String(err) };
+	    }
+
+	    const plan = data && typeof data === 'object' && !Array.isArray(data) ? data : null;
+	    const title = typeof plan?.title === 'string' ? plan.title : '';
+	    const planId = typeof plan?.planId === 'string' ? plan.planId : '';
+	    const updatedAt = typeof plan?.updatedAt === 'string' ? plan.updatedAt : '';
+	    const lifecycleStatus = typeof plan?.lifecycleStatus === 'string' ? plan.lifecycleStatus : '';
+	    const selectedIdx = typeof plan?.selectedStepIndex === 'number' ? plan.selectedStepIndex : null;
+	    const steps = Array.isArray(plan?.steps) ? plan.steps : [];
+
+	    let jsonText = '';
+	    try { jsonText = JSON.stringify(data, null, 2); } catch { jsonText = String(data); }
+	    if (jsonText.length > 20000) jsonText = jsonText.slice(0, 20000) + '\n...(truncated)';
+
+	    const renderStep = (s, idx) => {
+	      const stepId = typeof s?.stepId === 'string' ? s.stepId : `step_${idx + 1}`;
+	      const stepTitle = typeof s?.title === 'string' ? s.title : stepId;
+	      const status = typeof s?.status === 'string' ? s.status : '';
+	      const isSelected = selectedIdx === idx;
+	      const dot = status === 'completed'
+	        ? '#22c55e'
+	        : (status === 'failed' ? '#ef4444' : (status === 'in_progress' ? '#6366f1' : '#94a3b8'));
+	      return `
+	        <div style="display:flex; align-items:flex-start; gap:10px; padding:8px 10px; border-radius: 12px; border: 1px solid rgba(148,163,184,0.25); background: ${isSelected ? 'rgba(99,102,241,0.08)' : 'rgba(255,255,255,0.7)'};">
+	          <span style="width:10px; height:10px; border-radius:50%; margin-top:4px; background:${dot}; flex:0 0 auto;"></span>
+	          <div style="display:flex; flex-direction:column; gap:2px;">
+	            <div style="font-size: 13px; font-weight: 700; color: var(--ppt-text-main);">${escapeHtml(stepTitle)}</div>
+	            <div style="font-size: 12px; color: var(--ppt-text-secondary);"><code>${escapeHtml(stepId)}</code>${status ? ` · <code>${escapeHtml(status)}</code>` : ''}</div>
+	          </div>
+	        </div>
+	      `;
+	    };
+
+	    previewEl.innerHTML = `
+	      <div style="display:flex; flex-direction:column; gap: 12px;">
+	        <div>
+	          <div style="font-size: 13px; font-weight: 800; color: var(--ppt-text-main);">${escapeHtml(title || 'Plan')}</div>
+	          <div style="font-size: 12px; color: var(--ppt-text-secondary);">
+	            ${planId ? `planId: <code>${escapeHtml(planId)}</code>` : ''}
+	            ${updatedAt ? `${planId ? ' · ' : ''}updatedAt: <code>${escapeHtml(updatedAt)}</code>` : ''}
+	            ${lifecycleStatus ? `${(planId || updatedAt) ? ' · ' : ''}lifecycle: <code>${escapeHtml(lifecycleStatus)}</code>` : ''}
+	          </div>
+	        </div>
+	        ${steps.length ? `
+	          <div style="display:flex; flex-direction:column; gap: 8px;">
+	            ${steps.map(renderStep).join('')}
+	          </div>
+	        ` : `<div style="color: var(--ppt-text-secondary); font-size: 12px;">无 steps</div>`}
+	        <details>
+	          <summary style="cursor:pointer; font-size: 12px; color: var(--ppt-text-secondary);">Raw JSON</summary>
+	          <pre class="custom-scrollbar" style="margin-top:10px; max-height: 320px; overflow:auto; background: rgba(15,23,42,0.04); border:1px solid rgba(148,163,184,0.25); padding:10px; border-radius: 12px; font-size: 12px; line-height: 1.4;">${escapeHtml(jsonText)}</pre>
+	        </details>
+	      </div>
+	    `;
+	  }
+
+	  async _restorePlanArtifact(modalId, artifactId) {
+	    const generator = this._ensureGenerator();
+	    const store = generator?._runStore;
+	    const id = typeof artifactId === 'string' ? artifactId.trim() : '';
+	    if (!id) return;
+
+	    const overlay = typeof document !== 'undefined' ? document.getElementById(modalId) : null;
+	    const previewEl = overlay?.querySelector?.(`#${escapeCssSelector(modalId)}_preview`) || null;
+	    const stateKey = `__plans_${modalId}`;
+	    const runId = this[stateKey]?.runId || generator?._currentRunId || null;
+
+	    if (!store || typeof store.getArtifactById !== 'function' || !runId) {
+	      if (previewEl) {
+	        previewEl.insertAdjacentHTML('afterbegin', `<div style="padding:8px 10px; border:1px solid rgba(248,113,113,0.35); background: rgba(248,113,113,0.08); border-radius: 12px; color: var(--ppt-text-main); margin-bottom: 10px;">恢复失败：RunStore/runId 不可用。</div>`);
+	      }
+	      return;
+	    }
+
+	    const ok = await this.confirmDialog({
+	      title: '恢复 Plan',
+	      message: `确认将所选计划设为当前执行计划？这会创建一个新的 plan.json 版本（保留历史）。\n\nartifactId: ${id}`,
+	      confirmText: '恢复',
+	      cancelText: '取消',
+	    });
+	    if (!ok) return;
+
+	    let raw = null;
+	    try {
+	      raw = await store.getArtifactById(id);
+	    } catch (err) {
+	      raw = { error: err instanceof Error ? err.message : String(err) };
+	    }
+
+	    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+	      if (previewEl) {
+	        previewEl.insertAdjacentHTML('afterbegin', `<div style="padding:8px 10px; border:1px solid rgba(248,113,113,0.35); background: rgba(248,113,113,0.08); border-radius: 12px; color: var(--ppt-text-main); margin-bottom: 10px;">恢复失败：artifact 内容不是有效 plan 对象。</div>`);
+	      }
+	      return;
+	    }
+
+	    try {
+	      const { createPlan, PlanLifecycleStatus } = await import('../../../agents/runtime/plan/plan-store.js');
+	      const ts = new Date().toISOString();
+	      const restored = createPlan({
+	        runId,
+	        planId: raw.planId,
+	        kind: raw.kind,
+	        title: raw.title,
+	        steps: raw.steps,
+	        selectedStepIndex: raw.selectedStepIndex,
+	        lifecycleStatus: PlanLifecycleStatus.DRAFT,
+	        meta: {
+	          ...(raw.meta && typeof raw.meta === 'object' && !Array.isArray(raw.meta) ? raw.meta : {}),
+	          restoredFromArtifactId: id,
+	          restoredFromLifecycleStatus: typeof raw.lifecycleStatus === 'string' ? raw.lifecycleStatus : null,
+	          restoredAt: ts,
+	        },
+	      });
+
+	      generator._workflowPlan = restored;
+
+	      let newArtifactId = null;
+	      if (typeof generator._persistWorkflowPlan === 'function') {
+	        newArtifactId = await generator._persistWorkflowPlan({ reason: `restore:${id}`, eventName: 'ui.plan.restore' });
+	      } else {
+	        newArtifactId = await store.saveArtifact(runId, 'plan.json', restored, { mime: 'application/json' });
+	      }
+	      if (newArtifactId && generator) generator._workflowPlanLatestArtifactId = newArtifactId;
+
+	      if (this[stateKey]) this[stateKey].selected = newArtifactId || this[stateKey].selected;
+
+	      if (previewEl) {
+	        previewEl.insertAdjacentHTML(
+	          'afterbegin',
+	          `<div style="padding:8px 10px; border:1px solid rgba(34,197,94,0.35); background: rgba(34,197,94,0.08); border-radius: 12px; color: var(--ppt-text-main); margin-bottom: 10px;">恢复成功：已写入新版本 <code>${escapeHtml(newArtifactId || '')}</code></div>`
+	        );
+	      }
+
+	      // Refresh list to surface the new version.
+	      await this.openPlansManager({ runId });
+	    } catch (err) {
+	      const msg = err instanceof Error ? err.message : String(err);
+	      if (previewEl) {
+	        previewEl.insertAdjacentHTML('afterbegin', `<div style="padding:8px 10px; border:1px solid rgba(248,113,113,0.35); background: rgba(248,113,113,0.08); border-radius: 12px; color: var(--ppt-text-main); margin-bottom: 10px;">恢复失败：${escapeHtml(msg)}</div>`);
+	      }
+	    }
+	  }
+
+	  async _resumePlanArtifact(modalId, artifactId) {
+	    const generator = this._ensureGenerator();
+	    const store = generator?._runStore;
+	    const id = typeof artifactId === 'string' ? artifactId.trim() : '';
+	    if (!id) return;
+
+	    const overlay = typeof document !== 'undefined' ? document.getElementById(modalId) : null;
+	    const previewEl = overlay?.querySelector?.(`#${escapeCssSelector(modalId)}_preview`) || null;
+	    const stateKey = `__plans_${modalId}`;
+	    const runId = this[stateKey]?.runId || generator?._currentRunId || null;
+
+	    if (!store || typeof store.getArtifactById !== 'function' || !runId) {
+	      if (previewEl) {
+	        previewEl.insertAdjacentHTML('afterbegin', `<div style="padding:8px 10px; border:1px solid rgba(248,113,113,0.35); background: rgba(248,113,113,0.08); border-radius: 12px; color: var(--ppt-text-main); margin-bottom: 10px;">继续执行失败：RunStore/runId 不可用。</div>`);
+	      }
+	      return;
+	    }
+
+	    if (generator?._currentRunId && generator._currentRunId !== runId) {
+	      if (previewEl) {
+	        previewEl.insertAdjacentHTML('afterbegin', `<div style="padding:8px 10px; border:1px solid rgba(248,113,113,0.35); background: rgba(248,113,113,0.08); border-radius: 12px; color: var(--ppt-text-main); margin-bottom: 10px;">继续执行失败：当前会话 runId 与所选 runId 不一致（${escapeHtml(generator._currentRunId)} vs ${escapeHtml(runId)}）。</div>`);
+	      }
+	      return;
+	    }
+
+	    const ok = await this.confirmDialog({
+	      title: '继续执行',
+	      message: `确认从所选 Plan 的 selected step 继续执行？这会创建一个新的 plan.json 版本（保留历史），并尝试从已落盘的 artifacts 进行恢复。\n\nartifactId: ${id}`,
+	      confirmText: '继续',
+	      cancelText: '取消',
+	    });
+	    if (!ok) return;
+
+	    let raw = null;
+	    try {
+	      raw = await store.getArtifactById(id);
+	    } catch (err) {
+	      raw = { error: err instanceof Error ? err.message : String(err) };
+	    }
+
+	    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+	      if (previewEl) {
+	        previewEl.insertAdjacentHTML('afterbegin', `<div style="padding:8px 10px; border:1px solid rgba(248,113,113,0.35); background: rgba(248,113,113,0.08); border-radius: 12px; color: var(--ppt-text-main); margin-bottom: 10px;">继续执行失败：artifact 内容不是有效 plan 对象。</div>`);
+	      }
+	      return;
+	    }
+
+	    try {
+	      const { createPlan, PlanLifecycleStatus } = await import('../../../agents/runtime/plan/plan-store.js');
+	      const ts = new Date().toISOString();
+	      const restored = createPlan({
+	        runId,
+	        planId: raw.planId,
+	        kind: raw.kind,
+	        title: raw.title,
+	        steps: raw.steps,
+	        selectedStepIndex: raw.selectedStepIndex,
+	        lifecycleStatus: PlanLifecycleStatus.APPROVED,
+	        meta: {
+	          ...(raw.meta && typeof raw.meta === 'object' && !Array.isArray(raw.meta) ? raw.meta : {}),
+	          restoredFromArtifactId: id,
+	          restoredFromLifecycleStatus: typeof raw.lifecycleStatus === 'string' ? raw.lifecycleStatus : null,
+	          restoredAt: ts,
+	          resumedAt: ts,
+	        },
+	      });
+
+	      generator._workflowPlan = restored;
+
+	      let newArtifactId = null;
+	      if (typeof generator._persistWorkflowPlan === 'function') {
+	        newArtifactId = await generator._persistWorkflowPlan({ reason: `resume:restore:${id}`, eventName: 'ui.plan.resume' });
+	      } else {
+	        newArtifactId = await store.saveArtifact(runId, 'plan.json', restored, { mime: 'application/json' });
+	      }
+	      if (newArtifactId && generator) generator._workflowPlanLatestArtifactId = newArtifactId;
+	      if (this[stateKey]) this[stateKey].selected = newArtifactId || this[stateKey].selected;
+
+	      if (typeof generator?.resumeWorkflowFromPlan === 'function') {
+	        await generator.resumeWorkflowFromPlan({ runId });
+	      } else {
+	        throw new Error('generator.resumeWorkflowFromPlan() not available');
+	      }
+
+	      if (previewEl) {
+	        previewEl.insertAdjacentHTML(
+	          'afterbegin',
+	          `<div style="padding:8px 10px; border:1px solid rgba(34,197,94,0.35); background: rgba(34,197,94,0.08); border-radius: 12px; color: var(--ppt-text-main); margin-bottom: 10px;">已开始继续执行：<code>${escapeHtml(newArtifactId || '')}</code></div>`
+	        );
+	      }
+
+	      await this.openPlansManager({ runId });
+	    } catch (err) {
+	      const msg = err instanceof Error ? err.message : String(err);
+	      if (previewEl) {
+	        previewEl.insertAdjacentHTML('afterbegin', `<div style="padding:8px 10px; border:1px solid rgba(248,113,113,0.35); background: rgba(248,113,113,0.08); border-radius: 12px; color: var(--ppt-text-main); margin-bottom: 10px;">继续执行失败：${escapeHtml(msg)}</div>`);
+	      }
+	    }
+	  }
 
   async _selectArtifact(modalId, artifactId) {
     if (!modalId || typeof document === 'undefined') return;

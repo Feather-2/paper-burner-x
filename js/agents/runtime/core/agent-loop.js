@@ -1,5 +1,6 @@
 import { createStageApi } from "../../shared/utils/stage-api.js";
 import { StagePausedError } from "./stage-errors.js";
+import { AgentStatus, isValidAgentStatus } from "./agent-status.js";
 import { getRuntimeState } from "../telemetry/loop-runtime-state.js";
 import { estimateTokenCount } from "../../shared/utils/value-utils.js";
 
@@ -19,6 +20,62 @@ function estimateTokens(text) {
   if (!text) return 0;
   const rawText = typeof text === "string" ? text : JSON.stringify(text);
   return estimateTokenCount(rawText);
+}
+
+function isProductionRuntime() {
+  try {
+    const env = typeof process !== "undefined" ? process.env : null;
+    if (env && typeof env.NODE_ENV === "string") return env.NODE_ENV === "production";
+  } catch {}
+  try {
+    const mode = import.meta?.env?.MODE;
+    if (typeof mode === "string") return mode === "production";
+  } catch {}
+  return false;
+}
+
+function parseBooleanish(value) {
+  if (value === true || value === false) return value;
+  const s = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (!s) return undefined;
+  if (["1", "true", "yes", "y", "on", "enabled"].includes(s)) return true;
+  if (["0", "false", "no", "n", "off", "disabled"].includes(s)) return false;
+  return undefined;
+}
+
+function resolveStrictLoopStatusTransitions(explicit) {
+  if (explicit === true || explicit === false) return explicit;
+
+  const env = typeof process !== "undefined" ? process.env : null;
+  const fromEnv = parseBooleanish(env?.PB_STRICT_LOOP_STATUS_TRANSITIONS);
+  if (typeof fromEnv === "boolean") return fromEnv;
+
+  try {
+    const raw = typeof localStorage !== "undefined" ? localStorage.getItem("pb_strictLoopStatusTransitions") : null;
+    const fromStorage = parseBooleanish(raw);
+    if (typeof fromStorage === "boolean") return fromStorage;
+  } catch {}
+
+  // Default: enforce in production, warn-only elsewhere.
+  return isProductionRuntime();
+}
+
+const DEFAULT_LOOP_STATUS_TRANSITIONS = Object.freeze({
+  [AgentStatus.IDLE]: [AgentStatus.RUNNING, AgentStatus.COMPLETED, AgentStatus.FAILED],
+  [AgentStatus.RUNNING]: [AgentStatus.PAUSED, AgentStatus.COMPLETED, AgentStatus.FAILED],
+  [AgentStatus.PAUSED]: [AgentStatus.RUNNING, AgentStatus.COMPLETED, AgentStatus.FAILED],
+  [AgentStatus.COMPLETED]: [AgentStatus.IDLE],
+  [AgentStatus.FAILED]: [AgentStatus.IDLE],
+});
+
+function isAllowedLoopStatusTransition(from, to, meta = {}) {
+  if (meta && typeof meta === "object") {
+    if (meta.force) return true;
+    if (meta.allowReset && to === AgentStatus.IDLE) return true;
+  }
+  if (!isValidAgentStatus(from) || !isValidAgentStatus(to)) return true;
+  const allowed = DEFAULT_LOOP_STATUS_TRANSITIONS[from] || [];
+  return allowed.includes(to);
 }
 
 export function getEmitFn(ctx) {
@@ -126,7 +183,7 @@ export class BaseStage {
 }
 
 export class BaseAgentLoop {
-  constructor({ eventBus, stateMachine, tools, actor, stageName, emit, hooks, contextConfig, logger } = {}) {
+  constructor({ eventBus, stateMachine, tools, actor, stageName, emit, hooks, contextConfig, logger, strictLoopStatus } = {}) {
     this.eventBus = eventBus || null;
     this.logger = logger || null;
     this.stateMachine = stateMachine || null;
@@ -139,6 +196,7 @@ export class BaseAgentLoop {
     this._loopMachine = null;
     this._loopEventName = null;
     this._loopStatus = null;
+    this._strictLoopStatusTransitions = resolveStrictLoopStatusTransitions(strictLoopStatus);
     this._statusHistory = [];
     this._pauseRequested = false;
     this._pauseReason = null;
@@ -684,10 +742,11 @@ export class BaseAgentLoop {
     return Array.isArray(this._statusHistory) ? [...this._statusHistory] : [];
   }
 
-  initLoopStatus({ status, machine, eventName } = {}) {
+  initLoopStatus({ status, machine, eventName, strict } = {}) {
     if (machine) this._loopMachine = machine;
     if (eventName) this._loopEventName = eventName;
     if (status) this._loopStatus = status;
+    if (typeof strict === "boolean") this._strictLoopStatusTransitions = strict;
     if (!Array.isArray(this._statusHistory)) this._statusHistory = [];
   }
 
@@ -711,8 +770,40 @@ export class BaseAgentLoop {
   _transitionLoopStatus(newStatus, metadata = {}) {
     const oldStatus = this._loopStatus;
     if (oldStatus === newStatus) return null;
-    // 简化：移除状态机验证，直接记录状态转换
-    return this._recordLoopStatusTransition({ from: oldStatus, to: newStatus, ...metadata });
+
+    const meta = metadata && typeof metadata === "object" ? metadata : {};
+    const from = oldStatus;
+    const to = newStatus;
+
+    let ok = true;
+    const machine = this._loopMachine;
+    if (machine) {
+      try {
+        if (typeof machine === "function") ok = machine(from, to, meta) !== false;
+        else if (typeof machine.canTransition === "function") ok = machine.canTransition(from, to, meta) !== false;
+        else if (typeof machine.transition === "function") ok = machine.transition(from, to, meta) !== false;
+      } catch (err) {
+        ok = false;
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger?.warn?.(`[agent-loop] loopStatus machine threw: ${message}`);
+      }
+    } else {
+      ok = isAllowedLoopStatusTransition(from, to, meta);
+    }
+
+    if (!ok) {
+      const strict = typeof meta.strict === "boolean" ? meta.strict : this._strictLoopStatusTransitions;
+      const msg = `${this.stageName} loopStatus transition rejected: ${from} -> ${to}`;
+      if (strict) throw new Error(msg);
+      if (this.logger && typeof this.logger.warn === "function") {
+        this.logger.warn(msg);
+      } else {
+        console.warn(msg);
+      }
+      return this._recordLoopStatusTransition({ from: oldStatus, to: newStatus, invalid: true, ...meta });
+    }
+
+    return this._recordLoopStatusTransition({ from: oldStatus, to: newStatus, ...meta });
   }
 
   _attachUserInputListener(eventBus, { eventName } = {}) {

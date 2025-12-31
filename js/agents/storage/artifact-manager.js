@@ -8,6 +8,7 @@ export const SUPPORTED_ARTIFACT_TYPES = [
   "evaluation_report.json",
   "deepsearch_state.json",
   "condensed_memory.json",
+  "plan.json",
   "tool_output.json",
   "vfs_checkpoint.json",
   "events.jsonl",

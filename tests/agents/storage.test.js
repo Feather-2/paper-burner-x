@@ -143,6 +143,7 @@ test("RunExporter: zip export/import roundtrip", async () => {
   const { RunStore } = await import("../../js/agents/storage/run-store.js");
   const { createManifest, addArtifactToManifest, generateArtifactId } = await import("../../js/agents/storage/artifact-manager.js");
   const { exportRunAsZip, importRunFromZip } = await import("../../js/agents/storage/run-exporter.js");
+  const { createPlan } = await import("../../js/agents/runtime/plan/plan-store.js");
 
   const dbName1 = makeDbName("zip_src");
   await RunStore.deleteDatabase({ dbName: dbName1 });
@@ -159,18 +160,38 @@ test("RunExporter: zip export/import roundtrip", async () => {
 
   const contentPkg = { kind: "content", ok: true };
   const deckPkg = { kind: "deck", slides: 2 };
+  const plan1 = createPlan({
+    runId,
+    title: "Plan v1",
+    kind: "workflow_plan",
+    steps: [{ stepId: "s1", title: "Step 1", status: "in_progress" }],
+    selectedStepIndex: 0,
+  });
+  const plan2 = createPlan({
+    runId,
+    title: "Plan v2",
+    kind: "workflow_plan",
+    steps: [{ stepId: "s1", title: "Step 1", status: "completed" }, { stepId: "s2", title: "Step 2", status: "in_progress" }],
+    selectedStepIndex: 1,
+  });
 
   const art1 = generateArtifactId(runId, "content_package.json", 1);
   const art2 = generateArtifactId(runId, "deck_package.json", 1);
   const art3 = generateArtifactId(runId, "events.jsonl", 1);
+  const art4 = generateArtifactId(runId, "plan.json", 1);
+  const art5 = generateArtifactId(runId, "plan.json", 2);
 
   await store1.saveArtifact(runId, "content_package.json", contentPkg, { artifactId: art1, storageKey: `runs/${runId}/content_package.json` });
   await store1.saveArtifact(runId, "deck_package.json", deckPkg, { artifactId: art2, storageKey: `runs/${runId}/deck_package.json` });
+  await store1.saveArtifact(runId, "plan.json", plan1, { artifactId: art4, storageKey: `runs/${runId}/plan.json`, seq: 1 });
+  await store1.saveArtifact(runId, "plan.json", plan2, { artifactId: art5, storageKey: `runs/${runId}/plan.json`, seq: 2 });
 
   const manifest = createManifest(runId);
   addArtifactToManifest(manifest, { artifactId: art1, type: "content_package.json", mime: "application/json", storageKey: `runs/${runId}/content_package.json` });
   addArtifactToManifest(manifest, { artifactId: art2, type: "deck_package.json", mime: "application/json", storageKey: `runs/${runId}/deck_package.json` });
   addArtifactToManifest(manifest, { artifactId: art3, type: "events.jsonl", mime: "application/x-ndjson", storageKey: `runs/${runId}/events.jsonl` });
+  addArtifactToManifest(manifest, { artifactId: art4, type: "plan.json", mime: "application/json", storageKey: `runs/${runId}/plan.json` });
+  addArtifactToManifest(manifest, { artifactId: art5, type: "plan.json", mime: "application/json", storageKey: `runs/${runId}/plan.json` });
   await store1.updateManifest(runId, manifest);
 
   const zipBlob = await exportRunAsZip(runId, { runStore: store1 });
@@ -187,11 +208,16 @@ test("RunExporter: zip export/import roundtrip", async () => {
 
   assert.deepEqual(await store2.getArtifact(runId, "content_package.json"), contentPkg);
   assert.deepEqual(await store2.getArtifact(runId, "deck_package.json"), deckPkg);
+  assert.deepEqual(await store2.getArtifact(runId, "plan.json"), plan2);
   assert.deepEqual(await store2.getEvents(runId), events);
 
   const backManifest = await store2.getManifest(runId);
   assert.equal(backManifest.runId, runId);
   assert.ok(backManifest.artifacts.some((a) => a.type === "events.jsonl"));
+  assert.ok(backManifest.artifacts.some((a) => a.type === "plan.json"));
+
+  const importedPlans = (await store2.listArtifacts(runId)).filter((a) => a && a.type === "plan.json");
+  assert.equal(importedPlans.length, 2);
 
   await store2.close();
   await RunStore.deleteDatabase({ dbName: dbName1 });
@@ -212,3 +238,71 @@ test("RunStore: storage quota detection does not throw", async () => {
   await RunStore.deleteDatabase({ dbName });
 });
 
+test("PlanStore: create/save/update plan artifacts", async () => {
+  const { RunStore } = await import("../../js/agents/storage/run-store.js");
+  const {
+    PLAN_ARTIFACT_TYPE,
+    createPlan,
+    findPlanStepIndex,
+    normalizePlanStep,
+    savePlan,
+    setPlanStepStatus,
+  } = await import("../../js/agents/runtime/plan/plan-store.js");
+
+  const dbName = makeDbName("plan");
+  await RunStore.deleteDatabase({ dbName });
+
+  const store = new RunStore({ dbName });
+  const runId = "run_test_plan";
+  await store.createRun({ schemaVersion: "0.1", runId, mode: "deepsearch", constraints: {}, startedAt: new Date().toISOString() });
+
+  const plan = createPlan({
+    runId,
+    title: "Workflow Plan",
+    kind: "workflow_plan",
+    selectedStepIndex: 99,
+    steps: [
+      { stepId: "ingest", title: "Ingest", status: "pending" },
+      { stepId: "analyze", title: "Analyze", status: "pending" },
+    ],
+    meta: { source: "test" },
+  });
+
+  assert.equal(plan.schemaVersion, "0.1");
+  assert.equal(plan.runId, runId);
+  assert.equal(plan.steps.length, 2);
+  assert.equal(plan.selectedStepIndex, 1);
+  assert.equal(findPlanStepIndex(plan, 0), 0);
+  assert.equal(findPlanStepIndex(plan, "analyze"), 1);
+  assert.equal(findPlanStepIndex(plan, "missing"), -1);
+
+  const normalized = normalizePlanStep({ stepId: "x", status: "weird" }, { fallbackIndex: 0 });
+  assert.equal(normalized.status, "pending");
+
+  const art1 = await savePlan({ runStore: store, runId, plan, type: PLAN_ARTIFACT_TYPE });
+  assert.ok(typeof art1 === "string" && art1.startsWith(`art_${runId}_${PLAN_ARTIFACT_TYPE.replaceAll("/", "_")}_`));
+
+  const updated1 = setPlanStepStatus(plan, "ingest", "in_progress");
+  const updated2 = setPlanStepStatus(updated1, 1, "completed", { select: false });
+
+  assert.equal(updated2.steps[0].status, "in_progress");
+  assert.equal(updated2.steps[1].status, "completed");
+  assert.equal(updated2.selectedStepIndex, 0);
+
+  assert.throws(() => setPlanStepStatus(plan, "ingest", "nope"), /invalid status/i);
+
+  const art2 = await savePlan({ runStore: store, runId, plan: updated2 });
+  assert.notEqual(art2, art1);
+
+  const loaded = await store.getArtifactById(art2);
+  assert.equal(loaded.planId, plan.planId);
+  assert.equal(loaded.steps[0].status, "in_progress");
+  assert.equal(loaded.steps[1].status, "completed");
+
+  const artifacts = await store.listArtifacts(runId);
+  const plans = artifacts.filter((a) => a.type === PLAN_ARTIFACT_TYPE);
+  assert.equal(plans.length, 2);
+
+  await store.close();
+  await RunStore.deleteDatabase({ dbName });
+});

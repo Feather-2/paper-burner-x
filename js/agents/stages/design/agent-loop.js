@@ -49,7 +49,10 @@ function loadDesignConcurrencyConfig() {
   try {
     const raw = typeof localStorage !== "undefined" ? localStorage.getItem("ppt_designConcurrency") : null;
     if (raw) return JSON.parse(raw);
-  } catch (_) { }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[design] Failed to parse localStorage "ppt_designConcurrency": ${message}`);
+  }
   // 环境变量回退
   const env = typeof process !== "undefined" ? process.env : {};
   const batchSize = parseInt(env.DESIGN_BATCH_SIZE, 10);

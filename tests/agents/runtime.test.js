@@ -669,3 +669,98 @@ test("Runtime Compression: anchors preserve initial system prompts across repeat
   assert.equal(summaryIdx2, loop.messages.length - 1);
   assert.equal(loop.messages.filter((m) => m?.role === "system" && String(m.content || "").startsWith("[Context Summary]")).length, 1);
 });
+
+test("PromptLoader: LRU cache evicts oldest prompts", async () => {
+  const {
+    loadPrompt,
+    clearPromptCache,
+    getCachedPromptNames,
+    configurePromptCache,
+  } = await import("../../js/agents/prompts/prompt-loader.js");
+
+  clearPromptCache();
+  const original = configurePromptCache();
+
+  try {
+    configurePromptCache({ maxEntries: 2 });
+
+    await loadPrompt("deepsearch/system");
+    await loadPrompt("codesearch/system");
+
+    // Touch the first entry again to make it most-recently-used.
+    await loadPrompt("deepsearch/system");
+
+    // Insert a third entry => should evict the LRU ("codesearch/system").
+    await loadPrompt("design/batch-generator-system");
+
+    const cached = getCachedPromptNames();
+    assert.equal(cached.length, 2);
+    assert.equal(cached.includes("deepsearch/system"), true);
+    assert.equal(cached.includes("design/batch-generator-system"), true);
+    assert.equal(cached.includes("codesearch/system"), false);
+  } finally {
+    configurePromptCache({ maxEntries: original.maxEntries });
+    clearPromptCache();
+  }
+});
+
+test("BaseAgentLoop: strict loopStatus transitions reject illegal jumps", async () => {
+  const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
+  const { AgentStatus } = await import("../../js/agents/runtime/core/agent-status.js");
+
+  const strictLoop = new BaseAgentLoop({ actor: "test", stageName: "test", strictLoopStatus: true });
+  strictLoop.initLoopStatus({ status: AgentStatus.IDLE });
+  strictLoop._transitionLoopStatus(AgentStatus.RUNNING, { runId: "run_test" });
+  strictLoop._transitionLoopStatus(AgentStatus.COMPLETED, { runId: "run_test" });
+
+  assert.throws(
+    () => strictLoop._transitionLoopStatus(AgentStatus.RUNNING, { runId: "run_test" }),
+    /loopStatus transition rejected/
+  );
+
+  // Explicit reset is allowed even in strict mode.
+  strictLoop._transitionLoopStatus(AgentStatus.IDLE, { runId: "run_test", allowReset: true });
+  assert.equal(strictLoop.loopStatus, AgentStatus.IDLE);
+
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  try {
+    const warnOnlyLoop = new BaseAgentLoop({ actor: "test", stageName: "test", strictLoopStatus: false });
+    warnOnlyLoop.initLoopStatus({ status: AgentStatus.COMPLETED });
+    warnOnlyLoop._transitionLoopStatus(AgentStatus.RUNNING, { runId: "run_test" });
+    assert.equal(warnOnlyLoop.loopStatus, AgentStatus.RUNNING);
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test("PlanStore: lifecycle transitions enforce draft→approved→in_progress", async () => {
+  const {
+    PlanLifecycleStatus,
+    createPlan,
+    canTransitionPlanLifecycle,
+    setPlanLifecycleStatus,
+  } = await import("../../js/agents/runtime/plan/plan-store.js");
+
+  const plan = createPlan({ runId: "run_test", title: "T", steps: [] });
+  assert.equal(plan.lifecycleStatus, PlanLifecycleStatus.DRAFT);
+
+  assert.equal(canTransitionPlanLifecycle(PlanLifecycleStatus.DRAFT, PlanLifecycleStatus.IN_PROGRESS), false);
+
+  const approved = setPlanLifecycleStatus(plan, PlanLifecycleStatus.APPROVED);
+  assert.equal(approved.lifecycleStatus, PlanLifecycleStatus.APPROVED);
+
+  const inProgress = setPlanLifecycleStatus(approved, PlanLifecycleStatus.IN_PROGRESS);
+  assert.equal(inProgress.lifecycleStatus, PlanLifecycleStatus.IN_PROGRESS);
+
+  const completed = setPlanLifecycleStatus(inProgress, PlanLifecycleStatus.COMPLETED);
+  assert.equal(completed.lifecycleStatus, PlanLifecycleStatus.COMPLETED);
+
+  assert.throws(
+    () => setPlanLifecycleStatus(completed, PlanLifecycleStatus.IN_PROGRESS),
+    /invalid transition/
+  );
+
+  const forced = setPlanLifecycleStatus(completed, PlanLifecycleStatus.IN_PROGRESS, { force: true });
+  assert.equal(forced.lifecycleStatus, PlanLifecycleStatus.IN_PROGRESS);
+});

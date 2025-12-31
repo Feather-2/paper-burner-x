@@ -283,3 +283,69 @@ test('_ensureRuntime populates _runtimeDesignSubStageUi mapping', async () => {
   assert.deepEqual(gen._runtimeDesignSubStageUi['design.image.planning'], { label: '图片规划', agentId: 'designer' });
   assert.equal(gen._runtimeDesignSubStageUi['design.brainstorm'], undefined);
 });
+
+test('AgentEventBridge forwards plan.* events', async () => {
+  const { EventBus } = await import('../../js/agents/runtime/events/event-bus.js');
+  const { AgentEventBridge } = await import('../../js/ppt/workflow/agent-event-bridge.js');
+
+  const source = new EventBus({ runId: 'run_test' });
+  const bridge = new AgentEventBridge(source);
+  bridge.start();
+
+  const seen = [];
+  const off = bridge.subscribe('plan.*', (evt) => seen.push(evt));
+
+  source.emit('plan.created', { hello: 'world' });
+
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].name, 'plan.created');
+  assert.deepEqual(seen[0].payload, { hello: 'world' });
+
+  off();
+  bridge.stop();
+});
+
+test('_updateWorkflowPlanFromStageLifecycle starts script review after deepsearch.pipeline ends', async () => {
+  const gen = new globalThis.PPTGenerator();
+  gen._currentRunId = 'run_test';
+  gen._workflowPlan = null;
+  gen._workflowPlanLatestArtifactId = null;
+  gen._runStore = null;
+  gen._orchestrator = null;
+
+  await gen._ensureWorkflowPlan({ runId: gen._currentRunId });
+  await gen._updateWorkflowPlanFromStageLifecycle('deepsearch.ingest', 'ended', { runId: gen._currentRunId }, { name: 'deepsearch.ingest.ended' });
+  await gen._updateWorkflowPlanFromStageLifecycle('deepsearch.pipeline', 'started', { runId: gen._currentRunId }, { name: 'deepsearch.pipeline.started' });
+  await gen._updateWorkflowPlanFromStageLifecycle('deepsearch.pipeline', 'ended', { runId: gen._currentRunId }, { name: 'deepsearch.pipeline.ended' });
+
+  const plan = gen._workflowPlan;
+  assert.ok(plan && typeof plan === 'object');
+  const statuses = Object.fromEntries(plan.steps.map((s) => [s.stepId, s.status]));
+  assert.equal(statuses['deepsearch.ingest'], 'completed');
+  assert.equal(statuses['deepsearch.pipeline'], 'completed');
+  assert.equal(statuses['workflow.script_review'], 'in_progress');
+});
+
+test('_confirmScriptToPageLayout updates workflow plan steps', () => {
+  const gen = new globalThis.PPTGenerator();
+  gen.state = 'script_review';
+  gen.renderPreviewArea = () => {};
+  gen.updateTodos = () => {};
+  gen.phase3_PageLayout = () => {};
+
+  const calls = [];
+  gen._setWorkflowPlanStepStatus = (stepId, status, options) => {
+    calls.push({ stepId, status, options });
+    return Promise.resolve(null);
+  };
+
+  gen._confirmScriptToPageLayout();
+
+  assert.deepEqual(
+    calls.map((c) => ({ stepId: c.stepId, status: c.status, reason: c.options?.reason || null, select: c.options?.select })),
+    [
+      { stepId: 'workflow.script_review', status: 'completed', reason: 'script_confirmed', select: false },
+      { stepId: 'textprep.align', status: 'in_progress', reason: 'script_confirmed.next', select: true },
+    ]
+  );
+});
