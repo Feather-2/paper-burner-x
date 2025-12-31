@@ -2082,6 +2082,9 @@ export class ModalManager {
 	        case 'undoLastVfsCheckpoint':
 	          void this.undoLastVfsCheckpoint(payload);
 	          break;
+	        case 'getVfsChangesSummary':
+	          void this.getVfsChangesSummary(payload);
+	          break;
 	        case 'startReplay':
 	          void this.startReplay(payload);
 	          break;
@@ -2244,7 +2247,11 @@ export class ModalManager {
 
     let artifacts = [];
     try {
-      artifacts = await store.listArtifacts(id);
+      if (typeof store.listArtifactSummaries === 'function') {
+        artifacts = await store.listArtifactSummaries(id);
+      } else {
+        artifacts = await store.listArtifacts(id);
+      }
     } catch {
       artifacts = [];
     }
@@ -2278,11 +2285,12 @@ export class ModalManager {
       const selected = a.artifactId === this[stateKey].selected ? 'style="background: rgba(79,70,229,0.10); border-color: rgba(79,70,229,0.35);"' : '';
       const bytes = typeof a.bytes === 'number' ? formatSize(a.bytes) : '';
       const sha = typeof a.sha256 === 'string' && a.sha256 ? a.sha256.slice(0, 8) : '';
+      const seq = typeof a.seq === 'number' ? `#${a.seq}` : '';
       return `
         <button class="ppt-btn ppt-btn-secondary" data-action="selectArtifact" data-artifact-id="${escapeAttr(a.artifactId)}" ${selected}
           style="width:100%; text-align:left; justify-content:flex-start; gap:10px; padding:10px 12px; border-radius: 12px; display:flex; flex-direction:column; align-items:flex-start;">
           <div style="display:flex; width:100%; align-items:center; justify-content:space-between; gap:8px;">
-            <div style="font-weight:700; font-size: 13px; color: var(--ppt-text-main);">${escapeHtml(a.type)}</div>
+            <div style="font-weight:700; font-size: 13px; color: var(--ppt-text-main);">${escapeHtml(a.type)}${seq ? ` <span style="font-weight:600; font-size:12px; color: var(--ppt-text-secondary);">${escapeHtml(seq)}</span>` : ''}</div>
             <div style="font-size: 12px; color: var(--ppt-text-secondary);">${bytes}</div>
           </div>
           <div style="font-size: 12px; color: var(--ppt-text-secondary);">
@@ -2347,12 +2355,16 @@ export class ModalManager {
 
 	    let artifacts = [];
 	    try {
-	      artifacts = await store.listArtifacts(id);
+	      if (typeof store.listArtifactSummaries === 'function') {
+	        artifacts = await store.listArtifactSummaries(id, { type: 'plan.json' });
+	      } else {
+	        artifacts = await store.listArtifacts(id);
+	      }
 	    } catch {
 	      artifacts = [];
 	    }
 
-	    const plans = artifacts
+	    const plans = (artifacts || [])
 	      .filter((a) => a && typeof a === 'object' && a.type === 'plan.json')
 	      .sort((a, b) => Number(b.seq || 0) - Number(a.seq || 0));
 
@@ -2520,6 +2532,132 @@ export class ModalManager {
 		      this.eventBus?.emit?.('ui.undo.result', { requestId, ...out });
 		      return out;
 		    }
+		  }
+
+		  async getVfsChangesSummary({ runId, maxEntries, requestId } = {}) {
+		    const generator = this._ensureGenerator();
+		    const store = generator?._runStore;
+		    const id = typeof runId === 'string' && runId.trim()
+		      ? runId.trim()
+		      : (typeof generator?._currentRunId === 'string' ? generator._currentRunId : null);
+
+		    if (!store || !id) {
+		      const out = { ok: false, reason: 'missing_runStore_or_runId' };
+		      this.eventBus?.emit?.('ui.changes.result', { requestId, ...out });
+		      return out;
+		    }
+		    if (typeof store.getArtifactById !== 'function' && typeof store.listArtifacts !== 'function') {
+		      const out = { ok: false, reason: 'missing_runStore_methods' };
+		      this.eventBus?.emit?.('ui.changes.result', { requestId, ...out });
+		      return out;
+		    }
+
+		    const max = Number.isFinite(Number(maxEntries)) ? Math.max(1, Math.floor(Number(maxEntries))) : 200;
+
+		    const countUnifiedDiff = (diffText) => {
+		      const text = typeof diffText === 'string' ? diffText : '';
+		      if (!text) return { insertions: 0, deletions: 0, hasDiff: false };
+		      let insertions = 0;
+		      let deletions = 0;
+		      const lines = text.split('\n');
+		      for (const line of lines) {
+		        if (!line) continue;
+		        if (line.startsWith('--- a/') || line.startsWith('+++ b/')) continue;
+		        if (line.startsWith('@@')) continue;
+		        if (line[0] === '+') insertions += 1;
+		        else if (line[0] === '-') deletions += 1;
+		      }
+		      return { insertions, deletions, hasDiff: true };
+		    };
+
+		    let checkpointRefs = [];
+		    let inlineDataByArtifactId = null;
+		    try {
+		      if (typeof store.listArtifactSummaries === 'function') {
+		        checkpointRefs = await store.listArtifactSummaries(id, { type: 'vfs_checkpoint.json' });
+		      } else if (typeof store.listArtifacts === 'function') {
+		        const rows = await store.listArtifacts(id);
+		        checkpointRefs = (rows || [])
+		          .filter((a) => a && typeof a === 'object' && a.type === 'vfs_checkpoint.json' && typeof a.artifactId === 'string')
+		          .map((a) => ({ artifactId: a.artifactId, runId: a.runId, type: a.type, seq: a.seq || 0 }));
+		        inlineDataByArtifactId = new Map(
+		          (rows || [])
+		            .filter((a) => a && typeof a === 'object' && a.type === 'vfs_checkpoint.json' && typeof a.artifactId === 'string' && a.data)
+		            .map((a) => [a.artifactId, a.data])
+		        );
+		      }
+		    } catch {
+		      checkpointRefs = [];
+		    }
+
+		    const sorted = (checkpointRefs || [])
+		      .filter((a) => a && typeof a === 'object' && typeof a.artifactId === 'string')
+		      .sort((a, b) => Number(a.seq || 0) - Number(b.seq || 0));
+
+		    const slice = sorted.length > max ? sorted.slice(-max) : sorted;
+
+		    const perPath = new Map();
+		    let writes = 0;
+		    let insertions = 0;
+		    let deletions = 0;
+		    let missingDiffs = 0;
+
+		    for (const ref of slice) {
+		      const artifactId = typeof ref?.artifactId === 'string' ? ref.artifactId : '';
+		      if (!artifactId) continue;
+
+		      let checkpoint = null;
+		      try {
+		        if (inlineDataByArtifactId && inlineDataByArtifactId.has(artifactId)) {
+		          checkpoint = inlineDataByArtifactId.get(artifactId);
+		        } else if (typeof store.getArtifactById === 'function') {
+		          checkpoint = await store.getArtifactById(artifactId);
+		        }
+		      } catch {
+		        checkpoint = null;
+		      }
+
+		      if (!checkpoint || typeof checkpoint !== 'object' || Array.isArray(checkpoint)) continue;
+		      const path = typeof checkpoint.path === 'string' ? checkpoint.path : '';
+		      if (!path) continue;
+
+		      const diffText = typeof checkpoint?.diff?.text === 'string' ? checkpoint.diff.text : '';
+		      const stat = countUnifiedDiff(diffText);
+		      if (!stat.hasDiff) missingDiffs += 1;
+
+		      writes += 1;
+		      insertions += stat.insertions;
+		      deletions += stat.deletions;
+
+		      const row = perPath.get(path) || { path, writes: 0, insertions: 0, deletions: 0, lastArtifactId: null, lastTs: null };
+		      row.writes += 1;
+		      row.insertions += stat.insertions;
+		      row.deletions += stat.deletions;
+		      row.lastArtifactId = artifactId;
+		      row.lastTs = typeof checkpoint.ts === 'string' ? checkpoint.ts : row.lastTs;
+		      perPath.set(path, row);
+		    }
+
+		    const files = Array.from(perPath.values()).sort((a, b) => {
+		      if (b.writes !== a.writes) return b.writes - a.writes;
+		      if (b.insertions !== a.insertions) return b.insertions - a.insertions;
+		      if (b.deletions !== a.deletions) return b.deletions - a.deletions;
+		      return String(a.path || '').localeCompare(String(b.path || ''));
+		    });
+
+		    const out = {
+		      ok: true,
+		      runId: id,
+		      filesChanged: perPath.size,
+		      writes,
+		      insertions,
+		      deletions,
+		      missingDiffs,
+		      totalFiles: files.length,
+		      files: files.slice(0, 50),
+		    };
+		    this.eventBus?.emit?.('ui.changes.result', { requestId, ...out });
+		    return out;
 		  }
 
 		  async startReplay({ runId } = {}) {

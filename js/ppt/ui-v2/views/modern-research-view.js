@@ -306,6 +306,7 @@ export class ModernResearchView extends BaseView {
     return [
       { cmd: '/help', desc: '显示可用命令' },
       { cmd: '/undo', desc: '撤销最近 N 次文件写入（默认 1）：/undo 3', action: { type: 'undoLastVfsCheckpoint' } },
+      { cmd: '/changes', desc: '显示 VFS 写入 diffstat（默认最近 200 次）：/changes [run_xxx] [200]', action: { type: 'getVfsChangesSummary' } },
       { cmd: '/plans', desc: '打开 Plans Manager（可选 runId）：/plans run_xxx', action: { type: 'openPlansManager' } },
       { cmd: '/artifacts', desc: '打开 Artifacts Browser（可选 runId）：/artifacts run_xxx', action: { type: 'openArtifactsBrowser' } },
       { cmd: '/replay', desc: '回放指定 run：/replay run_xxx', action: { type: 'startReplay' } },
@@ -592,6 +593,72 @@ export class ModernResearchView extends BaseView {
 
       this.emit('ui.action', { type: 'undoLastVfsCheckpoint', steps, reason: 'ui:/undo', requestId });
       this._appendChatMessage(`已请求撤销最近 ${steps} 次文件写入...`, { role: 'ai' });
+      return;
+    }
+
+    if (cmd === '/changes') {
+      const a0 = typeof args[0] === 'string' ? args[0].trim() : '';
+      const a1 = typeof args[1] === 'string' ? args[1].trim() : '';
+      let runId = '';
+      let maxEntries = undefined;
+
+      if (a0) {
+        const n0 = parseInt(a0, 10);
+        if (Number.isFinite(n0) && String(n0) === a0) maxEntries = n0;
+        else runId = a0;
+      }
+      if (a1) {
+        const n1 = parseInt(a1, 10);
+        if (Number.isFinite(n1) && String(n1) === a1) maxEntries = n1;
+      }
+
+      const cap = Number.isFinite(Number(maxEntries)) ? Math.max(1, Math.min(2000, Math.floor(Number(maxEntries)))) : 200;
+      const requestId = `changes_${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 10)}`;
+
+      const off = this.subscribeEvent('ui.changes.result', (_name, payload) => {
+        if (payload?.requestId !== requestId) return;
+        off?.();
+        const ok = payload?.ok !== false;
+        if (!ok) {
+          this._appendChatMessage(`变更统计失败：${payload?.error || payload?.reason || 'unknown'}`, { role: 'ai' });
+          return;
+        }
+
+        const filesChanged = typeof payload?.filesChanged === 'number' ? payload.filesChanged : 0;
+        const writes = typeof payload?.writes === 'number' ? payload.writes : 0;
+        const insertions = typeof payload?.insertions === 'number' ? payload.insertions : 0;
+        const deletions = typeof payload?.deletions === 'number' ? payload.deletions : 0;
+        const missingDiffs = typeof payload?.missingDiffs === 'number' ? payload.missingDiffs : 0;
+        const files = Array.isArray(payload?.files) ? payload.files : [];
+
+        const lines = [];
+        lines.push(`runId=${payload?.runId || 'n/a'}`);
+        lines.push(`filesChanged=${filesChanged} writes=${writes}`);
+        lines.push(`+${insertions} -${deletions}${missingDiffs ? ` (missingDiffs=${missingDiffs})` : ''}`);
+
+        const top = files.slice(0, 8);
+        if (top.length) {
+          lines.push('');
+          for (const row of top) {
+            const p = typeof row?.path === 'string' ? row.path : '';
+            const w = typeof row?.writes === 'number' ? row.writes : 0;
+            const ins = typeof row?.insertions === 'number' ? row.insertions : 0;
+            const del = typeof row?.deletions === 'number' ? row.deletions : 0;
+            if (!p) continue;
+            lines.push(`${p} (writes=${w}, +${ins}, -${del})`);
+          }
+        }
+
+        this._appendChatMessage(lines.join('\n'), { role: 'ai' });
+      });
+
+      this.emit('ui.action', {
+        type: 'getVfsChangesSummary',
+        requestId,
+        ...(runId ? { runId } : {}),
+        maxEntries: cap,
+      });
+      this._appendChatMessage(`已请求变更统计（最近 ${cap} 次）...`, { role: 'ai' });
       return;
     }
 
