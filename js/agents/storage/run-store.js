@@ -363,7 +363,11 @@ export class RunStore {
       if (typeof Blob !== "undefined" && data instanceof Blob) bytes = data.size;
       else if (typeof data === "string") bytes = encodeUtf8Bytes(data);
       else if (data && (data instanceof ArrayBuffer || ArrayBuffer.isView(data))) bytes = data.byteLength;
-      else if (isPlainObject(data) || Array.isArray(data)) bytes = encodeUtf8Bytes(JSON.stringify(data));
+      // Avoid JSON.stringify() on potentially large objects by default (can stall the UI thread).
+      // Callers that really need exact bytes can pass `bytes`, or opt-in via `estimateObjectBytes: true`.
+      else if ((isPlainObject(data) || Array.isArray(data)) && options.estimateObjectBytes === true) {
+        bytes = encodeUtf8Bytes(JSON.stringify(data));
+      }
     }
 
     const storageKey = options.storageKey || `runs/${runId}/${type}`;
