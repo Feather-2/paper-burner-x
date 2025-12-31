@@ -6,6 +6,19 @@
 import BaseView from './base-view.js';
 import { getPptGeneratorAdapter } from '../adapters/agent-adapter.js';
 
+function escapeHtml(text) {
+  return String(text ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function escapeAttr(text) {
+  return escapeHtml(text).replace(/`/g, '&#096;');
+}
+
 const STATUS_META = {
   reading: { icon: 'carbon:document-view', title: '深度阅读', desc: 'AI 正在分析文档结构' },
   researching: { icon: 'carbon:search', title: '研究分析', desc: '正在扫描资料、识别知识空白' },
@@ -20,6 +33,7 @@ export class ModernResearchView extends BaseView {
     this._adapter = options.adapter || getPptGeneratorAdapter();
     this._flowCanvasId = 'modernFlowCanvas';
     this._commandState = { visible: false, query: '', selectedIndex: 0, matches: [] };
+    this._runsCache = { ts: 0, value: null, promise: null };
     this._globalKeydownHandler = null;
   }
 
@@ -222,10 +236,18 @@ export class ModernResearchView extends BaseView {
 
     const onSend = () => this._handleChatSend();
     const onPaletteClick = (e) => {
-      const el = e?.target?.closest?.('[data-cmd]');
+      const el = e?.target?.closest?.('.chat-command-item');
       if (!el || !palette.contains(el)) return;
+      const kind = el.getAttribute('data-kind') || '';
+      if (kind === 'complete') {
+        const value = el.getAttribute('data-value') || '';
+        input.value = value;
+        input.focus();
+        this._updateCommandPalette(input.value);
+        return;
+      }
       const cmd = el.getAttribute('data-cmd') || '';
-      this._executeSlashCommand(cmd);
+      if (cmd) this._executeSlashCommand(cmd);
     };
 
     input.addEventListener('input', onInput);
@@ -287,6 +309,7 @@ export class ModernResearchView extends BaseView {
       { cmd: '/plans', desc: '打开 Plans Manager（可选 runId）：/plans run_xxx', action: { type: 'openPlansManager' } },
       { cmd: '/artifacts', desc: '打开 Artifacts Browser（可选 runId）：/artifacts run_xxx', action: { type: 'openArtifactsBrowser' } },
       { cmd: '/replay', desc: '回放指定 run：/replay run_xxx', action: { type: 'startReplay' } },
+      { cmd: '/resume', desc: '从 plan 恢复执行：/resume run_xxx [stepIdOrIndex]', action: { type: 'resumeWorkflowFromPlan' } },
       { cmd: '/approvals', desc: '打开 Approvals', action: { type: 'openApprovalsModal' } },
       { cmd: '/policy', desc: '打开 Policy Rules', action: { type: 'openPolicyRulesManager' } },
       { cmd: '/skills', desc: '打开 Skills Manager', action: { type: 'openSkillsManager' } },
@@ -295,6 +318,86 @@ export class ModernResearchView extends BaseView {
       { cmd: '/url', desc: '添加 URL', action: { type: 'openUrlInput' } },
       { cmd: '/status', desc: '显示当前状态' },
     ];
+  }
+
+  _getGenerator() {
+    return this._adapter?.generator || (typeof window !== 'undefined' ? window.PPTGenerator : null);
+  }
+
+  async _ensureRunsCached() {
+    const now = Date.now();
+    const ttlMs = 5000;
+    if (Array.isArray(this._runsCache.value) && now - this._runsCache.ts < ttlMs) {
+      return this._runsCache.value;
+    }
+
+    if (this._runsCache.promise) return this._runsCache.promise;
+
+    const generator = this._getGenerator();
+    if (!generator || typeof generator.listRuns !== 'function') {
+      this._runsCache = { ts: now, value: [], promise: null };
+      return [];
+    }
+
+    this._runsCache.promise = Promise.resolve()
+      .then(() => generator.listRuns())
+      .then((runs) => {
+        const list = Array.isArray(runs) ? runs : [];
+        this._runsCache = { ts: Date.now(), value: list, promise: null };
+        return list;
+      })
+      .catch(() => {
+        this._runsCache = { ts: Date.now(), value: [], promise: null };
+        return [];
+      });
+
+    return this._runsCache.promise;
+  }
+
+  async _buildRunCompletionItems({ cmd, partialRunId = '' } = {}) {
+    const runs = await this._ensureRunsCached();
+    const needle = String(partialRunId || '').trim().toLowerCase();
+
+    const sorted = runs
+      .slice()
+      .sort((a, b) => String(b?.createdAt || b?.startedAt || '').localeCompare(String(a?.createdAt || a?.startedAt || '')));
+
+    const filtered = needle
+      ? sorted.filter((r) => {
+        const id = String(r?.runId || '').toLowerCase();
+        const title = String(r?.title || r?.taskGoal || '').toLowerCase();
+        return id.startsWith(needle) || title.includes(needle);
+      })
+      : sorted;
+
+    return filtered
+      .slice(0, 12)
+      .map((r) => {
+        const runId = String(r?.runId || '').trim();
+        const title = String(r?.title || r?.taskGoal || '').trim();
+        const when = String(r?.createdAt || r?.startedAt || '').trim();
+        const label = title ? `${runId} · ${title}` : runId;
+        const value = `${cmd} ${runId}${cmd === '/resume' ? ' ' : ''}`;
+        return {
+          kind: 'complete',
+          value,
+          label,
+          desc: when ? new Date(when).toLocaleString() : '',
+        };
+      })
+      .filter((i) => i.value && i.label);
+  }
+
+  _buildUndoCompletionItems({ cmd, partial = '' } = {}) {
+    const needle = String(partial || '').trim();
+    const base = [1, 2, 3, 5, 8].map((n) => String(n));
+    const filtered = needle ? base.filter((n) => n.startsWith(needle)) : base;
+    return filtered.map((n) => ({
+      kind: 'complete',
+      value: `${cmd} ${n} `,
+      label: `${cmd} ${n}`,
+      desc: 'steps',
+    }));
   }
 
   _updateCommandPalette(rawValue) {
@@ -312,26 +415,71 @@ export class ModernResearchView extends BaseView {
       return;
     }
 
-    const token = trimmed.split(/\s+/)[0].toLowerCase();
+    const hasTrailingSpace = /\s$/.test(trimmed);
+    const tokens = trimmed.trim().split(/\s+/).filter(Boolean);
+    const token0 = (tokens[0] || '').toLowerCase();
+    const arg1 = tokens[1] || '';
+    const wantsArgs = tokens.length >= 2 || hasTrailingSpace;
+
     const commands = this._getSlashCommands();
-    const matches = commands.filter((c) => c.cmd.startsWith(token));
 
-    this._commandState.visible = true;
-    this._commandState.query = token;
-    this._commandState.matches = matches;
-    this._commandState.selectedIndex = Math.max(0, Math.min(this._commandState.selectedIndex, Math.max(0, matches.length - 1)));
+    const renderItems = (items) => {
+      const list = Array.isArray(items) ? items : [];
+      this._commandState.visible = true;
+      this._commandState.query = token0;
+      this._commandState.matches = list;
+      this._commandState.selectedIndex = Math.max(0, Math.min(this._commandState.selectedIndex, Math.max(0, list.length - 1)));
 
-    palette.classList.add('visible');
-    palette.innerHTML = matches.length
-      ? matches
-        .map((c, idx) => `
-            <div class="chat-command-item ${idx === this._commandState.selectedIndex ? 'active' : ''}" data-cmd="${c.cmd}">
-              <div class="chat-command-cmd">${c.cmd}</div>
-              <div class="chat-command-desc">${c.desc || ''}</div>
-            </div>
-          `)
-        .join('')
-      : `<div class="chat-command-empty">无匹配命令（输入 /help 查看）。</div>`;
+      palette.classList.add('visible');
+      palette.innerHTML = list.length
+        ? list
+          .map((c, idx) => {
+            const active = idx === this._commandState.selectedIndex ? 'active' : '';
+            if (c.kind === 'complete') {
+              return `
+                <div class="chat-command-item ${active}" data-kind="complete" data-value="${escapeAttr(c.value)}">
+                  <div class="chat-command-cmd">${escapeHtml(c.label || c.value)}</div>
+                  <div class="chat-command-desc">${escapeHtml(c.desc || '')}</div>
+                </div>
+              `;
+            }
+            return `
+              <div class="chat-command-item ${active}" data-kind="command" data-cmd="${escapeAttr(c.cmd)}">
+                <div class="chat-command-cmd">${escapeHtml(c.cmd)}</div>
+                <div class="chat-command-desc">${escapeHtml(c.desc || '')}</div>
+              </div>
+            `;
+          })
+          .join('')
+        : `<div class="chat-command-empty">无匹配命令（输入 /help 查看）。</div>`;
+    };
+
+    if (token0 === '/undo' && wantsArgs) {
+      renderItems(this._buildUndoCompletionItems({ cmd: token0, partial: arg1 }));
+      return;
+    }
+
+    if ((token0 === '/replay' || token0 === '/plans' || token0 === '/artifacts' || token0 === '/resume') && wantsArgs) {
+      // Optimistic loading UI; runs list is fetched async.
+      palette.classList.add('visible');
+      palette.innerHTML = '<div class="chat-command-empty">加载 Runs...</div>';
+
+      const snapshot = trimmed;
+      void (async () => {
+        const items = await this._buildRunCompletionItems({ cmd: token0, partialRunId: arg1 });
+        const inputEl = this.$('#modernChatInput');
+        if (!inputEl) return;
+        const latest = String(inputEl.value || '').trimStart();
+        if (latest !== snapshot) return;
+        renderItems(items);
+      })();
+      return;
+    }
+
+    const matches = commands
+      .filter((c) => c.cmd.startsWith(token0))
+      .map((c) => ({ kind: 'command', cmd: c.cmd, desc: c.desc || '' }));
+    renderItems(matches);
   }
 
   _selectCommandDelta(delta) {
@@ -349,8 +497,13 @@ export class ModernResearchView extends BaseView {
     const matches = Array.isArray(this._commandState.matches) ? this._commandState.matches : [];
     if (matches.length === 0) return;
     const selected = matches[this._commandState.selectedIndex || 0];
-    if (!selected?.cmd) return;
-    input.value = `${selected.cmd} `;
+    if (selected?.kind === 'complete' && selected.value) {
+      input.value = String(selected.value);
+    } else if (selected?.cmd) {
+      input.value = `${selected.cmd} `;
+    } else {
+      return;
+    }
     input.focus();
     this._updateCommandPalette(input.value);
   }
@@ -450,6 +603,23 @@ export class ModernResearchView extends BaseView {
       }
       this.emit('ui.action', { type: 'startReplay', runId });
       this._appendChatMessage(`已请求回放：${runId}`, { role: 'ai' });
+      return;
+    }
+
+    if (cmd === '/resume') {
+      const runId = typeof args[0] === 'string' ? args[0].trim() : '';
+      const rawStep = typeof args[1] === 'string' ? args[1].trim() : '';
+      let stepIdOrIndex = undefined;
+      if (rawStep) {
+        const n = parseInt(rawStep, 10);
+        stepIdOrIndex = Number.isFinite(n) && String(n) === rawStep ? n : rawStep;
+      }
+      this.emit('ui.action', {
+        type: 'resumeWorkflowFromPlan',
+        ...(runId ? { runId } : {}),
+        ...(stepIdOrIndex !== undefined ? { stepIdOrIndex } : {}),
+      });
+      this._appendChatMessage(`已请求恢复执行：${runId || '(current)'}${rawStep ? ` ${rawStep}` : ''}`, { role: 'ai' });
       return;
     }
 
