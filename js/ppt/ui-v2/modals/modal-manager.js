@@ -2055,6 +2055,12 @@ export class ModalManager {
 	        case 'openHistorySelector':
 	          this.openHistorySelector();
 	          break;
+	        case 'exportCurrentRunZip':
+	          void this.exportCurrentRunZip(payload);
+	          break;
+	        case 'importRunZip':
+	          void this.importRunZip(payload);
+	          break;
         case 'openUrlInput':
           this.openUrlInput();
           break;

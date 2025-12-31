@@ -305,10 +305,13 @@ export class ModernResearchView extends BaseView {
   _getSlashCommands() {
     return [
       { cmd: '/help', desc: '显示可用命令' },
+      { cmd: '/reset', desc: '清空当前 Chat 记录（仅本页 UI）' },
       { cmd: '/undo', desc: '撤销最近 N 次文件写入（默认 1）：/undo 3', action: { type: 'undoLastVfsCheckpoint' } },
       { cmd: '/changes', desc: '显示 VFS 写入 diffstat（默认最近 200 次）：/changes [run_xxx] [200]', action: { type: 'getVfsChangesSummary' } },
       { cmd: '/plans', desc: '打开 Plans Manager（可选 runId）：/plans run_xxx', action: { type: 'openPlansManager' } },
       { cmd: '/artifacts', desc: '打开 Artifacts Browser（可选 runId）：/artifacts run_xxx', action: { type: 'openArtifactsBrowser' } },
+      { cmd: '/export-run', desc: '导出 Run Zip（可选 runId）：/export-run [run_xxx]', action: { type: 'exportCurrentRunZip' } },
+      { cmd: '/import-run', desc: '导入 Run Zip（file picker）', action: { type: 'importRunZip' } },
       { cmd: '/replay', desc: '回放指定 run：/replay run_xxx', action: { type: 'startReplay' } },
       { cmd: '/resume', desc: '从 plan 恢复执行：/resume run_xxx [stepIdOrIndex]', action: { type: 'resumeWorkflowFromPlan' } },
       { cmd: '/approvals', desc: '打开 Approvals', action: { type: 'openApprovalsModal' } },
@@ -460,7 +463,7 @@ export class ModernResearchView extends BaseView {
       return;
     }
 
-    if ((token0 === '/replay' || token0 === '/plans' || token0 === '/artifacts' || token0 === '/resume') && wantsArgs) {
+    if ((token0 === '/replay' || token0 === '/plans' || token0 === '/artifacts' || token0 === '/resume' || token0 === '/export-run') && wantsArgs) {
       // Optimistic loading UI; runs list is fetched async.
       palette.classList.add('visible');
       palette.innerHTML = '<div class="chat-command-empty">加载 Runs...</div>';
@@ -560,6 +563,13 @@ export class ModernResearchView extends BaseView {
     if (cmd === '/help') {
       const lines = commands.map((c) => `${c.cmd} - ${c.desc || ''}`).join('\n');
       this._appendChatMessage(lines, { role: 'ai' });
+      return;
+    }
+
+    if (cmd === '/reset') {
+      const host = this.$('#modernChatMessages');
+      if (host) host.innerHTML = '';
+      this._appendChatMessage('已清空当前 Chat 记录。', { role: 'ai' });
       return;
     }
 
@@ -691,6 +701,15 @@ export class ModernResearchView extends BaseView {
     }
 
     if (cmd === '/plans' || cmd === '/artifacts') {
+      const runId = typeof args[0] === 'string' ? args[0].trim() : '';
+      if (entry.action) {
+        this.emit('ui.action', runId ? { ...entry.action, runId } : entry.action);
+        this._appendChatMessage(entry.desc || '已执行。', { role: 'ai' });
+        return;
+      }
+    }
+
+    if (cmd === '/export-run') {
       const runId = typeof args[0] === 'string' ? args[0].trim() : '';
       if (entry.action) {
         this.emit('ui.action', runId ? { ...entry.action, runId } : entry.action);
