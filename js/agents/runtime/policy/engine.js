@@ -1,5 +1,9 @@
 import { matchAnyWildcard, matchAnyGlob } from "./match.js";
 
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 function toNonEmptyString(v) {
   if (v === null || v === undefined) return "";
   const s = String(v).trim();
@@ -17,6 +21,118 @@ function normalizeTypeList(type) {
   return list.map((t) => toNonEmptyString(t)).filter(Boolean);
 }
 
+function normalizeDomainSuffixes(value) {
+  const list = Array.isArray(value) ? value : value ? [value] : [];
+  return list
+    .map((v) => toNonEmptyString(v).toLowerCase())
+    .map((s) => (s.startsWith(".") ? s.slice(1) : s))
+    .filter(Boolean);
+}
+
+function parseTimeToMinutes(value) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const n = Math.floor(value);
+    if (n < 0 || n >= 24 * 60) return null;
+    return n;
+  }
+  const s = toNonEmptyString(value);
+  if (!s) return null;
+  const m = s.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (!Number.isFinite(h) || !Number.isFinite(min)) return null;
+  if (h < 0 || h > 23) return null;
+  if (min < 0 || min > 59) return null;
+  return h * 60 + min;
+}
+
+function normalizeTimeRange(value) {
+  if (!isPlainObject(value)) return null;
+
+  const startMin =
+    typeof value.startMin === "number"
+      ? parseTimeToMinutes(value.startMin)
+      : parseTimeToMinutes(value.start ?? value.from ?? value.begin);
+  const endMin =
+    typeof value.endMin === "number"
+      ? parseTimeToMinutes(value.endMin)
+      : parseTimeToMinutes(value.end ?? value.to ?? value.until);
+
+  if (startMin === null || endMin === null) return null;
+
+  const tzRaw = toNonEmptyString(value.timezone ?? value.tz).toLowerCase();
+  const timezone = tzRaw === "utc" ? "utc" : "local";
+
+  const days = Array.isArray(value.daysOfWeek)
+    ? value.daysOfWeek.map((d) => Number(d)).filter((d) => Number.isFinite(d) && d >= 0 && d <= 6)
+    : null;
+
+  return {
+    startMin,
+    endMin,
+    timezone,
+    ...(days && days.length ? { daysOfWeek: days } : {}),
+  };
+}
+
+function extractHostname(resource) {
+  const raw = toNonEmptyString(resource).toLowerCase();
+  if (!raw) return "";
+
+  const parse = (value) => {
+    try {
+      return new URL(value);
+    } catch {
+      return null;
+    }
+  };
+
+  const direct = parse(raw);
+  if (direct?.hostname) return direct.hostname.toLowerCase();
+
+  // Heuristic: allow "example.com/path" and "example.com" without scheme.
+  if (raw.includes(".") && !raw.includes(" ")) {
+    const withHttps = parse(`https://${raw}`);
+    if (withHttps?.hostname) return withHttps.hostname.toLowerCase();
+  }
+
+  return "";
+}
+
+function hostMatchesSuffix(host, suffix) {
+  const h = toNonEmptyString(host).toLowerCase();
+  const s = toNonEmptyString(suffix).toLowerCase().replace(/^\./, "");
+  if (!h || !s) return false;
+  if (h === s) return true;
+  return h.endsWith(`.${s}`);
+}
+
+function matchTimeRange(timeRange, request) {
+  if (timeRange === null || timeRange === undefined) return true;
+  const tr = normalizeTimeRange(timeRange);
+  // If a timeRange is explicitly specified but invalid, treat as non-match.
+  if (!tr) return false;
+
+  const tsRaw = toNonEmptyString(request?.ts);
+  const parsed = tsRaw ? Date.parse(tsRaw) : NaN;
+  const dt = new Date(Number.isFinite(parsed) ? parsed : Date.now());
+
+  const minutes =
+    tr.timezone === "utc" ? dt.getUTCHours() * 60 + dt.getUTCMinutes() : dt.getHours() * 60 + dt.getMinutes();
+  const day = tr.timezone === "utc" ? dt.getUTCDay() : dt.getDay();
+
+  if (Array.isArray(tr.daysOfWeek) && tr.daysOfWeek.length) {
+    if (!tr.daysOfWeek.includes(day)) return false;
+  }
+
+  if (tr.startMin <= tr.endMin) {
+    return minutes >= tr.startMin && minutes <= tr.endMin;
+  }
+  // Wrap-around window (e.g. 22:00-06:00).
+  return minutes >= tr.startMin || minutes <= tr.endMin;
+}
+
 function normalizeRule(rule) {
   const r = rule && typeof rule === "object" ? rule : {};
   const ruleId = toNonEmptyString(r.ruleId || r.id) || `rule_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -25,6 +141,9 @@ function normalizeRule(rule) {
   const tool = r.tool ?? r.toolPattern ?? null;
   const resource = r.resource ?? r.resourcePattern ?? null;
   const path = r.path ?? r.paths ?? null;
+  const domainSuffixes = normalizeDomainSuffixes(r.domainSuffixes ?? r.domainSuffix ?? r.hostSuffixes ?? r.hostSuffix);
+  const timeRange = normalizeTimeRange(r.timeRange ?? r.window ?? r.timeWindow);
+  const match = isPlainObject(r.match) ? r.match : isPlainObject(r.when) ? r.when : null;
   const enabled = r.enabled !== false;
   const priority = Number.isFinite(Number(r.priority)) ? Number(r.priority) : 0;
   const createdAt = toNonEmptyString(r.createdAt) || new Date().toISOString();
@@ -37,6 +156,9 @@ function normalizeRule(rule) {
     tool,
     resource,
     path,
+    ...(domainSuffixes.length ? { domainSuffixes } : {}),
+    ...(timeRange ? { timeRange } : {}),
+    ...(match ? { match } : {}),
     enabled,
     priority,
     createdAt,
@@ -44,17 +166,101 @@ function normalizeRule(rule) {
   };
 }
 
-function ruleMatches(rule, request) {
-  if (!rule?.enabled) return false;
+function normalizeRequest(request) {
+  const req = request && typeof request === "object" ? request : {};
+  const type = toNonEmptyString(req.type);
+  const tool = toNonEmptyString(req.tool);
+  const resource = toNonEmptyString(req.resource);
+  const path = toNonEmptyString(req.path) || resource;
+  const ts = toNonEmptyString(req.ts);
+  return { ...req, type, tool, resource, path, ts };
+}
 
-  if (Array.isArray(rule.types) && rule.types.length) {
-    if (!rule.types.includes(request.type)) return false;
+function matchLeaf(condition, request) {
+  const cond = isPlainObject(condition) ? condition : {};
+  const req = request && typeof request === "object" ? request : {};
+
+  const types = normalizeTypeList(cond.type ?? cond.types);
+  if (types.length && !matchAnyWildcard(types, req.type || "")) return false;
+
+  const tool = cond.tool ?? cond.toolPattern ?? null;
+  if (!matchAnyWildcard(tool, req.tool || "")) return false;
+
+  const resource = cond.resource ?? cond.resourcePattern ?? null;
+  if (!matchAnyWildcard(resource, req.resource || "")) return false;
+
+  const path = cond.path ?? cond.paths ?? null;
+  if (!matchAnyGlob(path, req.path || req.resource || "")) return false;
+
+  const domainSuffixes = normalizeDomainSuffixes(cond.domainSuffixes ?? cond.domainSuffix ?? cond.hostSuffixes ?? cond.hostSuffix);
+  if (domainSuffixes.length) {
+    const host = extractHostname(req.resource || "");
+    if (!host) return false;
+    let ok = false;
+    for (const suffix of domainSuffixes) {
+      if (hostMatchesSuffix(host, suffix)) {
+        ok = true;
+        break;
+      }
+    }
+    if (!ok) return false;
   }
 
-  if (!matchAnyWildcard(rule.tool, request.tool || "")) return false;
-  if (!matchAnyWildcard(rule.resource, request.resource || "")) return false;
-  if (!matchAnyGlob(rule.path, request.resource || "")) return false;
+  const timeRange = cond.timeRange ?? cond.window ?? cond.timeWindow;
+  if (!matchTimeRange(timeRange, req)) return false;
 
+  return true;
+}
+
+function matchCondition(condition, request, depth = 0) {
+  if (depth > 12) return false;
+
+  if (typeof condition === "string") {
+    // Convenience: treat a raw string as resource wildcard.
+    return matchLeaf({ resource: condition }, request);
+  }
+
+  if (!isPlainObject(condition)) return false;
+
+  // Leaf semantics (AND across leaf keys) first.
+  if (!matchLeaf(condition, request)) return false;
+
+  const all = Array.isArray(condition.all) ? condition.all : Array.isArray(condition.allOf) ? condition.allOf : null;
+  if (all) {
+    for (const child of all) {
+      if (!matchCondition(child, request, depth + 1)) return false;
+    }
+  }
+
+  const any = Array.isArray(condition.any) ? condition.any : Array.isArray(condition.anyOf) ? condition.anyOf : null;
+  if (any) {
+    if (any.length === 0) return false;
+    let ok = false;
+    for (const child of any) {
+      if (matchCondition(child, request, depth + 1)) {
+        ok = true;
+        break;
+      }
+    }
+    if (!ok) return false;
+  }
+
+  const not = Array.isArray(condition.not) ? condition.not : Array.isArray(condition.none) ? condition.none : null;
+  if (not) {
+    for (const child of not) {
+      if (matchCondition(child, request, depth + 1)) return false;
+    }
+  }
+
+  return true;
+}
+
+function ruleMatches(rule, request) {
+  if (!rule?.enabled) return false;
+  if (!matchLeaf(rule, request)) return false;
+  if (rule.match !== undefined && rule.match !== null) {
+    return matchCondition(rule.match, request);
+  }
   return true;
 }
 
@@ -82,8 +288,8 @@ export class PolicyEngine {
   }
 
   evaluate(request) {
-    const req = request && typeof request === "object" ? request : {};
-    const type = toNonEmptyString(req.type);
+    const req = normalizeRequest(request);
+    const type = req.type;
     if (!type) {
       return { allowed: false, requiresApproval: true, reason: "missing_type" };
     }
@@ -115,4 +321,3 @@ export class PolicyEngine {
 }
 
 export default PolicyEngine;
-

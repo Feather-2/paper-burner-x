@@ -764,3 +764,122 @@ test("PlanStore: lifecycle transitions enforce draft→approved→in_progress", 
   const forced = setPlanLifecycleStatus(completed, PlanLifecycleStatus.IN_PROGRESS, { force: true });
   assert.equal(forced.lifecycleStatus, PlanLifecycleStatus.IN_PROGRESS);
 });
+
+test("PolicyEngine: domain suffix + all/any/not + timeRange matching", async () => {
+  const { PolicyEngine } = await import("../../js/agents/runtime/policy/engine.js");
+
+  const engine = new PolicyEngine({
+    defaultEffect: "prompt",
+    rules: [
+      {
+        ruleId: "deny_github",
+        effect: "deny",
+        priority: 10,
+        match: {
+          all: [
+            { type: "tool.call" },
+            { domainSuffix: "github.com" },
+          ],
+        },
+      },
+      {
+        ruleId: "deny_off_hours",
+        effect: "deny",
+        priority: 9,
+        match: {
+          all: [
+            { type: "tool.call" },
+            { timeRange: { start: "00:00", end: "00:10", timezone: "utc" } },
+          ],
+        },
+      },
+      {
+        ruleId: "allow_docs_path",
+        effect: "allow",
+        priority: 3,
+        match: {
+          all: [
+            { type: "vfs.*" },
+            { path: "/docs/**" },
+          ],
+        },
+      },
+      {
+        ruleId: "allow_vfs_except_secrets",
+        effect: "allow",
+        priority: 2,
+        match: {
+          all: [
+            { type: "vfs.*" },
+            { not: [{ path: "secrets/**" }] },
+          ],
+        },
+      },
+    ],
+  });
+
+  const denyGithub = engine.evaluate({
+    type: "tool.call",
+    tool: "http.get",
+    resource: "https://api.github.com/repos/openai",
+  });
+  assert.equal(denyGithub.allowed, false);
+  assert.equal(denyGithub.requiresApproval, false);
+  assert.equal(denyGithub.effect, "deny");
+  assert.equal(denyGithub.ruleId, "deny_github");
+
+  const denyOffHours = engine.evaluate({
+    type: "tool.call",
+    tool: "http.get",
+    resource: "https://example.com",
+    ts: "2025-01-01T00:05:00Z",
+  });
+  assert.equal(denyOffHours.allowed, false);
+  assert.equal(denyOffHours.requiresApproval, false);
+  assert.equal(denyOffHours.ruleId, "deny_off_hours");
+
+  const engineInvalidTime = new PolicyEngine({
+    defaultEffect: "prompt",
+    rules: [
+      {
+        ruleId: "deny_invalid_time_should_not_match",
+        effect: "deny",
+        priority: 1,
+        match: {
+          all: [
+            { type: "tool.call" },
+            { timeRange: { start: "xx", end: "yy", timezone: "utc" } },
+          ],
+        },
+      },
+    ],
+  });
+  const invalidTimeDoesNotMatch = engineInvalidTime.evaluate({
+    type: "tool.call",
+    tool: "http.get",
+    resource: "https://example.com",
+    ts: "2025-01-01T00:05:00Z",
+  });
+  assert.equal(invalidTimeDoesNotMatch.allowed, false);
+  assert.equal(invalidTimeDoesNotMatch.requiresApproval, true);
+  assert.equal(invalidTimeDoesNotMatch.reason, "no_matching_rule");
+
+  const allowDocs = engine.evaluate({
+    type: "vfs.write",
+    tool: "vfs.writeText",
+    resource: "docs/readme.md",
+  });
+  assert.equal(allowDocs.allowed, true);
+  assert.equal(allowDocs.requiresApproval, false);
+  assert.equal(allowDocs.effect, "allow");
+  assert.equal(allowDocs.ruleId, "allow_docs_path");
+
+  const secretsRequireApproval = engine.evaluate({
+    type: "vfs.write",
+    tool: "vfs.writeText",
+    resource: "secrets/token.txt",
+  });
+  assert.equal(secretsRequireApproval.allowed, false);
+  assert.equal(secretsRequireApproval.requiresApproval, true);
+  assert.equal(secretsRequireApproval.reason, "no_matching_rule");
+});

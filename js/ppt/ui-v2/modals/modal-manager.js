@@ -74,6 +74,7 @@ export class ModalManager {
         openOutlinePlanner: generator.openOutlinePlanner,
         openArtifactsBrowser: generator.openArtifactsBrowser,
         openPlansManager: generator.openPlansManager,
+        openPolicyRulesManager: generator.openPolicyRulesManager,
         openSkillsManager: generator.openSkillsManager,
         openApprovalsModal: generator.openApprovalsModal,
         confirmDialog: generator.confirmDialog
@@ -97,6 +98,7 @@ export class ModalManager {
     generator.openBriefingModal = (...args) => this.openBriefingModal(...args);
     generator.openArtifactsBrowser = (...args) => this.openArtifactsBrowser(...args);
     generator.openPlansManager = (...args) => this.openPlansManager(...args);
+    generator.openPolicyRulesManager = (...args) => this.openPolicyRulesManager(...args);
     generator.openSkillsManager = (...args) => this.openSkillsManager(...args);
     generator.openApprovalsModal = (...args) => this.openApprovalsModal(...args);
     generator.confirmDialog = (...args) => this.confirmDialog(...args);
@@ -338,6 +340,10 @@ export class ModalManager {
 	                        <iconify-icon icon="solar:clipboard-list-bold-duotone"></iconify-icon>
 	                        Plans
 	                    </button>
+	                    <button class="ppt-btn ppt-btn-secondary" data-action="openPolicyRulesManager">
+	                        <iconify-icon icon="solar:shield-check-bold-duotone"></iconify-icon>
+	                        Policy
+	                    </button>
 	                    <button class="ppt-btn ppt-btn-secondary" data-action="openSkillsManager">
 	                        <iconify-icon icon="solar:book-2-bold-duotone"></iconify-icon>
 	                        Skills
@@ -377,6 +383,9 @@ export class ModalManager {
 	        }
 	        if (action === 'openPlansManager') {
 	          return () => this.openPlansManager();
+	        }
+	        if (action === 'openPolicyRulesManager') {
+	          return () => this.openPolicyRulesManager();
 	        }
 	        if (action === 'openSkillsManager') {
 	          return () => this.openSkillsManager();
@@ -1623,6 +1632,9 @@ export class ModalManager {
 	        case 'openPlansManager':
 	          this.openPlansManager(payload);
 	          break;
+	        case 'openPolicyRulesManager':
+	          this.openPolicyRulesManager(payload);
+	          break;
 	        case 'openSkillsManager':
 	          this.openSkillsManager(payload);
 	          break;
@@ -2214,6 +2226,651 @@ export class ModalManager {
 	      if (previewEl) {
 	        previewEl.insertAdjacentHTML('afterbegin', `<div style="padding:8px 10px; border:1px solid rgba(248,113,113,0.35); background: rgba(248,113,113,0.08); border-radius: 12px; color: var(--ppt-text-main); margin-bottom: 10px;">继续执行失败：${escapeHtml(msg)}</div>`);
 	      }
+	    }
+	  }
+
+	  async openPolicyRulesManager() {
+	    const generator = this._ensureGenerator();
+	    const modalId = 'pptPolicyRulesModal';
+	    const stateKey = `__policy_rules_${modalId}`;
+
+	    const ensureRuleId = (rule) => {
+	      const r = rule && typeof rule === 'object' && !Array.isArray(rule) ? { ...rule } : {};
+	      const id = typeof r.ruleId === 'string' && r.ruleId.trim()
+	        ? r.ruleId.trim()
+	        : (typeof r.id === 'string' && r.id.trim() ? r.id.trim() : '');
+	      if (id) return { ...r, ruleId: id };
+	      return { ...r, ruleId: `rule_${Date.now()}_${Math.random().toString(36).slice(2, 8)}` };
+	    };
+
+	    const overlay = this._openOrCreateModal({
+	      id: modalId,
+	      className: 'ppt-policy-rules-modal',
+	      titleHtml: `
+	        <iconify-icon icon="solar:shield-check-bold-duotone"></iconify-icon>
+	        <span>Policy Rules</span>
+	      `,
+	      bodyHtml: `<div class="ppt-history-loading"><iconify-icon icon="svg-spinners:180-ring"></iconify-icon> 加载中...</div>`,
+	      footerHtml: `
+	        <button class="ppt-btn ppt-btn-secondary" data-action="addPolicyRule">新增规则</button>
+	        <button class="ppt-btn ppt-btn-secondary" data-action="duplicatePolicyRule">复制所选</button>
+	        <button class="ppt-btn ppt-btn-secondary" data-action="deletePolicyRule">删除所选</button>
+	        <button class="ppt-btn ppt-btn-primary" data-action="savePolicyRules">保存</button>
+	        <button class="ppt-btn ppt-btn-secondary" data-action="exportPolicyRules">导出</button>
+	        <button class="ppt-btn ppt-btn-secondary" data-action="importPolicyRules">导入</button>
+	        <button class="ppt-btn ppt-btn-secondary" data-action="clearPolicyRules">清空</button>
+	        <button class="ppt-btn ppt-btn-secondary" data-action="closeModal" data-modal-id="${escapeAttr(modalId)}">关闭</button>
+	      `,
+	      actions: {
+	        addPolicyRule: () => this._addPolicyRule?.(modalId),
+	        duplicatePolicyRule: () => this._duplicatePolicyRule?.(modalId),
+	        deletePolicyRule: () => this._deletePolicyRule?.(modalId),
+	        savePolicyRules: () => this._savePolicyRules?.(modalId),
+	        exportPolicyRules: () => this._exportPolicyRules?.(modalId),
+	        importPolicyRules: () => this._importPolicyRules?.(modalId),
+	        clearPolicyRules: () => this._clearPolicyRules?.(modalId),
+	        selectPolicyRule: ({ payload }) => this._selectPolicyRule?.(modalId, payload?.ruleId),
+	        updatePolicyRuleField: ({ payload, value, checked }) => this._updatePolicyRuleField?.(modalId, { ...payload, value, checked }),
+	        updatePolicyRuleMatch: ({ payload, value }) => this._updatePolicyRuleMatch?.(modalId, payload?.ruleId, value),
+	        testPolicyRules: () => this._testPolicyRules?.(modalId),
+	      },
+	    });
+
+	    if (!overlay) return;
+
+	    // Load rules once per modal instance (subsequent opens keep local edits until Save/Close).
+	    if (!this[stateKey] || this[stateKey]?.loaded !== true) {
+	      let rules = [];
+	      try {
+	        const policy = generator?._orchestrator?._services?.policy || null;
+	        if (policy && typeof policy.getRules === 'function') {
+	          rules = policy.getRules();
+	        } else {
+	          const { PolicyRuleStore } = await import('../../../agents/runtime/policy/store.js');
+	          const store = new PolicyRuleStore();
+	          rules = store.load();
+	        }
+	      } catch {
+	        rules = [];
+	      }
+
+	      const normalized = (Array.isArray(rules) ? rules : []).map(ensureRuleId);
+	      this[stateKey] = {
+	        loaded: true,
+	        rules: normalized,
+	        selectedRuleId: normalized[0]?.ruleId || null,
+	        dirty: false,
+	        matchDraftByRuleId: {},
+	        lastTest: null,
+	      };
+	    }
+
+	    this._renderPolicyRulesManager?.(modalId);
+	  }
+
+	  _getPolicyRulesState(modalId) {
+	    const key = `__policy_rules_${modalId}`;
+	    return this[key] && typeof this[key] === 'object' ? this[key] : null;
+	  }
+
+	  _renderPolicyRulesManager(modalId) {
+	    if (typeof document === 'undefined') return;
+	    const overlay = document.getElementById(modalId);
+	    if (!overlay) return;
+	    const state = this._getPolicyRulesState(modalId);
+	    if (!state) return;
+
+	    const rules = Array.isArray(state.rules) ? state.rules : [];
+	    const selectedId = typeof state.selectedRuleId === 'string' ? state.selectedRuleId : null;
+	    const selected = rules.find((r) => r?.ruleId === selectedId) || rules[0] || null;
+	    if (selected && selected.ruleId !== state.selectedRuleId) state.selectedRuleId = selected.ruleId;
+
+	    const effect = typeof selected?.effect === 'string' ? selected.effect : 'allow';
+	    const enabled = selected?.enabled !== false;
+	    const priority = Number.isFinite(Number(selected?.priority)) ? Number(selected.priority) : 0;
+	    const types = Array.isArray(selected?.types) ? selected.types : (typeof selected?.type === 'string' ? [selected.type] : []);
+	    const tool = typeof selected?.tool === 'string' ? selected.tool : '';
+	    const resource = typeof selected?.resource === 'string' ? selected.resource : '';
+	    const path = typeof selected?.path === 'string' ? selected.path : '';
+	    const domainSuffixes = Array.isArray(selected?.domainSuffixes) ? selected.domainSuffixes : (typeof selected?.domainSuffix === 'string' ? [selected.domainSuffix] : []);
+
+	    const timeRange = selected?.timeRange && typeof selected.timeRange === 'object' && !Array.isArray(selected.timeRange) ? selected.timeRange : null;
+	    const timeStart = typeof timeRange?.start === 'string' ? timeRange.start : '';
+	    const timeEnd = typeof timeRange?.end === 'string' ? timeRange.end : '';
+	    const timeTz = typeof timeRange?.timezone === 'string' ? timeRange.timezone : 'local';
+
+	    const matchDraft = (selectedId && state.matchDraftByRuleId && typeof state.matchDraftByRuleId[selectedId] === 'string')
+	      ? state.matchDraftByRuleId[selectedId]
+	      : (() => {
+	          try { return selected?.match ? JSON.stringify(selected.match, null, 2) : ''; } catch { return ''; }
+	        })();
+
+	    const renderRuleRow = (r) => {
+	      const rid = typeof r?.ruleId === 'string' ? r.ruleId : '';
+	      const isSelected = rid && rid === state.selectedRuleId;
+	      const rEnabled = r?.enabled !== false;
+	      const rEffect = typeof r?.effect === 'string' ? r.effect : 'allow';
+	      const rPriority = Number.isFinite(Number(r?.priority)) ? Number(r.priority) : 0;
+	      const badge = rEffect === 'deny'
+	        ? `<span style="font-size:11px; padding:2px 8px; border-radius:999px; background: rgba(239,68,68,0.12); color: #ef4444;">deny</span>`
+	        : `<span style="font-size:11px; padding:2px 8px; border-radius:999px; background: rgba(34,197,94,0.12); color: #22c55e;">allow</span>`;
+	      const disabledBadge = rEnabled ? '' : `<span style="font-size:11px; padding:2px 8px; border-radius:999px; background: rgba(148,163,184,0.18); color: var(--ppt-text-secondary);">disabled</span>`;
+	      const label = typeof r?.title === 'string' && r.title.trim() ? r.title.trim() : (typeof r?.ruleId === 'string' ? r.ruleId : 'rule');
+	      const summary = [
+	        Array.isArray(r?.types) && r.types.length ? `type=${r.types.join(',')}` : '',
+	        typeof r?.tool === 'string' && r.tool ? `tool=${r.tool}` : '',
+	        typeof r?.resource === 'string' && r.resource ? `res=${r.resource}` : '',
+	        typeof r?.path === 'string' && r.path ? `path=${r.path}` : '',
+	      ].filter(Boolean).join(' · ');
+	      return `
+	        <button class="ppt-btn ppt-btn-secondary" data-action="selectPolicyRule" data-rule-id="${escapeAttr(rid)}"
+	          style="width:100%; text-align:left; justify-content:flex-start; gap:10px; padding:10px 12px; border-radius: 12px; display:flex; flex-direction:column; align-items:flex-start; ${isSelected ? 'background: rgba(79,70,229,0.10); border-color: rgba(79,70,229,0.35);' : ''}">
+	          <div style="display:flex; width:100%; align-items:center; justify-content:space-between; gap:8px;">
+	            <div style="font-weight:800; font-size: 13px; color: var(--ppt-text-main);">${escapeHtml(label)}</div>
+	            <div style="display:flex; align-items:center; gap:6px;">${badge}${disabledBadge}</div>
+	          </div>
+	          <div style="font-size: 12px; color: var(--ppt-text-secondary);">
+	            <code>${escapeHtml(rid)}</code> · priority: <code>${escapeHtml(String(rPriority))}</code>
+	          </div>
+	          ${summary ? `<div style="font-size: 12px; color: var(--ppt-text-secondary);">${escapeHtml(summary)}</div>` : ''}
+	        </button>
+	      `;
+	    };
+
+	    const headerLine = `
+	      <div style="display:flex; align-items:center; justify-content:space-between; gap: 10px; margin-bottom: 10px;">
+	        <div style="font-weight: 800; color: var(--ppt-text-main);">Rules <span style="font-size:12px; color: var(--ppt-text-secondary);">(${rules.length})</span></div>
+	        <div id="${escapeAttr(modalId)}_dirty" style="font-size: 12px; color: ${state.dirty ? '#f59e0b' : 'var(--ppt-text-secondary)'};">${state.dirty ? '未保存更改' : '已保存'}</div>
+	      </div>
+	    `;
+
+	    const editor = selected ? `
+	      <div style="display:flex; flex-direction:column; gap: 12px;">
+	        <div style="display:flex; align-items:center; justify-content:space-between; gap: 10px;">
+	          <div style="font-weight: 850; color: var(--ppt-text-main);">Rule Editor</div>
+	          <div style="font-size: 12px; color: var(--ppt-text-secondary);"><code>${escapeHtml(selected.ruleId)}</code></div>
+	        </div>
+
+	        <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
+	          <label style="display:flex; align-items:center; gap: 8px; font-size: 12px; color: var(--ppt-text-secondary);">
+	            <input type="checkbox" ${enabled ? 'checked' : ''} data-action="updatePolicyRuleField" data-event="change" data-rule-id="${escapeAttr(selected.ruleId)}" data-field="enabled" />
+	            Enabled
+	          </label>
+
+	          <label style="display:flex; flex-direction:column; gap: 6px; font-size: 12px; color: var(--ppt-text-secondary);">
+	            Effect
+	            <select class="ppt-input" data-action="updatePolicyRuleField" data-event="change" data-rule-id="${escapeAttr(selected.ruleId)}" data-field="effect">
+	              <option value="allow" ${effect === 'allow' ? 'selected' : ''}>allow</option>
+	              <option value="deny" ${effect === 'deny' ? 'selected' : ''}>deny</option>
+	            </select>
+	          </label>
+
+	          <label style="display:flex; flex-direction:column; gap: 6px; font-size: 12px; color: var(--ppt-text-secondary);">
+	            Priority
+	            <input class="ppt-input" type="number" value="${escapeAttr(String(priority))}" data-action="updatePolicyRuleField" data-event="input" data-rule-id="${escapeAttr(selected.ruleId)}" data-field="priority" />
+	          </label>
+	        </div>
+
+	        <label style="display:flex; flex-direction:column; gap: 6px; font-size: 12px; color: var(--ppt-text-secondary);">
+	          Types (comma-separated, supports *)
+	          <input class="ppt-input" type="text" value="${escapeAttr(types.join(', '))}" placeholder="e.g. vfs.write, tool.call" data-action="updatePolicyRuleField" data-event="input" data-rule-id="${escapeAttr(selected.ruleId)}" data-field="types" />
+	        </label>
+
+	        <label style="display:flex; flex-direction:column; gap: 6px; font-size: 12px; color: var(--ppt-text-secondary);">
+	          Tool (wildcard)
+	          <input class="ppt-input" type="text" value="${escapeAttr(tool)}" placeholder="e.g. vfs.writeText" data-action="updatePolicyRuleField" data-event="input" data-rule-id="${escapeAttr(selected.ruleId)}" data-field="tool" />
+	        </label>
+
+	        <label style="display:flex; flex-direction:column; gap: 6px; font-size: 12px; color: var(--ppt-text-secondary);">
+	          Resource (wildcard)
+	          <input class="ppt-input" type="text" value="${escapeAttr(resource)}" placeholder="e.g. **/*.md or https://example.com/*" data-action="updatePolicyRuleField" data-event="input" data-rule-id="${escapeAttr(selected.ruleId)}" data-field="resource" />
+	        </label>
+
+	        <label style="display:flex; flex-direction:column; gap: 6px; font-size: 12px; color: var(--ppt-text-secondary);">
+	          Path (glob)
+	          <input class="ppt-input" type="text" value="${escapeAttr(path)}" placeholder="e.g. docs/**" data-action="updatePolicyRuleField" data-event="input" data-rule-id="${escapeAttr(selected.ruleId)}" data-field="path" />
+	        </label>
+
+	        <label style="display:flex; flex-direction:column; gap: 6px; font-size: 12px; color: var(--ppt-text-secondary);">
+	          Domain Suffixes (comma-separated)
+	          <input class="ppt-input" type="text" value="${escapeAttr(domainSuffixes.join(', '))}" placeholder="e.g. github.com, openai.com" data-action="updatePolicyRuleField" data-event="input" data-rule-id="${escapeAttr(selected.ruleId)}" data-field="domainSuffixes" />
+	        </label>
+
+	        <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
+	          <label style="display:flex; flex-direction:column; gap: 6px; font-size: 12px; color: var(--ppt-text-secondary);">
+	            Time Start (HH:MM)
+	            <input class="ppt-input" type="text" value="${escapeAttr(timeStart)}" placeholder="09:00" data-action="updatePolicyRuleField" data-event="input" data-rule-id="${escapeAttr(selected.ruleId)}" data-field="timeStart" />
+	          </label>
+	          <label style="display:flex; flex-direction:column; gap: 6px; font-size: 12px; color: var(--ppt-text-secondary);">
+	            Time End (HH:MM)
+	            <input class="ppt-input" type="text" value="${escapeAttr(timeEnd)}" placeholder="18:00" data-action="updatePolicyRuleField" data-event="input" data-rule-id="${escapeAttr(selected.ruleId)}" data-field="timeEnd" />
+	          </label>
+	          <label style="display:flex; flex-direction:column; gap: 6px; font-size: 12px; color: var(--ppt-text-secondary);">
+	            Timezone
+	            <select class="ppt-input" data-action="updatePolicyRuleField" data-event="change" data-rule-id="${escapeAttr(selected.ruleId)}" data-field="timeTz">
+	              <option value="local" ${timeTz !== 'utc' ? 'selected' : ''}>local</option>
+	              <option value="utc" ${timeTz === 'utc' ? 'selected' : ''}>utc</option>
+	            </select>
+	          </label>
+	        </div>
+
+	        <details>
+	          <summary style="cursor:pointer; font-size: 12px; color: var(--ppt-text-secondary);">Advanced match (JSON: all/any/not)</summary>
+	          <textarea class="ppt-input" style="min-height: 160px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace;"
+	            data-action="updatePolicyRuleMatch" data-event="input" data-rule-id="${escapeAttr(selected.ruleId)}"
+	          >${escapeHtml(matchDraft)}</textarea>
+	        </details>
+
+	        <details>
+	          <summary style="cursor:pointer; font-size: 12px; color: var(--ppt-text-secondary);">Test request</summary>
+	          <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+	            <label style="display:flex; flex-direction:column; gap: 6px; font-size: 12px; color: var(--ppt-text-secondary);">
+	              type
+	              <input id="${escapeAttr(modalId)}_testType" class="ppt-input" type="text" placeholder="e.g. vfs.write" />
+	            </label>
+	            <label style="display:flex; flex-direction:column; gap: 6px; font-size: 12px; color: var(--ppt-text-secondary);">
+	              tool
+	              <input id="${escapeAttr(modalId)}_testTool" class="ppt-input" type="text" placeholder="e.g. vfs.writeText" />
+	            </label>
+	            <label style="display:flex; flex-direction:column; gap: 6px; font-size: 12px; color: var(--ppt-text-secondary);">
+	              resource
+	              <input id="${escapeAttr(modalId)}_testResource" class="ppt-input" type="text" placeholder="e.g. docs/readme.md or https://example.com" />
+	            </label>
+	            <label style="display:flex; flex-direction:column; gap: 6px; font-size: 12px; color: var(--ppt-text-secondary);">
+	              ts (optional, ISO)
+	              <input id="${escapeAttr(modalId)}_testTs" class="ppt-input" type="text" placeholder="e.g. 2025-01-01T12:00:00Z" />
+	            </label>
+	          </div>
+	          <div style="display:flex; gap: 10px; margin-top: 10px;">
+	            <button class="ppt-btn ppt-btn-primary" data-action="testPolicyRules">Test</button>
+	          </div>
+	          <div id="${escapeAttr(modalId)}_testResult" style="margin-top: 10px; font-size: 12px; color: var(--ppt-text-secondary);"></div>
+	        </details>
+	      </div>
+	    ` : `<div style="padding:12px;color:var(--ppt-text-secondary);">暂无规则。点击「新增规则」开始。</div>`;
+
+	    overlay.querySelector('.ppt-modal-body').innerHTML = `
+	      <div style="display:grid; grid-template-columns: 340px 1fr; gap: 12px; min-height: 420px;">
+	        <div class="custom-scrollbar" style="overflow:auto; max-height: 70vh; padding-right: 4px;">
+	          ${headerLine}
+	          ${rules.length ? rules.map(renderRuleRow).join('') : `<div style="padding:12px;color:var(--ppt-text-secondary);">暂无规则</div>`}
+	        </div>
+	        <div class="custom-scrollbar" style="overflow:auto; max-height: 70vh; border: 1px solid rgba(148,163,184,0.25); border-radius: 14px; padding: 12px; background: rgba(15,23,42,0.02);">
+	          ${editor}
+	        </div>
+	      </div>
+	    `;
+
+	    // Render last test (if any).
+	    const testEl = overlay.querySelector(`#${escapeCssSelector(modalId)}_testResult`);
+	    if (testEl && state.lastTest) {
+	      let json = '';
+	      try { json = JSON.stringify(state.lastTest, null, 2); } catch { json = String(state.lastTest); }
+	      testEl.innerHTML = `<pre class="custom-scrollbar" style="margin:0; max-height: 220px; overflow:auto; white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.45;">${escapeHtml(json)}</pre>`;
+	    }
+	  }
+
+	  _selectPolicyRule(modalId, ruleId) {
+	    const state = this._getPolicyRulesState(modalId);
+	    if (!state) return;
+	    const id = typeof ruleId === 'string' ? ruleId.trim() : '';
+	    if (!id) return;
+	    state.selectedRuleId = id;
+	    this._renderPolicyRulesManager(modalId);
+	  }
+
+	  _updatePolicyRuleMatch(modalId, ruleId, value) {
+	    const state = this._getPolicyRulesState(modalId);
+	    if (!state) return;
+	    const id = typeof ruleId === 'string' ? ruleId.trim() : '';
+	    if (!id) return;
+	    if (!state.matchDraftByRuleId || typeof state.matchDraftByRuleId !== 'object') state.matchDraftByRuleId = {};
+	    state.matchDraftByRuleId[id] = typeof value === 'string' ? value : String(value ?? '');
+	    state.dirty = true;
+	    const overlay = typeof document !== 'undefined' ? document.getElementById(modalId) : null;
+	    const dirtyEl = overlay?.querySelector?.(`#${escapeCssSelector(modalId)}_dirty`) || null;
+	    if (dirtyEl) {
+	      dirtyEl.style.color = '#f59e0b';
+	      dirtyEl.textContent = '未保存更改';
+	    }
+	  }
+
+	  _updatePolicyRuleField(modalId, payload) {
+	    const state = this._getPolicyRulesState(modalId);
+	    if (!state) return;
+	    const ruleId = typeof payload?.ruleId === 'string' ? payload.ruleId.trim() : '';
+	    const field = typeof payload?.field === 'string' ? payload.field.trim() : '';
+	    if (!ruleId || !field) return;
+
+	    const idx = Array.isArray(state.rules) ? state.rules.findIndex((r) => r?.ruleId === ruleId) : -1;
+	    if (idx < 0) return;
+
+	    const prev = state.rules[idx] && typeof state.rules[idx] === 'object' ? state.rules[idx] : { ruleId };
+	    const next = { ...prev };
+	    const value = payload?.value;
+	    const checked = payload?.checked;
+
+	    const nowIso = new Date().toISOString();
+
+	    if (field === 'enabled') {
+	      next.enabled = Boolean(checked);
+	    } else if (field === 'effect') {
+	      next.effect = typeof value === 'string' ? value : String(value ?? '');
+	    } else if (field === 'priority') {
+	      const n = parseInt(String(value ?? ''), 10);
+	      next.priority = Number.isFinite(n) ? n : 0;
+	    } else if (field === 'types') {
+	      const raw = typeof value === 'string' ? value : String(value ?? '');
+	      const parts = raw.split(',').map((s) => s.trim()).filter(Boolean);
+	      next.types = parts;
+	      delete next.type;
+	    } else if (field === 'tool') {
+	      next.tool = typeof value === 'string' ? value.trim() : String(value ?? '').trim();
+	    } else if (field === 'resource') {
+	      next.resource = typeof value === 'string' ? value.trim() : String(value ?? '').trim();
+	    } else if (field === 'path') {
+	      next.path = typeof value === 'string' ? value.trim() : String(value ?? '').trim();
+	    } else if (field === 'domainSuffixes') {
+	      const raw = typeof value === 'string' ? value : String(value ?? '');
+	      const parts = raw.split(',').map((s) => s.trim()).filter(Boolean);
+	      next.domainSuffixes = parts;
+	      delete next.domainSuffix;
+	    } else if (field === 'timeStart') {
+	      const raw = typeof value === 'string' ? value.trim() : String(value ?? '').trim();
+	      const tr = next.timeRange && typeof next.timeRange === 'object' && !Array.isArray(next.timeRange) ? { ...next.timeRange } : {};
+	      tr.start = raw;
+	      next.timeRange = tr;
+	    } else if (field === 'timeEnd') {
+	      const raw = typeof value === 'string' ? value.trim() : String(value ?? '').trim();
+	      const tr = next.timeRange && typeof next.timeRange === 'object' && !Array.isArray(next.timeRange) ? { ...next.timeRange } : {};
+	      tr.end = raw;
+	      next.timeRange = tr;
+	    } else if (field === 'timeTz') {
+	      const raw = typeof value === 'string' ? value.trim() : String(value ?? '').trim();
+	      const tr = next.timeRange && typeof next.timeRange === 'object' && !Array.isArray(next.timeRange) ? { ...next.timeRange } : {};
+	      tr.timezone = raw === 'utc' ? 'utc' : 'local';
+	      next.timeRange = tr;
+	    }
+
+	    next.updatedAt = nowIso;
+	    if (!next.createdAt) next.createdAt = nowIso;
+
+	    state.rules[idx] = next;
+	    state.dirty = true;
+
+	    const overlay = typeof document !== 'undefined' ? document.getElementById(modalId) : null;
+	    const dirtyEl = overlay?.querySelector?.(`#${escapeCssSelector(modalId)}_dirty`) || null;
+	    if (dirtyEl) {
+	      dirtyEl.style.color = '#f59e0b';
+	      dirtyEl.textContent = '未保存更改';
+	    }
+	  }
+
+	  _addPolicyRule(modalId) {
+	    const state = this._getPolicyRulesState(modalId);
+	    if (!state) return;
+	    const nowIso = new Date().toISOString();
+	    const ruleId = `rule_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+	    const rule = {
+	      ruleId,
+	      effect: 'allow',
+	      enabled: true,
+	      priority: 0,
+	      types: [],
+	      tool: 'CHANGE_ME_TOOL',
+	      resource: '',
+	      path: '',
+	      domainSuffixes: [],
+	      createdAt: nowIso,
+	      updatedAt: nowIso,
+	    };
+	    if (!Array.isArray(state.rules)) state.rules = [];
+	    state.rules.unshift(rule);
+	    state.selectedRuleId = ruleId;
+	    state.dirty = true;
+	    this._renderPolicyRulesManager(modalId);
+	  }
+
+	  _duplicatePolicyRule(modalId) {
+	    const state = this._getPolicyRulesState(modalId);
+	    if (!state) return;
+	    const selectedId = typeof state.selectedRuleId === 'string' ? state.selectedRuleId : '';
+	    if (!selectedId) return;
+	    const idx = Array.isArray(state.rules) ? state.rules.findIndex((r) => r?.ruleId === selectedId) : -1;
+	    if (idx < 0) return;
+	    const src = state.rules[idx];
+	    if (!src || typeof src !== 'object') return;
+	    const nowIso = new Date().toISOString();
+	    const ruleId = `rule_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+	    const copy = { ...src, ruleId, createdAt: nowIso, updatedAt: nowIso };
+	    state.rules.splice(idx + 1, 0, copy);
+	    state.selectedRuleId = ruleId;
+	    state.dirty = true;
+	    this._renderPolicyRulesManager(modalId);
+	  }
+
+	  async _deletePolicyRule(modalId) {
+	    const state = this._getPolicyRulesState(modalId);
+	    if (!state) return;
+	    const selectedId = typeof state.selectedRuleId === 'string' ? state.selectedRuleId : '';
+	    if (!selectedId) return;
+
+	    const ok = await this.confirmDialog({
+	      title: '删除规则',
+	      message: `确定删除规则？\n\nruleId: ${selectedId}`,
+	      confirmText: '删除',
+	      cancelText: '取消',
+	    });
+	    if (!ok) return;
+
+	    state.rules = Array.isArray(state.rules) ? state.rules.filter((r) => r?.ruleId !== selectedId) : [];
+	    state.selectedRuleId = state.rules[0]?.ruleId || null;
+	    state.dirty = true;
+	    this._renderPolicyRulesManager(modalId);
+	  }
+
+	  async _savePolicyRules(modalId) {
+	    const state = this._getPolicyRulesState(modalId);
+	    if (!state) return;
+	    const generator = this._ensureGenerator();
+
+	    // Apply match drafts (validate JSON).
+	    const drafts = state.matchDraftByRuleId && typeof state.matchDraftByRuleId === 'object' ? state.matchDraftByRuleId : {};
+	    for (const r of Array.isArray(state.rules) ? state.rules : []) {
+	      const rid = typeof r?.ruleId === 'string' ? r.ruleId : '';
+	      if (!rid) continue;
+	      if (!Object.prototype.hasOwnProperty.call(drafts, rid)) continue;
+	      const raw = typeof drafts[rid] === 'string' ? drafts[rid].trim() : '';
+	      if (!raw) {
+	        delete r.match;
+	        continue;
+	      }
+	      try {
+	        r.match = JSON.parse(raw);
+	      } catch (err) {
+	        const msg = err instanceof Error ? err.message : String(err);
+	        await this.confirmDialog({
+	          title: '保存失败',
+	          message: `match JSON 解析失败（ruleId=${rid}）：${msg}`,
+	          confirmText: '知道了',
+	          cancelText: '关闭',
+	        });
+	        return;
+	      }
+	    }
+
+	    // Clean empty timeRange stubs.
+	    for (const r of Array.isArray(state.rules) ? state.rules : []) {
+	      const tr = r?.timeRange && typeof r.timeRange === 'object' && !Array.isArray(r.timeRange) ? r.timeRange : null;
+	      if (!tr) continue;
+	      const s = typeof tr.start === 'string' ? tr.start.trim() : '';
+	      const e = typeof tr.end === 'string' ? tr.end.trim() : '';
+	      if (!s && !e) delete r.timeRange;
+	    }
+
+	    try {
+	      const policy = generator?._orchestrator?._services?.policy || null;
+	      if (policy && typeof policy.saveRules === 'function') {
+	        policy.saveRules(state.rules);
+	      } else {
+	        const { PolicyRuleStore } = await import('../../../agents/runtime/policy/store.js');
+	        const store = new PolicyRuleStore();
+	        store.save(state.rules);
+	      }
+	      state.dirty = false;
+	      this._renderPolicyRulesManager(modalId);
+	    } catch (err) {
+	      const msg = err instanceof Error ? err.message : String(err);
+	      await this.confirmDialog({
+	        title: '保存失败',
+	        message: msg,
+	        confirmText: '知道了',
+	        cancelText: '关闭',
+	      });
+	    }
+	  }
+
+	  async _clearPolicyRules(modalId) {
+	    const state = this._getPolicyRulesState(modalId);
+	    if (!state) return;
+	    const generator = this._ensureGenerator();
+
+	    const ok = await this.confirmDialog({
+	      title: '清空规则',
+	      message: '确定清空所有 Policy rules？这会立即保存到本地存储。',
+	      confirmText: '清空',
+	      cancelText: '取消',
+	    });
+	    if (!ok) return;
+
+	    state.rules = [];
+	    state.selectedRuleId = null;
+	    state.matchDraftByRuleId = {};
+	    state.lastTest = null;
+
+	    try {
+	      const policy = generator?._orchestrator?._services?.policy || null;
+	      if (policy && typeof policy.saveRules === 'function') {
+	        policy.saveRules([]);
+	      } else {
+	        const { PolicyRuleStore } = await import('../../../agents/runtime/policy/store.js');
+	        const store = new PolicyRuleStore();
+	        store.clear();
+	      }
+	    } catch {
+	      // ignore
+	    }
+
+	    state.dirty = false;
+	    this._renderPolicyRulesManager(modalId);
+	  }
+
+	  async _exportPolicyRules(modalId) {
+	    const state = this._getPolicyRulesState(modalId);
+	    if (!state) return;
+	    const payload = { schemaVersion: '0.1', rules: Array.isArray(state.rules) ? state.rules : [] };
+	    let text = '';
+	    try { text = JSON.stringify(payload, null, 2); } catch { text = String(payload); }
+
+	    if (typeof document === 'undefined' || typeof Blob === 'undefined' || typeof URL === 'undefined') return;
+	    const blob = new Blob([text], { type: 'application/json' });
+	    const url = URL.createObjectURL(blob);
+	    try {
+	      const a = document.createElement('a');
+	      a.href = url;
+	      a.download = `paper-burner-policy-rules-${Date.now()}.json`;
+	      a.style.display = 'none';
+	      document.body.appendChild(a);
+	      a.click();
+	      a.remove();
+	    } finally {
+	      setTimeout(() => URL.revokeObjectURL(url), 3000);
+	    }
+	  }
+
+	  async _importPolicyRules(modalId) {
+	    const state = this._getPolicyRulesState(modalId);
+	    if (!state) return;
+	    if (typeof document === 'undefined') return;
+
+	    const input = document.createElement('input');
+	    input.type = 'file';
+	    input.accept = '.json,application/json';
+	    input.onchange = async (e) => {
+	      const file = e?.target?.files?.[0];
+	      if (!file) return;
+	      let text = '';
+	      try {
+	        text = await file.text();
+	      } catch (err) {
+	        const msg = err instanceof Error ? err.message : String(err);
+	        await this.confirmDialog({ title: '导入失败', message: msg, confirmText: '知道了', cancelText: '关闭' });
+	        return;
+	      }
+
+	      let parsed = null;
+	      try {
+	        parsed = JSON.parse(text);
+	      } catch (err) {
+	        const msg = err instanceof Error ? err.message : String(err);
+	        await this.confirmDialog({ title: '导入失败', message: `JSON 解析失败：${msg}`, confirmText: '知道了', cancelText: '关闭' });
+	        return;
+	      }
+
+	      const rules = Array.isArray(parsed)
+	        ? parsed
+	        : (Array.isArray(parsed?.rules) ? parsed.rules : []);
+
+	      const ensureRuleId = (rule) => {
+	        const r = rule && typeof rule === 'object' && !Array.isArray(rule) ? { ...rule } : {};
+	        const id = typeof r.ruleId === 'string' && r.ruleId.trim()
+	          ? r.ruleId.trim()
+	          : (typeof r.id === 'string' && r.id.trim() ? r.id.trim() : '');
+	        if (id) return { ...r, ruleId: id };
+	        return { ...r, ruleId: `rule_${Date.now()}_${Math.random().toString(36).slice(2, 8)}` };
+	      };
+
+	      state.rules = (Array.isArray(rules) ? rules : []).filter((r) => r && typeof r === 'object').map(ensureRuleId);
+	      state.selectedRuleId = state.rules[0]?.ruleId || null;
+	      state.dirty = true;
+	      state.matchDraftByRuleId = {};
+	      state.lastTest = null;
+
+	      this._renderPolicyRulesManager(modalId);
+	    };
+	    input.click();
+	  }
+
+	  async _testPolicyRules(modalId) {
+	    if (typeof document === 'undefined') return;
+	    const state = this._getPolicyRulesState(modalId);
+	    if (!state) return;
+	    const generator = this._ensureGenerator();
+	    const overlay = document.getElementById(modalId);
+	    if (!overlay) return;
+
+	    const type = overlay.querySelector(`#${escapeCssSelector(modalId)}_testType`)?.value?.trim?.() || '';
+	    const tool = overlay.querySelector(`#${escapeCssSelector(modalId)}_testTool`)?.value?.trim?.() || '';
+	    const resource = overlay.querySelector(`#${escapeCssSelector(modalId)}_testResource`)?.value?.trim?.() || '';
+	    const ts = overlay.querySelector(`#${escapeCssSelector(modalId)}_testTs`)?.value?.trim?.() || '';
+
+	    try {
+	      const { PolicyEngine } = await import('../../../agents/runtime/policy/engine.js');
+	      const policy = generator?._orchestrator?._services?.policy || null;
+	      const defaultEffect = typeof policy?.engine?.defaultEffect === 'string' ? policy.engine.defaultEffect : 'prompt';
+	      const engine = new PolicyEngine({ rules: state.rules, defaultEffect });
+	      const decision = engine.evaluate({ type, tool, resource, ...(ts ? { ts } : {}) });
+	      state.lastTest = { request: { type, tool, resource, ...(ts ? { ts } : {}) }, decision };
+	      const el = overlay.querySelector(`#${escapeCssSelector(modalId)}_testResult`);
+	      if (el) {
+	        let json = '';
+	        try { json = JSON.stringify(state.lastTest, null, 2); } catch { json = String(state.lastTest); }
+	        el.innerHTML = `<pre class="custom-scrollbar" style="margin:0; max-height: 220px; overflow:auto; white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.45;">${escapeHtml(json)}</pre>`;
+	      }
+	    } catch (err) {
+	      const msg = err instanceof Error ? err.message : String(err);
+	      const el = overlay.querySelector(`#${escapeCssSelector(modalId)}_testResult`);
+	      if (el) el.textContent = `Test failed: ${msg}`;
 	    }
 	  }
 
