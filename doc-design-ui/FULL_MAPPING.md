@@ -106,7 +106,7 @@
 - 春秋蝉 Backtrack — `done` — Repo: `js/agents/stages/deepsearch/runtime/backtrack-manager.js` + `js/agents/sdk/BacktrackManager.js`
 - DeepSearch 闭环（Todo/Gap）— `done` — Repo: `js/agents/stages/deepsearch/`（`manage-todos`/`evaluate-gaps`/report pipeline）
 - “安全沙箱化（Docker/Bwrap）” — `n-a`（Browser-Only）— 对标参考：`ref/claude-code-open-main/src/sandbox/`、`ref/codex-main/docs/sandbox.md`
-- “极简 title-only 摘要” — `todo` — Repo: 可在 `js/agents/runtime/compression/cicada-compressor.js` 增加摘要策略变体
+- “极简 title-only 摘要” — `done` — Repo: `js/agents/runtime/core/agent-loop.js`（`titleOnlySummaryThreshold/titleOnlySummaryMaxWords`，超过阈值对旧消息做 title-only 摘要）
 - “codesearch 集成 Tree-sitter” — `done` — Repo: `js/agents/shared/parser/tree-sitter-wasm.js` + `js/agents/stages/codesearch/indexing/symbol-indexer.js`
 - “Tool Output 预览机制” — `done` — Repo: `js/agents/runtime/persisted-output.js` + `js/agents/stages/deepsearch/tools/get-artifact/handler.js`
 
@@ -122,10 +122,10 @@
 - Extended Thinking 展示/记录 — `partial` — Ref: `ref/claude-code-open-main/src/core/loop.ts` — Repo: 主要以事件/日志形式展示（`deepsearch.log.*`/ProcessPanel）；未形成显式的 `Thinking/Answer` 分块渲染
 - Persisted Output（大输出落盘 + 预览）— `done` — Ref: `ref/claude-code-open-main/src/core/loop.ts`（persisted-output 语义）— Repo: `js/agents/runtime/persisted-output.js` + `js/agents/stages/deepsearch/tools/get-artifact/handler.js` + UI: `js/ppt/ui-v2/modals/modal-manager.js`（Artifacts Browser）
 - 权限控制（会话级 “always allow”）— `done` — Ref: `ref/claude-code-open-main/src/permissions/` — Repo: `js/agents/runtime/policy/manager.js`（`remember:"always"` 写规则）+ UI: `js/ppt/ui-v2/modals/modal-manager.js`
-- Session（消息/usage/权限设置持久化）— `partial` — Ref: `ref/claude-code-open-main/src/core/session.ts` — Repo: `js/agents/storage/run-store.js`（events/artifacts）+ `js/agents/storage/run-exporter.js`（zip 导出/导入）；缺口：未提供“会话列表/命名/恢复”统一 UX（仅 Run 历史）
+- Session（消息/usage/权限设置持久化）— `partial` — Ref: `ref/claude-code-open-main/src/core/session.ts` — Repo: `js/agents/storage/run-store.js`（events/artifacts）+ `js/agents/storage/run-exporter.js`（zip 导出/导入）+ UI Runs 列表（`js/ppt/ui-v2/modals/modal-manager.js` History Selector 的 Runs tab）；缺口：run rename/标签化仍未做
 - Agents: plan/explore/resume/parallel — `partial` — Ref: `ref/claude-code-open-main/src/agents/` — Repo: 以 Stage 划分替代（codesearch/deepsearch/design）；缺口：显式的 `plan` 模式/`resume` 语义仍主要靠 replay/import-run
-- cleanOldPersistedOutputs（旧大输出清理）— `todo` — Ref: `ref/claude-code-open-main/src/core/loop.ts` — Repo: 已落盘但未对历史消息做“旧输出引用清扫/仅保留最近 N 个”的专项策略
-- 智能截断（优先换行）— `partial` — Ref: `ref/claude-code-open-main/src/core/loop.ts` — Repo: 多处 `slice()` 截断（例如 `js/agents/runtime/persisted-output.js`）；缺口：截断点选择策略未统一
+- cleanOldPersistedOutputs（旧大输出清理）— `done` — Ref: `ref/claude-code-open-main/src/core/loop.ts` — Repo: persisted tool outputs 默认注入“最小引用”（无 preview）+ kept 消息会剔除旧 preview 并做硬截断保护（`js/agents/runtime/persisted-output.js`、`js/agents/runtime/core/agent-loop.js`）
+- 智能截断（优先换行）— `partial` — Ref: `ref/claude-code-open-main/src/core/loop.ts` — Repo: persisted preview/kept message 已优先按换行/空格截断（`js/agents/runtime/persisted-output.js`、`js/agents/runtime/core/agent-loop.js`）；缺口：其他散落 `slice()` 仍未统一收口
 
 ### 2.2 `doc-design-ui/analysis-cc/prompts-tools.md`
 
@@ -144,7 +144,7 @@
 
 - Summarizer（预算到顶自摘要）— `done` — Ref: `ref/claude-code-open-main/src/context/summarizer.ts` — Repo: `js/agents/runtime/compression/cicada-compressor.js`（LLM 压缩 + anchor 保留）
 - collectWithinBudget（倒序收集）— `partial` — Ref: `ref/claude-code-open-main/src/context/*` — Repo: Cicada 采用 `keepLastTurns` 保留尾部，等价思路但实现不同
-- “5-10 word title” 极简摘要 — `todo` — Ref: `ref/claude-code-open-main/src/context/*` — Repo: Cicada 输出结构为 `{summary,keyPoints,decisions,errors}`，未做 title-only 变体
+- “5-10 word title” 极简摘要 — `done` — Ref: `ref/claude-code-open-main/src/context/*` — Repo: `js/agents/runtime/core/agent-loop.js`（title-only summary）
 - Git 结构化分析（DiffStats/CommitHistory/Merge-base）— `todo` — Ref: `ref/claude-code-open-main/src/git/` — Repo: 当前无 git 模块/工具
 
 ### 2.4 `doc-design-ui/analysis-cc/mcp-parser.md`
@@ -159,7 +159,7 @@
 ### 2.5 `doc-design-ui/analysis-cc/ui-renderer.md`
 
 - 终端 UI（Ink/TSX）— `n-a` — 本仓库为浏览器 UI（`js/ppt/ui-v2/*`）
-- Autocomplete（/command、@mention、path）— `todo` — Ref: `ref/claude-code-open-main/src/ui/autocomplete/` — Repo: 目前无输入补全
+- Autocomplete（/command、@mention、path）— `partial` — Ref: `ref/claude-code-open-main/src/ui/autocomplete/` — Repo: 已有 slash commands palette（`js/ppt/ui-v2/views/modern-research-view.js`）；缺口：@mention/path 自动补全未做
 - MarkdownBlock 分块渲染 — `partial` — Ref: `ref/claude-code-open-main/src/ui/markdown-renderer.ts` — Repo: UI 侧对 artifacts/diff/approvals 有分块展示，但对消息输出未形成统一 block renderer
 - DiffView（side-by-side/unified）— `done` — Ref: `ref/claude-code-open-main/src/ui/components/DiffView.tsx` — Repo: `vfs_checkpoint.json`（`js/agents/vfs/diff.js`）+ UI 支持 unified/side-by-side 切换与 Restore（`js/ppt/ui-v2/modals/modal-manager.js`）
 - PermissionPrompt（交互式确认）— `done` — Ref: `ref/claude-code-open-main/src/ui/*` — Repo: `js/ppt/ui-v2/modals/modal-manager.js`（Approvals modal）
@@ -203,7 +203,7 @@
 
 ### 2.12 `doc-design-ui/analysis-cc/commands-plugins.md`
 
-- Slash commands（/config /auth /compact …）— `todo` — Ref: `ref/claude-code-open-main/src/commands/` — Repo: 当前无 slash command 系统（仅 UI modal actions：`js/ppt/ui-v2/modals/modal-manager.js` 监听 `ui.action`）
+- Slash commands（/config /auth /compact …）— `partial` — Ref: `ref/claude-code-open-main/src/commands/` — Repo: 已有 Browser UI 的 slash commands（`js/ppt/ui-v2/views/modern-research-view.js`），通过 `ui.action` 驱动 modal/undo/replay（`js/ppt/ui-v2/modals/modal-manager.js`）；缺口：未实现 Claude CLI 的完整命令体系与参数交互
 - 插件体系（hooks 注入）— `partial` — Ref: `ref/claude-code-open-main/src/plugins/` — Repo: ToolExecutor hooks + middleware-chain 提供“拦截点”，但缺少插件包/发现/生命周期
 - 交互式参数补问（命令缺参）— `partial` — Repo: 有 ask-user 工具（`js/agents/stages/deepsearch/tools/ask-user/handler.js`）+ Approvals modal，但未抽象为命令系统通用机制
 
@@ -288,7 +288,7 @@
 - Sandbox & approvals（`ref/codex-main/docs/sandbox.md`）— `partial` — Repo: 本仓库已具备 Approval UI + Policy 审计事件流（`js/agents/runtime/policy/manager.js` + `js/ppt/ui-v2/modals/modal-manager.js`），但无 OS 沙箱（Browser-Only）
 - Skills（`ref/codex-main/docs/skills.md`）— `partial` — Repo: Browser skills manifest + user skillpack（`js/agents/skills/loader.browser.js` + `public/skills/manifest.json` + `js/agents/skills/user-store.js`）；差异：Codex 的“只注入元数据、body 按需打开”与本仓库策略接近，但存储/发现机制不同
 - Custom prompts as slash commands（`ref/codex-main/docs/prompts.md`）— `partial` — Repo: Prompts 外部化（`js/agents/prompts/*`），但无 `/prompts:<name>` 命令体系/参数校验 UI
-- Slash commands（`ref/codex-main/docs/slash_commands.md`）— `todo` — Repo: 未实现 `/model /status /undo /diff /skills ...` 的命令输入层；已有相近能力点分散在 UI（Approvals/Artifacts/Replay/Export）
+- Slash commands（`ref/codex-main/docs/slash_commands.md`）— `partial` — Repo: Browser UI 已覆盖 `/status /undo /skills /approvals /history` 等子集（`js/ppt/ui-v2/views/modern-research-view.js`）；缺口：/diff/@mention 等仍未对齐 CLI 体验
 - Execpolicy（`ref/codex-main/docs/execpolicy.md`）— `partial` — Repo: `js/agents/runtime/policy/engine.js` 支持 allow/deny + wildcard/glob + priority；缺口：starlark `.rules` 语法、match/not_match 自测、严格解析器
 
 ---
