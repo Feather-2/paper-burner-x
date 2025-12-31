@@ -8,6 +8,8 @@
  */
 
 import { createStageApi } from "../../shared/utils/stage-api.js";
+import { createFsAdapterFromVfs } from "../../vfs/fs-adapter.js";
+import { createVfsGlobFn } from "../../vfs/glob.js";
 
 // 必需字段验证
 const REQUIRED_FIELDS = ["signal", "emit"];
@@ -40,11 +42,23 @@ export class StageApiFactory {
   createBaseApi(overrides = {}) {
     // 过滤 undefined 值，避免覆盖已有配置
     const filtered = filterDefinedValues(overrides);
-    return createStageApi({
+    const api = createStageApi({
       ...this.baseConfig,
       ...this.services,
       ...filtered,
     });
+
+    // Browser-first: if a VFS is present, derive Node-like fs/globFn for CodeSearch tools.
+    if (!api.fs && api.vfs) {
+      const adapter = createFsAdapterFromVfs(api.vfs);
+      if (adapter) api.fs = adapter;
+    }
+    if (!api.globFn && api.vfs) {
+      const globFn = createVfsGlobFn(api.vfs);
+      if (globFn) api.globFn = globFn;
+    }
+
+    return api;
   }
 
   /**
@@ -119,6 +133,8 @@ export class StageApiFactory {
       svgGenerator: ctx.svgGenerator,
       archive: ctx.archive,
       logger: ctx.logger,
+      vfs: ctx.vfs,
+      policy: ctx.policy,
     });
   }
 }

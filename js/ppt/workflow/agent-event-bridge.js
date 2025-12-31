@@ -43,7 +43,11 @@ function isUiEventName(name) {
     name === 'iteration.completed' ||
     name.startsWith('compression.') ||
     name.startsWith('deepsearch.') ||
-    name.startsWith('design.')
+    name.startsWith('design.') ||
+    name.startsWith('policy.') ||
+    name.startsWith('tool.') ||
+    name.startsWith('artifact.') ||
+    name.startsWith('vfs.')
   );
 }
 
@@ -74,6 +78,10 @@ export class AgentEventBridge {
       this._unsubs.push(this._sourceBus.subscribe('design.*', this._handleSourceEvent));
       this._unsubs.push(this._sourceBus.subscribe('iteration.completed', this._handleSourceEvent));
       this._unsubs.push(this._sourceBus.subscribe('compression.*', this._handleSourceEvent));
+      this._unsubs.push(this._sourceBus.subscribe('policy.*', this._handleSourceEvent));
+      this._unsubs.push(this._sourceBus.subscribe('tool.*', this._handleSourceEvent));
+      this._unsubs.push(this._sourceBus.subscribe('artifact.*', this._handleSourceEvent));
+      this._unsubs.push(this._sourceBus.subscribe('vfs.*', this._handleSourceEvent));
     } else {
       this._unsubs.push(this._sourceBus.on('*', (evt) => {
         const name = evt?.name;

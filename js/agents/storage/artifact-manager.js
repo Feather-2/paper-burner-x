@@ -9,6 +9,7 @@ export const SUPPORTED_ARTIFACT_TYPES = [
   "deepsearch_state.json",
   "condensed_memory.json",
   "tool_output.json",
+  "vfs_checkpoint.json",
   "events.jsonl",
 ];
 

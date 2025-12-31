@@ -9,8 +9,12 @@
  */
 
 import { SkillScope } from "./model.js";
+import { listUserSkills, getUserSkillBody } from "./user-store.js";
 
-const DEFAULT_MANIFEST_URL = "public/skills/manifest.json";
+// Vite serves `public/` at the site root ("/skills/manifest.json").
+// Some deployments may still expose it under "/public/skills/manifest.json".
+const DEFAULT_MANIFEST_URL = "skills/manifest.json";
+const DEFAULT_MANIFEST_URL_FALLBACK = "public/skills/manifest.json";
 
 let _manifestCache = null; // { url, data, ts }
 const MANIFEST_CACHE_TTL_MS = 30_000;
@@ -186,14 +190,26 @@ function parseSkillMarkdown(contents, filePath, scope) {
 }
 
 async function loadManifest(manifestUrl) {
-  const url = resolveUrl(manifestUrl || DEFAULT_MANIFEST_URL);
+  const primary = resolveUrl(manifestUrl || DEFAULT_MANIFEST_URL);
+  const fallback = resolveUrl(DEFAULT_MANIFEST_URL_FALLBACK);
+  const candidates = [primary, fallback].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
+
   const now = Date.now();
-  if (_manifestCache && _manifestCache.url === url && now - _manifestCache.ts < MANIFEST_CACHE_TTL_MS) {
+  if (_manifestCache && _manifestCache.url === primary && now - _manifestCache.ts < MANIFEST_CACHE_TTL_MS) {
     return _manifestCache.data;
   }
-  const data = await fetchJson(url);
-  _manifestCache = { url, data, ts: now };
-  return data;
+
+  let lastErr = null;
+  for (const url of candidates) {
+    try {
+      const data = await fetchJson(url);
+      _manifestCache = { url, data, ts: now };
+      return data;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr || new Error("Failed to load skills manifest");
 }
 
 function normalizeSkillFromManifest(entry, { defaultScope = SkillScope.SYSTEM } = {}) {
@@ -227,6 +243,31 @@ function normalizeSkillFromManifest(entry, { defaultScope = SkillScope.SYSTEM } 
   };
 }
 
+function normalizeSkillFromUserStore(entry) {
+  const raw = isPlainObject(entry) ? entry : {};
+  const name = toNonEmptyString(raw.name);
+  const description = toNonEmptyString(raw.description);
+  if (!name || !description) return null;
+
+  const priority = Number.isFinite(Number(raw.priority)) ? Number(raw.priority) : 100;
+  return {
+    metadata: {
+      name,
+      description,
+      shortDescription: toNonEmptyString(raw.shortDescription) || null,
+      path: `user:${name}`,
+      scope: SkillScope.USER,
+      keywords: normalizeStringArray(raw.keywords),
+      keywordsAll: normalizeStringArray(raw.keywordsAll),
+      allowedTools: toNonEmptyString(raw.allowedTools) || null,
+      tags: isPlainObject(raw.tags) ? raw.tags : null,
+      traits: normalizeStringArray(raw.traits),
+      priority,
+    },
+    body: null,
+  };
+}
+
 /**
  * 加载所有 Skills（Browser 版本）
  *
@@ -254,17 +295,48 @@ export async function loadSkills({ manifestUrl } = {}) {
     if (skill) outcome.skills.push(skill);
   }
 
-  // 按名称去重 & 排序
-  const seen = new Set();
-  outcome.skills = outcome.skills
-    .filter((s) => {
-      const n = s?.metadata?.name;
-      if (!n) return false;
-      if (seen.has(n)) return false;
-      seen.add(n);
-      return true;
-    })
-    .sort((a, b) => String(a?.metadata?.name || "").localeCompare(String(b?.metadata?.name || "")));
+  // Merge user-installed skills (localStorage-backed) - allow overriding built-ins by name.
+  try {
+    const userList = listUserSkills();
+    for (const item of userList) {
+      const skill = normalizeSkillFromUserStore(item);
+      if (skill) outcome.skills.push(skill);
+    }
+  } catch {
+    // ignore user skill store errors
+  }
+
+  const scopeRank = {
+    [SkillScope.USER]: 3,
+    [SkillScope.REPO]: 2,
+    [SkillScope.SYSTEM]: 1,
+    [SkillScope.REMOTE]: 0,
+  };
+
+  // 按名称去重（scope 优先级：user > repo > system > remote；再比较 priority）
+  const byName = new Map();
+  for (const skill of outcome.skills) {
+    const n = skill?.metadata?.name;
+    if (!n) continue;
+    const existing = byName.get(n);
+    if (!existing) {
+      byName.set(n, skill);
+      continue;
+    }
+    const aRank = scopeRank[skill.metadata.scope] ?? 0;
+    const bRank = scopeRank[existing.metadata.scope] ?? 0;
+    if (aRank > bRank) {
+      byName.set(n, skill);
+      continue;
+    }
+    if (aRank < bRank) continue;
+
+    const aP = Number.isFinite(Number(skill.metadata.priority)) ? Number(skill.metadata.priority) : 100;
+    const bP = Number.isFinite(Number(existing.metadata.priority)) ? Number(existing.metadata.priority) : 100;
+    if (aP < bP) byName.set(n, skill);
+  }
+
+  outcome.skills = Array.from(byName.values()).sort((a, b) => String(a?.metadata?.name || "").localeCompare(String(b?.metadata?.name || "")));
 
   return outcome;
 }
@@ -334,7 +406,18 @@ export async function loadAllSkills({ manifestUrl, nexusProvider } = {}) {
  * 从指定路径加载单个 Skill（Browser 版本：fetch）
  */
 export async function loadSkillFromPath(filePath, scope = SkillScope.SYSTEM) {
-  const url = resolveUrl(filePath);
+  const raw = toNonEmptyString(filePath);
+  if (!raw) throw new Error("loadSkillFromPath(filePath): filePath is required");
+
+  if (raw.startsWith("user:")) {
+    const name = toNonEmptyString(raw.slice("user:".length));
+    if (!name) throw new Error("loadSkillFromPath(user:...): missing skill name");
+    const text = getUserSkillBody(name);
+    if (!text) throw new Error(`User skill missing body: ${name}`);
+    return parseSkillMarkdown(text, `user:${name}`, SkillScope.USER);
+  }
+
+  const url = resolveUrl(raw);
   if (!url) throw new Error("loadSkillFromPath(filePath): filePath is required");
 
   if (typeof fetch !== "function") throw new Error("fetch is not available in this environment");
@@ -350,4 +433,3 @@ export default {
   loadSkillsFromNexus,
   loadAllSkills,
 };
-

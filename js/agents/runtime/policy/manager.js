@@ -1,0 +1,227 @@
+import { computeSha256 } from "../../storage/artifact-manager.js";
+import { PolicyEngine } from "./engine.js";
+import { PolicyRuleStore } from "./store.js";
+
+function isNodeLike() {
+  return typeof process !== "undefined" && !!process.versions?.node;
+}
+
+function toNonEmptyString(v) {
+  if (v === null || v === undefined) return "";
+  const s = String(v).trim();
+  return s.length ? s : "";
+}
+
+function summarizeArgs(args) {
+  if (args === null || args === undefined) return { kind: "null" };
+  if (typeof args !== "object") return { kind: typeof args, value: String(args) };
+  const keys = Object.keys(args);
+  return { kind: "object", keys: keys.slice(0, 20), ...(keys.length > 20 ? { moreKeys: keys.length - 20 } : {}) };
+}
+
+async function sha256OfJson(value) {
+  try {
+    return await computeSha256(JSON.stringify(value ?? null));
+  } catch {
+    return undefined;
+  }
+}
+
+function defaultDeriveRuleFromRequest(req) {
+  const type = toNonEmptyString(req?.type);
+  const tool = toNonEmptyString(req?.tool);
+  const resource = toNonEmptyString(req?.resource);
+  const rule = {
+    ruleId: `rule_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    effect: "allow",
+    type,
+    ...(tool ? { tool: tool } : {}),
+    ...(resource ? { resource: resource } : {}),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    enabled: true,
+    priority: 0,
+  };
+  return rule;
+}
+
+async function waitForApprovalResponse(eventBus, requestId, { timeoutMs = 300000, signal } = {}) {
+  if (!eventBus || typeof eventBus.subscribe !== "function") return null;
+  const id = toNonEmptyString(requestId);
+  if (!id) return null;
+
+  return new Promise((resolve) => {
+    let done = false;
+    let off = null;
+    let timeoutId = null;
+
+    const finish = (value) => {
+      if (done) return;
+      done = true;
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = null;
+      try {
+        off?.();
+      } catch {
+        // ignore
+      }
+      if (signal && typeof signal.removeEventListener === "function") {
+        signal.removeEventListener("abort", onAbort);
+      }
+      resolve(value);
+    };
+
+    const onAbort = () => finish({ decision: "deny", remember: "none", reason: "aborted" });
+
+    if (signal && typeof signal.addEventListener === "function") {
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+
+    timeoutId = setTimeout(() => finish({ decision: "deny", remember: "none", reason: "timeout" }), timeoutMs);
+
+    off = eventBus.subscribe("policy.approval.response", (evt) => {
+      const payload = evt && typeof evt === "object" && "payload" in evt ? evt.payload : evt;
+      if (toNonEmptyString(payload?.requestId) !== id) return;
+      finish(payload);
+    });
+  });
+}
+
+export class PolicyManager {
+  constructor(options = {}) {
+    this.ruleStore = options.ruleStore || new PolicyRuleStore();
+    this.engine = options.engine || new PolicyEngine({ defaultEffect: options.defaultEffect || "prompt" });
+    this.eventBus = options.eventBus || null;
+    this.runStore = options.runStore || null;
+    this.runId = options.runId || null;
+
+    this.interactive = typeof options.interactive === "boolean" ? options.interactive : !isNodeLike();
+    this.approvalTimeoutMs = Number.isFinite(options.approvalTimeoutMs) ? Math.max(1000, Math.floor(options.approvalTimeoutMs)) : 300000;
+    this.onMissingApprovalProvider = toNonEmptyString(options.onMissingApprovalProvider) || (isNodeLike() ? "allow" : "deny");
+
+    this._loaded = false;
+  }
+
+  setRunContext({ eventBus, runStore, runId } = {}) {
+    if (eventBus) this.eventBus = eventBus;
+    if (runStore) this.runStore = runStore;
+    if (runId) this.runId = runId;
+  }
+
+  load() {
+    if (this._loaded) return;
+    const rules = this.ruleStore.load();
+    this.engine.setRules(rules);
+    this._loaded = true;
+  }
+
+  getRules() {
+    this.load();
+    return this.engine.getRules();
+  }
+
+  saveRules(rules) {
+    const list = Array.isArray(rules) ? rules : [];
+    this.ruleStore.save(list);
+    this.engine.setRules(list);
+    this._loaded = true;
+  }
+
+  addRule(rule) {
+    const existing = this.getRules();
+    const next = [...existing, rule];
+    this.saveRules(next);
+    return rule;
+  }
+
+  _emit(name, payload) {
+    if (this.eventBus && typeof this.eventBus.emit === "function") {
+      this.eventBus.emit(name, payload);
+    }
+  }
+
+  async authorize(request, { signal, deriveRule = defaultDeriveRuleFromRequest } = {}) {
+    this.load();
+
+    const req = request && typeof request === "object" ? { ...request } : {};
+    req.schemaVersion = "0.1";
+    req.requestId = toNonEmptyString(req.requestId) || `polreq_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    req.ts = toNonEmptyString(req.ts) || new Date().toISOString();
+
+    const type = toNonEmptyString(req.type);
+    const tool = toNonEmptyString(req.tool);
+    const resource = toNonEmptyString(req.resource);
+
+    const argsHash = req.argsHash || (req.args ? await sha256OfJson(req.args) : undefined);
+    const argsSummary = req.argsSummary || (req.args ? summarizeArgs(req.args) : undefined);
+
+    const enriched = {
+      ...req,
+      type,
+      tool,
+      resource,
+      ...(argsHash ? { argsHash } : {}),
+      ...(argsSummary ? { argsSummary } : {}),
+      ...(toNonEmptyString(this.runId) ? { runId: this.runId } : {}),
+    };
+
+    this._emit("policy.requested", {
+      requestId: enriched.requestId,
+      type: enriched.type,
+      tool: enriched.tool,
+      resource: enriched.resource,
+      ...(enriched.argsHash ? { argsHash: enriched.argsHash } : {}),
+    });
+
+    const decision = this.engine.evaluate(enriched);
+
+    if (!decision.requiresApproval) {
+      this._emit("policy.decided", { requestId: enriched.requestId, ...decision });
+      return { request: enriched, ...decision };
+    }
+
+    if (!this.interactive) {
+      const fallbackAllowed = this.onMissingApprovalProvider === "allow";
+      const fallback = { allowed: fallbackAllowed, requiresApproval: false, reason: `non_interactive_${fallbackAllowed ? "allow" : "deny"}` };
+      this._emit("policy.decided", { requestId: enriched.requestId, ...fallback });
+      return { request: enriched, ...fallback };
+    }
+
+    // Ask UI
+    this._emit("policy.approval.requested", {
+      requestId: enriched.requestId,
+      type: enriched.type,
+      tool: enriched.tool,
+      resource: enriched.resource,
+      ...(enriched.argsSummary ? { argsSummary: enriched.argsSummary } : {}),
+    });
+
+    const response = await waitForApprovalResponse(this.eventBus, enriched.requestId, { timeoutMs: this.approvalTimeoutMs, signal });
+
+    const decisionText = toNonEmptyString(response?.decision).toLowerCase();
+    const remember = toNonEmptyString(response?.remember).toLowerCase(); // "none" | "always"
+    const allowed = decisionText === "allow";
+
+    this._emit("policy.approval.responded", {
+      requestId: enriched.requestId,
+      decision: allowed ? "allow" : "deny",
+      remember: remember || "none",
+      ...(toNonEmptyString(response?.reason) ? { reason: toNonEmptyString(response.reason) } : {}),
+    });
+
+    if (allowed && remember === "always") {
+      const rule = typeof deriveRule === "function" ? deriveRule(enriched, response) : null;
+      if (rule) {
+        this.addRule(rule);
+        this._emit("policy.rule.added", { requestId: enriched.requestId, ruleId: rule.ruleId || rule.id });
+      }
+    }
+
+    const final = { allowed, requiresApproval: false, reason: allowed ? "approved" : "rejected" };
+    this._emit("policy.decided", { requestId: enriched.requestId, ...final });
+    return { request: enriched, ...final };
+  }
+}
+
+export default PolicyManager;
+

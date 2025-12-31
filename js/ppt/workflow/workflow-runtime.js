@@ -688,6 +688,19 @@ export const runtimeMixin = {
             whisperApi,
         };
 
+        // Browser-only workspace VFS (OPFS preferred). This stays optional and never blocks runtime boot.
+        if (!services.vfs) {
+            try {
+                const { createVfs } = await import('../../agents/vfs/index.js');
+                const vfs = await createVfs({ kind: 'opfs', rootDirName: 'paper-burner-workspace' });
+                services.vfs = vfs;
+                this._vfs = vfs;
+            } catch (err) {
+                // In Node/tests or older browsers, OPFS may be unavailable.
+                this._vfs = null;
+            }
+        }
+
         // 生成 runId
         this._currentRunId = `run_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
@@ -717,6 +730,19 @@ export const runtimeMixin = {
             runId: this._currentRunId,
             ...(persistenceAdapter ? { persistenceAdapter } : {})
         });
+
+        // Policy/Approval manager (optional, browser-first). Emits policy.* events onto the same EventBus for audit/replay.
+        try {
+            const { PolicyManager } = await import('../../agents/runtime/policy/manager.js');
+            services.policy = new PolicyManager({
+                eventBus,
+                runStore: this._runStore,
+                runId: this._currentRunId,
+                defaultEffect: 'prompt',
+            });
+        } catch {
+            // ignore (policy is optional)
+        }
 
         this._ensureTelemetrySubscription?.(eventBus);
 
@@ -996,6 +1022,8 @@ export const runtimeMixin = {
         registry.register('iteration.completed', captureFlowEvent('deepsearch'));
         registry.register('design.*', captureFlowEvent('design'));
         registry.register('compression.*', captureFlowEvent('runtime'));
+        registry.register('policy.*', captureFlowEvent('runtime'));
+        registry.register('vfs.*', captureFlowEvent('runtime'));
 
         // Design sub-stage UI: update agent activity based on fine-grained events.
         registry.register('design.*', (eventName, payload) => {
@@ -1506,6 +1534,8 @@ export const runtimeMixin = {
             modelRouter: orch._services?.modelRouter,
             localRetriever: orch._services?.localRetriever,
             externalSearchProvider: orch._services?.externalSearchProvider,
+            vfs: orch._services?.vfs,
+            policy: orch._services?.policy,
             storageAdapter: orch._services?.storageAdapter,
             ocr: orch._services?.ocr,
             imageProvider: orch._services?.imageProvider || orch._services?.imageService,

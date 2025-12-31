@@ -34,6 +34,11 @@ export class ToolExecutor {
     this.validateSchema = options.validateSchema ?? true; // 默认开启验证
     this.strictValidation = options.strictValidation ?? false; // 严格模式：验证失败直接返回错误
     this.defaultIsolation = normalizeIsolationMode(options.isolation);
+
+    // Optional policy gate (browser-safe). When provided, ToolExecutor will ask policyManager to authorize requests
+    // produced by policyMapper(toolName, args, context, {tool}).
+    this.policy = options.policy || null;
+    this.policyMapper = typeof options.policyMapper === "function" ? options.policyMapper : null;
   }
 
   /**
@@ -112,6 +117,23 @@ export class ToolExecutor {
       }
     }
 
+    // --- Policy / Approval gate ---
+    try {
+      const decision = await this._authorizeToolCall(name, finalArgs, context, {
+        tool,
+        options,
+      });
+      if (decision && decision.allowed === false) {
+        const reason = typeof decision.reason === "string" ? decision.reason : "denied";
+        this._emit("tool.denied", { tool: name, args: finalArgs, reason, policy: decision });
+        return this._buildResult(false, null, `Policy denied: ${reason}`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this._emit("tool.denied", { tool: name, args: finalArgs, reason: "policy_error", error: msg });
+      return this._buildResult(false, null, `Policy error: ${msg}`);
+    }
+
     const handler = typeof tool === "function" ? tool : tool.handler;
     if (typeof handler !== "function") {
       return this._buildResult(false, null, `Tool ${name} has no handler`);
@@ -175,6 +197,26 @@ export class ToolExecutor {
         .catch(err => ({ tool: item.action || item.name, success: false, error: err.message }))
     );
     return Promise.all(promises);
+  }
+
+  async _authorizeToolCall(name, args, context, { tool, options } = {}) {
+    const policy = options?.policy || this.policy;
+    if (!policy || typeof policy.authorize !== "function") return { allowed: true };
+
+    const mapper = typeof options?.policyMapper === "function" ? options.policyMapper : this.policyMapper;
+    if (typeof mapper !== "function") return { allowed: true };
+
+    const request = mapper(name, args, context, { tool });
+    if (!request) return { allowed: true };
+
+    const signal = context?.signal || context?.stageApi?.signal || null;
+    const enriched = {
+      ...request,
+      ...(request.tool ? {} : { tool: name }),
+      ...(request.args ? {} : { args }),
+    };
+
+    return await policy.authorize(enriched, { signal });
   }
 
   async _executeWithTimeout(handler, args, context, timeoutMs, options = {}) {

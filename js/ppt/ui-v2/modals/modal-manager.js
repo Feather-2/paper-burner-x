@@ -23,6 +23,12 @@ function getModalHost(generator) {
   return document.getElementById('pptGeneratorOverlay') || document.body;
 }
 
+function escapeCssSelector(value) {
+  const s = typeof value === 'string' ? value : String(value ?? '');
+  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(s);
+  return s.replace(/[^a-zA-Z0-9_-]/g, (m) => `\\${m}`);
+}
+
 export class ModalManager {
   constructor({ adapter, eventBus, stateStore, generator } = {}) {
     this.adapter = adapter || null;
@@ -38,6 +44,10 @@ export class ModalManager {
     this._pasteDocumentModalTimer = null;
     this._pasteDocumentModalKeyHandler = null;
     this._subscriptions = [];
+
+    // Policy/Approval queue (agent -> UI)
+    this._pendingPolicyApprovals = [];
+    this._activePolicyApproval = null;
     this._bindEventBus();
   }
 
@@ -62,6 +72,9 @@ export class ModalManager {
         openUrlInput: generator.openUrlInput,
         openPasteDocumentModal: generator.openPasteDocumentModal,
         openOutlinePlanner: generator.openOutlinePlanner,
+        openArtifactsBrowser: generator.openArtifactsBrowser,
+        openSkillsManager: generator.openSkillsManager,
+        openApprovalsModal: generator.openApprovalsModal,
         confirmDialog: generator.confirmDialog
       };
     }
@@ -81,6 +94,9 @@ export class ModalManager {
     generator.openPasteDocumentModal = (...args) => this.openPasteDocumentModal(...args);
     generator.openOutlinePlanner = (...args) => this.openOutlinePlanner(...args);
     generator.openBriefingModal = (...args) => this.openBriefingModal(...args);
+    generator.openArtifactsBrowser = (...args) => this.openArtifactsBrowser(...args);
+    generator.openSkillsManager = (...args) => this.openSkillsManager(...args);
+    generator.openApprovalsModal = (...args) => this.openApprovalsModal(...args);
     generator.confirmDialog = (...args) => this.confirmDialog(...args);
   }
 
@@ -312,6 +328,14 @@ export class ModalManager {
                 </div>
                 <div class="ppt-modal-footer">
                     <button class="ppt-btn ppt-btn-secondary" data-action="closeHistoryModal">取消</button>
+                    <button class="ppt-btn ppt-btn-secondary" data-action="openArtifactsBrowser">
+                        <iconify-icon icon="solar:box-bold-duotone"></iconify-icon>
+                        Artifacts
+                    </button>
+                    <button class="ppt-btn ppt-btn-secondary" data-action="openSkillsManager">
+                        <iconify-icon icon="solar:book-2-bold-duotone"></iconify-icon>
+                        Skills
+                    </button>
                     <button class="ppt-btn ppt-btn-secondary" data-action="exportCurrentRunZip">
                         <iconify-icon icon="solar:download-minimalistic-bold-duotone"></iconify-icon>
                         导出当前 Run
@@ -341,6 +365,12 @@ export class ModalManager {
         }
         if (action === 'importRunZip') {
           return () => this.importRunZip();
+        }
+        if (action === 'openArtifactsBrowser') {
+          return () => this.openArtifactsBrowser();
+        }
+        if (action === 'openSkillsManager') {
+          return () => this.openSkillsManager();
         }
         return null;
       });
@@ -1578,11 +1608,603 @@ export class ModalManager {
         case 'openOutlinePlanner':
           this.openOutlinePlanner(payload?.suggestedOutline || payload?.outline);
           break;
+        case 'openArtifactsBrowser':
+          this.openArtifactsBrowser(payload);
+          break;
+        case 'openSkillsManager':
+          this.openSkillsManager(payload);
+          break;
+        case 'openApprovalsModal':
+          this.openApprovalsModal(payload);
+          break;
         default:
           break;
       }
     });
     this._subscriptions.push(off);
+
+    // Agent -> UI Policy approval prompt
+    this._subscriptions.push(this.eventBus.on('policy.approval.requested', (_name, payload) => {
+      this._enqueuePolicyApproval(payload);
+    }));
+  }
+
+  _getAgentEventBus() {
+    const generator = this._ensureGenerator();
+    return generator?._orchestrator?.eventBus || null;
+  }
+
+  _enqueuePolicyApproval(payload) {
+    const req = payload && typeof payload === 'object' ? payload : {};
+    const requestId = typeof req.requestId === 'string' ? req.requestId.trim() : '';
+    if (!requestId) return;
+
+    const isSame = (r) => typeof r?.requestId === 'string' && r.requestId === requestId;
+    if (this._activePolicyApproval && isSame(this._activePolicyApproval)) return;
+    if (this._pendingPolicyApprovals.some(isSame)) return;
+
+    this._pendingPolicyApprovals.push(req);
+    if (!this._activePolicyApproval) this._activePolicyApproval = this._pendingPolicyApprovals.shift() || null;
+
+    // Auto-open modal
+    this.openApprovalsModal();
+  }
+
+  _renderPolicyApprovalBody(req) {
+    const type = escapeHtml(req?.type || 'unknown');
+    const tool = escapeHtml(req?.tool || '');
+    const resource = escapeHtml(req?.resource || '');
+    const argsSummary = req?.argsSummary ? escapeHtml(JSON.stringify(req.argsSummary, null, 2)) : '';
+    const id = escapeHtml(req?.requestId || '');
+    return `
+      <div style="display:flex; flex-direction:column; gap:12px;">
+        <div style="font-size:12px; color: var(--ppt-text-secondary);">Request ID: <code>${id}</code></div>
+        <div style="display:grid; grid-template-columns: 110px 1fr; gap: 8px 12px; font-size: 13px;">
+          <div style="color: var(--ppt-text-secondary);">Type</div><div><code>${type}</code></div>
+          ${tool ? `<div style="color: var(--ppt-text-secondary);">Tool</div><div><code>${tool}</code></div>` : ''}
+          ${resource ? `<div style="color: var(--ppt-text-secondary);">Resource</div><div><code>${resource}</code></div>` : ''}
+        </div>
+        ${argsSummary ? `
+          <div>
+            <div style="font-size:12px; color: var(--ppt-text-secondary); margin-bottom:6px;">Args Summary</div>
+            <pre class="custom-scrollbar" style="max-height: 240px; overflow:auto; background: rgba(15,23,42,0.04); border:1px solid rgba(148,163,184,0.25); padding:10px; border-radius: 12px; font-size: 12px; line-height: 1.4;">${argsSummary}</pre>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  _refreshApprovalsModal() {
+    if (typeof document === 'undefined') return;
+    const overlay = document.getElementById('pptPolicyApprovalModal');
+    if (!overlay) return;
+    const req = this._activePolicyApproval;
+    if (!req) {
+      overlay.classList.remove('open');
+      setTimeout(() => overlay.remove(), 280);
+      return;
+    }
+    overlay.querySelector('.ppt-modal-body')?.replaceChildren();
+    const body = overlay.querySelector('.ppt-modal-body');
+    if (body) body.innerHTML = this._renderPolicyApprovalBody(req);
+  }
+
+  _respondPolicyApproval({ requestId, decision, remember }) {
+    const id = typeof requestId === 'string' ? requestId.trim() : '';
+    if (!id) return;
+    const bus = this._getAgentEventBus();
+    if (bus && typeof bus.emit === 'function') {
+      bus.emit('policy.approval.response', { requestId: id, decision, remember });
+    }
+
+    // Advance queue
+    this._activePolicyApproval = null;
+    this._activePolicyApproval = this._pendingPolicyApprovals.shift() || null;
+    this._refreshApprovalsModal();
+  }
+
+  openApprovalsModal() {
+    const req = this._activePolicyApproval || this._pendingPolicyApprovals[0] || null;
+    if (!req) return;
+
+    const modalId = 'pptPolicyApprovalModal';
+    const overlay = this._openOrCreateModal({
+      id: modalId,
+      className: 'ppt-policy-approval-modal',
+      titleHtml: `
+        <iconify-icon icon="solar:shield-keyhole-bold-duotone"></iconify-icon>
+        <span>需要授权</span>
+      `,
+      bodyHtml: this._renderPolicyApprovalBody(req),
+      footerHtml: `
+        <button class="ppt-btn ppt-btn-secondary" data-action="policyDeny">拒绝</button>
+        <button class="ppt-btn ppt-btn-secondary" data-action="policyAllowOnce">允许一次</button>
+        <button class="ppt-btn ppt-btn-primary" data-action="policyAllowAlways">始终允许</button>
+      `,
+      onMount: (el) => {
+        el.classList.add('open');
+      },
+      actions: {
+        policyDeny: () => this._respondPolicyApproval({ requestId: this._activePolicyApproval?.requestId || req.requestId, decision: 'deny', remember: 'none' }),
+        policyAllowOnce: () => this._respondPolicyApproval({ requestId: this._activePolicyApproval?.requestId || req.requestId, decision: 'allow', remember: 'none' }),
+        policyAllowAlways: () => this._respondPolicyApproval({ requestId: this._activePolicyApproval?.requestId || req.requestId, decision: 'allow', remember: 'always' }),
+      },
+    });
+
+    if (overlay) {
+      this._activePolicyApproval = req;
+      this._refreshApprovalsModal();
+    }
+  }
+
+  async openArtifactsBrowser({ runId } = {}) {
+    const generator = this._ensureGenerator();
+    const store = generator?._runStore;
+    const id = typeof runId === 'string' && runId.trim()
+      ? runId.trim()
+      : (typeof generator?._currentRunId === 'string' ? generator._currentRunId : null);
+
+    const modalId = 'pptArtifactsBrowserModal';
+    const overlay = this._openOrCreateModal({
+      id: modalId,
+      className: 'ppt-artifacts-browser-modal',
+      titleHtml: `
+        <iconify-icon icon="solar:box-bold-duotone"></iconify-icon>
+        <span>Run Artifacts</span>
+      `,
+      bodyHtml: `<div class="ppt-history-loading"><iconify-icon icon="svg-spinners:180-ring"></iconify-icon> 加载中...</div>`,
+      footerHtml: `
+        <button class="ppt-btn ppt-btn-secondary" data-action="refreshArtifacts">刷新</button>
+        <button class="ppt-btn ppt-btn-secondary" data-action="closeModal" data-modal-id="${escapeAttr(modalId)}">关闭</button>
+      `,
+      actions: {
+        refreshArtifacts: () => this.openArtifactsBrowser({ runId: id }),
+        selectArtifact: ({ payload }) => this._selectArtifact?.(modalId, payload?.artifactId),
+        restoreVfsCheckpoint: ({ payload }) => this._restoreVfsCheckpoint?.(modalId, payload?.artifactId),
+      },
+    });
+
+    if (!overlay) return;
+
+    if (!store || !id) {
+      overlay.querySelector('.ppt-modal-body').innerHTML = `<div style="padding:12px;color:var(--ppt-text-secondary);">RunStore 或 runId 不可用，无法浏览 artifacts。</div>`;
+      return;
+    }
+
+    let artifacts = [];
+    try {
+      artifacts = await store.listArtifacts(id);
+    } catch {
+      artifacts = [];
+    }
+
+    // Synthetic events.jsonl entry (always available via getArtifact)
+    artifacts.push({
+      artifactId: `art_${id}_events.jsonl_001`,
+      runId: id,
+      type: 'events.jsonl',
+      seq: 0,
+      createdAt: '',
+      mime: 'application/x-ndjson',
+      bytes: null,
+      sha256: null,
+      storageKey: `runs/${id}/events.jsonl`,
+      synthetic: true,
+    });
+
+    artifacts = artifacts
+      .filter((a) => a && typeof a === 'object' && typeof a.type === 'string')
+      .sort((a, b) => String(a.type).localeCompare(String(b.type)) || (Number(a.seq || 0) - Number(b.seq || 0)));
+
+    const stateKey = `__artifacts_${modalId}`;
+    this[stateKey] = {
+      runId: id,
+      artifacts,
+      selected: this[stateKey]?.selected || artifacts[0]?.artifactId || null,
+    };
+
+    const renderListItem = (a) => {
+      const selected = a.artifactId === this[stateKey].selected ? 'style="background: rgba(79,70,229,0.10); border-color: rgba(79,70,229,0.35);"' : '';
+      const bytes = typeof a.bytes === 'number' ? formatSize(a.bytes) : '';
+      const sha = typeof a.sha256 === 'string' && a.sha256 ? a.sha256.slice(0, 8) : '';
+      return `
+        <button class="ppt-btn ppt-btn-secondary" data-action="selectArtifact" data-artifact-id="${escapeAttr(a.artifactId)}" ${selected}
+          style="width:100%; text-align:left; justify-content:flex-start; gap:10px; padding:10px 12px; border-radius: 12px; display:flex; flex-direction:column; align-items:flex-start;">
+          <div style="display:flex; width:100%; align-items:center; justify-content:space-between; gap:8px;">
+            <div style="font-weight:700; font-size: 13px; color: var(--ppt-text-main);">${escapeHtml(a.type)}</div>
+            <div style="font-size: 12px; color: var(--ppt-text-secondary);">${bytes}</div>
+          </div>
+          <div style="font-size: 12px; color: var(--ppt-text-secondary);">
+            <code>${escapeHtml(a.artifactId)}</code>${sha ? ` · <code>${escapeHtml(sha)}</code>` : ''}
+          </div>
+        </button>
+      `;
+    };
+
+    overlay.querySelector('.ppt-modal-body').innerHTML = `
+      <div style="display:grid; grid-template-columns: 320px 1fr; gap: 12px; min-height: 420px;">
+        <div class="custom-scrollbar" style="overflow:auto; max-height: 70vh; padding-right: 4px;">
+          ${artifacts.map(renderListItem).join('')}
+        </div>
+        <div id="${escapeAttr(modalId)}_preview" class="custom-scrollbar" style="overflow:auto; max-height: 70vh; border: 1px solid rgba(148,163,184,0.25); border-radius: 14px; padding: 12px; background: rgba(15,23,42,0.02);">
+          <div style="color: var(--ppt-text-secondary); font-size: 12px;">选择一个 artifact 以预览</div>
+        </div>
+      </div>
+    `;
+
+    await this._selectArtifact(modalId, this[stateKey].selected);
+  }
+
+  async _selectArtifact(modalId, artifactId) {
+    if (!modalId || typeof document === 'undefined') return;
+    const overlay = document.getElementById(modalId);
+    if (!overlay) return;
+    const generator = this._ensureGenerator();
+    const store = generator?._runStore;
+    const stateKey = `__artifacts_${modalId}`;
+    const state = this[stateKey];
+    if (!state || !store) return;
+    const id = typeof artifactId === 'string' ? artifactId : null;
+    if (!id) return;
+    state.selected = id;
+
+    overlay.querySelectorAll('[data-action="selectArtifact"]').forEach((btn) => {
+      if (btn.dataset.artifactId === id) {
+        btn.style.background = 'rgba(79,70,229,0.10)';
+        btn.style.borderColor = 'rgba(79,70,229,0.35)';
+      } else {
+        btn.style.background = '';
+        btn.style.borderColor = '';
+      }
+    });
+
+    const previewEl = overlay.querySelector(`#${escapeCssSelector(modalId)}_preview`);
+    if (!previewEl) return;
+
+    const artifact = state.artifacts.find((a) => a.artifactId === id);
+    if (!artifact) {
+      previewEl.innerHTML = `<div style="color: var(--ppt-text-secondary); font-size: 12px;">Artifact not found.</div>`;
+      return;
+    }
+
+    let data = null;
+    try {
+      if (artifact.type === 'events.jsonl') {
+        data = await store.getArtifact(state.runId, 'events.jsonl');
+      } else if (typeof store.getArtifactById === 'function') {
+        data = await store.getArtifactById(id);
+      } else {
+        data = artifact.data;
+      }
+    } catch (err) {
+      data = { error: err instanceof Error ? err.message : String(err) };
+    }
+
+    let text = '';
+    if (typeof data === 'string') text = data;
+    else {
+      try { text = JSON.stringify(data, null, 2); } catch { text = String(data); }
+    }
+
+    if (text.length > 20000) text = text.slice(0, 20000) + '\n...(truncated)';
+
+    if (artifact.type === 'vfs_checkpoint.json' && data && typeof data === 'object' && !Array.isArray(data)) {
+      const canRestore = !!generator?._vfs && typeof store?.getArtifactById === 'function';
+      const checkpointPath = typeof data.path === 'string' ? data.path : '';
+      const diffText = typeof data?.diff?.text === 'string' ? data.diff.text : '';
+
+      const beforePreview = typeof data?.before?.preview === 'string' ? data.before.preview : '';
+      const afterPreview = typeof data?.after?.preview === 'string' ? data.after.preview : '';
+
+      const metaLine = checkpointPath ? ` · <code>${escapeHtml(checkpointPath)}</code>` : '';
+      const restoreBtn = canRestore
+        ? `<button class="ppt-btn ppt-btn-primary" data-action="restoreVfsCheckpoint" data-artifact-id="${escapeAttr(artifact.artifactId)}">Restore</button>`
+        : `<button class="ppt-btn ppt-btn-secondary" disabled>Restore (VFS unavailable)</button>`;
+
+      const body = diffText
+        ? `<pre class="custom-scrollbar" style="white-space: pre; word-break: break-word; font-size: 12px; line-height: 1.45; margin: 0;">${escapeHtml(diffText.length > 20000 ? diffText.slice(0, 20000) + '\\n...(truncated)' : diffText)}</pre>`
+        : `<pre class="custom-scrollbar" style="white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.45; margin: 0;">${escapeHtml(text)}</pre>`;
+
+      previewEl.innerHTML = `
+        <div style="display:flex; align-items:center; justify-content:space-between; gap: 10px; margin-bottom: 10px;">
+          <div style="font-weight: 750; color: var(--ppt-text-main);">${escapeHtml(artifact.type)}</div>
+          <div style="font-size: 12px; color: var(--ppt-text-secondary);"><code>${escapeHtml(artifact.artifactId)}</code>${metaLine}</div>
+        </div>
+        <div style="display:flex; align-items:center; justify-content:space-between; gap: 10px; margin-bottom: 10px;">
+          <div style="font-size: 12px; color: var(--ppt-text-secondary);">before/after preview</div>
+          <div style="display:flex; align-items:center; gap: 8px;">${restoreBtn}</div>
+        </div>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
+          <div style="border: 1px solid rgba(148,163,184,0.25); border-radius: 12px; padding: 10px; background: rgba(15,23,42,0.02);">
+            <div style="font-weight: 700; font-size: 12px; color: var(--ppt-text-main); margin-bottom: 6px;">Before</div>
+            <pre class="custom-scrollbar" style="white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.45; margin: 0; max-height: 140px; overflow:auto;">${escapeHtml(beforePreview || '(no preview)')}</pre>
+          </div>
+          <div style="border: 1px solid rgba(148,163,184,0.25); border-radius: 12px; padding: 10px; background: rgba(15,23,42,0.02);">
+            <div style="font-weight: 700; font-size: 12px; color: var(--ppt-text-main); margin-bottom: 6px;">After</div>
+            <pre class="custom-scrollbar" style="white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.45; margin: 0; max-height: 140px; overflow:auto;">${escapeHtml(afterPreview || '(no preview)')}</pre>
+          </div>
+        </div>
+        ${body}
+      `;
+      return;
+    }
+
+    previewEl.innerHTML = `
+      <div style="display:flex; align-items:center; justify-content:space-between; gap: 10px; margin-bottom: 10px;">
+        <div style="font-weight: 750; color: var(--ppt-text-main);">${escapeHtml(artifact.type)}</div>
+        <div style="font-size: 12px; color: var(--ppt-text-secondary);"><code>${escapeHtml(artifact.artifactId)}</code></div>
+      </div>
+      <pre class="custom-scrollbar" style="white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.45; margin: 0;">${escapeHtml(text)}</pre>
+    `;
+  }
+
+  async _restoreVfsCheckpoint(modalId, artifactId) {
+    const generator = this._ensureGenerator();
+    const store = generator?._runStore;
+    const vfs = generator?._vfs;
+    const id = typeof artifactId === 'string' ? artifactId.trim() : '';
+    if (!id) return;
+
+    const overlay = typeof document !== 'undefined' ? document.getElementById(modalId) : null;
+    const previewEl = overlay?.querySelector?.(`#${escapeCssSelector(modalId)}_preview`) || null;
+
+    if (!store || !vfs) {
+      if (previewEl) {
+        previewEl.insertAdjacentHTML('afterbegin', `<div style="padding:8px 10px; border:1px solid rgba(248,113,113,0.35); background: rgba(248,113,113,0.08); border-radius: 12px; color: var(--ppt-text-main); margin-bottom: 10px;">Restore failed: RunStore/VFS unavailable.</div>`);
+      }
+      return;
+    }
+
+    try {
+      const { restoreVfsCheckpoint } = await import('../../../agents/vfs/checkpoints.js');
+      const res = await restoreVfsCheckpoint({ vfs, runStore: store, artifactId: id });
+      if (previewEl) {
+        const ok = !!res?.ok;
+        previewEl.insertAdjacentHTML(
+          'afterbegin',
+          `<div style="padding:8px 10px; border:1px solid ${ok ? 'rgba(34,197,94,0.35)' : 'rgba(248,113,113,0.35)'}; background: ${ok ? 'rgba(34,197,94,0.08)' : 'rgba(248,113,113,0.08)'}; border-radius: 12px; color: var(--ppt-text-main); margin-bottom: 10px;">${escapeHtml(ok ? `Restored: ${res.path}` : `Restore failed: ${res.error || 'unknown error'}`)}</div>`
+        );
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (previewEl) {
+        previewEl.insertAdjacentHTML('afterbegin', `<div style="padding:8px 10px; border:1px solid rgba(248,113,113,0.35); background: rgba(248,113,113,0.08); border-radius: 12px; color: var(--ppt-text-main); margin-bottom: 10px;">Restore failed: ${escapeHtml(msg)}</div>`);
+      }
+    }
+  }
+
+  async openSkillsManager() {
+    const modalId = 'pptSkillsManagerModal';
+    const overlay = this._openOrCreateModal({
+      id: modalId,
+      className: 'ppt-skills-manager-modal',
+      titleHtml: `
+        <iconify-icon icon="solar:book-2-bold-duotone"></iconify-icon>
+        <span>Skills 管理</span>
+      `,
+      bodyHtml: `<div class="ppt-history-loading"><iconify-icon icon="svg-spinners:180-ring"></iconify-icon> 加载中...</div>`,
+      footerHtml: `
+        <input id="${escapeAttr(modalId)}_file" type="file" accept=".zip" style="display:none" />
+        <button class="ppt-btn ppt-btn-secondary" data-action="importSkillZip">导入 SkillPack Zip</button>
+        <button class="ppt-btn ppt-btn-secondary" data-action="refreshSkills">刷新</button>
+        <button class="ppt-btn ppt-btn-secondary" data-action="closeModal" data-modal-id="${escapeAttr(modalId)}">关闭</button>
+      `,
+      actions: {
+        importSkillZip: async () => {
+          const input = document.getElementById(`${modalId}_file`);
+          input?.click?.();
+        },
+        refreshSkills: () => this.openSkillsManager(),
+      },
+      onMount: (el) => {
+        const input = el.querySelector(`#${escapeCssSelector(modalId)}_file`);
+        if (input && input.dataset.bound !== '1') {
+          input.dataset.bound = '1';
+          input.addEventListener('change', async (e) => {
+            const file = e?.target?.files?.[0];
+            if (!file) return;
+            try {
+              await this._importSkillPackZip(file);
+            } catch (err) {
+              alert(`导入失败: ${err instanceof Error ? err.message : String(err)}`);
+            } finally {
+              try { e.target.value = ''; } catch { /* ignore */ }
+              this.openSkillsManager();
+            }
+          });
+        }
+      },
+    });
+
+    if (!overlay) return;
+
+    const { listUserSkills, getUserSkillBody, deleteUserSkill } = await import('../../../agents/skills/user-store.js');
+
+    // Built-in manifest (best-effort)
+    let systemSkills = [];
+    try {
+      const candidates = ['/skills/manifest.json', 'skills/manifest.json', '/public/skills/manifest.json', 'public/skills/manifest.json'];
+      let json = null;
+      for (const url of candidates) {
+        try {
+          const resp = await fetch(url, { cache: 'no-store' });
+          if (!resp.ok) continue;
+          json = await resp.json();
+          break;
+        } catch {
+          // try next
+        }
+      }
+      systemSkills = Array.isArray(json?.skills) ? json.skills : [];
+    } catch {
+      systemSkills = [];
+    }
+
+    const userSkills = listUserSkills();
+
+    const renderSkillRow = (skill, { kind } = {}) => {
+      const name = escapeHtml(skill?.name || '');
+      const desc = escapeHtml(skill?.description || '');
+      const scopeLabel = kind === 'user' ? 'user' : 'system';
+      const canDelete = kind === 'user';
+      return `
+        <div style="border: 1px solid rgba(148,163,184,0.25); border-radius: 14px; padding: 12px; display:flex; gap: 10px; align-items:flex-start; justify-content: space-between;">
+          <div style="flex:1;">
+            <div style="display:flex; align-items:center; gap: 8px; margin-bottom: 6px;">
+              <div style="font-weight: 800; color: var(--ppt-text-main);">${name}</div>
+              <span style="font-size: 12px; color: var(--ppt-text-secondary); border: 1px solid rgba(148,163,184,0.25); padding: 2px 8px; border-radius: 999px;">${scopeLabel}</span>
+            </div>
+            <div style="font-size: 12px; color: var(--ppt-text-secondary); line-height: 1.5;">${desc}</div>
+          </div>
+          <div style="display:flex; gap: 8px;">
+            <button class="ppt-btn ppt-btn-secondary" data-action="viewSkill" data-skill-name="${escapeAttr(skill?.name || '')}" data-skill-kind="${escapeAttr(scopeLabel)}">查看</button>
+            ${canDelete ? `<button class="ppt-btn ppt-btn-secondary" data-action="deleteSkill" data-skill-name="${escapeAttr(skill?.name || '')}">删除</button>` : ''}
+          </div>
+        </div>
+      `;
+    };
+
+    overlay.querySelector('.ppt-modal-body').innerHTML = `
+      <div style="display:flex; flex-direction:column; gap: 14px;">
+        <div style="font-size: 12px; color: var(--ppt-text-secondary);">
+          提示：导入后的 Skills 会以 <code>user:</code> 形式加入 Catalog，并在下一次 DeepSearch 运行时可用。
+        </div>
+        <div style="display:grid; grid-template-columns: 1fr; gap: 10px;">
+          <div style="font-weight: 800; color: var(--ppt-text-main);">User Skills</div>
+          ${userSkills.length ? userSkills.map((s) => renderSkillRow(s, { kind: 'user' })).join('') : `<div style="padding:12px;color:var(--ppt-text-secondary);">暂无 User Skills</div>`}
+        </div>
+        <div style="display:grid; grid-template-columns: 1fr; gap: 10px; margin-top: 8px;">
+          <div style="font-weight: 800; color: var(--ppt-text-main);">System Skills</div>
+          ${systemSkills.length ? systemSkills.map((s) => renderSkillRow(s, { kind: 'system' })).join('') : `<div style="padding:12px;color:var(--ppt-text-secondary);">无法加载系统 Skills manifest</div>`}
+        </div>
+        <div id="${escapeAttr(modalId)}_skillPreview" style="margin-top: 6px; border: 1px solid rgba(148,163,184,0.25); border-radius: 14px; padding: 12px; background: rgba(15,23,42,0.02);">
+          <div style="color: var(--ppt-text-secondary); font-size: 12px;">选择 “查看” 以预览 SKILL.md</div>
+        </div>
+      </div>
+    `;
+
+    bindActionEvents(overlay, (action) => {
+      if (action === 'viewSkill') {
+        return ({ payload }) => {
+          const name = typeof payload?.skillName === 'string' ? payload.skillName : '';
+          const kind = typeof payload?.skillKind === 'string' ? payload.skillKind : 'system';
+          const el = overlay.querySelector(`#${escapeCssSelector(modalId)}_skillPreview`);
+          if (!el || !name) return;
+          if (kind === 'user') {
+            const body = getUserSkillBody(name) || '';
+            const preview = body.length > 8000 ? body.slice(0, 8000) + '\n...(truncated)' : body;
+            el.innerHTML = `<div style="font-weight:800;margin-bottom:8px;">${escapeHtml(name)} <span style="font-size:12px;color:var(--ppt-text-secondary);">user</span></div><pre class="custom-scrollbar" style="max-height: 260px; overflow:auto; white-space: pre-wrap; word-break: break-word; margin:0; font-size:12px; line-height:1.45;">${escapeHtml(preview)}</pre>`;
+            return;
+          }
+          // system: best-effort fetch path from manifest list
+          const sys = systemSkills.find((s) => s?.name === name);
+          const path = typeof sys?.path === 'string' ? sys.path : '';
+          if (!path) return;
+          const urls = [
+            path,
+            path.replace(/^public\//, ''),
+            path.startsWith('/') ? path : `/${path}`,
+            path.startsWith('/') ? path : `/${path.replace(/^public\//, '')}`,
+          ].filter(Boolean);
+          (async () => {
+            for (const url of Array.from(new Set(urls))) {
+              try {
+                const r = await fetch(url, { cache: 'no-store' });
+                if (!r.ok) continue;
+                const body = await r.text();
+                const preview = body.length > 8000 ? body.slice(0, 8000) + '\n...(truncated)' : body;
+                el.innerHTML = `<div style="font-weight:800;margin-bottom:8px;">${escapeHtml(name)} <span style="font-size:12px;color:var(--ppt-text-secondary);">system</span></div><pre class="custom-scrollbar" style="max-height: 260px; overflow:auto; white-space: pre-wrap; word-break: break-word; margin:0; font-size:12px; line-height:1.45;">${escapeHtml(preview)}</pre>`;
+                return;
+              } catch {
+                // try next
+              }
+            }
+          })();
+        };
+      }
+      if (action === 'deleteSkill') {
+        return ({ payload }) => {
+          const name = typeof payload?.skillName === 'string' ? payload.skillName : '';
+          if (!name) return;
+          const ok = typeof window !== 'undefined' && typeof window.confirm === 'function'
+            ? window.confirm(`确定删除 user skill: ${name} ?`)
+            : true;
+          if (!ok) return;
+          deleteUserSkill(name);
+          this.openSkillsManager();
+        };
+      }
+      return null;
+    });
+  }
+
+  async _importSkillPackZip(file) {
+    const blob = file;
+    const mod = await import('jszip');
+    const JSZip = mod.default || mod;
+    const zip = await JSZip.loadAsync(blob);
+
+    const manifestText = await zip.file('manifest.json')?.async('string');
+    if (!manifestText) throw new Error('缺少 manifest.json');
+    const manifest = JSON.parse(manifestText);
+    const skills = Array.isArray(manifest?.skills) ? manifest.skills : [];
+    if (!skills.length) throw new Error('manifest.json 中缺少 skills');
+
+    const { upsertUserSkill } = await import('../../../agents/skills/user-store.js');
+
+    const errors = [];
+    let imported = 0;
+
+    const resolveZipPath = (p) => {
+      const raw = typeof p === 'string' ? p.replace(/^\//, '') : '';
+      if (!raw) return [];
+      const candidates = [raw];
+      if (raw.startsWith('public/')) candidates.push(raw.slice('public/'.length));
+      candidates.push(raw.replace(/^\.\//, ''));
+      return Array.from(new Set(candidates));
+    };
+
+    for (const s of skills) {
+      const name = typeof s?.name === 'string' ? s.name.trim() : '';
+      if (!name) continue;
+      const description = typeof s?.description === 'string' ? s.description.trim() : '';
+      const paths = resolveZipPath(s?.path).concat([`skills/${name}/SKILL.md`, `${name}/SKILL.md`, `SKILL.md`]);
+
+      let body = '';
+      for (const p of paths) {
+        const f = zip.file(p);
+        if (!f) continue;
+        body = await f.async('string');
+        if (body) break;
+      }
+      if (!body) {
+        errors.push(`Skill "${name}" 缺少 SKILL.md (${paths[0] || 'unknown'})`);
+        continue;
+      }
+
+      upsertUserSkill({
+        metadata: {
+          name,
+          description: description || '(no description)',
+          shortDescription: s?.shortDescription ?? null,
+          keywords: Array.isArray(s?.keywords) ? s.keywords : [],
+          keywordsAll: Array.isArray(s?.keywordsAll) ? s.keywordsAll : [],
+          allowedTools: s?.allowedTools ?? null,
+          tags: s?.tags ?? null,
+          traits: s?.traits ?? null,
+          priority: s?.priority ?? 100,
+        },
+        body,
+      });
+      imported += 1;
+    }
+
+    if (errors.length) {
+      console.warn('[Skills] Import errors:', errors);
+    }
+
+    if (imported <= 0) throw new Error(errors[0] || '未导入任何 Skill');
+    return { imported, errors };
   }
 
   _ensureGenerator() {

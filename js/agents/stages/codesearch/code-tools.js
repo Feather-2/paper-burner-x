@@ -10,6 +10,8 @@
  */
 
 import { grepChunks } from "../../retrieval/grep.js";
+import SymbolIndexer from "./indexing/symbol-indexer.js";
+import { computeSha256 } from "../../storage/artifact-manager.js";
 
 // 工具定义（供 LLM 理解）
 export const TOOL_DEFINITIONS = [
@@ -81,6 +83,36 @@ export const TOOL_DEFINITIONS = [
       { path: ".", depth: 2, pattern: "*.ts" },
     ],
   },
+  {
+    name: "index_symbols",
+    description: "为代码库构建符号索引（Tree-sitter-wasm 优先，失败则 regex 回退），用于后续快速定位函数/类/类型等符号",
+    parameters: {
+      pattern: { type: "string", description: "glob 模式，如 src/**/*.ts（与 paths 二选一）", required: false },
+      path: { type: "string", description: "glob 的搜索基础路径，默认项目根目录", required: false },
+      paths: { type: "array", description: "显式文件列表（与 pattern 二选一）", required: false },
+      limit: { type: "number", description: "最多索引多少个文件（默认 200）", required: false },
+      force: { type: "boolean", description: "是否强制重建（默认 false）", required: false },
+      workspaceId: { type: "string", description: "索引命名空间（默认 default）", required: false },
+    },
+    examples: [
+      { pattern: "src/**/*.{js,ts,tsx}" },
+      { paths: ["src/main.ts", "src/app.ts"] },
+    ],
+  },
+  {
+    name: "find_symbol",
+    description: "在已建立的符号索引中搜索符号名称（需要先 index_symbols）",
+    parameters: {
+      query: { type: "string", description: "符号名或子串", required: true },
+      pathPrefix: { type: "string", description: "限定文件路径前缀（可选）", required: false },
+      limit: { type: "number", description: "最多返回多少条（默认 50）", required: false },
+      workspaceId: { type: "string", description: "索引命名空间（默认 default）", required: false },
+    },
+    examples: [
+      { query: "createVfs" },
+      { query: "Policy", pathPrefix: "js/agents/" },
+    ],
+  },
 ];
 
 /**
@@ -95,11 +127,16 @@ export const TOOL_DEFINITIONS = [
 export function createToolExecutor(options = {}) {
   const {
     fs,
+    vfs,
     globFn,
     basePath = ".",
     maxFileSize = 512 * 1024, // 512KB
     maxResults = 100,
     maxLineLength = 500,
+    wasmBaseUrl,
+    workspaceId,
+    logger,
+    emit,
   } = options;
 
   // 路径安全检查
@@ -111,6 +148,41 @@ export function createToolExecutor(options = {}) {
     }
     return path || ".";
   }
+
+  function normalizeStringArray(value) {
+    const arr = Array.isArray(value) ? value : value ? [value] : [];
+    return arr.map((v) => String(v || "").trim()).filter(Boolean);
+  }
+
+  function normalizeWorkspaceId(input) {
+    const s = String(input || "").trim();
+    return s || String(workspaceId || "").trim() || "default";
+  }
+
+  const readTextForIndexing = async (filePath) => {
+    const p = safePath(filePath);
+    if (vfs && typeof vfs.readText === "function") return vfs.readText(p);
+    if (fs?.readFile) {
+      const buf = await fs.readFile(p);
+      if (typeof buf === "string") return buf;
+      if (buf && typeof buf.toString === "function") return buf.toString("utf8");
+      if (buf instanceof ArrayBuffer) return new TextDecoder().decode(new Uint8Array(buf));
+      if (ArrayBuffer.isView(buf)) {
+        const bytes = new Uint8Array(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+        return new TextDecoder().decode(bytes);
+      }
+      return String(buf ?? "");
+    }
+    throw new Error("index_symbols: vfs.readText or fs.readFile is required");
+  };
+
+  const symbolIndexer = new SymbolIndexer({
+    vfs: vfs && typeof vfs.readText === "function" ? vfs : { readText: readTextForIndexing },
+    workspaceId: normalizeWorkspaceId(),
+    ...(wasmBaseUrl ? { wasmBaseUrl } : {}),
+    ...(logger ? { logger } : {}),
+    ...(typeof emit === "function" ? { emit } : {}),
+  });
 
   // glob 工具
   async function glob({ pattern, path }) {
@@ -201,7 +273,19 @@ export function createToolExecutor(options = {}) {
       }
 
       const buffer = await fs.readFile(filePath);
-      const content = buffer.toString("utf8");
+      let content;
+      if (typeof buffer === "string") {
+        content = buffer;
+      } else if (buffer && typeof buffer.toString === "function") {
+        content = buffer.toString("utf8");
+      } else if (buffer instanceof ArrayBuffer) {
+        content = new TextDecoder().decode(new Uint8Array(buffer));
+      } else if (ArrayBuffer.isView(buffer)) {
+        const bytes = new Uint8Array(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength));
+        content = new TextDecoder().decode(bytes);
+      } else {
+        content = String(buffer ?? "");
+      }
       const lines = content.split("\n");
 
       // 行范围处理
@@ -337,19 +421,128 @@ export function createToolExecutor(options = {}) {
     };
   }
 
+  async function index_symbols({ pattern, path, paths, limit = 200, force = false, workspaceId: wsId } = {}) {
+    const ws = normalizeWorkspaceId(wsId);
+    symbolIndexer.workspaceId = ws;
+
+    const fileList = [];
+    const seen = new Set();
+
+    for (const p of normalizeStringArray(paths)) {
+      const sp = safePath(p);
+      if (seen.has(sp)) continue;
+      seen.add(sp);
+      fileList.push(sp);
+    }
+
+    if (fileList.length === 0) {
+      const pat = String(pattern || "").trim();
+      if (!pat) throw new Error("index_symbols: pattern or paths is required");
+      const searchPath = safePath(path);
+      if (!globFn) {
+        return { error: "glob function not available", indexed: 0, skipped: 0, failed: 0, files: [] };
+      }
+      const files = await globFn({ pattern: pat, path: searchPath });
+      for (const f of Array.isArray(files) ? files : []) {
+        const sp = safePath(f);
+        if (seen.has(sp)) continue;
+        seen.add(sp);
+        fileList.push(sp);
+      }
+    }
+
+    const lim = Number.isFinite(Number(limit)) ? Math.max(1, Math.min(1000, Math.floor(Number(limit)))) : 200;
+    const targetFiles = fileList.slice(0, lim);
+
+    let indexed = 0;
+    let skipped = 0;
+    let failed = 0;
+    const results = [];
+
+    for (const file of targetFiles) {
+      try {
+        if (fs?.stat) {
+          const stats = await fs.stat(file);
+          if (stats?.size > maxFileSize) {
+            failed += 1;
+            results.push({ ok: false, path: file, error: `File too large: ${stats.size} bytes (max ${maxFileSize})` });
+            continue;
+          }
+        }
+
+        if (force) {
+          const text = await readTextForIndexing(file);
+          const symbols = await symbolIndexer.extractSymbols(text, file);
+          const sha256 = await computeSha256(text);
+          await symbolIndexer.store.putSymbolRecord(ws, file, { sha256, symbols });
+          indexed += 1;
+          results.push({ ok: true, path: file, skipped: false, symbolsCount: symbols.length });
+          continue;
+        }
+
+        const res = await symbolIndexer.indexFile(file);
+        if (res?.skipped) skipped += 1;
+        else indexed += 1;
+        results.push({ ok: true, path: file, skipped: !!res?.skipped, symbolsCount: Array.isArray(res?.symbols) ? res.symbols.length : 0 });
+      } catch (err) {
+        failed += 1;
+        results.push({ ok: false, path: file, error: String(err?.message || err) });
+      }
+    }
+
+    return {
+      workspaceId: ws,
+      indexed,
+      skipped,
+      failed,
+      total: targetFiles.length,
+      truncated: fileList.length > targetFiles.length,
+      files: results,
+      hint: "Use find_symbol to query after indexing.",
+    };
+  }
+
+  async function find_symbol({ query, pathPrefix = "", limit = 50, workspaceId: wsId } = {}) {
+    const q = String(query || "").trim();
+    if (!q) throw new Error("find_symbol: query is required");
+    const ws = normalizeWorkspaceId(wsId);
+    symbolIndexer.workspaceId = ws;
+
+    try {
+      const matches = await symbolIndexer.query({
+        query: q,
+        pathPrefix: String(pathPrefix || "").trim(),
+        limit,
+      });
+
+      return {
+        workspaceId: ws,
+        query: q,
+        total: Array.isArray(matches) ? matches.length : 0,
+        matches: Array.isArray(matches) ? matches.slice(0, maxResults) : [],
+        truncated: Array.isArray(matches) && matches.length > maxResults,
+        hint: "If no matches, run index_symbols first (or expand the indexed patterns).",
+      };
+    } catch (err) {
+      return { error: String(err?.message || err), matches: [] };
+    }
+  }
+
   return {
     glob,
     grep,
     read_file,
     list_dir,
     tree,
+    index_symbols,
+    find_symbol,
 
     // 工具定义（供 LLM 使用）
     definitions: TOOL_DEFINITIONS,
 
     // 执行工具
     async execute(toolName, args) {
-      const tools = { glob, grep, read_file, list_dir, tree };
+      const tools = { glob, grep, read_file, list_dir, tree, index_symbols, find_symbol };
       const fn = tools[toolName];
       if (!fn) {
         return { error: `Unknown tool: ${toolName}` };

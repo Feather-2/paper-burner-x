@@ -22,6 +22,7 @@ export type EventSchemaVersion = "0.1";
 /** 事件来源（actor） */
 export type EventActor =
   | "system"
+  | "policy"
   | "agent"
   | "deepsearch"
   | "design"
@@ -232,6 +233,128 @@ export namespace RunEvents {
     runId?: string;
     reason?: string;
   }
+}
+
+// ============================================================================
+// Policy / Approval / Audit（Browser-Only 安全基座）
+// ============================================================================
+
+export namespace PolicyEvents {
+  /** policy.requested - 执行权限评估（审计用） */
+  export interface Requested {
+    requestId: string;
+    type: string;
+    tool?: string;
+    resource?: string;
+    argsHash?: string;
+  }
+
+  /** policy.decided - 权限决策结果（审计用） */
+  export interface Decided {
+    requestId: string;
+    allowed: boolean;
+    reason?: string;
+    ruleId?: string;
+  }
+
+  /** policy.approval.requested - 需要用户审批 */
+  export interface ApprovalRequested {
+    requestId: string;
+    type: string;
+    tool?: string;
+    resource?: string;
+    argsSummary?: unknown;
+  }
+
+  /** policy.approval.response - 用户审批结果（UI -> Agent） */
+  export interface ApprovalResponse {
+    requestId: string;
+    decision: "allow" | "deny";
+    remember?: "none" | "always";
+    reason?: string;
+  }
+
+  /** policy.approval.responded - 审计事件（Agent 记录审批结果） */
+  export interface ApprovalResponded {
+    requestId: string;
+    decision: "allow" | "deny";
+    remember?: "none" | "always";
+    reason?: string;
+  }
+
+  /** policy.rule.added - 持久化权限规则已写入 */
+  export interface RuleAdded {
+    requestId: string;
+    ruleId?: string;
+  }
+}
+
+export interface PolicyEventMap {
+  "policy.requested": EventRecord<PolicyEvents.Requested>;
+  "policy.decided": EventRecord<PolicyEvents.Decided>;
+  "policy.approval.requested": EventRecord<PolicyEvents.ApprovalRequested>;
+  "policy.approval.response": EventRecord<PolicyEvents.ApprovalResponse>;
+  "policy.approval.responded": EventRecord<PolicyEvents.ApprovalResponded>;
+  "policy.rule.added": EventRecord<PolicyEvents.RuleAdded>;
+}
+
+// ============================================================================
+// Tool / VFS Events（审计与 UI 产品化）
+// ============================================================================
+
+export namespace ToolEvents {
+  /** tool.validation.failed - schema 验证失败 */
+  export interface ValidationFailed {
+    tool: string;
+    args?: unknown;
+    errors: string[];
+  }
+
+  /** tool.denied - Policy/Hook 阻断 */
+  export interface Denied {
+    tool: string;
+    args?: unknown;
+    reason: string;
+    policy?: unknown;
+    error?: string;
+  }
+
+  /** tool.completed - 工具执行成功 */
+  export interface Completed {
+    tool: string;
+    args?: unknown;
+    result?: unknown;
+    duration?: number;
+  }
+
+  /** tool.failed - 工具执行失败 */
+  export interface Failed {
+    tool: string;
+    args?: unknown;
+    error?: string;
+    duration?: number;
+  }
+}
+
+export interface ToolEventMap {
+  "tool.validation.failed": EventRecord<ToolEvents.ValidationFailed>;
+  "tool.denied": EventRecord<ToolEvents.Denied>;
+  "tool.completed": EventRecord<ToolEvents.Completed>;
+  "tool.failed": EventRecord<ToolEvents.Failed>;
+}
+
+export namespace VfsEvents {
+  /** vfs.write.completed - 文件写入完成（可带 checkpoint 引用） */
+  export interface WriteCompleted {
+    path: string;
+    bytes?: number;
+    checkpoint?: { artifactId: string; type: string };
+    policy?: unknown;
+  }
+}
+
+export interface VfsEventMap {
+  "vfs.write.completed": EventRecord<VfsEvents.WriteCompleted>;
 }
 
 export interface RunEventMap {
@@ -1032,6 +1155,12 @@ export namespace CodeSearchEvents {
   export interface Summarizing {
     steps: number;
   }
+
+  /** codesearch.phase.transition - 阶段转换 */
+  export interface PhaseTransition {
+    from: string;
+    to: string;
+  }
 }
 
 // ============================================================================
@@ -1271,6 +1400,7 @@ export interface CodeSearchEventMap {
   "codesearch.agent.status.changed": EventRecord<CodeSearchEvents.StatusChanged>;
   "codesearch.started": EventRecord<CodeSearchEvents.Started>;
   "codesearch.completed": EventRecord<CodeSearchEvents.Completed>;
+  "codesearch.phase.transition": EventRecord<CodeSearchEvents.PhaseTransition>;
   "codesearch.step.started": EventRecord<CodeSearchEvents.StepStarted>;
   "codesearch.step.completed": EventRecord<CodeSearchEvents.StepCompleted>;
   "codesearch.step.failed": EventRecord<CodeSearchEvents.StepFailed>;
@@ -1284,6 +1414,9 @@ export interface AgentEventMap
     CompressionEventMap,
     IterationEventMap,
     AgentLogEventMap,
+    PolicyEventMap,
+    ToolEventMap,
+    VfsEventMap,
     DeepSearchEventMap,
     DesignEventMap,
     CodeSearchEventMap { }

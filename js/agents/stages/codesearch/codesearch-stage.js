@@ -229,6 +229,29 @@ function formatToolResult(toolName, result) {
       const matches = result.matches || [];
       return `[grep] Found ${result.total} matches:\n${matches.map(m => `${m.file}: ${m.matchCount} matches`).join("\n")}`;
 
+    case "index_symbols": {
+      const files = Array.isArray(result.files) ? result.files : [];
+      const failures = files.filter((f) => f && f.ok === false).slice(0, 6);
+      const failureText = failures.length
+        ? `\nFailures:\n${failures.map((f) => `- ${f.path}: ${f.error || "error"}`).join("\n")}`
+        : "";
+      return `[index_symbols] indexed=${result.indexed || 0}, skipped=${result.skipped || 0}, failed=${result.failed || 0}, total=${result.total || 0}${result.truncated ? " (truncated)" : ""}${failureText}`;
+    }
+
+    case "find_symbol": {
+      const rows = Array.isArray(result.matches) ? result.matches : [];
+      const preview = rows
+        .slice(0, 20)
+        .map((m) => {
+          const file = m.file || m.path || "?";
+          const line = m.startLine || m.line || "";
+          const kind = m.kind || "";
+          return `${m.name || "?"} ${kind ? `(${kind}) ` : ""}- ${file}${line ? `:${line}` : ""}`;
+        })
+        .join("\n");
+      return `[find_symbol] Found ${result.total || 0} matches for "${result.query}":\n${preview || "(none)"}`;
+    }
+
     default:
       return `[${toolName}]\n${JSON.stringify(result, null, 2)}`;
   }
@@ -304,8 +327,11 @@ export class CodeSearchStage extends BaseAgentLoop {
     // 初始化工具
     const tools = createToolExecutor({
       fs: stageApi?.fs || await this._getDefaultFs(),
+      vfs: stageApi?.vfs,
       globFn: stageApi?.globFn,
       basePath: input?.basePath || ".",
+      logger,
+      emit,
     });
 
     // 初始化 LLM

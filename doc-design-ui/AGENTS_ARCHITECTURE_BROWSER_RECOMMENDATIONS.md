@@ -24,12 +24,15 @@
 ### ✅ 已实现（可直接在纯浏览器运行）
 
 1. **Skills 渐进式披露（Browser Loader + Catalog）**
-   - Browser 端通过 `public/skills/manifest.json` 发现 Skills（不依赖 `fs` 扫描）。
+   - Browser 端通过 `public/skills/manifest.json` 发现 Skills（站点路径为 `/skills/manifest.json`，不依赖 `fs` 扫描）。
+   - 支持用户导入 SkillPack Zip 并持久化到 LocalStorage（作为 `user:*` 技能加入 Catalog）。
    - 关键实现：
      - `js/agents/skills/loader.browser.js`
      - `js/agents/skills/loader.js`（Node/Browser 路由）
      - `js/agents/skills/manager.js#getCatalogPrompt`（Browser 默认注入 Catalog）
      - `public/skills/manifest.json`
+     - `js/agents/skills/user-store.js`（User Skills 存储）
+     - `js/ppt/ui-v2/modals/modal-manager.js`（Skills 管理弹窗）
 2. **`<persisted-output>` 的“可落盘+可引用”闭环（RunStore artifacts）**
    - 大型 tool 输出自动写入 `RunStore(IndexedDB)`，prompt 中只保留 preview + `artifactId`。
    - 关键实现：
@@ -46,13 +49,43 @@
    - 关键实现：
      - `js/ppt/workflow/workflow-runtime.js#downloadRunZip`
      - `js/ppt/ui-v2/modals/modal-manager.js`（历史弹窗新增“导出当前 Run / 导入 Run Zip”）
+5. **Browser Workspace VFS（OPFS 优先 + 内存降级）**
+   - 统一 `vfs` 抽象，Browser 默认走 OPFS（`navigator.storage.getDirectory()`）；Node/test 兼容 memory/nodefs。
+   - Stage 层可通过 `stageApi.vfs` 派生 `fs/globFn`，无需依赖 Node `fs`。
+   - 关键实现：
+     - `js/agents/vfs/index.js` / `js/agents/vfs/vfs.opfs.js` / `js/agents/vfs/vfs.memory.js` / `js/agents/vfs/vfs.node.js`
+     - `js/agents/vfs/glob.js` / `js/agents/vfs/fs-adapter.js`
+     - `js/ppt/workflow/workflow-runtime.js`（启动时创建 OPFS workspace: `paper-burner-workspace`）
+     - `js/agents/runtime/api/stage-api-factory.js`（从 `vfs` 推导 `fs/globFn`）
+6. **VFS Checkpoints + Unified Diff + Restore（Undo 基座）**
+   - 写入前后内容会写入 `RunStore` artifact：`vfs_checkpoint.json`，并内置 unified diff（小文件）。
+   - UI 的 Artifacts Browser 支持预览 diff，并一键 Restore（回写 before 版本）。
+   - 关键实现：
+     - `js/agents/vfs/checkpoints.js` / `js/agents/vfs/diff.js`
+     - `js/agents/vfs/operations.js`（示例写入封装：policy + checkpoint）
+     - `js/ppt/ui-v2/modals/modal-manager.js`（Artifacts Browser: diff + restore）
+7. **Policy/Approval（PBAC-lite + 审计 + UI 审批）**
+   - `PolicyManager` 通过 `policy.*` 事件把“请求→审批→决策→规则落盘”串成可回放审计流。
+   - UI 侧监听 `policy.approval.requested` 并发回 `policy.approval.response`（允许一次/始终允许）。
+   - 关键实现：
+     - `js/agents/runtime/policy/*`
+     - `js/ppt/ui-v2/modals/modal-manager.js`（Approvals 弹窗）
+     - `js/ppt/workflow/agent-event-bridge.js`（policy/tool/vfs 事件转发 + 背压）
+8. **WASM Search/Parse（Tree-sitter-wasm）+ 符号索引**
+   - wasm 资源随站点发布：`public/wasm/tree-sitter/*`
+   - CodeSearch 新增 `index_symbols` / `find_symbol`，优先 Tree-sitter-wasm，失败则 regex 回退，并缓存到 IndexedDB。
+   - 关键实现：
+     - `js/agents/shared/parser/tree-sitter-wasm.js`
+     - `js/agents/stages/codesearch/indexing/*`
+     - `js/agents/stages/codesearch/code-tools.js`
+     - `public/wasm/tree-sitter/*`
 
-### 🟡 仍需推进（按 Roadmap 的下一步）
+### 🟡 可继续增强（非阻塞但建议尽快补齐）
 
-- **VFS + OPFS + Checkpoints（文件级别 Undo/Diff）**：目前尚未实现统一 VFS 抽象与写前快照/回滚。
-- **Policy/Approval（PBAC + 审计）**：目前尚未把 permissions/policy 做成可配置、可审批、可追溯的统一入口。
-- **WASM Search/Parse（Tree-sitter-wasm）**：目前尚未落地符号索引与增量构建。
-- **UI 侧 Replay / Approvals / Skill Manager**：已具备 RunStore + ReplayController 基座，但缺少更完整的产品化界面（列表、筛选、预览、操作流）。
+- **Policy Rules 管理 UI**：查看/编辑/导入导出规则；对敏感能力（net/fs.write/clipboard/download）提供更细粒度的“单次/会话/永久”。
+- **File System Access API（增强模式）**：用户授权映射本地目录，配合“写前指纹校验”应对 watcher 缺失。
+- **Orchestrator/Loop Worker 化**：将主循环迁移到 Dedicated Worker，UI 仅收发 Op/Event（当前已具备 event-sourcing 与 backpressure 基座）。
+- **Web-MCP 接入**：仅支持 HTTP/SSE/WS + CORS 的 MCP Server，并缓存工具 schema（TTL）。
 
 ---
 
@@ -76,7 +109,7 @@
 
 - Tool 定义 + JSON Schema 强校验（避免 LLM 乱参）。
 - `ToolExecutor` 支持隔离模式（Node 侧有 `worker_threads`；浏览器应对齐为 WebWorker）。
-- 需要补齐 Claude Code 的 `<persisted-output>`：巨型工具返回要“落盘 + 预览 + 引用”。
+- 已补齐 Claude Code 的 `<persisted-output>`：巨型工具返回会“落盘 + 预览 + 引用（artifactId）”。
 
 ### 1.4 Skills / Prompts：知识外置 + 动态注入
 
@@ -235,7 +268,8 @@
 2. **三路补全**
    - `/command`、`@mention`（如 `@file` / `@symbol` / `@skill`）、`path/to/file`（基于 VFS 索引）。
 3. **DiffView 作为一级能力**
-   - 工具写文件必须产出 diff；UI 支持 unified/side-by-side；写入前必须可预览 + 可撤销。
+   - 基础版已落地：`vfs_checkpoint.json` 内置 unified diff，UI Artifacts Browser 可预览并 Restore（Undo）。
+   - 下一步：写入前预览（pre-commit diff）+ side-by-side DiffView + 多 checkpoint 回滚。
 
 ### 3.10 浏览器能力探测与降级（WASM Fallback Pattern）
 
@@ -250,14 +284,14 @@
 
 ## 4. 面向落地的 Roadmap（建议分 4 个里程碑）
 
-1. **M1：Worker Runtime + Op-Event**
-   - 把 Orchestrator/Loop 移入 Dedicated Worker；UI 仅收发 Op/Event；RunStore 可回放。
-2. **M2：VFS + Checkpoints + Persisted Output**
-   - OPFS 工作区；写前 checkpoint；大输出落盘引用；Diff/Undo 可用。
-3. **M3：Skills 渐进式披露 + Policy/Approval**
-   - SkillPack 导入；Skill tool 注入；PolicyEngine + 审计 + 会话记忆授权。
-4. **M4：WASM Search/Parse + MCP(Web)**
-   - Tree-sitter-wasm 符号索引；检索 worker；Web-MCP 工具生态接入。
+1. **M1：Worker Runtime + Op-Event（进行中）**
+   - 已具备 EventBus + RunStore 的 Op-Event 基座与回放能力；下一步把 Orchestrator/Loop 搬到 Dedicated Worker（UI 仅收发 Op/Event）。
+2. **M2：VFS + Checkpoints + Persisted Output（基础版已落地）**
+   - OPFS 工作区 + checkpoint + unified diff + restore；`<persisted-output>` 大输出落盘引用已闭环。
+3. **M3：Skills 渐进式披露 + Policy/Approval（基础版已落地）**
+   - System manifest + User SkillPack（zip 导入）；PolicyEngine/PolicyManager + 审批 UI + 审计事件流。
+4. **M4：WASM Search/Parse + MCP(Web)（部分完成）**
+   - Tree-sitter-wasm 符号索引与缓存已落地；Web-MCP 工具生态接入仍需推进（仅 Web transport + CORS）。
 
 ---
 
