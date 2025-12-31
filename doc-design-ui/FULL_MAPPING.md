@@ -133,11 +133,11 @@
 - AttachmentManager（环境附件）— `partial` — Ref: `ref/claude-code-open-main/src/prompt/attachments.ts` — Repo: 目前主要注入 Tools/Skills Catalog；缺口：Git/诊断/环境信息作为可选附件体系
 - PromptCache（hash 缓存构建）— `partial` — Ref: `ref/claude-code-open-main/src/prompt/cache.ts` — Repo: `js/agents/prompts/prompt-loader.js`（按 key 缓存加载）
 - ToolRegistry — `partial` — Ref: `ref/claude-code-open-main/src/agents/tools.ts` — Repo: `js/agents/runtime/tools/tool-executor.js`（执行与校验）；工具注册分散在各 stage（如 `js/agents/stages/deepsearch/tools/index.js`）
-- MultiEditTool — `todo` — Ref: `ref/claude-code-open-main/src/tools/`（multi-edit）— Repo: 无通用“多文件 patch 工具”；当前仅有 VFS 单文件写 + checkpoint（`js/agents/vfs/operations.js`）
+- MultiEditTool — `done` — Ref: `ref/claude-code-open-main/src/tools/multiedit.ts` — Repo: VFS 事务编辑（`js/agents/vfs/operations.js#multiEditTextFileWithPolicy`）+ CodeSearch tools（`js/agents/stages/codesearch/code-tools.js`：`multi_edit`/`write_file`）
 - LSPTool — `todo` — Ref: `ref/claude-code-open-main/src/tools/lsp/`（如存在）— Repo: 无 LSP 集成（可用 Tree-sitter/regex 索引替代一部分）
 - McpTool（外部工具协议）— `partial` — Ref: `ref/claude-code-open-main/src/mcp/` — Repo: `js/agents/mcp/*`（client/provider），但“以 MCP schema 驱动的通用工具面”尚未产品化为统一 tool
 - Token 估算 — `done` — Ref: `ref/claude-code-open-main/src/prompt/*` — Repo: `js/agents/runtime/core/agent-loop.js` + `js/agents/runtime/memory/memory-store.js` + `js/agents/runtime/compression/cicada-compressor.js`
-- truncateToLimit + system-reminder — `todo` — Ref: `ref/claude-code-open-main/src/prompt/*` — Repo: 当前压缩通过 Cicada；缺口：在系统提示词层面插入显式 reminder 的机制未建立
+- truncateToLimit + system-reminder — `partial` — Ref: `ref/claude-code-open-main/src/prompt/*` — Repo: BaseAgentLoop 已有 Cicada + 高填充率 title-only（`js/agents/runtime/core/agent-loop.js`）；DeepSearch 会注入 `<reminder>`（`js/agents/stages/deepsearch/deepsearch-agent-loop.js`）；缺口：通用的 prompt builder truncateToLimit 统一入口
 - Diff-based EditTool — `partial` — Ref: `ref/claude-code-open-main/src/tools/edit.ts`（类比）— Repo: Design edit-mode 有操作级别增量编辑（`js/agents/stages/design/edit-mode/*`）；但对“代码文件编辑”的 diff 工具未建立
 
 ### 2.3 `doc-design-ui/analysis-cc/context-git.md`
@@ -152,8 +152,8 @@
 - MCP 资源管理器（resource manager adapter）— `todo` — Ref: `ref/claude-code-open-main/src/mcp/` — Repo: 仅 provider/client 级封装（`js/agents/mcp/mcp-client.js`），暂无 resource manager 抽象
 - MCP auto-discovery + preload + subscribe — `todo` — Ref: `ref/claude-code-open-main/src/mcp/auto-discovery.ts` — Repo: 暂无
 - Tree-sitter 符号提取（Query/.scm）— `partial` — Ref: `ref/claude-code-open-main/docs/comparison/analysis/parser-analysis.md` — Repo: `js/agents/shared/parser/tree-sitter-wasm.js` + `js/agents/stages/codesearch/indexing/symbol-indexer.js`（AST 遍历，不使用 `.scm query`）
-- 符号缓存（queryCache/compiled query）— `todo` — Ref: `ref/claude-code-open-main/src/parser/*` — Repo: 仅缓存 language wasm 与符号索引记录（`js/agents/stages/codesearch/indexing/index-store.js`）
-- 文档注释关联（JSDoc/docstring）— `todo` — Ref: `ref/claude-code-open-main/src/parser/*` — Repo: 符号条目暂不关联前导注释
+- 符号缓存（queryCache/compiled query）— `done` — Ref: `ref/claude-code-open-main/src/parser/*` — Repo: SymbolIndexer queryCache + recordsCache（`js/agents/stages/codesearch/indexing/symbol-indexer.js`）
+- 文档注释关联（JSDoc/docstring）— `done` — Ref: `ref/claude-code-open-main/src/parser/*` — Repo: 符号条目已关联前导注释（`js/agents/stages/codesearch/indexing/symbol-indexer.js`：`doc` 字段）
 - 预过滤大文件 — `partial` — Ref: `ref/claude-code-open-main/src/mcp/*` — Repo: CodeSearch 工具对单文件 size 有上限（默认 512KB，`js/agents/stages/codesearch/code-tools.js`）
 
 ### 2.5 `doc-design-ui/analysis-cc/ui-renderer.md`
@@ -209,8 +209,8 @@
 
 ### 2.13 `doc-design-ui/analysis-cc/plan-persistence.md`
 
-- Plan mode（多方案对比/成本量化）— `todo` — Ref: `ref/claude-code-open-main/src/plan/` — Repo: 暂无
-- Plan 持久化（跨会话恢复）— `todo` — Ref: `ref/claude-code-open-main/src/plan/persistence.ts` — Repo: 暂无（仅 RunStore + zip 导出/导入）
+- Plan mode（多方案对比/成本量化）— `partial` — Ref: `ref/claude-code-open-main/src/plan/` — Repo: 已有 PlanStore + Plans Manager（`js/agents/runtime/plan/plan-store.js` + `js/ppt/workflow/workflow-runtime.js` + `js/ppt/ui-v2/modals/modal-manager.js`）；缺口：成本量化/对比视图仍未对齐
+- Plan 持久化（跨会话恢复）— `done` — Ref: `ref/claude-code-open-main/src/plan/persistence.ts` — Repo: Plan JSON 写入 RunStore artifacts（`js/agents/runtime/plan/plan-store.js` + `js/ppt/workflow/workflow-runtime.js`）+ UI restore/resume（`js/ppt/ui-v2/modals/modal-manager.js`）
 - Checkpoints（事务性回滚）— `partial` — Ref: `ref/claude-code-open-main/src/checkpoint/` — Repo: VFS checkpoints（`js/agents/vfs/checkpoints.js`）+ Restore UI（`js/ppt/ui-v2/modals/modal-manager.js`）；缺口：对“所有工具写入”的统一 pre/post checkpoint
 
 ### 2.14 `doc-design-ui/analysis-cc/README.md`
@@ -296,9 +296,9 @@
 ## 5. ref/claude-code-open-main（关键实现点 → 本仓库映射）
 
 - Sandbox 实现（`ref/claude-code-open-main/docs/IMPLEMENTATION_CHECKLIST.md` + `ref/claude-code-open-main/src/sandbox/`）— `n-a`（Browser-Only）
-- Plan persistence（`ref/claude-code-open-main/docs/PLAN_PERSISTENCE_IMPLEMENTATION.md` + `ref/claude-code-open-main/src/plan/`）— `todo` — Repo: 暂无 plan mode/计划持久化；可选落点：复用 RunStore artifacts 保存 plan JSON，并在 UI v2 增加 Plans Manager
+- Plan persistence（`ref/claude-code-open-main/docs/PLAN_PERSISTENCE_IMPLEMENTATION.md` + `ref/claude-code-open-main/src/plan/`）— `done` — Repo: RunStore artifacts 保存 plan JSON + UI Plans Manager（`js/agents/runtime/plan/plan-store.js` + `js/ppt/workflow/workflow-runtime.js` + `js/ppt/ui-v2/modals/modal-manager.js`）
 - Teleport（`ref/claude-code-open-main/docs/teleport-feature.md` + `ref/claude-code-open-main/src/teleport/`）— `partial` — Repo: 仅有 run zip 导入/导出（离线迁移），无实时远程连接
-- Permissions（`ref/claude-code-open-main/src/permissions/`）— `partial` — Repo: `js/agents/runtime/policy/*`（缺少复杂条件组合/时间窗/域名匹配）
+- Permissions（`ref/claude-code-open-main/src/permissions/`）— `done` — Repo: `js/agents/runtime/policy/*`（支持 all/any/not、timeRange、domain suffix、glob/wildcard + 审计事件流 + Policy Rules UI）
 - Streaming tolerant JSON（官方 parseTolerantJSON 思路）— `done/partial` — Repo: `js/agents/shared/utils/robust-json.js` 已覆盖尾逗号/单引号/截断闭合等常见修复；缺口：与“流式增量 parser 状态机”并不等价（当前为整体修复再 parse）
 - Tree-sitter wasm（`ref/claude-code-open-main/docs/comparison/analysis/parser-analysis.md`）— `done` — Repo: `js/agents/shared/parser/tree-sitter-wasm.js` + `public/wasm/tree-sitter/*` + `js/agents/stages/codesearch/indexing/symbol-indexer.js`
 - LSP（`ref/claude-code-open-main/docs/LSP_IMPLEMENTATION_SUMMARY.md`）— `todo` — Repo: 暂无 LSP 客户端/工具
@@ -311,17 +311,17 @@
 
 ### P0（当前最影响对齐度/可靠性）
 
-- Plan mode + 计划持久化/对比：对标 Claude/Codex 的 “plan first” 工作流（Ref: `ref/claude-code-open-main/src/plan/`）
-- Git 结构化工具：DiffStats/merge-base/commit history（Ref: `ref/claude-code-open-main/src/git/`；Codex `/diff`）
-- Policy 规则表达增强：and/or/not、timeRange、domain suffix、规则管理 UI（Ref: `ref/claude-code-open-main/src/permissions/`；Codex execpolicy）
-- MCP auto-discovery + preload + schema cache（Ref: `ref/claude-code-open-main/src/mcp/`）
+- Plan 持久化/恢复（Browser-first）— `done`（`js/agents/runtime/plan/plan-store.js` + `js/ppt/workflow/workflow-runtime.js` + `js/ppt/ui-v2/modals/modal-manager.js`）
+- Policy 规则表达 + 规则管理 UI — `done`（`js/agents/runtime/policy/*` + `js/ppt/ui-v2/modals/modal-manager.js`）
+- “弱 Git”（VFS checkpoints/diffstat/undo）— `partial`（`/changes` + `vfs_checkpoint.json`；缺口：merge-base/commit history）
+- MCP auto-discovery + preload + schema cache — `todo`
 
 ### P1（体验与工程完整性）
 
-- 输出 Block Renderer：Thinking/ToolCall/ToolResult/Answer/Warn 分块（对标 `analysis-cc/ui-renderer.md`）
-- DiffView side-by-side（当前仅 unified diff）
-- “旧 persisted-output 清扫策略”（只保留最近 N 个引用，降低 prompt 噪音）
-- /slash commands 输入层（浏览器版可做为命令 palette）
+- 输出 Block Renderer：Thinking/ToolCall/ToolResult/Answer/Warn 分块 — `partial`
+- DiffView side-by-side/unified — `done`
+- “旧 persisted-output 清扫策略” — `done`
+- /slash commands 输入层（命令 palette）— `done`
 
 ### P2（可选增强）
 
