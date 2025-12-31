@@ -475,6 +475,7 @@ export function createToolExecutor(options = {}) {
           const symbols = await symbolIndexer.extractSymbols(text, file);
           const sha256 = await computeSha256(text);
           await symbolIndexer.store.putSymbolRecord(ws, file, { sha256, symbols });
+          symbolIndexer.invalidateCaches?.();
           indexed += 1;
           results.push({ ok: true, path: file, skipped: false, symbolsCount: symbols.length });
           continue;
