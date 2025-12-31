@@ -31,7 +31,9 @@
   - `js/agents/runtime/compression/cicada-compressor.js`
 - ✅ **巨型输出存根（Stubbing / Persisted Output）**：已落地（超阈值写入 artifacts，prompt 仅保留 preview + artifactId）。
   - `js/agents/runtime/persisted-output.js` + `js/agents/stages/deepsearch/tools/get-artifact/handler.js`
-- ⚠️ **Title-only 极简摘要（>80% 阈值）**：当前为“短摘要/会话 summary + anchors”，尚未实现严格的 title-only 策略。
+- ✅ **Title-only 极简摘要（>80% 阈值）**：已落地（高填充率时对旧消息做 5–10 word title 摘要，显著降低 sessionSummary 体积）。
+  - `js/agents/runtime/core/agent-loop.js`（`titleOnlySummaryThreshold/titleOnlySummaryMaxWords/titleOnlySummaryMaxChars`）
+  - `js/agents/runtime/compression/cicada-compressor.js`（`titleOnly` + `titleMaxWords/titleMaxChars` 支持）
 
 ## 4) Lifecycle & Config（工程化配置与生命周期钩子）
 
@@ -58,4 +60,3 @@
 
 - enhancement-plan-cc 的关键“Browser-only 可落地项”（Plan/持久化、Cicada、Persisted Output、Tree-sitter、可撤销 VFS 副作用）已基本完成。
 - Claude Code 的 CLI/Git/OS 沙箱/配置系统（Zod + 多层覆盖）目前仍是缺口或不适用项。
-
