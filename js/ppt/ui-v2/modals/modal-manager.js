@@ -3585,12 +3585,263 @@ export class ModalManager {
       data = { error: err instanceof Error ? err.message : String(err) };
     }
 
-    let text = '';
-    if (typeof data === 'string') text = data;
+    let rawText = '';
+    if (typeof data === 'string') rawText = data;
     else {
-      try { text = JSON.stringify(data, null, 2); } catch { text = String(data); }
+      try { rawText = JSON.stringify(data, null, 2); } catch { rawText = String(data); }
     }
 
+    if (artifact.type === 'events.jsonl') {
+      const maxLines = 800;
+      const maxChars = 600_000;
+      const src = typeof rawText === 'string' ? rawText : '';
+      const limited = src.length > maxChars ? src.slice(0, maxChars) : src;
+      const lines = limited.replace(/\r\n/g, '\n').split('\n');
+
+      const records = [];
+      const errors = [];
+      for (let i = 0; i < lines.length; i++) {
+        const line = (lines[i] || '').trim();
+        if (!line) continue;
+        if (records.length >= maxLines) break;
+        try {
+          const obj = JSON.parse(line);
+          if (obj && typeof obj === 'object') records.push(obj);
+        } catch (err) {
+          errors.push({ line: i + 1, error: err instanceof Error ? err.message : String(err) });
+        }
+      }
+
+      const stateModeKey = 'eventsJsonlModeByArtifactId';
+      const stateFilterKey = 'eventsJsonlFilterByArtifactId';
+      if (!state[stateModeKey] || typeof state[stateModeKey] !== 'object') state[stateModeKey] = {};
+      if (!state[stateFilterKey] || typeof state[stateFilterKey] !== 'object') state[stateFilterKey] = {};
+
+      const getMode = () => {
+        const m = state[stateModeKey][artifact.artifactId];
+        return m === 'raw' || m === 'blocks' ? m : 'blocks';
+      };
+
+      const setMode = (m) => {
+        state[stateModeKey][artifact.artifactId] = m;
+      };
+
+      const getFilter = () => {
+        const f = state[stateFilterKey][artifact.artifactId];
+        return typeof f === 'string' ? f : '';
+      };
+
+      const setFilter = (f) => {
+        state[stateFilterKey][artifact.artifactId] = typeof f === 'string' ? f : String(f ?? '');
+      };
+
+      const formatTs = (ts) => {
+        const s = typeof ts === 'string' ? ts : '';
+        const parsed = s ? Date.parse(s) : NaN;
+        if (!Number.isFinite(parsed)) return '';
+        try { return new Date(parsed).toLocaleString(); } catch { return ''; }
+      };
+
+      const classify = (evt) => {
+        const name = typeof evt?.name === 'string' ? evt.name : '';
+        const level = typeof evt?.level === 'string' ? evt.level : '';
+        const status = typeof evt?.status === 'string' ? evt.status : '';
+        if (level === 'error' || status === 'failed' || name.endsWith('.failed')) return 'error';
+        if (level === 'warn' || status === 'warning' || name.includes('.warn') || name.endsWith('.warn')) return 'warn';
+        if (name.startsWith('tool.')) return 'tool';
+        if (name.startsWith('policy.')) return 'policy';
+        if (name.startsWith('vfs.')) return 'vfs';
+        if (name.includes('.log.')) return 'log';
+        return 'event';
+      };
+
+      const renderBadge = (kind) => {
+        const base = 'display:inline-flex;align-items:center;gap:6px;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:800;';
+        if (kind === 'error') return `${base}background: rgba(248,113,113,0.12); color: rgba(185,28,28,1); border: 1px solid rgba(248,113,113,0.25);`;
+        if (kind === 'warn') return `${base}background: rgba(251,191,36,0.16); color: rgba(146,64,14,1); border: 1px solid rgba(251,191,36,0.25);`;
+        if (kind === 'tool') return `${base}background: rgba(99,102,241,0.12); color: rgba(67,56,202,1); border: 1px solid rgba(99,102,241,0.25);`;
+        if (kind === 'policy') return `${base}background: rgba(168,85,247,0.12); color: rgba(126,34,206,1); border: 1px solid rgba(168,85,247,0.25);`;
+        if (kind === 'vfs') return `${base}background: rgba(16,185,129,0.12); color: rgba(5,150,105,1); border: 1px solid rgba(16,185,129,0.25);`;
+        return `${base}background: rgba(148,163,184,0.12); color: rgba(15,23,42,0.75); border: 1px solid rgba(148,163,184,0.25);`;
+      };
+
+      const previewJson = (value, limit = 1600) => {
+        let txt = '';
+        if (typeof value === 'string') txt = value;
+        else {
+          try { txt = JSON.stringify(value, null, 2); } catch { txt = String(value); }
+        }
+        if (txt.length > limit) txt = txt.slice(0, limit) + '\n...(truncated)';
+        return txt;
+      };
+
+      const summarize = (evt) => {
+        const name = typeof evt?.name === 'string' ? evt.name : '';
+        const payload = evt && typeof evt === 'object' ? evt.payload : null;
+        if (name.startsWith('tool.') && payload && typeof payload === 'object') {
+          const tool = typeof payload.tool === 'string' ? payload.tool : '';
+          const dur = typeof payload.duration === 'number' ? `${payload.duration}ms` : '';
+          return tool ? `${tool}${dur ? ` · ${dur}` : ''}` : '';
+        }
+        if (name === 'vfs.write.completed' && payload && typeof payload === 'object') {
+          const p = typeof payload.path === 'string' ? payload.path : '';
+          const c = typeof payload?.checkpoint?.artifactId === 'string' ? payload.checkpoint.artifactId : '';
+          return p ? `${p}${c ? ` · ${c}` : ''}` : '';
+        }
+        if (name.startsWith('policy.') && payload && typeof payload === 'object') {
+          const reqId = typeof payload.requestId === 'string' ? payload.requestId : '';
+          const decision = typeof payload.decision === 'string' ? payload.decision : '';
+          const tool = typeof payload.tool === 'string' ? payload.tool : '';
+          const type = typeof payload.type === 'string' ? payload.type : '';
+          const resource = typeof payload.resource === 'string' ? payload.resource : '';
+          const head = decision || tool || type;
+          const tail = resource ? ` · ${resource}` : '';
+          return (head || reqId) ? `${head || reqId}${tail}` : '';
+        }
+        if (name.includes('.log.') && payload && typeof payload === 'object') {
+          const msg = typeof payload.message === 'string' ? payload.message : (typeof payload.msg === 'string' ? payload.msg : '');
+          return msg ? msg : '';
+        }
+        return '';
+      };
+
+      const render = () => {
+        const mode = getMode();
+        const filter = getFilter().trim().toLowerCase();
+        const filtered = filter
+          ? records.filter((evt) => {
+            const name = typeof evt?.name === 'string' ? evt.name : '';
+            const actor = typeof evt?.actor === 'string' ? evt.actor : '';
+            const status = typeof evt?.status === 'string' ? evt.status : '';
+            const payload = evt && typeof evt === 'object' ? evt.payload : null;
+            const tool = payload && typeof payload === 'object' && typeof payload.tool === 'string' ? payload.tool : '';
+            const path = payload && typeof payload === 'object' && typeof payload.path === 'string' ? payload.path : '';
+            const resource = payload && typeof payload === 'object' && typeof payload.resource === 'string' ? payload.resource : '';
+            const requestId = payload && typeof payload === 'object' && typeof payload.requestId === 'string' ? payload.requestId : '';
+            const hay = `${name} ${actor} ${status} ${tool} ${path} ${resource} ${requestId}`.toLowerCase();
+            return hay.includes(filter);
+          })
+          : records;
+
+        const modeButton = (m, label) => {
+          const active = mode === m;
+          const style = [
+            'padding: 6px 10px',
+            'border-radius: 10px',
+            'border: 1px solid rgba(148,163,184,0.25)',
+            'background: rgba(255,255,255,0.7)',
+            'font-size: 12px',
+            'font-weight: 800',
+            active ? 'border-color: rgba(79,70,229,0.35)' : '',
+            active ? 'background: rgba(79,70,229,0.10)' : '',
+          ].filter(Boolean).join(';');
+          return `<button class="ppt-btn ppt-btn-secondary" type="button" data-events-mode="${escapeAttr(m)}" style="${style}">${escapeHtml(label)}</button>`;
+        };
+
+        const statsLine = [
+          `parsed=${filtered.length}/${records.length}`,
+          (src.length > maxChars ? 'truncated=chars' : ''),
+          (lines.length > maxLines ? 'truncated=lines' : ''),
+          (errors.length ? `errors=${errors.length}` : ''),
+        ].filter(Boolean).join(' · ');
+
+        const blocksHtml = filtered.length
+          ? filtered.map((evt, idx) => {
+            const kind = classify(evt);
+            const badgeStyle = renderBadge(kind);
+            const name = typeof evt?.name === 'string' ? evt.name : '(unknown)';
+            const actor = typeof evt?.actor === 'string' ? evt.actor : '';
+            const status = typeof evt?.status === 'string' ? evt.status : '';
+            const ts = formatTs(typeof evt?.ts === 'string' ? evt.ts : '');
+            const summary = summarize(evt);
+            const detailsOpen = kind === 'error' || kind === 'warn' ? 'open' : '';
+            const payloadText = previewJson(evt?.payload ?? null, 3200);
+            const metaText = evt?.meta !== undefined ? previewJson(evt.meta, 1200) : '';
+
+            const head = [
+              `<span style="${badgeStyle}">${escapeHtml(kind.toUpperCase())}</span>`,
+              `<span style="font-weight:900;color:var(--ppt-text-main);">${escapeHtml(name)}</span>`,
+              actor ? `<span style="font-size:12px;color:var(--ppt-text-secondary);">· ${escapeHtml(actor)}</span>` : '',
+              status ? `<span style="font-size:12px;color:var(--ppt-text-secondary);">· ${escapeHtml(status)}</span>` : '',
+              ts ? `<span style="font-size:12px;color:var(--ppt-text-secondary);">· ${escapeHtml(ts)}</span>` : '',
+            ].filter(Boolean).join(' ');
+
+            const summaryLine = summary
+              ? `<div style="margin-top:6px;font-size:12px;color:var(--ppt-text-secondary);">${escapeHtml(summary)}</div>`
+              : '';
+
+            const bodyParts = [];
+            bodyParts.push(`<div style="margin-top:10px;"><div style="font-size:12px;font-weight:900;color:var(--ppt-text-main);margin-bottom:6px;">payload</div><pre class="custom-scrollbar" style="margin:0;max-height:260px;overflow:auto;white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.45;background:rgba(15,23,42,0.04);border:1px solid rgba(148,163,184,0.25);padding:10px;border-radius:12px;">${escapeHtml(payloadText || '(empty)')}</pre></div>`);
+            if (metaText) {
+              bodyParts.push(`<div style="margin-top:10px;"><div style="font-size:12px;font-weight:900;color:var(--ppt-text-main);margin-bottom:6px;">meta</div><pre class="custom-scrollbar" style="margin:0;max-height:180px;overflow:auto;white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.45;background:rgba(15,23,42,0.04);border:1px solid rgba(148,163,184,0.25);padding:10px;border-radius:12px;">${escapeHtml(metaText)}</pre></div>`);
+            }
+
+            return `
+              <details ${detailsOpen} style="border:1px solid rgba(148,163,184,0.25); border-radius: 14px; background: rgba(255,255,255,0.7); padding: 10px 12px;">
+                <summary style="cursor:pointer; list-style:none;">
+                  <div style="display:flex; align-items:flex-start; justify-content:space-between; gap: 10px;">
+                    <div style="flex:1; min-width: 0;">${head}${summaryLine}</div>
+                    <div style="font-size: 11px; color: var(--ppt-text-secondary); white-space:nowrap;">#${idx + 1}</div>
+                  </div>
+                </summary>
+                ${bodyParts.join('')}
+              </details>
+            `;
+          }).join('\n')
+          : `<div style="color: var(--ppt-text-secondary); font-size: 12px; padding: 10px 0;">No events.</div>`;
+
+        const rawShown = src.length > 20000 ? src.slice(0, 20000) + '\n...(truncated)' : src;
+
+        previewEl.innerHTML = `
+          <div style="display:flex; align-items:center; justify-content:space-between; gap: 10px; margin-bottom: 10px;">
+            <div style="font-weight: 750; color: var(--ppt-text-main);">${escapeHtml(artifact.type)}</div>
+            <div style="font-size: 12px; color: var(--ppt-text-secondary);"><code>${escapeHtml(artifact.artifactId)}</code></div>
+          </div>
+          <div style="display:flex; align-items:center; justify-content:space-between; gap: 10px; margin-bottom: 10px;">
+            <div style="font-size: 12px; color: var(--ppt-text-secondary);">${escapeHtml(statsLine || '')}</div>
+            <div style="display:flex; align-items:center; gap: 8px;">
+              ${modeButton('blocks', 'Blocks')}
+              ${modeButton('raw', 'Raw')}
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap: 8px; margin-bottom: 10px;">
+            <input class="ppt-input" type="text" placeholder="filter: name/tool/path/resource" value="${escapeAttr(getFilter())}" id="${escapeAttr(modalId)}_eventsFilter" style="flex:1; min-width: 0;" />
+          </div>
+          <div id="${escapeAttr(modalId)}_eventsBody" class="custom-scrollbar" style="overflow:auto; max-height: 70vh;">
+            ${mode === 'raw'
+              ? `<pre class="custom-scrollbar" style="white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.45; margin: 0;">${escapeHtml(rawShown)}</pre>`
+              : `<div style="display:flex; flex-direction:column; gap: 10px;">${blocksHtml}</div>`
+            }
+          </div>
+        `;
+
+        const filterEl = previewEl.querySelector?.(`#${escapeCssSelector(modalId)}_eventsFilter`) || null;
+        if (filterEl && filterEl.dataset.bound !== '1') {
+          filterEl.dataset.bound = '1';
+          filterEl.addEventListener('input', () => {
+            setFilter(String(filterEl.value || ''));
+            render();
+          });
+        }
+
+        const modeButtons = Array.from(previewEl.querySelectorAll?.('[data-events-mode]') || []);
+        for (const btn of modeButtons) {
+          if (!btn || btn.dataset.bound === '1') continue;
+          btn.dataset.bound = '1';
+          btn.addEventListener('click', () => {
+            const m = btn?.dataset?.eventsMode;
+            if (m !== 'raw' && m !== 'blocks') return;
+            setMode(m);
+            render();
+          });
+        }
+      };
+
+      render();
+      return;
+    }
+
+    let text = rawText;
     if (text.length > 20000) text = text.slice(0, 20000) + '\n...(truncated)';
 
 	    if (artifact.type === 'vfs_checkpoint.json' && data && typeof data === 'object' && !Array.isArray(data)) {

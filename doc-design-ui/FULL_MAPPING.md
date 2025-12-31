@@ -318,7 +318,7 @@
 
 ### P1（体验与工程完整性）
 
-- 输出 Block Renderer：Thinking/ToolCall/ToolResult/Answer/Warn 分块 — `partial`
+- 输出 Block Renderer：Thinking/ToolCall/ToolResult/Answer/Warn 分块 — `partial`（Artifacts Browser 对 `events.jsonl` 已提供 Blocks/Raw 视图，覆盖 tool/policy/vfs/log/warn 分类：`js/ppt/ui-v2/modals/modal-manager.js`；缺口：对“LLM thinking/answer message” 的结构化渲染仍未对齐）
 - DiffView side-by-side/unified — `done`
 - “旧 persisted-output 清扫策略” — `done`
 - /slash commands 输入层（命令 palette）— `done`
