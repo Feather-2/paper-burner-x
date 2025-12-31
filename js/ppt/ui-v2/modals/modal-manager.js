@@ -1821,12 +1821,12 @@ export class ModalManager {
 
   _bindEventBus() {
     if (!this.eventBus) return;
-    const off = this.eventBus.on('ui.action', (_name, payload) => {
-      const type = payload?.type;
-      switch (type) {
-        case 'openHistorySelector':
-          this.openHistorySelector();
-          break;
+	    const off = this.eventBus.on('ui.action', (_name, payload) => {
+	      const type = payload?.type;
+	      switch (type) {
+	        case 'openHistorySelector':
+	          this.openHistorySelector();
+	          break;
         case 'openUrlInput':
           this.openUrlInput();
           break;
@@ -1848,14 +1848,17 @@ export class ModalManager {
 	        case 'openSkillsManager':
 	          this.openSkillsManager(payload);
 	          break;
-	        case 'openApprovalsModal':
-	          this.openApprovalsModal(payload);
-          break;
-        default:
-          break;
-      }
-    });
-    this._subscriptions.push(off);
+		        case 'openApprovalsModal':
+		          this.openApprovalsModal(payload);
+	          break;
+	        case 'undoLastVfsCheckpoint':
+	          void this.undoLastVfsCheckpoint(payload);
+	          break;
+	        default:
+	          break;
+	      }
+	    });
+	    this._subscriptions.push(off);
 
     // Agent -> UI Policy approval prompt
     this._subscriptions.push(this.eventBus.on('policy.approval.requested', (_name, payload) => {
@@ -2069,12 +2072,12 @@ export class ModalManager {
 	    await this._selectArtifact(modalId, this[stateKey].selected);
 	  }
 
-	  async openPlansManager({ runId } = {}) {
-	    const generator = this._ensureGenerator();
-	    const store = generator?._runStore;
-	    const id = typeof runId === 'string' && runId.trim()
-	      ? runId.trim()
-	      : (typeof generator?._currentRunId === 'string' ? generator._currentRunId : null);
+		  async openPlansManager({ runId } = {}) {
+		    const generator = this._ensureGenerator();
+		    const store = generator?._runStore;
+		    const id = typeof runId === 'string' && runId.trim()
+		      ? runId.trim()
+		      : (typeof generator?._currentRunId === 'string' ? generator._currentRunId : null);
 
 	    const modalId = 'pptPlansManagerModal';
 	    const overlay = this._openOrCreateModal({
@@ -2228,11 +2231,11 @@ export class ModalManager {
 	      `;
 	    };
 
-	    previewEl.innerHTML = `
-	      <div style="display:flex; flex-direction:column; gap: 12px;">
-	        <div>
-	          <div style="font-size: 13px; font-weight: 800; color: var(--ppt-text-main);">${escapeHtml(title || 'Plan')}</div>
-	          <div style="font-size: 12px; color: var(--ppt-text-secondary);">
+		    previewEl.innerHTML = `
+		      <div style="display:flex; flex-direction:column; gap: 12px;">
+		        <div>
+		          <div style="font-size: 13px; font-weight: 800; color: var(--ppt-text-main);">${escapeHtml(title || 'Plan')}</div>
+		          <div style="font-size: 12px; color: var(--ppt-text-secondary);">
 	            ${planId ? `planId: <code>${escapeHtml(planId)}</code>` : ''}
 	            ${updatedAt ? `${planId ? ' · ' : ''}updatedAt: <code>${escapeHtml(updatedAt)}</code>` : ''}
 	            ${lifecycleStatus ? `${(planId || updatedAt) ? ' · ' : ''}lifecycle: <code>${escapeHtml(lifecycleStatus)}</code>` : ''}
@@ -2247,14 +2250,40 @@ export class ModalManager {
 	          <summary style="cursor:pointer; font-size: 12px; color: var(--ppt-text-secondary);">Raw JSON</summary>
 	          <pre class="custom-scrollbar" style="margin-top:10px; max-height: 320px; overflow:auto; background: rgba(15,23,42,0.04); border:1px solid rgba(148,163,184,0.25); padding:10px; border-radius: 12px; font-size: 12px; line-height: 1.4;">${escapeHtml(jsonText)}</pre>
 	        </details>
-	      </div>
-	    `;
-	  }
+		      </div>
+		    `;
+		  }
 
-	  async _restorePlanArtifact(modalId, artifactId) {
-	    const generator = this._ensureGenerator();
-	    const store = generator?._runStore;
-	    const id = typeof artifactId === 'string' ? artifactId.trim() : '';
+		  async undoLastVfsCheckpoint({ steps, reason } = {}) {
+		    const generator = this._ensureGenerator();
+		    const sideEffects = generator?._sideEffects || (typeof window !== 'undefined' ? window.pbSideEffects : null);
+		    if (!sideEffects || typeof sideEffects.getCursor !== 'function' || typeof sideEffects.rollbackToCursor !== 'function') {
+		      console.warn('[UI] undoLastVfsCheckpoint skipped: SideEffectJournal unavailable.');
+		      return { ok: false, reason: 'missing_side_effect_journal' };
+		    }
+
+		    const n = Number.isFinite(Number(steps)) ? Math.max(1, Math.floor(Number(steps))) : 1;
+		    const cursor = sideEffects.getCursor();
+		    if (!Number.isFinite(cursor) || cursor <= 0) {
+		      return { ok: true, rolledBack: 0, cursor: 0 };
+		    }
+
+		    const target = Math.max(0, cursor - n);
+		    try {
+		      return await sideEffects.rollbackToCursor(target, {
+		        reason: typeof reason === 'string' && reason.trim() ? reason.trim() : 'ui:/undo',
+		      });
+		    } catch (err) {
+		      const msg = err instanceof Error ? err.message : String(err);
+		      console.warn('[UI] undoLastVfsCheckpoint failed:', msg);
+		      return { ok: false, reason: 'rollback_failed', error: msg };
+		    }
+		  }
+	
+		  async _restorePlanArtifact(modalId, artifactId) {
+		    const generator = this._ensureGenerator();
+		    const store = generator?._runStore;
+		    const id = typeof artifactId === 'string' ? artifactId.trim() : '';
 	    if (!id) return;
 
 	    const overlay = typeof document !== 'undefined' ? document.getElementById(modalId) : null;

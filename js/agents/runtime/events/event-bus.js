@@ -146,9 +146,10 @@ export class EventBus {
    * @param {Function} handler - 事件处理器
    * @param {Object} [options] - 订阅选项
    * @param {number} [options.priority=0] - 优先级，数值越大越先执行
+   * @param {AbortSignal} [options.signal] - Abort 时自动取消订阅（避免长期运行内存泄漏）
    * @returns {Function} 取消订阅函数
    */
-  subscribe(eventType, handler, { priority = 0 } = {}) {
+  subscribe(eventType, handler, { priority = 0, signal } = {}) {
     if (typeof handler !== "function") {
       throw new TypeError("EventBus.subscribe(eventType, handler): handler must be a function");
     }
@@ -158,6 +159,39 @@ export class EventBus {
     if (typeof priority !== "number" || !Number.isFinite(priority)) {
       throw new TypeError("EventBus.subscribe: priority must be a finite number");
     }
+
+    const wantsSignal = signal && typeof signal.addEventListener === "function";
+    if (wantsSignal && signal.aborted) return () => {};
+
+    const wrapWithSignal = (unsubscribe) => {
+      if (!wantsSignal || typeof unsubscribe !== "function") return unsubscribe;
+
+      let done = false;
+      const onAbort = () => off();
+      const off = () => {
+        if (done) return;
+        done = true;
+        try {
+          signal.removeEventListener?.("abort", onAbort);
+        } catch {
+          // ignore
+        }
+        try {
+          unsubscribe();
+        } catch {
+          // ignore
+        }
+      };
+
+      try {
+        signal.addEventListener("abort", onAbort, { once: true });
+      } catch {
+        // ignore
+      }
+      if (signal.aborted) off();
+
+      return off;
+    };
 
     // 非零优先级使用优先级监听器
     if (priority !== 0) {
@@ -175,12 +209,12 @@ export class EventBus {
         }
         set.add(handler);
         this._invalidateCache();
-        return () => {
+        return wrapWithSignal(() => {
           set.delete(handler);
           if (set.size === 0) priorityMap.delete(priority);
           if (priorityMap.size === 0) this._wildcardPriorityListeners.delete(eventType);
           this._invalidateCache();
-        };
+        });
       } else {
         // 精确匹配 + 优先级
         let priorityMap = this._priorityListeners.get(eventType);
@@ -195,12 +229,12 @@ export class EventBus {
         }
         set.add(handler);
         this._invalidateCache();
-        return () => {
+        return wrapWithSignal(() => {
           set.delete(handler);
           if (set.size === 0) priorityMap.delete(priority);
           if (priorityMap.size === 0) this._priorityListeners.delete(eventType);
           this._invalidateCache();
-        };
+        });
       }
     }
 
@@ -213,15 +247,15 @@ export class EventBus {
       }
       set.add(handler);
       this._invalidateCache();
-      return () => {
+      return wrapWithSignal(() => {
         set.delete(handler);
         if (set.size === 0) this._wildcardListeners.delete(eventType);
         this._invalidateCache();
-      };
+      });
     }
 
     // 精确匹配委托给 on
-    return this.on(eventType, handler);
+    return wrapWithSignal(this.on(eventType, handler));
   }
 
   off(name, handler) {

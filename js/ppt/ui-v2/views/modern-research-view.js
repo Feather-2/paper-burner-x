@@ -283,6 +283,7 @@ export class ModernResearchView extends BaseView {
   _getSlashCommands() {
     return [
       { cmd: '/help', desc: '显示可用命令' },
+      { cmd: '/undo', desc: '撤销最近一次文件写入（VFS checkpoint）', action: { type: 'undoLastVfsCheckpoint' } },
       { cmd: '/plans', desc: '打开 Plans Manager', action: { type: 'openPlansManager' } },
       { cmd: '/artifacts', desc: '打开 Artifacts Browser', action: { type: 'openArtifactsBrowser' } },
       { cmd: '/approvals', desc: '打开 Approvals', action: { type: 'openApprovalsModal' } },

@@ -13,6 +13,19 @@ let DiscoveryManager = null;
 
 let _loaded = false;
 
+function shouldReportMechanismLoadError(err) {
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  if (!msg) return false;
+  // Optional mechanisms may not exist in some build targets; avoid noisy logs in that case.
+  return !(
+    msg.includes("Cannot find module") ||
+    msg.includes("Failed to resolve module specifier") ||
+    msg.includes("module specifier") && msg.includes("was not found") ||
+    msg.includes("ERR_MODULE_NOT_FOUND") ||
+    msg.includes("MODULE_NOT_FOUND")
+  );
+}
+
 /**
  * 加载所有可选机制
  */
@@ -23,22 +36,42 @@ export async function loadMechanisms() {
   try {
     const checkpoint = await import("../../stages/deepsearch/runtime/checkpoint.js");
     CheckpointManager = checkpoint.CheckpointManager || checkpoint.default;
-  } catch { }
+  } catch (err) {
+    if (shouldReportMechanismLoadError(err)) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[mechanisms] Failed to load CheckpointManager: ${msg}`);
+    }
+  }
 
   try {
     const shared = await import("../../stages/deepsearch/runtime/shared-context.js");
     SharedContext = shared.SharedContext || shared.default;
-  } catch { }
+  } catch (err) {
+    if (shouldReportMechanismLoadError(err)) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[mechanisms] Failed to load SharedContext: ${msg}`);
+    }
+  }
 
   try {
     const backtrack = await import("../../sdk/BacktrackManager.js");
     BacktrackManager = backtrack.BacktrackManager || backtrack.default;
-  } catch { }
+  } catch (err) {
+    if (shouldReportMechanismLoadError(err)) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[mechanisms] Failed to load BacktrackManager: ${msg}`);
+    }
+  }
 
   try {
     const discovery = await import("../../sdk/DiscoveryManager.js");
     DiscoveryManager = discovery.DiscoveryManager || discovery.default;
-  } catch { }
+  } catch (err) {
+    if (shouldReportMechanismLoadError(err)) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[mechanisms] Failed to load DiscoveryManager: ${msg}`);
+    }
+  }
 }
 
 /**
