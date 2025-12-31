@@ -20,6 +20,7 @@ import getTaskResult from "./get-task-result/handler.js";
 import adviseTask from "./advise-task/handler.js";
 import skill from "./skill/handler.js";
 import recordFinding from "./record-finding/handler.js";
+import getArtifact from "./get-artifact/handler.js";
 
 export const tools = {
   "list-docs": listDocs,
@@ -38,6 +39,7 @@ export const tools = {
   "advise-task": adviseTask,
   "skill": skill,
   "record-finding": recordFinding,
+  "get-artifact": getArtifact,
 };
 
 /**

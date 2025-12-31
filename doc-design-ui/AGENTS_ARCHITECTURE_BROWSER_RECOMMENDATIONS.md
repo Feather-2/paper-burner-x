@@ -17,6 +17,45 @@
 
 ---
 
+## 0.5 本仓库已落地（As-Implemented Snapshot）
+
+> 说明：本节是“建议 → 代码落地”的对照表，方便你继续按里程碑推进。
+
+### ✅ 已实现（可直接在纯浏览器运行）
+
+1. **Skills 渐进式披露（Browser Loader + Catalog）**
+   - Browser 端通过 `public/skills/manifest.json` 发现 Skills（不依赖 `fs` 扫描）。
+   - 关键实现：
+     - `js/agents/skills/loader.browser.js`
+     - `js/agents/skills/loader.js`（Node/Browser 路由）
+     - `js/agents/skills/manager.js#getCatalogPrompt`（Browser 默认注入 Catalog）
+     - `public/skills/manifest.json`
+2. **`<persisted-output>` 的“可落盘+可引用”闭环（RunStore artifacts）**
+   - 大型 tool 输出自动写入 `RunStore(IndexedDB)`，prompt 中只保留 preview + `artifactId`。
+   - 关键实现：
+     - `js/agents/runtime/persisted-output.js`
+     - `js/agents/storage/run-store.js#getArtifactRecord`
+     - `js/agents/stages/deepsearch/tools/get-artifact/handler.js`
+3. **Tool Worker 隔离（Browser WebWorker 版本）**
+   - `ToolExecutor` 的 `isolation:"worker"` 在浏览器端使用 `WebWorker(type:module)` 执行。
+   - 关键实现：
+     - `js/agents/runtime/tools/tool-executor.js`（Node worker + WebWorker 双实现）
+     - `js/agents/runtime/tools/tool-executor-webworker.js`
+4. **Run 导出/导入（Browser 端 Zip）**
+   - 可把 `events.jsonl + artifacts` 打包导出为 zip，并支持导入回放。
+   - 关键实现：
+     - `js/ppt/workflow/workflow-runtime.js#downloadRunZip`
+     - `js/ppt/ui-v2/modals/modal-manager.js`（历史弹窗新增“导出当前 Run / 导入 Run Zip”）
+
+### 🟡 仍需推进（按 Roadmap 的下一步）
+
+- **VFS + OPFS + Checkpoints（文件级别 Undo/Diff）**：目前尚未实现统一 VFS 抽象与写前快照/回滚。
+- **Policy/Approval（PBAC + 审计）**：目前尚未把 permissions/policy 做成可配置、可审批、可追溯的统一入口。
+- **WASM Search/Parse（Tree-sitter-wasm）**：目前尚未落地符号索引与增量构建。
+- **UI 侧 Replay / Approvals / Skill Manager**：已具备 RunStore + ReplayController 基座，但缺少更完整的产品化界面（列表、筛选、预览、操作流）。
+
+---
+
 ## 1. 当前 `js/agents` 架构（As-Is 摘要）
 
 ### 1.1 核心运行模型：Stage 驱动 + Loop

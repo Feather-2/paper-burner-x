@@ -11,8 +11,6 @@
  * 5. 语义匹配：description 相似度
  */
 
-import { promises as fs } from "fs";
-
 const _skillIndexCache = new WeakMap();
 
 /**
@@ -41,6 +39,38 @@ function escapeRegExp(str) {
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+function isNodeRuntime() {
+  return typeof process !== "undefined" && !!process.versions?.node;
+}
+
+async function readSkillContentsFromPath(skillPath) {
+  const path = String(skillPath || "").trim();
+  if (!path) throw new Error("Skill path is empty");
+
+  // Remote handles are not directly readable here.
+  if (path.startsWith("nexus://") || path.startsWith("remote:")) {
+    throw new Error(`Skill path is not directly readable: ${path}`);
+  }
+
+  const canFetch = typeof fetch === "function";
+  const isHttp = /^https?:\/\//i.test(path);
+  const nodeLike = isNodeRuntime();
+
+  // Prefer fetch in browser, and for http(s) URLs in node.
+  if (canFetch && (!nodeLike || isHttp)) {
+    const resp = await fetch(path, { cache: "no-store" });
+    if (!resp.ok) throw new Error(`Failed to fetch skill: ${path} (${resp.status})`);
+    return await resp.text();
+  }
+
+  if (!nodeLike) {
+    throw new Error(`Skill path is not fetchable in browser: ${path}`);
+  }
+
+  const fs = await import("node:fs/promises");
+  return await fs.readFile(path, "utf-8");
 }
 
 function extractTokensForIndex(text) {
@@ -409,7 +439,7 @@ export async function buildSkillInjections(input, skillsOutcome, options = {}) {
       if (skill.body) {
         contents = `# Skill: ${skill.metadata.name}\n\n${skill.body}`;
       } else {
-        contents = await fs.readFile(skill.metadata.path, "utf-8");
+        contents = await readSkillContentsFromPath(skill.metadata.path);
       }
 
       result.items.push({

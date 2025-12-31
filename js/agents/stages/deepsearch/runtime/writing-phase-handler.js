@@ -9,6 +9,7 @@
 
 import { DeepSearchEvents } from "../../../runtime/events/events.js";
 import { classifyDeepSearchError } from "./error-classifier.js";
+import { maybePersistToolOutput } from "../../../runtime/persisted-output.js";
 
 export class WritingPhaseHandler {
   constructor({ logger, emit, parseDecision, executeTool, maxIterations = 5, maxParseFailures = 3 }) {
@@ -130,9 +131,24 @@ export class WritingPhaseHandler {
               stageApi,
               sharedContext,
             });
+
+            let payloadForPrompt = result;
+            try {
+              const stored = await maybePersistToolOutput({
+                runStore: stageApi?.runStore || null,
+                runId: state?.runId,
+                toolName: "write-report",
+                args: item.args || {},
+                iteration: plannedIteration,
+                result,
+              });
+              payloadForPrompt = stored.inline;
+            } catch {
+              // ignore persistence failures
+            }
             addMessage({
               role: "user",
-              content: `结果: ${JSON.stringify(result, null, 2)}`,
+              content: `结果: ${JSON.stringify(payloadForPrompt, null, 2)}\n\n如需读取完整 persisted output，请用 get-artifact { artifactId }。`,
             });
 
             if (item.args?.action === "submit" && result.success) {

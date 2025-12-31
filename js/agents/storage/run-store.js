@@ -406,6 +406,34 @@ export class RunStore {
     return null;
   }
 
+  /**
+   * Get raw artifact record by artifactId (IndexedDB mode only).
+   * @param {string} artifactId
+   * @returns {Promise<object|null>}
+   */
+  async getArtifactRecord(artifactId) {
+    const id = typeof artifactId === "string" ? artifactId.trim() : "";
+    if (!id) throw new Error("getArtifactRecord(artifactId): artifactId must be a non-empty string");
+    if (this.storage) return null;
+
+    const db = await this.open();
+    const tx = db.transaction([STORE_ARTIFACTS], "readonly");
+    const store = tx.objectStore(STORE_ARTIFACTS);
+    const rec = await promisifyRequest(store.get(id));
+    await promisifyTransaction(tx);
+    return rec || null;
+  }
+
+  /**
+   * Get artifact payload by artifactId (IndexedDB mode only).
+   * @param {string} artifactId
+   * @returns {Promise<any>}
+   */
+  async getArtifactById(artifactId) {
+    const rec = await this.getArtifactRecord(artifactId);
+    return rec ? rec.data : null;
+  }
+
   async loadArtifact(runId, name) {
     return await this.getArtifact(runId, name);
   }

@@ -4,7 +4,7 @@
  * 参考 agentsdk-go 的 SkillTool 设计
  */
 
-import { loadSkills } from "../../../../skills/loader.js";
+import { loadSkills, loadSkillFromPath } from "../../../../skills/loader.js";
 
 // 缓存已加载的 Skills
 let _skillsCache = null;
@@ -42,7 +42,9 @@ Skills 是可扩展的策略包，定义在 SKILL.md 文件中。
 export async function handler(args, context) {
   const { name } = args;
   const { stageApi = {} } = context;
-  const cwd = stageApi.cwd || process.cwd?.() || ".";
+  const cwd =
+    stageApi.cwd ||
+    (typeof process !== "undefined" && typeof process.cwd === "function" ? process.cwd() : ".");
 
   if (!name) {
     return {
@@ -70,11 +72,28 @@ export async function handler(args, context) {
       };
     }
 
+    let resolved = skill;
+    if (!resolved.body && typeof resolved?.metadata?.path === "string" && resolved.metadata.path) {
+      try {
+        resolved = await loadSkillFromPath(resolved.metadata.path, resolved.metadata.scope);
+      } catch {
+        // ignore and fall back to cached entry (may be metadata-only)
+      }
+    }
+
+    const body = typeof resolved?.body === "string" ? resolved.body : "";
+    if (!body.trim()) {
+      return {
+        success: false,
+        error: `Skill "${skill.metadata.name}" loaded but body is empty. Ensure SKILL.md is accessible in this environment.`,
+      };
+    }
+
     // 返回 Skill 内容
     return {
       success: true,
       skill: skill.metadata.name,
-      body: skill.body,
+      body,
       allowedTools: skill.metadata.allowedTools || null,
       metadata: {
         description: skill.metadata.description,

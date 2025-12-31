@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "generatedAt": "2025-12-31T00:00:00.000Z",
+  "skills": [
+    {
+      "name": "research-report",
+      "description": "分析研究报告，提取核心观点、数据支撑和投资建议",
+      "shortDescription": null,
+      "path": "public/skills/research-report/SKILL.md",
+      "scope": "system",
+      "keywords": ["研报", "研究报告", "投资分析", "行业分析"],
+      "keywordsAll": [],
+      "allowedTools": null,
+      "tags": null,
+      "traits": null,
+      "priority": 10
+    }
+  ]
+}
+

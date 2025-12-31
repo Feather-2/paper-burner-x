@@ -11,6 +11,7 @@ import { subscribeTelemetry } from '../../agents/runtime/telemetry/runstore-tele
 import { RunReplayController } from '../../agents/runtime/telemetry/replay-controller.js';
 import { StageApiFactory } from '../../agents/runtime/api/stage-api-factory.js';
 import { RunStore } from '../../agents/storage/run-store.js';
+import { exportRunAsZip, importRunFromZip } from '../../agents/storage/run-exporter.js';
 import { DesignDensity, DesignVisualMode, normalizeDesignDensity, normalizeDesignVisualMode } from '../design/design-preferences.js';
 import { AgentEventBridge } from './agent-event-bridge.js';
 import { EventHandlerRegistry, createWorkflowEventRegistry } from './event-handler-registry.js';
@@ -883,6 +884,53 @@ export const runtimeMixin = {
             return [];
         }
     },
+
+    async exportRunZip(runId) {
+        if (!this._runStore) {
+            throw new Error('RunStore not available (IndexedDB unavailable?)');
+        }
+        const id = typeof runId === 'string' && runId ? runId : this._currentRunId;
+        if (!id) throw new Error('exportRunZip(runId): missing runId');
+        return exportRunAsZip(id, { runStore: this._runStore });
+    },
+
+    async downloadRunZip(runId) {
+        const blob = await this.exportRunZip(runId);
+        const id = typeof runId === 'string' && runId ? runId : this._currentRunId;
+
+        if (typeof document === 'undefined' || typeof URL === 'undefined') return blob;
+        const url = URL.createObjectURL(blob);
+        try {
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `paper-burner-run-${id || Date.now()}.zip`;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        } finally {
+            setTimeout(() => URL.revokeObjectURL(url), 5000);
+        }
+
+        return blob;
+    },
+
+    async importRunZip(file, { overwrite = true } = {}) {
+        if (!file) throw new Error('importRunZip(file): file is required');
+
+        if (!this._runStore) {
+            try {
+                this._runStore = new RunStore({ dbName: 'PPTWorkflowDB' });
+                await this._runStore.open();
+            } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                throw new Error(`importRunZip(file): RunStore unavailable: ${msg}`);
+            }
+        }
+
+        const runId = await importRunFromZip(file, { runStore: this._runStore, overwrite });
+        return runId;
+    },
     _attachRuntimeEventHandlers() {
         if (this._runtimeUnsubs) {
             this._runtimeUnsubs.forEach(fn => fn());
@@ -1504,6 +1552,7 @@ export const runtimeMixin = {
                     checkCancelled: api.checkCancelled,
                     visionApi: api.visionApi,
                     whisperApi: api.whisperApi,
+                    runStore: this._runStore,
                 });
                 const out = await stage.execute(ctx, input, stageApi);
                 return out;
@@ -1557,6 +1606,7 @@ export const runtimeMixin = {
                         modelRouter: api.modelRouter,
                         localRetriever: api.localRetriever,
                         externalSearchProvider: api.externalSearchProvider,
+                        runStore: this._runStore,
                     });
 
                     // 从 ingest 阶段获取 sources

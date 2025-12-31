@@ -224,6 +224,14 @@ export class ToolExecutor {
   }
 
   async _executeInWorker(moduleUrl, exportName, args, context, timeoutMs) {
+    const isNode = typeof process !== "undefined" && !!process.versions?.node;
+    if (isNode) {
+      return this._executeInNodeWorker(moduleUrl, exportName, args, context, timeoutMs);
+    }
+    return this._executeInWebWorker(moduleUrl, exportName, args, context, timeoutMs);
+  }
+
+  async _executeInNodeWorker(moduleUrl, exportName, args, context, timeoutMs) {
     const { Worker } = await import("node:worker_threads");
 
     const worker = new Worker(new URL("./tool-executor-worker.js", import.meta.url), { type: "module" });
@@ -294,6 +302,87 @@ export class ToolExecutor {
       } catch (err) {
         clearTimeout(timer);
         cleanup().finally(() => reject(err));
+      }
+    });
+  }
+
+  async _executeInWebWorker(moduleUrl, exportName, args, context, timeoutMs) {
+    if (typeof Worker !== "function") {
+      throw new Error("Tool execution in worker is not supported (Worker unavailable)");
+    }
+
+    let resolvedModuleUrl = moduleUrl;
+    try {
+      resolvedModuleUrl = new URL(moduleUrl, import.meta.url).toString();
+    } catch {
+      // keep as-is
+    }
+
+    const worker = new Worker(new URL("./tool-executor-webworker.js", import.meta.url), { type: "module" });
+    const workerContext = this._createWorkerContextSnapshot(context);
+
+    return new Promise((resolve, reject) => {
+      let settled = false;
+
+      const cleanup = () => {
+        if (settled) return;
+        settled = true;
+        try {
+          worker.terminate();
+        } catch {
+          // ignore terminate errors
+        }
+      };
+
+      const timer = setTimeout(() => {
+        cleanup();
+        const err = new Error(`Tool execution timed out after ${timeoutMs}ms`);
+        err.name = "TimeoutError";
+        err.code = "ETIMEDOUT";
+        reject(err);
+      }, timeoutMs);
+
+      worker.onmessage = (evt) => {
+        if (settled) return;
+        const msg = evt?.data;
+        const type = msg?.type;
+
+        if (type === "result") {
+          clearTimeout(timer);
+          cleanup();
+          resolve(msg.result);
+          return;
+        }
+
+        if (type === "error") {
+          clearTimeout(timer);
+          const err = new Error(msg?.error?.message || "Tool worker error");
+          if (msg?.error?.name) err.name = msg.error.name;
+          if (msg?.error?.stack) err.stack = msg.error.stack;
+          cleanup();
+          reject(err);
+        }
+      };
+
+      worker.onerror = (err) => {
+        if (settled) return;
+        clearTimeout(timer);
+        cleanup();
+        reject(err);
+      };
+
+      try {
+        worker.postMessage({
+          type: "execute",
+          moduleUrl: resolvedModuleUrl,
+          exportName,
+          args,
+          context: workerContext,
+        });
+      } catch (err) {
+        clearTimeout(timer);
+        cleanup();
+        reject(err);
       }
     });
   }

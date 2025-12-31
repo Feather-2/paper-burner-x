@@ -270,17 +270,17 @@ export class ModalManager {
     overlay.className = 'ppt-modal-overlay';
     overlay.dataset.uiV2 = '1';
     overlay.innerHTML = `
-      <div class="ppt-modal ppt-history-selector-modal">
-        <div class="ppt-modal-header">
-          <div class="ppt-modal-title">
-            <iconify-icon icon="solar:history-bold-duotone"></iconify-icon>
-            <span>历史项目</span>
-          </div>
-          <button class="ppt-modal-close" data-action="closeHistoryModal">
-            <iconify-icon icon="carbon:close"></iconify-icon>
-          </button>
-        </div>
-        <div class="ppt-modal-body">
+            <div class="ppt-modal ppt-history-selector-modal">
+                <div class="ppt-modal-header">
+                    <div class="ppt-modal-title">
+                        <iconify-icon icon="solar:history-bold-duotone"></iconify-icon>
+                        <span>历史项目</span>
+                    </div>
+                    <button class="ppt-modal-close" data-action="closeHistoryModal">
+                        <iconify-icon icon="carbon:close"></iconify-icon>
+                    </button>
+                </div>
+                <div class="ppt-modal-body">
           <div class="ppt-history-tabs">
             <button class="ppt-history-tab active" data-tab="deepsearch">
               <iconify-icon icon="solar:magnifer-bold-duotone"></iconify-icon>
@@ -309,15 +309,23 @@ export class ModalManager {
               </div>
             </div>
           </div>
-        </div>
-        <div class="ppt-modal-footer">
-          <button class="ppt-btn ppt-btn-secondary" data-action="closeHistoryModal">取消</button>
-          <button class="ppt-btn ppt-btn-primary" id="pptHistoryImportBtn" disabled>
-            导入选中项目
-          </button>
-        </div>
-      </div>
-    `;
+                </div>
+                <div class="ppt-modal-footer">
+                    <button class="ppt-btn ppt-btn-secondary" data-action="closeHistoryModal">取消</button>
+                    <button class="ppt-btn ppt-btn-secondary" data-action="exportCurrentRunZip">
+                        <iconify-icon icon="solar:download-minimalistic-bold-duotone"></iconify-icon>
+                        导出当前 Run
+                    </button>
+                    <button class="ppt-btn ppt-btn-secondary" data-action="importRunZip">
+                        <iconify-icon icon="solar:upload-minimalistic-bold-duotone"></iconify-icon>
+                        导入 Run Zip
+                    </button>
+                    <button class="ppt-btn ppt-btn-primary" id="pptHistoryImportBtn" disabled>
+                        导入选中项目
+                    </button>
+                </div>
+            </div>
+        `;
 
     const host = getModalHost(generator);
     host?.appendChild(overlay);
@@ -327,6 +335,12 @@ export class ModalManager {
       bindActionEvents(overlay, (action) => {
         if (action === 'closeHistoryModal') {
           return () => overlay.classList.remove('open');
+        }
+        if (action === 'exportCurrentRunZip') {
+          return () => this.exportCurrentRunZip();
+        }
+        if (action === 'importRunZip') {
+          return () => this.importRunZip();
         }
         return null;
       });
@@ -407,6 +421,59 @@ export class ModalManager {
         if (btn) btn.disabled = this._historySelected.size === 0;
       });
     });
+  }
+
+  async exportCurrentRunZip() {
+    const generator = this._ensureGenerator();
+    if (!generator) return;
+
+    if (typeof generator.downloadRunZip !== 'function') {
+      alert('当前环境不支持 Run 导出（downloadRunZip 不可用）。');
+      return;
+    }
+
+    try {
+      await generator.downloadRunZip();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      alert(`Run 导出失败: ${msg}`);
+    }
+  }
+
+  async importRunZip() {
+    const generator = this._ensureGenerator();
+    if (!generator) return;
+
+    if (typeof generator.importRunZip !== 'function') {
+      alert('当前环境不支持 Run 导入（importRunZip 不可用）。');
+      return;
+    }
+
+    if (typeof document === 'undefined') return;
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.zip,application/zip';
+    input.style.display = 'none';
+    document.body.appendChild(input);
+
+    const cleanup = () => {
+      try { input.remove(); } catch { /* ignore */ }
+    };
+
+    input.addEventListener('change', async () => {
+      const file = input.files?.[0];
+      cleanup();
+      if (!file) return;
+      try {
+        const runId = await generator.importRunZip(file, { overwrite: true });
+        alert(`Run 导入成功: ${runId}`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        alert(`Run 导入失败: ${msg}`);
+      }
+    }, { once: true });
+
+    input.click();
   }
 
   _getAllCheckpoints() {

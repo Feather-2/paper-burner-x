@@ -5,6 +5,7 @@
 
 import { loadSkills } from "./loader.js";
 import { buildSkillInjections, formatSkillInjections } from "./injection.js";
+import { renderSkillsList } from "./render.js";
 
 /**
  * Skills 管理器
@@ -16,7 +17,15 @@ import { buildSkillInjections, formatSkillInjections } from "./injection.js";
  */
 export class SkillsManager {
   constructor(options = {}) {
-    this.homeDir = options.homeDir || process.env.HOME || process.env.USERPROFILE;
+    const envHome =
+      typeof process !== "undefined" && process?.env
+        ? (process.env.HOME || process.env.USERPROFILE)
+        : null;
+
+    this.homeDir = options.homeDir || envHome || null;
+    this.manifestUrl = typeof options.manifestUrl === "string" && options.manifestUrl.trim()
+      ? options.manifestUrl.trim()
+      : null;
     this.cacheByDir = new Map();
     this.remoteProvider = options.remoteProvider || null; // NexusSkillProvider
   }
@@ -29,13 +38,15 @@ export class SkillsManager {
    * @returns {Promise<SkillLoadOutcome>}
    */
   async getSkillsForCwd(cwd, forceReload = false) {
-    if (!forceReload && this.cacheByDir.has(cwd)) {
-      return this.cacheByDir.get(cwd);
+    const cacheKey = typeof cwd === "string" && cwd ? cwd : "__default__";
+    if (!forceReload && this.cacheByDir.has(cacheKey)) {
+      return this.cacheByDir.get(cacheKey);
     }
 
     const outcome = await loadSkills({
       cwd,
       homeDir: this.homeDir,
+      ...(this.manifestUrl ? { manifestUrl: this.manifestUrl } : {}),
     });
 
     // 如果有远程 Provider，合并远程 Skills
@@ -64,7 +75,7 @@ export class SkillsManager {
       }
     }
 
-    this.cacheByDir.set(cwd, outcome);
+    this.cacheByDir.set(cacheKey, outcome);
     return outcome;
   }
 
@@ -87,6 +98,17 @@ export class SkillsManager {
   async getInjectionPrompt(input, cwd, options = {}) {
     const injections = await this.buildInjections(input, cwd, options);
     return formatSkillInjections(injections);
+  }
+
+  /**
+   * 获取 Skills Catalog（仅元数据，适合 Browser 端保持 prompt cache）
+   */
+  async getCatalogPrompt(cwd, { header = true } = {}) {
+    const outcome = await this.getSkillsForCwd(cwd);
+    const list = renderSkillsList(outcome.skills);
+    if (!list) return "";
+    if (!header) return list;
+    return `## Skills Catalog\n\n${list}`;
   }
 
   /**

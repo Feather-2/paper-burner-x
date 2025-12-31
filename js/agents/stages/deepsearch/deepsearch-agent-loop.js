@@ -17,6 +17,7 @@ import { ModelResponseHandler } from "./runtime/model-response-handler.js";
 import { WritingPhaseHandler } from "./runtime/writing-phase-handler.js";
 import { classifyDeepSearchError } from "./runtime/error-classifier.js";
 import SourceManager from "./source-manager.js";
+import { maybePersistToolOutput } from "../../runtime/persisted-output.js";
 
 // Skills 系统（动态加载）
 let SkillsManager = null;
@@ -395,8 +396,16 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     if (SkillsManager && this.state.taskGoal) {
       try {
         const skillsManager = new SkillsManager();
-        const cwd = stageApi.cwd || process.cwd?.() || ".";
-        skillsPrompt = await skillsManager.getInjectionPrompt(this.state.taskGoal, cwd);
+        const cwd =
+          stageApi.cwd ||
+          (typeof process !== "undefined" && typeof process.cwd === "function" ? process.cwd() : ".");
+
+        const browserLike = typeof window !== "undefined" && typeof window.document !== "undefined";
+        if (browserLike && typeof skillsManager.getCatalogPrompt === "function") {
+          skillsPrompt = await skillsManager.getCatalogPrompt(cwd);
+        } else {
+          skillsPrompt = await skillsManager.getInjectionPrompt(this.state.taskGoal, cwd);
+        }
         if (skillsPrompt) {
           this._logger.info("[Skills] Injected skills based on task goal");
         }
@@ -732,14 +741,14 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
                   sourceManager: this.sourceManager,
                 });
                 const toolSuccess = typeof result?.success === "boolean" ? result.success : true;
-                if (toolSuccess) return { tool: toolName, success: true, result };
+                if (toolSuccess) return { tool: toolName, args: toolArgs, success: true, result };
 
                 const errorMessage =
                   typeof result?.error === "string" && result.error ? result.error : "Tool returned success:false";
-                return { tool: toolName, success: false, error: errorMessage, result };
+                return { tool: toolName, args: toolArgs, success: false, error: errorMessage, result };
               } catch (err) {
                 const errorMessage = err instanceof Error ? err.message : String(err);
-                return { tool: toolName, success: false, error: errorMessage };
+                return { tool: toolName, args: toolArgs, success: false, error: errorMessage };
               }
             })
           );
@@ -756,17 +765,34 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
             }
           }
 
+          const runStore = stageApi?.runStore || null;
+          const formatted = [];
+          for (const r of results) {
+            if (r?.success) {
+              try {
+                const stored = await maybePersistToolOutput({
+                  runStore,
+                  runId: this.state?.runId,
+                  toolName: r.tool,
+                  args: r.args,
+                  iteration: plannedIteration,
+                  result: r.result,
+                });
+                formatted.push({ ...r, inline: stored.inline, persisted: stored.persisted, ref: stored.ref || null });
+              } catch {
+                formatted.push({ ...r, inline: r.result, persisted: false, ref: null });
+              }
+              continue;
+            }
+            formatted.push({ ...r, inline: r.result ?? { success: false, error: r.error }, persisted: false, ref: null });
+          }
+
           // 添加批量结果到消息
           this.addMessage({
             role: "user",
-            content: `批量执行结果:\n${results
-              .map(
-                (r, i) =>
-                  `${i + 1}. ${r.tool}: ${r.success
-                    ? JSON.stringify(r.result)
-                    : JSON.stringify(r.result ?? { success: false, error: r.error })}`
-              )
-              .join("\n")}\n\n请继续。`,
+            content: `批量执行结果:\n${formatted
+              .map((r, i) => `${i + 1}. ${r.tool}: ${JSON.stringify(r.inline)}`)
+              .join("\n")}\n\n如需读取完整 persisted output，请用 get-artifact { artifactId }。\n\n请继续。`,
           });
           iteration = plannedIteration;
           systemRetryCount = 0;
@@ -830,9 +856,25 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         }
 
         // 添加结果到消息
+        let toolPayloadForPrompt = toolResult;
+        try {
+          const runStore = stageApi?.runStore || null;
+          const stored = await maybePersistToolOutput({
+            runStore,
+            runId: this.state?.runId,
+            toolName: decision.action,
+            args: decision.args || {},
+            iteration: plannedIteration,
+            result: toolResult,
+          });
+          toolPayloadForPrompt = stored.inline;
+        } catch {
+          // ignore persistence failures (fallback to inline toolResult)
+        }
+
         this.addMessage({
           role: "user",
-          content: `结果: ${JSON.stringify(toolResult, null, 2)}\n\n请继续。`,
+          content: `结果: ${JSON.stringify(toolPayloadForPrompt, null, 2)}\n\n如需读取完整 persisted output，请用 get-artifact { artifactId }。\n\n请继续。`,
         });
         iteration = plannedIteration;
         systemRetryCount = 0;
