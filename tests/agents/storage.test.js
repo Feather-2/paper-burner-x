@@ -24,6 +24,10 @@ test("RunStore: IndexedDB CRUD (runs/events/artifacts)", async () => {
   assert.equal(all.length, 1);
   assert.deepEqual(all[0], runContext);
 
+  const updated = await store.updateRunContext(runId, { title: "Hello", tags: ["demo"] });
+  assert.deepEqual(updated, { ...runContext, title: "Hello", tags: ["demo"] });
+  assert.deepEqual(await store.getRun(runId), updated);
+
   const evt = {
     schemaVersion: "0.1",
     eventId: `evt_${runId}_1`,

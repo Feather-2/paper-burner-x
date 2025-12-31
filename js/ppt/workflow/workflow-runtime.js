@@ -831,13 +831,22 @@ export const runtimeMixin = {
                 try {
                     const existing = await this._runStore.getRun(this._currentRunId);
                     if (!existing) {
+                        const now = new Date().toISOString();
+                        const briefGoal = typeof this.workflowData?.projectBrief?.taskGoal === 'string' ? this.workflowData.projectBrief.taskGoal.trim() : '';
+                        const legacyGoal = typeof this.workflowData?.taskGoal === 'string' ? this.workflowData.taskGoal.trim() : '';
+                        const taskGoal = briefGoal || legacyGoal || '';
+                        const title = taskGoal || '';
+
                         await this._runStore.createRun({
                             schemaVersion: '0.1',
                             runId: this._currentRunId,
                             mode,
                             scenario,
                             constraints,
-                            startedAt: new Date().toISOString(),
+                            startedAt: now,
+                            createdAt: now,
+                            ...(title ? { title, taskGoal } : {}),
+                            tags: [],
                         });
                     }
                 } catch {
@@ -1276,6 +1285,43 @@ export const runtimeMixin = {
             console.warn('[Workflow] Failed to list runs:', err);
             return [];
         }
+    },
+
+    async getRunContext(runId) {
+        const store = await this._ensureRunStoreOpen();
+        const id = typeof runId === 'string' && runId.trim() ? runId.trim() : null;
+        if (!store || !id || typeof store.getRun !== 'function') return null;
+        try {
+            return await store.getRun(id);
+        } catch (err) {
+            console.warn('[Workflow] Failed to get run context:', err);
+            return null;
+        }
+    },
+
+    async updateRunContext(runId, patch, options = {}) {
+        const store = await this._ensureRunStoreOpen();
+        const id = typeof runId === 'string' && runId.trim() ? runId.trim() : null;
+        if (!store || !id || typeof store.updateRunContext !== 'function') {
+            throw new Error('updateRunContext(runId, patch): RunStore unavailable');
+        }
+        return await store.updateRunContext(id, patch, options);
+    },
+
+    async deleteRun(runId) {
+        const store = await this._ensureRunStoreOpen();
+        const id = typeof runId === 'string' && runId.trim() ? runId.trim() : null;
+        if (!store || !id || typeof store.deleteRun !== 'function') {
+            throw new Error('deleteRun(runId): RunStore unavailable');
+        }
+
+        const activeRunId = this._orchestrator?.runId || this._currentRunId;
+        if (id && activeRunId && id === activeRunId) {
+            throw new Error(`deleteRun(runId): cannot delete active run (${id})`);
+        }
+
+        await store.deleteRun(id);
+        return { ok: true, runId: id };
     },
 
     async exportRunZip(runId) {

@@ -1585,6 +1585,42 @@
     box-shadow: 0 0 0 3px var(--ppt-primary-light);
 }
 
+.ppt-input {
+    width: 100%;
+    height: 40px;
+    padding: 0 14px;
+    border: 1px solid var(--ppt-border);
+    border-radius: var(--ppt-radius-md);
+    background: var(--ppt-bg-subtle);
+    font-size: 13.5px;
+    transition: all 0.2s;
+    outline: none;
+}
+
+select.ppt-input {
+    height: 40px;
+}
+
+textarea.ppt-input {
+    height: auto;
+    min-height: 120px;
+    padding: 12px 14px;
+    font-size: 13.5px;
+    line-height: 1.5;
+    resize: vertical;
+}
+
+.ppt-input:focus {
+    background: white;
+    border-color: var(--ppt-primary);
+    box-shadow: 0 0 0 3px var(--ppt-primary-light);
+}
+
+.ppt-input:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
 /* ==================== DeepSearch Premium UI ==================== */
 /* Layout: Flow full-screen, Stepper top-center, Status bottom-left, Logs center */
 
@@ -3678,4 +3714,3 @@
     gap: 20px;
     margin-top: 20px;
 }
-

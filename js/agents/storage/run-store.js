@@ -254,6 +254,43 @@ export class RunStore {
     return rec ? rec.runContext : null;
   }
 
+  async updateRunContext(runId, patch, { replace = false } = {}) {
+    const id = typeof runId === "string" ? runId.trim() : "";
+    if (!id) throw new Error("updateRunContext(runId, patch): runId must be a non-empty string");
+
+    if (this.storage) {
+      throw new Error("updateRunContext is not supported when using a storageAdapter");
+    }
+
+    const nextPatch = patch && typeof patch.toJSON === "function" ? patch.toJSON() : patch;
+    if (!nextPatch || typeof nextPatch !== "object") {
+      throw new Error("updateRunContext(runId, patch): patch must be an object");
+    }
+
+    const db = await this.open();
+    const tx = db.transaction([STORE_RUNS], "readwrite");
+    const store = tx.objectStore(STORE_RUNS);
+    const existing = await promisifyRequest(store.get(id));
+    if (!existing) {
+      await promisifyTransaction(tx);
+      throw new Error(`updateRunContext(runId, patch): run not found: ${id}`);
+    }
+
+    const current = isPlainObject(existing.runContext) ? existing.runContext : { value: existing.runContext };
+    const patchObj = isPlainObject(nextPatch) ? nextPatch : { value: nextPatch };
+    const merged = replace ? patchObj : { ...current, ...patchObj };
+    if (typeof merged.runId === "string" && merged.runId !== id) merged.runId = id;
+    if (merged.runId === undefined) merged.runId = id;
+
+    store.put({
+      ...existing,
+      runContext: merged,
+      updatedAt: toISO(),
+    });
+    await promisifyTransaction(tx);
+    return merged;
+  }
+
   async listRuns() {
     const db = await this.open();
     const tx = db.transaction([STORE_RUNS], "readonly");

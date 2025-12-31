@@ -118,6 +118,17 @@ async function ensureManifest(runStore, runId) {
     }
   }
 
+  try {
+    if (typeof runStore?.getRun === "function") {
+      const ctx = await runStore.getRun(runId);
+      if (ctx && typeof ctx === "object" && !Array.isArray(ctx)) {
+        m.runContext = ctx;
+      }
+    }
+  } catch {
+    // ignore
+  }
+
   return m;
 }
 
@@ -216,13 +227,26 @@ export async function importRunFromZip(file, { runStore = new RunStore(), overwr
     if (existing) await runStore.deleteRun(runId);
   }
 
-  const runContext = {
-    schemaVersion: "0.1",
-    runId,
-    mode: "imported",
-    constraints: {},
-    startedAt: manifest.createdAt || new Date().toISOString(),
-  };
+  const baseRunContext = manifest?.runContext && typeof manifest.runContext === "object" && !Array.isArray(manifest.runContext)
+    ? manifest.runContext
+    : null;
+
+  const runContext = baseRunContext
+    ? {
+      ...baseRunContext,
+      schemaVersion: typeof baseRunContext.schemaVersion === "string" ? baseRunContext.schemaVersion : "0.1",
+      runId,
+      mode: typeof baseRunContext.mode === "string" && baseRunContext.mode ? baseRunContext.mode : "imported",
+      constraints: baseRunContext.constraints && typeof baseRunContext.constraints === "object" ? baseRunContext.constraints : {},
+      startedAt: typeof baseRunContext.startedAt === "string" && baseRunContext.startedAt ? baseRunContext.startedAt : (manifest.createdAt || new Date().toISOString()),
+    }
+    : {
+      schemaVersion: "0.1",
+      runId,
+      mode: "imported",
+      constraints: {},
+      startedAt: manifest.createdAt || new Date().toISOString(),
+    };
 
   await runStore.createRun(runContext);
 

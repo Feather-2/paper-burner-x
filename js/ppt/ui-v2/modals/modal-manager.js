@@ -574,9 +574,17 @@ export class ModalManager {
 	                        <iconify-icon icon="solar:download-minimalistic-bold-duotone"></iconify-icon>
 	                        导出 Run
 	                    </button>
+	                    <button class="ppt-btn ppt-btn-secondary" data-action="editSelectedRunMeta" id="pptHistoryEditRunBtn" disabled>
+	                        <iconify-icon icon="solar:pen-new-square-bold-duotone"></iconify-icon>
+	                        编辑 Run
+	                    </button>
 	                    <button class="ppt-btn ppt-btn-secondary" data-action="importRunZip">
 	                        <iconify-icon icon="solar:upload-minimalistic-bold-duotone"></iconify-icon>
 	                        导入 Run Zip
+	                    </button>
+	                    <button class="ppt-btn ppt-btn-secondary" data-action="deleteSelectedRun" id="pptHistoryDeleteRunBtn" disabled>
+	                        <iconify-icon icon="solar:trash-bin-trash-bold-duotone"></iconify-icon>
+	                        删除 Run
 	                    </button>
 	                    <button class="ppt-btn ppt-btn-primary" id="pptHistoryImportBtn" disabled>
 	                        打开选中项
@@ -597,8 +605,14 @@ export class ModalManager {
 	        if (action === 'exportCurrentRunZip') {
 	          return () => this.exportCurrentRunZip({ runId: this._getSelectedRunIdFromHistorySelection?.() || null });
 	        }
+	        if (action === 'editSelectedRunMeta') {
+	          return () => void this.editSelectedRunMeta();
+	        }
 	        if (action === 'importRunZip') {
 	          return () => this.importRunZip();
+	        }
+	        if (action === 'deleteSelectedRun') {
+	          return () => void this.deleteSelectedRun();
 	        }
 		        if (action === 'openArtifactsBrowser') {
 		          return () => this.openArtifactsBrowser({ runId: this._getSelectedRunIdFromHistorySelection?.() || undefined });
@@ -644,6 +658,7 @@ export class ModalManager {
 	    this._historySelected.clear();
 	    const importBtn = document.getElementById('pptHistoryImportBtn');
 	    if (importBtn) importBtn.disabled = true;
+	    this._syncHistoryRunActionButtons?.();
 
 	    const dsListEl = document.getElementById('pptHistoryDeepsearchList');
     try {
@@ -669,7 +684,7 @@ export class ModalManager {
 	        } else {
 	          const sorted = runs
 	            .slice()
-	            .sort((a, b) => String(b?.createdAt || '').localeCompare(String(a?.createdAt || '')));
+	            .sort((a, b) => String(b?.createdAt || b?.startedAt || '').localeCompare(String(a?.createdAt || a?.startedAt || '')));
 	          runsListEl.innerHTML = sorted.map((run) => this._renderHistoryItem(run, 'run')).join('');
 	        }
 	      }
@@ -707,8 +722,19 @@ export class ModalManager {
         }
 	        const btn = document.getElementById('pptHistoryImportBtn');
 	        if (btn) btn.disabled = this._historySelected.size === 0;
+	        this._syncHistoryRunActionButtons?.();
 	      });
 	    });
+	  }
+
+	  _syncHistoryRunActionButtons() {
+	    if (typeof document === 'undefined') return;
+	    const runId = this._getSelectedRunIdFromHistorySelection?.();
+	    const editBtn = document.getElementById('pptHistoryEditRunBtn');
+	    const delBtn = document.getElementById('pptHistoryDeleteRunBtn');
+	    const enabled = !!runId;
+	    if (editBtn) editBtn.disabled = !enabled;
+	    if (delBtn) delBtn.disabled = !enabled;
 	  }
 
 	  async exportCurrentRunZip({ runId } = {}) {
@@ -728,7 +754,7 @@ export class ModalManager {
 	    }
 	  }
 
-  async importRunZip() {
+	  async importRunZip() {
     const generator = this._ensureGenerator();
     if (!generator) return;
 
@@ -762,6 +788,128 @@ export class ModalManager {
     }, { once: true });
 
     input.click();
+  }
+
+  async editSelectedRunMeta() {
+    const generator = this._ensureGenerator();
+    if (!generator) return;
+    const runId = this._getSelectedRunIdFromHistorySelection?.();
+    if (!runId) {
+      alert('请先在 Runs 列表中选中一个 Run。');
+      return;
+    }
+
+    if (typeof generator.getRunContext !== 'function' || typeof generator.updateRunContext !== 'function') {
+      alert('当前环境不支持编辑 Run（缺少 RunStore 接口）。');
+      return;
+    }
+
+    let run = null;
+    try {
+      run = await generator.getRunContext(runId);
+    } catch {
+      run = null;
+    }
+    const title = typeof run?.title === 'string' ? run.title : (typeof run?.taskGoal === 'string' ? run.taskGoal : '');
+    const tags = Array.isArray(run?.tags) ? run.tags : [];
+    const tagsText = tags.filter((t) => typeof t === 'string' && t.trim()).join(', ');
+
+    const modalId = `pptRunMetaEditor_${runId}`;
+    const titleInputId = `${modalId}_title`;
+    const tagsInputId = `${modalId}_tags`;
+
+    this._openOrCreateModal({
+      id: modalId,
+      className: 'ppt-run-meta-editor-modal',
+      titleHtml: `
+        <iconify-icon icon="solar:pen-new-square-bold-duotone"></iconify-icon>
+        <span>编辑 Run</span>
+      `,
+      bodyHtml: `
+        <div style="display:flex; flex-direction:column; gap:12px;">
+          <div style="font-size:12px; color: var(--ppt-text-secondary);">Run ID: <code>${escapeHtml(runId)}</code></div>
+          <div>
+            <div style="font-size:12px; color: var(--ppt-text-secondary); margin-bottom:6px;">标题</div>
+            <input id="${escapeAttr(titleInputId)}" class="ppt-input" style="width:100%;" value="${escapeAttr(title || '')}" placeholder="可选：为这个 run 取个名字" />
+          </div>
+          <div>
+            <div style="font-size:12px; color: var(--ppt-text-secondary); margin-bottom:6px;">标签（逗号分隔）</div>
+            <input id="${escapeAttr(tagsInputId)}" class="ppt-input" style="width:100%;" value="${escapeAttr(tagsText)}" placeholder="例如：research, v2, demo" />
+          </div>
+        </div>
+      `,
+      footerHtml: `
+        <button class="ppt-btn ppt-btn-secondary" data-action="closeRunMetaEditor">取消</button>
+        <button class="ppt-btn ppt-btn-primary" data-action="saveRunMetaEditor">保存</button>
+      `,
+      actions: {
+        closeRunMetaEditor: () => this._closeModalById(modalId),
+        saveRunMetaEditor: async () => {
+          const titleEl = typeof document !== 'undefined' ? document.getElementById(titleInputId) : null;
+          const tagsEl = typeof document !== 'undefined' ? document.getElementById(tagsInputId) : null;
+          const nextTitle = typeof titleEl?.value === 'string' ? titleEl.value.trim() : '';
+          const rawTags = typeof tagsEl?.value === 'string' ? tagsEl.value : '';
+          const nextTags = rawTags
+            .split(/[,，]/g)
+            .map((t) => String(t || '').trim().replace(/^#/, ''))
+            .filter(Boolean);
+          const uniq = [];
+          const seen = new Set();
+          for (const t of nextTags) {
+            const key = t.toLowerCase();
+            if (seen.has(key)) continue;
+            seen.add(key);
+            uniq.push(t);
+          }
+
+          try {
+            await generator.updateRunContext(runId, {
+              title: nextTitle || null,
+              tags: uniq,
+              updatedAt: new Date().toISOString(),
+            });
+            this._closeModalById(modalId);
+            await this._loadHistoryData();
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            alert(`Run 更新失败: ${msg}`);
+          }
+        }
+      },
+    });
+  }
+
+  async deleteSelectedRun() {
+    const generator = this._ensureGenerator();
+    if (!generator) return;
+    const runId = this._getSelectedRunIdFromHistorySelection?.();
+    if (!runId) {
+      alert('请先在 Runs 列表中选中一个 Run。');
+      return;
+    }
+
+    if (typeof generator.deleteRun !== 'function') {
+      alert('当前环境不支持删除 Run（缺少 RunStore 接口）。');
+      return;
+    }
+
+    const ok = await this.confirmDialog({
+      title: '删除 Run',
+      message: `确定删除这个 Run 吗？\n\n${runId}\n\n（将删除 events + artifacts，无法撤销）`,
+      confirmText: '删除',
+      cancelText: '取消'
+    });
+    if (!ok) return;
+
+    try {
+      await generator.deleteRun(runId);
+      this._historySelected.delete(`run:${runId}`);
+      this._syncHistoryRunActionButtons?.();
+      await this._loadHistoryData();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      alert(`Run 删除失败: ${msg}`);
+    }
   }
 
   _getAllCheckpoints() {
@@ -817,9 +965,18 @@ export class ModalManager {
 	        : type === 'run'
 	          ? (item.mode || 'run')
 	          : (item.type || 'document');
-	    const meta = type === 'run'
-	      ? `${escapeHtml(String(item.scenario || ''))}${item.scenario ? ' · ' : ''}${escapeHtml(String(item.runId || ''))}`
-	      : '';
+	    const meta = (() => {
+	      if (type !== 'run') return '';
+	      const scenario = typeof item.scenario === 'string' ? item.scenario : '';
+	      const id = typeof item.runId === 'string' ? item.runId : '';
+	      const rawTags = Array.isArray(item.tags) ? item.tags : [];
+	      const tags = rawTags
+	        .map((t) => (typeof t === 'string' ? t.trim().replace(/^#/, '') : ''))
+	        .filter(Boolean)
+	        .slice(0, 6);
+	      const tagStr = tags.length ? ` · ${tags.map((t) => `#${t}`).join(' ')}` : '';
+	      return `${escapeHtml(String(scenario || ''))}${scenario ? ' · ' : ''}${escapeHtml(String(id || ''))}${escapeHtml(tagStr)}`;
+	    })();
 
 	    return `
 	      <div class="ppt-history-item" data-key="${escapeAttr(key)}" data-type="${type}">
@@ -1928,6 +2085,9 @@ export class ModalManager {
 	        case 'startReplay':
 	          void this.startReplay(payload);
 	          break;
+	        case 'resumeWorkflowFromPlan':
+	          void this.resumeWorkflowFromPlan(payload);
+	          break;
 	        default:
 	          break;
 	      }
@@ -2378,6 +2538,28 @@ export class ModalManager {
 		      const msg = err instanceof Error ? err.message : String(err);
 		      console.warn('[UI] startReplay failed:', msg);
 		      return { ok: false, reason: 'replay_failed', error: msg };
+		    }
+		  }
+
+		  async resumeWorkflowFromPlan({ runId, stepIdOrIndex } = {}) {
+		    const generator = this._ensureGenerator();
+		    const id = typeof runId === 'string' ? runId.trim() : '';
+		    const step = stepIdOrIndex;
+		    if (!generator || typeof generator.resumeWorkflowFromPlan !== 'function') {
+		      console.warn('[UI] resumeWorkflowFromPlan skipped: generator.resumeWorkflowFromPlan unavailable.');
+		      return { ok: false, reason: 'missing_resumeWorkflowFromPlan' };
+		    }
+
+		    try {
+		      const out = await generator.resumeWorkflowFromPlan({
+		        ...(id ? { runId: id } : {}),
+		        ...(step !== undefined ? { stepIdOrIndex: step } : {}),
+		      });
+		      return { ok: true, ...(out && typeof out === 'object' ? out : {}) };
+		    } catch (err) {
+		      const msg = err instanceof Error ? err.message : String(err);
+		      console.warn('[UI] resumeWorkflowFromPlan failed:', msg);
+		      return { ok: false, reason: 'resume_failed', error: msg };
 		    }
 		  }
 	
