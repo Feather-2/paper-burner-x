@@ -283,6 +283,79 @@ export function getCachedPromptNames() {
   return [...promptCache.keys()];
 }
 
+function escapeRegExp(s) {
+  return String(s || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function normalizeTemplateVars(vars) {
+  const map = new Map();
+
+  if (!vars) return map;
+
+  if (vars instanceof Map) {
+    for (const [k, v] of vars.entries()) {
+      const key = typeof k === "string" ? k.trim().toLowerCase() : "";
+      if (!key) continue;
+      map.set(key, v);
+    }
+    return map;
+  }
+
+  if (typeof vars === "object") {
+    for (const [k, v] of Object.entries(vars)) {
+      const key = typeof k === "string" ? k.trim().toLowerCase() : "";
+      if (!key) continue;
+      map.set(key, v);
+    }
+  }
+
+  return map;
+}
+
+/**
+ * Render a prompt template using {{VAR}} placeholders.
+ *
+ * Notes:
+ * - Placeholder matching is case-insensitive (by lowercasing both sides).
+ * - Only exact keys are supported (including dotted keys like "minWords.quick").
+ * - Unresolved placeholders are kept by default to make missing variables visible.
+ */
+export function renderPromptTemplate(template, { vars, appendIfMissing, keepUnresolved = true } = {}) {
+  const input = typeof template === "string" ? template : String(template ?? "");
+  const varMap = normalizeTemplateVars(vars);
+
+  let rendered = input.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (match, rawName) => {
+    const key = String(rawName || "").trim().toLowerCase();
+    if (!key) return keepUnresolved ? match : "";
+    if (!varMap.has(key)) return keepUnresolved ? match : "";
+
+    const value = varMap.get(key);
+    if (value === null || value === undefined) return "";
+    if (typeof value === "string") return value;
+    if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") return String(value);
+    return keepUnresolved ? match : "";
+  });
+
+  const extra = [];
+  const append = appendIfMissing && typeof appendIfMissing === "object" ? appendIfMissing : null;
+  if (append) {
+    for (const [name, value] of Object.entries(append)) {
+      const placeholderName = typeof name === "string" ? name.trim() : "";
+      const content = typeof value === "string" ? value.trim() : String(value ?? "").trim();
+      if (!placeholderName || !content) continue;
+      const re = new RegExp(`\\{\\{\\s*${escapeRegExp(placeholderName)}\\s*\\}\\}`, "i");
+      if (re.test(input)) continue;
+      extra.push(content);
+    }
+  }
+
+  if (extra.length) {
+    rendered = `${rendered}\n\n${extra.join("\n\n")}`;
+  }
+
+  return rendered;
+}
+
 export default {
   loadPrompt,
   loadPromptSync,
@@ -290,4 +363,5 @@ export default {
   clearPromptCache,
   getCachedPromptNames,
   configurePromptCache,
+  renderPromptTemplate,
 };

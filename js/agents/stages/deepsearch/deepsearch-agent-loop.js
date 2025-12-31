@@ -11,7 +11,7 @@ import { createLogger } from "./runtime/logger.js";
 import { executeTool, getToolCatalogPrompt } from "./tools/index.js";
 import { isPlainObject } from "../../shared/utils/value-utils.js";
 import { robustParseJson } from "../../shared/utils/robust-json.js";
-import { loadPrompt } from "../../prompts/prompt-loader.js";
+import { loadPrompt, renderPromptTemplate } from "../../prompts/prompt-loader.js";
 import { DeepSearchEvents } from "../../runtime/events/events.js";
 import { ModelResponseHandler } from "./runtime/model-response-handler.js";
 import { WritingPhaseHandler } from "./runtime/writing-phase-handler.js";
@@ -162,29 +162,9 @@ async function getSystemPrompt({ skillsPrompt = "", config = null, mode = "wider
     }
   }
 
-  let prompt = _systemPromptTemplate;
-
-  // 替换 {{TOOLS_CATALOG}}
+  // 变量注入（统一入口：PromptLoader.renderPromptTemplate）
   const toolsCatalog = getToolCatalogPrompt();
-  if (prompt.includes("{{TOOLS_CATALOG}}")) {
-    prompt = prompt.replace("{{TOOLS_CATALOG}}", toolsCatalog);
-  } else {
-    // 如果没有占位符，追加到末尾
-    prompt = prompt + "\n\n" + toolsCatalog;
-  }
-
-  // 替换 {{SKILLS_CATALOG}}
-  if (prompt.includes("{{SKILLS_CATALOG}}")) {
-    prompt = prompt.replace("{{SKILLS_CATALOG}}", skillsPrompt || "（无匹配的 Skills）");
-  } else if (skillsPrompt) {
-    // 如果没有占位符但有 skills，追加到末尾
-    prompt = prompt + "\n\n" + skillsPrompt;
-  }
-
-  // 替换 {{currentDate}}（兼容 {{CURRENT_DATE}}）
   const currentDate = new Date().toISOString().split("T")[0];
-  prompt = prompt.replace(/\{\{currentDate\}\}/gi, currentDate);
-  prompt = prompt.replace(/\{\{CURRENT_DATE\}\}/gi, currentDate);
 
   // 替换配置相关占位符
   const reportConfig = config?.report || {};
@@ -192,13 +172,23 @@ async function getSystemPrompt({ skillsPrompt = "", config = null, mode = "wider
   const defaults = { quick: { minWords: 4000 }, wider: { minWords: 6000 }, deeper: { minWords: 10000 } };
   const minWords = modeConfig.minWords ?? defaults[mode]?.minWords ?? 6000;
 
-  // {{minWords.quick}}, {{minWords.wider}}, {{minWords.deeper}}
-  prompt = prompt.replace(/\{\{minWords\.quick\}\}/gi, String(reportConfig.quick?.minWords ?? 4000));
-  prompt = prompt.replace(/\{\{minWords\.wider\}\}/gi, String(reportConfig.wider?.minWords ?? 6000));
-  prompt = prompt.replace(/\{\{minWords\.deeper\}\}/gi, String(reportConfig.deeper?.minWords ?? 10000));
-  prompt = prompt.replace(/\{\{minWords\}\}/gi, String(minWords));
+  const vars = {
+    TOOLS_CATALOG: toolsCatalog,
+    SKILLS_CATALOG: skillsPrompt || "（无匹配的 Skills）",
+    currentDate,
+    CURRENT_DATE: currentDate,
+    minWords,
+    "minWords.quick": reportConfig.quick?.minWords ?? 4000,
+    "minWords.wider": reportConfig.wider?.minWords ?? 6000,
+    "minWords.deeper": reportConfig.deeper?.minWords ?? 10000,
+  };
 
-  return prompt;
+  const appendIfMissing = {
+    TOOLS_CATALOG: toolsCatalog,
+    ...(skillsPrompt ? { SKILLS_CATALOG: skillsPrompt } : {}),
+  };
+
+  return renderPromptTemplate(_systemPromptTemplate, { vars, appendIfMissing, keepUnresolved: true });
 }
 
 export class DeepSearchAgentLoop extends BaseAgentLoop {
