@@ -270,3 +270,79 @@ test("MCP auto-discovery: reads localStorage config and seeds tool schema cache"
   assert.equal(called2, 0);
   assert.equal(tools2.length, 2);
 });
+
+test("MCP preload refresh: healthCheck hits network even when tools are seeded", async () => {
+  const { createAutoMcpClient, preloadMcpTools } = await import("../../js/agents/mcp/auto-discovery.js");
+
+  const kv = new Map();
+  const storage = {
+    getItem: (k) => (kv.has(String(k)) ? kv.get(String(k)) : null),
+    setItem: (k, v) => {
+      kv.set(String(k), String(v));
+    },
+  };
+
+  storage.setItem("mcp_nexus_config", JSON.stringify({ endpoint: "http://nexus.local" }));
+  storage.setItem(
+    "pb_mcp_tools_cache_v1",
+    JSON.stringify({
+      schemaVersion: "0.1",
+      kind: "mcp_tools_cache",
+      ts: Date.now(),
+      ttlMs: 60_000,
+      providers: {
+        "mcp-nexus": {
+          ts: Date.now(),
+          tools: [
+            { name: "search.query", description: "q", inputSchema: { type: "object", properties: { query: { type: "string" } } } },
+            { name: "search.fetch", description: "f", inputSchema: { type: "object", properties: { url: { type: "string" } } } },
+          ],
+        },
+      },
+    })
+  );
+
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    const body = init?.body ? JSON.parse(String(init.body)) : null;
+    calls.push({ url: String(url), method: init?.method, body });
+
+    if (String(url).endsWith("/mcp") && body?.method === "tools/list") {
+      return {
+        ok: true,
+        status: 200,
+        async text() {
+          return JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            result: {
+              tools: [
+                { name: "search.query", description: "q", inputSchema: { type: "object", properties: { query: { type: "string" } } } },
+                { name: "search.fetch", description: "f", inputSchema: { type: "object", properties: { url: { type: "string" } } } },
+              ],
+            },
+          });
+        },
+      };
+    }
+
+    return {
+      ok: false,
+      status: 404,
+      async text() {
+        return JSON.stringify({ error: "not found" });
+      },
+    };
+  };
+
+  const client = await createAutoMcpClient({ storage, useLocal: false, fetchImpl });
+  const provider = client.getProvider("mcp-nexus");
+  assert.ok(provider);
+
+  const tools = await provider.listTools();
+  assert.equal(tools.length, 2);
+  assert.equal(calls.length, 0);
+
+  await preloadMcpTools({ client, storage, ttlMs: 60_000, refresh: true });
+  assert.ok(calls.some((c) => c.url.endsWith("/mcp") && c.body?.method === "tools/list"));
+});

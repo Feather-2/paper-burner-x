@@ -910,7 +910,7 @@ export const runtimeMixin = {
             services.mcpClient = mcpClient;
             if (!services.externalSearchProvider) services.externalSearchProvider = mcpClient;
             if (typeof window !== 'undefined') window.mcpClient = mcpClient;
-            preloadMcpTools({ client: mcpClient, storage: typeof localStorage !== 'undefined' ? localStorage : null }).catch(() => { });
+            preloadMcpTools({ client: mcpClient, storage: typeof localStorage !== 'undefined' ? localStorage : null, refresh: true }).catch(() => { });
         } catch {
             // ignore
         }

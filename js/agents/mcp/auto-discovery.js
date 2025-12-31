@@ -237,6 +237,7 @@ export async function preloadMcpTools({
   client,
   storage,
   ttlMs = 60_000,
+  refresh = false,
 } = {}) {
   const c = client instanceof McpClient ? client : null;
   if (!c) throw new Error("preloadMcpTools: client must be an McpClient");
@@ -256,7 +257,12 @@ export async function preloadMcpTools({
     const provider = c.getProvider(id);
     if (!provider) continue;
     try {
-      const tools = await provider.listTools();
+      let tools = null;
+      if (refresh && typeof provider.healthCheck === "function") {
+        const r = await provider.healthCheck({ refreshTools: true, timeoutMs: cache.ttlMs });
+        tools = Array.isArray(r?.tools) ? r.tools : null;
+      }
+      if (!Array.isArray(tools)) tools = await provider.listTools();
       cache.providers[id] = {
         ts: Date.now(),
         tools: Array.isArray(tools) ? tools : [],
@@ -274,4 +280,3 @@ export default {
   createAutoMcpClient,
   preloadMcpTools,
 };
-

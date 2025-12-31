@@ -111,6 +111,65 @@ export class McpClient {
     return id ? this._providers.get(id) || null : null;
   }
 
+  async healthCheck({ providerId, timeoutMs, refreshTools = true } = {}) {
+    const id = toNonEmptyString(providerId) || this._defaultProviderId;
+    const provider = id ? this._providers.get(id) : null;
+    if (!provider) {
+      return {
+        ok: false,
+        providerId: id || null,
+        error: `No provider found: ${id}`,
+        ts: new Date().toISOString(),
+      };
+    }
+
+    if (typeof provider.healthCheck === "function") {
+      try {
+        return await provider.healthCheck({ timeoutMs, refreshTools });
+      } catch (err) {
+        return {
+          ok: false,
+          providerId: provider.id,
+          error: String(err?.message || err),
+          ts: new Date().toISOString(),
+        };
+      }
+    }
+
+    // Fallback: best-effort listTools as "ping".
+    try {
+      const tools = await provider.listTools();
+      return {
+        ok: true,
+        providerId: provider.id,
+        ts: new Date().toISOString(),
+        toolCount: Array.isArray(tools) ? tools.length : 0,
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        providerId: provider.id,
+        error: String(err?.message || err),
+        ts: new Date().toISOString(),
+      };
+    }
+  }
+
+  async healthCheckAll({ timeoutMs, refreshTools = true } = {}) {
+    const ids = this.listProviders();
+    const results = await Promise.allSettled(
+      ids.map(async (providerId) => this.healthCheck({ providerId, timeoutMs, refreshTools }))
+    );
+
+    const out = [];
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
+      if (r.status === "fulfilled") out.push(r.value);
+      else out.push({ ok: false, providerId: ids[i], error: String(r.reason?.message || r.reason), ts: new Date().toISOString() });
+    }
+    return out;
+  }
+
   /**
    * 列出所有可用工具（合并所有 provider）
    */

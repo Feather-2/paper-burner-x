@@ -150,6 +150,91 @@ export class McpNexusProvider extends McpProvider {
 
     this._transport = null; // { kind:'jsonrpc'|'rest'|'toolapi', rpcUrl?, listUrl?, callUrl?, executeUrl? }
     this._toolsCache = null;
+    this._health = null;
+  }
+
+  seedToolsCache(tools) {
+    const list = Array.isArray(tools) ? tools.map(normalizeToolDef).filter(Boolean) : [];
+    if (!list.length) return false;
+    this._toolsCache = list;
+    return true;
+  }
+
+  getHealth() {
+    return this._health ? { ...this._health } : null;
+  }
+
+  async healthCheck({ timeoutMs, refreshTools = true } = {}) {
+    const startedAt = Date.now();
+    const timeout =
+      typeof timeoutMs === "number" && Number.isFinite(timeoutMs) ? Math.max(200, Math.floor(timeoutMs)) : this.timeoutMs;
+
+    const base = {
+      ok: false,
+      providerId: this.id,
+      endpoint: this.baseUrl,
+      ts: new Date().toISOString(),
+      durationMs: 0,
+      transport: null,
+      toolCount: 0,
+      tools: [],
+    };
+
+    try {
+      const transport = await this._discoverTransport();
+      base.transport = transport.kind;
+
+      if (transport.kind === TransportKind.JSONRPC) {
+        const resp = await withTimeout(timeout, ({ signal }) =>
+          fetchJson(this._fetch, transport.rpcUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...this.headers },
+            body: { jsonrpc: "2.0", id: 99, method: "tools/list", params: {} },
+            signal,
+          })
+        );
+        if (!isSuccessfulJsonRpc(resp)) throw new Error("MCP-Nexus healthCheck tools/list: unexpected response");
+        const tools = normalizeToolList(resp.result);
+        if (refreshTools && tools.length) this._toolsCache = tools;
+        base.tools = tools;
+        base.toolCount = tools.length;
+      } else if (transport.kind === TransportKind.TOOLAPI) {
+        const resp = await withTimeout(timeout, ({ signal }) =>
+          fetchJson(this._fetch, transport.listUrl, {
+            method: "GET",
+            headers: { ...this.headers },
+            signal,
+          })
+        );
+        const tools = normalizeToolListFromToolApi(resp);
+        if (refreshTools && tools.length) this._toolsCache = tools;
+        base.tools = tools;
+        base.toolCount = tools.length;
+      } else {
+        const resp = await withTimeout(timeout, ({ signal }) =>
+          fetchJson(this._fetch, transport.listUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...this.headers },
+            body: {},
+            signal,
+          })
+        );
+        const tools = normalizeToolList(resp);
+        if (refreshTools && tools.length) this._toolsCache = tools;
+        base.tools = tools;
+        base.toolCount = tools.length;
+      }
+
+      base.ok = true;
+    } catch (err) {
+      base.ok = false;
+      base.error = String(err?.message || err);
+    } finally {
+      base.durationMs = Date.now() - startedAt;
+      this._health = { ...base };
+    }
+
+    return { ...base };
   }
 
   async _discoverTransport() {

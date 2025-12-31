@@ -57,7 +57,7 @@
 - Archive（快照存取接口）— `done` — Repo: `js/agents/shared/archive/archive.js`（MapAdapter + 可替换 adapter）
 - “连接池/心跳” — `todo`（文档断言与实现不一致）— Repo: `js/agents/mcp/mcp-nexus-provider.js` 仅实现 transport discovery + tools cache + timeout
 - “存档压缩/重复块引用化/校验和” — `todo`（文档断言与实现不一致）— Repo: `js/agents/shared/archive/archive.js` 当前不做去重压缩/校验和
-- MCP auto-discovery + preload — `partial` — Ref(Claude): `ref/claude-code-open-main/src/mcp/auto-discovery.ts` — Repo: Browser-first 自动发现（localStorage）+ schema preload/cache（`js/agents/mcp/auto-discovery.js` + `js/ppt/workflow/workflow-runtime.js`）；缺口：subscribe/health-check 语义未对齐
+- MCP auto-discovery + preload — `partial` — Ref(Claude): `ref/claude-code-open-main/src/mcp/auto-discovery.ts` — Repo: Browser-first 自动发现（localStorage）+ schema preload/cache + healthCheck（`js/agents/mcp/auto-discovery.js` + `js/agents/mcp/mcp-client.js` + `js/agents/mcp/mcp-nexus-provider.js` + `js/ppt/workflow/workflow-runtime.js`）；缺口：subscribe/资源管理器语义未对齐
 
 ### 1.5 `doc-design-ui/analysis-jsagent/runtime-orchestration.md`
 
@@ -314,7 +314,7 @@
 - Plan 持久化/恢复（Browser-first）— `done`（`js/agents/runtime/plan/plan-store.js` + `js/ppt/workflow/workflow-runtime.js` + `js/ppt/ui-v2/modals/modal-manager.js`）
 - Policy 规则表达 + 规则管理 UI — `done`（`js/agents/runtime/policy/*` + `js/ppt/ui-v2/modals/modal-manager.js`）
 - “弱 Git”（VFS checkpoints/diffstat/undo）— `partial`（`/changes` + `vfs_checkpoint.json`；缺口：merge-base/commit history）
-- MCP auto-discovery + preload + schema cache — `partial`（`js/agents/mcp/auto-discovery.js` + `js/ppt/workflow/workflow-runtime.js`；缺口：资源订阅/健康检查）
+- MCP auto-discovery + preload + schema cache — `partial`（`js/agents/mcp/auto-discovery.js` + `js/ppt/workflow/workflow-runtime.js`；已补齐 healthCheck；缺口：资源订阅/持续重连）
 
 ### P1（体验与工程完整性）
 
