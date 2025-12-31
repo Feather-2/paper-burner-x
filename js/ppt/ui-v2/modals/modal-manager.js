@@ -467,9 +467,9 @@ export class ModalManager {
     }
   }
 
-  openHistorySelector() {
-    const generator = this._ensureGenerator();
-    if (!generator || typeof document === 'undefined') return;
+	  openHistorySelector() {
+	    const generator = this._ensureGenerator();
+	    if (!generator || typeof document === 'undefined') return;
 
     const data = this._ensureWorkflowData();
     if (!Array.isArray(data.files)) data.files = [];
@@ -499,9 +499,9 @@ export class ModalManager {
     overlay.id = modalId;
     overlay.className = 'ppt-modal-overlay';
     overlay.dataset.uiV2 = '1';
-    overlay.innerHTML = `
-            <div class="ppt-modal ppt-history-selector-modal">
-                <div class="ppt-modal-header">
+	    overlay.innerHTML = `
+	            <div class="ppt-modal ppt-history-selector-modal">
+	                <div class="ppt-modal-header">
                     <div class="ppt-modal-title">
                         <iconify-icon icon="solar:history-bold-duotone"></iconify-icon>
                         <span>历史项目</span>
@@ -510,45 +510,57 @@ export class ModalManager {
                         <iconify-icon icon="carbon:close"></iconify-icon>
                     </button>
                 </div>
-                <div class="ppt-modal-body">
-          <div class="ppt-history-tabs">
-            <button class="ppt-history-tab active" data-tab="deepsearch">
-              <iconify-icon icon="solar:magnifer-bold-duotone"></iconify-icon>
-              深度研究项目
-            </button>
-            <button class="ppt-history-tab" data-tab="documents">
-              <iconify-icon icon="solar:document-bold-duotone"></iconify-icon>
-              历史文档
-            </button>
-          </div>
-          <div class="ppt-history-content">
-            <div class="ppt-history-panel active" data-panel="deepsearch">
-              <div class="ppt-history-list" id="pptHistoryDeepsearchList">
-                <div class="ppt-history-loading">
-                  <iconify-icon icon="svg-spinners:180-ring"></iconify-icon>
+	                <div class="ppt-modal-body">
+	          <div class="ppt-history-tabs">
+	            <button class="ppt-history-tab active" data-tab="deepsearch">
+	              <iconify-icon icon="solar:magnifer-bold-duotone"></iconify-icon>
+	              深度研究项目
+	            </button>
+	            <button class="ppt-history-tab" data-tab="runs">
+	              <iconify-icon icon="solar:server-square-bold-duotone"></iconify-icon>
+	              Runs
+	            </button>
+	            <button class="ppt-history-tab" data-tab="documents">
+	              <iconify-icon icon="solar:document-bold-duotone"></iconify-icon>
+	              历史文档
+	            </button>
+	          </div>
+	          <div class="ppt-history-content">
+	            <div class="ppt-history-panel active" data-panel="deepsearch">
+	              <div class="ppt-history-list" id="pptHistoryDeepsearchList">
+	                <div class="ppt-history-loading">
+	                  <iconify-icon icon="svg-spinners:180-ring"></iconify-icon>
+	                  加载中...
+	                </div>
+	              </div>
+	            </div>
+	            <div class="ppt-history-panel" data-panel="runs">
+	              <div class="ppt-history-list" id="pptHistoryRunsList">
+	                <div class="ppt-history-loading">
+	                  <iconify-icon icon="svg-spinners:180-ring"></iconify-icon>
+	                  加载中...
+	                </div>
+	              </div>
+	            </div>
+	            <div class="ppt-history-panel" data-panel="documents">
+	              <div class="ppt-history-list" id="pptHistoryDocumentsList">
+	                <div class="ppt-history-loading">
+	                  <iconify-icon icon="svg-spinners:180-ring"></iconify-icon>
                   加载中...
                 </div>
               </div>
             </div>
-            <div class="ppt-history-panel" data-panel="documents">
-              <div class="ppt-history-list" id="pptHistoryDocumentsList">
-                <div class="ppt-history-loading">
-                  <iconify-icon icon="svg-spinners:180-ring"></iconify-icon>
-                  加载中...
-                </div>
-              </div>
-            </div>
           </div>
-                </div>
-	                <div class="ppt-modal-footer">
-	                    <button class="ppt-btn ppt-btn-secondary" data-action="closeHistoryModal">取消</button>
-	                    <button class="ppt-btn ppt-btn-secondary" data-action="openArtifactsBrowser">
-	                        <iconify-icon icon="solar:box-bold-duotone"></iconify-icon>
-	                        Artifacts
-	                    </button>
-	                    <button class="ppt-btn ppt-btn-secondary" data-action="openPlansManager">
-	                        <iconify-icon icon="solar:clipboard-list-bold-duotone"></iconify-icon>
-	                        Plans
+	                </div>
+		                <div class="ppt-modal-footer">
+		                    <button class="ppt-btn ppt-btn-secondary" data-action="closeHistoryModal">取消</button>
+		                    <button class="ppt-btn ppt-btn-secondary" data-action="openArtifactsBrowser">
+		                        <iconify-icon icon="solar:box-bold-duotone"></iconify-icon>
+		                        Artifacts
+		                    </button>
+		                    <button class="ppt-btn ppt-btn-secondary" data-action="openPlansManager">
+		                        <iconify-icon icon="solar:clipboard-list-bold-duotone"></iconify-icon>
+		                        Plans
 	                    </button>
 	                    <button class="ppt-btn ppt-btn-secondary" data-action="openPolicyRulesManager">
 	                        <iconify-icon icon="solar:shield-check-bold-duotone"></iconify-icon>
@@ -556,44 +568,44 @@ export class ModalManager {
 	                    </button>
 	                    <button class="ppt-btn ppt-btn-secondary" data-action="openSkillsManager">
 	                        <iconify-icon icon="solar:book-2-bold-duotone"></iconify-icon>
-	                        Skills
+		                        Skills
+		                    </button>
+	                    <button class="ppt-btn ppt-btn-secondary" data-action="exportCurrentRunZip">
+	                        <iconify-icon icon="solar:download-minimalistic-bold-duotone"></iconify-icon>
+	                        导出 Run
 	                    </button>
-                    <button class="ppt-btn ppt-btn-secondary" data-action="exportCurrentRunZip">
-                        <iconify-icon icon="solar:download-minimalistic-bold-duotone"></iconify-icon>
-                        导出当前 Run
-                    </button>
-                    <button class="ppt-btn ppt-btn-secondary" data-action="importRunZip">
-                        <iconify-icon icon="solar:upload-minimalistic-bold-duotone"></iconify-icon>
-                        导入 Run Zip
-                    </button>
-                    <button class="ppt-btn ppt-btn-primary" id="pptHistoryImportBtn" disabled>
-                        导入选中项目
-                    </button>
-                </div>
-            </div>
-        `;
+	                    <button class="ppt-btn ppt-btn-secondary" data-action="importRunZip">
+	                        <iconify-icon icon="solar:upload-minimalistic-bold-duotone"></iconify-icon>
+	                        导入 Run Zip
+	                    </button>
+	                    <button class="ppt-btn ppt-btn-primary" id="pptHistoryImportBtn" disabled>
+	                        打开选中项
+	                    </button>
+	                </div>
+	            </div>
+	        `;
 
     const host = getModalHost(generator);
     host?.appendChild(overlay);
 
-    if (overlay.dataset.actionsBound !== '1') {
-      overlay.dataset.actionsBound = '1';
-      bindActionEvents(overlay, (action) => {
-        if (action === 'closeHistoryModal') {
-          return () => overlay.classList.remove('open');
-        }
-        if (action === 'exportCurrentRunZip') {
-          return () => this.exportCurrentRunZip();
-        }
-        if (action === 'importRunZip') {
-          return () => this.importRunZip();
-        }
-	        if (action === 'openArtifactsBrowser') {
-	          return () => this.openArtifactsBrowser();
+	    if (overlay.dataset.actionsBound !== '1') {
+	      overlay.dataset.actionsBound = '1';
+	      bindActionEvents(overlay, (action) => {
+	        if (action === 'closeHistoryModal') {
+	          return () => overlay.classList.remove('open');
 	        }
-	        if (action === 'openPlansManager') {
-	          return () => this.openPlansManager();
+	        if (action === 'exportCurrentRunZip') {
+	          return () => this.exportCurrentRunZip({ runId: this._getSelectedRunIdFromHistorySelection?.() || null });
 	        }
+	        if (action === 'importRunZip') {
+	          return () => this.importRunZip();
+	        }
+		        if (action === 'openArtifactsBrowser') {
+		          return () => this.openArtifactsBrowser({ runId: this._getSelectedRunIdFromHistorySelection?.() || undefined });
+		        }
+		        if (action === 'openPlansManager') {
+		          return () => this.openPlansManager({ runId: this._getSelectedRunIdFromHistorySelection?.() || undefined });
+		        }
 	        if (action === 'openPolicyRulesManager') {
 	          return () => this.openPolicyRulesManager();
 	        }
@@ -613,27 +625,27 @@ export class ModalManager {
       });
     });
 
-    const importBtn = overlay.querySelector('#pptHistoryImportBtn');
-    importBtn?.addEventListener('click', () => {
-      this._importSelectedHistoryItems();
-      overlay.classList.remove('open');
-    });
+	    const importBtn = overlay.querySelector('#pptHistoryImportBtn');
+	    importBtn?.addEventListener('click', () => {
+	      void this._importSelectedHistoryItems();
+	      overlay.classList.remove('open');
+	    });
 
     overlay.addEventListener('click', (e) => {
       if (e.target === overlay) overlay.classList.remove('open');
     });
 
-    overlay.classList.add('open');
-    this._loadHistoryData();
-  }
+	    overlay.classList.add('open');
+	    this._loadHistoryData();
+	  }
 
-  async _loadHistoryData() {
-    if (typeof document === 'undefined') return;
-    this._historySelected.clear();
-    const importBtn = document.getElementById('pptHistoryImportBtn');
-    if (importBtn) importBtn.disabled = true;
+	  async _loadHistoryData() {
+	    if (typeof document === 'undefined') return;
+	    this._historySelected.clear();
+	    const importBtn = document.getElementById('pptHistoryImportBtn');
+	    if (importBtn) importBtn.disabled = true;
 
-    const dsListEl = document.getElementById('pptHistoryDeepsearchList');
+	    const dsListEl = document.getElementById('pptHistoryDeepsearchList');
     try {
       const checkpoints = this._getAllCheckpoints();
       if (dsListEl) {
@@ -643,14 +655,32 @@ export class ModalManager {
           dsListEl.innerHTML = checkpoints.map((cp) => this._renderHistoryItem(cp, 'checkpoint')).join('');
         }
       }
-    } catch {
-      if (dsListEl) dsListEl.innerHTML = '<div class="ppt-history-empty">加载失败</div>';
-    }
+	    } catch {
+	      if (dsListEl) dsListEl.innerHTML = '<div class="ppt-history-empty">加载失败</div>';
+	    }
 
-    const docListEl = document.getElementById('pptHistoryDocumentsList');
-    try {
-      const results = typeof window !== 'undefined' && typeof window.getAllResultsFromDB === 'function'
-        ? await window.getAllResultsFromDB()
+	    const runsListEl = document.getElementById('pptHistoryRunsList');
+	    try {
+	      const generator = this._ensureGenerator();
+	      const runs = generator && typeof generator.listRuns === 'function' ? await generator.listRuns() : [];
+	      if (runsListEl) {
+	        if (!runs || runs.length === 0) {
+	          runsListEl.innerHTML = '<div class="ppt-history-empty"><iconify-icon icon="solar:folder-open-linear" style="font-size:32px;margin-bottom:8px;display:block;"></iconify-icon>暂无 Runs</div>';
+	        } else {
+	          const sorted = runs
+	            .slice()
+	            .sort((a, b) => String(b?.createdAt || '').localeCompare(String(a?.createdAt || '')));
+	          runsListEl.innerHTML = sorted.map((run) => this._renderHistoryItem(run, 'run')).join('');
+	        }
+	      }
+	    } catch {
+	      if (runsListEl) runsListEl.innerHTML = '<div class="ppt-history-empty">加载失败</div>';
+	    }
+
+	    const docListEl = document.getElementById('pptHistoryDocumentsList');
+	    try {
+	      const results = typeof window !== 'undefined' && typeof window.getAllResultsFromDB === 'function'
+	        ? await window.getAllResultsFromDB()
         : [];
       if (docListEl) {
         if (!results || results.length === 0) {
@@ -664,10 +694,10 @@ export class ModalManager {
       if (docListEl) docListEl.innerHTML = '<div class="ppt-history-empty">加载失败</div>';
     }
 
-    document.querySelectorAll('.ppt-history-item').forEach((item) => {
-      item.addEventListener('click', () => {
-        const key = item.dataset.key;
-        if (!key) return;
+	    document.querySelectorAll('.ppt-history-item').forEach((item) => {
+	      item.addEventListener('click', () => {
+	        const key = item.dataset.key;
+	        if (!key) return;
         if (this._historySelected.has(key)) {
           this._historySelected.delete(key);
           item.classList.remove('selected');
@@ -675,28 +705,28 @@ export class ModalManager {
           this._historySelected.add(key);
           item.classList.add('selected');
         }
-        const btn = document.getElementById('pptHistoryImportBtn');
-        if (btn) btn.disabled = this._historySelected.size === 0;
-      });
-    });
-  }
+	        const btn = document.getElementById('pptHistoryImportBtn');
+	        if (btn) btn.disabled = this._historySelected.size === 0;
+	      });
+	    });
+	  }
 
-  async exportCurrentRunZip() {
-    const generator = this._ensureGenerator();
-    if (!generator) return;
+	  async exportCurrentRunZip({ runId } = {}) {
+	    const generator = this._ensureGenerator();
+	    if (!generator) return;
 
-    if (typeof generator.downloadRunZip !== 'function') {
-      alert('当前环境不支持 Run 导出（downloadRunZip 不可用）。');
-      return;
-    }
+	    if (typeof generator.downloadRunZip !== 'function') {
+	      alert('当前环境不支持 Run 导出（downloadRunZip 不可用）。');
+	      return;
+	    }
 
-    try {
-      await generator.downloadRunZip();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      alert(`Run 导出失败: ${msg}`);
-    }
-  }
+	    try {
+	      await generator.downloadRunZip(typeof runId === 'string' && runId.trim() ? runId.trim() : undefined);
+	    } catch (err) {
+	      const msg = err instanceof Error ? err.message : String(err);
+	      alert(`Run 导出失败: ${msg}`);
+	    }
+	  }
 
   async importRunZip() {
     const generator = this._ensureGenerator();
@@ -761,44 +791,85 @@ export class ModalManager {
     return checkpoints.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
   }
 
-  _renderHistoryItem(item, type) {
-    const key = type === 'checkpoint' ? `cp:${item.storageKey}` : `doc:${item.id}`;
-    const title = type === 'checkpoint'
-      ? escapeHtml(item.title || '未命名项目')
-      : escapeHtml(item.name || '未命名文档');
-    const time = type === 'checkpoint' ? item.timestamp : item.time;
-    const timeStr = time ? new Date(time).toLocaleString() : '';
-    const badge = type === 'checkpoint'
-      ? (item.stage || 'unknown').replace('deepsearch.', '').replace('design.', '')
-      : (item.type || 'document');
+	  _renderHistoryItem(item, type) {
+	    const key =
+	      type === 'checkpoint'
+	        ? `cp:${item.storageKey}`
+	        : type === 'run'
+	          ? `run:${item.runId}`
+	          : `doc:${item.id}`;
+	    const title =
+	      type === 'checkpoint'
+	        ? escapeHtml(item.title || '未命名项目')
+	        : type === 'run'
+	          ? escapeHtml(item.title || item.taskGoal || item.runId || 'Run')
+	          : escapeHtml(item.name || '未命名文档');
+	    const time =
+	      type === 'checkpoint'
+	        ? item.timestamp
+	        : type === 'run'
+	          ? (item.createdAt || item.startedAt)
+	          : item.time;
+	    const timeStr = time ? new Date(time).toLocaleString() : '';
+	    const badge =
+	      type === 'checkpoint'
+	        ? (item.stage || 'unknown').replace('deepsearch.', '').replace('design.', '')
+	        : type === 'run'
+	          ? (item.mode || 'run')
+	          : (item.type || 'document');
+	    const meta = type === 'run'
+	      ? `${escapeHtml(String(item.scenario || ''))}${item.scenario ? ' · ' : ''}${escapeHtml(String(item.runId || ''))}`
+	      : '';
 
-    return `
-      <div class="ppt-history-item" data-key="${escapeAttr(key)}" data-type="${type}">
-        <div class="ppt-history-item-check">
+	    return `
+	      <div class="ppt-history-item" data-key="${escapeAttr(key)}" data-type="${type}">
+	        <div class="ppt-history-item-check">
           <iconify-icon icon="carbon:checkmark" width="12"></iconify-icon>
         </div>
-        <div class="ppt-history-item-info">
-          <div class="ppt-history-item-title">${title}</div>
-          <div class="ppt-history-item-meta">
-            <span><iconify-icon icon="carbon:time"></iconify-icon>${escapeHtml(timeStr)}</span>
-            <span class="ppt-history-item-badge">${escapeHtml(badge)}</span>
-          </div>
-        </div>
-      </div>
-    `;
-  }
+	        <div class="ppt-history-item-info">
+	          <div class="ppt-history-item-title">${title}</div>
+	          <div class="ppt-history-item-meta">
+	            <span><iconify-icon icon="carbon:time"></iconify-icon>${escapeHtml(timeStr)}</span>
+	            <span class="ppt-history-item-badge">${escapeHtml(badge)}</span>
+	            ${meta ? `<span style="color:var(--ppt-text-secondary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${meta}</span>` : ''}
+	          </div>
+	        </div>
+	      </div>
+	    `;
+	  }
 
-  async _importSelectedHistoryItems() {
-    const data = this._ensureWorkflowData();
-    if (!Array.isArray(data.files)) data.files = [];
+	  _getSelectedRunIdFromHistorySelection() {
+	    if (!this._historySelected || this._historySelected.size !== 1) return null;
+	    const only = Array.from(this._historySelected)[0];
+	    const [kind, id] = String(only || '').split(':');
+	    if (kind !== 'run') return null;
+	    return id || null;
+	  }
 
-    for (const key of this._historySelected) {
-      const [type, id] = String(key).split(':');
-      if (type === 'cp') {
-        try {
-          const raw = localStorage.getItem(id);
-          const parsed = raw ? JSON.parse(raw) : null;
-          const latest = Array.isArray(parsed) ? parsed[parsed.length - 1] : null;
+	  async _importSelectedHistoryItems() {
+	    const data = this._ensureWorkflowData();
+	    if (!Array.isArray(data.files)) data.files = [];
+
+	    for (const key of this._historySelected) {
+	      const [type, id] = String(key).split(':');
+	      if (type === 'run') {
+	        const generator = this._ensureGenerator();
+	        const runId = String(id || '').trim();
+	        if (!runId) continue;
+	        try {
+	          if (typeof generator?.startReplay === 'function') {
+	            await generator.startReplay(runId, {});
+	          }
+	        } catch {
+	          // ignore
+	        }
+	        continue;
+	      }
+	      if (type === 'cp') {
+	        try {
+	          const raw = localStorage.getItem(id);
+	          const parsed = raw ? JSON.parse(raw) : null;
+	          const latest = Array.isArray(parsed) ? parsed[parsed.length - 1] : null;
           if (latest?.state) {
             const title = latest.metadata?.title || latest.state?.userConfig?.taskGoal || '深度研究项目';
             const report = latest.state?.report?.markdown || latest.state?.L1?.report?.markdown || '';
