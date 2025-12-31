@@ -57,7 +57,7 @@
 - Archive（快照存取接口）— `done` — Repo: `js/agents/shared/archive/archive.js`（MapAdapter + 可替换 adapter）
 - “连接池/心跳” — `todo`（文档断言与实现不一致）— Repo: `js/agents/mcp/mcp-nexus-provider.js` 仅实现 transport discovery + tools cache + timeout
 - “存档压缩/重复块引用化/校验和” — `todo`（文档断言与实现不一致）— Repo: `js/agents/shared/archive/archive.js` 当前不做去重压缩/校验和
-- MCP auto-discovery + preload — `todo` — Ref(Claude): `ref/claude-code-open-main/src/mcp/auto-discovery.ts` — Repo: 当前主要依赖显式配置/调用方注入
+- MCP auto-discovery + preload — `partial` — Ref(Claude): `ref/claude-code-open-main/src/mcp/auto-discovery.ts` — Repo: Browser-first 自动发现（localStorage）+ schema preload/cache（`js/agents/mcp/auto-discovery.js` + `js/ppt/workflow/workflow-runtime.js`）；缺口：subscribe/health-check 语义未对齐
 
 ### 1.5 `doc-design-ui/analysis-jsagent/runtime-orchestration.md`
 
@@ -150,7 +150,7 @@
 ### 2.4 `doc-design-ui/analysis-cc/mcp-parser.md`
 
 - MCP 资源管理器（resource manager adapter）— `todo` — Ref: `ref/claude-code-open-main/src/mcp/` — Repo: 仅 provider/client 级封装（`js/agents/mcp/mcp-client.js`），暂无 resource manager 抽象
-- MCP auto-discovery + preload + subscribe — `todo` — Ref: `ref/claude-code-open-main/src/mcp/auto-discovery.ts` — Repo: 暂无
+- MCP auto-discovery + preload + subscribe — `partial` — Ref: `ref/claude-code-open-main/src/mcp/auto-discovery.ts` — Repo: 已实现 auto-discovery + preload/cache（`js/agents/mcp/auto-discovery.js`），workflow-runtime 默认接入；缺口：subscribe/持续重连未对齐
 - Tree-sitter 符号提取（Query/.scm）— `partial` — Ref: `ref/claude-code-open-main/docs/comparison/analysis/parser-analysis.md` — Repo: `js/agents/shared/parser/tree-sitter-wasm.js` + `js/agents/stages/codesearch/indexing/symbol-indexer.js`（AST 遍历，不使用 `.scm query`）
 - 符号缓存（queryCache/compiled query）— `done` — Ref: `ref/claude-code-open-main/src/parser/*` — Repo: SymbolIndexer queryCache + recordsCache（`js/agents/stages/codesearch/indexing/symbol-indexer.js`）
 - 文档注释关联（JSDoc/docstring）— `done` — Ref: `ref/claude-code-open-main/src/parser/*` — Repo: 符号条目已关联前导注释（`js/agents/stages/codesearch/indexing/symbol-indexer.js`：`doc` 字段）
@@ -314,7 +314,7 @@
 - Plan 持久化/恢复（Browser-first）— `done`（`js/agents/runtime/plan/plan-store.js` + `js/ppt/workflow/workflow-runtime.js` + `js/ppt/ui-v2/modals/modal-manager.js`）
 - Policy 规则表达 + 规则管理 UI — `done`（`js/agents/runtime/policy/*` + `js/ppt/ui-v2/modals/modal-manager.js`）
 - “弱 Git”（VFS checkpoints/diffstat/undo）— `partial`（`/changes` + `vfs_checkpoint.json`；缺口：merge-base/commit history）
-- MCP auto-discovery + preload + schema cache — `todo`
+- MCP auto-discovery + preload + schema cache — `partial`（`js/agents/mcp/auto-discovery.js` + `js/ppt/workflow/workflow-runtime.js`；缺口：资源订阅/健康检查）
 
 ### P1（体验与工程完整性）
 

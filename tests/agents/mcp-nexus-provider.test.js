@@ -199,3 +199,74 @@ test("SmartContentExtractor: works without DOMParser (fallback)", async () => {
     assert.equal(out.structure.mainContentSelector, "fallback(no-dom)");
   }
 });
+
+test("MCP auto-discovery: reads localStorage config and seeds tool schema cache", async () => {
+  const { createAutoMcpClient, preloadMcpTools } = await import("../../js/agents/mcp/auto-discovery.js");
+
+  const kv = new Map();
+  const storage = {
+    getItem: (k) => (kv.has(String(k)) ? kv.get(String(k)) : null),
+    setItem: (k, v) => {
+      kv.set(String(k), String(v));
+    },
+  };
+
+  storage.setItem("mcp_nexus_config", JSON.stringify({ endpoint: "http://nexus.local" }));
+
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    const body = init?.body ? JSON.parse(String(init.body)) : null;
+    calls.push({ url: String(url), method: init?.method, body });
+
+    if (String(url).endsWith("/mcp") && body?.method === "tools/list") {
+      return {
+        ok: true,
+        status: 200,
+        async text() {
+          return JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            result: {
+              tools: [
+                { name: "search.query", description: "q", inputSchema: { type: "object", properties: { query: { type: "string" } } } },
+                { name: "search.fetch", description: "f", inputSchema: { type: "object", properties: { url: { type: "string" } } } },
+              ],
+            },
+          });
+        },
+      };
+    }
+
+    return {
+      ok: false,
+      status: 404,
+      async text() {
+        return JSON.stringify({ error: "not found" });
+      },
+    };
+  };
+
+  const client = await createAutoMcpClient({ storage, useLocal: false, fetchImpl });
+  const provider = client.getProvider("mcp-nexus");
+  assert.ok(provider);
+
+  await preloadMcpTools({ client, storage, ttlMs: 60_000 });
+  const cacheRaw = storage.getItem("pb_mcp_tools_cache_v1");
+  assert.ok(cacheRaw);
+
+  const parsed = JSON.parse(cacheRaw);
+  assert.ok(parsed?.providers?.["mcp-nexus"]?.tools?.length >= 2);
+  assert.ok(calls.some((c) => c.url.endsWith("/mcp") && c.body?.method === "tools/list"));
+
+  let called2 = 0;
+  const fetchImpl2 = async () => {
+    called2 += 1;
+    throw new Error("should not fetch");
+  };
+
+  const client2 = await createAutoMcpClient({ storage, useLocal: false, fetchImpl: fetchImpl2 });
+  const provider2 = client2.getProvider("mcp-nexus");
+  const tools2 = await provider2.listTools();
+  assert.equal(called2, 0);
+  assert.equal(tools2.length, 2);
+});

@@ -11,6 +11,7 @@
 import { McpProvider, McpClient, McpToolDefinition, McpToolResult } from "./mcp-client.js";
 import { LocalMcpProvider, createLocalMcpProvider } from "./local-mcp-provider.js";
 import { McpNexusProvider } from "./mcp-nexus-provider.js";
+import { createAutoMcpClient, preloadMcpTools } from "./auto-discovery.js";
 
 export {
   McpProvider,
@@ -20,6 +21,8 @@ export {
   LocalMcpProvider,
   createLocalMcpProvider,
   McpNexusProvider,
+  createAutoMcpClient,
+  preloadMcpTools,
 };
 
 // 便捷方法：创建配置好的 MCP 客户端

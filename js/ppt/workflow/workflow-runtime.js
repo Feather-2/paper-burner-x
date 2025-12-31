@@ -902,6 +902,19 @@ export const runtimeMixin = {
             // ignore (policy is optional)
         }
 
+        // MCP auto-discovery (browser-first): build an McpClient from localStorage config and preload schemas.
+        // This stays optional and never blocks runtime boot.
+        try {
+            const { createAutoMcpClient, preloadMcpTools } = await import('../../agents/mcp/auto-discovery.js');
+            const mcpClient = await createAutoMcpClient({ storage: typeof localStorage !== 'undefined' ? localStorage : null });
+            services.mcpClient = mcpClient;
+            if (!services.externalSearchProvider) services.externalSearchProvider = mcpClient;
+            if (typeof window !== 'undefined') window.mcpClient = mcpClient;
+            preloadMcpTools({ client: mcpClient, storage: typeof localStorage !== 'undefined' ? localStorage : null }).catch(() => { });
+        } catch {
+            // ignore
+        }
+
         // SideEffectJournal (optional): track reversible side effects (e.g. VFS writes via vfs_checkpoint.json)
         // so Backtrack/undo can restore "physical" state along with in-memory state.
         try {
