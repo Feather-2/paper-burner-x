@@ -26,7 +26,17 @@ function truncateText(text, maxChars) {
   const s = typeof text === "string" ? text : String(text ?? "");
   const limit = Number.isFinite(Number(maxChars)) ? Math.max(0, Math.floor(Number(maxChars))) : 0;
   if (!limit || s.length <= limit) return { text: s, truncated: false };
-  return { text: s.slice(0, limit) + "\n...(truncated)", truncated: true };
+  const minKeep = Math.max(0, Math.floor(limit * 0.6));
+  const head = s.slice(0, limit);
+  const newline = head.lastIndexOf("\n");
+  const space = head.lastIndexOf(" ");
+  const cut =
+    newline >= minKeep
+      ? newline
+      : space >= minKeep
+        ? space
+        : limit;
+  return { text: s.slice(0, cut) + "\n...(truncated)", truncated: true };
 }
 
 function summarizeToolResult(result) {
@@ -149,12 +159,24 @@ export async function maybePersistToolOutput({
     return { persisted: false, inline: result };
   }
 
+  const ref = stored.ref || {};
+  const artifactId = typeof ref.artifactId === "string" ? ref.artifactId : stored.inline?.artifactId;
+  const bytes = typeof ref.bytes === "number" ? ref.bytes : stored.inline?.bytes;
+  const sha256 = typeof ref.sha256 === "string" ? ref.sha256 : stored.inline?.sha256;
+
   return {
     persisted: true,
     inline: {
       tool: envelope.tool,
       summary: summarizeToolResult(result),
-      persistedOutput: stored.inline,
+      persistedOutput: {
+        persisted: true,
+        artifactId,
+        type,
+        ...(typeof bytes === "number" ? { bytes } : {}),
+        ...(sha256 ? { sha256 } : {}),
+        note: "Full payload persisted. Use get-artifact to retrieve more if needed.",
+      },
     },
     ref: stored.ref,
   };
@@ -164,4 +186,3 @@ export default {
   maybePersistJsonArtifact,
   maybePersistToolOutput,
 };
-

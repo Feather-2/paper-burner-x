@@ -13,6 +13,10 @@ const DEFAULT_CONTEXT_CONFIG = Object.freeze({
   compressThreshold: 0.9,     // 90% 触发压缩
   keepLastTurns: 6,           // 保留最近 6 轮
   userMessageBuffer: 20000,   // 用户消息缓冲区 20K tokens
+  titleOnlySummaryThreshold: 0.8, // 80% 时对旧消息做 title-only 摘要
+  titleOnlySummaryMaxWords: 10,   // 英文单词上限
+  titleOnlySummaryMaxChars: 80,   // 字符上限（含 CJK）
+  maxKeptMessageChars: 16000,     // kept 消息硬截断保护（避免极端大消息霸占上下文）
 });
 
 // 简单 token 估算 (4 chars ≈ 1 token)
@@ -20,6 +24,78 @@ function estimateTokens(text) {
   if (!text) return 0;
   const rawText = typeof text === "string" ? text : JSON.stringify(text);
   return estimateTokenCount(rawText);
+}
+
+function containsCjk(text) {
+  return /[\u4e00-\u9fff]/.test(String(text || ""));
+}
+
+function normalizeSummaryText(text) {
+  return String(text || "").replace(/\s+/g, " ").trim();
+}
+
+function toTitle(text, { maxWords = 10, maxChars = 80 } = {}) {
+  const normalized = normalizeSummaryText(text);
+  if (!normalized) return "";
+
+  const maxW = Number.isFinite(Number(maxWords)) ? Math.max(1, Math.floor(Number(maxWords))) : 10;
+  const maxC = Number.isFinite(Number(maxChars)) ? Math.max(10, Math.floor(Number(maxChars))) : 80;
+
+  if (containsCjk(normalized)) {
+    const clipped = normalized.slice(0, maxC);
+    return clipped + (normalized.length > clipped.length ? "..." : "");
+  }
+
+  const words = normalized.split(" ").filter(Boolean);
+  const sliced = words.slice(0, maxW).join(" ");
+  const clipped = sliced.length > maxC ? sliced.slice(0, maxC) : sliced;
+  const truncated = words.length > maxW || normalized.length > clipped.length;
+  return clipped + (truncated ? "..." : "");
+}
+
+function stripPersistedOutputPreview(text) {
+  const s = String(text || "");
+  const persistedIdx = s.indexOf("\"persistedOutput\"");
+  if (persistedIdx < 0) return s;
+
+  const previewKey = "\"preview\"";
+  const idx = s.indexOf(previewKey, persistedIdx);
+  if (idx < 0) return s;
+
+  const colon = s.indexOf(":", idx + previewKey.length);
+  if (colon < 0) return s;
+
+  let i = colon + 1;
+  while (i < s.length && /\s/.test(s[i])) i++;
+  if (s[i] !== "\"") return s; // only handle string value
+
+  const start = i + 1;
+  i = start;
+  while (i < s.length) {
+    const ch = s[i];
+    if (ch === "\\") {
+      i += 2;
+      continue;
+    }
+    if (ch === "\"") break;
+    i += 1;
+  }
+  if (i >= s.length) return s;
+
+  const endQuote = i;
+  return s.slice(0, start) + "(omitted)" + s.slice(endQuote);
+}
+
+function truncateAtLineBoundary(text, maxChars) {
+  const s = typeof text === "string" ? text : String(text ?? "");
+  const limit = Number.isFinite(Number(maxChars)) ? Math.max(0, Math.floor(Number(maxChars))) : 0;
+  if (!limit || s.length <= limit) return { text: s, truncated: false };
+  const head = s.slice(0, limit);
+  const minKeep = Math.max(0, Math.floor(limit * 0.6));
+  const newline = head.lastIndexOf("\n");
+  const space = head.lastIndexOf(" ");
+  const cut = newline >= minKeep ? newline : space >= minKeep ? space : limit;
+  return { text: s.slice(0, cut) + "\n...(truncated)", truncated: true };
 }
 
 function isProductionRuntime() {
@@ -351,6 +427,11 @@ export class BaseAgentLoop {
     const { keepLastTurns } = this._contextConfig;
     const beforeCount = this._messages.length;
     const beforeTokens = this._tokenUsage.total;
+    const { contextWindow } = this._contextConfig;
+    const fillRatio = contextWindow ? beforeTokens / contextWindow : 0;
+    const titleThresholdRaw = this._contextConfig.titleOnlySummaryThreshold;
+    const titleThreshold = typeof titleThresholdRaw === "number" && Number.isFinite(titleThresholdRaw) ? titleThresholdRaw : 0.8;
+    const titleOnly = fillRatio >= titleThreshold;
 
     const isContextSummaryMessage = (msg) =>
       msg && typeof msg === "object" && msg.role === "system" && String(msg.content || "").startsWith("[Context Summary]");
@@ -455,9 +536,17 @@ export class BaseAgentLoop {
 
     if (toCompress.length === 0) return;
 
-    const summary = this._buildCompressionSummary(toCompress);
+    const summary = this._buildCompressionSummary(toCompress, { titleOnly });
     const combined = priorSummary ? `${priorSummary}\n${summary}` : summary;
-    this._messages = [...anchors, ...kept, { role: "system", content: `[Context Summary]\n${combined}` }];
+    const sanitizedKept = kept.map((msg) => {
+      if (!msg || typeof msg !== "object") return msg;
+      if (msg.role === "system") return msg;
+      const raw = stripPersistedOutputPreview(msg.content);
+      const maxChars = this._contextConfig.maxKeptMessageChars;
+      const { text } = truncateAtLineBoundary(raw, maxChars);
+      return text === msg.content ? msg : { ...msg, content: text };
+    });
+    this._messages = [...anchors, ...sanitizedKept, { role: "system", content: `[Context Summary]\n${combined}` }];
 
     this._recalculateTokenUsage();
     this._recordCompression(beforeCount, beforeTokens);
@@ -489,13 +578,16 @@ export class BaseAgentLoop {
   /**
    * 构建压缩摘要
    */
-  _buildCompressionSummary(messages) {
+  _buildCompressionSummary(messages, { titleOnly = false } = {}) {
+    const maxWords = this._contextConfig.titleOnlySummaryMaxWords;
+    const maxChars = this._contextConfig.titleOnlySummaryMaxChars;
     const lines = [];
     for (const msg of messages) {
       const role = msg.role || "unknown";
-      const content = String(msg.content || "").slice(0, 200);
+      const raw = String(msg.content || "");
+      const content = titleOnly ? toTitle(raw, { maxWords, maxChars }) : raw.slice(0, 200);
       if (content) {
-        lines.push(`[${role}] ${content}${msg.content?.length > 200 ? "..." : ""}`);
+        lines.push(`[${role}] ${content}${!titleOnly && raw.length > 200 ? "..." : ""}`);
       }
     }
     return lines.join("\n");
