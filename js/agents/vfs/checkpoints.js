@@ -187,10 +187,16 @@ export async function recordVfsCheckpoint({
 
 export async function listVfsCheckpoints(runStore, runId) {
   if (!runStore || typeof runStore.listArtifacts !== "function") return [];
+  try {
+    if (typeof runStore.listArtifactSummaries === "function") {
+      const rows = await runStore.listArtifactSummaries(runId, { type: VFS_CHECKPOINT_TYPE });
+      return (rows || []).sort((a, b) => (a.seq || 0) - (b.seq || 0));
+    }
+  } catch {
+    // fall back
+  }
   const rows = await runStore.listArtifacts(runId);
-  return (rows || [])
-    .filter((r) => r && r.type === VFS_CHECKPOINT_TYPE)
-    .sort((a, b) => (a.seq || 0) - (b.seq || 0));
+  return (rows || []).filter((r) => r && r.type === VFS_CHECKPOINT_TYPE).sort((a, b) => (a.seq || 0) - (b.seq || 0));
 }
 
 export async function restoreVfsCheckpoint({ vfs, runStore, artifactId } = {}) {

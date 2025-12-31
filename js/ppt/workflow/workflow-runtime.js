@@ -1388,19 +1388,29 @@ export const runtimeMixin = {
         const id = typeof runId === 'string' && runId.trim() ? runId.trim() : null;
         if (!store || !id || typeof store.listArtifacts !== 'function') return null;
 
-        let artifacts = [];
+        let latest = null;
         try {
-            artifacts = await store.listArtifacts(id);
+            if (typeof store.getLatestArtifactSummary === 'function') {
+                latest = await store.getLatestArtifactSummary(id, PLAN_ARTIFACT_TYPE);
+            } else {
+                let artifacts = [];
+                try {
+                    artifacts = await store.listArtifacts(id);
+                } catch {
+                    artifacts = [];
+                }
+
+                const plans = artifacts
+                    .filter((a) => a && typeof a === 'object' && a.type === PLAN_ARTIFACT_TYPE && typeof a.artifactId === 'string')
+                    .sort((a, b) => Number(b.seq || 0) - Number(a.seq || 0));
+
+                latest = plans[0] || null;
+            }
         } catch {
-            artifacts = [];
+            latest = null;
         }
 
-        const plans = artifacts
-            .filter((a) => a && typeof a === 'object' && a.type === PLAN_ARTIFACT_TYPE && typeof a.artifactId === 'string')
-            .sort((a, b) => Number(b.seq || 0) - Number(a.seq || 0));
-
-        const latest = plans[0];
-        if (!latest) return null;
+        if (!latest || typeof latest.artifactId !== 'string' || !latest.artifactId) return null;
 
         let plan = null;
         try {

@@ -490,6 +490,101 @@ export class RunStore {
     return rows || [];
   }
 
+  /**
+   * List lightweight artifact summaries without loading full payloads.
+   *
+   * NOTE: This relies on `openKeyCursor` so values (including large `data`) are not fetched.
+   * Returned items contain only `artifactId/runId/type/seq`.
+   *
+   * @param {string} runId
+   * @param {object} [options]
+   * @param {string} [options.type] Optional artifact type filter
+   * @returns {Promise<Array<{artifactId:string,runId:string,type:string,seq:number}>>}
+   */
+  async listArtifactSummaries(runId, { type } = {}) {
+    if (this.storage) return [];
+    const id = typeof runId === "string" ? runId.trim() : "";
+    if (!id) throw new Error("listArtifactSummaries(runId): runId must be a non-empty string");
+
+    const typeFilter = typeof type === "string" ? type.trim() : "";
+
+    const db = await this.open();
+    const tx = db.transaction([STORE_ARTIFACTS], "readonly");
+    const store = tx.objectStore(STORE_ARTIFACTS);
+    const index = store.index("byRunIdTypeSeq");
+
+    const range = typeFilter
+      ? IDBKeyRange.bound([id, typeFilter, 0], [id, typeFilter, Number.MAX_SAFE_INTEGER])
+      : IDBKeyRange.bound([id, "", 0], [id, "\uffff", Number.MAX_SAFE_INTEGER]);
+
+    const out = [];
+    const req = index.openKeyCursor(range);
+    await new Promise((resolve, reject) => {
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (!cursor) return resolve();
+
+        const key = cursor.key;
+        const primaryKey = cursor.primaryKey;
+        const runKey = Array.isArray(key) ? key[0] : id;
+        const typeKey = Array.isArray(key) ? key[1] : typeFilter;
+        const seqKey = Array.isArray(key) ? key[2] : 0;
+
+        out.push({
+          artifactId: String(primaryKey),
+          runId: String(runKey),
+          type: String(typeKey),
+          seq: typeof seqKey === "number" && Number.isFinite(seqKey) ? seqKey : 0,
+        });
+
+        cursor.continue();
+      };
+    });
+
+    await promisifyTransaction(tx);
+    return out;
+  }
+
+  /**
+   * Get latest artifact summary for a given runId+type (highest seq).
+   *
+   * @param {string} runId
+   * @param {string} type
+   * @returns {Promise<{artifactId:string,runId:string,type:string,seq:number}|null>}
+   */
+  async getLatestArtifactSummary(runId, type) {
+    if (this.storage) return null;
+    const id = typeof runId === "string" ? runId.trim() : "";
+    const t = typeof type === "string" ? type.trim() : "";
+    if (!id) throw new Error("getLatestArtifactSummary(runId, type): runId must be a non-empty string");
+    if (!t) throw new Error("getLatestArtifactSummary(runId, type): type must be a non-empty string");
+
+    const db = await this.open();
+    const tx = db.transaction([STORE_ARTIFACTS], "readonly");
+    const store = tx.objectStore(STORE_ARTIFACTS);
+    const index = store.index("byRunIdTypeSeq");
+    const range = IDBKeyRange.bound([id, t, 0], [id, t, Number.MAX_SAFE_INTEGER]);
+
+    const req = index.openKeyCursor(range, "prev");
+    const cursor = await new Promise((resolve, reject) => {
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => resolve(req.result || null);
+    });
+
+    await promisifyTransaction(tx);
+
+    if (!cursor) return null;
+    const key = cursor.key;
+    const seq = Array.isArray(key) ? key[2] : 0;
+    return {
+      artifactId: String(cursor.primaryKey),
+      runId: Array.isArray(key) ? String(key[0]) : id,
+      type: Array.isArray(key) ? String(key[1]) : t,
+      seq: typeof seq === "number" && Number.isFinite(seq) ? seq : 0,
+    };
+  }
+
   async updateManifest(runId, manifest) {
     if (this.storage?.set) {
       await this.storage.set(this._keyForManifest(runId), JSON.stringify(manifest));
