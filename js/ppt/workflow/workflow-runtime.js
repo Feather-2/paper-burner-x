@@ -2220,6 +2220,8 @@ export const runtimeMixin = {
             modelRouter: orch._services?.modelRouter,
             localRetriever: orch._services?.localRetriever,
             externalSearchProvider: orch._services?.externalSearchProvider,
+            mcpClient: orch._services?.mcpClient,
+            mcpResources: orch._services?.mcpResources,
             vfs: orch._services?.vfs,
             policy: orch._services?.policy,
             storageAdapter: orch._services?.storageAdapter,

@@ -127,6 +127,8 @@ export class StageApiFactory {
       modelRouter: ctx.modelRouter,
       localRetriever: ctx.localRetriever,
       externalSearchProvider: ctx.externalSearchProvider,
+      mcpClient: ctx.mcpClient,
+      mcpResources: ctx.mcpResources,
       storageAdapter: ctx.storageAdapter,
       ocr: ctx.ocr,
       imageProvider: ctx.imageProvider || ctx.imageService,
