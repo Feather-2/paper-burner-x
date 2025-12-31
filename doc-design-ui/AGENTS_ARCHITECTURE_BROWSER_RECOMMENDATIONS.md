@@ -70,7 +70,7 @@
    - 关键实现：
      - `js/agents/runtime/policy/*`
      - `js/ppt/ui-v2/modals/modal-manager.js`（Approvals 弹窗）
-     - `js/ppt/workflow/agent-event-bridge.js`（policy/tool/vfs 事件转发 + 背压）
+     - `js/ppt/workflow/agent-event-bridge.js`（run/ingest/deepsearch/design/codesearch/textprep/evaluate/policy/tool/vfs 事件转发 + 背压）
 8. **WASM Search/Parse（Tree-sitter-wasm）+ 符号索引**
    - wasm 资源随站点发布：`public/wasm/tree-sitter/*`
    - CodeSearch 新增 `index_symbols` / `find_symbol`，优先 Tree-sitter-wasm，失败则 regex 回退，并缓存到 IndexedDB。

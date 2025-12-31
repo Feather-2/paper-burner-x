@@ -18,10 +18,12 @@ function normalizeEvent(evt) {
   const base = isPlainObject(evt.record) ? evt.record : evt;
   const name = typeof base.name === 'string' ? base.name : (typeof evt.name === 'string' ? evt.name : '');
   const payload = Object.prototype.hasOwnProperty.call(base, 'payload') ? base.payload : evt.payload;
+  const schemaVersion = typeof base.schemaVersion === 'string' ? base.schemaVersion : (typeof evt.schemaVersion === 'string' ? evt.schemaVersion : undefined);
 
   return {
     name,
     record: {
+      ...(schemaVersion ? { schemaVersion } : {}),
       eventId: base.eventId ?? evt.eventId,
       runId: base.runId ?? evt.runId,
       ts: base.ts ?? evt.ts,
@@ -44,6 +46,9 @@ function isUiEventName(name) {
     name.startsWith('compression.') ||
     name.startsWith('deepsearch.') ||
     name.startsWith('design.') ||
+    name.startsWith('codesearch.') ||
+    name.startsWith('textprep.') ||
+    name.startsWith('evaluate.') ||
     name.startsWith('policy.') ||
     name.startsWith('tool.') ||
     name.startsWith('artifact.') ||
@@ -76,6 +81,9 @@ export class AgentEventBridge {
       this._unsubs.push(this._sourceBus.subscribe('ingest.*', this._handleSourceEvent));
       this._unsubs.push(this._sourceBus.subscribe('deepsearch.*', this._handleSourceEvent));
       this._unsubs.push(this._sourceBus.subscribe('design.*', this._handleSourceEvent));
+      this._unsubs.push(this._sourceBus.subscribe('codesearch.*', this._handleSourceEvent));
+      this._unsubs.push(this._sourceBus.subscribe('textprep.*', this._handleSourceEvent));
+      this._unsubs.push(this._sourceBus.subscribe('evaluate.*', this._handleSourceEvent));
       this._unsubs.push(this._sourceBus.subscribe('iteration.completed', this._handleSourceEvent));
       this._unsubs.push(this._sourceBus.subscribe('compression.*', this._handleSourceEvent));
       this._unsubs.push(this._sourceBus.subscribe('policy.*', this._handleSourceEvent));
