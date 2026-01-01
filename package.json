@@ -17,6 +17,7 @@
     "jszip": "^3.10.1",
     "linkedom": "^0.18.12",
     "mammoth": "^1.10.0",
+    "tiktoken": "^1.0.22",
     "tree-sitter-wasms": "^0.1.13",
     "turndown": "^7.2.0",
     "vite": "^5.4.0",

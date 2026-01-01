@@ -3,6 +3,7 @@ import { StagePausedError } from "./stage-errors.js";
 import { AgentStatus, isValidAgentStatus } from "./agent-status.js";
 import { getRuntimeState } from "../telemetry/loop-runtime-state.js";
 import { estimateTokenCount } from "../../shared/utils/value-utils.js";
+import { getGlobalTokenCounter } from "../../shared/tokenizers/adaptive-token-counter.js";
 
 const USER_ACTION_PREFIX = "user.action";
 
@@ -20,8 +21,15 @@ const DEFAULT_CONTEXT_CONFIG = Object.freeze({
 });
 
 // 简单 token 估算 (4 chars ≈ 1 token)
-function estimateTokens(text) {
+function estimateTokens(text, tokenCounter) {
   if (!text) return 0;
+  if (tokenCounter && typeof tokenCounter.count === "function") {
+    try {
+      return tokenCounter.count(text);
+    } catch {
+      // fall back below
+    }
+  }
   const rawText = typeof text === "string" ? text : JSON.stringify(text);
   return estimateTokenCount(rawText);
 }
@@ -259,7 +267,7 @@ export class BaseStage {
 }
 
 export class BaseAgentLoop {
-  constructor({ eventBus, stateMachine, tools, actor, stageName, emit, hooks, contextConfig, logger, strictLoopStatus } = {}) {
+  constructor({ eventBus, stateMachine, tools, actor, stageName, emit, hooks, contextConfig, logger, strictLoopStatus, tokenCounter } = {}) {
     this.eventBus = eventBus || null;
     this.logger = logger || null;
     this.stateMachine = stateMachine || null;
@@ -286,6 +294,7 @@ export class BaseAgentLoop {
     // 消息管理
     this._messages = [];
     this._contextConfig = { ...DEFAULT_CONTEXT_CONFIG, ...contextConfig };
+    this._tokenCounter = tokenCounter === null ? null : tokenCounter || getGlobalTokenCounter();
     this._compressor = null;  // 懒加载
     this._tokenUsage = { input: 0, output: 0, total: 0 };
     this._compressionPending = false;
@@ -308,7 +317,7 @@ export class BaseAgentLoop {
   addMessage(message) {
     this._messages.push(message);
     // 增量更新 Token 计数
-    const messageTokens = estimateTokens(message.content);
+    const messageTokens = estimateTokens(message.content, this._tokenCounter);
     this._tokenUsage.input += messageTokens;
     this._tokenUsage.total += messageTokens;
 
@@ -327,7 +336,7 @@ export class BaseAgentLoop {
     let addedTokens = 0;
     for (const msg of messages) {
       this._messages.push(msg);
-      addedTokens += estimateTokens(msg.content);
+      addedTokens += estimateTokens(msg.content, this._tokenCounter);
     }
     // 增量更新 Token 计数
     this._tokenUsage.input += addedTokens;
@@ -344,7 +353,7 @@ export class BaseAgentLoop {
   _recalculateTokenUsage() {
     let total = 0;
     for (const msg of this._messages) {
-      total += estimateTokens(msg.content);
+      total += estimateTokens(msg.content, this._tokenCounter);
     }
     this._tokenUsage.input = total;
     this._tokenUsage.total = total;
@@ -621,6 +630,10 @@ export class BaseAgentLoop {
    */
   setContextConfig(config) {
     this._contextConfig = { ...this._contextConfig, ...config };
+    if (config && typeof config === "object" && Object.prototype.hasOwnProperty.call(config, "tokenCounter")) {
+      const tc = config.tokenCounter;
+      this._tokenCounter = tc === null ? null : tc || this._tokenCounter;
+    }
   }
 
   registerTools(tools) {

@@ -9,6 +9,7 @@
  */
 
 import { isPlainObject, toNonEmptyString, estimateTokenCount, deepClone } from "../../shared/utils/value-utils.js";
+import { getGlobalTokenCounter } from "../../shared/tokenizers/adaptive-token-counter.js";
 
 // 默认配置
 const DEFAULT_CONFIG = Object.freeze({
@@ -21,8 +22,15 @@ const DEFAULT_CONFIG = Object.freeze({
 });
 
 // Token 估算 (4 chars ≈ 1 token)
-function estimateTokens(text) {
+function estimateTokens(text, tokenCounter) {
   if (!text) return 0;
+  if (tokenCounter && typeof tokenCounter.count === "function") {
+    try {
+      return tokenCounter.count(text);
+    } catch {
+      // fall back below
+    }
+  }
   const rawText = typeof text === "string" ? text : JSON.stringify(text);
   return estimateTokenCount(rawText);
 }
@@ -44,6 +52,7 @@ export class MemoryStore {
     this.config = { ...DEFAULT_CONFIG, ...options.config };
     this.eventBus = options.eventBus || null;
     this.archiveAdapter = options.archiveAdapter || null;
+    this._tokenCounter = options.tokenCounter === null ? null : options.tokenCounter || getGlobalTokenCounter();
 
     // 委托层：渐进式统一，内部持有底层组件引用
     this._sharedContext = options.sharedContext || null;
@@ -550,12 +559,12 @@ export class MemoryStore {
 
   _updateTokenUsage() {
     let total = 0;
-    total += estimateTokens(this.L0.systemPrompt);
-    total += estimateTokens(JSON.stringify(this.L0.todos));
+    total += estimateTokens(this.L0.systemPrompt, this._tokenCounter);
+    total += estimateTokens(JSON.stringify(this.L0.todos), this._tokenCounter);
     for (const msg of this.L1.messages) {
-      total += estimateTokens(msg.content);
+      total += estimateTokens(msg.content, this._tokenCounter);
     }
-    total += estimateTokens(this.L2.historySummary);
+    total += estimateTokens(this.L2.historySummary, this._tokenCounter);
     this._stats.tokenUsage = total;
   }
 

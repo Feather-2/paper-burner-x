@@ -81,12 +81,27 @@ function ensureIndex(store, name, keyPath, options) {
 }
 
 export class RunStore {
-  constructor({ dbName = DB_NAME, dbVersion = DB_VERSION, storageAdapter, prefix = "deepsearch:run:" } = {}) {
+  constructor({
+    dbName = DB_NAME,
+    dbVersion = DB_VERSION,
+    storageAdapter,
+    prefix = "deepsearch:run:",
+    quotaWarnRatio = 0.1,
+    quotaCheckIntervalMs = 60_000,
+    onQuotaWarning,
+  } = {}) {
     this.dbName = dbName;
     this.dbVersion = dbVersion;
     this._dbp = null;
     this.storage = storageAdapter;
     this.prefix = prefix;
+    this._quotaWarnRatio = typeof quotaWarnRatio === "number" && Number.isFinite(quotaWarnRatio) ? Math.max(0, quotaWarnRatio) : 0.1;
+    this._quotaCheckIntervalMs =
+      typeof quotaCheckIntervalMs === "number" && Number.isFinite(quotaCheckIntervalMs) ? Math.max(0, Math.floor(quotaCheckIntervalMs)) : 60_000;
+    this._onQuotaWarning = typeof onQuotaWarning === "function" ? onQuotaWarning : null;
+    this._lastQuotaCheckMs = 0;
+    this._lastQuotaInfo = null;
+    this._lastQuotaWarnMs = 0;
   }
 
   async open() {
@@ -236,6 +251,65 @@ export class RunStore {
       };
     } catch (err) {
       return { supported: false, error: String(err?.message || err) };
+    }
+  }
+
+  async _maybeWarnQuota({ upcomingBytes = 0, runId, type } = {}) {
+    const ratio = this._quotaWarnRatio;
+    if (!(ratio > 0)) return;
+
+    const now = Date.now();
+    const minInterval = this._quotaCheckIntervalMs;
+    const cachedOk = this._lastQuotaInfo && minInterval > 0 && now - this._lastQuotaCheckMs < minInterval;
+
+    const info = cachedOk ? this._lastQuotaInfo : await this.estimateQuota();
+    if (!cachedOk) {
+      this._lastQuotaInfo = info;
+      this._lastQuotaCheckMs = now;
+    }
+
+    if (!info || info.supported !== true) return;
+    if (typeof info.quota !== "number" || typeof info.usage !== "number") return;
+
+    const quota = info.quota;
+    const usage = info.usage;
+    if (!(quota > 0) || !(usage >= 0)) return;
+
+    const upcoming = typeof upcomingBytes === "number" && Number.isFinite(upcomingBytes) ? Math.max(0, upcomingBytes) : 0;
+    const remaining = quota - usage - upcoming;
+    const remainingRatio = remaining / quota;
+
+    if (remainingRatio >= ratio) return;
+
+    // Throttle warnings (avoid spamming during batch writes).
+    const warnInterval = Math.max(10_000, minInterval || 0);
+    if (now - this._lastQuotaWarnMs < warnInterval) return;
+    this._lastQuotaWarnMs = now;
+
+    const payload = {
+      runId: typeof runId === "string" ? runId : undefined,
+      type: typeof type === "string" ? type : undefined,
+      quota,
+      usage,
+      upcomingBytes: upcoming,
+      remaining,
+      remainingRatio,
+      warnRatio: ratio,
+    };
+
+    if (this._onQuotaWarning) {
+      try {
+        this._onQuotaWarning(payload);
+        return;
+      } catch {
+        // fall through to console
+      }
+    }
+
+    try {
+      console.warn("[RunStore] Storage quota low; consider exporting/cleaning old runs", payload);
+    } catch {
+      // ignore
     }
   }
 
@@ -392,6 +466,21 @@ export class RunStore {
       return typeof options.artifactId === "string" ? options.artifactId : `art_${runId}_${type.replaceAll("/", "_")}_001`;
     }
 
+    let bytes = options.bytes;
+    if (typeof bytes !== "number") {
+      if (typeof Blob !== "undefined" && data instanceof Blob) bytes = data.size;
+      else if (typeof data === "string") bytes = encodeUtf8Bytes(data);
+      else if (data && (data instanceof ArrayBuffer || ArrayBuffer.isView(data))) bytes = data.byteLength;
+      // Avoid JSON.stringify() on potentially large objects by default (can stall the UI thread).
+      // Callers that really need exact bytes can pass `bytes`, or opt-in via `estimateObjectBytes: true`.
+      else if ((isPlainObject(data) || Array.isArray(data)) && options.estimateObjectBytes === true) {
+        bytes = encodeUtf8Bytes(JSON.stringify(data));
+      }
+    }
+
+    // Quota sentinel: best-effort warning before we start a write transaction.
+    await this._maybeWarnQuota({ upcomingBytes: typeof bytes === "number" ? bytes : 0, runId, type });
+
     const db = await this.open();
     const tx = db.transaction([STORE_ARTIFACTS, STORE_COUNTERS], "readwrite");
     const store = tx.objectStore(STORE_ARTIFACTS);
@@ -429,18 +518,6 @@ export class RunStore {
         : type.endsWith(".json")
           ? "application/json"
           : "application/octet-stream");
-
-    let bytes = options.bytes;
-    if (typeof bytes !== "number") {
-      if (typeof Blob !== "undefined" && data instanceof Blob) bytes = data.size;
-      else if (typeof data === "string") bytes = encodeUtf8Bytes(data);
-      else if (data && (data instanceof ArrayBuffer || ArrayBuffer.isView(data))) bytes = data.byteLength;
-      // Avoid JSON.stringify() on potentially large objects by default (can stall the UI thread).
-      // Callers that really need exact bytes can pass `bytes`, or opt-in via `estimateObjectBytes: true`.
-      else if ((isPlainObject(data) || Array.isArray(data)) && options.estimateObjectBytes === true) {
-        bytes = encodeUtf8Bytes(JSON.stringify(data));
-      }
-    }
 
     const storageKey = options.storageKey || `runs/${runId}/${type}`;
 

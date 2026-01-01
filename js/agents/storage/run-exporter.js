@@ -1,4 +1,4 @@
-import { RunStore } from "./run-store.js";
+import { RunStore, RunStoreConstants } from "./run-store.js";
 import { createManifest, SUPPORTED_ARTIFACT_TYPES } from "./artifact-manager.js";
 
 function isPlainObject(value) {
@@ -28,8 +28,10 @@ function toSafeFileName(value) {
 function resolveZipPathForArtifact(item) {
   const artifactId = typeof item?.artifactId === "string" ? item.artifactId.trim() : "";
   const type = typeof item?.type === "string" ? item.type.trim() : "";
-  const base = artifactId || type;
-  return `artifacts/${toSafeFileName(base || "artifact")}`;
+  if (artifactId) return `artifacts/${toSafeFileName(artifactId)}`;
+  const seq = typeof item?.seq === "number" && Number.isFinite(item.seq) && item.seq > 0 ? Math.floor(item.seq) : null;
+  const suffix = seq ? `_${String(seq).padStart(3, "0")}` : "";
+  return `artifacts/${toSafeFileName(type || "artifact")}${suffix}`;
 }
 
 function mergeArtifactItem(target, incoming) {
@@ -107,15 +109,31 @@ async function ensureManifest(runStore, runId) {
     });
   }
 
+  const usedZipPaths = new Set();
   for (const item of m.artifacts) {
     if (!item || typeof item !== "object") continue;
-    if (item.type === "events.jsonl") {
-      if (typeof item.zipPath !== "string" || !item.zipPath) item.zipPath = "events.jsonl";
-      continue;
+    const type = typeof item.type === "string" ? item.type : "";
+    let desired =
+      type === "events.jsonl"
+        ? "events.jsonl"
+        : typeof item.zipPath === "string" && item.zipPath
+          ? item.zipPath
+          : resolveZipPathForArtifact(item);
+
+    desired = String(desired || "").replaceAll("\\", "/").replace(/\/+/g, "/");
+    if (!desired || desired.startsWith("/") || desired.includes("..")) {
+      desired = resolveZipPathForArtifact(item);
     }
-    if (typeof item.zipPath !== "string" || !item.zipPath) {
-      item.zipPath = resolveZipPathForArtifact(item);
+
+    let candidate = desired;
+    let n = 1;
+    while (usedZipPaths.has(candidate)) {
+      n += 1;
+      candidate = `${desired}_${n}`;
     }
+
+    item.zipPath = candidate;
+    usedZipPaths.add(candidate);
   }
 
   try {
@@ -204,7 +222,60 @@ function parseJsonl(text) {
   return out;
 }
 
-export async function importRunFromZip(file, { runStore = new RunStore(), overwrite = true } = {}) {
+function promisifyRequest(req) {
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function promisifyTransaction(tx) {
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onabort = () => reject(tx.error || new Error("IndexedDB transaction aborted"));
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function deleteByIndexKey(store, indexName, key) {
+  const index = store.index(indexName);
+  const req = index.openCursor(key);
+  await new Promise((resolve, reject) => {
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const cursor = req.result;
+      if (!cursor) return resolve();
+      cursor.delete();
+      cursor.continue();
+    };
+  });
+}
+
+function parseSeqFromArtifactId(artifactId) {
+  const id = typeof artifactId === "string" ? artifactId : "";
+  if (!id) return null;
+  const m = id.match(/_(\d{1,})$/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+}
+
+function bytesForPayload(payload) {
+  if (payload === null || payload === undefined) return undefined;
+  if (typeof payload === "string") {
+    try {
+      return new TextEncoder().encode(payload).byteLength;
+    } catch {
+      return payload.length;
+    }
+  }
+  if (typeof Blob !== "undefined" && payload instanceof Blob) return payload.size;
+  if (payload instanceof ArrayBuffer) return payload.byteLength;
+  if (ArrayBuffer.isView(payload)) return payload.byteLength;
+  return undefined;
+}
+
+export async function importRunFromZip(file, { runStore = new RunStore(), overwrite = true, atomic = true } = {}) {
   const JSZip = await getJSZip();
   let zipInput = file;
   if (typeof Blob !== "undefined" && file instanceof Blob) {
@@ -221,11 +292,6 @@ export async function importRunFromZip(file, { runStore = new RunStore(), overwr
   const manifest = JSON.parse(manifestText);
   const runId = manifest?.runId;
   if (!runId || typeof runId !== "string") throw new Error("importRunFromZip(file): manifest.runId must be a string");
-
-  if (overwrite) {
-    const existing = await runStore.getRun(runId);
-    if (existing) await runStore.deleteRun(runId);
-  }
 
   const baseRunContext = manifest?.runContext && typeof manifest.runContext === "object" && !Array.isArray(manifest.runContext)
     ? manifest.runContext
@@ -248,24 +314,25 @@ export async function importRunFromZip(file, { runStore = new RunStore(), overwr
       startedAt: manifest.createdAt || new Date().toISOString(),
     };
 
-  await runStore.createRun(runContext);
-
   const eventsText = (await zip.file("events.jsonl")?.async("string")) || "";
-  if (eventsText) {
-    const events = parseJsonl(eventsText);
-    await runStore.appendEvents(runId, events);
-  }
+  const events = eventsText ? parseJsonl(eventsText) : [];
 
+  const artifactsToSave = [];
   for (const item of manifest.artifacts || []) {
     if (!item || typeof item !== "object") continue;
-    if (!item.type || typeof item.type !== "string") continue;
-    if (item.type === "events.jsonl") {
-      await runStore.saveArtifact(runId, "events.jsonl", eventsText, {
-        artifactId: item.artifactId,
+    const type = typeof item.type === "string" ? item.type : "";
+    if (!type) continue;
+
+    if (type === "events.jsonl") {
+      artifactsToSave.push({
+        artifactId: typeof item.artifactId === "string" ? item.artifactId : `art_${runId}_events.jsonl_001`,
+        type,
+        data: eventsText || "",
         mime: item.mime || "application/x-ndjson",
-        ...(typeof item.bytes === "number" ? { bytes: item.bytes } : {}),
-        ...(typeof item.sha256 === "string" ? { sha256: item.sha256 } : {}),
+        bytes: typeof item.bytes === "number" ? item.bytes : bytesForPayload(eventsText || ""),
+        sha256: typeof item.sha256 === "string" ? item.sha256 : undefined,
         storageKey: item.storageKey || `runs/${runId}/events.jsonl`,
+        createdAt: item.createdAt || manifest.createdAt,
         seq: 1,
       });
       continue;
@@ -274,11 +341,11 @@ export async function importRunFromZip(file, { runStore = new RunStore(), overwr
     const candidates = [];
     if (typeof item.zipPath === "string" && item.zipPath) candidates.push(item.zipPath);
     if (typeof item.artifactId === "string" && item.artifactId) candidates.push(`artifacts/${toSafeFileName(item.artifactId)}`);
-    candidates.push(item.type);
+    candidates.push(type);
 
     const shouldLoadAsText =
-      item.type.endsWith(".json") ||
-      item.type.endsWith(".jsonl") ||
+      type.endsWith(".json") ||
+      type.endsWith(".jsonl") ||
       (typeof item.mime === "string" && item.mime.startsWith("text/")) ||
       (typeof item.mime === "string" && item.mime.includes("json"));
 
@@ -292,27 +359,127 @@ export async function importRunFromZip(file, { runStore = new RunStore(), overwr
     if (!content) continue;
 
     let data = content;
-    if (shouldLoadAsText) {
-      if (item.type.endsWith(".json")) {
-        try {
-          data = JSON.parse(content);
-        } catch {
-          data = content;
-        }
+    if (shouldLoadAsText && typeof content === "string" && type.endsWith(".json")) {
+      try {
+        data = JSON.parse(content);
+      } catch {
+        data = content;
       }
     }
 
-    await runStore.saveArtifact(runId, item.type, data, {
-      artifactId: item.artifactId,
-      mime: item.mime || (item.type.endsWith(".json") ? "application/json" : undefined),
-      ...(typeof item.bytes === "number" ? { bytes: item.bytes } : {}),
-      ...(typeof item.sha256 === "string" ? { sha256: item.sha256 } : {}),
-      storageKey: item.storageKey || `runs/${runId}/${item.type}`,
+    const seq =
+      typeof item.seq === "number" && Number.isFinite(item.seq) && item.seq > 0
+        ? Math.floor(item.seq)
+        : parseSeqFromArtifactId(item.artifactId) || 1;
+
+    artifactsToSave.push({
+      artifactId: typeof item.artifactId === "string" && item.artifactId ? item.artifactId : `art_${runId}_${toSafeFileName(type)}_${String(seq).padStart(3, "0")}`,
+      type,
+      data,
+      mime: item.mime || (type.endsWith(".json") ? "application/json" : undefined),
+      bytes: typeof item.bytes === "number" ? item.bytes : bytesForPayload(content),
+      sha256: typeof item.sha256 === "string" ? item.sha256 : undefined,
+      storageKey: item.storageKey || `runs/${runId}/${type}`,
       createdAt: item.createdAt || manifest.createdAt,
-      ...(typeof item.seq === "number" ? { seq: item.seq } : {}),
+      seq,
     });
   }
 
-  await runStore.updateManifest(runId, manifest);
+  // Prefer an atomic multi-store transaction in IndexedDB mode to avoid destructive overwrite failures.
+  const canAtomic = atomic !== false && !runStore?.storage;
+  if (!canAtomic) {
+    if (overwrite) {
+      const existing = await runStore.getRun(runId);
+      if (existing) await runStore.deleteRun(runId);
+    }
+
+    await runStore.createRun(runContext);
+    if (events.length) await runStore.appendEvents(runId, events);
+    for (const item of artifactsToSave) {
+      await runStore.saveArtifact(runId, item.type, item.data, {
+        artifactId: item.artifactId,
+        ...(item.mime ? { mime: item.mime } : {}),
+        ...(typeof item.bytes === "number" ? { bytes: item.bytes } : {}),
+        ...(typeof item.sha256 === "string" ? { sha256: item.sha256 } : {}),
+        storageKey: item.storageKey,
+        createdAt: item.createdAt,
+        ...(typeof item.seq === "number" ? { seq: item.seq } : {}),
+      });
+    }
+    await runStore.updateManifest(runId, manifest);
+    return runId;
+  }
+
+  const db = await runStore.open();
+  if (!db) throw new Error("importRunFromZip: IndexedDB unavailable");
+
+  const { STORE_RUNS, STORE_ARTIFACTS, STORE_EVENTS, STORE_COUNTERS } = RunStoreConstants;
+  const tx = db.transaction([STORE_RUNS, STORE_ARTIFACTS, STORE_EVENTS, STORE_COUNTERS], "readwrite");
+  const runsStore = tx.objectStore(STORE_RUNS);
+  const artifactsStore = tx.objectStore(STORE_ARTIFACTS);
+  const eventsStore = tx.objectStore(STORE_EVENTS);
+  const countersStore = tx.objectStore(STORE_COUNTERS);
+
+  const nowIso = new Date().toISOString();
+
+  if (overwrite) {
+    runsStore.delete(runId);
+    await deleteByIndexKey(artifactsStore, "byRunId", IDBKeyRange.only(runId));
+    await deleteByIndexKey(eventsStore, "byRunId", IDBKeyRange.only(runId));
+    await deleteByIndexKey(countersStore, "byRunId", IDBKeyRange.only(runId));
+  } else {
+    const existing = await promisifyRequest(runsStore.get(runId));
+    if (existing) {
+      try {
+        tx.abort();
+      } catch {
+        // ignore
+      }
+      throw new Error(`importRunFromZip: run already exists: ${runId}`);
+    }
+  }
+
+  runsStore.put({
+    runId,
+    runContext,
+    createdAt: typeof manifest?.createdAt === "string" ? manifest.createdAt : nowIso,
+    updatedAt: nowIso,
+    manifest,
+  });
+
+  for (const evt of events) {
+    if (!evt || typeof evt !== "object") continue;
+    if (typeof evt.eventId !== "string" || !evt.eventId) continue;
+    eventsStore.put(evt.runId === runId ? evt : { ...evt, runId });
+  }
+
+  const lastSeqByType = new Map();
+  for (const a of artifactsToSave) {
+    if (!a || typeof a !== "object") continue;
+    const t = typeof a.type === "string" ? a.type : "";
+    if (!t) continue;
+    const seq = typeof a.seq === "number" && Number.isFinite(a.seq) ? a.seq : 1;
+    lastSeqByType.set(t, Math.max(lastSeqByType.get(t) || 0, seq));
+    artifactsStore.put({
+      artifactId: a.artifactId,
+      runId,
+      type: t,
+      seq,
+      createdAt: a.createdAt || nowIso,
+      mime: a.mime || (t.endsWith(".json") ? "application/json" : "application/octet-stream"),
+      ...(typeof a.bytes === "number" ? { bytes: a.bytes } : {}),
+      ...(typeof a.sha256 === "string" ? { sha256: a.sha256 } : {}),
+      storageKey: a.storageKey || `runs/${runId}/${t}`,
+      data: a.data,
+    });
+  }
+
+  for (const [t, lastSeq] of lastSeqByType.entries()) {
+    if (!t) continue;
+    const n = typeof lastSeq === "number" && Number.isFinite(lastSeq) && lastSeq > 0 ? Math.floor(lastSeq) : 1;
+    countersStore.put({ runId, type: t, lastSeq: n, updatedAt: nowIso });
+  }
+
+  await promisifyTransaction(tx);
   return runId;
 }

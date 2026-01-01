@@ -294,8 +294,20 @@ export class IndexedDBAdapter {
       const request = indexedDB.open(this.dbName, 1);
 
       request.onerror = () => reject(request.error);
+      request.onblocked = () => {
+        try {
+          console.warn(`[IndexedDBAdapter] open blocked for ${this.dbName}@v1`);
+        } catch {
+          // ignore
+        }
+      };
       request.onsuccess = () => {
         this._db = request.result;
+        try {
+          this._db.onversionchange = () => this.close();
+        } catch {
+          // ignore
+        }
         resolve(this._db);
       };
 
@@ -305,6 +317,10 @@ export class IndexedDBAdapter {
           db.createObjectStore(this.storeName, { keyPath: "key" });
         }
       };
+    }).catch((err) => {
+      // Allow callers to retry after an open failure.
+      this._initPromise = null;
+      throw err;
     });
 
     return this._initPromise;

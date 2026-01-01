@@ -63,6 +63,165 @@ function scoreFromGrepMatchCount(matchCount) {
   return Math.log(1 + Math.max(0, matchCount));
 }
 
+let _mmrSegmenter = null;
+function getMmrSegmenter() {
+  if (_mmrSegmenter !== null) return _mmrSegmenter;
+  try {
+    if (typeof Intl !== "undefined" && typeof Intl.Segmenter === "function") {
+      _mmrSegmenter = new Intl.Segmenter(undefined, { granularity: "word" });
+      return _mmrSegmenter;
+    }
+  } catch {
+    // ignore
+  }
+  _mmrSegmenter = undefined;
+  return _mmrSegmenter;
+}
+
+function mmrWordRegex() {
+  try {
+    // eslint-disable-next-line no-new
+    new RegExp("\\p{L}", "u");
+    return /[\p{L}\p{N}]+/gu;
+  } catch {
+    return /[A-Za-z0-9]+|[\u4e00-\u9fff]+|[\u3040-\u30ff]+|[\uac00-\ud7af]+/g;
+  }
+}
+
+const MMR_WORD_RE = mmrWordRegex();
+
+function tokenizeForSimilarity(text, { maxTokens = 200 } = {}) {
+  const s = String(text || "").toLowerCase();
+  if (!s) return [];
+
+  const max = Number.isFinite(maxTokens) ? Math.max(10, Math.floor(maxTokens)) : 200;
+  const seg = getMmrSegmenter();
+  const out = [];
+  const seen = new Set();
+
+  const push = (t) => {
+    if (!t) return;
+    if (seen.has(t)) return;
+    seen.add(t);
+    out.push(t);
+  };
+
+  if (seg && typeof seg.segment === "function") {
+    for (const part of seg.segment(s)) {
+      if (out.length >= max) break;
+      if (part && part.isWordLike === false) continue;
+      const t = String(part?.segment || "").trim().toLowerCase();
+      if (!t) continue;
+      push(t);
+    }
+    return out;
+  }
+
+  const tokens = s.match(MMR_WORD_RE) || [];
+  for (const t of tokens) {
+    if (out.length >= max) break;
+    push(t);
+  }
+  return out;
+}
+
+function jaccardSimilarity(aTokens, bTokens) {
+  const a = Array.isArray(aTokens) ? aTokens : [];
+  const b = Array.isArray(bTokens) ? bTokens : [];
+  if (a.length === 0 && b.length === 0) return 0;
+  if (a.length === 0 || b.length === 0) return 0;
+
+  const setA = new Set(a);
+  let inter = 0;
+  for (const t of b) {
+    if (setA.has(t)) inter += 1;
+  }
+  const union = setA.size + new Set(b).size - inter;
+  return union > 0 ? inter / union : 0;
+}
+
+function clamp01(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return 0;
+  return Math.max(0, Math.min(1, x));
+}
+
+function mmrSelect(candidates, { topK, lambda = 0.7, seed = [] } = {}) {
+  const list = Array.isArray(candidates) ? candidates : [];
+  const k = Number.isFinite(topK) ? Math.max(0, Math.floor(topK)) : list.length;
+  if (k <= 0) return [];
+  if (list.length <= 1) return list.slice(0, k);
+
+  const l = clamp01(lambda === undefined ? 0.7 : lambda);
+
+  const selected = [];
+  const selectedIds = new Set();
+
+  for (const item of Array.isArray(seed) ? seed : []) {
+    if (!item) continue;
+    const id = String(item.chunkId || "");
+    if (!id || selectedIds.has(id)) continue;
+    selected.push(item);
+    selectedIds.add(id);
+    if (selected.length >= k) return selected.slice(0, k);
+  }
+
+  const byId = new Map();
+  for (const c of list) {
+    if (!c) continue;
+    const id = String(c.chunkId || "");
+    if (!id) continue;
+    if (!byId.has(id)) byId.set(id, c);
+  }
+
+  const tokenCache = new Map(); // chunkId -> tokens[]
+  const getTokens = (row) => {
+    const id = String(row?.chunkId || "");
+    if (!id) return [];
+    if (tokenCache.has(id)) return tokenCache.get(id);
+    const toks = tokenizeForSimilarity(row?.text || "", { maxTokens: 200 });
+    tokenCache.set(id, toks);
+    return toks;
+  };
+
+  const remaining = () => Array.from(byId.values()).filter((c) => !selectedIds.has(String(c.chunkId)));
+
+  while (selected.length < k) {
+    const pool = remaining();
+    if (pool.length === 0) break;
+
+    if (selected.length === 0) {
+      pool.sort((a, b) => (b.score || 0) - (a.score || 0));
+      const best = pool[0];
+      selected.push(best);
+      selectedIds.add(String(best.chunkId));
+      continue;
+    }
+
+    let best = null;
+    let bestScore = -Infinity;
+    for (const cand of pool) {
+      const rel = typeof cand.score === "number" && Number.isFinite(cand.score) ? cand.score : 0;
+      const candTokens = getTokens(cand);
+      let maxSim = 0;
+      for (const sel of selected) {
+        const sim = jaccardSimilarity(candTokens, getTokens(sel));
+        if (sim > maxSim) maxSim = sim;
+      }
+      const mmr = l * rel - (1 - l) * maxSim;
+      if (mmr > bestScore) {
+        bestScore = mmr;
+        best = cand;
+      }
+    }
+    if (!best) break;
+    selected.push(best);
+    selectedIds.add(String(best.chunkId));
+  }
+
+  return selected.slice(0, k);
+}
+
 function safeFiniteNumber(v) {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
@@ -193,6 +352,46 @@ export function retrieve(sourceIndex, gaps, config = {}) {
       } else if (gapId) {
         byChunkId.set(r.chunkId, { ...existing, matchedGapIds: mergeGapIds(existing.matchedGapIds, [gapId]) });
       }
+    }
+  }
+
+  // Optional: diversify hits via MMR before expanding readAround context.
+  const mmrCfg = config.mmr;
+  const diversify = mmrCfg === true || isPlainObject(mmrCfg);
+  if (diversify) {
+    const hits = Array.from(byChunkId.values()).filter((row) => row && row.relevance === "hit" && typeof row.score === "number");
+    const uniqueHits = hits.length;
+    const mmrTopKRaw = isPlainObject(mmrCfg) && typeof mmrCfg.topK === "number" ? mmrCfg.topK : null;
+    const mmrTopK = mmrTopKRaw !== null && Number.isFinite(mmrTopKRaw) ? Math.max(1, Math.floor(mmrTopKRaw)) : Math.min(uniqueHits, topK * 3);
+    const lambdaRaw = isPlainObject(mmrCfg) ? mmrCfg.lambda : null;
+    const lambda = lambdaRaw !== null && lambdaRaw !== undefined ? clamp01(lambdaRaw) : 0.7;
+    const seedByGap = isPlainObject(mmrCfg) ? mmrCfg.seedByGap !== false : true;
+
+    const seed = [];
+    if (seedByGap) {
+      const bestByGap = new Map(); // gapId -> row
+      for (const row of hits) {
+        const ids = Array.isArray(row.matchedGapIds) ? row.matchedGapIds : [];
+        for (const gapId of ids) {
+          const g = typeof gapId === "string" ? gapId : "";
+          if (!g) continue;
+          const prev = bestByGap.get(g);
+          if (!prev || (prev.score || 0) < (row.score || 0)) bestByGap.set(g, row);
+        }
+      }
+      for (const row of bestByGap.values()) seed.push(row);
+      seed.sort((a, b) => (b.score || 0) - (a.score || 0));
+    }
+
+    const selected = mmrSelect(hits, { topK: mmrTopK, lambda, seed });
+    const selectedIds = new Set(selected.map((r) => String(r.chunkId)));
+
+    // Shrink hit records + hit map to diversified selection only.
+    for (const cid of Array.from(byChunkId.keys())) {
+      if (!selectedIds.has(String(cid))) byChunkId.delete(cid);
+    }
+    for (let i = hitRecords.length - 1; i >= 0; i--) {
+      if (!selectedIds.has(String(hitRecords[i]?.chunkId))) hitRecords.splice(i, 1);
     }
   }
 
