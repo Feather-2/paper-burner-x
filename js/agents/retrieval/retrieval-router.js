@@ -1,4 +1,4 @@
-import { buildIndex as buildBm25Index, buildIndexAsync as buildBm25IndexAsync, search as bm25Search } from "./bm25.js";
+import { buildIndex as buildBm25Index, buildIndexAsync as buildBm25IndexAsync, search as bm25Search, serializeIndex as serializeBm25Index, deserializeIndex as deserializeBm25Index } from "./bm25.js";
 import { grepChunks, grepChunksAsync } from "./grep.js";
 import { readAround } from "./readaround.js";
 import { chunksInScope, selectScope } from "./scope.js";
@@ -226,6 +226,68 @@ function safeFiniteNumber(v) {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
+function normalizeScoreMergeConfig(config) {
+  const cfg = isPlainObject(config) ? config : {};
+  const wGrep = safeFiniteNumber(cfg.wGrep ?? cfg.grepWeight ?? cfg.grep) ?? 0.7;
+  const wBm25 = safeFiniteNumber(cfg.wBm25 ?? cfg.bm25Weight ?? cfg.bm25) ?? 0.3;
+  const grepBase = safeFiniteNumber(cfg.grepBase ?? cfg.grepBonus ?? cfg.grepMatchBase) ?? 1.0;
+
+  const sum = wGrep + wBm25;
+  const normGrep = sum > 0 ? wGrep / sum : 0.7;
+  const normBm25 = sum > 0 ? wBm25 / sum : 0.3;
+  return { wGrep: normGrep, wBm25: normBm25, grepBase };
+}
+
+function resolveBm25IndexStore(config) {
+  const cfg = isPlainObject(config) ? config : {};
+  const store = cfg.bm25IndexStore || cfg.indexStore || cfg.persistence?.bm25IndexStore || null;
+  if (!store || typeof store !== "object") return null;
+  if (typeof store.get !== "function") return null;
+  // set() is optional: read-only stores are allowed
+  return store;
+}
+
+function bm25PersistKey(sourceIndex, chunks, bm25Options) {
+  const sourceId = String(sourceIndex?.sourceId || "source_1");
+  const textHash = typeof sourceIndex?.textHash === "string" ? sourceIndex.textHash.trim() : "";
+  const base = bm25CacheKey(chunks, bm25Options);
+  return textHash ? `bm25|${sourceId}|${textHash}|${base}` : `bm25|${sourceId}|${base}`;
+}
+
+function isCompatibleBm25Index(index, chunks) {
+  if (!index || typeof index !== "object") return false;
+  if (!Array.isArray(index.chunkIds)) return false;
+  const n = Array.isArray(chunks) ? chunks.length : 0;
+  if (index.chunkIds.length !== n) return false;
+  if (!n) return true;
+  const first = String(chunks[0]?.chunkId || "");
+  const last = String(chunks[n - 1]?.chunkId || "");
+  return String(index.chunkIds[0] || "") === first && String(index.chunkIds[n - 1] || "") === last;
+}
+
+async function loadBm25IndexFromStore(store, key) {
+  if (!store || typeof store.get !== "function") return null;
+  try {
+    const raw = await store.get(key);
+    if (!raw) return null;
+    const snapshot = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return deserializeBm25Index(snapshot);
+  } catch {
+    return null;
+  }
+}
+
+async function saveBm25IndexToStore(store, key, index) {
+  if (!store || typeof store.set !== "function") return false;
+  try {
+    const snapshot = serializeBm25Index(index);
+    await store.set(key, snapshot);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function bm25CacheKey(chunks, bm25Options) {
   const k1 = safeFiniteNumber(bm25Options?.k1) ?? 1.2;
   const b = safeFiniteNumber(bm25Options?.b) ?? 0.75;
@@ -315,7 +377,8 @@ export function retrieve(sourceIndex, gaps, config = {}) {
     if (!scopedChunks.length) continue;
 
     const scopedIdSet = new Set(scopedChunks.map((c) => c.chunkId));
-    const scored = new Map(); // chunkId -> score
+    const grepCounts = new Map(); // chunkId -> matchCount
+    const bm25Scores = new Map(); // chunkId -> score
     let grepHitCount = 0;
 
     // 优先使用 grep 精确匹配
@@ -323,9 +386,8 @@ export function retrieve(sourceIndex, gaps, config = {}) {
       if (useGrep) {
         const grepMatches = grepChunks(scopedChunks, query, { regex: Boolean(config.grepRegex), caseSensitive: Boolean(config.caseSensitive) });
         for (const m of grepMatches) {
-          // grep 匹配给更高的基础分，确保优先级
-          const grepScore = scoreFromGrepMatchCount(m.matchCount) + 1.0;
-          scored.set(m.chunkId, Math.max(scored.get(m.chunkId) || 0, grepScore));
+          const prev = grepCounts.get(m.chunkId) || 0;
+          grepCounts.set(m.chunkId, Math.max(prev, m.matchCount));
           grepHitCount++;
         }
       }
@@ -342,10 +404,29 @@ export function retrieve(sourceIndex, gaps, config = {}) {
         for (const r of results) {
           // BM25 结果需要超过阈值才使用
           if (r.score >= bm25MinScore) {
-            scored.set(r.chunkId, Math.max(scored.get(r.chunkId) || 0, r.score));
+            bm25Scores.set(r.chunkId, Math.max(bm25Scores.get(r.chunkId) || 0, r.score));
           }
         }
       }
+    }
+
+    const scoring = normalizeScoreMergeConfig(config.scoreMerge || config.scoring);
+    let maxGrepMatch = 0;
+    for (const c of grepCounts.values()) maxGrepMatch = Math.max(maxGrepMatch, c || 0);
+    const maxGrepScore = maxGrepMatch > 0 ? scoreFromGrepMatchCount(maxGrepMatch) : 0;
+    let maxBm25Score = 0;
+    for (const s of bm25Scores.values()) maxBm25Score = Math.max(maxBm25Score, s || 0);
+
+    const scored = new Map(); // chunkId -> merged score
+    const allIds = new Set([...grepCounts.keys(), ...bm25Scores.keys()]);
+    for (const chunkId of allIds) {
+      const matchCount = grepCounts.get(chunkId) || 0;
+      const bm25Score = bm25Scores.get(chunkId) || 0;
+      const grepNorm = matchCount > 0 && maxGrepScore > 0 ? scoreFromGrepMatchCount(matchCount) / maxGrepScore : 0;
+      const bm25Norm = bm25Score > 0 && maxBm25Score > 0 ? bm25Score / maxBm25Score : 0;
+      const base = matchCount > 0 ? scoring.grepBase : 0;
+      const merged = base + scoring.wGrep * grepNorm + scoring.wBm25 * bm25Norm;
+      if (merged > 0) scored.set(chunkId, merged);
     }
 
     const ranked = Array.from(scored.entries())
@@ -489,7 +570,23 @@ export async function retrieveAsync(sourceIndex, gaps, config = {}) {
     const cached = _bm25CacheBySource ? _bm25CacheBySource.get(sourceIndex) : null;
     if (cached && cached.key === cacheKey && cached.index) bm25Index = cached.index;
     else {
-      bm25Index = await buildBm25IndexAsync(allChunks, { ...(config.bm25 || {}), signal, yieldEveryDocs: 80 });
+      const store = resolveBm25IndexStore(config);
+      const persistKey = store ? bm25PersistKey(sourceIndex, allChunks, config.bm25) : null;
+
+      if (store && persistKey) {
+        const loaded = await loadBm25IndexFromStore(store, persistKey);
+        if (loaded && isCompatibleBm25Index(loaded, allChunks)) {
+          bm25Index = loaded;
+        }
+      }
+
+      if (!bm25Index) {
+        bm25Index = await buildBm25IndexAsync(allChunks, { ...(config.bm25 || {}), signal, yieldEveryDocs: 80 });
+        if (store && persistKey && config.persistBm25Index !== false) {
+          await saveBm25IndexToStore(store, persistKey, bm25Index);
+        }
+      }
+
       try {
         _bm25CacheBySource?.set(sourceIndex, { key: cacheKey, index: bm25Index });
       } catch {
@@ -523,7 +620,8 @@ export async function retrieveAsync(sourceIndex, gaps, config = {}) {
     if (!scopedChunks.length) continue;
 
     const scopedIdSet = new Set(scopedChunks.map((c) => c.chunkId));
-    const scored = new Map(); // chunkId -> score
+    const grepCounts = new Map(); // chunkId -> matchCount
+    const bm25Scores = new Map(); // chunkId -> score
     let grepHitCount = 0;
 
     for (const query of queries) {
@@ -539,8 +637,8 @@ export async function retrieveAsync(sourceIndex, gaps, config = {}) {
         : grepChunks(scopedChunks, query, { regex: Boolean(config.grepRegex), caseSensitive: Boolean(config.caseSensitive) });
 
       for (const m of grepMatches) {
-        const grepScore = scoreFromGrepMatchCount(m.matchCount) + 1.0;
-        scored.set(m.chunkId, Math.max(scored.get(m.chunkId) || 0, grepScore));
+        const prev = grepCounts.get(m.chunkId) || 0;
+        grepCounts.set(m.chunkId, Math.max(prev, m.matchCount));
         grepHitCount++;
       }
     }
@@ -554,10 +652,29 @@ export async function retrieveAsync(sourceIndex, gaps, config = {}) {
         });
         for (const r of results) {
           if (r.score >= bm25MinScore) {
-            scored.set(r.chunkId, Math.max(scored.get(r.chunkId) || 0, r.score));
+            bm25Scores.set(r.chunkId, Math.max(bm25Scores.get(r.chunkId) || 0, r.score));
           }
         }
       }
+    }
+
+    const scoring = normalizeScoreMergeConfig(config.scoreMerge || config.scoring);
+    let maxGrepMatch = 0;
+    for (const c of grepCounts.values()) maxGrepMatch = Math.max(maxGrepMatch, c || 0);
+    const maxGrepScore = maxGrepMatch > 0 ? scoreFromGrepMatchCount(maxGrepMatch) : 0;
+    let maxBm25Score = 0;
+    for (const s of bm25Scores.values()) maxBm25Score = Math.max(maxBm25Score, s || 0);
+
+    const scored = new Map(); // chunkId -> merged score
+    const allIds = new Set([...grepCounts.keys(), ...bm25Scores.keys()]);
+    for (const chunkId of allIds) {
+      const matchCount = grepCounts.get(chunkId) || 0;
+      const bm25Score = bm25Scores.get(chunkId) || 0;
+      const grepNorm = matchCount > 0 && maxGrepScore > 0 ? scoreFromGrepMatchCount(matchCount) / maxGrepScore : 0;
+      const bm25Norm = bm25Score > 0 && maxBm25Score > 0 ? bm25Score / maxBm25Score : 0;
+      const base = matchCount > 0 ? scoring.grepBase : 0;
+      const merged = base + scoring.wGrep * grepNorm + scoring.wBm25 * bm25Norm;
+      if (merged > 0) scored.set(chunkId, merged);
     }
 
     const ranked = Array.from(scored.entries())

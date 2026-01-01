@@ -391,3 +391,85 @@ export function search(index, query, topK = 8, options = {}) {
   results.sort((a, b) => (b.score === a.score ? (a.chunkId < b.chunkId ? -1 : 1) : b.score - a.score));
   return results.slice(0, k);
 }
+
+function safeNumber(v, fallback) {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function normalizeStringArray(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((x) => String(x ?? "")).filter(Boolean);
+}
+
+/**
+ * Serialize a BM25 index into a JSON-friendly snapshot (no Maps).
+ * Intended for browser persistence (IndexedDB/RunStore/localStorage).
+ *
+ * @param {BM25Index} index
+ * @returns {object}
+ */
+export function serializeIndex(index) {
+  if (!isPlainObject(index)) throw new TypeError("serializeIndex(index): index must be an object");
+
+  return {
+    schemaVersion: "0.1",
+    chunkIds: normalizeStringArray(index.chunkIds),
+    docLens: Array.isArray(index.docLens) ? index.docLens.map((n) => safeNumber(n, 0)) : [],
+    avgDocLen: safeNumber(index.avgDocLen, 0),
+    df: index.df instanceof Map ? Array.from(index.df.entries()) : Array.isArray(index.df) ? index.df : [],
+    postings:
+      index.postings instanceof Map ? Array.from(index.postings.entries()) : Array.isArray(index.postings) ? index.postings : [],
+    k1: safeNumber(index.k1, 1.2),
+    b: safeNumber(index.b, 0.75),
+  };
+}
+
+/**
+ * Restore a BM25 index from a snapshot created by serializeIndex().
+ *
+ * @param {object} snapshot
+ * @returns {BM25Index}
+ */
+export function deserializeIndex(snapshot) {
+  const s = snapshot && typeof snapshot === "object" ? snapshot : null;
+  if (!s) throw new TypeError("deserializeIndex(snapshot): snapshot must be an object");
+
+  const chunkIds = normalizeStringArray(s.chunkIds);
+  const docLens = Array.isArray(s.docLens) ? s.docLens.map((n) => safeNumber(n, 0)) : [];
+  const avgDocLen = safeNumber(s.avgDocLen, chunkIds.length ? docLens.reduce((a, b) => a + b, 0) / chunkIds.length : 0);
+
+  const df = new Map();
+  const dfEntries = Array.isArray(s.df) ? s.df : [];
+  for (const entry of dfEntries) {
+    if (!Array.isArray(entry) || entry.length < 2) continue;
+    const term = String(entry[0] ?? "");
+    if (!term) continue;
+    df.set(term, safeNumber(entry[1], 0));
+  }
+
+  const postings = new Map();
+  const postingsEntries = Array.isArray(s.postings) ? s.postings : [];
+  for (const entry of postingsEntries) {
+    if (!Array.isArray(entry) || entry.length < 2) continue;
+    const term = String(entry[0] ?? "");
+    if (!term) continue;
+    const list = Array.isArray(entry[1]) ? entry[1] : [];
+    postings.set(
+      term,
+      list
+        .map((pair) => (Array.isArray(pair) && pair.length >= 2 ? [safeNumber(pair[0], 0), safeNumber(pair[1], 0)] : null))
+        .filter(Boolean)
+    );
+  }
+
+  return {
+    chunkIds,
+    docLens,
+    avgDocLen,
+    df,
+    postings,
+    k1: safeNumber(s.k1, 1.2),
+    b: safeNumber(s.b, 0.75),
+  };
+}
