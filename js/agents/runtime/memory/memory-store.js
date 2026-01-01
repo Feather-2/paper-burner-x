@@ -10,6 +10,8 @@
 
 import { isPlainObject, toNonEmptyString, estimateTokenCount, deepClone } from "../../shared/utils/value-utils.js";
 import { getGlobalTokenCounter } from "../../shared/tokenizers/adaptive-token-counter.js";
+import { EmbeddingService } from "../../shared/embeddings/embedding-service.js";
+import { VectorIndex } from "../../shared/embeddings/vector-index.js";
 
 // 默认配置
 const DEFAULT_CONFIG = Object.freeze({
@@ -118,6 +120,17 @@ export class MemoryStore {
     this.archiveAdapter = options.archiveAdapter || null;
     this._tokenCounter = options.tokenCounter === null ? null : options.tokenCounter || getGlobalTokenCounter();
 
+    const embeddingConfig = options.embedding || this.config?.embedding || null;
+    const embeddingService =
+      options.embeddingService ||
+      (embeddingConfig ? new EmbeddingService(embeddingConfig, { ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}) }) : null);
+    this._embeddingService = embeddingService && typeof embeddingService === "object" ? embeddingService : null;
+    const vectorMaxItems =
+      typeof options.vectorMaxItems === "number" && Number.isFinite(options.vectorMaxItems)
+        ? Math.max(1, Math.floor(options.vectorMaxItems))
+        : 1000;
+    this._vectorIndex = options.vectorIndex || new VectorIndex({ maxItems: vectorMaxItems });
+
     // 委托层：渐进式统一，内部持有底层组件引用
     this._sharedContext = options.sharedContext || null;
     this._discoveryManager = options.discoveryManager || null;
@@ -170,6 +183,16 @@ export class MemoryStore {
       compressionCount: 0,
       recallCount: 0,
     };
+  }
+
+  _buildArchiveEmbeddingText(entry) {
+    const e = entry && typeof entry === "object" ? entry : null;
+    if (!e) return "";
+    const stage = toNonEmptyString(e.stageKey) || "";
+    const summary = toNonEmptyString(e.summary) || "";
+    const prefix = stage ? `stage:${stage}` : "";
+    const text = [prefix, summary].filter(Boolean).join("\n");
+    return text.trim();
   }
 
   // ===== L0: Immutable =====
@@ -449,6 +472,24 @@ export class MemoryStore {
     // 时间线
     this.L3.index.timeline.push({ id, ts: entry.ts, summary: entry.summary });
 
+    // Best-effort semantic index (async, non-blocking).
+    const svc = this._embeddingService;
+    const text = svc ? this._buildArchiveEmbeddingText(entry) : "";
+    if (svc && text) {
+      void svc
+        .enqueue([text], { immediate: false })
+        .then((vectors) => {
+          const v = Array.isArray(vectors) ? vectors[0] : null;
+          if (!v) return;
+          try {
+            this._vectorIndex.upsert(id, v, { stageKey: entry.stageKey, ts: entry.ts });
+          } catch {
+            // ignore vector dimension errors / index failures
+          }
+        })
+        .catch(() => {});
+    }
+
     return id;
   }
 
@@ -483,6 +524,43 @@ export class MemoryStore {
       const snap = this.L3.snapshots.get(id);
       return snap ? { id, summary: snap.summary, data: snap.data } : null;
     }).filter(Boolean);
+  }
+
+  /**
+   * Semantic recall powered by external embeddings + local cosine search.
+   * Falls back to keyword recall when embeddings are unavailable.
+   *
+   * @param {string} query
+   * @param {object=} options
+   * @param {number=} options.limit
+   * @param {boolean=} options.fallback
+   * @param {number=} options.timeoutMs
+   */
+  async semanticRecall(query, { limit = 3, fallback = true, timeoutMs } = {}) {
+    const q = toNonEmptyString(query);
+    const k = Number.isFinite(Number(limit)) ? Math.max(1, Math.floor(Number(limit))) : 3;
+
+    const svc = this._embeddingService;
+    if (!svc || typeof svc.embed !== "function") {
+      return fallback ? this.recall(q || "", k) : [];
+    }
+
+    const vectors = await svc.embed([q || ""], { ...(timeoutMs ? { timeoutMs } : {}) });
+    const v = Array.isArray(vectors) ? vectors[0] : null;
+    if (!v) return fallback ? this.recall(q || "", k) : [];
+
+    const hits = this._vectorIndex.search(v, { topK: k });
+    const out = [];
+    for (const h of hits) {
+      const snap = this.L3.snapshots.get(h.id);
+      if (!snap) continue;
+      out.push({ id: h.id, score: h.score, summary: snap.summary, data: snap.data });
+    }
+    if (out.length) {
+      this._stats.recallCount++;
+      return out;
+    }
+    return fallback ? this.recall(q || "", k) : [];
   }
 
   listArchives(limit = 10) {
