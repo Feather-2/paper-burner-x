@@ -144,3 +144,74 @@ test("MemoryStore: semanticRecall prefers vector matches when available", async 
   assert.equal(hits2[0].id, id2);
 });
 
+test("SourceManager: semanticSearch reranks keyword candidates via embeddings", async () => {
+  const { EmbeddingService } = await loadEmbeddings();
+  const { default: SourceManager } = await import("../../../js/agents/stages/deepsearch/source-manager.js");
+
+  const fetchImpl = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    const inputs = Array.isArray(body.input) ? body.input : [];
+    const data = inputs.map((text, index) => {
+      const s = String(text).toLowerCase();
+      const revenue = s.includes("revenue") ? 1 : 0;
+      const sentiment = s.includes("up") ? 1 : s.includes("down") ? -1 : 0;
+      return { index, embedding: [revenue, sentiment] };
+    });
+    return new Response(JSON.stringify({ data }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+
+  const svc = new EmbeddingService(
+    { endpoint: "https://example.test/v1/embeddings", model: "test-embed", flushIntervalMs: 0, timeoutMs: 1000, cooldownMs: 60_000 },
+    { fetchImpl }
+  );
+
+  const manager = new SourceManager([
+    { sourceId: "s1", name: "Doc 1", sourceTextNormalized: "Revenue down\nOther" },
+    { sourceId: "s2", name: "Doc 2", sourceTextNormalized: "Revenue up\nOther" },
+  ]);
+
+  const results = await manager.semanticSearch("revenue up", { limit: 2, embeddingService: svc, timeoutMs: 1000 });
+  assert.equal(results.length, 2);
+  assert.equal(results[0].sourceId, "s2");
+  assert.ok(results[0].score > results[1].score);
+});
+
+test("search-docs tool: uses semanticSearch when embedding config provided", async () => {
+  const { handler } = await import("../../../js/agents/stages/deepsearch/tools/search-docs/handler.js");
+
+  const fetchImpl = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    const inputs = Array.isArray(body.input) ? body.input : [];
+    const data = inputs.map((text, index) => {
+      const s = String(text).toLowerCase();
+      const revenue = s.includes("revenue") ? 1 : 0;
+      const sentiment = s.includes("up") ? 1 : s.includes("down") ? -1 : 0;
+      return { index, embedding: [revenue, sentiment] };
+    });
+    return new Response(JSON.stringify({ data }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+
+  const state = {
+    L0: {
+      sources: [
+        { sourceId: "s1", name: "Doc 1", sourceTextNormalized: "Revenue down\nOther" },
+        { sourceId: "s2", name: "Doc 2", sourceTextNormalized: "Revenue up\nOther" },
+      ],
+    },
+  };
+
+  const out = await handler(
+    { query: "revenue up", limit: 2 },
+    {
+      state,
+      emit: () => {},
+      embedding: { endpoint: "https://example.test/v1/embeddings", model: "test-embed", flushIntervalMs: 0, timeoutMs: 1000, cooldownMs: 60_000 },
+      fetchImpl,
+    }
+  );
+
+  assert.equal(out.success, true);
+  assert.equal(out.results.length, 2);
+  assert.equal(out.results[0].sourceId, "s2");
+  assert.ok(out.results[0].score > out.results[1].score);
+});

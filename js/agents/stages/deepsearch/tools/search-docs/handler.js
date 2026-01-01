@@ -3,6 +3,38 @@
  */
 
 import SourceManager from "../../source-manager.js";
+import { EmbeddingService } from "../../../../shared/embeddings/embedding-service.js";
+
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function resolveEmbeddingService(context) {
+  const ctx = context && typeof context === "object" ? context : null;
+  const direct = ctx?.embeddingService;
+  if (direct && typeof direct.embed === "function") return direct;
+
+  const cfg = ctx?.embedding || ctx?.globalConfig?.embedding || null;
+  if (!isPlainObject(cfg)) return null;
+
+  const cached = ctx?._pbEmbeddingService;
+  if (cached && typeof cached.embed === "function" && typeof cached.getStatus === "function") {
+    try {
+      const st = cached.getStatus();
+      if (st?.endpoint && (st.endpoint === cfg.endpoint || st.endpoint === cfg.url)) return cached;
+    } catch {
+      // ignore
+    }
+  }
+
+  const svc = new EmbeddingService(cfg, { ...(typeof ctx?.fetchImpl === "function" ? { fetchImpl: ctx.fetchImpl } : {}) });
+  try {
+    ctx._pbEmbeddingService = svc;
+  } catch {
+    // ignore non-extensible contexts
+  }
+  return svc;
+}
 
 export const definition = {
   name: "search-docs",
@@ -24,7 +56,7 @@ export const definition = {
  */
 export async function handler(args, context) {
   const { state, emit, retriever, discoveryManager } = context;
-  const { query, sources, limit = 10, gapId } = args;
+  const { query, sources, limit = 10, gapId, semanticTimeoutMs } = args;
 
   if (!query || typeof query !== "string") {
     return { success: false, error: "query is required" };
@@ -69,7 +101,16 @@ export async function handler(args, context) {
   }
 
   // 简单的关键词匹配回退（分词匹配）
-  const results = manager.search(query, { sources: targetSources, limit });
+  const embeddingService = resolveEmbeddingService(context);
+  const results =
+    embeddingService && typeof manager.semanticSearch === "function"
+      ? await manager.semanticSearch(query, {
+          sources: targetSources,
+          limit,
+          embeddingService,
+          ...(semanticTimeoutMs ? { timeoutMs: semanticTimeoutMs } : {}),
+        })
+      : manager.search(query, { sources: targetSources, limit });
 
   emit?.("deepsearch.search.completed", { query, resultCount: results.length });
   return { success: true, results };

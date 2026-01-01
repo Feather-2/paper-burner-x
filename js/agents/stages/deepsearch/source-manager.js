@@ -166,6 +166,28 @@ function buildToc(headings, { maxLength = 1000 } = {}) {
   return { toc, tocTruncated: truncated };
 }
 
+function cosineSimilarity(a, b) {
+  const va = a && typeof a === "object" ? a : null;
+  const vb = b && typeof b === "object" ? b : null;
+  const al = typeof va?.length === "number" ? va.length : 0;
+  const bl = typeof vb?.length === "number" ? vb.length : 0;
+  if (!al || !bl || al !== bl) return 0;
+
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (let i = 0; i < al; i++) {
+    const x = Number(va[i] ?? 0);
+    const y = Number(vb[i] ?? 0);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    dot += x * y;
+    na += x * x;
+    nb += y * y;
+  }
+  if (na <= 0 || nb <= 0) return 0;
+  return dot / (Math.sqrt(na) * Math.sqrt(nb));
+}
+
 function findSectionRange(text, starts, section) {
   const wanted = String(section || "").trim().toLowerCase();
   if (!wanted) return null;
@@ -495,6 +517,48 @@ export class SourceManager {
     }
 
     return results.slice(0, maxResults);
+  }
+
+  /**
+   * Semantic search: keyword candidates -> embedding rerank (best-effort).
+   *
+   * @param {string} query
+   * @param {object=} options
+   * @param {Array<object|string>=} options.sources
+   * @param {number=} options.limit
+   * @param {{embed:(texts:string[],opts?:any)=>Promise<any>}=} options.embeddingService
+   * @param {number=} options.timeoutMs
+   */
+  async semanticSearch(query, { sources, limit = 10, embeddingService, timeoutMs } = {}) {
+    const q = typeof query === "string" ? query : "";
+    const trimmed = q.trim();
+    if (!trimmed) return [];
+
+    const maxResults = Math.max(1, toPositiveInt(limit, 10));
+    const svc = embeddingService && typeof embeddingService.embed === "function" ? embeddingService : null;
+    if (!svc) return this.search(trimmed, { sources, limit: maxResults });
+
+    // 1) Use the existing keyword scan to cheaply produce candidates.
+    const candidateFactor = 5;
+    const candidates = this.search(trimmed, { sources, limit: maxResults * candidateFactor });
+    if (!candidates.length) return [];
+
+    // 2) Best-effort embedding rerank (avoid full-document embeddings).
+    const snippets = candidates.map((r) => String(r?.snippet || "").slice(0, 2000));
+    const vectors = await svc.embed([trimmed, ...snippets], { ...(timeoutMs ? { timeoutMs } : {}) });
+    if (!Array.isArray(vectors) || vectors.length !== snippets.length + 1) {
+      return candidates.slice(0, maxResults);
+    }
+
+    const qv = vectors[0];
+    const scored = candidates.map((row, i) => {
+      const sim = cosineSimilarity(qv, vectors[i + 1]);
+      const score = Number.isFinite(sim) ? Math.max(0, sim) : 0;
+      return { ...row, score };
+    });
+
+    scored.sort((a, b) => (b.score || 0) - (a.score || 0));
+    return scored.slice(0, maxResults);
   }
 }
 
