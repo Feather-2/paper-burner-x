@@ -33,6 +33,7 @@ import { BacktrackManager } from "./BacktrackManager.js";
 import { DiscoveryManager } from "./DiscoveryManager.js";
 import { AlertMonitor } from "./AlertMonitor.js";
 import { ToolExecutor } from "../runtime/tools/tool-executor.js";
+import { DefaultAgentLoop } from "./DefaultAgentLoop.js";
 
 /**
  * @typedef {Object} CapabilityDefinition
@@ -522,18 +523,25 @@ export class AgentInstance {
         this.eventBus.emit(`${actorPrefix}.agent.started`, { runId: context.runId || Date.now().toString() });
 
         try {
-            // 这里可以接入具体的 AgentLoop 实现
-            // 默认提供一个简单的单步执行
-            if (this._loop) {
-                return await this._loop.run(input, context);
+            // Provide a sensible default loop (LLM-driven when a modelRouter/aiApiService is provided in context).
+            if (!this._loop) {
+                const opts = this.options && typeof this.options === "object" ? this.options : {};
+                const defaultLoopOptions =
+                    opts.defaultLoop && typeof opts.defaultLoop === "object" && !Array.isArray(opts.defaultLoop) ? opts.defaultLoop : {};
+
+                this._loop = new DefaultAgentLoop({
+                    actor: this.actor,
+                    stageName: this.actor,
+                    eventBus: this.eventBus,
+                    logger: this.logger,
+                    toolExecutor: this.toolExecutor,
+                    capabilities: this.capabilities,
+                    getCatalogPrompt: () => this.getCapabilityCatalogPrompt(),
+                    ...defaultLoopOptions,
+                });
             }
 
-            // 简单模式：直接返回 capability 列表
-            return {
-                success: true,
-                capabilities: this.getCapabilityDefinitions(),
-                message: "Agent ready. Set a loop implementation for full execution.",
-            };
+            return await this._loop.run(input, context);
         } catch (error) {
             this.eventBus.emit(`${this.actor}.agent.failed`, { error: error.message });
             throw error;

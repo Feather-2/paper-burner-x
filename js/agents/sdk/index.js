@@ -10,6 +10,7 @@
 // SDK 核心
 export { createAgent, AgentBuilder, AgentInstance } from "./AgentBuilder.js";
 export { SubagentRegistry, globalSubagentRegistry } from "./SubagentRegistry.js";
+export { DefaultAgentLoop } from "./DefaultAgentLoop.js";
 
 // Runtime 组件
 export { BaseAgentLoop } from "../runtime/core/agent-loop.js";

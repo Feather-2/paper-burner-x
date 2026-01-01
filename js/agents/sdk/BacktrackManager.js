@@ -1,5 +1,16 @@
 import { deepClone } from "../shared/utils/value-utils.js";
 
+function cloneSnapshot(value) {
+    if (typeof globalThis !== "undefined" && typeof globalThis.structuredClone === "function") {
+        try {
+            return globalThis.structuredClone(value);
+        } catch {
+            // fall back below
+        }
+    }
+    return deepClone(value);
+}
+
 /**
  * GenericBacktrackManager - 通用回溯管理 (春秋蝉)
  * 
@@ -68,7 +79,7 @@ export class BacktrackManager {
             return {
                 success: true,
                 // 使用 deepClone 彻底断开与 Snapshot 存档的引用，防止代理循环修改回溯后的状态时污染存档
-                state: deepClone(snapshot.context || snapshot),
+                state: cloneSnapshot(snapshot.context || snapshot),
                 checkpointId: targetId
             };
         } catch (err) {
