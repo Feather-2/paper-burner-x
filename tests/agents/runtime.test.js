@@ -128,6 +128,72 @@ test("VFS: MemoryVfs directory tree + mkdir/rmdir/unlink", async () => {
   await assert.rejects(async () => vfs.rmdir(""), /cannot remove root/);
 });
 
+test("VFS: MemoryVfs mkdir recursive=false semantics", async () => {
+  const { MemoryVfs } = await import("../../js/agents/vfs/vfs.memory.js");
+  const vfs = new MemoryVfs();
+
+  await vfs.mkdir("dir");
+  await assert.rejects(async () => vfs.mkdir("dir", { recursive: false }), /EEXIST/);
+
+  await vfs.writeText("file.txt", "x");
+  await assert.rejects(async () => vfs.mkdir("file.txt", { recursive: true }), /EEXIST/);
+  await assert.rejects(async () => vfs.mkdir("file.txt", { recursive: false }), /EEXIST/);
+
+  await assert.rejects(async () => vfs.mkdir("missing/child", { recursive: false }), /ENOENT/);
+});
+
+test("VFS operations: writeTextFileWithPolicy serializes concurrent writes", async () => {
+  const { writeTextFileWithPolicy } = await import("../../js/agents/vfs/operations.js");
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  class SlowVfs {
+    constructor() {
+      this.text = "start";
+    }
+    async readText() {
+      return this.text;
+    }
+    async writeText(_path, next) {
+      if (next === "first") await sleep(50);
+      if (next === "second") await sleep(10);
+      this.text = next;
+    }
+  }
+
+  const vfs = new SlowVfs();
+
+  await Promise.all([
+    writeTextFileWithPolicy({ vfs, path: "x.txt", text: "first", checkpoint: false }),
+    writeTextFileWithPolicy({ vfs, path: "x.txt", text: "second", checkpoint: false }),
+  ]);
+
+  assert.equal(vfs.text, "second");
+});
+
+test("VFS operations: multiEditTextFileWithPolicy supports indentation-normalized fallback", async () => {
+  const { MemoryVfs } = await import("../../js/agents/vfs/vfs.memory.js");
+  const { multiEditTextFileWithPolicy } = await import("../../js/agents/vfs/operations.js");
+
+  const vfs = new MemoryVfs();
+  const before = ["function outer() {", "  if (a) {", "    return 1;", "  }", "}", ""].join("\n");
+  await vfs.writeText("code.js", before);
+
+  const oldString = ["    if (a) {", "      return 1;", "    }"].join("\n"); // extra indentation vs file
+  const newString = ["  if (a) {", "    return 2;", "  }"].join("\n");
+
+  await multiEditTextFileWithPolicy({
+    vfs,
+    path: "code.js",
+    edits: [{ old_string: oldString, new_string: newString }],
+    checkpoint: false,
+  });
+
+  const after = await vfs.readText("code.js");
+  assert.ok(after.includes("return 2;"));
+  assert.equal(after.includes("return 1;"), false);
+});
+
 test("Runtime Core: EventBus backpressure default stays synchronous", async () => {
   const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
 

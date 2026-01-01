@@ -174,6 +174,12 @@ export class MemoryVfs {
     if (!p) return true;
 
     const wantRecursive = recursive !== false;
+    const existing = this._getNode(p);
+    if (existing) {
+      if (!wantRecursive) throw new Error(`EEXIST: ${p}`);
+      if (existing.kind !== "dir") throw new Error(`EEXIST: ${p}`);
+      return true;
+    }
     const parts = toSegments(p);
 
     let node = this._root;

@@ -5,6 +5,75 @@ function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Per-path async locking (browser-safe)
+//
+// In browser mode, agents may issue parallel tool calls that write the same file.
+// OPFS / Memory backends are not transactional; serialize writes per (vfs,path).
+// ─────────────────────────────────────────────────────────────────────────────
+
+const _locksByVfs = new WeakMap(); // vfs -> Map<path, Promise>
+
+function getLockMapForVfs(vfs) {
+  if (!vfs || typeof vfs !== "object") return null;
+  let map = _locksByVfs.get(vfs);
+  if (!map) {
+    map = new Map();
+    _locksByVfs.set(vfs, map);
+  }
+  return map;
+}
+
+async function waitFor(promise, { signal } = {}) {
+  const p = promise && typeof promise.then === "function" ? promise : Promise.resolve(promise);
+  if (!signal) return await p;
+  if (signal.aborted) throw new Error(typeof signal.reason === "string" ? signal.reason : "aborted");
+
+  let onAbort = null;
+  const abortPromise = new Promise((_, reject) => {
+    onAbort = () => reject(new Error(typeof signal.reason === "string" ? signal.reason : "aborted"));
+    signal.addEventListener?.("abort", onAbort, { once: true });
+  });
+
+  try {
+    return await Promise.race([p, abortPromise]);
+  } finally {
+    try {
+      if (onAbort) signal.removeEventListener?.("abort", onAbort);
+    } catch {
+      // ignore
+    }
+  }
+}
+
+async function withVfsPathLock(vfs, path, fn, { signal } = {}) {
+  const lockMap = getLockMapForVfs(vfs);
+  if (!lockMap) return await fn();
+  const key = String(path || "");
+  if (!key) return await fn();
+
+  const prevTail = lockMap.get(key) || Promise.resolve();
+  let release = null;
+  const tail = new Promise((resolve) => {
+    release = resolve;
+  });
+  lockMap.set(key, tail);
+
+  try {
+    await waitFor(prevTail, { signal });
+    return await fn();
+  } finally {
+    try {
+      release?.();
+    } catch {
+      // ignore
+    }
+    if (lockMap.get(key) === tail) {
+      lockMap.delete(key);
+    }
+  }
+}
+
 async function safeReadText(vfs, path) {
   try {
     if (typeof vfs.readText === "function") return await vfs.readText(path);
@@ -46,6 +115,96 @@ function countOccurrences(haystack, needle) {
     start = idx + needle.length;
   }
   return count;
+}
+
+function splitLinesWithStarts(text) {
+  const s = typeof text === "string" ? text : String(text ?? "");
+  const starts = [0];
+  for (let i = 0; i < s.length; i += 1) {
+    if (s[i] === "\n") starts.push(i + 1);
+  }
+  const lines = [];
+  for (let i = 0; i < starts.length; i += 1) {
+    const start = starts[i];
+    const endExclusive = i + 1 < starts.length ? starts[i + 1] : s.length;
+    const end = endExclusive > start ? endExclusive - 1 : start; // exclude '\n'
+    lines.push(s.slice(start, end));
+  }
+  return { text: s, starts, lines };
+}
+
+function normalizeBlockText(text) {
+  const raw = typeof text === "string" ? text : String(text ?? "");
+  const lines = raw.split("\n").map((line) => String(line ?? "").trimEnd());
+
+  // Trim empty lines at edges (common when callers include a trailing newline).
+  let start = 0;
+  let end = lines.length;
+  while (start < end && lines[start].trim() === "") start += 1;
+  while (end > start && lines[end - 1].trim() === "") end -= 1;
+  const body = lines.slice(start, end);
+  if (body.length === 0) return "";
+
+  // Normalize indentation: remove common leading whitespace across non-empty lines.
+  let minIndent = Infinity;
+  for (const line of body) {
+    if (!line.trim()) continue;
+    let i = 0;
+    while (i < line.length) {
+      const ch = line[i];
+      if (ch !== " " && ch !== "\t") break;
+      i += 1;
+    }
+    minIndent = Math.min(minIndent, i);
+  }
+  if (!Number.isFinite(minIndent) || minIndent === Infinity) minIndent = 0;
+
+  const normalized = body.map((line) => (minIndent ? line.slice(Math.min(minIndent, line.length)) : line));
+  return normalized.join("\n");
+}
+
+function findUniqueNormalizedBlockMatch(fileIndex, needleText) {
+  const idx = fileIndex && typeof fileIndex === "object" ? fileIndex : null;
+  const haystackText = typeof idx?.text === "string" ? idx.text : "";
+  const haystackLines = Array.isArray(idx?.lines) ? idx.lines : [];
+  const haystackStarts = Array.isArray(idx?.starts) ? idx.starts : [];
+
+  const needleNorm = normalizeBlockText(needleText);
+  if (!needleNorm) return null;
+
+  const needleLines = needleNorm.split("\n");
+  const firstAnchor = needleLines[0]?.trim() || "";
+  const lastAnchor = needleLines[needleLines.length - 1]?.trim() || "";
+  if (!firstAnchor) return null;
+
+  const startIndices = [];
+  for (let i = 0; i < haystackLines.length; i += 1) {
+    if (haystackLines[i].trim() === firstAnchor) startIndices.push(i);
+  }
+  if (startIndices.length === 0) return null;
+
+  const matches = [];
+  const expectedLines = needleLines.length;
+  const maxSlack = Math.min(60, Math.max(6, Math.floor(expectedLines * 0.6)));
+
+  for (const startLine of startIndices) {
+    const maxEnd = Math.min(haystackLines.length - 1, startLine + expectedLines + maxSlack);
+    for (let endLine = startLine; endLine <= maxEnd; endLine += 1) {
+      if (lastAnchor && haystackLines[endLine].trim() !== lastAnchor) continue;
+
+      const startOffset = haystackStarts[startLine] ?? 0;
+      const endOffsetExclusive = endLine + 1 < haystackStarts.length ? haystackStarts[endLine + 1] : haystackText.length;
+      const candidate = haystackText.slice(startOffset, endOffsetExclusive);
+      const candidateNorm = normalizeBlockText(candidate);
+      if (candidateNorm !== needleNorm) continue;
+
+      matches.push({ start: startOffset, end: endOffsetExclusive, matched: candidate });
+      if (matches.length > 1) return null; // ambiguous
+      break; // for this startLine
+    }
+  }
+
+  return matches.length === 1 ? matches[0] : null;
 }
 
 function detectEditConflicts(editPositions) {
@@ -119,53 +278,60 @@ export async function writeTextFileWithPolicy({
 
   const content = typeof text === "string" ? text : String(text ?? "");
 
-  const approval = policy && typeof policy.authorize === "function"
-    ? await policy.authorize(
-      {
-        type: "vfs.write",
-        tool: "vfs.writeText",
-        resource: normalizedPath,
-        args: { path: normalizedPath, bytes: content.length },
-      },
-      { signal: signal || stageApi?.signal }
-    )
-    : { allowed: true };
+  return await withVfsPathLock(
+    vfs,
+    normalizedPath,
+    async () => {
+      const approval = policy && typeof policy.authorize === "function"
+        ? await policy.authorize(
+          {
+            type: "vfs.write",
+            tool: "vfs.writeText",
+            resource: normalizedPath,
+            args: { path: normalizedPath, bytes: content.length },
+          },
+          { signal: signal || stageApi?.signal }
+        )
+        : { allowed: true };
 
-  if (approval?.allowed === false) {
-    const reason = typeof approval.reason === "string" ? approval.reason : "denied";
-    throw new Error(`Policy denied: ${reason}`);
-  }
+      if (approval?.allowed === false) {
+        const reason = typeof approval.reason === "string" ? approval.reason : "denied";
+        throw new Error(`Policy denied: ${reason}`);
+      }
 
-  const before = await safeReadText(vfs, normalizedPath);
-  await vfs.writeText(normalizedPath, content);
+      const before = await safeReadText(vfs, normalizedPath);
+      await vfs.writeText(normalizedPath, content);
 
-  let checkpointRef = null;
-  if (checkpoint && runStore && runId) {
-    try {
-      const after = content;
-      const saved = await recordVfsCheckpoint({
-        runStore,
-        runId,
+      let checkpointRef = null;
+      if (checkpoint && runStore && runId) {
+        try {
+          const after = content;
+          const saved = await recordVfsCheckpoint({
+            runStore,
+            runId,
+            path: normalizedPath,
+            before: before ?? "",
+            after,
+            op: "writeText",
+          });
+          checkpointRef = { artifactId: saved.artifactId, type: "vfs_checkpoint.json" };
+        } catch {
+          // ignore checkpoint failures
+        }
+      }
+
+      const emit = getEmitFn(stageApi);
+      emit?.("vfs.write.completed", {
         path: normalizedPath,
-        before: before ?? "",
-        after,
-        op: "writeText",
+        bytes: content.length,
+        ...(checkpointRef ? { checkpoint: checkpointRef } : {}),
+        ...(approval && isPlainObject(approval) ? { policy: approval } : {}),
       });
-      checkpointRef = { artifactId: saved.artifactId, type: "vfs_checkpoint.json" };
-    } catch {
-      // ignore checkpoint failures
-    }
-  }
 
-  const emit = getEmitFn(stageApi);
-  emit?.("vfs.write.completed", {
-    path: normalizedPath,
-    bytes: content.length,
-    ...(checkpointRef ? { checkpoint: checkpointRef } : {}),
-    ...(approval && isPlainObject(approval) ? { policy: approval } : {}),
-  });
-
-  return { ok: true, path: normalizedPath, ...(checkpointRef ? { checkpoint: checkpointRef } : {}) };
+      return { ok: true, path: normalizedPath, ...(checkpointRef ? { checkpoint: checkpointRef } : {}) };
+    },
+    { signal: signal || stageApi?.signal }
+  );
 }
 
 export async function multiEditTextFileWithPolicy({
@@ -186,97 +352,123 @@ export async function multiEditTextFileWithPolicy({
   const rawEdits = Array.isArray(edits) ? edits : [];
   if (rawEdits.length === 0) throw new Error("multiEditTextFileWithPolicy: edits must be a non-empty array");
 
-  const before = await safeReadText(vfs, normalizedPath);
-  if (before === null) throw new Error(`multiEditTextFileWithPolicy: file not found: ${normalizedPath}`);
+  return await withVfsPathLock(
+    vfs,
+    normalizedPath,
+    async () => {
+      const before = await safeReadText(vfs, normalizedPath);
+      if (before === null) throw new Error(`multiEditTextFileWithPolicy: file not found: ${normalizedPath}`);
 
-  const normalizedEdits = [];
-  const seenOld = new Set();
-  for (let i = 0; i < rawEdits.length; i += 1) {
-    const { oldString, newString } = normalizeEditOperation(rawEdits[i], i);
-    if (seenOld.has(oldString)) throw new Error(`multi_edit: duplicate old_string in edits[${i}]`);
-    seenOld.add(oldString);
-    normalizedEdits.push({ index: i, oldString, newString });
-  }
+      const normalizedEdits = [];
+      const seenOld = new Set();
+      for (let i = 0; i < rawEdits.length; i += 1) {
+        const { oldString, newString } = normalizeEditOperation(rawEdits[i], i);
+        if (seenOld.has(oldString)) throw new Error(`multi_edit: duplicate old_string in edits[${i}]`);
+        seenOld.add(oldString);
+        normalizedEdits.push({ index: i, oldString, newString });
+      }
 
-  const positions = [];
-  for (const edit of normalizedEdits) {
-    const occurrences = countOccurrences(before, edit.oldString);
-    if (occurrences === 0) {
-      throw new Error(`multi_edit: edits[${edit.index}].old_string not found`);
-    }
-    if (occurrences > 1) {
-      throw new Error(`multi_edit: edits[${edit.index}].old_string found ${occurrences} times (must be unique)`);
-    }
-    const start = before.indexOf(edit.oldString);
-    const end = start + edit.oldString.length;
-    positions.push({ ...edit, start, end });
-  }
+      const positions = [];
+      let fileIndex = null;
+      const getFileIndex = () => {
+        if (fileIndex) return fileIndex;
+        fileIndex = splitLinesWithStarts(before);
+        return fileIndex;
+      };
+      for (const edit of normalizedEdits) {
+        const occurrences = countOccurrences(before, edit.oldString);
+        if (occurrences === 1) {
+          const start = before.indexOf(edit.oldString);
+          const end = start + edit.oldString.length;
+          positions.push({ ...edit, start, end });
+          continue;
+        }
 
-  const conflicts = detectEditConflicts(positions);
-  if (conflicts.length > 0) {
-    const lines = conflicts.map((c) => `- ${c.description}`).join("\n");
-    throw new Error(`multi_edit: detected ${conflicts.length} conflict(s):\n${lines}`);
-  }
+        // Robust fallback: allow whitespace/indentation-normalized block matching when exact match fails/ambiguous.
+        const normalizedMatch = findUniqueNormalizedBlockMatch(getFileIndex(), edit.oldString);
+        if (normalizedMatch) {
+          positions.push({ ...edit, start: normalizedMatch.start, end: normalizedMatch.end });
+          continue;
+        }
 
-  const after = applyEditsByPositions(before, positions);
-  if (after === before) {
-    return { ok: true, path: normalizedPath, noOp: true };
-  }
+        if (occurrences === 0) {
+          throw new Error(
+            `multi_edit: edits[${edit.index}].old_string not found (exact), and no unique whitespace/indentation-normalized match was found`
+          );
+        }
+        throw new Error(
+          `multi_edit: edits[${edit.index}].old_string found ${occurrences} times (must be unique), and no unique whitespace/indentation-normalized match was found`
+        );
+      }
 
-  const approval = policy && typeof policy.authorize === "function"
-    ? await policy.authorize(
-      {
-        type: "vfs.write",
-        tool: "vfs.multiEdit",
-        resource: normalizedPath,
-        args: { path: normalizedPath, edits: normalizedEdits.length, bytes: after.length },
-      },
-      { signal: signal || stageApi?.signal }
-    )
-    : { allowed: true };
+      const conflicts = detectEditConflicts(positions);
+      if (conflicts.length > 0) {
+        const lines = conflicts.map((c) => `- ${c.description}`).join("\n");
+        throw new Error(`multi_edit: detected ${conflicts.length} conflict(s):\n${lines}`);
+      }
 
-  if (approval?.allowed === false) {
-    const reason = typeof approval.reason === "string" ? approval.reason : "denied";
-    throw new Error(`Policy denied: ${reason}`);
-  }
+      const after = applyEditsByPositions(before, positions);
+      if (after === before) {
+        return { ok: true, path: normalizedPath, noOp: true };
+      }
 
-  try {
-    await vfs.writeText(normalizedPath, after);
-  } catch (err) {
-    try {
-      await vfs.writeText(normalizedPath, before);
-    } catch {
-      // ignore rollback failures
-    }
-    throw err;
-  }
+      const approval = policy && typeof policy.authorize === "function"
+        ? await policy.authorize(
+          {
+            type: "vfs.write",
+            tool: "vfs.multiEdit",
+            resource: normalizedPath,
+            args: { path: normalizedPath, edits: normalizedEdits.length, bytes: after.length },
+          },
+          { signal: signal || stageApi?.signal }
+        )
+        : { allowed: true };
 
-  let checkpointRef = null;
-  if (checkpoint && runStore && runId) {
-    try {
-      const saved = await recordVfsCheckpoint({
-        runStore,
-        runId,
+      if (approval?.allowed === false) {
+        const reason = typeof approval.reason === "string" ? approval.reason : "denied";
+        throw new Error(`Policy denied: ${reason}`);
+      }
+
+      try {
+        await vfs.writeText(normalizedPath, after);
+      } catch (err) {
+        try {
+          await vfs.writeText(normalizedPath, before);
+        } catch {
+          // ignore rollback failures
+        }
+        throw err;
+      }
+
+      let checkpointRef = null;
+      if (checkpoint && runStore && runId) {
+        try {
+          const saved = await recordVfsCheckpoint({
+            runStore,
+            runId,
+            path: normalizedPath,
+            before,
+            after,
+            op: "multi_edit",
+          });
+          checkpointRef = { artifactId: saved.artifactId, type: "vfs_checkpoint.json" };
+        } catch {
+          // ignore checkpoint failures
+        }
+      }
+
+      const emit = getEmitFn(stageApi);
+      emit?.("vfs.write.completed", {
         path: normalizedPath,
-        before,
-        after,
-        op: "multi_edit",
+        bytes: after.length,
+        ...(checkpointRef ? { checkpoint: checkpointRef } : {}),
+        ...(approval && isPlainObject(approval) ? { policy: approval } : {}),
       });
-      checkpointRef = { artifactId: saved.artifactId, type: "vfs_checkpoint.json" };
-    } catch {
-      // ignore checkpoint failures
-    }
-  }
 
-  const emit = getEmitFn(stageApi);
-  emit?.("vfs.write.completed", {
-    path: normalizedPath,
-    bytes: after.length,
-    ...(checkpointRef ? { checkpoint: checkpointRef } : {}),
-    ...(approval && isPlainObject(approval) ? { policy: approval } : {}),
-  });
-
-  return { ok: true, path: normalizedPath, ...(checkpointRef ? { checkpoint: checkpointRef } : {}) };
+      return { ok: true, path: normalizedPath, ...(checkpointRef ? { checkpoint: checkpointRef } : {}) };
+    },
+    { signal: signal || stageApi?.signal }
+  );
 }
 
 export default { writeTextFileWithPolicy, multiEditTextFileWithPolicy };
