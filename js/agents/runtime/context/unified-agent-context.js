@@ -58,13 +58,24 @@ export class UnifiedAgentContext {
   }
 
   addTodo(todo) {
-    if (this._state?.addTodo) this._state.addTodo(todo);
-    if (this._memory?.addTodo) this._memory.addTodo(todo);
+    // Prefer state.addTodo() to preserve DeepSearch business rules (sync-to-shared, IDs, etc).
+    if (this._state?.addTodo) return this._state.addTodo(todo);
+    if (this._memory?.addTodo) return this._memory.addTodo(todo);
+    return null;
   }
 
   updateTodo(id, updates) {
-    if (this._state?.updateTodo) this._state.updateTodo(id, updates);
-    if (this._memory?.updateTodo) this._memory.updateTodo(id, updates);
+    const sharedTodos =
+      this._state &&
+      this._memory &&
+      Array.isArray(this._state.todos) &&
+      Array.isArray(this._memory?.L0?.todos) &&
+      this._state.todos === this._memory.L0.todos;
+
+    let out = null;
+    if (this._state?.updateTodo) out = this._state.updateTodo(id, updates);
+    if (this._memory?.updateTodo && (!this._state?.updateTodo || !sharedTodos)) out = this._memory.updateTodo(id, updates);
+    return out;
   }
 
   // ─────────────────────────────────────────────────────────────────────────────

@@ -233,18 +233,68 @@ function buildFallbackSummary(text) {
 }
 
 export class CicadaCompressor {
-  constructor({ modelRouter, archive, maxTokens, layers, eventBus } = {}) {
+  constructor({ modelRouter, archive, maxTokens, layers, eventBus, maxArchives = 200, archiveRetentionDays = null } = {}) {
     this.modelRouter = modelRouter || null;
     this.archiveAdapter = archive || null;
     this.maxTokens = Number.isFinite(maxTokens) ? maxTokens : DEFAULT_MAX_TOKENS;
     this.layers = normalizeLayerList(layers);
     this.eventBus = eventBus || null;
     this._archiveStore = new Map();
+    this._maxArchives = (() => {
+      if (maxArchives === Infinity) return Infinity;
+      const n = typeof maxArchives === "number" ? maxArchives : Number(maxArchives);
+      return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 200;
+    })();
+    this._archiveRetentionDays = (() => {
+      if (archiveRetentionDays === null || archiveRetentionDays === undefined) return null;
+      const n = typeof archiveRetentionDays === "number" ? archiveRetentionDays : Number(archiveRetentionDays);
+      return Number.isFinite(n) ? Math.max(0, n) : null;
+    })();
   }
 
   _emit(name, payload) {
     if (this.eventBus && typeof this.eventBus.emit === "function") {
       this.eventBus.emit(name, { actor: "cicada", status: "completed", payload });
+    }
+  }
+
+  _toTimestampMs(value) {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    const s = typeof value === "string" ? value.trim() : "";
+    if (!s) return null;
+    const ms = Date.parse(s);
+    return Number.isFinite(ms) ? ms : null;
+  }
+
+  _pruneArchiveStore() {
+    const max = this._maxArchives;
+    const retentionDays = this._archiveRetentionDays;
+    if ((max === Infinity || max === null) && (retentionDays === null || retentionDays === undefined)) return;
+
+    const now = Date.now();
+    const cutoffMs =
+      typeof retentionDays === "number" && Number.isFinite(retentionDays) && retentionDays > 0 ? now - retentionDays * 24 * 60 * 60 * 1000 : null;
+
+    if (cutoffMs !== null) {
+      for (const [key, entry] of this._archiveStore.entries()) {
+        const ts = this._toTimestampMs(entry?.timestamp) ?? (typeof entry?.timestamp === "number" ? entry.timestamp : null);
+        if (ts !== null && ts < cutoffMs) this._archiveStore.delete(key);
+      }
+    }
+
+    if (max === Infinity) return;
+    const limit = typeof max === "number" && Number.isFinite(max) ? Math.max(0, Math.floor(max)) : null;
+    if (!limit) return;
+    if (this._archiveStore.size <= limit) return;
+
+    const items = Array.from(this._archiveStore.entries()).map(([id, entry]) => {
+      const ts = this._toTimestampMs(entry?.timestamp) ?? (typeof entry?.timestamp === "number" ? entry.timestamp : 0);
+      return { id, ts };
+    });
+    items.sort((a, b) => b.ts - a.ts);
+
+    for (let i = limit; i < items.length; i++) {
+      this._archiveStore.delete(items[i].id);
     }
   }
 
@@ -496,23 +546,40 @@ export class CicadaCompressor {
     const key = toNonEmptyString(stageKey) || `archive_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
     const adapter = this.archiveAdapter;
 
+    const resolvedTimestamp = (() => {
+      const raw = data?.timestamp;
+      if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+      const ms = this._toTimestampMs(raw);
+      return ms !== null ? ms : Date.now();
+    })();
+
     // 增加元数据：时间戳和摘要
     const entry = {
       ...data,
-      timestamp: data.timestamp || Date.now(),
+      timestamp: resolvedTimestamp,
       summary: data.metadata?.llmSummary?.summary || data.summary || "",
       stageKey: key,
     };
 
+    // Always track metadata locally so listArchives()/backtrack can work even when using an external adapter.
+    const willPersist = !!adapter && (typeof adapter.store === "function" || typeof adapter.set === "function" || typeof adapter.archive === "function");
+    this._archiveStore.set(key, willPersist ? { timestamp: entry.timestamp, summary: entry.summary, stageKey: key } : entry);
+    this._pruneArchiveStore();
+
     if (adapter) {
-      if (typeof adapter.store === "function") return adapter.store(key, entry);
+      if (typeof adapter.store === "function") {
+        const stored = await adapter.store(key, entry);
+        return toNonEmptyString(stored) || key;
+      }
       if (typeof adapter.set === "function") {
         adapter.set(key, entry);
         return key;
       }
-      if (typeof adapter.archive === "function") return adapter.archive(key, entry);
+      if (typeof adapter.archive === "function") {
+        const stored = await adapter.archive(key, entry);
+        return toNonEmptyString(stored) || key;
+      }
     }
-    this._archiveStore.set(key, entry);
     return key;
   }
 

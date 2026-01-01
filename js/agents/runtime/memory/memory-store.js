@@ -46,6 +46,70 @@ function genId(prefix = "id") {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 5)}`;
 }
 
+function normalizeTodoStatus(value) {
+  const v = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (!v) return "pending";
+  if (v === "done" || v === "complete" || v === "completed") return "completed";
+  if (v === "inprogress" || v === "in_progress" || v === "in-progress" || v === "in progress") return "in_progress";
+  if (v === "cancel" || v === "canceled" || v === "cancelled") return "cancelled";
+  return v;
+}
+
+function normalizeTodoPriority(value) {
+  const v = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (v === "high" || v === "medium" || v === "low") return v;
+  if (v === "normal") return "medium";
+  return v || "medium";
+}
+
+function normalizeTodoEntry(todo) {
+  const raw = isPlainObject(todo) ? todo : { text: String(todo ?? "") };
+
+  const todoId = toNonEmptyString(raw.todoId) || toNonEmptyString(raw.id);
+  const id = toNonEmptyString(raw.id) || todoId || genId("todo");
+
+  const text =
+    toNonEmptyString(raw.text) ||
+    toNonEmptyString(raw.content) ||
+    toNonEmptyString(raw.title) ||
+    toNonEmptyString(raw.message) ||
+    "";
+
+  const status = normalizeTodoStatus(raw.status);
+  const priority = normalizeTodoPriority(raw.priority);
+
+  const createdAt = typeof raw.createdAt === "string" && raw.createdAt ? raw.createdAt : null;
+  const updatedAt = typeof raw.updatedAt === "string" && raw.updatedAt ? raw.updatedAt : null;
+  const ts = typeof raw.ts === "number" && Number.isFinite(raw.ts) ? raw.ts : Date.now();
+
+  return {
+    ...raw,
+    id,
+    todoId: todoId || id,
+    text: text || "",
+    content: text || "",
+    status,
+    priority,
+    ts,
+    ...(createdAt ? { createdAt } : {}),
+    ...(updatedAt ? { updatedAt } : {}),
+  };
+}
+
+function normalizeTodoInPlace(todo) {
+  if (!todo || typeof todo !== "object") return null;
+
+  if (todo.todoId && !todo.id) todo.id = todo.todoId;
+  if (todo.id && !todo.todoId) todo.todoId = todo.id;
+
+  if (todo.text && !todo.content) todo.content = todo.text;
+  if (todo.content && !todo.text) todo.text = todo.content;
+
+  if ("status" in todo) todo.status = normalizeTodoStatus(todo.status);
+  if ("priority" in todo) todo.priority = normalizeTodoPriority(todo.priority);
+  return todo;
+}
+
 export class MemoryStore {
   constructor(options = {}) {
     this.runId = toNonEmptyString(options.runId) || genId("run");
@@ -119,29 +183,37 @@ export class MemoryStore {
   }
 
   addTodo(todo) {
-    const item = isPlainObject(todo) ? todo : { content: String(todo) };
-    const id = item.id || genId("todo");
-    const entry = {
-      id,
-      content: item.content || "",
-      status: item.status || "pending",
-      priority: item.priority || "normal",
-      ts: Date.now(),
-    };
+    const entry = normalizeTodoEntry(todo);
+    // Avoid accidental duplicates when callers re-add an existing todoId.
+    const key = toNonEmptyString(entry.todoId) || toNonEmptyString(entry.id);
+    if (key) {
+      const existing = this.L0.todos.find((t) => String(t?.todoId || t?.id || "") === key);
+      if (existing) {
+        Object.assign(existing, entry, { updatedAt: new Date().toISOString() });
+        normalizeTodoInPlace(existing);
+        return existing;
+      }
+    }
+
     this.L0.todos.push(entry);
     return entry;
   }
 
   updateTodo(id, data) {
-    const todo = this.L0.todos.find(t => t.id === id);
+    const key = toNonEmptyString(id);
+    if (!key) return null;
+    const todo = this.L0.todos.find((t) => String(t?.id || "") === key || String(t?.todoId || "") === key);
     if (todo && isPlainObject(data)) {
-      Object.assign(todo, data, { updatedAt: Date.now() });
+      Object.assign(todo, data, { updatedAt: new Date().toISOString() });
+      normalizeTodoInPlace(todo);
     }
-    return todo;
+    return todo || null;
   }
 
   removeTodo(id) {
-    const idx = this.L0.todos.findIndex(t => t.id === id);
+    const key = toNonEmptyString(id);
+    if (!key) return null;
+    const idx = this.L0.todos.findIndex((t) => String(t?.id || "") === key || String(t?.todoId || "") === key);
     if (idx >= 0) {
       return this.L0.todos.splice(idx, 1)[0];
     }
@@ -153,7 +225,8 @@ export class MemoryStore {
       return this.L0.todos.filter(filter);
     }
     if (typeof filter === "string") {
-      return this.L0.todos.filter(t => t.status === filter);
+      const wanted = normalizeTodoStatus(filter);
+      return this.L0.todos.filter((t) => normalizeTodoStatus(t?.status) === wanted);
     }
     return [...this.L0.todos];
   }
@@ -504,12 +577,18 @@ export class MemoryStore {
     }
 
     if (this.L0.todos.length > 0) {
-      const todoLines = this.L0.todos.map(t => {
-        const status = t.status === "done" ? "✓" : t.status === "in_progress" ? "→" : "○";
-        const text = t.content || t.text || "(无描述)";
+      const isClosed = (t) => {
+        const st = normalizeTodoStatus(t?.status);
+        return st === "completed" || st === "cancelled" || st === "done";
+      };
+      const todoLines = this.L0.todos.map((t) => {
+        const st = normalizeTodoStatus(t?.status);
+        const status = st === "completed" || st === "done" ? "✓" : st === "in_progress" ? "→" : "○";
+        const text = t?.text || t?.content || t?.title || "(无描述)";
         return `${status} ${text}`;
       });
-      sections.push(`## 待办 (${this.L0.todos.filter(t => t.status !== "done").length}/${this.L0.todos.length})\n${todoLines.join("\n")}`);
+      const openCount = this.L0.todos.filter((t) => !isClosed(t)).length;
+      sections.push(`## 待办 (${openCount}/${this.L0.todos.length})\n${todoLines.join("\n")}`);
     }
 
     // L2: 压缩摘要

@@ -13,6 +13,7 @@ import { maybePersistToolOutput } from "../../../runtime/persisted-output.js";
 import { loadPrompt, renderPromptTemplate } from "../../../prompts/prompt-loader.js";
 
 let _writingPhasePromptTemplate = null;
+let _writingPhaseWarnedUnresolved = false;
 
 export class WritingPhaseHandler {
   constructor({ logger, emit, parseDecision, executeTool, maxIterations = 5, maxParseFailures = 3 }) {
@@ -96,7 +97,22 @@ export class WritingPhaseHandler {
           "minWords.wider": report.wider?.minWords ?? 6000,
           "minWords.deeper": report.deeper?.minWords ?? 10000,
         };
-        const rendered = renderPromptTemplate(_writingPhasePromptTemplate, { vars, keepUnresolved: true });
+        const cfg = state?.globalConfig || {};
+        const failOnUnresolved =
+          cfg?.prompts?.failOnUnresolved === true || cfg?.promptFailOnUnresolved === true || cfg?.promptFailFast === true;
+
+        const baseOptions = { vars, keepUnresolved: false };
+        const rendered = failOnUnresolved
+          ? renderPromptTemplate(_writingPhasePromptTemplate, { ...baseOptions, failOnUnresolved: true })
+          : !_writingPhaseWarnedUnresolved
+            ? renderPromptTemplate(_writingPhasePromptTemplate, {
+              ...baseOptions,
+              warnOnUnresolved: true,
+              onUnresolved: () => {
+                _writingPhaseWarnedUnresolved = true;
+              },
+            })
+            : renderPromptTemplate(_writingPhasePromptTemplate, baseOptions);
         addMessage({ role: "user", content: rendered });
       } catch {
         // ignore prompt injection failures

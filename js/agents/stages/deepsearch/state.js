@@ -261,14 +261,49 @@ export class DeepSearchState {
   // ─────────────────────────────────────────────────────────────────────────────
 
   bindMemoryStore(memoryStore) {
-    this._memoryStore = memoryStore;
-    // 同步当前状态到 MemoryStore
-    if (memoryStore) {
-      if (this.L2?.awaitUserFeedback) memoryStore.awaitUserFeedback = true;
-      if (this.L2?.taskImpossible) memoryStore.taskImpossible = true;
-      if (isPlainObject(this.L2?.scratchpad)) {
-        memoryStore.setScratchpad(this.L2.scratchpad);
+    this._memoryStore = memoryStore || null;
+    if (!memoryStore) return;
+
+    // Sync key fields so MemoryStore can act as the runtime SSOT where possible.
+    try {
+      if (typeof memoryStore.setTaskGoal === "function") {
+        memoryStore.setTaskGoal(this.taskGoal || "");
+      } else if (memoryStore.L0 && typeof memoryStore.L0 === "object") {
+        memoryStore.L0.taskGoal = this.taskGoal || "";
       }
+    } catch {
+      // ignore taskGoal sync failures
+    }
+
+    // Share Todos array reference to avoid "double source of truth" bugs.
+    const stateTodos = Array.isArray(this.todos) ? this.todos : [];
+    const memTodos = Array.isArray(memoryStore?.L0?.todos) ? memoryStore.L0.todos : null;
+
+    const normalizeTodoInPlace = (todo) => {
+      if (!todo || typeof todo !== "object") return;
+      if (todo.todoId && !todo.id) todo.id = todo.todoId;
+      if (todo.id && !todo.todoId) todo.todoId = todo.id;
+      if (todo.text && !todo.content) todo.content = todo.text;
+      if (todo.content && !todo.text) todo.text = todo.content;
+    };
+
+    let canonicalTodos = stateTodos;
+    if (canonicalTodos.length === 0 && memTodos && memTodos.length) canonicalTodos = memTodos;
+
+    if (memoryStore?.L0 && typeof memoryStore.L0 === "object") {
+      if (!Array.isArray(memoryStore.L0.todos) || memoryStore.L0.todos !== canonicalTodos) {
+        memoryStore.L0.todos = canonicalTodos;
+      }
+    }
+
+    this.todos = Array.isArray(memoryStore?.L0?.todos) ? memoryStore.L0.todos : canonicalTodos;
+    for (const todo of Array.isArray(this.todos) ? this.todos : []) normalizeTodoInPlace(todo);
+
+    // Sync current state flags/scratchpad to MemoryStore.
+    if (this.L2?.awaitUserFeedback) memoryStore.awaitUserFeedback = true;
+    if (this.L2?.taskImpossible) memoryStore.taskImpossible = true;
+    if (isPlainObject(this.L2?.scratchpad) && typeof memoryStore.setScratchpad === "function") {
+      memoryStore.setScratchpad(this.L2.scratchpad);
     }
   }
 

@@ -9,7 +9,7 @@ import { DeepSearchState } from "./state.js";
 import { getModelCaller } from "./model.js";
 import { createLogger } from "./runtime/logger.js";
 import { executeTool, getToolCatalogPrompt } from "./tools/index.js";
-import { isPlainObject } from "../../shared/utils/value-utils.js";
+import { isPlainObject, sanitizeForJson } from "../../shared/utils/value-utils.js";
 import { robustParseJson } from "../../shared/utils/robust-json.js";
 import { loadPrompt, renderPromptTemplate } from "../../prompts/prompt-loader.js";
 import { DeepSearchEvents } from "../../runtime/events/events.js";
@@ -111,6 +111,54 @@ const DEFAULT_MODE_CONFIG = {
   wider: { maxIterations: 30, writeIterations: 10, maxToolCalls: 100, subagentIterations: 10, description: "广度优先，覆盖所有文档" },
   deeper: { maxIterations: 50, writeIterations: 15, maxToolCalls: 200, subagentIterations: 15, description: "深度优先，逐个分析" },
 };
+
+function toPositiveInt(value, fallback) {
+  const n = Number.parseInt(String(value ?? ""), 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function deepSortForStableJson(value, seen = new WeakSet()) {
+  if (value === null || value === undefined) return value;
+  const t = typeof value;
+  if (t !== "object") return value;
+  if (seen.has(value)) return "[Circular]";
+  seen.add(value);
+
+  if (Array.isArray(value)) return value.map((v) => deepSortForStableJson(v, seen));
+
+  const out = {};
+  for (const key of Object.keys(value).sort()) {
+    out[key] = deepSortForStableJson(value[key], seen);
+  }
+  return out;
+}
+
+function stableStringify(value, { maxChars = 2000 } = {}) {
+  const cleaned = sanitizeForJson(value);
+  let s = "";
+  try {
+    s = JSON.stringify(deepSortForStableJson(cleaned));
+  } catch {
+    try {
+      s = JSON.stringify(cleaned);
+    } catch {
+      s = String(value ?? "");
+    }
+  }
+  const limit = Number.isFinite(Number(maxChars)) ? Math.max(0, Math.floor(Number(maxChars))) : 0;
+  if (!limit || s.length <= limit) return s;
+  return s.slice(0, limit) + "...";
+}
+
+function normalizeToolCallGuard(config) {
+  const cfg = isPlainObject(config) ? config : {};
+  const enabled = cfg.enabled === true;
+  const maxConsecutive = toPositiveInt(cfg.maxConsecutive, 6);
+  const warnAt = toPositiveInt(cfg.warnAt, Math.max(2, maxConsecutive - 1));
+  const maxSigChars = toPositiveInt(cfg.maxSignatureChars, 2000);
+  const ignoreTools = new Set(Array.isArray(cfg.ignoreTools) ? cfg.ignoreTools.map(String).filter(Boolean) : []);
+  return { enabled, maxConsecutive, warnAt, maxSigChars, ignoreTools };
+}
 
 /**
  * 获取模式配置（合并 config.json 和默认值）
@@ -228,12 +276,23 @@ async function getSystemPrompt({ skillsPrompt = "", config = null, mode = "wider
     config?.promptFailOnUnresolved === true ||
     config?.promptFailFast === true;
 
-  // Warn once if key placeholders remain unresolved (helps catch config/vars drift).
-  if (!failOnUnresolved && !_systemPromptWarnedUnresolved) {
+  const baseRenderOptions = {
+    vars,
+    appendIfMissing,
+    // Do not leak {{...}} placeholders into the model context by default.
+    // When a variable is missing, we warn once (or fail-fast when configured) and strip the placeholder.
+    keepUnresolved: false,
+  };
+
+  // Fail-fast mode: surface template drift as an explicit error.
+  if (failOnUnresolved) {
+    return renderPromptTemplate(combinedTemplate, { ...baseRenderOptions, failOnUnresolved: true });
+  }
+
+  // Warn once if key placeholders remain unresolved (helps catch config/vars drift) — but keep the prompt clean.
+  if (!_systemPromptWarnedUnresolved) {
     return renderPromptTemplate(combinedTemplate, {
-      vars,
-      appendIfMissing,
-      keepUnresolved: true,
+      ...baseRenderOptions,
       warnOnUnresolved: true,
       onUnresolved: () => {
         _systemPromptWarnedUnresolved = true;
@@ -241,12 +300,7 @@ async function getSystemPrompt({ skillsPrompt = "", config = null, mode = "wider
     });
   }
 
-  return renderPromptTemplate(combinedTemplate, {
-    vars,
-    appendIfMissing,
-    keepUnresolved: true,
-    ...(failOnUnresolved ? { failOnUnresolved: true } : {}),
-  });
+  return renderPromptTemplate(combinedTemplate, baseRenderOptions);
 }
 
 export class DeepSearchAgentLoop extends BaseAgentLoop {
@@ -293,6 +347,36 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
 
     this._logger = createLogger("agent-loop");
     this._failureReported = false;
+
+    // Repeated tool-call guard (doom-loop mitigation) — opt-in, browser-safe.
+    this._toolCallGuardConfig = normalizeToolCallGuard(
+      options.toolCallGuard || options.doomLoopGuard || options.userConfig?.toolCallGuard || options.globalConfig?.toolCallGuard
+    );
+    this._toolCallGuardState = { lastSig: null, consecutive: 0, warnedAt: 0 };
+  }
+
+  _recordToolCall(toolName, toolArgs) {
+    const cfg = this._toolCallGuardConfig;
+    if (!cfg?.enabled) return null;
+    const name = typeof toolName === "string" ? toolName.trim() : String(toolName || "").trim();
+    if (!name) return null;
+    if (cfg.ignoreTools?.has(name)) return null;
+
+    const sig = `${name}|${stableStringify(toolArgs, { maxChars: cfg.maxSigChars })}`;
+    if (sig === this._toolCallGuardState.lastSig) {
+      this._toolCallGuardState.consecutive += 1;
+    } else {
+      this._toolCallGuardState.lastSig = sig;
+      this._toolCallGuardState.consecutive = 1;
+      this._toolCallGuardState.warnedAt = 0;
+    }
+
+    const n = this._toolCallGuardState.consecutive;
+    const shouldWarn = n >= cfg.warnAt && this._toolCallGuardState.warnedAt < cfg.warnAt;
+    if (shouldWarn) this._toolCallGuardState.warnedAt = cfg.warnAt;
+
+    const shouldStop = n >= cfg.maxConsecutive;
+    return { tool: name, signature: sig, consecutive: n, shouldWarn, shouldStop };
   }
 
   _emit(name, payload, { actor = "deepsearch", status } = {}) {
@@ -404,12 +488,9 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         sharedContext: this.sharedContext,
         discoveryManager: this.discoveryManager,
       });
-      // 同步初始状态到 MemoryStore
-      this.memory.setTaskGoal(this.state.taskGoal || "");
-      if (Array.isArray(this.state.todos)) {
-        for (const todo of this.state.todos) {
-          this.memory.addTodo(todo);
-        }
+      // Memory 2.0: bind DeepSearchState to MemoryStore so todos/flags share a single source of truth.
+      if (this.state && typeof this.state.bindMemoryStore === "function") {
+        this.state.bindMemoryStore(this.memory);
       }
     } else if (this.memory) {
       // 延迟绑定底层组件
@@ -417,6 +498,9 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         sharedContext: this.sharedContext,
         discoveryManager: this.discoveryManager,
       });
+      if (this.state && typeof this.state.bindMemoryStore === "function") {
+        this.state.bindMemoryStore(this.memory);
+      }
     }
 
     // 初始化统一上下文（门面模式）
@@ -774,10 +858,13 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         // 批量执行 tools（并发）
         if (decision.actions) {
           this._logger.info(`Executing ${decision.actions.length} tools in parallel`);
+          let loopGuardWarn = null;
           const results = await Promise.all(
             decision.actions.map(async (item) => {
               const toolName = item.action;
               const toolArgs = item.args || {};
+              const guard = this._recordToolCall(toolName, toolArgs);
+              if (guard?.shouldWarn) loopGuardWarn = guard;
               try {
                 this.sourceManager?.syncSources?.(this.state?.L0?.sources);
                 const result = await executeTool(toolName, toolArgs, {
@@ -844,11 +931,14 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
           }
 
           // 添加批量结果到消息
+          const loopGuardNote = loopGuardWarn?.shouldWarn
+            ? `\n\n[LoopGuard] 你似乎在重复调用同一个工具（${loopGuardWarn.tool}）多次（连续 ${loopGuardWarn.consecutive} 次）。请改变策略/参数，或使用 ask-user 澄清，避免卡死。`
+            : "";
           this.addMessage({
             role: "user",
             content: `批量执行结果:\n${formatted
               .map((r, i) => `${i + 1}. ${r.tool}: ${JSON.stringify(r.inline)}`)
-              .join("\n")}\n\n如需读取完整 persisted output，请用 get-artifact { artifactId }。\n\n请继续。`,
+              .join("\n")}\n\n如需读取完整 persisted output，请用 get-artifact { artifactId }。${loopGuardNote}\n\n请继续。`,
           });
           iteration = plannedIteration;
           systemRetryCount = 0;
@@ -871,6 +961,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         });
         toolCallCount++;  // 计数单个调用
         this._logger.debug(`Tool result: ${JSON.stringify(toolResult).slice(0, 200)}`);
+        const loopGuard = this._recordToolCall(decision.action, decision.args || {});
 
         // watchdog handoff 触发回溯
         if (toolResult?.mode === "handoff" && this.backtrackManager?.canBacktrack?.()) {
@@ -937,7 +1028,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
 
         this.addMessage({
           role: "user",
-          content: `结果: ${JSON.stringify(toolPayloadForPrompt, null, 2)}\n\n如需读取完整 persisted output，请用 get-artifact { artifactId }。\n\n请继续。`,
+          content: `结果: ${JSON.stringify(toolPayloadForPrompt, null, 2)}\n\n如需读取完整 persisted output，请用 get-artifact { artifactId }。${loopGuard?.shouldWarn ? `\n\n[LoopGuard] 你似乎在重复调用同一个工具（${loopGuard.tool}）多次（连续 ${loopGuard.consecutive} 次）。请改变策略/参数，或使用 ask-user 澄清，避免卡死。` : ""}\n\n请继续。`,
         });
         iteration = plannedIteration;
         systemRetryCount = 0;
