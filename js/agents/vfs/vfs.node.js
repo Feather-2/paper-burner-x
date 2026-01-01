@@ -96,7 +96,87 @@ export class NodeFsVfs {
     out.sort((a, b) => a.localeCompare(b));
     return out;
   }
+
+  async *walkFiles({ prefix = "", recursive = true, signal } = {}) {
+    const fs = await this._fs();
+    const baseRel = normalizeVfsPath(prefix);
+    const rootAbs = joinFsPath(this._rootPath, baseRel);
+
+    const walk = async function* (dir, relDir) {
+      const entries = await fs.readdir(dir, { withFileTypes: true });
+      entries.sort((a, b) => a.name.localeCompare(b.name));
+      for (const e of entries) {
+        if (signal?.aborted) throw new Error("walkFiles: aborted");
+        if (e.name.startsWith(".")) continue;
+        const relPath = relDir ? `${relDir}/${e.name}` : e.name;
+        const abs = `${dir}/${e.name}`;
+        if (e.isDirectory()) {
+          if (recursive) yield* walk(abs, relPath);
+        } else {
+          yield relPath;
+        }
+      }
+    };
+
+    try {
+      const st = await fs.stat(rootAbs);
+      if (st.isFile()) {
+        yield baseRel;
+        return;
+      }
+    } catch {
+      return;
+    }
+
+    yield* walk(rootAbs, baseRel);
+  }
+
+  async exists(path) {
+    const fs = await this._fs();
+    try {
+      await fs.access(joinFsPath(this._rootPath, path));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async copy(src, dest) {
+    const fs = await this._fs();
+    const s = joinFsPath(this._rootPath, src);
+    const d = joinFsPath(this._rootPath, dest);
+    const dir = d.split("/").slice(0, -1).join("/") || ".";
+    await fs.mkdir(dir, { recursive: true });
+    await fs.copyFile(s, d);
+    return true;
+  }
+
+  async move(src, dest) {
+    const fs = await this._fs();
+    const s = joinFsPath(this._rootPath, src);
+    const d = joinFsPath(this._rootPath, dest);
+    const dir = d.split("/").slice(0, -1).join("/") || ".";
+    await fs.mkdir(dir, { recursive: true });
+    try {
+      await fs.rename(s, d);
+      return true;
+    } catch (err) {
+      const code = String(err?.code || "");
+      if (code !== "EXDEV") throw err;
+      await fs.copyFile(s, d);
+      await fs.unlink(s);
+      return true;
+    }
+  }
+
+  async appendText(path, text) {
+    const fs = await this._fs();
+    const p = joinFsPath(this._rootPath, path);
+    const dir = p.split("/").slice(0, -1).join("/") || ".";
+    await fs.mkdir(dir, { recursive: true });
+    await fs.appendFile(p, typeof text === "string" ? text : String(text ?? ""), "utf8");
+    return true;
+  }
 }
 
 export default NodeFsVfs;
-

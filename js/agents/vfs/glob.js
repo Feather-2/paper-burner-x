@@ -8,6 +8,26 @@ function normalizePattern(pattern) {
   return String(pattern ?? "").replaceAll("\\", "/").trim();
 }
 
+function firstGlobWildcardIndex(pattern) {
+  const p = normalizePattern(pattern);
+  let idx = -1;
+  for (const ch of ["*", "?", "{", "["]) {
+    const i = p.indexOf(ch);
+    if (i < 0) continue;
+    if (idx < 0 || i < idx) idx = i;
+  }
+  return idx;
+}
+
+function staticDirPrefixFromPattern(pattern) {
+  const p = normalizePattern(pattern);
+  const firstWildcard = firstGlobWildcardIndex(p);
+  const head = firstWildcard >= 0 ? p.slice(0, firstWildcard) : p;
+  const slash = head.lastIndexOf("/");
+  const dir = slash >= 0 ? head.slice(0, slash) : "";
+  return normalizeVfsPath(dir);
+}
+
 function expandOneBrace(pattern) {
   const start = pattern.indexOf("{");
   if (start < 0) return [pattern];
@@ -57,8 +77,15 @@ export function globToRegExp(globPattern) {
     const ch = pattern[i];
     const next = pattern[i + 1];
     if (ch === "*" && next === "*") {
-      re += ".*";
-      i++;
+      const after = pattern[i + 2];
+      if (after === "/") {
+        // Treat "**/" as "any directories, including none".
+        re += "(?:.*\\/)?";
+        i += 2; // consume "**/"
+      } else {
+        re += ".*";
+        i++;
+      }
       continue;
     }
     if (ch === "*") {
@@ -83,6 +110,14 @@ export function matchGlob(globPattern, path) {
   return false;
 }
 
+function compileGlobRegexes(globPattern) {
+  const out = [];
+  for (const expanded of expandBraces(globPattern)) {
+    out.push(globToRegExp(expanded));
+  }
+  return out;
+}
+
 /**
  * Create a simple glob function compatible with CodeSearch tools.
  *
@@ -91,18 +126,39 @@ export function matchGlob(globPattern, path) {
  * @param {number} [options.maxScanFiles=20000]
  */
 export function createVfsGlobFn(vfs, { maxScanFiles = 20000 } = {}) {
-  if (!vfs || typeof vfs.listFiles !== "function") return null;
+  if (!vfs) return null;
+  const hasList = typeof vfs.listFiles === "function";
+  const hasWalk = typeof vfs.walkFiles === "function";
+  if (!hasList && !hasWalk) return null;
 
   return async function globFn({ pattern, path } = {}) {
     const base = normalizeVfsPath(path || "");
-    const files = await vfs.listFiles({ prefix: base, recursive: true });
-    const capped = files.slice(0, Math.max(0, Math.floor(maxScanFiles)));
+    const regexes = compileGlobRegexes(pattern);
+    const maxScan = Math.max(0, Math.floor(maxScanFiles));
+
+    const relDir = staticDirPrefixFromPattern(pattern);
+    const scanPrefix = base ? (relDir ? `${base}/${relDir}` : base) : relDir;
 
     const out = [];
+    let scanned = 0;
+
+    if (hasWalk) {
+      for await (const file of vfs.walkFiles({ prefix: scanPrefix, recursive: true })) {
+        scanned += 1;
+        if (maxScan && scanned > maxScan) break;
+        const rel = base ? file.slice(base.length + 1) : file;
+        if (!rel) continue;
+        if (regexes.some((re) => re.test(rel))) out.push(file);
+      }
+      return out;
+    }
+
+    const files = await vfs.listFiles({ prefix: scanPrefix || base, recursive: true });
+    const capped = files.slice(0, maxScan);
     for (const file of capped) {
       const rel = base ? file.slice(base.length + 1) : file;
       if (!rel) continue;
-      if (matchGlob(pattern, rel)) out.push(file);
+      if (regexes.some((re) => re.test(rel))) out.push(file);
     }
     return out;
   };
@@ -114,4 +170,3 @@ export default {
   matchGlob,
   createVfsGlobFn,
 };
-

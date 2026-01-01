@@ -266,6 +266,93 @@ export class MemoryVfs {
     out.sort((a, b) => a.localeCompare(b));
     return out;
   }
+
+  async *walkFiles({ prefix = "", recursive = true } = {}) {
+    const pfx = normalizeVfsPath(prefix);
+    const node = this._getNode(pfx);
+    if (!node) return;
+
+    if (node.kind === "file") {
+      yield pfx;
+      return;
+    }
+
+    const walk = async function* (dirNode, basePath) {
+      const entries = Array.from(dirNode.children.entries()).sort(([a], [b]) => a.localeCompare(b));
+      for (const [name, child] of entries) {
+        const nextPath = basePath ? `${basePath}/${name}` : name;
+        if (child.kind === "dir") {
+          if (recursive) yield* walk(child, nextPath);
+          continue;
+        }
+        yield nextPath;
+      }
+    };
+
+    yield* walk(node, pfx);
+  }
+
+  async exists(path) {
+    const p = normalizeVfsPath(path);
+    if (!p) return true;
+    try {
+      return !!this._getNode(p);
+    } catch {
+      return false;
+    }
+  }
+
+  async copy(src, dest) {
+    const s = normalizeVfsPath(src);
+    const d = normalizeVfsPath(dest);
+    if (!s) throw new Error("EISDIR: /");
+    if (!d) throw new Error("EISDIR: /");
+    const bytes = await this.readFile(s);
+    await this.writeFile(d, bytes);
+    return true;
+  }
+
+  async move(src, dest) {
+    const s = normalizeVfsPath(src);
+    const d = normalizeVfsPath(dest);
+    if (!s) throw new Error("EISDIR: /");
+    if (!d) throw new Error("EISDIR: /");
+
+    const srcInfo = this._getParentDirForPath(s, { create: false });
+    if (!srcInfo?.parent) throw new Error(`ENOENT: ${s}`);
+    const node = srcInfo.parent.children.get(srcInfo.name);
+    if (!node) throw new Error(`ENOENT: ${s}`);
+
+    const dstInfo = this._getParentDirForPath(d, { create: true });
+    if (!dstInfo?.parent) throw new Error(`ENOENT: ${d}`);
+
+    const existing = dstInfo.parent.children.get(dstInfo.name);
+    if (existing && existing.kind === "dir" && node.kind === "file") throw new Error(`EISDIR: ${d}`);
+
+    dstInfo.parent.children.set(dstInfo.name, node);
+    dstInfo.parent.updatedAt = Date.now();
+
+    srcInfo.parent.children.delete(srcInfo.name);
+    srcInfo.parent.updatedAt = Date.now();
+    return true;
+  }
+
+  async appendText(path, text) {
+    const p = normalizeVfsPath(path);
+    if (!p) throw new Error("EISDIR: /");
+    let before = "";
+    try {
+      const node = this._getNode(p);
+      if (node && node.kind === "dir") throw new Error(`EISDIR: ${p}`);
+      before = node ? await this.readText(p) : "";
+    } catch (err) {
+      const msg = String(err?.message || err);
+      if (!msg.includes("ENOENT")) throw err;
+      before = "";
+    }
+    await this.writeText(p, before + String(text ?? ""));
+    return true;
+  }
 }
 
 export default MemoryVfs;

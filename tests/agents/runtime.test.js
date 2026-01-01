@@ -96,6 +96,8 @@ test("VFS: MemoryVfs directory tree + mkdir/rmdir/unlink", async () => {
 
   await vfs.mkdir("empty");
   await vfs.writeText("a/b.txt", "hi");
+  assert.equal(await vfs.exists("a/b.txt"), true);
+  assert.equal(await vfs.exists("a/missing.txt"), false);
 
   const rootEntries = await vfs.readdir("", { withFileTypes: true });
   assert.deepEqual(
@@ -118,9 +120,20 @@ test("VFS: MemoryVfs directory tree + mkdir/rmdir/unlink", async () => {
   assert.deepEqual(await vfs.listFiles({ prefix: "a", recursive: true }), ["a/b.txt"]);
   assert.deepEqual(await vfs.listFiles({ prefix: "a/b.txt" }), ["a/b.txt"]);
 
+  await vfs.copy("a/b.txt", "a/c.txt");
+  assert.equal(await vfs.readText("a/c.txt"), "hi");
+
+  await vfs.move("a/c.txt", "a/d.txt");
+  assert.equal(await vfs.exists("a/c.txt"), false);
+  assert.equal(await vfs.readText("a/d.txt"), "hi");
+
+  await vfs.appendText("a/d.txt", "!");
+  assert.equal(await vfs.readText("a/d.txt"), "hi!");
+
   await assert.rejects(async () => vfs.rmdir("a"), /ENOTEMPTY/);
 
   await vfs.unlink("a/b.txt");
+  await vfs.unlink("a/d.txt");
   assert.deepEqual(await vfs.readdir("a"), []);
   await vfs.rmdir("a");
 
@@ -140,6 +153,28 @@ test("VFS: MemoryVfs mkdir recursive=false semantics", async () => {
   await assert.rejects(async () => vfs.mkdir("file.txt", { recursive: false }), /EEXIST/);
 
   await assert.rejects(async () => vfs.mkdir("missing/child", { recursive: false }), /ENOENT/);
+});
+
+test("VFS glob: createVfsGlobFn uses walkFiles + static dir prefix", async () => {
+  const { MemoryVfs } = await import("../../js/agents/vfs/vfs.memory.js");
+  const { createVfsGlobFn } = await import("../../js/agents/vfs/glob.js");
+
+  const vfs = new MemoryVfs();
+  await vfs.writeText("src/a.js", "x");
+  await vfs.writeText("src/b.ts", "x");
+  await vfs.writeText("other/c.js", "x");
+
+  const seenPrefixes = [];
+  const original = vfs.walkFiles.bind(vfs);
+  vfs.walkFiles = async function* (opts) {
+    seenPrefixes.push(String(opts?.prefix || ""));
+    yield* original(opts);
+  };
+
+  const globFn = createVfsGlobFn(vfs, { maxScanFiles: 100 });
+  const files = await globFn({ pattern: "src/**/*.js", path: "" });
+  assert.deepEqual(files, ["src/a.js"]);
+  assert.equal(seenPrefixes[0], "src");
 });
 
 test("VFS operations: writeTextFileWithPolicy serializes concurrent writes", async () => {
