@@ -710,6 +710,110 @@ export class MemoryStore {
     this.syncFromSharedContext();
     this.syncFromDiscoveryManager();
   }
+
+  // ===== Snapshot / Restore =====
+
+  /**
+   * Serialize MemoryStore state for checkpoints.
+   * Keep this schema stable: consumers (UnifiedAgentContext / Backtrack) should not reach into L0/L1/L2 internals.
+   *
+   * @param {{includeL3?:boolean}=} options
+   */
+  toSnapshot({ includeL3 = false } = {}) {
+    const withL3 = includeL3 === true;
+
+    return {
+      schemaVersion: "0.1",
+      runId: this.runId,
+      ts: new Date().toISOString(),
+      config: deepClone(this.config),
+      L0: deepClone(this.L0),
+      L1: {
+        messages: deepClone(this.L1.messages),
+        signals: deepClone(this.L1.signals),
+        decisions: deepClone(this.L1.decisions),
+        syncTable: {
+          discoveries: Array.from(this.L1.syncTable.discoveries.entries()),
+          subagents: Array.from(this.L1.syncTable.subagents.entries()),
+        },
+        scratchpad: deepClone(this.L1.scratchpad || {}),
+        flags: { ...this.L1.flags },
+      },
+      L2: {
+        historySummary: this.L2.historySummary,
+        stageSummaries: Array.from(this.L2.stageSummaries.entries()),
+        claims: deepClone(this.L2.claims),
+      },
+      ...(withL3
+        ? {
+            L3: {
+              snapshots: Array.from(this.L3.snapshots.entries()),
+              index: {
+                keywords: Array.from(this.L3.index.keywords.entries()).map(([k, set]) => [k, Array.from(set || [])]),
+                stages: Array.from(this.L3.index.stages.entries()),
+                timeline: deepClone(this.L3.index.timeline),
+              },
+              checkpoints: deepClone(this.L3.checkpoints),
+            },
+          }
+        : {}),
+      stats: { ...this._stats },
+    };
+  }
+
+  /**
+   * Restore MemoryStore state from a snapshot created by toSnapshot().
+   *
+   * @param {object} snapshot
+   */
+  fromSnapshot(snapshot) {
+    const s = snapshot && typeof snapshot === "object" ? snapshot : null;
+    if (!s) return false;
+
+    const l0 = s.L0 && typeof s.L0 === "object" ? s.L0 : {};
+    const l1 = s.L1 && typeof s.L1 === "object" ? s.L1 : {};
+    const l2 = s.L2 && typeof s.L2 === "object" ? s.L2 : {};
+
+    if (typeof s.runId === "string" && s.runId) this.runId = s.runId;
+    if (s.config && typeof s.config === "object") this.config = { ...DEFAULT_CONFIG, ...s.config };
+
+    this.L0.systemPrompt = toNonEmptyString(l0.systemPrompt) || "";
+    this.L0.taskGoal = toNonEmptyString(l0.taskGoal) || "";
+    this.L0.todos = Array.isArray(l0.todos) ? deepClone(l0.todos) : [];
+
+    this.L1.messages = Array.isArray(l1.messages) ? deepClone(l1.messages) : [];
+    this.L1.signals = Array.isArray(l1.signals) ? deepClone(l1.signals) : [];
+    this.L1.decisions = Array.isArray(l1.decisions) ? deepClone(l1.decisions) : [];
+
+    const sync = l1.syncTable && typeof l1.syncTable === "object" ? l1.syncTable : {};
+    this.L1.syncTable.discoveries = new Map(Array.isArray(sync.discoveries) ? sync.discoveries : []);
+    this.L1.syncTable.subagents = new Map(Array.isArray(sync.subagents) ? sync.subagents : []);
+
+    this.L1.scratchpad = isPlainObject(l1.scratchpad) ? deepClone(l1.scratchpad) : {};
+    this.L1.flags = isPlainObject(l1.flags) ? { ...this.L1.flags, ...l1.flags } : { ...this.L1.flags };
+
+    this.L2.historySummary = typeof l2.historySummary === "string" ? l2.historySummary : "";
+    this.L2.stageSummaries = new Map(Array.isArray(l2.stageSummaries) ? l2.stageSummaries : []);
+    this.L2.claims = Array.isArray(l2.claims) ? deepClone(l2.claims) : [];
+
+    if (s.L3 && typeof s.L3 === "object") {
+      const l3 = s.L3;
+      this.L3.snapshots = new Map(Array.isArray(l3.snapshots) ? l3.snapshots : []);
+      const index = l3.index && typeof l3.index === "object" ? l3.index : {};
+      this.L3.index.keywords = new Map(
+        Array.isArray(index.keywords) ? index.keywords.map(([k, arr]) => [k, new Set(Array.isArray(arr) ? arr : [])]) : []
+      );
+      this.L3.index.stages = new Map(Array.isArray(index.stages) ? index.stages : []);
+      this.L3.index.timeline = Array.isArray(index.timeline) ? deepClone(index.timeline) : [];
+      this.L3.checkpoints = Array.isArray(l3.checkpoints) ? deepClone(l3.checkpoints) : [];
+    }
+
+    if (s.stats && typeof s.stats === "object") {
+      this._stats = { ...this._stats, ...s.stats };
+    }
+
+    return true;
+  }
 }
 
 export default MemoryStore;

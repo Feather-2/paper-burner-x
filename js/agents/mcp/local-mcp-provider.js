@@ -2,8 +2,8 @@
  * Local MCP Provider - paper-burner 内置搜索工具
  *
  * 实现标准 MCP 工具：
- * - search: 搜索查询 (本地实现使用 DuckDuckGo HTML 解析)
- * - fetch_content: 获取网页内容
+ * - search.query: 搜索查询 (本地实现使用 DuckDuckGo HTML 解析)
+ * - search.fetch: 获取网页内容
  *
  * 支持两种模式：
  * 1. workerEndpoint 模式（推荐）：使用 CF Worker 作为后端代理
@@ -11,6 +11,7 @@
  */
 
 import { McpProvider, McpToolDefinition, McpToolResult } from "./mcp-client.js";
+import { extractSmartContent } from "./smart-content-extractor.js";
 import { createSafeRegex } from "../shared/utils/safe-regex.js";
 import { isPlainObject, toNonEmptyString, safeInt as _safeInt } from "../shared/utils/value-utils.js";
 
@@ -149,6 +150,50 @@ function validateFetchUrl(rawUrl, { allowPrivateNetwork = false } = {}) {
   }
 
   return u.toString();
+}
+
+function looksLikeProxyErrorPage(html) {
+  const s = typeof html === "string" ? html : String(html ?? "");
+  if (!s) return false;
+  const lower = s.toLowerCase();
+  const len = s.length;
+
+  // Only apply heuristics to relatively small responses to avoid false positives.
+  if (len > 8000) return false;
+
+  // Common CORS proxy / browser error signatures.
+  if (lower.includes("access to fetch") && lower.includes("blocked")) return true;
+  if (lower.includes("access to xmlhttprequest") && lower.includes("blocked")) return true;
+  if (lower.includes("not allowed by access-control-allow-origin")) return true;
+  if (lower.includes("cors-anywhere")) return true;
+  if (lower.includes("allorigins") && lower.includes("error")) return true;
+  if (lower.includes("cross origin") && lower.includes("denied")) return true;
+
+  // Generic short error pages.
+  if (len < 2500) {
+    if (lower.includes("access denied")) return true;
+    if (lower.includes("forbidden")) return true;
+    if (lower.includes("request blocked")) return true;
+    if (lower.includes("too many requests")) return true;
+    if (lower.includes("rate limit")) return true;
+    if (lower.includes("service unavailable")) return true;
+    if (lower.includes("attention required") && lower.includes("cloudflare")) return true;
+    if (lower.includes("checking your browser")) return true;
+  }
+
+  return false;
+}
+
+function sanitizeExtractedText(text) {
+  const s = typeof text === "string" ? text : String(text ?? "");
+  if (!s) return "";
+  return s.replace(/https?:\/\/[^\s<>"']+/gi, " ").replace(/\s+/g, " ").trim();
+}
+
+function stripUrls(text) {
+  const s = typeof text === "string" ? text : String(text ?? "");
+  if (!s) return "";
+  return s.replace(/https?:\/\/[^\s<>"']+/gi, "");
 }
 
 /**
@@ -538,11 +583,12 @@ export class LocalMcpProvider extends McpProvider {
     this.proxyCooldownMs = Math.max(0, safeInt(requireFiniteNumber(proxyCooldownMs, "proxyCooldownMs"), 60_000));
     this._corsProxyUnhealthyUntilMs = new Map(); // proxy -> ts (ms)
     this._lastGoodProxy = undefined; // proxy string, may be ""
+    this._deprecatedToolNameWarned = new Set();
 
     // 工具定义
     this._tools = [
       new McpToolDefinition({
-        name: "search",
+        name: "search.query",
         description: "Search the web using DuckDuckGo. Returns a list of search results with title, URL, and snippet.",
         inputSchema: {
           type: "object",
@@ -569,7 +615,7 @@ export class LocalMcpProvider extends McpProvider {
         },
       }),
       new McpToolDefinition({
-        name: "fetch_content",
+        name: "search.fetch",
         description: "Fetch and extract content from a URL. Returns the page title, extracted text, and metadata.",
         inputSchema: {
           type: "object",
@@ -592,18 +638,60 @@ export class LocalMcpProvider extends McpProvider {
     return this._tools.slice();
   }
 
+  _canonicalizeToolName(toolName) {
+    const name = toNonEmptyString(toolName);
+    if (!name) return null;
+
+    // Canonical tool names
+    if (name === "search.query") return "search.query";
+    if (name === "search.fetch") return "search.fetch";
+
+    // Backward-compatible aliases (deprecated)
+    if (name === "search") return "search.query";
+    if (name === "fetch_content") return "search.fetch";
+    if (name === "fetch") return "search.fetch";
+
+    return null;
+  }
+
+  _withDeprecatedToolName(result, { usedName, canonicalName } = {}) {
+    const used = toNonEmptyString(usedName);
+    const canonical = toNonEmptyString(canonicalName);
+    if (!used || !canonical || used === canonical) return result;
+
+    if (this._deprecatedToolNameWarned.has(used)) return result;
+    this._deprecatedToolNameWarned.add(used);
+
+    const content = Array.isArray(result?.content) ? result.content.slice() : [];
+    content.push({
+      type: "text",
+      text: `(deprecated) Tool name "${used}" is deprecated; use "${canonical}"`,
+    });
+
+    // Keep the primary output first; append the warning.
+    return new McpToolResult({
+      success: Boolean(result?.success),
+      isError: Boolean(result?.isError),
+      error: result?.error ?? null,
+      content,
+    });
+  }
+
   /**
    * 调用工具
    */
   async callTool(toolName, args = {}) {
-    const name = toNonEmptyString(toolName);
+    const usedName = toNonEmptyString(toolName);
+    const canonical = this._canonicalizeToolName(usedName);
 
-    if (name === "search" || name === "search.query") {
-      return this._search(args);
+    if (canonical === "search.query") {
+      const out = await this._search(args);
+      return this._withDeprecatedToolName(out, { usedName, canonicalName: canonical });
     }
 
-    if (name === "fetch_content" || name === "search.fetch" || name === "fetch") {
-      return this._fetchContent(args);
+    if (canonical === "search.fetch") {
+      const out = await this._fetchContent(args);
+      return this._withDeprecatedToolName(out, { usedName, canonicalName: canonical });
     }
 
     return new McpToolResult({
@@ -685,7 +773,7 @@ export class LocalMcpProvider extends McpProvider {
 
         if (response.ok || response.status === 0) {
           const text = await response.text();
-          if (text && text.length > 100) {
+          if (text && text.length > 100 && !looksLikeProxyErrorPage(text)) {
             this._markCorsProxySuccess(proxy);
             return { text, url: targetUrl, proxy: proxy || "direct" };
           }
@@ -879,15 +967,20 @@ export class LocalMcpProvider extends McpProvider {
         tryDirect: true,
       });
 
-      const title = extractTitle(html);
-      const description = extractMetaDescription(html);
-      const extractedText = extractTextFromHtml(html);
-
-      // 限制文本长度
       const maxLength = 50000;
-      const truncatedText = extractedText.length > maxLength
-        ? extractedText.slice(0, maxLength) + "...(truncated)"
-        : extractedText;
+
+      let extracted = null;
+      try {
+        extracted = extractSmartContent(html, { maxLength, preserveLinks: false, fallbackOnError: true });
+      } catch {
+        extracted = null;
+      }
+
+      const title = toNonEmptyString(extracted?.metadata?.title) || extractTitle(html);
+      const description = toNonEmptyString(extracted?.metadata?.description) || extractMetaDescription(html);
+      const extractedText = sanitizeExtractedText(extracted?.plainText || extracted?.markdown || extractTextFromHtml(html));
+
+      const truncatedText = extractedText.length > maxLength ? extractedText.slice(0, maxLength) + "...(truncated)" : extractedText;
 
       const metadata = {
         url: targetUrl,
@@ -897,6 +990,7 @@ export class LocalMcpProvider extends McpProvider {
         contentLength: html.length,
         extractedLength: extractedText.length,
         proxy,
+        ...(extracted?.structure ? { extraction: extracted.structure } : {}),
       };
 
       return new McpToolResult({
@@ -904,7 +998,15 @@ export class LocalMcpProvider extends McpProvider {
         isError: false,
         content: [
           { type: "text", text: truncatedText },
-          { type: "json", data: { metadata, title, url: targetUrl } },
+          {
+            type: "json",
+            data: {
+              metadata,
+              title,
+              url: targetUrl,
+              ...(toNonEmptyString(extracted?.markdown) ? { markdown: stripUrls(extracted.markdown) } : {}),
+            },
+          },
         ],
       });
     } catch (err) {

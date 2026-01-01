@@ -1,6 +1,6 @@
 import { computeSha256 } from "../storage/artifact-manager.js";
 import { normalizeVfsPath } from "./path.js";
-import { createUnifiedDiff } from "./diff.js";
+import { createUnifiedDiffAsync } from "./diff.js";
 
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -181,7 +181,10 @@ export async function recordVfsCheckpoint({
 
   if (beforeText !== null && afterText !== null && beforeBytes.byteLength + afterBytes.byteLength <= maxEmbedBytes) {
     try {
-      const diff = createUnifiedDiff({ path: normalizedPath, beforeText, afterText, context: 3 });
+      const diff = await createUnifiedDiffAsync(
+        { path: normalizedPath, beforeText, afterText, context: 3 },
+        { useWorker: true, workerThresholdChars: 80_000 }
+      );
       checkpoint.diff = {
         format: "unified",
         context: 3,

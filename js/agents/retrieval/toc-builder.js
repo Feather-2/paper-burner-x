@@ -91,6 +91,16 @@ function buildFallbackSections(text) {
   return sections;
 }
 
+function toPositiveInt(value, fallback) {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.floor(n);
+}
+
+function sleep0() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 /**
  * Extract a flat TOC list from normalized text.
  * Heuristics:
@@ -157,3 +167,78 @@ export function buildToc(normalizedText, options = {}) {
   return { tocNodes, fallbackSections };
 }
 
+/**
+ * Async TOC builder that yields periodically to keep the main thread responsive.
+ *
+ * @param {string} normalizedText
+ * @param {{signal?:AbortSignal,yieldEveryLines?:number}=} options
+ * @returns {Promise<{tocNodes:Array,fallbackSections:any[]}>}
+ */
+export async function buildTocAsync(normalizedText, options = {}) {
+  if (typeof normalizedText !== "string") throw new TypeError("buildTocAsync(normalizedText): normalizedText must be a string");
+  if (!isPlainObject(options)) throw new TypeError("buildTocAsync(normalizedText, options): options must be an object");
+
+  const text = normalizedText;
+  const tocNodes = [];
+  const signal = options.signal;
+  const yieldEveryLines = toPositiveInt(options.yieldEveryLines, 800);
+
+  let inCodeFence = false;
+  let lineStart = 0;
+  let lineIndex = 0;
+
+  for (let i = 0; i <= text.length; i++) {
+    const isEnd = i === text.length;
+    const ch = isEnd ? "\n" : text[i];
+    if (ch !== "\n") continue;
+
+    if (signal?.aborted) throw new Error("buildTocAsync: aborted");
+    if (yieldEveryLines > 0 && lineIndex > 0 && lineIndex % yieldEveryLines === 0) await sleep0();
+
+    const lineEnd = i;
+    const raw = text.slice(lineStart, lineEnd);
+    lineStart = i + 1;
+    lineIndex += 1;
+
+    const t = raw.trim();
+    if (!t) continue;
+
+    if (/^\s*```/.test(raw)) {
+      inCodeFence = !inCodeFence;
+      continue;
+    }
+    if (inCodeFence) continue;
+
+    let level = 0;
+    let title = "";
+
+    const md = raw.match(/^(#{1,6})\s+(.+?)\s*$/);
+    if (md) {
+      level = md[1].length;
+      title = normalizeTitle(stripMdHeadingMarkers(raw));
+    } else {
+      const numbered = parseNumberedHeading(raw.trim());
+      if (numbered) {
+        level = numbered.level;
+        title = numbered.title;
+      } else if (looksLikeCapsHeading(raw)) {
+        level = 1;
+        title = normalizeTitle(raw);
+      }
+    }
+
+    if (!level || !title) continue;
+    if (title.length > 200) continue;
+
+    tocNodes.push({
+      tocNodeId: `toc_${tocNodes.length + 1}`,
+      title,
+      level,
+      locator: { charStart: lineStart - (raw.length + 1), charEnd: lineEnd },
+    });
+  }
+
+  computeSectionEnds(tocNodes, text.length);
+  const fallbackSections = tocNodes.length === 0 ? buildFallbackSections(text) : [];
+  return { tocNodes, fallbackSections };
+}

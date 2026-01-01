@@ -1,8 +1,8 @@
-import { buildIndex as buildBm25Index, search as bm25Search } from "./bm25.js";
-import { grepChunks } from "./grep.js";
+import { buildIndex as buildBm25Index, buildIndexAsync as buildBm25IndexAsync, search as bm25Search } from "./bm25.js";
+import { grepChunks, grepChunksAsync } from "./grep.js";
 import { readAround } from "./readaround.js";
 import { chunksInScope, selectScope } from "./scope.js";
-import { buildToc } from "./toc-builder.js";
+import { buildToc, buildTocAsync } from "./toc-builder.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -244,6 +244,25 @@ function ensureToc(sourceIndex) {
   return [];
 }
 
+async function ensureTocAsync(sourceIndex, { signal } = {}) {
+  if (sourceIndex && Array.isArray(sourceIndex.toc) && sourceIndex.toc.length) return sourceIndex.toc;
+  if (sourceIndex && typeof sourceIndex.fullText === "string") {
+    const text = sourceIndex.fullText;
+    // Prefer async parsing for large inputs (prevents UI jank).
+    if (text.length >= 200_000 || signal) {
+      const { tocNodes } = await buildTocAsync(text, { signal, yieldEveryLines: 800 });
+      return tocNodes;
+    }
+    const { tocNodes } = buildToc(text);
+    return tocNodes;
+  }
+  return [];
+}
+
+function sleep0() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 /**
  * S4 Retrieval Router: scope selection -> search -> readAround -> return.
  *
@@ -434,4 +453,213 @@ export function retrieve(sourceIndex, gaps, config = {}) {
 
   const retrieved = Array.from(byChunkId.values()).sort(sortByCharStart);
   return retrieved;
+}
+
+/**
+ * Async retrieval with chunked parsing/search (keeps the main thread responsive for large corpora).
+ *
+ * @param {{sourceId:string,chunks:Array<{chunkId:string,text:string,locator:any}>,toc?:any[],fullText?:string}} sourceIndex
+ * @param {Array<any>} gaps
+ * @param {object=} config
+ * @param {AbortSignal=} config.signal
+ * @returns {Promise<Array<{chunkId:string,sourceId:string,locator:any,text:string,score?:number,relevance?:string,matchedGapIds?:string[]}>>}
+ */
+export async function retrieveAsync(sourceIndex, gaps, config = {}) {
+  if (!isPlainObject(sourceIndex)) throw new TypeError("retrieveAsync(sourceIndex, gaps, config): sourceIndex must be an object");
+  if (!Array.isArray(sourceIndex.chunks)) throw new TypeError("retrieveAsync(sourceIndex, gaps, config): sourceIndex.chunks must be an array");
+  if (!Array.isArray(gaps)) throw new TypeError("retrieveAsync(sourceIndex, gaps, config): gaps must be an array");
+  if (!isPlainObject(config)) throw new TypeError("retrieveAsync(sourceIndex, gaps, config): config must be an object");
+
+  const signal = config.signal;
+
+  const sourceId = String(sourceIndex.sourceId || "source_1");
+  const allChunks = sourceIndex.chunks.slice().sort(sortByCharStart);
+  const posByChunkId = new Map();
+  for (let i = 0; i < allChunks.length; i++) posByChunkId.set(String(allChunks[i].chunkId), i);
+
+  const tocNodes = await ensureTocAsync(sourceIndex, { signal });
+  const topK = Number.isFinite(config.topK) ? Math.max(1, Math.floor(config.topK)) : 8;
+  const windowSize = Number.isFinite(config.windowSize) ? Math.max(0, Math.floor(config.windowSize)) : 1;
+  const useBm25 = config.useBm25 !== false;
+  const useGrep = config.useGrep !== false;
+
+  let bm25Index = null;
+  if (useBm25) {
+    const cacheKey = bm25CacheKey(allChunks, config.bm25);
+    const cached = _bm25CacheBySource ? _bm25CacheBySource.get(sourceIndex) : null;
+    if (cached && cached.key === cacheKey && cached.index) bm25Index = cached.index;
+    else {
+      bm25Index = await buildBm25IndexAsync(allChunks, { ...(config.bm25 || {}), signal, yieldEveryDocs: 80 });
+      try {
+        _bm25CacheBySource?.set(sourceIndex, { key: cacheKey, index: bm25Index });
+      } catch {
+        // ignore if WeakMap unavailable / sourceIndex not compatible
+      }
+    }
+  }
+
+  const byChunkId = new Map();
+  const hitRecords = [];
+
+  const grepAsyncThreshold =
+    typeof config.grepAsyncThreshold === "number" && Number.isFinite(config.grepAsyncThreshold)
+      ? Math.max(0, Math.floor(config.grepAsyncThreshold))
+      : 2000;
+  const grepYieldEvery =
+    typeof config.grepYieldEvery === "number" && Number.isFinite(config.grepYieldEvery) && config.grepYieldEvery > 0
+      ? Math.floor(config.grepYieldEvery)
+      : 200;
+
+  for (let gi = 0; gi < gaps.length; gi++) {
+    if (signal?.aborted) throw new Error("retrieveAsync: aborted");
+    if (gi > 0 && gi % 20 === 0) await sleep0();
+
+    const gap = gaps[gi];
+    const queries = getGapQueries(gap);
+    if (!queries.length) continue;
+
+    const scope = selectScope(tocNodes, getGapTargetSectionId(gap));
+    const scopedChunks = chunksInScope(allChunks, scope);
+    if (!scopedChunks.length) continue;
+
+    const scopedIdSet = new Set(scopedChunks.map((c) => c.chunkId));
+    const scored = new Map(); // chunkId -> score
+    let grepHitCount = 0;
+
+    for (const query of queries) {
+      if (!useGrep) continue;
+      const shouldAsync = (signal && typeof signal === "object") || scopedChunks.length >= grepAsyncThreshold;
+      const grepMatches = shouldAsync
+        ? await grepChunksAsync(scopedChunks, query, {
+            regex: Boolean(config.grepRegex),
+            caseSensitive: Boolean(config.caseSensitive),
+            signal,
+            yieldEvery: grepYieldEvery,
+          })
+        : grepChunks(scopedChunks, query, { regex: Boolean(config.grepRegex), caseSensitive: Boolean(config.caseSensitive) });
+
+      for (const m of grepMatches) {
+        const grepScore = scoreFromGrepMatchCount(m.matchCount) + 1.0;
+        scored.set(m.chunkId, Math.max(scored.get(m.chunkId) || 0, grepScore));
+        grepHitCount++;
+      }
+    }
+
+    const minGrepHits = typeof config.minGrepHits === "number" ? config.minGrepHits : 15;
+    const bm25MinScore = typeof config.bm25MinScore === "number" ? config.bm25MinScore : 0.5;
+    if (useBm25 && bm25Index && grepHitCount < minGrepHits) {
+      for (const query of queries) {
+        const results = bm25Search(bm25Index, query, topK * 5, {
+          filterDocIndex: (docIndex) => scopedIdSet.has(bm25Index.chunkIds[docIndex]),
+        });
+        for (const r of results) {
+          if (r.score >= bm25MinScore) {
+            scored.set(r.chunkId, Math.max(scored.get(r.chunkId) || 0, r.score));
+          }
+        }
+      }
+    }
+
+    const ranked = Array.from(scored.entries())
+      .map(([chunkId, score]) => ({ chunkId, score }))
+      .sort((a, b) => b.score - a.score);
+
+    const gapId = getGapId(gap);
+    for (const r of ranked.slice(0, topK)) {
+      if (gapId) hitRecords.push({ chunkId: String(r.chunkId), gapId });
+      const chunk = scopedChunks.find((c) => c.chunkId === r.chunkId) || allChunks.find((c) => c.chunkId === r.chunkId);
+      if (!chunk) continue;
+      const existing = byChunkId.get(r.chunkId);
+      if (!existing || (existing.score || 0) < r.score) {
+        byChunkId.set(r.chunkId, {
+          chunkId: r.chunkId,
+          sourceId,
+          locator: chunk.locator,
+          text: chunk.text,
+          score: r.score,
+          relevance: "hit",
+          ...(gapId ? { matchedGapIds: [gapId] } : {}),
+        });
+      } else if (gapId) {
+        byChunkId.set(r.chunkId, { ...existing, matchedGapIds: mergeGapIds(existing.matchedGapIds, [gapId]) });
+      }
+    }
+  }
+
+  const mmrCfg = config.mmr;
+  const diversify = mmrCfg === true || isPlainObject(mmrCfg);
+  if (diversify) {
+    const hits = Array.from(byChunkId.values()).filter((row) => row && row.relevance === "hit" && typeof row.score === "number");
+    const uniqueHits = hits.length;
+    const mmrTopKRaw = isPlainObject(mmrCfg) && typeof mmrCfg.topK === "number" ? mmrCfg.topK : null;
+    const mmrTopK = mmrTopKRaw !== null && Number.isFinite(mmrTopKRaw) ? Math.max(1, Math.floor(mmrTopKRaw)) : Math.min(uniqueHits, topK * 3);
+    const lambdaRaw = isPlainObject(mmrCfg) ? mmrCfg.lambda : null;
+    const lambda = lambdaRaw !== null && lambdaRaw !== undefined ? clamp01(lambdaRaw) : 0.7;
+    const seedByGap = isPlainObject(mmrCfg) ? mmrCfg.seedByGap !== false : true;
+
+    const seed = [];
+    if (seedByGap) {
+      const bestByGap = new Map(); // gapId -> row
+      for (const row of hits) {
+        const ids = Array.isArray(row.matchedGapIds) ? row.matchedGapIds : [];
+        for (const gapId of ids) {
+          const g = typeof gapId === "string" ? gapId : "";
+          if (!g) continue;
+          const prev = bestByGap.get(g);
+          if (!prev || (prev.score || 0) < (row.score || 0)) bestByGap.set(g, row);
+        }
+      }
+      for (const row of bestByGap.values()) seed.push(row);
+      seed.sort((a, b) => (b.score || 0) - (a.score || 0));
+    }
+
+    const selected = mmrSelect(hits, { topK: mmrTopK, lambda, seed });
+    const selectedIds = new Set(selected.map((r) => String(r.chunkId)));
+
+    for (const cid of Array.from(byChunkId.keys())) {
+      if (!selectedIds.has(String(cid))) byChunkId.delete(cid);
+    }
+    for (let i = hitRecords.length - 1; i >= 0; i--) {
+      if (!selectedIds.has(String(hitRecords[i]?.chunkId))) hitRecords.splice(i, 1);
+    }
+  }
+
+  if (windowSize > 0 && hitRecords.length) {
+    const gapIdsByChunkId = new Map(); // chunkId -> string[]
+
+    for (const row of byChunkId.values()) {
+      if (row && row.matchedGapIds) gapIdsByChunkId.set(String(row.chunkId), mergeGapIds([], row.matchedGapIds));
+    }
+
+    for (const hr of hitRecords) {
+      const pos = posByChunkId.get(String(hr.chunkId));
+      if (pos === undefined) continue;
+      const lo = Math.max(0, pos - windowSize);
+      const hi = Math.min(allChunks.length - 1, pos + windowSize);
+      for (let i = lo; i <= hi; i++) {
+        const cid = String(allChunks[i].chunkId);
+        gapIdsByChunkId.set(cid, mergeGapIds(gapIdsByChunkId.get(cid), [hr.gapId]));
+      }
+    }
+
+    const expanded = readAround(allChunks, Array.from(new Set(hitRecords.map((h) => h.chunkId))), windowSize);
+    for (const c of expanded) {
+      const cid = String(c.chunkId);
+      if (byChunkId.has(cid)) {
+        const existing = byChunkId.get(cid);
+        if (existing && gapIdsByChunkId.has(cid)) byChunkId.set(cid, { ...existing, matchedGapIds: mergeGapIds(existing.matchedGapIds, gapIdsByChunkId.get(cid)) });
+        continue;
+      }
+      byChunkId.set(cid, {
+        chunkId: cid,
+        sourceId,
+        locator: c.locator,
+        text: c.text,
+        relevance: "context",
+        ...(gapIdsByChunkId.has(cid) ? { matchedGapIds: gapIdsByChunkId.get(cid) } : {}),
+      });
+    }
+  }
+
+  return Array.from(byChunkId.values()).sort(sortByCharStart);
 }

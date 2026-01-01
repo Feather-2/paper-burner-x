@@ -89,6 +89,45 @@ test("Runtime Core: EventBus on/off/once/emit + EventRecord fields", async () =>
   assert.deepEqual(evt3.payload, { pct: 50 });
 });
 
+test("VFS: MemoryVfs directory tree + mkdir/rmdir/unlink", async () => {
+  const { MemoryVfs } = await import("../../js/agents/vfs/vfs.memory.js");
+
+  const vfs = new MemoryVfs();
+
+  await vfs.mkdir("empty");
+  await vfs.writeText("a/b.txt", "hi");
+
+  const rootEntries = await vfs.readdir("", { withFileTypes: true });
+  assert.deepEqual(
+    rootEntries.map((e) => e.name),
+    ["a", "empty"]
+  );
+  assert.equal(
+    rootEntries.find((e) => e.name === "a")?.isDirectory(),
+    true
+  );
+  assert.equal(
+    rootEntries.find((e) => e.name === "empty")?.isDirectory(),
+    true
+  );
+
+  const aStat = await vfs.stat("a");
+  assert.equal(aStat.isDirectory(), true);
+
+  assert.deepEqual(await vfs.readdir("a"), ["b.txt"]);
+  assert.deepEqual(await vfs.listFiles({ prefix: "a", recursive: true }), ["a/b.txt"]);
+  assert.deepEqual(await vfs.listFiles({ prefix: "a/b.txt" }), ["a/b.txt"]);
+
+  await assert.rejects(async () => vfs.rmdir("a"), /ENOTEMPTY/);
+
+  await vfs.unlink("a/b.txt");
+  assert.deepEqual(await vfs.readdir("a"), []);
+  await vfs.rmdir("a");
+
+  await assert.rejects(async () => vfs.stat("a"), /ENOENT/);
+  await assert.rejects(async () => vfs.rmdir(""), /cannot remove root/);
+});
+
 test("Runtime Core: EventBus backpressure default stays synchronous", async () => {
   const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
 

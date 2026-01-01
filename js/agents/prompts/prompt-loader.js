@@ -353,10 +353,13 @@ function normalizeTemplateVars(vars) {
  * - Only exact keys are supported (including dotted keys like "minWords.quick").
  * - Unresolved placeholders are kept by default to make missing variables visible.
  */
-export function renderPromptTemplate(template, { vars, appendIfMissing, keepUnresolved = true, warnOnUnresolved = false, onUnresolved } = {}) {
+export function renderPromptTemplate(
+  template,
+  { vars, appendIfMissing, keepUnresolved = true, warnOnUnresolved = false, failOnUnresolved = false, onUnresolved } = {}
+) {
   const input = typeof template === "string" ? template : String(template ?? "");
   const varMap = normalizeTemplateVars(vars);
-  const unresolved = warnOnUnresolved || typeof onUnresolved === "function" ? new Set() : null;
+  const unresolved = warnOnUnresolved || failOnUnresolved || typeof onUnresolved === "function" ? new Set() : null;
 
   let rendered = input.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (match, rawName) => {
     const key = String(rawName || "").trim().toLowerCase();
@@ -400,6 +403,11 @@ export function renderPromptTemplate(template, { vars, appendIfMissing, keepUnre
       }
     } else if (warnOnUnresolved && typeof console !== "undefined" && typeof console.warn === "function") {
       console.warn(`[prompt-loader] Unresolved placeholders: ${list.join(", ")}${unresolved.size > list.length ? ", ..." : ""}`);
+    }
+    if (failOnUnresolved) {
+      throw new Error(
+        `[prompt-loader] Unresolved placeholders: ${list.join(", ")}${unresolved.size > list.length ? ", ..." : ""}`
+      );
     }
   }
 

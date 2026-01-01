@@ -207,5 +207,106 @@ export function createUnifiedDiff({ path = "file", beforeText = "", afterText = 
   return { hunks, text: [...header, ...body].join("\n") + (body.length ? "\n" : "") };
 }
 
-export default { createUnifiedDiff };
+function isNodeLike() {
+  return typeof process !== "undefined" && !!process.versions?.node;
+}
 
+function canUseWorker() {
+  return !isNodeLike() && typeof Worker !== "undefined" && typeof URL !== "undefined";
+}
+
+let _diffWorker = null;
+let _diffWorkerSeq = 0;
+const _diffPending = new Map(); // id -> {resolve,reject}
+
+function getDiffWorker() {
+  if (_diffWorker) return _diffWorker;
+  if (!canUseWorker()) return null;
+
+  try {
+    const worker = new Worker(new URL("./diff.worker.js", import.meta.url), { type: "module" });
+    worker.onmessage = (event) => {
+      const msg = event?.data;
+      const id = msg?.id;
+      const pending = _diffPending.get(id);
+      if (!pending) return;
+      _diffPending.delete(id);
+      if (msg?.ok) pending.resolve(msg.diff);
+      else pending.reject(new Error(msg?.error || "diff worker error"));
+    };
+    worker.onerror = (err) => {
+      for (const pending of _diffPending.values()) {
+        try {
+          pending.reject(err instanceof Error ? err : new Error(String(err?.message || err)));
+        } catch {
+          // ignore
+        }
+      }
+      _diffPending.clear();
+      try {
+        worker.terminate();
+      } catch {
+        // ignore
+      }
+      _diffWorker = null;
+    };
+    _diffWorker = worker;
+    return worker;
+  } catch {
+    return null;
+  }
+}
+
+function estimateChars(value) {
+  const s = typeof value === "string" ? value : String(value ?? "");
+  return s.length;
+}
+
+/**
+ * Best-effort async diff for large texts.
+ * - Uses a Web Worker when available
+ * - Falls back to sync createUnifiedDiff otherwise
+ *
+ * @param {object} options Same options as createUnifiedDiff()
+ * @param {{signal?:AbortSignal,useWorker?:boolean,workerThresholdChars?:number}=} runtime
+ * @returns {Promise<{hunks:Array,text:string}>}
+ */
+export async function createUnifiedDiffAsync(options = {}, runtime = {}) {
+  const opts = options && typeof options === "object" ? options : {};
+  const rt = runtime && typeof runtime === "object" ? runtime : {};
+  const signal = rt.signal;
+  if (signal?.aborted) throw new Error("createUnifiedDiffAsync: aborted");
+
+  const threshold =
+    typeof rt.workerThresholdChars === "number" && Number.isFinite(rt.workerThresholdChars) && rt.workerThresholdChars > 0
+      ? Math.floor(rt.workerThresholdChars)
+      : 120_000;
+
+  const useWorker = rt.useWorker !== false;
+  const worker = useWorker ? getDiffWorker() : null;
+
+  const size = estimateChars(opts.beforeText) + estimateChars(opts.afterText);
+  if (!worker || size < threshold) return createUnifiedDiff(opts);
+
+  const id = `diff_${Date.now().toString(36)}_${++_diffWorkerSeq}`;
+  const promise = new Promise((resolve, reject) => {
+    _diffPending.set(id, { resolve, reject });
+  });
+
+  const abort = () => {
+    const pending = _diffPending.get(id);
+    if (!pending) return;
+    _diffPending.delete(id);
+    pending.reject(new Error("createUnifiedDiffAsync: aborted"));
+  };
+
+  if (signal) signal.addEventListener?.("abort", abort, { once: true });
+  try {
+    worker.postMessage({ id, options: opts });
+    return await promise;
+  } finally {
+    if (signal) signal.removeEventListener?.("abort", abort);
+  }
+}
+
+export default { createUnifiedDiff, createUnifiedDiffAsync };

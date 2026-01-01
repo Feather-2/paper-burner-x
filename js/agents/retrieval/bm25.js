@@ -63,6 +63,40 @@ const STOPWORDS = new Set([
   "would",
   "you",
   "your",
+  // Common CJK stopwords (keep list short; BM25 relies on meaningful tokens).
+  "的",
+  "了",
+  "和",
+  "是",
+  "在",
+  "我",
+  "我们",
+  "你",
+  "你们",
+  "他",
+  "他们",
+  "她",
+  "她们",
+  "它",
+  "它们",
+  "这",
+  "那",
+  "这些",
+  "那些",
+  "一个",
+  "一些",
+  "没有",
+  "可以",
+  "可能",
+  "如果",
+  "因为",
+  "所以",
+  "但是",
+  "而且",
+  "以及",
+  "与",
+  "及",
+  "或",
 ]);
 
 function wordRegex() {
@@ -99,6 +133,44 @@ function shouldDropSingleCharToken(t) {
   return /^[a-z]$/i.test(t);
 }
 
+function isCjkCharCode(code) {
+  return (
+    (code >= 0x4e00 && code <= 0x9fff) || // CJK Unified Ideographs
+    (code >= 0x3040 && code <= 0x30ff) || // Hiragana/Katakana
+    (code >= 0xac00 && code <= 0xd7af) // Hangul
+  );
+}
+
+function isAllCjkToken(token) {
+  const s = typeof token === "string" ? token : "";
+  if (!s) return false;
+  for (let i = 0; i < s.length; i++) {
+    if (!isCjkCharCode(s.charCodeAt(i))) return false;
+  }
+  return true;
+}
+
+function pushCjkBigrams(token, out, { maxBigrams = 64 } = {}) {
+  const t = typeof token === "string" ? token : "";
+  if (t.length <= 2) {
+    out.push(t);
+    return;
+  }
+
+  const total = t.length - 1;
+  const max = typeof maxBigrams === "number" && Number.isFinite(maxBigrams) ? Math.max(1, Math.floor(maxBigrams)) : 64;
+  if (total <= max) {
+    for (let i = 0; i < total; i++) out.push(t.slice(i, i + 2));
+    return;
+  }
+
+  const head = Math.max(1, Math.floor(max / 2));
+  const tail = Math.max(1, max - head);
+  for (let i = 0; i < head; i++) out.push(t.slice(i, i + 2));
+  const tailStart = Math.max(head, total - tail);
+  for (let i = tailStart; i < total; i++) out.push(t.slice(i, i + 2));
+}
+
 function tokenize(text) {
   const s = String(text || "").toLowerCase();
   if (!s) return [];
@@ -123,6 +195,11 @@ function tokenize(text) {
     if (!t) continue;
     if (STOPWORDS.has(t)) continue;
     if (shouldDropSingleCharToken(t)) continue;
+    if (isAllCjkToken(t)) {
+      // Intl.Segmenter unavailable; approximate segmentation via bigrams for CJK.
+      pushCjkBigrams(t, out, { maxBigrams: 64 });
+      continue;
+    }
     out.push(t);
   }
   return out;
@@ -214,7 +291,50 @@ export async function buildIndexAsync(chunks, options = {}) {
     return workerPool.buildIndex(chunks, safeOptions);
   }
 
-  return buildIndex(chunks, options);
+  const yieldEveryDocs =
+    typeof options.yieldEveryDocs === "number" && Number.isFinite(options.yieldEveryDocs) && options.yieldEveryDocs > 0
+      ? Math.floor(options.yieldEveryDocs)
+      : 80;
+  const signal = options.signal;
+
+  const sleep0 = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  const k1 = Number.isFinite(options.k1) ? options.k1 : 1.2;
+  const b = Number.isFinite(options.b) ? options.b : 0.75;
+
+  const chunkIds = [];
+  const docLens = new Array(chunks.length);
+  const df = new Map();
+  const postings = new Map();
+
+  let totalLen = 0;
+
+  for (let di = 0; di < chunks.length; di++) {
+    if (signal?.aborted) throw new Error("buildIndexAsync: aborted");
+    if (yieldEveryDocs > 0 && di > 0 && di % yieldEveryDocs === 0) await sleep0();
+
+    const c = chunks[di];
+    const chunkId = c && c.chunkId ? String(c.chunkId) : `chunk_${di + 1}`;
+    chunkIds.push(chunkId);
+
+    const tokens = tokenize(c && c.text);
+    const docLen = tokens.length;
+    docLens[di] = docLen;
+    totalLen += docLen;
+
+    const tf = new Map();
+    for (const t of tokens) tf.set(t, (tf.get(t) || 0) + 1);
+
+    for (const [term, freq] of tf.entries()) {
+      df.set(term, (df.get(term) || 0) + 1);
+      const list = postings.get(term);
+      if (list) list.push([di, freq]);
+      else postings.set(term, [[di, freq]]);
+    }
+  }
+
+  const avgDocLen = chunks.length ? totalLen / chunks.length : 0;
+  return { chunkIds, docLens, avgDocLen, df, postings, k1, b };
 }
 
 function idf(nDocs, df) {

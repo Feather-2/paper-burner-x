@@ -12,7 +12,7 @@
  * - 自动降级策略
  */
 
-import { grepChunks } from "./grep.js";
+import { grepChunks, grepChunksAsync } from "./grep.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -154,6 +154,47 @@ function executeGrep(chunks, keyword, options = {}) {
   }
 }
 
+function shouldUseAsyncGrep(chunks, keywords, tools = {}) {
+  const opts = tools && typeof tools === "object" ? tools : {};
+  if (opts.async === true || opts.asyncGrep === true) return true;
+  if (opts.signal && typeof opts.signal === "object") return true;
+  const yieldEvery = opts.grepYieldEvery ?? opts.yieldEvery;
+  if (typeof yieldEvery === "number" && Number.isFinite(yieldEvery) && yieldEvery > 0) return true;
+
+  const c = Array.isArray(chunks) ? chunks.length : 0;
+  const k = Array.isArray(keywords) ? keywords.length : 0;
+  const threshold = typeof opts.grepAsyncThreshold === "number" && Number.isFinite(opts.grepAsyncThreshold) ? Math.max(0, Math.floor(opts.grepAsyncThreshold)) : 2000;
+  return c >= threshold || c * Math.max(1, k) >= threshold * 2;
+}
+
+async function executeGrepAsync(chunks, keyword, tools = {}) {
+  if (!Array.isArray(chunks) || chunks.length === 0) {
+    return { matches: [], error: "no_chunks" };
+  }
+
+  const opts = tools && typeof tools === "object" ? tools : {};
+  const useAsync = shouldUseAsyncGrep(chunks, [keyword], opts);
+  const signal = opts.signal;
+  const yieldEvery = opts.grepYieldEvery ?? opts.yieldEvery;
+
+  try {
+    const matches = useAsync
+      ? await grepChunksAsync(chunks, keyword, {
+          regex: Boolean(opts.regex),
+          caseSensitive: Boolean(opts.caseSensitive),
+          signal,
+          ...(yieldEvery !== undefined ? { yieldEvery } : {}),
+        })
+      : grepChunks(chunks, keyword, {
+          regex: Boolean(opts.regex),
+          caseSensitive: Boolean(opts.caseSensitive),
+        });
+    return { matches, error: undefined };
+  } catch (err) {
+    return { matches: [], error: String(err?.message || err) };
+  }
+}
+
 /**
  * 策略：glob-then-grep
  * 先用 glob 定位文件，再用 grep 搜索内容
@@ -203,7 +244,7 @@ async function strategyGlobThenGrep(chunks, { patterns = [], keywords = [] }, to
     if (!toNonEmptyString(keyword)) continue;
 
     stats.grepCalls++;
-    const { matches, error } = executeGrep(targetChunks, keyword, tools);
+    const { matches, error } = await executeGrepAsync(targetChunks, keyword, tools);
 
     if (error) {
       return { results: [], stats, fallbackReason: `grep_failed:${error}` };
@@ -228,7 +269,7 @@ async function strategyGlobThenGrep(chunks, { patterns = [], keywords = [] }, to
  * 策略：grep-only
  * 直接 grep 搜索所有 chunks（无文件过滤）
  */
-function strategyGrepOnly(chunks, { keywords = [] }, tools = {}) {
+async function strategyGrepOnly(chunks, { keywords = [] }, tools = {}) {
   const results = [];
   const stats = { grepCalls: 0, hits: 0 };
 
@@ -236,7 +277,7 @@ function strategyGrepOnly(chunks, { keywords = [] }, tools = {}) {
     if (!toNonEmptyString(keyword)) continue;
 
     stats.grepCalls++;
-    const { matches, error } = executeGrep(chunks, keyword, tools);
+    const { matches, error } = await executeGrepAsync(chunks, keyword, tools);
 
     if (error) {
       return { results: [], stats, fallbackReason: `grep_failed:${error}` };
@@ -293,7 +334,7 @@ export async function search(chunks, query = {}, tools = {}) {
 
   // 策略选择
   if (strategy === ToolChainStrategy.GREP_ONLY) {
-    result = strategyGrepOnly(chunks, { keywords }, tools);
+    result = await strategyGrepOnly(chunks, { keywords }, tools);
     return { ...result, strategy: "grep-only" };
   }
 
@@ -316,7 +357,7 @@ export async function search(chunks, query = {}, tools = {}) {
   }
 
   // 默认：grep-only
-  result = strategyGrepOnly(chunks, { keywords }, tools);
+  result = await strategyGrepOnly(chunks, { keywords }, tools);
   return { ...result, strategy: ToolChainStrategy.GREP_ONLY };
 }
 
@@ -341,6 +382,7 @@ export function getGlobCacheStats() {
 export const __test = {
   executeGlob,
   executeGrep,
+  executeGrepAsync,
   strategyGlobThenGrep,
   strategyGrepOnly,
   getCachedGlob,

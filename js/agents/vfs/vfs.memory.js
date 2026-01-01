@@ -19,28 +19,6 @@ function bytesToText(bytes) {
   return new TextDecoder().decode(b);
 }
 
-function isChildOfDir(filePath, dirPath) {
-  const prefix = dirPath ? `${dirPath}/` : "";
-  return filePath.startsWith(prefix);
-}
-
-function dirEntriesFromPaths(paths, dirPath) {
-  const prefix = dirPath ? `${dirPath}/` : "";
-  const out = new Map(); // name -> kind
-  for (const p of paths) {
-    if (!p || !p.startsWith(prefix)) continue;
-    const rest = p.slice(prefix.length);
-    if (!rest) continue;
-    const slash = rest.indexOf("/");
-    if (slash === -1) {
-      out.set(rest, "file");
-      continue;
-    }
-    out.set(rest.slice(0, slash), "dir");
-  }
-  return Array.from(out.entries()).map(([name, kind]) => ({ name, kind }));
-}
-
 function makeDirent(entry) {
   return {
     name: entry.name,
@@ -49,16 +27,88 @@ function makeDirent(entry) {
   };
 }
 
+class DirNode {
+  constructor() {
+    this.kind = "dir";
+    this.children = new Map(); // name -> DirNode|FileNode
+    this.updatedAt = Date.now();
+  }
+}
+
+class FileNode {
+  constructor(bytes) {
+    this.kind = "file";
+    this.bytes = bytes instanceof Uint8Array ? bytes : dataToBytes(bytes);
+    this.updatedAt = Date.now();
+  }
+}
+
+function toSegments(path) {
+  const p = typeof path === "string" ? path : "";
+  if (!p) return [];
+  return p.split("/").filter(Boolean);
+}
+
 export class MemoryVfs {
   constructor() {
-    this._files = new Map(); // path -> { bytes, updatedAt }
+    this._root = new DirNode();
+  }
+
+  _getDirNode(dirPath, { create = false } = {}) {
+    const p = normalizeVfsPath(dirPath);
+    const parts = toSegments(p);
+    let node = this._root;
+    for (const name of parts) {
+      const next = node.children.get(name);
+      if (!next) {
+        if (!create) return null;
+        const child = new DirNode();
+        node.children.set(name, child);
+        node.updatedAt = Date.now();
+        node = child;
+        continue;
+      }
+      if (next.kind !== "dir") {
+        throw new Error(`ENOTDIR: ${p}`);
+      }
+      node = next;
+    }
+    return node;
+  }
+
+  _getNode(path) {
+    const p = normalizeVfsPath(path);
+    if (!p) return this._root;
+    const parts = toSegments(p);
+    let node = this._root;
+    for (let i = 0; i < parts.length; i++) {
+      const name = parts[i];
+      const next = node.children.get(name);
+      if (!next) return null;
+      if (i === parts.length - 1) return next;
+      if (next.kind !== "dir") throw new Error(`ENOTDIR: ${p}`);
+      node = next;
+    }
+    return node;
+  }
+
+  _getParentDirForPath(path, { create = false } = {}) {
+    const p = normalizeVfsPath(path);
+    if (!p) throw new Error("EISDIR: /");
+    const parts = toSegments(p);
+    const parentParts = parts.slice(0, -1);
+    const parentPath = parentParts.join("/");
+    const parent = this._getDirNode(parentPath, { create });
+    return { parent, name: parts[parts.length - 1], parentPath, fullPath: p };
   }
 
   async readFile(path) {
     const p = normalizeVfsPath(path);
-    const rec = this._files.get(p);
-    if (!rec) throw new Error(`ENOENT: ${p}`);
-    return new Uint8Array(rec.bytes);
+    if (!p) throw new Error("EISDIR: /");
+    const node = this._getNode(p);
+    if (!node) throw new Error(`ENOENT: ${p}`);
+    if (node.kind !== "file") throw new Error(`EISDIR: ${p}`);
+    return new Uint8Array(node.bytes);
   }
 
   async readText(path) {
@@ -67,9 +117,12 @@ export class MemoryVfs {
   }
 
   async writeFile(path, data) {
-    const p = normalizeVfsPath(path);
-    const bytes = dataToBytes(data);
-    this._files.set(p, { bytes: new Uint8Array(bytes), updatedAt: Date.now() });
+    const { parent, name, fullPath } = this._getParentDirForPath(path, { create: true });
+    if (!parent) throw new Error(`ENOENT: ${fullPath}`);
+    const existing = parent.children.get(name);
+    if (existing && existing.kind === "dir") throw new Error(`EISDIR: ${fullPath}`);
+    parent.children.set(name, new FileNode(data));
+    parent.updatedAt = Date.now();
     return true;
   }
 
@@ -82,51 +135,131 @@ export class MemoryVfs {
     if (!p) {
       return {
         size: 0,
+        mtimeMs: this._root.updatedAt,
         isFile: () => false,
         isDirectory: () => true,
       };
     }
-    const file = this._files.get(p);
-    if (file) {
+    const node = this._getNode(p);
+    if (!node) throw new Error(`ENOENT: ${p}`);
+    if (node.kind === "file") {
       return {
-        size: file.bytes.byteLength,
-        mtimeMs: file.updatedAt,
+        size: node.bytes.byteLength,
+        mtimeMs: node.updatedAt,
         isFile: () => true,
         isDirectory: () => false,
       };
     }
 
-    // directory exists if any file is under it
-    const prefix = `${p}/`;
-    for (const k of this._files.keys()) {
-      if (k.startsWith(prefix)) {
-        return { size: 0, isFile: () => false, isDirectory: () => true };
-      }
-    }
-    throw new Error(`ENOENT: ${p}`);
+    return { size: 0, mtimeMs: node.updatedAt, isFile: () => false, isDirectory: () => true };
   }
 
   async readdir(path, options = {}) {
     const p = normalizeVfsPath(path);
     const withFileTypes = !!options.withFileTypes;
-    const entries = dirEntriesFromPaths(Array.from(this._files.keys()), p);
+    const node = this._getNode(p);
+    if (!node) throw new Error(`ENOENT: ${p}`);
+    if (node.kind !== "dir") throw new Error(`ENOTDIR: ${p}`);
+
+    const entries = Array.from(node.children.entries())
+      .map(([name, child]) => ({ name, kind: child.kind === "dir" ? "dir" : "file" }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
     if (!withFileTypes) return entries.map((e) => e.name);
     return entries.map(makeDirent);
   }
 
+  async mkdir(path, { recursive = true } = {}) {
+    const p = normalizeVfsPath(path);
+    if (!p) return true;
+
+    const wantRecursive = recursive !== false;
+    const parts = toSegments(p);
+
+    let node = this._root;
+    for (let i = 0; i < parts.length; i++) {
+      const name = parts[i];
+      const next = node.children.get(name);
+      if (next) {
+        if (next.kind !== "dir") throw new Error(`EEXIST: ${p}`);
+        node = next;
+        continue;
+      }
+
+      if (!wantRecursive && i !== parts.length - 1) {
+        throw new Error(`ENOENT: ${p}`);
+      }
+
+      const child = new DirNode();
+      node.children.set(name, child);
+      node.updatedAt = Date.now();
+      node = child;
+    }
+
+    return true;
+  }
+
+  async rmdir(path, { recursive = false } = {}) {
+    const p = normalizeVfsPath(path);
+    if (!p) throw new Error("EPERM: cannot remove root");
+
+    const parts = toSegments(p);
+    const parentPath = parts.slice(0, -1).join("/");
+    const name = parts[parts.length - 1];
+    const parent = this._getDirNode(parentPath, { create: false });
+    if (!parent) throw new Error(`ENOENT: ${p}`);
+    const node = parent.children.get(name);
+    if (!node) throw new Error(`ENOENT: ${p}`);
+    if (node.kind !== "dir") throw new Error(`ENOTDIR: ${p}`);
+
+    if (!recursive && node.children.size > 0) throw new Error(`ENOTEMPTY: ${p}`);
+
+    parent.children.delete(name);
+    parent.updatedAt = Date.now();
+    return true;
+  }
+
+  async unlink(path) {
+    const p = normalizeVfsPath(path);
+    if (!p) throw new Error("EISDIR: /");
+
+    const parts = toSegments(p);
+    const parentPath = parts.slice(0, -1).join("/");
+    const name = parts[parts.length - 1];
+    const parent = this._getDirNode(parentPath, { create: false });
+    if (!parent) throw new Error(`ENOENT: ${p}`);
+    const node = parent.children.get(name);
+    if (!node) throw new Error(`ENOENT: ${p}`);
+    if (node.kind !== "file") throw new Error(`EISDIR: ${p}`);
+
+    parent.children.delete(name);
+    parent.updatedAt = Date.now();
+    return true;
+  }
+
   async listFiles({ prefix = "", recursive = true } = {}) {
     const pfx = normalizeVfsPath(prefix);
+    const node = this._getNode(pfx);
+    if (!node) return [];
+
+    if (node.kind === "file") return [pfx];
+
     const out = [];
-    for (const p of this._files.keys()) {
-      if (!isChildOfDir(p, pfx)) continue;
-      const rest = pfx ? p.slice(pfx.length + 1) : p;
-      if (!recursive && rest.includes("/")) continue;
-      out.push(p);
-    }
+    const walk = (dirNode, basePath) => {
+      for (const [name, child] of dirNode.children.entries()) {
+        const nextPath = basePath ? `${basePath}/${name}` : name;
+        if (child.kind === "dir") {
+          if (recursive) walk(child, nextPath);
+          continue;
+        }
+        out.push(nextPath);
+      }
+    };
+
+    walk(node, pfx);
     out.sort((a, b) => a.localeCompare(b));
     return out;
   }
 }
 
 export default MemoryVfs;
-

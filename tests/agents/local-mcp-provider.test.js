@@ -215,6 +215,35 @@ test("LocalMcpProvider: workerEndpoint failure falls back to CORS proxies (fetch
   assert.equal(text.includes("font-size"), false);
 });
 
+test("LocalMcpProvider: proxy error page detection skips bad proxy", async () => {
+  const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
+
+  const fetchMock = createFetchMock();
+  fetchMock.when(
+    (url) => url.startsWith("https://p1/?"),
+    async () =>
+      makeTextResponse(
+        `<!doctype html><html><head><title>CORS Anywhere</title></head><body>cors-anywhere error${"x".repeat(200)}</body></html>`,
+        { status: 200 }
+      )
+  );
+  fetchMock.when((url) => url.startsWith("https://p2/?"), async () => makeTextResponse(longHtml("<title>OK</title>"), { status: 200 }));
+
+  const provider = new LocalMcpProvider({
+    corsProxies: ["https://p1/?", "https://p2/?"],
+    fetchImpl: fetchMock,
+  });
+
+  const out = await provider.callTool("fetch_content", { url: "https://site.example/page" });
+  assert.equal(out.success, true);
+  assert.equal(fetchMock.calls.length, 2);
+  assert.ok(fetchMock.calls[0].url.startsWith("https://p1/?"));
+  assert.ok(fetchMock.calls[1].url.startsWith("https://p2/?"));
+
+  const json = out.content.find((c) => c.type === "json")?.data;
+  assert.equal(json.metadata.proxy, "https://p2/?");
+});
+
 test("LocalMcpProvider: corsProxies injection + in-order attempts", async () => {
   const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
 

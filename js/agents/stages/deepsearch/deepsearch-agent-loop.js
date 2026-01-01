@@ -136,8 +136,11 @@ const FALLBACK_SYSTEM_PROMPT = `你是一个文档分析助手。
 {"thought": "思考", "action": "skill名", "args": {...}}
 `;
 
-// 缓存加载的提示词
-let _systemPromptTemplate = null;
+// 缓存加载的提示词（模块化）
+let _systemCorePromptTemplate = null;
+let _systemLegacyPromptTemplate = null;
+let _systemSubagentsPromptTemplate = null;
+const _modePromptTemplates = new Map(); // mode -> template
 let _systemPromptWarnedUnresolved = false;
 
 /**
@@ -153,13 +156,41 @@ let _systemPromptWarnedUnresolved = false;
  * @returns {Promise<string>}
  */
 async function getSystemPrompt({ skillsPrompt = "", config = null, mode = "wider" } = {}) {
-  // 加载模板
-  if (!_systemPromptTemplate) {
+  const normalizedMode = typeof mode === "string" && mode ? mode : "wider";
+
+  // Load core prompt module (preferred). Fall back to legacy system.md when missing.
+  if (!_systemCorePromptTemplate) {
     try {
-      _systemPromptTemplate = await loadPrompt("deepsearch/system");
+      _systemCorePromptTemplate = await loadPrompt("deepsearch/system-core");
     } catch (e) {
-      console.warn("[deepsearch] Failed to load system.md:", e.message);
-      _systemPromptTemplate = FALLBACK_SYSTEM_PROMPT;
+      try {
+        if (!_systemLegacyPromptTemplate) _systemLegacyPromptTemplate = await loadPrompt("deepsearch/system");
+        _systemCorePromptTemplate = _systemLegacyPromptTemplate;
+      } catch {
+        console.warn("[deepsearch] Failed to load system-core.md/system.md:", e?.message || e);
+        _systemCorePromptTemplate = FALLBACK_SYSTEM_PROMPT;
+      }
+    }
+  }
+
+  // Load mode module (quick/wider/deeper) on demand.
+  let modeTemplate = _modePromptTemplates.get(normalizedMode) || null;
+  if (!modeTemplate) {
+    try {
+      modeTemplate = await loadPrompt(`deepsearch/${normalizedMode}`);
+      _modePromptTemplates.set(normalizedMode, modeTemplate);
+    } catch {
+      modeTemplate = "";
+      _modePromptTemplates.set(normalizedMode, modeTemplate);
+    }
+  }
+
+  // Load SubAgents module only when relevant (keeps prompt smaller in quick mode).
+  if (!_systemSubagentsPromptTemplate && normalizedMode !== AnalysisMode.QUICK) {
+    try {
+      _systemSubagentsPromptTemplate = await loadPrompt("deepsearch/system-subagents");
+    } catch {
+      _systemSubagentsPromptTemplate = "";
     }
   }
 
@@ -189,9 +220,17 @@ async function getSystemPrompt({ skillsPrompt = "", config = null, mode = "wider
     ...(skillsPrompt ? { SKILLS_CATALOG: skillsPrompt } : {}),
   };
 
+  const subagentsTemplate = normalizedMode === AnalysisMode.QUICK ? "" : _systemSubagentsPromptTemplate || "";
+  const combinedTemplate = [_systemCorePromptTemplate, modeTemplate, subagentsTemplate].filter(Boolean).join("\n\n---\n\n");
+
+  const failOnUnresolved =
+    config?.prompts?.failOnUnresolved === true ||
+    config?.promptFailOnUnresolved === true ||
+    config?.promptFailFast === true;
+
   // Warn once if key placeholders remain unresolved (helps catch config/vars drift).
-  if (!_systemPromptWarnedUnresolved) {
-    return renderPromptTemplate(_systemPromptTemplate, {
+  if (!failOnUnresolved && !_systemPromptWarnedUnresolved) {
+    return renderPromptTemplate(combinedTemplate, {
       vars,
       appendIfMissing,
       keepUnresolved: true,
@@ -202,7 +241,12 @@ async function getSystemPrompt({ skillsPrompt = "", config = null, mode = "wider
     });
   }
 
-  return renderPromptTemplate(_systemPromptTemplate, { vars, appendIfMissing, keepUnresolved: true });
+  return renderPromptTemplate(combinedTemplate, {
+    vars,
+    appendIfMissing,
+    keepUnresolved: true,
+    ...(failOnUnresolved ? { failOnUnresolved: true } : {}),
+  });
 }
 
 export class DeepSearchAgentLoop extends BaseAgentLoop {

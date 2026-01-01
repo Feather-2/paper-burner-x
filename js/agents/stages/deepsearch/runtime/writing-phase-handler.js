@@ -10,6 +10,9 @@
 import { DeepSearchEvents } from "../../../runtime/events/events.js";
 import { classifyDeepSearchError } from "./error-classifier.js";
 import { maybePersistToolOutput } from "../../../runtime/persisted-output.js";
+import { loadPrompt, renderPromptTemplate } from "../../../prompts/prompt-loader.js";
+
+let _writingPhasePromptTemplate = null;
 
 export class WritingPhaseHandler {
   constructor({ logger, emit, parseDecision, executeTool, maxIterations = 5, maxParseFailures = 3 }) {
@@ -74,6 +77,31 @@ export class WritingPhaseHandler {
 
 示例：{"thought":"补充内容","action":"write-report","args":{"action":"append","content":"## 章节\\n\\n内容..."}}`,
     });
+
+    // 按需注入写作模块（拆分自 system prompt）
+    if (_writingPhasePromptTemplate === null) {
+      try {
+        _writingPhasePromptTemplate = await loadPrompt("deepsearch/system-writing");
+      } catch {
+        _writingPhasePromptTemplate = "";
+      }
+    }
+
+    if (_writingPhasePromptTemplate) {
+      try {
+        const report = state?.globalConfig?.report || {};
+        const vars = {
+          currentDate: new Date().toISOString().split("T")[0],
+          "minWords.quick": report.quick?.minWords ?? 4000,
+          "minWords.wider": report.wider?.minWords ?? 6000,
+          "minWords.deeper": report.deeper?.minWords ?? 10000,
+        };
+        const rendered = renderPromptTemplate(_writingPhasePromptTemplate, { vars, keepUnresolved: true });
+        addMessage({ role: "user", content: rendered });
+      } catch {
+        // ignore prompt injection failures
+      }
+    }
 
     let iteration = 0; // 已完成的写作轮次
     let parseFailures = 0;
