@@ -19,8 +19,146 @@ function normalizeIsolationMode(mode) {
   return m === "worker" ? "worker" : "none";
 }
 
+function toPositiveInt(value, fallback) {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.floor(n);
+}
+
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+class WorkerPool {
+  constructor({ createWorker, maxWorkers = 2 } = {}) {
+    if (typeof createWorker !== "function") throw new TypeError("WorkerPool: createWorker must be a function");
+    this._createWorker = createWorker;
+    this._maxWorkers = toPositiveInt(maxWorkers, 2);
+    this._all = new Set(); // Set<PooledWorker>
+    this._idle = []; // Array<PooledWorker>
+    this._waiters = []; // Array<{resolve,reject}>
+  }
+
+  setMaxWorkers(value) {
+    const n = toPositiveInt(value, null);
+    if (n === null) return this._maxWorkers;
+    this._maxWorkers = Math.max(this._maxWorkers, n);
+    return this._maxWorkers;
+  }
+
+  async acquire() {
+    if (this._idle.length) {
+      const w = this._idle.pop();
+      if (!w || w.destroyed) return this.acquire();
+      w.busy = true;
+      w._ref();
+      return w;
+    }
+
+    if (this._all.size < this._maxWorkers) {
+      const w = await this._createWorker();
+      const pooled = new PooledWorker(w);
+      pooled.busy = true;
+      pooled._ref();
+      this._all.add(pooled);
+      return pooled;
+    }
+
+    return await new Promise((resolve, reject) => {
+      this._waiters.push({ resolve, reject });
+    });
+  }
+
+  release(pooled) {
+    const w = pooled instanceof PooledWorker ? pooled : null;
+    if (!w || w.destroyed) return;
+    w._unref();
+
+    if (this._waiters.length) {
+      const waiter = this._waiters.shift();
+      w.busy = true;
+      w._ref();
+      waiter?.resolve?.(w);
+      return;
+    }
+
+    w.busy = false;
+    this._idle.push(w);
+  }
+
+  async destroy(pooled) {
+    const w = pooled instanceof PooledWorker ? pooled : null;
+    if (!w || w.destroyed) return;
+    w.destroyed = true;
+    w.busy = false;
+    this._all.delete(w);
+    this._idle = this._idle.filter((x) => x !== w);
+
+    try {
+      await w.terminate();
+    } catch {
+      // ignore terminate errors
+    }
+
+    // If there are waiters, try to fulfill one immediately (best-effort).
+    if (this._waiters.length) {
+      try {
+        const next = await this._createWorker();
+        const pooledNext = new PooledWorker(next);
+        pooledNext.busy = true;
+        pooledNext._ref();
+        this._all.add(pooledNext);
+        const waiter = this._waiters.shift();
+        waiter?.resolve?.(pooledNext);
+      } catch (err) {
+        const waiter = this._waiters.shift();
+        waiter?.reject?.(err);
+      }
+    }
+  }
+}
+
+class PooledWorker {
+  constructor(worker) {
+    this.worker = worker;
+    this.busy = false;
+    this.destroyed = false;
+  }
+
+  _ref() {
+    try {
+      if (this.worker && typeof this.worker.ref === "function") this.worker.ref();
+    } catch {
+      // ignore
+    }
+  }
+
+  _unref() {
+    try {
+      if (this.worker && typeof this.worker.unref === "function") this.worker.unref();
+    } catch {
+      // ignore
+    }
+  }
+
+  async terminate() {
+    const w = this.worker;
+    if (!w) return;
+    if (typeof w.terminate === "function") return await w.terminate();
+    // Browser worker termination is sync.
+    if (typeof w.terminate === "function") return w.terminate();
+  }
+}
+
+function globalPools() {
+  try {
+    const g = globalThis;
+    const key = "__PB_TOOL_EXECUTOR_WORKER_POOLS_V1__";
+    if (!g[key]) g[key] = new Map();
+    return g[key];
+  } catch {
+    return new Map();
+  }
 }
 
 export class ToolExecutor {
@@ -39,6 +177,9 @@ export class ToolExecutor {
     // produced by policyMapper(toolName, args, context, {tool}).
     this.policy = options.policy || null;
     this.policyMapper = typeof options.policyMapper === "function" ? options.policyMapper : null;
+
+    const poolCfg = isPlainObject(options.workerPool) ? options.workerPool : {};
+    this._workerPoolMax = toPositiveInt(poolCfg.maxWorkers ?? options.workerPoolMax, 2);
   }
 
   /**
@@ -281,38 +422,64 @@ export class ToolExecutor {
     // (e.g. Vite) from treating this Node worker entry as a web worker and trying to bundle node:* imports.
     const metaPath = fileURLToPath(import.meta.url);
     const workerPath = metaPath.replace(/tool-executor\.js$/i, "tool-executor-worker.js");
-    const worker = new Worker(workerPath, { type: "module" });
+    const pools = globalPools();
+    const poolKey = `node:${workerPath}`;
+    let pool = pools.get(poolKey);
+    if (!pool) {
+      pool = new WorkerPool({
+        maxWorkers: this._workerPoolMax,
+        createWorker: async () => new Worker(workerPath, { type: "module" }),
+      });
+      pools.set(poolKey, pool);
+    } else if (typeof pool?.setMaxWorkers === "function") {
+      pool.setMaxWorkers(this._workerPoolMax);
+    }
+
+    const pooled = await pool.acquire();
+    const worker = pooled.worker;
     const workerContext = this._createWorkerContextSnapshot(context);
 
     return new Promise((resolve, reject) => {
       let settled = false;
 
-      const cleanup = async () => {
+      const cleanup = async ({ destroy = false } = {}) => {
         if (settled) return;
         settled = true;
-        try {
-          await worker.terminate();
-        } catch {
-          // ignore terminate errors
+
+        worker.off?.("message", onMessage);
+        worker.off?.("error", onError);
+        worker.off?.("exit", onExit);
+
+        if (destroy) {
+          await pool.destroy(pooled);
+        } else {
+          pool.release(pooled);
         }
       };
 
       const timer = setTimeout(() => {
-        cleanup().finally(() => {
+        cleanup({ destroy: true }).finally(() => {
           const err = new Error(`Tool execution timed out after ${timeoutMs}ms`);
           err.name = "TimeoutError";
           err.code = "ETIMEDOUT";
           reject(err);
         });
       }, timeoutMs);
+      if (timer && typeof timer.unref === "function") {
+        try {
+          timer.unref();
+        } catch {
+          // ignore
+        }
+      }
 
-      worker.on("message", (msg) => {
+      const onMessage = (msg) => {
         if (settled) return;
         const type = msg?.type;
 
         if (type === "result") {
           clearTimeout(timer);
-          cleanup().finally(() => resolve(msg.result));
+          cleanup({ destroy: false }).finally(() => resolve(msg.result));
           return;
         }
 
@@ -321,22 +488,26 @@ export class ToolExecutor {
           const err = new Error(msg?.error?.message || "Tool worker error");
           if (msg?.error?.name) err.name = msg.error.name;
           if (msg?.error?.stack) err.stack = msg.error.stack;
-          cleanup().finally(() => reject(err));
+          cleanup({ destroy: true }).finally(() => reject(err));
         }
-      });
+      };
 
-      worker.on("error", (err) => {
+      const onError = (err) => {
         if (settled) return;
         clearTimeout(timer);
-        cleanup().finally(() => reject(err));
-      });
+        cleanup({ destroy: true }).finally(() => reject(err));
+      };
 
-      worker.on("exit", (code) => {
+      const onExit = (code) => {
         if (settled) return;
         if (code === 0) return;
         clearTimeout(timer);
-        cleanup().finally(() => reject(new Error(`Tool worker exited with code ${code}`)));
-      });
+        cleanup({ destroy: true }).finally(() => reject(new Error(`Tool worker exited with code ${code}`)));
+      };
+
+      worker.on?.("message", onMessage);
+      worker.on?.("error", onError);
+      worker.on?.("exit", onExit);
 
       try {
         worker.postMessage({
@@ -348,7 +519,7 @@ export class ToolExecutor {
         });
       } catch (err) {
         clearTimeout(timer);
-        cleanup().finally(() => reject(err));
+        cleanup({ destroy: true }).finally(() => reject(err));
       }
     });
   }
@@ -365,38 +536,57 @@ export class ToolExecutor {
       // keep as-is
     }
 
-    const worker = new Worker(new URL("./tool-executor-webworker.js", import.meta.url), { type: "module" });
+    const pools = globalPools();
+    const workerEntryUrl = new URL("./tool-executor-webworker.js", import.meta.url).toString();
+    const poolKey = `web:${workerEntryUrl}`;
+    let pool = pools.get(poolKey);
+    if (!pool) {
+      pool = new WorkerPool({
+        maxWorkers: this._workerPoolMax,
+        createWorker: async () => new Worker(new URL("./tool-executor-webworker.js", import.meta.url), { type: "module" }),
+      });
+      pools.set(poolKey, pool);
+    } else if (typeof pool?.setMaxWorkers === "function") {
+      pool.setMaxWorkers(this._workerPoolMax);
+    }
+
+    const pooled = await pool.acquire();
+    const worker = pooled.worker;
     const workerContext = this._createWorkerContextSnapshot(context);
 
     return new Promise((resolve, reject) => {
       let settled = false;
 
-      const cleanup = () => {
+      const cleanup = ({ destroy = false } = {}) => {
         if (settled) return;
         settled = true;
-        try {
-          worker.terminate();
-        } catch {
-          // ignore terminate errors
+
+        worker.removeEventListener?.("message", onMessage);
+        worker.removeEventListener?.("error", onError);
+
+        if (destroy) {
+          void pool.destroy(pooled);
+        } else {
+          pool.release(pooled);
         }
       };
 
       const timer = setTimeout(() => {
-        cleanup();
+        cleanup({ destroy: true });
         const err = new Error(`Tool execution timed out after ${timeoutMs}ms`);
         err.name = "TimeoutError";
         err.code = "ETIMEDOUT";
         reject(err);
       }, timeoutMs);
 
-      worker.onmessage = (evt) => {
+      const onMessage = (evt) => {
         if (settled) return;
         const msg = evt?.data;
         const type = msg?.type;
 
         if (type === "result") {
           clearTimeout(timer);
-          cleanup();
+          cleanup({ destroy: false });
           resolve(msg.result);
           return;
         }
@@ -406,17 +596,20 @@ export class ToolExecutor {
           const err = new Error(msg?.error?.message || "Tool worker error");
           if (msg?.error?.name) err.name = msg.error.name;
           if (msg?.error?.stack) err.stack = msg.error.stack;
-          cleanup();
+          cleanup({ destroy: true });
           reject(err);
         }
       };
 
-      worker.onerror = (err) => {
+      const onError = (err) => {
         if (settled) return;
         clearTimeout(timer);
-        cleanup();
+        cleanup({ destroy: true });
         reject(err);
       };
+
+      worker.addEventListener?.("message", onMessage);
+      worker.addEventListener?.("error", onError);
 
       try {
         worker.postMessage({
@@ -428,7 +621,7 @@ export class ToolExecutor {
         });
       } catch (err) {
         clearTimeout(timer);
-        cleanup();
+        cleanup({ destroy: true });
         reject(err);
       }
     });

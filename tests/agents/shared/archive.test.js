@@ -222,3 +222,29 @@ test("Archive: rejects invalid storage adapter", async () => {
   const { Archive } = await loadModule();
   assert.throws(() => new Archive({}), /must implement get\/set\/delete\/keys/);
 });
+
+test("Archive diff: stores patch snapshots and restores full nodeStates", async () => {
+  const { Archive, MapAdapter } = await loadModule();
+  const storage = new MapAdapter();
+  const archive = new Archive(storage, {
+    diff: {
+      enabled: true,
+      fullSnapshotEvery: 100,
+      minSavingsBytes: 1,
+      maxDepth: 12,
+      maxOps: 5000,
+    },
+  });
+
+  const bigText = "x".repeat(20000);
+  const first = await archive.save("run_diff", { nodeStates: { bigText, n: 1 }, timestamp: "100" });
+  const second = await archive.save("run_diff", { nodeStates: { bigText, n: 2 }, timestamp: "200" });
+
+  const rawSecond = await storage.get(second);
+  assert.equal(rawSecond?.encoding, "diff");
+  assert.equal(rawSecond?.base, first);
+  assert.ok(Array.isArray(rawSecond?.patch));
+
+  const restored = await archive.restore(second);
+  assert.deepEqual(restored, { nodeStates: { bigText, n: 2 }, timestamp: "200", metadata: undefined });
+});

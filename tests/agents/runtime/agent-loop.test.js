@@ -98,7 +98,8 @@ test("BaseAgentLoop flushCompression waits for scheduled compression", async () 
     contextConfig: { contextWindow: 800, compressThreshold: 0.9, keepLastTurns: 1 },
   });
 
-  loop.addMessage({ role: "user", content: "x".repeat(5000) });
+  // Ensure the token budget is exceeded even when the adaptive token counter has warmed up (tiktoken mode).
+  loop.addMessage({ role: "user", content: "x".repeat(8000) });
   loop.addMessage({ role: "assistant", content: "ok" });
 
   assert.equal(loop.getContextStatus().needsCompression, true);

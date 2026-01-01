@@ -12,6 +12,7 @@ const DEFAULT_CONTEXT_CONFIG = Object.freeze({
   contextWindow: 128000,      // 默认 128K tokens
   maxOutputTokens: 4096,      // 默认输出限制
   compressThreshold: 0.9,     // 90% 触发压缩
+  compressCooldownMs: 5000,   // 压缩触发冷却（避免频繁触发）
   keepLastTurns: 6,           // 保留最近 6 轮
   userMessageBuffer: 20000,   // 用户消息缓冲区 20K tokens
   titleOnlySummaryThreshold: 0.8, // 80% 时对旧消息做 title-only 摘要
@@ -300,6 +301,8 @@ export class BaseAgentLoop {
     this._compressionPending = false;
     this._compressionPromise = null;
     this._compressionHistory = [];
+    this._lastCompressionAtMs = 0;
+    this._compressionCooldownTimer = null;
   }
 
   // ===== 消息管理 =====
@@ -368,12 +371,53 @@ export class BaseAgentLoop {
     return this._tokenUsage.total >= threshold;
   }
 
+  _clearCompressionCooldownTimer() {
+    if (!this._compressionCooldownTimer) return;
+    try {
+      clearTimeout(this._compressionCooldownTimer);
+    } catch {
+      // ignore
+    } finally {
+      this._compressionCooldownTimer = null;
+    }
+  }
+
   /**
    * 调度压缩（异步，不阻塞主流程）
    */
-  _scheduleCompression() {
+  _scheduleCompression({ force = false } = {}) {
     // 防止重复调度
     if (this._compressionPending) return;
+
+    // Cooldown: avoid thrashing when still above threshold (e.g., huge kept messages).
+    const cooldownRaw = this._contextConfig?.compressCooldownMs;
+    const cooldownMs = Number.isFinite(Number(cooldownRaw)) ? Math.max(0, Math.floor(Number(cooldownRaw))) : 0;
+    const now = Date.now();
+    if (!force && cooldownMs > 0 && this._lastCompressionAtMs > 0) {
+      const elapsed = now - this._lastCompressionAtMs;
+      if (elapsed >= 0 && elapsed < cooldownMs) {
+        if (!this._compressionCooldownTimer) {
+          const waitMs = Math.max(0, cooldownMs - elapsed);
+          const t = setTimeout(() => {
+            this._compressionCooldownTimer = null;
+            if (this._shouldCompress()) this._scheduleCompression({ force: true });
+          }, waitMs);
+          // Node: don't keep the event loop alive for a best-effort cooldown timer.
+          if (t && typeof t.unref === "function") {
+            try {
+              t.unref();
+            } catch {
+              // ignore
+            }
+          }
+          this._compressionCooldownTimer = t;
+        }
+        return;
+      }
+    }
+
+    // Any scheduled immediate compression supersedes prior delayed timers.
+    this._clearCompressionCooldownTimer();
     this._compressionPending = true;
 
     let resolve = null;
@@ -387,6 +431,7 @@ export class BaseAgentLoop {
         .then(() => this._compressMessages())
         .catch(() => { })
         .finally(() => {
+          this._lastCompressionAtMs = Date.now();
           this._compressionPending = false;
           if (this._compressionPromise === done) this._compressionPromise = null;
           resolve?.();
@@ -411,6 +456,7 @@ export class BaseAgentLoop {
       } catch { }
     }
 
+    this._clearCompressionCooldownTimer();
     let rounds = 0;
     while (this._shouldCompress() && rounds < maxRounds) {
       rounds += 1;
@@ -419,6 +465,7 @@ export class BaseAgentLoop {
         .then(() => this._compressMessages())
         .catch(() => { })
         .finally(() => {
+          this._lastCompressionAtMs = Date.now();
           this._compressionPending = false;
         });
       this._compressionPromise = p;
@@ -433,6 +480,7 @@ export class BaseAgentLoop {
    * 执行消息压缩（委托给 CicadaCompressor）
    */
   async _compressMessages() {
+    this._clearCompressionCooldownTimer();
     const { keepLastTurns } = this._contextConfig;
     const beforeCount = this._messages.length;
     const beforeTokens = this._tokenUsage.total;
@@ -501,6 +549,7 @@ export class BaseAgentLoop {
    * 简单压缩回退（无 CicadaCompressor 时）
    */
   _simpleCompress() {
+    this._clearCompressionCooldownTimer();
     const { keepLastTurns } = this._contextConfig;
     const beforeCount = this._messages.length;
     const beforeTokens = this._tokenUsage.total;
@@ -549,7 +598,11 @@ export class BaseAgentLoop {
       }
     }
 
-    if (toCompress.length === 0) return;
+    if (toCompress.length === 0) {
+      // Still update last compression timestamp to avoid hot-loop retries when compression cannot help.
+      this._lastCompressionAtMs = Date.now();
+      return;
+    }
 
     const summary = this._buildCompressionSummary(toCompress, { titleOnly });
     const combined = priorSummary ? `${priorSummary}\n${summary}` : summary;
@@ -565,6 +618,7 @@ export class BaseAgentLoop {
 
     this._recalculateTokenUsage();
     this._recordCompression(beforeCount, beforeTokens);
+    this._lastCompressionAtMs = Date.now();
   }
 
   /**

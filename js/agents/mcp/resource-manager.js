@@ -1,5 +1,6 @@
 import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
 import { McpClient } from "./mcp-client.js";
+import { FallbackAdapter } from "../shared/archive/archive.js";
 
 function isStorageLike(value) {
   return (
@@ -15,26 +16,6 @@ function getDefaultStorage() {
     return isStorageLike(globalThis.localStorage) ? globalThis.localStorage : null;
   } catch {
     return null;
-  }
-}
-
-function safeGetItem(storage, key) {
-  if (!isStorageLike(storage)) return null;
-  try {
-    const v = storage.getItem(String(key));
-    return v === null || v === undefined ? null : String(v);
-  } catch {
-    return null;
-  }
-}
-
-function safeSetItem(storage, key, value) {
-  if (!isStorageLike(storage)) return false;
-  try {
-    storage.setItem(String(key), String(value));
-    return true;
-  } catch {
-    return false;
   }
 }
 
@@ -65,6 +46,69 @@ function keyOf(providerId, uri) {
 
 const RESOURCES_CACHE_KEY = "pb_mcp_resources_cache_v1";
 
+function isAsyncStore(value) {
+  return value !== null && typeof value === "object" && typeof value.get === "function" && typeof value.set === "function";
+}
+
+function isNodeLike() {
+  return typeof process !== "undefined" && !!process.versions?.node;
+}
+
+function hasIndexedDB() {
+  try {
+    return typeof indexedDB !== "undefined" && indexedDB && typeof indexedDB.open === "function";
+  } catch {
+    return false;
+  }
+}
+
+function getDefaultAsyncStore() {
+  if (isNodeLike()) return null;
+  if (!hasIndexedDB()) return null;
+  return new FallbackAdapter("paperburner_mcp_cache_db_v1", "mcp_cache_kv");
+}
+
+async function storeGet(store, key) {
+  if (!store) return null;
+  if (isStorageLike(store)) {
+    try {
+      const v = store.getItem(String(key));
+      return v === null || v === undefined ? null : String(v);
+    } catch {
+      return null;
+    }
+  }
+  if (isAsyncStore(store)) {
+    try {
+      return await store.get(String(key));
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function storeSetFireAndForget(store, key, value) {
+  if (!store) return false;
+  if (isStorageLike(store)) {
+    try {
+      store.setItem(String(key), String(value));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  if (isAsyncStore(store)) {
+    try {
+      void store.set(String(key), value);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
 /**
  * McpResourceManager (browser-first)
  *
@@ -81,7 +125,12 @@ export class McpResourceManager {
     maxPersistBytes = 50_000,
   } = {}) {
     this.client = client instanceof McpClient ? client : null;
-    this.storage = isStorageLike(storage) ? storage : getDefaultStorage();
+    this.storage =
+      storage === null
+        ? null
+        : isStorageLike(storage) || isAsyncStore(storage)
+          ? storage
+          : getDefaultAsyncStore() || getDefaultStorage();
     this.defaultTtlMs = normalizeTtlMs(defaultTtlMs, 60_000);
     this.maxPersistBytes = normalizeTtlMs(maxPersistBytes, 50_000);
 
@@ -94,12 +143,12 @@ export class McpResourceManager {
     this._serverSubRefCounts = new Map(); // providerId:uri -> count
     this._providerNotifyUnsub = new Map(); // providerId -> unsubscribe()
 
-    this._hydratePersistedCache();
+    this._hydrationPromise = this._hydratePersistedCache();
   }
 
-  _hydratePersistedCache() {
-    const raw = safeGetItem(this.storage, RESOURCES_CACHE_KEY);
-    const parsed = safeJsonParse(raw);
+  async _hydratePersistedCache() {
+    const raw = await storeGet(this.storage, RESOURCES_CACHE_KEY);
+    const parsed = typeof raw === "string" ? safeJsonParse(raw) : isPlainObject(raw) ? raw : null;
     if (!isPlainObject(parsed) || !isPlainObject(parsed.providers)) return;
 
     const now = Date.now();
@@ -129,7 +178,7 @@ export class McpResourceManager {
 
   _persistCache() {
     const store = this.storage;
-    if (!isStorageLike(store)) return false;
+    if (!store) return false;
 
     const providers = {};
     for (const providerId of new Set([
@@ -163,7 +212,9 @@ export class McpResourceManager {
       };
     }
 
-    return safeSetItem(store, RESOURCES_CACHE_KEY, JSON.stringify({ schemaVersion: "0.1", ts: Date.now(), providers }));
+    const payload = { schemaVersion: "0.1", ts: Date.now(), providers };
+    const value = isStorageLike(store) ? JSON.stringify(payload) : payload;
+    return storeSetFireAndForget(store, RESOURCES_CACHE_KEY, value);
   }
 
   _getProvider(providerId) {
@@ -191,6 +242,7 @@ export class McpResourceManager {
   }
 
   async listResources({ providerId, ttlMs } = {}) {
+    await this._hydrationPromise;
     const { providerId: id, provider } = this._getProvider(providerId);
     const ttl = normalizeTtlMs(ttlMs, this.defaultTtlMs);
     const cached = this._listCache.get(id);
@@ -205,6 +257,7 @@ export class McpResourceManager {
   }
 
   async listResourceTemplates({ providerId, ttlMs } = {}) {
+    await this._hydrationPromise;
     const { providerId: id, provider } = this._getProvider(providerId);
     const ttl = normalizeTtlMs(ttlMs, this.defaultTtlMs);
     const cached = this._templatesCache.get(id);
@@ -219,6 +272,7 @@ export class McpResourceManager {
   }
 
   async readResource({ providerId, uri, forceRefresh = false, ttlMs } = {}) {
+    await this._hydrationPromise;
     const { providerId: id, provider } = this._getProvider(providerId);
     const u = toNonEmptyString(uri);
     if (!u) throw new Error("readResource: uri is required");
@@ -240,6 +294,7 @@ export class McpResourceManager {
   }
 
   async subscribeResource({ providerId, uri, callback } = {}) {
+    await this._hydrationPromise;
     const { providerId: id, provider } = this._getProvider(providerId);
     const u = toNonEmptyString(uri);
     if (!u) throw new Error("subscribeResource: uri is required");

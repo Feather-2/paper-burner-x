@@ -2,6 +2,7 @@ import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js"
 import { McpClient } from "./mcp-client.js";
 import { LocalMcpProvider } from "./local-mcp-provider.js";
 import { McpNexusProvider } from "./mcp-nexus-provider.js";
+import { FallbackAdapter } from "../shared/archive/archive.js";
 
 const NEXUS_CONFIG_KEY = "mcp_nexus_config";
 const MCP_SERVERS_KEY = "pb_mcp_servers";
@@ -21,26 +22,6 @@ function getDefaultStorage() {
     return isStorageLike(globalThis.localStorage) ? globalThis.localStorage : null;
   } catch {
     return null;
-  }
-}
-
-function safeGetItem(storage, key) {
-  if (!isStorageLike(storage)) return null;
-  try {
-    const v = storage.getItem(String(key));
-    return v === null || v === undefined ? null : String(v);
-  } catch {
-    return null;
-  }
-}
-
-function safeSetItem(storage, key, value) {
-  if (!isStorageLike(storage)) return false;
-  try {
-    storage.setItem(String(key), String(value));
-    return true;
-  } catch {
-    return false;
   }
 }
 
@@ -77,7 +58,7 @@ function normalizeHeaders(value) {
 }
 
 function normalizeNexusConfig(raw) {
-  const parsed = typeof raw === "string" ? safeJsonParse(raw) : null;
+  const parsed = typeof raw === "string" ? safeJsonParse(raw) : isPlainObject(raw) ? raw : null;
   if (isPlainObject(parsed)) {
     const endpoint = normalizeEndpoint(parsed.endpoint || parsed.url || parsed.baseUrl);
     if (!endpoint) return null;
@@ -98,7 +79,7 @@ function normalizeNexusConfig(raw) {
 }
 
 function normalizeMcpServersConfig(raw) {
-  const parsed = typeof raw === "string" ? safeJsonParse(raw) : null;
+  const parsed = typeof raw === "string" ? safeJsonParse(raw) : isPlainObject(raw) ? raw : null;
   if (!isPlainObject(parsed)) return null;
 
   const mcpServers = isPlainObject(parsed.mcpServers) ? parsed.mcpServers : isPlainObject(parsed.servers) ? parsed.servers : null;
@@ -133,7 +114,7 @@ function normalizeMcpServersConfig(raw) {
 }
 
 function normalizeToolsCache(raw) {
-  const parsed = typeof raw === "string" ? safeJsonParse(raw) : null;
+  const parsed = typeof raw === "string" ? safeJsonParse(raw) : isPlainObject(raw) ? raw : null;
   if (!isPlainObject(parsed)) return null;
   const providers = isPlainObject(parsed.providers) ? parsed.providers : null;
   if (!providers) return null;
@@ -172,16 +153,84 @@ function seedProviderToolsCache(provider, tools) {
   return false;
 }
 
+function isAsyncStore(value) {
+  return value !== null && typeof value === "object" && typeof value.get === "function" && typeof value.set === "function";
+}
+
+function isNodeLike() {
+  return typeof process !== "undefined" && !!process.versions?.node;
+}
+
+function hasIndexedDB() {
+  try {
+    return typeof indexedDB !== "undefined" && indexedDB && typeof indexedDB.open === "function";
+  } catch {
+    return false;
+  }
+}
+
+function getDefaultAsyncStore() {
+  if (isNodeLike()) return null;
+  if (!hasIndexedDB()) return null;
+  return new FallbackAdapter("paperburner_mcp_cache_db_v1", "mcp_cache_kv");
+}
+
+async function storeGet(store, key) {
+  if (!store) return null;
+  if (isStorageLike(store)) {
+    try {
+      const v = store.getItem(String(key));
+      return v === null || v === undefined ? null : String(v);
+    } catch {
+      return null;
+    }
+  }
+  if (isAsyncStore(store)) {
+    try {
+      return await store.get(String(key));
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+async function storeSet(store, key, value) {
+  if (!store) return false;
+  if (isStorageLike(store)) {
+    try {
+      store.setItem(String(key), String(value));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  if (isAsyncStore(store)) {
+    try {
+      await store.set(String(key), value);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
 export async function createAutoMcpClient({
   storage,
   useLocal = true,
   localOptions,
   fetchImpl,
 } = {}) {
-  const store = isStorageLike(storage) ? storage : getDefaultStorage();
+  const store =
+    storage === null
+      ? null
+      : isStorageLike(storage) || isAsyncStore(storage)
+        ? storage
+        : getDefaultAsyncStore() || getDefaultStorage();
   const client = new McpClient();
 
-  const cachedTools = normalizeToolsCache(safeGetItem(store, TOOLS_CACHE_KEY));
+  const cachedTools = normalizeToolsCache(await storeGet(store, TOOLS_CACHE_KEY));
 
   if (useLocal !== false) {
     const workerEndpoint =
@@ -197,7 +246,7 @@ export async function createAutoMcpClient({
     );
   }
 
-  const serversCfg = normalizeMcpServersConfig(safeGetItem(store, MCP_SERVERS_KEY));
+  const serversCfg = normalizeMcpServersConfig(await storeGet(store, MCP_SERVERS_KEY));
   if (serversCfg?.servers?.length) {
     for (const server of serversCfg.servers) {
       if (!server?.enabled) continue;
@@ -220,7 +269,7 @@ export async function createAutoMcpClient({
       client._defaultProviderId = serversCfg.defaultProviderId;
     }
   } else {
-    const nexusCfg = normalizeNexusConfig(safeGetItem(store, NEXUS_CONFIG_KEY));
+    const nexusCfg = normalizeNexusConfig(await storeGet(store, NEXUS_CONFIG_KEY));
     if (nexusCfg?.enabled && nexusCfg.endpoint) {
       const provider = new McpNexusProvider({
         id: nexusCfg.id,
@@ -248,7 +297,12 @@ export async function preloadMcpTools({
   const c = client instanceof McpClient ? client : null;
   if (!c) throw new Error("preloadMcpTools: client must be an McpClient");
 
-  const store = isStorageLike(storage) ? storage : getDefaultStorage();
+  const store =
+    storage === null
+      ? null
+      : isStorageLike(storage) || isAsyncStore(storage)
+        ? storage
+        : getDefaultAsyncStore() || getDefaultStorage();
 
   const providers = c.listProviders();
   const cache = {
@@ -278,7 +332,9 @@ export async function preloadMcpTools({
     }
   }
 
-  safeSetItem(store, TOOLS_CACHE_KEY, JSON.stringify(cache));
+  // Prefer storing objects in IndexedDB (avoid localStorage 5MB ceiling); fall back to JSON string for legacy storage.
+  const payload = isStorageLike(store) ? JSON.stringify(cache) : cache;
+  await storeSet(store, TOOLS_CACHE_KEY, payload);
   return cache;
 }
 

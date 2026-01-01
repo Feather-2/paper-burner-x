@@ -9,7 +9,7 @@
  */
 
 import { SkillScope } from "./model.js";
-import { listUserSkills, getUserSkillBody } from "./user-store.js";
+import { initUserSkillStore, listUserSkills, getUserSkillBody } from "./user-store.js";
 
 // Vite serves `public/` at the site root ("/skills/manifest.json").
 // Some deployments may still expose it under "/public/skills/manifest.json".
@@ -297,6 +297,7 @@ export async function loadSkills({ manifestUrl } = {}) {
 
   // Merge user-installed skills (localStorage-backed) - allow overriding built-ins by name.
   try {
+    await initUserSkillStore();
     const userList = listUserSkills();
     for (const item of userList) {
       const skill = normalizeSkillFromUserStore(item);
@@ -412,6 +413,7 @@ export async function loadSkillFromPath(filePath, scope = SkillScope.SYSTEM) {
   if (raw.startsWith("user:")) {
     const name = toNonEmptyString(raw.slice("user:".length));
     if (!name) throw new Error("loadSkillFromPath(user:...): missing skill name");
+    await initUserSkillStore();
     const text = getUserSkillBody(name);
     if (!text) throw new Error(`User skill missing body: ${name}`);
     return parseSkillMarkdown(text, `user:${name}`, SkillScope.USER);
