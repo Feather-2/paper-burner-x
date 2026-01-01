@@ -11,8 +11,9 @@
  * 自定义系统指令内容...
  */
 
-import * as fs from "fs";
-import * as path from "path";
+function isNodeLike() {
+    return typeof process !== "undefined" && !!process.versions?.node;
+}
 
 /**
  * 解析 YAML frontmatter
@@ -77,24 +78,33 @@ function parseFrontmatter(content) {
  * @returns {Promise<AgentConfig>}
  */
 export async function loadAgentConfig(projectRoot) {
-    const configPath = path.join(projectRoot, ".agent", "agent.md");
-
     const defaultConfig = {
         instructions: "",
         skills: [],
         model: null,
         hooks: [],
         _loaded: false,
-        _path: configPath,
+        _path: "",
     };
 
-    try {
-        const exists = fs.existsSync(configPath);
-        if (!exists) {
-            return defaultConfig;
-        }
+    if (!isNodeLike()) {
+        return {
+            ...defaultConfig,
+            _path: `${String(projectRoot || "").replace(/\/$/, "")}/.agent/agent.md`,
+        };
+    }
 
-        const content = await fs.promises.readFile(configPath, "utf-8");
+    const pathModule = await import("node:path");
+    const fs = await import("node:fs/promises");
+
+    const configPath = pathModule.join(projectRoot, ".agent", "agent.md");
+
+    defaultConfig._path = configPath;
+
+    try {
+        await fs.access(configPath);
+
+        const content = await fs.readFile(configPath, "utf-8");
         const { frontmatter, body } = parseFrontmatter(content);
 
         return {

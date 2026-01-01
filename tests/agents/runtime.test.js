@@ -879,6 +879,124 @@ test("PromptLoader: LRU cache evicts oldest prompts", async () => {
   }
 });
 
+test("PromptLoader: browser manifest resolves prompt URLs (best-effort)", async () => {
+  const { loadPrompt, clearPromptCache } = await import("../../js/agents/prompts/prompt-loader.js");
+
+  const originalProcess = globalThis.process;
+  const originalFetch = globalThis.fetch;
+
+  clearPromptCache();
+
+  try {
+    globalThis.process = undefined;
+
+    const manifestUrl = "https://example.com/prompts/manifest.json";
+    let manifestFetches = 0;
+    let promptFetches = 0;
+
+    globalThis.fetch = async (url) => {
+      const u = String(url || "");
+
+      if (u === manifestUrl) {
+        manifestFetches += 1;
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return {
+              prompts: [{ name: "deepsearch/system", path: "deepsearch/system.md" }],
+            };
+          },
+        };
+      }
+
+      if (u === "https://example.com/prompts/deepsearch/system.md") {
+        promptFetches += 1;
+        return {
+          ok: true,
+          status: 200,
+          async text() {
+            return "# system\n";
+          },
+        };
+      }
+
+      return {
+        ok: false,
+        status: 404,
+        async text() {
+          return "not_found";
+        },
+      };
+    };
+
+    const first = await loadPrompt("deepsearch/system", { cache: false, manifestUrl });
+    assert.equal(first, "# system");
+
+    // Second call should reuse the cached manifest (no second manifest fetch).
+    const second = await loadPrompt("deepsearch/system", { cache: false, manifestUrl });
+    assert.equal(second, "# system");
+
+    assert.equal(manifestFetches, 1);
+    assert.equal(promptFetches, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.process = originalProcess;
+    clearPromptCache();
+  }
+});
+
+test("ConfigLoader: loadAgentConfig loads .agent/agent.md in Node", async () => {
+  const { loadAgentConfig } = await import("../../js/agents/sdk/config-loader.js");
+  const fs = require("node:fs/promises");
+  const path = require("node:path");
+  const os = require("node:os");
+
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "pb-agentcfg-"));
+  try {
+    await fs.mkdir(path.join(tmp, ".agent"), { recursive: true });
+    await fs.writeFile(
+      path.join(tmp, ".agent", "agent.md"),
+      [
+        "---",
+        "skills: [search-docs, write-report]",
+        "model: gpt-4",
+        "hooks:",
+        "  - ./hooks/audit.js",
+        "---",
+        "Hello",
+        "",
+      ].join("\n"),
+      "utf8"
+    );
+
+    const cfg = await loadAgentConfig(tmp);
+    assert.equal(cfg._loaded, true);
+    assert.equal(cfg._path, path.join(tmp, ".agent", "agent.md"));
+    assert.equal(cfg.instructions, "Hello");
+    assert.deepEqual(cfg.skills, ["search-docs", "write-report"]);
+    assert.equal(cfg.model, "gpt-4");
+    assert.deepEqual(cfg.hooks, ["./hooks/audit.js"]);
+  } finally {
+    await fs.rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test("ConfigLoader: loadAgentConfig degrades gracefully without Node APIs", async () => {
+  const { loadAgentConfig } = await import("../../js/agents/sdk/config-loader.js");
+
+  const originalProcess = globalThis.process;
+  try {
+    globalThis.process = undefined;
+    const cfg = await loadAgentConfig("/repo-root/");
+    assert.equal(cfg._loaded, false);
+    assert.equal(cfg.instructions, "");
+    assert.equal(cfg._path, "/repo-root/.agent/agent.md");
+  } finally {
+    globalThis.process = originalProcess;
+  }
+});
+
 test("BaseAgentLoop: strict loopStatus transitions reject illegal jumps", async () => {
   const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
   const { AgentStatus } = await import("../../js/agents/runtime/core/agent-status.js");

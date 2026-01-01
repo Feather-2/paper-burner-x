@@ -120,14 +120,100 @@ function validateKey(key) {
   return /^[a-zA-Z0-9_\-\/]+$/.test(key);
 }
 
+// Browser prompt manifest support:
+// - Vite build won't automatically include runtime-fetched .md files unless they live under `public/`.
+// - We ship `public/prompts/manifest.json` + prompt markdown under `public/prompts/**`.
+const DEFAULT_PROMPT_MANIFEST_URL = "prompts/manifest.json";
+const DEFAULT_PROMPT_MANIFEST_URL_FALLBACK = "public/prompts/manifest.json";
+const PROMPT_MANIFEST_CACHE_TTL_MS = 30_000;
+let _promptManifestCache = null; // { url, ts, byName: Map<string,{name,path}> }
+
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function toNonEmptyString(value) {
+  if (value === undefined || value === null) return "";
+  const s = String(value).trim();
+  return s.length ? s : "";
+}
+
+function resolveUrl(pathOrUrl) {
+  const raw = toNonEmptyString(pathOrUrl);
+  if (!raw) return "";
+  try {
+    return new URL(raw, globalThis.location?.href).toString();
+  } catch {
+    return raw;
+  }
+}
+
+async function fetchJson(url) {
+  if (typeof fetch !== "function") throw new Error("fetch is not available in this environment");
+  const resp = await fetch(url, { cache: "no-store" });
+  if (!resp.ok) throw new Error(`Failed to fetch ${url}: ${resp.status}`);
+  return await resp.json();
+}
+
+async function loadPromptManifest(manifestUrl) {
+  if (isNodeLike()) return null;
+
+  const primary = resolveUrl(manifestUrl || DEFAULT_PROMPT_MANIFEST_URL);
+  const fallback = resolveUrl(DEFAULT_PROMPT_MANIFEST_URL_FALLBACK);
+  const candidates = [primary, fallback].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
+
+  const now = Date.now();
+  if (_promptManifestCache && _promptManifestCache.url === primary && now - _promptManifestCache.ts < PROMPT_MANIFEST_CACHE_TTL_MS) {
+    return _promptManifestCache;
+  }
+
+  for (const url of candidates) {
+    try {
+      const data = await fetchJson(url);
+      const list = Array.isArray(data?.prompts) ? data.prompts : Array.isArray(data?.files) ? data.files : [];
+      const byName = new Map();
+      for (const entry of list) {
+        const row = isPlainObject(entry) ? entry : null;
+        const name = toNonEmptyString(row?.name || row?.key);
+        const path = toNonEmptyString(row?.path || row?.file || row?.url);
+        if (!name || !path) continue;
+        byName.set(name.replace(/\.md$/i, ""), { name: name.replace(/\.md$/i, ""), path });
+      }
+      _promptManifestCache = { url, ts: now, byName };
+      return _promptManifestCache;
+    } catch {
+      // continue
+    }
+  }
+
+  return null;
+}
+
+async function resolvePromptUrlFromManifest(key, { manifestUrl } = {}) {
+  const k = toNonEmptyString(key).replace(/\.md$/i, "");
+  if (!k) return "";
+  const manifest = await loadPromptManifest(manifestUrl);
+  if (!manifest) return "";
+
+  const entry = manifest.byName.get(k);
+  if (!entry) return "";
+
+  try {
+    return new URL(entry.path, manifest.url).toString();
+  } catch {
+    return entry.path;
+  }
+}
+
 /**
  * 异步加载提示词文件
  * @param {string} name - 提示词名称，如 "dsl/ppt-html-dsl" (不需要 .md 后缀)
  * @param {object} options - 选项
  * @param {boolean} options.cache - 是否使用缓存，默认 true
+ * @param {string=} options.manifestUrl - Browser-only prompt manifest URL
  * @returns {Promise<string>} 提示词内容
  */
-export async function loadPrompt(name, { cache = true } = {}) {
+export async function loadPrompt(name, { cache = true, manifestUrl } = {}) {
   const key = String(name).replace(/\.md$/i, "");
 
   if (!validateKey(key)) {
@@ -143,13 +229,16 @@ export async function loadPrompt(name, { cache = true } = {}) {
 
   // Browser/Worker - use fetch
   if (!isNodeLike()) {
-    const filePath = (() => {
-      try {
-        return new URL(`${key}.md`, basePath).toString();
-      } catch {
-        return `${String(basePath || "/")}${key}.md`.replace(/\/+/g, "/");
-      }
-    })();
+    const manifestPath = await resolvePromptUrlFromManifest(key, { manifestUrl });
+    const filePath =
+      manifestPath ||
+      (() => {
+        try {
+          return new URL(`${key}.md`, basePath).toString();
+        } catch {
+          return `${String(basePath || "/")}${key}.md`.replace(/\/+/g, "/");
+        }
+      })();
     try {
       const resp = await fetch(filePath);
       if (!resp.ok) {

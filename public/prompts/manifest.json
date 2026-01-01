@@ -1,0 +1,78 @@
+{
+  "version": "1.0.0",
+  "generatedAt": "2026-01-01T13:26:59.650Z",
+  "prompts": [
+    {
+      "name": "codesearch/step",
+      "path": "codesearch/step.md"
+    },
+    {
+      "name": "codesearch/summarize",
+      "path": "codesearch/summarize.md"
+    },
+    {
+      "name": "codesearch/system",
+      "path": "codesearch/system.md"
+    },
+    {
+      "name": "deepsearch/deeper",
+      "path": "deepsearch/deeper.md"
+    },
+    {
+      "name": "deepsearch/quick",
+      "path": "deepsearch/quick.md"
+    },
+    {
+      "name": "deepsearch/subagent",
+      "path": "deepsearch/subagent.md"
+    },
+    {
+      "name": "deepsearch/system-core",
+      "path": "deepsearch/system-core.md"
+    },
+    {
+      "name": "deepsearch/system-subagents",
+      "path": "deepsearch/system-subagents.md"
+    },
+    {
+      "name": "deepsearch/system-writing",
+      "path": "deepsearch/system-writing.md"
+    },
+    {
+      "name": "deepsearch/system",
+      "path": "deepsearch/system.md"
+    },
+    {
+      "name": "deepsearch/todos",
+      "path": "deepsearch/todos.md"
+    },
+    {
+      "name": "deepsearch/wider",
+      "path": "deepsearch/wider.md"
+    },
+    {
+      "name": "design/batch-generator-system",
+      "path": "design/batch-generator-system.md"
+    },
+    {
+      "name": "design/brainstorm-review",
+      "path": "design/brainstorm-review.md"
+    },
+    {
+      "name": "design/brainstorm-system",
+      "path": "design/brainstorm-system.md"
+    },
+    {
+      "name": "design/svg-generator",
+      "path": "design/svg-generator.md"
+    },
+    {
+      "name": "dsl/ppt-html-dsl",
+      "path": "dsl/ppt-html-dsl.md"
+    },
+    {
+      "name": "ingest/asset-batch-analysis",
+      "path": "ingest/asset-batch-analysis.md"
+    }
+  ]
+}
