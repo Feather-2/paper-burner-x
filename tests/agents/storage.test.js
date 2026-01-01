@@ -7,6 +7,30 @@ function makeDbName(label) {
   return `AgentRuntimeDB_${label}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
+function promisifyRequest(req) {
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function promisifyTransaction(tx) {
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onabort = () => reject(tx.error || new Error("IndexedDB transaction aborted"));
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function setRunCreatedAt({ store, runStoreName, runId, createdAt }) {
+  const db = await store.open();
+  const tx = db.transaction([runStoreName], "readwrite");
+  const runs = tx.objectStore(runStoreName);
+  const rec = await promisifyRequest(runs.get(runId));
+  runs.put({ ...rec, createdAt, updatedAt: createdAt });
+  await promisifyTransaction(tx);
+}
+
 test("RunStore: IndexedDB CRUD (runs/events/artifacts)", async () => {
   const { RunStore } = await import("../../js/agents/storage/run-store.js");
 
@@ -248,6 +272,139 @@ test("RunStore: storage quota detection does not throw", async () => {
 
   const est = await store.estimateQuota();
   assert.ok(est && typeof est === "object" && "supported" in est);
+
+  await store.close();
+  await RunStore.deleteDatabase({ dbName });
+});
+
+test("RunStore: cleanupRuns respects maxRuns + pinned", async () => {
+  const { RunStore, RunStoreConstants } = await import("../../js/agents/storage/run-store.js");
+
+  const dbName = makeDbName("cleanup_maxRuns");
+  await RunStore.deleteDatabase({ dbName });
+  const store = new RunStore({ dbName });
+
+  const now = Date.now();
+  const iso = (ms) => new Date(ms).toISOString();
+
+  const ids = ["run_cleanup_1", "run_cleanup_2", "run_cleanup_3", "run_cleanup_4", "run_cleanup_5"];
+  await store.createRun({ schemaVersion: "0.1", runId: ids[0], mode: "deepsearch", constraints: {}, startedAt: iso(now) });
+  await store.createRun({ schemaVersion: "0.1", runId: ids[1], mode: "deepsearch", constraints: {}, startedAt: iso(now), pinned: true });
+  await store.createRun({ schemaVersion: "0.1", runId: ids[2], mode: "deepsearch", constraints: {}, startedAt: iso(now) });
+  await store.createRun({ schemaVersion: "0.1", runId: ids[3], mode: "deepsearch", constraints: {}, startedAt: iso(now) });
+  await store.createRun({ schemaVersion: "0.1", runId: ids[4], mode: "deepsearch", constraints: {}, startedAt: iso(now) });
+
+  // Ensure deterministic createdAt ordering: 1 oldest -> 5 newest.
+  await setRunCreatedAt({ store, runStoreName: RunStoreConstants.STORE_RUNS, runId: ids[0], createdAt: iso(now - 5 * 86400000) });
+  await setRunCreatedAt({ store, runStoreName: RunStoreConstants.STORE_RUNS, runId: ids[1], createdAt: iso(now - 4 * 86400000) });
+  await setRunCreatedAt({ store, runStoreName: RunStoreConstants.STORE_RUNS, runId: ids[2], createdAt: iso(now - 3 * 86400000) });
+  await setRunCreatedAt({ store, runStoreName: RunStoreConstants.STORE_RUNS, runId: ids[3], createdAt: iso(now - 2 * 86400000) });
+  await setRunCreatedAt({ store, runStoreName: RunStoreConstants.STORE_RUNS, runId: ids[4], createdAt: iso(now - 1 * 86400000) });
+
+  const result = await store.cleanupRuns({ retention: { maxRuns: 2 }, reason: "test_maxRuns" });
+  assert.deepEqual(result.plannedDeleteRunIds, [ids[0], ids[2]]);
+  assert.deepEqual(result.deletedRunIds, [ids[0], ids[2]]);
+
+  assert.equal(await store.getRun(ids[0]), null);
+  assert.ok(await store.getRun(ids[1]));
+  assert.equal(await store.getRun(ids[2]), null);
+  assert.ok(await store.getRun(ids[3]));
+  assert.ok(await store.getRun(ids[4]));
+
+  await store.close();
+  await RunStore.deleteDatabase({ dbName });
+});
+
+test("RunStore: cleanupRuns respects maxAgeDays", async () => {
+  const { RunStore, RunStoreConstants } = await import("../../js/agents/storage/run-store.js");
+
+  const dbName = makeDbName("cleanup_maxAgeDays");
+  await RunStore.deleteDatabase({ dbName });
+  const store = new RunStore({ dbName });
+
+  const now = Date.now();
+  const iso = (ms) => new Date(ms).toISOString();
+
+  const oldId = "run_cleanup_old";
+  const newId = "run_cleanup_new";
+
+  await store.createRun({ schemaVersion: "0.1", runId: oldId, mode: "deepsearch", constraints: {}, startedAt: iso(now) });
+  await store.createRun({ schemaVersion: "0.1", runId: newId, mode: "deepsearch", constraints: {}, startedAt: iso(now) });
+
+  await setRunCreatedAt({ store, runStoreName: RunStoreConstants.STORE_RUNS, runId: oldId, createdAt: iso(now - 10 * 86400000) });
+  await setRunCreatedAt({ store, runStoreName: RunStoreConstants.STORE_RUNS, runId: newId, createdAt: iso(now - 1 * 86400000) });
+
+  const result = await store.cleanupRuns({ retention: { maxAgeDays: 3 }, reason: "test_maxAgeDays" });
+  assert.deepEqual(result.deletedRunIds, [oldId]);
+  assert.equal(await store.getRun(oldId), null);
+  assert.ok(await store.getRun(newId));
+
+  await store.close();
+  await RunStore.deleteDatabase({ dbName });
+});
+
+test("RunStore: cleanupRuns respects maxTotalBytes", async () => {
+  const { RunStore, RunStoreConstants } = await import("../../js/agents/storage/run-store.js");
+
+  const dbName = makeDbName("cleanup_maxBytes");
+  await RunStore.deleteDatabase({ dbName });
+  const store = new RunStore({ dbName });
+
+  const now = Date.now();
+  const iso = (ms) => new Date(ms).toISOString();
+
+  const ids = ["run_bytes_1", "run_bytes_2", "run_bytes_3"];
+  await store.createRun({ schemaVersion: "0.1", runId: ids[0], mode: "deepsearch", constraints: {}, startedAt: iso(now) });
+  await store.createRun({ schemaVersion: "0.1", runId: ids[1], mode: "deepsearch", constraints: {}, startedAt: iso(now) });
+  await store.createRun({ schemaVersion: "0.1", runId: ids[2], mode: "deepsearch", constraints: {}, startedAt: iso(now) });
+
+  await setRunCreatedAt({ store, runStoreName: RunStoreConstants.STORE_RUNS, runId: ids[0], createdAt: iso(now - 3 * 86400000) });
+  await setRunCreatedAt({ store, runStoreName: RunStoreConstants.STORE_RUNS, runId: ids[1], createdAt: iso(now - 2 * 86400000) });
+  await setRunCreatedAt({ store, runStoreName: RunStoreConstants.STORE_RUNS, runId: ids[2], createdAt: iso(now - 1 * 86400000) });
+
+  // Store per-run sizes via a single binary artifact (bytes recorded by RunStore).
+  await store.saveArtifact(ids[0], "vfs_payload.bin", new Uint8Array(200));
+  await store.saveArtifact(ids[1], "vfs_payload.bin", new Uint8Array(200));
+  await store.saveArtifact(ids[2], "vfs_payload.bin", new Uint8Array(100));
+
+  const result = await store.cleanupRuns({ retention: { maxTotalBytes: 300 }, reason: "test_maxTotalBytes" });
+  assert.deepEqual(result.deletedRunIds, [ids[0]]);
+  assert.ok(typeof result.bytesBefore === "number" && result.bytesBefore >= 500);
+  assert.ok(typeof result.bytesAfter === "number" && result.bytesAfter <= 300);
+
+  assert.equal(await store.getRun(ids[0]), null);
+  assert.ok(await store.getRun(ids[1]));
+  assert.ok(await store.getRun(ids[2]));
+
+  await store.close();
+  await RunStore.deleteDatabase({ dbName });
+});
+
+test("RunStore: cleanupRuns dryRun + keepRunIds", async () => {
+  const { RunStore, RunStoreConstants } = await import("../../js/agents/storage/run-store.js");
+
+  const dbName = makeDbName("cleanup_dryRun");
+  await RunStore.deleteDatabase({ dbName });
+  const store = new RunStore({ dbName });
+
+  const now = Date.now();
+  const iso = (ms) => new Date(ms).toISOString();
+
+  const keepId = "run_keep";
+  const otherId = "run_other";
+
+  await store.createRun({ schemaVersion: "0.1", runId: keepId, mode: "deepsearch", constraints: {}, startedAt: iso(now) });
+  await store.createRun({ schemaVersion: "0.1", runId: otherId, mode: "deepsearch", constraints: {}, startedAt: iso(now) });
+
+  await setRunCreatedAt({ store, runStoreName: RunStoreConstants.STORE_RUNS, runId: keepId, createdAt: iso(now - 2 * 86400000) });
+  await setRunCreatedAt({ store, runStoreName: RunStoreConstants.STORE_RUNS, runId: otherId, createdAt: iso(now - 1 * 86400000) });
+
+  const result = await store.cleanupRuns({ retention: { maxRuns: 1 }, keepRunIds: [keepId], dryRun: true, reason: "test_dryRun" });
+  assert.deepEqual(result.deletedRunIds, []);
+  assert.deepEqual(result.plannedDeleteRunIds, []);
+
+  assert.ok(await store.getRun(keepId));
+  assert.ok(await store.getRun(otherId));
 
   await store.close();
   await RunStore.deleteDatabase({ dbName });
