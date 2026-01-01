@@ -51,11 +51,24 @@ function isSensitiveQueryParamKey(key) {
   if (!k) return false;
 
   if (k === "token" || k === "access_token" || k === "refresh_token" || k === "id_token") return true;
+  if (k === "oauth_token" || k === "oauth_verifier") return true;
+  if (k.includes("token")) return true;
+
   if (k === "api_key" || k === "apikey" || k === "key") return true;
+  if (k.includes("api_key") || k.includes("apikey") || k.endsWith("_key") || k.endsWith("-key") || k.endsWith("apikey")) return true;
+
   if (k === "secret" || k === "client_secret" || k === "private_key") return true;
+  if (k.includes("secret")) return true;
+
   if (k === "signature" || k === "sig" || k.endsWith("signature") || k.endsWith("sig")) return true;
   if (k === "password" || k === "passwd" || k === "pwd") return true;
   if (k === "authorization" || k === "auth" || k.startsWith("auth_") || k.includes("auth")) return true;
+  if (k === "session" || k === "session_id" || k === "sessionid" || k === "sid" || k === "jsessionid" || k === "phpsessid") return true;
+  if (k.includes("session") || k.endsWith("sid")) return true;
+  if (k === "csrf" || k === "csrf_token" || k === "xsrf" || k === "xsrf_token" || k.includes("csrf") || k.includes("xsrf")) return true;
+  if (k === "nonce" || k.includes("nonce")) return true;
+  if (k === "code" || k.endsWith("_code") || k.endsWith("-code")) return true;
+  if (k === "state" || k.endsWith("_state") || k.endsWith("-state")) return true;
   if (k.startsWith("x-amz-") && (k.includes("credential") || k.includes("signature") || k.includes("security-token"))) return true;
 
   return false;
@@ -76,12 +89,17 @@ function redactUrlForLog(rawUrl) {
       if (isSensitiveQueryParamKey(key)) u.searchParams.set(key, "REDACTED");
     }
 
+    // Fragments are often used to carry tokens (OAuth implicit flows); redact unconditionally for logs.
+    if (u.hash) u.hash = "#REDACTED";
+
     return u.toString();
   } catch {
-    return url.replace(
+    const [base] = url.split("#");
+    const redacted = String(base || "").replace(
       /([?&](?:token|access_token|refresh_token|id_token|api_key|apikey|key|secret|client_secret|signature|sig|password|passwd|pwd)=)[^&]*/gi,
       "$1REDACTED"
     );
+    return url.includes("#") ? `${redacted}#REDACTED` : redacted;
   }
 }
 
@@ -503,10 +521,74 @@ async function parseDuckDuckGoResults(html) {
   return results;
 }
 
+function decodeHtmlAttr(value) {
+  return String(value || "")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
+}
+
+async function extractDuckDuckGoNextUrl(html, baseUrl) {
+  const s = typeof html === "string" ? html : String(html ?? "");
+  if (!s) return null;
+
+  const resolve = (href) => {
+    const h = decodeHtmlAttr(href).trim();
+    if (!h) return null;
+    try {
+      if (baseUrl) return new URL(h, baseUrl).toString();
+    } catch {
+      // fall back below
+    }
+    try {
+      return new URL(h, "https://html.duckduckgo.com/").toString();
+    } catch {
+      return null;
+    }
+  };
+
+  // Browser: use DOMParser; Node: fallback to linkedom DOMParser when available.
+  let DOMParserImpl = typeof globalThis.DOMParser !== "undefined" ? globalThis.DOMParser : null;
+  if (!DOMParserImpl) {
+    try {
+      const mod = await import("linkedom");
+      DOMParserImpl = mod?.DOMParser || null;
+    } catch {}
+  }
+
+  if (DOMParserImpl) {
+    try {
+      const parser = new DOMParserImpl();
+      const doc = parser.parseFromString(s, "text/html");
+      const a =
+        doc.querySelector("a.result--more__btn, a.result--more__a, a.result__pagination--next, a[rel='next']") ||
+        doc.querySelector("a[href*='&s='], a[href*='?s=']");
+      const href = a?.getAttribute?.("href") || a?.href || "";
+      const next = resolve(href);
+      if (next) return next;
+    } catch {
+      // ignore and fall back to regex
+    }
+  }
+
+  // Regex fallback for Next/More Results links.
+  const moreRe = /<a[^>]+class=["'][^"']*(result--more__btn|result--more__a|result__pagination--next)[^"']*["'][^>]*href=["']([^"']+)["']/i;
+  const moreRe2 = /<a[^>]+href=["']([^"']+)["'][^>]*class=["'][^"']*(result--more__btn|result--more__a|result__pagination--next)[^"']*["']/i;
+  const relNextRe = /<a[^>]+rel=["']next["'][^>]*href=["']([^"']+)["']/i;
+  const relNextRe2 = /<a[^>]+href=["']([^"']+)["'][^>]*rel=["']next["']/i;
+
+  const match = s.match(moreRe) || s.match(moreRe2) || s.match(relNextRe) || s.match(relNextRe2);
+  const href = match?.[2] || match?.[1] || "";
+  const next = resolve(href);
+  return next || null;
+}
+
 /**
  * 构建 DuckDuckGo 搜索 URL
  */
-function buildDuckDuckGoUrl(query, { domain, timeRange } = {}) {
+function buildDuckDuckGoUrl(query, { domain, timeRange, offset } = {}) {
   const params = new URLSearchParams();
   let q = String(query || "");
 
@@ -530,6 +612,9 @@ function buildDuckDuckGoUrl(query, { domain, timeRange } = {}) {
     const df = timeMap[timeRange] || timeRange;
     params.set("df", df);
   }
+
+  const off = typeof offset === "number" && Number.isFinite(offset) && offset > 0 ? Math.floor(offset) : null;
+  if (off) params.set("s", String(off));
 
   return `https://html.duckduckgo.com/html/?${params.toString()}`;
 }
@@ -559,6 +644,7 @@ export class LocalMcpProvider extends McpProvider {
     defaultTimeoutMs = 15000,
     searchTimeoutMs = 60000, // 搜索需要尝试多个实例，给更长时间
     maxResults = 10,
+    maxSearchPages = 3,
     fetchImpl,
     memoryStore = null,  // Memory 2.0: 可选的 MemoryStore 引用
   } = {}) {
@@ -572,6 +658,7 @@ export class LocalMcpProvider extends McpProvider {
     this.defaultTimeoutMs = safeInt(defaultTimeoutMs, 10000);
     this.searchTimeoutMs = safeInt(searchTimeoutMs, 15000);
     this.maxResults = safeInt(maxResults, 10);
+    this.maxSearchPages = Math.max(1, Math.min(5, safeInt(maxSearchPages, 3)));
     this._memoryStore = memoryStore;  // Memory 2.0
 
     if (fetchImpl !== undefined && typeof fetchImpl !== "function") throw new Error("fetchImpl must be a function");
@@ -808,7 +895,7 @@ export class LocalMcpProvider extends McpProvider {
       });
     }
 
-    const maxResults = safeInt(limit, this.maxResults);
+    const maxResults = Math.max(1, Math.min(safeInt(limit, this.maxResults), this.maxResults));
 
     // 优先使用 Worker 端点
     if (this.workerEndpoint) {
@@ -818,16 +905,52 @@ export class LocalMcpProvider extends McpProvider {
 
     // 备用：CORS 代理模式
     try {
-      const searchUrl = buildDuckDuckGoUrl(q, { domain, timeRange: time_range });
-      const { text: html } = await this._fetchWithCorsFallback(searchUrl, {
-        timeoutMs: this.searchTimeoutMs,
-        tryDirect: false, // DuckDuckGo 需要代理
-      });
+      const results = [];
+      const seen = new Set();
+      const visited = new Set();
 
-      const results = (await parseDuckDuckGoResults(html)).slice(0, maxResults);
+      const maxPages = this.maxSearchPages;
+      let page = 0;
+      let nextUrl = buildDuckDuckGoUrl(q, { domain, timeRange: time_range });
+      let offset = 0;
+
+      while (nextUrl && results.length < maxResults && page < maxPages) {
+        if (visited.has(nextUrl)) break;
+        visited.add(nextUrl);
+
+        const { text: html } = await this._fetchWithCorsFallback(nextUrl, {
+          timeoutMs: this.searchTimeoutMs,
+          tryDirect: false, // DuckDuckGo 需要代理
+        });
+
+        const pageResults = await parseDuckDuckGoResults(html);
+        for (const r of pageResults) {
+          const url = toNonEmptyString(r?.url);
+          if (!url || seen.has(url)) continue;
+          seen.add(url);
+          results.push(r);
+          if (results.length >= maxResults) break;
+        }
+
+        page += 1;
+
+        let candidateNext = await extractDuckDuckGoNextUrl(html, nextUrl);
+        if (candidateNext && visited.has(candidateNext)) candidateNext = null;
+
+        // If we still need results but failed to detect the "More Results" link, try offset-based pagination.
+        if (!candidateNext && results.length < maxResults && page < maxPages) {
+          offset += 30;
+          candidateNext = buildDuckDuckGoUrl(q, { domain, timeRange: time_range, offset });
+          if (visited.has(candidateNext)) candidateNext = null;
+        }
+
+        nextUrl = candidateNext;
+      }
+
+      const sliced = results.slice(0, maxResults);
 
       // 格式化为 MCP 标准输出
-      const formatted = results.map((r, i) => ({
+      const formatted = sliced.map((r, i) => ({
         index: i + 1,
         title: r.title || "(No title)",
         url: r.url,
@@ -846,7 +969,7 @@ export class LocalMcpProvider extends McpProvider {
         isError: false,
         content: [
           { type: "text", text: textOutput || "No results found." },
-          { type: "json", data: { query: q, results: formatted, count: formatted.length } },
+          { type: "json", data: { query: q, results: formatted, count: formatted.length, pages: page } },
         ],
       });
     } catch (err) {

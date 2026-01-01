@@ -141,6 +141,59 @@ test("LocalMcpProvider: workerEndpoint failure falls back to CORS proxies (searc
   assert.ok(decoded.includes("q=site%3Aexample.com"), "expected site:domain injected and encoded");
 });
 
+test("LocalMcpProvider: search paginates when limit exceeds first page", async () => {
+  const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
+
+  const fetchMock = createFetchMock();
+  let page = 0;
+  fetchMock.when((url) => url.startsWith("https://p1/?"), async () => {
+    page += 1;
+    if (page === 1) {
+      return makeTextResponse(
+        longHtml(
+          [
+            '<a href="https://duckduckgo.com/">ddg</a>',
+            '<a href="https://example.com/1">One</a>',
+            '<a href="https://example.com/2">Two</a>',
+            '<a class="result--more__btn" href="/html/?q=hello&s=30">More Results</a>',
+          ].join("")
+        )
+      );
+    }
+    if (page === 2) {
+      return makeTextResponse(
+        longHtml(
+          [
+            '<a href="https://duckduckgo.com/">ddg</a>',
+            '<a href="https://example.com/3">Three</a>',
+            '<a href="https://example.com/4">Four</a>',
+          ].join("")
+        )
+      );
+    }
+    throw new Error(`Unexpected page fetch: ${page}`);
+  });
+
+  const provider = new LocalMcpProvider({
+    corsProxies: ["https://p1/?"],
+    fetchImpl: fetchMock,
+    searchTimeoutMs: 2000,
+    maxResults: 10,
+  });
+
+  const out = await provider.callTool("search", { query: "hello", limit: 3 });
+  assert.equal(out.success, true);
+  assert.equal(fetchMock.calls.length, 2);
+
+  const json = out.content.find((c) => c.type === "json")?.data;
+  assert.ok(json && Array.isArray(json.results));
+  assert.equal(json.results.length, 3);
+  assert.deepEqual(
+    json.results.map((r) => r.url),
+    ["https://example.com/1", "https://example.com/2", "https://example.com/3"]
+  );
+});
+
 test("LocalMcpProvider: workerEndpoint success skips CORS proxies (fetch_content)", async () => {
   const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
 
@@ -393,6 +446,41 @@ test("LocalMcpProvider: proxy failure redacts sensitive query params in error me
       assert.ok(err instanceof AggregateError);
       assert.equal(String(err.message).includes("token=abc"), false);
       assert.ok(String(err.message).includes("token=REDACTED"));
+      return true;
+    }
+  );
+});
+
+test("LocalMcpProvider: proxy failure redacts basic auth and hash fragments in error message", async () => {
+  const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
+
+  const fetchMock = createFetchMock();
+  fetchMock.when((url) => url.startsWith("https://p1/?"), async () => {
+    throw new Error("p1");
+  });
+  fetchMock.when((url) => url.startsWith("https://p2/?"), async () => {
+    throw new Error("p2");
+  });
+
+  const provider = new LocalMcpProvider({
+    corsProxies: ["https://p1/?", "https://p2/?"],
+    fetchImpl: fetchMock,
+    proxyCooldownMs: 0,
+  });
+
+  await assert.rejects(
+    () =>
+      provider._fetchWithCorsFallback("https://user:pass@target.example/page?token=abc#access_token=xyz", {
+        timeoutMs: 50,
+        tryDirect: false,
+      }),
+    (err) => {
+      assert.ok(err instanceof AggregateError);
+      const msg = String(err.message);
+      assert.equal(msg.includes("user:pass"), false);
+      assert.equal(msg.includes("token=abc"), false);
+      assert.ok(msg.includes("token=REDACTED"));
+      assert.ok(msg.includes("#REDACTED"));
       return true;
     }
   );
