@@ -1,9 +1,10 @@
 const DB_NAME = "AgentRuntimeDB";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 const STORE_RUNS = "runs";
 const STORE_ARTIFACTS = "artifacts";
 const STORE_EVENTS = "events";
+const STORE_COUNTERS = "counters";
 
 function hasIndexedDB() {
   return typeof indexedDB !== "undefined" && indexedDB && typeof indexedDB.open === "function";
@@ -105,6 +106,7 @@ export class RunStore {
         ensureObjectStore(db, STORE_RUNS, { keyPath: "runId" });
         ensureObjectStore(db, STORE_ARTIFACTS, { keyPath: "artifactId" });
         ensureObjectStore(db, STORE_EVENTS, { keyPath: "eventId" });
+        ensureObjectStore(db, STORE_COUNTERS, { keyPath: ["runId", "type"] });
 
         const runsStore = tx.objectStore(STORE_RUNS);
         ensureIndex(runsStore, "byCreatedAt", "createdAt", { unique: false });
@@ -116,10 +118,24 @@ export class RunStore {
         const eventsStore = tx.objectStore(STORE_EVENTS);
         ensureIndex(eventsStore, "byRunId", "runId", { unique: false });
         ensureIndex(eventsStore, "byRunIdTs", ["runId", "ts"], { unique: false });
+
+        const countersStore = tx.objectStore(STORE_COUNTERS);
+        ensureIndex(countersStore, "byRunId", "runId", { unique: false });
       };
 
       req.onsuccess = () => resolve(req.result);
+      req.onblocked = () => {
+        try {
+          console.warn(`[RunStore] IndexedDB open blocked for ${this.dbName}@v${this.dbVersion}`);
+        } catch {
+          // ignore
+        }
+      };
       req.onerror = () => reject(req.error);
+    }).catch((err) => {
+      // If open fails, clear the cached promise so callers can retry later.
+      this._dbp = null;
+      throw err;
     });
 
     return this._dbp;
@@ -306,7 +322,7 @@ export class RunStore {
 
   async deleteRun(runId) {
     const db = await this.open();
-    const tx = db.transaction([STORE_RUNS, STORE_ARTIFACTS, STORE_EVENTS], "readwrite");
+    const tx = db.transaction([STORE_RUNS, STORE_ARTIFACTS, STORE_EVENTS, STORE_COUNTERS], "readwrite");
 
     const runsStore = tx.objectStore(STORE_RUNS);
     runsStore.delete(runId);
@@ -316,6 +332,9 @@ export class RunStore {
 
     const eventsStore = tx.objectStore(STORE_EVENTS);
     await deleteByIndexKey(eventsStore, "byRunId", IDBKeyRange.only(runId));
+
+    const countersStore = tx.objectStore(STORE_COUNTERS);
+    await deleteByIndexKey(countersStore, "byRunId", IDBKeyRange.only(runId));
 
     await promisifyTransaction(tx);
   }
@@ -374,12 +393,28 @@ export class RunStore {
     }
 
     const db = await this.open();
-    const tx = db.transaction([STORE_ARTIFACTS], "readwrite");
+    const tx = db.transaction([STORE_ARTIFACTS, STORE_COUNTERS], "readwrite");
     const store = tx.objectStore(STORE_ARTIFACTS);
+    const counters = tx.objectStore(STORE_COUNTERS);
 
-    const range = IDBKeyRange.bound([runId, type, 0], [runId, type, Number.MAX_SAFE_INTEGER]);
-    const last = await getLastByCompoundIndex(store, "byRunIdTypeSeq", range);
-    const nextSeq = typeof options.seq === "number" ? options.seq : (typeof last?.seq === "number" ? last.seq + 1 : 1);
+    const counterKey = [runId, type];
+    const counterRec = await promisifyRequest(counters.get(counterKey));
+    const lastSeq = typeof counterRec?.lastSeq === "number" && Number.isFinite(counterRec.lastSeq) ? counterRec.lastSeq : null;
+
+    let nextSeq = typeof options.seq === "number" && Number.isFinite(options.seq) ? Math.floor(options.seq) : null;
+    if (!nextSeq || nextSeq <= 0) {
+      if (typeof lastSeq === "number" && lastSeq > 0) {
+        nextSeq = lastSeq + 1;
+      } else {
+        // Seed from existing artifacts when counter is missing (upgrade/first write).
+        const range = IDBKeyRange.bound([runId, type, 0], [runId, type, Number.MAX_SAFE_INTEGER]);
+        const last = await getLastByCompoundIndex(store, "byRunIdTypeSeq", range);
+        nextSeq = typeof last?.seq === "number" ? last.seq + 1 : 1;
+      }
+    }
+
+    const updatedLastSeq = Math.max(typeof lastSeq === "number" && lastSeq > 0 ? lastSeq : 0, nextSeq);
+    counters.put({ runId, type, lastSeq: updatedLastSeq, updatedAt: toISO() });
 
     const artifactId =
       typeof options.artifactId === "string"
@@ -638,4 +673,5 @@ export const RunStoreConstants = {
   STORE_RUNS,
   STORE_ARTIFACTS,
   STORE_EVENTS,
+  STORE_COUNTERS,
 };

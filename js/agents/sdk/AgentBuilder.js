@@ -111,6 +111,10 @@ export class AgentBuilder {
      * @returns {AgentBuilder}
      */
     useCapability(name, config) {
+        const exists = this._capabilities.has(name);
+        if (exists && typeof console !== "undefined" && typeof console.warn === "function") {
+            console.warn(`[AgentBuilder] Capability "${name}" is being overwritten.`);
+        }
         if (typeof config === "function") {
             // 简写：直接传入 handler
             this._capabilities.set(name, {

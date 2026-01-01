@@ -29,6 +29,20 @@ async function basenameOfPath(path) {
   return basename(path);
 }
 
+function decodeUtf8(data) {
+  const buf =
+    data instanceof ArrayBuffer
+      ? data
+      : ArrayBuffer.isView(data)
+        ? data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)
+        : new ArrayBuffer(0);
+  try {
+    return new TextDecoder("utf-8").decode(new Uint8Array(buf));
+  } catch {
+    return String(buf || "");
+  }
+}
+
 export class MarkdownAdapter extends BaseAdapter {
   constructor(options = {}) {
     super({ ...options, adapterName: "markdown" });
@@ -60,9 +74,9 @@ export class MarkdownAdapter extends BaseAdapter {
       if (typeof input.text === "function") {
         markdown = String(await input.text());
       } else if (typeof input.arrayBuffer === "function") {
-        const buf = Buffer.from(await input.arrayBuffer());
-        markdown = buf.toString("utf8");
-        size = size ?? buf.length;
+        const ab = await input.arrayBuffer();
+        markdown = decodeUtf8(ab);
+        size = size ?? (ab instanceof ArrayBuffer ? ab.byteLength : ArrayBuffer.isView(ab) ? ab.byteLength : undefined);
       } else if (isPlainObject(input) && typeof input.content === "string") {
         markdown = input.content;
       } else {
@@ -85,4 +99,3 @@ export class MarkdownAdapter extends BaseAdapter {
     return parsed;
   }
 }
-

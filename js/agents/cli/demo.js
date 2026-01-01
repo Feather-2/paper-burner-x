@@ -27,7 +27,7 @@ Agent SDK CLI Demo
   OPENAI_MODEL     模型名 (默认 deepseek-chat)
 
 用法:
-  node js/agents/sdk/cli-demo.js [options] [query]
+  node js/agents/cli/demo.js [options] [query]
 
 选项:
   --chat           使用模型进行对话
@@ -37,8 +37,8 @@ Agent SDK CLI Demo
   --help, -h       显示帮助
 
 示例:
-  OPENAI_API_KEY=sk-xxx node js/agents/sdk/cli-demo.js --chat "你好"
-  node js/agents/sdk/cli-demo.js --dry-run
+  OPENAI_API_KEY=sk-xxx node js/agents/cli/demo.js --chat "你好"
+  node js/agents/cli/demo.js --dry-run
 `);
     process.exit(0);
 }
@@ -50,6 +50,38 @@ function createModelRouter() {
 
 // 创建示例 Agent
 function buildDemoAgent(router) {
+    const redactSensitive = (value, keyPath = []) => {
+        if (value === null || value === undefined) return value;
+        if (typeof value === "string") {
+            // Common API key patterns (best-effort).
+            let out = value.replace(/\bsk-[A-Za-z0-9]{16,}\b/g, "sk-REDACTED");
+            out = out.replace(/\bBearer\s+[A-Za-z0-9._-]{16,}\b/gi, "Bearer REDACTED");
+            return out;
+        }
+        if (Array.isArray(value)) return value.map((v, i) => redactSensitive(v, [...keyPath, String(i)]));
+        if (typeof value === "object") {
+            const out = {};
+            for (const [k, v] of Object.entries(value)) {
+                const lower = String(k).toLowerCase();
+                if (/(api[_-]?key|token|secret|authorization|auth|password|passwd|pwd)/i.test(lower)) {
+                    out[k] = "REDACTED";
+                    continue;
+                }
+                out[k] = redactSensitive(v, [...keyPath, k]);
+            }
+            return out;
+        }
+        return value;
+    };
+
+    const safeStringify = (value) => {
+        try {
+            return JSON.stringify(redactSensitive(value));
+        } catch {
+            return String(value ?? "");
+        }
+    };
+
     const agent = createAgent({ actor: "demo" })
         // 注册 LLM 调用 Skill
         .useSkill("llm_chat", {
@@ -134,7 +166,8 @@ function buildDemoAgent(router) {
         .useWatchdog({ maxIterations: 20, maxTimeMs: 60000 })
         // 订阅事件
         .onEvent("demo.*", (payload, meta) => {
-            console.log(`[Event] ${meta?.name || "demo.*"}:`, JSON.stringify(payload?.payload || payload));
+            // Avoid leaking secrets from tool payloads / model outputs.
+            console.log(`[Event] ${meta?.name || "demo.*"}:`, safeStringify(payload?.payload || payload));
         })
         .build();
 

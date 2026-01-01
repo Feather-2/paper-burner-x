@@ -23,9 +23,23 @@ export class MockModelClient {
     this.responses = options.responses || {};
     this.sequence = options.sequence || [];
     this.handler = options.handler || null;
+    this.rules = Array.isArray(options.rules) ? options.rules.slice() : [];
     this.delay = options.delay || 0;
     this.callHistory = [];
     this._sequenceIndex = 0;
+  }
+
+  /**
+   * Register a predicate-based rule (evaluated before keyword matching).
+   *
+   * @param {(messages:any[], options:any) => boolean} predicate
+   * @param {any} response
+   * @returns {MockModelClient}
+   */
+  when(predicate, response) {
+    if (typeof predicate !== "function") throw new Error("MockModelClient.when(predicate, response): predicate must be a function");
+    this.rules.push({ predicate, response });
+    return this;
   }
 
   /**
@@ -39,6 +53,18 @@ export class MockModelClient {
 
     if (this.delay > 0) {
       await new Promise(r => setTimeout(r, this.delay));
+    }
+
+    // 0. Predicate rules (stateful / context-aware)
+    for (const rule of this.rules) {
+      try {
+        if (rule && typeof rule.predicate === "function" && rule.predicate(messages, options)) {
+          const resolved = typeof rule.response === "function" ? await rule.response(messages, options) : rule.response;
+          return this._normalizeResponse(resolved);
+        }
+      } catch {
+        // ignore rule errors
+      }
     }
 
     // 1. 动态 handler
@@ -66,6 +92,22 @@ export class MockModelClient {
   }
 
   /**
+   * Streaming variant: returns an AsyncGenerator that yields incremental chunks.
+   * This does not change the core `chat()` contract and is optional for tests.
+   *
+   * @param {object} options
+   * @param {number} [options.chunkSize=20]
+   */
+  async *chatStream(options = {}) {
+    const resp = await this.chat(options);
+    const text = String(resp?.content || "");
+    const chunkSize = Number.isFinite(options.chunkSize) ? Math.max(1, Math.floor(options.chunkSize)) : 20;
+    for (let i = 0; i < text.length; i += chunkSize) {
+      yield { ...resp, delta: text.slice(i, i + chunkSize) };
+    }
+  }
+
+  /**
    * 简单单轮对话
    */
   async ask(prompt, systemPrompt) {
@@ -78,12 +120,22 @@ export class MockModelClient {
 
   _normalizeResponse(response) {
     if (typeof response === "string") {
-      return { content: response, model: "mock", usage: { total_tokens: 100 } };
+      return {
+        content: response,
+        model: "mock",
+        usage: { total_tokens: 100 },
+        finish_reason: "stop",
+        system_fingerprint: "mock",
+        logprobs: null,
+      };
     }
     return {
       content: response.content || "",
       model: response.model || "mock",
       usage: response.usage || { total_tokens: 100 },
+      finish_reason: response.finish_reason || response.finishReason || "stop",
+      system_fingerprint: response.system_fingerprint || response.systemFingerprint || "mock",
+      logprobs: response.logprobs ?? null,
       ...response,
     };
   }
@@ -259,7 +311,7 @@ export class ScenarioRunner {
    * 运行场景
    */
   async run(scenario) {
-    const { name, steps, setup } = scenario;
+    const { name, steps, setup, teardown } = scenario;
     const result = { name, passed: true, steps: [], errors: [] };
 
     // 执行 setup
@@ -313,6 +365,16 @@ export class ScenarioRunner {
       }
     }
 
+    // 执行 teardown（即使中途失败也应尽力清理）
+    if (typeof teardown === "function") {
+      try {
+        await teardown({ modelClient: this.modelClient, mcpProvider: this.mcpProvider, eventBus: this.eventBus, result });
+      } catch (err) {
+        result.passed = false;
+        result.errors.push(`Teardown failed: ${err?.message || err}`);
+      }
+    }
+
     this.results.push(result);
     return result;
   }
@@ -335,12 +397,43 @@ export class ScenarioRunner {
   }
 
   _deepMatch(actual, expected) {
-    for (const [key, value] of Object.entries(expected)) {
-      if (actual[key] !== value) {
-        return { passed: false, error: `Expected ${key}=${value}, got ${actual[key]}` };
+    const matchAny = (act, exp, path = "") => {
+      if (exp instanceof RegExp) {
+        const ok = exp.test(String(act ?? ""));
+        return ok ? { ok: true } : { ok: false, error: `Expected ${path || "value"} to match ${exp}, got ${String(act)}` };
       }
-    }
-    return { passed: true };
+      if (typeof exp === "function") {
+        try {
+          const ok = !!exp(act);
+          return ok ? { ok: true } : { ok: false, error: `Expected ${path || "value"} to satisfy predicate` };
+        } catch (err) {
+          return { ok: false, error: `Predicate threw at ${path || "value"}: ${err?.message || err}` };
+        }
+      }
+      if (exp && typeof exp === "object") {
+        if (Array.isArray(exp)) {
+          if (!Array.isArray(act)) return { ok: false, error: `Expected ${path || "value"} to be an array` };
+          for (let i = 0; i < exp.length; i++) {
+            const r = matchAny(act[i], exp[i], `${path}[${i}]`);
+            if (!r.ok) return r;
+          }
+          return { ok: true };
+        }
+        if (!act || typeof act !== "object") return { ok: false, error: `Expected ${path || "value"} to be an object` };
+        for (const [k, v] of Object.entries(exp)) {
+          const nextPath = path ? `${path}.${k}` : k;
+          const r = matchAny(act[k], v, nextPath);
+          if (!r.ok) return r;
+        }
+        return { ok: true };
+      }
+
+      const ok = act === exp;
+      return ok ? { ok: true } : { ok: false, error: `Expected ${path || "value"}=${String(exp)}, got ${String(act)}` };
+    };
+
+    const r = matchAny(actual, expected, "");
+    return r.ok ? { passed: true } : { passed: false, error: r.error };
   }
 
   reset() {

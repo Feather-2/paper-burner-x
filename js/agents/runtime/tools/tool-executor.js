@@ -274,9 +274,14 @@ export class ToolExecutor {
   }
 
   async _executeInNodeWorker(moduleUrl, exportName, args, context, timeoutMs) {
-    const { Worker } = await import("node:worker_threads");
+    const { Worker } = await import(/* @vite-ignore */ "node:worker_threads");
+    const { fileURLToPath } = await import(/* @vite-ignore */ "node:url");
 
-    const worker = new Worker(new URL("./tool-executor-worker.js", import.meta.url), { type: "module" });
+    // NOTE: Avoid `new Worker(new URL("./x.js", import.meta.url))` here to prevent browser bundlers
+    // (e.g. Vite) from treating this Node worker entry as a web worker and trying to bundle node:* imports.
+    const metaPath = fileURLToPath(import.meta.url);
+    const workerPath = metaPath.replace(/tool-executor\.js$/i, "tool-executor-worker.js");
+    const worker = new Worker(workerPath, { type: "module" });
     const workerContext = this._createWorkerContextSnapshot(context);
 
     return new Promise((resolve, reject) => {

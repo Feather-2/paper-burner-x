@@ -22,12 +22,19 @@ function computeAssetHash(asset) {
 
   // 优化：对于超过 4KB 的数据，使用采样签名而非全量
   const SAMPLE_THRESHOLD = 4096;
+  const SLICE = 512;
   let dataSignature;
   if (rawData.length > SAMPLE_THRESHOLD) {
-    // 采样策略：长度 + 前 512 字符 + 后 512 字符
-    const prefix = rawData.slice(0, 512);
-    const suffix = rawData.slice(-512);
-    dataSignature = `${rawData.length}:${prefix}:${suffix}`;
+    // 采样策略：长度 + 前/中(1/3)/中(2/3)/后 512 字符
+    // 目的：显著降低“首尾相同但中间不同”的误判概率，同时避免全量 stringify。
+    const len = rawData.length;
+    const prefix = rawData.slice(0, SLICE);
+    const mid1Start = Math.max(0, Math.floor(len / 3) - Math.floor(SLICE / 2));
+    const mid2Start = Math.max(0, Math.floor((2 * len) / 3) - Math.floor(SLICE / 2));
+    const mid1 = rawData.slice(mid1Start, mid1Start + SLICE);
+    const mid2 = rawData.slice(mid2Start, mid2Start + SLICE);
+    const suffix = rawData.slice(-SLICE);
+    dataSignature = `${len}:${prefix}:${mid1}:${mid2}:${suffix}`;
   } else {
     dataSignature = rawData;
   }

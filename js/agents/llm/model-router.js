@@ -1,5 +1,6 @@
 import { assertChatMessages, assertChatResponse, assertModelEntry, assertProvider, assertUsageConfig, normalizeModelTags } from "./provider.js";
 import { ModelUsage, RouterStrategy, isValidModelUsage, normalizeRouterStrategy } from "./constants.js";
+import { TokenBucketRateLimiter } from "./rate-limit.js";
 
 // 浏览器兼容的 EventEmitter 简易实现
 class EventEmitter {
@@ -82,22 +83,6 @@ function rotateFromIndex(list, startIndex) {
   return arr.slice(start).concat(arr.slice(0, start));
 }
 
-class RateLimiter {
-  constructor({ perSecond = Infinity, time } = {}) {
-    this._minIntervalMs = perSecond === Infinity ? 0 : Math.max(0, Math.ceil(1000 / Math.max(1, perSecond)));
-    this._time = time;
-    this._nextAllowedAt = 0;
-  }
-
-  async waitTurn() {
-    if (this._minIntervalMs <= 0) return;
-    const now = this._time.now();
-    const waitMs = Math.max(0, this._nextAllowedAt - now);
-    this._nextAllowedAt = Math.max(this._nextAllowedAt, now) + this._minIntervalMs;
-    if (waitMs > 0) await this._time.sleep(waitMs);
-  }
-}
-
 function defaultTime() {
   return {
     now: () => Date.now(),
@@ -106,7 +91,19 @@ function defaultTime() {
 }
 
 export class ModelRouter extends EventEmitter {
-  constructor({ models, usageConfig, providers, cooldownMs = 60_000, usageTags, time, debug = false, logger, strategy = "round_robin" } = {}) {
+  constructor({
+    models,
+    usageConfig,
+    providers,
+    cooldownMs = 60_000,
+    usageTags,
+    time,
+    debug = false,
+    logger,
+    strategy = "round_robin",
+    persistRoundRobin = false,
+    roundRobinStorageKey = "paperburner_modelrouter_rr_v1",
+  } = {}) {
     super();
 
     if (debug !== undefined && typeof debug !== "boolean") throw new TypeError("ModelRouter: debug must be a boolean");
@@ -119,6 +116,8 @@ export class ModelRouter extends EventEmitter {
     this._logger = resolveLogger({ debug, logger });
     this._strategy = normalizedStrategy;
     this._rrNextIndexByUsage = new Map(); // usage -> next start index
+    this._persistRoundRobin = !!persistRoundRobin;
+    this._roundRobinStorageKey = toNonEmptyString(roundRobinStorageKey) || "paperburner_modelrouter_rr_v1";
 
     this._time = isPlainObject(time) && typeof time.now === "function" && typeof time.sleep === "function" ? time : defaultTime();
     this._cooldownMs = typeof cooldownMs === "number" && cooldownMs > 0 ? Math.floor(cooldownMs) : 60_000;
@@ -151,7 +150,25 @@ export class ModelRouter extends EventEmitter {
     }
 
     this._health = new Map(); // modelId -> {unhealthyUntilMs, failures, lastError}
-    this._rateLimiters = new Map(); // modelId -> RateLimiter
+    this._rateLimiters = new Map(); // modelId -> TokenBucketRateLimiter
+
+    if (this._persistRoundRobin) {
+      try {
+        const raw = typeof localStorage !== "undefined" ? localStorage.getItem(this._roundRobinStorageKey) : null;
+        const parsed = raw ? JSON.parse(raw) : null;
+        if (parsed && typeof parsed === "object") {
+          for (const [usage, idx] of Object.entries(parsed)) {
+            const u = toNonEmptyString(usage);
+            const n = Number(idx);
+            if (!u) continue;
+            if (!Number.isFinite(n) || n < 0) continue;
+            this._rrNextIndexByUsage.set(u, Math.floor(n));
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
   }
 
   getModelEntry(modelId) {
@@ -206,8 +223,22 @@ export class ModelRouter extends EventEmitter {
     if (!id) return null;
     const perSecond = modelEntry?.limits?.rateLimit;
     if (!perSecond) return null;
-    if (!this._rateLimiters.has(id)) this._rateLimiters.set(id, new RateLimiter({ perSecond, time: this._time }));
-    return this._rateLimiters.get(id);
+    if (!this._rateLimiters.has(id)) {
+      const rps = perSecond === Infinity ? Infinity : Number(perSecond);
+      if (!Number.isFinite(rps) && rps !== Infinity) return null;
+      if (rps !== Infinity && rps <= 0) return null;
+      this._rateLimiters.set(
+        id,
+        new TokenBucketRateLimiter({
+          rps,
+          burst: 1,
+          concurrency: 1,
+          maxQueue: 500,
+          time: this._time,
+        })
+      );
+    }
+    return this._rateLimiters.get(id) || null;
   }
 
   _requiredTags({ usage, images } = {}) {
@@ -322,18 +353,27 @@ export class ModelRouter extends EventEmitter {
         if (!provider) throw new Error(`Missing provider: ${entry.provider} for model ${modelId}`);
 
         const limiter = this._getRateLimiter(entry);
-        if (limiter) await limiter.waitTurn();
 
         try {
           triedCount++;
           this._logger.debug(`[ModelRouter] try ${modelId} via ${entry.provider}`);
-          const resp = await provider.chat({ model: entry.id, messages, images });
+          const doChat = () => provider.chat({ model: entry.id, messages, images });
+          const resp = limiter
+            ? await limiter.schedule(doChat, { label: `${u}:${modelId}` })
+            : await doChat();
           assertChatResponse(resp);
           selectedModelId = entry.id;
           this._logger.debug(`[ModelRouter] ok ${modelId} via ${entry.provider}`);
           return { ...resp, model: entry.id, provider: entry.provider };
         } catch (err) {
           lastError = err;
+          const retryAfterMs =
+            typeof err?.retryAfterMs === "number" && Number.isFinite(err.retryAfterMs) && err.retryAfterMs > 0
+              ? Math.floor(err.retryAfterMs)
+              : null;
+          if (retryAfterMs && limiter && typeof limiter.blockFor === "function") {
+            limiter.blockFor(retryAfterMs);
+          }
           this._logger.warn(`[ModelRouter] fail ${modelId} via ${entry.provider}: ${toErrorInfo(err).message}`);
           const health = this.markUnhealthy(modelId, err);
           this.emit("model.unhealthy", {
@@ -384,6 +424,18 @@ export class ModelRouter extends EventEmitter {
           if (usedIdx >= 0) next = (usedIdx + 1) % baseCandidates.length;
         }
         this._rrNextIndexByUsage.set(u, next);
+
+        if (this._persistRoundRobin) {
+          try {
+            if (typeof localStorage !== "undefined" && this._roundRobinStorageKey) {
+              const obj = {};
+              for (const [k, v] of this._rrNextIndexByUsage.entries()) obj[k] = v;
+              localStorage.setItem(this._roundRobinStorageKey, JSON.stringify(obj));
+            }
+          } catch {
+            // ignore
+          }
+        }
       }
     }
   }

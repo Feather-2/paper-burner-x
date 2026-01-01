@@ -8,6 +8,10 @@
 const promptCache = new Map();
 let promptCacheMaxEntries = 128;
 
+function isNodeLike() {
+  return typeof process !== "undefined" && !!process.versions?.node;
+}
+
 function resolvePromptCacheMaxEntries() {
   const env = typeof process !== "undefined" ? process.env : null;
   const fromEnv = env?.PB_PROMPT_CACHE_MAX_ENTRIES;
@@ -71,11 +75,11 @@ export function configurePromptCache({ maxEntries } = {}) {
  * 修复 Windows 路径问题：使用 fileURLToPath 正确转换
  */
 function getBasePath() {
-  // 浏览器环境
-  if (typeof window !== "undefined") {
+  // Browser/Worker
+  if (!isNodeLike()) {
     try {
       const url = new URL(".", import.meta.url);
-      return url.pathname;
+      return url.toString();
     } catch {
       return "/js/agents/prompts/";
     }
@@ -137,9 +141,15 @@ export async function loadPrompt(name, { cache = true } = {}) {
   const basePath = getBasePath();
   let content;
 
-  // 浏览器环境 - 使用 fetch
-  if (typeof window !== "undefined") {
-    const filePath = `${basePath}${key}.md`.replace(/\/+/g, "/");
+  // Browser/Worker - use fetch
+  if (!isNodeLike()) {
+    const filePath = (() => {
+      try {
+        return new URL(`${key}.md`, basePath).toString();
+      } catch {
+        return `${String(basePath || "/")}${key}.md`.replace(/\/+/g, "/");
+      }
+    })();
     try {
       const resp = await fetch(filePath);
       if (!resp.ok) {
@@ -179,7 +189,7 @@ export async function loadPrompt(name, { cache = true } = {}) {
  * 获取 Node.js 模块（安全处理 ESM/CJS 兼容性）
  */
 function getSyncNodeModules() {
-  if (typeof window !== "undefined") return null;
+  if (!isNodeLike()) return null;
   try {
     // 使用动态方式获取 fs 和 path，避免在 ESM 环境预加载阶段崩溃
     // 如果 require 不存在，说明是原生 ESM 且未处理兼容，抛出可控错误
@@ -292,21 +302,44 @@ function normalizeTemplateVars(vars) {
 
   if (!vars) return map;
 
+  const add = (rawKey, value) => {
+    const key = typeof rawKey === "string" ? rawKey.trim().toLowerCase() : "";
+    if (!key) return;
+    map.set(key, value);
+  };
+
+  const flatten = (obj, prefix, depth) => {
+    if (!obj || typeof obj !== "object") {
+      add(prefix, obj);
+      return;
+    }
+    if (Array.isArray(obj)) {
+      add(prefix, obj);
+      return;
+    }
+    if (depth <= 0) {
+      add(prefix, obj);
+      return;
+    }
+
+    for (const [k, v] of Object.entries(obj)) {
+      const name = typeof k === "string" ? k.trim() : "";
+      if (!name) continue;
+      const next = prefix ? `${prefix}.${name}` : name;
+      if (v && typeof v === "object" && !Array.isArray(v)) flatten(v, next, depth - 1);
+      else add(next, v);
+    }
+  };
+
   if (vars instanceof Map) {
     for (const [k, v] of vars.entries()) {
-      const key = typeof k === "string" ? k.trim().toLowerCase() : "";
-      if (!key) continue;
-      map.set(key, v);
+      add(k, v);
     }
     return map;
   }
 
   if (typeof vars === "object") {
-    for (const [k, v] of Object.entries(vars)) {
-      const key = typeof k === "string" ? k.trim().toLowerCase() : "";
-      if (!key) continue;
-      map.set(key, v);
-    }
+    flatten(vars, "", 4);
   }
 
   return map;
@@ -320,14 +353,18 @@ function normalizeTemplateVars(vars) {
  * - Only exact keys are supported (including dotted keys like "minWords.quick").
  * - Unresolved placeholders are kept by default to make missing variables visible.
  */
-export function renderPromptTemplate(template, { vars, appendIfMissing, keepUnresolved = true } = {}) {
+export function renderPromptTemplate(template, { vars, appendIfMissing, keepUnresolved = true, warnOnUnresolved = false, onUnresolved } = {}) {
   const input = typeof template === "string" ? template : String(template ?? "");
   const varMap = normalizeTemplateVars(vars);
+  const unresolved = warnOnUnresolved || typeof onUnresolved === "function" ? new Set() : null;
 
   let rendered = input.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (match, rawName) => {
     const key = String(rawName || "").trim().toLowerCase();
     if (!key) return keepUnresolved ? match : "";
-    if (!varMap.has(key)) return keepUnresolved ? match : "";
+    if (!varMap.has(key)) {
+      unresolved?.add(key);
+      return keepUnresolved ? match : "";
+    }
 
     const value = varMap.get(key);
     if (value === null || value === undefined) return "";
@@ -351,6 +388,19 @@ export function renderPromptTemplate(template, { vars, appendIfMissing, keepUnre
 
   if (extra.length) {
     rendered = `${rendered}\n\n${extra.join("\n\n")}`;
+  }
+
+  if (unresolved && unresolved.size) {
+    const list = Array.from(unresolved).slice(0, 20);
+    if (typeof onUnresolved === "function") {
+      try {
+        onUnresolved(list);
+      } catch {
+        // ignore
+      }
+    } else if (warnOnUnresolved && typeof console !== "undefined" && typeof console.warn === "function") {
+      console.warn(`[prompt-loader] Unresolved placeholders: ${list.join(", ")}${unresolved.size > list.length ? ", ..." : ""}`);
+    }
   }
 
   return rendered;

@@ -71,20 +71,58 @@ function wordRegex() {
     new RegExp("\\p{L}", "u");
     return /[\p{L}\p{N}]+/gu;
   } catch {
-    return /[A-Za-z0-9]+/g;
+    // Best-effort fallback for older engines without Unicode property escapes.
+    return /[A-Za-z0-9]+|[\u4e00-\u9fff]+|[\u3040-\u30ff]+|[\uac00-\ud7af]+/g;
   }
 }
 
 const WORD_RE = wordRegex();
 
+let _wordSegmenter = null;
+function getWordSegmenter() {
+  if (_wordSegmenter !== null) return _wordSegmenter;
+  try {
+    if (typeof Intl !== "undefined" && typeof Intl.Segmenter === "function") {
+      _wordSegmenter = new Intl.Segmenter(undefined, { granularity: "word" });
+      return _wordSegmenter;
+    }
+  } catch {
+    // ignore
+  }
+  _wordSegmenter = undefined;
+  return _wordSegmenter;
+}
+
+function shouldDropSingleCharToken(t) {
+  if (t.length !== 1) return false;
+  // Keep digits and non-ASCII (e.g. CJK) single-char tokens; drop only Latin noise.
+  return /^[a-z]$/i.test(t);
+}
+
 function tokenize(text) {
   const s = String(text || "").toLowerCase();
+  if (!s) return [];
+
+  const seg = getWordSegmenter();
+  if (seg && typeof seg.segment === "function") {
+    const out = [];
+    for (const part of seg.segment(s)) {
+      if (part && part.isWordLike === false) continue;
+      const t = String(part?.segment || "").trim().toLowerCase();
+      if (!t) continue;
+      if (STOPWORDS.has(t)) continue;
+      if (shouldDropSingleCharToken(t)) continue;
+      out.push(t);
+    }
+    return out;
+  }
+
   const tokens = s.match(WORD_RE) || [];
   const out = [];
   for (const t of tokens) {
     if (!t) continue;
     if (STOPWORDS.has(t)) continue;
-    if (t.length === 1 && !/^\d$/.test(t)) continue;
+    if (shouldDropSingleCharToken(t)) continue;
     out.push(t);
   }
   return out;

@@ -83,6 +83,29 @@ describe("mock-suite", () => {
       const r = await client.ask("3");
       assert.strictEqual(r, "A"); // Sequence resets
     });
+
+    it("should support predicate rules", async () => {
+      const client = new MockModelClient({ responses: { default: "fallback" } });
+      client.when(
+        (messages) => String(messages[messages.length - 1]?.content || "").includes("special"),
+        { content: "matched", finish_reason: "stop" }
+      );
+
+      const r1 = await client.ask("special case");
+      assert.strictEqual(r1, "matched");
+
+      const r2 = await client.ask("other");
+      assert.strictEqual(r2, "fallback");
+    });
+
+    it("chatStream should yield deltas", async () => {
+      const client = new MockModelClient({ responses: { default: "HelloWorld" } });
+      const chunks = [];
+      for await (const evt of client.chatStream({ messages: [{ role: "user", content: "x" }], chunkSize: 3 })) {
+        chunks.push(evt.delta);
+      }
+      assert.deepStrictEqual(chunks, ["Hel", "loW", "orl", "d"]);
+    });
   });
 
   describe("MockMcpProvider", () => {

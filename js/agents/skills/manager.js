@@ -28,6 +28,8 @@ export class SkillsManager {
       : null;
     this.cacheByDir = new Map();
     this.remoteProvider = options.remoteProvider || null; // NexusSkillProvider
+    this.cacheTtlMs = Number.isFinite(Number(options.cacheTtlMs)) ? Math.max(0, Math.floor(Number(options.cacheTtlMs))) : 5 * 60_000;
+    this.cacheMaxEntries = Number.isFinite(Number(options.cacheMaxEntries)) ? Math.max(1, Math.floor(Number(options.cacheMaxEntries))) : 32;
   }
 
   /**
@@ -39,8 +41,13 @@ export class SkillsManager {
    */
   async getSkillsForCwd(cwd, forceReload = false) {
     const cacheKey = typeof cwd === "string" && cwd ? cwd : "__default__";
-    if (!forceReload && this.cacheByDir.has(cacheKey)) {
-      return this.cacheByDir.get(cacheKey);
+    const cached = this.cacheByDir.get(cacheKey);
+    const now = Date.now();
+    if (!forceReload && cached && typeof cached === "object") {
+      const ts = typeof cached.ts === "number" ? cached.ts : 0;
+      if (!this.cacheTtlMs || now - ts < this.cacheTtlMs) {
+        return cached.outcome;
+      }
     }
 
     const outcome = await loadSkills({
@@ -75,7 +82,12 @@ export class SkillsManager {
       }
     }
 
-    this.cacheByDir.set(cacheKey, outcome);
+    this.cacheByDir.set(cacheKey, { outcome, ts: now });
+    // Best-effort LRU eviction (Map insertion order).
+    while (this.cacheByDir.size > this.cacheMaxEntries) {
+      const oldest = this.cacheByDir.keys().next().value;
+      this.cacheByDir.delete(oldest);
+    }
     return outcome;
   }
 
@@ -89,7 +101,7 @@ export class SkillsManager {
    */
   async buildInjections(input, cwd, options = {}) {
     const outcome = await this.getSkillsForCwd(cwd);
-    return buildSkillInjections(input, outcome, options);
+    return buildSkillInjections(input, outcome, { ...options, remoteProvider: options.remoteProvider || this.remoteProvider || null });
   }
 
   /**

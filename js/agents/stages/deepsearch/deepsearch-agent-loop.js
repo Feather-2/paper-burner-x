@@ -138,6 +138,7 @@ const FALLBACK_SYSTEM_PROMPT = `你是一个文档分析助手。
 
 // 缓存加载的提示词
 let _systemPromptTemplate = null;
+let _systemPromptWarnedUnresolved = false;
 
 /**
  * 动态构建系统提示词
@@ -187,6 +188,19 @@ async function getSystemPrompt({ skillsPrompt = "", config = null, mode = "wider
     TOOLS_CATALOG: toolsCatalog,
     ...(skillsPrompt ? { SKILLS_CATALOG: skillsPrompt } : {}),
   };
+
+  // Warn once if key placeholders remain unresolved (helps catch config/vars drift).
+  if (!_systemPromptWarnedUnresolved) {
+    return renderPromptTemplate(_systemPromptTemplate, {
+      vars,
+      appendIfMissing,
+      keepUnresolved: true,
+      warnOnUnresolved: true,
+      onUnresolved: () => {
+        _systemPromptWarnedUnresolved = true;
+      },
+    });
+  }
 
   return renderPromptTemplate(_systemPromptTemplate, { vars, appendIfMissing, keepUnresolved: true });
 }

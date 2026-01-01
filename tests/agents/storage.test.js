@@ -184,11 +184,20 @@ test("RunExporter: zip export/import roundtrip", async () => {
   const art3 = generateArtifactId(runId, "events.jsonl", 1);
   const art4 = generateArtifactId(runId, "plan.json", 1);
   const art5 = generateArtifactId(runId, "plan.json", 2);
+  const art6 = generateArtifactId(runId, "vfs_payload.bin", 1);
 
   await store1.saveArtifact(runId, "content_package.json", contentPkg, { artifactId: art1, storageKey: `runs/${runId}/content_package.json` });
   await store1.saveArtifact(runId, "deck_package.json", deckPkg, { artifactId: art2, storageKey: `runs/${runId}/deck_package.json` });
   await store1.saveArtifact(runId, "plan.json", plan1, { artifactId: art4, storageKey: `runs/${runId}/plan.json`, seq: 1 });
   await store1.saveArtifact(runId, "plan.json", plan2, { artifactId: art5, storageKey: `runs/${runId}/plan.json`, seq: 2 });
+  const bin = new Uint8Array([0, 1, 2, 3, 254, 255]);
+  await store1.saveArtifact(runId, "vfs_payload.bin", bin, {
+    artifactId: art6,
+    storageKey: `runs/${runId}/vfs_payload.bin`,
+    mime: "application/octet-stream",
+    bytes: bin.byteLength,
+    seq: 1,
+  });
 
   const manifest = createManifest(runId);
   addArtifactToManifest(manifest, { artifactId: art1, type: "content_package.json", mime: "application/json", storageKey: `runs/${runId}/content_package.json` });
@@ -196,6 +205,7 @@ test("RunExporter: zip export/import roundtrip", async () => {
   addArtifactToManifest(manifest, { artifactId: art3, type: "events.jsonl", mime: "application/x-ndjson", storageKey: `runs/${runId}/events.jsonl` });
   addArtifactToManifest(manifest, { artifactId: art4, type: "plan.json", mime: "application/json", storageKey: `runs/${runId}/plan.json` });
   addArtifactToManifest(manifest, { artifactId: art5, type: "plan.json", mime: "application/json", storageKey: `runs/${runId}/plan.json` });
+  addArtifactToManifest(manifest, { artifactId: art6, type: "vfs_payload.bin", mime: "application/octet-stream", storageKey: `runs/${runId}/vfs_payload.bin` });
   await store1.updateManifest(runId, manifest);
 
   const zipBlob = await exportRunAsZip(runId, { runStore: store1 });
@@ -213,6 +223,7 @@ test("RunExporter: zip export/import roundtrip", async () => {
   assert.deepEqual(await store2.getArtifact(runId, "content_package.json"), contentPkg);
   assert.deepEqual(await store2.getArtifact(runId, "deck_package.json"), deckPkg);
   assert.deepEqual(await store2.getArtifact(runId, "plan.json"), plan2);
+  assert.deepEqual(await store2.getArtifact(runId, "vfs_payload.bin"), bin);
   assert.deepEqual(await store2.getEvents(runId), events);
 
   const backManifest = await store2.getManifest(runId);

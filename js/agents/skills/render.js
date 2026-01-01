@@ -45,6 +45,37 @@ function groupSkillsByPriority(skills) {
   return { critical, important, optional };
 }
 
+function toNonEmptyString(value) {
+  if (value === undefined || value === null) return "";
+  const s = String(value).trim();
+  return s.length ? s : "";
+}
+
+function normalizeSkillPathForPrompt(path) {
+  const raw = toNonEmptyString(path);
+  if (!raw) return "";
+
+  if (raw.startsWith("user:") || raw.startsWith("nexus://") || raw.startsWith("remote:")) return raw;
+
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const u = new URL(raw);
+      return `${u.pathname || "/"}${u.search || ""}`;
+    } catch {
+      return raw;
+    }
+  }
+
+  const looksAbsolutePosix = raw.startsWith("/");
+  const looksAbsoluteWin = /^[a-zA-Z]:[\\/]/.test(raw);
+  if (looksAbsolutePosix || looksAbsoluteWin) {
+    const parts = raw.replaceAll("\\", "/").split("/").filter(Boolean);
+    return parts[parts.length - 1] || raw;
+  }
+
+  return raw.replaceAll("\\", "/");
+}
+
 /**
  * 渲染 Skills 列表为 prompt 片段 (按优先级排序)
  *
@@ -72,7 +103,7 @@ export function renderSkillsSection(skills, options = {}) {
     }
     for (const skill of group) {
       const meta = skill.metadata || skill;
-      const pathStr = (meta.path || "").replace(/\\\\/g, "/");
+      const pathStr = normalizeSkillPathForPrompt(meta.path);
       lines.push(`- ${meta.name}: ${meta.description}${pathStr ? ` (file: ${pathStr})` : ""}`);
     }
     lines.push("");

@@ -296,12 +296,13 @@ export function createWhisperProvider(config) {
  * 从全局模型配置创建 WhisperProvider
  * 读取 localStorage 中的配置
  */
-export function createWhisperProviderFromConfig() {
+export function createWhisperProviderFromConfig({ storage, keyLoader, storageKey = "whisperProviderConfig" } = {}) {
   // 尝试读取已保存的配置
   let config = null;
 
   try {
-    const raw = localStorage.getItem("whisperProviderConfig");
+    const store = storage || (typeof localStorage !== "undefined" ? localStorage : null);
+    const raw = store?.getItem?.(storageKey);
     if (raw) config = JSON.parse(raw);
   } catch {
     // ignore
@@ -313,14 +314,15 @@ export function createWhisperProviderFromConfig() {
   }
 
   // 尝试从模型管理获取 API key
-  if (!config.apiKey && typeof loadModelKeys === "function") {
+  const loader = typeof keyLoader === "function" ? keyLoader : typeof loadModelKeys === "function" ? loadModelKeys : null;
+  if (!config.apiKey && loader) {
     const providerKeyMap = {
       elevenlabs: "elevenlabs",
       groq: "groq",
       openai: "openai",
     };
     const modelKey = providerKeyMap[config.provider] || config.provider;
-    const keys = loadModelKeys(modelKey) || [];
+    const keys = loader(modelKey) || [];
     const validKey = keys.find((k) => k.status !== "invalid" && k.value);
     if (validKey) {
       config.apiKey = validKey.value;

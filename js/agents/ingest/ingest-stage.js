@@ -12,15 +12,34 @@ import { VideoAdapter } from "./adapters/video.js";
 import { CodeAdapter } from "./adapters/code.js";
 import { understandAssets as runAssetUnderstanding } from "./asset-understanding.js";
 import { normalizeText } from "../stages/textprep/normalize.js";
+import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
 
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
+function normalizeConcurrency(value, fallback = 1) {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || n < 1) return fallback;
+  return Math.floor(n);
 }
 
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
+async function runWithConcurrency(items, concurrency, handler) {
+  const list = Array.isArray(items) ? items : [];
+  const limit = normalizeConcurrency(concurrency, 1);
+  if (list.length === 0) return;
+
+  if (limit <= 1) {
+    for (let i = 0; i < list.length; i++) await handler(list[i], i);
+    return;
+  }
+
+  let cursor = 0;
+  const workerCount = Math.min(limit, list.length);
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (true) {
+      const idx = cursor++;
+      if (idx >= list.length) return;
+      await handler(list[idx], idx);
+    }
+  });
+  await Promise.all(workers);
 }
 
 function makeStageEmitter(stageApi, actor = "ingest") {
@@ -254,28 +273,38 @@ export class IngestStage {
     const resumeEnabled = config?.resume !== false;
     const persistEnabled = config?.persist !== false;
     const docTimeoutMs = normalizeTimeoutMs(config?.docTimeoutMs ?? config?.perDocTimeoutMs ?? 0);
+    const maxConcurrentDocs = normalizeConcurrency(config?.maxConcurrentDocs ?? config?.maxConcurrent ?? config?.concurrency, 1);
     const inputFingerprint = buildInputFingerprint({ files, urls, historyIds, rawTexts });
 
     const assets = new AssetManager();
+    const injectedAdapters = isPlainObject(config?.adapters) ? config.adapters : isPlainObject(stageApi?.adapters) ? stageApi.adapters : null;
     const adapters = {
-      markdown: new MarkdownAdapter({ defaultChunkOptions: chunkOptions }),
-      rawText: new RawTextAdapter({ defaultChunkOptions: chunkOptions }),
-      history: new HistoryAdapter(stageApi?.storageAdapter || config?.storageAdapter || null, { defaultChunkOptions: chunkOptions }),
-      pdf: new PdfAdapter({ defaultChunkOptions: chunkOptions }),
-      docx: new DocxAdapter({ defaultChunkOptions: chunkOptions }),
-      pptx: new PptxAdapter({ defaultChunkOptions: chunkOptions }),
-      html: new HtmlAdapter({ defaultChunkOptions: chunkOptions }),
-      epub: new EpubAdapter({ defaultChunkOptions: chunkOptions }),
-      audio: new AudioAdapter({ defaultChunkOptions: chunkOptions, whisperApi: stageApi?.whisperApi || config?.whisperApi || null }),
-      video: new VideoAdapter({ defaultChunkOptions: chunkOptions, whisperApi: stageApi?.whisperApi || config?.whisperApi || null }),
-      code: new CodeAdapter({ defaultChunkOptions: chunkOptions }),
+      markdown: injectedAdapters?.markdown || new MarkdownAdapter({ defaultChunkOptions: chunkOptions }),
+      rawText: injectedAdapters?.rawText || new RawTextAdapter({ defaultChunkOptions: chunkOptions }),
+      history:
+        injectedAdapters?.history ||
+        new HistoryAdapter(stageApi?.storageAdapter || config?.storageAdapter || null, { defaultChunkOptions: chunkOptions }),
+      pdf: injectedAdapters?.pdf || new PdfAdapter({ defaultChunkOptions: chunkOptions }),
+      docx: injectedAdapters?.docx || new DocxAdapter({ defaultChunkOptions: chunkOptions }),
+      pptx: injectedAdapters?.pptx || new PptxAdapter({ defaultChunkOptions: chunkOptions }),
+      html: injectedAdapters?.html || new HtmlAdapter({ defaultChunkOptions: chunkOptions }),
+      epub: injectedAdapters?.epub || new EpubAdapter({ defaultChunkOptions: chunkOptions }),
+      audio:
+        injectedAdapters?.audio ||
+        new AudioAdapter({ defaultChunkOptions: chunkOptions, whisperApi: stageApi?.whisperApi || config?.whisperApi || null }),
+      video:
+        injectedAdapters?.video ||
+        new VideoAdapter({ defaultChunkOptions: chunkOptions, whisperApi: stageApi?.whisperApi || config?.whisperApi || null }),
+      code: injectedAdapters?.code || new CodeAdapter({ defaultChunkOptions: chunkOptions }),
     };
 
     let sources = [];
     let parseErrors = [];
+    let warnings = [];
     let processedOrigins = new Set();
     let successDocs = 0;
     let failedDocs = 0;
+    let persistQueue = Promise.resolve();
 
     const persistResume = async ({ lastDoc } = {}) => {
       if (!persistEnabled) return null;
@@ -294,6 +323,7 @@ export class IngestStage {
           sources,
           assets: assets.listAssets(),
           parseErrors,
+          warnings,
           metrics: {
             totalDocs: inputCount,
             successDocs,
@@ -327,6 +357,7 @@ export class IngestStage {
         if (cached?.kind === INGEST_RESULT_KIND && fingerprintsEqual(cachedFp, inputFingerprint) && isPlainObject(cachedOut)) {
           sources = Array.isArray(cachedOut.sources) ? cachedOut.sources : [];
           parseErrors = Array.isArray(cachedOut.parseErrors) ? cachedOut.parseErrors : [];
+          warnings = Array.isArray(cachedOut.warnings) ? cachedOut.warnings : [];
           successDocs = sources.length;
           failedDocs = parseErrors.length;
           processedOrigins = new Set(cachedOrigins.map((o) => String(o)));
@@ -335,7 +366,7 @@ export class IngestStage {
             const cachedAssets = Array.isArray(cachedOut.assets) ? cachedOut.assets : [];
             assets.addAssets(cachedAssets);
           } catch {
-            // ignore resume asset hydration failures
+            warnings.push("resume: failed to hydrate cached assets (ignored)");
           }
 
           emit?.(
@@ -354,20 +385,24 @@ export class IngestStage {
       return !!key && processedOrigins.has(key);
     };
 
-    const markOriginProcessed = async (origin, lastDoc) => {
+    const markOriginProcessed = (origin, lastDoc) => {
       const key = String(origin || "");
       if (!key) return null;
       processedOrigins.add(key);
-      return await persistResume({ lastDoc });
+      persistQueue = persistQueue.then(
+        () => persistResume({ lastDoc }),
+        () => persistResume({ lastDoc })
+      );
+      return persistQueue;
     };
 
-    // rawTexts
-    for (const item of rawTexts) {
+    // rawTexts (optionally concurrent)
+    await runWithConcurrency(rawTexts, maxConcurrentDocs, async (item) => {
       checkCancelled(stageApi);
       const origin = originKeyForRawText(item);
       if (shouldSkipOrigin(origin)) {
         emit?.("ingest.doc.skipped", { origin }, { status: "skipped" });
-        continue;
+        return;
       }
       emit?.("ingest.doc.started", { origin }, { status: "started" });
       try {
@@ -376,7 +411,11 @@ export class IngestStage {
         const assetIds = Array.from(new Set(addedAssetIds));
         sources.push(sourceFromParsed(parsed, assetIds));
         successDocs++;
-        emit?.("ingest.doc.completed", { docId: parsed.docId, assetCount: assetIds.length, chunkCount: parsed.chunks?.length || 0 }, { status: "completed" });
+        emit?.(
+          "ingest.doc.completed",
+          { docId: parsed.docId, assetCount: assetIds.length, chunkCount: parsed.chunks?.length || 0 },
+          { status: "completed" }
+        );
         await markOriginProcessed(origin, { origin, status: "completed", docId: parsed.docId });
       } catch (e) {
         failedDocs++;
@@ -385,15 +424,15 @@ export class IngestStage {
         emit?.("ingest.doc.failed", { origin, error: msg }, { status: "failed" });
         await markOriginProcessed(origin, { origin, status: "failed", error: msg });
       }
-    }
+    });
 
-    // historyIds
-    for (const hid of historyIds) {
+    // historyIds (optionally concurrent)
+    await runWithConcurrency(historyIds, maxConcurrentDocs, async (hid) => {
       checkCancelled(stageApi);
       const origin = `history:${hid}`;
       if (shouldSkipOrigin(origin)) {
         emit?.("ingest.doc.skipped", { origin, historyId: hid }, { status: "skipped" });
-        continue;
+        return;
       }
       emit?.("ingest.doc.started", { origin, historyId: hid }, { status: "started" });
       try {
@@ -402,7 +441,11 @@ export class IngestStage {
         const assetIds = Array.from(new Set(addedAssetIds));
         sources.push(sourceFromParsed(parsed, assetIds));
         successDocs++;
-        emit?.("ingest.doc.completed", { docId: parsed.docId, assetCount: assetIds.length, chunkCount: parsed.chunks?.length || 0 }, { status: "completed" });
+        emit?.(
+          "ingest.doc.completed",
+          { docId: parsed.docId, assetCount: assetIds.length, chunkCount: parsed.chunks?.length || 0 },
+          { status: "completed" }
+        );
         await markOriginProcessed(origin, { origin, status: "completed", docId: parsed.docId });
       } catch (e) {
         failedDocs++;
@@ -411,10 +454,10 @@ export class IngestStage {
         emit?.("ingest.doc.failed", { origin, error: msg }, { status: "failed" });
         await markOriginProcessed(origin, { origin, status: "failed", error: msg });
       }
-    }
+    });
 
-    // files
-    for (const f of files) {
+    // files (optionally concurrent)
+    await runWithConcurrency(files, maxConcurrentDocs, async (f) => {
       checkCancelled(stageApi);
       const label = fileLabel(f);
       const ext = extOfName(label);
@@ -422,7 +465,7 @@ export class IngestStage {
       const origin = `file:${label}`;
       if (shouldSkipOrigin(origin)) {
         emit?.("ingest.doc.skipped", { origin, filename: label }, { status: "skipped" });
-        continue;
+        return;
       }
       emit?.("ingest.doc.started", { origin, filename: label }, { status: "started" });
 
@@ -442,7 +485,7 @@ export class IngestStage {
         parseErrors.push({ origin, error: msg });
         emit?.("ingest.doc.failed", { origin, error: msg }, { status: "failed" });
         await markOriginProcessed(origin, { origin, status: "failed", error: msg });
-        continue;
+        return;
       }
 
       try {
@@ -468,7 +511,11 @@ export class IngestStage {
         const assetIds = Array.from(new Set(addedAssetIds));
         sources.push(sourceFromParsed(parsed, assetIds));
         successDocs++;
-        emit?.("ingest.doc.completed", { docId: parsed.docId, assetCount: assetIds.length, chunkCount: parsed.chunks?.length || 0 }, { status: "completed" });
+        emit?.(
+          "ingest.doc.completed",
+          { docId: parsed.docId, assetCount: assetIds.length, chunkCount: parsed.chunks?.length || 0 },
+          { status: "completed" }
+        );
         await markOriginProcessed(origin, { origin, status: "completed", docId: parsed.docId });
       } catch (e) {
         failedDocs++;
@@ -477,23 +524,124 @@ export class IngestStage {
         emit?.("ingest.doc.failed", { origin, error: msg }, { status: "failed" });
         await markOriginProcessed(origin, { origin, status: "failed", error: msg });
       }
-    }
+    });
 
-    // urls - 通过 MCP fetch_content 获取后再传入 rawTexts 或 files
-    for (const url of urls) {
-      checkCancelled(stageApi);
-      const origin = `url:${url}`;
-      if (shouldSkipOrigin(origin)) {
-        emit?.("ingest.doc.skipped", { origin, url }, { status: "skipped" });
-        continue;
+    const urlFetcher = typeof config?.urlFetcher === "function" ? config.urlFetcher : typeof stageApi?.urlFetcher === "function" ? stageApi.urlFetcher : null;
+    const mcpClient = stageApi?.mcpClient || stageApi?.mcpProvider || stageApi?.mcp || config?.mcpClient || config?.mcpProvider || config?.mcp || null;
+    const allowDirectUrlFetch =
+      config?.allowDirectUrlFetch === true ||
+      config?.allowDirectFetch === true ||
+      stageApi?.allowDirectUrlFetch === true;
+
+    const looksLikeHtml = (text, contentType) => {
+      const ct = String(contentType || "").toLowerCase();
+      if (ct.includes("text/html") || ct.includes("application/xhtml+xml")) return true;
+      const head = String(text || "").slice(0, 200).toLowerCase();
+      return head.includes("<!doctype") || head.includes("<html") || head.includes("<head") || head.includes("<body");
+    };
+
+    const fetchUrlText = async (targetUrl) => {
+      if (urlFetcher) {
+        const out = await urlFetcher(targetUrl, { signal: stageApi?.signal });
+        if (typeof out === "string") return { text: out, title: targetUrl, contentType: "" };
+        if (out && typeof out === "object") {
+          const text = typeof out.text === "string" ? out.text : typeof out.content === "string" ? out.content : "";
+          const title = typeof out.title === "string" ? out.title : targetUrl;
+          const contentType = typeof out.contentType === "string" ? out.contentType : "";
+          if (!text) throw new Error("urlFetcher returned empty content");
+          return { text, title, contentType };
+        }
+        throw new Error("urlFetcher returned unsupported result");
       }
-      emit?.("ingest.doc.started", { origin, url }, { status: "started" });
-      failedDocs++;
-      const error = "URL ingest not supported directly. Use MCP fetch_content to retrieve content first, then pass as rawTexts or files.";
-      parseErrors.push({ origin, error });
-      emit?.("ingest.doc.failed", { origin, error }, { status: "failed" });
-      await markOriginProcessed(origin, { origin, status: "failed", error });
-    }
+
+      if (mcpClient && typeof mcpClient.callTool === "function") {
+        const res = await mcpClient.callTool("fetch_content", { url: targetUrl });
+        if (!res?.success) throw new Error(String(res?.error || "MCP fetch_content failed"));
+        const text = typeof res.getText === "function" ? res.getText() : String(res?.content?.[0]?.text || "");
+        const jsonPart = Array.isArray(res?.content) ? res.content.find((c) => c?.type === "json" && c?.data) : null;
+        const title = jsonPart?.data?.title || jsonPart?.data?.metadata?.title || targetUrl;
+        const contentType = jsonPart?.data?.metadata?.contentType || "";
+        if (!text) throw new Error("MCP fetch_content returned empty text");
+        return { text, title, contentType };
+      }
+
+      if (allowDirectUrlFetch && typeof fetch === "function") {
+        const resp = await fetch(targetUrl, { signal: stageApi?.signal });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const contentType = resp.headers?.get?.("content-type") || "";
+        const text = await resp.text();
+        if (!text) throw new Error("empty response body");
+        return { text, title: targetUrl, contentType };
+      }
+
+      throw new Error(
+        "URL ingest not supported: provide stageApi.urlFetcher/config.urlFetcher, or mcpClient.callTool('fetch_content'), or set config.allowDirectUrlFetch=true."
+      );
+    };
+
+    // urls - optional support via urlFetcher / MCP / direct fetch (best-effort, may fail on CORS)
+    await runWithConcurrency(urls, maxConcurrentDocs, async (url) => {
+      checkCancelled(stageApi);
+      const targetUrl = toNonEmptyString(url);
+      const origin = `url:${targetUrl || url}`;
+      if (shouldSkipOrigin(origin)) {
+        emit?.("ingest.doc.skipped", { origin, url: targetUrl || url }, { status: "skipped" });
+        return;
+      }
+      emit?.("ingest.doc.started", { origin, url: targetUrl || url }, { status: "started" });
+
+      if (!targetUrl) {
+        failedDocs++;
+        const error = "URL is empty";
+        parseErrors.push({ origin, error });
+        emit?.("ingest.doc.failed", { origin, error }, { status: "failed" });
+        await markOriginProcessed(origin, { origin, status: "failed", error });
+        return;
+      }
+
+      try {
+        const fetched = await withTimeout(fetchUrlText(targetUrl), docTimeoutMs, { signal: stageApi?.signal, label: origin });
+        let parsed = null;
+
+        if (looksLikeHtml(fetched.text, fetched.contentType)) {
+          try {
+            parsed = await adapters.html.parse(
+              {
+                name: `${targetUrl.replaceAll(/[^a-zA-Z0-9._-]/g, "_").slice(0, 60) || "page"}.html`,
+                type: fetched.contentType || "text/html",
+                async text() {
+                  return fetched.text;
+                },
+              },
+              stageApi
+            );
+          } catch {
+            parsed = null;
+          }
+        }
+
+        if (!parsed) {
+          parsed = await adapters.rawText.parse({ text: fetched.text, title: fetched.title || targetUrl });
+        }
+
+        const addedAssetIds = assets.addAssets(Array.isArray(parsed.assets) ? parsed.assets.map((a) => ({ ...a, docId: parsed.docId })) : []);
+        const assetIds = Array.from(new Set(addedAssetIds));
+        sources.push(sourceFromParsed(parsed, assetIds));
+        successDocs++;
+        emit?.(
+          "ingest.doc.completed",
+          { docId: parsed.docId, assetCount: assetIds.length, chunkCount: parsed.chunks?.length || 0 },
+          { status: "completed" }
+        );
+        await markOriginProcessed(origin, { origin, status: "completed", docId: parsed.docId });
+      } catch (e) {
+        failedDocs++;
+        const msg = e instanceof Error ? e.message : String(e);
+        parseErrors.push({ origin, error: msg });
+        emit?.("ingest.doc.failed", { origin, error: msg }, { status: "failed" });
+        await markOriginProcessed(origin, { origin, status: "failed", error: msg });
+      }
+    });
 
     const understandingOpt = config?.understandAssets;
     const enableUnderstanding = understandingOpt === true || isPlainObject(understandingOpt);
@@ -537,6 +685,7 @@ export class IngestStage {
       sources,
       assets: assets.listAssets(),
       parseErrors,
+      warnings,
       metrics: {
         totalDocs: inputCount,
         successDocs,
@@ -546,7 +695,21 @@ export class IngestStage {
       },
     };
 
-    await persistResume({ lastDoc: { origin: null, status: "completed" } });
+    // Ensure any queued resume writes finish before finalizing.
+    try {
+      await persistQueue;
+    } catch {
+      // ignore
+    }
+    persistQueue = persistQueue.then(
+      () => persistResume({ lastDoc: { origin: null, status: "completed" } }),
+      () => persistResume({ lastDoc: { origin: null, status: "completed" } })
+    );
+    try {
+      await persistQueue;
+    } catch {
+      // ignore
+    }
     emit?.("ingest.completed", { sourceCount: sources.length, assetCount: output.assets.length, durationMs: output.metrics.durationMs }, { status: "completed" });
     return output;
   }

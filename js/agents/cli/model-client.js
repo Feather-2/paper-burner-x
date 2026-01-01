@@ -13,13 +13,14 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { estimateTokenCount } from "../shared/utils/value-utils.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONFIG_FILE = join(__dirname, "config.json");
 const EXAMPLE_FILE = join(__dirname, "config.example.json");
 
-/** @typedef {{baseUrl: string, model: string, apiKey: string}} ModelConfig */
-/** @typedef {{models: Record<string, ModelConfig>, roles: Record<string, string>, default: string}} CliConfig */
+/** @typedef {{baseUrl: string, model: string, apiKey: string, contextWindow?: number, maxOutputTokens?: number, timeoutMs?: number}} ModelConfig */
+/** @typedef {{models: Record<string, ModelConfig>, tiers?: Record<string, string[]>, roles?: Record<string, string>, default: string}} CliConfig */
 
 /**
  * 加载配置文件
@@ -38,6 +39,131 @@ function loadConfig() {
     }
 }
 
+function toNonEmptyString(v) {
+    if (v === undefined || v === null) return undefined;
+    const s = String(v).trim();
+    return s.length ? s : undefined;
+}
+
+function toTimeoutMs(v, fallback) {
+    const n = typeof v === "number" ? v : Number(v);
+    if (!Number.isFinite(n) || n <= 0) return fallback;
+    return Math.floor(n);
+}
+
+function isAbortSignal(signal) {
+    return !!signal && typeof signal === "object" && typeof signal.aborted === "boolean" && typeof signal.addEventListener === "function";
+}
+
+function mergeAbortSignals(a, b) {
+    const signals = [a, b].filter(Boolean).filter(isAbortSignal);
+    if (signals.length === 0) return null;
+    if (signals.length === 1) return signals[0];
+    if (typeof AbortSignal !== "undefined" && typeof AbortSignal.any === "function") {
+        try {
+            return AbortSignal.any(signals);
+        } catch {
+            // ignore
+        }
+    }
+
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    for (const s of signals) {
+        if (s.aborted) return s;
+        s.addEventListener?.("abort", abort, { once: true });
+    }
+    return controller.signal;
+}
+
+async function fetchWithTimeout(url, init = {}, { timeoutMs, signal } = {}) {
+    const ms = toTimeoutMs(timeoutMs, 60_000);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(new Error("timeout")), ms);
+    const mergedSignal = mergeAbortSignals(signal, controller.signal);
+
+    try {
+        return await fetch(url, { ...init, signal: mergedSignal || undefined });
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+function estimateMessageTokens(message) {
+    if (!message || typeof message !== "object") return 0;
+    const content = message.content;
+    if (typeof content === "string") return estimateTokenCount(content);
+    try {
+        return estimateTokenCount(JSON.stringify(content));
+    } catch {
+        return estimateTokenCount(String(content ?? ""));
+    }
+}
+
+function estimateMessagesTokens(messages) {
+    if (!Array.isArray(messages)) return 0;
+    let total = 0;
+    for (const m of messages) total += estimateMessageTokens(m);
+    return total;
+}
+
+function truncateMessagesToBudget(messages, { maxInputTokens } = {}) {
+    if (!Array.isArray(messages)) return [];
+    const budget = typeof maxInputTokens === "number" && Number.isFinite(maxInputTokens) ? Math.max(0, Math.floor(maxInputTokens)) : 0;
+    if (!budget) return messages;
+
+    const system = [];
+    const rest = [];
+    for (const m of messages) {
+        if (m && typeof m === "object" && m.role === "system") system.push(m);
+        else rest.push(m);
+    }
+
+    let kept = rest.slice();
+    while (kept.length > 0 && estimateMessagesTokens([...system, ...kept]) > budget) {
+        kept = kept.slice(1);
+    }
+
+    return [...system, ...kept];
+}
+
+async function buildHttpError(response, { url, maxChars = 1500 } = {}) {
+    const status = response?.status;
+    const endpoint = toNonEmptyString(url) || "";
+
+    try {
+        const ctype = response?.headers?.get?.("content-type") || "";
+        if (ctype.includes("application/json") && typeof response.json === "function") {
+            const data = await response.json().catch(() => null);
+            const msg =
+                data?.error?.message ||
+                data?.message ||
+                data?.error ||
+                (typeof data === "string" ? data : null) ||
+                `HTTP ${status}`;
+            const err = new Error(`API 请求失败 (${status})${endpoint ? `: ${endpoint}` : ""}: ${String(msg).slice(0, maxChars)}`);
+            err.status = status;
+            err.data = data;
+            const retryAfter = response?.headers?.get?.("retry-after") || "";
+            if (retryAfter) err.retryAfter = retryAfter;
+            return err;
+        }
+
+        const text = typeof response.text === "function" ? await response.text() : "";
+        const err = new Error(`API 请求失败 (${status})${endpoint ? `: ${endpoint}` : ""}: ${String(text).slice(0, maxChars)}`);
+        err.status = status;
+        err.data = text;
+        const retryAfter = response?.headers?.get?.("retry-after") || "";
+        if (retryAfter) err.retryAfter = retryAfter;
+        return err;
+    } catch (e) {
+        const err = new Error(`API 请求失败 (${status})${endpoint ? `: ${endpoint}` : ""}`);
+        err.status = status;
+        err.cause = e instanceof Error ? e : undefined;
+        return err;
+    }
+}
+
 /**
  * 多模型路由客户端
  */
@@ -47,7 +173,7 @@ export class CliModelRouter {
         this._clients = new Map();
 
         if (!this.config && !process.env.OPENAI_API_KEY) {
-            console.warn(`[CliModelRouter] 未找到配置。请创建 cli-config.json 或设置 OPENAI_API_KEY`);
+            console.warn(`[CliModelRouter] 未找到配置。请创建 config.json 或设置 OPENAI_API_KEY`);
             console.warn(`  参考: ${EXAMPLE_FILE}`);
         }
     }
@@ -143,6 +269,9 @@ export class CliModelClient {
         this.apiKey = options.apiKey || "";
         this.baseUrl = (options.baseUrl || "https://api.deepseek.com/v1").replace(/\/$/, "");
         this.model = options.model || "deepseek-chat";
+        this.contextWindow = typeof options.contextWindow === "number" ? options.contextWindow : null;
+        this.maxOutputTokens = typeof options.maxOutputTokens === "number" ? options.maxOutputTokens : null;
+        this.timeoutMs = typeof options.timeoutMs === "number" ? options.timeoutMs : null;
     }
 
     /**
@@ -151,35 +280,53 @@ export class CliModelClient {
      * @param {Array} options.messages - [{ role, content }]
      * @param {number} [options.temperature=0.7]
      * @param {number} [options.maxTokens=4096]
+     * @param {AbortSignal} [options.signal]
+     * @param {number} [options.timeoutMs]
      * @returns {Promise<{content: string, model: string, usage: Object}>}
      */
     async chat(options) {
-        const { messages, temperature = 0.7, maxTokens = 4096 } = options;
+        const { messages, temperature = 0.7, maxTokens, signal, timeoutMs } = options || {};
+        const resolvedMaxTokens = typeof maxTokens === "number" ? maxTokens : (this.maxOutputTokens || 4096);
 
         if (!this.apiKey) {
             throw new Error("API Key 未设置");
         }
 
+        // Best-effort input truncation to avoid context overflow.
+        let finalMessages = messages;
+        const windowTokens = typeof this.contextWindow === "number" && this.contextWindow > 0 ? this.contextWindow : null;
+        if (windowTokens && Array.isArray(messages)) {
+            // Conservative safety buffer for tool/system overhead.
+            const safety = 512;
+            const budget = Math.max(0, windowTokens - resolvedMaxTokens - safety);
+            if (budget > 0) {
+                finalMessages = truncateMessagesToBudget(messages, { maxInputTokens: budget });
+            }
+        }
+
         const url = `${this.baseUrl}/chat/completions`;
         const body = {
             model: this.model,
-            messages,
+            messages: finalMessages,
             temperature,
-            max_tokens: maxTokens,
+            max_tokens: resolvedMaxTokens,
         };
 
-        const response = await fetch(url, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${this.apiKey}`,
+        const response = await fetchWithTimeout(
+            url,
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${this.apiKey}`,
+                },
+                body: JSON.stringify(body),
             },
-            body: JSON.stringify(body),
-        });
+            { timeoutMs: toTimeoutMs(timeoutMs ?? this.timeoutMs, 60_000), signal }
+        );
 
         if (!response.ok) {
-            const text = await response.text();
-            throw new Error(`API 请求失败 (${response.status}): ${text.slice(0, 200)}`);
+            throw await buildHttpError(response, { url });
         }
 
         const data = await response.json();

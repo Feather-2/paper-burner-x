@@ -9,7 +9,6 @@ function toNonEmptyString(v) {
 }
 
 export const MODEL_TAGS = Object.freeze(["text", "vision", "reasoning", "long-context", "fast", "cheap"]);
-const MODEL_TAG_SET = new Set(MODEL_TAGS);
 
 export function normalizeModelTags(tags) {
   const out = [];
@@ -32,9 +31,8 @@ export function assertModelEntry(entry) {
 
   const tags = normalizeModelTags(entry.tags);
   if (!Array.isArray(entry.tags)) throw new TypeError("ModelEntry.tags must be an array");
-  for (const t of tags) {
-    if (!MODEL_TAG_SET.has(t)) throw new TypeError(`ModelEntry.tags contains unknown tag: ${t}`);
-  }
+  // NOTE: tags are intentionally open-ended for forward compatibility and custom routing.
+  // Known tags are documented in MODEL_TAGS, but unknown tags are allowed.
 
   if (entry.limits !== undefined && !isPlainObject(entry.limits)) throw new TypeError("ModelEntry.limits must be an object when present");
   if (entry.limits?.maxTokens !== undefined && (typeof entry.limits.maxTokens !== "number" || !(entry.limits.maxTokens > 0))) {
@@ -47,9 +45,8 @@ export function assertModelEntry(entry) {
 
 export function assertUsageConfig(config) {
   if (!isPlainObject(config)) throw new TypeError("UsageConfig must be an object");
-  const usages = ["worker", "planner", "analyst", "writer", "vision"];
-  for (const k of usages) {
-    const list = config[k];
+  for (const [k, list] of Object.entries(config)) {
+    if (!toNonEmptyString(k)) throw new TypeError("UsageConfig keys must be non-empty strings");
     if (!Array.isArray(list)) throw new TypeError(`UsageConfig.${k} must be an array`);
     for (const m of list) {
       if (!toNonEmptyString(m)) throw new TypeError(`UsageConfig.${k} entries must be non-empty strings`);
@@ -93,4 +90,3 @@ export class BaseProvider {
     throw new Error("BaseProvider.chat() not implemented");
   }
 }
-

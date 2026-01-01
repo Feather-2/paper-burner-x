@@ -22,7 +22,7 @@ export async function createVfs(options = {}) {
   }
 
   if (preferred === "nodefs" && isNodeLike()) {
-    const { NodeFsVfs } = await import("./vfs.node.js");
+    const { NodeFsVfs } = await import(/* @vite-ignore */ "./vfs.node.js");
     return new NodeFsVfs({ rootPath: options.rootPath || "." });
   }
 

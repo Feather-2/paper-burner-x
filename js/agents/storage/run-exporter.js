@@ -165,12 +165,12 @@ export async function exportRunAsZip(runId, { runStore = new RunStore() } = {}) 
     try {
       if (typeof data === "string") {
         zip.file(zipPath, data);
-      } else if (isPlainObject(data) || Array.isArray(data)) {
-        zip.file(zipPath, JSON.stringify(data, null, 2));
       } else if (typeof Blob !== "undefined" && data instanceof Blob) {
         zip.file(zipPath, data);
       } else if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
         zip.file(zipPath, data);
+      } else if (isPlainObject(data) || Array.isArray(data)) {
+        zip.file(zipPath, JSON.stringify(data, null, 2));
       } else {
         zip.file(zipPath, String(data));
       }
@@ -276,21 +276,29 @@ export async function importRunFromZip(file, { runStore = new RunStore(), overwr
     if (typeof item.artifactId === "string" && item.artifactId) candidates.push(`artifacts/${toSafeFileName(item.artifactId)}`);
     candidates.push(item.type);
 
+    const shouldLoadAsText =
+      item.type.endsWith(".json") ||
+      item.type.endsWith(".jsonl") ||
+      (typeof item.mime === "string" && item.mime.startsWith("text/")) ||
+      (typeof item.mime === "string" && item.mime.includes("json"));
+
     let content = null;
     for (const path of candidates) {
       const f = zip.file(path);
       if (!f) continue;
-      content = await f.async("string");
+      content = shouldLoadAsText ? await f.async("string") : await f.async("uint8array");
       break;
     }
     if (!content) continue;
 
     let data = content;
-    if (item.type.endsWith(".json")) {
-      try {
-        data = JSON.parse(content);
-      } catch {
-        data = content;
+    if (shouldLoadAsText) {
+      if (item.type.endsWith(".json")) {
+        try {
+          data = JSON.parse(content);
+        } catch {
+          data = content;
+        }
       }
     }
 

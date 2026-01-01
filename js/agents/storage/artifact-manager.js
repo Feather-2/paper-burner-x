@@ -12,6 +12,7 @@ export const SUPPORTED_ARTIFACT_TYPES = [
   "plan.json",
   "tool_output.json",
   "vfs_checkpoint.json",
+  "vfs_payload.bin",
   "events.jsonl",
 ];
 
@@ -144,7 +145,7 @@ export async function computeSha256(data) {
 
   // Node fallback (older runtimes)
   try {
-    const { createHash } = await import("node:crypto");
+    const { createHash } = await import(/* @vite-ignore */ "node:crypto");
     const h = createHash("sha256");
     h.update(Buffer.from(buf));
     return h.digest("hex");

@@ -385,21 +385,18 @@ test("ModelRouter + validators: bad configs throw early", async () => {
     () =>
       new ModelRouter({
         models: [{ id: "ok", provider: "mock", tags: ["text"], limits: {} }],
-        usageConfig: { worker: ["ok"] },
+        usageConfig: { worker: "ok" },
         providers: { mock: provider },
       }),
     /UsageConfig/
   );
 
-  assert.throws(
-    () =>
-      new ModelRouter({
-        models: [{ id: "ok", provider: "mock", tags: ["unknown-tag"], limits: {} }],
-        usageConfig: { worker: ["ok"], planner: [], analyst: [], writer: [], vision: [] },
-        providers: { mock: provider },
-      }),
-    /unknown tag/i
-  );
+  const router = new ModelRouter({
+    models: [{ id: "ok", provider: "mock", tags: ["unknown-tag"], limits: {} }],
+    usageConfig: { worker: ["ok"] },
+    providers: { mock: provider },
+  });
+  assert.ok(router);
 });
 
 test("ModelRouter: invalid strategy throws clear error", async () => {

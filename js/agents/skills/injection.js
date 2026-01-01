@@ -13,6 +13,8 @@
 
 const _skillIndexCache = new WeakMap();
 
+import { getUserSkillBody } from "./user-store.js";
+
 /**
  * @typedef {Object} MatchResult
  * @property {boolean} matched
@@ -45,22 +47,83 @@ function isNodeRuntime() {
   return typeof process !== "undefined" && !!process.versions?.node;
 }
 
-async function readSkillContentsFromPath(skillPath) {
+function toNonEmptyString(value) {
+  if (value === undefined || value === null) return "";
+  const s = String(value).trim();
+  return s.length ? s : "";
+}
+
+function normalizeSkillPathForPrompt(path) {
+  const raw = toNonEmptyString(path);
+  if (!raw) return "";
+
+  // Stable / cache-friendly: avoid leaking absolute host paths into prompts.
+  if (raw.startsWith("user:") || raw.startsWith("nexus://") || raw.startsWith("remote:")) return raw;
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const u = new URL(raw);
+      return `${u.pathname || "/"}${u.search || ""}`;
+    } catch {
+      return raw;
+    }
+  }
+
+  const looksAbsolutePosix = raw.startsWith("/");
+  const looksAbsoluteWin = /^[a-zA-Z]:[\\/]/.test(raw);
+  if (looksAbsolutePosix || looksAbsoluteWin) {
+    const parts = raw.replaceAll("\\", "/").split("/").filter(Boolean);
+    const base = parts[parts.length - 1] || raw;
+    return base;
+  }
+
+  return raw.replaceAll("\\", "/");
+}
+
+async function readSkillContentsFromPath(skillPath, { remoteProvider, fetchImpl } = {}) {
   const path = String(skillPath || "").trim();
   if (!path) throw new Error("Skill path is empty");
 
-  // Remote handles are not directly readable here.
-  if (path.startsWith("nexus://") || path.startsWith("remote:")) {
-    throw new Error(`Skill path is not directly readable: ${path}`);
+  // User skills (browser localStorage-backed)
+  if (path.startsWith("user:")) {
+    const name = toNonEmptyString(path.slice("user:".length));
+    if (!name) throw new Error("User skill path missing name");
+    const body = getUserSkillBody(name);
+    if (!body) throw new Error(`User skill missing body: ${name}`);
+    return body;
   }
 
-  const canFetch = typeof fetch === "function";
+  // Remote skills (Nexus gateway)
+  if (path.startsWith("nexus://")) {
+    const name = toNonEmptyString(path.slice("nexus://".length));
+    if (!name) throw new Error("Nexus skill path missing name");
+    if (!remoteProvider || typeof remoteProvider.getSkillContent !== "function") {
+      throw new Error(`Remote provider missing for ${path}`);
+    }
+    const content = await remoteProvider.getSkillContent(name);
+    const body = typeof content?.body === "string" ? content.body : "";
+    if (!body) throw new Error(`Remote skill returned empty body: ${name}`);
+    return body;
+  }
+
+  if (path.startsWith("remote:")) {
+    const name = toNonEmptyString(path.slice("remote:".length));
+    if (!name) throw new Error("Remote skill path missing name");
+    if (!remoteProvider || typeof remoteProvider.getSkillContent !== "function") {
+      throw new Error(`Remote provider missing for ${path}`);
+    }
+    const content = await remoteProvider.getSkillContent(name);
+    const body = typeof content?.body === "string" ? content.body : "";
+    if (!body) throw new Error(`Remote skill returned empty body: ${name}`);
+    return body;
+  }
+
+  const fetchFn = typeof fetchImpl === "function" ? fetchImpl : typeof fetch === "function" ? fetch : null;
   const isHttp = /^https?:\/\//i.test(path);
   const nodeLike = isNodeRuntime();
 
   // Prefer fetch in browser, and for http(s) URLs in node.
-  if (canFetch && (!nodeLike || isHttp)) {
-    const resp = await fetch(path, { cache: "no-store" });
+  if (fetchFn && (!nodeLike || isHttp)) {
+    const resp = await fetchFn(path, { cache: "no-store" });
     if (!resp.ok) throw new Error(`Failed to fetch skill: ${path} (${resp.status})`);
     return await resp.text();
   }
@@ -69,7 +132,11 @@ async function readSkillContentsFromPath(skillPath) {
     throw new Error(`Skill path is not fetchable in browser: ${path}`);
   }
 
-  const fs = await import("node:fs/promises");
+  if (path.includes("..") || path.includes("\0")) {
+    throw new Error("Skill path traversal is forbidden");
+  }
+
+  const fs = await import(/* @vite-ignore */ "node:fs/promises");
   return await fs.readFile(path, "utf-8");
 }
 
@@ -432,6 +499,7 @@ export async function buildSkillInjections(input, skillsOutcome, options = {}) {
   }
 
   const matches = collectSkillsToInject(input, skillsOutcome.skills, options);
+  const remoteProvider = options.remoteProvider || options.nexusProvider || skillsOutcome?.remoteProvider || null;
 
   for (const { skill, matchResult } of matches) {
     try {
@@ -439,12 +507,12 @@ export async function buildSkillInjections(input, skillsOutcome, options = {}) {
       if (skill.body) {
         contents = `# Skill: ${skill.metadata.name}\n\n${skill.body}`;
       } else {
-        contents = await readSkillContentsFromPath(skill.metadata.path);
+        contents = await readSkillContentsFromPath(skill.metadata.path, { remoteProvider, fetchImpl: options.fetchImpl });
       }
 
       result.items.push({
         name: skill.metadata.name,
-        path: skill.metadata.path,
+        path: normalizeSkillPathForPrompt(skill.metadata.path),
         contents,
         matchResult,
         allowedTools: skill.metadata.allowedTools,

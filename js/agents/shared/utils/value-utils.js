@@ -123,12 +123,25 @@ export function normalizeRenderType(rt) {
 export function estimateTokenCount(text) {
   if (!text || typeof text !== "string") return 0;
 
-  // 匹配 CJK 字符 (中日韩)
-  const cjkMatches = text.match(/[\u4e00-\u9fa5\u3040-\u30ff\uac00-\ud7af]/g);
-  const cjkCount = cjkMatches ? cjkMatches.length : 0;
+  // High-performance CJK count (avoid `match()` allocating large arrays).
+  let cjkCount = 0;
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    // CJK Unified Ideographs, Hiragana/Katakana, Hangul
+    if (
+      (code >= 0x4e00 && code <= 0x9fff) ||
+      (code >= 0x3040 && code <= 0x30ff) ||
+      (code >= 0xac00 && code <= 0xd7af)
+    ) {
+      cjkCount += 1;
+    }
+  }
+
   const otherCount = text.length - cjkCount;
 
-  // 估算公式: 英文每4个字1个token，中文每个字约1.6个token (OpenAI 标准)
+  // Heuristic:
+  // - Latin-ish text: ~4 chars / token
+  // - CJK: ~1 char ~= 1.6 tokens (conservative)
   return Math.ceil(otherCount / 4 + cjkCount * 1.6);
 }
 
@@ -142,40 +155,76 @@ export function estimateTokenCount(text) {
 export function deepClone(v) {
   if (v === null || typeof v !== "object") return v;
 
-  // 处理 Date
-  if (v instanceof Date) return new Date(v.getTime());
+  const seen = new WeakMap();
+  const stack = [];
 
-  // 处理 Array
-  if (Array.isArray(v)) {
-    return v.map(item => deepClone(item));
-  }
-
-  // 处理 Map
-  if (v instanceof Map) {
-    const result = new Map();
-    for (const [key, value] of v.entries()) {
-      result.set(deepClone(key), deepClone(value));
+  const initClone = (value) => {
+    if (value === null || typeof value !== "object") return value;
+    if (value instanceof Date) return new Date(value.getTime());
+    if (value instanceof RegExp) return new RegExp(value.source, value.flags);
+    if (value instanceof Map) return new Map();
+    if (value instanceof Set) return new Set();
+    if (Array.isArray(value)) return new Array(value.length);
+    if (value instanceof ArrayBuffer) return value.slice(0);
+    if (ArrayBuffer.isView(value)) {
+      if (value instanceof DataView) {
+        const buf = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+        return new DataView(buf);
+      }
+      const Ctor = value.constructor;
+      try {
+        return new Ctor(value);
+      } catch {
+        return new Uint8Array(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
+      }
     }
-    return result;
+    return Object.create(Object.getPrototypeOf(value));
+  };
+
+  const root = initClone(v);
+  if (root === v) return root;
+  if (typeof v === "object") seen.set(v, root);
+  stack.push({ src: v, dst: root });
+
+  const cloneAny = (value) => {
+    if (value === null || typeof value !== "object") return value;
+    const existing = seen.get(value);
+    if (existing) return existing;
+    const next = initClone(value);
+    seen.set(value, next);
+    stack.push({ src: value, dst: next });
+    return next;
+  };
+
+  while (stack.length) {
+    const { src, dst } = stack.pop();
+
+    if (src instanceof Date || src instanceof RegExp) continue;
+    if (src instanceof ArrayBuffer || ArrayBuffer.isView(src)) continue;
+
+    if (Array.isArray(src)) {
+      for (let i = 0; i < src.length; i++) dst[i] = cloneAny(src[i]);
+      continue;
+    }
+
+    if (src instanceof Map) {
+      for (const [k, val] of src.entries()) {
+        dst.set(cloneAny(k), cloneAny(val));
+      }
+      continue;
+    }
+
+    if (src instanceof Set) {
+      for (const item of src.values()) dst.add(cloneAny(item));
+      continue;
+    }
+
+    for (const key of Object.keys(src)) {
+      dst[key] = cloneAny(src[key]);
+    }
   }
 
-  // 处理 Set
-  if (v instanceof Set) {
-    const result = new Set();
-    for (const item of v.values()) {
-      result.add(deepClone(item));
-    }
-    return result;
-  }
-
-  // 处理 Plain Object
-  const result = Object.create(Object.getPrototypeOf(v));
-  for (const key in v) {
-    if (Object.prototype.hasOwnProperty.call(v, key)) {
-      result[key] = deepClone(v[key]);
-    }
-  }
-  return result;
+  return root;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -259,4 +308,3 @@ export function sanitizeForJson(value, seen = new WeakSet()) {
   }
   return out;
 }
-

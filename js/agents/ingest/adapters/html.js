@@ -29,6 +29,20 @@ async function readTextFromPath(path) {
   return { text: buf.toString("utf8"), size: buf.length };
 }
 
+function decodeUtf8(data) {
+  const buf =
+    data instanceof ArrayBuffer
+      ? data
+      : ArrayBuffer.isView(data)
+        ? data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)
+        : new ArrayBuffer(0);
+  try {
+    return new TextDecoder("utf-8").decode(new Uint8Array(buf));
+  } catch {
+    return String(buf || "");
+  }
+}
+
 function resolveTurndownService(stageApi) {
   if (typeof stageApi?.TurndownService === "function") return stageApi.TurndownService;
   if (typeof globalThis?.TurndownService === "function") return globalThis.TurndownService;
@@ -132,9 +146,9 @@ export class HtmlAdapter extends BaseAdapter {
       if (typeof input.text === "function") {
         html = String(await input.text());
       } else if (typeof input.arrayBuffer === "function") {
-        const buf = Buffer.from(await input.arrayBuffer());
-        html = buf.toString("utf8");
-        size = size ?? buf.length;
+        const ab = await input.arrayBuffer();
+        html = decodeUtf8(ab);
+        size = size ?? (ab instanceof ArrayBuffer ? ab.byteLength : ArrayBuffer.isView(ab) ? ab.byteLength : undefined);
       } else if (isPlainObject(input) && typeof input.content === "string") {
         html = input.content;
       } else {
@@ -173,4 +187,3 @@ export class HtmlAdapter extends BaseAdapter {
     return parsed;
   }
 }
-

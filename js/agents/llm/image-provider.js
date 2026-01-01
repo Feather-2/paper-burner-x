@@ -367,10 +367,11 @@ export function createImageProvider(config) {
   return new ImageProvider(config);
 }
 
-export function createImageProviderFromConfig() {
+export function createImageProviderFromConfig({ storage, keyLoader, storageKey = IMAGE_PROVIDER_STORAGE_KEY } = {}) {
   let config = null;
   try {
-    const raw = typeof localStorage !== "undefined" ? localStorage.getItem(IMAGE_PROVIDER_STORAGE_KEY) : null;
+    const store = storage || (typeof localStorage !== "undefined" ? localStorage : null);
+    const raw = store?.getItem?.(storageKey);
     if (raw) config = JSON.parse(raw);
   } catch {
     // ignore
@@ -379,7 +380,8 @@ export function createImageProviderFromConfig() {
   if (!isPlainObject(config)) config = { provider: "gemini-image" };
   if (!toNonEmptyString(config.provider)) config.provider = "gemini-image";
 
-  if (!toNonEmptyString(config.apiKey) && typeof loadModelKeys === "function") {
+  const loader = typeof keyLoader === "function" ? keyLoader : typeof loadModelKeys === "function" ? loadModelKeys : null;
+  if (!toNonEmptyString(config.apiKey) && loader) {
     const providerKeyMap = {
       "gemini-image": "gemini",
       gemini: "gemini",
@@ -387,11 +389,10 @@ export function createImageProviderFromConfig() {
       openai: "openai",
     };
     const modelKey = providerKeyMap[String(config.provider).toLowerCase()] || config.provider;
-    const keys = loadModelKeys(modelKey) || [];
+    const keys = loader(modelKey) || [];
     const validKey = keys.find((k) => k && k.status !== "invalid" && toNonEmptyString(k.value));
     if (validKey) config.apiKey = validKey.value;
   }
 
   return new ImageProvider(config);
 }
-

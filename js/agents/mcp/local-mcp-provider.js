@@ -84,6 +84,73 @@ function redactUrlForLog(rawUrl) {
   }
 }
 
+function isIpv4Host(hostname) {
+  const h = String(hostname || "").trim();
+  const parts = h.split(".");
+  if (parts.length !== 4) return false;
+  for (const p of parts) {
+    if (!/^\d{1,3}$/.test(p)) return false;
+    const n = Number(p);
+    if (!Number.isFinite(n) || n < 0 || n > 255) return false;
+  }
+  return true;
+}
+
+function isPrivateIpv4(hostname) {
+  if (!isIpv4Host(hostname)) return false;
+  const [a, b] = hostname.split(".").map((x) => Number(x));
+  if (a === 10) return true;
+  if (a === 127) return true;
+  if (a === 0) return true;
+  if (a === 169 && b === 254) return true; // link-local
+  if (a === 192 && b === 168) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  return false;
+}
+
+function isPrivateIpv6(hostname) {
+  const h = String(hostname || "").trim().toLowerCase();
+  if (!h || !h.includes(":")) return false;
+  if (h === "::1") return true;
+  if (h.startsWith("fe80:")) return true; // link-local
+  if (h.startsWith("fc") || h.startsWith("fd")) return true; // unique local
+  return false;
+}
+
+function isPrivateHostname(hostname) {
+  const h = String(hostname || "").trim().toLowerCase();
+  if (!h) return false;
+  if (h === "localhost" || h.endsWith(".localhost")) return true;
+  if (h.endsWith(".local")) return true;
+  if (isPrivateIpv4(h)) return true;
+  if (isPrivateIpv6(h)) return true;
+  return false;
+}
+
+function validateFetchUrl(rawUrl, { allowPrivateNetwork = false } = {}) {
+  const url = toNonEmptyString(rawUrl);
+  if (!url) throw new Error("url is required");
+
+  let u;
+  try {
+    u = new URL(url);
+  } catch {
+    throw new Error("Invalid URL");
+  }
+
+  if (u.protocol !== "http:" && u.protocol !== "https:") {
+    throw new Error(`Unsupported URL protocol: ${u.protocol || "(empty)"}`);
+  }
+
+  const hostname = toNonEmptyString(u.hostname);
+  if (!hostname) throw new Error("Invalid URL hostname");
+  if (!allowPrivateNetwork && isPrivateHostname(hostname)) {
+    throw new Error("Blocked URL hostname (private network)");
+  }
+
+  return u.toString();
+}
+
 /**
  * 健壮的 HTML 文本提取器
  * 采用轻量级状态机（单次线性扫描）替代多轮 replace，降低大文档的内存/CPU 压力。
@@ -443,6 +510,7 @@ export class LocalMcpProvider extends McpProvider {
     proxyEndpoint = null,  // 自定义私有持久化代理端点
     corsProxies = CORS_PROXIES,
     proxyCooldownMs = 60_000,
+    allowPrivateNetwork = false,
     defaultTimeoutMs = 15000,
     searchTimeoutMs = 60000, // 搜索需要尝试多个实例，给更长时间
     maxResults = 10,
@@ -464,6 +532,8 @@ export class LocalMcpProvider extends McpProvider {
     if (fetchImpl !== undefined && typeof fetchImpl !== "function") throw new Error("fetchImpl must be a function");
     this._fetch = typeof fetchImpl === "function" ? fetchImpl : globalThis.fetch;
     if (typeof this._fetch !== "function") throw new Error("LocalMcpProvider requires global fetch or fetchImpl");
+
+    this.allowPrivateNetwork = allowPrivateNetwork === true;
 
     this.proxyCooldownMs = Math.max(0, safeInt(requireFiniteNumber(proxyCooldownMs, "proxyCooldownMs"), 60_000));
     this._corsProxyUnhealthyUntilMs = new Map(); // proxy -> ts (ms)
@@ -775,13 +845,24 @@ export class LocalMcpProvider extends McpProvider {
    * 获取网页内容实现
    */
   async _fetchContent({ url } = {}) {
-    const targetUrl = toNonEmptyString(url);
+    let targetUrl = toNonEmptyString(url);
     if (!targetUrl) {
       return new McpToolResult({
         success: false,
         isError: true,
         error: "url is required",
         content: [{ type: "text", text: "Error: url parameter is required" }],
+      });
+    }
+
+    try {
+      targetUrl = validateFetchUrl(targetUrl, { allowPrivateNetwork: this.allowPrivateNetwork });
+    } catch (err) {
+      return new McpToolResult({
+        success: false,
+        isError: true,
+        error: String(err?.message || err),
+        content: [{ type: "text", text: `Fetch failed: ${err?.message || err}` }],
       });
     }
 

@@ -49,6 +49,10 @@ const BLOCKED_EXTENSIONS = new Set([
   "db", "sqlite", "sqlite3", "mdb",
   "pyc", "pyo", "o", "obj", "a", "lib",
   "wasm", "node",
+  // Infra / state files often contain credentials
+  "tfstate", "tfvars",
+  // SSH key formats
+  "ppk",
 ]);
 
 // 安全：文件大小限制 (1MB)
@@ -59,6 +63,18 @@ const SENSITIVE_PATTERNS = [
   /^\.env/, /^\.secret/, /^\.credential/,
   /password/i, /secret/i, /private.*key/i,
   /id_rsa/, /id_ed25519/, /id_ecdsa/,
+  // Common infra credentials / configs
+  /(^|\/)\.aws\/credentials$/i,
+  /(^|\/)\.aws\/config$/i,
+  /(^|\/)\.kube\/config$/i,
+  /(^|\/)\.docker\/config\.json$/i,
+  /(^|\/)\.npmrc$/i,
+  /(^|\/)\.pypirc$/i,
+  /(^|\/)\.netrc$/i,
+  /(^|\/)\.pgpass$/i,
+  /(^|\/)\.git-credentials$/i,
+  /(^|\/)\.terraform\.tfstate$/i,
+  /\.tfstate$/i,
 ];
 
 function extOfName(name) {
@@ -110,6 +126,20 @@ async function readTextFromPath(path) {
   }
   const buf = await readFile(path);
   return { text: buf.toString("utf8"), size: buf.length };
+}
+
+function decodeUtf8(data) {
+  const buf =
+    data instanceof ArrayBuffer
+      ? data
+      : ArrayBuffer.isView(data)
+        ? data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)
+        : new ArrayBuffer(0);
+  try {
+    return new TextDecoder("utf-8").decode(new Uint8Array(buf));
+  } catch {
+    return String(buf || "");
+  }
 }
 
 export class CodeAdapter extends BaseAdapter {
@@ -169,9 +199,9 @@ export class CodeAdapter extends BaseAdapter {
       if (typeof input.text === "function") {
         code = String(await input.text());
       } else if (typeof input.arrayBuffer === "function") {
-        const buf = Buffer.from(await input.arrayBuffer());
-        code = buf.toString("utf8");
-        size = size ?? buf.length;
+        const ab = await input.arrayBuffer();
+        code = decodeUtf8(ab);
+        size = size ?? (ab instanceof ArrayBuffer ? ab.byteLength : ArrayBuffer.isView(ab) ? ab.byteLength : undefined);
       } else if (typeof input.content === "string") {
         code = input.content;
       } else {

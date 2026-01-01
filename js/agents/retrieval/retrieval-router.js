@@ -8,6 +8,8 @@ function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
 }
 
+const _bm25CacheBySource = typeof WeakMap === "function" ? new WeakMap() : null;
+
 function getGapId(gap) {
   if (!gap || !isPlainObject(gap)) return null;
   const id = gap.gapId || gap.id || null;
@@ -111,15 +113,14 @@ export function retrieve(sourceIndex, gaps, config = {}) {
   let bm25Index = null;
   if (useBm25) {
     const cacheKey = bm25CacheKey(allChunks, config.bm25);
-    const cached = sourceIndex && sourceIndex._bm25Cache && typeof sourceIndex._bm25Cache === "object" ? sourceIndex._bm25Cache : null;
-    if (cached && cached.key === cacheKey && cached.index) {
-      bm25Index = cached.index;
-    } else {
+    const cached = _bm25CacheBySource ? _bm25CacheBySource.get(sourceIndex) : null;
+    if (cached && cached.key === cacheKey && cached.index) bm25Index = cached.index;
+    else {
       bm25Index = buildBm25Index(allChunks, config.bm25 || {});
       try {
-        sourceIndex._bm25Cache = { key: cacheKey, index: bm25Index };
+        _bm25CacheBySource?.set(sourceIndex, { key: cacheKey, index: bm25Index });
       } catch {
-        // ignore non-extensible sourceIndex
+        // ignore if WeakMap unavailable / sourceIndex not compatible
       }
     }
   }
