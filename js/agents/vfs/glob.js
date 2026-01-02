@@ -1,4 +1,5 @@
 import { normalizeVfsPath } from "./path.js";
+import { isScanWorkerAvailable, scanOpfsAsync } from "./vfs-scan-async.js";
 
 function escapeRegExp(s) {
   return s.replace(/[\\^$+?.()|[\]{}]/g, "\\$&");
@@ -187,14 +188,19 @@ function normalizeAbortError(err) {
  * @param {boolean} [options.useWorker=true] Use WebWorker to filter matches when available (browser-only).
  * @param {number} [options.workerThresholdFiles=4000] Minimum candidate file count to offload to worker.
  * @param {number} [options.yieldEvery=0] Yield to event loop every N scanned files (helps UI responsiveness).
+ * @param {boolean} [options.useScanWorker=true] Use WebWorker for OPFS directory scanning (browser-only).
+ * @param {string} [options.opfsRootDirName] OPFS root directory name (required for scan worker).
  */
-export function createVfsGlobFn(vfs, { maxScanFiles = 20000, useWorker = true, workerThresholdFiles = 4000, yieldEvery = 0 } = {}) {
+export function createVfsGlobFn(vfs, { maxScanFiles = 20000, useWorker = true, workerThresholdFiles = 4000, yieldEvery = 0, useScanWorker = true, opfsRootDirName } = {}) {
   if (!vfs) return null;
   const hasList = typeof vfs.listFiles === "function";
   const hasWalk = typeof vfs.walkFiles === "function";
   if (!hasList && !hasWalk) return null;
 
-  return async function globFn({ pattern, path, signal, yieldEvery: callYieldEvery } = {}) {
+  // 检测是否可以使用扫描 Worker
+  const canUseScanWorker = useScanWorker !== false && opfsRootDirName && isScanWorkerAvailable();
+
+  return async function globFn({ pattern, path, signal, yieldEvery: callYieldEvery, useScanWorker: callUseScanWorker } = {}) {
     const base = normalizeVfsPath(path || "");
     const maxScan = Math.max(0, Math.floor(maxScanFiles));
     const relDir = staticDirPrefixFromPattern(pattern);
@@ -206,30 +212,57 @@ export function createVfsGlobFn(vfs, { maxScanFiles = 20000, useWorker = true, w
           ? Math.floor(yieldEvery)
           : 0;
 
+    // 是否使用扫描 Worker（可被调用时覆盖）
+    const shouldUseScanWorker = callUseScanWorker !== false && canUseScanWorker;
+
     if (signal?.aborted) throw new Error("glob: aborted");
 
     const candidates = [];
     let scanned = 0;
+    let usedScanWorker = false;
 
     try {
-      if (hasWalk) {
-        const walker = vfs.walkFiles({
-          prefix: scanPrefix,
-          recursive: true,
-          ...(signal ? { signal } : {}),
-        });
-
-        for await (const file of walker) {
-          if (signal?.aborted) throw new Error("glob: aborted");
-          scanned += 1;
-          if (maxScan && scanned > maxScan) break;
-          candidates.push(file);
-          if (yieldN && scanned % yieldN === 0) await delayToEventLoop();
+      // 优先使用 OPFS 扫描 Worker（完全离开主线程）
+      if (shouldUseScanWorker) {
+        try {
+          const workerFiles = await scanOpfsAsync({
+            rootDirName: opfsRootDirName,
+            prefix: scanPrefix,
+            recursive: true,
+            maxFiles: maxScan,
+            signal,
+          });
+          candidates.push(...workerFiles);
+          usedScanWorker = true;
+        } catch (err) {
+          // Worker 失败，回退到主线程扫描
+          const msg = err instanceof Error ? err.message : String(err);
+          if (msg.includes("aborted")) throw err;
+          // 静默回退，不中断流程
         }
-      } else {
-        const files = await vfs.listFiles({ prefix: scanPrefix || base, recursive: true });
-        if (signal?.aborted) throw new Error("glob: aborted");
-        candidates.push(...(maxScan ? files.slice(0, maxScan) : files));
+      }
+
+      // 回退到主线程扫描（walkFiles 或 listFiles）
+      if (!usedScanWorker) {
+        if (hasWalk) {
+          const walker = vfs.walkFiles({
+            prefix: scanPrefix,
+            recursive: true,
+            ...(signal ? { signal } : {}),
+          });
+
+          for await (const file of walker) {
+            if (signal?.aborted) throw new Error("glob: aborted");
+            scanned += 1;
+            if (maxScan && scanned > maxScan) break;
+            candidates.push(file);
+            if (yieldN && scanned % yieldN === 0) await delayToEventLoop();
+          }
+        } else {
+          const files = await vfs.listFiles({ prefix: scanPrefix || base, recursive: true });
+          if (signal?.aborted) throw new Error("glob: aborted");
+          candidates.push(...(maxScan ? files.slice(0, maxScan) : files));
+        }
       }
 
       const threshold =
