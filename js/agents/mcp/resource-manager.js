@@ -1,6 +1,7 @@
 import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
 import { McpClient } from "./mcp-client.js";
 import { FallbackAdapter } from "../shared/archive/archive.js";
+import { safeJsonParse } from "../shared/utils/safe-json.js";
 
 function isStorageLike(value) {
   return (
@@ -14,16 +15,6 @@ function isStorageLike(value) {
 function getDefaultStorage() {
   try {
     return isStorageLike(globalThis.localStorage) ? globalThis.localStorage : null;
-  } catch {
-    return null;
-  }
-}
-
-function safeJsonParse(text) {
-  const s = typeof text === "string" ? text.trim() : "";
-  if (!s) return null;
-  try {
-    return JSON.parse(s);
   } catch {
     return null;
   }

@@ -5,6 +5,8 @@
  * 支持 usage-based 路由：analyst/planner/writer/reviewer/worker/designer/vision (+ reranker/shadow/think/codesearch)
  */
 
+import { safeJsonParse } from "../shared/utils/safe-json.js";
+
 const STORAGE_KEYS = {
   lang: 'pptModelConfigLanguage',
   img: 'pptModelConfigImage',
@@ -35,7 +37,7 @@ function loadPptConfig(type) {
     const key = STORAGE_KEYS[type] || (Object.values(STORAGE_KEYS).includes(type) ? type : null);
     if (!key) return null;
     const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : null;
+    return safeJsonParse(raw, { maxChars: 200_000 });
   } catch {
     return null;
   }

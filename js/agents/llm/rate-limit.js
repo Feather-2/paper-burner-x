@@ -1,3 +1,5 @@
+import { safeJsonParse } from "../shared/utils/safe-json.js";
+
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -49,7 +51,7 @@ export function loadRateLimitConfig({ storageKey = "paperburner_llm_rate_limit_v
     if (typeof localStorage === "undefined" || !localStorage?.getItem) return normalizeRateLimitConfig({});
     const raw = localStorage.getItem(storageKey);
     if (!raw) return normalizeRateLimitConfig({});
-    const parsed = JSON.parse(raw);
+    const parsed = safeJsonParse(raw, { maxChars: 200_000 });
     return normalizeRateLimitConfig(parsed);
   } catch {
     return normalizeRateLimitConfig({});

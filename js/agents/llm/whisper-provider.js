@@ -8,6 +8,8 @@
  * - 前端友好：纯浏览器调用，无需代理
  */
 
+import { safeJsonParse } from "../shared/utils/safe-json.js";
+
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
 }
@@ -303,7 +305,10 @@ export function createWhisperProviderFromConfig({ storage, keyLoader, storageKey
   try {
     const store = storage || (typeof localStorage !== "undefined" ? localStorage : null);
     const raw = store?.getItem?.(storageKey);
-    if (raw) config = JSON.parse(raw);
+    if (raw) {
+      const parsed = safeJsonParse(raw, { maxChars: 200_000 });
+      if (isPlainObject(parsed)) config = parsed;
+    }
   } catch {
     // ignore
   }

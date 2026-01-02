@@ -5,6 +5,8 @@
  * 浏览器端友好，避免静默失败。
  */
 
+import { safeJsonParse } from "./safe-json.js";
+
 const DEFAULT_WARN_THRESHOLD = 0.8; // 80%
 const DEFAULT_CRITICAL_THRESHOLD = 0.95; // 95%
 
@@ -176,7 +178,7 @@ export function cleanupLocalStorage({
     // 尝试解析时间戳（如果值是 JSON 且包含 ts/updatedAt）
     let timestamp = 0;
     try {
-      const parsed = JSON.parse(value || "");
+      const parsed = safeJsonParse(value, { maxChars: 100_000 });
       timestamp = parsed?.ts || parsed?.updatedAt || parsed?.createdAt || 0;
       if (typeof timestamp === "string") timestamp = new Date(timestamp).getTime() || 0;
     } catch {

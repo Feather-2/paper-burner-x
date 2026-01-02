@@ -1,3 +1,5 @@
+import { safeJsonParse } from "../../shared/utils/safe-json.js";
+
 function hasLocalStorage() {
   try {
     return typeof localStorage !== "undefined" && !!localStorage && typeof localStorage.getItem === "function";
@@ -29,7 +31,7 @@ export class PolicyRuleStore {
     }
 
     try {
-      const parsed = JSON.parse(raw);
+      const parsed = safeJsonParse(raw, { maxChars: 500_000 });
       const rules = Array.isArray(parsed?.rules) ? parsed.rules : Array.isArray(parsed) ? parsed : [];
       this._cache = rules.filter((r) => r && typeof r === "object");
       return [...this._cache];
@@ -64,4 +66,3 @@ export class PolicyRuleStore {
 }
 
 export default PolicyRuleStore;
-

@@ -3,6 +3,7 @@ import { McpClient } from "./mcp-client.js";
 import { LocalMcpProvider } from "./local-mcp-provider.js";
 import { McpNexusProvider } from "./mcp-nexus-provider.js";
 import { FallbackAdapter } from "../shared/archive/archive.js";
+import { safeJsonParse } from "../shared/utils/safe-json.js";
 
 const NEXUS_CONFIG_KEY = "mcp_nexus_config";
 const MCP_SERVERS_KEY = "pb_mcp_servers";
@@ -20,16 +21,6 @@ function isStorageLike(value) {
 function getDefaultStorage() {
   try {
     return isStorageLike(globalThis.localStorage) ? globalThis.localStorage : null;
-  } catch {
-    return null;
-  }
-}
-
-function safeJsonParse(text) {
-  const s = typeof text === "string" ? text.trim() : "";
-  if (!s) return null;
-  try {
-    return JSON.parse(s);
   } catch {
     return null;
   }

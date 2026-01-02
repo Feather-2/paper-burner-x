@@ -120,15 +120,7 @@ function idbDelete(db, key) {
   });
 }
 
-function safeJsonParse(text) {
-  const s = typeof text === "string" ? text.trim() : "";
-  if (!s) return null;
-  try {
-    return JSON.parse(s);
-  } catch {
-    return null;
-  }
-}
+import { safeJsonParse } from "../shared/utils/safe-json.js";
 
 async function migrateLocalStorageToIndexedDB(db) {
   if (!db || !hasLocalStorage()) return false;

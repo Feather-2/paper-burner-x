@@ -1,6 +1,7 @@
 import { Archive, FallbackAdapter, MapAdapter } from "../../shared/archive/archive.js";
 import { deepClone } from "../../shared/utils/value-utils.js";
 import { CheckpointType, createCheckpoint, migrateCheckpoint } from "../../shared/archive/checkpoint-schema.js";
+import { safeJsonParse } from "../../shared/utils/safe-json.js";
 import { DesignPhase, designPhaseMachine } from "./states.js";
 import { AgentStatus } from "../../runtime/core/agent-status.js";
 import { BaseAgentLoop, checkCancelled, getEmitFn, resolveToolExecutor } from "../../runtime/core/agent-loop.js";
@@ -48,10 +49,13 @@ function loadDesignConcurrencyConfig() {
   // 优先级: localStorage > 环境变量 > 进程参数 > 默认值
   try {
     const raw = typeof localStorage !== "undefined" ? localStorage.getItem("ppt_designConcurrency") : null;
-    if (raw) return JSON.parse(raw);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.warn(`[design] Failed to parse localStorage "ppt_designConcurrency": ${message}`);
+    if (raw) {
+      const parsed = safeJsonParse(raw, { maxChars: 200_000 });
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+      console.warn('[design] Invalid localStorage "ppt_designConcurrency" JSON; ignoring');
+    }
+  } catch {
+    // ignore
   }
   // 环境变量回退
   const env = typeof process !== "undefined" ? process.env : {};

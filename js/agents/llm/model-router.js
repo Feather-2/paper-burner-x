@@ -1,6 +1,7 @@
 import { assertChatMessages, assertChatResponse, assertModelEntry, assertProvider, assertUsageConfig, normalizeModelTags } from "./provider.js";
 import { ModelUsage, RouterStrategy, isValidModelUsage, normalizeRouterStrategy } from "./constants.js";
 import { TokenBucketRateLimiter } from "./rate-limit.js";
+import { safeJsonParse } from "../shared/utils/safe-json.js";
 
 // 浏览器兼容的 EventEmitter 简易实现
 class EventEmitter {
@@ -214,7 +215,7 @@ export class ModelRouter extends EventEmitter {
     if (this._persistRoundRobin) {
       try {
         const raw = typeof localStorage !== "undefined" ? localStorage.getItem(this._roundRobinStorageKey) : null;
-        const parsed = raw ? JSON.parse(raw) : null;
+        const parsed = safeJsonParse(raw, { maxChars: 200_000 });
         if (parsed && typeof parsed === "object") {
           for (const [usage, idx] of Object.entries(parsed)) {
             const u = toNonEmptyString(usage);

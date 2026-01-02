@@ -7,6 +7,8 @@
  * - 前端友好：纯 fetch 调用（支持超时、常见错误码）
  */
 
+import { safeJsonParse } from "../shared/utils/safe-json.js";
+
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
 }
@@ -372,7 +374,10 @@ export function createImageProviderFromConfig({ storage, keyLoader, storageKey =
   try {
     const store = storage || (typeof localStorage !== "undefined" ? localStorage : null);
     const raw = store?.getItem?.(storageKey);
-    if (raw) config = JSON.parse(raw);
+    if (raw) {
+      const parsed = safeJsonParse(raw, { maxChars: 200_000 });
+      if (isPlainObject(parsed)) config = parsed;
+    }
   } catch {
     // ignore
   }
