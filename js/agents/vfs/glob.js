@@ -221,6 +221,11 @@ export function createVfsGlobFn(vfs, { maxScanFiles = 20000, useWorker = true, w
     let scanned = 0;
     let usedScanWorker = false;
 
+    // 构造回退函数（使用 vfs.listFiles）
+    const fallbackListFiles = hasList
+      ? async (pfx, rec) => vfs.listFiles({ prefix: pfx, recursive: rec })
+      : null;
+
     try {
       // 优先使用 OPFS 扫描 Worker（完全离开主线程）
       if (shouldUseScanWorker) {
@@ -231,9 +236,12 @@ export function createVfsGlobFn(vfs, { maxScanFiles = 20000, useWorker = true, w
             recursive: true,
             maxFiles: maxScan,
             signal,
+            fallbackListFiles,
           });
-          candidates.push(...workerFiles);
-          usedScanWorker = true;
+          if (workerFiles.length > 0 || !hasList) {
+            candidates.push(...workerFiles);
+            usedScanWorker = true;
+          }
         } catch (err) {
           // Worker 失败，回退到主线程扫描
           const msg = err instanceof Error ? err.message : String(err);

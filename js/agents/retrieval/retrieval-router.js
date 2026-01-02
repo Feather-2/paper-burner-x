@@ -18,6 +18,28 @@ const _retrievalResultCache = new LRUCache({ maxSize: 200, ttlMs: 5 * 60 * 1000 
 const _chunkTextCache = new LRUCache({ maxSize: 500, ttlMs: 10 * 60 * 1000 });
 
 /**
+ * Generate cache key for retrieval results
+ * @param {string} sourceId
+ * @param {Array} gaps
+ * @param {object} config
+ * @returns {string|null}
+ */
+function _makeResultCacheKey(sourceId, gaps, config) {
+  if (!sourceId || !Array.isArray(gaps) || gaps.length === 0) return null;
+  // Use gap IDs or queries as key components
+  const gapKeys = gaps.map((g) => {
+    const id = getGapId(g);
+    if (id) return id;
+    const queries = getGapQueries(g);
+    return queries.join("|");
+  }).filter(Boolean);
+  if (gapKeys.length === 0) return null;
+  const topK = config?.topK || 8;
+  const windowSize = config?.windowSize ?? 1;
+  return `${sourceId}|${topK}|${windowSize}|${gapKeys.join(";")}`;
+}
+
+/**
  * Get cache statistics for monitoring/debugging
  * @returns {{bm25: string, results: object, chunks: object}}
  */
@@ -419,6 +441,13 @@ export function retrieve(sourceIndex, gaps, config = {}) {
   const byChunkId = new Map();
   const hitRecords = [];
 
+  // Check result cache before processing gaps
+  const cacheKey = _makeResultCacheKey(sourceId, gaps, config);
+  const cached = cacheKey ? _retrievalResultCache.get(cacheKey) : null;
+  if (cached && Array.isArray(cached)) {
+    return cached;
+  }
+
   for (const gap of gaps) {
     const queries = getGapQueries(gap);
     if (!queries.length) continue;
@@ -586,6 +615,12 @@ export function retrieve(sourceIndex, gaps, config = {}) {
   }
 
   const retrieved = Array.from(byChunkId.values()).sort(sortByCharStart);
+
+  // Cache result for future queries
+  if (cacheKey && retrieved.length > 0) {
+    _retrievalResultCache.set(cacheKey, retrieved);
+  }
+
   return retrieved;
 }
 
@@ -650,6 +685,13 @@ export async function retrieveAsync(sourceIndex, gaps, config = {}) {
 
   const byChunkId = new Map();
   const hitRecords = [];
+
+  // Check result cache before processing gaps
+  const resultCacheKey = _makeResultCacheKey(sourceId, gaps, config);
+  const cachedResult = resultCacheKey ? _retrievalResultCache.get(resultCacheKey) : null;
+  if (cachedResult && Array.isArray(cachedResult)) {
+    return cachedResult;
+  }
 
   const grepAsyncThreshold =
     typeof config.grepAsyncThreshold === "number" && Number.isFinite(config.grepAsyncThreshold)
@@ -833,5 +875,12 @@ export async function retrieveAsync(sourceIndex, gaps, config = {}) {
     }
   }
 
-  return Array.from(byChunkId.values()).sort(sortByCharStart);
+  const asyncRetrieved = Array.from(byChunkId.values()).sort(sortByCharStart);
+
+  // Cache result for future queries
+  if (resultCacheKey && asyncRetrieved.length > 0) {
+    _retrievalResultCache.set(resultCacheKey, asyncRetrieved);
+  }
+
+  return asyncRetrieved;
 }

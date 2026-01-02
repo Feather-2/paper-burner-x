@@ -2,6 +2,8 @@ import { assertChatMessages, assertChatResponse, assertModelEntry, assertProvide
 import { ModelUsage, RouterStrategy, isValidModelUsage, normalizeRouterStrategy } from "./constants.js";
 import { TokenBucketRateLimiter } from "./rate-limit.js";
 import { safeJsonParse } from "../shared/utils/safe-json.js";
+import { CircuitBreaker, CircuitState } from "../shared/utils/circuit-breaker.js";
+import { getGlobalTokenTracker } from "../runtime/telemetry/token-tracker.js";
 
 // 浏览器兼容的 EventEmitter 简易实现
 class EventEmitter {
@@ -226,6 +228,7 @@ export class ModelRouter extends EventEmitter {
 
     this._health = new Map(); // modelId -> {unhealthyUntilMs, failures, lastError}
     this._rateLimiters = new Map(); // modelId -> TokenBucketRateLimiter
+    this._circuitBreakers = new Map(); // modelId -> CircuitBreaker (P3.3)
 
     if (this._persistRoundRobin) {
       try {
@@ -378,6 +381,60 @@ export class ModelRouter extends EventEmitter {
     return this._rateLimiters.get(id) || null;
   }
 
+  /**
+   * P3.3: 获取或创建模型的熔断器
+   * @param {string} modelId
+   * @returns {CircuitBreaker}
+   */
+  _getCircuitBreaker(modelId) {
+    const id = toNonEmptyString(modelId);
+    if (!id) return null;
+
+    if (!this._circuitBreakers.has(id)) {
+      this._circuitBreakers.set(id, new CircuitBreaker({
+        name: `model:${id}`,
+        failureThreshold: 5,      // 连续 5 次失败触发熔断
+        successThreshold: 2,      // 半开状态下 2 次成功恢复
+        openDurationMs: 30_000,   // 熔断 30 秒
+        halfOpenMaxCalls: 3,      // 半开状态允许 3 个探测请求
+        isFailure: (err) => {
+          // 排除取消和超时，这些不应触发熔断
+          if (err?.name === "AbortError") return false;
+          if (err?.code === "TIMEOUT") return false;
+          // 认证错误也不应触发熔断（已由 disableModel 处理）
+          if (isPermanentAuthError(err)) return false;
+          return true;
+        },
+        onStateChange: (event) => {
+          this._logger.info(`[ModelRouter] Circuit breaker ${event.name}: ${event.from} → ${event.to} (${event.reason})`);
+          this.emit("circuit.stateChange", event);
+        },
+        time: this._time,
+      }));
+    }
+    return this._circuitBreakers.get(id);
+  }
+
+  /**
+   * 获取熔断器状态
+   */
+  getCircuitBreakerState(modelId) {
+    const id = toNonEmptyString(modelId);
+    if (!id) return null;
+    const breaker = this._circuitBreakers.get(id);
+    return breaker ? breaker.getStats() : null;
+  }
+
+  /**
+   * 重置熔断器
+   */
+  resetCircuitBreaker(modelId) {
+    const id = toNonEmptyString(modelId);
+    if (!id) return;
+    const breaker = this._circuitBreakers.get(id);
+    if (breaker) breaker.reset();
+  }
+
   _requiredTags({ usage, images } = {}) {
     const u = toNonEmptyString(usage) || ModelUsage.WORKER;
     const required = new Set();
@@ -509,6 +566,15 @@ export class ModelRouter extends EventEmitter {
           continue;
         }
 
+        // P3.3: 检查熔断器状态
+        const circuitBreaker = this._getCircuitBreaker(modelId);
+        if (circuitBreaker && !circuitBreaker.canExecute()) {
+          const cbState = circuitBreaker.state;
+          this._logger.debug(`[ModelRouter] skip ${modelId}: circuit breaker ${cbState}`);
+          cooldownCount++;
+          continue;
+        }
+
         const provider = this._getProvider(entry.provider);
         if (!provider) throw new Error(`Missing provider: ${entry.provider} for model ${modelId}`);
 
@@ -517,15 +583,43 @@ export class ModelRouter extends EventEmitter {
         try {
           triedCount++;
           this._logger.debug(`[ModelRouter] try ${modelId} via ${entry.provider}`);
+
+          // P3.3: 使用熔断器包装调用
           const doChat = () => provider.chat({ model: entry.id, messages, images });
+          const doChatWithCircuitBreaker = circuitBreaker
+            ? () => circuitBreaker.execute(doChat)
+            : doChat;
+
+          // P4.3: 计时
+          const callStartMs = this._time.now();
+
           const resp = limiter
-            ? await limiter.schedule(doChat, { label: `${u}:${modelId}` })
-            : await doChat();
+            ? await limiter.schedule(doChatWithCircuitBreaker, { label: `${u}:${modelId}` })
+            : await doChatWithCircuitBreaker();
           assertChatResponse(resp);
+
+          const callEndMs = this._time.now();
+          const latencyMs = callEndMs - callStartMs;
+
+          // P4.3: 记录 token 使用
+          try {
+            getGlobalTokenTracker().record({
+              model: entry.id,
+              provider: entry.provider,
+              usage: u,
+              promptTokens: resp.usage?.promptTokens || resp.usage?.prompt_tokens || 0,
+              completionTokens: resp.usage?.completionTokens || resp.usage?.completion_tokens || 0,
+              latencyMs,
+              success: true,
+            });
+          } catch {
+            // 忽略 tracker 错误
+          }
+
           selectedModelId = entry.id;
           this.markHealthy(modelId);
-          this._logger.debug(`[ModelRouter] ok ${modelId} via ${entry.provider}`);
-          return { ...resp, model: entry.id, provider: entry.provider };
+          this._logger.debug(`[ModelRouter] ok ${modelId} via ${entry.provider} (${latencyMs}ms)`);
+          return { ...resp, model: entry.id, provider: entry.provider, latencyMs };
         } catch (err) {
           lastError = err;
           const retryAfterMs =

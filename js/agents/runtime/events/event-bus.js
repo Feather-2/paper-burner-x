@@ -1,5 +1,6 @@
 import { matchEventPattern } from "./events.js";
 import { EventBusItemKind } from "../core/constants.js";
+import { nextTick as lamportNextTick, sync as lamportSync } from "./lamport-clock.js";
 
 const SCHEMA_VERSION = "0.1";
 
@@ -47,10 +48,14 @@ export function createEventRecord({
   meta,
   level,
   durationMs,
+  _clock,
 } = {}) {
   if (!isValidEventName(name)) {
     throw new Error(`Invalid event name: ${String(name)}`);
   }
+
+  // 附加逻辑时钟
+  const clock = _clock || lamportNextTick();
 
   const record = {
     schemaVersion: SCHEMA_VERSION,
@@ -59,6 +64,8 @@ export function createEventRecord({
     ts,
     name,
     actor,
+    _clock: clock,
+    seq: clock.seq,
   };
 
   if (level) record.level = level;
@@ -277,6 +284,7 @@ export class EventBus {
     const batchWindowMs = options.batchWindowMs ?? 16;
     const coalescePattern = options.coalescePattern ?? /\.progress$/;
     const deferNonCoalesced = options.deferNonCoalesced ?? true;
+    const maxQueueSize = options.maxQueueSize ?? 1000;
 
     if (typeof batchWindowMs !== "number" || !Number.isFinite(batchWindowMs) || batchWindowMs < 0) {
       throw new TypeError("EventBus.enableBackpressure(options): batchWindowMs must be a non-negative finite number");
@@ -286,6 +294,9 @@ export class EventBus {
     }
     if (typeof deferNonCoalesced !== "boolean") {
       throw new TypeError("EventBus.enableBackpressure(options): deferNonCoalesced must be a boolean");
+    }
+    if (typeof maxQueueSize !== "number" || !Number.isFinite(maxQueueSize) || maxQueueSize < 1) {
+      throw new TypeError("EventBus.enableBackpressure(options): maxQueueSize must be a positive finite number");
     }
 
     if (this._backpressure?.enabled) {
@@ -298,6 +309,8 @@ export class EventBus {
       batchWindowMs,
       coalescePattern,
       deferNonCoalesced,
+      maxQueueSize: Math.floor(maxQueueSize),
+      overflowCount: 0,
       scheduled: false,
       timerId: null,
       rafId: null,
@@ -504,6 +517,26 @@ export class EventBus {
     if (!bp?.enabled) {
       this._dispatch(evt);
       return evt;
+    }
+
+    // 背压队列硬上限：超出时丢弃最旧事件
+    if (bp.queue.length >= bp.maxQueueSize) {
+      const dropped = bp.queue.shift();
+      bp.overflowCount++;
+      // 每 100 次溢出警告一次，避免日志洪泛
+      if (bp.overflowCount === 1 || bp.overflowCount % 100 === 0) {
+        console.warn(`[EventBus] queue.overflow: dropped ${bp.overflowCount} events (maxQueueSize=${bp.maxQueueSize})`);
+        // 发出溢出警告事件（直接 dispatch，不入队）
+        this._dispatch(createEventRecord({
+          runId: this.runId,
+          eventId: createEventId(this.runId, ++this._seq),
+          ts: new Date().toISOString(),
+          name: "eventbus.queue.overflow",
+          actor: "system",
+          level: "warn",
+          payload: { droppedCount: bp.overflowCount, maxQueueSize: bp.maxQueueSize },
+        }));
+      }
     }
 
     const shouldCoalesce = testRegExp(bp.coalescePattern, name);

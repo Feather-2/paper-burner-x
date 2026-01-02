@@ -5,9 +5,11 @@
  * 允许模型通过 Task 工具动态启动特定类型的子代理。
  *
  * Phase 2: 添加输出检疫机制，防止脏数据通过 L2 记忆传染系统。
+ * P3.4: 添加 Prompt Injection 扫描，检测潜在注入攻击。
  */
 
 import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
+import { InjectionScanner, ScanResultCode } from "./injection-scanner.js";
 
 /**
  * Default output schema for subagent results.
@@ -119,12 +121,44 @@ function validateOutput(output, schema = DEFAULT_OUTPUT_SCHEMA) {
   };
 }
 
+// P3.4: 全局注入扫描器
+const _injectionScanner = new InjectionScanner({
+  onDetection: (event) => {
+    console.warn("[SubagentRegistry] Injection detected:", {
+      subagent: event.context?.subagentType,
+      detections: event.detections,
+      timestamp: event.timestamp,
+    });
+  },
+});
+
 /**
  * Quarantine wrapper for subagent output.
  * Validates and sanitizes output before passing to parent agent.
+ * P3.4: Now includes injection scanning.
  */
 function quarantineOutput(output, schema, subagentType) {
   const result = validateOutput(output, schema);
+
+  // P3.4: 扫描文本字段中的注入攻击
+  const injectionDetections = [];
+  const textFields = ["summary", "report", "error", "content", "text", "message"];
+
+  for (const field of textFields) {
+    const value = result.sanitized[field];
+    if (typeof value === "string" && value.length > 0) {
+      const scanResult = _injectionScanner.scan(value, { subagentType, field });
+      if (!scanResult.clean) {
+        injectionDetections.push({
+          field,
+          code: scanResult.code,
+          detections: scanResult.detections,
+        });
+        // 清理检测到的危险内容
+        result.sanitized[field] = _injectionScanner.sanitize(value);
+      }
+    }
+  }
 
   if (!result.valid) {
     console.warn(
@@ -133,12 +167,20 @@ function quarantineOutput(output, schema, subagentType) {
     );
   }
 
+  if (injectionDetections.length > 0) {
+    console.warn(
+      `[SubagentRegistry] Injection patterns detected in ${subagentType} output:`,
+      injectionDetections
+    );
+  }
+
   // Always return sanitized output, even with warnings
   return {
     ...result.sanitized,
     _quarantine: {
-      valid: result.valid,
+      valid: result.valid && injectionDetections.length === 0,
       warnings: result.errors,
+      injectionDetections: injectionDetections.length > 0 ? injectionDetections : undefined,
       subagentType,
       timestamp: Date.now(),
     },

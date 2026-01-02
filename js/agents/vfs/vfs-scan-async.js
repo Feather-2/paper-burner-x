@@ -139,6 +139,7 @@ export function isScanWorkerAvailable() {
  * @param {AbortSignal} [options.signal] - 取消信号
  * @param {Function} [options.onProgress] - 进度回调
  * @param {boolean} [options.useWorker=true] - 是否使用 Worker
+ * @param {Function} [options.fallbackListFiles] - Worker 不可用时的回退函数 (prefix, recursive) => Promise<string[]>
  * @returns {Promise<string[]>} 文件路径列表
  */
 export async function scanOpfsAsync({
@@ -149,6 +150,7 @@ export async function scanOpfsAsync({
   signal,
   onProgress,
   useWorker = true,
+  fallbackListFiles,
 } = {}) {
   if (signal?.aborted) {
     throw new Error("scan: aborted");
@@ -157,8 +159,22 @@ export async function scanOpfsAsync({
   const worker = useWorker !== false ? getScanWorker() : null;
 
   if (!worker) {
-    // 回退到同步扫描（需要 OpfsVfs 实例）
-    throw new Error("scan worker not available, use OpfsVfs.listFiles directly");
+    // 回退到同步扫描
+    if (typeof fallbackListFiles === "function") {
+      try {
+        const files = await fallbackListFiles(prefix, recursive);
+        if (signal?.aborted) throw new Error("scan: aborted");
+        const result = maxFiles > 0 ? files.slice(0, maxFiles) : files;
+        return Array.isArray(result) ? result : [];
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("aborted")) throw err;
+        // 回退失败，返回空数组而非抛错
+        return [];
+      }
+    }
+    // 无回退函数，返回空数组（静默降级）
+    return [];
   }
 
   const id = `scan_${Date.now().toString(36)}_${++_scanSeq}`;

@@ -15,6 +15,7 @@ import { extractSmartContent } from "./smart-content-extractor.js";
 import { createSafeRegex } from "../shared/utils/safe-regex.js";
 import { isPlainObject, toNonEmptyString, safeInt as _safeInt } from "../shared/utils/value-utils.js";
 import { makeSecureTimestampedId } from "../shared/utils/secure-id.js";
+import { filterUrlParams, auditUrl } from "./url-whitelist.js";
 
 // Wrapper to provide default fallback value (value-utils safeInt returns null for invalid)
 function safeInt(n, fallback = 0) {
@@ -104,10 +105,25 @@ function redactUrlForLog(rawUrl) {
   }
 }
 
-function inspectUrlForProxy(rawUrl) {
+function inspectUrlForProxy(rawUrl, { useWhitelist = false } = {}) {
   const url = toNonEmptyString(rawUrl);
-  if (!url) return { safeUrl: "", hadCredentials: false, hadHash: false, sensitiveQueryKeys: [] };
+  if (!url) return { safeUrl: "", hadCredentials: false, hadHash: false, sensitiveQueryKeys: [], strippedParams: [] };
 
+  // P3.2: 白名单模式（更严格）
+  if (useWhitelist) {
+    const { url: filteredUrl, strippedParams } = filterUrlParams(url, { logStripped: false });
+    const audit = auditUrl(url);
+    return {
+      safeUrl: filteredUrl,
+      hadCredentials: audit.issues.includes("URL contains credentials"),
+      hadHash: audit.issues.includes("URL contains hash fragment"),
+      sensitiveQueryKeys: [],
+      strippedParams,
+      audit,
+    };
+  }
+
+  // 黑名单模式（原有逻辑，用于兼容）
   try {
     const u = new URL(url);
 
@@ -126,9 +142,9 @@ function inspectUrlForProxy(rawUrl) {
     }
 
     const unique = Array.from(new Set(sensitiveQueryKeys));
-    return { safeUrl: u.toString(), hadCredentials, hadHash, sensitiveQueryKeys: unique };
+    return { safeUrl: u.toString(), hadCredentials, hadHash, sensitiveQueryKeys: unique, strippedParams: [] };
   } catch {
-    return { safeUrl: url, hadCredentials: false, hadHash: false, sensitiveQueryKeys: [] };
+    return { safeUrl: url, hadCredentials: false, hadHash: false, sensitiveQueryKeys: [], strippedParams: [] };
   }
 }
 
@@ -620,20 +636,11 @@ async function extractDuckDuckGoNextUrl(html, baseUrl) {
       const next = resolve(href);
       if (next) return next;
     } catch {
-      // ignore and fall back to regex
+      // DOMParser failed, return null (no regex fallback needed in modern environments)
     }
   }
 
-  // Regex fallback for Next/More Results links.
-  const moreRe = /<a[^>]+class=["'][^"']*(result--more__btn|result--more__a|result__pagination--next)[^"']*["'][^>]*href=["']([^"']+)["']/i;
-  const moreRe2 = /<a[^>]+href=["']([^"']+)["'][^>]*class=["'][^"']*(result--more__btn|result--more__a|result__pagination--next)[^"']*["']/i;
-  const relNextRe = /<a[^>]+rel=["']next["'][^>]*href=["']([^"']+)["']/i;
-  const relNextRe2 = /<a[^>]+href=["']([^"']+)["'][^>]*rel=["']next["']/i;
-
-  const match = s.match(moreRe) || s.match(moreRe2) || s.match(relNextRe) || s.match(relNextRe2);
-  const href = match?.[2] || match?.[1] || "";
-  const next = resolve(href);
-  return next || null;
+  return null;
 }
 
 /**
@@ -694,6 +701,7 @@ export class LocalMcpProvider extends McpProvider {
     proxyMaxCooldownMs = 15 * 60_000,
     allowPrivateNetwork = false,
     allowSensitiveUrlProxying = false,
+    useUrlWhitelist = true, // P3.2: 默认启用白名单模式
     defaultTimeoutMs = 15000,
     searchTimeoutMs = 20_000, // 搜索可能分页/多次请求，但避免长时间阻塞
     maxResults = 10,
@@ -713,6 +721,7 @@ export class LocalMcpProvider extends McpProvider {
     this.maxResults = safeInt(maxResults, 10);
     this.maxSearchPages = Math.max(1, Math.min(5, safeInt(maxSearchPages, 3)));
     this._memoryStore = memoryStore;  // Memory 2.0
+    this.useUrlWhitelist = useUrlWhitelist === true; // P3.2
 
     if (fetchImpl !== undefined && typeof fetchImpl !== "function") throw new Error("fetchImpl must be a function");
     this._fetch = typeof fetchImpl === "function" ? fetchImpl : globalThis.fetch;
@@ -906,7 +915,13 @@ export class LocalMcpProvider extends McpProvider {
     const candidates = this._filterCorsProxyCooldown(this._buildCorsProxyCandidates({ tryDirect }));
     const errors = [];
     const redactedUrl = redactUrlForLog(url);
-    const proxyUrl = inspectUrlForProxy(url);
+    // P3.2: 使用白名单模式或黑名单模式
+    const proxyUrl = inspectUrlForProxy(url, { useWhitelist: this.useUrlWhitelist });
+
+    // P3.2: 如果启用白名单且有参数被剥离，记录审计日志
+    if (this.useUrlWhitelist && proxyUrl.strippedParams?.length > 0) {
+      console.warn(`[LocalMcpProvider] URL params stripped by whitelist: ${proxyUrl.strippedParams.join(", ")}`);
+    }
 
     for (const proxy of candidates) {
       if (proxy && !this.allowSensitiveUrlProxying && proxyUrl.sensitiveQueryKeys.length) {

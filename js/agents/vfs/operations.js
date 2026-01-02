@@ -471,4 +471,246 @@ export async function multiEditTextFileWithPolicy({
   );
 }
 
-export default { writeTextFileWithPolicy, multiEditTextFileWithPolicy };
+// ─────────────────────────────────────────────────────────────────────────────
+// P0.3: 原子化文件写入
+//
+// 使用 write-to-tmp-then-rename 模式，确保写入中断不会损坏现有文件。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 生成临时文件名
+ */
+function generateTempFileName(path) {
+  const ts = Date.now().toString(36);
+  const rand = Math.random().toString(36).slice(2, 8);
+  return `${path}.tmp_${ts}_${rand}`;
+}
+
+/**
+ * 原子化写入文本文件
+ *
+ * 策略：
+ * 1. 写入临时文件 (path.tmp_xxx)
+ * 2. 验证临时文件内容
+ * 3. 重命名临时文件覆盖目标文件
+ * 4. 如果任何步骤失败，清理临时文件
+ *
+ * @param {object} vfs - VFS 实例
+ * @param {string} path - 目标文件路径
+ * @param {string} content - 文件内容
+ * @param {object} [options]
+ * @param {boolean} [options.verify=true] - 是否验证写入内容
+ * @param {AbortSignal} [options.signal] - 取消信号
+ * @returns {Promise<{ok: boolean, path: string, tempPath?: string, error?: string}>}
+ */
+async function atomicWriteText(vfs, path, content, { verify = true, signal } = {}) {
+  const normalizedPath = normalizeVfsPath(path);
+  const tempPath = generateTempFileName(normalizedPath);
+
+  // 检查取消
+  const checkCancelled = () => {
+    if (signal?.aborted) {
+      throw new Error(typeof signal.reason === "string" ? signal.reason : "aborted");
+    }
+  };
+
+  return withVfsPathLock(
+    vfs,
+    normalizedPath,
+    async () => {
+      checkCancelled();
+
+      let tempWritten = false;
+
+      try {
+        // Step 1: 写入临时文件
+        await vfs.writeText(tempPath, content);
+        tempWritten = true;
+        checkCancelled();
+
+        // Step 2: 验证写入内容
+        if (verify) {
+          const written = await safeReadText(vfs, tempPath);
+          if (written !== content) {
+            throw new Error("atomicWrite: verification failed - content mismatch");
+          }
+        }
+        checkCancelled();
+
+        // Step 3: 重命名临时文件
+        // 尝试使用 rename（如果 VFS 支持）
+        if (typeof vfs.rename === "function") {
+          await vfs.rename(tempPath, normalizedPath);
+        } else {
+          // 降级：删除旧文件 + 写入新内容（非原子但尽量安全）
+          try {
+            const exists = typeof vfs.exists === "function" ? await vfs.exists(normalizedPath) : true;
+            if (exists && typeof vfs.delete === "function") {
+              await vfs.delete(normalizedPath);
+            }
+          } catch {
+            // 忽略删除错误
+          }
+          await vfs.writeText(normalizedPath, content);
+          // 清理临时文件
+          try {
+            if (typeof vfs.delete === "function") {
+              await vfs.delete(tempPath);
+            }
+          } catch {
+            // 忽略清理错误
+          }
+        }
+
+        return { ok: true, path: normalizedPath };
+      } catch (err) {
+        // 清理临时文件
+        if (tempWritten) {
+          try {
+            if (typeof vfs.delete === "function") {
+              await vfs.delete(tempPath);
+            }
+          } catch {
+            // 忽略清理错误
+          }
+        }
+
+        return {
+          ok: false,
+          path: normalizedPath,
+          tempPath,
+          error: String(err?.message || err),
+        };
+      }
+    },
+    { signal }
+  );
+}
+
+/**
+ * 原子化写入二进制文件
+ *
+ * @param {object} vfs - VFS 实例
+ * @param {string} path - 目标文件路径
+ * @param {Uint8Array|ArrayBuffer} data - 文件数据
+ * @param {object} [options]
+ * @param {boolean} [options.verify=true] - 是否验证写入内容
+ * @param {AbortSignal} [options.signal] - 取消信号
+ * @returns {Promise<{ok: boolean, path: string, tempPath?: string, error?: string}>}
+ */
+async function atomicWriteFile(vfs, path, data, { verify = true, signal } = {}) {
+  const normalizedPath = normalizeVfsPath(path);
+  const tempPath = generateTempFileName(normalizedPath);
+
+  const bytes = data instanceof Uint8Array
+    ? data
+    : data instanceof ArrayBuffer
+      ? new Uint8Array(data)
+      : new Uint8Array(0);
+
+  const checkCancelled = () => {
+    if (signal?.aborted) {
+      throw new Error(typeof signal.reason === "string" ? signal.reason : "aborted");
+    }
+  };
+
+  return withVfsPathLock(
+    vfs,
+    normalizedPath,
+    async () => {
+      checkCancelled();
+
+      let tempWritten = false;
+
+      try {
+        // Step 1: 写入临时文件
+        await vfs.writeFile(tempPath, bytes);
+        tempWritten = true;
+        checkCancelled();
+
+        // Step 2: 验证写入内容
+        if (verify) {
+          const written = await vfs.readFile(tempPath);
+          if (written.length !== bytes.length) {
+            throw new Error("atomicWrite: verification failed - size mismatch");
+          }
+          // 快速校验前后部分
+          const checkSize = Math.min(1024, bytes.length);
+          for (let i = 0; i < checkSize; i++) {
+            if (written[i] !== bytes[i]) {
+              throw new Error("atomicWrite: verification failed - content mismatch at start");
+            }
+          }
+          if (bytes.length > checkSize) {
+            for (let i = bytes.length - checkSize; i < bytes.length; i++) {
+              if (written[i] !== bytes[i]) {
+                throw new Error("atomicWrite: verification failed - content mismatch at end");
+              }
+            }
+          }
+        }
+        checkCancelled();
+
+        // Step 3: 重命名临时文件
+        if (typeof vfs.rename === "function") {
+          await vfs.rename(tempPath, normalizedPath);
+        } else {
+          try {
+            const exists = typeof vfs.exists === "function" ? await vfs.exists(normalizedPath) : true;
+            if (exists && typeof vfs.delete === "function") {
+              await vfs.delete(normalizedPath);
+            }
+          } catch {
+            // 忽略删除错误
+          }
+          await vfs.writeFile(normalizedPath, bytes);
+          try {
+            if (typeof vfs.delete === "function") {
+              await vfs.delete(tempPath);
+            }
+          } catch {
+            // 忽略清理错误
+          }
+        }
+
+        return { ok: true, path: normalizedPath };
+      } catch (err) {
+        if (tempWritten) {
+          try {
+            if (typeof vfs.delete === "function") {
+              await vfs.delete(tempPath);
+            }
+          } catch {
+            // 忽略清理错误
+          }
+        }
+
+        return {
+          ok: false,
+          path: normalizedPath,
+          tempPath,
+          error: String(err?.message || err),
+        };
+      }
+    },
+    { signal }
+  );
+}
+
+/**
+ * 便捷函数：原子化写入（自动检测类型）
+ */
+async function atomicWrite(vfs, path, data, options = {}) {
+  if (typeof data === "string") {
+    return atomicWriteText(vfs, path, data, options);
+  }
+  return atomicWriteFile(vfs, path, data, options);
+}
+
+export {
+  atomicWrite,
+  atomicWriteText,
+  atomicWriteFile,
+};
+
+export default { writeTextFileWithPolicy, multiEditTextFileWithPolicy, atomicWrite, atomicWriteText, atomicWriteFile };

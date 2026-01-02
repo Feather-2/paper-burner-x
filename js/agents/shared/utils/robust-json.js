@@ -1,25 +1,47 @@
 /**
  * 健壮的 JSON 解析工具
- * 处理 LLM 返回的常见 JSON 格式问题
+ *
+ * 安全策略（2026-01 更新）：
+ * - 默认启用严格模式：不做正则自动修复，避免注入风险
+ * - 仅保留安全的预处理：移除 BOM、控制字符
+ * - 失败时返回结构化错误，触发模型自我修正
  */
 
 // Safety bound: avoid blocking the event loop on huge payloads.
 const DEFAULT_MAX_INPUT_CHARS = 1_000_000;
 
 /**
+ * 安全的预处理：仅移除 BOM 和控制字符
+ * 不做任何可能改变语义的修复
+ */
+function safePreprocess(text) {
+  if (!text || typeof text !== "string") return text;
+
+  let cleaned = text;
+
+  // 1. 移除 BOM
+  cleaned = cleaned.replace(/^\uFEFF/, "");
+
+  // 2. 移除控制字符（除了常见的空白字符：\n, \r, \t）
+  cleaned = cleaned.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+
+  return cleaned;
+}
+
+/**
  * 从文本中提取 JSON 块
  * 支持 markdown 代码块、裸 JSON、带前后缀文本
  */
 function extractJsonBlock(text) {
-  if (!text || typeof text !== 'string') return null;
+  if (!text || typeof text !== "string") return null;
 
   // 1. 尝试 markdown 代码块 ```json ... ``` 或 ``` ... ```
   const mdMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
   if (mdMatch) return mdMatch[1].trim();
 
   // 2. 尝试找到 JSON 对象或数组的边界
-  const firstBrace = text.indexOf('{');
-  const firstBracket = text.indexOf('[');
+  const firstBrace = text.indexOf("{");
+  const firstBracket = text.indexOf("[");
 
   let start = -1;
   let isObject = false;
@@ -35,8 +57,8 @@ function extractJsonBlock(text) {
   if (start < 0) return null;
 
   // 找到匹配的闭合括号
-  const openChar = isObject ? '{' : '[';
-  const closeChar = isObject ? '}' : ']';
+  const openChar = isObject ? "{" : "[";
+  const closeChar = isObject ? "}" : "]";
   let depth = 0;
   let inString = false;
   let escapeNext = false;
@@ -49,7 +71,7 @@ function extractJsonBlock(text) {
       continue;
     }
 
-    if (ch === '\\') {
+    if (ch === "\\") {
       escapeNext = true;
       continue;
     }
@@ -70,154 +92,99 @@ function extractJsonBlock(text) {
     }
   }
 
-  // 没找到完整闭合，返回从 start 开始的部分（可能需要修复）
-  return text.slice(start);
+  // 没找到完整闭合，返回 null（严格模式不尝试修复）
+  return null;
 }
 
 /**
- * 修复常见的 JSON 格式问题
+ * @deprecated 危险的正则修复，已废弃
+ * 保留此函数签名以兼容旧代码，但不再执行修复
  */
-function fixCommonJsonIssues(jsonStr) {
-  if (!jsonStr || typeof jsonStr !== 'string') return jsonStr;
+function fixCommonJsonIssues(jsonStr, options = {}) {
+  if (!jsonStr || typeof jsonStr !== "string") return jsonStr;
 
-  let fixed = jsonStr;
-
-  // 1. 移除 BOM
-  fixed = fixed.replace(/^\uFEFF/, '');
-
-  // 2. 移除控制字符（除了常见的空白字符）
-  fixed = fixed.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
-
-  // 3. 修复字符串值中的实际换行符（JSON 规范不允许）
-  // 在双引号字符串内部，将实际换行替换为 \n
-  fixed = fixed.replace(/"([^"\\]|\\.)*"/g, (match) => {
-    return match.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t');
-  });
-
-  // 4. 修复单引号 -> 双引号（在键名位置）
-  fixed = fixed.replace(/([{,]\s*)'([^']+)'(\s*:)/g, '$1"$2"$3');
-
-  // 5. 移除尾部逗号（对象和数组）
-  fixed = fixed.replace(/,(\s*[}\]])/g, '$1');
-
-  // 5. 修复未闭合的字符串（行尾缺少引号）
-  // 这个比较危险，只在明显情况下修复
-  const lines = fixed.split('\n');
-  const fixedLines = lines.map(line => {
-    // 如果行以 "key": "value 结尾（缺少闭合引号和逗号）
-    const unclosedMatch = line.match(/^(\s*"[^"]+"\s*:\s*")([^"]*[^",\s])$/);
-    if (unclosedMatch) {
-      return unclosedMatch[1] + unclosedMatch[2] + '"';
-    }
-    return line;
-  });
-  fixed = fixedLines.join('\n');
-
-  const countUnescapedQuotes = (s) => {
-    let count = 0;
-    let escapeNext = false;
-    for (let i = 0; i < s.length; i++) {
-      const ch = s[i];
-      if (escapeNext) {
-        escapeNext = false;
-        continue;
-      }
-      if (ch === '\\\\') {
-        escapeNext = true;
-        continue;
-      }
-      if (ch === '"') count++;
-    }
-    return count;
-  };
-
-  // 6. 修复可能被截断的 JSON（尝试闭合括号）
-  // 先尝试闭合未完成的字符串
-  const quoteCount = countUnescapedQuotes(fixed);
-  if (quoteCount % 2 !== 0) {
-    // 奇数个引号，尝试闭合
-    fixed = fixed.replace(/,?\s*$/, '') + '"';
+  // 严格模式（默认）：仅做安全预处理
+  if (options.strict !== false) {
+    return safePreprocess(jsonStr);
   }
 
-  const openBraces = (fixed.match(/{/g) || []).length;
-  const closeBraces = (fixed.match(/}/g) || []).length;
-  const openBrackets = (fixed.match(/\[/g) || []).length;
-  const closeBrackets = (fixed.match(/]/g) || []).length;
+  // 非严格模式（已废弃，仅用于迁移期）
+  console.warn("[RobustJSON] Non-strict mode is deprecated and may introduce injection vulnerabilities");
 
-  // 移除末尾的不完整内容（逗号、冒号等）
-  fixed = fixed.replace(/[,:\s]+$/, '');
+  let fixed = safePreprocess(jsonStr);
 
-  const needsFix = (openBrackets > closeBrackets) || (openBraces > closeBraces);
-
-  // 添加缺少的闭合括号
-  for (let i = 0; i < openBrackets - closeBrackets; i++) {
-    fixed += ']';
-  }
-  for (let i = 0; i < openBraces - closeBraces; i++) {
-    fixed += '}';
-  }
-
-  if (needsFix) {
-    // console.warn("[RobustJSON] JSON was truncated and auto-fixed. Content might be incomplete.");
-  }
+  // 仅保留最安全的修复：移除尾部逗号
+  fixed = fixed.replace(/,(\s*[}\]])/g, "$1");
 
   return fixed;
 }
 
 /**
- * 尝试多种策略解析 JSON
+ * 解析结果类型
  */
-function tryParseJson(text) {
-  if (!text || typeof text !== 'string') return null;
-  if (text.length > DEFAULT_MAX_INPUT_CHARS) return null;
+export const ParseResultCode = Object.freeze({
+  OK: "OK",
+  EMPTY_INPUT: "EMPTY_INPUT",
+  INPUT_TOO_LARGE: "INPUT_TOO_LARGE",
+  INVALID_JSON: "INVALID_JSON",
+  NO_JSON_FOUND: "NO_JSON_FOUND",
+});
 
-  const trimmed = text.trim();
+/**
+ * 尝试解析 JSON，返回结构化结果
+ * @param {string} text
+ * @param {object} options
+ * @returns {{ ok: boolean, code: string, data?: any, error?: string, rawInput?: string }}
+ */
+export function parseJsonStrict(text, options = {}) {
+  const maxChars = options.maxChars ?? DEFAULT_MAX_INPUT_CHARS;
+
+  if (!text || typeof text !== "string") {
+    return { ok: false, code: ParseResultCode.EMPTY_INPUT, error: "Input is empty or not a string" };
+  }
+
+  if (text.length > maxChars) {
+    return { ok: false, code: ParseResultCode.INPUT_TOO_LARGE, error: `Input exceeds ${maxChars} characters` };
+  }
+
+  const preprocessed = safePreprocess(text.trim());
 
   // 策略 1: 直接解析
   try {
-    return JSON.parse(trimmed);
+    const data = JSON.parse(preprocessed);
+    return { ok: true, code: ParseResultCode.OK, data };
   } catch {
     // continue
   }
 
   // 策略 2: 提取 JSON 块后解析
-  const extracted = extractJsonBlock(trimmed);
+  const extracted = extractJsonBlock(preprocessed);
   if (extracted) {
     try {
-      return JSON.parse(extracted);
-    } catch {
-      // continue
-    }
-
-    // 策略 3: 修复后解析
-    const fixed = fixCommonJsonIssues(extracted);
-    try {
-      return JSON.parse(fixed);
-    } catch {
-      // continue
+      const data = JSON.parse(extracted);
+      return { ok: true, code: ParseResultCode.OK, data };
+    } catch (err) {
+      return {
+        ok: false,
+        code: ParseResultCode.INVALID_JSON,
+        error: err instanceof Error ? err.message : String(err),
+        rawInput: extracted.slice(0, 500),
+      };
     }
   }
 
-  // 策略 4: 对原文修复后解析
-  const fixedOriginal = fixCommonJsonIssues(trimmed);
-  try {
-    return JSON.parse(fixedOriginal);
-  } catch {
-    // continue
-  }
-
-  return null;
+  return { ok: false, code: ParseResultCode.NO_JSON_FOUND, error: "No valid JSON structure found in input" };
 }
 
 /**
- * 健壮的 JSON 解析函数
+ * 健壮的 JSON 解析函数（兼容旧 API）
  * @param {string} text - 要解析的文本
  * @param {any} fallback - 解析失败时的默认值
  * @returns {any} 解析结果或默认值
  */
 export function robustParseJson(text, fallback = null) {
-  const result = tryParseJson(text);
-  return result !== null ? result : fallback;
+  const result = parseJsonStrict(text);
+  return result.ok ? result.data : fallback;
 }
 
 /**
@@ -227,15 +194,15 @@ export function robustParseJson(text, fallback = null) {
  * @param {any} fallback - 解析或验证失败时的默认值
  */
 export function robustParseJsonWithValidation(text, validator, fallback = null) {
-  const result = tryParseJson(text);
-  if (result !== null && typeof validator === 'function') {
+  const result = parseJsonStrict(text);
+  if (result.ok && typeof validator === "function") {
     try {
-      if (validator(result)) return result;
+      if (validator(result.data)) return result.data;
     } catch {
       // validation failed
     }
   }
-  return result !== null ? result : fallback;
+  return result.ok ? result.data : fallback;
 }
 
 /**
@@ -246,18 +213,35 @@ export function extractJsonFromLlmResponse(response) {
 
   // 如果是对象，尝试获取 content 字段
   let text = response;
-  if (typeof response === 'object') {
-    text = response.content || response.text || response.message || '';
+  if (typeof response === "object") {
+    text = response.content || response.text || response.message || "";
   }
 
-  if (typeof text !== 'string') return null;
+  if (typeof text !== "string") return null;
 
   return robustParseJson(text);
+}
+
+/**
+ * 生成 JSON 修正提示（供 AgentLoop 使用）
+ * @param {string} errorMessage
+ * @param {string} rawInput
+ * @returns {string}
+ */
+export function generateJsonCorrectionPrompt(errorMessage, rawInput) {
+  const preview = rawInput ? rawInput.slice(0, 300) : "";
+  return `Your previous response contained invalid JSON. Error: ${errorMessage}
+
+Please respond with valid JSON only. Do not include markdown code fences or explanatory text.
+
+${preview ? `The problematic content started with:\n${preview}...` : ""}
+
+Please try again with properly formatted JSON.`;
 }
 
 // 导出工具函数供测试
 export const __test = {
   extractJsonBlock,
   fixCommonJsonIssues,
-  tryParseJson
+  safePreprocess,
 };
