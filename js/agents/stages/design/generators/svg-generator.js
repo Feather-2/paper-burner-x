@@ -2,6 +2,7 @@ import { getDesignModelCaller } from "../model.js";
 import { robustParseJson } from "../../../shared/utils/robust-json.js";
 import { loadPrompt } from "../../../prompts/prompt-loader.js";
 import { VisualDataStatus } from "../constants.js";
+import { createLimiter } from "../shared/limiter.js";
 
 // Optional circuit breaker - may not be available
 let getCircuitBreaker = null;
@@ -9,33 +10,6 @@ try {
   const mod = await import("../../core/error-handler.js");
   getCircuitBreaker = mod.getCircuitBreaker;
 } catch { }
-
-/**
- * Simple concurrency limiter (pLimit-style).
- */
-function createLimiter(concurrency) {
-  const queue = [];
-  let running = 0;
-
-  const run = async () => {
-    if (running >= concurrency || queue.length === 0) return;
-    running++;
-    const { fn, resolve, reject } = queue.shift();
-    try {
-      resolve(await fn());
-    } catch (e) {
-      reject(e);
-    } finally {
-      running--;
-      run();
-    }
-  };
-
-  return (fn) => new Promise((resolve, reject) => {
-    queue.push({ fn, resolve, reject });
-    run();
-  });
-}
 
 import { toNonEmptyString, escapeHtml as escapeAttr } from "../shared/design-utils.js";
 import { parseTagAttributes } from "../shared/html-parser.js";

@@ -6,6 +6,7 @@ import { resolveLayoutType } from "./layout-protocol.js";
 import { loadPrompt } from "../../../prompts/prompt-loader.js";
 import { parseTagAttributes } from "../shared/html-parser.js";
 import { safeEmit } from "../shared/safe-emit.js";
+import { createLimiter } from "../shared/limiter.js";
 
 // === 可配置常量 ===
 const BATCH_GENERATOR_DEFAULTS = {
@@ -41,35 +42,6 @@ async function getSystemPrompt() {
 const FALLBACK_SYSTEM_PROMPT = `You are a PPT slide generator. Output JSON: [{"slideIntentId":string,"slideHtml":string}]
 Follow the DSL spec and examples in the prompt. Summarize content - never copy verbatim.`;
 
-
-/**
- * Simple concurrency limiter (pLimit-style).
- * @param {number} concurrency Max concurrent tasks
- * @returns {<T>(fn: () => Promise<T>) => Promise<T>}
- */
-function createLimiter(concurrency) {
-  const queue = [];
-  let running = 0;
-
-  const run = async () => {
-    if (running >= concurrency || queue.length === 0) return;
-    running++;
-    const { fn, resolve, reject } = queue.shift();
-    try {
-      resolve(await fn());
-    } catch (e) {
-      reject(e);
-    } finally {
-      running--;
-      run();
-    }
-  };
-
-  return (fn) => new Promise((resolve, reject) => {
-    queue.push({ fn, resolve, reject });
-    run();
-  });
-}
 
 function nowMs() {
   return Date.now();
