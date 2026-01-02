@@ -185,6 +185,16 @@ function stableStringify(value, { maxChars = 2000 } = {}) {
   return s.slice(0, limit) + "...";
 }
 
+function fingerprintText(text, maxLen = 200) {
+  const t = String(text || "").slice(0, maxLen).toLowerCase().replace(/\s+/g, " ").trim();
+  let hash = 0;
+  for (let i = 0; i < t.length; i++) {
+    hash = ((hash << 5) - hash) + t.charCodeAt(i);
+    hash |= 0; // force 32-bit
+  }
+  return `fp_${Math.abs(hash).toString(36)}`;
+}
+
 function normalizeToolCallGuard(config) {
   const cfg = isPlainObject(config) ? config : {};
   const enabled = cfg.enabled === true;
@@ -765,6 +775,20 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         const subconsciousAlert = shadow.getInjectedPrompt(baseMessages);
         if (subconsciousAlert) {
           this._logger.info("[Shadow] Injecting subconscious alert (ephemeral)");
+          try {
+            this._emit(
+              "prompt.shadow.injected",
+              {
+                runId: this.state?.runId,
+                iteration: plannedIteration,
+                chars: String(subconsciousAlert).length,
+                fingerprint: fingerprintText(subconsciousAlert),
+              },
+              { status: "injected", actor: "system" }
+            );
+          } catch {
+            // ignore
+          }
           // 仅为当前调用注入，不改变持久的 messages
           ephemeralMessages.push({ role: "user", content: subconsciousAlert });
         }
@@ -780,6 +804,22 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
           const gapIds = this.sharedContext.search?.("finding_gap") || [];
           if (claimIds.length > 0 || gapIds.length > 0) {
             this._logger.debug(`Blackboard: Claims=${claimIds.length}, Gaps=${gapIds.length}`);
+          }
+          try {
+            this._emit(
+              "prompt.blackboard.injected",
+              {
+                runId: this.state?.runId,
+                iteration: plannedIteration,
+                claimCount: claimIds.length,
+                gapCount: gapIds.length,
+                chars: String(blackboardPrompt).length,
+                fingerprint: fingerprintText(blackboardPrompt),
+              },
+              { status: "injected", actor: "system" }
+            );
+          } catch {
+            // ignore
           }
           ephemeralMessages.push({
             role: "system",
@@ -835,6 +875,20 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         const memoryContext = this.memory.buildPromptContext();
         if (memoryContext) {
           this._logger.info("[Memory] Injecting unified context (ephemeral)");
+          try {
+            this._emit(
+              "prompt.memory.injected",
+              {
+                runId: this.state?.runId,
+                iteration: plannedIteration,
+                chars: String(memoryContext).length,
+                fingerprint: fingerprintText(memoryContext),
+              },
+              { status: "injected", actor: "system" }
+            );
+          } catch {
+            // ignore
+          }
           ephemeralMessages.push({
             role: "system",
             content: `<${EPHEMERAL_TAG.MEMORY}>\n${memoryContext}\n</${EPHEMERAL_TAG.MEMORY}>`,
@@ -893,6 +947,21 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         );
       }
       if (convergenceNotes.length > 0) {
+        try {
+          this._emit(
+            "prompt.convergence.injected",
+            {
+              runId: this.state?.runId,
+              iteration: plannedIteration,
+              noteCount: convergenceNotes.length,
+              findingClaims,
+              findingGaps,
+            },
+            { status: "injected", actor: "system" }
+          );
+        } catch {
+          // ignore
+        }
         ephemeralMessages.push({
           role: "system",
           content: `<${EPHEMERAL_TAG.CONVERGENCE}>\n${convergenceNotes.join("\n")}\n</${EPHEMERAL_TAG.CONVERGENCE}>`,
@@ -914,6 +983,27 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
           reminders.push(`⚠️ 发现记录不足：当前 ${findingCount} 条，需要至少 ${minFindings} 条`);
         }
         if (reminders.length > 0) {
+          try {
+            this._emit(
+              "prompt.reminder.injected",
+              {
+                runId: this.state?.runId,
+                iteration: plannedIteration,
+                reason: [
+                  pendingTodos.length > 0 ? "pending_todos" : null,
+                  findingCount < minFindings ? "low_findings" : null,
+                ].filter(Boolean),
+                pendingTodos: pendingTodos.length,
+                doneTodos,
+                totalTodos,
+                findingCount,
+                minFindings,
+              },
+              { status: "injected", actor: "system" }
+            );
+          } catch {
+            // ignore
+          }
           ephemeralMessages.push({
             role: "system",
             content: `<${EPHEMERAL_TAG.REMINDER}>\n${reminders.join("\n\n")}\n\n${REMINDER_TAIL}\n</${EPHEMERAL_TAG.REMINDER}>`,
