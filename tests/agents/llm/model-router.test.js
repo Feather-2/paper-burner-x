@@ -189,6 +189,100 @@ test("ModelRouter: failover emits events and marks unhealthy", async () => {
   assert.equal(router.isAvailable("bad"), false);
 });
 
+test("ModelRouter: exponential backoff increases cooldown and emits backoffLevel", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+  const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
+
+  const time = createFakeTime(0);
+  const provider = new MockProvider({ id: "mock", defaultOutcome: new Error("down") });
+
+  const router = new ModelRouter({
+    models: [{ id: "m1", provider: "mock", tags: ["text"], limits: {} }],
+    usageConfig: { worker: ["m1"], planner: [], analyst: [], writer: [], vision: [] },
+    providers: { mock: provider },
+    baseCooldownMs: 60_000,
+    maxCooldownMs: 600_000,
+    backoffMultiplier: 2,
+    time,
+  });
+
+  const unhealthy = [];
+  router.on("model.unhealthy", (e) => unhealthy.push(e));
+
+  for (let i = 0; i < 5; i++) {
+    await assert.rejects(() => router.call({ usage: "worker", messages: [{ role: "user", content: `x-${i}` }] }), /All models failed/);
+    const evt = unhealthy[i];
+    assert.equal(evt.backoffLevel, i);
+    const expectedCooldownMs = Math.min(60_000 * 2 ** i, 600_000);
+    assert.equal(evt.cooldownMs, expectedCooldownMs);
+    time.advance(expectedCooldownMs + 1);
+  }
+});
+
+test("ModelRouter: legacy cooldownMs keeps constant cooldown across failures", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+  const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
+
+  const time = createFakeTime(0);
+  const provider = new MockProvider({ id: "mock", defaultOutcome: new Error("down") });
+
+  const router = new ModelRouter({
+    models: [{ id: "m1", provider: "mock", tags: ["text"], limits: {} }],
+    usageConfig: { worker: ["m1"], planner: [], analyst: [], writer: [], vision: [] },
+    providers: { mock: provider },
+    cooldownMs: 1000,
+    time,
+  });
+
+  const unhealthy = [];
+  router.on("model.unhealthy", (e) => unhealthy.push(e));
+
+  for (let i = 0; i < 3; i++) {
+    await assert.rejects(() => router.call({ usage: "worker", messages: [{ role: "user", content: `x-${i}` }] }), /All models failed/);
+    const evt = unhealthy[i];
+    assert.equal(evt.backoffLevel, i);
+    assert.equal(evt.cooldownMs, 1000);
+    time.advance(1001);
+  }
+});
+
+test("ModelRouter: markHealthy resets failures on successful call", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+  const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
+
+  const time = createFakeTime(0);
+  const provider = new MockProvider({ id: "mock" });
+  provider.setBehaviors("m1", [{ throw: new Error("down") }, { content: "ok" }, { throw: new Error("down-again") }]);
+
+  const router = new ModelRouter({
+    models: [{ id: "m1", provider: "mock", tags: ["text"], limits: {} }],
+    usageConfig: { worker: ["m1"], planner: [], analyst: [], writer: [], vision: [] },
+    providers: { mock: provider },
+    baseCooldownMs: 1000,
+    maxCooldownMs: 5000,
+    backoffMultiplier: 2,
+    time,
+  });
+
+  const unhealthy = [];
+  router.on("model.unhealthy", (e) => unhealthy.push(e));
+
+  await assert.rejects(() => router.call({ usage: "worker", messages: [{ role: "user", content: "a" }] }), /All models failed/);
+  assert.equal(unhealthy[0].cooldownMs, 1000);
+  assert.equal(unhealthy[0].backoffLevel, 0);
+  assert.equal(router.getHealth("m1")?.failures, 1);
+
+  time.advance(1001);
+  const out = await router.call({ usage: "worker", messages: [{ role: "user", content: "b" }] });
+  assert.equal(out.model, "m1");
+  assert.equal(out.content, "ok");
+  assert.equal(router.getHealth("m1")?.failures, 0);
+
+  await assert.rejects(() => router.call({ usage: "worker", messages: [{ role: "user", content: "c" }] }), /All models failed/);
+  assert.equal(unhealthy[1].cooldownMs, 1000);
+  assert.equal(unhealthy[1].backoffLevel, 0);
+});
+
 test("ModelRouter: unhealthy cooldown recovery retries model after time passes", async () => {
   const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
   const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");

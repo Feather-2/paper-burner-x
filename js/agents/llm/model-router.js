@@ -47,6 +47,18 @@ function toErrorInfo(err) {
   return { name: e.name, message: e.message };
 }
 
+function toPositiveInt(v, fallback) {
+  const n = typeof v === "number" && Number.isFinite(v) ? Math.floor(v) : NaN;
+  return n > 0 ? n : fallback;
+}
+
+function toBackoffMultiplier(v, fallback) {
+  const n = typeof v === "number" && Number.isFinite(v) ? v : NaN;
+  if (n >= 1) return n;
+  if (n > 0) return 1;
+  return fallback;
+}
+
 function createNoopLogger() {
   const noop = () => {};
   return { debug: noop, info: noop, warn: noop, error: noop };
@@ -95,7 +107,10 @@ export class ModelRouter extends EventEmitter {
     models,
     usageConfig,
     providers,
-    cooldownMs = 60_000,
+    cooldownMs,
+    baseCooldownMs,
+    maxCooldownMs,
+    backoffMultiplier,
     usageTags,
     time,
     debug = false,
@@ -120,7 +135,23 @@ export class ModelRouter extends EventEmitter {
     this._roundRobinStorageKey = toNonEmptyString(roundRobinStorageKey) || "paperburner_modelrouter_rr_v1";
 
     this._time = isPlainObject(time) && typeof time.now === "function" && typeof time.sleep === "function" ? time : defaultTime();
-    this._cooldownMs = typeof cooldownMs === "number" && cooldownMs > 0 ? Math.floor(cooldownMs) : 60_000;
+
+    const DEFAULT_BASE_COOLDOWN_MS = 60_000;
+    const DEFAULT_MAX_COOLDOWN_MS = 600_000;
+    const DEFAULT_BACKOFF_MULTIPLIER = 2;
+
+    const legacyOnlyCooldownMs =
+      cooldownMs !== undefined && baseCooldownMs === undefined && maxCooldownMs === undefined && backoffMultiplier === undefined;
+
+    const baseMs = toPositiveInt(baseCooldownMs ?? cooldownMs, DEFAULT_BASE_COOLDOWN_MS);
+    const maxMsRaw = legacyOnlyCooldownMs ? baseMs : toPositiveInt(maxCooldownMs, DEFAULT_MAX_COOLDOWN_MS);
+    const maxMs = Math.max(baseMs, maxMsRaw);
+
+    this._baseCooldownMs = baseMs;
+    this._maxCooldownMs = maxMs;
+    this._backoffMultiplier = toBackoffMultiplier(backoffMultiplier, DEFAULT_BACKOFF_MULTIPLIER);
+    // Backward-compatible alias (legacy callers/events).
+    this._cooldownMs = baseMs;
 
     this._models = new Map();
     for (const m of Array.isArray(models) ? models : []) {
@@ -198,16 +229,44 @@ export class ModelRouter extends EventEmitter {
     return !(typeof h.unhealthyUntilMs === "number" && h.unhealthyUntilMs > now);
   }
 
+  _computeCooldownMs(backoffLevel) {
+    const level = typeof backoffLevel === "number" && Number.isFinite(backoffLevel) ? Math.max(0, Math.floor(backoffLevel)) : 0;
+    const baseMs = this._baseCooldownMs;
+    const maxMs = this._maxCooldownMs;
+    const multiplier = this._backoffMultiplier;
+
+    const pow = level === 0 ? 1 : Math.pow(multiplier, level);
+    let ms = baseMs * pow;
+
+    if (!Number.isFinite(ms) || ms <= 0) ms = maxMs;
+    ms = Math.floor(ms);
+    if (ms > maxMs) ms = maxMs;
+    return ms;
+  }
+
   markUnhealthy(modelId, error) {
     const id = toNonEmptyString(modelId);
     if (!id) return null;
     const now = this._time.now();
     const prev = this._health.get(id) || { failures: 0 };
+    const backoffLevel =
+      typeof prev.failures === "number" && Number.isFinite(prev.failures) ? Math.max(0, Math.floor(prev.failures)) : 0;
+    const cooldownMs = this._computeCooldownMs(backoffLevel);
     const next = {
-      failures: (prev.failures || 0) + 1,
-      unhealthyUntilMs: now + this._cooldownMs,
+      failures: backoffLevel + 1,
+      unhealthyUntilMs: now + cooldownMs,
       lastError: toErrorInfo(error),
     };
+    this._health.set(id, next);
+    return { ...next, cooldownMs, backoffLevel };
+  }
+
+  markHealthy(modelId) {
+    const id = toNonEmptyString(modelId);
+    if (!id) return null;
+    const prev = this._health.get(id);
+    if (!prev) return null;
+    const next = { ...prev, failures: 0, unhealthyUntilMs: 0 };
     this._health.set(id, next);
     return next;
   }
@@ -363,6 +422,7 @@ export class ModelRouter extends EventEmitter {
             : await doChat();
           assertChatResponse(resp);
           selectedModelId = entry.id;
+          this.markHealthy(modelId);
           this._logger.debug(`[ModelRouter] ok ${modelId} via ${entry.provider}`);
           return { ...resp, model: entry.id, provider: entry.provider };
         } catch (err) {
@@ -381,7 +441,8 @@ export class ModelRouter extends EventEmitter {
             modelId,
             provider: entry.provider,
             error: toErrorInfo(err),
-            cooldownMs: this._cooldownMs,
+            cooldownMs: health?.cooldownMs ?? this._cooldownMs,
+            backoffLevel: health?.backoffLevel,
             unhealthyUntilMs: health?.unhealthyUntilMs,
           });
 
