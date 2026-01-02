@@ -74,12 +74,26 @@ function parseAssetDataPayload(data) {
 
 function materializeAssetData(asset) {
   if (!asset || typeof asset !== "object") return asset;
-  if (typeof asset.data === "string" && asset.data) return asset;
+  const out = { ...asset };
+  delete out._hash;
+  delete out._collisionSig;
+
+  if (typeof asset.data === "string" && asset.data) {
+    delete out.dataBytes;
+    delete out.dataFormat;
+    return out;
+  }
+
   const bytes = asset.dataBytes instanceof Uint8Array ? asset.dataBytes : null;
-  if (!bytes) return asset;
+  if (!bytes) {
+    delete out.dataBytes;
+    delete out.dataFormat;
+    return out;
+  }
+
   const base64 = bytesToBase64(bytes);
   const data = asset.dataFormat === "data_uri" ? `data:${toNonEmptyString(asset.mimeType) || "application/octet-stream"};base64,${base64}` : base64;
-  const out = { ...asset, data };
+  out.data = data;
   delete out.dataBytes;
   delete out.dataFormat;
   return out;
@@ -117,6 +131,41 @@ function computeAssetHash(asset) {
   return normalizeText(signature).textHash;
 }
 
+/**
+ * Secondary signature for collision detection.
+ *
+ * NOTE:
+ * - computeAssetHash() uses sampling for large payloads to avoid hashing multi-MB strings.
+ * - Sampling can theoretically produce false "dedup" collisions (different payloads mapping to the same sample).
+ * - We keep a second, *different* sampling pattern so we can detect (most) collisions and store both assets.
+ */
+function computeAssetCollisionSignature(asset) {
+  const type = toNonEmptyString(asset?.type);
+  const mimeType = toNonEmptyString(asset?.mimeType);
+  const rawData = toNonEmptyString(asset?.data);
+
+  const SAMPLE_THRESHOLD = 4096;
+  const SLICE = 256;
+  let dataSignature;
+  if (rawData.length > SAMPLE_THRESHOLD) {
+    const len = rawData.length;
+    const prefix = rawData.slice(0, SLICE);
+    const q1Start = Math.max(0, Math.floor(len / 4) - Math.floor(SLICE / 2));
+    const midStart = Math.max(0, Math.floor(len / 2) - Math.floor(SLICE / 2));
+    const q3Start = Math.max(0, Math.floor((3 * len) / 4) - Math.floor(SLICE / 2));
+    const q1 = rawData.slice(q1Start, q1Start + SLICE);
+    const mid = rawData.slice(midStart, midStart + SLICE);
+    const q3 = rawData.slice(q3Start, q3Start + SLICE);
+    const suffix = rawData.slice(-SLICE);
+    dataSignature = `${len}:${prefix}:${q1}:${mid}:${q3}:${suffix}`;
+  } else {
+    dataSignature = rawData;
+  }
+
+  const signature = JSON.stringify({ type, mimeType, data: dataSignature });
+  return normalizeText(signature).textHash;
+}
+
 function defaultAssetIdFromHash(hash) {
   const hex = String(hash || "").startsWith("sha256:") ? String(hash).slice("sha256:".length) : String(hash || "");
   return `asset_${hex.slice(0, 12) || "unknown"}`;
@@ -125,7 +174,7 @@ function defaultAssetIdFromHash(hash) {
 export class AssetManager {
   constructor() {
     this.assetsById = new Map(); // assetId -> Asset
-    this.assetIdByHash = new Map(); // sha256:* -> assetId
+    this.assetIdsByHash = new Map(); // sha256:* -> string[]
     this.assetIdsByDocId = new Map(); // docId -> Set(assetId)
   }
 
@@ -142,11 +191,33 @@ export class AssetManager {
 
     const normalized = { ...asset, mimeType: normalizeAssetMimeType(asset?.mimeType, AssetMimeType.OCTET_STREAM) };
     const hash = computeAssetHash(normalized);
-    const existingId = this.assetIdByHash.get(hash);
-    const canonicalId = existingId || toNonEmptyString(normalized.assetId) || defaultAssetIdFromHash(hash);
+    const collisionSig = computeAssetCollisionSignature(normalized);
 
-    if (!existingId) {
-      const stored = { ...normalized, assetId: canonicalId };
+    const existingIds = this.assetIdsByHash.get(hash) || [];
+    let canonicalId = null;
+
+    for (const id of existingIds) {
+      const existing = this.assetsById.get(id);
+      if (!existing) continue;
+      if (toNonEmptyString(existing._collisionSig) === collisionSig) {
+        canonicalId = id;
+        break;
+      }
+    }
+
+    if (!canonicalId) {
+      // New asset (or hash collision). Ensure we don't overwrite an existing assetId.
+      const baseId = toNonEmptyString(normalized.assetId) || defaultAssetIdFromHash(hash);
+      let nextId = baseId;
+      if (this.assetsById.has(nextId) || existingIds.includes(nextId)) {
+        const root = defaultAssetIdFromHash(hash);
+        let i = Math.max(2, existingIds.length + 1);
+        while (this.assetsById.has(`${root}_c${i}`) || existingIds.includes(`${root}_c${i}`)) i++;
+        nextId = `${root}_c${i}`;
+      }
+      canonicalId = nextId;
+
+      const stored = { ...normalized, assetId: canonicalId, _hash: hash, _collisionSig: collisionSig };
 
       // Memory: avoid keeping very large base64 strings in RAM; store bytes and reconstruct on demand.
       const rawData = toNonEmptyString(stored.data);
@@ -160,7 +231,10 @@ export class AssetManager {
         }
       }
       this.assetsById.set(canonicalId, stored);
-      this.assetIdByHash.set(hash, canonicalId);
+
+      const nextList = existingIds.length ? existingIds.slice() : [];
+      nextList.push(canonicalId);
+      this.assetIdsByHash.set(hash, nextList);
     }
 
     if (!this.assetIdsByDocId.has(docId)) this.assetIdsByDocId.set(docId, new Set());

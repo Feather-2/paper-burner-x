@@ -10,6 +10,8 @@
  * - Content passed via HTTP (not file paths)
  */
 
+import { parseSseStream } from "./sse.js";
+
 /**
  * @typedef {Object} NexusSkillInfo
  * @property {string} name
@@ -176,39 +178,37 @@ export class NexusSkillProvider {
   async streamExecution(endpoint, params, onMessage, onError) {
     const url = `${this.baseUrl}${endpoint}`;
     const headers = this._getHeaders();
+    const emit = typeof onMessage === "function" ? onMessage : () => {};
+
+    const connectTimeoutMs = typeof this.timeout === "number" && Number.isFinite(this.timeout) ? Math.max(0, Math.floor(this.timeout)) : 30_000;
+    const readTimeoutMs = Math.max(60_000, connectTimeoutMs);
 
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort("connect_timeout"), connectTimeoutMs);
+
       const response = await fetch(url, {
         method: "POST",
         headers: { ...headers, Accept: "text/event-stream" },
         body: JSON.stringify(params),
-      });
-
+        signal: controller.signal,
+      }).finally(() => clearTimeout(timeoutId));
       if (!response.ok) {
         throw new Error(`Stream failed: ${response.status}`);
       }
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
+      const ctype = response.headers?.get?.("content-type") || "";
+      if (ctype && !ctype.toLowerCase().includes("text/event-stream")) {
+        throw new Error(`Stream failed: unexpected content-type: ${ctype}`);
+      }
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              onMessage(data);
-            } catch {
-              // Ignore parse errors
-            }
-          }
+      for await (const evt of parseSseStream(response.body, { signal: controller.signal, readTimeoutMs })) {
+        const data = typeof evt?.data === "string" ? evt.data.trim() : "";
+        if (!data) continue;
+        try {
+          emit(JSON.parse(data));
+        } catch {
+          // ignore invalid JSON payloads
         }
       }
     } catch (error) {

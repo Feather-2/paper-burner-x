@@ -133,6 +133,7 @@ export class ModelRouter extends EventEmitter {
     models,
     usageConfig,
     providers,
+    cooldown,
     cooldownMs,
     baseCooldownMs,
     maxCooldownMs,
@@ -169,16 +170,30 @@ export class ModelRouter extends EventEmitter {
     const DEFAULT_MAX_COOLDOWN_MS = 600_000;
     const DEFAULT_BACKOFF_MULTIPLIER = 2;
 
+    const cooldownCfg = isPlainObject(cooldown) ? cooldown : null;
+    const hasCooldownCfg = !!cooldownCfg && Object.keys(cooldownCfg).length > 0;
     const legacyOnlyCooldownMs =
-      cooldownMs !== undefined && baseCooldownMs === undefined && maxCooldownMs === undefined && backoffMultiplier === undefined;
+      !hasCooldownCfg &&
+      cooldownMs !== undefined &&
+      baseCooldownMs === undefined &&
+      maxCooldownMs === undefined &&
+      backoffMultiplier === undefined;
 
-    const baseMs = toPositiveInt(baseCooldownMs ?? cooldownMs, DEFAULT_BASE_COOLDOWN_MS);
-    const maxMsRaw = legacyOnlyCooldownMs ? baseMs : toPositiveInt(maxCooldownMs, DEFAULT_MAX_COOLDOWN_MS);
+    const baseMs = toPositiveInt(
+      cooldownCfg?.baseMs ?? cooldownCfg?.baseCooldownMs ?? baseCooldownMs ?? cooldownMs,
+      DEFAULT_BASE_COOLDOWN_MS
+    );
+    const maxMsRaw = legacyOnlyCooldownMs
+      ? baseMs
+      : toPositiveInt(cooldownCfg?.maxMs ?? cooldownCfg?.maxCooldownMs ?? maxCooldownMs, DEFAULT_MAX_COOLDOWN_MS);
     const maxMs = Math.max(baseMs, maxMsRaw);
 
     this._baseCooldownMs = baseMs;
     this._maxCooldownMs = maxMs;
-    this._backoffMultiplier = toBackoffMultiplier(backoffMultiplier, DEFAULT_BACKOFF_MULTIPLIER);
+    this._backoffMultiplier = toBackoffMultiplier(
+      cooldownCfg?.multiplier ?? cooldownCfg?.backoffMultiplier ?? backoffMultiplier,
+      DEFAULT_BACKOFF_MULTIPLIER
+    );
     // Backward-compatible alias (legacy callers/events).
     this._cooldownMs = baseMs;
 

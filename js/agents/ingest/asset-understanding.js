@@ -6,6 +6,15 @@ const MAX_IMAGE_SIZE = 500 * 1024; // 500KB
 // 缓存的提示词
 let _batchAnalysisPrompt = null;
 
+function sanitizeErrorMessage(err, { maxChars = 200 } = {}) {
+  const raw = err instanceof Error ? err.message : String(err ?? "");
+  const normalized = raw.replace(/\s+/g, " ").trim();
+  if (!normalized) return "Unknown error";
+  const limit = Number.isFinite(Number(maxChars)) ? Math.max(20, Math.floor(Number(maxChars))) : 200;
+  if (normalized.length <= limit) return normalized;
+  return normalized.slice(0, Math.max(0, limit - 3)) + "...";
+}
+
 /**
  * 异步获取 batch analysis prompt
  */
@@ -15,7 +24,6 @@ export async function getBatchAnalysisPrompt() {
     _batchAnalysisPrompt = await loadPrompt("ingest/asset-batch-analysis");
     return _batchAnalysisPrompt;
   } catch (e) {
-    console.warn("[asset-understanding] Failed to load asset-batch-analysis.md:", e.message);
     return BATCH_ANALYSIS_PROMPT;
   }
 }
@@ -107,7 +115,8 @@ async function analyzeBatch(assets, callVision) {
 
     return assets.map(() => ({ description: text || "" }));
   } catch (e) {
-    return assets.map(() => ({ error: e instanceof Error ? e.message : String(e) }));
+    const msg = sanitizeErrorMessage(e);
+    return assets.map(() => ({ error: msg }));
   }
 }
 

@@ -34,7 +34,16 @@ function estimateTokens(text, tokenCounter) {
       // fall back below
     }
   }
-  const rawText = typeof text === "string" ? text : JSON.stringify(text);
+  let rawText = "";
+  if (typeof text === "string") {
+    rawText = text;
+  } else {
+    try {
+      rawText = JSON.stringify(text);
+    } catch {
+      rawText = String(text);
+    }
+  }
   return estimateTokenCount(rawText);
 }
 
@@ -140,15 +149,15 @@ export class MemoryStore {
     this._sharedContext = options.sharedContext || null;
     this._discoveryManager = options.discoveryManager || null;
 
-    // L0: Immutable (不可压缩)
-    this.L0 = {
+    // Internal layers (do not expose mutable references).
+    this._L0 = {
       systemPrompt: "",
       taskGoal: "",
       todos: [],
     };
 
     // L1: Working (工作记忆)
-    this.L1 = {
+    this._L1 = {
       messages: [],
       signals: [],
       decisions: [],
@@ -165,14 +174,14 @@ export class MemoryStore {
     };
 
     // L2: Condensed (压缩记忆)
-    this.L2 = {
+    this._L2 = {
       historySummary: "",
       stageSummaries: new Map(), // stage → summary
       claims: [],
     };
 
     // L3: Archive (归档)
-    this.L3 = {
+    this._L3 = {
       snapshots: new Map(),     // id → full data
       index: {
         keywords: new Map(),    // keyword → Set<snapshotId>
@@ -190,7 +199,24 @@ export class MemoryStore {
       tokenUsage: 0,
       compressionCount: 0,
       recallCount: 0,
-    };
+      };
+  }
+
+  // Read-only layer snapshots (external callers must use APIs to mutate).
+  get L0() {
+    return deepClone(this._L0);
+  }
+
+  get L1() {
+    return deepClone(this._L1);
+  }
+
+  get L2() {
+    return deepClone(this._L2);
+  }
+
+  get L3() {
+    return deepClone(this._L3);
   }
 
   _buildArchiveEmbeddingText(entry) {
@@ -207,17 +233,17 @@ export class MemoryStore {
 
   setSystemPrompt(prompt) {
     const next = toNonEmptyString(prompt) || "";
-    const prev = this.L0.systemPrompt;
+    const prev = this._L0.systemPrompt;
     if (next === prev) return;
 
-    this.L0.systemPrompt = next;
+    this._L0.systemPrompt = next;
     const delta = estimateTokens(next, this._tokenCounter) - estimateTokens(prev, this._tokenCounter);
     this._stats.l0Tokens += delta;
     this._stats.tokenUsage += delta;
   }
 
   setTaskGoal(goal) {
-    this.L0.taskGoal = toNonEmptyString(goal) || "";
+    this._L0.taskGoal = toNonEmptyString(goal) || "";
   }
 
   addTodo(todo) {
@@ -225,7 +251,7 @@ export class MemoryStore {
     // Avoid accidental duplicates when callers re-add an existing todoId.
     const key = toNonEmptyString(entry.todoId) || toNonEmptyString(entry.id);
     if (key) {
-      const existing = this.L0.todos.find((t) => String(t?.todoId || t?.id || "") === key);
+      const existing = this._L0.todos.find((t) => String(t?.todoId || t?.id || "") === key);
       if (existing) {
         const beforeTokens = estimateTokens(existing?.content, this._tokenCounter);
         const updatedAt = new Date().toISOString();
@@ -240,7 +266,7 @@ export class MemoryStore {
       }
     }
 
-    this.L0.todos.push(entry);
+    this._L0.todos.push(entry);
     const addedTokens = estimateTokens(entry?.content, this._tokenCounter);
     this._stats.l0Tokens += addedTokens;
     this._stats.tokenUsage += addedTokens;
@@ -250,7 +276,7 @@ export class MemoryStore {
   updateTodo(id, data) {
     const key = toNonEmptyString(id);
     if (!key) return null;
-    const todo = this.L0.todos.find((t) => String(t?.id || "") === key || String(t?.todoId || "") === key);
+    const todo = this._L0.todos.find((t) => String(t?.id || "") === key || String(t?.todoId || "") === key);
     if (todo && isPlainObject(data)) {
       const beforeTokens = estimateTokens(todo?.content, this._tokenCounter);
       const updatedAt = new Date().toISOString();
@@ -268,9 +294,9 @@ export class MemoryStore {
   removeTodo(id) {
     const key = toNonEmptyString(id);
     if (!key) return null;
-    const idx = this.L0.todos.findIndex((t) => String(t?.id || "") === key || String(t?.todoId || "") === key);
+    const idx = this._L0.todos.findIndex((t) => String(t?.id || "") === key || String(t?.todoId || "") === key);
     if (idx >= 0) {
-      const removed = this.L0.todos.splice(idx, 1)[0];
+      const removed = this._L0.todos.splice(idx, 1)[0];
       const removedTokens = estimateTokens(removed?.content, this._tokenCounter);
       this._stats.l0Tokens -= removedTokens;
       this._stats.tokenUsage -= removedTokens;
@@ -292,29 +318,50 @@ export class MemoryStore {
    */
   getTodos(filter) {
     if (typeof filter === "function") {
-      return this.L0.todos.filter(filter);
+      return this._L0.todos.filter(filter);
     }
     if (typeof filter === "string") {
       const wanted = normalizeTodoStatus(filter);
-      return this.L0.todos.filter((t) => normalizeTodoStatus(t?.status) === wanted);
+      return this._L0.todos.filter((t) => normalizeTodoStatus(t?.status) === wanted);
     }
     if (isPlainObject(filter)) {
       const wanted = typeof filter.status === "string" ? normalizeTodoStatus(filter.status) : null;
       const pred = typeof filter.filter === "function" ? filter.filter : null;
-      return this.L0.todos.filter((t) => {
+      return this._L0.todos.filter((t) => {
         if (wanted && normalizeTodoStatus(t?.status) !== wanted) return false;
         if (pred && !pred(t)) return false;
         return true;
       });
     }
-    return [...this.L0.todos];
+    return [...this._L0.todos];
+  }
+
+  /**
+   * Replace the entire todo list in one operation (avoids external mutation of L0).
+   * @param {any[]} todos
+   * @returns {any[]}
+   */
+  replaceTodos(todos) {
+    const next = Array.isArray(todos) ? todos.map(normalizeTodoEntry) : [];
+    const prev = Array.isArray(this._L0.todos) ? this._L0.todos : [];
+
+    let prevTokens = 0;
+    for (const t of prev) prevTokens += estimateTokens(t?.content, this._tokenCounter);
+    let nextTokens = 0;
+    for (const t of next) nextTokens += estimateTokens(t?.content, this._tokenCounter);
+
+    this._L0.todos = next;
+    const delta = nextTokens - prevTokens;
+    this._stats.l0Tokens += delta;
+    this._stats.tokenUsage += delta;
+    return [...this._L0.todos];
   }
 
   // ===== L1: Working =====
 
   addMessage(msg) {
     const message = isPlainObject(msg) ? msg : { role: "user", content: String(msg) };
-    this.L1.messages.push(message);
+    this._L1.messages.push(message);
     const addedTokens = estimateTokens(message?.content, this._tokenCounter);
     this._stats.l1Tokens += addedTokens;
     this._stats.tokenUsage += addedTokens;
@@ -322,8 +369,31 @@ export class MemoryStore {
     return message;
   }
 
+  /**
+   * Batch add messages efficiently (avoids external mutation of L1).
+   * @param {any[]} messages
+   * @returns {any[]}
+   */
+  addMessages(messages) {
+    const list = Array.isArray(messages) ? messages : [];
+    if (list.length === 0) return [];
+
+    const added = [];
+    let addedTokens = 0;
+    for (const msg of list) {
+      const message = isPlainObject(msg) ? msg : { role: "user", content: String(msg) };
+      this._L1.messages.push(message);
+      addedTokens += estimateTokens(message?.content, this._tokenCounter);
+      added.push(message);
+    }
+    this._stats.l1Tokens += addedTokens;
+    this._stats.tokenUsage += addedTokens;
+    this._checkCompress();
+    return added;
+  }
+
   getMessages() {
-    return [...this.L1.messages];
+    return [...this._L1.messages];
   }
 
   addSignal(signal) {
@@ -335,19 +405,19 @@ export class MemoryStore {
       acknowledged: false,
       ts: Date.now(),
     };
-    this.L1.signals.push(entry);
-    this._pruneArray(this.L1.signals, this.config.maxSignals);
+    this._L1.signals.push(entry);
+    this._pruneArray(this._L1.signals, this.config.maxSignals);
     return entry;
   }
 
   acknowledgeSignal(id) {
-    const sig = this.L1.signals.find(s => s.id === id);
+    const sig = this._L1.signals.find(s => s.id === id);
     if (sig) sig.acknowledged = true;
     return sig;
   }
 
   getSignals(filter) {
-    const signals = this.L1.signals;
+    const signals = this._L1.signals;
     if (typeof filter === "function") return signals.filter(filter);
     if (filter === "pending") return signals.filter(s => !s.acknowledged);
     return [...signals];
@@ -361,49 +431,49 @@ export class MemoryStore {
       result: decision.result || null,
       ts: Date.now(),
     };
-    this.L1.decisions.push(entry);
-    this._pruneArray(this.L1.decisions, this.config.maxDecisions);
+    this._L1.decisions.push(entry);
+    this._pruneArray(this._L1.decisions, this.config.maxDecisions);
     return entry;
   }
 
   getDecisions(limit = 10) {
-    return this.L1.decisions.slice(-limit);
+    return this._L1.decisions.slice(-limit);
   }
 
   // ===== L1: Scratchpad & Flags (Memory 2.0) =====
 
   getScratchpad(key) {
-    if (key === undefined) return { ...this.L1.scratchpad };
-    return this.L1.scratchpad[key];
+    if (key === undefined) return { ...this._L1.scratchpad };
+    return this._L1.scratchpad[key];
   }
 
   setScratchpad(key, value) {
     if (isPlainObject(key) && value === undefined) {
-      Object.assign(this.L1.scratchpad, key);
+      Object.assign(this._L1.scratchpad, key);
     } else {
-      this.L1.scratchpad[key] = value;
+      this._L1.scratchpad[key] = value;
     }
     this._emitUpdate("scratchpad", { key, value });
   }
 
   clearScratchpad() {
-    this.L1.scratchpad = {};
+    this._L1.scratchpad = {};
     this._emitUpdate("scratchpad", { cleared: true });
   }
 
   getFlags() {
-    return { ...this.L1.flags };
+    return { ...this._L1.flags };
   }
 
   setFlag(name, value) {
-    if (name in this.L1.flags) {
-      this.L1.flags[name] = Boolean(value);
+    if (name in this._L1.flags) {
+      this._L1.flags[name] = Boolean(value);
       this._emitUpdate("flags", { [name]: value });
     }
   }
 
   get awaitUserFeedback() {
-    return this.L1.flags.awaitUserFeedback;
+    return this._L1.flags.awaitUserFeedback;
   }
 
   set awaitUserFeedback(value) {
@@ -411,7 +481,7 @@ export class MemoryStore {
   }
 
   get taskImpossible() {
-    return this.L1.flags.taskImpossible;
+    return this._L1.flags.taskImpossible;
   }
 
   set taskImpossible(value) {
@@ -421,7 +491,7 @@ export class MemoryStore {
   // ===== L1: SyncTable (跨 SubAgent 同步) =====
 
   syncDiscovery(id, data) {
-    const existing = this.L1.syncTable.discoveries.get(id);
+    const existing = this._L1.syncTable.discoveries.get(id);
     const payload = isPlainObject(data) ? data : {};
     const prev = isPlainObject(existing) ? existing : null;
     const entry = {
@@ -440,20 +510,20 @@ export class MemoryStore {
     if (!("by" in entry)) {
       entry.by = prev?.by ?? null;
     }
-    this.L1.syncTable.discoveries.set(id, entry);
+    this._L1.syncTable.discoveries.set(id, entry);
     return entry;
   }
 
   getDiscovery(id) {
-    return this.L1.syncTable.discoveries.get(id) || null;
+    return this._L1.syncTable.discoveries.get(id) || null;
   }
 
   getAllDiscoveries() {
-    return Array.from(this.L1.syncTable.discoveries.values());
+    return Array.from(this._L1.syncTable.discoveries.values());
   }
 
   syncSubagent(id, data) {
-    const existing = this.L1.syncTable.subagents.get(id);
+    const existing = this._L1.syncTable.subagents.get(id);
     const payload = isPlainObject(data) ? data : {};
     const prev = isPlainObject(existing) ? existing : null;
     const entry = {
@@ -472,31 +542,31 @@ export class MemoryStore {
     if (!("result" in entry)) {
       entry.result = prev?.result ?? null;
     }
-    this.L1.syncTable.subagents.set(id, entry);
+    this._L1.syncTable.subagents.set(id, entry);
     return entry;
   }
 
   getSubagent(id) {
-    return this.L1.syncTable.subagents.get(id) || null;
+    return this._L1.syncTable.subagents.get(id) || null;
   }
 
   getAllSubagents() {
-    return Array.from(this.L1.syncTable.subagents.values());
+    return Array.from(this._L1.syncTable.subagents.values());
   }
 
   // ===== L2: Condensed =====
 
   setStageSummary(stage, summary) {
     const s = toNonEmptyString(stage);
-    if (s) this.L2.stageSummaries.set(s, toNonEmptyString(summary) || "");
+    if (s) this._L2.stageSummaries.set(s, toNonEmptyString(summary) || "");
   }
 
   getStageSummary(stage) {
-    return this.L2.stageSummaries.get(stage) || "";
+    return this._L2.stageSummaries.get(stage) || "";
   }
 
   getAllStageSummaries() {
-    return Object.fromEntries(this.L2.stageSummaries);
+    return Object.fromEntries(this._L2.stageSummaries);
   }
 
   addClaim(claim) {
@@ -508,13 +578,23 @@ export class MemoryStore {
       verified: claim.verified || false,
       ts: Date.now(),
     };
-    this.L2.claims.push(entry);
+    this._L2.claims.push(entry);
     return entry;
   }
 
   getClaims(filter) {
-    if (typeof filter === "function") return this.L2.claims.filter(filter);
-    return [...this.L2.claims];
+    if (typeof filter === "function") return this._L2.claims.filter(filter);
+    return [...this._L2.claims];
+  }
+
+  /**
+   * Replace the entire claim list (avoids external mutation of L2).
+   * @param {any[]} claims
+   * @returns {any[]}
+   */
+  replaceClaims(claims) {
+    this._L2.claims = Array.isArray(claims) ? deepClone(claims) : [];
+    return [...this._L2.claims];
   }
 
   // ===== L3: Archive =====
@@ -530,25 +610,25 @@ export class MemoryStore {
     };
 
     // 存储
-    this.L3.snapshots.set(id, entry);
+    this._L3.snapshots.set(id, entry);
 
     // 建立关键词索引
     for (const kw of keywords) {
       const k = toNonEmptyString(kw)?.toLowerCase();
       if (!k) continue;
-      if (!this.L3.index.keywords.has(k)) {
-        this.L3.index.keywords.set(k, new Set());
+      if (!this._L3.index.keywords.has(k)) {
+        this._L3.index.keywords.set(k, new Set());
       }
-      this.L3.index.keywords.get(k).add(id);
+      this._L3.index.keywords.get(k).add(id);
     }
 
     // 阶段索引
     if (stageKey) {
-      this.L3.index.stages.set(stageKey, id);
+      this._L3.index.stages.set(stageKey, id);
     }
 
     // 时间线
-    this.L3.index.timeline.push({ id, ts: entry.ts, summary: entry.summary });
+    this._L3.index.timeline.push({ id, ts: entry.ts, summary: entry.summary });
 
     // Best-effort semantic index (async, non-blocking).
     const svc = this._embeddingService;
@@ -576,8 +656,8 @@ export class MemoryStore {
     const keywords = this._tokenize(query);
     if (keywords.length === 0) {
       // 返回最近的
-      return this.L3.index.timeline.slice(-limit).reverse().map(t => {
-        const snap = this.L3.snapshots.get(t.id);
+      return this._L3.index.timeline.slice(-limit).reverse().map(t => {
+        const snap = this._L3.snapshots.get(t.id);
         return snap ? { id: t.id, summary: t.summary, data: snap.data } : null;
       }).filter(Boolean);
     }
@@ -585,7 +665,7 @@ export class MemoryStore {
     // 按关键词匹配
     const scores = new Map();
     for (const kw of keywords) {
-      const ids = this.L3.index.keywords.get(kw.toLowerCase());
+      const ids = this._L3.index.keywords.get(kw.toLowerCase());
       if (ids) {
         for (const id of ids) {
           scores.set(id, (scores.get(id) || 0) + 1);
@@ -599,7 +679,7 @@ export class MemoryStore {
       .slice(0, limit);
 
     return ranked.map(([id]) => {
-      const snap = this.L3.snapshots.get(id);
+      const snap = this._L3.snapshots.get(id);
       return snap ? { id, summary: snap.summary, data: snap.data } : null;
     }).filter(Boolean);
   }
@@ -630,7 +710,7 @@ export class MemoryStore {
     const hits = this._vectorIndex.search(v, { topK: k });
     const out = [];
     for (const h of hits) {
-      const snap = this.L3.snapshots.get(h.id);
+      const snap = this._L3.snapshots.get(h.id);
       if (!snap) continue;
       out.push({ id: h.id, score: h.score, summary: snap.summary, data: snap.data });
     }
@@ -642,7 +722,7 @@ export class MemoryStore {
   }
 
   listArchives(limit = 10) {
-    return this.L3.index.timeline.slice(-limit).reverse();
+    return this._L3.index.timeline.slice(-limit).reverse();
   }
 
   // ===== Checkpoint =====
@@ -651,35 +731,35 @@ export class MemoryStore {
     this._recalculateTotalTokens();
     const id = genId("ckpt");
     // Clone as a single unit to keep checkpoint state internally consistent.
-    const { L0, L1, L2 } = deepClone({ L0: this.L0, L1: this.L1, L2: this.L2 });
+    const { L0, L1, L2 } = deepClone({ L0: this._L0, L1: this._L1, L2: this._L2 });
     const snapshot = { id, runId: this.runId, ts: Date.now(), L0, L1, L2 };
-    this.L3.checkpoints.push(snapshot);
+    this._L3.checkpoints.push(snapshot);
     return id;
   }
 
   restore(checkpointId) {
-    const ckpt = this.L3.checkpoints.find(c => c.id === checkpointId);
+    const ckpt = this._L3.checkpoints.find(c => c.id === checkpointId);
     if (!ckpt) return false;
 
     // Restore as a single clone to avoid partially restored state if a clone throws.
     const restored = deepClone({ L0: ckpt.L0, L1: ckpt.L1, L2: ckpt.L2 });
-    this.L0 = restored.L0;
-    this.L1 = restored.L1;
-    this.L2 = restored.L2;
+    this._L0 = restored.L0;
+    this._L1 = restored.L1;
+    this._L2 = restored.L2;
 
     this._updateTokenUsage();
     return true;
   }
 
   getLatestCheckpoint() {
-    return this.L3.checkpoints[this.L3.checkpoints.length - 1] || null;
+    return this._L3.checkpoints[this._L3.checkpoints.length - 1] || null;
   }
 
   // ===== Compression =====
 
   compress({ force = false } = {}) {
     const { keepLastTurns, contextWindow, compressThreshold } = this.config;
-    const messages = Array.isArray(this.L1.messages) ? this.L1.messages : [];
+    const messages = Array.isArray(this._L1.messages) ? this._L1.messages : [];
     if (messages.length === 0) return false;
 
     const thresholdRaw = Number.isFinite(contextWindow) && Number.isFinite(compressThreshold) ? contextWindow * compressThreshold : NaN;
@@ -727,10 +807,10 @@ export class MemoryStore {
     if (toCompress.length === 0) return false;
 
     // 生成摘要
-    const hadHistorySummary = Boolean(this.L2.historySummary);
+    const hadHistorySummary = Boolean(this._L2.historySummary);
     const summary = this._summarizeMessages(toCompress);
-    this.L2.historySummary = this.L2.historySummary
-      ? `${this.L2.historySummary}\n${summary}`
+    this._L2.historySummary = this._L2.historySummary
+      ? `${this._L2.historySummary}\n${summary}`
       : summary;
 
     const addedL2Tokens = estimateTokens(summary, this._tokenCounter) + (hadHistorySummary ? estimateTokens("\n", this._tokenCounter) : 0);
@@ -738,12 +818,12 @@ export class MemoryStore {
     this._stats.tokenUsage += addedL2Tokens;
 
     // 更新消息
-    this.L1.messages = kept;
+    this._L1.messages = kept;
     this._stats.compressionCount++;
 
     const prevL1Tokens = this._stats.l1Tokens;
     let nextL1Tokens = 0;
-    for (const msg of this.L1.messages) {
+    for (const msg of this._L1.messages) {
       nextL1Tokens += estimateTokens(msg?.content, this._tokenCounter);
     }
     this._stats.l1Tokens = nextL1Tokens;
@@ -763,28 +843,28 @@ export class MemoryStore {
     const sections = [];
 
     // L0: 不可变层
-    if (this.L0.taskGoal) {
-      sections.push(`## 目标\n${this.L0.taskGoal}`);
+    if (this._L0.taskGoal) {
+      sections.push(`## 目标\n${this._L0.taskGoal}`);
     }
 
-    if (this.L0.todos.length > 0) {
+    if (this._L0.todos.length > 0) {
       const isClosed = (t) => {
         const st = normalizeTodoStatus(t?.status);
         return st === "completed" || st === "cancelled" || st === "done";
       };
-      const todoLines = this.L0.todos.map((t) => {
+      const todoLines = this._L0.todos.map((t) => {
         const st = normalizeTodoStatus(t?.status);
         const status = st === "completed" || st === "done" ? "✓" : st === "in_progress" ? "→" : "○";
         const text = t?.text || t?.content || t?.title || "(无描述)";
         return `${status} ${text}`;
       });
-      const openCount = this.L0.todos.filter((t) => !isClosed(t)).length;
-      sections.push(`## 待办 (${openCount}/${this.L0.todos.length})\n${todoLines.join("\n")}`);
+      const openCount = this._L0.todos.filter((t) => !isClosed(t)).length;
+      sections.push(`## 待办 (${openCount}/${this._L0.todos.length})\n${todoLines.join("\n")}`);
     }
 
     // L2: 压缩摘要
-    if (this.L2.historySummary) {
-      sections.push(`## 历史摘要\n${truncate(this.L2.historySummary, 500)}`);
+    if (this._L2.historySummary) {
+      sections.push(`## 历史摘要\n${truncate(this._L2.historySummary, 500)}`);
     }
 
     const summaries = this.getAllStageSummaries();
@@ -835,19 +915,19 @@ export class MemoryStore {
 
   _updateTokenUsage() {
     let l0Tokens = 0;
-    l0Tokens += estimateTokens(this.L0.systemPrompt, this._tokenCounter);
-    const todos = Array.isArray(this.L0.todos) ? this.L0.todos : [];
+    l0Tokens += estimateTokens(this._L0.systemPrompt, this._tokenCounter);
+    const todos = Array.isArray(this._L0.todos) ? this._L0.todos : [];
     for (const todo of todos) {
       l0Tokens += estimateTokens(todo?.content, this._tokenCounter);
     }
 
     let l1Tokens = 0;
-    const messages = Array.isArray(this.L1.messages) ? this.L1.messages : [];
+    const messages = Array.isArray(this._L1.messages) ? this._L1.messages : [];
     for (const msg of messages) {
       l1Tokens += estimateTokens(msg?.content, this._tokenCounter);
     }
 
-    const l2Tokens = estimateTokens(this.L2.historySummary, this._tokenCounter);
+    const l2Tokens = estimateTokens(this._L2.historySummary, this._tokenCounter);
 
     this._stats.l0Tokens = l0Tokens;
     this._stats.l1Tokens = l1Tokens;
@@ -903,15 +983,15 @@ export class MemoryStore {
     return {
       runId: this.runId,
       tokenUsage: this._stats.tokenUsage,
-      messageCount: this.L1.messages.length,
-      todoCount: this.L0.todos.length,
-      signalCount: this.L1.signals.length,
-      decisionCount: this.L1.decisions.length,
-      discoveryCount: this.L1.syncTable.discoveries.size,
-      subagentCount: this.L1.syncTable.subagents.size,
-      claimCount: this.L2.claims.length,
-      archiveCount: this.L3.snapshots.size,
-      checkpointCount: this.L3.checkpoints.length,
+      messageCount: this._L1.messages.length,
+      todoCount: this._L0.todos.length,
+      signalCount: this._L1.signals.length,
+      decisionCount: this._L1.decisions.length,
+      discoveryCount: this._L1.syncTable.discoveries.size,
+      subagentCount: this._L1.syncTable.subagents.size,
+      claimCount: this._L2.claims.length,
+      archiveCount: this._L3.snapshots.size,
+      checkpointCount: this._L3.checkpoints.length,
       compressionCount: this._stats.compressionCount,
       recallCount: this._stats.recallCount,
     };
@@ -950,25 +1030,25 @@ export class MemoryStore {
 
     // 同步 signals - 优化查找性能
     const signals = this._sharedContext.getSignals?.() || [];
-    const existingSignalIds = new Set(this.L1.signals.map(s => s.id));
+    const existingSignalIds = new Set(this._L1.signals.map(s => s.id));
     for (const sig of signals) {
       if (!existingSignalIds.has(sig.id)) {
-        this.L1.signals.push({ ...sig, ts: sig.ts || Date.now() });
+        this._L1.signals.push({ ...sig, ts: sig.ts || Date.now() });
       }
     }
 
     // 同步 stage summaries
     const summaries = this._sharedContext.getAllSummaries?.() || {};
     for (const [stage, summary] of Object.entries(summaries)) {
-      this.L2.stageSummaries.set(stage, summary);
+      this._L2.stageSummaries.set(stage, summary);
     }
 
     // 同步 decisions - 优化查找性能
     const decisions = this._sharedContext.getDecisions?.() || [];
-    const existingDecisionIds = new Set(this.L1.decisions.map(d => d.id));
+    const existingDecisionIds = new Set(this._L1.decisions.map(d => d.id));
     for (const d of decisions) {
       if (!existingDecisionIds.has(d.id)) {
-        this.L1.decisions.push({ ...d, ts: d.ts || Date.now() });
+        this._L1.decisions.push({ ...d, ts: d.ts || Date.now() });
       }
     }
   }
@@ -981,7 +1061,7 @@ export class MemoryStore {
 
     const discoveries = this._discoveryManager.getAllDiscoveries?.() || [];
     for (const d of discoveries) {
-      this.L1.syncTable.discoveries.set(d.id, {
+      this._L1.syncTable.discoveries.set(d.id, {
         id: d.id,
         status: d.status || "open",
         keywords: d.keywords || [],
@@ -1016,33 +1096,33 @@ export class MemoryStore {
       runId: this.runId,
       ts: new Date().toISOString(),
       config: deepClone(this.config),
-      L0: deepClone(this.L0),
+      L0: deepClone(this._L0),
       L1: {
-        messages: deepClone(this.L1.messages),
-        signals: deepClone(this.L1.signals),
-        decisions: deepClone(this.L1.decisions),
+        messages: deepClone(this._L1.messages),
+        signals: deepClone(this._L1.signals),
+        decisions: deepClone(this._L1.decisions),
         syncTable: {
-          discoveries: Array.from(this.L1.syncTable.discoveries.entries()),
-          subagents: Array.from(this.L1.syncTable.subagents.entries()),
+          discoveries: Array.from(this._L1.syncTable.discoveries.entries()),
+          subagents: Array.from(this._L1.syncTable.subagents.entries()),
         },
-        scratchpad: deepClone(this.L1.scratchpad || {}),
-        flags: { ...this.L1.flags },
+        scratchpad: deepClone(this._L1.scratchpad || {}),
+        flags: { ...this._L1.flags },
       },
       L2: {
-        historySummary: this.L2.historySummary,
-        stageSummaries: Array.from(this.L2.stageSummaries.entries()),
-        claims: deepClone(this.L2.claims),
+        historySummary: this._L2.historySummary,
+        stageSummaries: Array.from(this._L2.stageSummaries.entries()),
+        claims: deepClone(this._L2.claims),
       },
       ...(withL3
         ? {
             L3: {
-              snapshots: Array.from(this.L3.snapshots.entries()),
+              snapshots: Array.from(this._L3.snapshots.entries()),
               index: {
-                keywords: Array.from(this.L3.index.keywords.entries()).map(([k, set]) => [k, Array.from(set || [])]),
-                stages: Array.from(this.L3.index.stages.entries()),
-                timeline: deepClone(this.L3.index.timeline),
+                keywords: Array.from(this._L3.index.keywords.entries()).map(([k, set]) => [k, Array.from(set || [])]),
+                stages: Array.from(this._L3.index.stages.entries()),
+                timeline: deepClone(this._L3.index.timeline),
               },
-              checkpoints: deepClone(this.L3.checkpoints),
+              checkpoints: deepClone(this._L3.checkpoints),
             },
           }
         : {}),
@@ -1066,35 +1146,35 @@ export class MemoryStore {
     if (typeof s.runId === "string" && s.runId) this.runId = s.runId;
     if (s.config && typeof s.config === "object") this.config = { ...DEFAULT_CONFIG, ...s.config };
 
-    this.L0.systemPrompt = toNonEmptyString(l0.systemPrompt) || "";
-    this.L0.taskGoal = toNonEmptyString(l0.taskGoal) || "";
-    this.L0.todos = Array.isArray(l0.todos) ? deepClone(l0.todos) : [];
+    this._L0.systemPrompt = toNonEmptyString(l0.systemPrompt) || "";
+    this._L0.taskGoal = toNonEmptyString(l0.taskGoal) || "";
+    this._L0.todos = Array.isArray(l0.todos) ? deepClone(l0.todos) : [];
 
-    this.L1.messages = Array.isArray(l1.messages) ? deepClone(l1.messages) : [];
-    this.L1.signals = Array.isArray(l1.signals) ? deepClone(l1.signals) : [];
-    this.L1.decisions = Array.isArray(l1.decisions) ? deepClone(l1.decisions) : [];
+    this._L1.messages = Array.isArray(l1.messages) ? deepClone(l1.messages) : [];
+    this._L1.signals = Array.isArray(l1.signals) ? deepClone(l1.signals) : [];
+    this._L1.decisions = Array.isArray(l1.decisions) ? deepClone(l1.decisions) : [];
 
     const sync = l1.syncTable && typeof l1.syncTable === "object" ? l1.syncTable : {};
-    this.L1.syncTable.discoveries = new Map(Array.isArray(sync.discoveries) ? sync.discoveries : []);
-    this.L1.syncTable.subagents = new Map(Array.isArray(sync.subagents) ? sync.subagents : []);
+    this._L1.syncTable.discoveries = new Map(Array.isArray(sync.discoveries) ? sync.discoveries : []);
+    this._L1.syncTable.subagents = new Map(Array.isArray(sync.subagents) ? sync.subagents : []);
 
-    this.L1.scratchpad = isPlainObject(l1.scratchpad) ? deepClone(l1.scratchpad) : {};
-    this.L1.flags = isPlainObject(l1.flags) ? { ...this.L1.flags, ...l1.flags } : { ...this.L1.flags };
+    this._L1.scratchpad = isPlainObject(l1.scratchpad) ? deepClone(l1.scratchpad) : {};
+    this._L1.flags = isPlainObject(l1.flags) ? { ...this._L1.flags, ...l1.flags } : { ...this._L1.flags };
 
-    this.L2.historySummary = typeof l2.historySummary === "string" ? l2.historySummary : "";
-    this.L2.stageSummaries = new Map(Array.isArray(l2.stageSummaries) ? l2.stageSummaries : []);
-    this.L2.claims = Array.isArray(l2.claims) ? deepClone(l2.claims) : [];
+    this._L2.historySummary = typeof l2.historySummary === "string" ? l2.historySummary : "";
+    this._L2.stageSummaries = new Map(Array.isArray(l2.stageSummaries) ? l2.stageSummaries : []);
+    this._L2.claims = Array.isArray(l2.claims) ? deepClone(l2.claims) : [];
 
     if (s.L3 && typeof s.L3 === "object") {
       const l3 = s.L3;
-      this.L3.snapshots = new Map(Array.isArray(l3.snapshots) ? l3.snapshots : []);
+      this._L3.snapshots = new Map(Array.isArray(l3.snapshots) ? l3.snapshots : []);
       const index = l3.index && typeof l3.index === "object" ? l3.index : {};
-      this.L3.index.keywords = new Map(
+      this._L3.index.keywords = new Map(
         Array.isArray(index.keywords) ? index.keywords.map(([k, arr]) => [k, new Set(Array.isArray(arr) ? arr : [])]) : []
       );
-      this.L3.index.stages = new Map(Array.isArray(index.stages) ? index.stages : []);
-      this.L3.index.timeline = Array.isArray(index.timeline) ? deepClone(index.timeline) : [];
-      this.L3.checkpoints = Array.isArray(l3.checkpoints) ? deepClone(l3.checkpoints) : [];
+      this._L3.index.stages = new Map(Array.isArray(index.stages) ? index.stages : []);
+      this._L3.index.timeline = Array.isArray(index.timeline) ? deepClone(index.timeline) : [];
+      this._L3.checkpoints = Array.isArray(l3.checkpoints) ? deepClone(l3.checkpoints) : [];
     }
 
     if (s.stats && typeof s.stats === "object") {

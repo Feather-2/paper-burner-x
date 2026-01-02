@@ -310,6 +310,7 @@ export class ImageProvider {
     this.baseUrl = toNonEmptyString(opts.baseUrl);
     this.id = `image_${this.provider}`;
     this.name = opts.name || `Image (${this.provider})`;
+    this.capabilities = ["generate"];
   }
 
   /**
@@ -330,6 +331,22 @@ export class ImageProvider {
       ...opts,
     };
     return adapter(request, this.apiKey, mergedOpts);
+  }
+
+  /**
+   * Unified entrypoint for provider integrations.
+   * - call({type:"generate", request, opts}) -> generate(request, opts)
+   * - call(request, opts) -> generate(request, opts)
+   */
+  async call(input, opts = {}) {
+    const payload = isPlainObject(input) ? input : null;
+    const type = toNonEmptyString(payload?.type || payload?.capability || payload?.method) || "generate";
+    if (type === "generate" || type === "generateImage" || type === "image") {
+      const request = isPlainObject(payload?.request) ? payload.request : payload || {};
+      const extraOpts = isPlainObject(payload?.opts) ? payload.opts : opts;
+      return this.generate(request, extraOpts);
+    }
+    throw new Error(`ImageProvider.call(): unsupported type "${type}"`);
   }
 
   /**

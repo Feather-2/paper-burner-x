@@ -2,6 +2,7 @@ import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js"
 import { McpClient } from "./mcp-client.js";
 import { FallbackAdapter } from "../shared/archive/archive.js";
 import { safeJsonParse } from "../shared/utils/safe-json.js";
+import { canUseStorageEncryption, decryptString, encryptString, isEncryptedString } from "../shared/utils/storage-crypto.js";
 
 function isStorageLike(value) {
   return (
@@ -43,6 +44,18 @@ function keyOf(providerId, uri) {
 }
 
 const RESOURCES_CACHE_KEY = "pb_mcp_resources_cache_v1";
+
+const DEFAULT_ENCRYPTION_AAD = "paperburner:mcp-resource-cache:v1";
+
+function normalizeEncryptionConfig(input) {
+  const cfg = input && typeof input === "object" ? input : {};
+  const passphrase = toNonEmptyString(cfg.passphrase);
+  const enabled = Boolean(cfg.enabled ?? passphrase);
+  const required = Boolean(cfg.required);
+  const aad = toNonEmptyString(cfg.aad) || DEFAULT_ENCRYPTION_AAD;
+  const iterations = typeof cfg.iterations === "number" && Number.isFinite(cfg.iterations) ? Math.max(10_000, Math.floor(cfg.iterations)) : 100_000;
+  return { enabled, passphrase, required, aad, iterations };
+}
 
 function isAsyncStore(value) {
   return value !== null && typeof value === "object" && typeof value.get === "function" && typeof value.set === "function";
@@ -122,6 +135,7 @@ export class McpResourceManager {
     defaultTtlMs = 60_000,
     maxPersistBytes = 50_000,
     maxContentCacheEntries = 500,
+    encryption,
   } = {}) {
     this.client = client instanceof McpClient ? client : null;
     this.storage =
@@ -133,6 +147,14 @@ export class McpResourceManager {
     this.defaultTtlMs = normalizeTtlMs(defaultTtlMs, 60_000);
     this.maxPersistBytes = normalizeTtlMs(maxPersistBytes, 50_000);
     this.maxContentCacheEntries = normalizeCacheLimit(maxContentCacheEntries, 500);
+
+    const enc = normalizeEncryptionConfig(encryption);
+    if (enc.enabled && (!enc.passphrase || !canUseStorageEncryption())) {
+      if (enc.required) throw new Error("McpResourceManager: encryption is required but unavailable (missing passphrase or WebCrypto)");
+      this.encryption = { ...enc, enabled: false, available: canUseStorageEncryption() };
+    } else {
+      this.encryption = { ...enc, available: canUseStorageEncryption() };
+    }
 
     this._listCache = new Map(); // providerId -> { ts, ttlMs, resources }
     this._templatesCache = new Map(); // providerId -> { ts, ttlMs, templates }
@@ -181,7 +203,18 @@ export class McpResourceManager {
 
   async _hydratePersistedCache() {
     const raw = await storeGet(this.storage, RESOURCES_CACHE_KEY);
-    const parsed = typeof raw === "string" ? safeJsonParse(raw) : isPlainObject(raw) ? raw : null;
+    let parsed = null;
+    if (this.encryption?.enabled && typeof raw === "string" && isEncryptedString(raw)) {
+      try {
+        const text = await decryptString(raw, { passphrase: this.encryption.passphrase, aad: this.encryption.aad });
+        parsed = safeJsonParse(text);
+      } catch (err) {
+        if (this.encryption.required) throw err;
+        parsed = null;
+      }
+    } else {
+      parsed = typeof raw === "string" ? safeJsonParse(raw) : isPlainObject(raw) ? raw : null;
+    }
     if (!isPlainObject(parsed) || !isPlainObject(parsed.providers)) return;
 
     const now = Date.now();
@@ -250,6 +283,18 @@ export class McpResourceManager {
     }
 
     const payload = { schemaVersion: "0.1", ts: Date.now(), providers };
+    if (this.encryption?.enabled) {
+      const json = JSON.stringify(payload);
+      void encryptString(json, {
+        passphrase: this.encryption.passphrase,
+        aad: this.encryption.aad,
+        iterations: this.encryption.iterations,
+      })
+        .then((enc) => storeSetFireAndForget(store, RESOURCES_CACHE_KEY, enc))
+        .catch(() => {});
+      return true;
+    }
+
     const value = isStorageLike(store) ? JSON.stringify(payload) : payload;
     return storeSetFireAndForget(store, RESOURCES_CACHE_KEY, value);
   }

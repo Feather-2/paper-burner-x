@@ -62,7 +62,7 @@
 
 ### 3.10 数据安全：CORS 代理的泄露风险
 - **状态**: ✅ **已修复**
-- **发现**: 从 `LocalMcpProvider` 中移除了公共 CORS 代理。系统现在优先使用私有的 `workerEndpoint` 或 `proxyEndpoint`，并在日志中对敏感查询参数进行脱敏处理。
+- **发现**: 从 `LocalMcpProvider` 中移除了公共 CORS 代理。系统现在优先使用私有的 `workerEndpoint` 或 `proxyEndpoint`，并在日志中对敏感查询参数进行脱敏处理；代理请求会剥离 basic auth/hash，且默认拒绝代理带敏感 query 参数的 URL（可显式配置放行）。
 - **参考**: `js/agents/mcp/local-mcp-provider.js:422`, `js/agents/mcp/local-mcp-provider.js:63`
 
 ### 3.11 大规模 HTML 提取的内存压力

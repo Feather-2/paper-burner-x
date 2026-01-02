@@ -42,21 +42,6 @@ function parseNumberedHeading(line) {
   return { level, title: normalizeTitle(title) };
 }
 
-function iterLinesWithOffsets(text) {
-  const out = [];
-  let i = 0;
-  while (i <= text.length) {
-    const lineStart = i;
-    let lineEnd = text.indexOf("\n", i);
-    if (lineEnd === -1) lineEnd = text.length;
-    const line = text.slice(lineStart, lineEnd);
-    out.push({ line, lineStart, lineEnd });
-    i = lineEnd + 1;
-    if (lineEnd === text.length) break;
-  }
-  return out;
-}
-
 function computeSectionEnds(tocNodes, textLen) {
   for (let i = 0; i < tocNodes.length; i++) {
     const node = tocNodes[i];
@@ -117,12 +102,21 @@ export function buildToc(normalizedText, options = {}) {
   if (!isPlainObject(options)) throw new TypeError("buildToc(normalizedText, options): options must be an object");
 
   const text = normalizedText;
-  const lines = iterLinesWithOffsets(text);
   const tocNodes = [];
   let inCodeFence = false;
 
-  for (const { line, lineStart, lineEnd } of lines) {
-    const raw = line;
+  let lineStart = 0;
+
+  for (let i = 0; i <= text.length; i++) {
+    const isEnd = i === text.length;
+    const ch = isEnd ? "\n" : text[i];
+    if (ch !== "\n") continue;
+
+    const lineEnd = i;
+    const raw = text.slice(lineStart, lineEnd);
+    const charStart = lineStart;
+    lineStart = i + 1;
+
     const t = raw.trim();
     if (!t) continue;
 
@@ -157,7 +151,7 @@ export function buildToc(normalizedText, options = {}) {
       tocNodeId: `toc_${tocNodes.length + 1}`,
       title,
       level,
-      locator: { charStart: lineStart, charEnd: lineEnd },
+      locator: { charStart, charEnd: lineEnd },
     });
   }
 

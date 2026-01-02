@@ -323,25 +323,6 @@ export class UnifiedAgentContext {
     if (checkpoint.memory && this._memory) {
       if (typeof this._memory.fromSnapshot === "function") {
         this._memory.fromSnapshot(checkpoint.memory);
-      } else {
-        Object.assign(this._memory.L0, checkpoint.memory.L0 || {});
-        this._memory.L1.messages = checkpoint.memory.L1?.messages || [];
-        this._memory.L1.decisions = checkpoint.memory.L1?.decisions || [];
-        this._memory.L1.signals = checkpoint.memory.L1?.signals || [];
-        // 恢复 syncTable (Map 结构)
-        if (checkpoint.memory.L1?.syncTable) {
-          this._memory.L1.syncTable.discoveries = new Map(checkpoint.memory.L1.syncTable.discoveries || []);
-          this._memory.L1.syncTable.subagents = new Map(checkpoint.memory.L1.syncTable.subagents || []);
-        }
-        // 恢复 scratchpad 和 flags
-        this._memory.L1.scratchpad = checkpoint.memory.L1?.scratchpad || {};
-        this._memory.L1.flags = checkpoint.memory.L1?.flags || { awaitUserFeedback: false, taskImpossible: false };
-        this._memory.L2.historySummary = checkpoint.memory.L2?.historySummary || "";
-        this._memory.L2.claims = checkpoint.memory.L2?.claims || [];
-        // 恢复 stageSummaries (Map 结构)
-        if (checkpoint.memory.L2?.stageSummaries) {
-          this._memory.L2.stageSummaries = new Map(checkpoint.memory.L2.stageSummaries);
-        }
       }
     }
 

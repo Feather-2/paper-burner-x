@@ -4,11 +4,7 @@
  * 支持浏览器和 Node.js 环境
  */
 
-// 缓存已加载的提示词（LRU：避免长期运行内存无限增长）
-const promptCache = new Map();
-let promptCacheMaxEntries = 128;
 const PROMPT_CACHE_KEY_SEPARATOR = "::";
-let promptManifestCacheTtlMs = 300_000;
 
 function isNodeLike() {
   return typeof process !== "undefined" && !!process.versions?.node;
@@ -33,8 +29,6 @@ function resolvePromptCacheMaxEntries() {
   return 128;
 }
 
-promptCacheMaxEntries = resolvePromptCacheMaxEntries();
-
 function resolvePromptManifestCacheTtlMs() {
   const env = typeof process !== "undefined" ? process.env : null;
   const fromEnv = env?.PB_PROMPT_MANIFEST_CACHE_TTL_MS;
@@ -54,10 +48,7 @@ function resolvePromptManifestCacheTtlMs() {
   return 300_000;
 }
 
-promptManifestCacheTtlMs = resolvePromptManifestCacheTtlMs();
-
-function enforcePromptCacheLimit() {
-  const limit = promptCacheMaxEntries;
+function enforcePromptCacheLimit(promptCache, limit) {
   if (!Number.isFinite(limit) || limit <= 0) return;
   while (promptCache.size > limit) {
     const oldest = promptCache.keys().next().value;
@@ -65,7 +56,7 @@ function enforcePromptCacheLimit() {
   }
 }
 
-function lruGet(key) {
+function lruGet(promptCache, key) {
   if (!promptCache.has(key)) return undefined;
   const value = promptCache.get(key);
   // Refresh insertion order (Map iteration order) to approximate LRU.
@@ -74,10 +65,10 @@ function lruGet(key) {
   return value;
 }
 
-function lruSet(key, value) {
+function lruSet(promptCache, key, value, limit) {
   if (promptCache.has(key)) promptCache.delete(key);
   promptCache.set(key, value);
-  enforcePromptCacheLimit();
+  enforcePromptCacheLimit(promptCache, limit);
 }
 
 function makePromptCacheKey({ basePath, manifestUrl, promptKey }) {
@@ -87,23 +78,271 @@ function makePromptCacheKey({ basePath, manifestUrl, promptKey }) {
   return `${ns}${PROMPT_CACHE_KEY_SEPARATOR}${promptKey}`;
 }
 
+export class PromptLoader {
+  constructor({ maxEntries, manifestTtlMs, basePath, fetchImpl } = {}) {
+    this._promptCache = new Map();
+    this._promptCacheMaxEntries =
+      maxEntries !== undefined ? this._normalizeMaxEntries(maxEntries) : resolvePromptCacheMaxEntries();
+    this._promptManifestCacheTtlMs =
+      manifestTtlMs !== undefined ? this._normalizeManifestTtlMs(manifestTtlMs) : resolvePromptManifestCacheTtlMs();
+    this._manifestCacheByUrl = new Map(); // url -> { url, ts, byName: Map }
+    this._basePathOverride = toNonEmptyString(basePath) || null;
+    this._fetchImpl = typeof fetchImpl === "function" ? fetchImpl : null;
+  }
+
+  _normalizeMaxEntries(value) {
+    const parsed = parseInt(String(value), 10);
+    if (!Number.isFinite(parsed)) {
+      throw new Error("PromptLoader: maxEntries must be a finite integer");
+    }
+    return Math.max(0, parsed);
+  }
+
+  _normalizeManifestTtlMs(value) {
+    const parsed = parseInt(String(value), 10);
+    if (!Number.isFinite(parsed)) {
+      throw new Error("PromptLoader: manifestTtlMs must be a finite integer");
+    }
+    return Math.max(0, parsed);
+  }
+
+  configureCache({ maxEntries, manifestTtlMs } = {}) {
+    if (maxEntries !== undefined) {
+      this._promptCacheMaxEntries = this._normalizeMaxEntries(maxEntries);
+      enforcePromptCacheLimit(this._promptCache, this._promptCacheMaxEntries);
+    }
+    if (manifestTtlMs !== undefined) {
+      this._promptManifestCacheTtlMs = this._normalizeManifestTtlMs(manifestTtlMs);
+    }
+    return { maxEntries: this._promptCacheMaxEntries, manifestTtlMs: this._promptManifestCacheTtlMs, size: this._promptCache.size };
+  }
+
+  clearPromptCache(name) {
+    if (name) {
+      const suffix = `${PROMPT_CACHE_KEY_SEPARATOR}${String(name).replace(/\.md$/i, "")}`;
+      for (const k of Array.from(this._promptCache.keys())) {
+        if (String(k).endsWith(suffix)) this._promptCache.delete(k);
+      }
+      return;
+    }
+    this._promptCache.clear();
+  }
+
+  getCachedPromptNames() {
+    const names = new Set();
+    for (const k of this._promptCache.keys()) {
+      const s = String(k);
+      const idx = s.lastIndexOf(PROMPT_CACHE_KEY_SEPARATOR);
+      if (idx === -1) continue;
+      const name = s.slice(idx + PROMPT_CACHE_KEY_SEPARATOR.length);
+      if (name) names.add(name);
+    }
+    return Array.from(names.values());
+  }
+
+  _getFetch() {
+    if (this._fetchImpl) return this._fetchImpl;
+    return typeof fetch === "function" ? fetch : null;
+  }
+
+  async _fetchJson(url) {
+    const fetchFn = this._getFetch();
+    if (!fetchFn) throw new Error("fetch is not available in this environment");
+    const resp = await fetchFn(url, { cache: "no-store" });
+    if (!resp.ok) throw new Error(`Failed to fetch ${url}: ${resp.status}`);
+    return await resp.json();
+  }
+
+  async _loadPromptManifest(manifestUrl) {
+    if (isNodeLike()) return null;
+
+    const primary = resolveUrl(manifestUrl || DEFAULT_PROMPT_MANIFEST_URL);
+    const fallback = resolveUrl(DEFAULT_PROMPT_MANIFEST_URL_FALLBACK);
+    const candidates = [primary, fallback].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
+
+    const now = Date.now();
+    const cachedPrimary = this._manifestCacheByUrl.get(primary);
+    if (cachedPrimary && now - cachedPrimary.ts < this._promptManifestCacheTtlMs) return cachedPrimary;
+
+    for (const url of candidates) {
+      const cached = this._manifestCacheByUrl.get(url);
+      if (cached && now - cached.ts < this._promptManifestCacheTtlMs) return cached;
+      try {
+        const data = await this._fetchJson(url);
+        const list = Array.isArray(data?.prompts) ? data.prompts : Array.isArray(data?.files) ? data.files : [];
+        const byName = new Map();
+        for (const entry of list) {
+          const row = isPlainObject(entry) ? entry : null;
+          const name = toNonEmptyString(row?.name || row?.key);
+          const path = toNonEmptyString(row?.path || row?.file || row?.url);
+          if (!name || !path) continue;
+          byName.set(name.replace(/\.md$/i, ""), { name: name.replace(/\.md$/i, ""), path });
+        }
+        const manifest = { url, ts: now, byName };
+        this._manifestCacheByUrl.set(url, manifest);
+        return manifest;
+      } catch {
+        // continue
+      }
+    }
+
+    return null;
+  }
+
+  async _resolvePromptUrlFromManifest(key, { manifestUrl } = {}) {
+    const k = toNonEmptyString(key).replace(/\.md$/i, "");
+    if (!k) return "";
+    const manifest = await this._loadPromptManifest(manifestUrl);
+    if (!manifest) return "";
+
+    const entry = manifest.byName.get(k);
+    if (!entry) return "";
+
+    try {
+      const url = new URL(entry.path, manifest.url).toString();
+      return isSafeHttpUrl(url) ? url : "";
+    } catch {
+      return "";
+    }
+  }
+
+  async loadPrompt(name, { cache = true, manifestUrl } = {}) {
+    const key = String(name).replace(/\.md$/i, "");
+
+    if (!validateKey(key)) {
+      throw new Error(`Invalid prompt key: "${name}". Path traversal is forbidden.`);
+    }
+
+    const basePath = this._basePathOverride || getBasePath();
+    const cacheKey = makePromptCacheKey({ basePath, manifestUrl: resolveUrl(manifestUrl || ""), promptKey: key });
+
+    if (cache && this._promptCache.has(cacheKey)) {
+      return lruGet(this._promptCache, cacheKey);
+    }
+
+    let content;
+
+    // Browser/Worker - use fetch
+    if (!isNodeLike()) {
+      const manifestPath = await this._resolvePromptUrlFromManifest(key, { manifestUrl });
+      const filePath =
+        manifestPath ||
+        (() => {
+          try {
+            return new URL(`${key}.md`, basePath).toString();
+          } catch {
+            return `${String(basePath || "/")}${key}.md`.replace(/\/+/g, "/");
+          }
+        })();
+      try {
+        const fetchFn = this._getFetch();
+        if (!fetchFn) throw new Error("fetch is not available in this environment");
+        const resp = await fetchFn(filePath);
+        if (!resp.ok) {
+          throw new Error(`Failed to load prompt: ${filePath} (${resp.status})`);
+        }
+        content = await resp.text();
+      } catch (e) {
+        throw new Error(`Failed to load prompt "${name}": ${e.message}`);
+      }
+    }
+    // Node.js 环境 - 使用 fs
+    else {
+      try {
+        const fs = await import("fs/promises");
+        const pathModule = await import("path");
+
+        const baseResolved = pathModule.resolve(basePath);
+        const baseReal = await fs.realpath(baseResolved);
+        const candidatePath = pathModule.resolve(baseReal, `${key}.md`);
+        const candidateReal = await fs.realpath(candidatePath);
+        if (!isPathInsideBase(candidateReal, baseReal, pathModule)) {
+          throw new Error("Path security violation: resolved path is outside base directory");
+        }
+
+        content = await fs.readFile(candidateReal, "utf-8");
+      } catch (e) {
+        throw new Error(`Failed to load prompt "${name}": ${e.message}`);
+      }
+    }
+
+    const trimmed = content.trim();
+    if (cache) {
+      lruSet(this._promptCache, cacheKey, trimmed, this._promptCacheMaxEntries);
+    }
+    return trimmed;
+  }
+
+  loadPromptSync(name, { cache = true } = {}) {
+    const key = String(name).replace(/\.md$/i, "");
+
+    if (!validateKey(key)) {
+      throw new Error(`Invalid prompt key: "${name}". Path traversal is forbidden.`);
+    }
+
+    // 浏览器环境检查
+    if (typeof window !== "undefined") {
+      throw new Error("loadPromptSync is not supported in browser environment");
+    }
+
+    const basePath = this._basePathOverride || getBasePath();
+    const cacheKey = makePromptCacheKey({ basePath, manifestUrl: "", promptKey: key });
+    if (cache && this._promptCache.has(cacheKey)) {
+      return lruGet(this._promptCache, cacheKey);
+    }
+
+    const modules = getSyncNodeModules();
+    if (!modules) {
+      throw new Error(
+        "loadPromptSync failed: Sync file access is unavailable in this environment (likely native ESM without require shim). Use async loadPrompt instead."
+      );
+    }
+
+    try {
+      const { fs, path } = modules;
+
+      const baseResolved = path.resolve(basePath);
+      const baseReal = fs.realpathSync(baseResolved);
+      const candidatePath = path.resolve(baseReal, `${key}.md`);
+      const candidateReal = fs.realpathSync(candidatePath);
+      if (!isPathInsideBase(candidateReal, baseReal, path)) {
+        throw new Error("Path security violation: resolved path is outside base directory");
+      }
+
+      const content = fs.readFileSync(candidateReal, "utf-8").trim();
+
+      if (cache) {
+        lruSet(this._promptCache, cacheKey, content, this._promptCacheMaxEntries);
+      }
+      return content;
+    } catch (e) {
+      throw new Error(`Failed to load prompt "${name}": ${e.message}`);
+    }
+  }
+
+  async preloadPrompts(names) {
+    const list = Array.isArray(names) ? names : [];
+    const results = await Promise.all(
+      list.map(async (name) => {
+        try {
+          const content = await this.loadPrompt(name);
+          return [name, content];
+        } catch (e) {
+          if (typeof console !== "undefined" && typeof console.warn === "function") {
+            console.warn(`[prompt-loader] Failed to preload "${name}":`, e.message);
+          }
+          return [name, null];
+        }
+      })
+    );
+    return new Map(results.filter(([, v]) => v !== null));
+  }
+}
+
+const _defaultPromptLoader = new PromptLoader();
+
 export function configurePromptCache({ maxEntries, manifestTtlMs } = {}) {
-  if (maxEntries !== undefined) {
-    const parsed = parseInt(String(maxEntries), 10);
-    if (!Number.isFinite(parsed)) {
-      throw new Error("configurePromptCache({ maxEntries }): maxEntries must be a finite integer");
-    }
-    promptCacheMaxEntries = Math.max(0, parsed);
-    enforcePromptCacheLimit();
-  }
-  if (manifestTtlMs !== undefined) {
-    const parsed = parseInt(String(manifestTtlMs), 10);
-    if (!Number.isFinite(parsed)) {
-      throw new Error("configurePromptCache({ manifestTtlMs }): manifestTtlMs must be a finite integer");
-    }
-    promptManifestCacheTtlMs = Math.max(0, parsed);
-  }
-  return { maxEntries: promptCacheMaxEntries, manifestTtlMs: promptManifestCacheTtlMs, size: promptCache.size };
+  return _defaultPromptLoader.configureCache({ maxEntries, manifestTtlMs });
 }
 
 /**
@@ -162,7 +401,6 @@ function validateKey(key) {
 // - We ship `public/prompts/manifest.json` + prompt markdown under `public/prompts/**`.
 const DEFAULT_PROMPT_MANIFEST_URL = "prompts/manifest.json";
 const DEFAULT_PROMPT_MANIFEST_URL_FALLBACK = "public/prompts/manifest.json";
-const _promptManifestCacheByUrl = new Map(); // url -> { url, ts, byName: Map<string,{name,path}> }
 
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -206,66 +444,6 @@ function escapeTemplateDelimiters(value) {
   return s.replaceAll("{{", `{\u200B{`).replaceAll("}}", `}\u200B}`);
 }
 
-async function fetchJson(url) {
-  if (typeof fetch !== "function") throw new Error("fetch is not available in this environment");
-  const resp = await fetch(url, { cache: "no-store" });
-  if (!resp.ok) throw new Error(`Failed to fetch ${url}: ${resp.status}`);
-  return await resp.json();
-}
-
-async function loadPromptManifest(manifestUrl) {
-  if (isNodeLike()) return null;
-
-  const primary = resolveUrl(manifestUrl || DEFAULT_PROMPT_MANIFEST_URL);
-  const fallback = resolveUrl(DEFAULT_PROMPT_MANIFEST_URL_FALLBACK);
-  const candidates = [primary, fallback].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
-
-  const now = Date.now();
-  const cachedPrimary = _promptManifestCacheByUrl.get(primary);
-  if (cachedPrimary && now - cachedPrimary.ts < promptManifestCacheTtlMs) return cachedPrimary;
-
-  for (const url of candidates) {
-    const cached = _promptManifestCacheByUrl.get(url);
-    if (cached && now - cached.ts < promptManifestCacheTtlMs) return cached;
-    try {
-      const data = await fetchJson(url);
-      const list = Array.isArray(data?.prompts) ? data.prompts : Array.isArray(data?.files) ? data.files : [];
-      const byName = new Map();
-      for (const entry of list) {
-        const row = isPlainObject(entry) ? entry : null;
-        const name = toNonEmptyString(row?.name || row?.key);
-        const path = toNonEmptyString(row?.path || row?.file || row?.url);
-        if (!name || !path) continue;
-        byName.set(name.replace(/\.md$/i, ""), { name: name.replace(/\.md$/i, ""), path });
-      }
-      const manifest = { url, ts: now, byName };
-      _promptManifestCacheByUrl.set(url, manifest);
-      return manifest;
-    } catch {
-      // continue
-    }
-  }
-
-  return null;
-}
-
-async function resolvePromptUrlFromManifest(key, { manifestUrl } = {}) {
-  const k = toNonEmptyString(key).replace(/\.md$/i, "");
-  if (!k) return "";
-  const manifest = await loadPromptManifest(manifestUrl);
-  if (!manifest) return "";
-
-  const entry = manifest.byName.get(k);
-  if (!entry) return "";
-
-  try {
-    const url = new URL(entry.path, manifest.url).toString();
-    return isSafeHttpUrl(url) ? url : "";
-  } catch {
-    return "";
-  }
-}
-
 /**
  * 异步加载提示词文件
  * @param {string} name - 提示词名称，如 "dsl/ppt-html-dsl" (不需要 .md 后缀)
@@ -275,68 +453,7 @@ async function resolvePromptUrlFromManifest(key, { manifestUrl } = {}) {
  * @returns {Promise<string>} 提示词内容
  */
 export async function loadPrompt(name, { cache = true, manifestUrl } = {}) {
-  const key = String(name).replace(/\.md$/i, "");
-
-  if (!validateKey(key)) {
-    throw new Error(`Invalid prompt key: "${name}". Path traversal is forbidden.`);
-  }
-
-  const basePath = getBasePath();
-  const cacheKey = makePromptCacheKey({ basePath, manifestUrl: resolveUrl(manifestUrl || ""), promptKey: key });
-
-  if (cache && promptCache.has(cacheKey)) {
-    return lruGet(cacheKey);
-  }
-
-  let content;
-
-  // Browser/Worker - use fetch
-  if (!isNodeLike()) {
-    const manifestPath = await resolvePromptUrlFromManifest(key, { manifestUrl });
-    const filePath =
-      manifestPath ||
-      (() => {
-        try {
-          return new URL(`${key}.md`, basePath).toString();
-        } catch {
-          return `${String(basePath || "/")}${key}.md`.replace(/\/+/g, "/");
-        }
-      })();
-    try {
-      const resp = await fetch(filePath);
-      if (!resp.ok) {
-        throw new Error(`Failed to load prompt: ${filePath} (${resp.status})`);
-      }
-      content = await resp.text();
-    } catch (e) {
-      throw new Error(`Failed to load prompt "${name}": ${e.message}`);
-    }
-  }
-  // Node.js 环境 - 使用 fs
-  else {
-    try {
-      const fs = await import("fs/promises");
-      const pathModule = await import("path");
-
-      const baseResolved = pathModule.resolve(basePath);
-      const baseReal = await fs.realpath(baseResolved);
-      const candidatePath = pathModule.resolve(baseReal, `${key}.md`);
-      const candidateReal = await fs.realpath(candidatePath);
-      if (!isPathInsideBase(candidateReal, baseReal, pathModule)) {
-        throw new Error("Path security violation: resolved path is outside base directory");
-      }
-
-      content = await fs.readFile(candidateReal, "utf-8");
-    } catch (e) {
-      throw new Error(`Failed to load prompt "${name}": ${e.message}`);
-    }
-  }
-
-  const trimmed = content.trim();
-  if (cache) {
-    lruSet(cacheKey, trimmed);
-  }
-  return trimmed;
+  return _defaultPromptLoader.loadPrompt(name, { cache, manifestUrl });
 }
 
 /**
@@ -367,47 +484,7 @@ function getSyncNodeModules() {
  * @returns {string} 提示词内容
  */
 export function loadPromptSync(name, { cache = true } = {}) {
-  const key = String(name).replace(/\.md$/i, "");
-
-  if (!validateKey(key)) {
-    throw new Error(`Invalid prompt key: "${name}". Path traversal is forbidden.`);
-  }
-
-  if (cache && promptCache.has(key)) {
-    return lruGet(key);
-  }
-
-  // 浏览器环境检查
-  if (typeof window !== "undefined") {
-    throw new Error("loadPromptSync is not supported in browser environment");
-  }
-
-  const modules = getSyncNodeModules();
-  if (!modules) {
-    throw new Error("loadPromptSync failed: Sync file access is unavailable in this environment (likely native ESM without require shim). Use async loadPrompt instead.");
-  }
-
-  try {
-    const { fs, path } = modules;
-    const basePath = getBasePath();
-
-    const baseResolved = path.resolve(basePath);
-    const baseReal = fs.realpathSync(baseResolved);
-    const candidatePath = path.resolve(baseReal, `${key}.md`);
-    const candidateReal = fs.realpathSync(candidatePath);
-    if (!isPathInsideBase(candidateReal, baseReal, path)) {
-      throw new Error("Path security violation: resolved path is outside base directory");
-    }
-
-    const content = fs.readFileSync(candidateReal, "utf-8").trim();
-
-    if (cache) {
-      lruSet(key, content);
-    }
-    return content;
-  } catch (e) {
-    throw new Error(`Failed to load prompt "${name}": ${e.message}`);
-  }
+  return _defaultPromptLoader.loadPromptSync(name, { cache });
 }
 
 /**
@@ -416,18 +493,7 @@ export function loadPromptSync(name, { cache = true } = {}) {
  * @returns {Promise<Map<string, string>>} 名称到内容的映射
  */
 export async function preloadPrompts(names) {
-  const results = await Promise.all(
-    names.map(async (name) => {
-      try {
-        const content = await loadPrompt(name);
-        return [name, content];
-      } catch (e) {
-        console.warn(`[prompt-loader] Failed to preload "${name}":`, e.message);
-        return [name, null];
-      }
-    })
-  );
-  return new Map(results.filter(([, v]) => v !== null));
+  return _defaultPromptLoader.preloadPrompts(names);
 }
 
 /**
@@ -435,14 +501,7 @@ export async function preloadPrompts(names) {
  * @param {string} name - 可选，指定要清除的提示词名称；不传则清除全部
  */
 export function clearPromptCache(name) {
-  if (name) {
-    const suffix = `${PROMPT_CACHE_KEY_SEPARATOR}${String(name).replace(/\.md$/i, "")}`;
-    for (const k of Array.from(promptCache.keys())) {
-      if (String(k).endsWith(suffix)) promptCache.delete(k);
-    }
-  } else {
-    promptCache.clear();
-  }
+  _defaultPromptLoader.clearPromptCache(name);
 }
 
 /**
@@ -450,15 +509,7 @@ export function clearPromptCache(name) {
  * @returns {string[]}
  */
 export function getCachedPromptNames() {
-  const names = new Set();
-  for (const k of promptCache.keys()) {
-    const s = String(k);
-    const idx = s.lastIndexOf(PROMPT_CACHE_KEY_SEPARATOR);
-    if (idx === -1) continue;
-    const name = s.slice(idx + PROMPT_CACHE_KEY_SEPARATOR.length);
-    if (name) names.add(name);
-  }
-  return Array.from(names.values());
+  return _defaultPromptLoader.getCachedPromptNames();
 }
 
 function escapeRegExp(s) {

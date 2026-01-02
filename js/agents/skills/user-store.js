@@ -121,33 +121,127 @@ function idbDelete(db, key) {
 }
 
 import { safeJsonParse } from "../shared/utils/safe-json.js";
+import { canUseStorageEncryption, decryptString, encryptString, isEncryptedString } from "../shared/utils/storage-crypto.js";
+
+const DEFAULT_ENCRYPTION_AAD = "paperburner:user-skills:v1";
+let _encryptionConfig = {
+  enabled: false,
+  passphrase: "",
+  required: false,
+  aad: DEFAULT_ENCRYPTION_AAD,
+  iterations: 100_000,
+};
+
+function normalizeEncryptionConfig(input) {
+  const cfg = input && typeof input === "object" ? input : {};
+  const passphrase = toNonEmptyString(cfg.passphrase);
+  const enabled = Boolean(cfg.enabled ?? passphrase);
+  const required = Boolean(cfg.required);
+  const aad = toNonEmptyString(cfg.aad) || DEFAULT_ENCRYPTION_AAD;
+  const iterations = typeof cfg.iterations === "number" && Number.isFinite(cfg.iterations) ? Math.max(10_000, Math.floor(cfg.iterations)) : 100_000;
+  return { enabled, passphrase, required, aad, iterations };
+}
+
+export function configureUserSkillStoreEncryption(options = {}) {
+  const next = normalizeEncryptionConfig(options);
+  if (next.enabled && !next.passphrase) {
+    if (next.required) throw new Error("UserSkillStore encryption is required but passphrase is missing");
+    _encryptionConfig = { ...next, enabled: false };
+    return { ..._encryptionConfig, available: canUseStorageEncryption() };
+  }
+  if (next.enabled && !canUseStorageEncryption()) {
+    if (next.required) throw new Error("UserSkillStore encryption is required but WebCrypto is unavailable");
+    _encryptionConfig = { ...next, enabled: false };
+    return { ..._encryptionConfig, available: false };
+  }
+  _encryptionConfig = next;
+  return { ..._encryptionConfig, available: canUseStorageEncryption() };
+}
+
+async function decryptIfNeeded(value) {
+  const cfg = _encryptionConfig;
+  if (!cfg.enabled) return value;
+  const raw = typeof value === "string" ? value : value === null || value === undefined ? "" : String(value);
+  if (!isEncryptedString(raw)) return value;
+  return await decryptString(raw, { passphrase: cfg.passphrase, aad: cfg.aad });
+}
+
+async function encryptIfNeeded(plaintext) {
+  const cfg = _encryptionConfig;
+  if (!cfg.enabled) return plaintext;
+  return await encryptString(typeof plaintext === "string" ? plaintext : String(plaintext ?? ""), {
+    passphrase: cfg.passphrase,
+    aad: cfg.aad,
+    iterations: cfg.iterations,
+  });
+}
 
 async function migrateLocalStorageToIndexedDB(db) {
   if (!db || !hasLocalStorage()) return false;
   const rawIndex = localStorage.getItem(INDEX_KEY);
   if (!rawIndex) return false;
-  const parsedIndex = safeJsonParse(rawIndex);
-  const normalized = normalizeIndex(parsedIndex);
-  if (!normalized.skills.length) return false;
+  const indexEncrypted = isEncryptedString(rawIndex);
+  let normalized = null;
+
+  if (indexEncrypted && _encryptionConfig.enabled) {
+    try {
+      const plaintext = await decryptString(rawIndex, { passphrase: _encryptionConfig.passphrase, aad: _encryptionConfig.aad });
+      normalized = normalizeIndex(safeJsonParse(plaintext));
+    } catch (err) {
+      if (_encryptionConfig.required) throw err;
+      normalized = null;
+    }
+  } else if (!indexEncrypted) {
+    normalized = normalizeIndex(safeJsonParse(rawIndex));
+  }
+
+  // If we can parse the index, only migrate referenced bodies.
+  // Otherwise, migrate all BODY_PREFIX keys so encrypted indexes can still be recovered later.
+  const bodyKeys = [];
+  if (normalized && Array.isArray(normalized.skills) && normalized.skills.length) {
+    for (const s of normalized.skills) {
+      const name = toNonEmptyString(s?.name);
+      if (!name) continue;
+      bodyKeys.push(BODY_PREFIX + name);
+    }
+  } else {
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && String(k).startsWith(BODY_PREFIX)) bodyKeys.push(String(k));
+      }
+    } catch {
+      // ignore
+    }
+  }
 
   // Persist index + bodies into IndexedDB.
-  await idbSet(db, INDEX_KEY, normalized);
-  for (const s of normalized.skills) {
-    const name = toNonEmptyString(s?.name);
-    if (!name) continue;
-    const body = localStorage.getItem(BODY_PREFIX + name);
-    if (typeof body === "string") {
-      await idbSet(db, BODY_PREFIX + name, body);
+  if (_encryptionConfig.enabled) {
+    if (indexEncrypted) {
+      await idbSet(db, INDEX_KEY, rawIndex);
+    } else {
+      const encIndex = await encryptIfNeeded(JSON.stringify(normalized || { schemaVersion: "0.1", skills: [] }));
+      await idbSet(db, INDEX_KEY, encIndex);
+    }
+  } else {
+    await idbSet(db, INDEX_KEY, indexEncrypted ? rawIndex : normalized || { schemaVersion: "0.1", skills: [] });
+  }
+
+  for (const key of bodyKeys) {
+    const body = localStorage.getItem(key);
+    if (typeof body !== "string") continue;
+    if (_encryptionConfig.enabled) {
+      const payload = isEncryptedString(body) ? body : await encryptIfNeeded(body);
+      await idbSet(db, key, payload);
+    } else {
+      await idbSet(db, key, body);
     }
   }
 
   // Best-effort cleanup (avoid 5MB localStorage ceiling).
   try {
     localStorage.removeItem(INDEX_KEY);
-    for (const s of normalized.skills) {
-      const name = toNonEmptyString(s?.name);
-      if (name) localStorage.removeItem(BODY_PREFIX + name);
-    }
+    for (const key of bodyKeys) localStorage.removeItem(key);
   } catch {
     // ignore
   }
@@ -155,8 +249,61 @@ async function migrateLocalStorageToIndexedDB(db) {
   return true;
 }
 
+async function hydrateFromLocalStorage() {
+  if (!hasLocalStorage()) return { ok: true, mode: "memory" };
+
+  try {
+    const rawIndex = localStorage.getItem(INDEX_KEY);
+    const indexText = rawIndex ? await decryptIfNeeded(rawIndex) : null;
+    const parsedIndex = typeof indexText === "string" ? safeJsonParse(indexText) : null;
+    const normalized = normalizeIndex(parsedIndex);
+    MEMORY.index = normalized;
+
+    MEMORY.bodies.clear();
+    await Promise.all(
+      normalized.skills.map(async (s) => {
+        const name = toNonEmptyString(s?.name);
+        if (!name) return;
+        const rawBody = localStorage.getItem(BODY_PREFIX + name);
+        const bodyText = rawBody ? await decryptIfNeeded(rawBody) : "";
+        if (typeof bodyText === "string") MEMORY.bodies.set(name, bodyText);
+      })
+    );
+
+    return { ok: true, mode: "localstorage", count: normalized.skills.length };
+  } catch (err) {
+    if (_encryptionConfig.required) throw err;
+    return { ok: false, mode: "memory" };
+  }
+}
+
 export async function initUserSkillStore({ forceReload = false } = {}) {
+  // Optional: initUserSkillStore({ encryption: { passphrase, ... } })
+  try {
+    const enc = arguments.length ? arguments[0]?.encryption : null;
+    if (enc && typeof enc === "object") configureUserSkillStoreEncryption(enc);
+  } catch {
+    // ignore
+  }
+
   if (!shouldUseIndexedDB()) {
+    if (!isNodeLike() && hasLocalStorage() && _encryptionConfig.enabled) {
+      if (_initDone && !forceReload) return { ok: true, mode: "localstorage" };
+      if (_initPromise) return _initPromise;
+
+      _initPromise = (async () => {
+        const outcome = await hydrateFromLocalStorage();
+        _initDone = true;
+        return outcome;
+      })()
+        .catch(() => ({ ok: false, mode: "memory" }))
+        .finally(() => {
+          _initPromise = null;
+        });
+
+      return _initPromise;
+    }
+
     _initDone = true;
     return { ok: true, mode: "memory" };
   }
@@ -176,7 +323,9 @@ export async function initUserSkillStore({ forceReload = false } = {}) {
     if (!existing) await migrateLocalStorageToIndexedDB(db);
 
     const indexRaw = await idbGet(db, INDEX_KEY);
-    const normalized = normalizeIndex(indexRaw);
+    const indexValue = await decryptIfNeeded(indexRaw);
+    const parsedIndex = typeof indexValue === "string" ? safeJsonParse(indexValue) : indexValue;
+    const normalized = normalizeIndex(parsedIndex);
     MEMORY.index = normalized;
 
     // Hydrate bodies into memory for sync reads (best-effort).
@@ -185,7 +334,8 @@ export async function initUserSkillStore({ forceReload = false } = {}) {
       normalized.skills.map(async (s) => {
         const name = toNonEmptyString(s?.name);
         if (!name) return;
-        const body = await idbGet(db, BODY_PREFIX + name);
+        const bodyRaw = await idbGet(db, BODY_PREFIX + name);
+        const body = await decryptIfNeeded(bodyRaw);
         if (typeof body === "string") MEMORY.bodies.set(name, body);
       })
     );
@@ -211,6 +361,10 @@ export function loadUserSkillsIndex() {
     if (!_initDone) void initUserSkillStore().catch(() => {});
     return normalizeIndex(MEMORY.index);
   }
+  if (_encryptionConfig.enabled) {
+    if (!_initDone) void initUserSkillStore().catch(() => {});
+    return normalizeIndex(MEMORY.index);
+  }
   if (!hasLocalStorage()) return normalizeIndex(MEMORY.index);
   const raw = localStorage.getItem(INDEX_KEY);
   if (!raw) return { schemaVersion: "0.1", skills: [] };
@@ -223,7 +377,16 @@ export function saveUserSkillsIndex(index) {
   MEMORY.index = normalized;
 
   if (shouldUseIndexedDB()) {
-    void openUserSkillsDb().then((db) => idbSet(db, INDEX_KEY, normalized)).catch(() => {});
+    if (_encryptionConfig.enabled) {
+      void (async () => {
+        const db = await openUserSkillsDb();
+        if (!db) return;
+        const enc = await encryptIfNeeded(JSON.stringify(normalized));
+        await idbSet(db, INDEX_KEY, enc);
+      })().catch(() => {});
+    } else {
+      void openUserSkillsDb().then((db) => idbSet(db, INDEX_KEY, normalized)).catch(() => {});
+    }
     return true;
   }
 
@@ -231,7 +394,19 @@ export function saveUserSkillsIndex(index) {
     MEMORY.index = normalized;
     return true;
   }
-  localStorage.setItem(INDEX_KEY, JSON.stringify(normalized));
+  if (_encryptionConfig.enabled) {
+    void encryptIfNeeded(JSON.stringify(normalized))
+      .then((enc) => {
+        try {
+          localStorage.setItem(INDEX_KEY, enc);
+        } catch {
+          // ignore
+        }
+      })
+      .catch(() => {});
+  } else {
+    localStorage.setItem(INDEX_KEY, JSON.stringify(normalized));
+  }
   return true;
 }
 
@@ -239,6 +414,10 @@ export function getUserSkillBody(name) {
   const id = toNonEmptyString(name);
   if (!id) return "";
   if (shouldUseIndexedDB()) {
+    if (!_initDone) void initUserSkillStore().catch(() => {});
+    return String(MEMORY.bodies.get(id) || "");
+  }
+  if (_encryptionConfig.enabled) {
     if (!_initDone) void initUserSkillStore().catch(() => {});
     return String(MEMORY.bodies.get(id) || "");
   }
@@ -253,7 +432,16 @@ export function setUserSkillBody(name, body) {
   MEMORY.bodies.set(id, text);
 
   if (shouldUseIndexedDB()) {
-    void openUserSkillsDb().then((db) => idbSet(db, BODY_PREFIX + id, text)).catch(() => {});
+    if (_encryptionConfig.enabled) {
+      void (async () => {
+        const db = await openUserSkillsDb();
+        if (!db) return;
+        const enc = await encryptIfNeeded(text);
+        await idbSet(db, BODY_PREFIX + id, enc);
+      })().catch(() => {});
+    } else {
+      void openUserSkillsDb().then((db) => idbSet(db, BODY_PREFIX + id, text)).catch(() => {});
+    }
     return true;
   }
 
@@ -261,7 +449,19 @@ export function setUserSkillBody(name, body) {
     MEMORY.bodies.set(id, text);
     return true;
   }
-  localStorage.setItem(BODY_PREFIX + id, text);
+  if (_encryptionConfig.enabled) {
+    void encryptIfNeeded(text)
+      .then((enc) => {
+        try {
+          localStorage.setItem(BODY_PREFIX + id, enc);
+        } catch {
+          // ignore
+        }
+      })
+      .catch(() => {});
+  } else {
+    localStorage.setItem(BODY_PREFIX + id, text);
+  }
   return true;
 }
 
@@ -341,6 +541,7 @@ export function clearUserSkills() {
 }
 
 export default {
+  configureUserSkillStoreEncryption,
   initUserSkillStore,
   listUserSkills,
   loadUserSkillsIndex,

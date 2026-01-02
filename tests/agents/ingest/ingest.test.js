@@ -33,6 +33,26 @@ test("AssetManager: dedup by hash + per-doc refs", async () => {
   assert.deepEqual(m.getAssetIdsForDoc("d2"), [id1]);
 });
 
+test("AssetManager: hash collision stores distinct assets", async () => {
+  const { AssetManager } = await import("../../../js/agents/ingest/asset-manager.js");
+  const m = new AssetManager();
+
+  // Force a sampling-hash collision by keeping the sampled slices identical and mutating
+  // a character outside computeAssetHash()'s sampling windows.
+  const payloadLen = 6000;
+  const data1 = `data:image/png;base64,${"A".repeat(payloadLen)}`;
+  const mutateAt = 3000; // outside 0..512, 1/3±256, 2/3±256, and last-512 windows
+  const data2 = data1.slice(0, mutateAt) + "B" + data1.slice(mutateAt + 1);
+
+  const id1 = m.addAsset({ docId: "d1", type: "image", data: data1, mimeType: "image/png", source: "extracted", reusable: true });
+  const id2 = m.addAsset({ docId: "d1", type: "image", data: data2, mimeType: "image/png", source: "extracted", reusable: true });
+
+  assert.notEqual(id1, id2);
+  assert.equal(m.count(), 2);
+  assert.ok(m.getAsset(id1));
+  assert.ok(m.getAsset(id2));
+});
+
 test("MarkdownAdapter: parses path string + file-like object", async () => {
   const { MarkdownAdapter } = await import("../../../js/agents/ingest/adapters/markdown.js");
 
@@ -156,4 +176,3 @@ test("IngestStage: dispatches rawTexts/historyIds/files + aggregates assets/erro
     assert.equal(names.filter((n) => n === "ingest.doc.failed").length, 2);
   });
 });
-

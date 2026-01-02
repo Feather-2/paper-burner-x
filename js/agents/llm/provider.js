@@ -84,9 +84,16 @@ export class BaseProvider {
   constructor({ id, name } = {}) {
     this.id = toNonEmptyString(id) || "provider_unknown";
     this.name = toNonEmptyString(name) || this.id;
+    this.capabilities = ["chat"];
   }
 
   async chat(_input) {
     throw new Error("BaseProvider.chat() not implemented");
+  }
+
+  // Unified entrypoint for provider integrations.
+  // Text providers treat call() as an alias for chat().
+  async call(input) {
+    return this.chat(input);
   }
 }

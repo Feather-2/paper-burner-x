@@ -486,6 +486,61 @@ test("LocalMcpProvider: proxy failure redacts basic auth and hash fragments in e
   );
 });
 
+test("LocalMcpProvider: proxy request strips basic auth + hash fragments", async () => {
+  const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
+
+  const fetchMock = createFetchMock();
+  fetchMock.when((url) => url.startsWith("https://p1/?"), async () => {
+    throw new Error("p1");
+  });
+
+  const provider = new LocalMcpProvider({
+    corsProxies: ["https://p1/?"],
+    fetchImpl: fetchMock,
+    proxyCooldownMs: 0,
+  });
+
+  await assert.rejects(
+    () =>
+      provider._fetchWithCorsFallback("https://user:pass@target.example/page?x=1#access_token=xyz", {
+        timeoutMs: 50,
+        tryDirect: false,
+      }),
+    () => true
+  );
+
+  assert.equal(fetchMock.calls.length, 1);
+  const called = String(fetchMock.calls[0].url);
+  assert.equal(called.includes("user:pass"), false);
+  assert.equal(called.includes("#"), false);
+  assert.equal(called.includes("access_token"), false);
+});
+
+test("LocalMcpProvider: refuses to proxy URLs with sensitive query params by default", async () => {
+  const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
+
+  const fetchMock = createFetchMock();
+  fetchMock.when((url) => url.startsWith("https://p1/?"), async () => {
+    throw new Error("p1");
+  });
+
+  const provider = new LocalMcpProvider({
+    corsProxies: ["https://p1/?"],
+    fetchImpl: fetchMock,
+    proxyCooldownMs: 0,
+  });
+
+  await assert.rejects(
+    () => provider._fetchWithCorsFallback("https://target.example/page?token=abc&x=1", { timeoutMs: 50, tryDirect: false }),
+    (err) => {
+      assert.ok(err instanceof AggregateError);
+      return true;
+    }
+  );
+
+  assert.equal(fetchMock.calls.length, 0);
+});
+
 test("LocalMcpProvider: last-good proxy is preferred on next request", async () => {
   const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
 

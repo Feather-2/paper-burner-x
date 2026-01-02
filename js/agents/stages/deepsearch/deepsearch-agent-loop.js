@@ -734,13 +734,13 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
             role: m.role,
             content: typeof m.content === "string" ? m.content.slice(0, 500) : JSON.stringify(m.content).slice(0, 500),
           }));
-          this.memory.L1.messages.push(...simplifiedNew);
+          this.memory.addMessages?.(simplifiedNew);
           this._lastSyncedMessageCount = this._messages.length;
         }
 
         // 同步 state.todos 到 MemoryStore
         if (Array.isArray(this.state?.todos)) {
-          this.memory.L0.todos = this.state.todos.map(t => {
+          const todos = this.state.todos.map(t => {
             const content = t.text || t.content || "";
             if (!content) {
               this._logger.warn(`Todo ${t.todoId || t.id} has no text/content`);
@@ -753,11 +753,12 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
               ts: t.ts || Date.now(),
             };
           });
+          this.memory.replaceTodos?.(todos);
         }
 
         // 同步 state.L1.claims 到 MemoryStore
         if (Array.isArray(this.state?.L1?.claims)) {
-          this.memory.L2.claims = this.state.L1.claims;
+          this.memory.replaceClaims?.(this.state.L1.claims);
         }
 
         // 打印 MemoryStore 状态

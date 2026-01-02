@@ -2,6 +2,23 @@ function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
 }
 
+function normalizeLimit(value, fallback) {
+  if (value === Infinity) return Infinity;
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.floor(n);
+}
+
+function normalizeIndexLimits(options = {}) {
+  const opts = isPlainObject(options) ? options : {};
+  return {
+    maxTokensPerDoc: normalizeLimit(opts.maxTokensPerDoc, 10_000),
+    maxUniqueTerms: normalizeLimit(opts.maxUniqueTerms, 50_000),
+    maxPostingsPerTerm: normalizeLimit(opts.maxPostingsPerTerm, 10_000),
+    maxTermLength: normalizeLimit(opts.maxTermLength, 64),
+  };
+}
+
 const STOPWORDS = new Set([
   "a",
   "an",
@@ -255,6 +272,7 @@ export function buildIndex(chunks, options = {}) {
 
   const k1 = Number.isFinite(options.k1) ? options.k1 : 1.2;
   const b = Number.isFinite(options.b) ? options.b : 0.75;
+  const limits = normalizeIndexLimits(options);
 
   const chunkIds = [];
   const docLens = new Array(chunks.length);
@@ -268,19 +286,30 @@ export function buildIndex(chunks, options = {}) {
     const chunkId = c && c.chunkId ? String(c.chunkId) : `chunk_${di + 1}`;
     chunkIds.push(chunkId);
 
-    const tokens = tokenize(c && c.text);
+    let tokens = tokenize(c && c.text);
+    if (limits.maxTokensPerDoc !== Infinity && tokens.length > limits.maxTokensPerDoc) {
+      tokens = tokens.slice(0, limits.maxTokensPerDoc);
+    }
     const docLen = tokens.length;
     docLens[di] = docLen;
     totalLen += docLen;
 
     const tf = new Map();
-    for (const t of tokens) tf.set(t, (tf.get(t) || 0) + 1);
+    for (const t of tokens) {
+      if (limits.maxTermLength !== Infinity && t.length > limits.maxTermLength) continue;
+      tf.set(t, (tf.get(t) || 0) + 1);
+    }
 
     for (const [term, freq] of tf.entries()) {
-      df.set(term, (df.get(term) || 0) + 1);
+      if (!df.has(term) && limits.maxUniqueTerms !== Infinity && df.size >= limits.maxUniqueTerms) continue;
       const list = postings.get(term);
-      if (list) list.push([di, freq]);
-      else postings.set(term, [[di, freq]]);
+      if (list) {
+        if (limits.maxPostingsPerTerm !== Infinity && list.length >= limits.maxPostingsPerTerm) continue;
+        list.push([di, freq]);
+      } else {
+        postings.set(term, [[di, freq]]);
+      }
+      df.set(term, (df.get(term) || 0) + 1);
     }
   }
 
@@ -318,6 +347,7 @@ export async function buildIndexAsync(chunks, options = {}) {
 
   const k1 = Number.isFinite(options.k1) ? options.k1 : 1.2;
   const b = Number.isFinite(options.b) ? options.b : 0.75;
+  const limits = normalizeIndexLimits(options);
 
   const chunkIds = [];
   const docLens = new Array(chunks.length);
@@ -334,19 +364,30 @@ export async function buildIndexAsync(chunks, options = {}) {
     const chunkId = c && c.chunkId ? String(c.chunkId) : `chunk_${di + 1}`;
     chunkIds.push(chunkId);
 
-    const tokens = tokenize(c && c.text);
+    let tokens = tokenize(c && c.text);
+    if (limits.maxTokensPerDoc !== Infinity && tokens.length > limits.maxTokensPerDoc) {
+      tokens = tokens.slice(0, limits.maxTokensPerDoc);
+    }
     const docLen = tokens.length;
     docLens[di] = docLen;
     totalLen += docLen;
 
     const tf = new Map();
-    for (const t of tokens) tf.set(t, (tf.get(t) || 0) + 1);
+    for (const t of tokens) {
+      if (limits.maxTermLength !== Infinity && t.length > limits.maxTermLength) continue;
+      tf.set(t, (tf.get(t) || 0) + 1);
+    }
 
     for (const [term, freq] of tf.entries()) {
-      df.set(term, (df.get(term) || 0) + 1);
+      if (!df.has(term) && limits.maxUniqueTerms !== Infinity && df.size >= limits.maxUniqueTerms) continue;
       const list = postings.get(term);
-      if (list) list.push([di, freq]);
-      else postings.set(term, [[di, freq]]);
+      if (list) {
+        if (limits.maxPostingsPerTerm !== Infinity && list.length >= limits.maxPostingsPerTerm) continue;
+        list.push([di, freq]);
+      } else {
+        postings.set(term, [[di, freq]]);
+      }
+      df.set(term, (df.get(term) || 0) + 1);
     }
   }
 

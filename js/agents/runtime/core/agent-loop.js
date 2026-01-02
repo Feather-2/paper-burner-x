@@ -31,7 +31,16 @@ function estimateTokens(text, tokenCounter) {
       // fall back below
     }
   }
-  const rawText = typeof text === "string" ? text : JSON.stringify(text);
+  let rawText = "";
+  if (typeof text === "string") {
+    rawText = text;
+  } else {
+    try {
+      rawText = JSON.stringify(text);
+    } catch {
+      rawText = String(text);
+    }
+  }
   return estimateTokenCount(rawText);
 }
 

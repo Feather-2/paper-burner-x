@@ -42,7 +42,9 @@ function warnUseSkillDeprecatedOnce() {
     didWarnUseSkillDeprecated = true;
 
     if (typeof console !== "undefined" && typeof console.warn === "function") {
-        console.warn("useSkill is deprecated, use useCapability instead");
+        console.warn(
+            "useSkill/useSkills are deprecated since 1.0.0 and will be removed in 2.0.0; use useCapability/useCapabilities instead (see docs/DEPRECATIONS.md)."
+        );
     }
 }
 

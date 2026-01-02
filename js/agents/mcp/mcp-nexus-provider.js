@@ -12,6 +12,25 @@ function toNonEmptyString(v) {
   return s.length ? s : undefined;
 }
 
+function cryptoRandomInt(maxExclusive) {
+  const max = typeof maxExclusive === "number" && Number.isFinite(maxExclusive) ? Math.floor(maxExclusive) : Number(maxExclusive);
+  if (!Number.isFinite(max) || max <= 0) return 0;
+
+  try {
+    const crypto = globalThis.crypto;
+    if (crypto && typeof crypto.getRandomValues === "function") {
+      const buf = new Uint32Array(1);
+      crypto.getRandomValues(buf);
+      return buf[0] % max;
+    }
+  } catch {
+    // ignore
+  }
+
+  // Fallback: best-effort deterministic jitter when WebCrypto RNG is unavailable.
+  return Date.now() % max;
+}
+
 function normalizeBaseUrl(endpoint) {
   const raw = toNonEmptyString(endpoint);
   if (!raw) return null;
@@ -441,7 +460,7 @@ export class McpNexusProvider extends McpProvider {
       const base = this._sseReconnectBaseMs;
       const max = this._sseReconnectMaxMs;
       const ms = Math.min(max, base * Math.pow(2, exp));
-      const jitter = Math.floor(Math.random() * 200);
+      const jitter = cryptoRandomInt(200);
       return ms + jitter;
     };
 

@@ -104,6 +104,34 @@ function redactUrlForLog(rawUrl) {
   }
 }
 
+function inspectUrlForProxy(rawUrl) {
+  const url = toNonEmptyString(rawUrl);
+  if (!url) return { safeUrl: "", hadCredentials: false, hadHash: false, sensitiveQueryKeys: [] };
+
+  try {
+    const u = new URL(url);
+
+    const hadCredentials = Boolean(u.username || u.password);
+    if (hadCredentials) {
+      u.username = "";
+      u.password = "";
+    }
+
+    const hadHash = Boolean(u.hash);
+    if (u.hash) u.hash = "";
+
+    const sensitiveQueryKeys = [];
+    for (const key of u.searchParams.keys()) {
+      if (isSensitiveQueryParamKey(key)) sensitiveQueryKeys.push(String(key).toLowerCase());
+    }
+
+    const unique = Array.from(new Set(sensitiveQueryKeys));
+    return { safeUrl: u.toString(), hadCredentials, hadHash, sensitiveQueryKeys: unique };
+  } catch {
+    return { safeUrl: url, hadCredentials: false, hadHash: false, sensitiveQueryKeys: [] };
+  }
+}
+
 function isIpv4Host(hostname) {
   const h = String(hostname || "").trim();
   const parts = h.split(".");
@@ -665,6 +693,7 @@ export class LocalMcpProvider extends McpProvider {
     proxyCooldownMs = 60_000,
     proxyMaxCooldownMs = 15 * 60_000,
     allowPrivateNetwork = false,
+    allowSensitiveUrlProxying = false,
     defaultTimeoutMs = 15000,
     searchTimeoutMs = 20_000, // 搜索可能分页/多次请求，但避免长时间阻塞
     maxResults = 10,
@@ -690,6 +719,7 @@ export class LocalMcpProvider extends McpProvider {
     if (typeof this._fetch !== "function") throw new Error("LocalMcpProvider requires global fetch or fetchImpl");
 
     this.allowPrivateNetwork = allowPrivateNetwork === true;
+    this.allowSensitiveUrlProxying = allowSensitiveUrlProxying === true;
 
     this.proxyCooldownMs = Math.max(0, safeInt(requireFiniteNumber(proxyCooldownMs, "proxyCooldownMs"), 60_000));
     this.proxyMaxCooldownMs = Math.max(this.proxyCooldownMs, safeInt(requireFiniteNumber(proxyMaxCooldownMs, "proxyMaxCooldownMs"), 15 * 60_000));
@@ -876,9 +906,19 @@ export class LocalMcpProvider extends McpProvider {
     const candidates = this._filterCorsProxyCooldown(this._buildCorsProxyCandidates({ tryDirect }));
     const errors = [];
     const redactedUrl = redactUrlForLog(url);
+    const proxyUrl = inspectUrlForProxy(url);
 
     for (const proxy of candidates) {
-      const targetUrl = proxy ? `${proxy}${encodeURIComponent(url)}` : url;
+      if (proxy && !this.allowSensitiveUrlProxying && proxyUrl.sensitiveQueryKeys.length) {
+        errors.push(
+          new Error(
+            `Refusing to proxy sensitive URL (query params: ${proxyUrl.sensitiveQueryKeys.join(", ") || "unknown"})`
+          )
+        );
+        continue;
+      }
+
+      const targetUrl = proxy ? `${proxy}${encodeURIComponent(proxyUrl.safeUrl || url)}` : url;
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 

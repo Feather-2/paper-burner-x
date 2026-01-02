@@ -3,6 +3,7 @@ import { getDslRules } from "../dsl/dsl-rules.js";
 import { SlideStatus, VisualSlotStatus, slideStatusMachine } from "../states.js";
 import { normalizeRenderType } from "../../../shared/utils/value-utils.js";
 import { safeJsonParse } from "../../../shared/utils/safe-json.js";
+import { parseTagAttributes } from "../shared/html-parser.js";
 
 const MAX_LINKED_FILE_CHARS = 1200;
 const isBrowser = typeof window !== "undefined" && typeof window.document !== "undefined";
@@ -27,14 +28,6 @@ function toNonEmptyString(value) {
   if (value === undefined || value === null) return "";
   const s = String(value).trim();
   return s.length ? s : "";
-}
-
-function parseTagAttributes(tag) {
-  const attrs = {};
-  const re = /\b([a-zA-Z0-9_:-]+)\s*=\s*(["'])(.*?)\2/g;
-  let m;
-  while ((m = re.exec(tag))) attrs[m[1]] = m[3];
-  return attrs;
 }
 
 async function readLinkedFiles(linkedFiles = []) {

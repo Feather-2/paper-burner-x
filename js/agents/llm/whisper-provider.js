@@ -225,6 +225,7 @@ export class WhisperProvider {
     this.baseUrl = toNonEmptyString(opts.baseUrl);
     this.id = `whisper_${this.provider}`;
     this.name = opts.name || `Whisper (${this.provider})`;
+    this.capabilities = ["transcribe"];
   }
 
   /**
@@ -253,6 +254,22 @@ export class WhisperProvider {
     };
 
     return adapter(file, this.apiKey, mergedOpts);
+  }
+
+  /**
+   * Unified entrypoint for provider integrations.
+   * - call({type:"transcribe", file, opts}) -> transcribe(file, opts)
+   * - call(file, opts) -> transcribe(file, opts)
+   */
+  async call(input, opts = {}) {
+    const payload = isPlainObject(input) ? input : null;
+    const type = toNonEmptyString(payload?.type || payload?.capability || payload?.method) || "transcribe";
+    if (type === "transcribe" || type === "transcribeAudio" || type === "audio") {
+      const file = payload?.file || payload?.blob || input;
+      const extraOpts = isPlainObject(payload?.opts) ? payload.opts : opts;
+      return this.transcribe(file, extraOpts);
+    }
+    throw new Error(`WhisperProvider.call(): unsupported type "${type}"`);
   }
 
   /**

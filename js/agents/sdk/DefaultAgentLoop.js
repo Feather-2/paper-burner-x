@@ -1,5 +1,6 @@
 import { BaseAgentLoop } from "../runtime/core/agent-loop.js";
 import { robustParseJson } from "../shared/utils/robust-json.js";
+import { createDefaultMiddlewareChain } from "../runtime/middleware/middleware-chain.js";
 
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -136,6 +137,11 @@ export class DefaultAgentLoop extends BaseAgentLoop {
     this.maxIterations = Math.max(1, safeInt(opts.maxIterations, 8));
     this.maxToolResultChars = Math.max(1000, safeInt(opts.maxToolResultChars, 8000));
     this.usage = toNonEmptyString(opts.usage) || "worker";
+
+    // Default (no-op) middleware chain to avoid dead-code and keep integration points available.
+    // Callers can inject their own chain via opts.middlewareChain or stageApi.middlewareChain.
+    this._middlewareChain =
+      opts.middlewareChain && typeof opts.middlewareChain.execute === "function" ? opts.middlewareChain : createDefaultMiddlewareChain({});
   }
 
   _buildSystemPrompt() {
@@ -172,13 +178,34 @@ export class DefaultAgentLoop extends BaseAgentLoop {
 
     const toolExecutor = typeof api.toolExecutor === "function" ? api.toolExecutor : this.toolExecutor;
     const callModel = resolveModelCaller(api, { usage: this.usage });
+    const middlewareChain =
+      api.middlewareChain && typeof api.middlewareChain.execute === "function" ? api.middlewareChain : this._middlewareChain;
+
+    const emit =
+      typeof api.emit === "function"
+        ? api.emit
+        : this.eventBus && typeof this.eventBus.emit === "function"
+          ? (event, payload) => this.eventBus.emit(event, payload)
+          : null;
+
+    const baseCtx = { ...api, signal, emit, logger: api.logger ?? this.logger, actor: this.actor, stageName: this.stageName };
+
+    const runWithMiddleware = async (stepName, handler, extra = {}) => {
+      const ctx = { ...baseCtx, ...extra, stepName, phase: stepName, state: api.state ?? {}, messages: this.messages };
+      if (middlewareChain && typeof middlewareChain.execute === "function") {
+        return middlewareChain.execute(ctx, () => handler(ctx));
+      }
+      return handler(ctx);
+    };
 
     // Direct tool invocation mode (no LLM required).
     const requestedTool = toNonEmptyString(input?.tool || input?.capability || input?.action);
     if (requestedTool && toolExecutor) {
       const args = isPlainObject(input?.args) ? input.args : isPlainObject(input?.params) ? input.params : {};
-      const ctx = { ...api, signal, state: api.state ?? {} };
-      const result = await toolExecutor(requestedTool, args, ctx);
+      const result = await runWithMiddleware(`tool:${requestedTool}`, (ctx) => toolExecutor(requestedTool, args, ctx), {
+        tool: requestedTool,
+        args,
+      });
       return { success: true, mode: "tool", tool: requestedTool, result };
     }
 
@@ -211,7 +238,11 @@ export class DefaultAgentLoop extends BaseAgentLoop {
       if (signal?.aborted) throw new Error("Run cancelled");
       await this.flushCompression?.();
 
-      const resp = await callModel(this.messages, { signal });
+      const resp = await runWithMiddleware(
+        "callModel",
+        (ctx) => callModel(Array.isArray(ctx.messages) ? ctx.messages : this.messages, { signal: ctx.signal }),
+        { messages: this.messages }
+      );
       const content = extractContent(resp);
       this.addMessage({ role: "assistant", content });
 
@@ -241,8 +272,7 @@ export class DefaultAgentLoop extends BaseAgentLoop {
         }
 
         const args = isPlainObject(step.args) ? step.args : {};
-        const ctx = { ...api, signal, state: api.state ?? {} };
-        const result = await toolExecutor(action, args, ctx);
+        const result = await runWithMiddleware(`tool:${action}`, (ctx) => toolExecutor(action, args, ctx), { tool: action, args });
         toolCalls.push({ action, args, result });
         didTool = true;
 
@@ -262,4 +292,3 @@ export class DefaultAgentLoop extends BaseAgentLoop {
 }
 
 export default DefaultAgentLoop;
-
