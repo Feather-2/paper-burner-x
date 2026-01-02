@@ -1,8 +1,8 @@
 # js/agents 重构落地进度审计报告 (Phase 1 → Phase 3)
 
 > **审计人**：Linus Torvalds (Agent Mode)
-> **当前进度**：约 95% (Phase 3 完成，长期优化仅剩 VFS/Retrieval 微调)
-> **状态**：P0/P1/Medium-term 全部完成 / Long-term Optimization Pending
+> **当前进度**：约 98% (Phase 3 完成，仅剩 VFS 扫描架构重构)
+> **状态**：P0/P1/Medium-term 全部完成 / Long-term VFS 待重构
 
 ---
 
@@ -74,23 +74,24 @@
 - **修复**：`gapOnlyStreak`/`noProgressStreak` 跟踪边际收益，注入收敛提示（上限/停滞警告）。
 - **代码证据**：`stages/deepsearch/deepsearch-agent-loop.js:146-153`（策略配置）、`:697-713`（跟踪）、`:932-969`（注入）
 
+### 2.9 Retrieval fail-fast 校验 ✅ 已实现 (Phase 3)
+- **修复**：`schema-validator.js` 轻量校验器 + `tool-chain.js` 集成结构化错误响应。
+- **代码证据**：`shared/utils/schema-validator.js`、`retrieval/tool-chain.js:421-484`
+
 ---
 
 ## 3. 依然存在的"长期优化" (Remaining Long-term Work)
 
-### 3.1 全面 Worker 化（剩余部分）
-- **现状**：diff、compression、glob pattern matching 已可选 Worker；VFS 扫描仍在主线程。
-- **指令**：参照 compression-async 模式，继续迁移正则扫描任务。
-
-### 3.2 Retrieval chain fail-fast
-- **现状**：已补输入规范化和扫描上限，但仍缺严格 schema 校验。
-- **指令**：引入 Zod 或类似库做逐步验证。
+### 3.1 VFS 扫描 Worker 化
+- **现状**：diff、compression、glob pattern matching 已可选 Worker；VFS 文件列表扫描仍在主线程。
+- **指令**：需要重构 VFS API 为消息传递架构，支持 Worker 端 listFiles/walkFiles。
+- **复杂度**：高（涉及 OPFS/Memory/Node 三套后端）
 
 ---
 
 ## 4. Linus 的 Phase 3 评语
 
-> "中期架构演进已经落地：跨 Agent 数据检疫、检索缓存、压缩 Worker 化、HNSW 近似索引、Gap 收敛策略。系统的工程成熟度从'原型'跨入了'工业级'的门槛。剩下的只是边角打磨，不再是救火。"
+> "审计清单几乎全绿：跨 Agent 数据检疫、检索缓存、压缩 Worker 化、HNSW 近似索引、Gap 收敛策略、Retrieval fail-fast 校验。剩下唯一红点是 VFS 扫描的 Worker 化，但那是架构重构，不是救火。系统已进入'工业级'门槛。"
 
 ---
 *更新时间：2026-01-03*

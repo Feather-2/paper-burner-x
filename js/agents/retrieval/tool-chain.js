@@ -10,9 +10,16 @@
  * - glob 结果缓存（避免重复文件扫描）
  * - 超时控制（单次调用≤200ms）
  * - 自动降级策略
+ * - Fail-fast schema 校验
  */
 
 import { grepChunks, grepChunksAsync } from "./grep.js";
+import {
+  validateChunks,
+  validateSearchQuery,
+  ValidationErrorCode,
+  createValidationError,
+} from "../shared/utils/schema-validator.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -412,50 +419,68 @@ async function strategyGrepOnly(chunks, { keywords = [] }, tools = {}) {
  * @returns {Promise<{results: Array, stats: object, strategy: string, fallbackReason?: string}>}
  */
 export async function search(chunks, query = {}, tools = {}) {
-  if (!Array.isArray(chunks)) {
-    throw new TypeError("search(chunks, query, tools): chunks must be an array");
-  }
-  if (!isPlainObject(query)) {
-    throw new TypeError("search(chunks, query, tools): query must be an object");
+  // Fail-fast: schema validation
+  const chunksValidation = validateChunks(chunks, { allowEmpty: false, maxErrors: 5 });
+  if (!chunksValidation.ok) {
+    return createValidationError(
+      ValidationErrorCode.INVALID_CHUNKS,
+      "Invalid chunks structure",
+      { errors: chunksValidation.errors }
+    );
   }
 
-  const strategy = normalizeToolChainStrategy(query.strategy) || ToolChainStrategy.AUTO;
-  const patterns = Array.isArray(query.patterns) ? query.patterns.map(toNonEmptyString).filter(Boolean) : [];
-  const keywords = Array.isArray(query.keywords) ? query.keywords.map(toNonEmptyString).filter(Boolean) : [];
+  const queryValidation = validateSearchQuery(query);
+  if (!queryValidation.ok) {
+    return createValidationError(
+      ValidationErrorCode.INVALID_QUERY,
+      "Invalid query structure",
+      { errors: queryValidation.errors }
+    );
+  }
+
+  const validatedChunks = chunksValidation.value;
+  const { strategy: rawStrategy, patterns, keywords } = queryValidation.value;
+
+  const strategy = normalizeToolChainStrategy(rawStrategy) || ToolChainStrategy.AUTO;
 
   if (keywords.length === 0) {
-    return { results: [], stats: {}, strategy: "none", fallbackReason: "no_keywords" };
+    return createValidationError(
+      ValidationErrorCode.NO_KEYWORDS,
+      "No keywords provided",
+      { strategy: "none" }
+    );
   }
 
   let result;
 
   // 策略选择
   if (strategy === ToolChainStrategy.GREP_ONLY) {
-    result = await strategyGrepOnly(chunks, { keywords }, tools);
-    return { ...result, strategy: "grep-only" };
+    result = await strategyGrepOnly(validatedChunks, { keywords }, tools);
+    return { ...result, strategy: "grep-only", ok: true };
   }
 
   // glob-then-grep 需要有 patterns 才有意义，否则降级到 grep-only
   if ((strategy === ToolChainStrategy.GLOB_THEN_GREP || strategy === ToolChainStrategy.AUTO) && patterns.length > 0) {
-    result = await strategyGlobThenGrep(chunks, { patterns, keywords }, tools);
+    result = await strategyGlobThenGrep(validatedChunks, { patterns, keywords }, tools);
 
     // 如果 glob-then-grep 失败，降级到 grep-only
     if (result.fallbackReason) {
-      const fallbackResult = await strategyGrepOnly(chunks, { keywords }, tools);
+      const fallbackResult = await strategyGrepOnly(validatedChunks, { keywords }, tools);
       return {
         ...fallbackResult,
+        ok: true,
         strategy: ToolChainStrategy.GREP_ONLY,
         originalStrategy: ToolChainStrategy.GLOB_THEN_GREP,
         fallbackReason: result.fallbackReason,
       };
     }
 
-    return { ...result, strategy: ToolChainStrategy.GLOB_THEN_GREP };
+    return { ...result, strategy: ToolChainStrategy.GLOB_THEN_GREP, ok: true };
   }
 
   // 默认：grep-only
-  result = await strategyGrepOnly(chunks, { keywords }, tools);
-  return { ...result, strategy: ToolChainStrategy.GREP_ONLY };
+  result = await strategyGrepOnly(validatedChunks, { keywords }, tools);
+  return { ...result, strategy: ToolChainStrategy.GREP_ONLY, ok: true };
 }
 
 /**

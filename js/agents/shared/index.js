@@ -16,6 +16,16 @@ export { createLogger, trackToolCall } from "./utils/logger.js";
 export { Deque } from "./utils/deque.js";
 export { safeJsonParse } from "./utils/safe-json.js";
 export { extractJsonCandidate, stripThinkingTags } from "./utils/json-candidate.js";
+export {
+  validateChunk,
+  validateChunks,
+  validateGlobResult,
+  validateGrepMatch,
+  validateGrepResults,
+  validateSearchQuery,
+  ValidationErrorCode,
+  createValidationError,
+} from "./utils/schema-validator.js";
 
 // Storage & Resilience
 export {

@@ -31,10 +31,10 @@
 - ✅ **Compression Worker 化**：`compression.worker.js` + `compression-async.js` 将 SESSION_HISTORY 压缩移至 Worker
 - ✅ **HNSW-Lite 向量索引**：`HnswLiteIndex` 基于 LSH 的近似最近邻，替代 O(N) 暴力扫描
 - ✅ **DeepSearch Gap 收敛**：`gapOnlyStreak`/`noProgressStreak` 边际收益检测 + 收敛提示注入
+- ✅ **Retrieval fail-fast 校验**：`schema-validator.js` 轻量校验器 + `tool-chain.js` 集成结构化错误响应
 
 ### 待实现 (Long Term)
-- ⚠️ **VFS 主线程重计算**：diff/compression 已可选 Worker；glob/scan 有扫描上限但仍在主线程
-- ⚠️ **Retrieval chain fail-fast**：已补输入规范化，仍缺严格 schema 校验
+- ⚠️ **VFS 主线程重计算**：diff/compression 已可选 Worker；glob pattern matching 已 Worker 化，VFS 扫描层需架构重构
 
 ## 1. 核心架构审计 (Executive Summary)
 

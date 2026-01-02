@@ -164,9 +164,10 @@ test("ToolChain: no keywords returns empty results", async () => {
 
   const result = await search(chunks, { strategy: "grep-only", keywords: [] }, {});
 
-  assert.equal(result.strategy, "none");
+  // New structure: fail-fast validation error
+  assert.equal(result.ok, false);
+  assert.equal(result.error?.code, "NO_KEYWORDS");
   assert.equal(result.results.length, 0);
-  assert.equal(result.fallbackReason, "no_keywords");
 });
 
 test("ToolChain: regex support", async () => {
