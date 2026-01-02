@@ -100,6 +100,9 @@ function extFromMime(mimeType) {
   return "png";
 }
 
+const TRANSPARENT_PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7W7WQAAAAASUVORK5CYII=";
+
 function extractEmbeddedDataUriImagesFromMarkdown(markdown, { idPrefix, startIndex = 0 } = {}) {
   let md = String(markdown || "");
   const extracted = [];
@@ -174,20 +177,27 @@ export class DocxAdapter extends BaseAdapter {
     const warnings = [];
     let imageCounter = 0;
 
-    const convertImageImpl = (image) =>
-      image
+    const convertImageImpl = (image) => {
+      imageCounter += 1;
+      const imageIndex = imageCounter;
+      const mime = toNonEmptyString(image?.contentType) || "unknown";
+      const ext = extFromMime(mime);
+      const filename = `docx_img_${imageIndex}.${ext}`;
+
+      return image
         .read("base64")
         .then((base64) => {
-          imageCounter += 1;
-          const ext = extFromMime(image?.contentType);
-          const filename = `docx_img_${imageCounter}.${ext}`;
           docxImages.push({ id: filename, data: base64 });
           return { src: `images/${filename}` };
         })
         .catch((e) => {
-          warnings.push(e instanceof Error ? e.message : String(e));
-          return { src: "" };
+          const msg = e instanceof Error ? e.message : String(e);
+          warnings.push(`image#${imageIndex} (${mime}): ${msg}`);
+          const placeholder = `docx_img_${imageIndex}.png`;
+          docxImages.push({ id: placeholder, data: TRANSPARENT_PNG_BASE64, placeholder: true });
+          return { src: `images/${placeholder}` };
         });
+    };
 
     const convertImage = mammoth?.images?.imgElement ? mammoth.images.imgElement(convertImageImpl) : convertImageImpl;
 
