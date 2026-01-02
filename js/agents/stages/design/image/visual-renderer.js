@@ -4,6 +4,7 @@ import { AssetResolver } from "./asset-resolver.js";
 import { RenderType, EventStatus, SlotPriority, SlotPurpose, VisualHeuristics } from "../constants.js";
 import { DesignEvents } from "../../../runtime/events/events.js";
 import { normalizeRenderType } from "../../../shared/utils/value-utils.js";
+import { makeSecureTimestampedId } from "../../../shared/utils/secure-id.js";
 
 function nowMs() {
   return Date.now();
@@ -122,7 +123,7 @@ export class VisualRenderer {
   async render(visualSlots, contentPackage, designSystem, options = {}) {
     const t0 = nowMs();
     const emit = typeof options?.emit === "function" ? options.emit : null;
-    const runId = toNonEmptyString(options?.runId) || toNonEmptyString(contentPackage?.runId) || `run_${Math.random().toString(16).slice(2)}`;
+    const runId = toNonEmptyString(options?.runId) || toNonEmptyString(contentPackage?.runId) || makeSecureTimestampedId("run");
 
     const slotsRaw = Array.isArray(visualSlots) ? visualSlots : [];
     const slots = slotsRaw

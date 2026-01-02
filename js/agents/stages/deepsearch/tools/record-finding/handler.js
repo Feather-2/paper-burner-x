@@ -5,6 +5,8 @@
  * 自动同步到 SharedContext 供子代理/主代理共享
  */
 
+import { makeSecureTimestampedId } from "../../../../shared/utils/secure-id.js";
+
 export const definition = {
   name: "record-finding",
   description: `记录研究发现（支持批量）。用于记录 claims（论点）、gaps（信息缺口）、conflicts（矛盾点）。
@@ -76,7 +78,7 @@ function processSingleFinding(item, context) {
   }
 
   const finding = {
-    id: `${type}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    id: makeSecureTimestampedId(type),
     type,
     content: trimmedContent,
     source: source || null,

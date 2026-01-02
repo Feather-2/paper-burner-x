@@ -8,6 +8,7 @@
  */
 
 import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
+import { makeSecureTimestampedId } from "../shared/utils/secure-id.js";
 
 export const DiscoveryStatus = Object.freeze({
     OPEN: "open",           // 初始状态
@@ -48,7 +49,7 @@ export class DiscoveryManager {
     addEvidence(discoveryId, evidence) {
         if (!this.sharedContext) return;
 
-        const evidenceId = `ev_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`;
+        const evidenceId = makeSecureTimestampedId("ev");
         this.sharedContext.store(evidenceId, {
             discoveryId,
             ...evidence,

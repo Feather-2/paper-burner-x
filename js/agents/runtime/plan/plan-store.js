@@ -1,4 +1,5 @@
 import { StepStatus, isValidStepStatus } from "../core/agent-status.js";
+import { makeSecureTimestampedId } from "../../shared/utils/secure-id.js";
 
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -17,7 +18,7 @@ function toIso(timestamp) {
 }
 
 function generatePlanId() {
-  return `plan_${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 10)}`;
+  return makeSecureTimestampedId("plan");
 }
 
 export const PLAN_SCHEMA_VERSION = "0.1";

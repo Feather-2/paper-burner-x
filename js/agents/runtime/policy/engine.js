@@ -1,4 +1,5 @@
 import { matchAnyWildcard, matchAnyGlob } from "./match.js";
+import { makeSecureTimestampedId } from "../../shared/utils/secure-id.js";
 
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -135,7 +136,7 @@ function matchTimeRange(timeRange, request) {
 
 function normalizeRule(rule) {
   const r = rule && typeof rule === "object" ? rule : {};
-  const ruleId = toNonEmptyString(r.ruleId || r.id) || `rule_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const ruleId = toNonEmptyString(r.ruleId || r.id) || makeSecureTimestampedId("rule");
   const effect = normalizeEffect(r.effect);
   const types = normalizeTypeList(r.type ?? r.types);
   const tool = r.tool ?? r.toolPattern ?? null;

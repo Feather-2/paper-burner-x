@@ -1,6 +1,7 @@
 import { computeSha256 } from "../../storage/artifact-manager.js";
 import { PolicyEngine } from "./engine.js";
 import { PolicyRuleStore } from "./store.js";
+import { makeSecureTimestampedId } from "../../shared/utils/secure-id.js";
 
 function isNodeLike() {
   return typeof process !== "undefined" && !!process.versions?.node;
@@ -32,7 +33,7 @@ function defaultDeriveRuleFromRequest(req) {
   const tool = toNonEmptyString(req?.tool);
   const resource = toNonEmptyString(req?.resource);
   const rule = {
-    ruleId: `rule_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    ruleId: makeSecureTimestampedId("rule"),
     effect: "allow",
     type,
     ...(tool ? { tool: tool } : {}),
@@ -145,7 +146,7 @@ export class PolicyManager {
 
     const req = request && typeof request === "object" ? { ...request } : {};
     req.schemaVersion = "0.1";
-    req.requestId = toNonEmptyString(req.requestId) || `polreq_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    req.requestId = toNonEmptyString(req.requestId) || makeSecureTimestampedId("polreq");
     req.ts = toNonEmptyString(req.ts) || new Date().toISOString();
 
     const type = toNonEmptyString(req.type);
@@ -224,4 +225,3 @@ export class PolicyManager {
 }
 
 export default PolicyManager;
-

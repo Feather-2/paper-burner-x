@@ -10,6 +10,7 @@ import { globalSubagentRegistry } from "../../../../sdk/SubagentRegistry.js";
 // 确保子代理已注册
 import "../../subagents.js";
 import SourceManager from "../../source-manager.js";
+import { makeSecureTimestampedId } from "../../../../shared/utils/secure-id.js";
 
 function toPositiveInt(value, fallback) {
   const n = Number.parseInt(String(value ?? ""), 10);
@@ -186,7 +187,7 @@ export async function handler(args, context) {
   }
 
   // 生成任务 ID
-  const taskId = `task_${subagent_type}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  const taskId = makeSecureTimestampedId(`task_${subagent_type}`);
   const startedAt = Date.now();
 
   emit?.("deepsearch.subagent.started", { taskId, type: subagent_type, prompt, sourceCount: targetSources.length, async: isAsync });

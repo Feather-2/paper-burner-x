@@ -1,3 +1,5 @@
+import { makeSecureTimestampedId } from "../../../shared/utils/secure-id.js";
+
 function toNonEmptyString(value) {
   if (value === undefined || value === null) return "";
   const s = String(value).trim();
@@ -23,8 +25,7 @@ function inferCategoryFromAsset(asset) {
 }
 
 function createAssetId() {
-  const rand = Math.random().toString(16).slice(2, 8);
-  return `asset_${Date.now().toString(16)}_${rand}`;
+  return makeSecureTimestampedId("asset");
 }
 
 export class AssetRegistry {

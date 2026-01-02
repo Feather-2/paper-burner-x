@@ -8,6 +8,7 @@
  */
 
 import { isPlainObject, toNonEmptyString } from "../../../shared/utils/value-utils.js";
+import { cryptoRandomHex } from "../../../shared/utils/secure-id.js";
 
 /**
  * 生成内容指纹（用于去重）
@@ -90,7 +91,7 @@ export class SharedContext {
     this._applyingActions = false;
 
     // Per-instance salt to avoid cross-context collisions when rehydrating/merging.
-    this._instanceId = Math.random().toString(36).slice(2, 8);
+    this._instanceId = cryptoRandomHex(4);
   }
 
   _nextId(prefix) {
