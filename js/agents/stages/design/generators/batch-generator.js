@@ -1,5 +1,6 @@
 import { getDesignModelCaller, isNonRetryableError } from "../model.js";
 import { robustParseJson } from "../../../shared/utils/robust-json.js";
+import { extractJsonCandidate } from "../../../shared/utils/json-candidate.js";
 import { VisualDataStatus } from "../constants.js";
 import { buildSlideHtml } from "../dsl/dsl-builder.js";
 import { resolveLayoutType } from "./layout-protocol.js";
@@ -51,32 +52,6 @@ function toNonEmptyString(v) {
   if (v === undefined || v === null) return "";
   const s = String(v).trim();
   return s.length ? s : "";
-}
-
-function extractJsonCandidate(text) {
-  let s = String(text || "").trim();
-  if (!s) return null;
-
-  // Remove markdown code block markers (```json, ```, etc.)
-  s = s.replace(/^```(?:json)?[\s\n]*/i, "").replace(/[\s\n]*```$/i, "");
-  s = s.trim();
-
-  // Remove leading "json" if AI prepended it
-  if (s.toLowerCase().startsWith("json")) {
-    s = s.slice(4).trim();
-  }
-
-  // Try to find JSON array
-  const firstBracket = s.indexOf("[");
-  const lastBracket = s.lastIndexOf("]");
-  if (firstBracket >= 0 && lastBracket > firstBracket) return s.slice(firstBracket, lastBracket + 1);
-
-  // Try to find JSON object
-  const firstBrace = s.indexOf("{");
-  const lastBrace = s.lastIndexOf("}");
-  if (firstBrace >= 0 && lastBrace > firstBrace) return s.slice(firstBrace, lastBrace + 1);
-
-  return s;
 }
 
 function chunkIndexes(len, size) {
@@ -585,7 +560,7 @@ export async function generateSingleSlide(slideIntent, designSystem, dslRules, o
       try {
         const resp = await modelCaller(messages, { temperature: 0.2, maxTokens: 8000, signal: options.signal, timeoutMs: 180_000 });
 
-        const jsonStr = extractJsonCandidate(resp?.content);
+        const jsonStr = extractJsonCandidate(resp?.content, { prefer: "array" });
         const parsed = robustParseJson(jsonStr);
         if (parsed === null) throw new Error("Failed to parse slide DSL JSON");
         const candidate = Array.isArray(parsed)

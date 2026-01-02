@@ -8,6 +8,7 @@ import { buildContentPackage } from "./build-content-package.js";
 import { BaseStage } from "../../runtime/core/agent-loop.js";
 import { createStageApi } from "../../shared/utils/stage-api.js";
 import { injectSystemHint } from "../../shared/utils/message-utils.js";
+import { extractJsonCandidate } from "../../shared/utils/json-candidate.js";
 
 function toRawText(input) {
   if (typeof input === "string") return input;
@@ -36,20 +37,6 @@ function toRawText(input) {
 function toChunkOptions(input) {
   if (input && typeof input === "object" && input.chunkOptions && typeof input.chunkOptions === "object") return input.chunkOptions;
   return null;
-}
-
-function extractJsonCandidate(text) {
-  const s = String(text || "").trim();
-  if (!s) return null;
-
-  const fenced = s.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  if (fenced && fenced[1]) return fenced[1].trim();
-
-  const firstBracket = s.indexOf("[");
-  const lastBracket = s.lastIndexOf("]");
-  if (firstBracket >= 0 && lastBracket > firstBracket) return s.slice(firstBracket, lastBracket + 1);
-
-  return s;
 }
 
 function alignClaimsHeuristic(slideIntents, claims) {
@@ -128,7 +115,7 @@ async function alignClaimsToSlides(slideIntents, claims, constraints = {}) {
         temperature: 0.1,
         maxTokens: 1200,
       });
-      const candidate = extractJsonCandidate(result?.content);
+      const candidate = extractJsonCandidate(result?.content, { prefer: "array" });
       if (candidate) {
         const parsed = JSON.parse(candidate);
         if (Array.isArray(parsed)) {

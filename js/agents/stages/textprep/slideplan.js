@@ -5,6 +5,7 @@
 
 import { ALLOWED_PAGE_TYPES, PageType } from "./constants.js";
 import { injectSystemHint } from "../../shared/utils/message-utils.js";
+import { extractJsonCandidate } from "../../shared/utils/json-candidate.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -26,24 +27,8 @@ function clampArrayStrings(arr) {
   return out.length ? out : undefined;
 }
 
-function extractJsonCandidate(text) {
-  const s = String(text || "").trim();
-  if (!s) return null;
-
-  // Prefer fenced code block.
-  const fenced = s.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  if (fenced && fenced[1]) return fenced[1].trim();
-
-  // Try to grab the first JSON array in the content.
-  const firstBracket = s.indexOf("[");
-  const lastBracket = s.lastIndexOf("]");
-  if (firstBracket >= 0 && lastBracket > firstBracket) return s.slice(firstBracket, lastBracket + 1);
-
-  return s;
-}
-
 function tryParseSlideIntentsFromContent(content) {
-  const candidate = extractJsonCandidate(content);
+  const candidate = extractJsonCandidate(content, { prefer: "array" });
   if (!candidate) return null;
   try {
     const parsed = JSON.parse(candidate);

@@ -14,6 +14,7 @@
 
 import { robustParseJson } from "../../../shared/utils/robust-json.js";
 import { injectSystemHint } from "../../../shared/utils/message-utils.js";
+import { extractJsonCandidate } from "../../../shared/utils/json-candidate.js";
 
 import {
   isPlainObject,
@@ -21,29 +22,6 @@ import {
   safeInt,
   safeNumber,
 } from "../shared/design-utils.js";
-
-function stripThinkingTags(text) {
-  // Remove <think>...</think> blocks (some models emit them)
-  return String(text || "").replace(/<think>[\s\S]*?<\/think>/gi, "");
-}
-
-function extractJsonCandidate(text) {
-  const s = stripThinkingTags(text).trim();
-  if (!s) return null;
-
-  const fenced = s.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  if (fenced && fenced[1]) return fenced[1].trim();
-
-  const firstBrace = s.indexOf("{");
-  const lastBrace = s.lastIndexOf("}");
-  if (firstBrace >= 0 && lastBrace > firstBrace) return s.slice(firstBrace, lastBrace + 1);
-
-  const firstBracket = s.indexOf("[");
-  const lastBracket = s.lastIndexOf("]");
-  if (firstBracket >= 0 && lastBracket > firstBracket) return s.slice(firstBracket, lastBracket + 1);
-
-  return s;
-}
 
 function checkCancelled(stageApi) {
   if (typeof stageApi?.checkCancelled === "function") stageApi.checkCancelled();
@@ -349,7 +327,7 @@ export async function runReactRefiner(deckPackage, context, options = {}) {
     }
 
     const rawContent = modelResp?.content || "";
-    const candidate = extractJsonCandidate(rawContent);
+    const candidate = extractJsonCandidate(rawContent, { prefer: "object" });
 
     let parsedStep = null;
     let parseError = null;
@@ -373,7 +351,7 @@ export async function runReactRefiner(deckPackage, context, options = {}) {
           temperature: 0.1,
           maxTokens: 8000,
         });
-        const retryCandidate = extractJsonCandidate(retryResp?.content || "");
+        const retryCandidate = extractJsonCandidate(retryResp?.content || "", { prefer: "object" });
         if (retryCandidate) {
           try {
             parsedStep = robustParseJson(retryCandidate);
