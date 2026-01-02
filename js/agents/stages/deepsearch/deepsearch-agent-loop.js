@@ -19,6 +19,26 @@ import { classifyDeepSearchError } from "./runtime/error-classifier.js";
 import SourceManager from "./source-manager.js";
 import { maybePersistToolOutput } from "../../runtime/persisted-output.js";
 
+const EPHEMERAL_TAG = Object.freeze({
+  BLACKBOARD: "blackboard",
+  MEMORY: "memory",
+  BUDGET: "budget",
+  REMINDER: "reminder",
+});
+
+const DEFAULT_MIN_FINDINGS_BY_MODE = Object.freeze({
+  quick: 3,
+  wider: 5,
+  deeper: 10,
+  default: 5,
+});
+
+const WRITE_PHASE_CUTOFF_RATIO = 0.6;
+const REMINDER_AFTER_ITERATION = 3;
+const REMINDER_MAX_TODOS = 3;
+const REMINDER_TAIL =
+  "请优先处理以上问题，不要跳过待办直接写报告。";
+
 // Skills 系统（动态加载）
 let SkillsManager = null;
 async function loadSkillsSystem() {
@@ -694,7 +714,10 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
           if (claimIds.length > 0 || gapIds.length > 0) {
             this._logger.debug(`Blackboard: Claims=${claimIds.length}, Gaps=${gapIds.length}`);
           }
-          ephemeralMessages.push({ role: "system", content: `<blackboard>\n${blackboardPrompt}\n</blackboard>` });
+          ephemeralMessages.push({
+            role: "system",
+            content: `<${EPHEMERAL_TAG.BLACKBOARD}>\n${blackboardPrompt}\n</${EPHEMERAL_TAG.BLACKBOARD}>`,
+          });
         }
       }
 
@@ -744,16 +767,26 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         const memoryContext = this.memory.buildPromptContext();
         if (memoryContext) {
           this._logger.info("[Memory] Injecting unified context (ephemeral)");
-          ephemeralMessages.push({ role: "system", content: `<memory>\n${memoryContext}\n</memory>` });
+          ephemeralMessages.push({
+            role: "system",
+            content: `<${EPHEMERAL_TAG.MEMORY}>\n${memoryContext}\n</${EPHEMERAL_TAG.MEMORY}>`,
+          });
         }
       }
 
       // ===== 预算进度提示 =====
       const writeStartIteration = this.maxIterations - this.writeIterations + 1;
       const phase =
-        plannedIteration < writeStartIteration * 0.6 ? "收集" : plannedIteration < writeStartIteration ? "验证" : "写作";
+        plannedIteration < writeStartIteration * WRITE_PHASE_CUTOFF_RATIO
+          ? "收集"
+          : plannedIteration < writeStartIteration
+            ? "验证"
+            : "写作";
       const budgetStatus = `[预算] 迭代 ${plannedIteration}/${this.maxIterations} | 工具 ${toolCallCount}/${this.maxToolCalls} | 阶段: ${phase}`;
-      ephemeralMessages.push({ role: "system", content: `<budget>${budgetStatus}</budget>` });
+      ephemeralMessages.push({
+        role: "system",
+        content: `<${EPHEMERAL_TAG.BUDGET}>${budgetStatus}</${EPHEMERAL_TAG.BUDGET}>`,
+      });
 
       // ===== 待办状态检查提醒 =====
       const todos = this.state?.todos || [];
@@ -768,13 +801,18 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         const gaps = this.sharedContext.search?.("finding_gap") || [];
         findingCount = claims.length + gaps.length;
       }
-      const minFindings = { quick: 3, wider: 5, deeper: 10 }[this.mode] || 5;
+      const minFindings = DEFAULT_MIN_FINDINGS_BY_MODE[this.mode] || DEFAULT_MIN_FINDINGS_BY_MODE.default;
 
       // 如果待办未完成或发现不足，注入强提醒
-      if ((pendingTodos.length > 0 && iteration > 3) || findingCount < minFindings) {
+      if ((pendingTodos.length > 0 && iteration > REMINDER_AFTER_ITERATION) || findingCount < minFindings) {
         const reminders = [];
         if (pendingTodos.length > 0) {
-          reminders.push(`⚠️ 待办未完成 (${doneTodos}/${totalTodos})：\n${pendingTodos.slice(0, 3).map(t => `  - ${t.text || t.content}`).join("\n")}`);
+          reminders.push(
+            `⚠️ 待办未完成 (${doneTodos}/${totalTodos})：\n${pendingTodos
+              .slice(0, REMINDER_MAX_TODOS)
+              .map((t) => `  - ${t.text || t.content}`)
+              .join("\n")}`
+          );
         }
         if (findingCount < minFindings) {
           reminders.push(`⚠️ 发现记录不足：当前 ${findingCount} 条，需要至少 ${minFindings} 条`);
@@ -782,7 +820,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         if (reminders.length > 0) {
           ephemeralMessages.push({
             role: "system",
-            content: `<reminder>\n${reminders.join("\n\n")}\n\n请优先处理以上问题，不要跳过待办直接写报告。\n</reminder>`,
+            content: `<${EPHEMERAL_TAG.REMINDER}>\n${reminders.join("\n\n")}\n\n${REMINDER_TAIL}\n</${EPHEMERAL_TAG.REMINDER}>`,
           });
         }
       }
