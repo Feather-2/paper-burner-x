@@ -386,7 +386,7 @@ export class DeepSearchState {
     return addNewGapsLogic(this, newGaps, { timestamp }, emit);
   }
 
-  saveCheckpoint({ checkpointId, timestamp, metrics, strategy } = {}) {
+  saveCheckpoint({ checkpointId, timestamp, metrics, strategy, record = true } = {}) {
     const id = toNonEmptyString(checkpointId) || `cp_${this.checkpoints.length + 1}`;
     const ts = toNonEmptyString(timestamp) || new Date().toISOString();
 
@@ -429,10 +429,12 @@ export class DeepSearchState {
       },
     };
 
-    this.checkpoints.push(checkpoint);
+    if (record !== false) {
+      this.checkpoints.push(checkpoint);
 
-    const max = Math.max(0, safeInt(this?.userConfig?.memory?.maxCheckpoints) ?? 30);
-    while (this.checkpoints.length > max) this.checkpoints.shift();
+      const max = Math.max(0, safeInt(this?.userConfig?.memory?.maxCheckpoints) ?? 30);
+      while (this.checkpoints.length > max) this.checkpoints.shift();
+    }
     return checkpoint;
   }
 

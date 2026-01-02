@@ -45,6 +45,21 @@ function extractKeywords(text, maxCount = 5) {
   return [...new Set(matches)].slice(0, maxCount);
 }
 
+function toNonNegativeInt(value, fallback) {
+  const n = Number.parseInt(String(value ?? ""), 10);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+function resolveGapFindingBudget(state) {
+  const cfg = state?.userConfig?.gaps && typeof state.userConfig.gaps === "object" ? state.userConfig.gaps : {};
+  const maxTotal = toNonNegativeInt(cfg.maxFindingGaps ?? cfg.maxGapFindings ?? cfg.maxGaps, 50);
+  const maxPerCall = toNonNegativeInt(cfg.maxNewGapFindingsPerCall ?? cfg.maxGapGrowthPerIteration ?? cfg.maxNewGapsPerCall, 10);
+  return {
+    maxTotal,      // 0 disables cap
+    maxPerCall,    // 0 disables cap
+  };
+}
+
 /**
  * 处理单条发现
  */
@@ -125,19 +140,48 @@ function processSingleFinding(item, context) {
  * @param {Object} context - { state, emit, sharedContext }
  */
 export async function handler(args, context) {
-  const { sharedContext } = context;
+  const { sharedContext, state } = context;
+  const gapBudget = resolveGapFindingBudget(state);
+  const existingGapCount = sharedContext?.search ? sharedContext.search("finding_gap").length : 0;
+  let gapAddedThisCall = 0;
+  const canAddGap = () => {
+    if (gapBudget.maxTotal > 0 && existingGapCount + gapAddedThisCall >= gapBudget.maxTotal) {
+      return { ok: false, error: "gap_budget_exceeded", reason: "max_total" };
+    }
+    if (gapBudget.maxPerCall > 0 && gapAddedThisCall >= gapBudget.maxPerCall) {
+      return { ok: false, error: "gap_budget_exceeded", reason: "max_per_call" };
+    }
+    return { ok: true };
+  };
 
   // 批量模式：显式传入 findings 数组
   if (Array.isArray(args.findings)) {
     if (args.findings.length === 0) {
       return { success: true, recorded: 0, skipped: 0, findings: [], errors: [], stats: { claims: 0, gaps: 0, conflicts: 0 } };
     }
-    const results = args.findings.map((item, i) => {
+    const results = [];
+    for (let i = 0; i < args.findings.length; i++) {
+      const item = args.findings[i];
+      if (item?.type === "gap") {
+        const budget = canAddGap();
+        if (!budget.ok) {
+          results.push({
+            success: false,
+            error: budget.error,
+            reason: budget.reason,
+            index: i,
+            content: item?.content?.slice?.(0, 50) || `[item ${i}]`,
+          });
+          continue;
+        }
+      }
+
       const r = processSingleFinding(item, context);
-      if (!r.success) r.index = i;  // 记录原始索引便于调试
+      if (!r.success) r.index = i; // 记录原始索引便于调试
       if (!r.success && !r.content) r.content = item?.content?.slice?.(0, 50) || `[item ${i}]`;
-      return r;
-    });
+      if (r.success && item?.type === "gap") gapAddedThisCall += 1;
+      results.push(r);
+    }
     const succeeded = results.filter(r => r.success);
     const failed = results.filter(r => !r.success);
 
@@ -158,8 +202,15 @@ export async function handler(args, context) {
   }
 
   // 单条模式（向后兼容）
+  if (args?.type === "gap") {
+    const budget = canAddGap();
+    if (!budget.ok) {
+      return { success: false, error: budget.error, reason: budget.reason, hint: "Too many gaps; consolidate or raise userConfig.gaps.maxFindingGaps." };
+    }
+  }
   const result = processSingleFinding(args, context);
   if (!result.success) return result;
+  if (args?.type === "gap") gapAddedThisCall += 1;
 
   const stats = sharedContext ? {
     claims: sharedContext.search("finding_claim").length,

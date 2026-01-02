@@ -24,6 +24,7 @@ const EPHEMERAL_TAG = Object.freeze({
   MEMORY: "memory",
   BUDGET: "budget",
   REMINDER: "reminder",
+  CONVERGENCE: "convergence",
 });
 
 const DEFAULT_MIN_FINDINGS_BY_MODE = Object.freeze({
@@ -135,6 +136,20 @@ const DEFAULT_MODE_CONFIG = {
 function toPositiveInt(value, fallback) {
   const n = Number.parseInt(String(value ?? ""), 10);
   return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function toNonNegativeInt(value, fallback) {
+  const n = Number.parseInt(String(value ?? ""), 10);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+function getGapConvergencePolicy(state) {
+  const cfg = isPlainObject(state?.userConfig?.gaps) ? state.userConfig.gaps : {};
+  return {
+    maxFindingGaps: toNonNegativeInt(cfg.maxFindingGaps ?? cfg.maxGapFindings ?? cfg.maxGaps, 50), // 0 disables cap
+    gapOnlyStreakLimit: toPositiveInt(cfg.gapOnlyStreakLimit ?? cfg.maxGapOnlyIterations ?? cfg.gapOnlyLimit, 2),
+    noProgressStreakLimit: toPositiveInt(cfg.noProgressStreakLimit ?? cfg.maxNoProgressIterations ?? cfg.stagnationLimit, 3),
+  };
 }
 
 function deepSortForStableJson(value, seen = new WeakSet()) {
@@ -610,6 +625,16 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
       return n !== null && n >= 1 ? n : 3;
     })();
 
+    const convergencePolicy = getGapConvergencePolicy(this.state);
+    const convergence = {
+      lastClaimCount: 0,
+      lastGapFindingCount: 0,
+      lastOpenTodoCount: 0,
+      lastCompletedTodoCount: 0,
+      gapOnlyStreak: 0,
+      noProgressStreak: 0,
+    };
+
     const getIterationMetrics = () => {
       const todos = Array.isArray(this.context?.todos)
         ? this.context.todos
@@ -637,10 +662,52 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
       return { openTodoCount, completedTodoCount, blockedTodoCount, totalTodos, openGapCount };
     };
 
+    // Initialize convergence baselines (best-effort).
+    try {
+      const claimIds = this.sharedContext?.search?.("finding_claim") || [];
+      const gapIds = this.sharedContext?.search?.("finding_gap") || [];
+      const m = getIterationMetrics();
+      convergence.lastClaimCount = claimIds.length;
+      convergence.lastGapFindingCount = gapIds.length;
+      convergence.lastOpenTodoCount = m.openTodoCount;
+      convergence.lastCompletedTodoCount = m.completedTodoCount;
+    } catch {
+      // ignore
+    }
+
     const emitIterationCompleted = (plannedIteration) => {
       const completedIteration = Number.isFinite(plannedIteration) ? plannedIteration - 1 : null;
       if (completedIteration === null || completedIteration < 0) return;
-      const payload = { iteration: completedIteration, ...getIterationMetrics() };
+      const metrics = getIterationMetrics();
+      const claimIds = this.sharedContext?.search?.("finding_claim") || [];
+      const gapIds = this.sharedContext?.search?.("finding_gap") || [];
+      const claimCount = claimIds.length;
+      const gapFindingCount = gapIds.length;
+
+      const claimDelta = claimCount - convergence.lastClaimCount;
+      const gapDelta = gapFindingCount - convergence.lastGapFindingCount;
+      const completedDelta = metrics.completedTodoCount - convergence.lastCompletedTodoCount;
+      const openTodoDelta = metrics.openTodoCount - convergence.lastOpenTodoCount;
+
+      const didProgress = claimDelta > 0 || completedDelta > 0 || openTodoDelta < 0;
+      if (didProgress) convergence.noProgressStreak = 0;
+      else convergence.noProgressStreak += 1;
+
+      const gapOnly = gapDelta > 0 && claimDelta <= 0 && completedDelta <= 0 && openTodoDelta >= 0;
+      if (gapOnly) convergence.gapOnlyStreak += 1;
+      else convergence.gapOnlyStreak = 0;
+
+      convergence.lastClaimCount = claimCount;
+      convergence.lastGapFindingCount = gapFindingCount;
+      convergence.lastOpenTodoCount = metrics.openTodoCount;
+      convergence.lastCompletedTodoCount = metrics.completedTodoCount;
+
+      const payload = {
+        iteration: completedIteration,
+        ...metrics,
+        findingClaims: claimCount,
+        findingGaps: gapFindingCount,
+      };
       this._emit("deepsearch.iteration.completed", payload, { status: "completed" });
       this.eventBus?.emit?.("iteration.completed", { actor: "deepsearch", status: "completed", payload });
     };
@@ -797,12 +864,40 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
 
       // 发现记录数量检查
       let findingCount = 0;
+      let findingClaims = 0;
+      let findingGaps = 0;
       if (this.sharedContext) {
         const claims = this.sharedContext.search?.("finding_claim") || [];
         const gaps = this.sharedContext.search?.("finding_gap") || [];
-        findingCount = claims.length + gaps.length;
+        findingClaims = claims.length;
+        findingGaps = gaps.length;
+        findingCount = findingClaims + findingGaps;
       }
       const minFindings = DEFAULT_MIN_FINDINGS_BY_MODE[this.mode] || DEFAULT_MIN_FINDINGS_BY_MODE.default;
+
+      // ===== Gap 收敛策略（防“调研黑洞”） =====
+      const convergenceNotes = [];
+      if (convergencePolicy.maxFindingGaps > 0 && findingGaps >= convergencePolicy.maxFindingGaps) {
+        convergenceNotes.push(
+          `⚠️ Gap 预算已达上限：${findingGaps}/${convergencePolicy.maxFindingGaps}。本轮请停止新增 gaps，优先合并/去重并填补最重要的 3 个。`
+        );
+      }
+      if (convergence.gapOnlyStreak >= convergencePolicy.gapOnlyStreakLimit && findingGaps > 0) {
+        convergenceNotes.push(
+          `⚠️ 连续 ${convergence.gapOnlyStreak} 轮只新增 gaps 且无新增 claims/完成 todo（边际收益低）。本轮请先把 gaps 变成可验证 claims，或将无法填补的 gap 标记为 blocked/cancelled。`
+        );
+      }
+      if (convergence.noProgressStreak >= convergencePolicy.noProgressStreakLimit && findingClaims >= minFindings) {
+        convergenceNotes.push(
+          `⚠️ 连续 ${convergence.noProgressStreak} 轮无有效进展（claims/todos）。已达到最小发现门槛 ${findingClaims}/${minFindings}，请收敛范围并进入写作/总结。`
+        );
+      }
+      if (convergenceNotes.length > 0) {
+        ephemeralMessages.push({
+          role: "system",
+          content: `<${EPHEMERAL_TAG.CONVERGENCE}>\n${convergenceNotes.join("\n")}\n</${EPHEMERAL_TAG.CONVERGENCE}>`,
+        });
+      }
 
       // 如果待办未完成或发现不足，注入强提醒
       if ((pendingTodos.length > 0 && iteration > REMINDER_AFTER_ITERATION) || findingCount < minFindings) {

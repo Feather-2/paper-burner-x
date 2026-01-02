@@ -279,11 +279,49 @@ export class UnifiedAgentContext {
   // ─────────────────────────────────────────────────────────────────────────────
 
   async saveCheckpoint(options = {}) {
+    const checkpointTimestamp = new Date().toISOString();
+    const stateStrategy = options?.stateStrategy ?? options?.strategy;
+
+    let stateSnapshot = null;
+    if (this._state) {
+      // Prefer lightweight checkpoint snapshots (avoid full deepClone/toSnapshot on UI thread).
+      if (typeof this._state.saveCheckpoint === "function") {
+        try {
+          const cp = this._state.saveCheckpoint({
+            timestamp: checkpointTimestamp,
+            ...(stateStrategy !== undefined ? { strategy: stateStrategy } : {}),
+            // DeepSearchState supports this; other implementations will ignore.
+            record: false,
+          });
+          if (cp && typeof cp === "object" && "stateSnapshot" in cp) {
+            stateSnapshot = cp.stateSnapshot;
+          } else {
+            stateSnapshot = cp;
+          }
+        } catch {
+          stateSnapshot = null;
+        }
+      }
+
+      if (stateSnapshot === null && typeof this._state.toSnapshot === "function") {
+        try {
+          // Best-effort: at least avoid nested checkpoint snapshots.
+          stateSnapshot = this._state.toSnapshot({ includeCheckpoints: false });
+        } catch {
+          stateSnapshot = null;
+        }
+      }
+
+      if (stateSnapshot === null) {
+        stateSnapshot = this._state;
+      }
+    }
+
     const checkpoint = {
       runId: this.runId,
-      timestamp: new Date().toISOString(),
-      state: this._state?.toSnapshot?.() || this._state,
-      memory: this._memory?.toSnapshot ? this._memory.toSnapshot({ includeL3: false }) : this._memory ? {
+      timestamp: checkpointTimestamp,
+      state: stateSnapshot,
+      memory: this._memory?.toSnapshot ? this._memory.toSnapshot({ includeL3: Boolean(options?.includeMemoryL3) }) : this._memory ? {
         // Backward compatibility: old MemoryStore versions without toSnapshot()
         L0: deepClone(this._memory.L0),
         L1: {

@@ -397,11 +397,40 @@ export function addNewGaps(state, newGaps, { timestamp } = {}, emit = null) {
   }
 
   const now = toNonEmptyString(timestamp) || new Date().toISOString();
+  const maxGapDepth = (() => {
+    const cfg = isPlainObject(state?.userConfig?.gaps) ? state.userConfig.gaps : {};
+    const raw = safeInt(cfg.maxGapDepth ?? cfg.maxDepth);
+    if (raw !== null) {
+      if (raw <= 0) return null; // <=0 disables depth cap
+      return raw;
+    }
+    return 3;
+  })();
   const added = [];
   for (const g of rows) {
     const question = toNonEmptyString(g?.question);
     if (!question) continue;
     const priority = toNonEmptyString(g?.priority) || "medium";
+
+    const parentGapId = toNonEmptyString(g?.parentGapId) || toNonEmptyString(g?.parentId) || toNonEmptyString(g?.parent);
+    const parent = parentGapId ? gaps.find((x) => toNonEmptyString(x?.gapId) === parentGapId) : null;
+    const parentDepth = parent ? (safeInt(parent?.depth) ?? 0) : null;
+    const explicitDepth = safeInt(g?.depth);
+    const depth = parentGapId ? (parentDepth ?? 0) + 1 : explicitDepth !== null ? Math.max(0, explicitDepth) : 0;
+    if (maxGapDepth !== null && depth > maxGapDepth) {
+      emit?.("deepsearch.gap.skipped", {
+        runId: state.runId,
+        status: "skipped",
+        type: "max_depth",
+        depth,
+        maxGapDepth,
+        ...(parentGapId ? { parentGapId } : {}),
+        question: String(question).slice(0, 200),
+        iteration: safeInt(state?.iteration) ?? 0,
+        trajectoryId: state.trajectoryId,
+      });
+      continue;
+    }
 
     let gapId = `gap_${(max += 1)}`;
     while (existingId.has(gapId)) gapId = `gap_${(max += 1)}`;
@@ -412,6 +441,8 @@ export function addNewGaps(state, newGaps, { timestamp } = {}, emit = null) {
       type: "write_backtrack",
       question: String(question),
       priority: String(priority),
+      depth,
+      ...(parentGapId ? { parentGapId } : {}),
       status: "open",
       queryHints: [],
       createdAt: now,

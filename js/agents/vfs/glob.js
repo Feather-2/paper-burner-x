@@ -4,6 +4,14 @@ function escapeRegExp(s) {
   return s.replace(/[\\^$+?.()|[\]{}]/g, "\\$&");
 }
 
+function isNodeLike() {
+  return typeof process !== "undefined" && !!process.versions?.node;
+}
+
+function canUseWorker() {
+  return !isNodeLike() && typeof Worker !== "undefined" && typeof URL !== "undefined";
+}
+
 function normalizePattern(pattern) {
   return String(pattern ?? "").replaceAll("\\", "/").trim();
 }
@@ -118,49 +126,151 @@ function compileGlobRegexes(globPattern) {
   return out;
 }
 
+let _globWorker = null;
+let _globWorkerSeq = 0;
+const _globPending = new Map(); // id -> {resolve,reject}
+
+function getGlobWorker() {
+  if (_globWorker) return _globWorker;
+  if (!canUseWorker()) return null;
+
+  try {
+    const worker = new Worker(new URL("./glob.worker.js", import.meta.url), { type: "module" });
+    worker.onmessage = (event) => {
+      const msg = event?.data;
+      const id = msg?.id;
+      const pending = _globPending.get(id);
+      if (!pending) return;
+      _globPending.delete(id);
+      if (msg?.ok) pending.resolve(Array.isArray(msg.matches) ? msg.matches : []);
+      else pending.reject(new Error(msg?.error || "glob worker error"));
+    };
+    worker.onerror = (err) => {
+      for (const pending of _globPending.values()) {
+        try {
+          pending.reject(err instanceof Error ? err : new Error(String(err?.message || err)));
+        } catch {
+          // ignore
+        }
+      }
+      _globPending.clear();
+      try {
+        worker.terminate();
+      } catch {
+        // ignore
+      }
+      _globWorker = null;
+    };
+    _globWorker = worker;
+    return worker;
+  } catch {
+    return null;
+  }
+}
+
+function delayToEventLoop() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function normalizeAbortError(err) {
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  if (msg.includes("aborted")) return new Error("glob: aborted");
+  return err instanceof Error ? err : new Error(msg || "glob error");
+}
+
 /**
  * Create a simple glob function compatible with CodeSearch tools.
  *
  * @param {object} vfs VFS-like object with listFiles({prefix,recursive})
  * @param {object} [options]
  * @param {number} [options.maxScanFiles=20000]
+ * @param {boolean} [options.useWorker=true] Use WebWorker to filter matches when available (browser-only).
+ * @param {number} [options.workerThresholdFiles=4000] Minimum candidate file count to offload to worker.
+ * @param {number} [options.yieldEvery=0] Yield to event loop every N scanned files (helps UI responsiveness).
  */
-export function createVfsGlobFn(vfs, { maxScanFiles = 20000 } = {}) {
+export function createVfsGlobFn(vfs, { maxScanFiles = 20000, useWorker = true, workerThresholdFiles = 4000, yieldEvery = 0 } = {}) {
   if (!vfs) return null;
   const hasList = typeof vfs.listFiles === "function";
   const hasWalk = typeof vfs.walkFiles === "function";
   if (!hasList && !hasWalk) return null;
 
-  return async function globFn({ pattern, path } = {}) {
+  return async function globFn({ pattern, path, signal, yieldEvery: callYieldEvery } = {}) {
     const base = normalizeVfsPath(path || "");
-    const regexes = compileGlobRegexes(pattern);
     const maxScan = Math.max(0, Math.floor(maxScanFiles));
-
     const relDir = staticDirPrefixFromPattern(pattern);
     const scanPrefix = base ? (relDir ? `${base}/${relDir}` : base) : relDir;
+    const yieldN =
+      typeof callYieldEvery === "number" && Number.isFinite(callYieldEvery) && callYieldEvery > 0
+        ? Math.floor(callYieldEvery)
+        : typeof yieldEvery === "number" && Number.isFinite(yieldEvery) && yieldEvery > 0
+          ? Math.floor(yieldEvery)
+          : 0;
 
-    const out = [];
+    if (signal?.aborted) throw new Error("glob: aborted");
+
+    const candidates = [];
     let scanned = 0;
 
-    if (hasWalk) {
-      for await (const file of vfs.walkFiles({ prefix: scanPrefix, recursive: true })) {
-        scanned += 1;
-        if (maxScan && scanned > maxScan) break;
-        const rel = base ? file.slice(base.length + 1) : file;
+    try {
+      if (hasWalk) {
+        const walker = vfs.walkFiles({
+          prefix: scanPrefix,
+          recursive: true,
+          ...(signal ? { signal } : {}),
+        });
+
+        for await (const file of walker) {
+          if (signal?.aborted) throw new Error("glob: aborted");
+          scanned += 1;
+          if (maxScan && scanned > maxScan) break;
+          candidates.push(file);
+          if (yieldN && scanned % yieldN === 0) await delayToEventLoop();
+        }
+      } else {
+        const files = await vfs.listFiles({ prefix: scanPrefix || base, recursive: true });
+        if (signal?.aborted) throw new Error("glob: aborted");
+        candidates.push(...(maxScan ? files.slice(0, maxScan) : files));
+      }
+
+      const threshold =
+        typeof workerThresholdFiles === "number" && Number.isFinite(workerThresholdFiles) && workerThresholdFiles > 0
+          ? Math.floor(workerThresholdFiles)
+          : 0;
+      const worker = useWorker !== false ? getGlobWorker() : null;
+      if (worker && candidates.length >= threshold) {
+        const id = `glob_${Date.now().toString(36)}_${++_globWorkerSeq}`;
+        const promise = new Promise((resolve, reject) => {
+          _globPending.set(id, { resolve, reject });
+        });
+
+        const abort = () => {
+          const pending = _globPending.get(id);
+          if (!pending) return;
+          _globPending.delete(id);
+          pending.reject(new Error("glob: aborted"));
+        };
+
+        if (signal) signal.addEventListener?.("abort", abort, { once: true });
+        try {
+          worker.postMessage({ id, pattern, base, files: candidates });
+          return await promise;
+        } finally {
+          if (signal) signal.removeEventListener?.("abort", abort);
+        }
+      }
+
+      const regexes = compileGlobRegexes(pattern);
+      const out = [];
+      for (const file of candidates) {
+        if (signal?.aborted) throw new Error("glob: aborted");
+        const rel = base ? (file.startsWith(`${base}/`) ? file.slice(base.length + 1) : file) : file;
         if (!rel) continue;
         if (regexes.some((re) => re.test(rel))) out.push(file);
       }
       return out;
+    } catch (err) {
+      throw normalizeAbortError(err);
     }
-
-    const files = await vfs.listFiles({ prefix: scanPrefix || base, recursive: true });
-    const capped = files.slice(0, maxScan);
-    for (const file of capped) {
-      const rel = base ? file.slice(base.length + 1) : file;
-      if (!rel) continue;
-      if (regexes.some((re) => re.test(rel))) out.push(file);
-    }
-    return out;
   };
 }
 

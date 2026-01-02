@@ -158,6 +158,7 @@ async function executeGlob(pattern, options = {}) {
   const basePath = toNonEmptyString(options.basePath) || "";
   const timeoutMs = typeof options.timeoutMs === "number" ? options.timeoutMs : 200;
   const globTool = options.globTool;
+  const signal = options.signal;
 
   // 检查缓存
   const cached = getCachedGlob(pattern, basePath);
@@ -169,18 +170,35 @@ async function executeGlob(pattern, options = {}) {
     return { files: [], fromCache: false, error: "no_glob_tool" };
   }
 
+  if (signal?.aborted) return { files: [], fromCache: false, error: "aborted" };
+
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  const abort = () => controller?.abort();
+  if (signal && controller) signal.addEventListener?.("abort", abort, { once: true });
+
+  let timeoutId = null;
   try {
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("glob_timeout")), timeoutMs)
-    );
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => {
+        controller?.abort();
+        reject(new Error("glob_timeout"));
+      }, timeoutMs);
+    });
 
     const globPromise = (async () => {
-      const result = await globTool({ pattern, path: basePath });
+      const result = await globTool({
+        pattern,
+        path: basePath,
+        ...(controller?.signal ? { signal: controller.signal } : signal ? { signal } : {}),
+      });
       return result;
     })();
 
     const result = await Promise.race([globPromise, timeoutPromise]);
-    const files = Array.isArray(result) ? result : [];
+    if (!Array.isArray(result)) {
+      return { files: [], fromCache: false, error: "invalid_glob_result" };
+    }
+    const files = result.filter((f) => typeof f === "string");
 
     // 缓存结果
     setCachedGlob(pattern, basePath, files);
@@ -191,7 +209,13 @@ async function executeGlob(pattern, options = {}) {
     if (msg.includes("timeout")) {
       return { files: [], fromCache: false, error: "timeout" };
     }
+    if (msg.includes("aborted")) {
+      return { files: [], fromCache: false, error: "aborted" };
+    }
     return { files: [], fromCache: false, error: "glob_failed" };
+  } finally {
+    if (timeoutId !== null) clearTimeout(timeoutId);
+    if (signal && controller) signal.removeEventListener?.("abort", abort);
   }
 }
 
@@ -269,11 +293,15 @@ async function strategyGlobThenGrep(chunks, { patterns = [], keywords = [] }, to
 
   // 1. Glob 阶段：定位文件范围
   const fileFilter = new Set();
+  let hadPatterns = false;
+  let rejectedPaths = 0;
   for (const pattern of patterns) {
-    if (!toNonEmptyString(pattern)) continue;
+    const p = toNonEmptyString(pattern);
+    if (!p) continue;
+    hadPatterns = true;
 
     stats.globCalls++;
-    const { files, fromCache, error } = await executeGlob(pattern, tools);
+    const { files, fromCache, error } = await executeGlob(p, tools);
 
     if (error) {
       // glob 失败，降级到 grep-only
@@ -285,7 +313,17 @@ async function strategyGlobThenGrep(chunks, { patterns = [], keywords = [] }, to
     for (const f of files) {
       const normalized = normalizeSafeRelativePath(f);
       if (normalized) fileFilter.add(normalized);
+      else rejectedPaths += 1;
     }
+  }
+
+  // patterns 存在但未能产生任何可用文件路径：认为 glob 失败（避免“静默退化”为全量 grep）
+  if (hadPatterns && fileFilter.size === 0) {
+    return {
+      results: [],
+      stats,
+      fallbackReason: rejectedPaths > 0 ? `glob_invalid_paths:${rejectedPaths}` : "glob_no_matches",
+    };
   }
 
   // 如果有文件过滤，过滤 chunks
@@ -382,8 +420,8 @@ export async function search(chunks, query = {}, tools = {}) {
   }
 
   const strategy = normalizeToolChainStrategy(query.strategy) || ToolChainStrategy.AUTO;
-  const patterns = Array.isArray(query.patterns) ? query.patterns : [];
-  const keywords = Array.isArray(query.keywords) ? query.keywords : [];
+  const patterns = Array.isArray(query.patterns) ? query.patterns.map(toNonEmptyString).filter(Boolean) : [];
+  const keywords = Array.isArray(query.keywords) ? query.keywords.map(toNonEmptyString).filter(Boolean) : [];
 
   if (keywords.length === 0) {
     return { results: [], stats: {}, strategy: "none", fallbackReason: "no_keywords" };
