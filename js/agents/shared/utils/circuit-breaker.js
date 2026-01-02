@@ -125,7 +125,9 @@ export class CircuitBreaker {
    * @returns {Promise<T>}
    */
   async execute(fn) {
-    if (!this.canExecute()) {
+    this._checkStateTransition();
+
+    if (this._state === CircuitState.OPEN) {
       const err = new Error(`Circuit breaker is ${this._state}`);
       err.name = "CircuitBreakerOpenError";
       err.circuitBreaker = this.name;
@@ -134,6 +136,13 @@ export class CircuitBreaker {
     }
 
     if (this._state === CircuitState.HALF_OPEN) {
+      if (this._halfOpenCalls >= this.halfOpenMaxCalls) {
+        const err = new Error(`Circuit breaker is ${this._state}`);
+        err.name = "CircuitBreakerOpenError";
+        err.circuitBreaker = this.name;
+        err.state = this._state;
+        throw err;
+      }
       this._halfOpenCalls++;
     }
 
