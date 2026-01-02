@@ -663,9 +663,10 @@ export class LocalMcpProvider extends McpProvider {
     proxyEndpoint = null,  // 自定义私有持久化代理端点
     corsProxies = CORS_PROXIES,
     proxyCooldownMs = 60_000,
+    proxyMaxCooldownMs = 15 * 60_000,
     allowPrivateNetwork = false,
     defaultTimeoutMs = 15000,
-    searchTimeoutMs = 60000, // 搜索需要尝试多个实例，给更长时间
+    searchTimeoutMs = 20_000, // 搜索可能分页/多次请求，但避免长时间阻塞
     maxResults = 10,
     maxSearchPages = 3,
     fetchImpl,
@@ -691,7 +692,9 @@ export class LocalMcpProvider extends McpProvider {
     this.allowPrivateNetwork = allowPrivateNetwork === true;
 
     this.proxyCooldownMs = Math.max(0, safeInt(requireFiniteNumber(proxyCooldownMs, "proxyCooldownMs"), 60_000));
+    this.proxyMaxCooldownMs = Math.max(this.proxyCooldownMs, safeInt(requireFiniteNumber(proxyMaxCooldownMs, "proxyMaxCooldownMs"), 15 * 60_000));
     this._corsProxyUnhealthyUntilMs = new Map(); // proxy -> ts (ms)
+    this._corsProxyFailureCount = new Map(); // proxy -> consecutive failures
     this._lastGoodProxy = undefined; // proxy string, may be ""
     this._deprecatedToolNameWarned = new Set();
 
@@ -817,13 +820,22 @@ export class LocalMcpProvider extends McpProvider {
   }
 
   _markCorsProxyFailure(proxy) {
-    const until = this._nowMs() + this.proxyCooldownMs;
+    const now = this._nowMs();
+    const prev = this._corsProxyFailureCount.get(proxy) || 0;
+    const failures = Math.max(0, Math.floor(prev)) + 1;
+    this._corsProxyFailureCount.set(proxy, failures);
+
+    const base = this.proxyCooldownMs;
+    const max = this.proxyMaxCooldownMs;
+    const cooldown = base > 0 ? Math.min(max, base * Math.pow(2, failures - 1)) : 0;
+    const until = now + cooldown;
     this._corsProxyUnhealthyUntilMs.set(proxy, until);
   }
 
   _markCorsProxySuccess(proxy) {
     this._lastGoodProxy = proxy;
     this._corsProxyUnhealthyUntilMs.delete(proxy);
+    this._corsProxyFailureCount.delete(proxy);
   }
 
   _buildCorsProxyCandidates({ tryDirect }) {
