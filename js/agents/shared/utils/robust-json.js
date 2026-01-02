@@ -113,9 +113,27 @@ function fixCommonJsonIssues(jsonStr) {
   });
   fixed = fixedLines.join('\n');
 
+  const countUnescapedQuotes = (s) => {
+    let count = 0;
+    let escapeNext = false;
+    for (let i = 0; i < s.length; i++) {
+      const ch = s[i];
+      if (escapeNext) {
+        escapeNext = false;
+        continue;
+      }
+      if (ch === '\\\\') {
+        escapeNext = true;
+        continue;
+      }
+      if (ch === '"') count++;
+    }
+    return count;
+  };
+
   // 6. 修复可能被截断的 JSON（尝试闭合括号）
   // 先尝试闭合未完成的字符串
-  const quoteCount = (fixed.match(/"/g) || []).length;
+  const quoteCount = countUnescapedQuotes(fixed);
   if (quoteCount % 2 !== 0) {
     // 奇数个引号，尝试闭合
     fixed = fixed.replace(/,?\s*$/, '') + '"';
