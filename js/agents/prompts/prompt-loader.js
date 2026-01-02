@@ -7,6 +7,7 @@
 // 缓存已加载的提示词（LRU：避免长期运行内存无限增长）
 const promptCache = new Map();
 let promptCacheMaxEntries = 128;
+const PROMPT_CACHE_KEY_SEPARATOR = "::";
 
 function isNodeLike() {
   return typeof process !== "undefined" && !!process.versions?.node;
@@ -55,6 +56,13 @@ function lruSet(key, value) {
   if (promptCache.has(key)) promptCache.delete(key);
   promptCache.set(key, value);
   enforcePromptCacheLimit();
+}
+
+function makePromptCacheKey({ basePath, manifestUrl, promptKey }) {
+  const base = toNonEmptyString(basePath);
+  const manifest = toNonEmptyString(manifestUrl);
+  const ns = `${base || ""}|${manifest || ""}`;
+  return `${ns}${PROMPT_CACHE_KEY_SEPARATOR}${promptKey}`;
 }
 
 export function configurePromptCache({ maxEntries } = {}) {
@@ -126,7 +134,7 @@ function validateKey(key) {
 const DEFAULT_PROMPT_MANIFEST_URL = "prompts/manifest.json";
 const DEFAULT_PROMPT_MANIFEST_URL_FALLBACK = "public/prompts/manifest.json";
 const PROMPT_MANIFEST_CACHE_TTL_MS = 30_000;
-let _promptManifestCache = null; // { url, ts, byName: Map<string,{name,path}> }
+const _promptManifestCacheByUrl = new Map(); // url -> { url, ts, byName: Map<string,{name,path}> }
 
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -185,11 +193,12 @@ async function loadPromptManifest(manifestUrl) {
   const candidates = [primary, fallback].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
 
   const now = Date.now();
-  if (_promptManifestCache && _promptManifestCache.url === primary && now - _promptManifestCache.ts < PROMPT_MANIFEST_CACHE_TTL_MS) {
-    return _promptManifestCache;
-  }
+  const cachedPrimary = _promptManifestCacheByUrl.get(primary);
+  if (cachedPrimary && now - cachedPrimary.ts < PROMPT_MANIFEST_CACHE_TTL_MS) return cachedPrimary;
 
   for (const url of candidates) {
+    const cached = _promptManifestCacheByUrl.get(url);
+    if (cached && now - cached.ts < PROMPT_MANIFEST_CACHE_TTL_MS) return cached;
     try {
       const data = await fetchJson(url);
       const list = Array.isArray(data?.prompts) ? data.prompts : Array.isArray(data?.files) ? data.files : [];
@@ -201,8 +210,9 @@ async function loadPromptManifest(manifestUrl) {
         if (!name || !path) continue;
         byName.set(name.replace(/\.md$/i, ""), { name: name.replace(/\.md$/i, ""), path });
       }
-      _promptManifestCache = { url, ts: now, byName };
-      return _promptManifestCache;
+      const manifest = { url, ts: now, byName };
+      _promptManifestCacheByUrl.set(url, manifest);
+      return manifest;
     } catch {
       // continue
     }
@@ -243,11 +253,13 @@ export async function loadPrompt(name, { cache = true, manifestUrl } = {}) {
     throw new Error(`Invalid prompt key: "${name}". Path traversal is forbidden.`);
   }
 
-  if (cache && promptCache.has(key)) {
-    return lruGet(key);
+  const basePath = getBasePath();
+  const cacheKey = makePromptCacheKey({ basePath, manifestUrl: resolveUrl(manifestUrl || ""), promptKey: key });
+
+  if (cache && promptCache.has(cacheKey)) {
+    return lruGet(cacheKey);
   }
 
-  const basePath = getBasePath();
   let content;
 
   // Browser/Worker - use fetch
@@ -294,7 +306,7 @@ export async function loadPrompt(name, { cache = true, manifestUrl } = {}) {
 
   const trimmed = content.trim();
   if (cache) {
-    lruSet(key, trimmed);
+    lruSet(cacheKey, trimmed);
   }
   return trimmed;
 }
@@ -396,7 +408,10 @@ export async function preloadPrompts(names) {
  */
 export function clearPromptCache(name) {
   if (name) {
-    promptCache.delete(String(name).replace(/\.md$/i, ""));
+    const suffix = `${PROMPT_CACHE_KEY_SEPARATOR}${String(name).replace(/\.md$/i, "")}`;
+    for (const k of Array.from(promptCache.keys())) {
+      if (String(k).endsWith(suffix)) promptCache.delete(k);
+    }
   } else {
     promptCache.clear();
   }
@@ -407,7 +422,15 @@ export function clearPromptCache(name) {
  * @returns {string[]}
  */
 export function getCachedPromptNames() {
-  return [...promptCache.keys()];
+  const names = new Set();
+  for (const k of promptCache.keys()) {
+    const s = String(k);
+    const idx = s.lastIndexOf(PROMPT_CACHE_KEY_SEPARATOR);
+    if (idx === -1) continue;
+    const name = s.slice(idx + PROMPT_CACHE_KEY_SEPARATOR.length);
+    if (name) names.add(name);
+  }
+  return Array.from(names.values());
 }
 
 function escapeRegExp(s) {
