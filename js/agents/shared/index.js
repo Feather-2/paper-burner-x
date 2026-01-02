@@ -40,3 +40,4 @@ export {
 // Embeddings
 export { EmbeddingService, createEmbeddingService, normalizeEmbeddingConfig } from "./embeddings/embedding-service.js";
 export { VectorIndex } from "./embeddings/vector-index.js";
+export { HnswLiteIndex } from "./embeddings/hnsw-lite.js";

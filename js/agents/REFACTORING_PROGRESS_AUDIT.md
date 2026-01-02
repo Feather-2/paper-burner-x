@@ -1,8 +1,8 @@
 # js/agents 重构落地进度审计报告 (Phase 1 → Phase 3)
 
 > **审计人**：Linus Torvalds (Agent Mode)
-> **当前进度**：约 90% (Phase 3 完成，中期架构演进已落地)
-> **状态**：P0/P1/Medium-term 基本完成 / Long-term Optimization Pending
+> **当前进度**：约 95% (Phase 3 完成，长期优化仅剩 VFS/Retrieval 微调)
+> **状态**：P0/P1/Medium-term 全部完成 / Long-term Optimization Pending
 
 ---
 
@@ -50,9 +50,9 @@
 - **修复**：Cicada archive 存储 `schemaVersion: "1.0"`，restore 校验版本兼容性。
 - **代码证据**：`cicada-compressor.js`
 
-### 2.3 向量检索暴力扫描 ✅ 已缓解
-- **修复**：VectorIndex 支持 hot/warm/cold 时间分区，search 可指定 partitions 过滤。
-- **代码证据**：`vector-index.js`
+### 2.3 向量检索暴力扫描 ✅ 已修复
+- **修复**：新增 `HnswLiteIndex` 基于 LSH 的近似最近邻实现，支持 hot/warm/cold 时间分区。
+- **代码证据**：`shared/embeddings/hnsw-lite.js`、`tests/agents/shared/hnsw-lite.test.js`
 
 ### 2.4 Checkpoint 全量 deepClone ✅ 已缓解
 - **修复**：MemoryStore 增量快照（dirty flags + `toSnapshot({incremental:true})`）。
@@ -70,27 +70,27 @@
 - **修复**：`compression-async.js` + `compression.worker.js` 实现 Web Worker 压缩。
 - **代码证据**：`runtime/compression/compression-async.js`、`runtime/core/agent-loop.js:524`
 
+### 2.8 DeepSearch Gap 收敛 ✅ 已实现
+- **修复**：`gapOnlyStreak`/`noProgressStreak` 跟踪边际收益，注入收敛提示（上限/停滞警告）。
+- **代码证据**：`stages/deepsearch/deepsearch-agent-loop.js:146-153`（策略配置）、`:697-713`（跟踪）、`:932-969`（注入）
+
 ---
 
 ## 3. 依然存在的"长期优化" (Remaining Long-term Work)
 
 ### 3.1 全面 Worker 化（剩余部分）
-- **现状**：diff 和 compression 已可选 Worker；glob/scan 仍在主线程。
+- **现状**：diff、compression、glob pattern matching 已可选 Worker；VFS 扫描仍在主线程。
 - **指令**：参照 compression-async 模式，继续迁移正则扫描任务。
 
-### 3.2 真正的向量索引
-- **现状**：VectorIndex 仍是 O(N) 扫描 + 时间分区过滤。
-- **指令**：引入 HNSW 或 IVF-Flat 结构实现真正的 ANN。
-
-### 3.3 增量持久化
-- **现状**：Checkpoint 最小化策略 + 增量快照接口已就绪，但非真正的 delta persistence。
-- **指令**：实现基于 Merkle tree 的真正增量存储。
+### 3.2 Retrieval chain fail-fast
+- **现状**：已补输入规范化和扫描上限，但仍缺严格 schema 校验。
+- **指令**：引入 Zod 或类似库做逐步验证。
 
 ---
 
 ## 4. Linus 的 Phase 3 评语
 
-> "中期架构演进已经落地：跨 Agent 数据检疫、检索缓存、压缩 Worker 化。系统的工程成熟度从'原型'跨入了'工业级'的门槛。剩下的是性能微调，不再是救火。"
+> "中期架构演进已经落地：跨 Agent 数据检疫、检索缓存、压缩 Worker 化、HNSW 近似索引、Gap 收敛策略。系统的工程成熟度从'原型'跨入了'工业级'的门槛。剩下的只是边角打磨，不再是救火。"
 
 ---
 *更新时间：2026-01-03*
