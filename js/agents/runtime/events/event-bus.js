@@ -167,12 +167,12 @@ export class EventBus {
       if (!wantsSignal || typeof unsubscribe !== "function") return unsubscribe;
 
       let done = false;
-      const onAbort = () => off();
+      let onAbort = null;
       const off = () => {
         if (done) return;
         done = true;
         try {
-          signal.removeEventListener?.("abort", onAbort);
+          if (onAbort) signal.removeEventListener?.("abort", onAbort);
         } catch {
           // ignore
         }
@@ -182,6 +182,7 @@ export class EventBus {
           // ignore
         }
       };
+      onAbort = () => off();
 
       try {
         signal.addEventListener("abort", onAbort, { once: true });
