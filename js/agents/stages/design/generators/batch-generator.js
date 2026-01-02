@@ -4,6 +4,7 @@ import { VisualDataStatus } from "../constants.js";
 import { buildSlideHtml } from "../dsl/dsl-builder.js";
 import { resolveLayoutType } from "./layout-protocol.js";
 import { loadPrompt } from "../../../prompts/prompt-loader.js";
+import { parseTagAttributes } from "../shared/html-parser.js";
 
 // === 可配置常量 ===
 const BATCH_GENERATOR_DEFAULTS = {
@@ -271,14 +272,6 @@ function normalizeSelectedIdeas(selectedIdeas = []) {
   }
 
   return { bySlideIntentId, bySlotId };
-}
-
-function parseTagAttributes(tag) {
-  const attrs = {};
-  const re = /\b([a-zA-Z0-9_:-]+)\s*=\s*(["'])(.*?)\2/g;
-  let m;
-  while ((m = re.exec(tag))) attrs[m[1]] = m[3];
-  return attrs;
 }
 
 function escapeAttr(v) {

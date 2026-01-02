@@ -38,6 +38,8 @@ function createLimiter(concurrency) {
 }
 
 import { toNonEmptyString, escapeHtml as escapeAttr } from "../shared/design-utils.js";
+import { parseTagAttributes } from "../shared/html-parser.js";
+import { classifyDesignError } from "../shared/error-classifier.js";
 
 function safeNumber(v, fallback) {
   const n = Number(v);
@@ -55,34 +57,15 @@ function safeEmit(emit, name, status, payload) {
  * @returns {{ level: string, code: string, canRetry: boolean }}
  */
 function classifySvgError(err) {
-  const msg = err instanceof Error ? err.message : String(err);
-  const msgLower = msg.toLowerCase();
+  const classified = classifyDesignError(err);
 
-  // FATAL - 配置/鉴权错误，不重试
-  if (
-    msgLower.includes("no available model") ||
-    msgLower.includes("not available") ||
-    msgLower.includes("api key") ||
-    msg.includes("401") ||
-    msg.includes("403")
-  ) {
+  // Keep legacy codes for compatibility with downstream reports/tests.
+  if (classified.kind === "auth" || classified.kind === "config") {
     return { level: "fatal", code: "CONFIG_OR_AUTH", canRetry: false };
   }
-
-  // RETRYABLE - 网络/限流错误
-  if (
-    msgLower.includes("timeout") ||
-    msgLower.includes("etimedout") ||
-    msgLower.includes("econnreset") ||
-    msgLower.includes("network") ||
-    msg.includes("429") ||
-    msg.includes("503") ||
-    msg.includes("502")
-  ) {
+  if (classified.canRetry) {
     return { level: "retryable", code: "NETWORK", canRetry: true };
   }
-
-  // DEGRADABLE - 其他错误（解析失败等）
   return { level: "degradable", code: "GENERATION_FAILED", canRetry: false };
 }
 
@@ -156,74 +139,6 @@ function getSvgCircuitBreaker(name = "svg-generator") {
 }
 
 // escapeAttr is now imported from design-utils as escapeAttr
-
-function parseTagAttributes(tag) {
-  const attrs = {};
-  if (!tag || typeof tag !== "string") return attrs;
-
-  const isWs = (c) => c === " " || c === "\n" || c === "\r" || c === "\t" || c === "\f";
-  const isNameChar = (c) => {
-    const code = c.charCodeAt(0);
-    return (
-      (code >= 48 && code <= 57) || // 0-9
-      (code >= 65 && code <= 90) || // A-Z
-      (code >= 97 && code <= 122) || // a-z
-      c === "-" ||
-      c === "_" ||
-      c === ":"
-    );
-  };
-
-  let i = tag.indexOf(" ");
-  if (i === -1) return attrs;
-
-  while (i < tag.length) {
-    while (i < tag.length && isWs(tag[i])) i++;
-    const ch = tag[i];
-    if (!ch || ch === ">" || ch === "/") break;
-
-    const nameStart = i;
-    while (i < tag.length && isNameChar(tag[i])) i++;
-    const nameRaw = tag.slice(nameStart, i);
-    const name = nameRaw.toLowerCase();
-    if (!name) {
-      i++;
-      continue;
-    }
-
-    while (i < tag.length && isWs(tag[i])) i++;
-    if (tag[i] !== "=") {
-      attrs[name] = "";
-      continue;
-    }
-
-    i++;
-    while (i < tag.length && isWs(tag[i])) i++;
-    if (i >= tag.length) {
-      attrs[name] = "";
-      break;
-    }
-
-    const quote = tag[i] === '"' || tag[i] === "'" ? tag[i] : null;
-    if (quote) {
-      i++;
-      const valueStart = i;
-      while (i < tag.length && tag[i] !== quote) i++;
-      attrs[name] = tag.slice(valueStart, i);
-      if (tag[i] === quote) i++;
-      continue;
-    }
-
-    const valueStart = i;
-    while (i < tag.length) {
-      const c = tag[i];
-      if (isWs(c) || c === ">" || c === "/") break;
-      i++;
-    }
-    attrs[name] = tag.slice(valueStart, i);
-  }
-  return attrs;
-}
 
 function normalizeRenderType(v) {
   const t = String(v || "").trim().toLowerCase();

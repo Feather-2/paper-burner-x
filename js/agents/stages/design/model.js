@@ -10,6 +10,7 @@
  */
 
 import { injectSystemHint } from "../../shared/utils/message-utils.js";
+import { isNonRetryableError as isNonRetryableDesignError } from "./shared/error-classifier.js";
 
 // Error class for non-retryable errors (config missing, auth failed, etc.)
 export class NonRetryableError extends Error {
@@ -24,15 +25,7 @@ export class NonRetryableError extends Error {
 export function isNonRetryableError(err) {
   if (!err) return false;
   if (err.nonRetryable === true) return true;
-  const msg = err instanceof Error ? err.message : String(err);
-  return (
-    msg.includes("No available model config") ||
-    msg.includes("not available") ||
-    msg.includes("401") ||
-    msg.includes("403") ||
-    msg.includes("Invalid API key") ||
-    msg.includes("authentication")
-  );
+  return isNonRetryableDesignError(err);
 }
 
 import { toNonEmptyString } from "./shared/design-utils.js";
