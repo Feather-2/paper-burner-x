@@ -189,13 +189,23 @@ export class McpClient {
     );
 
     const allTools = [];
+    const errors = [];
     for (let i = 0; i < results.length; i++) {
       const result = results[i];
       if (result.status === "fulfilled") {
         allTools.push(...result.value);
       } else {
         const providerId = entries[i][0];
-        console.warn(`[McpClient] Failed to list tools from ${providerId}:`, result.reason?.message);
+        const msg = String(result.reason?.message || result.reason || "Unknown error");
+        errors.push({ providerId, error: msg, ts: new Date().toISOString() });
+        console.warn(`[McpClient] Failed to list tools from ${providerId}:`, msg);
+      }
+    }
+    if (errors.length > 0) {
+      try {
+        Object.defineProperty(allTools, "errors", { value: errors, enumerable: false });
+      } catch {
+        allTools.errors = errors;
       }
     }
     return allTools;

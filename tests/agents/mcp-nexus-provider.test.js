@@ -34,6 +34,45 @@ test("McpClient: search/fetch prefer standard tool names with fallback", async (
   );
 });
 
+test("McpClient: listAllTools captures provider failures (non-fatal)", async () => {
+  const { McpClient, McpProvider } = await import("../../js/agents/mcp/mcp-client.js");
+
+  class GoodProvider extends McpProvider {
+    constructor() {
+      super({ id: "good", name: "Good", endpoint: "mock" });
+    }
+    async listTools() {
+      return [{ name: "ok.tool", description: "ok", inputSchema: { type: "object", properties: {} } }];
+    }
+    async callTool() {
+      throw new Error("not used");
+    }
+  }
+
+  class BadProvider extends McpProvider {
+    constructor() {
+      super({ id: "bad", name: "Bad", endpoint: "mock" });
+    }
+    async listTools() {
+      throw new Error("boom");
+    }
+    async callTool() {
+      throw new Error("not used");
+    }
+  }
+
+  const client = new McpClient({ providers: [new GoodProvider(), new BadProvider()], defaultProvider: "good" });
+  const tools = await client.listAllTools();
+  assert.equal(Array.isArray(tools), true);
+  assert.equal(tools.length, 1);
+  assert.equal(tools[0].providerId, "good");
+
+  assert.ok(Array.isArray(tools.errors));
+  assert.equal(tools.errors.length, 1);
+  assert.equal(tools.errors[0].providerId, "bad");
+  assert.ok(String(tools.errors[0].error).includes("boom"));
+});
+
 test("SSE: NewlineDecoder handles CRLF across chunks and lone CR", async () => {
   const { NewlineDecoder } = await import("../../js/agents/mcp/sse.js");
   const enc = new TextEncoder();
@@ -638,4 +677,82 @@ test("McpResourceManager: prunes content cache by maxContentCacheEntries (LRU)",
   assert.equal(rm._contentCache.has("p1:file:///b.txt"), true);
   assert.equal(rm._contentCache.has("p1:file:///d.txt"), true);
   assert.equal(rm._contentCache.has("p1:file:///c.txt"), false);
+});
+
+test("McpResourceManager: refreshes notification wiring when provider instance is replaced", async () => {
+  const { McpClient, McpProvider } = await import("../../js/agents/mcp/mcp-client.js");
+  const { McpResourceManager } = await import("../../js/agents/mcp/resource-manager.js");
+
+  const tick = () => new Promise((resolve) => setImmediate(resolve));
+  const waitFor = async (cond, { maxTicks = 50 } = {}) => {
+    for (let i = 0; i < maxTicks; i++) {
+      if (cond()) return true;
+      await tick();
+    }
+    return false;
+  };
+
+  class NotifyingProvider extends McpProvider {
+    constructor({ id, version }) {
+      super({ id, name: id, endpoint: "mock" });
+      this.version = version;
+      this.subscribeNotificationsCalls = 0;
+      this.subscribeResourceCalls = 0;
+      this._subs = new Set();
+    }
+
+    async listTools() {
+      return [];
+    }
+
+    async listResources() {
+      return [{ uri: "file:///a.txt", name: "a.txt", mimeType: "text/plain" }];
+    }
+
+    async readResource(uri) {
+      return { uri, text: `v${this.version}` };
+    }
+
+    async subscribeResource() {
+      this.subscribeResourceCalls += 1;
+      return {};
+    }
+
+    subscribeNotifications(handler) {
+      this.subscribeNotificationsCalls += 1;
+      this._subs.add(handler);
+      return () => this._subs.delete(handler);
+    }
+
+    emit(msg) {
+      for (const h of this._subs) h(msg);
+    }
+  }
+
+  const p1 = new NotifyingProvider({ id: "p1", version: 1 });
+  const client = new McpClient({ providers: [p1], defaultProvider: "p1" });
+  const rm = new McpResourceManager({ client, storage: null, defaultTtlMs: 0 });
+
+  const seen = [];
+  await rm.subscribeResource({
+    providerId: "p1",
+    uri: "file:///a.txt",
+    callback: (evt) => {
+      if (evt?.content?.text) seen.push(evt.content.text);
+    },
+  });
+
+  assert.equal(p1.subscribeNotificationsCalls, 1);
+  assert.equal(p1.subscribeResourceCalls, 1);
+
+  const p2 = new NotifyingProvider({ id: "p1", version: 2 });
+  client.addProvider(p2);
+
+  await rm.readResource({ providerId: "p1", uri: "file:///a.txt", forceRefresh: true });
+  assert.equal(p2.subscribeNotificationsCalls, 1);
+
+  assert.equal(await waitFor(() => p2.subscribeResourceCalls >= 1), true);
+
+  p2.emit({ method: "notifications/resources/updated", params: { uri: "file:///a.txt" } });
+  assert.equal(await waitFor(() => seen.includes("v2")), true);
 });

@@ -151,6 +151,7 @@ export class McpResourceManager {
     this._subSeq = 0;
     this._serverSubRefCounts = new Map(); // providerId:uri -> count
     this._providerNotifyUnsub = new Map(); // providerId -> unsubscribe()
+    this._providerNotifyProvider = new Map(); // providerId -> provider instance
 
     this._hydrationPromise = this._hydratePersistedCache();
   }
@@ -269,6 +270,12 @@ export class McpResourceManager {
     if (!id) throw new Error("McpResourceManager: missing providerId");
     const p = c.getProvider(id);
     if (!p) throw new Error(`McpResourceManager: no provider: ${id}`);
+
+    // Best-effort: if we have active subscriptions, keep provider notifications attached
+    // and refresh wiring when providers are replaced.
+    if (Array.from(this._subs.values()).some((s) => s.providerId === id)) {
+      this._ensureProviderNotifications(id, p);
+    }
     return { providerId: id, provider: p };
   }
 
@@ -403,6 +410,13 @@ export class McpResourceManager {
   }
 
   _ensureProviderNotifications(providerId, provider) {
+    const currentProvider = this._providerNotifyProvider.get(providerId);
+    if (currentProvider && currentProvider !== provider) {
+      this._stopProviderNotifications(providerId);
+      // Re-subscribe server-side resources for the replacement provider (best-effort).
+      void this._resubscribeProviderResources(providerId, provider);
+    }
+
     if (this._providerNotifyUnsub.has(providerId)) return;
     if (!provider || typeof provider.subscribeNotifications !== "function") return;
 
@@ -414,6 +428,7 @@ export class McpResourceManager {
       }
     });
     this._providerNotifyUnsub.set(providerId, off);
+    this._providerNotifyProvider.set(providerId, provider);
   }
 
   _stopProviderNotifications(providerId) {
@@ -422,11 +437,39 @@ export class McpResourceManager {
     const off = this._providerNotifyUnsub.get(pid);
     if (!off) return false;
     this._providerNotifyUnsub.delete(pid);
+    this._providerNotifyProvider.delete(pid);
     try {
       off?.();
     } catch {
       // ignore
     }
+    return true;
+  }
+
+  async _resubscribeProviderResources(providerId, provider) {
+    const pid = toNonEmptyString(providerId);
+    if (!pid) return false;
+    if (!provider || typeof provider.subscribeResource !== "function") return false;
+
+    const uris = [];
+    const prefix = `${pid}:`;
+    for (const [k, count] of this._serverSubRefCounts.entries()) {
+      if (!(count > 0)) continue;
+      if (!String(k).startsWith(prefix)) continue;
+      const uri = String(k).slice(prefix.length);
+      if (uri) uris.push(uri);
+    }
+    if (!uris.length) return true;
+
+    await Promise.all(
+      uris.map(async (uri) => {
+        try {
+          await provider.subscribeResource(uri);
+        } catch {
+          // ignore
+        }
+      })
+    );
     return true;
   }
 
