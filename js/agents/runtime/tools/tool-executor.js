@@ -649,14 +649,16 @@ export class ToolExecutor {
       const success = result.success ?? result.ok ?? !result.error;
       const data = result.data ?? result.result ?? result;
       const error = result.error ?? null;
-      return { success: Boolean(success), data, error, raw: result };
+      const ok = Boolean(success);
+      return { ok, success: ok, data, error, raw: result };
     }
 
     return this._buildResult(true, result);
   }
 
   _buildResult(success, data, error = null) {
-    return { success, data, error };
+    const ok = Boolean(success);
+    return { ok, success: ok, data, error };
   }
 
   _log(level, message, data = {}) {

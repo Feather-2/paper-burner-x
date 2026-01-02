@@ -15,6 +15,7 @@ describe("ToolExecutor", () => {
       const result = await executor.execute("greet", { name: "World" }, {});
 
       assert.equal(result.success, true);
+      assert.equal(result.ok, true);
       assert.equal(result.data.message, "Hello, World!");
     });
 
@@ -24,6 +25,7 @@ describe("ToolExecutor", () => {
       const result = await executor.execute("unknown", {}, {});
 
       assert.equal(result.success, false);
+      assert.equal(result.ok, false);
       assert.ok(result.error.includes("Unknown tool"));
     });
 
