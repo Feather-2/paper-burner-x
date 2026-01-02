@@ -379,6 +379,53 @@ test("Runtime Core: EventBus backpressure rAF scheduling branch", async () => {
   }
 });
 
+test("Runtime Core: EventBus backpressure ignores stale scheduled flush callbacks", async () => {
+  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
+
+  const originalRaf = globalThis.requestAnimationFrame;
+  const originalCancel = globalThis.cancelAnimationFrame;
+
+  const callbacks = new Map();
+  let nextId = 1;
+
+  try {
+    globalThis.requestAnimationFrame = (cb) => {
+      const id = nextId++;
+      callbacks.set(id, cb);
+      return id;
+    };
+    // Simulate a buggy cancelAnimationFrame (noop): old callbacks may still fire.
+    globalThis.cancelAnimationFrame = () => {};
+
+    const bus = new EventBus({ runId: "run_test" });
+    let hits = 0;
+    bus.on("run.log", () => {
+      hits++;
+    });
+
+    bus.enableBackpressure({ batchWindowMs: 0 });
+    bus.emit("run.log", { msg: "old" });
+    const oldId = bus._backpressure?.rafId;
+
+    bus.disableBackpressure();
+    assert.equal(hits, 1);
+
+    bus.enableBackpressure({ batchWindowMs: 0 });
+    bus.emit("run.log", { msg: "new" });
+    const newId = bus._backpressure?.rafId;
+    assert.equal(hits, 1);
+
+    callbacks.get(oldId)?.(Date.now());
+    assert.equal(hits, 1);
+
+    callbacks.get(newId)?.(Date.now());
+    assert.equal(hits, 2);
+  } finally {
+    globalThis.requestAnimationFrame = originalRaf;
+    globalThis.cancelAnimationFrame = originalCancel;
+  }
+});
+
 test("Runtime Core: EventBus validation errors", async () => {
   const { EventBus, createEventRecord } = await import("../../js/agents/runtime/events/event-bus.js");
 

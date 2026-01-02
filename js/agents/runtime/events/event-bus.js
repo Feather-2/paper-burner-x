@@ -81,6 +81,7 @@ export class EventBus {
     this._sortedHandlersCache = new Map(); // eventName -> [{ fn, priority }]
     this._cacheVersion = 0; // 递增版本号，用于失效缓存
     this._backpressure = null;
+    this._backpressureGen = 0;
     this._persistenceAdapter = ensurePersistenceAdapter(persistenceAdapter);
     this._onListenerError = typeof onListenerError === "function" ? onListenerError : null;
   }
@@ -298,6 +299,7 @@ export class EventBus {
       queue: [],
       coalesced: new Map(), // name -> { token, evt }
       token: 0,
+      generation: ++this._backpressureGen,
     };
 
     return this;
@@ -329,14 +331,23 @@ export class EventBus {
     const bp = this._backpressure;
     if (!bp?.enabled || bp.scheduled) return;
     bp.scheduled = true;
+    const generation = bp.generation;
 
     // Browser: rAF; Node: setTimeout.
     if (typeof globalThis.requestAnimationFrame === "function") {
-      bp.rafId = globalThis.requestAnimationFrame(() => this._flushBackpressureQueue());
+      bp.rafId = globalThis.requestAnimationFrame(() => {
+        const cur = this._backpressure;
+        if (!cur?.enabled || cur.generation !== generation) return;
+        this._flushBackpressureQueue();
+      });
       return;
     }
 
-    bp.timerId = setTimeout(() => this._flushBackpressureQueue(), bp.batchWindowMs);
+    bp.timerId = setTimeout(() => {
+      const cur = this._backpressure;
+      if (!cur?.enabled || cur.generation !== generation) return;
+      this._flushBackpressureQueue();
+    }, bp.batchWindowMs);
   }
 
   _flushBackpressureQueue() {
