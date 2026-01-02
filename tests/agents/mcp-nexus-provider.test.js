@@ -34,6 +34,22 @@ test("McpClient: search/fetch prefer standard tool names with fallback", async (
   );
 });
 
+test("SSE: NewlineDecoder handles CRLF across chunks and lone CR", async () => {
+  const { NewlineDecoder } = await import("../../js/agents/mcp/sse.js");
+  const enc = new TextEncoder();
+
+  const d1 = new NewlineDecoder();
+  assert.deepEqual(d1.decode(enc.encode("a\r")), []);
+  assert.deepEqual(d1.decode(enc.encode("\nb\n")), ["a", "b"]);
+
+  const d2 = new NewlineDecoder();
+  assert.deepEqual(d2.decode(enc.encode("x\ry\n")), ["x", "y"]);
+
+  const d3 = new NewlineDecoder();
+  assert.deepEqual(d3.decode(enc.encode("x\r")), []);
+  assert.deepEqual(d3.decode(enc.encode("y\n")), ["x", "y"]);
+});
+
 test("McpNexusProvider: JSON-RPC tools/list + tools/call happy path", async () => {
   const { McpNexusProvider } = await import("../../js/agents/mcp/mcp-nexus-provider.js");
 

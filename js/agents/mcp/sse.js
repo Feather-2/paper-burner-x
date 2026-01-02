@@ -187,11 +187,22 @@ export class NewlineDecoder {
     const startIndex = this._carriageIndex ?? 0;
     for (let i = startIndex; i < this._buffer.length; i++) {
       const byte = this._buffer[i];
+      if (this._carriageIndex !== null && i === this._carriageIndex + 1) {
+        // We saw a CR previously. If it's followed by LF, treat as CRLF.
+        if (byte === 0x0a) return { index: i + 1, preceding: this._carriageIndex };
+        // Otherwise, treat the CR as a standalone newline.
+        return { index: this._carriageIndex + 1, preceding: this._carriageIndex };
+      }
+
       if (byte === 0x0d) {
+        // CR: may be followed by LF (CRLF) or stand alone.
         this._carriageIndex = i;
-      } else if (byte === 0x0a) {
-        const preceding = this._carriageIndex !== null && this._carriageIndex === i - 1 ? i - 1 : i;
-        return { index: i + 1, preceding };
+        continue;
+      }
+
+      if (byte === 0x0a) {
+        // LF
+        return { index: i + 1, preceding: i };
       }
     }
     return null;
