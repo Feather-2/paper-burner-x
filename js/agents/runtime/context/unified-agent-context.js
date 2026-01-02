@@ -1,12 +1,14 @@
 /**
  * UnifiedAgentContext - 统一状态管理门面
  *
- * 渐进式重构：阶段 1 - 门面模式
- * 内部委托给现有三个类，对外提供统一接口
+ * P1.2: 纯只读门面模式
+ * - getter 不产生任何 Write 副作用
+ * - 所有变更通过显式 set/add 方法
+ * - 支持可选的 StateEngine 作为 SSOT
  *
  * 目标：
  * - 单源真理 (SSOT)
- * - 自动同步
+ * - 纯只读 getter
  * - 统一 Checkpoint
  */
 
@@ -64,29 +66,16 @@ export class UnifiedAgentContext {
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Task Goal (统一入口)
+  // P1.2: 纯只读 getter，优先从 MemoryStore 读取
   // ─────────────────────────────────────────────────────────────────────────────
 
   get taskGoal() {
+    // 优先级: MemoryStore > DeepSearchState
     const mem = toNonEmptyString(this._memory?.L0?.taskGoal);
+    if (mem) return mem;
+
     const st = toNonEmptyString(this._state?.taskGoal);
-
-    // Self-heal drift on read (MemoryStore is treated as canonical when present).
-    if (!mem && st && this._memory?.setTaskGoal) {
-      try {
-        this._memory.setTaskGoal(st);
-      } catch {
-        // ignore
-      }
-    }
-    if (mem && (!st || mem !== st) && this._state) {
-      try {
-        this._state.taskGoal = mem;
-      } catch {
-        // ignore
-      }
-    }
-
-    return mem || st || "";
+    return st || "";
   }
 
   setTaskGoal(goal) {
@@ -97,28 +86,16 @@ export class UnifiedAgentContext {
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Todos (统一入口)
+  // P1.2: 纯只读 getter，优先从 MemoryStore 读取
   // ─────────────────────────────────────────────────────────────────────────────
 
   get todos() {
+    // 优先级: MemoryStore > DeepSearchState
     const mem = Array.isArray(this._memory?.L0?.todos) ? this._memory.L0.todos : null;
+    if (mem) return mem;
+
     const st = Array.isArray(this._state?.todos) ? this._state.todos : null;
-
-    if (mem && st && mem !== st && this._state) {
-      try {
-        this._state.todos = mem;
-      } catch {
-        // ignore
-      }
-    }
-    if (!mem && st && this._memory?.L0 && typeof this._memory.L0 === "object") {
-      try {
-        this._memory.L0.todos = st;
-      } catch {
-        // ignore
-      }
-    }
-
-    return mem || st || [];
+    return st || [];
   }
 
   addTodo(todo) {
