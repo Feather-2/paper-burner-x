@@ -260,9 +260,10 @@ function isCompatibleBm25Index(index, chunks) {
   const n = Array.isArray(chunks) ? chunks.length : 0;
   if (index.chunkIds.length !== n) return false;
   if (!n) return true;
-  const first = String(chunks[0]?.chunkId || "");
-  const last = String(chunks[n - 1]?.chunkId || "");
-  return String(index.chunkIds[0] || "") === first && String(index.chunkIds[n - 1] || "") === last;
+  for (let i = 0; i < n; i++) {
+    if (String(index.chunkIds[i] || "") !== String(chunks[i]?.chunkId || "")) return false;
+  }
+  return true;
 }
 
 async function loadBm25IndexFromStore(store, key) {
