@@ -86,9 +86,47 @@ export class BacktrackManager {
     }
 
     try {
-      const restored = migrateCheckpoint(await this.archive.restore(targetId));
+      let restoredRaw = null;
+      try {
+        restoredRaw = await this.archive.restore(targetId);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const stack = err instanceof Error && typeof err.stack === "string" ? err.stack : null;
+        return {
+          success: false,
+          reason: "restore_failed",
+          error: msg,
+          ...(stack ? { stack } : {}),
+          details: { checkpointId: targetId, stage: "archive.restore" },
+        };
+      }
+
+      let restored = null;
+      try {
+        restored = migrateCheckpoint(restoredRaw);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const stack = err instanceof Error && typeof err.stack === "string" ? err.stack : null;
+        return {
+          success: false,
+          reason: "invalid_checkpoint",
+          error: msg,
+          ...(stack ? { stack } : {}),
+          details: { checkpointId: targetId, stage: "migrateCheckpoint" },
+        };
+      }
+
       if (!restored?.nodeStates) {
-        return { success: false, reason: "invalid_checkpoint" };
+        return {
+          success: false,
+          reason: "invalid_checkpoint",
+          error: "missing_nodeStates",
+          details: {
+            checkpointId: targetId,
+            schemaVersion: restored?.schemaVersion,
+            keys: restored && typeof restored === "object" ? Object.keys(restored).slice(0, 20) : [],
+          },
+        };
       }
 
       const restoredState = DeepSearchState.fromJSON(restored.nodeStates);
@@ -146,11 +184,12 @@ export class BacktrackManager {
 
       return { success: true, reason: "restored", state: restoredState };
     } catch (err) {
+      const stack = err instanceof Error && typeof err.stack === "string" ? err.stack : null;
       this._logger.warn("春秋蝉: Backtrack failed", {
         stage: "backtrack-manager",
-        data: { error: err?.message },
+        data: { error: err?.message, ...(stack ? { stack } : {}) },
       });
-      return { success: false, reason: "restore_failed", error: err?.message };
+      return { success: false, reason: "restore_failed", error: err?.message, ...(stack ? { stack } : {}) };
     }
   }
 

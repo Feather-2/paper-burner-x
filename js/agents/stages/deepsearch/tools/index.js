@@ -141,7 +141,20 @@ export async function executeTool(name, args, context) {
   try {
     return await tool.handler(args, context);
   } catch (err) {
-    return { success: false, error: err.message };
+    const msg = err instanceof Error ? err.message : String(err || "Unknown error");
+    const name = err instanceof Error ? err.name : "Error";
+    const stack = err instanceof Error && typeof err.stack === "string" ? err.stack : null;
+    const code =
+      err && typeof err === "object" && "code" in err && (typeof err.code === "string" || typeof err.code === "number")
+        ? err.code
+        : null;
+    return {
+      success: false,
+      error: msg,
+      errorName: name,
+      ...(code !== null ? { errorCode: code } : {}),
+      ...(stack ? { stack } : {}),
+    };
   }
 }
 
