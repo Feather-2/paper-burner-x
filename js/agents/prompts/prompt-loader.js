@@ -8,6 +8,7 @@
 const promptCache = new Map();
 let promptCacheMaxEntries = 128;
 const PROMPT_CACHE_KEY_SEPARATOR = "::";
+let promptManifestCacheTtlMs = 300_000;
 
 function isNodeLike() {
   return typeof process !== "undefined" && !!process.versions?.node;
@@ -33,6 +34,27 @@ function resolvePromptCacheMaxEntries() {
 }
 
 promptCacheMaxEntries = resolvePromptCacheMaxEntries();
+
+function resolvePromptManifestCacheTtlMs() {
+  const env = typeof process !== "undefined" ? process.env : null;
+  const fromEnv = env?.PB_PROMPT_MANIFEST_CACHE_TTL_MS;
+  if (fromEnv !== undefined && fromEnv !== null) {
+    const parsed = parseInt(String(fromEnv), 10);
+    if (Number.isFinite(parsed)) return Math.max(0, parsed);
+  }
+
+  try {
+    const raw = typeof localStorage !== "undefined" ? localStorage.getItem("pb_promptManifestCacheTtlMs") : null;
+    if (raw) {
+      const parsed = parseInt(String(raw), 10);
+      if (Number.isFinite(parsed)) return Math.max(0, parsed);
+    }
+  } catch {}
+
+  return 300_000;
+}
+
+promptManifestCacheTtlMs = resolvePromptManifestCacheTtlMs();
 
 function enforcePromptCacheLimit() {
   const limit = promptCacheMaxEntries;
@@ -65,7 +87,7 @@ function makePromptCacheKey({ basePath, manifestUrl, promptKey }) {
   return `${ns}${PROMPT_CACHE_KEY_SEPARATOR}${promptKey}`;
 }
 
-export function configurePromptCache({ maxEntries } = {}) {
+export function configurePromptCache({ maxEntries, manifestTtlMs } = {}) {
   if (maxEntries !== undefined) {
     const parsed = parseInt(String(maxEntries), 10);
     if (!Number.isFinite(parsed)) {
@@ -74,7 +96,14 @@ export function configurePromptCache({ maxEntries } = {}) {
     promptCacheMaxEntries = Math.max(0, parsed);
     enforcePromptCacheLimit();
   }
-  return { maxEntries: promptCacheMaxEntries, size: promptCache.size };
+  if (manifestTtlMs !== undefined) {
+    const parsed = parseInt(String(manifestTtlMs), 10);
+    if (!Number.isFinite(parsed)) {
+      throw new Error("configurePromptCache({ manifestTtlMs }): manifestTtlMs must be a finite integer");
+    }
+    promptManifestCacheTtlMs = Math.max(0, parsed);
+  }
+  return { maxEntries: promptCacheMaxEntries, manifestTtlMs: promptManifestCacheTtlMs, size: promptCache.size };
 }
 
 /**
@@ -133,7 +162,6 @@ function validateKey(key) {
 // - We ship `public/prompts/manifest.json` + prompt markdown under `public/prompts/**`.
 const DEFAULT_PROMPT_MANIFEST_URL = "prompts/manifest.json";
 const DEFAULT_PROMPT_MANIFEST_URL_FALLBACK = "public/prompts/manifest.json";
-const PROMPT_MANIFEST_CACHE_TTL_MS = 30_000;
 const _promptManifestCacheByUrl = new Map(); // url -> { url, ts, byName: Map<string,{name,path}> }
 
 function isPlainObject(value) {
@@ -194,11 +222,11 @@ async function loadPromptManifest(manifestUrl) {
 
   const now = Date.now();
   const cachedPrimary = _promptManifestCacheByUrl.get(primary);
-  if (cachedPrimary && now - cachedPrimary.ts < PROMPT_MANIFEST_CACHE_TTL_MS) return cachedPrimary;
+  if (cachedPrimary && now - cachedPrimary.ts < promptManifestCacheTtlMs) return cachedPrimary;
 
   for (const url of candidates) {
     const cached = _promptManifestCacheByUrl.get(url);
-    if (cached && now - cached.ts < PROMPT_MANIFEST_CACHE_TTL_MS) return cached;
+    if (cached && now - cached.ts < promptManifestCacheTtlMs) return cached;
     try {
       const data = await fetchJson(url);
       const list = Array.isArray(data?.prompts) ? data.prompts : Array.isArray(data?.files) ? data.files : [];
