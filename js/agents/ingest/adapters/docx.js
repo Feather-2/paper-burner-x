@@ -181,13 +181,14 @@ export class DocxAdapter extends BaseAdapter {
       warnings.push(message);
     };
     let imageCounter = 0;
+    const imageIdPrefix = "img_";
 
     const convertImageImpl = (image) => {
       imageCounter += 1;
       const imageIndex = imageCounter;
       const mime = toNonEmptyString(image?.contentType) || "unknown";
       const ext = extFromMime(mime);
-      const filename = `docx_img_${imageIndex}.${ext}`;
+      const filename = `${imageIdPrefix}${imageIndex}.${ext}`;
 
       return image
         .read("base64")
@@ -198,7 +199,7 @@ export class DocxAdapter extends BaseAdapter {
         .catch((e) => {
           const msg = e instanceof Error ? e.message : String(e);
           pushWarning(`image#${imageIndex} (${mime}): ${msg}`);
-          const placeholder = `docx_img_${imageIndex}.png`;
+          const placeholder = `${imageIdPrefix}${imageIndex}.png`;
           docxImages.push({ id: placeholder, data: TRANSPARENT_PNG_BASE64, placeholder: true });
           return { src: `images/${placeholder}` };
         });
@@ -214,7 +215,7 @@ export class DocxAdapter extends BaseAdapter {
     const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
     let markdown = turndown.turndown(html);
 
-    const embedded = extractEmbeddedDataUriImagesFromMarkdown(markdown, { idPrefix: "docx_extracted", startIndex: 0 });
+    const embedded = extractEmbeddedDataUriImagesFromMarkdown(markdown, { idPrefix: "img_extracted", startIndex: 0 });
     markdown = embedded.markdown;
     const images = [...docxImages, ...embedded.images];
 
