@@ -189,6 +189,63 @@ test("ModelRouter: failover emits events and marks unhealthy", async () => {
   assert.equal(router.isAvailable("bad"), false);
 });
 
+test("ModelRouter: 401/403 disables model permanently until reset", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+  const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
+
+  const time = createFakeTime(0);
+  const authErr = new Error("Unauthorized");
+  authErr.status = 401;
+
+  const provider = new MockProvider({
+    id: "mock",
+    behaviors: {
+      bad: [{ throw: authErr }],
+      good: [{ content: "ok" }, { content: "ok2" }],
+    },
+  });
+
+  const router = new ModelRouter({
+    models: [
+      { id: "bad", provider: "mock", tags: ["text"], limits: {} },
+      { id: "good", provider: "mock", tags: ["text"], limits: {} },
+    ],
+    usageConfig: { worker: ["bad", "good"], planner: [], analyst: [], writer: [], vision: [] },
+    providers: { mock: provider },
+    cooldownMs: 60_000,
+    time,
+  });
+
+  const events = [];
+  router.on("model.unhealthy", (e) => events.push(e));
+
+  const out1 = await router.call({ usage: "worker", messages: [{ role: "user", content: "x" }] });
+  assert.equal(out1.model, "good");
+  assert.equal(out1.content, "ok");
+  assert.equal(provider.calls.length, 2);
+  assert.equal(provider.calls[0].model, "bad");
+  assert.equal(provider.calls[1].model, "good");
+
+  const h = router.getHealth("bad");
+  assert.ok(h);
+  assert.equal(h.disabled, true);
+  assert.equal(h.unhealthyUntilMs, 0);
+  assert.equal(router.isAvailable("bad"), false);
+  assert.ok(events.some((e) => e.modelId === "bad" && e.disabled === true));
+
+  time.advance(600_000);
+  assert.equal(router.isAvailable("bad"), false);
+
+  const out2 = await router.call({ usage: "worker", messages: [{ role: "user", content: "y" }] });
+  assert.equal(out2.model, "good");
+  assert.equal(out2.content, "ok2");
+  assert.equal(provider.calls.length, 3);
+  assert.equal(provider.calls[2].model, "good");
+
+  router.resetUnhealthy("bad");
+  assert.equal(router.isAvailable("bad"), true);
+});
+
 test("ModelRouter: exponential backoff increases cooldown and emits backoffLevel", async () => {
   const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
   const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");

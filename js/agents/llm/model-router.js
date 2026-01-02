@@ -59,6 +59,31 @@ function toBackoffMultiplier(v, fallback) {
   return fallback;
 }
 
+function extractHttpStatus(err) {
+  if (!err || typeof err !== "object") return null;
+  const direct = err.status ?? err.statusCode ?? err.httpStatus ?? null;
+  if (typeof direct === "number" && Number.isFinite(direct)) return direct;
+  const nested = err.response?.status ?? err.response?.statusCode ?? null;
+  if (typeof nested === "number" && Number.isFinite(nested)) return nested;
+  return null;
+}
+
+function isPermanentAuthError(err) {
+  const status = extractHttpStatus(err);
+  if (status === 401 || status === 403) return true;
+  const msg = toErrorInfo(err).message.toLowerCase();
+  if (!msg) return false;
+  return (
+    msg.includes("401") ||
+    msg.includes("403") ||
+    msg.includes("invalid api key") ||
+    msg.includes("unauthorized") ||
+    msg.includes("forbidden") ||
+    (msg.includes("api key") && msg.includes("invalid")) ||
+    (msg.includes("authentication") && msg.includes("fail"))
+  );
+}
+
 function createNoopLogger() {
   const noop = () => {};
   return { debug: noop, info: noop, warn: noop, error: noop };
@@ -217,7 +242,12 @@ export class ModelRouter extends EventEmitter {
     if (!id) return;
     const prev = this._health.get(id);
     if (!prev) return;
-    this._health.set(id, { ...prev, unhealthyUntilMs: 0 });
+    const next = { ...prev, unhealthyUntilMs: 0 };
+    if (next.disabled) {
+      next.disabled = false;
+      delete next.disabledReason;
+    }
+    this._health.set(id, next);
   }
 
   isAvailable(modelId) {
@@ -225,6 +255,7 @@ export class ModelRouter extends EventEmitter {
     if (!id) return false;
     const h = this._health.get(id);
     if (!h) return true;
+    if (h.disabled === true) return false;
     const now = this._time.now();
     return !(typeof h.unhealthyUntilMs === "number" && h.unhealthyUntilMs > now);
   }
@@ -249,6 +280,7 @@ export class ModelRouter extends EventEmitter {
     if (!id) return null;
     const now = this._time.now();
     const prev = this._health.get(id) || { failures: 0 };
+    if (prev.disabled === true) return { ...prev, cooldownMs: null, backoffLevel: null };
     const backoffLevel =
       typeof prev.failures === "number" && Number.isFinite(prev.failures) ? Math.max(0, Math.floor(prev.failures)) : 0;
     const cooldownMs = this._computeCooldownMs(backoffLevel);
@@ -261,12 +293,34 @@ export class ModelRouter extends EventEmitter {
     return { ...next, cooldownMs, backoffLevel };
   }
 
+  disableModel(modelId, error, { reason } = {}) {
+    const id = toNonEmptyString(modelId);
+    if (!id) return null;
+    const prev = this._health.get(id) || { failures: 0, unhealthyUntilMs: 0 };
+    const failures =
+      typeof prev.failures === "number" && Number.isFinite(prev.failures) ? Math.max(0, Math.floor(prev.failures)) + 1 : 1;
+    const next = {
+      ...prev,
+      failures,
+      unhealthyUntilMs: 0,
+      lastError: toErrorInfo(error),
+      disabled: true,
+      ...(toNonEmptyString(reason) ? { disabledReason: toNonEmptyString(reason) } : {}),
+    };
+    this._health.set(id, next);
+    return next;
+  }
+
   markHealthy(modelId) {
     const id = toNonEmptyString(modelId);
     if (!id) return null;
     const prev = this._health.get(id);
     if (!prev) return null;
     const next = { ...prev, failures: 0, unhealthyUntilMs: 0 };
+    if (next.disabled) {
+      next.disabled = false;
+      delete next.disabledReason;
+    }
     this._health.set(id, next);
     return next;
   }
@@ -382,7 +436,14 @@ export class ModelRouter extends EventEmitter {
       const health = this._health.get(id);
       const available = this.isAvailable(id);
       const hasRequiredTags = entry ? this._supportsTags(entry, requiredTags) : false;
-      return { id, available, hasRequiredTags, unhealthyUntilMs: health?.unhealthyUntilMs, failures: health?.failures };
+      return {
+        id,
+        available,
+        hasRequiredTags,
+        unhealthyUntilMs: health?.unhealthyUntilMs,
+        failures: health?.failures,
+        disabled: health?.disabled === true,
+      };
     });
     this._logger.debug(`[ModelRouter] call usage=${u} strategy=${strategy} startIndex=${startIndex}`, {
       candidates: debugCandidates,
@@ -403,7 +464,13 @@ export class ModelRouter extends EventEmitter {
         eligibleCandidates.push(modelId);
         if (!this.isAvailable(modelId)) {
           const h = this._health.get(modelId);
-          this._logger.debug(`[ModelRouter] skip ${modelId}: unhealthy until ${new Date(h?.unhealthyUntilMs || 0).toISOString()}`);
+          const until =
+            h?.disabled === true
+              ? "disabled"
+              : typeof h?.unhealthyUntilMs === "number" && Number.isFinite(h.unhealthyUntilMs)
+                ? new Date(h.unhealthyUntilMs).toISOString()
+                : "unknown";
+          this._logger.debug(`[ModelRouter] skip ${modelId}: unhealthy until ${until}`);
           cooldownCount++;
           continue;
         }
@@ -435,7 +502,8 @@ export class ModelRouter extends EventEmitter {
             limiter.blockFor(retryAfterMs);
           }
           this._logger.warn(`[ModelRouter] fail ${modelId} via ${entry.provider}: ${toErrorInfo(err).message}`);
-          const health = this.markUnhealthy(modelId, err);
+          const permanent = isPermanentAuthError(err);
+          const health = permanent ? this.disableModel(modelId, err, { reason: "auth" }) : this.markUnhealthy(modelId, err);
           this.emit("model.unhealthy", {
             usage: u,
             modelId,
@@ -444,6 +512,7 @@ export class ModelRouter extends EventEmitter {
             cooldownMs: health?.cooldownMs ?? this._cooldownMs,
             backoffLevel: health?.backoffLevel,
             unhealthyUntilMs: health?.unhealthyUntilMs,
+            ...(health?.disabled ? { disabled: true, disabledReason: health.disabledReason || "auth" } : {}),
           });
 
           const nextModelId = this._findNextCandidate(idx + 1, orderedCandidates, requiredTags);
