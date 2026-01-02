@@ -1,22 +1,35 @@
 # js/agents 深度审计报告 (Kernel Maintainer Level)
 
 > **审计人**：Linus Torvalds (Agent Mode)
-> **状态**：部分修复（2026-01-02）
+> **状态**：P0/P1 已修复（2026-01-03）
 > **核心原则**：KISS, YAGNI, SOLID, Never break userspace.
 
 ---
 
-## Fix Status (2026-01-02)
+## Fix Status (2026-01-03)
 
-- ✅ **P0 同步压缩屏障**：模型调用前 `flushCompression()` 同步等待压缩完成（`js/agents/sdk/DefaultAgentLoop.js`、`js/agents/stages/deepsearch/deepsearch-agent-loop.js`、`js/agents/runtime/core/agent-loop.js`）。
-- ✅ **P0 URL/凭证泄露**：代理请求剥离 basic auth/hash，默认拒绝代理含敏感 query 的 URL（可用 `allowSensitiveUrlProxying` 显式放行）（`js/agents/mcp/local-mcp-provider.js`）。
-- ✅ **P2 遥测数组膨胀**：`subscribeTelemetry` timeline 滑动窗口（默认 2000 条，可配置）（`js/agents/runtime/telemetry/runstore-telemetry.js`）。
-- ✅ **P1 Skills 注入 O(N)**：用 token 索引预过滤候选技能，避免全量正则扫所有 skills（`js/agents/skills/injection.js`）。
-- ✅ **Tokenizer 集成**：自适应 token counter（优先 tiktoken，失败回退到启发式估算）（`js/agents/shared/tokenizers/adaptive-token-counter.js`、`js/agents/runtime/core/agent-loop.js`）。
-- ⚠️ **P1 Checkpoint UI Freezing**：DeepSearch checkpoint 支持 `MINIMAL/LITE`，MemoryStore 提供 `toSnapshot()`；但 `UnifiedAgentContext.saveCheckpoint()` 仍可能全量 deepClone（`js/agents/stages/deepsearch/state.js`、`js/agents/runtime/memory/memory-store.js`、`js/agents/runtime/context/unified-agent-context.js`）。
-- ⚠️ **VFS 主线程重计算**：diff 已可选 Worker；glob/scan 仍在主线程但有扫描上限（`js/agents/vfs/diff.js`、`js/agents/vfs/glob.js`）。
-- 📝 **DeepSearch Gap 收敛**：尚未引入 “max depth/边际收益” 的明确策略（目前只有 `maxIterations/maxToolCalls/budget` 等硬上限）（`js/agents/stages/deepsearch/deepsearch-agent-loop.js`）。
-- ⚠️ **Retrieval chain fail-fast**：已补输入/路径规范化与错误返回，但仍缺严格 schema 校验与逐步 fail-fast（`js/agents/retrieval/tool-chain.js`）。
+### Phase 1 完成 (2026-01-02)
+- ✅ **P0 同步压缩屏障**：模型调用前 `flushCompression()` 同步等待压缩完成
+- ✅ **P0 URL/凭证泄露**：代理请求剥离 basic auth/hash，默认拒绝代理含敏感 query 的 URL
+- ✅ **P2 遥测数组膨胀**：`subscribeTelemetry` timeline 滑动窗口（默认 2000 条）
+- ✅ **P1 Skills 注入 O(N)**：用 token 索引预过滤候选技能
+- ✅ **Tokenizer 集成**：自适应 token counter（优先 tiktoken，失败回退启发式）
+- ✅ **P0 matchWildcard ReDoS**：双指针算法替换动态 RegExp 构造
+- ✅ **P2 tree-sitter-wasm 僵尸 Promise**：失败时清除缓存 Promise 允许重试
+- ✅ **P2 bind 静默吞错**：返回 `{success, errors}` 并记录警告
+
+### Phase 2 完成 (2026-01-03)
+- ✅ **P1 Cicada Schema Version**：archive 存储 schemaVersion，restore 校验版本兼容
+- ✅ **P1 VectorIndex 分区过滤**：hot/warm/cold 时间分区，search 支持 partitions 筛选
+- ✅ **P1 MemoryStore 增量快照**：dirty flags 追踪 + `toSnapshot({incremental:true})` 只序列化变更层
+- ✅ **P1 Watchdog 逻辑震荡**：Jaccard 相似度检测重复输出，连续相似告警
+- ✅ **P1 Replay 逻辑序列**：extractSeq 提取逻辑序列号，排序优先级 seq > ts > insertOrder
+
+### 待实现 (Medium Term)
+- ⚠️ **Checkpoint UI Freezing**：已缓解（MINIMAL/LITE + incremental），非 Web Worker 迁移
+- ⚠️ **VFS 主线程重计算**：diff 已可选 Worker；glob/scan 有扫描上限但仍在主线程
+- 📝 **DeepSearch Gap 收敛**：尚未引入 "max depth/边际收益" 策略
+- ⚠️ **Retrieval chain fail-fast**：已补输入规范化，仍缺严格 schema 校验
 
 ## 1. 核心架构审计 (Executive Summary)
 
@@ -57,6 +70,66 @@
 - **修复状态**：✅ 已修复
 - **实现要点**：timeline 采用可配置滑动窗口上限（默认 2000 条，支持关闭/增大）。
 - **代码证据**：`js/agents/runtime/telemetry/runstore-telemetry.js`
+
+### 2.5 存储层并发锁定与写放大 (P0)
+- **风险文件**：`storage/run-store.js`
+- **问题描述**：缺乏多 Tab 环境下的连接池管理，`onblocked` 风险极高。全量 `JSON.stringify` 导致严重的写放大（Write Amplification）。
+- **Linus 评价**：这是典型的“多线程自残”。在没有文件锁的情况下跑异步 IO，早晚会把用户的本地数据库搞乱。
+
+### 2.6 时钟漂移与事件因果序失效 (P1)
+- **风险文件**：`runtime/telemetry/replay-controller.js`
+- **问题描述**：事件重放强依赖本地物理时钟。一旦发生 NTP 对时或时区切换，因果链条将瞬间断裂。
+- **Linus 评价**：逻辑一致性不能建立在不确定的物理量上。必须引入单调递增的逻辑序列号。
+
+### 2.7 影子系统的“潜意识篡改”风险 (P2)
+- **风险文件**：`sdk/AlertMonitor.js`
+- **问题描述**：通过注入 Prompt 片段强行干预模型推理，缺乏对模型注意力机制（Attention）的保护。
+- **Linus 评价**：这是在给模型打强心针，虽然有效但副作用巨大。必须将干预信号从原始 Context 中分离，建立独立的信号平面。
+
+### 2.8 策略匹配的“通配符炸弹” (P0)
+- **风险文件**：`runtime/policy/match.js`
+- **问题描述**：`matchWildcard` 通过 `new RegExp` 动态构造正则表达式。
+- **Linus 评价**：这是教科书级别的 ReDoS 诱因。严禁在内核判定路径上使用动态构造的正则。必须改为非正则的双指针匹配算法。
+
+### 2.9 向量检索的“暴力 O(N) 扫描” (P1)
+- **风险文件**：`shared/embeddings/vector-index.js`
+- **问题描述**：`search` 方法采用全量遍历计算余弦相似度，缺乏真正的索引结构。
+- **Linus 评价**：这不是索引，这只是个简单的循环。在处理数千个 Chunks 时，这会让 Agent 的反应速度变得像树懒一样慢。必须引入 Wasm 加速的 HNSW 或空间分区索引。
+
+### 2.10 状态绑定的“静默损坏” (P2)
+- **风险文件**：`runtime/context/unified-agent-context.js`
+- **问题描述**：`bind` 方法静默捕获并忽略了所有初始化异常。
+- **Linus 评价**：错误不应该被吞掉。如果核心组件绑定失败，系统应该立即 Panic，而不是带着“脑损伤”继续运行。
+
+### 2.11 监控器的“逻辑震荡”盲点 (P1)
+- **风险文件**：`runtime/compression/watchdog.js`
+- **问题描述**：仅监控物理指标（迭代次数、时间），无法识别“逻辑震荡”（Agent 在重复生成无效输出）。
+- **Linus 评价**：这是个死循环探测器，而不是健康监控器。 Agent 可能还在“呼吸”但已经“脑死亡”。必须引入基于输出熵值的语义分析。
+
+### 2.12 提示词加载的“注入与穿越”风险 (P0)
+- **风险文件**：`prompts/prompt-loader.js`
+- **问题描述**：`renderPromptTemplate` 对插值缺乏深度净化，且 `loadPrompt` 的来源校验极其薄弱。
+- **Linus 评价**：这是给 Prompt Injection 开了大门。任何来自外部工具的脏数据都可能篡改系统指令。
+
+### 2.13 持久化对象的“向前兼容性炸弹” (P1)
+- **风险文件**：`runtime/compression/cicada-compressor.js` & `storage/run-store.js`
+- **问题描述**：存档对象缺乏强制的 Schema 版本控制。
+- **Linus 评价**：如果没有版本号，昨天的存档就是明天的 Bug。所有持久化数据必须强制携带版本头部并配套 Migration 逻辑。
+
+### 2.14 记忆快照的“逻辑时空撕裂” (P1)
+- **风险文件**：`runtime/memory/memory-store.js`
+- **问题描述**：`toSnapshot` 对不同记忆层执行多次独立的 `deepClone`，缺乏跨层的事务锁定。
+- **Linus 评价**：这是典型的数据库弱一致性陷阱。在高并发对话中，你得到的快照可能前半部分是过去的，后半部分是未来的。
+
+### 2.15 ReAct 修复循环的“死循环回旋” (P1)
+- **风险文件**：`stages/design/refiner/react-refiner.js`
+- **问题描述**：缺乏对失败操作的指纹识别。如果模型陷入逻辑怪圈，会针对同一错误执行相同的无效修复动作。
+- **Linus 评价**：这是在白白浪费 Token。必须引入修复指纹黑名单，对连续失败的原子操作强制熔断。
+
+### 2.16 Wasm 初始化的“僵尸 Promise”风险 (P2)
+- **风险文件**：`shared/parser/tree-sitter-wasm.js`
+- **问题描述**：初始化失败后未清除缓存的 Promise，导致后续所有调用永久挂起。
+- **Linus 评价**：初始化逻辑必须是幂等的且具备自愈能力。一个网络抖动不应该判处整个解析模块死刑。
 
 ---
 
