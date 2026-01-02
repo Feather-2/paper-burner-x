@@ -5,6 +5,7 @@ import { RenderType, EventStatus, SlotPriority, SlotPurpose, VisualHeuristics } 
 import { DesignEvents } from "../../../runtime/events/events.js";
 import { normalizeRenderType } from "../../../shared/utils/value-utils.js";
 import { makeSecureTimestampedId } from "../../../shared/utils/secure-id.js";
+import { safeEmit } from "../shared/safe-emit.js";
 
 function nowMs() {
   return Date.now();
@@ -19,11 +20,6 @@ function toNonEmptyString(v) {
 function safeNumber(v, fallback) {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
-}
-
-function safeEmit(emit, name, status, payload) {
-  if (typeof emit !== "function") return;
-  emit(name, { actor: "design", status, payload });
 }
 
 function parsePercent(v) {

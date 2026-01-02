@@ -5,6 +5,7 @@ import { makeSecureTimestampedId } from "../../../shared/utils/secure-id.js";
 
 import { nowMs, toNonEmptyString, escapeHtml as escapeAttr } from "../shared/design-utils.js";
 import { parseTagAttributes } from "../shared/html-parser.js";
+import { safeEmit } from "../shared/safe-emit.js";
 
 function safeNumber(value, fallback) {
   const n = Number(value);
@@ -48,11 +49,6 @@ async function withTimeout(promise, timeoutMs) {
   } finally {
     if (timer) clearTimeout(timer);
   }
-}
-
-function safeEmit(emit, name, status, payload) {
-  if (typeof emit !== "function") return;
-  emit(name, { actor: "design", status, payload });
 }
 
 function normalizeImageSrc(result) {

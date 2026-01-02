@@ -40,15 +40,11 @@ function createLimiter(concurrency) {
 import { toNonEmptyString, escapeHtml as escapeAttr } from "../shared/design-utils.js";
 import { parseTagAttributes } from "../shared/html-parser.js";
 import { classifyDesignError } from "../shared/error-classifier.js";
+import { safeEmit } from "../shared/safe-emit.js";
 
 function safeNumber(v, fallback) {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
-}
-
-function safeEmit(emit, name, status, payload) {
-  if (typeof emit !== "function") return;
-  emit(name, { actor: "design", status, payload });
 }
 
 /**

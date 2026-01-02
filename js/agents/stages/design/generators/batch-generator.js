@@ -5,6 +5,7 @@ import { buildSlideHtml } from "../dsl/dsl-builder.js";
 import { resolveLayoutType } from "./layout-protocol.js";
 import { loadPrompt } from "../../../prompts/prompt-loader.js";
 import { parseTagAttributes } from "../shared/html-parser.js";
+import { safeEmit } from "../shared/safe-emit.js";
 
 // === 可配置常量 ===
 const BATCH_GENERATOR_DEFAULTS = {
@@ -104,11 +105,6 @@ function extractJsonCandidate(text) {
   if (firstBrace >= 0 && lastBrace > firstBrace) return s.slice(firstBrace, lastBrace + 1);
 
   return s;
-}
-
-function safeEmit(emit, name, status, payload) {
-  if (typeof emit !== "function") return;
-  emit(name, { actor: "design", status, payload });
 }
 
 function chunkIndexes(len, size) {
