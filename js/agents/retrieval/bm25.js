@@ -133,42 +133,59 @@ function shouldDropSingleCharToken(t) {
   return /^[a-z]$/i.test(t);
 }
 
-function isCjkCharCode(code) {
+function isCjkCodePoint(cp) {
   return (
-    (code >= 0x4e00 && code <= 0x9fff) || // CJK Unified Ideographs
-    (code >= 0x3040 && code <= 0x30ff) || // Hiragana/Katakana
-    (code >= 0xac00 && code <= 0xd7af) // Hangul
+    // CJK Unified Ideographs + extensions
+    (cp >= 0x3400 && cp <= 0x4dbf) || // Extension A
+    (cp >= 0x4e00 && cp <= 0x9fff) || // Unified Ideographs
+    (cp >= 0xf900 && cp <= 0xfaff) || // Compatibility Ideographs
+    (cp >= 0x20000 && cp <= 0x2a6df) || // Extension B
+    (cp >= 0x2a700 && cp <= 0x2b73f) || // Extension C
+    (cp >= 0x2b740 && cp <= 0x2b81f) || // Extension D
+    (cp >= 0x2b820 && cp <= 0x2ceaf) || // Extension E
+    (cp >= 0x2ceb0 && cp <= 0x2ebef) || // Extension F
+    (cp >= 0x30000 && cp <= 0x3134f) || // Extension G
+    (cp >= 0x2f800 && cp <= 0x2fa1f) || // Compatibility Ideographs Supplement
+    // Hiragana / Katakana
+    (cp >= 0x3040 && cp <= 0x30ff) ||
+    (cp >= 0x31f0 && cp <= 0x31ff) || // Katakana Phonetic Extensions
+    // Hangul
+    (cp >= 0xac00 && cp <= 0xd7af)
   );
 }
 
 function isAllCjkToken(token) {
   const s = typeof token === "string" ? token : "";
   if (!s) return false;
-  for (let i = 0; i < s.length; i++) {
-    if (!isCjkCharCode(s.charCodeAt(i))) return false;
+  for (const ch of s) {
+    const cp = ch.codePointAt(0);
+    if (!Number.isFinite(cp) || !isCjkCodePoint(cp)) return false;
   }
   return true;
 }
 
 function pushCjkBigrams(token, out, { maxBigrams = 64 } = {}) {
   const t = typeof token === "string" ? token : "";
-  if (t.length <= 2) {
+  if (!t) return;
+
+  const chars = Array.from(t);
+  if (chars.length <= 2) {
     out.push(t);
     return;
   }
 
-  const total = t.length - 1;
+  const total = chars.length - 1;
   const max = typeof maxBigrams === "number" && Number.isFinite(maxBigrams) ? Math.max(1, Math.floor(maxBigrams)) : 64;
   if (total <= max) {
-    for (let i = 0; i < total; i++) out.push(t.slice(i, i + 2));
+    for (let i = 0; i < total; i++) out.push(chars[i] + chars[i + 1]);
     return;
   }
 
   const head = Math.max(1, Math.floor(max / 2));
   const tail = Math.max(1, max - head);
-  for (let i = 0; i < head; i++) out.push(t.slice(i, i + 2));
+  for (let i = 0; i < head; i++) out.push(chars[i] + chars[i + 1]);
   const tailStart = Math.max(head, total - tail);
-  for (let i = tailStart; i < total; i++) out.push(t.slice(i, i + 2));
+  for (let i = tailStart; i < total; i++) out.push(chars[i] + chars[i + 1]);
 }
 
 function tokenize(text) {
