@@ -424,8 +424,10 @@ export function retrieve(sourceIndex, gaps, config = {}) {
       const bm25Score = bm25Scores.get(chunkId) || 0;
       const grepNorm = matchCount > 0 && maxGrepScore > 0 ? scoreFromGrepMatchCount(matchCount) / maxGrepScore : 0;
       const bm25Norm = bm25Score > 0 && maxBm25Score > 0 ? bm25Score / maxBm25Score : 0;
-      const base = matchCount > 0 ? scoring.grepBase : 0;
-      const merged = base + scoring.wGrep * grepNorm + scoring.wBm25 * bm25Norm;
+      // Merge (token-based) signals without a constant "always-on" bonus:
+      // grepBase is treated as an extra weight on grepNorm (not an additive floor),
+      // so BM25 can still influence ranking when grep matches are weak.
+      const merged = (scoring.wGrep + (matchCount > 0 ? scoring.grepBase : 0)) * grepNorm + scoring.wBm25 * bm25Norm;
       if (merged > 0) scored.set(chunkId, merged);
     }
 
