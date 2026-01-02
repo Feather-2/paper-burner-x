@@ -32,6 +32,97 @@ function escapeAttrSelectorValue(value) {
   return String(value ?? "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
+function isDangerousUrl(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return false;
+  const s = raw.toLowerCase();
+  if (s.startsWith("javascript:") || s.startsWith("vbscript:")) return true;
+  if (s.startsWith("data:") && !s.startsWith("data:image/")) return true;
+  return false;
+}
+
+function isDangerousStyle(value) {
+  const raw = String(value ?? "");
+  if (!raw) return false;
+  const s = raw.toLowerCase();
+  if (s.includes("expression(")) return true;
+  if (s.includes("javascript:")) return true;
+  // url(javascript:...) variants
+  if (s.includes("url(") && s.includes("javascript:")) return true;
+  return false;
+}
+
+function sanitizeElementTree(root) {
+  if (!root || typeof root !== "object") return;
+  const dangerousTags = new Set(["script", "iframe", "object", "embed", "link", "meta", "base"]);
+
+  const stack = [root];
+  while (stack.length) {
+    const el = stack.pop();
+    if (!el || el.nodeType !== 1) continue;
+
+    const tag = typeof el.tagName === "string" ? el.tagName.toLowerCase() : "";
+    if (dangerousTags.has(tag)) {
+      try {
+        el.remove?.();
+      } catch {
+        // ignore
+      }
+      continue;
+    }
+
+    const attrs = el.attributes ? Array.from(el.attributes) : [];
+    for (const attr of attrs) {
+      const name = String(attr?.name || "");
+      if (!name) continue;
+      const lower = name.toLowerCase();
+      if (lower.startsWith("on")) {
+        el.removeAttribute?.(name);
+        continue;
+      }
+      if ((lower === "href" || lower === "src" || lower === "xlink:href" || lower === "formaction") && isDangerousUrl(attr.value)) {
+        el.removeAttribute?.(name);
+        continue;
+      }
+      if (lower === "style" && isDangerousStyle(attr.value)) {
+        el.removeAttribute?.(name);
+      }
+    }
+
+    const children = el.children ? Array.from(el.children) : [];
+    for (const child of children) stack.push(child);
+  }
+}
+
+async function sanitizeHtmlFragment(html) {
+  const input = typeof html === "string" ? html : String(html ?? "");
+  if (!input.trim()) return "";
+
+  const WRAP_ID = "__pb_sanitize_wrap__";
+  const wrapped = `<div id="${WRAP_ID}">${input}</div>`;
+
+  if (isBrowserEnv() && typeof DOMParser !== "undefined") {
+    const doc = new DOMParser().parseFromString(wrapped, "text/html");
+    const wrap = doc.getElementById(WRAP_ID);
+    if (!wrap) return "";
+    sanitizeElementTree(wrap);
+    return wrap.innerHTML;
+  }
+
+  const mod = await import("linkedom");
+  const { document } = mod.parseHTML(wrapped);
+  const wrap = document.getElementById(WRAP_ID);
+  if (!wrap) return "";
+  sanitizeElementTree(wrap);
+  return wrap.innerHTML;
+}
+
+async function setInnerHTMLSanitized(el, html) {
+  if (!el) return;
+  const sanitized = await sanitizeHtmlFragment(html);
+  el.innerHTML = sanitized;
+}
+
 const TOOL_OPTIONS = Symbol("reactRefinerToolOptions");
 
 const SCREENSHOT_CONCURRENCY = (() => {
@@ -57,9 +148,8 @@ async function parseSectionDom(sectionHtml) {
   if (!html) return { section: null, serialize: () => "" };
 
   if (isBrowserEnv()) {
-    const container = document.createElement("div");
-    container.innerHTML = html.trim();
-    const section = container.querySelector("section");
+    const doc = typeof DOMParser !== "undefined" ? new DOMParser().parseFromString(html.trim(), "text/html") : null;
+    const section = doc ? doc.querySelector("section") : null;
     return { section, serialize: () => (section ? section.outerHTML : html.trim()) };
   }
 
@@ -207,8 +297,12 @@ async function screenshot(context, params) {
     document.body.appendChild(container);
 
     try {
-      container.innerHTML = `<div style="width: 960px; height: 540px; overflow: hidden;">${sectionHtml}</div>`;
-      const target = container.firstChild;
+      const wrapper = document.createElement("div");
+      wrapper.style.cssText = "width: 960px; height: 540px; overflow: hidden;";
+      await setInnerHTMLSanitized(wrapper, sectionHtml);
+      container.appendChild(wrapper);
+
+      const target = wrapper;
       if (!target) return { success: false, error: "screenshot: failed to mount slide HTML" };
 
       const scale = Number.isFinite(params?.scale) ? params.scale : 2;
@@ -327,7 +421,8 @@ async function editSlide(context, params) {
     let updatedSection = sections[v.slideIndex];
     if (replaceWithSection) {
       const m = rawHtml.match(/<section\b[\s\S]*<\/section>/i);
-      updatedSection = (m ? m[0] : rawHtml).trim();
+      const next = (m ? m[0] : rawHtml).trim();
+      updatedSection = (await sanitizeHtmlFragment(next)).trim() || next;
     } else {
       const { section, serialize } = await parseSectionDom(updatedSection);
       if (!section) return { success: false, error: "editSlide: failed to parse target <section>" };
@@ -347,7 +442,7 @@ async function editSlide(context, params) {
       applyAttrChanges(section, changes.attrs);
 
       if (rawHtml && !replaceWithSection) {
-        section.innerHTML = rawHtml;
+        await setInnerHTMLSanitized(section, rawHtml);
       }
 
       updatedSection = serialize();
@@ -407,7 +502,7 @@ async function editElement(context, params) {
 
     for (const el of nodes) {
       if (text !== null) el.textContent = text;
-      if (html !== null) el.innerHTML = html;
+      if (html !== null) await setInnerHTMLSanitized(el, html);
       if (style !== null) el.setAttribute("style", style);
       applyAttrChanges(el, changes.attrs);
 
