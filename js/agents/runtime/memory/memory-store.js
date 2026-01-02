@@ -12,6 +12,7 @@ import { isPlainObject, toNonEmptyString, estimateTokenCount, deepClone } from "
 import { getGlobalTokenCounter } from "../../shared/tokenizers/adaptive-token-counter.js";
 import { EmbeddingService } from "../../shared/embeddings/embedding-service.js";
 import { VectorIndex } from "../../shared/embeddings/vector-index.js";
+import { makeSecureTimestampedId } from "../../shared/utils/secure-id.js";
 
 // 默认配置
 const DEFAULT_CONFIG = Object.freeze({
@@ -45,7 +46,7 @@ function truncate(text, maxLen = 200) {
 
 // 生成唯一 ID
 function genId(prefix = "id") {
-  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 5)}`;
+  return makeSecureTimestampedId(prefix);
 }
 
 function normalizeTodoStatus(value) {
@@ -179,6 +180,9 @@ export class MemoryStore {
 
     // 统计
     this._stats = {
+      l0Tokens: 0,
+      l1Tokens: 0,
+      l2Tokens: 0,
       tokenUsage: 0,
       compressionCount: 0,
       recallCount: 0,
@@ -198,7 +202,14 @@ export class MemoryStore {
   // ===== L0: Immutable =====
 
   setSystemPrompt(prompt) {
-    this.L0.systemPrompt = toNonEmptyString(prompt) || "";
+    const next = toNonEmptyString(prompt) || "";
+    const prev = this.L0.systemPrompt;
+    if (next === prev) return;
+
+    this.L0.systemPrompt = next;
+    const delta = estimateTokens(next, this._tokenCounter) - estimateTokens(prev, this._tokenCounter);
+    this._stats.l0Tokens += delta;
+    this._stats.tokenUsage += delta;
   }
 
   setTaskGoal(goal) {
@@ -212,13 +223,21 @@ export class MemoryStore {
     if (key) {
       const existing = this.L0.todos.find((t) => String(t?.todoId || t?.id || "") === key);
       if (existing) {
+        const beforeTokens = estimateTokens(existing?.content, this._tokenCounter);
         Object.assign(existing, entry, { updatedAt: new Date().toISOString() });
         normalizeTodoInPlace(existing);
+        const afterTokens = estimateTokens(existing?.content, this._tokenCounter);
+        const delta = afterTokens - beforeTokens;
+        this._stats.l0Tokens += delta;
+        this._stats.tokenUsage += delta;
         return existing;
       }
     }
 
     this.L0.todos.push(entry);
+    const addedTokens = estimateTokens(entry?.content, this._tokenCounter);
+    this._stats.l0Tokens += addedTokens;
+    this._stats.tokenUsage += addedTokens;
     return entry;
   }
 
@@ -227,8 +246,13 @@ export class MemoryStore {
     if (!key) return null;
     const todo = this.L0.todos.find((t) => String(t?.id || "") === key || String(t?.todoId || "") === key);
     if (todo && isPlainObject(data)) {
+      const beforeTokens = estimateTokens(todo?.content, this._tokenCounter);
       Object.assign(todo, data, { updatedAt: new Date().toISOString() });
       normalizeTodoInPlace(todo);
+      const afterTokens = estimateTokens(todo?.content, this._tokenCounter);
+      const delta = afterTokens - beforeTokens;
+      this._stats.l0Tokens += delta;
+      this._stats.tokenUsage += delta;
     }
     return todo || null;
   }
@@ -238,7 +262,11 @@ export class MemoryStore {
     if (!key) return null;
     const idx = this.L0.todos.findIndex((t) => String(t?.id || "") === key || String(t?.todoId || "") === key);
     if (idx >= 0) {
-      return this.L0.todos.splice(idx, 1)[0];
+      const removed = this.L0.todos.splice(idx, 1)[0];
+      const removedTokens = estimateTokens(removed?.content, this._tokenCounter);
+      this._stats.l0Tokens -= removedTokens;
+      this._stats.tokenUsage -= removedTokens;
+      return removed;
     }
     return null;
   }
@@ -259,7 +287,9 @@ export class MemoryStore {
   addMessage(msg) {
     const message = isPlainObject(msg) ? msg : { role: "user", content: String(msg) };
     this.L1.messages.push(message);
-    this._updateTokenUsage();
+    const addedTokens = estimateTokens(message?.content, this._tokenCounter);
+    this._stats.l1Tokens += addedTokens;
+    this._stats.tokenUsage += addedTokens;
     this._checkCompress();
     return message;
   }
@@ -570,6 +600,7 @@ export class MemoryStore {
   // ===== Checkpoint =====
 
   checkpoint() {
+    this._recalculateTotalTokens();
     const id = genId("ckpt");
     // 使用 deepClone 确保 Map/Set 和深层嵌套对象被完整保留且解耦
     const snapshot = {
@@ -593,6 +624,7 @@ export class MemoryStore {
     this.L1 = deepClone(ckpt.L1);
     this.L2 = deepClone(ckpt.L2);
 
+    this._updateTokenUsage();
     return true;
   }
 
@@ -602,39 +634,77 @@ export class MemoryStore {
 
   // ===== Compression =====
 
-  compress() {
-    const { keepLastTurns } = this.config;
-    const messages = this.L1.messages;
+  compress({ force = false } = {}) {
+    const { keepLastTurns, contextWindow, compressThreshold } = this.config;
+    const messages = Array.isArray(this.L1.messages) ? this.L1.messages : [];
+    if (messages.length === 0) return false;
 
-    if (messages.length <= keepLastTurns * 2) return false;
+    const thresholdRaw = Number.isFinite(contextWindow) && Number.isFinite(compressThreshold) ? contextWindow * compressThreshold : NaN;
+    const threshold = Number.isFinite(thresholdRaw) ? Math.max(1, Math.floor(thresholdRaw)) : 0;
+    const overBudget = force || (threshold > 0 && this._stats.tokenUsage >= threshold);
+    if (!overBudget && messages.length <= keepLastTurns * 2) return false;
 
     // 分离：保留最近 N 轮，压缩其余
-    const kept = [];
-    const toCompress = [];
-    let turnCount = 0;
+    const splitByTurns = (turnsToKeep) => {
+      const kept = [];
+      const toCompress = [];
+      let turnCount = 0;
 
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i];
-      if (turnCount < keepLastTurns) {
-        kept.unshift(msg);
-        if (msg.role === "assistant") turnCount++;
-      } else {
-        toCompress.unshift(msg);
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+        if (turnCount < turnsToKeep) {
+          kept.unshift(msg);
+          if (msg.role === "assistant") turnCount++;
+        } else {
+          toCompress.unshift(msg);
+        }
+      }
+
+      return { kept, toCompress };
+    };
+
+    let turnsToKeep =
+      typeof keepLastTurns === "number" && Number.isFinite(keepLastTurns) ? Math.max(1, Math.floor(keepLastTurns)) : 1;
+    let { kept, toCompress } = splitByTurns(turnsToKeep);
+
+    // Token-based fallback: when over budget, we may need to compress even within the last keepLastTurns.
+    if (overBudget) {
+      while (toCompress.length === 0 && turnsToKeep > 1) {
+        turnsToKeep -= 1;
+        ({ kept, toCompress } = splitByTurns(turnsToKeep));
+      }
+
+      // Still nothing to compress (e.g., no assistant turns): keep only the last few messages.
+      if (toCompress.length === 0 && messages.length > 2) {
+        kept = messages.slice(-2);
+        toCompress = messages.slice(0, -2);
       }
     }
 
     if (toCompress.length === 0) return false;
 
     // 生成摘要
+    const hadHistorySummary = Boolean(this.L2.historySummary);
     const summary = this._summarizeMessages(toCompress);
     this.L2.historySummary = this.L2.historySummary
       ? `${this.L2.historySummary}\n${summary}`
       : summary;
 
+    const addedL2Tokens = estimateTokens(summary, this._tokenCounter) + (hadHistorySummary ? estimateTokens("\n", this._tokenCounter) : 0);
+    this._stats.l2Tokens += addedL2Tokens;
+    this._stats.tokenUsage += addedL2Tokens;
+
     // 更新消息
     this.L1.messages = kept;
     this._stats.compressionCount++;
-    this._updateTokenUsage();
+
+    const prevL1Tokens = this._stats.l1Tokens;
+    let nextL1Tokens = 0;
+    for (const msg of this.L1.messages) {
+      nextL1Tokens += estimateTokens(msg?.content, this._tokenCounter);
+    }
+    this._stats.l1Tokens = nextL1Tokens;
+    this._stats.tokenUsage += nextL1Tokens - prevL1Tokens;
 
     this._emit("memory.compressed", {
       compressedCount: toCompress.length,
@@ -714,15 +784,32 @@ export class MemoryStore {
 
   // ===== Utilities =====
 
-  _updateTokenUsage() {
-    let total = 0;
-    total += estimateTokens(this.L0.systemPrompt, this._tokenCounter);
-    total += estimateTokens(JSON.stringify(this.L0.todos), this._tokenCounter);
-    for (const msg of this.L1.messages) {
-      total += estimateTokens(msg.content, this._tokenCounter);
-    }
-    total += estimateTokens(this.L2.historySummary, this._tokenCounter);
+  _recalculateTotalTokens() {
+    const total = (this._stats.l0Tokens || 0) + (this._stats.l1Tokens || 0) + (this._stats.l2Tokens || 0);
     this._stats.tokenUsage = total;
+    return total;
+  }
+
+  _updateTokenUsage() {
+    let l0Tokens = 0;
+    l0Tokens += estimateTokens(this.L0.systemPrompt, this._tokenCounter);
+    const todos = Array.isArray(this.L0.todos) ? this.L0.todos : [];
+    for (const todo of todos) {
+      l0Tokens += estimateTokens(todo?.content, this._tokenCounter);
+    }
+
+    let l1Tokens = 0;
+    const messages = Array.isArray(this.L1.messages) ? this.L1.messages : [];
+    for (const msg of messages) {
+      l1Tokens += estimateTokens(msg?.content, this._tokenCounter);
+    }
+
+    const l2Tokens = estimateTokens(this.L2.historySummary, this._tokenCounter);
+
+    this._stats.l0Tokens = l0Tokens;
+    this._stats.l1Tokens = l1Tokens;
+    this._stats.l2Tokens = l2Tokens;
+    return this._recalculateTotalTokens();
   }
 
   _checkCompress() {
@@ -769,6 +856,7 @@ export class MemoryStore {
   // ===== Stats =====
 
   getStats() {
+    this._recalculateTotalTokens();
     return {
       runId: this.runId,
       tokenUsage: this._stats.tokenUsage,
@@ -878,6 +966,7 @@ export class MemoryStore {
    */
   toSnapshot({ includeL3 = false } = {}) {
     const withL3 = includeL3 === true;
+    this._recalculateTotalTokens();
 
     return {
       schemaVersion: "0.1",
@@ -969,6 +1058,7 @@ export class MemoryStore {
       this._stats = { ...this._stats, ...s.stats };
     }
 
+    this._updateTokenUsage();
     return true;
   }
 }

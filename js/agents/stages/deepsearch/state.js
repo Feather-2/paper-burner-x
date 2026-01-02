@@ -275,7 +275,8 @@ export class DeepSearchState {
       // ignore taskGoal sync failures
     }
 
-    // Share Todos array reference to avoid "double source of truth" bugs.
+    // Share Todos through a dynamic accessor so we don't keep a stale reference
+    // when MemoryStore restores/replaces L0.todos (SSOT consistency).
     const stateTodos = Array.isArray(this.todos) ? this.todos : [];
     const memTodos = Array.isArray(memoryStore?.L0?.todos) ? memoryStore.L0.todos : null;
 
@@ -296,7 +297,28 @@ export class DeepSearchState {
       }
     }
 
-    this.todos = Array.isArray(memoryStore?.L0?.todos) ? memoryStore.L0.todos : canonicalTodos;
+    const localTodos = canonicalTodos;
+    try {
+      Object.defineProperty(this, "todos", {
+        configurable: true,
+        enumerable: true,
+        get: () => (Array.isArray(this._memoryStore?.L0?.todos) ? this._memoryStore.L0.todos : localTodos),
+        set: (value) => {
+          const next = Array.isArray(value) ? value : [];
+          if (this._memoryStore?.L0 && typeof this._memoryStore.L0 === "object") {
+            this._memoryStore.L0.todos = next;
+          }
+          if (localTodos !== next) {
+            localTodos.length = 0;
+            localTodos.push(...next);
+          }
+        },
+      });
+    } catch {
+      // Fallback: keep a direct reference (best-effort).
+      this.todos = Array.isArray(memoryStore?.L0?.todos) ? memoryStore.L0.todos : canonicalTodos;
+    }
+
     for (const todo of Array.isArray(this.todos) ? this.todos : []) normalizeTodoInPlace(todo);
 
     // Sync current state flags/scratchpad to MemoryStore.

@@ -33,6 +33,24 @@ export class UnifiedAgentContext {
     if (state) this._state = state;
     if (memory) this._memory = memory;
     if (sharedContext) this._sharedContext = sharedContext;
+
+    // Best-effort SSOT wiring: keep DeepSearchState.todos pointing at MemoryStore.L0.todos when possible.
+    try {
+      if (this._state?.bindMemoryStore && this._memory) {
+        this._state.bindMemoryStore(this._memory);
+      }
+    } catch {
+      // ignore
+    }
+
+    // Keep MemoryStore aware of SharedContext where available.
+    try {
+      if (this._memory?.bind && this._sharedContext) {
+        this._memory.bind({ sharedContext: this._sharedContext });
+      }
+    } catch {
+      // ignore
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -40,7 +58,26 @@ export class UnifiedAgentContext {
   // ─────────────────────────────────────────────────────────────────────────────
 
   get taskGoal() {
-    return this._memory?.L0?.taskGoal || this._state?.taskGoal || "";
+    const mem = toNonEmptyString(this._memory?.L0?.taskGoal);
+    const st = toNonEmptyString(this._state?.taskGoal);
+
+    // Self-heal drift on read (MemoryStore is treated as canonical when present).
+    if (!mem && st && this._memory?.setTaskGoal) {
+      try {
+        this._memory.setTaskGoal(st);
+      } catch {
+        // ignore
+      }
+    }
+    if (mem && (!st || mem !== st) && this._state) {
+      try {
+        this._state.taskGoal = mem;
+      } catch {
+        // ignore
+      }
+    }
+
+    return mem || st || "";
   }
 
   setTaskGoal(goal) {
@@ -54,7 +91,25 @@ export class UnifiedAgentContext {
   // ─────────────────────────────────────────────────────────────────────────────
 
   get todos() {
-    return this._memory?.L0?.todos || this._state?.todos || [];
+    const mem = Array.isArray(this._memory?.L0?.todos) ? this._memory.L0.todos : null;
+    const st = Array.isArray(this._state?.todos) ? this._state.todos : null;
+
+    if (mem && st && mem !== st && this._state) {
+      try {
+        this._state.todos = mem;
+      } catch {
+        // ignore
+      }
+    }
+    if (!mem && st && this._memory?.L0 && typeof this._memory.L0 === "object") {
+      try {
+        this._memory.L0.todos = st;
+      } catch {
+        // ignore
+      }
+    }
+
+    return mem || st || [];
   }
 
   addTodo(todo) {

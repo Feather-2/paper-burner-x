@@ -27,7 +27,7 @@ describe("MemoryStore", () => {
       assert.strictEqual(todo.status, "pending");
 
       store.updateTodo(todo.id, { status: "done" });
-      assert.strictEqual(store.L0.todos[0].status, "done");
+      assert.strictEqual(store.L0.todos[0].status, "completed");
 
       const removed = store.removeTodo(todo.id);
       assert.strictEqual(removed.id, todo.id);
