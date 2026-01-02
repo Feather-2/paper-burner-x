@@ -52,6 +52,31 @@ test("Watchdog.observe and intervene notify handlers", async () => {
   assert.equal(seen, null);
 });
 
+test("Watchdog.observe unsubscribe is idempotent (does not remove newly added handlers)", async () => {
+  const { Watchdog } = await import("../../../js/agents/runtime/compression/watchdog.js");
+  const { WatchdogEvents } = await import("../../../js/agents/runtime/events/events.js");
+  const watchdog = new Watchdog();
+
+  let called1 = 0;
+  let called2 = 0;
+  const off1 = watchdog.observe(WatchdogEvents.WATCHDOG_INTERVENTION, () => {
+    called1 += 1;
+  });
+  off1();
+
+  const off2 = watchdog.observe(WatchdogEvents.WATCHDOG_INTERVENTION, () => {
+    called2 += 1;
+  });
+
+  // Calling a stale unsubscribe must not delete the new observer set.
+  off1();
+  watchdog.intervene("retry");
+
+  assert.equal(called1, 0);
+  assert.equal(called2, 1);
+  off2();
+});
+
 test("Watchdog.reset clears state", async () => {
   const { Watchdog } = await import("../../../js/agents/runtime/compression/watchdog.js");
   const watchdog = new Watchdog();

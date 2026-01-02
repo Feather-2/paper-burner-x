@@ -51,7 +51,9 @@ export class Watchdog {
 
     return () => {
       set.delete(handler);
-      if (set.size === 0) this._observers.delete(name);
+      if (set.size === 0 && this._observers.get(name) === set) {
+        this._observers.delete(name);
+      }
     };
   }
 
