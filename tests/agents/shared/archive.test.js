@@ -117,6 +117,31 @@ test("Archive.restore: supports checkpointId with counter suffix", async () => {
   }
 });
 
+test("Archive.restore: caps in-memory restore cache (LRU)", async () => {
+  const { Archive, MapAdapter } = await loadModule();
+  const archive = new Archive(new MapAdapter(), { restoreCacheMax: 2 });
+
+  const id1 = await archive.save("run_cache", { nodeStates: { v: 1 }, timestamp: "100" });
+  const id2 = await archive.save("run_cache", { nodeStates: { v: 2 }, timestamp: "200" });
+  const id3 = await archive.save("run_cache", { nodeStates: { v: 3 }, timestamp: "300" });
+
+  await archive.restore(id1);
+  await archive.restore(id2);
+
+  assert.equal(archive._restoreCache.size, 2);
+  assert.ok(archive._restoreCache.has(id1));
+  assert.ok(archive._restoreCache.has(id2));
+
+  // Touch id1 so it becomes most recently used; then adding id3 should evict id2.
+  await archive.restore(id1);
+  await archive.restore(id3);
+
+  assert.equal(archive._restoreCache.size, 2);
+  assert.ok(archive._restoreCache.has(id1));
+  assert.ok(archive._restoreCache.has(id3));
+  assert.equal(archive._restoreCache.has(id2), false);
+});
+
 test("Archive.listCheckpoints: sorts by timestamp desc", async () => {
   const { Archive, MapAdapter } = await loadModule();
   const storage = new MapAdapter();

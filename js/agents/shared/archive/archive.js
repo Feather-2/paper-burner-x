@@ -19,10 +19,20 @@ const DEFAULT_DIFF_CONFIG = Object.freeze({
   maxOps: 5000,
   maxDepth: 12,
 });
+const DEFAULT_RESTORE_CACHE_MAX = 200;
 
 function toPositiveInt(value, fallback) {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.floor(n);
+}
+
+function normalizeCacheMax(value, fallback) {
+  if (value === Infinity) return Infinity;
+  if (value === null || value === undefined) return fallback;
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  if (n <= 0) return 0;
   return Math.floor(n);
 }
 
@@ -308,21 +318,61 @@ export class Archive {
    * @param {Object} storage - 存储适配器，需实现 get/set/delete/keys 方法
    * @param {object=} options
    * @param {object=} options.diff Incremental checkpoint diff settings (best-effort).
+   * @param {number=} options.restoreCacheMax Max restored checkpoints to cache in memory (0 disables caching).
    */
-  constructor(storage, { diff } = {}) {
+  constructor(storage, { diff, restoreCacheMax } = {}) {
     this.storage = assertStorageAdapter(storage);
     this._saveCounter = 0;
     this._diff = normalizeDiffConfig(diff);
     this._lastCheckpointIdByRunId = new Map(); // runId -> checkpointId
     this._diffSinceFullByRunId = new Map(); // runId -> number
+    this._restoreCacheMax = normalizeCacheMax(restoreCacheMax, DEFAULT_RESTORE_CACHE_MAX);
     this._restoreCache = new Map(); // checkpointId -> {schemaVersion?,nodeStates,timestamp,metadata}
+  }
+
+  _pruneRestoreCache() {
+    const max = this._restoreCacheMax;
+    if (max === Infinity) return;
+    const limit = typeof max === "number" && Number.isFinite(max) ? Math.max(0, Math.floor(max)) : 0;
+    if (limit <= 0) {
+      this._restoreCache.clear();
+      return;
+    }
+    while (this._restoreCache.size > limit) {
+      const oldest = this._restoreCache.keys().next().value;
+      if (!oldest) break;
+      this._restoreCache.delete(oldest);
+    }
+  }
+
+  _cacheRestoredCheckpoint(checkpointId, restored) {
+    const id = toNonEmptyString(checkpointId);
+    if (!id) return;
+    const max = this._restoreCacheMax;
+    if (max === 0) return;
+    this._restoreCache.set(id, restored);
+    this._pruneRestoreCache();
+  }
+
+  _touchRestoreCache(checkpointId) {
+    const max = this._restoreCacheMax;
+    if (max === 0 || max === Infinity) return;
+    const id = toNonEmptyString(checkpointId);
+    if (!id) return;
+    const cached = this._restoreCache.get(id);
+    if (!cached) return;
+    this._restoreCache.delete(id);
+    this._restoreCache.set(id, cached);
   }
 
   async _restoreCheckpointInternal(checkpointId) {
     const id = toNonEmptyString(checkpointId);
     if (!id) return null;
     const cached = this._restoreCache.get(id);
-    if (cached) return cached;
+    if (cached) {
+      this._touchRestoreCache(id);
+      return cached;
+    }
 
     const snapshot = await this.storage.get(id);
     if (!snapshot) return null;
@@ -340,7 +390,7 @@ export class Archive {
         timestamp,
         metadata: snapshot.metadata,
       };
-      this._restoreCache.set(id, out);
+      this._cacheRestoredCheckpoint(id, out);
       return out;
     }
 
@@ -354,7 +404,7 @@ export class Archive {
         timestamp,
         metadata: snapshot.metadata,
       };
-      this._restoreCache.set(id, out);
+      this._cacheRestoredCheckpoint(id, out);
       return out;
     }
 
@@ -366,7 +416,7 @@ export class Archive {
       timestamp,
       metadata: snapshot.metadata,
     };
-    this._restoreCache.set(id, out);
+    this._cacheRestoredCheckpoint(id, out);
     return out;
   }
 
