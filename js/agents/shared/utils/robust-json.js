@@ -3,6 +3,9 @@
  * 处理 LLM 返回的常见 JSON 格式问题
  */
 
+// Safety bound: avoid blocking the event loop on huge payloads.
+const DEFAULT_MAX_INPUT_CHARS = 1_000_000;
+
 /**
  * 从文本中提取 JSON 块
  * 支持 markdown 代码块、裸 JSON、带前后缀文本
@@ -148,6 +151,7 @@ function fixCommonJsonIssues(jsonStr) {
  */
 function tryParseJson(text) {
   if (!text || typeof text !== 'string') return null;
+  if (text.length > DEFAULT_MAX_INPUT_CHARS) return null;
 
   const trimmed = text.trim();
 
