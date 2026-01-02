@@ -41,6 +41,9 @@ export function createLogger({ emit, getContext, enabled = true, actor = "agent"
     };
 }
 
+// Alias for SDK API naming consistency (AgentBuilder uses `use*` methods).
+export const useLogger = createLogger;
+
 /**
  * 追踪工具调用（grep/glob/read 等）
  * @param {{ info?: Function, error?: Function }=} logger

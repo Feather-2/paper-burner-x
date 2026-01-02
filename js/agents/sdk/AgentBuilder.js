@@ -23,7 +23,7 @@
 
 import { EventBus } from "../runtime/events/event-bus.js";
 import { BaseAgentLoop } from "../runtime/core/agent-loop.js";
-import { createLogger } from "../shared/utils/logger.js";
+import { useLogger } from "../shared/utils/logger.js";
 import { SubagentRegistry } from "./SubagentRegistry.js";
 import { createTaskTool, TASK_TOOL_DEFINITION } from "../runtime/tools/TaskTool.js";
 import { createRecallTool, RECALL_TOOL_DEFINITION } from "../runtime/tools/RecallTool.js";
@@ -291,7 +291,7 @@ export class AgentBuilder {
      */
     build() {
         const eventBus = new EventBus();
-        const logger = createLogger({ actor: this._actor });
+        const logger = useLogger({ actor: this._actor });
 
         // 注册事件处理器
         for (const { pattern, handler } of this._eventHandlers) {
