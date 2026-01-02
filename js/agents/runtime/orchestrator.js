@@ -92,8 +92,8 @@ export class AgentOrchestrator {
 
     this._services = services && typeof services === "object" ? services : {};
     this.eventBus = eventBus instanceof EventBus ? eventBus : new EventBus({ runId: this.runId });
-    // Browser-first: enable backpressure by default (coalesce *.progress) without delaying non-progress events.
-    if (typeof globalThis.requestAnimationFrame === "function" && typeof this.eventBus.enableBackpressure === "function") {
+    // P2.1: 默认启用背压（浏览器和 Node.js 均生效），coalesce *.progress 事件
+    if (typeof this.eventBus.enableBackpressure === "function") {
       const cfg = this._services?.eventBusBackpressure ?? this._services?.backpressure;
       if (cfg !== false) {
         const opts = isPlainObject(cfg) ? cfg : {};

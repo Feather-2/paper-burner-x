@@ -63,6 +63,10 @@ function createTaskScopedSharedContext(sharedContext, taskId) {
 function createResearcherFactory() {
   return async ({ prompt, taskId, inheritedContext, modelTier = "fast", parentStageApi }) => {
     const eventBus = new EventBus();
+    // P2.1: 默认启用背压
+    if (typeof eventBus.enableBackpressure === "function") {
+      try { eventBus.enableBackpressure({ deferNonCoalesced: false }); } catch { /* ignore */ }
+    }
     const DeepSearchAgentLoop = await getDeepSearchAgentLoop();
     const agent = new DeepSearchAgentLoop({
       maxIterations: 10,
@@ -106,6 +110,10 @@ function createResearcherFactory() {
 function createAnalyzerFactory() {
   return async ({ prompt, taskId, inheritedContext, modelTier = "normal", parentStageApi }) => {
     const eventBus = new EventBus();
+    // P2.1: 默认启用背压
+    if (typeof eventBus.enableBackpressure === "function") {
+      try { eventBus.enableBackpressure({ deferNonCoalesced: false }); } catch { /* ignore */ }
+    }
     const DeepSearchAgentLoop = await getDeepSearchAgentLoop();
     const agent = new DeepSearchAgentLoop({
       maxIterations: 15,

@@ -295,8 +295,8 @@ export class AgentBuilder {
         const eventBus = new EventBus();
         const logger = useLogger({ actor: this._actor });
 
-        // Browser-first: backpressure for high-frequency *.progress events (without delaying non-progress events).
-        if (typeof globalThis.requestAnimationFrame === "function" && typeof eventBus.enableBackpressure === "function") {
+        // P2.1: 默认启用背压（浏览器和 Node.js 均生效），coalesce *.progress 事件
+        if (typeof eventBus.enableBackpressure === "function") {
             const cfg = this._options?.eventBusBackpressure ?? this._options?.backpressure;
             if (cfg !== false) {
                 const opts = cfg && typeof cfg === "object" && !Array.isArray(cfg) ? cfg : {};
