@@ -28,29 +28,38 @@ export class UnifiedAgentContext {
 
   /**
    * 绑定底层组件（延迟绑定）
+   * @returns {{success: boolean, errors: string[]}} 绑定结果
    */
   bind({ state, memory, sharedContext }) {
+    const errors = [];
+
     if (state) this._state = state;
     if (memory) this._memory = memory;
     if (sharedContext) this._sharedContext = sharedContext;
 
     // Best-effort SSOT wiring: keep DeepSearchState.todos pointing at MemoryStore.L0.todos when possible.
-    try {
-      if (this._state?.bindMemoryStore && this._memory) {
+    if (this._state?.bindMemoryStore && this._memory) {
+      try {
         this._state.bindMemoryStore(this._memory);
+      } catch (err) {
+        const msg = `UnifiedAgentContext.bind: state.bindMemoryStore failed: ${err?.message || err}`;
+        errors.push(msg);
+        console.warn(msg);
       }
-    } catch {
-      // ignore
     }
 
     // Keep MemoryStore aware of SharedContext where available.
-    try {
-      if (this._memory?.bind && this._sharedContext) {
+    if (this._memory?.bind && this._sharedContext) {
+      try {
         this._memory.bind({ sharedContext: this._sharedContext });
+      } catch (err) {
+        const msg = `UnifiedAgentContext.bind: memory.bind failed: ${err?.message || err}`;
+        errors.push(msg);
+        console.warn(msg);
       }
-    } catch {
-      // ignore
     }
+
+    return { success: errors.length === 0, errors };
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -163,8 +172,8 @@ export class UnifiedAgentContext {
           confidence: claim?.confidence,
           verified: claim?.verified,
         });
-      } catch {
-        // ignore memory addClaim failures
+      } catch (err) {
+        console.warn(`UnifiedAgentContext.addClaim: memory.addClaim failed: ${err?.message || err}`);
       }
     }
     if (this._sharedContext?.addFinding) {
@@ -298,7 +307,8 @@ export class UnifiedAgentContext {
           } else {
             stateSnapshot = cp;
           }
-        } catch {
+        } catch (err) {
+          console.warn(`UnifiedAgentContext.saveCheckpoint: state.saveCheckpoint failed: ${err?.message || err}`);
           stateSnapshot = null;
         }
       }
@@ -307,7 +317,8 @@ export class UnifiedAgentContext {
         try {
           // Best-effort: at least avoid nested checkpoint snapshots.
           stateSnapshot = this._state.toSnapshot({ includeCheckpoints: false });
-        } catch {
+        } catch (err) {
+          console.warn(`UnifiedAgentContext.saveCheckpoint: state.toSnapshot failed: ${err?.message || err}`);
           stateSnapshot = null;
         }
       }

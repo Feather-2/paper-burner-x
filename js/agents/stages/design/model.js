@@ -191,6 +191,13 @@ export function getDesignModelCaller(stageApi, options = {}) {
     : readEnvTimeoutMs();
   const systemHint = stageApi?.runtimeHints?.system;
 
+  // Sync barrier: flush any pending compression before model call to avoid context overflow race.
+  const flushBeforeCall = async () => {
+    if (typeof stageApi?.flushCompression === "function") {
+      await stageApi.flushCompression();
+    }
+  };
+
   const routerCall = stageApi?.modelRouter?.call;
   if (typeof routerCall === "function") {
     const legacySignature = routerCall.length >= 2;
@@ -205,6 +212,7 @@ export function getDesignModelCaller(stageApi, options = {}) {
       const { timeoutMs: _timeoutMs, signal: _signal, ...forwardOpts } = opts;
       debugLog("[design.model] call via ModelRouter", { usage, timeoutMs });
       if (signal?.aborted) throw abortErrorFromSignal(signal);
+      await flushBeforeCall();
       const hintedMessages = injectSystemHint(messages, systemHint);
       return withHardTimeout(
         (hardSignal) => baseCall(hintedMessages, { ...forwardOpts, ...(hardSignal ? { signal: hardSignal } : {}) }),
@@ -226,6 +234,7 @@ export function getDesignModelCaller(stageApi, options = {}) {
       const { timeoutMs: _timeoutMs, signal: _signal, ...forwardOpts } = opts;
       debugLog("[design.model] call via aiApiService.chat", { usage, timeoutMs });
       if (signal?.aborted) throw abortErrorFromSignal(signal);
+      await flushBeforeCall();
       const hintedMessages = injectSystemHint(messages, systemHint);
       return withHardTimeout(
         (hardSignal) => baseCall(hintedMessages, { ...forwardOpts, ...(hardSignal ? { signal: hardSignal } : {}) }),

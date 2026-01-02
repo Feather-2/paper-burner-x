@@ -55,9 +55,17 @@ export function getModelCaller(stageApi, { usage = "worker", state } = {}) {
   const cachePolicy = typeof stageApi?.trajectoryCachePolicy === "string" ? stageApi.trajectoryCachePolicy : "off";
   const cacheStageName = typeof stageApi?.trajectoryCacheStageName === "string" ? stageApi.trajectoryCacheStageName : "";
 
+  // Sync barrier: flush any pending compression before model call to avoid context overflow race.
+  const flushBeforeCall = async () => {
+    if (typeof stageApi?.flushCompression === "function") {
+      await stageApi.flushCompression();
+    }
+  };
+
   if (!cache || cachePolicy !== "share" || !cacheStageName || typeof cache.getOrCompute !== "function" || typeof cache.computeKey !== "function") {
     return async (messages, opts = {}) => {
       const { cacheKeyInputs: _cacheKeyInputs, ...forwardOpts } = opts && typeof opts === "object" ? opts : {};
+      await flushBeforeCall();
       return withTokenUsage(messages, forwardOpts);
     };
   }
@@ -78,6 +86,7 @@ export function getModelCaller(stageApi, { usage = "worker", state } = {}) {
               : { messages: Array.isArray(messages) ? messages : [] };
 
     const key = cache.computeKey(cacheStageName, inputs, { model: forwardOpts?.model, temperature: forwardOpts?.temperature });
+    await flushBeforeCall();
     return cache.getOrCompute(key, () => withTokenUsage(messages, forwardOpts));
   };
 }

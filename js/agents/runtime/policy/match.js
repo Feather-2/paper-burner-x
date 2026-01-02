@@ -1,9 +1,5 @@
 import { matchGlob } from "../../vfs/glob.js";
 
-function escapeRegExp(s) {
-  return s.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
-}
-
 function normalizeGlobPattern(pattern) {
   let p = typeof pattern === "string" ? pattern : "";
   if (!p) return "";
@@ -13,13 +9,42 @@ function normalizeGlobPattern(pattern) {
   return p;
 }
 
+/**
+ * Two-pointer wildcard matching (avoids ReDoS from dynamic RegExp).
+ * Supports '*' as multi-character wildcard.
+ * O(m*n) worst case, but typically linear for reasonable patterns.
+ */
 export function matchWildcard(pattern, value) {
   const p = typeof pattern === "string" ? pattern : "";
   const v = typeof value === "string" ? value : "";
   if (!p) return false;
   if (!p.includes("*")) return p === v;
-  const re = new RegExp("^" + p.split("*").map(escapeRegExp).join(".*") + "$");
-  return re.test(v);
+
+  let pi = 0, vi = 0;
+  let starIdx = -1, matchIdx = -1;
+
+  while (vi < v.length) {
+    if (pi < p.length && p[pi] !== "*" && p[pi] === v[vi]) {
+      pi++;
+      vi++;
+    } else if (pi < p.length && p[pi] === "*") {
+      starIdx = pi;
+      matchIdx = vi;
+      pi++;
+    } else if (starIdx !== -1) {
+      pi = starIdx + 1;
+      matchIdx++;
+      vi = matchIdx;
+    } else {
+      return false;
+    }
+  }
+
+  while (pi < p.length && p[pi] === "*") {
+    pi++;
+  }
+
+  return pi === p.length;
 }
 
 export function matchAnyWildcard(patterns, value) {

@@ -33,6 +33,7 @@ export const DEFAULT_TREE_SITTER_WASM_BASE_URL = "wasm/tree-sitter/";
 export async function initTreeSitter({ wasmBaseUrl = DEFAULT_TREE_SITTER_WASM_BASE_URL } = {}) {
   if (!isWebRuntime()) return null;
   if (!isWasmSupported()) throw new Error("Tree-sitter requires WebAssembly support");
+  if (_parserMod) return _parserMod; // Already initialized successfully
   if (_initPromise) return _initPromise;
 
   _initPromise = (async () => {
@@ -53,7 +54,11 @@ export async function initTreeSitter({ wasmBaseUrl = DEFAULT_TREE_SITTER_WASM_BA
 
     _parserMod = { Parser, Language, wasmBaseUrl: base };
     return _parserMod;
-  })();
+  })().catch((err) => {
+    // Clear cached promise on failure to allow retry (avoid zombie promise).
+    _initPromise = null;
+    throw err;
+  });
 
   return _initPromise;
 }
