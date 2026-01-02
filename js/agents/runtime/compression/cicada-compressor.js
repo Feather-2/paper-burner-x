@@ -1,6 +1,7 @@
 import { isPlainObject, toNonEmptyString, estimateTokenCount } from "../../shared/utils/value-utils.js";
 import { robustParseJson } from "../../shared/utils/robust-json.js";
 import { CicadaEvents } from "../events/events.js";
+import { makeSecureTimestampedId } from "../../shared/utils/secure-id.js";
 
 export const CompressionLayer = Object.freeze({
   TOOL_OUTPUT: "tool_output",
@@ -543,7 +544,7 @@ export class CicadaCompressor {
   }
 
   async archive(stageKey, data) {
-    const key = toNonEmptyString(stageKey) || `archive_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+    const key = toNonEmptyString(stageKey) || makeSecureTimestampedId("archive");
     const adapter = this.archiveAdapter;
 
     const resolvedTimestamp = (() => {
