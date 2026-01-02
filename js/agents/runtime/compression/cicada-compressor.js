@@ -132,6 +132,16 @@ function normalizeMessage(message) {
   return { role: "assistant", content: "" };
 }
 
+function isMergeSafeMessage(message) {
+  if (!message || typeof message !== "object") return false;
+  const keys = Object.keys(message);
+  for (const key of keys) {
+    if (key === "role" || key === "content") continue;
+    return false;
+  }
+  return true;
+}
+
 function summarizeMessages(messages, lineLimit, { titleOnly = false, titleMaxWords = 10, titleMaxChars = 80 } = {}) {
   const lines = [];
   for (const msg of messages) {
@@ -452,7 +462,15 @@ export class CicadaCompressor {
       }
       const last = merged[merged.length - 1];
       // Avoid merging system messages; system is reserved for pinned prompts/anchors/summaries.
-      if (last && last.role === message.role && message.role !== "system") {
+      // Avoid merging messages carrying extra fields (id/meta/tool_call_id/...) to prevent metadata loss.
+      const canMerge =
+        last &&
+        last.role === message.role &&
+        message.role !== "system" &&
+        message.role !== "tool" &&
+        isMergeSafeMessage(last) &&
+        isMergeSafeMessage(message);
+      if (canMerge) {
         last.content = [last.content, message.content].filter(Boolean).join("\n");
         stats.mergedMessages += 1;
       } else {
