@@ -175,6 +175,11 @@ export class DocxAdapter extends BaseAdapter {
     const arrayBuffer = await file.arrayBuffer();
     const docxImages = [];
     const warnings = [];
+    const MAX_WARNINGS = 50;
+    const pushWarning = (message) => {
+      if (warnings.length >= MAX_WARNINGS) return;
+      warnings.push(message);
+    };
     let imageCounter = 0;
 
     const convertImageImpl = (image) => {
@@ -192,7 +197,7 @@ export class DocxAdapter extends BaseAdapter {
         })
         .catch((e) => {
           const msg = e instanceof Error ? e.message : String(e);
-          warnings.push(`image#${imageIndex} (${mime}): ${msg}`);
+          pushWarning(`image#${imageIndex} (${mime}): ${msg}`);
           const placeholder = `docx_img_${imageIndex}.png`;
           docxImages.push({ id: placeholder, data: TRANSPARENT_PNG_BASE64, placeholder: true });
           return { src: `images/${placeholder}` };
@@ -204,7 +209,7 @@ export class DocxAdapter extends BaseAdapter {
     const result = await mammoth.convertToHtml({ arrayBuffer, convertImage });
     const html = String(result?.value || "");
     const messages = Array.isArray(result?.messages) ? result.messages : [];
-    for (const m of messages) warnings.push(typeof m?.message === "string" ? m.message : String(m));
+    for (const m of messages) pushWarning(typeof m?.message === "string" ? m.message : String(m));
 
     const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
     let markdown = turndown.turndown(html);
