@@ -279,6 +279,17 @@ export class MemoryStore {
     return null;
   }
 
+  /**
+   * Get todos with optional filtering.
+   *
+   * Backward compatible forms:
+   * - `getTodos()` → all todos
+   * - `getTodos((t) => ...)` → predicate filter
+   * - `getTodos("pending"|"done"|...)` → status filter
+   * - `getTodos({ status, filter })` → explicit options
+   *
+   * @param {undefined|string|Function|{status?:string,filter?:Function}} [filter]
+   */
   getTodos(filter) {
     if (typeof filter === "function") {
       return this.L0.todos.filter(filter);
@@ -286,6 +297,15 @@ export class MemoryStore {
     if (typeof filter === "string") {
       const wanted = normalizeTodoStatus(filter);
       return this.L0.todos.filter((t) => normalizeTodoStatus(t?.status) === wanted);
+    }
+    if (isPlainObject(filter)) {
+      const wanted = typeof filter.status === "string" ? normalizeTodoStatus(filter.status) : null;
+      const pred = typeof filter.filter === "function" ? filter.filter : null;
+      return this.L0.todos.filter((t) => {
+        if (wanted && normalizeTodoStatus(t?.status) !== wanted) return false;
+        if (pred && !pred(t)) return false;
+        return true;
+      });
     }
     return [...this.L0.todos];
   }
