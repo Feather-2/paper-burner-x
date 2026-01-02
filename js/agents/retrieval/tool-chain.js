@@ -24,6 +24,70 @@ function toNonEmptyString(v) {
   return s.length ? s : undefined;
 }
 
+function stripQueryAndHash(value) {
+  const s = String(value ?? "");
+  if (!s) return "";
+  const hashIdx = s.indexOf("#");
+  const queryIdx = s.indexOf("?");
+  let cut = s.length;
+  if (hashIdx >= 0) cut = Math.min(cut, hashIdx);
+  if (queryIdx >= 0) cut = Math.min(cut, queryIdx);
+  return s.slice(0, cut);
+}
+
+function normalizePathLike(value) {
+  let s = stripQueryAndHash(value);
+  if (!s) return "";
+
+  if (s.startsWith("file://")) {
+    try {
+      s = new URL(s).pathname || s;
+    } catch {
+      // ignore
+    }
+  }
+
+  s = s.replace(/\\/g, "/");
+  while (s.startsWith("./")) s = s.slice(2);
+
+  const parts = [];
+  for (const seg of s.split("/")) {
+    if (!seg || seg === ".") continue;
+    if (seg === "..") {
+      if (parts.length && parts[parts.length - 1] !== "..") parts.pop();
+      else parts.push("..");
+      continue;
+    }
+    parts.push(seg);
+  }
+  return parts.join("/");
+}
+
+function normalizeSafeRelativePath(value) {
+  const raw = toNonEmptyString(value);
+  if (!raw) return null;
+  if (raw.includes("\0")) return null;
+  if (/^[a-zA-Z]+:\/\//.test(raw)) return null;
+
+  const normalized = normalizePathLike(raw);
+  if (!normalized) return null;
+  if (normalized === ".." || normalized.startsWith("../")) return null;
+  return normalized;
+}
+
+function chunkMatchesFileFilter(chunk, fileFilter) {
+  if (!fileFilter || fileFilter.size === 0) return true;
+  const sourceRaw = toNonEmptyString(chunk?.sourceId) || toNonEmptyString(chunk?.chunkId) || "";
+  const sourceId = normalizePathLike(sourceRaw);
+  if (!sourceId) return false;
+
+  for (const f of fileFilter) {
+    if (sourceId === f) return true;
+    if (sourceId.endsWith(`/${f}`)) return true;
+  }
+  return false;
+}
+
 /**
  * ToolChain 策略枚举
  * @readonly
@@ -219,20 +283,15 @@ async function strategyGlobThenGrep(chunks, { patterns = [], keywords = [] }, to
     if (fromCache) stats.cached++;
 
     for (const f of files) {
-      fileFilter.add(f);
+      const normalized = normalizeSafeRelativePath(f);
+      if (normalized) fileFilter.add(normalized);
     }
   }
 
   // 如果有文件过滤，过滤 chunks
   let targetChunks = chunks;
   if (fileFilter.size > 0) {
-    targetChunks = chunks.filter((c) => {
-      const sourceId = c?.sourceId || c?.chunkId || "";
-      for (const f of fileFilter) {
-        if (sourceId.includes(f)) return true;
-      }
-      return false;
-    });
+    targetChunks = chunks.filter((c) => chunkMatchesFileFilter(c, fileFilter));
   }
 
   if (targetChunks.length === 0) {
@@ -344,7 +403,7 @@ export async function search(chunks, query = {}, tools = {}) {
 
     // 如果 glob-then-grep 失败，降级到 grep-only
     if (result.fallbackReason) {
-      const fallbackResult = strategyGrepOnly(chunks, { keywords }, tools);
+      const fallbackResult = await strategyGrepOnly(chunks, { keywords }, tools);
       return {
         ...fallbackResult,
         strategy: ToolChainStrategy.GREP_ONLY,

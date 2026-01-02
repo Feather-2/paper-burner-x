@@ -75,6 +75,32 @@ test("ToolChain: glob-then-grep with cache", async () => {
   clearGlobCache();
 });
 
+test("ToolChain: glob file filter uses normalized exact match (no substring)", async () => {
+  const { search, clearGlobCache } = await import("../../../js/agents/retrieval/tool-chain.js");
+  clearGlobCache();
+
+  const chunks = [
+    { chunkId: "c1", text: "import React from 'react';", sourceId: "src/App.js" },
+    { chunkId: "c2", text: "import React from 'react';", sourceId: "src/App.js.bak" },
+    { chunkId: "c3", text: "export default App;", sourceId: "src/App.js" },
+  ];
+
+  const mockGlobTool = async ({ pattern }) => {
+    if (pattern === "**/*.js") return ["src\\App.js"];
+    return [];
+  };
+
+  const result = await search(
+    chunks,
+    { strategy: "glob-then-grep", patterns: ["**/*.js"], keywords: ["React"] },
+    { globTool: mockGlobTool, caseSensitive: false }
+  );
+
+  assert.equal(result.strategy, "glob-then-grep");
+  assert.equal(result.results.length, 1);
+  assert.equal(result.results[0].chunkId, "c1");
+});
+
 test("ToolChain: auto strategy with patterns falls back to glob-then-grep", async () => {
   const { search, clearGlobCache } = await import("../../../js/agents/retrieval/tool-chain.js");
   clearGlobCache();
