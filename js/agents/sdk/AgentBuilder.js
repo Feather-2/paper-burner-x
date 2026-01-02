@@ -35,6 +35,17 @@ import { AlertMonitor } from "./AlertMonitor.js";
 import { ToolExecutor } from "../runtime/tools/tool-executor.js";
 import { DefaultAgentLoop } from "./DefaultAgentLoop.js";
 
+let didWarnUseSkillDeprecated = false;
+
+function warnUseSkillDeprecatedOnce() {
+    if (didWarnUseSkillDeprecated) return;
+    didWarnUseSkillDeprecated = true;
+
+    if (typeof console !== "undefined" && typeof console.warn === "function") {
+        console.warn("useSkill is deprecated, use useCapability instead");
+    }
+}
+
 /**
  * @typedef {Object} CapabilityDefinition
  * @property {string} name - Capability 名称
@@ -150,9 +161,15 @@ export class AgentBuilder {
 
     // === 向后兼容别名 ===
     /** @deprecated Use useCapability instead */
-    useSkill(name, config) { return this.useCapability(name, config); }
+    useSkill(name, config) {
+        warnUseSkillDeprecatedOnce();
+        return this.useCapability(name, config);
+    }
     /** @deprecated Use useCapabilities instead */
-    useSkills(skillsMap) { return this.useCapabilities(skillsMap); }
+    useSkills(skillsMap) {
+        warnUseSkillDeprecatedOnce();
+        return this.useCapabilities(skillsMap);
+    }
 
     /**
      * 注册 Hook

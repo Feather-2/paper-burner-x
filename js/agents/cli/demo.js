@@ -84,7 +84,7 @@ function buildDemoAgent(router) {
 
     const agent = createAgent({ actor: "demo" })
         // 注册 LLM 调用 Skill
-        .useSkill("llm_chat", {
+        .useCapability("llm_chat", {
             definition: {
                 name: "llm_chat",
                 description: "调用 LLM 进行对话",
@@ -110,7 +110,7 @@ function buildDemoAgent(router) {
             }
         })
         // 注册示例 Skill
-        .useSkill("echo", {
+        .useCapability("echo", {
             definition: {
                 name: "echo",
                 description: "回显输入内容",
@@ -127,7 +127,7 @@ function buildDemoAgent(router) {
                 return { echoed: message, timestamp: new Date().toISOString() };
             }
         })
-        .useSkill("analyze", {
+        .useCapability("analyze", {
             definition: {
                 name: "analyze",
                 description: "分析输入文本",

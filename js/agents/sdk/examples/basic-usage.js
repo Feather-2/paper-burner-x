@@ -2,7 +2,7 @@
  * SDK 使用示例
  *
  * 展示如何使用 @paper-burner/agents SDK 构建自定义 Agent
- * 注意：此示例已更新为使用 useCapability API（useSkill 仍可作为向后兼容别名使用）
+ * 注意：此示例已更新为使用 useCapability API
  */
 
 import { createAgent, createLogger } from "../index.js";
