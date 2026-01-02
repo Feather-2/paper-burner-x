@@ -3,3 +3,5 @@
  */
 
 export { MemoryStore, default } from "./memory-store.js";
+export { StateEngine, createInitialState, rootReducer } from "./state-engine.js";
+export * from "./action-types.js";
