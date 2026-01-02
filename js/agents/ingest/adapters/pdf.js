@@ -47,6 +47,50 @@ function resolveOcr(stageApi) {
   return null;
 }
 
+function extractAsciiStrings(bytes, { minLen = 4, maxStrings = 200, maxChars = 20_000 } = {}) {
+  const buf = bytes instanceof Uint8Array ? bytes : new Uint8Array();
+  const out = [];
+  let cur = "";
+  let total = 0;
+
+  const pushCur = () => {
+    const s = cur.trim();
+    cur = "";
+    if (!s || s.length < minLen) return;
+    if (out.length >= maxStrings) return;
+    const remaining = maxChars - total;
+    if (remaining <= 0) return;
+    const clipped = s.length > remaining ? s.slice(0, remaining) : s;
+    total += clipped.length;
+    out.push(clipped);
+  };
+
+  for (let i = 0; i < buf.length; i++) {
+    const b = buf[i];
+    // Printable ASCII + common whitespace.
+    const isPrintable = b === 0x09 || b === 0x0a || b === 0x0d || (b >= 0x20 && b <= 0x7e);
+    if (!isPrintable) {
+      pushCur();
+      continue;
+    }
+    const ch = String.fromCharCode(b);
+    if (total >= maxChars || out.length >= maxStrings) break;
+    cur += ch;
+    if (cur.length > 512) pushCur();
+  }
+  pushCur();
+
+  // Deduplicate while preserving order.
+  const seen = new Set();
+  const unique = [];
+  for (const s of out) {
+    if (seen.has(s)) continue;
+    seen.add(s);
+    unique.push(s);
+  }
+  return unique.join("\n").trim();
+}
+
 async function basenameOfPath(path) {
   const { basename } = await import("node:path");
   return basename(path);
@@ -91,12 +135,6 @@ export class PdfAdapter extends BaseAdapter {
     const t0 = Date.now();
 
     const ocr = resolveOcr(stageApi);
-    if (!ocr) {
-      const hint = typeof globalThis?.OcrManager === "undefined"
-        ? "In browser, ensure ocr-manager.js and ocr-adapters are loaded."
-        : "OcrManager found but processFile() unavailable.";
-      throw new Error(`PdfAdapter: OCR engine required. Provide stageApi.ocr or load globalThis.OcrManager. ${hint}`);
-    }
 
     let file = input;
     let filename = "";
@@ -124,9 +162,27 @@ export class PdfAdapter extends BaseAdapter {
       if (typeof stageApi?.onProgress === "function") stageApi.onProgress(current, total, message);
     };
 
-    const ocrResult = await ocr.processFile(file, progress);
-    const markdown = String(ocrResult?.markdown || "");
-    const images = Array.isArray(ocrResult?.images) ? ocrResult.images : [];
+    let markdown = "";
+    let images = [];
+    let ocrResult = null;
+
+    if (ocr) {
+      ocrResult = await ocr.processFile(file, progress);
+      markdown = String(ocrResult?.markdown || "");
+      images = Array.isArray(ocrResult?.images) ? ocrResult.images : [];
+    } else {
+      // Fallback: best-effort text extraction from embedded printable strings.
+      // This is not a full PDF parser, but avoids hard failure when OCR is unavailable.
+      const ab = typeof file?.arrayBuffer === "function" ? await file.arrayBuffer() : new ArrayBuffer(0);
+      const text = extractAsciiStrings(new Uint8Array(ab));
+      const hint = typeof globalThis?.OcrManager === "undefined"
+        ? "OCR unavailable; extracted embedded text strings instead."
+        : "OcrManager found but processFile() unavailable; extracted embedded text strings instead.";
+      markdown = text ? `# ${fileLabel(input)}\n\n${text}\n` : `# ${fileLabel(input)}\n\n(Empty PDF text; OCR unavailable.)\n`;
+      images = [];
+      ocrResult = { markdown, images: [], metadata: { engine: "fallback", hint } };
+    }
+
     const assets = extractAssetsFromMarkdown(markdown, images);
 
     const label = fileLabel(input);

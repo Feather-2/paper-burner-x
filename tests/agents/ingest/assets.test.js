@@ -114,14 +114,17 @@ test("IngestStage: dispatches application/pdf to PdfAdapter + AssetManager dedup
   assert.deepEqual(out.sources[0].assetIds, [out.assets[0].assetId]);
 });
 
-test("PdfAdapter: throws when OCR missing (no stageApi.ocr and no globalThis.OcrManager)", async () => {
+test("PdfAdapter: falls back to embedded text extraction when OCR is missing", async () => {
   const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
 
   const prior = globalThis.OcrManager;
   try {
     delete globalThis.OcrManager;
     const adapter = new PdfAdapter();
-    await assert.rejects(() => adapter.parse(makePdfFile(), {}), /OCR engine required/);
+    const parsed = await adapter.parse(makePdfFile({ bytes: Buffer.from("%PDF-1.4\nHello\n") }), {});
+    assert.equal(parsed.sourceType, "pdf");
+    assert.equal(parsed.metadata.engine, "fallback");
+    assert.ok(String(parsed.markdown).includes("%PDF-1.4"));
   } finally {
     globalThis.OcrManager = prior;
   }
