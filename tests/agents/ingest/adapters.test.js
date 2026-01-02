@@ -49,6 +49,40 @@ test("DocxAdapter: converts via mammoth + turndown and extracts images as assets
   assert.ok(Array.isArray(parsed.parseInfo.warnings) && parsed.parseInfo.warnings.some((w) => w.includes("mammoth")));
 });
 
+test("DocxAdapter: rejects oversized inputs before invoking mammoth", async () => {
+  const { DocxAdapter } = await import("../../../js/agents/ingest/adapters/docx.js");
+
+  let called = false;
+  const mammothStub = {
+    images: {
+      imgElement(fn) {
+        return fn;
+      },
+    },
+    async convertToHtml() {
+      called = true;
+      return { value: "", messages: [] };
+    },
+  };
+
+  const adapter = new DocxAdapter({ maxFileSize: 1 });
+  await assert.rejects(
+    () =>
+      adapter.parse(
+        {
+          name: "big.docx",
+          size: 2,
+          async arrayBuffer() {
+            return new ArrayBuffer(2);
+          },
+        },
+        { mammoth: mammothStub }
+      ),
+    /file too large/
+  );
+  assert.equal(called, false);
+});
+
 test("PptxAdapter: extracts slide text + images as assets", async () => {
   const { PptxAdapter } = await import("../../../js/agents/ingest/adapters/pptx.js");
 
@@ -181,4 +215,3 @@ test("EpubAdapter: parses OPF+spine, converts chapters, extracts images as asset
   assert.equal(parsed.assets[0].mimeType, "image/png");
   assert.equal(parsed.assets[0].source, "extracted");
 });
-

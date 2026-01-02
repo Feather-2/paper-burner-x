@@ -22,6 +22,16 @@ function hasProcessFile(v) {
   return v && typeof v === "object" && typeof v.processFile === "function";
 }
 
+function normalizeMaxFileSize(value, fallback) {
+  if (value === Infinity) return Infinity;
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.floor(n);
+}
+
+// Default PDF max file size (25MB). Override via new PdfAdapter({ maxFileSize }).
+const DEFAULT_MAX_FILE_SIZE = 25 * 1024 * 1024;
+
 // 缓存 OcrManager 实例，避免重复创建
 let _cachedOcrManager = null;
 
@@ -101,8 +111,13 @@ function bufferToArrayBuffer(buf) {
   return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
 }
 
-async function fileLikeFromPath(path) {
-  const { readFile } = await import("node:fs/promises");
+async function fileLikeFromPath(path, { maxBytes } = {}) {
+  const { readFile, stat } = await import("node:fs/promises");
+  const limit = normalizeMaxFileSize(maxBytes, Infinity);
+  const stats = await stat(path);
+  if (Number.isFinite(limit) && limit > 0 && stats.size > limit) {
+    throw new Error(`PdfAdapter: file too large: ${stats.size} bytes (max ${limit})`);
+  }
   const buf = await readFile(path);
   const name = await basenameOfPath(path);
   return {
@@ -124,6 +139,7 @@ function fileLabel(input) {
 export class PdfAdapter extends BaseAdapter {
   constructor(options = {}) {
     super({ ...options, adapterName: "pdf" });
+    this.maxFileSize = normalizeMaxFileSize(options.maxFileSize, DEFAULT_MAX_FILE_SIZE);
   }
 
   /**
@@ -141,10 +157,12 @@ export class PdfAdapter extends BaseAdapter {
     let mimeType = "";
     let size = undefined;
 
+    const maxBytes = this.maxFileSize;
+
     if (typeof input === "string") {
       filename = await basenameOfPath(input);
       mimeType = guessMimeType(filename);
-      file = await fileLikeFromPath(input);
+      file = await fileLikeFromPath(input, { maxBytes });
       size = file.size;
     } else if (input && typeof input === "object") {
       filename = toNonEmptyString(input.name) || toNonEmptyString(input.filename) || "document.pdf";
@@ -156,6 +174,10 @@ export class PdfAdapter extends BaseAdapter {
       }
     } else {
       throw new TypeError("PdfAdapter.parse(input): input must be a path string or a file-like object");
+    }
+
+    if (Number.isFinite(maxBytes) && maxBytes > 0 && Number.isFinite(size) && size > maxBytes) {
+      throw new Error(`PdfAdapter: file too large: ${size} bytes (max ${maxBytes})`);
     }
 
     const progress = (current, total, message) => {

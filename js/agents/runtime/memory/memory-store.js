@@ -224,9 +224,11 @@ export class MemoryStore {
       const existing = this.L0.todos.find((t) => String(t?.todoId || t?.id || "") === key);
       if (existing) {
         const beforeTokens = estimateTokens(existing?.content, this._tokenCounter);
-        Object.assign(existing, entry, { updatedAt: new Date().toISOString() });
-        normalizeTodoInPlace(existing);
-        const afterTokens = estimateTokens(existing?.content, this._tokenCounter);
+        const updatedAt = new Date().toISOString();
+        const next = { ...existing, ...entry, updatedAt };
+        normalizeTodoInPlace(next);
+        const afterTokens = estimateTokens(next?.content, this._tokenCounter);
+        Object.assign(existing, next);
         const delta = afterTokens - beforeTokens;
         this._stats.l0Tokens += delta;
         this._stats.tokenUsage += delta;
@@ -247,9 +249,11 @@ export class MemoryStore {
     const todo = this.L0.todos.find((t) => String(t?.id || "") === key || String(t?.todoId || "") === key);
     if (todo && isPlainObject(data)) {
       const beforeTokens = estimateTokens(todo?.content, this._tokenCounter);
-      Object.assign(todo, data, { updatedAt: new Date().toISOString() });
-      normalizeTodoInPlace(todo);
-      const afterTokens = estimateTokens(todo?.content, this._tokenCounter);
+      const updatedAt = new Date().toISOString();
+      const next = { ...todo, ...data, updatedAt };
+      normalizeTodoInPlace(next);
+      const afterTokens = estimateTokens(next?.content, this._tokenCounter);
+      Object.assign(todo, next);
       const delta = afterTokens - beforeTokens;
       this._stats.l0Tokens += delta;
       this._stats.tokenUsage += delta;

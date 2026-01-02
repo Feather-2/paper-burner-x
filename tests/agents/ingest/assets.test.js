@@ -142,6 +142,30 @@ test("PdfAdapter: validates input type and file-like shape", async () => {
   await assert.rejects(() => adapter.parse({ name: "x.pdf" }, { ocr: mockOcr }), /unsupported file-like input/);
 });
 
+test("PdfAdapter: rejects oversized inputs before invoking OCR", async () => {
+  const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
+
+  let called = false;
+  const mockOcr = {
+    async processFile() {
+      called = true;
+      return { markdown: "", images: [] };
+    },
+  };
+
+  const adapter = new PdfAdapter({ maxFileSize: 10 });
+  const file = makePdfFile({ name: "big.pdf", bytes: Buffer.alloc(11) });
+  await assert.rejects(() => adapter.parse(file, { ocr: mockOcr }), /file too large/);
+  assert.equal(called, false);
+
+  await withTempDir(async (dir) => {
+    const pdfPath = path.join(dir, "big.pdf");
+    await fs.writeFile(pdfPath, Buffer.alloc(11));
+    await assert.rejects(() => adapter.parse(pdfPath, { ocr: mockOcr }), /file too large/);
+    assert.equal(called, false);
+  });
+});
+
 test("PdfAdapter: propagates OCR failure", async () => {
   const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
 

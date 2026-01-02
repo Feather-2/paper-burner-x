@@ -72,6 +72,7 @@ export class TokenBucketRateLimiter {
     this._queue = [];
     this._inFlight = 0;
     this._pumping = false;
+    this._pumpRequested = false;
   }
 
   getState() {
@@ -95,7 +96,7 @@ export class TokenBucketRateLimiter {
     const now = this._time.now();
     const until = now + Math.floor(waitMs);
     if (until > this._blockedUntilMs) this._blockedUntilMs = until;
-    this._pump().catch(() => {});
+    this._requestPump();
   }
 
   async schedule(execute, { signal, label } = {}) {
@@ -136,6 +137,7 @@ export class TokenBucketRateLimiter {
       if (item.signal) {
         const onAbort = () => {
           item.canceled = true;
+          this._requestPump();
           finalizeReject(createAbortError(`Aborted${item.label ? `: ${item.label}` : ""}`));
         };
         try {
@@ -154,8 +156,16 @@ export class TokenBucketRateLimiter {
       }
 
       this._queue.push(item);
-      this._pump().catch(() => {});
+      this._requestPump();
     });
+  }
+
+  _requestPump() {
+    if (this._pumping) {
+      this._pumpRequested = true;
+      return;
+    }
+    this._pump().catch(() => {});
   }
 
   _refill(nowMs) {
@@ -195,8 +205,12 @@ export class TokenBucketRateLimiter {
   }
 
   async _pump() {
-    if (this._pumping) return;
+    if (this._pumping) {
+      this._pumpRequested = true;
+      return;
+    }
     this._pumping = true;
+    this._pumpRequested = false;
 
     try {
       while (true) {
@@ -237,11 +251,15 @@ export class TokenBucketRateLimiter {
           .then(item.resolve, item.reject)
           .finally(() => {
             this._inFlight = Math.max(0, this._inFlight - 1);
-            this._pump().catch(() => {});
+            this._requestPump();
           });
       }
     } finally {
       this._pumping = false;
+      if (this._pumpRequested) {
+        this._pumpRequested = false;
+        this._requestPump();
+      }
     }
   }
 }

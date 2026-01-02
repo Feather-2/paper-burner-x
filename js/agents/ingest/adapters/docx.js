@@ -18,6 +18,16 @@ function guessMimeType(filename) {
   return "application/octet-stream";
 }
 
+function normalizeMaxFileSize(value, fallback) {
+  if (value === Infinity) return Infinity;
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.floor(n);
+}
+
+// Default DOCX max file size (25MB). Override via new DocxAdapter({ maxFileSize }).
+const DEFAULT_MAX_FILE_SIZE = 25 * 1024 * 1024;
+
 async function basenameOfPath(path) {
   const { basename } = await import("node:path");
   return basename(path);
@@ -28,8 +38,13 @@ function bufferToArrayBuffer(buf) {
   return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
 }
 
-async function fileLikeFromPath(path) {
-  const { readFile } = await import("node:fs/promises");
+async function fileLikeFromPath(path, { maxBytes } = {}) {
+  const { readFile, stat } = await import("node:fs/promises");
+  const limit = normalizeMaxFileSize(maxBytes, Infinity);
+  const stats = await stat(path);
+  if (Number.isFinite(limit) && limit > 0 && stats.size > limit) {
+    throw new Error(`DocxAdapter: file too large: ${stats.size} bytes (max ${limit})`);
+  }
   const buf = await readFile(path);
   const name = await basenameOfPath(path);
   return {
@@ -112,6 +127,7 @@ function extractEmbeddedDataUriImagesFromMarkdown(markdown, { idPrefix, startInd
 export class DocxAdapter extends BaseAdapter {
   constructor(options = {}) {
     super({ ...options, adapterName: "docx" });
+    this.maxFileSize = normalizeMaxFileSize(options.maxFileSize, DEFAULT_MAX_FILE_SIZE);
   }
 
   /**
@@ -127,10 +143,12 @@ export class DocxAdapter extends BaseAdapter {
     let mimeType = "";
     let size = undefined;
 
+    const maxBytes = this.maxFileSize;
+
     if (typeof input === "string") {
       filename = await basenameOfPath(input);
       mimeType = guessMimeType(filename);
-      file = await fileLikeFromPath(input);
+      file = await fileLikeFromPath(input, { maxBytes });
       size = file.size;
     } else if (input && typeof input === "object") {
       filename = toNonEmptyString(input.name) || toNonEmptyString(input.filename) || "document.docx";
@@ -139,6 +157,10 @@ export class DocxAdapter extends BaseAdapter {
       if (typeof input.arrayBuffer !== "function") throw new Error("DocxAdapter.parse(input): unsupported file-like input (missing arrayBuffer())");
     } else {
       throw new TypeError("DocxAdapter.parse(input): input must be a path string or a file-like object");
+    }
+
+    if (Number.isFinite(maxBytes) && maxBytes > 0 && Number.isFinite(size) && size > maxBytes) {
+      throw new Error(`DocxAdapter: file too large: ${size} bytes (max ${maxBytes})`);
     }
 
     const mammoth = resolveMammoth(stageApi) || (await importMammoth());
@@ -197,4 +219,3 @@ export class DocxAdapter extends BaseAdapter {
     return parsed;
   }
 }
-
