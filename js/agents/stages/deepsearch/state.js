@@ -76,11 +76,12 @@ import { Deque } from "../../shared/utils/deque.js";
 
 function buildStateSnapshot(state, { includeCheckpoints = true, includeCheckpointSnapshots = true } = {}) {
   // 浅拷贝基础字段，并在序列化时按需处理复杂对象
+  // P1.3: 使用 getter 获取 taskGoal (会从 MemoryStore 读取)
   return {
     schemaVersion: state.schemaVersion,
     runId: state.runId,
     createdAt: state.createdAt,
-    taskGoal: state.taskGoal,
+    taskGoal: state.taskGoal,  // 通过 getter 获取
     userConfig: state.userConfig,
     planningTree: state.planningTree?.serialize ? state.planningTree.serialize() : null,
     ...(toNonEmptyString(state.trajectoryId) ? { trajectoryId: state.trajectoryId } : {}),
@@ -131,7 +132,8 @@ export class DeepSearchState {
     this.subAgentIndex = Number.isFinite(subAgentIndex) ? subAgentIndex : null;
     this._memoryStore = memoryStore || null;  // Memory 2.0: 代理层
 
-    this.taskGoal = toNonEmptyString(taskGoal) || "";
+    // P1.3: taskGoal 委托给 MemoryStore，本地只作为回退
+    this._localTaskGoal = toNonEmptyString(taskGoal) || "";
     this.userConfig = isPlainObject(userConfig) ? userConfig : {};
     this.trajectoryId = toNonEmptyString(trajectoryId);
     this.trajectoryConfig = isPlainObject(trajectoryConfig) ? trajectoryConfig : isPlainObject(this.userConfig?.trajectory) ? this.userConfig.trajectory : undefined;
@@ -327,6 +329,68 @@ export class DeepSearchState {
     if (isPlainObject(this.L2?.scratchpad) && typeof memoryStore.setScratchpad === "function") {
       memoryStore.setScratchpad(this.L2.scratchpad);
     }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // P1.3: taskGoal 动态代理 (SSOT: MemoryStore)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  get taskGoal() {
+    // 优先从 MemoryStore 读取
+    if (this._memoryStore?.L0?.taskGoal) {
+      return this._memoryStore.L0.taskGoal;
+    }
+    return this._localTaskGoal || "";
+  }
+
+  set taskGoal(value) {
+    const normalized = toNonEmptyString(value) || "";
+    // 同步写入 MemoryStore
+    if (this._memoryStore) {
+      if (typeof this._memoryStore.setTaskGoal === "function") {
+        this._memoryStore.setTaskGoal(normalized);
+      } else if (this._memoryStore.L0 && typeof this._memoryStore.L0 === "object") {
+        this._memoryStore.L0.taskGoal = normalized;
+      }
+    }
+    // 保持本地回退
+    this._localTaskGoal = normalized;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // P1.3: awaitUserFeedback / taskImpossible 动态代理
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  get awaitUserFeedback() {
+    // 优先从 MemoryStore 读取
+    if (this._memoryStore && typeof this._memoryStore.awaitUserFeedback === "boolean") {
+      return this._memoryStore.awaitUserFeedback;
+    }
+    return this.L2?.awaitUserFeedback || false;
+  }
+
+  set awaitUserFeedback(value) {
+    const boolValue = Boolean(value);
+    if (this._memoryStore) {
+      this._memoryStore.awaitUserFeedback = boolValue;
+    }
+    if (this.L2) this.L2.awaitUserFeedback = boolValue;
+  }
+
+  get taskImpossible() {
+    // 优先从 MemoryStore 读取
+    if (this._memoryStore && typeof this._memoryStore.taskImpossible === "boolean") {
+      return this._memoryStore.taskImpossible;
+    }
+    return this.L2?.taskImpossible || false;
+  }
+
+  set taskImpossible(value) {
+    const boolValue = Boolean(value);
+    if (this._memoryStore) {
+      this._memoryStore.taskImpossible = boolValue;
+    }
+    if (this.L2) this.L2.taskImpossible = boolValue;
   }
 
   addTokenUsage(usage) {
