@@ -2,6 +2,10 @@ import { createStageApi } from "../shared/utils/stage-api.js";
 import { EventBus } from "./events/event-bus.js";
 import { ActorType, OrchestratorState, isValidActorType } from "./core/constants.js";
 
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 function toNonEmptyString(v) {
   if (v === undefined || v === null) return "";
   const s = String(v).trim();
@@ -88,6 +92,18 @@ export class AgentOrchestrator {
 
     this._services = services && typeof services === "object" ? services : {};
     this.eventBus = eventBus instanceof EventBus ? eventBus : new EventBus({ runId: this.runId });
+    // Browser-first: enable backpressure by default (coalesce *.progress) without delaying non-progress events.
+    if (typeof globalThis.requestAnimationFrame === "function" && typeof this.eventBus.enableBackpressure === "function") {
+      const cfg = this._services?.eventBusBackpressure ?? this._services?.backpressure;
+      if (cfg !== false) {
+        const opts = isPlainObject(cfg) ? cfg : {};
+        try {
+          this.eventBus.enableBackpressure({ deferNonCoalesced: opts.deferNonCoalesced ?? false, ...opts });
+        } catch {
+          // ignore
+        }
+      }
+    }
 
     this._abortController = new AbortController();
     this.signal = this._abortController.signal;

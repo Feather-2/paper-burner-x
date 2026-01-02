@@ -295,6 +295,19 @@ export class AgentBuilder {
         const eventBus = new EventBus();
         const logger = useLogger({ actor: this._actor });
 
+        // Browser-first: backpressure for high-frequency *.progress events (without delaying non-progress events).
+        if (typeof globalThis.requestAnimationFrame === "function" && typeof eventBus.enableBackpressure === "function") {
+            const cfg = this._options?.eventBusBackpressure ?? this._options?.backpressure;
+            if (cfg !== false) {
+                const opts = cfg && typeof cfg === "object" && !Array.isArray(cfg) ? cfg : {};
+                try {
+                    eventBus.enableBackpressure({ deferNonCoalesced: opts.deferNonCoalesced ?? false, ...opts });
+                } catch {
+                    // ignore
+                }
+            }
+        }
+
         // 注册事件处理器
         for (const { pattern, handler } of this._eventHandlers) {
             eventBus.subscribe(pattern, handler);

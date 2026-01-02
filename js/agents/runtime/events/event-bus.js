@@ -276,12 +276,16 @@ export class EventBus {
 
     const batchWindowMs = options.batchWindowMs ?? 16;
     const coalescePattern = options.coalescePattern ?? /\.progress$/;
+    const deferNonCoalesced = options.deferNonCoalesced ?? true;
 
     if (typeof batchWindowMs !== "number" || !Number.isFinite(batchWindowMs) || batchWindowMs < 0) {
       throw new TypeError("EventBus.enableBackpressure(options): batchWindowMs must be a non-negative finite number");
     }
     if (!(coalescePattern instanceof RegExp)) {
       throw new TypeError("EventBus.enableBackpressure(options): coalescePattern must be a RegExp");
+    }
+    if (typeof deferNonCoalesced !== "boolean") {
+      throw new TypeError("EventBus.enableBackpressure(options): deferNonCoalesced must be a boolean");
     }
 
     if (this._backpressure?.enabled) {
@@ -293,6 +297,7 @@ export class EventBus {
       enabled: true,
       batchWindowMs,
       coalescePattern,
+      deferNonCoalesced,
       scheduled: false,
       timerId: null,
       rafId: null,
@@ -506,11 +511,17 @@ export class EventBus {
       const token = ++bp.token;
       bp.coalesced.set(name, { token, evt });
       bp.queue.push({ kind: EventBusItemKind.COALESCE, name, token });
-    } else {
-      bp.queue.push({ kind: EventBusItemKind.EVENT, evt });
+      this._scheduleFlush();
+      return evt;
     }
 
-    this._scheduleFlush();
+    if (!bp.deferNonCoalesced) {
+      this._dispatch(evt);
+      return evt;
+    } else {
+      bp.queue.push({ kind: EventBusItemKind.EVENT, evt });
+      this._scheduleFlush();
+    }
 
     return evt;
   }
