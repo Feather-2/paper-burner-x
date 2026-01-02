@@ -14,10 +14,21 @@ import { understandAssets as runAssetUnderstanding } from "./asset-understanding
 import { normalizeText } from "../stages/textprep/normalize.js";
 import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
 
+const MAX_DOC_CONCURRENCY = 16;
+
 function normalizeConcurrency(value, fallback = 1) {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n) || n < 1) return fallback;
-  return Math.floor(n);
+  return Math.min(Math.floor(n), MAX_DOC_CONCURRENCY);
+}
+
+function sanitizeErrorMessage(err, { maxChars = 200 } = {}) {
+  const raw = err instanceof Error ? err.message : String(err ?? "");
+  const normalized = raw.replace(/\s+/g, " ").trim();
+  if (!normalized) return "Unknown error";
+  const limit = Number.isFinite(Number(maxChars)) ? Math.max(20, Math.floor(Number(maxChars))) : 200;
+  if (normalized.length <= limit) return normalized;
+  return normalized.slice(0, Math.max(0, limit - 3)) + "...";
 }
 
 async function runWithConcurrency(items, concurrency, handler) {
@@ -419,7 +430,7 @@ export class IngestStage {
         await markOriginProcessed(origin, { origin, status: "completed", docId: parsed.docId });
       } catch (e) {
         failedDocs++;
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = sanitizeErrorMessage(e);
         parseErrors.push({ origin, error: msg });
         emit?.("ingest.doc.failed", { origin, error: msg }, { status: "failed" });
         await markOriginProcessed(origin, { origin, status: "failed", error: msg });
@@ -449,7 +460,7 @@ export class IngestStage {
         await markOriginProcessed(origin, { origin, status: "completed", docId: parsed.docId });
       } catch (e) {
         failedDocs++;
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = sanitizeErrorMessage(e);
         parseErrors.push({ origin, error: msg });
         emit?.("ingest.doc.failed", { origin, error: msg }, { status: "failed" });
         await markOriginProcessed(origin, { origin, status: "failed", error: msg });
@@ -519,7 +530,7 @@ export class IngestStage {
         await markOriginProcessed(origin, { origin, status: "completed", docId: parsed.docId });
       } catch (e) {
         failedDocs++;
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = sanitizeErrorMessage(e);
         parseErrors.push({ origin, error: msg });
         emit?.("ingest.doc.failed", { origin, error: msg }, { status: "failed" });
         await markOriginProcessed(origin, { origin, status: "failed", error: msg });
@@ -574,9 +585,7 @@ export class IngestStage {
         return { text, title: targetUrl, contentType };
       }
 
-      throw new Error(
-        "URL ingest not supported: provide stageApi.urlFetcher/config.urlFetcher, or mcpClient.callTool('fetch_content'), or set config.allowDirectUrlFetch=true."
-      );
+      throw new Error("URL ingest not supported");
     };
 
     // urls - optional support via urlFetcher / MCP / direct fetch (best-effort, may fail on CORS)
@@ -636,7 +645,7 @@ export class IngestStage {
         await markOriginProcessed(origin, { origin, status: "completed", docId: parsed.docId });
       } catch (e) {
         failedDocs++;
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = sanitizeErrorMessage(e);
         parseErrors.push({ origin, error: msg });
         emit?.("ingest.doc.failed", { origin, error: msg }, { status: "failed" });
         await markOriginProcessed(origin, { origin, status: "failed", error: msg });
@@ -675,7 +684,7 @@ export class IngestStage {
           emit?.("ingest.assets.understanding.completed", { assetCount: allAssets.length }, { status: "completed" });
         } catch (e) {
           checkCancelled(stageApi);
-          const msg = e instanceof Error ? e.message : String(e);
+          const msg = sanitizeErrorMessage(e);
           emit?.("ingest.assets.understanding.failed", { error: msg }, { status: "failed" });
         }
       }
