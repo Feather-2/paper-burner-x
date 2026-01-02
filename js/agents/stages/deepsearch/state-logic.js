@@ -34,45 +34,32 @@ function normalizeRoundHits(hits) {
   return new Map();
 }
 
-export function validateIteration(state, options = {}) {
-  const runId = toNonEmptyString(state?.runId) || "run_unknown";
-  const iteration = safeInt(state?.iteration) ?? 0;
-  const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
-  const retrieved = Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks : [];
-  const evidenceLedger = Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger : [];
-
-  const opts = options && typeof options === "object" ? options : {};
-  const roundHits = opts.roundHits;
-  const allHitsRaw = roundHits && typeof roundHits === "object" && roundHits.allHits instanceof Map ? roundHits.allHits : roundHits;
-  const qualityHitsRaw =
-    opts.qualityHitsByGapId ?? (roundHits && typeof roundHits === "object" && roundHits.qualityHits instanceof Map ? roundHits.qualityHits : null);
-  const bam = safeInt(opts.blockAfterMisses);
-  const effectiveBlockAfterMisses = bam !== null && bam >= 1 ? bam : 2;
-  const emitFn = typeof opts.emit === "function" ? opts.emit : null;
-
+function resolveMinEvidenceToFill(state, opts) {
   const configuredMinEvidence = (() => {
     const cfg = isPlainObject(state?.userConfig?.gaps) ? state.userConfig.gaps : {};
     const n = safeInt(cfg.minEvidenceToFill);
     return n !== null && n >= 1 ? n : null;
   })();
-  const effectiveMinEvidenceToFill = (() => {
-    const n = safeInt(opts.minEvidenceToFill);
-    if (n !== null && n >= 1) return n;
-    return configuredMinEvidence ?? 2;
-  })();
 
-  const hitsByGapId = normalizeRoundHits(allHitsRaw);
-  const qualityHitsByGapIdMap = normalizeRoundHits(qualityHitsRaw);
+  const fromOpts = safeInt(opts?.minEvidenceToFill);
+  if (fromOpts !== null && fromOpts >= 1) return fromOpts;
 
-  const retrievedByChunkId = new Map();
-  for (const r of retrieved) {
+  return configuredMinEvidence ?? 2;
+}
+
+function buildRetrievedByChunkId(retrieved) {
+  const map = new Map();
+  for (const r of Array.isArray(retrieved) ? retrieved : []) {
     const chunkId = toNonEmptyString(r?.chunkId);
-    if (chunkId) retrievedByChunkId.set(chunkId, r);
+    if (chunkId) map.set(chunkId, r);
   }
+  return map;
+}
 
-  // 计算每个 gap 的 evidence 数量
+function countEvidenceByGapId(evidenceLedger, { retrievedByChunkId }) {
   const evidenceCountByGapId = new Map();
-  for (const e of evidenceLedger) {
+
+  for (const e of Array.isArray(evidenceLedger) ? evidenceLedger : []) {
     const gapIds = Array.isArray(e?.gapIds) ? e.gapIds.map(String).filter(Boolean) : [];
     if (gapIds.length) {
       for (const gid of gapIds) {
@@ -98,6 +85,83 @@ export function validateIteration(state, options = {}) {
       evidenceCountByGapId.set(gid, (evidenceCountByGapId.get(gid) || 0) + 1);
     }
   }
+
+  return evidenceCountByGapId;
+}
+
+function syncTodoStatusesFromGaps(gaps, todos, { runId, iteration, emitFn } = {}) {
+  const todoByGapId = new Map();
+  for (const t of Array.isArray(todos) ? todos : []) {
+    const rgid = toNonEmptyString(t?.relatedGapId);
+    if (!rgid) continue;
+    todoByGapId.set(rgid, t);
+  }
+
+  const updateTodoStatus = (todo, nextStatus) => {
+    if (!todo) return;
+    const from = (toNonEmptyString(todo?.status) || TodoStatus.OPEN).toLowerCase();
+    const to = (toNonEmptyString(nextStatus) || TodoStatus.OPEN).toLowerCase();
+    if (from === to) return;
+    const didTransition = transitionTodoStatus(todo, to);
+    if (!didTransition) return;
+    emitFn?.("deepsearch.todo.status.changed", {
+      runId,
+      todoId: toNonEmptyString(todo?.todoId) || "todo_unknown",
+      relatedGapId: toNonEmptyString(todo?.relatedGapId),
+      from,
+      to,
+      iteration,
+    });
+  };
+
+  for (const g of Array.isArray(gaps) ? gaps : []) {
+    const gid = toNonEmptyString(g?.gapId);
+    if (!gid) continue;
+    const todo = todoByGapId.get(gid);
+    if (!todo) continue;
+    if (g.status === GapStatus.FILLED) updateTodoStatus(todo, TodoStatus.COMPLETED);
+    if (g.status === GapStatus.BLOCKED) updateTodoStatus(todo, TodoStatus.CANCELLED);
+  }
+}
+
+function syncPlanningTreeStatusFromGaps(gaps, planningTree) {
+  const tree = planningTree;
+  if (typeof tree?.getNodesForGap !== "function" || typeof tree?.updateStatus !== "function") return;
+
+  for (const g of Array.isArray(gaps) ? gaps : []) {
+    const gid = toNonEmptyString(g?.gapId);
+    if (!gid) continue;
+    if (g.status !== GapStatus.FILLED && g.status !== GapStatus.BLOCKED) continue;
+    const next = g.status === GapStatus.FILLED ? "completed" : "blocked";
+    const nodes = tree.getNodesForGap(gid) || [];
+    for (const n of Array.isArray(nodes) ? nodes : []) {
+      const nodeId = toNonEmptyString(n?.nodeId) || toNonEmptyString(n?.planNodeId) || toNonEmptyString(n?.id);
+      if (nodeId) tree.updateStatus(nodeId, next);
+    }
+  }
+}
+
+export function validateIteration(state, options = {}) {
+  const runId = toNonEmptyString(state?.runId) || "run_unknown";
+  const iteration = safeInt(state?.iteration) ?? 0;
+  const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
+  const retrieved = Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks : [];
+  const evidenceLedger = Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger : [];
+
+  const opts = options && typeof options === "object" ? options : {};
+  const roundHits = opts.roundHits;
+  const allHitsRaw = roundHits && typeof roundHits === "object" && roundHits.allHits instanceof Map ? roundHits.allHits : roundHits;
+  const qualityHitsRaw =
+    opts.qualityHitsByGapId ?? (roundHits && typeof roundHits === "object" && roundHits.qualityHits instanceof Map ? roundHits.qualityHits : null);
+  const bam = safeInt(opts.blockAfterMisses);
+  const effectiveBlockAfterMisses = bam !== null && bam >= 1 ? bam : 2;
+  const emitFn = typeof opts.emit === "function" ? opts.emit : null;
+  const effectiveMinEvidenceToFill = resolveMinEvidenceToFill(state, opts);
+
+  const hitsByGapId = normalizeRoundHits(allHitsRaw);
+  const qualityHitsByGapIdMap = normalizeRoundHits(qualityHitsRaw);
+  const retrievedByChunkId = buildRetrievedByChunkId(retrieved);
+  const evidenceCountByGapId = countEvidenceByGapId(evidenceLedger, { retrievedByChunkId });
 
   let filledCount = 0;
   let blockedCount = 0;
@@ -178,54 +242,8 @@ export function validateIteration(state, options = {}) {
     }
   }
 
-  const todos = Array.isArray(state?.todos) ? state.todos : [];
-  const todoByGapId = new Map();
-  for (const t of todos) {
-    const rgid = toNonEmptyString(t?.relatedGapId);
-    if (!rgid) continue;
-    todoByGapId.set(rgid, t);
-  }
-
-  const updateTodoStatus = (todo, nextStatus) => {
-    if (!todo) return;
-    const from = (toNonEmptyString(todo?.status) || TodoStatus.OPEN).toLowerCase();
-    const to = (toNonEmptyString(nextStatus) || TodoStatus.OPEN).toLowerCase();
-    if (from === to) return;
-    const didTransition = transitionTodoStatus(todo, to);
-    if (!didTransition) return;
-    emitFn?.("deepsearch.todo.status.changed", {
-      runId,
-      todoId: toNonEmptyString(todo?.todoId) || "todo_unknown",
-      relatedGapId: toNonEmptyString(todo?.relatedGapId),
-      from,
-      to,
-      iteration,
-    });
-  };
-
-  for (const g of gaps) {
-    const gid = toNonEmptyString(g?.gapId);
-    if (!gid) continue;
-    const todo = todoByGapId.get(gid);
-    if (!todo) continue;
-    if (g.status === GapStatus.FILLED) updateTodoStatus(todo, TodoStatus.COMPLETED);
-    if (g.status === GapStatus.BLOCKED) updateTodoStatus(todo, TodoStatus.CANCELLED);
-  }
-
-  const tree = state?.planningTree;
-  if (typeof tree?.getNodesForGap === "function" && typeof tree?.updateStatus === "function") {
-    for (const g of gaps) {
-      const gid = toNonEmptyString(g?.gapId);
-      if (!gid) continue;
-      if (g.status !== GapStatus.FILLED && g.status !== GapStatus.BLOCKED) continue;
-      const next = g.status === GapStatus.FILLED ? "completed" : "blocked";
-      const nodes = tree.getNodesForGap(gid) || [];
-      for (const n of Array.isArray(nodes) ? nodes : []) {
-        const nodeId = toNonEmptyString(n?.nodeId) || toNonEmptyString(n?.planNodeId) || toNonEmptyString(n?.id);
-        if (nodeId) tree.updateStatus(nodeId, next);
-      }
-    }
-  }
+  syncTodoStatusesFromGaps(gaps, Array.isArray(state?.todos) ? state.todos : [], { runId, iteration, emitFn });
+  syncPlanningTreeStatusFromGaps(gaps, state?.planningTree);
 
   const openCount = gaps.filter((g) => (toNonEmptyString(g?.status) || GapStatus.OPEN) === GapStatus.OPEN).length;
   state?.addTimeline?.({
@@ -424,4 +442,3 @@ export function addNewGaps(state, newGaps, { timestamp } = {}, emit = null) {
   }
   return added;
 }
-
