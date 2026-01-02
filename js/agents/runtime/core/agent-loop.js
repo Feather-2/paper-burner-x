@@ -4,6 +4,7 @@ import { AgentStatus, isValidAgentStatus } from "./agent-status.js";
 import { getRuntimeState } from "../telemetry/loop-runtime-state.js";
 import { estimateTokenCount } from "../../shared/utils/value-utils.js";
 import { getGlobalTokenCounter } from "../../shared/tokenizers/adaptive-token-counter.js";
+import { compressSessionHistoryAsync, isCompressionWorkerAvailable } from "../compression/compression-async.js";
 
 const USER_ACTION_PREFIX = "user.action";
 
@@ -19,6 +20,8 @@ const DEFAULT_CONTEXT_CONFIG = Object.freeze({
   titleOnlySummaryMaxWords: 10,   // 英文单词上限
   titleOnlySummaryMaxChars: 80,   // 字符上限（含 CJK）
   maxKeptMessageChars: 16000,     // kept 消息硬截断保护（避免极端大消息霸占上下文）
+  useCompressionWorker: true,     // 启用 Worker 压缩（浏览器环境）
+  workerThresholdMessages: 50,    // 消息数阈值触发 Worker
 });
 
 // 简单 token 估算 (4 chars ≈ 1 token)
@@ -487,7 +490,7 @@ export class BaseAgentLoop {
   }
 
   /**
-   * 执行消息压缩（委托给 CicadaCompressor）
+   * 执行消息压缩（优先使用 Worker，回退到 CicadaCompressor）
    */
   async _compressMessages() {
     this._clearCompressionCooldownTimer();
@@ -517,7 +520,43 @@ export class BaseAgentLoop {
     // Anchors: keep system prompts verbatim; exclude prior summaries from the compression input.
     const messagesForCompression = this._messages.filter((msg) => !isContextSummaryMessage(msg));
 
-    // 懒加载 CicadaCompressor
+    // 尝试使用 Worker 压缩（仅 SESSION_HISTORY 层，纯 CPU 操作）
+    const useWorker = this._contextConfig.useCompressionWorker !== false && isCompressionWorkerAvailable();
+    if (useWorker) {
+      try {
+        const workerResult = await compressSessionHistoryAsync(
+          messagesForCompression,
+          {
+            keepLastTurns,
+            titleOnly,
+            titleMaxWords: this._contextConfig.titleOnlySummaryMaxWords,
+            titleMaxChars: this._contextConfig.titleOnlySummaryMaxChars,
+            sessionSummary: priorSummary,
+          },
+          {
+            useWorker: true,
+            workerThresholdMessages: this._contextConfig.workerThresholdMessages,
+          }
+        );
+
+        this._messages = workerResult.messages || messagesForCompression;
+        if (workerResult.sessionSummary) {
+          const summaryMsg = { role: "system", content: `[Context Summary]\n${workerResult.sessionSummary}` };
+          this._messages.push(summaryMsg);
+        }
+
+        this._recalculateTokenUsage();
+        this._recordCompression(beforeCount, beforeTokens);
+        return;
+      } catch (err) {
+        // Worker 失败，回退到 CicadaCompressor
+        if (this.logger && typeof this.logger.warn === "function") {
+          this.logger.warn("[BaseAgentLoop] Worker compression failed, falling back:", err?.message);
+        }
+      }
+    }
+
+    // 回退：懒加载 CicadaCompressor
     if (!this._compressor) {
       try {
         const { CicadaCompressor } = await import("../compression/cicada-compressor.js");

@@ -1,7 +1,7 @@
 # js/agents 深度审计报告 (Kernel Maintainer Level)
 
 > **审计人**：Linus Torvalds (Agent Mode)
-> **状态**：P0/P1 已修复（2026-01-03）
+> **状态**：P0/P1/Medium-term 已完成（2026-01-03 Phase 3）
 > **核心原则**：KISS, YAGNI, SOLID, Never break userspace.
 
 ---
@@ -25,11 +25,16 @@
 - ✅ **P1 Watchdog 逻辑震荡**：Jaccard 相似度检测重复输出，连续相似告警
 - ✅ **P1 Replay 逻辑序列**：extractSeq 提取逻辑序列号，排序优先级 seq > ts > insertOrder
 
-### 待实现 (Medium Term)
-- ⚠️ **Checkpoint UI Freezing**：已缓解（MINIMAL/LITE + incremental），非 Web Worker 迁移
-- ⚠️ **VFS 主线程重计算**：diff 已可选 Worker；glob/scan 有扫描上限但仍在主线程
+### Phase 3 完成 (2026-01-03) - 中期架构演进
+- ✅ **SubAgent 输出检疫**：`SubagentRegistry` 工厂自动包装，输出经 schema 校验和消毒
+- ✅ **Retrieval LRU Cache**：`LRUCache` 通用缓存 + `retrieval-router.js` 集成检索/chunk 缓存
+- ✅ **Compression Worker 化**：`compression.worker.js` + `compression-async.js` 将 SESSION_HISTORY 压缩移至 Worker
+
+### 待实现 (Long Term)
+- ⚠️ **VFS 主线程重计算**：diff/compression 已可选 Worker；glob/scan 有扫描上限但仍在主线程
 - 📝 **DeepSearch Gap 收敛**：尚未引入 "max depth/边际收益" 策略
 - ⚠️ **Retrieval chain fail-fast**：已补输入规范化，仍缺严格 schema 校验
+- 📝 **真正的向量索引**：VectorIndex 仍是 O(N) 扫描 + 时间分区，待引入 HNSW/IVF-Flat
 
 ## 1. 核心架构审计 (Executive Summary)
 

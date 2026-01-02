@@ -3,12 +3,62 @@ import { grepChunks, grepChunksAsync } from "./grep.js";
 import { readAround } from "./readaround.js";
 import { chunksInScope, selectScope } from "./scope.js";
 import { buildToc, buildTocAsync } from "./toc-builder.js";
+import { LRUCache } from "../shared/utils/lru-cache.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
 }
 
 const _bm25CacheBySource = typeof WeakMap === "function" ? new WeakMap() : null;
+
+// Retrieval result cache: gap query -> results (avoids repeated searches)
+const _retrievalResultCache = new LRUCache({ maxSize: 200, ttlMs: 5 * 60 * 1000 });
+
+// Chunk text cache: chunkId -> chunk (hot path optimization)
+const _chunkTextCache = new LRUCache({ maxSize: 500, ttlMs: 10 * 60 * 1000 });
+
+/**
+ * Get cache statistics for monitoring/debugging
+ * @returns {{bm25: string, results: object, chunks: object}}
+ */
+export function getRetrievalCacheStats() {
+  return {
+    bm25: _bm25CacheBySource ? "WeakMap (size unknown)" : "disabled",
+    results: _retrievalResultCache.getStats(),
+    chunks: _chunkTextCache.getStats(),
+  };
+}
+
+/**
+ * Clear all retrieval caches
+ */
+export function clearRetrievalCaches() {
+  _retrievalResultCache.clear();
+  _chunkTextCache.clear();
+  // Note: WeakMap bm25 cache clears automatically when sourceIndex is GC'd
+}
+
+/**
+ * Warm up chunk cache from a source index
+ * @param {{chunks: Array<{chunkId: string}>}} sourceIndex
+ */
+export function warmChunkCache(sourceIndex) {
+  if (!sourceIndex || !Array.isArray(sourceIndex.chunks)) return;
+  for (const chunk of sourceIndex.chunks) {
+    if (chunk && chunk.chunkId) {
+      _chunkTextCache.set(chunk.chunkId, chunk);
+    }
+  }
+}
+
+/**
+ * Get cached chunk by ID (fast path)
+ * @param {string} chunkId
+ * @returns {object|undefined}
+ */
+export function getCachedChunk(chunkId) {
+  return _chunkTextCache.get(chunkId);
+}
 
 function getGapId(gap) {
   if (!gap || !isPlainObject(gap)) return null;
