@@ -148,6 +148,28 @@ function resolveUrl(pathOrUrl) {
   }
 }
 
+function isSafeHttpUrl(url) {
+  try {
+    const u = new URL(url, globalThis.location?.href);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function isPathInsideBase(resolvedPath, basePath, pathModule) {
+  const rel = pathModule.relative(basePath, resolvedPath);
+  return rel && !rel.startsWith("..") && !pathModule.isAbsolute(rel);
+}
+
+function escapeTemplateDelimiters(value) {
+  const s = typeof value === "string" ? value : String(value ?? "");
+  if (!s) return s;
+  // Prevent user-controlled content from injecting new {{...}} placeholders into subsequent renders.
+  // Use a zero-width break to keep prompts readable while breaking the delimiter sequence.
+  return s.replaceAll("{{", `{\u200B{`).replaceAll("}}", `}\u200B}`);
+}
+
 async function fetchJson(url) {
   if (typeof fetch !== "function") throw new Error("fetch is not available in this environment");
   const resp = await fetch(url, { cache: "no-store" });
@@ -199,9 +221,10 @@ async function resolvePromptUrlFromManifest(key, { manifestUrl } = {}) {
   if (!entry) return "";
 
   try {
-    return new URL(entry.path, manifest.url).toString();
+    const url = new URL(entry.path, manifest.url).toString();
+    return isSafeHttpUrl(url) ? url : "";
   } catch {
-    return entry.path;
+    return "";
   }
 }
 
@@ -255,13 +278,15 @@ export async function loadPrompt(name, { cache = true, manifestUrl } = {}) {
       const fs = await import("fs/promises");
       const pathModule = await import("path");
 
-      // 进一步确保路径安全
-      const fullPath = pathModule.resolve(basePath, `${key}.md`);
-      if (!fullPath.startsWith(pathModule.resolve(basePath))) {
-        throw new Error("Path security violation: resulting path is outside base directory");
+      const baseResolved = pathModule.resolve(basePath);
+      const baseReal = await fs.realpath(baseResolved);
+      const candidatePath = pathModule.resolve(baseReal, `${key}.md`);
+      const candidateReal = await fs.realpath(candidatePath);
+      if (!isPathInsideBase(candidateReal, baseReal, pathModule)) {
+        throw new Error("Path security violation: resolved path is outside base directory");
       }
 
-      content = await fs.readFile(fullPath, "utf-8");
+      content = await fs.readFile(candidateReal, "utf-8");
     } catch (e) {
       throw new Error(`Failed to load prompt "${name}": ${e.message}`);
     }
@@ -325,13 +350,16 @@ export function loadPromptSync(name, { cache = true } = {}) {
   try {
     const { fs, path } = modules;
     const basePath = getBasePath();
-    const fullPath = path.resolve(basePath, `${key}.md`);
 
-    if (!fullPath.startsWith(path.resolve(basePath))) {
-      throw new Error("Path security violation");
+    const baseResolved = path.resolve(basePath);
+    const baseReal = fs.realpathSync(baseResolved);
+    const candidatePath = path.resolve(baseReal, `${key}.md`);
+    const candidateReal = fs.realpathSync(candidatePath);
+    if (!isPathInsideBase(candidateReal, baseReal, path)) {
+      throw new Error("Path security violation: resolved path is outside base directory");
     }
 
-    const content = fs.readFileSync(fullPath, "utf-8").trim();
+    const content = fs.readFileSync(candidateReal, "utf-8").trim();
 
     if (cache) {
       lruSet(key, content);
@@ -444,7 +472,15 @@ function normalizeTemplateVars(vars) {
  */
 export function renderPromptTemplate(
   template,
-  { vars, appendIfMissing, keepUnresolved = true, warnOnUnresolved = false, failOnUnresolved = false, onUnresolved } = {}
+  {
+    vars,
+    appendIfMissing,
+    keepUnresolved = true,
+    warnOnUnresolved = false,
+    failOnUnresolved = false,
+    onUnresolved,
+    escapeVars = true,
+  } = {}
 ) {
   const input = typeof template === "string" ? template : String(template ?? "");
   const varMap = normalizeTemplateVars(vars);
@@ -460,8 +496,11 @@ export function renderPromptTemplate(
 
     const value = varMap.get(key);
     if (value === null || value === undefined) return "";
-    if (typeof value === "string") return value;
-    if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") return String(value);
+    if (typeof value === "string") return escapeVars ? escapeTemplateDelimiters(value) : value;
+    if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+      const out = String(value);
+      return escapeVars ? escapeTemplateDelimiters(out) : out;
+    }
     return keepUnresolved ? match : "";
   });
 
