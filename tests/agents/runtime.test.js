@@ -755,7 +755,7 @@ test("Runtime Core: EventBus listener errors are isolated (sync + async)", async
   assert.doesNotThrow(() => bus.emit("run.log", { msg: "x" }));
   assert.deepEqual(order, ["a", "b", "c"]);
 
-  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => setImmediate(r));
   assert.equal(errors.length, 2);
   assert.ok(errors.some((e) => e.message.includes("boom_sync") && e.name === "run.log"));
   assert.ok(errors.some((e) => e.message.includes("boom_async") && e.name === "run.log"));
@@ -825,7 +825,7 @@ test("Runtime Tools: WorkerPool caps concurrent worker creation", async () => {
     maxWorkers: 2,
     createWorker: async () => {
       created += 1;
-      await new Promise((r) => setTimeout(r, 10));
+      await new Promise((r) => setImmediate(r));
       return { terminate: async () => {} };
     },
   });
@@ -843,7 +843,7 @@ test("Runtime Tools: WorkerPool caps concurrent worker creation", async () => {
     p3Resolved = true;
   });
 
-  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => setImmediate(r));
   assert.equal(p3Resolved, false);
 
   pool.release(w1);
@@ -959,8 +959,24 @@ test("Runtime Compression: _scheduleCompression is idempotent and flushCompressi
 test("AgentOrchestrator: stage timeout timer is cleaned up on success", async () => {
   const { AgentOrchestrator } = await import("../../js/agents/runtime/orchestrator.js");
 
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  const scheduled = [];
+  const cleared = new Set();
+  let nextTimerId = 1;
+
   const orch = new AgentOrchestrator({ runId: "run_orch_timer" });
   let stageAborted = false;
+
+  try {
+    globalThis.setTimeout = () => {
+      const id = nextTimerId++;
+      scheduled.push(id);
+      return id;
+    };
+    globalThis.clearTimeout = (id) => {
+      cleared.add(id);
+    };
 
   orch.registerStage(
     "deepsearch.stage.timer_test",
@@ -974,8 +990,13 @@ test("AgentOrchestrator: stage timeout timer is cleaned up on success", async ()
   );
 
   await orch.runStage("deepsearch.stage.timer_test", { ok: true });
-  await new Promise((r) => setTimeout(r, 30));
   assert.equal(stageAborted, false);
+  assert.equal(scheduled.length, 1);
+  assert.equal(cleared.has(scheduled[0]), true);
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+  }
 });
 
 test("PromptLoader: LRU cache evicts oldest prompts", async () => {

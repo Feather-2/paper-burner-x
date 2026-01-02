@@ -245,7 +245,7 @@ test("Design: batch-generator respects concurrency, emits events, and retries on
           batch = extractSlideIntentsFromPrompt(prompt);
         } catch {
           // Not a generateBatch prompt, return empty to trigger fallback
-          await new Promise((r) => setTimeout(r, 5));
+          await new Promise((r) => setImmediate(r));
           return { content: "[]" };
         }
         const si = batch[0];
@@ -254,7 +254,7 @@ test("Design: batch-generator respects concurrency, emits events, and retries on
         attempts.set(si.slideIntentId, n);
         if (si.slideIntentId === "s3" && n === 1) throw new Error("Transient failure");
 
-        await new Promise((r) => setTimeout(r, 25));
+        await new Promise((r) => setImmediate(r));
         return {
           content: JSON.stringify([
             {

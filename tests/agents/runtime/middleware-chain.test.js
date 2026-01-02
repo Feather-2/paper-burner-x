@@ -217,7 +217,7 @@ describe("middleware-chain", () => {
       const chain = new MiddlewareChain();
       chain.use(createTimeoutMiddleware({ timeout: 1000 }));
       chain.use(async (ctx, next) => {
-        await new Promise(r => setTimeout(r, 10));
+        await new Promise(r => setImmediate(r));
         return next();
       });
 
@@ -226,9 +226,9 @@ describe("middleware-chain", () => {
 
     it("should throw on timeout", async () => {
       const chain = new MiddlewareChain();
-      chain.use(createTimeoutMiddleware({ timeout: 10 }));
+      chain.use(createTimeoutMiddleware({ timeout: 1 }));
       chain.use(async () => {
-        await new Promise(r => setTimeout(r, 100));
+        await new Promise(() => {});
       });
 
       await assert.rejects(

@@ -231,15 +231,12 @@ test("ToolChain: glob timeout fallback", async () => {
     { chunkId: "c1", text: "test content", sourceId: "file.txt" },
   ];
 
-  const slowGlobTool = async () => {
-    await new Promise((resolve) => setTimeout(resolve, 300)); // 超过 200ms 超时
-    return ["file.txt"];
-  };
+  const slowGlobTool = async () => new Promise(() => {});
 
   const result = await search(
     chunks,
     { strategy: "glob-then-grep", patterns: ["**/*.txt"], keywords: ["test"] },
-    { globTool: slowGlobTool, timeoutMs: 200 }
+    { globTool: slowGlobTool, timeoutMs: 5 }
   );
 
   // 应该降级到 grep-only（因为 glob 超时）

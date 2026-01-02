@@ -64,14 +64,14 @@ describe("ToolExecutor", () => {
       assert.equal(attempts, 2);
     });
 
-    it("should timeout long-running tools", async () => {
-      const executor = new ToolExecutor({
-        tools: {
-          slow: { handler: () => new Promise(resolve => setTimeout(resolve, 5000)) },
-        },
-        timeoutMs: 50,
-        maxRetries: 0,
-      });
+	    it("should timeout long-running tools", async () => {
+	      const executor = new ToolExecutor({
+	        tools: {
+	          slow: { handler: () => new Promise(() => {}) },
+	        },
+	        timeoutMs: 50,
+	        maxRetries: 0,
+	      });
 
       const result = await executor.execute("slow", {}, {});
 

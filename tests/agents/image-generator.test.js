@@ -1,8 +1,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function delay() {
+  return new Promise((resolve) => setImmediate(resolve));
 }
 
 function makeSlot({ slotId, slideIndex, priority }) {
@@ -29,7 +29,7 @@ test("ImageGenerator: concurrency=2 limits concurrent provider calls", async () 
     generate: async () => {
       active += 1;
       maxActive = Math.max(maxActive, active);
-      await delay(30);
+      await delay();
       active -= 1;
       return { provider: "mock", model: "m1", mimeType: "image/png", url: "https://example.com/x.png", width: 1, height: 1 };
     },
@@ -205,7 +205,7 @@ test("ImageGenerator: report summary fields are correct (success + failed + skip
     provider: "mock",
     model: "m1",
     generate: async (req) => {
-      await delay(5);
+      await delay();
       if (String(req.prompt).includes("img_fail")) throw new Error("fail");
       return { provider: "mock", model: "m1", mimeType: "image/png", url: "https://example.com/x.png", width: 1, height: 1 };
     },
@@ -293,4 +293,3 @@ test("ImageGenerator: emits per-task events and ends with design.image.fill.comp
   const out = await generateImages([makeSlot({ slotId: "img_2", slideIndex: 0, priority: "critical" })], { runId: "run_events2", constraints: {} }, { imageStyle: "Test style" }, { imageProvider: provider });
   assert.equal(out.report.runId, "run_events2");
 });
-
