@@ -13,7 +13,10 @@ test("executeTool: returns success:false when tool handler throws", async () => 
 
   try {
     const result = await executeTool(name, { a: 1 }, { runId: "run_execute_tool_throw" });
-    assert.deepEqual(result, { success: false, error: "boom" });
+    assert.equal(result.success, false);
+    assert.equal(result.error, "boom");
+    assert.equal(result.errorName, "Error");
+    assert.ok(typeof result.stack === "string");
   } finally {
     delete tools[name];
   }
@@ -35,4 +38,3 @@ test("executeTool: passes through {success:false} results from handler", async (
     delete tools[name];
   }
 });
-
