@@ -291,6 +291,7 @@ export class BaseAgentLoop {
     this._userInputBus = null;
     this._userInputEvent = "user.input";
     this._pauseListenerUnsub = null;
+    this._executeAbortController = null;
 
     // 消息管理
     this._messages = [];
@@ -870,14 +871,41 @@ export class BaseAgentLoop {
   }
 
   async execute(runContext, input, stageApi = {}) {
-    const context = { ...stageApi, runContext };
-    this.eventBus = stageApi.eventBus || this.eventBus || null;
-    this.emit = getEmitFn(stageApi) || this.emit || this.eventBus?.emit || null;
-    if (this.eventBus) {
-      this._attachUserInputListener(this.eventBus);
-      this._attachPauseListener(this.eventBus);
+    const base = stageApi && typeof stageApi === "object" ? stageApi : {};
+
+    // Ensure we can clean up all per-execute subscriptions (EventBus listeners, etc.).
+    if (this._executeAbortController && !this._executeAbortController.signal.aborted) {
+      try {
+        this._executeAbortController.abort("superseded");
+      } catch {
+        // ignore
+      }
     }
-    return this.run(input, context);
+    const executeController = new AbortController();
+    this._executeAbortController = executeController;
+
+    const combinedSignal = mergeSignals(base.signal, executeController.signal) || base.signal || executeController.signal;
+    const context = { ...base, runContext, signal: combinedSignal };
+
+    this.eventBus = base.eventBus || this.eventBus || null;
+    this.emit = getEmitFn(base) || this.emit || this.eventBus?.emit || null;
+
+    if (this.eventBus) {
+      this._attachUserInputListener(this.eventBus, { signal: combinedSignal });
+      this._attachPauseListener(this.eventBus, { signal: combinedSignal });
+    }
+
+    try {
+      return await this.run(input, context);
+    } finally {
+      try {
+        executeController.abort("completed");
+      } catch {
+        // ignore
+      }
+      this._detachEventBusListeners();
+      if (this._executeAbortController === executeController) this._executeAbortController = null;
+    }
   }
 
   _checkPaused(signal) {
@@ -971,27 +999,56 @@ export class BaseAgentLoop {
     return this._recordLoopStatusTransition({ from: oldStatus, to: newStatus, ...meta });
   }
 
-  _attachUserInputListener(eventBus, { eventName } = {}) {
+  _attachUserInputListener(eventBus, { eventName, signal } = {}) {
     if (!eventBus || typeof eventBus.subscribe !== "function") return;
     const resolvedEvent = typeof eventName === "string" && eventName ? eventName : this._userInputEvent;
     if (this._userInputBus === eventBus && this._userInputEvent === resolvedEvent) return;
     if (typeof this._userInputUnsub === "function") this._userInputUnsub();
     this._userInputBus = eventBus;
     this._userInputEvent = resolvedEvent;
-    this._userInputUnsub = eventBus.subscribe(resolvedEvent, (evt) => {
+    this._userInputUnsub = eventBus.subscribe(
+      resolvedEvent,
+      (evt) => {
       const payload = evt && typeof evt === "object" && "payload" in evt ? evt.payload : evt;
       this.recordUserInput(payload);
-    });
+      },
+      { ...(signal ? { signal } : {}) }
+    );
   }
 
-  _attachPauseListener(eventBus) {
+  _attachPauseListener(eventBus, { signal } = {}) {
     if (!eventBus || typeof eventBus.subscribe !== "function") return;
     if (this._pauseListenerUnsub) return;
-    this._pauseListenerUnsub = eventBus.subscribe("user.action.pause", (evt) => {
-      const payload = evt && typeof evt === "object" && "payload" in evt ? evt.payload : evt;
-      const reason = payload?.reason || payload?.message || payload;
-      this.pause(typeof reason === "string" ? reason : "user_requested");
-    });
+    this._pauseListenerUnsub = eventBus.subscribe(
+      "user.action.pause",
+      (evt) => {
+        const payload = evt && typeof evt === "object" && "payload" in evt ? evt.payload : evt;
+        const reason = payload?.reason || payload?.message || payload;
+        this.pause(typeof reason === "string" ? reason : "user_requested");
+      },
+      { ...(signal ? { signal } : {}) }
+    );
+  }
+
+  _detachEventBusListeners() {
+    if (typeof this._userInputUnsub === "function") {
+      try {
+        this._userInputUnsub();
+      } catch {
+        // ignore
+      }
+    }
+    this._userInputUnsub = null;
+    this._userInputBus = null;
+
+    if (typeof this._pauseListenerUnsub === "function") {
+      try {
+        this._pauseListenerUnsub();
+      } catch {
+        // ignore
+      }
+    }
+    this._pauseListenerUnsub = null;
   }
 
   recordUserInput(payload) {

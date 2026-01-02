@@ -162,23 +162,32 @@ describe("MemoryStore", () => {
     });
   });
 
-  describe("Checkpoint", () => {
-    it("should checkpoint and restore state", () => {
-      store.setTaskGoal("Original goal");
-      store.addTodo({ content: "Task 1" });
-      store.addMessage({ role: "user", content: "Hello" });
-
-      const ckptId = store.checkpoint();
-      assert.ok(ckptId);
-
-      // Modify state
-      store.setTaskGoal("Modified goal");
-      store.addTodo({ content: "Task 2" });
-      store.addMessage({ role: "user", content: "World" });
-
-      assert.strictEqual(store.L0.taskGoal, "Modified goal");
-      assert.strictEqual(store.L0.todos.length, 2);
-      assert.strictEqual(store.L1.messages.length, 2);
+	  describe("Checkpoint", () => {
+	    it("should checkpoint and restore state", () => {
+	      store.setTaskGoal("Original goal");
+	      store.addTodo({ content: "Task 1" });
+	      store.addMessage({ role: "user", content: "Hello" });
+	
+	      const ckptId = store.checkpoint();
+	      assert.ok(ckptId);
+	      const snapshot = store.L3.checkpoints.find((c) => c.id === ckptId);
+	      assert.ok(snapshot);
+	      assert.strictEqual(snapshot.L0.taskGoal, "Original goal");
+	      assert.strictEqual(snapshot.L0.todos.length, 1);
+	      assert.strictEqual(snapshot.L1.messages.length, 1);
+	
+	      // Modify state
+	      store.setTaskGoal("Modified goal");
+	      store.addTodo({ content: "Task 2" });
+	      store.addMessage({ role: "user", content: "World" });
+	      // Snapshot stays immutable.
+	      assert.strictEqual(snapshot.L0.taskGoal, "Original goal");
+	      assert.strictEqual(snapshot.L0.todos.length, 1);
+	      assert.strictEqual(snapshot.L1.messages.length, 1);
+	
+	      assert.strictEqual(store.L0.taskGoal, "Modified goal");
+	      assert.strictEqual(store.L0.todos.length, 2);
+	      assert.strictEqual(store.L1.messages.length, 2);
 
       // Restore
       const restored = store.restore(ckptId);

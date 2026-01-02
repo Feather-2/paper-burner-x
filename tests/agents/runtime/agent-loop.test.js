@@ -116,6 +116,23 @@ test("BaseAgentLoop flushCompression waits for scheduled compression", async () 
   assert.ok(loop.messages[1].content.startsWith("[Context Summary]"));
 });
 
+test("BaseAgentLoop clears cooldown timers during flushCompression", async () => {
+  const loop = await createTestLoop({
+    contextConfig: { contextWindow: 800, compressThreshold: 0.9, keepLastTurns: 1, compressCooldownMs: 1000 },
+  });
+
+  loop.addMessage({ role: "user", content: "x".repeat(8000) });
+  loop.addMessage({ role: "assistant", content: "ok" });
+  await loop.flushCompression();
+
+  loop.addMessage({ role: "user", content: "x".repeat(8000) });
+  loop.addMessage({ role: "assistant", content: "ok" });
+  assert.ok(loop._compressionCooldownTimer);
+
+  await loop.flushCompression();
+  assert.equal(loop._compressionCooldownTimer, null);
+});
+
 test("BaseAgentLoop uses tool executor when provided", async () => {
   const loop = await createTestLoop();
 
@@ -225,6 +242,27 @@ test("BaseAgentLoop execute adapts stage inputs", async () => {
 
   assert.equal(result.context.runContext.runId, "run_exec");
   assert.deepEqual(result.input, { value: 1 });
+});
+
+test("BaseAgentLoop execute cleans up EventBus subscriptions", async () => {
+  const { BaseAgentLoop } = await import("../../../js/agents/runtime/core/agent-loop.js");
+  const { EventBus } = await import("../../../js/agents/runtime/events/event-bus.js");
+
+  const eventBus = new EventBus({ runId: "run_exec_cleanup" });
+
+  class TestLoop extends BaseAgentLoop {
+    async run() {
+      assert.equal(eventBus._listeners.get("user.input")?.size ?? 0, 1);
+      assert.equal(eventBus._listeners.get("user.action.pause")?.size ?? 0, 1);
+      return { ok: true };
+    }
+  }
+
+  const loop = new TestLoop({ eventBus, stageName: "exec_cleanup" });
+  await loop.execute({ runId: "run_exec_cleanup" }, { value: 1 }, { eventBus });
+
+  assert.equal(eventBus._listeners.get("user.input"), undefined);
+  assert.equal(eventBus._listeners.get("user.action.pause"), undefined);
 });
 
 test("BaseAgentLoop.run throws by default", async () => {

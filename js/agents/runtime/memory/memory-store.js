@@ -602,15 +602,9 @@ export class MemoryStore {
   checkpoint() {
     this._recalculateTotalTokens();
     const id = genId("ckpt");
-    // 使用 deepClone 确保 Map/Set 和深层嵌套对象被完整保留且解耦
-    const snapshot = {
-      id,
-      runId: this.runId,
-      ts: Date.now(),
-      L0: deepClone(this.L0),
-      L1: deepClone(this.L1),
-      L2: deepClone(this.L2),
-    };
+    // Clone as a single unit to keep checkpoint state internally consistent.
+    const { L0, L1, L2 } = deepClone({ L0: this.L0, L1: this.L1, L2: this.L2 });
+    const snapshot = { id, runId: this.runId, ts: Date.now(), L0, L1, L2 };
     this.L3.checkpoints.push(snapshot);
     return id;
   }
@@ -619,10 +613,11 @@ export class MemoryStore {
     const ckpt = this.L3.checkpoints.find(c => c.id === checkpointId);
     if (!ckpt) return false;
 
-    // 同样使用 deepClone 恢复，防止后续修改影响 L3 中的快照副本
-    this.L0 = deepClone(ckpt.L0);
-    this.L1 = deepClone(ckpt.L1);
-    this.L2 = deepClone(ckpt.L2);
+    // Restore as a single clone to avoid partially restored state if a clone throws.
+    const restored = deepClone({ L0: ckpt.L0, L1: ckpt.L1, L2: ckpt.L2 });
+    this.L0 = restored.L0;
+    this.L1 = restored.L1;
+    this.L2 = restored.L2;
 
     this._updateTokenUsage();
     return true;
