@@ -768,6 +768,46 @@ test("Runtime Tools: ToolExecutor worker isolation enforces hard timeout for syn
   assert.ok(elapsedMs < 300);
 });
 
+test("Runtime Tools: WorkerPool caps concurrent worker creation", async () => {
+  const { __test } = await import("../../js/agents/runtime/tools/tool-executor.js");
+  const WorkerPool = __test?.WorkerPool;
+  assert.ok(typeof WorkerPool === "function");
+
+  let created = 0;
+  const pool = new WorkerPool({
+    maxWorkers: 2,
+    createWorker: async () => {
+      created += 1;
+      await new Promise((r) => setTimeout(r, 10));
+      return { terminate: async () => {} };
+    },
+  });
+
+  const p1 = pool.acquire();
+  const p2 = pool.acquire();
+  const p3 = pool.acquire();
+
+  const w1 = await p1;
+  const w2 = await p2;
+  assert.equal(created, 2);
+
+  let p3Resolved = false;
+  void p3.then(() => {
+    p3Resolved = true;
+  });
+
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(p3Resolved, false);
+
+  pool.release(w1);
+  const w3 = await p3;
+  assert.ok(w3);
+  assert.equal(created, 2);
+
+  pool.release(w2);
+  pool.release(w3);
+});
+
 test("Runtime Compression: anchors preserve initial system prompts across repeated compression", async () => {
   const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
 

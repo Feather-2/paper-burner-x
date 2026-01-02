@@ -37,6 +37,7 @@ class WorkerPool {
     this._all = new Set(); // Set<PooledWorker>
     this._idle = []; // Array<PooledWorker>
     this._waiters = []; // Array<{resolve,reject}>
+    this._pendingCreates = 0;
   }
 
   setMaxWorkers(value) {
@@ -55,13 +56,25 @@ class WorkerPool {
       return w;
     }
 
-    if (this._all.size < this._maxWorkers) {
-      const w = await this._createWorker();
-      const pooled = new PooledWorker(w);
-      pooled.busy = true;
-      pooled._ref();
-      this._all.add(pooled);
-      return pooled;
+    if (this._all.size + this._pendingCreates < this._maxWorkers) {
+      this._pendingCreates += 1;
+      try {
+        const w = await this._createWorker();
+        const pooled = new PooledWorker(w);
+        pooled.busy = true;
+        pooled._ref();
+        this._all.add(pooled);
+        return pooled;
+      } catch (err) {
+        // Ensure queued acquirers don't hang forever if worker creation fails.
+        while (this._waiters.length) {
+          const waiter = this._waiters.shift();
+          waiter?.reject?.(err);
+        }
+        throw err;
+      } finally {
+        this._pendingCreates = Math.max(0, this._pendingCreates - 1);
+      }
     }
 
     return await new Promise((resolve, reject) => {
@@ -677,5 +690,7 @@ export async function executeTool(tools, name, args, context) {
   const executor = new ToolExecutor({ tools });
   return executor.execute(name, args, context);
 }
+
+export const __test = { WorkerPool };
 
 export default ToolExecutor;
