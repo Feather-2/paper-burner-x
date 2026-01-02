@@ -885,6 +885,52 @@ test("Runtime Compression: title-only mode trims old messages aggressively", asy
   assert.equal(body.includes("w11"), false);
 });
 
+test("Runtime Compression: _scheduleCompression is idempotent and flushCompression resolves", async () => {
+  const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
+
+  const loop = new BaseAgentLoop({
+    stageName: "test",
+    actor: "test",
+    contextConfig: { contextWindow: 800, compressThreshold: 0.9, keepLastTurns: 1, compressCooldownMs: 1000 },
+  });
+
+  loop.addMessage({ role: "user", content: "x".repeat(8000) });
+  loop.addMessage({ role: "assistant", content: "ok" });
+  assert.equal(loop.getContextStatus().needsCompression, true);
+  assert.equal(loop.getContextStatus().compressionPending, true);
+
+  const p1 = loop._compressionPromise;
+  assert.ok(p1);
+  loop._scheduleCompression();
+  assert.equal(loop._compressionPromise, p1);
+
+  await loop.flushCompression();
+  assert.equal(loop.getContextStatus().compressionPending, false);
+  assert.equal(loop.getContextStatus().needsCompression, false);
+});
+
+test("AgentOrchestrator: stage timeout timer is cleaned up on success", async () => {
+  const { AgentOrchestrator } = await import("../../js/agents/runtime/orchestrator.js");
+
+  const orch = new AgentOrchestrator({ runId: "run_orch_timer" });
+  let stageAborted = false;
+
+  orch.registerStage(
+    "deepsearch.stage.timer_test",
+    async (_ctx, _input, api) => {
+      api.signal?.addEventListener?.("abort", () => {
+        stageAborted = true;
+      });
+      return { ok: true };
+    },
+    { timeoutMs: 10 }
+  );
+
+  await orch.runStage("deepsearch.stage.timer_test", { ok: true });
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(stageAborted, false);
+});
+
 test("PromptLoader: LRU cache evicts oldest prompts", async () => {
   const {
     loadPrompt,

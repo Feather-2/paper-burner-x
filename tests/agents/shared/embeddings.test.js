@@ -67,6 +67,38 @@ test("EmbeddingService: batches enqueued requests into one call", async () => {
   assert.equal(v2[0][0], 2);
 });
 
+test("EmbeddingService: enforces maxQueue cap", async () => {
+  const { EmbeddingService } = await loadEmbeddings();
+
+  const fetchImpl = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    const inputs = Array.isArray(body.input) ? body.input : [];
+    const data = inputs.map((text, index) => ({ index, embedding: [String(text).length, 0] }));
+    return new Response(JSON.stringify({ data }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+
+  const svc = new EmbeddingService(
+    {
+      endpoint: "https://example.test/v1/embeddings",
+      model: "test-embed",
+      flushIntervalMs: 0,
+      batchSize: 32,
+      maxQueue: 1,
+      timeoutMs: 1000,
+      cooldownMs: 60_000,
+    },
+    { fetchImpl }
+  );
+
+  const p1 = svc.enqueue(["a"]);
+  const p2 = svc.enqueue(["bb"]);
+  assert.equal(await p2, null);
+
+  const v1 = await p1;
+  assert.equal(v1.length, 1);
+  assert.equal(v1[0][0], 1);
+});
+
 test("EmbeddingService: marks unavailable after failure and degrades immediately", async () => {
   const { EmbeddingService } = await loadEmbeddings();
   const calls = [];
