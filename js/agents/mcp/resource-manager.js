@@ -40,6 +40,13 @@ function normalizeProviderId(value, fallback) {
   return id || toNonEmptyString(fallback) || null;
 }
 
+function normalizeCacheLimit(value, fallback) {
+  if (value === Infinity) return Infinity;
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  return Math.floor(n);
+}
+
 function keyOf(providerId, uri) {
   return `${providerId || "provider_unknown"}:${uri || ""}`;
 }
@@ -123,6 +130,7 @@ export class McpResourceManager {
     storage,
     defaultTtlMs = 60_000,
     maxPersistBytes = 50_000,
+    maxContentCacheEntries = 500,
   } = {}) {
     this.client = client instanceof McpClient ? client : null;
     this.storage =
@@ -133,6 +141,7 @@ export class McpResourceManager {
           : getDefaultAsyncStore() || getDefaultStorage();
     this.defaultTtlMs = normalizeTtlMs(defaultTtlMs, 60_000);
     this.maxPersistBytes = normalizeTtlMs(maxPersistBytes, 50_000);
+    this.maxContentCacheEntries = normalizeCacheLimit(maxContentCacheEntries, 500);
 
     this._listCache = new Map(); // providerId -> { ts, ttlMs, resources }
     this._templatesCache = new Map(); // providerId -> { ts, ttlMs, templates }
@@ -144,6 +153,38 @@ export class McpResourceManager {
     this._providerNotifyUnsub = new Map(); // providerId -> unsubscribe()
 
     this._hydrationPromise = this._hydratePersistedCache();
+  }
+
+  _touchContentCache(cacheKey) {
+    const max = this.maxContentCacheEntries;
+    if (max === 0 || max === Infinity) return;
+    const cached = this._contentCache.get(cacheKey);
+    if (!cached) return;
+    this._contentCache.delete(cacheKey);
+    this._contentCache.set(cacheKey, cached);
+  }
+
+  _pruneContentCache(nowMs = Date.now()) {
+    const max = this.maxContentCacheEntries;
+    const limit = typeof max === "number" && Number.isFinite(max) ? Math.max(0, Math.floor(max)) : 0;
+
+    if (limit <= 0) {
+      this._contentCache.clear();
+      return;
+    }
+
+    for (const [k, v] of this._contentCache.entries()) {
+      const ts = typeof v?.ts === "number" && Number.isFinite(v.ts) ? v.ts : 0;
+      const ttlMs = typeof v?.ttlMs === "number" && Number.isFinite(v.ttlMs) ? v.ttlMs : 0;
+      if (ttlMs > 0 && nowMs - ts > ttlMs) this._contentCache.delete(k);
+    }
+
+    if (max === Infinity) return;
+    while (this._contentCache.size > limit) {
+      const oldest = this._contentCache.keys().next().value;
+      if (!oldest) break;
+      this._contentCache.delete(oldest);
+    }
   }
 
   async _hydratePersistedCache() {
@@ -174,11 +215,15 @@ export class McpResourceManager {
         }
       }
     }
+
+    this._pruneContentCache(now);
   }
 
   _persistCache() {
     const store = this.storage;
     if (!store) return false;
+
+    this._pruneContentCache();
 
     const providers = {};
     for (const providerId of new Set([
@@ -279,9 +324,13 @@ export class McpResourceManager {
     const ttl = normalizeTtlMs(ttlMs, this.defaultTtlMs);
 
     const cacheKey = keyOf(id, u);
-    const cached = this._contentCache.get(cacheKey);
     const now = Date.now();
-    if (!forceRefresh && cached && (ttl <= 0 || now - cached.ts <= ttl)) return cached.content;
+    this._pruneContentCache(now);
+    const cached = this._contentCache.get(cacheKey);
+    if (!forceRefresh && cached && (ttl <= 0 || now - cached.ts <= ttl)) {
+      this._touchContentCache(cacheKey);
+      return cached.content;
+    }
 
     if (typeof provider.readResource !== "function") {
       throw new Error(`Provider ${id} does not support resources/read`);
@@ -289,6 +338,7 @@ export class McpResourceManager {
 
     const content = await provider.readResource(u);
     this._contentCache.set(cacheKey, { ts: Date.now(), ttlMs: ttl, content: isPlainObject(content) ? content : { uri: u } });
+    this._pruneContentCache();
     this._persistCache();
     return this._contentCache.get(cacheKey).content;
   }

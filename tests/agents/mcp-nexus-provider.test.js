@@ -598,3 +598,44 @@ test("McpResourceManager: subscribeResource triggers read on notifications/resou
   assert.equal(subscribeCalls, 1);
   assert.equal(unsubscribeCalls, 1);
 });
+
+test("McpResourceManager: prunes content cache by maxContentCacheEntries (LRU)", async () => {
+  const { McpClient, McpProvider } = await import("../../js/agents/mcp/mcp-client.js");
+  const { McpResourceManager } = await import("../../js/agents/mcp/resource-manager.js");
+
+  class SimpleProvider extends McpProvider {
+    constructor() {
+      super({ id: "p1", name: "P1", endpoint: "mock" });
+    }
+    async listTools() {
+      return [];
+    }
+    async listResources() {
+      return [];
+    }
+    async readResource(uri) {
+      return { uri, text: String(uri) };
+    }
+  }
+
+  const client = new McpClient({ providers: [new SimpleProvider()], defaultProvider: "p1" });
+  const rm = new McpResourceManager({ client, storage: null, defaultTtlMs: 60_000, maxContentCacheEntries: 2 });
+
+  await rm.readResource({ providerId: "p1", uri: "file:///a.txt" });
+  await rm.readResource({ providerId: "p1", uri: "file:///b.txt" });
+  await rm.readResource({ providerId: "p1", uri: "file:///c.txt" });
+
+  assert.equal(rm._contentCache.size, 2);
+  assert.equal(rm._contentCache.has("p1:file:///a.txt"), false);
+  assert.equal(rm._contentCache.has("p1:file:///b.txt"), true);
+  assert.equal(rm._contentCache.has("p1:file:///c.txt"), true);
+
+  // Touch b; adding d should evict c (LRU).
+  await rm.readResource({ providerId: "p1", uri: "file:///b.txt" });
+  await rm.readResource({ providerId: "p1", uri: "file:///d.txt" });
+
+  assert.equal(rm._contentCache.size, 2);
+  assert.equal(rm._contentCache.has("p1:file:///b.txt"), true);
+  assert.equal(rm._contentCache.has("p1:file:///d.txt"), true);
+  assert.equal(rm._contentCache.has("p1:file:///c.txt"), false);
+});
