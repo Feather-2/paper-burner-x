@@ -1,6 +1,6 @@
 import { DeepSearchState, checkCancelled, extractJsonCandidate, makeStageEmitter, EventStatus } from "./state.js";
 import { getModelCaller } from "./model.js";
-import { loadPrompt } from "../../prompts/prompt-loader.js";
+import { loadPrompt, renderPromptTemplate } from "../../prompts/prompt-loader.js";
 import { validateTodo } from "./utils/todo-utils.js";
 import { createLogger } from "./runtime/logger.js";
 import { extractServices } from "./utils/stage-api.js";
@@ -120,7 +120,13 @@ async function tryLLMTodos(state, scanSummary, stageApi) {
   const callModel = getModelCaller(stageApi, { usage: "planner", state });
   if (!callModel) return null;
 
-  const prompt = await loadTodosPrompt();
+  const promptTemplate = await loadTodosPrompt();
+  const prompt = renderPromptTemplate(promptTemplate, {
+    vars: {
+      currentDate: new Date().toISOString().slice(0, 10),
+      taskGoal: String(state?.taskGoal || ""),
+    },
+  });
   const contextSummary = stageApi?.getContextSummary?.() || "";
   const cacheKeyInputs = normalizeTodosCacheKeyInputs(state?.taskGoal, scanSummary);
 
