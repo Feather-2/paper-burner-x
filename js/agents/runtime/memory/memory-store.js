@@ -113,6 +113,10 @@ function normalizeTodoInPlace(todo) {
   return todo;
 }
 
+function isFiniteNumber(value) {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
 export class MemoryStore {
   constructor(options = {}) {
     this.runId = toNonEmptyString(options.runId) || genId("run");
@@ -398,14 +402,24 @@ export class MemoryStore {
 
   syncDiscovery(id, data) {
     const existing = this.L1.syncTable.discoveries.get(id);
+    const payload = isPlainObject(data) ? data : {};
+    const prev = isPlainObject(existing) ? existing : null;
     const entry = {
+      ...(prev || {}),
+      ...payload,
       id,
-      status: data.status || existing?.status || "open",
-      keywords: data.keywords || existing?.keywords || [],
-      by: data.by || existing?.by || null,
       ts: Date.now(),
-      ...data,
     };
+
+    if (!toNonEmptyString(entry.status)) {
+      entry.status = toNonEmptyString(prev?.status) || "open";
+    }
+    if (!Array.isArray(entry.keywords)) {
+      entry.keywords = Array.isArray(prev?.keywords) ? prev.keywords : [];
+    }
+    if (!("by" in entry)) {
+      entry.by = prev?.by ?? null;
+    }
     this.L1.syncTable.discoveries.set(id, entry);
     return entry;
   }
@@ -420,14 +434,24 @@ export class MemoryStore {
 
   syncSubagent(id, data) {
     const existing = this.L1.syncTable.subagents.get(id);
+    const payload = isPlainObject(data) ? data : {};
+    const prev = isPlainObject(existing) ? existing : null;
     const entry = {
+      ...(prev || {}),
+      ...payload,
       id,
-      status: data.status || existing?.status || "pending",
-      progress: data.progress || existing?.progress || 0,
-      result: data.result || existing?.result || null,
       ts: Date.now(),
-      ...data,
     };
+
+    if (!toNonEmptyString(entry.status)) {
+      entry.status = toNonEmptyString(prev?.status) || "pending";
+    }
+    if (!isFiniteNumber(entry.progress)) {
+      entry.progress = isFiniteNumber(prev?.progress) ? prev.progress : 0;
+    }
+    if (!("result" in entry)) {
+      entry.result = prev?.result ?? null;
+    }
     this.L1.syncTable.subagents.set(id, entry);
     return entry;
   }

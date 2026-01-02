@@ -176,6 +176,24 @@ test("MemoryStore: semanticRecall prefers vector matches when available", async 
   assert.equal(hits2[0].id, id2);
 });
 
+test("MemoryStore: SyncTable merges partial updates without losing falsy values", async () => {
+  const { MemoryStore } = await import("../../../js/agents/runtime/memory/memory-store.js");
+
+  const store = new MemoryStore({ runId: "mem_sync_table", embeddingService: null, tokenCounter: null });
+
+  store.syncDiscovery("gap_001", { status: "open", keywords: ["q3"], by: "a" });
+  store.syncDiscovery("gap_001", { keywords: [] }); // explicit empty keywords is allowed
+  const d = store.getDiscovery("gap_001");
+  assert.equal(d.status, "open");
+  assert.deepEqual(d.keywords, []);
+  assert.equal(d.by, "a");
+
+  store.syncSubagent("sub_001", { status: "running", progress: 0 });
+  store.syncSubagent("sub_001", { status: "running", progress: 0 });
+  const sub = store.getSubagent("sub_001");
+  assert.equal(sub.progress, 0);
+});
+
 test("SourceManager: semanticSearch reranks keyword candidates via embeddings", async () => {
   const { EmbeddingService } = await loadEmbeddings();
   const { default: SourceManager } = await import("../../../js/agents/stages/deepsearch/source-manager.js");
