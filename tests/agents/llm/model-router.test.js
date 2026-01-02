@@ -65,6 +65,41 @@ test("ModelRouter: usage-based selection picks first healthy candidate", async (
   assert.equal(provider.calls[0].model, "m1");
 });
 
+test("ModelRouter: round-robin cursor survives model list reordering", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+  const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
+
+  const provider = new MockProvider({
+    id: "mock",
+    behaviors: {
+      m1: [{ content: "ok-m1" }],
+      m2: [{ content: "ok-m2" }],
+      m3: [{ content: "ok-m3" }],
+    },
+  });
+
+  const router = new ModelRouter({
+    models: [
+      { id: "m1", provider: "mock", tags: ["text"], limits: {} },
+      { id: "m2", provider: "mock", tags: ["text"], limits: {} },
+      { id: "m3", provider: "mock", tags: ["text"], limits: {} },
+    ],
+    usageConfig: { worker: ["m1", "m2", "m3"], planner: [], analyst: [], writer: [], vision: [] },
+    providers: { mock: provider },
+    strategy: "round_robin",
+  });
+
+  router._rrNextIndexByUsage.set("worker", "m2");
+  const out1 = await router.call({ usage: "worker", messages: [{ role: "user", content: "hi" }] });
+  assert.equal(out1.model, "m2");
+  assert.equal(router._rrNextIndexByUsage.get("worker"), "m3");
+
+  // Reorder the configured candidates; the cursor should still start from "m3".
+  router._usageConfig.worker = ["m3", "m2", "m1"];
+  const out2 = await router.call({ usage: "worker", messages: [{ role: "user", content: "hi2" }] });
+  assert.equal(out2.model, "m3");
+});
+
 test("ModelRouter: debug=false is silent (no logger calls)", async () => {
   const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
   const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");

@@ -155,7 +155,10 @@ export class ModelRouter extends EventEmitter {
     this._debug = debug;
     this._logger = resolveLogger({ debug, logger });
     this._strategy = normalizedStrategy;
-    this._rrNextIndexByUsage = new Map(); // usage -> next start index
+    // Round-robin cursor per usage. Values are either:
+    // - number: legacy "next start index" (persisted as number)
+    // - string: next start model id (preferred, resilient to list reordering)
+    this._rrNextIndexByUsage = new Map();
     this._persistRoundRobin = !!persistRoundRobin;
     this._roundRobinStorageKey = toNonEmptyString(roundRobinStorageKey) || "paperburner_modelrouter_rr_v1";
 
@@ -215,8 +218,13 @@ export class ModelRouter extends EventEmitter {
         if (parsed && typeof parsed === "object") {
           for (const [usage, idx] of Object.entries(parsed)) {
             const u = toNonEmptyString(usage);
-            const n = Number(idx);
             if (!u) continue;
+            if (typeof idx === "string") {
+              const m = toNonEmptyString(idx);
+              if (m) this._rrNextIndexByUsage.set(u, m);
+              continue;
+            }
+            const n = Number(idx);
             if (!Number.isFinite(n) || n < 0) continue;
             this._rrNextIndexByUsage.set(u, Math.floor(n));
           }
@@ -425,7 +433,17 @@ export class ModelRouter extends EventEmitter {
 
     const baseCandidates = candidates;
     const strategy = this._strategy;
-    const startIndex = strategy === "round_robin" ? (this._rrNextIndexByUsage.get(u) || 0) % baseCandidates.length : 0;
+    const cursor = this._rrNextIndexByUsage.get(u);
+    let startIndex = 0;
+    if (strategy === "round_robin") {
+      if (typeof cursor === "string") {
+        const idx = baseCandidates.indexOf(cursor);
+        startIndex = idx >= 0 ? idx : 0;
+      } else {
+        const raw = typeof cursor === "number" && Number.isFinite(cursor) ? Math.floor(cursor) : 0;
+        startIndex = ((raw % baseCandidates.length) + baseCandidates.length) % baseCandidates.length;
+      }
+    }
     const orderedCandidates = strategy === "round_robin" ? rotateFromIndex(baseCandidates, startIndex) : baseCandidates;
 
     let selectedModelId = null;
@@ -553,7 +571,8 @@ export class ModelRouter extends EventEmitter {
           const usedIdx = baseCandidates.indexOf(selectedModelId);
           if (usedIdx >= 0) next = (usedIdx + 1) % baseCandidates.length;
         }
-        this._rrNextIndexByUsage.set(u, next);
+        const nextModelId = baseCandidates[next];
+        this._rrNextIndexByUsage.set(u, toNonEmptyString(nextModelId) || next);
 
         if (this._persistRoundRobin) {
           try {
