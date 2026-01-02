@@ -1,12 +1,4 @@
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function toNonEmptyString(v) {
-  if (v === null || v === undefined) return "";
-  const s = String(v).trim();
-  return s.length ? s : "";
-}
+import { isPlainObject, toNonEmptyString } from "../utils/value-utils.js";
 
 function toPositiveInt(value, fallback) {
   const n = typeof value === "number" ? value : Number(value);
@@ -165,4 +157,3 @@ export class VectorIndex {
 }
 
 export default { VectorIndex };
-
