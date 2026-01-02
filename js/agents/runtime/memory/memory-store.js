@@ -199,7 +199,31 @@ export class MemoryStore {
       tokenUsage: 0,
       compressionCount: 0,
       recallCount: 0,
-      };
+    };
+
+    // Dirty tracking for incremental snapshots
+    this._dirty = {
+      L0: true,  // Mark dirty on init
+      L1: true,
+      L2: true,
+      L3: false,
+    };
+    this._lastSnapshotTs = 0;
+  }
+
+  _markDirty(layer) {
+    if (layer in this._dirty) this._dirty[layer] = true;
+  }
+
+  _clearDirty(layer) {
+    if (layer !== undefined) {
+      if (layer in this._dirty) this._dirty[layer] = false;
+    } else {
+      this._dirty.L0 = false;
+      this._dirty.L1 = false;
+      this._dirty.L2 = false;
+      this._dirty.L3 = false;
+    }
   }
 
   // Read-only layer snapshots (external callers must use APIs to mutate).
@@ -237,6 +261,7 @@ export class MemoryStore {
     if (next === prev) return;
 
     this._L0.systemPrompt = next;
+    this._markDirty("L0");
     const delta = estimateTokens(next, this._tokenCounter) - estimateTokens(prev, this._tokenCounter);
     this._stats.l0Tokens += delta;
     this._stats.tokenUsage += delta;
@@ -244,6 +269,7 @@ export class MemoryStore {
 
   setTaskGoal(goal) {
     this._L0.taskGoal = toNonEmptyString(goal) || "";
+    this._markDirty("L0");
   }
 
   addTodo(todo) {
@@ -262,6 +288,7 @@ export class MemoryStore {
         const delta = afterTokens - beforeTokens;
         this._stats.l0Tokens += delta;
         this._stats.tokenUsage += delta;
+        this._markDirty("L0");
         return existing;
       }
     }
@@ -270,6 +297,7 @@ export class MemoryStore {
     const addedTokens = estimateTokens(entry?.content, this._tokenCounter);
     this._stats.l0Tokens += addedTokens;
     this._stats.tokenUsage += addedTokens;
+    this._markDirty("L0");
     return entry;
   }
 
@@ -287,6 +315,7 @@ export class MemoryStore {
       const delta = afterTokens - beforeTokens;
       this._stats.l0Tokens += delta;
       this._stats.tokenUsage += delta;
+      this._markDirty("L0");
     }
     return todo || null;
   }
@@ -300,6 +329,7 @@ export class MemoryStore {
       const removedTokens = estimateTokens(removed?.content, this._tokenCounter);
       this._stats.l0Tokens -= removedTokens;
       this._stats.tokenUsage -= removedTokens;
+      this._markDirty("L0");
       return removed;
     }
     return null;
@@ -354,6 +384,7 @@ export class MemoryStore {
     const delta = nextTokens - prevTokens;
     this._stats.l0Tokens += delta;
     this._stats.tokenUsage += delta;
+    this._markDirty("L0");
     return [...this._L0.todos];
   }
 
@@ -365,6 +396,7 @@ export class MemoryStore {
     const addedTokens = estimateTokens(message?.content, this._tokenCounter);
     this._stats.l1Tokens += addedTokens;
     this._stats.tokenUsage += addedTokens;
+    this._markDirty("L1");
     this._checkCompress();
     return message;
   }
@@ -388,6 +420,7 @@ export class MemoryStore {
     }
     this._stats.l1Tokens += addedTokens;
     this._stats.tokenUsage += addedTokens;
+    this._markDirty("L1");
     this._checkCompress();
     return added;
   }
@@ -407,12 +440,16 @@ export class MemoryStore {
     };
     this._L1.signals.push(entry);
     this._pruneArray(this._L1.signals, this.config.maxSignals);
+    this._markDirty("L1");
     return entry;
   }
 
   acknowledgeSignal(id) {
     const sig = this._L1.signals.find(s => s.id === id);
-    if (sig) sig.acknowledged = true;
+    if (sig) {
+      sig.acknowledged = true;
+      this._markDirty("L1");
+    }
     return sig;
   }
 
@@ -433,6 +470,7 @@ export class MemoryStore {
     };
     this._L1.decisions.push(entry);
     this._pruneArray(this._L1.decisions, this.config.maxDecisions);
+    this._markDirty("L1");
     return entry;
   }
 
@@ -453,11 +491,13 @@ export class MemoryStore {
     } else {
       this._L1.scratchpad[key] = value;
     }
+    this._markDirty("L1");
     this._emitUpdate("scratchpad", { key, value });
   }
 
   clearScratchpad() {
     this._L1.scratchpad = {};
+    this._markDirty("L1");
     this._emitUpdate("scratchpad", { cleared: true });
   }
 
@@ -468,6 +508,7 @@ export class MemoryStore {
   setFlag(name, value) {
     if (name in this._L1.flags) {
       this._L1.flags[name] = Boolean(value);
+      this._markDirty("L1");
       this._emitUpdate("flags", { [name]: value });
     }
   }
@@ -511,6 +552,7 @@ export class MemoryStore {
       entry.by = prev?.by ?? null;
     }
     this._L1.syncTable.discoveries.set(id, entry);
+    this._markDirty("L1");
     return entry;
   }
 
@@ -543,6 +585,7 @@ export class MemoryStore {
       entry.result = prev?.result ?? null;
     }
     this._L1.syncTable.subagents.set(id, entry);
+    this._markDirty("L1");
     return entry;
   }
 
@@ -558,7 +601,10 @@ export class MemoryStore {
 
   setStageSummary(stage, summary) {
     const s = toNonEmptyString(stage);
-    if (s) this._L2.stageSummaries.set(s, toNonEmptyString(summary) || "");
+    if (s) {
+      this._L2.stageSummaries.set(s, toNonEmptyString(summary) || "");
+      this._markDirty("L2");
+    }
   }
 
   getStageSummary(stage) {
@@ -579,6 +625,7 @@ export class MemoryStore {
       ts: Date.now(),
     };
     this._L2.claims.push(entry);
+    this._markDirty("L2");
     return entry;
   }
 
@@ -594,6 +641,7 @@ export class MemoryStore {
    */
   replaceClaims(claims) {
     this._L2.claims = Array.isArray(claims) ? deepClone(claims) : [];
+    this._markDirty("L2");
     return [...this._L2.claims];
   }
 
@@ -611,6 +659,7 @@ export class MemoryStore {
 
     // 存储
     this._L3.snapshots.set(id, entry);
+    this._markDirty("L3");
 
     // 建立关键词索引
     for (const kw of keywords) {
@@ -812,6 +861,7 @@ export class MemoryStore {
     this._L2.historySummary = this._L2.historySummary
       ? `${this._L2.historySummary}\n${summary}`
       : summary;
+    this._markDirty("L2");
 
     const addedL2Tokens = estimateTokens(summary, this._tokenCounter) + (hadHistorySummary ? estimateTokens("\n", this._tokenCounter) : 0);
     this._stats.l2Tokens += addedL2Tokens;
@@ -819,6 +869,7 @@ export class MemoryStore {
 
     // 更新消息
     this._L1.messages = kept;
+    this._markDirty("L1");
     this._stats.compressionCount++;
 
     const prevL1Tokens = this._stats.l1Tokens;
@@ -1085,19 +1136,32 @@ export class MemoryStore {
    * Serialize MemoryStore state for checkpoints.
    * Keep this schema stable: consumers (UnifiedAgentContext / Backtrack) should not reach into L0/L1/L2 internals.
    *
-   * @param {{includeL3?:boolean}=} options
+   * @param {{includeL3?:boolean, incremental?:boolean}=} options
+   * - includeL3: Include L3 archive data (default: false)
+   * - incremental: Only include dirty layers (default: false)
    */
-  toSnapshot({ includeL3 = false } = {}) {
+  toSnapshot({ includeL3 = false, incremental = false } = {}) {
     const withL3 = includeL3 === true;
     this._recalculateTotalTokens();
 
-    return {
+    const snapshot = {
       schemaVersion: "0.1",
       runId: this.runId,
       ts: new Date().toISOString(),
       config: deepClone(this.config),
-      L0: deepClone(this._L0),
-      L1: {
+      stats: { ...this._stats },
+      // Track which layers are included (for incremental restore)
+      _dirtyLayers: incremental ? { ...this._dirty } : null,
+    };
+
+    // L0: Always include if dirty or full snapshot
+    if (!incremental || this._dirty.L0) {
+      snapshot.L0 = deepClone(this._L0);
+    }
+
+    // L1: Always include if dirty or full snapshot
+    if (!incremental || this._dirty.L1) {
+      snapshot.L1 = {
         messages: deepClone(this._L1.messages),
         signals: deepClone(this._L1.signals),
         decisions: deepClone(this._L1.decisions),
@@ -1107,31 +1171,43 @@ export class MemoryStore {
         },
         scratchpad: deepClone(this._L1.scratchpad || {}),
         flags: { ...this._L1.flags },
-      },
-      L2: {
+      };
+    }
+
+    // L2: Always include if dirty or full snapshot
+    if (!incremental || this._dirty.L2) {
+      snapshot.L2 = {
         historySummary: this._L2.historySummary,
         stageSummaries: Array.from(this._L2.stageSummaries.entries()),
         claims: deepClone(this._L2.claims),
-      },
-      ...(withL3
-        ? {
-            L3: {
-              snapshots: Array.from(this._L3.snapshots.entries()),
-              index: {
-                keywords: Array.from(this._L3.index.keywords.entries()).map(([k, set]) => [k, Array.from(set || [])]),
-                stages: Array.from(this._L3.index.stages.entries()),
-                timeline: deepClone(this._L3.index.timeline),
-              },
-              checkpoints: deepClone(this._L3.checkpoints),
-            },
-          }
-        : {}),
-      stats: { ...this._stats },
-    };
+      };
+    }
+
+    // L3: Only if requested AND (dirty or full)
+    if (withL3 && (!incremental || this._dirty.L3)) {
+      snapshot.L3 = {
+        snapshots: Array.from(this._L3.snapshots.entries()),
+        index: {
+          keywords: Array.from(this._L3.index.keywords.entries()).map(([k, set]) => [k, Array.from(set || [])]),
+          stages: Array.from(this._L3.index.stages.entries()),
+          timeline: deepClone(this._L3.index.timeline),
+        },
+        checkpoints: deepClone(this._L3.checkpoints),
+      };
+    }
+
+    // Clear dirty flags after snapshot
+    if (incremental) {
+      this._clearDirty();
+    }
+    this._lastSnapshotTs = Date.now();
+
+    return snapshot;
   }
 
   /**
    * Restore MemoryStore state from a snapshot created by toSnapshot().
+   * Supports incremental snapshots: only restores layers present in the snapshot.
    *
    * @param {object} snapshot
    */
@@ -1139,32 +1215,44 @@ export class MemoryStore {
     const s = snapshot && typeof snapshot === "object" ? snapshot : null;
     if (!s) return false;
 
-    const l0 = s.L0 && typeof s.L0 === "object" ? s.L0 : {};
-    const l1 = s.L1 && typeof s.L1 === "object" ? s.L1 : {};
-    const l2 = s.L2 && typeof s.L2 === "object" ? s.L2 : {};
+    // Check if this is an incremental snapshot
+    const isIncremental = s._dirtyLayers !== null && typeof s._dirtyLayers === "object";
 
     if (typeof s.runId === "string" && s.runId) this.runId = s.runId;
     if (s.config && typeof s.config === "object") this.config = { ...DEFAULT_CONFIG, ...s.config };
 
-    this._L0.systemPrompt = toNonEmptyString(l0.systemPrompt) || "";
-    this._L0.taskGoal = toNonEmptyString(l0.taskGoal) || "";
-    this._L0.todos = Array.isArray(l0.todos) ? deepClone(l0.todos) : [];
+    // L0: Only restore if present (full snapshot or L0 was dirty)
+    if (s.L0 && typeof s.L0 === "object") {
+      const l0 = s.L0;
+      this._L0.systemPrompt = toNonEmptyString(l0.systemPrompt) || "";
+      this._L0.taskGoal = toNonEmptyString(l0.taskGoal) || "";
+      this._L0.todos = Array.isArray(l0.todos) ? deepClone(l0.todos) : [];
+    }
 
-    this._L1.messages = Array.isArray(l1.messages) ? deepClone(l1.messages) : [];
-    this._L1.signals = Array.isArray(l1.signals) ? deepClone(l1.signals) : [];
-    this._L1.decisions = Array.isArray(l1.decisions) ? deepClone(l1.decisions) : [];
+    // L1: Only restore if present
+    if (s.L1 && typeof s.L1 === "object") {
+      const l1 = s.L1;
+      this._L1.messages = Array.isArray(l1.messages) ? deepClone(l1.messages) : [];
+      this._L1.signals = Array.isArray(l1.signals) ? deepClone(l1.signals) : [];
+      this._L1.decisions = Array.isArray(l1.decisions) ? deepClone(l1.decisions) : [];
 
-    const sync = l1.syncTable && typeof l1.syncTable === "object" ? l1.syncTable : {};
-    this._L1.syncTable.discoveries = new Map(Array.isArray(sync.discoveries) ? sync.discoveries : []);
-    this._L1.syncTable.subagents = new Map(Array.isArray(sync.subagents) ? sync.subagents : []);
+      const sync = l1.syncTable && typeof l1.syncTable === "object" ? l1.syncTable : {};
+      this._L1.syncTable.discoveries = new Map(Array.isArray(sync.discoveries) ? sync.discoveries : []);
+      this._L1.syncTable.subagents = new Map(Array.isArray(sync.subagents) ? sync.subagents : []);
 
-    this._L1.scratchpad = isPlainObject(l1.scratchpad) ? deepClone(l1.scratchpad) : {};
-    this._L1.flags = isPlainObject(l1.flags) ? { ...this._L1.flags, ...l1.flags } : { ...this._L1.flags };
+      this._L1.scratchpad = isPlainObject(l1.scratchpad) ? deepClone(l1.scratchpad) : {};
+      this._L1.flags = isPlainObject(l1.flags) ? { ...this._L1.flags, ...l1.flags } : { ...this._L1.flags };
+    }
 
-    this._L2.historySummary = typeof l2.historySummary === "string" ? l2.historySummary : "";
-    this._L2.stageSummaries = new Map(Array.isArray(l2.stageSummaries) ? l2.stageSummaries : []);
-    this._L2.claims = Array.isArray(l2.claims) ? deepClone(l2.claims) : [];
+    // L2: Only restore if present
+    if (s.L2 && typeof s.L2 === "object") {
+      const l2 = s.L2;
+      this._L2.historySummary = typeof l2.historySummary === "string" ? l2.historySummary : "";
+      this._L2.stageSummaries = new Map(Array.isArray(l2.stageSummaries) ? l2.stageSummaries : []);
+      this._L2.claims = Array.isArray(l2.claims) ? deepClone(l2.claims) : [];
+    }
 
+    // L3: Only restore if present
     if (s.L3 && typeof s.L3 === "object") {
       const l3 = s.L3;
       this._L3.snapshots = new Map(Array.isArray(l3.snapshots) ? l3.snapshots : []);
@@ -1181,6 +1269,8 @@ export class MemoryStore {
       this._stats = { ...this._stats, ...s.stats };
     }
 
+    // Clear dirty flags after restore (state is now in sync)
+    this._clearDirty();
     this._updateTokenUsage();
     return true;
   }

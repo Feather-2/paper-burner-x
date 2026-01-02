@@ -6,6 +6,20 @@ function toPositiveInt(value, fallback) {
   return Math.floor(n);
 }
 
+// Partition configuration for time-based bucketing
+const PARTITION_CONFIG = Object.freeze({
+  HOT_MS: 60 * 60 * 1000,        // Last 1 hour
+  WARM_MS: 24 * 60 * 60 * 1000,  // Last 24 hours
+});
+
+function classifyPartition(ts, now) {
+  if (!Number.isFinite(ts) || !Number.isFinite(now)) return "cold";
+  const age = now - ts;
+  if (age < PARTITION_CONFIG.HOT_MS) return "hot";
+  if (age < PARTITION_CONFIG.WARM_MS) return "warm";
+  return "cold";
+}
+
 function toFloat32Array(vector) {
   if (!vector) return null;
   if (vector instanceof Float32Array) return vector;
@@ -124,9 +138,10 @@ export class VectorIndex {
    * @param {number=} options.topK
    * @param {(meta:any, id:string)=>boolean=} options.filter
    * @param {number=} options.minScore
+   * @param {string|string[]=} options.partitions - Filter by partition: "hot", "warm", "cold", or array
    * @returns {Array<{id:string,score:number,meta:any}>}
    */
-  search(queryVector, { topK = 5, filter, minScore } = {}) {
+  search(queryVector, { topK = 5, filter, minScore, partitions } = {}) {
     const k = toPositiveInt(topK, 5);
     if (k <= 0) return [];
     if (this._rows.size === 0) return [];
@@ -138,6 +153,15 @@ export class VectorIndex {
     const min = typeof minScore === "number" && Number.isFinite(minScore) ? minScore : -Infinity;
     const predicate = typeof filter === "function" ? filter : null;
 
+    // Partition filtering: normalize to Set for O(1) lookup
+    const partitionSet = (() => {
+      if (partitions === null || partitions === undefined) return null;
+      if (typeof partitions === "string") return new Set([partitions]);
+      if (Array.isArray(partitions)) return new Set(partitions.filter((p) => typeof p === "string"));
+      return null;
+    })();
+    const now = Date.now();
+
     const top = [];
     const maybePush = (row) => {
       top.push(row);
@@ -146,6 +170,13 @@ export class VectorIndex {
     };
 
     for (const [id, row] of this._rows.entries()) {
+      // Partition filter (skip vectors outside requested partitions)
+      if (partitionSet !== null) {
+        const ts = row.meta?.ts;
+        const partition = classifyPartition(ts, now);
+        if (!partitionSet.has(partition)) continue;
+      }
+
       if (predicate && !predicate(row.meta, id)) continue;
       const score = dot(q, row.vec);
       if (!Number.isFinite(score) || score < min) continue;
@@ -153,6 +184,21 @@ export class VectorIndex {
     }
 
     return top;
+  }
+
+  /**
+   * Get partition statistics for the index.
+   * @returns {{hot:number, warm:number, cold:number, total:number}}
+   */
+  getPartitionStats() {
+    const now = Date.now();
+    const stats = { hot: 0, warm: 0, cold: 0, total: this._rows.size };
+    for (const row of this._rows.values()) {
+      const ts = row.meta?.ts;
+      const partition = classifyPartition(ts, now);
+      stats[partition]++;
+    }
+    return stats;
   }
 }
 

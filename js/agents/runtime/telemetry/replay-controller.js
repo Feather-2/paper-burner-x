@@ -7,6 +7,20 @@ function toMs(value, fallback = 0) {
   return fallback;
 }
 
+/**
+ * Extract logical sequence number from event record.
+ * Supports: seq, sequence, seqNo, order, index (in priority order).
+ * Returns null if no valid sequence number found.
+ */
+function extractSeq(record) {
+  if (!record || typeof record !== "object") return null;
+  const candidates = [record.seq, record.sequence, record.seqNo, record.order, record.index, record.meta?.seq];
+  for (const v of candidates) {
+    if (typeof v === "number" && Number.isFinite(v)) return v;
+  }
+  return null;
+}
+
 function clampIndex(index, length) {
   if (!Number.isFinite(index)) return 0;
   if (index < 0) return 0;
@@ -60,11 +74,26 @@ export class RunReplayController {
     const list = Array.isArray(events) ? events : await this.runStore.getEvents(runId);
     const normalized = Array.isArray(list) ? list.map((evt, index) => ({
       record: evt,
-      tsMs: toMs(evt?.ts, index),
-      order: index,
+      seq: extractSeq(evt),       // Logical sequence (preferred for ordering)
+      tsMs: toMs(evt?.ts, index), // Physical timestamp (fallback)
+      insertOrder: index,         // Original insertion order (final fallback)
     })) : [];
 
-    normalized.sort((a, b) => a.tsMs - b.tsMs || a.order - b.order);
+    // Sort priority: seq (logical) > ts (physical) > insertOrder (original)
+    // This ensures causality even if physical clocks drift (NTP sync, timezone change).
+    normalized.sort((a, b) => {
+      // If both have sequence numbers, use them
+      if (a.seq !== null && b.seq !== null) {
+        const seqDiff = a.seq - b.seq;
+        if (seqDiff !== 0) return seqDiff;
+      }
+      // Fall back to physical timestamp
+      const tsDiff = a.tsMs - b.tsMs;
+      if (tsDiff !== 0) return tsDiff;
+      // Final fallback: original insertion order
+      return a.insertOrder - b.insertOrder;
+    });
+
     const baseTs = normalized.length ? normalized[0].tsMs : Date.now();
     this._events = normalized.map((item) => ({
       record: item.record,

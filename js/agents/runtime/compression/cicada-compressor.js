@@ -18,6 +18,10 @@ const DEFAULT_LAYERS = Object.freeze([
 const DEFAULT_MAX_TOKENS = 2000;
 const DEFAULT_MAX_INPUT_CHARS = 12000;
 
+// Schema versioning for forward compatibility
+const CICADA_SCHEMA_VERSION = "1.0";
+const SUPPORTED_SCHEMA_VERSIONS = new Set(["1.0", "0.1", undefined]); // undefined = legacy
+
 // 结构化摘要模板 (from shared/)
 const SUMMARY_TEMPLATE = {
   summary: "string",
@@ -572,8 +576,9 @@ export class CicadaCompressor {
       return ms !== null ? ms : Date.now();
     })();
 
-    // 增加元数据：时间戳和摘要
+    // 增加元数据：时间戳、摘要、schema version
     const entry = {
+      schemaVersion: CICADA_SCHEMA_VERSION,
       ...data,
       timestamp: resolvedTimestamp,
       summary: data.metadata?.llmSummary?.summary || data.summary || "",
@@ -606,12 +611,25 @@ export class CicadaCompressor {
     const key = toNonEmptyString(stageKey);
     if (!key) return null;
     const adapter = this.archiveAdapter;
+    let entry = null;
     if (adapter) {
-      if (typeof adapter.load === "function") return adapter.load(key);
-      if (typeof adapter.get === "function") return adapter.get(key);
-      if (typeof adapter.restore === "function") return adapter.restore(key);
+      if (typeof adapter.load === "function") entry = await adapter.load(key);
+      else if (typeof adapter.get === "function") entry = adapter.get(key);
+      else if (typeof adapter.restore === "function") entry = await adapter.restore(key);
     }
-    return this._archiveStore.get(key) ?? null;
+    if (!entry) entry = this._archiveStore.get(key) ?? null;
+
+    // Schema version validation
+    if (entry && typeof entry === "object") {
+      const version = entry.schemaVersion;
+      if (!SUPPORTED_SCHEMA_VERSIONS.has(version)) {
+        console.warn(`CicadaCompressor.restore: unsupported schema version "${version}" for key "${key}"`);
+        // Return entry anyway but mark as potentially incompatible
+        entry._schemaWarning = `Unsupported schema version: ${version}`;
+      }
+    }
+
+    return entry;
   }
 
   /**
