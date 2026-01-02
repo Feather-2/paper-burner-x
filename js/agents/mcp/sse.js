@@ -36,6 +36,42 @@ function concatUint8Arrays(arrays) {
   return result;
 }
 
+function toPositiveInt(value, fallback = 0) {
+  const n = typeof value === "number" && Number.isFinite(value) ? Math.floor(value) : Number.parseInt(String(value ?? ""), 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function sleepMs(ms, { signal } = {}) {
+  const delay = Math.max(0, Math.floor(Number(ms) || 0));
+  if (delay <= 0) return Promise.resolve();
+  if (signal?.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    let done = false;
+    let t = null;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      if (t) clearTimeout(t);
+      t = null;
+      signal?.removeEventListener?.("abort", onAbort);
+      resolve();
+    };
+    const onAbort = () => finish();
+    signal?.addEventListener?.("abort", onAbort, { once: true });
+    t = setTimeout(finish, delay);
+    if (signal?.aborted) finish();
+  });
+}
+
+function makeReadTimeoutError(timeoutMs) {
+  const ms = toPositiveInt(timeoutMs, 0);
+  const err = new Error(`SSE: read timeout after ${ms}ms`);
+  err.name = "SseReadTimeoutError";
+  err.code = "SSE_READ_TIMEOUT";
+  err.readTimeoutMs = ms;
+  return err;
+}
+
 /**
  * A minimal, spec-aligned SSE decoder (line-based).
  *
@@ -162,7 +198,7 @@ export class NewlineDecoder {
   }
 }
 
-export async function* parseSseStream(stream, { signal } = {}) {
+export async function* parseSseStream(stream, { signal, readTimeoutMs = 0 } = {}) {
   if (!stream || typeof stream.getReader !== "function") {
     throw new Error("SSE: response body is not a readable stream");
   }
@@ -185,7 +221,33 @@ export async function* parseSseStream(stream, { signal } = {}) {
         break;
       }
 
-      const { done, value } = await reader.read();
+      const timeoutMs = toPositiveInt(readTimeoutMs, 0);
+      let timeoutId = null;
+      const readPromise = reader.read();
+      const timeoutPromise =
+        timeoutMs > 0
+          ? new Promise((_, reject) => {
+              timeoutId = setTimeout(() => reject(makeReadTimeoutError(timeoutMs)), timeoutMs);
+            })
+          : null;
+
+      let result;
+      try {
+        result = timeoutPromise ? await Promise.race([readPromise, timeoutPromise]) : await readPromise;
+      } catch (err) {
+        if (err && typeof err === "object" && "code" in err && err.code === "SSE_READ_TIMEOUT") {
+          try {
+            await reader.cancel("read_timeout");
+          } catch {
+            // ignore
+          }
+        }
+        throw err;
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId);
+      }
+
+      const { done, value } = result || {};
       if (done) break;
       if (!value) continue;
 
@@ -289,6 +351,11 @@ export async function consumeSse({
   headers,
   signal,
   connectTimeoutMs = 10_000,
+  readTimeoutMs = 60_000,
+  reconnect = true,
+  maxReconnects = 3,
+  reconnectBackoffMs = 1000,
+  maxReconnectBackoffMs = 30_000,
   onEvent,
 } = {}) {
   const endpoint = toNonEmptyString(url);
@@ -299,41 +366,73 @@ export async function consumeSse({
   const hdrs = asHeadersObject(headers);
   const emit = typeof onEvent === "function" ? onEvent : () => {};
 
-  const controller = new AbortController();
-  const onAbort = () => controller.abort(signal?.reason || "aborted");
-  if (signal?.aborted) onAbort();
-  else signal?.addEventListener?.("abort", onAbort, { once: true });
+  const reconnectEnabled = reconnect !== false;
+  const maxRetries = maxReconnects === Infinity ? Infinity : Math.max(0, Math.floor(Number(maxReconnects) || 0));
+  const baseBackoffMs = Math.max(0, Math.floor(Number(reconnectBackoffMs) || 0));
+  const maxBackoffMs = Math.max(baseBackoffMs, Math.floor(Number(maxReconnectBackoffMs) || 0));
+  const timeoutMs = toPositiveInt(readTimeoutMs, 0);
 
-  let timeoutId = null;
-  if (Number.isFinite(connectTimeoutMs) && connectTimeoutMs > 0 && !controller.signal.aborted) {
-    timeoutId = setTimeout(() => controller.abort("connect_timeout"), Math.floor(connectTimeoutMs));
-  }
+  let attempt = 0;
+  let retryHintMs = null;
 
-  try {
-    const res = await fetchFn(endpoint, {
-      method: "GET",
-      headers: { Accept: "text/event-stream", ...hdrs },
-      signal: controller.signal,
-    });
+  while (true) {
+    if (signal?.aborted) return;
 
-    if (!res.ok) throw new Error(`SSE: HTTP ${res.status}`);
-    const ctype = res.headers?.get?.("content-type") || "";
-    if (!ctype.toLowerCase().includes("text/event-stream")) {
-      throw new Error(`SSE: unexpected content-type: ${ctype || "unknown"}`);
+    const controller = new AbortController();
+    const onAbort = () => controller.abort(signal?.reason || "aborted");
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener?.("abort", onAbort, { once: true });
+
+    let timeoutId = null;
+    if (Number.isFinite(connectTimeoutMs) && connectTimeoutMs > 0 && !controller.signal.aborted) {
+      timeoutId = setTimeout(() => controller.abort("connect_timeout"), Math.floor(connectTimeoutMs));
     }
 
-    for await (const evt of parseSseStream(res.body, { signal: controller.signal })) {
-      if (controller.signal.aborted) break;
-      emit({
-        event: evt.event,
-        data: evt.data,
-        id: evt.id ?? null,
-        retry: evt.retry ?? null,
+    try {
+      const res = await fetchFn(endpoint, {
+        method: "GET",
+        headers: { Accept: "text/event-stream", ...hdrs },
+        signal: controller.signal,
       });
+
+      if (!res.ok) throw new Error(`SSE: HTTP ${res.status}`);
+      const ctype = res.headers?.get?.("content-type") || "";
+      if (!ctype.toLowerCase().includes("text/event-stream")) {
+        throw new Error(`SSE: unexpected content-type: ${ctype || "unknown"}`);
+      }
+
+      retryHintMs = null;
+      for await (const evt of parseSseStream(res.body, { signal: controller.signal, readTimeoutMs: timeoutMs })) {
+        if (controller.signal.aborted) break;
+        retryHintMs = typeof evt.retry === "number" && Number.isFinite(evt.retry) ? Math.max(0, Math.floor(evt.retry)) : retryHintMs;
+        emit({
+          event: evt.event,
+          data: evt.data,
+          id: evt.id ?? null,
+          retry: evt.retry ?? null,
+        });
+      }
+
+      // Normal end-of-stream: stop retrying.
+      return;
+    } catch (err) {
+      if (signal?.aborted) return;
+      if (controller.signal.aborted && (signal?.aborted || controller.signal.reason === "aborted")) return;
+
+      if (!reconnectEnabled || attempt >= maxRetries) {
+        throw err;
+      }
+
+      attempt += 1;
+      const hint = typeof retryHintMs === "number" && Number.isFinite(retryHintMs) ? retryHintMs : null;
+      const base = hint !== null ? hint : baseBackoffMs;
+      const backoff = base > 0 ? Math.min(maxBackoffMs, base * Math.pow(2, attempt - 1)) : 0;
+      await sleepMs(backoff, { signal });
+      continue;
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+      signal?.removeEventListener?.("abort", onAbort);
     }
-  } finally {
-    if (timeoutId) clearTimeout(timeoutId);
-    signal?.removeEventListener?.("abort", onAbort);
   }
 }
 

@@ -14,6 +14,7 @@ import { McpProvider, McpToolDefinition, McpToolResult } from "./mcp-client.js";
 import { extractSmartContent } from "./smart-content-extractor.js";
 import { createSafeRegex } from "../shared/utils/safe-regex.js";
 import { isPlainObject, toNonEmptyString, safeInt as _safeInt } from "../shared/utils/value-utils.js";
+import { makeSecureTimestampedId } from "../shared/utils/secure-id.js";
 
 // Wrapper to provide default fallback value (value-utils safeInt returns null for invalid)
 function safeInt(n, fallback = 0) {
@@ -221,6 +222,12 @@ function stripUrls(text) {
 function extractTextFromHtml(html) {
   if (!html || typeof html !== "string") return "";
 
+  // Safety bounds: avoid OOM when fed huge HTML blobs.
+  // Note: we still receive the full string from upstream; these limits cap scan cost and output growth.
+  const MAX_INPUT_CHARS = 2_000_000;
+  const MAX_OUTPUT_CHARS = 200_000;
+  if (html.length > MAX_INPUT_CHARS) html = html.slice(0, MAX_INPUT_CHARS);
+
   const ENTITY_MAP = {
     "&nbsp;": " ",
     "&amp;": "&",
@@ -337,8 +344,24 @@ function extractTextFromHtml(html) {
   };
 
   const out = [];
+  let outLen = 0;
+  const pushOut = (text) => {
+    if (!text) return;
+    if (outLen >= MAX_OUTPUT_CHARS) return;
+    const s = String(text);
+    if (!s) return;
+    const remaining = MAX_OUTPUT_CHARS - outLen;
+    if (remaining <= 0) return;
+    if (s.length > remaining) {
+      out.push(s.slice(0, remaining));
+      outLen = MAX_OUTPUT_CHARS;
+      return;
+    }
+    out.push(s);
+    outLen += s.length;
+  };
   let i = 0;
-  while (i < html.length) {
+  while (i < html.length && outLen < MAX_OUTPUT_CHARS) {
     const ch = html[i];
 
     if (ch === "<") {
@@ -346,7 +369,7 @@ function extractTextFromHtml(html) {
       if (html.startsWith("<!--", i)) {
         const end = html.indexOf("-->", i + 4);
         i = end === -1 ? html.length : end + 3;
-        out.push(" ");
+        pushOut(" ");
         continue;
       }
 
@@ -354,7 +377,7 @@ function extractTextFromHtml(html) {
       if (html[i + 1] === "!") {
         const end = html.indexOf(">", i + 2);
         i = end === -1 ? html.length : end + 1;
-        out.push(" ");
+        pushOut(" ");
         continue;
       }
 
@@ -367,25 +390,25 @@ function extractTextFromHtml(html) {
       // Skip full blocks for non-text tags.
       if (!isClose && SKIP_TAGS.has(tagName)) {
         i = skipUntilCloseTag(html, end + 1, tagName);
-        out.push(" ");
+        pushOut(" ");
         continue;
       }
 
       i = end + 1;
-      out.push(" ");
+      pushOut(" ");
       continue;
     }
 
     if (ch === "&") {
       const decoded = decodeEntityAt(html, i);
       if (decoded) {
-        out.push(decoded.text);
+        pushOut(decoded.text);
         i = decoded.nextIndex;
         continue;
       }
     }
 
-    out.push(isWs(ch) ? " " : ch);
+    pushOut(isWs(ch) ? " " : ch);
     i++;
   }
 
@@ -1228,9 +1251,8 @@ export class LocalMcpProvider extends McpProvider {
     const now = Date.now();
     for (let i = 0; i < results.length; i++) {
       const r = results[i];
-      // 使用 timestamp + index + 随机数避免冲突
-      const rand = Math.random().toString(36).slice(2, 8);
-      const id = `search_${now}_${i}_${rand}`;
+      // 使用安全随机 ID 避免枚举/碰撞
+      const id = `${makeSecureTimestampedId("search")}_${now}_${i}`;
       this._memoryStore.syncDiscovery(id, {
         type: "search_result",
         status: "open",
