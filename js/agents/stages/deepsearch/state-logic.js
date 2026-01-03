@@ -284,16 +284,16 @@ export function setAwaitUserFeedback(state, value, reason) {
 }
 
 export function setTaskImpossible(state, reason) {
+  // Deprecated semantics:
+  // Don't let the system declare a task "impossible" (too subjective).
+  // Treat this as "blocked, requires user guidance" instead.
   if (state?._memoryStore) {
-    state._memoryStore.taskImpossible = true;
-    state._memoryStore.awaitUserFeedback = false;
+    state._memoryStore.taskImpossible = false;
   }
   if (!isPlainObject(state?.L2)) state.L2 = {};
-  state.L2.taskImpossible = true;
-  state.L2.awaitUserFeedback = false;
-  if (toNonEmptyString(reason)) state.L2.reason = String(reason);
-  if (!toNonEmptyString(state.L2.reason)) state.L2.reason = "";
-  return state.L2.taskImpossible;
+  state.L2.taskImpossible = false;
+  setAwaitUserFeedback(state, true, reason);
+  return false;
 }
 
 export function addTimeline(state, { name, status = "info", payload } = {}) {

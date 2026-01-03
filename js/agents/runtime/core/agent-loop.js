@@ -153,8 +153,8 @@ function resolveStrictLoopStatusTransitions(explicit) {
     if (typeof fromStorage === "boolean") return fromStorage;
   } catch {}
 
-  // Default: enforce in production, warn-only elsewhere.
-  return isProductionRuntime();
+  // Default: enforce everywhere (illegal transitions are bugs).
+  return true;
 }
 
 const DEFAULT_LOOP_STATUS_TRANSITIONS = Object.freeze({

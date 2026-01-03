@@ -569,26 +569,24 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     const modeConfig = getModeConfig(this.mode, this.globalConfig);
     const modeDesc = modeConfig.description || this.mode;
 
-    // Skills 注入：根据任务目标匹配并注入相关 Skills
+    // Skills: no implicit injection. Optionally expose a catalog when explicitly enabled by config.
     let skillsPrompt = "";
-    if (SkillsManager && this.state.taskGoal) {
+    const includeSkillsCatalog =
+      this.state?.userConfig?.skills?.includeCatalog === true || this.globalConfig?.skills?.includeCatalog === true;
+    if (SkillsManager && includeSkillsCatalog) {
       try {
         const skillsManager = new SkillsManager();
         const cwd =
           stageApi.cwd ||
           (typeof process !== "undefined" && typeof process.cwd === "function" ? process.cwd() : ".");
-
-        const browserLike = typeof window !== "undefined" && typeof window.document !== "undefined";
-        if (browserLike && typeof skillsManager.getCatalogPrompt === "function") {
+        if (typeof skillsManager.getCatalogPrompt === "function") {
           skillsPrompt = await skillsManager.getCatalogPrompt(cwd);
-        } else {
-          skillsPrompt = await skillsManager.getInjectionPrompt(this.state.taskGoal, cwd);
         }
         if (skillsPrompt) {
-          this._logger.info("[Skills] Injected skills based on task goal");
+          this._logger.info("[Skills] Included skills catalog");
         }
       } catch (err) {
-        this._logger.warn(`[Skills] Failed to inject: ${err.message}`);
+        this._logger.warn(`[Skills] Failed to build catalog: ${err.message}`);
       }
     }
 

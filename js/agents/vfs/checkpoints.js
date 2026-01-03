@@ -31,27 +31,18 @@ function bytesToBase64(bytes) {
     return Buffer.from(b).toString("base64");
   }
 
-  // Browser: encode directly to base64 (avoid building huge binary strings).
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-  const parts = [];
-  const chunkBytes = 3 * 16384; // divisible by 3 -> stable padding handling
-  for (let offset = 0; offset < b.length; offset += chunkBytes) {
-    const end = Math.min(b.length, offset + chunkBytes);
-    let out = "";
-    for (let i = offset; i < end; i += 3) {
-      const b0 = b[i];
-      const b1 = i + 1 < end ? b[i + 1] : 0;
-      const b2 = i + 2 < end ? b[i + 2] : 0;
-
-      const n = (b0 << 16) | (b1 << 8) | b2;
-      out += alphabet[(n >>> 18) & 63];
-      out += alphabet[(n >>> 12) & 63];
-      out += i + 1 < end ? alphabet[(n >>> 6) & 63] : "=";
-      out += i + 2 < end ? alphabet[n & 63] : "=";
+  // Browser: prefer native base64 helpers.
+  if (typeof btoa === "function") {
+    let binary = "";
+    const chunkSize = 0x8000;
+    for (let i = 0; i < b.length; i += chunkSize) {
+      const sub = b.subarray(i, i + chunkSize);
+      binary += String.fromCharCode(...sub);
     }
-    parts.push(out);
+    return btoa(binary);
   }
-  return parts.join("");
+
+  return "";
 }
 
 function base64ToBytes(base64) {
@@ -63,26 +54,15 @@ function base64ToBytes(base64) {
     return new Uint8Array(Buffer.from(s, "base64"));
   }
 
-  const cleaned = s.replace(/\s+/g, "");
-  const arrays = [];
-  let total = 0;
-  const chunkChars = 4 * 16384; // multiple of 4 for base64
-  for (let i = 0; i < cleaned.length; i += chunkChars) {
-    const chunk = cleaned.slice(i, i + chunkChars);
-    const bin = atob(chunk);
-    const buf = new Uint8Array(bin.length);
-    for (let j = 0; j < bin.length; j++) buf[j] = bin.charCodeAt(j);
-    arrays.push(buf);
-    total += buf.length;
+  if (typeof atob === "function") {
+    const cleaned = s.replace(/\s+/g, "");
+    const bin = atob(cleaned);
+    const out = new Uint8Array(bin.length);
+    for (let j = 0; j < bin.length; j++) out[j] = bin.charCodeAt(j);
+    return out;
   }
 
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const buf of arrays) {
-    out.set(buf, offset);
-    offset += buf.length;
-  }
-  return out;
+  return new Uint8Array(0);
 }
 
 function dataToBytes(data) {
@@ -102,7 +82,14 @@ function guessIsUtf8Text(bytes, { maxCheck = 4096 } = {}) {
     const c = b[i];
     if (c === 0) return false;
   }
-  return true;
+  if (limit === 0) return true;
+  try {
+    const dec = new TextDecoder("utf-8", { fatal: true });
+    dec.decode(b.subarray(0, limit));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function computeSha(bytesOrText) {

@@ -59,18 +59,18 @@ export class BaseAdapter {
     return { ok: true };
   }
 
-  buildParsedDocument({ sourceType, origin, markdown, assets, metadata, parseInfo, docId, chunkOptions, useSmartChunk = true } = {}) {
+  buildParsedDocument({ sourceType, origin, markdown, assets, metadata, parseInfo, docId, chunkOptions, useSmartChunk = false } = {}) {
     const md = String(markdown || "");
     const normalized = normalizeText(md);
 
-    // 智能分块：自动选择最佳策略
+    // 分块：默认固定大小；如需智能策略由调用方显式开启
     let chunks, chunkStrategy, chunkMeta;
     const maxSize = chunkOptions?.chunkSize || this.defaultChunkOptions.chunkSize || 2000;
     const chunkFallbackOptions = {
       ...this.defaultChunkOptions,
       ...(isPlainObject(chunkOptions) ? chunkOptions : {}),
       chunkSize: maxSize,
-      overlap: Math.floor(maxSize / 10),
+      overlap: (isPlainObject(chunkOptions) && chunkOptions.overlap !== undefined) ? chunkOptions.overlap : this.defaultChunkOptions.overlap,
     };
 
     if (useSmartChunk) {
