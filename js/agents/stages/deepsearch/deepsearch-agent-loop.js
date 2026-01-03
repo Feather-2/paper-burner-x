@@ -489,8 +489,8 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     this.status = AgentStatus.RUNNING;
     this._emit(DeepSearchEvents.AGENT_STATUS_CHANGED, { from: oldStatus, to: AgentStatus.RUNNING });
     this._failureReported = false;
-    // 清空消息（使用父类的 _messages）
-    this._messages = [];
+    // 清空消息（使用父类的消息管理 + token 统计）
+    await this.resetMessages();
 
     try {
     // 初始化机制
