@@ -39,6 +39,15 @@ function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function isStorageLike(value) {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    typeof value.getItem === "function" &&
+    typeof value.setItem === "function"
+  );
+}
+
 function toNonEmptyString(v) {
   if (v === undefined || v === null) return undefined;
   const s = String(v).trim();
@@ -106,14 +115,8 @@ function resolveLogger({ debug, logger } = {}) {
     return logger;
   }
 
-  // Default to console in Node.js / browsers.
-  const c = typeof console !== "undefined" ? console : null;
-  return {
-    debug: typeof c?.debug === "function" ? c.debug.bind(c) : () => {},
-    info: typeof c?.info === "function" ? c.info.bind(c) : () => {},
-    warn: typeof c?.warn === "function" ? c.warn.bind(c) : () => {},
-    error: typeof c?.error === "function" ? c.error.bind(c) : () => {},
-  };
+  // No implicit console fallback in kernel code.
+  return createNoopLogger();
 }
 
 function rotateFromIndex(list, startIndex) {
@@ -147,6 +150,7 @@ export class ModelRouter extends EventEmitter {
     strategy = "round_robin",
     persistRoundRobin = false,
     roundRobinStorageKey = "paperburner_modelrouter_rr_v1",
+    storage = null,
   } = {}) {
     super();
 
@@ -165,6 +169,7 @@ export class ModelRouter extends EventEmitter {
     this._rrNextIndexByUsage = new Map();
     this._persistRoundRobin = !!persistRoundRobin;
     this._roundRobinStorageKey = toNonEmptyString(roundRobinStorageKey) || "paperburner_modelrouter_rr_v1";
+    this._roundRobinStorage = isStorageLike(storage) ? storage : null;
 
     this._time = isPlainObject(time) && typeof time.now === "function" && typeof time.sleep === "function" ? time : defaultTime();
 
@@ -230,9 +235,9 @@ export class ModelRouter extends EventEmitter {
     this._rateLimiters = new Map(); // modelId -> TokenBucketRateLimiter
     this._circuitBreakers = new Map(); // modelId -> CircuitBreaker (P3.3)
 
-    if (this._persistRoundRobin) {
+    if (this._persistRoundRobin && this._roundRobinStorage) {
       try {
-        const raw = typeof localStorage !== "undefined" ? localStorage.getItem(this._roundRobinStorageKey) : null;
+        const raw = this._roundRobinStorage.getItem(this._roundRobinStorageKey);
         const parsed = safeJsonParse(raw, { maxChars: 200_000 });
         if (parsed && typeof parsed === "object") {
           for (const [usage, idx] of Object.entries(parsed)) {
@@ -489,7 +494,7 @@ export class ModelRouter extends EventEmitter {
     const u = toNonEmptyString(usage);
     if (!u) throw new TypeError("call({usage, messages}): usage must be a non-empty string");
     if (!isValidModelUsage(u)) {
-      console.warn(`[ModelRouter] Unknown usage type: ${u}, valid types: ${Object.values(ModelUsage).join(", ")}`);
+      this._logger.warn(`[ModelRouter] Unknown usage type: ${u}, valid types: ${Object.values(ModelUsage).join(", ")}`);
     }
     assertChatMessages(messages);
 
@@ -684,12 +689,12 @@ export class ModelRouter extends EventEmitter {
         const nextModelId = baseCandidates[next];
         this._rrNextIndexByUsage.set(u, toNonEmptyString(nextModelId) || next);
 
-        if (this._persistRoundRobin) {
+        if (this._persistRoundRobin && this._roundRobinStorage) {
           try {
-            if (typeof localStorage !== "undefined" && this._roundRobinStorageKey) {
+            if (this._roundRobinStorageKey) {
               const obj = {};
               for (const [k, v] of this._rrNextIndexByUsage.entries()) obj[k] = v;
-              localStorage.setItem(this._roundRobinStorageKey, JSON.stringify(obj));
+              this._roundRobinStorage.setItem(this._roundRobinStorageKey, JSON.stringify(obj));
             }
           } catch {
             // ignore

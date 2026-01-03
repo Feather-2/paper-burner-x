@@ -4,6 +4,15 @@ function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function isStorageLike(value) {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    typeof value.getItem === "function" &&
+    typeof value.setItem === "function"
+  );
+}
+
 function defaultTime() {
   return {
     now: () => Date.now(),
@@ -46,10 +55,11 @@ export function normalizeRateLimitConfig(input, fallback = {}) {
   return { enabled, rps, burst, concurrency, maxQueue };
 }
 
-export function loadRateLimitConfig({ storageKey = "paperburner_llm_rate_limit_v1" } = {}) {
+export function loadRateLimitConfig({ storageKey = "paperburner_llm_rate_limit_v1", storage = null } = {}) {
   try {
-    if (typeof localStorage === "undefined" || !localStorage?.getItem) return normalizeRateLimitConfig({});
-    const raw = localStorage.getItem(storageKey);
+    const store = isStorageLike(storage) ? storage : null;
+    if (!store) return normalizeRateLimitConfig({});
+    const raw = store.getItem(storageKey);
     if (!raw) return normalizeRateLimitConfig({});
     const parsed = safeJsonParse(raw, { maxChars: 200_000 });
     return normalizeRateLimitConfig(parsed);

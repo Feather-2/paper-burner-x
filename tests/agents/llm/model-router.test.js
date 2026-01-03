@@ -100,6 +100,63 @@ test("ModelRouter: round-robin cursor survives model list reordering", async () 
   assert.equal(out2.model, "m3");
 });
 
+test("ModelRouter: persistRoundRobin reads/writes via injected storage", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+  const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
+
+  const provider = new MockProvider({
+    id: "mock",
+    behaviors: {
+      m1: [{ content: "ok-m1" }],
+      m2: [{ content: "ok-m2" }],
+    },
+  });
+
+  const store = new Map();
+  const storage = {
+    getItem(key) {
+      return store.has(String(key)) ? store.get(String(key)) : null;
+    },
+    setItem(key, value) {
+      store.set(String(key), String(value));
+    },
+  };
+
+  const key = "rr_test_v1";
+  const router1 = new ModelRouter({
+    models: [
+      { id: "m1", provider: "mock", tags: ["text"], limits: {} },
+      { id: "m2", provider: "mock", tags: ["text"], limits: {} },
+    ],
+    usageConfig: { worker: ["m1", "m2"], planner: [], analyst: [], writer: [], vision: [] },
+    providers: { mock: provider },
+    strategy: "round_robin",
+    persistRoundRobin: true,
+    roundRobinStorageKey: key,
+    storage,
+  });
+
+  const out1 = await router1.call({ usage: "worker", messages: [{ role: "user", content: "hi" }] });
+  assert.equal(out1.model, "m1");
+  assert.ok(String(storage.getItem(key)).includes("m2"));
+
+  const router2 = new ModelRouter({
+    models: [
+      { id: "m1", provider: "mock", tags: ["text"], limits: {} },
+      { id: "m2", provider: "mock", tags: ["text"], limits: {} },
+    ],
+    usageConfig: { worker: ["m1", "m2"], planner: [], analyst: [], writer: [], vision: [] },
+    providers: { mock: provider },
+    strategy: "round_robin",
+    persistRoundRobin: true,
+    roundRobinStorageKey: key,
+    storage,
+  });
+
+  const out2 = await router2.call({ usage: "worker", messages: [{ role: "user", content: "hi2" }] });
+  assert.equal(out2.model, "m2");
+});
+
 test("ModelRouter: debug=false is silent (no logger calls)", async () => {
   const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
   const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
@@ -590,7 +647,7 @@ test("ModelRouter: invalid strategy throws clear error", async () => {
   assert.throws(() => new ModelRouter({ strategy: "nope" }), /strategy/i);
 });
 
-test("ModelRouter: debug=true without logger uses console methods (but gated by debug)", async () => {
+test("ModelRouter: debug=true without logger does not call console", async () => {
   const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
   const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
 
@@ -617,7 +674,7 @@ test("ModelRouter: debug=true without logger uses console methods (but gated by 
     }
   );
 
-  assert.ok(consoleCalls.length > 0);
+  assert.equal(consoleCalls.length, 0);
 
   await withPatchedConsole(
     {
@@ -857,6 +914,19 @@ test("TokenBucketRateLimiter: normalize + load defaults", async () => {
   assert.equal(typeof cfg.rps, "number");
   assert.ok(cfg.burst >= 1);
   assert.ok(cfg.concurrency >= 1);
+
+  const store = new Map();
+  const storage = {
+    getItem(key) {
+      return store.has(String(key)) ? store.get(String(key)) : null;
+    },
+    setItem(key, value) {
+      store.set(String(key), String(value));
+    },
+  };
+
+  storage.setItem("k", JSON.stringify({ enabled: false, rps: 10, burst: 2, concurrency: 3, maxQueue: 4 }));
+  assert.deepEqual(loadRateLimitConfig({ storageKey: "k", storage }), { enabled: false, rps: 10, burst: 2, concurrency: 3, maxQueue: 4 });
 });
 
 test("TokenBucketRateLimiter: respects token bucket pacing", async () => {
