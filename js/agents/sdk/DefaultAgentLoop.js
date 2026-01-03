@@ -1,22 +1,7 @@
-import { BaseAgentLoop } from "../runtime/core/agent-loop.js";
+import { BaseAgentLoop, checkCancelled } from "../runtime/core/agent-loop.js";
 import { robustParseJson } from "../shared/utils/robust-json.js";
+import { isPlainObject, safeInt, toNonEmptyString } from "../shared/utils/value-utils.js";
 import { createDefaultMiddlewareChain } from "../runtime/middleware/middleware-chain.js";
-
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function toNonEmptyString(value) {
-  if (value === undefined || value === null) return undefined;
-  const s = String(value).trim();
-  return s.length ? s : undefined;
-}
-
-function safeInt(value, fallback) {
-  const n = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.floor(n);
-}
 
 function truncateText(text, maxChars) {
   const s = typeof text === "string" ? text : String(text ?? "");
@@ -134,8 +119,8 @@ export class DefaultAgentLoop extends BaseAgentLoop {
     this.capabilities = opts.capabilities instanceof Map ? opts.capabilities : null;
     this.getCatalogPrompt = typeof opts.getCatalogPrompt === "function" ? opts.getCatalogPrompt : null;
 
-    this.maxIterations = Math.max(1, safeInt(opts.maxIterations, 8));
-    this.maxToolResultChars = Math.max(1000, safeInt(opts.maxToolResultChars, 8000));
+    this.maxIterations = Math.max(1, safeInt(opts.maxIterations) ?? 8);
+    this.maxToolResultChars = Math.max(1000, safeInt(opts.maxToolResultChars) ?? 8000);
     this.usage = toNonEmptyString(opts.usage) || "worker";
 
     // Default (no-op) middleware chain to avoid dead-code and keep integration points available.
@@ -228,14 +213,14 @@ export class DefaultAgentLoop extends BaseAgentLoop {
     }
 
     // LLM-driven loop.
-    this._messages = [];
+    await this.resetMessages();
     this.addMessage({ role: "system", content: this._buildSystemPrompt() });
     this.addMessage({ role: "user", content: query });
 
     const toolCalls = [];
 
     for (let i = 0; i < this.maxIterations; i++) {
-      if (signal?.aborted) throw new Error("Run cancelled");
+      checkCancelled(signal);
       await this.flushCompression?.();
 
       const resp = await runWithMiddleware(
