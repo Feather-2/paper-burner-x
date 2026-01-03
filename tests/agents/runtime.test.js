@@ -1330,3 +1330,137 @@ test("PolicyEngine: domain suffix + all/any/not + timeRange matching", async () 
   assert.equal(secretsRequireApproval.requiresApproval, true);
   assert.equal(secretsRequireApproval.reason, "no_matching_rule");
 });
+
+function createFakeTime(startMs = 0) {
+  let nowMs = startMs;
+  return {
+    now: () => nowMs,
+    advance: (ms) => {
+      nowMs += Math.max(0, Math.floor(ms || 0));
+    },
+  };
+}
+
+test("RuntimeScheduler: health status transitions (failures + latency)", async () => {
+  const { RuntimeScheduler, RuntimeHealthStatus } = await import("../../js/agents/runtime/core/scheduler.js");
+
+  const time = createFakeTime(0);
+  const scheduler = new RuntimeScheduler({
+    time,
+    health: {
+      degradedFailureThreshold: 1,
+      unhealthyFailureThreshold: 2,
+      degradedLatencyMs: 50,
+      unhealthyLatencyMs: 500,
+      latencyEwmaAlpha: 1,
+      recoverySuccessThreshold: 1,
+    },
+  });
+
+  let mode = "fast_ok";
+  const runtime = {
+    execute: async () => {
+      if (mode === "fast_ok") {
+        time.advance(10);
+        return { success: true, data: "ok" };
+      }
+      if (mode === "slow_ok") {
+        time.advance(60);
+        return { success: true, data: "ok" };
+      }
+      if (mode === "fail_1") {
+        time.advance(10);
+        return { success: false, error: "boom" };
+      }
+      if (mode === "fail_2") {
+        time.advance(10);
+        return { success: false, error: "boom2" };
+      }
+      time.advance(1);
+      return { success: true };
+    },
+  };
+
+  scheduler.registerRuntime("js", runtime);
+  assert.equal(scheduler.getHealthStatus("js"), RuntimeHealthStatus.HEALTHY);
+
+  await scheduler.dispatch("js", "return 1;", {}, {});
+  assert.equal(scheduler.getHealthStatus("js"), RuntimeHealthStatus.HEALTHY);
+  assert.equal(scheduler.getHealthMetrics("js").averageLatencyMs, 10);
+
+  mode = "slow_ok";
+  await scheduler.dispatch("js", "return 1;", {}, {});
+  assert.equal(scheduler.getHealthStatus("js"), RuntimeHealthStatus.DEGRADED);
+  assert.equal(scheduler.getHealthMetrics("js").averageLatencyMs, 60);
+
+  mode = "fast_ok";
+  await scheduler.dispatch("js", "return 1;", {}, {});
+  assert.equal(scheduler.getHealthStatus("js"), RuntimeHealthStatus.HEALTHY);
+
+  mode = "fail_1";
+  await scheduler.dispatch("js", "return 1;", {}, {});
+  assert.equal(scheduler.getHealthStatus("js"), RuntimeHealthStatus.DEGRADED);
+
+  mode = "fail_2";
+  const out = await scheduler.dispatch("js", "return 1;", {}, {});
+  assert.equal(out.success, false);
+  assert.equal(scheduler.getHealthStatus("js"), RuntimeHealthStatus.UNHEALTHY);
+  assert.equal(scheduler.getHealthMetrics("js").isolated, true);
+});
+
+test("RuntimeScheduler: isolation blocks dispatch and recoveryCheck restores runtime", async () => {
+  const { RuntimeScheduler, RuntimeHealthStatus } = await import("../../js/agents/runtime/core/scheduler.js");
+
+  const time = createFakeTime(0);
+  const scheduler = new RuntimeScheduler({
+    time,
+    health: {
+      degradedFailureThreshold: 1,
+      unhealthyFailureThreshold: 1,
+      degradedLatencyMs: 1000,
+      unhealthyLatencyMs: 5000,
+      latencyEwmaAlpha: 1,
+      recoverySuccessThreshold: 1,
+    },
+  });
+
+  let shouldFail = true;
+  let executeCalls = 0;
+
+  const runtime = {
+    execute: async () => {
+      executeCalls += 1;
+      time.advance(5);
+      if (shouldFail) return { success: false, error: "boom" };
+      return { success: true, data: "ok" };
+    },
+    healthCheck: async () => {
+      time.advance(1);
+      return !shouldFail;
+    },
+  };
+
+  scheduler.registerRuntime("js", runtime);
+
+  const first = await scheduler.dispatch("js", "return 1;", {}, {});
+  assert.equal(first.success, false);
+  assert.equal(scheduler.getHealthStatus("js"), RuntimeHealthStatus.UNHEALTHY);
+  assert.equal(scheduler.getHealthMetrics("js").isolated, true);
+
+  const beforeCalls = executeCalls;
+  const blocked = await scheduler.dispatch("js", "return 1;", {}, {});
+  assert.equal(blocked.success, false);
+  assert.match(blocked.error, /isolated/i);
+  assert.equal(executeCalls, beforeCalls);
+  assert.equal(scheduler.getHealthMetrics("js").blockedCount, 1);
+
+  shouldFail = false;
+  const recovered = await scheduler.recoveryCheck();
+  assert.equal(recovered.js.ok, true);
+  assert.equal(scheduler.getHealthMetrics("js").isolated, false);
+  assert.equal(scheduler.getHealthStatus("js"), RuntimeHealthStatus.DEGRADED);
+
+  const after = await scheduler.dispatch("js", "return 1;", {}, {});
+  assert.equal(after.success, true);
+  assert.equal(scheduler.getHealthStatus("js"), RuntimeHealthStatus.HEALTHY);
+});
