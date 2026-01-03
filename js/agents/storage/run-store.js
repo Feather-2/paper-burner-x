@@ -1,3 +1,7 @@
+import { createLogger } from "../shared/utils/logger.js";
+
+const logger = createLogger("storage/run-store");
+
 const DB_NAME = "AgentRuntimeDB";
 const DB_VERSION = 2;
 
@@ -188,7 +192,7 @@ export class RunStore {
       req.onsuccess = () => resolve(req.result);
       req.onblocked = () => {
         try {
-          console.warn(`[RunStore] IndexedDB open blocked for ${this.dbName}@v${this.dbVersion}`);
+          logger.warn(`[RunStore] IndexedDB open blocked for ${this.dbName}@v${this.dbVersion}`);
         } catch {
           // ignore
         }
@@ -354,7 +358,7 @@ export class RunStore {
     }
 
     try {
-      console.warn("[RunStore] Storage quota low; consider exporting/cleaning old runs", payload);
+      logger.warn("[RunStore] Storage quota low; consider exporting/cleaning old runs", payload);
     } catch {
       // ignore
     }

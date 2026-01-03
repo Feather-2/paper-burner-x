@@ -6,6 +6,8 @@
 
 import { createAgent, createLogger } from "../index.js";
 
+const logger = createLogger("sdk/examples/subagent-usage");
+
 // 1. 定义子代理工厂
 const createExplorer = async ({ prompt, model }) => {
     return createAgent({ actor: "explorer" })
@@ -52,7 +54,7 @@ async function runDemo() {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-    runDemo().catch(console.error);
+    runDemo().catch((error) => logger.error("runDemo failed", { error }));
 }
 
 export { bossAgent, runDemo };

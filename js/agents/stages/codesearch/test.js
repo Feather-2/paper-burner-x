@@ -8,6 +8,9 @@ import { createToolExecutor, formatToolDefinitionsForLLM } from "./code-tools.js
 import { readFile, readdir, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { createLogger } from "../../shared/utils/logger.js";
+
+const logger = createLogger("stages/codesearch/test");
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -98,7 +101,7 @@ async function main() {
     await testTools();
     await testMockAgentLoop();
   } catch (err) {
-    console.error("Test failed:", err);
+    logger.error("Test failed:", { error: err?.message || String(err), stack: err?.stack });
     process.exit(1);
   }
 }

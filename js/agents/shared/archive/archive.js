@@ -7,6 +7,9 @@
  */
 
 import { isPlainObject, toNonEmptyString } from "../utils/value-utils.js";
+import { createLogger } from "../utils/logger.js";
+
+const logger = createLogger("shared/archive/archive");
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_DIFF_CONFIG = Object.freeze({
@@ -686,7 +689,7 @@ export class IndexedDBAdapter {
       request.onerror = () => reject(request.error);
       request.onblocked = () => {
         try {
-          console.warn(`[IndexedDBAdapter] open blocked for ${this.dbName}@v1`);
+          logger.warn(`[IndexedDBAdapter] open blocked for ${this.dbName}@v1`);
         } catch {
           // ignore
         }
@@ -815,7 +818,7 @@ export class FallbackAdapter {
       await this._primary._ensureDb();
       return this._primary;
     } catch (err) {
-      console.warn("[FallbackAdapter] IndexedDB unavailable, using MapAdapter:", err?.message);
+      logger.warn("[FallbackAdapter] IndexedDB unavailable, using MapAdapter:", { error: err?.message });
       this._useFallback = true;
       return this._fallback;
     }

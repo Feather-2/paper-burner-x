@@ -1,5 +1,8 @@
 import { isPlainObject, toNonEmptyString } from "../../../shared/utils/value-utils.js";
+import { createLogger } from "../../../shared/utils/logger.js";
 import { TodoStatus, isValidTodoStatus } from "../states.js";
+
+const logger = createLogger("stages/deepsearch/utils/todo-utils");
 
 export const TodoSchema = Object.freeze({
   todoId: "string (required)",
@@ -72,7 +75,7 @@ export function createTodo(params = {}) {
 
   // 如果 text 为空，记录警告
   if (!text) {
-    console.warn(`[createTodo] Creating todo ${todoId} with empty text:`, JSON.stringify(raw).slice(0, 200));
+    logger.warn(`[createTodo] Creating todo ${todoId} with empty text:`, { raw: JSON.stringify(raw).slice(0, 200) });
   }
 
   const priority = normalizePriority(raw.priority);

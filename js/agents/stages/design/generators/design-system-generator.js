@@ -2,6 +2,9 @@ import { generateDesignTokens, validateDesignSystem } from "./design-tokens.js";
 import { getDesignModelCaller } from "../model.js";
 import { robustParseJson } from "../../../shared/utils/robust-json.js";
 import { extractJsonCandidate } from "../../../shared/utils/json-candidate.js";
+import { createLogger } from "../../../shared/utils/logger.js";
+
+const logger = createLogger("stages/design/generators/design-system-generator");
 
 function isPlainObject(v) {
   return !!v && typeof v === "object" && !Array.isArray(v);
@@ -331,12 +334,12 @@ export async function generateDesignSystem(input = {}, options = {}) {
       } catch (e) {
         lastErr = e;
         const msg = e instanceof Error ? e.message : String(e);
-        console.warn("[design.system] generateDesignSystem model call failed", { attempt: attempt + 1, error: msg });
+        logger.warn("[design.system] generateDesignSystem model call failed", { attempt: attempt + 1, error: msg });
       }
     }
 
     const errMsg = lastErr instanceof Error ? lastErr.message : String(lastErr || "Unknown error");
-    console.warn("[design.system] generateDesignSystem falling back after retries", { error: errMsg });
+    logger.warn("[design.system] generateDesignSystem falling back after retries", { error: errMsg });
     return fallbackDesignSystem({ constraints });
   };
 

@@ -8,6 +8,9 @@
  */
 
 import { SubagentRegistry } from "./SubagentRegistry.js";
+import { createLogger } from "../shared/utils/logger.js";
+
+const logger = createLogger("sdk/agent-config");
 
 export class AgentConfig {
   constructor(options = {}) {
@@ -58,8 +61,8 @@ export class AgentConfig {
    */
   useCapability(name, config) {
     const exists = this.capabilities.has(name);
-    if (exists && typeof console !== "undefined" && typeof console.warn === "function") {
-      console.warn(`[AgentBuilder] Capability "${name}" is being overwritten.`);
+    if (exists) {
+      logger.warn(`[AgentBuilder] Capability "${name}" is being overwritten.`);
     }
 
     if (typeof config === "function") {

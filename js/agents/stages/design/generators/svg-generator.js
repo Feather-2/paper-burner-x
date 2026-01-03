@@ -1,5 +1,6 @@
 import { getDesignModelCaller } from "../model.js";
 import { robustParseJson } from "../../../shared/utils/robust-json.js";
+import { createLogger } from "../../../shared/utils/logger.js";
 import { loadPrompt } from "../../../prompts/prompt-loader.js";
 import { VisualDataStatus } from "../constants.js";
 import { createLimiter } from "../shared/limiter.js";
@@ -15,6 +16,8 @@ import { toNonEmptyString, escapeHtml as escapeAttr } from "../shared/design-uti
 import { parseTagAttributes } from "../shared/html-parser.js";
 import { classifyDesignError } from "../shared/error-classifier.js";
 import { safeEmit } from "../shared/safe-emit.js";
+
+const logger = createLogger("stages/design/generators/svg-generator");
 
 function safeNumber(v, fallback) {
   const n = Number(v);
@@ -78,7 +81,7 @@ function getSvgCircuitBreaker(name = "svg-generator") {
       svgBreakerRegistry.set(name, breaker);
       return breaker;
     } catch (e) {
-      console.warn("[svg-generator] Failed to create circuit breaker:", e?.message || String(e));
+      logger.warn("[svg-generator] Failed to create circuit breaker:", { error: e?.message || String(e) });
     }
   }
 
@@ -100,7 +103,7 @@ function getSvgCircuitBreaker(name = "svg-generator") {
       this.failures++;
       if (this.failures >= this.threshold) {
         this.openUntil = Date.now() + this.resetTimeMs;
-        console.warn("[svg-generator] Circuit breaker opened, will reset in 60s");
+        logger.warn("[svg-generator] Circuit breaker opened, will reset in 60s");
       }
     },
   };
@@ -190,7 +193,7 @@ async function getSvgSystemPrompt() {
     _svgSystemPrompt = await loadPrompt("design/svg-generator");
     return _svgSystemPrompt;
   } catch (e) {
-    console.warn("[svg-generator] Failed to load svg-generator.md:", e.message);
+    logger.warn("[svg-generator] Failed to load svg-generator.md:", { error: e?.message });
     return FALLBACK_SVG_PROMPT;
   }
 }
@@ -345,7 +348,7 @@ async function generateBatchWithLLM(batchSlots, designSystem, slideHtmlMap, opti
           resultById.set(slotId, svgContent);
           console.log("[svg-generator] SVG extracted", { slotId, svgLength: svgContent.length });
         } else {
-          console.warn("[svg-generator] Failed to extract SVG", {
+          logger.warn("[svg-generator] Failed to extract SVG", {
             slotId,
             hasSvg: !!item?.svg,
             svgPreview: String(item?.svg || "").slice(0, 200),
@@ -371,7 +374,7 @@ async function generateBatchWithLLM(batchSlots, designSystem, slideHtmlMap, opti
       lastStructuredError = makeStructuredError(e);
       breaker.recordFailure();
 
-      console.warn("[svg-generator] Batch LLM attempt failed:", {
+      logger.warn("[svg-generator] Batch LLM attempt failed:", {
         attempt: attempt + 1,
         error: lastStructuredError.message,
         code: lastStructuredError.code,
@@ -390,7 +393,7 @@ async function generateBatchWithLLM(batchSlots, designSystem, slideHtmlMap, opti
   }
 
   const error = lastStructuredError || (lastErr ? makeStructuredError(lastErr) : makeStructuredError("SVG batch generation failed"));
-  console.warn("[svg-generator] Batch LLM generation failed after retries:", error.message);
+  logger.warn("[svg-generator] Batch LLM generation failed after retries:", { error: error?.message });
 
   return { results: batchSlots.map((slot) => makeFallbackResult(slot, colors, error)), hasError: true };
 }

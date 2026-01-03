@@ -7,6 +7,9 @@
 
 import { runReactRefiner } from "./react-refiner.js";
 import { createToolExecutor } from "./react-refiner-tools.js";
+import { createLogger } from "../../../shared/utils/logger.js";
+
+const logger = createLogger("stages/design/refiner/batch-repair-agent");
 
 /**
  * 运行批量编排修复
@@ -107,7 +110,7 @@ Rules:
         let fixed = (response.text || "").replace(/```html/g, "").replace(/```/g, "").trim();
         return fixed.includes("<section") ? fixed : currentHtml;
     } catch (err) {
-        console.error("[SingleSlideRepair] Failed:", err.message);
+        logger.error("[SingleSlideRepair] Failed:", { error: err?.message });
         return currentHtml;
     }
 }

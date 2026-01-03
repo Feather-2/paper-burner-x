@@ -1,6 +1,7 @@
 import { Archive, FallbackAdapter, MapAdapter } from "../../shared/archive/archive.js";
 import { deepClone } from "../../shared/utils/value-utils.js";
 import { CheckpointType, createCheckpoint, migrateCheckpoint } from "../../shared/archive/checkpoint-schema.js";
+import { createLogger } from "../../shared/utils/logger.js";
 import { safeJsonParse } from "../../shared/utils/safe-json.js";
 import { DesignPhase, designPhaseMachine } from "./states.js";
 import { AgentStatus } from "../../runtime/core/agent-status.js";
@@ -11,6 +12,8 @@ import { DESIGN_AGENT_TOOL_DEFINITIONS, createDesignToolHandlers } from "./desig
 import { VisualHandler } from "./runtime/visual-handler.js";
 import { runPreparationPhase, runGeneratingPhase, runBatchRepairPhase, runVisualPhase, runReviewPhase, runPlanningPhase, runLayoutPhase } from "./runtime/design-phases.js";
 import { DesignBlackboard } from "./runtime/design-blackboard.js";
+
+const logger = createLogger("stages/design/agent-loop");
 
 const SCHEMA_VERSION = "0.1";
 
@@ -52,7 +55,7 @@ function loadDesignConcurrencyConfig() {
     if (raw) {
       const parsed = safeJsonParse(raw, { maxChars: 200_000 });
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
-      console.warn('[design] Invalid localStorage "ppt_designConcurrency" JSON; ignoring');
+      logger.warn('[design] Invalid localStorage "ppt_designConcurrency" JSON; ignoring');
     }
   } catch {
     // ignore

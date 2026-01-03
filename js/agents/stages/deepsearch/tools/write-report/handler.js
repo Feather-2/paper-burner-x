@@ -21,8 +21,11 @@
 
 import { generateReport } from "../../report/report-generator.js";
 import { isPlainObject, toNonEmptyString } from "../../../../shared/utils/value-utils.js";
+import { createLogger } from "../../../../shared/utils/logger.js";
 import { getReportProgress, prepareReportForSubmit, reviewReportMarkdown } from "../../report/report-postprocess.js";
 import SourceManager from "../../source-manager.js";
+
+const logger = createLogger("stages/deepsearch/tools/write-report/handler");
 
 // 分析门槛配置（写报告前必须满足）- 从 config 读取或使用默认值
 const DEFAULT_ANALYSIS_GATES = {
@@ -199,7 +202,7 @@ export async function handler(args, context) {
         };
       }
       // 其他写入操作仅警告，不阻止
-      console.warn(`[write-report] 分析门槛未满足（警告）:`, gateCheck.issues);
+      logger.warn(`[write-report] 分析门槛未满足（警告）:`, { issues: gateCheck.issues });
     }
 
     // ===== 待办完成率检查 =====
@@ -242,7 +245,7 @@ export async function handler(args, context) {
 
     // 其他写入操作时在返回值中包含警告
     if (warnings.length > 0) {
-      console.warn(`[write-report] 前置条件警告:`, warnings);
+      logger.warn(`[write-report] 前置条件警告:`, { warnings });
     }
   }
 

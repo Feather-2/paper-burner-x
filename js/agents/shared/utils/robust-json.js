@@ -7,6 +7,10 @@
  * - 失败时返回结构化错误，触发模型自我修正
  */
 
+import { createLogger } from "./logger.js";
+
+const logger = createLogger("shared/utils/robust-json");
+
 // Safety bound: avoid blocking the event loop on huge payloads.
 const DEFAULT_MAX_INPUT_CHARS = 1_000_000;
 
@@ -109,7 +113,7 @@ function fixCommonJsonIssues(jsonStr, options = {}) {
   }
 
   // 非严格模式（已废弃，仅用于迁移期）
-  console.warn("[RobustJSON] Non-strict mode is deprecated and may introduce injection vulnerabilities");
+  logger.warn("[RobustJSON] Non-strict mode is deprecated and may introduce injection vulnerabilities");
 
   let fixed = safePreprocess(jsonStr);
 

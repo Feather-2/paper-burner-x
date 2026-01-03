@@ -11,6 +11,10 @@
  * 浏览器友好，无 Node.js 依赖。
  */
 
+import { createLogger } from "../shared/utils/logger.js";
+
+const logger = createLogger("vfs/storage-adapter");
+
 /**
  * 存储后端类型
  */
@@ -499,7 +503,7 @@ export async function createStorageAdapter({ preferOpfs = true, silent = false }
   // 2. 降级到 IndexedDB
   if (detectIndexedDbSupport()) {
     if (!silent) {
-      console.warn("[StorageAdapter] OPFS not available, falling back to IndexedDB (reduced performance)");
+      logger.warn("[StorageAdapter] OPFS not available, falling back to IndexedDB (reduced performance)");
     }
     return new IndexedDbStorageAdapter();
   }
@@ -507,14 +511,14 @@ export async function createStorageAdapter({ preferOpfs = true, silent = false }
   // 3. 降级到 localStorage
   if (detectLocalStorageSupport()) {
     if (!silent) {
-      console.warn("[StorageAdapter] IndexedDB not available, falling back to localStorage (limited capacity: 5MB)");
+      logger.warn("[StorageAdapter] IndexedDB not available, falling back to localStorage (limited capacity: 5MB)");
     }
     return new LocalStorageAdapter();
   }
 
   // 4. 最终降级到内存
   if (!silent) {
-    console.warn("[StorageAdapter] No persistent storage available, using memory (data will be lost on refresh)");
+    logger.warn("[StorageAdapter] No persistent storage available, using memory (data will be lost on refresh)");
   }
   return new MemoryStorageAdapter();
 }

@@ -4,7 +4,9 @@
  * 展示 Agent 如何通过 Recall 工具检索之前的历史细节
  */
 
-import { createAgent } from "../index.js";
+import { createAgent, createLogger } from "../index.js";
+
+const logger = createLogger("sdk/examples/memory-recall");
 
 // 1. 构建带记忆功能的 Agent
 const agent = createAgent({ actor: "historian" })
@@ -68,7 +70,7 @@ async function runDemo() {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-    runDemo().catch(console.error);
+    runDemo().catch((error) => logger.error("runDemo failed", { error }));
 }
 
 export { agent, runDemo };

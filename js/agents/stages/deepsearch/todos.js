@@ -6,6 +6,8 @@ import { createLogger } from "./runtime/logger.js";
 import { extractServices } from "./utils/stage-api.js";
 import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
 
+const logger = createLogger("stages/deepsearch/todos");
+
 const FALLBACK_REASON = "LLM unavailable or invalid output; using heuristic todos";
 const DEFAULT_PROMPT =
   "You are a DeepSearch todo planner. Return ONLY a JSON array of todos " +
@@ -111,7 +113,7 @@ async function loadTodosPrompt() {
     const prompt = await loadPrompt("deepsearch/todos");
     return prompt || DEFAULT_PROMPT;
   } catch (err) {
-    console.warn("[DeepSearch] todos: prompt load failed; using fallback.", err?.message || err);
+    logger.warn("[DeepSearch] todos: prompt load failed; using fallback.", { error: err?.message || err });
     return DEFAULT_PROMPT;
   }
 }

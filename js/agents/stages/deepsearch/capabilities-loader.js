@@ -5,12 +5,16 @@
  * preloaded capabilities via constructor injection.
  */
 
+import { createLogger } from "../../shared/utils/logger.js";
+
+const logger = createLogger("stages/deepsearch/capabilities-loader");
+
 let _cached = null;
 let _loading = null;
 
 function warn(name, err) {
   const msg = err instanceof Error ? err.message : String(err);
-  console.warn(`[deepsearch] Failed to load ${name}:`, msg);
+  logger.warn(`[deepsearch] Failed to load ${name}: ${msg}`);
 }
 
 export async function loadDeepSearchCapabilities() {
@@ -92,4 +96,3 @@ export async function loadDeepSearchCapabilities() {
   _loading = null;
   return _cached;
 }
-

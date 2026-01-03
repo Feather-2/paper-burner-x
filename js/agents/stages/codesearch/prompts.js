@@ -2,6 +2,9 @@
  * CodeSearch Prompt 模板
  */
 import { loadPrompt } from "../../prompts/prompt-loader.js";
+import { createLogger } from "../../shared/utils/logger.js";
+
+const logger = createLogger("stages/codesearch/prompts");
 
 // 缓存的提示词
 let _systemPrompt = null;
@@ -17,7 +20,7 @@ export async function getCodesearchSystemPrompt() {
     _systemPrompt = await loadPrompt("codesearch/system");
     return _systemPrompt;
   } catch (e) {
-    console.warn("[codesearch-prompts] Failed to load system.md:", e.message);
+    logger.warn("[codesearch-prompts] Failed to load system.md:", { error: e?.message });
     return CODESEARCH_SYSTEM_PROMPT;
   }
 }
@@ -31,7 +34,7 @@ export async function getCodesearchStepPrompt() {
     _stepPrompt = await loadPrompt("codesearch/step");
     return _stepPrompt;
   } catch (e) {
-    console.warn("[codesearch-prompts] Failed to load step.md:", e.message);
+    logger.warn("[codesearch-prompts] Failed to load step.md:", { error: e?.message });
     return CODESEARCH_STEP_PROMPT;
   }
 }
@@ -45,7 +48,7 @@ export async function getCodesearchSummarizePrompt() {
     _summarizePrompt = await loadPrompt("codesearch/summarize");
     return _summarizePrompt;
   } catch (e) {
-    console.warn("[codesearch-prompts] Failed to load summarize.md:", e.message);
+    logger.warn("[codesearch-prompts] Failed to load summarize.md:", { error: e?.message });
     return CODESEARCH_SUMMARIZE_PROMPT;
   }
 }

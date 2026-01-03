@@ -4,6 +4,10 @@
  * 支持浏览器和 Node.js 环境
  */
 
+import { createLogger } from "../shared/utils/logger.js";
+
+const logger = createLogger("prompts/prompt-loader");
+
 const PROMPT_CACHE_KEY_SEPARATOR = "::";
 
 function isNodeLike() {
@@ -328,9 +332,7 @@ export class PromptLoader {
           const content = await this.loadPrompt(name);
           return [name, content];
         } catch (e) {
-          if (typeof console !== "undefined" && typeof console.warn === "function") {
-            console.warn(`[prompt-loader] Failed to preload "${name}":`, e.message);
-          }
+          logger.warn(`[prompt-loader] Failed to preload "${name}": ${e?.message || String(e)}`);
           return [name, null];
         }
       })
@@ -631,8 +633,8 @@ export function renderPromptTemplate(
       } catch {
         // ignore
       }
-    } else if (warnOnUnresolved && typeof console !== "undefined" && typeof console.warn === "function") {
-      console.warn(`[prompt-loader] Unresolved placeholders: ${list.join(", ")}${unresolved.size > list.length ? ", ..." : ""}`);
+    } else if (warnOnUnresolved) {
+      logger.warn(`[prompt-loader] Unresolved placeholders: ${list.join(", ")}${unresolved.size > list.length ? ", ..." : ""}`);
     }
     if (failOnUnresolved) {
       throw new Error(

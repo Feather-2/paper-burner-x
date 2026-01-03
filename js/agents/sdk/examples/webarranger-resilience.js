@@ -10,8 +10,10 @@
  * 6. 最终得出结论：由于市场波动，2024 预测低于 2023 实际。
  */
 
-import { createAgent } from "../index.js";
+import { createAgent, createLogger } from "../index.js";
 import { DiscoveryStatus } from "../DiscoveryManager.js";
+
+const logger = createLogger("sdk/examples/webarranger-resilience");
 
 async function main() {
     console.log("🚀 Starting Resilient WebArranger Workflow...");
@@ -63,4 +65,4 @@ async function main() {
     console.log("- 3-2 (Structural Organization Dysfunction): Managed by the 'Arranger' role focusing on coherence.");
 }
 
-main().catch(console.error);
+main().catch((error) => logger.error("main failed", { error }));

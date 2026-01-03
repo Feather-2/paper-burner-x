@@ -8,6 +8,9 @@
  */
 
 import { isPlainObject } from "./value-utils.js";
+import { createLogger } from "./logger.js";
+
+const logger = createLogger("shared/utils/stage-api");
 
 /**
  * stageApi 接口规范
@@ -116,7 +119,7 @@ export function createStageApi(partial = {}, { strict = false } = {}) {
       throw new Error(`Invalid stageApi: missing ${missing.join(", ")}`);
     }
     if (warnings.length > 0) {
-      console.warn("stageApi warnings:", warnings);
+      logger.warn("stageApi warnings:", { warnings });
     }
   }
 
@@ -268,4 +271,3 @@ export function createRunTool({ modelRouter, signal, logger } = {}) {
     }
   };
 }
-

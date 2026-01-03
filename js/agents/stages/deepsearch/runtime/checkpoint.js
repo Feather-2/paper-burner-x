@@ -1,8 +1,11 @@
 import { isPlainObject, toNonEmptyString } from "../../../shared/utils/value-utils.js";
 import { createCheckpoint, CheckpointType as ArchiveCheckpointType } from "../../../shared/archive/checkpoint-schema.js";
+import { createLogger } from "../../../shared/utils/logger.js";
 import { CheckpointMode } from "../constants.js";
 import { ensureTokenUsage } from "../utils/state-utils.js";
 import { migratGapToTodo } from "../utils/todo-utils.js";
+
+const logger = createLogger("stages/deepsearch/runtime/checkpoint");
 
 export const CHECKPOINT_SCHEMA_VERSION = "1.0";
 
@@ -263,7 +266,7 @@ export function loadCheckpoint(checkpoint) {
     return migrated;
   }
 
-  console.warn(`Unknown checkpoint schema version: ${version} (expected ${CHECKPOINT_SCHEMA_VERSION}); attempting to load anyway`);
+  logger.warn(`Unknown checkpoint schema version: ${version} (expected ${CHECKPOINT_SCHEMA_VERSION}); attempting to load anyway`);
   return checkpoint;
 }
 

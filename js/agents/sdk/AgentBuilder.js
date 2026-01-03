@@ -8,6 +8,9 @@
 
 import { AgentConfig } from "./agent-config.js";
 import { AgentFactory, AgentInstance } from "./agent-factory.js";
+import { createLogger } from "../shared/utils/logger.js";
+
+const logger = createLogger("sdk/AgentBuilder");
 
 let didWarnUseSkillDeprecated = false;
 
@@ -15,11 +18,9 @@ function warnUseSkillDeprecatedOnce() {
   if (didWarnUseSkillDeprecated) return;
   didWarnUseSkillDeprecated = true;
 
-  if (typeof console !== "undefined" && typeof console.warn === "function") {
-    console.warn(
-      "useSkill/useSkills are deprecated since 1.0.0 and will be removed in 2.0.0; use useCapability/useCapabilities instead (see docs/DEPRECATIONS.md)."
-    );
-  }
+  logger.warn(
+    "useSkill/useSkills are deprecated since 1.0.0 and will be removed in 2.0.0; use useCapability/useCapabilities instead (see docs/DEPRECATIONS.md)."
+  );
 }
 
 export class AgentBuilder {

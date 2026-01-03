@@ -1,6 +1,7 @@
 import { getDesignModelCaller, isNonRetryableError } from "../model.js";
 import { robustParseJson } from "../../../shared/utils/robust-json.js";
 import { extractJsonCandidate } from "../../../shared/utils/json-candidate.js";
+import { createLogger } from "../../../shared/utils/logger.js";
 import { VisualDataStatus } from "../constants.js";
 import { buildSlideHtml } from "../dsl/dsl-builder.js";
 import { resolveLayoutType } from "./layout-protocol.js";
@@ -8,6 +9,8 @@ import { loadPrompt } from "../../../prompts/prompt-loader.js";
 import { parseTagAttributes } from "../shared/html-parser.js";
 import { safeEmit } from "../shared/safe-emit.js";
 import { createLimiter } from "../shared/limiter.js";
+
+const logger = createLogger("stages/design/generators/batch-generator");
 
 // === 可配置常量 ===
 const BATCH_GENERATOR_DEFAULTS = {
@@ -32,7 +35,7 @@ async function getSystemPrompt() {
       return content;
     })
     .catch(err => {
-      console.warn("[batch-generator] Failed to load external prompt, using fallback:", err.message);
+      logger.warn("[batch-generator] Failed to load external prompt, using fallback:", { error: err?.message });
       _cachedSystemPrompt = FALLBACK_SYSTEM_PROMPT;
       return _cachedSystemPrompt;
     });
@@ -597,11 +600,11 @@ export async function generateSingleSlide(slideIntent, designSystem, dslRules, o
       } catch (e) {
         lastErr = e;
         const msg = e instanceof Error ? e.message : String(e);
-        console.warn("[design.batch] generateSingleSlide model call failed", { slideIntentId, attempt: attempt + 1, error: msg });
+        logger.warn("[design.batch] generateSingleSlide model call failed", { slideIntentId, attempt: attempt + 1, error: msg });
 
         // Don't retry for config/auth errors - fail fast
         if (isNonRetryableError(e)) {
-          console.warn("[design.batch] Non-retryable error detected, skipping retry");
+          logger.warn("[design.batch] Non-retryable error detected, skipping retry");
           break;
         }
         if (attempt < 1) safeEmit(emit, "design.slide.retrying", "retrying", { slideIndex, attempt: attempt + 1 });
@@ -610,7 +613,7 @@ export async function generateSingleSlide(slideIntent, designSystem, dslRules, o
 
     const errMsg = lastErr instanceof Error ? lastErr.message : String(lastErr || "Unknown error");
     const errStack = lastErr instanceof Error ? lastErr.stack : undefined;
-    console.warn("[design.batch] generateSingleSlide falling back after retries", { slideIntentId, error: errMsg });
+    logger.warn("[design.batch] generateSingleSlide falling back after retries", { slideIntentId, error: errMsg });
     safeEmit(emit, "design.slide.failed", "failed", {
       slideIndex,
       error: { message: errMsg, stack: errStack }

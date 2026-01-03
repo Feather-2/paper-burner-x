@@ -4,7 +4,9 @@
  * 展示 Agent 如何在发现路径错误时利用回溯工具“穿越”回之前的状态。
  */
 
-import { createAgent } from "../index.js";
+import { createAgent, createLogger } from "../index.js";
+
+const logger = createLogger("sdk/examples/backtrack-usage");
 
 // 1. 构建支持回溯的 Agent
 const agent = createAgent({ actor: "traveler" })
@@ -68,7 +70,7 @@ async function runDemo() {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-    runDemo().catch(console.error);
+    runDemo().catch((error) => logger.error("runDemo failed", { error }));
 }
 
 export { agent, runDemo };

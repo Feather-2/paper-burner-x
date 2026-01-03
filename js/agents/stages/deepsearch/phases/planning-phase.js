@@ -9,8 +9,11 @@
 
 import { getToolCatalogPrompt } from "../tools/index.js";
 import { isPlainObject } from "../../../shared/utils/value-utils.js";
+import { createLogger } from "../../../shared/utils/logger.js";
 import { loadPrompt, renderPromptTemplate } from "../../../prompts/prompt-loader.js";
 import { DeepSearchEvents } from "../../../runtime/events/events.js";
+
+const logger = createLogger("stages/deepsearch/phases/planning-phase");
 
 const EPHEMERAL_TAG = Object.freeze({
   BLACKBOARD: "blackboard",
@@ -88,7 +91,7 @@ async function getSystemPrompt({ skillsPrompt = "", config = null, mode = "wider
         if (!_systemLegacyPromptTemplate) _systemLegacyPromptTemplate = await loadPrompt("deepsearch/system");
         _systemCorePromptTemplate = _systemLegacyPromptTemplate;
       } catch {
-        console.warn("[deepsearch] Failed to load system-core.md/system.md:", e?.message || e);
+        logger.warn("[deepsearch] Failed to load system-core.md/system.md:", { error: e?.message || e });
         _systemCorePromptTemplate = FALLBACK_SYSTEM_PROMPT;
       }
     }
@@ -631,4 +634,3 @@ export async function runPlanningPhaseIteration({
 
   return { status: "success", decision };
 }
-

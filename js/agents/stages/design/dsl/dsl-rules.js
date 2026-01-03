@@ -7,6 +7,9 @@
  */
 
 import { loadPrompt } from "../../../prompts/prompt-loader.js";
+import { createLogger } from "../../../shared/utils/logger.js";
+
+const logger = createLogger("stages/design/dsl/dsl-rules");
 
 // 缓存的 DSL 规则
 let _cachedDslRules = null;
@@ -31,7 +34,7 @@ export async function getDslRules() {
       return content;
     })
     .catch((err) => {
-      console.warn("[dsl-rules] Failed to load from file, using fallback:", err.message);
+      logger.warn("[dsl-rules] Failed to load from file, using fallback:", { error: err?.message });
       // 返回一个最小化的 fallback
       _cachedDslRules = FALLBACK_DSL_RULES;
       return _cachedDslRules;

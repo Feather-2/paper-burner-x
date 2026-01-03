@@ -7,6 +7,8 @@
 
 import { createAgent, createLogger } from "../index.js";
 
+const logger = createLogger("sdk/examples/basic-usage");
+
 // ============================================================================
 // 示例 1: 基础用法 - 流式构建
 // ============================================================================
@@ -96,5 +98,5 @@ export { basicAgent, agentWithHooks, lazyAgent, runExamples };
 
 // 如果直接运行
 if (import.meta.url === `file://${process.argv[1]}`) {
-    runExamples().catch(console.error);
+    runExamples().catch((error) => logger.error("runExamples failed", { error }));
 }

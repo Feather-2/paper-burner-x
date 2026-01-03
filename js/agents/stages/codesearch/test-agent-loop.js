@@ -8,6 +8,9 @@ import { CodeSearchStage } from "./codesearch-stage.js";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { createLogger } from "../../shared/utils/logger.js";
+
+const logger = createLogger("stages/codesearch/test-agent-loop");
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -114,8 +117,7 @@ async function testAgentLoop() {
 
     console.log("\n✅ Agent Loop Test Passed!");
   } catch (err) {
-    console.error("\n❌ Test Failed:", err.message);
-    console.error(err.stack);
+    logger.error("\n❌ Test Failed:", { error: err?.message || String(err), stack: err?.stack });
     process.exit(1);
   }
 }

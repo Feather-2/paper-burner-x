@@ -7,11 +7,21 @@
 
 /**
  * 创建并发安全的 logger 实例
- * @param {{ emit?: Function, getContext?: Function, enabled?: boolean, actor?: string }} options
+ * @param {string | { emit?: Function, getContext?: Function, enabled?: boolean, actor?: string, stage?: string }} options
  */
-export function createLogger({ emit, getContext, enabled = true, actor = "agent" } = {}) {
+export function createLogger(options = {}) {
+    const normalized = typeof options === "string" ? { stage: options } : options || {};
+    const { emit, getContext, enabled = true, actor = "agent", stage } = normalized;
+
     const isEnabled = Boolean(enabled);
-    const getCtx = typeof getContext === "function" ? getContext : null;
+    const baseGetCtx = typeof getContext === "function" ? getContext : null;
+    const stageName = typeof stage === "string" && stage.trim() ? stage.trim() : null;
+    const getCtx = stageName
+      ? () => {
+            const ctx = baseGetCtx?.();
+            return { ...(ctx && typeof ctx === "object" ? ctx : {}), stage: stageName };
+        }
+      : baseGetCtx;
     const emitFn = typeof emit === "function" ? emit : null;
     const actorName = actor;
 
@@ -28,8 +38,16 @@ export function createLogger({ emit, getContext, enabled = true, actor = "agent"
 
         emitFn?.(`${actorName}.log.${level}`, payload, { status: level === "error" ? "failed" : "info" });
 
-        const consoleFn = level === "error" ? console.error : level === "warn" ? console.warn : console.log;
-        consoleFn(`[${actorName}:${payload.stage || "?"}]`, message, data);
+        const consoleObj = typeof globalThis !== "undefined" ? globalThis.console : undefined;
+        const consoleFn =
+            level === "error"
+                ? consoleObj?.error
+                : level === "warn"
+                  ? consoleObj?.warn
+                  : consoleObj?.log;
+        if (typeof consoleFn === "function") {
+            consoleFn(`[${actorName}:${payload.stage || "?"}]`, message, data);
+        }
     };
 
     return {
