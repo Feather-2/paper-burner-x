@@ -98,6 +98,13 @@ async function sanitizeHtmlFragment(html) {
   const input = typeof html === "string" ? html : String(html ?? "");
   if (!input.trim()) return "";
 
+  // Browser: prefer DOMPurify when available (loaded via CDN).
+  // This avoids relying on our lightweight tree sanitizer for XSS defense.
+  const purifier = globalThis.DOMPurify;
+  if (purifier && typeof purifier.sanitize === "function") {
+    return purifier.sanitize(input, { RETURN_DOM_FRAGMENT: false });
+  }
+
   const WRAP_ID = "__pb_sanitize_wrap__";
   const wrapped = `<div id="${WRAP_ID}">${input}</div>`;
 

@@ -1,3 +1,5 @@
+import { cryptoRandomHex } from "../../shared/utils/secure-id.js";
+
 /**
  * Token Tracker - LLM 调用 Token 使用率实时追踪
  *
@@ -34,7 +36,7 @@ function toPositiveInt(value, fallback) {
 
 function generateId() {
   const ts = Date.now().toString(36);
-  const rand = Math.random().toString(36).slice(2, 8);
+  const rand = cryptoRandomHex(3);
   return `tok_${ts}_${rand}`;
 }
 

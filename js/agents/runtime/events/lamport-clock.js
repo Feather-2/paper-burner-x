@@ -5,6 +5,8 @@
  * 不再依赖物理时钟的启发式排序。
  */
 
+import { cryptoRandomHex } from "../../shared/utils/secure-id.js";
+
 let _globalSeq = 0;
 let _instanceId = null;
 
@@ -14,7 +16,7 @@ let _instanceId = null;
 function getInstanceId() {
   if (_instanceId === null) {
     // 生成 8 字符的随机实例 ID
-    _instanceId = Math.random().toString(36).slice(2, 10);
+    _instanceId = cryptoRandomHex(4);
   }
   return _instanceId;
 }

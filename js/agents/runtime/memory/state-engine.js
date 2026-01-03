@@ -17,6 +17,7 @@
 
 import { nextTick, sync as syncClock, currentSeq } from "../events/lamport-clock.js";
 import { deepClone, isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { cryptoRandomHex } from "../../shared/utils/secure-id.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LamportClock Wrapper (使用全局 lamport-clock 模块)
@@ -85,7 +86,7 @@ import {
 
 function generateId(prefix = "id") {
   const ts = Date.now().toString(36);
-  const rand = Math.random().toString(36).slice(2, 8);
+  const rand = cryptoRandomHex(3);
   return `${prefix}_${ts}_${rand}`;
 }
 

@@ -150,3 +150,66 @@ test("ReactRefiner Tools: screenshotRenderer output is normalized to data URL", 
   assert.equal(res.data.base64, "data:image/png;base64,AAAA");
 });
 
+test("ReactRefiner Tools: XSS payloads are sanitized (Node/linkedom fallback)", async () => {
+  const { createToolExecutor } = await loadTools();
+
+  const context = { deckPackage: { deckHtmlDsl: makeDeckHtmlDsl() }, contentPackage: {} };
+  const exec = createToolExecutor(context);
+
+  const xss = `<section data-title="XSS">
+    <p data-el="p1">OK</p>
+    <img src="x" onerror="alert(1)">
+    <a href="javascript:alert(1)" data-el="a1">bad</a>
+    <div style="background-image:url(javascript:alert(1))" data-el="d1">bad-style</div>
+    <script>alert(1)</script>
+  </section>`;
+
+  const res = await exec("editSlide", { slideIndex: 0, changes: { html: xss } });
+  assert.equal(res.success, true);
+  assert.ok(res.data.updatedSectionHtml.includes('data-title="XSS"'));
+  assert.ok(res.data.updatedSectionHtml.includes('data-el="p1"'));
+  assert.doesNotMatch(res.data.updatedSectionHtml, /<script\b/i);
+  assert.doesNotMatch(res.data.updatedSectionHtml, /\sonerror=/i);
+  assert.doesNotMatch(res.data.updatedSectionHtml, /javascript:/i);
+});
+
+test("ReactRefiner Tools: valid HTML is preserved while sanitizing innerHTML", async () => {
+  const { createToolExecutor } = await loadTools();
+
+  const deckHtmlDsl = `<section><div data-el="t1">Old</div></section>`;
+  const context = { deckPackage: { deckHtmlDsl }, contentPackage: {} };
+  const exec = createToolExecutor(context);
+
+  const html = `<div class="ok"><span>Hi</span> <a href="https://example.com">link</a></div>`;
+  const res = await exec("editElement", { slideIndex: 0, elementId: "t1", changes: { html } });
+  assert.equal(res.success, true);
+  assert.ok(res.data.updatedSectionHtml.includes('class="ok"'));
+  assert.ok(res.data.updatedSectionHtml.includes("<span>Hi</span>"));
+  assert.ok(res.data.updatedSectionHtml.includes('href="https://example.com"'));
+});
+
+test("ReactRefiner Tools: uses DOMPurify when available (environment detection)", async (t) => {
+  const calls = [];
+  globalThis.DOMPurify = {
+    sanitize: (html, opts) => {
+      calls.push({ html, opts });
+      return `<section data-title="PURIFIED"><div data-el="x">ok</div></section>`;
+    },
+  };
+  t.after(() => {
+    delete globalThis.DOMPurify;
+  });
+
+  const { createToolExecutor } = await loadTools();
+  const context = { deckPackage: { deckHtmlDsl: makeDeckHtmlDsl() }, contentPackage: {} };
+  const exec = createToolExecutor(context);
+
+  const input = `<section data-title="ORIG"><img src="x" onerror="alert(1)"></section>`;
+  const res = await exec("editSlide", { slideIndex: 0, changes: { html: input } });
+  assert.equal(res.success, true);
+  assert.ok(res.data.updatedSectionHtml.includes('data-title="PURIFIED"'));
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].html, input);
+  assert.equal(calls[0].opts?.RETURN_DOM_FRAGMENT, false);
+});
