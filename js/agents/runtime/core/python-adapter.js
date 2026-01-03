@@ -1,4 +1,7 @@
 import { RuntimeAdapter, RuntimeType } from './runtime-adapter.js';
+import { createLogger } from "../../shared/utils/logger.js";
+
+const logger = createLogger("runtime/core/python-adapter");
 
 export class PythonRuntimeAdapter extends RuntimeAdapter {
   constructor(options = {}) {
@@ -21,7 +24,7 @@ export class PythonRuntimeAdapter extends RuntimeAdapter {
       const { type, id, data, error, text, files } = evt.data;
 
       if (type === 'stdout') console.log(`[Python Stdout] ${text}`);
-      if (type === 'stderr') console.error(`[Python Stderr] ${text}`);
+      if (type === 'stderr') logger.error(`[Python Stderr] ${text}`);
 
       const request = this.pendingRequests.get(id);
       if (!request) return;

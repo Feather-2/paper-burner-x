@@ -2,6 +2,9 @@ import { isPlainObject, toNonEmptyString, estimateTokenCount } from "../../share
 import { robustParseJson } from "../../shared/utils/robust-json.js";
 import { CicadaEvents } from "../events/events.js";
 import { makeSecureTimestampedId } from "../../shared/utils/secure-id.js";
+import { createLogger } from "../../shared/utils/logger.js";
+
+const logger = createLogger("runtime/compression/cicada-compressor");
 
 export const CompressionLayer = Object.freeze({
   TOOL_OUTPUT: "tool_output",
@@ -623,7 +626,7 @@ export class CicadaCompressor {
     if (entry && typeof entry === "object") {
       const version = entry.schemaVersion;
       if (!SUPPORTED_SCHEMA_VERSIONS.has(version)) {
-        console.warn(`CicadaCompressor.restore: unsupported schema version "${version}" for key "${key}"`);
+        logger.warn(`CicadaCompressor.restore: unsupported schema version "${version}" for key "${key}"`);
         // Return entry anyway but mark as potentially incompatible
         entry._schemaWarning = `Unsupported schema version: ${version}`;
       }

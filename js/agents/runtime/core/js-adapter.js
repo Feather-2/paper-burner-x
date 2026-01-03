@@ -11,6 +11,9 @@
  */
 
 import { RuntimeAdapter, RuntimeType } from './runtime-adapter.js';
+import { createLogger } from "../../shared/utils/logger.js";
+
+const logger = createLogger("runtime/core/js-adapter");
 
 // 危险模式检测（基础防护，fallback 时使用）
 const DANGEROUS_PATTERNS = [
@@ -80,12 +83,12 @@ export class JSRuntimeAdapter extends RuntimeAdapter {
       };
 
       this._worker.onerror = (err) => {
-        console.error('[JSSandbox] Worker error:', err);
+        logger.error("[JSSandbox] Worker error:", { error: err?.message || String(err) });
       };
 
       return true;
     } catch (err) {
-      console.warn('[JSRuntimeAdapter] Worker sandbox unavailable, using fallback:', err.message);
+      logger.warn("[JSRuntimeAdapter] Worker sandbox unavailable, using fallback:", { error: err?.message });
       this.useWorkerSandbox = false;
       return true;
     }

@@ -10,6 +10,9 @@
 import { AgentStatus, isValidAgentStatus } from "./agent-status.js";
 import { StagePausedError } from "./stage-errors.js";
 import { getRuntimeState } from "../telemetry/loop-runtime-state.js";
+import { createLogger } from "../../shared/utils/logger.js";
+
+const logger = createLogger("runtime/core/status-controller");
 
 const DEFAULT_LOOP_STATUS_TRANSITIONS = Object.freeze({
   [AgentStatus.IDLE]: [AgentStatus.RUNNING, AgentStatus.COMPLETED, AgentStatus.FAILED],
@@ -134,7 +137,7 @@ export class StatusController {
       if (this._logger && typeof this._logger.warn === "function") {
         this._logger.warn(msg);
       } else {
-        console.warn(msg);
+        logger.warn(msg);
       }
       return this._recordTransition({ from: oldStatus, to: newStatus, invalid: true, ...meta });
     }

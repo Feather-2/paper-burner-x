@@ -8,6 +8,10 @@
  * TODO(AI4Sci): 添加 SRI 完整性校验，或改用本地打包
  */
 
+import { createLogger } from "../../shared/utils/logger.js";
+
+const logger = createLogger("runtime/tools/python-runtime-worker");
+
 // 版本锁定 - 更新时需同步修改 python-adapter.js 中的 indexUrl 默认值
 const PYODIDE_VERSION = '0.26.4';
 const PYODIDE_CDN_BASE = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full`;
@@ -72,7 +76,7 @@ async function collectFilesFromPyodide(paths) {
     try {
       walk(p);
     } catch (e) {
-      console.warn(`[PythonWorker] Failed to walk path ${p}:`, e);
+      logger.warn(`[PythonWorker] Failed to walk path ${p}: ${e?.message || String(e)}`);
     }
   }
   return files;

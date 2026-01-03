@@ -5,6 +5,10 @@
  * 供 DeepSearch、Design、CodeSearch 等 Agent Loop 复用
  */
 
+import { createLogger } from "../../shared/utils/logger.js";
+
+const logger = createLogger("runtime/core/mechanisms");
+
 // 懒加载的机制类
 let CheckpointManager = null;
 let SharedContext = null;
@@ -39,7 +43,7 @@ export async function loadMechanisms() {
   } catch (err) {
     if (shouldReportMechanismLoadError(err)) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[mechanisms] Failed to load CheckpointManager: ${msg}`);
+      logger.warn(`[mechanisms] Failed to load CheckpointManager: ${msg}`);
     }
   }
 
@@ -49,7 +53,7 @@ export async function loadMechanisms() {
   } catch (err) {
     if (shouldReportMechanismLoadError(err)) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[mechanisms] Failed to load SharedContext: ${msg}`);
+      logger.warn(`[mechanisms] Failed to load SharedContext: ${msg}`);
     }
   }
 
@@ -59,7 +63,7 @@ export async function loadMechanisms() {
   } catch (err) {
     if (shouldReportMechanismLoadError(err)) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[mechanisms] Failed to load BacktrackManager: ${msg}`);
+      logger.warn(`[mechanisms] Failed to load BacktrackManager: ${msg}`);
     }
   }
 
@@ -69,7 +73,7 @@ export async function loadMechanisms() {
   } catch (err) {
     if (shouldReportMechanismLoadError(err)) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[mechanisms] Failed to load DiscoveryManager: ${msg}`);
+      logger.warn(`[mechanisms] Failed to load DiscoveryManager: ${msg}`);
     }
   }
 }

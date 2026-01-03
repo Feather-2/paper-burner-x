@@ -13,6 +13,9 @@
  */
 
 import { isPlainObject, toNonEmptyString, deepClone } from "../../shared/utils/value-utils.js";
+import { createLogger } from "../../shared/utils/logger.js";
+
+const logger = createLogger("runtime/context/unified-agent-context");
 
 export class UnifiedAgentContext {
   constructor(options = {}) {
@@ -46,7 +49,7 @@ export class UnifiedAgentContext {
       } catch (err) {
         const msg = `UnifiedAgentContext.bind: state.bindMemoryStore failed: ${err?.message || err}`;
         errors.push(msg);
-        console.warn(msg);
+        logger.warn(msg);
       }
     }
 
@@ -57,7 +60,7 @@ export class UnifiedAgentContext {
       } catch (err) {
         const msg = `UnifiedAgentContext.bind: memory.bind failed: ${err?.message || err}`;
         errors.push(msg);
-        console.warn(msg);
+        logger.warn(msg);
       }
     }
 
@@ -150,7 +153,7 @@ export class UnifiedAgentContext {
           verified: claim?.verified,
         });
       } catch (err) {
-        console.warn(`UnifiedAgentContext.addClaim: memory.addClaim failed: ${err?.message || err}`);
+        logger.warn(`UnifiedAgentContext.addClaim: memory.addClaim failed: ${err?.message || err}`);
       }
     }
     if (this._sharedContext?.addFinding) {
@@ -285,7 +288,7 @@ export class UnifiedAgentContext {
             stateSnapshot = cp;
           }
         } catch (err) {
-          console.warn(`UnifiedAgentContext.saveCheckpoint: state.saveCheckpoint failed: ${err?.message || err}`);
+          logger.warn(`UnifiedAgentContext.saveCheckpoint: state.saveCheckpoint failed: ${err?.message || err}`);
           stateSnapshot = null;
         }
       }
@@ -295,7 +298,7 @@ export class UnifiedAgentContext {
           // Best-effort: at least avoid nested checkpoint snapshots.
           stateSnapshot = this._state.toSnapshot({ includeCheckpoints: false });
         } catch (err) {
-          console.warn(`UnifiedAgentContext.saveCheckpoint: state.toSnapshot failed: ${err?.message || err}`);
+          logger.warn(`UnifiedAgentContext.saveCheckpoint: state.toSnapshot failed: ${err?.message || err}`);
           stateSnapshot = null;
         }
       }

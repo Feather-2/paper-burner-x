@@ -10,6 +10,9 @@
 import { createStageApi } from "../../shared/utils/stage-api.js";
 import { createFsAdapterFromVfs } from "../../vfs/fs-adapter.js";
 import { createVfsGlobFn } from "../../vfs/glob.js";
+import { createLogger } from "../../shared/utils/logger.js";
+
+const logger = createLogger("runtime/api/stage-api-factory");
 
 // 必需字段验证
 const REQUIRED_FIELDS = ["signal", "emit"];
@@ -109,7 +112,7 @@ export class StageApiFactory {
     });
     
     if (missing.length > 0) {
-      console.warn(`[StageApiFactory] ${stageName} API missing fields: ${missing.join(", ")}`);
+      logger.warn(`[StageApiFactory] ${stageName} API missing fields: ${missing.join(", ")}`);
     }
     
     return missing.length === 0;

@@ -5,6 +5,10 @@
  * 在浏览器环境使用 Worker，Node.js 环境回退到同步执行。
  */
 
+import { createLogger } from "../../shared/utils/logger.js";
+
+const logger = createLogger("runtime/compression/compression-async");
+
 function isNodeLike() {
   return typeof process !== "undefined" && !!process.versions?.node;
 }
@@ -325,7 +329,7 @@ export async function compressSessionHistoryAsync(messages, options = {}, runtim
     return await promise;
   } catch (err) {
     // Worker 失败，回退到同步
-    console.warn("[compression-async] Worker failed, falling back to sync:", err?.message);
+    logger.warn("[compression-async] Worker failed, falling back to sync:", { error: err?.message });
     return compressSessionHistorySync(messages, options);
   } finally {
     if (signal) {

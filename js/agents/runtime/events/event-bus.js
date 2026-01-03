@@ -1,6 +1,9 @@
 import { matchEventPattern } from "./events.js";
 import { EventBusItemKind } from "../core/constants.js";
 import { nextTick as lamportNextTick, sync as lamportSync } from "./lamport-clock.js";
+import { createLogger } from "../../shared/utils/logger.js";
+
+const logger = createLogger("runtime/events/event-bus");
 
 const SCHEMA_VERSION = "0.1";
 
@@ -525,7 +528,7 @@ export class EventBus {
       bp.overflowCount++;
       // 每 100 次溢出警告一次，避免日志洪泛
       if (bp.overflowCount === 1 || bp.overflowCount % 100 === 0) {
-        console.warn(`[EventBus] queue.overflow: dropped ${bp.overflowCount} events (maxQueueSize=${bp.maxQueueSize})`);
+        logger.warn(`[EventBus] queue.overflow: dropped ${bp.overflowCount} events (maxQueueSize=${bp.maxQueueSize})`);
         // 发出溢出警告事件（直接 dispatch，不入队）
         this._dispatch(createEventRecord({
           runId: this.runId,
