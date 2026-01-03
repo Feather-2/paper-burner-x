@@ -16,8 +16,12 @@
  */
 
 import { nextTick, sync as syncClock, currentSeq } from "../events/lamport-clock.js";
-import { deepClone, isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { cloneJson, buildStatePatch, applyStatePatch, diffLayers } from "./state-diff.js";
 import { cryptoRandomHex } from "../../shared/utils/secure-id.js";
+import { createLogger } from "../../shared/utils/logger.js";
+
+const logger = createLogger("runtime/memory/state-engine");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LamportClock Wrapper (使用全局 lamport-clock 模块)
@@ -610,7 +614,9 @@ export class StateEngine {
     this._enableActionHistory = enableActionHistory;
     this._actionHistory = [];
     this._listeners = new Set();
+    this._layerListeners = new Map(); // layer → Set<listener>
     this._eventBus = eventBus;
+    this._checkpoints = new Map(); // checkpointId → { state, clock, encoding, baseId? }
 
     // Lamport clock for causal ordering
     this._clock = new LamportClock({
@@ -626,7 +632,7 @@ export class StateEngine {
    * Get current state (read-only clone)
    */
   getState() {
-    return deepClone(this._state);
+    return cloneJson(this._state);
   }
 
   /**
@@ -729,16 +735,47 @@ export class StateEngine {
 
   /**
    * Subscribe to state changes
-   * @param {function} listener - Callback (action, prevState, nextState) => void
+   * @param {function|string} listenerOrLayer - Callback or layer name ("L0", "L1", etc.)
+   * @param {function} [layerListener] - Callback when first arg is layer name
    * @returns {function} Unsubscribe function
    */
-  subscribe(listener) {
-    if (typeof listener !== "function") {
+  subscribe(listenerOrLayer, layerListener) {
+    // Overload: subscribe("L0", fn) -> layer subscription
+    if (typeof listenerOrLayer === "string" && typeof layerListener === "function") {
+      return this.subscribeLayer(listenerOrLayer, layerListener);
+    }
+
+    if (typeof listenerOrLayer !== "function") {
       throw new TypeError("StateEngine.subscribe: listener must be a function");
     }
 
-    this._listeners.add(listener);
-    return () => this._listeners.delete(listener);
+    this._listeners.add(listenerOrLayer);
+    return () => this._listeners.delete(listenerOrLayer);
+  }
+
+  /**
+   * Subscribe to specific layer changes
+   * @param {string} layer - "L0", "L1", "L2", or "L3"
+   * @param {function} listener - Callback (action, prevLayer, nextLayer) => void
+   * @returns {function} Unsubscribe function
+   */
+  subscribeLayer(layer, listener) {
+    if (!["L0", "L1", "L2", "L3"].includes(layer)) {
+      throw new Error(`Invalid layer: ${layer}`);
+    }
+    if (typeof listener !== "function") {
+      throw new TypeError("StateEngine.subscribeLayer: listener must be a function");
+    }
+
+    if (!this._layerListeners.has(layer)) {
+      this._layerListeners.set(layer, new Set());
+    }
+    this._layerListeners.get(layer).add(listener);
+
+    return () => {
+      const set = this._layerListeners.get(layer);
+      if (set) set.delete(listener);
+    };
   }
 
   /**
@@ -746,11 +783,27 @@ export class StateEngine {
    * @private
    */
   _notifyListeners(action, prevState, nextState) {
+    // Global listeners
     for (const listener of this._listeners) {
       try {
         listener(action, prevState, nextState);
       } catch (err) {
-        console.error("[StateEngine] Listener error:", err);
+        logger.error("[StateEngine] Listener error:", { error: err?.message || String(err), stack: err?.stack });
+      }
+    }
+
+    // Layer listeners
+    const diff = diffLayers(prevState, nextState);
+    for (const [layer, changed] of Object.entries(diff)) {
+      if (!changed) continue;
+      const set = this._layerListeners.get(layer);
+      if (!set) continue;
+      for (const listener of set) {
+        try {
+          listener(action, prevState[layer], nextState[layer]);
+        } catch (err) {
+          logger.error(`[StateEngine] Layer ${layer} listener error:`, { error: err?.message || String(err) });
+        }
       }
     }
   }
@@ -782,7 +835,7 @@ export class StateEngine {
   getActionHistory(limit) {
     if (!this._enableActionHistory) return [];
     const n = typeof limit === "number" && limit > 0 ? limit : this._actionHistory.length;
-    return this._actionHistory.slice(-n).map(deepClone);
+    return this._actionHistory.slice(-n).map(cloneJson);
   }
 
   /**
@@ -838,7 +891,7 @@ export class StateEngine {
    */
   createSnapshot() {
     return {
-      state: deepClone(this._state),
+      state: cloneJson(this._state),
       clock: this._clock.value,
       ts: Date.now(),
     };
@@ -851,13 +904,113 @@ export class StateEngine {
   restoreSnapshot(snapshot) {
     if (!snapshot?.state) return false;
 
-    this._state = deepClone(snapshot.state);
+    this._state = cloneJson(snapshot.state);
     if (typeof snapshot.clock === "number") {
       this._clock = new LamportClock({
         actorId: this._state.runId,
         initialValue: snapshot.clock,
       });
     }
+    return true;
+  }
+
+  /**
+   * Save differential checkpoint
+   * @param {object} [options]
+   * @param {number} [options.fullSnapshotEvery=10] - Force full snapshot every N checkpoints
+   * @returns {object} Checkpoint metadata
+   */
+  saveCheckpoint(options = {}) {
+    const { fullSnapshotEvery = 10 } = options;
+    const checkpointId = generateId("cp");
+    const ts = Date.now();
+    const clock = this._clock.value;
+
+    // Find most recent checkpoint as base
+    const checkpointList = this._state.L3?.checkpoints || [];
+    const lastCp = checkpointList[checkpointList.length - 1];
+    const checkpointCount = checkpointList.length;
+
+    // Determine encoding
+    const shouldFull = !lastCp || checkpointCount % fullSnapshotEvery === 0;
+
+    let checkpoint;
+    if (shouldFull) {
+      checkpoint = {
+        checkpointId,
+        ts,
+        clock,
+        encoding: "full",
+        data: cloneJson(this._state),
+      };
+    } else {
+      // Differential: store patch from last full/diff checkpoint
+      const baseState = this._checkpoints.get(lastCp.checkpointId)?.data;
+      if (!baseState) {
+        // Fallback to full if base not found
+        checkpoint = {
+          checkpointId,
+          ts,
+          clock,
+          encoding: "full",
+          data: cloneJson(this._state),
+        };
+      } else {
+        const patch = buildStatePatch(baseState, this._state);
+        checkpoint = {
+          checkpointId,
+          ts,
+          clock,
+          encoding: "diff",
+          baseId: lastCp.checkpointId,
+          patch,
+        };
+      }
+    }
+
+    // Store in memory for future diffs
+    this._checkpoints.set(checkpointId, {
+      ...checkpoint,
+      data: cloneJson(this._state),
+    });
+
+    // Add to L3.checkpoints
+    this.dispatchSync({
+      type: L3_ADD_CHECKPOINT,
+      payload: { checkpoint: { checkpointId, ts, clock, encoding: checkpoint.encoding, baseId: checkpoint.baseId } },
+    });
+
+    return checkpoint;
+  }
+
+  /**
+   * Restore from checkpoint by ID
+   * @param {string} checkpointId
+   * @returns {boolean} Success
+   */
+  restoreCheckpoint(checkpointId) {
+    const cp = this._checkpoints.get(checkpointId);
+    if (!cp?.data) return false;
+
+    // Preserve checkpoint log
+    const checkpoints = this._state.L3?.checkpoints || [];
+
+    // Restore state
+    this._state = {
+      ...cloneJson(cp.data),
+      L3: {
+        ...cloneJson(cp.data.L3 || {}),
+        checkpoints, // Keep checkpoint log
+      },
+    };
+
+    if (typeof cp.clock === "number") {
+      this._clock = new LamportClock({
+        actorId: this._state.runId,
+        initialValue: cp.clock,
+      });
+    }
+
     return true;
   }
 }
