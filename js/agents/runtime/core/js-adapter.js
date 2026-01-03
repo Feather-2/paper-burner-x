@@ -3,16 +3,16 @@
  *
  * 原有的 JS 执行逻辑封装。
  *
- * ⚠️ 安全警告：当前使用 Function 构造器，等同于 eval()。
- * TODO(AI4Sci): 正式集成时需替换为以下方案之一：
- *   1. quickjs-emscripten (WASM 沙箱)
- *   2. iframe sandbox + postMessage
- *   3. 专用 Worker + 受限 globals
+ * 安全策略（按优先级）：
+ *   1. Worker 沙箱（隔离 + 受限 globals）
+ *   2. 主线程 + 危险模式检测（fallback）
+ *
+ * TODO(AI4Sci): 添加 quickjs-emscripten WASM 沙箱作为第三层
  */
 
 import { RuntimeAdapter, RuntimeType } from './runtime-adapter.js';
 
-// 危险模式检测（基础防护，非完整沙箱）
+// 危险模式检测（基础防护，fallback 时使用）
 const DANGEROUS_PATTERNS = [
   /\beval\s*\(/,
   /\bFunction\s*\(/,
@@ -40,16 +40,100 @@ function validateCode(code) {
 export class JSRuntimeAdapter extends RuntimeAdapter {
   constructor(options = {}) {
     super({ ...options, type: RuntimeType.JS });
-    // 是否跳过安全检查（仅限可信代码源）
     this.skipValidation = options.skipValidation || false;
+    this.useWorkerSandbox = options.useWorkerSandbox !== false; // 默认启用
+    this.timeout = options.timeout || 30000;
+    this._worker = null;
+    this._pendingRequests = new Map();
+    this._requestId = 0;
   }
 
   async initialize() {
-    // JS 运行时通常不需要特殊初始化
-    return true;
+    if (!this.useWorkerSandbox) return true;
+    if (this._worker) return true;
+
+    try {
+      const workerUrl = new URL('./js-sandbox-worker.js', import.meta.url);
+      this._worker = new Worker(workerUrl, { type: 'module' });
+
+      this._worker.onmessage = (evt) => {
+        const { type, id, success, data, error, metrics, name, payload, level, args } = evt.data;
+
+        if (type === 'emit') {
+          // 转发 emit 事件
+          console.log(`[JSSandbox] emit: ${name}`, payload);
+          return;
+        }
+
+        if (type === 'log') {
+          console[level]?.(`[JSSandbox]`, ...args);
+          return;
+        }
+
+        if (type === 'result') {
+          const request = this._pendingRequests.get(id);
+          if (request) {
+            this._pendingRequests.delete(id);
+            request.resolve({ success, data, error, metrics });
+          }
+        }
+      };
+
+      this._worker.onerror = (err) => {
+        console.error('[JSSandbox] Worker error:', err);
+      };
+
+      return true;
+    } catch (err) {
+      console.warn('[JSRuntimeAdapter] Worker sandbox unavailable, using fallback:', err.message);
+      this.useWorkerSandbox = false;
+      return true;
+    }
   }
 
   async execute(code, context) {
+    await this.initialize();
+
+    // 优先使用 Worker 沙箱
+    if (this.useWorkerSandbox && this._worker) {
+      return this._executeInWorker(code, context);
+    }
+
+    // Fallback: 主线程执行（需安全检查）
+    return this._executeInMainThread(code, context);
+  }
+
+  async _executeInWorker(code, context) {
+    const id = ++this._requestId;
+
+    return new Promise((resolve) => {
+      const timeoutId = setTimeout(() => {
+        this._pendingRequests.delete(id);
+        resolve({
+          success: false,
+          error: 'Worker execution timeout',
+          metrics: { duration: this.timeout }
+        });
+      }, this.timeout + 1000); // 额外 1s 给 Worker 内部超时
+
+      this._pendingRequests.set(id, {
+        resolve: (result) => {
+          clearTimeout(timeoutId);
+          resolve(result);
+        }
+      });
+
+      this._worker.postMessage({
+        type: 'execute',
+        id,
+        code,
+        state: context?.state,
+        timeout: this.timeout
+      });
+    });
+  }
+
+  async _executeInMainThread(code, context) {
     const startTime = Date.now();
 
     // 安全检查
@@ -65,7 +149,6 @@ export class JSRuntimeAdapter extends RuntimeAdapter {
     }
 
     try {
-      // ⚠️ 使用 Function 构造器 - 仅限可信代码
       const fn = new Function('context', `
         const { state, vfs, emit } = context;
         return (async () => {
@@ -87,5 +170,13 @@ export class JSRuntimeAdapter extends RuntimeAdapter {
         metrics: { duration: Date.now() - startTime }
       };
     }
+  }
+
+  async terminate() {
+    if (this._worker) {
+      this._worker.terminate();
+      this._worker = null;
+    }
+    this._pendingRequests.clear();
   }
 }
