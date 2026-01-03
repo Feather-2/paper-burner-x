@@ -121,33 +121,24 @@ function validateOutput(output, schema = DEFAULT_OUTPUT_SCHEMA) {
   };
 }
 
-// P3.4: 全局注入扫描器
-const _injectionScanner = new InjectionScanner({
-  onDetection: (event) => {
-    console.warn("[SubagentRegistry] Injection detected:", {
-      subagent: event.context?.subagentType,
-      detections: event.detections,
-      timestamp: event.timestamp,
-    });
-  },
-});
-
 /**
  * Quarantine wrapper for subagent output.
  * Validates and sanitizes output before passing to parent agent.
  * P3.4: Now includes injection scanning.
  */
-function quarantineOutput(output, schema, subagentType) {
+function quarantineOutput(output, schema, subagentType, injectionScanner) {
   const result = validateOutput(output, schema);
 
   // P3.4: 扫描文本字段中的注入攻击
   const injectionDetections = [];
   const textFields = ["summary", "report", "error", "content", "text", "message"];
+  const scanner = injectionScanner && typeof injectionScanner.scan === "function" && typeof injectionScanner.sanitize === "function" ? injectionScanner : null;
 
   for (const field of textFields) {
     const value = result.sanitized[field];
     if (typeof value === "string" && value.length > 0) {
-      const scanResult = _injectionScanner.scan(value, { subagentType, field });
+      if (!scanner) continue;
+      const scanResult = scanner.scan(value, { subagentType, field });
       if (!scanResult.clean) {
         injectionDetections.push({
           field,
@@ -155,23 +146,9 @@ function quarantineOutput(output, schema, subagentType) {
           detections: scanResult.detections,
         });
         // 清理检测到的危险内容
-        result.sanitized[field] = _injectionScanner.sanitize(value);
+        result.sanitized[field] = scanner.sanitize(value);
       }
     }
-  }
-
-  if (!result.valid) {
-    console.warn(
-      `[SubagentRegistry] Quarantine warnings for ${subagentType}:`,
-      result.errors
-    );
-  }
-
-  if (injectionDetections.length > 0) {
-    console.warn(
-      `[SubagentRegistry] Injection patterns detected in ${subagentType} output:`,
-      injectionDetections
-    );
   }
 
   // Always return sanitized output, even with warnings
@@ -188,10 +165,14 @@ function quarantineOutput(output, schema, subagentType) {
 }
 
 export class SubagentRegistry {
-  constructor() {
+  constructor({ injectionScanner } = {}) {
     /** @type {Map<string, {factory: Function, description: string, schema?: object}>} */
     this._subagents = new Map();
     this._quarantineEnabled = true;
+    this._injectionScanner =
+      injectionScanner instanceof InjectionScanner
+        ? injectionScanner
+        : new InjectionScanner();
   }
 
   /**
@@ -210,6 +191,7 @@ export class SubagentRegistry {
    */
   register(type, factory, description = "", schema = null) {
     const normalizedType = type.toLowerCase();
+    const injectionScanner = this._injectionScanner;
 
     // Wrap factory to add quarantine on output
     const wrappedFactory = async (...args) => {
@@ -231,7 +213,7 @@ export class SubagentRegistry {
           return rawOutput;
         }
 
-        return quarantineOutput(rawOutput, outputSchema, normalizedType);
+        return quarantineOutput(rawOutput, outputSchema, normalizedType, injectionScanner);
       };
 
       return instance;
