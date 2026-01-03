@@ -126,3 +126,134 @@ export function createBudgetManager(userConfig = {}) {
     degradeThreshold: budgetConfig.degradeThreshold,
   });
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Recursive Budget Inheritance
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 递归预算分配策略
+ */
+export const AllocationStrategy = Object.freeze({
+  EQUAL: "equal", // 均分
+  PROPORTIONAL: "proportional", // 按权重比例
+  FIXED: "fixed", // 固定额度
+  REMAINING: "remaining", // 使用剩余预算
+});
+
+/**
+ * 递归预算管理器 - 支持子代理预算继承
+ */
+export class RecursiveBudgetManager extends BudgetManager {
+  /**
+   * @param {object} options
+   * @param {BudgetManager} [options.parent] - 父级预算管理器
+   * @param {number} [options.inheritRatio=0.5] - 继承父级预算的比例
+   * @param {string} [options.strategy='remaining'] - 分配策略
+   * @param {number} [options.depth=0] - 递归深度
+   * @param {number} [options.maxDepth=5] - 最大递归深度
+   */
+  constructor({
+    parent,
+    inheritRatio = 0.5,
+    strategy = AllocationStrategy.REMAINING,
+    depth = 0,
+    maxDepth = 5,
+    ...baseOptions
+  } = {}) {
+    // 从父级继承预算
+    if (parent) {
+      const remaining = parent.getRemaining();
+      const ratio = Math.min(1, Math.max(0.1, inheritRatio));
+
+      baseOptions.maxInputTokens = baseOptions.maxInputTokens ?? Math.floor(remaining.input * ratio);
+      baseOptions.maxOutputTokens = baseOptions.maxOutputTokens ?? Math.floor(remaining.output * ratio);
+      baseOptions.maxTotalTokens = baseOptions.maxTotalTokens ?? Math.floor(remaining.total * ratio);
+    }
+
+    super(baseOptions);
+
+    this._parent = parent;
+    this._inheritRatio = inheritRatio;
+    this._strategy = strategy;
+    this._depth = depth;
+    this._maxDepth = maxDepth;
+    this._children = [];
+  }
+
+  /**
+   * 为子代理创建预算
+   * @param {object} options
+   * @returns {RecursiveBudgetManager}
+   */
+  createChildBudget(options = {}) {
+    if (this._depth >= this._maxDepth) {
+      throw new Error(`Max recursion depth (${this._maxDepth}) reached`);
+    }
+
+    const child = new RecursiveBudgetManager({
+      parent: this,
+      inheritRatio: options.inheritRatio ?? this._inheritRatio * 0.8, // 递减
+      strategy: options.strategy ?? this._strategy,
+      depth: this._depth + 1,
+      maxDepth: this._maxDepth,
+      degradeThreshold: options.degradeThreshold ?? this.degradeThreshold,
+      ...options,
+    });
+
+    this._children.push(child);
+    return child;
+  }
+
+  /**
+   * 同步子级消耗到父级
+   */
+  syncToParent() {
+    if (!this._parent) return;
+
+    const totalChildUsage = this._children.reduce(
+      (acc, child) => ({
+        input: acc.input + child.usage.input,
+        output: acc.output + child.usage.output,
+      }),
+      { input: 0, output: 0 }
+    );
+
+    // 父级记录子级消耗
+    this._parent.recordUsage(totalChildUsage);
+  }
+
+  /**
+   * 获取层级信息
+   */
+  getHierarchyInfo() {
+    return {
+      depth: this._depth,
+      maxDepth: this._maxDepth,
+      childCount: this._children.length,
+      strategy: this._strategy,
+      inheritRatio: this._inheritRatio,
+      hasParent: !!this._parent,
+    };
+  }
+
+  /**
+   * 获取所有后代的总消耗
+   */
+  getTotalDescendantUsage() {
+    let total = { input: 0, output: 0, total: 0 };
+
+    for (const child of this._children) {
+      total.input += child.usage.input;
+      total.output += child.usage.output;
+      total.total += child.usage.total;
+
+      const descendant = child.getTotalDescendantUsage();
+      total.input += descendant.input;
+      total.output += descendant.output;
+      total.total += descendant.total;
+    }
+
+    return total;
+  }
+}
