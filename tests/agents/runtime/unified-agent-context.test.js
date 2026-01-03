@@ -329,6 +329,24 @@ describe("UnifiedAgentContext", () => {
       assert.equal(ctx._memory.L0.taskGoal, "restored");
       assert.deepEqual(restoredShared, { signals: [{ type: "test" }] });
     });
+
+    it("should support incremental snapshots (P2.3)", async () => {
+      const ctx = new UnifiedAgentContext({ runId: "incr_test" });
+      let toSnapshotOptions = null;
+
+      ctx._state = { toSnapshot: () => ({ iteration: 1 }) };
+      ctx._memory = {
+        toSnapshot: (opts) => {
+          toSnapshotOptions = opts;
+          return { L0: { taskGoal: "test" } };
+        },
+      };
+
+      await ctx.saveCheckpoint({ incremental: true });
+
+      assert.ok(toSnapshotOptions);
+      assert.equal(toSnapshotOptions.incremental, true);
+    });
   });
 
   describe("getContextStatus", () => {

@@ -309,7 +309,11 @@ export class UnifiedAgentContext {
       runId: this.runId,
       timestamp: checkpointTimestamp,
       state: stateSnapshot,
-      memory: this._memory?.toSnapshot ? this._memory.toSnapshot({ includeL3: Boolean(options?.includeMemoryL3) }) : this._memory ? {
+      // P2.3: 支持增量快照，减少 checkpoint 开销
+      memory: this._memory?.toSnapshot ? this._memory.toSnapshot({
+        includeL3: Boolean(options?.includeMemoryL3),
+        incremental: Boolean(options?.incremental),
+      }) : this._memory ? {
         // Backward compatibility: old MemoryStore versions without toSnapshot()
         L0: deepClone(this._memory.L0),
         L1: {
