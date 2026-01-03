@@ -4,36 +4,7 @@ import { TokenBucketRateLimiter } from "./rate-limit.js";
 import { safeJsonParse } from "../shared/utils/safe-json.js";
 import { CircuitBreaker, CircuitState } from "../shared/utils/circuit-breaker.js";
 import { getGlobalTokenTracker } from "../runtime/telemetry/token-tracker.js";
-
-// 浏览器兼容的 EventEmitter 简易实现
-class EventEmitter {
-  constructor() {
-    this._events = new Map();
-  }
-  on(event, listener) {
-    if (!this._events.has(event)) this._events.set(event, []);
-    this._events.get(event).push(listener);
-    return this;
-  }
-  off(event, listener) {
-    const listeners = this._events.get(event);
-    if (listeners) {
-      const idx = listeners.indexOf(listener);
-      if (idx !== -1) listeners.splice(idx, 1);
-    }
-    return this;
-  }
-  emit(event, ...args) {
-    const listeners = this._events.get(event);
-    if (listeners) for (const fn of [...listeners]) fn(...args);
-    return listeners?.length > 0;
-  }
-  removeAllListeners(event) {
-    if (event) this._events.delete(event);
-    else this._events.clear();
-    return this;
-  }
-}
+import { ModelEventEmitter } from "./model-events.js";
 
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -133,7 +104,11 @@ function defaultTime() {
   };
 }
 
-export class ModelRouter extends EventEmitter {
+const CIRCUIT_BREAKER_POOL_MAX = 100;
+const CIRCUIT_BREAKER_STALE_MS = 30 * 60_000;
+const CIRCUIT_BREAKER_CLEANUP_INTERVAL_MS = 60_000;
+
+export class ModelRouter {
   constructor({
     models,
     usageConfig,
@@ -152,7 +127,7 @@ export class ModelRouter extends EventEmitter {
     roundRobinStorageKey = "paperburner_modelrouter_rr_v1",
     storage = null,
   } = {}) {
-    super();
+    this._events = new ModelEventEmitter();
 
     if (debug !== undefined && typeof debug !== "boolean") throw new TypeError("ModelRouter: debug must be a boolean");
     const normalizedStrategy = normalizeRouterStrategy(strategy, "");
@@ -233,7 +208,8 @@ export class ModelRouter extends EventEmitter {
 
     this._health = new Map(); // modelId -> {unhealthyUntilMs, failures, lastError}
     this._rateLimiters = new Map(); // modelId -> TokenBucketRateLimiter
-    this._circuitBreakers = new Map(); // modelId -> CircuitBreaker (P3.3)
+    this._circuitBreakers = new Map(); // modelId -> { breaker: CircuitBreaker, lastUsedMs: number }
+    this._lastCircuitBreakerCleanupMs = null;
 
     if (this._persistRoundRobin && this._roundRobinStorage) {
       try {
@@ -257,6 +233,26 @@ export class ModelRouter extends EventEmitter {
         // ignore
       }
     }
+  }
+
+  on(event, listener) {
+    this._events.on(event, listener);
+    return this;
+  }
+
+  off(event, listener) {
+    this._events.off(event, listener);
+    return this;
+  }
+
+  emit(event, ...args) {
+    this._events.emit(event, ...args);
+    return this;
+  }
+
+  removeAllListeners(event) {
+    this._events.removeAllListeners(event);
+    return this;
   }
 
   getModelEntry(modelId) {
@@ -386,6 +382,41 @@ export class ModelRouter extends EventEmitter {
     return this._rateLimiters.get(id) || null;
   }
 
+  _cleanupStaleBreakers(nowMs = null) {
+    const now = typeof nowMs === "number" && Number.isFinite(nowMs) ? nowMs : this._time.now();
+    for (const [id, record] of this._circuitBreakers.entries()) {
+      const lastUsedMs = record?.lastUsedMs;
+      if (typeof lastUsedMs !== "number" || !Number.isFinite(lastUsedMs) || now - lastUsedMs > CIRCUIT_BREAKER_STALE_MS) {
+        this._circuitBreakers.delete(id);
+      }
+    }
+  }
+
+  _maybeCleanupStaleBreakers() {
+    const now = this._time.now();
+    const last = this._lastCircuitBreakerCleanupMs;
+    if (typeof last === "number" && Number.isFinite(last) && now - last < CIRCUIT_BREAKER_CLEANUP_INTERVAL_MS) return;
+    this._lastCircuitBreakerCleanupMs = now;
+    this._cleanupStaleBreakers(now);
+  }
+
+  _evictLruBreakers() {
+    while (this._circuitBreakers.size > CIRCUIT_BREAKER_POOL_MAX) {
+      let lruKey = null;
+      let lruLastUsedMs = Infinity;
+      for (const [id, record] of this._circuitBreakers.entries()) {
+        const lastUsedMs =
+          typeof record?.lastUsedMs === "number" && Number.isFinite(record.lastUsedMs) ? record.lastUsedMs : 0;
+        if (lastUsedMs < lruLastUsedMs) {
+          lruLastUsedMs = lastUsedMs;
+          lruKey = id;
+        }
+      }
+      if (lruKey === null) break;
+      this._circuitBreakers.delete(lruKey);
+    }
+  }
+
   /**
    * P3.3: 获取或创建模型的熔断器
    * @param {string} modelId
@@ -395,29 +426,37 @@ export class ModelRouter extends EventEmitter {
     const id = toNonEmptyString(modelId);
     if (!id) return null;
 
-    if (!this._circuitBreakers.has(id)) {
-      this._circuitBreakers.set(id, new CircuitBreaker({
-        name: `model:${id}`,
-        failureThreshold: 5,      // 连续 5 次失败触发熔断
-        successThreshold: 2,      // 半开状态下 2 次成功恢复
-        openDurationMs: 30_000,   // 熔断 30 秒
-        halfOpenMaxCalls: 3,      // 半开状态允许 3 个探测请求
-        isFailure: (err) => {
-          // 排除取消和超时，这些不应触发熔断
-          if (err?.name === "AbortError") return false;
-          if (err?.code === "TIMEOUT") return false;
-          // 认证错误也不应触发熔断（已由 disableModel 处理）
-          if (isPermanentAuthError(err)) return false;
-          return true;
-        },
-        onStateChange: (event) => {
-          this._logger.info(`[ModelRouter] Circuit breaker ${event.name}: ${event.from} → ${event.to} (${event.reason})`);
-          this.emit("circuit.stateChange", event);
-        },
-        time: this._time,
-      }));
+    const now = this._time.now();
+    const existing = this._circuitBreakers.get(id);
+    if (existing?.breaker) {
+      existing.lastUsedMs = now;
+      return existing.breaker;
     }
-    return this._circuitBreakers.get(id);
+
+    const breaker = new CircuitBreaker({
+      name: `model:${id}`,
+      failureThreshold: 5,      // 连续 5 次失败触发熔断
+      successThreshold: 2,      // 半开状态下 2 次成功恢复
+      openDurationMs: 30_000,   // 熔断 30 秒
+      halfOpenMaxCalls: 3,      // 半开状态允许 3 个探测请求
+      isFailure: (err) => {
+        // 排除取消和超时，这些不应触发熔断
+        if (err?.name === "AbortError") return false;
+        if (err?.code === "TIMEOUT") return false;
+        // 认证错误也不应触发熔断（已由 disableModel 处理）
+        if (isPermanentAuthError(err)) return false;
+        return true;
+      },
+      onStateChange: (event) => {
+        this._logger.info(`[ModelRouter] Circuit breaker ${event.name}: ${event.from} → ${event.to} (${event.reason})`);
+        this.emit("circuit.stateChange", event);
+      },
+      time: this._time,
+    });
+
+    this._circuitBreakers.set(id, { breaker, lastUsedMs: now });
+    this._evictLruBreakers();
+    return breaker;
   }
 
   /**
@@ -426,8 +465,10 @@ export class ModelRouter extends EventEmitter {
   getCircuitBreakerState(modelId) {
     const id = toNonEmptyString(modelId);
     if (!id) return null;
-    const breaker = this._circuitBreakers.get(id);
-    return breaker ? breaker.getStats() : null;
+    const record = this._circuitBreakers.get(id);
+    if (!record?.breaker) return null;
+    record.lastUsedMs = this._time.now();
+    return record.breaker.getStats();
   }
 
   /**
@@ -436,8 +477,10 @@ export class ModelRouter extends EventEmitter {
   resetCircuitBreaker(modelId) {
     const id = toNonEmptyString(modelId);
     if (!id) return;
-    const breaker = this._circuitBreakers.get(id);
-    if (breaker) breaker.reset();
+    const record = this._circuitBreakers.get(id);
+    if (!record?.breaker) return;
+    record.lastUsedMs = this._time.now();
+    record.breaker.reset();
   }
 
   _requiredTags({ usage, images } = {}) {
@@ -497,6 +540,9 @@ export class ModelRouter extends EventEmitter {
       this._logger.warn(`[ModelRouter] Unknown usage type: ${u}, valid types: ${Object.values(ModelUsage).join(", ")}`);
     }
     assertChatMessages(messages);
+
+    // 惰性清理熔断器（每 60 秒最多一次）
+    this._maybeCleanupStaleBreakers();
 
     const candidates = this._usageConfig[u];
     if (!Array.isArray(candidates) || candidates.length === 0) throw new Error(`No models configured for usage: ${u}`);
