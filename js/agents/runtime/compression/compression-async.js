@@ -334,5 +334,124 @@ export async function compressSessionHistoryAsync(messages, options = {}, runtim
   }
 }
 
+function isContextSummaryMessage(message) {
+  if (!message || typeof message !== "object") return false;
+  if (message.role !== "system") return false;
+  const content = String(message.content || "").trim();
+  return content.startsWith("[Context Summary]");
+}
+
+function extractContextSummaryBody(message) {
+  if (!isContextSummaryMessage(message)) return "";
+  const raw = String(message?.content ?? "");
+  const newline = raw.indexOf("\n");
+  return newline >= 0 ? raw.slice(newline + 1).trim() : "";
+}
+
+function stripPersistedOutputPreview(text) {
+  const s = String(text || "");
+  const persistedIdx = s.indexOf("\"persistedOutput\"");
+  if (persistedIdx < 0) return s;
+
+  const previewKey = "\"preview\"";
+  const idx = s.indexOf(previewKey, persistedIdx);
+  if (idx < 0) return s;
+
+  const colon = s.indexOf(":", idx + previewKey.length);
+  if (colon < 0) return s;
+
+  let i = colon + 1;
+  while (i < s.length && /\s/.test(s[i])) i++;
+  if (s[i] !== "\"") return s; // only handle string value
+
+  const start = i + 1;
+  i = start;
+  while (i < s.length) {
+    const ch = s[i];
+    if (ch === "\\") {
+      i += 2;
+      continue;
+    }
+    if (ch === "\"") break;
+    i += 1;
+  }
+  if (i >= s.length) return s;
+
+  const endQuote = i;
+  return s.slice(0, start) + "(omitted)" + s.slice(endQuote);
+}
+
+function truncateAtLineBoundary(text, maxChars) {
+  const s = typeof text === "string" ? text : String(text ?? "");
+  const limit = Number.isFinite(Number(maxChars)) ? Math.max(0, Math.floor(Number(maxChars))) : 0;
+  if (!limit || s.length <= limit) return { text: s, truncated: false };
+  const head = s.slice(0, limit);
+  const minKeep = Math.max(0, Math.floor(limit * 0.6));
+  const newline = head.lastIndexOf("\n");
+  const space = head.lastIndexOf(" ");
+  const cut = newline >= minKeep ? newline : space >= minKeep ? space : limit;
+  return { text: s.slice(0, cut) + "\n...(truncated)", truncated: true };
+}
+
+function sanitizeKeptMessages(messages, maxKeptMessageChars) {
+  const maxChars = Number.isFinite(Number(maxKeptMessageChars)) ? Math.max(0, Math.floor(Number(maxKeptMessageChars))) : 0;
+  if (!maxChars) return messages;
+
+  return messages.map((msg) => {
+    if (!msg || typeof msg !== "object") return msg;
+    if (msg.role === "system") return msg;
+    const raw = stripPersistedOutputPreview(msg.content);
+    const { text } = truncateAtLineBoundary(raw, maxChars);
+    return text === msg.content ? msg : { ...msg, content: text };
+  });
+}
+
+/**
+ * AgentLoop message compression (SESSION_HISTORY) with Context Summary handling.
+ *
+ * - Excludes existing "[Context Summary]" messages from the compression input.
+ * - Preserves and carries forward any prior summary text.
+ * - Appends the summary message at the end to keep the prompt prefix stable.
+ */
+export async function compressAgentLoopMessagesAsync(messages, options = {}, runtime = {}) {
+  const list = Array.isArray(messages) ? messages : [];
+
+  const priorSummaryMsg = list.find(isContextSummaryMessage);
+  const priorSummary = extractContextSummaryBody(priorSummaryMsg);
+
+  // Exclude prior summaries from the compression input (they are derived).
+  const messagesForCompression = list.filter((msg) => !isContextSummaryMessage(msg));
+
+  const result = await compressSessionHistoryAsync(
+    messagesForCompression,
+    {
+      keepLastTurns: options.keepLastTurns,
+      titleOnly: options.titleOnly,
+      titleMaxWords: options.titleMaxWords,
+      titleMaxChars: options.titleMaxChars,
+      summaryLineChars: options.summaryLineChars,
+      sessionSummary: priorSummary,
+    },
+    runtime
+  );
+
+  const baseMessages = Array.isArray(result?.messages) ? result.messages : messagesForCompression;
+  const sanitized = sanitizeKeptMessages(baseMessages, options.maxKeptMessageChars);
+
+  let sessionSummary = typeof result?.sessionSummary === "string" ? result.sessionSummary.trim() : "";
+  if (!sessionSummary && priorSummary) sessionSummary = priorSummary;
+
+  const summaryMsg = sessionSummary
+    ? { role: "system", content: `[Context Summary]\n${sessionSummary}` }
+    : null;
+
+  return {
+    messages: summaryMsg ? [...sanitized, summaryMsg] : sanitized,
+    sessionSummary: sessionSummary || null,
+    stats: result?.stats || null,
+    afterTokens: result?.afterTokens,
+  };
+}
+
 export { compressSessionHistorySync };
 export default compressSessionHistoryAsync;

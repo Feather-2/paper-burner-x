@@ -4,7 +4,7 @@ import { AgentStatus, isValidAgentStatus } from "./agent-status.js";
 import { getRuntimeState } from "../telemetry/loop-runtime-state.js";
 import { estimateTokenCount } from "../../shared/utils/value-utils.js";
 import { getGlobalTokenCounter } from "../../shared/tokenizers/adaptive-token-counter.js";
-import { compressSessionHistoryAsync, isCompressionWorkerAvailable } from "../compression/compression-async.js";
+import { CompressionCoordinator } from "../compression/coordinator.js";
 
 const USER_ACTION_PREFIX = "user.action";
 
@@ -45,78 +45,6 @@ function estimateTokens(text, tokenCounter) {
     }
   }
   return estimateTokenCount(rawText);
-}
-
-function containsCjk(text) {
-  return /[\u4e00-\u9fff]/.test(String(text || ""));
-}
-
-function normalizeSummaryText(text) {
-  return String(text || "").replace(/\s+/g, " ").trim();
-}
-
-function toTitle(text, { maxWords = 10, maxChars = 80 } = {}) {
-  const normalized = normalizeSummaryText(text);
-  if (!normalized) return "";
-
-  const maxW = Number.isFinite(Number(maxWords)) ? Math.max(1, Math.floor(Number(maxWords))) : 10;
-  const maxC = Number.isFinite(Number(maxChars)) ? Math.max(10, Math.floor(Number(maxChars))) : 80;
-
-  if (containsCjk(normalized)) {
-    const clipped = normalized.slice(0, maxC);
-    return clipped + (normalized.length > clipped.length ? "..." : "");
-  }
-
-  const words = normalized.split(" ").filter(Boolean);
-  const sliced = words.slice(0, maxW).join(" ");
-  const clipped = sliced.length > maxC ? sliced.slice(0, maxC) : sliced;
-  const truncated = words.length > maxW || normalized.length > clipped.length;
-  return clipped + (truncated ? "..." : "");
-}
-
-function stripPersistedOutputPreview(text) {
-  const s = String(text || "");
-  const persistedIdx = s.indexOf("\"persistedOutput\"");
-  if (persistedIdx < 0) return s;
-
-  const previewKey = "\"preview\"";
-  const idx = s.indexOf(previewKey, persistedIdx);
-  if (idx < 0) return s;
-
-  const colon = s.indexOf(":", idx + previewKey.length);
-  if (colon < 0) return s;
-
-  let i = colon + 1;
-  while (i < s.length && /\s/.test(s[i])) i++;
-  if (s[i] !== "\"") return s; // only handle string value
-
-  const start = i + 1;
-  i = start;
-  while (i < s.length) {
-    const ch = s[i];
-    if (ch === "\\") {
-      i += 2;
-      continue;
-    }
-    if (ch === "\"") break;
-    i += 1;
-  }
-  if (i >= s.length) return s;
-
-  const endQuote = i;
-  return s.slice(0, start) + "(omitted)" + s.slice(endQuote);
-}
-
-function truncateAtLineBoundary(text, maxChars) {
-  const s = typeof text === "string" ? text : String(text ?? "");
-  const limit = Number.isFinite(Number(maxChars)) ? Math.max(0, Math.floor(Number(maxChars))) : 0;
-  if (!limit || s.length <= limit) return { text: s, truncated: false };
-  const head = s.slice(0, limit);
-  const minKeep = Math.max(0, Math.floor(limit * 0.6));
-  const newline = head.lastIndexOf("\n");
-  const space = head.lastIndexOf(" ");
-  const cut = newline >= minKeep ? newline : space >= minKeep ? space : limit;
-  return { text: s.slice(0, cut) + "\n...(truncated)", truncated: true };
 }
 
 function isProductionRuntime() {
@@ -309,8 +237,12 @@ export class BaseAgentLoop {
     this._messages = [];
     this._contextConfig = { ...DEFAULT_CONTEXT_CONFIG, ...contextConfig };
     this._tokenCounter = tokenCounter === null ? null : tokenCounter || getGlobalTokenCounter();
-    this._compressor = null;  // 懒加载
     this._tokenUsage = { input: 0, output: 0, total: 0 };
+    this._compressionCoordinator = new CompressionCoordinator({
+      getContextConfig: () => this._contextConfig,
+      getTokenUsage: () => this._tokenUsage,
+      logger: this.logger,
+    });
     this._compressionPending = false;
     this._compressionPromise = null;
     this._compressionHistory = [];
@@ -364,6 +296,33 @@ export class BaseAgentLoop {
   }
 
   /**
+   * Reset message history and related bookkeeping for a fresh run.
+   *
+   * This awaits any in-flight compression to avoid races where a prior scheduled
+   * compression finishes later and overwrites a new run's messages.
+   *
+   * @param {object} [options]
+   * @param {boolean} [options.clearCompressionHistory=true]
+   */
+  async resetMessages(options = {}) {
+    const clearHistory = options?.clearCompressionHistory !== false;
+
+    try {
+      await this.flushCompression({ maxRounds: 0 });
+    } catch {
+      // ignore
+    }
+
+    this._clearCompressionCooldownTimer();
+    this._messages = [];
+    this._tokenUsage = { input: 0, output: 0, total: 0 };
+    this._compressionPending = false;
+    this._compressionPromise = null;
+    this._lastCompressionAtMs = 0;
+    if (clearHistory) this._compressionHistory = [];
+  }
+
+  /**
    * 全量重算 token 使用统计（仅在压缩或回溯后调用）
    */
   _recalculateTokenUsage() {
@@ -379,6 +338,9 @@ export class BaseAgentLoop {
    * 检查是否需要压缩
    */
   _shouldCompress() {
+    if (this._compressionCoordinator && typeof this._compressionCoordinator.shouldCompress === "function") {
+      return this._compressionCoordinator.shouldCompress();
+    }
     const { contextWindow, compressThreshold } = this._contextConfig;
     const threshold = contextWindow * compressThreshold;
     return this._tokenUsage.total >= threshold;
@@ -490,184 +452,23 @@ export class BaseAgentLoop {
   }
 
   /**
-   * 执行消息压缩（优先使用 Worker，回退到 CicadaCompressor）
+   * 执行消息压缩（委托给 CompressionCoordinator）
    */
   async _compressMessages() {
     this._clearCompressionCooldownTimer();
-    const { keepLastTurns } = this._contextConfig;
     const beforeCount = this._messages.length;
     const beforeTokens = this._tokenUsage.total;
-    const { contextWindow } = this._contextConfig;
-    const fillRatio = contextWindow ? beforeTokens / contextWindow : 0;
-    const titleThresholdRaw = this._contextConfig.titleOnlySummaryThreshold;
-    const titleThreshold = typeof titleThresholdRaw === "number" && Number.isFinite(titleThresholdRaw) ? titleThresholdRaw : 0.8;
-    const titleOnly = fillRatio >= titleThreshold;
-
-    const isContextSummaryMessage = (msg) =>
-      msg && typeof msg === "object" && msg.role === "system" && String(msg.content || "").startsWith("[Context Summary]");
-
-    const extractContextSummaryBody = (msg) => {
-      if (!isContextSummaryMessage(msg)) return "";
-      const raw = String(msg?.content ?? "");
-      const newline = raw.indexOf("\n");
-      return newline >= 0 ? raw.slice(newline + 1).trim() : "";
-    };
-
-    // Preserve any prior summary text (do NOT include it in the compression input to avoid re-summarizing).
-    const priorSummaryMsg = this._messages.find(isContextSummaryMessage);
-    const priorSummary = extractContextSummaryBody(priorSummaryMsg);
-
-    // Anchors: keep system prompts verbatim; exclude prior summaries from the compression input.
-    const messagesForCompression = this._messages.filter((msg) => !isContextSummaryMessage(msg));
-
-    // 尝试使用 Worker 压缩（仅 SESSION_HISTORY 层，纯 CPU 操作）
-    const useWorker = this._contextConfig.useCompressionWorker !== false && isCompressionWorkerAvailable();
-    if (useWorker) {
-      try {
-        const workerResult = await compressSessionHistoryAsync(
-          messagesForCompression,
-          {
-            keepLastTurns,
-            titleOnly,
-            titleMaxWords: this._contextConfig.titleOnlySummaryMaxWords,
-            titleMaxChars: this._contextConfig.titleOnlySummaryMaxChars,
-            sessionSummary: priorSummary,
-          },
-          {
-            useWorker: true,
-            workerThresholdMessages: this._contextConfig.workerThresholdMessages,
-          }
-        );
-
-        this._messages = workerResult.messages || messagesForCompression;
-        if (workerResult.sessionSummary) {
-          const summaryMsg = { role: "system", content: `[Context Summary]\n${workerResult.sessionSummary}` };
-          this._messages.push(summaryMsg);
-        }
-
-        this._recalculateTokenUsage();
-        this._recordCompression(beforeCount, beforeTokens);
-        return;
-      } catch (err) {
-        // Worker 失败，回退到 CicadaCompressor
-        if (this.logger && typeof this.logger.warn === "function") {
-          this.logger.warn("[BaseAgentLoop] Worker compression failed, falling back:", err?.message);
-        }
-      }
-    }
-
-    // 回退：懒加载 CicadaCompressor
-    if (!this._compressor) {
-      try {
-        const { CicadaCompressor } = await import("../compression/cicada-compressor.js");
-        this._compressor = new CicadaCompressor({
-          maxTokens: this._contextConfig.maxOutputTokens,
-          eventBus: this.eventBus,
-        });
-      } catch {
-        // 回退到简单压缩
-        return this._simpleCompress();
-      }
-    }
-
-    // 使用 CicadaCompressor 的 SESSION_HISTORY 层
-    const result = await this._compressor.compress(
-      { messages: messagesForCompression, ...(priorSummary ? { sessionSummary: priorSummary } : {}) },
-      {
-        keepLastTurns,
-        layers: ["session_history"],
-        ...(titleOnly ? { titleOnly: true } : {}),
-        titleMaxWords: this._contextConfig.titleOnlySummaryMaxWords,
-        titleMaxChars: this._contextConfig.titleOnlySummaryMaxChars,
-      }
-    );
-
-    this._messages = result.context.messages || messagesForCompression;
-
-    // 如果有摘要，追加到末尾（更利于 prompt caching：前缀保持稳定）
-    if (result.context.sessionSummary) {
-      const summaryMsg = { role: "system", content: `[Context Summary]\n${result.context.sessionSummary}` };
-      this._messages.push(summaryMsg);
-    }
-
-    this._recalculateTokenUsage();
-    this._recordCompression(beforeCount, beforeTokens);
-  }
-
-  /**
-   * 简单压缩回退（无 CicadaCompressor 时）
-   */
-  _simpleCompress() {
-    this._clearCompressionCooldownTimer();
-    const { keepLastTurns } = this._contextConfig;
-    const beforeCount = this._messages.length;
-    const beforeTokens = this._tokenUsage.total;
-
-    const isContextSummaryMessage = (msg) =>
-      msg && typeof msg === "object" && msg.role === "system" && String(msg.content || "").startsWith("[Context Summary]");
-
-    const extractContextSummaryBody = (msg) => {
-      if (!isContextSummaryMessage(msg)) return "";
-      const raw = String(msg?.content ?? "");
-      const newline = raw.indexOf("\n");
-      return newline >= 0 ? raw.slice(newline + 1).trim() : "";
-    };
-
-    const priorSummaryMsg = this._messages.find(isContextSummaryMessage);
-    const priorSummary = extractContextSummaryBody(priorSummaryMsg);
-
-    // Exclude prior summaries from the compression input (they are derived).
-    const messagesForCompression = this._messages.filter((msg) => !isContextSummaryMessage(msg));
-
-    // Anchors: keep leading system prompts verbatim.
-    const anchors = [];
-    let anchorEnd = 0;
-    while (anchorEnd < messagesForCompression.length) {
-      const msg = messagesForCompression[anchorEnd];
-      if (msg?.role === "system" && !isContextSummaryMessage(msg)) {
-        anchors.push(msg);
-        anchorEnd += 1;
-        continue;
-      }
-      break;
-    }
-
-    const kept = [];
-    const toCompress = [];
-    let turnCount = 0;
-
-    const compressible = messagesForCompression.slice(anchorEnd);
-    for (let i = compressible.length - 1; i >= 0; i--) {
-      const msg = compressible[i];
-      if (turnCount < keepLastTurns) {
-        kept.unshift(msg);
-        if (msg.role === "assistant") turnCount++;
-      } else {
-        toCompress.unshift(msg);
-      }
-    }
-
-    if (toCompress.length === 0) {
-      // Still update last compression timestamp to avoid hot-loop retries when compression cannot help.
-      this._lastCompressionAtMs = Date.now();
+    if (!this._compressionCoordinator || typeof this._compressionCoordinator.maybeCompress !== "function") {
       return;
     }
 
-    const summary = this._buildCompressionSummary(toCompress, { titleOnly });
-    const combined = priorSummary ? `${priorSummary}\n${summary}` : summary;
-    const sanitizedKept = kept.map((msg) => {
-      if (!msg || typeof msg !== "object") return msg;
-      if (msg.role === "system") return msg;
-      const raw = stripPersistedOutputPreview(msg.content);
-      const maxChars = this._contextConfig.maxKeptMessageChars;
-      const { text } = truncateAtLineBoundary(raw, maxChars);
-      return text === msg.content ? msg : { ...msg, content: text };
-    });
-    this._messages = [...anchors, ...sanitizedKept, { role: "system", content: `[Context Summary]\n${combined}` }];
+    const result = await this._compressionCoordinator.maybeCompress(this._messages);
+    if (result && Array.isArray(result.messages)) {
+      this._messages = result.messages;
+    }
 
     this._recalculateTokenUsage();
     this._recordCompression(beforeCount, beforeTokens);
-    this._lastCompressionAtMs = Date.now();
   }
 
   /**
@@ -691,24 +492,6 @@ export class BaseAgentLoop {
         payload: record,
       });
     }
-  }
-
-  /**
-   * 构建压缩摘要
-   */
-  _buildCompressionSummary(messages, { titleOnly = false } = {}) {
-    const maxWords = this._contextConfig.titleOnlySummaryMaxWords;
-    const maxChars = this._contextConfig.titleOnlySummaryMaxChars;
-    const lines = [];
-    for (const msg of messages) {
-      const role = msg.role || "unknown";
-      const raw = String(msg.content || "");
-      const content = titleOnly ? toTitle(raw, { maxWords, maxChars }) : raw.slice(0, 200);
-      if (content) {
-        lines.push(`[${role}] ${content}${!titleOnly && raw.length > 200 ? "..." : ""}`);
-      }
-    }
-    return lines.join("\n");
   }
 
   /**
