@@ -902,23 +902,97 @@ export const runtimeMixin = {
             // ignore (policy is optional)
         }
 
-        // MCP auto-discovery (browser-first): build an McpClient from localStorage config and preload schemas.
-        // This stays optional and never blocks runtime boot.
+        // MCP (explicit registration): read localStorage config and register providers.
+        // Optional and never blocks runtime boot.
         try {
-            const { createAutoMcpClient, preloadMcpTools } = await import('../../agents/mcp/auto-discovery.js');
-            const mcpClient = await createAutoMcpClient({ storage: typeof localStorage !== 'undefined' ? localStorage : null });
+            const storage = typeof localStorage !== 'undefined' ? localStorage : null;
+            const { McpClient, LocalMcpProvider, McpNexusProvider, McpResourceManager } = await import('../../agents/mcp/index.js');
+
+            const parseJson = (raw) => {
+                try {
+                    return raw ? JSON.parse(String(raw)) : null;
+                } catch {
+                    return null;
+                }
+            };
+            const toNonEmptyString = (v) => {
+                const s = typeof v === 'string' ? v.trim() : '';
+                return s ? s : null;
+            };
+            const normalizeEndpoint = (value) => {
+                const raw = toNonEmptyString(value);
+                if (!raw) return null;
+                try {
+                    return new URL(raw).toString().replace(/\/+$/, '');
+                } catch {
+                    return raw.replace(/\/+$/, '');
+                }
+            };
+
+            const mcpClient = new McpClient();
+            mcpClient.addProvider(new LocalMcpProvider({ id: 'local-mcp' }));
+
+            const serversCfg = parseJson(storage?.getItem?.('pb_mcp_servers'));
+            const mcpServers = serversCfg?.mcpServers || serversCfg?.servers || null;
+            if (mcpServers && typeof mcpServers === 'object') {
+                for (const [idRaw, def] of Object.entries(mcpServers)) {
+                    const id = toNonEmptyString(idRaw);
+                    if (!id) continue;
+                    if (!def || typeof def !== 'object') continue;
+                    if (def.enabled === false) continue;
+                    const endpoint = normalizeEndpoint(def.endpoint || def.url || def.baseUrl);
+                    if (!endpoint) continue;
+                    const provider = new McpNexusProvider({
+                        id,
+                        endpoint,
+                        ...(toNonEmptyString(def.authToken || def.token) ? { authToken: toNonEmptyString(def.authToken || def.token) } : {}),
+                        ...(def.headers && typeof def.headers === 'object' ? { headers: def.headers } : {}),
+                        ...(toNonEmptyString(def.sseEndpoint || def.sseUrl || def.sse || def.eventsEndpoint || def.eventsUrl) ? { sseEndpoint: normalizeEndpoint(def.sseEndpoint || def.sseUrl || def.sse || def.eventsEndpoint || def.eventsUrl) } : {}),
+                    });
+                    mcpClient.addProvider(provider);
+                }
+                const defaultProviderId = toNonEmptyString(serversCfg?.defaultProvider || serversCfg?.defaultProviderId);
+                if (defaultProviderId) {
+                    try {
+                        mcpClient.setDefaultProvider(defaultProviderId);
+                    } catch {
+                        // ignore invalid default provider ids
+                    }
+                }
+            } else {
+                const nexusCfg = parseJson(storage?.getItem?.('mcp_nexus_config'));
+                const endpoint = normalizeEndpoint(nexusCfg?.endpoint || nexusCfg?.url || nexusCfg?.baseUrl || nexusCfg);
+                if (endpoint && nexusCfg?.enabled !== false) {
+                    const provider = new McpNexusProvider({
+                        id: 'mcp-nexus',
+                        endpoint,
+                        ...(toNonEmptyString(nexusCfg?.authToken || nexusCfg?.token) ? { authToken: toNonEmptyString(nexusCfg?.authToken || nexusCfg?.token) } : {}),
+                        ...(nexusCfg?.headers && typeof nexusCfg.headers === 'object' ? { headers: nexusCfg.headers } : {}),
+                        ...(toNonEmptyString(nexusCfg?.sseEndpoint || nexusCfg?.sseUrl || nexusCfg?.sse || nexusCfg?.eventsEndpoint || nexusCfg?.eventsUrl) ? { sseEndpoint: normalizeEndpoint(nexusCfg?.sseEndpoint || nexusCfg?.sseUrl || nexusCfg?.sse || nexusCfg?.eventsEndpoint || nexusCfg?.eventsUrl) } : {}),
+                    });
+                    mcpClient.addProvider(provider);
+                    try {
+                        mcpClient.setDefaultProvider(provider.id);
+                    } catch {
+                        // ignore
+                    }
+                }
+            }
+
             services.mcpClient = mcpClient;
             if (!services.externalSearchProvider) services.externalSearchProvider = mcpClient;
             if (typeof window !== 'undefined') window.mcpClient = mcpClient;
+
             try {
-                const { McpResourceManager } = await import('../../agents/mcp/resource-manager.js');
-                const mcpResources = new McpResourceManager({ client: mcpClient, storage: typeof localStorage !== 'undefined' ? localStorage : null });
+                const mcpResources = new McpResourceManager({ client: mcpClient, storage });
                 services.mcpResources = mcpResources;
                 if (typeof window !== 'undefined') window.mcpResources = mcpResources;
             } catch {
                 // ignore
             }
-            preloadMcpTools({ client: mcpClient, storage: typeof localStorage !== 'undefined' ? localStorage : null, refresh: true }).catch(() => { });
+
+            // Best-effort schema warmup (async).
+            mcpClient.healthCheckAll({ refreshTools: true }).catch(() => { });
         } catch {
             // ignore
         }
