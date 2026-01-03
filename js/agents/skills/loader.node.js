@@ -234,7 +234,12 @@ async function discoverSkillsUnderRoot(rootPath, scope, outcome) {
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
     } catch (err) {
-      console.warn(`[skills] Failed to read dir ${dir}: ${err.message}`);
+      if (scope !== SkillScope.SYSTEM) {
+        outcome.errors.push({
+          path: dir,
+          message: `Failed to read dir: ${err?.message || err}`,
+        });
+      }
       continue;
     }
 

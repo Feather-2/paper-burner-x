@@ -6,7 +6,6 @@ import { promises as fs } from "node:fs";
 
 import { SkillScope } from "../../js/agents/skills/model.js";
 import { loadSkills } from "../../js/agents/skills/loader.js";
-import { buildSkillInjections, formatSkillInjections } from "../../js/agents/skills/injection.js";
 import { SkillsManager } from "../../js/agents/skills/manager.js";
 
 async function writeSkillFile(rootDir, scope, name, body, frontmatter) {
@@ -73,8 +72,8 @@ describe("skills/loader.node", () => {
   });
 });
 
-describe("skills/injection + manager", () => {
-  it("builds and formats injections without leaking absolute paths", async () => {
+describe("skills/manager", () => {
+  it("renders catalog without leaking absolute paths", async () => {
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "paperburner-skills-inject-"));
     try {
       await writeSkillFile(cwd, SkillScope.REPO, "AlphaSkill", "Body A", {
@@ -84,22 +83,20 @@ describe("skills/injection + manager", () => {
       });
 
       const outcome = await loadSkills({ cwd, homeDir: null });
-      const injections = await buildSkillInjections("please use alpha", outcome);
-      assert.equal(injections.items.length, 1);
-      assert.equal(injections.items[0].name, "AlphaSkill");
-      assert.equal(injections.items[0].path.includes(cwd.replaceAll("\\", "/")), false);
-
-      const prompt = formatSkillInjections(injections);
-      assert.ok(prompt.includes("## Skill Instructions"));
-      assert.ok(prompt.includes("### AlphaSkill"));
+      assert.equal(outcome.skills.length, 1);
+      assert.equal(outcome.skills[0].metadata.name, "AlphaSkill");
 
       const manager = new SkillsManager({ cacheTtlMs: 60_000 });
       const a = await manager.getSkillsForCwd(cwd);
       const b = await manager.getSkillsForCwd(cwd);
       assert.equal(a, b);
+
+      const catalog = await manager.getCatalogPrompt(cwd);
+      assert.ok(catalog.includes("## Skills Catalog"));
+      assert.ok(catalog.includes("$AlphaSkill"));
+      assert.equal(catalog.includes(cwd.replaceAll("\\", "/")), false);
     } finally {
       await fs.rm(cwd, { recursive: true, force: true });
     }
   });
 });
-

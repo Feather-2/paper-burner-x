@@ -4,7 +4,6 @@
  */
 
 import { loadSkills } from "./loader.js";
-import { buildSkillInjections, formatSkillInjections } from "./injection.js";
 import { renderSkillsList } from "./render.js";
 
 /**
@@ -13,7 +12,7 @@ import { renderSkillsList } from "./render.js";
  * 功能：
  * - 按 CWD 缓存 Skills
  * - 支持强制重新加载
- * - 提供 Skill 注入构建
+ * - 提供 Skills Catalog（元数据）
  */
 export class SkillsManager {
   constructor(options = {}) {
@@ -78,7 +77,7 @@ export class SkillsManager {
           }
         }
       } catch (err) {
-        console.warn(`[SkillsManager] Failed to load remote skills: ${err.message}`);
+        // ignore remote skills errors (best-effort)
       }
     }
 
@@ -89,27 +88,6 @@ export class SkillsManager {
       this.cacheByDir.delete(oldest);
     }
     return outcome;
-  }
-
-  /**
-   * 构建 Skill 注入
-   *
-   * @param {string} input - 用户输入
-   * @param {string} cwd - 当前工作目录
-   * @param {Object} options
-   * @returns {Promise<SkillInjections>}
-   */
-  async buildInjections(input, cwd, options = {}) {
-    const outcome = await this.getSkillsForCwd(cwd);
-    return buildSkillInjections(input, outcome, { ...options, remoteProvider: options.remoteProvider || this.remoteProvider || null });
-  }
-
-  /**
-   * 获取格式化的 Skill 注入 prompt
-   */
-  async getInjectionPrompt(input, cwd, options = {}) {
-    const injections = await this.buildInjections(input, cwd, options);
-    return formatSkillInjections(injections);
   }
 
   /**
@@ -141,19 +119,6 @@ export class SkillsManager {
     const outcome = await this.getSkillsForCwd(cwd);
     return outcome.skills.map(s => s.metadata);
   }
-}
-
-// 全局单例
-let _globalManager = null;
-
-/**
- * 获取全局 SkillsManager 实例
- */
-export function getGlobalSkillsManager(options = {}) {
-  if (!_globalManager) {
-    _globalManager = new SkillsManager(options);
-  }
-  return _globalManager;
 }
 
 export default SkillsManager;
