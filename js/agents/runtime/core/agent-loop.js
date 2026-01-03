@@ -5,6 +5,12 @@ import { getRuntimeState } from "../telemetry/loop-runtime-state.js";
 import { estimateTokenCount } from "../../shared/utils/value-utils.js";
 import { getGlobalTokenCounter } from "../../shared/tokenizers/adaptive-token-counter.js";
 import { CompressionCoordinator } from "../compression/coordinator.js";
+import { MessageManager } from "./message-manager.js";
+import { ToolRegistry } from "./tool-registry.js";
+import { StatusController } from "./status-controller.js";
+
+// Re-export 组合类供外部使用
+export { MessageManager, ToolRegistry, StatusController };
 
 const USER_ACTION_PREFIX = "user.action";
 
@@ -215,16 +221,35 @@ export class BaseAgentLoop {
     this.actor = actor || stageName || "agent";
     this.stageName = stageName || actor || "agent";
     this.emit = typeof emit === "function" ? emit : null;
-    this._tools = {};
-    this._hooks = { before: [], after: [], ...(hooks || {}) };
-    this.registerTools(tools);
-    this._loopMachine = null;
-    this._loopEventName = null;
-    this._loopStatus = null;
-    this._strictLoopStatusTransitions = resolveStrictLoopStatusTransitions(strictLoopStatus);
-    this._statusHistory = [];
-    this._pauseRequested = false;
-    this._pauseReason = null;
+
+    // 组合类实例（职责拆分）
+    this._messageManager = new MessageManager({
+      contextConfig,
+      tokenCounter,
+      logger,
+      emit: this.emit,
+      stageName: this.stageName,
+      actor: this.actor,
+    });
+
+    this._toolRegistry = new ToolRegistry({
+      tools,
+      hooks,
+      logger,
+    });
+
+    this._statusController = new StatusController({
+      status: AgentStatus.IDLE,
+      machine: null,
+      eventName: null,
+      strict: strictLoopStatus,
+      logger,
+      emit: this.emit,
+      stageName: this.stageName,
+      actor: this.actor,
+    });
+
+    // 用户输入管理（保留在 BaseAgentLoop）
     this._activeStep = null;
     this._userInputs = [];
     this._userInputUnsub = null;
@@ -233,402 +258,169 @@ export class BaseAgentLoop {
     this._pauseListenerUnsub = null;
     this._executeAbortController = null;
 
-    // 消息管理
-    this._messages = [];
-    this._contextConfig = { ...DEFAULT_CONTEXT_CONFIG, ...contextConfig };
-    this._tokenCounter = tokenCounter === null ? null : tokenCounter || getGlobalTokenCounter();
-    this._tokenUsage = { input: 0, output: 0, total: 0 };
-    this._compressionCoordinator = new CompressionCoordinator({
-      getContextConfig: () => this._contextConfig,
-      getTokenUsage: () => this._tokenUsage,
-      logger: this.logger,
-    });
-    this._compressionPending = false;
-    this._compressionPromise = null;
-    this._compressionHistory = [];
-    this._lastCompressionAtMs = 0;
-    this._compressionCooldownTimer = null;
+    // 向后兼容：保留旧属性引用（逐步废弃）
+    this._tools = this._toolRegistry._tools;
+    this._hooks = this._toolRegistry._hooks;
   }
 
-  // ===== 消息管理 =====
+  // ===== 消息管理 (委托给 MessageManager) =====
 
-  /**
-   * 获取当前消息列表
-   */
   get messages() {
-    return this._messages;
+    return this._messageManager.messages;
   }
 
-  /**
-   * 添加消息并检查是否需要压缩
-   */
+  get _contextConfig() {
+    return this._messageManager._contextConfig;
+  }
+
+  set _contextConfig(value) {
+    this._messageManager._contextConfig = value;
+  }
+
+  get _tokenUsage() {
+    return this._messageManager._tokenUsage;
+  }
+
+  get _compressionHistory() {
+    return this._messageManager._compressionHistory;
+  }
+
+  get _compressionPromise() {
+    return this._messageManager._compressionPromise;
+  }
+
+  get _compressionPending() {
+    return this._messageManager._compressionPending;
+  }
+
   addMessage(message) {
-    this._messages.push(message);
-    // 增量更新 Token 计数
-    const messageTokens = estimateTokens(message.content, this._tokenCounter);
-    this._tokenUsage.input += messageTokens;
-    this._tokenUsage.total += messageTokens;
-
-    // 检查是否需要压缩
-    if (this._shouldCompress()) {
-      this._scheduleCompression();
-    }
-
-    return message;
+    return this._messageManager.addMessage(message);
   }
 
-  /**
-   * 批量添加消息
-   */
   addMessages(messages) {
-    let addedTokens = 0;
-    for (const msg of messages) {
-      this._messages.push(msg);
-      addedTokens += estimateTokens(msg.content, this._tokenCounter);
-    }
-    // 增量更新 Token 计数
-    this._tokenUsage.input += addedTokens;
-    this._tokenUsage.total += addedTokens;
-
-    if (this._shouldCompress()) {
-      this._scheduleCompression();
-    }
+    return this._messageManager.addMessages(messages);
   }
 
-  /**
-   * Reset message history and related bookkeeping for a fresh run.
-   *
-   * This awaits any in-flight compression to avoid races where a prior scheduled
-   * compression finishes later and overwrites a new run's messages.
-   *
-   * @param {object} [options]
-   * @param {boolean} [options.clearCompressionHistory=true]
-   */
   async resetMessages(options = {}) {
-    const clearHistory = options?.clearCompressionHistory !== false;
-
-    try {
-      await this.flushCompression({ maxRounds: 0 });
-    } catch {
-      // ignore
-    }
-
-    this._clearCompressionCooldownTimer();
-    this._messages = [];
-    this._tokenUsage = { input: 0, output: 0, total: 0 };
-    this._compressionPending = false;
-    this._compressionPromise = null;
-    this._lastCompressionAtMs = 0;
-    if (clearHistory) this._compressionHistory = [];
+    return this._messageManager.reset(options);
   }
 
-  /**
-   * 全量重算 token 使用统计（仅在压缩或回溯后调用）
-   */
-  _recalculateTokenUsage() {
-    let total = 0;
-    for (const msg of this._messages) {
-      total += estimateTokens(msg.content, this._tokenCounter);
-    }
-    this._tokenUsage.input = total;
-    this._tokenUsage.total = total;
-  }
-
-  /**
-   * 检查是否需要压缩
-   */
   _shouldCompress() {
-    if (this._compressionCoordinator && typeof this._compressionCoordinator.shouldCompress === "function") {
-      return this._compressionCoordinator.shouldCompress();
-    }
-    const { contextWindow, compressThreshold } = this._contextConfig;
-    const threshold = contextWindow * compressThreshold;
-    return this._tokenUsage.total >= threshold;
+    return this._messageManager._shouldCompress();
   }
 
-  _clearCompressionCooldownTimer() {
-    if (!this._compressionCooldownTimer) return;
-    try {
-      clearTimeout(this._compressionCooldownTimer);
-    } catch {
-      // ignore
-    } finally {
-      this._compressionCooldownTimer = null;
-    }
+  _scheduleCompression(options) {
+    return this._messageManager._scheduleCompression(options);
   }
 
-  /**
-   * 调度压缩（异步，不阻塞主流程）
-   */
-  _scheduleCompression({ force = false } = {}) {
-    // 防止重复调度
-    if (this._compressionPending) return;
-
-    // Cooldown: avoid thrashing when still above threshold (e.g., huge kept messages).
-    const cooldownRaw = this._contextConfig?.compressCooldownMs;
-    const cooldownMs = Number.isFinite(Number(cooldownRaw)) ? Math.max(0, Math.floor(Number(cooldownRaw))) : 0;
-    const now = Date.now();
-    if (!force && cooldownMs > 0 && this._lastCompressionAtMs > 0) {
-      const elapsed = now - this._lastCompressionAtMs;
-      if (elapsed >= 0 && elapsed < cooldownMs) {
-        if (!this._compressionCooldownTimer) {
-          const waitMs = Math.max(0, cooldownMs - elapsed);
-          const t = setTimeout(() => {
-            this._compressionCooldownTimer = null;
-            if (this._shouldCompress()) this._scheduleCompression({ force: true });
-          }, waitMs);
-          // Node: don't keep the event loop alive for a best-effort cooldown timer.
-          if (t && typeof t.unref === "function") {
-            try {
-              t.unref();
-            } catch {
-              // ignore
-            }
-          }
-          this._compressionCooldownTimer = t;
-        }
-        return;
-      }
-    }
-
-    // Any scheduled immediate compression supersedes prior delayed timers.
-    this._clearCompressionCooldownTimer();
-    this._compressionPending = true;
-
-    let resolve = null;
-    const done = new Promise((r) => {
-      resolve = r;
-    });
-    this._compressionPromise = done;
-
-    queueMicrotask(() => {
-      Promise.resolve()
-        .then(() => this._compressMessages())
-        .catch(() => { })
-        .finally(() => {
-          this._lastCompressionAtMs = Date.now();
-          this._compressionPending = false;
-          if (this._compressionPromise === done) this._compressionPromise = null;
-          resolve?.();
-        });
-    });
+  async flushCompression(options) {
+    return this._messageManager.flushCompression(options);
   }
 
-  /**
-   * Flush pending compression, and optionally enforce compression before a model call.
-   * This makes compression a synchronous barrier to avoid "schedule but not applied" races.
-   *
-   * @param {object} [options]
-   * @param {number} [options.maxRounds=2] Max extra compression rounds if still above threshold.
-   */
-  async flushCompression(options = {}) {
-    const maxRoundsRaw = typeof options?.maxRounds === "number" && Number.isFinite(options.maxRounds) ? options.maxRounds : 2;
-    const maxRounds = Math.max(0, Math.floor(maxRoundsRaw));
-
-    if (this._compressionPromise) {
-      try {
-        await this._compressionPromise;
-      } catch { }
-    }
-
-    this._clearCompressionCooldownTimer();
-    let rounds = 0;
-    while (this._shouldCompress() && rounds < maxRounds) {
-      rounds += 1;
-      this._compressionPending = true;
-      const p = Promise.resolve()
-        .then(() => this._compressMessages())
-        .catch(() => { })
-        .finally(() => {
-          this._lastCompressionAtMs = Date.now();
-          this._compressionPending = false;
-        });
-      this._compressionPromise = p;
-      try {
-        await p;
-      } catch { }
-      if (this._compressionPromise === p) this._compressionPromise = null;
-    }
-  }
-
-  /**
-   * 执行消息压缩（委托给 CompressionCoordinator）
-   */
   async _compressMessages() {
-    this._clearCompressionCooldownTimer();
-    const beforeCount = this._messages.length;
-    const beforeTokens = this._tokenUsage.total;
-    if (!this._compressionCoordinator || typeof this._compressionCoordinator.maybeCompress !== "function") {
-      return;
-    }
-
-    const result = await this._compressionCoordinator.maybeCompress(this._messages);
-    if (result && Array.isArray(result.messages)) {
-      this._messages = result.messages;
-    }
-
-    this._recalculateTokenUsage();
-    this._recordCompression(beforeCount, beforeTokens);
+    return this._messageManager._compress();
   }
 
-  /**
-   * 记录压缩历史
-   */
-  _recordCompression(beforeCount, beforeTokens) {
-    const record = {
-      timestamp: Date.now(),
-      beforeCount,
-      afterCount: this._messages.length,
-      beforeTokens,
-      afterTokens: this._tokenUsage.total,
-    };
-    this._compressionHistory.push(record);
-
-    const emit = this.emit || this.eventBus?.emit;
-    if (typeof emit === "function") {
-      emit(`${this.stageName}.context.compressed`, {
-        actor: this.actor,
-        status: "info",
-        payload: record,
-      });
-    }
-  }
-
-  /**
-   * 获取上下文状态
-   */
   getContextStatus() {
-    const { contextWindow, compressThreshold } = this._contextConfig;
-    return {
-      messageCount: this._messages.length,
-      tokenUsage: { ...this._tokenUsage },
-      contextWindow,
-      fillRatio: this._tokenUsage.total / contextWindow,
-      compressThreshold,
-      needsCompression: this._shouldCompress(),
-      compressionPending: !!this._compressionPending,
-      compressionCount: this._compressionHistory.length,
-    };
+    return this._messageManager.getStatus();
   }
 
-  /**
-   * 设置上下文配置（支持运行时调整）
-   */
   setContextConfig(config) {
-    this._contextConfig = { ...this._contextConfig, ...config };
-    if (config && typeof config === "object" && Object.prototype.hasOwnProperty.call(config, "tokenCounter")) {
-      const tc = config.tokenCounter;
-      this._tokenCounter = tc === null ? null : tc || this._tokenCounter;
-    }
+    return this._messageManager.setContextConfig(config);
   }
+
+  // ===== 工具管理 (委托给 ToolRegistry) =====
 
   registerTools(tools) {
-    if (!tools) return;
-    if (tools instanceof Map) {
-      for (const [name, fn] of tools.entries()) {
-        this.registerTool(name, fn);
-      }
-      return;
-    }
-    if (Array.isArray(tools)) {
-      for (const [name, fn] of tools) {
-        this.registerTool(name, fn);
-      }
-      return;
-    }
-    if (typeof tools === "object") {
-      for (const [name, fn] of Object.entries(tools)) {
-        this.registerTool(name, fn);
-      }
-      return;
-    }
-    throw new TypeError("BaseAgentLoop.registerTools: tools must be an object, array, or map");
+    return this._toolRegistry.registerTools(tools);
   }
 
   registerTool(name, fn) {
-    if (!name || typeof name !== "string") {
-      throw new TypeError("BaseAgentLoop.registerTool: name must be a non-empty string");
-    }
-    if (typeof fn !== "function") {
-      throw new TypeError("BaseAgentLoop.registerTool: fn must be a function");
-    }
-    this._tools[name] = fn;
+    return this._toolRegistry.registerTool(name, fn);
   }
 
-  /**
-   * 注册 Hook (SDK 风格)
-   * @param {"before"|"after"} phase
-   * @param {Function} fn
-   * @returns {BaseAgentLoop}
-   */
   useHook(phase, fn) {
-    if (phase !== "before" && phase !== "after") {
-      throw new Error(`Invalid hook phase: ${phase}`);
-    }
-    if (typeof fn !== "function") {
-      throw new Error("Hook must be a function");
-    }
-    this._hooks[phase].push(fn);
+    this._toolRegistry.useHook(phase, fn);
     return this;
   }
 
-  _emitStage(name, status, payload) {
-    const emit = this.emit || this.eventBus?.emit;
-    if (typeof emit !== "function") return;
-    emit(name, { actor: this.actor, status, payload });
+  async _callTool(name, params, context) {
+    return this._toolRegistry.callTool(name, params, context);
   }
 
-  async _callTool(name, params, context) {
-    // Before hooks - can skip or modify params
-    let finalParams = params;
-    // Before hooks - can skip or modify params (isolated)
-    for (const hook of this._hooks.before) {
-      try {
-        const hookResult = await hook({ tool: name, params: finalParams, context });
-        if (hookResult?.skip) {
-          return normalizeToolResult(hookResult.value);
-        }
-        if (hookResult?.params) {
-          finalParams = hookResult.params;
-        }
-      } catch (e) {
-        this.logger?.warn(`[agent-loop] BeforeHook failed for ${name}: ${e.message}`);
-      }
-    }
+  // ===== 状态管理 (委托给 StatusController) =====
 
-    // Execute tool
-    const executor = resolveToolExecutor(context);
-    let result;
-    if (executor) {
-      result = normalizeToolResult(await executor(name, finalParams, context));
-    } else {
-      const tool = this._tools[name];
-      if (!tool) {
-        result = { ok: false, error: `Unknown tool: ${name}` };
-      } else {
-        try {
-          const data = await tool(finalParams, context);
-          result = { ok: true, data };
-        } catch (err) {
-          result = { ok: false, error: err instanceof Error ? err.message : String(err) };
-        }
-      }
-    }
+  get loopStatus() {
+    return this._statusController.status;
+  }
 
-    // After hooks - can transform result
-    // After hooks - can transform result (isolated)
-    for (const hook of this._hooks.after) {
-      try {
-        const hookResult = await hook({ tool: name, params: finalParams, result, context });
-        if (hookResult !== undefined) {
-          result = normalizeToolResult(hookResult);
-        }
-      } catch (e) {
-        this.logger?.warn(`[agent-loop] AfterHook failed for ${name}: ${e.message}`);
-      }
-    }
+  get _loopStatus() {
+    return this._statusController._loopStatus;
+  }
 
-    return result;
+  set _loopStatus(value) {
+    this._statusController._loopStatus = value;
+  }
+
+  get isPaused() {
+    return this._statusController.isPaused;
+  }
+
+  get _pauseRequested() {
+    return this._statusController._pauseRequested;
+  }
+
+  set _pauseRequested(value) {
+    this._statusController._pauseRequested = value;
+  }
+
+  get _pauseReason() {
+    return this._statusController._pauseReason;
+  }
+
+  set _pauseReason(value) {
+    this._statusController._pauseReason = value;
+  }
+
+  get statusHistory() {
+    return this._statusController.statusHistory;
+  }
+
+  get _statusHistory() {
+    return this._statusController._statusHistory;
+  }
+
+  initLoopStatus({ status, machine, eventName, strict } = {}) {
+    this._statusController.init({ status, machine, eventName, strict });
+  }
+
+  pause(reason = "user_requested") {
+    this._statusController.pause(reason);
+    this._abortActiveStep(reason);
+  }
+
+  resume() {
+    this._statusController.resume();
+  }
+
+  _transitionLoopStatus(newStatus, metadata = {}) {
+    return this._statusController.transition(newStatus, metadata);
+  }
+
+  _checkPaused(signal) {
+    return this._statusController.checkPaused(signal);
+  }
+
+  _createPauseError(options) {
+    return this._statusController.createPauseError(options);
+  }
+
+  _shouldPauseFromError(err, signal) {
+    return this._statusController.shouldPauseFromError(err, signal);
+  }
+
+  _isAbortError(err, signal) {
+    return this._statusController._isAbortError(err, signal);
   }
 
   _transitionPhase(state, next, { emit, runId, payload, eventName } = {}) {
@@ -737,97 +529,6 @@ export class BaseAgentLoop {
       this._detachEventBusListeners();
       if (this._executeAbortController === executeController) this._executeAbortController = null;
     }
-  }
-
-  _checkPaused(signal) {
-    checkPaused(signal);
-  }
-
-  pause(reason = "user_requested") {
-    this._pauseRequested = true;
-    this._pauseReason = reason;
-    this._abortActiveStep(reason);
-  }
-
-  resume() {
-    this._pauseRequested = false;
-    this._pauseReason = null;
-  }
-
-  get loopStatus() {
-    return this._loopStatus;
-  }
-
-  get isPaused() {
-    return this._pauseRequested;
-  }
-
-  get statusHistory() {
-    return Array.isArray(this._statusHistory) ? [...this._statusHistory] : [];
-  }
-
-  initLoopStatus({ status, machine, eventName, strict } = {}) {
-    if (machine) this._loopMachine = machine;
-    if (eventName) this._loopEventName = eventName;
-    if (status) this._loopStatus = status;
-    if (typeof strict === "boolean") this._strictLoopStatusTransitions = strict;
-    if (!Array.isArray(this._statusHistory)) this._statusHistory = [];
-  }
-
-  _emitAgentStatusChanged(payload, { eventName } = {}) {
-    const emit = this.emit || this.eventBus?.emit;
-    if (typeof emit !== "function") return;
-    const name = eventName || this._loopEventName || `${this.stageName}.agent.status.changed`;
-    emit(name, { actor: this.actor, status: "info", payload });
-  }
-
-  _recordLoopStatusTransition({ from, to, timestamp, ...meta } = {}) {
-    const ts = typeof timestamp === "number" ? timestamp : Date.now();
-    const entry = { from, to, timestamp: ts, ...meta };
-    if (!Array.isArray(this._statusHistory)) this._statusHistory = [];
-    this._statusHistory.push(entry);
-    this._loopStatus = to;
-    this._emitAgentStatusChanged(entry);
-    return entry;
-  }
-
-  _transitionLoopStatus(newStatus, metadata = {}) {
-    const oldStatus = this._loopStatus;
-    if (oldStatus === newStatus) return null;
-
-    const meta = metadata && typeof metadata === "object" ? metadata : {};
-    const from = oldStatus;
-    const to = newStatus;
-
-    let ok = true;
-    const machine = this._loopMachine;
-    if (machine) {
-      try {
-        if (typeof machine === "function") ok = machine(from, to, meta) !== false;
-        else if (typeof machine.canTransition === "function") ok = machine.canTransition(from, to, meta) !== false;
-        else if (typeof machine.transition === "function") ok = machine.transition(from, to, meta) !== false;
-      } catch (err) {
-        ok = false;
-        const message = err instanceof Error ? err.message : String(err);
-        this.logger?.warn?.(`[agent-loop] loopStatus machine threw: ${message}`);
-      }
-    } else {
-      ok = isAllowedLoopStatusTransition(from, to, meta);
-    }
-
-    if (!ok) {
-      const strict = typeof meta.strict === "boolean" ? meta.strict : this._strictLoopStatusTransitions;
-      const msg = `${this.stageName} loopStatus transition rejected: ${from} -> ${to}`;
-      if (strict) throw new Error(msg);
-      if (this.logger && typeof this.logger.warn === "function") {
-        this.logger.warn(msg);
-      } else {
-        console.warn(msg);
-      }
-      return this._recordLoopStatusTransition({ from: oldStatus, to: newStatus, invalid: true, ...meta });
-    }
-
-    return this._recordLoopStatusTransition({ from: oldStatus, to: newStatus, ...meta });
   }
 
   _attachUserInputListener(eventBus, { eventName, signal } = {}) {

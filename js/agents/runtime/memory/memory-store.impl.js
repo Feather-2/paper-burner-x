@@ -220,19 +220,70 @@ export class MemoryStore {
   }
 
   // Read-only layer snapshots (external callers must use APIs to mutate).
+  // COW 优化: getter 返回 frozen 浅拷贝，避免每次深拷贝开销
+  // 需要深拷贝时使用 cloneL0() / cloneL1() / cloneL2() / cloneL3()
+
   get L0() {
-    return deepClone(this._L0);
+    // 浅拷贝 + freeze，防止外部直接修改
+    const shallow = {
+      systemPrompt: this._L0.systemPrompt,
+      taskGoal: this._L0.taskGoal,
+      todos: Object.freeze([...this._L0.todos]),  // 数组浅拷贝
+    };
+    return Object.freeze(shallow);
   }
 
   get L1() {
-    return deepClone(this._L1);
+    const shallow = {
+      messages: Object.freeze([...this._L1.messages]),
+      signals: Object.freeze([...this._L1.signals]),
+      decisions: Object.freeze([...this._L1.decisions]),
+      syncTable: Object.freeze({
+        discoveries: this._L1.syncTable.discoveries,  // Map 引用，外部不应修改
+        subagents: this._L1.syncTable.subagents,
+      }),
+      scratchpad: Object.freeze({ ...this._L1.scratchpad }),
+      flags: Object.freeze({ ...this._L1.flags }),
+    };
+    return Object.freeze(shallow);
   }
 
   get L2() {
-    return deepClone(this._L2);
+    const shallow = {
+      historySummary: this._L2.historySummary,
+      stageSummaries: this._L2.stageSummaries,  // Map 引用
+      claims: Object.freeze([...this._L2.claims]),
+    };
+    return Object.freeze(shallow);
   }
 
   get L3() {
+    const shallow = {
+      snapshots: this._L3.snapshots,  // Map 引用
+      index: Object.freeze({
+        keywords: this._L3.index.keywords,
+        stages: this._L3.index.stages,
+        timeline: Object.freeze([...this._L3.index.timeline]),
+      }),
+      checkpoints: Object.freeze([...this._L3.checkpoints]),
+    };
+    return Object.freeze(shallow);
+  }
+
+  // 显式深拷贝方法（用于 checkpoint/backtrack 等需要独立副本的场景）
+  cloneL0() {
+    return deepClone(this._L0);
+  }
+
+  cloneL1() {
+    return deepClone(this._L1);
+  }
+
+  cloneL2() {
+    return deepClone(this._L2);
+  }
+
+  cloneL3() {
     return deepClone(this._L3);
   }
 
