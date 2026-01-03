@@ -11,7 +11,6 @@
 import { McpProvider, McpClient, McpToolDefinition, McpToolResult } from "./mcp-client.js";
 import { LocalMcpProvider, createLocalMcpProvider } from "./local-mcp-provider.js";
 import { McpNexusProvider } from "./mcp-nexus-provider.js";
-import { createAutoMcpClient, preloadMcpTools } from "./auto-discovery.js";
 import { McpResourceManager } from "./resource-manager.js";
 import { createSseParser, consumeSse, consumeSseJson } from "./sse.js";
 
@@ -23,8 +22,6 @@ export {
   LocalMcpProvider,
   createLocalMcpProvider,
   McpNexusProvider,
-  createAutoMcpClient,
-  preloadMcpTools,
   McpResourceManager,
   createSseParser,
   consumeSse,

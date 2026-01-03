@@ -9,6 +9,25 @@
  */
 
 import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
+import { CircuitBreaker } from "../shared/utils/circuit-breaker.js";
+
+function toErrorMessage(err) {
+  if (err instanceof Error) return err.message;
+  return String(err?.message || err || "");
+}
+
+function shouldTripProviderCircuit(err) {
+  if (!err) return true;
+  if (err?.name === "AbortError") return false;
+  const msg = toErrorMessage(err).toLowerCase();
+  if (!msg) return true;
+  // Don't trip the provider circuit on likely caller/tooling issues.
+  if (msg.includes("unknown tool")) return false;
+  if (msg.includes("tool not found")) return false;
+  if (msg.includes("no such tool")) return false;
+  if (msg.includes("invalid arguments")) return false;
+  return true;
+}
 
 /**
  * MCP 工具定义
@@ -74,9 +93,11 @@ export class McpProvider {
  * MCP Client - 统一调用接口
  */
 export class McpClient {
-  constructor({ providers = [], defaultProvider = null } = {}) {
+  constructor({ providers = [], defaultProvider = null, time = null } = {}) {
     this._providers = new Map();
     this._defaultProviderId = null;
+    this._providerCircuitBreakers = new Map(); // providerId -> CircuitBreaker
+    this._time = time && typeof time.now === "function" ? time : null;
 
     for (const p of Array.isArray(providers) ? providers : []) {
       if (p instanceof McpProvider) {
@@ -93,12 +114,40 @@ export class McpClient {
     }
   }
 
+  _getProviderCircuitBreaker(providerId) {
+    const id = toNonEmptyString(providerId);
+    if (!id) return null;
+    const existing = this._providerCircuitBreakers.get(id);
+    if (existing) return existing;
+
+    const breaker = new CircuitBreaker({
+      name: `mcp:${id}`,
+      failureThreshold: 3,
+      successThreshold: 1,
+      openDurationMs: 10_000,
+      halfOpenMaxCalls: 1,
+      isFailure: shouldTripProviderCircuit,
+      ...(this._time ? { time: this._time } : {}),
+    });
+
+    this._providerCircuitBreakers.set(id, breaker);
+    return breaker;
+  }
+
   addProvider(provider) {
     if (!(provider instanceof McpProvider)) {
       throw new TypeError("McpClient.addProvider(provider): provider must be McpProvider instance");
     }
     this._providers.set(provider.id, provider);
     if (!this._defaultProviderId) this._defaultProviderId = provider.id;
+    return this;
+  }
+
+  setDefaultProvider(providerId) {
+    const id = toNonEmptyString(providerId);
+    if (!id) throw new TypeError("McpClient.setDefaultProvider(providerId): providerId must be a non-empty string");
+    if (!this._providers.has(id)) throw new Error(`McpClient.setDefaultProvider(providerId): provider not found: ${id}`);
+    this._defaultProviderId = id;
     return this;
   }
 
@@ -198,7 +247,6 @@ export class McpClient {
         const providerId = entries[i][0];
         const msg = String(result.reason?.message || result.reason || "Unknown error");
         errors.push({ providerId, error: msg, ts: new Date().toISOString() });
-        console.warn(`[McpClient] Failed to list tools from ${providerId}:`, msg);
       }
     }
     if (errors.length > 0) {
@@ -228,13 +276,37 @@ export class McpClient {
     }
 
     try {
-      return await provider.callTool(toolName, args);
+      const breaker = this._getProviderCircuitBreaker(id);
+      const execute = async () => {
+        const r = await provider.callTool(toolName, args);
+        if (r && typeof r === "object" && r.success === false) {
+          const err = new Error(toErrorMessage(r.error || "MCP tool call failed"));
+          err.name = "McpToolCallError";
+          err.mcpResult = r;
+          throw err;
+        }
+        return r;
+      };
+
+      if (!breaker) return await execute();
+      return await breaker.execute(execute);
     } catch (err) {
+      if (err?.name === "McpToolCallError" && err.mcpResult) {
+        return err.mcpResult;
+      }
+      if (err?.name === "CircuitBreakerOpenError") {
+        return new McpToolResult({
+          success: false,
+          isError: true,
+          error: `Provider circuit open: ${id}`,
+          content: [{ type: "text", text: `Error: Provider circuit open (${id})` }],
+        });
+      }
       return new McpToolResult({
         success: false,
         isError: true,
-        error: String(err?.message || err),
-        content: [{ type: "text", text: `Error calling ${toolName}: ${err?.message || err}` }],
+        error: toErrorMessage(err),
+        content: [{ type: "text", text: `Error calling ${toolName}: ${toErrorMessage(err)}` }],
       });
     }
   }

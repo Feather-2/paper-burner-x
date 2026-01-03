@@ -142,9 +142,7 @@ export function filterUrlParams(url, { additionalParams, logStripped = false } =
     parsed.password = "";
   }
 
-  if (logStripped && strippedParams.length > 0) {
-    console.warn(`[url-whitelist] Stripped params from URL: ${strippedParams.join(", ")}`);
-  }
+  // No console logging in core modules; callers can inspect `strippedParams`.
 
   return { url: parsed.toString(), strippedParams };
 }

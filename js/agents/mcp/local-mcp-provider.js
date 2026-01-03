@@ -113,11 +113,20 @@ function inspectUrlForProxy(rawUrl, { useWhitelist = false } = {}) {
   if (useWhitelist) {
     const { url: filteredUrl, strippedParams } = filterUrlParams(url, { logStripped: false });
     const audit = auditUrl(url);
+    const sensitiveQueryKeys = [];
+    try {
+      const u = new URL(url);
+      for (const key of u.searchParams.keys()) {
+        if (isSensitiveQueryParamKey(key)) sensitiveQueryKeys.push(String(key).toLowerCase());
+      }
+    } catch {
+      // ignore
+    }
     return {
       safeUrl: filteredUrl,
       hadCredentials: audit.issues.includes("URL contains credentials"),
       hadHash: audit.issues.includes("URL contains hash fragment"),
-      sensitiveQueryKeys: [],
+      sensitiveQueryKeys: Array.from(new Set(sensitiveQueryKeys)),
       strippedParams,
       audit,
     };
@@ -563,8 +572,8 @@ async function parseDuckDuckGoResults(html) {
           if (results.length >= 20) break;
         }
       }
-    } catch (e) {
-      console.warn("[LocalMcpProvider] DOMParser failed:", e?.message);
+    } catch {
+      // ignore
     }
   }
 
@@ -918,10 +927,7 @@ export class LocalMcpProvider extends McpProvider {
     // P3.2: 使用白名单模式或黑名单模式
     const proxyUrl = inspectUrlForProxy(url, { useWhitelist: this.useUrlWhitelist });
 
-    // P3.2: 如果启用白名单且有参数被剥离，记录审计日志
-    if (this.useUrlWhitelist && proxyUrl.strippedParams?.length > 0) {
-      console.warn(`[LocalMcpProvider] URL params stripped by whitelist: ${proxyUrl.strippedParams.join(", ")}`);
-    }
+    // P3.2: If params were stripped, expose via result object only (no console logging).
 
     for (const proxy of candidates) {
       if (proxy && !this.allowSensitiveUrlProxying && proxyUrl.sensitiveQueryKeys.length) {

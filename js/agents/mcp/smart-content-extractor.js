@@ -97,7 +97,7 @@ function warnUnsupportedNoiseSelectorOnce(selector, err) {
   _unsupportedNoiseSelectorWarned.add(key);
 
   const message = err instanceof Error ? err.message : String(err);
-  console.warn(`[SmartContentExtractor] Unsupported selector "${key}": ${message}`);
+  // ignore unsupported selector
 }
 
 // 跳过的文本模式
@@ -857,7 +857,7 @@ export function extractSmartContent(html, options = {}) {
     };
 
   } catch (err) {
-    console.warn('[SmartContentExtractor] Error:', err?.message);
+    // ignore
 
     if (fallbackOnError) {
       // Fallback: 简单文本提取

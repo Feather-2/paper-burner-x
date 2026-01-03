@@ -73,6 +73,65 @@ test("McpClient: listAllTools captures provider failures (non-fatal)", async () 
   assert.ok(String(tools.errors[0].error).includes("boom"));
 });
 
+test("McpClient: circuit breaker opens after repeated provider failures", async () => {
+  const { McpClient, McpProvider, McpToolResult } = await import("../../js/agents/mcp/mcp-client.js");
+
+  class FailingProvider extends McpProvider {
+    constructor() {
+      super({ id: "p1", name: "P1", endpoint: "mock" });
+      this.calls = 0;
+    }
+    async listTools() {
+      return [];
+    }
+    async callTool() {
+      this.calls += 1;
+      return new McpToolResult({ success: false, isError: true, error: "network down", content: [{ type: "text", text: "down" }] });
+    }
+  }
+
+  const provider = new FailingProvider();
+  const client = new McpClient({ providers: [provider], defaultProvider: "p1", time: { now: () => 0 } });
+
+  for (let i = 0; i < 3; i++) {
+    const r = await client.callTool("x", {});
+    assert.equal(r.success, false);
+  }
+
+  const blocked = await client.callTool("x", {});
+  assert.equal(blocked.success, false);
+  assert.ok(String(blocked.error).toLowerCase().includes("circuit open"));
+  assert.equal(provider.calls, 3);
+});
+
+test("McpClient: circuit breaker ignores unknown tool errors", async () => {
+  const { McpClient, McpProvider, McpToolResult } = await import("../../js/agents/mcp/mcp-client.js");
+
+  class UnknownToolProvider extends McpProvider {
+    constructor() {
+      super({ id: "p1", name: "P1", endpoint: "mock" });
+      this.calls = 0;
+    }
+    async listTools() {
+      return [];
+    }
+    async callTool() {
+      this.calls += 1;
+      return new McpToolResult({ success: false, isError: true, error: "unknown tool", content: [{ type: "text", text: "unknown tool" }] });
+    }
+  }
+
+  const provider = new UnknownToolProvider();
+  const client = new McpClient({ providers: [provider], defaultProvider: "p1", time: { now: () => 0 } });
+
+  for (let i = 0; i < 6; i++) {
+    const r = await client.callTool("nope", {});
+    assert.equal(r.success, false);
+    assert.ok(String(r.error).includes("unknown tool"));
+  }
+  assert.equal(provider.calls, 6);
+});
+
 test("SSE: NewlineDecoder handles CRLF across chunks and lone CR", async () => {
   const { NewlineDecoder } = await import("../../js/agents/mcp/sse.js");
   const enc = new TextEncoder();
@@ -255,107 +314,30 @@ test("SmartContentExtractor: works without DOMParser (fallback)", async () => {
   }
 });
 
-test("MCP auto-discovery: reads localStorage config and seeds tool schema cache", async () => {
-  const { createAutoMcpClient, preloadMcpTools } = await import("../../js/agents/mcp/auto-discovery.js");
+test("McpNexusProvider: seedToolsCache primes listTools without network", async () => {
+  const { McpNexusProvider } = await import("../../js/agents/mcp/mcp-nexus-provider.js");
 
-  const kv = new Map();
-  const storage = {
-    getItem: (k) => (kv.has(String(k)) ? kv.get(String(k)) : null),
-    setItem: (k, v) => {
-      kv.set(String(k), String(v));
-    },
-  };
-
-  storage.setItem("mcp_nexus_config", JSON.stringify({ endpoint: "http://nexus.local" }));
-
-  const calls = [];
-  const fetchImpl = async (url, init) => {
-    const body = init?.body ? JSON.parse(String(init.body)) : null;
-    calls.push({ url: String(url), method: init?.method, body });
-
-    if (String(url).endsWith("/mcp") && body?.method === "tools/list") {
-      return {
-        ok: true,
-        status: 200,
-        async text() {
-          return JSON.stringify({
-            jsonrpc: "2.0",
-            id: body.id,
-            result: {
-              tools: [
-                { name: "search.query", description: "q", inputSchema: { type: "object", properties: { query: { type: "string" } } } },
-                { name: "search.fetch", description: "f", inputSchema: { type: "object", properties: { url: { type: "string" } } } },
-              ],
-            },
-          });
-        },
-      };
-    }
-
-    return {
-      ok: false,
-      status: 404,
-      async text() {
-        return JSON.stringify({ error: "not found" });
-      },
-    };
-  };
-
-  const client = await createAutoMcpClient({ storage, useLocal: false, fetchImpl });
-  const provider = client.getProvider("mcp-nexus");
-  assert.ok(provider);
-
-  await preloadMcpTools({ client, storage, ttlMs: 60_000 });
-  const cacheRaw = storage.getItem("pb_mcp_tools_cache_v1");
-  assert.ok(cacheRaw);
-
-  const parsed = JSON.parse(cacheRaw);
-  assert.ok(parsed?.providers?.["mcp-nexus"]?.tools?.length >= 2);
-  assert.ok(calls.some((c) => c.url.endsWith("/mcp") && c.body?.method === "tools/list"));
-
-  let called2 = 0;
-  const fetchImpl2 = async () => {
-    called2 += 1;
+  let called = 0;
+  const fetchImpl = async () => {
+    called += 1;
     throw new Error("should not fetch");
   };
 
-  const client2 = await createAutoMcpClient({ storage, useLocal: false, fetchImpl: fetchImpl2 });
-  const provider2 = client2.getProvider("mcp-nexus");
-  const tools2 = await provider2.listTools();
-  assert.equal(called2, 0);
-  assert.equal(tools2.length, 2);
+  const provider = new McpNexusProvider({ id: "mcp-nexus", endpoint: "http://nexus.local", fetchImpl });
+  const seeded = provider.seedToolsCache([
+    { name: "search.query", description: "q", inputSchema: { type: "object", properties: { query: { type: "string" } } } },
+    { name: "search.fetch", description: "f", inputSchema: { type: "object", properties: { url: { type: "string" } } } },
+  ]);
+  assert.equal(seeded, true);
+
+  const tools = await provider.listTools();
+  assert.equal(called, 0);
+  assert.equal(tools.length, 2);
+  assert.equal(tools[0].name, "search.query");
 });
 
-test("MCP preload refresh: healthCheck hits network even when tools are seeded", async () => {
-  const { createAutoMcpClient, preloadMcpTools } = await import("../../js/agents/mcp/auto-discovery.js");
-
-  const kv = new Map();
-  const storage = {
-    getItem: (k) => (kv.has(String(k)) ? kv.get(String(k)) : null),
-    setItem: (k, v) => {
-      kv.set(String(k), String(v));
-    },
-  };
-
-  storage.setItem("mcp_nexus_config", JSON.stringify({ endpoint: "http://nexus.local" }));
-  storage.setItem(
-    "pb_mcp_tools_cache_v1",
-    JSON.stringify({
-      schemaVersion: "0.1",
-      kind: "mcp_tools_cache",
-      ts: Date.now(),
-      ttlMs: 60_000,
-      providers: {
-        "mcp-nexus": {
-          ts: Date.now(),
-          tools: [
-            { name: "search.query", description: "q", inputSchema: { type: "object", properties: { query: { type: "string" } } } },
-            { name: "search.fetch", description: "f", inputSchema: { type: "object", properties: { url: { type: "string" } } } },
-          ],
-        },
-      },
-    })
-  );
+test("McpNexusProvider: healthCheck(refreshTools) hits network even when tools are seeded", async () => {
+  const { McpNexusProvider } = await import("../../js/agents/mcp/mcp-nexus-provider.js");
 
   const calls = [];
   const fetchImpl = async (url, init) => {
@@ -390,15 +372,18 @@ test("MCP preload refresh: healthCheck hits network even when tools are seeded",
     };
   };
 
-  const client = await createAutoMcpClient({ storage, useLocal: false, fetchImpl });
-  const provider = client.getProvider("mcp-nexus");
-  assert.ok(provider);
+  const provider = new McpNexusProvider({ id: "mcp-nexus", endpoint: "http://nexus.local", fetchImpl });
+  provider.seedToolsCache([
+    { name: "search.query", description: "q", inputSchema: { type: "object", properties: { query: { type: "string" } } } },
+    { name: "search.fetch", description: "f", inputSchema: { type: "object", properties: { url: { type: "string" } } } },
+  ]);
 
   const tools = await provider.listTools();
   assert.equal(tools.length, 2);
   assert.equal(calls.length, 0);
 
-  await preloadMcpTools({ client, storage, ttlMs: 60_000, refresh: true });
+  const health = await provider.healthCheck({ refreshTools: true, timeoutMs: 5_000 });
+  assert.equal(health.ok, true);
   assert.ok(calls.some((c) => c.url.endsWith("/mcp") && c.body?.method === "tools/list"));
 });
 
