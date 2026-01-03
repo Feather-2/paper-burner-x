@@ -38,6 +38,12 @@ function defaultTime() {
   };
 }
 
+export const TaskPriority = Object.freeze({
+  HIGH: 0,
+  NORMAL: 1,
+  LOW: 2,
+});
+
 export class RuntimeScheduler {
   constructor(options = {}) {
     this.runtimes = new Map();
@@ -48,6 +54,14 @@ export class RuntimeScheduler {
     this._healthStatus = new Map(); // runtimeType -> RuntimeHealthStatus
     this._healthMetrics = new Map(); // runtimeType -> metrics snapshot
     this._time = options.time && typeof options.time.now === "function" ? options.time : defaultTime();
+
+    // --- Task scheduling ---
+    const scheduling = options.scheduling && typeof options.scheduling === "object" ? options.scheduling : {};
+    this._taskQueues = new Map();      // runtimeType -> sorted task array
+    this._inFlightCounts = new Map();  // runtimeType -> number
+    this._maxConcurrent = toPositiveInt(scheduling.maxConcurrentPerRuntime, 3);
+    this._maxQueueSize = toPositiveInt(scheduling.maxQueueSize, 100);
+    this._taskSeq = 0;                 // tie-breaker for equal priorities
 
     const health = options.health && typeof options.health === "object" ? options.health : {};
     this._healthConfig = Object.freeze({
@@ -296,11 +310,45 @@ export class RuntimeScheduler {
   }
 
   /**
-   * 调度执行任务
+   * 获取调度队列状态
+   * @param {string} [runtimeType]
+   */
+  getQueueStats(runtimeType) {
+    const format = (type) => {
+      const queue = this._taskQueues.get(type) || [];
+      const inFlight = this._inFlightCounts.get(type) || 0;
+      return {
+        runtimeType: type,
+        queueSize: queue.length,
+        inFlight,
+        maxConcurrent: this._maxConcurrent,
+        maxQueueSize: this._maxQueueSize,
+      };
+    };
+
+    if (runtimeType) return format(runtimeType);
+
+    const out = {};
+    for (const type of this.runtimes.keys()) {
+      out[type] = format(type);
+    }
+    return out;
+  }
+
+  _ensureQueueEntry(type) {
+    if (!this._taskQueues.has(type)) this._taskQueues.set(type, []);
+    if (!this._inFlightCounts.has(type)) this._inFlightCounts.set(type, 0);
+  }
+
+  /**
+   * 调度执行任务（带队列和优先级）
    * @param {string} type 运行时类型
    * @param {string} code 代码内容
    * @param {Object} inputState 状态快照
-   * @param {Object} options 额外选项 (dependencies, etc.)
+   * @param {Object} options 额外选项
+   * @param {number} [options.priority=TaskPriority.NORMAL] - 任务优先级
+   * @param {AbortSignal} [options.signal]
+   * @param {Object} [options.dependencies]
    */
   async dispatch(type, code, inputState, options = {}) {
     const runtime = this.runtimes.get(type);
@@ -309,6 +357,7 @@ export class RuntimeScheduler {
     }
 
     this._ensureHealthEntry(type);
+    this._ensureQueueEntry(type);
 
     // UNHEALTHY 运行时自动隔离：不再调度新任务
     const currentStatus = this.getHealthStatus(type);
@@ -317,6 +366,45 @@ export class RuntimeScheduler {
       this._recordResult(type, { success: false, error: `Runtime is isolated: ${type}` }, { blocked: true });
       return { success: false, error: `Runtime is isolated: ${type}`, metrics: { duration: 0 } };
     }
+
+    const priority = typeof options.priority === "number" && Number.isFinite(options.priority)
+      ? Math.max(0, Math.floor(options.priority))
+      : TaskPriority.NORMAL;
+    const seq = this._taskSeq++;
+
+    const inFlight = this._inFlightCounts.get(type) || 0;
+
+    // 可以立即执行
+    if (inFlight < this._maxConcurrent) {
+      return this._executeTask(type, runtime, code, inputState, options);
+    }
+
+    // 需要排队
+    const queue = this._taskQueues.get(type);
+    if (queue.length >= this._maxQueueSize) {
+      return { success: false, error: `Queue full for runtime: ${type}`, metrics: { duration: 0, queued: false } };
+    }
+
+    // 创建排队任务
+    return new Promise((resolve) => {
+      const task = { type, runtime, code, inputState, options, priority, seq, resolve };
+
+      // 按优先级插入（priority 小的在前，相同优先级按 seq）
+      let inserted = false;
+      for (let i = 0; i < queue.length; i++) {
+        const existing = queue[i];
+        if (priority < existing.priority || (priority === existing.priority && seq < existing.seq)) {
+          queue.splice(i, 0, task);
+          inserted = true;
+          break;
+        }
+      }
+      if (!inserted) queue.push(task);
+    });
+  }
+
+  async _executeTask(type, runtime, code, inputState, options) {
+    this._inFlightCounts.set(type, (this._inFlightCounts.get(type) || 0) + 1);
 
     // 构建统一上下文
     const context = {
@@ -327,6 +415,8 @@ export class RuntimeScheduler {
     };
 
     const startTime = this._time.now();
+    let result;
+
     try {
       // 预加载依赖
       if (options.dependencies && runtime.preload) {
@@ -334,15 +424,15 @@ export class RuntimeScheduler {
       }
 
       // 执行
-      const result = await runtime.execute(code, context);
+      const raw = await runtime.execute(code, context);
       const endTime = this._time.now();
       const latencyMs = Math.max(0, endTime - startTime);
 
-      const normalized = result && typeof result === "object" && "success" in result
-        ? result
-        : { success: true, data: result, metrics: result?.metrics };
+      result = raw && typeof raw === "object" && "success" in raw
+        ? raw
+        : { success: true, data: raw, metrics: raw?.metrics };
 
-      this._recordResult(type, normalized, { latencyMs });
+      this._recordResult(type, result, { latencyMs });
 
       const nextStatus = this._evaluateHealth(type);
       if (nextStatus === RuntimeHealthStatus.UNHEALTHY) {
@@ -358,15 +448,13 @@ export class RuntimeScheduler {
           this._setHealthStatus(type, RuntimeHealthStatus.HEALTHY, { reason: "stable_success" });
         }
       }
-
-      return normalized;
     } catch (err) {
       const endTime = this._time.now();
       const latencyMs = Math.max(0, endTime - startTime);
       const message = err instanceof Error ? err.message : String(err);
-      const failure = { success: false, error: message, metrics: { duration: latencyMs } };
+      result = { success: false, error: message, metrics: { duration: latencyMs } };
 
-      this._recordResult(type, failure, { latencyMs });
+      this._recordResult(type, result, { latencyMs });
 
       const nextStatus = this._evaluateHealth(type);
       if (nextStatus === RuntimeHealthStatus.UNHEALTHY) {
@@ -374,10 +462,34 @@ export class RuntimeScheduler {
       } else {
         this._setHealthStatus(type, nextStatus, { reason: "auto_evaluate" });
       }
-
-      return failure;
+    } finally {
+      this._inFlightCounts.set(type, Math.max(0, (this._inFlightCounts.get(type) || 1) - 1));
+      this._drainQueue(type);
     }
+
+    return result;
   }
+
+  _drainQueue(type) {
+    const queue = this._taskQueues.get(type);
+    if (!queue || !queue.length) return;
+
+    const inFlight = this._inFlightCounts.get(type) || 0;
+    if (inFlight >= this._maxConcurrent) return;
+
+    // 取队首任务执行
+    const task = queue.shift();
+    if (!task) return;
+
+    this._executeTask(task.type, task.runtime, task.code, task.inputState, task.options)
+      .then(task.resolve)
+      .catch((err) => task.resolve({ success: false, error: err?.message || String(err) }));
+  }
+
+  /**
+   * 调度执行任务
+   * @deprecated Use dispatch() instead - this is kept for backward compatibility
+   */
 
   _defaultProbeCode(runtimeType) {
     const type = String(runtimeType || "").toLowerCase();

@@ -40,7 +40,7 @@ export const checkpointMixin = {
         }
     },
 
-    _buildCheckpointStateSnapshot(stage) {
+    _buildCheckpointStateSnapshot(stage, { incremental = false } = {}) {
         const state = this._deepsearchState;
         const snapshot = state && typeof state.toJSON === 'function' ? state.toJSON() : (state && typeof state === 'object' ? state : {});
 
@@ -51,7 +51,30 @@ export const checkpointMixin = {
         const includeDeck = stage === 'design.batch';
         const deckPackage = includeDeck ? this.workflowData?.deckPackage : null;
 
-        return {
+        // 增量模式：仅包含变更的字段（通过脏标记判断）
+        if (incremental && this._lastCheckpointSnapshot) {
+            const diff = {};
+            const last = this._lastCheckpointSnapshot;
+
+            // 比较各字段是否有变化（浅比较引用）
+            if (contentPackage !== last.contentPackage) diff.contentPackage = contentPackage;
+            if (deckPackage !== last.deckPackage && deckPackage) diff.deckPackage = deckPackage;
+            if (reportMarkdown !== last.reportMarkdown) diff.reportMarkdown = reportMarkdown;
+            if (designPhase !== last.designPhase) diff.designPhase = designPhase;
+            if (slideStatuses !== last.slideStatuses) diff.slideStatuses = slideStatuses;
+
+            // 如果没有变化，返回最小快照
+            if (Object.keys(diff).length === 0 && JSON.stringify(snapshot) === JSON.stringify(last._snapshot)) {
+                return { _incremental: true, _noChange: true };
+            }
+
+            diff._incremental = true;
+            diff._snapshot = snapshot;
+            diff.workflowUiState = this.state;
+            return diff;
+        }
+
+        const result = {
             ...(snapshot && typeof snapshot === 'object' ? snapshot : {}),
             ...(contentPackage ? { contentPackage } : {}),
             ...(deckPackage ? { deckPackage } : {}),
@@ -60,6 +83,18 @@ export const checkpointMixin = {
             ...(slideStatuses && typeof slideStatuses === 'object' ? { slideStatuses } : {}),
             workflowUiState: this.state,
         };
+
+        // 缓存当前快照用于增量比较
+        this._lastCheckpointSnapshot = {
+            contentPackage,
+            deckPackage,
+            reportMarkdown,
+            designPhase,
+            slideStatuses,
+            _snapshot: snapshot,
+        };
+
+        return result;
     },
 
     async _saveCheckpoint(stage, metadata = {}) {

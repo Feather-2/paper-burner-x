@@ -218,6 +218,37 @@ export function getEventPrefix(eventName) {
 }
 
 /**
+ * 双指针通配符匹配 - O(m*n) 最坏情况，无指数回溯
+ * @param {string} pattern - 通配符模式
+ * @param {string} text - 待匹配文本
+ */
+function wildcardMatch(pattern, text) {
+  let pi = 0, ti = 0;
+  let starIdx = -1, matchIdx = -1;
+  const pLen = pattern.length, tLen = text.length;
+
+  while (ti < tLen) {
+    if (pi < pLen && (pattern[pi] === text[ti] || pattern[pi] === "?")) {
+      pi++;
+      ti++;
+    } else if (pi < pLen && pattern[pi] === "*") {
+      starIdx = pi;
+      matchIdx = ti;
+      pi++;
+    } else if (starIdx !== -1) {
+      pi = starIdx + 1;
+      matchIdx++;
+      ti = matchIdx;
+    } else {
+      return false;
+    }
+  }
+
+  while (pi < pLen && pattern[pi] === "*") pi++;
+  return pi === pLen;
+}
+
+/**
  * 检查事件名是否匹配通配符模式
  * @param {string} pattern - 通配符模式，如 "deepsearch.*"
  * @param {string} eventName - 事件名
@@ -227,13 +258,12 @@ export function matchEventPattern(pattern, eventName) {
   if (pattern === "*") return true;
   if (!pattern.includes("*")) return pattern === eventName;
 
-  // 支持 "prefix.*" 模式
-  if (pattern.endsWith(".*")) {
+  // 快速路径: "prefix.*" 模式
+  if (pattern.endsWith(".*") && !pattern.slice(0, -2).includes("*")) {
     const prefix = pattern.slice(0, -2);
     return eventName === prefix || eventName.startsWith(prefix + ".");
   }
 
-  // 转为正则
-  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
-  return new RegExp("^" + escaped + "$").test(eventName);
+  // 通用通配符匹配 - 使用双指针算法避免 ReDoS
+  return wildcardMatch(pattern, eventName);
 }

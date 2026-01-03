@@ -135,6 +135,7 @@ export class McpResourceManager {
     defaultTtlMs = 60_000,
     maxPersistBytes = 50_000,
     maxContentCacheEntries = 500,
+    maxContentCacheBytes = 10_000_000, // 10MB 内存缓存上限
     encryption,
   } = {}) {
     this.client = client instanceof McpClient ? client : null;
@@ -147,6 +148,7 @@ export class McpResourceManager {
     this.defaultTtlMs = normalizeTtlMs(defaultTtlMs, 60_000);
     this.maxPersistBytes = normalizeTtlMs(maxPersistBytes, 50_000);
     this.maxContentCacheEntries = normalizeCacheLimit(maxContentCacheEntries, 500);
+    this.maxContentCacheBytes = normalizeCacheLimit(maxContentCacheBytes, 10_000_000);
 
     const enc = normalizeEncryptionConfig(encryption);
     if (enc.enabled && (!enc.passphrase || !canUseStorageEncryption())) {
@@ -158,7 +160,8 @@ export class McpResourceManager {
 
     this._listCache = new Map(); // providerId -> { ts, ttlMs, resources }
     this._templatesCache = new Map(); // providerId -> { ts, ttlMs, templates }
-    this._contentCache = new Map(); // providerId:uri -> { ts, ttlMs, content }
+    this._contentCache = new Map(); // providerId:uri -> { ts, ttlMs, content, byteSize }
+    this._contentCacheTotalBytes = 0; // 当前缓存总字节数
 
     this._subs = new Map(); // subId -> { providerId, uri, callback }
     this._subSeq = 0;
@@ -179,25 +182,45 @@ export class McpResourceManager {
   }
 
   _pruneContentCache(nowMs = Date.now()) {
-    const max = this.maxContentCacheEntries;
-    const limit = typeof max === "number" && Number.isFinite(max) ? Math.max(0, Math.floor(max)) : 0;
+    const maxEntries = this.maxContentCacheEntries;
+    const maxBytes = this.maxContentCacheBytes;
+    const limitEntries = typeof maxEntries === "number" && Number.isFinite(maxEntries) ? Math.max(0, Math.floor(maxEntries)) : 0;
+    const limitBytes = typeof maxBytes === "number" && Number.isFinite(maxBytes) ? Math.max(0, Math.floor(maxBytes)) : Infinity;
 
-    if (limit <= 0) {
+    if (limitEntries <= 0 && limitBytes <= 0) {
       this._contentCache.clear();
+      this._contentCacheTotalBytes = 0;
       return;
     }
 
+    // 1. 清理过期条目
     for (const [k, v] of this._contentCache.entries()) {
       const ts = typeof v?.ts === "number" && Number.isFinite(v.ts) ? v.ts : 0;
       const ttlMs = typeof v?.ttlMs === "number" && Number.isFinite(v.ttlMs) ? v.ttlMs : 0;
-      if (ttlMs > 0 && nowMs - ts > ttlMs) this._contentCache.delete(k);
+      if (ttlMs > 0 && nowMs - ts > ttlMs) {
+        this._contentCacheTotalBytes -= v.byteSize || 0;
+        this._contentCache.delete(k);
+      }
     }
 
-    if (max === Infinity) return;
-    while (this._contentCache.size > limit) {
+    // 2. 字节配额限制：按 LRU 删除最旧条目直到满足配额
+    while (this._contentCacheTotalBytes > limitBytes && this._contentCache.size > 0) {
       const oldest = this._contentCache.keys().next().value;
       if (!oldest) break;
+      const v = this._contentCache.get(oldest);
+      this._contentCacheTotalBytes -= v?.byteSize || 0;
       this._contentCache.delete(oldest);
+    }
+
+    // 3. 条目数限制
+    if (maxEntries !== Infinity) {
+      while (this._contentCache.size > limitEntries) {
+        const oldest = this._contentCache.keys().next().value;
+        if (!oldest) break;
+        const v = this._contentCache.get(oldest);
+        this._contentCacheTotalBytes -= v?.byteSize || 0;
+        this._contentCache.delete(oldest);
+      }
     }
   }
 
@@ -380,10 +403,38 @@ export class McpResourceManager {
     }
 
     const content = await provider.readResource(u);
-    this._contentCache.set(cacheKey, { ts: Date.now(), ttlMs: ttl, content: isPlainObject(content) ? content : { uri: u } });
+    const normalizedContent = isPlainObject(content) ? content : { uri: u };
+
+    // 估算内容字节大小
+    const byteSize = this._estimateContentByteSize(normalizedContent);
+
+    // 如果已有旧缓存，先减去旧大小
+    const oldCached = this._contentCache.get(cacheKey);
+    if (oldCached) {
+      this._contentCacheTotalBytes -= oldCached.byteSize || 0;
+    }
+
+    this._contentCache.set(cacheKey, { ts: Date.now(), ttlMs: ttl, content: normalizedContent, byteSize });
+    this._contentCacheTotalBytes += byteSize;
+
     this._pruneContentCache();
     this._persistCache();
     return this._contentCache.get(cacheKey).content;
+  }
+
+  _estimateContentByteSize(content) {
+    if (!content) return 0;
+    if (typeof content === "string") return content.length * 2; // UTF-16 估算
+    if (content instanceof ArrayBuffer) return content.byteLength;
+    if (ArrayBuffer.isView(content)) return content.byteLength;
+
+    // 对象：估算 JSON 序列化大小
+    try {
+      const json = JSON.stringify(content);
+      return json ? json.length * 2 : 0;
+    } catch {
+      return 1000; // fallback
+    }
   }
 
   async subscribeResource({ providerId, uri, callback } = {}) {

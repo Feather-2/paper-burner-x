@@ -256,13 +256,145 @@ export class MockEventBus {
 
   /**
    * 断言事件被触发
+   * @param {string} name - 事件名
+   * @param {number|Object} countOrMatcher - 数量或 payload 匹配器
+   * @param {Object} [payloadMatcher] - payload 匹配器（当第二参数为数量时）
+   *
+   * 用法示例:
+   * - assertEmitted("event", 2) // 触发 2 次
+   * - assertEmitted("event", { status: "ok" }) // 至少 1 次且 payload 匹配
+   * - assertEmitted("event", 2, { status: "ok" }) // 恰好 2 次且 payload 匹配
+   * - assertEmitted("event", { status: /success|ok/ }) // 正则匹配
+   * - assertEmitted("event", { count: v => v > 0 }) // 函数断言
    */
-  assertEmitted(name, count = 1) {
+  assertEmitted(name, countOrMatcher = 1, payloadMatcher) {
     const matches = this.events.filter(e => e.name === name);
-    if (matches.length < count) {
-      throw new Error(`Expected event "${name}" to be emitted ${count} times, got ${matches.length}`);
+
+    // 解析参数
+    let expectedCount = 1;
+    let matcher = null;
+
+    if (typeof countOrMatcher === "number") {
+      expectedCount = countOrMatcher;
+      matcher = payloadMatcher || null;
+    } else if (countOrMatcher && typeof countOrMatcher === "object") {
+      expectedCount = 1; // 至少 1 次
+      matcher = countOrMatcher;
     }
+
+    // 数量断言
+    if (matches.length < expectedCount) {
+      throw new Error(`Expected event "${name}" to be emitted at least ${expectedCount} time(s), got ${matches.length}`);
+    }
+
+    // payload 断言
+    if (matcher) {
+      const matchingPayloads = matches.filter(e => this._payloadMatches(e.payload, matcher));
+      if (matchingPayloads.length === 0) {
+        const received = matches.map(e => JSON.stringify(e.payload)).join(", ");
+        throw new Error(`Expected event "${name}" payload to match ${JSON.stringify(matcher)}, but no match found. Received: [${received}]`);
+      }
+
+      // 如果指定了精确数量，检查匹配的数量
+      if (typeof countOrMatcher === "number" && payloadMatcher && matchingPayloads.length < expectedCount) {
+        throw new Error(`Expected ${expectedCount} event(s) "${name}" with matching payload, got ${matchingPayloads.length}`);
+      }
+    }
+
     return matches;
+  }
+
+  /**
+   * 断言事件被触发且 payload 满足条件
+   * @param {string} name
+   * @param {(payload: any) => boolean} predicate
+   * @param {string} [description] - 可选的错误描述
+   */
+  assertEmittedWith(name, predicate, description) {
+    if (typeof predicate !== "function") {
+      throw new Error("assertEmittedWith: predicate must be a function");
+    }
+
+    const matches = this.events.filter(e => e.name === name);
+    if (matches.length === 0) {
+      throw new Error(`Expected event "${name}" to be emitted, but it was never emitted`);
+    }
+
+    const satisfying = matches.filter(e => {
+      try {
+        return predicate(e.payload);
+      } catch {
+        return false;
+      }
+    });
+
+    if (satisfying.length === 0) {
+      const desc = description ? ` (${description})` : "";
+      const received = matches.map(e => JSON.stringify(e.payload)).slice(0, 3).join(", ");
+      throw new Error(`Expected event "${name}" payload to satisfy predicate${desc}. Received: [${received}${matches.length > 3 ? ", ..." : ""}]`);
+    }
+
+    return satisfying;
+  }
+
+  /**
+   * 断言事件按顺序触发
+   * @param {string[]} names - 事件名数组，按顺序
+   */
+  assertEmittedInOrder(names) {
+    if (!Array.isArray(names) || names.length === 0) {
+      throw new Error("assertEmittedInOrder: names must be a non-empty array");
+    }
+
+    let lastIdx = -1;
+    for (const name of names) {
+      const idx = this.events.findIndex((e, i) => i > lastIdx && e.name === name);
+      if (idx === -1) {
+        const after = lastIdx >= 0 ? ` after "${this.events[lastIdx]?.name}"` : "";
+        throw new Error(`Expected event "${name}" to be emitted${after}, but not found`);
+      }
+      lastIdx = idx;
+    }
+
+    return true;
+  }
+
+  _payloadMatches(actual, expected, path = "") {
+    if (expected === undefined || expected === null) return true;
+
+    // 正则匹配
+    if (expected instanceof RegExp) {
+      return expected.test(String(actual ?? ""));
+    }
+
+    // 函数断言
+    if (typeof expected === "function") {
+      try {
+        return !!expected(actual);
+      } catch {
+        return false;
+      }
+    }
+
+    // 对象递归匹配（只检查 expected 中的字段）
+    if (expected && typeof expected === "object") {
+      if (Array.isArray(expected)) {
+        if (!Array.isArray(actual)) return false;
+        for (let i = 0; i < expected.length; i++) {
+          if (!this._payloadMatches(actual[i], expected[i], `${path}[${i}]`)) return false;
+        }
+        return true;
+      }
+
+      if (!actual || typeof actual !== "object") return false;
+      for (const [k, v] of Object.entries(expected)) {
+        if (!this._payloadMatches(actual[k], v, path ? `${path}.${k}` : k)) return false;
+      }
+      return true;
+    }
+
+    // 原始值比较
+    return actual === expected;
   }
 
   /**

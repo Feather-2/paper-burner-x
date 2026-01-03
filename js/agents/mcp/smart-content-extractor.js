@@ -320,15 +320,96 @@ function extractPlainTextFromHtml(html, { maxLength = 50000 } = {}) {
 }
 
 /**
- * 从 DOM 元素提取结构化 Markdown
+ * 从 DOM 元素提取结构化 Markdown（迭代版本，避免深度递归）
+ * @param {Element} root
+ * @param {Object} [options]
+ * @param {number} [options.maxDepth=50] - 最大遍历深度
+ * @param {number} [options.maxNodes=5000] - 最大节点数
  */
-function elementToMarkdown(el, depth = 0) {
-  if (!el) return '';
+function elementToMarkdown(root, options = {}) {
+  if (!root) return '';
 
-  const tag = el.tagName?.toUpperCase();
-  const parts = [];
+  const maxDepth = options.maxDepth ?? 50;
+  const maxNodes = options.maxNodes ?? 5000;
+  const output = [];
+  let nodeCount = 0;
 
-  // 处理不同标签类型
+  // 使用栈进行深度优先遍历
+  // { node, depth, visited: boolean, tag, children: array }
+  const stack = [{ node: root, depth: 0, visited: false }];
+
+  while (stack.length > 0 && nodeCount < maxNodes) {
+    const frame = stack[stack.length - 1];
+    const { node, depth, visited } = frame;
+
+    if (depth > maxDepth) {
+      stack.pop();
+      continue;
+    }
+
+    const tag = node.tagName?.toUpperCase();
+
+    // 首次访问：处理开始标签
+    if (!visited) {
+      frame.visited = true;
+      nodeCount++;
+
+      // 终端节点：直接处理并弹出
+      const terminalResult = processTerminalTag(node, tag);
+      if (terminalResult !== null) {
+        output.push(terminalResult);
+        stack.pop();
+        continue;
+      }
+
+      // 非终端节点：将子节点入栈（倒序入栈保证正序处理）
+      const children = [];
+      for (let i = node.childNodes.length - 1; i >= 0; i--) {
+        const child = node.childNodes[i];
+        if (child.nodeType === 1) { // Element
+          children.unshift({ node: child, depth: depth + 1, visited: false });
+        } else if (child.nodeType === 3) { // Text
+          const text = cleanText(child.textContent);
+          if (text && !shouldSkipText(text)) {
+            children.unshift({ node: child, depth: depth + 1, visited: true, textContent: text });
+          }
+        }
+      }
+      frame.children = children;
+
+      // 开始标签处理
+      if (tag === 'P') output.push('\n');
+      else if (tag === 'BLOCKQUOTE') output.push('\n> ');
+      else if (tag === 'UL' || tag === 'OL') output.push('\n');
+
+      // 将子节点入栈
+      for (const child of children) {
+        stack.push(child);
+      }
+      continue;
+    }
+
+    // 已访问过：处理结束标签和子节点已处理完毕的情况
+    stack.pop();
+
+    // 文本节点
+    if (frame.textContent !== undefined) {
+      output.push(frame.textContent);
+      continue;
+    }
+
+    // 结束标签处理
+    if (tag === 'P' || tag === 'BLOCKQUOTE') output.push('\n');
+    else if (tag === 'UL' || tag === 'OL') output.push('\n');
+  }
+
+  return output.join('');
+}
+
+/**
+ * 处理终端标签（不需要递归子节点）
+ */
+function processTerminalTag(el, tag) {
   switch (tag) {
     case 'H1':
     case 'H2':
@@ -339,66 +420,27 @@ function elementToMarkdown(el, depth = 0) {
       const level = parseInt(tag[1], 10);
       const text = cleanText(el.textContent);
       if (text && !shouldSkipText(text)) {
-        parts.push('\n' + '#'.repeat(level) + ' ' + text + '\n');
+        return '\n' + '#'.repeat(level) + ' ' + text + '\n';
       }
-      break;
-    }
-
-    case 'P': {
-      const text = inlineToMarkdown(el);
-      if (text && !shouldSkipText(text)) {
-        parts.push('\n' + text + '\n');
-      }
-      break;
-    }
-
-    case 'UL':
-    case 'OL': {
-      const items = el.querySelectorAll(':scope > li');
-      const isOrdered = tag === 'OL';
-      let idx = 1;
-      for (const li of items) {
-        const text = inlineToMarkdown(li);
-        if (text && !shouldSkipText(text)) {
-          const prefix = isOrdered ? `${idx++}. ` : '- ';
-          parts.push(prefix + text);
-        }
-      }
-      if (parts.length) {
-        return '\n' + parts.join('\n') + '\n';
-      }
-      break;
-    }
-
-    case 'BLOCKQUOTE': {
-      const text = inlineToMarkdown(el);
-      if (text && !shouldSkipText(text)) {
-        const lines = text.split('\n').map(l => '> ' + l.trim()).join('\n');
-        parts.push('\n' + lines + '\n');
-      }
-      break;
+      return '';
     }
 
     case 'PRE': {
       const code = el.querySelector('code');
       const text = (code || el).textContent || '';
       if (text.trim()) {
-        // 尝试获取语言
         const lang = code?.className?.match(/language-(\w+)/)?.[1] || '';
-        parts.push('\n```' + lang + '\n' + text.trim() + '\n```\n');
+        return '\n```' + lang + '\n' + text.trim() + '\n```\n';
       }
-      break;
+      return '';
     }
 
     case 'CODE': {
-      // 独立的 code 标签（非 pre 内）
       if (el.parentElement?.tagName !== 'PRE') {
         const text = el.textContent?.trim();
-        if (text) {
-          return '`' + text + '`';
-        }
+        if (text) return '`' + text + '`';
       }
-      break;
+      return '';
     }
 
     case 'TABLE': {
@@ -414,52 +456,46 @@ function elementToMarkdown(el, depth = 0) {
         }
       }
       if (tableRows.length) {
-        // 添加表头分隔符
         if (tableRows.length > 1) {
           const headerCols = tableRows[0].split('|').length - 2;
           const separator = '|' + ' --- |'.repeat(headerCols);
           tableRows.splice(1, 0, separator);
         }
-        parts.push('\n' + tableRows.join('\n') + '\n');
+        return '\n' + tableRows.join('\n') + '\n';
       }
-      break;
+      return '';
     }
 
     case 'IMG': {
       const alt = el.getAttribute('alt') || '';
       const src = el.getAttribute('src') || '';
-      if (src) {
-        parts.push(`![${cleanText(alt)}](${src})`);
-      }
-      break;
+      if (src) return `![${cleanText(alt)}](${src})`;
+      return '';
     }
 
-    case 'HR': {
-      parts.push('\n---\n');
-      break;
-    }
+    case 'HR':
+      return '\n---\n';
 
-    case 'BR': {
-      parts.push('\n');
-      break;
-    }
+    case 'BR':
+      return '\n';
 
-    default: {
-      // 递归处理子节点
-      for (const child of el.childNodes) {
-        if (child.nodeType === 1) { // Element
-          parts.push(elementToMarkdown(child, depth + 1));
-        } else if (child.nodeType === 3) { // Text
-          const text = cleanText(child.textContent);
-          if (text && !shouldSkipText(text)) {
-            parts.push(text);
-          }
+    case 'LI': {
+      const text = inlineToMarkdown(el);
+      if (text && !shouldSkipText(text)) {
+        const parent = el.parentElement;
+        const isOrdered = parent?.tagName === 'OL';
+        if (isOrdered) {
+          const idx = Array.from(parent.children).indexOf(el) + 1;
+          return `${idx}. ${text}\n`;
         }
+        return `- ${text}\n`;
       }
+      return '';
     }
-  }
 
-  return parts.join('');
+    default:
+      return null; // 非终端节点
+  }
 }
 
 /**

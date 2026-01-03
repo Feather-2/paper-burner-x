@@ -115,6 +115,10 @@ export const VFS_PAYLOAD_TYPE = "vfs_payload.bin";
  * @param {string} [options.op="write"]
  * @param {string} [options.encoding="utf8"]
  * @param {number} [options.maxEmbedBytes=200000]
+ * @param {string} [options.beforeSha256] - 预计算的 before SHA256（跳过重复计算）
+ * @param {string} [options.afterSha256] - 预计算的 after SHA256（跳过重复计算）
+ * @param {boolean} [options.skipDiff=false] - 跳过 diff 计算（大文件优化）
+ * @param {boolean} [options.deferDiff=false] - 延迟 diff 计算（返回 Promise）
  * @returns {Promise<{artifactId:string,checkpoint:object}>}
  */
 export async function recordVfsCheckpoint({
@@ -126,6 +130,10 @@ export async function recordVfsCheckpoint({
   op = "write",
   encoding = "utf8",
   maxEmbedBytes = 200000,
+  beforeSha256,
+  afterSha256,
+  skipDiff = false,
+  deferDiff = false,
 } = {}) {
   if (!runStore || typeof runStore.saveArtifact !== "function") {
     throw new Error("recordVfsCheckpoint: runStore with saveArtifact() is required");
@@ -138,8 +146,12 @@ export async function recordVfsCheckpoint({
   const beforeBytes = dataToBytes(before);
   const afterBytes = dataToBytes(after);
 
-  const beforeSha = await computeSha(beforeBytes);
-  const afterSha = await computeSha(afterBytes);
+  // 使用预计算的哈希或按需计算
+  const beforeSha = typeof beforeSha256 === "string" && beforeSha256 ? beforeSha256 : await computeSha(beforeBytes);
+  const afterSha = typeof afterSha256 === "string" && afterSha256 ? afterSha256 : await computeSha(afterBytes);
+
+  // 快速路径：内容相同时跳过 diff
+  const contentUnchanged = beforeSha && afterSha && beforeSha === afterSha;
 
   const beforeIsText = typeof before === "string" || guessIsUtf8Text(beforeBytes);
   const afterIsText = typeof after === "string" || guessIsUtf8Text(afterBytes);
@@ -167,19 +179,34 @@ export async function recordVfsCheckpoint({
   };
 
   if (beforeText !== null && afterText !== null && beforeBytes.byteLength + afterBytes.byteLength <= maxEmbedBytes) {
-    try {
-      const diff = await createUnifiedDiffAsync(
-        { path: normalizedPath, beforeText, afterText, context: 3 },
-        { useWorker: true, workerThresholdChars: 80_000 }
-      );
-      checkpoint.diff = {
-        format: "unified",
-        context: 3,
-        bytes: encodeUtf8Bytes(diff.text),
-        text: diff.text,
+    // 跳过 diff 的情况：显式指定、内容相同、或延迟计算
+    const shouldSkipDiff = skipDiff || contentUnchanged;
+
+    if (!shouldSkipDiff) {
+      const computeDiff = async () => {
+        try {
+          const diff = await createUnifiedDiffAsync(
+            { path: normalizedPath, beforeText, afterText, context: 3 },
+            { useWorker: true, workerThresholdChars: 80_000 }
+          );
+          return {
+            format: "unified",
+            context: 3,
+            bytes: encodeUtf8Bytes(diff.text),
+            text: diff.text,
+          };
+        } catch {
+          return null;
+        }
       };
-    } catch {
-      // ignore diff failures
+
+      if (deferDiff) {
+        // 延迟 diff：返回 Promise，调用者可选择等待
+        checkpoint.diffPromise = computeDiff();
+      } else {
+        const diff = await computeDiff();
+        if (diff) checkpoint.diff = diff;
+      }
     }
   }
 

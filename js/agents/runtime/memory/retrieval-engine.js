@@ -50,6 +50,15 @@ export class RetrievalEngine {
       this.vectorIndex = null;
     }
 
+    // 反压配置
+    this._indexQueue = [];
+    this._indexQueueMaxSize = toPositiveInt(opts.indexQueueMaxSize, 100);
+    this._indexRetryMax = toPositiveInt(opts.indexRetryMax, 2);
+    this._indexRetryDelayMs = toPositiveInt(opts.indexRetryDelayMs, 500);
+    this._indexInFlight = 0;
+    this._indexMaxConcurrent = toPositiveInt(opts.indexMaxConcurrent, 3);
+    this._indexDroppedCount = 0;
+
     this._unsubscribeArchived = null;
     if (opts.subscribe !== false) {
       this._subscribeToMemoryEvents();
@@ -77,8 +86,27 @@ export class RetrievalEngine {
       }
       this._unsubscribeArchived = null;
     }
+    this._indexQueue.length = 0;
   }
 
+  /**
+   * 获取索引队列状态（用于监控和调试）
+   */
+  getIndexQueueStats() {
+    return {
+      queueSize: this._indexQueue.length,
+      maxSize: this._indexQueueMaxSize,
+      inFlight: this._indexInFlight,
+      maxConcurrent: this._indexMaxConcurrent,
+      droppedCount: this._indexDroppedCount,
+    };
+  }
+
+  /**
+   * 将归档条目加入索引队列（带反压）
+   * @param {string} archiveId
+   * @returns {boolean} 是否成功入队
+   */
   queueIndexArchive(archiveId) {
     const id = toNonEmptyString(archiveId);
     if (!id) return false;
@@ -93,20 +121,51 @@ export class RetrievalEngine {
     const text = buildArchiveEmbeddingText(entry);
     if (!text) return false;
 
-    void svc
-      .enqueue([text], { immediate: false })
-      .then((vectors) => {
-        const v = Array.isArray(vectors) ? vectors[0] : null;
-        if (!v) return;
-        try {
-          idx.upsert(id, v, { stageKey: entry.stageKey, ts: entry.ts });
-        } catch {
-          // ignore vector dimension errors / index failures
-        }
-      })
-      .catch(() => {});
+    // 反压检查：队列已满时丢弃最旧的任务
+    if (this._indexQueue.length >= this._indexQueueMaxSize) {
+      this._indexQueue.shift();
+      this._indexDroppedCount++;
+    }
 
+    this._indexQueue.push({ id, text, entry, retries: 0 });
+    this._processIndexQueue();
     return true;
+  }
+
+  /**
+   * 处理索引队列（控制并发）
+   */
+  _processIndexQueue() {
+    while (this._indexInFlight < this._indexMaxConcurrent && this._indexQueue.length > 0) {
+      const task = this._indexQueue.shift();
+      if (!task) break;
+      this._indexInFlight++;
+      this._executeIndexTask(task);
+    }
+  }
+
+  /**
+   * 执行单个索引任务（带重试）
+   */
+  async _executeIndexTask(task) {
+    const { id, text, entry, retries } = task;
+    try {
+      const vectors = await this.embeddingService.enqueue([text], { immediate: false });
+      const v = Array.isArray(vectors) ? vectors[0] : null;
+      if (v) {
+        this.vectorIndex.upsert(id, v, { stageKey: entry.stageKey, ts: entry.ts });
+      }
+    } catch (err) {
+      // 重试逻辑
+      if (retries < this._indexRetryMax) {
+        await new Promise((r) => setTimeout(r, this._indexRetryDelayMs * (retries + 1)));
+        this._indexQueue.push({ ...task, retries: retries + 1 });
+      }
+      // 超过重试次数则静默丢弃
+    } finally {
+      this._indexInFlight--;
+      this._processIndexQueue();
+    }
   }
 
   async ensureIndexed({ timeoutMs } = {}) {
@@ -229,30 +288,76 @@ export class RetrievalEngine {
     return fallback ? this.keywordRecall(q, { limit: k }) : [];
   }
 
-  async hybridRecall(query, { limit = 3, fallback = true, timeoutMs } = {}) {
+  /**
+   * Hybrid recall with RRF (Reciprocal Rank Fusion) reranking.
+   *
+   * RRF formula: score(d) = Σ 1 / (k + rank_i(d))
+   * where k is a constant (default 60) and rank_i(d) is document d's rank in list i.
+   *
+   * @param {string} query
+   * @param {object} options
+   * @param {number} [options.limit=3]
+   * @param {boolean} [options.fallback=true]
+   * @param {number} [options.timeoutMs]
+   * @param {number} [options.rrfK=60] - RRF constant k (higher = more weight to lower ranks)
+   * @param {number} [options.semanticWeight=1.0] - Weight multiplier for semantic results
+   * @param {number} [options.keywordWeight=1.0] - Weight multiplier for keyword results
+   */
+  async hybridRecall(query, { limit = 3, fallback = true, timeoutMs, rrfK = 60, semanticWeight = 1.0, keywordWeight = 1.0 } = {}) {
     const q = toNonEmptyString(query) || "";
     const k = toPositiveInt(limit, 3);
+    const rrfConstant = toPositiveInt(rrfK, 60);
+    const semWeight = typeof semanticWeight === "number" && Number.isFinite(semanticWeight) ? Math.max(0, semanticWeight) : 1.0;
+    const kwWeight = typeof keywordWeight === "number" && Number.isFinite(keywordWeight) ? Math.max(0, keywordWeight) : 1.0;
 
-    const semantic = await this.semanticRecall(q, { limit: k, fallback: false, ...(timeoutMs ? { timeoutMs } : {}) });
-    const keyword = this.keywordRecall(q, { limit: k });
+    // 获取两个来源的结果（各取 k*2 以增加融合候选）
+    const fetchLimit = Math.max(k * 2, 10);
+    const semantic = await this.semanticRecall(q, { limit: fetchLimit, fallback: false, ...(timeoutMs ? { timeoutMs } : {}) });
+    const keyword = this.keywordRecall(q, { limit: fetchLimit });
 
-    const out = [];
-    const seen = new Set();
-    for (const row of semantic) {
-      if (out.length >= k) break;
+    // 如果两个来源都为空，使用 fallback
+    if (!semantic.length && !keyword.length) {
+      return fallback ? this.keywordRecall(q, { limit: k }) : [];
+    }
+
+    // RRF 分数累积
+    const rrfScores = new Map(); // id -> { score, data }
+    const dataMap = new Map();   // id -> row data
+
+    // 处理语义搜索结果
+    for (let i = 0; i < semantic.length; i++) {
+      const row = semantic[i];
       if (!row?.id) continue;
-      out.push(row);
-      seen.add(row.id);
-    }
-    for (const row of keyword) {
-      if (out.length >= k) break;
-      if (!row?.id || seen.has(row.id)) continue;
-      out.push(row);
-      seen.add(row.id);
+      const rank = i + 1; // 排名从 1 开始
+      const contribution = semWeight / (rrfConstant + rank);
+      const current = rrfScores.get(row.id) || 0;
+      rrfScores.set(row.id, current + contribution);
+      if (!dataMap.has(row.id)) dataMap.set(row.id, row);
     }
 
-    if (out.length) return out;
-    return fallback ? keyword : [];
+    // 处理关键词搜索结果
+    for (let i = 0; i < keyword.length; i++) {
+      const row = keyword[i];
+      if (!row?.id) continue;
+      const rank = i + 1;
+      const contribution = kwWeight / (rrfConstant + rank);
+      const current = rrfScores.get(row.id) || 0;
+      rrfScores.set(row.id, current + contribution);
+      if (!dataMap.has(row.id)) dataMap.set(row.id, row);
+    }
+
+    // 按 RRF 分数排序
+    const sorted = Array.from(rrfScores.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, k);
+
+    // 构建结果，附带 RRF 分数
+    const out = sorted.map(([id, rrfScore]) => {
+      const row = dataMap.get(id);
+      return row ? { ...row, rrfScore } : null;
+    }).filter(Boolean);
+
+    return out.length ? out : (fallback ? this.keywordRecall(q, { limit: k }) : []);
   }
 }
 

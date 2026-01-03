@@ -113,36 +113,113 @@ export function normalizeRenderType(rt) {
 }
 
 /**
+ * Token 估算配置（可由上层覆盖）
+ *
+ * 实测数据参考：
+ * - GPT-4/Claude: 中文约 1.2-1.8 tokens/字符，英文约 0.25 tokens/字符
+ * - 国产模型 (GLM/文心): 中文约 0.8-1.2 tokens/字符
+ */
+export const TOKEN_ESTIMATE_CONFIG = {
+  // 英文等拉丁文字：约 4 字符 = 1 token
+  latinCharsPerToken: 4,
+  // CJK 文字：约 1 字符 = 1.4 tokens (保守估计)
+  cjkTokensPerChar: 1.4,
+  // 标点符号等：约 2 字符 = 1 token
+  punctuationCharsPerToken: 2,
+};
+
+/**
+ * 检测字符是否为 CJK 字符（包含扩展区）
+ * @param {number} code - 字符 Unicode 码点
+ * @returns {boolean}
+ */
+export function isCjkChar(code) {
+  return (
+    // CJK Unified Ideographs (最常用)
+    (code >= 0x4e00 && code <= 0x9fff) ||
+    // CJK Extension A
+    (code >= 0x3400 && code <= 0x4dbf) ||
+    // CJK Extension B-F (via surrogate pairs, but charCodeAt won't reach here directly)
+    // (code >= 0x20000 && code <= 0x2ebef) ||
+    // CJK Compatibility Ideographs
+    (code >= 0xf900 && code <= 0xfaff) ||
+    // Hiragana
+    (code >= 0x3040 && code <= 0x309f) ||
+    // Katakana
+    (code >= 0x30a0 && code <= 0x30ff) ||
+    // Katakana Phonetic Extensions
+    (code >= 0x31f0 && code <= 0x31ff) ||
+    // Hangul Syllables
+    (code >= 0xac00 && code <= 0xd7af) ||
+    // Hangul Jamo
+    (code >= 0x1100 && code <= 0x11ff) ||
+    // Bopomofo
+    (code >= 0x3100 && code <= 0x312f) ||
+    // CJK Symbols and Punctuation
+    (code >= 0x3000 && code <= 0x303f) ||
+    // Fullwidth Forms
+    (code >= 0xff00 && code <= 0xffef)
+  );
+}
+
+/**
  * 高级 Token 估算：针对中英文混合文本。
- * 英文: 1 token ≈ 4 字符
- * 中文/日韩文: 1 token ≈ 0.6 字符 (即 charCount * 1.6)
  *
  * @param {string} text
+ * @param {Object} [config] - 可选配置覆盖
+ * @param {number} [config.latinCharsPerToken]
+ * @param {number} [config.cjkTokensPerChar]
+ * @param {number} [config.punctuationCharsPerToken]
  * @returns {number}
  */
-export function estimateTokenCount(text) {
+export function estimateTokenCount(text, config) {
   if (!text || typeof text !== "string") return 0;
 
-  // High-performance CJK count (avoid `match()` allocating large arrays).
+  const cfg = {
+    ...TOKEN_ESTIMATE_CONFIG,
+    ...(config && typeof config === "object" ? config : {}),
+  };
+
   let cjkCount = 0;
+  let punctCount = 0;
+
   for (let i = 0; i < text.length; i++) {
     const code = text.charCodeAt(i);
-    // CJK Unified Ideographs, Hiragana/Katakana, Hangul
-    if (
-      (code >= 0x4e00 && code <= 0x9fff) ||
-      (code >= 0x3040 && code <= 0x30ff) ||
-      (code >= 0xac00 && code <= 0xd7af)
-    ) {
+
+    if (isCjkChar(code)) {
       cjkCount += 1;
+    } else if (
+      // ASCII punctuation
+      (code >= 0x21 && code <= 0x2f) ||
+      (code >= 0x3a && code <= 0x40) ||
+      (code >= 0x5b && code <= 0x60) ||
+      (code >= 0x7b && code <= 0x7e) ||
+      // General Punctuation
+      (code >= 0x2000 && code <= 0x206f)
+    ) {
+      punctCount += 1;
     }
   }
 
-  const otherCount = text.length - cjkCount;
+  const latinCount = text.length - cjkCount - punctCount;
 
-  // Heuristic:
-  // - Latin-ish text: ~4 chars / token
-  // - CJK: ~1 char ~= 1.6 tokens (conservative)
-  return Math.ceil(otherCount / 4 + cjkCount * 1.6);
+  // 计算各部分 token 数
+  const latinTokens = latinCount / cfg.latinCharsPerToken;
+  const cjkTokens = cjkCount * cfg.cjkTokensPerChar;
+  const punctTokens = punctCount / cfg.punctuationCharsPerToken;
+
+  return Math.ceil(latinTokens + cjkTokens + punctTokens);
+}
+
+/**
+ * 快速估算（用于高频调用场景，牺牲精度换速度）
+ * @param {string} text
+ * @returns {number}
+ */
+export function estimateTokenCountFast(text) {
+  if (!text || typeof text !== "string") return 0;
+  // 简化公式：假设混合文本平均 2 字符 = 1 token
+  return Math.ceil(text.length / 2);
 }
 
 /**

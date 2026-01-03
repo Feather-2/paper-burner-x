@@ -69,7 +69,7 @@ export function cancelledErrorFromSignal(signal, stageName) {
   return new StageCancelledError(message, { stageName });
 }
 
-export function toErrorPayload(err) {
+export function toErrorPayload(err, { includeStack = true } = {}) {
   if (!err) {
     return { message: "Unknown error", name: "Error" };
   }
@@ -79,6 +79,16 @@ export function toErrorPayload(err) {
       message: toNonEmptyString(err.message) ?? "Error",
       name: toNonEmptyString(err.name) ?? "Error",
     };
+
+    // 保留堆栈信息（默认启用）
+    if (includeStack && typeof err.stack === "string" && err.stack) {
+      payload.stack = err.stack;
+    }
+
+    // 保留 cause 链（递归处理）
+    if (err.cause) {
+      payload.cause = toErrorPayload(err.cause, { includeStack });
+    }
 
     if (typeof err.stageName === "string" && err.stageName) payload.stageName = err.stageName;
     if (typeof err.timeoutMs === "number" && Number.isFinite(err.timeoutMs)) payload.timeoutMs = err.timeoutMs;
@@ -94,4 +104,40 @@ export function toErrorPayload(err) {
     message,
     name: "Error",
   };
+}
+
+/**
+ * 从 payload 重建 Error 对象（用于跨边界恢复）
+ */
+export function fromErrorPayload(payload) {
+  if (!payload || typeof payload !== "object") {
+    return new Error("Unknown error");
+  }
+
+  const message = toNonEmptyString(payload.message) ?? "Error";
+  const name = toNonEmptyString(payload.name) ?? "Error";
+
+  let error;
+  if (name === "StageTimeoutError") {
+    error = new StageTimeoutError(message, { stageName: payload.stageName, timeoutMs: payload.timeoutMs });
+  } else if (name === "StageCancelledError") {
+    error = new StageCancelledError(message, { stageName: payload.stageName });
+  } else if (name === "StagePausedError") {
+    error = StagePausedError.fromJSON(payload);
+  } else {
+    error = new Error(message);
+    error.name = name;
+  }
+
+  // 恢复堆栈（如果存在）
+  if (typeof payload.stack === "string") {
+    error.stack = payload.stack;
+  }
+
+  // 恢复 cause 链
+  if (payload.cause) {
+    error.cause = fromErrorPayload(payload.cause);
+  }
+
+  return error;
 }
