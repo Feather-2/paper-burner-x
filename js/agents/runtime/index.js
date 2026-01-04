@@ -16,6 +16,7 @@ export {
 } from "./core/agent-status.js";
 export { StagePausedError, StageCancelledError, StageTimeoutError } from "./core/stage-errors.js";
 export { ActorType, OrchestratorState, isValidActorType } from "./core/constants.js";
+export { AgentOrchestrator, SchedulingMode } from "./orchestrator.js";
 
 // Events
 export { EventBus } from "./events/event-bus.js";

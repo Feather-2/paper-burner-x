@@ -661,6 +661,45 @@ export class StateEngine {
   }
 
   /**
+   * Batch dispatch multiple actions atomically
+   * - Single clock tick for all actions
+   * - Single listener notification after all actions complete
+   * - Single EventBus emit
+   * @param {object[]} actions - Array of action objects
+   * @returns {Promise<object[]>} The dispatched actions with metadata
+   */
+  async dispatchBatch(actions) {
+    if (!Array.isArray(actions) || actions.length === 0) {
+      return [];
+    }
+
+    // Validate all actions first
+    for (const action of actions) {
+      if (!action || typeof action !== "object" || !action.type) {
+        throw new TypeError("StateEngine.dispatchBatch: each action must have a type");
+      }
+    }
+
+    return new Promise((resolve) => {
+      this._dispatchQueue.push({ actions, isBatch: true, resolve });
+      this._processQueue();
+    });
+  }
+
+  /**
+   * Synchronous batch dispatch
+   * @param {object[]} actions - Array of action objects
+   * @returns {object[]} The dispatched actions with metadata
+   */
+  dispatchBatchSync(actions) {
+    if (!Array.isArray(actions) || actions.length === 0) {
+      return [];
+    }
+
+    return this._executeBatchDispatch(actions);
+  }
+
+  /**
    * Synchronous dispatch (for internal use / compatibility)
    * @param {object} action
    * @returns {object} The dispatched action
@@ -682,12 +721,74 @@ export class StateEngine {
     this._isDispatching = true;
 
     while (this._dispatchQueue.length > 0) {
-      const { action, resolve } = this._dispatchQueue.shift();
-      const result = this._executeDispatch(action);
-      resolve(result);
+      const item = this._dispatchQueue.shift();
+      if (item.isBatch) {
+        const result = this._executeBatchDispatch(item.actions);
+        item.resolve(result);
+      } else {
+        const result = this._executeDispatch(item.action);
+        item.resolve(result);
+      }
     }
 
     this._isDispatching = false;
+  }
+
+  /**
+   * Execute batch dispatch - single clock tick, single notification
+   * @private
+   */
+  _executeBatchDispatch(actions) {
+    const ts = Date.now();
+    const seq = this._clock.tick(); // Single tick for entire batch
+    const actorId = this._clock.actorId;
+
+    const prevState = this._state;
+    let currentState = prevState;
+    const enrichedActions = [];
+
+    // Apply all actions sequentially but atomically
+    for (let i = 0; i < actions.length; i++) {
+      const action = actions[i];
+      const enrichedAction = {
+        ...action,
+        meta: {
+          ...action.meta,
+          ts,
+          seq,
+          batchIndex: i,
+          batchSize: actions.length,
+          actorId,
+        },
+      };
+      enrichedActions.push(enrichedAction);
+
+      // Reduce
+      currentState = rootReducer(currentState, enrichedAction);
+    }
+
+    // Only update if state changed
+    if (currentState !== prevState) {
+      this._state = currentState;
+
+      // Record action history (batch as single entry or individual)
+      if (this._enableActionHistory) {
+        for (const action of enrichedActions) {
+          this._actionHistory.push(action);
+        }
+        while (this._actionHistory.length > this._maxActionHistory) {
+          this._actionHistory.shift();
+        }
+      }
+
+      // Single notification for entire batch
+      this._notifyListenersBatch(enrichedActions, prevState, currentState);
+
+      // Single EventBus emit for batch
+      this._emitBatchStateChange(enrichedActions, prevState, currentState);
+    }
+
+    return enrichedActions;
   }
 
   /**
@@ -809,6 +910,43 @@ export class StateEngine {
   }
 
   /**
+   * Notify listeners for batch dispatch (single notification for multiple actions)
+   * @private
+   */
+  _notifyListenersBatch(actions, prevState, nextState) {
+    // Create synthetic batch action for global listeners
+    const batchAction = {
+      type: BATCH,
+      payload: { actions, count: actions.length },
+      meta: actions[0]?.meta || {},
+    };
+
+    // Global listeners receive batch summary
+    for (const listener of this._listeners) {
+      try {
+        listener(batchAction, prevState, nextState);
+      } catch (err) {
+        logger.error("[StateEngine] Listener error (batch):", { error: err?.message || String(err) });
+      }
+    }
+
+    // Layer listeners - only notify for layers that actually changed
+    const diff = diffLayers(prevState, nextState);
+    for (const [layer, changed] of Object.entries(diff)) {
+      if (!changed) continue;
+      const set = this._layerListeners.get(layer);
+      if (!set) continue;
+      for (const listener of set) {
+        try {
+          listener(batchAction, prevState[layer], nextState[layer]);
+        } catch (err) {
+          logger.error(`[StateEngine] Layer ${layer} listener error (batch):`, { error: err?.message || String(err) });
+        }
+      }
+    }
+  }
+
+  /**
    * Emit state change to EventBus
    * @private
    */
@@ -823,6 +961,33 @@ export class StateEngine {
         seq: action.meta?.seq,
         ts: action.meta?.ts,
       },
+      runId: nextState.runId,
+    });
+  }
+
+  /**
+   * Emit batch state change to EventBus (single emit for multiple actions)
+   * @private
+   */
+  _emitBatchStateChange(actions, prevState, nextState) {
+    if (!this._eventBus?.emit) return;
+
+    // Collect affected layers
+    const layers = new Set();
+    for (const action of actions) {
+      const layer = getActionLayer(action.type);
+      if (layer) layers.add(layer);
+    }
+
+    this._eventBus.emit("state.batch_changed", {
+      actions: actions.map(a => ({
+        type: a.type,
+        layer: getActionLayer(a.type),
+      })),
+      layers: Array.from(layers),
+      count: actions.length,
+      seq: actions[0]?.meta?.seq,
+      ts: actions[0]?.meta?.ts,
       runId: nextState.runId,
     });
   }

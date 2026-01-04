@@ -73,11 +73,20 @@ function createStageAbortSignal(parentSignal, timeoutMs) {
  * Lightweight stage runner used by the PPT workflow layer:
  * - registerStage(name, fn, { actor?, timeoutMs? })
  * - runStage(name, input?)
+ * - runStagesParallel(stages) - run multiple stages concurrently
  *
- * This orchestrator is intentionally minimal; complex stage composition lives in callers.
+ * Scheduling modes:
+ * - sequential (default): stages run one at a time via queue
+ * - parallel: stages can run concurrently up to maxConcurrency
  */
+
+export const SchedulingMode = Object.freeze({
+  SEQUENTIAL: "sequential",
+  PARALLEL: "parallel",
+});
+
 export class AgentOrchestrator {
-  constructor({ mode, scenario, constraints, services, eventBus, runId } = {}) {
+  constructor({ mode, scenario, constraints, services, eventBus, runId, scheduling } = {}) {
     this.runContext = buildRunContext({ runId, mode, scenario, constraints });
     this.runId = this.runContext.runId;
 
@@ -107,6 +116,12 @@ export class AgentOrchestrator {
     this._runCancelled = false;
     this._stages = new Map(); // stageName -> { handler, options }
     this._queue = Promise.resolve();
+
+    // Scheduling configuration
+    const sched = scheduling && typeof scheduling === "object" ? scheduling : {};
+    this._schedulingMode = sched.mode === SchedulingMode.PARALLEL ? SchedulingMode.PARALLEL : SchedulingMode.SEQUENTIAL;
+    this._maxConcurrency = normalizeTimeoutMs(sched.maxConcurrency, 3);
+    this._inFlight = 0;
 
     this.emit = (name, record) => this.eventBus.emit(name, record);
   }
@@ -224,12 +239,85 @@ export class AgentOrchestrator {
     const name = toNonEmptyString(stageName);
     if (!name) throw new Error("AgentOrchestrator.runStage(stageName): stageName must be a non-empty string");
 
-    // Force sequential execution (shared UI + persistence assumptions).
+    if (this._schedulingMode === SchedulingMode.PARALLEL) {
+      return this._runStageParallel(name, input);
+    }
+
+    // Sequential mode: Force sequential execution (shared UI + persistence assumptions).
     this._queue = this._queue.then(
       () => this._runStageNow(name, input),
       () => this._runStageNow(name, input)
     );
     return this._queue;
+  }
+
+  /**
+   * Run multiple stages in parallel with concurrency limit
+   * @param {Array<{name: string, input?: any}>} stages - Stages to run
+   * @returns {Promise<Map<string, any>>} Map of stageName -> result
+   */
+  async runStagesParallel(stages) {
+    if (!Array.isArray(stages) || stages.length === 0) {
+      return new Map();
+    }
+
+    if (this.state !== OrchestratorState.RUNNING) this.start();
+    if (this.signal.aborted) throw new Error("Run cancelled");
+
+    const results = new Map();
+    const pending = [...stages];
+    const executing = new Set();
+
+    const runNext = async () => {
+      while (pending.length > 0 && executing.size < this._maxConcurrency) {
+        const { name, input } = pending.shift();
+        const stageName = toNonEmptyString(name);
+        if (!stageName) continue;
+
+        const promise = this._runStageNow(stageName, input)
+          .then((result) => {
+            results.set(stageName, { success: true, result });
+            executing.delete(promise);
+            return runNext();
+          })
+          .catch((error) => {
+            results.set(stageName, { success: false, error: error?.message || String(error) });
+            executing.delete(promise);
+            return runNext();
+          });
+
+        executing.add(promise);
+      }
+
+      if (executing.size > 0) {
+        await Promise.race(executing);
+      }
+    };
+
+    await runNext();
+    // Wait for all remaining
+    await Promise.all(executing);
+
+    return results;
+  }
+
+  /**
+   * Run stage with parallel mode concurrency control
+   * @private
+   */
+  async _runStageParallel(stageName, input) {
+    // Wait for slot
+    while (this._inFlight >= this._maxConcurrency) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      if (this.signal.aborted) throw new Error("Run cancelled");
+    }
+
+    this._inFlight++;
+    try {
+      return await this._runStageNow(stageName, input);
+    } finally {
+      this._inFlight--;
+    }
   }
 
   async _runStageNow(stageName, input) {

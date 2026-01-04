@@ -762,28 +762,115 @@ export class MemoryStore {
 
   // ===== Checkpoint =====
 
-  checkpoint() {
+  /**
+   * Create a checkpoint (uses incremental if dirty tracking available)
+   * @param {Object} [options]
+   * @param {boolean} [options.incremental=true] - Use incremental snapshot if possible
+   * @param {number} [options.fullSnapshotEvery=5] - Force full snapshot every N checkpoints
+   * @returns {string} Checkpoint ID
+   */
+  checkpoint({ incremental = true, fullSnapshotEvery = 5 } = {}) {
     this._recalculateTotalTokens();
     const id = genId("ckpt");
-    // Clone as a single unit to keep checkpoint state internally consistent.
-    const { L0, L1, L2 } = deepClone({ L0: this._L0, L1: this._L1, L2: this._L2 });
-    const snapshot = { id, runId: this.runId, ts: Date.now(), L0, L1, L2 };
+    const ts = Date.now();
+
+    const checkpointCount = this._L3.checkpoints.length;
+    const shouldFull = !incremental || checkpointCount % fullSnapshotEvery === 0;
+
+    let snapshot;
+    if (shouldFull || !this._hasAnyDirty()) {
+      // Full snapshot
+      snapshot = {
+        id,
+        runId: this.runId,
+        ts,
+        encoding: "full",
+        L0: this.cloneL0(),
+        L1: this.cloneL1(),
+        L2: this.cloneL2(),
+      };
+    } else {
+      // Incremental: only clone dirty layers
+      snapshot = {
+        id,
+        runId: this.runId,
+        ts,
+        encoding: "incremental",
+        dirtyLayers: { ...this._dirty },
+      };
+      if (this._dirty.L0) snapshot.L0 = this.cloneL0();
+      if (this._dirty.L1) snapshot.L1 = this.cloneL1();
+      if (this._dirty.L2) snapshot.L2 = this.cloneL2();
+
+      // Store base checkpoint reference for restore
+      const lastCkpt = this._L3.checkpoints[checkpointCount - 1];
+      if (lastCkpt) snapshot.baseId = lastCkpt.id;
+    }
+
     this._L3.checkpoints.push(snapshot);
+    this._clearDirty(); // Reset dirty flags after checkpoint
     return id;
+  }
+
+  /**
+   * Check if any layer is dirty
+   * @private
+   */
+  _hasAnyDirty() {
+    return this._dirty.L0 || this._dirty.L1 || this._dirty.L2 || this._dirty.L3;
   }
 
   restore(checkpointId) {
     const ckpt = this._L3.checkpoints.find(c => c.id === checkpointId);
     if (!ckpt) return false;
 
-    // Restore as a single clone to avoid partially restored state if a clone throws.
-    const restored = deepClone({ L0: ckpt.L0, L1: ckpt.L1, L2: ckpt.L2 });
-    this._L0 = restored.L0;
-    this._L1 = restored.L1;
-    this._L2 = restored.L2;
+    if (ckpt.encoding === "incremental" && ckpt.baseId) {
+      // Incremental restore: first restore base, then apply incremental
+      const baseRestored = this._restoreFromBase(ckpt);
+      if (!baseRestored) {
+        // Fallback: if we have the layers, use them directly
+        if (ckpt.L0) this._L0 = deepClone(ckpt.L0);
+        if (ckpt.L1) this._L1 = deepClone(ckpt.L1);
+        if (ckpt.L2) this._L2 = deepClone(ckpt.L2);
+      }
+    } else {
+      // Full restore
+      if (ckpt.L0) this._L0 = deepClone(ckpt.L0);
+      if (ckpt.L1) this._L1 = deepClone(ckpt.L1);
+      if (ckpt.L2) this._L2 = deepClone(ckpt.L2);
+    }
 
     this._updateTokenUsage();
+    this._clearDirty();
     return true;
+  }
+
+  /**
+   * Restore from base checkpoint then apply incremental changes
+   * @private
+   */
+  _restoreFromBase(incrementalCkpt) {
+    // Find the nearest full checkpoint
+    let baseId = incrementalCkpt.baseId;
+    const chain = [incrementalCkpt];
+
+    while (baseId) {
+      const base = this._L3.checkpoints.find(c => c.id === baseId);
+      if (!base) break;
+      chain.unshift(base);
+      if (base.encoding === "full") {
+        // Found full checkpoint, apply chain
+        for (const ckpt of chain) {
+          if (ckpt.L0) this._L0 = deepClone(ckpt.L0);
+          if (ckpt.L1) this._L1 = deepClone(ckpt.L1);
+          if (ckpt.L2) this._L2 = deepClone(ckpt.L2);
+        }
+        return true;
+      }
+      baseId = base.baseId;
+    }
+
+    return false;
   }
 
   getLatestCheckpoint() {
