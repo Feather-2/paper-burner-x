@@ -1,4 +1,5 @@
-import { isPlainObject, toNonEmptyString, estimateTokenCount } from "../../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { estimateTokensCached } from "../../shared/utils/token-cache.js";
 import { robustParseJson } from "../../shared/utils/robust-json.js";
 import { CicadaEvents } from "../events/events.js";
 import { makeSecureTimestampedId } from "../../shared/utils/secure-id.js";
@@ -78,8 +79,7 @@ function safeStringify(value) {
 }
 
 function estimateTokens(text) {
-  if (!text) return 0;
-  return estimateTokenCount(text);
+  return estimateTokensCached(text);
 }
 
 function truncateText(text, maxChars) {

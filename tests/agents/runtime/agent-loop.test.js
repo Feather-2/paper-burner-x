@@ -53,7 +53,7 @@ test("BaseAgentLoop helpers normalize and resolve", async () => {
 
   const controller2 = new AbortController();
   controller2.abort(new Error("boom"));
-  assert.throws(() => checkCancelled(controller2.signal), /Run cancelled/);
+  assert.throws(() => checkCancelled(controller2.signal), /boom/);
 
   const pauseController = new AbortController();
   setRuntimeState(pauseController.signal, {

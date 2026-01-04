@@ -8,6 +8,14 @@ import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 
 import { DeepSearchState } from "../../../js/agents/stages/deepsearch/state.js";
+import { StateEngine } from "../../../js/agents/runtime/memory/state-engine.js";
+import {
+  L0_ADD_TODO,
+  L0_REMOVE_TODO,
+  L0_REPLACE_TODOS,
+  L0_SET_TASK_GOAL,
+  L0_UPDATE_TODO,
+} from "../../../js/agents/runtime/memory/action-types.js";
 
 describe("DeepSearchState P1.3: MemoryStore 委托", () => {
   describe("taskGoal 代理", () => {
@@ -140,5 +148,55 @@ describe("DeepSearchState P1.3: MemoryStore 委托", () => {
       assert.equal(state.todos.length, 1);
       assert.equal(mockMemory.L0.todos, state.todos);
     });
+  });
+});
+
+describe("DeepSearchState Phase 4: StateEngine 集成", () => {
+  it("taskGoal 优先读取 StateEngine (SSOT)", () => {
+    const engine = new StateEngine({ initialState: { L0: { taskGoal: "engine goal", todos: [] } } });
+    const state = new DeepSearchState({ taskGoal: "local goal", stateEngine: engine });
+    assert.equal(state.taskGoal, "engine goal");
+  });
+
+  it("taskGoal setter 通过 StateEngine dispatch", () => {
+    const engine = new StateEngine();
+    const state = new DeepSearchState({ stateEngine: engine });
+
+    state.taskGoal = "new goal";
+
+    assert.equal(engine.getState().L0.taskGoal, "new goal");
+    const [last] = engine.getActionHistory(1);
+    assert.equal(last.type, L0_SET_TASK_GOAL);
+  });
+
+  it("todos setter 通过 StateEngine dispatch (REPLACE)", () => {
+    const engine = new StateEngine();
+    const state = new DeepSearchState({ stateEngine: engine });
+
+    state.todos = [{ todoId: "todo_1", text: "hello" }];
+
+    assert.equal(engine.getState().L0.todos.length, 1);
+    const [last] = engine.getActionHistory(1);
+    assert.equal(last.type, L0_REPLACE_TODOS);
+  });
+
+  it("addTodo/updateTodo/removeTodo 通过 StateEngine dispatch", () => {
+    const engine = new StateEngine();
+    const state = new DeepSearchState({ stateEngine: engine });
+
+    const todo = state.addTodo({ text: "t1" });
+    assert.equal(engine.getState().L0.todos.length, 1);
+    assert.equal(state.todos.length, 1);
+    assert.equal(engine.getActionHistory(1)[0].type, L0_ADD_TODO);
+
+    const updated = state.updateTodo(todo.todoId, { status: "completed" });
+    assert.equal(updated.status, "completed");
+    assert.equal(engine.getState().L0.todos[0].status, "completed");
+    assert.equal(engine.getActionHistory(1)[0].type, L0_UPDATE_TODO);
+
+    const removed = state.removeTodo(todo.todoId);
+    assert.ok(removed);
+    assert.equal(engine.getState().L0.todos.length, 0);
+    assert.equal(engine.getActionHistory(1)[0].type, L0_REMOVE_TODO);
   });
 });

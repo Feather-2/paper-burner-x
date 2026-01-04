@@ -8,7 +8,8 @@
  * - L3: Archive (归档) - snapshots, index, checkpoints
  */
 
-import { isPlainObject, toNonEmptyString, estimateTokenCount, deepClone } from "../../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString, deepClone } from "../../shared/utils/value-utils.js";
+import { estimateTokensCached } from "../../shared/utils/token-cache.js";
 import { getGlobalTokenCounter } from "../../shared/tokenizers/adaptive-token-counter.js";
 import { makeSecureTimestampedId } from "../../shared/utils/secure-id.js";
 import { RetrievalEngine } from "./retrieval-engine.js";
@@ -43,7 +44,7 @@ function estimateTokens(text, tokenCounter) {
       rawText = String(text);
     }
   }
-  return estimateTokenCount(rawText);
+  return estimateTokensCached(rawText);
 }
 
 // 截断文本
