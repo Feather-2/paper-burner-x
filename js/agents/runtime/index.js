@@ -59,3 +59,17 @@ export {
 
 // Kernel (MicroKernel facade)
 export { MicroKernel, MessageBus, ServiceProvider, isServiceProvider } from "./kernel/index.js";
+
+// Dependencies (Python Skill support)
+export {
+  DependencyManager,
+  PYODIDE_BUILTIN,
+  PythonSkillExecutor,
+  createPythonSkillExecutor,
+  executePythonSkill,
+} from "./deps/index.js";
+
+// Runtime Adapters
+export { JSRuntimeAdapter } from "./core/js-adapter.js";
+export { PythonRuntimeAdapter } from "./core/python-adapter.js";
+export { RuntimeScheduler, TaskPriority, RuntimeHealthStatus } from "./core/scheduler.js";

@@ -91,7 +91,21 @@ self.onmessage = async (evt) => {
       self.postMessage({ type: 'ready', id });
     } else if (type === 'preload') {
       await initPyodide(payload.indexUrl);
-      await pyodide.loadPackage(payload.dependencies);
+
+      // 新增: 支持依赖加载脚本 (由 DependencyManager 生成)
+      if (payload.loadScript) {
+        // loadScript 是 JS 代码，包含 pyodide.loadPackage 和 micropip 调用
+        // 使用 AsyncFunction 执行
+        const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+        const loadFn = new AsyncFunction('pyodide', payload.loadScript);
+        await loadFn(pyodide);
+      }
+
+      // 兼容旧接口: 直接传 dependencies 数组
+      if (payload.dependencies && payload.dependencies.length > 0) {
+        await pyodide.loadPackage(payload.dependencies);
+      }
+
       self.postMessage({ type: 'preloaded', id });
     } else if (type === 'execute') {
       await initPyodide(payload.indexUrl);
