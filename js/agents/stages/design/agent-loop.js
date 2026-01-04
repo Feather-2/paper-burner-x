@@ -90,7 +90,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
     if (tools) this.registerTools(tools);
     this.phase = { status: DesignPhase.IDLE };
     this._loopStatus = AgentStatus.IDLE;
-    this._statusHistory = [];
+    if (Array.isArray(this._statusHistory)) this._statusHistory.length = 0;
     this.archive = archive || null;
     // Blackboard for cross-phase communication
     this._blackboard = new DesignBlackboard();
@@ -330,6 +330,12 @@ export class DesignAgentLoop extends BaseAgentLoop {
     this._emitAgentStatusChanged({ from: oldStatus, to: newStatus, timestamp, ...historyMeta });
 
     return checkpointId;
+  }
+
+  _emitAgentStatusChanged(payload) {
+    const emit = this.emit || this.eventBus?.emit;
+    if (typeof emit !== "function") return;
+    emit("design.agent.status.changed", { actor: "design", status: "info", payload });
   }
 
   async _savePreActionCheckpoint(metadata) {
@@ -772,7 +778,8 @@ export async function resumeDesignAgentLoop(checkpointId, stageApi = {}) {
   // Start from a valid "forward" phase to avoid illegal transitions when resuming.
   agentLoop.phase = { status: DesignPhase.IDLE };
   if (Array.isArray(nodeStates.statusHistory)) {
-    agentLoop._statusHistory = nodeStates.statusHistory.map((entry) => ({ ...entry }));
+    agentLoop._statusHistory.length = 0;
+    for (const entry of nodeStates.statusHistory) agentLoop._statusHistory.push({ ...entry });
   }
 
   agentLoop._pauseRequested = false;

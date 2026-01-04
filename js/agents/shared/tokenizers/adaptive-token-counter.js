@@ -1,4 +1,5 @@
-import { estimateTokenCount, isPlainObject } from "../utils/value-utils.js";
+import { isPlainObject } from "../utils/value-utils.js";
+import { estimateTokensCached } from "../utils/token-cache.js";
 import { isWasmSupported } from "../utils/wasm-support.js";
 
 function toText(value) {
@@ -161,16 +162,16 @@ export function createAdaptiveTokenCounter(options = {}) {
     if (ready && encoder) {
       try {
         const tokens = encoder.encode(text);
-        return Array.isArray(tokens) ? tokens.length : typeof tokens?.length === "number" ? tokens.length : estimateTokenCount(text);
+        return Array.isArray(tokens) ? tokens.length : typeof tokens?.length === "number" ? tokens.length : estimateTokensCached(text);
       } catch {
         // If encoding fails (should be rare), fall back safely.
-        return estimateTokenCount(text);
+        return estimateTokensCached(text);
       }
     }
 
     // Kick off WASM init best-effort (no await).
     void init({ model: lastModel || undefined, encoding: lastEncoding || undefined });
-    return estimateTokenCount(text);
+    return estimateTokensCached(text);
   };
 
   const getStatus = () => ({ mode, ready, failed });

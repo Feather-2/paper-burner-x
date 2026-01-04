@@ -13,7 +13,8 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { estimateTokenCount, toNonEmptyString } from "../shared/utils/value-utils.js";
+import { toNonEmptyString } from "../shared/utils/value-utils.js";
+import { estimateTokensCached } from "../shared/utils/token-cache.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONFIG_FILE = join(__dirname, "config.json");
@@ -86,11 +87,11 @@ async function fetchWithTimeout(url, init = {}, { timeoutMs, signal } = {}) {
 function estimateMessageTokens(message) {
     if (!message || typeof message !== "object") return 0;
     const content = message.content;
-    if (typeof content === "string") return estimateTokenCount(content);
+    if (typeof content === "string") return estimateTokensCached(content);
     try {
-        return estimateTokenCount(JSON.stringify(content));
+        return estimateTokensCached(JSON.stringify(content));
     } catch {
-        return estimateTokenCount(String(content ?? ""));
+        return estimateTokensCached(String(content ?? ""));
     }
 }
 

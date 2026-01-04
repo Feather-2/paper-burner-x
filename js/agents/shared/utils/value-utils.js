@@ -212,6 +212,16 @@ export function estimateTokenCount(text, config) {
 }
 
 /**
+ * Alias: historical name for token estimation.
+ * @param {string} text
+ * @param {Object} [config]
+ * @returns {number}
+ */
+export function estimateTokens(text, config) {
+  return estimateTokenCount(text, config);
+}
+
+/**
  * 快速估算（用于高频调用场景，牺牲精度换速度）
  * @param {string} text
  * @returns {number}

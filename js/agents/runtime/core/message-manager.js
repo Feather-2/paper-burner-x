@@ -7,7 +7,7 @@
  * - 压缩调度和执行
  */
 
-import { estimateTokenCount } from "../../shared/utils/value-utils.js";
+import { estimateTokensCached } from "../../shared/utils/token-cache.js";
 import { getGlobalTokenCounter } from "../../shared/tokenizers/adaptive-token-counter.js";
 import { CompressionCoordinator } from "../compression/coordinator.js";
 
@@ -46,7 +46,7 @@ function estimateTokens(text, tokenCounter) {
       rawText = String(text);
     }
   }
-  return estimateTokenCount(rawText);
+  return estimateTokensCached(rawText);
 }
 
 export class MessageManager {

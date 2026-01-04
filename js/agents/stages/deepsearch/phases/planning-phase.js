@@ -345,7 +345,7 @@ export async function runPlanningPhaseIteration({
   const systemRetryInfo =
     systemRetryCount > 0 ? ` (sys-retry ${systemRetryCount}/${maxSystemRetriesPerIteration})` : "";
   agent._logger?.debug?.(
-    `Iteration ${plannedIteration}/${agent.maxIterations}${retryInfo}${systemRetryInfo} | Tokens: ${totalTokens} (${tokenPct}%)${compressFlag} | Messages: ${agent._messages.length}`
+    `Iteration ${plannedIteration}/${agent.maxIterations}${retryInfo}${systemRetryInfo} | Tokens: ${totalTokens} (${tokenPct}%)${compressFlag} | Messages: ${agent.messages.length}`
   );
 
   // 预算检查
@@ -426,14 +426,14 @@ export async function runPlanningPhaseIteration({
     agent.memory.syncAll();
 
     const lastSyncedCount = agent._lastSyncedMessageCount || 0;
-    const newMessages = agent._messages.slice(lastSyncedCount);
+    const newMessages = agent.messages.slice(lastSyncedCount);
     if (newMessages.length > 0) {
       const simplifiedNew = newMessages.map((m) => ({
         role: m.role,
         content: typeof m.content === "string" ? m.content.slice(0, 500) : JSON.stringify(m.content).slice(0, 500),
       }));
       agent.memory.addMessages?.(simplifiedNew);
-      agent._lastSyncedMessageCount = agent._messages.length;
+      agent._lastSyncedMessageCount = agent.messages.length;
     }
 
     if (Array.isArray(agent.state?.todos)) {

@@ -2,7 +2,7 @@ import { createStageApi } from "../../shared/utils/stage-api.js";
 import { StagePausedError } from "./stage-errors.js";
 import { AgentStatus, isValidAgentStatus } from "./agent-status.js";
 import { getRuntimeState } from "../telemetry/loop-runtime-state.js";
-import { estimateTokenCount } from "../../shared/utils/value-utils.js";
+import { estimateTokensCached } from "../../shared/utils/token-cache.js";
 import { getGlobalTokenCounter } from "../../shared/tokenizers/adaptive-token-counter.js";
 import { CompressionCoordinator } from "../compression/coordinator.js";
 import { MessageManager } from "./message-manager.js";
@@ -50,7 +50,7 @@ function estimateTokens(text, tokenCounter) {
       rawText = String(text);
     }
   }
-  return estimateTokenCount(rawText);
+  return estimateTokensCached(rawText);
 }
 
 function isProductionRuntime() {
