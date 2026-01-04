@@ -62,12 +62,31 @@ export async function handler(args, context) {
       if (!todo) return { success: false, error: "Todo not found" };
 
       const nextText = args.text ?? args.todo?.text;
+      const nextStatus = args.status ?? args.todo?.status;
+
+      if (typeof state?.updateTodo === "function") {
+        const updates = {};
+        if (typeof nextText === "string" && nextText.trim()) updates.text = nextText.trim();
+        if (typeof nextStatus === "string" && nextStatus.trim()) updates.status = nextStatus.trim();
+        const updated = Object.keys(updates).length ? state.updateTodo(todoId, updates, emit) : todo;
+        if (!updated) return { success: false, error: "Todo not found" };
+
+        const { valid, issues } = validateTodo(updated);
+        if (!valid) return { success: false, error: issues.join("; "), issues };
+
+        emit?.("deepsearch.todo.updated", {
+          todoId: updated.todoId,
+          status: updated.status,
+          ...(updated.text ? { text: updated.text } : {}),
+        });
+        return { success: true, todo: updated };
+      }
+
       if (typeof nextText === "string" && nextText.trim()) {
         todo.text = nextText.trim();
         todo.updatedAt = new Date().toISOString();
       }
 
-      const nextStatus = args.status ?? args.todo?.status;
       if (typeof nextStatus === "string" && nextStatus.trim()) {
         transitionTodoStatus(todo, nextStatus, emit);
       }
@@ -84,9 +103,10 @@ export async function handler(args, context) {
       const todo = todos.find((t) => t.todoId === args.todoId);
       if (!todo) return { success: false, error: "Todo not found" };
 
-      transitionTodoStatus(todo, TodoStatus.COMPLETED, emit);
+      const updated = typeof state?.updateTodo === "function" ? state.updateTodo(todo.todoId, { status: TodoStatus.COMPLETED }, emit) : null;
+      if (!updated) transitionTodoStatus(todo, TodoStatus.COMPLETED, emit);
       emit?.("deepsearch.todo.completed", { todoId: todo.todoId });
-      return { success: true, todo };
+      return { success: true, todo: updated || todo };
     }
 
     case "cancel": {
@@ -94,9 +114,10 @@ export async function handler(args, context) {
       const todo = todos.find((t) => t.todoId === args.todoId);
       if (!todo) return { success: false, error: "Todo not found" };
 
-      transitionTodoStatus(todo, TodoStatus.CANCELLED, emit);
+      const updated = typeof state?.updateTodo === "function" ? state.updateTodo(todo.todoId, { status: TodoStatus.CANCELLED }, emit) : null;
+      if (!updated) transitionTodoStatus(todo, TodoStatus.CANCELLED, emit);
       emit?.("deepsearch.todo.cancelled", { todoId: todo.todoId });
-      return { success: true, todo };
+      return { success: true, todo: updated || todo };
     }
 
     case "list": {

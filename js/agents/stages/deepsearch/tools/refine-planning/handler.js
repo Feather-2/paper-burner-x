@@ -77,24 +77,32 @@ export async function handler(args, context) {
                 }
 
                 const nextText = action?.text;
-                if (typeof nextText === "string" && nextText.trim()) {
-                    todo.text = nextText.trim();
-                    todo.updatedAt = new Date().toISOString();
-                }
-
                 const nextStatus = action?.status;
-                if (typeof nextStatus === "string" && nextStatus.trim()) {
-                    transitionTodoStatus(todo, nextStatus, emit);
+                let updatedTodo = todo;
+                if (typeof state?.updateTodo === "function") {
+                    const updates = {};
+                    if (typeof nextText === "string" && nextText.trim()) updates.text = nextText.trim();
+                    if (typeof nextStatus === "string" && nextStatus.trim()) updates.status = nextStatus.trim();
+                    if (Object.keys(updates).length) updatedTodo = state.updateTodo(todoId, updates, emit) || todo;
+                } else {
+                    if (typeof nextText === "string" && nextText.trim()) {
+                        todo.text = nextText.trim();
+                        todo.updatedAt = new Date().toISOString();
+                    }
+
+                    if (typeof nextStatus === "string" && nextStatus.trim()) {
+                        transitionTodoStatus(todo, nextStatus, emit);
+                    }
                 }
 
-                const { valid, issues } = validateTodo(todo);
+                const { valid, issues } = validateTodo(updatedTodo);
                 if (!valid) {
                     results.push({ action: "update_failed", todoId, issues });
                     break;
                 }
 
                 results.push({ action: "updated", todoId });
-                emit?.("deepsearch.todo.updated", { todoId: todo.todoId, status: todo.status, ...(todo.text ? { text: todo.text } : {}) });
+                emit?.("deepsearch.todo.updated", { todoId: updatedTodo.todoId, status: updatedTodo.status, ...(updatedTodo.text ? { text: updatedTodo.text } : {}) });
                 break;
             }
             case "delete": {
@@ -104,9 +112,14 @@ export async function handler(args, context) {
                     break;
                 }
 
-                const initialLen = state.todos.length;
-                state.todos = state.todos.filter((t) => t?.todoId !== todoId);
-                if (state.todos.length < initialLen) results.push({ action: "deleted", todoId });
+                if (typeof state?.removeTodo === "function") {
+                    const removed = state.removeTodo(todoId);
+                    if (removed) results.push({ action: "deleted", todoId });
+                } else {
+                    const initialLen = state.todos.length;
+                    state.todos = state.todos.filter((t) => t?.todoId !== todoId);
+                    if (state.todos.length < initialLen) results.push({ action: "deleted", todoId });
+                }
                 break;
             }
             default: {

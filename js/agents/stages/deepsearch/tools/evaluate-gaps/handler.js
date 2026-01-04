@@ -61,7 +61,10 @@ export async function handler(args, context) {
     // 如果状态是 satisfied，同步更新 todo 状态
     if (status === DiscoveryStatus.SATISFIED && state.todos) {
         const todo = state.todos.find(t => t.relatedGapId === gapId);
-        if (todo) todo.status = "completed";
+        if (todo) {
+            if (typeof state?.updateTodo === "function") state.updateTodo(todo.todoId || todo.id, { status: "completed" });
+            else todo.status = "completed";
+        }
     }
 
     // 4. 同步到 DiscoveryManager (黑板)

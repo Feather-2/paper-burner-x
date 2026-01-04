@@ -89,7 +89,7 @@ function countEvidenceByGapId(evidenceLedger, { retrievedByChunkId }) {
   return evidenceCountByGapId;
 }
 
-function syncTodoStatusesFromGaps(gaps, todos, { runId, iteration, emitFn } = {}) {
+function syncTodoStatusesFromGaps(gaps, todos, { runId, iteration, emitFn, updateTodo } = {}) {
   const todoByGapId = new Map();
   for (const t of Array.isArray(todos) ? todos : []) {
     const rgid = toNonEmptyString(t?.relatedGapId);
@@ -102,8 +102,14 @@ function syncTodoStatusesFromGaps(gaps, todos, { runId, iteration, emitFn } = {}
     const from = (toNonEmptyString(todo?.status) || TodoStatus.OPEN).toLowerCase();
     const to = (toNonEmptyString(nextStatus) || TodoStatus.OPEN).toLowerCase();
     if (from === to) return;
-    const didTransition = transitionTodoStatus(todo, to);
-    if (!didTransition) return;
+    if (typeof updateTodo === "function") {
+      const updated = updateTodo(toNonEmptyString(todo?.todoId) || toNonEmptyString(todo?.id), { status: to }, null);
+      const didTransition = Boolean(updated && String(updated?.status || "").toLowerCase() === to);
+      if (!didTransition) return;
+    } else {
+      const didTransition = transitionTodoStatus(todo, to);
+      if (!didTransition) return;
+    }
     emitFn?.("deepsearch.todo.status.changed", {
       runId,
       todoId: toNonEmptyString(todo?.todoId) || "todo_unknown",
@@ -242,7 +248,8 @@ export function validateIteration(state, options = {}) {
     }
   }
 
-  syncTodoStatusesFromGaps(gaps, Array.isArray(state?.todos) ? state.todos : [], { runId, iteration, emitFn });
+  const updateTodo = typeof state?.updateTodo === "function" ? state.updateTodo.bind(state) : null;
+  syncTodoStatusesFromGaps(gaps, Array.isArray(state?.todos) ? state.todos : [], { runId, iteration, emitFn, updateTodo });
   syncPlanningTreeStatusFromGaps(gaps, state?.planningTree);
 
   const openCount = gaps.filter((g) => (toNonEmptyString(g?.status) || GapStatus.OPEN) === GapStatus.OPEN).length;

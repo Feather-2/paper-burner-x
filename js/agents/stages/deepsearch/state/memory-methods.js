@@ -27,13 +27,35 @@ export const memoryMethods = {
     this._memoryStore = memoryStore || null;
     if (!memoryStore) return;
 
+    // When StateEngine is present, treat it as SSOT for L0 and just keep MemoryStore synced.
+    if (this._stateEngine && typeof this._syncFromStateEngine === "function") {
+      try {
+        this._syncFromStateEngine();
+      } catch { /* intentional */ }
+      if (isPlainObject(this.L2?.scratchpad) && typeof memoryStore.setScratchpad === "function") {
+        try {
+          memoryStore.setScratchpad(this.L2.scratchpad);
+        } catch { /* intentional */ }
+      }
+      return;
+    }
+
     try {
       if (typeof memoryStore.setTaskGoal === "function") memoryStore.setTaskGoal(this.taskGoal || "");
       else if (memoryStore.L0 && typeof memoryStore.L0 === "object") memoryStore.L0.taskGoal = this.taskGoal || "";
     } catch { /* intentional: memoryStore API may vary */ }
 
     const stateTodos = Array.isArray(this.todos) ? this.todos : [];
-    const memTodos = Array.isArray(memoryStore?.L0?.todos) ? memoryStore.L0.todos : null;
+    const memTodos = (() => {
+      if (typeof memoryStore.getTodos === "function") {
+        try {
+          return memoryStore.getTodos();
+        } catch {
+          return null;
+        }
+      }
+      return Array.isArray(memoryStore?.L0?.todos) ? memoryStore.L0.todos : null;
+    })();
 
     const normalizeTodoInPlace = (todo) => {
       if (!todo || typeof todo !== "object") return;
@@ -46,27 +68,53 @@ export const memoryMethods = {
     let canonicalTodos = stateTodos;
     if (canonicalTodos.length === 0 && memTodos && memTodos.length) canonicalTodos = memTodos;
 
-    if (memoryStore?.L0 && typeof memoryStore.L0 === "object") {
-      if (!Array.isArray(memoryStore.L0.todos) || memoryStore.L0.todos !== canonicalTodos) memoryStore.L0.todos = canonicalTodos;
+    const l0CanShareByRef = (() => {
+      try {
+        if (!memoryStore?.L0 || typeof memoryStore.L0 !== "object") return false;
+        if (Object.isFrozen(memoryStore.L0)) return false;
+        if (!Array.isArray(memoryStore.L0.todos) || Object.isFrozen(memoryStore.L0.todos)) return false;
+        return true;
+      } catch {
+        return false;
+      }
+    })();
+
+    if (typeof memoryStore.replaceTodos === "function") {
+      try {
+        memoryStore.replaceTodos(canonicalTodos);
+      } catch { /* intentional */ }
+    } else if (l0CanShareByRef) {
+      try {
+        if (!Array.isArray(memoryStore.L0.todos) || memoryStore.L0.todos !== canonicalTodos) memoryStore.L0.todos = canonicalTodos;
+      } catch { /* intentional */ }
     }
 
     const localTodos = canonicalTodos;
-    try {
-      Object.defineProperty(this, "todos", {
-        configurable: true,
-        enumerable: true,
-        get: () => (Array.isArray(this._memoryStore?.L0?.todos) ? this._memoryStore.L0.todos : localTodos),
-        set: (value) => {
-          const next = Array.isArray(value) ? value : [];
-          if (this._memoryStore?.L0 && typeof this._memoryStore.L0 === "object") this._memoryStore.L0.todos = next;
-          if (localTodos !== next) {
-            localTodos.length = 0;
-            localTodos.push(...next);
-          }
-        },
-      });
-    } catch {
-      this.todos = Array.isArray(memoryStore?.L0?.todos) ? memoryStore.L0.todos : canonicalTodos;
+
+    // Best-effort reference sharing for mutable L0 stores (mock objects, legacy adapters).
+    if (l0CanShareByRef) {
+      try {
+        Object.defineProperty(this, "todos", {
+          configurable: true,
+          enumerable: true,
+          get: () => (Array.isArray(this._memoryStore?.L0?.todos) ? this._memoryStore.L0.todos : localTodos),
+          set: (value) => {
+            const next = Array.isArray(value) ? value : [];
+            if (this._memoryStore?.L0 && typeof this._memoryStore.L0 === "object" && !Object.isFrozen(this._memoryStore.L0)) {
+              this._memoryStore.L0.todos = next;
+            }
+            if (localTodos !== next) {
+              localTodos.length = 0;
+              localTodos.push(...next);
+            }
+          },
+        });
+      } catch {
+        this.todos = Array.isArray(memTodos) ? memTodos : canonicalTodos;
+      }
+    } else {
+      // API-driven stores (like MemoryStore) cannot share references; keep state local.
+      if (canonicalTodos !== stateTodos) this.todos = canonicalTodos;
     }
 
     for (const todo of Array.isArray(this.todos) ? this.todos : []) normalizeTodoInPlace(todo);
