@@ -2,16 +2,7 @@ import { BaseAdapter } from "./base.js";
 import { getVideoFrames } from "../tools/video-frames.js";
 import { SourceKind } from "../constants.js";
 
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
-}
-
+import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
 async function basenameOfPath(path) {
   const { basename } = await import("node:path");
   return basename(path);

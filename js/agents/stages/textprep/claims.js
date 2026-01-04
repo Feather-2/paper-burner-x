@@ -1,18 +1,10 @@
+import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
+
 // TP5: Extract atomic claims and align to evidence locators (charStart/charEnd on sourceTextNormalized).
 //
 // Hard constraints:
 // - claims[].evidenceIds.length >= 1
 // - evidence.quote must be locatable within sourceTextNormalized via locator
-
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
-}
 
 function toStringPreserveWhitespace(v) {
   if (v === undefined || v === null) return "";

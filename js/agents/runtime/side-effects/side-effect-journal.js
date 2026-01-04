@@ -1,15 +1,6 @@
 import { restoreVfsCheckpoint } from "../../vfs/checkpoints.js";
 
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function toNonEmptyString(value) {
-  if (value === undefined || value === null) return "";
-  const s = String(value).trim();
-  return s.length ? s : "";
-}
-
+import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
 function toIso(ts) {
   if (typeof ts === "string" && ts.trim()) return ts;
   const ms = typeof ts === "number" && Number.isFinite(ts) ? ts : Date.now();

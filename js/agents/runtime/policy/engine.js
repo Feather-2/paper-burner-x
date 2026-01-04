@@ -1,16 +1,7 @@
 import { matchAnyWildcard, matchAnyGlob } from "./match.js";
 import { makeSecureTimestampedId } from "../../shared/utils/secure-id.js";
 
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function toNonEmptyString(v) {
-  if (v === null || v === undefined) return "";
-  const s = String(v).trim();
-  return s.length ? s : "";
-}
-
+import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
 function normalizeEffect(effect) {
   const e = toNonEmptyString(effect).toLowerCase();
   if (e === "deny") return "deny";

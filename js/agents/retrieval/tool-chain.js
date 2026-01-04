@@ -14,22 +14,13 @@
  */
 
 import { grepChunks, grepChunksAsync } from "./grep.js";
+import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
 import {
   validateChunks,
   validateSearchQuery,
   ValidationErrorCode,
   createValidationError,
 } from "../shared/utils/schema-validator.js";
-
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
-}
 
 function stripQueryAndHash(value) {
   const s = String(value ?? "");

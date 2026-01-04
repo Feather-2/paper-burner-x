@@ -1,7 +1,7 @@
 import { generateSingleSlide } from "../generators/batch-generator.js";
 import { getDslRules } from "../dsl/dsl-rules.js";
 import { SlideStatus, VisualSlotStatus, slideStatusMachine } from "../states.js";
-import { normalizeRenderType } from "../../../shared/utils/value-utils.js";
+import { normalizeRenderType, toNonEmptyString } from "../../../shared/utils/value-utils.js";
 import { safeJsonParse } from "../../../shared/utils/safe-json.js";
 import { parseTagAttributes } from "../shared/html-parser.js";
 
@@ -22,12 +22,6 @@ async function ensureNodeModules() {
   } catch {
     return false;
   }
-}
-
-function toNonEmptyString(value) {
-  if (value === undefined || value === null) return "";
-  const s = String(value).trim();
-  return s.length ? s : "";
 }
 
 async function readLinkedFiles(linkedFiles = []) {

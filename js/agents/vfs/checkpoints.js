@@ -2,10 +2,7 @@ import { computeSha256 } from "../storage/artifact-manager.js";
 import { normalizeVfsPath } from "./path.js";
 import { createUnifiedDiffAsync } from "./diff.js";
 
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
+import { isPlainObject } from "../shared/utils/value-utils.js";
 function encodeUtf8Bytes(text) {
   if (typeof text !== "string") return 0;
   try {

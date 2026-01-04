@@ -1,14 +1,10 @@
+import { toNonEmptyString } from "../../../../shared/utils/value-utils.js";
+
 /**
  * get-artifact tool - load persisted outputs from RunStore by artifactId
  *
  * Used to retrieve large tool results stored via persisted-output pipeline.
  */
-
-function toNonEmptyString(value) {
-  if (value === undefined || value === null) return "";
-  const s = String(value).trim();
-  return s.length ? s : "";
-}
 
 function safeInt(value, fallback) {
   const n = typeof value === "number" ? value : Number(value);

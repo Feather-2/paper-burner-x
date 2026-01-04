@@ -1,9 +1,6 @@
 import { safeJsonParse } from "../shared/utils/safe-json.js";
 
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
+import { isPlainObject } from "../shared/utils/value-utils.js";
 function isStorageLike(value) {
   return (
     value !== null &&

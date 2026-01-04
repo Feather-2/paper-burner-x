@@ -1,3 +1,5 @@
+import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
+
 const INDEX_KEY = "paperburner_user_skills_index_v1";
 const BODY_PREFIX = "paperburner_user_skills_body_v1:";
 
@@ -33,16 +35,6 @@ const MEMORY = { index: { schemaVersion: "0.1", skills: [] }, bodies: new Map() 
 let _idb = null;
 let _initPromise = null;
 let _initDone = false;
-
-function toNonEmptyString(v) {
-  if (v === null || v === undefined) return "";
-  const s = String(v).trim();
-  return s.length ? s : "";
-}
-
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
 
 function normalizeIndex(raw) {
   const obj = isPlainObject(raw) ? raw : {};

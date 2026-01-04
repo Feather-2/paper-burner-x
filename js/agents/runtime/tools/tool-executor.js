@@ -13,6 +13,7 @@
 
 import { validateArgs } from "./schema-validator.js";
 
+import { isPlainObject } from "../../shared/utils/value-utils.js";
 function normalizeIsolationMode(mode) {
   if (mode === true) return "worker";
   const m = typeof mode === "string" ? mode.trim().toLowerCase() : "";
@@ -23,10 +24,6 @@ function toPositiveInt(value, fallback) {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n) || n <= 0) return fallback;
   return Math.floor(n);
-}
-
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 class WorkerPool {

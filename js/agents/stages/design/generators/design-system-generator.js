@@ -4,11 +4,8 @@ import { robustParseJson } from "../../../shared/utils/robust-json.js";
 import { extractJsonCandidate } from "../../../shared/utils/json-candidate.js";
 import { createLogger } from "../../../shared/utils/logger.js";
 
+import { isPlainObject } from "../../../shared/utils/value-utils.js";
 const logger = createLogger("stages/design/generators/design-system-generator");
-
-function isPlainObject(v) {
-  return !!v && typeof v === "object" && !Array.isArray(v);
-}
 
 function normalizeVisualPreference(v) {
   if (typeof v === "string") return { mode: v.trim().toLowerCase() };

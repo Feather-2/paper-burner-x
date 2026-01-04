@@ -1,12 +1,7 @@
 import { BaseAdapter } from "./base.js";
 import { SourceKind } from "../constants.js";
 
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
-}
-
+import { toNonEmptyString } from "../../shared/utils/value-utils.js";
 export class RawTextAdapter extends BaseAdapter {
   constructor(options = {}) {
     super({ ...options, adapterName: "raw_text" });

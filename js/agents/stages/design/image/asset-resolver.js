@@ -1,12 +1,7 @@
 import { VisualDataStatus } from "../constants.js";
 import { parseTagAttributes } from "../shared/html-parser.js";
 
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return "";
-  const s = String(v).trim();
-  return s.length ? s : "";
-}
-
+import { toNonEmptyString } from "../../../shared/utils/value-utils.js";
 function escapeAttr(s) {
   return String(s ?? "")
     .replace(/&/g, "&amp;")

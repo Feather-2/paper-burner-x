@@ -2,13 +2,7 @@ import { ImageGenerator } from "../generators/image-generator.js";
 import { SVGGenerator } from "../generators/svg-generator.js";
 import { VisualSlotStatus, visualSlotMachine } from "../states.js";
 import { VisualType } from "../constants.js";
-import { normalizeRenderType } from "../../../shared/utils/value-utils.js";
-
-function toNonEmptyString(value) {
-  if (value === undefined || value === null) return "";
-  const s = String(value).trim();
-  return s.length ? s : "";
-}
+import { normalizeRenderType, toNonEmptyString } from "../../../shared/utils/value-utils.js";
 
 function safeNumber(value, fallback) {
   const n = Number(value);

@@ -1,3 +1,5 @@
+import { toNonEmptyString } from "../shared/utils/value-utils.js";
+
 /**
  * Skill Render - 渲染 Skills 列表给模型
  *
@@ -43,12 +45,6 @@ function groupSkillsByPriority(skills) {
   }
 
   return { critical, important, optional };
-}
-
-function toNonEmptyString(value) {
-  if (value === undefined || value === null) return "";
-  const s = String(value).trim();
-  return s.length ? s : "";
 }
 
 function normalizeSkillPathForPrompt(path) {

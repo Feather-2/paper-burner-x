@@ -1,15 +1,6 @@
 import { BaseProvider, assertChatMessages, assertChatResponse } from "./provider.js";
 
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
-}
-
+import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
 function normalizeOutcome(outcome) {
   if (typeof outcome === "function") return outcome;
   if (outcome instanceof Error) return { throw: outcome };

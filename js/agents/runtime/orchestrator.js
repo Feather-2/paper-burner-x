@@ -2,16 +2,7 @@ import { createStageApi } from "../shared/utils/stage-api.js";
 import { EventBus } from "./events/event-bus.js";
 import { ActorType, OrchestratorState, isValidActorType } from "./core/constants.js";
 
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return "";
-  const s = String(v).trim();
-  return s.length ? s : "";
-}
-
+import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
 function normalizeTimeoutMs(v, fallback) {
   const n = typeof v === "number" ? v : Number(v);
   if (!Number.isFinite(n) || n <= 0) return fallback;

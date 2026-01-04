@@ -1,6 +1,4 @@
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
+import { isPlainObject } from "../shared/utils/value-utils.js";
 
 function normalizeTitle(title) {
   return String(title || "")

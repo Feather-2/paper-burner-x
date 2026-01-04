@@ -10,6 +10,7 @@ import { parseTagAttributes } from "../shared/html-parser.js";
 import { safeEmit } from "../shared/safe-emit.js";
 import { createLimiter } from "../shared/limiter.js";
 
+import { toNonEmptyString } from "../../../shared/utils/value-utils.js";
 const logger = createLogger("stages/design/generators/batch-generator");
 
 // === 可配置常量 ===
@@ -46,15 +47,8 @@ async function getSystemPrompt() {
 const FALLBACK_SYSTEM_PROMPT = `You are a PPT slide generator. Output JSON: [{"slideIntentId":string,"slideHtml":string}]
 Follow the DSL spec and examples in the prompt. Summarize content - never copy verbatim.`;
 
-
 function nowMs() {
   return Date.now();
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return "";
-  const s = String(v).trim();
-  return s.length ? s : "";
 }
 
 function chunkIndexes(len, size) {

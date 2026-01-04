@@ -1,11 +1,6 @@
 import { makeSecureTimestampedId } from "../../../shared/utils/secure-id.js";
 
-function toNonEmptyString(value) {
-  if (value === undefined || value === null) return "";
-  const s = String(value).trim();
-  return s.length ? s : "";
-}
-
+import { toNonEmptyString } from "../../../shared/utils/value-utils.js";
 function normalizeCategory(category) {
   const c = toNonEmptyString(category).toLowerCase();
   if (c === "uploaded" || c === "upload") return "uploaded";

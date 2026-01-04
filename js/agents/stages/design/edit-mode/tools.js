@@ -1,5 +1,6 @@
 import { EditOperationType } from "../constants.js";
 
+import { isPlainObject } from "../../../shared/utils/value-utils.js";
 export const EditModeTools = Object.freeze({
   [EditOperationType.ADD_SLIDE]: {
     description: "在指定位置添加新页面",
@@ -63,10 +64,6 @@ export const EditModeTools = Object.freeze({
 
 let elementCounter = 0;
 let slideCounter = 0;
-
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
 
 function clone(value) {
   if (typeof globalThis.structuredClone === "function") return globalThis.structuredClone(value);

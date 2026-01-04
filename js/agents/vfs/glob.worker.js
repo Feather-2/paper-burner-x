@@ -1,3 +1,5 @@
+import { isPlainObject } from "../shared/utils/value-utils.js";
+
 function escapeRegExp(s) {
   return String(s ?? "").replace(/[\\^$+?.()|[\]{}]/g, "\\$&");
 }
@@ -83,10 +85,6 @@ function normalizeBasePath(value) {
   const s = String(value ?? "").replaceAll("\\", "/").trim();
   if (!s) return "";
   return s.replace(/^\.\/+/, "").replace(/^\/+/, "").replace(/\/+$/, "");
-}
-
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 self.onmessage = (event) => {

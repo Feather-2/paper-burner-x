@@ -1,3 +1,5 @@
+import { isPlainObject } from "../../shared/utils/value-utils.js";
+
 // TP2: Chunking + locators (char offsets; optional line numbers).
 
 /**
@@ -77,10 +79,6 @@ export function smartChunk(text, options = {}) {
       ...detection,
     },
   };
-}
-
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
 }
 
 function precomputeLineStarts(text) {

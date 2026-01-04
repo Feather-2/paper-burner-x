@@ -1,9 +1,6 @@
 import { normalizeVfsPath } from "./path.js";
 
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
+import { isPlainObject } from "../shared/utils/value-utils.js";
 function dataToBytes(data) {
   if (data === null || data === undefined) return new Uint8Array(0);
   if (data instanceof Uint8Array) return data;

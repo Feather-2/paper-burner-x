@@ -1,12 +1,4 @@
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
-}
+import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
 
 export const MODEL_TAGS = Object.freeze(["text", "vision", "reasoning", "long-context", "fast", "cheap"]);
 

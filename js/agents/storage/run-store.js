@@ -1,4 +1,5 @@
 import { createLogger } from "../shared/utils/logger.js";
+import { isPlainObject } from "../shared/utils/value-utils.js";
 
 const logger = createLogger("storage/run-store");
 
@@ -33,10 +34,6 @@ function promisifyTransaction(tx) {
 
 function toISO(d = new Date()) {
   return d instanceof Date ? d.toISOString() : new Date(d).toISOString();
-}
-
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function encodeUtf8Bytes(text) {

@@ -2,12 +2,7 @@ import { BaseAdapter } from "./base.js";
 import { extractAssetsFromMarkdown } from "../extract-assets.js";
 import { SourceKind } from "../constants.js";
 
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
-}
-
+import { toNonEmptyString } from "../../shared/utils/value-utils.js";
 function guessMimeType(filename) {
   const name = String(filename || "").toLowerCase();
   if (name.endsWith(".pptx")) return "application/vnd.openxmlformats-officedocument.presentationml.presentation";

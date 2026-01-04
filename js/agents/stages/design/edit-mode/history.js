@@ -1,6 +1,4 @@
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
+import { isPlainObject } from "../../../shared/utils/value-utils.js";
 
 /**
  * Edit history manager with undo/redo + transaction batching.

@@ -1,10 +1,7 @@
 import { RunStore, RunStoreConstants } from "./run-store.js";
 import { createManifest, SUPPORTED_ARTIFACT_TYPES } from "./artifact-manager.js";
 
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
+import { isPlainObject } from "../shared/utils/value-utils.js";
 function isNodeLike() {
   return typeof process !== "undefined" && !!process.versions?.node;
 }

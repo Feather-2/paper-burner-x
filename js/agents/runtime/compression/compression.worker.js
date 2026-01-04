@@ -1,3 +1,5 @@
+import { isPlainObject } from "../../shared/utils/value-utils.js";
+
 /**
  * Compression Worker - 压缩计算移出主线程
  *
@@ -6,10 +8,6 @@
  */
 
 // Worker 内部实现压缩逻辑（避免 import 复杂依赖）
-
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
 
 function containsCjk(text) {
   return /[\u4e00-\u9fff]/.test(String(text || ""));

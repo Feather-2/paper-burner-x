@@ -1,3 +1,5 @@
+import { toNonEmptyString } from "../../../shared/utils/value-utils.js";
+
 const DB_NAME = "CodeSearchIndexDB";
 const DB_VERSION = 1;
 const STORE_SYMBOLS = "symbols";
@@ -31,12 +33,6 @@ function ensureIndex(store, name, keyPath, options) {
   if (!store.indexNames.contains(name)) {
     store.createIndex(name, keyPath, options);
   }
-}
-
-function toNonEmptyString(v) {
-  if (v === null || v === undefined) return "";
-  const s = String(v).trim();
-  return s.length ? s : "";
 }
 
 function normalizeWorkspaceId(v) {

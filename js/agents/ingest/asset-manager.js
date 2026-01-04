@@ -1,16 +1,7 @@
 import { normalizeText } from "../stages/textprep/normalize.js";
 import { AssetMimeType, normalizeAssetMimeType } from "./constants.js";
 
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return "";
-  const s = String(v).trim();
-  return s.length ? s : "";
-}
-
+import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
 function hasNodeBuffer() {
   return typeof Buffer !== "undefined" && typeof Buffer.from === "function";
 }

@@ -1,24 +1,13 @@
+import { isPlainObject, toNonEmptyString } from "../../../shared/utils/value-utils.js";
+
 /**
  * Design Stage - Shared Utilities
  *
  * Consolidates common utility functions used across generators, refiners, and runtime.
  */
 
-/**
- * Checks if a value is a plain object.
- */
-export function isPlainObject(v) {
-    return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-/**
- * Normalizes a value to a non-empty string.
- */
-export function toNonEmptyString(v) {
-    if (v === undefined || v === null) return "";
-    const s = String(v).trim();
-    return s.length ? s : "";
-}
+// Re-export from value-utils for backward compatibility
+export { isPlainObject, toNonEmptyString };
 
 /**
  * Safely clamps a number between min and max.

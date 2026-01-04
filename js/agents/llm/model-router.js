@@ -6,10 +6,7 @@ import { CircuitBreaker, CircuitState } from "../shared/utils/circuit-breaker.js
 import { getGlobalTokenTracker } from "../runtime/telemetry/token-tracker.js";
 import { ModelEventEmitter } from "./model-events.js";
 
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
+import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
 function isStorageLike(value) {
   return (
     value !== null &&
@@ -17,12 +14,6 @@ function isStorageLike(value) {
     typeof value.getItem === "function" &&
     typeof value.setItem === "function"
   );
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
 }
 
 function toErrorInfo(err) {

@@ -5,10 +5,7 @@
 import SourceManager from "../../source-manager.js";
 import { EmbeddingService } from "../../../../shared/embeddings/embedding-service.js";
 
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
+import { isPlainObject } from "../../../../shared/utils/value-utils.js";
 function resolveEmbeddingService(context) {
   const ctx = context && typeof context === "object" ? context : null;
   const direct = ctx?.embeddingService;

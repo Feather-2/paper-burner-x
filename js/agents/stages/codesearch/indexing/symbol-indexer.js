@@ -2,16 +2,7 @@ import { computeSha256 } from "../../../storage/artifact-manager.js";
 import { initTreeSitter, loadTreeSitterLanguage } from "../../../shared/parser/tree-sitter-wasm.js";
 import CodeSearchIndexStore from "./index-store.js";
 
-function toNonEmptyString(v) {
-  if (v === null || v === undefined) return "";
-  const s = String(v).trim();
-  return s.length ? s : "";
-}
-
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
+import { isPlainObject, toNonEmptyString } from "../../../shared/utils/value-utils.js";
 function extname(path) {
   const p = toNonEmptyString(path);
   const idx = p.lastIndexOf(".");

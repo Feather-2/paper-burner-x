@@ -1,16 +1,7 @@
 import { BaseAdapter } from "./base.js";
 import { SourceKind } from "../constants.js";
 
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
-}
-
+import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
 function guessMimeType(filename) {
   const name = String(filename || "").toLowerCase();
   if (name.endsWith(".md") || name.endsWith(".markdown")) return "text/markdown";

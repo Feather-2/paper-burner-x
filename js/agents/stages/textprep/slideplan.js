@@ -7,16 +7,7 @@ import { ALLOWED_PAGE_TYPES, PageType } from "./constants.js";
 import { injectSystemHint } from "../../shared/utils/message-utils.js";
 import { extractJsonCandidate } from "../../shared/utils/json-candidate.js";
 
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
-}
-
+import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
 function clampArrayStrings(arr) {
   if (!Array.isArray(arr)) return undefined;
   const out = [];

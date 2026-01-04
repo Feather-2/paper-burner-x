@@ -1,3 +1,5 @@
+import { isPlainObject } from "../shared/utils/value-utils.js";
+
 const SCHEMA_VERSION = "0.1";
 
 export const SUPPORTED_ARTIFACT_TYPES = [
@@ -74,10 +76,6 @@ export function createManifest(runId) {
     createdAt: new Date().toISOString(),
     artifacts: [],
   };
-}
-
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 export function addArtifactToManifest(manifest, artifact) {

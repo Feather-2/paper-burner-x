@@ -6,6 +6,7 @@
 
 import { createLogger } from "../shared/utils/logger.js";
 
+import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
 const logger = createLogger("prompts/prompt-loader");
 
 const PROMPT_CACHE_KEY_SEPARATOR = "::";
@@ -403,16 +404,6 @@ function validateKey(key) {
 // - We ship `public/prompts/manifest.json` + prompt markdown under `public/prompts/**`.
 const DEFAULT_PROMPT_MANIFEST_URL = "prompts/manifest.json";
 const DEFAULT_PROMPT_MANIFEST_URL_FALLBACK = "public/prompts/manifest.json";
-
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function toNonEmptyString(value) {
-  if (value === undefined || value === null) return "";
-  const s = String(value).trim();
-  return s.length ? s : "";
-}
 
 function resolveUrl(pathOrUrl) {
   const raw = toNonEmptyString(pathOrUrl);

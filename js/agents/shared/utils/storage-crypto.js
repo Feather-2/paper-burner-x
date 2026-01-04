@@ -1,8 +1,4 @@
-function toNonEmptyString(v) {
-  if (v === null || v === undefined) return "";
-  const s = String(v).trim();
-  return s.length ? s : "";
-}
+import { toNonEmptyString } from "./value-utils.js";
 
 function hasNodeBuffer() {
   return typeof Buffer !== "undefined" && typeof Buffer.from === "function";

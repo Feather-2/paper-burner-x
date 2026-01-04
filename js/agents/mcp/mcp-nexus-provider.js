@@ -2,16 +2,7 @@ import { McpProvider, McpToolDefinition, McpToolResult } from "./mcp-client.js";
 import { TransportKind } from "./constants.js";
 import { consumeSseJson } from "./sse.js";
 
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
-}
-
+import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
 function cryptoRandomInt(maxExclusive) {
   const max = typeof maxExclusive === "number" && Number.isFinite(maxExclusive) ? Math.floor(maxExclusive) : Number(maxExclusive);
   if (!Number.isFinite(max) || max <= 0) return 0;

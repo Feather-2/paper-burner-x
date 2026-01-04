@@ -2,17 +2,8 @@ import { BaseAdapter } from "./base.js";
 import { extractAssetsFromMarkdown } from "../extract-assets.js";
 import { SourceKind } from "../constants.js";
 
+import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
 let DOMParserRef = null;
-
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
-}
 
 function guessMimeType(filename) {
   const name = String(filename || "").toLowerCase();

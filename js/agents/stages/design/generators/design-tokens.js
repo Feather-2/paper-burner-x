@@ -1,3 +1,5 @@
+import { isPlainObject } from "../../../shared/utils/value-utils.js";
+
 // Design tokens generator for Design stage.
 //
 // Contract (tests + docs):
@@ -27,10 +29,6 @@ function safeMarginPctFromConstraints(constraints) {
 function safeBox(marginPct) {
   const m = clamp(marginPct, 0, 40);
   return { x: `${m}%`, y: `${m}%`, w: `${100 - 2 * m}%`, h: `${100 - 2 * m}%` };
-}
-
-function isPlainObject(v) {
-  return !!v && typeof v === "object" && !Array.isArray(v);
 }
 
 function isNonEmptyString(v) {

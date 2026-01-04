@@ -13,7 +13,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { estimateTokenCount } from "../shared/utils/value-utils.js";
+import { estimateTokenCount, toNonEmptyString } from "../shared/utils/value-utils.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONFIG_FILE = join(__dirname, "config.json");
@@ -37,12 +37,6 @@ function loadConfig() {
         console.warn(`[CliModelClient] 配置文件解析失败: ${err.message}`);
         return null;
     }
-}
-
-function toNonEmptyString(v) {
-    if (v === undefined || v === null) return undefined;
-    const s = String(v).trim();
-    return s.length ? s : undefined;
 }
 
 function toTimeoutMs(v, fallback) {

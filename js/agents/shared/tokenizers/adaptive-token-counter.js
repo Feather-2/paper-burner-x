@@ -1,4 +1,4 @@
-import { estimateTokenCount } from "../utils/value-utils.js";
+import { estimateTokenCount, isPlainObject } from "../utils/value-utils.js";
 import { isWasmSupported } from "../utils/wasm-support.js";
 
 function toText(value) {
@@ -9,10 +9,6 @@ function toText(value) {
   } catch {
     return String(value);
   }
-}
-
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
 }
 
 function pickEncoding({ model, encoding, tiktoken }) {

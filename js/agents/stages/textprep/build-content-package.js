@@ -1,14 +1,6 @@
+import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
+
 // TP6: Assemble ContentPackage v0.1 (TextPrep mode) + validate Hard Gates (H1-H4).
-
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
-}
 
 function toStringPreserveWhitespace(v) {
   if (v === undefined || v === null) return "";

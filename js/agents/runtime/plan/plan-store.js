@@ -1,16 +1,7 @@
 import { StepStatus, isValidStepStatus } from "../core/agent-status.js";
 import { makeSecureTimestampedId } from "../../shared/utils/secure-id.js";
 
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function toNonEmptyString(value) {
-  if (value === undefined || value === null) return "";
-  const s = String(value).trim();
-  return s.length ? s : "";
-}
-
+import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
 function toIso(timestamp) {
   if (typeof timestamp === "string" && timestamp.trim()) return timestamp;
   const ms = typeof timestamp === "number" && Number.isFinite(timestamp) ? timestamp : Date.now();

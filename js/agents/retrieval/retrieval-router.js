@@ -5,10 +5,7 @@ import { chunksInScope, selectScope } from "./scope.js";
 import { buildTocAsync } from "./toc-builder.js";
 import { mmrSelect } from "./mmr.js";
 
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
+import { isPlainObject } from "../shared/utils/value-utils.js";
 function getGapId(gap) {
   if (!gap || !isPlainObject(gap)) return null;
   const id = gap.gapId || gap.id || null;

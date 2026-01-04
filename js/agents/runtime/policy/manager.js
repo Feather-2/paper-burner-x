@@ -3,14 +3,9 @@ import { PolicyEngine } from "./engine.js";
 import { PolicyRuleStore } from "./store.js";
 import { makeSecureTimestampedId } from "../../shared/utils/secure-id.js";
 
+import { toNonEmptyString } from "../../shared/utils/value-utils.js";
 function isNodeLike() {
   return typeof process !== "undefined" && !!process.versions?.node;
-}
-
-function toNonEmptyString(v) {
-  if (v === null || v === undefined) return "";
-  const s = String(v).trim();
-  return s.length ? s : "";
 }
 
 function summarizeArgs(args) {

@@ -10,6 +10,7 @@
 
 import { SkillScope } from "./model.js";
 import { initUserSkillStore, listUserSkills, getUserSkillBody } from "./user-store.js";
+import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
 
 // Vite serves `public/` at the site root ("/skills/manifest.json").
 // Some deployments may still expose it under "/public/skills/manifest.json".
@@ -18,16 +19,6 @@ const DEFAULT_MANIFEST_URL_FALLBACK = "public/skills/manifest.json";
 
 let _manifestCache = null; // { url, data, ts }
 const MANIFEST_CACHE_TTL_MS = 30_000;
-
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function toNonEmptyString(value) {
-  if (value === undefined || value === null) return "";
-  const s = String(value).trim();
-  return s.length ? s : "";
-}
 
 function normalizeStringArray(value) {
   const arr = Array.isArray(value) ? value : value ? [value] : [];

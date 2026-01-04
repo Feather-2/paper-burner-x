@@ -10,16 +10,7 @@
 
 import { safeJsonParse } from "../shared/utils/safe-json.js";
 
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
-}
-
+import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
 // ============ Provider Adapters ============
 
 /**

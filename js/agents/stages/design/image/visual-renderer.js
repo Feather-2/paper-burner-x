@@ -3,18 +3,12 @@ import { SVGGenerator } from "../generators/svg-generator.js";
 import { AssetResolver } from "./asset-resolver.js";
 import { RenderType, EventStatus, SlotPriority, SlotPurpose, VisualHeuristics } from "../constants.js";
 import { DesignEvents } from "../../../runtime/events/events.js";
-import { normalizeRenderType } from "../../../shared/utils/value-utils.js";
+import { normalizeRenderType, toNonEmptyString } from "../../../shared/utils/value-utils.js";
 import { makeSecureTimestampedId } from "../../../shared/utils/secure-id.js";
 import { safeEmit } from "../shared/safe-emit.js";
 
 function nowMs() {
   return Date.now();
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return "";
-  const s = String(v).trim();
-  return s.length ? s : "";
 }
 
 function safeNumber(v, fallback) {

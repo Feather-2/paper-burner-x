@@ -1,9 +1,6 @@
 import { createUnifiedDiff } from "./diff.js";
 
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
+import { isPlainObject } from "../shared/utils/value-utils.js";
 self.onmessage = (event) => {
   const data = event?.data;
   const id = data?.id;
