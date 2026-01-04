@@ -14,7 +14,7 @@ export {
   isAgentActive,
   isAgentTerminal,
 } from "./core/agent-status.js";
-export { StagePausedError, StageAbortedError } from "./core/stage-errors.js";
+export { StagePausedError, StageCancelledError, StageTimeoutError } from "./core/stage-errors.js";
 export { ActorType, OrchestratorState, isValidActorType } from "./core/constants.js";
 
 // Events
@@ -29,7 +29,7 @@ export {
 } from "./events/events.js";
 
 // Compression + Watchdog
-export { Watchdog, DelegationMode, DelegationReason } from "./compression/watchdog.js";
+export { Watchdog } from "./compression/watchdog.js";
 export { CicadaCompressor, CompressionLayer } from "./compression/cicada-compressor.js";
 
 // Telemetry
@@ -45,3 +45,14 @@ export { UnifiedAgentContext } from "./context/unified-agent-context.js";
 
 // Tools
 export { ToolExecutor, createToolExecutor } from "./tools/tool-executor.js";
+
+// Dependency Injection
+export {
+  Container,
+  SINGLETON,
+  TRANSIENT,
+  createContainer,
+  ServiceId,
+  createAgentContainer,
+  createTestContainer,
+} from "./di/index.js";
