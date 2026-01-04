@@ -56,3 +56,6 @@ export {
   createAgentContainer,
   createTestContainer,
 } from "./di/index.js";
+
+// Kernel (MicroKernel facade)
+export { MicroKernel, MessageBus, ServiceProvider, isServiceProvider } from "./kernel/index.js";
