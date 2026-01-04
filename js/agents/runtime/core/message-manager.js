@@ -222,7 +222,7 @@ export class MessageManager {
     if (this._compressionPromise) {
       try {
         await this._compressionPromise;
-      } catch {}
+      } catch { /* intentional: ignore previous compression errors */ }
     }
 
     this._clearCooldownTimer();
@@ -240,7 +240,7 @@ export class MessageManager {
       this._compressionPromise = p;
       try {
         await p;
-      } catch {}
+      } catch { /* intentional: compression errors handled in finally */ }
       if (this._compressionPromise === p) this._compressionPromise = null;
     }
   }

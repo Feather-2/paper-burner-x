@@ -13,6 +13,7 @@ export { robustParseJson } from "./utils/robust-json.js";
 export { createStageApi } from "./utils/stage-api.js";
 export { isPlainObject, toNonEmptyString } from "./utils/value-utils.js";
 export { createLogger, trackToolCall } from "./utils/logger.js";
+export { safeExec, catchAndLog, makeSafe, isAbortError, isTimeoutError, wrapError } from "./utils/error-utils.js";
 export { Deque } from "./utils/deque.js";
 export { safeJsonParse } from "./utils/safe-json.js";
 export { extractJsonCandidate, stripThinkingTags } from "./utils/json-candidate.js";

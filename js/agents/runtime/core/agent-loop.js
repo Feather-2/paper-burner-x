@@ -57,11 +57,11 @@ function isProductionRuntime() {
   try {
     const env = typeof process !== "undefined" ? process.env : null;
     if (env && typeof env.NODE_ENV === "string") return env.NODE_ENV === "production";
-  } catch {}
+  } catch { /* intentional: process.env may not exist */ }
   try {
     const mode = import.meta?.env?.MODE;
     if (typeof mode === "string") return mode === "production";
-  } catch {}
+  } catch { /* intentional: import.meta.env may not exist */ }
   return false;
 }
 
@@ -85,7 +85,7 @@ function resolveStrictLoopStatusTransitions(explicit) {
     const raw = typeof localStorage !== "undefined" ? localStorage.getItem("pb_strictLoopStatusTransitions") : null;
     const fromStorage = parseBooleanish(raw);
     if (typeof fromStorage === "boolean") return fromStorage;
-  } catch {}
+  } catch { /* intentional: localStorage may be blocked */ }
 
   // Default: enforce everywhere (illegal transitions are bugs).
   return true;

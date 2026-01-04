@@ -117,7 +117,7 @@ export function cloneValue(v, seen = new WeakSet()) {
   if (typeof structuredClone === "function") {
     try {
       if (!hasCycle(v)) return structuredClone(v);
-    } catch {}
+    } catch { /* intentional: structuredClone may fail on certain objects */ }
   }
 
   return cloneValueFallback(v, seen);

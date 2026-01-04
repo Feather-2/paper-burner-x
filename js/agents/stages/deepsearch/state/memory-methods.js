@@ -30,7 +30,7 @@ export const memoryMethods = {
     try {
       if (typeof memoryStore.setTaskGoal === "function") memoryStore.setTaskGoal(this.taskGoal || "");
       else if (memoryStore.L0 && typeof memoryStore.L0 === "object") memoryStore.L0.taskGoal = this.taskGoal || "";
-    } catch {}
+    } catch { /* intentional: memoryStore API may vary */ }
 
     const stateTodos = Array.isArray(this.todos) ? this.todos : [];
     const memTodos = Array.isArray(memoryStore?.L0?.todos) ? memoryStore.L0.todos : null;

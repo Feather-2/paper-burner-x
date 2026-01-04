@@ -115,7 +115,7 @@ export function extractJsonCandidate(text, { prefer = "any" } = {}) {
     try {
       JSON.parse(candidate);
       return candidate;
-    } catch {}
+    } catch { /* intentional: try next candidate */ }
   }
 
   return s;

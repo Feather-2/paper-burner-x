@@ -79,7 +79,8 @@ function findMdFiles(dir, files = []) {
         files.push(fullPath);
       }
     }
-  } catch {}
+    // Directory read may fail (permissions, symlinks) - silently skip
+  } catch { /* intentional: skip unreadable directories */ }
   return files;
 }
 

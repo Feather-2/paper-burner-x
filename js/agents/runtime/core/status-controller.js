@@ -52,7 +52,7 @@ function resolveStrictLoopStatusTransitions(explicit) {
     const raw = typeof localStorage !== "undefined" ? localStorage.getItem("pb_strictLoopStatusTransitions") : null;
     const fromStorage = parseBooleanish(raw);
     if (typeof fromStorage === "boolean") return fromStorage;
-  } catch {}
+  } catch { /* intentional: localStorage may be blocked */ }
 
   return true;
 }

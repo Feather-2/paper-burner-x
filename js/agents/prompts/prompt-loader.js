@@ -29,7 +29,7 @@ function resolvePromptCacheMaxEntries() {
       const parsed = parseInt(String(raw), 10);
       if (Number.isFinite(parsed)) return Math.max(0, parsed);
     }
-  } catch {}
+  } catch { /* intentional: localStorage may be blocked */ }
 
   return 128;
 }
@@ -48,7 +48,7 @@ function resolvePromptManifestCacheTtlMs() {
       const parsed = parseInt(String(raw), 10);
       if (Number.isFinite(parsed)) return Math.max(0, parsed);
     }
-  } catch {}
+  } catch { /* intentional: localStorage may be blocked */ }
 
   return 300_000;
 }

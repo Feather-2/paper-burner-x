@@ -264,7 +264,7 @@ export async function parseDuckDuckGoResults(html) {
         const u = new URL(href);
         return u.searchParams.get("uddg") || href;
       }
-    } catch {}
+    } catch { /* intentional: malformed URL, return original href */ }
 
     return href;
   };
@@ -276,7 +276,7 @@ export async function parseDuckDuckGoResults(html) {
     try {
       const mod = await import("linkedom");
       DOMParserImpl = mod?.DOMParser || null;
-    } catch {}
+    } catch { /* intentional: linkedom is optional */ }
   }
 
   if (DOMParserImpl) {
@@ -389,7 +389,7 @@ export async function extractDuckDuckGoNextUrl(html, baseUrl) {
     try {
       const mod = await import("linkedom");
       DOMParserImpl = mod?.DOMParser || null;
-    } catch {}
+    } catch { /* intentional: linkedom is optional */ }
   }
 
   if (DOMParserImpl) {
