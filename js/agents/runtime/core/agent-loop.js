@@ -1,4 +1,5 @@
 import { createStageApi } from "../../shared/utils/stage-api.js";
+import { checkCancelled } from "../../shared/utils/cancellation.js";
 import { StagePausedError } from "./stage-errors.js";
 import { AgentStatus, isValidAgentStatus } from "./agent-status.js";
 import { getRuntimeState } from "../telemetry/loop-runtime-state.js";
@@ -114,11 +115,7 @@ export function getEmitFn(ctx) {
   return typeof emit === "function" ? emit : null;
 }
 
-export function checkCancelled(signal) {
-  if (!signal?.aborted) return;
-  const reason = signal.reason;
-  throw new Error(typeof reason === "string" ? reason : "Run cancelled");
-}
+export { checkCancelled };
 
 export function checkPaused(signal) {
   const runtimeState = getRuntimeState(signal);

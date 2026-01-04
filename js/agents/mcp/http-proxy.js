@@ -1,4 +1,5 @@
 import { toNonEmptyString, safeInt as _safeInt } from "../shared/utils/value-utils.js";
+import { checkCancelled } from "../shared/utils/cancellation.js";
 import { inspectUrlForProxy, redactUrlForLog } from "./content-sanitizer.js";
 
 // Wrapper to provide default fallback value (value-utils safeInt returns null for invalid)
@@ -228,7 +229,8 @@ export class CorsProxyHttpClient {
   /**
    * 通过 CORS 代理链抓取 HTML（会抛出 AggregateError）
    */
-  async fetchWithCorsFallback(url, { timeoutMs = 10000, tryDirect = true } = {}) {
+  async fetchWithCorsFallback(url, { timeoutMs = 10000, tryDirect = true, signal } = {}) {
+    checkCancelled(signal);
     const candidates = this._filterCorsProxyCooldown(this._buildCorsProxyCandidates({ tryDirect }));
     const errors = [];
     const redactedUrl = redactUrlForLog(url);
@@ -238,6 +240,7 @@ export class CorsProxyHttpClient {
     // P3.2: If params were stripped, expose via result object only (no console logging).
 
     for (const proxy of candidates) {
+      checkCancelled(signal);
       if (proxy && !this.allowSensitiveUrlProxying && proxyUrl.sensitiveQueryKeys.length) {
         errors.push(
           new Error(
@@ -250,6 +253,30 @@ export class CorsProxyHttpClient {
       const targetUrl = proxy ? `${proxy}${encodeURIComponent(proxyUrl.safeUrl || url)}` : url;
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      const detachAbort = (() => {
+        if (!signal || typeof signal !== "object" || typeof signal.aborted !== "boolean") return null;
+        if (signal.aborted) {
+          try {
+            controller.abort(signal.reason);
+          } catch {
+            controller.abort();
+          }
+          return null;
+        }
+        if (typeof signal.addEventListener !== "function") return null;
+
+        const onAbort = () => {
+          try {
+            controller.abort(signal.reason);
+          } catch {
+            controller.abort();
+          }
+        };
+        signal.addEventListener("abort", onAbort, { once: true });
+
+        if (typeof signal.removeEventListener !== "function") return null;
+        return () => signal.removeEventListener("abort", onAbort);
+      })();
 
       try {
         const response = await this._fetch(targetUrl, {
@@ -274,15 +301,16 @@ export class CorsProxyHttpClient {
         errors.push(err);
         this._markCorsProxyFailure(proxy);
       } catch (e) {
+        if (signal?.aborted) checkCancelled(signal);
         const err = new Error(`CORS proxy failed: ${proxy || "direct"} (${e?.message || String(e)})`);
         errors.push(err);
         this._markCorsProxyFailure(proxy);
       } finally {
         clearTimeout(timeoutId);
+        detachAbort?.();
       }
     }
 
     throw new AggregateError(errors, `All CORS proxy attempts failed for ${redactedUrl || url}`);
   }
 }
-

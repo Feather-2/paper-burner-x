@@ -9,6 +9,7 @@
 
 import { isPlainObject } from "./value-utils.js";
 import { createLogger } from "./logger.js";
+import { checkCancelled } from "./cancellation.js";
 
 const logger = createLogger("shared/utils/stage-api");
 
@@ -72,13 +73,6 @@ export function validateStageApi(api) {
   };
 }
 
-function defaultCheckCancelled(signal) {
-  if (signal?.aborted) {
-    const reason = signal.reason;
-    throw new Error(typeof reason === "string" ? reason : "Run cancelled");
-  }
-}
-
 function resolveEmit(partial) {
   if (typeof partial?.emit === "function") return partial.emit.bind(partial);
   if (typeof partial?.eventBus?.emit === "function") return partial.eventBus.emit.bind(partial.eventBus);
@@ -110,7 +104,7 @@ export function createStageApi(partial = {}, { strict = false } = {}) {
     typeof api.checkCancelled === "function"
       ? api.checkCancelled
       : () => {
-          defaultCheckCancelled(api.signal);
+          checkCancelled(api.signal);
         };
 
   if (strict) {
@@ -149,7 +143,7 @@ export function extractServices(stageApi) {
       typeof api.checkCancelled === "function"
         ? api.checkCancelled
         : () => {
-            defaultCheckCancelled(signal);
+            checkCancelled(signal);
           },
   };
 }

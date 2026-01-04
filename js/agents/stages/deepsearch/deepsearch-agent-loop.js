@@ -9,6 +9,7 @@ import { DeepSearchState } from "./state.js";
 import { getModelCaller } from "./model.js";
 import { createLogger } from "./runtime/logger.js";
 import { robustParseJson } from "../../shared/utils/robust-json.js";
+import { checkCancelled } from "../../shared/utils/cancellation.js";
 import { isPlainObject, sanitizeForJson } from "../../shared/utils/value-utils.js";
 import { DeepSearchEvents } from "../../runtime/events/events.js";
 import { ModelResponseHandler } from "./runtime/model-response-handler.js";
@@ -205,9 +206,12 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
   }
 
   async run(input, context = {}) {
-    const capabilities = await loadDeepSearchCapabilities();
     const { stageApi = {} } = context;
     const { signal } = stageApi;
+    checkCancelled(signal);
+
+    const capabilities = await loadDeepSearchCapabilities();
+    checkCancelled(signal);
 
     this.state = this._ensureState(input);
 
@@ -330,7 +334,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
           break;
         }
 
-        if (signal?.aborted) throw new Error("Aborted");
+        checkCancelled(signal);
 
         if (this.budget?.isExhausted?.()) {
           this._logger.warn?.("Budget exhausted");
@@ -495,4 +499,3 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
 }
 
 export default DeepSearchAgentLoop;
-

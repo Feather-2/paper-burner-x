@@ -6,6 +6,7 @@ import { buildTocAsync } from "./toc-builder.js";
 import { mmrSelect } from "./mmr.js";
 
 import { isPlainObject } from "../shared/utils/value-utils.js";
+import { checkCancelled } from "../shared/utils/cancellation.js";
 function getGapId(gap) {
   if (!gap || !isPlainObject(gap)) return null;
   const id = gap.gapId || gap.id || null;
@@ -144,6 +145,7 @@ function bm25CacheKey(chunks, bm25Options) {
 }
 
 async function ensureTocAsync(sourceIndex, { signal } = {}) {
+  checkCancelled(signal);
   if (sourceIndex && Array.isArray(sourceIndex.toc) && sourceIndex.toc.length) return sourceIndex.toc;
   if (sourceIndex && typeof sourceIndex.fullText === "string") {
     const text = sourceIndex.fullText;
@@ -172,6 +174,7 @@ export async function retrieve(sourceIndex, gaps, config = {}) {
   if (!isPlainObject(config)) throw new TypeError("retrieve(sourceIndex, gaps, config): config must be an object");
 
   const signal = config.signal;
+  checkCancelled(signal);
 
   const sourceId = String(sourceIndex.sourceId || "source_1");
   const allChunks = sourceIndex.chunks.slice().sort(sortByCharStart);
@@ -235,7 +238,7 @@ export async function retrieve(sourceIndex, gaps, config = {}) {
       : 200;
 
   for (let gi = 0; gi < gaps.length; gi++) {
-    if (signal?.aborted) throw new Error("retrieve: aborted");
+    checkCancelled(signal);
     if (gi > 0 && gi % 20 === 0) await sleep0();
 
     const gap = gaps[gi];

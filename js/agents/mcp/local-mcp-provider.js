@@ -12,6 +12,7 @@
 
 import { McpProvider, McpToolDefinition, McpToolResult } from "./mcp-client.js";
 import { toNonEmptyString, safeInt as _safeInt } from "../shared/utils/value-utils.js";
+import { checkCancelled } from "../shared/utils/cancellation.js";
 import { makeSecureTimestampedId } from "../shared/utils/secure-id.js";
 import { CorsProxyHttpClient, DEFAULT_CORS_PROXIES, normalizeCorsProxies, validateFetchUrl } from "./http-proxy.js";
 import { extractPageContentFromHtml, searchDuckDuckGoHtml } from "./content-extractor.js";
@@ -20,6 +21,29 @@ import { extractPageContentFromHtml, searchDuckDuckGoHtml } from "./content-extr
 function safeInt(n, fallback = 0) {
   const v = _safeInt(n);
   return v !== null ? v : fallback;
+}
+
+function attachAbortSignal(parentSignal, controller) {
+  if (!parentSignal || typeof parentSignal !== "object" || typeof parentSignal.aborted !== "boolean") return () => {};
+  if (!controller || typeof controller.abort !== "function") return () => {};
+
+  const abortWithReason = () => {
+    try {
+      controller.abort(parentSignal.reason);
+    } catch {
+      controller.abort();
+    }
+  };
+
+  if (parentSignal.aborted) {
+    abortWithReason();
+    return () => {};
+  }
+
+  if (typeof parentSignal.addEventListener !== "function") return () => {};
+  parentSignal.addEventListener("abort", abortWithReason, { once: true });
+  if (typeof parentSignal.removeEventListener !== "function") return () => {};
+  return () => parentSignal.removeEventListener("abort", abortWithReason);
 }
 
 /**
@@ -147,17 +171,20 @@ export class LocalMcpProvider extends McpProvider {
     });
   }
 
-  async callTool(toolName, args = {}) {
+  async callTool(toolName, args = {}, options = {}) {
+    const signal = options?.signal || args?.signal;
+    checkCancelled(signal);
+
     const usedName = toNonEmptyString(toolName);
     const canonical = this._canonicalizeToolName(usedName);
 
     if (canonical === "search.query") {
-      const out = await this._search(args);
+      const out = await this._search(args, { signal });
       return this._withDeprecatedToolName(out, { usedName, canonicalName: canonical });
     }
 
     if (canonical === "search.fetch") {
-      const out = await this._fetchContent(args);
+      const out = await this._fetchContent(args, { signal });
       return this._withDeprecatedToolName(out, { usedName, canonicalName: canonical });
     }
 
@@ -170,11 +197,12 @@ export class LocalMcpProvider extends McpProvider {
   }
 
   // Tests rely on this method existing; logic delegated to http-proxy.
-  async _fetchWithCorsFallback(url, { timeoutMs = 10000, tryDirect = true } = {}) {
-    return this._http.fetchWithCorsFallback(url, { timeoutMs, tryDirect });
+  async _fetchWithCorsFallback(url, { timeoutMs = 10000, tryDirect = true, signal } = {}) {
+    return this._http.fetchWithCorsFallback(url, { timeoutMs, tryDirect, signal });
   }
 
-  async _search({ query, domain, time_range, limit } = {}) {
+  async _search({ query, domain, time_range, limit } = {}, { signal } = {}) {
+    checkCancelled(signal);
     const q = toNonEmptyString(query);
     if (!q) {
       return new McpToolResult({
@@ -188,12 +216,13 @@ export class LocalMcpProvider extends McpProvider {
     const maxResults = Math.max(1, Math.min(safeInt(limit, this.maxResults), this.maxResults));
 
     if (this.workerEndpoint) {
-      const workerResult = await this._searchViaWorker({ query: q, domain, time_range, limit: maxResults });
+      const workerResult = await this._searchViaWorker({ query: q, domain, time_range, limit: maxResults }, { signal });
       if (workerResult?.success) return workerResult;
     }
 
     try {
-      const { results: formatted, pages } = await searchDuckDuckGoHtml(this._fetchWithCorsFallback.bind(this), {
+      const fetchHtml = (url, fetchOptions) => this._fetchWithCorsFallback(url, { ...(fetchOptions || {}), signal });
+      const { results: formatted, pages } = await searchDuckDuckGoHtml(fetchHtml, {
         query: q,
         domain,
         timeRange: time_range,
@@ -214,6 +243,7 @@ export class LocalMcpProvider extends McpProvider {
         ],
       });
     } catch (err) {
+      if (signal?.aborted) checkCancelled(signal);
       return new McpToolResult({
         success: false,
         isError: true,
@@ -223,9 +253,16 @@ export class LocalMcpProvider extends McpProvider {
     }
   }
 
-  async _searchViaWorker({ query, domain, time_range, limit }) {
+  async _searchViaWorker({ query, domain, time_range, limit }, { signal } = {}) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.searchTimeoutMs);
+    const detachAbort = attachAbortSignal(signal, controller);
+    const timeoutId = setTimeout(() => {
+      try {
+        controller.abort("Timeout");
+      } catch {
+        controller.abort();
+      }
+    }, this.searchTimeoutMs);
 
     try {
       const response = await this._fetch(`${this.workerEndpoint}/search`, {
@@ -275,6 +312,7 @@ export class LocalMcpProvider extends McpProvider {
         ],
       });
     } catch (err) {
+      if (signal?.aborted) checkCancelled(signal);
       return new McpToolResult({
         success: false,
         isError: true,
@@ -283,10 +321,12 @@ export class LocalMcpProvider extends McpProvider {
       });
     } finally {
       clearTimeout(timeoutId);
+      detachAbort();
     }
   }
 
-  async _fetchContent({ url } = {}) {
+  async _fetchContent({ url } = {}, { signal } = {}) {
+    checkCancelled(signal);
     let targetUrl = toNonEmptyString(url);
     if (!targetUrl) {
       return new McpToolResult({
@@ -309,7 +349,7 @@ export class LocalMcpProvider extends McpProvider {
     }
 
     if (this.workerEndpoint) {
-      const workerResult = await this._fetchContentViaWorker({ url: targetUrl });
+      const workerResult = await this._fetchContentViaWorker({ url: targetUrl }, { signal });
       if (workerResult?.success) return workerResult;
     }
 
@@ -317,6 +357,7 @@ export class LocalMcpProvider extends McpProvider {
       const { text: html, proxy } = await this._fetchWithCorsFallback(targetUrl, {
         timeoutMs: this.defaultTimeoutMs,
         tryDirect: true,
+        signal,
       });
 
       const maxLength = 50000;
@@ -350,6 +391,7 @@ export class LocalMcpProvider extends McpProvider {
         ],
       });
     } catch (err) {
+      if (signal?.aborted) checkCancelled(signal);
       return new McpToolResult({
         success: false,
         isError: true,
@@ -359,9 +401,16 @@ export class LocalMcpProvider extends McpProvider {
     }
   }
 
-  async _fetchContentViaWorker({ url }) {
+  async _fetchContentViaWorker({ url }, { signal } = {}) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.defaultTimeoutMs);
+    const detachAbort = attachAbortSignal(signal, controller);
+    const timeoutId = setTimeout(() => {
+      try {
+        controller.abort("Timeout");
+      } catch {
+        controller.abort();
+      }
+    }, this.defaultTimeoutMs);
 
     try {
       const response = await this._fetch(`${this.workerEndpoint}/fetch`, {
@@ -417,6 +466,7 @@ export class LocalMcpProvider extends McpProvider {
       });
     } finally {
       clearTimeout(timeoutId);
+      detachAbort();
     }
   }
 
@@ -449,4 +499,3 @@ export function createLocalMcpProvider(options = {}) {
 }
 
 export default LocalMcpProvider;
-
