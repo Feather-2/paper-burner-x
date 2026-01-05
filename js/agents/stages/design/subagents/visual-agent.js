@@ -206,6 +206,7 @@ export class VisualSubAgent {
         policy: options.policy,
         budget: options.budget,
         concurrency: options.imageConcurrency,
+        circuitBreakerRegistry: options.circuitBreakerRegistry,
         imageProvider: options.imageProvider,
       })
       : Promise.resolve({ filledSlots: [], report: null });

@@ -57,6 +57,27 @@ function createTaskScopedSharedContext(sharedContext, taskId) {
   });
 }
 
+function stripTraceContext(stageApi) {
+  const api = stageApi && typeof stageApi === "object" ? stageApi : null;
+  if (!api) return {};
+  const { traceContext, ...rest } = api;
+  return rest;
+}
+
+function resolveTraceparent(stageApi) {
+  const api = stageApi && typeof stageApi === "object" ? stageApi : null;
+  if (!api) return null;
+  if (api.traceContext && typeof api.traceContext.getTraceparent === "function") {
+    try {
+      return api.traceContext.getTraceparent();
+    } catch {
+      return null;
+    }
+  }
+  if (typeof api.traceparent === "string" && api.traceparent.trim()) return api.traceparent.trim();
+  return null;
+}
+
 /**
  * 创建轻量级研究子代理
  */
@@ -76,13 +97,15 @@ function createResearcherFactory() {
 
     return {
       run: async (input, ctx) => {
+        const traceparent = resolveTraceparent(parentStageApi);
         // 合并父级 stageApi（继承 modelRouter）
         const mergedStageApi = {
-          ...parentStageApi,
-          ...ctx?.stageApi,
+          ...stripTraceContext(parentStageApi),
+          ...stripTraceContext(ctx?.stageApi),
           eventBus,
           modelTier,
           signal: ctx?.signal || parentStageApi?.signal,
+          ...(traceparent ? { traceparent } : {}),
         };
 
         const result = await agent.run(
@@ -123,13 +146,15 @@ function createAnalyzerFactory() {
 
     return {
       run: async (input, ctx) => {
+        const traceparent = resolveTraceparent(parentStageApi);
         // 合并父级 stageApi（继承 modelRouter）
         const mergedStageApi = {
-          ...parentStageApi,
-          ...ctx?.stageApi,
+          ...stripTraceContext(parentStageApi),
+          ...stripTraceContext(ctx?.stageApi),
           eventBus,
           modelTier,
           signal: ctx?.signal || parentStageApi?.signal,
+          ...(traceparent ? { traceparent } : {}),
         };
 
         const result = await agent.run(

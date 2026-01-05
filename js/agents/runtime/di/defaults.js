@@ -4,7 +4,9 @@
  * Provides factory functions for core agent services.
  */
 
-import { Container, SINGLETON } from "./container.js";
+import { Container, SINGLETON, TRANSIENT } from "./container.js";
+import { CircuitBreakerRegistry } from "../../shared/utils/circuit-breaker.js";
+import { TraceContext } from "../telemetry/trace-context.js";
 
 /**
  * Service IDs used across the agent system.
@@ -12,6 +14,7 @@ import { Container, SINGLETON } from "./container.js";
 export const ServiceId = {
   LOGGER: "logger",
   EVENT_BUS: "eventBus",
+  TRACE_CONTEXT: "traceContext",
   MEMORY_STORE: "memoryStore",
   STATE_ENGINE: "stateEngine",
   MODEL_ROUTER: "modelRouter",
@@ -19,6 +22,8 @@ export const ServiceId = {
   RETRIEVAL_ROUTER: "retrievalRouter",
   BUDGET_MANAGER: "budgetManager",
   CHECKPOINT_MANAGER: "checkpointManager",
+  CIRCUIT_BREAKER_REGISTRY: "circuitBreakerRegistry",
+  WATCHDOG: "watchdog",
 };
 
 /**
@@ -40,8 +45,29 @@ export function createAgentContainer(overrides = {}) {
   // EventBus (no dependencies)
   container.register(ServiceId.EVENT_BUS, async (c) => {
     const { EventBus } = await import("../events/event-bus.js");
-    return new EventBus();
+    const eventBus = new EventBus();
+    // P4.6: 默认启用背压，避免高频事件堆积（浏览器和 Node.js 均生效）
+    if (typeof eventBus.enableBackpressure === "function") {
+      try {
+        eventBus.enableBackpressure({
+          coalescePattern: /\.progress$/,
+          deferNonCoalesced: false,
+          maxQueueSize: 10000,
+        });
+      } catch {
+        // ignore
+      }
+    }
+    return eventBus;
   });
+
+  // TraceContext (no dependencies)
+  // Use SINGLETON so stages created from the same container share a trace by default.
+  container.register(
+    ServiceId.TRACE_CONTEXT,
+    () => new TraceContext(),
+    { scope: SINGLETON }
+  );
 
   // MemoryStore (depends on eventBus)
   container.register(ServiceId.MEMORY_STORE, async (c) => {
@@ -81,6 +107,23 @@ export function createAgentContainer(overrides = {}) {
     const { createBudgetManager } = await import("../../shared/utils/budget.js");
     return createBudgetManager();
   });
+
+  // CircuitBreakerRegistry (no dependencies)
+  container.register(ServiceId.CIRCUIT_BREAKER_REGISTRY, () => {
+    return new CircuitBreakerRegistry();
+  });
+
+  // Watchdog (depends on eventBus)
+  // Use TRANSIENT so each stage/run can get an isolated instance.
+  container.register(
+    ServiceId.WATCHDOG,
+    async (c) => {
+      const { Watchdog } = await import("../compression/watchdog.js");
+      const eventBus = await c.get(ServiceId.EVENT_BUS);
+      return new Watchdog({ eventBus });
+    },
+    { scope: TRANSIENT }
+  );
 
   // Apply overrides
   for (const [id, factory] of Object.entries(overrides)) {

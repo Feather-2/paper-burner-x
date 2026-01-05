@@ -31,6 +31,9 @@ export const L1_ADD_MESSAGES = "L1/ADD_MESSAGES";
 export const L1_CLEAR_MESSAGES = "L1/CLEAR_MESSAGES";
 export const L1_SET_MESSAGES = "L1/SET_MESSAGES";
 
+// Design / Presentation working state
+export const L1_SET_DECK = "L1/SET_DECK";
+
 export const L1_ADD_SIGNAL = "L1/ADD_SIGNAL";
 export const L1_ACKNOWLEDGE_SIGNAL = "L1/ACKNOWLEDGE_SIGNAL";
 
@@ -51,6 +54,9 @@ export const L1_SYNC_SUBAGENT = "L1/SYNC_SUBAGENT";
 export const L2_SET_HISTORY_SUMMARY = "L2/SET_HISTORY_SUMMARY";
 export const L2_APPEND_HISTORY_SUMMARY = "L2/APPEND_HISTORY_SUMMARY";
 export const L2_SET_STAGE_SUMMARY = "L2/SET_STAGE_SUMMARY";
+// Design / Presentation condensed state
+export const L2_ADD_SUMMARY = "L2/ADD_SUMMARY";
+export const L2_RECORD_DECISION = "L2/RECORD_DECISION";
 export const L2_ADD_CLAIM = "L2/ADD_CLAIM";
 export const L2_REPLACE_CLAIMS = "L2/REPLACE_CLAIMS";
 
@@ -116,6 +122,8 @@ export const addMessages = (messages) => createAction(L1_ADD_MESSAGES, { message
 export const clearMessages = () => createAction(L1_CLEAR_MESSAGES, {});
 export const setMessages = (messages) => createAction(L1_SET_MESSAGES, { messages });
 
+export const setDeck = (deck) => createAction(L1_SET_DECK, { deck });
+
 export const addSignal = (signal) => createAction(L1_ADD_SIGNAL, { signal });
 export const acknowledgeSignal = (id) => createAction(L1_ACKNOWLEDGE_SIGNAL, { id });
 
@@ -133,6 +141,8 @@ export const syncSubagent = (id, data) => createAction(L1_SYNC_SUBAGENT, { id, d
 export const setHistorySummary = (summary) => createAction(L2_SET_HISTORY_SUMMARY, { summary });
 export const appendHistorySummary = (summary) => createAction(L2_APPEND_HISTORY_SUMMARY, { summary });
 export const setStageSummary = (stage, summary) => createAction(L2_SET_STAGE_SUMMARY, { stage, summary });
+export const addSummary = (summary) => createAction(L2_ADD_SUMMARY, { summary });
+export const recordCondensedDecision = (decision) => createAction(L2_RECORD_DECISION, { decision });
 export const addClaim = (claim) => createAction(L2_ADD_CLAIM, { claim });
 export const replaceClaims = (claims) => createAction(L2_REPLACE_CLAIMS, { claims });
 
@@ -168,6 +178,7 @@ export const L1_ACTIONS = Object.freeze([
   L1_ADD_MESSAGES,
   L1_CLEAR_MESSAGES,
   L1_SET_MESSAGES,
+  L1_SET_DECK,
   L1_ADD_SIGNAL,
   L1_ACKNOWLEDGE_SIGNAL,
   L1_RECORD_DECISION,
@@ -182,6 +193,8 @@ export const L2_ACTIONS = Object.freeze([
   L2_SET_HISTORY_SUMMARY,
   L2_APPEND_HISTORY_SUMMARY,
   L2_SET_STAGE_SUMMARY,
+  L2_ADD_SUMMARY,
+  L2_RECORD_DECISION,
   L2_ADD_CLAIM,
   L2_REPLACE_CLAIMS,
 ]);
@@ -232,6 +245,7 @@ export default {
   L1_ADD_MESSAGES,
   L1_CLEAR_MESSAGES,
   L1_SET_MESSAGES,
+  L1_SET_DECK,
   L1_ADD_SIGNAL,
   L1_ACKNOWLEDGE_SIGNAL,
   L1_RECORD_DECISION,
@@ -243,6 +257,8 @@ export default {
   L2_SET_HISTORY_SUMMARY,
   L2_APPEND_HISTORY_SUMMARY,
   L2_SET_STAGE_SUMMARY,
+  L2_ADD_SUMMARY,
+  L2_RECORD_DECISION,
   L2_ADD_CLAIM,
   L2_REPLACE_CLAIMS,
   L3_ARCHIVE,
@@ -263,6 +279,7 @@ export default {
   addMessages,
   clearMessages,
   setMessages,
+  setDeck,
   addSignal,
   acknowledgeSignal,
   recordDecision,
@@ -274,6 +291,8 @@ export default {
   setHistorySummary,
   appendHistorySummary,
   setStageSummary,
+  addSummary,
+  recordCondensedDecision,
   addClaim,
   replaceClaims,
   archive,

@@ -7,11 +7,14 @@ import { DesignPhase, designPhaseMachine } from "./states.js";
 import { AgentStatus } from "../../runtime/core/agent-status.js";
 import { BaseAgentLoop, checkCancelled, getEmitFn, resolveToolExecutor } from "../../runtime/core/agent-loop.js";
 import { StagePausedError } from "../../runtime/core/stage-errors.js";
+import { createLifecycleEmitter } from "../../runtime/core/lifecycle.js";
 import { getRuntimeState } from "../../runtime/telemetry/loop-runtime-state.js";
+import { TraceContext } from "../../runtime/telemetry/trace-context.js";
 import { DESIGN_AGENT_TOOL_DEFINITIONS, createDesignToolHandlers } from "./design-tools.js";
 import { VisualHandler } from "./runtime/visual-handler.js";
 import { runPreparationPhase, runGeneratingPhase, runBatchRepairPhase, runVisualPhase, runReviewPhase, runPlanningPhase, runLayoutPhase } from "./runtime/design-phases.js";
 import { DesignBlackboard } from "./runtime/design-blackboard.js";
+import { Watchdog } from "../../runtime/compression/watchdog.js";
 
 const logger = createLogger("stages/design/agent-loop");
 
@@ -26,6 +29,171 @@ const DESIGN_LOOP_DEFAULTS = {
   maxBacktrackAttempts: 3,
   signatureLength: 64, // deck 签名截取长度
 };
+
+function resolveWatchdogSettings(userConfig) {
+  const raw = userConfig && typeof userConfig === "object" ? userConfig.watchdog : null;
+  const cfg = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+
+  const maxRecentOutputs = Number.isFinite(cfg.maxRecentOutputs) ? Math.max(2, Math.floor(cfg.maxRecentOutputs)) : 8;
+  const similarityThreshold = Number.isFinite(cfg.similarityThreshold)
+    ? Math.min(1, Math.max(0, cfg.similarityThreshold))
+    : 0.8;
+  const maxConsecutiveSimilar = Number.isFinite(cfg.maxConsecutiveSimilar)
+    ? Math.max(2, Math.floor(cfg.maxConsecutiveSimilar))
+    : 3;
+
+  // Design can include long-running calls (image render / LLM), so keep the "stuck" bar high.
+  const stuckThresholdMs = Number.isFinite(cfg.stuckThresholdMs) ? Math.max(10_000, Math.floor(cfg.stuckThresholdMs)) : 5 * 60_000;
+  const maxTimeMs = Number.isFinite(cfg.maxTimeMs) ? Math.max(30_000, Math.floor(cfg.maxTimeMs)) : 30 * 60_000;
+
+  return { maxRecentOutputs, similarityThreshold, maxConsecutiveSimilar, stuckThresholdMs, maxTimeMs };
+}
+
+function safeJsonStringify(value, maxChars = 600) {
+  try {
+    const text = JSON.stringify(value);
+    if (typeof text !== "string") return "";
+    return text.length > maxChars ? `${text.slice(0, maxChars)}…` : text;
+  } catch {
+    const text = String(value ?? "");
+    return text.length > maxChars ? `${text.slice(0, maxChars)}…` : text;
+  }
+}
+
+function resolveStageTraceContext(stageApi) {
+  const candidate = stageApi?.traceContext;
+  if (
+    candidate &&
+    typeof candidate === "object" &&
+    typeof candidate.startSpan === "function" &&
+    typeof candidate.endSpan === "function" &&
+    typeof candidate.withSpan === "function"
+  ) {
+    return candidate;
+  }
+
+  const traceparent = typeof stageApi?.traceparent === "string" ? stageApi.traceparent.trim() : "";
+  if (traceparent) {
+    const parsed = TraceContext.parseTraceparent(traceparent);
+    if (parsed?.traceId && parsed?.spanId) {
+      return new TraceContext({ traceId: parsed.traceId, parentSpanId: parsed.spanId });
+    }
+  }
+
+  return new TraceContext();
+}
+
+function createTracedAiApiService(aiApiService, traceContext) {
+  if (!aiApiService || typeof aiApiService !== "object" || typeof aiApiService.chat !== "function") return aiApiService;
+
+  return new Proxy(aiApiService, {
+    get(target, prop) {
+      if (prop === "chat") {
+        return async (opts = {}) => {
+          const model = typeof opts?.model === "string" ? opts.model : "auto";
+          const maxTokens = typeof opts?.maxTokens === "number" ? opts.maxTokens : undefined;
+          const temperature = typeof opts?.temperature === "number" ? opts.temperature : undefined;
+          const usage = typeof opts?.usage === "string" ? opts.usage : undefined;
+          return await traceContext.withSpan("design.llm.chat", async (span) => {
+            span.setAttributes({
+              ...(model ? { model } : {}),
+              ...(usage ? { usage } : {}),
+              ...(maxTokens !== undefined ? { maxTokens } : {}),
+              ...(temperature !== undefined ? { temperature } : {}),
+            });
+            return await target.chat.call(target, opts);
+          });
+        };
+      }
+      const value = target[prop];
+      if (typeof value === "function") return value.bind(target);
+      return value;
+    },
+  });
+}
+
+function createTracedModelRouter(modelRouter, traceContext) {
+  if (!modelRouter || typeof modelRouter !== "object" || typeof modelRouter.call !== "function") return modelRouter;
+
+  return new Proxy(modelRouter, {
+    get(target, prop) {
+      if (prop === "call") {
+        return async (...args) => {
+          let usage = undefined;
+          let model = undefined;
+          try {
+            if (args.length >= 2 && args[1] && typeof args[1] === "object") {
+              usage = typeof args[1].usage === "string" ? args[1].usage : undefined;
+              model = typeof args[1].model === "string" ? args[1].model : undefined;
+            } else if (args.length >= 1 && args[0] && typeof args[0] === "object" && !Array.isArray(args[0])) {
+              usage = typeof args[0].usage === "string" ? args[0].usage : undefined;
+              model = typeof args[0].model === "string" ? args[0].model : undefined;
+            }
+          } catch {
+            // ignore arg inspection failures
+          }
+          return await traceContext.withSpan("design.llm.call", async (span) => {
+            span.setAttributes({
+              ...(usage ? { usage } : {}),
+              ...(model ? { model } : {}),
+            });
+            return await target.call.apply(target, args);
+          });
+        };
+      }
+      const value = target[prop];
+      if (typeof value === "function") return value.bind(target);
+      return value;
+    },
+  });
+}
+
+function buildDesignWatchdogAdvice(issues) {
+  const rows = Array.isArray(issues) ? issues : [];
+  const types = new Set(rows.map((x) => String(x?.type || "")));
+
+  const tips = [];
+  if (types.has("oscillation")) {
+    tips.push("检测到输出高度相似/可能震荡；建议改变策略（调整布局/约束/提示词），或回溯到上一个稳定 checkpoint 后重试。");
+    tips.push("Refine 阶段可减少 recommendedSteps/hardLimit，或先 screenshotAll 再集中修 1-2 个关键问题。");
+  }
+  if (types.has("timeout")) tips.push("总耗时过长；建议跳过非关键步骤（如 final review）或缩减图片/渲染工作量。");
+  if (types.has("stuck")) tips.push("长时间无明显进展；建议切分问题、减少单步工作量，或回溯并换一种修复路径。");
+  if (types.has("max_iterations")) tips.push("迭代次数过多；建议尽快收敛到可交付版本，剩余问题留待编辑模式处理。");
+
+  if (!tips.length) tips.push("检测到潜在卡死；建议改变策略或回溯到稳定状态。");
+  return tips.join(" ");
+}
+
+function summarizeRefineEventForWatchdog(evt) {
+  const payload = evt?.payload && typeof evt.payload === "object" ? evt.payload : {};
+  const stepIndex = Number.isFinite(payload.stepIndex) ? payload.stepIndex : null;
+  const tool = payload.tool || payload?.action?.tool || "";
+  const ok =
+    typeof payload?.result?.success === "boolean"
+      ? payload.result.success
+      : typeof payload?.observation?.success === "boolean"
+        ? payload.observation.success
+        : null;
+  const err =
+    (typeof payload?.result?.error === "string" && payload.result.error) ||
+    (typeof payload?.observation?.error === "string" && payload.observation.error) ||
+    "";
+  const finish = payload.finish && typeof payload.finish === "object" ? payload.finish : null;
+
+  const parts = ["refine_step"];
+  if (stepIndex !== null) parts.push(`step=${stepIndex}`);
+  if (tool) parts.push(`tool=${String(tool)}`);
+  if (ok !== null) parts.push(`ok=${ok}`);
+  if (finish) {
+    if (Number.isFinite(finish.qualityScore)) parts.push(`quality=${finish.qualityScore}`);
+    if (Number.isFinite(finish.remainingIssues)) parts.push(`remaining=${finish.remainingIssues}`);
+  }
+  if (payload?.params) parts.push(`params=${safeJsonStringify(payload.params, 260)}`);
+  if (err) parts.push(`error=${String(err).slice(0, 160)}`);
+
+  return parts.join(" | ");
+}
 
 /**
  * BacktrackError - 回溯信号异常
@@ -76,7 +244,7 @@ function loadDesignConcurrencyConfig() {
 }
 
 export class DesignAgentLoop extends BaseAgentLoop {
-  constructor({ batchSize, archive, eventBus, tools, memoryStore, container } = {}) {
+  constructor({ batchSize, archive, eventBus, tools, memoryStore, stateEngine, container } = {}) {
     super({ actor: "design", stageName: "design", eventBus });
     const config = loadDesignConcurrencyConfig();
     const defaultBatchSize = config?.batchSize || DESIGN_LOOP_DEFAULTS.batchSize;
@@ -98,11 +266,13 @@ export class DesignAgentLoop extends BaseAgentLoop {
     if (Array.isArray(this._statusHistory)) this._statusHistory.length = 0;
     this.archive = archive || null;
     // Blackboard for cross-phase communication (支持 MemoryStore 集成)
-    this._blackboard = new DesignBlackboard({ memoryStore });
+    this._blackboard = new DesignBlackboard({ memoryStore, stateEngine });
     this._memoryStore = memoryStore || null;
+    this._stateEngine = stateEngine || null;
     // Loop control
     this._maxIterations = DESIGN_LOOP_DEFAULTS.maxIterations;
     this._iteration = 0;
+    this._watchdog = null;
 
     // Runtime state (春秋蝉模式)
     this.state = {
@@ -268,13 +438,33 @@ export class DesignAgentLoop extends BaseAgentLoop {
   }
 
 
-  _transitionPhase(state, next, { emit, runId, payload } = {}) {
+  _transitionPhase(state, next, { emit, runId, payload, lifecycle } = {}) {
     const from = state.status;
     const ok = designPhaseMachine.transition(state, next, { runId, from, to: next, ...payload });
     if (!ok) {
       throw new Error(`DesignPhase transition rejected: ${from} -> ${next}`);
     }
-    emitStage(emit, "design.phase.transition", "progress", { runId, from, to: next, ...payload });
+    const phaseLifecycle =
+      lifecycle ||
+      this._lifecycle ||
+      createLifecycleEmitter({
+        actor: "design",
+        emit,
+        eventBus: this.eventBus,
+      });
+    const traceContext = this._traceContext;
+    if (traceContext && typeof traceContext.startSpan === "function" && typeof traceContext.endSpan === "function") {
+      const span = traceContext.startSpan("design.phase.transition", {
+        attributes: { from, to: next, runId },
+      });
+      try {
+        phaseLifecycle.phaseTransition(from, next, runId, payload);
+      } finally {
+        traceContext.endSpan(span);
+      }
+    } else {
+      phaseLifecycle.phaseTransition(from, next, runId, payload);
+    }
     return next;
   }
 
@@ -446,29 +636,60 @@ export class DesignAgentLoop extends BaseAgentLoop {
    * @param {{runContext?:object,emit?:Function,eventBus?:object,signal?:AbortSignal,aiApiService?:object,imageService?:any,imageProvider?:any}=} context
    */
   async run(contentPackage, context = {}) {
-    let backtrackAttempts = 0;
-    const maxAttempts = DESIGN_LOOP_DEFAULTS.maxBacktrackAttempts;
+    const stageApi = context && typeof context === "object" ? context : {};
+    const traceContext = resolveStageTraceContext(stageApi);
+    const runContext = stageApi.runContext || { runId: contentPackage?.runId || "run_unknown", constraints: contentPackage?.constraints || {} };
+    const runId = runContext.runId || contentPackage?.runId || "run_unknown";
 
-    // BacktrackError 重启循环
-    while (backtrackAttempts <= maxAttempts) {
-      try {
-        return await this._runCore(contentPackage, context);
-      } catch (err) {
-        if (err instanceof BacktrackError && backtrackAttempts < maxAttempts) {
-          backtrackAttempts++;
-          this._emit?.("design.backtrack.restart", {
-            attempt: backtrackAttempts,
-            maxAttempts,
-            targetPhase: err.targetPhase,
-            reason: err.reason,
+    const tracedContext = {
+      ...stageApi,
+      traceContext,
+      aiApiService: createTracedAiApiService(stageApi.aiApiService, traceContext),
+      modelRouter: createTracedModelRouter(stageApi.modelRouter, traceContext),
+    };
+
+    const prevTraceContext = this._traceContext;
+    this._traceContext = traceContext;
+    try {
+      return await traceContext.withSpan(
+        "design.run",
+        async (runSpan) => {
+          runSpan.setAttributes({
+            runId,
+            slideCount: Array.isArray(contentPackage?.slideIntents) ? contentPackage.slideIntents.length : 0,
+            batchSize: this.batchSize,
           });
-          // 继续循环，从恢复的状态重新执行
-          continue;
-        }
-        throw err;
-      }
+
+          let backtrackAttempts = 0;
+          const maxAttempts = DESIGN_LOOP_DEFAULTS.maxBacktrackAttempts;
+
+          // BacktrackError 重启循环
+          while (backtrackAttempts <= maxAttempts) {
+            try {
+              return await this._runCore(contentPackage, tracedContext);
+            } catch (err) {
+              if (err instanceof BacktrackError && backtrackAttempts < maxAttempts) {
+                backtrackAttempts++;
+                this._emit?.("design.backtrack.restart", {
+                  attempt: backtrackAttempts,
+                  maxAttempts,
+                  targetPhase: err.targetPhase,
+                  reason: err.reason,
+                });
+                // 继续循环，从恢复的状态重新执行
+                continue;
+              }
+              throw err;
+            }
+          }
+
+          throw new Error(`Max backtrack attempts (${maxAttempts}) exceeded`);
+        },
+        { attributes: { stage: "design", runId } }
+      );
+    } finally {
+      this._traceContext = prevTraceContext;
     }
-    throw new Error(`Max backtrack attempts (${maxAttempts}) exceeded`);
   }
 
   /**
@@ -478,6 +699,8 @@ export class DesignAgentLoop extends BaseAgentLoop {
   async _runCore(contentPackage, context = {}) {
     const runContext = context.runContext || { runId: contentPackage?.runId || "run_unknown", constraints: contentPackage?.constraints || {} };
     const runId = runContext.runId || contentPackage?.runId || "run_unknown";
+    const traceContext =
+      context?.traceContext && typeof context.traceContext.withSpan === "function" ? context.traceContext : null;
     this.eventBus = context.eventBus || this.eventBus || null;
     let emit = getEmitFn(context);
     if ((!emit || emit === this.eventBus?.emit) && this.eventBus?.emit) {
@@ -485,13 +708,101 @@ export class DesignAgentLoop extends BaseAgentLoop {
     }
     this.emit = emit || this.emit || null;
 
+    // P4.6: Enable backpressure for high-frequency events (best-effort).
+    if (this.eventBus && typeof this.eventBus.enableBackpressure === "function" && !this.eventBus?._backpressure?.enabled) {
+      const cfg = context?.eventBusBackpressure ?? context?.backpressure;
+      if (cfg !== false) {
+        const opts = cfg && typeof cfg === "object" && !Array.isArray(cfg) ? cfg : {};
+        try {
+          this.eventBus.enableBackpressure({
+            coalescePattern: /\.progress$/,
+            deferNonCoalesced: false,
+            maxQueueSize: 10000,
+            ...opts,
+          });
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    const lifecycle = createLifecycleEmitter({
+      actor: "design",
+      emit: this.emit,
+      eventBus: this.eventBus,
+    });
+    this._lifecycle = lifecycle;
+
+    // Watchdog: loop/oscillation detection (deck update + refine loop)
+    const initialUserConfig =
+      (runContext && typeof runContext === "object" ? runContext.userConfig : undefined) ||
+      (contentPackage && typeof contentPackage === "object" ? contentPackage.userConfig : undefined) ||
+      (context && typeof context === "object" ? context.userConfig : undefined) ||
+      {};
+    const watchdogSettings = resolveWatchdogSettings(initialUserConfig);
+    let watchdog = await this._resolveDependency("watchdog", context, null);
+    if (watchdog && typeof watchdog.reset === "function") watchdog.reset();
+    if (!watchdog) {
+      watchdog = new Watchdog({
+        eventBus: this.eventBus,
+        maxRecentOutputs: watchdogSettings.maxRecentOutputs,
+        oscillationThreshold: watchdogSettings.similarityThreshold,
+      });
+    } else if (typeof watchdog.configure === "function") {
+      watchdog.configure({
+        maxRecentOutputs: watchdogSettings.maxRecentOutputs,
+        oscillationThreshold: watchdogSettings.similarityThreshold,
+      });
+    }
+    this._watchdog = watchdog;
+    let lastInterventionAt = 0;
+
+    const handleWatchdogHealth = (health, meta = {}) => {
+      if (!health || health.healthy) return;
+      const now = Date.now();
+      if (now - lastInterventionAt < 1500) return;
+      lastInterventionAt = now;
+
+      const advice = buildDesignWatchdogAdvice(health.issues);
+      logger.warn("[design] Watchdog intervention", { runId, ...meta, issues: health.issues, stats: health.stats, advice });
+      emitStage(emit, "design.watchdog.intervention", "warn", { runId, ...meta, issues: health.issues, stats: health.stats, advice });
+      this._blackboard?.logDecision?.("watchdog_intervention", advice, { runId, ...meta, issues: health.issues, stats: health.stats });
+
+      // Soft reset to avoid repeated triggers without extending overall timers.
+      if (typeof watchdog?.resetOscillation === "function") watchdog.resetOscillation();
+    };
+
+    const offRefineWatchdog =
+      this.eventBus && typeof this.eventBus.on === "function"
+        ? this.eventBus.on("design.refine.step", (evt) => {
+          if (evt?.runId && evt.runId !== runId) return;
+          if (!watchdog) return;
+
+          const summary = summarizeRefineEventForWatchdog(evt);
+          if (!summary) return;
+          watchdog.tick?.();
+          watchdog.recordOutput?.(summary);
+          const health = watchdog.checkHealth?.({
+            maxIterations: 200,
+            maxTimeMs: watchdogSettings.maxTimeMs,
+            stuckThresholdMs: watchdogSettings.stuckThresholdMs,
+            oscillationConsecutiveThreshold: watchdogSettings.maxConsecutiveSimilar,
+          });
+          if (health && !health.healthy) {
+            handleWatchdogHealth(health, { phase: this.phase?.status, source: "refine_step", refineStep: evt?.payload?.stepIndex });
+          }
+        })
+        : null;
+
     // 仅在初始运行时初始化状态，回溯重启时保留已恢复的状态
     if (!context.resumed && !this._isBacktracking) {
       this.phase = { status: DesignPhase.IDLE };
       // 从容器或 context 获取 memoryStore 并绑定到 Blackboard
       const memoryStore = await this._resolveDependency("memoryStore", context, this._memoryStore);
-      this._blackboard = new DesignBlackboard({ runId, memoryStore });
+      const stateEngine = await this._resolveDependency("stateEngine", context, this._stateEngine);
+      this._blackboard = new DesignBlackboard({ runId, memoryStore, stateEngine });
       this._memoryStore = memoryStore;
+      this._stateEngine = stateEngine;
       this._iteration = 0;
       this.state.contentPackage = contentPackage;
     }
@@ -511,6 +822,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
     });
     const startExecution = async (step, nodeStates) => {
       const loopIteration = ++iteration;
+      watchdog?.tick?.();
       // 用事件替代复杂状态转换
       emitStage(emit, "design.step.started", "progress", { runId, step, iteration: loopIteration });
       const stepInfo = this._beginStep({
@@ -537,8 +849,23 @@ export class DesignAgentLoop extends BaseAgentLoop {
       if (!emit || typeof deckHtmlDsl !== "string") return;
       if (!deckHtmlDsl.includes("<section")) return;
       const signature = buildDeckSignature(deckHtmlDsl);
+
+      if (watchdog && signature) {
+        watchdog.recordOutput?.(`deck_update | source=${source || "update"} | sig=${signature}`);
+        const health = watchdog.checkHealth?.({
+          maxIterations: 200,
+          maxTimeMs: watchdogSettings.maxTimeMs,
+          stuckThresholdMs: watchdogSettings.stuckThresholdMs,
+          oscillationConsecutiveThreshold: watchdogSettings.maxConsecutiveSimilar,
+        });
+        if (health && !health.healthy) {
+          handleWatchdogHealth(health, { phase: this.phase?.status, source: source || "update" });
+        }
+      }
+
       if (signature && signature === lastDeckSignature) return;
       lastDeckSignature = signature;
+      this._blackboard?.setDeck?.({ deckHtmlDsl, slidesMeta: Array.isArray(slidesMeta) ? slidesMeta : [] });
       emitStage(emit, "design.deck.updated", "progress", {
         runId,
         source: source || "update",
@@ -556,21 +883,32 @@ export class DesignAgentLoop extends BaseAgentLoop {
         state: buildLoopState("run_start"),
       });
 
-      emitStage(emit, "design.started", "started", {
-        runId: runContext.runId,
+      lifecycle.started(runId, {
         slideCount: Array.isArray(this.state.contentPackage?.slideIntents) ? this.state.contentPackage.slideIntents.length : 0,
       });
 
       // --- 1. Preparation Phase (Outline + Style) ---
       if (!this.phase.status || this.phase.status === DesignPhase.IDLE || this.phase.status === DesignPhase.OUTLINE_PARSING) {
-        const prepResult = await runPreparationPhase(this, {
-          contentPackage: this.state.contentPackage,
-          context,
-          runContext,
-          emit,
-          startExecution,
-          finishExecution,
-        });
+        const prepResult = traceContext
+          ? await traceContext.withSpan("design.phase.preparation", async (span) => {
+              span.setAttributes({ runId, slideCount: Array.isArray(this.state.contentPackage?.slideIntents) ? this.state.contentPackage.slideIntents.length : 0 });
+              return await runPreparationPhase(this, {
+                contentPackage: this.state.contentPackage,
+                context,
+                runContext,
+                emit,
+                startExecution,
+                finishExecution,
+              });
+            })
+          : await runPreparationPhase(this, {
+              contentPackage: this.state.contentPackage,
+              context,
+              runContext,
+              emit,
+              startExecution,
+              finishExecution,
+            });
         // 更新持久化状态
         this.state.contentPackage = prepResult.parsedContentPackage;
         this.state.slideIntents = prepResult.slideIntents;
@@ -585,29 +923,54 @@ export class DesignAgentLoop extends BaseAgentLoop {
 
       // --- 2. Planning Phase ---
       if (context?.enablePlanning !== false && (!this.state.plans || this.phase.status === DesignPhase.DECK_PLANNING)) {
-        const planningResult = await runPlanningPhase(this, {
-          slideIntents: this.state.slideIntents,
-          designSystem: this.state.designSystem,
-          context,
-          runContext,
-          emit,
-        });
+        const planningResult = traceContext
+          ? await traceContext.withSpan("design.phase.planning", async (span) => {
+              span.setAttributes({ runId, slideCount: Array.isArray(this.state.slideIntents) ? this.state.slideIntents.length : 0 });
+              return await runPlanningPhase(this, {
+                slideIntents: this.state.slideIntents,
+                designSystem: this.state.designSystem,
+                context,
+                runContext,
+                emit,
+              });
+            })
+          : await runPlanningPhase(this, {
+              slideIntents: this.state.slideIntents,
+              designSystem: this.state.designSystem,
+              context,
+              runContext,
+              emit,
+            });
         this.state.plans = planningResult.plans;
         this._blackboard.setSummary("plan", `${this.state.plans.length} slides planned`);
       }
 
       // --- 3. Layout Phase (New!) ---
       if (context?.enableLayout !== false && (!this.state.layoutData || this.phase.status === DesignPhase.LAYOUT_DEVELOPING)) {
-        const layoutResult = await runLayoutPhase(this, {
-          slideIntents: this.state.slideIntents,
-          designSystem: this.state.designSystem,
-          plans: this.state.plans,
-          context,
-          runContext,
-          emit,
-          startExecution,
-          finishExecution,
-        });
+        const layoutResult = traceContext
+          ? await traceContext.withSpan("design.phase.layout", async (span) => {
+              span.setAttributes({ runId, slideCount: Array.isArray(this.state.slideIntents) ? this.state.slideIntents.length : 0 });
+              return await runLayoutPhase(this, {
+                slideIntents: this.state.slideIntents,
+                designSystem: this.state.designSystem,
+                plans: this.state.plans,
+                context,
+                runContext,
+                emit,
+                startExecution,
+                finishExecution,
+              });
+            })
+          : await runLayoutPhase(this, {
+              slideIntents: this.state.slideIntents,
+              designSystem: this.state.designSystem,
+              plans: this.state.plans,
+              context,
+              runContext,
+              emit,
+              startExecution,
+              finishExecution,
+            });
         this.state.layoutData = layoutResult;
         this._blackboard.setSummary("layout", "Wireframes generated");
       }
@@ -620,22 +983,42 @@ export class DesignAgentLoop extends BaseAgentLoop {
 
       // --- 4. Generating Phase ---
       if (this.phase.status === DesignPhase.GENERATING) {
-        const genPhaseResult = await runGeneratingPhase(this, {
-          slideIntents: this.state.slideIntents,
-          contentPackage: this.state.contentPackage,
-          designSystem: this.state.designSystem,
-          constraints: this.state.constraints,
-          userConfig: this.state.userConfig,
-          context,
-          runContext,
-          emit,
-          startExecution,
-          finishExecution,
-          emitDeckUpdate,
-          plans: this.state.plans,
-          layoutData: this.state.layoutData,
-          skipReview,
-        });
+        const genPhaseResult = traceContext
+          ? await traceContext.withSpan("design.phase.generating", async (span) => {
+              span.setAttributes({ runId, slideCount: Array.isArray(this.state.slideIntents) ? this.state.slideIntents.length : 0, skipReview });
+              return await runGeneratingPhase(this, {
+                slideIntents: this.state.slideIntents,
+                contentPackage: this.state.contentPackage,
+                designSystem: this.state.designSystem,
+                constraints: this.state.constraints,
+                userConfig: this.state.userConfig,
+                context,
+                runContext,
+                emit,
+                startExecution,
+                finishExecution,
+                emitDeckUpdate,
+                plans: this.state.plans,
+                layoutData: this.state.layoutData,
+                skipReview,
+              });
+            })
+          : await runGeneratingPhase(this, {
+              slideIntents: this.state.slideIntents,
+              contentPackage: this.state.contentPackage,
+              designSystem: this.state.designSystem,
+              constraints: this.state.constraints,
+              userConfig: this.state.userConfig,
+              context,
+              runContext,
+              emit,
+              startExecution,
+              finishExecution,
+              emitDeckUpdate,
+              plans: this.state.plans,
+              layoutData: this.state.layoutData,
+              skipReview,
+            });
 
         this.state.generated = genPhaseResult.generated;
         this.state.slideHtmls = genPhaseResult.slideHtmls;
@@ -649,39 +1032,82 @@ export class DesignAgentLoop extends BaseAgentLoop {
         this.state.userConfig = this.applyUserInputsToConfig(this.state.userConfig);
 
         // --- 5. Batch Repair Phase (Orchestrated Health Check & Fix) ---
-        const repairResult = await runBatchRepairPhase(this, {
-          slideHtmls: this.state.slideHtmls,
-          slidesMeta: this.state.slidesMeta,
-          designSystem: this.state.designSystem,
-          contentPackage: this.state.contentPackage,
-          baseDeckHtmlDsl: this.state.baseDeckHtmlDsl
-        }, { context, runContext, emit });
+        const repairResult = traceContext
+          ? await traceContext.withSpan("design.phase.repair", async (span) => {
+              span.setAttributes({ runId, slideCount: Array.isArray(this.state.slideHtmls) ? this.state.slideHtmls.length : 0 });
+              return await runBatchRepairPhase(
+                this,
+                {
+                  slideHtmls: this.state.slideHtmls,
+                  slidesMeta: this.state.slidesMeta,
+                  designSystem: this.state.designSystem,
+                  contentPackage: this.state.contentPackage,
+                  baseDeckHtmlDsl: this.state.baseDeckHtmlDsl,
+                },
+                { context, runContext, emit }
+              );
+            })
+          : await runBatchRepairPhase(
+              this,
+              {
+                slideHtmls: this.state.slideHtmls,
+                slidesMeta: this.state.slidesMeta,
+                designSystem: this.state.designSystem,
+                contentPackage: this.state.contentPackage,
+                baseDeckHtmlDsl: this.state.baseDeckHtmlDsl,
+              },
+              { context, runContext, emit }
+            );
 
         this.state.deckHtmlDsl = repairResult.deckHtmlDsl;
         this.state.slidesMeta = repairResult.slidesMeta;
         this.state.baseDeckHtmlDsl = repairResult.deckHtmlDsl; // Update base for next steps
 
         // --- 5. Visual Filling Phase ---
-        const visualPhaseResult = await runVisualPhase(this, {
-          contentPackage: this.state.contentPackage,
-          slideIntents: this.state.slideIntents,
-          designSystem: this.state.designSystem,
-          generated: this.state.generated,
-          slideHtmls: this.state.slideHtmls,
-          slidesMeta: this.state.slidesMeta,
-          imageSlots: this.state.imageSlots,
-          baseDeckHtmlDsl: this.state.baseDeckHtmlDsl,
-          pendingImages: this.state.pendingImages,
-          brainstormResult: this.state.brainstormResult,
-          constraints: this.state.constraints,
-          userConfig: this.state.userConfig,
-          context,
-          runContext,
-          emit,
-          startExecution,
-          finishExecution,
-          emitDeckUpdate,
-        });
+        const visualPhaseResult = traceContext
+          ? await traceContext.withSpan("design.phase.visual", async (span) => {
+              span.setAttributes({ runId, slideCount: Array.isArray(this.state.slideHtmls) ? this.state.slideHtmls.length : 0 });
+              return await runVisualPhase(this, {
+                contentPackage: this.state.contentPackage,
+                slideIntents: this.state.slideIntents,
+                designSystem: this.state.designSystem,
+                generated: this.state.generated,
+                slideHtmls: this.state.slideHtmls,
+                slidesMeta: this.state.slidesMeta,
+                imageSlots: this.state.imageSlots,
+                baseDeckHtmlDsl: this.state.baseDeckHtmlDsl,
+                pendingImages: this.state.pendingImages,
+                brainstormResult: this.state.brainstormResult,
+                constraints: this.state.constraints,
+                userConfig: this.state.userConfig,
+                context,
+                runContext,
+                emit,
+                startExecution,
+                finishExecution,
+                emitDeckUpdate,
+              });
+            })
+          : await runVisualPhase(this, {
+              contentPackage: this.state.contentPackage,
+              slideIntents: this.state.slideIntents,
+              designSystem: this.state.designSystem,
+              generated: this.state.generated,
+              slideHtmls: this.state.slideHtmls,
+              slidesMeta: this.state.slidesMeta,
+              imageSlots: this.state.imageSlots,
+              baseDeckHtmlDsl: this.state.baseDeckHtmlDsl,
+              pendingImages: this.state.pendingImages,
+              brainstormResult: this.state.brainstormResult,
+              constraints: this.state.constraints,
+              userConfig: this.state.userConfig,
+              context,
+              runContext,
+              emit,
+              startExecution,
+              finishExecution,
+              emitDeckUpdate,
+            });
 
         this.state.deckHtmlDsl = visualPhaseResult.deckHtmlDsl;
         this.state.slidesMeta = visualPhaseResult.slidesMeta;
@@ -697,14 +1123,26 @@ export class DesignAgentLoop extends BaseAgentLoop {
         // skipReview already computed above
         if (context?.enableFinalReview === true && !skipReview) {
           this._transitionPhase(this.phase, DesignPhase.REVIEWING, { emit, runId: runId });
-          const finalReviewResult = await runReviewPhase(this, {
-            deckHtmlDsl: this.state.deckHtmlDsl,
-            slidesMeta: this.state.slidesMeta,
-            designSystem: this.state.designSystem,
-            context,
-            runContext,
-            emit,
-          });
+          const finalReviewResult = traceContext
+            ? await traceContext.withSpan("design.phase.review", async (span) => {
+                span.setAttributes({ runId, slideCount: Array.isArray(this.state.slidesMeta) ? this.state.slidesMeta.length : 0 });
+                return await runReviewPhase(this, {
+                  deckHtmlDsl: this.state.deckHtmlDsl,
+                  slidesMeta: this.state.slidesMeta,
+                  designSystem: this.state.designSystem,
+                  context,
+                  runContext,
+                  emit,
+                });
+              })
+            : await runReviewPhase(this, {
+                deckHtmlDsl: this.state.deckHtmlDsl,
+                slidesMeta: this.state.slidesMeta,
+                designSystem: this.state.designSystem,
+                context,
+                runContext,
+                emit,
+              });
           this.state.reviewResult = finalReviewResult.reviewResult;
         }
 
@@ -722,8 +1160,9 @@ export class DesignAgentLoop extends BaseAgentLoop {
           designSystem: this.state.designSystem,
           slidesMeta: this.state.slidesMeta,
         });
+        this._blackboard.setDeck({ deckHtmlDsl: this.state.deckHtmlDsl, slidesMeta: this.state.slidesMeta });
 
-        emitStage(emit, "design.ended", "ended", { slides: this.state.slideHtmls.length, degradedCount: this.state.degradedCount });
+        lifecycle.completed(runId, { slides: this.state.slideHtmls.length, degradedCount: this.state.degradedCount });
 
         return {
           schemaVersion: SCHEMA_VERSION,
@@ -783,7 +1222,14 @@ export class DesignAgentLoop extends BaseAgentLoop {
         // ignore secondary transition failures
       }
 
+      lifecycle.failed(runId, err);
       throw err;
+    } finally {
+      try {
+        offRefineWatchdog?.();
+      } catch {
+        // ignore
+      }
     }
   }
 }

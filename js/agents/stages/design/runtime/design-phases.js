@@ -481,7 +481,8 @@ export async function runBatchRepairPhase(loop, state, { context, runContext, em
   }));
 
   // 3. 判断是否需要修复
-  if (qaIssues.length === 0 && reviewResult.pass) {
+  const hasDegradedSlides = slidesMeta.some((m) => m?.degraded === true);
+  if (qaIssues.length === 0 && reviewResult.pass && !hasDegradedSlides) {
     emitStage(emit, "design.repair.skipped", "progress", { reason: "healthy" });
     return { deckHtmlDsl, slidesMeta };
   }

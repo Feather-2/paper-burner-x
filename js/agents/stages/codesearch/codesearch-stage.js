@@ -15,11 +15,12 @@ import { loadMechanisms, initMechanisms } from "../../runtime/core/mechanisms.js
 import { createBudgetManager, BudgetAction } from "../../shared/utils/budget.js";
 import { createLogger } from "../../shared/utils/logger.js";
 import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
-import { makeStageEmitter } from "../deepsearch/state.js";
 import { getModelCaller } from "../deepsearch/model.js";
+import { createLifecycleEmitter } from "../../runtime/core/lifecycle.js";
 import { createToolExecutor } from "./code-tools.js";
 import { CodeSearchPhase } from "./states.js";
 import { CodeSearchState } from "./state.js";
+import { Watchdog } from "../../runtime/compression/watchdog.js";
 import {
   runPlanningPhase,
   buildSystemPrompt,
@@ -40,7 +41,46 @@ const ServiceId = {
   STATE_ENGINE: "stateEngine",
   MODEL_ROUTER: "modelRouter",
   BUDGET_MANAGER: "budgetManager",
+  WATCHDOG: "watchdog",
 };
+
+function resolveWatchdogSettings(userConfig) {
+  const raw = userConfig && typeof userConfig === "object" ? userConfig.watchdog : null;
+  const cfg = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+
+  const maxRecentOutputs = Number.isFinite(cfg.maxRecentOutputs) ? Math.max(2, Math.floor(cfg.maxRecentOutputs)) : 6;
+  const similarityThreshold = Number.isFinite(cfg.similarityThreshold)
+    ? Math.min(1, Math.max(0, cfg.similarityThreshold))
+    : 0.8;
+  const maxConsecutiveSimilar = Number.isFinite(cfg.maxConsecutiveSimilar)
+    ? Math.max(2, Math.floor(cfg.maxConsecutiveSimilar))
+    : 3;
+
+  return { maxRecentOutputs, similarityThreshold, maxConsecutiveSimilar };
+}
+
+function buildCodeSearchWatchdogAdvice(issues) {
+  const rows = Array.isArray(issues) ? issues : [];
+  const types = new Set(rows.map((x) => String(x?.type || "")));
+
+  const tips = [];
+  if (types.has("oscillation")) {
+    tips.push("你可能在重复调用同一工具/读取同一文件；尝试切换到不同 todo，或改变检索策略（tree → grep/glob → find_symbol）。");
+    tips.push("优先使用更粗粒度的工具（tree/grep/glob）定位入口，再少量 read_file。");
+  }
+  if (types.has("stuck") || types.has("timeout")) {
+    tips.push("本轮耗时过长；缩小范围/降低单次 read_file 行数，必要时先输出当前结论并提出需要用户澄清的问题。");
+  }
+  if (types.has("max_iterations")) {
+    tips.push("迭代次数过多；总结已有证据，列出未完成 todo 及下一步建议。");
+  }
+
+  if (!tips.length) {
+    tips.push("检测到潜在卡死；改变策略或参数，避免重复操作。");
+  }
+
+  return tips.join(" ");
+}
 
 export class CodeSearchStage extends BaseAgentLoop {
   constructor(options = {}) {
@@ -51,6 +91,7 @@ export class CodeSearchStage extends BaseAgentLoop {
     this.state = null;
     this._logger = null;
     this._container = options.container || null;
+    this._watchdog = null;
 
     this.initLoopStatus({
       status: AgentStatus.IDLE,
@@ -96,7 +137,31 @@ export class CodeSearchStage extends BaseAgentLoop {
     const memoryStore = await this._resolveDependency(ServiceId.MEMORY_STORE, stageApi, null);
     const stateEngine = await this._resolveDependency(ServiceId.STATE_ENGINE, stageApi, null);
     const eventBus = await this._resolveDependency(ServiceId.EVENT_BUS, stageApi, this.eventBus);
-    if (eventBus && !this.eventBus) this.eventBus = eventBus;
+    this.eventBus = eventBus || this.eventBus || null;
+
+    // P4.6: Enable backpressure for high-frequency events (best-effort).
+    if (this.eventBus && typeof this.eventBus.enableBackpressure === "function" && !this.eventBus?._backpressure?.enabled) {
+      const cfg = stageApi?.eventBusBackpressure ?? stageApi?.backpressure;
+      if (cfg !== false) {
+        const opts = isPlainObject(cfg) ? cfg : {};
+        try {
+          this.eventBus.enableBackpressure({
+            coalescePattern: /\.progress$/,
+            deferNonCoalesced: false,
+            maxQueueSize: 10000,
+            ...opts,
+          });
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    const lifecycle = createLifecycleEmitter({
+      actor: "codesearch",
+      emit: stageApi?.emit,
+      eventBus: this.eventBus,
+    });
 
     // 初始化日志
     this._logger = createLogger({
@@ -128,8 +193,8 @@ export class CodeSearchStage extends BaseAgentLoop {
       if (action === BudgetAction.STOP) budgetStopRequested = true;
     };
 
-    // 事件发射 - 使用 EventBus
-    const emit = this._createEmitter(stageApi);
+    // 事件发射 - 使用统一生命周期 emitter（默认 status=info）
+    const emit = lifecycle.emit;
 
     // 取消/预算检查
     const checkStop = (signal) => {
@@ -157,19 +222,39 @@ export class CodeSearchStage extends BaseAgentLoop {
       await this._pauseForUserFeedback(runId, PAUSE_REASON);
     }
 
+    // 初始化 Watchdog（用于循环/震荡检测）
+    const watchdogSettings = resolveWatchdogSettings(userConfig);
+    let watchdog = await this._resolveDependency(ServiceId.WATCHDOG, stageApi, null);
+    if (watchdog && typeof watchdog.reset === "function") {
+      watchdog.reset();
+    }
+    if (!watchdog) {
+      watchdog = new Watchdog({
+        eventBus: this.eventBus,
+        maxRecentOutputs: watchdogSettings.maxRecentOutputs,
+        oscillationThreshold: watchdogSettings.similarityThreshold,
+      });
+    } else {
+      // Best-effort: apply user config to instance from DI.
+      if (typeof watchdog.configure === "function") {
+        watchdog.configure({
+          maxRecentOutputs: watchdogSettings.maxRecentOutputs,
+          oscillationThreshold: watchdogSettings.similarityThreshold,
+        });
+      }
+    }
+    this._watchdog = watchdog;
+    let watchdogInterventions = 0;
+
     // 开始执行
     this._transitionLoopStatus(AgentStatus.RUNNING, { runId, iteration: 0 });
     logger.info("CodeSearch started", { data: { query, maxSteps: this.maxSteps } });
-    emit("codesearch.started", { query, maxSteps: this.maxSteps });
+    lifecycle.started(runId, { query, maxSteps: this.maxSteps });
 
     // ─────────────────────────────────────────────────────────────────────────
     // Phase 1: Planning
     // ─────────────────────────────────────────────────────────────────────────
-    this._transitionPhase({ status: this.state.phase }, CodeSearchPhase.PLANNING, {
-      runId,
-      emit,
-      eventName: "codesearch.phase.transition",
-    });
+    lifecycle.phaseTransition(this.state.phase, CodeSearchPhase.PLANNING, runId);
     this.state.phase = CodeSearchPhase.PLANNING;
 
     try {
@@ -194,22 +279,21 @@ export class CodeSearchStage extends BaseAgentLoop {
     // ─────────────────────────────────────────────────────────────────────────
     // Phase 2: Execution
     // ─────────────────────────────────────────────────────────────────────────
-    this._transitionPhase({ status: this.state.phase }, CodeSearchPhase.EXECUTING, {
-      runId,
-      emit,
-      eventName: "codesearch.phase.transition",
-    });
+    lifecycle.phaseTransition(this.state.phase, CodeSearchPhase.EXECUTING, runId);
     this.state.phase = CodeSearchPhase.EXECUTING;
 
     const systemPrompt = buildSystemPrompt();
     let step = 0;
     let aborted = false;
+    let stoppedEarlyReason = null;
 
     while (step < this.maxSteps) {
       const openTodos = this.state.todos.filter(isTodoOpen);
       if (!openTodos.length) break;
 
       step++;
+      watchdog?.tick?.();
+      let stopRequested = false;
       const { step: stepMeta, context: stepContext } = this._beginStep(
         { name: "codesearch.step", runId, iteration: step },
         stageApi
@@ -231,8 +315,47 @@ export class CodeSearchStage extends BaseAgentLoop {
           signal: stepContext.signal,
         });
 
+        if (watchdog && typeof watchdog.recordOutput === "function" && stepResult?.watchdogOutput) {
+          watchdog.recordOutput(stepResult.watchdogOutput);
+        }
+        if (watchdog && typeof watchdog.checkHealth === "function") {
+          const health = watchdog.checkHealth({
+            maxIterations: this.maxSteps + 1,
+            maxTimeMs: this.timeoutMs,
+            stuckThresholdMs: Math.min(60_000, Math.max(5_000, Math.floor(this.timeoutMs / 2))),
+            oscillationConsecutiveThreshold: watchdogSettings.maxConsecutiveSimilar,
+          });
+          if (!health.healthy) {
+            watchdogInterventions += 1;
+            const advice = buildCodeSearchWatchdogAdvice(health.issues);
+            logger.warn("Watchdog intervention (CodeSearch)", {
+              step,
+              issues: health.issues,
+              stats: health.stats,
+              advice,
+            });
+            emit("codesearch.watchdog.intervention", { step, issues: health.issues, stats: health.stats, advice });
+            this.state.addObservation(`[Watchdog] 检测到潜在卡死/震荡。建议：${advice}`);
+
+            const hasOscillation = health.issues.some((x) => x?.type === "oscillation");
+            const hasTimeout = health.issues.some((x) => x?.type === "timeout");
+            const hasStuck = health.issues.some((x) => x?.type === "stuck");
+
+            // Soft intervention: reset watchdog window after hinting the model.
+            if (typeof watchdog.resetOscillation === "function") watchdog.resetOscillation();
+
+            // Hard stop if repeatedly oscillating, or if timing issues appear.
+            if (hasTimeout || hasStuck || (hasOscillation && watchdogInterventions >= 2)) {
+              stoppedEarlyReason = hasTimeout ? "timeout" : hasStuck ? "stuck" : "oscillation";
+              emit("codesearch.watchdog.stop", { step, reason: stoppedEarlyReason, issues: health.issues });
+              stopRequested = true;
+            }
+          }
+        }
+
         this._endStep({ step: stepMeta }, { status: "completed" });
 
+        if (stopRequested) break;
         if (stepResult.done) break;
       } catch (err) {
         if (err instanceof StagePausedError) throw err;
@@ -256,11 +379,7 @@ export class CodeSearchStage extends BaseAgentLoop {
     // ─────────────────────────────────────────────────────────────────────────
     // Phase 3: Summarizing
     // ─────────────────────────────────────────────────────────────────────────
-    this._transitionPhase({ status: this.state.phase }, CodeSearchPhase.SUMMARIZING, {
-      runId,
-      emit,
-      eventName: "codesearch.phase.transition",
-    });
+    lifecycle.phaseTransition(this.state.phase, CodeSearchPhase.SUMMARIZING, runId);
     this.state.phase = CodeSearchPhase.SUMMARIZING;
 
     const { summary, todoStats, budgetUsage } = await runSummarizingPhase({
@@ -283,48 +402,19 @@ export class CodeSearchStage extends BaseAgentLoop {
       todos: this.state.todos,
       todoCompletionStats: todoStats,
       awaitUserFeedback: this.state.awaitUserFeedback,
+      ...(stoppedEarlyReason ? { completionReason: `watchdog_${stoppedEarlyReason}` } : {}),
     };
 
     logger.info("CodeSearch completed", { data: { totalSteps: step } });
-    emit("codesearch.completed", { totalSteps: step });
+    lifecycle.completed(runId, { totalSteps: step });
 
     if (!aborted) {
-      this._transitionPhase({ status: this.state.phase }, CodeSearchPhase.COMPLETED, {
-        runId,
-        emit,
-        eventName: "codesearch.phase.transition",
-      });
+      lifecycle.phaseTransition(this.state.phase, CodeSearchPhase.COMPLETED, runId);
       this.state.phase = CodeSearchPhase.COMPLETED;
       this._transitionLoopStatus(AgentStatus.COMPLETED, { runId, iteration: step });
     }
 
     return result;
-  }
-
-  /**
-   * 创建事件发射器（统一 EventBus 接入）
-   */
-  _createEmitter(stageApi) {
-    const eventBus = this.eventBus || stageApi?.eventBus;
-    const directEmit = stageApi?.emit;
-
-    return (eventName, payload = {}) => {
-      const fullPayload = { actor: "codesearch", status: "info", payload };
-
-      // 通过 EventBus 发射
-      if (eventBus?.emit) {
-        try {
-          eventBus.emit(eventName, fullPayload);
-        } catch { /* intentional */ }
-      }
-
-      // 直接发射（兼容）
-      if (directEmit && directEmit !== eventBus?.emit) {
-        try {
-          directEmit(eventName, fullPayload);
-        } catch { /* intentional */ }
-      }
-    };
   }
 
   /**

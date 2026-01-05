@@ -170,6 +170,7 @@ export class VisualHandler {
         budget: constraints?.imageBudget,
         imageConcurrency: this.imageConcurrency,
         svgConcurrency: this.imageConcurrency,
+        circuitBreakerRegistry: context?.circuitBreakerRegistry ?? runContext?.circuitBreakerRegistry ?? null,
         aiApiService: context.aiApiService,
         modelRouter,
         signal: context.signal,

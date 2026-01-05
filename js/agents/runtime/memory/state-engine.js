@@ -61,6 +61,7 @@ import {
   L1_ADD_MESSAGES,
   L1_CLEAR_MESSAGES,
   L1_SET_MESSAGES,
+  L1_SET_DECK,
   L1_ADD_SIGNAL,
   L1_ACKNOWLEDGE_SIGNAL,
   L1_RECORD_DECISION,
@@ -72,6 +73,8 @@ import {
   L2_SET_HISTORY_SUMMARY,
   L2_APPEND_HISTORY_SUMMARY,
   L2_SET_STAGE_SUMMARY,
+  L2_ADD_SUMMARY,
+  L2_RECORD_DECISION,
   L2_ADD_CLAIM,
   L2_REPLACE_CLAIMS,
   L3_ARCHIVE,
@@ -172,6 +175,7 @@ export function createInitialState(options = {}) {
       messages: [],
       signals: [],
       decisions: [],
+      deck: null,
       syncTable: {
         discoveries: {},  // id → {id, status, keywords, by, ts}
         subagents: {},    // id → {id, status, progress, ts}
@@ -187,6 +191,7 @@ export function createInitialState(options = {}) {
     L2: {
       historySummary: "",
       stageSummaries: {},  // stage → summary
+      decisions: [],
       claims: [],
     },
 
@@ -307,6 +312,14 @@ function reduceL1(state, action) {
     case L1_SET_MESSAGES: {
       const msgs = Array.isArray(payload?.messages) ? payload.messages : [];
       return { ...state, L1: { ...L1, messages: msgs } };
+    }
+
+    case L1_SET_DECK: {
+      if (!Object.prototype.hasOwnProperty.call(payload || {}, "deck")) return state;
+      const deck = payload?.deck;
+      const next = deck === undefined ? null : cloneJson(deck);
+      if (next === L1.deck) return state;
+      return { ...state, L1: { ...L1, deck: next } };
     }
 
     case L1_ADD_SIGNAL: {
@@ -451,6 +464,33 @@ function reduceL2(state, action) {
       const sum = toNonEmptyString(summary) || "";
       if (L2.stageSummaries[s] === sum) return state;
       return { ...state, L2: { ...L2, stageSummaries: { ...L2.stageSummaries, [s]: sum } } };
+    }
+
+    case L2_ADD_SUMMARY: {
+      const raw = payload?.summary;
+      const s = toNonEmptyString(raw?.stage) || toNonEmptyString(payload?.stage);
+      if (!s) return state;
+      const sum = toNonEmptyString(raw?.summary ?? raw?.text) || toNonEmptyString(payload?.summary) || "";
+      if (L2.stageSummaries[s] === sum) return state;
+      return { ...state, L2: { ...L2, stageSummaries: { ...L2.stageSummaries, [s]: sum } } };
+    }
+
+    case L2_RECORD_DECISION: {
+      const raw = payload?.decision;
+      if (!raw) return state;
+      const decision = isPlainObject(raw) ? cloneJson(raw) : { action: String(raw ?? "unknown") };
+      const action = toNonEmptyString(decision.action) || toNonEmptyString(decision.type) || "unknown";
+      const reason = toNonEmptyString(decision.reason) || "";
+      const timestamp = typeof decision.timestamp === "number" ? decision.timestamp : Date.now();
+      const entry = {
+        ...decision,
+        id: toNonEmptyString(decision.id) || generateId("dec"),
+        action,
+        reason,
+        timestamp,
+      };
+      const decisions = Array.isArray(L2.decisions) ? L2.decisions : [];
+      return { ...state, L2: { ...L2, decisions: [...decisions, entry] } };
     }
 
     case L2_ADD_CLAIM: {

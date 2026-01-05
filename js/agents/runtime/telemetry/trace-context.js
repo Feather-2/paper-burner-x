@@ -296,6 +296,16 @@ export class TraceContext {
   }
 
   /**
+   * Alias for startSpan (compat with older call sites).
+   * @param {string} name
+   * @param {object} [options]
+   * @returns {Span}
+   */
+  createSpan(name, options = {}) {
+    return this.startSpan(name, options);
+  }
+
+  /**
    * 结束当前 Span
    * @param {Span} [span] - 指定 Span，默认为栈顶
    */
@@ -306,8 +316,10 @@ export class TraceContext {
     targetSpan.end();
 
     // 从栈中移除
-    if (!span && this._spanStack.length > 0) {
-      const idx = this._spanStack.indexOf(targetSpan);
+    // - when called with no args, we already popped the stack
+    // - when called with a specific span, remove that span from the stack (best-effort)
+    if (span && this._spanStack.length > 0) {
+      const idx = this._spanStack.lastIndexOf(targetSpan);
       if (idx >= 0) this._spanStack.splice(idx, 1);
     }
 
@@ -342,7 +354,7 @@ export class TraceContext {
 
     try {
       const result = await fn(span);
-      span.setStatus(SpanStatus.OK);
+      if (span.status === SpanStatus.UNSET) span.setStatus(SpanStatus.OK);
       return result;
     } catch (error) {
       span.recordException(error);
@@ -467,5 +479,26 @@ export class TraceContext {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export { generateTraceId, generateSpanId };
+
+/**
+ * Helper: run a function within a span, no-op when traceContext is missing.
+ * @param {TraceContext} traceContext
+ * @param {string} name
+ * @param {(span: Span|null) => any|Promise<any>} fn
+ * @param {object} [options]
+ */
+export async function withSpan(traceContext, name, fn, options = {}) {
+  const ctx = traceContext && typeof traceContext.withSpan === "function" ? traceContext : null;
+  if (!ctx) return await fn(null);
+  return await ctx.withSpan(name, fn, options);
+}
+
+/**
+ * Helper: parse W3C traceparent header.
+ * @param {string} traceparent
+ */
+export function parseTraceparent(traceparent) {
+  return TraceContext.parseTraceparent(traceparent);
+}
 
 export default TraceContext;

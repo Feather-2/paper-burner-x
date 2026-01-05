@@ -151,6 +151,7 @@ export class VisualRenderer {
             policy: imagePolicy,
             budget: imageBudget,
             concurrency,
+            circuitBreakerRegistry: options?.circuitBreakerRegistry,
             imageProvider: options?.imageProvider,
           })
         : Promise.resolve({ filledSlots: [], report: null }),

@@ -6,6 +6,7 @@ import { planSlides } from "./slideplan.js";
 import { extractClaims } from "./claims.js";
 import { buildContentPackage } from "./build-content-package.js";
 import { BaseStage } from "../../runtime/core/agent-loop.js";
+import { TraceContext } from "../../runtime/telemetry/trace-context.js";
 import { createStageApi } from "../../shared/utils/stage-api.js";
 import { injectSystemHint } from "../../shared/utils/message-utils.js";
 import { extractJsonCandidate } from "../../shared/utils/json-candidate.js";
@@ -72,6 +73,59 @@ function alignClaimsHeuristic(slideIntents, claims) {
     out.push({ ...s, claimIds: assigned });
   }
   return out;
+}
+
+function resolveStageTraceContext(api) {
+  const candidate = api?.traceContext;
+  if (
+    candidate &&
+    typeof candidate === "object" &&
+    typeof candidate.startSpan === "function" &&
+    typeof candidate.endSpan === "function" &&
+    typeof candidate.withSpan === "function"
+  ) {
+    return candidate;
+  }
+
+  const traceparent = typeof api?.traceparent === "string" ? api.traceparent.trim() : "";
+  if (traceparent) {
+    const parsed = TraceContext.parseTraceparent(traceparent);
+    if (parsed?.traceId && parsed?.spanId) {
+      return new TraceContext({ traceId: parsed.traceId, parentSpanId: parsed.spanId });
+    }
+  }
+
+  return new TraceContext();
+}
+
+function createTracedAiApiService(aiApiService, traceContext) {
+  if (!aiApiService || typeof aiApiService !== "object" || typeof aiApiService.chat !== "function") return aiApiService;
+
+  return new Proxy(aiApiService, {
+    get(target, prop) {
+      if (prop === "chat") {
+        return async (opts = {}) => {
+          const model = typeof opts?.model === "string" ? opts.model : "auto";
+          const maxTokens = typeof opts?.maxTokens === "number" ? opts.maxTokens : undefined;
+          const temperature = typeof opts?.temperature === "number" ? opts.temperature : undefined;
+          const usage = typeof opts?.usage === "string" ? opts.usage : undefined;
+          return await traceContext.withSpan("textprep.llm.chat", async (span) => {
+            span.setAttributes({
+              ...(model ? { model } : {}),
+              ...(usage ? { usage } : {}),
+              ...(maxTokens !== undefined ? { maxTokens } : {}),
+              ...(temperature !== undefined ? { temperature } : {}),
+            });
+            return await target.chat.call(target, opts);
+          });
+        };
+      }
+
+      const value = target[prop];
+      if (typeof value === "function") return value.bind(target);
+      return value;
+    },
+  });
 }
 
 async function alignClaimsToSlides(slideIntents, claims, constraints = {}) {
@@ -150,65 +204,110 @@ export class TextPrepStage extends BaseStage {
   async run(input, context = {}) {
     const api = createStageApi(context);
     const runContext = api.runContext || { runId: "run_unknown", constraints: {} };
+    const traceContext = resolveStageTraceContext(api);
+    try {
+      if (!api.traceContext) api.traceContext = traceContext;
+    } catch {
+      // ignore (non-extensible stageApi)
+    }
 
     const emit = (name, payload) => api.emit(name, { actor: "textprep", status: "completed", payload });
     const rawText = toRawText(input);
 
-    api.checkCancelled();
-    const normalized = normalizeText(rawText);
-    emit("textprep.normalize.completed", {
-      textHash: normalized.textHash,
-      normalizedChars: normalized.normalized.length,
-      normalization: normalized.normalization,
-    });
+    return await traceContext.withSpan(
+      "textprep.run",
+      async (runSpan) => {
+        runSpan.setAttributes({ runId: runContext?.runId, rawChars: rawText.length });
 
-    api.checkCancelled();
-    const chunkOptions = { ...this.defaultChunkOptions, ...(toChunkOptions(input) || {}) };
-    const chunks = chunkText(normalized.normalized, chunkOptions);
-    emit("textprep.chunk.completed", {
-      chunkCount: chunks.length,
-      chunkSize: chunkOptions.chunkSize,
-      overlap: chunkOptions.overlap,
-    });
+        const tracedAiApiService = createTracedAiApiService(api.aiApiService, traceContext);
 
-    api.checkCancelled();
-    const slideIntents = await planSlides(chunks, {
-      ...(runContext?.constraints || {}),
-      __services: { aiApiService: api.aiApiService, runtimeHints: api.runtimeHints },
-    });
-    emit("textprep.slideplan.completed", { slideCount: slideIntents.length });
+        api.checkCancelled();
+        const normalized = await traceContext.withSpan("textprep.normalize", async (span) => {
+          const out = normalizeText(rawText);
+          span.setAttributes({
+            textHash: out?.textHash,
+            normalizedChars: out?.normalized?.length ?? 0,
+          });
+          return out;
+        });
+        emit("textprep.normalize.completed", {
+          textHash: normalized.textHash,
+          normalizedChars: normalized.normalized.length,
+          normalization: normalized.normalization,
+        });
 
-    api.checkCancelled();
-    const { claims, evidenceLedger } = extractClaims(chunks, slideIntents, {
-      sourceId: "user_text",
-      sourceTextNormalized: normalized.normalized,
-      maxQuoteLen: 220,
-    });
-    emit("textprep.claims.completed", { claimCount: claims.length, evidenceCount: evidenceLedger.length });
+        api.checkCancelled();
+        const chunkOptions = { ...this.defaultChunkOptions, ...(toChunkOptions(input) || {}) };
+        const chunks = await traceContext.withSpan("textprep.chunk", async (span) => {
+          const out = chunkText(normalized.normalized, chunkOptions);
+          span.setAttributes({ chunkCount: out?.length ?? 0, chunkSize: chunkOptions.chunkSize, overlap: chunkOptions.overlap });
+          return out;
+        });
+        emit("textprep.chunk.completed", {
+          chunkCount: chunks.length,
+          chunkSize: chunkOptions.chunkSize,
+          overlap: chunkOptions.overlap,
+        });
 
-    api.checkCancelled();
-    const alignedSlides = await alignClaimsToSlides(slideIntents, claims, {
-      ...(runContext?.constraints || {}),
-      __services: { aiApiService: api.aiApiService, runtimeHints: api.runtimeHints },
-    });
-    emit("textprep.align.completed", { slideCount: alignedSlides.length });
+        api.checkCancelled();
+        const slideIntents = await traceContext.withSpan("textprep.slideplan", async (span) => {
+          const out = await planSlides(chunks, {
+            ...(runContext?.constraints || {}),
+            __services: { aiApiService: tracedAiApiService, runtimeHints: api.runtimeHints },
+          });
+          span.setAttribute("slideCount", Array.isArray(out) ? out.length : 0);
+          return out;
+        });
+        emit("textprep.slideplan.completed", { slideCount: slideIntents.length });
 
-    api.checkCancelled();
-    const sources = [
-      {
-        sourceId: "user_text",
-        kind: "user_text",
-        title: "User Input",
-        textHash: normalized.textHash,
-        normalization: normalized.normalization,
-        // Internal-only: used to validate evidence locators/quotes (H3), not emitted in ContentPackage.sources.
-        sourceTextNormalized: normalized.normalized,
+        api.checkCancelled();
+        const { claims, evidenceLedger } = await traceContext.withSpan("textprep.claims", async (span) => {
+          const out = extractClaims(chunks, slideIntents, {
+            sourceId: "user_text",
+            sourceTextNormalized: normalized.normalized,
+            maxQuoteLen: 220,
+          });
+          span.setAttributes({
+            claimCount: Array.isArray(out?.claims) ? out.claims.length : 0,
+            evidenceCount: Array.isArray(out?.evidenceLedger) ? out.evidenceLedger.length : 0,
+          });
+          return out;
+        });
+        emit("textprep.claims.completed", { claimCount: claims.length, evidenceCount: evidenceLedger.length });
+
+        api.checkCancelled();
+        const alignedSlides = await traceContext.withSpan("textprep.align", async (span) => {
+          const out = await alignClaimsToSlides(slideIntents, claims, {
+            ...(runContext?.constraints || {}),
+            __services: { aiApiService: tracedAiApiService, runtimeHints: api.runtimeHints },
+          });
+          span.setAttribute("slideCount", Array.isArray(out) ? out.length : 0);
+          return out;
+        });
+        emit("textprep.align.completed", { slideCount: alignedSlides.length });
+
+        api.checkCancelled();
+        const sources = [
+          {
+            sourceId: "user_text",
+            kind: "user_text",
+            title: "User Input",
+            textHash: normalized.textHash,
+            normalization: normalized.normalization,
+            // Internal-only: used to validate evidence locators/quotes (H3), not emitted in ContentPackage.sources.
+            sourceTextNormalized: normalized.normalized,
+          },
+        ];
+
+        const pkg = await traceContext.withSpan("textprep.build.contentPackage", async (span) => {
+          span.setAttributes({ runId: runContext?.runId, slideCount: alignedSlides.length, claimCount: claims.length });
+          return buildContentPackage(runContext, sources, alignedSlides, claims, evidenceLedger, []);
+        });
+        if (pkg?.metrics?.textprep) pkg.metrics.textprep.chunkCount = chunks.length;
+        return pkg;
       },
-    ];
-
-    const pkg = buildContentPackage(runContext, sources, alignedSlides, claims, evidenceLedger, []);
-    if (pkg?.metrics?.textprep) pkg.metrics.textprep.chunkCount = chunks.length;
-    return pkg;
+      { attributes: { stage: "textprep", runId: runContext?.runId } }
+    );
   }
 }
 

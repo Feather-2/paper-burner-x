@@ -11,50 +11,30 @@ import { AgentStatus } from "./agent-status.js";
  * 标准事件 payload 格式
  */
 export function createEventPayload(actor, status, data = {}) {
-  return {
-    actor,
-    status,
-    timestamp: Date.now(),
-    ...data,
-  };
+  // NOTE: payload is nested under EventRecord.payload; actor/status live on the record.
+  // Keep actor/status parameters for backward compatibility with existing callers.
+  return { timestamp: Date.now(), ...data };
 }
 
 /**
  * 创建阶段转换事件 payload
  */
 export function createPhaseTransitionPayload(actor, from, to, runId, extra = {}) {
-  return createEventPayload(actor, "progress", {
-    type: "phase.transition",
-    runId,
-    from,
-    to,
-    ...extra,
-  });
+  return createEventPayload(actor, "progress", { runId, from, to, ...extra });
 }
 
 /**
  * 创建 Agent 状态变更事件 payload
  */
 export function createStatusChangePayload(actor, from, to, runId, extra = {}) {
-  return createEventPayload(actor, "info", {
-    type: "status.changed",
-    runId,
-    from,
-    to,
-    ...extra,
-  });
+  return createEventPayload(actor, "info", { runId, from, to, ...extra });
 }
 
 /**
  * 创建步骤事件 payload
  */
 export function createStepPayload(actor, step, total, status, extra = {}) {
-  return createEventPayload(actor, status, {
-    type: "step",
-    step,
-    total,
-    ...extra,
-  });
+  return createEventPayload(actor, status, { step, total, ...extra });
 }
 
 /**
@@ -80,6 +60,18 @@ export const LifecycleEventNames = {
   stepFailed: (actor) => `${actor}.step.failed`,
 };
 
+function uniqStrings(values) {
+  const out = [];
+  const seen = new Set();
+  for (const v of values) {
+    if (typeof v !== "string" || !v) continue;
+    if (seen.has(v)) continue;
+    seen.add(v);
+    out.push(v);
+  }
+  return out;
+}
+
 /**
  * 创建统一的生命周期发射器
  *
@@ -90,63 +82,110 @@ export const LifecycleEventNames = {
  * @returns {Object} 生命周期发射器对象
  */
 export function createLifecycleEmitter({ actor, emit, eventBus }) {
-  const doEmit = (eventName, payload) => {
-    const fullPayload = { actor, ...payload };
+  const directEmit = typeof emit === "function" ? emit : null;
+  const busEmit = typeof eventBus?.emit === "function" ? eventBus.emit.bind(eventBus) : null;
 
-    // 通过 EventBus 发射
-    if (eventBus?.emit) {
+  const emitRecord = (eventName, record) => {
+    // Prefer directEmit for caller hooks/tests, but avoid double-emitting when it already forwards to EventBus.
+    let forwardedToBus = false;
+    const seqBefore = typeof eventBus?._seq === "number" ? eventBus._seq : null;
+
+    if (directEmit) {
       try {
-        eventBus.emit(eventName, fullPayload);
+        directEmit(eventName, record);
       } catch { /* intentional */ }
     }
 
-    // 直接发射
-    if (emit && emit !== eventBus?.emit) {
+    const seqAfter = typeof eventBus?._seq === "number" ? eventBus._seq : null;
+    if (seqBefore !== null && seqAfter !== null && seqAfter !== seqBefore) forwardedToBus = true;
+
+    if (!forwardedToBus && busEmit) {
       try {
-        emit(eventName, fullPayload);
+        busEmit(eventName, record);
       } catch { /* intentional */ }
     }
   };
 
+  const emitMany = (eventNames, record) => {
+    for (const name of uniqStrings(eventNames)) emitRecord(name, record);
+  };
+
+  const recordOf = ({ status, payload, actor: actorOverride, runId, level, meta } = {}) => {
+    const out = { actor: actorOverride || actor };
+    if (typeof status === "string" && status) out.status = status;
+    if (payload !== undefined) out.payload = payload;
+    if (typeof runId === "string" && runId) out.runId = runId;
+    if (typeof level === "string" && level) out.level = level;
+    if (meta !== undefined) out.meta = meta;
+    return out;
+  };
+
+  const startedEventNames = uniqStrings([LifecycleEventNames.started(actor), `${actor}.agent.started`]);
+  const failedEventNames = uniqStrings([LifecycleEventNames.failed(actor), `${actor}.agent.failed`]);
+  const pausedEventNames = uniqStrings([LifecycleEventNames.paused(actor), `${actor}.agent.paused`]);
+  const resumedEventNames = uniqStrings([LifecycleEventNames.resumed(actor), `${actor}.agent.resumed`]);
+
   return {
     started: (runId, extra = {}) => {
-      doEmit(LifecycleEventNames.started(actor), createEventPayload(actor, "started", { runId, ...extra }));
+      const payload = createEventPayload(actor, "started", { runId, ...extra });
+      emitMany(startedEventNames, recordOf({ status: "started", payload, runId }));
     },
 
     completed: (runId, extra = {}) => {
-      doEmit(LifecycleEventNames.completed(actor), createEventPayload(actor, "completed", { runId, ...extra }));
+      const payload = createEventPayload(actor, "completed", { runId, ...extra });
+      emitMany([LifecycleEventNames.completed(actor), `${actor}.agent.completed`], recordOf({ status: "completed", payload, runId }));
+
+      // Design: legacy completion event is `design.ended` with status `ended` and no runId in payload.
+      if (actor === "design") {
+        const legacyPayload = createEventPayload(actor, "ended", { ...extra });
+        emitRecord(`${actor}.ended`, recordOf({ status: "ended", payload: legacyPayload }));
+      }
     },
 
     failed: (runId, error, extra = {}) => {
-      doEmit(LifecycleEventNames.failed(actor), createEventPayload(actor, "failed", { runId, error: error?.message || String(error), ...extra }));
+      const payload = createEventPayload(actor, "failed", { runId, error: error?.message || String(error), ...extra });
+      emitMany(failedEventNames, recordOf({ status: "failed", payload, runId }));
     },
 
     paused: (runId, reason, extra = {}) => {
-      doEmit(LifecycleEventNames.paused(actor), createEventPayload(actor, "paused", { runId, reason, ...extra }));
+      const payload = createEventPayload(actor, "paused", { runId, reason, ...extra });
+      emitMany(pausedEventNames, recordOf({ status: "info", payload, runId }));
+    },
+
+    resumed: (runId, extra = {}) => {
+      const payload = createEventPayload(actor, "resumed", { runId, ...extra });
+      emitMany(resumedEventNames, recordOf({ status: "info", payload, runId }));
     },
 
     statusChanged: (from, to, runId, extra = {}) => {
-      doEmit(LifecycleEventNames.statusChanged(actor), createStatusChangePayload(actor, from, to, runId, extra));
+      const payload = createStatusChangePayload(actor, from, to, runId, extra);
+      emitRecord(LifecycleEventNames.statusChanged(actor), recordOf({ status: "info", payload, runId }));
     },
 
     phaseTransition: (from, to, runId, extra = {}) => {
-      doEmit(LifecycleEventNames.phaseTransition(actor), createPhaseTransitionPayload(actor, from, to, runId, extra));
+      const payload = createPhaseTransitionPayload(actor, from, to, runId, extra);
+      emitRecord(LifecycleEventNames.phaseTransition(actor), recordOf({ status: "progress", payload, runId }));
     },
 
     stepStarted: (step, total, runId, extra = {}) => {
-      doEmit(LifecycleEventNames.stepStarted(actor), createStepPayload(actor, step, total, "progress", { runId, ...extra }));
+      const payload = createStepPayload(actor, step, total, "progress", { runId, ...extra });
+      emitRecord(LifecycleEventNames.stepStarted(actor), recordOf({ status: "progress", payload, runId }));
     },
 
     stepCompleted: (step, total, runId, extra = {}) => {
-      doEmit(LifecycleEventNames.stepCompleted(actor), createStepPayload(actor, step, total, "completed", { runId, ...extra }));
+      const payload = createStepPayload(actor, step, total, "completed", { runId, ...extra });
+      emitRecord(LifecycleEventNames.stepCompleted(actor), recordOf({ status: "completed", payload, runId }));
     },
 
     stepFailed: (step, total, runId, error, extra = {}) => {
-      doEmit(LifecycleEventNames.stepFailed(actor), createStepPayload(actor, step, total, "failed", { runId, error: error?.message || String(error), ...extra }));
+      const payload = createStepPayload(actor, step, total, "failed", { runId, error: error?.message || String(error), ...extra });
+      emitRecord(LifecycleEventNames.stepFailed(actor), recordOf({ status: "failed", payload, runId }));
     },
 
     // 通用发射
-    emit: (eventName, payload) => doEmit(eventName, payload),
+    emit: (eventName, payload, { status = "info", actor: actorOverride, runId, level, meta } = {}) => {
+      emitRecord(eventName, recordOf({ actor: actorOverride, status, payload, runId, level, meta }));
+    },
   };
 }
 

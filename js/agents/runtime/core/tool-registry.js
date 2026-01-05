@@ -23,6 +23,30 @@ export function resolveToolExecutor(context) {
   return null;
 }
 
+function resolveTraceContext(context) {
+  const direct = context?.traceContext;
+  if (
+    direct &&
+    typeof direct === "object" &&
+    typeof direct.startSpan === "function" &&
+    typeof direct.endSpan === "function" &&
+    typeof direct.withSpan === "function"
+  ) {
+    return direct;
+  }
+  const fromStageApi = context?.stageApi?.traceContext;
+  if (
+    fromStageApi &&
+    typeof fromStageApi === "object" &&
+    typeof fromStageApi.startSpan === "function" &&
+    typeof fromStageApi.endSpan === "function" &&
+    typeof fromStageApi.withSpan === "function"
+  ) {
+    return fromStageApi;
+  }
+  return null;
+}
+
 export class ToolRegistry {
   constructor(options = {}) {
     this._tools = {};
@@ -106,53 +130,73 @@ export class ToolRegistry {
   async callTool(name, params, context) {
     let finalParams = params;
 
-    // Before hooks
-    for (const hook of this._hooks.before) {
-      try {
-        const hookResult = await hook({ tool: name, params: finalParams, context });
-        if (hookResult?.skip) {
-          return normalizeToolResult(hookResult.value);
-        }
-        if (hookResult?.params) {
-          finalParams = hookResult.params;
-        }
-      } catch (e) {
-        this._logger?.warn?.(`[tool-registry] BeforeHook failed for ${name}: ${e.message}`);
-      }
-    }
-
-    // Execute tool
-    const executor = resolveToolExecutor(context);
-    let result;
-    if (executor) {
-      result = normalizeToolResult(await executor(name, finalParams, context));
-    } else {
-      const tool = this._tools[name];
-      if (!tool) {
-        result = { ok: false, error: `Unknown tool: ${name}` };
-      } else {
+    const doCall = async () => {
+      // Before hooks
+      for (const hook of this._hooks.before) {
         try {
-          const data = await tool(finalParams, context);
-          result = { ok: true, data };
-        } catch (err) {
-          result = { ok: false, error: err instanceof Error ? err.message : String(err) };
+          const hookResult = await hook({ tool: name, params: finalParams, context });
+          if (hookResult?.skip) {
+            return normalizeToolResult(hookResult.value);
+          }
+          if (hookResult?.params) {
+            finalParams = hookResult.params;
+          }
+        } catch (e) {
+          this._logger?.warn?.(`[tool-registry] BeforeHook failed for ${name}: ${e.message}`);
         }
       }
-    }
 
-    // After hooks
-    for (const hook of this._hooks.after) {
-      try {
-        const hookResult = await hook({ tool: name, params: finalParams, result, context });
-        if (hookResult !== undefined) {
-          result = normalizeToolResult(hookResult);
+      // Execute tool
+      const executor = resolveToolExecutor(context);
+      let result;
+      if (executor) {
+        result = normalizeToolResult(await executor(name, finalParams, context));
+      } else {
+        const tool = this._tools[name];
+        if (!tool) {
+          result = { ok: false, error: `Unknown tool: ${name}` };
+        } else {
+          try {
+            const data = await tool(finalParams, context);
+            result = { ok: true, data };
+          } catch (err) {
+            result = { ok: false, error: err instanceof Error ? err.message : String(err) };
+          }
         }
-      } catch (e) {
-        this._logger?.warn?.(`[tool-registry] AfterHook failed for ${name}: ${e.message}`);
       }
+
+      // After hooks
+      for (const hook of this._hooks.after) {
+        try {
+          const hookResult = await hook({ tool: name, params: finalParams, result, context });
+          if (hookResult !== undefined) {
+            result = normalizeToolResult(hookResult);
+          }
+        } catch (e) {
+          this._logger?.warn?.(`[tool-registry] AfterHook failed for ${name}: ${e.message}`);
+        }
+      }
+
+      return result;
+    };
+
+    const traceContext = resolveTraceContext(context);
+    if (!traceContext) {
+      return await doCall();
     }
 
-    return result;
+    return await traceContext.withSpan(
+      `tool.${name}`,
+      async (span) => {
+        span.setAttribute("tool.name", name);
+        const result = await doCall();
+        if (result && typeof result === "object" && result.ok === false) {
+          span.setStatus("error", typeof result.error === "string" ? result.error : "tool returned ok:false");
+        }
+        return result;
+      },
+      { attributes: { tool: name } }
+    );
   }
 }
 

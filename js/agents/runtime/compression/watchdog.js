@@ -69,6 +69,22 @@ export class Watchdog {
     this._consecutiveSimilarCount = 0;
   }
 
+  configure({ maxRecentOutputs, oscillationThreshold } = {}) {
+    if (Number.isFinite(maxRecentOutputs)) {
+      this._maxRecentOutputs = Math.max(2, Math.floor(maxRecentOutputs) || 5);
+    }
+    if (Number.isFinite(oscillationThreshold)) {
+      this._oscillationThreshold = Math.min(1, Math.max(0, oscillationThreshold || 0.85));
+    }
+    while (this._recentOutputs.length > this._maxRecentOutputs) {
+      this._recentOutputs.shift();
+    }
+    return {
+      maxRecentOutputs: this._maxRecentOutputs,
+      oscillationThreshold: this._oscillationThreshold,
+    };
+  }
+
   _emit(name, payload) {
     if (this.eventBus && typeof this.eventBus.emit === "function") {
       this.eventBus.emit(name, { actor: "watchdog", status: "info", payload });
@@ -231,6 +247,15 @@ export class Watchdog {
     this._startTime = Date.now();
     this._iterationCount = 0;
     this._lastProgressTime = Date.now();
+    this._recentOutputs = [];
+    this._consecutiveSimilarCount = 0;
+  }
+
+  /**
+   * Reset only oscillation detection window (keeps timers/counters).
+   * Useful for "soft" interventions without extending the overall run budget.
+   */
+  resetOscillation() {
     this._recentOutputs = [];
     this._consecutiveSimilarCount = 0;
   }

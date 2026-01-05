@@ -17,6 +17,60 @@ import { formatOpenTodos, isTodoOpen } from "./planning-phase.js";
 
 const logger = createLogger("stages/codesearch/phases/execution-phase");
 
+function safeJsonStringify(value, maxChars = 600) {
+  try {
+    const text = JSON.stringify(value);
+    if (typeof text !== "string") return "";
+    return text.length > maxChars ? `${text.slice(0, maxChars)}…` : text;
+  } catch {
+    const text = String(value ?? "");
+    return text.length > maxChars ? `${text.slice(0, maxChars)}…` : text;
+  }
+}
+
+function clampNumber(value, { min = -Infinity, max = Infinity, fallback = 0 } = {}) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  return Math.min(max, Math.max(min, num));
+}
+
+function summarizeToolResultForWatchdog(toolName, result) {
+  const r = result && typeof result === "object" ? result : { value: result };
+  const err = typeof r.error === "string" ? r.error : null;
+  if (err) return `error:${err.slice(0, 160)}`;
+
+  switch (toolName) {
+    case "tree":
+      return `tree:${clampNumber(r.stats?.files, { min: 0, fallback: -1 })}f:${clampNumber(r.stats?.dirs, { min: 0, fallback: -1 })}d`;
+    case "list_dir":
+      return `list_dir:${String(r.path || "")}:${Array.isArray(r.entries) ? r.entries.length : 0}`;
+    case "read_file":
+      return `read_file:${String(r.path || "")}:${clampNumber(r.range?.start, { min: 0, fallback: 0 })}-${clampNumber(r.range?.end, { min: 0, fallback: 0 })}/${clampNumber(r.totalLines, { min: 0, fallback: 0 })}`;
+    case "glob":
+      return `glob:${clampNumber(r.total, { min: 0, fallback: Array.isArray(r.files) ? r.files.length : 0 })}`;
+    case "grep":
+      return `grep:${clampNumber(r.total, { min: 0, fallback: Array.isArray(r.matches) ? r.matches.length : 0 })}`;
+    case "find_symbol":
+      return `find_symbol:${clampNumber(r.total, { min: 0, fallback: Array.isArray(r.matches) ? r.matches.length : 0 })}`;
+    default: {
+      const keys = Object.keys(r).slice(0, 10).join(",");
+      return keys ? `ok:${keys}` : "ok";
+    }
+  }
+}
+
+function buildWatchdogOutput({ step, todoId, decision, actionName, args, resultSummary } = {}) {
+  const parts = [];
+  if (Number.isFinite(step)) parts.push(`step=${step}`);
+  if (todoId) parts.push(`todo=${String(todoId)}`);
+  if (decision?.done) parts.push("done=true");
+  if (decision?.thought) parts.push(`thought=${String(decision.thought).slice(0, 120)}`);
+  if (actionName) parts.push(`action=${String(actionName)}`);
+  if (args && typeof args === "object") parts.push(`args=${safeJsonStringify(args, 320)}`);
+  if (resultSummary) parts.push(`result=${String(resultSummary).slice(0, 260)}`);
+  return parts.join(" | ");
+}
+
 /**
  * 解析 LLM 步骤决策
  */
@@ -185,7 +239,7 @@ export async function runExecutionStep({
   if (!decision) {
     logger.warn("Failed to parse step decision");
     state.addObservation(`[Step ${step}] Failed to parse LLM response`);
-    return { done: false, error: "parse_failed" };
+    return { done: false, error: "parse_failed", watchdogOutput: `step=${step} | parse_failed | response_len=${responseText.length}` };
   }
 
   // 检查完成
@@ -196,7 +250,18 @@ export async function runExecutionStep({
     }
     state.finalThought = decision.thought || responseText;
     emit?.("codesearch.step.completed", { step, action: "done" });
-    return { done: true, reason: "llm_done" };
+    return {
+      done: true,
+      reason: "llm_done",
+      watchdogOutput: buildWatchdogOutput({
+        step,
+        todoId: selectedTodo?.todoId,
+        decision,
+        actionName: "done",
+        args: decision.args,
+        resultSummary: "llm_done",
+      }),
+    };
   }
 
   const actionName = toNonEmptyString(decision.action);
@@ -242,7 +307,20 @@ export async function runExecutionStep({
     }
 
     emit?.("codesearch.step.completed", { step, tool: "batch", count: batchResults.length });
-    return { done: false };
+    return {
+      done: false,
+      watchdogOutput: buildWatchdogOutput({
+        step,
+        todoId: selectedTodo?.todoId,
+        decision,
+        actionName: "batch",
+        args: { count: batchResults.length },
+        resultSummary: batchResults
+          .slice(0, 6)
+          .map((r) => `${r.tool}:${r.success ? "ok" : "err"}:${summarizeToolResultForWatchdog(r.tool, r.success ? r.result : { error: r.error })}`)
+          .join(" / "),
+      }),
+    };
   }
 
   // 单个工具执行
@@ -266,5 +344,15 @@ export async function runExecutionStep({
   }
 
   emit?.("codesearch.step.completed", { step, tool: actionName, resultSummary: result.error || `${actionName} completed` });
-  return { done: false };
+  return {
+    done: false,
+    watchdogOutput: buildWatchdogOutput({
+      step,
+      todoId: selectedTodo?.todoId,
+      decision,
+      actionName,
+      args: decision.args,
+      resultSummary: summarizeToolResultForWatchdog(actionName, result),
+    }),
+  };
 }

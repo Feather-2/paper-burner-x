@@ -138,6 +138,50 @@ export async function executeTool(name, args, context) {
     return { success: false, error: `Unknown tool: ${name}` };
   }
 
+  const traceContext = context?.traceContext || context?.stageApi?.traceContext;
+  if (traceContext && typeof traceContext.withSpan === "function") {
+    return await traceContext.withSpan(
+      `deepsearch.tool.${name}`,
+      async (span) => {
+        const runId =
+          (context?.stageApi?.runContext && context.stageApi.runContext.runId) ||
+          context?.state?.runId ||
+          context?.stageApi?.runId ||
+          null;
+        span.setAttributes({
+          tool: name,
+          ...(runId ? { runId } : {}),
+          argKeys: args && typeof args === "object" ? Object.keys(args).length : 0,
+        });
+
+        try {
+          const result = await tool.handler(args, context);
+          if (result && typeof result === "object" && result.success === false) {
+            span.setStatus("error", typeof result.error === "string" ? result.error : "tool returned success:false");
+          }
+          return result;
+        } catch (err) {
+          span.recordException(err);
+          const msg = err instanceof Error ? err.message : String(err || "Unknown error");
+          const name = err instanceof Error ? err.name : "Error";
+          const stack = err instanceof Error && typeof err.stack === "string" ? err.stack : null;
+          const code =
+            err && typeof err === "object" && "code" in err && (typeof err.code === "string" || typeof err.code === "number")
+              ? err.code
+              : null;
+          return {
+            success: false,
+            error: msg,
+            errorName: name,
+            ...(code !== null ? { errorCode: code } : {}),
+            ...(stack ? { stack } : {}),
+          };
+        }
+      },
+      { attributes: { tool: name } }
+    );
+  }
+
   try {
     return await tool.handler(args, context);
   } catch (err) {

@@ -2,6 +2,7 @@ import { buildPrompt } from "../image/image-prompt-builder.js";
 import { EventStatus, ImageTaskStatus, SlotSelectionStatus, VisualDataStatus } from "../constants.js";
 import { DesignEvents } from "../../../runtime/events/events.js";
 import { makeSecureTimestampedId } from "../../../shared/utils/secure-id.js";
+import { CircuitBreakerRegistry } from "../../../shared/utils/circuit-breaker.js";
 
 import { nowMs, toNonEmptyString, escapeHtml as escapeAttr } from "../shared/design-utils.js";
 import { parseTagAttributes } from "../shared/html-parser.js";
@@ -91,6 +92,10 @@ async function callImageService(provider, request, opts) {
   throw new Error("ImageGenerator: invalid image provider (expected .generate/.generateImage/function)");
 }
 
+function isCircuitBreakerRegistryLike(value) {
+  return value !== null && typeof value === "object" && typeof value.get === "function";
+}
+
 function cloneSlot(slot) {
   const out = { ...(slot || {}) };
   if (Array.isArray(slot?.claimIds)) out.claimIds = slot.claimIds.slice();
@@ -122,6 +127,11 @@ export class ImageGenerator {
     this.provider = opts.imageProvider || opts.stageApi?.imageService;
     this.budget = normalizeBudget(opts.budget || { maxImages: 5, maxCostUSD: 1.0, maxRetries: 2, timeoutMs: 30000, candidatesPerSlot: 1 });
     this.concurrency = Math.max(1, safeNumber(opts.concurrency, 2));
+    this.circuitBreakerRegistry = isCircuitBreakerRegistryLike(opts.circuitBreakerRegistry)
+      ? opts.circuitBreakerRegistry
+      : isCircuitBreakerRegistryLike(opts.stageApi?.circuitBreakerRegistry)
+        ? opts.stageApi.circuitBreakerRegistry
+        : new CircuitBreakerRegistry();
   }
 
   async generate(imageSlots, contentPackage, designSystem, opts = {}) {
@@ -135,6 +145,22 @@ export class ImageGenerator {
     const budget = normalizeBudget({ ...this.budget, ...(opts.budget || {}) });
     const concurrency = Math.max(1, safeNumber(opts.concurrency, this.concurrency));
     const provider = opts.imageProvider || this.provider;
+    const providerName = toNonEmptyString(provider?.provider) || toNonEmptyString(provider?.id) || toNonEmptyString(opts.provider) || "unknown";
+    const model = toNonEmptyString(provider?.model) || toNonEmptyString(opts.model) || "unknown";
+
+    const registry = isCircuitBreakerRegistryLike(opts?.circuitBreakerRegistry)
+      ? opts.circuitBreakerRegistry
+      : this.circuitBreakerRegistry;
+    const imageProviderCircuit = registry.get(`design:image-provider:${providerName}:${model}`, {
+      failureThreshold: 3,
+      successThreshold: 1,
+      openDurationMs: 30_000,
+      halfOpenMaxCalls: 1,
+      isFailure: (err) => {
+        if (err?.name === "AbortError") return false;
+        return true;
+      },
+    });
 
     const slots = Array.isArray(imageSlots) ? imageSlots.map(cloneSlot) : [];
     const bySlotId = new Map(slots.map((s) => [String(s?.slotId || ""), s]));
@@ -145,8 +171,6 @@ export class ImageGenerator {
       if (!slotId) continue;
 
       const prompt = buildPrompt(slot, designSystem, contentPackage);
-      const providerName = toNonEmptyString(provider?.provider) || toNonEmptyString(provider?.id) || toNonEmptyString(opts.provider) || "unknown";
-      const model = toNonEmptyString(provider?.model) || toNonEmptyString(opts.model) || "unknown";
 
       const count = Math.max(1, safeNumber(budget.candidatesPerSlot, 1));
       for (let i = 0; i < count; i++) {
@@ -199,6 +223,21 @@ export class ImageGenerator {
       const slot = bySlotId.get(task.slotId) || {};
       const timeoutMs = Math.max(1, safeNumber(opts.timeoutMs, budget.timeoutMs));
 
+      if (imageProviderCircuit && !imageProviderCircuit.canExecute()) {
+        task.status = ImageTaskStatus.SKIPPED;
+        task.error = "Skipped: image provider circuit open";
+        safeEmit(emit, DesignEvents.IMAGE_GENERATE_SKIPPED, EventStatus.SKIPPED, {
+          runId,
+          slotId: task.slotId,
+          slideIndex: Number.isFinite(slot?.slideIndex) ? slot.slideIndex : null,
+          slideIntentId: toNonEmptyString(slot?.slideIntentId) || null,
+          purpose: toNonEmptyString(slot?.purpose) || null,
+          taskId: task.taskId,
+          reason: "circuit_open",
+        });
+        return;
+      }
+
       const estimatedCostUSD =
         typeof opts.estimateCostUSD === "function"
           ? Math.max(0, safeNumber(opts.estimateCostUSD(task, slot, budget), 0))
@@ -237,6 +276,24 @@ export class ImageGenerator {
 
       const maxRetries = Math.max(0, safeNumber(opts.maxRetries, budget.maxRetries));
       for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        if (attempt > 0 && imageProviderCircuit && !imageProviderCircuit.canExecute()) {
+          task.status = ImageTaskStatus.FAILED;
+          task.error = "Failed: image provider circuit open during retry";
+          task.costUSD = Number(totalCost.toFixed(6));
+          task.durationMs = Math.floor(totalDuration);
+          safeEmit(emit, DesignEvents.IMAGE_GENERATE_FAILED, EventStatus.FAILED, {
+            runId,
+            slotId: task.slotId,
+            slideIndex: Number.isFinite(slot?.slideIndex) ? slot.slideIndex : null,
+            slideIntentId: toNonEmptyString(slot?.slideIntentId) || null,
+            purpose: toNonEmptyString(slot?.purpose) || null,
+            taskId: task.taskId,
+            retryCount: task.retryCount,
+            error: task.error,
+          });
+          return;
+        }
+
         if (attempt > 0) {
           const ok = reserveForRetryAttempt(estimatedCostUSD);
           if (!ok.ok) {
@@ -263,16 +320,12 @@ export class ImageGenerator {
 
         const t0 = nowMs();
         try {
-          const result = await withTimeout(
-            callImageService(
-              provider,
-              {
-                prompt: task.prompt,
-                aspectRatio: toNonEmptyString(slot?.aspectRatio) || "16:9",
-              },
-              { timeoutMs }
-            ),
-            timeoutMs
+          const request = {
+            prompt: task.prompt,
+            aspectRatio: toNonEmptyString(slot?.aspectRatio) || "16:9",
+          };
+          const result = await imageProviderCircuit.execute(() =>
+            withTimeout(callImageService(provider, request, { timeoutMs }), timeoutMs)
           );
 
           const t1 = nowMs();
@@ -336,6 +389,23 @@ export class ImageGenerator {
           totalDuration += t1 - t0;
           const msg = e instanceof Error ? e.message : String(e);
           task.error = msg;
+
+          if (e?.name === "CircuitBreakerOpenError") {
+            task.status = ImageTaskStatus.FAILED;
+            task.durationMs = Math.floor(totalDuration);
+            task.costUSD = Number(totalCost.toFixed(6));
+            safeEmit(emit, DesignEvents.IMAGE_GENERATE_FAILED, EventStatus.FAILED, {
+              runId,
+              slotId: task.slotId,
+              slideIndex: Number.isFinite(slot?.slideIndex) ? slot.slideIndex : null,
+              slideIntentId: toNonEmptyString(slot?.slideIntentId) || null,
+              purpose: toNonEmptyString(slot?.purpose) || null,
+              taskId: task.taskId,
+              retryCount: task.retryCount,
+              error: "Failed: image provider circuit open",
+            });
+            return;
+          }
 
           if (attempt >= maxRetries) {
             task.status = ImageTaskStatus.FAILED;

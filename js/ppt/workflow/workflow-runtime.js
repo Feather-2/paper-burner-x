@@ -2591,15 +2591,17 @@ export const runtimeMixin = {
                 const TextPrepStage = await getTextPrepStage();
                 const stage = new TextPrepStage();
 
+                const stageApi = stageApiFactory.createTextPrepApi({
+                    emit: api.emit,
+                    signal: api.signal,
+                    aiApiService: api.aiApiService,
+                    checkCancelled: api.checkCancelled,
+                });
+
                 const contentPackage = await stage.execute(
                     ctx || { runId: 'run_textprep', constraints: {} },
                     rawText,
-                    {
-                        emit: api.emit,
-                        signal: api.signal,
-                        aiApiService: api.aiApiService,
-                        checkCancelled: api.checkCancelled,
-                    }
+                    stageApi
                 );
 
                 // 更新 workflowData
@@ -2814,17 +2816,19 @@ export const runtimeMixin = {
                     archive: api.archive,
                 });
 
+                const stageApi = stageApiFactory.createDesignApi({
+                    emit: forwardEmit,
+                    eventBus: this._orchestrator?.eventBus,
+                    signal: api.signal,
+                    aiApiService: api.aiApiService,
+                    modelRouter: api.modelRouter,
+                    archive: api.archive,
+                });
+
                 const deckPackage = await stage.execute(
                     { ...(ctx || {}), userConfig: this._getDesignStageUserConfig() },
                     contentPackage,
-                    {
-                        emit: forwardEmit,
-                        eventBus: this._orchestrator?.eventBus,
-                        signal: api.signal,
-                        aiApiService: api.aiApiService,
-                        modelRouter: api.modelRouter,
-                        archive: api.archive,
-                    }
+                    stageApi
                 );
 
                 const deckHtmlDsl = deckPackage?.deckHtmlDsl;
