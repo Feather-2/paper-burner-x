@@ -8,7 +8,7 @@
  */
 
 import { DeepSearchEvents } from "../../../runtime/events/events.js";
-import { classifyDeepSearchError } from "./error-classifier.js";
+import { classifyDeepSearchError } from "../../../shared/utils/error-classifier.js";
 import { maybePersistToolOutput } from "../../../runtime/persisted-output.js";
 import { loadPrompt, renderPromptTemplate } from "../../../prompts/prompt-loader.js";
 

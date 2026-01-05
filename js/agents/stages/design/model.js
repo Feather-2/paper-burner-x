@@ -10,7 +10,7 @@
  */
 
 import { injectSystemHint } from "../../shared/utils/message-utils.js";
-import { isNonRetryableError as isNonRetryableDesignError } from "./shared/error-classifier.js";
+import { isNonRetryableError as isNonRetryableDesignError } from "../../shared/utils/error-classifier.js";
 
 // Error class for non-retryable errors (config missing, auth failed, etc.)
 export class NonRetryableError extends Error {

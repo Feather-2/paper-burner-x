@@ -14,7 +14,7 @@ try {
 
 import { toNonEmptyString, escapeHtml as escapeAttr } from "../shared/design-utils.js";
 import { parseTagAttributes } from "../shared/html-parser.js";
-import { classifyDesignError } from "../shared/error-classifier.js";
+import { classifyDesignError } from "../../../shared/utils/error-classifier.js";
 import { safeEmit } from "../shared/safe-emit.js";
 
 const logger = createLogger("stages/design/generators/svg-generator");

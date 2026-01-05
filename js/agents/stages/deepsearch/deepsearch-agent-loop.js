@@ -11,9 +11,9 @@ import { createLogger } from "./runtime/logger.js";
 import { robustParseJson } from "../../shared/utils/robust-json.js";
 import { checkCancelled } from "../../shared/utils/cancellation.js";
 import { isPlainObject, sanitizeForJson } from "../../shared/utils/value-utils.js";
+import { classifyDeepSearchError } from "../../shared/utils/error-classifier.js";
 import { DeepSearchEvents } from "../../runtime/events/events.js";
 import { ModelResponseHandler } from "./runtime/model-response-handler.js";
-import { classifyDeepSearchError } from "./runtime/error-classifier.js";
 import SourceManager from "./source-manager.js";
 import { loadDeepSearchCapabilities } from "./capabilities-loader.js";
 import {
