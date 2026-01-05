@@ -361,13 +361,13 @@ export async function runGeneratingPhase(loop, {
   emitStage(emit, "design.generate.ended", "ended", { slides: generated.length });
   checkCancelled(generatingContext.signal);
 
-  if (!skipReview) {
-    loop._transitionPhase(loop.phase, DesignPhase.REVIEWING, { emit, runId: runContext.runId });
-  }
   await finishExecution("generating", loopIteration, stepInfo);
 
   // Perform Health Check (Initial QA + Style Alignment Check)
-  loop._transitionPhase(loop.phase, DesignPhase.REVIEWING, { emit, runId: runContext.runId });
+  // Only transition to REVIEWING phase if skipReview is false
+  if (!skipReview) {
+    loop._transitionPhase(loop.phase, DesignPhase.REVIEWING, { emit, runId: runContext.runId });
+  }
 
   // Update state with generated HTMLs for the tools to see
   let slideHtmls = generated.map((g) => g.slideHtml);

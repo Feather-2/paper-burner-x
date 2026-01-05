@@ -48,6 +48,16 @@ function parsePackageName(spec) {
   return spec.split(/[<>=!~\[]/)[0].trim().toLowerCase();
 }
 
+function sanitizeWheelFilenameFromUrl(url) {
+  const raw = String(url || "");
+  let filename = raw.split("/").pop() || "";
+  filename = filename.split("?")[0].split("#")[0].trim();
+  if (!filename) filename = "wheel.whl";
+  filename = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+  if (filename.length > 200) filename = filename.slice(0, 200);
+  return filename || "wheel.whl";
+}
+
 /**
  * 计算 SHA-256 哈希
  */
@@ -147,7 +157,7 @@ export class DependencyManager {
   async _getCachedWheel(wheel) {
     if (!this.vfs) return null;
 
-    const filename = wheel.url.split("/").pop();
+    const filename = sanitizeWheelFilenameFromUrl(wheel.url);
     const cachePath = `${this.cacheDir}/${filename}`;
 
     try {
@@ -199,7 +209,7 @@ export class DependencyManager {
       await this._ensureCacheDir();
 
       // 写入缓存
-      const filename = wheel.url.split("/").pop();
+      const filename = sanitizeWheelFilenameFromUrl(wheel.url);
       const cachePath = `${this.cacheDir}/${filename}`;
       await this.vfs.writeFile(cachePath, data);
 
@@ -231,40 +241,54 @@ export class DependencyManager {
    * @returns {string} - JS 代码，pyodide 作为参数传入
    */
   generateLoadScript(plan) {
-    const lines = [];
-
-    // 1. 加载内置包 (JS API)
-    if (plan.builtin.length > 0) {
-      lines.push(`// Load Pyodide built-in packages`);
-      lines.push(`await pyodide.loadPackage(${JSON.stringify(plan.builtin)});`);
-    }
-
-    // 2. 如果有 micropip 或 wheels，需要先加载 micropip
-    if (plan.micropip.length > 0 || plan.wheels.length > 0) {
-      lines.push(`// Load micropip for additional packages`);
-      lines.push(`await pyodide.loadPackage('micropip');`);
-
-      // 构建 Python 脚本来安装包
-      const pythonLines = ['import micropip'];
-
-      for (const dep of plan.micropip) {
-        pythonLines.push(`await micropip.install('${dep}')`);
+    const safeJson = (value) => {
+      try {
+        return JSON.stringify(value).replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+      } catch {
+        return "null";
       }
+    };
 
-      for (const wheel of plan.wheels) {
-        if (wheel.cached && wheel.localPath) {
-          pythonLines.push(`await micropip.install('emfs:${wheel.localPath}')`);
-        } else {
-          pythonLines.push(`await micropip.install('${wheel.url}')`);
-        }
-      }
+    const builtin = Array.isArray(plan?.builtin) ? plan.builtin.filter(Boolean) : [];
+    const micropip = Array.isArray(plan?.micropip) ? plan.micropip.filter(Boolean) : [];
+    const wheels = Array.isArray(plan?.wheels) ? plan.wheels : [];
+    const wheelUrls = wheels
+      .map((wheel) => {
+        if (!wheel || typeof wheel !== "object") return null;
+        if (wheel.cached && typeof wheel.localPath === "string" && wheel.localPath) return `emfs:${wheel.localPath}`;
+        if (typeof wheel.url === "string" && wheel.url) return wheel.url;
+        return null;
+      })
+      .filter(Boolean);
 
-      // 包装成 Python async 代码
-      const pythonCode = pythonLines.join('\\n');
-      lines.push(`await pyodide.runPythonAsync(\`${pythonCode}\`);`);
-    }
-
-    return lines.join("\n");
+    // Execute-only script (no string interpolation of dependency specs).
+    return [
+      `const __pb_builtin = ${safeJson(builtin)};`,
+      `if (Array.isArray(__pb_builtin) && __pb_builtin.length) await pyodide.loadPackage(__pb_builtin);`,
+      `const __pb_micropip = ${safeJson(micropip)};`,
+      `const __pb_wheels = ${safeJson(wheelUrls)};`,
+      `if ((Array.isArray(__pb_micropip) && __pb_micropip.length) || (Array.isArray(__pb_wheels) && __pb_wheels.length)) {`,
+      `  await pyodide.loadPackage('micropip');`,
+      `  const depsProxy = pyodide.toPy(__pb_micropip);`,
+      `  const wheelsProxy = pyodide.toPy(__pb_wheels);`,
+      `  try {`,
+      `    pyodide.globals.set('__pb_micropip_deps__', depsProxy);`,
+      `    pyodide.globals.set('__pb_micropip_wheels__', wheelsProxy);`,
+      `    await pyodide.runPythonAsync([`,
+      `      "import micropip",`,
+      `      "for spec in __pb_micropip_deps__:",`,
+      `      "    await micropip.install(spec)",`,
+      `      "for spec in __pb_micropip_wheels__:",`,
+      `      "    await micropip.install(spec)",`,
+      `    ].join("\\n"));`,
+      `  } finally {`,
+      `    try { pyodide.globals.delete('__pb_micropip_deps__'); } catch {}`,
+      `    try { pyodide.globals.delete('__pb_micropip_wheels__'); } catch {}`,
+      `    try { depsProxy.destroy?.(); } catch {}`,
+      `    try { wheelsProxy.destroy?.(); } catch {}`,
+      `  }`,
+      `}`,
+    ].join("\\n");
   }
 
   /**

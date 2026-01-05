@@ -13,6 +13,7 @@ import { CodeAdapter } from "./adapters/code.js";
 import { understandAssets as runAssetUnderstanding } from "./asset-understanding.js";
 import { normalizeText } from "../stages/textprep/normalize.js";
 import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
+import { validateFetchUrl } from "../mcp/http-proxy.js";
 
 const MAX_DOC_CONCURRENCY = 16;
 
@@ -543,6 +544,7 @@ export class IngestStage {
       config?.allowDirectUrlFetch === true ||
       config?.allowDirectFetch === true ||
       stageApi?.allowDirectUrlFetch === true;
+    const allowPrivateNetwork = config?.allowPrivateNetwork === true || stageApi?.allowPrivateNetwork === true;
 
     const looksLikeHtml = (text, contentType) => {
       const ct = String(contentType || "").toLowerCase();
@@ -577,12 +579,13 @@ export class IngestStage {
       }
 
       if (allowDirectUrlFetch && typeof fetch === "function") {
-        const resp = await fetch(targetUrl, { signal: stageApi?.signal });
+        const safeUrl = validateFetchUrl(targetUrl, { allowPrivateNetwork });
+        const resp = await fetch(safeUrl, { signal: stageApi?.signal });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const contentType = resp.headers?.get?.("content-type") || "";
         const text = await resp.text();
         if (!text) throw new Error("empty response body");
-        return { text, title: targetUrl, contentType };
+        return { text, title: safeUrl, contentType };
       }
 
       throw new Error("URL ingest not supported");

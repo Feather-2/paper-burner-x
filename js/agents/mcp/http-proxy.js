@@ -105,12 +105,33 @@ function isPrivateIpv6(hostname) {
   if (h === "::1") return true;
   if (h.startsWith("fe80:")) return true; // link-local
   if (h.startsWith("fc") || h.startsWith("fd")) return true; // unique local
+  // IPv4-mapped IPv6 (e.g. ::ffff:127.0.0.1 or ::ffff:7f00:1)
+  const mapped = (() => {
+    // dotted-decimal tail
+    const tail = h.slice(h.lastIndexOf(":") + 1);
+    if (tail && tail.includes(".") && isIpv4Host(tail)) return tail;
+    // hex form tail: ...:ffff:7f00:0001
+    const m = h.match(/(?:^|:)ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+    if (!m) return null;
+    const hi = parseInt(m[1], 16);
+    const lo = parseInt(m[2], 16);
+    if (!Number.isFinite(hi) || !Number.isFinite(lo)) return null;
+    const a = (hi >> 8) & 0xff;
+    const b = hi & 0xff;
+    const c = (lo >> 8) & 0xff;
+    const d = lo & 0xff;
+    const ipv4 = `${a}.${b}.${c}.${d}`;
+    return isIpv4Host(ipv4) ? ipv4 : null;
+  })();
+  if (mapped && isPrivateIpv4(mapped)) return true;
   return false;
 }
 
 function isPrivateHostname(hostname) {
-  const h = String(hostname || "").trim().toLowerCase();
+  let h = String(hostname || "").trim().toLowerCase();
   if (!h) return false;
+  // URL.hostname may include brackets for IPv6 literals (e.g. "[::1]").
+  if (h.startsWith("[") && h.endsWith("]")) h = h.slice(1, -1);
   if (h === "localhost" || h.endsWith(".localhost")) return true;
   if (h.endsWith(".local")) return true;
   if (isPrivateIpv4(h)) return true;

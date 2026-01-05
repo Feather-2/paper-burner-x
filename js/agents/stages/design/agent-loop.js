@@ -85,9 +85,12 @@ export class DesignAgentLoop extends BaseAgentLoop {
     this.imageConcurrency = Math.max(1, Number(config?.imageConcurrency) || DESIGN_LOOP_DEFAULTS.imageConcurrency);
     // Inject VisualHandler
     this._visualHandler = new VisualHandler({ imageConcurrency: this.imageConcurrency });
-    this._tools = createDesignToolHandlers(this);
-    this.registerTools(this._tools);
+    // Register design tools - preserve _toolRegistry._tools reference set by BaseAgentLoop
+    const designTools = createDesignToolHandlers(this);
+    this.registerTools(designTools);
     if (tools) this.registerTools(tools);
+    // Local reference for backward compat (used by _toolXxx shortcuts below)
+    this._designTools = designTools;
     this.phase = { status: DesignPhase.IDLE };
     this._loopStatus = AgentStatus.IDLE;
     if (Array.isArray(this._statusHistory)) this._statusHistory.length = 0;
@@ -117,13 +120,13 @@ export class DesignAgentLoop extends BaseAgentLoop {
     };
 
     // Expose tool methods for backward compatibility (tests)
-    this._toolParseOutline = this._tools.parse_outline;
-    this._toolExtractStyle = this._tools.extract_style;
-    this._toolSpawnSlideAgent = this._tools.spawn_slide_agent;
-    this._toolTakeScreenshot = this._tools.take_screenshot;
-    this._toolFixSlide = this._tools.fix_slide;
-    this._toolFillVisual = this._tools.fill_visual;
-    this._toolChatAsk = this._tools.chat_ask;
+    this._toolParseOutline = this._designTools.parse_outline;
+    this._toolExtractStyle = this._designTools.extract_style;
+    this._toolSpawnSlideAgent = this._designTools.spawn_slide_agent;
+    this._toolTakeScreenshot = this._designTools.take_screenshot;
+    this._toolFixSlide = this._designTools.fix_slide;
+    this._toolFillVisual = this._designTools.fill_visual;
+    this._toolChatAsk = this._designTools.chat_ask;
   }
 
   get blackboard() {
@@ -589,6 +592,9 @@ export class DesignAgentLoop extends BaseAgentLoop {
       this._transitionPhase(this.phase, DesignPhase.GENERATING, { emit, runId: runContext.runId });
       this.state.userConfig = this.applyUserInputsToConfig(this.state.userConfig);
 
+      // Compute skipReview flag for generating phase (skips REVIEWING transition)
+      const skipReview = context?.skipReview === true || context?.interactionMode?.finalReview === "skip";
+
       // --- 4. Generating Phase ---
       if (this.phase.status === DesignPhase.GENERATING) {
         const genPhaseResult = await runGeneratingPhase(this, {
@@ -605,6 +611,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
           emitDeckUpdate,
           plans: this.state.plans,
           layoutData: this.state.layoutData,
+          skipReview,
         });
 
         this.state.generated = genPhaseResult.generated;
@@ -664,7 +671,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
         }
 
         // --- 7. Final Review Phase (Optional final audit) ---
-        const skipReview = context?.skipReview === true || context?.interactionMode?.finalReview === "skip";
+        // skipReview already computed above
         if (context?.enableFinalReview === true && !skipReview) {
           this._transitionPhase(this.phase, DesignPhase.REVIEWING, { emit, runId: runId });
           const finalReviewResult = await runReviewPhase(this, {

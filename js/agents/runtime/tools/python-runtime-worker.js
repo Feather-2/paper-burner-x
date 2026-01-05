@@ -82,6 +82,62 @@ async function collectFilesFromPyodide(paths) {
   return files;
 }
 
+function normalizeStringArray(value) {
+  const arr = Array.isArray(value) ? value : value ? [value] : [];
+  return arr.map((v) => String(v ?? "").trim()).filter(Boolean);
+}
+
+function normalizeWheelUrls(wheels) {
+  const list = Array.isArray(wheels) ? wheels : [];
+  const out = [];
+  for (const w of list) {
+    if (!w || typeof w !== "object") continue;
+    if (w.cached && typeof w.localPath === "string" && w.localPath.trim()) {
+      out.push(`emfs:${w.localPath.trim()}`);
+      continue;
+    }
+    if (typeof w.url === "string" && w.url.trim()) {
+      out.push(w.url.trim());
+    }
+  }
+  return out;
+}
+
+async function preloadWithPlan(plan) {
+  if (!pyodide) throw new Error("Pyodide not initialized");
+  const builtin = normalizeStringArray(plan?.builtin);
+  const micropipDeps = normalizeStringArray(plan?.micropip);
+  const wheelUrls = normalizeWheelUrls(plan?.wheels);
+
+  if (builtin.length) {
+    await pyodide.loadPackage(builtin);
+  }
+
+  if (!micropipDeps.length && !wheelUrls.length) return;
+
+  await pyodide.loadPackage("micropip");
+
+  const depsProxy = pyodide.toPy(micropipDeps);
+  const wheelsProxy = pyodide.toPy(wheelUrls);
+  try {
+    pyodide.globals.set("__pb_micropip_deps__", depsProxy);
+    pyodide.globals.set("__pb_micropip_wheels__", wheelsProxy);
+
+    await pyodide.runPythonAsync(`
+import micropip
+for spec in __pb_micropip_deps__:
+    await micropip.install(spec)
+for spec in __pb_micropip_wheels__:
+    await micropip.install(spec)
+`);
+  } finally {
+    try { pyodide.globals.delete("__pb_micropip_deps__"); } catch {}
+    try { pyodide.globals.delete("__pb_micropip_wheels__"); } catch {}
+    try { depsProxy.destroy?.(); } catch {}
+    try { wheelsProxy.destroy?.(); } catch {}
+  }
+}
+
 self.onmessage = async (evt) => {
   const { type, payload, id } = evt.data;
 
@@ -92,10 +148,11 @@ self.onmessage = async (evt) => {
     } else if (type === 'preload') {
       await initPyodide(payload.indexUrl);
 
-      // 新增: 支持依赖加载脚本 (由 DependencyManager 生成)
-      if (payload.loadScript) {
-        // loadScript 是 JS 代码，包含 pyodide.loadPackage 和 micropip 调用
-        // 使用 AsyncFunction 执行
+      // Preferred: structured plan (avoids executing arbitrary JS in the worker).
+      if (payload.loadPlan) {
+        await preloadWithPlan(payload.loadPlan);
+      } else if (payload.loadScript) {
+        // Legacy: dependency load script (generated JS code).
         const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
         const loadFn = new AsyncFunction('pyodide', payload.loadScript);
         await loadFn(pyodide);

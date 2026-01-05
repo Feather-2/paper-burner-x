@@ -112,6 +112,13 @@ export class JSRuntimeAdapter extends RuntimeAdapter {
     return new Promise((resolve) => {
       const timeoutId = setTimeout(() => {
         this._pendingRequests.delete(id);
+        // If the worker is stuck (e.g. sync infinite loop), terminate it to avoid a wedged sandbox.
+        try {
+          this._worker?.terminate?.();
+        } catch {
+          // ignore
+        }
+        this._worker = null;
         resolve({
           success: false,
           error: 'Worker execution timeout',

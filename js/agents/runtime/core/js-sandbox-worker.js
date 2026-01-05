@@ -41,6 +41,15 @@ function createRestrictedGlobals(state, emit) {
     info: (...args) => self.postMessage({ type: 'log', level: 'info', args: args.map(String) }),
   };
 
+  // Shadow common escape hatches (best-effort; not a complete security boundary).
+  restricted.self = undefined;
+  restricted.globalThis = undefined;
+  restricted.fetch = undefined;
+  restricted.XMLHttpRequest = undefined;
+  restricted.WebSocket = undefined;
+  restricted.importScripts = undefined;
+  restricted.postMessage = undefined;
+
   return restricted;
 }
 
@@ -62,12 +71,11 @@ self.onmessage = async (evt) => {
 
     // 构建受限执行函数
     const wrappedCode = `
-      "use strict";
       return (async function(globals) {
         with (globals) {
           ${code}
         }
-      })(this);
+      }).call(globals, globals);
     `;
 
     const fn = new Function(wrappedCode);

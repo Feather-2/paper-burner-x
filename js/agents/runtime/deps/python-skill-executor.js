@@ -104,15 +104,12 @@ export class PythonSkillExecutor {
         }
       }
 
-      // 3. 生成加载脚本并预加载
-      const loadScript = this.dependencyManager.generateLoadScript(plan);
-      if (loadScript) {
-        await this._preloadWithScript(loadScript);
-        this.dependencyManager.markLoaded([
-          ...plan.builtin,
-          ...plan.micropip.map((d) => d.split(/[<>=]/)[0]),
-        ]);
-      }
+      // 3. 预加载依赖（结构化 plan，避免在 Worker 中执行任意 JS）
+      await this.pythonAdapter.preloadPlan(plan);
+      this.dependencyManager.markLoaded([
+        ...plan.builtin,
+        ...plan.micropip.map((d) => d.split(/[<>=]/)[0]),
+      ]);
 
       // 4. 读取 Skill 代码
       const entrypoint = metadata.entrypoint || "main.py";
@@ -155,27 +152,6 @@ export class PythonSkillExecutor {
         metrics: { duration: Date.now() - startTime },
       };
     }
-  }
-
-  /**
-   * 使用加载脚本预加载依赖
-   * @private
-   */
-  async _preloadWithScript(loadScript) {
-    if (!this.pythonAdapter || !this.pythonAdapter.worker) {
-      await this.ensureAdapter();
-    }
-
-    // 发送预加载请求
-    return new Promise((resolve, reject) => {
-      const id = ++this.pythonAdapter._requestId;
-      this.pythonAdapter.pendingRequests.set(id, { resolve, reject });
-      this.pythonAdapter.worker.postMessage({
-        type: "preload",
-        payload: { loadScript },
-        id,
-      });
-    });
   }
 
   /**

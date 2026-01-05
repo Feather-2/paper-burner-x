@@ -719,3 +719,15 @@ test("LocalMcpProvider: proxy fetch schedules timeout using provided timeoutMs",
   assert.deepEqual(timeouts, [4321]);
   assert.deepEqual(cleared, [123]);
 });
+
+test("validateFetchUrl: blocks IPv4-mapped IPv6 private hosts by default", async () => {
+  const { validateFetchUrl } = await import("../../js/agents/mcp/http-proxy.js");
+
+  assert.throws(() => validateFetchUrl("http://[::ffff:127.0.0.1]/"), /private network/i);
+  assert.throws(() => validateFetchUrl("http://[::ffff:7f00:1]/"), /private network/i);
+
+  assert.equal(
+    validateFetchUrl("http://[::ffff:127.0.0.1]/", { allowPrivateNetwork: true }),
+    "http://[::ffff:7f00:1]/"
+  );
+});

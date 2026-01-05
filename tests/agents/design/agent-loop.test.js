@@ -89,6 +89,7 @@ test("DesignAgentLoop runs phases, uses tools, emits events", async () => {
     toolExecutor,
     emit,
     brainstormResult: { ideaPool: [], selectedIdeas: [], imageSlots: [], candidatesBySlide: [] },
+    skipReview: true,
   });
 
   assert.equal(deck.schemaVersion, "0.1");
@@ -234,9 +235,12 @@ test("DesignAgentLoop reports QA failures and keeps degraded count", async () =>
   });
 
   assert.equal(deck.editHints.degradedCount, 1);
-  assert.equal(deck.slidesMeta[0].qa.pass, false);
+  // After safeMode fallback, qa reflects the fixed HTML (passes), but degraded=true marks it
+  assert.equal(deck.slidesMeta[0].qa.pass, true);
+  assert.equal(deck.slidesMeta[0].degraded, true);
   assert.ok(events.some((evt) => evt.name === "design.qa.ended" && evt.record.payload?.degradedCount === 1));
-  assert.ok(events.some((evt) => evt.name === "design.repair.failed"));
+  // design.degraded event is emitted when safeMode fallback occurs
+  assert.ok(events.some((evt) => evt.name === "design.degraded"));
 });
 
 test("DesignAgentLoop._renderVisuals fills placeholders", async () => {

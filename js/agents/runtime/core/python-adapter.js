@@ -66,6 +66,16 @@ export class PythonRuntimeAdapter extends RuntimeAdapter {
     }
   }
 
+  async preloadPlan(loadPlan) {
+    await this.initialize();
+    const hasWork =
+      (Array.isArray(loadPlan?.builtin) && loadPlan.builtin.length > 0) ||
+      (Array.isArray(loadPlan?.micropip) && loadPlan.micropip.length > 0) ||
+      (Array.isArray(loadPlan?.wheels) && loadPlan.wheels.length > 0);
+    if (!hasWork) return;
+    await this._send("preload", { loadPlan, indexUrl: this.indexUrl });
+  }
+
   /**
    * 收集需要发送到 Worker 的文件
    */
