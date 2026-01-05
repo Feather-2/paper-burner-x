@@ -5,6 +5,7 @@
  * - 使用 CodeSearchState 统一状态管理
  * - 使用 phases 拆分：planning -> execution -> summarizing
  * - 支持 EventBus、MemoryStore、StateEngine 集成
+ * - 支持 DI 容器注入依赖
  */
 
 import { AgentStatus } from "../../runtime/core/agent-status.js";
@@ -32,6 +33,15 @@ const DEFAULT_MAX_STEPS = 20;
 const DEFAULT_TIMEOUT_MS = 120_000;
 const PAUSE_REASON = "LLM unavailable, awaiting user input";
 
+// DI ServiceId 常量（避免循环依赖）
+const ServiceId = {
+  EVENT_BUS: "eventBus",
+  MEMORY_STORE: "memoryStore",
+  STATE_ENGINE: "stateEngine",
+  MODEL_ROUTER: "modelRouter",
+  BUDGET_MANAGER: "budgetManager",
+};
+
 export class CodeSearchStage extends BaseAgentLoop {
   constructor(options = {}) {
     super({ actor: "codesearch", stageName: "codesearch", eventBus: options.eventBus });
@@ -40,6 +50,7 @@ export class CodeSearchStage extends BaseAgentLoop {
     this.maxBacktracks = options.maxBacktracks ?? 3;
     this.state = null;
     this._logger = null;
+    this._container = options.container || null;
 
     this.initLoopStatus({
       status: AgentStatus.IDLE,
@@ -55,6 +66,23 @@ export class CodeSearchStage extends BaseAgentLoop {
   }
 
   /**
+   * 从容器或 context 解析依赖
+   * @private
+   */
+  async _resolveDependency(serviceId, context, fallback) {
+    // 优先从 context 获取（显式传入）
+    if (context?.[serviceId]) return context[serviceId];
+    // 其次从容器获取
+    if (this._container) {
+      try {
+        return await this._container.get(serviceId);
+      } catch { /* fallback */ }
+    }
+    // 最后使用回退值
+    return fallback;
+  }
+
+  /**
    * 执行代码分析
    */
   async run(input, context = {}) {
@@ -64,6 +92,12 @@ export class CodeSearchStage extends BaseAgentLoop {
     const query = toNonEmptyString(input?.query) || "分析这个代码库的架构";
     const userConfig = isPlainObject(input?.userConfig) ? input.userConfig : {};
 
+    // 解析依赖（DI 容器优先）
+    const memoryStore = await this._resolveDependency(ServiceId.MEMORY_STORE, stageApi, null);
+    const stateEngine = await this._resolveDependency(ServiceId.STATE_ENGINE, stageApi, null);
+    const eventBus = await this._resolveDependency(ServiceId.EVENT_BUS, stageApi, this.eventBus);
+    if (eventBus && !this.eventBus) this.eventBus = eventBus;
+
     // 初始化日志
     this._logger = createLogger({
       emit: stageApi?.emit,
@@ -71,21 +105,24 @@ export class CodeSearchStage extends BaseAgentLoop {
     });
     const logger = this._logger;
 
-    // 初始化状态
+    // 初始化状态（使用已解析的依赖）
     this.state = new CodeSearchState({
       runId,
       query,
       taskGoal: query,
-      memoryStore: stageApi?.memoryStore || context.memoryStore,
-      stateEngine: stageApi?.stateEngine || context.stateEngine,
+      memoryStore,
+      stateEngine,
     });
 
     // 初始化共享机制
     await loadMechanisms();
     initMechanisms(this, { stageApi, emit: stageApi?.emit, logger, runId });
 
-    // 初始化预算
-    const budgetManager = createBudgetManager(userConfig);
+    // 初始化预算（尝试从容器获取）
+    let budgetManager = await this._resolveDependency(ServiceId.BUDGET_MANAGER, stageApi, null);
+    if (!budgetManager) {
+      budgetManager = createBudgetManager(userConfig);
+    }
     let budgetStopRequested = false;
     budgetManager.onThresholdReached = ({ action }) => {
       if (action === BudgetAction.STOP) budgetStopRequested = true;

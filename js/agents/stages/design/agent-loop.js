@@ -76,13 +76,15 @@ function loadDesignConcurrencyConfig() {
 }
 
 export class DesignAgentLoop extends BaseAgentLoop {
-  constructor({ batchSize, archive, eventBus, tools, memoryStore } = {}) {
+  constructor({ batchSize, archive, eventBus, tools, memoryStore, container } = {}) {
     super({ actor: "design", stageName: "design", eventBus });
     const config = loadDesignConcurrencyConfig();
     const defaultBatchSize = config?.batchSize || DESIGN_LOOP_DEFAULTS.batchSize;
     this.batchSize = Math.max(1, Number(batchSize) || defaultBatchSize);
     this.batchConcurrency = Math.max(1, Number(config?.batchConcurrency) || DESIGN_LOOP_DEFAULTS.batchConcurrency);
     this.imageConcurrency = Math.max(1, Number(config?.imageConcurrency) || DESIGN_LOOP_DEFAULTS.imageConcurrency);
+    // DI 容器
+    this._container = container || null;
     // Inject VisualHandler
     this._visualHandler = new VisualHandler({ imageConcurrency: this.imageConcurrency });
     // Register design tools - preserve _toolRegistry._tools reference set by BaseAgentLoop
@@ -132,6 +134,23 @@ export class DesignAgentLoop extends BaseAgentLoop {
 
   get blackboard() {
     return this._blackboard;
+  }
+
+  /**
+   * 从容器或 context 解析依赖
+   * @private
+   */
+  async _resolveDependency(serviceId, context, fallback) {
+    // 优先从 context 获取（显式传入）
+    if (context?.[serviceId]) return context[serviceId];
+    // 其次从容器获取
+    if (this._container) {
+      try {
+        return await this._container.get(serviceId);
+      } catch { /* fallback */ }
+    }
+    // 最后使用回退值
+    return fallback;
   }
 
   // === Version Management ===
@@ -469,8 +488,8 @@ export class DesignAgentLoop extends BaseAgentLoop {
     // 仅在初始运行时初始化状态，回溯重启时保留已恢复的状态
     if (!context.resumed && !this._isBacktracking) {
       this.phase = { status: DesignPhase.IDLE };
-      // 从 context 获取 memoryStore 并绑定到 Blackboard
-      const memoryStore = context.memoryStore || this._memoryStore || null;
+      // 从容器或 context 获取 memoryStore 并绑定到 Blackboard
+      const memoryStore = await this._resolveDependency("memoryStore", context, this._memoryStore);
       this._blackboard = new DesignBlackboard({ runId, memoryStore });
       this._memoryStore = memoryStore;
       this._iteration = 0;

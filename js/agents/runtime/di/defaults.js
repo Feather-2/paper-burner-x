@@ -13,6 +13,7 @@ export const ServiceId = {
   LOGGER: "logger",
   EVENT_BUS: "eventBus",
   MEMORY_STORE: "memoryStore",
+  STATE_ENGINE: "stateEngine",
   MODEL_ROUTER: "modelRouter",
   MCP_CLIENT: "mcpClient",
   RETRIEVAL_ROUTER: "retrievalRouter",
@@ -47,6 +48,13 @@ export function createAgentContainer(overrides = {}) {
     const { MemoryStore } = await import("../memory/memory-store.js");
     const eventBus = await c.get(ServiceId.EVENT_BUS);
     return new MemoryStore({ eventBus });
+  });
+
+  // StateEngine (depends on eventBus)
+  container.register(ServiceId.STATE_ENGINE, async (c) => {
+    const { StateEngine } = await import("../memory/state-engine.js");
+    const eventBus = await c.get(ServiceId.EVENT_BUS);
+    return new StateEngine({ eventBus });
   });
 
   // ModelRouter (depends on logger)

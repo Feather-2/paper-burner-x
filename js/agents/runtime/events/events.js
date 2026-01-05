@@ -209,6 +209,53 @@ export const IngestEvents = Object.freeze({
 });
 
 /**
+ * CodeSearch 事件
+ */
+export const CodeSearchEvents = Object.freeze({
+  // Agent 生命周期
+  AGENT_STATUS_CHANGED: "codesearch.agent.status.changed",
+  STARTED: "codesearch.started",
+  COMPLETED: "codesearch.completed",
+  FAILED: "codesearch.failed",
+
+  // Phase 转换
+  PHASE_TRANSITION: "codesearch.phase.transition",
+
+  // Step 执行
+  STEP_STARTED: "codesearch.step.started",
+  STEP_COMPLETED: "codesearch.step.completed",
+  STEP_FAILED: "codesearch.step.failed",
+
+  // Todo 管理
+  TODO_CREATED: "codesearch.todo.created",
+  TODO_UPDATED: "codesearch.todo.updated",
+  TODO_COMPLETED: "codesearch.todo.completed",
+});
+
+/**
+ * 统一的 Agent 生命周期事件协议
+ * 所有 Agent 应使用此格式发出事件
+ */
+export const AgentLifecycleEvents = Object.freeze({
+  STATUS_CHANGED: "agent.status.changed",
+  STARTED: "agent.started",
+  COMPLETED: "agent.completed",
+  FAILED: "agent.failed",
+  PAUSED: "agent.paused",
+  RESUMED: "agent.resumed",
+  ITERATION: "agent.iteration",
+});
+
+/**
+ * 统一的 Phase 转换事件协议
+ */
+export const PhaseEvents = Object.freeze({
+  TRANSITION: "phase.transition",
+  STARTED: "phase.started",
+  COMPLETED: "phase.completed",
+});
+
+/**
  * 根据事件名获取事件类别前缀
  */
 export function getEventPrefix(eventName) {

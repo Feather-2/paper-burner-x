@@ -27,7 +27,22 @@ export {
   DeepSearchEvents,
   DesignEvents,
   IngestEvents,
+  CodeSearchEvents,
+  AgentLifecycleEvents,
+  PhaseEvents,
 } from "./events/events.js";
+
+// Lifecycle
+export {
+  createLifecycleEmitter,
+  createEventPayload,
+  createPhaseTransitionPayload,
+  createStatusChangePayload,
+  createStepPayload,
+  LifecycleEventNames,
+  canTransitionStatus,
+  assertValidTransition,
+} from "./core/lifecycle.js";
 
 // Compression + Watchdog
 export { Watchdog } from "./compression/watchdog.js";
