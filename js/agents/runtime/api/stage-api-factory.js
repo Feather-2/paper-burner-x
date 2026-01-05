@@ -11,6 +11,7 @@ import { createStageApi } from "../../shared/utils/stage-api.js";
 import { createFsAdapterFromVfs } from "../../vfs/fs-adapter.js";
 import { createVfsGlobFn } from "../../vfs/glob.js";
 import { createLogger } from "../../shared/utils/logger.js";
+import { getGlobalTokenTracker } from "../telemetry/token-tracker.js";
 
 const logger = createLogger("runtime/api/stage-api-factory");
 
@@ -27,6 +28,91 @@ function filterDefinedValues(obj) {
   return Object.fromEntries(
     Object.entries(obj).filter(([, v]) => v !== undefined && v !== null)
   );
+}
+
+function toNonNegativeInt(value, fallback = 0) {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  return Math.floor(n);
+}
+
+function extractTokenUsage(resp) {
+  const usage = resp && typeof resp === "object" ? resp.usage : null;
+  if (!usage || typeof usage !== "object") return { promptTokens: 0, completionTokens: 0 };
+
+  const promptTokens =
+    usage.promptTokens ??
+    usage.prompt_tokens ??
+    usage.inputTokens ??
+    usage.input_tokens ??
+    usage.input ??
+    usage.prompt ??
+    0;
+
+  const completionTokens =
+    usage.completionTokens ??
+    usage.completion_tokens ??
+    usage.outputTokens ??
+    usage.output_tokens ??
+    usage.output ??
+    usage.completion ??
+    0;
+
+  return {
+    promptTokens: toNonNegativeInt(promptTokens, 0),
+    completionTokens: toNonNegativeInt(completionTokens, 0),
+  };
+}
+
+function ensureAiApiServiceTokenTracking(aiApiService) {
+  if (!aiApiService || typeof aiApiService !== "object") return;
+  const originalChat = aiApiService.chat;
+  if (typeof originalChat !== "function") return;
+  if (originalChat.__tokenTrackerWrapped === true) return;
+
+  async function chat(opts = {}) {
+    const startedAt = Date.now();
+    try {
+      const resp = await originalChat.call(aiApiService, opts);
+      const latencyMs = Date.now() - startedAt;
+      try {
+        const { promptTokens, completionTokens } = extractTokenUsage(resp);
+        getGlobalTokenTracker().record({
+          model: typeof resp?.model === "string" ? resp.model : typeof opts?.model === "string" ? opts.model : "unknown",
+          provider: typeof resp?.provider === "string" ? resp.provider : "aiApiService",
+          usage: typeof opts?.usage === "string" ? opts.usage : "unknown",
+          promptTokens,
+          completionTokens,
+          latencyMs,
+          success: true,
+        });
+      } catch {
+        // Ignore tracker errors.
+      }
+      return resp;
+    } catch (err) {
+      const latencyMs = Date.now() - startedAt;
+      try {
+        getGlobalTokenTracker().record({
+          model: typeof opts?.model === "string" ? opts.model : "unknown",
+          provider: "aiApiService",
+          usage: typeof opts?.usage === "string" ? opts.usage : "unknown",
+          promptTokens: 0,
+          completionTokens: 0,
+          latencyMs,
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      } catch {
+        // Ignore tracker errors.
+      }
+      throw err;
+    }
+  }
+
+  chat.__tokenTrackerWrapped = true;
+  chat.__tokenTrackerOriginal = originalChat;
+  aiApiService.chat = chat;
 }
 
 export class StageApiFactory {
@@ -60,6 +146,8 @@ export class StageApiFactory {
       const globFn = createVfsGlobFn(api.vfs);
       if (globFn) api.globFn = globFn;
     }
+
+    ensureAiApiServiceTokenTracking(api.aiApiService);
 
     return api;
   }
