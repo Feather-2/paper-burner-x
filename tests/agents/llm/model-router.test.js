@@ -896,6 +896,41 @@ test("ModelRouter: throws clear errors for unknown model and missing provider; _
   );
 });
 
+test("ModelRouter: latency_optimized uses PerformanceRouter to prefer lower latency", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+
+  const time = createFakeTime(0);
+  const provider = {
+    id: "mock",
+    async chat({ model } = {}) {
+      if (model === "m1") time.advance(100);
+      if (model === "m2") time.advance(10);
+      return { content: `ok-${model}` };
+    },
+  };
+
+  const router = new ModelRouter({
+    models: [
+      { id: "m1", provider: "mock", tags: ["text"], limits: {} },
+      { id: "m2", provider: "mock", tags: ["text"], limits: {} },
+    ],
+    usageConfig: { worker: ["m1", "m2"], planner: [], analyst: [], writer: [], vision: [] },
+    providers: { mock: provider },
+    strategy: "latency_optimized",
+    time,
+  });
+
+  const seen = [];
+  for (let i = 0; i < 3; i++) {
+    const out = await router.call({ usage: "worker", messages: [{ role: "user", content: `hi-${i}` }] });
+    seen.push(out.model);
+  }
+
+  // Old behavior (pre-perf-router): always picks the first healthy candidate ("m1").
+  // With PerformanceRouter, routing should converge to the lower latency endpoint ("m2").
+  assert.equal(seen.at(-1), "m2");
+});
+
 test("TokenBucketRateLimiter: normalize + load defaults", async () => {
   const { normalizeRateLimitConfig, loadRateLimitConfig } = await import("../../../js/agents/llm/rate-limit.js");
 

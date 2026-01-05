@@ -6,6 +6,7 @@ import { CircuitBreaker, CircuitState } from "../shared/utils/circuit-breaker.js
 import { getGlobalTokenTracker } from "../runtime/telemetry/token-tracker.js";
 import { ModelEventEmitter } from "./model-events.js";
 import { RetryStrategy } from "../runtime/core/retry-strategy.js";
+import { PerformanceRouter, estimateComplexity, ModelTier } from "../runtime/routing/performance-router.js";
 
 import { isPlainObject, toNonEmptyString, toPositiveInt } from "../shared/utils/value-utils.js";
 function isStorageLike(value) {
@@ -103,6 +104,68 @@ function rotateFromIndex(list, startIndex) {
   return arr.slice(start).concat(arr.slice(0, start));
 }
 
+function extractPromptText(messages) {
+  if (!Array.isArray(messages) || messages.length === 0) return "";
+  const parts = [];
+
+  for (const msg of messages) {
+    const content = msg?.content;
+    if (typeof content === "string") {
+      if (content) parts.push(content);
+      continue;
+    }
+
+    if (Array.isArray(content)) {
+      for (const item of content) {
+        if (!item) continue;
+        if (typeof item === "string") {
+          if (item) parts.push(item);
+          continue;
+        }
+        if (typeof item?.text === "string" && item.text) {
+          parts.push(item.text);
+          continue;
+        }
+        if (typeof item?.content === "string" && item.content) {
+          parts.push(item.content);
+          continue;
+        }
+      }
+      continue;
+    }
+
+    if (content !== undefined && content !== null) {
+      try {
+        parts.push(JSON.stringify(content));
+      } catch {
+        parts.push(String(content));
+      }
+    }
+  }
+
+  return parts.join("\n");
+}
+
+function isValidModelTier(value) {
+  return typeof value === "string" && Object.values(ModelTier).includes(value);
+}
+
+function normalizeTierFromTagsOrId(modelId, modelEntry) {
+  const explicit = toNonEmptyString(modelEntry?.tier);
+  if (explicit && isValidModelTier(explicit)) return explicit;
+
+  const tags = Array.isArray(modelEntry?.tags) ? modelEntry.tags : [];
+  const tagSet = new Set(tags.map((t) => String(t).toLowerCase()));
+  if (tagSet.has("fallback")) return ModelTier.FALLBACK;
+  if (tagSet.has("fast") || tagSet.has("cheap")) return ModelTier.FAST;
+
+  const id = String(modelId || "").toLowerCase();
+  // Best-effort heuristic for PPT "site:model" and common provider naming.
+  if (/(^|[^a-z])(flash|turbo|mini|small|lite)([^a-z]|$)/.test(id)) return ModelTier.FAST;
+
+  return ModelTier.POWER;
+}
+
 function defaultTime() {
   return {
     now: () => Date.now(),
@@ -134,6 +197,9 @@ export class ModelRouter {
     persistRoundRobin = false,
     roundRobinStorageKey = "paperburner_modelrouter_rr_v1",
     storage = null,
+    performanceRouting,
+    performanceRouter = null,
+    tierResolver = null,
   } = {}) {
     this._events = new ModelEventEmitter();
 
@@ -146,6 +212,21 @@ export class ModelRouter {
     this._debug = debug;
     this._logger = resolveLogger({ debug, logger });
     this._strategy = normalizedStrategy;
+    this._performanceRouting = typeof performanceRouting === "boolean" ? performanceRouting : null;
+    this._tierResolver = typeof tierResolver === "function" ? tierResolver : null;
+    this._performanceRouter =
+      performanceRouter instanceof PerformanceRouter
+        ? performanceRouter
+        : new PerformanceRouter({
+            preferFastTier: true,
+            ...(debug
+              ? {
+                  onRouteDecision: ({ endpointId, reason, complexity }) => {
+                    this._logger.debug(`[ModelRouter] perfRoute ${endpointId} (${complexity}): ${reason}`);
+                  },
+                }
+              : {}),
+          });
     // Round-robin cursor per usage. Values are either:
     // - number: legacy "next start index" (persisted as number)
     // - string: next start model id (preferred, resilient to list reordering)
@@ -242,6 +323,24 @@ export class ModelRouter {
         // ignore
       }
     }
+  }
+
+  _resolveEndpointTier(modelId, entry, { usage, images } = {}) {
+    if (this._tierResolver) {
+      try {
+        const custom = this._tierResolver({ modelId, modelEntry: entry, usage, images });
+        if (isValidModelTier(custom)) return custom;
+      } catch {
+        // ignore tier resolver errors
+      }
+    }
+    return normalizeTierFromTagsOrId(modelId, entry);
+  }
+
+  _shouldUsePerformanceRouting(strategy) {
+    if (this._performanceRouting === false) return false;
+    if (this._performanceRouting === true) return true;
+    return strategy === RouterStrategy.LATENCY_OPTIMIZED;
   }
 
   on(event, listener) {
@@ -566,6 +665,7 @@ export class ModelRouter {
 
     const baseCandidates = candidates;
     const strategy = this._strategy;
+    const usePerformanceRouting = this._shouldUsePerformanceRouting(strategy);
     const cursor = this._rrNextIndexByUsage.get(u);
     let startIndex = 0;
     if (strategy === "round_robin") {
@@ -580,6 +680,20 @@ export class ModelRouter {
     const orderedCandidates = strategy === "round_robin" ? rotateFromIndex(baseCandidates, startIndex) : baseCandidates;
 
     let selectedModelId = null;
+    const taskComplexity = estimateComplexity({ prompt: extractPromptText(messages) });
+
+    // Register candidates for performance routing / telemetry.
+    for (const modelId of baseCandidates) {
+      const entry = this._models.get(modelId);
+      if (!entry) continue;
+      const tier = this._resolveEndpointTier(modelId, entry, { usage: u, images });
+      const weight = typeof entry.weight === "number" && Number.isFinite(entry.weight) ? entry.weight : 1.0;
+      try {
+        this._performanceRouter.registerEndpoint(modelId, { tier, weight });
+      } catch {
+        // ignore performance router failures (best-effort)
+      }
+    }
 
     // Debug: 记录候选模型和健康状态
     const debugCandidates = baseCandidates.map((id) => {
@@ -602,6 +716,197 @@ export class ModelRouter {
     });
 
     try {
+      if (usePerformanceRouting) {
+        const eligibleCandidates = [];
+        const tried = new Set();
+        let triedCount = 0;
+        let eligibleCount = 0;
+        let cooldownCount = 0;
+
+        for (const modelId of orderedCandidates) {
+          const entry = this._models.get(modelId);
+          if (!entry) throw new Error(`Unknown model id: ${modelId}`);
+          if (!this._supportsTags(entry, requiredTags)) {
+            this._logger.debug(`[ModelRouter] skip ${modelId}: missing required tags`);
+            continue;
+          }
+          eligibleCount++;
+          eligibleCandidates.push(modelId);
+        }
+
+        const computeAvailability = () => {
+          const available = [];
+          let cooldown = 0;
+
+          for (const modelId of eligibleCandidates) {
+            if (tried.has(modelId)) continue;
+            if (!this.isAvailable(modelId)) {
+              cooldown++;
+              continue;
+            }
+            const circuitBreaker = this._getCircuitBreaker(modelId);
+            if (circuitBreaker && !circuitBreaker.canExecute()) {
+              cooldown++;
+              continue;
+            }
+            available.push(modelId);
+          }
+
+          return { available, cooldown };
+        };
+
+        while (true) {
+          const { available, cooldown } = computeAvailability();
+          cooldownCount = cooldown + tried.size;
+          if (available.length === 0) break;
+
+          const decision = this._performanceRouter.selectEndpoint({
+            complexity: taskComplexity,
+            includeIds: available,
+            excludeIds: [...tried],
+          });
+          const modelId = decision?.endpointId || available[0];
+
+          const entry = this._models.get(modelId);
+          if (!entry) throw new Error(`Unknown model id: ${modelId}`);
+
+          const provider = this._getProvider(entry.provider);
+          if (!provider) throw new Error(`Missing provider: ${entry.provider} for model ${modelId}`);
+
+          const limiter = this._getRateLimiter(entry);
+
+          // P3.3: 检查熔断器状态
+          const circuitBreaker = this._getCircuitBreaker(modelId);
+          if (circuitBreaker && !circuitBreaker.canExecute()) {
+            tried.add(modelId);
+            cooldownCount++;
+            this._logger.debug(`[ModelRouter] skip ${modelId}: circuit breaker ${circuitBreaker.state}`);
+            continue;
+          }
+
+          triedCount++;
+          this._logger.debug(`[ModelRouter] try ${modelId} via ${entry.provider}`);
+
+          // P3.3: 使用熔断器包装调用
+          const doChat = () => provider.chat({ model: entry.id, messages, images });
+          const doChatWithCircuitBreaker = circuitBreaker ? () => circuitBreaker.execute(doChat) : doChat;
+
+          // P4.3: 计时
+          const callStartMs = this._time.now();
+
+          const executeOnce = () =>
+            limiter ? limiter.schedule(doChatWithCircuitBreaker, { label: `${u}:${modelId}` }) : doChatWithCircuitBreaker();
+
+          try {
+            const resp = this._retryStrategy ? await this._retryStrategy.execute(executeOnce) : await executeOnce();
+            assertChatResponse(resp);
+
+            const callEndMs = this._time.now();
+            const latencyMs = callEndMs - callStartMs;
+
+            // P4.3: 记录 token 使用
+            try {
+              getGlobalTokenTracker().record({
+                model: entry.id,
+                provider: entry.provider,
+                usage: u,
+                promptTokens: resp.usage?.promptTokens || resp.usage?.prompt_tokens || 0,
+                completionTokens: resp.usage?.completionTokens || resp.usage?.completion_tokens || 0,
+                latencyMs,
+                success: true,
+              });
+            } catch {
+              // 忽略 tracker 错误
+            }
+
+            // PerfRouter: record success
+            try {
+              this._performanceRouter.recordResult(modelId, { success: true, latencyMs });
+            } catch {
+              // ignore
+            }
+
+            selectedModelId = entry.id;
+            this.markHealthy(modelId);
+            this._logger.debug(`[ModelRouter] ok ${modelId} via ${entry.provider} (${latencyMs}ms)`);
+            return { ...resp, model: entry.id, provider: entry.provider, latencyMs };
+          } catch (err) {
+            lastError = err;
+
+            const callEndMs = this._time.now();
+            const latencyMs = callEndMs - callStartMs;
+
+            // PerfRouter: record failure
+            try {
+              this._performanceRouter.recordResult(modelId, {
+                success: false,
+                latencyMs,
+                error: toErrorInfo(err).message,
+              });
+            } catch {
+              // ignore
+            }
+
+            const retryAfterMs =
+              typeof err?.retryAfterMs === "number" && Number.isFinite(err.retryAfterMs) && err.retryAfterMs > 0
+                ? Math.floor(err.retryAfterMs)
+                : null;
+            if (retryAfterMs && limiter && typeof limiter.blockFor === "function") {
+              limiter.blockFor(retryAfterMs);
+            }
+            this._logger.warn(`[ModelRouter] fail ${modelId} via ${entry.provider}: ${toErrorInfo(err).message}`);
+            const permanent = isPermanentAuthError(err);
+            const health = permanent ? this.disableModel(modelId, err, { reason: "auth" }) : this.markUnhealthy(modelId, err);
+            this.emit("model.unhealthy", {
+              usage: u,
+              modelId,
+              provider: entry.provider,
+              error: toErrorInfo(err),
+              cooldownMs: health?.cooldownMs ?? this._cooldownMs,
+              backoffLevel: health?.backoffLevel,
+              unhealthyUntilMs: health?.unhealthyUntilMs,
+              ...(health?.disabled ? { disabled: true, disabledReason: health.disabledReason || "auth" } : {}),
+            });
+
+            tried.add(modelId);
+
+            const { available: remaining } = computeAvailability();
+            const next = remaining.length
+              ? this._performanceRouter.selectEndpoint({ complexity: taskComplexity, includeIds: remaining })?.endpointId ||
+                remaining[0]
+              : null;
+
+            if (next) {
+              this.emit("model.failover", {
+                usage: u,
+                fromModelId: modelId,
+                toModelId: next,
+                error: toErrorInfo(err),
+              });
+              this._logger.info(`[ModelRouter] failover ${modelId} -> ${next}`);
+            }
+            continue;
+          }
+        }
+
+        // 遍历完所有候选后：若所有可用候选都处于 cooldown，则按最短剩余时间等待并重试一次
+        if (triedCount === 0 && eligibleCount > 0 && cooldownCount === eligibleCount) {
+          const waitInfo = this._getShortestCooldown(eligibleCandidates);
+          if (waitRetryCount < 1 && waitInfo && waitInfo.remainingMs > 0 && waitInfo.remainingMs < 30_000) {
+            const waitMs = Math.ceil(waitInfo.remainingMs);
+            this._logger.info(`[ModelRouter] all models in cooldown, waiting ${waitMs}ms for ${waitInfo.modelId}`);
+            await this._time.sleep(waitMs + 100);
+            this._logger.info(`[ModelRouter] retry after cooldown wait`);
+            return this.call({ usage: u, messages, images, _waitRetryCount: waitRetryCount + 1 });
+          }
+        }
+
+        const msg = `All models failed for usage: ${u}`;
+        const e = new Error(msg);
+        e.cause = lastError instanceof Error ? lastError : undefined;
+        throw e;
+      }
+
       for (let idx = 0; idx < orderedCandidates.length; idx++) {
         const modelId = orderedCandidates[idx];
         const entry = this._models.get(modelId);
@@ -640,6 +945,7 @@ export class ModelRouter {
 
         const limiter = this._getRateLimiter(entry);
 
+        let callStartMs = null;
         try {
           triedCount++;
           this._logger.debug(`[ModelRouter] try ${modelId} via ${entry.provider}`);
@@ -651,7 +957,7 @@ export class ModelRouter {
 	            : doChat;
 
           // P4.3: 计时
-          const callStartMs = this._time.now();
+          callStartMs = this._time.now();
 
 	          const executeOnce = () =>
 	            limiter ? limiter.schedule(doChatWithCircuitBreaker, { label: `${u}:${modelId}` }) : doChatWithCircuitBreaker();
@@ -677,12 +983,34 @@ export class ModelRouter {
             // 忽略 tracker 错误
           }
 
+          // PerfRouter: record success
+          try {
+            this._performanceRouter.recordResult(modelId, { success: true, latencyMs });
+          } catch {
+            // ignore
+          }
+
           selectedModelId = entry.id;
           this.markHealthy(modelId);
           this._logger.debug(`[ModelRouter] ok ${modelId} via ${entry.provider} (${latencyMs}ms)`);
           return { ...resp, model: entry.id, provider: entry.provider, latencyMs };
         } catch (err) {
           lastError = err;
+
+          const callEndMs = this._time.now();
+          const latencyMs = typeof callStartMs === "number" ? callEndMs - callStartMs : 0;
+
+          // PerfRouter: record failure
+          try {
+            this._performanceRouter.recordResult(modelId, {
+              success: false,
+              latencyMs,
+              error: toErrorInfo(err).message,
+            });
+          } catch {
+            // ignore
+          }
+
           const retryAfterMs =
             typeof err?.retryAfterMs === "number" && Number.isFinite(err.retryAfterMs) && err.retryAfterMs > 0
               ? Math.floor(err.retryAfterMs)

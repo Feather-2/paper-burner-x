@@ -3,9 +3,12 @@
  *
  * 提供 Web Worker 加速的 SESSION_HISTORY 压缩。
  * 在浏览器环境使用 Worker，Node.js 环境回退到同步执行。
+ *
+ * P6.2: 使用 WorkerRpcClient 替换手动 Worker 管理
  */
 
 import { createLogger } from "../../shared/utils/logger.js";
+import { WorkerRpcClient } from "../core/worker-rpc.js";
 
 const logger = createLogger("runtime/compression/compression-async");
 
@@ -17,51 +20,19 @@ function canUseWorker() {
   return !isNodeLike() && typeof Worker !== "undefined" && typeof URL !== "undefined";
 }
 
-let _compressionWorker = null;
-let _compressionWorkerSeq = 0;
-const _compressionPending = new Map(); // id -> {resolve, reject}
+/** @type {WorkerRpcClient|null} */
+let _compressionRpc = null;
 
-function getCompressionWorker() {
-  if (_compressionWorker) return _compressionWorker;
+function getCompressionRpc() {
+  if (_compressionRpc) return _compressionRpc;
   if (!canUseWorker()) return null;
 
   try {
-    const worker = new Worker(new URL("./compression.worker.js", import.meta.url), { type: "module" });
-    worker.onmessage = (event) => {
-      const msg = event?.data;
-      const id = msg?.id;
-      const pending = _compressionPending.get(id);
-      if (!pending) return;
-      _compressionPending.delete(id);
-      if (msg?.ok) {
-        pending.resolve({
-          messages: msg.messages,
-          sessionSummary: msg.sessionSummary,
-          stats: msg.stats,
-          afterTokens: msg.afterTokens,
-        });
-      } else {
-        pending.reject(new Error(msg?.error || "compression worker error"));
-      }
-    };
-    worker.onerror = (err) => {
-      for (const pending of _compressionPending.values()) {
-        try {
-          pending.reject(err instanceof Error ? err : new Error(String(err?.message || err)));
-        } catch {
-          // ignore
-        }
-      }
-      _compressionPending.clear();
-      try {
-        worker.terminate();
-      } catch {
-        // ignore
-      }
-      _compressionWorker = null;
-    };
-    _compressionWorker = worker;
-    return worker;
+    _compressionRpc = new WorkerRpcClient({
+      createWorker: () => new Worker(new URL("./compression.worker.js", import.meta.url), { type: "module" }),
+      timeoutMs: 60000, // 压缩操作最多 60s
+    });
+    return _compressionRpc;
   } catch {
     return null;
   }
@@ -71,17 +42,13 @@ function getCompressionWorker() {
  * 终止 Worker（用于清理资源）
  */
 export function terminateCompressionWorker() {
-  if (!_compressionWorker) return;
+  if (!_compressionRpc) return;
   try {
-    for (const pending of _compressionPending.values()) {
-      pending.reject(new Error("Worker terminated"));
-    }
-    _compressionPending.clear();
-    _compressionWorker.terminate();
+    _compressionRpc.terminate("cleanup");
   } catch {
     // ignore
   } finally {
-    _compressionWorker = null;
+    _compressionRpc = null;
   }
 }
 
@@ -290,32 +257,16 @@ export async function compressSessionHistoryAsync(messages, options = {}, runtim
       : 50;
 
   const useWorker = runtime?.useWorker !== false;
-  const worker = useWorker ? getCompressionWorker() : null;
+  const rpc = useWorker ? getCompressionRpc() : null;
 
-  // 消息数量少于阈值，同步执行
-  if (!worker || messages.length < threshold) {
+  // 消息数量少于阈值或无 Worker，同步执行
+  if (!rpc || messages.length < threshold) {
     return compressSessionHistorySync(messages, options);
   }
 
-  const id = `compress_${Date.now().toString(36)}_${++_compressionWorkerSeq}`;
-  const promise = new Promise((resolve, reject) => {
-    _compressionPending.set(id, { resolve, reject });
-  });
-
-  const abort = () => {
-    const pending = _compressionPending.get(id);
-    if (!pending) return;
-    _compressionPending.delete(id);
-    pending.reject(new Error("aborted"));
-  };
-
-  if (signal) {
-    signal.addEventListener("abort", abort, { once: true });
-  }
-
   try {
-    worker.postMessage({
-      id,
+    // 使用 WorkerRpcClient 调用，自动处理超时、取消和错误重建
+    const result = await rpc.call("compress", {
       messages,
       options: {
         keepLastTurns: options.keepLastTurns,
@@ -325,16 +276,18 @@ export async function compressSessionHistoryAsync(messages, options = {}, runtim
         summaryLineChars: options.summaryLineChars,
         sessionSummary: options.sessionSummary,
       },
-    });
-    return await promise;
+    }, { signal, timeoutMs: 60000 });
+
+    return {
+      messages: result.messages,
+      sessionSummary: result.sessionSummary,
+      stats: result.stats,
+      afterTokens: result.afterTokens,
+    };
   } catch (err) {
     // Worker 失败，回退到同步
-    logger.warn("[compression-async] Worker failed, falling back to sync:", { error: err?.message });
+    logger.warn("[compression-async] Worker RPC failed, falling back to sync:", { error: err?.message });
     return compressSessionHistorySync(messages, options);
-  } finally {
-    if (signal) {
-      signal.removeEventListener("abort", abort);
-    }
   }
 }
 

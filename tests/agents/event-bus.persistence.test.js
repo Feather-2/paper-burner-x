@@ -124,6 +124,37 @@ test("EventBus replay(runId): calls getEvents, marks meta.replay, does not re-pe
   assert.match(evt2.eventId, /_2$/);
 });
 
+test("EventBus replay(runId): syncs Lamport clock to replayed seq for cross-stage ordering", async () => {
+  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
+
+  const remoteSeq = 1_000_000_000;
+  const adapter = {
+    appendEvents() {},
+    async getEvents(runId) {
+      return [
+        {
+          schemaVersion: "0.1",
+          runId,
+          eventId: "evt_run_lamport_1",
+          ts: "2025-12-12T22:30:01.000Z",
+          name: "run.progress",
+          actor: "system",
+          status: "progress",
+          payload: { pct: 10 },
+          seq: remoteSeq, // legacy persisted field (no _clock)
+        },
+      ];
+    },
+  };
+
+  const bus = new EventBus({ runId: "run_lamport", persistenceAdapter: adapter });
+  await bus.replay("run_lamport");
+
+  const evt = bus.emit("run.progress", { pct: 20 });
+  assert.ok(evt.seq > remoteSeq);
+  assert.ok(evt._clock && evt._clock.seq > remoteSeq);
+});
+
 test("EventBus replay(runId): missing runId throws clear error", async () => {
   const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
 

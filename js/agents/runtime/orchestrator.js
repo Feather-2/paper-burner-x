@@ -1,12 +1,116 @@
 import { createStageApi } from "../shared/utils/stage-api.js";
 import { EventBus } from "./events/event-bus.js";
 import { ActorType, OrchestratorState, isValidActorType } from "./core/constants.js";
+import { ServiceId } from "./di/defaults.js";
+import { CommonSchemas, validateConfig } from "./core/config-validator.js";
 
 import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
 function normalizeTimeoutMs(v, fallback) {
   const n = typeof v === "number" ? v : Number(v);
   if (!Number.isFinite(n) || n <= 0) return fallback;
   return Math.floor(n);
+}
+
+const DEFAULT_USER_CONFIG_SCHEMA = Object.freeze({
+  mode: { type: "string" },
+  maxIterations: CommonSchemas.positiveInt,
+  contextWindow: CommonSchemas.positiveInt,
+  compressThreshold: CommonSchemas.ratio,
+  reportTargetWords: CommonSchemas.positiveInt,
+  reportLength: { type: "string" },
+
+  eventBusBackpressure: {
+    type: "object",
+    properties: {
+      batchWindowMs: CommonSchemas.nonNegativeInt,
+      maxQueueSize: CommonSchemas.positiveInt,
+      deferNonCoalesced: { type: "boolean" },
+    },
+  },
+  backpressure: {
+    type: "object",
+    properties: {
+      batchWindowMs: CommonSchemas.nonNegativeInt,
+      maxQueueSize: CommonSchemas.positiveInt,
+      deferNonCoalesced: { type: "boolean" },
+    },
+  },
+  watchdog: {
+    type: "object",
+    properties: {
+      maxRecentOutputs: CommonSchemas.positiveInt,
+      similarityThreshold: CommonSchemas.ratio,
+    },
+  },
+
+  budget: { type: "object" },
+  memory: { type: "object" },
+  toolCallGuard: { type: "object" },
+  behaviorFingerprint: { type: "object" },
+
+  errorBoundary: {
+    type: "object",
+    properties: { degrade: { type: "boolean" } },
+  },
+  degradeOnError: { type: "boolean" },
+});
+
+function formatValidationErrors(errors, { maxItems = 10 } = {}) {
+  const list = Array.isArray(errors) ? errors : [];
+  if (list.length === 0) return "";
+  const head = list.slice(0, Math.max(0, Math.floor(maxItems)));
+  const lines = head.map((e) => `- ${e.path || "root"}: ${e.message || "Invalid"}`);
+  const suffix = list.length > head.length ? `\n...and ${list.length - head.length} more` : "";
+  return `${lines.join("\n")}${suffix}`;
+}
+
+function isPromiseLike(value) {
+  return value !== null && typeof value === "object" && typeof value.then === "function";
+}
+
+async function maybeAwait(value) {
+  return isPromiseLike(value) ? await value : value;
+}
+
+function isDegradationMatrixLike(value) {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    typeof value.recordRequest === "function" &&
+    typeof value.getStatus === "function" &&
+    typeof value.getRecommendations === "function" &&
+    typeof value.isFeatureEnabled === "function"
+  );
+}
+
+function defaultMemoryUsageRatio() {
+  // Ratio in [0, 1] best-effort across runtimes.
+  try {
+    if (typeof process !== "undefined" && typeof process.memoryUsage === "function") {
+      const mem = process.memoryUsage();
+      const used = typeof mem.heapUsed === "number" ? mem.heapUsed : mem.rss;
+      const total = typeof mem.heapTotal === "number" ? mem.heapTotal : mem.rss;
+      if (typeof used === "number" && typeof total === "number" && total > 0) return used / total;
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    const perfMem = globalThis?.performance?.memory;
+    if (
+      perfMem &&
+      typeof perfMem.usedJSHeapSize === "number" &&
+      typeof perfMem.jsHeapSizeLimit === "number" &&
+      perfMem.jsHeapSizeLimit > 0
+    ) {
+      return perfMem.usedJSHeapSize / perfMem.jsHeapSizeLimit;
+    }
+  } catch {
+    // ignore
+  }
+
+  return 0;
 }
 
 function buildRunContext({ runId, mode, scenario, constraints } = {}) {
@@ -86,7 +190,7 @@ export const SchedulingMode = Object.freeze({
 });
 
 export class AgentOrchestrator {
-  constructor({ mode, scenario, constraints, services, eventBus, runId, scheduling } = {}) {
+  constructor({ mode, scenario, constraints, services, eventBus, runId, scheduling, degradationMatrix, configValidation } = {}) {
     this.runContext = buildRunContext({ runId, mode, scenario, constraints });
     this.runId = this.runContext.runId;
 
@@ -123,7 +227,67 @@ export class AgentOrchestrator {
     this._maxConcurrency = normalizeTimeoutMs(sched.maxConcurrency, 3);
     this._inFlight = 0;
 
+    this._degradationMatrix = isDegradationMatrixLike(degradationMatrix) ? degradationMatrix : null;
+    this._lastOperationLevel = null;
+
+    const globalCfg = isPlainObject(configValidation)
+      ? configValidation
+      : isPlainObject(this._services?.configValidation)
+        ? this._services.configValidation
+        : {};
+    this._configValidation = {
+      strict: globalCfg.strict === true,
+      coerce: globalCfg.coerce === true,
+    };
+
     this.emit = (name, record) => this.eventBus.emit(name, record);
+  }
+
+  async _getDegradationMatrix() {
+    if (isDegradationMatrixLike(this._degradationMatrix)) return this._degradationMatrix;
+
+    const fromServices = this._services?.degradationMatrix;
+    if (isDegradationMatrixLike(fromServices)) {
+      this._degradationMatrix = fromServices;
+      return fromServices;
+    }
+
+    const container = this._services?.container;
+    if (container && typeof container.get === "function") {
+      try {
+        const resolved = await maybeAwait(
+          typeof container.tryGet === "function" ? container.tryGet(ServiceId.DEGRADATION_MATRIX) : container.get(ServiceId.DEGRADATION_MATRIX)
+        );
+        if (isDegradationMatrixLike(resolved)) {
+          this._degradationMatrix = resolved;
+          return resolved;
+        }
+      } catch {
+        // ignore missing container services
+      }
+    }
+
+    // Best-effort fallback: create an isolated matrix for this orchestrator.
+    try {
+      const { DegradationMatrix } = await import("./resilience/degradation-matrix.js");
+      this._degradationMatrix = new DegradationMatrix({ getMemoryUsage: defaultMemoryUsageRatio });
+      return this._degradationMatrix;
+    } catch {
+      this._degradationMatrix = null;
+      return null;
+    }
+  }
+
+  async _getEffectiveConcurrencyLimit() {
+    const limit = this._maxConcurrency;
+    const matrix = await this._getDegradationMatrix();
+    if (!matrix) return limit;
+    try {
+      if (!matrix.isFeatureEnabled("parallelRequests")) return 1;
+    } catch {
+      // ignore
+    }
+    return limit;
   }
 
   _emitRunStarted() {
@@ -191,11 +355,15 @@ export class AgentOrchestrator {
 
     const actor = toNonEmptyString(options?.actor);
     const timeoutMs = normalizeTimeoutMs(options?.timeoutMs, null);
+    const configSchema = isPlainObject(options?.configSchema) ? options.configSchema : null;
+    const configValidation = isPlainObject(options?.configValidation) ? options.configValidation : null;
     this._stages.set(stageName, {
       handler,
       options: {
         actor: actor && isValidActorType(actor) ? actor : undefined,
         timeoutMs,
+        configSchema,
+        configValidation,
       },
     });
     return this;
@@ -265,11 +433,12 @@ export class AgentOrchestrator {
     if (this.signal.aborted) throw new Error("Run cancelled");
 
     const results = new Map();
+    const concurrencyLimit = await this._getEffectiveConcurrencyLimit();
     const pending = [...stages];
     const executing = new Set();
 
     const runNext = async () => {
-      while (pending.length > 0 && executing.size < this._maxConcurrency) {
+      while (pending.length > 0 && executing.size < concurrencyLimit) {
         const { name, input } = pending.shift();
         const stageName = toNonEmptyString(name);
         if (!stageName) continue;
@@ -307,7 +476,8 @@ export class AgentOrchestrator {
    */
   async _runStageParallel(stageName, input) {
     // Wait for slot
-    while (this._inFlight >= this._maxConcurrency) {
+    const limit = await this._getEffectiveConcurrencyLimit();
+    while (this._inFlight >= limit) {
       await new Promise((resolve) => setTimeout(resolve, 10));
       if (this.signal.aborted) throw new Error("Run cancelled");
     }
@@ -330,11 +500,59 @@ export class AgentOrchestrator {
     const stageActor = entry.options.actor || deriveActorFromStageName(stageName);
     const { signal: stageSignal, cleanup } = createStageAbortSignal(this.signal, entry.options.timeoutMs);
 
+    // P6.1.3: Validate userConfig at stage init (best-effort, backward compatible).
+    let stageInput = input;
+    let userConfigValidation = null;
+    if (isPlainObject(stageInput) && ("userConfig" in stageInput || stageInput.userConfig !== undefined)) {
+      const schema = entry.options?.configSchema || DEFAULT_USER_CONFIG_SCHEMA;
+      const stageCfg = isPlainObject(entry.options?.configValidation) ? entry.options.configValidation : {};
+      const strict =
+        stageCfg.strict === true ||
+        this._configValidation.strict === true ||
+        stageInput?.userConfig?.strictValidation === true;
+      const coerce = stageCfg.coerce === true || this._configValidation.coerce === true;
+
+      const result = validateConfig(stageInput.userConfig, schema, { strict: false, coerce });
+      userConfigValidation = { valid: result.valid, errors: result.errors };
+
+      if (!result.valid) {
+        const details = formatValidationErrors(result.errors);
+        const err = new Error(`Invalid userConfig for stage "${stageName}"\n${details}`);
+        err.name = "ConfigValidationError";
+        err.errors = result.errors;
+
+        // Always emit a structured validation event; throw only in strict mode.
+        this.eventBus.emit(`${stageName}.config.invalid`, {
+          actor: stageActor,
+          status: "failed",
+          payload: { message: err.message, errors: result.errors },
+        });
+
+        if (strict) throw err;
+      }
+
+      stageInput = { ...stageInput, userConfig: result.config };
+    }
+
+    const degradationMatrix = await this._getDegradationMatrix();
+    const degradation =
+      degradationMatrix
+        ? {
+            level: degradationMatrix.currentLevel,
+            enabledFeatures: degradationMatrix.getEnabledFeatures(),
+            recommendations: degradationMatrix.getRecommendations(),
+            status: degradationMatrix.getStatus(),
+            isFeatureEnabled: (feature) => degradationMatrix.isFeatureEnabled(feature),
+          }
+        : null;
+
     const api = createStageApi({
       signal: stageSignal,
       eventBus: this.eventBus,
       emit: (name, record) => this.eventBus.emit(name, record),
       ...this._services,
+      ...(degradation ? { degradation } : {}),
+      ...(userConfigValidation ? { configValidation: { userConfig: userConfigValidation } } : {}),
       progress: (payload) => {
         this.eventBus.emit(`${stageName}.progress`, { actor: stageActor, status: "progress", payload });
       },
@@ -342,13 +560,17 @@ export class AgentOrchestrator {
 
     const ctx = { ...this.runContext, runId: this.runId };
 
-    this.eventBus.emit(`${stageName}.started`, { actor: stageActor, status: "started", payload: { input } });
+    this.eventBus.emit(`${stageName}.started`, { actor: stageActor, status: "started", payload: { input: stageInput } });
+
+    const stageStartMs = Date.now();
+    let stageFailed = false;
 
     try {
-      const out = await entry.handler(ctx, input, api);
+      const out = await entry.handler(ctx, stageInput, api);
       this.eventBus.emit(`${stageName}.completed`, { actor: stageActor, status: "completed" });
       return out;
     } catch (err) {
+      stageFailed = true;
       const message = String(err?.message || err);
       this.eventBus.emit(`${stageName}.failed`, { actor: stageActor, status: "failed", payload: { error: message } });
       this.state = OrchestratorState.FAILED;
@@ -356,6 +578,44 @@ export class AgentOrchestrator {
       this._emitRunEnded({ reason: "failed" });
       throw err;
     } finally {
+      const durationMs = Math.max(0, Date.now() - stageStartMs);
+      if (degradationMatrix) {
+        try {
+          degradationMatrix.recordRequest({ latencyMs: durationMs, isError: stageFailed });
+        } catch {
+          // ignore
+        }
+
+        try {
+          const level = degradationMatrix.currentLevel;
+          if (toNonEmptyString(level) && level !== this._lastOperationLevel) {
+            this._lastOperationLevel = level;
+            this.eventBus.emit("system.degradation.level.changed", {
+              actor: ActorType.SYSTEM,
+              status: "info",
+              payload: { level, runId: this.runId, stage: stageName },
+            });
+          }
+        } catch {
+          // ignore
+        }
+
+        // Emit recommendations on stage failures or whenever system is degraded (best-effort).
+        try {
+          const level = degradationMatrix.currentLevel;
+          const recommendations = degradationMatrix.getRecommendations();
+          if ((stageFailed || level !== "normal") && Array.isArray(recommendations) && recommendations.length > 0) {
+            this.eventBus.emit("system.degradation.recommendations", {
+              actor: ActorType.SYSTEM,
+              status: "info",
+              payload: { recommendations, level, runId: this.runId, stage: stageName },
+            });
+          }
+        } catch {
+          // ignore
+        }
+      }
+
       cleanup();
     }
   }

@@ -232,9 +232,15 @@ export class PerformanceRouter {
    * @param {object} options
    * @returns {{ endpointId: string, reason: string } | null}
    */
-  selectEndpoint({ complexity = TaskComplexity.MODERATE, excludeIds = [] } = {}) {
-    const candidates = [...this._endpoints.values()]
-      .filter((e) => !excludeIds.includes(e.id));
+  selectEndpoint({ complexity = TaskComplexity.MODERATE, excludeIds = [], includeIds = null } = {}) {
+    const excluded = new Set(Array.isArray(excludeIds) ? excludeIds : []);
+    const included = Array.isArray(includeIds) ? new Set(includeIds) : null;
+
+    const candidates = [...this._endpoints.values()].filter((e) => {
+      if (excluded.has(e.id)) return false;
+      if (included && !included.has(e.id)) return false;
+      return true;
+    });
 
     if (candidates.length === 0) {
       return null;

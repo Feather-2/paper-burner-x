@@ -51,6 +51,7 @@ export function createEventRecord({
   meta,
   level,
   durationMs,
+  seq: legacySeq,
   _clock,
 } = {}) {
   if (!isValidEventName(name)) {
@@ -58,7 +59,32 @@ export function createEventRecord({
   }
 
   // 附加逻辑时钟
-  const clock = _clock || lamportNextTick();
+  // - If caller provides _clock or legacy seq, preserve it (for replay/cross-worker ordering).
+  // - Always sync local Lamport clock so subsequent events are causally ordered.
+  let clock = null;
+
+  const providedClock = _clock && typeof _clock === "object" ? _clock : null;
+  const providedSeq = typeof providedClock?.seq === "number" && Number.isFinite(providedClock.seq) ? providedClock.seq : null;
+  if (providedClock && providedSeq !== null) {
+    clock = providedClock;
+  } else if (typeof legacySeq === "number" && Number.isFinite(legacySeq) && legacySeq > 0) {
+    const parsedTs = typeof ts === "string" ? Date.parse(ts) : NaN;
+    clock = {
+      seq: Math.floor(legacySeq),
+      ts: Number.isFinite(parsedTs) ? parsedTs : Date.now(),
+      id: `legacy_${Math.floor(legacySeq)}`,
+    };
+  } else {
+    clock = lamportNextTick();
+  }
+
+  try {
+    if (typeof clock?.seq === "number" && Number.isFinite(clock.seq)) {
+      lamportSync(clock.seq);
+    }
+  } catch {
+    // ignore clock sync errors
+  }
 
   const record = {
     schemaVersion: SCHEMA_VERSION,

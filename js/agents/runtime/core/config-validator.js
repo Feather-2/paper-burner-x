@@ -270,6 +270,17 @@ export class ConfigValidator {
 
 export const CommonSchemas = {
   positiveNumber: { type: "number", min: 0 },
+  positiveInt: {
+    type: "number",
+    min: 1,
+    validate: (v) => (Number.isInteger(v) ? true : "Must be an integer"),
+  },
+  nonNegativeInt: {
+    type: "number",
+    min: 0,
+    validate: (v) => (Number.isInteger(v) ? true : "Must be an integer"),
+  },
+  ratio: { type: "number", min: 0, max: 1 },
   nonEmptyString: { type: "string", minLength: 1 },
   url: {
     type: "string",

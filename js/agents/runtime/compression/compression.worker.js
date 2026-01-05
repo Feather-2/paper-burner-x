@@ -1,10 +1,13 @@
 import { isPlainObject } from "../../shared/utils/value-utils.js";
+import { createRpcHandler } from "../core/worker-rpc.js";
 
 /**
  * Compression Worker - 压缩计算移出主线程
  *
  * 处理 SESSION_HISTORY 层的压缩计算，避免阻塞 UI。
  * 注意：LLM_SUMMARY 层需要 modelRouter，必须在主线程执行。
+ *
+ * P6.2: 支持 WorkerRpc 协议（rpc:request/rpc:response）
  */
 
 // Worker 内部实现压缩逻辑（避免 import 复杂依赖）
@@ -200,9 +203,53 @@ function estimateTokens(text) {
   return Math.ceil(tokens);
 }
 
-// Worker message handler
+/**
+ * RPC method: compress
+ */
+function handleCompress(params) {
+  const { messages, options } = params || {};
+
+  if (!Array.isArray(messages)) {
+    throw new Error("messages must be an array");
+  }
+
+  const context = { messages };
+  if (options?.sessionSummary) {
+    context.sessionSummary = options.sessionSummary;
+  }
+
+  const result = compressSessionHistory(context, options || {});
+
+  // 计算压缩后的 token 数
+  let afterTokens = 0;
+  for (const msg of result.compressed.messages || []) {
+    afterTokens += estimateTokens(msg.content);
+  }
+
+  return {
+    messages: result.compressed.messages || [],
+    sessionSummary: result.compressed.sessionSummary || null,
+    stats: result.stats,
+    afterTokens,
+  };
+}
+
+// WorkerRpc handler（P6.2 新协议）
+const rpcHandler = createRpcHandler({
+  compress: handleCompress,
+});
+
+// 兼容旧协议 + 新 RPC 协议
 self.onmessage = (event) => {
   const data = event?.data;
+
+  // P6.2: 新 RPC 协议优先
+  if (data?.type === "rpc:request") {
+    rpcHandler(event);
+    return;
+  }
+
+  // 兼容旧协议（向后兼容）
   const id = data?.id;
 
   if (!isPlainObject(data)) {
@@ -218,26 +265,11 @@ self.onmessage = (event) => {
   }
 
   try {
-    const context = { messages };
-    if (options?.sessionSummary) {
-      context.sessionSummary = options.sessionSummary;
-    }
-
-    const result = compressSessionHistory(context, options || {});
-
-    // 计算压缩后的 token 数
-    let afterTokens = 0;
-    for (const msg of result.compressed.messages || []) {
-      afterTokens += estimateTokens(msg.content);
-    }
-
+    const result = handleCompress({ messages, options });
     self.postMessage({
       id,
       ok: true,
-      messages: result.compressed.messages || [],
-      sessionSummary: result.compressed.sessionSummary || null,
-      stats: result.stats,
-      afterTokens,
+      ...result,
     });
   } catch (err) {
     self.postMessage({
