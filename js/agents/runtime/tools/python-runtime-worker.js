@@ -5,7 +5,7 @@
  * 负责加载 Pyodide 和执行 Python 代码，避免阻塞主线程。
  *
  * Pyodide 版本: 0.26.4 (锁定)
- * TODO(AI4Sci): 添加 SRI 完整性校验，或改用本地打包
+ * 已加固：对 pyodide.mjs 做 SHA-256 完整性校验（SRI）
  */
 
 import { createLogger } from "../../shared/utils/logger.js";
@@ -15,13 +15,79 @@ const logger = createLogger("runtime/tools/python-runtime-worker");
 // 版本锁定 - 更新时需同步修改 python-adapter.js 中的 indexUrl 默认值
 const PYODIDE_VERSION = '0.26.4';
 const PYODIDE_CDN_BASE = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full`;
+const PYODIDE_MJS_SRI_BY_VERSION = Object.freeze({
+  "0.26.4": "sha256-fyTGZVp56s8AYdPU5qYNwLGTiBLRXFLX/4s32eBonlE=",
+});
+const PYODIDE_MJS_SRI = PYODIDE_MJS_SRI_BY_VERSION[PYODIDE_VERSION] || null;
 
 let loadPyodide = null;
 let pyodide = null;
 
+function decodeBase64ToBytes(b64) {
+  const s = typeof b64 === "string" ? b64.trim() : "";
+  if (!s) return null;
+  if (typeof Buffer !== "undefined") return new Uint8Array(Buffer.from(s, "base64"));
+  if (typeof atob === "function") {
+    const bin = atob(s);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  return null;
+}
+
+async function verifySha256SRI(bytes, expectedIntegrity) {
+  const expected = String(expectedIntegrity || "").trim().replace(/^sha256-/, "");
+  if (!expected) return;
+
+  const cryptoApi = globalThis?.crypto;
+  const subtle = cryptoApi && cryptoApi.subtle;
+  if (!subtle || typeof subtle.digest !== "function") {
+    throw new Error("Integrity check requires crypto.subtle.digest");
+  }
+
+  const expectedBytes = decodeBase64ToBytes(expected);
+  if (!expectedBytes) throw new Error("Integrity check requires base64 decoder");
+
+  const digest = new Uint8Array(await subtle.digest("SHA-256", bytes));
+  if (digest.length !== expectedBytes.length) {
+    throw new Error("Integrity check failed (digest length mismatch)");
+  }
+  for (let i = 0; i < digest.length; i++) {
+    if (digest[i] !== expectedBytes[i]) {
+      throw new Error("Integrity check failed (sha256 mismatch)");
+    }
+  }
+}
+
+async function importModuleWithIntegrity(url, expectedIntegrity) {
+  if (typeof fetch !== "function") {
+    throw new Error("Integrity check requires fetch()");
+  }
+  const resp = await fetch(url);
+  if (!resp || !resp.ok) {
+    throw new Error(`Failed to fetch module for integrity check: ${resp?.status || "unknown"}`);
+  }
+  const bytes = await resp.arrayBuffer();
+  await verifySha256SRI(bytes, expectedIntegrity);
+
+  const blob = new Blob([bytes], { type: "text/javascript" });
+  const blobUrl = URL.createObjectURL(blob);
+  try {
+    return await import(blobUrl);
+  } finally {
+    try {
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      // Ignore.
+    }
+  }
+}
+
 async function ensurePyodideLoader() {
   if (loadPyodide) return;
-  const mod = await import(`${PYODIDE_CDN_BASE}/pyodide.mjs`);
+  const url = `${PYODIDE_CDN_BASE}/pyodide.mjs`;
+  const mod = PYODIDE_MJS_SRI ? await importModuleWithIntegrity(url, PYODIDE_MJS_SRI) : await import(url);
   loadPyodide = mod.loadPyodide;
 }
 

@@ -15,6 +15,7 @@
 - 已修复：URL 校验的私网绕过（IPv6 `[]` 与 IPv4-mapped IPv6），以及 ingest 直连抓取缺少 URL 校验导致的 SSRF 面。
 - 已加固：Python 依赖预加载从“执行任意 JS 脚本”切换为结构化 `loadPlan`；同时 wheel 缓存文件名净化。
 - 已加固：JS 沙箱 Worker 的可用性（修复严格模式 + `with` 不兼容、Worker 超时后可自愈）。
+- 已加固：Pyodide CDN 动态加载增加 SHA-256 完整性校验（SRI）。
 - 待处理：`vite` 通过 `esbuild` 引入的已知漏洞需要升级到 `vite` 新大版本（会是破坏性变更）。
 - stages 层更多属于“工程性风险”（重复造轮子、无限增长的 `Map`），但其中“无界缓存/Map”在浏览器长会话下可演化为可利用的内存 DoS。
 
@@ -62,11 +63,10 @@
 **备注（重要）**  
 该沙箱仍然不是强安全边界（`new Function`/黑名单检测属于“误用防护”，不是隔离器）。如果有“执行不可信 JS 代码”的强需求，建议引入 QuickJS/SES 或真正的隔离方案。
 
-### F-04 供应链：Pyodide CDN 动态加载缺少完整性校验（Medium，未修复）
+### F-04 供应链：Pyodide CDN 动态加载缺少完整性校验（Medium，已修复/加固）
 
-- `python-runtime-worker` 从 `cdn.jsdelivr.net` 动态 `import()` Pyodide 模块：`js/agents/runtime/tools/python-runtime-worker.js:24`
-- 风险：CDN 劫持/投毒、版本漂移或中间人攻击都会直接变成执行任意代码。
-- 建议：引入 SRI/内容哈希校验，或将 Pyodide 资源随产物本地打包并锁定版本（文件里已有 TODO）。
+- `python-runtime-worker` 对 `pyodide.mjs` 做 SHA-256 完整性校验后再 `import()`：`js/agents/runtime/tools/python-runtime-worker.js:24`
+- 仍建议：中长期将 Pyodide 资源随产物本地打包并锁定版本（进一步减少对 CDN 的信任面）。
 
 ### F-05 stages 层工程性风险（Medium/Low，未修复）
 
@@ -100,4 +100,3 @@
 ## 5. 已验证
 
 - `npm run test:agents`：全通过（含覆盖率门槛）
-
