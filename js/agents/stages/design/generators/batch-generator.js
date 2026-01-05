@@ -8,7 +8,7 @@ import { resolveLayoutType } from "./layout-protocol.js";
 import { loadPrompt } from "../../../prompts/prompt-loader.js";
 import { parseTagAttributes } from "../shared/html-parser.js";
 import { safeEmit } from "../shared/safe-emit.js";
-import { createLimiter } from "../shared/limiter.js";
+import { ResourceGuard } from "../../../runtime/core/resource-guard.js";
 
 import { toNonEmptyString } from "../../../shared/utils/value-utils.js";
 const logger = createLogger("stages/design/generators/batch-generator");
@@ -766,10 +766,18 @@ export async function generateBatch(slideIntents, contentPackage, designSystemOr
 
   // Step 2: Process remaining batches with style lock (examples from first batch)
   if (batchList.length > 1) {
-    const limiter = createLimiter(batchConcurrency);
+    const guard = new ResourceGuard({
+      maxConcurrent: Math.max(1, Number(batchConcurrency) || 1),
+      maxTasksPerSecond: Number.POSITIVE_INFINITY,
+      maxMemoryMB: Number.POSITIVE_INFINITY,
+    });
+
     await Promise.all(
       batchList.slice(1).map((slideIndexes, idx) =>
-        limiter(() => processBatch(slideIndexes, idx + 1, dslExamples))
+        guard.run(
+          () => processBatch(slideIndexes, idx + 1, dslExamples),
+          { timeoutMs: Number.POSITIVE_INFINITY }
+        )
       )
     );
   }

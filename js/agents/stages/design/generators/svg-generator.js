@@ -3,7 +3,7 @@ import { robustParseJson } from "../../../shared/utils/robust-json.js";
 import { createLogger } from "../../../shared/utils/logger.js";
 import { loadPrompt } from "../../../prompts/prompt-loader.js";
 import { VisualDataStatus } from "../constants.js";
-import { createLimiter } from "../shared/limiter.js";
+import { ResourceGuard } from "../../../runtime/core/resource-guard.js";
 
 // Optional circuit breaker - may not be available
 let getCircuitBreaker = null;
@@ -439,36 +439,47 @@ export class SVGGenerator {
     const allResults = new Array(batches.length);
 
     // Process batches in parallel with concurrency limit
-    const limiter = createLimiter(effectiveConcurrency);
-    await Promise.all(batches.map((batch, batchIndex) => limiter(async () => {
-      if (signal?.aborted) {
-        const abortError = { level: "degradable", code: "ABORTED", canRetry: false, message: String(signal?.reason || "aborted") };
-        const skipped = batch.map((slot) => {
-          const slotId = toNonEmptyString(slot?.slotId);
-          return { slotId, svgContent: "", width: 0, height: 0, source: "skipped", error: abortError };
-        });
-        allResults[batchIndex] = skipped;
-        totalErrors.push(abortError);
-        return;
-      }
+    const guard = new ResourceGuard({
+      maxConcurrent: Math.max(1, safeNumber(effectiveConcurrency, 1)),
+      maxTasksPerSecond: Number.POSITIVE_INFINITY,
+      maxMemoryMB: Number.POSITIVE_INFINITY,
+    });
+    await Promise.all(
+      batches.map((batch, batchIndex) =>
+        guard.run(
+          async () => {
+            if (signal?.aborted) {
+              const abortError = { level: "degradable", code: "ABORTED", canRetry: false, message: String(signal?.reason || "aborted") };
+              const skipped = batch.map((slot) => {
+                const slotId = toNonEmptyString(slot?.slotId);
+                return { slotId, svgContent: "", width: 0, height: 0, source: "skipped", error: abortError };
+              });
+              allResults[batchIndex] = skipped;
+              totalErrors.push(abortError);
+              return;
+            }
 
-      const batchRes = await generateBatchWithLLM(batch, designSystem, htmlMap, { modelRouter, aiApiService, signal, emit });
-      const results = Array.isArray(batchRes?.results) ? batchRes.results : [];
-      allResults[batchIndex] = results;
+            const batchRes = await generateBatchWithLLM(batch, designSystem, htmlMap, { modelRouter, aiApiService, signal, emit });
+            const results = Array.isArray(batchRes?.results) ? batchRes.results : [];
+            allResults[batchIndex] = results;
 
-      for (const r of results) {
-        if (r?.error) totalErrors.push(r.error);
-      }
+            for (const r of results) {
+              if (r?.error) totalErrors.push(r.error);
+            }
 
-      safeEmit(emit, "design.svg.batch.completed", "completed", {
-        batchIndex,
-        batchCount: batches.length,
-        hasError: !!batchRes?.hasError,
-        generated: results.filter((s) => s.source === "llm").length,
-        fallback: results.filter((s) => s.source === "fallback").length,
-        skipped: results.filter((s) => s.source === "skipped").length,
-      });
-    })));
+            safeEmit(emit, "design.svg.batch.completed", "completed", {
+              batchIndex,
+              batchCount: batches.length,
+              hasError: !!batchRes?.hasError,
+              generated: results.filter((s) => s.source === "llm").length,
+              fallback: results.filter((s) => s.source === "fallback").length,
+              skipped: results.filter((s) => s.source === "skipped").length,
+            });
+          },
+          { timeoutMs: Number.POSITIVE_INFINITY }
+        )
+      )
+    );
 
     const flatResults = allResults.flat();
     const llmGenerated = flatResults.filter((s) => s.source === "llm").length;
