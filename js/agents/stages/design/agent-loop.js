@@ -76,7 +76,7 @@ function loadDesignConcurrencyConfig() {
 }
 
 export class DesignAgentLoop extends BaseAgentLoop {
-  constructor({ batchSize, archive, eventBus, tools } = {}) {
+  constructor({ batchSize, archive, eventBus, tools, memoryStore } = {}) {
     super({ actor: "design", stageName: "design", eventBus });
     const config = loadDesignConcurrencyConfig();
     const defaultBatchSize = config?.batchSize || DESIGN_LOOP_DEFAULTS.batchSize;
@@ -95,8 +95,9 @@ export class DesignAgentLoop extends BaseAgentLoop {
     this._loopStatus = AgentStatus.IDLE;
     if (Array.isArray(this._statusHistory)) this._statusHistory.length = 0;
     this.archive = archive || null;
-    // Blackboard for cross-phase communication
-    this._blackboard = new DesignBlackboard();
+    // Blackboard for cross-phase communication (支持 MemoryStore 集成)
+    this._blackboard = new DesignBlackboard({ memoryStore });
+    this._memoryStore = memoryStore || null;
     // Loop control
     this._maxIterations = DESIGN_LOOP_DEFAULTS.maxIterations;
     this._iteration = 0;
@@ -468,7 +469,10 @@ export class DesignAgentLoop extends BaseAgentLoop {
     // 仅在初始运行时初始化状态，回溯重启时保留已恢复的状态
     if (!context.resumed && !this._isBacktracking) {
       this.phase = { status: DesignPhase.IDLE };
-      this._blackboard = new DesignBlackboard({ runId });
+      // 从 context 获取 memoryStore 并绑定到 Blackboard
+      const memoryStore = context.memoryStore || this._memoryStore || null;
+      this._blackboard = new DesignBlackboard({ runId, memoryStore });
+      this._memoryStore = memoryStore;
       this._iteration = 0;
       this.state.contentPackage = contentPackage;
     }

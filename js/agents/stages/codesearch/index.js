@@ -4,7 +4,7 @@
  * 基于 Agent Loop 的代码探索和分析工具。
  */
 
-export { CodeSearchStage, runCodeSearchStage, registerCodeSearchStages } from "./codesearch-stage.js";
+export { CodeSearchStage, CodeSearchState, runCodeSearchStage, registerCodeSearchStages } from "./codesearch-stage.js";
 export { createToolExecutor, formatToolDefinitionsForLLM, TOOL_DEFINITIONS } from "./code-tools.js";
 export {
   CODESEARCH_SYSTEM_PROMPT,

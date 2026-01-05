@@ -46,7 +46,7 @@ test("CodeSearch todos: planner generates todos and completion stats", async () 
 
   assert.equal(result.todos.length, 1);
   assert.equal(result.todos[0].status, "completed");
-  assert.deepEqual(result.todoCompletionStats, { total: 1, completed: 1, cancelled: 0 });
+  assert.deepEqual(result.todoCompletionStats, { total: 1, completed: 1, cancelled: 0, open: 0 });
 });
 
 test("CodeSearch todos: LLM unavailable triggers awaitUserFeedback pause", async () => {

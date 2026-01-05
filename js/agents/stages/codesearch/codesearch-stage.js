@@ -2,260 +2,35 @@
  * CodeSearch Stage - 代码探索 Agent Loop
  *
  * 基于 Agent Loop 模式的代码分析：
- * - LLM 自主决定下一步操作
- * - 调用工具探索代码库
- * - 迭代直到完成分析
- *
- * 复用 DeepSearch 的：
- * - Budget 管理
- * - 取消机制
- * - 日志
- * - 错误处理
+ * - 使用 CodeSearchState 统一状态管理
+ * - 使用 phases 拆分：planning -> execution -> summarizing
+ * - 支持 EventBus、MemoryStore、StateEngine 集成
  */
 
-import { createToolExecutor, formatToolDefinitionsForLLM } from "./code-tools.js";
-import {
-  CODESEARCH_SYSTEM_PROMPT,
-  CODESEARCH_TODO_PLANNER_PROMPT,
-  CODESEARCH_STEP_PROMPT,
-  CODESEARCH_SUMMARIZE_PROMPT,
-} from "./prompts.js";
-import { CodeSearchPhase, TodoStatus, isValidTodoStatus } from "./states.js";
 import { AgentStatus } from "../../runtime/core/agent-status.js";
-
-// 复用 DeepSearch 基础设施
-import { createBudgetManager, BudgetAction } from "../../shared/utils/budget.js";
-import { makeStageEmitter } from "../deepsearch/state.js";
-import { createLogger } from "../../shared/utils/logger.js";
-import { getModelCaller } from "../deepsearch/model.js";
-import { createTodo, transitionTodoStatus, validateTodo } from "../deepsearch/utils/todo-utils.js";
-import { extractJsonCandidate } from "../deepsearch/utils/state-utils.js";
-import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
 import { BaseAgentLoop, checkCancelled } from "../../runtime/core/agent-loop.js";
 import { StagePausedError } from "../../runtime/core/stage-errors.js";
 import { loadMechanisms, initMechanisms } from "../../runtime/core/mechanisms.js";
+import { createBudgetManager, BudgetAction } from "../../shared/utils/budget.js";
+import { createLogger } from "../../shared/utils/logger.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { makeStageEmitter } from "../deepsearch/state.js";
+import { getModelCaller } from "../deepsearch/model.js";
+import { createToolExecutor } from "./code-tools.js";
+import { CodeSearchPhase } from "./states.js";
+import { CodeSearchState } from "./state.js";
+import {
+  runPlanningPhase,
+  buildSystemPrompt,
+  runExecutionStep,
+  runSummarizingPhase,
+  buildTodoCompletionStats,
+  isTodoOpen,
+} from "./phases/index.js";
 
 const DEFAULT_MAX_STEPS = 20;
-const DEFAULT_TIMEOUT_MS = 120_000; // 2 分钟
+const DEFAULT_TIMEOUT_MS = 120_000;
 const PAUSE_REASON = "LLM unavailable, awaiting user input";
-
-/**
- * 解析 LLM 输出的 action
- */
-function parseAction(text) {
-  // 尝试提取 JSON
-  const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
-  if (jsonMatch) {
-    try {
-      return JSON.parse(jsonMatch[1]);
-    } catch {
-      // 继续尝试其他格式
-    }
-  }
-
-  // 尝试直接解析 JSON
-  try {
-    const parsed = JSON.parse(text);
-    if (parsed.action || parsed.tool) return parsed;
-  } catch {
-    // 继续
-  }
-
-  // 尝试提取 action 字段
-  const actionMatch = text.match(/"action"\s*:\s*"(\w+)"/);
-  const toolMatch = text.match(/"tool"\s*:\s*"(\w+)"/);
-  const argsMatch = text.match(/"args"\s*:\s*(\{[^}]+\})/);
-
-  if (actionMatch || toolMatch) {
-    return {
-      action: actionMatch?.[1] || toolMatch?.[1],
-      args: argsMatch ? JSON.parse(argsMatch[1]) : {},
-    };
-  }
-
-  // 检查是否是完成信号
-  if (text.includes('"action": "done"') || text.includes('"done": true') || text.toLowerCase().includes("analysis complete")) {
-    return { action: "done" };
-  }
-
-  return null;
-}
-
-function parseJsonPayload(text) {
-  const candidate = extractJsonCandidate(text);
-  if (!candidate) return null;
-  try {
-    return JSON.parse(candidate);
-  } catch {
-    return null;
-  }
-}
-
-function parseTodoPlannerOutput(text) {
-  const parsed = parseJsonPayload(text);
-  if (Array.isArray(parsed)) return parsed;
-  if (isPlainObject(parsed) && Array.isArray(parsed.todos)) return parsed.todos;
-  return null;
-}
-
-function normalizeStringArray(value) {
-  const raw = Array.isArray(value) ? value : value ? [value] : [];
-  return raw.map((item) => String(item || "").trim()).filter(Boolean);
-}
-
-function normalizeTodoInput(item) {
-  if (typeof item === "string") return { text: item };
-  if (!isPlainObject(item)) return null;
-  const text = toNonEmptyString(item.text || item.todo || item.title);
-  if (!text) return null;
-  return {
-    todoId: toNonEmptyString(item.todoId),
-    text,
-    priority: toNonEmptyString(item.priority),
-    status: toNonEmptyString(item.status),
-    queryHints: normalizeStringArray(item.queryHints),
-    expectedEvidence: toNonEmptyString(item.expectedEvidence),
-    source: "llm",
-  };
-}
-
-function normalizeTodoStatus(value) {
-  const raw = toNonEmptyString(value);
-  if (!raw) return "";
-  const normalized = raw.toLowerCase();
-  return isValidTodoStatus(normalized) ? normalized : "";
-}
-
-function parseStepDecision(text) {
-  const parsed = parseJsonPayload(text);
-  const raw = isPlainObject(parsed) ? parsed : parseAction(text);
-  if (!isPlainObject(raw)) return null;
-
-  // 支持批量 actions
-  const batchActions = Array.isArray(raw.actions) && raw.actions.length > 0 ? raw.actions : null;
-
-  return {
-    action: toNonEmptyString(raw.action || raw.tool),
-    actions: batchActions, // 批量模式
-    args: isPlainObject(raw.args) ? raw.args : {},
-    done: raw.done === true || String(raw.action || "").toLowerCase() === "done",
-    todoId: toNonEmptyString(raw.todoId || raw.todo_id || raw.todo),
-    todoIndex: Number.isFinite(raw.todoIndex) ? raw.todoIndex : Number.parseInt(raw.todoIndex, 10),
-    todoText: toNonEmptyString(raw.todoText || raw.todo_text),
-    todoStatus: normalizeTodoStatus(raw.todoStatus || raw.todo_status || raw.status),
-    completeTodo: raw.completeTodo === true || raw.todoCompleted === true || raw.completed === true,
-    newTodos: Array.isArray(raw.newTodos) ? raw.newTodos : Array.isArray(raw.todos) ? raw.todos : [],
-    thought: toNonEmptyString(raw.thought || raw.summary),
-  };
-}
-
-function isTodoOpen(todo) {
-  const status = normalizeTodoStatus(todo?.status) || TodoStatus.OPEN;
-  return status !== TodoStatus.COMPLETED && status !== TodoStatus.CANCELLED;
-}
-
-function resolveTodoSelection(decision, openTodos) {
-  if (!Array.isArray(openTodos) || openTodos.length === 0) return null;
-  const todoId = toNonEmptyString(decision?.todoId);
-  if (todoId) {
-    const matched = openTodos.find((todo) => String(todo?.todoId || "") === todoId);
-    if (matched) return matched;
-    const matchedLoose = openTodos.find((todo) => String(todo?.todoId || "").toLowerCase() === todoId.toLowerCase());
-    if (matchedLoose) return matchedLoose;
-    const matchedText = openTodos.find((todo) => String(todo?.text || "").includes(todoId));
-    if (matchedText) return matchedText;
-  }
-
-  if (Number.isFinite(decision?.todoIndex)) {
-    const idx = decision.todoIndex;
-    if (idx >= 1 && idx <= openTodos.length) return openTodos[idx - 1];
-    if (idx >= 0 && idx < openTodos.length) return openTodos[idx];
-  }
-
-  const todoText = toNonEmptyString(decision?.todoText);
-  if (todoText) {
-    const matched = openTodos.find((todo) => String(todo?.text || "").includes(todoText));
-    if (matched) return matched;
-  }
-
-  return openTodos[0];
-}
-
-function formatOpenTodos(todos) {
-  const openTodos = Array.isArray(todos) ? todos.filter(isTodoOpen) : [];
-  if (!openTodos.length) return "(无)";
-  return openTodos
-    .map((todo, idx) => {
-      const hints = Array.isArray(todo.queryHints) && todo.queryHints.length
-        ? ` | hints: ${todo.queryHints.slice(0, 6).join(", ")}`
-        : "";
-      const priority = toNonEmptyString(todo.priority) || "medium";
-      const todoId = toNonEmptyString(todo.todoId) || `todo_${idx + 1}`;
-      return `${idx + 1}. [${todoId}] (${priority}) ${todo.text}${hints}`;
-    })
-    .join("\n");
-}
-
-function buildTodoCompletionStats(todos) {
-  const rows = Array.isArray(todos) ? todos : [];
-  const completed = rows.filter((t) => normalizeTodoStatus(t?.status) === TodoStatus.COMPLETED).length;
-  const cancelled = rows.filter((t) => normalizeTodoStatus(t?.status) === TodoStatus.CANCELLED).length;
-  return { total: rows.length, completed, cancelled };
-}
-
-/**
- * 格式化工具执行结果
- */
-function formatToolResult(toolName, result) {
-  if (result.error) {
-    return `[${toolName}] Error: ${result.error}`;
-  }
-
-  switch (toolName) {
-    case "tree":
-      return `[tree]\n${result.tree}\n(${result.stats?.files} files, ${result.stats?.dirs} dirs)`;
-
-    case "list_dir":
-      const entries = result.entries || [];
-      return `[list_dir: ${result.path}]\n${entries.map(e => `${e.type === "dir" ? "📁" : "📄"} ${e.name}`).join("\n")}`;
-
-    case "read_file":
-      return `[read_file: ${result.path}] (lines ${result.range?.start}-${result.range?.end} of ${result.totalLines})\n${result.content}`;
-
-    case "glob":
-      return `[glob] Found ${result.total} files:\n${(result.files || []).slice(0, 20).join("\n")}${result.truncated ? "\n..." : ""}`;
-
-    case "grep":
-      const matches = result.matches || [];
-      return `[grep] Found ${result.total} matches:\n${matches.map(m => `${m.file}: ${m.matchCount} matches`).join("\n")}`;
-
-    case "index_symbols": {
-      const files = Array.isArray(result.files) ? result.files : [];
-      const failures = files.filter((f) => f && f.ok === false).slice(0, 6);
-      const failureText = failures.length
-        ? `\nFailures:\n${failures.map((f) => `- ${f.path}: ${f.error || "error"}`).join("\n")}`
-        : "";
-      return `[index_symbols] indexed=${result.indexed || 0}, skipped=${result.skipped || 0}, failed=${result.failed || 0}, total=${result.total || 0}${result.truncated ? " (truncated)" : ""}${failureText}`;
-    }
-
-    case "find_symbol": {
-      const rows = Array.isArray(result.matches) ? result.matches : [];
-      const preview = rows
-        .slice(0, 20)
-        .map((m) => {
-          const file = m.file || m.path || "?";
-          const line = m.startLine || m.line || "";
-          const kind = m.kind || "";
-          return `${m.name || "?"} ${kind ? `(${kind}) ` : ""}- ${file}${line ? `:${line}` : ""}`;
-        })
-        .join("\n");
-      return `[find_symbol] Found ${result.total || 0} matches for "${result.query}":\n${preview || "(none)"}`;
-    }
-
-    default:
-      return `[${toolName}]\n${JSON.stringify(result, null, 2)}`;
-  }
-}
 
 export class CodeSearchStage extends BaseAgentLoop {
   constructor(options = {}) {
@@ -263,6 +38,9 @@ export class CodeSearchStage extends BaseAgentLoop {
     this.maxSteps = options.maxSteps || DEFAULT_MAX_STEPS;
     this.timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
     this.maxBacktracks = options.maxBacktracks ?? 3;
+    this.state = null;
+    this._logger = null;
+
     this.initLoopStatus({
       status: AgentStatus.IDLE,
       eventName: "codesearch.agent.status.changed",
@@ -270,13 +48,14 @@ export class CodeSearchStage extends BaseAgentLoop {
   }
 
   /**
+   * 向后兼容: loopState getter 代理到 state
+   */
+  get loopState() {
+    return this.state;
+  }
+
+  /**
    * 执行代码分析
-   * @param {object} runContext - 运行上下文
-   * @param {object} input - 输入
-   * @param {string} input.query - 用户查询
-   * @param {object} input.sources - 代码源（从 ingest 来）
-   * @param {object} input.userConfig - 用户配置
-   * @param {object} stageApi - Stage API
    */
   async run(input, context = {}) {
     const runContext = context.runContext || {};
@@ -286,42 +65,39 @@ export class CodeSearchStage extends BaseAgentLoop {
     const userConfig = isPlainObject(input?.userConfig) ? input.userConfig : {};
 
     // 初始化日志
-    const logger = createLogger({
+    this._logger = createLogger({
       emit: stageApi?.emit,
-      getContext: () => ({
-        runId: runContext?.runId,
-        stage: "codesearch",
-      }),
+      getContext: () => ({ runId, stage: "codesearch" }),
     });
+    const logger = this._logger;
 
-    // 初始化共享机制 (Checkpoint, BacktrackManager, SharedContext)
-    await loadMechanisms();
-    initMechanisms(this, {
-      stageApi,
-      emit: stageApi?.emit,
-      logger,
+    // 初始化状态
+    this.state = new CodeSearchState({
       runId,
+      query,
+      taskGoal: query,
+      memoryStore: stageApi?.memoryStore || context.memoryStore,
+      stateEngine: stageApi?.stateEngine || context.stateEngine,
     });
 
-    // 初始化预算管理
+    // 初始化共享机制
+    await loadMechanisms();
+    initMechanisms(this, { stageApi, emit: stageApi?.emit, logger, runId });
+
+    // 初始化预算
     const budgetManager = createBudgetManager(userConfig);
     let budgetStopRequested = false;
-
     budgetManager.onThresholdReached = ({ action }) => {
-      if (action === BudgetAction.STOP) {
-        budgetStopRequested = true;
-      }
+      if (action === BudgetAction.STOP) budgetStopRequested = true;
     };
 
-    // 事件发射
-    const emit = makeStageEmitter(stageApi, "codesearch");
+    // 事件发射 - 使用 EventBus
+    const emit = this._createEmitter(stageApi);
 
-    // 取消检查
+    // 取消/预算检查
     const checkStop = (signal) => {
       checkCancelled(signal);
-      if (budgetStopRequested) {
-        throw new Error("CodeSearch: Budget exceeded");
-      }
+      if (budgetStopRequested) throw new Error("CodeSearch: Budget exceeded");
     };
 
     // 初始化工具
@@ -340,428 +116,196 @@ export class CodeSearchStage extends BaseAgentLoop {
 
     // 初始化 LLM
     const callModel = getModelCaller(stageApi, { usage: "codesearch" });
-
-    this._transitionLoopStatus(AgentStatus.RUNNING, { runId, iteration: 0 });
-    logger.info("CodeSearch started", { stage: "codesearch", data: { query, maxSteps: this.maxSteps } });
-    emit?.("codesearch.started", { query, maxSteps: this.maxSteps });
-
-    // Agent Loop 上下文
-    const loopState = {
-      query,
-      steps: [],
-      observations: [],
-      todos: [],
-      awaitUserFeedback: false,
-      pauseReason: null,
-      phase: CodeSearchPhase.PLANNING,
-    };
-    this.loopState = loopState;
-
-    const phaseState = { status: CodeSearchPhase.PLANNING };
-
-    const transitionPhase = (next, payload = {}) => {
-      loopState.phase = this._transitionPhase(phaseState, next, {
-        runId,
-        emit,
-        eventName: "codesearch.phase.transition",
-        ...payload,
-      });
-    };
-
-    const pauseForUserFeedback = async (reason) => {
-      loopState.awaitUserFeedback = true;
-      loopState.pauseReason = reason;
-      if (this.loopStatus !== AgentStatus.PAUSED) {
-        await this._transitionLoopStatus(AgentStatus.PAUSED, { runId, iteration: 0, reason });
-      }
-      const err = new StagePausedError("Run paused", { runId, reason });
-      err.awaitUserFeedback = true;
-      throw err;
-    };
-
     if (!callModel) {
-      await pauseForUserFeedback(PAUSE_REASON);
+      await this._pauseForUserFeedback(runId, PAUSE_REASON);
     }
 
-    const addTodosFromInput = (items) => {
-      const created = [];
-      for (const item of Array.isArray(items) ? items : []) {
-        const normalized = normalizeTodoInput(item);
-        if (!normalized) continue;
-        const row = createTodo(normalized);
-        const { valid } = validateTodo(row);
-        if (!valid) continue;
-        loopState.todos.push(row);
-        created.push(row);
-      }
-      return created;
-    };
+    // 开始执行
+    this._transitionLoopStatus(AgentStatus.RUNNING, { runId, iteration: 0 });
+    logger.info("CodeSearch started", { data: { query, maxSteps: this.maxSteps } });
+    emit("codesearch.started", { query, maxSteps: this.maxSteps });
 
-    // 初始 todo 规划
+    // ─────────────────────────────────────────────────────────────────────────
+    // Phase 1: Planning
+    // ─────────────────────────────────────────────────────────────────────────
+    this._transitionPhase({ status: this.state.phase }, CodeSearchPhase.PLANNING, {
+      runId,
+      emit,
+      eventName: "codesearch.phase.transition",
+    });
+    this.state.phase = CodeSearchPhase.PLANNING;
+
     try {
       checkStop(stageApi?.signal);
-      const todoPrompt = CODESEARCH_TODO_PLANNER_PROMPT.replace("{QUERY}", query);
-      const messages = [
-        { role: "system", content: todoPrompt },
-        { role: "user", content: query },
-      ];
-
-      const todoResponse = await callModel(messages, {
-        model: "auto",
-        temperature: 0.3,
-        maxTokens: 700,
+      const planResult = await runPlanningPhase({
+        state: this.state,
+        callModel,
+        budgetManager,
+        emit,
         signal: stageApi?.signal,
       });
 
-      if (todoResponse?.usage) {
-        budgetManager.recordUsage({
-          input: todoResponse.usage.input || todoResponse.usage.prompt_tokens || 0,
-          output: todoResponse.usage.output || todoResponse.usage.completion_tokens || 0,
-        });
+      if (!planResult.success) {
+        await this._pauseForUserFeedback(runId, PAUSE_REASON);
       }
-
-      const planned = parseTodoPlannerOutput(todoResponse?.content || todoResponse?.text || "");
-      const createdTodos = addTodosFromInput(planned);
-      if (!createdTodos.length) {
-        logger.warn("Todo planning failed: no valid todos", { stage: "codesearch" });
-        await pauseForUserFeedback(PAUSE_REASON);
-      }
-      loopState.observations.push(`[Planning] Todos created (${createdTodos.length})\n${formatOpenTodos(loopState.todos)}`);
     } catch (err) {
-      logger.warn("Todo planning failed", { stage: "codesearch", data: { error: err?.message || err } });
-      await pauseForUserFeedback(PAUSE_REASON);
+      if (err instanceof StagePausedError) throw err;
+      logger.warn("Planning phase failed", { error: err?.message });
+      await this._pauseForUserFeedback(runId, PAUSE_REASON);
     }
 
-    transitionPhase(CodeSearchPhase.EXECUTING);
+    // ─────────────────────────────────────────────────────────────────────────
+    // Phase 2: Execution
+    // ─────────────────────────────────────────────────────────────────────────
+    this._transitionPhase({ status: this.state.phase }, CodeSearchPhase.EXECUTING, {
+      runId,
+      emit,
+      eventName: "codesearch.phase.transition",
+    });
+    this.state.phase = CodeSearchPhase.EXECUTING;
 
-    // 系统 prompt
-    const systemPrompt = CODESEARCH_SYSTEM_PROMPT.replace("{TOOLS}", formatToolDefinitionsForLLM());
-
+    const systemPrompt = buildSystemPrompt();
     let step = 0;
-    let done = false;
     let aborted = false;
 
-    while (!done && step < this.maxSteps) {
-      const openTodos = loopState.todos.filter(isTodoOpen);
-      if (!openTodos.length) {
-        done = true;
-        break;
-      }
+    while (step < this.maxSteps) {
+      const openTodos = this.state.todos.filter(isTodoOpen);
+      if (!openTodos.length) break;
 
       step++;
       const { step: stepMeta, context: stepContext } = this._beginStep(
         { name: "codesearch.step", runId, iteration: step },
         stageApi
       );
-      const stepSignal = stepContext.signal;
 
       try {
-        checkStop(stepSignal);
-        await this._transitionLoopStatus(AgentStatus.RUNNING, { runId, iteration: step, stepId: stepMeta.stepId });
-        await this._transitionLoopStatus(AgentStatus.RUNNING, { runId, iteration: step, stepId: stepMeta.stepId });
-
-        logger.info(`Step ${step}`, { stage: "codesearch", data: { step } });
-        emit?.("codesearch.step.started", { step, total: this.maxSteps });
-
-        const { text: userNotes } = this.drainUserInputsAsText();
-
-        // 构建当前 prompt
-        const basePrompt = CODESEARCH_STEP_PROMPT
-          .replace("{QUERY}", query)
-          .replace("{STEP}", String(step))
-          .replace("{MAX_STEPS}", String(this.maxSteps))
-          .replace("{OPEN_TODOS}", formatOpenTodos(openTodos))
-          .replace("{OBSERVATIONS}", loopState.observations.slice(-10).join("\n\n---\n\n") || "(无)");
-        const stepPrompt = userNotes
-          ? `${basePrompt}\n\n用户意见:\n${userNotes}`
-          : basePrompt;
-
-        // 调用 LLM 决定下一步
-        let llmResponse;
-        try {
-          const messages = [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: stepPrompt },
-          ];
-
-          llmResponse = await callModel(messages, {
-            model: "auto",
-            temperature: 0.3,
-            maxTokens: 1000,
-            signal: stepSignal,
-          });
-
-          // 记录 token 消耗
-          if (llmResponse?.usage) {
-            budgetManager.recordUsage({
-              input: llmResponse.usage.input || llmResponse.usage.prompt_tokens || 0,
-              output: llmResponse.usage.output || llmResponse.usage.completion_tokens || 0,
-            });
-          }
-        } catch (err) {
-          const pauseLike = this._shouldPauseFromError(err, stepSignal);
-          const message = err instanceof Error ? err.message : String(err);
-          this._endStep({ step: stepMeta }, { status: pauseLike ? "paused" : "failed", error: message });
-          if (pauseLike) {
-            if (this.loopStatus !== AgentStatus.PAUSED) {
-              await this._transitionLoopStatus(AgentStatus.PAUSED, {
-                runId,
-                iteration: step,
-                stepId: stepMeta.stepId,
-                reason: message,
-              });
-            }
-            throw this._createPauseError({ signal: stepSignal, runId });
-          }
-          logger.error("LLM call failed", { stage: "codesearch", data: { error: message } });
-          emit?.("codesearch.step.failed", { step, error: message });
-          aborted = true;
-          await this._transitionLoopStatus(AgentStatus.FAILED, {
-            runId,
-            iteration: step,
-            stepId: stepMeta.stepId,
-            error: message,
-          });
-          break;
-        }
-
-        const responseText = llmResponse?.content || llmResponse?.text || "";
-
-        // 解析 action
-        const decision = parseStepDecision(responseText);
-        const hasNewTodos = Array.isArray(decision?.newTodos) && decision.newTodos.length > 0;
-        let actionName = toNonEmptyString(decision?.action);
-        if (!actionName && hasNewTodos) actionName = "add_todo";
-
-        if (!decision || (!decision.done && !actionName && !hasNewTodos)) {
-          logger.warn("Failed to parse action", { stage: "codesearch", data: { response: responseText.slice(0, 200) } });
-          loopState.observations.push(`[Step ${step}] Failed to parse LLM response`);
-          await this._transitionLoopStatus(AgentStatus.RUNNING, { runId, iteration: step, stepId: stepMeta.stepId });
-          this._endStep({ step: stepMeta }, { status: "failed", error: "parse_failed" });
-          continue;
-        }
-
-        const createdTodos = hasNewTodos ? addTodosFromInput(decision.newTodos) : [];
-        if (createdTodos.length) {
-          loopState.observations.push(`[Step ${step}] Added todos (${createdTodos.length})`);
-        }
-
-        // 检查是否完成
-        if (decision.done) {
-          const selectedTodo = resolveTodoSelection(decision, openTodos);
-          if (selectedTodo) {
-            const finalStatus = decision.todoStatus || (decision.completeTodo ? TodoStatus.COMPLETED : "");
-            if (finalStatus) transitionTodoStatus(selectedTodo, finalStatus);
-          }
-          done = true;
-          loopState.finalThought = decision.thought || responseText;
-          emit?.("codesearch.step.completed", { step, action: "done" });
-          await this._transitionLoopStatus(AgentStatus.RUNNING, { runId, iteration: step, stepId: stepMeta.stepId });
-          this._endStep({ step: stepMeta }, { status: "completed" });
-          break;
-        }
-
-        if (actionName === "add_todo") {
-          loopState.steps.push({
-            step,
-            tool: "add_todo",
-            args: {},
-            result: { createdTodos },
-            todoId: null,
-          });
-          emit?.("codesearch.step.completed", { step, action: "add_todo", createdTodos: createdTodos.length });
-          await this._transitionLoopStatus(AgentStatus.RUNNING, { runId, iteration: step, stepId: stepMeta.stepId });
-          this._endStep({ step: stepMeta }, { status: "completed" });
-          continue;
-        }
-
-        const selectedTodo = resolveTodoSelection(decision, openTodos);
-        if (selectedTodo && normalizeTodoStatus(selectedTodo.status) === TodoStatus.OPEN) {
-          transitionTodoStatus(selectedTodo, TodoStatus.PENDING);
-        }
-
-        if (!actionName) {
-          loopState.observations.push(`[Step ${step}] Missing tool action in LLM response`);
-          await this._transitionLoopStatus(AgentStatus.RUNNING, { runId, iteration: step, stepId: stepMeta.stepId });
-          this._endStep({ step: stepMeta }, { status: "failed", error: "missing_action" });
-          continue;
-        }
-
+        checkStop(stepContext.signal);
         await this._transitionLoopStatus(AgentStatus.RUNNING, { runId, iteration: step, stepId: stepMeta.stepId });
 
-        // 批量执行工具（并发）
-        if (decision.actions) {
-          logger.info(`Executing ${decision.actions.length} tools in parallel`, { stage: "codesearch" });
-          const batchResults = await Promise.all(
-            decision.actions.map(async (item) => {
-              const toolName = toNonEmptyString(item.action || item.tool);
-              const toolArgs = isPlainObject(item.args) ? item.args : {};
-              if (!toolName) return { tool: "unknown", error: "missing tool name" };
-              try {
-                const result = await tools.execute(toolName, toolArgs);
-                return { tool: toolName, args: toolArgs, success: true, result };
-              } catch (err) {
-                return { tool: toolName, args: toolArgs, success: false, error: err.message };
-              }
-            })
-          );
-
-          // 格式化批量结果
-          const batchObservation = batchResults
-            .map((r, i) => `${i + 1}. ${r.tool}: ${r.success ? formatToolResult(r.tool, r.result) : `错误: ${r.error}`}`)
-            .join("\n");
-          loopState.observations.push(`[Step ${step}] Batch (${batchResults.length} tools):\n${batchObservation}`);
-          loopState.steps.push({
-            step,
-            tool: "batch",
-            args: { count: batchResults.length },
-            result: batchResults,
-            todoId: selectedTodo?.todoId || null,
-          });
-
-          const nextStatus = decision.todoStatus || (decision.completeTodo ? TodoStatus.COMPLETED : "");
-          if (selectedTodo && nextStatus) {
-            transitionTodoStatus(selectedTodo, nextStatus);
-          }
-
-          emit?.("codesearch.step.completed", {
-            step,
-            tool: "batch",
-            count: batchResults.length,
-            resultSummary: `Executed ${batchResults.length} tools in parallel`,
-          });
-
-          this._endStep({ step: stepMeta }, { status: "completed" });
-          continue;
-        }
-
-        // 执行单个工具
-        const toolName = actionName;
-        const toolArgs = decision.args || {};
-
-        logger.info(`Executing tool: ${toolName}`, { stage: "codesearch", data: { toolName, args: toolArgs } });
-
-        let result;
-        try {
-          result = await tools.execute(toolName, toolArgs);
-        } catch (err) {
-          result = { error: err.message };
-        }
-
-        // 格式化结果
-        const formattedResult = formatToolResult(toolName, result);
-        const todoLabel = selectedTodo ? `[todo ${selectedTodo.todoId}]` : "[todo none]";
-        loopState.observations.push(`[Step ${step}] ${todoLabel} ${formattedResult}`);
-        loopState.steps.push({
+        const stepResult = await runExecutionStep({
+          state: this.state,
           step,
-          tool: toolName,
-          args: toolArgs,
-          result,
-          todoId: selectedTodo?.todoId || null,
+          maxSteps: this.maxSteps,
+          systemPrompt,
+          callModel,
+          tools,
+          budgetManager,
+          emit,
+          signal: stepContext.signal,
         });
 
-        const nextStatus = decision.todoStatus || (decision.completeTodo ? TodoStatus.COMPLETED : "");
-        if (selectedTodo && nextStatus) {
-          transitionTodoStatus(selectedTodo, nextStatus);
-        }
-
-        emit?.("codesearch.step.completed", {
-          step,
-          tool: toolName,
-          args: toolArgs,
-          resultSummary: result.error || `${toolName} completed`,
-        });
-
-        await this._transitionLoopStatus(AgentStatus.RUNNING, { runId, iteration: step, stepId: stepMeta.stepId });
         this._endStep({ step: stepMeta }, { status: "completed" });
+
+        if (stepResult.done) break;
       } catch (err) {
-        if (err instanceof StagePausedError) {
-          throw err;
-        }
-        const pauseLike = this._shouldPauseFromError(err, stepSignal);
+        if (err instanceof StagePausedError) throw err;
+
+        const pauseLike = this._shouldPauseFromError(err, stepContext.signal);
+        this._endStep({ step: stepMeta }, { status: pauseLike ? "paused" : "failed", error: err?.message });
+
         if (pauseLike) {
-          this._endStep({ step: stepMeta }, { status: "paused", error: err?.message });
-          if (this.loopStatus !== AgentStatus.PAUSED) {
-            await this._transitionLoopStatus(AgentStatus.PAUSED, {
-              runId,
-              iteration: step,
-              stepId: stepMeta.stepId,
-              reason: err?.message,
-            });
-          }
-          throw this._createPauseError({ signal: stepSignal, runId });
+          await this._transitionLoopStatus(AgentStatus.PAUSED, { runId, iteration: step, reason: err?.message });
+          throw this._createPauseError({ signal: stepContext.signal, runId });
         }
-        this._endStep({ step: stepMeta }, { status: "failed", error: err?.message });
+
+        logger.error("Execution step failed", { error: err?.message });
+        emit("codesearch.step.failed", { step, error: err?.message });
         aborted = true;
-        if (this.loopStatus !== AgentStatus.FAILED) {
-          await this._transitionLoopStatus(AgentStatus.FAILED, {
-            runId,
-            iteration: step,
-            stepId: stepMeta.stepId,
-            error: err?.message,
-          });
-        }
-        throw err;
+        await this._transitionLoopStatus(AgentStatus.FAILED, { runId, iteration: step, error: err?.message });
+        break;
       }
     }
 
-    transitionPhase(CodeSearchPhase.SUMMARIZING);
+    // ─────────────────────────────────────────────────────────────────────────
+    // Phase 3: Summarizing
+    // ─────────────────────────────────────────────────────────────────────────
+    this._transitionPhase({ status: this.state.phase }, CodeSearchPhase.SUMMARIZING, {
+      runId,
+      emit,
+      eventName: "codesearch.phase.transition",
+    });
+    this.state.phase = CodeSearchPhase.SUMMARIZING;
 
-    // 生成最终总结
-    logger.info("Generating summary", { stage: "codesearch" });
-    emit?.("codesearch.summarizing", { steps: step });
+    const { summary, todoStats, budgetUsage } = await runSummarizingPhase({
+      state: this.state,
+      callModel,
+      budgetManager,
+      emit,
+      signal: stageApi?.signal,
+    });
 
-    let summary;
-    try {
-      const summarizePrompt = CODESEARCH_SUMMARIZE_PROMPT
-        .replace("{QUERY}", query)
-        .replace("{OBSERVATIONS}", loopState.observations.join("\n\n---\n\n"));
-
-      const messages = [
-        { role: "system", content: "你是代码分析专家。根据探索结果生成结构化的分析报告。使用 Markdown 格式，包含 Mermaid 架构图。" },
-        { role: "user", content: summarizePrompt },
-      ];
-
-      const summaryResponse = await callModel(messages, {
-        model: "auto",
-        temperature: 0.3,
-        maxTokens: 2000,
-      });
-
-      if (summaryResponse?.usage) {
-        budgetManager.recordUsage({
-          input: summaryResponse.usage.input || summaryResponse.usage.prompt_tokens || 0,
-          output: summaryResponse.usage.output || summaryResponse.usage.completion_tokens || 0,
-        });
-      }
-
-      summary = summaryResponse?.content || summaryResponse?.text || loopState.finalThought || "分析完成";
-    } catch (err) {
-      logger.error("Summary generation failed", { stage: "codesearch", data: { error: err.message } });
-      summary = loopState.finalThought || `分析完成，共 ${step} 步`;
-    }
-
-    const todoCompletionStats = buildTodoCompletionStats(loopState.todos);
-
+    // ─────────────────────────────────────────────────────────────────────────
+    // 完成
+    // ─────────────────────────────────────────────────────────────────────────
     const result = {
       query,
       summary,
-      steps: loopState.steps,
+      steps: this.state.steps,
       totalSteps: step,
-      budgetUsage: budgetManager.getStats(),
-      todos: loopState.todos,
-      todoCompletionStats,
-      awaitUserFeedback: loopState.awaitUserFeedback,
+      budgetUsage,
+      todos: this.state.todos,
+      todoCompletionStats: todoStats,
+      awaitUserFeedback: this.state.awaitUserFeedback,
     };
 
-    logger.info("CodeSearch completed", { stage: "codesearch", data: { totalSteps: step } });
-    emit?.("codesearch.completed", { totalSteps: step });
+    logger.info("CodeSearch completed", { data: { totalSteps: step } });
+    emit("codesearch.completed", { totalSteps: step });
+
     if (!aborted) {
-      transitionPhase(CodeSearchPhase.COMPLETED);
+      this._transitionPhase({ status: this.state.phase }, CodeSearchPhase.COMPLETED, {
+        runId,
+        emit,
+        eventName: "codesearch.phase.transition",
+      });
+      this.state.phase = CodeSearchPhase.COMPLETED;
       this._transitionLoopStatus(AgentStatus.COMPLETED, { runId, iteration: step });
     }
 
     return result;
+  }
+
+  /**
+   * 创建事件发射器（统一 EventBus 接入）
+   */
+  _createEmitter(stageApi) {
+    const eventBus = this.eventBus || stageApi?.eventBus;
+    const directEmit = stageApi?.emit;
+
+    return (eventName, payload = {}) => {
+      const fullPayload = { actor: "codesearch", status: "info", payload };
+
+      // 通过 EventBus 发射
+      if (eventBus?.emit) {
+        try {
+          eventBus.emit(eventName, fullPayload);
+        } catch { /* intentional */ }
+      }
+
+      // 直接发射（兼容）
+      if (directEmit && directEmit !== eventBus?.emit) {
+        try {
+          directEmit(eventName, fullPayload);
+        } catch { /* intentional */ }
+      }
+    };
+  }
+
+  /**
+   * 暂停等待用户反馈
+   */
+  async _pauseForUserFeedback(runId, reason) {
+    this.state.awaitUserFeedback = true;
+    this.state.pauseReason = reason;
+    if (this.loopStatus !== AgentStatus.PAUSED) {
+      // 如果还在 IDLE，需要先转到 RUNNING 再到 PAUSED
+      if (this.loopStatus === AgentStatus.IDLE) {
+        await this._transitionLoopStatus(AgentStatus.RUNNING, { runId, iteration: 0 });
+      }
+      await this._transitionLoopStatus(AgentStatus.PAUSED, { runId, iteration: 0, reason });
+    }
+    const err = new StagePausedError("Run paused", { runId, reason });
+    err.awaitUserFeedback = true;
+    throw err;
   }
 
   async execute(runContext, input, stageApi = {}) {
@@ -779,7 +323,7 @@ export class CodeSearchStage extends BaseAgentLoop {
 }
 
 /**
- * 便捷函数：注册到 Orchestrator
+ * 便捷函数
  */
 export async function runCodeSearchStage(runContext, input, stageApi = {}) {
   const stage = new CodeSearchStage(input?.options);
@@ -787,7 +331,7 @@ export async function runCodeSearchStage(runContext, input, stageApi = {}) {
 }
 
 /**
- * 注册所有 CodeSearch stages
+ * 注册到 Orchestrator
  */
 export function registerCodeSearchStages(orchestrator, { timeoutMs = 120_000 } = {}) {
   orchestrator.registerStage("codesearch.pipeline", runCodeSearchStage, {
@@ -795,3 +339,6 @@ export function registerCodeSearchStages(orchestrator, { timeoutMs = 120_000 } =
     timeoutMs,
   });
 }
+
+// 导出状态类
+export { CodeSearchState } from "./state.js";
