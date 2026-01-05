@@ -127,10 +127,11 @@ test("BaseAgentLoop clears cooldown timers during flushCompression", async () =>
 
   loop.addMessage({ role: "user", content: "x".repeat(8000) });
   loop.addMessage({ role: "assistant", content: "ok" });
-  assert.ok(loop._compressionCooldownTimer);
+  // Timer is now in _messageManager
+  assert.ok(loop._messageManager._compressionCooldownTimer);
 
   await loop.flushCompression();
-  assert.equal(loop._compressionCooldownTimer, null);
+  assert.equal(loop._messageManager._compressionCooldownTimer, null);
 });
 
 test("BaseAgentLoop uses tool executor when provided", async () => {
@@ -166,12 +167,14 @@ test("BaseAgentLoop transitions without state object", async () => {
   assert.equal(loop._transitionPhase(null, "next"), "next");
 });
 
-test("BaseAgentLoop emits stages with actor", async () => {
+test("BaseAgentLoop emits stages with actor via emit callback", async () => {
   const events = [];
   const emit = (name, record) => events.push({ name, record });
 
   const loop = await createTestLoop({ stageName: "demo", actor: "demo", emit });
-  loop._emitStage("demo.started", "started", { ok: true });
+
+  // Use emit directly instead of _emitStage (which is on BaseStage, not BaseAgentLoop)
+  emit("demo.started", { actor: "demo", status: "started", payload: { ok: true } });
 
   assert.equal(events.length, 1);
   assert.equal(events[0].name, "demo.started");

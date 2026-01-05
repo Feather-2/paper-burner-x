@@ -67,7 +67,7 @@ test("toErrorPayload includes pause metadata", async () => {
     runId: "run_3",
   });
 
-  assert.deepEqual(toErrorPayload(err), {
+  assert.deepEqual(toErrorPayload(err, { includeStack: false }), {
     message: "Paused",
     name: "StagePausedError",
     checkpointId: "ckpt_2",
@@ -116,7 +116,7 @@ test("toErrorPayload falls back for empty message/name and non-empty-string conv
 
   const err = new Error("");
   err.name = "";
-  assert.deepEqual(toErrorPayload(err), { message: "Error", name: "Error" });
+  assert.deepEqual(toErrorPayload(err, { includeStack: false }), { message: "Error", name: "Error" });
 
   assert.deepEqual(toErrorPayload("   "), { message: "   ", name: "Error" });
 });
@@ -164,7 +164,7 @@ test("toErrorPayload formats common error shapes", async () => {
   assert.deepEqual(toErrorPayload("bad"), { message: "bad", name: "Error" });
 
   const timeout = new StageTimeoutError("Timeout", { stageName: "unit", timeoutMs: 123 });
-  assert.deepEqual(toErrorPayload(timeout), {
+  assert.deepEqual(toErrorPayload(timeout, { includeStack: false }), {
     message: "Timeout",
     name: "StageTimeoutError",
     stageName: "unit",
@@ -172,7 +172,7 @@ test("toErrorPayload formats common error shapes", async () => {
   });
 
   const cancelled = new StageCancelledError("Cancelled", { stageName: "unit" });
-  assert.deepEqual(toErrorPayload(cancelled), {
+  assert.deepEqual(toErrorPayload(cancelled, { includeStack: false }), {
     message: "Cancelled",
     name: "StageCancelledError",
     stageName: "unit",

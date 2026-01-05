@@ -161,7 +161,8 @@ describe("DependencyManager", () => {
         wheels: [],
       });
 
-      assert.ok(script.includes('pyodide.loadPackage(["numpy","pandas"])'));
+      assert.ok(script.includes('__pb_builtin = ["numpy","pandas"]'));
+      assert.ok(script.includes("pyodide.loadPackage(__pb_builtin)"));
     });
 
     it("should generate micropip install script", () => {
@@ -173,7 +174,7 @@ describe("DependencyManager", () => {
       });
 
       assert.ok(script.includes("pyodide.loadPackage('micropip')"));
-      assert.ok(script.includes("micropip.install('tabulate')"));
+      assert.ok(script.includes('__pb_micropip = ["tabulate"]'));
     });
 
     it("should generate wheel install script", () => {
@@ -184,7 +185,7 @@ describe("DependencyManager", () => {
         wheels: [{ url: "https://example.com/pkg.whl" }],
       });
 
-      assert.ok(script.includes("micropip.install('https://example.com/pkg.whl')"));
+      assert.ok(script.includes('__pb_wheels = ["https://example.com/pkg.whl"]'));
     });
 
     it("should use local path for cached wheels", () => {
@@ -206,7 +207,9 @@ describe("DependencyManager", () => {
         wheels: [],
       });
 
-      assert.strictEqual(script, "");
+      // New implementation always generates template script (safe by design)
+      assert.ok(typeof script === "string");
+      assert.ok(script.includes("__pb_builtin = []"));
     });
   });
 

@@ -2,7 +2,7 @@ import { makeSecureTimestampedId } from "../../../shared/utils/secure-id.js";
 
 import { toNonEmptyString } from "../../../shared/utils/value-utils.js";
 function normalizeCategory(category) {
-  const c = toNonEmptyString(category).toLowerCase();
+  const c = (toNonEmptyString(category) ?? "").toLowerCase();
   if (c === "uploaded" || c === "upload") return "uploaded";
   if (c === "extracted" || c === "pdf") return "extracted";
   if (c === "video" || c === "videoframes" || c === "frames") return "videoFrames";

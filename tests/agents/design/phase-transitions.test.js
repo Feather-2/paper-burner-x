@@ -124,6 +124,7 @@ test("runGeneratingPhase is pure (no phase transitions) and emits design.qa.ende
     startExecution,
     finishExecution,
     emitDeckUpdate: () => { },
+    skipReview: true, // Skip REVIEWING phase transition for this test
   });
 
   const qaEnded = events.find((evt) => evt.name === "design.qa.ended");
@@ -131,7 +132,7 @@ test("runGeneratingPhase is pure (no phase transitions) and emits design.qa.ende
   assert.deepEqual(qaEnded.record, {
     actor: "design",
     status: "ended",
-    payload: { slides: 1, degradedCount: 0 },
+    payload: { slides: 1, degradedCount: 0, qaFailed: 0 },
   });
 });
 

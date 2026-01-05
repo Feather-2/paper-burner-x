@@ -57,6 +57,7 @@ describe("PythonSkillExecutor", () => {
       // Mock the adapter to avoid actual initialization
       executor.pythonAdapter = {
         initialize: mock.fn(() => Promise.resolve()),
+        preloadPlan: mock.fn(() => Promise.resolve()),
         _requestId: 0,
         pendingRequests: new Map(),
         worker: { postMessage: () => {} },
@@ -89,6 +90,7 @@ describe("PythonSkillExecutor", () => {
 
       const mockAdapter = {
         initialize: mock.fn(() => Promise.resolve()),
+        preloadPlan: mock.fn(() => Promise.resolve()),
         execute: mock.fn(() =>
           Promise.resolve({
             success: true,
@@ -147,6 +149,7 @@ describe("PythonSkillExecutor", () => {
 
       const mockAdapter = {
         initialize: mock.fn(() => Promise.resolve()),
+        preloadPlan: mock.fn(() => Promise.resolve()),
         execute: mock.fn(() =>
           Promise.resolve({ success: true, data: null, metrics: {} })
         ),
@@ -184,6 +187,7 @@ describe("PythonSkillExecutor", () => {
 
       const mockAdapter = {
         initialize: mock.fn(() => Promise.resolve()),
+        preloadPlan: mock.fn(() => Promise.resolve()),
         execute: mock.fn(() =>
           Promise.resolve({
             success: false,
@@ -224,6 +228,7 @@ describe("PythonSkillExecutor", () => {
 
       const mockAdapter = {
         initialize: mock.fn(() => Promise.resolve()),
+        preloadPlan: mock.fn(() => Promise.resolve()),
         execute: mock.fn((code) => {
           assert.strictEqual(typeof code, "string");
           assert.ok(code.includes("print"));
