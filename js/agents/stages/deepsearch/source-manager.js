@@ -1,4 +1,5 @@
 import { safeInt, toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { LRUCache } from "../../shared/utils/lru-cache.js";
 
 function toPositiveInt(value, fallback) {
   const n = safeInt(value);
@@ -240,7 +241,7 @@ export class SourceManager {
     this._sourcesLength = 0;
     this._sourcesById = new Map();
 
-    this._lineStartsCache = new Map(); // sourceId -> { text, starts }
+    this._lineStartsCache = new LRUCache({ maxSize: this.maxCachedLineIndexes }); // sourceId -> { text, starts }
 
     this.setSources(sources);
   }
@@ -311,17 +312,11 @@ export class SourceManager {
 
     const cached = this._lineStartsCache.get(sourceId);
     if (cached && cached.text === text) {
-      this._lineStartsCache.delete(sourceId);
-      this._lineStartsCache.set(sourceId, cached);
       return cached.starts;
     }
 
     const starts = computeLineStarts(text);
     this._lineStartsCache.set(sourceId, { text, starts });
-    while (this._lineStartsCache.size > this.maxCachedLineIndexes) {
-      const oldestKey = this._lineStartsCache.keys().next().value;
-      this._lineStartsCache.delete(oldestKey);
-    }
     return starts;
   }
 

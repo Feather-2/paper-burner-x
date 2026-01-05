@@ -3,6 +3,7 @@ import { initTreeSitter, loadTreeSitterLanguage } from "../../../shared/parser/t
 import CodeSearchIndexStore from "./index-store.js";
 
 import { isPlainObject, toNonEmptyString } from "../../../shared/utils/value-utils.js";
+import { LRUCache } from "../../../shared/utils/lru-cache.js";
 function extname(path) {
   const p = toNonEmptyString(path);
   const idx = p.lastIndexOf(".");
@@ -300,8 +301,8 @@ export class SymbolIndexer {
     this._parserInstance = null;
     this._indexRevision = 0;
     this._recordsCache = new Map(); // workspaceId -> { rev, rows }
-    this._queryCache = new Map(); // key -> { rev, results }
     this._queryCacheMax = 50;
+    this._queryCache = new LRUCache({ maxSize: this._queryCacheMax }); // key -> { rev, results }
   }
 
   _log(level, msg, data) {
@@ -461,9 +462,6 @@ export class SymbolIndexer {
     const cacheKey = `${this.workspaceId}::${prefix}::${q}::${lim}`;
     const cached = this._queryCache.get(cacheKey);
     if (cached && cached.rev === this._indexRevision && Array.isArray(cached.results)) {
-      // LRU bump
-      this._queryCache.delete(cacheKey);
-      this._queryCache.set(cacheKey, cached);
       return cached.results.slice(0, lim);
     }
 
@@ -482,11 +480,6 @@ export class SymbolIndexer {
       }
     }
     this._queryCache.set(cacheKey, { rev: this._indexRevision, results: out });
-    while (this._queryCache.size > this._queryCacheMax) {
-      const firstKey = this._queryCache.keys().next().value;
-      if (!firstKey) break;
-      this._queryCache.delete(firstKey);
-    }
     return out;
   }
 }
