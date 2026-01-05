@@ -27,6 +27,8 @@ export const ErrorCategory = {
   UNKNOWN: "unknown",
 };
 
+export const ERROR_BOUNDARY_UNHANDLED = Symbol("error_boundary_unhandled");
+
 /**
  * Categorize error
  * @param {Error} error
@@ -235,8 +237,10 @@ export class ErrorBoundary {
     if (this._fallbacks[category]) {
       try {
         const result = this._fallbacks[category](error, info);
-        info.recovered = true;
-        return result;
+        if (result !== ERROR_BOUNDARY_UNHANDLED) {
+          info.recovered = true;
+          return result;
+        }
       } catch (fallbackError) {
         logger.error("Fallback failed", { category, error: fallbackError?.message });
       }
@@ -289,13 +293,90 @@ export class ErrorBoundary {
 
 let _globalBoundary = null;
 
+function shouldDegrade(ctx) {
+  if (!ctx || typeof ctx !== "object") return false;
+  if (ctx.degrade === true) return true;
+  if (typeof ctx.shouldDegrade === "function") {
+    try {
+      return ctx.shouldDegrade() === true;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+function resolveFallbackValue(ctx, error, info) {
+  if (ctx && typeof ctx === "object") {
+    if (typeof ctx.fallbackFactory === "function") {
+      try {
+        return ctx.fallbackFactory(error, info);
+      } catch {
+        return undefined;
+      }
+    }
+    if ("fallbackValue" in ctx) return ctx.fallbackValue;
+  }
+  return undefined;
+}
+
+function maybeNotifyDegraded(ctx, payload) {
+  if (!ctx || typeof ctx !== "object") return;
+  if (typeof ctx.onDegrade === "function") {
+    try {
+      ctx.onDegrade(payload);
+    } catch {
+      // ignore
+    }
+    return;
+  }
+  if (typeof ctx.emit === "function") {
+    try {
+      const stage = typeof ctx.stage === "string" && ctx.stage ? ctx.stage : "runtime";
+      ctx.emit(`${stage}.error.degraded`, {
+        actor: stage,
+        status: "degraded",
+        payload,
+      });
+    } catch {
+      // ignore
+    }
+  }
+}
+
+function createDefaultFallback(category) {
+  return (error, info) => {
+    const ctx = info?.context;
+    if (!shouldDegrade(ctx)) return ERROR_BOUNDARY_UNHANDLED;
+
+    const value = resolveFallbackValue(ctx, error, info);
+    if (value === undefined) return ERROR_BOUNDARY_UNHANDLED;
+
+    maybeNotifyDegraded(ctx, {
+      id: info.id,
+      category,
+      stage: typeof ctx?.stage === "string" ? ctx.stage : undefined,
+      runId: ctx?.runId,
+      message: info.message,
+    });
+
+    return value;
+  };
+}
+
 /**
  * Get global error boundary
  * @returns {ErrorBoundary}
  */
 export function getErrorBoundary() {
   if (!_globalBoundary) {
-    _globalBoundary = new ErrorBoundary();
+    _globalBoundary = new ErrorBoundary({
+      fallbacks: {
+        [ErrorCategory.NETWORK]: createDefaultFallback(ErrorCategory.NETWORK),
+        [ErrorCategory.TIMEOUT]: createDefaultFallback(ErrorCategory.TIMEOUT),
+        [ErrorCategory.QUOTA]: createDefaultFallback(ErrorCategory.QUOTA),
+      },
+    });
   }
   return _globalBoundary;
 }

@@ -1,5 +1,5 @@
 import { buildIndexAsync as buildBm25IndexAsync, search as bm25Search, serializeIndex as serializeBm25Index, deserializeIndex as deserializeBm25Index } from "./bm25.js";
-import { grepChunksAsync } from "./grep.js";
+import { grepChunks, grepChunksAsync } from "./grep.js";
 import { readAround } from "./readaround.js";
 import { chunksInScope, selectScope } from "./scope.js";
 import { buildTocAsync } from "./toc-builder.js";
@@ -336,7 +336,8 @@ export async function retrieve(sourceIndex, gaps, config = {}) {
   }
 
   const mmrCfg = config.mmr;
-  const diversify = mmrCfg === true || isPlainObject(mmrCfg);
+  // Default: enable MMR dedup + diversity selection unless explicitly disabled.
+  const diversify = mmrCfg === undefined ? true : mmrCfg === true || isPlainObject(mmrCfg);
   if (diversify) {
     const hits = Array.from(byChunkId.values()).filter((row) => row && row.relevance === "hit" && typeof row.score === "number");
     const uniqueHits = hits.length;
@@ -420,4 +421,23 @@ export async function retrieve(sourceIndex, gaps, config = {}) {
  */
 export async function retrieveAsync(sourceIndex, gaps, config = {}) {
   return retrieve(sourceIndex, gaps, config);
+}
+
+/**
+ * Backward-compatible class wrapper (DI-friendly).
+ * Provides a stable surface for runtimes that expect `new RetrievalRouter()`.
+ */
+export class RetrievalRouter {
+  constructor(defaultConfig = {}) {
+    this.defaultConfig = isPlainObject(defaultConfig) ? { ...defaultConfig } : {};
+  }
+
+  async retrieve(sourceIndex, gaps, config = {}) {
+    const cfg = isPlainObject(config) ? config : {};
+    return retrieve(sourceIndex, gaps, { ...this.defaultConfig, ...cfg });
+  }
+
+  async retrieveAsync(sourceIndex, gaps, config = {}) {
+    return this.retrieve(sourceIndex, gaps, config);
+  }
 }

@@ -1003,6 +1003,7 @@ export const runtimeMixin = {
             const { SideEffectJournal } = await import('../../agents/runtime/side-effects/side-effect-journal.js');
             const sideEffects = new SideEffectJournal({
                 runStore: this._runStore,
+                storageAdapter: services.vfs?.storageAdapter || services.storageAdapter || null,
                 runId: this._currentRunId,
                 vfs: services.vfs,
                 eventBus,

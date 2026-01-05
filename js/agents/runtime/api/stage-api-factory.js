@@ -15,6 +15,9 @@ import { isPlainObject, toNonNegativeInt } from "../../shared/utils/value-utils.
 import { getGlobalTokenTracker } from "../telemetry/token-tracker.js";
 import { CircuitBreakerRegistry } from "../../shared/utils/circuit-breaker.js";
 import { TraceContext } from "../telemetry/trace-context.js";
+import { withRetry } from "../core/retry-strategy.js";
+import { getErrorBoundary } from "../core/error-boundary.js";
+import { ToolQuotaManager } from "../tools/tool-quotas.js";
 
 const logger = createLogger("runtime/api/stage-api-factory");
 
@@ -84,6 +87,104 @@ function resolveTraceContext({ traceContext, traceparent, container } = {}) {
 
   return new TraceContext();
 }
+
+function isRetryStrategyLike(value) {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    typeof value.execute === "function"
+  );
+}
+
+function resolveRetryStrategyFromContainer(container) {
+  const c = container && typeof container === "object" ? container : null;
+  if (!c) return null;
+  if (typeof c.tryGet === "function") {
+    const candidate = c.tryGet("retryStrategy");
+    return isRetryStrategyLike(candidate) ? candidate : null;
+  }
+  if (typeof c.get === "function") {
+    try {
+      const candidate = c.get("retryStrategy");
+      return isRetryStrategyLike(candidate) ? candidate : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function resolveRetryStrategy({ retryStrategy, container } = {}) {
+  if (isRetryStrategyLike(retryStrategy)) return retryStrategy;
+  const fromContainer = resolveRetryStrategyFromContainer(container);
+  if (fromContainer) return fromContainer;
+  return null;
+}
+
+function isErrorBoundaryLike(value) {
+  return value !== null && typeof value === "object" && typeof value.wrap === "function";
+}
+
+function resolveErrorBoundaryFromContainer(container) {
+  const c = container && typeof container === "object" ? container : null;
+  if (!c) return null;
+  if (typeof c.tryGet === "function") {
+    const candidate = c.tryGet("errorBoundary");
+    return isErrorBoundaryLike(candidate) ? candidate : null;
+  }
+  if (typeof c.get === "function") {
+    try {
+      const candidate = c.get("errorBoundary");
+      return isErrorBoundaryLike(candidate) ? candidate : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function resolveErrorBoundary({ errorBoundary, container } = {}) {
+  if (isErrorBoundaryLike(errorBoundary)) return errorBoundary;
+  const fromContainer = resolveErrorBoundaryFromContainer(container);
+  if (fromContainer) return fromContainer;
+  return getErrorBoundary();
+}
+
+function isToolQuotaManagerLike(value) {
+  return value !== null && typeof value === "object" && typeof value.tryCall === "function";
+}
+
+function resolveToolQuotaManagerFromContainer(container) {
+  const c = container && typeof container === "object" ? container : null;
+  if (!c) return null;
+  if (typeof c.tryGet === "function") {
+    const candidate = c.tryGet("toolQuotaManager");
+    return isToolQuotaManagerLike(candidate) ? candidate : null;
+  }
+  if (typeof c.get === "function") {
+    try {
+      const candidate = c.get("toolQuotaManager");
+      return isToolQuotaManagerLike(candidate) ? candidate : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function resolveToolQuotaManager({ toolQuotaManager, container } = {}) {
+  if (isToolQuotaManagerLike(toolQuotaManager)) return toolQuotaManager;
+  const fromContainer = resolveToolQuotaManagerFromContainer(container);
+  if (fromContainer) return fromContainer;
+  return null;
+}
+
+const DEFAULT_TOOL_QUOTAS = Object.freeze({
+  search: { maxCalls: 10, windowMs: 60_000 },
+  "search-docs": { maxCalls: 10, windowMs: 60_000 },
+  "search.query": { maxCalls: 10, windowMs: 60_000 },
+  "search.fetch": { maxCalls: 30, windowMs: 60_000 },
+});
 
 function ensureEventBusBackpressure(eventBus, config) {
   if (!eventBus || typeof eventBus.enableBackpressure !== "function") return;
@@ -210,6 +311,85 @@ function ensureAiApiServiceTokenTracking(aiApiService) {
   aiApiService.chat = chat;
 }
 
+function ensureAiApiServiceRetry(aiApiService, retryStrategy) {
+  if (!aiApiService || typeof aiApiService !== "object") return;
+  const originalChat = aiApiService.chat;
+  if (typeof originalChat !== "function") return;
+
+  if (originalChat.__pbRetryWrapped === true) {
+    // Allow updating the active retry strategy even after wrapping.
+    if (isRetryStrategyLike(retryStrategy)) originalChat.__pbRetryStrategy = retryStrategy;
+    return;
+  }
+
+  async function chat(opts = {}) {
+    const signal = opts?.signal;
+    const strat = isRetryStrategyLike(chat.__pbRetryStrategy) ? chat.__pbRetryStrategy : null;
+
+    const call = () => originalChat.call(aiApiService, opts);
+    if (strat) {
+      return await strat.execute(call, { ...(signal ? { signal } : {}) });
+    }
+    return await withRetry(call, { ...(signal ? { signal } : {}) });
+  }
+
+  chat.__pbRetryWrapped = true;
+  chat.__pbRetryOriginal = originalChat;
+  if (isRetryStrategyLike(retryStrategy)) chat.__pbRetryStrategy = retryStrategy;
+
+  // Preserve token-tracker marker so ensureAiApiServiceTokenTracking stays idempotent.
+  if (originalChat.__tokenTrackerWrapped === true) {
+    chat.__tokenTrackerWrapped = true;
+    chat.__tokenTrackerOriginal = originalChat.__tokenTrackerOriginal || originalChat;
+    // Forward registry updates to the token-tracker wrapper, which owns the breaker lookup.
+    if ("__pbCircuitBreakerRegistry" in originalChat) {
+      try {
+        Object.defineProperty(chat, "__pbCircuitBreakerRegistry", {
+          get() {
+            return originalChat.__pbCircuitBreakerRegistry;
+          },
+          set(v) {
+            originalChat.__pbCircuitBreakerRegistry = v;
+          },
+          configurable: true,
+        });
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  aiApiService.chat = chat;
+}
+
+function ensureMcpClientRetry(mcpClient, retryStrategy) {
+  if (!mcpClient || typeof mcpClient !== "object") return;
+  if (typeof mcpClient.callTool !== "function") return;
+
+  const originalCallTool = mcpClient.callTool;
+  if (typeof originalCallTool !== "function") return;
+
+  if (originalCallTool.__pbRetryWrapped === true) {
+    if (isRetryStrategyLike(retryStrategy)) originalCallTool.__pbRetryStrategy = retryStrategy;
+    return;
+  }
+
+  async function callTool(toolName, args = {}, options = {}) {
+    const signal = options?.signal;
+    const strat = isRetryStrategyLike(callTool.__pbRetryStrategy) ? callTool.__pbRetryStrategy : null;
+    const call = () => originalCallTool.call(mcpClient, toolName, args, options);
+    if (strat) {
+      return await strat.execute(call, { ...(signal ? { signal } : {}) });
+    }
+    return await withRetry(call, { ...(signal ? { signal } : {}) });
+  }
+
+  callTool.__pbRetryWrapped = true;
+  callTool.__pbRetryOriginal = originalCallTool;
+  if (isRetryStrategyLike(retryStrategy)) callTool.__pbRetryStrategy = retryStrategy;
+  mcpClient.callTool = callTool;
+}
+
 export class StageApiFactory {
   constructor(services = {}) {
     const base = services && typeof services === "object" ? services : {};
@@ -224,6 +404,15 @@ export class StageApiFactory {
         traceparent: base?.traceparent,
         container: base?.container,
       }),
+      retryStrategy: resolveRetryStrategy({ retryStrategy: base?.retryStrategy, container: base?.container }),
+      errorBoundary: resolveErrorBoundary({ errorBoundary: base?.errorBoundary, container: base?.container }),
+      toolQuotaManager:
+        resolveToolQuotaManager({ toolQuotaManager: base?.toolQuotaManager, container: base?.container }) ||
+        new ToolQuotaManager({
+          defaultMaxCalls: 100,
+          defaultWindowMs: 60_000,
+          quotas: DEFAULT_TOOL_QUOTAS,
+        }),
     };
     this.baseConfig = {
       signal: services.signal || null,
@@ -266,6 +455,9 @@ export class StageApiFactory {
       }
     }
     ensureAiApiServiceTokenTracking(api.aiApiService);
+    ensureAiApiServiceRetry(api.aiApiService, this.services?.retryStrategy);
+    ensureMcpClientRetry(api.mcpClient, this.services?.retryStrategy);
+    ensureMcpClientRetry(api.externalSearchProvider, this.services?.retryStrategy);
 
     return api;
   }

@@ -301,11 +301,13 @@ export async function writeTextFileWithPolicy({
       await vfs.writeText(normalizedPath, content);
 
       let checkpointRef = null;
-      if (checkpoint && runStore && runId) {
+      const storageAdapter = stageApi?.storageAdapter || vfs?.storageAdapter || null;
+      if (checkpoint && runId && (runStore || storageAdapter)) {
         try {
           const after = content;
           const saved = await recordVfsCheckpoint({
             runStore,
+            storageAdapter,
             runId,
             path: normalizedPath,
             before: before ?? "",
@@ -439,10 +441,12 @@ export async function multiEditTextFileWithPolicy({
       }
 
       let checkpointRef = null;
-      if (checkpoint && runStore && runId) {
+      const storageAdapter = stageApi?.storageAdapter || vfs?.storageAdapter || null;
+      if (checkpoint && runId && (runStore || storageAdapter)) {
         try {
           const saved = await recordVfsCheckpoint({
             runStore,
+            storageAdapter,
             runId,
             path: normalizedPath,
             before,

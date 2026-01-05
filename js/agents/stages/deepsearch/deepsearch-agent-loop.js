@@ -18,6 +18,9 @@ import { ModelResponseHandler } from "./runtime/model-response-handler.js";
 import SourceManager from "./source-manager.js";
 import { loadDeepSearchCapabilities } from "./capabilities-loader.js";
 import { TraceContext } from "../../runtime/telemetry/trace-context.js";
+import { ConvergenceDetector } from "../../runtime/analysis/convergence-detector.js";
+import { BehaviorFingerprint } from "../../runtime/analysis/behavior-fingerprint.js";
+import { getErrorBoundary } from "../../runtime/core/error-boundary.js";
 import {
   addInitialDeepSearchMessages,
   createIterationConvergenceTracker,
@@ -75,6 +78,90 @@ function stableStringify(value, { maxChars = 2000 } = {}) {
   return s.slice(0, limit) + "...";
 }
 
+function toClamped01Float(value, fallback) {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(1, Math.max(0, n));
+}
+
+function normalizeReportConvergenceConfig(config) {
+  const cfg = isPlainObject(config) ? config : {};
+  const enabled = cfg.enabled === true;
+  const stopOnConvergence = cfg.stopOnConvergence !== false;
+  const windowSize = toPositiveInt(cfg.windowSize ?? cfg.window, 5);
+  const minIterations = toPositiveInt(cfg.minIterations ?? cfg.minIters, 4);
+  const minReportChars = toPositiveInt(cfg.minReportChars ?? cfg.minChars, 1200);
+  const sampleMaxChars = toPositiveInt(cfg.sampleMaxChars ?? cfg.maxChars, 6000);
+  const entropyThreshold =
+    cfg.entropyThreshold === undefined ? undefined : toClamped01Float(cfg.entropyThreshold, undefined);
+  const similarityThreshold =
+    cfg.similarityThreshold === undefined ? undefined : toClamped01Float(cfg.similarityThreshold, undefined);
+
+  return {
+    enabled,
+    stopOnConvergence,
+    windowSize,
+    minIterations,
+    minReportChars,
+    sampleMaxChars,
+    entropyThreshold,
+    similarityThreshold,
+  };
+}
+
+function normalizeNewlines(text) {
+  return String(text || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+}
+
+function sliceTail(text, maxChars) {
+  const s = String(text || "");
+  const limit = Number.isFinite(maxChars) ? Math.max(0, Math.floor(maxChars)) : 0;
+  if (!limit || s.length <= limit) return s;
+  return s.slice(Math.max(0, s.length - limit));
+}
+
+function buildConvergenceSample({ reportMarkdown, gaps, maxChars } = {}) {
+  const md = sliceTail(normalizeNewlines(reportMarkdown), maxChars);
+  const gapLines = [];
+  for (const gap of Array.isArray(gaps) ? gaps : []) {
+    if (!gap || typeof gap !== "object") continue;
+    const id = gap.gapId || gap.id || "";
+    const status = gap.status || "open";
+    const title = gap.title || gap.question || gap.text || gap.description || "";
+    gapLines.push(`${String(id).slice(0, 64)}|${String(status).slice(0, 32)}|${String(title).slice(0, 240)}`.trim());
+    if (gapLines.length >= 30) break;
+  }
+
+  return `REPORT:\n${md}\n\nGAPS:\n${gapLines.join("\n")}`;
+}
+
+function resolveErrorBoundary(stageApi) {
+  const direct = stageApi?.errorBoundary;
+  if (direct && typeof direct === "object" && typeof direct.wrap === "function") return direct;
+
+  const container = stageApi?.container;
+  if (container && typeof container === "object") {
+    const tryGet = typeof container.tryGet === "function" ? container.tryGet.bind(container) : null;
+    if (tryGet) {
+      const candidate = tryGet("errorBoundary");
+      if (candidate && typeof candidate === "object" && typeof candidate.wrap === "function") return candidate;
+    }
+    const get = typeof container.get === "function" ? container.get.bind(container) : null;
+    if (get) {
+      try {
+        const candidate = get("errorBoundary");
+        if (candidate && typeof candidate === "object" && typeof candidate.wrap === "function") return candidate;
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  return getErrorBoundary();
+}
+
 function normalizeToolCallGuard(config) {
   const cfg = isPlainObject(config) ? config : {};
   const enabled = cfg.enabled === true;
@@ -83,6 +170,17 @@ function normalizeToolCallGuard(config) {
   const maxSigChars = toPositiveInt(cfg.maxSignatureChars, 2000);
   const ignoreTools = new Set(Array.isArray(cfg.ignoreTools) ? cfg.ignoreTools.map(String).filter(Boolean) : []);
   return { enabled, maxConsecutive, warnAt, maxSigChars, ignoreTools };
+}
+
+function normalizeBehaviorFingerprintConfig(config) {
+  if (config === false) return { enabled: false };
+  const cfg = isPlainObject(config) ? config : {};
+  const enabled = cfg.enabled === false ? false : true;
+  const historySize = toPositiveInt(cfg.historySize, 100);
+  const minPatternLength = toPositiveInt(cfg.minPatternLength, 2);
+  const maxPatternLength = toPositiveInt(cfg.maxPatternLength, 10);
+  const loopThreshold = toPositiveInt(cfg.loopThreshold, 3);
+  return { enabled, historySize, minPatternLength, maxPatternLength, loopThreshold };
 }
 
 function resolveStageTraceContext(stageApi) {
@@ -163,15 +261,43 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
       options.toolCallGuard || options.doomLoopGuard || options.userConfig?.toolCallGuard || options.globalConfig?.toolCallGuard
     );
     this._toolCallGuardState = { lastSig: null, consecutive: 0, warnedAt: 0 };
+
+    const bfCfg = normalizeBehaviorFingerprintConfig(
+      options.behaviorFingerprint || options.userConfig?.behaviorFingerprint || options.globalConfig?.behaviorFingerprint
+    );
+    this._behaviorFingerprint = bfCfg.enabled ? new BehaviorFingerprint(bfCfg) : null;
+    this._behaviorLoopLastWarnedCount = 0;
   }
 
   _recordToolCall(toolName, toolArgs) {
     const cfg = this._toolCallGuardConfig;
-    if (!cfg?.enabled) return null;
+    const guardEnabled = !!cfg?.enabled;
 
     const name = typeof toolName === "string" ? toolName.trim() : String(toolName || "").trim();
     if (!name) return null;
-    if (cfg.ignoreTools?.has(name)) return null;
+    if (cfg?.ignoreTools?.has(name)) return null;
+
+    // Always record behavior fingerprints (best-effort), even when the legacy guard is disabled.
+    let behavior = null;
+    if (this._behaviorFingerprint && typeof this._behaviorFingerprint.recordAction === "function") {
+      try {
+        const res = this._behaviorFingerprint.recordAction({ type: name, args: isPlainObject(toolArgs) ? toolArgs : {} });
+        if (res?.loopDetected && res.loopInfo) {
+          const loopCount = typeof res.loopInfo.totalLoopsDetected === "number" ? res.loopInfo.totalLoopsDetected : 0;
+          if (loopCount > this._behaviorLoopLastWarnedCount) {
+            this._behaviorLoopLastWarnedCount = loopCount;
+            const suggestion = typeof this._behaviorFingerprint.getSuggestion === "function" ? this._behaviorFingerprint.getSuggestion() : null;
+            behavior = { loopDetected: true, loopInfo: res.loopInfo, suggestion };
+          }
+        }
+      } catch {
+        // ignore behavior fingerprint failures
+      }
+    }
+
+    if (!guardEnabled) {
+      return behavior ? { tool: name, signature: null, consecutive: 1, shouldWarn: true, shouldStop: false, behavior } : null;
+    }
 
     const sig = `${name}|${stableStringify(toolArgs, { maxChars: cfg.maxSigChars })}`;
     if (sig === this._toolCallGuardState.lastSig) {
@@ -187,7 +313,8 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     if (shouldWarn) this._toolCallGuardState.warnedAt = cfg.warnAt;
 
     const shouldStop = n >= cfg.maxConsecutive;
-    return { tool: name, signature: sig, consecutive: n, shouldWarn, shouldStop };
+    const warn = shouldWarn || !!behavior;
+    return { tool: name, signature: sig, consecutive: n, shouldWarn: warn, shouldStop, ...(behavior ? { behavior } : {}) };
   }
 
   _emit(name, payload, { actor = "deepsearch", status } = {}) {
@@ -234,6 +361,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
 
   async run(input, context = {}) {
     const stageApi = context?.stageApi && typeof context.stageApi === "object" ? context.stageApi : context;
+    const errorBoundary = resolveErrorBoundary(stageApi);
 
     // When run() is invoked directly (not via BaseAgentLoop.execute), keep instance wiring in sync.
     this.eventBus = stageApi?.eventBus || this.eventBus || null;
@@ -264,9 +392,24 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
       // ignore (non-extensible stageApi)
     }
 
-    return await traceContext.withSpan(
-      "deepsearch.run",
-      async (runSpan) => {
+    const shouldDegrade = () => {
+      const cfg =
+        (stageApi && typeof stageApi === "object" && stageApi.errorBoundaryConfig && typeof stageApi.errorBoundaryConfig === "object")
+          ? stageApi.errorBoundaryConfig
+          : null;
+      if (cfg?.degrade === true) return true;
+      if (stageApi?.errorBoundaryDegrade === true || stageApi?.degradeOnError === true) return true;
+      if (this.state?.userConfig?.errorBoundary?.degrade === true) return true;
+      if (this.state?.userConfig?.degradeOnError === true) return true;
+      if (this.globalConfig?.errorBoundary?.degrade === true) return true;
+      return false;
+    };
+
+    return await errorBoundary.wrap(
+      async () =>
+        await traceContext.withSpan(
+          "deepsearch.run",
+          async (runSpan) => {
         const { signal } = stageApi;
         checkCancelled(signal);
 
@@ -429,9 +572,62 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         return n !== null && n >= 1 ? n : 3;
       })();
 
-      const convergencePolicy = getGapConvergencePolicy(this.state);
-      const { convergence, initBaselines, emitIterationCompleted } = createIterationConvergenceTracker({ agent: this, convergencePolicy });
-      initBaselines();
+          const convergencePolicy = getGapConvergencePolicy(this.state);
+          const { convergence, initBaselines, emitIterationCompleted } = createIterationConvergenceTracker({ agent: this, convergencePolicy });
+          initBaselines();
+
+      const reportConvergenceConfig = normalizeReportConvergenceConfig(
+        this.state?.userConfig?.convergenceDetector ??
+          this.state?.userConfig?.reportConvergenceDetector ??
+          this.state?.userConfig?.reportConvergence ??
+          this.globalConfig?.convergenceDetector
+      );
+      const reportConvergenceDetector = reportConvergenceConfig.enabled
+        ? new ConvergenceDetector({
+            windowSize: reportConvergenceConfig.windowSize,
+            ...(reportConvergenceConfig.entropyThreshold !== undefined
+              ? { entropyThreshold: reportConvergenceConfig.entropyThreshold }
+              : {}),
+            ...(reportConvergenceConfig.similarityThreshold !== undefined
+              ? { similarityThreshold: reportConvergenceConfig.similarityThreshold }
+              : {}),
+          })
+        : null;
+
+      const updateReportConvergence = (plannedIteration) => {
+        if (!reportConvergenceDetector) return null;
+        if (plannedIteration < reportConvergenceConfig.minIterations) return null;
+
+        const report = this.context?.report || this.state?.L1?.report || null;
+        const markdown = typeof report?.markdown === "string" ? report.markdown : "";
+        const compactLen = markdown.replace(/\s+/g, "").length;
+        if (compactLen < reportConvergenceConfig.minReportChars) return null;
+
+        const gaps = Array.isArray(this.state?.L1?.gaps) ? this.state.L1.gaps : [];
+        const sample = buildConvergenceSample({
+          reportMarkdown: markdown,
+          gaps,
+          maxChars: reportConvergenceConfig.sampleMaxChars,
+        });
+        const { metrics } = reportConvergenceDetector.addSample(sample);
+        const suggestion = reportConvergenceDetector.getSuggestion();
+        this._emit?.("convergence.suggested", {
+          iteration: plannedIteration,
+          action: suggestion.action,
+          reason: suggestion.reason,
+          metrics,
+        });
+        return { suggestion, metrics };
+      };
+
+      const afterIterationCompleted = (plannedIteration) => {
+        emitIterationCompleted(plannedIteration);
+        const reportConvergence = updateReportConvergence(plannedIteration);
+        if (reportConvergenceConfig.stopOnConvergence && reportConvergence?.suggestion?.action === "stop") {
+          return { shouldStop: true, reportConvergence };
+        }
+        return { shouldStop: false, reportConvergence };
+      };
 
           while (iteration < this.maxIterations) {
         const plannedIteration = iteration + 1;
@@ -481,8 +677,8 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
                   if (this.context) this.context.iteration = iteration;
                   else this.state.iteration = iteration;
                   systemRetryCount = 0;
-                  emitIterationCompleted(plannedIteration);
-                  return { action: "continue" };
+                  const { shouldStop } = afterIterationCompleted(plannedIteration);
+                  return { action: shouldStop ? "break" : "continue" };
                 }
                 if (planned.status === "stop") return { action: "break" };
                 if (planned.status !== "success") return { action: "break" };
@@ -496,7 +692,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
                   });
                   iteration = plannedIteration;
                   systemRetryCount = 0;
-                  emitIterationCompleted(plannedIteration);
+                  afterIterationCompleted(plannedIteration);
                   return { action: "break" };
                 }
 
@@ -519,8 +715,8 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
 
                 iteration = plannedIteration;
                 systemRetryCount = 0;
-                emitIterationCompleted(plannedIteration);
-                return { action: "continue" };
+                const { shouldStop } = afterIterationCompleted(plannedIteration);
+                return { action: shouldStop ? "break" : "continue" };
               });
               if (outcome?.action === "retry") continue;
               if (outcome?.action === "break") break;
@@ -556,7 +752,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
               role: "user",
               content: `系统错误已连续发生 ${maxSystemRetriesPerIteration} 次，为避免卡死，已计入 1 轮迭代并继续。`,
             });
-            emitIterationCompleted(plannedIteration);
+            afterIterationCompleted(plannedIteration);
           }
             }
           }
@@ -592,6 +788,17 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
         }
       },
       { attributes: { stage: "deepsearch" } }
+        ),
+      {
+        context: {
+          stage: "deepsearch",
+          runId: stageApi?.runContext?.runId || input?.runId || this.state?.runId,
+          shouldDegrade,
+          fallbackFactory: () => this._buildOutput(),
+          emit: typeof stageApi?.emit === "function" ? stageApi.emit : null,
+        },
+        rethrow: true,
+      }
     );
   }
 

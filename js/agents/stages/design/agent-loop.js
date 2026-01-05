@@ -10,6 +10,7 @@ import { StagePausedError } from "../../runtime/core/stage-errors.js";
 import { createLifecycleEmitter } from "../../runtime/core/lifecycle.js";
 import { getRuntimeState } from "../../runtime/telemetry/loop-runtime-state.js";
 import { TraceContext } from "../../runtime/telemetry/trace-context.js";
+import { getErrorBoundary } from "../../runtime/core/error-boundary.js";
 import { DESIGN_AGENT_TOOL_DEFINITIONS, createDesignToolHandlers } from "./design-tools.js";
 import { VisualHandler } from "./runtime/visual-handler.js";
 import { runPreparationPhase, runGeneratingPhase, runBatchRepairPhase, runVisualPhase, runReviewPhase, runPlanningPhase, runLayoutPhase } from "./runtime/design-phases.js";
@@ -81,6 +82,31 @@ function resolveStageTraceContext(stageApi) {
   }
 
   return new TraceContext();
+}
+
+function resolveErrorBoundary(stageApi, container) {
+  const direct = stageApi?.errorBoundary;
+  if (direct && typeof direct === "object" && typeof direct.wrap === "function") return direct;
+
+  const c = container || stageApi?.container;
+  if (c && typeof c === "object") {
+    const tryGet = typeof c.tryGet === "function" ? c.tryGet.bind(c) : null;
+    if (tryGet) {
+      const candidate = tryGet("errorBoundary");
+      if (candidate && typeof candidate === "object" && typeof candidate.wrap === "function") return candidate;
+    }
+    const get = typeof c.get === "function" ? c.get.bind(c) : null;
+    if (get) {
+      try {
+        const candidate = get("errorBoundary");
+        if (candidate && typeof candidate === "object" && typeof candidate.wrap === "function") return candidate;
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  return getErrorBoundary();
 }
 
 function createTracedAiApiService(aiApiService, traceContext) {
@@ -640,6 +666,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
     const traceContext = resolveStageTraceContext(stageApi);
     const runContext = stageApi.runContext || { runId: contentPackage?.runId || "run_unknown", constraints: contentPackage?.constraints || {} };
     const runId = runContext.runId || contentPackage?.runId || "run_unknown";
+    const errorBoundary = resolveErrorBoundary(stageApi, this._container);
 
     const tracedContext = {
       ...stageApi,
@@ -651,9 +678,33 @@ export class DesignAgentLoop extends BaseAgentLoop {
     const prevTraceContext = this._traceContext;
     this._traceContext = traceContext;
     try {
-      return await traceContext.withSpan(
-        "design.run",
-        async (runSpan) => {
+      const shouldDegrade = () => {
+        const cfg =
+          stageApi && typeof stageApi === "object" && stageApi.errorBoundaryConfig && typeof stageApi.errorBoundaryConfig === "object"
+            ? stageApi.errorBoundaryConfig
+            : null;
+        if (cfg?.degrade === true) return true;
+        if (stageApi?.errorBoundaryDegrade === true || stageApi?.degradeOnError === true) return true;
+        if (runContext?.userConfig?.errorBoundary?.degrade === true) return true;
+        if (contentPackage?.userConfig?.errorBoundary?.degrade === true) return true;
+        return false;
+      };
+
+      const fallbackFactory = () => {
+        return {
+          schemaVersion: SCHEMA_VERSION,
+          runId,
+          designSystem: this.state?.designSystem || null,
+          deckHtmlDsl: typeof this.state?.deckHtmlDsl === "string" ? this.state.deckHtmlDsl : "",
+          slidesMeta: Array.isArray(this.state?.slidesMeta) ? this.state.slidesMeta : [],
+        };
+      };
+
+      return await errorBoundary.wrap(
+        async () =>
+          await traceContext.withSpan(
+            "design.run",
+            async (runSpan) => {
           runSpan.setAttributes({
             runId,
             slideCount: Array.isArray(contentPackage?.slideIntents) ? contentPackage.slideIntents.length : 0,
@@ -686,6 +737,17 @@ export class DesignAgentLoop extends BaseAgentLoop {
           throw new Error(`Max backtrack attempts (${maxAttempts}) exceeded`);
         },
         { attributes: { stage: "design", runId } }
+          ),
+        {
+          context: {
+            stage: "design",
+            runId,
+            shouldDegrade,
+            fallbackFactory,
+            emit: typeof stageApi?.emit === "function" ? stageApi.emit : null,
+          },
+          rethrow: true,
+        }
       );
     } finally {
       this._traceContext = prevTraceContext;

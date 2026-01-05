@@ -1,8 +1,57 @@
 import { computeSha256 } from "../storage/artifact-manager.js";
 import { normalizeVfsPath } from "./path.js";
 import { createUnifiedDiffAsync } from "./diff.js";
+import { makeSecureTimestampedId } from "../shared/utils/secure-id.js";
 
 import { isPlainObject } from "../shared/utils/value-utils.js";
+
+const LOCAL_ARTIFACT_PREFIX = "pb_vfs_artifact|";
+
+function isRunStoreLike(runStore) {
+  return runStore && typeof runStore.saveArtifact === "function" && typeof runStore.getArtifactById === "function";
+}
+
+function isStorageAdapterLike(storageAdapter) {
+  const s = storageAdapter && typeof storageAdapter === "object" ? storageAdapter : null;
+  if (!s) return false;
+  if (typeof s.get !== "function" || typeof s.set !== "function") return false;
+  if (typeof s.delete !== "function" || typeof s.keys !== "function") return false;
+  return true;
+}
+
+function makeLocalArtifactId(prefix = "artifact") {
+  try {
+    return makeSecureTimestampedId(prefix);
+  } catch {
+    const ts = Date.now().toString(36);
+    const rand = Math.random().toString(16).slice(2, 10);
+    return `${prefix}_${ts}_${rand}`;
+  }
+}
+
+function makeLocalArtifactKey(runId, type, id) {
+  const rid = typeof runId === "string" ? runId.trim() : "";
+  const t = typeof type === "string" ? type.trim() : "";
+  const aid = typeof id === "string" ? id.trim() : "";
+  if (!rid || !t || !aid) throw new Error("makeLocalArtifactKey: runId/type/id are required");
+  return `${LOCAL_ARTIFACT_PREFIX}${t}|${rid}|${aid}`;
+}
+
+function localTypePrefix(runId, type) {
+  const rid = typeof runId === "string" ? runId.trim() : "";
+  const t = typeof type === "string" ? type.trim() : "";
+  if (!rid || !t) return null;
+  return `${LOCAL_ARTIFACT_PREFIX}${t}|${rid}|`;
+}
+
+function parseLocalArtifactKey(key) {
+  const k = typeof key === "string" ? key : "";
+  if (!k.startsWith(LOCAL_ARTIFACT_PREFIX)) return null;
+  const rest = k.slice(LOCAL_ARTIFACT_PREFIX.length);
+  const [type, runId, id] = rest.split("|");
+  if (!type || !runId || !id) return null;
+  return { type, runId, id, artifactId: k };
+}
 function encodeUtf8Bytes(text) {
   if (typeof text !== "string") return 0;
   try {
@@ -120,6 +169,7 @@ export const VFS_PAYLOAD_TYPE = "vfs_payload.bin";
  */
 export async function recordVfsCheckpoint({
   runStore,
+  storageAdapter,
   runId,
   path,
   before,
@@ -132,9 +182,9 @@ export async function recordVfsCheckpoint({
   skipDiff = false,
   deferDiff = false,
 } = {}) {
-  if (!runStore || typeof runStore.saveArtifact !== "function") {
-    throw new Error("recordVfsCheckpoint: runStore with saveArtifact() is required");
-  }
+  const store = isRunStoreLike(runStore) ? runStore : null;
+  const adapter = store ? null : isStorageAdapterLike(storageAdapter) ? storageAdapter : null;
+  if (!store && !adapter) throw new Error("recordVfsCheckpoint: runStore or storageAdapter is required");
   if (!runId || typeof runId !== "string") throw new Error("recordVfsCheckpoint: runId must be a string");
 
   const normalizedPath = normalizeVfsPath(path);
@@ -207,12 +257,23 @@ export async function recordVfsCheckpoint({
     }
   }
 
+  const saveArtifact = async (type, data, options = {}) => {
+    if (store) {
+      return await store.saveArtifact(runId, type, data, options);
+    }
+    const id = makeLocalArtifactId(type === VFS_CHECKPOINT_TYPE ? "vfs_ckpt" : "vfs_payload");
+    const key = makeLocalArtifactKey(runId, type, id);
+    await adapter.set(key, data);
+    return key;
+  };
+
   if (beforeBytes.byteLength <= maxEmbedBytes) {
     if (beforeText !== null) checkpoint.before.text = beforeText;
     else checkpoint.before.base64 = bytesToBase64(beforeBytes);
   } else {
     // Store large payloads out-of-band so restores remain possible.
-    const payloadId = await runStore.saveArtifact(runId, VFS_PAYLOAD_TYPE, beforeText !== null ? beforeText : beforeBytes, {
+    const payloadData = beforeText !== null ? beforeText : store ? beforeBytes : bytesToBase64(beforeBytes);
+    const payloadId = await saveArtifact(VFS_PAYLOAD_TYPE, payloadData, {
       mime: beforeText !== null ? "text/plain;charset=utf-8" : "application/octet-stream",
       bytes: beforeBytes.byteLength,
       ...(beforeSha ? { sha256: beforeSha } : {}),
@@ -231,7 +292,8 @@ export async function recordVfsCheckpoint({
     if (afterText !== null) checkpoint.after.text = afterText;
     else checkpoint.after.base64 = bytesToBase64(afterBytes);
   } else {
-    const payloadId = await runStore.saveArtifact(runId, VFS_PAYLOAD_TYPE, afterText !== null ? afterText : afterBytes, {
+    const payloadData = afterText !== null ? afterText : store ? afterBytes : bytesToBase64(afterBytes);
+    const payloadId = await saveArtifact(VFS_PAYLOAD_TYPE, payloadData, {
       mime: afterText !== null ? "text/plain;charset=utf-8" : "application/octet-stream",
       bytes: afterBytes.byteLength,
       ...(afterSha ? { sha256: afterSha } : {}),
@@ -246,7 +308,7 @@ export async function recordVfsCheckpoint({
     };
   }
 
-  const artifactId = await runStore.saveArtifact(runId, VFS_CHECKPOINT_TYPE, checkpoint, {
+  const artifactId = await saveArtifact(VFS_CHECKPOINT_TYPE, checkpoint, {
     mime: "application/json",
     bytes: encodeUtf8Bytes(JSON.stringify(checkpoint)),
     ...(afterSha ? { sha256: afterSha } : {}),
@@ -255,31 +317,63 @@ export async function recordVfsCheckpoint({
   return { artifactId, checkpoint };
 }
 
-export async function listVfsCheckpoints(runStore, runId) {
-  if (!runStore || typeof runStore.listArtifacts !== "function") return [];
-  try {
-    if (typeof runStore.listArtifactSummaries === "function") {
-      const rows = await runStore.listArtifactSummaries(runId, { type: VFS_CHECKPOINT_TYPE });
-      return (rows || []).sort((a, b) => (a.seq || 0) - (b.seq || 0));
+export async function listVfsCheckpoints(runStore, runId, storageAdapter) {
+  const store = isRunStoreLike(runStore) ? runStore : null;
+  const adapter = !store && isStorageAdapterLike(storageAdapter) ? storageAdapter : null;
+  if (!store && !adapter) return [];
+
+  if (store) {
+    try {
+      if (typeof store.listArtifactSummaries === "function") {
+        const rows = await store.listArtifactSummaries(runId, { type: VFS_CHECKPOINT_TYPE });
+        return (rows || []).sort((a, b) => (a.seq || 0) - (b.seq || 0));
+      }
+    } catch {
+      // fall back
     }
-  } catch {
-    // fall back
+    const rows = await store.listArtifacts(runId);
+    return (rows || []).filter((r) => r && r.type === VFS_CHECKPOINT_TYPE).sort((a, b) => (a.seq || 0) - (b.seq || 0));
   }
-  const rows = await runStore.listArtifacts(runId);
-  return (rows || []).filter((r) => r && r.type === VFS_CHECKPOINT_TYPE).sort((a, b) => (a.seq || 0) - (b.seq || 0));
+
+  const prefix = localTypePrefix(runId, VFS_CHECKPOINT_TYPE);
+  if (!prefix) return [];
+  const keys = await adapter.keys();
+  const out = [];
+  for (const key of keys) {
+    const k = String(key || "");
+    if (!k.startsWith(prefix)) continue;
+    const parsed = parseLocalArtifactKey(k);
+    if (!parsed) continue;
+    out.push({ artifactId: k, type: parsed.type, runId: parsed.runId, id: parsed.id });
+  }
+  return out;
 }
 
-export async function restoreVfsCheckpoint({ vfs, runStore, artifactId } = {}) {
+export async function restoreVfsCheckpoint({ vfs, runStore, storageAdapter, artifactId } = {}) {
   if (!vfs || typeof vfs.writeFile !== "function") {
     throw new Error("restoreVfsCheckpoint: vfs with writeFile() is required");
   }
-  if (!runStore || typeof runStore.getArtifactById !== "function") {
-    throw new Error("restoreVfsCheckpoint: runStore with getArtifactById() is required");
-  }
+  const store = isRunStoreLike(runStore) ? runStore : null;
+  const adapter = isStorageAdapterLike(storageAdapter) ? storageAdapter : null;
+  if (!store && !adapter) throw new Error("restoreVfsCheckpoint: runStore or storageAdapter is required");
   const id = typeof artifactId === "string" ? artifactId.trim() : "";
   if (!id) throw new Error("restoreVfsCheckpoint: artifactId must be a non-empty string");
 
-  const checkpoint = await runStore.getArtifactById(id);
+  const loadById = async (artifactIdToLoad) => {
+    if (store) {
+      try {
+        return await store.getArtifactById(artifactIdToLoad);
+      } catch {
+        // fall through to adapter below
+      }
+    }
+    if (adapter) {
+      return await adapter.get(artifactIdToLoad);
+    }
+    return undefined;
+  };
+
+  const checkpoint = await loadById(id);
   const path = normalizeVfsPath(checkpoint?.path);
   if (!path) throw new Error("restoreVfsCheckpoint: checkpoint missing path");
 
@@ -306,7 +400,7 @@ export async function restoreVfsCheckpoint({ vfs, runStore, artifactId } = {}) {
   const payloadId = typeof checkpoint?.before?.payload?.artifactId === "string" ? checkpoint.before.payload.artifactId.trim() : "";
   if (payloadId) {
     try {
-      const raw = await runStore.getArtifactById(payloadId);
+      const raw = await loadById(payloadId);
       const enc = typeof checkpoint?.before?.payload?.encoding === "string" ? checkpoint.before.payload.encoding : "";
 
       if (enc === "utf8") {
@@ -319,7 +413,10 @@ export async function restoreVfsCheckpoint({ vfs, runStore, artifactId } = {}) {
         return { ok: true, path, encoding: "utf8", payloadArtifactId: payloadId };
       }
 
-      const bytes = await payloadToBytes(raw);
+      const bytes =
+        typeof raw === "string" && raw && enc !== "utf8"
+          ? base64ToBytes(raw)
+          : await payloadToBytes(raw);
       await vfs.writeFile(path, bytes);
       return { ok: true, path, encoding: "binary", payloadArtifactId: payloadId };
     } catch (err) {

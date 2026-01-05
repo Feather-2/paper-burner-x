@@ -10,6 +10,35 @@
 import { executeTool } from "../tools/index.js";
 import { maybePersistToolOutput } from "../../../runtime/persisted-output.js";
 
+function buildLoopGuardNote(guard) {
+  if (!guard || typeof guard !== "object") return "";
+
+  if (guard.behavior?.loopDetected) {
+    const loopInfo = guard.behavior.loopInfo || null;
+    const suggestion = guard.behavior.suggestion || null;
+    const pattern = Array.isArray(loopInfo?.pattern) ? loopInfo.pattern.slice(0, 6).join(" -> ") : "";
+    const action = typeof suggestion?.action === "string" ? suggestion.action : "break_loop";
+    const hint = typeof suggestion?.suggestion === "string" ? suggestion.suggestion : null;
+    const reason = typeof suggestion?.reason === "string" ? suggestion.reason : null;
+
+    const details = [
+      pattern ? `pattern: ${pattern}` : null,
+      hint ? `hint: ${hint}` : null,
+      reason ? `reason: ${reason}` : null,
+    ]
+      .filter(Boolean)
+      .join(" | ");
+
+    return `\n\n[LoopGuard] 检测到重复工具调用模式，建议 ${action}${details ? `（${details}）` : ""}。请改变策略/参数，或使用 ask-user 澄清，避免卡死。`;
+  }
+
+  if (guard.shouldWarn) {
+    return `\n\n[LoopGuard] 你似乎在重复调用同一个工具（${guard.tool}）多次（连续 ${guard.consecutive} 次）。请改变策略/参数，或使用 ask-user 澄清，避免卡死。`;
+  }
+
+  return "";
+}
+
 function getSideEffectsCursor(stageApi) {
   if (!stageApi?.sideEffects || typeof stageApi.sideEffects.getCursor !== "function") return null;
   try {
@@ -103,9 +132,7 @@ export async function executeDeepSearchDecision({
       formatted.push({ ...r, inline: r.result ?? { success: false, error: r.error }, persisted: false, ref: null });
     }
 
-    const loopGuardNote = loopGuardWarn?.shouldWarn
-      ? `\n\n[LoopGuard] 你似乎在重复调用同一个工具（${loopGuardWarn.tool}）多次（连续 ${loopGuardWarn.consecutive} 次）。请改变策略/参数，或使用 ask-user 澄清，避免卡死。`
-      : "";
+    const loopGuardNote = buildLoopGuardNote(loopGuardWarn);
 
     agent.addMessage({
       role: "user",
@@ -175,7 +202,7 @@ export async function executeDeepSearchDecision({
 
   agent.addMessage({
     role: "user",
-    content: `结果: ${JSON.stringify(toolPayloadForPrompt, null, 2)}\n\n如需读取完整 persisted output，请用 get-artifact { artifactId }。${loopGuard?.shouldWarn ? `\n\n[LoopGuard] 你似乎在重复调用同一个工具（${loopGuard.tool}）多次（连续 ${loopGuard.consecutive} 次）。请改变策略/参数，或使用 ask-user 澄清，避免卡死。` : ""}\n\n请继续。`,
+    content: `结果: ${JSON.stringify(toolPayloadForPrompt, null, 2)}\n\n如需读取完整 persisted output，请用 get-artifact { artifactId }。${buildLoopGuardNote(loopGuard)}\n\n请继续。`,
   });
 
   return { toolCalls: 1 };

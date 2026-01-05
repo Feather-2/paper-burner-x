@@ -64,6 +64,11 @@ function buildCodeSearchWatchdogAdvice(issues) {
   const types = new Set(rows.map((x) => String(x?.type || "")));
 
   const tips = [];
+  if (types.has("tool_loop")) {
+    const loop = rows.find((x) => x?.type === "tool_loop");
+    const hint = loop?.suggestion ? `（${loop.suggestion}）` : "";
+    tips.push(`检测到重复工具调用模式；建议切换策略/参数或换 todo，必要时 ask-user 澄清。${hint}`.trim());
+  }
   if (types.has("oscillation")) {
     tips.push("你可能在重复调用同一工具/读取同一文件；尝试切换到不同 todo，或改变检索策略（tree → grep/glob → find_symbol）。");
     tips.push("优先使用更粗粒度的工具（tree/grep/glob）定位入口，再少量 read_file。");
@@ -202,20 +207,6 @@ export class CodeSearchStage extends BaseAgentLoop {
       if (budgetStopRequested) throw new Error("CodeSearch: Budget exceeded");
     };
 
-    // 初始化工具
-    const tools = createToolExecutor({
-      fs: stageApi?.fs || await this._getDefaultFs(),
-      vfs: stageApi?.vfs,
-      globFn: stageApi?.globFn,
-      basePath: input?.basePath || ".",
-      logger,
-      emit,
-      policy: stageApi?.policy,
-      runStore: stageApi?.runStore,
-      runId,
-      stageApi,
-    });
-
     // 初始化 LLM
     const callModel = getModelCaller(stageApi, { usage: "codesearch" });
     if (!callModel) {
@@ -245,6 +236,21 @@ export class CodeSearchStage extends BaseAgentLoop {
     }
     this._watchdog = watchdog;
     let watchdogInterventions = 0;
+
+    // 初始化工具（注入 watchdog 以记录工具调用指纹）
+    const tools = createToolExecutor({
+      fs: stageApi?.fs || await this._getDefaultFs(),
+      vfs: stageApi?.vfs,
+      globFn: stageApi?.globFn,
+      basePath: input?.basePath || ".",
+      logger,
+      emit,
+      policy: stageApi?.policy,
+      runStore: stageApi?.runStore,
+      runId,
+      stageApi,
+      watchdog,
+    });
 
     // 开始执行
     this._transitionLoopStatus(AgentStatus.RUNNING, { runId, iteration: 0 });
@@ -340,9 +346,11 @@ export class CodeSearchStage extends BaseAgentLoop {
             const hasOscillation = health.issues.some((x) => x?.type === "oscillation");
             const hasTimeout = health.issues.some((x) => x?.type === "timeout");
             const hasStuck = health.issues.some((x) => x?.type === "stuck");
+            const hasToolLoop = health.issues.some((x) => x?.type === "tool_loop");
 
             // Soft intervention: reset watchdog window after hinting the model.
             if (typeof watchdog.resetOscillation === "function") watchdog.resetOscillation();
+            if (hasToolLoop && typeof watchdog.resetToolLoop === "function") watchdog.resetToolLoop();
 
             // Hard stop if repeatedly oscillating, or if timing issues appear.
             if (hasTimeout || hasStuck || (hasOscillation && watchdogInterventions >= 2)) {

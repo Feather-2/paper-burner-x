@@ -7,6 +7,7 @@ import { extractClaims } from "./claims.js";
 import { buildContentPackage } from "./build-content-package.js";
 import { BaseStage } from "../../runtime/core/agent-loop.js";
 import { TraceContext } from "../../runtime/telemetry/trace-context.js";
+import { getErrorBoundary } from "../../runtime/core/error-boundary.js";
 import { createStageApi } from "../../shared/utils/stage-api.js";
 import { injectSystemHint } from "../../shared/utils/message-utils.js";
 import { extractJsonCandidate } from "../../shared/utils/json-candidate.js";
@@ -96,6 +97,31 @@ function resolveStageTraceContext(api) {
   }
 
   return new TraceContext();
+}
+
+function resolveErrorBoundary(api) {
+  const direct = api?.errorBoundary;
+  if (direct && typeof direct === "object" && typeof direct.wrap === "function") return direct;
+
+  const container = api?.container;
+  if (container && typeof container === "object") {
+    const tryGet = typeof container.tryGet === "function" ? container.tryGet.bind(container) : null;
+    if (tryGet) {
+      const candidate = tryGet("errorBoundary");
+      if (candidate && typeof candidate === "object" && typeof candidate.wrap === "function") return candidate;
+    }
+    const get = typeof container.get === "function" ? container.get.bind(container) : null;
+    if (get) {
+      try {
+        const candidate = get("errorBoundary");
+        if (candidate && typeof candidate === "object" && typeof candidate.wrap === "function") return candidate;
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  return getErrorBoundary();
 }
 
 function createTracedAiApiService(aiApiService, traceContext) {
@@ -205,6 +231,7 @@ export class TextPrepStage extends BaseStage {
     const api = createStageApi(context);
     const runContext = api.runContext || { runId: "run_unknown", constraints: {} };
     const traceContext = resolveStageTraceContext(api);
+    const errorBoundary = resolveErrorBoundary(api);
     try {
       if (!api.traceContext) api.traceContext = traceContext;
     } catch {
@@ -214,9 +241,80 @@ export class TextPrepStage extends BaseStage {
     const emit = (name, payload) => api.emit(name, { actor: "textprep", status: "completed", payload });
     const rawText = toRawText(input);
 
-    return await traceContext.withSpan(
-      "textprep.run",
-      async (runSpan) => {
+    const shouldDegrade = () => {
+      const cfg =
+        api && typeof api === "object" && api.errorBoundaryConfig && typeof api.errorBoundaryConfig === "object"
+          ? api.errorBoundaryConfig
+          : null;
+      if (cfg?.degrade === true) return true;
+      if (api?.errorBoundaryDegrade === true || api?.degradeOnError === true) return true;
+      const constraints = runContext?.constraints && typeof runContext.constraints === "object" ? runContext.constraints : null;
+      if (constraints?.errorBoundary?.degrade === true) return true;
+      return false;
+    };
+
+    const fallbackFactory = () => {
+      // Best-effort heuristic pipeline: avoids LLM calls, still satisfies hard gates.
+      const normalized = normalizeText(rawText);
+      const chunkOptions = { ...this.defaultChunkOptions, ...(toChunkOptions(input) || {}) };
+      const chunks = chunkText(normalized.normalized, chunkOptions);
+
+      const desired = (() => {
+        const c = runContext?.constraints;
+        if (c && typeof c.pageCount === "number" && c.pageCount > 0) return Math.floor(c.pageCount);
+        if (Array.isArray(c?.pageCountRange) && c.pageCountRange.length >= 2) {
+          const a = Number(c.pageCountRange[0]);
+          const b = Number(c.pageCountRange[1]);
+          if (Number.isFinite(a) && Number.isFinite(b)) return Math.max(4, Math.round((a + b) / 2));
+        }
+        return 8;
+      })();
+
+      const slideIntents = [];
+      slideIntents.push({ slideIntentId: "s_cover", pageType: "cover", title: "Presentation" });
+      slideIntents.push({ slideIntentId: "s_agenda", pageType: "agenda", title: "Agenda" });
+      slideIntents.push({ slideIntentId: "s_overview", pageType: "overview", title: "Overview" });
+      const remaining = Math.max(0, desired - slideIntents.length - 1);
+      for (let i = 0; i < remaining; i++) {
+        slideIntents.push({
+          slideIntentId: `s_${i + 1}`,
+          pageType: i % 2 === 0 ? "process" : "comparison",
+          title: i % 2 === 0 ? "Process" : "Comparison",
+        });
+      }
+      slideIntents.push({ slideIntentId: "s_summary", pageType: "summary", title: "Summary" });
+
+      const { claims, evidenceLedger } = extractClaims(chunks, slideIntents, {
+        sourceId: "user_text",
+        sourceTextNormalized: normalized.normalized,
+        maxQuoteLen: 220,
+      });
+
+      const alignedSlides = alignClaimsHeuristic(slideIntents, claims);
+
+      const sources = [
+        {
+          sourceId: "user_text",
+          kind: "user_text",
+          title: "User Input",
+          textHash: normalized.textHash,
+          normalization: normalized.normalization,
+          // Internal-only: used to validate evidence locators/quotes (H3), not emitted in ContentPackage.sources.
+          sourceTextNormalized: normalized.normalized,
+        },
+      ];
+
+      const safeRunContext = { ...runContext, mode: "textprep" };
+      const pkg = buildContentPackage(safeRunContext, sources, alignedSlides, claims, evidenceLedger, []);
+      if (pkg?.metrics?.textprep) pkg.metrics.textprep.chunkCount = chunks.length;
+      return pkg;
+    };
+
+    return await errorBoundary.wrap(
+      async () =>
+        await traceContext.withSpan(
+          "textprep.run",
+          async (runSpan) => {
         runSpan.setAttributes({ runId: runContext?.runId, rawChars: rawText.length });
 
         const tracedAiApiService = createTracedAiApiService(api.aiApiService, traceContext);
@@ -307,6 +405,17 @@ export class TextPrepStage extends BaseStage {
         return pkg;
       },
       { attributes: { stage: "textprep", runId: runContext?.runId } }
+        ),
+      {
+        context: {
+          stage: "textprep",
+          runId: runContext?.runId,
+          shouldDegrade,
+          fallbackFactory,
+          emit: typeof api?.emit === "function" ? api.emit : null,
+        },
+        rethrow: true,
+      }
     );
   }
 }

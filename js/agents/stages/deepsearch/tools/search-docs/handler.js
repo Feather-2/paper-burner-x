@@ -5,8 +5,51 @@
 import SourceManager from "../../source-manager.js";
 import { EmbeddingService } from "../../../../shared/embeddings/embedding-service.js";
 import { getGlobalCircuitBreakerRegistry } from "../../../../shared/utils/circuit-breaker.js";
+import { mmrSelect } from "../../../../retrieval/mmr.js";
 
 import { isPlainObject } from "../../../../shared/utils/value-utils.js";
+
+function resolveMmrSettings(args, limit) {
+  const mmrCfg = args?.mmr;
+  if (mmrCfg === false) return { enabled: false };
+
+  const enabled = mmrCfg === undefined ? true : mmrCfg === true || isPlainObject(mmrCfg);
+  if (!enabled) return { enabled: false };
+
+  const cfg = isPlainObject(mmrCfg) ? mmrCfg : {};
+  const lambda = typeof cfg.lambda === "number" && Number.isFinite(cfg.lambda) ? cfg.lambda : 0.7;
+  const maxTokens = typeof cfg.maxTokens === "number" && Number.isFinite(cfg.maxTokens) ? cfg.maxTokens : 200;
+  const poolFactor = typeof cfg.poolFactor === "number" && Number.isFinite(cfg.poolFactor) ? cfg.poolFactor : 3;
+  const poolLimitRaw = typeof cfg.poolLimit === "number" && Number.isFinite(cfg.poolLimit) ? cfg.poolLimit : Math.ceil(limit * poolFactor);
+  const poolLimit = Math.max(limit, Math.min(100, Math.max(1, Math.floor(poolLimitRaw))));
+
+  return { enabled: true, lambda, maxTokens, poolLimit };
+}
+
+function applyMmrToResults(results, { topK, lambda, maxTokens } = {}) {
+  const rows = Array.isArray(results) ? results : [];
+  const k = Number.isFinite(topK) ? Math.max(1, Math.floor(topK)) : rows.length;
+  if (rows.length <= 1 || k >= rows.length) return rows.slice(0, k);
+
+  const candidates = [];
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || typeof row !== "object") continue;
+    const sourceId = String(row.sourceId || row.docId || row.id || "").trim() || "source";
+    const line = Number.isFinite(Number(row.line ?? row.startLine)) ? Math.max(1, Math.floor(Number(row.line ?? row.startLine))) : null;
+    const chunkId = String(row.chunkId || row.chunk_id || row.hitId || row.hit_id || `${sourceId}:${line ?? i}`);
+    const text = String(row.text || row.snippet || row.content || "");
+    const score = typeof row.score === "number" && Number.isFinite(row.score) ? row.score : 0;
+    candidates.push({ chunkId, text, score, _row: row });
+  }
+
+  const selected = mmrSelect(candidates, { topK: k, lambda, maxTokens });
+  const out = [];
+  for (const s of selected) {
+    if (s && s._row) out.push(s._row);
+  }
+  return out.length ? out : rows.slice(0, k);
+}
 function resolveEmbeddingService(context) {
   const ctx = context && typeof context === "object" ? context : null;
   const direct = ctx?.embeddingService;
@@ -69,6 +112,9 @@ export async function handler(args, context) {
     return { success: false, error: "query is required" };
   }
 
+  const mmr = resolveMmrSettings(args, limit);
+  const effectiveLimit = mmr.enabled ? mmr.poolLimit : limit;
+
   const manager = context?.sourceManager instanceof SourceManager ? context.sourceManager : new SourceManager(state?.L0?.sources || []);
   manager.syncSources(state?.L0?.sources);
 
@@ -98,19 +144,27 @@ export async function handler(args, context) {
   const runLocalSearch = async () => {
     // 简单的关键词匹配回退（分词匹配）
     const embeddingService = resolveEmbeddingService(context);
-    const results =
+    const rawResults =
       embeddingService && typeof manager.semanticSearch === "function"
         ? await manager.semanticSearch(query, {
             sources: targetSources,
-            limit,
+            limit: effectiveLimit,
             embeddingService,
             ...(semanticTimeoutMs ? { timeoutMs: semanticTimeoutMs } : {}),
           })
-        : manager.search(query, { sources: targetSources, limit });
+        : manager.search(query, { sources: targetSources, limit: effectiveLimit });
+
+    const results = mmr.enabled ? applyMmrToResults(rawResults, { topK: limit, lambda: mmr.lambda, maxTokens: mmr.maxTokens }) : rawResults;
 
     addGapEvidence(results);
-    emit?.("deepsearch.search.completed", { query, gapId, resultCount: results.length, fallback: "local" });
-    return { success: true, results, fallback: "local" };
+    emit?.("deepsearch.search.completed", {
+      query,
+      gapId,
+      resultCount: results.length,
+      fallback: "local",
+      ...(mmr.enabled ? { mmr: { applied: true, pool: rawResults.length, lambda: mmr.lambda } } : {}),
+    });
+    return { success: true, results, fallback: "local", ...(mmr.enabled ? { mmr: { applied: true, pool: rawResults.length, lambda: mmr.lambda } } : {}) };
   };
 
   // 使用 retriever 搜索（如果提供）
@@ -133,7 +187,7 @@ export async function handler(args, context) {
         return await runLocalSearch();
       }
 
-      const raw = await breaker.execute(async () => retriever.search(query, { sources: targetSources, limit }));
+      const raw = await breaker.execute(async () => retriever.search(query, { sources: targetSources, limit: effectiveLimit }));
       const results = Array.isArray(raw)
         ? raw
         : raw && typeof raw === "object" && Array.isArray(raw.results)
@@ -141,11 +195,18 @@ export async function handler(args, context) {
           : null;
       if (!results) throw new Error("retriever.search returned invalid result");
 
-      // 如果指定了 gapId，自动将结果作为证据存入黑板
-      addGapEvidence(results);
+      const finalResults = mmr.enabled ? applyMmrToResults(results, { topK: limit, lambda: mmr.lambda, maxTokens: mmr.maxTokens }) : results;
 
-      emit?.("deepsearch.search.completed", { query, gapId, resultCount: results.length });
-      return { success: true, results };
+      // 如果指定了 gapId，自动将结果作为证据存入黑板
+      addGapEvidence(finalResults);
+
+      emit?.("deepsearch.search.completed", {
+        query,
+        gapId,
+        resultCount: finalResults.length,
+        ...(mmr.enabled ? { mmr: { applied: true, pool: results.length, lambda: mmr.lambda } } : {}),
+      });
+      return { success: true, results: finalResults, ...(mmr.enabled ? { mmr: { applied: true, pool: results.length, lambda: mmr.lambda } } : {}) };
     } catch (err) {
       // 熔断 / 外部检索失败时降级为本地检索（不让整个 stage 因为搜索抖动而失败）
       return await runLocalSearch();

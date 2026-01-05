@@ -5,6 +5,7 @@ import { safeJsonParse } from "../shared/utils/safe-json.js";
 import { CircuitBreaker, CircuitState } from "../shared/utils/circuit-breaker.js";
 import { getGlobalTokenTracker } from "../runtime/telemetry/token-tracker.js";
 import { ModelEventEmitter } from "./model-events.js";
+import { RetryStrategy } from "../runtime/core/retry-strategy.js";
 
 import { isPlainObject, toNonEmptyString, toPositiveInt } from "../shared/utils/value-utils.js";
 function isStorageLike(value) {
@@ -14,6 +15,25 @@ function isStorageLike(value) {
     typeof value.getItem === "function" &&
     typeof value.setItem === "function"
   );
+}
+
+function isRetryStrategyLike(value) {
+  return value !== null && typeof value === "object" && typeof value.execute === "function";
+}
+
+function resolveRetryStrategy(retryStrategy, retryConfig) {
+  if (isRetryStrategyLike(retryStrategy)) return retryStrategy;
+  const cfg = isPlainObject(retryConfig)
+    ? retryConfig
+    : isPlainObject(retryStrategy) && !isRetryStrategyLike(retryStrategy)
+      ? retryStrategy
+      : null;
+  if (!cfg) return null;
+  try {
+    return new RetryStrategy(cfg);
+  } catch {
+    return null;
+  }
 }
 
 function toErrorInfo(err) {
@@ -106,6 +126,8 @@ export class ModelRouter {
     backoffMultiplier,
     usageTags,
     time,
+    retryStrategy = null,
+    retry = null,
     debug = false,
     logger,
     strategy = "round_robin",
@@ -133,6 +155,7 @@ export class ModelRouter {
     this._roundRobinStorage = isStorageLike(storage) ? storage : null;
 
     this._time = isPlainObject(time) && typeof time.now === "function" && typeof time.sleep === "function" ? time : defaultTime();
+    this._retryStrategy = resolveRetryStrategy(retryStrategy, retry);
 
     const DEFAULT_BASE_COOLDOWN_MS = 60_000;
     const DEFAULT_MAX_COOLDOWN_MS = 600_000;
@@ -621,19 +644,20 @@ export class ModelRouter {
           triedCount++;
           this._logger.debug(`[ModelRouter] try ${modelId} via ${entry.provider}`);
 
-          // P3.3: 使用熔断器包装调用
-          const doChat = () => provider.chat({ model: entry.id, messages, images });
-          const doChatWithCircuitBreaker = circuitBreaker
-            ? () => circuitBreaker.execute(doChat)
-            : doChat;
+	          // P3.3: 使用熔断器包装调用
+	          const doChat = () => provider.chat({ model: entry.id, messages, images });
+	          const doChatWithCircuitBreaker = circuitBreaker
+	            ? () => circuitBreaker.execute(doChat)
+	            : doChat;
 
           // P4.3: 计时
           const callStartMs = this._time.now();
 
-          const resp = limiter
-            ? await limiter.schedule(doChatWithCircuitBreaker, { label: `${u}:${modelId}` })
-            : await doChatWithCircuitBreaker();
-          assertChatResponse(resp);
+	          const executeOnce = () =>
+	            limiter ? limiter.schedule(doChatWithCircuitBreaker, { label: `${u}:${modelId}` }) : doChatWithCircuitBreaker();
+
+	          const resp = this._retryStrategy ? await this._retryStrategy.execute(executeOnce) : await executeOnce();
+	          assertChatResponse(resp);
 
           const callEndMs = this._time.now();
           const latencyMs = callEndMs - callStartMs;

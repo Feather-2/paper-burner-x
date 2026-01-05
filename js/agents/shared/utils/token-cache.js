@@ -6,17 +6,30 @@ const MAX_CACHE_SIZE = 10000;
 let hits = 0;
 let misses = 0;
 
-export function estimateTokensCached(text) {
+export function estimateTokensCached(text, tokenCounter) {
   if (!text || typeof text !== "string") return 0;
 
-  const key = text.length > 100 ? hashCode(text) : text;
+  // Key design:
+  // - short strings: use the string itself (fast, collision-free)
+  // - long strings: use `${len}:${hash}` to reduce collision risk
+  const key = text.length > 100 ? `${text.length}:${hashCode(text)}` : text;
   if (cache.has(key)) {
     hits++;
     return cache.get(key);
   }
 
   misses++;
-  const tokens = estimateTokens(text);
+  let tokens;
+  if (tokenCounter && typeof tokenCounter === "object" && typeof tokenCounter.count === "function") {
+    try {
+      tokens = tokenCounter.count(text);
+    } catch {
+      // ignore and fall back below
+    }
+  }
+  if (typeof tokens !== "number" || !Number.isFinite(tokens) || tokens < 0) {
+    tokens = estimateTokens(text);
+  }
   if (cache.size >= MAX_CACHE_SIZE) {
     const firstKey = cache.keys().next().value;
     cache.delete(firstKey);
@@ -50,4 +63,3 @@ export function getTokenCacheStats() {
     hitRate: total > 0 ? hits / total : 0,
   };
 }
-

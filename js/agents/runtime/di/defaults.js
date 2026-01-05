@@ -15,6 +15,9 @@ export const ServiceId = {
   LOGGER: "logger",
   EVENT_BUS: "eventBus",
   TRACE_CONTEXT: "traceContext",
+  RETRY_STRATEGY: "retryStrategy",
+  ERROR_BOUNDARY: "errorBoundary",
+  TOOL_QUOTA_MANAGER: "toolQuotaManager",
   MEMORY_STORE: "memoryStore",
   STATE_ENGINE: "stateEngine",
   MODEL_ROUTER: "modelRouter",
@@ -69,6 +72,47 @@ export function createAgentContainer(overrides = {}) {
     { scope: SINGLETON }
   );
 
+  // RetryStrategy (no dependencies)
+  // Singleton so global retry budgets apply across services.
+  container.register(
+    ServiceId.RETRY_STRATEGY,
+    async () => {
+      const { RetryStrategy } = await import("../core/retry-strategy.js");
+      return new RetryStrategy();
+    },
+    { scope: SINGLETON }
+  );
+
+  // ErrorBoundary (no dependencies)
+  container.register(
+    ServiceId.ERROR_BOUNDARY,
+    async () => {
+      const { getErrorBoundary } = await import("../core/error-boundary.js");
+      return getErrorBoundary();
+    },
+    { scope: SINGLETON }
+  );
+
+  // ToolQuotaManager (no dependencies)
+  container.register(
+    ServiceId.TOOL_QUOTA_MANAGER,
+    async () => {
+      const { ToolQuotaManager } = await import("../tools/tool-quotas.js");
+      return new ToolQuotaManager({
+        defaultMaxCalls: 100,
+        defaultWindowMs: 60_000,
+        quotas: {
+          // Common high-frequency tools (warn/block configured at call site).
+          search: { maxCalls: 10, windowMs: 60_000 },
+          "search-docs": { maxCalls: 10, windowMs: 60_000 },
+          "search.query": { maxCalls: 10, windowMs: 60_000 },
+          "search.fetch": { maxCalls: 30, windowMs: 60_000 },
+        },
+      });
+    },
+    { scope: SINGLETON }
+  );
+
   // MemoryStore (depends on eventBus)
   container.register(ServiceId.MEMORY_STORE, async (c) => {
     const { MemoryStore } = await import("../memory/memory-store.js");
@@ -87,7 +131,8 @@ export function createAgentContainer(overrides = {}) {
   container.register(ServiceId.MODEL_ROUTER, async (c) => {
     const { ModelRouter } = await import("../../llm/model-router.js");
     const logger = c.get(ServiceId.LOGGER);
-    return new ModelRouter({ logger });
+    const retryStrategy = await c.get(ServiceId.RETRY_STRATEGY);
+    return new ModelRouter({ logger, retryStrategy });
   });
 
   // McpClient (no dependencies)

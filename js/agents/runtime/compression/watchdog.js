@@ -12,6 +12,7 @@
 
 import { WatchdogEvents } from "../events/events.js";
 import { toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { BehaviorFingerprint } from "../analysis/behavior-fingerprint.js";
 
 /**
  * Simple fingerprint for output similarity detection.
@@ -55,7 +56,7 @@ function tokenize(text, n = 3) {
 }
 
 export class Watchdog {
-  constructor({ eventBus, maxRecentOutputs = 5, oscillationThreshold = 0.85 } = {}) {
+  constructor({ eventBus, maxRecentOutputs = 5, oscillationThreshold = 0.85, behaviorFingerprint } = {}) {
     this.eventBus = eventBus || null;
     this._observers = new Map();
     this._startTime = Date.now();
@@ -67,6 +68,18 @@ export class Watchdog {
     this._maxRecentOutputs = Math.max(2, Math.floor(maxRecentOutputs) || 5);
     this._oscillationThreshold = Math.min(1, Math.max(0, oscillationThreshold || 0.85));
     this._consecutiveSimilarCount = 0;
+
+    // Tool-call loop detection (BehaviorFingerprint)
+    this._behaviorFingerprint = null;
+    this._behaviorLastNotifiedLoopCount = 0;
+    if (behaviorFingerprint !== false) {
+      const cfg = behaviorFingerprint && typeof behaviorFingerprint === "object" && !Array.isArray(behaviorFingerprint) ? behaviorFingerprint : {};
+      try {
+        this._behaviorFingerprint = new BehaviorFingerprint(cfg);
+      } catch {
+        this._behaviorFingerprint = null;
+      }
+    }
   }
 
   configure({ maxRecentOutputs, oscillationThreshold } = {}) {
@@ -83,6 +96,42 @@ export class Watchdog {
       maxRecentOutputs: this._maxRecentOutputs,
       oscillationThreshold: this._oscillationThreshold,
     };
+  }
+
+  /**
+   * Record a tool/action invocation for loop detection.
+   *
+   * @param {{type?:string,name?:string,args?:object,params?:object}} action
+   * @returns {{ loopDetected: boolean, loopInfo: object|null, suggestion?: object|null }}
+   */
+  recordAction(action) {
+    if (!this._behaviorFingerprint || typeof this._behaviorFingerprint.recordAction !== "function") {
+      return { loopDetected: false, loopInfo: null, suggestion: null };
+    }
+
+    const out = this._behaviorFingerprint.recordAction(action || {});
+    if (out?.loopDetected) {
+      const loopCount = typeof out?.loopInfo?.totalLoopsDetected === "number" ? out.loopInfo.totalLoopsDetected : 0;
+      const suggestion = typeof this._behaviorFingerprint.getSuggestion === "function" ? this._behaviorFingerprint.getSuggestion() : null;
+      if (loopCount > this._behaviorLastNotifiedLoopCount) {
+        this._behaviorLastNotifiedLoopCount = loopCount;
+        this._emit(WatchdogEvents.WATCHDOG_INTERVENTION || "watchdog.intervention", {
+          issues: [
+            {
+              type: "tool_loop",
+              action: suggestion?.action,
+              severity: suggestion?.severity,
+              reason: suggestion?.reason,
+              suggestion: suggestion?.suggestion,
+              loopInfo: out.loopInfo,
+            },
+          ],
+        });
+      }
+      return { ...out, suggestion };
+    }
+
+    return { ...out, suggestion: null };
   }
 
   _emit(name, payload) {
@@ -213,6 +262,25 @@ export class Watchdog {
       });
     }
 
+    // Tool-call loop detection (BehaviorFingerprint)
+    if (this._behaviorFingerprint && typeof this._behaviorFingerprint.getSuggestion === "function") {
+      try {
+        const suggestion = this._behaviorFingerprint.getSuggestion();
+        const action = suggestion?.action;
+        if (action === "break_loop" || action === "diversify") {
+          issues.push({
+            type: "tool_loop",
+            action,
+            severity: suggestion?.severity,
+            reason: suggestion?.reason,
+            suggestion: suggestion?.suggestion,
+          });
+        }
+      } catch {
+        // ignore behavior analysis failures
+      }
+    }
+
     const healthy = issues.length === 0;
 
     if (!healthy) {
@@ -249,6 +317,14 @@ export class Watchdog {
     this._lastProgressTime = Date.now();
     this._recentOutputs = [];
     this._consecutiveSimilarCount = 0;
+    if (this._behaviorFingerprint && typeof this._behaviorFingerprint.reset === "function") {
+      try {
+        this._behaviorFingerprint.reset();
+      } catch {
+        // ignore
+      }
+    }
+    this._behaviorLastNotifiedLoopCount = 0;
   }
 
   /**
@@ -258,6 +334,17 @@ export class Watchdog {
   resetOscillation() {
     this._recentOutputs = [];
     this._consecutiveSimilarCount = 0;
+  }
+
+  resetToolLoop() {
+    if (this._behaviorFingerprint && typeof this._behaviorFingerprint.reset === "function") {
+      try {
+        this._behaviorFingerprint.reset();
+      } catch {
+        // ignore
+      }
+    }
+    this._behaviorLastNotifiedLoopCount = 0;
   }
 }
 

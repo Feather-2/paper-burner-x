@@ -20,8 +20,9 @@ function normalizeCursor(value) {
  * For now we implement reversible VFS effects via `vfs_checkpoint.json` artifacts.
  */
 export class SideEffectJournal {
-  constructor({ runStore, runId, vfs, eventBus, logger } = {}) {
+  constructor({ runStore, storageAdapter, runId, vfs, eventBus, logger } = {}) {
     this.runStore = runStore || null;
+    this.storageAdapter = storageAdapter || null;
     this.runId = toNonEmptyString(runId) || null;
     this.vfs = vfs || null;
     this.eventBus = eventBus || null;
@@ -126,11 +127,13 @@ export class SideEffectJournal {
     if (target >= current) return { ok: true, rolledBack: 0, cursor: current };
 
     const vfs = this.vfs;
-    const runStore = this.runStore;
+    const runStore = this.runStore && typeof this.runStore.getArtifactById === "function" ? this.runStore : null;
+    const storageAdapter = this.storageAdapter;
     if (!vfs || typeof vfs.writeFile !== "function") {
       return { ok: false, reason: "missing_vfs" };
     }
-    if (!runStore || typeof runStore.getArtifactById !== "function") {
+    if (!runStore && !storageAdapter) {
+      // Backward-compat: previous versions required RunStore to rollback checkpoints.
       return { ok: false, reason: "missing_runStore" };
     }
 
@@ -146,6 +149,7 @@ export class SideEffectJournal {
           await restoreVfsCheckpoint({
             vfs,
             runStore,
+            storageAdapter,
             artifactId: entry.checkpoint.artifactId,
           });
           rolledBack += 1;
@@ -213,4 +217,3 @@ export class SideEffectJournal {
 }
 
 export default SideEffectJournal;
-

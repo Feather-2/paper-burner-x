@@ -28,14 +28,7 @@ const DEFAULT_CONTEXT_CONFIG = Object.freeze({
 });
 
 function estimateTokens(text, tokenCounter) {
-  if (!text) return 0;
-  if (tokenCounter && typeof tokenCounter.count === "function") {
-    try {
-      return tokenCounter.count(text);
-    } catch {
-      // fall back
-    }
-  }
+  if (text === null || text === undefined) return 0;
   let rawText = "";
   if (typeof text === "string") {
     rawText = text;
@@ -46,7 +39,7 @@ function estimateTokens(text, tokenCounter) {
       rawText = String(text);
     }
   }
-  return estimateTokensCached(rawText);
+  return estimateTokensCached(rawText, tokenCounter);
 }
 
 export class MessageManager {

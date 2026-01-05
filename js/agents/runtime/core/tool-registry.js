@@ -23,6 +23,72 @@ export function resolveToolExecutor(context) {
   return null;
 }
 
+function resolveEmit(context) {
+  const ctx = context && typeof context === "object" ? context : null;
+  if (typeof ctx?.emit === "function") return ctx.emit;
+
+  const bus = ctx?.eventBus;
+  if (bus && typeof bus.emit === "function") return bus.emit.bind(bus);
+
+  const stageApi = ctx?.stageApi;
+  if (stageApi && typeof stageApi.emit === "function") return stageApi.emit.bind(stageApi);
+  if (stageApi?.eventBus && typeof stageApi.eventBus.emit === "function") return stageApi.eventBus.emit.bind(stageApi.eventBus);
+
+  return null;
+}
+
+function resolveToolQuotaManager(context) {
+  const ctx = context && typeof context === "object" ? context : null;
+  const direct = ctx?.toolQuotaManager;
+  if (direct && typeof direct.tryCall === "function") return direct;
+
+  const fromStageApi = ctx?.stageApi?.toolQuotaManager;
+  if (fromStageApi && typeof fromStageApi.tryCall === "function") return fromStageApi;
+
+  const container = ctx?.container || ctx?.stageApi?.container;
+  if (container && typeof container === "object") {
+    const tryGet = typeof container.tryGet === "function" ? container.tryGet.bind(container) : null;
+    if (tryGet) {
+      const candidate = tryGet("toolQuotaManager");
+      if (candidate && typeof candidate.tryCall === "function") return candidate;
+    }
+    const get = typeof container.get === "function" ? container.get.bind(container) : null;
+    if (get) {
+      try {
+        const candidate = get("toolQuotaManager");
+        if (candidate && typeof candidate.tryCall === "function") return candidate;
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  return null;
+}
+
+function resolveToolQuotaMode(context) {
+  const ctx = context && typeof context === "object" ? context : null;
+  const cfg =
+    ctx?.toolQuotaConfig ||
+    ctx?.toolQuotas ||
+    ctx?.stageApi?.toolQuotas ||
+    ctx?.stageApi?.toolQuotaConfig ||
+    null;
+
+  if (cfg === false || cfg?.enabled === false) return "off";
+
+  const rawMode = typeof cfg?.mode === "string" ? cfg.mode.trim().toLowerCase() : "";
+  if (rawMode === "off" || rawMode === "disabled") return "off";
+  if (rawMode === "block" || rawMode === "enforce") return "block";
+  if (rawMode === "warn" || rawMode === "warning") return "warn";
+
+  if (cfg?.enforce === true || cfg?.block === true) return "block";
+  if (cfg?.warnOnly === true) return "warn";
+
+  // Default: warn when a quota manager is present.
+  return "warn";
+}
+
 function resolveTraceContext(context) {
   const direct = context?.traceContext;
   if (
@@ -128,68 +194,16 @@ export class ToolRegistry {
    * 调用工具（含 Hook）
    */
   async callTool(name, params, context) {
-    let finalParams = params;
-
-    const doCall = async () => {
-      // Before hooks
-      for (const hook of this._hooks.before) {
-        try {
-          const hookResult = await hook({ tool: name, params: finalParams, context });
-          if (hookResult?.skip) {
-            return normalizeToolResult(hookResult.value);
-          }
-          if (hookResult?.params) {
-            finalParams = hookResult.params;
-          }
-        } catch (e) {
-          this._logger?.warn?.(`[tool-registry] BeforeHook failed for ${name}: ${e.message}`);
-        }
-      }
-
-      // Execute tool
-      const executor = resolveToolExecutor(context);
-      let result;
-      if (executor) {
-        result = normalizeToolResult(await executor(name, finalParams, context));
-      } else {
-        const tool = this._tools[name];
-        if (!tool) {
-          result = { ok: false, error: `Unknown tool: ${name}` };
-        } else {
-          try {
-            const data = await tool(finalParams, context);
-            result = { ok: true, data };
-          } catch (err) {
-            result = { ok: false, error: err instanceof Error ? err.message : String(err) };
-          }
-        }
-      }
-
-      // After hooks
-      for (const hook of this._hooks.after) {
-        try {
-          const hookResult = await hook({ tool: name, params: finalParams, result, context });
-          if (hookResult !== undefined) {
-            result = normalizeToolResult(hookResult);
-          }
-        } catch (e) {
-          this._logger?.warn?.(`[tool-registry] AfterHook failed for ${name}: ${e.message}`);
-        }
-      }
-
-      return result;
-    };
-
     const traceContext = resolveTraceContext(context);
     if (!traceContext) {
-      return await doCall();
+      return await this._callTool(name, params, context);
     }
 
     return await traceContext.withSpan(
       `tool.${name}`,
       async (span) => {
         span.setAttribute("tool.name", name);
-        const result = await doCall();
+        const result = await this._callTool(name, params, context);
         if (result && typeof result === "object" && result.ok === false) {
           span.setStatus("error", typeof result.error === "string" ? result.error : "tool returned ok:false");
         }
@@ -197,6 +211,115 @@ export class ToolRegistry {
       },
       { attributes: { tool: name } }
     );
+  }
+
+  /**
+   * Internal tool call implementation (hooks + quotas + execution).
+   * @private
+   */
+  async _callTool(name, params, context) {
+    let finalParams = params;
+
+    // Before hooks
+    for (const hook of this._hooks.before) {
+      try {
+        const hookResult = await hook({ tool: name, params: finalParams, context });
+        if (hookResult?.skip) {
+          return normalizeToolResult(hookResult.value);
+        }
+        if (hookResult?.params) {
+          finalParams = hookResult.params;
+        }
+      } catch (e) {
+        this._logger?.warn?.(`[tool-registry] BeforeHook failed for ${name}: ${e.message}`);
+      }
+    }
+
+    const quotaManager = resolveToolQuotaManager(context);
+    const quotaMode = quotaManager ? resolveToolQuotaMode(context) : "off";
+
+    let quotaSnapshot = null;
+    if (quotaManager && quotaMode !== "off") {
+      const q = quotaManager.tryCall(name);
+      quotaSnapshot = q;
+      if (!q.allowed) {
+        const stats = typeof quotaManager.getToolStats === "function" ? quotaManager.getToolStats(name) : null;
+        const emit = resolveEmit(context);
+        emit?.("tool.quota.exceeded", {
+          actor: "system",
+          status: "exceeded",
+          payload: { tool: name, reason: q.reason, stats },
+        });
+
+        if (quotaMode === "block") {
+          // Block execution, but still allow after-hooks to inspect the result.
+          let result = { ok: false, error: q.reason || `Quota exceeded for ${name}` };
+          if (stats) result.quota = stats;
+          for (const hook of this._hooks.after) {
+            try {
+              const hookResult = await hook({ tool: name, params: finalParams, result, context });
+              if (hookResult !== undefined) {
+                result = normalizeToolResult(hookResult);
+              }
+            } catch (e) {
+              this._logger?.warn?.(`[tool-registry] AfterHook failed for ${name}: ${e.message}`);
+            }
+          }
+          return result;
+        }
+
+        // warn-only: keep going, but keep accounting so callers can observe persistent overuse.
+        if (typeof quotaManager.recordCall === "function") {
+          try {
+            quotaManager.recordCall(name);
+          } catch {
+            // ignore
+          }
+        }
+      }
+    }
+
+    // Execute tool
+    const executor = resolveToolExecutor(context);
+    let result;
+    if (executor) {
+      result = normalizeToolResult(await executor(name, finalParams, context));
+    } else {
+      const tool = this._tools[name];
+      if (!tool) {
+        result = { ok: false, error: `Unknown tool: ${name}` };
+      } else {
+        try {
+          const data = await tool(finalParams, context);
+          result = { ok: true, data };
+        } catch (err) {
+          result = { ok: false, error: err instanceof Error ? err.message : String(err) };
+        }
+      }
+    }
+
+    // After hooks
+    for (const hook of this._hooks.after) {
+      try {
+        const hookResult = await hook({ tool: name, params: finalParams, result, context });
+        if (hookResult !== undefined) {
+          result = normalizeToolResult(hookResult);
+        }
+      } catch (e) {
+        this._logger?.warn?.(`[tool-registry] AfterHook failed for ${name}: ${e.message}`);
+      }
+    }
+
+    // Attach quota diagnostics (best-effort)
+    if (quotaSnapshot && typeof result === "object" && result) {
+      try {
+        result.quota = result.quota || quotaSnapshot;
+      } catch {
+        // ignore non-extensible results
+      }
+    }
+
+    return result;
   }
 }
 

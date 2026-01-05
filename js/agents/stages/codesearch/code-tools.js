@@ -13,6 +13,7 @@ import { grepChunks } from "../../retrieval/grep.js";
 import SymbolIndexer from "./indexing/symbol-indexer.js";
 import { computeSha256 } from "../../storage/artifact-manager.js";
 import { multiEditTextFileWithPolicy, writeTextFileWithPolicy } from "../../vfs/operations.js";
+import { isPlainObject } from "../../shared/utils/value-utils.js";
 
 // 工具定义（供 LLM 理解）
 export const TOOL_DEFINITIONS = [
@@ -170,6 +171,7 @@ export function createToolExecutor(options = {}) {
     runStore,
     runId,
     stageApi,
+    watchdog,
   } = options;
 
   // 路径安全检查
@@ -636,6 +638,14 @@ export function createToolExecutor(options = {}) {
       const fn = tools[toolName];
       if (!fn) {
         return { error: `Unknown tool: ${toolName}` };
+      }
+
+      if (watchdog && typeof watchdog.recordAction === "function") {
+        try {
+          watchdog.recordAction({ type: toolName, args: isPlainObject(args) ? args : {} });
+        } catch {
+          // ignore watchdog failures
+        }
       }
       return fn(args);
     },

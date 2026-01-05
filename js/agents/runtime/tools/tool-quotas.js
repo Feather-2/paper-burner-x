@@ -234,6 +234,29 @@ export class ToolQuotaManager {
   }
 
   /**
+   * 强制记录一次调用（不做阻断）
+   * 用于 warn-only 模式下的超限统计
+   * @param {string} toolName
+   */
+  recordCall(toolName) {
+    let entry = this._tools.get(toolName);
+
+    // 如果没有预设配额，使用默认配额
+    if (!entry) {
+      entry = new ToolQuotaEntry(toolName, {
+        maxCalls: this._defaultMaxCalls,
+        windowMs: this._defaultWindowMs,
+      });
+      this._tools.set(toolName, entry);
+    }
+
+    entry.counter.record();
+    entry.totalCalls++;
+
+    return entry.getStats();
+  }
+
+  /**
    * 检查是否允许调用（不计数）
    * @param {string} toolName
    */
