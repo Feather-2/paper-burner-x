@@ -44,14 +44,27 @@ export {
   assertValidTransition,
 } from "./core/lifecycle.js";
 
+// Memory
+export { MemoryStore } from "./memory/memory-store.js";
+export { StateEngine } from "./memory/state-engine.js";
+export { RetrievalEngine } from "./memory/retrieval-engine.js";
+
+// Core Components (extracted from BaseAgentLoop)
+export { ToolRegistry, normalizeToolResult, resolveToolExecutor } from "./core/tool-registry.js";
+export { MessageManager } from "./core/message-manager.js";
+export { StatusController } from "./core/status-controller.js";
+
 // Compression + Watchdog
 export { Watchdog } from "./compression/watchdog.js";
 export { CicadaCompressor, CompressionLayer } from "./compression/cicada-compressor.js";
+export { CompressionCoordinator } from "./compression/coordinator.js";
 
 // Telemetry
 export { getRuntimeState, setRuntimeState } from "./telemetry/loop-runtime-state.js";
 export { RunReplayController } from "./telemetry/replay-controller.js";
 export { subscribeTelemetry } from "./telemetry/runstore-telemetry.js";
+export { TraceContext, SpanStatus, SpanKind, parseTraceparent, withSpan } from "./telemetry/trace-context.js";
+export { TokenTracker } from "./telemetry/token-tracker.js";
 
 // API
 export { StageApiFactory } from "./api/stage-api-factory.js";

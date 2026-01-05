@@ -64,12 +64,12 @@ export class JSRuntimeAdapter extends RuntimeAdapter {
 
         if (type === 'emit') {
           // 转发 emit 事件
-          console.log(`[JSSandbox] emit: ${name}`, payload);
+          logger.debug(`[JSSandbox] emit: ${name}`, payload);
           return;
         }
 
         if (type === 'log') {
-          console[level]?.(`[JSSandbox]`, ...args);
+          logger[level]?.(`[JSSandbox]`, ...args);
           return;
         }
 

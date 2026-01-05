@@ -23,7 +23,7 @@ export class PythonRuntimeAdapter extends RuntimeAdapter {
     this.worker.onmessage = async (evt) => {
       const { type, id, data, error, text, files } = evt.data;
 
-      if (type === 'stdout') console.log(`[Python Stdout] ${text}`);
+      if (type === 'stdout') logger.debug(`[Python Stdout] ${text}`);
       if (type === 'stderr') logger.error(`[Python Stderr] ${text}`);
 
       const request = this.pendingRequests.get(id);
@@ -61,7 +61,7 @@ export class PythonRuntimeAdapter extends RuntimeAdapter {
   async preload(dependencies) {
     await this.initialize();
     if (dependencies && dependencies.length > 0) {
-      console.log(`[PythonRuntime] Loading packages in worker: ${dependencies.join(', ')}`);
+      logger.debug(`[PythonRuntime] Loading packages in worker: ${dependencies.join(', ')}`);
       await this._send('preload', { dependencies, indexUrl: this.indexUrl });
     }
   }
