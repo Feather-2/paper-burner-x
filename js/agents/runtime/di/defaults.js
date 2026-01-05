@@ -44,6 +44,12 @@ export const ServiceId = {
   FILE_LOCK: "fileLock",
   // P6.7: Retrieval
   TOC_BUILDER: "tocBuilder",
+  // P7: Advanced Features
+  POLICY_ENGINE: "policyEngine",
+  POLICY_MANAGER: "policyManager",
+  REPLAY_CONTROLLER: "replayController",
+  VFS_PROXY: "vfsProxy",
+  SHARED_MEMORY_BRIDGE: "sharedMemoryBridge",
 };
 
 /**
@@ -356,6 +362,58 @@ export function createAgentContainer(overrides = {}) {
     async () => {
       const { TocBuilder } = await import("../../retrieval/toc-builder.js");
       return new TocBuilder();
+    },
+    { scope: SINGLETON }
+  );
+
+  // P7.1: Policy Engine (SINGLETON - 规则评估引擎)
+  container.register(
+    ServiceId.POLICY_ENGINE,
+    async () => {
+      const { PolicyEngine } = await import("../policy/engine.js");
+      return new PolicyEngine({ defaultEffect: "prompt" });
+    },
+    { scope: SINGLETON }
+  );
+
+  // P7.1: Policy Manager (SINGLETON - 策略管理，依赖 EventBus)
+  container.register(
+    ServiceId.POLICY_MANAGER,
+    async (c) => {
+      const { PolicyManager } = await import("../policy/manager.js");
+      const eventBus = await c.get(ServiceId.EVENT_BUS);
+      const engine = await c.get(ServiceId.POLICY_ENGINE);
+      return new PolicyManager({ eventBus, engine });
+    },
+    { scope: SINGLETON }
+  );
+
+  // P7.2: Replay Controller (TRANSIENT - 每次回放独立)
+  container.register(
+    ServiceId.REPLAY_CONTROLLER,
+    async () => {
+      const { RunReplayController } = await import("../telemetry/replay-controller.js");
+      return new RunReplayController();
+    },
+    { scope: TRANSIENT }
+  );
+
+  // P7.3: VFS Proxy (TRANSIENT - Worker 通信代理)
+  container.register(
+    ServiceId.VFS_PROXY,
+    async () => {
+      const { VfsProxy } = await import("../core/vfs-proxy.js");
+      return { VfsProxy }; // 返回类，由 Worker 场景实例化
+    },
+    { scope: SINGLETON }
+  );
+
+  // P7.3: Shared Memory Bridge (SINGLETON - SAB/MessagePort 桥接)
+  container.register(
+    ServiceId.SHARED_MEMORY_BRIDGE,
+    async () => {
+      const { SharedMemoryBridge } = await import("../core/shared-memory.js");
+      return new SharedMemoryBridge();
     },
     { scope: SINGLETON }
   );

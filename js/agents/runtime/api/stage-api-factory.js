@@ -468,6 +468,10 @@ export class StageApiFactory {
       deltaSyncSession: base?.deltaSyncSession || null,
       fileLock: base?.fileLock || null,
       tocBuilder: base?.tocBuilder || null,
+      // P7: 高级功能
+      policyManager: base?.policyManager || null,
+      replayController: base?.replayController || null,
+      sharedMemoryBridge: base?.sharedMemoryBridge || null,
     };
     this.baseConfig = {
       signal: services.signal || null,

@@ -321,6 +321,56 @@ export class ToolRegistry {
 
     return result;
   }
+
+  /**
+   * P7.1: 集成 PolicyManager 作为 before hook
+   *
+   * PolicyManager.check() 决定是否允许工具调用：
+   * - "allow" -> 继续执行
+   * - "deny" -> 阻止并返回错误
+   * - "prompt" -> 等待用户确认（交互模式）
+   *
+   * @param {Object} policyManager - PolicyManager 实例
+   * @returns {ToolRegistry}
+   */
+  usePolicyManager(policyManager) {
+    if (!policyManager || typeof policyManager.check !== "function") {
+      return this;
+    }
+
+    this.useHook("before", async ({ tool, params, context }) => {
+      try {
+        const request = {
+          type: "tool_call",
+          tool,
+          resource: params?.url || params?.path || params?.query || null,
+          args: params,
+        };
+
+        const decision = await policyManager.check(request);
+
+        if (decision?.effect === "deny") {
+          return {
+            skip: true,
+            value: {
+              ok: false,
+              error: decision.reason || `Policy denied: ${tool}`,
+              policy: { effect: "deny", ruleId: decision.ruleId },
+            },
+          };
+        }
+
+        // "allow" or "prompt" (已通过用户确认) -> 继续执行
+        return null;
+      } catch (err) {
+        // Policy 检查失败时默认允许（fail-open），避免阻塞正常流程
+        this._logger?.warn?.(`[tool-registry] PolicyManager.check failed: ${err.message}`);
+        return null;
+      }
+    });
+
+    return this;
+  }
 }
 
 export default ToolRegistry;
