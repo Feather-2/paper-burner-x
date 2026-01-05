@@ -1,4 +1,5 @@
 import { isPlainObject, toNonEmptyString } from "../../../shared/utils/value-utils.js";
+import { LRUCache } from "../../../shared/utils/lru-cache.js";
 
 /**
  * Design Stage - Shared Utilities
@@ -45,7 +46,7 @@ export function safeInt(n) {
  * Parses deckHtmlDsl into an array of <section> HTML strings.
  */
 const PARSE_SECTIONS_CACHE_LIMIT = 32;
-const parseSectionsCache = new Map();
+const parseSectionsCache = new LRUCache({ maxSize: PARSE_SECTIONS_CACHE_LIMIT });
 
 /**
  * Clears the internal parseSections cache.
@@ -83,11 +84,6 @@ export function parseSections(deckHtmlDsl) {
     // callers can freely mutate their returned array (e.g., edit workflows)
     // without corrupting cache entries.
     parseSectionsCache.set(html, sections);
-    if (parseSectionsCache.size > PARSE_SECTIONS_CACHE_LIMIT) {
-        // Best-effort FIFO eviction to avoid unbounded growth.
-        const firstKey = parseSectionsCache.keys().next().value;
-        if (firstKey !== undefined) parseSectionsCache.delete(firstKey);
-    }
 
     return sections.slice();
 }

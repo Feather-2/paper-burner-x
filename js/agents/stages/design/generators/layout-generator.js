@@ -4,6 +4,8 @@
  * 生成简化版布局 HTML（线框图），用于快速预览和确认结构
  */
 
+import { escapeHtml } from "../shared/design-utils.js";
+
 // === 可配置常量 ===
 const LAYOUT_DEFAULTS = {
   placeholderBg: "e0e0e0",
@@ -150,15 +152,6 @@ function buildPlaceholder(type, label) {
   return `<div class="layout-placeholder layout-placeholder-${type}" data-placeholder-type="${type}">
     <span class="layout-placeholder-label">${displayLabel}</span>
   </div>`;
-}
-
-function escapeHtml(str) {
-  if (typeof str !== "string") return "";
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }
 
 export default { generateLayoutHtml, generateLayoutBatch };
