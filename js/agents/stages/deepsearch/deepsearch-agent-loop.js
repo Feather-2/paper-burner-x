@@ -10,7 +10,7 @@ import { getModelCaller } from "./model.js";
 import { createLogger } from "./runtime/logger.js";
 import { robustParseJson } from "../../shared/utils/robust-json.js";
 import { checkCancelled } from "../../shared/utils/cancellation.js";
-import { isPlainObject, sanitizeForJson } from "../../shared/utils/value-utils.js";
+import { isPlainObject, sanitizeForJson, toPositiveInt } from "../../shared/utils/value-utils.js";
 import { classifyDeepSearchError } from "../../shared/utils/error-classifier.js";
 import { DeepSearchEvents } from "../../runtime/events/events.js";
 import { ModelResponseHandler } from "./runtime/model-response-handler.js";
@@ -44,11 +44,6 @@ const DEFAULT_MODE_CONFIG = {
   wider: { maxIterations: 30, writeIterations: 10, maxToolCalls: 100, subagentIterations: 10, description: "广度优先，覆盖所有文档" },
   deeper: { maxIterations: 50, writeIterations: 15, maxToolCalls: 200, subagentIterations: 15, description: "深度优先，逐个分析" },
 };
-
-function toPositiveInt(value, fallback) {
-  const n = Number.parseInt(String(value ?? ""), 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
 
 function deepSortForStableJson(value, seen = new WeakSet()) {
   if (value === null || value === undefined) return value;

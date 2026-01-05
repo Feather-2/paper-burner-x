@@ -9,17 +9,13 @@
  * 浏览器友好，无 Node.js 依赖。
  */
 
+import { toPositiveInt } from "./value-utils.js";
+
 export const CircuitState = Object.freeze({
   CLOSED: "closed",       // 正常状态，允许请求
   OPEN: "open",           // 熔断状态，拒绝请求
   HALF_OPEN: "half_open", // 半开状态，允许有限请求探测
 });
-
-function toPositiveInt(value, fallback) {
-  const n = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(n) || n <= 0) return fallback;
-  return Math.floor(n);
-}
 
 function defaultTime() {
   return {

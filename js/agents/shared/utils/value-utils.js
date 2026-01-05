@@ -98,6 +98,37 @@ export function safeInt(n) {
 }
 
 /**
+ * Convert to a non-negative integer (>= 0). Invalid values return fallback.
+ * Accepts finite numbers and numeric strings; also tolerates `parseInt`-style
+ * strings (e.g. "10px") for backward compatibility with legacy call sites.
+ *
+ * @param {any} value
+ * @param {number} [fallback=0]
+ * @returns {number}
+ */
+export function toNonNegativeInt(value, fallback = 0) {
+  const v = safeInt(value);
+  if (v !== null) return v >= 0 ? v : fallback;
+
+  const s = typeof value === "string" ? value.trim() : "";
+  if (!s) return fallback;
+  const n = Number.parseInt(s, 10);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+/**
+ * Convert to a positive integer (>= 1). Invalid values return fallback.
+ *
+ * @param {any} value
+ * @param {number} [fallback=1]
+ * @returns {number}
+ */
+export function toPositiveInt(value, fallback = 1) {
+  const n = toNonNegativeInt(value, fallback);
+  return n > 0 ? n : fallback;
+}
+
+/**
  * Normalize render type string to one of: "ai-image", "svg", "asset".
  * Default fallback is "ai-image".
  *

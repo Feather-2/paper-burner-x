@@ -11,6 +11,7 @@ import { createStageApi } from "../../shared/utils/stage-api.js";
 import { createFsAdapterFromVfs } from "../../vfs/fs-adapter.js";
 import { createVfsGlobFn } from "../../vfs/glob.js";
 import { createLogger } from "../../shared/utils/logger.js";
+import { toNonNegativeInt } from "../../shared/utils/value-utils.js";
 import { getGlobalTokenTracker } from "../telemetry/token-tracker.js";
 
 const logger = createLogger("runtime/api/stage-api-factory");
@@ -28,12 +29,6 @@ function filterDefinedValues(obj) {
   return Object.fromEntries(
     Object.entries(obj).filter(([, v]) => v !== undefined && v !== null)
   );
-}
-
-function toNonNegativeInt(value, fallback = 0) {
-  const n = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(n) || n < 0) return fallback;
-  return Math.floor(n);
 }
 
 function extractTokenUsage(resp) {

@@ -8,7 +8,7 @@
  */
 
 import { getToolCatalogPrompt } from "../tools/index.js";
-import { isPlainObject } from "../../../shared/utils/value-utils.js";
+import { isPlainObject, toNonNegativeInt, toPositiveInt } from "../../../shared/utils/value-utils.js";
 import { createLogger } from "../../../shared/utils/logger.js";
 import { loadPrompt, renderPromptTemplate } from "../../../prompts/prompt-loader.js";
 import { DeepSearchEvents } from "../../../runtime/events/events.js";
@@ -34,16 +34,6 @@ const WRITE_PHASE_CUTOFF_RATIO = 0.6;
 const REMINDER_AFTER_ITERATION = 3;
 const REMINDER_MAX_TODOS = 3;
 const REMINDER_TAIL = "请优先处理以上问题，不要跳过待办直接写报告。";
-
-function toPositiveInt(value, fallback) {
-  const n = Number.parseInt(String(value ?? ""), 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
-
-function toNonNegativeInt(value, fallback) {
-  const n = Number.parseInt(String(value ?? ""), 10);
-  return Number.isFinite(n) && n >= 0 ? n : fallback;
-}
 
 export function getGapConvergencePolicy(state) {
   const cfg = isPlainObject(state?.userConfig?.gaps) ? state.userConfig.gaps : {};

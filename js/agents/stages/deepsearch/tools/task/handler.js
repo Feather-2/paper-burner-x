@@ -11,11 +11,7 @@ import { globalSubagentRegistry } from "../../../../sdk/SubagentRegistry.js";
 import "../../subagents.js";
 import SourceManager from "../../source-manager.js";
 import { makeSecureTimestampedId } from "../../../../shared/utils/secure-id.js";
-
-function toPositiveInt(value, fallback) {
-  const n = Number.parseInt(String(value ?? ""), 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
+import { toPositiveInt } from "../../../../shared/utils/value-utils.js";
 
 // 运行中的任务注册表（含已完成任务的短暂缓存）
 const env = typeof process !== "undefined" ? process.env : {};

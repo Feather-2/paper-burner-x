@@ -1,17 +1,5 @@
-import { safeInt, toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { toNonEmptyString, toNonNegativeInt, toPositiveInt } from "../../shared/utils/value-utils.js";
 import { LRUCache } from "../../shared/utils/lru-cache.js";
-
-function toPositiveInt(value, fallback) {
-  const n = safeInt(value);
-  if (n === null || n <= 0) return fallback;
-  return n;
-}
-
-function toNonNegativeInt(value, fallback) {
-  const n = safeInt(value);
-  if (n === null || n < 0) return fallback;
-  return n;
-}
 
 function normalizeId(value) {
   return toNonEmptyString(value);
