@@ -18,6 +18,7 @@ import { TraceContext } from "../telemetry/trace-context.js";
 import { withRetry } from "../core/retry-strategy.js";
 import { getErrorBoundary } from "../core/error-boundary.js";
 import { ToolQuotaManager } from "../tools/tool-quotas.js";
+import { MessageBus } from "../kernel/message-bus.js";
 
 const logger = createLogger("runtime/api/stage-api-factory");
 
@@ -176,6 +177,45 @@ function resolveToolQuotaManager({ toolQuotaManager, container } = {}) {
   if (isToolQuotaManagerLike(toolQuotaManager)) return toolQuotaManager;
   const fromContainer = resolveToolQuotaManagerFromContainer(container);
   if (fromContainer) return fromContainer;
+  return null;
+}
+
+// P6.3: MessageBus 解析
+function isMessageBusLike(value) {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    typeof value.request === "function" &&
+    typeof value.handle === "function"
+  );
+}
+
+function resolveMessageBusFromContainer(container) {
+  const c = container && typeof container === "object" ? container : null;
+  if (!c) return null;
+  if (typeof c.tryGet === "function") {
+    const candidate = c.tryGet("messageBus");
+    return isMessageBusLike(candidate) ? candidate : null;
+  }
+  if (typeof c.get === "function") {
+    try {
+      const candidate = c.get("messageBus");
+      return isMessageBusLike(candidate) ? candidate : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function resolveMessageBus({ messageBus, eventBus, container } = {}) {
+  if (isMessageBusLike(messageBus)) return messageBus;
+  const fromContainer = resolveMessageBusFromContainer(container);
+  if (fromContainer) return fromContainer;
+  // 如果有 eventBus，创建新的 MessageBus
+  if (eventBus && typeof eventBus.emit === "function") {
+    return new MessageBus(eventBus);
+  }
   return null;
 }
 
@@ -413,6 +453,21 @@ export class StageApiFactory {
           defaultWindowMs: 60_000,
           quotas: DEFAULT_TOOL_QUOTAS,
         }),
+      // P6.3: MessageBus 用于跨 Stage IPC
+      messageBus: resolveMessageBus({
+        messageBus: base?.messageBus,
+        eventBus: base?.eventBus,
+        container: base?.container,
+      }),
+      // P6.4-P6.7: 运行时服务（从 container 惰性解析或直接传入）
+      runtimeScheduler: base?.runtimeScheduler || null,
+      pythonSkillExecutor: base?.pythonSkillExecutor || null,
+      jsAdapter: base?.jsAdapter || null,
+      hnswIndex: base?.hnswIndex || null,
+      schemaValidator: base?.schemaValidator || null,
+      deltaSyncSession: base?.deltaSyncSession || null,
+      fileLock: base?.fileLock || null,
+      tocBuilder: base?.tocBuilder || null,
     };
     this.baseConfig = {
       signal: services.signal || null,

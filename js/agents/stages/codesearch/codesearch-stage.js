@@ -42,6 +42,11 @@ const ServiceId = {
   MODEL_ROUTER: "modelRouter",
   BUDGET_MANAGER: "budgetManager",
   WATCHDOG: "watchdog",
+  // P6.4-P6.7
+  RUNTIME_SCHEDULER: "runtimeScheduler",
+  SCHEMA_VALIDATOR: "schemaValidator",
+  FILE_LOCK: "fileLock",
+  TOC_BUILDER: "tocBuilder",
 };
 
 function resolveWatchdogSettings(userConfig) {

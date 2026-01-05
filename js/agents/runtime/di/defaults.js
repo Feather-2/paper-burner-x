@@ -17,6 +17,7 @@ export const ServiceId = {
   TRACE_CONTEXT: "traceContext",
   RETRY_STRATEGY: "retryStrategy",
   ERROR_BOUNDARY: "errorBoundary",
+  DEGRADATION_MATRIX: "degradationMatrix",
   TOOL_QUOTA_MANAGER: "toolQuotaManager",
   MEMORY_STORE: "memoryStore",
   STATE_ENGINE: "stateEngine",
@@ -27,6 +28,22 @@ export const ServiceId = {
   CHECKPOINT_MANAGER: "checkpointManager",
   CIRCUIT_BREAKER_REGISTRY: "circuitBreakerRegistry",
   WATCHDOG: "watchdog",
+  WORKER_POOL: "workerPool",
+  MICRO_KERNEL: "microKernel",
+  MESSAGE_BUS: "messageBus",
+  // P6.4: Runtime Adapters
+  JS_ADAPTER: "jsAdapter",
+  PYTHON_ADAPTER: "pythonAdapter",
+  PYTHON_SKILL_EXECUTOR: "pythonSkillExecutor",
+  RUNTIME_SCHEDULER: "runtimeScheduler",
+  // P6.5: Shared Utils
+  HNSW_INDEX: "hnswIndex",
+  SCHEMA_VALIDATOR: "schemaValidator",
+  // P6.6: VFS
+  DELTA_SYNC: "deltaSync",
+  FILE_LOCK: "fileLock",
+  // P6.7: Retrieval
+  TOC_BUILDER: "tocBuilder",
 };
 
 /**
@@ -89,6 +106,54 @@ export function createAgentContainer(overrides = {}) {
     async () => {
       const { getErrorBoundary } = await import("../core/error-boundary.js");
       return getErrorBoundary();
+    },
+    { scope: SINGLETON }
+  );
+
+  // DegradationMatrix (depends on logger)
+  // Singleton so system-level metrics apply across services/stages.
+  container.register(
+    ServiceId.DEGRADATION_MATRIX,
+    async (c) => {
+      const { DegradationMatrix } = await import("../resilience/degradation-matrix.js");
+      const logger = c.get(ServiceId.LOGGER);
+
+      const getMemoryUsage = () => {
+        // Ratio in [0, 1] best-effort, cross runtime.
+        try {
+          if (typeof process !== "undefined" && typeof process.memoryUsage === "function") {
+            const mem = process.memoryUsage();
+            const used = typeof mem.heapUsed === "number" ? mem.heapUsed : mem.rss;
+            const total = typeof mem.heapTotal === "number" ? mem.heapTotal : mem.rss;
+            if (typeof used === "number" && typeof total === "number" && total > 0) return used / total;
+          }
+        } catch {
+          // ignore
+        }
+
+        try {
+          const perfMem = globalThis?.performance?.memory;
+          if (
+            perfMem &&
+            typeof perfMem.usedJSHeapSize === "number" &&
+            typeof perfMem.jsHeapSizeLimit === "number" &&
+            perfMem.jsHeapSizeLimit > 0
+          ) {
+            return perfMem.usedJSHeapSize / perfMem.jsHeapSizeLimit;
+          }
+        } catch {
+          // ignore
+        }
+
+        return 0;
+      };
+
+      return new DegradationMatrix({
+        getMemoryUsage,
+        onLevelChange: (info) => {
+          logger?.warn?.("[DegradationMatrix] Operation level changed", info);
+        },
+      });
     },
     { scope: SINGLETON }
   );
@@ -168,6 +233,131 @@ export function createAgentContainer(overrides = {}) {
       return new Watchdog({ eventBus });
     },
     { scope: TRANSIENT }
+  );
+
+  // WorkerPool - 注意需要传入 createWorker 函数，这里只提供工厂
+  // 实际使用时需要 override 或调用方提供 createWorker
+  container.register(
+    ServiceId.WORKER_POOL,
+    async () => {
+      const { WorkerPool } = await import("../core/worker-pool.js");
+      // 返回 WorkerPool 类而非实例，因为需要 createWorker
+      return { WorkerPool, isWorkerSupported: typeof Worker !== "undefined" };
+    },
+    { scope: SINGLETON }
+  );
+
+  // MicroKernel (depends on container, eventBus)
+  container.register(
+    ServiceId.MICRO_KERNEL,
+    async (c) => {
+      const { MicroKernel } = await import("../kernel/micro-kernel.js");
+      const eventBus = await c.get(ServiceId.EVENT_BUS);
+      return new MicroKernel({ container: c, eventBus });
+    },
+    { scope: SINGLETON }
+  );
+
+  // MessageBus (depends on eventBus)
+  container.register(
+    ServiceId.MESSAGE_BUS,
+    async (c) => {
+      const { MessageBus } = await import("../kernel/message-bus.js");
+      const eventBus = await c.get(ServiceId.EVENT_BUS);
+      return new MessageBus({ eventBus });
+    },
+    { scope: SINGLETON }
+  );
+
+  // P6.4: JS Runtime Adapter (TRANSIENT - 每个执行环境独立)
+  container.register(
+    ServiceId.JS_ADAPTER,
+    async () => {
+      const { JSRuntimeAdapter } = await import("../core/js-adapter.js");
+      return new JSRuntimeAdapter({ useWorkerSandbox: true });
+    },
+    { scope: TRANSIENT }
+  );
+
+  // P6.4: Python Runtime Adapter (SINGLETON - Pyodide 初始化较慢，复用)
+  container.register(
+    ServiceId.PYTHON_ADAPTER,
+    async () => {
+      const { PythonRuntimeAdapter } = await import("../core/python-adapter.js");
+      return new PythonRuntimeAdapter();
+    },
+    { scope: SINGLETON }
+  );
+
+  // P6.4: Python Skill Executor (depends on pythonAdapter)
+  container.register(
+    ServiceId.PYTHON_SKILL_EXECUTOR,
+    async (c) => {
+      const { PythonSkillExecutor } = await import("../deps/python-skill-executor.js");
+      const pythonAdapter = await c.get(ServiceId.PYTHON_ADAPTER);
+      return new PythonSkillExecutor({ pythonAdapter });
+    },
+    { scope: SINGLETON }
+  );
+
+  // P6.4: Runtime Scheduler (SINGLETON)
+  container.register(
+    ServiceId.RUNTIME_SCHEDULER,
+    async () => {
+      const { RuntimeScheduler } = await import("../core/scheduler.js");
+      return new RuntimeScheduler();
+    },
+    { scope: SINGLETON }
+  );
+
+  // P6.5: HNSW Index (TRANSIENT - 每个向量库独立)
+  container.register(
+    ServiceId.HNSW_INDEX,
+    async () => {
+      const { HnswLiteIndex } = await import("../../shared/embeddings/hnsw-lite.js");
+      return new HnswLiteIndex();
+    },
+    { scope: TRANSIENT }
+  );
+
+  // P6.5: Schema Validator (SINGLETON)
+  container.register(
+    ServiceId.SCHEMA_VALIDATOR,
+    async () => {
+      const { SchemaValidator } = await import("../../shared/utils/schema-validator.js");
+      return new SchemaValidator();
+    },
+    { scope: SINGLETON }
+  );
+
+  // P6.6: Delta Sync (TRANSIENT - 每次同步独立)
+  container.register(
+    ServiceId.DELTA_SYNC,
+    async () => {
+      const { DeltaSyncSession } = await import("../../vfs/delta-sync.js");
+      return { DeltaSyncSession }; // 返回类，由调用方实例化
+    },
+    { scope: SINGLETON }
+  );
+
+  // P6.6: File Lock (SINGLETON - 全局锁管理)
+  container.register(
+    ServiceId.FILE_LOCK,
+    async () => {
+      const { FileLockManager } = await import("../../vfs/file-lock.js");
+      return new FileLockManager();
+    },
+    { scope: SINGLETON }
+  );
+
+  // P6.7: TOC Builder (SINGLETON)
+  container.register(
+    ServiceId.TOC_BUILDER,
+    async () => {
+      const { TocBuilder } = await import("../../retrieval/toc-builder.js");
+      return new TocBuilder();
+    },
+    { scope: SINGLETON }
   );
 
   // Apply overrides
