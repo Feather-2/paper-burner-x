@@ -1,10 +1,4 @@
-import { isPlainObject, toNonEmptyString } from "../utils/value-utils.js";
-
-function toPositiveInt(value, fallback) {
-  const n = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(n) || n <= 0) return fallback;
-  return Math.floor(n);
-}
+import { isPlainObject, toNonEmptyString, toPositiveInt } from "../utils/value-utils.js";
 
 // Partition configuration for time-based bucketing
 const PARTITION_CONFIG = Object.freeze({

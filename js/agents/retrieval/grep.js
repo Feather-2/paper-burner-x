@@ -1,4 +1,4 @@
-import { isPlainObject } from "../shared/utils/value-utils.js";
+import { isPlainObject, toPositiveInt } from "../shared/utils/value-utils.js";
 import { createSafeRegex } from "../shared/utils/safe-regex.js";
 
 function compileRegex(pattern, caseSensitive) {
@@ -34,12 +34,6 @@ function findAllLiteral(haystack, needle, maxMatches) {
     if (max !== Infinity && spans.length >= max) break;
   }
   return spans;
-}
-
-function toPositiveInt(value, fallback) {
-  const n = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(n) || n <= 0) return fallback;
-  return Math.floor(n);
 }
 
 function sleep0() {

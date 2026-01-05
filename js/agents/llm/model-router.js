@@ -6,7 +6,7 @@ import { CircuitBreaker, CircuitState } from "../shared/utils/circuit-breaker.js
 import { getGlobalTokenTracker } from "../runtime/telemetry/token-tracker.js";
 import { ModelEventEmitter } from "./model-events.js";
 
-import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString, toPositiveInt } from "../shared/utils/value-utils.js";
 function isStorageLike(value) {
   return (
     value !== null &&
@@ -19,11 +19,6 @@ function isStorageLike(value) {
 function toErrorInfo(err) {
   const e = err instanceof Error ? err : new Error(String(err));
   return { name: e.name, message: e.message };
-}
-
-function toPositiveInt(v, fallback) {
-  const n = typeof v === "number" && Number.isFinite(v) ? Math.floor(v) : NaN;
-  return n > 0 ? n : fallback;
 }
 
 function toBackoffMultiplier(v, fallback) {

@@ -12,7 +12,7 @@
  * - 查询: O(log N * M + k * log k) 其中 k 是 topK
  */
 
-import { isPlainObject, toNonEmptyString } from "../utils/value-utils.js";
+import { isPlainObject, toNonEmptyString, toPositiveInt } from "../utils/value-utils.js";
 
 // 分区配置（与 VectorIndex 保持一致）
 const PARTITION_CONFIG = Object.freeze({
@@ -26,12 +26,6 @@ function classifyPartition(ts, now) {
   if (age < PARTITION_CONFIG.HOT_MS) return "hot";
   if (age < PARTITION_CONFIG.WARM_MS) return "warm";
   return "cold";
-}
-
-function toPositiveInt(value, fallback) {
-  const n = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(n) || n <= 0) return fallback;
-  return Math.floor(n);
 }
 
 function toFloat32Array(vector) {

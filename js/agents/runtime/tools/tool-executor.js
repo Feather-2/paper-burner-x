@@ -13,17 +13,11 @@
 
 import { validateArgs } from "./schema-validator.js";
 
-import { isPlainObject } from "../../shared/utils/value-utils.js";
+import { isPlainObject, toPositiveInt } from "../../shared/utils/value-utils.js";
 function normalizeIsolationMode(mode) {
   if (mode === true) return "worker";
   const m = typeof mode === "string" ? mode.trim().toLowerCase() : "";
   return m === "worker" ? "worker" : "none";
-}
-
-function toPositiveInt(value, fallback) {
-  const n = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(n) || n <= 0) return fallback;
-  return Math.floor(n);
 }
 
 class WorkerPool {

@@ -1,4 +1,5 @@
 import { EventBus, isValidEventName } from "../events/event-bus.js";
+import { toPositiveInt } from "../../shared/utils/value-utils.js";
 
 const RPC_KIND_REQUEST = "rpc_request";
 const RPC_KIND_RESPONSE = "rpc_response";
@@ -7,12 +8,6 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 function toNonEmptyString(value) {
   const s = typeof value === "string" ? value : String(value ?? "");
   return s.trim().length ? s : null;
-}
-
-function toPositiveInt(value, fallback) {
-  const n = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(n) || n <= 0) return fallback;
-  return Math.floor(n);
 }
 
 function createRpcId() {

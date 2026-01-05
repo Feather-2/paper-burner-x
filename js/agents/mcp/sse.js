@@ -1,4 +1,4 @@
-import { toNonEmptyString } from "../shared/utils/value-utils.js";
+import { toNonEmptyString, toPositiveInt } from "../shared/utils/value-utils.js";
 
 function isTextDecoderAvailable() {
   return typeof TextDecoder !== "undefined";
@@ -34,11 +34,6 @@ function concatUint8Arrays(arrays) {
     offset += arr.length;
   }
   return result;
-}
-
-function toPositiveInt(value, fallback = 0) {
-  const n = typeof value === "number" && Number.isFinite(value) ? Math.floor(value) : Number.parseInt(String(value ?? ""), 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
 function sleepMs(ms, { signal } = {}) {

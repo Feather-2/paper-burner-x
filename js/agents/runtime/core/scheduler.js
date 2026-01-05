@@ -8,17 +8,13 @@
  * 3. 统一上下文构建
  */
 
+import { toPositiveInt } from "../../shared/utils/value-utils.js";
+
 export const RuntimeHealthStatus = Object.freeze({
   HEALTHY: "healthy",
   DEGRADED: "degraded",
   UNHEALTHY: "unhealthy",
 });
-
-function toPositiveInt(value, fallback) {
-  const n = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(n) || n <= 0) return fallback;
-  return Math.floor(n);
-}
 
 function toFiniteNumber(value, fallback) {
   const n = typeof value === "number" ? value : Number(value);

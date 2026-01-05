@@ -1,4 +1,4 @@
-import { isPlainObject } from "../shared/utils/value-utils.js";
+import { isPlainObject, toPositiveInt } from "../shared/utils/value-utils.js";
 
 function normalizeTitle(title) {
   return String(title || "")
@@ -92,12 +92,6 @@ function buildFallbackSectionsByLength(n) {
     start = end;
   }
   return sections;
-}
-
-function toPositiveInt(value, fallback) {
-  const n = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(n) || n <= 0) return fallback;
-  return Math.floor(n);
 }
 
 function sleep0() {

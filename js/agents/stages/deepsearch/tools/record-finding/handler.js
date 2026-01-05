@@ -6,6 +6,7 @@
  */
 
 import { makeSecureTimestampedId } from "../../../../shared/utils/secure-id.js";
+import { toNonNegativeInt } from "../../../../shared/utils/value-utils.js";
 
 export const definition = {
   name: "record-finding",
@@ -43,11 +44,6 @@ export const definition = {
 function extractKeywords(text, maxCount = 5) {
   const matches = String(text || "").match(/[\u4e00-\u9fa5]{2,}|[a-zA-Z]{3,}/g) || [];
   return [...new Set(matches)].slice(0, maxCount);
-}
-
-function toNonNegativeInt(value, fallback) {
-  const n = Number.parseInt(String(value ?? ""), 10);
-  return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
 
 function resolveGapFindingBudget(state) {

@@ -1,16 +1,4 @@
-import { isPlainObject, toNonEmptyString } from "../utils/value-utils.js";
-
-function toPositiveInt(value, fallback) {
-  const n = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(n) || n <= 0) return fallback;
-  return Math.floor(n);
-}
-
-function toNonNegativeInt(value, fallback) {
-  const n = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(n) || n < 0) return fallback;
-  return Math.floor(n);
-}
+import { isPlainObject, toNonEmptyString, toNonNegativeInt, toPositiveInt } from "../utils/value-utils.js";
 
 function safeHeaderObject(value) {
   const out = {};

@@ -6,7 +6,7 @@
  * const snapshot = await archive.load('run_123:ckpt_1');
  */
 
-import { isPlainObject, toNonEmptyString } from "../utils/value-utils.js";
+import { isPlainObject, toNonEmptyString, toPositiveInt } from "../utils/value-utils.js";
 import { createLogger } from "../utils/logger.js";
 
 const logger = createLogger("shared/archive/archive");
@@ -23,12 +23,6 @@ const DEFAULT_DIFF_CONFIG = Object.freeze({
   maxDepth: 12,
 });
 const DEFAULT_RESTORE_CACHE_MAX = 200;
-
-function toPositiveInt(value, fallback) {
-  const n = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(n) || n <= 0) return fallback;
-  return Math.floor(n);
-}
 
 function normalizeCacheMax(value, fallback) {
   if (value === Infinity) return Infinity;

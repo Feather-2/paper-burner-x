@@ -1,4 +1,5 @@
 import { cryptoRandomHex } from "../../shared/utils/secure-id.js";
+import { toNonNegativeInt } from "../../shared/utils/value-utils.js";
 
 /**
  * Token Tracker - LLM 调用 Token 使用率实时追踪
@@ -28,12 +29,6 @@ import { cryptoRandomHex } from "../../shared/utils/secure-id.js";
  * @property {string} [error] - 错误信息（如果失败）
  */
 
-function toPositiveInt(value, fallback) {
-  const n = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(n) || n < 0) return fallback;
-  return Math.floor(n);
-}
-
 function generateId() {
   const ts = Date.now().toString(36);
   const rand = cryptoRandomHex(3);
@@ -47,7 +42,7 @@ export class TokenTracker {
    * @param {function} [options.onRecord] - 记录回调
    */
   constructor({ maxRecords = 10000, onRecord = null } = {}) {
-    this.maxRecords = toPositiveInt(maxRecords, 10000);
+    this.maxRecords = toNonNegativeInt(maxRecords, 10000);
     this.onRecord = typeof onRecord === "function" ? onRecord : null;
 
     /** @type {TokenUsageRecord[]} */
@@ -91,10 +86,10 @@ export class TokenTracker {
     success = true,
     error,
   }) {
-    const pt = toPositiveInt(promptTokens, 0);
-    const ct = toPositiveInt(completionTokens, 0);
+    const pt = toNonNegativeInt(promptTokens, 0);
+    const ct = toNonNegativeInt(completionTokens, 0);
     const tt = pt + ct;
-    const lat = toPositiveInt(latencyMs, 0);
+    const lat = toNonNegativeInt(latencyMs, 0);
 
     const record = {
       id: generateId(),
@@ -220,7 +215,7 @@ export class TokenTracker {
    * @param {number} [limit=100]
    */
   getRecentRecords(limit = 100) {
-    const n = Math.min(toPositiveInt(limit, 100), this._records.length);
+    const n = Math.min(toNonNegativeInt(limit, 100), this._records.length);
     return this._records.slice(-n);
   }
 
