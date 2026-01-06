@@ -1,0 +1,165 @@
+/**
+ * js/agents - 统一入口
+ *
+ * 提供三层 API：
+ * 1. 新架构 (推荐): Kernel + Plugins
+ * 2. 兼容层: 旧 MicroKernel API (逐步废弃)
+ * 3. 业务层: Stages, Skills, SDK
+ */
+
+// ============================================================
+// 新架构 - 微内核 (推荐)
+// ============================================================
+
+export {
+  // Kernel
+  Kernel,
+  KernelStatus,
+  KernelBuilder,
+
+  // 三大总线
+  EventBus,
+  StateBus,
+  ServiceBus,
+
+  // 插件系统
+  createPlugin,
+  PluginContext,
+  PluginManager,
+  PluginStatus,
+
+  // 预设
+  presets,
+  resolvePreset,
+  mergePresetConfig,
+  listPresets,
+
+  // 代理
+  createRetryProxy,
+  createTimeoutProxy,
+  createCacheProxy,
+
+  // 快捷函数
+  quickKernel,
+  minimalKernel,
+  deepsearchKernel,
+  productionKernel,
+
+  // 兼容
+  isServiceProvider,
+  adaptProvider,
+  adaptProviders,
+} from './core/index.js';
+
+// ============================================================
+// 兼容层 - 旧 MicroKernel (逐步废弃)
+// ============================================================
+
+// 重新导出旧 API，但标记为 deprecated
+export {
+  // 旧内核 - 建议迁移到新 Kernel
+  MicroKernel,
+  MessageBus,
+  ServiceProvider,
+  isServiceProvider as isLegacyServiceProvider,
+} from './runtime/kernel/index.js';
+
+// ============================================================
+// Runtime - 核心运行时组件
+// ============================================================
+
+export {
+  // Agent Loop
+  BaseAgentLoop,
+  AgentStatus,
+  StepStatus,
+
+  // Orchestrator
+  AgentOrchestrator,
+  SchedulingMode,
+
+  // Events
+  EventBus as RuntimeEventBus,
+  RuntimeEvents,
+  WatchdogEvents,
+  CicadaEvents,
+
+  // Compression
+  Watchdog,
+  CicadaCompressor,
+  CompressionCoordinator,
+
+  // Telemetry
+  TokenTracker,
+  TraceContext,
+
+  // Tools
+  ToolRegistry,
+  ToolExecutor,
+  createToolExecutor,
+
+  // DI (兼容)
+  Container,
+  createContainer,
+  ServiceId,
+} from './runtime/index.js';
+
+// ============================================================
+// Stages - 业务阶段
+// ============================================================
+
+export {
+  DeepSearchAgentLoop,
+  DeepSearchState,
+  runDeepSearchAgent,
+  runDeepSearchStage,
+} from './stages/deepsearch/index.js';
+
+// ============================================================
+// SDK - 高层 API
+// ============================================================
+
+export { AgentBuilder } from './sdk/AgentBuilder.js';
+export { createAgent } from './sdk/agent-factory.js';
+
+// ============================================================
+// Shared - 工具库
+// ============================================================
+
+export {
+  Archive,
+  createBudgetManager,
+  robustParseJson,
+  createLogger,
+  safeExec,
+  CircuitBreaker,
+  getCircuitBreaker,
+} from './shared/index.js';
+
+// ============================================================
+// VFS - 虚拟文件系统
+// ============================================================
+
+export {
+  createVfs,
+  MemoryVfs,
+  OpfsVfs,
+  StorageVfs,
+} from './vfs/index.js';
+
+// ============================================================
+// Skills - 技能系统
+// ============================================================
+
+export {
+  SkillsManager,
+  loadSkills,
+  loadAllSkills,
+  renderSkillsSection,
+} from './skills/index.js';
+
+// ============================================================
+// 默认导出 - 新 Kernel
+// ============================================================
+
+export { default } from './core/index.js';
