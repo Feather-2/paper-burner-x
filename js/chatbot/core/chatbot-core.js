@@ -1,6 +1,50 @@
 // chatbot-core.js
 // 主入口模块 - 整合所有子模块并导出统一接口
 
+// ============================================================================
+// MIGRATION NOTICE (Phase 9 重构)
+// ============================================================================
+// 此文件正在逐步迁移到 ESM 模块架构：
+// - ChatController (./chat-controller.js)
+// - MessageHandler (./message-handler.js)
+// - StreamingAdapter (./streaming-adapter.js)
+//
+// 新代码请使用:
+//   import { createChatController, createMessageHandler } from '../index.js';
+//
+// 旧的 window.ChatbotCore API 仍可用，内部已开始集成新模块。
+// ============================================================================
+
+// =============== 新模块集成（动态加载） ===============
+let _newChatController = null;
+let _newMessageHandler = null;
+let _modulesInitPromise = null;
+
+async function _initNewModules() {
+  if (_modulesInitPromise) return _modulesInitPromise;
+
+  _modulesInitPromise = (async () => {
+    try {
+      const [controllerModule, handlerModule] = await Promise.all([
+        import('./chat-controller.js'),
+        import('./message-handler.js')
+      ]);
+      _newChatController = controllerModule;
+      _newMessageHandler = handlerModule;
+      console.log('[ChatbotCore] 新 ESM 模块已加载');
+    } catch (e) {
+      console.warn('[ChatbotCore] 新模块加载失败，使用旧实现:', e.message);
+    }
+  })();
+
+  return _modulesInitPromise;
+}
+
+// 预加载新模块（非阻塞）
+if (typeof window !== 'undefined') {
+  setTimeout(() => _initNewModules(), 0);
+}
+
 // =============== 全局状态 ===============
 let chatHistory = [];
 let isChatbotLoading = false;
