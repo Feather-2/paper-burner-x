@@ -18,13 +18,32 @@ export default createPlugin({
   },
 
   async install(ctx) {
+    const toPlainObject = (value) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+      return value;
+    };
+
+    const computeFingerprint = (action) => {
+      const obj = toPlainObject(action) || {};
+      const type = String(obj.type || (obj.name ? 'tool_call' : '') || 'unknown');
+      const name = typeof obj.name === 'string' && obj.name ? obj.name : null;
+
+      const args = toPlainObject(obj.params) || toPlainObject(obj.args) || {};
+      const keys = Object.keys(args).sort().join(',');
+
+      return name ? `${type}:${name}:${keys}` : `${type}:${keys}`;
+    };
+
     // 懒加载
     let fingerprinter = null;
 
     const getFingerprinter = async () => {
       if (!fingerprinter) {
         const { BehaviorFingerprint } = await import('../../runtime/analysis/behavior-fingerprint.js');
-        fingerprinter = new BehaviorFingerprint(ctx.config);
+        fingerprinter = new BehaviorFingerprint({
+          historySize: ctx.config.maxHistory,
+          maxPatternLength: ctx.config.windowSize,
+        });
       }
       return fingerprinter;
     };
@@ -35,10 +54,29 @@ export default createPlugin({
     ctx.registerService('fingerprint', {
       async analyze(action) {
         const fp = await getFingerprinter();
-        const result = fp.analyze(action);
+        const fingerprint = computeFingerprint(action);
+        const recent = history.slice(-Math.max(1, ctx.config.windowSize));
+        const similarity = recent.length
+          ? recent.filter((h) => h.fingerprint === fingerprint).length / recent.length
+          : 0;
+
+        const behavior = fp.recordAction ? fp.recordAction(action || {}) : { loopDetected: false, loopInfo: null };
+        const loopLength = behavior?.loopInfo?.pattern?.length || 0;
+
+        const result = {
+          fingerprint,
+          similarity,
+          isLoop: !!behavior?.loopDetected,
+          loopLength,
+          loopInfo: behavior?.loopInfo || null,
+          analysis: fp.getAnalysis?.() || null,
+          suggestion: fp.getSuggestion?.() || null,
+          stats: fp.stats || null,
+          timestamp: Date.now(),
+        };
 
         history.push({
-          action: action.type || action.name,
+          action: action?.type || action?.name || 'unknown',
           fingerprint: result.fingerprint,
           timestamp: Date.now(),
         });
@@ -64,12 +102,14 @@ export default createPlugin({
 
       reset() {
         history.length = 0;
+        fingerprinter?.reset?.();
         fingerprinter = null;
       },
     });
 
     // 监听工具调用事件
-    ctx.on('tool.call.*', async (data) => {
+    ctx.on('tool.call.*', async (evt) => {
+      const data = toPlainObject(evt?.payload) || {};
       await ctx.services.call('fingerprint', 'analyze', [{
         type: 'tool_call',
         name: data.name,

@@ -306,9 +306,9 @@ export function createRetryProxy(options = {}) {
           return await next();
         } catch (error) {
           lastError = error;
-          if (attempt < maxRetries && shouldRetry(error, context)) {
-            await new Promise(r => setTimeout(r, delay * Math.pow(2, attempt)));
-          }
+          const canRetry = attempt < maxRetries && shouldRetry(error, context);
+          if (!canRetry) break;
+          await new Promise(r => setTimeout(r, delay * Math.pow(2, attempt)));
         }
       }
       throw lastError;

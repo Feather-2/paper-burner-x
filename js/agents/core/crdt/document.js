@@ -159,8 +159,9 @@ export class CRDTDocument {
     if (!op || !op.field || !op.fieldType) return false;
 
     // 同步时钟
-    if (op.clock?.seq) {
-      syncClock(op.clock.seq);
+    const remoteSeq = op.clock?.seq ?? op.op?.clock?.seq;
+    if (typeof remoteSeq === 'number' && Number.isFinite(remoteSeq)) {
+      syncClock(remoteSeq);
     }
 
     let changed = false;
@@ -168,7 +169,7 @@ export class CRDTDocument {
     switch (op.fieldType) {
       case 'register':
         if (!this._registers.has(op.field)) {
-          this._registers.set(op.field, new LWWRegister(null, { nodeId: this._nodeId }));
+          this._registers.set(op.field, new LWWRegister(null, { nodeId: this._nodeId, clock: { seq: 0 } }));
         }
         changed = this._registers.get(op.field).apply(op);
         break;
@@ -194,7 +195,10 @@ export class CRDTDocument {
             type === 'g' ? new GCounter({ nodeId: this._nodeId }) : new PNCounter({ nodeId: this._nodeId })
           );
         }
-        changed = this._counters.get(op.field).apply(op.op || op);
+        {
+          const counter = this._counters.get(op.field);
+          changed = counter instanceof PNCounter ? counter.apply(op) : counter.apply(op.op || op);
+        }
         break;
     }
 
@@ -229,7 +233,7 @@ export class CRDTDocument {
     // 合并 registers
     for (const [name, reg] of other._registers) {
       if (!this._registers.has(name)) {
-        this._registers.set(name, new LWWRegister(null, { nodeId: this._nodeId }));
+        this._registers.set(name, new LWWRegister(null, { nodeId: this._nodeId, clock: { seq: 0 } }));
       }
       if (this._registers.get(name).merge(reg)) {
         changed = true;

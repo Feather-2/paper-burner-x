@@ -15,6 +15,7 @@
     "postinstall": "echo 'No frontend build by default. Use npm run build:fe if needed.'"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^4.0.16",
     "fake-indexeddb": "^6.2.2",
     "jszip": "^3.10.1",
     "linkedom": "^0.18.12",
@@ -23,6 +24,7 @@
     "tree-sitter-wasms": "^0.1.13",
     "turndown": "^7.2.0",
     "vite": "^7.3.0",
+    "vitest": "^4.0.16",
     "web-tree-sitter": "^0.26.3"
   }
 }

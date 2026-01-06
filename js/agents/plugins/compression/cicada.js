@@ -61,8 +61,9 @@ export default createPlugin({
     });
 
     // 监听 token 阈值
-    ctx.on('runtime.tokens.updated', async (data) => {
-      if (data.total > ctx.config.maxContextTokens * 0.9) {
+    ctx.on('runtime.tokens.updated', (evt) => {
+      const data = evt?.payload;
+      if (data?.total > ctx.config.maxContextTokens * 0.9) {
         ctx.events.emit('compression.warning', {
           current: data.total,
           threshold: ctx.config.maxContextTokens,

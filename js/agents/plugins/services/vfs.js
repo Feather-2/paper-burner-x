@@ -33,7 +33,20 @@ export default createPlugin({
       },
 
       async deleteFile(path) {
-        const result = await vfs.deleteFile(path);
+        const deleter =
+          typeof vfs.deleteFile === 'function'
+            ? (p) => vfs.deleteFile(p)
+            : typeof vfs.unlink === 'function'
+              ? (p) => vfs.unlink(p)
+              : typeof vfs.rm === 'function'
+                ? (p) => vfs.rm(p, { recursive: false })
+                : null;
+
+        if (!deleter) {
+          throw new Error('VFS does not support deleteFile/unlink/rm');
+        }
+
+        const result = await deleter(path);
         ctx.events.emit('vfs.delete', { path });
         return result;
       },
@@ -67,7 +80,14 @@ export default createPlugin({
         // Fallback
         const { createVfsGlobFn } = await import('../../vfs/glob.js');
         const globFn = createVfsGlobFn(vfs);
-        return globFn(pattern, options);
+        if (typeof globFn !== 'function') return [];
+
+        const request =
+          pattern && typeof pattern === 'object'
+            ? { ...(pattern || {}), ...(options || {}) }
+            : { pattern, ...(options || {}) };
+
+        return globFn(request);
       },
 
       // 获取底层 VFS 实例

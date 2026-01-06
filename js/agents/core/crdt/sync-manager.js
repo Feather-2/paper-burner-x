@@ -244,6 +244,11 @@ export class CRDTSyncManager {
     // 发送缓存的操作
     this._flushPendingOps();
 
+    // 主动拉取所有文档的全量同步（用于新节点加入/重连追赶）
+    for (const docId of this._documents.keys()) {
+      this.requestSync(docId, 0);
+    }
+
     this._emit('connect');
     return this;
   }

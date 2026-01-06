@@ -23,6 +23,17 @@ export default createPlugin({
     const levels = { debug: 0, info: 1, warn: 2, error: 3 };
     const currentLevel = levels[ctx.config.level] || 0;
 
+    const buffer = [];
+    const maxBuffer = Number.isFinite(ctx.config.maxBuffer)
+      ? Math.max(0, Math.floor(ctx.config.maxBuffer))
+      : 200;
+
+    const pushBuffer = (entry) => {
+      if (maxBuffer <= 0) return;
+      buffer.push(entry);
+      while (buffer.length > maxBuffer) buffer.shift();
+    };
+
     const formatTime = () => {
       if (!ctx.config.includeTimestamp) return '';
       const now = new Date();
@@ -47,6 +58,8 @@ export default createPlugin({
     const log = (level, event, data) => {
       if (levels[level] < currentLevel) return;
 
+      pushBuffer({ level, event, data, timestamp: Date.now() });
+
       const prefix = ctx.config.pretty
         ? `${formatTime()} [${level.toUpperCase().padEnd(5)}]`
         : `${formatTime()} ${level}:`;
@@ -54,8 +67,24 @@ export default createPlugin({
       console[level](`${prefix} ${event}${formatData(data)}`);
     };
 
+    // 暴露服务接口（便于调试/测试）
+    ctx.registerService('logger', {
+      getConfig: () => ({ ...ctx.config }),
+      getBuffer: () => buffer.slice(),
+      clearBuffer: () => {
+        buffer.length = 0;
+        return true;
+      },
+    });
+
+    // 记录插件状态（作用域写入）
+    ctx.state.set('installedAt', Date.now());
+
     // 监听所有事件
-    ctx.on('*', (data, event) => {
+    ctx.on('*', (evt) => {
+      const event = typeof evt?.name === 'string' ? evt.name : '';
+      const data = evt?.payload;
+
       // 分类事件级别
       if (event.includes('.error')) {
         log('error', event, data);

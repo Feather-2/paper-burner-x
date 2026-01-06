@@ -119,9 +119,13 @@ export class ORSet {
       if (!this._elements.has(op.element)) {
         this._elements.set(op.element, new Set());
       }
-      this._elements.get(op.element).add(op.tag);
+      const tags = this._elements.get(op.element);
+      const hadTag = tags.has(op.tag);
+      tags.add(op.tag);
+
+      const prevElement = this._tagToElement.get(op.tag);
       this._tagToElement.set(op.tag, op.element);
-      return true;
+      return !hadTag || prevElement !== op.element;
     }
 
     if (op.type === 'set-remove') {
