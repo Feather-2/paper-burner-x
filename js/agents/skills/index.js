@@ -17,5 +17,12 @@ export { loadSkills, loadSkillFromPath, loadSkillsFromNexus, loadAllSkills } fro
 export { SkillsManager } from "./manager.js";
 export { renderSkillsSection, renderSkillsList } from "./render.js";
 
+// 沙箱执行
+export {
+  enhanceWithSandbox,
+  createSandboxedSkillsManager,
+  analyzeSkillRisk,
+} from "./sandbox-adapter.js";
+
 // 默认导出 SkillsManager
 export { SkillsManager as default } from "./manager.js";

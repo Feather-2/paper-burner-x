@@ -49,8 +49,40 @@ function isDispatchTask(task) {
   );
 }
 
+let _didWarnDeprecation = false;
+
+/**
+ * @deprecated Since 1.0.0, will be removed in 2.0.0
+ * Use `import { Kernel } from 'js/agents/core'` instead.
+ *
+ * Migration guide:
+ * ```js
+ * // Before (deprecated)
+ * import { MicroKernel } from 'js/agents/runtime/kernel';
+ * const kernel = new MicroKernel({ providers: [...] });
+ *
+ * // After (recommended)
+ * import { Kernel } from 'js/agents/core';
+ * const kernel = await Kernel.create('standard');
+ * // or use plugins:
+ * await kernel.use(myPlugin);
+ * ```
+ *
+ * Key differences:
+ * - MicroKernel.container → Kernel.services (ServiceBus)
+ * - ServiceProvider → createPlugin()
+ * - kernel.use(provider) → kernel.use(plugin)
+ */
 export class MicroKernel {
   constructor({ container, eventBus, scheduler, providers } = {}) {
+    if (!_didWarnDeprecation) {
+      _didWarnDeprecation = true;
+      console.warn(
+        "[DEPRECATED] MicroKernel is deprecated since 1.0.0 and will be removed in 2.0.0. " +
+        "Migrate to `import { Kernel } from 'js/agents/core'`. " +
+        "See migration guide: https://github.com/anthropics/pb-agents/blob/main/docs/MIGRATION.md"
+      );
+    }
     this.container = ensureContainer(container);
     this.eventBus = ensureEventBus(eventBus);
     this.scheduler =
