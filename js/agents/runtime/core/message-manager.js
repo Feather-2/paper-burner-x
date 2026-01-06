@@ -10,22 +10,7 @@
 import { estimateTokensCached } from "../../shared/utils/token-cache.js";
 import { getGlobalTokenCounter } from "../../shared/tokenizers/adaptive-token-counter.js";
 import { CompressionCoordinator } from "../compression/coordinator.js";
-
-// 默认上下文配置
-const DEFAULT_CONTEXT_CONFIG = Object.freeze({
-  contextWindow: 128000,
-  maxOutputTokens: 4096,
-  compressThreshold: 0.9,
-  compressCooldownMs: 5000,
-  keepLastTurns: 6,
-  userMessageBuffer: 20000,
-  titleOnlySummaryThreshold: 0.8,
-  titleOnlySummaryMaxWords: 10,
-  titleOnlySummaryMaxChars: 80,
-  maxKeptMessageChars: 16000,
-  useCompressionWorker: true,
-  workerThresholdMessages: 50,
-});
+import { DEFAULT_CONTEXT_CONFIG } from "./context-config.js";
 
 function estimateTokens(text, tokenCounter) {
   if (text === null || text === undefined) return 0;

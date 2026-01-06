@@ -9,27 +9,15 @@ import { CompressionCoordinator } from "../compression/coordinator.js";
 import { MessageManager } from "./message-manager.js";
 import { ToolRegistry } from "./tool-registry.js";
 import { StatusController } from "./status-controller.js";
+import { DEFAULT_CONTEXT_CONFIG, mergeContextConfig } from "./context-config.js";
 
 // Re-export 组合类供外部使用
 export { MessageManager, ToolRegistry, StatusController };
 
-const USER_ACTION_PREFIX = "user.action";
+// Re-export 配置供外部自定义
+export { DEFAULT_CONTEXT_CONFIG, mergeContextConfig };
 
-// 默认上下文配置
-const DEFAULT_CONTEXT_CONFIG = Object.freeze({
-  contextWindow: 128000,      // 默认 128K tokens
-  maxOutputTokens: 4096,      // 默认输出限制
-  compressThreshold: 0.9,     // 90% 触发压缩
-  compressCooldownMs: 5000,   // 压缩触发冷却（避免频繁触发）
-  keepLastTurns: 6,           // 保留最近 6 轮
-  userMessageBuffer: 20000,   // 用户消息缓冲区 20K tokens
-  titleOnlySummaryThreshold: 0.8, // 80% 时对旧消息做 title-only 摘要
-  titleOnlySummaryMaxWords: 10,   // 英文单词上限
-  titleOnlySummaryMaxChars: 80,   // 字符上限（含 CJK）
-  maxKeptMessageChars: 16000,     // kept 消息硬截断保护（避免极端大消息霸占上下文）
-  useCompressionWorker: true,     // 启用 Worker 压缩（浏览器环境）
-  workerThresholdMessages: 50,    // 消息数阈值触发 Worker
-});
+const USER_ACTION_PREFIX = "user.action";
 
 // 简单 token 估算 (4 chars ≈ 1 token)
 function estimateTokens(text, tokenCounter) {
