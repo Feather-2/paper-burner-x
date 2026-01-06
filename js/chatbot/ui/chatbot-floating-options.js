@@ -1,4 +1,4 @@
-if (typeof window.ChatbotFloatingOptionsScriptLoaded === 'undefined') {
+if (typeof window !== 'undefined' && typeof window.ChatbotFloatingOptionsScriptLoaded === 'undefined') {
   /**
    * 聊天机器人应用的浮动高级选项栏 UI 管理模块。
    *
@@ -314,3 +314,5 @@ if (typeof window.ChatbotFloatingOptionsScriptLoaded === 'undefined') {
   };
   window.ChatbotFloatingOptionsScriptLoaded = true;
 }
+
+export const ChatbotFloatingOptionsUI = typeof window !== 'undefined' ? window.ChatbotFloatingOptionsUI : undefined;

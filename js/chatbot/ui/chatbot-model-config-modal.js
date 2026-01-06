@@ -4,6 +4,8 @@
 (function() {
   'use strict';
 
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+
   // 预设模型列表
   const PREDEFINED_MODELS = [
     { value: 'mistral', label: 'Mistral Large', description: 'Mistral AI 的旗舰模型', defaultModelId: 'mistral-large-latest' },
@@ -1154,3 +1156,5 @@
   }
 
 })();
+
+export const ChatbotModelConfigModal = typeof window !== 'undefined' ? window.ChatbotModelConfigModal : undefined;

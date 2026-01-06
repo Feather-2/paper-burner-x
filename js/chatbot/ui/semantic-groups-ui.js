@@ -2,6 +2,7 @@
 (function(window, document) {
   'use strict';
 
+  if (!window || !document) return;
   if (window.SemanticGroupsUIScriptLoaded) return;
 
   // 载入持久化设置
@@ -309,4 +310,6 @@
 
   window.SemanticGroupsUI = { open, close, toggle, update };
   window.SemanticGroupsUIScriptLoaded = true;
-})(window, document);
+})(typeof window !== 'undefined' ? window : undefined, typeof document !== 'undefined' ? document : undefined);
+
+export const SemanticGroupsUI = typeof window !== 'undefined' ? window.SemanticGroupsUI : undefined;

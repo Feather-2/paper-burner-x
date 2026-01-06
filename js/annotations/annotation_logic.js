@@ -17,7 +17,7 @@ var annotationContextMenuElement; // 右键菜单的HTML元素
  * 批注系统 DOM 缓存类
  * 缓存 sub-block 元素，避免右键时全文档 querySelectorAll
  */
-const AnnotationDOMCache = {
+export const AnnotationDOMCache = {
     // 缓存的 sub-block 元素数组
     subBlocks: null,
 
@@ -98,8 +98,10 @@ const AnnotationDOMCache = {
     }
 };
 
-// 挂载到全局，方便外部调用
-window.AnnotationDOMCache = AnnotationDOMCache;
+// 挂载到全局，方便外部调用（兼容层）
+if (typeof window !== 'undefined') {
+    window.AnnotationDOMCache = AnnotationDOMCache;
+}
 
 // 这些全局变量将在 history_detail.html 的主脚本中初始化和管理。
 // 此脚本将使用它们。
@@ -109,7 +111,7 @@ window.AnnotationDOMCache = AnnotationDOMCache;
 // let globalCurrentContentIdentifier = ''; // 全局当前内容标识符 (例如 'ocr', 'translation')，将由 history_detail.html 中的 showTab 函数设置
 
 
-function _page_generateUUID() {
+export function _page_generateUUID() {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
         var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
         return v.toString(16);
@@ -151,9 +153,9 @@ function fuzzyMatch(a, b) {
  * @param {'blockIndex'|'subBlockId'} identifierType - 标识符的类型。
  * @returns {boolean} 是否已高亮。
  */
-function checkIfTargetIsHighlighted(annotationId = null, contentIdentifier, targetIdentifier = null, identifierType) {
+export function checkIfTargetIsHighlighted(annotationId = null, contentIdentifier, targetIdentifier = null, identifierType) {
     // console.log(`[checkIfTargetIsHighlighted] ID: ${annotationId}, ContentID: ${contentIdentifier}, TargetID: ${targetIdentifier}, Type: ${identifierType}`);
-    if (!window.data || !window.data.annotations) {
+    if (typeof window === 'undefined' || !window.data || !window.data.annotations) {
         return false;
     }
 
@@ -195,9 +197,9 @@ function checkIfTargetIsHighlighted(annotationId = null, contentIdentifier, targ
  * @param {'blockIndex'|'subBlockId'} identifierType - 标识符的类型。
  * @returns {boolean} 是否已有批注内容。
  */
-function checkIfTargetHasNote(annotationId = null, contentIdentifier, targetIdentifier = null, identifierType) {
+export function checkIfTargetHasNote(annotationId = null, contentIdentifier, targetIdentifier = null, identifierType) {
     // console.log(`[checkIfTargetHasNote] ID: ${annotationId}, ContentID: ${contentIdentifier}, TargetID: ${targetIdentifier}, Type: ${identifierType}`);
-    if (!window.data || !window.data.annotations) return false;
+    if (typeof window === 'undefined' || !window.data || !window.data.annotations) return false;
 
     let annotation;
     if (annotationId) {
@@ -239,7 +241,7 @@ function checkIfTargetHasNote(annotationId = null, contentIdentifier, targetIden
  * @param {boolean} isHighlighted - 是否已高亮
  * @param {boolean} hasNote - 是否已有批注
  */
-function updateContextMenuOptions(isHighlighted, hasNote = false, isReadOnlyMode = false) {
+export function updateContextMenuOptions(isHighlighted, hasNote = false, isReadOnlyMode = false) {
     if (!annotationContextMenuElement) return;
 
     const highlightOption = annotationContextMenuElement.querySelector('[data-action="highlight-block"]') ||
@@ -303,7 +305,7 @@ function updateContextMenuOptions(isHighlighted, hasNote = false, isReadOnlyMode
  * @param {number} x - x坐标
  * @param {number} y - y坐标
  */
-function showContextMenu(x, y) {
+export function showContextMenu(x, y) {
     if (!annotationContextMenuElement) return;
     annotationContextMenuElement.style.left = x + 'px';
     annotationContextMenuElement.style.top = y + 'px';
@@ -519,7 +521,7 @@ async function addNoteToAnnotation(noteText, docId, annotationId = null, targetI
 }
 
 // 主初始化函数，由 history_detail.html 调用
-function initAnnotationSystem() {
+export function initAnnotationSystem() {
     annotationContextMenuElement = document.getElementById('custom-context-menu');
     if (!annotationContextMenuElement) {
         console.error("未找到批注上下文菜单元素 ('custom-context-menu')！");
@@ -1287,7 +1289,7 @@ function initAnnotationSystem() {
 }
 
 // ===== 新增：跨子块选择检测函数 =====
-function detectCrossBlockSelection() {
+export function detectCrossBlockSelection() {
     const selection = window.getSelection();
     console.log('[跨子块检测] 当前选区:', selection);
     console.log('[跨子块检测] 选区范围数:', selection.rangeCount);
@@ -1677,7 +1679,7 @@ function getSubBlocksInRange(range, startSubBlock, endSubBlock) {
 }
 
 // ===== 新增：处理跨子块标注 =====
-function handleCrossBlockAnnotation(event, crossBlockInfo) {
+export async function handleCrossBlockAnnotation(event, crossBlockInfo) {
     event.preventDefault();
     
     console.log(`[跨子块标注] 检测到跨子块选择，涉及 ${crossBlockInfo.affectedSubBlocks.length} 个子块`);
@@ -2250,21 +2252,30 @@ function findExistingCrossBlockNote(affectedSubBlockIds, contentIdentifier) {
     return '';
 }
 
-// 暴露新功能
-window.detectCrossBlockSelection = detectCrossBlockSelection;
-window.handleCrossBlockAnnotation = handleCrossBlockAnnotation;
-
-// 保留旧函数以保持向后兼容性
-window.checkIfTargetIsHighlighted = checkIfTargetIsHighlighted;
-window.checkIfTargetHasNote = checkIfTargetHasNote;
-
-// 保留旧函数以保持向后兼容性
-window.updateContextMenuOptions = updateContextMenuOptions;
-window.showContextMenu = showContextMenu;
-
-window.initializeGlobalAnnotationVariables = function() {
+export function initializeGlobalAnnotationVariables() {
+    if (typeof window === 'undefined') return;
     window.globalCurrentSelection = null;
     // window.globalCurrentTargetElement = null; // 重要性降低
     window.globalCurrentHighlightStatus = false;
     window.globalCurrentContentIdentifier = ''; // 仍然初始化，但应减少直接依赖
-};
+}
+
+// 兼容层：暴露到 window，供旧代码过渡期使用
+if (typeof window !== 'undefined') {
+    // 旧页面中仍有直接调用 _page_generateUUID 的情况
+    window._page_generateUUID = _page_generateUUID;
+
+    // history_detail_render.js 依赖 window.initAnnotationSystem
+    window.initAnnotationSystem = initAnnotationSystem;
+
+    window.detectCrossBlockSelection = detectCrossBlockSelection;
+    window.handleCrossBlockAnnotation = handleCrossBlockAnnotation;
+
+    window.checkIfTargetIsHighlighted = checkIfTargetIsHighlighted;
+    window.checkIfTargetHasNote = checkIfTargetHasNote;
+
+    window.updateContextMenuOptions = updateContextMenuOptions;
+    window.showContextMenu = showContextMenu;
+
+    window.initializeGlobalAnnotationVariables = initializeGlobalAnnotationVariables;
+}

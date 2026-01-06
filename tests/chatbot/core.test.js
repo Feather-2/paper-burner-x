@@ -282,3 +282,21 @@ describe('createMessageHandler', () => {
     expect(mh.maxContextTokens).toBe(2000);
   });
 });
+
+describe('Chatbot UI exports (ESM)', () => {
+  it('should export UI entry and be re-exported by chatbot/index.js', async () => {
+    const ui = await import('../../js/chatbot/ui/index.js');
+
+    expect(ui.ChatbotUI).toBeTruthy();
+    expect(typeof ui.updateChatbotUI).toBe('function');
+    expect(typeof ui.initChatbotUI).toBe('function');
+    expect(typeof ui.showModelSelectorForChatbot).toBe('function');
+    expect(ui.ChatbotMessageRenderer).toBeTruthy();
+    expect(ui.ChatbotPresetQuestionsUI).toBeTruthy();
+    expect(ui.ChatbotModelSelectorUI).toBeTruthy();
+
+    const chatbot = await import('../../js/chatbot/index.js');
+    expect(chatbot.ChatbotUI).toBeTruthy();
+    expect(chatbot.ChatbotMessageRenderer).toBeTruthy();
+  });
+});

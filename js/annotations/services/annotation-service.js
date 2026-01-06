@@ -349,9 +349,11 @@ export class AnnotationService {
     const annotations = await this.getByDocId(docId);
     let count = 0;
 
-    for (const annotation of annotations) {
-      await this.delete(annotation.id);
-      count++;
+    // 注意：delete() 会 splice 缓存数组；这里需要先复制 id 列表，避免迭代时跳过元素
+    const ids = annotations.map(a => a.id);
+    for (const id of ids) {
+      const ok = await this.delete(id);
+      if (ok) count++;
     }
 
     this._cache.delete(docId);

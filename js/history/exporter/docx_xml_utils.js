@@ -3,15 +3,12 @@
  * 提供 XML 转义、验证和模板构建功能
  */
 
-(function(window) {
-  'use strict';
-
-  /**
-   * 转义 XML 特殊字符
-   * @param {string} str - 要转义的字符串
-   * @returns {string} 转义后的字符串
-   */
-  function escapeXml(str) {
+/**
+ * 转义 XML 特殊字符
+ * @param {string} str - 要转义的字符串
+ * @returns {string} 转义后的字符串
+ */
+export function escapeXml(str) {
     if (!str) return '';
     let result = String(str);
     // 移除 XML 非法控制字符
@@ -30,12 +27,12 @@
     });
   }
 
-  /**
-   * 转义 HTML 特殊字符
-   * @param {string} str - 要转义的字符串
-   * @returns {string} 转义后的字符串
-   */
-  function escapeHtml(str) {
+/**
+ * 转义 HTML 特殊字符
+ * @param {string} str - 要转义的字符串
+ * @returns {string} 转义后的字符串
+ */
+export function escapeHtml(str) {
     return String(str).replace(/[&<>"']/g, function(ch) {
       switch (ch) {
         case '&': return '&amp;';
@@ -48,13 +45,13 @@
     });
   }
 
-  /**
-   * 清理 XML 内容，修复常见问题
-   * @param {string} xmlStr - XML 字符串
-   * @param {Object} options - 选项
-   * @returns {string} 清理后的 XML
-   */
-  function sanitizeXmlContent(xmlStr, options = {}) {
+/**
+ * 清理 XML 内容，修复常见问题
+ * @param {string} xmlStr - XML 字符串
+ * @param {Object} options - 选项
+ * @returns {string} 清理后的 XML
+ */
+export function sanitizeXmlContent(xmlStr, options = {}) {
     if (!xmlStr) return '';
 
     if (options.debug) {
@@ -123,12 +120,12 @@
     return cleaned;
   }
 
-  /**
-   * 验证 XML 结构
-   * @param {string} xmlString - XML 字符串
-   * @returns {boolean} 验证是否通过
-   */
-  function validateXmlStructure(xmlString) {
+/**
+ * 验证 XML 结构
+ * @param {string} xmlString - XML 字符串
+ * @returns {boolean} 验证是否通过
+ */
+export function validateXmlStructure(xmlString) {
     if (!xmlString || typeof xmlString !== 'string') {
       throw new Error('XML 内容为空或类型错误');
     }
@@ -174,13 +171,13 @@
     return true;
   }
 
-  /**
-   * 基础 XML 验证
-   * @param {string} xmlString - XML 字符串
-   * @param {string} fileName - 文件名（用于错误提示）
-   * @returns {boolean} 验证是否通过
-   */
-  function validateBasicXml(xmlString, fileName) {
+/**
+ * 基础 XML 验证
+ * @param {string} xmlString - XML 字符串
+ * @param {string} fileName - 文件名（用于错误提示）
+ * @returns {boolean} 验证是否通过
+ */
+export function validateBasicXml(xmlString, fileName) {
     if (!xmlString || typeof xmlString !== 'string') {
       throw new Error(`${fileName}: XML 内容为空`);
     }
@@ -197,12 +194,12 @@
     return true;
   }
 
-  /**
-   * 构建 [Content_Types].xml
-   * @param {Array} mediaExtensions - 媒体文件扩展名列表
-   * @returns {string} XML 字符串
-   */
-  function buildContentTypesXml(mediaExtensions) {
+/**
+ * 构建 [Content_Types].xml
+ * @param {Array} mediaExtensions - 媒体文件扩展名列表
+ * @returns {string} XML 字符串
+ */
+export function buildContentTypesXml(mediaExtensions) {
     const defaults = [
       '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>',
       '<Default Extension="xml" ContentType="application/xml"/>'
@@ -237,11 +234,11 @@ ${defaults.join('\n')}
 </Types>`;
   }
 
-  /**
-   * 构建 _rels/.rels
-   * @returns {string} XML 字符串
-   */
-  function buildPackageRelsXml() {
+/**
+ * 构建 _rels/.rels
+ * @returns {string} XML 字符串
+ */
+export function buildPackageRelsXml() {
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
 <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
@@ -250,13 +247,13 @@ ${defaults.join('\n')}
 </Relationships>`;
   }
 
-  /**
-   * 构建 docProps/core.xml
-   * @param {Object} payload - 导出数据
-   * @param {string} iso - ISO 时间字符串
-   * @returns {string} XML 字符串
-   */
-  function buildCorePropsXml(payload, iso) {
+/**
+ * 构建 docProps/core.xml
+ * @param {Object} payload - 导出数据
+ * @param {string} iso - ISO 时间字符串
+ * @returns {string} XML 字符串
+ */
+export function buildCorePropsXml(payload, iso) {
     const title = payload && payload.data && payload.data.name ? escapeXml(payload.data.name) : 'PaperBurner X 导出';
     const creator = 'PaperBurner X';
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -269,23 +266,23 @@ ${defaults.join('\n')}
 </cp:coreProperties>`;
   }
 
-  /**
-   * 构建 docProps/app.xml
-   * @returns {string} XML 字符串
-   */
-  function buildAppPropsXml() {
+/**
+ * 构建 docProps/app.xml
+ * @returns {string} XML 字符串
+ */
+export function buildAppPropsXml() {
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
 <Application>PaperBurner X</Application>
 </Properties>`;
   }
 
-  /**
-   * 构建 word/_rels/document.xml.rels
-   * @param {Array} relationships - 关系数组
-   * @returns {string} XML 字符串
-   */
-  function buildDocumentRelsXml(relationships) {
+/**
+ * 构建 word/_rels/document.xml.rels
+ * @param {Array} relationships - 关系数组
+ * @returns {string} XML 字符串
+ */
+export function buildDocumentRelsXml(relationships) {
     const rels = relationships || [];
     let relsXml = rels.map(function(rel) {
       return `<Relationship Id="${escapeXml(rel.id)}" Type="${escapeXml(rel.type)}" Target="${escapeXml(rel.target)}"${rel.targetMode ? ` TargetMode="${escapeXml(rel.targetMode)}"` : ''}/>`;
@@ -297,18 +294,21 @@ ${relsXml}
 </Relationships>`;
   }
 
-  // 导出到全局
-  window.PBXDocxXmlUtils = {
-    escapeXml,
-    escapeHtml,
-    sanitizeXmlContent,
-    validateXmlStructure,
-    validateBasicXml,
-    buildContentTypesXml,
-    buildPackageRelsXml,
-    buildCorePropsXml,
-    buildAppPropsXml,
-    buildDocumentRelsXml
-  };
+export const PBXDocxXmlUtils = {
+  escapeXml,
+  escapeHtml,
+  sanitizeXmlContent,
+  validateXmlStructure,
+  validateBasicXml,
+  buildContentTypesXml,
+  buildPackageRelsXml,
+  buildCorePropsXml,
+  buildAppPropsXml,
+  buildDocumentRelsXml
+};
 
-})(window);
+// 兼容层：保留原 window.PBXDocxXmlUtils
+if (typeof window !== 'undefined') {
+  window.PBXDocxXmlUtils = window.PBXDocxXmlUtils || {};
+  Object.assign(window.PBXDocxXmlUtils, PBXDocxXmlUtils);
+}

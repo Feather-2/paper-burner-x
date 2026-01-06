@@ -222,8 +222,7 @@ export function resolveSelection(selection, containerElement) {
   const endSubBlock = findParentSubBlock(endContainer);
 
   // 检测是否跨子块
-  const isCrossBlock = startSubBlock !== endSubBlock &&
-    startSubBlock && endSubBlock;
+  const isCrossBlock = !!(startSubBlock && endSubBlock && startSubBlock !== endSubBlock);
 
   // 收集所有受影响的子块
   const affectedSubBlocks = [];

@@ -118,5 +118,32 @@ export default defineConfig({
       'animejs'
     ],
     exclude: EXTERNAL_DEPS
+  },
+
+  // Vitest 配置（core/annotations/storage 单测）
+  test: {
+    environment: 'node',
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json-summary'],
+      include: [
+        'js/annotations/core/**/*.js',
+        'js/annotations/renderers/**/*.js',
+        'js/annotations/services/**/*.js',
+        'js/annotations/index.js'
+      ],
+      exclude: [
+        'js/annotations/annotation_logic.js',
+        'js/annotations/annotation_highlighter.js',
+        'js/annotations/annotations_summary_modal.js',
+        'js/annotations/custom_markdown_renderer.js'
+      ],
+      thresholds: {
+        lines: 90,
+        functions: 90,
+        branches: 85,
+        statements: 90
+      }
+    }
   }
 });

@@ -8,6 +8,8 @@
     "preview:fe": "vite preview",
     "test": "npm run test:agents && npm run test:ppt",
     "test:core": "vitest run tests/storage tests/annotations",
+    "test:core:coverage": "vitest run tests/storage tests/annotations --coverage",
+    "test:annotations:coverage": "vitest run tests/annotations --coverage",
     "test:vcr": "node --test --test-concurrency=1 tests/vcr/vcr.smoke.test.js",
     "test:agents": "node --test --test-concurrency=1 tests/agents/runtime.test.js tests/agents/runtime/kernel.test.js tests/agents/storage.test.js tests/agents/textprep.test.js tests/agents/ingest.streaming.test.js tests/agents/shared/concurrency.test.js tests/agents/shared/cancellation.test.js tests/agents/shared/embeddings.test.js tests/agents/shared/circuit-breaker.test.js tests/agents/shared/token-cache.test.js tests/agents/sdk.test.js tests/agents/llm/model-router.test.js tests/agents/deepsearch.pipeline.test.js tests/agents/deepsearch/report-to-slide-intents.test.js tests/agents/deepsearch.product-flow.test.js tests/agents/deepsearch.evidence.test.js tests/agents/deepsearch.direct-analysis.test.js tests/agents/deepsearch.understand.concurrency.test.js tests/agents/deepsearch/review-diff.test.js tests/agents/deepsearch/state-utils.test.js tests/agents/deepsearch/trajectory.test.js tests/agents/deepsearch/gap-state-machine.test.js tests/agents/deepsearch/trajectory-cache.test.js tests/agents/deepsearch/retrieved-chunks-cleanup.test.js tests/agents/deepsearch/execute-tool.test.js tests/agents/deepsearch/tools.test.js tests/agents/integration.deepsearch-tools.test.js tests/agents/design.test.js tests/agents/design/visual-renderer.test.js tests/agents/design/image-generation-integration.test.js tests/agents/evaluate.test.js tests/agents/deepsearch.externalsearch.test.js tests/agents/deepsearch.retrieve.test.js tests/agents/local-mcp-provider.test.js tests/agents/mcp-nexus-provider.test.js tests/agents/vfs.test.js tests/agents/skills.test.js tests/agents/meta/no-empty-tests.test.js --experimental-test-coverage --test-coverage-lines=90 --test-coverage-functions=90 --test-coverage-branches=85 --test-coverage-include=js/agents/**/*.js",
     "test:ppt": "node --test tests/ppt/paste-document-modal.test.js tests/ppt/workflow-paste-text.test.js tests/ppt/workflow-design-stage.test.js tests/ppt/page-layout-brainstorm-panel.test.js tests/ppt/vditor-adapter.test.js tests/ppt/vditor-cdn.test.js tests/ppt/chatbot-intent.test.js tests/ppt/dsl-sync.test.js",
@@ -25,11 +27,13 @@
     "graphlib": "^2.1.8",
     "js-base64": "^3.7.7",
     "katex": "^0.16.21",
-    "marked": "^15.0.6",
-    "markdown-it": "^14.1.0"
+    "markdown-it": "^14.1.0",
+    "marked": "^15.0.6"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^3.2.4",
     "fake-indexeddb": "^6.2.2",
+    "jsdom": "^27.4.0",
     "jszip": "^3.10.1",
     "linkedom": "^0.18.12",
     "mammoth": "^1.10.0",

@@ -418,9 +418,8 @@
   <script src="../../js/api/api.js"></script>
   <script src="../../js/process/translation.js"></script>
   <script src="../../js/process/mineru-structured-translation.js"></script>
-  <script src="../../js/annotations/annotation_logic.js"></script>       <!-- Defines helpers like checkIfTextIsHighlighted -->
-  <script src="../../js/annotations/custom_markdown_renderer.js"></script> <!-- Defines createCustomMarkdownRenderer -->
-  <script src="../../js/annotations/annotation_highlighter.js"></script>   <!-- Defines applyPreprocessedAnnotations, uses helpers from annotation_logic.js -->
+  <!-- Annotations (ESM 统一入口 + window.* facade 兼容层) -->
+  <script type="module" src="../../js/annotations/index.js"></script>
   <!-- 移除失效的注释相关脚本引用 -->
   <script src="../../js/ui/toc_logic_enhanced.js"></script>
   <script src="../../js/ui/toc_scroll_sync.js"></script>
@@ -468,7 +467,8 @@
   <script src="../../js/chatbot/utils/chatbot-rendering-utils.js"></script> <!-- NEW -->
   <script src="../../js/chatbot/actions/chatbot-actions.js"></script> <!-- NEW -->
   <script src="../../js/chatbot/core/chat-message-event-manager.js"></script> <!-- Phase 3: 事件管理器（事件委托优化） -->
-  <script src="../../js/chatbot/ui/chatbot-message-renderer.js"></script> <!-- NEW -->
+  <!-- Chatbot UI (ESM entry) -->
+  <script type="module" src="../../js/chatbot/ui/chatbot-ui.js"></script>
   <!-- 新增：意群聚合模块 -->
   <script src="../../js/chatbot/agents/semantic-grouper.js"></script>
   <script src="../../js/chatbot/agents/semantic-tools.js"></script>
@@ -517,15 +517,7 @@
   <script src="../../js/chatbot/core/chatbot-core.js"></script>
   <script src="../../js/chatbot/renderers/chatbot-mermaid-renderer.js"></script>
   <script src="../../js/chatbot/renderers/chatbot-mindmap-renderer.js"></script>
-  <script src="../../js/chatbot/ui/chatbot-preset-questions-ui.js"></script>
-  <script src="../../js/chatbot/ui/chatbot-floating-options.js"></script> <!-- 新增引用 -->
-  <script src="../../js/chatbot/ui/chatbot-tooltrace-ui.js"></script>
-  <script src="../../js/chatbot/ui/semantic-groups-ui.js"></script> <!-- 新增：意群面板 -->
-  <script src="../../js/chatbot/ui/embedding-config-ui.js"></script> <!-- 新增：向量搜索配置 -->
-  <script src="../../js/chatbot/ui/chatbot-ui.js"></script>
-  <!-- Chatbot 模型配置弹窗（独立配置界面） -->
-  <script src="../../js/chatbot/ui/chatbot-model-config-modal.js?v=20251107f"></script>
-  <script src="../../js/chatbot/ui/chatbot-model-selector-ui.js"></script>
+  <!-- Chatbot UI modules are imported by chatbot-ui.js -->
   <script src="../../js/chatbot/strategy/segmentation-strategy.js"></script>
 
   <script src="../../js/ui/dock/dock_logic.js"></script>
@@ -541,7 +533,7 @@
   <script src="../../js/processing/sub_block_segmenter.js"></script>
   <script src="../../js/processing/content-list-to-chunks.js"></script>
   <script src="../../js/ui/dock/dock_settings_modal.js"></script> <!-- ADDED -->
-  <script src="../../js/annotations/annotations_summary_modal.js"></script> <!-- ADDED -->
+  <!-- annotations_summary_modal 已由 ../../js/annotations/index.js 统一加载 -->
   <!-- DOCX 导出 - MathML → OMML 转换器 -->
   <script src="../../js/history/exporter/mathml2omml.browser.js"></script> <!-- 专业转换库（优先） -->
   <script src="../../js/history/exporter/docx_mathml_converter_enhanced.js"></script> <!-- 增强转换器（备用） -->

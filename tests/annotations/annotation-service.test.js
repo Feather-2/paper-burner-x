@@ -119,6 +119,16 @@ describe('AnnotationService', () => {
     });
   });
 
+  describe('getMany', () => {
+    it('should return only existing annotations', async () => {
+      const a1 = await service.create({ docId: 'doc-1', text: 'A1' });
+      const a2 = await service.create({ docId: 'doc-1', text: 'A2' });
+
+      const results = await service.getMany([a1.id, 'missing', a2.id]);
+      expect(results.map(a => a.id).sort()).toEqual([a1.id, a2.id].sort());
+    });
+  });
+
   describe('getByDocId', () => {
     it('should retrieve all annotations for a document', async () => {
       await service.create({ docId: 'doc-1', text: 'Text 1' });
@@ -267,6 +277,27 @@ describe('AnnotationService', () => {
       });
       expect(results.length).toBe(1);
     });
+
+    it('should search by startDate/endDate', async () => {
+      // 注入可控 createdAt
+      await service.create({ docId: 'doc-date', text: 'Old', createdAt: '2020-01-01T00:00:00.000Z' });
+      await service.create({ docId: 'doc-date', text: 'New', createdAt: '2021-01-01T00:00:00.000Z' });
+
+      const endOnly = await service.search({ docId: 'doc-date', endDate: '2020-12-31T23:59:59.999Z' });
+      expect(endOnly.length).toBe(1);
+      expect(endOnly[0].text).toBe('Old');
+
+      const startOnly = await service.search({ docId: 'doc-date', startDate: '2020-12-31T23:59:59.999Z' });
+      expect(startOnly.length).toBe(1);
+      expect(startOnly[0].text).toBe('New');
+    });
+
+    it('should search by tags', async () => {
+      await service.create({ docId: 'doc-tag', text: 'Tagged', tags: ['important'] });
+      const results = await service.search({ tags: ['important'] });
+      expect(results.length).toBe(1);
+      expect(results[0].text).toBe('Tagged');
+    });
   });
 
   describe('getStats', () => {
@@ -300,13 +331,14 @@ describe('AnnotationService', () => {
     });
 
     it('should export as Markdown', async () => {
-      await service.create({ docId: 'doc-1', text: 'Text 1', note: 'Note 1' });
+      await service.create({ docId: 'doc-1', text: 'Text 1', note: 'Note 1', tags: ['t1', 't2'] });
 
       const exported = await service.export('doc-1', 'markdown');
 
       expect(exported).toContain('# 批注导出');
       expect(exported).toContain('Text 1');
       expect(exported).toContain('Note 1');
+      expect(exported).toContain('**标签:**');
     });
 
     it('should import annotations', async () => {
@@ -350,6 +382,27 @@ describe('AnnotationService', () => {
       // 缓存应该被清除，下次调用会重新查询
       const result = await service.getByDocId('doc-1');
       expect(result.length).toBe(1);
+    });
+  });
+
+  describe('destroy/createAnnotationService', () => {
+    it('destroy() clears cache and resets initialized state', async () => {
+      await service.create({ docId: 'doc-1', text: 'Text' });
+      await service.getByDocId('doc-1'); // 填充缓存
+
+      service.destroy();
+      expect(service._initialized).toBe(false);
+
+      // 再次 initialize 应该可用
+      await service.initialize();
+      const result = await service.getByDocId('doc-1');
+      expect(result.length).toBe(1);
+    });
+
+    it('createAnnotationService() creates an instance', async () => {
+      const { createAnnotationService, AnnotationService } = await import('../../js/annotations/services/annotation-service.js');
+      const created = createAnnotationService({ repository: mockRepo });
+      expect(created).toBeInstanceOf(AnnotationService);
     });
   });
 });

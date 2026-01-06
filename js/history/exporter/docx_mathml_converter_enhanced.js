@@ -11,19 +11,18 @@
  * - mo stretchy (可拉伸运算符)
  */
 
-(function(window) {
-  'use strict';
+import { escapeXml } from './docx_xml_utils.js';
 
+/**
+ * 增强的 MathML 到 OMML 转换器类
+ */
+export class MathMlToOmmlConverterEnhanced {
   /**
-   * 增强的 MathML 到 OMML 转换器类
+   * 转换 MathML 元素为 OMML
+   * @param {Element} mathEl - MathML math 元素
+   * @returns {string} OMML XML 字符串
    */
-  class MathMlToOmmlConverterEnhanced {
-    /**
-     * 转换 MathML 元素为 OMML
-     * @param {Element} mathEl - MathML math 元素
-     * @returns {string} OMML XML 字符串
-     */
-    convert(mathEl) {
+  convert(mathEl) {
       if (!mathEl) return '';
       try {
         const inner = this.convertChildren(mathEl.childNodes);
@@ -38,23 +37,23 @@
       }
     }
 
-    /**
-     * 清理 OMML 内容，移除非法字符
-     * @param {string} omml - OMML 字符串
-     * @returns {string} 清理后的 OMML
-     */
-    sanitizeOmml(omml) {
+  /**
+   * 清理 OMML 内容，移除非法字符
+   * @param {string} omml - OMML 字符串
+   * @returns {string} 清理后的 OMML
+   */
+  sanitizeOmml(omml) {
       if (!omml) return '';
       // 移除控制字符，但保留换行符和制表符
       return String(omml).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x84\x86-\x9F]/g, '');
     }
 
-    /**
-     * 转换子节点列表
-     * @param {NodeList} nodeList - 子节点列表
-     * @returns {string} 转换后的 OMML
-     */
-    convertChildren(nodeList) {
+  /**
+   * 转换子节点列表
+   * @param {NodeList} nodeList - 子节点列表
+   * @returns {string} 转换后的 OMML
+   */
+  convertChildren(nodeList) {
       let result = '';
       try {
         Array.from(nodeList || []).forEach(node => {
@@ -67,12 +66,12 @@
       return result;
     }
 
-    /**
-     * 转换单个节点
-     * @param {Node} node - DOM 节点
-     * @returns {string} 转换后的 OMML
-     */
-    convertNode(node) {
+  /**
+   * 转换单个节点
+   * @param {Node} node - DOM 节点
+   * @returns {string} 转换后的 OMML
+   */
+  convertNode(node) {
       if (!node) return '';
       try {
         if (node.nodeType === Node.TEXT_NODE) {
@@ -458,40 +457,25 @@
       return `<${tag}>${content}</${tag}>`;
     }
 
-    /**
-     * 创建文本运行
-     * @param {string} text - 文本内容
-     * @returns {string} OMML 文本运行 XML
-     */
-    createTextRun(text) {
+  /**
+   * 创建文本运行
+   * @param {string} text - 文本内容
+   * @returns {string} OMML 文本运行 XML
+   */
+  createTextRun(text) {
       const normalized = text ? text.replace(/\s+/g, ' ').trim() : '';
       if (!normalized) {
         return '<m:r><m:t xml:space="preserve"> </m:t></m:r>';
       }
-      // 使用全局的 escapeXml 函数
-      const escapeXml = window.PBXDocxXmlUtils?.escapeXml || function(str) {
-        if (!str) return '';
-        let result = String(str);
-        result = result.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x84\x86-\x9F]/g, '');
-        return result.replace(/[&<>"']/g, function(ch) {
-          switch (ch) {
-            case '&': return '&amp;';
-            case '<': return '&lt;';
-            case '>': return '&gt;';
-            case '"': return '&quot;';
-            case "'": return '&#39;';
-            default: return ch;
-          }
-        });
-      };
       return `<m:r><m:t xml:space="preserve">${escapeXml(normalized)}</m:t></m:r>`;
     }
-  }
+}
 
-  // 导出到全局
+export default MathMlToOmmlConverterEnhanced;
+
+// 兼容层：保留原 window.PBXMathMlToOmmlConverterEnhanced
+if (typeof window !== 'undefined') {
   window.PBXMathMlToOmmlConverterEnhanced = MathMlToOmmlConverterEnhanced;
-
   console.log('%c[DOCX Math] ✨ 增强 MathML → OMML 转换器已加载', 'color: #3b82f6; font-weight: bold');
   console.log('新增支持: 矩阵 | 可拉伸运算符 | 空格 | 包围符号');
-
-})(window);
+}

@@ -5,11 +5,17 @@
  * @param {Function} getKatexProcessedHtml - (此参数目前未被直接使用，但保留以便将来扩展) 一个获取KaTeX处理后HTML的函数。
  * @returns {marked.Renderer} 一个 marked.js 渲染器实例。
  */
-function createCustomMarkdownRenderer(annotations, contentIdentifier, getKatexProcessedHtml) {
+export function createCustomMarkdownRenderer(annotations, contentIdentifier, getKatexProcessedHtml) {
     const __ANNOTATION_DEBUG__ = (function(){
         try { return !!(window && (window.ENABLE_ANNOTATION_DEBUG || localStorage.getItem('ENABLE_ANNOTATION_DEBUG') === 'true')); } catch { return false; }
     })();
-    const renderer = new marked.Renderer();
+    const markedApi = (typeof marked !== 'undefined')
+        ? marked
+        : (typeof window !== 'undefined' ? window.marked : undefined);
+    if (!markedApi || typeof markedApi.Renderer !== 'function') {
+        throw new Error('createCustomMarkdownRenderer: marked.js is not available (expected global `marked`).');
+    }
+    const renderer = new markedApi.Renderer();
     const originalTextRenderer = renderer.text;
     const originalParagraphRenderer = renderer.paragraph;
     const originalLinkRenderer = renderer.link;
@@ -76,7 +82,12 @@ function createCustomMarkdownRenderer(annotations, contentIdentifier, getKatexPr
 
         // const currentContentIdentifierForFilter = window.globalCurrentContentIdentifier; // 移除对全局变量的依赖
         // 使用传递给 createCustomMarkdownRenderer 的 contentIdentifier 参数 (在 renderer.text 的闭包中可用)
-        const relevantAnnotations = (window.data && window.data.annotations ? window.data.annotations : []).filter(
+        const annotationList = Array.isArray(annotations)
+            ? annotations
+            : (typeof window !== 'undefined' && window.data && Array.isArray(window.data.annotations)
+                ? window.data.annotations
+                : []);
+        const relevantAnnotations = annotationList.filter(
             ann => ann.targetType === contentIdentifier && // 直接使用参数 contentIdentifier
                    ann.target && Array.isArray(ann.target.selector) &&
                    ann.target.selector[0] && typeof ann.target.selector[0].exact === 'string' &&
@@ -160,5 +171,7 @@ function createCustomMarkdownRenderer(annotations, contentIdentifier, getKatexPr
     return renderer;
 }
 
-// 如果不使用模块系统，则暴露到全局作用域；如果使用模块，则导出。
-window.createCustomMarkdownRenderer = createCustomMarkdownRenderer;
+// 兼容层：暴露到 window，供旧代码过渡期使用
+if (typeof window !== 'undefined') {
+    window.createCustomMarkdownRenderer = createCustomMarkdownRenderer;
+}

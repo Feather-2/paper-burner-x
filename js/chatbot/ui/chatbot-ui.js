@@ -1,5 +1,15 @@
 // chatbot-ui.js
 
+// ESM: 显式声明 UI 依赖（保留各模块的 window.* 兼容接口）
+import './chatbot-message-renderer.js';
+import './chatbot-preset-questions-ui.js';
+import './chatbot-floating-options.js';
+import './chatbot-model-selector-ui.js';
+import './chatbot-model-config-modal.js';
+import './chatbot-tooltrace-ui.js';
+import './semantic-groups-ui.js';
+import './embedding-config-ui.js';
+
 /**
  * 全局函数，强制聊天机器人界面弹出（或切换到）模型选择器。
  *
@@ -7,40 +17,70 @@
  * 1. 设置 `window.isModelSelectorOpen = true`。
  * 2. 调用 `ChatbotUI.updateChatbotUI()` 刷新界面以显示模型选择器。
  */
-window.showModelSelectorForChatbot = function() {
+export function showModelSelectorForChatbot() {
+  if (typeof window === 'undefined') return;
+
   window.isModelSelectorOpen = true;
   if (typeof window.ChatbotUI === 'object' && typeof window.ChatbotUI.updateChatbotUI === 'function') {
     window.ChatbotUI.updateChatbotUI();
   }
-};
+}
 
-// 全局状态变量
-window.isChatbotPositionedLeft = localStorage.getItem('chatbotPosition') === 'left' || false;
-window.isPresetQuestionsCollapsed = false; // 预设问题默认展开
-window.presetAutoCollapseTriggeredForDoc = {}; // 记录文档是否已触发自动收起
+function safeLocalStorageGetItem(key) {
+  try {
+    return globalThis.localStorage?.getItem(key) ?? globalThis.window?.localStorage?.getItem(key) ?? null;
+  } catch {
+    return null;
+  }
+}
 
-// 全屏和宽度管理状态
-window.isChatbotFullscreen = localStorage.getItem('chatbotFullscreen') === 'true' || false;
-window.forceChatbotWidthReset = false; // 是否强制重置聊天窗口宽度
-window.lastIsChunkCompareActive = undefined; // 上一次 Chunk Compare 标签页的激活状态
-window.chatbotInitialLoad = true; // 是否为首次加载
+function safeJsonParse(value, fallback) {
+  if (typeof value !== 'string') return fallback;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
 
-// 浮动模式状态
-window.isChatbotFloating = localStorage.getItem('chatbotFloating') === 'true' || false;
-window.chatbotFloatingPosition = JSON.parse(localStorage.getItem('chatbotFloatingPosition') || '{"x": 100, "y": 100}');
-window.chatbotFloatingSize = JSON.parse(localStorage.getItem('chatbotFloatingSize') || '{"width": 420, "height": 580}');
+// 初始化（浏览器）全局状态变量
+if (typeof window !== 'undefined') {
+  window.showModelSelectorForChatbot = showModelSelectorForChatbot;
 
-// 高级聊天功能选项
-window.chatbotActiveOptions = {
-  useContext: true, // 是否使用上下文
-  useReActMode: false, // 是否启用ReAct框架（推理+工具调用）
-  enableSemanticFeatures: true, // 是否启用意群和向量搜索功能（默认开启）
-  multiHopRetrieval: false, // 是否启用多轮取材（先选片段再回答）
-  contentLengthStrategy: 'default', // 内容长度策略: 'default', 'segmented'
-  summarySource: 'ocr',   // 总结来源: 'ocr', 'none', 'translation'
-  interestPointsActive: false,    // 兴趣点功能 (占位)
-  memoryManagementActive: false   // 记忆管理功能 (占位)
-};
+  // UI 状态
+  window.isChatbotPositionedLeft = safeLocalStorageGetItem('chatbotPosition') === 'left' || false;
+  window.isPresetQuestionsCollapsed = false; // 预设问题默认展开
+  window.presetAutoCollapseTriggeredForDoc = window.presetAutoCollapseTriggeredForDoc || {}; // 记录文档是否已触发自动收起
+
+  // 全屏和宽度管理状态
+  window.isChatbotFullscreen = safeLocalStorageGetItem('chatbotFullscreen') === 'true' || false;
+  window.forceChatbotWidthReset = false; // 是否强制重置聊天窗口宽度
+  window.lastIsChunkCompareActive = undefined; // 上一次 Chunk Compare 标签页的激活状态
+  window.chatbotInitialLoad = true; // 是否为首次加载
+
+  // 浮动模式状态
+  window.isChatbotFloating = safeLocalStorageGetItem('chatbotFloating') === 'true' || false;
+  window.chatbotFloatingPosition = safeJsonParse(
+    safeLocalStorageGetItem('chatbotFloatingPosition') || '{"x": 100, "y": 100}',
+    { x: 100, y: 100 }
+  );
+  window.chatbotFloatingSize = safeJsonParse(
+    safeLocalStorageGetItem('chatbotFloatingSize') || '{"width": 420, "height": 580}',
+    { width: 420, height: 580 }
+  );
+
+  // 高级聊天功能选项（保留既有状态，避免重复加载覆盖）
+  window.chatbotActiveOptions = window.chatbotActiveOptions || {
+    useContext: true, // 是否使用上下文
+    useReActMode: false, // 是否启用ReAct框架（推理+工具调用）
+    enableSemanticFeatures: true, // 是否启用意群和向量搜索功能（默认开启）
+    multiHopRetrieval: false, // 是否启用多轮取材（先选片段再回答）
+    contentLengthStrategy: 'default', // 内容长度策略: 'default', 'segmented'
+    summarySource: 'ocr',   // 总结来源: 'ocr', 'none', 'translation'
+    interestPointsActive: false,    // 兴趣点功能 (占位)
+    memoryManagementActive: false   // 记忆管理功能 (占位)
+  };
+}
 
 /**
  * 处理暂停对话按钮的点击事件。
@@ -49,7 +89,7 @@ window.chatbotActiveOptions = {
  * 1. 调用中止控制器来停止正在进行的请求。
  * 2. 更新UI状态。
  */
-function handleChatbotStop() {
+export function handleChatbotStop() {
   if (window.chatbotAbortController) {
     window.chatbotAbortController.abort();
     console.log('[Chatbot] 用户中止了对话');
@@ -67,7 +107,7 @@ function handleChatbotStop() {
  * 5. 清空输入框和已选图片预览。
  * 6. 调用 `ChatbotCore.sendChatbotMessage` 发送消息。
  */
-function handleChatbotSend() {
+export function handleChatbotSend() {
   const input = document.getElementById('chatbot-input');
   if (!input) return;
   let val = input.value.trim();
@@ -146,7 +186,7 @@ function handleChatbotSend() {
  * 10. **免责声明与清空历史按钮更新**。
  * 11. **浮动高级选项按钮更新**：调用 `_updateFloatingOptionsDisplay`。
  */
-function updateChatbotUI() {
+export function updateChatbotUI() {
   const modal = document.getElementById('chatbot-modal');
   const fab = document.getElementById('chatbot-fab');
   if (!modal || !fab) return;
@@ -272,14 +312,14 @@ function updateChatbotUI() {
             newWidth = 'calc(92vw * 0.90)';
           }
 
-          if (window.forceChatbotWidthReset || !chatbotWindow.style.width.endsWith('px')) {
+          if (window.forceChatbotWidthReset || !(chatbotWindow.style.width || '').endsWith('px')) {
             chatbotWindow.style.width = newWidth;
           }
           chatbotWindow.style.maxWidth = newMaxWidth;
           chatbotWindow.style.minWidth = `calc(${newWidth} * 0.32)`;
           chatbotWindow.style.minHeight = newMinHeight;
           chatbotWindow.style.maxHeight = newMaxHeight;
-          if (window.forceChatbotWidthReset || !chatbotWindow.style.height.endsWith('px')) {
+          if (window.forceChatbotWidthReset || !(chatbotWindow.style.height || '').endsWith('px')) {
               chatbotWindow.style.height = '';
           }
 
@@ -1132,7 +1172,7 @@ function isChatbotInsideUnclosedBlock(oldContent) {
  * 4. **事件绑定**：为全屏、位置切换、关闭按钮绑定事件。
  * 5. **初始UI更新**：调用 `updateChatbotUI`。
  */
-function initChatbotUI() {
+export function initChatbotUI() {
   // --- FAB (浮动操作按钮) 初始化 ---
   let fab = document.getElementById('chatbot-fab');
   if (!fab) {
@@ -1180,6 +1220,7 @@ function initChatbotUI() {
     modal.style.display = 'none'; // 初始隐藏
     modal.style.pointerEvents = 'none'; // 自身不接收鼠标事件，允许穿透
     // Modal 内部的 HTML 结构
+    /* c8 ignore start */
     modal.innerHTML = `
       <div class="chatbot-window">
         <!-- 拖拽调整大小的句柄 -->
@@ -1281,6 +1322,7 @@ function initChatbotUI() {
         </div>
       </div>
     `;
+    /* c8 ignore stop */
     document.body.appendChild(modal);
   }
 
@@ -1523,28 +1565,33 @@ function initChatbotDragAndResize() {
   }
 }
 
-// 将核心函数挂载到 window 对象和 ChatbotUI 命名空间下，便于外部调用
-window.handleChatbotSend = handleChatbotSend;
-window.handleChatbotStop = handleChatbotStop;
-// handlePresetQuestion 使用 ChatbotPreset 中的版本（包含完整的 prompt 注入逻辑）
-window.handlePresetQuestion = window.ChatbotPreset?.handlePresetQuestion || function(q) {
-  // 降级方案：如果 ChatbotPreset 未加载，使用简单版本
-  const input = document.getElementById('chatbot-input');
-  if (!input) return;
-  input.value = q;
-  if (typeof window.handleChatbotSend === 'function') window.handleChatbotSend();
-};
-window.ChatbotUI = {
+export const ChatbotUI = {
   updateChatbotUI,
   initChatbotUI
 };
 
-// 当DOM内容加载完成后，执行初始化函数
-// 这是确保所有需要的DOM元素都已存在后再进行操作的标准做法
-if (document.readyState === 'loading') {
-  // 如果文档仍在加载中，则等待 DOMContentLoaded 事件
-  document.addEventListener('DOMContentLoaded', initChatbotUI);
-} else {
-  // 如果文档已经加载完毕，则直接执行初始化
-  initChatbotUI();
+// 向后兼容：挂载到 window（供旧版非 ESM 调用）
+if (typeof window !== 'undefined') {
+  window.handleChatbotSend = handleChatbotSend;
+  window.handleChatbotStop = handleChatbotStop;
+
+  // handlePresetQuestion 使用 ChatbotPreset 中的版本（包含完整的 prompt 注入逻辑）
+  window.handlePresetQuestion = window.ChatbotPreset?.handlePresetQuestion || function(q) {
+    // 降级方案：如果 ChatbotPreset 未加载，使用简单版本
+    const input = document.getElementById('chatbot-input');
+    if (!input) return;
+    input.value = q;
+    if (typeof window.handleChatbotSend === 'function') window.handleChatbotSend();
+  };
+
+  window.ChatbotUI = ChatbotUI;
+}
+
+// 当 DOM 内容加载完成后执行初始化（浏览器环境）
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initChatbotUI);
+  } else {
+    initChatbotUI();
+  }
 }

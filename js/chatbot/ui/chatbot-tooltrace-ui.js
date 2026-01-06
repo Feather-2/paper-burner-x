@@ -3,6 +3,7 @@
 (function(window, document) {
   'use strict';
 
+  if (!window || !document) return;
   if (window.ChatbotToolTraceUIScriptLoaded) return;
 
   var stylesInjected = false;
@@ -1199,4 +1200,6 @@
   }
 
   window.ChatbotToolTraceUIScriptLoaded = true;
-})(window, document);
+})(typeof window !== 'undefined' ? window : undefined, typeof document !== 'undefined' ? document : undefined);
+
+export const ChatbotToolTraceUI = typeof window !== 'undefined' ? window.ChatbotToolTraceUI : undefined;

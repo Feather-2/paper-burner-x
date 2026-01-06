@@ -1,7 +1,6 @@
-(function(window, document) {
-  const KATEX_CDN = 'https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css';
+  export const KATEX_CDN = 'https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css';
 
-  const EXPORT_LABELS = {
+  export const EXPORT_LABELS = {
     original: '原格式',
     html: 'HTML',
     pdf: 'PDF',
@@ -9,13 +8,13 @@
     markdown: 'Markdown'
   };
 
-  const MODE_LABELS = {
+  export const MODE_LABELS = {
     'ocr': '仅OCR',
     'translation': '仅翻译',
     'chunk-compare': '分块对比'
   };
 
-  const BRAND_LINK = 'https://github.com/Feather-2/paper-burner-x';
+  export const BRAND_LINK = 'https://github.com/Feather-2/paper-burner-x';
   const exportState = {
     common: {
       includeBranding: true
@@ -40,7 +39,7 @@
     A2: { width: 420, height: 594 }
   };
 
-  document.addEventListener('DOMContentLoaded', function() {
+  if (typeof window !== 'undefined' && typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', function() {
     const controls = document.getElementById('history-export-controls');
     const trigger = document.getElementById('exportTrigger');
     const panel = document.getElementById('exportPanel');
@@ -1538,11 +1537,10 @@ body.history-export-print-mode .history-export-root .export-section {
     }
   }
 
-  window.PBXHistoryExporter = window.PBXHistoryExporter || {};
-  Object.assign(window.PBXHistoryExporter, {
-    preparePayload: function(mode, data) {
-      return buildExportPayload(mode, data);
-    },
+  const preparePayload = buildExportPayload;
+
+  export const PBXHistoryExporter = {
+    preparePayload,
     exportAsHtml,
     exportAsMarkdown,
     exportAsDocx,
@@ -1554,6 +1552,26 @@ body.history-export-print-mode .history-export-root .export-section {
     buildMainContent,
     formatTimestamp,
     katexCdn: KATEX_CDN
-  });
+  };
 
-})(window, document);
+  export {
+    preparePayload,
+    exportAsHtml,
+    exportAsMarkdown,
+    exportAsDocx,
+    exportAsPdf,
+    resolveFileName,
+    ensureFileExtension,
+    sanitizeFileName,
+    buildExportStyles,
+    buildMainContent,
+    formatTimestamp
+  };
+
+  export default PBXHistoryExporter;
+
+  // 兼容层：保留原 window.PBXHistoryExporter
+  if (typeof window !== 'undefined') {
+    window.PBXHistoryExporter = window.PBXHistoryExporter || {};
+    Object.assign(window.PBXHistoryExporter, PBXHistoryExporter);
+  }

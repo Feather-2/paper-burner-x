@@ -129,11 +129,8 @@ describe('validateAnnotation', () => {
 describe('updateAnnotation', () => {
   it('should update annotation fields', async () => {
     const { createAnnotation, updateAnnotation } = await loadModules();
-    const original = createAnnotation({ text: 'original' });
+    const original = createAnnotation({ text: 'original', updatedAt: '2000-01-01T00:00:00.000Z' });
     const originalUpdatedAt = original.updatedAt;
-
-    // 等待一毫秒确保时间戳不同
-    await new Promise(r => setTimeout(r, 1));
 
     const updated = updateAnnotation(original, { text: 'modified', note: 'new note' });
 
@@ -241,9 +238,9 @@ describe('serialize/deserialize', () => {
       tags: ['tag1', 'tag2']
     });
 
-    // 添加运行时字段
-    original._element = document.createElement('div');
-    original._range = {};
+    // 添加运行时字段（无需依赖 DOM）
+    original._element = { tag: 'div' };
+    original._range = { start: 0, end: 1 };
 
     const serialized = serializeAnnotation(original);
     expect(serialized._element).toBeUndefined();

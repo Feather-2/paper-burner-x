@@ -210,18 +210,17 @@ function calculateSubBlockBounds(texts, subBlockIds, globalStart, globalEnd) {
  * @returns {boolean}
  */
 export function isElementInRange(targetElement, firstSpan, lastSpan) {
-  if (!firstSpan || !lastSpan) return false;
+  if (!targetElement || !firstSpan || !lastSpan) return false;
+  if (targetElement === firstSpan || targetElement === lastSpan) return true;
+  if (firstSpan.contains(targetElement) || lastSpan.contains(targetElement)) return true;
 
-  const compareResult1 = targetElement.compareDocumentPosition(firstSpan);
-  const compareResult2 = targetElement.compareDocumentPosition(lastSpan);
+  // firstSpan 在 targetElement 之前：firstSpan.compareDocumentPosition(targetElement) 包含 FOLLOWING
+  const startToTarget = firstSpan.compareDocumentPosition(targetElement);
+  const afterStart = (startToTarget & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
 
-  const afterStart = (compareResult1 & Node.DOCUMENT_POSITION_FOLLOWING) ||
-    targetElement === firstSpan ||
-    firstSpan.contains(targetElement);
-
-  const beforeEnd = (compareResult2 & Node.DOCUMENT_POSITION_PRECEDING) ||
-    targetElement === lastSpan ||
-    lastSpan.contains(targetElement);
+  // targetElement 在 lastSpan 之前：lastSpan.compareDocumentPosition(targetElement) 包含 PRECEDING
+  const endToTarget = lastSpan.compareDocumentPosition(targetElement);
+  const beforeEnd = (endToTarget & Node.DOCUMENT_POSITION_PRECEDING) !== 0;
 
   return afterStart && beforeEnd;
 }
