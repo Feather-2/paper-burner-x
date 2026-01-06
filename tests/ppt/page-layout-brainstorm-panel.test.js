@@ -1,6 +1,6 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const { parseHTML } = require('linkedom');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { parseHTML } from 'linkedom';
 
 function setupDom(html = '<!doctype html><html><head></head><body></body></html>') {
   const { window, document } = parseHTML(html);
@@ -39,8 +39,8 @@ if (!globalThis.PPTGenerator) {
   };
 }
 
-require('../../js/ppt/dashboard/ppt_dashboard_utils.js');
-require('../../js/ppt/dashboard/ppt_dashboard_page_layout.js');
+await import('../../js/ppt/dashboard/ppt_dashboard_utils.js');
+await import('../../js/ppt/dashboard/ppt_dashboard_page_layout.js');
 
 Object.assign(globalThis.PPTGenerator.prototype, window.PPTDashboard.utils, window.PPTDashboard.pageLayout);
 

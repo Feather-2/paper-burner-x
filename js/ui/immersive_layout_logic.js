@@ -1,5 +1,6 @@
 // js/ui/immersive_layout_logic.js
 (function ImmersiveLayoutLogic(global) {
+  if (typeof global === 'undefined' || typeof document === 'undefined') return;
   let toggleBtn, immersiveContainer;
   let mainPageContainer, tocPopupElement, chatbotModalElement, dockElement;
   let immersiveTocArea, immersiveMainArea, immersiveChatbotArea, immersiveDockPlaceholderElement;
@@ -591,8 +592,7 @@
 
   function mainInit() {
     if (!initializeDomElements()) {
-      console.warn('Immersive layout core static elements not found on DOMContentLoaded. Retrying shortly...');
-      setTimeout(mainInit, 500);
+      console.warn('Immersive layout core static elements not found. Skipping init.');
       return;
     }
 
@@ -653,10 +653,13 @@
     console.log('Immersive layout logic initialized.');
   }
 
-  if (document.readyState === 'loading') {
+  const rs = document.readyState;
+  if (rs === 'loading') {
     document.addEventListener('DOMContentLoaded', mainInit);
-  } else {
+  } else if (typeof rs === 'string') {
     mainInit();
+  } else {
+    // 测试/非浏览器 DOM：不自动初始化
   }
 
   global.ImmersiveLayout = {
@@ -666,4 +669,3 @@
   };
 
 })(window);
-

@@ -143,7 +143,12 @@
         }
 
         // 3. 提取参考文献内容
-        const content = lines.slice(referenceSectionStart + 1, referenceSectionEnd + 1).join('\n');
+        // - 显式标题：跳过标题行
+        // - 自动识别：startLine 本身就是第一条参考文献，应包含在内容中
+        const contentStartLine = isReferenceSectionTitle(lines[referenceSectionStart])
+            ? referenceSectionStart + 1
+            : referenceSectionStart;
+        const content = lines.slice(contentStartLine, referenceSectionEnd + 1).join('\n');
 
         // 4. 解析各个文献条目
         const entries = parseReferenceEntries(content);
@@ -327,7 +332,5 @@
 
     console.log('[ReferenceDetector] Reference detector loaded.');
 
-})(window);
-
-
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));
 

@@ -237,7 +237,6 @@
 
     console.log('[ContentListToChunks] Content list to chunks converter loaded.');
 
-})(window);
-
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));
 
 

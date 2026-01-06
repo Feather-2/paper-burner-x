@@ -8,7 +8,7 @@
  * 2. 渲染父元素下所有 Mermaid 代码块为 SVG。
  * 3. 提供与安全相关的HTML转义辅助（如有需要）。
  */
-window.ChatbotRenderingUtils = {
+export const ChatbotRenderingUtils = {
   /**
    * 渲染思维导图的模糊预览（通常是Markdown的简化版或特定结构）。
    *
@@ -158,6 +158,14 @@ window.ChatbotRenderingUtils = {
     }
   }
 };
+
+// 向后兼容：暴露到 window（合并，避免覆盖其他 renderer 注入的字段）
+if (typeof window !== 'undefined') {
+  if (typeof window.ChatbotRenderingUtils === 'undefined') {
+    window.ChatbotRenderingUtils = {};
+  }
+  Object.assign(window.ChatbotRenderingUtils, ChatbotRenderingUtils);
+}
 
 // 可选：escapeHtml 辅助函数（推荐直接用 ChatbotUtils.escapeHtml）
 // if (window.ChatbotUtils && typeof window.ChatbotUtils.escapeHtml === 'function') {

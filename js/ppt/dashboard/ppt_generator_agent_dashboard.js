@@ -36,8 +36,12 @@
 
     // Re-apply mixin for test cases that redefine `PPTGenerator` between requires.
     try {
-      if (typeof PPTGenerator !== 'undefined' && NS.PPTGeneratorAgentDashboard) {
-        Object.assign(PPTGenerator.prototype, NS.PPTGeneratorAgentDashboard);
+      const ctor =
+        (typeof globalThis !== 'undefined' && globalThis.PPTGeneratorCtor?.prototype)
+          ? globalThis.PPTGeneratorCtor
+          : ((typeof PPTGenerator !== 'undefined' && PPTGenerator?.prototype) ? PPTGenerator : null);
+      if (ctor?.prototype && NS.PPTGeneratorAgentDashboard) {
+        Object.assign(ctor.prototype, NS.PPTGeneratorAgentDashboard);
       }
     } catch {
       // ignore

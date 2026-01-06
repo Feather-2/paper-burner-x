@@ -3,7 +3,9 @@
  * 显示和编辑选中元素的属性
  * 支持多选批量编辑
  */
-class PropertyPanel extends EventEmitter {
+import { EventEmitter } from '../event-emitter.js';
+
+export class PropertyPanel extends EventEmitter {
     constructor(editor, containerId) {
         super();
         this.editor = editor;
@@ -751,4 +753,7 @@ class PropertyPanel extends EventEmitter {
     }
 }
 
-window.PropertyPanel = PropertyPanel;
+// 兼容：全局挂载（给 legacy IIFE/脚本使用）
+if (typeof window !== 'undefined') {
+    window.PropertyPanel = PropertyPanel;
+}

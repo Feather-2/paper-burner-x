@@ -48,10 +48,13 @@ class OcrSettingsManager {
    * 初始化
    */
   init() {
-    if (document.readyState === 'loading') {
+    const rs = document.readyState;
+    if (rs === 'loading') {
       document.addEventListener('DOMContentLoaded', () => this.onDOMReady());
-    } else {
+    } else if (typeof rs === 'string') {
       this.onDOMReady();
+    } else {
+      // 测试/非浏览器 DOM：不自动初始化
     }
   }
 

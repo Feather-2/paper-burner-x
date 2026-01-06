@@ -2,7 +2,9 @@
  * 图层面板
  * 显示当前幻灯片的所有元素层级
  */
-class LayerPanel extends EventEmitter {
+import { EventEmitter } from '../event-emitter.js';
+
+export class LayerPanel extends EventEmitter {
     constructor(editor, containerId) {
         super();
         this.editor = editor;
@@ -575,4 +577,7 @@ class LayerPanel extends EventEmitter {
     }
 }
 
-window.LayerPanel = LayerPanel;
+// 兼容：全局挂载（给 legacy IIFE/脚本使用）
+if (typeof window !== 'undefined') {
+    window.LayerPanel = LayerPanel;
+}

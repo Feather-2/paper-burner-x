@@ -481,4 +481,4 @@
         analyzeFormulas: analyzeFormulas
     };
 
-})(window);
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

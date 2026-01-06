@@ -60,7 +60,8 @@ class PPTGenerator {
         this.viewMode = 'slide'; // 'slide' or 'outline'
 
         // 示例 HTML - AI 会输出类似这样的结构 (支持 freeform 自由布局)
-        this.sampleHTML = window.PPT_SAMPLE_HTML || "";
+        const root = (typeof window !== 'undefined') ? window : globalThis;
+        this.sampleHTML = root?.PPT_SAMPLE_HTML || "";
 
         // 使用 SlideParser 解析 HTML 生成 slides（如果 SlideSystem 可用）
         this.slides = this._initSlides();
@@ -179,4 +180,16 @@ class PPTGenerator {
         }
     }
 
+}
+
+// Global ctor reference for ESM entrypoints / tests (avoid clobbering window.PPTGenerator instance).
+try {
+    if (typeof globalThis !== 'undefined') {
+        globalThis.PPTGeneratorCtor = PPTGenerator;
+    }
+    if (typeof window !== 'undefined') {
+        window.PPTGeneratorCtor = PPTGenerator;
+    }
+} catch {
+    // ignore
 }

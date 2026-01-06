@@ -597,17 +597,29 @@ class ContextMenu {
                 return;
             }
 
-            const script = document.createElement('script');
-            script.src = 'js/ppt/editor/image-processor/index.js';
-            script.onload = () => {
-                console.log('[ContextMenu] ImageProcessor 加载完成');
-                resolve();
-            };
-            script.onerror = () => {
-                console.error('[ContextMenu] ImageProcessor 加载失败');
-                resolve();
-            };
-            document.head.appendChild(script);
+            // 避免重复加载
+            if (window.__pptEditorImageProcessorLoading) {
+                window.__pptEditorImageProcessorLoading.then(resolve).catch(() => resolve());
+                return;
+            }
+
+            window.__pptEditorImageProcessorLoading = new Promise((res) => {
+                const script = document.createElement('script');
+                // ImageProcessor 已迁移为 ESM 子入口
+                script.type = 'module';
+                script.src = 'js/ppt/editor/image-processor/index.js';
+                script.onload = () => {
+                    console.log('[ContextMenu] ImageProcessor 加载完成');
+                    res();
+                };
+                script.onerror = () => {
+                    console.error('[ContextMenu] ImageProcessor 加载失败');
+                    res();
+                };
+                document.head.appendChild(script);
+            });
+
+            window.__pptEditorImageProcessorLoading.then(resolve).catch(() => resolve());
         });
     }
 

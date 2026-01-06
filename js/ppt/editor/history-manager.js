@@ -2,7 +2,10 @@
  * 历史管理器
  * 支持撤销/重做，操作合并，自动快照
  */
-class HistoryManager extends EventEmitter {
+import { EventEmitter } from './event-emitter.js';
+import { storageManager } from './storage-manager.js';
+
+export class HistoryManager extends EventEmitter {
     static MAX_UNDO_STACK = 500;        // 最大撤销步数
     static SNAPSHOT_INTERVAL = 30000;   // 快照间隔 (30秒)
     static AUTO_SAVE_INTERVAL = 30000;  // 自动保存间隔
@@ -276,11 +279,11 @@ class HistoryManager extends EventEmitter {
     }
 
     async _updateElementSrc(element, assetId) {
-        const storageManager = window.storageManager;
-        if (!storageManager || !assetId) return;
+        const sm = typeof window !== 'undefined' ? window.storageManager : null;
+        if (!sm || !assetId) return;
 
         try {
-            const url = await storageManager.getAssetUrl(assetId);
+            const url = await sm.getAssetUrl(assetId);
             if (url) {
                 element.src = url;
                 // 更新 DOM
@@ -429,4 +432,7 @@ class HistoryManager extends EventEmitter {
     }
 }
 
-window.HistoryManager = HistoryManager;
+// 兼容：全局挂载（给 legacy IIFE/脚本使用）
+if (typeof window !== 'undefined') {
+    window.HistoryManager = HistoryManager;
+}

@@ -368,8 +368,14 @@ function enhanceAcademicDiagram(xmlString, options = {}) {
   }
 }
 
-// 导出到全局
-window.DrawioAcademicEnhancer = {
+export { enhanceAcademicDiagram, detectDiagramType };
+
+export const DrawioAcademicEnhancer = {
   enhanceAcademicDiagram,
   detectDiagramType
 };
+
+// 向后兼容：暴露到 window
+if (typeof window !== 'undefined') {
+  window.DrawioAcademicEnhancer = DrawioAcademicEnhancer;
+}

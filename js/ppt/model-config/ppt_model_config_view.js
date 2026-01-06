@@ -178,4 +178,4 @@
   Object.assign(ns.view, {
     getModalTemplate
   });
-})(typeof window !== 'undefined' ? window : this);
+})(typeof window !== 'undefined' ? window : globalThis);

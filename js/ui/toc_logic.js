@@ -5,10 +5,18 @@
  * 以及动态生成TOC列表项。
  */
 (function TocFeature(){
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+
+  // 兼容层：避免其他脚本在 TOC 初始化前调用时报错
+  if (typeof window.refreshTocList !== 'function') window.refreshTocList = function() {};
+  if (typeof window.getCurrentTocStructure !== 'function') window.getCurrentTocStructure = function() { return null; };
+  if (typeof window.getTocNodes !== 'function') window.getTocNodes = function() { return []; };
+
   const tocBtn = document.getElementById('toc-float-btn');
   const tocPopup = document.getElementById('toc-popup');
   const tocList = document.getElementById('toc-list');
   const tocCloseBtn = document.getElementById('toc-popup-close-btn');
+  if (!tocBtn || !tocPopup || !tocList || !tocCloseBtn) return;
 
   // 添加 TOC 模式切换按钮容器，改为标签页形式
   let tocModeSelector = document.createElement('div');

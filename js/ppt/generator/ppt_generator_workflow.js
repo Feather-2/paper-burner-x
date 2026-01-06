@@ -5,9 +5,13 @@
 
 (function loadWorkflowMixins() {
     const GeneratorCtor =
-        (typeof globalThis !== 'undefined' && globalThis.PPTGenerator?.prototype)
-            ? globalThis.PPTGenerator
-            : ((typeof PPTGenerator !== 'undefined' && PPTGenerator?.prototype) ? PPTGenerator : null);
+        (typeof globalThis !== 'undefined' && globalThis.PPTGeneratorCtor?.prototype)
+            ? globalThis.PPTGeneratorCtor
+            : (
+                (typeof globalThis !== 'undefined' && globalThis.PPTGenerator?.prototype)
+                    ? globalThis.PPTGenerator
+                    : ((typeof PPTGenerator !== 'undefined' && PPTGenerator?.prototype) ? PPTGenerator : null)
+            );
     const proto = GeneratorCtor?.prototype || null;
 
     let resolveReady = null;
@@ -68,9 +72,13 @@
         };
 
         const ctor =
-            (typeof globalThis !== 'undefined' && globalThis.PPTGenerator?.prototype)
-                ? globalThis.PPTGenerator
-                : GeneratorCtor;
+            (typeof globalThis !== 'undefined' && globalThis.PPTGeneratorCtor?.prototype)
+                ? globalThis.PPTGeneratorCtor
+                : (
+                    (typeof globalThis !== 'undefined' && globalThis.PPTGenerator?.prototype)
+                        ? globalThis.PPTGenerator
+                        : GeneratorCtor
+                );
         if (!ctor?.prototype) throw new ReferenceError('PPTGenerator is not defined');
         Object.assign(ctor.prototype, PPTGeneratorWorkflow);
 

@@ -673,7 +673,8 @@ console.log('%c分块对比性能测试器已加载', 'color: #059669; font-weig
 console.log('使用 window.ChunkComparePerformanceTester.runFullTestSuite() 运行完整测试');
 
 // 如果在开发环境，自动运行测试
-if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+const hostname = (window.location && window.location.hostname) ? window.location.hostname : '';
+if (hostname === 'localhost' || hostname === '127.0.0.1') {
     // 页面加载完成后自动运行测试
     window.addEventListener('load', () => {
         setTimeout(() => {

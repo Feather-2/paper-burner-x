@@ -701,6 +701,17 @@ KeyManagerUI.importAllModelKeys = function(saveKeysFunc, refreshUIFunc) {
     input.click();
 };
 
+// Export (legacy global + compat)
+if (typeof globalThis !== 'undefined') {
+    globalThis.KeyManagerUI = KeyManagerUI;
+}
+if (typeof window !== 'undefined') {
+    window.KeyManagerUI = KeyManagerUI;
+}
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = KeyManagerUI;
+}
+
 KeyManagerUI.exportAllModelData = function() {
     // 仅导出新版规范字段，保持"干净"
     const translationModelKeys = JSON.parse(localStorage.getItem('translationModelKeys') || '{}');

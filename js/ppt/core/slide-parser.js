@@ -412,6 +412,9 @@ class SlideParser {
 }
 
 // 兼容：浏览器全局 + Node.js 单测
+if (typeof globalThis !== 'undefined') {
+    globalThis.SlideParser = SlideParser;
+}
 if (typeof window !== 'undefined') {
     window.SlideParser = SlideParser;
 }

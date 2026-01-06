@@ -1694,11 +1694,14 @@
         URL.revokeObjectURL(url);
     }
 
-    // 页面加载完成后初始化
-    if (document.readyState === 'loading') {
+    // 页面加载完成后初始化：仅在真实浏览器环境（readyState 为 string）下执行
+    const rs = document.readyState;
+    if (rs === 'loading') {
         document.addEventListener('DOMContentLoaded', initReferenceManagerForDetail);
-    } else {
+    } else if (typeof rs === 'string') {
         initReferenceManagerForDetail();
+    } else {
+        // 测试/非浏览器 DOM：不自动初始化
     }
 
     console.log('[ReferenceManagerDetail] Module loaded. v1.0.1 - Fixed refIndex error');

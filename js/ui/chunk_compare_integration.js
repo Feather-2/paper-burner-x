@@ -426,17 +426,20 @@
         document.head.appendChild(style);
     }
 
-    // 初始化
-    if (document.readyState === 'loading') {
+    // 初始化：仅在真实浏览器环境（readyState 为 string）下执行
+    const rs = document.readyState;
+    if (rs === 'loading') {
         document.addEventListener('DOMContentLoaded', function() {
             addChunkHighlightStyles();
             enhanceChunkNavigation();
             initializeChunkCompareOptimization();
         });
-    } else {
+    } else if (typeof rs === 'string') {
         addChunkHighlightStyles();
         enhanceChunkNavigation();
         initializeChunkCompareOptimization();
+    } else {
+        // 测试/非浏览器 DOM：不自动初始化
     }
 
 })();

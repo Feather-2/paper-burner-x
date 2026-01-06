@@ -2,7 +2,7 @@
  * 轻量级事件发射器
  * 用于模块间通信
  */
-class EventEmitter {
+export class EventEmitter {
     constructor() {
         this._events = new Map();
     }
@@ -64,4 +64,7 @@ class EventEmitter {
     }
 }
 
-window.EventEmitter = EventEmitter;
+// 兼容：全局挂载（给 legacy IIFE/脚本使用）
+if (typeof window !== 'undefined') {
+    window.EventEmitter = EventEmitter;
+}

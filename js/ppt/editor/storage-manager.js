@@ -2,7 +2,7 @@
  * PPT 编辑器存储管理
  * 使用 IndexedDB 存储项目、资源和历史
  */
-class StorageManager {
+export class StorageManager {
     static DB_NAME = 'ppt-editor-db';
     static DB_VERSION = 1;
     static CHUNK_SIZE = 1024 * 1024; // 1MB
@@ -542,4 +542,10 @@ class StorageManager {
 }
 
 // 单例
-window.storageManager = new StorageManager();
+export const storageManager = new StorageManager();
+
+// 兼容：全局挂载（给 legacy IIFE/脚本使用）
+if (typeof window !== 'undefined') {
+    window.StorageManager = StorageManager;
+    window.storageManager = storageManager;
+}

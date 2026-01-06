@@ -8,7 +8,7 @@
  * 2. 支持图片选择弹窗、图片压缩、图片预览弹窗等操作。
  * 3. 限制图片选择数量，处理图片压缩失败等异常。
  */
-window.ChatbotImageUtils = {
+export const ChatbotImageUtils = {
   /**
    * 当前已选中的图片信息数组。
    * 每个元素包含 originalSrc、fullBase64、thumbnailBase64。
@@ -363,3 +363,8 @@ window.ChatbotImageUtils = {
     modal.style.display = 'flex';
   }
 };
+
+// 向后兼容：暴露到 window
+if (typeof window !== 'undefined') {
+  window.ChatbotImageUtils = ChatbotImageUtils;
+}

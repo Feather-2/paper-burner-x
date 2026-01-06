@@ -262,9 +262,12 @@ Question: ${goal}
 }
 
 // Export
+if (typeof globalThis !== 'undefined') {
+    globalThis.ReActEngine = ReActEngine;
+}
 if (typeof window !== 'undefined') {
     window.ReActEngine = ReActEngine;
 }
-if (typeof module !== 'undefined') {
+if (typeof module !== 'undefined' && module.exports) {
     module.exports = ReActEngine;
 }

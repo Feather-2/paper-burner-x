@@ -2,7 +2,15 @@
  * PPT 幻灯片编辑器
  * 主编辑器类，整合所有模块
  */
-class SlideEditor extends EventEmitter {
+import { EventEmitter } from './event-emitter.js';
+import { SlideDocument } from './document.js';
+import { HistoryManager } from './history-manager.js';
+import { SelectionManager } from './selection-manager.js';
+import { TransformController } from './transform-controller.js';
+import { storageManager } from './storage-manager.js';
+import { TaskQueue, taskQueue } from './task-queue.js';
+
+export class SlideEditor extends EventEmitter {
     constructor(options = {}) {
         super();
 
@@ -183,7 +191,7 @@ class SlideEditor extends EventEmitter {
             throw new Error('SlideParser 未加载');
         }
 
-        const slides = SlideParser.parse(html);
+        const slides = window.SlideParser.parse(html);
         
         // 为所有元素生成 ID
         slides.forEach(slide => {
@@ -1295,9 +1303,9 @@ class SlideEditor extends EventEmitter {
         element.editHistory = [];
 
         // 3. 重新加载图片
-        const storageManager = window.storageManager;
-        if (storageManager) {
-            element.src = await storageManager.getAssetUrl(element.originalAssetId);
+        const sm = window.storageManager;
+        if (sm) {
+            element.src = await sm.getAssetUrl(element.originalAssetId);
         }
 
         // 4. 记录历史
@@ -1374,7 +1382,7 @@ class SlideEditor extends EventEmitter {
         if (window.PPTGenerator && typeof window.PPTGenerator._renderSlideContent === 'function') {
             html = window.PPTGenerator._renderSlideContent(slide);
         } else if (window.HTMLSlideRenderer) {
-            if (!this.renderer) this.renderer = new HTMLSlideRenderer();
+            if (!this.renderer) this.renderer = new window.HTMLSlideRenderer();
             html = this.renderer.render(slide, this.currentSlideIndex);
         }
         
@@ -2694,4 +2702,7 @@ class SlideEditor extends EventEmitter {
     }
 }
 
-window.SlideEditor = SlideEditor;
+// 兼容：全局挂载（给 legacy IIFE/脚本使用）
+if (typeof window !== 'undefined') {
+    window.SlideEditor = SlideEditor;
+}

@@ -1,5 +1,5 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
+import test from 'node:test';
+import assert from 'node:assert/strict';
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -29,8 +29,13 @@ test.afterEach(() => {
   delete globalThis.window;
   delete globalThis.PPTDSLSerialize;
   delete globalThis.PPTGenerator;
-  delete require.cache[require.resolve('../../js/ppt/generator/ppt_generator_editor.js')];
 });
+
+async function importFresh(specifier) {
+  const url = new URL(specifier, import.meta.url);
+  url.searchParams.set('t', `${Date.now()}_${Math.random().toString(16).slice(2)}`);
+  return import(url.href);
+}
 
 test('editor mutation triggers documentToHtml() and updates deckHtmlDsl + sampleHTML', async () => {
   const calls = [];
@@ -48,8 +53,7 @@ test('editor mutation triggers documentToHtml() and updates deckHtmlDsl + sample
   };
   window.PPTGenerator = gen;
 
-  delete require.cache[require.resolve('../../js/ppt/generator/ppt_generator_editor.js')];
-  require('../../js/ppt/generator/ppt_generator_editor.js');
+  await importFresh('../../js/ppt/generator/ppt_generator_editor.js');
 
   const doc = new Emitter();
   const history = new Emitter();
@@ -87,8 +91,7 @@ test('structural editor mutation triggers full DSL sync (no onlySlideIndexes)', 
   };
   window.PPTGenerator = gen;
 
-  delete require.cache[require.resolve('../../js/ppt/generator/ppt_generator_editor.js')];
-  require('../../js/ppt/generator/ppt_generator_editor.js');
+  await importFresh('../../js/ppt/generator/ppt_generator_editor.js');
 
   const doc = new Emitter();
   const editor = new Emitter();

@@ -17,7 +17,21 @@
  * @param {string} md - Markdown 格式的思维导图文本。
  * @returns {string} 生成的思维导图预览 HTML 字符串。
  */
-function renderMindmapShadowInternal(md) {
+function localEscapeHtml(str) {
+  if (typeof str !== 'string') return '';
+  return str.replace(/[&<>"']/g, function(c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+function safeEscapeHtml(str) {
+  if (typeof window !== 'undefined' && window.ChatbotUtils && typeof window.ChatbotUtils.escapeHtml === 'function') {
+    return window.ChatbotUtils.escapeHtml(str);
+  }
+  return localEscapeHtml(str);
+}
+
+export function renderMindmapShadowInternal(md) {
   /**
    * 解析 Markdown 文本为树结构。
    *
@@ -78,7 +92,7 @@ function renderMindmapShadowInternal(md) {
     if (level > 0) {
       html += `<span style=\"position:absolute;left:-6px;top:0;height:100%;width:1.5px;background:linear-gradient(to bottom,rgba(59,130,246,0.10),rgba(59,130,246,0.03));z-index:0;\"></span>`;
     }
-    html += `<span style=\"color:#2563eb;font-weight:${level===0?'bold':'normal'};font-size:${level===0?'1.08em':'1em'};\">${window.ChatbotUtils.escapeHtml(node.text)}</span>`;
+    html += `<span style=\"color:#2563eb;font-weight:${level===0?'bold':'normal'};font-size:${level===0?'1.08em':'1em'};\">${safeEscapeHtml(node.text)}</span>`;
     if (node.children && node.children.length > 0) {
       html += `<div class=\"mindmap-shadow-children\" style=\"margin-top:4px;\">${node.children.map((c,i,a)=>renderNode(c,level+1,i===a.length-1)).join('')}</div>`;
     }
@@ -93,7 +107,14 @@ function renderMindmapShadowInternal(md) {
 }
 
 // 挂载到全局命名空间
-if (typeof window.ChatbotRenderingUtils === 'undefined') {
-  window.ChatbotRenderingUtils = {};
+export const ChatbotMindmapRenderer = {
+  renderMindmapShadowInternal
+};
+
+// 向后兼容：暴露到 window
+if (typeof window !== 'undefined') {
+  if (typeof window.ChatbotRenderingUtils === 'undefined') {
+    window.ChatbotRenderingUtils = {};
+  }
+  window.ChatbotRenderingUtils.renderMindmapShadow = renderMindmapShadowInternal;
 }
-window.ChatbotRenderingUtils.renderMindmapShadow = renderMindmapShadowInternal;

@@ -13,8 +13,20 @@ export * from './core/chat-controller.js';
 export * from './core/message-handler.js';
 export * from './core/streaming-adapter.js';
 
+// ======== Config ========
+export * from './config/index.js';
+
 // ======== UI (P1) ========
 export * from './ui/index.js';
+
+// ======== Utils ========
+export * from './utils/index.js';
+
+// ======== Renderers ========
+export * from './renderers/index.js';
+
+// ======== Strategy ========
+export * from './strategy/index.js';
 
 // ======== Factory ========
 import { ChatController } from './core/chat-controller.js';

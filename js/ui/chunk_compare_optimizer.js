@@ -968,18 +968,23 @@ class ChunkCompareOptimizer {
 // 创建全局实例
 ChunkCompareOptimizer.instance = new ChunkCompareOptimizer();
 
-// 在页面加载时初始化
-if (document.readyState === 'loading') {
+// 在页面加载时初始化：仅在真实浏览器环境（readyState 为 string）下执行
+const rs = document.readyState;
+if (rs === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
         ChunkCompareOptimizer.instance.init();
     });
-} else {
+} else if (typeof rs === 'string') {
     ChunkCompareOptimizer.instance.init();
+} else {
+    // 测试/非浏览器 DOM：不自动初始化
 }
 
 // 导出供其他模块使用
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = ChunkCompareOptimizer;
 } else {
-    window.ChunkCompareOptimizer = ChunkCompareOptimizer;
+    if (typeof window !== 'undefined') {
+        window.ChunkCompareOptimizer = ChunkCompareOptimizer;
+    }
 }

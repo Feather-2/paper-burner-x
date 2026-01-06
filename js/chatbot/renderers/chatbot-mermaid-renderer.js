@@ -19,7 +19,7 @@ function localEscapeHtml(str) {
  * @returns {string} 转义后的安全字符串
  */
 function safeEscapeHtml(str) {
-  if (typeof window.ChatbotUtils !== 'undefined' && typeof window.ChatbotUtils.escapeHtml === 'function') {
+  if (typeof window !== 'undefined' && window.ChatbotUtils && typeof window.ChatbotUtils.escapeHtml === 'function') {
     return window.ChatbotUtils.escapeHtml(str);
   }
   return localEscapeHtml(str);
@@ -39,7 +39,8 @@ function safeEscapeHtml(str) {
  *    - 支持多次尝试渲染（异步加载 mermaid.js 时）。
  * @param {HTMLElement} chatBodyElement - 聊天消息容器 DOM 元素。
  */
-async function renderAllMermaidBlocksInternal(chatBodyElement) {
+export async function renderAllMermaidBlocksInternal(chatBodyElement) {
+  if (typeof window === 'undefined') return;
   if (!window.mermaidLoaded || typeof window.mermaid === 'undefined') return;
   if (!chatBodyElement) {
     console.warn('ChatbotMermaidRenderer: chatBodyElement 为空，跳过 Mermaid 渲染。');
@@ -731,7 +732,14 @@ async function renderAllMermaidBlocksInternal(chatBodyElement) {
 }
 
 // 挂载到全局命名空间
-if (typeof window.ChatbotRenderingUtils === 'undefined') {
-  window.ChatbotRenderingUtils = {};
+export const ChatbotMermaidRenderer = {
+  renderAllMermaidBlocksInternal
+};
+
+// 向后兼容：暴露到 window
+if (typeof window !== 'undefined') {
+  if (typeof window.ChatbotRenderingUtils === 'undefined') {
+    window.ChatbotRenderingUtils = {};
+  }
+  window.ChatbotRenderingUtils.renderAllMermaidBlocks = renderAllMermaidBlocksInternal;
 }
-window.ChatbotRenderingUtils.renderAllMermaidBlocks = renderAllMermaidBlocksInternal;

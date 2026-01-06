@@ -1,87 +1,105 @@
 /**
  * PPT 编辑器入口
- * 按依赖顺序加载所有模块
+ * 统一入口（ESM）
+ * - 显式导入/导出编辑器模块
+ * - 保留 window.* 兼容（SlideEditor / ImageProcessor 等）
  */
 
-// 模块加载顺序很重要
-const EDITOR_MODULES = [
-    'event-emitter.js',
-    'storage-manager.js',
-    'document.js',
-    'history-manager.js',
-    'selection-manager.js',
-    'transform-controller.js',
-    'task-queue.js',
-    'slide-editor.js',
-    'panels/property-panel.js',
-    'panels/layer-panel.js',
-];
+import { EventEmitter } from './event-emitter.js';
+import { StorageManager, storageManager } from './storage-manager.js';
+import { SlideDocument } from './document.js';
+import { HistoryManager } from './history-manager.js';
+import { SelectionManager } from './selection-manager.js';
+import { TransformController } from './transform-controller.js';
+import { TaskQueue, taskQueue } from './task-queue.js';
+import { SlideEditor } from './slide-editor.js';
+import { PropertyPanel } from './panels/property-panel.js';
+import { LayerPanel } from './panels/layer-panel.js';
+
+export {
+    EventEmitter,
+    StorageManager,
+    storageManager,
+    SlideDocument,
+    HistoryManager,
+    SelectionManager,
+    TransformController,
+    TaskQueue,
+    taskQueue,
+    SlideEditor,
+    PropertyPanel,
+    LayerPanel,
+};
 
 /**
- * 动态加载编辑器模块
+ * 兼容：保留旧 API（ESM 下模块已由静态 import 加载）
  */
-async function loadEditorModules() {
-    const basePath = 'js/ppt/editor/';
-    
-    for (const module of EDITOR_MODULES) {
-        await new Promise((resolve, reject) => {
-            const script = document.createElement('script');
-            script.src = basePath + module;
-            script.onload = resolve;
-            script.onerror = () => reject(new Error(`加载模块失败: ${module}`));
-            document.head.appendChild(script);
-        });
-    }
-    
-    console.log('[Editor] 所有模块加载完成');
+export async function loadEditorModules() {
+    return {
+        EventEmitter,
+        StorageManager,
+        storageManager,
+        SlideDocument,
+        HistoryManager,
+        SelectionManager,
+        TransformController,
+        TaskQueue,
+        taskQueue,
+        SlideEditor,
+        PropertyPanel,
+        LayerPanel,
+    };
 }
 
 /**
- * 初始化编辑器并集成到 PPTGenerator
+ * 初始化编辑器并集成到 pptGenerator
  */
-async function initSlideEditor(options = {}) {
-    // 加载模块
+export async function initSlideEditor(options = {}) {
     await loadEditorModules();
-    
-    // 等待存储初始化
-    await storageManager.init();
-    
+
+    // 等待存储初始化（仅浏览器环境）
+    if (typeof indexedDB !== 'undefined') {
+        await storageManager.init();
+    }
+
     // 创建编辑器实例
     const editor = new SlideEditor(options);
-    
-    // 如果存在 PPTGenerator，集成进去
-    if (window.pptGenerator) {
+
+    // 如果存在 pptGenerator，集成进去（legacy）
+    if (typeof window !== 'undefined' && window.pptGenerator) {
         // 同步数据
         editor.document.on('load', ({ slides }) => {
             window.pptGenerator.slides = slides;
         });
-        
+
         // 同步当前幻灯片索引
         editor.on('slide:change', ({ index }) => {
             window.pptGenerator.currentSlideIndex = index;
         });
-        
-        // 扩展 PPTGenerator 方法
+
+        // 扩展 pptGenerator 方法
         window.pptGenerator.editor = editor;
-        
-        // 添加编辑器方法到 PPTGenerator
+
+        // 添加编辑器方法到 pptGenerator
         window.pptGenerator.openEditor = () => editor.init(options.viewportId || 'slide-preview');
         window.pptGenerator.saveToStorage = () => editor.saveProject();
         window.pptGenerator.loadFromStorage = (id) => editor.openProject(id);
-        
-        console.log('[Editor] 已集成到 PPTGenerator');
+
+        console.log('[Editor] 已集成到 pptGenerator');
     }
-    
-    // 全局访问
-    window.slideEditor = editor;
-    
+
+    // 全局访问（legacy）
+    if (typeof window !== 'undefined') {
+        window.slideEditor = editor;
+    }
+
     return editor;
 }
 
 /**
  * 创建编辑器 UI
  */
-function createEditorUI(containerId) {
+export function createEditorUI(containerId) {
     const container = document.getElementById(containerId);
     if (!container) return;
     
@@ -278,7 +296,7 @@ function createEditorUI(containerId) {
 /**
  * 绑定工具栏事件
  */
-function bindToolbarEvents(editor, toolbar) {
+export function bindToolbarEvents(editor, toolbar) {
     if (!toolbar) return;
     
     toolbar.addEventListener('click', async (e) => {
@@ -350,8 +368,25 @@ function bindToolbarEvents(editor, toolbar) {
     });
 }
 
-// 导出到全局
-window.loadEditorModules = loadEditorModules;
-window.initSlideEditor = initSlideEditor;
-window.createEditorUI = createEditorUI;
-window.bindToolbarEvents = bindToolbarEvents;
+// 兼容：全局挂载（给 legacy IIFE/脚本使用）
+if (typeof window !== 'undefined') {
+    window.loadEditorModules = loadEditorModules;
+    window.initSlideEditor = initSlideEditor;
+    window.createEditorUI = createEditorUI;
+    window.bindToolbarEvents = bindToolbarEvents;
+
+    window.PPTEditor = Object.assign(window.PPTEditor || {}, {
+        EventEmitter,
+        StorageManager,
+        storageManager,
+        SlideDocument,
+        HistoryManager,
+        SelectionManager,
+        TransformController,
+        TaskQueue,
+        taskQueue,
+        SlideEditor,
+        PropertyPanel,
+        LayerPanel,
+    });
+}

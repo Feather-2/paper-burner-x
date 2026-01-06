@@ -566,7 +566,16 @@ class PDFExporter {
   }
 }
 
-// 导出模块
+// ESM 导出
+export { PDFExporter };
+export default PDFExporter;
+
+// CommonJS 兼容
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = PDFExporter;
+}
+
+// 浏览器全局兼容
+if (typeof window !== 'undefined') {
+  window.PDFExporter = PDFExporter;
 }

@@ -10,7 +10,7 @@
  * - 清空数据：PerfMonitor.clear()
  */
 
-window.PerfMonitor = (function() {
+export const PerfMonitor = (function() {
   // 性能数据存储（仅内存，不持久化）
   var metrics = {
     renderTime: [],      // 渲染耗时记录
@@ -373,30 +373,32 @@ window.PerfMonitor = (function() {
   };
 })();
 
-// 自动集成到现有的渲染流程
-(function() {
-  // 拦截 ChatbotRenderState，自动记录渲染耗时
-  if (window.ChatbotRenderState) {
-    var originalRenderState = window.ChatbotRenderState;
+// 向后兼容：暴露到 window，并在浏览器中自动集成到现有渲染流程
+if (typeof window !== 'undefined') {
+  window.PerfMonitor = PerfMonitor;
 
-    // 包装 lastRenderDuration 的更新
-    Object.defineProperty(window.ChatbotRenderState, 'lastRenderDuration', {
-      get: function() {
-        return this._lastRenderDuration || 0;
-      },
-      set: function(value) {
-        this._lastRenderDuration = value;
-        // 自动记录到性能监控
-        window.PerfMonitor.recordRender(value, 'chatbot_render');
-      },
-      configurable: true
-    });
-  }
-})();
+  (function() {
+    // 拦截 ChatbotRenderState，自动记录渲染耗时
+    if (window.ChatbotRenderState) {
+      // 包装 lastRenderDuration 的更新
+      Object.defineProperty(window.ChatbotRenderState, 'lastRenderDuration', {
+        get: function() {
+          return this._lastRenderDuration || 0;
+        },
+        set: function(value) {
+          this._lastRenderDuration = value;
+          // 自动记录到性能监控
+          window.PerfMonitor.recordRender(value, 'chatbot_render');
+        },
+        configurable: true
+      });
+    }
+  })();
 
-console.log('[PerfMonitor] 性能监控工具已加载。使用方法：');
-console.log('  PerfMonitor.start()    - 启动监控');
-console.log('  PerfMonitor.stop()     - 停止监控');
-console.log('  PerfMonitor.getStats() - 查看统计');
-console.log('  PerfMonitor.export()   - 导出数据');
-console.log('  PerfMonitor.clear()    - 清空数据');
+  console.log('[PerfMonitor] 性能监控工具已加载。使用方法：');
+  console.log('  PerfMonitor.start()    - 启动监控');
+  console.log('  PerfMonitor.stop()     - 停止监控');
+  console.log('  PerfMonitor.getStats() - 查看统计');
+  console.log('  PerfMonitor.export()   - 导出数据');
+  console.log('  PerfMonitor.clear()    - 清空数据');
+}

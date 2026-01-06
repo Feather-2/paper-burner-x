@@ -13,7 +13,7 @@
  * - 结果持久化到 IndexedDB
  */
 
-class ImageProcessor {
+export class ImageProcessor {
     constructor() {
         // 模块加载状态
         this.modules = {
@@ -428,7 +428,11 @@ class ImageProcessor {
     }
 }
 
-// 单例 & 导出到全局
-const imageProcessor = new ImageProcessor();
-window.ImageProcessor = ImageProcessor;
-window.imageProcessor = imageProcessor;
+// 单例
+export const imageProcessor = new ImageProcessor();
+
+// 兼容：全局挂载（给 legacy IIFE/脚本使用）
+if (typeof window !== 'undefined') {
+    window.ImageProcessor = ImageProcessor;
+    window.imageProcessor = imageProcessor;
+}

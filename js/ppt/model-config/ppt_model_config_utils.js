@@ -31,5 +31,4 @@
   }
 
   Object.assign(ns.utils, { normalizeObject, uniqueByKey, safe });
-})(typeof window !== 'undefined' ? window : this);
-
+})(typeof window !== 'undefined' ? window : globalThis);

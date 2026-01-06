@@ -1186,3 +1186,15 @@ class PPTXSlideRenderer {
 if (typeof PPTXFreeformMixin !== 'undefined') {
     Object.assign(PPTXSlideRenderer.prototype, PPTXFreeformMixin);
 }
+
+// Global export (legacy scripts + ESM import side-effects).
+try {
+    if (typeof globalThis !== 'undefined') {
+        globalThis.PPTXSlideRenderer = PPTXSlideRenderer;
+    }
+    if (typeof window !== 'undefined') {
+        window.PPTXSlideRenderer = PPTXSlideRenderer;
+    }
+} catch {
+    // ignore
+}

@@ -52,7 +52,11 @@
     localStorage.setItem(storageKey, JSON.stringify(value));
     
     // 分发配置变更事件，以便其他模块（如健康检查卡片）能够及时刷新
-    document.dispatchEvent(new CustomEvent('ppt-model-config-updated', { detail: { key, value } }));
+    try {
+      if (typeof document !== 'undefined') {
+        document.dispatchEvent(new CustomEvent('ppt-model-config-updated', { detail: { key, value } }));
+      }
+    } catch (_) {}
   }
 
   function getModalRoot() {
@@ -293,8 +297,10 @@
     style.textContent = typeof css === 'string' ? css : '';
   }
 
-  injectStyles();
-  bindModalEvents();
+  if (typeof document !== 'undefined') {
+    injectStyles();
+    bindModalEvents();
+  }
 
   const PPTModelConfigModal = {
     openModal,
@@ -332,4 +338,4 @@
     recordImageGeneration: PPTModelConfigModal.recordImageGeneration,
     loadImageGenStats: PPTModelConfigModal.loadImageGenStats
   };
-})(typeof window !== 'undefined' ? window : this);
+})(typeof window !== 'undefined' ? window : globalThis);

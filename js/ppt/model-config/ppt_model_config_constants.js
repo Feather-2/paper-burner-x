@@ -111,4 +111,4 @@
     COMMON_API_PROVIDERS,
     MANUAL_MODEL_ID_PROVIDERS
   });
-})(typeof window !== 'undefined' ? window : this);
+})(typeof window !== 'undefined' ? window : globalThis);

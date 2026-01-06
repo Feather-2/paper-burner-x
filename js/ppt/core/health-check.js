@@ -189,8 +189,10 @@ const PPTHealthCheck = {
 window.PPTHealthCheck = PPTHealthCheck;
 
 // 监听模型配置变更事件，实时刷新健康检查卡片
-document.addEventListener('ppt-model-config-updated', () => {
-    if (document.querySelector('.health-check-overlay')) {
-        PPTHealthCheck.performCheck(false); // 重新检查并渲染，保持 force=false 避免干扰逻辑
-    }
-});
+if (typeof document !== 'undefined') {
+    document.addEventListener('ppt-model-config-updated', () => {
+        if (document.querySelector('.health-check-overlay')) {
+            PPTHealthCheck.performCheck(false); // 重新检查并渲染，保持 force=false 避免干扰逻辑
+        }
+    });
+}

@@ -369,7 +369,7 @@
   function openGlossaryExportModal(setId) {
     const sets = loadGlossarySets();
     const target = sets[setId];
-    if (!target) { showNotification && showNotification('找不到对应术语库', 'error'); return; }
+    if (!target) { if (typeof showNotification === 'function') showNotification('找不到对应术语库', 'error'); return; }
     const entries = Array.isArray(target.entries) ? target.entries : [];
     const simpleText = buildSimpleTextFromEntries(entries);
     const jsonText = JSON.stringify(entries, null, 2);
@@ -417,9 +417,9 @@
       try {
         if (navigator.clipboard) await navigator.clipboard.writeText(textarea.value || '');
         else { textarea.select(); document.execCommand('copy'); }
-        showNotification && showNotification('已复制到剪贴板', 'success');
+        if (typeof showNotification === 'function') showNotification('已复制到剪贴板', 'success');
       } catch (err) {
-        showNotification && showNotification('复制失败，请手动复制', 'warning');
+        if (typeof showNotification === 'function') showNotification('复制失败，请手动复制', 'warning');
       }
     });
 
@@ -477,7 +477,7 @@
   function openGlossaryImportModal(setId) {
     const sets = loadGlossarySets();
     const target = sets[setId];
-    if (!target) { showNotification && showNotification('找不到对应术语库', 'error'); return; }
+    if (!target) { if (typeof showNotification === 'function') showNotification('找不到对应术语库', 'error'); return; }
     const existingEntries = Array.isArray(target.entries) ? target.entries : [];
 
     const modal = createGlossaryModal('导入术语库');
@@ -589,7 +589,7 @@
           const text = await file.text();
           const result = parseCSVFormat(text);
           if (!result.success) {
-            showNotification && showNotification(result.error, 'error');
+            if (typeof showNotification === 'function') showNotification(result.error, 'error');
             return;
           }
           state.parseResult = {
@@ -609,7 +609,7 @@
         // 自动触发预览
         analyzeAndPreview();
       } catch (err) {
-        showNotification && showNotification('文件读取失败: ' + err.message, 'error');
+        if (typeof showNotification === 'function') showNotification('文件读取失败: ' + err.message, 'error');
       }
     });
 
@@ -803,7 +803,7 @@
       const setsLatest = loadGlossarySets();
       const targetLatest = setsLatest[setId];
       if (!targetLatest) {
-        showNotification && showNotification('术语库已被删除', 'error');
+        if (typeof showNotification === 'function') showNotification('术语库已被删除', 'error');
         modal.close();
         return;
       }
@@ -875,7 +875,7 @@
 
         renderGlossarySetsTable();
         modal.close();
-        showNotification && showNotification(`已导入 ${entryCount.toLocaleString()} 条术语（新增 ${state.nonConflictEntries.length}，冲突 ${state.conflicts.length}）`, 'success');
+        if (typeof showNotification === 'function') showNotification(`已导入 ${entryCount.toLocaleString()} 条术语（新增 ${state.nonConflictEntries.length}，冲突 ${state.conflicts.length}）`, 'success');
       }
     });
   }
@@ -1158,13 +1158,13 @@
             // 小量数据直接导入，不显示进度条
             importGlossarySet(text);
             renderGlossarySetsTable();
-            showNotification && showNotification('术语库已导入', 'success');
+            if (typeof showNotification === 'function') showNotification('术语库已导入', 'success');
           }
         } catch (err) {
           if (typeof window.glossaryProgress !== 'undefined') {
             window.glossaryProgress.complete(`导入失败: ${err.message}`, false);
           }
-          showNotification && showNotification(`导入失败：${err.message}`, 'error');
+          if (typeof showNotification === 'function') showNotification(`导入失败：${err.message}`, 'error');
         } finally {
           importSetFile.value = '';
         }

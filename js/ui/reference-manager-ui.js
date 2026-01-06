@@ -1576,11 +1576,14 @@
     // 导出API
     global.ReferenceManagerUI = ui;
 
-    // 自动初始化
-    if (document.readyState === 'loading') {
+    // 自动初始化：仅在真实浏览器环境（readyState 为 string）下执行
+    const rs = document.readyState;
+    if (rs === 'loading') {
         document.addEventListener('DOMContentLoaded', () => ui.initialize());
-    } else {
+    } else if (typeof rs === 'string') {
         ui.initialize();
+    } else {
+        // 测试/非浏览器 DOM：不自动初始化
     }
 
     console.log('[ReferenceManagerUI] Reference manager UI loaded.');

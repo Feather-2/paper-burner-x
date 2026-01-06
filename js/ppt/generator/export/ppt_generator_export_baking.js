@@ -756,4 +756,16 @@ const PPTGeneratorExportBaking = {
     },
 };
 
-Object.assign(PPTGenerator.prototype, PPTGeneratorExportBaking);
+// Mixin install (legacy scripts + ESM entrypoints).
+(() => {
+    try {
+        const ctor =
+            (typeof globalThis !== 'undefined' && globalThis.PPTGeneratorCtor?.prototype)
+                ? globalThis.PPTGeneratorCtor
+                : ((typeof PPTGenerator !== 'undefined' && PPTGenerator?.prototype) ? PPTGenerator : null);
+        if (!ctor?.prototype) return;
+        Object.assign(ctor.prototype, PPTGeneratorExportBaking);
+    } catch {
+        // ignore
+    }
+})();
