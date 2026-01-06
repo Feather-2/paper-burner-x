@@ -13,8 +13,20 @@ import { StateBus } from './state-bus.js';
 import { ServiceBus, createRetryProxy, createTimeoutProxy } from './service-bus.js';
 import { PluginManager, PluginStatus } from './plugin.js';
 import { resolvePreset, mergePresetConfig } from './presets.js';
-import { loadPlugin } from '../plugins/index.js';
 import { isServiceProvider, adaptProvider } from './compat.js';
+
+/**
+ * 默认插件加载器 - 惰性加载 plugins 模块
+ * 解耦 core 与 plugins 的编译时依赖
+ */
+let _defaultPluginLoader = null;
+async function getDefaultPluginLoader() {
+  if (!_defaultPluginLoader) {
+    const mod = await import('../plugins/index.js');
+    _defaultPluginLoader = mod.loadPlugin || mod.default?.load;
+  }
+  return _defaultPluginLoader;
+}
 
 /**
  * Kernel 状态
@@ -37,6 +49,7 @@ export class Kernel {
    * @param {string} options.id - 内核实例 ID
    * @param {boolean} options.keepHistory - 保留事件历史
    * @param {boolean} options.keepLog - 保留状态变更日志
+   * @param {Function} options.pluginLoader - 自定义插件加载器 (name) => Promise<Plugin>
    */
   constructor(options = {}) {
     this.id = options.id || `kernel_${Date.now()}`;
@@ -62,6 +75,7 @@ export class Kernel {
     // 插件管理器
     this._pluginManager = new PluginManager(this);
     this._pluginLoaders = new Map();
+    this._customPluginLoader = options.pluginLoader || null;
 
     // 初始化状态
     this.state.set('meta.kernelId', this.id);
@@ -404,19 +418,29 @@ export class Kernel {
    * 加载插件
    */
   async _loadPlugin(name) {
-    // 查找匹配的加载器
+    // 1. 查找匹配的前缀加载器
     for (const [prefix, loader] of this._pluginLoaders) {
       if (name.startsWith(prefix)) {
         return loader(name);
       }
     }
 
-    // 使用统一插件注册表
+    // 2. 使用自定义加载器（如果注入了）
+    if (this._customPluginLoader) {
+      return this._customPluginLoader(name);
+    }
+
+    // 3. 惰性加载默认插件注册表（解耦编译时依赖）
     try {
-      return await loadPlugin(name);
+      const loader = await getDefaultPluginLoader();
+      if (loader) {
+        return await loader(name);
+      }
     } catch (err) {
       throw new Error(`Cannot load plugin "${name}": ${err.message}`);
     }
+
+    throw new Error(`Cannot load plugin "${name}": no loader available`);
   }
 
   /**
