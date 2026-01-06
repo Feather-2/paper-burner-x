@@ -37,3 +37,12 @@ export {
 } from './processing/semaphore.js';
 
 export { ProcessQueue } from './processing/process-queue.js';
+
+// State
+export {
+  createDocumentStore,
+  createDocumentStoreWithCompat,
+  DocumentStore,
+  createSelectionStore,
+  SelectionStore
+} from './state/index.js';
