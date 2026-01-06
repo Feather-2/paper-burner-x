@@ -82,9 +82,16 @@ const PPTGeneratorEditor = {
             return this.editor;
         }
 
-        // 检查依赖（注意：class 声明通常不会挂到 window 上）
-        const SlideEditorCtor =
-            window.SlideEditor || (typeof SlideEditor !== 'undefined' ? SlideEditor : null);
+        // 等待 ESM 模块加载（最多等待 3 秒）
+        let SlideEditorCtor = window.SlideEditor || (typeof SlideEditor !== 'undefined' ? SlideEditor : null);
+
+        if (!SlideEditorCtor) {
+            console.log('[PPTGeneratorEditor] Waiting for ESM modules to load...');
+            for (let i = 0; i < 30 && !SlideEditorCtor; i++) {
+                await new Promise(r => setTimeout(r, 100));
+                SlideEditorCtor = window.SlideEditor || (typeof SlideEditor !== 'undefined' ? SlideEditor : null);
+            }
+        }
 
         console.log('[PPTGeneratorEditor] SlideEditor availability', {
             windowSlideEditor: !!window.SlideEditor,
