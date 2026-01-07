@@ -34,6 +34,9 @@ const processModule = {
     processSinglePdf: null
 };
 
+// ESM 模块作用域：暴露到 window 以便子脚本可以访问
+window.processModule = processModule;
+
 // 在各模块加载完成后执行此函数，将所有函数挂载到全局
 /**
  * 初始化处理模块 (processModule)。
