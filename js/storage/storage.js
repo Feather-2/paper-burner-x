@@ -1490,6 +1490,8 @@ if (typeof window !== 'undefined') {
     window.saveProcessedFilesRecord = saveProcessedFilesRecord;
     window.isAlreadyProcessed = isAlreadyProcessed;
     window.markFileAsProcessed = markFileAsProcessed;
+    // 暴露 API Key 存取（ui.js 需要）
+    window.saveModelKeys = saveModelKeys;
     // 暴露提示词池需要的关键函数
     window.loadAllCustomSourceSites = loadAllCustomSourceSites;
     // 纠正导出名称：函数为 saveCustomSourceSite（单数）
