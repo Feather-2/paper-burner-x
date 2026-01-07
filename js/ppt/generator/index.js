@@ -5,7 +5,18 @@
  * Keeps the runtime-global instance contract: `window.PPTGenerator`.
  */
 
-import './ppt_generator_core.js';
+// 1. 首先加载核心类（会设置 globalThis.PPTGeneratorCtor）
+import PPTGeneratorClass from './ppt_generator_core.js';
+
+// 确保全局变量已设置（供 mixin 使用）
+if (typeof globalThis !== 'undefined' && !globalThis.PPTGeneratorCtor) {
+  globalThis.PPTGeneratorCtor = PPTGeneratorClass;
+}
+if (typeof window !== 'undefined' && !window.PPTGeneratorCtor) {
+  window.PPTGeneratorCtor = PPTGeneratorClass;
+}
+
+// 2. 然后加载 mixin 文件（它们会扩展 PPTGeneratorCtor.prototype）
 import './ppt_generator_navigation.js';
 import './ppt_generator_workflow.js';
 import './ppt_generator_presentation.js';

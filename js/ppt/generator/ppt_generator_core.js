@@ -195,3 +195,5 @@ try {
 }
 
 // ESM 导出
+export { PPTGenerator };
+export default PPTGenerator;

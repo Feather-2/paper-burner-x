@@ -1,3 +1,6 @@
+// ESM 导入核心类以确保 mixin 安装时类已存在
+import PPTGeneratorCtor from './ppt_generator_core.js';
+
 const PPTGeneratorNavigation = {
     async _ensureWorkflowReady() {
         if (!this.__pptWorkflowMixinsReady) return;
@@ -1089,7 +1092,7 @@ const PPTGeneratorNavigation = {
 // Mixin install (legacy scripts + ESM entrypoints).
 (() => {
     try {
-        const ctor =
+        const ctor = PPTGeneratorCtor ||
             (typeof globalThis !== 'undefined' && globalThis.PPTGeneratorCtor?.prototype)
                 ? globalThis.PPTGeneratorCtor
                 : ((typeof PPTGenerator !== 'undefined' && PPTGenerator?.prototype) ? PPTGenerator : null);

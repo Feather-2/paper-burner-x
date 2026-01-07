@@ -1,3 +1,6 @@
+// ESM 导入核心类以确保 mixin 安装时类已存在
+import PPTGeneratorCtor from '../ppt_generator_core.js';
+
 /**
  * PPTGenerator 导出模块 - 核心入口
  * 包含: UI、进度、选项、PPTX 核心导出、图表转换

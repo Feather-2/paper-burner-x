@@ -1,3 +1,6 @@
+// ESM 导入核心类以确保 mixin 安装时类已存在
+import PPTGeneratorCtor from '../ppt_generator_core.js';
+
 /**
  * PPTGenerator 导出模块 - 图片处理
  * 包含: 脚本加载、图片预处理、Mask 烘焙、Canvas 截图

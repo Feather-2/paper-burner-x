@@ -1,3 +1,6 @@
+// ESM 导入核心类以确保 mixin 安装时类已存在
+import PPTGeneratorCtor from './ppt_generator_core.js';
+
 /**
  * PPT Generator Workflow - 组合入口
  * 使用动态 import 加载 mixin 模块，保持与现有非模块脚本的兼容性

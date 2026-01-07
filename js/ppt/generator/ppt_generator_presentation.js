@@ -1,3 +1,6 @@
+// ESM 导入核心类以确保 mixin 安装时类已存在
+import PPTGeneratorCtor from './ppt_generator_core.js';
+
 const PPTGeneratorPresentation = {
     renderPresentationMode(container) {
         // 更新外层 header，整合工具栏内容
