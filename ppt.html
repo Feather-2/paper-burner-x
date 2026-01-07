@@ -180,6 +180,11 @@
                 retries++;
             }
 
+            // 初始化 PPTGenerator（绑定 DOM 元素）
+            if (window.PPTGenerator && typeof window.PPTGenerator.init === 'function') {
+                window.PPTGenerator.init();
+            }
+
             // 启动健康检查
             if (window.PPTHealthCheck) {
                 await window.PPTHealthCheck.checkAndShow();
