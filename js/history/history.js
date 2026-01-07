@@ -170,10 +170,13 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
     if (floatingHistoryBtn) {
         floatingHistoryBtn.addEventListener('click', openHistoryPanel);
     }
-    // 关闭历史面板
-    document.getElementById('closeHistoryPanel').onclick = function() {
-        document.getElementById('historyPanel').classList.add('hidden');
-    };
+    // 关闭历史面板（仅在 index.html 中存在）
+    const closeHistoryPanelBtn = document.getElementById('closeHistoryPanel');
+    if (closeHistoryPanelBtn) {
+        closeHistoryPanelBtn.onclick = function() {
+            document.getElementById('historyPanel').classList.add('hidden');
+        };
+    }
     const clearHistoryBtn = document.getElementById('clearHistoryBtn');
 
     const historyClearModal = document.getElementById('historyClearConfirmModal');

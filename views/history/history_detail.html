@@ -467,8 +467,7 @@
   <script type="module" src="../../js/chatbot/utils/chatbot-rendering-utils.js"></script> <!-- NEW -->
   <script type="module" src="../../js/chatbot/actions/chatbot-actions.js"></script> <!-- NEW -->
   <script type="module" src="../../js/chatbot/core/chat-message-event-manager.js"></script> <!-- Phase 3: 事件管理器（事件委托优化） -->
-  <!-- Chatbot UI (ESM entry) -->
-  <script type="module" src="../../js/chatbot/ui/chatbot-ui.js"></script>
+  <!-- Chatbot UI moved after chatbot-core.js (依赖 ChatbotCore, MessageSender) -->
   <!-- 向量搜索模块（通过 js/agents/ 按需加载，无需显式引入） -->
   <script type="module" src="../../js/boot/ensure-embedding.js"></script>
   <!-- ReAct 引擎（推理与工具调用框架 - 模块化版本） -->
@@ -491,6 +490,8 @@
   <script type="module" src="../../js/chatbot/core/chatbot-config-manager.js?v=20251107c"></script>
   <!-- Chatbot Core 主入口（依赖上述所有模块） -->
   <script type="module" src="../../js/chatbot/core/chatbot-core.js"></script>
+  <!-- Chatbot UI (ESM entry) - 必须在 chatbot-core.js 之后加载 -->
+  <script type="module" src="../../js/chatbot/ui/chatbot-ui.js"></script>
   <script type="module" src="../../js/chatbot/renderers/chatbot-mermaid-renderer.js"></script>
   <script type="module" src="../../js/chatbot/renderers/chatbot-mindmap-renderer.js"></script>
   <!-- Chatbot UI modules are imported by chatbot-ui.js -->
