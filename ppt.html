@@ -132,7 +132,16 @@
       window.MathConverter = PPT.Core?.MathConverter || window.MathConverter;
       window.PPTHealthCheck = PPT.Core?.PPTHealthCheck || window.PPTHealthCheck;
       window.PPTDashboard = PPT.Dashboard?.PPTDashboard || window.PPTDashboard;
-      window.PPTGenerator = PPT.Generator?.PPTGenerator || window.PPTGenerator;
+
+      // PPTGenerator 需要通过 ensurePptGenerator() 创建实例
+      try {
+        if (PPT.Generator?.ensurePptGenerator) {
+          window.PPTGenerator = PPT.Generator.ensurePptGenerator();
+        }
+      } catch (e) {
+        console.error('[PPT] Failed to create PPTGenerator:', e);
+      }
+
       console.log('[PPT] ESM modules loaded');
     </script>
 
