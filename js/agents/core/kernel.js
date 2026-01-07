@@ -426,11 +426,11 @@ export class Kernel {
         }
       }
 
-      // 卸载所有插件
-      for (const entry of this._pluginManager.list().reverse()) {
-        if (entry.status === PluginStatus.ACTIVE) {
-          await this._pluginManager.uninstall(entry.name);
-        }
+      // 卸载所有插件 - 按依赖拓扑逆序
+      const plugins = this._pluginManager.list().filter(p => p.status === PluginStatus.ACTIVE);
+      const uninstallOrder = this._getUninstallOrder(plugins);
+      for (const entry of uninstallOrder) {
+        await this._pluginManager.uninstall(entry.name);
       }
 
       this._setStatus(KernelStatus.STOPPED);
@@ -586,6 +586,44 @@ export class Kernel {
   _setStatus(status) {
     this._status = status;
     this.state.set('meta.status', status);
+  }
+
+  /**
+   * 计算插件卸载顺序（依赖的拓扑逆序）
+   * 被依赖的插件应该最后卸载
+   * @param {PluginEntry[]} plugins
+   * @returns {PluginEntry[]}
+   */
+  _getUninstallOrder(plugins) {
+    const pluginMap = new Map(plugins.map(p => [p.name, p]));
+    const visited = new Set();
+    const order = [];
+
+    /**
+     * @param {PluginEntry} entry
+     */
+    const visit = (entry) => {
+      if (visited.has(entry.name)) return;
+      visited.add(entry.name);
+
+      // 先访问依赖当前插件的其他插件
+      for (const other of plugins) {
+        if (other.name !== entry.name) {
+          const otherPlugin = this._getPlugin(other.name);
+          if (otherPlugin?.dependencies?.includes(entry.name)) {
+            visit(other);
+          }
+        }
+      }
+
+      order.push(entry);
+    };
+
+    for (const plugin of plugins) {
+      visit(plugin);
+    }
+
+    return order;
   }
 }
 

@@ -17,7 +17,8 @@
  * - AbortSignal 支持
  */
 
-import * as LamportClock from './lamport-clock.js';
+import * as LamportClockModule from './lamport-clock.js';
+import { LamportClock } from './lamport-clock.js';
 
 /**
  * @typedef {import('./types.d.ts').EventBusOptions} CoreEventBusOptions
@@ -200,9 +201,9 @@ export function createEventRecord({
   // 生成逻辑时钟
   let clock = _clock || clockInput;
   if (!clock || typeof clock.seq !== 'number') {
-    clock = LamportClock.nextTick();
+    clock = LamportClockModule.nextTick();
   } else {
-    LamportClock.sync(clock.seq);
+    LamportClockModule.sync(clock.seq);
   }
 
   const resolvedName = typeof name === 'string' && name
@@ -292,11 +293,19 @@ export class EventBus {
    * 订阅事件
    * @param {string} name - 事件名或通配符模式
    * @param {EventHandler} handler - 处理函数
+   * @param {{ priority?: number }} [options] - 可选配置（priority: 正数=高优先级，负数=低优先级，0=默认）
    * @returns {() => void} 取消订阅函数
    */
-  on(name, handler) {
+  on(name, handler, options) {
     if (typeof handler !== 'function') {
       throw new TypeError('EventBus.on: handler must be a function');
+    }
+
+    const priority = options?.priority ?? 0;
+
+    // 带优先级的订阅走 subscribe 路径
+    if (priority !== 0) {
+      return this.subscribe(name, handler, { priority });
     }
 
     if (name.includes('*')) {
@@ -486,26 +495,65 @@ export class EventBus {
   /**
    * 等待某个事件
    * @param {string} pattern - 事件模式
-   * @param {number} timeout - 超时毫秒
-   * @returns {Promise<{ event: string, data: unknown }>}
+   * @param {number | { timeout?: number, signal?: AbortSignal }} [options] - 超时毫秒或选项对象
+   * @returns {Promise<{ type: string, payload: unknown, event?: string, data?: unknown }>}
    */
-  waitFor(pattern, timeout = 30000) {
+  waitFor(pattern, options = 30000) {
+    // 支持 (pattern, timeout) 和 (pattern, { timeout, signal }) 两种调用方式
+    const timeout = typeof options === 'number' ? options : (options?.timeout ?? 30000);
+    const signal = typeof options === 'object' ? options?.signal : undefined;
+
     return new Promise((resolve, reject) => {
+      // 检查是否已取消
+      if (signal?.aborted) {
+        reject(signal.reason || new Error('Aborted'));
+        return;
+      }
+
       const timer = timeout > 0
         ? setTimeout(() => {
-            this._removeWaiter(pattern, waiter);
+            cleanup();
             reject(new Error(`EventBus.waitFor timeout: ${pattern}`));
           }, timeout)
         : null;
 
+      let abortHandler = null;
+
+      const cleanup = () => {
+        if (timer) clearTimeout(timer);
+        this._removeWaiter(pattern, waiter);
+        if (abortHandler && signal) {
+          signal.removeEventListener('abort', abortHandler);
+        }
+      };
+
       const waiter = {
         resolve: (evt) => {
-          if (timer) clearTimeout(timer);
-          resolve({ event: evt.name, data: evt.payload ?? evt });
+          cleanup();
+          // 同时提供新旧字段名以保持兼容
+          resolve({
+            type: evt.name,
+            payload: evt.payload ?? evt,
+            // 兼容旧 API
+            event: evt.name,
+            data: evt.payload ?? evt,
+          });
         },
-        reject,
+        reject: (err) => {
+          cleanup();
+          reject(err);
+        },
         timer,
       };
+
+      // 设置 abort 处理
+      if (signal) {
+        abortHandler = () => {
+          cleanup();
+          reject(signal.reason || new Error('Aborted'));
+        };
+        signal.addEventListener('abort', abortHandler, { once: true });
+      }
 
       let waiters = this._waiters.get(pattern);
       if (!waiters) {
@@ -905,6 +953,18 @@ export class EventBus {
     } else {
       console.error(`[EventBus] Error in handler for "${evt.name}":`, err);
     }
+  }
+
+  /**
+   * 获取当前时钟状态
+   * @returns {LamportClockState}
+   */
+  getClock() {
+    return {
+      seq: LamportClockModule.currentSeq(),
+      ts: typeof performance !== 'undefined' ? performance.now() : Date.now(),
+      id: `eventbus_${this._seq}`,
+    };
   }
 }
 

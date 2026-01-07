@@ -439,7 +439,7 @@ describe('Service/proxy plugins (PLUG-02)', () => {
 
     const waited = inspector.events.waitFor('custom.test', 200);
     inspector.events.emit('custom.test', { ok: true });
-    await expect(waited).resolves.toEqual({ event: 'custom.test', data: { ok: true } });
+    await expect(waited).resolves.toMatchObject({ event: 'custom.test', data: { ok: true } });
     expect(inspector.events.history('custom.test')).toHaveLength(1);
 
     kernel.state.set('x.y', 1);

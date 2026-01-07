@@ -115,6 +115,60 @@ export function sortByLogicalOrder(events) {
   });
 }
 
+/**
+ * LamportClock 类 - 实例化的 Lamport 时钟
+ *
+ * 每个实例维护独立的序列号，适用于需要隔离时钟的场景。
+ */
+export class LamportClock {
+  /**
+   * @param {string} [nodeId]
+   */
+  constructor(nodeId) {
+    /** @type {string} */
+    this._nodeId = nodeId || cryptoRandomHex(4);
+    /** @type {number} */
+    this._seq = 0;
+  }
+
+  /**
+   * 生成下一个时钟状态
+   * @returns {LamportClockState}
+   */
+  tick() {
+    this._seq += 1;
+    return {
+      seq: this._seq,
+      ts: typeof performance !== 'undefined' ? performance.now() : Date.now(),
+      id: `${this._nodeId}_${this._seq}`,
+    };
+  }
+
+  /**
+   * 根据远端时钟更新本地时钟
+   * @param {LamportClockState} remote
+   * @returns {LamportClockState}
+   */
+  update(remote) {
+    if (remote && typeof remote.seq === 'number' && remote.seq > this._seq) {
+      this._seq = remote.seq;
+    }
+    return this.tick();
+  }
+
+  /**
+   * 获取当前时钟状态（不递增）
+   * @returns {LamportClockState}
+   */
+  get() {
+    return {
+      seq: this._seq,
+      ts: typeof performance !== 'undefined' ? performance.now() : Date.now(),
+      id: `${this._nodeId}_${this._seq}`,
+    };
+  }
+}
+
 export default {
   nextTick,
   sync,
@@ -123,4 +177,5 @@ export default {
   compare,
   stampEvent,
   sortByLogicalOrder,
+  LamportClock,
 };

@@ -93,9 +93,12 @@ export default createPlugin({
       getStats: () => ctx.state.get('retryStats') || { total: 0 },
 
       /**
-       * @returns {void}
+       * @returns {boolean}
        */
-      resetStats: () => ctx.state.set('retryStats', { total: 0 }),
+      resetStats: () => {
+        ctx.state.set('retryStats', { total: 0 });
+        return true;
+      },
     });
 
     ctx.log.info('Retry plugin installed');
