@@ -1,10 +1,30 @@
 /**
  * ServiceProvider interface for MicroKernel.
  *
- * A provider is responsible for registering services into the kernel/container,
- * and may optionally participate in lifecycle start/stop.
+ * @deprecated Since 1.0.0, will be removed in 2.0.0
+ * Use createPlugin() from 'js/agents/core' instead:
+ *
+ * ```javascript
+ * // Before (deprecated)
+ * class MyProvider extends ServiceProvider {
+ *   async register(kernel) { ... }
+ * }
+ *
+ * // After (recommended)
+ * import { createPlugin } from 'js/agents/core';
+ * const myPlugin = createPlugin({
+ *   name: 'my-plugin',
+ *   install(ctx) { ... }
+ * });
+ * ```
  */
 
+// Re-export isServiceProvider from core/compat
+export { isServiceProvider } from '../../core/compat.js';
+
+/**
+ * @deprecated Use createPlugin() instead
+ */
 export class ServiceProvider {
   /**
    * Register services into the kernel/container.
@@ -28,16 +48,4 @@ export class ServiceProvider {
    * @returns {Promise<void>}
    */
   async stop(_kernel) {}
-}
-
-/**
- * @param {unknown} value
- * @returns {value is ServiceProvider}
- */
-export function isServiceProvider(value) {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    typeof value.register === "function"
-  );
 }
