@@ -21,6 +21,8 @@ const EXTERNAL_DEPS = [
 // 动态加载的目录（需要在构建后复制）
 const DYNAMIC_DIRS = [
   'js/process',
+  'css',  // 独立 CSS 文件（未通过 JS import）
+  'lib',  // 本地依赖库
 ];
 
 // Vite 插件：构建后复制动态加载的目录
