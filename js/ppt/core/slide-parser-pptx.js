@@ -1615,3 +1615,6 @@ class PPTXSlideParser {
 
 // 全局导出
 window.PPTXSlideParser = PPTXSlideParser;
+
+// ESM 导出
+export { PPTXSlideParser };

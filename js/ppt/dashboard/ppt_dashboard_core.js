@@ -516,3 +516,5 @@
     // ignore (PPTGenerator may not be defined yet)
   }
 })();
+
+// ESM 导出

@@ -941,3 +941,6 @@ KeyManagerUI.importAllModelData = function(refreshUIFunc) {
     });
     input.click();
 };
+
+// ESM 导出
+export { KeyManagerUI };

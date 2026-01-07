@@ -191,3 +191,6 @@ class ReActVisualization {
 if (typeof window !== 'undefined') {
     window.ReActVisualization = ReActVisualization;
 }
+
+// ESM 导出
+export { ReActVisualization };

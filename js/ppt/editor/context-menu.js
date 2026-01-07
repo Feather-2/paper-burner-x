@@ -695,3 +695,6 @@ class ContextMenu {
 
 // 导出到全局
 window.ContextMenu = ContextMenu;
+
+// ESM 导出
+export { ContextMenu };

@@ -377,3 +377,5 @@ window.DrawioLitePrompt = {
 };
 
 console.log('[DrawioLite] ✅ Prompt 已加载（v1.0.0）');
+
+// ESM 导出

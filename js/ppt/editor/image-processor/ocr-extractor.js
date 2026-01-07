@@ -824,3 +824,6 @@ CRITICAL rules:
 const ocrExtractor = new OcrExtractor();
 window.OcrExtractor = OcrExtractor;
 window.ocrExtractor = ocrExtractor;
+
+// ESM 导出
+export { OcrExtractor };

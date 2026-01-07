@@ -262,3 +262,6 @@ class BackgroundRemover {
 const backgroundRemover = new BackgroundRemover();
 window.BackgroundRemover = BackgroundRemover;
 window.backgroundRemover = backgroundRemover;
+
+// ESM 导出
+export { BackgroundRemover };

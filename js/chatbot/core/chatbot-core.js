@@ -205,3 +205,5 @@ window.ChatbotCore = {
     }
   }
 };
+
+// ESM 导出

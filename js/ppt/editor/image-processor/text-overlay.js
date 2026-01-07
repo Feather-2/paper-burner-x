@@ -648,3 +648,6 @@ class TextOverlayManager {
 
 // 导出
 window.TextOverlayManager = TextOverlayManager;
+
+// ESM 导出
+export { TextOverlayManager };

@@ -359,3 +359,6 @@ if (typeof window !== 'undefined') {
 if (typeof module !== 'undefined') {
     module.exports = MathConverter;
 }
+
+// ESM 导出
+export { MathConverter };

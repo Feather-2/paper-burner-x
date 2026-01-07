@@ -213,3 +213,6 @@
   console.log('[ContextBuilder] 模块已加载');
 
 })(window);
+
+// ESM 导出
+export { ContextBuilder };

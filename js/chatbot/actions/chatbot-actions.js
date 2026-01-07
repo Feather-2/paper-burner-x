@@ -116,3 +116,4 @@ window.ChatbotActions = {
     window.ChatbotCore.sendChatbotMessage(sendVal, window.ChatbotUI.updateChatbotUI, null, displayVal);
   }
 };
+// ESM 导出

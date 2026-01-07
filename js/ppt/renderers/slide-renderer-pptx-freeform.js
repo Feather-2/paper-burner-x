@@ -996,3 +996,6 @@ try {
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = PPTXFreeformMixin;
 }
+
+// ESM 导出
+export { PPTXFreeformMixin };

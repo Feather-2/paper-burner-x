@@ -193,3 +193,5 @@ try {
 } catch {
     // ignore
 }
+
+// ESM 导出

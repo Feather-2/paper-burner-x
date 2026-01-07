@@ -271,3 +271,6 @@ if (typeof window !== 'undefined') {
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = ReActEngine;
 }
+
+// ESM 导出
+export { ReActEngine };

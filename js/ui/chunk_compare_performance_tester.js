@@ -685,3 +685,6 @@ if (hostname === 'localhost' || hostname === '127.0.0.1') {
         }, 2000);
     });
 }
+
+// ESM 导出
+export { ChunkComparePerformanceTester };

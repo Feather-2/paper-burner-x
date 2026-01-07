@@ -2513,3 +2513,5 @@ if (typeof document !== 'undefined') {
         // 测试/非浏览器 DOM：不自动初始化
     }
 }
+
+// ESM 导出

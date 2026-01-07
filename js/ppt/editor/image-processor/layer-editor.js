@@ -46,3 +46,5 @@ window.LayerEditorReady = (async function() {
         });
     }
 })();
+
+// ESM 导出

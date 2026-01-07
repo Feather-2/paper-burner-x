@@ -1323,3 +1323,6 @@
 
 window.PPT_SAMPLE_HTML = PPT_SAMPLE_HTML;
 
+
+// ESM 导出
+export { PPT_SAMPLE_HTML };

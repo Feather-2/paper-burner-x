@@ -597,3 +597,5 @@ async function ensureIndexesBuilt(chunks, groups, docId, async = false) {
   };
 
 })();
+
+// ESM 导出

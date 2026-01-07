@@ -196,3 +196,6 @@ if (typeof document !== 'undefined') {
         }
     });
 }
+
+// ESM 导出
+export { PPTHealthCheck };

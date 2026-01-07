@@ -74,3 +74,5 @@
     console.warn('[ppt-dashboard] failed to load split modules:', e);
   });
 })();
+
+// ESM 导出

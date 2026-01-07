@@ -426,3 +426,6 @@ if (typeof module !== 'undefined' && module.exports) {
 // 3. HTMLSlideRenderer - 渲染到 HTML (浏览器预览)
 // 使用与 PPTX 相同的参数，自动缩放到预览尺寸
 // ============================================================
+
+// ESM 导出
+export { SlideParser };

@@ -5593,3 +5593,5 @@ ${allPaths.join('\n')}
 // 导出到全局
 window.LayerEditor = LayerEditor;
     
+// ESM 导出
+export { LayerEditor };

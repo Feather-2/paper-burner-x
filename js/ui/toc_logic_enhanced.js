@@ -1190,3 +1190,6 @@
   };
 
 })();
+
+// ESM 导出
+export { EnhancedTocFeature };

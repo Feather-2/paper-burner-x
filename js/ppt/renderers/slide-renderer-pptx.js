@@ -1198,3 +1198,6 @@ try {
 } catch {
     // ignore
 }
+
+// ESM 导出
+export { PPTXSlideRenderer };

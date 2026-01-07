@@ -988,3 +988,6 @@ if (typeof module !== 'undefined' && module.exports) {
         window.ChunkCompareOptimizer = ChunkCompareOptimizer;
     }
 }
+
+// ESM 导出
+export { ChunkCompareOptimizer };
