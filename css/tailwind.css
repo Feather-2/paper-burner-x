@@ -1,0 +1,8 @@
+/* Tailwind CSS v4 预编译入口 */
+@import "tailwindcss";
+
+/* 自定义基础样式 */
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background-color: #f8fafc;
+}

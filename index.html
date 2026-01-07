@@ -10,8 +10,8 @@
     <!-- 依赖加载器：Vite 构建时打包所有依赖 -->
     <script type="module" src="js/boot/deps-loader.js"></script>
 
-    <!-- Tailwind CSS（运行时编译） -->
-    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Tailwind CSS（预编译，完全离线可用） -->
+    <link rel="stylesheet" href="css/tailwind.css">
 
     <!-- 外部依赖：本地优先，CDN fallback（支持离线 + Vercel 部署） -->
     <script type="module" src="js/boot/cdn-fallback.js"></script>

@@ -31,12 +31,16 @@
     "marked": "^15.0.6"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
     "@vitest/coverage-v8": "^3.2.4",
+    "autoprefixer": "^10.4.23",
     "fake-indexeddb": "^6.2.2",
     "jsdom": "^27.4.0",
     "jszip": "^3.10.1",
     "linkedom": "^0.18.12",
     "mammoth": "^1.10.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.18",
     "terser": "^5.37.0",
     "tiktoken": "^1.0.22",
     "tree-sitter-wasms": "^0.1.13",
