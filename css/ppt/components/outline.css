@@ -1,0 +1,285 @@
+/* ==================== Outline Planner Modal ==================== */
+.ppt-planner-modal {
+    width: min(900px, 90vw);
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.ppt-planner-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.ppt-planner-info {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 16px;
+    background: var(--ppt-primary-subtle);
+    border-radius: 10px;
+    font-size: 13px;
+    color: var(--ppt-text-secondary);
+    line-height: 1.5;
+}
+
+.ppt-planner-info iconify-icon {
+    font-size: 18px;
+    color: var(--ppt-primary);
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.ppt-planner-sections {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.ppt-planner-section {
+    background: white;
+    border: 1px solid var(--ppt-border);
+    border-radius: 12px;
+    overflow: hidden;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.ppt-planner-section:hover {
+    border-color: var(--ppt-primary-light);
+    box-shadow: var(--ppt-shadow-sm);
+}
+
+.ppt-planner-section-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    background: var(--ppt-bg-subtle);
+    border-bottom: 1px solid var(--ppt-border);
+}
+
+.ppt-planner-section-drag {
+    color: var(--ppt-text-muted);
+    cursor: grab;
+    padding: 4px;
+}
+
+.ppt-planner-section-drag:active {
+    cursor: grabbing;
+}
+
+.ppt-planner-section-num {
+    width: 24px;
+    height: 24px;
+    background: var(--ppt-primary);
+    color: white;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.ppt-planner-section-title {
+    flex: 1;
+    border: 1px solid transparent;
+    background: transparent;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ppt-text-main);
+    transition: all 0.2s;
+}
+
+.ppt-planner-section-title:hover {
+    background: white;
+    border-color: var(--ppt-border);
+}
+
+.ppt-planner-section-title:focus {
+    outline: none;
+    background: white;
+    border-color: var(--ppt-primary);
+    box-shadow: 0 0 0 3px var(--ppt-primary-light);
+}
+
+.ppt-planner-pages {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--ppt-text-secondary);
+}
+
+.ppt-planner-page-count {
+    width: 50px;
+    padding: 4px 8px;
+    border: 1px solid var(--ppt-border);
+    border-radius: 6px;
+    font-size: 13px;
+    text-align: center;
+}
+
+.ppt-planner-page-count:focus {
+    outline: none;
+    border-color: var(--ppt-primary);
+}
+
+.ppt-planner-section-delete {
+    background: transparent;
+    border: none;
+    color: var(--ppt-text-muted);
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 6px;
+    transition: all 0.2s;
+}
+
+.ppt-planner-section-delete:hover {
+    background: #fee2e2;
+    color: var(--ppt-danger);
+}
+
+.ppt-planner-section-body {
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.ppt-planner-content-preview {
+    font-size: 12px;
+    color: var(--ppt-text-secondary);
+    line-height: 1.5;
+    background: var(--ppt-bg-app);
+    padding: 10px 12px;
+    border-radius: 8px;
+    max-height: 80px;
+    overflow: hidden;
+}
+
+.ppt-planner-files-zone {
+    border: 2px dashed var(--ppt-border);
+    border-radius: 10px;
+    padding: 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    min-height: 60px;
+}
+
+.ppt-planner-files-zone:hover,
+.ppt-planner-files-zone.drag-over {
+    border-color: var(--ppt-primary);
+    background: var(--ppt-primary-subtle);
+}
+
+.ppt-planner-files-label {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--ppt-text-muted);
+}
+
+.ppt-planner-files-label iconify-icon {
+    font-size: 18px;
+}
+
+.ppt-planner-files-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.ppt-planner-file-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: white;
+    border: 1px solid var(--ppt-border);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--ppt-text-main);
+}
+
+.ppt-planner-file-item iconify-icon {
+    color: var(--ppt-primary);
+}
+
+.ppt-planner-file-remove {
+    background: transparent;
+    border: none;
+    color: var(--ppt-text-muted);
+    cursor: pointer;
+    padding: 2px;
+    border-radius: 4px;
+    line-height: 1;
+}
+
+.ppt-planner-file-remove:hover {
+    color: var(--ppt-danger);
+    background: #fee2e2;
+}
+
+.ppt-planner-notes {
+    width: 100%;
+    min-height: 60px;
+    padding: 10px 12px;
+    border: 1px solid var(--ppt-border);
+    border-radius: 8px;
+    font-size: 13px;
+    resize: vertical;
+    font-family: var(--ppt-font-sans);
+}
+
+.ppt-planner-notes:focus {
+    outline: none;
+    border-color: var(--ppt-primary);
+    box-shadow: 0 0 0 3px var(--ppt-primary-light);
+}
+
+.ppt-planner-add-section {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 14px;
+    border: 2px dashed var(--ppt-border);
+    border-radius: 10px;
+    background: transparent;
+    color: var(--ppt-text-secondary);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.ppt-planner-add-section:hover {
+    border-color: var(--ppt-primary);
+    color: var(--ppt-primary);
+    background: var(--ppt-primary-subtle);
+}
+
+.ppt-planner-summary {
+    font-size: 13px;
+    color: var(--ppt-text-secondary);
+    margin-right: auto;
+}
+
+.ppt-planner-summary span {
+    font-weight: 700;
+    color: var(--ppt-primary);
+}
+

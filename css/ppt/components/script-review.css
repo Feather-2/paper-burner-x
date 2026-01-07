@@ -1,0 +1,161 @@
+/* ==================== Script Review (scoped) ==================== */
+.ppt-question-form.script-review {
+    max-width: 1200px;
+    position: relative;
+
+    /* Visual top bar height (header row + Vditor toolbar overlay) */
+    --ppt-script-review-topbar-height: 40px;
+    --ppt-script-review-toolbar-pad-left: clamp(190px, 22vw, 340px);
+    --ppt-script-review-toolbar-pad-right: clamp(210px, 26vw, 380px);
+}
+
+.ppt-question-form.script-review .form-header {
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+    padding-bottom: 0;
+    border-bottom: none;
+    flex-wrap: nowrap;
+    min-height: var(--ppt-script-review-topbar-height);
+    position: relative;
+    z-index: 3;
+    pointer-events: none; /* avoid blocking toolbar clicks in the center */
+}
+
+.ppt-question-form.script-review .form-header-left {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    pointer-events: auto;
+}
+
+.ppt-question-form.script-review .form-header-left h3 {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+    color: var(--ppt-text-main);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ppt-question-form.script-review .form-header-right {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    flex-wrap: nowrap;
+    pointer-events: auto;
+}
+
+.ppt-question-form.script-review .form-header-hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--ppt-text-secondary);
+}
+
+.ppt-question-form.script-review .form-header-hint.script-review-hint {
+    margin: 0 0 12px 0;
+}
+
+/* Script review: keep toolbar in Vditor DOM, but visually overlay it into the header row */
+.ppt-question-form.script-review #vditorScriptEditor > .vditor {
+    /* Allow the toolbar to escape the editor surface and sit in the header row */
+    overflow: visible !important;
+}
+
+.ppt-question-form.script-review #vditorScriptEditor .vditor-toolbar {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    z-index: 2 !important;
+
+    min-height: var(--ppt-script-review-topbar-height) !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    scrollbar-width: none;
+
+    padding-left: var(--ppt-script-review-toolbar-pad-left) !important;
+    padding-right: var(--ppt-script-review-toolbar-pad-right) !important;
+}
+
+.ppt-question-form.script-review #vditorScriptEditor .vditor-toolbar::-webkit-scrollbar {
+    display: none;
+}
+
+.ppt-question-form.script-review .form-body {
+    flex-direction: row;
+    gap: 16px;
+    padding-right: 0;
+    overflow: hidden; /* editor + toc manage their own scroll */
+}
+
+.ppt-question-form.script-review .script-editor-main {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.ppt-question-form.script-review #vditorScriptEditor {
+    flex: 1;
+    min-height: 0;
+}
+
+.ppt-question-form.script-review #vditorScriptEditor > .vditor,
+.ppt-question-form.script-review #vditorScriptEditor > textarea {
+    height: 100%;
+    min-height: 0;
+}
+
+.ppt-question-form.script-review .script-editor-toc {
+    width: 200px;
+    flex-shrink: 0;
+    border-right: 1px solid var(--ppt-border);
+    padding-right: 12px;
+    overflow-y: auto;
+    min-height: 0;
+}
+
+.ppt-question-form.script-review .script-editor-toc .toc-header {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--ppt-text-secondary);
+    margin: 0 0 10px 0;
+}
+
+.ppt-question-form.script-review .script-editor-toc .toc-item {
+    cursor: pointer;
+    padding: 6px 8px;
+    border-radius: var(--ppt-radius-sm);
+    font-size: 12px;
+    line-height: 1.3;
+    color: var(--ppt-text-main);
+    user-select: none;
+}
+
+.ppt-question-form.script-review .script-editor-toc .toc-item:hover {
+    background: var(--ppt-bg-subtle);
+}
+
+.ppt-question-form.script-review .script-editor-toc .toc-h1 {
+    padding-left: 6px;
+    font-weight: 650;
+}
+
+.ppt-question-form.script-review .script-editor-toc .toc-h2 {
+    padding-left: 16px;
+}
+
+.ppt-question-form.script-review .script-editor-toc .toc-h3 {
+    padding-left: 26px;
+}
+

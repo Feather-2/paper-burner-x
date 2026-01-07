@@ -1,0 +1,15 @@
+@import "../design-spec.css";
+
+/* PPT Generation - Component Styles */
+/* Buttons, Forms, Cards, Modals, Upload, Progress */
+
+@import "./buttons.css";
+@import "./modals.css";
+@import "./workflow.css";
+@import "./upload.css";
+@import "./forms.css";
+@import "./script-review.css";
+@import "./deepsearch.css";
+@import "./report-review.css";
+@import "./outline.css";
+@import "./history.css";
