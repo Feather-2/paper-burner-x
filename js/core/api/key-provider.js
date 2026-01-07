@@ -188,5 +188,10 @@ export class KeyProvider {
   }
 }
 
+// 浏览器全局兼容
+if (typeof window !== 'undefined') {
+  window.KeyProvider = KeyProvider;
+}
+
 // 默认导出
 export default KeyProvider;
