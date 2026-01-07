@@ -1,7 +1,7 @@
 /**
  * Scheduler Plugin
  *
- * 任务调度器，兼容旧 MicroKernel.schedule() API
+ * 任务调度器，提供优先级队列和并发控制
  */
 
 import { createPlugin } from '../../core/plugin.js';

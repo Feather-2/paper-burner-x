@@ -86,7 +86,8 @@ export {
   createTestContainer,
 } from "./di/index.js";
 
-// Kernel (MicroKernel facade)
+// Kernel (deprecated - use core/Kernel instead)
+// 保留导出以兼容现有代码，但建议迁移到 core 模块
 export { MicroKernel, MessageBus, ServiceProvider, isServiceProvider } from "./kernel/index.js";
 
 // Dependencies (Python Skill support)

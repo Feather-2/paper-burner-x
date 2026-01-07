@@ -32,8 +32,9 @@ export const ServiceId = {
   CIRCUIT_BREAKER_REGISTRY: "circuitBreakerRegistry",
   WATCHDOG: "watchdog",
   WORKER_POOL: "workerPool",
-  /** @deprecated Use core/Kernel instead */
+  /** @deprecated Use KERNEL instead */
   MICRO_KERNEL: "microKernel",
+  KERNEL: "kernel",
   MESSAGE_BUS: "messageBus",
   // P6.4: Runtime Adapters
   JS_ADAPTER: "jsAdapter",
@@ -269,6 +270,16 @@ export function createAgentContainer(overrides = {}) {
       const { MicroKernel } = await import("../kernel/micro-kernel.js");
       const eventBus = await c.get(ServiceId.EVENT_BUS);
       return new MicroKernel({ container: c, eventBus });
+    },
+    { scope: SINGLETON }
+  );
+
+  // Kernel (recommended - from core module)
+  container.register(
+    ServiceId.KERNEL,
+    async () => {
+      const { Kernel } = await import("../../core/kernel.js");
+      return Kernel.create('minimal');
     },
     { scope: SINGLETON }
   );
