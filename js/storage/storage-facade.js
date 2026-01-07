@@ -21,11 +21,15 @@ class StorageFacade {
   constructor() {
     // 创建适配器
     this._localAdapter = new LocalStorageAdapter('pb_');
-    this._idbResultsAdapter = new IdbAdapter('ResultDB', 'results', {
+    this._idbResultsAdapter = new IdbAdapter({
+      dbName: 'ResultDB',
+      storeName: 'results',
       version: 3,
       storeOptions: { keyPath: 'id' }
     });
-    this._idbAnnotationsAdapter = new IdbAdapter('ResultDB', 'annotations', {
+    this._idbAnnotationsAdapter = new IdbAdapter({
+      dbName: 'ResultDB',
+      storeName: 'annotations',
       version: 3,
       storeOptions: { keyPath: 'id' },
       onUpgrade: (db, store) => {
