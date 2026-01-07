@@ -1,5 +1,6 @@
 import { resolve } from 'path';
 import { defineConfig } from 'vite';
+import { cpSync, mkdirSync, existsSync } from 'fs';
 
 // Phase 7: 依赖现代化配置
 // - 开发模式：继续使用 CDN 以加快启动
@@ -17,9 +18,45 @@ const EXTERNAL_DEPS = [
   // 'docx-preview',    // 无 ESM 版本
 ];
 
+// 动态加载的目录（需要在构建后复制）
+const DYNAMIC_DIRS = [
+  'js/process',
+];
+
+// Vite 插件：构建后复制动态加载的目录
+function copyDynamicDirs() {
+  return {
+    name: 'copy-dynamic-dirs',
+    closeBundle() {
+      for (const dir of DYNAMIC_DIRS) {
+        const src = resolve(__dirname, dir);
+        const dest = resolve(__dirname, 'dist', dir);
+        if (existsSync(src)) {
+          mkdirSync(dest, { recursive: true });
+          cpSync(src, dest, { recursive: true });
+          console.log(`[copy-dynamic-dirs] Copied ${dir} to dist/`);
+        }
+      }
+      // 复制 SVG 到 dist/public/ (因为代码中引用 public/xxx.svg)
+      const publicDest = resolve(__dirname, 'dist/public');
+      mkdirSync(publicDest, { recursive: true });
+      for (const svg of ['h_with_name.svg', 'pure.svg', 'with_name.svg']) {
+        const src = resolve(__dirname, 'dist', svg);
+        if (existsSync(src)) {
+          cpSync(src, resolve(publicDest, svg));
+        }
+      }
+      console.log('[copy-dynamic-dirs] Copied SVGs to dist/public/');
+    }
+  };
+}
+
 export default defineConfig({
   root: '.',
   publicDir: 'public',
+
+  // 插件
+  plugins: [copyDynamicDirs()],
 
   // 关键：使用相对路径，确保 file:// 协议可直接打开
   base: './',
