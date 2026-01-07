@@ -32,6 +32,7 @@ export const ServiceId = {
   CIRCUIT_BREAKER_REGISTRY: "circuitBreakerRegistry",
   WATCHDOG: "watchdog",
   WORKER_POOL: "workerPool",
+  /** @deprecated Use core/Kernel instead */
   MICRO_KERNEL: "microKernel",
   MESSAGE_BUS: "messageBus",
   // P6.4: Runtime Adapters
@@ -256,10 +257,15 @@ export function createAgentContainer(overrides = {}) {
     { scope: SINGLETON }
   );
 
-  // MicroKernel (depends on container, eventBus)
+  // MicroKernel (deprecated - use core/Kernel instead)
+  // Kept for backward compatibility, will be removed in 2.0.0
   container.register(
     ServiceId.MICRO_KERNEL,
     async (c) => {
+      console.warn(
+        "[DEPRECATED] ServiceId.MICRO_KERNEL is deprecated. " +
+        "Use `import { Kernel } from 'js/agents/core'` instead."
+      );
       const { MicroKernel } = await import("../kernel/micro-kernel.js");
       const eventBus = await c.get(ServiceId.EVENT_BUS);
       return new MicroKernel({ container: c, eventBus });
@@ -267,13 +273,13 @@ export function createAgentContainer(overrides = {}) {
     { scope: SINGLETON }
   );
 
-  // MessageBus (depends on eventBus)
+  // MessageBus (depends on eventBus) - now uses core/message-bus.js
   container.register(
     ServiceId.MESSAGE_BUS,
     async (c) => {
-      const { MessageBus } = await import("../kernel/message-bus.js");
+      const { MessageBus } = await import("../../core/message-bus.js");
       const eventBus = await c.get(ServiceId.EVENT_BUS);
-      return new MessageBus({ eventBus });
+      return new MessageBus(eventBus);
     },
     { scope: SINGLETON }
   );

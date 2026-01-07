@@ -21,6 +21,7 @@ export {
   EventBus,
   StateBus,
   ServiceBus,
+  MessageBus,
 
   // 插件系统
   createPlugin,
@@ -59,7 +60,7 @@ export {
 export {
   // 旧内核 - 建议迁移到新 Kernel
   MicroKernel,
-  MessageBus,
+  // MessageBus 已从 core 导出，此处不再重复
   ServiceProvider,
   isServiceProvider as isLegacyServiceProvider,
 } from './runtime/kernel/index.js';

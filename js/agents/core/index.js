@@ -24,6 +24,7 @@ export {
   createTimeoutProxy,
   createCacheProxy,
 } from './service-bus.js';
+export { MessageBus } from './message-bus.js';
 export {
   createPlugin,
   PluginContext,
