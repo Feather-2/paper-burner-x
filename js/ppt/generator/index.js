@@ -22,6 +22,7 @@ import './ppt_generator_workflow.js';
 import './ppt_generator_presentation.js';
 import './ppt_generator_utilities.js';
 import './ppt_generator_deletion.js';
+import './ppt_generator_editor.js';
 
 // Export pipeline (historically loaded in ppt.html).
 import './export/ppt_generator_export_image.js';

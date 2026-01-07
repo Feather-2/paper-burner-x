@@ -2,6 +2,10 @@
  * PPTGenerator 编辑器集成
  * 将 SlideEditor 集成到 PPTGenerator 的演示模式
  */
+
+// ESM 导入核心类
+import PPTGeneratorCtor from './ppt_generator_core.js';
+
 const PPTGeneratorEditor = {
     editor: null,
     propertyPanel: null,
@@ -2256,18 +2260,24 @@ const PPTGeneratorEditor = {
     },
 };
 
-// 混入到 PPTGenerator
-if (typeof window.PPTGenerator !== 'undefined') {
+// 混入到 PPTGeneratorCtor.prototype（ESM 模式优先）
+(() => {
     try {
-        Object.assign(window.PPTGenerator, PPTGeneratorEditor);
-        console.log('[PPTGeneratorEditor] 已混入到 PPTGenerator', {
-            toggleEditorMode: typeof window.PPTGenerator.toggleEditorMode === 'function',
-            enableEditorMode: typeof window.PPTGenerator.enableEditorMode === 'function',
-            initEditor: typeof window.PPTGenerator.initEditor === 'function',
-        });
+        const ctor = PPTGeneratorCtor ||
+            (typeof globalThis !== 'undefined' && globalThis.PPTGeneratorCtor) ||
+            (typeof window !== 'undefined' && window.PPTGeneratorCtor);
+
+        if (ctor?.prototype) {
+            Object.assign(ctor.prototype, PPTGeneratorEditor);
+            console.log('[PPTGeneratorEditor] 已混入到 PPTGeneratorCtor.prototype');
+        } else if (typeof window !== 'undefined' && window.PPTGenerator) {
+            // 回退：直接混入到实例
+            Object.assign(window.PPTGenerator, PPTGeneratorEditor);
+            console.log('[PPTGeneratorEditor] 已混入到 window.PPTGenerator 实例');
+        } else {
+            console.warn('[PPTGeneratorEditor] PPTGeneratorCtor 未定义，混入失败');
+        }
     } catch (err) {
-        console.error('[PPTGeneratorEditor] 混入到 PPTGenerator 失败:', err);
+        console.error('[PPTGeneratorEditor] 混入失败:', err);
     }
-} else {
-    console.warn('[PPTGeneratorEditor] PPTGenerator 未定义，混入失败');
-}
+})();
