@@ -119,52 +119,26 @@
         <!-- 由 JS 动态生成内容 -->
     </div>
 
-    <!-- PPT JS 模块 -->
-    <script src="js/ppt/core/slide-styles.js"></script>
-    <script src="js/ppt/core/health-check.js"></script>
-    <script src="js/ppt/core/slide-parser.js"></script>
-    <script src="js/ppt/core/slide-parser-pptx.js"></script>
-    <script src="js/ppt/renderers/slide-renderer-html.js"></script>
-    <script src="js/ppt/core/math-converter.js"></script>
-    
-    <!-- PPTX Renderer -->
-    <script src="js/ppt/renderers/slide-renderer-pptx-freeform.js"></script>
-    <script src="js/ppt/renderers/slide-renderer-pptx.js"></script>
-    
-    <script src="js/ppt/core/slide-system.js"></script>
-    <script src="js/ppt/data/ppt_generator.sample.js"></script>
-    <script src="js/ppt/data/ppt_landing_sample.js"></script>
-    <script src="js/ppt/generator/ppt_generator_core.js"></script>
-    <script src="js/ppt/generator/ppt_generator_navigation.js"></script>
-    <script src="js/ppt/dashboard/vditor_adapter.js"></script>
-    <script src="js/ppt/dashboard/report-review-panel.js"></script>
-    <script src="js/ppt/dashboard/ppt_ui_flow_config.js"></script>
-    <script src="js/ppt/dashboard/ppt_dashboard_utils.js"></script>
-    <script src="js/ppt/dashboard/ppt_dashboard_upload.js"></script>
-    <script src="js/ppt/dashboard/ppt_dashboard_history.js"></script>
-    <script src="js/ppt/dashboard/ppt_dashboard_url_input.js"></script>
-    <script src="js/ppt/dashboard/ppt_dashboard_paste.js"></script>
-    <script src="js/ppt/dashboard/ppt_dashboard_modals.js"></script>
-    <script src="js/ppt/dashboard/ppt_dashboard_deepsearch.js"></script>
-    <script src="js/ppt/dashboard/ppt_dashboard_page_layout.js"></script>
-    <script src="js/ppt/dashboard/ppt_dashboard_design_spec.js"></script>
-    <script src="js/ppt/dashboard/ppt_dashboard_outline.js"></script>
-    <script src="js/ppt/dashboard/ppt_dashboard_core.js"></script>
-    <script src="js/ppt/generator/ppt_generator_workflow.js"></script>
-    <script src="js/ppt/generator/ppt_generator_presentation.js"></script>
-    <script src="js/ppt/generator/ppt_generator_utilities.js"></script>
-    <script src="js/ppt/generator/ppt_generator_deletion.js"></script>
-    
-    <!-- Export 模块（按依赖顺序加载） -->
-    <script src="js/ppt/generator/export/ppt_generator_export_image.js"></script>
-    <script src="js/ppt/generator/export/ppt_generator_export_baking.js"></script>
-    <script src="js/ppt/generator/export/ppt_generator_export_formats.js"></script>
-    <script src="js/ppt/generator/export/ppt_generator_export_core.js"></script>
-    
-    <!-- Editor 模块（ESM 统一入口加载） -->
+    <!-- PPT 模块 (ESM 统一入口) -->
+    <script type="module">
+      import * as PPT from './js/ppt/index.js';
+      // 暴露到全局
+      window.PPT = PPT;
+      window.SlideStyles = PPT.Core?.SlideStyles || window.SlideStyles;
+      window.SlideParser = PPT.Core?.SlideParser || window.SlideParser;
+      window.SlideSystem = PPT.Core?.SlideSystem || window.SlideSystem;
+      window.HTMLSlideRenderer = PPT.Renderers?.HTMLSlideRenderer || window.HTMLSlideRenderer;
+      window.PPTXSlideRenderer = PPT.Renderers?.PPTXSlideRenderer || window.PPTXSlideRenderer;
+      window.MathConverter = PPT.Core?.MathConverter || window.MathConverter;
+      window.PPTHealthCheck = PPT.Core?.PPTHealthCheck || window.PPTHealthCheck;
+      window.PPTDashboard = PPT.Dashboard?.PPTDashboard || window.PPTDashboard;
+      window.PPTGenerator = PPT.Generator?.PPTGenerator || window.PPTGenerator;
+      console.log('[PPT] ESM modules loaded');
+    </script>
+
+    <!-- Editor 模块 -->
     <script type="module">
       import * as PPTEditor from './js/ppt/editor/index.js';
-      // 确保全局可用
       window.PPTEditor = PPTEditor;
       window.SlideEditor = PPTEditor.SlideEditor;
       window.SlideDocument = PPTEditor.SlideDocument;
@@ -176,51 +150,45 @@
       window.LayerPanel = PPTEditor.LayerPanel;
       console.log('[PPT] Editor ESM modules loaded');
     </script>
-    
-    <script src="js/ppt/generator/ppt_generation.js"></script>
-    <script src="js/ppt/storage/ppt_storage.js"></script>
-    
-    <!-- 核心存储模块（提供 loadModelKeys, loadAllCustomSourceSites 等） -->
-    <script src="js/storage/storage.js"></script>
-    <!-- UI 模型管理核心（提供 supportedModelsForKeyManager） -->
-    <script src="js/ui/ui_model_manager_core.js"></script>
-    <script src="js/api/ai-api-service.js"></script>
-    <!-- AI 生图适配器 -->
-    <script src="js/process/image-generation.js"></script>
-    <!-- PDF OCR 解析 -->
-    <script src="js/process/ocr-manager.js"></script>
-    <script src="js/ppt/model-config/ppt_model_config_constants.js"></script>
-    <script src="js/ppt/model-config/ppt_model_config_utils.js"></script>
-    <script src="js/ppt/model-config/ppt_model_config_view.js"></script>
-    <script src="js/ppt/model-config/ppt_model_config_styles.js"></script>
-    <script src="js/ppt/model-config/ppt_model_config_sources.js"></script>
-    <script src="js/ppt/model-config/ppt_model_config_roles.js"></script>
-    <script src="js/ppt/model-config/ppt_model_config_tabs.js"></script>
-    <script src="js/ppt/model-config/ppt_model_config_table.js"></script>
-    <script src="js/ppt/model-config/ppt_model_config_advanced.js"></script>
-    <script src="js/ppt/model-config/ppt_model_config_core.js"></script>
-    
-    <!-- 编辑器集成（必须在 ppt_generation.js 之后） -->
-    <script src="js/ppt/generator/ppt_generator_editor.js"></script>
 
-    <script>
-        // 独立页面初始化
-        document.addEventListener('DOMContentLoaded', async () => {
+    <!-- 核心存储模块 -->
+    <script type="module" src="js/storage/storage.js"></script>
+    <!-- UI 模型管理核心 -->
+    <script type="module" src="js/ui/ui_model_manager_core.js"></script>
+    <script type="module" src="js/api/ai-api-service.js"></script>
+    <!-- AI 生图适配器 -->
+    <script type="module" src="js/process/image-generation.js"></script>
+    <!-- PDF OCR 解析 -->
+    <script type="module" src="js/process/ocr-manager.js"></script>
+
+    <script type="module">
+        // 独立页面初始化 (ESM 模块加载后执行)
+        async function initPPT() {
+            // 等待全局变量就绪
+            let retries = 0;
+            while (!window.PPTGenerator && retries < 50) {
+                await new Promise(r => setTimeout(r, 100));
+                retries++;
+            }
+
             // 启动健康检查
             if (window.PPTHealthCheck) {
                 await window.PPTHealthCheck.checkAndShow();
             }
 
-            // 等待 ppt_generation.js 初始化完成
-            setTimeout(() => {
-                if (window.PPTGenerator && window.PPTGenerator.show) {
-                    // 直接显示项目列表
-                    window.PPTGenerator.show();
-                } else {
-                    console.error('PPTGenerator not loaded');
-                }
-            }, 100);
-        });
+            // 显示 PPT Generator
+            if (window.PPTGenerator && window.PPTGenerator.show) {
+                window.PPTGenerator.show();
+            } else {
+                console.error('PPTGenerator not loaded after 5s');
+            }
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initPPT);
+        } else {
+            initPPT();
+        }
     </script>
 </body>
 </html>

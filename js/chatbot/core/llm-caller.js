@@ -364,4 +364,4 @@
 })(window);
 
 // ESM 导出
-export { LLMCaller };
+export const LLMCaller = window.LLMCaller;

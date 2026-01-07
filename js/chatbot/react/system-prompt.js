@@ -202,4 +202,4 @@
 })(window);
 
 // ESM 导出
-export { SystemPromptBuilder };
+export const SystemPromptBuilder = window.SystemPromptBuilder;

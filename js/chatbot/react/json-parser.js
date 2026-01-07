@@ -164,4 +164,4 @@
 })(window);
 
 // ESM 导出
-export { ReActJsonParser };
+export const ReActJsonParser = window.ReActJsonParser;

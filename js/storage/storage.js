@@ -1485,6 +1485,11 @@ async function deleteAnnotationFromDB(annotationId) {
 
 // --- 显式暴露必要的函数到全局作用域 ---
 if (typeof window !== 'undefined') {
+    // 暴露已处理文件记录函数（app.js 需要）
+    window.loadProcessedFilesRecord = loadProcessedFilesRecord;
+    window.saveProcessedFilesRecord = saveProcessedFilesRecord;
+    window.isAlreadyProcessed = isAlreadyProcessed;
+    window.markFileAsProcessed = markFileAsProcessed;
     // 暴露提示词池需要的关键函数
     window.loadAllCustomSourceSites = loadAllCustomSourceSites;
     // 纠正导出名称：函数为 saveCustomSourceSite（单数）

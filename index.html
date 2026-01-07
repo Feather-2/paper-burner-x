@@ -1563,14 +1563,14 @@
     <!-- ===================== -->
     <script src="https://unpkg.com/iconify-icon@1.0.7/dist/iconify-icon.min.js"></script>
     <!-- GitHub Stars 统一获取模块 -->
-    <script src="js/utils/github-stars.js"></script>
+    <script type="module" src="js/utils/github-stars.js"></script>
     <!-- 自动探测后端：若 /api/健康检查通过将切换为 backend；也可用 ?mode=backend 强制 -->
     <script>window.ENV_DEPLOYMENT_MODE = 'auto';</script>
-    <script src="js/api/api.js"></script>
-    <script src="js/storage/storage.js"></script>
+    <script type="module" src="js/api/api.js"></script>
+    <script type="module" src="js/storage/storage.js"></script>
     <!-- 先初始化存储适配器（提供 isFrontendMode 标记） -->
-    <script src="js/storage/storage-adapter.js"></script>
-    <script src="js/boot/backend-gate.js"></script>
+    <script type="module" src="js/storage/storage-adapter.js"></script>
+    <script type="module" src="js/boot/backend-gate.js"></script>
     <!-- 后端模式访问信任门禁：后端模式且未登录时，跳转到登录页 -->
     <script>
       (function() {
@@ -1607,44 +1607,44 @@
       })();
     </script>
     <!-- 再加载术语库存储（会依据适配器模式决定是否探测后端） -->
-    <script src="js/storage/glossary-storage.js"></script>
+    <script type="module" src="js/storage/glossary-storage.js"></script>
     <script src="https://gcore.jsdelivr.net/npm/mammoth@1.4.21/mammoth.browser.min.js"></script>
     <script src="https://gcore.jsdelivr.net/npm/turndown@7.1.2/dist/turndown.min.js"></script>
-    <script src="js/ui/ui-helpers.js"></script>
-    <script src="js/ui/ui-notifications.js"></script>
-    <script src="js/ui/ui-model-search.js"></script>
-    <script src="js/ui/ui-model-panels.js"></script>
-    <script src="js/ui/ui-processing.js"></script>
-    <script src="js/ui/ui-key-manager-modal.js"></script>
-    <script src="js/ui/key-manager-ui.js"></script>
+    <script type="module" src="js/ui/ui-helpers.js"></script>
+    <script type="module" src="js/ui/ui-notifications.js"></script>
+    <script type="module" src="js/ui/ui-model-search.js"></script>
+    <script type="module" src="js/ui/ui-model-panels.js"></script>
+    <script type="module" src="js/ui/ui-processing.js"></script>
+    <script type="module" src="js/ui/ui-key-manager-modal.js"></script>
+    <script type="module" src="js/ui/key-manager-ui.js"></script>
     <!-- Embedding 向量搜索与重排模块 (已迁移到 js/agents/) -->
-    <script src="js/boot/ensure-embedding.js"></script>
+    <script type="module" src="js/boot/ensure-embedding.js"></script>
     <!-- 注意: js/chatbot/agents/ 已删除，功能由 js/agents/ 提供 -->
 
     <!-- ReAct 模块 v2.0 - 模块化重构版本 -->
     <!-- 注意：必须按此顺序加载，engine.js 依赖其他所有模块 -->
-    <script src="js/chatbot/react/token-budget.js"></script>
-    <script src="js/chatbot/react/tool-registry.js"></script>
-    <script src="js/chatbot/react/json-parser.js"></script>
-    <script src="js/chatbot/react/system-prompt.js"></script>
-    <script src="js/chatbot/react/context-builder.js"></script>
-    <script src="js/chatbot/react/engine.js"></script>
-    <script src="js/chatbot/react/index.js"></script>
+    <script type="module" src="js/chatbot/react/token-budget.js"></script>
+    <script type="module" src="js/chatbot/react/tool-registry.js"></script>
+    <script type="module" src="js/chatbot/react/json-parser.js"></script>
+    <script type="module" src="js/chatbot/react/system-prompt.js"></script>
+    <script type="module" src="js/chatbot/react/context-builder.js"></script>
+    <script type="module" src="js/chatbot/react/engine.js"></script>
+    <script type="module" src="js/chatbot/react/index.js"></script>
 
-    <script src="js/chatbot/core/llm-caller.js"></script>
+    <script type="module" src="js/chatbot/core/llm-caller.js"></script>
     <!-- Chatbot 配置管理模块 -->
-    <script src="js/chatbot/core/chatbot-config-manager.js?v=20251107c"></script>
+    <script type="module" src="js/chatbot/core/chatbot-config-manager.js?v=20251107c"></script>
     <script type="module" src="js/chatbot/ui/chatbot-model-config-modal.js?v=20251107f"></script>
     <script type="module" src="js/chatbot/ui/chatbot-floating-options.js"></script>
     <script type="module" src="js/chatbot/ui/chatbot-tooltrace-ui.js"></script>
     <!-- UI 模块化组件 (新增) -->
-    <script src="js/ui/ui_dom_elements.js"></script>
-    <script src="js/ui/ui_model_manager_core.js"></script>
-    <script src="js/ui/ui_model_ocr_config.js"></script>
-    <script src="js/ui/ui_embedding_config.js"></script>
+    <script type="module" src="js/ui/ui_dom_elements.js"></script>
+    <script type="module" src="js/ui/ui_model_manager_core.js"></script>
+    <script type="module" src="js/ui/ui_model_ocr_config.js"></script>
+    <script type="module" src="js/ui/ui_embedding_config.js"></script>
     <!-- UI 主文件 -->
-    <script src="js/ui/ui.js"></script>
-    <script src="js/ui/ocr-settings.js"></script> <!-- OCR 配置管理 -->
+    <script type="module" src="js/ui/ui.js"></script>
+    <script type="module" src="js/ui/ocr-settings.js"></script> <!-- OCR 配置管理 -->
     <!-- PDF.js 库（用于本地解析 PDF） -->
     <script src="https://gcore.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
     <script>
@@ -1654,47 +1654,47 @@
         }
     </script>
     <!-- OCR 处理模块 -->
-    <script src="js/process/ocr-adapters/base-adapter.js"></script> <!-- 基类 -->
-    <script src="js/process/ocr-adapters/mistral-adapter.js"></script>
-    <script src="js/process/ocr-adapters/mineru-adapter.js"></script>
-    <script src="js/process/ocr-adapters/doc2x-adapter.js"></script>
-    <script src="js/process/ocr-adapters/local-adapter.js"></script> <!-- 本地 PDF 解析 -->
-    <script src="js/process/ocr-manager.js"></script> <!-- OCR 管理器 -->
-    <script src="js/process/glossary-matcher.js"></script> <!-- 高效术语匹配器 -->
+    <script type="module" src="js/process/ocr-adapters/base-adapter.js"></script> <!-- 基类 -->
+    <script type="module" src="js/process/ocr-adapters/mistral-adapter.js"></script>
+    <script type="module" src="js/process/ocr-adapters/mineru-adapter.js"></script>
+    <script type="module" src="js/process/ocr-adapters/doc2x-adapter.js"></script>
+    <script type="module" src="js/process/ocr-adapters/local-adapter.js"></script> <!-- 本地 PDF 解析 -->
+    <script type="module" src="js/process/ocr-manager.js"></script> <!-- OCR 管理器 -->
+    <script type="module" src="js/process/glossary-matcher.js"></script> <!-- 高效术语匹配器 -->
     <!-- glossary-core.js 由 index.js 动态加载，避免重复 -->
-    <script src="js/process/glossary-config.js"></script> <!-- 术语库性能配置 -->
-    <script src="js/ui/glossary-progress.js"></script> <!-- 术语库进度条 -->
-    <script src="js/ui/glossary-editor-enhanced.js"></script> <!-- 增强版术语库编辑器 -->
-    <script src="js/ui/glossary-ui.js"></script>
+    <script type="module" src="js/process/glossary-config.js"></script> <!-- 术语库性能配置 -->
+    <script type="module" src="js/ui/glossary-progress.js"></script> <!-- 术语库进度条 -->
+    <script type="module" src="js/ui/glossary-editor-enhanced.js"></script> <!-- 增强版术语库编辑器 -->
+    <script type="module" src="js/ui/glossary-ui.js"></script>
     <!-- 子块分割器（支持中英文标点分割），用于高亮与批注的精确定位 -->
-    <script src="js/processing/sub_block_segmenter.js"></script>
+    <script type="module" src="js/processing/sub_block_segmenter.js"></script>
     <!-- 修改为普通脚本标签，不使用模块 -->
-    <script src="js/process/index.js"></script>
-    <script src="js/process/prompt-pool-api.js"></script>
-    <script src="js/process/prompt-pool.js"></script>
-    <script src="js/process/image-generation.js"></script> <!-- 文生图适配器 (Gemini / OpenAI 兼容) -->
-    <script src="js/process/mineru-structured-translation.js"></script> <!-- MinerU 结构化翻译 -->
-    <script src="js/ui/prompt-pool-ui.js"></script>
-    <script src="js/api/model-detector.js"></script>
-    <script src="js/api/ai-api-service.js"></script>
-    <script src="js/app.js"></script>
-    <script src="js/ppt/model-config/ppt_model_config_constants.js"></script>
-    <script src="js/ppt/model-config/ppt_model_config_utils.js"></script>
-    <script src="js/ppt/model-config/ppt_model_config_view.js"></script>
-    <script src="js/ppt/model-config/ppt_model_config_styles.js"></script>
-    <script src="js/ppt/model-config/ppt_model_config_sources.js"></script>
-    <script src="js/ppt/model-config/ppt_model_config_roles.js"></script>
-    <script src="js/ppt/model-config/ppt_model_config_tabs.js"></script>
-    <script src="js/ppt/model-config/ppt_model_config_table.js"></script>
-    <script src="js/ppt/model-config/ppt_model_config_advanced.js"></script>
-    <script src="js/ppt/model-config/ppt_model_config_core.js"></script>
-    <script src="js/processing/markdown_processor_enhanced.js"></script>
+    <script type="module" src="js/process/index.js"></script>
+    <script type="module" src="js/process/prompt-pool-api.js"></script>
+    <script type="module" src="js/process/prompt-pool.js"></script>
+    <script type="module" src="js/process/image-generation.js"></script> <!-- 文生图适配器 (Gemini / OpenAI 兼容) -->
+    <script type="module" src="js/process/mineru-structured-translation.js"></script> <!-- MinerU 结构化翻译 -->
+    <script type="module" src="js/ui/prompt-pool-ui.js"></script>
+    <script type="module" src="js/api/model-detector.js"></script>
+    <script type="module" src="js/api/ai-api-service.js"></script>
+    <script type="module" src="js/app.js"></script>
+    <script type="module" src="js/ppt/model-config/ppt_model_config_constants.js"></script>
+    <script type="module" src="js/ppt/model-config/ppt_model_config_utils.js"></script>
+    <script type="module" src="js/ppt/model-config/ppt_model_config_view.js"></script>
+    <script type="module" src="js/ppt/model-config/ppt_model_config_styles.js"></script>
+    <script type="module" src="js/ppt/model-config/ppt_model_config_sources.js"></script>
+    <script type="module" src="js/ppt/model-config/ppt_model_config_roles.js"></script>
+    <script type="module" src="js/ppt/model-config/ppt_model_config_tabs.js"></script>
+    <script type="module" src="js/ppt/model-config/ppt_model_config_table.js"></script>
+    <script type="module" src="js/ppt/model-config/ppt_model_config_advanced.js"></script>
+    <script type="module" src="js/ppt/model-config/ppt_model_config_core.js"></script>
+    <script type="module" src="js/processing/markdown_processor_enhanced.js"></script>
     <!-- AST-based processor (新架构) -->
-    <script src="js/processing/annotation_plugin_ast.js"></script>  <!-- 注释插件 -->
-    <script src="js/processing/markdown_processor_ast.js"></script>
-    <script src="js/processing/markdown_processor_integration.js"></script>  <!-- 集成层 -->
-    <script src="js/processing/markdown_text_fix.js"></script>
-    <script src="js/processing/markdown_processor.js"></script>
+    <script type="module" src="js/processing/annotation_plugin_ast.js"></script>  <!-- 注释插件 -->
+    <script type="module" src="js/processing/markdown_processor_ast.js"></script>
+    <script type="module" src="js/processing/markdown_processor_integration.js"></script>  <!-- 集成层 -->
+    <script type="module" src="js/processing/markdown_text_fix.js"></script>
+    <script type="module" src="js/processing/markdown_processor.js"></script>
 
     <!-- AST 架构状态显示 -->
     <script>
@@ -1713,8 +1713,8 @@
     </script>
 
     <!-- 文本自适应算法 (PDF 保留格式翻译) - 必须在 history 脚本之前加载 -->
-    <script src="js/utils/text-fitting.js"></script>
-    <script src="js/utils/text-fitting-integration.js"></script>
+    <script type="module" src="js/utils/text-fitting.js"></script>
+    <script type="module" src="js/utils/text-fitting-integration.js"></script>
 
     <!-- History 模块 (ESM 统一入口) -->
     <script type="module">

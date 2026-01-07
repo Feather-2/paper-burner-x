@@ -488,4 +488,4 @@
 })(window);
 
 // ESM 导出
-export { ToolRegistry };
+export const ToolRegistry = window.ToolRegistry;

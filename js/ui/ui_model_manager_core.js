@@ -412,4 +412,4 @@
 })(window);
 
 // ESM 导出
-export { ModelManager };
+export const ModelManager = window.ModelManager;

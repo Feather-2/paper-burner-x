@@ -215,4 +215,4 @@
 })(window);
 
 // ESM 导出
-export { ContextBuilder };
+export const ContextBuilder = window.ContextBuilder;

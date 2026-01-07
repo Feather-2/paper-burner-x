@@ -611,4 +611,4 @@
 })(window);
 
 // ESM 导出
-export { ReActEngine };
+export const ReActEngine = window.ReActEngine;

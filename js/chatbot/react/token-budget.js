@@ -59,4 +59,4 @@
 })(window);
 
 // ESM 导出
-export { TokenBudgetManager };
+export const TokenBudgetManager = window.TokenBudgetManager;

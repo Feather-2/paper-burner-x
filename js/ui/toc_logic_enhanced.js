@@ -1192,4 +1192,4 @@
 })();
 
 // ESM 导出
-export { EnhancedTocFeature };
+export const EnhancedTocFeature = window.EnhancedTocFeature;

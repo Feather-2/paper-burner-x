@@ -405,24 +405,24 @@
   <!-- 依赖的JS库 -->
   <!-- ===================== -->
   <script src="https://gcore.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
-  <script src="../../js/lib/jszip.min.js"></script>
+  <script type="module" src="../../js/lib/jszip.min.js"></script>
   <!-- dagre.js for graph layout (层次化图布局算法) -->
   <script src="https://gcore.jsdelivr.net/npm/graphlib@2.1.8/dist/graphlib.min.js"></script>
   <script src="https://gcore.jsdelivr.net/npm/dagre@0.8.5/dist/dagre.min.js"></script>
   <!-- DrawioLite DSL System (must load in order) -->
-  <script src="../../js/chatbot/prompt/drawio-lite-spec.js"></script>
-  <script src="../../js/chatbot/prompt/drawio-lite-prompt.js"></script>
-  <script src="../../js/chatbot/utils/drawio-lite-parser.js"></script>
-  <script src="../../js/storage/storage.js"></script>
+  <script type="module" src="../../js/chatbot/prompt/drawio-lite-spec.js"></script>
+  <script type="module" src="../../js/chatbot/prompt/drawio-lite-prompt.js"></script>
+  <script type="module" src="../../js/chatbot/utils/drawio-lite-parser.js"></script>
+  <script type="module" src="../../js/storage/storage.js"></script>
   <!-- 结构化重试需要 API/Translation/Structured 翻译模块 -->
-  <script src="../../js/api/api.js"></script>
-  <script src="../../js/process/translation.js"></script>
-  <script src="../../js/process/mineru-structured-translation.js"></script>
+  <script type="module" src="../../js/api/api.js"></script>
+  <script type="module" src="../../js/process/translation.js"></script>
+  <script type="module" src="../../js/process/mineru-structured-translation.js"></script>
   <!-- Annotations (ESM 统一入口 + window.* facade 兼容层) -->
   <script type="module" src="../../js/annotations/index.js"></script>
   <!-- 移除失效的注释相关脚本引用 -->
-  <script src="../../js/ui/toc_logic_enhanced.js"></script>
-  <script src="../../js/ui/toc_scroll_sync.js"></script>
+  <script type="module" src="../../js/ui/toc_logic_enhanced.js"></script>
+  <script type="module" src="../../js/ui/toc_scroll_sync.js"></script>
   <script src="https://gcore.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
   <script src="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
@@ -441,40 +441,40 @@
   </script>
 
   <!-- Phase 3.5: 性能优化配置（必须在所有 chatbot 模块之前加载） -->
-  <script src="../../js/chatbot/config/performance-config.js"></script>
+  <script type="module" src="../../js/chatbot/config/performance-config.js"></script>
   <!-- Phase 4.4.3: 本地性能监控工具（仅开发/测试用，不上报数据） -->
-  <script src="../../js/chatbot/utils/performance-monitor.js"></script>
-  <script src="../../js/chatbot/utils/mermaid-loader.js"></script>
+  <script type="module" src="../../js/chatbot/utils/performance-monitor.js"></script>
+  <script type="module" src="../../js/chatbot/utils/mermaid-loader.js"></script>
   <!-- XSS 防护：DOMPurify - 用于清理 AI 生成的 HTML 内容 -->
   <script src="https://gcore.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
   <!-- XSS 防护：安全的 Markdown 渲染（必须在 markdown-katex-render.js 之前加载） -->
-  <script src="../../js/chatbot/utils/safe-markdown-render.js"></script>
+  <script type="module" src="../../js/chatbot/utils/safe-markdown-render.js"></script>
   <!-- Phase 4.2+: KaTeX 公式缓存系统（解决充满公式场景 4.6s 阻塞问题） -->
-  <script src="../../js/chatbot/utils/katex-cache.js"></script>
-  <script src="../../js/chatbot/utils/markdown-katex-render-cached.js"></script>
+  <script type="module" src="../../js/chatbot/utils/katex-cache.js"></script>
+  <script type="module" src="../../js/chatbot/utils/markdown-katex-render-cached.js"></script>
   <!-- Phase 4.2+: KaTeX 渐进式渲染系统（解决首次渲染 4.6s 阻塞问题） -->
-  <script src="../../js/chatbot/utils/katex-progressive-render.js"></script>
+  <script type="module" src="../../js/chatbot/utils/katex-progressive-render.js"></script>
   <!-- Phase 4.2+: KaTeX 缓存持久化（localStorage 自动保存和恢复） -->
-  <script src="../../js/chatbot/utils/katex-cache-persistence.js"></script>
-  <script src="../../js/chatbot/prompt/prompt-constructor.js"></script> <!-- Add this line -->
+  <script type="module" src="../../js/chatbot/utils/katex-cache-persistence.js"></script>
+  <script type="module" src="../../js/chatbot/prompt/prompt-constructor.js"></script> <!-- Add this line -->
   <!-- Draw.io 布局优化模块（必须在 message-sender.js 之前加载） -->
-  <script src="../../js/chatbot/utils/drawio-layout-optimizer.js"></script>
+  <script type="module" src="../../js/chatbot/utils/drawio-layout-optimizer.js"></script>
   <!-- Draw.io 学术增强模块（Paper Burner 专属：语义配色 + 学术规范） -->
-  <script src="../../js/chatbot/utils/drawio-academic-enhancer.js"></script>
-  <script src="../../js/chatbot/utils/chatbot-utils.js"></script>
-  <script src="../../js/chatbot/prompt/chatbot-preset.js"></script>
-  <script src="../../js/chatbot/utils/chatbot-image-utils.js"></script> <!-- Moved up to be with other utils -->
-  <script src="../../js/chatbot/utils/chatbot-rendering-utils.js"></script> <!-- NEW -->
-  <script src="../../js/chatbot/actions/chatbot-actions.js"></script> <!-- NEW -->
-  <script src="../../js/chatbot/core/chat-message-event-manager.js"></script> <!-- Phase 3: 事件管理器（事件委托优化） -->
+  <script type="module" src="../../js/chatbot/utils/drawio-academic-enhancer.js"></script>
+  <script type="module" src="../../js/chatbot/utils/chatbot-utils.js"></script>
+  <script type="module" src="../../js/chatbot/prompt/chatbot-preset.js"></script>
+  <script type="module" src="../../js/chatbot/utils/chatbot-image-utils.js"></script> <!-- Moved up to be with other utils -->
+  <script type="module" src="../../js/chatbot/utils/chatbot-rendering-utils.js"></script> <!-- NEW -->
+  <script type="module" src="../../js/chatbot/actions/chatbot-actions.js"></script> <!-- NEW -->
+  <script type="module" src="../../js/chatbot/core/chat-message-event-manager.js"></script> <!-- Phase 3: 事件管理器（事件委托优化） -->
   <!-- Chatbot UI (ESM entry) -->
   <script type="module" src="../../js/chatbot/ui/chatbot-ui.js"></script>
   <!-- 新增：意群聚合模块 -->
-  <script src="../../js/chatbot/agents/semantic-grouper.js"></script>
-  <script src="../../js/chatbot/agents/semantic-tools.js"></script>
+  <script type="module" src="../../js/chatbot/agents/semantic-grouper.js"></script>
+  <script type="module" src="../../js/chatbot/agents/semantic-tools.js"></script>
   <!-- 新增：向量搜索模块 -->
-  <script src="../../js/boot/ensure-embedding.js"></script>
-  <script src="../../js/chatbot/agents/embedding-client.js"></script>
+  <script type="module" src="../../js/boot/ensure-embedding.js"></script>
+  <script type="module" src="../../js/chatbot/agents/embedding-client.js"></script>
   <script>
     (function(){
       try {
@@ -490,49 +490,49 @@
     })();
   </script>
   <!-- 新增：重排模块（确保在 semantic-vector-search 之前加载） -->
-  <script src="../../js/chatbot/agents/rerank-client.js"></script>
-  <script src="../../js/chatbot/agents/vector-store.js"></script>
-  <script src="../../js/chatbot/agents/semantic-vector-search.js"></script>
+  <script type="module" src="../../js/chatbot/agents/rerank-client.js"></script>
+  <script type="module" src="../../js/chatbot/agents/vector-store.js"></script>
+  <script type="module" src="../../js/chatbot/agents/semantic-vector-search.js"></script>
   <!-- 新增：BM25检索模块（独立工具） -->
-  <script src="../../js/chatbot/agents/bm25-search.js"></script>
+  <script type="module" src="../../js/chatbot/agents/bm25-search.js"></script>
   <!-- ReAct 引擎（推理与工具调用框架 - 模块化版本） -->
-  <script src="../../js/chatbot/react/json-parser.js"></script>
-  <script src="../../js/chatbot/react/system-prompt.js"></script>
-  <script src="../../js/chatbot/react/context-builder.js"></script>
-  <script src="../../js/chatbot/react/tool-registry.js"></script>
-  <script src="../../js/chatbot/react/token-budget.js"></script>
-  <script src="../../js/chatbot/react/engine.js"></script>
-  <script src="../../js/chatbot/react/index.js"></script>
-  <script src="../../js/chatbot/core/streaming-multi-hop.js"></script>
+  <script type="module" src="../../js/chatbot/react/json-parser.js"></script>
+  <script type="module" src="../../js/chatbot/react/system-prompt.js"></script>
+  <script type="module" src="../../js/chatbot/react/context-builder.js"></script>
+  <script type="module" src="../../js/chatbot/react/tool-registry.js"></script>
+  <script type="module" src="../../js/chatbot/react/token-budget.js"></script>
+  <script type="module" src="../../js/chatbot/react/engine.js"></script>
+  <script type="module" src="../../js/chatbot/react/index.js"></script>
+  <script type="module" src="../../js/chatbot/core/streaming-multi-hop.js"></script>
   <!-- Chatbot Core 模块化组件（必须在 chatbot-core.js 之前加载） -->
-  <script src="../../js/chatbot/core/api-config-builder.js"></script>
-  <script src="../../js/chatbot/core/llm-caller.js"></script>
-  <script src="../../js/chatbot/core/chat-history-manager.js"></script>
-  <script src="../../js/chatbot/core/content-processor.js"></script>
-  <script src="../../js/chatbot/core/semantic-groups-manager.js"></script>
-  <script src="../../js/chatbot/core/message-sender.js"></script>
+  <script type="module" src="../../js/chatbot/core/api-config-builder.js"></script>
+  <script type="module" src="../../js/chatbot/core/llm-caller.js"></script>
+  <script type="module" src="../../js/chatbot/core/chat-history-manager.js"></script>
+  <script type="module" src="../../js/chatbot/core/content-processor.js"></script>
+  <script type="module" src="../../js/chatbot/core/semantic-groups-manager.js"></script>
+  <script type="module" src="../../js/chatbot/core/message-sender.js"></script>
   <!-- Chatbot 配置管理模块（独立于翻译模型） -->
-  <script src="../../js/chatbot/core/chatbot-config-manager.js?v=20251107c"></script>
+  <script type="module" src="../../js/chatbot/core/chatbot-config-manager.js?v=20251107c"></script>
   <!-- Chatbot Core 主入口（依赖上述所有模块） -->
-  <script src="../../js/chatbot/core/chatbot-core.js"></script>
-  <script src="../../js/chatbot/renderers/chatbot-mermaid-renderer.js"></script>
-  <script src="../../js/chatbot/renderers/chatbot-mindmap-renderer.js"></script>
+  <script type="module" src="../../js/chatbot/core/chatbot-core.js"></script>
+  <script type="module" src="../../js/chatbot/renderers/chatbot-mermaid-renderer.js"></script>
+  <script type="module" src="../../js/chatbot/renderers/chatbot-mindmap-renderer.js"></script>
   <!-- Chatbot UI modules are imported by chatbot-ui.js -->
-  <script src="../../js/chatbot/strategy/segmentation-strategy.js"></script>
+  <script type="module" src="../../js/chatbot/strategy/segmentation-strategy.js"></script>
 
-  <script src="../../js/ui/dock/dock_logic.js"></script>
-  <script src="../../js/processing/markdown_processor_enhanced.js"></script>
+  <script type="module" src="../../js/ui/dock/dock_logic.js"></script>
+  <script type="module" src="../../js/processing/markdown_processor_enhanced.js"></script>
   <!-- AST-based processor (新架构) -->
-  <script src="../../js/processing/markdown_processor_ast.js"></script>
-  <script src="../../js/processing/annotation_plugin_ast.js"></script>  <!-- 注释插件 -->
-  <script src="../../js/processing/markdown_processor_integration.js"></script>  <!-- 集成层 -->
-  <script src="../../js/processing/formula_post_processor.js"></script>  <!-- 公式后处理（同步版本，用于导出） -->
-  <script src="../../js/processing/formula_post_processor_async.js"></script>  <!-- 公式后处理（异步 Worker 版本，用于页面显示） -->
-  <script src="../../js/processing/markdown_text_fix.js"></script>
-  <script src="../../js/processing/markdown_processor.js"></script>
-  <script src="../../js/processing/sub_block_segmenter.js"></script>
-  <script src="../../js/processing/content-list-to-chunks.js"></script>
-  <script src="../../js/ui/dock/dock_settings_modal.js"></script> <!-- ADDED -->
+  <script type="module" src="../../js/processing/markdown_processor_ast.js"></script>
+  <script type="module" src="../../js/processing/annotation_plugin_ast.js"></script>  <!-- 注释插件 -->
+  <script type="module" src="../../js/processing/markdown_processor_integration.js"></script>  <!-- 集成层 -->
+  <script type="module" src="../../js/processing/formula_post_processor.js"></script>  <!-- 公式后处理（同步版本，用于导出） -->
+  <script type="module" src="../../js/processing/formula_post_processor_async.js"></script>  <!-- 公式后处理（异步 Worker 版本，用于页面显示） -->
+  <script type="module" src="../../js/processing/markdown_text_fix.js"></script>
+  <script type="module" src="../../js/processing/markdown_processor.js"></script>
+  <script type="module" src="../../js/processing/sub_block_segmenter.js"></script>
+  <script type="module" src="../../js/processing/content-list-to-chunks.js"></script>
+  <script type="module" src="../../js/ui/dock/dock_settings_modal.js"></script> <!-- ADDED -->
   <!-- annotations_summary_modal 已由 ../../js/annotations/index.js 统一加载 -->
 
   <!-- History 模块 (ESM 统一入口) -->
@@ -552,37 +552,37 @@
   </script>
 
   <!-- Text Fitting Engine for PDF Translation -->
-  <script src="../../js/utils/text-fitting.js"></script>
-  <script src="../../js/utils/text-fitting-integration.js"></script>
+  <script type="module" src="../../js/utils/text-fitting.js"></script>
+  <script type="module" src="../../js/utils/text-fitting-integration.js"></script>
 
   <!-- PDF Compare View 主类 -->
-  <script src="../../js/history/history_pdf_compare.js"></script>
+  <script type="module" src="../../js/history/history_pdf_compare.js"></script>
 
   <!-- ===================== -->
   <!-- 页面核心逻辑脚本 -->
   <!-- ===================== -->
-  <script src="../../js/history/history_detail_globals.js"></script>
-  <script src="../../js/history/history_detail_render.js"></script>
-  <script src="../../js/history/history_detail_show_tab.js"></script>
-  <script src="../../js/history/history_detail_scripts.js"></script>
-  <script src="../../js/ui/immersive_layout_logic.js"></script> <!-- 新增沉浸式布局JS -->
-  <script src="../../js/ui/chunk_compare_optimizer.js"></script> <!-- 分块对比性能优化器 -->
-  <script src="../../js/ui/chunk_compare_integration.js"></script> <!-- 分块对比优化器集成 -->
-  <script src="../../js/ui/chunk_compare_performance_tester.js"></script> <!-- 分块对比性能测试器 -->
-  <script src="../../js/ui/lightbox.js"></script> <!-- 图片灯箱功能 -->
+  <script type="module" src="../../js/history/history_detail_globals.js"></script>
+  <script type="module" src="../../js/history/history_detail_render.js"></script>
+  <script type="module" src="../../js/history/history_detail_show_tab.js"></script>
+  <script type="module" src="../../js/history/history_detail_scripts.js"></script>
+  <script type="module" src="../../js/ui/immersive_layout_logic.js"></script> <!-- 新增沉浸式布局JS -->
+  <script type="module" src="../../js/ui/chunk_compare_optimizer.js"></script> <!-- 分块对比性能优化器 -->
+  <script type="module" src="../../js/ui/chunk_compare_integration.js"></script> <!-- 分块对比优化器集成 -->
+  <script type="module" src="../../js/ui/chunk_compare_performance_tester.js"></script> <!-- 分块对比性能测试器 -->
+  <script type="module" src="../../js/ui/lightbox.js"></script> <!-- 图片灯箱功能 -->
 
   <!-- 参考文献管理模块 -->
-  <script src="../../js/processing/reference-detector.js"></script>
-  <script src="../../js/processing/reference-extractor.js"></script>
-  <script src="../../js/processing/reference-doi-resolver.js"></script>
-  <script src="../../js/processing/reference-ai-processor.js"></script>
-  <script src="../../js/processing/reference-indexer.js"></script>
-  <script src="../../js/storage/reference-storage.js"></script>
-  <script src="../../js/ui/reference-manager-ui.js"></script>
-  <script src="../../js/ui/reference-manager-detail.js"></script> <!-- 详情页专用 -->
+  <script type="module" src="../../js/processing/reference-detector.js"></script>
+  <script type="module" src="../../js/processing/reference-extractor.js"></script>
+  <script type="module" src="../../js/processing/reference-doi-resolver.js"></script>
+  <script type="module" src="../../js/processing/reference-ai-processor.js"></script>
+  <script type="module" src="../../js/processing/reference-indexer.js"></script>
+  <script type="module" src="../../js/storage/reference-storage.js"></script>
+  <script type="module" src="../../js/ui/reference-manager-ui.js"></script>
+  <script type="module" src="../../js/ui/reference-manager-detail.js"></script> <!-- 详情页专用 -->
 
   <!-- 统一侧边栏集成 (Non-Immersive Mode) -->
-  <script src="../../js/ui/sidebar-integration.js"></script>
+  <script type="module" src="../../js/ui/sidebar-integration.js"></script>
 
 </body>
 </html>
