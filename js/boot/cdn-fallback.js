@@ -9,6 +9,11 @@ const CDN_FALLBACKS = {
   'lib/pptxgen.bundle.js': 'https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js',
   'lib/docx-preview.min.js': 'https://gcore.jsdelivr.net/npm/docx-preview@0.3.7/dist/docx-preview.min.js',
   'lib/iconify-icon.min.js': 'https://gcore.jsdelivr.net/npm/iconify-icon@2.0.0/dist/iconify-icon.min.js',
+  'lib/mammoth.browser.min.js': 'https://gcore.jsdelivr.net/npm/mammoth@1.4.21/mammoth.browser.min.js',
+  'lib/turndown.min.js': 'https://gcore.jsdelivr.net/npm/turndown@7.1.2/dist/turndown.min.js',
+  'lib/pdf.min.js': 'https://gcore.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js',
+  'lib/pdf.worker.min.js': 'https://gcore.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js',
+  'lib/html2pdf.bundle.min.js': 'https://gcore.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js',
 };
 
 /**
