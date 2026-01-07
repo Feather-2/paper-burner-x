@@ -7,7 +7,8 @@ import PPTGeneratorCtor from './ppt_generator_core.js';
  */
 
 (function loadWorkflowMixins() {
-    const GeneratorCtor =
+    // 优先使用 ESM 导入的 PPTGeneratorCtor
+    const GeneratorCtor = PPTGeneratorCtor ||
         (typeof globalThis !== 'undefined' && globalThis.PPTGeneratorCtor?.prototype)
             ? globalThis.PPTGeneratorCtor
             : (

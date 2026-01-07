@@ -508,7 +508,7 @@ const PPTGeneratorExportImage = {
 // Mixin install (legacy scripts + ESM entrypoints).
 (() => {
     try {
-        const ctor =
+        const ctor = PPTGeneratorCtor ||
             (typeof globalThis !== 'undefined' && globalThis.PPTGeneratorCtor?.prototype)
                 ? globalThis.PPTGeneratorCtor
                 : ((typeof PPTGenerator !== 'undefined' && PPTGenerator?.prototype) ? PPTGenerator : null);
