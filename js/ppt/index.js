@@ -13,6 +13,10 @@ import * as Generator from './generator/index.js';
 import * as Dashboard from './dashboard/index.js';
 import * as ModelConfig from './model-config/index.js';
 
+// 加载示例数据（会设置 window.PPT_LANDING_SAMPLE_HTML 和 window.PPT_SAMPLE_HTML）
+import './data/ppt_landing_sample.js';
+import './data/ppt_generator.sample.js';
+
 export { Core, Renderers, Generator, Dashboard, ModelConfig };
 
 export default {
