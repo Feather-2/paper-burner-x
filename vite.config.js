@@ -13,9 +13,17 @@ const EXTERNAL_DEPS = [
   'html2pdf.js'
 ];
 
+// 暂时排除的模块（待后续重构）
+const EXCLUDED_MODULES = [
+  'js/agents/'
+];
+
 export default defineConfig({
   root: '.',
   publicDir: 'public',
+
+  // 关键：使用相对路径，确保 file:// 协议可直接打开
+  base: './',
 
   // 路径别名
   resolve: {
@@ -38,7 +46,8 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
-        // ppt: resolve(__dirname, 'ppt.html'), // 可选
+        // ppt: resolve(__dirname, 'ppt.html'),  // 暂时排除：依赖 js/agents/ 待重构
+        historyDetail: resolve(__dirname, 'views/history/history_detail.html'),
       },
 
       output: {
@@ -69,9 +78,11 @@ export default defineConfig({
         assetFileNames: 'assets/[name]-[hash].[ext]'
       },
 
-      // 外部依赖（继续使用 CDN）
+      // 外部依赖（继续使用 CDN）+ 排除 agents 模块
       external: (id) => {
-        return EXTERNAL_DEPS.some(dep => id.includes(dep));
+        if (EXTERNAL_DEPS.some(dep => id.includes(dep))) return true;
+        if (EXCLUDED_MODULES.some(mod => id.includes(mod))) return true;
+        return false;
       }
     },
 
