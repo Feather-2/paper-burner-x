@@ -426,6 +426,11 @@ export class HnswLiteIndex {
   /**
    * 暴力搜索（用于对比测试或小数据集）
    */
+  /**
+   * @param {Float32Array|number[]|ArrayBufferView} queryVector
+   * @param {{ topK?: number, filter?: (meta:any, id:string)=>boolean, minScore?: number, partitions?: string|string[] }} [options]
+   * @returns {Array<{id:string,score:number,meta:any}>}
+   */
   searchBruteForce(queryVector, { topK = 5, filter, minScore, partitions } = {}) {
     const k = toPositiveInt(topK, 5);
     if (k <= 0) return [];

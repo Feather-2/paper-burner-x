@@ -7,11 +7,74 @@
 import {
   isPlainObject,
   toNonEmptyString,
-  parseSections,
+  parseSections as _parseSections,
   clearParseCache,
-  joinSections,
-  extractElements,
+  joinSections as _joinSections,
+  extractElements as _extractElements,
 } from "../shared/design-utils.js";
+
+/**
+ * @typedef {{ success: boolean, data?: any, error?: string }} ToolResult
+ */
+
+/**
+ * @typedef {(toolName: string, params: any) => Promise<ToolResult>} ToolExecutor
+ */
+
+/**
+ * @typedef {object} ToolContext
+ * @property {{ deckHtmlDsl?: string, slidesMeta?: any[] }} [deckPackage]
+ * @property {any} [contentPackage]
+ * @property {{ signal?: AbortSignal, emit?: Function }} [stageApi]
+ */
+
+/**
+ * @typedef {object} ToolExecutorOptions
+ * @property {(params: { slideIndex: number, scale?: number }) => Promise<ToolResult>} [screenshotRenderer]
+ */
+
+/**
+ * @typedef {object} ExtractedElement
+ * @property {string} elementId
+ * @property {string} tag
+ * @property {string|undefined} [id]
+ * @property {string|undefined} [class]
+ * @property {Record<string, string>} attrs
+ * @property {string|undefined} [textPreview]
+ */
+
+/** @type {any} */
+const process = /** @type {any} */ (globalThis).process;
+
+/**
+ * Parses deckHtmlDsl into an array of <section> HTML strings.
+ *
+ * @param {string} deckHtmlDsl
+ * @returns {string[]}
+ */
+export function parseSections(deckHtmlDsl) {
+  return _parseSections(deckHtmlDsl);
+}
+
+/**
+ * Joins an array of <section> HTML strings back into a single DSL string.
+ *
+ * @param {string[]} sections
+ * @returns {string}
+ */
+export function joinSections(sections) {
+  return _joinSections(sections);
+}
+
+/**
+ * Extract element metadata from a section HTML string based on `data-el` attributes.
+ *
+ * @param {string} sectionHtml
+ * @returns {ExtractedElement[]}
+ */
+export function extractElements(sectionHtml) {
+  return /** @type {ExtractedElement[]} */ (_extractElements(sectionHtml));
+}
 
 function safeIntLike(v) {
   if (typeof v === "number" && Number.isFinite(v)) return Math.floor(v);
@@ -255,8 +318,10 @@ const TRANSPARENT_PNG_DATA_URL =
 
 function pickPptExportImage() {
   if (!isBrowserEnv()) return null;
-  if (typeof window.PPTGeneratorExportImage === "object" && window.PPTGeneratorExportImage) return window.PPTGeneratorExportImage;
-  if (typeof globalThis.PPTGeneratorExportImage === "object" && globalThis.PPTGeneratorExportImage) return globalThis.PPTGeneratorExportImage;
+  const win = /** @type {any} */ (window);
+  if (typeof win.PPTGeneratorExportImage === "object" && win.PPTGeneratorExportImage) return win.PPTGeneratorExportImage;
+  const globals = /** @type {any} */ (globalThis);
+  if (typeof globals.PPTGeneratorExportImage === "object" && globals.PPTGeneratorExportImage) return globals.PPTGeneratorExportImage;
   return null;
 }
 
@@ -554,6 +619,7 @@ const TOOL_HANDLERS = {
   editElement,
 };
 
+/** @type {Record<string, { params: string[], description: string }>} */
 export const TOOL_SCHEMAS = {
   getSlideContent: {
     params: ["slideIndex"],
@@ -581,6 +647,13 @@ export const TOOL_SCHEMAS = {
   },
 };
 
+/**
+ * Create a tool-call executor for the ReactRefiner agent.
+ *
+ * @param {ToolContext} context
+ * @param {ToolExecutorOptions} [options={}]
+ * @returns {ToolExecutor}
+ */
 export function createToolExecutor(context, options = {}) {
   if (!isPlainObject(context)) {
     throw new TypeError("createToolExecutor(context): context must be an object");
@@ -607,5 +680,3 @@ export function createToolExecutor(context, options = {}) {
     }
   };
 }
-
-export { parseSections, joinSections, extractElements };

@@ -78,6 +78,10 @@ function backtrack(trace, a, b, offset) {
   return out;
 }
 
+/**
+ * @param {{ aStart?: number, aCount?: number, bStart?: number, bCount?: number }} [hunk]
+ * @returns {string}
+ */
 function formatHunkHeader({ aStart, aCount, bStart, bCount } = {}) {
   const aRange = `${aStart},${aCount}`;
   const bRange = `${bStart},${bCount}`;
@@ -87,11 +91,7 @@ function formatHunkHeader({ aStart, aCount, bStart, bCount } = {}) {
 /**
  * Create a unified diff (multi-hunk) for two texts.
  *
- * @param {object} options
- * @param {string} options.path file path (used in header)
- * @param {string} options.beforeText
- * @param {string} options.afterText
- * @param {number} [options.context=3] context lines per hunk
+ * @param {{ path?: string, beforeText?: string, afterText?: string, context?: number }} [options]
  * @returns {{hunks:Array, text:string}}
  */
 export function createUnifiedDiff({ path = "file", beforeText = "", afterText = "", context = 3 } = {}) {
@@ -103,6 +103,7 @@ export function createUnifiedDiff({ path = "file", beforeText = "", afterText = 
   let aIndex = 0;
   let bIndex = 0;
   let preContext = [];
+  /** @type {any|null} */
   let hunk = null;
   let trailing = [];
   const hunks = [];
@@ -175,6 +176,7 @@ export function createUnifiedDiff({ path = "file", beforeText = "", afterText = 
     // change: merge any pending trailing equals into current hunk as context
     if (hunk) commitTrailingAsContext();
     else startHunk();
+    if (!hunk) continue;
 
     if (op.type === "delete") {
       hunk.lines.push({ tag: "-", line: op.line });
@@ -207,8 +209,11 @@ export function createUnifiedDiff({ path = "file", beforeText = "", afterText = 
   return { hunks, text: [...header, ...body].join("\n") + (body.length ? "\n" : "") };
 }
 
+/** @type {any} */
+const nodeProcess = /** @type {any} */ (globalThis).process;
+
 function isNodeLike() {
-  return typeof process !== "undefined" && !!process.versions?.node;
+  return !!nodeProcess && typeof nodeProcess === "object" && !!nodeProcess.versions?.node;
 }
 
 function canUseWorker() {

@@ -1,5 +1,24 @@
 import { isPlainObject } from "../shared/utils/value-utils.js";
 
+/**
+ * @typedef {object} ArtifactItem
+ * @property {string} artifactId
+ * @property {string} type
+ * @property {string=} mime
+ * @property {number=} bytes
+ * @property {string=} sha256
+ * @property {string} storageKey
+ * @property {string=} summary
+ */
+
+/**
+ * @typedef {object} ArtifactManifest
+ * @property {string} schemaVersion
+ * @property {string} runId
+ * @property {string} createdAt
+ * @property {ArtifactItem[]} artifacts
+ */
+
 const SCHEMA_VERSION = "0.1";
 
 export const SUPPORTED_ARTIFACT_TYPES = [
@@ -29,6 +48,11 @@ export const ARTIFACT_TYPE_ALIASES = {
   condensed_memory: "condensed_memory.json",
 };
 
+/**
+ * Canonicalize an artifact type, applying aliases when relevant.
+ * @param {unknown} type
+ * @returns {string}
+ */
 export function canonicalArtifactType(type) {
   const t = normalizeType(type);
   if (!t) return t;
@@ -47,11 +71,23 @@ function assertSupportedType(type) {
   return t;
 }
 
+/**
+ * @param {unknown} type
+ * @returns {boolean}
+ */
 export function isSupportedArtifactType(type) {
   const t = canonicalArtifactType(type);
   return !!t && SUPPORTED_ARTIFACT_TYPES.includes(t);
 }
 
+/**
+ * Generate a stable artifact id.
+ *
+ * @param {string} runId
+ * @param {string} type
+ * @param {number=} seq
+ * @returns {string}
+ */
 export function generateArtifactId(runId, type, seq) {
   if (!runId || typeof runId !== "string") throw new Error("generateArtifactId(runId, type): runId must be a string");
   const t = assertSupportedType(type);
@@ -68,6 +104,11 @@ export function generateArtifactId(runId, type, seq) {
   return `art_${runId}_${sanitizeTypeForId(t)}_${padded}`;
 }
 
+/**
+ * Create an empty manifest for a run.
+ * @param {string} runId
+ * @returns {ArtifactManifest}
+ */
 export function createManifest(runId) {
   if (!runId || typeof runId !== "string") throw new Error("createManifest(runId): runId must be a string");
   return {
@@ -78,6 +119,13 @@ export function createManifest(runId) {
   };
 }
 
+/**
+ * Add an artifact entry to a manifest (idempotent by `artifactId`).
+ *
+ * @param {ArtifactManifest} manifest
+ * @param {Record<string, any>} artifact
+ * @returns {ArtifactManifest}
+ */
 export function addArtifactToManifest(manifest, artifact) {
   if (!isPlainObject(manifest)) throw new Error("addArtifactToManifest(manifest, artifact): manifest must be an object");
   if (!Array.isArray(manifest.artifacts)) manifest.artifacts = [];
@@ -107,6 +155,10 @@ export function addArtifactToManifest(manifest, artifact) {
   return manifest;
 }
 
+/**
+ * @param {*} data
+ * @returns {Promise<ArrayBuffer>}
+ */
 async function dataToArrayBuffer(data) {
   if (data === null || data === undefined) return new ArrayBuffer(0);
 
@@ -115,7 +167,7 @@ async function dataToArrayBuffer(data) {
   }
   if (data instanceof ArrayBuffer) return data;
   if (ArrayBuffer.isView(data)) {
-    return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+    return /** @type {ArrayBuffer} */ (data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength));
   }
   if (typeof Blob !== "undefined" && data instanceof Blob) {
     return await data.arrayBuffer();
@@ -132,6 +184,11 @@ function toHex(bytes) {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/**
+ * Compute a SHA-256 hex digest for arbitrary data (best-effort in browser).
+ * @param {unknown} data
+ * @returns {Promise<string | undefined>}
+ */
 export async function computeSha256(data) {
   const buf = await dataToArrayBuffer(data);
 
@@ -143,8 +200,10 @@ export async function computeSha256(data) {
 
   // Node fallback (older runtimes)
   try {
+    /** @ts-ignore */
     const { createHash } = await import(/* @vite-ignore */ "node:crypto");
     const h = createHash("sha256");
+    /** @ts-ignore */
     h.update(Buffer.from(buf));
     return h.digest("hex");
   } catch {
@@ -152,6 +211,13 @@ export async function computeSha256(data) {
   }
 }
 
+/**
+ * Serialize an artifact payload for storage (JSON/JSONL handling included).
+ * @param {string} type
+ * @param {unknown} data
+ * @param {{ pretty?: boolean }} [options]
+ * @returns {string | Uint8Array}
+ */
 export function serializeArtifactPayload(type, data, { pretty = false } = {}) {
   const t = assertSupportedType(type);
 
@@ -172,6 +238,12 @@ export function serializeArtifactPayload(type, data, { pretty = false } = {}) {
   return String(data);
 }
 
+/**
+ * Deserialize an artifact payload when applicable (JSON only).
+ * @param {string} type
+ * @param {unknown} raw
+ * @returns {unknown}
+ */
 export function deserializeArtifactPayload(type, raw) {
   const t = assertSupportedType(type);
   if (t.endsWith(".json") && typeof raw === "string") return JSON.parse(raw);

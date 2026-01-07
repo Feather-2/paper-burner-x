@@ -1,21 +1,44 @@
 import { compressAgentLoopMessagesAsync } from "./compression-async.js";
 
+/**
+ * @typedef {Object} CompressionCoordinatorOptions
+ * @property {() => Record<string, any>} [getContextConfig]
+ * @property {() => any} [getTokenUsage]
+ * @property {any} [logger]
+ */
+
+/**
+ * @param {any} value
+ * @param {number} fallback
+ * @returns {number}
+ */
 function toFiniteNumber(value, fallback) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
 }
 
+/**
+ * @param {number} totalTokens
+ * @param {number} contextWindow
+ * @returns {number}
+ */
 function computeFillRatio(totalTokens, contextWindow) {
   return contextWindow ? totalTokens / contextWindow : 0;
 }
 
 export class CompressionCoordinator {
+  /**
+   * @param {CompressionCoordinatorOptions} [options]
+   */
   constructor({ getContextConfig, getTokenUsage, logger } = {}) {
     this._getContextConfig = typeof getContextConfig === "function" ? getContextConfig : () => ({});
     this._getTokenUsage = typeof getTokenUsage === "function" ? getTokenUsage : () => ({ total: 0 });
     this._logger = logger || null;
   }
 
+  /**
+   * @returns {number}
+   */
   _resolveTokenUsageTotal() {
     const usage = this._getTokenUsage?.();
     if (usage && typeof usage === "object") {
@@ -29,6 +52,8 @@ export class CompressionCoordinator {
   /**
    * Decide whether the loop is over its context budget.
    * Used for scheduling; does not perform compression.
+   *
+   * @returns {boolean}
    */
   shouldCompress() {
     const cfg = this._getContextConfig?.() || {};
@@ -73,7 +98,7 @@ export class CompressionCoordinator {
       if (this._logger && typeof this._logger.warn === "function") {
         this._logger.warn("[CompressionCoordinator] Compression failed:", err?.message);
       }
-      return { messages: Array.isArray(messages) ? messages : [], sessionSummary: null, stats: null };
+      return { messages: Array.isArray(messages) ? messages : [], sessionSummary: null, stats: null, afterTokens: undefined };
     }
   }
 }

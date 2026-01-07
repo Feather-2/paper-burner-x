@@ -119,8 +119,8 @@ function getToolPriority(tool) {
  * - important: 重要工具，紧随其后 (🟡) - 默认
  * - optional: 可选工具，放在最后 (⚪)
  * 
- * @param {Object} options
- * @param {boolean} options.showPriority - 是否显示优先级分组标题
+ * @param {Object} [options]
+ * @param {boolean} [options.showPriority] - 是否显示优先级分组标题
  * @returns {string}
  */
 export function getToolCatalogPrompt(options = {}) {

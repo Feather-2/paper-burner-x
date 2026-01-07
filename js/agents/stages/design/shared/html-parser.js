@@ -1,3 +1,12 @@
+/**
+ * Parse a best-effort HTML start tag and return its attributes.
+ *
+ * Note: this is a lightweight parser intended for internal heuristics; it is
+ * not a full HTML tokenizer.
+ *
+ * @param {string} tag - Tag source (e.g. `"<div class=\\"x\\" data-id=\\"1\\">"`).
+ * @returns {Record<string, string>} Lowercased attribute-name map.
+ */
 export function parseTagAttributes(tag) {
   const attrs = {};
   if (!tag || typeof tag !== "string") return attrs;
@@ -67,4 +76,3 @@ export function parseTagAttributes(tag) {
 
   return attrs;
 }
-

@@ -1,10 +1,17 @@
 /**
  * Backtrack 工具 - 春秋蝉
- * 
+ *
  * 允许模型在发现错误、死胡同或需要尝试不同路径时，主动回溯到之前的 Checkpoint。
  */
 
 import { normalizeToolResult } from "../core/agent-loop.js";
+
+/**
+ * @typedef {object} BacktrackManager
+ * @property {Function} [getCheckpoints]
+ * @property {Function} [rollback]
+ * @property {Function} [prepareBacktrack]
+ */
 
 /**
  * 创建 Backtrack 工具 Handler

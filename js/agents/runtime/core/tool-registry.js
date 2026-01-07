@@ -6,6 +6,43 @@
  * - 工具调用（含 Hook 集成）
  */
 
+/**
+ * @typedef {Record<string, any>} AnyRecord
+ *
+ * @typedef {{ warn?: (...args: any[]) => void, info?: (...args: any[]) => void, error?: (...args: any[]) => void, debug?: (...args: any[]) => void }} LoggerLike
+ *
+ * @typedef {(eventName: string, record: { actor?: string, status?: string, payload?: any }) => void} EmitFn
+ *
+ * @typedef {{ ok: boolean, data?: any, error?: any, quota?: any, policy?: any, [key: string]: any }} ToolResult
+ *
+ * @typedef {(name: string, params: any, context?: any) => any | Promise<any>} ToolExecutor
+ * @typedef {{ execute: (name: string, params: any, context?: any) => any | Promise<any> }} ToolExecutorContainer
+ *
+ * @typedef {{ tool: string, params: any, context: any }} HookBeforeContext
+ * @typedef {{ tool: string, params: any, result: ToolResult, context: any }} HookAfterContext
+ *
+ * @typedef {{ skip?: boolean, value?: any, params?: any }} BeforeHookResult
+ *
+ * @typedef {(ctx: HookBeforeContext) => (BeforeHookResult | undefined | null | Promise<BeforeHookResult | undefined | null>)} BeforeHook
+ * @typedef {(ctx: HookAfterContext) => (any | undefined | Promise<any | undefined>)} AfterHook
+ *
+ * @typedef {Record<string, Function> | Array<[string, Function]> | Map<string, Function>} ToolDefinitions
+ *
+ * @typedef {{ allowed: boolean, reason?: string }} QuotaDecision
+ * @typedef {{ tryCall: (name: string) => QuotaDecision, getToolStats?: (name: string) => any, recordCall?: (name: string) => void }} ToolQuotaManagerLike
+ *
+ * @typedef {{ startSpan: Function, endSpan: Function, withSpan: (name: string, fn: Function, options?: any) => any }} TraceContextLike
+ *
+ * @typedef {object} ToolRegistryOptions
+ * @property {ToolDefinitions | null} [tools]
+ * @property {{ before?: BeforeHook[], after?: AfterHook[] } | null} [hooks]
+ * @property {LoggerLike | null} [logger]
+ */
+
+/**
+ * @param {any} result
+ * @returns {ToolResult}
+ */
 export function normalizeToolResult(result) {
   if (result && typeof result === "object" && Object.prototype.hasOwnProperty.call(result, "ok")) {
     return result;
@@ -16,13 +53,21 @@ export function normalizeToolResult(result) {
   return { ok: true, data: result };
 }
 
+/**
+ * @param {any} context
+ * @returns {ToolExecutor | null}
+ */
 export function resolveToolExecutor(context) {
   const executor = context?.toolExecutor || context?.tools;
   if (typeof executor === "function") return executor;
-  if (executor && typeof executor.execute === "function") return (name, params) => executor.execute(name, params);
+  if (executor && typeof executor.execute === "function") return (name, params, ctx) => executor.execute(name, params, ctx);
   return null;
 }
 
+/**
+ * @param {any} context
+ * @returns {EmitFn | null}
+ */
 function resolveEmit(context) {
   const ctx = context && typeof context === "object" ? context : null;
   if (typeof ctx?.emit === "function") return ctx.emit;
@@ -37,6 +82,10 @@ function resolveEmit(context) {
   return null;
 }
 
+/**
+ * @param {any} context
+ * @returns {ToolQuotaManagerLike | null}
+ */
 function resolveToolQuotaManager(context) {
   const ctx = context && typeof context === "object" ? context : null;
   const direct = ctx?.toolQuotaManager;
@@ -66,6 +115,10 @@ function resolveToolQuotaManager(context) {
   return null;
 }
 
+/**
+ * @param {any} context
+ * @returns {"off" | "warn" | "block"}
+ */
 function resolveToolQuotaMode(context) {
   const ctx = context && typeof context === "object" ? context : null;
   const cfg =
@@ -89,6 +142,10 @@ function resolveToolQuotaMode(context) {
   return "warn";
 }
 
+/**
+ * @param {any} context
+ * @returns {TraceContextLike | null}
+ */
 function resolveTraceContext(context) {
   const direct = context?.traceContext;
   if (
@@ -114,8 +171,12 @@ function resolveTraceContext(context) {
 }
 
 export class ToolRegistry {
+  /**
+   * @param {ToolRegistryOptions} [options]
+   */
   constructor(options = {}) {
     this._tools = {};
+    /** @type {{ before: BeforeHook[], after: AfterHook[] }} */
     this._hooks = { before: [], after: [] };
     this._logger = options.logger || null;
 
@@ -132,6 +193,7 @@ export class ToolRegistry {
     }
   }
 
+  /** @param {ToolDefinitions | null | undefined} tools */
   registerTools(tools) {
     if (!tools) return;
     if (tools instanceof Map) {
@@ -155,6 +217,7 @@ export class ToolRegistry {
     throw new TypeError("ToolRegistry.registerTools: tools must be an object, array, or map");
   }
 
+  /** @param {string} name @param {Function} fn */
   registerTool(name, fn) {
     if (!name || typeof name !== "string") {
       throw new TypeError("ToolRegistry.registerTool: name must be a non-empty string");
@@ -165,10 +228,12 @@ export class ToolRegistry {
     this._tools[name] = fn;
   }
 
+  /** @param {string} name @returns {boolean} */
   hasTool(name) {
     return typeof this._tools[name] === "function";
   }
 
+  /** @returns {string[]} */
   getToolNames() {
     return Object.keys(this._tools);
   }
@@ -176,7 +241,7 @@ export class ToolRegistry {
   /**
    * 注册 Hook
    * @param {"before"|"after"} phase
-   * @param {Function} fn
+   * @param {BeforeHook | AfterHook} fn
    * @returns {ToolRegistry}
    */
   useHook(phase, fn) {
@@ -192,6 +257,10 @@ export class ToolRegistry {
 
   /**
    * 调用工具（含 Hook）
+   * @param {string} name
+   * @param {any} params
+   * @param {any} context
+   * @returns {Promise<ToolResult>}
    */
   async callTool(name, params, context) {
     const traceContext = resolveTraceContext(context);
@@ -216,6 +285,10 @@ export class ToolRegistry {
   /**
    * Internal tool call implementation (hooks + quotas + execution).
    * @private
+   * @param {string} name
+   * @param {any} params
+   * @param {any} context
+   * @returns {Promise<ToolResult>}
    */
   async _callTool(name, params, context) {
     let finalParams = params;
@@ -253,7 +326,7 @@ export class ToolRegistry {
 
         if (quotaMode === "block") {
           // Block execution, but still allow after-hooks to inspect the result.
-          let result = { ok: false, error: q.reason || `Quota exceeded for ${name}` };
+          let result = /** @type {ToolResult} */ ({ ok: false, error: q.reason || `Quota exceeded for ${name}` });
           if (stats) result.quota = stats;
           for (const hook of this._hooks.after) {
             try {
@@ -330,7 +403,7 @@ export class ToolRegistry {
    * - "deny" -> 阻止并返回错误
    * - "prompt" -> 等待用户确认（交互模式）
    *
-   * @param {Object} policyManager - PolicyManager 实例
+   * @param {{ check?: (req: AnyRecord) => Promise<AnyRecord> }} policyManager - PolicyManager 实例
    * @returns {ToolRegistry}
    */
   usePolicyManager(policyManager) {

@@ -6,6 +6,11 @@
  * the protocol client to keep it minimal.
  */
 
+/**
+ * @typedef {object} McpClientLike
+ * @property {(toolName: string, args?: any, options?: any) => Promise<any>} callTool
+ */
+
 function assertClient(client) {
   if (!client || typeof client.callTool !== "function") {
     throw new TypeError("mcpShortcuts: client must be an object with callTool(toolName, args, options)");
@@ -15,6 +20,10 @@ function assertClient(client) {
 /**
  * Convenience: search
  * Standard schema: search.query({query, domain?, time_range?, limit?, filters?}) -> results[]
+ * @param {McpClientLike} client
+ * @param {{ query?: string, domain?: string, timeRange?: string, limit?: number, filters?: any }=} args
+ * @param {{ providerId?: string }=} options
+ * @returns {Promise<import("./mcp-client.js").McpToolResult|null>}
  */
 export async function mcpSearch(client, { query, domain, timeRange, limit = 10, filters } = {}, { providerId } = {}) {
   assertClient(client);
@@ -35,6 +44,10 @@ export async function mcpSearch(client, { query, domain, timeRange, limit = 10, 
 /**
  * Convenience: fetch content from a URL
  * Standard schema: search.fetch({url}) -> {content, extracted_text, metadata, attachments}
+ * @param {McpClientLike} client
+ * @param {{ url?: string }=} args
+ * @param {{ providerId?: string }=} options
+ * @returns {Promise<import("./mcp-client.js").McpToolResult|null>}
  */
 export async function mcpFetch(client, { url } = {}, { providerId } = {}) {
   assertClient(client);
@@ -49,4 +62,3 @@ export async function mcpFetch(client, { url } = {}, { providerId } = {}) {
   }
   return last;
 }
-

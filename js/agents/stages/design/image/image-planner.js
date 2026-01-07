@@ -171,7 +171,7 @@ export class ImagePlanner {
    * Single-element "AI 微调" helper.
    * Returns a patch object compatible with SlideEditor.updateElement(elementId, patch).
    *
-   * @param {{element: object, slide?: object, slideIndex?: number, designSystem?: object, constraints?: object}=} input
+   * @param {{element?: object, slide?: object, slideIndex?: number, designSystem?: object, constraints?: object}=} input
    * @returns {{patch: object, meta: {reason: string}}}
    */
   static suggestElementPatch(input = {}) {

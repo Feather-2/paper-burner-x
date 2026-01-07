@@ -1,6 +1,26 @@
 import { isPlainObject, toNonEmptyString, toNonNegativeInt, toPositiveInt } from "../utils/value-utils.js";
 
+/**
+ * @typedef {object} EmbeddingConfig
+ * @property {string} endpoint
+ * @property {string|null} model
+ * @property {string|null} apiKey
+ * @property {Record<string, string>} headers
+ * @property {number} timeoutMs
+ * @property {number} batchSize
+ * @property {number} flushIntervalMs
+ * @property {number} maxQueue
+ * @property {number} cooldownMs
+ */
+
+/**
+ * @typedef {object} AbortableOptions
+ * @property {AbortSignal=} signal
+ * @property {number=} timeoutMs
+ */
+
 function safeHeaderObject(value) {
+  /** @type {Record<string, string>} */
   const out = {};
   const obj = isPlainObject(value) ? value : null;
   if (!obj) return out;
@@ -12,6 +32,10 @@ function safeHeaderObject(value) {
   return out;
 }
 
+/**
+ * @param {AbortableOptions} [options]
+ * @returns {{ signal: AbortSignal | undefined, cleanup: () => void }}
+ */
 function withAbort({ signal, timeoutMs } = {}) {
   const controller = typeof AbortController === "function" ? new AbortController() : null;
   const cleanupFns = [];
@@ -130,10 +154,11 @@ export function normalizeEmbeddingConfig(raw) {
   const maxQueue = toPositiveInt(cfg.maxQueue, 2000);
   const cooldownMs = toPositiveInt(cfg.cooldownMs, 300_000);
 
+  /** @type {EmbeddingConfig} */
   return {
     endpoint,
-    model,
-    apiKey,
+    model: model || null,
+    apiKey: apiKey || null,
     headers,
     timeoutMs,
     batchSize,
@@ -144,6 +169,10 @@ export function normalizeEmbeddingConfig(raw) {
 }
 
 export class EmbeddingService {
+  /**
+   * @param {unknown} config
+   * @param {{ fetchImpl?: typeof fetch }} [options]
+   */
   constructor(config = {}, { fetchImpl } = {}) {
     const normalized = normalizeEmbeddingConfig(config);
     this._cfg = normalized;
@@ -162,6 +191,9 @@ export class EmbeddingService {
     return !!this._cfg && typeof this._fetch === "function";
   }
 
+  /**
+   * @returns {{ enabled: boolean, available: boolean|null, failures: number, nextRetryAt: number, endpoint: string|null, model: string|null }}
+   */
   getStatus() {
     return {
       enabled: this.enabled,
@@ -189,6 +221,11 @@ export class EmbeddingService {
     this._nextRetryAt = now + cooldown;
   }
 
+  /**
+   * @param {string[]|unknown} texts
+   * @param {AbortableOptions} [options]
+   * @returns {Promise<Float32Array[]|null>}
+   */
   async _callEmbeddings(texts, { signal, timeoutMs } = {}) {
     if (!this._canAttemptNow()) return null;
 
@@ -199,6 +236,7 @@ export class EmbeddingService {
     if (!cfg) return null;
 
     const endpoint = cfg.endpoint;
+    /** @type {Record<string, string>} */
     const headers = { "Content-Type": "application/json", ...cfg.headers };
     if (cfg.apiKey && !headers.Authorization && !headers.authorization) {
       headers.Authorization = `Bearer ${cfg.apiKey}`;
@@ -261,6 +299,7 @@ export class EmbeddingService {
       });
       return;
     }
+    /** @type {any} */
     const t = setTimeout(() => {
       this._flushTimer = null;
       void this.flush();
@@ -279,10 +318,8 @@ export class EmbeddingService {
    * Enqueue an embedding request; resolves with Float32Array[] or null when unavailable.
    *
    * @param {string[]|string} texts
-   * @param {object=} options
-   * @param {AbortSignal=} options.signal
-   * @param {number=} options.timeoutMs
-   * @param {boolean=} options.immediate
+   * @param {{ signal?: AbortSignal, timeoutMs?: number, immediate?: boolean }} [options]
+   * @returns {Promise<Float32Array[]|null>}
    */
   enqueue(texts, { signal, timeoutMs, immediate } = {}) {
     if (!this.enabled) return Promise.resolve(null);
@@ -317,7 +354,8 @@ export class EmbeddingService {
    * Convenience: enqueue + await (best-effort).
    *
    * @param {string[]|string} texts
-   * @param {object=} options
+   * @param {{ signal?: AbortSignal, timeoutMs?: number }} [options]
+   * @returns {Promise<Float32Array[]|null>}
    */
   async embed(texts, options = {}) {
     const opts = isPlainObject(options) ? options : {};
@@ -327,6 +365,7 @@ export class EmbeddingService {
 
     return await new Promise((resolve) => {
       let settled = false;
+      /** @type {any} */
       const t = setTimeout(() => {
         if (settled) return;
         settled = true;

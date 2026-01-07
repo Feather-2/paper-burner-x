@@ -1,6 +1,49 @@
 import { normalizeVfsPath } from "./path.js";
 
 import { isPlainObject } from "../shared/utils/value-utils.js";
+
+/**
+ * @typedef {object} VfsStat
+ * @property {number} size
+ * @property {number=} mtimeMs
+ * @property {() => boolean} isFile
+ * @property {() => boolean} isDirectory
+ */
+
+/**
+ * @typedef {object} VfsDirent
+ * @property {string} name
+ * @property {() => boolean} isDirectory
+ * @property {() => boolean} isFile
+ */
+
+/**
+ * @typedef {object} ReaddirOptions
+ * @property {boolean=} withFileTypes
+ */
+
+/**
+ * @typedef {object} MkdirOptions
+ * @property {boolean=} recursive
+ */
+
+/**
+ * @typedef {object} RmdirOptions
+ * @property {boolean=} recursive
+ */
+
+/**
+ * @typedef {object} ListFilesOptions
+ * @property {string=} prefix
+ * @property {boolean=} recursive
+ */
+
+/**
+ * @typedef {object} WalkFilesOptions
+ * @property {string=} prefix
+ * @property {boolean=} recursive
+ */
+
 function dataToBytes(data) {
   if (data === null || data === undefined) return new Uint8Array(0);
   if (data instanceof Uint8Array) return data;
@@ -46,8 +89,18 @@ function toSegments(path) {
   return p.split("/").filter(Boolean);
 }
 
+/**
+ * In-memory VFS implementation (browser-safe).
+ *
+ * @param {object} [options]
+ * @returns {MemoryVfs}
+ */
 export class MemoryVfs {
-  constructor() {
+  /**
+   * @param {object} [options]
+   */
+  constructor(options) {
+    void options;
     this._root = new DirNode();
   }
 
@@ -99,6 +152,10 @@ export class MemoryVfs {
     return { parent, name: parts[parts.length - 1], parentPath, fullPath: p };
   }
 
+  /**
+   * @param {string} path
+   * @returns {Promise<Uint8Array>}
+   */
   async readFile(path) {
     const p = normalizeVfsPath(path);
     if (!p) throw new Error("EISDIR: /");
@@ -108,11 +165,20 @@ export class MemoryVfs {
     return new Uint8Array(node.bytes);
   }
 
+  /**
+   * @param {string} path
+   * @returns {Promise<string>}
+   */
   async readText(path) {
     const bytes = await this.readFile(path);
     return bytesToText(bytes);
   }
 
+  /**
+   * @param {string} path
+   * @param {unknown} data
+   * @returns {Promise<boolean>}
+   */
   async writeFile(path, data) {
     const { parent, name, fullPath } = this._getParentDirForPath(path, { create: true });
     if (!parent) throw new Error(`ENOENT: ${fullPath}`);
@@ -123,10 +189,19 @@ export class MemoryVfs {
     return true;
   }
 
+  /**
+   * @param {string} path
+   * @param {string} text
+   * @returns {Promise<boolean>}
+   */
   async writeText(path, text) {
     return this.writeFile(path, text);
   }
 
+  /**
+   * @param {string} path
+   * @returns {Promise<VfsStat>}
+   */
   async stat(path) {
     const p = normalizeVfsPath(path);
     if (!p) {
@@ -151,6 +226,11 @@ export class MemoryVfs {
     return { size: 0, mtimeMs: node.updatedAt, isFile: () => false, isDirectory: () => true };
   }
 
+  /**
+   * @param {string} path
+   * @param {ReaddirOptions} [options]
+   * @returns {Promise<string[] | VfsDirent[]>}
+   */
   async readdir(path, options = {}) {
     const p = normalizeVfsPath(path);
     const withFileTypes = !!options.withFileTypes;
@@ -166,6 +246,11 @@ export class MemoryVfs {
     return entries.map(makeDirent);
   }
 
+  /**
+   * @param {string} path
+   * @param {MkdirOptions} [options]
+   * @returns {Promise<boolean>}
+   */
   async mkdir(path, { recursive = true } = {}) {
     const p = normalizeVfsPath(path);
     if (!p) return true;
@@ -202,6 +287,11 @@ export class MemoryVfs {
     return true;
   }
 
+  /**
+   * @param {string} path
+   * @param {RmdirOptions} [options]
+   * @returns {Promise<boolean>}
+   */
   async rmdir(path, { recursive = false } = {}) {
     const p = normalizeVfsPath(path);
     if (!p) throw new Error("EPERM: cannot remove root");
@@ -222,6 +312,10 @@ export class MemoryVfs {
     return true;
   }
 
+  /**
+   * @param {string} path
+   * @returns {Promise<boolean>}
+   */
   async unlink(path) {
     const p = normalizeVfsPath(path);
     if (!p) throw new Error("EISDIR: /");
@@ -240,6 +334,10 @@ export class MemoryVfs {
     return true;
   }
 
+  /**
+   * @param {ListFilesOptions} [options]
+   * @returns {Promise<string[]>}
+   */
   async listFiles({ prefix = "", recursive = true } = {}) {
     const pfx = normalizeVfsPath(prefix);
     const node = this._getNode(pfx);
@@ -264,6 +362,10 @@ export class MemoryVfs {
     return out;
   }
 
+  /**
+   * @param {WalkFilesOptions} [options]
+   * @returns {AsyncGenerator<string, void, void>}
+   */
   async *walkFiles({ prefix = "", recursive = true } = {}) {
     const pfx = normalizeVfsPath(prefix);
     const node = this._getNode(pfx);
@@ -289,6 +391,10 @@ export class MemoryVfs {
     yield* walk(node, pfx);
   }
 
+  /**
+   * @param {string} path
+   * @returns {Promise<boolean>}
+   */
   async exists(path) {
     const p = normalizeVfsPath(path);
     if (!p) return true;
@@ -299,6 +405,11 @@ export class MemoryVfs {
     }
   }
 
+  /**
+   * @param {string} src
+   * @param {string} dest
+   * @returns {Promise<boolean>}
+   */
   async copy(src, dest) {
     const s = normalizeVfsPath(src);
     const d = normalizeVfsPath(dest);
@@ -309,6 +420,11 @@ export class MemoryVfs {
     return true;
   }
 
+  /**
+   * @param {string} src
+   * @param {string} dest
+   * @returns {Promise<boolean>}
+   */
   async move(src, dest) {
     const s = normalizeVfsPath(src);
     const d = normalizeVfsPath(dest);
@@ -334,6 +450,11 @@ export class MemoryVfs {
     return true;
   }
 
+  /**
+   * @param {string} path
+   * @param {string} text
+   * @returns {Promise<boolean>}
+   */
   async appendText(path, text) {
     const p = normalizeVfsPath(path);
     if (!p) throw new Error("EISDIR: /");

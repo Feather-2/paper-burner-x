@@ -122,6 +122,12 @@ function deepEqualLimited(a, b, depth) {
   return true;
 }
 
+/**
+ * @param {any} base
+ * @param {any} next
+ * @param {{ maxDepth?: number, maxOps?: number }} [options]
+ * @returns {any[]}
+ */
 function buildJsonPatch(base, next, { maxDepth, maxOps } = {}) {
   const depth = toPositiveInt(maxDepth, DEFAULT_DIFF_CONFIG.maxDepth);
   const opsLimit = toPositiveInt(maxOps, DEFAULT_DIFF_CONFIG.maxOps);
@@ -313,9 +319,7 @@ function compareTimestampDesc(a, b) {
 export class Archive {
   /**
    * @param {Object} storage - 存储适配器，需实现 get/set/delete/keys 方法
-   * @param {object=} options
-   * @param {object=} options.diff Incremental checkpoint diff settings (best-effort).
-   * @param {number=} options.restoreCacheMax Max restored checkpoints to cache in memory (0 disables caching).
+   * @param {{ diff?: any, restoreCacheMax?: number }} [options]
    */
   constructor(storage, { diff, restoreCacheMax } = {}) {
     this.storage = assertStorageAdapter(storage);
@@ -463,6 +467,7 @@ export class Archive {
     const runKey = normalizedRunId;
     const sinceFull = this._diffSinceFullByRunId.get(runKey) || 0;
 
+    /** @type {any} */
     let snapshotToStore = snapshotFull;
 
     if (diffEnabled && sinceFull < diffCfg.fullSnapshotEvery - 1) {
@@ -699,7 +704,7 @@ export class IndexedDBAdapter {
       };
 
       request.onupgradeneeded = (event) => {
-        const db = event.target.result;
+        const db = /** @type {any} */ (event.target).result;
         if (!db.objectStoreNames.contains(this.storeName)) {
           db.createObjectStore(this.storeName, { keyPath: "key" });
         }

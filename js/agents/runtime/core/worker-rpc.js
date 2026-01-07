@@ -42,6 +42,7 @@ function normalizeRemoteError(raw) {
   if (!raw) return new Error("Unknown error");
   if (typeof raw === "string") return new Error(raw);
   if (typeof raw === "object") {
+    /** @type {Error & { code?: string }} */
     const err = new Error(raw.message || String(raw));
     if (raw.name) err.name = raw.name;
     if (raw.code) err.code = raw.code;

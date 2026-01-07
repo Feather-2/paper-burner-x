@@ -52,6 +52,11 @@ export class AssetRegistry {
     }
   }
 
+  /**
+   * @param {any} asset
+   * @param {{ category?: string }} [options]
+   * @returns {string|null}
+   */
   addAsset(asset, { category } = {}) {
     if (!asset || typeof asset !== "object") return null;
     const assetId = toNonEmptyString(asset.assetId) || createAssetId();

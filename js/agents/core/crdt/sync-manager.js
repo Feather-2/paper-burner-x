@@ -10,29 +10,68 @@
 
 import { CRDTDocument } from './document.js';
 
+/** @typedef {{ emit: (event: string, data?: unknown) => unknown }} CRDTEventBusLike */
+/**
+ * @typedef {{
+ *   send: (message: CRDTSyncMessage) => void,
+ *   onReceive?: (handler: (message: CRDTSyncMessage) => void) => void,
+ *   close?: () => void
+ * }} CRDTTransport
+ */
+/** @typedef {{ type: 'crdt:op', from: string, docId: string, op: unknown, ts: number }} CRDTOpMessage */
+/** @typedef {{ type: 'crdt:sync-request', from: string, docId: string, sinceVersion: number, ts: number }} CRDTSyncRequestMessage */
+/** @typedef {{ type: 'crdt:sync-response', from: string, to: string, docId: string, ops: unknown[], ts: number }} CRDTSyncResponseMessage */
+/** @typedef {{ type: 'crdt:peer-join', from: string, ts: number }} CRDTPeerJoinMessage */
+/** @typedef {{ type: 'crdt:peer-leave', from: string, ts: number }} CRDTPeerLeaveMessage */
+/** @typedef {CRDTOpMessage | CRDTSyncRequestMessage | CRDTSyncResponseMessage | CRDTPeerJoinMessage | CRDTPeerLeaveMessage} CRDTSyncMessage */
+/** @typedef {{ nodeId?: string, transport?: CRDTTransport, events?: CRDTEventBusLike }} CRDTSyncManagerOptions */
+/**
+ * @typedef {{
+ *   nodeId: string,
+ *   connected: boolean,
+ *   peerCount: number,
+ *   peers: string[],
+ *   documentCount: number,
+ *   pendingOps: number
+ * }} CRDTSyncStatus
+ */
+
+/**
+ * CRDT Sync Manager - 多节点同步管理
+ *
+ * 负责：
+ * - 文档注册与创建
+ * - 操作广播与同步请求/响应
+ * - peer join/leave 事件与离线队列
+ */
 export class CRDTSyncManager {
   /**
-   * @param {Object} options
-   * @param {string} options.nodeId - 本节点 ID
-   * @param {Object} options.transport - 传输层（需实现 send/onReceive）
-   * @param {EventBus} [options.events] - 事件总线
+   * @param {CRDTSyncManagerOptions} [options={}]
    */
   constructor(options = {}) {
+    /** @type {string} */
     this._nodeId = options.nodeId || `node_${Date.now()}`;
+    /** @type {CRDTTransport | undefined} */
     this._transport = options.transport;
+    /** @type {CRDTEventBusLike | undefined} */
     this._events = options.events;
 
     // 文档注册表
+    /** @type {Map<string, CRDTDocument>} */
     this._documents = new Map(); // docId → CRDTDocument
 
     // 节点版本向量 (nodeId → version)
+    /** @type {Map<string, number>} */
     this._versionVectors = new Map();
 
     // 待发送操作队列
+    /** @type {CRDTOpMessage[]} */
     this._pendingOps = [];
 
     // 连接状态
+    /** @type {boolean} */
     this._connected = false;
+    /** @type {Set<string>} */
     this._peers = new Set();
 
     // 绑定传输层回调
@@ -41,14 +80,23 @@ export class CRDTSyncManager {
     }
   }
 
+  /**
+   * @returns {string}
+   */
   get nodeId() {
     return this._nodeId;
   }
 
+  /**
+   * @returns {boolean}
+   */
   get connected() {
     return this._connected;
   }
 
+  /**
+   * @returns {number}
+   */
   get peerCount() {
     return this._peers.size;
   }
@@ -57,6 +105,8 @@ export class CRDTSyncManager {
 
   /**
    * 注册文档
+   * @param {unknown} doc
+   * @returns {this}
    */
   registerDocument(doc) {
     if (!(doc instanceof CRDTDocument)) {
@@ -68,6 +118,8 @@ export class CRDTSyncManager {
 
   /**
    * 获取文档
+   * @param {string} docId
+   * @returns {CRDTDocument | undefined}
    */
   getDocument(docId) {
     return this._documents.get(docId);
@@ -75,6 +127,8 @@ export class CRDTSyncManager {
 
   /**
    * 创建并注册新文档
+   * @param {string} docId
+   * @returns {CRDTDocument}
    */
   createDocument(docId) {
     const doc = new CRDTDocument({
@@ -89,8 +143,12 @@ export class CRDTSyncManager {
 
   /**
    * 广播本地操作
+   * @param {string} docId
+   * @param {unknown} op
+   * @returns {void}
    */
   broadcastOp(docId, op) {
+    /** @type {CRDTOpMessage} */
     const message = {
       type: 'crdt:op',
       from: this._nodeId,
@@ -111,8 +169,12 @@ export class CRDTSyncManager {
 
   /**
    * 请求同步
+   * @param {string} docId
+   * @param {number} [sinceVersion=0]
+   * @returns {void}
    */
   requestSync(docId, sinceVersion = 0) {
+    /** @type {CRDTSyncRequestMessage} */
     const message = {
       type: 'crdt:sync-request',
       from: this._nodeId,
@@ -128,8 +190,13 @@ export class CRDTSyncManager {
 
   /**
    * 发送同步响应
+   * @param {string} to
+   * @param {string} docId
+   * @param {unknown[]} ops
+   * @returns {void}
    */
   _sendSyncResponse(to, docId, ops) {
+    /** @type {CRDTSyncResponseMessage} */
     const message = {
       type: 'crdt:sync-response',
       from: this._nodeId,
@@ -146,6 +213,10 @@ export class CRDTSyncManager {
 
   // ===== 消息处理 =====
 
+  /**
+   * @param {CRDTSyncMessage | null | undefined} message
+   * @returns {void}
+   */
   _handleMessage(message) {
     if (!message || !message.type) return;
 
@@ -172,11 +243,15 @@ export class CRDTSyncManager {
     }
   }
 
+  /**
+   * @param {CRDTOpMessage} message
+   * @returns {void}
+   */
   _handleOp(message) {
     const doc = this._documents.get(message.docId);
     if (!doc) return;
 
-    const applied = doc.applyOp(message.op);
+    const applied = doc.applyOp(/** @type {any} */ (message.op));
     if (applied) {
       this._emit('op:applied', {
         docId: message.docId,
@@ -186,6 +261,10 @@ export class CRDTSyncManager {
     }
   }
 
+  /**
+   * @param {CRDTSyncRequestMessage} message
+   * @returns {void}
+   */
   _handleSyncRequest(message) {
     const doc = this._documents.get(message.docId);
     if (!doc) return;
@@ -194,6 +273,10 @@ export class CRDTSyncManager {
     this._sendSyncResponse(message.from, message.docId, ops);
   }
 
+  /**
+   * @param {CRDTSyncResponseMessage} message
+   * @returns {void}
+   */
   _handleSyncResponse(message) {
     // 只处理发给自己的响应
     if (message.to !== this._nodeId) return;
@@ -201,7 +284,7 @@ export class CRDTSyncManager {
     const doc = this._documents.get(message.docId);
     if (!doc) return;
 
-    const applied = doc.applyOps(message.ops);
+    const applied = doc.applyOps(/** @type {any} */ (message.ops));
     this._emit('sync:complete', {
       docId: message.docId,
       applied,
@@ -209,6 +292,10 @@ export class CRDTSyncManager {
     });
   }
 
+  /**
+   * @param {CRDTPeerJoinMessage} message
+   * @returns {void}
+   */
   _handlePeerJoin(message) {
     this._peers.add(message.from);
     this._emit('peer:join', { nodeId: message.from });
@@ -219,6 +306,10 @@ export class CRDTSyncManager {
     }
   }
 
+  /**
+   * @param {CRDTPeerLeaveMessage} message
+   * @returns {void}
+   */
   _handlePeerLeave(message) {
     this._peers.delete(message.from);
     this._emit('peer:leave', { nodeId: message.from });
@@ -228,6 +319,7 @@ export class CRDTSyncManager {
 
   /**
    * 连接到同步网络
+   * @returns {this}
    */
   connect() {
     this._connected = true;
@@ -255,6 +347,7 @@ export class CRDTSyncManager {
 
   /**
    * 断开连接
+   * @returns {this}
    */
   disconnect() {
     if (this._transport) {
@@ -272,6 +365,7 @@ export class CRDTSyncManager {
 
   /**
    * 发送缓存的操作
+   * @returns {void}
    */
   _flushPendingOps() {
     if (!this._connected || !this._transport) return;
@@ -284,6 +378,11 @@ export class CRDTSyncManager {
 
   // ===== 事件 =====
 
+  /**
+   * @param {string} event
+   * @param {unknown} [data]
+   * @returns {void}
+   */
   _emit(event, data) {
     if (this._events) {
       this._events.emit(`crdt:${event}`, data);
@@ -294,8 +393,10 @@ export class CRDTSyncManager {
 
   /**
    * 获取所有文档快照
+   * @returns {Record<string, ReturnType<CRDTDocument['snapshot']>>}
    */
   getAllSnapshots() {
+    /** @type {Record<string, ReturnType<CRDTDocument['snapshot']>>} */
     const result = {};
     for (const [docId, doc] of this._documents) {
       result[docId] = doc.snapshot();
@@ -305,6 +406,7 @@ export class CRDTSyncManager {
 
   /**
    * 获取状态
+   * @returns {CRDTSyncStatus}
    */
   getStatus() {
     return {
@@ -320,17 +422,26 @@ export class CRDTSyncManager {
 
 /**
  * 创建内存传输层（用于测试）
+ * @returns {{ register: (nodeId: string) => CRDTTransport }}
  */
 export function createMemoryTransport() {
+  /** @type {Set<unknown>} */
   const listeners = new Set();
+  /** @type {Map<string, (message: CRDTSyncMessage) => void>} */
   const channels = new Map(); // nodeId → handler
 
   return {
     /**
      * 注册节点
+     * @param {string} nodeId
+     * @returns {CRDTTransport}
      */
     register(nodeId) {
       return {
+        /**
+         * @param {CRDTSyncMessage} message
+         * @returns {void}
+         */
         send(message) {
           // 广播给其他节点
           for (const [id, handler] of channels) {
@@ -339,9 +450,16 @@ export function createMemoryTransport() {
             }
           }
         },
+        /**
+         * @param {(message: CRDTSyncMessage) => void} handler
+         * @returns {void}
+         */
         onReceive(handler) {
           channels.set(nodeId, handler);
         },
+        /**
+         * @returns {void}
+         */
         close() {
           channels.delete(nodeId);
         },

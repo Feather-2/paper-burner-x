@@ -167,6 +167,10 @@ function legacyTokensToDesignSystem(legacy) {
   return res.ok ? system : null;
 }
 
+/**
+ * @param {{ constraints?: any }} [options]
+ * @returns {object}
+ */
 function fallbackDesignSystem({ constraints } = {}) {
   const legacy = generateDesignTokens(constraints || {});
   const system = legacyTokensToDesignSystem(legacy);
@@ -179,7 +183,11 @@ function fallbackDesignSystem({ constraints } = {}) {
   };
 }
 
-function buildPrompt({ contentSummary, tone, extractedPalette, userPreferences, constraints }) {
+/**
+ * @param {{ contentSummary?: any, tone?: any, extractedPalette?: object, userPreferences?: object, constraints?: object }} input
+ * @returns {string}
+ */
+function buildPrompt({ contentSummary, tone, extractedPalette, userPreferences, constraints } = {}) {
   const palette = isPlainObject(extractedPalette) ? extractedPalette : {};
   const prefs = isPlainObject(userPreferences) ? userPreferences : {};
   const c = isPlainObject(constraints) ? constraints : {};
@@ -240,6 +248,7 @@ function assertValidDesignSystem(system, label) {
 }
 
 function syncLegacyTokens(system, constraints) {
+  /** @type {any} */
   const baseLegacy = generateDesignTokens(constraints || {})?.designTokens || {};
   const pageMarginX = system?.spacing?.page?.marginX;
   const safeMarginPct = clamp(coerceFiniteNumber(pageMarginX, baseLegacy?.spacing?.safeMarginPct ?? 6), 0, 40);
@@ -268,13 +277,14 @@ function syncLegacyTokens(system, constraints) {
       bodyFont: system?.typography?.scale?.body,
       smallFont: system?.typography?.scale?.caption,
     },
-    spacing: {
-      ...(isPlainObject(baseLegacy?.spacing) ? baseLegacy.spacing : null),
-      base: system?.spacing?.element?.gapX,
-      safeMarginPct,
-    },
-    grid,
-  };
+	    spacing: {
+	      ...(isPlainObject(baseLegacy?.spacing) ? baseLegacy.spacing : null),
+	      base: system?.spacing?.element?.gapX,
+	      safeMarginPct,
+	    },
+	    grid,
+	    visualPreference: undefined,
+	  };
 
   if (system && Object.prototype.hasOwnProperty.call(system, "visualPreference")) {
     tokens.visualPreference = normalizeVisualPreference(system.visualPreference);

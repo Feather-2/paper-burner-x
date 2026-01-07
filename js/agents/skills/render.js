@@ -76,8 +76,8 @@ function normalizeSkillPathForPrompt(path) {
  * 渲染 Skills 列表为 prompt 片段 (按优先级排序)
  *
  * @param {Object[]} skills - Skills 列表
- * @param {Object} options - 渲染选项
- * @param {boolean} options.showPriority - 是否显示优先级分组标题
+ * @param {Object} [options] - 渲染选项
+ * @param {boolean} [options.showPriority] - 是否显示优先级分组标题
  * @returns {string|null}
  */
 export function renderSkillsSection(skills, options = {}) {
@@ -158,9 +158,9 @@ export function renderSkillsList(skills) {
 /**
  * 渲染统一的 Capabilities + Skills 目录
  * 
- * @param {Object} options
- * @param {Array} options.capabilities - SDK Capabilities
- * @param {Array} options.skills - Prompt Skills
+ * @param {Object} [options]
+ * @param {Array} [options.capabilities] - SDK Capabilities
+ * @param {Array} [options.skills] - Prompt Skills
  * @returns {string}
  */
 export function renderUnifiedCatalog({ capabilities = [], skills = [] } = {}) {

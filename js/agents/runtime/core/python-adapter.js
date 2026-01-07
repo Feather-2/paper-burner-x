@@ -1,18 +1,47 @@
 import { RuntimeAdapter, RuntimeType } from './runtime-adapter.js';
 import { createLogger } from "../../shared/utils/logger.js";
 
+/**
+ * @typedef {import('./runtime-adapter.js').ExecutionContext} ExecutionContext
+ * @typedef {import('./runtime-adapter.js').ExecutionResult} ExecutionResult
+ *
+ * @typedef {object} PythonRuntimeAdapterOptions
+ * @property {string} [id]
+ * @property {string} [indexUrl]
+ * @property {string[]} [watchPaths]
+ *
+ * @typedef {object} VfsDirEntry
+ * @property {string} name
+ * @property {string} kind
+ *
+ * @typedef {object} VfsLike
+ * @property {(path: string) => Promise<VfsDirEntry[]>} list
+ * @property {(path: string) => Promise<any>} readFile
+ * @property {(path: string, data: any) => Promise<any>} writeFile
+ *
+ * @typedef {{ path: string, content: any }} PreparedFile
+ */
+
 const logger = createLogger("runtime/core/python-adapter");
 
 export class PythonRuntimeAdapter extends RuntimeAdapter {
+  /**
+   * @param {PythonRuntimeAdapterOptions} [options]
+   */
   constructor(options = {}) {
     super({ ...options, type: RuntimeType.PYTHON });
+    /** @type {Worker | null} */
     this.worker = null;
     this.indexUrl = options.indexUrl || 'https://cdn.jsdelivr.net/pyodide/v0.26.4/full/';
+    /** @type {Map<number, { resolve: (value: any) => void, reject: (err: any) => void, vfs: VfsLike | null }>} */
     this.pendingRequests = new Map();
     this._requestId = 0;
     this.watchPaths = options.watchPaths || ['/mnt/workspace'];
   }
 
+  /**
+   * @returns {Promise<any>}
+   */
   async initialize() {
     if (this.worker) return;
 
@@ -50,6 +79,12 @@ export class PythonRuntimeAdapter extends RuntimeAdapter {
     return this._send('init', { indexUrl: this.indexUrl });
   }
 
+  /**
+   * @param {string} type
+   * @param {any} payload
+   * @param {VfsLike | null | undefined} [vfs]
+   * @returns {Promise<any>}
+   */
   _send(type, payload, vfs = null) {
     const id = ++this._requestId;
     return new Promise((resolve, reject) => {
@@ -58,6 +93,10 @@ export class PythonRuntimeAdapter extends RuntimeAdapter {
     });
   }
 
+  /**
+   * @param {string[] | null | undefined} dependencies
+   * @returns {Promise<void>}
+   */
   async preload(dependencies) {
     await this.initialize();
     if (dependencies && dependencies.length > 0) {
@@ -66,6 +105,10 @@ export class PythonRuntimeAdapter extends RuntimeAdapter {
     }
   }
 
+  /**
+   * @param {any} loadPlan
+   * @returns {Promise<void>}
+   */
   async preloadPlan(loadPlan) {
     await this.initialize();
     const hasWork =
@@ -78,6 +121,9 @@ export class PythonRuntimeAdapter extends RuntimeAdapter {
 
   /**
    * 收集需要发送到 Worker 的文件
+   * @param {VfsLike} vfs
+   * @param {string[]} paths
+   * @returns {Promise<PreparedFile[]>}
    */
   async _prepareFiles(vfs, paths) {
     const files = [];
@@ -101,6 +147,11 @@ export class PythonRuntimeAdapter extends RuntimeAdapter {
     return files;
   }
 
+  /**
+   * @param {string} code
+   * @param {ExecutionContext} context
+   * @returns {Promise<ExecutionResult>}
+   */
   async execute(code, context) {
     await this.initialize();
     const startTime = Date.now();
@@ -147,6 +198,9 @@ export class PythonRuntimeAdapter extends RuntimeAdapter {
     }
   }
 
+  /**
+   * @returns {Promise<void>}
+   */
   async terminate() {
     if (this.worker) {
       this.worker.terminate();

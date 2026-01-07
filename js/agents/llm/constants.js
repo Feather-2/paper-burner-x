@@ -63,7 +63,8 @@ export const RouterStrategy = Object.freeze({
   LATENCY_OPTIMIZED: "latency_optimized",
 });
 
-const VALID_ROUTER_STRATEGIES = Object.freeze(new Set(Object.values(RouterStrategy)));
+/** @type {Set<string>} */
+const VALID_ROUTER_STRATEGIES = Object.freeze(new Set(Object.values(RouterStrategy).map((v) => String(v))));
 
 /**
  * 传输类型
@@ -92,6 +93,11 @@ export function isValidRouterStrategy(value) {
 
 /**
  * 规范化 RouterStrategy
+ */
+/**
+ * @param {unknown} value
+ * @param {string} [fallback=RouterStrategy.ROUND_ROBIN]
+ * @returns {string}
  */
 export function normalizeRouterStrategy(value, fallback = RouterStrategy.ROUND_ROBIN) {
   const v = typeof value === "string" ? value.trim().toLowerCase() : "";

@@ -8,12 +8,15 @@
 import { SkillExecutor } from '../core/sandbox/skill-executor.js';
 import { SandboxPreset, ResourceLimits } from '../core/sandbox/index.js';
 
+/** @typedef {import("./manager.js").SkillsManager} SkillsManager */
+/** @typedef {SkillsManager & Record<string, any>} SkillsManagerWithSandbox */
+
 /**
  * 增强 SkillsManager 的沙箱执行能力
  *
- * @param {SkillsManager} manager
+ * @param {SkillsManagerWithSandbox} manager
  * @param {Object} options
- * @returns {SkillsManager} 增强后的 manager
+ * @returns {SkillsManagerWithSandbox} 增强后的 manager
  */
 export function enhanceWithSandbox(manager, options = {}) {
   const executor = new SkillExecutor({

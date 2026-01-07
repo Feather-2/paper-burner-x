@@ -1,6 +1,6 @@
 /**
  * WebArranger Resilience Example (针对 OPPO 提出的 14 种失败模式)
- * 
+ *
  * 演示场景:
  * 1. Arranger (主 Loop) 分配两个子代理 (Subagent) 调查同一家公司的收入。
  * 2. 子代理 A 在 2023 年报中发现收入为 $10B。
@@ -8,13 +8,20 @@
  * 4. 子代理将结果通过 Shared Blackboard (DiscoveryManager) 同步。
  * 5. Arranger 发现冲突，启动 cross-verify 进行语义核对。
  * 6. 最终得出结论：由于市场波动，2024 预测低于 2023 实际。
+ *
+ * @module sdk/examples/webarranger-resilience
  */
 
 import { createAgent, createLogger } from "../index.js";
 import { DiscoveryStatus } from "../DiscoveryManager.js";
 
+/** @type {ReturnType<typeof createLogger>} */
 const logger = createLogger("sdk/examples/webarranger-resilience");
 
+/**
+ * 主演示函数
+ * @returns {Promise<void>}
+ */
 async function main() {
     console.log("🚀 Starting Resilient WebArranger Workflow...");
 

@@ -16,10 +16,57 @@ import { resolvePreset, mergePresetConfig } from './presets.js';
 import { isServiceProvider, adaptProvider } from './compat.js';
 
 /**
+ * Types
+ * @typedef {import('./types.d.ts').KernelOptions} KernelOptions
+ * @typedef {import('./types.d.ts').KernelStatusType} KernelStatusType
+ * @typedef {import('./types.d.ts').KernelHealthCheck} KernelHealthCheck
+ * @typedef {import('./types.d.ts').KernelSnapshot} KernelSnapshot
+ * @typedef {import('./types.d.ts').Plugin} Plugin
+ * @typedef {import('./types.d.ts').PluginEntry} PluginEntry
+ * @typedef {import('./types.d.ts').ServiceEntry} ServiceEntry
+ * @typedef {import('./types.d.ts').ServiceOptions} ServiceOptions
+ * @typedef {import('./types.d.ts').CallOptions} CallOptions
+ * @typedef {import('./types.d.ts').EventHandler} EventHandler
+ * @typedef {import('./types.d.ts').EventRecord} EventRecord
+ * @typedef {import('./types.d.ts').StateChangeRecord} StateChangeRecord
+ * @typedef {import('./types.d.ts').ServiceStats} ServiceStats
+ * @typedef {import('./types.d.ts').ServiceProvider} ServiceProvider
+ */
+
+/**
+ * @typedef {Object} DispatchTask
+ * @property {string} code
+ * @property {string} [runtimeType]
+ * @property {string} [type]
+ * @property {Record<string, unknown>} [inputState]
+ * @property {Record<string, unknown>} [options]
+ */
+
+/**
+ * @typedef {Object} KernelInspectResult
+ * @property {string} id
+ * @property {KernelStatusType} status
+ * @property {EventRecord[]} eventHistory
+ * @property {StateChangeRecord[]} stateChangeLog
+ * @property {ServiceStats[]} serviceStats
+ */
+
+/**
+ * @typedef {Object} KernelContainerCompat
+ * @property {(id: string, factoryOrValue: unknown, options?: Record<string, unknown>) => Kernel} register
+ * @property {(id: string) => Promise<unknown | null>} get
+ * @property {(id: string) => boolean} has
+ */
+
+/**
  * 默认插件加载器 - 惰性加载 plugins 模块
  * 解耦 core 与 plugins 的编译时依赖
  */
 let _defaultPluginLoader = null;
+
+/**
+ * @returns {Promise<((name: string) => Promise<Plugin>) | null>}
+ */
 async function getDefaultPluginLoader() {
   if (!_defaultPluginLoader) {
     const mod = await import('../plugins/index.js');
@@ -31,6 +78,7 @@ async function getDefaultPluginLoader() {
 /**
  * Kernel 状态
  */
+/** @type {{ CREATED: KernelStatusType, STARTING: KernelStatusType, RUNNING: KernelStatusType, STOPPING: KernelStatusType, STOPPED: KernelStatusType, ERROR: KernelStatusType }} */
 export const KernelStatus = {
   CREATED: 'created',
   STARTING: 'starting',
@@ -45,15 +93,14 @@ export const KernelStatus = {
  */
 export class Kernel {
   /**
-   * @param {Object} options - 配置选项
-   * @param {string} options.id - 内核实例 ID
-   * @param {boolean} options.keepHistory - 保留事件历史
-   * @param {boolean} options.keepLog - 保留状态变更日志
-   * @param {Function} options.pluginLoader - 自定义插件加载器 (name) => Promise<Plugin>
+   * @param {Partial<KernelOptions>} options
    */
   constructor(options = {}) {
+    /** @type {string} */
     this.id = options.id || `kernel_${Date.now()}`;
+    /** @type {KernelStatusType} */
     this._status = KernelStatus.CREATED;
+    /** @type {Partial<KernelOptions>} */
     this._options = options;
 
     // 三大总线
@@ -61,20 +108,23 @@ export class Kernel {
       keepHistory: options.keepHistory ?? false,
       maxHistory: options.maxHistory || 100,
     });
+    this.events.runId = this.id;
 
     this.state = new StateBus({
-      events: this.events,
+      events: /** @type {import('./types.d.ts').EventBus} */ (/** @type {unknown} */ (this.events)),
       keepLog: options.keepLog ?? false,
       maxLog: options.maxLog || 500,
     });
 
     this.services = new ServiceBus({
-      events: this.events,
+      events: /** @type {import('./types.d.ts').EventBus} */ (/** @type {unknown} */ (this.events)),
     });
 
     // 插件管理器
     this._pluginManager = new PluginManager(this);
+    /** @type {Map<string, (name: string) => Promise<Plugin>>} */
     this._pluginLoaders = new Map();
+    /** @type {((name: string) => Promise<Plugin>) | null} */
     this._customPluginLoader = options.pluginLoader || null;
 
     // 初始化状态
@@ -84,12 +134,12 @@ export class Kernel {
 
   /**
    * 快速创建并启动
-   * @param {string} preset - 预设名称
-   * @param {Object} config - 用户配置
+   * @param {string} [preset='minimal'] - 预设名称
+   * @param {Record<string, unknown>} [config={}] - 用户配置
    * @returns {Promise<Kernel>}
    */
   static async create(preset = 'minimal', config = {}) {
-    const kernel = new Kernel(config);
+    const kernel = new Kernel(/** @type {Partial<KernelOptions>} */ (config));
     await kernel.usePreset(preset, config);
     await kernel.start();
     return kernel;
@@ -97,6 +147,7 @@ export class Kernel {
 
   /**
    * 获取状态
+   * @returns {KernelStatusType}
    */
   get status() {
     return this._status;
@@ -105,7 +156,8 @@ export class Kernel {
   /**
    * 注册插件加载器
    * @param {string} prefix - 插件前缀（如 'compression/'）
-   * @param {Function} loader - (name) => Promise<Plugin>
+   * @param {(name: string) => Promise<Plugin>} loader - (name) => Promise<Plugin>
+   * @returns {this}
    */
   registerPluginLoader(prefix, loader) {
     this._pluginLoaders.set(prefix, loader);
@@ -114,8 +166,9 @@ export class Kernel {
 
   /**
    * 使用插件或旧 Provider
-   * @param {Object|string} plugin - 插件对象、名称或旧 ServiceProvider
-   * @param {Object} config - 插件配置
+   * @param {Plugin | string} plugin - 插件对象或名称
+   * @param {Record<string, unknown>} [config={}] - 插件配置
+   * @returns {Promise<this>}
    */
   async use(plugin, config = {}) {
     // 如果是字符串，尝试加载
@@ -125,7 +178,9 @@ export class Kernel {
 
     // 兼容旧 ServiceProvider
     if (isServiceProvider(plugin)) {
-      plugin = adaptProvider(plugin);
+      plugin = /** @type {Plugin} */ (
+        adaptProvider(/** @type {ServiceProvider} */ (/** @type {unknown} */ (plugin)))
+      );
     }
 
     this._pluginManager.register(plugin, config);
@@ -135,7 +190,8 @@ export class Kernel {
   /**
    * 使用预设
    * @param {string} presetName - 预设名称
-   * @param {Object} userConfig - 用户配置覆盖
+   * @param {Record<string, unknown>} [userConfig={}] - 用户配置覆盖
+   * @returns {Promise<this>}
    */
   async usePreset(presetName, userConfig = {}) {
     const resolved = mergePresetConfig(presetName, userConfig);
@@ -155,14 +211,22 @@ export class Kernel {
 
   /**
    * 注册服务
+   * @param {string} name
+   * @param {unknown} service
+   * @param {ServiceOptions} [options={}]
+   * @returns {this}
    */
   registerService(name, service, options = {}) {
-    this.services.register(name, service, options);
+    this.services.register(name, /** @type {any} */ (service), options);
     return this;
   }
 
   /**
    * 注册服务工厂（懒加载）
+   * @param {string} name
+   * @param {() => unknown | Promise<unknown>} factory
+   * @param {ServiceOptions} [options={}]
+   * @returns {this}
    */
   registerServiceFactory(name, factory, options = {}) {
     this.services.registerFactory(name, factory, options);
@@ -171,6 +235,12 @@ export class Kernel {
 
   /**
    * 调用服务
+   * @template T
+   * @param {string} serviceName
+   * @param {string} method
+   * @param {unknown[]} [args=[]]
+   * @param {CallOptions} [options={}]
+   * @returns {Promise<T>}
    */
   async call(serviceName, method, args = [], options = {}) {
     return this.services.call(serviceName, method, args, options);
@@ -178,6 +248,10 @@ export class Kernel {
 
   /**
    * 快捷调用
+   * @template T
+   * @param {string} path
+   * @param {...unknown} args
+   * @returns {Promise<T>}
    */
   async invoke(path, ...args) {
     return this.services.invoke(path, ...args);
@@ -188,12 +262,16 @@ export class Kernel {
   /**
    * 兼容旧 API: kernel.register(id, factory)
    * @deprecated 使用 registerService 或 registerServiceFactory
+   * @param {string} id
+   * @param {unknown} factoryOrValue
+   * @param {Record<string, unknown>} [options={}]
+   * @returns {this}
    */
   register(id, factoryOrValue, options = {}) {
     if (typeof factoryOrValue === 'function') {
-      this.services.registerFactory(id, factoryOrValue, options);
+      this.services.registerFactory(id, /** @type {() => unknown | Promise<unknown>} */ (factoryOrValue), options);
     } else {
-      this.services.register(id, factoryOrValue, options);
+      this.services.register(id, /** @type {any} */ (factoryOrValue), options);
     }
     return this;
   }
@@ -201,28 +279,43 @@ export class Kernel {
   /**
    * 兼容旧 API: kernel.getService(id)
    * @deprecated 使用 services.get(id)
+   * @template T
+   * @param {string} id
+   * @returns {T | null}
    */
   getService(id) {
-    return this.services.get(id);
+    const registered = this.services._services.get(id);
+    return registered ? /** @type {any} */ (registered.instance) : null;
   }
 
   /**
    * 兼容旧 API: kernel.emit(type, payload)
+   * @param {string} type
+   * @param {unknown} [payload]
+   * @returns {void}
    */
   emit(type, payload) {
-    return this.events.emit(type, payload);
+    void this.events.emit(type, payload);
   }
 
   /**
    * 兼容旧 API: kernel.on(type, handler)
+   * @param {string} type
+   * @param {EventHandler} handler
+   * @returns {() => void}
    */
   on(type, handler) {
-    return this.events.on(type, handler);
+    return /** @type {() => void} */ (
+      /** @type {import('./types.d.ts').EventBus} */ (/** @type {unknown} */ (this.events)).on(type, handler)
+    );
   }
 
   /**
    * 兼容旧 API: kernel.schedule(task, priority)
    * 需要 scheduler 插件支持
+   * @param {(() => unknown) | DispatchTask} task
+   * @param {number} [priority]
+   * @returns {Promise<unknown>}
    */
   schedule(task, priority) {
     if (this.services.has('scheduler')) {
@@ -239,6 +332,7 @@ export class Kernel {
 
   /**
    * 兼容旧 API: kernel.eventBus
+   * @returns {EventBus}
    */
   get eventBus() {
     return this.events;
@@ -247,6 +341,7 @@ export class Kernel {
   /**
    * 兼容旧 API: kernel.container (部分兼容)
    * 返回一个类似 Container 的接口
+   * @returns {KernelContainerCompat}
    */
   get container() {
     const self = this;
@@ -259,6 +354,7 @@ export class Kernel {
 
   /**
    * 启动内核
+   * @returns {Promise<this>}
    */
   async start() {
     if (this._status === KernelStatus.RUNNING) {
@@ -309,6 +405,7 @@ export class Kernel {
 
   /**
    * 停止内核
+   * @returns {Promise<this>}
    */
   async stop() {
     if (this._status === KernelStatus.STOPPED) {
@@ -349,6 +446,7 @@ export class Kernel {
 
   /**
    * 获取插件列表
+   * @returns {PluginEntry[]}
    */
   getPlugins() {
     return this._pluginManager.list();
@@ -356,13 +454,36 @@ export class Kernel {
 
   /**
    * 获取服务列表
+   * @returns {ServiceEntry[]}
    */
   getServices() {
-    return this.services.list();
+    /** @type {ServiceEntry[]} */
+    const entries = [];
+
+    for (const [name, entry] of this.services._services) {
+      entries.push({
+        name,
+        registeredAt: entry.registeredAt,
+        options: entry.options || {},
+      });
+    }
+
+    for (const [name, entry] of this.services._factories) {
+      if (!this.services._services.has(name)) {
+        entries.push({
+          name,
+          registeredAt: 0,
+          options: entry.options || {},
+        });
+      }
+    }
+
+    return entries;
   }
 
   /**
    * 健康检查
+   * @returns {Promise<KernelHealthCheck>}
    */
   async healthCheck() {
     const plugins = this._pluginManager.list();
@@ -389,6 +510,7 @@ export class Kernel {
 
   /**
    * 导出状态快照
+   * @returns {KernelSnapshot}
    */
   snapshot() {
     return {
@@ -396,19 +518,20 @@ export class Kernel {
       status: this._status,
       state: this.state.toJSON(),
       plugins: this._pluginManager.list(),
-      services: this.services.list(),
+      services: this.getServices(),
       timestamp: Date.now(),
     };
   }
 
   /**
    * 调试信息
+   * @returns {KernelInspectResult}
    */
   inspect() {
     return {
       id: this.id,
       status: this._status,
-      eventHistory: this.events.getHistory(),
+      eventHistory: /** @type {EventRecord[]} */ (this.events.getHistory()),
       stateChangeLog: this.state.getChangeLog(),
       serviceStats: this.services.getStats(),
     };
@@ -416,6 +539,8 @@ export class Kernel {
 
   /**
    * 加载插件
+   * @param {string} name
+   * @returns {Promise<Plugin>}
    */
   async _loadPlugin(name) {
     // 1. 查找匹配的前缀加载器
@@ -445,6 +570,8 @@ export class Kernel {
 
   /**
    * 获取已注册的插件对象
+   * @param {string} name
+   * @returns {Plugin | null}
    */
   _getPlugin(name) {
     const entry = this._pluginManager._plugins.get(name);
@@ -453,6 +580,8 @@ export class Kernel {
 
   /**
    * 设置状态
+   * @param {KernelStatusType} status
+   * @returns {void}
    */
   _setStatus(status) {
     this._status = status;

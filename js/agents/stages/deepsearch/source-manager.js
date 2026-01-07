@@ -1,6 +1,31 @@
 import { toNonEmptyString, toNonNegativeInt, toPositiveInt } from "../../shared/utils/value-utils.js";
 import { LRUCache } from "../../shared/utils/lru-cache.js";
 
+/**
+ * @typedef {object} SourceManagerOptions
+ * @property {boolean=} preferNormalized
+ * @property {number=} maxCachedLineIndexes
+ *
+ * @typedef {object} SourceReadArgs
+ * @property {number=} maxLength
+ * @property {number|boolean=} preview
+ * @property {string=} section
+ * @property {number=} startLine
+ * @property {number=} endLine
+ * @property {number=} start
+ * @property {number=} end
+ *
+ * @typedef {object} SourceSearchArgs
+ * @property {Array<object|string>=} sources
+ * @property {number=} limit
+ *
+ * @typedef {object} SemanticSearchArgs
+ * @property {Array<object|string>=} sources
+ * @property {number=} limit
+ * @property {{embed:(texts:string[],opts?:any)=>Promise<any>}=} embeddingService
+ * @property {number=} timeoutMs
+ */
+
 function normalizeId(value) {
   return toNonEmptyString(value);
 }
@@ -220,6 +245,10 @@ function findSectionRange(text, starts, section) {
 }
 
 export class SourceManager {
+  /**
+   * @param {any[]} [sources]
+   * @param {SourceManagerOptions} [options]
+   */
   constructor(sources = [], options = {}) {
     const opts = options && typeof options === "object" ? options : {};
     this.preferNormalized = typeof opts.preferNormalized === "boolean" ? opts.preferNormalized : true;
@@ -234,6 +263,10 @@ export class SourceManager {
     this.setSources(sources);
   }
 
+  /**
+   * @param {any[]} sources
+   * @returns {void}
+   */
   setSources(sources) {
     const rows = Array.isArray(sources) ? sources : [];
     this._sourcesRef = rows;
@@ -248,6 +281,10 @@ export class SourceManager {
     }
   }
 
+  /**
+   * @param {any[]} sources
+   * @returns {boolean}
+   */
   syncSources(sources) {
     const rows = Array.isArray(sources) ? sources : [];
     if (rows === this._sourcesRef && rows.length === this._sourcesLength) return false;
@@ -255,6 +292,9 @@ export class SourceManager {
     return true;
   }
 
+  /**
+   * @returns {Array<{sourceId:string, name:string, size:number}>}
+   */
   listSources() {
     const out = [];
     for (const [sourceId, source] of this._sourcesById.entries()) {
@@ -265,6 +305,10 @@ export class SourceManager {
     return out;
   }
 
+  /**
+   * @param {string} sourceIdOrName
+   * @returns {any|null}
+   */
   getSource(sourceIdOrName) {
     const key = normalizeId(sourceIdOrName);
     if (!key) return null;
@@ -278,6 +322,10 @@ export class SourceManager {
     return null;
   }
 
+  /**
+   * @param {string} sourceIdOrName
+   * @returns {{source:any, sourceId:string, name:string, text:string, totalLength:number}|null}
+   */
   getSourceInfo(sourceIdOrName) {
     const source = this.getSource(sourceIdOrName);
     if (!source) return null;
@@ -288,11 +336,19 @@ export class SourceManager {
     return { source, sourceId, name, text, totalLength: text.length };
   }
 
+  /**
+   * @param {string} sourceIdOrName
+   * @returns {string}
+   */
   getSourceText(sourceIdOrName) {
     const info = this.getSourceInfo(sourceIdOrName);
     return info ? info.text : "";
   }
 
+  /**
+   * @param {string} sourceIdOrName
+   * @returns {number[]|null}
+   */
   getLineStarts(sourceIdOrName) {
     const info = this.getSourceInfo(sourceIdOrName);
     if (!info) return null;
@@ -308,6 +364,11 @@ export class SourceManager {
     return starts;
   }
 
+  /**
+   * @param {string} sourceIdOrName
+   * @param {SourceReadArgs} [args]
+   * @returns {any}
+   */
   read(sourceIdOrName, args = {}) {
     const info = this.getSourceInfo(sourceIdOrName);
     if (!info) {
@@ -452,6 +513,11 @@ export class SourceManager {
     };
   }
 
+  /**
+   * @param {string} query
+   * @param {SourceSearchArgs=} options
+   * @returns {any[]}
+   */
   search(query, { sources, limit = 10 } = {}) {
     const q = typeof query === "string" ? query : "";
     const trimmed = q.trim();
@@ -506,11 +572,7 @@ export class SourceManager {
    * Semantic search: keyword candidates -> embedding rerank (best-effort).
    *
    * @param {string} query
-   * @param {object=} options
-   * @param {Array<object|string>=} options.sources
-   * @param {number=} options.limit
-   * @param {{embed:(texts:string[],opts?:any)=>Promise<any>}=} options.embeddingService
-   * @param {number=} options.timeoutMs
+   * @param {SemanticSearchArgs} [options]
    */
   async semanticSearch(query, { sources, limit = 10, embeddingService, timeoutMs } = {}) {
     const q = typeof query === "string" ? query : "";

@@ -1,6 +1,45 @@
 import { isPlainObject } from "../../../shared/utils/value-utils.js";
 
+/**
+ * @typedef {object} SharedContextLike
+ * @property {(signal: Record<string, any>) => void} [upsertSignal]
+ */
+
+/**
+ * @typedef {object} MemoryStoreLike
+ * @property {(id: string, record: Record<string, any>) => void} [syncDiscovery]
+ * @property {(key?: string) => any} [getScratchpad]
+ * @property {(key: string|Record<string, any>, value?: any) => void} [setScratchpad]
+ * @property {(goal: string) => void} [setTaskGoal]
+ * @property {() => any[]|null} [getTodos]
+ * @property {(todos: any[]) => void} [replaceTodos]
+ * @property {any=} L0
+ * @property {boolean=} awaitUserFeedback
+ * @property {boolean=} taskImpossible
+ */
+
+/**
+ * @typedef {object} MemoryMethodsThis
+ * @property {MemoryStoreLike|null} [_memoryStore]
+ * @property {SharedContextLike|null} [sharedContext]
+ * @property {number|null} [subAgentIndex]
+ * @property {string=} taskGoal
+ * @property {any=} L2
+ * @property {any[]=} todos
+ * @property {any=} _stateEngine
+ * @property {() => void=} _syncFromStateEngine
+ */
+
 export const memoryMethods = {
+  /**
+   * Best-effort sync a discovery signal to MemoryStore + shared context.
+   *
+   * @this {MemoryMethodsThis}
+   * @param {string} type
+   * @param {string} id
+   * @param {Record<string, any>} summary
+   * @returns {void}
+   */
   _syncToShared(type, id, summary) {
     if (this._memoryStore?.syncDiscovery) {
       this._memoryStore.syncDiscovery(id, { type, ...summary, by: this.subAgentIndex });
@@ -9,20 +48,44 @@ export const memoryMethods = {
     this.sharedContext.upsertSignal({ type, id, ...summary, by: this.subAgentIndex, ts: Date.now() });
   },
 
+  /**
+   * Read a scratchpad value.
+   *
+   * When `key` is omitted, returns a shallow copy of the full scratchpad object.
+   *
+   * @this {MemoryMethodsThis}
+   * @param {string=} key
+   * @returns {any}
+   */
   getScratchpad(key) {
     if (this._memoryStore?.getScratchpad) return this._memoryStore.getScratchpad(key);
     if (key === undefined) return { ...(this.L2?.scratchpad || {}) };
     return this.L2?.scratchpad?.[key];
   },
 
+  /**
+   * Set one or more scratchpad values.
+   *
+   * @this {MemoryMethodsThis}
+   * @param {string|Record<string, any>} key
+   * @param {any=} value
+   * @returns {void}
+   */
   setScratchpad(key, value) {
     if (this._memoryStore?.setScratchpad) this._memoryStore.setScratchpad(key, value);
     if (!isPlainObject(this.L2)) this.L2 = { scratchpad: {} };
     if (!isPlainObject(this.L2.scratchpad)) this.L2.scratchpad = {};
     if (isPlainObject(key) && value === undefined) Object.assign(this.L2.scratchpad, key);
-    else this.L2.scratchpad[key] = value;
+    else this.L2.scratchpad[/** @type {string} */ (key)] = value;
   },
 
+  /**
+   * Attach or detach a memory store and attempt a best-effort initial sync.
+   *
+   * @this {MemoryMethodsThis}
+   * @param {MemoryStoreLike|null} memoryStore
+   * @returns {void}
+   */
   bindMemoryStore(memoryStore) {
     this._memoryStore = memoryStore || null;
     if (!memoryStore) return;

@@ -12,10 +12,89 @@ import { classifyDeepSearchError } from "../../../shared/utils/error-classifier.
 import { maybePersistToolOutput } from "../../../runtime/persisted-output.js";
 import { loadPrompt, renderPromptTemplate } from "../../../prompts/prompt-loader.js";
 
+/**
+ * @typedef {"system"|"user"|"assistant"} DeepSearchChatRole
+ *
+ * @typedef {object} DeepSearchChatMessage
+ * @property {DeepSearchChatRole | string} role
+ * @property {any} content
+ *
+ * @typedef {object} DeepSearchModelCallOptions
+ * @property {number=} temperature
+ * @property {number=} maxTokens
+ * @property {AbortSignal=} signal
+ *
+ * @typedef {object} DeepSearchModelResponse
+ * @property {string=} content
+ * @property {any=} usage
+ *
+ * @typedef {(messages: DeepSearchChatMessage[], options: DeepSearchModelCallOptions) => Promise<DeepSearchModelResponse>} DeepSearchCallModel
+ *
+ * @typedef {object} DeepSearchToolAction
+ * @property {string} action
+ * @property {Record<string, any>=} args
+ *
+ * @typedef {object} DeepSearchDecision
+ * @property {string=} thought
+ * @property {string=} action
+ * @property {Record<string, any>=} args
+ * @property {DeepSearchToolAction[]=} actions
+ *
+ * @typedef {(event: string, payload?: any, meta?: any) => void} DeepSearchEmit
+ *
+ * @typedef {(content: string) => (DeepSearchDecision | null | undefined)} DeepSearchParseDecision
+ *
+ * @typedef {(toolName: string, args: Record<string, any>, ctx: { state: any, emit?: DeepSearchEmit, stageApi?: any, sharedContext?: any }) => Promise<any>} DeepSearchExecuteTool
+ *
+ * @typedef {object} WritingPhaseHandlerOptions
+ * @property {any} logger
+ * @property {DeepSearchEmit=} emit
+ * @property {DeepSearchParseDecision} parseDecision
+ * @property {DeepSearchExecuteTool} executeTool
+ * @property {number=} maxIterations
+ * @property {number=} maxParseFailures
+ *
+ * @typedef {object} WritingPhaseShouldEnterParams
+ * @property {any} state
+ * @property {string} mode
+ * @property {any} globalConfig
+ * @property {number} iteration
+ * @property {number} maxIterations
+ * @property {number} toolCallCount
+ * @property {number} maxToolCalls
+ *
+ * @typedef {object} WritingPhaseStatsParams
+ * @property {any} state
+ * @property {string} mode
+ * @property {any} globalConfig
+ *
+ * @typedef {object} WritingPhaseStats
+ * @property {number} wordCount
+ * @property {number} minWords
+ * @property {number} doneTodos
+ * @property {number} totalTodos
+ *
+ * @typedef {object} WritingPhaseRunParams
+ * @property {any} state
+ * @property {any} stageApi
+ * @property {any} sharedContext
+ * @property {DeepSearchCallModel} callModel
+ * @property {(msg: DeepSearchChatMessage) => void} addMessage
+ * @property {() => DeepSearchChatMessage[]} messages
+ * @property {AbortSignal=} signal
+ * @property {() => (void | Promise<void>)=} flushMessages
+ *
+ * @typedef {object} WritingPhaseRunResult
+ * @property {number} iterations
+ */
+
 let _writingPhasePromptTemplate = null;
 let _writingPhaseWarnedUnresolved = false;
 
 export class WritingPhaseHandler {
+  /**
+   * @param {WritingPhaseHandlerOptions} options
+   */
   constructor({ logger, emit, parseDecision, executeTool, maxIterations = 5, maxParseFailures = 3 }) {
     this._logger = logger;
     this._emit = emit;
@@ -27,6 +106,8 @@ export class WritingPhaseHandler {
 
   /**
    * 检查是否需要进入写作阶段
+   * @param {WritingPhaseShouldEnterParams} params
+   * @returns {boolean}
    */
   shouldEnter({ state, mode, globalConfig, iteration, maxIterations, toolCallCount, maxToolCalls }) {
     const report = state.L1?.report;
@@ -41,6 +122,8 @@ export class WritingPhaseHandler {
 
   /**
    * 获取写作阶段统计信息
+   * @param {WritingPhaseStatsParams} params
+   * @returns {WritingPhaseStats}
    */
   getStats({ state, mode, globalConfig }) {
     const report = state.L1?.report;
@@ -56,6 +139,8 @@ export class WritingPhaseHandler {
 
   /**
    * 执行写作阶段
+   * @param {WritingPhaseRunParams} params
+   * @returns {Promise<WritingPhaseRunResult>}
    */
   async run({ state, stageApi, sharedContext, callModel, addMessage, messages, signal, flushMessages }) {
     const stats = this.getStats({ state, mode: state.userConfig?.mode, globalConfig: state.globalConfig });
@@ -178,14 +263,14 @@ export class WritingPhaseHandler {
 
             let payloadForPrompt = result;
             try {
-              const stored = await maybePersistToolOutput({
+              const stored = await maybePersistToolOutput(/** @type {any} */ ({
                 runStore: stageApi?.runStore || null,
                 runId: state?.runId,
                 toolName: "write-report",
                 args: item.args || {},
                 iteration: plannedIteration,
                 result,
-              });
+              }));
               payloadForPrompt = stored.inline;
             } catch {
               // ignore persistence failures

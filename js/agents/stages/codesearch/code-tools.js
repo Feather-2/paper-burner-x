@@ -146,13 +146,60 @@ export const TOOL_DEFINITIONS = [
 ];
 
 /**
+ * @typedef {object} FileSystemLike
+ * @property {(path:string)=>Promise<any>=} readFile
+ * @property {(path:string, opts?:any)=>Promise<any>=} readdir
+ * @property {(path:string)=>Promise<any>=} stat
+ *
+ * @typedef {object} VfsLike
+ * @property {(path:string)=>Promise<string>=} readText
+ * @property {(path:string, text:string)=>Promise<any>=} writeText
+ *
+ * @typedef {object} LoggerLike
+ * @property {(msg:string, meta?:any)=>void=} debug
+ * @property {(msg:string, meta?:any)=>void=} info
+ * @property {(msg:string, meta?:any)=>void=} warn
+ * @property {(msg:string, meta?:any)=>void=} error
+ *
+ * @typedef {(eventName:string, payload:any)=>void} EmitFn
+ *
+ * @typedef {object} WatchdogLike
+ * @property {(action:any)=>void=} recordAction
+ *
+ * @typedef {object} CodeToolExecutorOptions
+ * @property {FileSystemLike=} fs - 文件系统接口 (readFile, readdir, stat)
+ * @property {VfsLike=} vfs - Browser-first VFS（可选）
+ * @property {(args:{pattern:string, path?:string})=>Promise<string[]>=} globFn - glob 函数（可选）
+ * @property {string=} basePath - 项目根目录（可选；主要用于调用方记录）
+ * @property {number=} maxFileSize - 最大文件大小限制 (bytes)
+ * @property {number=} maxResults - 最大返回结果数
+ * @property {number=} maxLineLength - 单行最大字符数（read_file 截断）
+ * @property {string=} wasmBaseUrl - Tree-sitter wasm baseUrl（可选）
+ * @property {string=} workspaceId - 符号索引命名空间（可选）
+ * @property {LoggerLike=} logger - logger（可选）
+ * @property {EmitFn=} emit - emit 函数（可选）
+ * @property {any=} policy
+ * @property {any=} runStore
+ * @property {string=} runId
+ * @property {any=} stageApi
+ * @property {WatchdogLike=} watchdog
+ *
+ * @typedef {object} CodeToolExecutor
+ * @property {(args:{pattern:string, path?:string})=>Promise<any>} glob
+ * @property {(args:{pattern:string, path?:string, regex?:boolean, caseSensitive?:boolean})=>Promise<any>} grep
+ * @property {(args:{path:string, startLine?:number, endLine?:number})=>Promise<any>} read_file
+ * @property {(args?:{path?:string, content?:string, checkpoint?:boolean})=>Promise<any>} write_file
+ * @property {(args?:{path?:string, edits?:any[], checkpoint?:boolean})=>Promise<any>} multi_edit
+ * @property {(args:{path:string, showHidden?:boolean})=>Promise<any>} list_dir
+ * @property {(args?:{path?:string, depth?:number, pattern?:string})=>Promise<any>} tree
+ * @property {(args?:{pattern?:string, path?:string, paths?:Array<string>, limit?:number, force?:boolean, workspaceId?:string})=>Promise<any>} index_symbols
+ * @property {(args?:{query?:string, pathPrefix?:string, limit?:number, workspaceId?:string})=>Promise<any>} find_symbol
+ * @property {any[]} definitions
+ * @property {(toolName:string, args:any)=>Promise<any>} execute
+ *
  * 创建工具执行器
- * @param {object} options
- * @param {object} options.fs - 文件系统接口 (readFile, readdir, stat)
- * @param {Function} options.globFn - glob 函数
- * @param {string} options.basePath - 项目根目录
- * @param {number} options.maxFileSize - 最大文件大小限制 (bytes)
- * @param {number} options.maxResults - 最大返回结果数
+ * @param {CodeToolExecutorOptions} [options]
+ * @returns {CodeToolExecutor}
  */
 export function createToolExecutor(options = {}) {
   const {
@@ -175,6 +222,10 @@ export function createToolExecutor(options = {}) {
   } = options;
 
   // 路径安全检查
+  /**
+   * @param {any} inputPath
+   * @returns {string}
+   */
   function safePath(inputPath) {
     const path = String(inputPath || "").trim();
     // 防止路径遍历
@@ -184,16 +235,28 @@ export function createToolExecutor(options = {}) {
     return path || ".";
   }
 
+  /**
+   * @param {any} value
+   * @returns {string[]}
+   */
   function normalizeStringArray(value) {
     const arr = Array.isArray(value) ? value : value ? [value] : [];
     return arr.map((v) => String(v || "").trim()).filter(Boolean);
   }
 
+  /**
+   * @param {any} input
+   * @returns {string}
+   */
   function normalizeWorkspaceId(input) {
     const s = String(input || "").trim();
     return s || String(workspaceId || "").trim() || "default";
   }
 
+  /**
+   * @param {string} filePath
+   * @returns {Promise<string>}
+   */
   const readTextForIndexing = async (filePath) => {
     const p = safePath(filePath);
     if (vfs && typeof vfs.readText === "function") return vfs.readText(p);
@@ -212,7 +275,10 @@ export function createToolExecutor(options = {}) {
   };
 
   const symbolIndexer = new SymbolIndexer({
-    vfs: vfs && typeof vfs.readText === "function" ? vfs : { readText: readTextForIndexing },
+    vfs:
+      vfs && typeof vfs.readText === "function"
+        ? /** @type {{ readText: (path: string) => Promise<string> }} */ (vfs)
+        : { readText: readTextForIndexing },
     workspaceId: normalizeWorkspaceId(),
     ...(wasmBaseUrl ? { wasmBaseUrl } : {}),
     ...(logger ? { logger } : {}),
@@ -220,6 +286,10 @@ export function createToolExecutor(options = {}) {
   });
 
   // glob 工具
+  /**
+   * @param {{ pattern: string, path?: string }} args
+   * @returns {Promise<{files:any[], total?:number, truncated?:boolean, error?:string}>}
+   */
   async function glob({ pattern, path }) {
     if (!pattern) throw new Error("glob: pattern is required");
     const searchPath = safePath(path);
@@ -242,6 +312,10 @@ export function createToolExecutor(options = {}) {
   }
 
   // grep 工具
+  /**
+   * @param {{ pattern: string, path?: string, regex?: boolean, caseSensitive?: boolean }} args
+   * @returns {Promise<any>}
+   */
   async function grep({ pattern, path, regex = false, caseSensitive = false }) {
     if (!pattern) throw new Error("grep: pattern is required");
 
@@ -286,6 +360,10 @@ export function createToolExecutor(options = {}) {
   }
 
   // read_file 工具
+  /**
+   * @param {{ path: string, startLine?: number, endLine?: number }} args
+   * @returns {Promise<any>}
+   */
   async function read_file({ path, startLine, endLine }) {
     if (!path) throw new Error("read_file: path is required");
     const filePath = safePath(path);
@@ -350,6 +428,10 @@ export function createToolExecutor(options = {}) {
     }
   }
 
+  /**
+   * @param {{ path?: string, content?: string, checkpoint?: boolean }=} args
+   * @returns {Promise<any>}
+   */
   async function write_file({ path, content, checkpoint = true } = {}) {
     if (!path) throw new Error("write_file: path is required");
     if (!vfs || typeof vfs.writeText !== "function") {
@@ -363,7 +445,7 @@ export function createToolExecutor(options = {}) {
     }
 
     try {
-      const res = await writeTextFileWithPolicy({
+      const res = await writeTextFileWithPolicy(/** @type {any} */ ({
         vfs,
         path: filePath,
         text,
@@ -372,13 +454,17 @@ export function createToolExecutor(options = {}) {
         runId: runId || stageApi?.runContext?.runId,
         stageApi: stageApi || { emit },
         checkpoint: checkpoint !== false,
-      });
+      }));
       return { ok: true, ...res };
     } catch (err) {
       return { error: String(err?.message || err) };
     }
   }
 
+  /**
+   * @param {{ path?: string, edits?: any[], checkpoint?: boolean }=} args
+   * @returns {Promise<any>}
+   */
   async function multi_edit({ path, edits, checkpoint = true } = {}) {
     if (!path) throw new Error("multi_edit: path is required");
     if (!vfs || typeof vfs.writeText !== "function") {
@@ -388,7 +474,7 @@ export function createToolExecutor(options = {}) {
     const filePath = safePath(path);
 
     try {
-      const res = await multiEditTextFileWithPolicy({
+      const res = await multiEditTextFileWithPolicy(/** @type {any} */ ({
         vfs,
         path: filePath,
         edits: Array.isArray(edits) ? edits : [],
@@ -397,7 +483,7 @@ export function createToolExecutor(options = {}) {
         runId: runId || stageApi?.runContext?.runId,
         stageApi: stageApi || { emit },
         checkpoint: checkpoint !== false,
-      });
+      }));
       return { ok: true, ...res };
     } catch (err) {
       return { error: String(err?.message || err) };
@@ -405,6 +491,10 @@ export function createToolExecutor(options = {}) {
   }
 
   // list_dir 工具
+  /**
+   * @param {{ path: string, showHidden?: boolean }} args
+   * @returns {Promise<any>}
+   */
   async function list_dir({ path, showHidden = false }) {
     const dirPath = safePath(path);
 
@@ -441,6 +531,10 @@ export function createToolExecutor(options = {}) {
   }
 
   // tree 工具
+  /**
+   * @param {{ path?: string, depth?: number, pattern?: string }=} args
+   * @returns {Promise<any>}
+   */
   async function tree({ path, depth = 3, pattern } = {}) {
     const rootPath = safePath(path || ".");
     const maxDepth = Math.min(depth, 5); // 限制最大深度
@@ -510,6 +604,10 @@ export function createToolExecutor(options = {}) {
     };
   }
 
+  /**
+   * @param {{ pattern?: string, path?: string, paths?: string[] | string, limit?: number, force?: boolean, workspaceId?: string }=} args
+   * @returns {Promise<any>}
+   */
   async function index_symbols({ pattern, path, paths, limit = 200, force = false, workspaceId: wsId } = {}) {
     const ws = normalizeWorkspaceId(wsId);
     symbolIndexer.workspaceId = ws;
@@ -592,6 +690,10 @@ export function createToolExecutor(options = {}) {
     };
   }
 
+  /**
+   * @param {{ query?: string, pathPrefix?: string, limit?: number, workspaceId?: string }=} args
+   * @returns {Promise<any>}
+   */
   async function find_symbol({ query, pathPrefix = "", limit = 50, workspaceId: wsId } = {}) {
     const q = String(query || "").trim();
     if (!q) throw new Error("find_symbol: query is required");

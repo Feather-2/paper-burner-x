@@ -7,6 +7,39 @@
  * - stat(path) -> { size }
  */
 
+/**
+ * @typedef {object} VfsDirentLike
+ * @property {string} name
+ * @property {() => boolean} isDirectory
+ * @property {() => boolean} isFile
+ */
+
+/**
+ * @typedef {object} VfsStatLike
+ * @property {number} size
+ * @property {number=} mtimeMs
+ * @property {() => boolean=} isFile
+ * @property {() => boolean=} isDirectory
+ */
+
+/**
+ * @typedef {object} VfsLike
+ * @property {(path: string) => Promise<Uint8Array | string>} readFile
+ * @property {(path: string, options?: { withFileTypes?: boolean }) => Promise<string[] | VfsDirentLike[]>} readdir
+ * @property {(path: string) => Promise<VfsStatLike>} stat
+ */
+
+/**
+ * @typedef {object} FsAdapterLike
+ * @property {(path: string) => Promise<Uint8Array | string>} readFile
+ * @property {(path: string, options?: { withFileTypes?: boolean }) => Promise<string[] | VfsDirentLike[]>} readdir
+ * @property {(path: string) => Promise<VfsStatLike>} stat
+ */
+
+/**
+ * @param {VfsLike} vfs
+ * @returns {FsAdapterLike|null}
+ */
 export function createFsAdapterFromVfs(vfs) {
   if (!vfs || typeof vfs.readFile !== "function") return null;
 
@@ -18,4 +51,3 @@ export function createFsAdapterFromVfs(vfs) {
 }
 
 export default { createFsAdapterFromVfs };
-

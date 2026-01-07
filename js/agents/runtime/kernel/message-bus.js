@@ -63,6 +63,7 @@ export class MessageBus {
     }
 
     const off = this.eventBus.on(name, (evt) => {
+      /** @type {any} */
       const meta = evt && typeof evt === "object" ? evt.meta : null;
       const isRpcRequest =
         meta &&
@@ -177,6 +178,7 @@ export class MessageBus {
       }
 
       off = this.eventBus.once(replyTo, (evt) => {
+        /** @type {any} */
         const meta = evt && typeof evt === "object" ? evt.meta : null;
         const expected =
           meta &&
@@ -189,6 +191,7 @@ export class MessageBus {
           return;
         }
 
+        /** @type {any} */
         const body = evt?.payload;
         if (body && typeof body === "object" && "ok" in body) {
           if (body.ok) finishResolve(body.data);

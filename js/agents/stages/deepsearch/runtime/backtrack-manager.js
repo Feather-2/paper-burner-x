@@ -10,7 +10,32 @@
 import { migrateCheckpoint } from "../../../shared/archive/checkpoint-schema.js";
 import { DeepSearchState } from "../state.js";
 
+/**
+ * @typedef {object} BacktrackManagerOptions
+ * @property {any=} archive
+ * @property {number=} maxBacktracks
+ * @property {(eventName:string, payload:any)=>void=} emit
+ * @property {any=} logger
+ * @property {any=} sideEffects
+ *
+ * @typedef {object} BacktrackArgs
+ * @property {string=} failReason
+ * @property {string=} correctionHint
+ * @property {any=} sharedContext
+ *
+ * @typedef {object} BacktrackResult
+ * @property {boolean} success
+ * @property {string} reason
+ * @property {DeepSearchState=} state
+ * @property {string=} error
+ * @property {string=} stack
+ * @property {any=} details
+ */
+
 export class BacktrackManager {
+  /**
+   * @param {BacktrackManagerOptions=} options
+   */
   constructor(options = {}) {
     this.archive = options.archive || null;
     this.maxBacktracks = options.maxBacktracks ?? 3;
@@ -34,7 +59,10 @@ export class BacktrackManager {
 
   /**
    * 执行回溯
-   * @returns {{ success: boolean, reason: string, state?: DeepSearchState }}
+   * @param {DeepSearchState} state
+   * @param {string|null} checkpointId
+   * @param {BacktrackArgs=} options
+   * @returns {Promise<BacktrackResult>}
    */
   async backtrack(state, checkpointId, { failReason, correctionHint, sharedContext } = {}) {
     if (!this.archive) {
@@ -203,6 +231,10 @@ export class BacktrackManager {
   }
 }
 
+/**
+ * @param {BacktrackManagerOptions} options
+ * @returns {BacktrackManager}
+ */
 export function createBacktrackManager(options) {
   return new BacktrackManager(options);
 }

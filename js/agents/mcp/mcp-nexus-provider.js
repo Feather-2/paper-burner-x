@@ -3,6 +3,67 @@ import { TransportKind } from "./constants.js";
 import { consumeSseJson } from "./sse.js";
 
 import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
+
+/**
+ * @typedef {object} McpNexusProviderOptions
+ * @property {string=} id
+ * @property {string=} name
+ * @property {string=} endpoint
+ * @property {Record<string, string>=} headers
+ * @property {string=} authToken
+ * @property {number=} timeoutMs
+ * @property {number=} discoveryTimeoutMs
+ * @property {string=} sseEndpoint
+ * @property {number=} sseConnectTimeoutMs
+ * @property {number=} sseReconnectBaseMs
+ * @property {number=} sseReconnectMaxMs
+ * @property {(input: RequestInfo, init?: RequestInit) => Promise<Response>=} fetchImpl
+ */
+
+/**
+ * @typedef {object} McpNexusHealthStatus
+ * @property {boolean} ok
+ * @property {string} providerId
+ * @property {string} endpoint
+ * @property {string} ts
+ * @property {number} durationMs
+ * @property {("jsonrpc"|"rest"|"toolapi"|null)} transport
+ * @property {number} toolCount
+ * @property {McpToolDefinition[]} tools
+ * @property {string=} error
+ */
+
+/**
+ * @typedef {object} McpResourceDefinition
+ * @property {string} uri
+ * @property {string=} name
+ * @property {string=} description
+ * @property {string=} mimeType
+ * @property {any=} annotations
+ */
+
+/**
+ * @typedef {object} McpResourceTemplateDefinition
+ * @property {string} uriTemplate
+ * @property {string=} name
+ * @property {string=} description
+ * @property {string=} mimeType
+ */
+
+/**
+ * @typedef {object} McpResourceReadResult
+ * @property {string} uri
+ * @property {string} mimeType
+ * @property {string=} text
+ * @property {Uint8Array=} blob
+ */
+
+/**
+ * @callback McpNotificationHandler
+ * @param {any} msg
+ * @returns {void}
+ */
+
 function cryptoRandomInt(maxExclusive) {
   const max = typeof maxExclusive === "number" && Number.isFinite(maxExclusive) ? Math.floor(maxExclusive) : Number(maxExclusive);
   if (!Number.isFinite(max) || max <= 0) return 0;
@@ -220,7 +281,16 @@ async function fetchJson(fetchImpl, url, { method = "POST", headers, body, signa
   return parsed;
 }
 
+/**
+ * MCP-Nexus provider implementation (remote MCP endpoint).
+ * @extends {McpProvider}
+ * @param {McpNexusProviderOptions} [options]
+ * @returns {McpNexusProvider}
+ */
 export class McpNexusProvider extends McpProvider {
+  /**
+   * @param {McpNexusProviderOptions} [options]
+   */
   constructor({
     id = "mcp-nexus",
     name = "MCP Nexus",
@@ -264,6 +334,10 @@ export class McpNexusProvider extends McpProvider {
     this._notificationState = null; // { subscribers:Set<fn>, controller, promise }
   }
 
+  /**
+   * @param {any[]=} tools
+   * @returns {boolean}
+   */
   seedToolsCache(tools) {
     const list = Array.isArray(tools) ? tools.map(normalizeToolDef).filter(Boolean) : [];
     if (!list.length) return false;
@@ -271,10 +345,17 @@ export class McpNexusProvider extends McpProvider {
     return true;
   }
 
+  /**
+   * @returns {McpNexusHealthStatus|null}
+   */
   getHealth() {
     return this._health ? { ...this._health } : null;
   }
 
+  /**
+   * @param {{ timeoutMs?: number, refreshTools?: boolean }=} options
+   * @returns {Promise<McpNexusHealthStatus>}
+   */
   async healthCheck({ timeoutMs, refreshTools = true } = {}) {
     const startedAt = Date.now();
     const timeout =
@@ -381,6 +462,12 @@ export class McpNexusProvider extends McpProvider {
     return out;
   }
 
+  /**
+   * Subscribe to provider notifications (SSE best-effort when available).
+   * @param {McpNotificationHandler} handler
+   * @param {{ signal?: AbortSignal, reconnect?: boolean }=} options
+   * @returns {() => void}
+   */
   subscribeNotifications(handler, { signal, reconnect = true } = {}) {
     if (typeof handler !== "function") throw new TypeError("subscribeNotifications(handler): handler must be a function");
 
@@ -593,6 +680,9 @@ export class McpNexusProvider extends McpProvider {
     throw new Error("MCP-Nexus discovery failed: no compatible endpoint found");
   }
 
+  /**
+   * @returns {Promise<McpToolDefinition[]>}
+   */
   async listTools() {
     if (Array.isArray(this._toolsCache) && this._toolsCache.length) return this._toolsCache;
     const transport = await this._discoverTransport();
@@ -639,6 +729,9 @@ export class McpNexusProvider extends McpProvider {
     return tools;
   }
 
+  /**
+   * @returns {Promise<McpResourceDefinition[]>}
+   */
   async listResources() {
     const transport = await this._discoverTransport();
     if (transport.kind !== TransportKind.JSONRPC) return [];
@@ -655,6 +748,9 @@ export class McpNexusProvider extends McpProvider {
     return normalizeResourceList(resp.result);
   }
 
+  /**
+   * @returns {Promise<McpResourceTemplateDefinition[]>}
+   */
   async listResourceTemplates() {
     const transport = await this._discoverTransport();
     if (transport.kind !== TransportKind.JSONRPC) return [];
@@ -671,6 +767,11 @@ export class McpNexusProvider extends McpProvider {
     return normalizeResourceTemplates(resp.result);
   }
 
+  /**
+   * @param {string} uri
+   * @param {{ stream?: boolean }=} options
+   * @returns {Promise<McpResourceReadResult>}
+   */
   async readResource(uri, { stream = false } = {}) {
     const transport = await this._discoverTransport();
     if (transport.kind !== TransportKind.JSONRPC) throw new Error("MCP-Nexus resources/read: unsupported transport");
@@ -692,6 +793,10 @@ export class McpNexusProvider extends McpProvider {
     return content;
   }
 
+  /**
+   * @param {string} uri
+   * @returns {Promise<boolean>}
+   */
   async subscribeResource(uri) {
     const transport = await this._discoverTransport();
     if (transport.kind !== TransportKind.JSONRPC) return false;
@@ -712,6 +817,10 @@ export class McpNexusProvider extends McpProvider {
     }
   }
 
+  /**
+   * @param {string} uri
+   * @returns {Promise<boolean>}
+   */
   async unsubscribeResource(uri) {
     const transport = await this._discoverTransport();
     if (transport.kind !== TransportKind.JSONRPC) return false;
@@ -732,6 +841,11 @@ export class McpNexusProvider extends McpProvider {
     }
   }
 
+  /**
+   * @param {string} toolName
+   * @param {object} [args]
+   * @returns {Promise<McpToolResult>}
+   */
   async callTool(toolName, args = {}) {
     const transport = await this._discoverTransport();
     const name = toNonEmptyString(toolName) || "unknown";

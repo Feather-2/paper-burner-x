@@ -2,6 +2,36 @@ import { matchAnyWildcard, matchAnyGlob } from "./match.js";
 import { makeSecureTimestampedId } from "../../shared/utils/secure-id.js";
 
 import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
+
+/**
+ * @typedef {"allow" | "deny"} PolicyEffect
+ * @typedef {"prompt" | PolicyEffect} PolicyDefaultEffect
+ *
+ * @typedef {Record<string, any>} PolicyRuleInput
+ *
+ * @typedef {PolicyRuleInput & {
+ *   ruleId: string,
+ *   effect: PolicyEffect,
+ *   enabled: boolean,
+ *   priority: number,
+ *   updatedAt: string,
+ * }} NormalizedPolicyRule
+ *
+ * @typedef {object} PolicyRequest
+ * @property {string} [type]
+ * @property {string} [tool]
+ * @property {string} [resource]
+ * @property {string} [path]
+ * @property {string} [ts]
+ *
+ * @typedef {object} PolicyDecision
+ * @property {boolean} allowed
+ * @property {boolean} requiresApproval
+ * @property {PolicyEffect} [effect]
+ * @property {string} [ruleId]
+ * @property {string} reason
+ */
+
 function normalizeEffect(effect) {
   const e = toNonEmptyString(effect).toLowerCase();
   if (e === "deny") return "deny";
@@ -264,21 +294,38 @@ function compareRulePriority(a, b) {
 }
 
 export class PolicyEngine {
+  /**
+   * @param {{ rules?: PolicyRuleInput[] | null, defaultEffect?: PolicyDefaultEffect | string }} [options]
+   */
   constructor({ rules = [], defaultEffect = "prompt" } = {}) {
-    this.defaultEffect = defaultEffect; // "prompt" | "allow" | "deny"
+    /** @type {PolicyDefaultEffect | string} */
+    this.defaultEffect = defaultEffect;
+    /** @type {NormalizedPolicyRule[]} */
     this.rules = [];
     this.setRules(rules);
   }
 
+  /**
+   * @param {PolicyRuleInput[] | null | undefined} rules
+   * @returns {void}
+   */
   setRules(rules) {
     const list = Array.isArray(rules) ? rules : [];
     this.rules = list.map(normalizeRule).sort(compareRulePriority);
   }
 
+  /**
+   * @returns {NormalizedPolicyRule[]}
+   */
   getRules() {
     return [...this.rules];
   }
 
+  /**
+   * Evaluate an access request against allow/deny rules.
+   * @param {PolicyRequest | null | undefined} request
+   * @returns {PolicyDecision}
+   */
   evaluate(request) {
     const req = normalizeRequest(request);
     const type = req.type;

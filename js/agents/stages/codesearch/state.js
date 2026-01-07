@@ -13,6 +13,46 @@ import { CodeSearchPhase, TodoStatus } from "./states.js";
 
 const STATE_SCHEMA_VERSION = "0.1";
 
+/**
+ * @typedef {object} CodeSearchTodo
+ * @property {string=} todoId
+ * @property {string=} id
+ * @property {string=} text
+ * @property {string=} status
+ * @property {any[]=} history
+ * @property {string=} relatedGapId
+ *
+ * @typedef {object} CodeSearchStep
+ * @property {number=} step
+ * @property {string=} tool
+ * @property {any=} args
+ * @property {any=} result
+ * @property {string=} todoId
+ *
+ * @typedef {object} CodeSearchBudgetUsage
+ * @property {number=} input
+ * @property {number=} output
+ * @property {number=} total
+ * @property {number=} estimatedCostUSD
+ *
+ * @typedef {object} CodeSearchStateSnapshot
+ * @property {string=} schemaVersion
+ * @property {string=} runId
+ * @property {string=} createdAt
+ * @property {string=} query
+ * @property {string=} taskGoal
+ * @property {CodeSearchTodo[]=} todos
+ * @property {string=} phase
+ * @property {string[]=} observations
+ * @property {CodeSearchStep[]=} steps
+ * @property {boolean=} awaitUserFeedback
+ * @property {string|null=} pauseReason
+ * @property {string|null=} finalThought
+ * @property {CodeSearchBudgetUsage|any|null=} budgetUsage
+ * @property {any=} memoryStore
+ * @property {any=} stateEngine
+ */
+
 function cloneValue(value) {
   if (value === null || value === undefined) return value;
   try {
@@ -23,6 +63,9 @@ function cloneValue(value) {
 }
 
 export class CodeSearchState {
+  /**
+   * @param {CodeSearchStateSnapshot} [snapshot]
+   */
   constructor({
     runId,
     query,
@@ -145,6 +188,10 @@ export class CodeSearchState {
     }
   }
 
+  /**
+   * @param {CodeSearchTodo} todo
+   * @returns {CodeSearchTodo|null}
+   */
   addTodo(todo) {
     if (!isPlainObject(todo)) return null;
     this._todos.push(todo);
@@ -158,6 +205,11 @@ export class CodeSearchState {
     return todo;
   }
 
+  /**
+   * @param {string} todoId
+   * @param {Partial<CodeSearchTodo>} updates
+   * @returns {CodeSearchTodo|null}
+   */
   updateTodo(todoId, updates) {
     const idx = this._todos.findIndex((t) => t.todoId === todoId || t.id === todoId);
     if (idx === -1) return null;
@@ -208,6 +260,10 @@ export class CodeSearchState {
     return this._observations;
   }
 
+  /**
+   * @param {string} text
+   * @returns {void}
+   */
   addObservation(text) {
     if (!text) return;
     this._observations.push(text);
@@ -217,6 +273,10 @@ export class CodeSearchState {
     return this._steps;
   }
 
+  /**
+   * @param {CodeSearchStep} step
+   * @returns {CodeSearchStep|null}
+   */
   addStep(step) {
     if (!isPlainObject(step)) return null;
     this._steps.push(step);
@@ -227,6 +287,10 @@ export class CodeSearchState {
   // StateEngine 绑定
   // ─────────────────────────────────────────────────────────────────────────────
 
+  /**
+   * @param {any} stateEngine
+   * @returns {void}
+   */
   bindStateEngine(stateEngine) {
     if (this._stateEngineUnsubscribe) {
       try {
@@ -249,6 +313,10 @@ export class CodeSearchState {
     }
   }
 
+  /**
+   * @param {any|null} [nextL0]
+   * @returns {void}
+   */
   _syncFromStateEngine(nextL0 = null) {
     const engine = this._stateEngine;
     if (!engine) return;
@@ -274,6 +342,10 @@ export class CodeSearchState {
   // MemoryStore 绑定
   // ─────────────────────────────────────────────────────────────────────────────
 
+  /**
+   * @param {any} memoryStore
+   * @returns {void}
+   */
   bindMemoryStore(memoryStore) {
     this._memoryStore = memoryStore || null;
     if (!memoryStore) return;
@@ -297,6 +369,9 @@ export class CodeSearchState {
   // 序列化
   // ─────────────────────────────────────────────────────────────────────────────
 
+  /**
+   * @returns {CodeSearchStateSnapshot}
+   */
   buildStateSnapshot() {
     return {
       schemaVersion: this.schemaVersion,
@@ -315,10 +390,17 @@ export class CodeSearchState {
     };
   }
 
+  /**
+   * @returns {CodeSearchStateSnapshot}
+   */
   toJSON() {
     return this.buildStateSnapshot();
   }
 
+  /**
+   * @param {CodeSearchStateSnapshot} json
+   * @returns {CodeSearchState}
+   */
   static fromSnapshot(json) {
     if (!isPlainObject(json)) {
       throw new TypeError("CodeSearchState.fromSnapshot: json must be an object");
@@ -326,6 +408,10 @@ export class CodeSearchState {
     return new CodeSearchState(json);
   }
 
+  /**
+   * @param {CodeSearchStateSnapshot} json
+   * @returns {CodeSearchState}
+   */
   static fromJSON(json) {
     return CodeSearchState.fromSnapshot(json);
   }

@@ -11,6 +11,76 @@ import { ToolRegistry } from "./tool-registry.js";
 import { StatusController } from "./status-controller.js";
 import { DEFAULT_CONTEXT_CONFIG, mergeContextConfig } from "./context-config.js";
 
+/**
+ * @typedef {Record<string, any>} AnyRecord
+ *
+ * @typedef {(eventName: string, record: { actor?: string, status?: string, payload?: any }) => void} EmitFn
+ *
+ * @typedef {{ emit?: EmitFn, subscribe?: (eventName: string, handler: (evt: any) => void, options?: { signal?: AbortSignal }) => (() => void) }} EventBusLike
+ *
+ * @typedef {{ warn?: (...args: any[]) => void, info?: (...args: any[]) => void, error?: (...args: any[]) => void, debug?: (...args: any[]) => void }} LoggerLike
+ *
+ * @typedef {{ count: (text: string) => number }} TokenCounterLike
+ *
+ * @typedef {{ ok: boolean, data?: any, error?: any, [key: string]: any }} ToolResult
+ *
+ * @typedef {(name: string, params: any, context?: any) => any | Promise<any>} ToolExecutor
+ * @typedef {{ execute: (name: string, params: any, context?: any) => any | Promise<any> }} ToolExecutorContainer
+ *
+ * @typedef {{ signal?: AbortSignal, eventBus?: EventBusLike | null, emit?: EmitFn | null, checkCancelled?: (() => void) | null }} StageApiLike
+ *
+ * @typedef {{ force?: boolean, allowReset?: boolean, strict?: boolean, [key: string]: any }} LoopStatusTransitionMeta
+ *
+ * @typedef {{ name?: string, eventBus?: EventBusLike | null, logger?: LoggerLike | null }} BaseStageOptions
+ *
+ * @typedef {object} BaseAgentLoopOptions
+ * @property {EventBusLike | null} [eventBus]
+ * @property {{ transition?: Function } | null} [stateMachine]
+ * @property {Record<string, Function> | Array<[string, Function]> | Map<string, Function> | null} [tools]
+ * @property {string} [actor]
+ * @property {string} [stageName]
+ * @property {EmitFn | null} [emit]
+ * @property {{ before?: Array<(ctx: any) => any>, after?: Array<(ctx: any) => any> } | null} [hooks]
+ * @property {AnyRecord | null} [contextConfig]
+ * @property {LoggerLike | null} [logger]
+ * @property {boolean} [strictLoopStatus]
+ * @property {TokenCounterLike | null} [tokenCounter]
+ *
+ * @typedef {{ timeout?: number, eventBus?: EventBusLike | null, signal?: AbortSignal }} WaitForUserActionOptions
+ * @typedef {{ eventName?: string, signal?: AbortSignal }} AttachListenerOptions
+ * @typedef {{ clear?: boolean }} ConsumeUserInputsOptions
+ * @typedef {{ clear?: boolean }} DrainUserInputsOptions
+ * @typedef {{ key?: string }} ApplyUserInputsOptions
+ *
+ * @typedef {object} TransitionPhaseOptions
+ * @property {EmitFn | null} [emit]
+ * @property {string | null} [runId]
+ * @property {AnyRecord | null} [payload]
+ * @property {string | null} [eventName]
+ *
+ * @typedef {object} StepMeta
+ * @property {string} [stepId]
+ * @property {string} [name]
+ * @property {string} [step]
+ * @property {string | null} [runId]
+ * @property {number | null} [iteration]
+ * @property {any} [meta]
+ *
+ * @typedef {{ payload: any, ts: number }} UserInputEntry
+ *
+ * @typedef {object} StepInfo
+ * @property {string} stepId
+ * @property {string} name
+ * @property {string | null} runId
+ * @property {number | null} iteration
+ * @property {number} startedAt
+ * @property {any} meta
+ *
+ * @typedef {StepInfo & { signal: AbortSignal, controller: AbortController }} ActiveStep
+ *
+ * @typedef {{ status?: string, error?: any, result?: any }} EndStepOptions
+ */
+
 // Re-export 组合类供外部使用
 export { MessageManager, ToolRegistry, StatusController };
 
@@ -20,6 +90,11 @@ export { DEFAULT_CONTEXT_CONFIG, mergeContextConfig };
 const USER_ACTION_PREFIX = "user.action";
 
 // 简单 token 估算 (4 chars ≈ 1 token)
+/**
+ * @param {unknown} text
+ * @param {TokenCounterLike | null | undefined} tokenCounter
+ * @returns {number}
+ */
 function estimateTokens(text, tokenCounter) {
   if (text === null || text === undefined) return 0;
   let rawText = "";
@@ -35,18 +110,29 @@ function estimateTokens(text, tokenCounter) {
   return estimateTokensCached(rawText, tokenCounter);
 }
 
+/**
+ * @returns {boolean}
+ */
 function isProductionRuntime() {
   try {
-    const env = typeof process !== "undefined" ? process.env : null;
+    /** @type {any} */
+    const g = typeof globalThis !== "undefined" ? globalThis : {};
+    const env = g?.process?.env ?? null;
     if (env && typeof env.NODE_ENV === "string") return env.NODE_ENV === "production";
   } catch { /* intentional: process.env may not exist */ }
   try {
-    const mode = import.meta?.env?.MODE;
+    /** @type {any} */
+    const meta = import.meta;
+    const mode = meta?.env?.MODE;
     if (typeof mode === "string") return mode === "production";
   } catch { /* intentional: import.meta.env may not exist */ }
   return false;
 }
 
+/**
+ * @param {unknown} value
+ * @returns {boolean | undefined}
+ */
 function parseBooleanish(value) {
   if (value === true || value === false) return value;
   const s = typeof value === "string" ? value.trim().toLowerCase() : "";
@@ -56,10 +142,16 @@ function parseBooleanish(value) {
   return undefined;
 }
 
+/**
+ * @param {unknown} explicit
+ * @returns {boolean}
+ */
 function resolveStrictLoopStatusTransitions(explicit) {
   if (explicit === true || explicit === false) return explicit;
 
-  const env = typeof process !== "undefined" ? process.env : null;
+  /** @type {any} */
+  const g = typeof globalThis !== "undefined" ? globalThis : {};
+  const env = g?.process?.env ?? null;
   const fromEnv = parseBooleanish(env?.PB_STRICT_LOOP_STATUS_TRANSITIONS);
   if (typeof fromEnv === "boolean") return fromEnv;
 
@@ -81,16 +173,26 @@ const DEFAULT_LOOP_STATUS_TRANSITIONS = Object.freeze({
   [AgentStatus.FAILED]: [AgentStatus.IDLE],
 });
 
-function isAllowedLoopStatusTransition(from, to, meta = {}) {
+/**
+ * @param {string} from
+ * @param {string} to
+ * @param {LoopStatusTransitionMeta} [meta]
+ * @returns {boolean}
+ */
+function isAllowedLoopStatusTransition(from, to, meta = /** @type {LoopStatusTransitionMeta} */ ({})) {
   if (meta && typeof meta === "object") {
     if (meta.force) return true;
     if (meta.allowReset && to === AgentStatus.IDLE) return true;
   }
   if (!isValidAgentStatus(from) || !isValidAgentStatus(to)) return true;
   const allowed = DEFAULT_LOOP_STATUS_TRANSITIONS[from] || [];
-  return allowed.includes(to);
+  return allowed.includes(/** @type {any} */ (to));
 }
 
+/**
+ * @param {any} ctx
+ * @returns {EmitFn | null}
+ */
 export function getEmitFn(ctx) {
   const emit = ctx?.emit || ctx?.eventBus?.emit;
   return typeof emit === "function" ? emit : null;
@@ -98,6 +200,10 @@ export function getEmitFn(ctx) {
 
 export { checkCancelled };
 
+/**
+ * @param {AbortSignal | null | undefined} signal
+ * @throws {StagePausedError}
+ */
 export function checkPaused(signal) {
   const runtimeState = getRuntimeState(signal);
   if (!runtimeState) return;
@@ -110,11 +216,18 @@ export function checkPaused(signal) {
   });
 }
 
+/**
+ * @param {AbortSignal | null | undefined} signal
+ */
 export function checkCancelledOrPaused(signal) {
   checkCancelled(signal);
   checkPaused(signal);
 }
 
+/**
+ * @param {any} result
+ * @returns {ToolResult}
+ */
 export function normalizeToolResult(result) {
   if (result && typeof result === "object" && Object.prototype.hasOwnProperty.call(result, "ok")) {
     return result;
@@ -125,13 +238,24 @@ export function normalizeToolResult(result) {
   return { ok: true, data: result };
 }
 
+/**
+ * @param {any} context
+ * @returns {ToolExecutor | null}
+ */
 export function resolveToolExecutor(context) {
   const executor = context?.toolExecutor || context?.tools;
   if (typeof executor === "function") return executor;
-  if (executor && typeof executor.execute === "function") return (name, params) => executor.execute(name, params);
+  if (executor && typeof executor.execute === "function") {
+    return (name, params, ctx) => executor.execute(name, params, ctx);
+  }
   return null;
 }
 
+/**
+ * @param {AbortSignal | null | undefined} a
+ * @param {AbortSignal | null | undefined} b
+ * @returns {AbortSignal | null}
+ */
 function mergeSignals(a, b) {
   const signals = [a, b].filter(Boolean);
   if (signals.length === 0) return null;
@@ -148,6 +272,10 @@ function mergeSignals(a, b) {
 }
 
 let _stepSeq = 0;
+/**
+ * @param {string | null | undefined} prefix
+ * @returns {string}
+ */
 function buildStepId(prefix) {
   _stepSeq += 1;
   const base = prefix && typeof prefix === "string" ? prefix : "step";
@@ -155,6 +283,9 @@ function buildStepId(prefix) {
 }
 
 export class BaseStage {
+  /**
+   * @param {BaseStageOptions} [options]
+   */
   constructor({ name, eventBus, logger } = {}) {
     this.name = name || "stage";
     this.eventBus = eventBus || null;
@@ -162,7 +293,14 @@ export class BaseStage {
   }
 
   // Standard stage entrypoint.
+  /**
+   * @param {any} runContext
+   * @param {any} input
+   * @param {StageApiLike | null | undefined} [stageApi]
+   * @returns {Promise<any>}
+   */
   async execute(runContext, input, stageApi = {}) {
+    /** @type {StageApiLike} */
     const base = stageApi && typeof stageApi === "object" ? stageApi : {};
     const api = createStageApi({ ...base, eventBus: base.eventBus || this.eventBus });
     api.checkCancelled?.();
@@ -180,10 +318,20 @@ export class BaseStage {
   }
 
   // Subclasses must implement.
+  /**
+   * @param {any} _input
+   * @param {any} _context
+   * @returns {Promise<any>}
+   */
   async run(_input, _context) {
     throw new Error("Subclass must implement run()");
   }
 
+  /**
+   * @param {string} status
+   * @param {AnyRecord} payload
+   * @param {StageApiLike} api
+   */
   _emitStage(status, payload, api) {
     const stageName = String(this.name || "").trim();
     if (!stageName) return;
@@ -192,6 +340,9 @@ export class BaseStage {
 }
 
 export class BaseAgentLoop {
+  /**
+   * @param {BaseAgentLoopOptions} [options]
+   */
   constructor({ eventBus, stateMachine, tools, actor, stageName, emit, hooks, contextConfig, logger, strictLoopStatus, tokenCounter } = {}) {
     this.eventBus = eventBus || null;
     this.logger = logger || null;
@@ -243,164 +394,208 @@ export class BaseAgentLoop {
 
   // ===== 消息管理 (委托给 MessageManager) =====
 
+  /** @returns {any[]} */
   get messages() {
     return this._messageManager.messages;
   }
 
+  /** @returns {any} */
   get _contextConfig() {
     return this._messageManager._contextConfig;
   }
 
+  /** @param {any} value */
   set _contextConfig(value) {
     this._messageManager._contextConfig = value;
   }
 
+  /** @returns {{ input: number, output: number, total: number }} */
   get _tokenUsage() {
     return this._messageManager._tokenUsage;
   }
 
+  /** @returns {any[]} */
   get _compressionHistory() {
     return this._messageManager._compressionHistory;
   }
 
+  /** @returns {Promise<void> | null} */
   get _compressionPromise() {
     return this._messageManager._compressionPromise;
   }
 
+  /** @returns {boolean} */
   get _compressionPending() {
     return this._messageManager._compressionPending;
   }
 
+  /** @param {any} message */
   addMessage(message) {
     return this._messageManager.addMessage(message);
   }
 
+  /** @param {any[]} messages */
   addMessages(messages) {
     return this._messageManager.addMessages(messages);
   }
 
+  /** @param {{ clearCompressionHistory?: boolean } | null | undefined} [options] */
   async resetMessages(options = {}) {
     return this._messageManager.reset(options);
   }
 
+  /** @returns {boolean} */
   _shouldCompress() {
     return this._messageManager._shouldCompress();
   }
 
+  /** @param {{ force?: boolean } | null | undefined} [options] */
   _scheduleCompression(options) {
     return this._messageManager._scheduleCompression(options);
   }
 
+  /** @param {{ maxRounds?: number } | null | undefined} [options] */
   async flushCompression(options) {
     return this._messageManager.flushCompression(options);
   }
 
+  /** @returns {Promise<void>} */
   async _compressMessages() {
     return this._messageManager._compress();
   }
 
+  /** @returns {any} */
   getContextStatus() {
     return this._messageManager.getStatus();
   }
 
+  /** @param {AnyRecord} config */
   setContextConfig(config) {
     return this._messageManager.setContextConfig(config);
   }
 
   // ===== 工具管理 (委托给 ToolRegistry) =====
 
+  /** @param {any} tools */
   registerTools(tools) {
     return this._toolRegistry.registerTools(tools);
   }
 
+  /** @param {string} name @param {Function} fn */
   registerTool(name, fn) {
     return this._toolRegistry.registerTool(name, fn);
   }
 
+  /** @param {"before"|"after"} phase @param {(ctx: any) => any} fn @returns {this} */
   useHook(phase, fn) {
     this._toolRegistry.useHook(phase, fn);
     return this;
   }
 
+  /** @param {string} name @param {any} params @param {any} context @returns {Promise<ToolResult>} */
   async _callTool(name, params, context) {
     return this._toolRegistry.callTool(name, params, context);
   }
 
   // ===== 状态管理 (委托给 StatusController) =====
 
+  /** @returns {string} */
   get loopStatus() {
     return this._statusController.status;
   }
 
+  /** @returns {string} */
   get _loopStatus() {
     return this._statusController._loopStatus;
   }
 
+  /** @param {string} value */
   set _loopStatus(value) {
     this._statusController._loopStatus = value;
   }
 
+  /** @returns {boolean} */
   get isPaused() {
     return this._statusController.isPaused;
   }
 
+  /** @returns {boolean} */
   get _pauseRequested() {
     return this._statusController._pauseRequested;
   }
 
+  /** @param {boolean} value */
   set _pauseRequested(value) {
     this._statusController._pauseRequested = value;
   }
 
+  /** @returns {string | null} */
   get _pauseReason() {
     return this._statusController._pauseReason;
   }
 
+  /** @param {string | null} value */
   set _pauseReason(value) {
     this._statusController._pauseReason = value;
   }
 
+  /** @returns {any[]} */
   get statusHistory() {
     return this._statusController.statusHistory;
   }
 
+  /** @returns {any[]} */
   get _statusHistory() {
     return this._statusController._statusHistory;
   }
 
+  /** @param {{ status?: string, machine?: any, eventName?: string, strict?: boolean } | null | undefined} [options] */
   initLoopStatus({ status, machine, eventName, strict } = {}) {
     this._statusController.init({ status, machine, eventName, strict });
   }
 
+  /** @param {string} [reason] */
   pause(reason = "user_requested") {
     this._statusController.pause(reason);
     this._abortActiveStep(reason);
   }
 
+  /** @returns {void} */
   resume() {
     this._statusController.resume();
   }
 
+  /** @param {string} newStatus @param {LoopStatusTransitionMeta} [metadata] */
   _transitionLoopStatus(newStatus, metadata = {}) {
     return this._statusController.transition(newStatus, metadata);
   }
 
+  /** @param {AbortSignal | null | undefined} signal */
   _checkPaused(signal) {
     return this._statusController.checkPaused(signal);
   }
 
+  /** @param {{ signal?: AbortSignal, runId?: string | null } | null | undefined} [options] */
   _createPauseError(options) {
     return this._statusController.createPauseError(options);
   }
 
+  /** @param {any} err @param {AbortSignal | null | undefined} signal */
   _shouldPauseFromError(err, signal) {
     return this._statusController.shouldPauseFromError(err, signal);
   }
 
+  /** @param {any} err @param {AbortSignal | null | undefined} signal */
   _isAbortError(err, signal) {
     return this._statusController._isAbortError(err, signal);
   }
 
+  /**
+   * @param {any} state
+   * @param {string} next
+   * @param {TransitionPhaseOptions} [options]
+   * @returns {string}
+   */
   _transitionPhase(state, next, { emit, runId, payload, eventName } = {}) {
     const from = state?.status ?? state?.state;
     let ok = true;
@@ -428,6 +623,11 @@ export class BaseAgentLoop {
     return next;
   }
 
+  /**
+   * @param {string} actionName
+   * @param {WaitForUserActionOptions} [options]
+   * @returns {Promise<any>}
+   */
   async waitForUserAction(actionName, { timeout = 300000, eventBus, signal } = {}) {
     const bus = eventBus || this.eventBus;
     if (!bus || typeof bus.subscribe !== "function") {
@@ -467,11 +667,24 @@ export class BaseAgentLoop {
     });
   }
 
-  async run() {
+  /**
+   * Subclasses should implement: (input, context) => Promise<unknown>
+   * @param {any} _input
+   * @param {AnyRecord} _context
+   * @returns {Promise<any>}
+   */
+  async run(_input, _context) {
     throw new Error("BaseAgentLoop.run() is not implemented");
   }
 
+  /**
+   * @param {any} runContext
+   * @param {any} input
+   * @param {StageApiLike | null | undefined} [stageApi]
+   * @returns {Promise<any>}
+   */
   async execute(runContext, input, stageApi = {}) {
+    /** @type {StageApiLike} */
     const base = stageApi && typeof stageApi === "object" ? stageApi : {};
 
     // Ensure we can clean up all per-execute subscriptions (EventBus listeners, etc.).
@@ -509,6 +722,10 @@ export class BaseAgentLoop {
     }
   }
 
+  /**
+   * @param {EventBusLike} eventBus
+   * @param {AttachListenerOptions} [options]
+   */
   _attachUserInputListener(eventBus, { eventName, signal } = {}) {
     if (!eventBus || typeof eventBus.subscribe !== "function") return;
     const resolvedEvent = typeof eventName === "string" && eventName ? eventName : this._userInputEvent;
@@ -519,13 +736,17 @@ export class BaseAgentLoop {
     this._userInputUnsub = eventBus.subscribe(
       resolvedEvent,
       (evt) => {
-      const payload = evt && typeof evt === "object" && "payload" in evt ? evt.payload : evt;
-      this.recordUserInput(payload);
+        const payload = evt && typeof evt === "object" && "payload" in evt ? evt.payload : evt;
+        this.recordUserInput(payload);
       },
       { ...(signal ? { signal } : {}) }
     );
   }
 
+  /**
+   * @param {EventBusLike} eventBus
+   * @param {{ signal?: AbortSignal }} [options]
+   */
   _attachPauseListener(eventBus, { signal } = {}) {
     if (!eventBus || typeof eventBus.subscribe !== "function") return;
     if (this._pauseListenerUnsub) return;
@@ -540,6 +761,7 @@ export class BaseAgentLoop {
     );
   }
 
+  /** @returns {void} */
   _detachEventBusListeners() {
     if (typeof this._userInputUnsub === "function") {
       try {
@@ -561,6 +783,10 @@ export class BaseAgentLoop {
     this._pauseListenerUnsub = null;
   }
 
+  /**
+   * @param {any} payload
+   * @returns {UserInputEntry}
+   */
   recordUserInput(payload) {
     const entry = {
       payload,
@@ -574,18 +800,31 @@ export class BaseAgentLoop {
     return entry;
   }
 
+  /**
+   * @param {ConsumeUserInputsOptions} [options]
+   * @returns {UserInputEntry[]}
+   */
   consumeUserInputs({ clear = true } = {}) {
     const items = Array.isArray(this._userInputs) ? [...this._userInputs] : [];
     if (clear) this._userInputs = [];
     return items;
   }
 
+  /**
+   * @param {DrainUserInputsOptions} [options]
+   * @returns {{ items: UserInputEntry[], text: string }}
+   */
   drainUserInputsAsText({ clear = true } = {}) {
     const items = this.consumeUserInputs({ clear });
     const text = this.formatUserInputs(items);
     return { items, text };
   }
 
+  /**
+   * @param {AnyRecord} userConfig
+   * @param {ApplyUserInputsOptions} [options]
+   * @returns {AnyRecord}
+   */
   applyUserInputsToConfig(userConfig, { key = "userNotes" } = {}) {
     const { items, text } = this.drainUserInputsAsText({ clear: true });
     if (!text) return userConfig;
@@ -598,10 +837,15 @@ export class BaseAgentLoop {
     return next;
   }
 
+  /** @returns {boolean} */
   hasPendingUserInputs() {
     return Array.isArray(this._userInputs) && this._userInputs.length > 0;
   }
 
+  /**
+   * @param {Array<UserInputEntry | any>} items
+   * @returns {string}
+   */
   formatUserInputs(items) {
     const list = Array.isArray(items) ? items : [];
     const lines = [];
@@ -629,6 +873,11 @@ export class BaseAgentLoop {
     return lines.filter(Boolean).join("\n");
   }
 
+  /**
+   * @param {StepMeta} [stepMeta]
+   * @param {AnyRecord} [context]
+   * @returns {{ step: StepInfo, context: AnyRecord }}
+   */
   _beginStep(stepMeta = {}, context = {}) {
     const meta = stepMeta && typeof stepMeta === "object" ? stepMeta : {};
     const stepId = meta.stepId || buildStepId(this.stageName);
@@ -650,10 +899,14 @@ export class BaseAgentLoop {
     };
   }
 
+  /**
+   * @param {{ step?: StepInfo } | null | undefined} stepInfo
+   * @param {EndStepOptions} [options]
+   */
   _endStep(stepInfo, { status = "completed", error, result } = {}) {
     const step = stepInfo?.step || this._activeStep;
     if (!step) return;
-    const payload = { ...step };
+    const payload = /** @type {AnyRecord} */ ({ ...step });
     if (error) payload.error = error;
     if (result !== undefined) payload.result = result;
     this._emitStepEvent(status, payload);
@@ -662,49 +915,30 @@ export class BaseAgentLoop {
     }
   }
 
+  /**
+   * @param {string} status
+   * @param {AnyRecord} payload
+   */
   _emitStepEvent(status, payload) {
     const emit = this.emit || this.eventBus?.emit;
     if (typeof emit !== "function") return;
     emit(`${this.stageName}.step.${status}`, { actor: this.actor, status, payload });
   }
 
+  /** @param {string | null | undefined} reason */
   _abortActiveStep(reason) {
     const controller = this._activeStep?.controller;
     if (!controller || controller.signal.aborted) return;
     controller.abort(reason || "paused");
   }
 
+  /**
+   * @param {AbortSignal | null | undefined} parentSignal
+   * @returns {{ signal: AbortSignal, controller: AbortController }}
+   */
   _createStepSignal(parentSignal) {
     const controller = new AbortController();
     const signal = mergeSignals(parentSignal, controller.signal) || controller.signal;
     return { signal, controller };
-  }
-
-  _isAbortError(err, signal) {
-    if (!err) return false;
-    if (signal?.aborted) return true;
-    const name = err.name || err.code;
-    if (name === "AbortError" || name === "CanceledError" || name === "CancelledError") return true;
-    const msg = err instanceof Error ? err.message : String(err);
-    return msg.toLowerCase().includes("aborted") || msg.toLowerCase().includes("cancelled");
-  }
-
-  _shouldPauseFromError(err, signal) {
-    const runtimeState = getRuntimeState(signal);
-    const pauseRequested = this._pauseRequested || runtimeState?.status === "paused";
-    if (!pauseRequested) return false;
-    return this._isAbortError(err, signal);
-  }
-
-  _createPauseError({ signal, runId } = {}) {
-    const runtimeState = getRuntimeState(signal);
-    const reason = runtimeState?.pausedReason || this._pauseReason || null;
-    const checkpointId = runtimeState?.lastCheckpointId ?? null;
-    return new StagePausedError("Run paused", {
-      checkpointId,
-      reason,
-      timestamp: Date.now(),
-      runId,
-    });
   }
 }

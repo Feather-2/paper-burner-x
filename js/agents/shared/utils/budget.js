@@ -8,7 +8,35 @@ export const BudgetAction = Object.freeze({
   STOP: "stop", // 硬停止
 });
 
+/**
+ * @typedef {"continue"|"degrade"|"stop"} BudgetActionValue
+ */
+
+/**
+ * @typedef {{ input: number, output: number, total: number }} BudgetUsage
+ */
+
+/**
+ * @typedef {{ input: number, output: number, total: number }} BudgetLimits
+ */
+
+/**
+ * @typedef {(event: { action: BudgetActionValue, usage: BudgetUsage, limits: BudgetLimits, ratio: number }) => void} BudgetThresholdCallback
+ */
+
+/**
+ * @typedef {object} BudgetManagerOptions
+ * @property {number=} maxInputTokens
+ * @property {number=} maxOutputTokens
+ * @property {number=} maxTotalTokens
+ * @property {number=} degradeThreshold
+ * @property {BudgetThresholdCallback=} onThresholdReached
+ */
+
 export class BudgetManager {
+  /**
+   * @param {BudgetManagerOptions} [options]
+   */
   constructor({
     maxInputTokens = 500000,
     maxOutputTokens = 200000,
@@ -31,7 +59,7 @@ export class BudgetManager {
 
   /**
    * 检查是否超出预算
-   * @returns {BudgetAction}
+   * @returns {BudgetActionValue}
    */
   checkBudget() {
     if (this.stopped) return BudgetAction.STOP;
@@ -59,7 +87,7 @@ export class BudgetManager {
   /**
    * 记录实际消耗
    * @param {object} tokens - { input, output }
-   * @returns {BudgetAction}
+   * @returns {BudgetActionValue}
    */
   recordUsage({ input = 0, output = 0 } = {}) {
     this.usage.input += Math.max(0, input);
@@ -118,7 +146,7 @@ export class BudgetManager {
  * 创建 budget 管理器的工厂函数
  */
 export function createBudgetManager(userConfig = {}) {
-  const budgetConfig = userConfig?.budget || {};
+  const budgetConfig = /** @type {any} */ (userConfig?.budget || {});
   return new BudgetManager({
     maxInputTokens: budgetConfig.maxInputTokens,
     maxOutputTokens: budgetConfig.maxOutputTokens,
@@ -161,17 +189,18 @@ export class RecursiveBudgetManager extends BudgetManager {
     maxDepth = 5,
     ...baseOptions
   } = {}) {
+    const base = /** @type {any} */ (baseOptions);
     // 从父级继承预算
     if (parent) {
       const remaining = parent.getRemaining();
       const ratio = Math.min(1, Math.max(0.1, inheritRatio));
 
-      baseOptions.maxInputTokens = baseOptions.maxInputTokens ?? Math.floor(remaining.input * ratio);
-      baseOptions.maxOutputTokens = baseOptions.maxOutputTokens ?? Math.floor(remaining.output * ratio);
-      baseOptions.maxTotalTokens = baseOptions.maxTotalTokens ?? Math.floor(remaining.total * ratio);
+      base.maxInputTokens = base.maxInputTokens ?? Math.floor(remaining.input * ratio);
+      base.maxOutputTokens = base.maxOutputTokens ?? Math.floor(remaining.output * ratio);
+      base.maxTotalTokens = base.maxTotalTokens ?? Math.floor(remaining.total * ratio);
     }
 
-    super(baseOptions);
+    super(base);
 
     this._parent = parent;
     this._inheritRatio = inheritRatio;

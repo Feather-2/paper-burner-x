@@ -13,9 +13,23 @@
 import { RuntimeAdapter, RuntimeType } from './runtime-adapter.js';
 import { createLogger } from "../../shared/utils/logger.js";
 
+/**
+ * @typedef {import('./runtime-adapter.js').ExecutionContext} ExecutionContext
+ * @typedef {import('./runtime-adapter.js').ExecutionResult} ExecutionResult
+ *
+ * @typedef {object} JSRuntimeAdapterOptions
+ * @property {string} [id]
+ * @property {boolean} [skipValidation]
+ * @property {boolean} [useWorkerSandbox]
+ * @property {number} [timeout]
+ *
+ * @typedef {{ valid: boolean, reason?: string }} CodeValidationResult
+ */
+
 const logger = createLogger("runtime/core/js-adapter");
 
 // 危险模式检测（基础防护，fallback 时使用）
+/** @type {RegExp[]} */
 const DANGEROUS_PATTERNS = [
   /\beval\s*\(/,
   /\bFunction\s*\(/,
@@ -31,6 +45,10 @@ const DANGEROUS_PATTERNS = [
   /\bconstructor\s*\[/,
 ];
 
+/**
+ * @param {string} code
+ * @returns {CodeValidationResult}
+ */
 function validateCode(code) {
   for (const pattern of DANGEROUS_PATTERNS) {
     if (pattern.test(code)) {
@@ -41,16 +59,24 @@ function validateCode(code) {
 }
 
 export class JSRuntimeAdapter extends RuntimeAdapter {
+  /**
+   * @param {JSRuntimeAdapterOptions} [options]
+   */
   constructor(options = {}) {
     super({ ...options, type: RuntimeType.JS });
     this.skipValidation = options.skipValidation || false;
     this.useWorkerSandbox = options.useWorkerSandbox !== false; // 默认启用
     this.timeout = options.timeout || 30000;
+    /** @type {Worker | null} */
     this._worker = null;
+    /** @type {Map<number, { resolve: (result: ExecutionResult) => void }>} */
     this._pendingRequests = new Map();
     this._requestId = 0;
   }
 
+  /**
+   * @returns {Promise<boolean>}
+   */
   async initialize() {
     if (!this.useWorkerSandbox) return true;
     if (this._worker) return true;
@@ -94,6 +120,11 @@ export class JSRuntimeAdapter extends RuntimeAdapter {
     }
   }
 
+  /**
+   * @param {string} code
+   * @param {ExecutionContext | null | undefined} context
+   * @returns {Promise<ExecutionResult>}
+   */
   async execute(code, context) {
     await this.initialize();
 
@@ -106,6 +137,11 @@ export class JSRuntimeAdapter extends RuntimeAdapter {
     return this._executeInMainThread(code, context);
   }
 
+  /**
+   * @param {string} code
+   * @param {ExecutionContext | null | undefined} context
+   * @returns {Promise<ExecutionResult>}
+   */
   async _executeInWorker(code, context) {
     const id = ++this._requestId;
 
@@ -143,6 +179,11 @@ export class JSRuntimeAdapter extends RuntimeAdapter {
     });
   }
 
+  /**
+   * @param {string} code
+   * @param {ExecutionContext | null | undefined} context
+   * @returns {Promise<ExecutionResult>}
+   */
   async _executeInMainThread(code, context) {
     const startTime = Date.now();
 
@@ -182,6 +223,9 @@ export class JSRuntimeAdapter extends RuntimeAdapter {
     }
   }
 
+  /**
+   * @returns {Promise<void>}
+   */
   async terminate() {
     if (this._worker) {
       this._worker.terminate();

@@ -37,8 +37,8 @@ export const TaskPriority = {
 
 export class WorkerPool {
   /**
-   * @param {object} options
-   * @param {function} options.createWorker - Factory function to create Worker
+   * @param {object} [options]
+   * @param {function} [options.createWorker] - Factory function to create Worker
    * @param {number} [options.maxWorkers=4]
    * @param {number} [options.idleTimeoutMs=30000]
    * @param {number} [options.taskTimeoutMs=60000]
@@ -62,7 +62,7 @@ export class WorkerPool {
     this._workers = new Map();
     this._nextWorkerId = 0;
 
-    /** @type {Array<{ method: string, params: any, priority: number, resolve: Function, reject: Function, signal?: AbortSignal }>} */
+    /** @type {Array<{ method: string, params: any, priority: number, resolve: Function, reject: Function, signal?: AbortSignal, timeoutMs?: number }>} */
     this._taskQueue = [];
 
     this._idleCheckTimer = null;

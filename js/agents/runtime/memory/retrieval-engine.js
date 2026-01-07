@@ -162,6 +162,9 @@ export class RetrievalEngine {
     }
   }
 
+  /**
+   * @param {{ timeoutMs?: number }} [options]
+   */
   async ensureIndexed({ timeoutMs } = {}) {
     const svc = this.embeddingService;
     const idx = this.vectorIndex;
@@ -207,8 +210,10 @@ export class RetrievalEngine {
    * @param {number|{limit?:number}} [limitOrOptions]
    */
   recall(query, limitOrOptions = 3) {
-    if (isPlainObject(limitOrOptions)) return this.keywordRecall(query, limitOrOptions);
-    return this.keywordRecall(query, { limit: limitOrOptions });
+    if (isPlainObject(limitOrOptions)) {
+      return this.keywordRecall(query, /** @type {{ limit?: number }} */ (limitOrOptions));
+    }
+    return this.keywordRecall(query, { limit: /** @type {number} */ (limitOrOptions) });
   }
 
   keywordRecall(query, { limit = 3 } = {}) {
@@ -253,6 +258,10 @@ export class RetrievalEngine {
       .filter(Boolean);
   }
 
+  /**
+   * @param {string} query
+   * @param {{ limit?: number, fallback?: boolean, timeoutMs?: number }} [options]
+   */
   async semanticRecall(query, { limit = 3, fallback = true, timeoutMs } = {}) {
     const q = toNonEmptyString(query) || "";
     const k = toPositiveInt(limit, 3);

@@ -11,8 +11,42 @@
 import { parseSections, extractElements } from "../refiner/react-refiner-tools.js";
 
 /**
+ * @typedef {import("../refiner/react-refiner-tools.js").ExtractedElement} ExtractedElement
+ */
+
+/**
+ * @typedef {object} DeckPackage
+ * @property {string} deckHtmlDsl
+ * @property {any[]} [slidesMeta]
+ */
+
+/**
+ * @typedef {object} SlideDsl
+ * @property {number} slideIndex
+ * @property {string} html
+ * @property {ExtractedElement[]} elements
+ */
+
+/**
+ * @typedef {object} AnalyzerIssue
+ * @property {string} type
+ * @property {"warning"|"error"|"info"|string} severity
+ * @property {string} message
+ * @property {any} [details]
+ */
+
+/**
+ * @typedef {object} AnalyzerStats
+ * @property {number} totalSlides
+ * @property {Map<string, number>} colorUsage
+ * @property {Map<string, number>} fontUsage
+ * @property {Map<string, number>} layoutTypes
+ */
+
+/**
  * 分析器配置（软限制，仅供参考）
  */
+/** @type {{ softLimits: any, locateCandidates: number }} */
 export const ANALYZER_CONFIG = {
   // 这些是软限制，最终由 AI 评判
   softLimits: {
@@ -27,6 +61,9 @@ export const ANALYZER_CONFIG = {
 
 /**
  * 收集所有页面的 DSL
+ *
+ * @param {string} deckHtmlDsl
+ * @returns {SlideDsl[]}
  */
 export function collectAllDsl(deckHtmlDsl) {
   const sections = parseSections(deckHtmlDsl);
@@ -39,6 +76,9 @@ export function collectAllDsl(deckHtmlDsl) {
 
 /**
  * 提取设计令牌摘要
+ *
+ * @param {any} designSystem
+ * @returns {{ theme?: string, colorScheme?: string, fontFamily?: string, accentColor?: string } | null}
  */
 export function extractDesignTokensSummary(designSystem) {
   if (!designSystem) return null;
@@ -53,6 +93,10 @@ export function extractDesignTokensSummary(designSystem) {
 
 /**
  * 分析风格一致性
+ *
+ * @param {SlideDsl[]} allSlidesDsl
+ * @param {any} designSystem
+ * @returns {{ issues: AnalyzerIssue[], stats: AnalyzerStats }}
  */
 export function analyzeStyleConsistency(allSlidesDsl, designSystem) {
   const issues = [];
@@ -112,6 +156,10 @@ export function analyzeStyleConsistency(allSlidesDsl, designSystem) {
 
 /**
  * 定位元素（自然语言 → selector）
+ *
+ * @param {string} slideHtml
+ * @param {string} description
+ * @returns {{ found: boolean, element: ExtractedElement|null, selector: string|null, candidates?: ExtractedElement[] }}
  */
 export function locateElement(slideHtml, description) {
   const elements = extractElements(slideHtml);
@@ -153,6 +201,9 @@ export function locateElement(slideHtml, description) {
  * DeckAnalyzer 类
  */
 export class DeckAnalyzer {
+  /**
+   * @param {{ screenshotFn?: Function, stitcher?: any }} [options={}]
+   */
   constructor(options = {}) {
     this._screenshotFn = options.screenshotFn;
     this._stitcher = options.stitcher;
@@ -160,6 +211,10 @@ export class DeckAnalyzer {
 
   /**
    * 创建 deck 概览（多页截图拼接）
+   *
+   * @param {DeckPackage} deckPackage
+   * @param {{ scale?: number, includeScreenshots?: boolean } & Record<string, any>} [options={}]
+   * @returns {Promise<{ success: boolean, error?: string, data?: any }>}
    */
   async createDeckOverview(deckPackage, options = {}) {
     if (!this._screenshotFn) {
@@ -190,6 +245,9 @@ export class DeckAnalyzer {
 
   /**
    * 收集所有页面 DSL
+   *
+   * @param {DeckPackage} deckPackage
+   * @returns {SlideDsl[]}
    */
   collectAllDsl(deckPackage) {
     return collectAllDsl(deckPackage?.deckHtmlDsl || "");
@@ -197,6 +255,10 @@ export class DeckAnalyzer {
 
   /**
    * 风格一致性分析
+   *
+   * @param {DeckPackage} deckPackage
+   * @param {any} designSystem
+   * @returns {{ issues: AnalyzerIssue[], stats: AnalyzerStats }}
    */
   analyzeStyleConsistency(deckPackage, designSystem) {
     const allDsl = this.collectAllDsl(deckPackage);
@@ -205,6 +267,10 @@ export class DeckAnalyzer {
 
   /**
    * 定位元素
+   *
+   * @param {string} slideHtml
+   * @param {string} description
+   * @returns {{ found: boolean, element: ExtractedElement|null, selector: string|null, candidates?: ExtractedElement[] }}
    */
   locateElement(slideHtml, description) {
     return locateElement(slideHtml, description);
@@ -212,6 +278,11 @@ export class DeckAnalyzer {
 
   /**
    * 综合分析
+   *
+   * @param {DeckPackage} deckPackage
+   * @param {any} designSystem
+   * @param {{ includeScreenshots?: boolean } & Record<string, any>} [options={}]
+   * @returns {Promise<{ slideCount: number, allDsl: SlideDsl[], styleAnalysis: { issues: AnalyzerIssue[], stats: AnalyzerStats }, tokensSummary: any, overview: any }>}
    */
   async analyze(deckPackage, designSystem, options = {}) {
     const allDsl = this.collectAllDsl(deckPackage);
@@ -236,6 +307,10 @@ export class DeckAnalyzer {
   }
 }
 
+/**
+ * @param {{ screenshotFn?: Function, stitcher?: any } & Record<string, any>} [options={}]
+ * @returns {DeckAnalyzer}
+ */
 export function createDeckAnalyzer(options = {}) {
   return new DeckAnalyzer(options);
 }

@@ -75,6 +75,7 @@ export const LAYOUT_REGIONS = {
 };
 
 /** CSS class 到 LayoutType 的映射 */
+/** @type {Record<string, LayoutType>} */
 const CSS_TO_LAYOUT = {
   hero: "cover",
   "two-column": "two_column",
@@ -83,6 +84,7 @@ const CSS_TO_LAYOUT = {
 };
 
 /** pageType 到 LayoutType 的映射 */
+/** @type {Record<string, LayoutType>} */
 const PAGE_TYPE_TO_LAYOUT = {
   cover: "cover",
   agenda: "agenda",
@@ -113,7 +115,9 @@ export function layoutTypeFromCss(cssClass) {
   const m = String(cssClass || "").match(/layout-(\w+(?:-\w+)?)/);
   if (!m) return "content";
   const key = m[1].replace(/-/g, "_");
-  return CSS_TO_LAYOUT[m[1]] || LAYOUT_REGIONS[key] ? key : "content";
+  const mapped = CSS_TO_LAYOUT[m[1]];
+  if (mapped) return mapped;
+  return Object.prototype.hasOwnProperty.call(LAYOUT_REGIONS, key) ? /** @type {LayoutType} */ (key) : "content";
 }
 
 /**

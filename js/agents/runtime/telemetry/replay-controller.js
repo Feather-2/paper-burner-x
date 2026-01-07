@@ -35,6 +35,13 @@ function normalizeSpeed(speed) {
 }
 
 export class RunReplayController {
+  /**
+   * @param {object} [param0]
+   * @param {{ getEvents: (runId: string) => (Promise<Array<any>>|Array<any>) }} [param0.runStore]
+   * @param {{ _dispatch?: (record: any) => void, emit?: (name: string, record: any) => void }} [param0.eventBus]
+   * @param {number} [param0.speed]
+   * @param {number} [param0.maxDelayMs]
+   */
   constructor({ runStore, eventBus, speed = 1, maxDelayMs = 1200 } = {}) {
     if (!runStore || typeof runStore.getEvents !== "function") {
       throw new TypeError("RunReplayController(runStore): runStore.getEvents must be a function");
@@ -67,6 +74,12 @@ export class RunReplayController {
     };
   }
 
+  /**
+   * @param {string} runId
+   * @param {object} [param1]
+   * @param {Array<any>=} param1.events
+   * @returns {Promise<RunReplayController>}
+   */
   async load(runId, { events } = {}) {
     if (!runId || typeof runId !== "string") {
       throw new TypeError("RunReplayController.load(runId): runId must be a string");
@@ -110,6 +123,11 @@ export class RunReplayController {
     this.speed = normalizeSpeed(speed);
   }
 
+  /**
+   * @param {object} [param0]
+   * @param {number=} param0.fromIndex
+   * @param {number=} param0.speed
+   */
   play({ fromIndex, speed } = {}) {
     if (Number.isFinite(speed)) this.setSpeed(speed);
     if (Number.isFinite(fromIndex)) {
@@ -136,6 +154,11 @@ export class RunReplayController {
     this._status = "idle";
   }
 
+  /**
+   * @param {object} [param0]
+   * @param {number=} param0.index
+   * @param {number=} param0.offsetMs
+   */
   seek({ index, offsetMs } = {}) {
     if (Number.isFinite(index)) {
       this._cursor = clampIndex(index, this._events.length);
@@ -195,4 +218,3 @@ export class RunReplayController {
     }
   }
 }
-

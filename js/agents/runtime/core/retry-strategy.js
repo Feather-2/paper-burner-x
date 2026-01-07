@@ -12,6 +12,13 @@ import { createLogger } from "../../shared/utils/logger.js";
 
 const logger = createLogger("runtime/core/retry-strategy");
 
+/**
+ * @typedef {Error & {
+ *   code?: string,
+ *   status?: number,
+ * }} RetryableError
+ */
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
@@ -39,7 +46,7 @@ const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
 
 /**
  * Check if error is retryable
- * @param {Error} error
+ * @param {RetryableError} error
  * @returns {boolean}
  */
 export function isRetryableError(error) {

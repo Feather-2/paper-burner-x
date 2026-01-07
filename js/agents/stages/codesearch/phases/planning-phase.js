@@ -19,7 +19,47 @@ import { formatToolDefinitionsForLLM } from "../code-tools.js";
 const logger = createLogger("stages/codesearch/phases/planning-phase");
 
 /**
+ * @typedef {object} CodeSearchTodoLike
+ * @property {string=} todoId
+ * @property {string=} text
+ * @property {string=} priority
+ * @property {string=} status
+ * @property {string[]=} queryHints
+ * @property {string=} expectedEvidence
+ * @property {string=} source
+ * @property {string=} createdAt
+ *
+ * @typedef {object} CodeSearchStateLike
+ * @property {string=} query
+ * @property {string=} taskGoal
+ * @property {CodeSearchTodoLike[]=} todos
+ * @property {(todo: CodeSearchTodoLike) => (CodeSearchTodoLike|null)=} addTodo
+ * @property {(text: string) => void=} addObservation
+ *
+ * @typedef {object} BudgetManagerLike
+ * @property {(usage: { input: number, output: number }) => void=} recordUsage
+ *
+ * @typedef {(eventName: string, payload: any) => void} EmitFn
+ *
+ * @typedef {(messages: Array<{ role: string, content: string }>, options?: any) => Promise<any>} CallModelFn
+ *
+ * @typedef {object} RunPlanningPhaseArgs
+ * @property {CodeSearchStateLike} state
+ * @property {CallModelFn} callModel
+ * @property {BudgetManagerLike=} budgetManager
+ * @property {EmitFn=} emit
+ * @property {AbortSignal|null=} signal
+ *
+ * @typedef {object} PlanningPhaseResult
+ * @property {boolean} success
+ * @property {CodeSearchTodoLike[]} todos
+ * @property {string=} error
+ */
+
+/**
  * 解析 Todo 规划输出
+ * @param {string} text
+ * @returns {any[]|null}
  */
 function parseTodoPlannerOutput(text) {
   if (!text) return null;
@@ -46,6 +86,8 @@ function parseTodoPlannerOutput(text) {
 
 /**
  * 规范化 Todo 输入
+ * @param {any} item
+ * @returns {CodeSearchTodoLike|null}
  */
 function normalizeTodoInput(item) {
   if (typeof item === "string") return { text: item };
@@ -68,6 +110,8 @@ function normalizeTodoInput(item) {
 
 /**
  * 运行 Todo 规划阶段
+ * @param {RunPlanningPhaseArgs} args
+ * @returns {Promise<PlanningPhaseResult>}
  */
 export async function runPlanningPhase({
   state,
@@ -134,6 +178,7 @@ export async function runPlanningPhase({
 
 /**
  * 构建系统 Prompt
+ * @returns {string}
  */
 export function buildSystemPrompt() {
   return CODESEARCH_SYSTEM_PROMPT.replace("{TOOLS}", formatToolDefinitionsForLLM());
@@ -141,6 +186,8 @@ export function buildSystemPrompt() {
 
 /**
  * 格式化待办列表
+ * @param {CodeSearchTodoLike[]|null|undefined} todos
+ * @returns {string}
  */
 export function formatOpenTodos(todos) {
   const openTodos = Array.isArray(todos)
@@ -163,6 +210,8 @@ export function formatOpenTodos(todos) {
 
 /**
  * 判断 Todo 是否打开
+ * @param {CodeSearchTodoLike|null|undefined} todo
+ * @returns {boolean}
  */
 export function isTodoOpen(todo) {
   const status = toNonEmptyString(todo?.status)?.toLowerCase() || TodoStatus.OPEN;

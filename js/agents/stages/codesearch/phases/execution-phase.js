@@ -17,6 +17,16 @@ import { formatOpenTodos, isTodoOpen } from "./planning-phase.js";
 
 const logger = createLogger("stages/codesearch/phases/execution-phase");
 
+/**
+ * @typedef {object} WatchdogOutputArgs
+ * @property {number=} step
+ * @property {string=} todoId
+ * @property {any=} decision
+ * @property {string=} actionName
+ * @property {any=} args
+ * @property {string=} resultSummary
+ */
+
 function safeJsonStringify(value, maxChars = 600) {
   try {
     const text = JSON.stringify(value);
@@ -59,6 +69,10 @@ function summarizeToolResultForWatchdog(toolName, result) {
   }
 }
 
+/**
+ * @param {WatchdogOutputArgs=} args
+ * @returns {string}
+ */
 function buildWatchdogOutput({ step, todoId, decision, actionName, args, resultSummary } = {}) {
   const parts = [];
   if (Number.isFinite(step)) parts.push(`step=${step}`);

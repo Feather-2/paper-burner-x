@@ -6,6 +6,8 @@
 
 import { createPlugin } from '../../core/plugin.js';
 
+/** @typedef {import('../../core/plugin.js').PluginContext} PluginContext */
+
 export default createPlugin({
   name: 'debug/logger',
   version: '1.0.0',
@@ -19,6 +21,10 @@ export default createPlugin({
     maxDataLength: 500,
   },
 
+  /**
+   * @param {PluginContext} ctx
+   * @returns {void}
+   */
   install(ctx) {
     const levels = { debug: 0, info: 1, warn: 2, error: 3 };
     const currentLevel = levels[ctx.config.level] || 0;
@@ -69,8 +75,19 @@ export default createPlugin({
 
     // 暴露服务接口（便于调试/测试）
     ctx.registerService('logger', {
+      /**
+       * @returns {Record<string, any>}
+       */
       getConfig: () => ({ ...ctx.config }),
+
+      /**
+       * @returns {any[]}
+       */
       getBuffer: () => buffer.slice(),
+
+      /**
+       * @returns {boolean}
+       */
       clearBuffer: () => {
         buffer.length = 0;
         return true;

@@ -147,6 +147,14 @@ async function ensureManifest(runStore, runId) {
   return m;
 }
 
+/**
+ * Export a stored run (manifest + events + artifacts) as a zip archive.
+ *
+ * @param {string} runId
+ * @param {Object} [options]
+ * @param {import("./run-store.js").RunStore} [options.runStore]
+ * @returns {Promise<Blob|Uint8Array>}
+ */
 export async function exportRunAsZip(runId, { runStore = new RunStore() } = {}) {
   const JSZip = await getJSZip();
   const zip = new JSZip();
@@ -385,6 +393,18 @@ function resolveZipFile(zip, candidates) {
   return null;
 }
 
+/**
+ * Import a run (manifest + events + artifacts) from a zip archive.
+ *
+ * @param {Blob|ArrayBuffer|Uint8Array|{ arrayBuffer: () => Promise<ArrayBuffer> }} file
+ * @param {Object} [options]
+ * @param {import("./run-store.js").RunStore} [options.runStore]
+ * @param {boolean} [options.overwrite=true]
+ * @param {boolean} [options.atomic=true]
+ * @param {boolean} [options.backupOnOverwrite=true]
+ * @param {boolean} [options.validate=true]
+ * @returns {Promise<string>} runId
+ */
 export async function importRunFromZip(file, options = {}) {
   const JSZip = await getJSZip();
   const { runStore, overwrite, atomic, backupOnOverwrite, validate } = normalizeImportOptions(options);

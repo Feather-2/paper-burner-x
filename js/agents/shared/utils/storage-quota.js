@@ -70,6 +70,7 @@ export function getLocalStorageQuotaStatus({
   const quota = estimateLocalStorageQuota();
   const ratio = quota > 0 ? used / quota : 0;
 
+  /** @type {'ok'|'warn'|'critical'|'unavailable'} */
   let status = "ok";
   if (ratio >= criticalThreshold) status = "critical";
   else if (ratio >= warnThreshold) status = "warn";

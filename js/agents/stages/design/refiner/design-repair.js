@@ -10,6 +10,7 @@ import { toNonEmptyString } from "../../../shared/utils/value-utils.js";
 /**
  * 修复配置
  */
+/** @type {{ maxRetries: number, maxStepsPerRetry: number, qualityThreshold: number }} */
 const REPAIR_CONFIG = {
   maxRetries: 3,
   maxStepsPerRetry: 5,
@@ -17,7 +18,57 @@ const REPAIR_CONFIG = {
 };
 
 /**
+ * @typedef {(name: string, event: { actor: string, status: string, payload: any }) => void} EmitFn
+ */
+
+/**
+ * @typedef {object} QaResult
+ * @property {boolean} [pass]
+ * @property {number} [score]
+ * @property {Array<string|{message?: string, description?: string}|any>} [issues]
+ */
+
+/**
+ * @typedef {object} RepairTask
+ * @property {string} slideHtml
+ * @property {string|undefined} [slideIntentId]
+ * @property {number|undefined} [slideIndex]
+ * @property {string|undefined} [pageType]
+ * @property {string|undefined} [title]
+ * @property {string[]} issues
+ * @property {number|undefined} [qaScore]
+ * @property {boolean|undefined} [qaPass]
+ */
+
+/**
+ * @typedef {object} AutomatedRepairResult
+ * @property {boolean} success
+ * @property {string|null} slideHtml
+ * @property {string} [error]
+ * @property {number} [qualityScore]
+ * @property {number} [stepsUsed]
+ * @property {number} [retries]
+ */
+
+/**
+ * @typedef {object} RepairOptions
+ * @property {(toolName: string, params: any) => Promise<{success: boolean, data?: any, error?: string}>} [toolExecutor]
+ * @property {any} [aiApiService]
+ * @property {any} [modelRouter]
+ * @property {EmitFn} [emit]
+ * @property {AbortSignal} [signal]
+ * @property {number} [maxRetries]
+ * @property {number} [maxStepsPerRetry]
+ */
+
+/**
  * 构建修复任务
+ *
+ * @param {string} slideHtml
+ * @param {QaResult} qaResult
+ * @param {any} slideIntent
+ * @param {{ slideIndex?: number }} [context={}]
+ * @returns {RepairTask}
  */
 function buildRepairTask(slideHtml, qaResult, slideIntent, context = {}) {
   const issues = qaResult?.issues || [];
@@ -40,6 +91,10 @@ function buildRepairTask(slideHtml, qaResult, slideIntent, context = {}) {
 
 /**
  * 运行自动修复
+ *
+ * @param {RepairTask} repairTask
+ * @param {RepairOptions} [options={}]
+ * @returns {Promise<AutomatedRepairResult>}
  */
 export async function runAutomatedRepair(repairTask, options = {}) {
   const {
@@ -82,17 +137,16 @@ export async function runAutomatedRepair(repairTask, options = {}) {
 
       const executor = toolExecutor || createToolExecutor(toolContext);
 
-      const refineResult = await runReactRefiner(
-        deckPackage,
-        { stageApi: { signal, emit, aiApiService, modelRouter } },
-        {
-          recommendedSteps: maxStepsPerRetry,
-          hardLimit: maxStepsPerRetry * 2,
-          toolExecutor: executor,
-          mode: "generation",
-          initialIssues: repairTask.issues,
-        }
-      );
+	      const refineResult = await runReactRefiner(
+	        deckPackage,
+	        { stageApi: { signal, emit, aiApiService, modelRouter }, initialIssues: repairTask.issues },
+	        {
+	          recommendedSteps: maxStepsPerRetry,
+	          hardLimit: maxStepsPerRetry * 2,
+	          toolExecutor: executor,
+	          mode: "generation",
+	        }
+	      );
 
       if (refineResult?.qualityScore >= REPAIR_CONFIG.qualityThreshold) {
         const repairedHtml = refineResult.finalDeck?.deckHtmlDsl || currentHtml;
@@ -128,6 +182,10 @@ export async function runAutomatedRepair(repairTask, options = {}) {
 
 /**
  * 批量修复多个幻灯片
+ *
+ * @param {Array<{ slideIndex: number, slideHtml: string, qaResult: QaResult, slideIntent: any }>} failedSlides
+ * @param {RepairOptions} [options={}]
+ * @returns {Promise<{ results: Array<{ slideIndex: number, slideIntentId?: string } & AutomatedRepairResult>, summary: { total: number, success: number, failed: number } }>}
  */
 export async function repairSlides(failedSlides, options = {}) {
   const results = [];
@@ -174,6 +232,12 @@ export async function repairSlides(failedSlides, options = {}) {
 
 /**
  * 集成到生成阶段的修复入口
+ *
+ * @param {string[]} slideHtmls
+ * @param {Array<any>} slidesMeta
+ * @param {Array<any>} slideIntents
+ * @param {RepairOptions} [options={}]
+ * @returns {Promise<{ slideHtmls: string[], slidesMeta: Array<any>, repaired: number, repairSummary?: any }>}
  */
 export async function integrateRepairIntoGeneration(
   slideHtmls,

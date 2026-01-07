@@ -1,12 +1,31 @@
 import { isAbortError as _isAbortError } from "./error-utils.js";
 
+/**
+ * @typedef {object} AbortSignalLike
+ * @property {boolean} aborted
+ * @property {any} [reason]
+ * @property {(type: string, listener: (...args: any[]) => void, options?: any) => void} [addEventListener]
+ * @property {(type: string, listener: (...args: any[]) => void, options?: any) => void} [removeEventListener]
+ *
+ * @typedef {{ signal?: AbortSignal | AbortSignalLike | null }} AbortOptions
+ */
+
+/**
+ * @param {unknown} reason
+ * @returns {string}
+ */
 function toCancellationMessage(reason) {
   if (typeof reason === "string" && reason.trim()) return reason;
   if (reason instanceof Error && typeof reason.message === "string" && reason.message.trim()) return reason.message;
-  if (reason && typeof reason === "object" && typeof reason.message === "string" && reason.message.trim()) return reason.message;
+  if (reason && typeof reason === "object" && typeof /** @type {any} */ (reason).message === "string" && /** @type {any} */ (reason).message.trim()) return /** @type {any} */ (reason).message;
   return "Run cancelled";
 }
 
+/**
+ * @param {AbortSignal | AbortSignalLike | null | undefined} signal
+ * @returns {void}
+ * @throws {Error} AbortError when aborted
+ */
 export function checkCancelled(signal) {
   if (!signal?.aborted) return;
   const reason = signal.reason;
@@ -16,10 +35,21 @@ export function checkCancelled(signal) {
   throw error;
 }
 
+/**
+ * @param {unknown} err
+ * @returns {boolean}
+ */
 export function isAbortError(err) {
-  return _isAbortError(err);
+  return _isAbortError(/** @type {any} */ (err));
 }
 
+/**
+ * Wrap a function to enforce pre-call cancellation checks via `options.signal`.
+ * @template {(...args: any[]) => any} T
+ * @param {T} fn
+ * @param {string} [context]
+ * @returns {(...args: Parameters<T>) => Promise<Awaited<ReturnType<T>>>}
+ */
 export function withCancellation(fn, context = "unknown") {
   if (typeof fn !== "function") throw new TypeError(`withCancellation(${context}): fn must be a function`);
   return async function (...args) {
@@ -30,6 +60,12 @@ export function withCancellation(fn, context = "unknown") {
   };
 }
 
+/**
+ * Create an AbortSignal linked to a parent (optional) with an optional timeout.
+ * @param {AbortSignal | AbortSignalLike | null | undefined} parent
+ * @param {number} [timeoutMs]
+ * @returns {AbortSignal}
+ */
 export function createLinkedSignal(parent, timeoutMs) {
   const controller = new AbortController();
   const hasParent = parent && typeof parent === "object" && typeof parent.aborted === "boolean";
@@ -41,6 +77,7 @@ export function createLinkedSignal(parent, timeoutMs) {
   }
 
   let settled = false;
+  /** @type {ReturnType<typeof setTimeout> | null} */
   let timeoutId = null;
 
   const cleanup = () => {
@@ -75,4 +112,3 @@ export function createLinkedSignal(parent, timeoutMs) {
 
   return controller.signal;
 }
-

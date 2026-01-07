@@ -11,6 +11,37 @@ import { createLogger } from "../../shared/utils/logger.js";
 
 const logger = createLogger("stages/design/design-helpers");
 
+/**
+ * @typedef {object} TraceContextLike
+ * @property {(name: string, fn: (span: any) => any) => any} withSpan
+ * @property {(name: string, attrs?: any) => any} startSpan
+ * @property {(span: any) => void} endSpan
+ */
+
+/**
+ * @typedef {object} ErrorBoundaryLike
+ * @property {(fn: Function) => any} wrap
+ */
+
+/**
+ * @typedef {object} WatchdogSettings
+ * @property {number} maxRecentOutputs
+ * @property {number} similarityThreshold
+ * @property {number} maxConsecutiveSimilar
+ * @property {number} stuckThresholdMs
+ * @property {number} maxTimeMs
+ */
+
+/**
+ * @typedef {object} DesignConcurrencyConfig
+ * @property {number} [batchSize]
+ * @property {number} [batchConcurrency]
+ * @property {number} [imageConcurrency]
+ */
+
+/** @type {any} */
+const process = /** @type {any} */ (globalThis).process;
+
 // === 可配置常量 ===
 export const DESIGN_LOOP_DEFAULTS = {
   batchSize: 4,
@@ -23,6 +54,8 @@ export const DESIGN_LOOP_DEFAULTS = {
 
 /**
  * 解析 Watchdog 配置
+ * @param {any} userConfig
+ * @returns {WatchdogSettings}
  */
 export function resolveWatchdogSettings(userConfig) {
   const raw = userConfig && typeof userConfig === "object" ? userConfig.watchdog : null;
@@ -44,6 +77,9 @@ export function resolveWatchdogSettings(userConfig) {
 
 /**
  * 安全 JSON 字符串化（截断）
+ * @param {any} value
+ * @param {number} [maxChars=600]
+ * @returns {string}
  */
 export function safeJsonStringify(value, maxChars = 600) {
   try {
@@ -58,6 +94,8 @@ export function safeJsonStringify(value, maxChars = 600) {
 
 /**
  * 解析 Stage 级别的 TraceContext
+ * @param {any} stageApi
+ * @returns {TraceContextLike}
  */
 export function resolveStageTraceContext(stageApi) {
   const candidate = stageApi?.traceContext;
@@ -84,6 +122,9 @@ export function resolveStageTraceContext(stageApi) {
 
 /**
  * 解析 ErrorBoundary
+ * @param {any} stageApi
+ * @param {any} [container]
+ * @returns {ErrorBoundaryLike}
  */
 export function resolveErrorBoundary(stageApi, container) {
   const direct = stageApi?.errorBoundary;
@@ -112,6 +153,10 @@ export function resolveErrorBoundary(stageApi, container) {
 
 /**
  * 创建带 Tracing 的 AiApiService 代理
+ * @template T
+ * @param {T} aiApiService
+ * @param {TraceContextLike} traceContext
+ * @returns {T}
  */
 export function createTracedAiApiService(aiApiService, traceContext) {
   if (!aiApiService || typeof aiApiService !== "object" || typeof aiApiService.chat !== "function") return aiApiService;
@@ -144,6 +189,10 @@ export function createTracedAiApiService(aiApiService, traceContext) {
 
 /**
  * 创建带 Tracing 的 ModelRouter 代理
+ * @template T
+ * @param {T} modelRouter
+ * @param {TraceContextLike} traceContext
+ * @returns {T}
  */
 export function createTracedModelRouter(modelRouter, traceContext) {
   if (!modelRouter || typeof modelRouter !== "object" || typeof modelRouter.call !== "function") return modelRouter;
@@ -183,6 +232,8 @@ export function createTracedModelRouter(modelRouter, traceContext) {
 
 /**
  * 构建 Watchdog 干预建议
+ * @param {Array<{type?:string}>} issues
+ * @returns {string}
  */
 export function buildDesignWatchdogAdvice(issues) {
   const rows = Array.isArray(issues) ? issues : [];
@@ -203,6 +254,8 @@ export function buildDesignWatchdogAdvice(issues) {
 
 /**
  * 提取 Refine 事件摘要（用于 Watchdog 指纹）
+ * @param {any} evt
+ * @returns {string}
  */
 export function summarizeRefineEventForWatchdog(evt) {
   const payload = evt?.payload && typeof evt.payload === "object" ? evt.payload : {};
@@ -236,6 +289,11 @@ export function summarizeRefineEventForWatchdog(evt) {
 
 /**
  * 发射 Stage 事件（统一格式）
+ * @param {((name: string, event: any) => void) | null | undefined} emit
+ * @param {string} name
+ * @param {string} status
+ * @param {any} payload
+ * @returns {void}
  */
 export function emitStage(emit, name, status, payload) {
   emit?.(name, { actor: "design", status, payload });
@@ -243,6 +301,7 @@ export function emitStage(emit, name, status, payload) {
 
 /**
  * 加载设计并发配置
+ * @returns {DesignConcurrencyConfig | null}
  */
 export function loadDesignConcurrencyConfig() {
   try {
@@ -273,6 +332,11 @@ export function loadDesignConcurrencyConfig() {
  * BacktrackError - 回溯信号异常
  */
 export class BacktrackError extends Error {
+  /**
+   * @param {string} targetPhase
+   * @param {string} label
+   * @param {string} reason
+   */
   constructor(targetPhase, label, reason) {
     super(`Backtrack to ${targetPhase} (${label}): ${reason}`);
     this.name = "BacktrackError";

@@ -4,8 +4,62 @@ import { PolicyRuleStore } from "./store.js";
 import { makeSecureTimestampedId } from "../../shared/utils/secure-id.js";
 
 import { toNonEmptyString } from "../../shared/utils/value-utils.js";
+
+/**
+ * @typedef {object} PolicyRule
+ * @property {string} ruleId
+ * @property {string=} id
+ * @property {string} effect
+ * @property {string} type
+ * @property {string=} tool
+ * @property {string=} resource
+ * @property {string} createdAt
+ * @property {string} updatedAt
+ * @property {boolean} enabled
+ * @property {number} priority
+ */
+
+/**
+ * @typedef {object} PolicyRequest
+ * @property {string=} schemaVersion
+ * @property {string=} requestId
+ * @property {string=} ts
+ * @property {string=} type
+ * @property {string=} tool
+ * @property {string=} resource
+ * @property {unknown=} args
+ * @property {string=} argsHash
+ * @property {unknown=} argsSummary
+ * @property {string=} runId
+ */
+
+/**
+ * @typedef {object} ApprovalResponsePayload
+ * @property {string} requestId
+ * @property {"allow"|"deny"} decision
+ * @property {"none"|"always"=} remember
+ * @property {string=} reason
+ */
+
+/**
+ * @typedef {object} EventBusLike
+ * @property {(name: string, payload: unknown) => void=} emit
+ * @property {(name: string, handler: (evt: any) => void) => (void | (() => void))=} subscribe
+ */
+
+/**
+ * @typedef {object} WaitForApprovalOptions
+ * @property {number=} timeoutMs
+ * @property {AbortSignal=} signal
+ */
+
+/**
+ * @typedef {(req: PolicyRequest, response?: ApprovalResponsePayload | null) => PolicyRule | null} DeriveRuleFn
+ */
+
 function isNodeLike() {
-  return typeof process !== "undefined" && !!process.versions?.node;
+  const proc = /** @type {any} */ (globalThis).process;
+  return !!(proc && proc.versions && proc.versions.node);
 }
 
 function summarizeArgs(args) {
@@ -23,6 +77,10 @@ async function sha256OfJson(value) {
   }
 }
 
+/**
+ * @param {PolicyRequest} req
+ * @returns {PolicyRule}
+ */
 function defaultDeriveRuleFromRequest(req) {
   const type = toNonEmptyString(req?.type);
   const tool = toNonEmptyString(req?.tool);
@@ -41,6 +99,12 @@ function defaultDeriveRuleFromRequest(req) {
   return rule;
 }
 
+/**
+ * @param {EventBusLike | null} eventBus
+ * @param {string} requestId
+ * @param {WaitForApprovalOptions} [options]
+ * @returns {Promise<ApprovalResponsePayload | null>}
+ */
 async function waitForApprovalResponse(eventBus, requestId, { timeoutMs = 300000, signal } = {}) {
   if (!eventBus || typeof eventBus.subscribe !== "function") return null;
   const id = toNonEmptyString(requestId);
@@ -84,6 +148,18 @@ async function waitForApprovalResponse(eventBus, requestId, { timeoutMs = 300000
 }
 
 export class PolicyManager {
+  /**
+   * @param {object} [options]
+   * @param {any} [options.ruleStore]
+   * @param {any} [options.engine]
+   * @param {EventBusLike | null} [options.eventBus]
+   * @param {any} [options.runStore]
+   * @param {string | null} [options.runId]
+   * @param {boolean} [options.interactive]
+   * @param {number} [options.approvalTimeoutMs]
+   * @param {string} [options.onMissingApprovalProvider]
+   * @param {string} [options.defaultEffect]
+   */
   constructor(options = {}) {
     this.ruleStore = options.ruleStore || new PolicyRuleStore();
     this.engine = options.engine || new PolicyEngine({ defaultEffect: options.defaultEffect || "prompt" });
@@ -98,6 +174,9 @@ export class PolicyManager {
     this._loaded = false;
   }
 
+  /**
+   * @param {{ eventBus?: EventBusLike | null, runStore?: any, runId?: string | null }} [context]
+   */
   setRunContext({ eventBus, runStore, runId } = {}) {
     if (eventBus) this.eventBus = eventBus;
     if (runStore) this.runStore = runStore;
@@ -136,6 +215,10 @@ export class PolicyManager {
     }
   }
 
+  /**
+   * @param {PolicyRequest} request
+   * @param {{ signal?: AbortSignal, deriveRule?: DeriveRuleFn }} [options]
+   */
   async authorize(request, { signal, deriveRule = defaultDeriveRuleFromRequest } = {}) {
     this.load();
 

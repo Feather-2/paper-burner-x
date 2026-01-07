@@ -15,7 +15,8 @@ function hasLocalStorage() {
 }
 
 function isNodeLike() {
-  return typeof process !== "undefined" && !!process.versions?.node;
+  const nodeProcess = /** @type {any} */ (globalThis).process;
+  return !!nodeProcess?.versions?.node;
 }
 
 function hasIndexedDB() {
@@ -457,6 +458,9 @@ export function setUserSkillBody(name, body) {
   return true;
 }
 
+/**
+ * @param {{ metadata?: Record<string, unknown>, body?: string }} [input]
+ */
 export function upsertUserSkill({ metadata, body } = {}) {
   const meta = isPlainObject(metadata) ? metadata : {};
   const name = toNonEmptyString(meta.name);

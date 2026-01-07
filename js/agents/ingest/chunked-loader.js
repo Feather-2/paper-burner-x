@@ -1,6 +1,34 @@
-// Stream large files in chunks to avoid memory spikes.
-// Returns ArrayBuffer chunks by default (zero-copy from Blob.slice)
-// Set { asText: true } for string chunks (incurs encoding overhead)
+/**
+ * @typedef {object} ChunkedBinary
+ * @property {ArrayBuffer} buffer
+ * @property {number} offset
+ * @property {number} size
+ * @property {number} byteLength
+ */
+
+/**
+ * @typedef {object} ChunkedText
+ * @property {string} text
+ * @property {number} offset
+ * @property {number} size
+ * @property {number} byteLength
+ */
+
+/**
+ * @typedef {ChunkedBinary | ChunkedText} ChunkRecord
+ */
+
+/**
+ * Stream large files in chunks to avoid memory spikes.
+ *
+ * Returns `ArrayBuffer` chunks by default (zero-copy from `Blob.slice()`).
+ * Set `{ asText: true }` for string chunks (incurs decoding overhead).
+ *
+ * @param {Blob | File | { getReader: Function }} source
+ * @param {number} [chunkSize]
+ * @param {{ asText?: boolean }} [options]
+ * @returns {AsyncGenerator<ChunkRecord, void, void>}
+ */
 export async function* loadChunksStream(source, chunkSize = 1024 * 1024, options = {}) {
   const size = Number.isFinite(chunkSize) ? Math.max(1, Math.floor(chunkSize)) : 1024 * 1024;
   const asText = Boolean(options.asText);
@@ -79,6 +107,15 @@ export async function* loadChunksStream(source, chunkSize = 1024 * 1024, options
   throw new TypeError("loadChunksStream(source): source must be a Blob, File, or ReadableStream");
 }
 
+/**
+ * Process a large file by streaming its chunks sequentially.
+ *
+ * @template T
+ * @param {Blob | File} file
+ * @param {(chunk: ChunkRecord) => (Promise<T> | T)} processor
+ * @param {{ chunkSize?: number, onProgress?: (progress: { processed: number, total: number, percent: number }) => void, asText?: boolean }} [options]
+ * @returns {Promise<T[]>}
+ */
 export async function processLargeFile(file, processor, options = {}) {
   const chunkSize = Number.isFinite(options.chunkSize) ? Math.max(1, Math.floor(options.chunkSize)) : 1024 * 1024;
   const onProgress = typeof options.onProgress === "function" ? options.onProgress : null;

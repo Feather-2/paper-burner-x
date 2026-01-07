@@ -265,12 +265,13 @@ function normalizeToolResultToDeck(deckPackage, toolResult) {
  *
  * @param {object} deckPackage - { deckHtmlDsl, slidesMeta, designSystem, imageSlots }
  * @param {object} context - { contentPackage, runContext, stageApi }
- * @param {object} options
+ * @param {object} [options]
  * @param {number} [options.recommendedSteps=5]
  * @param {number} [options.hardLimit=15]
- * @param {Function} options.toolExecutor - async (toolName, params) => {success, data?, error?}
+ * @param {Function} [options.toolExecutor] - async (toolName, params) => {success, data?, error?}
  * @param {"generation"|"edit"} [options.mode="generation"]
  * @param {Function} [options.onStep]
+ * @param {string} [options.systemPromptOverride]
  * @returns {Promise<{finalDeck: object, steps: object[], qualityScore: number, toolCalls: object[], terminationReason: string}>}
  */
 export async function runReactRefiner(deckPackage, context, options = {}) {

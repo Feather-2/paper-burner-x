@@ -1,5 +1,15 @@
 import { toNonEmptyString } from "./value-utils.js";
 
+/**
+ * @typedef {Record<string, any> & { role?: string, content?: any }} ChatMessage
+ */
+
+/**
+ * Inject a system hint into a chat message list without mutating the original array.
+ * @param {ChatMessage[] | null | undefined} messages
+ * @param {unknown} hint
+ * @returns {ChatMessage[]}
+ */
 export function injectSystemHint(messages, hint) {
   const text = toNonEmptyString(hint);
   const list = Array.isArray(messages)

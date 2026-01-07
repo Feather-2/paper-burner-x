@@ -1,5 +1,9 @@
 import { toNonEmptyString } from "../../shared/utils/value-utils.js";
 
+/**
+ * @typedef {"idle" | "running" | "paused" | "completed" | "failed" | "cancelled"} LoopRuntimeStatus
+ */
+
 const runtimeStateBySignal = new WeakMap();
 
 export const LoopRuntimeStatuses = Object.freeze({
@@ -25,10 +29,16 @@ export const LOOP_RUNTIME_TRANSITIONS = Object.freeze({
   [LoopRuntimeStatuses.CANCELLED]: [],
 });
 
+/**
+ * @param {unknown} value
+ * @returns {LoopRuntimeStatus}
+ */
 function normalizeStatus(value) {
   const s = toNonEmptyString(value);
   if (!s) return LoopRuntimeStatuses.IDLE;
-  return Object.values(LoopRuntimeStatuses).includes(s) ? s : LoopRuntimeStatuses.IDLE;
+  return Object.values(LoopRuntimeStatuses).includes(/** @type {LoopRuntimeStatus} */ (s))
+    ? /** @type {LoopRuntimeStatus} */ (s)
+    : LoopRuntimeStatuses.IDLE;
 }
 
 function normalizeCursor(value) {
@@ -52,6 +62,14 @@ function normalizeHistoryItem(item) {
 }
 
 export class LoopRuntimeState {
+  /**
+   * @param {object} [param0]
+   * @param {unknown=} param0.status
+   * @param {unknown=} param0.cursor
+   * @param {unknown=} param0.pausedReason
+   * @param {unknown=} param0.lastCheckpointId
+   * @param {Array<unknown>=} param0.statusHistory
+   */
   constructor({ status, cursor, pausedReason, lastCheckpointId, statusHistory } = {}) {
     this.status = normalizeStatus(status);
     this.cursor = normalizeCursor(cursor);
@@ -66,6 +84,12 @@ export class LoopRuntimeState {
     return allowed.includes(target);
   }
 
+  /**
+   * @param {unknown} to
+   * @param {object} [param1]
+   * @param {string|number=} param1.timestamp
+   * @returns {LoopRuntimeStatus}
+   */
   transitionTo(to, { timestamp } = {}) {
     const target = normalizeStatus(to);
     if (!this.canTransition(target)) {

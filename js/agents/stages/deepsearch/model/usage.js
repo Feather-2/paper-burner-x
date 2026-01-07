@@ -5,6 +5,18 @@
  */
 import { isPlainObject, safeInt } from "../../../shared/utils/value-utils.js";
 
+/**
+ * @typedef {object} NormalizedTokenUsage
+ * @property {number} input
+ * @property {number} output
+ * @property {number} total
+ */
+
+/**
+ * Normalize token usage from various provider formats
+ * @param {any} usage - Raw usage object from model provider
+ * @returns {NormalizedTokenUsage|null}
+ */
 export function normalizeTokenUsage(usage) {
   if (!isPlainObject(usage)) return null;
 

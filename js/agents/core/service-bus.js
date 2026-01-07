@@ -8,20 +8,53 @@
  * - 服务健康检查
  */
 
+/**
+ * @typedef {import('./types').EventBus} EventBus
+ * @typedef {import('./types').ServiceOptions} ServiceOptions
+ * @typedef {import('./types').CallOptions} CallOptions
+ * @typedef {import('./types').CallContext} CallContext
+ * @typedef {import('./types').ServiceEntry} ServiceEntry
+ * @typedef {import('./types').ServiceHealthResult} ServiceHealthResult
+ * @typedef {import('./types').ServiceStats} ServiceStats
+ * @typedef {import('./types').ServiceProxy} ServiceProxy
+ *
+ * @typedef {{ instance: unknown, options: ServiceOptions, registeredAt: number }} RegisteredService
+ * @typedef {{ factory: () => unknown | Promise<unknown>, options: ServiceOptions, registeredAt: number }} FactoryService
+ * @typedef {ServiceProxy & { invoke: ServiceProxy, proxyName?: string }} ServiceProxyWithInvoke
+ * @typedef {ServiceProxy | { name?: string, invoke: ServiceProxy }} ServiceProxyLike
+ *
+ * @typedef {{ maxRetries?: number, backoff?: number, delay?: number, shouldRetry?: (error: unknown, context: CallContext) => boolean }} RetryProxyOptions
+ * @typedef {{ timeout?: number }} TimeoutProxyOptions
+ * @typedef {{ ttl?: number, maxSize?: number, keyFn?: (context: CallContext) => string }} CacheProxyOptions
+ */
+
 export class ServiceBus {
+  /**
+   * @param {{ events?: EventBus }} [options]
+   */
   constructor(options = {}) {
+    /** @type {EventBus | null} */
     this._events = options.events || null;
+
+    /** @type {Map<string, RegisteredService>} */
     this._services = new Map();
+
+    /** @type {Map<string, FactoryService>} */
     this._factories = new Map();
+
+    /** @type {ServiceProxyWithInvoke[]} */
     this._proxies = [];
+
+    /** @type {Map<string, ServiceStats>} */
     this._stats = new Map();
   }
 
   /**
    * 注册服务实例
    * @param {string} name - 服务名称
-   * @param {Object} service - 服务对象
-   * @param {Object} options - 配置选项
+   * @param {unknown} service - 服务对象
+   * @param {ServiceOptions} [options] - 配置选项
+   * @returns {this}
    */
   register(name, service, options = {}) {
     if (this._services.has(name) && !options.override) {
@@ -34,7 +67,7 @@ export class ServiceBus {
       registeredAt: Date.now(),
     });
 
-    this._stats.set(name, { calls: 0, errors: 0, totalTime: 0 });
+    this._stats.set(name, { name, calls: 0, errors: 0, totalTime: 0 });
     this._emit('service.registered', { name, options });
 
     return this;
@@ -43,22 +76,31 @@ export class ServiceBus {
   /**
    * 注册服务工厂（懒加载）
    * @param {string} name - 服务名称
-   * @param {Function} factory - 工厂函数 () => service | Promise<service>
+   * @param {() => unknown | Promise<unknown>} factory - 工厂函数
+   * @param {ServiceOptions} [options] - 配置选项
+   * @returns {this}
    */
   registerFactory(name, factory, options = {}) {
-    this._factories.set(name, { factory, options });
+    if ((this._services.has(name) || this._factories.has(name)) && !options.override) {
+      throw new Error(`Service already registered: ${name}`);
+    }
+
+    this._factories.set(name, { factory, options, registeredAt: Date.now() });
     this._emit('service.factory.registered', { name });
     return this;
   }
 
   /**
    * 获取服务实例
+   * @template T
+   * @param {string} name
+   * @returns {Promise<T | null>}
    */
   async get(name) {
     // 已注册的服务
     const registered = this._services.get(name);
     if (registered) {
-      return registered.instance;
+      return /** @type {T} */ (registered.instance);
     }
 
     // 懒加载
@@ -68,7 +110,7 @@ export class ServiceBus {
       const instance = await factory();
       this.register(name, instance, options);
       this._factories.delete(name);
-      return instance;
+      return /** @type {T} */ (instance);
     }
 
     return null;
@@ -76,6 +118,8 @@ export class ServiceBus {
 
   /**
    * 检查服务是否存在
+   * @param {string} name
+   * @returns {boolean}
    */
   has(name) {
     return this._services.has(name) || this._factories.has(name);
@@ -83,13 +127,16 @@ export class ServiceBus {
 
   /**
    * 调用服务方法
+   * @template T
    * @param {string} serviceName - 服务名称
    * @param {string} method - 方法名称
-   * @param {Array} args - 参数
-   * @param {Object} options - 调用选项
+   * @param {unknown[]} [args] - 参数
+   * @param {CallOptions} [options] - 调用选项
+   * @returns {Promise<T>}
    */
   async call(serviceName, method, args = [], options = {}) {
     const startTime = Date.now();
+    /** @type {CallContext} */
     const callContext = {
       service: serviceName,
       method,
@@ -126,7 +173,7 @@ export class ServiceBus {
       this._recordSuccess(serviceName, Date.now() - startTime);
       this._emit('service.call.success', { ...callContext, result, duration: Date.now() - startTime });
 
-      return result;
+      return /** @type {T} */ (result);
     } catch (error) {
       this._recordError(serviceName);
       this._emit('service.call.error', { ...callContext, error, duration: Date.now() - startTime });
@@ -136,6 +183,10 @@ export class ServiceBus {
 
   /**
    * 快捷调用 - 自动解析 'service.method' 格式
+   * @template T
+   * @param {string} path
+   * @param {...unknown} args
+   * @returns {Promise<T>}
    */
   async invoke(path, ...args) {
     const [serviceName, method] = path.split('.');
@@ -147,21 +198,21 @@ export class ServiceBus {
 
   /**
    * 注册调用代理（中间件）
-   * @param {Object} proxy - { name, invoke: (context, next) => Promise }
+   * @param {ServiceProxyLike} proxy
+   * @returns {this}
    */
   useProxy(proxy) {
-    if (typeof proxy.invoke !== 'function') {
-      throw new Error('Proxy must have an invoke function');
-    }
-    this._proxies.push(proxy);
+    this._proxies.push(normalizeProxy(proxy));
     return this;
   }
 
   /**
    * 移除代理
+   * @param {string} proxyName
+   * @returns {boolean}
    */
   removeProxy(proxyName) {
-    const idx = this._proxies.findIndex(p => p.name === proxyName);
+    const idx = this._proxies.findIndex(p => p.proxyName === proxyName || p.name === proxyName);
     if (idx >= 0) {
       this._proxies.splice(idx, 1);
       return true;
@@ -171,10 +222,13 @@ export class ServiceBus {
 
   /**
    * 注销服务
+   * @param {string} name
+   * @returns {boolean}
    */
   unregister(name) {
     const deleted = this._services.delete(name);
     this._factories.delete(name);
+    this._stats.delete(name);
     if (deleted) {
       this._emit('service.unregistered', { name });
     }
@@ -183,47 +237,42 @@ export class ServiceBus {
 
   /**
    * 获取服务列表
+   * @returns {ServiceEntry[]}
    */
   list() {
-    const services = [];
-
-    for (const [name, entry] of this._services) {
-      services.push({
-        name,
-        status: 'active',
-        registeredAt: entry.registeredAt,
-        stats: this._stats.get(name),
-      });
-    }
-
-    for (const [name] of this._factories) {
-      if (!this._services.has(name)) {
-        services.push({
-          name,
-          status: 'lazy',
-          stats: null,
-        });
-      }
-    }
-
-    return services;
+    return [...this._services.entries()].map(([name, entry]) => ({
+      name,
+      registeredAt: entry.registeredAt,
+      options: entry.options,
+    }));
   }
 
   /**
    * 健康检查
+   * @param {string} serviceName
+   * @returns {Promise<ServiceHealthResult>}
    */
   async healthCheck(serviceName) {
-    const service = await this.get(serviceName);
-    if (!service) {
+    const registered = this._services.get(serviceName);
+    if (!registered) {
       return { name: serviceName, healthy: false, error: 'not found' };
     }
 
-    if (typeof service.healthCheck === 'function') {
+    const { instance, options } = registered;
+
+    const instanceHealthCheck = /** @type {any} */ (instance)?.healthCheck;
+    const checkFn = typeof options.healthCheck === 'function'
+      ? options.healthCheck
+      : typeof instanceHealthCheck === 'function'
+          ? instanceHealthCheck.bind(instance)
+          : null;
+
+    if (typeof checkFn === 'function') {
       try {
-        const result = await service.healthCheck();
-        return { name: serviceName, healthy: true, ...result };
+        const result = await checkFn();
+        return { name: serviceName, healthy: Boolean(result) };
       } catch (error) {
-        return { name: serviceName, healthy: false, error: error.message };
+        return { name: serviceName, healthy: false, error: error?.message || String(error) };
       }
     }
 
@@ -232,6 +281,7 @@ export class ServiceBus {
 
   /**
    * 批量健康检查
+   * @returns {Promise<ServiceHealthResult[]>}
    */
   async healthCheckAll() {
     const results = [];
@@ -243,25 +293,38 @@ export class ServiceBus {
 
   /**
    * 获取统计信息
+   * @overload
+   * @returns {ServiceStats[]}
+   */
+  /**
+   * @overload
+   * @param {string} serviceName
+   * @returns {ServiceStats | null}
+   */
+  /**
+   * @param {string} [serviceName]
+   * @returns {ServiceStats[] | ServiceStats | null}
    */
   getStats(serviceName) {
     if (serviceName) {
       return this._stats.get(serviceName) || null;
     }
-    return Object.fromEntries(this._stats);
+    return [...this._stats.values()];
   }
 
   /**
    * 重置统计
+   * @returns {void}
    */
   resetStats() {
     for (const [name] of this._stats) {
-      this._stats.set(name, { calls: 0, errors: 0, totalTime: 0 });
+      this._stats.set(name, { name, calls: 0, errors: 0, totalTime: 0 });
     }
   }
 
   /**
    * 清空所有服务
+   * @returns {void}
    */
   clear() {
     this._services.clear();
@@ -270,6 +333,12 @@ export class ServiceBus {
     this._stats.clear();
   }
 
+  /**
+   * @private
+   * @param {string} name
+   * @param {number} duration
+   * @returns {void}
+   */
   _recordSuccess(name, duration) {
     const stats = this._stats.get(name);
     if (stats) {
@@ -278,6 +347,11 @@ export class ServiceBus {
     }
   }
 
+  /**
+   * @private
+   * @param {string} name
+   * @returns {void}
+   */
   _recordError(name) {
     const stats = this._stats.get(name);
     if (stats) {
@@ -286,6 +360,12 @@ export class ServiceBus {
     }
   }
 
+  /**
+   * @private
+   * @param {string} event
+   * @param {unknown} data
+   * @returns {void}
+   */
   _emit(event, data) {
     if (this._events) {
       this._events.emitSync(event, data);
@@ -293,71 +373,131 @@ export class ServiceBus {
   }
 }
 
-// 内置代理：重试
-export function createRetryProxy(options = {}) {
-  const { maxRetries = 3, delay = 1000, shouldRetry = () => true } = options;
+/**
+ * Normalize proxy input to a function-like proxy with an `.invoke` method.
+ * @param {ServiceProxyLike} proxy
+ * @returns {ServiceProxyWithInvoke}
+ */
+function normalizeProxy(proxy) {
+  if (typeof proxy === 'function') {
+    /** @type {any} */ (proxy).invoke = typeof /** @type {any} */ (proxy).invoke === 'function'
+      ? /** @type {any} */ (proxy).invoke
+      : proxy;
+    if (typeof /** @type {any} */ (proxy).proxyName !== 'string') {
+      /** @type {any} */ (proxy).proxyName = proxy.name || undefined;
+    }
+    return /** @type {ServiceProxyWithInvoke} */ (proxy);
+  }
 
-  return {
-    name: 'retry',
-    async invoke(context, next) {
-      let lastError;
-      for (let attempt = 0; attempt <= maxRetries; attempt++) {
-        try {
-          return await next();
-        } catch (error) {
-          lastError = error;
-          const canRetry = attempt < maxRetries && shouldRetry(error, context);
-          if (!canRetry) break;
-          await new Promise(r => setTimeout(r, delay * Math.pow(2, attempt)));
-        }
+  if (proxy && typeof proxy.invoke === 'function') {
+    /** @type {ServiceProxyWithInvoke} */
+    const wrapper = async (ctx, next) => wrapper.invoke(ctx, next);
+    wrapper.proxyName = typeof proxy.name === 'string' ? proxy.name : undefined;
+    wrapper.invoke = async (ctx, next) => proxy.invoke(ctx, next);
+    return wrapper;
+  }
+
+  throw new Error('Proxy must be a function or have an invoke function');
+}
+
+// 内置代理：重试
+/**
+ * @param {RetryProxyOptions} [options]
+ * @returns {ServiceProxyWithInvoke}
+ */
+export function createRetryProxy(options = {}) {
+  const { maxRetries = 3, backoff = 1000, delay, shouldRetry = () => true } = options;
+  const baseDelay = typeof delay === 'number' ? delay : backoff;
+
+  /** @type {ServiceProxyWithInvoke} */
+  const proxy = async (ctx, next) => proxy.invoke(ctx, next);
+  proxy.proxyName = 'retry';
+  proxy.invoke = async (context, next) => {
+    let lastError;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await next();
+      } catch (error) {
+        lastError = error;
+        const canRetry = attempt < maxRetries && shouldRetry(error, context);
+        if (!canRetry) break;
+        await new Promise(r => setTimeout(r, baseDelay * Math.pow(2, attempt)));
       }
-      throw lastError;
-    },
+    }
+    throw lastError;
   };
+
+  return proxy;
 }
 
 // 内置代理：超时
+/**
+ * @param {TimeoutProxyOptions} [options]
+ * @returns {ServiceProxyWithInvoke}
+ */
 export function createTimeoutProxy(options = {}) {
   const { timeout = 30000 } = options;
 
-  return {
-    name: 'timeout',
-    async invoke(context, next) {
-      const timeoutMs = context.options?.timeout || timeout;
+  /** @type {ServiceProxyWithInvoke} */
+  const proxy = async (ctx, next) => proxy.invoke(ctx, next);
+  proxy.proxyName = 'timeout';
+  proxy.invoke = async (context, next) => {
+    const timeoutMs = typeof context.options?.timeout === 'number' ? context.options.timeout : timeout;
 
-      return Promise.race([
-        next(),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error(`Service call timeout: ${context.service}.${context.method}`)), timeoutMs)
-        ),
-      ]);
-    },
+    return Promise.race([
+      next(),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`Service call timeout: ${context.service}.${context.method}`)), timeoutMs)
+      ),
+    ]);
   };
+
+  return proxy;
 }
 
 // 内置代理：缓存
+/**
+ * @param {CacheProxyOptions} [options]
+ * @returns {ServiceProxyWithInvoke}
+ */
 export function createCacheProxy(options = {}) {
-  const { ttl = 60000, keyFn = null } = options;
+  const { ttl = 60000, maxSize, keyFn = null } = options;
   const cache = new Map();
 
-  return {
-    name: 'cache',
-    async invoke(context, next) {
-      const key = keyFn
-        ? keyFn(context)
-        : `${context.service}.${context.method}:${JSON.stringify(context.args)}`;
+  const resolvedMaxSize = Number.isFinite(maxSize) ? Math.max(0, Math.floor(maxSize)) : null;
 
-      const cached = cache.get(key);
-      if (cached && Date.now() - cached.time < ttl) {
-        return cached.value;
+  /** @type {ServiceProxyWithInvoke} */
+  const proxy = async (ctx, next) => proxy.invoke(ctx, next);
+  proxy.proxyName = 'cache';
+  proxy.invoke = async (context, next) => {
+    const key = keyFn
+      ? keyFn(context)
+      : `${context.service}.${context.method}:${JSON.stringify(context.args)}`;
+
+    const optionTtl = typeof context.options?.cache === 'number' ? context.options.cache : ttl;
+    const cacheEnabled = context.options?.cache !== false;
+    if (!cacheEnabled || optionTtl <= 0) {
+      return next();
+    }
+
+    const cached = cache.get(key);
+    if (cached && Date.now() - cached.time < optionTtl) {
+      return cached.value;
+    }
+
+    const result = await next();
+    if (resolvedMaxSize !== 0) {
+      if (resolvedMaxSize != null && cache.size >= resolvedMaxSize) {
+        const oldestKey = cache.keys().next().value;
+        if (oldestKey !== undefined) cache.delete(oldestKey);
       }
-
-      const result = await next();
       cache.set(key, { value: result, time: Date.now() });
+    }
 
-      return result;
-    },
+    return result;
   };
+
+  return proxy;
 }
 
 export default ServiceBus;

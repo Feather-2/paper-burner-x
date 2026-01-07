@@ -3,8 +3,11 @@ let _parserMod = null;
 
 import { isWasmSupported } from "../utils/wasm-support.js";
 
+/** @type {any} */
+const nodeProcess = /** @type {any} */ (globalThis).process;
+
 function isNodeLike() {
-  return typeof process !== "undefined" && !!process.versions?.node;
+  return !!nodeProcess && typeof nodeProcess === "object" && !!nodeProcess.versions?.node;
 }
 
 function isWebRuntime() {
@@ -41,18 +44,20 @@ export async function initTreeSitter({ wasmBaseUrl = DEFAULT_TREE_SITTER_WASM_BA
     const mod = await import("web-tree-sitter");
     const Parser = mod.Parser || mod.default?.Parser || mod.default;
     const Language = mod.Language || mod.default?.Language;
-    if (!Parser || typeof Parser.init !== "function") {
+    const ParserAny = /** @type {any} */ (Parser);
+    const LanguageAny = /** @type {any} */ (Language);
+    if (!ParserAny || typeof ParserAny.init !== "function") {
       throw new Error("web-tree-sitter Parser.init unavailable");
     }
-    if (!Language || typeof Language.load !== "function") {
+    if (!LanguageAny || typeof LanguageAny.load !== "function") {
       throw new Error("web-tree-sitter Language.load unavailable");
     }
 
-    await Parser.init({
+    await ParserAny.init({
       locateFile: (name) => new URL(name, base).toString(),
     });
 
-    _parserMod = { Parser, Language, wasmBaseUrl: base };
+    _parserMod = { Parser: ParserAny, Language: LanguageAny, wasmBaseUrl: base };
     return _parserMod;
   })().catch((err) => {
     // Clear cached promise on failure to allow retry (avoid zombie promise).

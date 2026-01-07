@@ -79,13 +79,17 @@ export async function loadMechanisms() {
 }
 
 /**
+ * @typedef {object} MechanismOptions
+ * @property {any} [stageApi]
+ * @property {Function} [emit]
+ * @property {any} [logger]
+ * @property {string} [runId]
+ */
+
+/**
  * 初始化 Agent Loop 的可插拔机制
  * @param {Object} loop - Agent Loop 实例
- * @param {Object} options - 配置
- * @param {Object} options.stageApi - Stage API
- * @param {Function} options.emit - 事件发射函数
- * @param {Object} options.logger - Logger
- * @param {string} options.runId - 运行 ID
+ * @param {MechanismOptions} [options] - 配置
  */
 export function initMechanisms(loop, options = {}) {
   const { stageApi, emit, logger, runId } = options;

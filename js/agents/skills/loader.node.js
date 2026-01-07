@@ -9,10 +9,27 @@
  * 同名 Skill 按优先级去重，保留高优先级版本
  */
 
-import { promises as fs } from "fs";
-import { createHash } from "crypto";
-import path from "path";
 import { SkillScope } from "./model.js";
+
+/**
+ * @typedef {import("./model.js").SkillMetadata} SkillMetadata
+ * @typedef {{ metadata: SkillMetadata, body: (string | null), supportFiles?: Record<string, string> }} SkillContent
+ * @typedef {{ skills: SkillContent[], errors: Array<{ path: string, message: string }> }} SkillLoadOutcome
+ */
+
+/** @type {string} */
+const NODE_FS_PROMISES_SPEC = "node:fs/promises";
+/** @type {string} */
+const NODE_CRYPTO_SPEC = "node:crypto";
+/** @type {string} */
+const NODE_PATH_SPEC = "node:path";
+
+/** @type {any} */
+const fs = await import(NODE_FS_PROMISES_SPEC);
+/** @type {any} */
+const { createHash } = await import(NODE_CRYPTO_SPEC);
+/** @type {any} */
+const path = await import(NODE_PATH_SPEC);
 
 const SKILL_FILENAME = "SKILL.md";
 const SKILLS_DIR_NAME = "skills";
@@ -429,6 +446,10 @@ export async function loadAllSkills({ cwd, homeDir, nexusProvider } = {}) {
 
 /**
  * 从指定路径加载单个 Skill
+ *
+ * @param {string} filePath
+ * @param {SkillScope} [scope]
+ * @returns {Promise<SkillContent>}
  */
 export async function loadSkillFromPath(filePath, scope = SkillScope.USER) {
   return parseSkillFile(filePath, scope);

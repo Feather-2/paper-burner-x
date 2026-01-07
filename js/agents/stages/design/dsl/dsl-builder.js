@@ -82,7 +82,7 @@ function resolveBuildArgs(arg3, arg4, arg5) {
   };
 }
 
-function makeTextEl({ x, y, w, h = "auto", font, color, bold, align, lineHeight, content }) {
+function makeTextEl({ x, y, w, h = "auto", font, color, bold = false, align = "", lineHeight = null, content }) {
   const attrs = [
     `data-el="text"`,
     `data-x="${x}"`,

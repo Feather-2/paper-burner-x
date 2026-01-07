@@ -40,7 +40,7 @@ export async function computeHash(data) {
   }
 
   try {
-    const hashBuffer = await crypto.subtle.digest("SHA-256", bytes);
+    const hashBuffer = await crypto.subtle.digest("SHA-256", /** @type {any} */ (bytes));
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
   } catch {
@@ -139,6 +139,7 @@ export async function buildManifest(files) {
  * @returns {DeltaEntry[]}
  */
 export function computeDelta(base, target) {
+  /** @type {DeltaEntry[]} */
   const delta = [];
 
   // Find added and modified files
@@ -176,8 +177,8 @@ export const ConflictStrategy = {
 /**
  * @typedef {Object} Conflict
  * @property {string} path
- * @property {FileEntry} local
- * @property {FileEntry} remote
+ * @property {DeltaEntry} local
+ * @property {DeltaEntry} remote
  * @property {string} [resolution]
  */
 
@@ -188,6 +189,7 @@ export const ConflictStrategy = {
  * @returns {Conflict[]}
  */
 export function detectConflicts(localDelta, remoteDelta) {
+  /** @type {Conflict[]} */
   const conflicts = [];
   const localMap = new Map(localDelta.map((d) => [d.path, d]));
   const remoteMap = new Map(remoteDelta.map((d) => [d.path, d]));

@@ -26,7 +26,8 @@ let pyodide = null;
 function decodeBase64ToBytes(b64) {
   const s = typeof b64 === "string" ? b64.trim() : "";
   if (!s) return null;
-  if (typeof Buffer !== "undefined") return new Uint8Array(Buffer.from(s, "base64"));
+  const NodeBuffer = /** @type {any} */ (globalThis).Buffer;
+  if (NodeBuffer && typeof NodeBuffer.from === "function") return new Uint8Array(NodeBuffer.from(s, "base64"));
   if (typeof atob === "function") {
     const bin = atob(s);
     const out = new Uint8Array(bin.length);

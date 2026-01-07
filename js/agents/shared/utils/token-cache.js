@@ -1,11 +1,31 @@
 import { estimateTokens } from "./value-utils.js";
 
+/**
+ * @typedef {{ count: (text: string) => number }} TokenCounterLike
+ *
+ * @typedef {object} TokenCacheStats
+ * @property {number} size
+ * @property {number} maxSize
+ * @property {number} hits
+ * @property {number} misses
+ * @property {number} hitRate
+ */
+
+/** @type {Map<string, number>} */
 const cache = new Map();
 const MAX_CACHE_SIZE = 10000;
 
+/** @type {number} */
 let hits = 0;
+/** @type {number} */
 let misses = 0;
 
+/**
+ * Estimate token count with an in-memory cache for repeated prompts/snippets.
+ * @param {string} text
+ * @param {TokenCounterLike | null | undefined} tokenCounter
+ * @returns {number}
+ */
 export function estimateTokensCached(text, tokenCounter) {
   if (!text || typeof text !== "string") return 0;
 
@@ -38,6 +58,10 @@ export function estimateTokensCached(text, tokenCounter) {
   return tokens;
 }
 
+/**
+ * @param {string} str
+ * @returns {number}
+ */
 function hashCode(str) {
   // 32-bit stable hash (Java-style).
   let hash = str.length | 0;
@@ -47,12 +71,19 @@ function hashCode(str) {
   return hash;
 }
 
+/**
+ * Clear the token cache and reset hit/miss counters.
+ * @returns {void}
+ */
 export function clearTokenCache() {
   cache.clear();
   hits = 0;
   misses = 0;
 }
 
+/**
+ * @returns {TokenCacheStats}
+ */
 export function getTokenCacheStats() {
   const total = hits + misses;
   return {

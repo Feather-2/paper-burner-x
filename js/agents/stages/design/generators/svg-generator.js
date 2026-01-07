@@ -8,7 +8,7 @@ import { ResourceGuard } from "../../../runtime/core/resource-guard.js";
 // Optional circuit breaker - may not be available
 let getCircuitBreaker = null;
 try {
-  const mod = await import("../../core/error-handler.js");
+  const mod = await import("../../../shared/utils/circuit-breaker.js");
   getCircuitBreaker = mod.getCircuitBreaker;
 } catch { }
 
@@ -407,11 +407,20 @@ function chunkArray(arr, size) {
 }
 
 export class SVGGenerator {
+  /**
+   * @param {{ batchSize?: number, concurrency?: number }} [options]
+   */
   constructor({ batchSize = 1, concurrency } = {}) {
     this.batchSize = Math.max(1, Math.min(4, batchSize));
     this.concurrency = concurrency; // undefined = use default at generate time
   }
 
+  /**
+   * @param {any[]} svgSlots
+   * @param {any} designSystem
+   * @param {{ emit?: Function, aiApiService?: any, modelRouter?: any, signal?: AbortSignal, slideHtmlBySlotId?: any, concurrency?: number }} [options]
+   * @returns {Promise<any>}
+   */
   async generate(svgSlots, designSystem, { emit, aiApiService, modelRouter, signal, slideHtmlBySlotId, concurrency } = {}) {
     const slots = Array.isArray(svgSlots) ? svgSlots : [];
     const htmlMap = slideHtmlBySlotId instanceof Map ? slideHtmlBySlotId : new Map();

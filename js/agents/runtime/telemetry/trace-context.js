@@ -70,6 +70,10 @@ export const SpanStatus = Object.freeze({
 });
 
 /**
+ * @typedef {(typeof SpanStatus)[keyof typeof SpanStatus]} SpanStatusType
+ */
+
+/**
  * Span 类型
  */
 export const SpanKind = Object.freeze({
@@ -81,6 +85,10 @@ export const SpanKind = Object.freeze({
 });
 
 /**
+ * @typedef {(typeof SpanKind)[keyof typeof SpanKind]} SpanKindType
+ */
+
+/**
  * Span
  */
 export class Span {
@@ -89,7 +97,7 @@ export class Span {
    * @param {string} options.name
    * @param {string} options.traceId
    * @param {string} [options.parentSpanId]
-   * @param {string} [options.kind='internal']
+   * @param {SpanKindType} [options.kind='internal']
    * @param {object} [options.attributes]
    */
   constructor({ name, traceId, parentSpanId, kind = SpanKind.INTERNAL, attributes = {} }) {
@@ -100,6 +108,7 @@ export class Span {
     this.kind = kind;
     this.startTime = Date.now();
     this.endTime = null;
+    /** @type {SpanStatusType} */
     this.status = SpanStatus.UNSET;
     this.statusMessage = null;
     this.attributes = { ...attributes };
@@ -148,7 +157,7 @@ export class Span {
 
   /**
    * 设置状态
-   * @param {string} status
+   * @param {SpanStatusType} status
    * @param {string} [message]
    */
   setStatus(status, message) {

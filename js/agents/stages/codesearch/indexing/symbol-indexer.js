@@ -4,6 +4,22 @@ import CodeSearchIndexStore from "./index-store.js";
 
 import { isPlainObject, toNonEmptyString } from "../../../shared/utils/value-utils.js";
 import { LRUCache } from "../../../shared/utils/lru-cache.js";
+
+/**
+ * @typedef {object} SymbolIndexerLogger
+ * @property {(msg:string, meta?:any)=>void=} debug
+ * @property {(msg:string, meta?:any)=>void=} info
+ * @property {(msg:string, meta?:any)=>void=} warn
+ * @property {(msg:string, meta?:any)=>void=} error
+ *
+ * @typedef {object} SymbolIndexerOptions
+ * @property {{readText:(path:string)=>Promise<string>}=} vfs
+ * @property {CodeSearchIndexStore=} store
+ * @property {string=} workspaceId
+ * @property {string=} wasmBaseUrl
+ * @property {SymbolIndexerLogger=} logger
+ * @property {(eventName:string, payload:any)=>void=} emit
+ */
 function extname(path) {
   const p = toNonEmptyString(path);
   const idx = p.lastIndexOf(".");
@@ -286,6 +302,9 @@ function extractJsTsSymbolsFromTree(rootNode, path, lines) {
 }
 
 export class SymbolIndexer {
+  /**
+   * @param {SymbolIndexerOptions} [options]
+   */
   constructor({ vfs, store, workspaceId = "default", wasmBaseUrl, logger, emit } = {}) {
     this.vfs = vfs || null;
     this.store = store instanceof CodeSearchIndexStore ? store : new CodeSearchIndexStore();
@@ -305,16 +324,30 @@ export class SymbolIndexer {
     this._queryCache = new LRUCache({ maxSize: this._queryCacheMax }); // key -> { rev, results }
   }
 
+  /**
+   * @param {"debug"|"info"|"warn"|"error"|string} level
+   * @param {string} msg
+   * @param {any} [data]
+   * @returns {void}
+   */
   _log(level, msg, data) {
     if (this.logger && typeof this.logger[level] === "function") {
       this.logger[level](`[SymbolIndexer] ${msg}`, data || {});
     }
   }
 
+  /**
+   * @param {string} name
+   * @param {any} payload
+   * @returns {void}
+   */
   _emit(name, payload) {
     if (typeof this.emit === "function") this.emit(name, payload);
   }
 
+  /**
+   * @returns {Promise<boolean>}
+   */
   async _ensureTreeSitter() {
     if (this._treeSitterReady) return true;
     if (this._treeSitterFailed) return false;
@@ -330,6 +363,10 @@ export class SymbolIndexer {
     }
   }
 
+  /**
+   * @param {string} langId
+   * @returns {Promise<any|null>}
+   */
   async _getLanguage(langId) {
     const id = toNonEmptyString(langId);
     if (!id) return null;
@@ -351,6 +388,9 @@ export class SymbolIndexer {
     }
   }
 
+  /**
+   * @returns {Promise<any>}
+   */
   async _getParser() {
     if (this._parserInstance) return this._parserInstance;
     if (this._parserPromise) return this._parserPromise;
@@ -358,9 +398,10 @@ export class SymbolIndexer {
     this._parserPromise = Promise.resolve()
       .then(async () => {
         const mod = await import("web-tree-sitter");
-        const Parser = mod.Parser || mod.default?.Parser || mod.default;
-        if (!Parser) throw new Error("web-tree-sitter Parser unavailable");
-        const parser = new Parser();
+        /** @type {any} */
+        const ParserCtor = mod.Parser || mod.default?.Parser || mod.default;
+        if (!ParserCtor) throw new Error("web-tree-sitter Parser unavailable");
+        const parser = new ParserCtor();
         this._parserInstance = parser;
         return parser;
       })
@@ -372,16 +413,26 @@ export class SymbolIndexer {
     return this._parserPromise;
   }
 
+  /**
+   * @returns {void}
+   */
   _bumpRevision() {
     this._indexRevision += 1;
     this._recordsCache.clear();
     this._queryCache.clear();
   }
 
+  /**
+   * @returns {void}
+   */
   invalidateCaches() {
     this._bumpRevision();
   }
 
+  /**
+   * @param {string} workspaceId
+   * @returns {Promise<any[]>}
+   */
   async _listSymbolRecordsCached(workspaceId) {
     const ws = toNonEmptyString(workspaceId) || "default";
     const cached = this._recordsCache.get(ws);
@@ -393,6 +444,11 @@ export class SymbolIndexer {
     return Array.isArray(rows) ? rows : [];
   }
 
+  /**
+   * @param {string} text
+   * @param {string} path
+   * @returns {Promise<any[]>}
+   */
   async extractSymbols(text, path) {
     const file = toNonEmptyString(path);
     const langId = detectLanguageForPath(file);
@@ -417,6 +473,10 @@ export class SymbolIndexer {
     }
   }
 
+  /**
+   * @param {string} path
+   * @returns {Promise<any>}
+   */
   async indexFile(path) {
     if (!this.vfs || typeof this.vfs.readText !== "function") {
       throw new Error("SymbolIndexer.indexFile: vfs.readText is required");
@@ -438,6 +498,10 @@ export class SymbolIndexer {
     return { ok: true, path: file, skipped: false, symbols };
   }
 
+  /**
+   * @param {string[]} [paths]
+   * @returns {Promise<any[]>}
+   */
   async indexFiles(paths = []) {
     const list = Array.isArray(paths) ? paths : [];
     const results = [];
@@ -454,6 +518,10 @@ export class SymbolIndexer {
     return results;
   }
 
+  /**
+   * @param {{ query?: string, pathPrefix?: string, limit?: number }=} args
+   * @returns {Promise<any[]>}
+   */
   async query({ query = "", pathPrefix = "", limit = 50 } = {}) {
     const q = toNonEmptyString(query).toLowerCase();
     const prefix = toNonEmptyString(pathPrefix);

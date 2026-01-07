@@ -43,7 +43,7 @@ export class BacktrackManager {
     /**
      * 准备回溯数据
      * @param {string} [checkpointId] - 目标快照 ID，如果不提供则回滚到上一个
-     * @returns {Promise<{success: boolean, state?: any, reason?: string}>}
+     * @returns {Promise<{success: boolean, state?: any, checkpointId?: string, reason?: string, error?: string}>}
      */
     async prepareBacktrack(checkpointId) {
         if (!this.canBacktrack()) {

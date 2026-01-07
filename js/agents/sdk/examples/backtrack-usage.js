@@ -1,11 +1,14 @@
 /**
  * Backtrack (春秋蝉) 使用示例
- * 
- * 展示 Agent 如何在发现路径错误时利用回溯工具“穿越”回之前的状态。
+ *
+ * 展示 Agent 如何在发现路径错误时利用回溯工具"穿越"回之前的状态。
+ *
+ * @module sdk/examples/backtrack-usage
  */
 
 import { createAgent, createLogger } from "../index.js";
 
+/** @type {ReturnType<typeof createLogger>} */
 const logger = createLogger("sdk/examples/backtrack-usage");
 
 // 1. 构建支持回溯的 Agent
@@ -14,7 +17,10 @@ const agent = createAgent({ actor: "traveler" })
     .useBacktrack({ maxBacktracks: 5 }) // 允许最多回溯 5 次
     .build();
 
-// 2. 模拟运行环境
+/**
+ * 运行回溯演示
+ * @returns {Promise<void>}
+ */
 async function runDemo() {
     console.log("=== Agent Skill Catalog ===");
     console.log(agent.getSkillCatalogPrompt());

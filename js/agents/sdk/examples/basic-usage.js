@@ -3,10 +3,13 @@
  *
  * 展示如何使用 @paper-burner/agents SDK 构建自定义 Agent
  * 注意：此示例已更新为使用 useCapability API
+ *
+ * @module sdk/examples/basic-usage
  */
 
 import { createAgent, createLogger } from "../index.js";
 
+/** @type {ReturnType<typeof createLogger>} */
 const logger = createLogger("sdk/examples/basic-usage");
 
 // ============================================================================
@@ -81,6 +84,10 @@ const lazyAgent = createAgent({ actor: "lazy" })
 // 运行示例
 // ============================================================================
 
+/**
+ * 运行所有示例
+ * @returns {Promise<void>}
+ */
 async function runExamples() {
     console.log("=== Basic Agent ===");
     console.log("Capabilities:", basicAgent.getCapabilityDefinitions());

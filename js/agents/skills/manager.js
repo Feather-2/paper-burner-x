@@ -7,6 +7,12 @@ import { loadSkills } from "./loader.js";
 import { renderSkillsList } from "./render.js";
 
 /**
+ * @typedef {import("./model.js").SkillMetadata} SkillMetadata
+ * @typedef {{ metadata: SkillMetadata, body: (string | null), supportFiles?: Record<string, string> }} SkillContent
+ * @typedef {{ skills: SkillContent[], errors: Array<{ path: string, message: string }> }} SkillLoadOutcome
+ */
+
+/**
  * Skills 管理器
  *
  * 功能：
@@ -16,9 +22,10 @@ import { renderSkillsList } from "./render.js";
  */
 export class SkillsManager {
   constructor(options = {}) {
+    const nodeProcess = /** @type {any} */ (globalThis).process;
     const envHome =
-      typeof process !== "undefined" && process?.env
-        ? (process.env.HOME || process.env.USERPROFILE)
+      nodeProcess?.env
+        ? (nodeProcess.env.HOME || nodeProcess.env.USERPROFILE)
         : null;
 
     this.homeDir = options.homeDir || envHome || null;

@@ -7,6 +7,25 @@
 import { extractServices } from "../utils/stage-api.js";
 import { injectSystemHint } from "../../../shared/utils/message-utils.js";
 
+/**
+ * @typedef {object} BuildBaseCallerOptions
+ * @property {string} [usage]
+ */
+
+/**
+ * @typedef {object} StageApiLike
+ * @property {AbortSignal} [signal]
+ * @property {{ call: Function }} [modelRouter]
+ * @property {{ chat: Function }} [aiApiService]
+ * @property {{ system?: string }} [runtimeHints]
+ */
+
+/**
+ * Build a base model caller from stage API
+ * @param {StageApiLike} stageApi
+ * @param {BuildBaseCallerOptions} [options]
+ * @returns {Function|null}
+ */
 export function buildBaseCaller(stageApi, { usage = "worker" } = {}) {
   const { signal: defaultSignal, modelRouter, aiApiService } = extractServices(stageApi);
   const systemHint = stageApi?.runtimeHints?.system;
@@ -14,7 +33,7 @@ export function buildBaseCaller(stageApi, { usage = "worker" } = {}) {
   if (typeof routerCall === "function") {
     const legacySignature = routerCall.length >= 2;
     return (messages, opts = {}) => {
-      const forwardOpts = opts && typeof opts === "object" ? opts : {};
+      const forwardOpts = /** @type {any} */ (opts && typeof opts === "object" ? opts : {});
       const { signal: providedSignal, ...rest } = forwardOpts;
       const signal = providedSignal ?? defaultSignal;
       const hintedMessages = injectSystemHint(messages, systemHint);
@@ -27,7 +46,7 @@ export function buildBaseCaller(stageApi, { usage = "worker" } = {}) {
   const chat = aiApiService?.chat;
   if (typeof chat === "function") {
     return (messages, opts = {}) => {
-      const forwardOpts = opts && typeof opts === "object" ? opts : {};
+      const forwardOpts = /** @type {any} */ (opts && typeof opts === "object" ? opts : {});
       const { signal: providedSignal, ...rest } = forwardOpts;
       const signal = providedSignal ?? defaultSignal;
       const hintedMessages = injectSystemHint(messages, systemHint);

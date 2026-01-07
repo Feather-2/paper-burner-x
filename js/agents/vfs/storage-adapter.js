@@ -222,7 +222,7 @@ export class OpfsStorageAdapter extends StorageAdapter {
   async keys() {
     const root = await this._getRootDir();
     const keys = [];
-    for await (const [name] of root) {
+    for await (const [name] of /** @type {any} */ (root)) {
       keys.push(decodeURIComponent(name.replace(/_/g, "%")));
     }
     return keys;
@@ -231,7 +231,7 @@ export class OpfsStorageAdapter extends StorageAdapter {
   async clear() {
     const root = await this._getRootDir();
     const entries = [];
-    for await (const [name] of root) {
+    for await (const [name] of /** @type {any} */ (root)) {
       entries.push(name);
     }
     for (const name of entries) {
@@ -273,7 +273,7 @@ export class IndexedDbStorageAdapter extends StorageAdapter {
       request.onerror = () => reject(request.error);
 
       request.onupgradeneeded = (event) => {
-        const db = event.target.result;
+        const db = /** @type {any} */ (event.target).result;
         if (!db.objectStoreNames.contains(this.storeName)) {
           db.createObjectStore(this.storeName);
         }

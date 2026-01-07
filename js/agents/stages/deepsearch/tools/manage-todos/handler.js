@@ -20,6 +20,12 @@ export const definition = {
  * @param {string} args.action - create | update | complete | cancel | list
  * @param {Object} [args.todo] - 任务数据
  * @param {string} [args.todoId] - 任务 ID
+ * @param {string} [args.text] - 任务文本（兼容字段）
+ * @param {string} [args.content] - 任务文本（兼容字段）
+ * @param {string} [args.title] - 任务文本（兼容字段）
+ * @param {string} [args.priority] - 优先级
+ * @param {Array<string>} [args.queryHints] - 查询提示
+ * @param {string} [args.status] - 状态
  * @param {Object} context - { state, emit }
  */
 export async function handler(args, context) {

@@ -14,8 +14,12 @@ async function ensureNodeModules() {
   if (fsPromises && pathModule) return true;
   if (isBrowser) return false;
   try {
-    const fsMod = await import("node:fs");
-    const pathMod = await import("node:path");
+    /** @type {string} */
+    const fsSpecifier = "node:fs";
+    /** @type {string} */
+    const pathSpecifier = "node:path";
+    const fsMod = await import(fsSpecifier);
+    const pathMod = await import(pathSpecifier);
     fsPromises = fsMod.promises || (fsMod.default && fsMod.default.promises) || fsMod;
     pathModule = pathMod.default || pathMod;
     return true;
@@ -161,6 +165,9 @@ function extractVisualSlotsFromHtml(html, { slideIntentId, slideIndex }) {
 }
 
 export class SlideSubAgent {
+  /**
+   * @param {{ slideIntent?: any, designSystem?: any, assetRegistry?: any } & Record<string, any>} [options]
+   */
   constructor({ slideIntent, designSystem, assetRegistry, ...options } = {}) {
     this.slideIntent = slideIntent || null;
     this.designSystem = designSystem || null;
@@ -170,6 +177,11 @@ export class SlideSubAgent {
     this.statusLog = [];
   }
 
+  /**
+   * @param {string} to
+   * @param {Record<string, any>} [context]
+   * @returns {boolean}
+   */
   _transition(to, context = {}) {
     const from = this.state.status;
     const ok = slideStatusMachine.transition(this.state, to, context);
@@ -177,10 +189,32 @@ export class SlideSubAgent {
     return ok;
   }
 
+  /**
+   * @returns {string}
+   */
   get status() {
     return this.state.status;
   }
 
+  /**
+   * @param {(Record<string, any> & {
+   *  slideIntent?: any,
+   *  designSystem?: any,
+   *  assetRegistry?: any,
+   *  slideIndex?: number,
+   *  slideNo?: number,
+   *  dslRules?: any,
+   *  contentPackage?: any,
+   *  imageSlotsForSlide?: any[],
+   *  selectedIdeas?: any[],
+   *  modelCaller?: any,
+   *  modelRouter?: any,
+   *  aiApiService?: any,
+   *  emit?: Function,
+   *  signal?: AbortSignal
+   * })} [runOptions]
+   * @returns {Promise<any>}
+   */
   async run(runOptions = {}) {
     const slideIntent = runOptions.slideIntent || this.slideIntent;
     const designSystem = runOptions.designSystem || this.designSystem;

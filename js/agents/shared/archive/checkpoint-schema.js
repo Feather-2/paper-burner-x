@@ -1,5 +1,23 @@
+/**
+ * @typedef {Record<string, any>} AnyRecord
+ *
+ * @typedef {"pre-action" | "pause" | "compress" | "archive"} CheckpointTypeValue
+ *
+ * @typedef {AnyRecord & { type?: CheckpointTypeValue, runId?: string, iteration?: number }} CheckpointMetadata
+ *
+ * @typedef {AnyRecord} NodeStates
+ *
+ * @typedef {object} Checkpoint
+ * @property {string} schemaVersion
+ * @property {NodeStates} nodeStates
+ * @property {number} timestamp
+ * @property {CheckpointMetadata} metadata
+ */
+
+/** @type {string} */
 export const CHECKPOINT_SCHEMA_VERSION = "1.0";
 
+/** @type {Readonly<{ PRE_ACTION: CheckpointTypeValue, PAUSE: CheckpointTypeValue, COMPRESS: CheckpointTypeValue, ARCHIVE: CheckpointTypeValue }>} */
 export const CheckpointType = Object.freeze({
   PRE_ACTION: "pre-action",
   PAUSE: "pause",
@@ -9,6 +27,9 @@ export const CheckpointType = Object.freeze({
 
 /**
  * Normalize checkpoint format.
+ * @param {NodeStates} nodeStates
+ * @param {CheckpointMetadata} [metadata]
+ * @returns {Checkpoint}
  */
 export function createCheckpoint(nodeStates, metadata = {}) {
   return {
@@ -26,16 +47,21 @@ export function createCheckpoint(nodeStates, metadata = {}) {
 
 /**
  * Validate checkpoint format.
+ * @param {unknown} checkpoint
+ * @returns {boolean}
  */
 export function validateCheckpoint(checkpoint) {
   if (!checkpoint || typeof checkpoint !== "object") return false;
-  if (!checkpoint.schemaVersion) return false;
-  if (!checkpoint.nodeStates) return false;
+  const cp = /** @type {any} */ (checkpoint);
+  if (!cp.schemaVersion) return false;
+  if (!cp.nodeStates) return false;
   return true;
 }
 
 /**
  * Migrate legacy checkpoint format.
+ * @param {any} checkpoint
+ * @returns {Checkpoint | null}
  */
 export function migrateCheckpoint(checkpoint) {
   if (!checkpoint) return null;

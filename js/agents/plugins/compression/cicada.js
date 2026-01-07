@@ -6,6 +6,8 @@
 
 import { createPlugin } from '../../core/plugin.js';
 
+/** @typedef {import('../../core/plugin.js').PluginContext} PluginContext */
+
 export default createPlugin({
   name: 'compression/cicada',
   version: '1.0.0',
@@ -17,6 +19,10 @@ export default createPlugin({
     compressionRatio: 0.6,
   },
 
+  /**
+   * @param {PluginContext} ctx
+   * @returns {Promise<void>}
+   */
   async install(ctx) {
     // 懒加载 CicadaCompressor
     let compressor = null;
@@ -31,6 +37,11 @@ export default createPlugin({
 
     // 注册服务
     ctx.registerService('compression', {
+      /**
+       * @param {any[]} messages
+       * @param {Record<string, any>} [options]
+       * @returns {Promise<any>}
+       */
       async compress(messages, options = {}) {
         const c = await getCompressor();
         const result = await c.compress(messages, options);
@@ -51,10 +62,18 @@ export default createPlugin({
         return result;
       },
 
+      /**
+       * @param {any[]} messages
+       * @param {number} tokenCount
+       * @returns {Promise<boolean>}
+       */
       async shouldCompress(messages, tokenCount) {
         return tokenCount > ctx.config.maxContextTokens * 0.8;
       },
 
+      /**
+       * @returns {Record<string, any>}
+       */
       getStats() {
         return ctx.state.get('') || {};
       },
@@ -74,6 +93,10 @@ export default createPlugin({
     ctx.log.info('Cicada compression plugin installed');
   },
 
+  /**
+   * @param {PluginContext} ctx
+   * @returns {Promise<void>}
+   */
   async uninstall(ctx) {
     ctx.log.info('Cicada compression plugin uninstalled');
   },

@@ -203,6 +203,7 @@ export function createTimeoutMiddleware(options = {}) {
 
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
+        /** @type {Error & { code?: string }} */
         const err = new Error(`Step timeout after ${stepTimeout}ms`);
         err.code = "TIMEOUT";
         onTimeout?.(ctx, err);

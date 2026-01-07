@@ -271,12 +271,20 @@ export function loadCheckpoint(checkpoint) {
 }
 
 export class CheckpointManager {
+  /**
+   * @param {{ archive?: any, emit?: ((eventName:string, payload:any)=>void)|null, logger?: any }=} options
+   */
   constructor({ archive, emit, logger } = {}) {
     this.archive = archive || null;
     this._emit = typeof emit === "function" ? emit : null;
     this._logger = logger || console;
   }
 
+  /**
+   * @param {any} state
+   * @param {{ iteration?: number, metadata?: any }=} options
+   * @returns {Promise<string|null>}
+   */
   async save(state, { iteration, metadata } = {}) {
     const meta = isPlainObject(metadata) ? metadata : {};
     const runId = toNonEmptyString(state?.runId) || toNonEmptyString(meta.runId) || "run_unknown";

@@ -1,6 +1,56 @@
 import { toNonEmptyString } from "../../shared/utils/value-utils.js";
 
+/**
+ * @typedef {Record<string, any>} AnyRecord
+ *
+ * @typedef {object} StageTimeoutOptions
+ * @property {string} [stageName]
+ * @property {number} [timeoutMs]
+ *
+ * @typedef {object} StageCancelledOptions
+ * @property {string} [stageName]
+ *
+ * @typedef {object} StagePausedOptions
+ * @property {string | null} [checkpointId]
+ * @property {string | null} [reason]
+ * @property {string | number | null} [timestamp]
+ * @property {string | null} [runId]
+ *
+ * @typedef {object} StagePausedErrorJSON
+ * @property {string} [name]
+ * @property {string} [message]
+ * @property {string | null} [checkpointId]
+ * @property {string | null} [reason]
+ * @property {string | number | null} [timestamp]
+ * @property {string | null} [runId]
+ *
+ * @typedef {object} ErrorPayload
+ * @property {string} message
+ * @property {string} name
+ * @property {string} [stack]
+ * @property {ErrorPayload} [cause]
+ * @property {string} [stageName]
+ * @property {number} [timeoutMs]
+ * @property {string} [checkpointId]
+ * @property {string} [reason]
+ * @property {string} [timestamp]
+ * @property {string} [runId]
+ *
+ * @typedef {Error & {
+ *   stageName?: string;
+ *   timeoutMs?: number;
+ *   checkpointId?: string;
+ *   reason?: string;
+ *   timestamp?: string;
+ *   runId?: string;
+ * }} StageErrorLike
+ */
+
 export class StageTimeoutError extends Error {
+  /**
+   * @param {string} message
+   * @param {StageTimeoutOptions} [options]
+   */
   constructor(message, { stageName, timeoutMs } = {}) {
     super(message);
     this.name = "StageTimeoutError";
@@ -10,6 +60,10 @@ export class StageTimeoutError extends Error {
 }
 
 export class StageCancelledError extends Error {
+  /**
+   * @param {string} message
+   * @param {StageCancelledOptions} [options]
+   */
   constructor(message, { stageName } = {}) {
     super(message);
     this.name = "StageCancelledError";
@@ -18,6 +72,10 @@ export class StageCancelledError extends Error {
 }
 
 export class StagePausedError extends Error {
+  /**
+   * @param {string} [message]
+   * @param {StagePausedOptions} [options]
+   */
   constructor(message = "Run paused", { checkpointId, reason, timestamp, runId } = {}) {
     super(message);
     this.name = "StagePausedError";
@@ -32,6 +90,7 @@ export class StagePausedError extends Error {
     this.runId = toNonEmptyString(runId) ?? null;
   }
 
+  /** @returns {StagePausedErrorJSON} */
   toJSON() {
     return {
       name: this.name,
@@ -43,6 +102,10 @@ export class StagePausedError extends Error {
     };
   }
 
+  /**
+   * @param {StagePausedErrorJSON | null | undefined} payload
+   * @returns {StagePausedError}
+   */
   static fromJSON(payload) {
     const raw = payload && typeof payload === "object" ? payload : {};
     const message = toNonEmptyString(raw.message) ?? "Run paused";
@@ -58,23 +121,41 @@ export class StagePausedError extends Error {
   }
 }
 
+/**
+ * @param {unknown} reason
+ * @param {string} [fallback]
+ * @returns {string}
+ */
 export function abortReasonToMessage(reason, fallback = "Run cancelled") {
   if (typeof reason === "string" && reason.trim()) return reason;
   if (reason instanceof Error && typeof reason.message === "string" && reason.message.trim()) return reason.message;
   return fallback;
 }
 
+/**
+ * @param {AbortSignal | null | undefined} signal
+ * @param {string | null | undefined} stageName
+ * @returns {StageCancelledError}
+ */
 export function cancelledErrorFromSignal(signal, stageName) {
   const message = abortReasonToMessage(signal?.reason);
   return new StageCancelledError(message, { stageName });
 }
 
+/**
+ * @param {unknown} err
+ * @param {{ includeStack?: boolean }} [options]
+ * @returns {ErrorPayload}
+ */
 export function toErrorPayload(err, { includeStack = true } = {}) {
   if (!err) {
     return { message: "Unknown error", name: "Error" };
   }
 
   if (err instanceof Error) {
+    /** @type {StageErrorLike} */
+    const stageErr = err;
+
     const payload = {
       message: toNonEmptyString(err.message) ?? "Error",
       name: toNonEmptyString(err.name) ?? "Error",
@@ -90,12 +171,12 @@ export function toErrorPayload(err, { includeStack = true } = {}) {
       payload.cause = toErrorPayload(err.cause, { includeStack });
     }
 
-    if (typeof err.stageName === "string" && err.stageName) payload.stageName = err.stageName;
-    if (typeof err.timeoutMs === "number" && Number.isFinite(err.timeoutMs)) payload.timeoutMs = err.timeoutMs;
-    if (typeof err.checkpointId === "string" && err.checkpointId) payload.checkpointId = err.checkpointId;
-    if (typeof err.reason === "string" && err.reason) payload.reason = err.reason;
-    if (typeof err.timestamp === "string" && err.timestamp) payload.timestamp = err.timestamp;
-    if (typeof err.runId === "string" && err.runId) payload.runId = err.runId;
+    if (typeof stageErr.stageName === "string" && stageErr.stageName) payload.stageName = stageErr.stageName;
+    if (typeof stageErr.timeoutMs === "number" && Number.isFinite(stageErr.timeoutMs)) payload.timeoutMs = stageErr.timeoutMs;
+    if (typeof stageErr.checkpointId === "string" && stageErr.checkpointId) payload.checkpointId = stageErr.checkpointId;
+    if (typeof stageErr.reason === "string" && stageErr.reason) payload.reason = stageErr.reason;
+    if (typeof stageErr.timestamp === "string" && stageErr.timestamp) payload.timestamp = stageErr.timestamp;
+    if (typeof stageErr.runId === "string" && stageErr.runId) payload.runId = stageErr.runId;
     return payload;
   }
 
@@ -108,6 +189,8 @@ export function toErrorPayload(err, { includeStack = true } = {}) {
 
 /**
  * 从 payload 重建 Error 对象（用于跨边界恢复）
+ * @param {ErrorPayload | AnyRecord | null | undefined} payload
+ * @returns {Error}
  */
 export function fromErrorPayload(payload) {
   if (!payload || typeof payload !== "object") {

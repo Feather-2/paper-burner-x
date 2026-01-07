@@ -10,6 +10,36 @@
 import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
 import { makeSecureTimestampedId } from "../shared/utils/secure-id.js";
 
+/**
+ * @typedef {Record<string, any>} AnyRecord
+ *
+ * @typedef {AnyRecord & { debug?: (...args: any[]) => void, info?: (...args: any[]) => void, warn?: (...args: any[]) => void, error?: (...args: any[]) => void }} LoggerLike
+ *
+ * @typedef {(eventName: string, payload: any) => void} EmitFn
+ *
+ * @typedef {"open" | "partial" | "satisfied" | "contradicted" | "verifying" | "blocked"} DiscoveryStatusType
+ *
+ * @typedef {AnyRecord & { status?: DiscoveryStatusType, keywords?: string[], id?: string }} DiscoveryRecord
+ *
+ * @typedef {AnyRecord & { discoveryId?: string, sourceId?: string, snippet?: string, confidence?: number, query?: string, ts?: number }} EvidenceRecord
+ *
+ * @typedef {object} SharedContextLike
+ * @property {(record: AnyRecord) => void} upsertSignal
+ * @property {(id: string, value: AnyRecord) => void} store
+ * @property {(key: string, id: string) => void} addToIndex
+ * @property {(key: string) => string[]} search
+ * @property {(id: string) => AnyRecord | null | undefined} getDetail
+ * @property {(predicate: (signal: AnyRecord) => boolean) => AnyRecord[]} getSignals
+ * @property {(tableName: string) => AnyRecord[]} getSyncTable
+ *
+ * @typedef {object} DiscoveryManagerOptions
+ * @property {SharedContextLike | null} [sharedContext]
+ * @property {string} [runId]
+ * @property {LoggerLike} [logger]
+ * @property {EmitFn} [emit]
+ */
+
+/** @type {Readonly<{ OPEN: DiscoveryStatusType, PARTIAL: DiscoveryStatusType, SATISFIED: DiscoveryStatusType, CONTRADICTED: DiscoveryStatusType, VERIFYING: DiscoveryStatusType, BLOCKED: DiscoveryStatusType }>} */
 export const DiscoveryStatus = Object.freeze({
     OPEN: "open",           // 初始状态
     PARTIAL: "partial",     // 部分满足，需要更多细节
@@ -20,15 +50,25 @@ export const DiscoveryStatus = Object.freeze({
 });
 
 export class DiscoveryManager {
+    /**
+     * @param {DiscoveryManagerOptions} [options]
+     */
     constructor(options = {}) {
+        /** @type {SharedContextLike | null | undefined} */
         this.sharedContext = options.sharedContext;
+        /** @type {string | undefined} */
         this.runId = options.runId;
+        /** @type {LoggerLike} */
         this.logger = options.logger;
+        /** @type {EmitFn | undefined} */
         this.emit = options.emit;
     }
 
     /**
      * 记录一项目标发现 (Gap 或 Claim)
+     * @param {string} id
+     * @param {DiscoveryRecord} data
+     * @returns {void}
      */
     upsertDiscovery(id, data) {
         if (!this.sharedContext) return;
@@ -45,6 +85,9 @@ export class DiscoveryManager {
 
     /**
      * 记录一条证据 (Evidence)
+     * @param {string} discoveryId
+     * @param {EvidenceRecord} evidence
+     * @returns {string | undefined}
      */
     addEvidence(discoveryId, evidence) {
         if (!this.sharedContext) return;
@@ -67,6 +110,8 @@ export class DiscoveryManager {
 
     /**
      * 获取某项发现的所有证据
+     * @param {string} discoveryId
+     * @returns {EvidenceRecord[]}
      */
     getEvidences(discoveryId) {
         if (!this.sharedContext) return [];
@@ -76,6 +121,8 @@ export class DiscoveryManager {
 
     /**
      * 识别冲突 (解决模式 2-3)
+     * @param {string} discoveryId
+     * @returns {void}
      */
     _checkConflicts(discoveryId) {
         const evidences = this.getEvidences(discoveryId);
@@ -89,6 +136,10 @@ export class DiscoveryManager {
         }
     }
 
+    /**
+     * @param {string} id
+     * @returns {DiscoveryRecord | null}
+     */
     getDiscovery(id) {
         const signals = this.sharedContext.getSignals(s => s.payload?._syncKey === `discovery:${id}`);
         return signals[0]?.payload || null;
@@ -96,6 +147,7 @@ export class DiscoveryManager {
 
     /**
      * 获取所有发现及其实时状态
+     * @returns {DiscoveryRecord[]}
      */
     getAllDiscoveries() {
         if (!this.sharedContext) return [];
@@ -104,6 +156,7 @@ export class DiscoveryManager {
 
     /**
      * 获取待验证的任务
+     * @returns {DiscoveryRecord[]}
      */
     getConflictTasks() {
         return this.getAllDiscoveries().filter(d => d.status === DiscoveryStatus.CONTRADICTED);
@@ -111,6 +164,9 @@ export class DiscoveryManager {
 
     /**
      * 评估缺口状态
+     * @param {string} id
+     * @param {DiscoveryRecord} data
+     * @returns {void}
      */
     evaluateGap(id, data) {
         this.upsertDiscovery(id, data);

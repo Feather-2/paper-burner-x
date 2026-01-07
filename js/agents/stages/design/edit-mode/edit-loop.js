@@ -238,6 +238,18 @@ ${toolList}
 `.trim();
   }
 
+  /**
+   * @param {{
+   *  userMessage: any,
+   *  currentDsl: any,
+   *  screenshot?: any,
+   *  state: any,
+   *  selectedElement?: any,
+   *  modelRouter?: any,
+   *  intentParser?: Function
+   * }} params
+   * @returns {Promise<any>}
+   */
   async _interpretIntent({ userMessage, currentDsl, screenshot, state, selectedElement, modelRouter, intentParser }) {
     if (typeof intentParser === "function") {
       const parsed = await intentParser({
@@ -260,6 +272,7 @@ ${toolList}
     }
 
     const prompt = this.buildIntentPrompt({ state, selectedElement, userMessage, currentDsl });
+    /** @type {Array<{ type: string, text?: string, source?: any }>} */
     const content = [{ type: "text", text: prompt }];
     if (screenshot) content.push({ type: "image", source: screenshot });
     const aiResponse = await modelRouter.chat([{ role: "user", content }], { vision: Boolean(screenshot) });

@@ -233,6 +233,10 @@ export async function scanOpfsAsync({
  * @returns {Function} listFiles({prefix, recursive, signal, maxFiles}) => Promise<string[]>
  */
 export function createWorkerListFiles(rootDirName) {
+  /**
+   * @param {{ prefix?: string, recursive?: boolean, signal?: AbortSignal, maxFiles?: number }} [options]
+   * @returns {Promise<string[]>}
+   */
   return async function listFiles({ prefix = "", recursive = true, signal, maxFiles = 0 } = {}) {
     return scanOpfsAsync({
       rootDirName,

@@ -23,7 +23,36 @@ export { loadCheckpoint };
 const STATE_SCHEMA_VERSION = "0.1";
 const DEFAULT_MAX_ITERATIONS = 5;
 
+/**
+ * @typedef {object} DeepSearchStateSnapshot
+ * @property {string=} schemaVersion
+ * @property {string=} runId
+ * @property {string=} createdAt
+ * @property {string=} taskGoal
+ * @property {any=} userConfig
+ * @property {any=} L0
+ * @property {any=} L1
+ * @property {any=} L2
+ * @property {any[]=} todos
+ * @property {any=} timeline
+ * @property {number=} iteration
+ * @property {number=} maxIterations
+ * @property {any[]=} checkpoints
+ * @property {any=} planningTree
+ * @property {string=} trajectoryId
+ * @property {any=} trajectoryConfig
+ * @property {number=} writeBacktrackCount
+ * @property {any[]=} writeSnapshots
+ * @property {any=} sharedContext
+ * @property {number=} subAgentIndex
+ * @property {any=} memoryStore
+ * @property {any=} stateEngine
+ */
+
 export class DeepSearchState {
+  /**
+   * @param {DeepSearchStateSnapshot} [snapshot]
+   */
   constructor({
     runId,
     taskGoal,
@@ -159,6 +188,10 @@ export class DeepSearchState {
     }
   }
 
+  /**
+   * @param {any} stateEngine
+   * @returns {void}
+   */
   bindStateEngine(stateEngine) {
     if (this._stateEngineUnsubscribe) {
       try {
@@ -200,6 +233,10 @@ export class DeepSearchState {
     }
   }
 
+  /**
+   * @param {any|null} [nextL0]
+   * @returns {void}
+   */
   _syncFromStateEngine(nextL0 = null) {
     const engine = this._stateEngine;
     if (!engine) return;
@@ -289,10 +326,18 @@ export class DeepSearchState {
     this.reportState.outline = value;
   }
 
+  /**
+   * @param {{ includeCheckpoints?: boolean }=} options
+   * @returns {any}
+   */
   toJSON({ includeCheckpoints = true } = {}) {
     return stateToJSON(this, { includeCheckpoints });
   }
 
+  /**
+   * @param {any} json
+   * @returns {DeepSearchState}
+   */
   static fromJSON(json) {
     if (!isPlainObject(json)) throw new TypeError("DeepSearchState.fromJSON(json): json must be an object");
     const snapshot = fromSnapshot(json);

@@ -86,6 +86,9 @@ export const DeepSearchSourceKind = Object.freeze({
   UNKNOWN: "unknown",
 });
 
+/** @typedef {(typeof DeepSearchSourceKind)[keyof typeof DeepSearchSourceKind]} DeepSearchSourceKindValue */
+
+/** @type {Set<DeepSearchSourceKindValue>} */
 const DOC_SOURCE_KINDS = Object.freeze(
   new Set([
     DeepSearchSourceKind.URL,
@@ -104,14 +107,31 @@ const DOC_SOURCE_KINDS = Object.freeze(
   ])
 );
 
+/** @type {Set<DeepSearchSourceKindValue>} */
 const CODE_SOURCE_KINDS = Object.freeze(
   new Set([DeepSearchSourceKind.CODE, DeepSearchSourceKind.FILE])
 );
 
+/**
+ * @param {any} value
+ * @returns {value is DeepSearchSourceKindValue}
+ */
+function isValidDeepSearchSourceKindValue(value) {
+  const v = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (!v) return false;
+  /** @type {string[]} */
+  const allowed = /** @type {any} */ (Object.values(DeepSearchSourceKind));
+  return allowed.includes(v);
+}
+
+/**
+ * @param {any} value
+ * @returns {DeepSearchSourceKindValue}
+ */
 export function normalizeDeepSearchSourceKind(value) {
   const v = typeof value === "string" ? value.trim().toLowerCase() : "";
   if (!v) return DeepSearchSourceKind.UNKNOWN;
-  return Object.values(DeepSearchSourceKind).includes(v) ? v : DeepSearchSourceKind.UNKNOWN;
+  return isValidDeepSearchSourceKindValue(v) ? v : DeepSearchSourceKind.UNKNOWN;
 }
 
 export function isDocSourceKind(value) {

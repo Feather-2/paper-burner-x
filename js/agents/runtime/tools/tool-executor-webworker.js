@@ -1,12 +1,47 @@
+/**
+ * @typedef {object} SerializedError
+ * @property {string} name
+ * @property {string} message
+ * @property {string} [stack]
+ *
+ * @typedef {object} ToolWorkerExecuteMessage
+ * @property {"execute"} type
+ * @property {string} moduleUrl
+ * @property {string|null} [exportName]
+ * @property {any} [args]
+ * @property {any} [context]
+ *
+ * @typedef {object} ToolWorkerResultMessage
+ * @property {"result"} type
+ * @property {any} result
+ *
+ * @typedef {object} ToolWorkerErrorMessage
+ * @property {"error"} type
+ * @property {SerializedError} error
+ *
+ * @typedef {(args: any, context: any) => (any | Promise<any>)} ToolHandler
+ */
+
+/**
+ * @param {unknown} err
+ * @returns {SerializedError}
+ */
 function serializeError(err) {
   if (!err) return { name: "Error", message: "Unknown error" };
+  /** @type {any} */
+  const e = err;
   return {
-    name: typeof err.name === "string" ? err.name : "Error",
-    message: typeof err.message === "string" ? err.message : String(err),
-    stack: typeof err.stack === "string" ? err.stack : undefined,
+    name: typeof e.name === "string" ? e.name : "Error",
+    message: typeof e.message === "string" ? e.message : String(e),
+    stack: typeof e.stack === "string" ? e.stack : undefined,
   };
 }
 
+/**
+ * @param {any} mod
+ * @param {string|null|undefined} exportName
+ * @returns {ToolHandler|null}
+ */
 function resolveHandler(mod, exportName) {
   const named = typeof exportName === "string" && exportName.length ? exportName : null;
   if (named) {
@@ -21,6 +56,10 @@ function resolveHandler(mod, exportName) {
   return null;
 }
 
+/**
+ * @param {ToolWorkerExecuteMessage} msg
+ * @returns {Promise<any>}
+ */
 async function handleExecute(msg) {
   const moduleUrl = typeof msg?.moduleUrl === "string" ? msg.moduleUrl : "";
   const exportName = typeof msg?.exportName === "string" ? msg.exportName : null;
@@ -35,7 +74,12 @@ async function handleExecute(msg) {
   return await handler(args, context);
 }
 
+/**
+ * @param {MessageEvent} event
+ * @returns {Promise<void>}
+ */
 self.onmessage = async (event) => {
+  /** @type {ToolWorkerExecuteMessage} */
   const msg = event?.data;
   if (msg?.type !== "execute") return;
 
@@ -46,4 +90,3 @@ self.onmessage = async (event) => {
     self.postMessage({ type: "error", error: serializeError(err) });
   }
 };
-

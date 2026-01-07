@@ -4,6 +4,30 @@ import { TodoStatus, isValidTodoStatus } from "../states.js";
 
 const logger = createLogger("stages/deepsearch/utils/todo-utils");
 
+/**
+ * @typedef {"high"|"medium"|"low"} TodoPriorityValue
+ * @typedef {"open"|"pending"|"in_progress"|"completed"|"cancelled"} TodoStatusValue
+ * @typedef {"user"|"llm"|"system"} TodoSourceValue
+ *
+ * @typedef {object} TodoHistoryEntry
+ * @property {TodoStatusValue|null} from
+ * @property {TodoStatusValue} to
+ * @property {string} ts
+ *
+ * @typedef {object} DeepSearchTodo
+ * @property {string} todoId
+ * @property {string} text
+ * @property {TodoPriorityValue} priority
+ * @property {TodoStatusValue} status
+ * @property {string[]} queryHints
+ * @property {string} expectedEvidence
+ * @property {TodoSourceValue} source
+ * @property {TodoHistoryEntry[]} history
+ * @property {string} createdAt
+ * @property {string} updatedAt
+ * @property {string=} relatedGapId
+ */
+
 export const TodoSchema = Object.freeze({
   todoId: "string (required)",
   text: "string (required)",
@@ -25,16 +49,29 @@ function normalizeStringArray(value) {
   return raw.map((item) => String(item || "").trim()).filter(Boolean);
 }
 
+/**
+ * @param {any} value
+ * @returns {TodoPriorityValue}
+ */
 function normalizePriority(value) {
   const v = String(value || "").toLowerCase();
-  return TODO_PRIORITIES.has(v) ? v : "medium";
+  return TODO_PRIORITIES.has(v) ? /** @type {TodoPriorityValue} */ (v) : "medium";
 }
 
+/**
+ * @param {any} value
+ * @returns {TodoSourceValue}
+ */
 function normalizeSource(value) {
   const v = String(value || "").toLowerCase();
-  return TODO_SOURCES.has(v) ? v : "system";
+  return TODO_SOURCES.has(v) ? /** @type {TodoSourceValue} */ (v) : "system";
 }
 
+/**
+ * @param {any} value
+ * @param {any} raw
+ * @returns {TodoStatusValue}
+ */
 function normalizeStatus(value, raw) {
   if (typeof value === "boolean") return value ? TodoStatus.COMPLETED : TodoStatus.OPEN;
   const r = isPlainObject(raw) ? raw : {};
@@ -51,7 +88,7 @@ function normalizeStatus(value, raw) {
   if (v === "in-progress") return TodoStatus.IN_PROGRESS;
   if (v === "in progress") return TodoStatus.IN_PROGRESS;
   if (v === "progress") return TodoStatus.IN_PROGRESS;
-  return isValidTodoStatus(v) ? v : TodoStatus.OPEN;
+  return isValidTodoStatus(v) ? /** @type {TodoStatusValue} */ (v) : TodoStatus.OPEN;
 }
 
 function isIsoString(value) {
@@ -67,6 +104,11 @@ function deriveTodoIdFromGapId(gapId) {
   return `todo_${String(gapId)}`;
 }
 
+/**
+ * Create a normalized todo record (best-effort, tolerant of legacy field names).
+ * @param {Partial<DeepSearchTodo> & Record<string, any>} [params]
+ * @returns {DeepSearchTodo}
+ */
 export function createTodo(params = {}) {
   const raw = isPlainObject(params) ? params : {};
   const now = new Date().toISOString();
@@ -109,6 +151,11 @@ export function createTodo(params = {}) {
   return todo;
 }
 
+/**
+ * Validate a todo record against a minimal schema.
+ * @param {any} todo
+ * @returns {{valid: boolean, issues: string[]}}
+ */
 export function validateTodo(todo) {
   const issues = [];
   if (!isPlainObject(todo)) {
@@ -159,13 +206,21 @@ export function validateTodo(todo) {
   return { valid: issues.length === 0, issues };
 }
 
+/**
+ * Transition a todo to a new status, updating timestamps + history.
+ * @param {DeepSearchTodo} todo
+ * @param {any} newStatus
+ * @param {(eventName:string, payload:any)=>void=} emit
+ * @returns {boolean}
+ */
 export function transitionTodoStatus(todo, newStatus, emit) {
   if (!todo || typeof todo !== "object") return false;
-  const fromRaw = toNonEmptyString(todo.status);
-  const from = isValidTodoStatus(fromRaw?.toLowerCase()) ? fromRaw.toLowerCase() : TodoStatus.OPEN;
+  const fromCandidate = toNonEmptyString(todo.status)?.toLowerCase() || "";
+  const from = isValidTodoStatus(fromCandidate) ? /** @type {TodoStatusValue} */ (fromCandidate) : TodoStatus.OPEN;
   const toRaw = toNonEmptyString(newStatus);
-  const to = toRaw ? toRaw.toLowerCase() : "";
-  if (!isValidTodoStatus(to)) return false;
+  const toCandidate = toRaw ? toRaw.toLowerCase() : "";
+  if (!isValidTodoStatus(toCandidate)) return false;
+  const to = /** @type {TodoStatusValue} */ (toCandidate);
   if (from === to) return false;
   // 简化：移除状态机验证，允许任意有效状态转换
 
@@ -186,6 +241,11 @@ export function transitionTodoStatus(todo, newStatus, emit) {
   return true;
 }
 
+/**
+ * Best-effort migrate a legacy "gap" record to a todo.
+ * @param {any} gap
+ * @returns {DeepSearchTodo|null}
+ */
 export function migratGapToTodo(gap) {
   if (!isPlainObject(gap)) return null;
   const gapId = toNonEmptyString(gap.gapId);
@@ -212,4 +272,9 @@ export function migratGapToTodo(gap) {
   });
 }
 
+/**
+ * Alias for {@link migratGapToTodo} (spelling fixed).
+ * @param {any} gap
+ * @returns {DeepSearchTodo|null}
+ */
 export const migrateGapToTodo = migratGapToTodo;

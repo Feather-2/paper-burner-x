@@ -7,6 +7,8 @@
 import { createPlugin } from '../../core/plugin.js';
 import { createRetryProxy } from '../../core/service-bus.js';
 
+/** @typedef {import('../../core/plugin.js').PluginContext} PluginContext */
+
 export default createPlugin({
   name: 'resilience/retry',
   version: '1.0.0',
@@ -19,6 +21,10 @@ export default createPlugin({
     retryableErrors: ['ETIMEDOUT', 'ECONNRESET', 'RATE_LIMIT'],
   },
 
+  /**
+   * @param {PluginContext} ctx
+   * @returns {void}
+   */
   install(ctx) {
     const shouldRetry = (error, context) => {
       // 检查是否是可重试错误
@@ -81,7 +87,14 @@ export default createPlugin({
     ctx.services.useProxy(proxy);
 
     ctx.registerService('retry', {
+      /**
+       * @returns {{ total: number }}
+       */
       getStats: () => ctx.state.get('retryStats') || { total: 0 },
+
+      /**
+       * @returns {void}
+       */
       resetStats: () => ctx.state.set('retryStats', { total: 0 }),
     });
 

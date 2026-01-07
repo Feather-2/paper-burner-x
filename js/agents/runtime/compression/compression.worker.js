@@ -12,14 +12,27 @@ import { createRpcHandler } from "../core/worker-rpc.js";
 
 // Worker 内部实现压缩逻辑（避免 import 复杂依赖）
 
+/**
+ * @param {string} text
+ * @returns {boolean}
+ */
 function containsCjk(text) {
   return /[\u4e00-\u9fff]/.test(String(text || ""));
 }
 
+/**
+ * @param {string} text
+ * @returns {string}
+ */
 function normalizeSummaryText(text) {
   return String(text || "").replace(/\s+/g, " ").trim();
 }
 
+/**
+ * @param {string} text
+ * @param {{ maxWords?: number, maxChars?: number } | undefined} [options]
+ * @returns {string}
+ */
 function toTitle(text, { maxWords = 10, maxChars = 80 } = {}) {
   const normalized = normalizeSummaryText(text);
   if (!normalized) return "";
@@ -39,6 +52,11 @@ function toTitle(text, { maxWords = 10, maxChars = 80 } = {}) {
   return clipped + (truncated ? "..." : "");
 }
 
+/**
+ * @param {string} text
+ * @param {number} maxChars
+ * @returns {string}
+ */
 function truncateText(text, maxChars) {
   if (typeof text !== "string") return "";
   if (text.length <= maxChars) return text;
@@ -48,6 +66,10 @@ function truncateText(text, maxChars) {
   return text.slice(0, head) + "..." + (tail ? text.slice(text.length - tail) : "");
 }
 
+/**
+ * @param {any} message
+ * @returns {boolean}
+ */
 function isThinkingMessage(message) {
   if (!message || typeof message !== "object") return false;
   if (message.thinking === true || message.internal === true) return true;
@@ -58,6 +80,10 @@ function isThinkingMessage(message) {
   return /^<(think|analysis)>/i.test(content) || /^(thoughts?|analysis|internal):/i.test(content);
 }
 
+/**
+ * @param {any} message
+ * @returns {{ role: string, content: string } & Record<string, any>}
+ */
 function normalizeMessage(message) {
   if (typeof message === "string") {
     return { role: "assistant", content: message };
@@ -69,6 +95,10 @@ function normalizeMessage(message) {
   return { role: "assistant", content: "" };
 }
 
+/**
+ * @param {any} message
+ * @returns {boolean}
+ */
 function isMergeSafeMessage(message) {
   if (!message || typeof message !== "object") return false;
   const keys = Object.keys(message);
@@ -79,6 +109,10 @@ function isMergeSafeMessage(message) {
   return true;
 }
 
+/**
+ * @param {any} message
+ * @returns {boolean}
+ */
 function isContextSummaryMessage(message) {
   if (!message || typeof message !== "object") return false;
   if (message.role !== "system") return false;
@@ -86,6 +120,12 @@ function isContextSummaryMessage(message) {
   return content.startsWith("[Context Summary]");
 }
 
+/**
+ * @param {Array<{ role?: string, content?: any }>} messages
+ * @param {number} lineLimit
+ * @param {{ titleOnly?: boolean, titleMaxWords?: number, titleMaxChars?: number } | undefined} [options]
+ * @returns {string}
+ */
 function summarizeMessages(messages, lineLimit, { titleOnly = false, titleMaxWords = 10, titleMaxChars = 80 } = {}) {
   const lines = [];
   for (const msg of messages) {
@@ -102,6 +142,9 @@ function summarizeMessages(messages, lineLimit, { titleOnly = false, titleMaxWor
 
 /**
  * SESSION_HISTORY 压缩核心算法
+ * @param {Record<string, any>} context
+ * @param {Record<string, any>} [options]
+ * @returns {{ compressed: any, stats: any }}
  */
 function compressSessionHistory(context, options = {}) {
   const keepLastTurns = Number.isFinite(options.keepLastTurns) ? options.keepLastTurns : 6;
@@ -186,6 +229,8 @@ function compressSessionHistory(context, options = {}) {
 
 /**
  * 估算 token 数量（简化版）
+ * @param {any} text
+ * @returns {number}
  */
 function estimateTokens(text) {
   if (!text) return 0;
@@ -205,6 +250,8 @@ function estimateTokens(text) {
 
 /**
  * RPC method: compress
+ * @param {{ messages?: any[], options?: Record<string, any> } | any} params
+ * @returns {{ messages: any[], sessionSummary: string | null, stats: any, afterTokens: number }}
  */
 function handleCompress(params) {
   const { messages, options } = params || {};
@@ -240,7 +287,7 @@ const rpcHandler = createRpcHandler({
 });
 
 // 兼容旧协议 + 新 RPC 协议
-self.onmessage = (event) => {
+self.onmessage = /** @param {any} event */ (event) => {
   const data = event?.data;
 
   // P6.2: 新 RPC 协议优先

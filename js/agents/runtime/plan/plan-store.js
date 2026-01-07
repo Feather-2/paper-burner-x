@@ -2,12 +2,46 @@ import { StepStatus, isValidStepStatus } from "../core/agent-status.js";
 import { makeSecureTimestampedId } from "../../shared/utils/secure-id.js";
 
 import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
+
+/**
+ * @typedef {Object} PlanStep
+ * @property {string} stepId
+ * @property {string} title
+ * @property {string} status
+ * @property {string} [createdAt]
+ * @property {string} [updatedAt]
+ * @property {Record<string, any>} [meta]
+ */
+
+/**
+ * @typedef {Object} Plan
+ * @property {string} schemaVersion
+ * @property {string} kind
+ * @property {string} planId
+ * @property {string} runId
+ * @property {string} title
+ * @property {string} createdAt
+ * @property {string} updatedAt
+ * @property {string} lifecycleStatus
+ * @property {string} [status] - legacy alias of lifecycleStatus
+ * @property {number} selectedStepIndex
+ * @property {PlanStep[]} steps
+ * @property {Record<string, any>} [meta]
+ */
+
+/**
+ * @param {string | number | Date | null} [timestamp]
+ * @returns {string}
+ */
 function toIso(timestamp) {
   if (typeof timestamp === "string" && timestamp.trim()) return timestamp;
   const ms = typeof timestamp === "number" && Number.isFinite(timestamp) ? timestamp : Date.now();
   return new Date(ms).toISOString();
 }
 
+/**
+ * @returns {string}
+ */
 function generatePlanId() {
   return makeSecureTimestampedId("plan");
 }
@@ -24,6 +58,10 @@ export const PlanLifecycleStatus = Object.freeze({
   CANCELLED: "cancelled",
 });
 
+/**
+ * @param {any} value
+ * @returns {boolean}
+ */
 export function isValidPlanLifecycleStatus(value) {
   return Object.values(PlanLifecycleStatus).includes(value);
 }
@@ -37,12 +75,22 @@ const PLAN_LIFECYCLE_TRANSITIONS = Object.freeze({
   [PlanLifecycleStatus.CANCELLED]: [],
 });
 
+/**
+ * @param {any} value
+ * @param {{ fallback?: string } | undefined} [options]
+ * @returns {string}
+ */
 function normalizePlanLifecycleStatus(value, { fallback = PlanLifecycleStatus.DRAFT } = {}) {
   const raw = toNonEmptyString(value);
   if (!raw) return fallback;
   return isValidPlanLifecycleStatus(raw) ? raw : fallback;
 }
 
+/**
+ * @param {any} from
+ * @param {any} to
+ * @returns {boolean}
+ */
 export function canTransitionPlanLifecycle(from, to) {
   const src = normalizePlanLifecycleStatus(from);
   const dst = normalizePlanLifecycleStatus(to, { fallback: "" });
@@ -52,6 +100,12 @@ export function canTransitionPlanLifecycle(from, to) {
   return allowed.includes(dst);
 }
 
+/**
+ * @param {Plan} plan
+ * @param {any} status
+ * @param {{ updatedAt?: string | number | Date | null, force?: boolean } | undefined} [options]
+ * @returns {Plan}
+ */
 export function setPlanLifecycleStatus(plan, status, { updatedAt, force = false } = {}) {
   if (!plan || typeof plan !== "object") throw new TypeError("setPlanLifecycleStatus(plan,...): plan must be an object");
   const prev = normalizePlanLifecycleStatus(plan.lifecycleStatus ?? plan.status);
@@ -70,6 +124,19 @@ export function setPlanLifecycleStatus(plan, status, { updatedAt, force = false 
   };
 }
 
+/**
+ * @param {{
+ *   runId?: string,
+ *   planId?: string,
+ *   title?: string,
+ *   kind?: string,
+ *   steps?: any[],
+ *   selectedStepIndex?: number,
+ *   meta?: Record<string, any>,
+ *   lifecycleStatus?: string
+ * } | undefined} [input]
+ * @returns {Plan}
+ */
 export function createPlan({ runId, planId, title, kind, steps, selectedStepIndex, meta, lifecycleStatus } = {}) {
   const now = toIso();
   const normalizedSteps = Array.isArray(steps) ? steps : [];
@@ -95,6 +162,11 @@ export function createPlan({ runId, planId, title, kind, steps, selectedStepInde
   return out;
 }
 
+/**
+ * @param {any} step
+ * @param {{ fallbackIndex?: number } | undefined} [options]
+ * @returns {PlanStep}
+ */
 export function normalizePlanStep(step, { fallbackIndex = 0 } = {}) {
   const s = isPlainObject(step) ? step : {};
   const stepId = toNonEmptyString(s.stepId) || `step_${fallbackIndex + 1}`;
@@ -112,6 +184,11 @@ export function normalizePlanStep(step, { fallbackIndex = 0 } = {}) {
   };
 }
 
+/**
+ * @param {Plan | any} plan
+ * @param {string | number} stepIdOrIndex
+ * @returns {number}
+ */
 export function findPlanStepIndex(plan, stepIdOrIndex) {
   if (!plan || typeof plan !== "object") return -1;
   if (!Array.isArray(plan.steps)) return -1;
@@ -124,6 +201,13 @@ export function findPlanStepIndex(plan, stepIdOrIndex) {
   return plan.steps.findIndex((s) => toNonEmptyString(s?.stepId) === id);
 }
 
+/**
+ * @param {Plan} plan
+ * @param {string | number} stepIdOrIndex
+ * @param {string} status
+ * @param {{ updatedAt?: string | number | Date | null, select?: boolean } | undefined} [options]
+ * @returns {Plan}
+ */
 export function setPlanStepStatus(plan, stepIdOrIndex, status, { updatedAt, select = true } = {}) {
   if (!plan || typeof plan !== "object") throw new TypeError("setPlanStepStatus(plan,...): plan must be an object");
   if (!Array.isArray(plan.steps)) throw new TypeError("setPlanStepStatus(plan,...): plan.steps must be an array");
@@ -155,6 +239,16 @@ export function setPlanStepStatus(plan, stepIdOrIndex, status, { updatedAt, sele
   };
 }
 
+/**
+ * @param {{
+ *   runStore?: any,
+ *   runId?: string,
+ *   plan?: Plan | any,
+ *   type?: string,
+ *   artifactId?: string
+ * } | undefined} [input]
+ * @returns {Promise<any>}
+ */
 export async function savePlan({ runStore, runId, plan, type = PLAN_ARTIFACT_TYPE, artifactId } = {}) {
   if (!runStore || typeof runStore.saveArtifact !== "function") {
     throw new TypeError("savePlan({ runStore }): runStore.saveArtifact is required");

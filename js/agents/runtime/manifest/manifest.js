@@ -37,19 +37,27 @@ export const PluginType = Object.freeze({
 });
 
 /**
+ * @typedef {typeof PluginType[keyof typeof PluginType]} PluginTypeValue
+ * @typedef {typeof PermissionType[keyof typeof PermissionType]} PermissionValue
+ */
+
+/**
  * @typedef {Object} ManifestSchema
+ * @property {string} manifestVersion - Manifest 版本
  * @property {string} name - 插件名称
  * @property {string} version - 版本号 (semver)
- * @property {string} type - 插件类型
+ * @property {PluginTypeValue} type - 插件类型
  * @property {string} description - 描述
  * @property {string} [author] - 作者
  * @property {string} [license] - 许可证
  * @property {string[]} [keywords] - 关键词
- * @property {string[]} [permissions] - 所需权限
+ * @property {PermissionValue[]} [permissions] - 所需权限
  * @property {Object} [parameters] - 参数 JSON Schema
  * @property {Object} [output] - 输出 JSON Schema
+ * @property {Object} [input] - 输入 JSON Schema（Stage）
  * @property {Object} [dependencies] - 依赖
  * @property {Object} [config] - 配置选项
+ * @property {Object} [metadata] - 扩展元数据（优先级、激活条件等）
  */
 
 /**

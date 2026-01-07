@@ -8,6 +8,9 @@ import { Container, SINGLETON, TRANSIENT } from "./container.js";
 import { CircuitBreakerRegistry } from "../../shared/utils/circuit-breaker.js";
 import { TraceContext } from "../telemetry/trace-context.js";
 
+/** @type {any} */
+const process = /** @type {any} */ (globalThis).process;
+
 /**
  * Service IDs used across the agent system.
  */
@@ -138,7 +141,7 @@ export function createAgentContainer(overrides = {}) {
         }
 
         try {
-          const perfMem = globalThis?.performance?.memory;
+          const perfMem = /** @type {any} */ (globalThis?.performance)?.memory;
           if (
             perfMem &&
             typeof perfMem.usedJSHeapSize === "number" &&
@@ -330,7 +333,7 @@ export function createAgentContainer(overrides = {}) {
   container.register(
     ServiceId.SCHEMA_VALIDATOR,
     async () => {
-      const { SchemaValidator } = await import("../../shared/utils/schema-validator.js");
+      const { SchemaValidator } = /** @type {any} */ (await import("../../shared/utils/schema-validator.js"));
       return new SchemaValidator();
     },
     { scope: SINGLETON }
@@ -350,7 +353,7 @@ export function createAgentContainer(overrides = {}) {
   container.register(
     ServiceId.FILE_LOCK,
     async () => {
-      const { FileLockManager } = await import("../../vfs/file-lock.js");
+      const { FileLockManager } = /** @type {any} */ (await import("../../vfs/file-lock.js"));
       return new FileLockManager();
     },
     { scope: SINGLETON }
@@ -360,7 +363,7 @@ export function createAgentContainer(overrides = {}) {
   container.register(
     ServiceId.TOC_BUILDER,
     async () => {
-      const { TocBuilder } = await import("../../retrieval/toc-builder.js");
+      const { TocBuilder } = /** @type {any} */ (await import("../../retrieval/toc-builder.js"));
       return new TocBuilder();
     },
     { scope: SINGLETON }

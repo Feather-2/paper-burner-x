@@ -19,21 +19,79 @@
 
 import * as LamportClock from './lamport-clock.js';
 
+/**
+ * @typedef {import('./types.d.ts').EventBusOptions} CoreEventBusOptions
+ * @typedef {import('./types.d.ts').LamportClockState} LamportClockState
+ * @typedef {import('./types.d.ts').EventRecord} CoreEventRecord
+ */
+
+/**
+ * EventBus 内部使用的结构化事件记录。
+ *
+ * 说明：
+ * - `CoreEventRecord` 来自 `core/types.d.ts`（兼容旧字段：id/type/timestamp/clock）
+ * - 本模块同时保留运行时字段：schemaVersion/eventId/runId/ts/name/_clock/seq 等
+ *
+ * @typedef {Omit<CoreEventRecord, 'payload'> & { payload?: unknown } & {
+ *   schemaVersion: string,
+ *   eventId: string,
+ *   runId: string | null,
+ *   ts: string,
+ *   name: string,
+ *   actor: string,
+ *   level?: string,
+ *   durationMs?: number,
+ *   meta?: unknown,
+ *   status?: string,
+ *   _clock: LamportClockState,
+ *   seq: number,
+ * }} EventRecord
+ */
+
+/**
+ * EventBus 构造参数
+ * - 基础字段对齐 `core/types.d.ts` 的 `EventBusOptions`
+ * - 扩展字段为本模块的兼容/增强能力（不要求调用方提供）
+ *
+ * @typedef {CoreEventBusOptions & {
+ *   runId?: string | null,
+ *   persistenceAdapter?: any,
+ *   onListenerError?: (err: unknown, evt: EventRecord, fn: Function) => void,
+ * }} EventBusOptions
+ */
+
+/**
+ * @typedef {(event: EventRecord) => void | Promise<void>} EventHandler
+ */
+
 const SCHEMA_VERSION = '0.2';
 
 // ============================================================
 // 工具函数
 // ============================================================
 
+/**
+ * @param {unknown} value
+ * @returns {value is Record<string, unknown>}
+ */
 function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+/**
+ * @param {unknown} name
+ * @returns {boolean}
+ */
 function isValidEventName(name) {
   if (name === '*') return true;
   return typeof name === 'string' && /^[a-z0-9_]+(\.[a-z0-9_]+)*$/i.test(name);
 }
 
+/**
+ * @param {string | null | undefined} runId
+ * @param {number} seq
+ * @returns {string}
+ */
 function createEventId(runId, seq) {
   const base = runId && typeof runId === 'string' ? runId : 'run';
   return `evt_${base}_${seq}`;
@@ -41,6 +99,9 @@ function createEventId(runId, seq) {
 
 /**
  * 双指针通配符匹配 - O(m*n) 最坏情况，无指数回溯（防 ReDoS）
+ * @param {string} pattern
+ * @param {string} text
+ * @returns {boolean}
  */
 function wildcardMatch(pattern, text) {
   let pi = 0, ti = 0;
@@ -70,6 +131,9 @@ function wildcardMatch(pattern, text) {
 
 /**
  * 匹配事件模式（安全实现，防 ReDoS）
+ * @param {string} pattern
+ * @param {string} eventName
+ * @returns {boolean}
  */
 function matchPattern(pattern, eventName) {
   if (typeof pattern !== 'string' || typeof eventName !== 'string') return false;
@@ -91,6 +155,30 @@ function matchPattern(pattern, eventName) {
 // EventRecord 结构化事件
 // ============================================================
 
+/**
+ * @typedef {object} CreateEventRecordOptions
+ * @property {string | null} [runId]
+ * @property {string} [eventId]
+ * @property {string} [ts]
+ * @property {string} [name]
+ * @property {string} [actor]
+ * @property {string} [status]
+ * @property {unknown} [payload]
+ * @property {unknown} [meta]
+ * @property {string} [level]
+ * @property {number} [durationMs]
+ * @property {LamportClockState} [_clock]
+ * @property {string} [id] - legacy alias for eventId
+ * @property {string} [type] - legacy alias for name
+ * @property {number} [timestamp] - legacy alias for ts (ms)
+ * @property {LamportClockState} [clock] - legacy alias for _clock
+ */
+
+/**
+ * 创建结构化事件记录
+ * @param {CreateEventRecordOptions} [options]
+ * @returns {EventRecord}
+ */
 export function createEventRecord({
   runId,
   eventId,
@@ -103,21 +191,51 @@ export function createEventRecord({
   level,
   durationMs,
   _clock,
+  // legacy aliases (core/types.d.ts)
+  id,
+  type,
+  timestamp,
+  clock: clockInput,
 } = {}) {
   // 生成逻辑时钟
-  let clock = _clock;
+  let clock = _clock || clockInput;
   if (!clock || typeof clock.seq !== 'number') {
     clock = LamportClock.nextTick();
   } else {
     LamportClock.sync(clock.seq);
   }
 
+  const resolvedName = typeof name === 'string' && name
+    ? name
+    : (typeof type === 'string' && type ? type : 'unknown');
+
+  const resolvedTs = typeof ts === 'string' && ts
+    ? ts
+    : (typeof timestamp === 'number' && Number.isFinite(timestamp)
+        ? new Date(timestamp).toISOString()
+        : new Date().toISOString());
+
+  const resolvedTimestamp = (typeof timestamp === 'number' && Number.isFinite(timestamp))
+    ? timestamp
+    : (Number.isFinite(Date.parse(resolvedTs)) ? Date.parse(resolvedTs) : Date.now());
+
+  const resolvedEventId = (typeof eventId === 'string' && eventId)
+    ? eventId
+    : (typeof id === 'string' && id ? id : createEventId(runId, clock.seq));
+
+  /** @type {EventRecord} */
   const record = {
+    // core/types.d.ts compatible fields
+    id: resolvedEventId,
+    type: resolvedName,
+    timestamp: resolvedTimestamp,
+    clock,
+
     schemaVersion: SCHEMA_VERSION,
-    eventId,
-    runId,
-    ts: ts || new Date().toISOString(),
-    name,
+    eventId: resolvedEventId,
+    runId: typeof runId === 'string' ? runId : null,
+    ts: resolvedTs,
+    name: resolvedName,
     actor,
     _clock: clock,
     seq: clock.seq,
@@ -138,12 +256,7 @@ export function createEventRecord({
 
 export class EventBus {
   /**
-   * @param {Object} options
-   * @param {string} options.runId - 运行 ID
-   * @param {boolean} options.keepHistory - 保留事件历史
-   * @param {number} options.maxHistory - 最大历史数量
-   * @param {Object} options.persistenceAdapter - 持久化适配器
-   * @param {Function} options.onListenerError - 错误处理器
+   * @param {Partial<EventBusOptions>} [options]
    */
   constructor(options = {}) {
     this.runId = options.runId || null;
@@ -178,8 +291,8 @@ export class EventBus {
   /**
    * 订阅事件
    * @param {string} name - 事件名或通配符模式
-   * @param {Function} handler - 处理函数
-   * @returns {Function} 取消订阅函数
+   * @param {EventHandler} handler - 处理函数
+   * @returns {() => void} 取消订阅函数
    */
   on(name, handler) {
     if (typeof handler !== 'function') {
@@ -207,11 +320,15 @@ export class EventBus {
 
   /**
    * 一次性订阅
+   * @param {string} name - 事件名或通配符模式
+   * @param {EventHandler} handler - 处理函数
+   * @returns {() => void} 取消订阅函数
    */
   once(name, handler) {
-    const wrapper = (...args) => {
+    /** @type {EventHandler & { _original?: EventHandler }} */
+    const wrapper = (evt) => {
       this.off(name, wrapper);
-      return handler(...args);
+      return handler(evt);
     };
     wrapper._original = handler;
     return this.on(name, wrapper);
@@ -220,8 +337,9 @@ export class EventBus {
   /**
    * 高级订阅（支持优先级和 AbortSignal）
    * @param {string} eventType - 事件类型
-   * @param {Function} handler - 处理函数
-   * @param {Object} options - { priority, signal }
+   * @param {EventHandler} handler - 处理函数
+   * @param {{ priority?: number, signal?: AbortSignal }} [options] - { priority, signal }
+   * @returns {() => void} 取消订阅函数
    */
   subscribe(eventType, handler, options = {}) {
     const { priority = 0, signal } = options;
@@ -281,6 +399,9 @@ export class EventBus {
 
   /**
    * 取消订阅
+   * @param {string} name - 事件名或通配符模式
+   * @param {EventHandler} handler - 处理函数
+   * @returns {boolean} 是否成功取消
    */
   off(name, handler) {
     // 检查普通监听器
@@ -310,8 +431,8 @@ export class EventBus {
   /**
    * 发射事件（异步处理）
    * @param {string} name - 事件名
-   * @param {*} data - 事件数据或 EventRecord
-   * @returns {Object} EventRecord
+   * @param {unknown} [data] - 事件数据或 EventRecord-like 对象
+   * @returns {EventRecord} 结构化事件记录
    */
   emit(name, data = {}) {
     const evt = this._createEvent(name, data);
@@ -342,6 +463,9 @@ export class EventBus {
 
   /**
    * 同步发射（立即执行所有处理器，不等待异步）
+   * @param {string} name - 事件名
+   * @param {unknown} [data] - 事件数据或 EventRecord-like 对象
+   * @returns {EventRecord} 结构化事件记录
    */
   emitSync(name, data = {}) {
     const evt = this._createEvent(name, data);
@@ -363,7 +487,7 @@ export class EventBus {
    * 等待某个事件
    * @param {string} pattern - 事件模式
    * @param {number} timeout - 超时毫秒
-   * @returns {Promise<{ event, data }>}
+   * @returns {Promise<{ event: string, data: unknown }>}
    */
   waitFor(pattern, timeout = 30000) {
     return new Promise((resolve, reject) => {
@@ -398,6 +522,8 @@ export class EventBus {
 
   /**
    * 启用背压控制
+   * @param {{ batchWindowMs?: number, coalescePattern?: RegExp, deferNonCoalesced?: boolean, maxQueueSize?: number }} [options]
+   * @returns {this}
    */
   enableBackpressure(options = {}) {
     const {
@@ -429,6 +555,7 @@ export class EventBus {
 
   /**
    * 禁用背压控制
+   * @returns {this}
    */
   disableBackpressure() {
     if (!this._backpressure?.enabled) return this;
@@ -444,6 +571,8 @@ export class EventBus {
 
   /**
    * 获取事件历史
+   * @param {string} [pattern] - 事件模式（支持通配符）
+   * @returns {EventRecord[]}
    */
   getHistory(pattern) {
     if (!this._history) return [];
@@ -454,6 +583,7 @@ export class EventBus {
 
   /**
    * 清空历史
+   * @returns {void}
    */
   clearHistory() {
     if (this._history) this._history.length = 0;
@@ -461,6 +591,8 @@ export class EventBus {
 
   /**
    * 重放事件
+   * @param {string} runId
+   * @returns {Promise<EventRecord[]>}
    */
   async replay(runId) {
     if (!this._persistenceAdapter) {
@@ -473,10 +605,12 @@ export class EventBus {
     const result = [];
     for (const raw of events) {
       if (!isObject(raw)) continue;
+      const rawRunId = typeof raw.runId === 'string' ? raw.runId : undefined;
+      const rawMeta = isObject(raw.meta) ? raw.meta : undefined;
       const evt = createEventRecord({
         ...raw,
-        runId: raw.runId ?? runId,
-        meta: { ...(raw.meta || {}), replay: true },
+        runId: rawRunId ?? runId,
+        meta: { ...(rawMeta || {}), replay: true },
       });
       this._dispatch(evt);
       result.push(evt);
@@ -487,6 +621,7 @@ export class EventBus {
 
   /**
    * 清理所有监听器
+   * @returns {void}
    */
   clear() {
     this._listeners.clear();
@@ -500,6 +635,7 @@ export class EventBus {
 
   /**
    * 销毁（别名）
+   * @returns {void}
    */
   dispose() {
     this.clear();
@@ -509,6 +645,11 @@ export class EventBus {
   // 内部方法
   // ============================================================
 
+  /**
+   * @param {string} name
+   * @param {unknown} data
+   * @returns {EventRecord}
+   */
   _createEvent(name, data) {
     let payload = data;
     let meta = undefined;
@@ -519,6 +660,10 @@ export class EventBus {
       meta = data.meta;
     }
 
+    const actor = isObject(data) && typeof data.actor === 'string' ? data.actor : undefined;
+    const status = isObject(data) && typeof data.status === 'string' ? data.status : undefined;
+    const level = isObject(data) && typeof data.level === 'string' ? data.level : undefined;
+
     return createEventRecord({
       runId: this.runId,
       eventId: createEventId(this.runId, ++this._seq),
@@ -526,12 +671,16 @@ export class EventBus {
       name,
       payload,
       meta,
-      ...((isObject(data) && data.actor) ? { actor: data.actor } : {}),
-      ...((isObject(data) && data.status) ? { status: data.status } : {}),
-      ...((isObject(data) && data.level) ? { level: data.level } : {}),
+      ...(actor ? { actor } : {}),
+      ...(status ? { status } : {}),
+      ...(level ? { level } : {}),
     });
   }
 
+  /**
+   * @param {EventRecord} evt
+   * @returns {void}
+   */
   _dispatch(evt) {
     const handlers = this._collectHandlers(evt.name);
 
@@ -547,6 +696,10 @@ export class EventBus {
     }
   }
 
+  /**
+   * @param {EventRecord} evt
+   * @returns {void}
+   */
   _dispatchSync(evt) {
     const handlers = this._collectHandlers(evt.name);
 
@@ -559,6 +712,10 @@ export class EventBus {
     }
   }
 
+  /**
+   * @param {string} eventName
+   * @returns {{ fn: Function, priority: number }[]}
+   */
   _collectHandlers(eventName) {
     const handlers = [];
     let hasNonZeroPriority = false;
@@ -613,6 +770,11 @@ export class EventBus {
     return handlers;
   }
 
+  /**
+   * @param {string} eventName
+   * @param {EventRecord} evt
+   * @returns {void}
+   */
   _resolveWaiters(eventName, evt) {
     for (const [pattern, waiters] of this._waiters) {
       if (matchPattern(pattern, eventName)) {
@@ -624,6 +786,11 @@ export class EventBus {
     }
   }
 
+  /**
+   * @param {string} pattern
+   * @param {{ resolve: Function, reject: Function, timer: any }} waiter
+   * @returns {void}
+   */
   _removeWaiter(pattern, waiter) {
     const waiters = this._waiters.get(pattern);
     if (waiters) {
@@ -634,6 +801,10 @@ export class EventBus {
     }
   }
 
+  /**
+   * @param {EventRecord} evt
+   * @returns {void}
+   */
   _enqueueBackpressure(evt) {
     const bp = this._backpressure;
     if (!bp) return;
@@ -657,6 +828,9 @@ export class EventBus {
     this._scheduleFlush();
   }
 
+  /**
+   * @returns {void}
+   */
   _scheduleFlush() {
     const bp = this._backpressure;
     if (!bp?.enabled || bp.scheduled) return;
@@ -676,6 +850,9 @@ export class EventBus {
     }
   }
 
+  /**
+   * @returns {void}
+   */
   _flushBackpressure() {
     const bp = this._backpressure;
     if (!bp) return;
@@ -699,6 +876,10 @@ export class EventBus {
     }
   }
 
+  /**
+   * @param {EventRecord[]} events
+   * @returns {void}
+   */
   _persistAsync(events) {
     if (!this._persistenceAdapter) return;
 
@@ -710,6 +891,12 @@ export class EventBus {
     });
   }
 
+  /**
+   * @param {unknown} err
+   * @param {EventRecord} evt
+   * @param {Function} fn
+   * @returns {void}
+   */
   _handleError(err, evt, fn) {
     if (this._onListenerError) {
       try {

@@ -26,12 +26,14 @@ function defaultTime() {
 /**
  * 熔断器配置
  * @typedef {Object} CircuitBreakerOptions
+ * @property {string} [name] - 熔断器名称（用于日志/事件）
  * @property {number} [failureThreshold=5] - 触发熔断的连续失败次数
  * @property {number} [successThreshold=2] - 半开状态下恢复所需的连续成功次数
  * @property {number} [openDurationMs=30000] - 熔断状态持续时间（毫秒）
  * @property {number} [halfOpenMaxCalls=3] - 半开状态允许的最大探测请求数
- * @property {function} [isFailure] - 自定义失败判断函数
- * @property {function} [onStateChange] - 状态变更回调
+ * @property {(err: unknown) => boolean} [isFailure] - 自定义失败判断函数
+ * @property {(event: { name: string, from: string, to: string, reason: string, stats?: any }) => void} [onStateChange] - 状态变更回调
+ * @property {{ now: () => number }=} time - 可注入时间实现（测试/模拟用）
  */
 
 export class CircuitBreaker {
@@ -58,6 +60,7 @@ export class CircuitBreaker {
     this._time = time && typeof time.now === "function" ? time : defaultTime();
 
     // 内部状态
+    /** @type {string} */
     this._state = CircuitState.CLOSED;
     this._failureCount = 0;
     this._successCount = 0;
@@ -124,7 +127,7 @@ export class CircuitBreaker {
     this._checkStateTransition();
 
     if (this._state === CircuitState.OPEN) {
-      const err = new Error(`Circuit breaker is ${this._state}`);
+      const err = /** @type {any} */ (new Error(`Circuit breaker is ${this._state}`));
       err.name = "CircuitBreakerOpenError";
       err.circuitBreaker = this.name;
       err.state = this._state;
@@ -133,7 +136,7 @@ export class CircuitBreaker {
 
     if (this._state === CircuitState.HALF_OPEN) {
       if (this._halfOpenCalls >= this.halfOpenMaxCalls) {
-        const err = new Error(`Circuit breaker is ${this._state}`);
+        const err = /** @type {any} */ (new Error(`Circuit breaker is ${this._state}`));
         err.name = "CircuitBreakerOpenError";
         err.circuitBreaker = this.name;
         err.state = this._state;

@@ -61,6 +61,8 @@ export const MEDIA_SOURCE_KINDS = Object.freeze(
 
 /**
  * 验证 SourceKind 值
+ * @param {unknown} value
+ * @returns {boolean}
  */
 export function isValidSourceKind(value) {
   return VALID_SOURCE_KINDS.has(value);
@@ -68,6 +70,8 @@ export function isValidSourceKind(value) {
 
 /**
  * 规范化 SourceKind
+ * @param {unknown} value
+ * @returns {string}
  */
 export function normalizeSourceKind(value) {
   const s = String(value || "")
@@ -110,10 +114,21 @@ const ASSET_MIME_ALIASES = Object.freeze(
   ])
 );
 
+/**
+ * 验证资产 MIME 类型
+ * @param {unknown} value
+ * @returns {boolean}
+ */
 export function isValidAssetMimeType(value) {
   return VALID_ASSET_MIME_TYPES.has(value);
 }
 
+/**
+ * 规范化资产 MIME 类型（支持别名/参数，如 `image/jpeg; charset=utf-8`）
+ * @param {unknown} value
+ * @param {string} [fallback]
+ * @returns {string}
+ */
 export function normalizeAssetMimeType(value, fallback = AssetMimeType.OCTET_STREAM) {
   const raw = typeof value === "string" ? value.trim().toLowerCase() : "";
   const base = raw.split(";")[0] || "";

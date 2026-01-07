@@ -108,6 +108,10 @@ export function sliceTail(text, maxChars) {
 /**
  * 构建收敛检测样本
  */
+/**
+ * @param {{ reportMarkdown?: string, gaps?: any[], maxChars?: number }=} sample
+ * @returns {string}
+ */
 export function buildConvergenceSample({ reportMarkdown, gaps, maxChars } = {}) {
   const md = sliceTail(normalizeNewlines(reportMarkdown), maxChars);
   const gapLines = [];

@@ -19,8 +19,54 @@ import { parseSections } from "./refiner/react-refiner-tools.js";
 import { EditModeAgentLoop } from "./edit-mode/edit-loop.js";
 
 /**
+ * @typedef {object} EditSelection
+ * @property {number} [slideIndex]
+ * @property {string} [elementId]
+ * @property {string} [selector]
+ * @property {string} [slotId]
+ * @property {object} [bbox]
+ */
+
+/**
+ * @typedef {object} EditRequest
+ * @property {string} type
+ * @property {EditSelection} [selection]
+ * @property {string} [command]
+ * @property {object} [changes]
+ * @property {string} [action]
+ * @property {any} [screenshot]
+ */
+
+/**
+ * @typedef {object} EditLoopContext
+ * @property {AbortSignal} [signal]
+ * @property {any} [eventBus]
+ * @property {number} [timeout]
+ * @property {string} [runId]
+ * @property {Function} [emit]
+ */
+
+/**
+ * @typedef {object} EditAgentLoopOptions
+ * @property {any} [eventBus]
+ * @property {object} [deckPackage]
+ * @property {object} [designSystem]
+ * @property {object} [contentPackage]
+ * @property {any} [analyzer]
+ * @property {any} [editor]
+ * @property {any} [stitcher]
+ * @property {string} [runId]
+ * @property {any} [svgGenerator]
+ * @property {any} [imageGenerator]
+ * @property {any} [aiApiService]
+ * @property {any} [modelRouter]
+ * @property {any} [editTools]
+ */
+
+/**
  * 编辑请求类型
  */
+/** @readonly @enum {string} */
 export const EditRequestType = {
   ELEMENT: "element",
   IMAGE: "image",
@@ -32,6 +78,7 @@ export const EditRequestType = {
 /**
  * 编辑状态
  */
+/** @readonly @enum {string} */
 export const EditState = {
   IDLE: "idle",
   WAITING: "waiting",
@@ -47,6 +94,9 @@ function emitStage(emit, name, status, payload) {
  * EditAgentLoop 类
  */
 export class EditAgentLoop extends BaseAgentLoop {
+  /**
+   * @param {EditAgentLoopOptions} [options]
+   */
   constructor(options = {}) {
     super({ actor: "edit", stageName: "edit", eventBus: options.eventBus });
 
@@ -80,6 +130,8 @@ export class EditAgentLoop extends BaseAgentLoop {
 
   /**
    * 设置 deck package
+   * @param {object} deckPackage
+   * @returns {void}
    */
   setDeckPackage(deckPackage) {
     this._deckPackage = deckPackage;
@@ -88,6 +140,7 @@ export class EditAgentLoop extends BaseAgentLoop {
 
   /**
    * 获取当前 deck
+   * @returns {object}
    */
   getDeckPackage() {
     return {
@@ -98,6 +151,8 @@ export class EditAgentLoop extends BaseAgentLoop {
 
   /**
    * 主运行循环
+   * @param {EditLoopContext} [context]
+   * @returns {Promise<object>}
    */
   async run(context = {}) {
     const emit = getEmitFn(context) || this.emit;
@@ -473,6 +528,7 @@ export class EditAgentLoop extends BaseAgentLoop {
 
   /**
    * 撤销
+   * @returns {any}
    */
   undo() {
     return this._editor.undo();
@@ -480,6 +536,7 @@ export class EditAgentLoop extends BaseAgentLoop {
 
   /**
    * 重做
+   * @returns {any}
    */
   redo() {
     return this._editor.redo();
@@ -487,6 +544,7 @@ export class EditAgentLoop extends BaseAgentLoop {
 
   /**
    * 获取编辑历史
+   * @returns {Array<{timestamp:number, request: EditRequest}>}
    */
   getEditHistory() {
     return this._editHistory.slice();
@@ -494,12 +552,17 @@ export class EditAgentLoop extends BaseAgentLoop {
 
   /**
    * 获取状态
+   * @returns {string}
    */
   getState() {
     return this._state;
   }
 }
 
+/**
+ * @param {EditAgentLoopOptions} [options]
+ * @returns {EditAgentLoop}
+ */
 export function createEditAgentLoop(options = {}) {
   return new EditAgentLoop(options);
 }

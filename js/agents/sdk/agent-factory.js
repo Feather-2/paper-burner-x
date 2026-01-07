@@ -221,7 +221,7 @@ export class AgentFactory {
     }
 
     for (const { pattern, handler } of config.eventHandlers) {
-      eventBus.subscribe(pattern, handler);
+      eventBus.subscribe(pattern, /** @type {any} */ (handler));
     }
 
     const capabilities = config.capabilities;
@@ -230,10 +230,10 @@ export class AgentFactory {
 
     let compressor = null;
     if (config.cicadaConfig) {
-      compressor = new CicadaCompressor({
+      compressor = /** @type {any} */ (new CicadaCompressor({
         eventBus,
         ...config.cicadaConfig,
-      });
+      }));
 
       config.useCapability("Recall", {
         definition: RECALL_TOOL_DEFINITION,
@@ -243,11 +243,11 @@ export class AgentFactory {
 
     let backtrackManager = null;
     if (config.backtrackConfig || config.cicadaConfig) {
-      backtrackManager = new BacktrackManager({
+      backtrackManager = /** @type {any} */ (new BacktrackManager({
         compressor,
         logger,
         ...(config.backtrackConfig || {}),
-      });
+      }));
 
       config.useCapability("Backtrack", {
         definition: BACKTRACK_TOOL_DEFINITION,
@@ -258,7 +258,7 @@ export class AgentFactory {
     let discoveryManager = null;
     if (config.discoveryConfig || config.cicadaConfig) {
       discoveryManager = new DiscoveryManager({
-        sharedContext: compressor?.sharedContext || null,
+        sharedContext: /** @type {any} */ (compressor)?.sharedContext || null,
         logger,
         emit: (e, p) => eventBus.emit(e, p),
         ...(config.discoveryConfig || {}),

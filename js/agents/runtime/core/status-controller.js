@@ -12,6 +12,52 @@ import { StagePausedError } from "./stage-errors.js";
 import { getRuntimeState } from "../telemetry/loop-runtime-state.js";
 import { createLogger } from "../../shared/utils/logger.js";
 
+/**
+ * @typedef {Record<string, any>} AnyRecord
+ *
+ * @typedef {{ warn?: (...args: any[]) => void, info?: (...args: any[]) => void, error?: (...args: any[]) => void, debug?: (...args: any[]) => void }} LoggerLike
+ *
+ * @typedef {(eventName: string, record: { actor?: string, status?: string, payload?: any }) => void} EmitFn
+ *
+ * @typedef {{ force?: boolean, allowReset?: boolean, strict?: boolean, [key: string]: any }} LoopStatusTransitionMeta
+ *
+ * @typedef {((from: string, to: string, meta?: LoopStatusTransitionMeta) => boolean) | {
+ *   canTransition?: (from: string, to: string, meta?: LoopStatusTransitionMeta) => boolean
+ *   transition?: (from: string, to: string, meta?: LoopStatusTransitionMeta) => boolean
+ * }} LoopStatusMachine
+ *
+ * @typedef {object} StatusControllerOptions
+ * @property {string} [status]
+ * @property {LoopStatusMachine | null} [machine]
+ * @property {string | null} [eventName]
+ * @property {boolean} [strict]
+ * @property {LoggerLike | null} [logger]
+ * @property {EmitFn | null} [emit]
+ * @property {string} [stageName]
+ * @property {string} [actor]
+ *
+ * @typedef {object} StatusTransitionEntry
+ * @property {string} from
+ * @property {string} to
+ * @property {number} timestamp
+ * @property {boolean} [invalid]
+ * @property {any} [meta]
+ * @property {any} [reason]
+ * @property {any} [details]
+ * @property {any} [key]
+ * @property {any} [value]
+ *
+ * @typedef {object} RecordTransitionInput
+ * @property {string} from
+ * @property {string} to
+ * @property {number} [timestamp]
+ * @property {any} [invalid]
+ * @property {any} [strict]
+ * @property {any} [force]
+ * @property {any} [allowReset]
+ * @property {any} [reason]
+ */
+
 const logger = createLogger("runtime/core/status-controller");
 
 const DEFAULT_LOOP_STATUS_TRANSITIONS = Object.freeze({
@@ -22,16 +68,26 @@ const DEFAULT_LOOP_STATUS_TRANSITIONS = Object.freeze({
   [AgentStatus.FAILED]: [AgentStatus.IDLE],
 });
 
-function isAllowedLoopStatusTransition(from, to, meta = {}) {
+/**
+ * @param {string} from
+ * @param {string} to
+ * @param {LoopStatusTransitionMeta} [meta]
+ * @returns {boolean}
+ */
+function isAllowedLoopStatusTransition(from, to, meta = /** @type {LoopStatusTransitionMeta} */ ({})) {
   if (meta && typeof meta === "object") {
     if (meta.force) return true;
     if (meta.allowReset && to === AgentStatus.IDLE) return true;
   }
   if (!isValidAgentStatus(from) || !isValidAgentStatus(to)) return true;
   const allowed = DEFAULT_LOOP_STATUS_TRANSITIONS[from] || [];
-  return allowed.includes(to);
+  return allowed.includes(/** @type {any} */ (to));
 }
 
+/**
+ * @param {unknown} value
+ * @returns {boolean | undefined}
+ */
 function parseBooleanish(value) {
   if (value === true || value === false) return value;
   const s = typeof value === "string" ? value.trim().toLowerCase() : "";
@@ -41,10 +97,16 @@ function parseBooleanish(value) {
   return undefined;
 }
 
+/**
+ * @param {unknown} explicit
+ * @returns {boolean}
+ */
 function resolveStrictLoopStatusTransitions(explicit) {
   if (explicit === true || explicit === false) return explicit;
 
-  const env = typeof process !== "undefined" ? process.env : null;
+  /** @type {any} */
+  const g = typeof globalThis !== "undefined" ? globalThis : {};
+  const env = g?.process?.env ?? null;
   const fromEnv = parseBooleanish(env?.PB_STRICT_LOOP_STATUS_TRANSITIONS);
   if (typeof fromEnv === "boolean") return fromEnv;
 
@@ -58,6 +120,9 @@ function resolveStrictLoopStatusTransitions(explicit) {
 }
 
 export class StatusController {
+  /**
+   * @param {StatusControllerOptions} [options]
+   */
   constructor(options = {}) {
     this._loopStatus = options.status || AgentStatus.IDLE;
     this._loopMachine = options.machine || null;
@@ -72,22 +137,29 @@ export class StatusController {
     this._actor = options.actor || "agent";
   }
 
+  /** @returns {string} */
   get status() {
     return this._loopStatus;
   }
 
+  /** @returns {boolean} */
   get isPaused() {
     return this._pauseRequested;
   }
 
+  /** @returns {string | null} */
   get pauseReason() {
     return this._pauseReason;
   }
 
+  /** @returns {StatusTransitionEntry[]} */
   get statusHistory() {
     return [...this._statusHistory];
   }
 
+  /**
+   * @param {{ status?: string, machine?: LoopStatusMachine, eventName?: string | null, strict?: boolean } | null | undefined} [options]
+   */
   init({ status, machine, eventName, strict } = {}) {
     if (machine) this._loopMachine = machine;
     if (eventName) this._loopEventName = eventName;
@@ -96,16 +168,23 @@ export class StatusController {
     if (!Array.isArray(this._statusHistory)) this._statusHistory = [];
   }
 
+  /** @param {string} [reason] */
   pause(reason = "user_requested") {
     this._pauseRequested = true;
     this._pauseReason = reason;
   }
 
+  /** @returns {void} */
   resume() {
     this._pauseRequested = false;
     this._pauseReason = null;
   }
 
+  /**
+   * @param {string} newStatus
+   * @param {LoopStatusTransitionMeta} [metadata]
+   * @returns {StatusTransitionEntry | null}
+   */
   transition(newStatus, metadata = {}) {
     const oldStatus = this._loopStatus;
     if (oldStatus === newStatus) return null;
@@ -145,7 +224,11 @@ export class StatusController {
     return this._recordTransition({ from: oldStatus, to: newStatus, ...meta });
   }
 
-  _recordTransition({ from, to, timestamp, ...meta } = {}) {
+  /**
+   * @param {RecordTransitionInput} [input]
+   * @returns {StatusTransitionEntry}
+   */
+  _recordTransition({ from, to, timestamp, ...meta } = /** @type {RecordTransitionInput} */ ({})) {
     const ts = typeof timestamp === "number" ? timestamp : Date.now();
     const entry = { from, to, timestamp: ts, ...meta };
     this._statusHistory.push(entry);
@@ -154,12 +237,17 @@ export class StatusController {
     return entry;
   }
 
+  /** @param {StatusTransitionEntry} payload */
   _emitStatusChanged(payload) {
     if (typeof this._emit !== "function") return;
     const name = this._loopEventName || `${this._stageName}.agent.status.changed`;
     this._emit(name, { actor: this._actor, status: "info", payload });
   }
 
+  /**
+   * @param {AbortSignal | null | undefined} signal
+   * @throws {StagePausedError}
+   */
   checkPaused(signal) {
     const runtimeState = getRuntimeState(signal);
     if (!runtimeState) return;
@@ -172,6 +260,10 @@ export class StatusController {
     });
   }
 
+  /**
+   * @param {{ signal?: AbortSignal, runId?: string | null } | null | undefined} [options]
+   * @returns {StagePausedError}
+   */
   createPauseError({ signal, runId } = {}) {
     const runtimeState = getRuntimeState(signal);
     const reason = runtimeState?.pausedReason || this._pauseReason || null;
@@ -184,6 +276,11 @@ export class StatusController {
     });
   }
 
+  /**
+   * @param {any} err
+   * @param {AbortSignal | null | undefined} signal
+   * @returns {boolean}
+   */
   shouldPauseFromError(err, signal) {
     const runtimeState = getRuntimeState(signal);
     const pauseRequested = this._pauseRequested || runtimeState?.status === "paused";
@@ -191,6 +288,11 @@ export class StatusController {
     return this._isAbortError(err, signal);
   }
 
+  /**
+   * @param {any} err
+   * @param {AbortSignal | null | undefined} signal
+   * @returns {boolean}
+   */
   _isAbortError(err, signal) {
     if (!err) return false;
     if (signal?.aborted) return true;

@@ -6,6 +6,24 @@
 
 import { createPlugin } from '../../core/plugin.js';
 
+/** @typedef {import('../../core/plugin.js').PluginContext} PluginContext */
+
+/**
+ * @typedef {{ action: string, fingerprint: string, timestamp: number }} FingerprintHistoryEntry
+ *
+ * @typedef {{
+ *   fingerprint: string,
+ *   similarity: number,
+ *   isLoop: boolean,
+ *   loopLength: number,
+ *   loopInfo: any,
+ *   analysis: any,
+ *   suggestion: any,
+ *   stats: any,
+ *   timestamp: number,
+ * }} FingerprintAnalysisResult
+ */
+
 export default createPlugin({
   name: 'analysis/fingerprint',
   version: '1.0.0',
@@ -17,6 +35,10 @@ export default createPlugin({
     maxHistory: 50,
   },
 
+  /**
+   * @param {PluginContext} ctx
+   * @returns {Promise<void>}
+   */
   async install(ctx) {
     const toPlainObject = (value) => {
       if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -52,6 +74,10 @@ export default createPlugin({
 
     // 注册服务
     ctx.registerService('fingerprint', {
+      /**
+       * @param {any} action
+       * @returns {Promise<FingerprintAnalysisResult>}
+       */
       async analyze(action) {
         const fp = await getFingerprinter();
         const fingerprint = computeFingerprint(action);
@@ -98,8 +124,14 @@ export default createPlugin({
         return result;
       },
 
+      /**
+       * @returns {FingerprintHistoryEntry[]}
+       */
       getHistory: () => [...history],
 
+      /**
+       * @returns {void}
+       */
       reset() {
         history.length = 0;
         fingerprinter?.reset?.();

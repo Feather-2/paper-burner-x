@@ -1,12 +1,15 @@
 import { normalizeVfsPath } from "./path.js";
 import { isScanWorkerAvailable, scanOpfsAsync } from "./vfs-scan-async.js";
 
+/** @type {any} */
+const nodeProcess = /** @type {any} */ (globalThis).process;
+
 function escapeRegExp(s) {
   return s.replace(/[\\^$+?.()|[\]{}]/g, "\\$&");
 }
 
 function isNodeLike() {
-  return typeof process !== "undefined" && !!process.versions?.node;
+  return !!nodeProcess && typeof nodeProcess === "object" && !!nodeProcess.versions?.node;
 }
 
 function canUseWorker() {
@@ -200,6 +203,19 @@ export function createVfsGlobFn(vfs, { maxScanFiles = 20000, useWorker = true, w
   // 检测是否可以使用扫描 Worker
   const canUseScanWorker = useScanWorker !== false && opfsRootDirName && isScanWorkerAvailable();
 
+  /**
+   * @typedef {object} GlobCallOptions
+   * @property {string=} pattern
+   * @property {string=} path
+   * @property {AbortSignal=} signal
+   * @property {number=} yieldEvery
+   * @property {boolean=} useScanWorker
+   */
+
+  /**
+   * @param {GlobCallOptions} [options]
+   * @returns {Promise<string[]>}
+   */
   return async function globFn({ pattern, path, signal, yieldEvery: callYieldEvery, useScanWorker: callUseScanWorker } = {}) {
     const base = normalizeVfsPath(path || "");
     const maxScan = Math.max(0, Math.floor(maxScanFiles));

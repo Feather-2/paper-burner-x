@@ -1,8 +1,22 @@
 import { toNonEmptyString } from "../../../shared/utils/value-utils.js";
 import { L0_SET_TASK_GOAL } from "../../../runtime/memory/action-types.js";
 
+/**
+ * @typedef {object} RootState
+ * @property {any} [_stateEngine]
+ * @property {any} [_memoryStore]
+ * @property {string} [_localTaskGoal]
+ */
+
+/**
+ * Task state accessor for DeepSearch
+ */
 export class TaskState {
+  /**
+   * @param {RootState} root
+   */
   constructor(root) {
+    /** @type {RootState} */
     this._root = root;
   }
 

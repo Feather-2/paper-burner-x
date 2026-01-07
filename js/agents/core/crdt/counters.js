@@ -7,18 +7,34 @@
 
 import { nextTick } from '../lamport-clock.js';
 
+/** @typedef {import("../types.d.ts").LamportClockState} LamportClockState */
+/** @typedef {{ nodeId?: string }} CounterOptions */
+/** @typedef {{ type: 'increment', nodeId: string, value: number, clock: LamportClockState }} GCounterIncrementOp */
+/** @typedef {GCounterIncrementOp | { type: string, [key: string]: unknown }} GCounterOp */
+/** @typedef {{ type: 'GCounter', nodeId: string, counts: Record<string, number> }} GCounterJSON */
+/** @typedef {{ type: 'pn-increment', op: GCounterIncrementOp }} PNCounterIncrementOp */
+/** @typedef {{ type: 'pn-decrement', op: GCounterIncrementOp }} PNCounterDecrementOp */
+/** @typedef {PNCounterIncrementOp | PNCounterDecrementOp | { type: string, [key: string]: unknown }} PNCounterOp */
+/** @typedef {{ type: 'PNCounter', nodeId: string, positive: GCounterJSON, negative: GCounterJSON }} PNCounterJSON */
+
 /**
  * G-Counter - Grow-only Counter
  */
 export class GCounter {
+  /**
+   * @param {CounterOptions} [options={}]
+   */
   constructor(options = {}) {
+    /** @type {string} */
     this._nodeId = options.nodeId || nextTick().id.split('_')[0];
+    /** @type {Map<string, number>} */
     this._counts = new Map(); // nodeId → count
     this._counts.set(this._nodeId, 0);
   }
 
   /**
    * 获取总计数
+   * @returns {number}
    */
   get value() {
     let sum = 0;
@@ -30,6 +46,8 @@ export class GCounter {
 
   /**
    * 增加（只能本节点）
+   * @param {number} [delta=1]
+   * @returns {GCounterIncrementOp}
    */
   increment(delta = 1) {
     if (delta < 0) throw new Error('GCounter can only increment');
@@ -47,13 +65,16 @@ export class GCounter {
 
   /**
    * 应用远程操作
+   * @param {GCounterOp} op
+   * @returns {boolean}
    */
   apply(op) {
     if (op.type !== 'increment') return false;
 
-    const current = this._counts.get(op.nodeId) || 0;
-    if (op.value > current) {
-      this._counts.set(op.nodeId, op.value);
+    const incOp = /** @type {GCounterIncrementOp} */ (op);
+    const current = this._counts.get(incOp.nodeId) || 0;
+    if (incOp.value > current) {
+      this._counts.set(incOp.nodeId, incOp.value);
       return true;
     }
     return false;
@@ -61,6 +82,8 @@ export class GCounter {
 
   /**
    * 合并另一个 GCounter
+   * @param {GCounter} other
+   * @returns {boolean}
    */
   merge(other) {
     if (!(other instanceof GCounter)) return false;
@@ -78,6 +101,7 @@ export class GCounter {
 
   /**
    * 序列化
+   * @returns {GCounterJSON}
    */
   toJSON() {
     return {
@@ -89,13 +113,15 @@ export class GCounter {
 
   /**
    * 反序列化
+   * @param {GCounterJSON} json
+   * @returns {GCounter}
    */
   static fromJSON(json) {
     if (json?.type !== 'GCounter') {
       throw new Error('Invalid GCounter JSON');
     }
     const counter = new GCounter({ nodeId: json.nodeId });
-    counter._counts = new Map(Object.entries(json.counts || {}));
+    counter._counts = new Map(Object.entries(json.counts || {}).map(([nodeId, count]) => [nodeId, Number(count)]));
     return counter;
   }
 }
@@ -104,14 +130,21 @@ export class GCounter {
  * PN-Counter - Positive-Negative Counter
  */
 export class PNCounter {
+  /**
+   * @param {CounterOptions} [options={}]
+   */
   constructor(options = {}) {
+    /** @type {string} */
     this._nodeId = options.nodeId || nextTick().id.split('_')[0];
+    /** @type {GCounter} */
     this._positive = new GCounter({ nodeId: this._nodeId });
+    /** @type {GCounter} */
     this._negative = new GCounter({ nodeId: this._nodeId });
   }
 
   /**
    * 获取净计数
+   * @returns {number}
    */
   get value() {
     return this._positive.value - this._negative.value;
@@ -119,6 +152,8 @@ export class PNCounter {
 
   /**
    * 增加
+   * @param {number} [delta=1]
+   * @returns {PNCounterIncrementOp | PNCounterDecrementOp}
    */
   increment(delta = 1) {
     if (delta < 0) {
@@ -132,6 +167,8 @@ export class PNCounter {
 
   /**
    * 减少
+   * @param {number} [delta=1]
+   * @returns {PNCounterIncrementOp | PNCounterDecrementOp}
    */
   decrement(delta = 1) {
     if (delta < 0) {
@@ -145,19 +182,25 @@ export class PNCounter {
 
   /**
    * 应用远程操作
+   * @param {PNCounterOp} op
+   * @returns {boolean}
    */
   apply(op) {
     if (op.type === 'pn-increment') {
-      return this._positive.apply(op.op);
+      const incOp = /** @type {PNCounterIncrementOp} */ (op);
+      return this._positive.apply(incOp.op);
     }
     if (op.type === 'pn-decrement') {
-      return this._negative.apply(op.op);
+      const decOp = /** @type {PNCounterDecrementOp} */ (op);
+      return this._negative.apply(decOp.op);
     }
     return false;
   }
 
   /**
    * 合并另一个 PNCounter
+   * @param {PNCounter} other
+   * @returns {boolean}
    */
   merge(other) {
     if (!(other instanceof PNCounter)) return false;
@@ -169,6 +212,7 @@ export class PNCounter {
 
   /**
    * 序列化
+   * @returns {PNCounterJSON}
    */
   toJSON() {
     return {
@@ -181,6 +225,8 @@ export class PNCounter {
 
   /**
    * 反序列化
+   * @param {PNCounterJSON} json
+   * @returns {PNCounter}
    */
   static fromJSON(json) {
     if (json?.type !== 'PNCounter') {

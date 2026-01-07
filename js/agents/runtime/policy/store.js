@@ -1,5 +1,12 @@
 import { safeJsonParse } from "../../shared/utils/safe-json.js";
 
+/**
+ * @typedef {Record<string, any>} PolicyRule
+ */
+
+/**
+ * @returns {boolean}
+ */
 function hasLocalStorage() {
   try {
     return typeof localStorage !== "undefined" && !!localStorage && typeof localStorage.getItem === "function";
@@ -8,14 +15,22 @@ function hasLocalStorage() {
   }
 }
 
+/** @type {{ rules: PolicyRule[] }} */
 const MEMORY = { rules: [] };
 
 export class PolicyRuleStore {
+  /**
+   * @param {{ storageKey?: string }} [options]
+   */
   constructor({ storageKey = "paperburner_policy_rules_v1" } = {}) {
     this.storageKey = storageKey;
+    /** @type {PolicyRule[] | null} */
     this._cache = null;
   }
 
+  /**
+   * @returns {PolicyRule[]}
+   */
   load() {
     if (this._cache) return [...this._cache];
 
@@ -41,6 +56,10 @@ export class PolicyRuleStore {
     }
   }
 
+  /**
+   * @param {PolicyRule[] | null | undefined} rules
+   * @returns {boolean}
+   */
   save(rules) {
     const next = Array.isArray(rules) ? rules.filter((r) => r && typeof r === "object") : [];
     this._cache = [...next];
@@ -54,6 +73,9 @@ export class PolicyRuleStore {
     return true;
   }
 
+  /**
+   * @returns {boolean}
+   */
   clear() {
     this._cache = [];
     if (!hasLocalStorage()) {

@@ -116,6 +116,10 @@ function summarizeTodoCompletion(todos) {
   return { total: rows.length, completed, cancelled };
 }
 
+/**
+ * @param {{ taskGoal?: string, todos?: any[], completionReason?: string }=} args
+ * @returns {any}
+ */
 export function generatePlaceholderReport({ taskGoal, todos, completionReason } = {}) {
   const title = toNonEmptyString(taskGoal) || "Research Report";
   const reason = toNonEmptyString(completionReason) || "All todos completed.";
@@ -143,6 +147,20 @@ export function generatePlaceholderReport({ taskGoal, todos, completionReason } 
   };
 }
 
+/**
+ * @typedef {object} WriteProgressArgs
+ * @property {number} current
+ * @property {number} total
+ * @property {string} step
+ * @property {string} msg
+ * @property {any=} detail
+ */
+
+/**
+ * @param {(eventName:string, payload:any, meta?:any)=>void} emit
+ * @param {WriteProgressArgs} progress
+ * @returns {void}
+ */
 export function emitWriteProgress(emit, { current, total, step, msg, detail }) {
   emit?.(
     "deepsearch.write.progress",
@@ -178,7 +196,7 @@ export function finalizeReportKeepingCitations(report, evidenceLedger, sources) 
  * @param {Array<object>} todos
  * @param {Array<object>} sources
  * @param {string} taskGoal
- * @returns {{markdown:string,sections:Array<object>,citations:Array<object>}}
+ * @returns {{draftMarkdown:string,markdown:string,sections:Array<object>,citations:Array<object>}}
  */
 export function generateReport(claims, evidenceLedger, todos, sources, taskGoal) {
   const claimRows = Array.isArray(claims) ? claims : [];
@@ -249,6 +267,7 @@ export function generateReport(claims, evidenceLedger, todos, sources, taskGoal)
       todoIds: [String(tid)],
       ...(relatedGapId ? { gapId: String(relatedGapId) } : {}),
       title,
+      content: "",
       claimIds,
       ...(completionStatus ? { completionStatus } : {}),
     });
@@ -257,7 +276,7 @@ export function generateReport(claims, evidenceLedger, todos, sources, taskGoal)
   if (uncategorized.length) {
     secNo += 1;
     const claimIds = uncategorized.map((x) => toNonEmptyString(x?.claimId)).filter(Boolean);
-    sections.push({ sectionId: `sec_${secNo}`, todoId: null, todoIds: [], gapId: null, title: "Other Findings", claimIds });
+    sections.push({ sectionId: `sec_${secNo}`, todoId: null, todoIds: [], gapId: null, title: "Other Findings", content: "", claimIds });
   }
 
   const cite = (evidenceId) => {
@@ -487,7 +506,7 @@ function allocateSectionTargets(sections, targetWords) {
 }
 
 export async function generateReportSingleWithLLM(state, { claims, evidenceLedger, todos, gaps, sources, config }, stageApi) {
-  const callModel = getModelCaller(stageApi, { usage: "writer", state });
+  const callModel = getModelCaller(stageApi, /** @type {any} */ ({ usage: "writer", state }));
   if (!callModel) return null;
 
   const todoInput = Array.isArray(todos) && todos.length ? todos : gaps;
@@ -526,7 +545,7 @@ export async function generateReportSingleWithLLM(state, { claims, evidenceLedge
 }
 
 export async function generateReportTocBasedWithLLM(state, { claims, evidenceLedger, todos, gaps, sources, config }, stageApi, emit) {
-  const callModel = getModelCaller(stageApi, { usage: "writer", state });
+  const callModel = getModelCaller(stageApi, /** @type {any} */ ({ usage: "writer", state }));
   if (!callModel) return null;
 
   const claimRows = Array.isArray(claims) ? claims : [];

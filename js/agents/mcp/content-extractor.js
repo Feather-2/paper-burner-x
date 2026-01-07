@@ -4,8 +4,49 @@ import { toNonEmptyString } from "../shared/utils/value-utils.js";
 import { sanitizeExtractedText, stripUrls } from "./content-sanitizer.js";
 
 /**
+ * @typedef {object} PageContentExtractionResult
+ * @property {string} title
+ * @property {string} description
+ * @property {string} extractedText
+ * @property {string} truncatedText
+ * @property {string=} markdown
+ * @property {any|null} extraction
+ */
+
+/**
+ * @typedef {object} DuckDuckGoSearchResult
+ * @property {string} url
+ * @property {string} title
+ * @property {string} snippet
+ */
+
+/**
+ * @typedef {object} DuckDuckGoFormattedSearchResult
+ * @property {number} index
+ * @property {string} title
+ * @property {string} url
+ * @property {string} snippet
+ */
+
+/**
+ * @typedef {object} FetchHtmlResult
+ * @property {string} text
+ * @property {string=} url
+ * @property {string=} proxy
+ */
+
+/**
+ * @callback FetchHtml
+ * @param {string} url
+ * @param {{ timeoutMs?: number, tryDirect?: boolean }=} options
+ * @returns {Promise<FetchHtmlResult>}
+ */
+
+/**
  * 健壮的 HTML 文本提取器
  * 采用轻量级状态机（单次线性扫描）替代多轮 replace，降低大文档的内存/CPU 压力。
+ * @param {any} html
+ * @returns {string}
  */
 export function extractTextFromHtml(html) {
   if (!html || typeof html !== "string") return "";
@@ -207,6 +248,8 @@ export function extractTextFromHtml(html) {
 
 /**
  * 提取页面标题
+ * @param {string} html
+ * @returns {string}
  */
 export function extractTitle(html) {
   const match = html.match(/<title[^>]*>([^<]*)<\/title>/i);
@@ -215,6 +258,8 @@ export function extractTitle(html) {
 
 /**
  * 提取 meta description
+ * @param {string} html
+ * @returns {string}
  */
 export function extractMetaDescription(html) {
   const match =
@@ -223,6 +268,11 @@ export function extractMetaDescription(html) {
   return match ? match[1].trim() : "";
 }
 
+/**
+ * @param {string} html
+ * @param {{ maxLength?: number }=} options
+ * @returns {PageContentExtractionResult}
+ */
 export function extractPageContentFromHtml(html, { maxLength = 50000 } = {}) {
   const maxLen = typeof maxLength === "number" && Number.isFinite(maxLength) ? Math.max(1, Math.floor(maxLength)) : 50000;
 
@@ -247,6 +297,8 @@ export function extractPageContentFromHtml(html, { maxLength = 50000 } = {}) {
 
 /**
  * 解析 DuckDuckGo HTML 搜索结果
+ * @param {string} html
+ * @returns {Promise<DuckDuckGoSearchResult[]>}
  */
 export async function parseDuckDuckGoResults(html) {
   const results = [];
@@ -364,6 +416,12 @@ function decodeHtmlAttr(value) {
     .replace(/&gt;/gi, ">");
 }
 
+/**
+ * Try to locate the DuckDuckGo "next page" URL from an HTML page.
+ * @param {any} html
+ * @param {string=} baseUrl
+ * @returns {Promise<string|null>}
+ */
 export async function extractDuckDuckGoNextUrl(html, baseUrl) {
   const s = typeof html === "string" ? html : String(html ?? "");
   if (!s) return null;
@@ -412,6 +470,9 @@ export async function extractDuckDuckGoNextUrl(html, baseUrl) {
 
 /**
  * 构建 DuckDuckGo 搜索 URL
+ * @param {string} query
+ * @param {{ domain?: string, timeRange?: string, offset?: number }=} options
+ * @returns {string}
  */
 export function buildDuckDuckGoUrl(query, { domain, timeRange, offset } = {}) {
   const params = new URLSearchParams();
@@ -444,6 +505,12 @@ export function buildDuckDuckGoUrl(query, { domain, timeRange, offset } = {}) {
   return `https://html.duckduckgo.com/html/?${params.toString()}`;
 }
 
+/**
+ * Search DuckDuckGo via its HTML endpoint (browser-friendly).
+ * @param {FetchHtml} fetchHtml
+ * @param {{ query?: string, domain?: string, timeRange?: string, limit?: number, maxPages?: number, timeoutMs?: number }=} options
+ * @returns {Promise<{ results: DuckDuckGoFormattedSearchResult[], pages: number }>}
+ */
 export async function searchDuckDuckGoHtml(
   fetchHtml,
   { query, domain, timeRange, limit, maxPages = 3, timeoutMs = 20_000 } = {}
@@ -499,4 +566,3 @@ export async function searchDuckDuckGoHtml(
 
   return { results: formatted, pages: page };
 }
-

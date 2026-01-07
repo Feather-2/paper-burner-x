@@ -3,8 +3,11 @@ import { supportsOpfs, OpfsVfs } from "./vfs.opfs.js";
 import { createStorageAdapter } from "./storage-adapter.js";
 import { StorageVfs } from "./vfs.storage.js";
 
+/** @type {any} */
+const nodeProcess = /** @type {any} */ (globalThis).process;
+
 function isNodeLike() {
-  return typeof process !== "undefined" && !!process.versions?.node;
+  return !!nodeProcess && typeof nodeProcess === "object" && !!nodeProcess.versions?.node;
 }
 
 /**
@@ -35,7 +38,7 @@ export async function createVfs(options = {}) {
                     preferOpfs: true,
                     silent: true,
                   });
-            vfs.storageAdapter = adapter;
+            /** @type {any} */ (vfs).storageAdapter = adapter;
           } catch {
             // ignore
           }

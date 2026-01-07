@@ -1,12 +1,69 @@
 import { restoreVfsCheckpoint } from "../../vfs/checkpoints.js";
 
 import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
+
+/**
+ * @typedef {object} SideEffectJournalCheckpointRef
+ * @property {string} artifactId
+ * @property {string=} type
+ * @property {string=} path
+ */
+
+/**
+ * @typedef {object} SideEffectJournalEntry
+ * @property {number} seq
+ * @property {string} kind
+ * @property {string} ts
+ * @property {boolean} reversible
+ * @property {SideEffectJournalCheckpointRef=} checkpoint
+ * @property {string=} path
+ * @property {string=} op
+ * @property {string=} eventId
+ * @property {Record<string, unknown>=} meta
+ */
+
+/**
+ * @typedef {object} SideEffectJournalOptions
+ * @property {any=} runStore
+ * @property {any=} storageAdapter
+ * @property {string=} runId
+ * @property {any=} vfs
+ * @property {any=} eventBus
+ * @property {any=} logger
+ */
+
+/**
+ * @typedef {object} LoadFromRunStoreOptions
+ * @property {string=} runId
+ */
+
+/**
+ * @typedef {object} RollbackOptions
+ * @property {string=} reason
+ */
+
+/**
+ * @typedef {object} SideEffectJournalEvent
+ * @property {string=} eventId
+ * @property {string|number=} ts
+ * @property {any=} payload
+ * @property {{ replay?: boolean }=} meta
+ */
+
+/**
+ * @param {unknown} ts
+ * @returns {string}
+ */
 function toIso(ts) {
   if (typeof ts === "string" && ts.trim()) return ts;
   const ms = typeof ts === "number" && Number.isFinite(ts) ? ts : Date.now();
   return new Date(ms).toISOString();
 }
 
+/**
+ * @param {unknown} value
+ * @returns {number|null}
+ */
 function normalizeCursor(value) {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return null;
@@ -20,6 +77,9 @@ function normalizeCursor(value) {
  * For now we implement reversible VFS effects via `vfs_checkpoint.json` artifacts.
  */
 export class SideEffectJournal {
+  /**
+   * @param {SideEffectJournalOptions | undefined} [input]
+   */
   constructor({ runStore, storageAdapter, runId, vfs, eventBus, logger } = {}) {
     this.runStore = runStore || null;
     this.storageAdapter = storageAdapter || null;
@@ -28,11 +88,18 @@ export class SideEffectJournal {
     this.eventBus = eventBus || null;
     this.logger = logger || null;
 
+    /** @type {SideEffectJournalEntry[]} */
     this._entries = [];
+    /** @type {Set<string>} */
     this._seenEventIds = new Set();
+    /** @type {(() => void) | null} */
     this._unsub = null;
   }
 
+  /**
+   * @param {any} eventBus
+   * @returns {void}
+   */
   attachEventBus(eventBus) {
     if (this._unsub) {
       try {
@@ -56,6 +123,9 @@ export class SideEffectJournal {
     });
   }
 
+  /**
+   * @returns {void}
+   */
   dispose() {
     if (this._unsub) {
       try {
@@ -67,14 +137,24 @@ export class SideEffectJournal {
     }
   }
 
+  /**
+   * @returns {number}
+   */
   getCursor() {
     return this._entries.length;
   }
 
+  /**
+   * @returns {SideEffectJournalEntry[]}
+   */
   listEntries() {
     return this._entries.map((e) => ({ ...e }));
   }
 
+  /**
+   * @param {any} entry
+   * @returns {SideEffectJournalEntry}
+   */
   record(entry) {
     const e = isPlainObject(entry) ? entry : {};
     const kind = toNonEmptyString(e.kind) || "unknown";
@@ -97,6 +177,10 @@ export class SideEffectJournal {
     return out;
   }
 
+  /**
+   * @param {LoadFromRunStoreOptions | undefined} [input]
+   * @returns {Promise<{ ok: boolean, reason?: string, error?: string, cursor?: number }>}
+   */
   async loadFromRunStore({ runId } = {}) {
     const id = toNonEmptyString(runId) || this.runId;
     if (!id) return { ok: false, reason: "missing_runId" };
@@ -119,6 +203,11 @@ export class SideEffectJournal {
     return { ok: true, cursor: this.getCursor() };
   }
 
+  /**
+   * @param {unknown} cursor
+   * @param {RollbackOptions | undefined} [options]
+   * @returns {Promise<{ ok: boolean, reason?: string, rolledBack?: number, failures?: any[], cursor?: number, error?: string }>}
+   */
   async rollbackToCursor(cursor, { reason } = {}) {
     const target = normalizeCursor(cursor);
     if (target === null) return { ok: false, reason: "invalid_cursor" };
@@ -185,6 +274,11 @@ export class SideEffectJournal {
     return { ok: failures.length === 0, rolledBack, failures, cursor: this.getCursor() };
   }
 
+  /**
+   * @param {SideEffectJournalEvent} evt
+   * @param {{ allowDuplicates?: boolean } | undefined} [options]
+   * @returns {void}
+   */
   _onVfsWriteEvent(evt, { allowDuplicates = false } = {}) {
     if (!evt || typeof evt !== "object") return;
     if (evt.meta?.replay) return;

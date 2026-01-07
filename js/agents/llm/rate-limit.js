@@ -10,6 +10,19 @@ function isStorageLike(value) {
   );
 }
 
+/**
+ * @typedef {{ now: () => number, sleep: (ms: number) => Promise<void> }} RateLimitTime
+ */
+
+/**
+ * @typedef {object} TokenBucketRateLimiterOptions
+ * @property {number=} rps
+ * @property {number=} burst
+ * @property {number=} concurrency
+ * @property {number=} maxQueue
+ * @property {RateLimitTime=} time
+ */
+
 function defaultTime() {
   return {
     now: () => Date.now(),
@@ -66,6 +79,9 @@ export function loadRateLimitConfig({ storageKey = "paperburner_llm_rate_limit_v
 }
 
 export class TokenBucketRateLimiter {
+  /**
+   * @param {TokenBucketRateLimiterOptions} [options]
+   */
   constructor({ rps = 2, burst = 4, concurrency = 2, maxQueue = 500, time } = {}) {
     const cfg = normalizeRateLimitConfig({ enabled: true, rps, burst, concurrency, maxQueue });
     this._rps = cfg.rps;
@@ -108,6 +124,12 @@ export class TokenBucketRateLimiter {
     this._requestPump();
   }
 
+  /**
+   * @template T
+   * @param {() => (Promise<T>|T)} execute
+   * @param {{ signal?: AbortSignal, label?: string }} [options]
+   * @returns {Promise<T>}
+   */
   async schedule(execute, { signal, label } = {}) {
     if (typeof execute !== "function") throw new TypeError("TokenBucketRateLimiter.schedule(): execute must be a function");
     if (isAbortSignal(signal) && signal.aborted) throw createAbortError(`Aborted${label ? `: ${label}` : ""}`);

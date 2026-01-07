@@ -136,7 +136,7 @@ export class LRUCache {
 
   /**
    * 获取统计信息
-   * @returns {{hits: number, misses: number, evictions: number, sets: number, hitRate: number}}
+   * @returns {{hits: number, misses: number, evictions: number, sets: number, hitRate: number, size: number, maxSize: number}}
    */
   getStats() {
     const total = this._stats.hits + this._stats.misses;
@@ -229,6 +229,7 @@ export class LRUCache {
  * @param {number} [options.maxSize=100]
  * @param {number} [options.ttlMs=60000]
  * @param {number} [options.pruneIntervalMs=30000]
+ * @param {((key:any,value:any)=>void)=} options.onEvict
  * @returns {{cache: LRUCache, stop: () => void}}
  */
 export function createAutoPruningCache({ maxSize = 100, ttlMs = 60000, pruneIntervalMs = 30000, onEvict } = {}) {

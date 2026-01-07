@@ -50,6 +50,8 @@ export const AgentStatus = Object.freeze({
   FAILED: "failed",
 });
 
+/** @typedef {"idle"|"running"|"completed"|"failed"} DeepSearchAgentStatus */
+
 // 分析模式配置（默认值，可被 config.json 覆盖）
 export const AnalysisMode = Object.freeze({
   QUICK: "quick",
@@ -65,6 +67,7 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     };
     super({ actor: "deepsearch", stageName: "deepsearch", contextConfig, ...options });
 
+    /** @type {DeepSearchAgentStatus} */
     this.status = AgentStatus.IDLE;
     this.state = null;
 
@@ -157,6 +160,12 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     return { tool: name, signature: sig, consecutive: n, shouldWarn: warn, shouldStop, ...(behavior ? { behavior } : {}) };
   }
 
+  /**
+   * @param {string} name
+   * @param {any} payload
+   * @param {{ actor?: string, status?: string }=} meta
+   * @returns {void}
+   */
   _emit(name, payload, { actor = "deepsearch", status } = {}) {
     const eventName = name.startsWith("deepsearch.") ? name : `deepsearch.${name}`;
     const record = {
@@ -199,7 +208,12 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     }
   }
 
-  async run(input, context = {}) {
+  /**
+   * @param {any} [input]
+   * @param {any} [context]
+   * @returns {Promise<any>}
+   */
+  async run(input = {}, context = {}) {
     const stageApi = context?.stageApi && typeof context.stageApi === "object" ? context.stageApi : context;
     const errorBoundary = resolveErrorBoundary(stageApi);
 
@@ -208,12 +222,14 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
     if (!this.emit && typeof stageApi?.emit === "function") this.emit = stageApi.emit;
 
     // P4.6: Enable backpressure for high-frequency events (best-effort).
-    if (this.eventBus && typeof this.eventBus.enableBackpressure === "function" && !this.eventBus?._backpressure?.enabled) {
+    /** @type {any} */
+    const eventBus = this.eventBus;
+    if (eventBus && typeof eventBus.enableBackpressure === "function" && !eventBus?._backpressure?.enabled) {
       const cfg = stageApi?.eventBusBackpressure ?? stageApi?.backpressure;
       if (cfg !== false) {
         const opts = isPlainObject(cfg) ? cfg : {};
         try {
-          this.eventBus.enableBackpressure({
+          eventBus.enableBackpressure({
             coalescePattern: /\.progress$/,
             deferNonCoalesced: false,
             maxQueueSize: 10000,
@@ -379,9 +395,9 @@ export class DeepSearchAgentLoop extends BaseAgentLoop {
             });
           });
 
-          const baseCallModel = getModelCaller(stageApi, { usage: "agent", state: this.state });
-          if (!baseCallModel) throw new Error("No model available");
-          const callModel = async (messages, opts = {}) => {
+	          const baseCallModel = getModelCaller(stageApi, /** @type {any} */ ({ usage: "agent", state: this.state }));
+	          if (!baseCallModel) throw new Error("No model available");
+	          const callModel = async (messages, opts = {}) => {
             const model = typeof opts?.model === "string" ? opts.model : undefined;
             const tier = typeof stageApi?.modelTier === "string" ? stageApi.modelTier : undefined;
             const messageCount = Array.isArray(messages) ? messages.length : 0;

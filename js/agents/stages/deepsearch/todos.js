@@ -1,3 +1,8 @@
+/**
+ * DeepSearch Todo Planner
+ *
+ * LLM-based todo generation with heuristic fallback
+ */
 import { DeepSearchState, checkCancelled, extractJsonCandidate, makeStageEmitter, EventStatus } from "./state.js";
 import { getModelCaller } from "./model.js";
 import { loadPrompt, renderPromptTemplate } from "../../prompts/prompt-loader.js";
@@ -14,6 +19,11 @@ const DEFAULT_PROMPT =
   "with fields: text, priority, queryHints, expectedEvidence. " +
   "priority must be high|medium|low. queryHints should be 3-6 short keywords.";
 
+/**
+ * @param {any} _runContext
+ * @param {any} input
+ * @returns {DeepSearchState}
+ */
 function ensureState(_runContext, input) {
   if (input instanceof DeepSearchState) return input;
   if (input?.state instanceof DeepSearchState) return input.state;
@@ -21,22 +31,40 @@ function ensureState(_runContext, input) {
   throw new TypeError("DeepSearch todos: input.state is required");
 }
 
+/**
+ * @param {string} s
+ * @returns {string}
+ */
 function collapseWhitespace(s) {
   return String(s || "")
     .replace(/\s+/g, " ")
     .trim();
 }
 
+/**
+ * @param {string} s
+ * @param {number} [maxLen]
+ * @returns {string}
+ */
 function truncate(s, maxLen = 240) {
   const t = collapseWhitespace(s);
   return t.length > maxLen ? t.slice(0, maxLen) : t;
 }
 
+/**
+ * @param {any} value
+ * @returns {string[]}
+ */
 function normalizeStringArray(value) {
   const raw = Array.isArray(value) ? value : value ? [value] : [];
   return raw.map((item) => String(item || "").trim()).filter(Boolean);
 }
 
+/**
+ * @param {string} taskGoal
+ * @param {any} scanSummary
+ * @returns {{ taskGoal: string, summaryText: string, keyTopics: string[] }}
+ */
 function normalizeTodosCacheKeyInputs(taskGoal, scanSummary) {
   const summaryText = truncate(scanSummary?.summaryText || "", 320);
   const keyTopics = Array.isArray(scanSummary?.keyTopics)

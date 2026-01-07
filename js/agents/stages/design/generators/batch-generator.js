@@ -282,7 +282,14 @@ function applyVisualSlotHintsToSlideHtml(slideHtml, imageSlotsForSlide = [], slo
   const needed = new Set(slots.map((s) => toNonEmptyString(s?.slotId)).filter(Boolean));
   if (needed.size === 0) return html;
 
-  const slotById = new Map(slots.map((s) => [toNonEmptyString(s?.slotId), s]).filter((row) => row[0]));
+  /** @type {Array<[string, any]>} */
+  const slotPairs = [];
+  for (const slot of slots) {
+    const slotId = toNonEmptyString(slot?.slotId);
+    if (!slotId) continue;
+    slotPairs.push([slotId, slot]);
+  }
+  const slotById = new Map(slotPairs);
   const seen = new Set();
 
   // ReDoS-safe: 使用迭代字符串解析替代 [^>]* 正则
@@ -509,7 +516,7 @@ function makePrompt(batch, designSystem, contentPackage, imageSlotsForBatch = []
  * @param {object} slideIntent
  * @param {object} designSystem
  * @param {string} dslRules
- * @param {{aiApiService?:object,modelRouter?:object,modelCaller?:Function,emit?:Function,signal?:AbortSignal,contentPackage?:object,slideNo?:number,slideIndex?:number,imageSlotsForSlide?:Array<object>,selectedIdeas?:Array<object>,slotHintsBySlotId?:Map<string, any>}=} options
+ * @param {{aiApiService?:object,modelRouter?:object,modelCaller?:Function,emit?:Function,signal?:AbortSignal,contentPackage?:object,slideNo?:number,slideIndex?:number,imageSlotsForSlide?:Array<object>,selectedIdeas?:Array<object>,slotHintsBySlotId?:Map<string, any>,dslExamples?:any[]}=} options
  * @returns {Promise<{slideIntentId:string,slideHtml:string,source:"llm"|"fallback"}>}
  */
 export async function generateSingleSlide(slideIntent, designSystem, dslRules, options = {}) {

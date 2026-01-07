@@ -7,19 +7,51 @@
 
 import { nextTick } from '../lamport-clock.js';
 
+/** @typedef {import("../types.d.ts").LamportClockState} LamportClockState */
+/** @typedef {{ nodeId?: string }} ORSetOptions */
+/**
+ * @template T
+ * @typedef {{ type: 'set-add', element: T, tag: string, clock: LamportClockState, nodeId: string }} ORSetAddOp
+ */
+/**
+ * @template T
+ * @typedef {{ type: 'set-remove', element: T, tags: string[], clock: LamportClockState, nodeId: string }} ORSetRemoveOp
+ */
+/**
+ * @template T
+ * @typedef {ORSetAddOp<T> | ORSetRemoveOp<T> | { type: string, [key: string]: unknown }} ORSetOp
+ */
+/** @typedef {{ type: 'ORSet', nodeId: string, elements: Record<string, string[]>, tombstones: string[] }} ORSetJSON */
+
+/**
+ * Observed-Remove Set (OR-Set)
+ *
+ * 通过为每次 add 分配唯一 tag，remove 时只“观察性”删除已知 tag，
+ * 从而解决并发 add/remove 的竞争问题。
+ *
+ * @template T
+ */
 export class ORSet {
+  /**
+   * @param {ORSetOptions} [options={}]
+   */
   constructor(options = {}) {
+    /** @type {string} */
     this._nodeId = options.nodeId || nextTick().id.split('_')[0];
     // element → Set<tag>
+    /** @type {Map<T, Set<string>>} */
     this._elements = new Map();
     // 已删除的 tag
+    /** @type {Set<string>} */
     this._tombstones = new Set();
     // tag → element（反向索引）
+    /** @type {Map<string, T>} */
     this._tagToElement = new Map();
   }
 
   /**
    * 生成唯一标签
+   * @returns {string}
    */
   _makeTag() {
     const clock = nextTick();
@@ -28,6 +60,7 @@ export class ORSet {
 
   /**
    * 获取所有元素
+   * @returns {T[]}
    */
   values() {
     const result = [];
@@ -45,6 +78,7 @@ export class ORSet {
 
   /**
    * 获取大小
+   * @returns {number}
    */
   get size() {
     return this.values().length;
@@ -52,6 +86,8 @@ export class ORSet {
 
   /**
    * 检查是否包含
+   * @param {T} element
+   * @returns {boolean}
    */
   has(element) {
     const tags = this._elements.get(element);
@@ -66,6 +102,8 @@ export class ORSet {
 
   /**
    * 添加元素
+   * @param {T} element
+   * @returns {ORSetAddOp<T>}
    */
   add(element) {
     const tag = this._makeTag();
@@ -87,6 +125,8 @@ export class ORSet {
 
   /**
    * 删除元素（删除所有观察到的 tag）
+   * @param {T} element
+   * @returns {ORSetRemoveOp<T> | null}
    */
   delete(element) {
     const tags = this._elements.get(element);
@@ -113,24 +153,29 @@ export class ORSet {
 
   /**
    * 应用远程操作
+   * @param {ORSetOp<T>} op
+   * @returns {boolean}
    */
   apply(op) {
     if (op.type === 'set-add') {
-      if (!this._elements.has(op.element)) {
-        this._elements.set(op.element, new Set());
+      const addOp = /** @type {ORSetAddOp<T>} */ (op);
+      if (!this._elements.has(addOp.element)) {
+        this._elements.set(addOp.element, new Set());
       }
-      const tags = this._elements.get(op.element);
-      const hadTag = tags.has(op.tag);
-      tags.add(op.tag);
+      const tags = this._elements.get(addOp.element);
+      if (!tags) return false;
+      const hadTag = tags.has(addOp.tag);
+      tags.add(addOp.tag);
 
-      const prevElement = this._tagToElement.get(op.tag);
-      this._tagToElement.set(op.tag, op.element);
-      return !hadTag || prevElement !== op.element;
+      const prevElement = this._tagToElement.get(addOp.tag);
+      this._tagToElement.set(addOp.tag, addOp.element);
+      return !hadTag || prevElement !== addOp.element;
     }
 
     if (op.type === 'set-remove') {
+      const removeOp = /** @type {ORSetRemoveOp<T>} */ (op);
       let changed = false;
-      for (const tag of op.tags || []) {
+      for (const tag of removeOp.tags) {
         if (!this._tombstones.has(tag)) {
           this._tombstones.add(tag);
           changed = true;
@@ -144,6 +189,8 @@ export class ORSet {
 
   /**
    * 合并另一个 ORSet
+   * @param {ORSet<T>} other
+   * @returns {boolean}
    */
   merge(other) {
     if (!(other instanceof ORSet)) return false;
@@ -177,8 +224,10 @@ export class ORSet {
 
   /**
    * 清空
+   * @returns {ORSetRemoveOp<T>[]}
    */
   clear() {
+    /** @type {ORSetRemoveOp<T>[]} */
     const ops = [];
     for (const element of this.values()) {
       const op = this.delete(element);
@@ -189,6 +238,7 @@ export class ORSet {
 
   /**
    * 垃圾回收（删除已完全删除的元素）
+   * @returns {number}
    */
   gc() {
     const toDelete = [];
@@ -217,11 +267,13 @@ export class ORSet {
 
   /**
    * 序列化
+   * @returns {ORSetJSON}
    */
   toJSON() {
+    /** @type {Record<string, string[]>} */
     const elements = {};
     for (const [element, tags] of this._elements) {
-      elements[element] = Array.from(tags);
+      elements[String(element)] = Array.from(tags);
     }
     return {
       type: 'ORSet',
@@ -233,6 +285,9 @@ export class ORSet {
 
   /**
    * 反序列化
+   * @template U
+   * @param {ORSetJSON} json
+   * @returns {ORSet<U>}
    */
   static fromJSON(json) {
     if (json?.type !== 'ORSet') {
@@ -240,9 +295,10 @@ export class ORSet {
     }
     const set = new ORSet({ nodeId: json.nodeId });
     for (const [element, tags] of Object.entries(json.elements || {})) {
-      set._elements.set(element, new Set(tags));
-      for (const tag of tags) {
-        set._tagToElement.set(tag, element);
+      const tagList = /** @type {string[]} */ (tags);
+      set._elements.set(/** @type {U} */ (element), new Set(tagList));
+      for (const tag of tagList) {
+        set._tagToElement.set(tag, /** @type {U} */ (element));
       }
     }
     set._tombstones = new Set(json.tombstones || []);

@@ -1,11 +1,14 @@
 /**
  * Memory Recall (记忆回想) 使用示例
- * 
+ *
  * 展示 Agent 如何通过 Recall 工具检索之前的历史细节
+ *
+ * @module sdk/examples/memory-recall
  */
 
 import { createAgent, createLogger } from "../index.js";
 
+/** @type {ReturnType<typeof createLogger>} */
 const logger = createLogger("sdk/examples/memory-recall");
 
 // 1. 构建带记忆功能的 Agent
@@ -22,7 +25,10 @@ const agent = createAgent({ actor: "historian" })
     })
     .build();
 
-// 2. 模拟运行并产生一些记忆
+/**
+ * 运行记忆演示
+ * @returns {Promise<void>}
+ */
 async function runDemo() {
     console.log("=== Historian Agent Skill Catalog ===");
     console.log(agent.getSkillCatalogPrompt());

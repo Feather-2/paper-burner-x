@@ -6,6 +6,8 @@
 
 import { createPlugin } from '../../core/plugin.js';
 
+/** @typedef {import('../../core/plugin.js').PluginContext} PluginContext */
+
 export default createPlugin({
   name: 'stage/deepsearch',
   version: '1.0.0',
@@ -16,6 +18,10 @@ export default createPlugin({
     mode: 'auto',
   },
 
+  /**
+   * @param {PluginContext} ctx
+   * @returns {Promise<void>}
+   */
   async install(ctx) {
     // 懒加载 DeepSearchAgentLoop
     let AgentLoop = null;
@@ -31,6 +37,9 @@ export default createPlugin({
     ctx.registerService('stage:deepsearch', {
       /**
        * 运行 DeepSearch
+       * @param {any} input
+       * @param {Record<string, any>} [options]
+       * @returns {Promise<any>}
        */
       async run(input, options = {}) {
         const Loop = await getAgentLoop();
@@ -85,6 +94,7 @@ export default createPlugin({
 
       /**
        * 获取状态
+       * @returns {Record<string, any>}
        */
       getStatus() {
         return ctx.state.get('') || { status: 'idle' };

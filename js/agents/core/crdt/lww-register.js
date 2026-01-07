@@ -6,15 +6,47 @@
 
 import { nextTick, compare } from '../lamport-clock.js';
 
+/** @typedef {import("../types.d.ts").LamportClockState} LamportClockState */
+/** @typedef {{ nodeId?: string, clock?: LamportClockState }} LWWRegisterOptions */
+/**
+ * @template T
+ * @typedef {{ type: 'set', value: T, clock: LamportClockState, nodeId: string }} LWWRegisterSetOp
+ */
+/**
+ * @template T
+ * @typedef {LWWRegisterSetOp<T> | { type: string, [key: string]: unknown }} LWWRegisterOp
+ */
+/**
+ * @template T
+ * @typedef {{ type: 'LWWRegister', value: T, clock: LamportClockState, nodeId: string }} LWWRegisterJSON
+ */
+
+/**
+ * Last-Writer-Wins Register (LWW-Register)
+ *
+ * 基于 Lamport Clock 的 LWW 规则：
+ * - clock.seq 更大的写入胜出
+ * - clock 相同则 nodeId 字典序更大的写入胜出（保证确定性）
+ *
+ * @template T
+ */
 export class LWWRegister {
+  /**
+   * @param {T} [initialValue=null]
+   * @param {LWWRegisterOptions} [options={}]
+   */
   constructor(initialValue = null, options = {}) {
+    /** @type {T} */
     this._value = initialValue;
+    /** @type {LamportClockState} */
     this._clock = options.clock || nextTick();
+    /** @type {string} */
     this._nodeId = options.nodeId || this._clock.id.split('_')[0];
   }
 
   /**
    * 获取当前值
+   * @returns {T}
    */
   get value() {
     return this._value;
@@ -22,6 +54,7 @@ export class LWWRegister {
 
   /**
    * 获取时钟
+   * @returns {LamportClockState}
    */
   get clock() {
     return this._clock;
@@ -29,6 +62,8 @@ export class LWWRegister {
 
   /**
    * 设置值（生成新操作）
+   * @param {T} value
+   * @returns {LWWRegisterSetOp<T>}
    */
   set(value) {
     this._clock = nextTick();
@@ -43,22 +78,26 @@ export class LWWRegister {
 
   /**
    * 应用远程操作
+   * @param {LWWRegisterOp<T>} op
+   * @returns {boolean}
    */
   apply(op) {
     if (op.type !== 'set') return false;
 
+    const setOp = /** @type {LWWRegisterSetOp<T>} */ (op);
+
     // LWW：比较时钟，大的胜出
-    const cmp = compare(op.clock, this._clock);
+    const cmp = compare(setOp.clock, this._clock);
     if (cmp > 0) {
-      this._value = op.value;
-      this._clock = op.clock;
+      this._value = setOp.value;
+      this._clock = setOp.clock;
       return true;
     }
 
     // 时钟相等时，比较 nodeId（字典序）保证确定性
-    if (cmp === 0 && op.nodeId > this._nodeId) {
-      this._value = op.value;
-      this._clock = op.clock;
+    if (cmp === 0 && setOp.nodeId > this._nodeId) {
+      this._value = setOp.value;
+      this._clock = setOp.clock;
       return true;
     }
 
@@ -67,6 +106,8 @@ export class LWWRegister {
 
   /**
    * 合并另一个 Register
+   * @param {LWWRegister<T>} other
+   * @returns {boolean}
    */
   merge(other) {
     if (!(other instanceof LWWRegister)) return false;
@@ -82,6 +123,7 @@ export class LWWRegister {
 
   /**
    * 序列化
+   * @returns {LWWRegisterJSON<T>}
    */
   toJSON() {
     return {
@@ -94,6 +136,9 @@ export class LWWRegister {
 
   /**
    * 反序列化
+   * @template U
+   * @param {LWWRegisterJSON<U>} json
+   * @returns {LWWRegister<U>}
    */
   static fromJSON(json) {
     if (json?.type !== 'LWWRegister') {

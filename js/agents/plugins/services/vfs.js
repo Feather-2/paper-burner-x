@@ -6,6 +6,21 @@
 
 import { createPlugin } from '../../core/plugin.js';
 
+/**
+ * @typedef {object} VfsLike
+ * @property {(path: string, options?: any) => Promise<any>} readFile
+ * @property {(path: string, data: any, options?: any) => Promise<any>} writeFile
+ * @property {(path: string) => Promise<boolean>} exists
+ * @property {(path: string) => Promise<any>} stat
+ * @property {(path: string, options?: any) => Promise<any>} readdir
+ * @property {(path: string, options?: any) => Promise<any>} [mkdir]
+ * @property {(path: string, options?: any) => Promise<any>} [rmdir]
+ * @property {(path: string) => Promise<any>} [deleteFile]
+ * @property {(path: string) => Promise<any>} [unlink]
+ * @property {(path: string, options?: any) => Promise<any>} [rm]
+ * @property {(pattern: any, options?: any) => Promise<any>} [glob]
+ */
+
 export default createPlugin({
   name: 'service/vfs',
   version: '1.0.0',
@@ -18,6 +33,7 @@ export default createPlugin({
 
   async install(ctx) {
     const { createVfs } = await import('../../vfs/index.js');
+    /** @type {VfsLike} */
     const vfs = await createVfs(ctx.config);
 
     ctx.registerService('vfs', {

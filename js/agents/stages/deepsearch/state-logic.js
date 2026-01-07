@@ -4,6 +4,41 @@ import { DecisionOutcome, DecisionStage, GapStatus, TodoStatus } from "./states.
 import { createTodo, transitionTodoStatus } from "./utils/todo-utils.js";
 import { cloneValue } from "./runtime/checkpoint.js";
 
+/**
+ * @typedef {object} SyncTodoOptions
+ * @property {string=} runId
+ * @property {number=} iteration
+ * @property {(eventName:string, payload:any)=>void=} emitFn
+ * @property {(todoId:string, updates:any, meta:any)=>any=} updateTodo
+ *
+ * @typedef {object} ValidateIterationOptions
+ * @property {any=} roundHits
+ * @property {any=} qualityHitsByGapId
+ * @property {number=} blockAfterMisses
+ * @property {(eventName:string, payload:any)=>void=} emit
+ * @property {number=} minEvidenceToFill
+ *
+ * @typedef {object} GapDecisionMeta
+ * @property {string=} reason
+ * @property {string=} outcome
+ * @property {any=} metrics
+ *
+ * @typedef {object} AddTimelineArgs
+ * @property {string=} name
+ * @property {string=} status
+ * @property {any=} payload
+ *
+ * @typedef {object} TimestampArgs
+ * @property {string=} timestamp
+ *
+ * @typedef {object} ReopenGapsOptions
+ * @property {string=} reason
+ * @property {string=} timestamp
+ *
+ * @typedef {object} AddNewGapsOptions
+ * @property {string=} timestamp
+ */
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Gap / Todo business rules (decoupled from DeepSearchState data model)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -89,6 +124,12 @@ function countEvidenceByGapId(evidenceLedger, { retrievedByChunkId }) {
   return evidenceCountByGapId;
 }
 
+/**
+ * @param {any[]} gaps
+ * @param {any[]} todos
+ * @param {SyncTodoOptions=} options
+ * @returns {void}
+ */
 function syncTodoStatusesFromGaps(gaps, todos, { runId, iteration, emitFn, updateTodo } = {}) {
   const todoByGapId = new Map();
   for (const t of Array.isArray(todos) ? todos : []) {
@@ -130,6 +171,11 @@ function syncTodoStatusesFromGaps(gaps, todos, { runId, iteration, emitFn, updat
   }
 }
 
+/**
+ * @param {any[]} gaps
+ * @param {any} planningTree
+ * @returns {void}
+ */
 function syncPlanningTreeStatusFromGaps(gaps, planningTree) {
   const tree = planningTree;
   if (typeof tree?.getNodesForGap !== "function" || typeof tree?.updateStatus !== "function") return;
@@ -147,6 +193,11 @@ function syncPlanningTreeStatusFromGaps(gaps, planningTree) {
   }
 }
 
+/**
+ * @param {any} state
+ * @param {ValidateIterationOptions=} options
+ * @returns {{ filledCount:number, blockedCount:number, openCount:number, stillOpenCount:number }}
+ */
 export function validateIteration(state, options = {}) {
   const runId = toNonEmptyString(state?.runId) || "run_unknown";
   const iteration = safeInt(state?.iteration) ?? 0;
@@ -177,8 +228,18 @@ export function validateIteration(state, options = {}) {
   const canRecordDecision =
     typeof treeForDecisions?.getNodesForGap === "function" && typeof treeForDecisions?.recordDecision === "function";
 
-  const recordGapTransitionDecision = (gapId, newStatus, { reason, outcome, metrics } = {}) => {
+  /**
+   * @param {string} gapId
+   * @param {string} newStatus
+   * @param {GapDecisionMeta=} meta
+   * @returns {void}
+   */
+  const recordGapTransitionDecision = (gapId, newStatus, meta = {}) => {
     if (!canRecordDecision) return;
+    const metaObj = isPlainObject(meta) ? meta : {};
+    const reason = metaObj.reason;
+    const outcome = metaObj.outcome;
+    const metrics = metaObj.metrics;
     const nodes = treeForDecisions.getNodesForGap(gapId) || [];
     const nodeId = toNonEmptyString(nodes?.[0]?.nodeId);
     if (!nodeId) return;
@@ -262,6 +323,11 @@ export function validateIteration(state, options = {}) {
   return { filledCount, blockedCount, openCount, stillOpenCount };
 }
 
+/**
+ * @param {any} state
+ * @param {any} params
+ * @returns {any}
+ */
 export function addTodo(state, params = {}) {
   const raw = isPlainObject(params) ? params : {};
   if (!Array.isArray(state?.todos)) state.todos = [];
@@ -277,6 +343,12 @@ export function addTodo(state, params = {}) {
   return row;
 }
 
+/**
+ * @param {any} state
+ * @param {any} value
+ * @param {any} reason
+ * @returns {boolean}
+ */
 export function setAwaitUserFeedback(state, value, reason) {
   if (state?._memoryStore) {
     state._memoryStore.awaitUserFeedback = Boolean(value);
@@ -290,6 +362,11 @@ export function setAwaitUserFeedback(state, value, reason) {
   return state.L2.awaitUserFeedback;
 }
 
+/**
+ * @param {any} state
+ * @param {any} reason
+ * @returns {false}
+ */
 export function setTaskImpossible(state, reason) {
   // Deprecated semantics:
   // Don't let the system declare a task "impossible" (too subjective).
@@ -303,6 +380,11 @@ export function setTaskImpossible(state, reason) {
   return false;
 }
 
+/**
+ * @param {any} state
+ * @param {AddTimelineArgs=} entry
+ * @returns {any}
+ */
 export function addTimeline(state, { name, status = "info", payload } = {}) {
   const n = toNonEmptyString(name) || "deepsearch.event";
   const st = toNonEmptyString(status) || "info";
@@ -322,6 +404,11 @@ export function addTimeline(state, { name, status = "info", payload } = {}) {
   return row;
 }
 
+/**
+ * @param {any} state
+ * @param {TimestampArgs=} options
+ * @returns {any}
+ */
 export function saveWriteSnapshot(state, { timestamp } = {}) {
   const ts = toNonEmptyString(timestamp) || new Date().toISOString();
   if (!Array.isArray(state?.writeSnapshots)) state.writeSnapshots = [];
@@ -336,6 +423,13 @@ export function saveWriteSnapshot(state, { timestamp } = {}) {
   return snapshot;
 }
 
+/**
+ * @param {any} state
+ * @param {string[]|string} gapIds
+ * @param {ReopenGapsOptions=} options
+ * @param {(eventName:string, payload:any)=>void|null} [emit]
+ * @returns {{ reopened: string[], missing: string[] }}
+ */
 export function reopenGaps(state, gapIds, { reason, timestamp } = {}, emit = null) {
   const ids = Array.from(new Set((Array.isArray(gapIds) ? gapIds : gapIds ? [gapIds] : []).map((x) => String(x || "").trim()).filter(Boolean)));
   if (!ids.length) return { reopened: [], missing: [] };
@@ -386,6 +480,13 @@ export function reopenGaps(state, gapIds, { reason, timestamp } = {}, emit = nul
   return { reopened, missing: Array.from(missing) };
 }
 
+/**
+ * @param {any} state
+ * @param {any[]} newGaps
+ * @param {AddNewGapsOptions=} options
+ * @param {(eventName:string, payload:any)=>void|null} [emit]
+ * @returns {any[]}
+ */
 export function addNewGaps(state, newGaps, { timestamp } = {}, emit = null) {
   const rows = Array.isArray(newGaps) ? newGaps : [];
   if (!rows.length) return [];

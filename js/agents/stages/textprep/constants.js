@@ -48,10 +48,12 @@ export function isValidPageType(value) {
 
 /**
  * 规范化页面类型
+ * @param {unknown} t
+ * @returns {string | null}
  */
 export function normalizePageType(t) {
   const s = String(t || "")
     .trim()
     .toLowerCase();
-  return ALLOWED_PAGE_TYPES.has(s) ? s : null;
+  return ALLOWED_PAGE_TYPES.has(/** @type {any} */ (s)) ? s : null;
 }

@@ -15,12 +15,14 @@ async function getQuickJS() {
 
   try {
     // 优先使用 quickjs-emscripten
+    /** @ts-ignore */
     const { getQuickJS } = await import('quickjs-emscripten');
     _quickjsModule = await getQuickJS();
     return _quickjsModule;
   } catch (err) {
     // 回退到 quickjs-emscripten-core（更轻量）
     try {
+      /** @ts-ignore */
       const { newQuickJSWASMModule } = await import('quickjs-emscripten-core');
       _quickjsModule = await newQuickJSWASMModule();
       return _quickjsModule;
@@ -47,8 +49,8 @@ async function getQuickJS() {
 export class WasmSandbox {
   /**
    * @param {Object} options
-   * @param {string[]} options.capabilities - 允许的能力列表
-   * @param {Object} options.limits - 资源限制
+   * @param {string[]} [options.capabilities] - 允许的能力列表
+   * @param {Object} [options.limits] - 资源限制
    * @param {Function} [options.onLog] - 日志回调
    * @param {Function} [options.onEmit] - 事件发射回调
    * @param {Object} [options.state] - 注入的状态

@@ -11,7 +11,12 @@ import {
   isValidStepStatus,
 } from "../../runtime/core/agent-status.js";
 
+/**
+ * @typedef {'idle'|'outline_parsing'|'outline_confirming'|'style_extracting'|'style_confirming'|'deck_planning'|'plan_confirming'|'layout_analyzing'|'layout_generating'|'layout_developing'|'layout_confirming'|'generating'|'generating_paused'|'reviewing'|'fixing'|'repair'|'visual_filling'|'completed'|'failed'|'editing'} DesignPhaseValue
+ */
+
 // === Design Phase ===
+/** @type {Readonly<Record<string, DesignPhaseValue>>} */
 export const DesignPhase = Object.freeze({
   IDLE: "idle",
   OUTLINE_PARSING: "outline_parsing",

@@ -1,13 +1,23 @@
 import { toNonEmptyString } from "./value-utils.js";
 
+/** @type {any} */
+const NodeBuffer = /** @type {any} */ (globalThis).Buffer;
+
+/**
+ * @typedef {object} StorageEncryptionOptions
+ * @property {string=} passphrase
+ * @property {string=} aad
+ * @property {number=} iterations
+ */
+
 function hasNodeBuffer() {
-  return typeof Buffer !== "undefined" && typeof Buffer.from === "function";
+  return !!NodeBuffer && typeof NodeBuffer.from === "function";
 }
 
 function utf8Encode(text) {
   const s = typeof text === "string" ? text : String(text ?? "");
   if (typeof TextEncoder !== "undefined") return new TextEncoder().encode(s);
-  if (hasNodeBuffer()) return Uint8Array.from(Buffer.from(s, "utf8"));
+  if (hasNodeBuffer()) return Uint8Array.from(NodeBuffer.from(s, "utf8"));
   // Extremely old environments: best-effort Latin1.
   const out = new Uint8Array(s.length);
   for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i) & 0xff;
@@ -17,7 +27,7 @@ function utf8Encode(text) {
 function utf8Decode(bytes) {
   const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
   if (typeof TextDecoder !== "undefined") return new TextDecoder().decode(arr);
-  if (hasNodeBuffer()) return Buffer.from(arr).toString("utf8");
+  if (hasNodeBuffer()) return NodeBuffer.from(arr).toString("utf8");
   let out = "";
   for (let i = 0; i < arr.length; i++) out += String.fromCharCode(arr[i]);
   return out;
@@ -28,7 +38,7 @@ function bytesToBase64(bytes) {
   if (!arr || arr.length === 0) return "";
   if (hasNodeBuffer()) {
     try {
-      return Buffer.from(arr).toString("base64");
+      return NodeBuffer.from(arr).toString("base64");
     } catch {
       return "";
     }
@@ -53,7 +63,7 @@ function base64ToBytes(base64) {
   if (!b64) return new Uint8Array();
   if (hasNodeBuffer()) {
     try {
-      return new Uint8Array(Buffer.from(b64, "base64"));
+      return new Uint8Array(NodeBuffer.from(b64, "base64"));
     } catch {
       return new Uint8Array();
     }
@@ -107,6 +117,11 @@ async function deriveAesKeyFromPassphrase(passphrase, saltBytes, { iterations = 
   );
 }
 
+/**
+ * @param {unknown} plaintext
+ * @param {StorageEncryptionOptions} [options]
+ * @returns {Promise<string>}
+ */
 export async function encryptString(plaintext, { passphrase, aad, iterations } = {}) {
   const cryptoImpl = getWebCrypto();
   if (!cryptoImpl) throw new Error("encryptString: WebCrypto is not available");
@@ -135,6 +150,11 @@ export async function encryptString(plaintext, { passphrase, aad, iterations } =
   return `${PB_ENCRYPTED_PREFIX}${JSON.stringify(payload)}`;
 }
 
+/**
+ * @param {unknown} payload
+ * @param {StorageEncryptionOptions} [options]
+ * @returns {Promise<string>}
+ */
 export async function decryptString(payload, { passphrase, aad } = {}) {
   const cryptoImpl = getWebCrypto();
   if (!cryptoImpl) throw new Error("decryptString: WebCrypto is not available");
@@ -172,4 +192,3 @@ export default {
   encryptString,
   decryptString,
 };
-

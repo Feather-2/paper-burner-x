@@ -1,6 +1,45 @@
 import { BaseProvider, assertChatMessages, assertChatResponse } from "./provider.js";
 
 import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
+
+/**
+ * @typedef {{ role: string, content: (string | Array<Record<string, any>>) }} ChatMessage
+ */
+
+/**
+ * @typedef {object} ChatResponse
+ * @property {string} content
+ * @property {string} model
+ * @property {string} provider
+ */
+
+/**
+ * @typedef {object} MockOutcomeContext
+ * @property {string} model
+ * @property {ChatMessage[]} messages
+ * @property {any=} images
+ * @property {number} callIndex
+ */
+
+/**
+ * @typedef {object} MockOutcomeObject
+ * @property {string=} content
+ * @property {unknown=} throw
+ * @property {number=} delayMs
+ */
+
+/**
+ * @typedef {string | Error | MockOutcomeObject | ((ctx: MockOutcomeContext) => (unknown | Promise<unknown>))} MockProviderOutcome
+ */
+
+/**
+ * @typedef {object} MockProviderOptions
+ * @property {string=} id
+ * @property {string=} name
+ * @property {Record<string, MockProviderOutcome | MockProviderOutcome[]>=} behaviors
+ * @property {MockProviderOutcome=} defaultOutcome
+ */
+
 function normalizeOutcome(outcome) {
   if (typeof outcome === "function") return outcome;
   if (outcome instanceof Error) return { throw: outcome };
@@ -18,6 +57,10 @@ function normalizeOutcome(outcome) {
  * - (ctx) => outcome | Promise<outcome>
  */
 export class MockProvider extends BaseProvider {
+  /**
+   * @param {MockProviderOptions} [options]
+   * @returns {void}
+   */
   constructor({ id = "mock", name = "MockProvider", behaviors, defaultOutcome } = {}) {
     super({ id, name });
     this._behaviors = new Map();
@@ -31,10 +74,18 @@ export class MockProvider extends BaseProvider {
     }
   }
 
+  /**
+   * @returns {Array<{ model: string, messages: ChatMessage[], images?: any }>}
+   */
   get calls() {
     return this._calls;
   }
 
+  /**
+   * @param {string} modelId
+   * @param {MockProviderOutcome | MockProviderOutcome[]} outcomes
+   * @returns {void}
+   */
   setBehaviors(modelId, outcomes) {
     const m = toNonEmptyString(modelId);
     if (!m) throw new TypeError("setBehaviors(modelId, outcomes): modelId must be a non-empty string");
@@ -45,6 +96,11 @@ export class MockProvider extends BaseProvider {
     );
   }
 
+  /**
+   * @param {string} modelId
+   * @param {MockProviderOutcome} outcome
+   * @returns {void}
+   */
   pushOutcome(modelId, outcome) {
     const m = toNonEmptyString(modelId);
     if (!m) throw new TypeError("pushOutcome(modelId, outcome): modelId must be a non-empty string");
@@ -53,6 +109,10 @@ export class MockProvider extends BaseProvider {
     this._behaviors.set(m, q);
   }
 
+  /**
+   * @param {{ model: string, messages: ChatMessage[], images?: any }} [input]
+   * @returns {Promise<ChatResponse>}
+   */
   async chat({ model, messages, images } = {}) {
     const m = toNonEmptyString(model);
     if (!m) throw new TypeError("chat({model}): model must be a non-empty string");
@@ -81,4 +141,3 @@ export class MockProvider extends BaseProvider {
     return resp;
   }
 }
-

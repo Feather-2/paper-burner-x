@@ -29,6 +29,10 @@ export const ModelTier = Object.freeze({
 });
 
 /**
+ * @typedef {(typeof ModelTier)[keyof typeof ModelTier]} ModelTierType
+ */
+
+/**
  * 任务复杂度
  */
 export const TaskComplexity = Object.freeze({
@@ -36,6 +40,10 @@ export const TaskComplexity = Object.freeze({
   MODERATE: "moderate", // 中等复杂度
   COMPLEX: "complex", // 复杂任务
 });
+
+/**
+ * @typedef {(typeof TaskComplexity)[keyof typeof TaskComplexity]} TaskComplexityType
+ */
 
 // ─────────────────────────────────────────────────────────────────────────────
 // EWMA Tracker
@@ -126,6 +134,7 @@ class EndpointStats {
     this.errorCount = 0;
     this.lastError = null;
     this.lastSuccess = null;
+    /** @type {ModelTierType} */
     this.tier = ModelTier.POWER;
     this.weight = 1.0;
   }
@@ -247,6 +256,7 @@ export class PerformanceRouter {
     }
 
     // 根据复杂度决定目标层级
+    /** @type {ModelTierType} */
     let targetTier = ModelTier.POWER;
     if (complexity === TaskComplexity.SIMPLE && this._preferFastTier) {
       targetTier = ModelTier.FAST;
@@ -317,7 +327,7 @@ export class PerformanceRouter {
   /**
    * 更新端点层级
    * @param {string} endpointId
-   * @param {string} tier
+   * @param {ModelTierType} tier
    */
   setTier(endpointId, tier) {
     const stats = this._endpoints.get(endpointId);

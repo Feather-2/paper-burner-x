@@ -30,8 +30,15 @@ export const ErrorCategory = {
 export const ERROR_BOUNDARY_UNHANDLED = Symbol("error_boundary_unhandled");
 
 /**
+ * @typedef {Error & {
+ *   code?: string,
+ *   status?: number,
+ * }} ErrorWithMeta
+ */
+
+/**
  * Categorize error
- * @param {Error} error
+ * @param {ErrorWithMeta} error
  * @returns {string}
  */
 export function categorizeError(error) {
@@ -105,7 +112,7 @@ export function categorizeError(error) {
 
 /**
  * Create error info from error
- * @param {Error} error
+ * @param {ErrorWithMeta} error
  * @param {object} [context]
  * @returns {ErrorInfo}
  */

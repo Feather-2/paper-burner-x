@@ -4,6 +4,21 @@ const DB_NAME = "CodeSearchIndexDB";
 const DB_VERSION = 1;
 const STORE_SYMBOLS = "symbols";
 
+/**
+ * @typedef {object} SymbolRecord
+ * @property {string} key
+ * @property {string} workspaceId
+ * @property {string} path
+ * @property {string|null} sha256
+ * @property {any[]} symbols
+ * @property {string} updatedAt
+ *
+ * @typedef {object} PutSymbolRecordParams
+ * @property {string=} sha256
+ * @property {any[]=} symbols
+ * @property {string=} updatedAt
+ */
+
 function hasIndexedDB() {
   return typeof indexedDB !== "undefined" && indexedDB && typeof indexedDB.open === "function";
 }
@@ -49,6 +64,9 @@ function recordKey(workspaceId, path) {
 }
 
 export class CodeSearchIndexStore {
+  /**
+   * @param {{ dbName?: string, dbVersion?: number }=} options
+   */
   constructor({ dbName = DB_NAME, dbVersion = DB_VERSION } = {}) {
     this.dbName = dbName;
     this.dbVersion = dbVersion;
@@ -56,6 +74,9 @@ export class CodeSearchIndexStore {
     this._mem = new Map(); // key -> record
   }
 
+  /**
+   * @returns {Promise<IDBDatabase|null>}
+   */
   async open() {
     if (!hasIndexedDB()) return null;
     if (this._dbp) return this._dbp;
@@ -77,12 +98,20 @@ export class CodeSearchIndexStore {
     return this._dbp;
   }
 
+  /**
+   * @returns {Promise<void>}
+   */
   async close() {
     const db = await this._dbp;
     if (db) db.close();
     this._dbp = null;
   }
 
+  /**
+   * @param {string} workspaceId
+   * @param {string} path
+   * @returns {Promise<SymbolRecord|null>}
+   */
   async getSymbolRecord(workspaceId, path) {
     const key = recordKey(workspaceId, path);
 
@@ -96,6 +125,12 @@ export class CodeSearchIndexStore {
     return rec || null;
   }
 
+  /**
+   * @param {string} workspaceId
+   * @param {string} path
+   * @param {PutSymbolRecordParams=} params
+   * @returns {Promise<string>}
+   */
   async putSymbolRecord(workspaceId, path, { sha256, symbols, updatedAt } = {}) {
     const ws = normalizeWorkspaceId(workspaceId);
     const p = normalizePath(path);
@@ -124,6 +159,10 @@ export class CodeSearchIndexStore {
     return key;
   }
 
+  /**
+   * @param {string} workspaceId
+   * @returns {Promise<SymbolRecord[]>}
+   */
   async listSymbolRecords(workspaceId) {
     const ws = normalizeWorkspaceId(workspaceId);
     const db = await this.open();
@@ -141,4 +180,3 @@ export class CodeSearchIndexStore {
 }
 
 export default CodeSearchIndexStore;
-

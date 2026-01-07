@@ -203,7 +203,7 @@ function setPositionValue(element, key, value) {
 
 function buildToolError(message) {
   const err = new Error(message);
-  err.code = "EDIT_TOOL_ERROR";
+  /** @type {any} */ (err).code = "EDIT_TOOL_ERROR";
   return err;
 }
 

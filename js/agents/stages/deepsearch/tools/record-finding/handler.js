@@ -8,6 +8,16 @@
 import { makeSecureTimestampedId } from "../../../../shared/utils/secure-id.js";
 import { toNonNegativeInt } from "../../../../shared/utils/value-utils.js";
 
+/**
+ * @typedef {object} FindingRecordResult
+ * @property {boolean} success
+ * @property {any=} finding
+ * @property {string=} error
+ * @property {string=} reason
+ * @property {string=} content
+ * @property {number=} index
+ */
+
 export const definition = {
   name: "record-finding",
   description: `记录研究发现（支持批量）。用于记录 claims（论点）、gaps（信息缺口）、conflicts（矛盾点）。
@@ -58,6 +68,11 @@ function resolveGapFindingBudget(state) {
 
 /**
  * 处理单条发现
+ */
+/**
+ * @param {any} item
+ * @param {any} context
+ * @returns {FindingRecordResult}
  */
 function processSingleFinding(item, context) {
   const { state, emit, sharedContext } = context;
@@ -155,6 +170,7 @@ export async function handler(args, context) {
     if (args.findings.length === 0) {
       return { success: true, recorded: 0, skipped: 0, findings: [], errors: [], stats: { claims: 0, gaps: 0, conflicts: 0 } };
     }
+    /** @type {FindingRecordResult[]} */
     const results = [];
     for (let i = 0; i < args.findings.length; i++) {
       const item = args.findings[i];
@@ -172,7 +188,7 @@ export async function handler(args, context) {
         }
       }
 
-      const r = processSingleFinding(item, context);
+      const r = /** @type {FindingRecordResult} */ (processSingleFinding(item, context));
       if (!r.success) r.index = i; // 记录原始索引便于调试
       if (!r.success && !r.content) r.content = item?.content?.slice?.(0, 50) || `[item ${i}]`;
       if (r.success && item?.type === "gap") gapAddedThisCall += 1;

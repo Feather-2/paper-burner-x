@@ -1,5 +1,31 @@
 import { isPlainObject } from "../shared/utils/value-utils.js";
 
+/**
+ * @typedef {object} GlobWorkerRequest
+ * @property {string} id
+ * @property {string=} pattern
+ * @property {string=} base
+ * @property {string[]=} files
+ */
+
+/**
+ * @typedef {object} GlobWorkerResponseOk
+ * @property {string} id
+ * @property {true} ok
+ * @property {string[]} matches
+ */
+
+/**
+ * @typedef {object} GlobWorkerResponseErr
+ * @property {string} id
+ * @property {false} ok
+ * @property {string} error
+ */
+
+/**
+ * @typedef {GlobWorkerResponseOk | GlobWorkerResponseErr} GlobWorkerResponse
+ */
+
 function escapeRegExp(s) {
   return String(s ?? "").replace(/[\\^$+?.()|[\]{}]/g, "\\$&");
 }
@@ -87,6 +113,7 @@ function normalizeBasePath(value) {
   return s.replace(/^\.\/+/, "").replace(/^\/+/, "").replace(/\/+$/, "");
 }
 
+/** @type {(this: DedicatedWorkerGlobalScope, event: MessageEvent<GlobWorkerRequest>) => void} */
 self.onmessage = (event) => {
   const data = event?.data;
   const id = data?.id;
@@ -106,9 +133,8 @@ self.onmessage = (event) => {
       if (!rel) continue;
       if (regexes.some((re) => re.test(rel))) out.push(file);
     }
-    self.postMessage({ id, ok: true, matches: out });
+    self.postMessage(/** @type {GlobWorkerResponse} */ ({ id, ok: true, matches: out }));
   } catch (err) {
-    self.postMessage({ id, ok: false, error: String(err?.message || err) });
+    self.postMessage(/** @type {GlobWorkerResponse} */ ({ id, ok: false, error: String(err?.message || err) }));
   }
 };
-

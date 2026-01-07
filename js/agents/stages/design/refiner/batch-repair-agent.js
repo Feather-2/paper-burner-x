@@ -51,6 +51,7 @@ export async function runBatchRepair(params, context) {
     // 3. 运行 ReAct 循环
     // 我们直接调用 runReactRefiner，但传入我们自定义的 System Prompt 逻辑
     // 提示：目前的 runReactRefiner 内部硬编码了 System Prompt，我们需要在 react-refiner.js 中支持注入
+    /** @type {{ mode: "generation" | "edit", recommendedSteps: number, hardLimit: number, toolExecutor: Function, systemPromptOverride: string, onStep: Function }} */
     const options = {
         mode: "edit", // 使用 Level 2 工具集
         recommendedSteps: 8,
@@ -80,7 +81,7 @@ export async function runBatchRepair(params, context) {
  * 
  * @param {object} params - { slideIndex, currentHtml, issues, designSystem }
  * @param {object} context - { aiApiService, modelRouter, signal }
- * @returns {string} 修复后的 HTML
+ * @returns {Promise<string>} 修复后的 HTML
  */
 export async function runSingleSlideRepair(params, context) {
     const { slideIndex, currentHtml, issues, designSystem } = params;

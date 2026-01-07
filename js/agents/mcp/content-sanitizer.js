@@ -1,6 +1,20 @@
 import { toNonEmptyString } from "../shared/utils/value-utils.js";
 import { filterUrlParams, auditUrl } from "./url-whitelist.js";
 
+/**
+ * @typedef {object} UrlProxyInspection
+ * @property {string} safeUrl
+ * @property {boolean} hadCredentials
+ * @property {boolean} hadHash
+ * @property {string[]} sensitiveQueryKeys
+ * @property {string[]} strippedParams
+ * @property {any=} audit
+ */
+
+/**
+ * @param {any} key
+ * @returns {boolean}
+ */
 export function isSensitiveQueryParamKey(key) {
   const k = String(key || "").toLowerCase().trim();
   if (!k) return false;
@@ -29,6 +43,11 @@ export function isSensitiveQueryParamKey(key) {
   return false;
 }
 
+/**
+ * Redact credentials/tokens in a URL for safe logging.
+ * @param {any} rawUrl
+ * @returns {string}
+ */
 export function redactUrlForLog(rawUrl) {
   const url = toNonEmptyString(rawUrl);
   if (!url) return "";
@@ -58,6 +77,12 @@ export function redactUrlForLog(rawUrl) {
   }
 }
 
+/**
+ * Inspect and sanitize a URL before proxying.
+ * @param {any} rawUrl
+ * @param {{ useWhitelist?: boolean }=} options
+ * @returns {UrlProxyInspection}
+ */
 export function inspectUrlForProxy(rawUrl, { useWhitelist = false } = {}) {
   const url = toNonEmptyString(rawUrl);
   if (!url) return { safeUrl: "", hadCredentials: false, hadHash: false, sensitiveQueryKeys: [], strippedParams: [] };
@@ -110,15 +135,22 @@ export function inspectUrlForProxy(rawUrl, { useWhitelist = false } = {}) {
   }
 }
 
+/**
+ * @param {any} text
+ * @returns {string}
+ */
 export function sanitizeExtractedText(text) {
   const s = typeof text === "string" ? text : String(text ?? "");
   if (!s) return "";
   return s.replace(/https?:\/\/[^\s<>"']+/gi, " ").replace(/\s+/g, " ").trim();
 }
 
+/**
+ * @param {any} text
+ * @returns {string}
+ */
 export function stripUrls(text) {
   const s = typeof text === "string" ? text : String(text ?? "");
   if (!s) return "";
   return s.replace(/https?:\/\/[^\s<>"']+/gi, "");
 }
-

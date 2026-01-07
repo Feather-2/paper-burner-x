@@ -14,7 +14,9 @@ import { makeSecureTimestampedId } from "../../../../shared/utils/secure-id.js";
 import { toPositiveInt } from "../../../../shared/utils/value-utils.js";
 
 // 运行中的任务注册表（含已完成任务的短暂缓存）
-const env = typeof process !== "undefined" ? process.env : {};
+/** @type {any} */
+const nodeProcess = /** @type {any} */ (globalThis).process;
+const env = nodeProcess?.env || {};
 const MAX_RUNNING_TASKS = toPositiveInt(env.DEEPSEARCH_MAX_RUNNING_TASKS, 50);
 const COMPLETED_TASK_TTL_MS = toPositiveInt(env.DEEPSEARCH_TASK_TTL_MS, 30 * 60 * 1000);
 const CLEANUP_INTERVAL_MS = toPositiveInt(env.DEEPSEARCH_TASK_CLEANUP_INTERVAL_MS, 5 * 60 * 1000);
@@ -118,7 +120,7 @@ function reserveRunningTaskSlot() {
 
 if (typeof setInterval === "function" && CLEANUP_INTERVAL_MS > 0) {
   const timer = setInterval(() => pruneRunningTasks(), CLEANUP_INTERVAL_MS);
-  timer.unref?.();
+  /** @type {any} */ (timer).unref?.();
 }
 
 export const definition = {

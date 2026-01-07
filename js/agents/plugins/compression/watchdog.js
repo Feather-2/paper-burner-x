@@ -6,6 +6,8 @@
 
 import { createPlugin } from '../../core/plugin.js';
 
+/** @typedef {import('../../core/plugin.js').PluginContext & Record<string, any>} PluginContext */
+
 export default createPlugin({
   name: 'compression/watchdog',
   version: '1.0.0',
@@ -18,10 +20,18 @@ export default createPlugin({
     autoCompress: true,
   },
 
+  /**
+   * @param {PluginContext} ctx
+   * @returns {Promise<void>}
+   */
   async install(ctx) {
+    /** @type {ReturnType<typeof setInterval> | null} */
     let intervalId = null;
     let lastCheck = 0;
 
+    /**
+     * @returns {Promise<void>}
+     */
     const checkHealth = async () => {
       const tokens = ctx.state.getGlobal('runtime.tokens') || { input: 0, output: 0 };
       const total = tokens.input + tokens.output;
@@ -66,7 +76,14 @@ export default createPlugin({
 
     // 暴露手动检查接口
     ctx.registerService('watchdog', {
+      /**
+       * @returns {Promise<void>}
+       */
       check: checkHealth,
+
+      /**
+       * @returns {any}
+       */
       getHealth: () => ctx.state.get('health'),
     });
 
@@ -76,6 +93,10 @@ export default createPlugin({
     ctx._watchdogInterval = intervalId;
   },
 
+  /**
+   * @param {PluginContext} ctx
+   * @returns {Promise<void>}
+   */
   async uninstall(ctx) {
     if (ctx._watchdogInterval) {
       clearInterval(ctx._watchdogInterval);

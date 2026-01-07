@@ -35,6 +35,113 @@ const REMINDER_AFTER_ITERATION = 3;
 const REMINDER_MAX_TODOS = 3;
 const REMINDER_TAIL = "请优先处理以上问题，不要跳过待办直接写报告。";
 
+/**
+ * @typedef {"system"|"user"|"assistant"} DeepSearchChatRole
+ *
+ * @typedef {object} DeepSearchChatMessage
+ * @property {DeepSearchChatRole | string} role
+ * @property {any} content
+ *
+ * @typedef {object} DeepSearchModelCallOptions
+ * @property {number=} temperature
+ * @property {number=} maxTokens
+ * @property {AbortSignal=} signal
+ *
+ * @typedef {object} DeepSearchModelResponse
+ * @property {string=} content
+ * @property {any=} usage
+ *
+ * @typedef {(messages: DeepSearchChatMessage[], options: DeepSearchModelCallOptions) => Promise<DeepSearchModelResponse>} DeepSearchCallModel
+ *
+ * @typedef {object} DeepSearchToolAction
+ * @property {string} action
+ * @property {Record<string, any>=} args
+ *
+ * @typedef {object} DeepSearchDecision
+ * @property {string=} thought
+ * @property {string=} action
+ * @property {Record<string, any>=} args
+ * @property {DeepSearchToolAction[]=} actions
+ *
+ * @typedef {object} DeepSearchGapsConfig
+ * @property {number=} maxFindingGaps
+ * @property {number=} maxGapFindings
+ * @property {number=} maxGaps
+ * @property {number=} gapOnlyStreakLimit
+ * @property {number=} maxGapOnlyIterations
+ * @property {number=} gapOnlyLimit
+ * @property {number=} noProgressStreakLimit
+ * @property {number=} maxNoProgressIterations
+ * @property {number=} stagnationLimit
+ *
+ * @typedef {object} DeepSearchUserConfig
+ * @property {DeepSearchGapsConfig=} gaps
+ * @property {{ includeCatalog?: boolean }=} skills
+ *
+ * @typedef {object} DeepSearchState
+ * @property {DeepSearchUserConfig=} userConfig
+ *
+ * @typedef {object} DeepSearchGapConvergencePolicy
+ * @property {number} maxFindingGaps
+ * @property {number} gapOnlyStreakLimit
+ * @property {number} noProgressStreakLimit
+ *
+ * @typedef {object} AddInitialDeepSearchMessagesParams
+ * @property {any} agent
+ * @property {any} stageApi
+ * @property {Function=} SkillsManager
+ * @property {string=} modeDescription
+ *
+ * @typedef {object} DeepSearchConvergenceState
+ * @property {number} lastClaimCount
+ * @property {number} lastGapFindingCount
+ * @property {number} lastOpenTodoCount
+ * @property {number} lastCompletedTodoCount
+ * @property {number} gapOnlyStreak
+ * @property {number} noProgressStreak
+ *
+ * @typedef {object} IterationConvergenceTracker
+ * @property {DeepSearchGapConvergencePolicy} convergencePolicy
+ * @property {DeepSearchConvergenceState} convergence
+ * @property {() => void} initBaselines
+ * @property {(plannedIteration: number) => void} emitIterationCompleted
+ *
+ * @typedef {object} CreateIterationConvergenceTrackerParams
+ * @property {any} agent
+ * @property {DeepSearchGapConvergencePolicy} convergencePolicy
+ *
+ * @typedef {"success"|"retry"|"skip"|"stop"} PlanningIterationStatus
+ *
+ * @typedef {object} PlanningIterationResult
+ * @property {PlanningIterationStatus} status
+ * @property {DeepSearchDecision=} decision
+ * @property {string=} content
+ * @property {string=} reason
+ *
+ * @typedef {object} DeepSearchResponseHandler
+ * @property {number} retryCount
+ * @property {number} maxRetries
+ * @property {(response: DeepSearchModelResponse, options: { stageApi: any, addMessage: (msg: DeepSearchChatMessage) => void, budget: any }) => Promise<PlanningIterationResult>} handleResponse
+ *
+ * @typedef {object} RunPlanningPhaseIterationParams
+ * @property {any} agent
+ * @property {any} stageApi
+ * @property {any} context
+ * @property {DeepSearchCallModel} callModel
+ * @property {DeepSearchResponseHandler} responseHandler
+ * @property {number} iteration
+ * @property {number} toolCallCount
+ * @property {number} systemRetryCount
+ * @property {number} maxSystemRetriesPerIteration
+ * @property {DeepSearchGapConvergencePolicy} convergencePolicy
+ * @property {DeepSearchConvergenceState} convergence
+ */
+
+/**
+ * 从 state.userConfig.gaps 推导 Gap 收敛策略配置。
+ * @param {DeepSearchState} state
+ * @returns {DeepSearchGapConvergencePolicy}
+ */
 export function getGapConvergencePolicy(state) {
   const cfg = isPlainObject(state?.userConfig?.gaps) ? state.userConfig.gaps : {};
   return {
@@ -170,9 +277,11 @@ async function buildSkillsPrompt({ agent, stageApi, SkillsManager }) {
 
   try {
     const skillsManager = new SkillsManager();
+    /** @type {any} */
+    const nodeProcess = /** @type {any} */ (globalThis).process;
     const cwd =
       stageApi.cwd ||
-      (typeof process !== "undefined" && typeof process.cwd === "function" ? process.cwd() : ".");
+      (typeof nodeProcess?.cwd === "function" ? nodeProcess.cwd() : ".");
     if (typeof skillsManager.getCatalogPrompt === "function") {
       const prompt = await skillsManager.getCatalogPrompt(cwd);
       if (prompt) {
@@ -186,6 +295,11 @@ async function buildSkillsPrompt({ agent, stageApi, SkillsManager }) {
   return "";
 }
 
+/**
+ * 注入 DeepSearch 初始 system/user 消息（system prompt + 目标/预算等提示）。
+ * @param {AddInitialDeepSearchMessagesParams} params
+ * @returns {Promise<void>}
+ */
 export async function addInitialDeepSearchMessages({
   agent,
   stageApi,
@@ -218,6 +332,11 @@ export async function addInitialDeepSearchMessages({
   });
 }
 
+/**
+ * 创建“收敛追踪器”，用于统计每轮 claims/gaps/todos 变化并发出 completed 事件。
+ * @param {CreateIterationConvergenceTrackerParams} params
+ * @returns {IterationConvergenceTracker}
+ */
 export function createIterationConvergenceTracker({ agent, convergencePolicy }) {
   const convergence = {
     lastClaimCount: 0,
@@ -309,6 +428,11 @@ export function createIterationConvergenceTracker({ agent, convergencePolicy }) 
   return { convergencePolicy, convergence, initBaselines, emitIterationCompleted };
 }
 
+/**
+ * 运行单轮规划阶段：注入临时上下文、调用模型、并通过 responseHandler 解析决策。
+ * @param {RunPlanningPhaseIterationParams} params
+ * @returns {Promise<PlanningIterationResult>}
+ */
 export async function runPlanningPhaseIteration({
   agent,
   stageApi,

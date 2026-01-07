@@ -1,5 +1,28 @@
 import { loadPrompt } from "../prompts/prompt-loader.js";
 
+/**
+ * @typedef {Record<string, any> & { data: string, type: string }} IngestAsset
+ */
+
+/**
+ * @typedef {object} AssetUnderstandingResult
+ * @property {string=} description
+ * @property {string=} category
+ * @property {string[]=} topics
+ * @property {string[]=} suggestedUse
+ * @property {string=} visualStyle
+ * @property {string[]=} dominantColors
+ * @property {boolean=} hasText
+ * @property {string=} textContent
+ * @property {string=} error
+ */
+
+/**
+ * @typedef {object} AssetUnderstandingProgress
+ * @property {number} processed
+ * @property {number} total
+ */
+
 const BATCH_SIZE = 5;
 const MAX_IMAGE_SIZE = 500 * 1024; // 500KB
 
@@ -17,6 +40,7 @@ function sanitizeErrorMessage(err, { maxChars = 200 } = {}) {
 
 /**
  * 异步获取 batch analysis prompt
+ * @returns {Promise<string>}
  */
 export async function getBatchAnalysisPrompt() {
   if (_batchAnalysisPrompt) return _batchAnalysisPrompt;
@@ -120,6 +144,13 @@ async function analyzeBatch(assets, callVision) {
   }
 }
 
+/**
+ * Analyze a single asset using a vision-capable model.
+ *
+ * @param {IngestAsset} asset
+ * @param {{ visionApi?: any, modelRouter?: any }} [options]
+ * @returns {Promise<AssetUnderstandingResult | null>}
+ */
 export async function understandAsset(asset, { visionApi, modelRouter } = {}) {
   if (!asset?.data || !asset?.type) return null;
 
@@ -136,6 +167,13 @@ export async function understandAsset(asset, { visionApi, modelRouter } = {}) {
   return results[0] || null;
 }
 
+/**
+ * Analyze multiple assets in batches.
+ *
+ * @param {IngestAsset[]} assets
+ * @param {{ visionApi?: any, modelRouter?: any, onProgress?: (progress: AssetUnderstandingProgress) => void }} [options]
+ * @returns {Promise<Array<AssetUnderstandingResult | null>>}
+ */
 export async function understandAssets(assets, options = {}) {
   const { visionApi, modelRouter, onProgress } = options;
   const list = Array.isArray(assets) ? assets.filter(a => a?.data && a?.type) : [];

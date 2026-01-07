@@ -6,6 +6,31 @@ import { toNonEmptyString } from "../../../../shared/utils/value-utils.js";
  * Used to retrieve large tool results stored via persisted-output pipeline.
  */
 
+/**
+ * @typedef {object} GetArtifactArgs
+ * @property {string} artifactId
+ * @property {number=} maxChars
+ *
+ * @typedef {object} GetArtifactContext
+ * @property {{runStore?: {getArtifactRecord?:(artifactId:string)=>Promise<any>}}=} stageApi
+ *
+ * @typedef {object} GetArtifactSuccess
+ * @property {true} success
+ * @property {string} artifactId
+ * @property {string=} runId
+ * @property {string=} type
+ * @property {string=} mime
+ * @property {number=} bytes
+ * @property {string=} sha256
+ * @property {boolean} truncated
+ * @property {number} totalChars
+ * @property {string} data
+ *
+ * @typedef {object} GetArtifactFailure
+ * @property {false} success
+ * @property {string} error
+ */
+
 function safeInt(value, fallback) {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return fallback;
@@ -46,6 +71,11 @@ export const definition = {
   },
 };
 
+/**
+ * @param {GetArtifactArgs} args
+ * @param {GetArtifactContext} context
+ * @returns {Promise<GetArtifactSuccess|GetArtifactFailure>}
+ */
 export async function handler(args, context) {
   const artifactId = toNonEmptyString(args?.artifactId);
   const maxChars = safeInt(args?.maxChars, 4000);
@@ -85,4 +115,3 @@ export async function handler(args, context) {
 }
 
 export default { definition, handler };
-

@@ -2,6 +2,9 @@ import { normalizeVfsPath, dirnameVfsPath } from "./path.js";
 
 import { isPlainObject } from "../shared/utils/value-utils.js";
 
+/** @type {any} */
+const NodeBuffer = /** @type {any} */ (globalThis).Buffer;
+
 function makeDirent(name, kind) {
   return {
     name,
@@ -29,8 +32,8 @@ function bytesToBase64(bytes) {
   const b = bytes instanceof Uint8Array ? bytes : dataToBytes(bytes);
 
   // Node
-  if (typeof Buffer !== "undefined") {
-    return Buffer.from(b).toString("base64");
+  if (NodeBuffer && typeof NodeBuffer.from === "function") {
+    return NodeBuffer.from(b).toString("base64");
   }
 
   if (typeof btoa === "function") {
@@ -51,8 +54,8 @@ function base64ToBytes(base64) {
   if (!s) return new Uint8Array(0);
 
   // Node
-  if (typeof Buffer !== "undefined") {
-    return new Uint8Array(Buffer.from(s, "base64"));
+  if (NodeBuffer && typeof NodeBuffer.from === "function") {
+    return new Uint8Array(NodeBuffer.from(s, "base64"));
   }
 
   if (typeof atob === "function") {

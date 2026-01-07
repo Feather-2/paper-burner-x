@@ -10,6 +10,15 @@
 import { robustParseJson } from "../../../shared/utils/robust-json.js";
 import { DeepSearchEvents } from "../../../runtime/events/events.js";
 
+/**
+ * @typedef {"success"|"retry"|"skip"|"stop"} ModelResponseStatus
+ *
+ * @typedef {object} ModelResponseOutcome
+ * @property {ModelResponseStatus} status
+ * @property {any=} decision
+ * @property {string=} content
+ */
+
 export class ModelResponseHandler {
   constructor({ logger, emit, parseDecision, maxRetries = 5 }) {
     this._logger = logger;
@@ -23,7 +32,7 @@ export class ModelResponseHandler {
    * 处理模型响应
    * @param {Object} response - 模型响应
    * @param {Object} options - { stageApi, addMessage, budget }
-   * @returns {{ status: 'success'|'retry'|'skip'|'stop', decision?: Object, content?: string }}
+   * @returns {Promise<ModelResponseOutcome>}
    */
   async handleResponse(response, { stageApi, addMessage, budget }) {
     const content = response?.content || "";
@@ -50,6 +59,10 @@ export class ModelResponseHandler {
     return { status: "success", decision, content };
   }
 
+  /**
+   * @param {{ stageApi:any, addMessage:(msg:any)=>void }} options
+   * @returns {Promise<ModelResponseOutcome>}
+   */
   async _handleEmptyResponse({ stageApi, addMessage }) {
     this.retryCount++;
     this._logger.warn(`Empty response (retry ${this.retryCount}/${this.maxRetries})`);
@@ -76,6 +89,10 @@ export class ModelResponseHandler {
     return { status: "retry" };
   }
 
+  /**
+   * @param {{ stageApi:any, addMessage:(msg:any)=>void }} options
+   * @returns {Promise<ModelResponseOutcome>}
+   */
   async _handleParseFailure({ stageApi, addMessage }) {
     this.retryCount++;
     this._logger.warn(`Failed to parse decision (retry ${this.retryCount}/${this.maxRetries})`);

@@ -44,7 +44,7 @@ async function loadTiktoken() {
   try {
     return await import("tiktoken");
   } catch {
-    return await import("@dqbd/tiktoken");
+    return await import(/** @type {string} */ ("@dqbd/tiktoken"));
   }
 }
 
@@ -87,6 +87,7 @@ export function createAdaptiveTokenCounter(options = {}) {
         };
 
   let encoder = null;
+  /** @type {"heuristic"|"tiktoken"} */
   let mode = "heuristic";
   let ready = false;
   let failed = false;
@@ -94,6 +95,10 @@ export function createAdaptiveTokenCounter(options = {}) {
   let lastModel = typeof options.model === "string" ? options.model : null;
   let lastEncoding = typeof options.encoding === "string" ? options.encoding : null;
 
+  /**
+   * @param {{ model?: string, encoding?: string }} [options]
+   * @returns {Promise<boolean>}
+   */
   const init = async ({ model, encoding } = {}) => {
     if (failed) return false;
     if (ready && encoder) return true;

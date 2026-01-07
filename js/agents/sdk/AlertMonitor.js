@@ -7,19 +7,70 @@
  * 3. 在极端情况下触发紧急回退
  */
 
+/**
+ * @typedef {Record<string, any> & { role?: string, content?: any }} ChatMessage
+ *
+ * @typedef {{ warn?: (...args: any[]) => void, info?: (...args: any[]) => void, error?: (...args: any[]) => void, debug?: (...args: any[]) => void }} LoggerLike
+ *
+ * @typedef {object} DiscoveryManagerLike
+ * @property {() => Array<Record<string, any>>} getAllDiscoveries
+ *
+ * @typedef {object} AgentLike
+ * @property {(eventName: string, handler: (event: any) => void | Promise<void>) => void} on
+ * @property {{ emit: (eventName: string, payload: any) => void }} eventBus
+ * @property {{ iteration?: number } | null | undefined} [loop]
+ * @property {{ messages?: ChatMessage[] } | null | undefined} [_loop]
+ * @property {DiscoveryManagerLike | null | undefined} [discovery]
+ *
+ * @typedef {object} AlertMonitorOptions
+ * @property {AgentLike | null} [agent] - 相关联的 Agent 实例
+ * @property {LoggerLike} [logger]
+ * @property {string} [model] - 仅在启发式不足时的备用审计模型
+ * @property {string} [policy] - 告警升级策略（例如 "advisor"/"governor"）
+ *
+ * @typedef {"suggestion" | "notification" | "guidance" | "tool_advice" | "observation" | "status"} AlertType
+ * @typedef {"low" | "medium" | "high" | "critical"} AlertSeverity
+ *
+ * @typedef {object} AlertRecord
+ * @property {AlertType} type
+ * @property {string} message
+ * @property {AlertSeverity} [severity]
+ * @property {number} [confidence]
+ * @property {string} [id]
+ *
+ * @typedef {object} ToolCompletedPayload
+ * @property {string} [tool]
+ * @property {any} [params]
+ * @property {any} [result]
+ *
+ * @typedef {Record<string, any> & { id?: string, gapId?: string, status?: string }} DiscoveryUpdate
+ */
+
 export class AlertMonitor {
+    /**
+     * @param {AlertMonitorOptions} [options]
+     */
     constructor(options = {}) {
+        /** @type {AgentLike | null | undefined} */
         this.agent = options.agent; // 相关联的 AgentInstance
+        /** @type {LoggerLike} */
         this.logger = options.logger;
+        /** @type {string} */
         this.auditorModel = options.model || "haiku"; // 仅在启发式不足时备用
+        /** @type {string} */
         this.policy = options.policy || "advisor";
 
         // 基于规则的告警系统，0 token 消耗的本地逻辑
 
+        /** @type {AlertRecord[]} */
         this._pendingAlerts = [];
+        /** @type {boolean} */
         this._isAuditing = false;
+        /** @type {boolean} */
         this._isFlowActive = false; // [心流状态] 标志
+        /** @type {Set<string>} */
         this._suppressedIds = new Set(); // 被 Agent 显式忽略或反驳的 ID
+        /** @type {Set<string>} */
         this._suppressedTypes = new Set(); // 被抑制的告警类型
 
         this._setupListeners();
@@ -27,6 +78,7 @@ export class AlertMonitor {
 
     /**
      * 进入静默模式 (减少低优先级告警)
+     * @returns {void}
      */
     enterQuiet() {
         this.logger.info("[AlertMonitor] Entering quiet mode.");
@@ -35,12 +87,14 @@ export class AlertMonitor {
 
     /**
      * 退出静默模式
+     * @returns {void}
      */
     exitQuiet() {
         this.logger.info("[AlertMonitor] Exiting quiet mode.");
         this._isFlowActive = false;
     }
 
+    /** @returns {void} */
     _setupListeners() {
         if (!this.agent) return;
 
@@ -65,6 +119,8 @@ export class AlertMonitor {
     }
     /**
       * 工具执行后检查
+      * @param {ToolCompletedPayload} payload
+      * @returns {Promise<void>}
       */
     async _onActionCompleted({ tool, params, result }) {
         this._checkPlanningDrift(tool, params);
@@ -72,6 +128,8 @@ export class AlertMonitor {
 
     /**
      * 监控黑板状态变化
+     * @param {DiscoveryUpdate} discovery
+     * @returns {Promise<void>}
      */
     async _onDiscoveryUpdated(discovery) {
         this.logger.debug(`[AlertMonitor] discovery: ${JSON.stringify(discovery)}`);
@@ -95,9 +153,13 @@ export class AlertMonitor {
 
     /**
      * 行动审计：监控工具调用模式
+     * @param {string} tool
+     * @param {any} params
+     * @returns {void}
      */
     _checkPlanningDrift(tool, params) {
         // 记录工具调用频率 (简单演示)
+        /** @type {{ tool: string, time: number }[]} */
         this._toolHistory = this._toolHistory || [];
         this._toolHistory.push({ tool, time: Date.now() });
 
@@ -116,6 +178,7 @@ export class AlertMonitor {
 
     /**
      * 扫描黑板与全局状态 (全能辅佐)
+     * @returns {void}
      */
     _auditGlobalState() {
         if (!this.agent.discovery) return;
@@ -137,6 +200,8 @@ export class AlertMonitor {
 
     /**
      * 针对高级工具箱的隐式引导
+     * @param {Array<Record<string, any>>} discoveries
+     * @returns {void}
      */
     _auditResearchHealth(discoveries) {
         const iterationCount = this.agent.loop?.iteration || 0;
@@ -173,6 +238,10 @@ export class AlertMonitor {
             });
         }
     }
+    /**
+     * @param {AlertRecord} alert
+     * @returns {void}
+     */
     _triggerAlert(alert) {
         // 防止重复告警
         const isDuplicate = this._pendingAlerts.some(a => a.message === alert.message);
@@ -189,18 +258,27 @@ export class AlertMonitor {
         }
     }
 
+    /**
+     * @returns {AlertRecord[]}
+     */
     drainAlerts() {
         const alerts = [...this._pendingAlerts];
         this._pendingAlerts = [];
         return alerts;
     }
 
+    /**
+     * @param {string} reason
+     * @returns {void}
+     */
     _forceBacktrack(reason) {
         this.agent.eventBus.emit("alertmonitor.force_backtrack", { reason });
     }
 
     /**
      * 从 Agent 回复中学习抑制规则
+     * @param {ChatMessage[]} [currentMessages]
+     * @returns {void}
      */
     _learnFromFeedback(currentMessages = []) {
         const lastAgentMsg = currentMessages.length > 0
@@ -219,6 +297,9 @@ export class AlertMonitor {
 
     /**
      * 过滤不必要的告警
+     * @param {AlertRecord[]} alerts
+     * @param {ChatMessage[]} [currentMessages]
+     * @returns {AlertRecord[]}
      */
     _filterAlerts(alerts, currentMessages = []) {
         if (alerts.length === 0) return [];
@@ -254,6 +335,11 @@ export class AlertMonitor {
         });
     }
 
+    /**
+     * 基于当前告警生成注入系统提示的 Markdown 片段。
+     * @param {ChatMessage[]} [currentMessages]
+     * @returns {string | null}
+     */
     getInjectedPrompt(currentMessages = []) {
         if (this._pendingAlerts.length === 0) return null;
 

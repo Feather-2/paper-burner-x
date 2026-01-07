@@ -5,19 +5,26 @@
  */
 
 import { createToolExecutor, formatToolDefinitionsForLLM } from "./code-tools.js";
-import { readFile, readdir, stat } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 import { createLogger } from "../../shared/utils/logger.js";
 
 const logger = createLogger("stages/codesearch/test");
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const projectRoot = join(__dirname, "../../../..");
-
+/**
+ * @returns {Promise<void>}
+ */
 async function testTools() {
   console.log("=== CodeSearch Tools Test ===\n");
+
+  // @ts-ignore - this tsconfig is browser-first (no @types/node)
+  const { readFile, readdir, stat } = await import("node:fs/promises");
+  // @ts-ignore - this tsconfig is browser-first (no @types/node)
+  const { fileURLToPath } = await import("node:url");
+  // @ts-ignore - this tsconfig is browser-first (no @types/node)
+  const { dirname, join } = await import("node:path");
+
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = dirname(__filename);
+  const projectRoot = join(__dirname, "../../../..");
 
   // 创建工具执行器
   const tools = createToolExecutor({
@@ -54,8 +61,22 @@ async function testTools() {
   console.log("\n=== All Tools Tests Passed ===");
 }
 
+/**
+ * @returns {Promise<void>}
+ */
 async function testMockAgentLoop() {
   console.log("\n=== Mock Agent Loop Test ===\n");
+
+  // @ts-ignore - this tsconfig is browser-first (no @types/node)
+  const { readFile, readdir, stat } = await import("node:fs/promises");
+  // @ts-ignore - this tsconfig is browser-first (no @types/node)
+  const { fileURLToPath } = await import("node:url");
+  // @ts-ignore - this tsconfig is browser-first (no @types/node)
+  const { dirname, join } = await import("node:path");
+
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = dirname(__filename);
+  const projectRoot = join(__dirname, "../../../..");
 
   const tools = createToolExecutor({
     fs: { readFile, readdir, stat },
@@ -96,13 +117,16 @@ async function testMockAgentLoop() {
 }
 
 // 运行测试
+/**
+ * @returns {Promise<void>}
+ */
 async function main() {
   try {
     await testTools();
     await testMockAgentLoop();
   } catch (err) {
     logger.error("Test failed:", { error: err?.message || String(err), stack: err?.stack });
-    process.exit(1);
+    /** @type {any} */ (globalThis).process?.exit?.(1);
   }
 }
 

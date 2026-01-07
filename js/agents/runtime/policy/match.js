@@ -1,5 +1,13 @@
 import { matchGlob } from "../../vfs/glob.js";
 
+/**
+ * @typedef {string | string[] | null | undefined} PatternInput
+ */
+
+/**
+ * @param {unknown} pattern
+ * @returns {string}
+ */
 function normalizeGlobPattern(pattern) {
   let p = typeof pattern === "string" ? pattern : "";
   if (!p) return "";
@@ -13,6 +21,9 @@ function normalizeGlobPattern(pattern) {
  * Two-pointer wildcard matching (avoids ReDoS from dynamic RegExp).
  * Supports '*' as multi-character wildcard.
  * O(m*n) worst case, but typically linear for reasonable patterns.
+ * @param {unknown} pattern
+ * @param {unknown} value
+ * @returns {boolean}
  */
 export function matchWildcard(pattern, value) {
   const p = typeof pattern === "string" ? pattern : "";
@@ -47,6 +58,11 @@ export function matchWildcard(pattern, value) {
   return pi === p.length;
 }
 
+/**
+ * @param {PatternInput} patterns
+ * @param {unknown} value
+ * @returns {boolean}
+ */
 export function matchAnyWildcard(patterns, value) {
   if (patterns === null || patterns === undefined) return true;
   const list = Array.isArray(patterns) ? patterns : [patterns];
@@ -58,6 +74,11 @@ export function matchAnyWildcard(patterns, value) {
   return false;
 }
 
+/**
+ * @param {PatternInput} patterns
+ * @param {string} path
+ * @returns {boolean}
+ */
 export function matchAnyGlob(patterns, path) {
   if (patterns === null || patterns === undefined) return true;
   const list = Array.isArray(patterns) ? patterns : [patterns];

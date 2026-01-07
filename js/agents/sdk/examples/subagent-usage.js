@@ -1,14 +1,21 @@
 /**
  * Subagent 使用示例
- * 
+ *
  * 展示主 Agent 如何通过 Task 工具启动和使用子代理
+ *
+ * @module sdk/examples/subagent-usage
  */
 
 import { createAgent, createLogger } from "../index.js";
 
+/** @type {ReturnType<typeof createLogger>} */
 const logger = createLogger("sdk/examples/subagent-usage");
 
-// 1. 定义子代理工厂
+/**
+ * 创建探索子代理
+ * @param {{ prompt: string, model: string }} options
+ * @returns {Promise<any>}
+ */
 const createExplorer = async ({ prompt, model }) => {
     return createAgent({ actor: "explorer" })
         .useCapability("search", async (args) => {
@@ -17,6 +24,11 @@ const createExplorer = async ({ prompt, model }) => {
         .build();
 };
 
+/**
+ * 创建写作子代理
+ * @param {{ prompt: string, model: string }} options
+ * @returns {Promise<any>}
+ */
 const createWriter = async ({ prompt, model }) => {
     return createAgent({ actor: "writer" })
         .useCapability("write", async (args) => {
@@ -31,7 +43,10 @@ const bossAgent = createAgent({ actor: "boss" })
     .useSubagent("Writer", createWriter, "基于搜索结果撰写文档")
     .build();
 
-// 3. 运行演示
+/**
+ * 运行子代理演示
+ * @returns {Promise<void>}
+ */
 async function runDemo() {
     console.log("=== Boss Agent Capability Catalog ===");
     console.log(bossAgent.getCapabilityCatalogPrompt());

@@ -7,7 +7,12 @@
 import { globalSubagentRegistry } from "../../sdk/SubagentRegistry.js";
 import { EventBus } from "../../runtime/events/event-bus.js";
 
+/** @type {any} */
 let _DeepSearchAgentLoop = null;
+
+/**
+ * @returns {Promise<any>}
+ */
 async function getDeepSearchAgentLoop() {
   if (_DeepSearchAgentLoop) return _DeepSearchAgentLoop;
   const mod = await import("./deepsearch-agent-loop.js");
@@ -15,11 +20,20 @@ async function getDeepSearchAgentLoop() {
   return _DeepSearchAgentLoop;
 }
 
+/**
+ * @param {any} value
+ * @returns {string|null}
+ */
 function toTaskId(value) {
   const v = typeof value === "string" ? value.trim() : String(value || "").trim();
   return v ? v : null;
 }
 
+/**
+ * @param {any} sharedContext
+ * @param {string|null} taskId
+ * @returns {any}
+ */
 function createTaskScopedSharedContext(sharedContext, taskId) {
   const scopedTaskId = toTaskId(taskId);
   if (!sharedContext || !scopedTaskId) return sharedContext;

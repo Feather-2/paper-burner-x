@@ -11,6 +11,27 @@
 import { parseSections, joinSections } from "../refiner/react-refiner-tools.js";
 
 /**
+ * @typedef {{ success: boolean, data?: any, error?: string }} ToolResult
+ */
+
+/**
+ * @typedef {(toolName: string, params: any) => Promise<ToolResult>} ToolExecutor
+ */
+
+/**
+ * @typedef {object} DeckPackage
+ * @property {string} deckHtmlDsl
+ * @property {any[]} [slidesMeta]
+ */
+
+/**
+ * @typedef {object} DeckEditorOptions
+ * @property {ToolExecutor} [toolExecutor]
+ * @property {DeckPackage} [deckPackage]
+ * @property {any} [config]
+ */
+
+/**
  * 编辑器配置
  */
 export const EDITOR_CONFIG = {
@@ -23,6 +44,9 @@ import { isPlainObject } from "../shared/design-utils.js";
  * DeckEditor 类
  */
 export class DeckEditor {
+  /**
+   * @param {DeckEditorOptions} [options={}]
+   */
   constructor(options = {}) {
     this._toolExecutor = options.toolExecutor;
     this._deckPackage = options.deckPackage || { deckHtmlDsl: "" };
@@ -33,6 +57,9 @@ export class DeckEditor {
 
   /**
    * 设置 deck package
+   *
+   * @param {DeckPackage} deckPackage
+   * @returns {void}
    */
   setDeckPackage(deckPackage) {
     this._deckPackage = deckPackage;
@@ -40,6 +67,8 @@ export class DeckEditor {
 
   /**
    * 获取当前 deck HTML DSL
+   *
+   * @returns {string}
    */
   getDeckHtmlDsl() {
     return this._deckPackage?.deckHtmlDsl || "";
@@ -47,6 +76,11 @@ export class DeckEditor {
 
   /**
    * 编辑元素
+   *
+   * @param {number} slideIndex
+   * @param {string} elementId
+   * @param {any} changes
+   * @returns {Promise<ToolResult>}
    */
   async editElement(slideIndex, elementId, changes) {
     if (this._toolExecutor) {
@@ -64,6 +98,10 @@ export class DeckEditor {
 
   /**
    * 编辑幻灯片
+   *
+   * @param {number} slideIndex
+   * @param {any} changes
+   * @returns {Promise<ToolResult>}
    */
   async editSlide(slideIndex, changes) {
     if (this._toolExecutor) {
@@ -81,6 +119,9 @@ export class DeckEditor {
 
   /**
    * 批量编辑
+   *
+   * @param {Array<{ type: "element"|"slide", slideIndex: number, elementId?: string, changes: any }>} edits
+   * @returns {Promise<ToolResult>}
    */
   async batchEdit(edits) {
     if (!Array.isArray(edits) || edits.length === 0) {
@@ -117,6 +158,9 @@ export class DeckEditor {
 
   /**
    * 应用风格修复
+   *
+   * @param {any} fix
+   * @returns {Promise<ToolResult>}
    */
   async applyStyleFix(fix) {
     if (!isPlainObject(fix)) {
@@ -180,6 +224,10 @@ export class DeckEditor {
 
   /**
    * 替换整个幻灯片 HTML
+   *
+   * @param {number} slideIndex
+   * @param {string} newHtml
+   * @returns {ToolResult}
    */
   replaceSlideHtml(slideIndex, newHtml) {
     const sections = parseSections(this._deckPackage.deckHtmlDsl);
@@ -197,6 +245,8 @@ export class DeckEditor {
 
   /**
    * 撤销
+   *
+   * @returns {ToolResult}
    */
   undo() {
     if (this._historyIndex < 0) {
@@ -216,6 +266,8 @@ export class DeckEditor {
 
   /**
    * 重做
+   *
+   * @returns {ToolResult}
    */
   redo() {
     if (this._historyIndex >= this._history.length - 1) {
@@ -235,6 +287,8 @@ export class DeckEditor {
 
   /**
    * 获取历史记录
+   *
+   * @returns {{ entries: any[], currentIndex: number, canUndo: boolean, canRedo: boolean }}
    */
   getHistory() {
     return {
@@ -321,6 +375,10 @@ export class DeckEditor {
   }
 }
 
+/**
+ * @param {DeckEditorOptions} [options={}]
+ * @returns {DeckEditor}
+ */
 export function createDeckEditor(options = {}) {
   return new DeckEditor(options);
 }

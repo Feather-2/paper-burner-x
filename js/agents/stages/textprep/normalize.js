@@ -18,6 +18,7 @@ function toHex(bytes) {
 function sha256HexUtf8(str) {
   // TextEncoder is available in modern browsers and Node >= 11.
   const enc = typeof TextEncoder !== "undefined" ? new TextEncoder() : null;
+  /** @ts-ignore */
   const msg = enc ? enc.encode(str) : Uint8Array.from(Buffer.from(String(str), "utf8"));
 
   const K = new Uint32Array([
@@ -125,6 +126,26 @@ function countMatches(str, re) {
   return n;
 }
 
+/**
+ * @typedef {Object} TextNormalization
+ * @property {string} profile
+ * @property {string[]} ops
+ * @property {Record<string, number>} counts
+ */
+
+/**
+ * @typedef {Object} NormalizeTextResult
+ * @property {string} normalized
+ * @property {string} textHash
+ * @property {TextNormalization} normalization
+ */
+
+/**
+ * Normalize raw text for stable locators.
+ *
+ * @param {unknown} rawText
+ * @returns {NormalizeTextResult}
+ */
 export function normalizeText(rawText) {
   if (!isString(rawText)) throw new TypeError("normalizeText(rawText): rawText must be a string");
   const input = String(rawText);

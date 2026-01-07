@@ -6,6 +6,7 @@
  */
 
 // 受限的全局对象
+/** @type {Set<string>} */
 const ALLOWED_GLOBALS = new Set([
   'Array', 'ArrayBuffer', 'Boolean', 'DataView', 'Date', 'Error',
   'Float32Array', 'Float64Array', 'Int8Array', 'Int16Array', 'Int32Array',
@@ -18,6 +19,11 @@ const ALLOWED_GLOBALS = new Set([
 ]);
 
 // 创建受限执行环境
+/**
+ * @param {unknown} state
+ * @param {unknown} [emit]
+ * @returns {Record<string, any>}
+ */
 function createRestrictedGlobals(state, emit) {
   const restricted = Object.create(null);
 
@@ -53,12 +59,17 @@ function createRestrictedGlobals(state, emit) {
   return restricted;
 }
 
+/**
+ * @param {MessageEvent} evt
+ * @returns {Promise<void>}
+ */
 self.onmessage = async (evt) => {
   const { type, id, code, state, timeout = 30000 } = evt.data;
 
   if (type !== 'execute') return;
 
   const startTime = Date.now();
+  /** @type {ReturnType<typeof setTimeout> | null} */
   let timeoutId = null;
 
   try {

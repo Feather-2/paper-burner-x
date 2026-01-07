@@ -12,6 +12,46 @@ import { getGlobalTokenCounter } from "../../shared/tokenizers/adaptive-token-co
 import { CompressionCoordinator } from "../compression/coordinator.js";
 import { DEFAULT_CONTEXT_CONFIG } from "./context-config.js";
 
+/**
+ * @typedef {Record<string, any>} AnyRecord
+ *
+ * @typedef {{ warn?: (...args: any[]) => void, info?: (...args: any[]) => void, error?: (...args: any[]) => void, debug?: (...args: any[]) => void }} LoggerLike
+ *
+ * @typedef {(eventName: string, record: { actor?: string, status?: string, payload?: any }) => void} EmitFn
+ *
+ * @typedef {{ count: (text: string) => number }} TokenCounterLike
+ *
+ * @typedef {object} ContextConfig
+ * @property {number} contextWindow
+ * @property {number} compressThreshold
+ * @property {number} [compressCooldownMs]
+ * @property {TokenCounterLike | null} [tokenCounter]
+ *
+ * @typedef {{ role?: string, content?: any, [key: string]: any }} ChatMessage
+ *
+ * @typedef {{ input: number, output: number, total: number }} TokenUsage
+ *
+ * @typedef {object} CompressionRecord
+ * @property {number} timestamp
+ * @property {number} beforeCount
+ * @property {number} afterCount
+ * @property {number} beforeTokens
+ * @property {number} afterTokens
+ *
+ * @typedef {object} MessageManagerOptions
+ * @property {Partial<ContextConfig> | null} [contextConfig]
+ * @property {TokenCounterLike | null} [tokenCounter]
+ * @property {LoggerLike | null} [logger]
+ * @property {EmitFn | null} [emit]
+ * @property {string} [stageName]
+ * @property {string} [actor]
+ */
+
+/**
+ * @param {unknown} text
+ * @param {TokenCounterLike | null | undefined} tokenCounter
+ * @returns {number}
+ */
 function estimateTokens(text, tokenCounter) {
   if (text === null || text === undefined) return 0;
   let rawText = "";
@@ -28,10 +68,14 @@ function estimateTokens(text, tokenCounter) {
 }
 
 export class MessageManager {
+  /**
+   * @param {MessageManagerOptions} [options]
+   */
   constructor(options = {}) {
     this._messages = [];
     this._contextConfig = { ...DEFAULT_CONTEXT_CONFIG, ...options.contextConfig };
     this._tokenCounter = options.tokenCounter === null ? null : options.tokenCounter || getGlobalTokenCounter();
+    /** @type {TokenUsage} */
     this._tokenUsage = { input: 0, output: 0, total: 0 };
     this._compressionCoordinator = new CompressionCoordinator({
       getContextConfig: () => this._contextConfig,
@@ -49,18 +93,22 @@ export class MessageManager {
     this._actor = options.actor || "agent";
   }
 
+  /** @returns {ChatMessage[]} */
   get messages() {
     return this._messages;
   }
 
+  /** @returns {TokenUsage} */
   get tokenUsage() {
     return { ...this._tokenUsage };
   }
 
+  /** @returns {ContextConfig} */
   get contextConfig() {
     return { ...this._contextConfig };
   }
 
+  /** @param {Partial<ContextConfig>} config */
   setContextConfig(config) {
     this._contextConfig = { ...this._contextConfig, ...config };
     if (config && typeof config === "object" && Object.prototype.hasOwnProperty.call(config, "tokenCounter")) {
@@ -69,6 +117,7 @@ export class MessageManager {
     }
   }
 
+  /** @param {ChatMessage} message @returns {ChatMessage} */
   addMessage(message) {
     this._messages.push(message);
     const messageTokens = estimateTokens(message.content, this._tokenCounter);
@@ -82,6 +131,7 @@ export class MessageManager {
     return message;
   }
 
+  /** @param {ChatMessage[]} messages */
   addMessages(messages) {
     let addedTokens = 0;
     for (const msg of messages) {
@@ -96,6 +146,7 @@ export class MessageManager {
     }
   }
 
+  /** @param {{ clearCompressionHistory?: boolean } | null | undefined} [options] */
   async reset(options = {}) {
     const clearHistory = options?.clearCompressionHistory !== false;
 
@@ -114,6 +165,7 @@ export class MessageManager {
     if (clearHistory) this._compressionHistory = [];
   }
 
+  /** @returns {void} */
   _recalculateTokenUsage() {
     let total = 0;
     for (const msg of this._messages) {
@@ -123,6 +175,7 @@ export class MessageManager {
     this._tokenUsage.total = total;
   }
 
+  /** @returns {boolean} */
   _shouldCompress() {
     if (this._compressionCoordinator && typeof this._compressionCoordinator.shouldCompress === "function") {
       return this._compressionCoordinator.shouldCompress();
@@ -132,6 +185,7 @@ export class MessageManager {
     return this._tokenUsage.total >= threshold;
   }
 
+  /** @returns {void} */
   _clearCooldownTimer() {
     if (!this._compressionCooldownTimer) return;
     try {
@@ -143,6 +197,7 @@ export class MessageManager {
     }
   }
 
+  /** @param {{ force?: boolean } | null | undefined} [options] */
   _scheduleCompression({ force = false } = {}) {
     if (this._compressionPending) return;
 
@@ -158,9 +213,10 @@ export class MessageManager {
             this._compressionCooldownTimer = null;
             if (this._shouldCompress()) this._scheduleCompression({ force: true });
           }, waitMs);
-          if (t && typeof t.unref === "function") {
+          const maybeTimer = /** @type {any} */ (t);
+          if (maybeTimer && typeof maybeTimer.unref === "function") {
             try {
-              t.unref();
+              maybeTimer.unref();
             } catch {
               // ignore
             }
@@ -189,10 +245,11 @@ export class MessageManager {
           this._compressionPending = false;
           if (this._compressionPromise === done) this._compressionPromise = null;
           resolve?.();
-        });
+      });
     });
   }
 
+  /** @param {{ maxRounds?: number } | null | undefined} [options] */
   async flushCompression(options = {}) {
     const maxRoundsRaw = typeof options?.maxRounds === "number" && Number.isFinite(options.maxRounds) ? options.maxRounds : 2;
     const maxRounds = Math.max(0, Math.floor(maxRoundsRaw));
@@ -223,6 +280,7 @@ export class MessageManager {
     }
   }
 
+  /** @returns {Promise<void>} */
   async _compress() {
     this._clearCooldownTimer();
     const beforeCount = this._messages.length;
@@ -240,7 +298,12 @@ export class MessageManager {
     this._recordCompression(beforeCount, beforeTokens);
   }
 
+  /**
+   * @param {number} beforeCount
+   * @param {number} beforeTokens
+   */
   _recordCompression(beforeCount, beforeTokens) {
+    /** @type {CompressionRecord} */
     const record = {
       timestamp: Date.now(),
       beforeCount,
@@ -259,6 +322,7 @@ export class MessageManager {
     }
   }
 
+  /** @returns {AnyRecord} */
   getStatus() {
     const { contextWindow, compressThreshold } = this._contextConfig;
     return {

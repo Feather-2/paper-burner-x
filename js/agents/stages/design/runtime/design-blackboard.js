@@ -42,6 +42,9 @@ function stripDesignPrefix(value) {
 }
 
 export class DesignBlackboard {
+  /**
+   * @param {{ runId?: string, limits?: Record<string, any>, memoryStore?: any, stateEngine?: any }} [options]
+   */
   constructor({ runId, limits = {}, memoryStore = null, stateEngine = null } = {}) {
     this.runId = toNonEmptyString(runId) || `design_${Date.now()}`;
     this.createdAt = new Date().toISOString();

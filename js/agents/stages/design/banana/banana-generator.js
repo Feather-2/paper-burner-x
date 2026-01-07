@@ -10,6 +10,103 @@
 /**
  * 生成配置
  */
+/**
+ * @typedef {object} BananaConfig
+ * @property {string} defaultModel
+ * @property {number} defaultWidth
+ * @property {number} defaultHeight
+ * @property {number} maxConcurrency
+ * @property {number} retryCount
+ */
+
+/**
+ * @typedef {object} BananaSlideIntent
+ * @property {string} [slideIntentId]
+ * @property {string} [title]
+ * @property {string} [pageType]
+ * @property {string} [visualFocus]
+ * @property {string} [keyMessage]
+ * @property {string} [layoutHint]
+ * @property {string[]} [bullets]
+ */
+
+/**
+ * @typedef {object} BananaDesignSystem
+ * @property {string} [theme]
+ * @property {string} [colorScheme]
+ * @property {string} [fontFamily]
+ */
+
+/**
+ * @typedef {object} BananaImageGenerator
+ * @property {(opts: {prompt: string, width?: number, height?: number, model?: string}) => Promise<{url?: string, base64?: string}>} generate
+ */
+
+/**
+ * @typedef {object} BananaBatchSummary
+ * @property {number} total
+ * @property {number} success
+ * @property {number} failed
+ */
+
+/**
+ * @typedef {object} BananaSlideGenerateResult
+ * @property {number} slideIndex
+ * @property {string} [slideIntentId]
+ * @property {boolean} success
+ * @property {string} [image]
+ * @property {string} [prompt]
+ * @property {string} [error]
+ */
+
+/**
+ * @typedef {object} BananaBatchGenerateResult
+ * @property {boolean} success
+ * @property {BananaSlideGenerateResult[]} [results]
+ * @property {BananaBatchSummary} [summary]
+ * @property {string} [error]
+ */
+
+/**
+ * @typedef {object} BananaBBox
+ * @property {number} x
+ * @property {number} y
+ * @property {number} w
+ * @property {number} h
+ */
+
+/**
+ * @typedef {object} BananaRegenerateRequest
+ * @property {number} slideIndex
+ * @property {BananaBBox} [bbox]
+ * @property {string} [command]
+ * @property {string} [originalPrompt]
+ * @property {BananaSlideIntent} [slideIntent]
+ * @property {BananaDesignSystem} [designSystem]
+ */
+
+/**
+ * @typedef {object} BananaRegenerateResult
+ * @property {boolean} success
+ * @property {number} slideIndex
+ * @property {string} [image]
+ * @property {string} [prompt]
+ * @property {string} [error]
+ */
+
+/**
+ * @typedef {object} BananaRunOptions
+ * @property {BananaImageGenerator} [imageGenerator]
+ * @property {AbortSignal} [signal]
+ * @property {(name: string, event: any) => void} [emit]
+ * @property {number} [concurrency]
+ * @property {number} [width]
+ * @property {number} [height]
+ * @property {string} [model]
+ * @property {string} [additionalPrompt]
+ */
+
+/** @type {BananaConfig} */
 export const BANANA_CONFIG = {
   defaultModel: "banana-pro",
   defaultWidth: 1920,
@@ -20,6 +117,10 @@ export const BANANA_CONFIG = {
 
 /**
  * 构建图片生成 prompt
+ * @param {BananaSlideIntent} slideIntent
+ * @param {BananaDesignSystem} designSystem
+ * @param {{additionalPrompt?:string}} [options]
+ * @returns {string}
  */
 export function buildImagePrompt(slideIntent, designSystem, options = {}) {
   const parts = [];
@@ -74,6 +175,10 @@ export function buildImagePrompt(slideIntent, designSystem, options = {}) {
 
 /**
  * 运行 Banana 批量生成
+ * @param {BananaSlideIntent[]} slideIntents
+ * @param {BananaDesignSystem} designSystem
+ * @param {BananaRunOptions} [options]
+ * @returns {Promise<BananaBatchGenerateResult>}
  */
 export async function runBananaGenerate(slideIntents, designSystem, options = {}) {
   const {
@@ -178,6 +283,10 @@ export async function runBananaGenerate(slideIntents, designSystem, options = {}
  *
  * 注意：这是整体重新生成，不是 inpainting
  * bbox 仅用于帮助用户描述问题位置，不影响生成逻辑
+ *
+ * @param {BananaRegenerateRequest} request
+ * @param {BananaRunOptions} [options]
+ * @returns {Promise<BananaRegenerateResult>}
  */
 export async function regenerate(request, options = {}) {
   const {
@@ -247,6 +356,9 @@ export async function regenerate(request, options = {}) {
  * BananaGenerator 类
  */
 export class BananaGenerator {
+  /**
+   * @param {{imageGenerator?: BananaImageGenerator, config?: Partial<BananaConfig>}} [options]
+   */
   constructor(options = {}) {
     this._imageGenerator = options.imageGenerator;
     this._config = { ...BANANA_CONFIG, ...options.config };
@@ -254,6 +366,10 @@ export class BananaGenerator {
 
   /**
    * 批量生成
+   * @param {BananaSlideIntent[]} slideIntents
+   * @param {BananaDesignSystem} designSystem
+   * @param {BananaRunOptions} [options]
+   * @returns {Promise<BananaBatchGenerateResult>}
    */
   async generate(slideIntents, designSystem, options = {}) {
     return runBananaGenerate(slideIntents, designSystem, {
@@ -265,6 +381,9 @@ export class BananaGenerator {
 
   /**
    * 重新生成
+   * @param {BananaRegenerateRequest} request
+   * @param {BananaRunOptions} [options]
+   * @returns {Promise<BananaRegenerateResult>}
    */
   async regenerate(request, options = {}) {
     return regenerate(request, {
@@ -276,6 +395,8 @@ export class BananaGenerator {
 
   /**
    * 设置图片生成器
+   * @param {BananaImageGenerator} imageGenerator
+   * @returns {void}
    */
   setImageGenerator(imageGenerator) {
     this._imageGenerator = imageGenerator;
@@ -283,12 +404,17 @@ export class BananaGenerator {
 
   /**
    * 获取配置
+   * @returns {BananaConfig}
    */
   getConfig() {
     return { ...this._config };
   }
 }
 
+/**
+ * @param {{imageGenerator?: BananaImageGenerator, config?: Partial<BananaConfig>}} [options]
+ * @returns {BananaGenerator}
+ */
 export function createBananaGenerator(options = {}) {
   return new BananaGenerator(options);
 }

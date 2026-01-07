@@ -9,13 +9,65 @@ import { RetryStrategy } from "../runtime/core/retry-strategy.js";
 import { PerformanceRouter, estimateComplexity, ModelTier } from "../runtime/routing/performance-router.js";
 
 import { isPlainObject, toNonEmptyString, toPositiveInt } from "../shared/utils/value-utils.js";
+
+/**
+ * @typedef {object} LoggerLike
+ * @property {(msg: string, ...args: any[]) => void} debug
+ * @property {(msg: string, ...args: any[]) => void} info
+ * @property {(msg: string, ...args: any[]) => void} warn
+ * @property {(msg: string, ...args: any[]) => void} error
+ */
+
+/**
+ * @typedef {object} StorageLike
+ * @property {(key: string) => (string|null)} getItem
+ * @property {(key: string, value: string) => void} setItem
+ */
+
+/**
+ * @typedef {{ now: () => number, sleep: (ms: number) => Promise<void> }} ModelRouterTime
+ */
+
+/**
+ * @typedef {object} ModelRouterOptions
+ * @property {any[]=} models
+ * @property {Record<string, string[]>=} usageConfig
+ * @property {Map<string, any> | Record<string, any>=} providers
+ * @property {any=} cooldown
+ * @property {number=} cooldownMs
+ * @property {number=} baseCooldownMs
+ * @property {number=} maxCooldownMs
+ * @property {number=} backoffMultiplier
+ * @property {Record<string, any>=} usageTags
+ * @property {ModelRouterTime=} time
+ * @property {any=} retryStrategy
+ * @property {any=} retry
+ * @property {boolean=} debug
+ * @property {LoggerLike=} logger
+ * @property {string=} strategy
+ * @property {boolean=} persistRoundRobin
+ * @property {string=} roundRobinStorageKey
+ * @property {StorageLike=} storage
+ * @property {boolean=} performanceRouting
+ * @property {PerformanceRouter=} performanceRouter
+ * @property {(args: { modelId: string, modelEntry: any, usage?: string, images?: any[] }) => string=} tierResolver
+ */
+
+/**
+ * @typedef {object} ModelRouterCallInput
+ * @property {string=} usage
+ * @property {any[]=} messages
+ * @property {any[]=} images
+ * @property {number=} _waitRetryCount
+ */
+
+/**
+ * @param {unknown} value
+ * @returns {value is StorageLike}
+ */
 function isStorageLike(value) {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    typeof value.getItem === "function" &&
-    typeof value.setItem === "function"
-  );
+  const v = value && typeof value === "object" ? /** @type {any} */ (value) : null;
+  return !!v && typeof v.getItem === "function" && typeof v.setItem === "function";
 }
 
 function isRetryStrategyLike(value) {
@@ -74,11 +126,18 @@ function isPermanentAuthError(err) {
   );
 }
 
+/**
+ * @returns {LoggerLike}
+ */
 function createNoopLogger() {
   const noop = () => {};
   return { debug: noop, info: noop, warn: noop, error: noop };
 }
 
+/**
+ * @param {unknown} logger
+ * @returns {asserts logger is LoggerLike}
+ */
 function assertLoggerLike(logger) {
   if (!isPlainObject(logger)) throw new TypeError("ModelRouter: logger must be an object");
   for (const k of ["debug", "info", "warn", "error"]) {
@@ -86,6 +145,10 @@ function assertLoggerLike(logger) {
   }
 }
 
+/**
+ * @param {{ debug?: boolean, logger?: LoggerLike }} [options]
+ * @returns {LoggerLike}
+ */
 function resolveLogger({ debug, logger } = {}) {
   if (!debug) return createNoopLogger();
   if (logger !== undefined) {
@@ -147,7 +210,7 @@ function extractPromptText(messages) {
 }
 
 function isValidModelTier(value) {
-  return typeof value === "string" && Object.values(ModelTier).includes(value);
+  return typeof value === "string" && Object.values(ModelTier).includes(/** @type {any} */ (value));
 }
 
 function normalizeTierFromTagsOrId(modelId, modelEntry) {
@@ -178,6 +241,9 @@ const CIRCUIT_BREAKER_STALE_MS = 30 * 60_000;
 const CIRCUIT_BREAKER_CLEANUP_INTERVAL_MS = 60_000;
 
 export class ModelRouter {
+  /**
+   * @param {ModelRouterOptions} [options]
+   */
   constructor({
     models,
     usageConfig,
@@ -325,6 +391,12 @@ export class ModelRouter {
     }
   }
 
+  /**
+   * @param {string} modelId
+   * @param {any} entry
+   * @param {{ usage?: string, images?: any[] }} [options]
+   * @returns {string}
+   */
   _resolveEndpointTier(modelId, entry, { usage, images } = {}) {
     if (this._tierResolver) {
       try {
@@ -429,6 +501,11 @@ export class ModelRouter {
     return { ...next, cooldownMs, backoffLevel };
   }
 
+  /**
+   * @param {string} modelId
+   * @param {unknown} error
+   * @param {{ reason?: string }} [options]
+   */
   disableModel(modelId, error, { reason } = {}) {
     const id = toNonEmptyString(modelId);
     if (!id) return null;
@@ -548,11 +625,12 @@ export class ModelRouter {
       openDurationMs: 30_000,   // 熔断 30 秒
       halfOpenMaxCalls: 3,      // 半开状态允许 3 个探测请求
       isFailure: (err) => {
+        const e = /** @type {any} */ (err);
         // 排除取消和超时，这些不应触发熔断
-        if (err?.name === "AbortError") return false;
-        if (err?.code === "TIMEOUT") return false;
+        if (e?.name === "AbortError") return false;
+        if (e?.code === "TIMEOUT") return false;
         // 认证错误也不应触发熔断（已由 disableModel 处理）
-        if (isPermanentAuthError(err)) return false;
+        if (isPermanentAuthError(e)) return false;
         return true;
       },
       onStateChange: (event) => {
@@ -591,6 +669,10 @@ export class ModelRouter {
     record.breaker.reset();
   }
 
+  /**
+   * @param {{ usage?: string, images?: any[] }} [options]
+   * @returns {Set<string>}
+   */
   _requiredTags({ usage, images } = {}) {
     const u = toNonEmptyString(usage) || ModelUsage.WORKER;
     const required = new Set();
@@ -638,7 +720,7 @@ export class ModelRouter {
   }
 
   /**
-   * @param {{usage: 'worker'|'planner'|'analyst'|'writer'|'vision', messages: Array<object>, images?: Array<any>}} input
+   * @param {ModelRouterCallInput} [input]
    * @returns {Promise<{content: string, model: string, provider: string}>}
    */
   async call({ usage, messages, images, _waitRetryCount } = {}) {

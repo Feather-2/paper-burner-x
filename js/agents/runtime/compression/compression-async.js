@@ -13,7 +13,8 @@ import { WorkerRpcClient } from "../core/worker-rpc.js";
 const logger = createLogger("runtime/compression/compression-async");
 
 function isNodeLike() {
-  return typeof process !== "undefined" && !!process.versions?.node;
+  const proc = /** @type {any} */ (globalThis).process;
+  return !!(proc && proc.versions && proc.versions.node);
 }
 
 function canUseWorker() {
@@ -238,6 +239,9 @@ function compressSessionHistorySync(messages, options = {}) {
  * @param {object} options - 压缩选项
  * @param {number} [options.keepLastTurns=6]
  * @param {boolean} [options.titleOnly=false]
+ * @param {number} [options.titleMaxWords]
+ * @param {number} [options.titleMaxChars]
+ * @param {number} [options.summaryLineChars]
  * @param {string} [options.sessionSummary] - 已有摘要
  * @param {object} [runtime] - 运行时选项
  * @param {AbortSignal} [runtime.signal]

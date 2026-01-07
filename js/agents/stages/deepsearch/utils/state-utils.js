@@ -1,7 +1,13 @@
 import { isPlainObject, safeInt, safeNumber, toNonEmptyString } from "../../../shared/utils/value-utils.js";
-import { normalizeTokenUsage } from "../model/usage.js";
+import { normalizeTokenUsage as _normalizeTokenUsage } from "../model/usage.js";
+import { stripThinkingTags as _stripThinkingTags, extractJsonCandidate as _extractJsonCandidate } from "../../../shared/utils/json-candidate.js";
 
-export { normalizeTokenUsage };
+/**
+ * Normalize token usage from various provider formats.
+ * @param {any} usage
+ * @returns {import("../model/usage.js").NormalizedTokenUsage|null}
+ */
+export const normalizeTokenUsage = _normalizeTokenUsage;
 
 export const EVENT_SCHEMA_VERSION = "deepsearch.event.v1";
 
@@ -35,6 +41,19 @@ const DEFAULT_MODEL_PRICES_USD_PER_1K = Object.freeze({
   // Gemini & others: default to unknown/0 unless configured.
 });
 
+/**
+ * @typedef {object} TokenUsageWithCost
+ * @property {number} input
+ * @property {number} output
+ * @property {number} total
+ * @property {number} estimatedCostUSD
+ */
+
+/**
+ * Ensure a stable token-usage shape `{input, output, total, estimatedCostUSD}`.
+ * @param {any} v
+ * @returns {TokenUsageWithCost}
+ */
 export function ensureTokenUsage(v) {
   const normalized = normalizeTokenUsage(v);
   if (normalized) {
@@ -74,6 +93,26 @@ function normalizeModelPrices(raw) {
   return out;
 }
 
+/**
+ * @typedef {"warn"|"degrade"|"stop"} BudgetAction
+ *
+ * @typedef {object} ModelPriceEntry
+ * @property {number=} input
+ * @property {number=} output
+ *
+ * @typedef {object} BudgetConfig
+ * @property {number} maxTokens
+ * @property {number} maxCostUSD
+ * @property {number} warnAt
+ * @property {BudgetAction} action
+ * @property {Record<string, ModelPriceEntry>} prices
+ */
+
+/**
+ * Normalize and merge the budget configuration with defaults.
+ * @param {any} raw
+ * @returns {BudgetConfig}
+ */
 export function normalizeBudgetConfig(raw) {
   const cfg = isPlainObject(raw) ? raw : {};
 
@@ -94,4 +133,17 @@ export function normalizeBudgetConfig(raw) {
   };
 }
 
-export { stripThinkingTags, extractJsonCandidate } from "../../../shared/utils/json-candidate.js";
+/**
+ * Strip DeepSeek-R1 style `<think>...</think>` blocks from output.
+ * @param {any} text
+ * @returns {string}
+ */
+export const stripThinkingTags = _stripThinkingTags;
+
+/**
+ * Extract a parsable JSON substring from noisy text.
+ * @param {string} text
+ * @param {{prefer?: "any"|"array"|"object"}} [options]
+ * @returns {string|null}
+ */
+export const extractJsonCandidate = _extractJsonCandidate;

@@ -6,6 +6,8 @@
 
 import { createPlugin } from '../../core/plugin.js';
 
+/** @typedef {import('../../core/plugin.js').PluginContext} PluginContext */
+
 export default createPlugin({
   name: 'service/llm',
   version: '1.0.0',
@@ -18,18 +20,28 @@ export default createPlugin({
     temperature: 0.7,
   },
 
+  /**
+   * @param {PluginContext} ctx
+   * @returns {Promise<void>}
+   */
   async install(ctx) {
     let provider = null;
 
     const getProvider = async () => {
       if (provider) return provider;
 
+      /** @ts-ignore - llm/index.js may not exist in all builds */
       const { createProvider } = await import('../../llm/index.js');
       provider = await createProvider(ctx.config);
       return provider;
     };
 
     ctx.registerService('llm', {
+      /**
+       * @param {any[]} messages
+       * @param {Record<string, any>} [options]
+       * @returns {Promise<any>}
+       */
       async chat(messages, options = {}) {
         const p = await getProvider();
         const result = await p.chat(messages, { ...ctx.config, ...options });
@@ -51,15 +63,26 @@ export default createPlugin({
         return result;
       },
 
+      /**
+       * @param {any[]} messages
+       * @param {Record<string, any>} [options]
+       * @returns {Promise<any>}
+       */
       async stream(messages, options = {}) {
         const p = await getProvider();
         return p.stream(messages, { ...ctx.config, ...options });
       },
 
+      /**
+       * @returns {Record<string, any>}
+       */
       getConfig() {
         return { ...ctx.config };
       },
 
+      /**
+       * @returns {Record<string, any>}
+       */
       getStats() {
         return ctx.state.get('') || {};
       },

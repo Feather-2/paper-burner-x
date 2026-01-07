@@ -119,7 +119,9 @@ function isFiniteNumber(value) {
   return typeof value === "number" && Number.isFinite(value);
 }
 
-/** @implements {import("../context/snapshotable.js").Snapshotable} */
+/** @typedef {import("../context/snapshotable.js").Snapshotable} Snapshotable */
+
+/** @implements {Snapshotable} */
 export class MemoryStore {
   constructor(options = {}) {
     this.runId = toNonEmptyString(options.runId) || genId("run");
@@ -376,7 +378,7 @@ export class MemoryStore {
    * - `getTodos("pending"|"done"|...)` → status filter
    * - `getTodos({ status, filter })` → explicit options
    *
-   * @param {undefined|string|Function|{status?:string,filter?:Function}} [filter]
+   * @param {undefined|string|((todo: any) => boolean)|{status?:string,filter?:((todo: any) => boolean)}} [filter]
    */
   getTodos(filter) {
     if (typeof filter === "function") {
@@ -770,6 +772,17 @@ export class MemoryStore {
     const checkpointCount = this._L3.checkpoints.length;
     const shouldFull = !incremental || checkpointCount % fullSnapshotEvery === 0;
 
+    /** @type {{
+     *   id: string,
+     *   runId: string,
+     *   ts: number,
+     *   encoding: string,
+     *   dirtyLayers?: { L0: boolean, L1: boolean, L2: boolean, L3: boolean },
+     *   baseId?: string,
+     *   L0?: any,
+     *   L1?: any,
+     *   L2?: any,
+     * }} */
     let snapshot;
     if (shouldFull || !this._hasAnyDirty()) {
       // Full snapshot
@@ -1132,6 +1145,8 @@ export class MemoryStore {
 
   /**
    * 绑定底层组件（延迟绑定）
+   * @param {{ sharedContext?: any, discoveryManager?: any } | undefined} [input]
+   * @returns {this}
    */
   bind({ sharedContext, discoveryManager } = {}) {
     if (sharedContext) this._sharedContext = sharedContext;

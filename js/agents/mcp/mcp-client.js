@@ -11,6 +11,48 @@
 import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
 import { CircuitBreaker } from "../shared/utils/circuit-breaker.js";
 
+/**
+ * @typedef {object} McpProviderOptions
+ * @property {string=} id
+ * @property {string=} name
+ * @property {string=} endpoint
+ */
+
+/**
+ * @typedef {object} McpClientOptions
+ * @property {McpProvider[]=} providers
+ * @property {(McpProvider|string|null)=} defaultProvider
+ * @property {{ now: () => number }=} time
+ */
+
+/**
+ * @typedef {object} McpHealthCheckOptions
+ * @property {string=} providerId
+ * @property {number=} timeoutMs
+ * @property {boolean=} refreshTools
+ */
+
+/**
+ * @typedef {{ providerId?: string }} McpCallOptions
+ */
+
+/**
+ * @typedef {object} McpSearchArgs
+ * @property {string=} query
+ * @property {string=} domain
+ * @property {string=} timeRange
+ * @property {number=} limit
+ * @property {any=} filters
+ */
+
+/**
+ * @typedef {{ url?: string }} McpFetchArgs
+ */
+
+/**
+ * @typedef {Error & { mcpResult?: McpToolResult }} McpToolCallError
+ */
+
 function toErrorMessage(err) {
   if (err instanceof Error) return err.message;
   return String(err?.message || err || "");
@@ -33,6 +75,9 @@ function shouldTripProviderCircuit(err) {
  * MCP 工具定义
  */
 export class McpToolDefinition {
+  /**
+   * @param {{ name?: string, description?: string, inputSchema?: any }} options
+   */
   constructor({ name, description, inputSchema }) {
     this.name = toNonEmptyString(name) || "unknown";
     this.description = toNonEmptyString(description) || "";
@@ -44,6 +89,9 @@ export class McpToolDefinition {
  * MCP 调用结果
  */
 export class McpToolResult {
+  /**
+   * @param {{ success?: boolean, content?: any[], error?: any, isError?: boolean }} options
+   */
   constructor({ success = true, content = [], error = null, isError = false }) {
     this.success = Boolean(success);
     this.content = Array.isArray(content) ? content : [];
@@ -51,6 +99,9 @@ export class McpToolResult {
     this.isError = Boolean(isError);
   }
 
+  /**
+   * @returns {string}
+   */
   getText() {
     return this.content
       .filter(c => c?.type === "text")
@@ -64,6 +115,9 @@ export class McpToolResult {
  * 所有 MCP 端点实现都继承此类
  */
 export class McpProvider {
+  /**
+   * @param {McpProviderOptions} [options]
+   */
   constructor({ id, name, endpoint } = {}) {
     this.id = toNonEmptyString(id) || "provider_unknown";
     this.name = toNonEmptyString(name) || this.id;
@@ -93,6 +147,9 @@ export class McpProvider {
  * MCP Client - 统一调用接口
  */
 export class McpClient {
+  /**
+   * @param {McpClientOptions} [options]
+   */
   constructor({ providers = [], defaultProvider = null, time = null } = {}) {
     this._providers = new Map();
     this._defaultProviderId = null;
@@ -160,6 +217,10 @@ export class McpClient {
     return id ? this._providers.get(id) || null : null;
   }
 
+  /**
+   * @param {McpHealthCheckOptions} [options]
+   * @returns {Promise<any>}
+   */
   async healthCheck({ providerId, timeoutMs, refreshTools = true } = {}) {
     const id = toNonEmptyString(providerId) || this._defaultProviderId;
     const provider = id ? this._providers.get(id) : null;
@@ -204,6 +265,10 @@ export class McpClient {
     }
   }
 
+  /**
+   * @param {{ timeoutMs?: number, refreshTools?: boolean }} [options]
+   * @returns {Promise<any[]>}
+   */
   async healthCheckAll({ timeoutMs, refreshTools = true } = {}) {
     const ids = this.listProviders();
     const results = await Promise.allSettled(
@@ -237,6 +302,7 @@ export class McpClient {
       })
     );
 
+    /** @type {any[]} */
     const allTools = [];
     const errors = [];
     for (let i = 0; i < results.length; i++) {
@@ -253,7 +319,7 @@ export class McpClient {
       try {
         Object.defineProperty(allTools, "errors", { value: errors, enumerable: false });
       } catch {
-        allTools.errors = errors;
+        /** @type {any} */ (allTools).errors = errors;
       }
     }
     return allTools;
@@ -262,7 +328,7 @@ export class McpClient {
   /**
    * 调用工具（自动路由到正确的 provider）
    */
-  async callTool(toolName, args = {}, { providerId } = {}) {
+  async callTool(toolName, args = {}, { providerId } = /** @type {McpCallOptions} */ ({})) {
     const id = toNonEmptyString(providerId) || this._defaultProviderId;
     const provider = id ? this._providers.get(id) : null;
 
@@ -280,7 +346,7 @@ export class McpClient {
       const execute = async () => {
         const r = await provider.callTool(toolName, args);
         if (r && typeof r === "object" && r.success === false) {
-          const err = new Error(toErrorMessage(r.error || "MCP tool call failed"));
+          const err = /** @type {McpToolCallError} */ (new Error(toErrorMessage(r.error || "MCP tool call failed")));
           err.name = "McpToolCallError";
           err.mcpResult = r;
           throw err;
@@ -291,8 +357,9 @@ export class McpClient {
       if (!breaker) return await execute();
       return await breaker.execute(execute);
     } catch (err) {
-      if (err?.name === "McpToolCallError" && err.mcpResult) {
-        return err.mcpResult;
+      const maybe = /** @type {any} */ (err);
+      if (maybe?.name === "McpToolCallError" && maybe.mcpResult) {
+        return maybe.mcpResult;
       }
       if (err?.name === "CircuitBreakerOpenError") {
         return new McpToolResult({
@@ -315,7 +382,10 @@ export class McpClient {
    * 便捷方法：搜索
    * 遵循标准 schema: search.query({query, domain?, time_range?, limit?, filters?}) -> results[]
    */
-  async search({ query, domain, timeRange, limit = 10, filters } = {}, { providerId } = {}) {
+  async search(
+    /** @type {McpSearchArgs} */ { query, domain, timeRange, limit = 10, filters } = {},
+    { providerId } = /** @type {McpCallOptions} */ ({})
+  ) {
     const args = { query, domain, time_range: timeRange, limit, filters };
 
     // Prefer standard tool names; fall back to legacy aliases for local-mcp.
@@ -333,7 +403,7 @@ export class McpClient {
    * 便捷方法：获取网页内容
    * 遵循标准 schema: search.fetch({url}) -> {content, extracted_text, metadata, attachments}
    */
-  async fetch({ url } = {}, { providerId } = {}) {
+  async fetch(/** @type {McpFetchArgs} */ { url } = {}, { providerId } = /** @type {McpCallOptions} */ ({})) {
     const args = { url };
     const preferred = ["search.fetch", "fetch_content", "fetch"];
     let last = null;

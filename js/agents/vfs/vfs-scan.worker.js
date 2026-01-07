@@ -19,6 +19,61 @@
  * { type: "cancelled", id }
  */
 
+/**
+ * @typedef {object} ScanRequestMessage
+ * @property {"scan"} type
+ * @property {string} id
+ * @property {string=} rootDirName
+ * @property {string=} prefix
+ * @property {boolean=} recursive
+ * @property {number=} maxFiles
+ */
+
+/**
+ * @typedef {object} CancelRequestMessage
+ * @property {"cancel"} type
+ * @property {string} id
+ */
+
+/**
+ * @typedef {ScanRequestMessage | CancelRequestMessage} ScanWorkerRequestMessage
+ */
+
+/**
+ * @typedef {object} ScanProgressMessage
+ * @property {"progress"} type
+ * @property {string} id
+ * @property {string[]} files
+ * @property {number=} total
+ * @property {false} done
+ */
+
+/**
+ * @typedef {object} ScanResultMessage
+ * @property {"result"} type
+ * @property {string} id
+ * @property {string[]} files
+ * @property {number} total
+ * @property {true} done
+ */
+
+/**
+ * @typedef {object} ScanErrorMessage
+ * @property {"error"} type
+ * @property {string} id
+ * @property {string} error
+ */
+
+/**
+ * @typedef {object} ScanCancelledMessage
+ * @property {"cancelled"} type
+ * @property {string} id
+ */
+
+/**
+ * @typedef {ScanProgressMessage | ScanResultMessage | ScanErrorMessage | ScanCancelledMessage} ScanWorkerResponseMessage
+ */
+
 const activeTasks = new Map(); // id -> { aborted: boolean }
 
 async function scanOpfs(id, { rootDirName, prefix, recursive, maxFiles }) {
@@ -121,6 +176,7 @@ function cancelTask(id) {
   }
 }
 
+/** @type {(this: DedicatedWorkerGlobalScope, event: MessageEvent<ScanWorkerRequestMessage>) => void} */
 self.onmessage = (event) => {
   const msg = event?.data;
   if (!msg || typeof msg !== "object") return;
@@ -142,6 +198,6 @@ self.onmessage = (event) => {
       break;
 
     default:
-      self.postMessage({ type: "error", id, error: `Unknown message type: ${type}` });
+      self.postMessage(/** @type {ScanWorkerResponseMessage} */ ({ type: "error", id, error: `Unknown message type: ${type}` }));
   }
 };

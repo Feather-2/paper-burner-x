@@ -1,3 +1,35 @@
+/**
+ * @typedef {object} ImageSlot
+ * @property {string} [promptHint]
+ * @property {string} [style]
+ * @property {string} [purpose]
+ * @property {string} [aspectRatio]
+ * @property {Array<string|number>} [claimIds]
+ */
+
+/**
+ * @typedef {object} DesignTokens
+ * @property {{primary?: string, accent?: string, bg?: string}} [colors]
+ */
+
+/**
+ * @typedef {object} DesignSystem
+ * @property {string} [theme]
+ * @property {string} [imageStyle]
+ * @property {DesignTokens} [designTokens]
+ */
+
+/**
+ * @typedef {object} ContentClaim
+ * @property {string|number} [claimId]
+ * @property {string} [text]
+ */
+
+/**
+ * @typedef {object} ContentPackage
+ * @property {ContentClaim[]} [claims]
+ */
+
 function fallbackImageStyleFromDesignSystem(designSystem = {}) {
   const theme = String(designSystem?.theme || "").toLowerCase();
   const colors = designSystem?.designTokens?.colors || {};
@@ -100,6 +132,14 @@ function purposeHint(purpose) {
   }
 }
 
+/**
+ * Build an image-generation prompt for a single slot.
+ *
+ * @param {ImageSlot} [imageSlot={}] - Slot metadata (purpose, style, claimIds, etc.).
+ * @param {DesignSystem} [designSystem={}] - Design system tokens used to infer style hints.
+ * @param {ContentPackage} [contentPackage={}] - Content package used to extract claim keywords.
+ * @returns {string} Prompt text (always ends with a newline).
+ */
 export function buildPrompt(imageSlot = {}, designSystem = {}, contentPackage = {}) {
   const promptHint = String(imageSlot?.promptHint || "").trim() || "A presentation slide illustration.";
   const style = String(imageSlot?.style || "").trim() || "flat";
@@ -126,4 +166,3 @@ export function buildPrompt(imageSlot = {}, designSystem = {}, contentPackage = 
 
   return lines.join("\n").trim() + "\n";
 }
-

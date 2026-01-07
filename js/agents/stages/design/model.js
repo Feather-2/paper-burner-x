@@ -12,8 +12,16 @@
 import { injectSystemHint } from "../../shared/utils/message-utils.js";
 import { isNonRetryableError as isNonRetryableDesignError } from "../../shared/utils/error-classifier.js";
 
-// Error class for non-retryable errors (config missing, auth failed, etc.)
+/** @type {any} */
+const process = /** @type {any} */ (globalThis).process;
+
+/**
+ * Error class for non-retryable errors (config missing, auth failed, etc.)
+ */
 export class NonRetryableError extends Error {
+  /**
+   * @param {string} message
+   */
   constructor(message) {
     super(message);
     this.name = "NonRetryableError";
@@ -21,7 +29,11 @@ export class NonRetryableError extends Error {
   }
 }
 
-// Check if error should not be retried
+/**
+ * Check if error should not be retried.
+ * @param {any} err
+ * @returns {boolean}
+ */
 export function isNonRetryableError(err) {
   if (!err) return false;
   if (err.nonRetryable === true) return true;
@@ -34,6 +46,10 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 
 let injectedLogger = null;
 
+/**
+ * @param {((message: string, meta?: any) => void) | { debug?: Function } | null | undefined} loggerFn
+ * @returns {void}
+ */
 export function setLogger(loggerFn) {
   if (loggerFn == null) {
     injectedLogger = null;
@@ -110,8 +126,8 @@ function makeTimeoutError(timeoutMs) {
   const ms = Number.isFinite(timeoutMs) ? Math.max(0, Math.floor(timeoutMs)) : 0;
   const err = new Error(ms ? `LLM call timeout after ${ms}ms` : "LLM call timeout");
   err.name = "TimeoutError";
-  err.code = 124;
-  if (ms) err.timeoutMs = ms;
+  /** @type {any} */ (err).code = 124;
+  if (ms) /** @type {any} */ (err).timeoutMs = ms;
   return err;
 }
 
@@ -199,18 +215,19 @@ export function getDesignModelCaller(stageApi, options = {}) {
   };
 
   const routerCall = stageApi?.modelRouter?.call;
-  if (typeof routerCall === "function") {
-    const legacySignature = routerCall.length >= 2;
-    const baseCall = legacySignature
-      ? (messages, opts = {}) => stageApi.modelRouter.call(messages, { usage, ...(opts && typeof opts === "object" ? opts : {}) })
-      : (messages, opts = {}) => stageApi.modelRouter.call({ usage, messages, ...(opts && typeof opts === "object" ? opts : {}) });
+	  if (typeof routerCall === "function") {
+	    const legacySignature = routerCall.length >= 2;
+	    const baseCall = legacySignature
+	      ? (messages, opts = {}) => stageApi.modelRouter.call(messages, { usage, ...(opts && typeof opts === "object" ? opts : {}) })
+	      : (messages, opts = {}) => stageApi.modelRouter.call({ usage, messages, ...(opts && typeof opts === "object" ? opts : {}) });
 
-    return async (messages, callOptions = {}) => {
-      const opts = callOptions && typeof callOptions === "object" ? callOptions : {};
-      const timeoutMs = Number.isFinite(opts.timeoutMs) ? Math.max(0, Math.floor(opts.timeoutMs)) : defaultTimeoutMs;
-      const signal = opts.signal || stageApi?.signal || options?.signal;
-      const { timeoutMs: _timeoutMs, signal: _signal, ...forwardOpts } = opts;
-      debugLog("[design.model] call via ModelRouter", { usage, timeoutMs });
+	    return async (messages, callOptions = {}) => {
+	      /** @type {Record<string, any> & { timeoutMs?: number, signal?: AbortSignal }} */
+	      const opts = callOptions && typeof callOptions === "object" ? callOptions : {};
+	      const timeoutMs = Number.isFinite(opts.timeoutMs) ? Math.max(0, Math.floor(opts.timeoutMs)) : defaultTimeoutMs;
+	      const signal = opts.signal || stageApi?.signal || options?.signal;
+	      const { timeoutMs: _timeoutMs, signal: _signal, ...forwardOpts } = opts;
+	      debugLog("[design.model] call via ModelRouter", { usage, timeoutMs });
       if (signal?.aborted) throw abortErrorFromSignal(signal);
       await flushBeforeCall();
       const hintedMessages = injectSystemHint(messages, systemHint);
@@ -223,16 +240,17 @@ export function getDesignModelCaller(stageApi, options = {}) {
   }
 
   const chat = stageApi?.aiApiService?.chat;
-  if (typeof chat === "function") {
-    const baseCall = (messages, opts = {}) =>
-      stageApi.aiApiService.chat({ messages, usage, ...(opts && typeof opts === "object" ? opts : {}) });
+	  if (typeof chat === "function") {
+	    const baseCall = (messages, opts = {}) =>
+	      stageApi.aiApiService.chat({ messages, usage, ...(opts && typeof opts === "object" ? opts : {}) });
 
-    return async (messages, callOptions = {}) => {
-      const opts = callOptions && typeof callOptions === "object" ? callOptions : {};
-      const timeoutMs = Number.isFinite(opts.timeoutMs) ? Math.max(0, Math.floor(opts.timeoutMs)) : defaultTimeoutMs;
-      const signal = opts.signal || stageApi?.signal || options?.signal;
-      const { timeoutMs: _timeoutMs, signal: _signal, ...forwardOpts } = opts;
-      debugLog("[design.model] call via aiApiService.chat", { usage, timeoutMs });
+	    return async (messages, callOptions = {}) => {
+	      /** @type {Record<string, any> & { timeoutMs?: number, signal?: AbortSignal }} */
+	      const opts = callOptions && typeof callOptions === "object" ? callOptions : {};
+	      const timeoutMs = Number.isFinite(opts.timeoutMs) ? Math.max(0, Math.floor(opts.timeoutMs)) : defaultTimeoutMs;
+	      const signal = opts.signal || stageApi?.signal || options?.signal;
+	      const { timeoutMs: _timeoutMs, signal: _signal, ...forwardOpts } = opts;
+	      debugLog("[design.model] call via aiApiService.chat", { usage, timeoutMs });
       if (signal?.aborted) throw abortErrorFromSignal(signal);
       await flushBeforeCall();
       const hintedMessages = injectSystemHint(messages, systemHint);

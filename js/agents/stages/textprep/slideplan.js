@@ -34,6 +34,7 @@ function normalizeIntent(raw, i) {
   const r = isPlainObject(raw) ? raw : {};
   const slideIntentId = toNonEmptyString(r.slideIntentId) || `s${i + 1}`;
 
+  /** @type {any} */
   let pageType = toNonEmptyString(r.pageType) || "overview";
   pageType = pageType.toLowerCase();
   if (!ALLOWED_PAGE_TYPES.has(pageType)) pageType = "overview";

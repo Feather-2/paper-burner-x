@@ -222,7 +222,7 @@ async function alignClaimsToSlides(slideIntents, claims, constraints = {}) {
 }
 
 export class TextPrepStage extends BaseStage {
-  constructor({ defaultChunkOptions, eventBus, logger } = {}) {
+  constructor(/** @type {{ defaultChunkOptions?: any, eventBus?: any, logger?: any }} */ { defaultChunkOptions, eventBus, logger } = {}) {
     super({ name: "textprep", eventBus, logger });
     this.defaultChunkOptions = defaultChunkOptions || { chunkSize: 2000, overlap: 200, includeLineNumbers: true };
   }

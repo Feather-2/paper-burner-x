@@ -179,18 +179,38 @@ export const stateMethods = {
     return setTaskImpossibleLogic(this, reason);
   },
 
+  /**
+   * @param {{ name?: string, status?: string, payload?: any }=} entry
+   * @returns {any}
+   */
   addTimeline({ name, status = "info", payload } = {}) {
     return addTimelineLogic(this, { name, status, payload });
   },
 
+  /**
+   * @param {{ timestamp?: string }=} options
+   * @returns {any}
+   */
   saveWriteSnapshot({ timestamp } = {}) {
     return saveWriteSnapshotLogic(this, { timestamp });
   },
 
+  /**
+   * @param {string[]|string} gapIds
+   * @param {{ reason?: string, timestamp?: string }=} options
+   * @param {(eventName:string, payload:any)=>void|null} [emit]
+   * @returns {any}
+   */
   reopenGaps(gapIds, { reason, timestamp } = {}, emit = null) {
     return reopenGapsLogic(this, gapIds, { reason, timestamp }, emit);
   },
 
+  /**
+   * @param {any[]} newGaps
+   * @param {{ timestamp?: string }=} options
+   * @param {(eventName:string, payload:any)=>void|null} [emit]
+   * @returns {any}
+   */
   addNewGaps(newGaps, { timestamp } = {}, emit = null) {
     return addNewGapsLogic(this, newGaps, { timestamp }, emit);
   },

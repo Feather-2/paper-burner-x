@@ -4,6 +4,25 @@ import { VisualSlotStatus, visualSlotMachine } from "../states.js";
 import { VisualType } from "../constants.js";
 import { normalizeRenderType, toNonEmptyString } from "../../../shared/utils/value-utils.js";
 
+/** @type {Set<string>} */
+const SVG_VISUAL_TYPES = new Set(
+  [
+    VisualType.CHART,
+    VisualType.DIAGRAM,
+    VisualType.INFOGRAPHIC,
+    VisualType.DECORATION,
+    VisualType.DIVIDER,
+    VisualType.BACKGROUND_GRADIENT,
+    VisualType.BACKGROUND_PATTERN,
+    VisualType.SVG,
+  ].map(String)
+);
+
+/** @type {Set<string>} */
+const AI_IMAGE_VISUAL_TYPES = new Set(
+  [VisualType.ILLUSTRATION, VisualType.PHOTO, VisualType.ICON, VisualType.BACKGROUND_IMAGE].map(String)
+);
+
 function safeNumber(value, fallback) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -56,10 +75,8 @@ function parsePercent(value) {
 function inferRenderTypeFromVisualType(type) {
   const t = toNonEmptyString(type).toLowerCase();
   if (!t) return "";
-  if ([VisualType.CHART, VisualType.DIAGRAM, VisualType.INFOGRAPHIC, VisualType.DECORATION, VisualType.DIVIDER].includes(t)) return "svg";
-  if ([VisualType.BACKGROUND_GRADIENT, VisualType.BACKGROUND_PATTERN].includes(t)) return "svg";
-  if ([VisualType.ILLUSTRATION, VisualType.PHOTO, VisualType.ICON, VisualType.BACKGROUND_IMAGE].includes(t)) return "ai-image";
-  if (t === VisualType.SVG) return "svg";
+  if (SVG_VISUAL_TYPES.has(t)) return "svg";
+  if (AI_IMAGE_VISUAL_TYPES.has(t)) return "ai-image";
   return "";
 }
 
@@ -138,6 +155,9 @@ function resolveSlotRenderType(slot, assetRegistry) {
 }
 
 export class VisualSubAgent {
+  /**
+   * @param {{ assetRegistry?: any, imageGenerator?: ImageGenerator | null, imageProvider?: any, svgGenerator?: SVGGenerator | null }} [options]
+   */
   constructor({ assetRegistry, imageGenerator, imageProvider, svgGenerator } = {}) {
     this.assetRegistry = assetRegistry || null;
     this.imageGenerator = imageGenerator || (imageProvider ? new ImageGenerator({ imageProvider }) : null);
@@ -145,14 +165,26 @@ export class VisualSubAgent {
     this.transitionLog = [];
   }
 
+  /**
+   * @returns {any[]}
+   */
   getTransitionLog() {
     return [...this.transitionLog];
   }
 
+  /**
+   * @returns {void}
+   */
   clearTransitionLog() {
     this.transitionLog = [];
   }
 
+  /**
+   * @param {any} slot
+   * @param {string} to
+   * @param {Record<string, any>} [context]
+   * @returns {boolean}
+   */
   _transitionSlot(slot, to, context = {}) {
     const from = slot.status || VisualSlotStatus.PENDING;
     const ok = visualSlotMachine.transition(slot, to, context);
@@ -160,6 +192,13 @@ export class VisualSubAgent {
     return ok;
   }
 
+  /**
+   * @param {any[]} visualSlots
+   * @param {any} designSystem
+   * @param {any} [contentPackage]
+   * @param {Record<string, any>} [options]
+   * @returns {Promise<any>}
+   */
   async run(visualSlots, designSystem, contentPackage = {}, options = {}) {
     const slotsInput = Array.isArray(visualSlots) ? visualSlots : [];
     const assetRegistry = options.assetRegistry || this.assetRegistry;

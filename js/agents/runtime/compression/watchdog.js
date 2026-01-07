@@ -15,6 +15,14 @@ import { toNonEmptyString } from "../../shared/utils/value-utils.js";
 import { BehaviorFingerprint } from "../analysis/behavior-fingerprint.js";
 
 /**
+ * @typedef {Object} WatchdogOptions
+ * @property {any} [eventBus]
+ * @property {number} [maxRecentOutputs]
+ * @property {number} [oscillationThreshold]
+ * @property {false | Record<string, any>} [behaviorFingerprint]
+ */
+
+/**
  * Simple fingerprint for output similarity detection.
  * Uses first/last chars + length to create a lightweight signature.
  */
@@ -56,6 +64,9 @@ function tokenize(text, n = 3) {
 }
 
 export class Watchdog {
+  /**
+   * @param {WatchdogOptions} [options]
+   */
   constructor({ eventBus, maxRecentOutputs = 5, oscillationThreshold = 0.85, behaviorFingerprint } = {}) {
     this.eventBus = eventBus || null;
     this._observers = new Map();
@@ -82,6 +93,10 @@ export class Watchdog {
     }
   }
 
+  /**
+   * @param {{ maxRecentOutputs?: number, oscillationThreshold?: number } | undefined} [options]
+   * @returns {{ maxRecentOutputs: number, oscillationThreshold: number }}
+   */
   configure({ maxRecentOutputs, oscillationThreshold } = {}) {
     if (Number.isFinite(maxRecentOutputs)) {
       this._maxRecentOutputs = Math.max(2, Math.floor(maxRecentOutputs) || 5);
@@ -134,6 +149,11 @@ export class Watchdog {
     return { ...out, suggestion: null };
   }
 
+  /**
+   * @param {string} name
+   * @param {any} payload
+   * @returns {void}
+   */
   _emit(name, payload) {
     if (this.eventBus && typeof this.eventBus.emit === "function") {
       this.eventBus.emit(name, { actor: "watchdog", status: "info", payload });
@@ -146,6 +166,11 @@ export class Watchdog {
     }
   }
 
+  /**
+   * @param {string} eventName
+   * @param {(payload: any) => void} handler
+   * @returns {() => void}
+   */
   observe(eventName, handler) {
     if (typeof handler !== "function") {
       throw new TypeError("Watchdog.observe: handler must be a function");
@@ -172,6 +197,7 @@ export class Watchdog {
 
   /**
    * 记录迭代进度
+   * @returns {void}
    */
   tick() {
     this._iterationCount++;
@@ -225,8 +251,8 @@ export class Watchdog {
 
   /**
    * 检查健康状态
-   * @param {Object} options - { maxIterations, maxTimeMs, stuckThresholdMs, oscillationConsecutiveThreshold }
-   * @returns {Object} { healthy, issues }
+   * @param {{ maxIterations?: number, maxTimeMs?: number, stuckThresholdMs?: number, oscillationConsecutiveThreshold?: number } | undefined} [options]
+   * @returns {{ healthy: boolean, issues: any[], stats: { elapsed: number, iterationCount: number, timeSinceProgress: number, consecutiveSimilarOutputs: number } }}
    */
   checkHealth(options = {}) {
     const {
@@ -301,6 +327,9 @@ export class Watchdog {
 
   /**
    * 触发干预
+   * @param {any} reason
+   * @param {any} [options]
+   * @returns {any}
    */
   intervene(reason, options = {}) {
     const payload = { reason, options, timestamp: new Date().toISOString() };
@@ -310,6 +339,7 @@ export class Watchdog {
 
   /**
    * 重置计时器和状态
+   * @returns {void}
    */
   reset() {
     this._startTime = Date.now();
@@ -330,12 +360,16 @@ export class Watchdog {
   /**
    * Reset only oscillation detection window (keeps timers/counters).
    * Useful for "soft" interventions without extending the overall run budget.
+   * @returns {void}
    */
   resetOscillation() {
     this._recentOutputs = [];
     this._consecutiveSimilarCount = 0;
   }
 
+  /**
+   * @returns {void}
+   */
   resetToolLoop() {
     if (this._behaviorFingerprint && typeof this._behaviorFingerprint.reset === "function") {
       try {

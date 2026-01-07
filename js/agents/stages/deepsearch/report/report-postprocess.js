@@ -1,6 +1,56 @@
 import { isPlainObject, toNonEmptyString } from "../../../shared/utils/value-utils.js";
 import { createSafeRegex } from "../../../shared/utils/safe-regex.js";
 
+/**
+ * @typedef {"quick"|"wider"|"deeper"} ReportMode
+ *
+ * @typedef {object} ReportRequirements
+ * @property {number} minWords
+ * @property {number} minReferences
+ * @property {string[]} requiredSections
+ * @property {string[]} recommendedSections
+ * @property {Record<string, number>} sectionWordLimits
+ *
+ * @typedef {object} ReportReviewIssue
+ * @property {string} type
+ * @property {any=} items
+ * @property {number=} count
+ *
+ * @typedef {object} ReportReviewResult
+ * @property {string} markdown
+ * @property {ReportReviewIssue[]} issues
+ * @property {boolean} fixed
+ * @property {number} originalLength
+ * @property {number} fixedLength
+ *
+ * @typedef {object} ReportValidationResult
+ * @property {boolean} valid
+ * @property {string[]} issues
+ * @property {string[]} warnings
+ * @property {number} wordCount
+ * @property {number} referenceCount
+ * @property {string} mode
+ * @property {ReportRequirements} requirements
+ *
+ * @typedef {object} ReportProgress
+ * @property {number} wordCount
+ * @property {number} wordTarget
+ * @property {string} wordProgress
+ * @property {number} referenceCount
+ * @property {number} referenceTarget
+ * @property {string} refProgress
+ * @property {string[]} missingSections
+ * @property {string} sectionProgress
+ * @property {string} overallProgress
+ * @property {boolean} isReady
+ * @property {string} hint
+ *
+ * @typedef {object} PreparedReportSubmit
+ * @property {string} markdown
+ * @property {ReportReviewResult} review
+ * @property {ReportValidationResult} validation
+ */
+
 const DEFAULT_REPORT_REQUIREMENTS = Object.freeze({
   quick: { minWords: 4000, minReferences: 1, requiredSections: ["摘要", "发现"], recommendedSections: ["信息缺口", "结论"] },
   wider: {
@@ -20,6 +70,12 @@ const DEFAULT_REPORT_REQUIREMENTS = Object.freeze({
 const REFERENCE_PATTERN = /\[([^\]]+)[:：]([^\]]+)\]/g;
 const REFERENCE_TEST_PATTERN = /\[([^\]]+)[:：]([^\]]+)\]/;
 
+/**
+ * Resolve report requirements by mode (defaults merged with global/state config).
+ * @param {any} state
+ * @param {ReportMode|string} mode
+ * @returns {ReportRequirements}
+ */
 export function getReportConfig(state, mode) {
   const m = toNonEmptyString(mode) || "wider";
   const globalConfig = state?.globalConfig?.report?.[m];
@@ -37,11 +93,21 @@ export function getReportConfig(state, mode) {
   };
 }
 
+/**
+ * Count non-whitespace characters (best-effort word-count proxy for mixed CJK/Latin text).
+ * @param {string} text
+ * @returns {number}
+ */
 export function countNonWhitespaceChars(text) {
   const src = typeof text === "string" ? text : "";
   return src.replace(/\s+/g, "").length;
 }
 
+/**
+ * Count reference markers in markdown (e.g. `[来源:页码]`).
+ * @param {string} markdown
+ * @returns {number}
+ */
 export function countReferences(markdown) {
   const src = typeof markdown === "string" ? markdown : "";
   return (src.match(REFERENCE_PATTERN) || []).length;
@@ -49,6 +115,8 @@ export function countReferences(markdown) {
 
 /**
  * 重排序报告章节：将参考文献/附录移到最后，并合并重复章节
+ * @param {string} markdown
+ * @returns {string}
  */
 export function reorderReportSections(markdown) {
   const src = typeof markdown === "string" ? markdown : "";
@@ -96,6 +164,8 @@ export function reorderReportSections(markdown) {
 
 /**
  * 审查报告并执行去重/修复：重复标题、重复段落、断裂格式
+ * @param {string} markdown
+ * @returns {ReportReviewResult}
  */
 export function reviewReportMarkdown(markdown) {
   const src = typeof markdown === "string" ? markdown : "";
@@ -168,6 +238,13 @@ export function reviewReportMarkdown(markdown) {
   };
 }
 
+/**
+ * Validate a report against per-mode requirements (length, sections, citations).
+ * @param {string} markdown
+ * @param {ReportMode|string} [mode]
+ * @param {any} [state]
+ * @returns {ReportValidationResult}
+ */
 export function validateReport(markdown, mode = "wider", state = null) {
   const requirements = getReportConfig(state, mode);
   const issues = [];
@@ -219,6 +296,13 @@ export function validateReport(markdown, mode = "wider", state = null) {
   };
 }
 
+/**
+ * Compute progress metrics for a partially written report.
+ * @param {{markdown?: string}|null|undefined} report
+ * @param {ReportMode|string} mode
+ * @param {any} state
+ * @returns {ReportProgress}
+ */
 export function getReportProgress(report, mode, state) {
   const markdown = typeof report?.markdown === "string" ? report.markdown : "";
   const requirements = getReportConfig(state, mode);
@@ -254,6 +338,13 @@ export function getReportProgress(report, mode, state) {
   };
 }
 
+/**
+ * Prepare report markdown for submit: reorder sections then validate.
+ * @param {string} markdown
+ * @param {ReportMode|string} mode
+ * @param {any} state
+ * @returns {PreparedReportSubmit}
+ */
 export function prepareReportForSubmit(markdown, mode, state) {
   const src = typeof markdown === "string" ? markdown : "";
   // NOTE: submit 默认只做结构重排 + 严格校验；review 属于显式动作（避免自动删除重复标题导致丢内容）。

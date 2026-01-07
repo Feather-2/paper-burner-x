@@ -9,14 +9,36 @@ import { createLogger } from "../../shared/utils/logger.js";
 
 const logger = createLogger("stages/deepsearch/capabilities-loader");
 
+/** @type {DeepSearchCapabilities|null} */
 let _cached = null;
+/** @type {Promise<DeepSearchCapabilities>|null} */
 let _loading = null;
 
+/**
+ * @typedef {object} DeepSearchCapabilities
+ * @property {any} [SkillsManager]
+ * @property {any} [BudgetManager]
+ * @property {any} [CheckpointManager]
+ * @property {any} [SharedContext]
+ * @property {any} [BacktrackManager]
+ * @property {any} [DiscoveryManager]
+ * @property {any} [MemoryStore]
+ * @property {any} [UnifiedAgentContext]
+ */
+
+/**
+ * @param {string} name
+ * @param {Error|any} err
+ */
 function warn(name, err) {
   const msg = err instanceof Error ? err.message : String(err);
   logger.warn(`[deepsearch] Failed to load ${name}: ${msg}`);
 }
 
+/**
+ * Load DeepSearch capabilities asynchronously
+ * @returns {Promise<DeepSearchCapabilities>}
+ */
 export async function loadDeepSearchCapabilities() {
   if (_cached) return _cached;
   if (_loading) return _loading;
@@ -41,7 +63,7 @@ export async function loadDeepSearchCapabilities() {
     }
 
     try {
-      const budget = await import("../../shared/utils/budget.js");
+      const budget = /** @type {any} */ (await import("../../shared/utils/budget.js"));
       capabilities.BudgetManager = budget.BudgetManager || budget.default;
     } catch (err) {
       warn("BudgetManager", err);
@@ -62,7 +84,7 @@ export async function loadDeepSearchCapabilities() {
     }
 
     try {
-      const backtrack = await import("./runtime/backtrack-manager.js");
+      const backtrack = /** @type {any} */ (await import("./runtime/backtrack-manager.js"));
       capabilities.BacktrackManager = backtrack.BacktrackManager || backtrack.default;
     } catch (err) {
       warn("BacktrackManager", err);

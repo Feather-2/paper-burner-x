@@ -1,0 +1,47 @@
+{
+  "compilerOptions": {
+    // 类型检查模式（不生成输出）
+    "noEmit": true,
+    "allowJs": true,
+    "checkJs": true,
+
+    // 模块系统
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "target": "ES2022",
+
+    // 宽松模式（渐进式类型化）
+    "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+
+    // 路径解析
+    "baseUrl": ".",
+
+    // 类型声明
+    "types": [],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+
+    // 兼容性
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true
+  },
+  "include": [
+    "core/**/*.js",
+    "core/**/*.d.ts",
+    "plugins/**/*.js",
+    "runtime/**/*.js",
+    "stages/**/*.js",
+    "shared/**/*.js"
+  ],
+  "exclude": [
+    "node_modules",
+    "**/node_modules",
+    "cli/**",
+    "testing/**"
+  ]
+}

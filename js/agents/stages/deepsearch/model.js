@@ -7,7 +7,25 @@ import { isPlainObject, toNonEmptyString, safeInt, safeNumber } from "../../shar
 
 export { buildBaseCaller, emitBudgetEvents, ensureBudgetState, estimateCostUSDDelta, normalizeTokenUsage, resolveModelPricing };
 
+/**
+ * @typedef {object} GetModelCallerOptions
+ * @property {string=} usage
+ * @property {any=} state
+ *
+ * @typedef {object} ModelCallOptions
+ * @property {string=} model
+ * @property {number=} temperature
+ * @property {number=} maxTokens
+ * @property {AbortSignal=} signal
+ * @property {any=} cacheKeyInputs
+ */
+
 // Shared helper to resolve modelRouter vs aiApiService, with optional token-usage tracking.
+/**
+ * @param {any} stageApi
+ * @param {GetModelCallerOptions=} options
+ * @returns {(((messages:any[], opts?:ModelCallOptions)=>Promise<any>))|null}
+ */
 export function getModelCaller(stageApi, { usage = "worker", state } = {}) {
   const emit = makeStageEmitter(stageApi, "deepsearch");
   const base = buildBaseCaller(stageApi, { usage });
@@ -63,14 +81,14 @@ export function getModelCaller(stageApi, { usage = "worker", state } = {}) {
   };
 
   if (!cache || cachePolicy !== "share" || !cacheStageName || typeof cache.getOrCompute !== "function" || typeof cache.computeKey !== "function") {
-    return async (messages, opts = {}) => {
+    return /** @type {((messages:any[], opts?:ModelCallOptions)=>Promise<any>)} */ (async (messages, opts = {}) => {
       const { cacheKeyInputs: _cacheKeyInputs, ...forwardOpts } = opts && typeof opts === "object" ? opts : {};
       await flushBeforeCall();
       return withTokenUsage(messages, forwardOpts);
-    };
+    });
   }
 
-  return async (messages, opts = {}) => {
+  return /** @type {((messages:any[], opts?:ModelCallOptions)=>Promise<any>)} */ (async (messages, opts = {}) => {
     const { cacheKeyInputs, ...forwardOpts } = opts && typeof opts === "object" ? opts : {};
 
     const stageKeyInputs = stageApi?.trajectoryCacheKeyInputs;
@@ -88,5 +106,5 @@ export function getModelCaller(stageApi, { usage = "worker", state } = {}) {
     const key = cache.computeKey(cacheStageName, inputs, { model: forwardOpts?.model, temperature: forwardOpts?.temperature });
     await flushBeforeCall();
     return cache.getOrCompute(key, () => withTokenUsage(messages, forwardOpts));
-  };
+  });
 }

@@ -7,11 +7,17 @@
 
 import { cryptoRandomHex } from "../shared/utils/secure-id.js";
 
+/** @typedef {import("./types.d.ts").LamportClockState} LamportClockState */
+/** @typedef {{ _clock?: LamportClockState | null, seq?: number | null, ts?: number | null }} LogicalOrderEvent */
+
+/** @type {number} */
 let _globalSeq = 0;
+/** @type {string | null} */
 let _instanceId = null;
 
 /**
  * 获取实例 ID（用于跨 Worker 场景的序列号唯一性）
+ * @returns {string}
  */
 function getInstanceId() {
   if (_instanceId === null) {
@@ -23,7 +29,7 @@ function getInstanceId() {
 
 /**
  * 生成下一个逻辑时钟值
- * @returns {{ seq: number, ts: number, id: string }}
+ * @returns {LamportClockState}
  */
 export function nextTick() {
   _globalSeq += 1;
@@ -38,6 +44,7 @@ export function nextTick() {
  * 同步时钟（用于跨 Worker 场景）
  * 当收到其他 Worker 的消息时，更新本地时钟以保证因果序
  * @param {number} remoteSeq - 远端的序列号
+ * @returns {void}
  */
 export function sync(remoteSeq) {
   if (typeof remoteSeq === "number" && Number.isFinite(remoteSeq) && remoteSeq > _globalSeq) {
@@ -55,6 +62,7 @@ export function currentSeq() {
 
 /**
  * 重置时钟（仅用于测试）
+ * @returns {void}
  */
 export function resetClock() {
   _globalSeq = 0;
@@ -63,8 +71,8 @@ export function resetClock() {
 
 /**
  * 比较两个时钟值的因果序
- * @param {{ seq: number }} a
- * @param {{ seq: number }} b
+ * @param {{ seq?: number | null } | null | undefined} a
+ * @param {{ seq?: number | null } | null | undefined} b
  * @returns {number} -1 if a < b, 0 if equal, 1 if a > b
  */
 export function compare(a, b) {
@@ -77,9 +85,9 @@ export function compare(a, b) {
 
 /**
  * 为事件对象附加逻辑时钟
- * @template T
+ * @template {Record<string, unknown>} T
  * @param {T} event
- * @returns {T & { _clock: { seq: number, ts: number, id: string } }}
+ * @returns {T & { _clock: LamportClockState }}
  */
 export function stampEvent(event) {
   if (!event || typeof event !== "object") {
@@ -90,8 +98,8 @@ export function stampEvent(event) {
 
 /**
  * 按逻辑时钟排序事件数组
- * @template T
- * @param {T[]} events
+ * @template {LogicalOrderEvent} T
+ * @param {ReadonlyArray<T> | null | undefined} events
  * @returns {T[]}
  */
 export function sortByLogicalOrder(events) {

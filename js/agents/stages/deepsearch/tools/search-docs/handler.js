@@ -9,6 +9,13 @@ import { mmrSelect } from "../../../../retrieval/mmr.js";
 
 import { isPlainObject } from "../../../../shared/utils/value-utils.js";
 
+/**
+ * @typedef {object} ApplyMmrOptions
+ * @property {number=} topK
+ * @property {number=} lambda
+ * @property {number=} maxTokens
+ */
+
 function resolveMmrSettings(args, limit) {
   const mmrCfg = args?.mmr;
   if (mmrCfg === false) return { enabled: false };
@@ -26,6 +33,11 @@ function resolveMmrSettings(args, limit) {
   return { enabled: true, lambda, maxTokens, poolLimit };
 }
 
+/**
+ * @param {any[]} results
+ * @param {ApplyMmrOptions=} options
+ * @returns {any[]}
+ */
 function applyMmrToResults(results, { topK, lambda, maxTokens } = {}) {
   const rows = Array.isArray(results) ? results : [];
   const k = Number.isFinite(topK) ? Math.max(1, Math.floor(topK)) : rows.length;
@@ -43,7 +55,7 @@ function applyMmrToResults(results, { topK, lambda, maxTokens } = {}) {
     candidates.push({ chunkId, text, score, _row: row });
   }
 
-  const selected = mmrSelect(candidates, { topK: k, lambda, maxTokens });
+  const selected = mmrSelect(candidates, /** @type {any} */ ({ topK: k, lambda, maxTokens }));
   const out = [];
   for (const s of selected) {
     if (s && s._row) out.push(s._row);
@@ -102,6 +114,7 @@ export const definition = {
  * @param {string[]} [args.sources] - 限定的文档 ID 列表
  * @param {number} [args.limit=10] - 返回数量限制
  * @param {string} [args.gapId] - 关联的缺口 ID
+ * @param {number} [args.semanticTimeoutMs] - 语义检索超时（ms）
  * @param {Object} context - { state, emit, retriever, discoveryManager }
  */
 export async function handler(args, context) {

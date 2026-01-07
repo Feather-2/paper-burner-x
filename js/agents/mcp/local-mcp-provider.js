@@ -17,6 +17,26 @@ import { makeSecureTimestampedId } from "../shared/utils/secure-id.js";
 import { CorsProxyHttpClient, DEFAULT_CORS_PROXIES, normalizeCorsProxies, validateFetchUrl } from "./http-proxy.js";
 import { extractPageContentFromHtml, searchDuckDuckGoHtml } from "./content-extractor.js";
 
+/**
+ * @typedef {object} LocalMcpProviderOptions
+ * @property {string=} id
+ * @property {string=} name
+ * @property {(string|null)=} workerEndpoint
+ * @property {(string|null)=} proxyEndpoint
+ * @property {string[]=} corsProxies
+ * @property {number=} proxyCooldownMs
+ * @property {number=} proxyMaxCooldownMs
+ * @property {boolean=} allowPrivateNetwork
+ * @property {boolean=} allowSensitiveUrlProxying
+ * @property {boolean=} useUrlWhitelist
+ * @property {number=} defaultTimeoutMs
+ * @property {number=} searchTimeoutMs
+ * @property {number=} maxResults
+ * @property {number=} maxSearchPages
+ * @property {(input: RequestInfo, init?: RequestInit) => Promise<Response>=} fetchImpl
+ * @property {any=} memoryStore
+ */
+
 // Wrapper to provide default fallback value (value-utils safeInt returns null for invalid)
 function safeInt(n, fallback = 0) {
   const v = _safeInt(n);
@@ -48,8 +68,14 @@ function attachAbortSignal(parentSignal, controller) {
 
 /**
  * Local MCP Provider 实现
+ * @extends {McpProvider}
+ * @param {LocalMcpProviderOptions} [options]
+ * @returns {LocalMcpProvider}
  */
 export class LocalMcpProvider extends McpProvider {
+  /**
+   * @param {LocalMcpProviderOptions} [options]
+   */
   constructor({
     id = "local-mcp",
     name = "Local MCP",
@@ -133,6 +159,9 @@ export class LocalMcpProvider extends McpProvider {
     ];
   }
 
+  /**
+   * @returns {Promise<McpToolDefinition[]>}
+   */
   async listTools() {
     return this._tools.slice();
   }
@@ -171,6 +200,12 @@ export class LocalMcpProvider extends McpProvider {
     });
   }
 
+  /**
+   * @param {string} toolName
+   * @param {object} [args]
+   * @param {{ signal?: AbortSignal }=} options
+   * @returns {Promise<McpToolResult>}
+   */
   async callTool(toolName, args = {}, options = {}) {
     const signal = options?.signal || args?.signal;
     checkCancelled(signal);
@@ -494,6 +529,10 @@ export class LocalMcpProvider extends McpProvider {
   }
 }
 
+/**
+ * @param {LocalMcpProviderOptions} [options]
+ * @returns {LocalMcpProvider}
+ */
 export function createLocalMcpProvider(options = {}) {
   return new LocalMcpProvider(options);
 }

@@ -16,6 +16,10 @@ import { PlanningTree } from "./planning-tree.js";
 const DEFAULT_MAX_ITERATIONS = 5;
 
 export const checkpointMethods = {
+  /**
+   * @param {{ checkpointId?: string, timestamp?: string, metrics?: any, strategy?: any, record?: boolean }=} options
+   * @returns {any}
+   */
   saveCheckpoint({ checkpointId, timestamp, metrics, strategy, record = true } = {}) {
     const id = toNonEmptyString(checkpointId) || `cp_${this.checkpoints.length + 1}`;
     const ts = toNonEmptyString(timestamp) || new Date().toISOString();
@@ -95,7 +99,7 @@ export const checkpointMethods = {
     const preservedL0 = this.L0;
     const preservedL1 = this.L1;
     const preservedL2 = this.L2;
-    const snapshot = cp.stateSnapshot instanceof StateCtor ? cp.stateSnapshot : StateCtor.fromJSON(cp.stateSnapshot);
+    const snapshot = cp.stateSnapshot instanceof StateCtor ? cp.stateSnapshot : /** @type {any} */ (StateCtor).fromJSON(cp.stateSnapshot);
     const preservedCheckpoints = this.checkpoints;
 
     const restored =

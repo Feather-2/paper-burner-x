@@ -53,11 +53,11 @@ function summarizeToolResult(result) {
 /**
  * Persist a potentially large payload into RunStore and return a small reference object for prompts/UI.
  *
- * @param {object} options
- * @param {object} options.runStore RunStore-like (saveArtifact)
- * @param {string} options.runId
- * @param {string} options.type Artifact type (must end with .json for best UX)
- * @param {any} options.data Payload to store (will be JSON-stringified)
+ * @param {object} [options]
+ * @param {object} [options.runStore] RunStore-like (saveArtifact)
+ * @param {string} [options.runId]
+ * @param {string} [options.type] Artifact type (must end with .json for best UX)
+ * @param {any} [options.data] Payload to store (will be JSON-stringified)
  * @param {number} [options.maxInlineChars=8000]
  * @param {number} [options.previewChars=1200]
  * @returns {Promise<{persisted:boolean,inline:any,ref?:object}>}
@@ -121,6 +121,18 @@ export async function maybePersistJsonArtifact({
 
 /**
  * Helper for persisting tool outputs with a consistent envelope.
+ *
+ * @param {object} [options]
+ * @param {object} [options.runStore]
+ * @param {string} [options.runId]
+ * @param {string} [options.toolName]
+ * @param {any} [options.args]
+ * @param {number} [options.iteration]
+ * @param {any} [options.result]
+ * @param {string} [options.type="tool_output.json"]
+ * @param {number} [options.maxInlineChars=8000]
+ * @param {number} [options.previewChars=1200]
+ * @returns {Promise<{persisted:boolean,inline:any,ref?:object}>}
  */
 export async function maybePersistToolOutput({
   runStore,

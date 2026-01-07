@@ -13,7 +13,12 @@ import {
   isAgentTerminal,
 } from "../../runtime/core/agent-status.js";
 
+/**
+ * @typedef {'scan'|'gaps'|'round'|'write'|'condense'|'completed'} PhaseStatusValue
+ */
+
 // === Phase 状态（保留枚举，移除状态机）===
+/** @type {Readonly<Record<string, PhaseStatusValue>>} */
 export const PhaseStatus = Object.freeze({
   SCAN: "scan",
   GAPS: "gaps",
@@ -23,7 +28,12 @@ export const PhaseStatus = Object.freeze({
   COMPLETED: "completed",
 });
 
+/**
+ * @typedef {'open'|'searching'|'understanding'|'filled'|'blocked'|'stale'} GapStatusValue
+ */
+
 // === Gap 状态 ===
+/** @type {Readonly<Record<string, GapStatusValue>>} */
 export const GapStatus = Object.freeze({
   OPEN: "open",
   SEARCHING: "searching",
@@ -33,7 +43,12 @@ export const GapStatus = Object.freeze({
   STALE: "stale",
 });
 
+/**
+ * @typedef {'high'|'medium'|'low'} GapPriorityValue
+ */
+
 // === Gap 优先级 ===
+/** @type {Readonly<Record<string, GapPriorityValue>>} */
 export const GapPriority = Object.freeze({
   HIGH: "high",
   MEDIUM: "medium",

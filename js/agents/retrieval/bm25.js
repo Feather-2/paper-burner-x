@@ -319,7 +319,7 @@ export function buildIndex(chunks, options = {}) {
  * Async index builder that can offload CPU work to a WorkerPool when provided.
  *
  * @param {Array<{chunkId:string,text:string}>} chunks
- * @param {{k1?:number,b?:number,workerPool?:{buildIndex?:(chunks:any,options?:any)=>Promise<any>}}=} options
+ * @param {{k1?:number,b?:number,yieldEveryDocs?:number,signal?:AbortSignal,workerPool?:{buildIndex?:(chunks:any,options?:any)=>Promise<any>}}=} options
  * @returns {Promise<BM25Index>}
  */
 export async function buildIndexAsync(chunks, options = {}) {

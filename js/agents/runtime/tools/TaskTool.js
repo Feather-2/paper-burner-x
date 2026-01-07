@@ -11,6 +11,11 @@
 
 import { globalSubagentRegistry } from "../../sdk/SubagentRegistry.js";
 
+/**
+ * @typedef {import("../../sdk/SubagentRegistry.js").SubagentRegistry} SubagentRegistry
+ * @typedef {import("../../sdk/agent-factory.js").AgentInstance} AgentInstance
+ */
+
 export const ContextMode = Object.freeze({
     ISOLATED: "isolated",
     SHARED: "shared",

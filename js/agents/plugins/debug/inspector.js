@@ -6,6 +6,8 @@
 
 import { createPlugin } from '../../core/plugin.js';
 
+/** @typedef {import('../../core/plugin.js').PluginContext} PluginContext */
+
 export default createPlugin({
   name: 'debug/inspector',
   version: '1.0.0',
@@ -16,6 +18,10 @@ export default createPlugin({
     exposeGlobal: false,
   },
 
+  /**
+   * @param {PluginContext} ctx
+   * @returns {void}
+   */
   install(ctx) {
     if (!ctx.config.enabled) return;
 
@@ -23,40 +29,119 @@ export default createPlugin({
       // 内核信息
       kernel: {
         id: ctx._kernel.id,
+
+        /**
+         * @returns {any}
+         */
         status: () => ctx._kernel.status,
+
+        /**
+         * @returns {any}
+         */
         snapshot: () => ctx._kernel.snapshot(),
+
+        /**
+         * @returns {Promise<any>}
+         */
         healthCheck: () => ctx._kernel.healthCheck(),
       },
 
       // 事件
       events: {
+
+        /**
+         * @param {string} [pattern]
+         * @returns {any[]}
+         */
         history: (pattern) => ctx.events.getHistory(pattern),
+
+        /**
+         * @param {string} event
+         * @param {any} [data]
+         * @returns {any}
+         */
         emit: (event, data) => ctx.events.emit(event, data),
+
+        /**
+         * @param {string} pattern
+         * @param {number} [timeout]
+         * @returns {Promise<{ event: string, data: any }>}
+         */
         waitFor: (pattern, timeout) => ctx.events.waitFor(pattern, timeout),
       },
 
       // 状态
       state: {
+
+        /**
+         * @param {string} path
+         * @returns {any}
+         */
         get: (path) => ctx.state.getGlobal(path),
+
+        /**
+         * @param {string} path
+         * @param {any} value
+         * @returns {void}
+         */
         set: (path, value) => ctx.state.set(path, value),
+
+        /**
+         * @param {string | null} [id]
+         * @returns {string}
+         */
         snapshot: (id) => ctx._kernel.state.snapshot(id),
+
+        /**
+         * @param {string} id
+         * @returns {boolean}
+         */
         rollback: (id) => ctx._kernel.state.rollback(id),
+
+        /**
+         * @param {number} [limit]
+         * @returns {any[]}
+         */
         changeLog: (limit) => ctx._kernel.state.getChangeLog(limit),
       },
 
       // 服务
       services: {
+
+        /**
+         * @returns {any[]}
+         */
         list: () => ctx.services.list(),
+
+        /**
+         * @param {string} name
+         * @param {string} method
+         * @param {any[]} [args]
+         * @returns {Promise<any>}
+         */
         call: (name, method, args) => ctx.services.call(name, method, args),
+
+        /**
+         * @param {string} [name]
+         * @returns {any}
+         */
         stats: (name) => ctx.services.getStats(name),
       },
 
       // 插件
       plugins: {
+
+        /**
+         * @returns {any[]}
+         */
         list: () => ctx._kernel.getPlugins(),
       },
 
       // 便捷方法
+
+      /**
+       * @returns {void}
+       */
       help: () => {
         console.log(`
 🔍 Inspector API:
@@ -94,6 +179,10 @@ export default createPlugin({
     ctx.log.info('Debug inspector plugin installed');
   },
 
+  /**
+   * @param {PluginContext} ctx
+   * @returns {void}
+   */
   uninstall(ctx) {
     if (typeof globalThis !== 'undefined' && globalThis.__kernelInspector) {
       delete globalThis.__kernelInspector;

@@ -2,12 +2,34 @@ import { toNonEmptyString, safeInt as _safeInt } from "../shared/utils/value-uti
 import { checkCancelled } from "../shared/utils/cancellation.js";
 import { inspectUrlForProxy, redactUrlForLog } from "./content-sanitizer.js";
 
+/**
+ * @typedef {object} CorsProxyHttpClientOptions
+ * @property {(input: RequestInfo, init?: RequestInit) => Promise<Response>} fetchImpl
+ * @property {(string|null)=} proxyEndpoint
+ * @property {(string[]|null)=} corsProxies
+ * @property {number=} proxyCooldownMs
+ * @property {number=} proxyMaxCooldownMs
+ * @property {boolean=} allowSensitiveUrlProxying
+ * @property {boolean=} useUrlWhitelist
+ */
+
+/**
+ * @typedef {object} CorsFetchResult
+ * @property {string} text
+ * @property {string} url
+ * @property {string} proxy
+ */
+
 // Wrapper to provide default fallback value (value-utils safeInt returns null for invalid)
 function safeInt(n, fallback = 0) {
   const v = _safeInt(n);
   return v !== null ? v : fallback;
 }
 
+/**
+ * @param {any} v
+ * @returns {string[]|null}
+ */
 export function normalizeCorsProxies(v) {
   if (!Array.isArray(v)) return null;
   const out = [];
@@ -139,6 +161,12 @@ function isPrivateHostname(hostname) {
   return false;
 }
 
+/**
+ * Validate a URL for fetching (blocks non-HTTP(S) and private-network by default).
+ * @param {any} rawUrl
+ * @param {{ allowPrivateNetwork?: boolean }=} options
+ * @returns {string}
+ */
 export function validateFetchUrl(rawUrl, { allowPrivateNetwork = false } = {}) {
   const url = toNonEmptyString(rawUrl);
   if (!url) throw new Error("url is required");
@@ -163,7 +191,15 @@ export function validateFetchUrl(rawUrl, { allowPrivateNetwork = false } = {}) {
   return u.toString();
 }
 
+/**
+ * Browser-friendly HTTP client that can fall back to a chain of CORS proxies.
+ * @param {CorsProxyHttpClientOptions} options
+ * @returns {CorsProxyHttpClient}
+ */
 export class CorsProxyHttpClient {
+  /**
+   * @param {CorsProxyHttpClientOptions} options
+   */
   constructor({
     fetchImpl,
     proxyEndpoint = null,
@@ -249,6 +285,9 @@ export class CorsProxyHttpClient {
 
   /**
    * 通过 CORS 代理链抓取 HTML（会抛出 AggregateError）
+   * @param {string} url
+   * @param {{ timeoutMs?: number, tryDirect?: boolean, signal?: AbortSignal }=} options
+   * @returns {Promise<CorsFetchResult>}
    */
   async fetchWithCorsFallback(url, { timeoutMs = 10000, tryDirect = true, signal } = {}) {
     checkCancelled(signal);

@@ -10,6 +10,26 @@
  * 2. 回退模式: pack() → MessagePort 传输 → unpack()
  */
 
+/**
+ * @typedef {Int8Array|Uint8Array|Uint8ClampedArray|Int16Array|Uint16Array|Int32Array|Uint32Array|Float32Array|Float64Array|BigInt64Array|BigUint64Array} TypedArray
+ */
+
+/**
+ * @typedef {{ kind: 'messageport', id: string, byteLength: number }} MessagePortPacket
+ */
+
+/**
+ * @typedef {{ kind: 'sab', buffer: SharedArrayBuffer }} SabPacket
+ */
+
+/**
+ * @typedef {{ kind: 'unknown' }} UnknownPacket
+ */
+
+/**
+ * @typedef {MessagePortPacket | SabPacket | UnknownPacket} SharedMemoryPacket
+ */
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
@@ -488,7 +508,7 @@ _wrap_shared_buffer
    * @param {object} [options]
    * @param {'auto'|'sab'|'messageport'} [options.mode='auto']
    * @param {MessagePort} [options.port]
-   * @returns {{ kind: 'sab'|'messageport', buffer?: SharedArrayBuffer, id?: string, byteLength?: number }}
+   * @returns {SharedMemoryPacket}
    */
   static pack(data, options = {}) {
     const { mode = "auto", port } = options;
@@ -521,7 +541,7 @@ _wrap_shared_buffer
 
   /**
    * Unpack received data
-   * @param {{ kind: 'sab'|'messageport', buffer?: SharedArrayBuffer, id?: string, byteLength?: number }} packet
+   * @param {SharedMemoryPacket} packet
    * @param {object} [options]
    * @param {MessagePort} [options.port]
    * @returns {Promise<ArrayBuffer|SharedArrayBuffer>}
@@ -560,7 +580,7 @@ _wrap_shared_buffer
  * Pack data for transfer (convenience function)
  * @param {TypedArray|ArrayBuffer|SharedArrayBuffer} data
  * @param {object} [options]
- * @returns {{ kind: 'sab'|'messageport', buffer?: SharedArrayBuffer, id?: string, byteLength?: number }}
+ * @returns {SharedMemoryPacket}
  */
 export function pack(data, options = {}) {
   return SharedMemoryBridge.pack(data, options);
@@ -568,7 +588,7 @@ export function pack(data, options = {}) {
 
 /**
  * Unpack received data (convenience function)
- * @param {{ kind: 'sab'|'messageport', buffer?: SharedArrayBuffer, id?: string, byteLength?: number }} packet
+ * @param {SharedMemoryPacket} packet
  * @param {object} [options]
  * @returns {Promise<ArrayBuffer|SharedArrayBuffer>}
  */

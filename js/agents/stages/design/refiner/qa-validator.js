@@ -109,6 +109,7 @@ function contrastRatio(fg, bg) {
  * @returns {{valid:boolean, violations:Array<{type:string,message:string,severity:"warn"|"error",elementId?:string}>, pass:boolean, issues:Array<{code:string,message:string,severity:"warn"|"error",elementId?:string}>}}
  */
 export function validateSlide(slideHtml) {
+  /** @type {Array<{ code: string, message: string, severity: "warn" | "error", elementId?: string }>} */
   const issues = [];
   const html = typeof slideHtml === "string" ? slideHtml : "";
 
@@ -124,7 +125,7 @@ export function validateSlide(slideHtml) {
   for (const { tag } of dataElElements) {
     const attrs = parseAttrs(tag);
     const type = attrs["data-el"];
-    const elementId = attrs.id;
+    const elementId = typeof attrs.id === "string" ? attrs.id : undefined;
 
     const x = parsePercent(attrs["data-x"]);
     const y = parsePercent(attrs["data-y"]);

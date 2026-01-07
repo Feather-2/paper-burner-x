@@ -10,41 +10,115 @@ import { LWWMap } from './lww-map.js';
 import { ORSet } from './or-set.js';
 import { GCounter, PNCounter } from './counters.js';
 
+/** @typedef {import("../types.d.ts").LamportClockState} LamportClockState */
+/** @typedef {{ nodeId?: string, docId?: string, maxOpLogSize?: number }} CRDTDocumentOptions */
+/** @typedef {'register' | 'map' | 'set' | 'counter'} CRDTFieldType */
+/**
+ * 单条操作日志记录（用于同步与幂等重放）。
+ *
+ * 说明：当前实现的 op 结构包含多种 CRDT 子类型的字段（例如 `key/element/op` 等），
+ * 因此这里保持为宽松结构，仅固定同步所需的元数据字段。
+ *
+ * @typedef {{
+ *   type: string,
+ *   field: string,
+ *   fieldType: CRDTFieldType,
+ *   version: number,
+ *   docId: string,
+ *   clock?: LamportClockState,
+ *   op?: { clock?: LamportClockState, [key: string]: unknown },
+ *   nodeId?: string,
+ *   [key: string]: unknown
+ * }} CRDTDocumentOp
+ */
+/**
+ * 文档快照（便于 UI/存储使用）。
+ *
+ * @typedef {{
+ *   docId: string,
+ *   nodeId: string,
+ *   version: number,
+ *   registers: Record<string, unknown>,
+ *   maps: Record<string, Record<string, unknown>>,
+ *   sets: Record<string, unknown[]>,
+ *   counters: Record<string, number>
+ * }} CRDTDocumentSnapshot
+ */
+/** @typedef {{ type: 'CRDTDocument', docId: string, nodeId: string, version: number, registers: Record<string, unknown>, maps: Record<string, unknown>, sets: Record<string, unknown>, counters: Record<string, unknown> }} CRDTDocumentJSON */
+
+/**
+ * CRDT Document - 组合多个 CRDT 类型的文档
+ *
+ * - 以 field 为单位管理多种 CRDT primitive
+ * - 记录操作日志以支持多副本同步
+ */
 export class CRDTDocument {
+  /**
+   * @param {CRDTDocumentOptions} [options={}]
+   */
   constructor(options = {}) {
+    /** @type {string} */
     this._nodeId = options.nodeId || nextTick().id.split('_')[0];
+    /** @type {string} */
     this._docId = options.docId || `doc_${Date.now()}`;
 
     // 不同类型的 CRDT 字段
+    /** @type {Map<string, LWWRegister<unknown>>} */
     this._registers = new Map(); // name → LWWRegister
+    /** @type {Map<string, LWWMap<unknown>>} */
     this._maps = new Map();      // name → LWWMap
+    /** @type {Map<string, ORSet<unknown>>} */
     this._sets = new Map();      // name → ORSet
+    /** @type {Map<string, GCounter | PNCounter>} */
     this._counters = new Map();  // name → GCounter | PNCounter
 
     // 操作日志（用于同步）
+    /** @type {CRDTDocumentOp[]} */
     this._opLog = [];
+    /** @type {number} */
     this._maxOpLogSize = options.maxOpLogSize || 1000;
+    /** @type {number} */
     this._version = 0;
   }
 
+  /**
+   * @returns {string}
+   */
   get nodeId() {
     return this._nodeId;
   }
 
+  /**
+   * @returns {string}
+   */
   get docId() {
     return this._docId;
   }
 
+  /**
+   * @returns {number}
+   */
   get version() {
     return this._version;
   }
 
   // ===== Register 操作 =====
 
+  /**
+   * 获取寄存器当前值（若不存在则为 undefined）
+   * @param {string} name
+   * @returns {unknown}
+   */
   getRegister(name) {
     return this._registers.get(name)?.value;
   }
 
+  /**
+   * 设置寄存器值并记录操作
+   * @param {string} name
+   * @param {unknown} value
+   * @returns {{ type: string, clock: LamportClockState, nodeId: string, [key: string]: unknown }}
+   */
   setRegister(name, value) {
     if (!this._registers.has(name)) {
       this._registers.set(name, new LWWRegister(null, { nodeId: this._nodeId }));
@@ -56,6 +130,11 @@ export class CRDTDocument {
 
   // ===== Map 操作 =====
 
+  /**
+   * 获取（或创建）指定名称的 LWWMap
+   * @param {string} name
+   * @returns {LWWMap<unknown>}
+   */
   getMap(name) {
     if (!this._maps.has(name)) {
       this._maps.set(name, new LWWMap({ nodeId: this._nodeId }));
@@ -63,6 +142,13 @@ export class CRDTDocument {
     return this._maps.get(name);
   }
 
+  /**
+   * 设置 map 的键值并记录操作
+   * @param {string} mapName
+   * @param {string} key
+   * @param {unknown} value
+   * @returns {{ type: string, key: string, clock: LamportClockState, nodeId: string, [key: string]: unknown }}
+   */
   setMapValue(mapName, key, value) {
     const map = this.getMap(mapName);
     const op = map.set(key, value);
@@ -70,6 +156,12 @@ export class CRDTDocument {
     return op;
   }
 
+  /**
+   * 删除 map 的键并记录操作
+   * @param {string} mapName
+   * @param {string} key
+   * @returns {{ type: string, key: string, clock: LamportClockState, nodeId: string, [key: string]: unknown }}
+   */
   deleteMapValue(mapName, key) {
     const map = this.getMap(mapName);
     const op = map.delete(key);
@@ -79,6 +171,11 @@ export class CRDTDocument {
 
   // ===== Set 操作 =====
 
+  /**
+   * 获取（或创建）指定名称的 ORSet
+   * @param {string} name
+   * @returns {ORSet<unknown>}
+   */
   getSet(name) {
     if (!this._sets.has(name)) {
       this._sets.set(name, new ORSet({ nodeId: this._nodeId }));
@@ -86,6 +183,12 @@ export class CRDTDocument {
     return this._sets.get(name);
   }
 
+  /**
+   * 向 set 添加元素并记录操作
+   * @param {string} setName
+   * @param {unknown} element
+   * @returns {{ type: string, clock: LamportClockState, nodeId: string, [key: string]: unknown }}
+   */
   addToSet(setName, element) {
     const set = this.getSet(setName);
     const op = set.add(element);
@@ -93,6 +196,12 @@ export class CRDTDocument {
     return op;
   }
 
+  /**
+   * 从 set 移除元素（若本地未观察到该元素则返回 null）
+   * @param {string} setName
+   * @param {unknown} element
+   * @returns {{ type: string, clock: LamportClockState, nodeId: string, [key: string]: unknown } | null}
+   */
   removeFromSet(setName, element) {
     const set = this.getSet(setName);
     const op = set.delete(element);
@@ -104,6 +213,12 @@ export class CRDTDocument {
 
   // ===== Counter 操作 =====
 
+  /**
+   * 获取（或创建）计数器
+   * @param {string} name
+   * @param {'pn' | 'g'} [type='pn']
+   * @returns {GCounter | PNCounter}
+   */
   getCounter(name, type = 'pn') {
     if (!this._counters.has(name)) {
       const Counter = type === 'g' ? GCounter : PNCounter;
@@ -112,6 +227,12 @@ export class CRDTDocument {
     return this._counters.get(name);
   }
 
+  /**
+   * 增加计数器并记录操作
+   * @param {string} name
+   * @param {number} [delta=1]
+   * @returns {Record<string, unknown>}
+   */
   incrementCounter(name, delta = 1) {
     const counter = this.getCounter(name);
     const op = counter.increment(delta);
@@ -119,25 +240,36 @@ export class CRDTDocument {
     return op;
   }
 
+  /**
+   * 减少计数器并记录操作（仅 PNCounter 支持）
+   * @param {string} name
+   * @param {number} [delta=1]
+   * @returns {Record<string, unknown>}
+   */
   decrementCounter(name, delta = 1) {
     const counter = this.getCounter(name);
-    if (counter.decrement) {
-      const op = counter.decrement(delta);
-      this._recordOp({ ...op, field: name, fieldType: 'counter' });
-      return op;
+    if (!(counter instanceof PNCounter)) {
+      throw new Error('GCounter cannot decrement');
     }
-    throw new Error('GCounter cannot decrement');
+    const op = counter.decrement(delta);
+    this._recordOp({ ...op, field: name, fieldType: 'counter' });
+    return op;
   }
 
   // ===== 操作日志 =====
 
+  /**
+   * 记录单条操作（写入本地 op log，并递增版本）
+   * @param {Record<string, unknown>} op
+   * @returns {void}
+   */
   _recordOp(op) {
     this._version++;
-    this._opLog.push({
+    this._opLog.push(/** @type {CRDTDocumentOp} */ ({
       ...op,
       version: this._version,
       docId: this._docId,
-    });
+    }));
 
     // 限制日志大小
     while (this._opLog.length > this._maxOpLogSize) {
@@ -147,6 +279,8 @@ export class CRDTDocument {
 
   /**
    * 获取自某版本以来的操作
+   * @param {number} [sinceVersion=0]
+   * @returns {CRDTDocumentOp[]}
    */
   getOps(sinceVersion = 0) {
     return this._opLog.filter(op => op.version > sinceVersion);
@@ -154,6 +288,8 @@ export class CRDTDocument {
 
   /**
    * 应用远程操作
+   * @param {CRDTDocumentOp} op
+   * @returns {boolean}
    */
   applyOp(op) {
     if (!op || !op.field || !op.fieldType) return false;
@@ -169,7 +305,10 @@ export class CRDTDocument {
     switch (op.fieldType) {
       case 'register':
         if (!this._registers.has(op.field)) {
-          this._registers.set(op.field, new LWWRegister(null, { nodeId: this._nodeId, clock: { seq: 0 } }));
+          this._registers.set(
+            op.field,
+            new LWWRegister(null, { nodeId: this._nodeId, clock: { seq: 0, ts: 0, id: `${this._nodeId}_0` } })
+          );
         }
         changed = this._registers.get(op.field).apply(op);
         break;
@@ -197,7 +336,9 @@ export class CRDTDocument {
         }
         {
           const counter = this._counters.get(op.field);
-          changed = counter instanceof PNCounter ? counter.apply(op) : counter.apply(op.op || op);
+          changed = counter instanceof PNCounter
+            ? counter.apply(/** @type {any} */ (op))
+            : counter.apply(/** @type {any} */ (op.op || op));
         }
         break;
     }
@@ -211,6 +352,8 @@ export class CRDTDocument {
 
   /**
    * 批量应用操作
+   * @param {CRDTDocumentOp[]} ops
+   * @returns {number}
    */
   applyOps(ops) {
     let applied = 0;
@@ -224,6 +367,8 @@ export class CRDTDocument {
 
   /**
    * 合并另一个文档
+   * @param {CRDTDocument} other
+   * @returns {boolean}
    */
   merge(other) {
     if (!(other instanceof CRDTDocument)) return false;
@@ -233,7 +378,10 @@ export class CRDTDocument {
     // 合并 registers
     for (const [name, reg] of other._registers) {
       if (!this._registers.has(name)) {
-        this._registers.set(name, new LWWRegister(null, { nodeId: this._nodeId, clock: { seq: 0 } }));
+        this._registers.set(
+          name,
+          new LWWRegister(null, { nodeId: this._nodeId, clock: { seq: 0, ts: 0, id: `${this._nodeId}_0` } })
+        );
       }
       if (this._registers.get(name).merge(reg)) {
         changed = true;
@@ -269,8 +417,11 @@ export class CRDTDocument {
             : new PNCounter({ nodeId: this._nodeId })
         );
       }
-      if (this._counters.get(name).merge(counter)) {
-        changed = true;
+      const localCounter = this._counters.get(name);
+      if (counter instanceof GCounter) {
+        if ((/** @type {GCounter} */ (localCounter)).merge(counter)) changed = true;
+      } else {
+        if ((/** @type {PNCounter} */ (localCounter)).merge(counter)) changed = true;
       }
     }
 
@@ -283,6 +434,7 @@ export class CRDTDocument {
 
   /**
    * 获取文档快照
+   * @returns {CRDTDocumentSnapshot}
    */
   snapshot() {
     return {
@@ -306,6 +458,7 @@ export class CRDTDocument {
 
   /**
    * 序列化
+   * @returns {CRDTDocumentJSON}
    */
   toJSON() {
     return {
@@ -330,6 +483,8 @@ export class CRDTDocument {
 
   /**
    * 反序列化
+   * @param {CRDTDocumentJSON} json
+   * @returns {CRDTDocument}
    */
   static fromJSON(json) {
     if (json?.type !== 'CRDTDocument') {
@@ -343,22 +498,23 @@ export class CRDTDocument {
     doc._version = json.version || 0;
 
     for (const [k, v] of Object.entries(json.registers || {})) {
-      doc._registers.set(k, LWWRegister.fromJSON(v));
+      doc._registers.set(k, LWWRegister.fromJSON(/** @type {any} */ (v)));
     }
 
     for (const [k, v] of Object.entries(json.maps || {})) {
-      doc._maps.set(k, LWWMap.fromJSON(v));
+      doc._maps.set(k, LWWMap.fromJSON(/** @type {any} */ (v)));
     }
 
     for (const [k, v] of Object.entries(json.sets || {})) {
-      doc._sets.set(k, ORSet.fromJSON(v));
+      doc._sets.set(k, ORSet.fromJSON(/** @type {any} */ (v)));
     }
 
     for (const [k, v] of Object.entries(json.counters || {})) {
-      if (v.type === 'GCounter') {
-        doc._counters.set(k, GCounter.fromJSON(v));
+      const counterJson = /** @type {any} */ (v);
+      if (counterJson.type === 'GCounter') {
+        doc._counters.set(k, GCounter.fromJSON(counterJson));
       } else {
-        doc._counters.set(k, PNCounter.fromJSON(v));
+        doc._counters.set(k, PNCounter.fromJSON(counterJson));
       }
     }
 

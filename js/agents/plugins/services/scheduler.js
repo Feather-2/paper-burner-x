@@ -6,6 +6,9 @@
 
 import { createPlugin } from '../../core/plugin.js';
 
+/** @typedef {import('../../core/plugin.js').PluginContext} PluginContext */
+
+/** @readonly @enum {number} */
 export const TaskPriority = {
   LOW: 0,
   NORMAL: 1,
@@ -23,6 +26,10 @@ export default createPlugin({
     defaultTimeout: 60000,
   },
 
+  /**
+   * @param {PluginContext} ctx
+   * @returns {void}
+   */
   install(ctx) {
     const queues = {
       [TaskPriority.CRITICAL]: [],
@@ -34,6 +41,12 @@ export default createPlugin({
     let running = 0;
     let taskId = 0;
     const tasks = new Map();
+
+    /** @type {(callback: (...args: any[]) => void, ...args: any[]) => any} */
+    const setImmediate =
+      typeof (/** @type {any} */ (globalThis)).setImmediate === 'function'
+        ? (/** @type {any} */ (globalThis)).setImmediate
+        : (callback, ...args) => setTimeout(callback, 0, ...args);
 
     const processQueue = async () => {
       if (running >= ctx.config.maxConcurrent) return;
@@ -80,6 +93,9 @@ export default createPlugin({
     ctx.registerService('scheduler', {
       /**
        * 调度任务
+       * @param {(() => any) | any} taskFn
+       * @param {number} [priority]
+       * @returns {Promise<any>}
        */
       schedule(taskFn, priority = TaskPriority.NORMAL) {
         const id = ++taskId;
@@ -109,6 +125,8 @@ export default createPlugin({
 
       /**
        * 取消任务
+       * @param {number} taskId
+       * @returns {boolean}
        */
       cancel(taskId) {
         const task = tasks.get(taskId);
@@ -130,6 +148,7 @@ export default createPlugin({
 
       /**
        * 获取状态
+       * @returns {{ running: number, queued: number, maxConcurrent: number }}
        */
       getStatus() {
         return {
@@ -141,6 +160,8 @@ export default createPlugin({
 
       /**
        * 获取队列长度
+       * @param {number} [priority]
+       * @returns {number}
        */
       getQueueLength(priority) {
         if (priority !== undefined) {

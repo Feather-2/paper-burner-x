@@ -36,7 +36,7 @@ export async function handler(args, context) {
     const { gapId, status, analysis, hint } = args;
 
     if (!gapId) return { success: false, error: "gapId is required" };
-    if (!status || !Object.values(DiscoveryStatus).includes(status)) {
+    if (!status || !Object.values(DiscoveryStatus).includes(/** @type {any} */ (status))) {
         return { success: false, error: "Invalid status" };
     }
 

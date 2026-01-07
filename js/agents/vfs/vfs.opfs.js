@@ -1,5 +1,47 @@
 import { normalizeVfsPath, dirnameVfsPath, basenameVfsPath } from "./path.js";
 
+/**
+ * @typedef {object} VfsStat
+ * @property {number} size
+ * @property {number=} mtimeMs
+ * @property {() => boolean} isFile
+ * @property {() => boolean} isDirectory
+ */
+
+/**
+ * @typedef {object} VfsDirent
+ * @property {string} name
+ * @property {() => boolean} isDirectory
+ * @property {() => boolean} isFile
+ */
+
+/**
+ * @typedef {object} ReaddirOptions
+ * @property {boolean=} withFileTypes
+ */
+
+/**
+ * @typedef {object} MkdirOptions
+ * @property {boolean=} recursive
+ */
+
+/**
+ * @typedef {object} RmdirOptions
+ * @property {boolean=} recursive
+ */
+
+/**
+ * @typedef {object} ListFilesOptions
+ * @property {string=} prefix
+ * @property {boolean=} recursive
+ */
+
+/**
+ * @typedef {object} WalkFilesOptions
+ * @property {string=} prefix
+ * @property {boolean=} recursive
+ */
+
 function isOpfsAvailable() {
   return typeof navigator !== "undefined" && typeof navigator.storage?.getDirectory === "function";
 }
@@ -42,11 +84,24 @@ function dataToWritableChunk(data) {
   return String(data);
 }
 
+/**
+ * OPFS-backed VFS implementation (browser-only).
+ *
+ * @param {FileSystemDirectoryHandle} rootHandle
+ * @returns {OpfsVfs}
+ */
 export class OpfsVfs {
+  /**
+   * @param {FileSystemDirectoryHandle} rootHandle
+   */
   constructor(rootHandle) {
     this._root = rootHandle;
   }
 
+  /**
+   * @param {{ rootDirName?: string }} [options]
+   * @returns {Promise<OpfsVfs>}
+   */
   static async create({ rootDirName = "paper-burner-workspace" } = {}) {
     if (!isOpfsAvailable()) throw new Error("OPFS not available");
     const root = await navigator.storage.getDirectory();
@@ -54,6 +109,10 @@ export class OpfsVfs {
     return new OpfsVfs(base);
   }
 
+  /**
+   * @param {string} path
+   * @returns {Promise<Uint8Array>}
+   */
   async readFile(path) {
     const handle = await getFileHandle(this._root, path, { create: false });
     const file = await handle.getFile();
@@ -61,11 +120,20 @@ export class OpfsVfs {
     return new Uint8Array(buf);
   }
 
+  /**
+   * @param {string} path
+   * @returns {Promise<string>}
+   */
   async readText(path) {
     const bytes = await this.readFile(path);
     return new TextDecoder().decode(bytes);
   }
 
+  /**
+   * @param {string} path
+   * @param {unknown} data
+   * @returns {Promise<boolean>}
+   */
   async writeFile(path, data) {
     const p = normalizeVfsPath(path);
     await ensureParentDir(this._root, p);
@@ -79,10 +147,20 @@ export class OpfsVfs {
     return true;
   }
 
+  /**
+   * @param {string} path
+   * @param {string} text
+   * @returns {Promise<boolean>}
+   */
   async writeText(path, text) {
     return this.writeFile(path, typeof text === "string" ? text : String(text ?? ""));
   }
 
+  /**
+   * @param {string} path
+   * @param {MkdirOptions} [options]
+   * @returns {Promise<boolean>}
+   */
   async mkdir(path, { recursive = true } = {}) {
     const p = normalizeVfsPath(path);
     if (!p) return true;
@@ -96,6 +174,11 @@ export class OpfsVfs {
     return true;
   }
 
+  /**
+   * @param {string} path
+   * @param {RmdirOptions} [options]
+   * @returns {Promise<boolean>}
+   */
   async rmdir(path, { recursive = false } = {}) {
     const p = normalizeVfsPath(path);
     if (!p) throw new Error("EPERM: cannot remove root");
@@ -104,6 +187,10 @@ export class OpfsVfs {
     return true;
   }
 
+  /**
+   * @param {string} path
+   * @returns {Promise<boolean>}
+   */
   async unlink(path) {
     const p = normalizeVfsPath(path);
     if (!p) throw new Error("EISDIR: /");
@@ -112,6 +199,10 @@ export class OpfsVfs {
     return true;
   }
 
+  /**
+   * @param {string} path
+   * @returns {Promise<VfsStat>}
+   */
   async stat(path) {
     const p = normalizeVfsPath(path);
     if (!p) {
@@ -134,6 +225,11 @@ export class OpfsVfs {
     }
   }
 
+  /**
+   * @param {string} path
+   * @param {ReaddirOptions} [options]
+   * @returns {Promise<string[] | VfsDirent[]>}
+   */
   async readdir(path, options = {}) {
     const p = normalizeVfsPath(path);
     const withFileTypes = !!options.withFileTypes;
@@ -152,6 +248,10 @@ export class OpfsVfs {
     return entries;
   }
 
+  /**
+   * @param {string} path
+   * @returns {Promise<boolean>}
+   */
   async exists(path) {
     try {
       await this.stat(path);
@@ -161,18 +261,32 @@ export class OpfsVfs {
     }
   }
 
+  /**
+   * @param {string} src
+   * @param {string} dest
+   * @returns {Promise<boolean>}
+   */
   async copy(src, dest) {
     const bytes = await this.readFile(src);
     await this.writeFile(dest, bytes);
     return true;
   }
 
+  /**
+   * @param {string} src
+   * @param {string} dest
+   * @returns {Promise<boolean>}
+   */
   async move(src, dest) {
     await this.copy(src, dest);
     await this.unlink(src);
     return true;
   }
 
+  /**
+   * @param {ListFilesOptions} [options]
+   * @returns {Promise<string[]>}
+   */
   async listFiles({ prefix = "", recursive = true } = {}) {
     const base = normalizeVfsPath(prefix);
     const startDir = await getDirHandle(this._root, base, { create: false });
@@ -196,6 +310,10 @@ export class OpfsVfs {
     return out;
   }
 
+  /**
+   * @param {WalkFilesOptions} [options]
+   * @returns {AsyncGenerator<string, void, void>}
+   */
   async *walkFiles({ prefix = "", recursive = true } = {}) {
     const base = normalizeVfsPath(prefix);
 
@@ -234,7 +352,12 @@ export class OpfsVfs {
   }
 }
 
-export function supportsOpfs() {
+/**
+ * @param {unknown} [unused]
+ * @returns {boolean}
+ */
+export function supportsOpfs(unused) {
+  void unused;
   return isOpfsAvailable();
 }
 

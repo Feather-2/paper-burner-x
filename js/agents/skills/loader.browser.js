@@ -211,6 +211,7 @@ function normalizeSkillFromManifest(entry, { defaultScope = SkillScope.SYSTEM } 
 
   if (!name || !description || !path) return null;
 
+  /** @type {any} */
   const scopeRaw = toNonEmptyString(raw.scope);
   const scope = scopeRaw && Object.values(SkillScope).includes(scopeRaw) ? scopeRaw : defaultScope;
 
@@ -379,6 +380,14 @@ export async function loadSkillsFromNexus(nexusProvider) {
   return outcome;
 }
 
+/**
+ * 加载所有 Skills（Browser 版本，合并 Nexus）
+ *
+ * @param {Object} [options]
+ * @param {string} [options.manifestUrl]
+ * @param {any} [options.nexusProvider]
+ * @returns {Promise<{skills:Array,errors:Array}>}
+ */
 export async function loadAllSkills({ manifestUrl, nexusProvider } = {}) {
   const localOutcome = await loadSkills({ manifestUrl });
   const remoteOutcome = await loadSkillsFromNexus(nexusProvider);

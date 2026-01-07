@@ -15,6 +15,22 @@ import { DesignPhase } from "../states.js";
 import { planDeck, applyUserEdits, formatPlanForDialog } from "./deck-planner.js";
 import { generateLayoutBatch } from "../generators/layout-generator.js";
 
+/**
+ * @typedef {(name: string, event: { actor: string, status: string, payload: any }) => void} EmitFn
+ */
+
+/**
+ * @typedef {(stepName: string, input: any) => Promise<{ loopIteration: any, stepInfo: { context: any } }>} StartExecutionFn
+ */
+
+/**
+ * @typedef {(stepName: string, loopIteration: any, stepInfo: any) => Promise<void>} FinishExecutionFn
+ */
+
+/**
+ * @typedef {(deckHtmlDsl: string, slidesMeta: any[], meta?: any) => void} EmitDeckUpdateFn
+ */
+
 // === 可配置常量 ===
 const DESIGN_PHASE_DEFAULTS = {
   costPerHDSlot: 0.04,    // HD/3D/photo 风格每槽成本 USD
@@ -29,6 +45,10 @@ function emitStage(emit, name, status, payload) {
 
 /**
  * 准备阶段：解析大纲 + 提取样式
+ *
+ * @param {any} loop
+ * @param {{ contentPackage: any, context: any, runContext: any, emit?: EmitFn, startExecution: StartExecutionFn, finishExecution: FinishExecutionFn }} params
+ * @returns {Promise<{ parsedContentPackage: any, slideIntents: any[], designSystem: any, constraints: any, userConfig: any }>}
  */
 export async function runPreparationPhase(loop, {
   contentPackage,
@@ -131,6 +151,10 @@ export async function runPreparationPhase(loop, {
 
 /**
  * 规划阶段：生成预案并等待用户确认
+ *
+ * @param {any} loop
+ * @param {{ slideIntents: any[], designSystem: any, context: any, runContext: any, emit?: EmitFn }} params
+ * @returns {Promise<{ plans: any[], planResult: any }>}
  */
 export async function runPlanningPhase(loop, {
   slideIntents,
@@ -199,6 +223,10 @@ export async function runPlanningPhase(loop, {
 
 /**
  * 布局阶段：生成线框图并等待用户确认
+ *
+ * @param {any} loop
+ * @param {{ slideIntents: any[], plans: any[], designSystem: any, context: any, runContext: any, emit?: EmitFn }} params
+ * @returns {Promise<{ layouts: any[] }>}
  */
 export async function runLayoutPhase(loop, {
   slideIntents,
@@ -269,6 +297,10 @@ function estimateSlotCostUSD(slot) {
 
 /**
  * 生成阶段处理
+ *
+ * @param {any} loop
+ * @param {{ slideIntents: any[], contentPackage: any, designSystem: any, constraints: any, userConfig: any, context: any, runContext: any, emit?: EmitFn, startExecution: StartExecutionFn, finishExecution: FinishExecutionFn, emitDeckUpdate: EmitDeckUpdateFn, skipReview?: boolean }} params
+ * @returns {Promise<{ generated: any[], slideHtmls: string[], slidesMeta: any[], imageSlots: any[], brainstormResult: any, pendingImages: string[], baseDeckHtmlDsl: string, degradedCount: number, styleLock: any }>}
  */
 export async function runGeneratingPhase(loop, {
   slideIntents,
@@ -463,6 +495,11 @@ export async function runGeneratingPhase(loop, {
 
 /**
  * 批量编排修复阶段 - 整合 QA 与风格对齐
+ *
+ * @param {any} loop
+ * @param {any} state
+ * @param {{ context: any, runContext: any, emit?: EmitFn }} params
+ * @returns {Promise<{ deckHtmlDsl: string, slidesMeta: any[] }>}
  */
 export async function runBatchRepairPhase(loop, state, { context, runContext, emit }) {
   const { slideHtmls, slidesMeta, designSystem, contentPackage } = state;
@@ -523,6 +560,10 @@ export async function runBatchRepairPhase(loop, state, { context, runContext, em
 
 /**
  * 视觉填充阶段处理
+ *
+ * @param {any} loop
+ * @param {{ contentPackage: any, slideIntents: any[], designSystem: any, generated: any[], slideHtmls: string[], slidesMeta: any[], imageSlots: any[], baseDeckHtmlDsl: string, pendingImages: string[], brainstormResult: any, constraints: any, userConfig: any, context: any, runContext: any, emit?: EmitFn, startExecution: StartExecutionFn, finishExecution: FinishExecutionFn, emitDeckUpdate: EmitDeckUpdateFn }} params
+ * @returns {Promise<{ deckHtmlDsl: string, slidesMeta: any[], imageSlots: any[], imageReport: any, visualReport: any, refineResult: any, pendingImages: string[] }>}
  */
 export async function runVisualPhase(loop, {
   contentPackage,
@@ -591,12 +632,12 @@ export async function runVisualPhase(loop, {
   const hasModelCapability = !!(context.modelRouter || context.aiApiService);
   const visualSlotsForRender = loop._buildVisualSlots(brainstormResult, imageSlots, imageProvider, hasModelCapability);
 
-  const aiImageSlotIds = imageSlots
-    .filter((s) => {
-      const rt = normalizeRenderType(s.renderType);
-      return rt === "ai-image" || rt === "";
-    })
-    .map((s) => s.slotId);
+	  const aiImageSlotIds = imageSlots
+	    .filter((s) => {
+	      const rt = normalizeRenderType(s.renderType);
+	      return rt === "ai-image";
+	    })
+	    .map((s) => s.slotId);
 
   const fillResult = await loop._callTool(
     "fill_visual",
@@ -685,6 +726,10 @@ async function runRefine(deckPackage, contentPackage, runContext, context, userC
 
 /**
  * Review 阶段处理 - 全局风格检查
+ *
+ * @param {any} loop
+ * @param {{ deckHtmlDsl: string, slidesMeta: any[], designSystem: any, context: any, runContext: any, emit?: EmitFn }} params
+ * @returns {Promise<{ reviewResult: any, fixedDeckHtmlDsl: string, fixes: any[] }>}
  */
 export async function runReviewPhase(loop, {
   deckHtmlDsl,

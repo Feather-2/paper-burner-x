@@ -22,6 +22,54 @@ import { MessageBus } from "../kernel/message-bus.js";
 
 const logger = createLogger("runtime/api/stage-api-factory");
 
+/**
+ * @typedef {Object} ServiceContainerLike
+ * @property {(key: string) => any} [get]
+ * @property {(key: string) => any} [tryGet]
+ */
+
+/**
+ * @typedef {Object} StageApiFactoryServices
+ * @property {AbortSignal|null} [signal]
+ * @property {any} [eventBus]
+ * @property {(name: string, record: any) => void} [emit]
+ * @property {any} [traceContext]
+ * @property {string} [traceparent]
+ * @property {ServiceContainerLike} [container]
+ * @property {any} [aiApiService]
+ * @property {any} [modelRouter]
+ * @property {any} [localRetriever]
+ * @property {any} [externalSearchProvider]
+ * @property {any} [mcpClient]
+ * @property {any} [mcpResources]
+ * @property {any} [circuitBreakerRegistry]
+ * @property {any} [retryStrategy]
+ * @property {any} [errorBoundary]
+ * @property {any} [toolQuotaManager]
+ * @property {any} [messageBus]
+ * @property {any} [eventBusBackpressure]
+ * @property {any} [backpressure]
+ * @property {any} [storageAdapter]
+ * @property {any} [ocr]
+ * @property {any} [imageProvider]
+ * @property {any} [svgGenerator]
+ * @property {any} [archive]
+ * @property {any} [logger]
+ * @property {any} [vfs]
+ * @property {any} [policy]
+ * @property {any} [runtimeScheduler]
+ * @property {any} [pythonSkillExecutor]
+ * @property {any} [jsAdapter]
+ * @property {any} [hnswIndex]
+ * @property {any} [schemaValidator]
+ * @property {any} [deltaSyncSession]
+ * @property {any} [fileLock]
+ * @property {any} [tocBuilder]
+ * @property {any} [policyManager]
+ * @property {any} [replayController]
+ * @property {any} [sharedMemoryBridge]
+ */
+
 // 必需字段验证
 const REQUIRED_FIELDS = ["signal", "emit"];
 const DEEPSEARCH_REQUIRED = [...REQUIRED_FIELDS, "aiApiService"];
@@ -37,6 +85,10 @@ const DEFAULT_EVENTBUS_BACKPRESSURE = Object.freeze({
 /**
  * 过滤掉 undefined 和 null 的值，避免覆盖已有配置
  */
+/**
+ * @param {Record<string, any> | null | undefined} obj
+ * @returns {Record<string, any>}
+ */
 function filterDefinedValues(obj) {
   if (!obj || typeof obj !== 'object') return {};
   return Object.fromEntries(
@@ -44,6 +96,10 @@ function filterDefinedValues(obj) {
   );
 }
 
+/**
+ * @param {any} value
+ * @returns {boolean}
+ */
 function isTraceContextLike(value) {
   return (
     value !== null &&
@@ -55,6 +111,10 @@ function isTraceContextLike(value) {
   );
 }
 
+/**
+ * @param {ServiceContainerLike | null | undefined} container
+ * @returns {any | null}
+ */
 function resolveTraceContextFromContainer(container) {
   const c = container && typeof container === "object" ? container : null;
   if (!c) return null;
@@ -73,6 +133,10 @@ function resolveTraceContextFromContainer(container) {
   return null;
 }
 
+/**
+ * @param {{ traceContext?: any, traceparent?: string, container?: ServiceContainerLike } | undefined} [options]
+ * @returns {any}
+ */
 function resolveTraceContext({ traceContext, traceparent, container } = {}) {
   if (isTraceContextLike(traceContext)) return traceContext;
 
@@ -89,6 +153,10 @@ function resolveTraceContext({ traceContext, traceparent, container } = {}) {
   return new TraceContext();
 }
 
+/**
+ * @param {any} value
+ * @returns {boolean}
+ */
 function isRetryStrategyLike(value) {
   return (
     value !== null &&
@@ -97,6 +165,10 @@ function isRetryStrategyLike(value) {
   );
 }
 
+/**
+ * @param {ServiceContainerLike | null | undefined} container
+ * @returns {any | null}
+ */
 function resolveRetryStrategyFromContainer(container) {
   const c = container && typeof container === "object" ? container : null;
   if (!c) return null;
@@ -115,6 +187,10 @@ function resolveRetryStrategyFromContainer(container) {
   return null;
 }
 
+/**
+ * @param {{ retryStrategy?: any, container?: ServiceContainerLike } | undefined} [options]
+ * @returns {any | null}
+ */
 function resolveRetryStrategy({ retryStrategy, container } = {}) {
   if (isRetryStrategyLike(retryStrategy)) return retryStrategy;
   const fromContainer = resolveRetryStrategyFromContainer(container);
@@ -122,10 +198,18 @@ function resolveRetryStrategy({ retryStrategy, container } = {}) {
   return null;
 }
 
+/**
+ * @param {any} value
+ * @returns {boolean}
+ */
 function isErrorBoundaryLike(value) {
   return value !== null && typeof value === "object" && typeof value.wrap === "function";
 }
 
+/**
+ * @param {ServiceContainerLike | null | undefined} container
+ * @returns {any | null}
+ */
 function resolveErrorBoundaryFromContainer(container) {
   const c = container && typeof container === "object" ? container : null;
   if (!c) return null;
@@ -144,6 +228,10 @@ function resolveErrorBoundaryFromContainer(container) {
   return null;
 }
 
+/**
+ * @param {{ errorBoundary?: any, container?: ServiceContainerLike } | undefined} [options]
+ * @returns {any}
+ */
 function resolveErrorBoundary({ errorBoundary, container } = {}) {
   if (isErrorBoundaryLike(errorBoundary)) return errorBoundary;
   const fromContainer = resolveErrorBoundaryFromContainer(container);
@@ -151,10 +239,18 @@ function resolveErrorBoundary({ errorBoundary, container } = {}) {
   return getErrorBoundary();
 }
 
+/**
+ * @param {any} value
+ * @returns {boolean}
+ */
 function isToolQuotaManagerLike(value) {
   return value !== null && typeof value === "object" && typeof value.tryCall === "function";
 }
 
+/**
+ * @param {ServiceContainerLike | null | undefined} container
+ * @returns {any | null}
+ */
 function resolveToolQuotaManagerFromContainer(container) {
   const c = container && typeof container === "object" ? container : null;
   if (!c) return null;
@@ -173,6 +269,10 @@ function resolveToolQuotaManagerFromContainer(container) {
   return null;
 }
 
+/**
+ * @param {{ toolQuotaManager?: any, container?: ServiceContainerLike } | undefined} [options]
+ * @returns {any | null}
+ */
 function resolveToolQuotaManager({ toolQuotaManager, container } = {}) {
   if (isToolQuotaManagerLike(toolQuotaManager)) return toolQuotaManager;
   const fromContainer = resolveToolQuotaManagerFromContainer(container);
@@ -208,6 +308,10 @@ function resolveMessageBusFromContainer(container) {
   return null;
 }
 
+/**
+ * @param {{ messageBus?: any, eventBus?: any, container?: ServiceContainerLike } | undefined} [options]
+ * @returns {any | null}
+ */
 function resolveMessageBus({ messageBus, eventBus, container } = {}) {
   if (isMessageBusLike(messageBus)) return messageBus;
   const fromContainer = resolveMessageBusFromContainer(container);
@@ -226,6 +330,11 @@ const DEFAULT_TOOL_QUOTAS = Object.freeze({
   "search.fetch": { maxCalls: 30, windowMs: 60_000 },
 });
 
+/**
+ * @param {any} eventBus
+ * @param {any} config
+ * @returns {void}
+ */
 function ensureEventBusBackpressure(eventBus, config) {
   if (!eventBus || typeof eventBus.enableBackpressure !== "function") return;
 
@@ -242,6 +351,10 @@ function ensureEventBusBackpressure(eventBus, config) {
   }
 }
 
+/**
+ * @param {any} resp
+ * @returns {{ promptTokens: number, completionTokens: number }}
+ */
 function extractTokenUsage(resp) {
   const usage = resp && typeof resp === "object" ? resp.usage : null;
   if (!usage || typeof usage !== "object") return { promptTokens: 0, completionTokens: 0 };
@@ -270,6 +383,10 @@ function extractTokenUsage(resp) {
   };
 }
 
+/**
+ * @param {any} aiApiService
+ * @returns {void}
+ */
 function ensureAiApiServiceTokenTracking(aiApiService) {
   if (!aiApiService || typeof aiApiService !== "object") return;
   const originalChat = aiApiService.chat;
@@ -351,6 +468,11 @@ function ensureAiApiServiceTokenTracking(aiApiService) {
   aiApiService.chat = chat;
 }
 
+/**
+ * @param {any} aiApiService
+ * @param {any} retryStrategy
+ * @returns {void}
+ */
 function ensureAiApiServiceRetry(aiApiService, retryStrategy) {
   if (!aiApiService || typeof aiApiService !== "object") return;
   const originalChat = aiApiService.chat;
@@ -402,6 +524,11 @@ function ensureAiApiServiceRetry(aiApiService, retryStrategy) {
   aiApiService.chat = chat;
 }
 
+/**
+ * @param {any} mcpClient
+ * @param {any} retryStrategy
+ * @returns {void}
+ */
 function ensureMcpClientRetry(mcpClient, retryStrategy) {
   if (!mcpClient || typeof mcpClient !== "object") return;
   if (typeof mcpClient.callTool !== "function") return;
@@ -431,7 +558,11 @@ function ensureMcpClientRetry(mcpClient, retryStrategy) {
 }
 
 export class StageApiFactory {
+  /**
+   * @param {StageApiFactoryServices} [services]
+   */
   constructor(services = {}) {
+    /** @type {StageApiFactoryServices} */
     const base = services && typeof services === "object" ? services : {};
     this.services = {
       ...base,
@@ -474,14 +605,16 @@ export class StageApiFactory {
       sharedMemoryBridge: base?.sharedMemoryBridge || null,
     };
     this.baseConfig = {
-      signal: services.signal || null,
-      eventBus: services.eventBus || null,
-      emit: services.emit || services.eventBus?.emit || null,
+      signal: base.signal || null,
+      eventBus: base.eventBus || null,
+      emit: base.emit || base.eventBus?.emit || null,
     };
   }
 
   /**
    * 创建基础 StageApi
+   * @param {Record<string, any>} [overrides]
+   * @returns {any}
    */
   createBaseApi(overrides = {}) {
     // 过滤 undefined 值，避免覆盖已有配置
@@ -523,6 +656,8 @@ export class StageApiFactory {
 
   /**
    * 创建 DeepSearch 专用 StageApi
+   * @param {Record<string, any>} [overrides]
+   * @returns {any}
    */
   createDeepSearchApi(overrides = {}) {
     const api = this.createBaseApi({
@@ -539,6 +674,8 @@ export class StageApiFactory {
 
   /**
    * 创建 Design 专用 StageApi
+   * @param {Record<string, any>} [overrides]
+   * @returns {any}
    */
   createDesignApi(overrides = {}) {
     const api = this.createBaseApi({
@@ -554,6 +691,8 @@ export class StageApiFactory {
 
   /**
    * 创建 TextPrep 专用 StageApi
+   * @param {Record<string, any>} [overrides]
+   * @returns {any}
    */
   createTextPrepApi(overrides = {}) {
     return this.createBaseApi(overrides);
@@ -561,6 +700,10 @@ export class StageApiFactory {
 
   /**
    * 验证 StageApi 必需字段
+   * @param {any} api
+   * @param {string[]} requiredFields
+   * @param {string} [stageName]
+   * @returns {boolean}
    */
   validate(api, requiredFields, stageName = "Stage") {
     const missing = requiredFields.filter((field) => {
@@ -577,6 +720,8 @@ export class StageApiFactory {
 
   /**
    * 从 workflow context 创建 Factory
+   * @param {any} ctx
+   * @returns {StageApiFactory}
    */
   static fromWorkflowContext(ctx) {
     return new StageApiFactory({
@@ -605,6 +750,10 @@ export class StageApiFactory {
   }
 }
 
+/**
+ * @param {StageApiFactoryServices} services
+ * @returns {StageApiFactory}
+ */
 export function createStageApiFactory(services) {
   return new StageApiFactory(services);
 }

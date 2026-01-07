@@ -64,7 +64,7 @@ export const useLogger = createLogger;
 
 /**
  * 追踪工具调用（grep/glob/read 等）
- * @param {{ info?: Function, error?: Function }=} logger
+ * @param {{ info?: Function, error?: Function } | null | undefined} logger
  * @param {string} tool
  * @param {object} args
  * @param {Function} fn

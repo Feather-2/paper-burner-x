@@ -280,7 +280,10 @@ async function finalizeVerification({ factId, contradiction, sourceIds, evidence
  * @param {string} args.factId - 合并后的事实 ID 或 Gap ID
  * @param {string} args.contradiction - 描述冲突的具体点
  * @param {string[]} [args.sourceIds] - 涉及冲突的信源 ID 列表
+ * @param {string[]|string} [args.sources] - 兼容字段：sourceIds
+ * @param {string} [args.sourceId] - 兼容字段：单个 sourceId
  * @param {string} [args.subagent_type] - 子代理类型 (researcher | analyzer)
+ * @param {string} [args.subagentType] - 兼容字段：subagent_type
  * @param {boolean} [args.async=true] - 是否异步执行
  * @param {number} [args.timeout=600000] - 同步等待超时
  * @param {boolean} [args.force=false] - 是否强制重新验证

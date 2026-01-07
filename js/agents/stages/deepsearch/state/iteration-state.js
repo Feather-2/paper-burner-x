@@ -1,7 +1,24 @@
 import { isPlainObject, safeInt, toNonEmptyString } from "../../../shared/utils/value-utils.js";
 
+/**
+ * @typedef {object} IterationStateRoot
+ * @property {number=} iteration
+ * @property {{ gaps?: any[] }=} L1
+ * @property {{ phase?: string, retrievedChunks?: any[] }=} L2
+ */
+
+/**
+ * Iteration-scoped state accessors stored on the DeepSearch root state.
+ *
+ * @param {IterationStateRoot|null|undefined} root
+ * @returns {IterationState}
+ */
 export class IterationState {
+  /**
+   * @param {IterationStateRoot|null|undefined} root
+   */
   constructor(root) {
+    /** @type {IterationStateRoot|null|undefined} */
     this._root = root;
   }
 

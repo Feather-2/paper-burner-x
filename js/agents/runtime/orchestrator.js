@@ -5,6 +5,35 @@ import { ServiceId } from "./di/defaults.js";
 import { CommonSchemas, validateConfig } from "./core/config-validator.js";
 
 import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
+
+/**
+ * @typedef {import("./core/constants.js").OrchestratorState[keyof import("./core/constants.js").OrchestratorState]} OrchestratorStateValue
+ */
+
+/**
+ * @typedef {Object} SchedulingConfig
+ * @property {string} [mode]
+ * @property {number} [maxConcurrency]
+ */
+
+/**
+ * @typedef {Object} AgentOrchestratorOptions
+ * @property {string} [mode]
+ * @property {string} [scenario]
+ * @property {object} [constraints]
+ * @property {Record<string, any>} [services]
+ * @property {EventBus} [eventBus]
+ * @property {string} [runId]
+ * @property {SchedulingConfig} [scheduling]
+ * @property {any} [degradationMatrix]
+ * @property {{ strict?: boolean, coerce?: boolean }} [configValidation]
+ */
+
+/**
+ * @param {unknown} v
+ * @param {number|null} fallback
+ * @returns {number|null}
+ */
 function normalizeTimeoutMs(v, fallback) {
   const n = typeof v === "number" ? v : Number(v);
   if (!Number.isFinite(n) || n <= 0) return fallback;
@@ -55,6 +84,11 @@ const DEFAULT_USER_CONFIG_SCHEMA = Object.freeze({
   degradeOnError: { type: "boolean" },
 });
 
+/**
+ * @param {Array<{ path?: string, message?: string }>} errors
+ * @param {{ maxItems?: number } | undefined} [options]
+ * @returns {string}
+ */
 function formatValidationErrors(errors, { maxItems = 10 } = {}) {
   const list = Array.isArray(errors) ? errors : [];
   if (list.length === 0) return "";
@@ -64,14 +98,27 @@ function formatValidationErrors(errors, { maxItems = 10 } = {}) {
   return `${lines.join("\n")}${suffix}`;
 }
 
+/**
+ * @param {any} value
+ * @returns {boolean}
+ */
 function isPromiseLike(value) {
   return value !== null && typeof value === "object" && typeof value.then === "function";
 }
 
+/**
+ * @template T
+ * @param {T | Promise<T>} value
+ * @returns {Promise<T>}
+ */
 async function maybeAwait(value) {
   return isPromiseLike(value) ? await value : value;
 }
 
+/**
+ * @param {any} value
+ * @returns {boolean}
+ */
 function isDegradationMatrixLike(value) {
   return (
     value !== null &&
@@ -83,11 +130,15 @@ function isDegradationMatrixLike(value) {
   );
 }
 
+/**
+ * @returns {number}
+ */
 function defaultMemoryUsageRatio() {
   // Ratio in [0, 1] best-effort across runtimes.
   try {
-    if (typeof process !== "undefined" && typeof process.memoryUsage === "function") {
-      const mem = process.memoryUsage();
+    const proc = /** @type {any} */ (globalThis).process;
+    if (proc && typeof proc.memoryUsage === "function") {
+      const mem = proc.memoryUsage();
       const used = typeof mem.heapUsed === "number" ? mem.heapUsed : mem.rss;
       const total = typeof mem.heapTotal === "number" ? mem.heapTotal : mem.rss;
       if (typeof used === "number" && typeof total === "number" && total > 0) return used / total;
@@ -97,7 +148,7 @@ function defaultMemoryUsageRatio() {
   }
 
   try {
-    const perfMem = globalThis?.performance?.memory;
+    const perfMem = /** @type {any} */ (globalThis?.performance)?.memory;
     if (
       perfMem &&
       typeof perfMem.usedJSHeapSize === "number" &&
@@ -113,6 +164,10 @@ function defaultMemoryUsageRatio() {
   return 0;
 }
 
+/**
+ * @param {{ runId?: string, mode?: string, scenario?: string, constraints?: object } | undefined} [input]
+ * @returns {{ schemaVersion: string, runId: string, mode: string, scenario: string, constraints: object, createdAt: string }}
+ */
 function buildRunContext({ runId, mode, scenario, constraints } = {}) {
   return {
     schemaVersion: "0.1",
@@ -124,6 +179,11 @@ function buildRunContext({ runId, mode, scenario, constraints } = {}) {
   };
 }
 
+/**
+ * @param {string} stageName
+ * @param {string} [fallbackActor]
+ * @returns {string}
+ */
 function deriveActorFromStageName(stageName, fallbackActor = ActorType.SYSTEM) {
   const name = toNonEmptyString(stageName);
   const head = name.split(".")[0];
@@ -131,6 +191,11 @@ function deriveActorFromStageName(stageName, fallbackActor = ActorType.SYSTEM) {
   return candidate;
 }
 
+/**
+ * @param {AbortSignal|null|undefined} parentSignal
+ * @param {number|null|undefined} timeoutMs
+ * @returns {{ signal: AbortSignal, cleanup: () => void }}
+ */
 function createStageAbortSignal(parentSignal, timeoutMs) {
   const controller = new AbortController();
   const { signal } = controller;
@@ -190,6 +255,9 @@ export const SchedulingMode = Object.freeze({
 });
 
 export class AgentOrchestrator {
+  /**
+   * @param {AgentOrchestratorOptions} [options]
+   */
   constructor({ mode, scenario, constraints, services, eventBus, runId, scheduling, degradationMatrix, configValidation } = {}) {
     this.runContext = buildRunContext({ runId, mode, scenario, constraints });
     this.runId = this.runContext.runId;
@@ -212,6 +280,7 @@ export class AgentOrchestrator {
     this._abortController = new AbortController();
     this.signal = this._abortController.signal;
 
+    /** @type {OrchestratorStateValue} */
     this.state = OrchestratorState.IDLE;
     this._runStarted = false;
     this._runEnded = false;
@@ -243,6 +312,9 @@ export class AgentOrchestrator {
     this.emit = (name, record) => this.eventBus.emit(name, record);
   }
 
+  /**
+   * @returns {Promise<any|null>}
+   */
   async _getDegradationMatrix() {
     if (isDegradationMatrixLike(this._degradationMatrix)) return this._degradationMatrix;
 
@@ -278,6 +350,9 @@ export class AgentOrchestrator {
     }
   }
 
+  /**
+   * @returns {Promise<number>}
+   */
   async _getEffectiveConcurrencyLimit() {
     const limit = this._maxConcurrency;
     const matrix = await this._getDegradationMatrix();
@@ -290,6 +365,9 @@ export class AgentOrchestrator {
     return limit;
   }
 
+  /**
+   * @returns {void}
+   */
   _emitRunStarted() {
     if (this._runStarted) return;
     this._runStarted = true;
@@ -304,6 +382,10 @@ export class AgentOrchestrator {
     });
   }
 
+  /**
+   * @param {any} reason
+   * @returns {void}
+   */
   _emitRunCancelled(reason) {
     if (this._runCancelled) return;
     this._runCancelled = true;
@@ -314,6 +396,10 @@ export class AgentOrchestrator {
     });
   }
 
+  /**
+   * @param {{ error?: any, stage?: string } | undefined} [options]
+   * @returns {void}
+   */
   _emitRunFailed({ error, stage } = {}) {
     if (this._runFailed) return;
     this._runFailed = true;
@@ -329,6 +415,10 @@ export class AgentOrchestrator {
     });
   }
 
+  /**
+   * @param {{ reason?: any } | undefined} [options]
+   * @returns {void}
+   */
   _emitRunCompleted({ reason } = {}) {
     if (this._runCompleted) return;
     this._runCompleted = true;
@@ -337,6 +427,10 @@ export class AgentOrchestrator {
     this.emit("run.completed", { actor: ActorType.SYSTEM, status: "completed", payload: { reason: r, runId: this.runId } });
   }
 
+  /**
+   * @param {{ reason?: any } | undefined} [options]
+   * @returns {void}
+   */
   _emitRunEnded({ reason } = {}) {
     if (this._runEnded) return;
     this._runEnded = true;
@@ -348,6 +442,12 @@ export class AgentOrchestrator {
     });
   }
 
+  /**
+   * @param {string} name
+   * @param {(ctx: any, input: any, api: any) => any | Promise<any>} handler
+   * @param {{ actor?: string, timeoutMs?: number, configSchema?: any, configValidation?: any }} [options]
+   * @returns {this}
+   */
   registerStage(name, handler, options = {}) {
     const stageName = toNonEmptyString(name);
     if (!stageName) throw new Error("AgentOrchestrator.registerStage(name, handler): name must be a non-empty string");
@@ -369,12 +469,19 @@ export class AgentOrchestrator {
     return this;
   }
 
+  /**
+   * @returns {void}
+   */
   start() {
     if (this.state === OrchestratorState.RUNNING) return;
     this.state = OrchestratorState.RUNNING;
     this._emitRunStarted();
   }
 
+  /**
+   * @param {any} [reason]
+   * @returns {void}
+   */
   stop(reason = "cancelled") {
     if (this.signal.aborted) return;
     const r = toNonEmptyString(reason) || "cancelled";
@@ -392,6 +499,10 @@ export class AgentOrchestrator {
     this._emitRunEnded({ reason: r });
   }
 
+  /**
+   * @param {any} [reason]
+   * @returns {void}
+   */
   end(reason = "completed") {
     if (this.state === OrchestratorState.ENDED) return;
     if (this.state === OrchestratorState.RUNNING) {
@@ -403,6 +514,11 @@ export class AgentOrchestrator {
     this.state = OrchestratorState.ENDED;
   }
 
+  /**
+   * @param {string} stageName
+   * @param {any} input
+   * @returns {Promise<any>}
+   */
   async runStage(stageName, input) {
     const name = toNonEmptyString(stageName);
     if (!name) throw new Error("AgentOrchestrator.runStage(stageName): stageName must be a non-empty string");
@@ -473,6 +589,9 @@ export class AgentOrchestrator {
   /**
    * Run stage with parallel mode concurrency control
    * @private
+   * @param {string} stageName
+   * @param {any} input
+   * @returns {Promise<any>}
    */
   async _runStageParallel(stageName, input) {
     // Wait for slot
@@ -490,6 +609,11 @@ export class AgentOrchestrator {
     }
   }
 
+  /**
+   * @param {string} stageName
+   * @param {any} input
+   * @returns {Promise<any>}
+   */
   async _runStageNow(stageName, input) {
     if (this.state !== OrchestratorState.RUNNING) this.start();
     if (this.signal.aborted) throw new Error("Run cancelled");
@@ -519,7 +643,7 @@ export class AgentOrchestrator {
         const details = formatValidationErrors(result.errors);
         const err = new Error(`Invalid userConfig for stage "${stageName}"\n${details}`);
         err.name = "ConfigValidationError";
-        err.errors = result.errors;
+        /** @type {any} */ (err).errors = result.errors;
 
         // Always emit a structured validation event; throw only in strict mode.
         this.eventBus.emit(`${stageName}.config.invalid`, {

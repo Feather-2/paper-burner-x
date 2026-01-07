@@ -28,6 +28,110 @@ import {
   BacktrackError,
 } from "./design-helpers.js";
 
+/**
+ * @typedef {object} DesignLoopConstructorOptions
+ * @property {number} [batchSize]
+ * @property {Archive|null} [archive]
+ * @property {any} [eventBus]
+ * @property {Record<string, Function>|null} [tools]
+ * @property {any} [memoryStore]
+ * @property {any} [stateEngine]
+ * @property {any} [container]
+ */
+
+/**
+ * Minimal Stage API surface used by the design loop.
+ * Keep it permissive (JSDoc-only typing) to reduce `checkJs` friction.
+ *
+ * @typedef {object} DesignStageApi
+ * @property {{ runId?: string, constraints?: any, userConfig?: any }=} [runContext]
+ * @property {(eventName: string, record: { actor?: string, status?: string, payload?: any }) => void=} [emit]
+ * @property {any=} [eventBus]
+ * @property {AbortSignal=} [signal]
+ * @property {any=} [aiApiService]
+ * @property {any=} [modelRouter]
+ * @property {any=} [imageService]
+ * @property {any=} [imageProvider]
+ * @property {any=} [traceContext]
+ * @property {any=} [runtimeHints]
+ * @property {any=} [flushCompression]
+ * @property {any=} [errorBoundaryConfig]
+ * @property {boolean=} [errorBoundaryDegrade]
+ * @property {boolean=} [degradeOnError]
+ * @property {any=} [eventBusBackpressure]
+ * @property {any=} [backpressure]
+ * @property {any=} [memoryStore]
+ * @property {any=} [stateEngine]
+ * @property {any=} [watchdog]
+ * @property {boolean=} [resumed]
+ * @property {any=} [resumeState]
+ * @property {any=} [toolExecutor]
+ * @property {any=} [tools]
+ * @property {boolean=} [enablePlanning]
+ * @property {boolean=} [enableLayout]
+ * @property {boolean=} [enableFinalReview]
+ * @property {any=} [interactionMode]
+ * @property {boolean=} [skipReview]
+ * @property {any=} [userConfig]
+ */
+
+/**
+ * @typedef {object} DesignPhaseState
+ * @property {string} status
+ */
+
+/**
+ * @typedef {Error & { code?: any, timeoutMs?: number }} ErrorWithCode
+ */
+
+/**
+ * @typedef {object} DesignLoopState
+ * @property {any} contentPackage
+ * @property {any[]} slideIntents
+ * @property {any} designSystem
+ * @property {Record<string, any>} constraints
+ * @property {Record<string, any>} userConfig
+ * @property {any} plans
+ * @property {any[]} generated
+ * @property {any[]} slideHtmls
+ * @property {any[]} slidesMeta
+ * @property {any[]} imageSlots
+ * @property {any[]} visualSlots
+ * @property {string} deckHtmlDsl
+ * @property {any[]} pendingImages
+ * @property {any} brainstormResult
+ * @property {any=} layoutData
+ * @property {any=} baseDeckHtmlDsl
+ * @property {any=} degradedCount
+ * @property {any=} finalImageSlots
+ * @property {any=} imageReport
+ * @property {any=} visualReport
+ * @property {any=} refineResult
+ * @property {any=} reviewResult
+ */
+
+/**
+ * @returns {DesignLoopState}
+ */
+function createEmptyDesignLoopState() {
+  return {
+    contentPackage: null,
+    slideIntents: [],
+    designSystem: null,
+    constraints: {},
+    userConfig: {},
+    plans: null,
+    generated: [],
+    slideHtmls: [],
+    slidesMeta: [],
+    imageSlots: [],
+    visualSlots: [],
+    deckHtmlDsl: "",
+    pendingImages: [],
+    brainstormResult: null,
+  };
+}
+
 const logger = createLogger("stages/design/agent-loop");
 
 const SCHEMA_VERSION = "0.1";
@@ -36,7 +140,13 @@ const SCHEMA_VERSION = "0.1";
 export { DESIGN_AGENT_TOOL_DEFINITIONS };
 export { BacktrackError };
 
+/**
+ * Main orchestrator for the design stage.
+ */
 export class DesignAgentLoop extends BaseAgentLoop {
+  /**
+   * @param {DesignLoopConstructorOptions} [options]
+   */
   constructor({ batchSize, archive, eventBus, tools, memoryStore, stateEngine, container } = {}) {
     super({ actor: "design", stageName: "design", eventBus });
     const config = loadDesignConcurrencyConfig();
@@ -54,7 +164,9 @@ export class DesignAgentLoop extends BaseAgentLoop {
     if (tools) this.registerTools(tools);
     // Local reference for backward compat (used by _toolXxx shortcuts below)
     this._designTools = designTools;
+    /** @type {DesignPhaseState} */
     this.phase = { status: DesignPhase.IDLE };
+    /** @type {string} */
     this._loopStatus = AgentStatus.IDLE;
     if (Array.isArray(this._statusHistory)) this._statusHistory.length = 0;
     this.archive = archive || null;
@@ -68,22 +180,13 @@ export class DesignAgentLoop extends BaseAgentLoop {
     this._watchdog = null;
 
     // Runtime state (春秋蝉模式)
-    this.state = {
-      contentPackage: null,
-      slideIntents: [],
-      designSystem: null,
-      constraints: {},
-      userConfig: {},
-      plans: null,
-      generated: [],
-      slideHtmls: [],
-      slidesMeta: [],
-      imageSlots: [],
-      visualSlots: [],
-      deckHtmlDsl: "",
-      pendingImages: [],
-      brainstormResult: null,
-    };
+    /** @type {DesignLoopState} */
+    this.state = createEmptyDesignLoopState();
+
+    /** @type {Function|null} Backward-compatible emit alias used by older tests. */
+    this._emit = null;
+    /** @type {any} Snapshot of last resume (resumeDesignAgentLoop). */
+    this._resumeState = null;
 
     // Expose tool methods for backward compatibility (tests)
     this._toolParseOutline = this._designTools.parse_outline;
@@ -95,6 +198,9 @@ export class DesignAgentLoop extends BaseAgentLoop {
     this._toolChatAsk = this._designTools.chat_ask;
   }
 
+  /**
+   * @returns {DesignBlackboard|null}
+   */
   get blackboard() {
     return this._blackboard;
   }
@@ -102,6 +208,10 @@ export class DesignAgentLoop extends BaseAgentLoop {
   /**
    * 从容器或 context 解析依赖
    * @private
+   * @param {string} serviceId
+   * @param {DesignStageApi} context
+   * @param {any} fallback
+   * @returns {Promise<any>}
    */
   async _resolveDependency(serviceId, context, fallback) {
     // 优先从 context 获取（显式传入）
@@ -116,26 +226,37 @@ export class DesignAgentLoop extends BaseAgentLoop {
     return fallback;
   }
 
-  // === Version Management ===
+	  // === Version Management ===
 
-  saveVersion(label) {
-    if (!this._blackboard) return null;
-    const snapshot = {
-      phase: this.phase?.status,
+	  /**
+	   * @param {string} label
+	   * @returns {any}
+	   */
+	  saveVersion(label) {
+	    if (!this._blackboard) return null;
+	    const snapshot = {
+	      phase: this.phase?.status,
       loopStatus: this._loopStatus,
       state: deepClone(this.state), // 保存当前执行快照
       timestamp: Date.now(),
     };
-    return this._blackboard.saveVersion(label, snapshot);
-  }
+	    return this._blackboard.saveVersion(label, snapshot);
+	  }
 
-  getVersion(label) {
-    return this._blackboard?.getVersion(label) || null;
-  }
+	  /**
+	   * @param {string} label
+	   * @returns {any}
+	   */
+	  getVersion(label) {
+	    return this._blackboard?.getVersion(label) || null;
+	  }
 
-  listVersions() {
-    return this._blackboard?.listVersions() || [];
-  }
+	  /**
+	   * @returns {any[]}
+	   */
+	  listVersions() {
+	    return this._blackboard?.listVersions() || [];
+	  }
 
   /**
    * 回溯到指定版本（抛出 BacktrackError 触发主循环重启）
@@ -171,39 +292,49 @@ export class DesignAgentLoop extends BaseAgentLoop {
    * @param {string} [reason] - 回溯原因
    * @throws {BacktrackError} 触发主循环从目标阶段重启
    */
-  backtrackToLastCheckpoint(reason = "auto_recovery") {
-    const versions = this.listVersions();
-    if (versions.length === 0) throw new Error("Cannot backtrack: no versions available");
-    const latest = versions[versions.length - 1];
-    this.backtrackTo(latest.label, reason);
-  }
+	  backtrackToLastCheckpoint(reason = "auto_recovery") {
+	    const versions = this.listVersions();
+	    if (versions.length === 0) throw new Error("Cannot backtrack: no versions available");
+	    const latest = versions[versions.length - 1];
+	    this.backtrackTo(latest.label, reason);
+	  }
 
-  getToolDefinitions() {
-    return DESIGN_AGENT_TOOL_DEFINITIONS.slice();
-  }
+	  /**
+	   * @returns {any[]}
+	   */
+	  getToolDefinitions() {
+	    return DESIGN_AGENT_TOOL_DEFINITIONS.slice();
+	  }
 
-  serializeNodeStates() {
-    const state = this.state && typeof this.state === "object" ? this.state : {};
-    const out = {
-      contentPackage: state.contentPackage ?? null,
+	  /**
+	   * @returns {Record<string, any>}
+	   */
+	  serializeNodeStates() {
+	    const state = this.state && typeof this.state === "object" ? this.state : {};
+	    const out = {
+	      contentPackage: state.contentPackage ?? null,
       slideIntents: Array.isArray(state.slideIntents) ? state.slideIntents : [],
       designSystem: state.designSystem ?? null,
       slideHtmls: Array.isArray(state.slideHtmls) ? state.slideHtmls : [],
       deckHtmlDsl: typeof state.deckHtmlDsl === "string" ? state.deckHtmlDsl : "",
       imageSlots: Array.isArray(state.imageSlots) ? state.imageSlots : [],
       visualSlots: Array.isArray(state.visualSlots) ? state.visualSlots : [],
-    };
-    return deepClone(out);
-  }
+	    };
+	    return deepClone(out);
+	  }
 
-  hydrateFromNodeStates(nodeStates) {
-    const source = nodeStates && typeof nodeStates === "object" ? nodeStates : {};
-    if (!this.state || typeof this.state !== "object") this.state = {};
+	  /**
+	   * @param {any} nodeStates
+	   * @returns {void}
+	   */
+	  hydrateFromNodeStates(nodeStates) {
+	    const source = nodeStates && typeof nodeStates === "object" ? nodeStates : {};
+	    if (!this.state || typeof this.state !== "object") this.state = createEmptyDesignLoopState();
 
-    const contentPackage = source.contentPackage || source.parsedContentPackage || null;
-    if (contentPackage && typeof contentPackage === "object") {
-      this.state.contentPackage = deepClone(contentPackage);
-    }
+	    const contentPackage = source.contentPackage || source.parsedContentPackage || null;
+	    if (contentPackage && typeof contentPackage === "object") {
+	      this.state.contentPackage = deepClone(contentPackage);
+	    }
 
     if (Array.isArray(source.slideIntents)) {
       this.state.slideIntents = deepClone(source.slideIntents);
@@ -228,13 +359,19 @@ export class DesignAgentLoop extends BaseAgentLoop {
     if (Array.isArray(source.visualSlots)) {
       this.state.visualSlots = deepClone(source.visualSlots);
     }
-  }
+	  }
 
 
-  _transitionPhase(state, next, { emit, runId, payload, lifecycle } = {}) {
-    const from = state.status;
-    const ok = designPhaseMachine.transition(state, next, { runId, from, to: next, ...payload });
-    if (!ok) {
+	  /**
+	   * @param {DesignPhaseState} state
+	   * @param {string} next
+	   * @param {{ emit?: Function, runId?: string, payload?: any, lifecycle?: any }} [context]
+	   * @returns {string}
+	   */
+	  _transitionPhase(state, next, { emit, runId, payload, lifecycle } = {}) {
+	    const from = state.status;
+	    const ok = designPhaseMachine.transition(state, next, { runId, from, to: next, ...payload });
+	    if (!ok) {
       throw new Error(`DesignPhase transition rejected: ${from} -> ${next}`);
     }
     const phaseLifecycle =
@@ -258,12 +395,17 @@ export class DesignAgentLoop extends BaseAgentLoop {
     } else {
       phaseLifecycle.phaseTransition(from, next, runId, payload);
     }
-    return next;
-  }
+	    return next;
+	  }
 
-  async _transitionTo(newStatus, metadata = {}) {
-    const oldStatus = this._loopStatus;
-    if (oldStatus === newStatus) return null;
+	  /**
+	   * @param {string} newStatus
+	   * @param {Record<string, any>} [metadata]
+	   * @returns {Promise<string|null>}
+	   */
+	  async _transitionTo(newStatus, metadata = {}) {
+	    const oldStatus = this._loopStatus;
+	    if (oldStatus === newStatus) return null;
 
     // 简化状态机：只验证基本转换
     const validTransitions = {
@@ -273,12 +415,12 @@ export class DesignAgentLoop extends BaseAgentLoop {
       [AgentStatus.COMPLETED]: [],
       [AgentStatus.FAILED]: [],
     };
-    const allowed = validTransitions[oldStatus] || [];
-    if (!allowed.includes(newStatus)) {
-      const err = new Error(`Invalid DesignLoop state transition: ${oldStatus} -> ${newStatus}`);
-      err.code = "INVALID_STATE_TRANSITION";
-      throw err;
-    }
+	    const allowed = validTransitions[oldStatus] || [];
+	    if (!allowed.includes(newStatus)) {
+	      const err = new Error(`Invalid DesignLoop state transition: ${oldStatus} -> ${newStatus}`);
+	      /** @type {ErrorWithCode} */ (err).code = "INVALID_STATE_TRANSITION";
+	      throw err;
+	    }
 
     const meta = metadata && typeof metadata === "object" ? metadata : {};
     const { stageApi, nodeStates, ...historyMeta } = meta;
@@ -338,12 +480,20 @@ export class DesignAgentLoop extends BaseAgentLoop {
     return checkpointId;
   }
 
+  /**
+   * @param {any} payload
+   * @returns {void}
+   */
   _emitAgentStatusChanged(payload) {
     const emit = this.emit || this.eventBus?.emit;
     if (typeof emit !== "function") return;
     emit("design.agent.status.changed", { actor: "design", status: "info", payload });
   }
 
+  /**
+   * @param {Record<string, any>} metadata
+   * @returns {Promise<string|null>}
+   */
   async _savePreActionCheckpoint(metadata) {
     if (!this.archive) return null;
     const meta = metadata && typeof metadata === "object" ? metadata : {};
@@ -368,23 +518,55 @@ export class DesignAgentLoop extends BaseAgentLoop {
     return this.archive.save(meta.runId || "unknown", checkpoint);
   }
 
+  /**
+   * @returns {string}
+   */
   get loopStatus() {
     return this._loopStatus;
   }
 
+  /**
+   * @returns {any[]}
+   */
   get statusHistory() {
     return [...this._statusHistory];
   }
 
   // Delegate to VisualHandler
+  /**
+   * @param {any} contentPackage
+   * @param {DesignStageApi} context
+   * @param {any} constraints
+   * @param {any} userConfig
+   * @returns {Promise<any>}
+   */
   async _initDesignSystem(contentPackage, context, constraints, userConfig) {
     return this._visualHandler.initDesignSystem(contentPackage, context, constraints, userConfig);
   }
 
+  /**
+   * @param {any} brainstormResult
+   * @param {any[]} imageSlots
+   * @param {any} imageProvider
+   * @param {boolean} [hasModelCapability]
+   * @returns {any[]}
+   */
   _buildVisualSlots(brainstormResult, imageSlots, imageProvider, hasModelCapability = true) {
     return this._visualHandler.buildVisualSlots(brainstormResult, imageSlots, imageProvider, hasModelCapability);
   }
 
+  /**
+   * @param {any[]} visualSlotsForRender
+   * @param {any} contentPackage
+   * @param {any} designSystem
+   * @param {any[]} slideHtmls
+   * @param {DesignStageApi} context
+   * @param {any} runContext
+   * @param {any} constraints
+   * @param {any[]} imageSlots
+   * @param {Set<string>|string[]|null} aiImageSlotIds
+   * @returns {Promise<any>}
+   */
   async _renderVisuals(
     visualSlotsForRender,
     contentPackage,
@@ -416,7 +598,8 @@ export class DesignAgentLoop extends BaseAgentLoop {
    * Stage interface (Runtime): execute(runContext, contentPackage) -> DeckPackage.
    * @param {object} runContext
    * @param {object} contentPackage ContentPackage v0.1
-   * @param {{emit?:Function,eventBus?:object,signal?:AbortSignal,aiApiService?:object,imageService?:any,imageProvider?:any}=} stageApi
+   * @param {DesignStageApi} [stageApi]
+   * @returns {Promise<any>}
    */
   async execute(runContext, contentPackage, stageApi = {}) {
     return super.execute(runContext, contentPackage, stageApi);
@@ -425,13 +608,18 @@ export class DesignAgentLoop extends BaseAgentLoop {
   /**
    * Convenience adapter: run(contentPackage, context) -> DeckPackage.
    * 支持 BacktrackError 自动重启机制
-   * @param {object} contentPackage
-   * @param {{runContext?:object,emit?:Function,eventBus?:object,signal?:AbortSignal,aiApiService?:object,imageService?:any,imageProvider?:any}=} context
+   * @param {any} contentPackage
+   * @param {DesignStageApi} [context]
+   * @returns {Promise<any>}
    */
-  async run(contentPackage, context = {}) {
+  async run(contentPackage = null, context = {}) {
     const stageApi = context && typeof context === "object" ? context : {};
     const traceContext = resolveStageTraceContext(stageApi);
-    const runContext = stageApi.runContext || { runId: contentPackage?.runId || "run_unknown", constraints: contentPackage?.constraints || {} };
+    const runContext = stageApi.runContext || {
+      runId: contentPackage?.runId || "run_unknown",
+      constraints: contentPackage?.constraints || {},
+      userConfig: stageApi?.userConfig || contentPackage?.userConfig || {},
+    };
     const runId = runContext.runId || contentPackage?.runId || "run_unknown";
     const errorBoundary = resolveErrorBoundary(stageApi, this._container);
 
@@ -524,31 +712,40 @@ export class DesignAgentLoop extends BaseAgentLoop {
   /**
    * 核心执行逻辑（从 run 提取）
    * @private
+   * @param {any} contentPackage
+   * @param {DesignStageApi} [context]
+   * @returns {Promise<any>}
    */
   async _runCore(contentPackage, context = {}) {
-    const runContext = context.runContext || { runId: contentPackage?.runId || "run_unknown", constraints: contentPackage?.constraints || {} };
+    const runContext = context.runContext || {
+      runId: contentPackage?.runId || "run_unknown",
+      constraints: contentPackage?.constraints || {},
+      userConfig: context?.userConfig || contentPackage?.userConfig || {},
+    };
     const runId = runContext.runId || contentPackage?.runId || "run_unknown";
-    const traceContext =
-      context?.traceContext && typeof context.traceContext.withSpan === "function" ? context.traceContext : null;
-    this.eventBus = context.eventBus || this.eventBus || null;
-    let emit = getEmitFn(context);
-    if ((!emit || emit === this.eventBus?.emit) && this.eventBus?.emit) {
-      emit = this.eventBus.emit.bind(this.eventBus);
-    }
+	    const traceContext =
+	      context?.traceContext && typeof context.traceContext.withSpan === "function" ? context.traceContext : null;
+	    this.eventBus = context.eventBus || this.eventBus || null;
+	    const eventBus = /** @type {any} */ (this.eventBus);
+	    let emit = getEmitFn(context);
+	    if ((!emit || emit === this.eventBus?.emit) && this.eventBus?.emit) {
+	      emit = this.eventBus.emit.bind(this.eventBus);
+	    }
     this.emit = emit || this.emit || null;
+	    this._emit = this.emit;
 
-    // P4.6: Enable backpressure for high-frequency events (best-effort).
-    if (this.eventBus && typeof this.eventBus.enableBackpressure === "function" && !this.eventBus?._backpressure?.enabled) {
-      const cfg = context?.eventBusBackpressure ?? context?.backpressure;
-      if (cfg !== false) {
-        const opts = cfg && typeof cfg === "object" && !Array.isArray(cfg) ? cfg : {};
-        try {
-          this.eventBus.enableBackpressure({
-            coalescePattern: /\.progress$/,
-            deferNonCoalesced: false,
-            maxQueueSize: 10000,
-            ...opts,
-          });
+	    // P4.6: Enable backpressure for high-frequency events (best-effort).
+	    if (eventBus && typeof eventBus.enableBackpressure === "function" && !eventBus?._backpressure?.enabled) {
+	      const cfg = context?.eventBusBackpressure ?? context?.backpressure;
+	      if (cfg !== false) {
+	        const opts = cfg && typeof cfg === "object" && !Array.isArray(cfg) ? cfg : {};
+	        try {
+	          eventBus.enableBackpressure({
+	            coalescePattern: /\.progress$/,
+	            deferNonCoalesced: false,
+	            maxQueueSize: 10000,
+	            ...opts,
+	          });
         } catch {
           // ignore
         }
@@ -572,11 +769,13 @@ export class DesignAgentLoop extends BaseAgentLoop {
     let watchdog = await this._resolveDependency("watchdog", context, null);
     if (watchdog && typeof watchdog.reset === "function") watchdog.reset();
     if (!watchdog) {
-      watchdog = new Watchdog({
-        eventBus: this.eventBus,
-        maxRecentOutputs: watchdogSettings.maxRecentOutputs,
-        oscillationThreshold: watchdogSettings.similarityThreshold,
-      });
+      watchdog = new Watchdog(
+        /** @type {any} */ ({
+          eventBus: this.eventBus,
+          maxRecentOutputs: watchdogSettings.maxRecentOutputs,
+          oscillationThreshold: watchdogSettings.similarityThreshold,
+        })
+      );
     } else if (typeof watchdog.configure === "function") {
       watchdog.configure({
         maxRecentOutputs: watchdogSettings.maxRecentOutputs,
@@ -584,9 +783,9 @@ export class DesignAgentLoop extends BaseAgentLoop {
       });
     }
     this._watchdog = watchdog;
-    let lastInterventionAt = 0;
+	    let lastInterventionAt = 0;
 
-    const handleWatchdogHealth = (health, meta = {}) => {
+	    const handleWatchdogHealth = (health, meta = {}) => {
       if (!health || health.healthy) return;
       const now = Date.now();
       if (now - lastInterventionAt < 1500) return;
@@ -601,11 +800,11 @@ export class DesignAgentLoop extends BaseAgentLoop {
       if (typeof watchdog?.resetOscillation === "function") watchdog.resetOscillation();
     };
 
-    const offRefineWatchdog =
-      this.eventBus && typeof this.eventBus.on === "function"
-        ? this.eventBus.on("design.refine.step", (evt) => {
-          if (evt?.runId && evt.runId !== runId) return;
-          if (!watchdog) return;
+	    const offRefineWatchdog =
+	      eventBus && typeof eventBus.on === "function"
+	        ? eventBus.on("design.refine.step", (evt) => {
+	          if (evt?.runId && evt.runId !== runId) return;
+	          if (!watchdog) return;
 
           const summary = summarizeRefineEventForWatchdog(evt);
           if (!summary) return;
@@ -623,18 +822,19 @@ export class DesignAgentLoop extends BaseAgentLoop {
         })
         : null;
 
-    // 仅在初始运行时初始化状态，回溯重启时保留已恢复的状态
-    if (!context.resumed && !this._isBacktracking) {
-      this.phase = { status: DesignPhase.IDLE };
-      // 从容器或 context 获取 memoryStore 并绑定到 Blackboard
-      const memoryStore = await this._resolveDependency("memoryStore", context, this._memoryStore);
-      const stateEngine = await this._resolveDependency("stateEngine", context, this._stateEngine);
-      this._blackboard = new DesignBlackboard({ runId, memoryStore, stateEngine });
-      this._memoryStore = memoryStore;
-      this._stateEngine = stateEngine;
-      this._iteration = 0;
-      this.state.contentPackage = contentPackage;
-    }
+	    // 仅在初始运行时初始化状态，回溯重启时保留已恢复的状态
+	    if (!context.resumed && !this._isBacktracking) {
+	      /** @type {DesignPhaseState} */
+	      this.phase = { status: DesignPhase.IDLE };
+	      // 从容器或 context 获取 memoryStore 并绑定到 Blackboard
+	      const memoryStore = await this._resolveDependency("memoryStore", context, this._memoryStore);
+	      const stateEngine = await this._resolveDependency("stateEngine", context, this._stateEngine);
+	      this._blackboard = new DesignBlackboard(/** @type {any} */ ({ runId, memoryStore, stateEngine }));
+	      this._memoryStore = memoryStore;
+	      this._stateEngine = stateEngine;
+	      this._iteration = 0;
+	      this.state.contentPackage = contentPackage;
+	    }
     this._isBacktracking = false;
 
     const stageApi = { signal: context.signal };
@@ -672,11 +872,17 @@ export class DesignAgentLoop extends BaseAgentLoop {
       const head = deckHtmlDsl.slice(0, sigLen);
       const tail = deckHtmlDsl.slice(-sigLen);
       return `${deckHtmlDsl.length}:${head}:${tail}`;
-    };
-    let lastDeckSignature = null;
-    const emitDeckUpdate = (deckHtmlDsl, slidesMeta, { source } = {}) => {
-      if (!emit || typeof deckHtmlDsl !== "string") return;
-      if (!deckHtmlDsl.includes("<section")) return;
+	    };
+	    let lastDeckSignature = null;
+	    /**
+	     * @param {string} deckHtmlDsl
+	     * @param {any[]} slidesMeta
+	     * @param {{ source?: string }} [options]
+	     * @returns {void}
+	     */
+	    const emitDeckUpdate = (deckHtmlDsl, slidesMeta, { source } = {}) => {
+	      if (!emit || typeof deckHtmlDsl !== "string") return;
+	      if (!deckHtmlDsl.includes("<section")) return;
       const signature = buildDeckSignature(deckHtmlDsl);
 
       if (watchdog && signature) {
@@ -779,27 +985,27 @@ export class DesignAgentLoop extends BaseAgentLoop {
         const layoutResult = traceContext
           ? await traceContext.withSpan("design.phase.layout", async (span) => {
               span.setAttributes({ runId, slideCount: Array.isArray(this.state.slideIntents) ? this.state.slideIntents.length : 0 });
-              return await runLayoutPhase(this, {
-                slideIntents: this.state.slideIntents,
-                designSystem: this.state.designSystem,
-                plans: this.state.plans,
-                context,
-                runContext,
-                emit,
-                startExecution,
-                finishExecution,
-              });
-            })
-          : await runLayoutPhase(this, {
-              slideIntents: this.state.slideIntents,
-              designSystem: this.state.designSystem,
-              plans: this.state.plans,
-              context,
-              runContext,
-              emit,
-              startExecution,
-              finishExecution,
-            });
+	              return await runLayoutPhase(this, /** @type {any} */ ({
+	                slideIntents: this.state.slideIntents,
+	                designSystem: this.state.designSystem,
+	                plans: this.state.plans,
+	                context,
+	                runContext,
+	                emit,
+	                startExecution,
+	                finishExecution,
+	              }));
+	            })
+	          : await runLayoutPhase(this, /** @type {any} */ ({
+	              slideIntents: this.state.slideIntents,
+	              designSystem: this.state.designSystem,
+	              plans: this.state.plans,
+	              context,
+	              runContext,
+	              emit,
+	              startExecution,
+	              finishExecution,
+	            }));
         this.state.layoutData = layoutResult;
         this._blackboard.setSummary("layout", "Wireframes generated");
       }
@@ -815,39 +1021,39 @@ export class DesignAgentLoop extends BaseAgentLoop {
         const genPhaseResult = traceContext
           ? await traceContext.withSpan("design.phase.generating", async (span) => {
               span.setAttributes({ runId, slideCount: Array.isArray(this.state.slideIntents) ? this.state.slideIntents.length : 0, skipReview });
-              return await runGeneratingPhase(this, {
-                slideIntents: this.state.slideIntents,
-                contentPackage: this.state.contentPackage,
-                designSystem: this.state.designSystem,
-                constraints: this.state.constraints,
-                userConfig: this.state.userConfig,
-                context,
-                runContext,
-                emit,
-                startExecution,
-                finishExecution,
-                emitDeckUpdate,
-                plans: this.state.plans,
-                layoutData: this.state.layoutData,
-                skipReview,
-              });
-            })
-          : await runGeneratingPhase(this, {
-              slideIntents: this.state.slideIntents,
-              contentPackage: this.state.contentPackage,
-              designSystem: this.state.designSystem,
-              constraints: this.state.constraints,
-              userConfig: this.state.userConfig,
-              context,
-              runContext,
-              emit,
-              startExecution,
-              finishExecution,
-              emitDeckUpdate,
-              plans: this.state.plans,
-              layoutData: this.state.layoutData,
-              skipReview,
-            });
+	              return await runGeneratingPhase(this, /** @type {any} */ ({
+	                slideIntents: this.state.slideIntents,
+	                contentPackage: this.state.contentPackage,
+	                designSystem: this.state.designSystem,
+	                constraints: this.state.constraints,
+	                userConfig: this.state.userConfig,
+	                context,
+	                runContext,
+	                emit,
+	                startExecution,
+	                finishExecution,
+	                emitDeckUpdate,
+	                plans: this.state.plans,
+	                layoutData: this.state.layoutData,
+	                skipReview,
+	              }));
+	            })
+	          : await runGeneratingPhase(this, /** @type {any} */ ({
+	              slideIntents: this.state.slideIntents,
+	              contentPackage: this.state.contentPackage,
+	              designSystem: this.state.designSystem,
+	              constraints: this.state.constraints,
+	              userConfig: this.state.userConfig,
+	              context,
+	              runContext,
+	              emit,
+	              startExecution,
+	              finishExecution,
+	              emitDeckUpdate,
+	              plans: this.state.plans,
+	              layoutData: this.state.layoutData,
+	              skipReview,
+	            }));
 
         this.state.generated = genPhaseResult.generated;
         this.state.slideHtmls = genPhaseResult.slideHtmls;
@@ -1028,11 +1234,11 @@ export class DesignAgentLoop extends BaseAgentLoop {
       if (err instanceof BacktrackError) {
         throw err;
       }
-      const pauseLike = this._shouldPauseFromError(err, context.signal);
-      if (this._activeStep) {
-        const message = err instanceof Error ? err.message : String(err);
-        this._endStep(null, { status: pauseLike ? "paused" : "failed", error: message });
-      }
+	      const pauseLike = this._shouldPauseFromError(err, context.signal);
+	      if (this._activeStep) {
+	        const message = err instanceof Error ? err.message : String(err);
+	        this._endStep(null, /** @type {any} */ ({ status: pauseLike ? "paused" : "failed", error: message }));
+	      }
       if (err instanceof StagePausedError) {
         throw err;
       }

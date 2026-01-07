@@ -74,6 +74,9 @@ let _didWarnDeprecation = false;
  * - kernel.use(provider) → kernel.use(plugin)
  */
 export class MicroKernel {
+  /**
+   * @param {{ container?: any, eventBus?: any, scheduler?: any, providers?: any[] }} [options]
+   */
   constructor({ container, eventBus, scheduler, providers } = {}) {
     if (!_didWarnDeprecation) {
       _didWarnDeprecation = true;
@@ -233,4 +236,3 @@ export class MicroKernel {
     }
   }
 }
-

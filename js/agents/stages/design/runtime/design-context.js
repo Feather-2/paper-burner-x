@@ -10,7 +10,34 @@
 
 import { UnifiedAgentContext } from "../../../runtime/context/unified-agent-context.js";
 
+/**
+ * @typedef {object} DesignContextOptions
+ * @property {string} [runId]
+ * @property {any[]} [slideIntents]
+ * @property {any} [designSystem]
+ * @property {any[]} [imageSlots]
+ * @property {string} [deckHtmlDsl]
+ * @property {any[]} [slidesMeta]
+ * @property {any} [constraints]
+ * @property {any} [userConfig]
+ */
+
+/**
+ * @typedef {object} DesignContextSnapshot
+ * @property {string} runId
+ * @property {any[]} slideIntents
+ * @property {any} designSystem
+ * @property {any[]} imageSlots
+ * @property {string} deckHtmlDsl
+ * @property {any[]} slidesMeta
+ * @property {any} constraints
+ * @property {any} userConfig
+ */
+
 export class DesignContext extends UnifiedAgentContext {
+  /**
+   * @param {DesignContextOptions} [options={}]
+   */
   constructor(options = {}) {
     super(options);
 
@@ -123,6 +150,9 @@ export class DesignContext extends UnifiedAgentContext {
   // Snapshot / Checkpoint
   // ─────────────────────────────────────────────────────────────────────────────
 
+  /**
+   * @returns {DesignContextSnapshot}
+   */
   toSnapshot() {
     return {
       runId: this.runId,
@@ -136,6 +166,11 @@ export class DesignContext extends UnifiedAgentContext {
     };
   }
 
+  /**
+   * @param {DesignContextSnapshot} snapshot
+   * @param {DesignContextOptions} [options={}]
+   * @returns {DesignContext}
+   */
   static fromSnapshot(snapshot, options = {}) {
     return new DesignContext({
       ...options,
@@ -151,6 +186,10 @@ export class DesignContext extends UnifiedAgentContext {
   }
 }
 
+/**
+ * @param {DesignContextOptions} [options={}]
+ * @returns {DesignContext}
+ */
 export function createDesignContext(options = {}) {
   return new DesignContext(options);
 }

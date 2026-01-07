@@ -38,6 +38,9 @@ function normalizeLimit(value) {
 }
 
 export class SharedContext {
+  /**
+   * @param {{ runId?: string, limits?: any, maxL1Entries?: number, maxL2Entries?: number }=} options
+   */
   constructor({ runId, limits, maxL1Entries, maxL2Entries } = {}) {
     this.runId = toNonEmptyString(runId) || `ctx_${Date.now()}`;
     this.createdAt = new Date().toISOString();
@@ -307,9 +310,9 @@ export class SharedContext {
   /**
    * 构建完整黑板摘要（用于注入到模型上下文）
    * 包含：L1 摘要 + 最近信号 + 最近决策
-   * @param {object} options
-   * @param {number} options.maxSignals - 最多包含的信号数（默认 5）
-   * @param {number} options.maxDecisions - 最多包含��决策数（默认 3）
+   * @param {object} [options]
+   * @param {number} [options.maxSignals] - 最多包含的信号数（默认 5）
+   * @param {number} [options.maxDecisions] - 最多包含的决策数（默认 3）
    * @param {string} [options.targetTaskId] - 仅展示该 task 的定向信号（无 targetTaskId 的广播信号仍可见）
    * @returns {string}
    */

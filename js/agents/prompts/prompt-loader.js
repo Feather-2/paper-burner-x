@@ -9,14 +9,76 @@ import { createLogger } from "../shared/utils/logger.js";
 import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
 const logger = createLogger("prompts/prompt-loader");
 
+/** @type {any} */
+const nodeProcess = /** @type {any} */ (globalThis).process;
+
+/**
+ * `require` is a CommonJS-only global. This file is ESM, but we keep `typeof require`
+ * checks for compatibility; declare it so TypeScript can typecheck without @types/node.
+ * @type {any}
+ */
+// eslint-disable-next-line no-var
+var require;
+
+/**
+ * `__dirname` is a CommonJS-only global. This file is ESM, but we keep `typeof __dirname`
+ * checks for compatibility; declare it so TypeScript can typecheck without @types/node.
+ * @type {string|undefined}
+ */
+// eslint-disable-next-line no-var
+var __dirname;
+
+/**
+ * @typedef {object} PromptLoaderOptions
+ * @property {number=} maxEntries
+ * @property {number=} manifestTtlMs
+ * @property {string=} basePath
+ * @property {typeof fetch=} fetchImpl
+ */
+
+/**
+ * @typedef {object} PromptCacheConfig
+ * @property {number=} maxEntries
+ * @property {number=} manifestTtlMs
+ */
+
+/**
+ * @typedef {object} LoadPromptOptions
+ * @property {boolean=} cache
+ * @property {string=} manifestUrl
+ */
+
+/**
+ * @typedef {Map<string, unknown> | Record<string, unknown>} PromptTemplateVars
+ */
+
+/**
+ * @typedef {object} RenderPromptTemplateOptions
+ * @property {PromptTemplateVars=} vars
+ * @property {Record<string, string>=} appendIfMissing
+ * @property {boolean=} keepUnresolved
+ * @property {boolean=} warnOnUnresolved
+ * @property {boolean=} failOnUnresolved
+ * @property {(names: string[]) => void=} onUnresolved
+ * @property {boolean=} escapeVars
+ */
+
+/**
+ * @typedef {{name: string, path: string}} PromptManifestEntry
+ */
+
+/**
+ * @typedef {{url: string, ts: number, byName: Map<string, PromptManifestEntry>}} PromptManifest
+ */
+
 const PROMPT_CACHE_KEY_SEPARATOR = "::";
 
 function isNodeLike() {
-  return typeof process !== "undefined" && !!process.versions?.node;
+  return !!nodeProcess && typeof nodeProcess === "object" && !!nodeProcess.versions?.node;
 }
 
 function resolvePromptCacheMaxEntries() {
-  const env = typeof process !== "undefined" ? process.env : null;
+  const env = nodeProcess && typeof nodeProcess === "object" ? nodeProcess.env : null;
   const fromEnv = env?.PB_PROMPT_CACHE_MAX_ENTRIES;
   if (fromEnv !== undefined && fromEnv !== null) {
     const parsed = parseInt(String(fromEnv), 10);
@@ -35,7 +97,7 @@ function resolvePromptCacheMaxEntries() {
 }
 
 function resolvePromptManifestCacheTtlMs() {
-  const env = typeof process !== "undefined" ? process.env : null;
+  const env = nodeProcess && typeof nodeProcess === "object" ? nodeProcess.env : null;
   const fromEnv = env?.PB_PROMPT_MANIFEST_CACHE_TTL_MS;
   if (fromEnv !== undefined && fromEnv !== null) {
     const parsed = parseInt(String(fromEnv), 10);
@@ -84,6 +146,9 @@ function makePromptCacheKey({ basePath, manifestUrl, promptKey }) {
 }
 
 export class PromptLoader {
+  /**
+   * @param {PromptLoaderOptions} [options]
+   */
   constructor({ maxEntries, manifestTtlMs, basePath, fetchImpl } = {}) {
     this._promptCache = new Map();
     this._promptCacheMaxEntries =
@@ -95,6 +160,10 @@ export class PromptLoader {
     this._fetchImpl = typeof fetchImpl === "function" ? fetchImpl : null;
   }
 
+  /**
+   * @param {unknown} value
+   * @returns {number}
+   */
   _normalizeMaxEntries(value) {
     const parsed = parseInt(String(value), 10);
     if (!Number.isFinite(parsed)) {
@@ -103,6 +172,10 @@ export class PromptLoader {
     return Math.max(0, parsed);
   }
 
+  /**
+   * @param {unknown} value
+   * @returns {number}
+   */
   _normalizeManifestTtlMs(value) {
     const parsed = parseInt(String(value), 10);
     if (!Number.isFinite(parsed)) {
@@ -111,6 +184,10 @@ export class PromptLoader {
     return Math.max(0, parsed);
   }
 
+  /**
+   * @param {PromptCacheConfig} [options]
+   * @returns {{ maxEntries: number, manifestTtlMs: number, size: number }}
+   */
   configureCache({ maxEntries, manifestTtlMs } = {}) {
     if (maxEntries !== undefined) {
       this._promptCacheMaxEntries = this._normalizeMaxEntries(maxEntries);
@@ -122,6 +199,10 @@ export class PromptLoader {
     return { maxEntries: this._promptCacheMaxEntries, manifestTtlMs: this._promptManifestCacheTtlMs, size: this._promptCache.size };
   }
 
+  /**
+   * @param {string=} name
+   * @returns {void}
+   */
   clearPromptCache(name) {
     if (name) {
       const suffix = `${PROMPT_CACHE_KEY_SEPARATOR}${String(name).replace(/\.md$/i, "")}`;
@@ -133,6 +214,9 @@ export class PromptLoader {
     this._promptCache.clear();
   }
 
+  /**
+   * @returns {string[]}
+   */
   getCachedPromptNames() {
     const names = new Set();
     for (const k of this._promptCache.keys()) {
@@ -145,11 +229,18 @@ export class PromptLoader {
     return Array.from(names.values());
   }
 
+  /**
+   * @returns {(typeof fetch) | null}
+   */
   _getFetch() {
     if (this._fetchImpl) return this._fetchImpl;
     return typeof fetch === "function" ? fetch : null;
   }
 
+  /**
+   * @param {string} url
+   * @returns {Promise<any>}
+   */
   async _fetchJson(url) {
     const fetchFn = this._getFetch();
     if (!fetchFn) throw new Error("fetch is not available in this environment");
@@ -158,6 +249,10 @@ export class PromptLoader {
     return await resp.json();
   }
 
+  /**
+   * @param {string=} manifestUrl
+   * @returns {Promise<PromptManifest|null>}
+   */
   async _loadPromptManifest(manifestUrl) {
     if (isNodeLike()) return null;
 
@@ -194,6 +289,11 @@ export class PromptLoader {
     return null;
   }
 
+  /**
+   * @param {string} key
+   * @param {{ manifestUrl?: string }} [options]
+   * @returns {Promise<string>}
+   */
   async _resolvePromptUrlFromManifest(key, { manifestUrl } = {}) {
     const k = toNonEmptyString(key).replace(/\.md$/i, "");
     if (!k) return "";
@@ -211,6 +311,11 @@ export class PromptLoader {
     }
   }
 
+  /**
+   * @param {string} name
+   * @param {LoadPromptOptions} [options]
+   * @returns {Promise<string>}
+   */
   async loadPrompt(name, { cache = true, manifestUrl } = {}) {
     const key = String(name).replace(/\.md$/i, "");
 
@@ -254,8 +359,8 @@ export class PromptLoader {
     // Node.js 环境 - 使用 fs
     else {
       try {
-        const fs = await import("fs/promises");
-        const pathModule = await import("path");
+        const fs = /** @type {any} */ (await import(/* @vite-ignore */ /** @type {string} */ ("fs/promises")));
+        const pathModule = /** @type {any} */ (await import(/* @vite-ignore */ /** @type {string} */ ("path")));
 
         const baseResolved = pathModule.resolve(basePath);
         const baseReal = await fs.realpath(baseResolved);
@@ -278,6 +383,11 @@ export class PromptLoader {
     return trimmed;
   }
 
+  /**
+   * @param {string} name
+   * @param {{ cache?: boolean }} [options]
+   * @returns {string}
+   */
   loadPromptSync(name, { cache = true } = {}) {
     const key = String(name).replace(/\.md$/i, "");
 
@@ -325,6 +435,10 @@ export class PromptLoader {
     }
   }
 
+  /**
+   * @param {string[]|unknown} names
+   * @returns {Promise<Map<string, string>>}
+   */
   async preloadPrompts(names) {
     const list = Array.isArray(names) ? names : [];
     const results = await Promise.all(
@@ -338,12 +452,23 @@ export class PromptLoader {
         }
       })
     );
-    return new Map(results.filter(([, v]) => v !== null));
+    const map = new Map();
+    for (const entry of results) {
+      if (!Array.isArray(entry) || entry.length < 2) continue;
+      const [k, v] = entry;
+      if (v === null) continue;
+      map.set(String(k), String(v));
+    }
+    return map;
   }
 }
 
 const _defaultPromptLoader = new PromptLoader();
 
+/**
+ * @param {PromptCacheConfig} [options]
+ * @returns {{ maxEntries: number, manifestTtlMs: number, size: number }}
+ */
 export function configurePromptCache({ maxEntries, manifestTtlMs } = {}) {
   return _defaultPromptLoader.configureCache({ maxEntries, manifestTtlMs });
 }
@@ -377,7 +502,7 @@ function getBasePath() {
       // 使用 decodeURIComponent 处理 URL 编码的路径
       // 并移除 Windows 路径的前导斜杠（如 /C:/...）
       let pathname = decodeURIComponent(moduleUrl.pathname);
-      if (process.platform === "win32" && pathname.startsWith("/")) {
+      if (nodeProcess?.platform === "win32" && pathname.startsWith("/")) {
         pathname = pathname.slice(1);
       }
       return pathname;
@@ -440,9 +565,7 @@ function escapeTemplateDelimiters(value) {
 /**
  * 异步加载提示词文件
  * @param {string} name - 提示词名称，如 "dsl/ppt-html-dsl" (不需要 .md 后缀)
- * @param {object} options - 选项
- * @param {boolean} options.cache - 是否使用缓存，默认 true
- * @param {string=} options.manifestUrl - Browser-only prompt manifest URL
+ * @param {LoadPromptOptions} [options] - 选项
  * @returns {Promise<string>} 提示词内容
  */
 export async function loadPrompt(name, { cache = true, manifestUrl } = {}) {
@@ -461,9 +584,13 @@ function getSyncNodeModules() {
       // 在原生 ESM 环境下，通过 import.meta 获取
       return null;
     }
+    /** @type {string} */
+    const fsModule = "fs";
+    /** @type {string} */
+    const pathModule = "path";
     return {
-      fs: require("fs"),
-      path: require("path")
+      fs: require(fsModule),
+      path: require(pathModule)
     };
   } catch {
     return null;
@@ -567,7 +694,7 @@ function normalizeTemplateVars(vars) {
  */
 export function renderPromptTemplate(
   template,
-  {
+  /** @type {RenderPromptTemplateOptions} */ {
     vars,
     appendIfMissing,
     keepUnresolved = true,

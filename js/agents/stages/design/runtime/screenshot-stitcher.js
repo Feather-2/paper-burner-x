@@ -98,7 +98,7 @@ function isBrowserEnv() {
  *
  * @param {string[]} screenshots - base64 data URL 数组
  * @param {object} options - 配置选项
- * @returns {Promise<string>} - 拼接后的 base64 data URL
+ * @returns {Promise<string | null | { type: "placeholder", message: string, screenshots: string[], grid: { cols: number, rows: number } }>} - 拼接后的 base64 data URL（或占位信息）
  */
 export async function stitchScreenshots(screenshots, options = {}) {
   const config = { ...STITCHER_CONFIG, ...options };
@@ -177,7 +177,7 @@ export async function stitchScreenshots(screenshots, options = {}) {
  *
  * @param {string[]} screenshots - 所有幻灯片的 base64 截图
  * @param {object} options - 配置选项
- * @returns {Promise<string[]>} - 拼接后的图片数组
+ * @returns {Promise<Array<{ gridIndex: number, startSlide: number, endSlide: number, image: any }>>} - 拼接后的图片数组（带元信息）
  */
 export async function createDeckOverview(screenshots, options = {}) {
   const config = { ...STITCHER_CONFIG, ...options };

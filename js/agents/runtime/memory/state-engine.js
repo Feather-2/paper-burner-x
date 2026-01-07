@@ -16,7 +16,7 @@
  */
 
 import { nextTick, sync as syncClock, currentSeq } from "../events/lamport-clock.js";
-import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString, deepClone } from "../../shared/utils/value-utils.js";
 import { cloneJson, buildStatePatch, applyStatePatch, diffLayers } from "./state-diff.js";
 import { cryptoRandomHex } from "../../shared/utils/secure-id.js";
 import { createLogger } from "../../shared/utils/logger.js";
@@ -28,7 +28,7 @@ const logger = createLogger("runtime/memory/state-engine");
 // ─────────────────────────────────────────────────────────────────────────────
 
 class LamportClock {
-  constructor({ actorId, initialValue } = {}) {
+  constructor(/** @type {{ actorId?: string, initialValue?: number }} */ { actorId, initialValue } = {}) {
     this.actorId = actorId || `actor_${Date.now().toString(36)}`;
     // 如果提供了初始值，同步到全局时钟
     if (typeof initialValue === "number" && initialValue > 0) {

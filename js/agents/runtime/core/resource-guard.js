@@ -194,8 +194,9 @@ export class ResourceGuard {
   _getMemoryUsageMB() {
     try {
       // Chrome-specific API
-      if (typeof performance !== "undefined" && performance.memory) {
-        return Math.round(performance.memory.usedJSHeapSize / (1024 * 1024));
+      const perf = typeof performance !== "undefined" ? /** @type {any} */ (performance) : null;
+      if (perf && perf.memory) {
+        return Math.round(perf.memory.usedJSHeapSize / (1024 * 1024));
       }
     } catch {
       // Ignore

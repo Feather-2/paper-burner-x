@@ -171,7 +171,7 @@ function recordHistory(report, action, delta) {
 }
 
 /**
- * @param {Object} args
+ * @param {object} args
  * @param {string} [args.action] - append | update | patch | section | sections | direct | full | fill-section | get-outline
  * @param {string} [args.content] - 内容
  * @param {string} [args.title] - 章节标题
@@ -180,7 +180,19 @@ function recordHistory(report, action, delta) {
  * @param {Array} [args.sections] - 批量章节
  * @param {number} [args.minWords] - 章节最少字数（fill-section 用）
  * @param {string} [args.instructions] - 填充指令（fill-section 用）
- * @param {Object} context - { state, emit, stageApi }
+ * @param {string} [args.mode] - 分析模式：quick|wider|deeper
+ * @param {string} [args.type] - get-findings 过滤：claim|gap|conflict
+ * @param {string} [args.keyword] - get-findings 关键词过滤
+ * @param {number} [args.minConfidence] - get-findings 置信度过滤（claim）
+ * @param {number} [args.limit] - get-findings 返回条数限制
+ * @param {string} [args.sourceId] - get-source 用：源文档 ID
+ * @param {number} [args.maxLength] - get-source 用：最大返回长度（chars）
+ * @param {number} [args.start] - get-source 用：起始偏移（chars）
+ * @param {string} [args.search] - patch 用：搜索文本
+ * @param {string} [args.oldText] - patch 用：旧文本（兼容字段）
+ * @param {string} [args.replace] - patch 用：替换文本
+ * @param {string} [args.newText] - patch 用：新文本（兼容字段）
+ * @param {object} context - { state, emit, stageApi }
  */
 export async function handler(args, context) {
   const { state, emit, stageApi } = context;

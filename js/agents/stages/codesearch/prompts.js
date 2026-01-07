@@ -7,12 +7,16 @@ import { createLogger } from "../../shared/utils/logger.js";
 const logger = createLogger("stages/codesearch/prompts");
 
 // 缓存的提示词
+/** @type {string|null} */
 let _systemPrompt = null;
+/** @type {string|null} */
 let _stepPrompt = null;
+/** @type {string|null} */
 let _summarizePrompt = null;
 
 /**
  * 异步获取 system prompt
+ * @returns {Promise<string>}
  */
 export async function getCodesearchSystemPrompt() {
   if (_systemPrompt) return _systemPrompt;
@@ -27,6 +31,7 @@ export async function getCodesearchSystemPrompt() {
 
 /**
  * 异步获取 step prompt
+ * @returns {Promise<string>}
  */
 export async function getCodesearchStepPrompt() {
   if (_stepPrompt) return _stepPrompt;
@@ -41,6 +46,7 @@ export async function getCodesearchStepPrompt() {
 
 /**
  * 异步获取 summarize prompt
+ * @returns {Promise<string>}
  */
 export async function getCodesearchSummarizePrompt() {
   if (_summarizePrompt) return _summarizePrompt;
@@ -193,6 +199,7 @@ export const CODESEARCH_SUMMARIZE_PROMPT = `## 任务
 /**
  * 针对特定场景的 prompt 变体
  */
+/** @type {Readonly<Record<string, { query: string, focus: string[] }>>} */
 export const PROMPTS = {
   // 架构分析
   architecture: {

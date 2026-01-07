@@ -12,6 +12,37 @@
  * (stat/readdir/readFile) are implemented.
  */
 
+/**
+ * @typedef {'directory'|'file'|'unknown'} VfsDirEntryKind
+ */
+
+/**
+ * @typedef {Object} VfsDirEntry
+ * @property {string} name
+ * @property {VfsDirEntryKind} kind
+ */
+
+/**
+ * @typedef {Object} VfsSharedResponse
+ * @property {boolean} ok
+ * @property {Uint8Array|ArrayBuffer|ArrayLike<number>|null|undefined} [bytes]
+ * @property {any} [error]
+ * @property {number} [requiredBytes]
+ */
+
+/**
+ * @typedef {Object} VfsProxyOptions
+ * @property {'server'|'client'} [role]
+ * @property {(msg:any)=>void} [postMessage]
+ * @property {(runId:number)=>any} [getVfs] - server-only; maps runId -> VFS
+ * @property {number} [timeoutMs] - client-only; Atomics.wait timeout
+ * @property {number} [maxJsonBytes] - client-only; response buffer size for JSON ops
+ */
+
+/**
+ * @typedef {Error & { code?: string, requiredBytes?: number }} VfsProxyError
+ */
+
 function isSharedArrayBuffer(value) {
   return typeof SharedArrayBuffer !== 'undefined' && value instanceof SharedArrayBuffer;
 }
@@ -43,6 +74,11 @@ function isMissingPathError(err) {
   return msg.includes('ENOENT');
 }
 
+/**
+ * @param {SharedArrayBuffer} sharedBuffer
+ * @param {VfsSharedResponse} param1
+ * @returns {void}
+ */
 function writeSharedResponse(sharedBuffer, { ok, bytes, error, requiredBytes = 0 }) {
   const header = new Int32Array(sharedBuffer, 0, 4);
   const payload = new Uint8Array(sharedBuffer, 16);
@@ -80,12 +116,7 @@ function writeSharedResponse(sharedBuffer, { ok, bytes, error, requiredBytes = 0
 
 export class VfsProxy {
   /**
-   * @param {Object} options
-   * @param {'server'|'client'} options.role
-   * @param {(msg:any)=>void} options.postMessage
-   * @param {(runId:number)=>any} [options.getVfs] - server-only; maps runId -> VFS
-   * @param {number} [options.timeoutMs] - client-only; Atomics.wait timeout
-   * @param {number} [options.maxJsonBytes] - client-only; response buffer size for JSON ops
+   * @param {VfsProxyOptions} [options]
    */
   constructor(options = {}) {
     this.role = options.role;
@@ -239,6 +270,7 @@ export class VfsProxy {
 
     if (status !== 1) {
       const msg = new TextDecoder().decode(payload.subarray(0, Math.max(0, len)));
+      /** @type {VfsProxyError} */
       const err = new Error(msg || `VfsProxy: ${op} failed for ${path}`);
       err.code = required > 0 ? 'EOVERFLOW' : 'EVFS';
       err.requiredBytes = required > 0 ? required : undefined;
@@ -268,6 +300,11 @@ export class VfsProxy {
     }
   }
 
+  /**
+   * @param {string} path
+   * @param {{ sizeHint?: number }} [param1]
+   * @returns {Uint8Array}
+   */
   readFileSync(path, { sizeHint } = {}) {
     let cap = typeof sizeHint === 'number' && Number.isFinite(sizeHint) && sizeHint >= 0 ? Math.floor(sizeHint) : 4 * 1024 * 1024;
     cap = Math.max(64, cap);

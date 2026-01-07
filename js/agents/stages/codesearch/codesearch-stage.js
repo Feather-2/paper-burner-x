@@ -49,6 +49,15 @@ const ServiceId = {
   TOC_BUILDER: "tocBuilder",
 };
 
+/**
+ * @typedef {object} CodeSearchStageOptions
+ * @property {any=} eventBus
+ * @property {number=} maxSteps
+ * @property {number=} timeoutMs
+ * @property {number=} maxBacktracks
+ * @property {any=} container
+ */
+
 function resolveWatchdogSettings(userConfig) {
   const raw = userConfig && typeof userConfig === "object" ? userConfig.watchdog : null;
   const cfg = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
@@ -93,6 +102,9 @@ function buildCodeSearchWatchdogAdvice(issues) {
 }
 
 export class CodeSearchStage extends BaseAgentLoop {
+  /**
+   * @param {CodeSearchStageOptions} [options]
+   */
   constructor(options = {}) {
     super({ actor: "codesearch", stageName: "codesearch", eventBus: options.eventBus });
     this.maxSteps = options.maxSteps || DEFAULT_MAX_STEPS;
@@ -120,6 +132,13 @@ export class CodeSearchStage extends BaseAgentLoop {
    * 从容器或 context 解析依赖
    * @private
    */
+  /**
+   * @private
+   * @param {string} serviceId
+   * @param {any} context
+   * @param {any} fallback
+   * @returns {Promise<any>}
+   */
   async _resolveDependency(serviceId, context, fallback) {
     // 优先从 context 获取（显式传入）
     if (context?.[serviceId]) return context[serviceId];
@@ -136,7 +155,12 @@ export class CodeSearchStage extends BaseAgentLoop {
   /**
    * 执行代码分析
    */
-  async run(input, context = {}) {
+  /**
+   * @param {any} [input]
+   * @param {any} [context]
+   * @returns {Promise<any>}
+   */
+  async run(input = {}, context = {}) {
     const runContext = context.runContext || {};
     const stageApi = context;
     const runId = runContext?.runId || input?.runId || "run_unknown";
@@ -150,12 +174,14 @@ export class CodeSearchStage extends BaseAgentLoop {
     this.eventBus = eventBus || this.eventBus || null;
 
     // P4.6: Enable backpressure for high-frequency events (best-effort).
-    if (this.eventBus && typeof this.eventBus.enableBackpressure === "function" && !this.eventBus?._backpressure?.enabled) {
+    /** @type {any} */
+    const backpressureBus = this.eventBus;
+    if (backpressureBus && typeof backpressureBus.enableBackpressure === "function" && !backpressureBus?._backpressure?.enabled) {
       const cfg = stageApi?.eventBusBackpressure ?? stageApi?.backpressure;
       if (cfg !== false) {
         const opts = isPlainObject(cfg) ? cfg : {};
         try {
-          this.eventBus.enableBackpressure({
+          backpressureBus.enableBackpressure({
             coalescePattern: /\.progress$/,
             deferNonCoalesced: false,
             maxQueueSize: 10000,
@@ -225,11 +251,11 @@ export class CodeSearchStage extends BaseAgentLoop {
       watchdog.reset();
     }
     if (!watchdog) {
-      watchdog = new Watchdog({
+      watchdog = new Watchdog(/** @type {any} */ ({
         eventBus: this.eventBus,
         maxRecentOutputs: watchdogSettings.maxRecentOutputs,
         oscillationThreshold: watchdogSettings.similarityThreshold,
-      });
+      }));
     } else {
       // Best-effort: apply user config to instance from DI.
       if (typeof watchdog.configure === "function") {
@@ -374,7 +400,7 @@ export class CodeSearchStage extends BaseAgentLoop {
         if (err instanceof StagePausedError) throw err;
 
         const pauseLike = this._shouldPauseFromError(err, stepContext.signal);
-        this._endStep({ step: stepMeta }, { status: pauseLike ? "paused" : "failed", error: err?.message });
+        this._endStep({ step: stepMeta }, /** @type {any} */ ({ status: pauseLike ? "paused" : "failed", error: err?.message }));
 
         if (pauseLike) {
           await this._transitionLoopStatus(AgentStatus.PAUSED, { runId, iteration: step, reason: err?.message });
@@ -433,6 +459,11 @@ export class CodeSearchStage extends BaseAgentLoop {
   /**
    * 暂停等待用户反馈
    */
+  /**
+   * @param {string} runId
+   * @param {string} reason
+   * @returns {Promise<never>}
+   */
   async _pauseForUserFeedback(runId, reason) {
     this.state.awaitUserFeedback = true;
     this.state.pauseReason = reason;
@@ -444,16 +475,27 @@ export class CodeSearchStage extends BaseAgentLoop {
       await this._transitionLoopStatus(AgentStatus.PAUSED, { runId, iteration: 0, reason });
     }
     const err = new StagePausedError("Run paused", { runId, reason });
-    err.awaitUserFeedback = true;
+    /** @type {any} */ (err).awaitUserFeedback = true;
     throw err;
   }
 
+  /**
+   * @param {any} runContext
+   * @param {any} input
+   * @param {any} [stageApi]
+   * @returns {Promise<any>}
+   */
   async execute(runContext, input, stageApi = {}) {
     return super.execute(runContext, input, stageApi);
   }
 
+  /**
+   * @private
+   * @returns {Promise<any|null>}
+   */
   async _getDefaultFs() {
     try {
+      // @ts-ignore - this tsconfig is browser-first (no @types/node)
       const { readFile, readdir, stat } = await import("node:fs/promises");
       return { readFile, readdir, stat };
     } catch {

@@ -1,7 +1,13 @@
 import { normalizeVfsPath } from "./path.js";
 
+/** @type {any} */
+const nodeProcess = /** @type {any} */ (globalThis).process;
+
+/** @type {any} */
+const NodeBuffer = /** @type {any} */ (globalThis).Buffer;
+
 function isNodeLike() {
-  return typeof process !== "undefined" && !!process.versions?.node;
+  return !!nodeProcess && typeof nodeProcess === "object" && !!nodeProcess.versions?.node;
 }
 
 function joinFsPath(rootPath, vfsPath) {
@@ -17,7 +23,7 @@ export class NodeFsVfs {
   }
 
   async _fs() {
-    return await import("node:fs/promises");
+    return await import(/* @vite-ignore */ /** @type {string} */ ("node:fs/promises"));
   }
 
   async readFile(path) {
@@ -41,11 +47,11 @@ export class NodeFsVfs {
       return true;
     }
     if (data instanceof ArrayBuffer) {
-      await fs.writeFile(p, Buffer.from(data));
+      await fs.writeFile(p, NodeBuffer.from(data));
       return true;
     }
     if (ArrayBuffer.isView(data)) {
-      await fs.writeFile(p, Buffer.from(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)));
+      await fs.writeFile(p, NodeBuffer.from(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)));
       return true;
     }
     await fs.writeFile(p, String(data ?? ""), "utf8");
@@ -97,6 +103,10 @@ export class NodeFsVfs {
     return out;
   }
 
+  /**
+   * @param {{ prefix?: string, recursive?: boolean, signal?: AbortSignal }} [options]
+   * @returns {AsyncGenerator<string, void, void>}
+   */
   async *walkFiles({ prefix = "", recursive = true, signal } = {}) {
     const fs = await this._fs();
     const baseRel = normalizeVfsPath(prefix);

@@ -165,6 +165,9 @@ function quarantineOutput(output, schema, subagentType, injectionScanner) {
 }
 
 export class SubagentRegistry {
+  /**
+   * @param {{ injectionScanner?: InjectionScanner }} [options]
+   */
   constructor({ injectionScanner } = {}) {
     /** @type {Map<string, {factory: Function, description: string, schema?: object}>} */
     this._subagents = new Map();

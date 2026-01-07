@@ -1,10 +1,18 @@
 /**
  * Recall 工具 - 允许模型回想（查询）之前被压缩或存档的记忆细节。
- * 
- * 对应 cc.md 中提到的“平时记纲要，用时翻档案”的设计。
+ *
+ * 对应 cc.md 中提到的"平时记纲要，用时翻档案"的设计。
  */
 
 import { normalizeToolResult } from "../core/agent-loop.js";
+
+/**
+ * @typedef {object} CicadaCompressor
+ * @property {Function} [query]
+ * @property {Function} [recall]
+ * @property {Function} [listArchives]
+ * @property {Function} [restore]
+ */
 
 /**
  * 创建 Recall 工具 Handler

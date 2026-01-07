@@ -95,7 +95,14 @@ function mergeFilledImageSlots(allSlots, filledImageSlots) {
   if (base.length === 0) return filled;
   if (filled.length === 0) return base.slice();
 
-  const byId = new Map(filled.map((s) => [toNonEmptyString(s?.slotId), s]).filter((row) => row[0]));
+  /** @type {Array<[string, any]>} */
+  const pairs = [];
+  for (const slot of filled) {
+    const slotId = toNonEmptyString(slot?.slotId);
+    if (!slotId) continue;
+    pairs.push([slotId, slot]);
+  }
+  const byId = new Map(pairs);
   return base.map((s) => {
     const id = toNonEmptyString(s?.slotId);
     if (!id || !byId.has(id)) return s;
@@ -104,12 +111,22 @@ function mergeFilledImageSlots(allSlots, filledImageSlots) {
 }
 
 export class VisualRenderer {
+  /**
+   * @param {{ imageGenerator?: ImageGenerator | null, imageProvider?: any, svgGenerator?: SVGGenerator | null, assets?: any[] | null, assetResolver?: AssetResolver | null }} [options]
+   */
   constructor({ imageGenerator, imageProvider, svgGenerator, assets, assetResolver } = {}) {
     this.imageGenerator = imageGenerator || (imageProvider ? new ImageGenerator({ imageProvider }) : null);
     this.svgGenerator = svgGenerator || null;
     this.assetResolver = assetResolver || (assets ? new AssetResolver(assets) : null);
   }
 
+  /**
+   * @param {any[]} visualSlots
+   * @param {any} contentPackage
+   * @param {any} designSystem
+   * @param {Record<string, any>} [options]
+   * @returns {Promise<any>}
+   */
   async render(visualSlots, contentPackage, designSystem, options = {}) {
     const t0 = nowMs();
     const emit = typeof options?.emit === "function" ? options.emit : null;

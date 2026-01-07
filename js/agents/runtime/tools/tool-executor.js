@@ -14,6 +14,16 @@
 import { validateArgs } from "./schema-validator.js";
 
 import { isPlainObject, toPositiveInt } from "../../shared/utils/value-utils.js";
+
+/**
+ * @typedef {Record<string, any>} AnyRecord
+ *
+ * @typedef {{ ok: boolean, success: boolean, data: any, error?: unknown, raw?: any, [key: string]: any }} ToolResult
+ *
+ * @typedef {{ createWorker?: () => any | Promise<any>, maxWorkers?: number }} WorkerPoolOptions
+ *
+ * @typedef {number & { unref?: () => void }} TimeoutHandle
+ */
 function normalizeIsolationMode(mode) {
   if (mode === true) return "worker";
   const m = typeof mode === "string" ? mode.trim().toLowerCase() : "";
@@ -21,7 +31,7 @@ function normalizeIsolationMode(mode) {
 }
 
 class WorkerPool {
-  constructor({ createWorker, maxWorkers = 2 } = {}) {
+  constructor(/** @type {WorkerPoolOptions} */ { createWorker, maxWorkers = 2 } = {}) {
     if (typeof createWorker !== "function") throw new TypeError("WorkerPool: createWorker must be a function");
     this._createWorker = createWorker;
     this._maxWorkers = toPositiveInt(maxWorkers, 2);
@@ -344,7 +354,7 @@ export class ToolExecutor {
     return Promise.all(promises);
   }
 
-  async _authorizeToolCall(name, args, context, { tool, options } = {}) {
+  async _authorizeToolCall(name, args, context, /** @type {{ tool?: any, options?: AnyRecord }} */ { tool, options } = {}) {
     const policy = options?.policy || this.policy;
     if (!policy || typeof policy.authorize !== "function") return { allowed: true };
 
@@ -411,7 +421,7 @@ export class ToolExecutor {
   }
 
   async _executeInWorker(moduleUrl, exportName, args, context, timeoutMs) {
-    const isNode = typeof process !== "undefined" && !!process.versions?.node;
+    const isNode = !!(/** @type {any} */ (globalThis)).process?.versions?.node;
     if (isNode) {
       return this._executeInNodeWorker(moduleUrl, exportName, args, context, timeoutMs);
     }
@@ -419,8 +429,8 @@ export class ToolExecutor {
   }
 
   async _executeInNodeWorker(moduleUrl, exportName, args, context, timeoutMs) {
-    const { Worker } = await import(/* @vite-ignore */ "node:worker_threads");
-    const { fileURLToPath } = await import(/* @vite-ignore */ "node:url");
+    const { Worker } = await import(/* @vite-ignore */ /** @type {string} */ ("node:worker_threads"));
+    const { fileURLToPath } = await import(/* @vite-ignore */ /** @type {string} */ ("node:url"));
 
     // NOTE: Avoid `new Worker(new URL("./x.js", import.meta.url))` here to prevent browser bundlers
     // (e.g. Vite) from treating this Node worker entry as a web worker and trying to bundle node:* imports.
@@ -461,14 +471,14 @@ export class ToolExecutor {
         }
       };
 
-      const timer = setTimeout(() => {
+      const timer = /** @type {TimeoutHandle} */ (setTimeout(() => {
         cleanup({ destroy: true }).finally(() => {
-          const err = new Error(`Tool execution timed out after ${timeoutMs}ms`);
+          const err = /** @type {Error & { code?: string }} */ (new Error(`Tool execution timed out after ${timeoutMs}ms`));
           err.name = "TimeoutError";
           err.code = "ETIMEDOUT";
           reject(err);
         });
-      }, timeoutMs);
+      }, timeoutMs));
       if (timer && typeof timer.unref === "function") {
         try {
           timer.unref();
@@ -577,7 +587,7 @@ export class ToolExecutor {
 
       const timer = setTimeout(() => {
         cleanup({ destroy: true });
-        const err = new Error(`Tool execution timed out after ${timeoutMs}ms`);
+        const err = /** @type {Error & { code?: string }} */ (new Error(`Tool execution timed out after ${timeoutMs}ms`));
         err.name = "TimeoutError";
         err.code = "ETIMEDOUT";
         reject(err);

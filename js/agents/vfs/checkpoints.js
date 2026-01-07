@@ -7,15 +7,103 @@ import { isPlainObject } from "../shared/utils/value-utils.js";
 
 const LOCAL_ARTIFACT_PREFIX = "pb_vfs_artifact|";
 
+/** @type {any} */
+const NodeBuffer = /** @type {any} */ (globalThis).Buffer;
+
+/**
+ * @typedef {object} StorageAdapterLike
+ * @property {(key: string) => Promise<any>} get
+ * @property {(key: string, value: any) => Promise<void>} set
+ * @property {(key: string) => Promise<void>} delete
+ * @property {() => Promise<Iterable<string> | string[]>} keys
+ */
+
+/**
+ * @typedef {object} RunStoreLike
+ * @property {(runId: string, type: string, data: any, options?: any) => Promise<string>} saveArtifact
+ * @property {(artifactId: string) => Promise<any>} getArtifactById
+ * @property {(runId: string) => Promise<any[]>} listArtifacts
+ * @property {(runId: string, options?: any) => Promise<any[]>} listArtifactSummaries
+ */
+
+/**
+ * @typedef {object} VfsPayloadRef
+ * @property {string} artifactId
+ * @property {string} type
+ * @property {"utf8"|"binary"} encoding
+ * @property {number} bytes
+ * @property {string=} sha256
+ */
+
+/**
+ * @typedef {object} VfsCheckpointSide
+ * @property {number} bytes
+ * @property {string=} sha256
+ * @property {string|null} preview
+ * @property {string=} text
+ * @property {string=} base64
+ * @property {boolean=} truncated
+ * @property {VfsPayloadRef=} payload
+ */
+
+/**
+ * @typedef {object} VfsCheckpointDiff
+ * @property {"unified"} format
+ * @property {number} context
+ * @property {number} bytes
+ * @property {string} text
+ */
+
+/**
+ * @typedef {object} VfsCheckpoint
+ * @property {string} schemaVersion
+ * @property {"vfs_checkpoint"} kind
+ * @property {string} op
+ * @property {string} ts
+ * @property {string} path
+ * @property {string} encoding
+ * @property {VfsCheckpointSide} before
+ * @property {VfsCheckpointSide} after
+ * @property {VfsCheckpointDiff=} diff
+ * @property {Promise<VfsCheckpointDiff|null>=} diffPromise
+ */
+
+/**
+ * @typedef {object} RecordVfsCheckpointOptions
+ * @property {RunStoreLike=} runStore
+ * @property {StorageAdapterLike=} storageAdapter
+ * @property {string=} runId
+ * @property {string=} path
+ * @property {any=} before
+ * @property {any=} after
+ * @property {string=} op
+ * @property {string=} encoding
+ * @property {number=} maxEmbedBytes
+ * @property {string=} beforeSha256
+ * @property {string=} afterSha256
+ * @property {boolean=} skipDiff
+ * @property {boolean=} deferDiff
+ */
+
+/**
+ * @param {unknown} runStore
+ * @returns {runStore is RunStoreLike}
+ */
 function isRunStoreLike(runStore) {
-  return runStore && typeof runStore.saveArtifact === "function" && typeof runStore.getArtifactById === "function";
+  const store = /** @type {any} */ (runStore);
+  return store && typeof store.saveArtifact === "function" && typeof store.getArtifactById === "function";
 }
 
+/**
+ * @param {unknown} storageAdapter
+ * @returns {storageAdapter is StorageAdapterLike}
+ */
 function isStorageAdapterLike(storageAdapter) {
   const s = storageAdapter && typeof storageAdapter === "object" ? storageAdapter : null;
+  const adapter = /** @type {any} */ (s);
   if (!s) return false;
-  if (typeof s.get !== "function" || typeof s.set !== "function") return false;
-  if (typeof s.delete !== "function" || typeof s.keys !== "function") return false;
+  if (typeof adapter.get !== "function" || typeof adapter.set !== "function") return false;
+  if (typeof adapter.delete !== "function" || typeof adapter.keys !== "function") return false;
   return true;
 }
 
@@ -73,8 +161,8 @@ function bytesToBase64(bytes) {
   if (!b) return "";
 
   // Node
-  if (typeof Buffer !== "undefined") {
-    return Buffer.from(b).toString("base64");
+  if (NodeBuffer && typeof NodeBuffer.from === "function") {
+    return NodeBuffer.from(b).toString("base64");
   }
 
   // Browser: prefer native base64 helpers.
@@ -96,8 +184,8 @@ function base64ToBytes(base64) {
   if (!s) return new Uint8Array(0);
 
   // Node
-  if (typeof Buffer !== "undefined") {
-    return new Uint8Array(Buffer.from(s, "base64"));
+  if (NodeBuffer && typeof NodeBuffer.from === "function") {
+    return new Uint8Array(NodeBuffer.from(s, "base64"));
   }
 
   if (typeof atob === "function") {
@@ -152,20 +240,8 @@ export const VFS_PAYLOAD_TYPE = "vfs_payload.bin";
 /**
  * Record a file-write checkpoint (before/after fingerprints; optionally embeds before/after payloads).
  *
- * @param {object} options
- * @param {object} options.runStore RunStore-like (saveArtifact/listArtifacts/getArtifactById)
- * @param {string} options.runId
- * @param {string} options.path VFS path
- * @param {any} options.before File contents before write (string/bytes/object)
- * @param {any} options.after File contents after write (string/bytes/object)
- * @param {string} [options.op="write"]
- * @param {string} [options.encoding="utf8"]
- * @param {number} [options.maxEmbedBytes=200000]
- * @param {string} [options.beforeSha256] - 预计算的 before SHA256（跳过重复计算）
- * @param {string} [options.afterSha256] - 预计算的 after SHA256（跳过重复计算）
- * @param {boolean} [options.skipDiff=false] - 跳过 diff 计算（大文件优化）
- * @param {boolean} [options.deferDiff=false] - 延迟 diff 计算（返回 Promise）
- * @returns {Promise<{artifactId:string,checkpoint:object}>}
+ * @param {RecordVfsCheckpointOptions} [options]
+ * @returns {Promise<{artifactId:string, checkpoint: VfsCheckpoint}>}
  */
 export async function recordVfsCheckpoint({
   runStore,
@@ -206,6 +282,7 @@ export async function recordVfsCheckpoint({
   const beforeText = beforeIsText ? (typeof before === "string" ? before : new TextDecoder().decode(beforeBytes)) : null;
   const afterText = afterIsText ? (typeof after === "string" ? after : new TextDecoder().decode(afterBytes)) : null;
 
+  /** @type {VfsCheckpoint} */
   const checkpoint = {
     schemaVersion: "0.1",
     kind: "vfs_checkpoint",
@@ -230,18 +307,19 @@ export async function recordVfsCheckpoint({
     const shouldSkipDiff = skipDiff || contentUnchanged;
 
     if (!shouldSkipDiff) {
+      /** @returns {Promise<VfsCheckpointDiff|null>} */
       const computeDiff = async () => {
         try {
           const diff = await createUnifiedDiffAsync(
             { path: normalizedPath, beforeText, afterText, context: 3 },
             { useWorker: true, workerThresholdChars: 80_000 }
           );
-          return {
+          return /** @type {VfsCheckpointDiff} */ ({
             format: "unified",
             context: 3,
             bytes: encodeUtf8Bytes(diff.text),
             text: diff.text,
-          };
+          });
         } catch {
           return null;
         }
@@ -317,6 +395,12 @@ export async function recordVfsCheckpoint({
   return { artifactId, checkpoint };
 }
 
+/**
+ * @param {RunStoreLike|unknown} runStore
+ * @param {string} runId
+ * @param {StorageAdapterLike|unknown} storageAdapter
+ * @returns {Promise<any[]>}
+ */
 export async function listVfsCheckpoints(runStore, runId, storageAdapter) {
   const store = isRunStoreLike(runStore) ? runStore : null;
   const adapter = !store && isStorageAdapterLike(storageAdapter) ? storageAdapter : null;
@@ -349,6 +433,10 @@ export async function listVfsCheckpoints(runStore, runId, storageAdapter) {
   return out;
 }
 
+/**
+ * @param {{ vfs?: any, runStore?: RunStoreLike, storageAdapter?: StorageAdapterLike, artifactId?: string }} [options]
+ * @returns {Promise<{ ok: boolean, path: string, encoding?: string, payloadArtifactId?: string, error?: string }>}
+ */
 export async function restoreVfsCheckpoint({ vfs, runStore, storageAdapter, artifactId } = {}) {
   if (!vfs || typeof vfs.writeFile !== "function") {
     throw new Error("restoreVfsCheckpoint: vfs with writeFile() is required");

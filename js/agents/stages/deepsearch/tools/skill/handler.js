@@ -6,6 +6,26 @@
 
 import { loadSkills, loadSkillFromPath } from "../../../../skills/loader.js";
 
+/**
+ * @typedef {object} SkillToolArgs
+ * @property {string} name
+ *
+ * @typedef {object} SkillToolContext
+ * @property {{cwd?: string}=} stageApi
+ *
+ * @typedef {object} SkillToolSuccess
+ * @property {true} success
+ * @property {string} skill
+ * @property {string} body
+ * @property {string[]|null} allowedTools
+ * @property {{description?: string, keywords?: any, path?: string, scope?: string}} metadata
+ *
+ * @typedef {object} SkillToolFailure
+ * @property {false} success
+ * @property {string} error
+ * @property {string=} available
+ */
+
 // 缓存已加载的 Skills
 let _skillsCache = null;
 let _cacheTime = 0;
@@ -39,12 +59,19 @@ Skills 是可扩展的策略包，定义在 SKILL.md 文件中。
 - metadata: Skill 元数据`,
 };
 
+/**
+ * @param {SkillToolArgs} args
+ * @param {SkillToolContext} context
+ * @returns {Promise<SkillToolSuccess|SkillToolFailure>}
+ */
 export async function handler(args, context) {
   const { name } = args;
   const { stageApi = {} } = context;
+  /** @type {any} */
+  const nodeProcess = /** @type {any} */ (globalThis).process;
   const cwd =
     stageApi.cwd ||
-    (typeof process !== "undefined" && typeof process.cwd === "function" ? process.cwd() : ".");
+    (typeof nodeProcess?.cwd === "function" ? nodeProcess.cwd() : ".");
 
   if (!name) {
     return {

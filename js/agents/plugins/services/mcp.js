@@ -6,6 +6,8 @@
 
 import { createPlugin } from '../../core/plugin.js';
 
+/** @typedef {import('../../core/plugin.js').PluginContext} PluginContext */
+
 export default createPlugin({
   name: 'service/mcp',
   version: '1.0.0',
@@ -16,17 +18,23 @@ export default createPlugin({
     autoConnect: true,
   },
 
+  /**
+   * @param {PluginContext} ctx
+   * @returns {Promise<void>}
+   */
   async install(ctx) {
     const clients = new Map();
 
     ctx.registerService('mcp', {
       /**
        * 连接 MCP 服务器
+       * @param {Record<string, any>} serverConfig
+       * @returns {Promise<any>}
        */
       async connect(serverConfig) {
         const { McpClient } = await import('../../mcp/mcp-client.js');
         const client = new McpClient(serverConfig);
-        await client.connect();
+        await /** @type {any} */ (client).connect();
 
         clients.set(serverConfig.name || serverConfig.url, client);
         ctx.state.set(`servers.${serverConfig.name}`, { status: 'connected' });
@@ -37,6 +45,8 @@ export default createPlugin({
 
       /**
        * 获取已连接的客户端
+       * @param {string} name
+       * @returns {any | null}
        */
       getClient(name) {
         return clients.get(name);
@@ -44,6 +54,10 @@ export default createPlugin({
 
       /**
        * 调用 MCP 工具
+       * @param {string} serverName
+       * @param {string} toolName
+       * @param {any} args
+       * @returns {Promise<any>}
        */
       async callTool(serverName, toolName, args) {
         const client = clients.get(serverName);
@@ -60,6 +74,8 @@ export default createPlugin({
 
       /**
        * 获取可用工具列表
+       * @param {string} serverName
+       * @returns {Promise<any[]>}
        */
       async listTools(serverName) {
         const client = clients.get(serverName);
@@ -69,6 +85,7 @@ export default createPlugin({
 
       /**
        * 断开所有连接
+       * @returns {Promise<void>}
        */
       async disconnectAll() {
         for (const [name, client] of clients) {
@@ -84,6 +101,7 @@ export default createPlugin({
 
       /**
        * 获取状态
+       * @returns {{ connectedServers: string[], count: number }}
        */
       getStatus() {
         return {
@@ -107,6 +125,10 @@ export default createPlugin({
     ctx.log.info('MCP service plugin installed');
   },
 
+  /**
+   * @param {PluginContext} ctx
+   * @returns {Promise<void>}
+   */
   async onStop(ctx) {
     await ctx.services.call('mcp', 'disconnectAll', []);
   },

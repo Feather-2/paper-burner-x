@@ -3,6 +3,19 @@
 
 /**
  * 执行者类型 - 用于事件来源标识
+ *
+ * @typedef {"system" | "textprep" | "deepsearch" | "design" | "evaluate" | "codesearch"} ActorTypeValue
+ * @typedef {"idle" | "running" | "ended" | "failed" | "cancelled"} OrchestratorStateValue
+ * @typedef {"pending" | "active" | "completed" | "failed" | "skipped"} WorkflowTodoStatusValue
+ * @typedef {"brief" | "standard" | "detailed" | "comprehensive"} ReportLengthValue
+ * @typedef {"academic" | "business" | "casual"} ReportToneValue
+ * @typedef {"general" | "expert" | "executive"} ReportAudienceValue
+ * @typedef {"auto" | "zh" | "en"} ReportLanguageValue
+ * @typedef {"low" | "standard" | "high"} QualityModeValue
+ * @typedef {"event" | "coalesce"} EventBusItemKindValue
+ *
+ * @readonly
+ * @enum {ActorTypeValue}
  */
 export const ActorType = Object.freeze({
   SYSTEM: "system",
@@ -15,6 +28,8 @@ export const ActorType = Object.freeze({
 
 /**
  * Orchestrator 状态
+ * @readonly
+ * @enum {OrchestratorStateValue}
  */
 export const OrchestratorState = Object.freeze({
   IDLE: "idle",
@@ -26,22 +41,26 @@ export const OrchestratorState = Object.freeze({
 
 /**
  * 验证 ActorType 值
+ * @param {unknown} value
+ * @returns {value is ActorTypeValue}
  */
 export function isValidActorType(value) {
-  return Object.values(ActorType).includes(value);
+  return Object.values(ActorType).includes(/** @type {any} */ (value));
 }
 
 /**
  * 验证 OrchestratorState 值
+ * @param {unknown} value
+ * @returns {value is OrchestratorStateValue}
  */
 export function isValidOrchestratorState(value) {
-  return Object.values(OrchestratorState).includes(value);
+  return Object.values(OrchestratorState).includes(/** @type {any} */ (value));
 }
 
 /**
  * TodoItem 状态枚举 (Workflow 层面)
  * @readonly
- * @enum {string}
+ * @enum {WorkflowTodoStatusValue}
  */
 export const WorkflowTodoStatus = Object.freeze({
   PENDING: "pending",
@@ -54,7 +73,7 @@ export const WorkflowTodoStatus = Object.freeze({
 /**
  * Report 长度配置枚举
  * @readonly
- * @enum {string}
+ * @enum {ReportLengthValue}
  */
 export const ReportLength = Object.freeze({
   BRIEF: "brief",
@@ -66,7 +85,7 @@ export const ReportLength = Object.freeze({
 /**
  * Report 语气配置枚举
  * @readonly
- * @enum {string}
+ * @enum {ReportToneValue}
  */
 export const ReportTone = Object.freeze({
   ACADEMIC: "academic",
@@ -77,7 +96,7 @@ export const ReportTone = Object.freeze({
 /**
  * Report 受众配置枚举
  * @readonly
- * @enum {string}
+ * @enum {ReportAudienceValue}
  */
 export const ReportAudience = Object.freeze({
   GENERAL: "general",
@@ -88,7 +107,7 @@ export const ReportAudience = Object.freeze({
 /**
  * Report 语言配置枚举
  * @readonly
- * @enum {string}
+ * @enum {ReportLanguageValue}
  */
 export const ReportLanguage = Object.freeze({
   AUTO: "auto",
@@ -99,7 +118,7 @@ export const ReportLanguage = Object.freeze({
 /**
  * Run 质量模式枚举
  * @readonly
- * @enum {string}
+ * @enum {QualityModeValue}
  */
 export const QualityMode = Object.freeze({
   LOW: "low",
@@ -110,7 +129,7 @@ export const QualityMode = Object.freeze({
 /**
  * EventBus 队列项类型枚举
  * @readonly
- * @enum {string}
+ * @enum {EventBusItemKindValue}
  */
 export const EventBusItemKind = Object.freeze({
   EVENT: "event",
@@ -119,41 +138,53 @@ export const EventBusItemKind = Object.freeze({
 
 /**
  * 验证 ReportLength 值
+ * @param {unknown} value
+ * @returns {value is ReportLengthValue}
  */
 export function isValidReportLength(value) {
-  return Object.values(ReportLength).includes(value);
+  return Object.values(ReportLength).includes(/** @type {any} */ (value));
 }
 
 /**
  * 验证 ReportTone 值
+ * @param {unknown} value
+ * @returns {value is ReportToneValue}
  */
 export function isValidReportTone(value) {
-  return Object.values(ReportTone).includes(value);
+  return Object.values(ReportTone).includes(/** @type {any} */ (value));
 }
 
 /**
  * 验证 ReportAudience 值
+ * @param {unknown} value
+ * @returns {value is ReportAudienceValue}
  */
 export function isValidReportAudience(value) {
-  return Object.values(ReportAudience).includes(value);
+  return Object.values(ReportAudience).includes(/** @type {any} */ (value));
 }
 
 /**
  * 验证 ReportLanguage 值
+ * @param {unknown} value
+ * @returns {value is ReportLanguageValue}
  */
 export function isValidReportLanguage(value) {
-  return Object.values(ReportLanguage).includes(value);
+  return Object.values(ReportLanguage).includes(/** @type {any} */ (value));
 }
 
 /**
  * 验证 QualityMode 值
+ * @param {unknown} value
+ * @returns {value is QualityModeValue}
  */
 export function isValidQualityMode(value) {
-  return Object.values(QualityMode).includes(value);
+  return Object.values(QualityMode).includes(/** @type {any} */ (value));
 }
 
 /**
  * 规范化 QualityMode
+ * @param {unknown} value
+ * @returns {QualityModeValue | undefined}
  */
 export function normalizeQualityMode(value) {
   const v = typeof value === "string" ? value.trim().toLowerCase() : "";
@@ -162,6 +193,8 @@ export function normalizeQualityMode(value) {
 
 /**
  * 规范化 ReportLength
+ * @param {unknown} value
+ * @returns {ReportLengthValue | undefined}
  */
 export function normalizeReportLength(value) {
   const v = typeof value === "string" ? value.trim().toLowerCase() : "";
@@ -170,6 +203,8 @@ export function normalizeReportLength(value) {
 
 /**
  * 规范化 ReportTone
+ * @param {unknown} value
+ * @returns {ReportToneValue | undefined}
  */
 export function normalizeReportTone(value) {
   const v = typeof value === "string" ? value.trim().toLowerCase() : "";
@@ -178,6 +213,8 @@ export function normalizeReportTone(value) {
 
 /**
  * 规范化 ReportAudience
+ * @param {unknown} value
+ * @returns {ReportAudienceValue | undefined}
  */
 export function normalizeReportAudience(value) {
   const v = typeof value === "string" ? value.trim().toLowerCase() : "";
@@ -186,6 +223,8 @@ export function normalizeReportAudience(value) {
 
 /**
  * 规范化 ReportLanguage
+ * @param {unknown} value
+ * @returns {ReportLanguageValue | undefined}
  */
 export function normalizeReportLanguage(value) {
   const v = typeof value === "string" ? value.trim().toLowerCase() : "";

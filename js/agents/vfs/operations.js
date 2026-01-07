@@ -12,6 +12,10 @@ import { isPlainObject } from "../shared/utils/value-utils.js";
 
 const _locksByVfs = new WeakMap(); // vfs -> Map<path, Promise>
 
+/**
+ * @typedef {{ signal?: AbortSignal }} AbortOptions
+ */
+
 function getLockMapForVfs(vfs) {
   if (!vfs || typeof vfs !== "object") return null;
   let map = _locksByVfs.get(vfs);
@@ -22,8 +26,15 @@ function getLockMapForVfs(vfs) {
   return map;
 }
 
+/**
+ * @template T
+ * @param {Promise<T>|T} promise
+ * @param {AbortOptions} [options]
+ * @returns {Promise<T>}
+ */
 async function waitFor(promise, { signal } = {}) {
-  const p = promise && typeof promise.then === "function" ? promise : Promise.resolve(promise);
+  const maybeThenable = /** @type {any} */ (promise);
+  const p = maybeThenable && typeof maybeThenable.then === "function" ? maybeThenable : Promise.resolve(promise);
   if (!signal) return await p;
   if (signal.aborted) throw new Error(typeof signal.reason === "string" ? signal.reason : "aborted");
 
@@ -44,6 +55,14 @@ async function waitFor(promise, { signal } = {}) {
   }
 }
 
+/**
+ * @template T
+ * @param {any} vfs
+ * @param {string} path
+ * @param {() => Promise<T>} fn
+ * @param {AbortOptions} [options]
+ * @returns {Promise<T>}
+ */
 async function withVfsPathLock(vfs, path, fn, { signal } = {}) {
   const lockMap = getLockMapForVfs(vfs);
   if (!lockMap) return await fn();
@@ -51,9 +70,10 @@ async function withVfsPathLock(vfs, path, fn, { signal } = {}) {
   if (!key) return await fn();
 
   const prevTail = lockMap.get(key) || Promise.resolve();
+  /** @type {(() => void) | null} */
   let release = null;
   const tail = new Promise((resolve) => {
-    release = resolve;
+    release = () => resolve();
   });
   lockMap.set(key, tail);
 
@@ -259,6 +279,23 @@ function applyEditsByPositions(originalText, editPositions) {
   return out;
 }
 
+/**
+ * @typedef {object} WriteTextFileWithPolicyOptions
+ * @property {any=} vfs
+ * @property {string=} path
+ * @property {string=} text
+ * @property {{ authorize?: (request: any, context?: any) => Promise<any> }=} policy
+ * @property {any=} runStore
+ * @property {string=} runId
+ * @property {{ emit?: Function, eventBus?: { emit?: Function }, signal?: AbortSignal, storageAdapter?: any }=} stageApi
+ * @property {AbortSignal=} signal
+ * @property {boolean=} checkpoint
+ */
+
+/**
+ * @param {WriteTextFileWithPolicyOptions} [options]
+ * @returns {Promise<{ ok: boolean, path: string, checkpoint?: { artifactId: string, type: string }, noOp?: boolean }>}
+ */
 export async function writeTextFileWithPolicy({
   vfs,
   path,
@@ -334,6 +371,23 @@ export async function writeTextFileWithPolicy({
   );
 }
 
+/**
+ * @typedef {object} MultiEditTextFileWithPolicyOptions
+ * @property {any=} vfs
+ * @property {string=} path
+ * @property {Array<{ old_string?: string, new_string?: string, oldString?: string, newString?: string }>=} edits
+ * @property {{ authorize?: (request: any, context?: any) => Promise<any> }=} policy
+ * @property {any=} runStore
+ * @property {string=} runId
+ * @property {{ emit?: Function, eventBus?: { emit?: Function }, signal?: AbortSignal, storageAdapter?: any }=} stageApi
+ * @property {AbortSignal=} signal
+ * @property {boolean=} checkpoint
+ */
+
+/**
+ * @param {MultiEditTextFileWithPolicyOptions} [options]
+ * @returns {Promise<{ ok: boolean, path: string, checkpoint?: { artifactId: string, type: string }, noOp?: boolean }>}
+ */
 export async function multiEditTextFileWithPolicy({
   vfs,
   path,

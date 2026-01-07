@@ -9,9 +9,12 @@ import {
 } from "./states.js";
 
 /**
+ * @typedef {'pending'|'running'|'success'|'failed'|'skipped'} ImageTaskStatusValue
+ */
+
+/**
  * Image generation task lifecycle statuses.
- * @readonly
- * @enum {string}
+ * @type {Readonly<Record<string, ImageTaskStatusValue>>}
  */
 export const ImageTaskStatus = Object.freeze({
   PENDING: "pending",
@@ -22,9 +25,12 @@ export const ImageTaskStatus = Object.freeze({
 });
 
 /**
+ * @typedef {'ai-image'|'svg'|'asset'} RenderTypeValue
+ */
+
+/**
  * Visual renderer output types.
- * @readonly
- * @enum {string}
+ * @type {Readonly<Record<string, RenderTypeValue>>}
  */
 export const RenderType = Object.freeze({
   AI_IMAGE: "ai-image",
@@ -33,9 +39,12 @@ export const RenderType = Object.freeze({
 });
 
 /**
+ * @typedef {'illustration'|'photo'|'icon'|'bg-image'|'bg-gradient'|'bg-pattern'|'chart'|'diagram'|'infographic'|'decoration'|'divider'|'svg'} VisualTypeValue
+ */
+
+/**
  * Visual content type.
- * @readonly
- * @enum {string}
+ * @type {Readonly<Record<string, VisualTypeValue>>}
  */
 export const VisualType = Object.freeze({
   ILLUSTRATION: "illustration",
@@ -53,9 +62,12 @@ export const VisualType = Object.freeze({
 });
 
 /**
+ * @typedef {'outline_confirm'|'style_confirm'|'midway_feedback'|'slide_review'|'final_confirm'} InteractionCheckpointValue
+ */
+
+/**
  * User interaction checkpoints for the design flow.
- * @readonly
- * @enum {string}
+ * @type {Readonly<Record<string, InteractionCheckpointValue>>}
  */
 export const InteractionCheckpoint = Object.freeze({
   OUTLINE_CONFIRM: "outline_confirm",
@@ -66,9 +78,12 @@ export const InteractionCheckpoint = Object.freeze({
 });
 
 /**
+ * @typedef {'add_slide'|'delete_slide'|'reorder_slides'|'duplicate_slide'|'change_color_scheme'|'change_font'|'apply_theme'|'edit_element'|'delete_element'|'add_element'|'move_element'|'resize_element'|'undo'|'redo'} EditOperationTypeValue
+ */
+
+/**
  * Edit operation types for edit mode.
- * @readonly
- * @enum {string}
+ * @type {Readonly<Record<string, EditOperationTypeValue>>}
  */
 export const EditOperationType = Object.freeze({
   ADD_SLIDE: "add_slide",
@@ -88,9 +103,12 @@ export const EditOperationType = Object.freeze({
 });
 
 /**
+ * @typedef {'critical'|'major'|'minor'|'info'} ReviewIssueSeverityValue
+ */
+
+/**
  * Review issue severities.
- * @readonly
- * @enum {string}
+ * @type {Readonly<Record<string, ReviewIssueSeverityValue>>}
  */
 export const ReviewIssueSeverity = Object.freeze({
   CRITICAL: "critical",
@@ -100,9 +118,12 @@ export const ReviewIssueSeverity = Object.freeze({
 });
 
 /**
+ * @typedef {'layout'|'text'|'color'|'visual'|'alignment'|'overflow'|'accessibility'} ReviewIssueTypeValue
+ */
+
+/**
  * Review issue categories.
- * @readonly
- * @enum {string}
+ * @type {Readonly<Record<string, ReviewIssueTypeValue>>}
  */
 export const ReviewIssueType = Object.freeze({
   LAYOUT: "layout",
@@ -115,9 +136,12 @@ export const ReviewIssueType = Object.freeze({
 });
 
 /**
+ * @typedef {'started'|'progress'|'data'|'completed'|'failed'|'error'|'generated'|'skipped'|'succeeded'} EventStatusValue
+ */
+
+/**
  * Standard emit status values for agent events.
- * @readonly
- * @enum {string}
+ * @type {Readonly<Record<string, EventStatusValue>>}
  */
 export const EventStatus = Object.freeze({
   STARTED: "started",
@@ -132,9 +156,12 @@ export const EventStatus = Object.freeze({
 });
 
 /**
+ * @typedef {'critical'|'important'|'optional'} SlotPriorityValue
+ */
+
+/**
  * Slot priority levels for layout/asset selection.
- * @readonly
- * @enum {string}
+ * @type {Readonly<Record<string, SlotPriorityValue>>}
  */
 export const SlotPriority = Object.freeze({
   CRITICAL: "critical",
@@ -143,9 +170,12 @@ export const SlotPriority = Object.freeze({
 });
 
 /**
+ * @typedef {'hero'|'icon'|'background'|'chart_fallback'|'illustration'} SlotPurposeValue
+ */
+
+/**
  * Intended purpose of an image/asset slot within a slide.
- * @readonly
- * @enum {string}
+ * @type {Readonly<Record<string, SlotPurposeValue>>}
  */
 export const SlotPurpose = Object.freeze({
   HERO: "hero",
@@ -156,9 +186,12 @@ export const SlotPurpose = Object.freeze({
 });
 
 /**
+ * @typedef {'pending'|'filled'} VisualDataStatusValue
+ */
+
+/**
  * Visual slot data-status values used in DSL/HTML.
- * @readonly
- * @enum {string}
+ * @type {Readonly<Record<string, VisualDataStatusValue>>}
  */
 export const VisualDataStatus = Object.freeze({
   PENDING: "pending",
@@ -166,18 +199,24 @@ export const VisualDataStatus = Object.freeze({
 });
 
 /**
+ * @typedef {'auto_selected'} SlotSelectionStatusValue
+ */
+
+/**
  * Slot selection status values.
- * @readonly
- * @enum {string}
+ * @type {Readonly<Record<string, SlotSelectionStatusValue>>}
  */
 export const SlotSelectionStatus = Object.freeze({
   AUTO_SELECTED: "auto_selected",
 });
 
 /**
+ * @typedef {'pending'|'generating'|'reviewing'|'completed'|'failed'} BrainstormStatusValue
+ */
+
+/**
  * Brainstorm 状态枚举
- * @readonly
- * @enum {string}
+ * @type {Readonly<Record<string, BrainstormStatusValue>>}
  */
 export const BrainstormStatus = Object.freeze({
   PENDING: "pending",
@@ -188,9 +227,12 @@ export const BrainstormStatus = Object.freeze({
 });
 
 /**
+ * @typedef {'theme'|'layout'|'content'|'visual'} IdeaTypeValue
+ */
+
+/**
  * Idea 类型枚举
- * @readonly
- * @enum {string}
+ * @type {Readonly<Record<string, IdeaTypeValue>>}
  */
 export const IdeaType = Object.freeze({
   THEME: "theme",
@@ -200,9 +242,12 @@ export const IdeaType = Object.freeze({
 });
 
 /**
+ * @typedef {'none'|'fade'|'slide'|'zoom'|'bounce'} DslEffectValue
+ */
+
+/**
  * DSL 动效类型枚举
- * @readonly
- * @enum {string}
+ * @type {Readonly<Record<string, DslEffectValue>>}
  */
 export const DslEffect = Object.freeze({
   NONE: "none",
@@ -214,7 +259,20 @@ export const DslEffect = Object.freeze({
 
 /**
  * 图片/视觉渲染的启发式阈值配置
- * @readonly
+ * @typedef {Object} VisualHeuristicsConfig
+ * @property {number} ASPECT_RATIO_16_9
+ * @property {number} ASPECT_RATIO_4_3
+ * @property {number} ASPECT_RATIO_SQUARE_MIN
+ * @property {number} ASPECT_RATIO_SQUARE_MAX
+ * @property {number} COST_HD_IMAGE
+ * @property {number} COST_STANDARD_IMAGE
+ * @property {number} OPACITY_IMAGE
+ * @property {number} OPACITY_SHAPE
+ */
+
+/**
+ * 图片/视觉渲染的启发式阈值配置
+ * @type {Readonly<VisualHeuristicsConfig>}
  */
 export const VisualHeuristics = Object.freeze({
   // 宽高比阈值 (visual-renderer.js)
@@ -234,57 +292,108 @@ export const VisualHeuristics = Object.freeze({
 
 /**
  * 验证 BrainstormStatus 值
+ *
+ * @param {unknown} value
+ * @returns {boolean}
  */
 export function isValidBrainstormStatus(value) {
-  return Object.values(BrainstormStatus).includes(value);
+  return Object.values(BrainstormStatus).includes(/** @type {any} */ (value));
 }
 
+/**
+ * @param {unknown} value
+ * @returns {boolean}
+ */
 export function isValidDesignPhase(value) {
-  return Object.values(DesignPhase).includes(value);
+  return Object.values(DesignPhase).includes(/** @type {any} */ (value));
 }
 
+/**
+ * @param {unknown} value
+ * @returns {boolean}
+ */
 export function isValidDesignLoopStatus(value) {
-  return Object.values(DesignLoopStatus).includes(value);
+  return Object.values(DesignLoopStatus).includes(/** @type {any} */ (value));
 }
 
+/**
+ * @param {unknown} value
+ * @returns {boolean}
+ */
 export function isValidSlideStatus(value) {
-  return Object.values(SlideStatus).includes(value);
+  return Object.values(SlideStatus).includes(/** @type {any} */ (value));
 }
 
+/**
+ * @param {unknown} value
+ * @returns {boolean}
+ */
 export function isValidVisualSlotStatus(value) {
-  return Object.values(VisualSlotStatus).includes(value);
+  return Object.values(VisualSlotStatus).includes(/** @type {any} */ (value));
 }
 
+/**
+ * @param {unknown} value
+ * @returns {boolean}
+ */
 export function isValidEditSessionStatus(value) {
-  return Object.values(EditSessionStatus).includes(value);
+  return Object.values(EditSessionStatus).includes(/** @type {any} */ (value));
 }
 
+/**
+ * @param {unknown} value
+ * @returns {boolean}
+ */
 export function isValidSubAgentStatus(value) {
-  return Object.values(SubAgentStatus).includes(value);
+  return Object.values(SubAgentStatus).includes(/** @type {any} */ (value));
 }
 
+/**
+ * @param {unknown} value
+ * @returns {boolean}
+ */
 export function isValidReviewStatus(value) {
-  return Object.values(ReviewStatus).includes(value);
+  return Object.values(ReviewStatus).includes(/** @type {any} */ (value));
 }
 
+/**
+ * @param {unknown} value
+ * @returns {boolean}
+ */
 export function isValidVisualType(value) {
-  return Object.values(VisualType).includes(value);
+  return Object.values(VisualType).includes(/** @type {any} */ (value));
 }
 
+/**
+ * @param {unknown} value
+ * @returns {boolean}
+ */
 export function isValidInteractionCheckpoint(value) {
-  return Object.values(InteractionCheckpoint).includes(value);
+  return Object.values(InteractionCheckpoint).includes(/** @type {any} */ (value));
 }
 
+/**
+ * @param {unknown} value
+ * @returns {boolean}
+ */
 export function isValidEditOperationType(value) {
-  return Object.values(EditOperationType).includes(value);
+  return Object.values(EditOperationType).includes(/** @type {any} */ (value));
 }
 
+/**
+ * @param {unknown} value
+ * @returns {boolean}
+ */
 export function isValidReviewIssueSeverity(value) {
-  return Object.values(ReviewIssueSeverity).includes(value);
+  return Object.values(ReviewIssueSeverity).includes(/** @type {any} */ (value));
 }
 
+/**
+ * @param {unknown} value
+ * @returns {boolean}
+ */
 export function isValidReviewIssueType(value) {
-  return Object.values(ReviewIssueType).includes(value);
+  return Object.values(ReviewIssueType).includes(/** @type {any} */ (value));
 }
 
 // Re-export from states.js

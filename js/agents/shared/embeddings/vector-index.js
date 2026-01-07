@@ -128,11 +128,7 @@ export class VectorIndex {
 
   /**
    * @param {Float32Array|number[]|ArrayBufferView} queryVector
-   * @param {object=} options
-   * @param {number=} options.topK
-   * @param {(meta:any, id:string)=>boolean=} options.filter
-   * @param {number=} options.minScore
-   * @param {string|string[]=} options.partitions - Filter by partition: "hot", "warm", "cold", or array
+   * @param {{ topK?: number, filter?: (meta:any, id:string)=>boolean, minScore?: number, partitions?: string|string[] }} [options]
    * @returns {Array<{id:string,score:number,meta:any}>}
    */
   search(queryVector, { topK = 5, filter, minScore, partitions } = {}) {

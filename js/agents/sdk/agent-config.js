@@ -12,8 +12,17 @@ import { createLogger } from "../shared/utils/logger.js";
 
 const logger = createLogger("sdk/agent-config");
 
+/**
+ * @typedef {object} AgentConfigOptions
+ * @property {string} [actor]
+ */
+
 export class AgentConfig {
+  /**
+   * @param {AgentConfigOptions} [options]
+   */
   constructor(options = {}) {
+    /** @type {AgentConfigOptions} */
     const opts = options && typeof options === "object" ? options : {};
 
     /** @type {Map<string, any>} */

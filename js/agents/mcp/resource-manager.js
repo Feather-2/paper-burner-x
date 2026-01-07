@@ -4,6 +4,64 @@ import { FallbackAdapter } from "../shared/archive/archive.js";
 import { safeJsonParse } from "../shared/utils/safe-json.js";
 import { canUseStorageEncryption, decryptString, encryptString, isEncryptedString } from "../shared/utils/storage-crypto.js";
 
+/**
+ * @typedef {object} McpResourceDefinition
+ * @property {string} uri
+ * @property {string=} name
+ * @property {string=} description
+ * @property {string=} mimeType
+ * @property {any=} annotations
+ */
+
+/**
+ * @typedef {object} McpResourceTemplateDefinition
+ * @property {string} uriTemplate
+ * @property {string=} name
+ * @property {string=} description
+ * @property {string=} mimeType
+ */
+
+/**
+ * @typedef {object} McpResourceContent
+ * @property {string} uri
+ * @property {string=} mimeType
+ * @property {string=} text
+ * @property {Uint8Array=} blob
+ */
+
+/**
+ * @typedef {object} McpResourceUpdate
+ * @property {string} providerId
+ * @property {string} uri
+ * @property {any|null=} content
+ * @property {string=} error
+ */
+
+/**
+ * @callback McpResourceUpdateCallback
+ * @param {McpResourceUpdate} update
+ * @returns {void}
+ */
+
+/**
+ * @typedef {object} McpResourceSubscription
+ * @property {string} id
+ * @property {string} providerId
+ * @property {string} uri
+ * @property {() => Promise<{ ok: boolean }>} unsubscribe
+ */
+
+/**
+ * @typedef {object} McpResourceManagerOptions
+ * @property {import("./mcp-client.js").McpClient=} client
+ * @property {(Storage|{ get: (key: string) => Promise<any>, set: (key: string, value: any) => Promise<any> }|null)=} storage
+ * @property {number=} defaultTtlMs
+ * @property {number=} maxPersistBytes
+ * @property {number=} maxContentCacheEntries
+ * @property {number=} maxContentCacheBytes
+ * @property {{ enabled?: boolean, required?: boolean, passphrase?: string, aad?: string, iterations?: number }=} encryption
+ */
+
 function isStorageLike(value) {
   return (
     value !== null &&
@@ -127,8 +185,13 @@ function storeSetFireAndForget(store, key, value) {
  * - list resources / templates
  * - read resources with TTL cache
  * - subscribe to resource updates via provider notifications (SSE when available)
+ * @param {McpResourceManagerOptions} [options]
+ * @returns {McpResourceManager}
  */
 export class McpResourceManager {
+  /**
+   * @param {McpResourceManagerOptions} [options]
+   */
   constructor({
     client,
     storage,
@@ -338,12 +401,21 @@ export class McpResourceManager {
     return { providerId: id, provider: p };
   }
 
+  /**
+   * @param {string=} providerId
+   * @returns {void}
+   */
   invalidateResourcesList(providerId) {
     const { providerId: id } = this._getProvider(providerId);
     this._listCache.delete(id);
     this._persistCache();
   }
 
+  /**
+   * @param {string=} providerId
+   * @param {string=} uri
+   * @returns {void}
+   */
   invalidateResource(providerId, uri) {
     const { providerId: id } = this._getProvider(providerId);
     const u = toNonEmptyString(uri);
@@ -352,6 +424,10 @@ export class McpResourceManager {
     this._persistCache();
   }
 
+  /**
+   * @param {{ providerId?: string, ttlMs?: number }=} options
+   * @returns {Promise<McpResourceDefinition[]>}
+   */
   async listResources({ providerId, ttlMs } = {}) {
     await this._hydrationPromise;
     const { providerId: id, provider } = this._getProvider(providerId);
@@ -367,6 +443,10 @@ export class McpResourceManager {
     return resources;
   }
 
+  /**
+   * @param {{ providerId?: string, ttlMs?: number }=} options
+   * @returns {Promise<McpResourceTemplateDefinition[]>}
+   */
   async listResourceTemplates({ providerId, ttlMs } = {}) {
     await this._hydrationPromise;
     const { providerId: id, provider } = this._getProvider(providerId);
@@ -382,6 +462,10 @@ export class McpResourceManager {
     return templates;
   }
 
+  /**
+   * @param {{ providerId?: string, uri?: string, forceRefresh?: boolean, ttlMs?: number }=} options
+   * @returns {Promise<McpResourceContent>}
+   */
   async readResource({ providerId, uri, forceRefresh = false, ttlMs } = {}) {
     await this._hydrationPromise;
     const { providerId: id, provider } = this._getProvider(providerId);
@@ -437,6 +521,10 @@ export class McpResourceManager {
     }
   }
 
+  /**
+   * @param {{ providerId?: string, uri?: string, callback?: McpResourceUpdateCallback }=} options
+   * @returns {Promise<McpResourceSubscription>}
+   */
   async subscribeResource({ providerId, uri, callback } = {}) {
     await this._hydrationPromise;
     const { providerId: id, provider } = this._getProvider(providerId);
@@ -469,6 +557,10 @@ export class McpResourceManager {
     };
   }
 
+  /**
+   * @param {string} subId
+   * @returns {Promise<{ ok: boolean }>}
+   */
   async unsubscribeResource(subId) {
     const sub = this._subs.get(subId);
     if (!sub) return { ok: true };
@@ -560,6 +652,12 @@ export class McpResourceManager {
     return true;
   }
 
+  /**
+   * Provider notification handler for resource updates.
+   * @param {string} providerId
+   * @param {any} msg
+   * @returns {Promise<void>}
+   */
   async handleNotification(providerId, msg) {
     const pid = toNonEmptyString(providerId);
     if (!pid) return;
@@ -601,6 +699,9 @@ export class McpResourceManager {
     }
   }
 
+  /**
+   * @returns {void}
+   */
   dispose() {
     for (const off of this._providerNotifyUnsub.values()) {
       try {

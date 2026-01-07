@@ -23,7 +23,25 @@ function safeStringify(value, { maxChars = 8000 } = {}) {
   }
 }
 
+/**
+ * @typedef {object} ResolveModelCallerOptions
+ * @property {string} [usage]
+ */
+
+/**
+ * @typedef {object} StageApiForModelCaller
+ * @property {AbortSignal} [signal]
+ * @property {Function} [callModel]
+ * @property {any} [modelRouter]
+ * @property {any} [aiApiService]
+ */
+
+/**
+ * @param {StageApiForModelCaller} stageApi
+ * @param {ResolveModelCallerOptions} [options]
+ */
 function resolveModelCaller(stageApi, { usage = "worker" } = {}) {
+  /** @type {StageApiForModelCaller} */
   const api = stageApi && typeof stageApi === "object" ? stageApi : {};
   const defaultSignal = api.signal;
 
@@ -35,7 +53,7 @@ function resolveModelCaller(stageApi, { usage = "worker" } = {}) {
   if (modelRouter && typeof modelRouter.call === "function") {
     const legacySignature = modelRouter.call.length >= 2;
     return (messages, opts = {}) => {
-      const forward = opts && typeof opts === "object" ? opts : {};
+      const forward = /** @type {any} */ (opts && typeof opts === "object" ? opts : {});
       const { signal: providedSignal, ...rest } = forward;
       const signal = providedSignal ?? defaultSignal;
       return legacySignature ? modelRouter.call(messages, { usage, signal, ...rest }) : modelRouter.call({ usage, messages, signal, ...rest });
@@ -45,7 +63,7 @@ function resolveModelCaller(stageApi, { usage = "worker" } = {}) {
   const aiApiService = api.aiApiService;
   if (aiApiService && typeof aiApiService.chat === "function") {
     return (messages, opts = {}) => {
-      const forward = opts && typeof opts === "object" ? opts : {};
+      const forward = /** @type {any} */ (opts && typeof opts === "object" ? opts : {});
       const { signal: providedSignal, ...rest } = forward;
       const signal = providedSignal ?? defaultSignal;
       return aiApiService.chat({ messages, usage, signal, ...rest });
@@ -105,8 +123,38 @@ function normalizeActionList(decision) {
   ];
 }
 
+/**
+ * @typedef {object} DefaultAgentLoopOptions
+ * @property {string} [actor]
+ * @property {string} [stageName]
+ * @property {any} [eventBus]
+ * @property {any} [logger]
+ * @property {Function} [toolExecutor]
+ * @property {Map<string, any>} [capabilities]
+ * @property {Function} [getCatalogPrompt]
+ * @property {number} [maxIterations]
+ * @property {number} [maxToolResultChars]
+ * @property {string} [usage]
+ * @property {{ execute: Function }} [middlewareChain]
+ *
+ * @typedef {object} StageApiLike
+ * @property {AbortSignal} [signal]
+ * @property {Function} [toolExecutor]
+ * @property {any} [modelRouter]
+ * @property {any} [aiApiService]
+ * @property {{ execute: Function }} [middlewareChain]
+ * @property {Function} [emit]
+ * @property {any} [logger]
+ * @property {any} [callModel]
+ * @property {any} [state]
+ */
+
 export class DefaultAgentLoop extends BaseAgentLoop {
+  /**
+   * @param {DefaultAgentLoopOptions} [options]
+   */
   constructor(options = {}) {
+    /** @type {DefaultAgentLoopOptions} */
     const opts = options && typeof options === "object" ? options : {};
     super({
       actor: opts.actor || "agent",
@@ -157,7 +205,12 @@ export class DefaultAgentLoop extends BaseAgentLoop {
       .join("\n");
   }
 
+  /**
+   * @param {any} input
+   * @param {StageApiLike} [stageApi]
+   */
   async run(input, stageApi = {}) {
+    /** @type {StageApiLike} */
     const api = stageApi && typeof stageApi === "object" ? stageApi : {};
     const signal = api.signal;
 

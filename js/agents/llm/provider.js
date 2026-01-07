@@ -73,6 +73,9 @@ export function assertProvider(provider) {
  * chat({model, messages, images?}) -> Promise<{content: string, ...}>
  */
 export class BaseProvider {
+  /**
+   * @param {{ id?: string, name?: string }} [options]
+   */
   constructor({ id, name } = {}) {
     this.id = toNonEmptyString(id) || "provider_unknown";
     this.name = toNonEmptyString(name) || this.id;

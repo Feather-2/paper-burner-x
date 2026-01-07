@@ -2,6 +2,42 @@ import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.
 
 // TP6: Assemble ContentPackage v0.1 (TextPrep mode) + validate Hard Gates (H1-H4).
 
+/**
+ * Minimal runtime context shape used by this module.
+ * (Kept local to avoid relying on optional type-only imports.)
+ * @typedef {object} RunContext
+ * @property {string=} runId
+ * @property {string=} mode
+ * @property {any=} constraints
+ */
+
+/**
+ * ContentPackage v0.1 as emitted by TextPrep / DeepSearch stages.
+ * @typedef {object} ContentPackage
+ * @property {string} schemaVersion
+ * @property {string} runId
+ * @property {"textprep" | "deepsearch"} mode
+ * @property {string} createdAt
+ * @property {any} constraints
+ * @property {Array<any>=} sources
+ * @property {Array<any>=} assets
+ * @property {string} summary
+ * @property {Array<any>} outlineCandidates
+ * @property {Array<any>} slideIntents
+ * @property {Array<any>} claims
+ * @property {Array<any>} evidenceLedger
+ * @property {any=} report
+ * @property {Array<any>} dataTables
+ * @property {Array<any>} openQuestions
+ * @property {{ textprep: { sourceChars: number, chunkCount: any, claimCount: number, evidenceCount: number }, deepsearch?: any }} metrics
+ * @property {any=} scanSummary
+ * @property {Array<any>=} gaps
+ * @property {Array<any>=} todos
+ * @property {any=} condensedMemory
+ * @property {{ total: number, completed: number, cancelled: number }=} todoCompletionStats
+ * @property {string=} completionReason
+ */
+
 function toStringPreserveWhitespace(v) {
   if (v === undefined || v === null) return "";
   if (typeof v === "string") return v;
@@ -142,13 +178,13 @@ function toSourceRefs(sources) {
 }
 
 /**
- * @param {import("../../runtime/run-context.js").RunContext|object} runContext
- * @param {Array<object>} sources may include internal `sourceTextNormalized` for hard-gate validation
- * @param {Array<object>} slideIntents
- * @param {Array<object>} claims
- * @param {Array<object>} evidenceLedger
- * @param {Array<object>=} dataTables
- * @returns {object} ContentPackage v0.1
+ * @param {RunContext|object} runContext
+ * @param {Array<any>} sources may include internal `sourceTextNormalized` for hard-gate validation
+ * @param {Array<any>} slideIntents
+ * @param {Array<any>} claims
+ * @param {Array<any>} evidenceLedger
+ * @param {Array<any>=} dataTables
+ * @returns {ContentPackage} ContentPackage v0.1
  */
 export function buildContentPackage(runContext, sources, slideIntents, claims, evidenceLedger, dataTables = []) {
   if (!isPlainObject(runContext)) throw new TypeError("buildContentPackage(runContext,...): runContext must be an object");
@@ -195,6 +231,7 @@ export function buildContentPackage(runContext, sources, slideIntents, claims, e
     (mode === "deepsearch" ? toNonEmptyString(scanSummary?.summaryText) : undefined) ||
     deriveSummary(primarySourceText, claims);
 
+  /** @type {ContentPackage} */
   const pkg = {
     schemaVersion: "0.1",
     runId: String(runContext.runId || "run_unknown"),

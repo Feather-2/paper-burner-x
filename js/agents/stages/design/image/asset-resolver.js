@@ -190,6 +190,7 @@ export function fillAssetPlaceholders(html, resolvedAssets) {
   const filledSlotIds = [];
 
   const buildReplacement = (tag) => {
+    /** @type {Record<string, any>} */
     const attrs = parseTagAttributes(tag);
     const slotId = toNonEmptyString(attrs["data-slot-id"]) || toNonEmptyString(attrs.id);
     if (!slotId || !bySlotId.has(slotId)) return null;
@@ -200,6 +201,7 @@ export function fillAssetPlaceholders(html, resolvedAssets) {
     const { assetUri, width, height } = bySlotId.get(slotId);
     filledSlotIds.push(slotId);
 
+    /** @type {Record<string, any>} */
     const imgAttrs = { ...attrs };
     imgAttrs["data-el"] = "image";
     imgAttrs["data-status"] = VisualDataStatus.FILLED;

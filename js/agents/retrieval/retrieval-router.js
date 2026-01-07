@@ -144,6 +144,10 @@ function bm25CacheKey(chunks, bm25Options) {
   return `${k1}|${b}|${n}|${firstId}|${lastId}`;
 }
 
+/**
+ * @param {any} sourceIndex
+ * @param {{ signal?: AbortSignal }} [options]
+ */
 async function ensureTocAsync(sourceIndex, { signal } = {}) {
   checkCancelled(signal);
   if (sourceIndex && Array.isArray(sourceIndex.toc) && sourceIndex.toc.length) return sourceIndex.toc;
@@ -363,7 +367,7 @@ export async function retrieve(sourceIndex, gaps, config = {}) {
       seed.sort((a, b) => (b.score || 0) - (a.score || 0));
     }
 
-    const selected = mmrSelect(hits, { topK: mmrTopK, lambda, seed });
+    const selected = mmrSelect(hits, /** @type {any} */ ({ topK: mmrTopK, lambda, seed }));
     const selectedIds = new Set(selected.map((r) => String(r.chunkId)));
 
     for (const cid of Array.from(byChunkId.keys())) {

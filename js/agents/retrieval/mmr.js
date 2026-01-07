@@ -82,6 +82,18 @@ function clamp01(n) {
   return Math.max(0, Math.min(1, x));
 }
 
+/**
+ * @typedef {object} MmrSelectOptions
+ * @property {number} [topK]
+ * @property {number} [lambda]
+ * @property {any[]} [seed]
+ * @property {number} [maxTokens]
+ */
+
+/**
+ * @param {any[]} candidates
+ * @param {MmrSelectOptions} [options]
+ */
 export function mmrSelect(candidates, { topK, lambda = 0.7, seed = [], maxTokens = 200 } = {}) {
   const list = Array.isArray(candidates) ? candidates : [];
   const k = Number.isFinite(topK) ? Math.max(0, Math.floor(topK)) : list.length;

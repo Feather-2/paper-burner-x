@@ -16,17 +16,40 @@ import { VisualSubAgent } from "../subagents/visual-agent.js";
 import { normalizeRenderType } from "../../../shared/utils/value-utils.js";
 import { checkCancelled, getEmitFn } from "../../../runtime/core/agent-loop.js";
 
+/**
+ * @typedef {object} VisualHandlerOptions
+ * @property {number} [imageConcurrency]
+ */
+
+/**
+ * @typedef {object} VisualRenderResult
+ * @property {any} visualReport
+ * @property {any} imageReport
+ * @property {any[]} finalImageSlots
+ * @property {string} deckHtmlDsl
+ * @property {string[]} pendingImages
+ */
+
 function emitStage(emit, name, status, payload) {
   emit?.(name, { actor: "design", status, payload });
 }
 
 export class VisualHandler {
+  /**
+   * @param {VisualHandlerOptions} [options={}]
+   */
   constructor(options = {}) {
     this.imageConcurrency = options.imageConcurrency || 4;
   }
 
   /**
    * 初始化设计系统
+   *
+   * @param {any} contentPackage
+   * @param {any} context
+   * @param {any} constraints
+   * @param {any} userConfig
+   * @returns {Promise<any>} designSystem
    */
   async initDesignSystem(contentPackage, context, constraints, userConfig) {
     const modelRouter = context?.modelRouter ?? context?.runContext?.modelRouter ?? null;
@@ -56,6 +79,12 @@ export class VisualHandler {
 
   /**
    * 构建视觉槽位
+   *
+   * @param {any} brainstormResult
+   * @param {any[]} imageSlots
+   * @param {any} imageProvider
+   * @param {boolean} [hasModelCapability=true]
+   * @returns {any[]}
    */
   buildVisualSlots(brainstormResult, imageSlots, imageProvider, hasModelCapability = true) {
     if (!imageProvider && !hasModelCapability) {
@@ -105,6 +134,17 @@ export class VisualHandler {
 
   /**
    * 渲染视觉元素
+   *
+   * @param {any[]} visualSlotsForRender
+   * @param {any} contentPackage
+   * @param {any} designSystem
+   * @param {string[]} slideHtmls
+   * @param {any} context
+   * @param {any} runContext
+   * @param {any} constraints
+   * @param {any[]} imageSlots
+   * @param {string[]} aiImageSlotIds
+   * @returns {Promise<VisualRenderResult>}
    */
   async renderVisuals(
     visualSlotsForRender,
@@ -280,6 +320,10 @@ export class VisualHandler {
   }
 }
 
+/**
+ * @param {VisualHandlerOptions} [options={}]
+ * @returns {VisualHandler}
+ */
 export function createVisualHandler(options = {}) {
   return new VisualHandler(options);
 }

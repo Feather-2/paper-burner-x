@@ -12,6 +12,75 @@ import { createDeckEditor } from "../runtime/deck-editor.js";
 import { createScreenshotStitcher } from "../runtime/screenshot-stitcher.js";
 
 /**
+ * @typedef {object} DeckPackage
+ * @property {string} deckHtmlDsl
+ * @property {any[]} [slidesMeta]
+ */
+
+/**
+ * @typedef {object} SlideDsl
+ * @property {number} slideIndex
+ * @property {string} html
+ * @property {any[]} elements
+ */
+
+/**
+ * @typedef {object} ReviewContext
+ * @property {string} deckHtmlDsl
+ * @property {any[]} slidesMeta
+ * @property {SlideDsl[]} allDsl
+ * @property {any} designSystem
+ * @property {number} slideCount
+ * @property {any} options
+ */
+
+/**
+ * @typedef {object} ReviewIssue
+ * @property {string} type
+ * @property {"error"|"warning"|"info"|string} severity
+ * @property {string} message
+ * @property {any} [details]
+ */
+
+/**
+ * @typedef {object} ReviewFix
+ * @property {string} issueType
+ * @property {string} description
+ * @property {boolean} autoFixable
+ * @property {any} [suggestion]
+ * @property {any} [edits]
+ */
+
+/**
+ * @typedef {object} ReviewSummary
+ * @property {string} status
+ * @property {number} score
+ * @property {number} slideCount
+ * @property {{ error: number, warning: number, info: number }} issueBreakdown
+ * @property {string} message
+ */
+
+/**
+ * @typedef {object} AutoReviewResult
+ * @property {boolean} success
+ * @property {string} [error]
+ * @property {ReviewIssue[]} issues
+ * @property {ReviewFix[]} fixes
+ * @property {number} score
+ * @property {ReviewSummary} [summary]
+ * @property {number} [slideCount]
+ * @property {boolean} [pass]
+ */
+
+/**
+ * @typedef {object} AutoReviewerOptions
+ * @property {any} [analyzer]
+ * @property {any} [editor]
+ * @property {any} [stitcher]
+ * @property {any} [config]
+ */
+
+/**
  * 审查配置
  */
 export const REVIEW_CONFIG = {
@@ -65,6 +134,11 @@ export const IssueSeverity = {
 
 /**
  * 构建审查上下文
+ *
+ * @param {DeckPackage} deckPackage
+ * @param {any} designSystem
+ * @param {any} [options={}]
+ * @returns {ReviewContext}
  */
 export function buildReviewContext(deckPackage, designSystem, options = {}) {
   const allDsl = collectAllDsl(deckPackage?.deckHtmlDsl || "");
@@ -266,6 +340,11 @@ function calculateConsistencyScore(issues, config = REVIEW_CONFIG) {
 
 /**
  * 运行自动审查
+ *
+ * @param {DeckPackage} deckPackage
+ * @param {any} designSystem
+ * @param {any} [options={}]
+ * @returns {Promise<AutoReviewResult>}
  */
 export async function runAutoReview(deckPackage, designSystem, options = {}) {
   const context = buildReviewContext(deckPackage, designSystem, options);
@@ -334,6 +413,9 @@ function buildReviewSummary(issues, score, context, config = REVIEW_CONFIG) {
  * AutoReviewer 类
  */
 export class AutoReviewer {
+  /**
+   * @param {AutoReviewerOptions} [options={}]
+   */
   constructor(options = {}) {
     this._analyzer = options.analyzer || createDeckAnalyzer(options);
     this._editor = options.editor || createDeckEditor(options);
@@ -343,6 +425,11 @@ export class AutoReviewer {
 
   /**
    * 运行审查
+   *
+   * @param {DeckPackage} deckPackage
+   * @param {any} designSystem
+   * @param {any} [options={}]
+   * @returns {Promise<AutoReviewResult>}
    */
   async review(deckPackage, designSystem, options = {}) {
     return runAutoReview(deckPackage, designSystem, { ...this._config, ...options });
@@ -350,6 +437,10 @@ export class AutoReviewer {
 
   /**
    * 应用修复
+   *
+   * @param {DeckPackage} deckPackage
+   * @param {ReviewFix[]} fixes
+   * @returns {Promise<{ fixedDeckHtmlDsl: string, appliedFixes: Array<any> }>}
    */
   async applyFixes(deckPackage, fixes) {
     this._editor.setDeckPackage(deckPackage);
@@ -370,12 +461,18 @@ export class AutoReviewer {
 
   /**
    * 获取配置
+   *
+   * @returns {any}
    */
   getConfig() {
     return { ...this._config };
   }
 }
 
+/**
+ * @param {AutoReviewerOptions} [options={}]
+ * @returns {AutoReviewer}
+ */
 export function createAutoReviewer(options = {}) {
   return new AutoReviewer(options);
 }

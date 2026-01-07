@@ -5,16 +5,9 @@
  */
 
 import { CodeSearchStage } from "./codesearch-stage.js";
-import { readFile, readdir, stat } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 import { createLogger } from "../../shared/utils/logger.js";
 
 const logger = createLogger("stages/codesearch/test-agent-loop");
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const projectRoot = join(__dirname, "../../../..");
 
 // Mock LLM 响应序列
 const MOCK_RESPONSES = [
@@ -71,6 +64,11 @@ let mockCallIndex = 0;
 
 // Mock modelRouter
 const mockModelRouter = {
+  /**
+   * @param {any[]} messages
+   * @param {any} opts
+   * @returns {Promise<{ content: string, usage: { input: number, output: number } }>}
+   */
   call: async (messages, opts) => {
     console.log(`  [Mock LLM] Call ${mockCallIndex + 1}, messages: ${messages.length}`);
     const response = MOCK_RESPONSES[mockCallIndex] || MOCK_RESPONSES[MOCK_RESPONSES.length - 1];
@@ -83,17 +81,32 @@ const mockModelRouter = {
 };
 
 // Mock stageApi
-const mockStageApi = {
-  modelRouter: mockModelRouter,
-  fs: { readFile, readdir, stat },
-  emit: (event, payload) => {
-    console.log(`  [Event] ${event}:`, typeof payload === 'object' ? JSON.stringify(payload).slice(0, 100) : payload);
-  },
-  signal: null,
-};
-
+/**
+ * @returns {Promise<void>}
+ */
 async function testAgentLoop() {
   console.log("=== CodeSearch Agent Loop Test (Mock LLM) ===\n");
+
+  // @ts-ignore - this tsconfig is browser-first (no @types/node)
+  const { readFile, readdir, stat } = await import("node:fs/promises");
+  // @ts-ignore - this tsconfig is browser-first (no @types/node)
+  const { fileURLToPath } = await import("node:url");
+  // @ts-ignore - this tsconfig is browser-first (no @types/node)
+  const { dirname, join } = await import("node:path");
+
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = dirname(__filename);
+  const projectRoot = join(__dirname, "../../../..");
+
+  /** @type {any} */
+  const mockStageApi = {
+    modelRouter: mockModelRouter,
+    fs: { readFile, readdir, stat },
+    emit: (event, payload) => {
+      console.log(`  [Event] ${event}:`, typeof payload === "object" ? JSON.stringify(payload).slice(0, 100) : payload);
+    },
+    signal: null,
+  };
 
   const stage = new CodeSearchStage({ maxSteps: 10 });
 
@@ -107,7 +120,7 @@ async function testAgentLoop() {
   mockCallIndex = 0;
 
   try {
-    const result = await stage.execute(runContext, input, mockStageApi);
+    const result = /** @type {any} */ (await stage.execute(runContext, input, mockStageApi));
 
     console.log("\n=== Result ===");
     console.log("Query:", result.query);
@@ -118,7 +131,7 @@ async function testAgentLoop() {
     console.log("\n✅ Agent Loop Test Passed!");
   } catch (err) {
     logger.error("\n❌ Test Failed:", { error: err?.message || String(err), stack: err?.stack });
-    process.exit(1);
+    /** @type {any} */ (globalThis).process?.exit?.(1);
   }
 }
 

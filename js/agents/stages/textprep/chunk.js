@@ -16,7 +16,7 @@ export const ChunkStrategy = {
  * 优先级: markdown > semantic > fixed
  *
  * @param {string} text
- * @returns {{ strategy: string, reason: string, headingCount?: number }}
+ * @returns {{ strategy: string, reason: string, headingCount?: number, paragraphCount?: number }}
  */
 export function detectChunkStrategy(text) {
   if (typeof text !== "string" || text.length === 0) {
@@ -48,7 +48,7 @@ export function detectChunkStrategy(text) {
  * @param {object} options
  * @param {string} [options.forceStrategy] - 强制使用某策略
  * @param {number} [options.maxSize] - 最大块大小
- * @returns {{ strategy: string, chunks: Array, meta: object }}
+ * @returns {{ strategy: string, reason: string, chunks: Array, meta: object }}
  */
 export function smartChunk(text, options = {}) {
   const { forceStrategy, maxSize = 2000 } = options;

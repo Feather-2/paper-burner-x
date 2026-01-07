@@ -77,7 +77,7 @@ export class RuntimeScheduler {
   /**
    * 注册运行时适配器
    * @param {string} type 
-   * @param {RuntimeAdapter} adapter 
+   * @param {import("./runtime-adapter.js").RuntimeAdapter} adapter
    */
   registerRuntime(type, adapter) {
     this.runtimes.set(type, adapter);
@@ -194,6 +194,10 @@ export class RuntimeScheduler {
     this._setHealthStatus(type, RuntimeHealthStatus.UNHEALTHY, { reason: metrics.isolationReason });
   }
 
+  /**
+   * @param {string} runtimeType
+   * @param {{ reason?: string }} [options]
+   */
   _clearIsolation(runtimeType, { reason } = {}) {
     this._ensureHealthEntry(runtimeType);
     const metrics = this._healthMetrics.get(runtimeType);
@@ -246,6 +250,11 @@ export class RuntimeScheduler {
     metrics.averageLatencyMs = alpha * ms + (1 - alpha) * metrics.averageLatencyMs;
   }
 
+  /**
+   * @param {string} runtimeType
+   * @param {{ success?: boolean, error?: string, data?: any, metrics?: any }} result
+   * @param {{ latencyMs?: number, isProbe?: boolean, blocked?: boolean }} [meta]
+   */
   _recordResult(runtimeType, result, { latencyMs, isProbe = false, blocked = false } = {}) {
     this._ensureHealthEntry(runtimeType);
     const metrics = this._healthMetrics.get(runtimeType);

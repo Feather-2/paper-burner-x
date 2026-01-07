@@ -10,6 +10,32 @@
 import { executeTool } from "../tools/index.js";
 import { maybePersistToolOutput } from "../../../runtime/persisted-output.js";
 
+/**
+ * @typedef {object} DeepSearchToolAction
+ * @property {string} action
+ * @property {Record<string, any>=} args
+ *
+ * @typedef {object} DeepSearchDecision
+ * @property {string=} thought
+ * @property {string=} action
+ * @property {Record<string, any>=} args
+ * @property {DeepSearchToolAction[]=} actions
+ *
+ * @typedef {object} DeepSearchStageApi
+ * @property {any=} runStore
+ * @property {{ getCursor?: () => any }=} sideEffects
+ *
+ * @typedef {object} ExecuteDeepSearchDecisionParams
+ * @property {any} agent
+ * @property {DeepSearchStageApi} stageApi
+ * @property {DeepSearchDecision | null | undefined} decision
+ * @property {number} plannedIteration
+ *
+ * @typedef {object} ExecuteDeepSearchDecisionResult
+ * @property {number} toolCalls
+ * @property {boolean=} backtracked
+ */
+
 function buildLoopGuardNote(guard) {
   if (!guard || typeof guard !== "object") return "";
 
@@ -62,6 +88,11 @@ async function maybeSaveCheckpoint({ agent, stageApi, plannedIteration }) {
   }
 }
 
+/**
+ * 执行本轮 DeepSearch 的工具调用（支持单个/批量），并将结果回填到对话消息中。
+ * @param {ExecuteDeepSearchDecisionParams} params
+ * @returns {Promise<ExecuteDeepSearchDecisionResult>}
+ */
 export async function executeDeepSearchDecision({
   agent,
   stageApi,
@@ -115,14 +146,14 @@ export async function executeDeepSearchDecision({
     for (const r of results) {
       if (r?.success) {
         try {
-          const stored = await maybePersistToolOutput({
+          const stored = await maybePersistToolOutput(/** @type {any} */ ({
             runStore,
             runId: agent.state?.runId,
             toolName: r.tool,
             args: r.args,
             iteration: plannedIteration,
             result: r.result,
-          });
+          }));
           formatted.push({ ...r, inline: stored.inline, persisted: stored.persisted, ref: stored.ref || null });
         } catch {
           formatted.push({ ...r, inline: r.result, persisted: false, ref: null });
@@ -187,14 +218,14 @@ export async function executeDeepSearchDecision({
 
   let toolPayloadForPrompt = toolResult;
   try {
-    const stored = await maybePersistToolOutput({
+    const stored = await maybePersistToolOutput(/** @type {any} */ ({
       runStore,
       runId: agent.state?.runId,
       toolName: decision.action,
       args: decision.args || {},
       iteration: plannedIteration,
       result: toolResult,
-    });
+    }));
     toolPayloadForPrompt = stored.inline;
   } catch {
     // ignore persistence failures (fallback to inline toolResult)

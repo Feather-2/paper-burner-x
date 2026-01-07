@@ -23,7 +23,8 @@ export function makeStageEmitter(stageApi, actor = "deepsearch", getContext) {
   const lastEmitTime = new Map();
   const MIN_INTERVAL_MS = 100;
 
-  return (name, payload, { status = EventStatus.COMPLETED, throttle = true } = {}) => {
+  /** @type {(name:string, payload:any, meta?:{ status?: string, throttle?: boolean })=>void} */
+  const emitter = (name, payload, { status = EventStatus.COMPLETED, throttle = true } = {}) => {
     if (throttle) {
       const now = Date.now();
       const last = lastEmitTime.get(name);
@@ -42,10 +43,18 @@ export function makeStageEmitter(stageApi, actor = "deepsearch", getContext) {
       payload,
     });
   };
+
+  return emitter;
 }
 
 /**
  * 生成唯一节点 ID
+ */
+/**
+ * @param {string} runId
+ * @param {string} kind
+ * @param {{ stage?: string, iteration?: number, trajectoryId?: string }=} options
+ * @returns {string}
  */
 export function generateNodeId(runId, kind, { stage, iteration, trajectoryId } = {}) {
   const parts = [runId || "run", kind];

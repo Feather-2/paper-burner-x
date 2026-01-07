@@ -25,6 +25,8 @@ export const OperationLevel = Object.freeze({
   OFFLINE: "offline", // 离线
 });
 
+/** @typedef {(typeof OperationLevel)[keyof typeof OperationLevel]} OperationLevelValue */
+
 /**
  * 降级触发器类型
  */
@@ -36,6 +38,8 @@ export const DegradationTrigger = Object.freeze({
   TIMEOUT: "timeout",
   MANUAL: "manual",
 });
+
+/** @typedef {(typeof DegradationTrigger)[keyof typeof DegradationTrigger]} DegradationTriggerValue */
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Degradation Policy
@@ -102,7 +106,7 @@ export class DegradationPolicy {
 
   /**
    * 检查功能是否可用
-   * @param {string} level
+   * @param {OperationLevelValue} level
    * @param {string} feature
    */
   isFeatureEnabled(level, feature) {
@@ -111,7 +115,7 @@ export class DegradationPolicy {
 
   /**
    * 获取级别的所有可用功能
-   * @param {string} level
+   * @param {OperationLevelValue} level
    */
   getEnabledFeatures(level) {
     return Object.entries(this.features[level] || {})
@@ -213,10 +217,17 @@ export class DegradationMatrix {
     this._onLevelChange = typeof onLevelChange === "function" ? onLevelChange : null;
     this._getMemoryUsage = typeof getMemoryUsage === "function" ? getMemoryUsage : null;
 
+    /** @type {OperationLevelValue} */
     this._currentLevel = OperationLevel.NORMAL;
+
+    /** @type {Array<{from: OperationLevelValue, to: OperationLevelValue, trigger: DegradationTriggerValue|null, ts: number}>} */
     this._levelHistory = [];
+
+    /** @type {Set<DegradationTriggerValue>} */
     this._triggers = new Set();
     this._metrics = new HealthMetrics(metricsWindowMs);
+
+    /** @type {OperationLevelValue|null} */
     this._manualOverride = null;
     this._lastEvaluation = 0;
   }
@@ -252,6 +263,7 @@ export class DegradationMatrix {
     const memoryRatio = this._getMemoryUsage?.() ?? 0;
 
     this._triggers.clear();
+    /** @type {OperationLevelValue} */
     let newLevel = OperationLevel.NORMAL;
 
     // 错误率检查
@@ -287,6 +299,8 @@ export class DegradationMatrix {
   /**
    * 设置级别
    * @private
+   * @param {OperationLevelValue} newLevel
+   * @param {DegradationTriggerValue|null} trigger
    */
   _setLevel(newLevel, trigger) {
     if (newLevel === this._currentLevel) return;
@@ -316,6 +330,9 @@ export class DegradationMatrix {
   /**
    * 比较级别严重程度
    * @private
+   * @param {OperationLevelValue} a
+   * @param {OperationLevelValue} b
+   * @returns {OperationLevelValue}
    */
   _maxLevel(a, b) {
     const order = [OperationLevel.NORMAL, OperationLevel.DEGRADED, OperationLevel.CRITICAL, OperationLevel.OFFLINE];
@@ -348,7 +365,7 @@ export class DegradationMatrix {
 
   /**
    * 手动设置级别（覆盖自动计算）
-   * @param {string} level
+   * @param {OperationLevelValue} level
    */
   setManualOverride(level) {
     if (Object.values(OperationLevel).includes(level)) {

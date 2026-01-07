@@ -8,6 +8,21 @@ import { nowMs, toNonEmptyString, escapeHtml as escapeAttr } from "../shared/des
 import { parseTagAttributes } from "../shared/html-parser.js";
 import { safeEmit } from "../shared/safe-emit.js";
 
+/**
+ * @typedef {object} ImageTask
+ * @property {string} taskId
+ * @property {string} slotId
+ * @property {string} prompt
+ * @property {string} provider
+ * @property {string} model
+ * @property {string} status
+ * @property {number} retryCount
+ * @property {any} result
+ * @property {string|null} error
+ * @property {number} costUSD
+ * @property {number} durationMs
+ */
+
 function safeNumber(value, fallback) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -29,11 +44,16 @@ function priorityRank(priority) {
   return 2;
 }
 
+/**
+ * @param {string} message
+ * @param {{ timeoutMs?: number }} [options]
+ * @returns {Error}
+ */
 function makeTimeoutError(message, { timeoutMs } = {}) {
   const err = new Error(message || "Network timeout");
   err.name = "TimeoutError";
-  err.code = "ETIMEDOUT";
-  if (typeof timeoutMs === "number") err.timeoutMs = timeoutMs;
+  /** @type {any} */ (err).code = "ETIMEDOUT";
+  if (typeof timeoutMs === "number") /** @type {any} */ (err).timeoutMs = timeoutMs;
   return err;
 }
 
@@ -70,6 +90,11 @@ function candidateIndexFromTaskId(taskId) {
   return n - 1;
 }
 
+/**
+ * @param {string} providerName
+ * @param {{ model?: string }} [options]
+ * @returns {number}
+ */
 function estimateCostUSDForProvider(providerName, { model } = {}) {
   const p = String(providerName || "").toLowerCase();
   const m = String(model || "").toLowerCase();
@@ -123,6 +148,9 @@ function computeSummary(slots, tasks) {
 }
 
 export class ImageGenerator {
+  /**
+   * @param {{ imageProvider?: any, stageApi?: any, budget?: any, concurrency?: number, circuitBreakerRegistry?: any }} [opts]
+   */
   constructor(opts = {}) {
     this.provider = opts.imageProvider || opts.stageApi?.imageService;
     this.budget = normalizeBudget(opts.budget || { maxImages: 5, maxCostUSD: 1.0, maxRetries: 2, timeoutMs: 30000, candidatesPerSlot: 1 });
@@ -134,6 +162,13 @@ export class ImageGenerator {
         : new CircuitBreakerRegistry();
   }
 
+  /**
+   * @param {any[]} imageSlots
+   * @param {any} contentPackage
+   * @param {any} designSystem
+   * @param {Record<string, any>} [opts]
+   * @returns {Promise<any>}
+   */
   async generate(imageSlots, contentPackage, designSystem, opts = {}) {
     const emit = typeof opts.emit === "function" ? opts.emit : null;
     const runId = toNonEmptyString(opts.runId) || toNonEmptyString(contentPackage?.runId) || makeSecureTimestampedId("run");
@@ -165,6 +200,7 @@ export class ImageGenerator {
     const slots = Array.isArray(imageSlots) ? imageSlots.map(cloneSlot) : [];
     const bySlotId = new Map(slots.map((s) => [String(s?.slotId || ""), s]));
 
+    /** @type {ImageTask[]} */
     const tasks = [];
     for (const slot of slots) {
       const slotId = String(slot?.slotId || "").trim();
@@ -626,19 +662,21 @@ export function fillImagePlaceholders(deckHtmlDsl, filledSlots = []) {
 
   const placeholders = findImagePlaceholders(html);
   let finalOut = html;
-  for (let i = placeholders.length - 1; i >= 0; i--) {
-    const { start, end, openTag } = placeholders[i];
-    const attrs = parseTagAttributes(openTag);
-    const slotId = toNonEmptyString(attrs["data-slot-id"]) || toNonEmptyString(attrs.id);
-    if (!slotId || !bySlotId.has(slotId)) continue;
+	  for (let i = placeholders.length - 1; i >= 0; i--) {
+	    const { start, end, openTag } = placeholders[i];
+	    /** @type {Record<string, any>} */
+	    const attrs = parseTagAttributes(openTag);
+	    const slotId = toNonEmptyString(attrs["data-slot-id"]) || toNonEmptyString(attrs.id);
+	    if (!slotId || !bySlotId.has(slotId)) continue;
 
     const { src } = bySlotId.get(slotId);
     filledSlotIds.push(slotId);
 
-    const imgAttrs = { ...attrs };
-    imgAttrs["data-el"] = "image";
-    imgAttrs["data-status"] = VisualDataStatus.FILLED;
-    delete imgAttrs["data-fallback"];
+	    /** @type {Record<string, any>} */
+	    const imgAttrs = { ...attrs };
+	    imgAttrs["data-el"] = "image";
+	    imgAttrs["data-status"] = VisualDataStatus.FILLED;
+	    delete imgAttrs["data-fallback"];
     delete imgAttrs["data-aspect-ratio"];
 
     imgAttrs["data-src"] = src;

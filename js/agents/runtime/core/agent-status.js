@@ -5,6 +5,16 @@
  * 进度追踪通过 todos + events 实现。
  */
 
+/**
+ * @typedef {"idle" | "running" | "paused" | "completed" | "failed"} AgentStatusValue
+ * @typedef {"pending" | "in_progress" | "completed" | "failed" | "cancelled"} StepStatusValue
+ */
+
+/**
+ * Agent 执行状态枚举
+ * @readonly
+ * @enum {AgentStatusValue}
+ */
 export const AgentStatus = Object.freeze({
   IDLE: "idle",
   RUNNING: "running",
@@ -15,6 +25,8 @@ export const AgentStatus = Object.freeze({
 
 /**
  * StepStatus - 步骤/任务状态
+ * @readonly
+ * @enum {StepStatusValue}
  */
 export const StepStatus = Object.freeze({
   PENDING: "pending",
@@ -24,16 +36,26 @@ export const StepStatus = Object.freeze({
   CANCELLED: "cancelled",
 });
 
+/**
+ * @param {unknown} value
+ * @returns {value is AgentStatusValue}
+ */
 export function isValidAgentStatus(value) {
-  return Object.values(AgentStatus).includes(value);
+  return Object.values(AgentStatus).includes(/** @type {any} */ (value));
 }
 
+/**
+ * @param {unknown} value
+ * @returns {value is StepStatusValue}
+ */
 export function isValidStepStatus(value) {
-  return Object.values(StepStatus).includes(value);
+  return Object.values(StepStatus).includes(/** @type {any} */ (value));
 }
 
 /**
  * 判断 Agent 是否处于活跃状态
+ * @param {unknown} status
+ * @returns {boolean}
  */
 export function isAgentActive(status) {
   return status === AgentStatus.RUNNING || status === AgentStatus.PAUSED;
@@ -41,6 +63,8 @@ export function isAgentActive(status) {
 
 /**
  * 判断 Agent 是否已终止
+ * @param {unknown} status
+ * @returns {boolean}
  */
 export function isAgentTerminal(status) {
   return status === AgentStatus.COMPLETED || status === AgentStatus.FAILED;

@@ -34,6 +34,7 @@ export class RuntimeAdapter {
 
   /**
    * 初始化运行时环境
+   * @returns {Promise<any>}
    */
   async initialize() {
     throw new Error('Not implemented');

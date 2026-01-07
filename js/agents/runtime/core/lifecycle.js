@@ -8,6 +8,41 @@
 import { AgentStatus } from "./agent-status.js";
 
 /**
+ * @typedef {Object} EventBus
+ * @property {(eventName: string, record: any) => void} [emit]
+ * @property {number} [_seq]
+ */
+
+/**
+ * @typedef {Object} LifecycleRecordOfInput
+ * @property {string} [status]
+ * @property {any} [payload]
+ * @property {string} [actor]
+ * @property {string} [runId]
+ * @property {string} [level]
+ * @property {any} [meta]
+ */
+
+/**
+ * @typedef {Object} LifecycleEventRecord
+ * @property {string} actor
+ * @property {string} [status]
+ * @property {any} [payload]
+ * @property {string} [runId]
+ * @property {string} [level]
+ * @property {any} [meta]
+ */
+
+/**
+ * @typedef {Object} LifecycleEmitOptions
+ * @property {string} [status]
+ * @property {string} [actor]
+ * @property {string} [runId]
+ * @property {string} [level]
+ * @property {any} [meta]
+ */
+
+/**
  * 标准事件 payload 格式
  */
 export function createEventPayload(actor, status, data = {}) {
@@ -110,6 +145,10 @@ export function createLifecycleEmitter({ actor, emit, eventBus }) {
     for (const name of uniqStrings(eventNames)) emitRecord(name, record);
   };
 
+  /**
+   * @param {LifecycleRecordOfInput} [param0]
+   * @returns {LifecycleEventRecord}
+   */
   const recordOf = ({ status, payload, actor: actorOverride, runId, level, meta } = {}) => {
     const out = { actor: actorOverride || actor };
     if (typeof status === "string" && status) out.status = status;
@@ -183,6 +222,12 @@ export function createLifecycleEmitter({ actor, emit, eventBus }) {
     },
 
     // 通用发射
+    /**
+     * @param {string} eventName
+     * @param {any} payload
+     * @param {LifecycleEmitOptions} [param2]
+     * @returns {void}
+     */
     emit: (eventName, payload, { status = "info", actor: actorOverride, runId, level, meta } = {}) => {
       emitRecord(eventName, recordOf({ actor: actorOverride, status, payload, runId, level, meta }));
     },
@@ -210,6 +255,7 @@ export function canTransitionStatus(from, to) {
  */
 export function assertValidTransition(from, to, actor = "unknown") {
   if (!canTransitionStatus(from, to)) {
+    /** @type {Error & { code?: string }} */
     const err = new Error(`Invalid ${actor} state transition: ${from} -> ${to}`);
     err.code = "INVALID_STATE_TRANSITION";
     throw err;
