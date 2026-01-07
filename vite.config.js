@@ -5,17 +5,16 @@ import { defineConfig } from 'vite';
 // - 开发模式：继续使用 CDN 以加快启动
 // - 生产构建：打包核心依赖，减少 CDN 请求
 
-// 保持 CDN 加载的大型依赖（不打包）
-const EXTERNAL_DEPS = [
-  'pdfjs-dist',
-  'pptxgenjs',
-  'docx-preview',
-  'html2pdf.js'
-];
-
 // 暂时排除的模块（待后续重构）
 const EXCLUDED_MODULES = [
   'js/agents/'
+];
+
+// 大型依赖保持 CDN（可选，设为空数组则全部打包）
+const EXTERNAL_DEPS = [
+  // 'pdfjs-dist',      // 太大，保持 CDN
+  // 'pptxgenjs',       // 无 ESM 版本
+  // 'docx-preview',    // 无 ESM 版本
 ];
 
 export default defineConfig({

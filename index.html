@@ -7,34 +7,30 @@
     <title>Paper Burner X - AI文献阅读与智能分析平台</title>
     <link rel="icon" type="image/svg+xml" href="public/pure.svg">
 
-    <!-- CDN 性能优化：DNS 预连接 - 提前建立连接，节省 100-300ms -->    
-    <link rel="dns-prefetch" href="https://gcore.jsdelivr.net">    
-    <link rel="preconnect" href="https://gcore.jsdelivr.net" crossorigin>    
-    <link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">    
-    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>    
-    <link rel="dns-prefetch" href="https://cdn.tailwindcss.com">    
+    <!-- 依赖加载器：Vite 构建时打包所有依赖，开发时 CDN fallback -->
+    <script type="module" src="js/boot/deps-loader.js"></script>
+
+    <!-- CDN 性能优化：DNS 预连接（开发模式使用） -->
+    <link rel="dns-prefetch" href="https://gcore.jsdelivr.net">
+    <link rel="preconnect" href="https://gcore.jsdelivr.net" crossorigin>
+    <link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+    <link rel="dns-prefetch" href="https://cdn.tailwindcss.com">
     <link rel="preconnect" href="https://cdn.tailwindcss.com" crossorigin>
 
-    <!-- XSS 防护：DOMPurify - 用于清理 AI 生成的 HTML 内容 -->
-    <script src="https://gcore.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
-
-    <!-- Tailwind CSS & 依赖库 -->
+    <!-- Tailwind CSS（运行时编译，生产环境可替换为预编译 CSS） -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://gcore.jsdelivr.net/npm/iconify-icon@2.0.0/dist/iconify-icon.min.js"></script>
-    <script src="https://gcore.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
-    <script src="https://gcore.jsdelivr.net/npm/js-base64@3.7.5/base64.min.js"></script>
-    <script src="https://gcore.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
-    <script src="https://gcore.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 
-    <!-- PptxGenJS for PowerPoint Export -->
+    <!-- 以下依赖在 Vite 构建后由 deps-loader.js 提供，CDN 仅作为开发 fallback -->
+    <!-- DOMPurify, axios, js-base64, file-saver, jszip, marked, markdown-it, katex, animejs, graphlib, dagre -->
+
+    <!-- PptxGenJS for PowerPoint Export (无 ESM 版本，保持 CDN) -->
     <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
 
-    <!-- dagre.js for graph layout (层次化图布局算法) -->
-    <script src="https://gcore.jsdelivr.net/npm/graphlib@2.1.8/dist/graphlib.min.js"></script>
-    <script src="https://gcore.jsdelivr.net/npm/dagre@0.8.5/dist/dagre.min.js"></script>
-
-    <!-- docx-preview.js for Word preview -->
+    <!-- docx-preview.js for Word preview (无 ESM 版本，保持 CDN) -->
     <script src="https://gcore.jsdelivr.net/npm/docx-preview@0.3.7/dist/docx-preview.min.js"></script>
+
     <link rel="stylesheet" href="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
     <link rel="stylesheet" href="css/history_detail/01-foundation/variables.css">
     <link rel="stylesheet" href="css/history_detail/05-utilities/buttons.css">
@@ -43,21 +39,6 @@
     <link rel="stylesheet" href="css/history_detail/03-components/chatbot/config-modal.css">
     <link rel="stylesheet" href="css/ppt/ppt_model_config_modal.css">
     <link rel="stylesheet" href="css/ppt/ppt_model_config.css">
-    <!-- PPT 已独立为 ppt.html -->
-    <script src="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
-    <script src="https://gcore.jsdelivr.net/npm/marked/marked.min.js"></script>
-
-    <!-- Markdown-it for AST-based processing (新架构) -->
-    <script src="https://gcore.jsdelivr.net/npm/markdown-it@14.0.0/dist/markdown-it.min.js"></script>
-    <script>
-      // failback: 如果 CDN 加载失败，自动加载本地 jszip
-      if (typeof JSZip === 'undefined') {
-        var script = document.createElement('script');
-        script.src = 'js/lib/jszip.min.js';
-        document.head.appendChild(script);
-      }
-    </script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
     <style>
         /* 谷歌字体 Inter */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
