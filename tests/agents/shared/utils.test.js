@@ -2,11 +2,20 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 
 import { createLogger, logEvent, trackToolCall, useLogger } from "../../../js/agents/shared/utils/logger.js";
 import {
+  checkCancelled,
+  createLinkedSignal,
+  isAbortError,
+  withCancellation,
+} from "../../../js/agents/shared/utils/cancellation.js";
+import { Deque } from "../../../js/agents/shared/utils/deque.js";
+import LRUCacheDefault, { createAutoPruningCache, LRUCache } from "../../../js/agents/shared/utils/lru-cache.js";
+import {
   cryptoRandomHex,
   cryptoRandomUuid,
   makeSecureId,
   makeSecureTimestampedId,
 } from "../../../js/agents/shared/utils/secure-id.js";
+import { clearTokenCache, estimateTokensCached, getTokenCacheStats } from "../../../js/agents/shared/utils/token-cache.js";
 import {
   deepClone,
   estimateTokenCount,
@@ -221,6 +230,341 @@ describe("shared/utils/secure-id.js", () => {
   });
 });
 
+describe("shared/utils/deque.js", () => {
+  it("supports double-ended operations and peeking", () => {
+    const deque = new Deque([1, 2]);
+
+    expect(deque.size).toBe(2);
+    expect(deque.peekFront()).toBe(1);
+    expect(deque.peekBack()).toBe(2);
+
+    deque.unshift(0);
+    deque.push(3);
+
+    expect(deque.toArray()).toEqual([0, 1, 2, 3]);
+    expect(deque.peekFront()).toBe(0);
+    expect(deque.peekBack()).toBe(3);
+
+    expect(deque.pop()).toBe(3);
+    expect(deque.shift()).toBe(0);
+    expect(deque.toArray()).toEqual([1, 2]);
+
+    deque.clear();
+    expect(deque.isEmpty()).toBe(true);
+    expect(deque.size).toBe(0);
+  });
+
+  it("returns undefined when empty and iterates in order", () => {
+    const deque = new Deque();
+    expect(deque.pop()).toBeUndefined();
+    expect(deque.shift()).toBeUndefined();
+
+    deque.push("a");
+    deque.push("b");
+    deque.unshift("z");
+
+    expect([...deque]).toEqual(["z", "a", "b"]);
+
+    const iterator = deque[Symbol.iterator]();
+    expect(iterator.next()).toEqual({ value: "z", done: false });
+    expect(iterator.next()).toEqual({ value: "a", done: false });
+    expect(iterator.next()).toEqual({ value: "b", done: false });
+    expect(iterator.next()).toEqual({ value: undefined, done: true });
+  });
+});
+
+describe("shared/utils/cancellation.js", () => {
+  it("checkCancelled throws AbortError with message/cause derived from the reason", () => {
+    expect(() => checkCancelled({ aborted: false })).not.toThrow();
+
+    try {
+      checkCancelled({ aborted: true, reason: "User cancelled" });
+      throw new Error("expected to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(Error);
+      expect(err.name).toBe("AbortError");
+      expect(err.message).toBe("User cancelled");
+      expect(err.cause).toBe("User cancelled");
+      expect(isAbortError(err)).toBe(true);
+    }
+
+    const reasonError = new Error("parent aborted");
+    expect(() => checkCancelled({ aborted: true, reason: reasonError })).toThrow(/parent aborted/);
+
+    // Blank string -> default message.
+    expect(() => checkCancelled({ aborted: true, reason: "   " })).toThrow(/Run cancelled/);
+
+    // Object with message -> use it.
+    expect(() => checkCancelled({ aborted: true, reason: { message: "from object" } })).toThrow(/from object/);
+
+    expect(isAbortError({ code: "ABORT_ERR" })).toBe(true);
+  });
+
+  it("withCancellation checks options.signal before invoking fn", async () => {
+    const fn = vi.fn(() => "ok");
+    const wrapped = withCancellation(fn, "unit");
+
+    await expect(wrapped({ signal: { aborted: true, reason: "stop" } })).rejects.toMatchObject({
+      name: "AbortError",
+      message: "stop",
+    });
+    expect(fn).not.toHaveBeenCalled();
+
+    await expect(wrapped({ signal: { aborted: false } })).resolves.toBe("ok");
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it("withCancellation preserves this-binding and arguments", async () => {
+    const obj = {
+      value: 2,
+      add(n) {
+        return this.value + n;
+      },
+    };
+
+    const wrapped = withCancellation(obj.add, "add");
+    await expect(wrapped.call(obj, 3, { signal: null })).resolves.toBe(5);
+  });
+
+  it("createLinkedSignal links to parent abort and supports timeout", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2020-01-01T00:00:00.000Z"));
+
+    try {
+      const immediate = createLinkedSignal({ aborted: true, reason: "bye" }, 50);
+      expect(immediate.aborted).toBe(true);
+      expect(() => checkCancelled(immediate)).toThrow(/bye/);
+
+      const listeners = new Set();
+      const parent = {
+        aborted: false,
+        reason: undefined,
+        addEventListener: vi.fn((type, listener) => {
+          if (type === "abort") listeners.add(listener);
+        }),
+        removeEventListener: vi.fn((type, listener) => {
+          if (type === "abort") listeners.delete(listener);
+        }),
+      };
+
+      const linked = createLinkedSignal(parent, 50);
+      expect(linked.aborted).toBe(false);
+
+      parent.aborted = true;
+      parent.reason = new Error("parent stop");
+      for (const listener of listeners) listener();
+
+      expect(linked.aborted).toBe(true);
+      expect(() => checkCancelled(linked)).toThrow(/parent stop/);
+      expect(parent.addEventListener).toHaveBeenCalledTimes(1);
+      expect(parent.removeEventListener.mock.calls.length).toBeGreaterThanOrEqual(1);
+      expect(listeners.size).toBe(0);
+
+      const timeoutOnly = createLinkedSignal(null, 10);
+      expect(timeoutOnly.aborted).toBe(false);
+      vi.advanceTimersByTime(10);
+      expect(timeoutOnly.aborted).toBe(true);
+      expect(() => checkCancelled(timeoutOnly)).toThrow(/Timeout/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("shared/utils/lru-cache.js", () => {
+  it("evicts the least-recently-used entry and reports stats", () => {
+    expect(LRUCacheDefault).toBe(LRUCache);
+
+    const onEvict = vi.fn();
+    const cache = new LRUCache({ maxSize: 2, onEvict });
+
+    expect(cache.getStats()).toMatchObject({ hits: 0, misses: 0, evictions: 0, sets: 0, hitRate: 0 });
+
+    cache.set("a", 1).set("b", 2);
+    expect(cache.size).toBe(2);
+    expect(cache.keys()).toEqual(["a", "b"]);
+
+    // Touch "a" so "b" becomes LRU.
+    expect(cache.get("a")).toBe(1);
+    cache.set("c", 3);
+
+    expect(onEvict).toHaveBeenCalledTimes(1);
+    expect(onEvict).toHaveBeenCalledWith("b", 2);
+
+    expect(cache.has("b")).toBe(false);
+    expect(cache.get("b")).toBeUndefined();
+    expect(cache.keys()).toEqual(["a", "c"]);
+    expect(cache.values()).toEqual([1, 3]);
+
+    const stats = cache.getStats();
+    expect(stats).toMatchObject({ hits: 1, misses: 1, evictions: 1, sets: 3, size: 2, maxSize: 2 });
+    expect(stats.hitRate).toBeCloseTo(0.5);
+  });
+
+  it("has() does not refresh LRU order", () => {
+    const cache = new LRUCache({ maxSize: 2 });
+    cache.set("a", 1).set("b", 2);
+
+    expect(cache.has("a")).toBe(true);
+    cache.set("c", 3);
+
+    // If has() refreshed LRU, it would evict "b" instead.
+    expect(cache.has("a")).toBe(false);
+    expect(cache.has("b")).toBe(true);
+    expect(cache.has("c")).toBe(true);
+  });
+
+  it("supports TTL expiry and manual pruning", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(0);
+      const cache = new LRUCache({ ttlMs: 10, maxSize: 10 });
+
+      cache.set("a", 1);
+      vi.setSystemTime(5);
+      expect(cache.get("a")).toBe(1);
+
+      vi.setSystemTime(20);
+      expect(cache.get("a")).toBeUndefined();
+
+      cache.set("b", 2);
+      vi.setSystemTime(40);
+      expect(cache.prune()).toBe(1);
+      expect(cache.size).toBe(0);
+
+      const noTtl = new LRUCache({ ttlMs: 0 });
+      expect(noTtl.prune()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("supports setMany/getMany and stats reset", () => {
+    const cache = new LRUCache({ maxSize: 3 });
+    cache.setMany([
+      ["a", 1],
+      ["b", 2],
+      ["c", 3],
+    ]);
+
+    expect(cache.getMany(["a", "missing", "c"])).toEqual(
+      new Map([
+        ["a", 1],
+        ["c", 3],
+      ])
+    );
+
+    const stats = cache.getStats();
+    expect(stats.sets).toBe(3);
+    expect(stats.hits).toBe(2);
+    expect(stats.misses).toBe(1);
+
+    cache.resetStats();
+    expect(cache.getStats()).toMatchObject({ hits: 0, misses: 0, evictions: 0, sets: 0 });
+
+    expect(cache.delete("b")).toBe(true);
+    cache.clear();
+    expect(cache.size).toBe(0);
+  });
+
+  it("swallows onEvict errors and normalizes maxSize", () => {
+    const onEvict = vi.fn(() => {
+      throw new Error("boom");
+    });
+    const cache = new LRUCache({ maxSize: -1, onEvict });
+
+    cache.set("a", 1);
+    expect(() => cache.set("b", 2)).not.toThrow();
+    expect(cache.size).toBe(1);
+    expect(onEvict).toHaveBeenCalledTimes(1);
+  });
+
+  it("createAutoPruningCache runs prune on an interval and stops", () => {
+    vi.useFakeTimers();
+    try {
+      const { cache, stop } = createAutoPruningCache({ ttlMs: 1, pruneIntervalMs: 10 });
+      const pruneSpy = vi.spyOn(cache, "prune");
+
+      vi.advanceTimersByTime(25);
+      expect(pruneSpy).toHaveBeenCalled();
+
+      stop();
+      pruneSpy.mockClear();
+      vi.advanceTimersByTime(25);
+      expect(pruneSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("shared/utils/token-cache.js", () => {
+  afterEach(() => {
+    clearTokenCache();
+  });
+
+  it("caches short strings and tracks hits/misses", () => {
+    clearTokenCache();
+
+    expect(getTokenCacheStats()).toMatchObject({ size: 0, hits: 0, misses: 0, hitRate: 0 });
+
+    expect(estimateTokensCached("abcd")).toBe(1);
+    expect(estimateTokensCached("abcd")).toBe(1);
+
+    const stats = getTokenCacheStats();
+    expect(stats.size).toBe(1);
+    expect(stats.hits).toBe(1);
+    expect(stats.misses).toBe(1);
+    expect(stats.hitRate).toBeCloseTo(0.5);
+  });
+
+  it("uses a TokenCounter when available and falls back safely", () => {
+    clearTokenCache();
+
+    const counter = {
+      count: vi.fn((text) => (text.includes("A") ? 111 : 222)),
+    };
+
+    const longA = "A".repeat(120);
+    const longB = "B".repeat(120);
+
+    expect(estimateTokensCached(longA, counter)).toBe(111);
+    expect(estimateTokensCached(longB, counter)).toBe(222);
+    expect(estimateTokensCached(longA, counter)).toBe(111);
+    expect(estimateTokensCached(longB, counter)).toBe(222);
+    expect(counter.count).toHaveBeenCalledTimes(2);
+
+    const throwsCounter = { count: () => {
+      throw new Error("nope");
+    } };
+    expect(estimateTokensCached("abcd", throwsCounter)).toBe(1);
+
+    const invalidCounter = { count: () => -1 };
+    expect(estimateTokensCached("abcd2", invalidCounter)).toBeGreaterThanOrEqual(1);
+  });
+
+  it("evicts the oldest entry when exceeding MAX_CACHE_SIZE", () => {
+    clearTokenCache();
+
+    const counter = { count: () => 1 };
+
+    const { maxSize } = getTokenCacheStats();
+    for (let i = 0; i < maxSize; i++) {
+      estimateTokensCached(`k${i}`, counter);
+    }
+
+    expect(getTokenCacheStats().size).toBe(maxSize);
+
+    // Adding one more forces eviction of the first inserted key.
+    estimateTokensCached(`k${maxSize}`, counter);
+    expect(getTokenCacheStats().size).toBe(maxSize);
+
+    const before = getTokenCacheStats().misses;
+    estimateTokensCached("k0", counter);
+    expect(getTokenCacheStats().misses).toBe(before + 1);
+  });
+});
+
 describe("shared/utils/value-utils.js", () => {
   it("toNumber returns finite numbers and null for invalid", () => {
     expect(toNumber(3)).toBe(3);
@@ -359,4 +703,3 @@ describe("shared/utils/value-utils.js", () => {
     expect(sanitizeForJson(dangerous)).toEqual({ ok: 1 });
   });
 });
-
