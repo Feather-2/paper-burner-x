@@ -625,7 +625,7 @@
         </div>
       </div>
       <!-- 收起状态的底部按钮 -->
-      <div id="sidebarFooterCollapsed" class="hidden flex-col items-center p-3">
+      <div id="sidebarFooterCollapsed" class="flex-col items-center p-3" style="display: none;">
         <a href="https://github.com/Feather-2/paper-burner" target="_blank" class="w-10 h-10 flex items-center justify-center text-slate-400 hover:text-slate-600 transition-colors" title="GitHub 仓库">
           <iconify-icon icon="mdi:github" width="28"></iconify-icon>
         </a>
@@ -942,11 +942,11 @@
                                         </div>
                                         <!-- 管理API Key及检测模型的按钮（通常根据选择的源站点动态显示/隐藏） -->
                                         <div class="mt-2 flex justify-end w-full md:col-span-2">
-                                            <button id="manageSourceSiteKeyBtn" class="px-3 py-1.5 text-sm text-white rounded transition-colors flex items-center hidden" style="background-color: var(--color-primary);">
+                                            <button id="manageSourceSiteKeyBtn" class="px-3 py-1.5 text-sm text-white rounded transition-colors flex items-center" style="background-color: var(--color-primary); display: none;">
                                                 <iconify-icon icon="carbon:api" class="mr-1" width="16"></iconify-icon>
                                                 管理该站点 API Key
                                             </button>
-                                            <button id="detectModelsBtn" type="button" class="hidden px-3 py-1.5 text-sm text-white rounded transition-colors flex items-center" style="background-color: var(--color-primary);">
+                                            <button id="detectModelsBtn" type="button" class="px-3 py-1.5 text-sm text-white rounded transition-colors flex items-center" style="background-color: var(--color-primary); display: none;">
                                                 <iconify-icon icon="carbon:model-alt" class="mr-1" width="16"></iconify-icon>
                                                 检测可用模型
                                             </button>
@@ -1290,7 +1290,7 @@
                             </div>
                             文件上传
                         </h2>
-                        <label id="batchModeToggleWrapper" class="hidden flex items-center space-x-2 text-sm text-slate-600 bg-slate-100 px-3 py-1.5 rounded-full cursor-pointer hover:bg-slate-200 transition-colors">
+                        <label id="batchModeToggleWrapper" class="flex items-center space-x-2 text-sm text-slate-600 bg-slate-100 px-3 py-1.5 rounded-full cursor-pointer hover:bg-slate-200 transition-colors" style="display: none;">
                             <input type="checkbox" id="batchModeToggle" class="rounded border-slate-300 focus:ring-indigo-500 h-4 w-4" style="color: var(--color-primary); accent-color: var(--color-primary);">
                             <span class="select-none font-medium">批量模式</span>
                         </label>
@@ -1705,7 +1705,7 @@
 
     <!-- ===================== -->
     <!-- 历史记录面板 (模态框) -->
-    <div id="historyPanel" class="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center hidden p-4 md:p-8">
+    <div id="historyPanel" class="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 md:p-8" style="display: none;">
       <div class="bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[85vh] flex flex-col overflow-hidden border border-slate-100">
         <div class="flex justify-between items-center p-5 border-b border-slate-100 bg-slate-50/50">
           <div class="flex items-center gap-3">
@@ -1759,7 +1759,7 @@
       </div>
     </div>
     <!-- 历史记录详情弹窗 (已废弃，详情在新页面打开) -->
-    <div id="historyDetailModal" class="fixed inset-0 z-[99999] bg-black bg-opacity-30 flex items-center justify-center hidden">
+    <div id="historyDetailModal" class="fixed inset-0 z-[99999] bg-black bg-opacity-30 flex items-center justify-center" style="display: none;">
       <div class="bg-white rounded-xl border-2 border-dashed border-gray-300 p-6 w-[90vw] max-w-2xl max-h-[90vh] overflow-y-auto relative">
         <button id="closeHistoryDetail" class="absolute top-2 right-2 text-gray-400 hover:text-red-500"><iconify-icon icon="carbon:close" width="20"></iconify-icon></button>
         <div id="historyDetailContent"></div>
@@ -1823,7 +1823,7 @@
     <!-- ===================== -->
     <!-- 模型搜索弹窗 -->
     <!-- ===================== -->
-    <div id="modelSearchOverlay" class="hidden fixed inset-0 z-[60] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+    <div id="modelSearchOverlay" class="fixed inset-0 z-[60] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4" style="display: none;">
       <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden border border-slate-100">
         <div class="flex items-center justify-between p-5 border-b border-slate-100">
           <h3 id="modelSearchTitle" class="text-lg font-bold text-slate-800">选择模型</h3>
@@ -1840,7 +1840,7 @@
             <div id="modelSearchList" class="space-y-2">
               <!-- 动态填充模型列表 -->
             </div>
-            <div id="modelSearchEmpty" class="hidden flex flex-col items-center justify-center py-12 text-slate-400">
+            <div id="modelSearchEmpty" class="flex flex-col items-center justify-center py-12 text-slate-400" style="display: none;">
                 <iconify-icon icon="carbon:search-locate" width="40" class="mb-2 opacity-50"></iconify-icon>
                 <p class="text-sm">未找到匹配的模型</p>
             </div>
@@ -1851,7 +1851,7 @@
 
     <!-- 模型与Key管理弹窗 -->
     <!-- ===================== -->
-    <div id="modelKeyManagerModal" class="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center hidden p-4 md:p-8">
+    <div id="modelKeyManagerModal" class="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 md:p-8" style="display: none;">
       <div class="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden border border-slate-100">
         <!-- 弹窗头部 -->
         <div class="flex justify-between items-center p-5 border-b border-slate-100 bg-slate-50/50">
@@ -1894,7 +1894,7 @@
     <!-- ===================== -->
     <!-- 版权声明浮动卡片 -->
     <!-- ===================== -->
-    <div id="copyrightModal" class="fixed inset-0 z-50 bg-black bg-opacity-30 flex items-center justify-center hidden px-4 py-8">
+    <div id="copyrightModal" class="fixed inset-0 z-50 bg-black bg-opacity-30 flex items-center justify-center px-4 py-8" style="display: none;">
       <div class="copyright-card-ani p-6 md:p-10 w-full max-w-6xl relative max-h-[90vh] flex flex-col">
         <button id="closeCopyrightModal" class="absolute top-4 right-4 text-gray-400 hover:text-red-500 transition-colors z-10">
             <iconify-icon icon="carbon:close" width="24"></iconify-icon>
