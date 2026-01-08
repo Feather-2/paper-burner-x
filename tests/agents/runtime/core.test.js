@@ -6,8 +6,35 @@ import {
   resolveToolExecutor,
 } from '../../../js/agents/runtime/core/tool-registry.js';
 import StatusController from '../../../js/agents/runtime/core/status-controller.js';
-import { AgentStatus } from '../../../js/agents/runtime/core/agent-status.js';
-import { StagePausedError } from '../../../js/agents/runtime/core/stage-errors.js';
+import {
+  AgentStatus,
+  StepStatus,
+  isAgentActive,
+  isAgentTerminal,
+  isValidAgentStatus,
+  isValidStepStatus,
+} from '../../../js/agents/runtime/core/agent-status.js';
+import {
+  StageCancelledError,
+  StagePausedError,
+  StageTimeoutError,
+  abortReasonToMessage,
+  cancelledErrorFromSignal,
+  fromErrorPayload,
+  toErrorPayload,
+} from '../../../js/agents/runtime/core/stage-errors.js';
+import {
+  ERROR_BOUNDARY_UNHANDLED,
+  ErrorBoundary,
+  ErrorCategory,
+  categorizeError,
+  createErrorInfo,
+  getErrorBoundary,
+  withErrorBoundary,
+} from '../../../js/agents/runtime/core/error-boundary.js';
+import MessageManager from '../../../js/agents/runtime/core/message-manager.js';
+import { DEFAULT_CONTEXT_CONFIG, mergeContextConfig } from '../../../js/agents/runtime/core/context-config.js';
+import WorkerRpcClient, { createRpcHandler } from '../../../js/agents/runtime/core/worker-rpc.js';
 import { setRuntimeState, LoopRuntimeStatuses } from '../../../js/agents/runtime/telemetry/loop-runtime-state.js';
 import { BaseAgentLoop, BaseStage } from '../../../js/agents/runtime/core/agent-loop.js';
 
@@ -311,6 +338,470 @@ describe('runtime/core StatusController', () => {
 
     expect(controller._isAbortError(new Error('Cancelled by user'), null)).toBe(true);
     expect(controller._isAbortError(new Error('random'), null)).toBe(false);
+  });
+});
+
+describe('runtime/core agent-status', () => {
+  it('validates status enums and helper predicates', () => {
+    expect(isValidAgentStatus(AgentStatus.IDLE)).toBe(true);
+    expect(isValidAgentStatus('nope')).toBe(false);
+
+    expect(isValidStepStatus(StepStatus.PENDING)).toBe(true);
+    expect(isValidStepStatus('nope')).toBe(false);
+
+    expect(isAgentActive(AgentStatus.RUNNING)).toBe(true);
+    expect(isAgentActive(AgentStatus.PAUSED)).toBe(true);
+    expect(isAgentActive(AgentStatus.IDLE)).toBe(false);
+
+    expect(isAgentTerminal(AgentStatus.COMPLETED)).toBe(true);
+    expect(isAgentTerminal(AgentStatus.FAILED)).toBe(true);
+    expect(isAgentTerminal(AgentStatus.RUNNING)).toBe(false);
+  });
+});
+
+describe('runtime/core stage-errors', () => {
+  it('serializes and restores StagePausedError', () => {
+    const ts = 1_700_000_000_000;
+    const err = new StagePausedError('Paused', {
+      checkpointId: '  ckpt_1  ',
+      reason: ' user ',
+      timestamp: ts,
+      runId: 'run_1',
+    });
+
+    expect(err.name).toBe('StagePausedError');
+    expect(err.message).toBe('Paused');
+    expect(err.checkpointId).toBe('ckpt_1');
+    expect(err.reason).toBe('user');
+    expect(err.timestamp).toBe(new Date(ts).toISOString());
+    expect(err.runId).toBe('run_1');
+
+    const json = err.toJSON();
+    const roundTrip = StagePausedError.fromJSON(json);
+    expect(roundTrip).toBeInstanceOf(StagePausedError);
+    expect(roundTrip.toJSON()).toEqual(json);
+
+    const defaultErr = StagePausedError.fromJSON(null);
+    expect(defaultErr.message).toBe('Run paused');
+    expect(defaultErr.checkpointId).toBe(null);
+    expect(defaultErr.reason).toBe(null);
+    expect(typeof defaultErr.timestamp).toBe('string');
+    expect(defaultErr.runId).toBe(null);
+  });
+
+  it('converts abort reasons and signals into cancellation errors', () => {
+    expect(abortReasonToMessage(' because ')).toBe(' because ');
+    expect(abortReasonToMessage(new Error('boom'))).toBe('boom');
+    expect(abortReasonToMessage(null, 'fallback')).toBe('fallback');
+
+    const ac = new AbortController();
+    ac.abort('user_cancelled');
+    const cancelled = cancelledErrorFromSignal(ac.signal, 'demo');
+    expect(cancelled).toBeInstanceOf(StageCancelledError);
+    expect(cancelled.stageName).toBe('demo');
+    expect(cancelled.message).toBe('user_cancelled');
+  });
+
+  it('round-trips rich errors through payloads (stack, cause, stage fields)', () => {
+    const timeout = new StageTimeoutError('timed out', { stageName: 's1', timeoutMs: 123 });
+    timeout.cause = new Error('root cause');
+
+    const payload = toErrorPayload(timeout, { includeStack: true });
+    expect(payload).toMatchObject({
+      name: 'StageTimeoutError',
+      message: 'timed out',
+      stageName: 's1',
+      timeoutMs: 123,
+      cause: { name: 'Error', message: 'root cause' },
+    });
+    expect(typeof payload.stack).toBe('string');
+
+    const payloadNoStack = toErrorPayload(timeout, { includeStack: false });
+    expect(payloadNoStack.stack).toBeUndefined();
+
+    const restored = fromErrorPayload(payload);
+    expect(restored).toBeInstanceOf(StageTimeoutError);
+    expect(restored.name).toBe('StageTimeoutError');
+    expect(restored.message).toBe('timed out');
+    expect(restored.stageName).toBe('s1');
+    expect(restored.timeoutMs).toBe(123);
+    expect(restored.cause).toBeInstanceOf(Error);
+    expect(restored.cause?.message).toBe('root cause');
+
+    const paused = new StagePausedError('Hold', { checkpointId: 'c1', reason: 'r1', runId: 'run' });
+    const pausedPayload = toErrorPayload(paused, { includeStack: false });
+    const pausedRestored = fromErrorPayload(pausedPayload);
+    expect(pausedRestored).toBeInstanceOf(StagePausedError);
+    expect(pausedRestored.message).toBe('Hold');
+    expect(pausedRestored.checkpointId).toBe('c1');
+    expect(pausedRestored.reason).toBe('r1');
+    expect(pausedRestored.runId).toBe('run');
+
+    expect(toErrorPayload('boom')).toEqual({ name: 'Error', message: 'boom' });
+    expect(fromErrorPayload(null).message).toBe('Unknown error');
+  });
+});
+
+describe('runtime/core error-boundary', () => {
+  it('categorizes common error types', () => {
+    expect(categorizeError(null)).toBe(ErrorCategory.UNKNOWN);
+
+    const net = new Error('fetch failed');
+    // @ts-expect-error: meta
+    net.code = 'ECONNRESET';
+    expect(categorizeError(net)).toBe(ErrorCategory.NETWORK);
+
+    const timeout = new Error('Request timeout');
+    timeout.name = 'TimeoutError';
+    expect(categorizeError(timeout)).toBe(ErrorCategory.TIMEOUT);
+
+    expect(categorizeError(new TypeError('Invalid input'))).toBe(ErrorCategory.VALIDATION);
+    expect(categorizeError(new Error('Quota exceeded'))).toBe(ErrorCategory.QUOTA);
+    expect(categorizeError(new Error('Permission denied'))).toBe(ErrorCategory.PERMISSION);
+
+    const api = new Error('server');
+    // @ts-expect-error: meta
+    api.status = 500;
+    expect(categorizeError(api)).toBe(ErrorCategory.EXTERNAL);
+  });
+
+  it('records errors, applies fallbacks, and supports rethrow/trim/recovery', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const onError = vi.fn();
+      const onRecovery = vi.fn(() => {
+        throw new Error('ignore-me');
+      });
+
+      const boundary = new ErrorBoundary({
+        onError,
+        onRecovery,
+        maxErrors: 1,
+        fallbacks: {
+          [ErrorCategory.NETWORK]: () => 'network-ok',
+          [ErrorCategory.TIMEOUT]: () => ERROR_BOUNDARY_UNHANDLED,
+          [ErrorCategory.QUOTA]: () => {
+            throw new Error('fallback-broke');
+          },
+        },
+      });
+
+      const netErr = Object.assign(new Error('fetch failed'), { code: 'ECONNRESET' });
+      await expect(boundary.wrap(async () => { throw netErr; })).resolves.toBe('network-ok');
+      expect(boundary.stats.recovered).toBe(1);
+      expect(onError).toHaveBeenCalledTimes(1);
+
+      const timeoutErr = Object.assign(new Error('timeout'), { name: 'TimeoutError' });
+      await expect(boundary.wrap(async () => { throw timeoutErr; }, { fallbackValue: 'local' })).resolves.toBe('local');
+
+      const quotaErr = new Error('quota');
+      await expect(boundary.wrap(async () => { throw quotaErr; }, { fallbackValue: 'after-fallback-fail' }))
+        .resolves.toBe('after-fallback-fail');
+
+      await expect(boundary.wrap(async () => { throw new Error('boom'); }, { rethrow: true })).rejects.toThrow('boom');
+
+      // maxErrors=1 keeps only the latest entry
+      expect(boundary.errors).toHaveLength(1);
+
+      const info = createErrorInfo(new Error('x'), { any: 1 });
+      boundary.report(new Error('y'), { ctx: true });
+      boundary.markRecovered(boundary.errors[0].id);
+      expect(boundary.stats.recovered).toBeGreaterThanOrEqual(0);
+      expect(info).toMatchObject({ category: ErrorCategory.UNKNOWN, recovered: false });
+      expect(typeof info.id).toBe('string');
+      expect(typeof info.ts).toBe('number');
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it('supports the global degraded fallback behavior', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const boundary = getErrorBoundary();
+      boundary.clear();
+
+      const local = await withErrorBoundary(
+        async () => { throw new Error('fetch failed'); },
+        { context: { degrade: false }, fallbackValue: 'local' }
+      );
+      expect(local).toBe('local');
+      expect(boundary.errors.at(-1)?.recovered).toBe(false);
+
+      const onDegrade = vi.fn();
+      const degraded = await withErrorBoundary(
+        async () => { throw new Error('fetch failed'); },
+        {
+          context: { degrade: true, fallbackValue: 'degraded', onDegrade, stage: 'demo', runId: 'r1' },
+          fallbackValue: 'local2',
+        }
+      );
+      expect(degraded).toBe('degraded');
+      expect(onDegrade).toHaveBeenCalledTimes(1);
+      expect(boundary.errors.at(-1)?.recovered).toBe(true);
+
+      const emit = vi.fn();
+      const viaEmit = await withErrorBoundary(
+        async () => { throw new Error('fetch failed'); },
+        {
+          context: { degrade: true, fallbackValue: 'emit-ok', emit, stage: 'agent' },
+          fallbackValue: 'local3',
+        }
+      );
+      expect(viaEmit).toBe('emit-ok');
+      expect(emit).toHaveBeenCalledWith('agent.error.degraded', {
+        actor: 'agent',
+        status: 'degraded',
+        payload: expect.objectContaining({ category: ErrorCategory.NETWORK, message: 'fetch failed' }),
+      });
+
+      const fallbackFactory = vi.fn(() => 'factory-ok');
+      const factory = await withErrorBoundary(
+        async () => { throw new Error('fetch failed'); },
+        { context: { degrade: true, fallbackFactory }, fallbackValue: 'local4' }
+      );
+      expect(factory).toBe('factory-ok');
+
+      const fallbackFactoryThrows = vi.fn(() => {
+        throw new Error('nope');
+      });
+      const unhandled = await withErrorBoundary(
+        async () => { throw new Error('fetch failed'); },
+        { context: { degrade: true, fallbackFactory: fallbackFactoryThrows }, fallbackValue: 'local5' }
+      );
+      expect(unhandled).toBe('local5');
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+});
+
+describe('runtime/core message-manager', () => {
+  it('tracks messages and token usage, including non-string payloads', () => {
+    const tokenCounter = { count: (text) => text.length };
+    const manager = new MessageManager({
+      tokenCounter,
+      contextConfig: { contextWindow: 100, compressThreshold: 0.8 },
+    });
+
+    manager.addMessage({ role: 'user', content: 'hello' });
+    expect(manager.messages).toHaveLength(1);
+    expect(manager.tokenUsage).toEqual({ input: 5, output: 0, total: 5 });
+
+    manager.addMessages([{ role: 'user', content: { a: 1 } }, { role: 'user', content: 'x' }]);
+    // '{"a":1}' length 7 + 'x' length 1
+    expect(manager.tokenUsage.total).toBe(5 + 7 + 1);
+
+    const circular = {};
+    // @ts-expect-error: intentional circular ref
+    circular.self = circular;
+    manager.addMessage({ role: 'user', content: circular });
+    expect(manager.tokenUsage.total).toBe(5 + 7 + 1 + '[object Object]'.length);
+
+    manager.setContextConfig({ tokenCounter: { count: () => 10 } });
+    manager.addMessage({ role: 'user', content: 'unique' });
+    expect(manager.tokenUsage.total).toBe(5 + 7 + 1 + '[object Object]'.length + 10);
+  });
+
+  it('schedules compression, records history, and supports reset semantics', async () => {
+    const emit = vi.fn();
+    const tokenCounter = { count: (text) => text.length };
+    const manager = new MessageManager({
+      emit,
+      stageName: 'demo',
+      actor: 'bob',
+      tokenCounter,
+      contextConfig: { contextWindow: 10, compressThreshold: 0.5, compressCooldownMs: 0 },
+    });
+
+    // Make compression deterministic.
+    manager._compressionCoordinator.shouldCompress = vi.fn(() => manager._tokenUsage.total > 5);
+    manager._compressionCoordinator.maybeCompress = vi.fn(async (messages) => ({ messages: messages.slice(0, 1) }));
+
+    manager.addMessages([
+      { role: 'user', content: '12345' }, // 5 tokens
+      { role: 'assistant', content: '67890' }, // +5 => 10 tokens, triggers compression
+    ]);
+
+    await manager.flushCompression({ maxRounds: 1 });
+    expect(manager._compressionCoordinator.maybeCompress).toHaveBeenCalledTimes(1);
+    expect(manager.messages).toHaveLength(1);
+    expect(manager.getStatus().compressionCount).toBe(1);
+
+    expect(emit).toHaveBeenCalledWith('demo.context.compressed', {
+      actor: 'bob',
+      status: 'info',
+      payload: expect.objectContaining({ beforeCount: 2, afterCount: 1 }),
+    });
+
+    await manager.reset({ clearCompressionHistory: false });
+    expect(manager.messages).toHaveLength(0);
+    expect(manager.tokenUsage).toEqual({ input: 0, output: 0, total: 0 });
+    expect(manager.getStatus().compressionCount).toBe(1);
+  });
+
+  it('respects compressCooldownMs before forcing the next compression round', async () => {
+    const tokenCounter = { count: (text) => text.length };
+    const manager = new MessageManager({
+      tokenCounter,
+      contextConfig: { contextWindow: 100, compressThreshold: 0.8, compressCooldownMs: 50 },
+    });
+    const compressSpy = vi.spyOn(manager, '_compress').mockImplementation(async () => {});
+    manager._compressionCoordinator.shouldCompress = vi.fn(() => true);
+
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(1_000));
+      manager._lastCompressionAtMs = Date.now();
+      manager._scheduleCompression();
+      expect(manager._compressionPending).toBe(false);
+      expect(manager._compressionCooldownTimer).not.toBe(null);
+
+      await vi.advanceTimersByTimeAsync(50);
+      await Promise.resolve(); // flush microtasks scheduled by queueMicrotask
+
+      expect(compressSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+      compressSpy.mockRestore();
+    }
+  });
+});
+
+describe('runtime/core context-config', () => {
+  it('merges user config with defaults and freezes the result', () => {
+    const merged = mergeContextConfig({ contextWindow: 42, useCompressionWorker: false });
+    expect(merged.contextWindow).toBe(42);
+    expect(merged.useCompressionWorker).toBe(false);
+    expect(merged.compressThreshold).toBe(DEFAULT_CONTEXT_CONFIG.compressThreshold);
+    expect(Object.isFrozen(merged)).toBe(true);
+
+    // Non-object returns the shared default.
+    expect(mergeContextConfig(null)).toBe(DEFAULT_CONTEXT_CONFIG);
+    expect(mergeContextConfig(undefined)).toBe(DEFAULT_CONTEXT_CONFIG);
+    expect(mergeContextConfig('nope')).toBe(DEFAULT_CONTEXT_CONFIG);
+  });
+});
+
+describe('runtime/core worker-rpc', () => {
+  it('performs request/response RPC calls and normalizes remote errors', async () => {
+    const worker = {
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      postMessage: vi.fn(),
+      terminate: vi.fn(),
+    };
+
+    const client = new WorkerRpcClient({ worker, timeoutMs: 100 });
+    expect(worker.addEventListener).toHaveBeenCalledWith('message', expect.any(Function));
+    expect(worker.addEventListener).toHaveBeenCalledWith('error', expect.any(Function));
+
+    const okPromise = client.call('ping', { n: 1 }, { transferables: [new ArrayBuffer(0)] });
+    const request = worker.postMessage.mock.calls[0][0];
+    expect(request).toMatchObject({ type: 'rpc:request', method: 'ping', params: { n: 1 } });
+
+    client._onMessage({ data: { type: 'rpc:response', id: request.id, ok: true, result: 'pong' } });
+    await expect(okPromise).resolves.toBe('pong');
+
+    const errPromise = client.call('fail', {});
+    const errExpectation = expect(errPromise).rejects.toMatchObject({ name: 'RemoteError', message: 'bad', code: 'E_BAD', stack: 'stack' });
+    const request2 = worker.postMessage.mock.calls.find((c) => c[0]?.method === 'fail')?.[0];
+    expect(request2).toBeTruthy();
+
+    client._onMessage({
+      data: {
+        type: 'rpc:response',
+        id: request2.id,
+        ok: false,
+        error: { message: 'bad', name: 'RemoteError', code: 'E_BAD', stack: 'stack' },
+      },
+    });
+    await errExpectation;
+  });
+
+  it('handles validation, abort, timeout, and terminate paths', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const worker = {
+      postMessage: vi.fn(),
+      terminate: vi.fn(),
+      onmessage: null,
+      onerror: null,
+    };
+
+    try {
+      const client = new WorkerRpcClient({ worker, timeoutMs: 10 });
+      expect(typeof worker.onmessage).toBe('function');
+      expect(typeof worker.onerror).toBe('function');
+
+      await expect(client.call('', {})).rejects.toThrow(/method is required/i);
+
+      const aborted = new AbortController();
+      aborted.abort('stop');
+      await expect(client.call('ping', {}, { signal: aborted.signal })).rejects.toMatchObject({ name: 'AbortError', message: 'stop' });
+
+      vi.useFakeTimers();
+      try {
+        const timeoutPromise = client.call('slow', {});
+        const timeoutExpectation = expect(timeoutPromise).rejects.toMatchObject({ name: 'TimeoutError' });
+        const request = worker.postMessage.mock.calls.find((c) => c[0]?.method === 'slow')?.[0];
+        expect(request).toBeTruthy();
+
+        await vi.advanceTimersByTimeAsync(10);
+        await timeoutExpectation;
+
+        // Timeout triggers a cancel message back to the worker.
+        expect(worker.postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'rpc:cancel', id: request.id, reason: 'timeout' }));
+      } finally {
+        vi.useRealTimers();
+      }
+
+      // terminate() rejects pending calls.
+      const pendingPromise = client.call('hang', {});
+      const pendingExpectation = expect(pendingPromise).rejects.toThrow('bye');
+      client.terminate('bye');
+      await pendingExpectation;
+      expect(worker.terminate).toHaveBeenCalledTimes(1);
+
+      // _onError() rejects pending calls and clears the worker reference.
+      const client2 = new WorkerRpcClient({ worker: { ...worker, terminate: vi.fn(), postMessage: vi.fn() } });
+      const inFlight = client2.call('hang', {});
+      const inFlightExpectation = expect(inFlight).rejects.toThrow('worker broke');
+      client2._onError({ message: 'worker broke' });
+      await inFlightExpectation;
+      expect(client2.worker).toBe(null);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it('creates worker-side handlers for success and failure responses', async () => {
+    const originalSelf = globalThis.self;
+    const postMessage = vi.fn();
+    // @ts-expect-error: test shim
+    globalThis.self = { postMessage };
+
+    try {
+      const handler = createRpcHandler({
+        ok: async ({ value }) => value + 1,
+        boom: async () => {
+          throw new Error('nope');
+        },
+      });
+
+      await handler({ data: { type: 'rpc:request', id: '1', method: 'ok', params: { value: 1 } } });
+      expect(postMessage).toHaveBeenCalledWith({ type: 'rpc:response', id: '1', ok: true, result: 2 });
+
+      await handler({ data: { type: 'rpc:request', id: '2', method: 'missing', params: {} } });
+      expect(postMessage).toHaveBeenCalledWith({ type: 'rpc:response', id: '2', ok: false, error: 'Unknown method: missing' });
+
+      await handler({ data: { type: 'rpc:request', id: '3', method: 'boom', params: {} } });
+      expect(postMessage).toHaveBeenCalledWith({ type: 'rpc:response', id: '3', ok: false, error: 'nope' });
+
+      // Non-rpc messages are ignored.
+      await handler({ data: { type: 'other', id: '4' } });
+    } finally {
+      globalThis.self = originalSelf;
+    }
   });
 });
 
