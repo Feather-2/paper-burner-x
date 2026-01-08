@@ -16,7 +16,17 @@ import { planDeck, applyUserEdits, formatPlanForDialog } from "./deck-planner.js
 import { generateLayoutBatch } from "../generators/layout-generator.js";
 
 /**
- * @typedef {(name: string, event: { actor: string, status: string, payload: any }) => void} EmitFn
+ * @typedef {(name: string, event: any) => void} EmitFn
+ */
+
+/**
+ * @typedef {object} SlideMeta
+ * @property {number} slideNo
+ * @property {any} slideIntentId
+ * @property {any} pageType
+ * @property {any} title
+ * @property {any} qa
+ * @property {boolean=} degraded
  */
 
 /**
@@ -403,6 +413,7 @@ export async function runGeneratingPhase(loop, {
 
   // Update state with generated HTMLs for the tools to see
   let slideHtmls = generated.map((g) => g.slideHtml);
+  /** @type {SlideMeta[]} */
   let slidesMeta = slideIntents.map((intent, i) => ({
     slideNo: i + 1,
     slideIntentId: intent.slideIntentId,
@@ -563,7 +574,7 @@ export async function runBatchRepairPhase(loop, state, { context, runContext, em
  *
  * @param {any} loop
  * @param {{ contentPackage: any, slideIntents: any[], designSystem: any, generated: any[], slideHtmls: string[], slidesMeta: any[], imageSlots: any[], baseDeckHtmlDsl: string, pendingImages: string[], brainstormResult: any, constraints: any, userConfig: any, context: any, runContext: any, emit?: EmitFn, startExecution: StartExecutionFn, finishExecution: FinishExecutionFn, emitDeckUpdate: EmitDeckUpdateFn }} params
- * @returns {Promise<{ deckHtmlDsl: string, slidesMeta: any[], imageSlots: any[], imageReport: any, visualReport: any, refineResult: any, pendingImages: string[] }>}
+ * @returns {Promise<{ deckHtmlDsl: string, slidesMeta: any[], imageSlots: any[], imageReport: any, visualReport: any, refineResult?: any, pendingImages: string[] }>}
  */
 export async function runVisualPhase(loop, {
   contentPackage,

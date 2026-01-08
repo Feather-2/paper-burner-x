@@ -16,6 +16,7 @@ import { EventBus, isValidEventName } from './event-bus.js';
 
 /**
  * @typedef {import('./types.d.ts').EventBus} EventBusType
+ * @typedef {import('./event-bus.js').EventRecord} EventRecord
  */
 
 const RPC_KIND_REQUEST = 'rpc_request';
@@ -101,7 +102,7 @@ export class MessageBus {
    * 发送单向消息
    * @param {string} type
    * @param {unknown} payload
-   * @returns {Promise<void>}
+   * @returns {EventRecord}
    */
   emit(type, payload) {
     const name = toNonEmptyString(type);

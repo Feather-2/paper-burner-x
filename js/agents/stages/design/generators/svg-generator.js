@@ -19,6 +19,10 @@ import { safeEmit } from "../shared/safe-emit.js";
 
 const logger = createLogger("stages/design/generators/svg-generator");
 
+/**
+ * @typedef {(name: string, event: { actor: string, status: string, payload: any }) => void} EmitFn
+ */
+
 function safeNumber(v, fallback) {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
@@ -418,7 +422,7 @@ export class SVGGenerator {
   /**
    * @param {any[]} svgSlots
    * @param {any} designSystem
-   * @param {{ emit?: Function, aiApiService?: any, modelRouter?: any, signal?: AbortSignal, slideHtmlBySlotId?: any, concurrency?: number }} [options]
+   * @param {{ emit?: EmitFn, aiApiService?: any, modelRouter?: any, signal?: AbortSignal, slideHtmlBySlotId?: any, concurrency?: number }} [options]
    * @returns {Promise<any>}
    */
   async generate(svgSlots, designSystem, { emit, aiApiService, modelRouter, signal, slideHtmlBySlotId, concurrency } = {}) {

@@ -23,7 +23,7 @@ let misses = 0;
 /**
  * Estimate token count with an in-memory cache for repeated prompts/snippets.
  * @param {string} text
- * @param {TokenCounterLike | null | undefined} tokenCounter
+ * @param {TokenCounterLike | null} [tokenCounter]
  * @returns {number}
  */
 export function estimateTokensCached(text, tokenCounter) {

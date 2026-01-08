@@ -10,6 +10,10 @@ const isBrowser = typeof window !== "undefined" && typeof window.document !== "u
 let fsPromises = null;
 let pathModule = null;
 
+/**
+ * @typedef {(name: string, event: { actor: string, status: string, payload: any }) => void} EmitFn
+ */
+
 async function ensureNodeModules() {
   if (fsPromises && pathModule) return true;
   if (isBrowser) return false;
@@ -210,7 +214,7 @@ export class SlideSubAgent {
    *  modelCaller?: any,
    *  modelRouter?: any,
    *  aiApiService?: any,
-   *  emit?: Function,
+   *  emit?: EmitFn,
    *  signal?: AbortSignal
    * })} [runOptions]
    * @returns {Promise<any>}

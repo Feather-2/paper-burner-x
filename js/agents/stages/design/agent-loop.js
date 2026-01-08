@@ -564,7 +564,7 @@ export class DesignAgentLoop extends BaseAgentLoop {
    * @param {any} runContext
    * @param {any} constraints
    * @param {any[]} imageSlots
-   * @param {Set<string>|string[]|null} aiImageSlotIds
+   * @param {string[]} aiImageSlotIds
    * @returns {Promise<any>}
    */
   async _renderVisuals(

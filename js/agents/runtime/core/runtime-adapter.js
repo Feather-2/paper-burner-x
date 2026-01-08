@@ -14,7 +14,7 @@ export const RuntimeType = {
  * @typedef {Object} ExecutionContext
  * @property {Object} vfs - 虚拟文件系统句柄
  * @property {Object} state - 当前状态快照 (Readonly)
- * @property {Function} emit - 事件发送函数 (to EventBus)
+ * @property {Function} [emit] - 事件发送函数 (to EventBus)
  * @property {AbortSignal} [signal] - 中止信号
  */
 

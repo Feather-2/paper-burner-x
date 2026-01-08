@@ -13,6 +13,10 @@ import { ResourceGuard } from "../../../runtime/core/resource-guard.js";
 import { toNonEmptyString } from "../../../shared/utils/value-utils.js";
 const logger = createLogger("stages/design/generators/batch-generator");
 
+/**
+ * @typedef {(name: string, event: { actor: string, status: string, payload: any }) => void} EmitFn
+ */
+
 // === 可配置常量 ===
 const BATCH_GENERATOR_DEFAULTS = {
   maxContentLength: 800, // markdown 截断长度
@@ -516,7 +520,7 @@ function makePrompt(batch, designSystem, contentPackage, imageSlotsForBatch = []
  * @param {object} slideIntent
  * @param {object} designSystem
  * @param {string} dslRules
- * @param {{aiApiService?:object,modelRouter?:object,modelCaller?:Function,emit?:Function,signal?:AbortSignal,contentPackage?:object,slideNo?:number,slideIndex?:number,imageSlotsForSlide?:Array<object>,selectedIdeas?:Array<object>,slotHintsBySlotId?:Map<string, any>,dslExamples?:any[]}=} options
+ * @param {{aiApiService?:object,modelRouter?:object,modelCaller?:Function,emit?:EmitFn,signal?:AbortSignal,contentPackage?:object,slideNo?:number,slideIndex?:number,imageSlotsForSlide?:Array<object>,selectedIdeas?:Array<object>,slotHintsBySlotId?:Map<string, any>,dslExamples?:any[]}=} options
  * @returns {Promise<{slideIntentId:string,slideHtml:string,source:"llm"|"fallback"}>}
  */
 export async function generateSingleSlide(slideIntent, designSystem, dslRules, options = {}) {

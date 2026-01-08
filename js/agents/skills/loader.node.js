@@ -15,6 +15,8 @@ import { SkillScope } from "./model.js";
  * @typedef {import("./model.js").SkillMetadata} SkillMetadata
  * @typedef {{ metadata: SkillMetadata, body: (string | null), supportFiles?: Record<string, string> }} SkillContent
  * @typedef {{ skills: SkillContent[], errors: Array<{ path: string, message: string }> }} SkillLoadOutcome
+ *
+ * @typedef {typeof SkillScope[keyof typeof SkillScope]} SkillScopeValue
  */
 
 /** @type {string} */
@@ -448,7 +450,7 @@ export async function loadAllSkills({ cwd, homeDir, nexusProvider } = {}) {
  * 从指定路径加载单个 Skill
  *
  * @param {string} filePath
- * @param {SkillScope} [scope]
+ * @param {SkillScopeValue} [scope]
  * @returns {Promise<SkillContent>}
  */
 export async function loadSkillFromPath(filePath, scope = SkillScope.USER) {

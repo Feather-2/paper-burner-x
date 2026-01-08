@@ -18,7 +18,7 @@ import { TraceContext } from "../telemetry/trace-context.js";
 import { withRetry } from "../core/retry-strategy.js";
 import { getErrorBoundary } from "../core/error-boundary.js";
 import { ToolQuotaManager } from "../tools/tool-quotas.js";
-import { MessageBus } from "../kernel/message-bus.js";
+import { MessageBus } from "../../core/message-bus.js";
 
 const logger = createLogger("runtime/api/stage-api-factory");
 

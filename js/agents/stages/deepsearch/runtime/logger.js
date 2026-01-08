@@ -26,5 +26,5 @@ export { createLogger, trackToolCall, logEvent } from "../../../shared/utils/log
  * @returns {Logger}
  */
 export function createDeepSearchLogger(options = {}) {
-  return baseCreateLogger({ actor: "deepsearch", ...options });
+  return baseCreateLogger({ actor: "deepsearch", ...(/** @type {any} */ (options)) });
 }

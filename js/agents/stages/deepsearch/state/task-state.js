@@ -6,6 +6,7 @@ import { L0_SET_TASK_GOAL } from "../../../runtime/memory/action-types.js";
  * @property {any} [_stateEngine]
  * @property {any} [_memoryStore]
  * @property {string} [_localTaskGoal]
+ * @property {{ awaitUserFeedback?: boolean, taskImpossible?: boolean }=} [L2]
  */
 
 /**

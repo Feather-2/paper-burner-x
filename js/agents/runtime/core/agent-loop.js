@@ -165,6 +165,7 @@ function resolveStrictLoopStatusTransitions(explicit) {
   return true;
 }
 
+/** @type {Record<string, readonly string[]>} */
 const DEFAULT_LOOP_STATUS_TRANSITIONS = Object.freeze({
   [AgentStatus.IDLE]: [AgentStatus.RUNNING, AgentStatus.COMPLETED, AgentStatus.FAILED],
   [AgentStatus.RUNNING]: [AgentStatus.PAUSED, AgentStatus.COMPLETED, AgentStatus.FAILED],

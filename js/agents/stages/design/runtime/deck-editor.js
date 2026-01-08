@@ -167,6 +167,7 @@ export class DeckEditor {
       return { success: false, error: "fix must be an object" };
     }
 
+    /** @type {Array<{ type: "element"|"slide", slideIndex: number, elementId?: string, changes: any }>} */
     const edits = [];
 
     // 颜色修复

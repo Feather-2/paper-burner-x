@@ -8,6 +8,7 @@
  * @returns {Record<string, string>} Lowercased attribute-name map.
  */
 export function parseTagAttributes(tag) {
+  /** @type {Record<string, string>} */
   const attrs = {};
   if (!tag || typeof tag !== "string") return attrs;
 

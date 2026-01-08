@@ -86,12 +86,10 @@
  */
 
 /**
- * @typedef {object} BananaRegenerateResult
- * @property {boolean} success
- * @property {number} slideIndex
- * @property {string} [image]
- * @property {string} [prompt]
- * @property {string} [error]
+ * @typedef {(
+ *   { success: true, slideIndex: number, image?: string, prompt?: string } |
+ *   { success: false, slideIndex?: number, error: string, prompt?: string }
+ * )} BananaRegenerateResult
  */
 
 /**

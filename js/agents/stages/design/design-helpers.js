@@ -13,14 +13,14 @@ const logger = createLogger("stages/design/design-helpers");
 
 /**
  * @typedef {object} TraceContextLike
- * @property {(name: string, fn: (span: any) => any) => any} withSpan
+ * @property {(name: string, fn: (span: any) => any, options?: any) => any} withSpan
  * @property {(name: string, attrs?: any) => any} startSpan
  * @property {(span: any) => void} endSpan
  */
 
 /**
  * @typedef {object} ErrorBoundaryLike
- * @property {(fn: Function) => any} wrap
+ * @property {(fn: Function, options?: any) => any} wrap
  */
 
 /**
@@ -159,9 +159,10 @@ export function resolveErrorBoundary(stageApi, container) {
  * @returns {T}
  */
 export function createTracedAiApiService(aiApiService, traceContext) {
-  if (!aiApiService || typeof aiApiService !== "object" || typeof aiApiService.chat !== "function") return aiApiService;
+  const svc = /** @type {any} */ (aiApiService);
+  if (!svc || typeof svc !== "object" || typeof svc.chat !== "function") return aiApiService;
 
-  return new Proxy(aiApiService, {
+  return new Proxy(svc, {
     get(target, prop) {
       if (prop === "chat") {
         return async (opts = {}) => {
@@ -195,9 +196,10 @@ export function createTracedAiApiService(aiApiService, traceContext) {
  * @returns {T}
  */
 export function createTracedModelRouter(modelRouter, traceContext) {
-  if (!modelRouter || typeof modelRouter !== "object" || typeof modelRouter.call !== "function") return modelRouter;
+  const router = /** @type {any} */ (modelRouter);
+  if (!router || typeof router !== "object" || typeof router.call !== "function") return modelRouter;
 
-  return new Proxy(modelRouter, {
+  return new Proxy(router, {
     get(target, prop) {
       if (prop === "call") {
         return async (...args) => {
