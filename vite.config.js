@@ -19,10 +19,22 @@ const EXTERNAL_DEPS = [
 ];
 
 // 动态加载的目录（需要在构建后复制）
+// 这些模块通过 <script type="module"> 加载，使用 IIFE + window 全局变量模式
+// Vite 无法自动打包，需要保持原始结构
 const DYNAMIC_DIRS = [
   'js/process',
-  'css',  // 独立 CSS 文件（未通过 JS import）
-  'lib',  // 本地依赖库
+  'js/storage',      // IndexedDB 存储（getResultFromDB 等）
+  'js/history',      // 历史记录模块
+  'js/chatbot',      // 聊天机器人模块
+  'js/annotations',  // 注释模块
+  'js/api',          // API 模块
+  'js/boot',         // 启动模块
+  'js/lib',          // 内部库
+  'js/processing',   // 处理模块
+  'js/ui',           // UI 模块
+  'js/utils',        // 工具函数
+  'css',             // 独立 CSS 文件
+  'lib',             // 本地依赖库
 ];
 
 // Vite 插件：构建后复制动态加载的目录

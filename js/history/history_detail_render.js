@@ -38,7 +38,7 @@ async function renderDetail() {
     console.error("DockLogic not available or init function missing.");
   }
 
-  data = await getResultFromDB(id);
+  data = await window.getResultFromDB(id);
   window.data = data; // for debugging
   const fileMetaTimeEl = document.getElementById('fileMetaTime');
   const fileMetaImagesEl = document.getElementById('fileMetaImages');
