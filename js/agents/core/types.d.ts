@@ -150,6 +150,7 @@ export interface StateBusOptions {
   events?: EventBus;
   keepLog?: boolean;
   maxLog?: number;
+  maxSnapshots?: number;
 }
 
 export interface StateChangeRecord {

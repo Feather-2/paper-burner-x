@@ -53,6 +53,9 @@ export class StateBus {
     /** @type {Map<string, Record<string, unknown>>} */
     this._snapshots = new Map();
 
+    /** @type {number} */
+    this._maxSnapshots = options.maxSnapshots || 50;
+
     /** @type {StateChangeRecord[] | null} */
     this._changeLog = options.keepLog ? [] : null;
 
@@ -216,6 +219,17 @@ export class StateBus {
   snapshot(id = null) {
     const snapshotId = id || `snap_${Date.now()}`;
     const data = JSON.parse(JSON.stringify(this._state));
+
+    // LRU eviction: remove oldest snapshots when limit exceeded
+    if (this._snapshots.size >= this._maxSnapshots && !this._snapshots.has(snapshotId)) {
+      const oldest = this._snapshots.keys().next().value;
+      if (oldest) this._snapshots.delete(oldest);
+    }
+
+    // Move to end for LRU ordering (delete + set)
+    if (this._snapshots.has(snapshotId)) {
+      this._snapshots.delete(snapshotId);
+    }
     this._snapshots.set(snapshotId, data);
 
     this._emit('state.snapshot', { id: snapshotId });

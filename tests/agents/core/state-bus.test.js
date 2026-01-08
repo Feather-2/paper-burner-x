@@ -345,6 +345,31 @@ describe('StateBus', () => {
       expect(state.deleteSnapshot('toDelete')).toBe(true);
       expect(state.deleteSnapshot('toDelete')).toBe(false);
     });
+
+    it('should evict oldest snapshots when maxSnapshots exceeded (LRU)', () => {
+      const limitedState = new StateBus({ maxSnapshots: 3 });
+
+      limitedState.set('v', 1);
+      const id1 = limitedState.snapshot('snap1');
+      limitedState.set('v', 2);
+      const id2 = limitedState.snapshot('snap2');
+      limitedState.set('v', 3);
+      const id3 = limitedState.snapshot('snap3');
+
+      expect(limitedState.listSnapshots()).toEqual(['snap1', 'snap2', 'snap3']);
+
+      // Adding 4th should evict oldest (snap1)
+      limitedState.set('v', 4);
+      const id4 = limitedState.snapshot('snap4');
+
+      expect(limitedState.listSnapshots()).toEqual(['snap2', 'snap3', 'snap4']);
+      expect(limitedState.listSnapshots()).not.toContain('snap1');
+
+      // Reusing existing id should not evict (updates in place)
+      limitedState.set('v', 5);
+      limitedState.snapshot('snap2');
+      expect(limitedState.listSnapshots()).toEqual(['snap3', 'snap4', 'snap2']); // snap2 moved to end
+    });
   });
 
   describe('import/reset', () => {
