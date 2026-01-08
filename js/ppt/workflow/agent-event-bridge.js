@@ -1,4 +1,4 @@
-import { EventBus } from '../../agents/runtime/events/event-bus.js';
+import { EventBus } from '../../agents/core/event-bus.js';
 
 const DEFAULT_COALESCE_PATTERN = /\.progress$/;
 

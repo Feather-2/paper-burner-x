@@ -127,7 +127,7 @@ test("DesignAgentLoop runs phases, uses tools, emits events", async () => {
 test("DesignAgentLoop waits for confirmations across phases", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
   const { DesignPhase } = await import("../../../js/agents/stages/design/states.js");
-  const { EventBus } = await import("../../../js/agents/runtime/events/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const contentPackage = makeContentPackage({ slideCount: 1 });
   const designSystem = makeDesignSystem();
@@ -331,7 +331,7 @@ test("DesignAgentLoop._renderVisuals handles renderer errors", async () => {
 
 test("DesignAgentLoop._toolChatAsk waits for user action", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-  const { EventBus } = await import("../../../js/agents/runtime/events/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const loop = new DesignAgentLoop();
   const eventBus = new EventBus({ runId: "run_chat" });
@@ -533,7 +533,7 @@ test("DesignAgentLoop.getToolDefinitions returns a copy", async () => {
 
 test("DesignAgentLoop.waitForUserAction handles aborts and timeouts", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
-  const { EventBus } = await import("../../../js/agents/runtime/events/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const loop = new DesignAgentLoop();
   const eventBus = new EventBus({ runId: "run_wait" });

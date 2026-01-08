@@ -7,7 +7,7 @@ import { WorkflowState, transitionWorkflow, forceWorkflowState } from './workflo
 import { WorkflowTodoStatus } from '../../agents/runtime/core/constants.js';
 import { StagePausedError } from '../../agents/runtime/core/stage-errors.js';
 import { StepStatus } from '../../agents/runtime/core/agent-status.js';
-import { RunStoreAdapter } from '../../agents/runtime/events/event-bus.js';
+import { RunStoreAdapter } from '../../agents/core/event-bus.js';
 import { subscribeTelemetry } from '../../agents/runtime/telemetry/runstore-telemetry.js';
 import { RunReplayController } from '../../agents/runtime/telemetry/replay-controller.js';
 import { StageApiFactory } from '../../agents/runtime/api/stage-api-factory.js';
@@ -883,7 +883,7 @@ export const runtimeMixin = {
         this._telemetrySubscription = null;
 
         // 创建 EventBus（有或没有持久化适配器）
-        const { EventBus } = await import('../../agents/runtime/event-bus.js');
+        const { EventBus } = await import('../../agents/core/event-bus.js');
         const eventBus = new EventBus({
             runId: this._currentRunId,
             ...(persistenceAdapter ? { persistenceAdapter } : {})

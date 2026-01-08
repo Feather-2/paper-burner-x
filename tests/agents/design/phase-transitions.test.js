@@ -190,7 +190,7 @@ test("runVisualPhase supports deferredVisuals fast-path", async () => {
 test("DesignAgentLoop skips final review when skipReview is true", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
   const { DesignPhase } = await import("../../../js/agents/stages/design/states.js");
-  const { EventBus } = await import("../../../js/agents/runtime/events/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const contentPackage = makeContentPackage({ runId: "run_skip_review", slideCount: 1 });
   const designSystem = makeDesignSystem();

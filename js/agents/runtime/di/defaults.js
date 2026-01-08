@@ -32,8 +32,6 @@ export const ServiceId = {
   CIRCUIT_BREAKER_REGISTRY: "circuitBreakerRegistry",
   WATCHDOG: "watchdog",
   WORKER_POOL: "workerPool",
-  /** @deprecated Use KERNEL instead */
-  MICRO_KERNEL: "microKernel",
   KERNEL: "kernel",
   MESSAGE_BUS: "messageBus",
   // P6.4: Runtime Adapters
@@ -75,7 +73,7 @@ export function createAgentContainer(overrides = {}) {
 
   // EventBus (no dependencies)
   container.register(ServiceId.EVENT_BUS, async (c) => {
-    const { EventBus } = await import("../events/event-bus.js");
+    const { EventBus } = await import("../../core/event-bus.js");
     const eventBus = new EventBus();
     // P4.6: 默认启用背压，避免高频事件堆积（浏览器和 Node.js 均生效）
     if (typeof eventBus.enableBackpressure === "function") {
@@ -254,22 +252,6 @@ export function createAgentContainer(overrides = {}) {
       const { WorkerPool } = await import("../core/worker-pool.js");
       // 返回 WorkerPool 类而非实例，因为需要 createWorker
       return { WorkerPool, isWorkerSupported: typeof Worker !== "undefined" };
-    },
-    { scope: SINGLETON }
-  );
-
-  // MicroKernel (deprecated - use core/Kernel instead)
-  // Kept for backward compatibility, will be removed in 2.0.0
-  container.register(
-    ServiceId.MICRO_KERNEL,
-    async (c) => {
-      console.warn(
-        "[DEPRECATED] ServiceId.MICRO_KERNEL is deprecated. " +
-        "Use `import { Kernel } from 'js/agents/core'` instead."
-      );
-      const { MicroKernel } = await import("../kernel/micro-kernel.js");
-      const eventBus = await c.get(ServiceId.EVENT_BUS);
-      return new MicroKernel({ container: c, eventBus });
     },
     { scope: SINGLETON }
   );

@@ -5,7 +5,7 @@
  */
 
 import { globalSubagentRegistry } from "../../sdk/SubagentRegistry.js";
-import { EventBus } from "../../runtime/events/event-bus.js";
+import { EventBus } from "../../core/event-bus.js";
 
 /** @type {any} */
 let _DeepSearchAgentLoop = null;

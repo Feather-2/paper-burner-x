@@ -16,6 +16,7 @@
  */
 export { EventBus } from "../../core/event-bus.js";
 export { LamportClock } from "../../core/event-bus.js";
+export { RunStoreAdapter } from "../../core/event-bus.js";
 
 /**
  * @param {CreateEventRecordOptions} [options]
@@ -41,18 +42,3 @@ export { matchPattern } from "../../core/event-bus.js";
  * @returns {import("../../core/event-bus.js").EventBus}
  */
 export { EventBus as default } from "../../core/event-bus.js";
-
-// 兼容旧的 createEventId
-/**
- * @param {CreateEventRecordOptions} [options]
- * @returns {EventRecord}
- */
-export { createEventRecord as createEventId } from "../../core/event-bus.js";
-
-// 重新导出 matchEventPattern（兼容旧名称）
-/**
- * @param {string} pattern
- * @param {string} eventName
- * @returns {boolean}
- */
-export { matchPattern as matchEventPattern } from "../../core/event-bus.js";

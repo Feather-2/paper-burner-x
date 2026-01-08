@@ -1,4 +1,4 @@
-import { EventBus } from "../runtime/events/event-bus.js";
+import { EventBus } from "../core/event-bus.js";
 import { BaseAgentLoop } from "../runtime/core/agent-loop.js";
 import { useLogger } from "../shared/utils/logger.js";
 import { createTaskTool, TASK_TOOL_DEFINITION } from "../runtime/tools/TaskTool.js";

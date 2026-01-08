@@ -19,7 +19,7 @@ export { ActorType, OrchestratorState, isValidActorType } from "./core/constants
 export { AgentOrchestrator, SchedulingMode } from "./orchestrator.js";
 
 // Events
-export { EventBus } from "./events/event-bus.js";
+export { EventBus } from "../core/event-bus.js";
 export {
   RuntimeEvents,
   WatchdogEvents,
@@ -86,9 +86,8 @@ export {
   createTestContainer,
 } from "./di/index.js";
 
-// Kernel (deprecated - use core/Kernel instead)
-// 保留导出以兼容现有代码，但建议迁移到 core 模块
-export { MicroKernel, MessageBus, ServiceProvider, isServiceProvider } from "./kernel/index.js";
+// MicroKernel/ServiceProvider 已移除 (2.0.0)
+// 请使用: import { Kernel, MessageBus, createPlugin } from 'js/agents/core';
 
 // Dependencies (Python Skill support)
 export {

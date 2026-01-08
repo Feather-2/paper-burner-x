@@ -25,6 +25,7 @@ describe('EventBus', () => {
 
       expect(handler).toHaveBeenCalledTimes(1);
       expect(handler.mock.calls[0][0].type).toBe('test.event');
+      expect(handler.mock.calls[0][0].schemaVersion).toBe('0.1');
       expect(handler.mock.calls[0][0].payload).toEqual({ value: 42 });
     });
 

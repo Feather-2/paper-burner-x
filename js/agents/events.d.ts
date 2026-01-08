@@ -14,7 +14,7 @@ export type AgentStatus = "idle" | "running" | "paused" | "completed" | "failed"
 
 /**
  * EventBus 事件记录（最终形态）
- * - 与 `js/agents/runtime/events/event-bus.js` 的 `createEventRecord()` 对齐
+ * - 与 `js/agents/core/event-bus.js` 的 `createEventRecord()` 对齐
  * - workflow/UI 层默认订阅到的就是这种结构
  */
 export type EventSchemaVersion = "0.1";

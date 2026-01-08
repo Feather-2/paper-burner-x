@@ -5,7 +5,7 @@
 
 import DeepSearchAgentLoop from "../stages/deepsearch/deepsearch-agent-loop.js";
 import { DeepSearchState } from "../stages/deepsearch/state.js";
-import { EventBus } from "../runtime/events/event-bus.js";
+import { EventBus } from "../core/event-bus.js";
 import { CliModelRouter } from "./model-client.js";
 
 // 创建事件总线

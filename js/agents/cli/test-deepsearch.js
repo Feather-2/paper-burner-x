@@ -8,7 +8,7 @@
  */
 
 import { runDeepSearchAgent, DeepSearchState } from "../stages/deepsearch/index.js";
-import { EventBus } from "../runtime/events/event-bus.js";
+import { EventBus } from "../core/event-bus.js";
 import { CliModelRouter, createAiApiServiceAdapter } from "./model-client.js";
 import { readFileSync, readdirSync, statSync, writeFileSync } from "fs";
 import { join, basename } from "path";

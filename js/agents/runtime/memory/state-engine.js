@@ -15,41 +15,13 @@
  * - 可序列化：所有 Action 和 State 可 JSON 序列化
  */
 
-import { nextTick, sync as syncClock, currentSeq } from "../events/lamport-clock.js";
+import { nextTick, sync as syncClock, currentSeq } from "../../core/lamport-clock.js";
 import { isPlainObject, toNonEmptyString, deepClone } from "../../shared/utils/value-utils.js";
 import { cloneJson, buildStatePatch, applyStatePatch, diffLayers } from "./state-diff.js";
 import { cryptoRandomHex } from "../../shared/utils/secure-id.js";
 import { createLogger } from "../../shared/utils/logger.js";
 
 const logger = createLogger("runtime/memory/state-engine");
-
-// ─────────────────────────────────────────────────────────────────────────────
-// LamportClock Wrapper (使用全局 lamport-clock 模块)
-// ─────────────────────────────────────────────────────────────────────────────
-
-class LamportClock {
-  constructor(/** @type {{ actorId?: string, initialValue?: number }} */ { actorId, initialValue } = {}) {
-    this.actorId = actorId || `actor_${Date.now().toString(36)}`;
-    // 如果提供了初始值，同步到全局时钟
-    if (typeof initialValue === "number" && initialValue > 0) {
-      syncClock(initialValue);
-    }
-  }
-
-  get value() {
-    return currentSeq();
-  }
-
-  tick() {
-    const clock = nextTick();
-    return clock.seq;
-  }
-
-  receive(remoteSeq) {
-    syncClock(remoteSeq);
-    return this.tick();
-  }
-}
 import {
   L0_SET_SYSTEM_PROMPT,
   L0_SET_TASK_GOAL,
@@ -658,10 +630,8 @@ export class StateEngine {
     this._eventBus = eventBus;
     this._checkpoints = new Map(); // checkpointId → { state, clock, encoding, baseId? }
 
-    // Lamport clock for causal ordering
-    this._clock = new LamportClock({
-      actorId: actorId || this._state.runId,
-    });
+    // Actor ID used for Lamport causal ordering metadata (clock itself is global in core/lamport-clock.js)
+    this._actorId = actorId || this._state.runId;
 
     // Dispatch queue for serializing concurrent dispatches
     this._dispatchQueue = [];
@@ -780,8 +750,8 @@ export class StateEngine {
    */
   _executeBatchDispatch(actions) {
     const ts = Date.now();
-    const seq = this._clock.tick(); // Single tick for entire batch
-    const actorId = this._clock.actorId;
+    const seq = nextTick().seq; // Single tick for entire batch
+    const actorId = this._actorId;
 
     const prevState = this._state;
     let currentState = prevState;
@@ -837,14 +807,14 @@ export class StateEngine {
    */
   _executeDispatch(action) {
     // Add metadata
-    const seq = this._clock.tick();
+    const seq = nextTick().seq;
     const enrichedAction = {
       ...action,
       meta: {
         ...action.meta,
         ts: action.meta?.ts || Date.now(),
         seq,
-        actorId: this._clock.actorId,
+        actorId: this._actorId,
       },
     };
 
@@ -1069,7 +1039,7 @@ export class StateEngine {
       ? { ...createInitialState(), ...newState }
       : createInitialState();
     this._actionHistory = [];
-    this._clock = new LamportClock({ actorId: this._state.runId });
+    this._actorId = this._state.runId;
 
     // Notify listeners of reset
     const resetAction = { type: "@@RESET", payload: {}, meta: { ts: Date.now(), seq: 0 } };
@@ -1080,7 +1050,7 @@ export class StateEngine {
    * Get current Lamport clock value
    */
   getClockValue() {
-    return this._clock.value;
+    return currentSeq();
   }
 
   /**
@@ -1088,7 +1058,9 @@ export class StateEngine {
    * @param {number} externalSeq
    */
   receiveClockValue(externalSeq) {
-    this._clock.receive(externalSeq);
+    // Lamport rule: local = max(local, remote) + 1
+    syncClock(externalSeq);
+    nextTick();
   }
 
   /**
@@ -1097,7 +1069,7 @@ export class StateEngine {
   createSnapshot() {
     return {
       state: cloneJson(this._state),
-      clock: this._clock.value,
+      clock: currentSeq(),
       ts: Date.now(),
     };
   }
@@ -1111,10 +1083,8 @@ export class StateEngine {
 
     this._state = cloneJson(snapshot.state);
     if (typeof snapshot.clock === "number") {
-      this._clock = new LamportClock({
-        actorId: this._state.runId,
-        initialValue: snapshot.clock,
-      });
+      this._actorId = this._state.runId;
+      syncClock(snapshot.clock);
     }
     return true;
   }
@@ -1129,7 +1099,7 @@ export class StateEngine {
     const { fullSnapshotEvery = 10 } = options;
     const checkpointId = generateId("cp");
     const ts = Date.now();
-    const clock = this._clock.value;
+    const clock = currentSeq();
 
     // Find most recent checkpoint as base
     const checkpointList = this._state.L3?.checkpoints || [];
@@ -1210,10 +1180,8 @@ export class StateEngine {
     };
 
     if (typeof cp.clock === "number") {
-      this._clock = new LamportClock({
-        actorId: this._state.runId,
-        initialValue: cp.clock,
-      });
+      this._actorId = this._state.runId;
+      syncClock(cp.clock);
     }
 
     return true;

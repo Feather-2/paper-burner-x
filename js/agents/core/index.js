@@ -12,6 +12,7 @@
 export { Kernel, KernelStatus } from './kernel.js';
 export {
   EventBus,
+  RunStoreAdapter,
   createEventRecord,
   isValidEventName,
   matchPattern,

@@ -65,7 +65,7 @@ import { LamportClock } from './lamport-clock.js';
  * @typedef {(event: EventRecord) => void | Promise<void>} EventHandler
  */
 
-const SCHEMA_VERSION = '0.2';
+const SCHEMA_VERSION = '0.1';
 
 // ============================================================
 // 工具函数
@@ -249,6 +249,91 @@ export function createEventRecord({
   if (meta !== undefined) record.meta = meta;
 
   return record;
+}
+
+// ============================================================
+// 持久化适配器
+// ============================================================
+
+/**
+ * RunStoreAdapter - 将 RunStore 适配为 EventBus 的 persistenceAdapter 接口。
+ *
+ * 兼容两种 runStore 形态：
+ * - runStore.appendEvents(runId, events[]) + runStore.getEvents(runId)
+ * - runStore.appendEvent(runId, event) + runStore.getEvents(runId)
+ */
+export class RunStoreAdapter {
+  /**
+   * @param {any} runStore
+   */
+  constructor(runStore) {
+    if (!runStore || typeof runStore !== 'object') {
+      throw new TypeError('RunStoreAdapter(runStore): runStore must be an object');
+    }
+    if (typeof runStore.getEvents !== 'function') {
+      throw new TypeError('RunStoreAdapter(runStore): runStore.getEvents must be a function');
+    }
+    if (typeof runStore.appendEvents !== 'function' && typeof runStore.appendEvent !== 'function') {
+      throw new TypeError('RunStoreAdapter(runStore): runStore.appendEvents/appendEvent must be a function');
+    }
+
+    this._runStore = runStore;
+  }
+
+  /**
+   * @param {any[]} events
+   * @returns {any}
+   */
+  appendEvents(events) {
+    if (!Array.isArray(events)) {
+      throw new TypeError('RunStoreAdapter.appendEvents(events): events must be an array');
+    }
+    if (events.length === 0) return 0;
+
+    const runStore = this._runStore;
+    const hasBatch = typeof runStore.appendEvents === 'function';
+    const total = events.length;
+
+    // 批量写入路径（优先）
+    if (hasBatch) {
+      /** @type {Map<string, any[]>} */
+      const byRunId = new Map();
+      for (const evt of events) {
+        if (!isObject(evt)) continue;
+        const runId = typeof evt.runId === 'string' ? evt.runId : null;
+        if (!runId) continue;
+        const bucket = byRunId.get(runId);
+        if (bucket) bucket.push(evt);
+        else byRunId.set(runId, [evt]);
+      }
+
+      const tasks = [];
+      for (const [runId, batch] of byRunId) {
+        tasks.push(runStore.appendEvents(runId, batch));
+      }
+      if (tasks.length === 0) return 0;
+      return Promise.all(tasks).then(() => total);
+    }
+
+    // 单条写入路径（appendEvent-only）
+    const tasks = [];
+    for (const evt of events) {
+      if (!isObject(evt)) continue;
+      const runId = typeof evt.runId === 'string' ? evt.runId : null;
+      if (!runId) continue;
+      tasks.push(runStore.appendEvent(runId, evt));
+    }
+    if (tasks.length === 0) return 0;
+    return Promise.all(tasks).then(() => total);
+  }
+
+  /**
+   * @param {string} runId
+   * @returns {Promise<any[]>}
+   */
+  async getEvents(runId) {
+    return this._runStore.getEvents(runId);
+  }
 }
 
 // ============================================================

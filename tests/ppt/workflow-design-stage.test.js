@@ -285,7 +285,7 @@ test('_ensureRuntime populates _runtimeDesignSubStageUi mapping', async () => {
 });
 
 test('AgentEventBridge forwards plan.* events', async () => {
-  const { EventBus } = await import('../../js/agents/runtime/events/event-bus.js');
+  const { EventBus } = await import('../../js/agents/core/event-bus.js');
   const { AgentEventBridge } = await import('../../js/ppt/workflow/agent-event-bridge.js');
 
   const source = new EventBus({ runId: 'run_test' });

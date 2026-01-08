@@ -39,7 +39,7 @@ test("Runtime Constants: report enums + quality mode normalization", async () =>
 });
 
 test("Runtime Core: EventBus on/off/once/emit + EventRecord fields", async () => {
-  const { EventBus, isValidEventName } = await import("../../js/agents/runtime/events/event-bus.js");
+  const { EventBus, isValidEventName } = await import("../../js/agents/core/event-bus.js");
 
   assert.ok(isValidEventName("run.started"));
   assert.ok(isValidEventName("textprep.chunk.completed"));
@@ -230,7 +230,7 @@ test("VFS operations: multiEditTextFileWithPolicy supports indentation-normalize
 });
 
 test("Runtime Core: EventBus backpressure default stays synchronous", async () => {
-  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
+  const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const bus = new EventBus({ runId: "run_test" });
   let hits = 0;
@@ -243,7 +243,7 @@ test("Runtime Core: EventBus backpressure default stays synchronous", async () =
 });
 
 test("Runtime Core: EventBus backpressure batching + coalesce + order + seq", async () => {
-  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
+  const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const seqOf = (evt) => Number(String(evt.eventId).split("_").at(-1));
@@ -289,7 +289,7 @@ test("Runtime Core: EventBus backpressure batching + coalesce + order + seq", as
 });
 
 test("Runtime Core: EventBus backpressure custom coalescePattern + disable restores sync", async () => {
-  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
+  const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -328,7 +328,7 @@ test("Runtime Core: EventBus backpressure custom coalescePattern + disable resto
 });
 
 test("Runtime Core: EventBus backpressure batchWindowMs controls flush timing", async () => {
-  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
+  const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -349,7 +349,7 @@ test("Runtime Core: EventBus backpressure batchWindowMs controls flush timing", 
 });
 
 test("Runtime Core: EventBus backpressure rAF scheduling branch", async () => {
-  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
+  const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const originalRaf = globalThis.requestAnimationFrame;
   const originalCancel = globalThis.cancelAnimationFrame;
@@ -380,7 +380,7 @@ test("Runtime Core: EventBus backpressure rAF scheduling branch", async () => {
 });
 
 test("Runtime Core: EventBus backpressure ignores stale scheduled flush callbacks", async () => {
-  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
+  const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const originalRaf = globalThis.requestAnimationFrame;
   const originalCancel = globalThis.cancelAnimationFrame;
@@ -427,7 +427,7 @@ test("Runtime Core: EventBus backpressure ignores stale scheduled flush callback
 });
 
 test("Runtime Core: EventBus validation errors", async () => {
-  const { EventBus, createEventRecord } = await import("../../js/agents/runtime/events/event-bus.js");
+  const { EventBus, createEventRecord } = await import("../../js/agents/core/event-bus.js");
 
   assert.throws(() => createEventRecord({ name: "Bad.Name" }), /Invalid event name/);
 
@@ -441,7 +441,7 @@ test("Runtime Core: EventBus validation errors", async () => {
 });
 
 test("Runtime Core: EventBus backpressure re-enable flushes queued and cancels timer", async () => {
-  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
+  const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -468,7 +468,7 @@ test("Runtime Core: EventBus backpressure re-enable flushes queued and cancels t
 });
 
 test("Runtime Core: EventBus persistence adapter best-effort appendEvents", async () => {
-  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
+  const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -514,7 +514,7 @@ test("Runtime Core: EventBus persistence adapter best-effort appendEvents", asyn
 });
 
 test("Runtime Core: EventBus replay loads events and marks meta.replay", async () => {
-  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
+  const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   // No adapter -> clear error.
   await assert.rejects(() => new EventBus().replay("run_test"), /persistenceAdapter is required/);
@@ -569,7 +569,7 @@ test("Runtime Core: EventBus replay loads events and marks meta.replay", async (
 });
 
 test("Runtime Core: RunStoreAdapter validation + appendEvents branches", async () => {
-  const { RunStoreAdapter } = await import("../../js/agents/runtime/events/event-bus.js");
+  const { RunStoreAdapter } = await import("../../js/agents/core/event-bus.js");
 
   assert.throws(() => new RunStoreAdapter(null), /runStore.getEvents must be a function/);
   assert.throws(() => new RunStoreAdapter({ getEvents: async () => [] }), /appendEvents\/appendEvent/);
@@ -628,7 +628,7 @@ test("Runtime Core: RunStoreAdapter validation + appendEvents branches", async (
 // 以下测试引用了已删除的 run-context.js 和 orchestrator.js，已移除
 
 test("Runtime Core: EventBus subscribe with wildcard pattern", async () => {
-  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
+  const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const bus = new EventBus({ runId: "run_test" });
   const deepSearchEvents = [];
@@ -648,7 +648,7 @@ test("Runtime Core: EventBus subscribe with wildcard pattern", async () => {
 });
 
 test("Runtime Core: EventBus subscribe returns unsubscribe function", async () => {
-  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
+  const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const bus = new EventBus({ runId: "run_test" });
   const events = [];
@@ -665,7 +665,7 @@ test("Runtime Core: EventBus subscribe returns unsubscribe function", async () =
 });
 
 test("Runtime Core: EventBus subscribe with priority executes in order", async () => {
-  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
+  const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const bus = new EventBus({ runId: "run_test" });
   const execution = [];
@@ -683,7 +683,7 @@ test("Runtime Core: EventBus subscribe with priority executes in order", async (
 });
 
 test("Runtime Core: EventBus subscribe with priority + wildcard", async () => {
-  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
+  const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const bus = new EventBus({ runId: "run_test" });
   const execution = [];
@@ -700,7 +700,7 @@ test("Runtime Core: EventBus subscribe with priority + wildcard", async () => {
 });
 
 test("Runtime Core: EventBus subscribe priority unsubscribe cleanup", async () => {
-  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
+  const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const bus = new EventBus({ runId: "run_test" });
   const execution = [];
@@ -720,7 +720,7 @@ test("Runtime Core: EventBus subscribe priority unsubscribe cleanup", async () =
 });
 
 test("Runtime Core: EventBus subscribe priority validation", async () => {
-  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
+  const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const bus = new EventBus({ runId: "run_test" });
 
@@ -729,7 +729,7 @@ test("Runtime Core: EventBus subscribe priority validation", async () => {
 });
 
 test("Runtime Core: EventBus listener errors are isolated (sync + async)", async () => {
-  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
+  const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const errors = [];
   const bus = new EventBus({
@@ -762,7 +762,7 @@ test("Runtime Core: EventBus listener errors are isolated (sync + async)", async
 });
 
 test("Runtime Telemetry: subscribeTelemetry keeps bounded in-memory timeline", async () => {
-  const { EventBus } = await import("../../js/agents/runtime/events/event-bus.js");
+  const { EventBus } = await import("../../js/agents/core/event-bus.js");
   const { subscribeTelemetry } = await import("../../js/agents/runtime/telemetry/runstore-telemetry.js");
 
   const bus = new EventBus({ runId: "run_telemetry" });

@@ -216,7 +216,7 @@ test("BaseAgentLoop reports tool errors", async () => {
 });
 
 test("BaseAgentLoop waitForUserAction resolves, aborts, and times out", async () => {
-  const { EventBus } = await import("../../../js/agents/runtime/events/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const eventBus = new EventBus({ runId: "run_wait" });
   const loop = await createTestLoop({ eventBus });
@@ -236,7 +236,7 @@ test("BaseAgentLoop waitForUserAction resolves, aborts, and times out", async ()
 });
 
 test("BaseAgentLoop execute adapts stage inputs", async () => {
-  const { EventBus } = await import("../../../js/agents/runtime/events/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const eventBus = new EventBus({ runId: "run_exec" });
   const loop = await createTestLoop({ eventBus, stageName: "exec" });
@@ -249,7 +249,7 @@ test("BaseAgentLoop execute adapts stage inputs", async () => {
 
 test("BaseAgentLoop execute cleans up EventBus subscriptions", async () => {
   const { BaseAgentLoop } = await import("../../../js/agents/runtime/core/agent-loop.js");
-  const { EventBus } = await import("../../../js/agents/runtime/events/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const eventBus = new EventBus({ runId: "run_exec_cleanup" });
 

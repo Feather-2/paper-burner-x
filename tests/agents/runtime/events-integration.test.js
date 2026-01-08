@@ -88,7 +88,7 @@ test("Runtime Events: matchEventPattern matches archive.* and nested patterns", 
 });
 
 test("Runtime Events: EventBus wildcard subscription integrates with archive.*", async () => {
-  const { EventBus } = await import("../../../js/agents/runtime/events/event-bus.js");
+  const { EventBus } = await import("../../../js/agents/core/event-bus.js");
   const { ArchiveEvents } = await import("../../../js/agents/runtime/events/events.js");
 
   const bus = new EventBus({ runId: "run_events_integration" });
@@ -150,4 +150,3 @@ test("Runtime Events: payload shape validators cover the new typedefs", async ()
   assert.deepEqual(validateArchivePayload(validArchive), []);
   assert.notEqual(validateArchivePayload(invalidArchive).length, 0);
 });
-

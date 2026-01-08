@@ -14,7 +14,7 @@ export { DefaultAgentLoop } from "./DefaultAgentLoop.js";
 
 // Runtime 组件
 export { BaseAgentLoop } from "../runtime/core/agent-loop.js";
-export { EventBus } from "../runtime/events/event-bus.js";
+export { EventBus } from "../core/event-bus.js";
 export { AgentStatus, StepStatus, isAgentActive, isAgentTerminal } from "../runtime/core/agent-status.js";
 export { StagePausedError, StageCancelledError } from "../runtime/core/stage-errors.js";
 

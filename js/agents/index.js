@@ -57,13 +57,8 @@ export {
 // ============================================================
 
 // 重新导出旧 API，但标记为 deprecated
-export {
-  // 旧内核 - 建议迁移到新 Kernel
-  MicroKernel,
-  // MessageBus 已从 core 导出，此处不再重复
-  ServiceProvider,
-  isServiceProvider as isLegacyServiceProvider,
-} from './runtime/kernel/index.js';
+// MicroKernel/ServiceProvider 已移除 (2.0.0)
+// 请使用 core 模块: import { Kernel, createPlugin } from 'js/agents/core';
 
 // ============================================================
 // Runtime - 核心运行时组件
