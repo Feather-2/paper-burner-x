@@ -10,6 +10,36 @@ import {
   toJSON as serializerToJSON,
   toSnapshot as serializerToSnapshot,
 } from "../../../../js/agents/stages/deepsearch/state/serializer.js";
+import {
+  DeepSearchSourceKind,
+  SMALL_DOC_THRESHOLD,
+  SMALL_DOC_TOKEN_THRESHOLD,
+  isCodeSourceKind,
+  isDocSourceKind,
+  isValidRetrievalStrategy,
+  normalizeDeepSearchSourceKind,
+  normalizeRetrievalStrategy,
+} from "../../../../js/agents/stages/deepsearch/constants.js";
+import {
+  AgentLoopStatus,
+  DecisionOutcome,
+  DecisionStage,
+  GapPriority,
+  GapStatus,
+  PhaseStatus,
+  PlanNodeStatus,
+  PlanNodeType,
+  TodoStatus,
+  isValidAgentLoopStatus,
+  isValidDecisionOutcome,
+  isValidDecisionStage,
+  isValidGapPriority,
+  isValidGapStatus,
+  isValidPhaseStatus,
+  isValidPlanNodeStatus,
+  isValidPlanNodeType,
+  isValidTodoStatus,
+} from "../../../../js/agents/stages/deepsearch/states.js";
 import { stateMethods } from "../../../../js/agents/stages/deepsearch/state/state-methods.js";
 import { DeepSearchState, validateIteration, transitionGap } from "../../../../js/agents/stages/deepsearch/state.js";
 
@@ -478,5 +508,211 @@ describe("deepsearch/state", () => {
     state.todos = [{ todoId: "t2", text: "next" }];
     expect(store.L0.todos).toEqual([{ todoId: "t2", text: "next" }]);
     expect(localTodosRef).toEqual([{ todoId: "t2", text: "next" }]);
+  });
+
+  it("states: validates known enums and rejects unknown values", () => {
+    expect(isValidGapPriority(GapPriority.HIGH)).toBe(true);
+    expect(isValidGapPriority("unknown")).toBe(false);
+
+    expect(isValidGapStatus(GapStatus.OPEN)).toBe(true);
+    expect(isValidGapStatus("OPEN")).toBe(false);
+
+    expect(isValidTodoStatus(TodoStatus.COMPLETED)).toBe(true);
+    expect(isValidTodoStatus("done")).toBe(false);
+
+    expect(isValidPlanNodeStatus(PlanNodeStatus.PENDING)).toBe(true);
+    expect(isValidPlanNodeStatus("waiting")).toBe(false);
+
+    expect(isValidPlanNodeType(PlanNodeType.GOAL)).toBe(true);
+    expect(isValidPlanNodeType("task")).toBe(false);
+
+    expect(isValidDecisionOutcome(DecisionOutcome.SUCCESS)).toBe(true);
+    expect(isValidDecisionOutcome("ok")).toBe(false);
+
+    expect(isValidDecisionStage(DecisionStage.SCAN)).toBe(true);
+    expect(isValidDecisionStage("retrieval")).toBe(false);
+
+    expect(isValidPhaseStatus(PhaseStatus.ROUND)).toBe(true);
+    expect(isValidPhaseStatus("draft")).toBe(false);
+
+    expect(isValidAgentLoopStatus(AgentLoopStatus.RUNNING)).toBe(true);
+    expect(isValidAgentLoopStatus("whatever")).toBe(false);
+  });
+
+  it("constants: normalizes retrieval strategy and source kinds", () => {
+    expect(isValidRetrievalStrategy("grep")).toBe(true);
+    expect(isValidRetrievalStrategy("GREP")).toBe(false);
+    expect(normalizeRetrievalStrategy("  BM25 ")).toBe("bm25");
+    expect(normalizeRetrievalStrategy("unknown")).toBeUndefined();
+    expect(normalizeRetrievalStrategy(null)).toBeUndefined();
+
+    expect(normalizeDeepSearchSourceKind(" PDF ")).toBe(DeepSearchSourceKind.PDF);
+    expect(normalizeDeepSearchSourceKind("")).toBe(DeepSearchSourceKind.UNKNOWN);
+    expect(normalizeDeepSearchSourceKind("not-real")).toBe(DeepSearchSourceKind.UNKNOWN);
+
+    expect(isDocSourceKind("pdf")).toBe(true);
+    expect(isCodeSourceKind("file")).toBe(true);
+    expect(isCodeSourceKind("pdf")).toBe(false);
+    expect(isDocSourceKind("code")).toBe(false);
+
+    expect(SMALL_DOC_THRESHOLD).toBe(SMALL_DOC_TOKEN_THRESHOLD);
+  });
+
+  it("DeepSearchState: proxies task/iteration/report accessors", () => {
+    const state = new DeepSearchState({ runId: "run_proxy", taskGoal: "goal" });
+
+    state.taskGoal = "next goal";
+    expect(state.taskGoal).toBe("next goal");
+
+    state.awaitUserFeedback = true;
+    state.taskImpossible = true;
+    expect(state.awaitUserFeedback).toBe(true);
+    expect(state.taskImpossible).toBe(true);
+
+    state.phase = "  scan  ";
+    expect(state.phase).toBe("scan");
+
+    state.gaps = [{ gapId: "gap_1" }];
+    expect(state.gaps).toEqual([{ gapId: "gap_1" }]);
+
+    state.chunks = [{ chunkId: "c1" }];
+    expect(state.chunks).toEqual([{ chunkId: "c1" }]);
+
+    expect(state.report).toBeNull();
+    state.reportDraft = "draft";
+    expect(state.reportDraft).toBe("draft");
+
+    state.outline = [{ title: "t" }];
+    expect(state.outline).toEqual([{ title: "t" }]);
+
+    state.report = { markdown: "final" };
+    expect(state.report).toEqual({ markdown: "final" });
+  });
+
+  it("todos setter: dispatches through StateEngine when present", () => {
+    const state = new DeepSearchState({ runId: "run_todos_engine", taskGoal: "g" });
+    const engine = createFakeStateEngine({ taskGoal: "g", todos: [] });
+    state._stateEngine = engine;
+
+    const syncSpy = vi.spyOn(state, "_syncFromStateEngine");
+    state.todos = [{ todoId: "t1", text: "x", status: "open" }];
+
+    expect(engine.dispatched.some((a) => a.type === "L0/REPLACE_TODOS")).toBe(true);
+    expect(syncSpy).toHaveBeenCalled();
+    expect(engine._getStateRef().L0.todos).toEqual([{ todoId: "t1", text: "x", status: "open" }]);
+  });
+
+  it("bindStateEngine: seeds goal/todos and wires subscription updates", () => {
+    const state = new DeepSearchState({ runId: "run_bind", taskGoal: "seed goal" });
+    state.todos = [{ todoId: "t_seed", text: "seed", status: "open" }];
+
+    // Existing unsubscribe should be called (and errors swallowed).
+    const previousUnsub = vi.fn(() => {
+      throw new Error("ignore");
+    });
+    state._stateEngineUnsubscribe = previousUnsub;
+
+    const ref = { L0: { taskGoal: "", todos: [] } };
+    const dispatched = [];
+    /** @type {any} */
+    const engine = {
+      _getStateRef: () => ref,
+      dispatchSync(action) {
+        dispatched.push(action);
+        if (action?.type === "L0/SET_TASK_GOAL") ref.L0.taskGoal = action.payload?.goal || "";
+        if (action?.type === "L0/REPLACE_TODOS") ref.L0.todos = Array.isArray(action.payload?.todos) ? action.payload.todos : [];
+      },
+      subscribe(_slice, cb) {
+        // Fire one update to cover the subscription callback path.
+        const nextL0 = { taskGoal: "from_subscribe", todos: [{ todoId: "t_sub" }] };
+        ref.L0 = { ...nextL0 };
+        cb(null, null, nextL0);
+        return vi.fn();
+      },
+    };
+
+    state.bindStateEngine(engine);
+
+    expect(previousUnsub).toHaveBeenCalled();
+    expect(dispatched.some((a) => a.type === "L0/SET_TASK_GOAL")).toBe(true);
+    expect(dispatched.some((a) => a.type === "L0/REPLACE_TODOS")).toBe(true);
+
+    expect(state.taskGoal).toBe("from_subscribe");
+    expect(state.todos.map((t) => t.todoId)).toEqual(["t_sub"]);
+
+    // Ensure unsubscribe is invoked when rebinding.
+    const nextUnsub = state._stateEngineUnsubscribe;
+    state.bindStateEngine(null);
+    expect(nextUnsub).toHaveBeenCalled();
+  });
+
+  it("DeepSearchState._syncFromStateEngine: handles engine errors and syncs MemoryStore", () => {
+    const state = new DeepSearchState({ runId: "run_sync", taskGoal: "goal" });
+
+    state._stateEngine = {
+      _getStateRef: () => {
+        throw new Error("boom");
+      },
+    };
+    expect(() => state._syncFromStateEngine()).not.toThrow();
+
+    const ref = { L0: { taskGoal: "from_engine", todos: [{ todoId: "t1", text: "x" }] } };
+    const engine = { _getStateRef: () => ref };
+    const mem1 = { setTaskGoal: vi.fn(), replaceTodos: vi.fn(), L0: {} };
+    state._stateEngine = engine;
+    state._memoryStore = mem1;
+
+    state._syncFromStateEngine();
+    expect(state.todos).toEqual([{ todoId: "t1", text: "x" }]);
+    expect(mem1.setTaskGoal).toHaveBeenCalledWith("from_engine");
+    expect(mem1.replaceTodos).toHaveBeenCalledWith([{ todoId: "t1", text: "x" }]);
+
+    const mem2 = { L0: { taskGoal: "", todos: [] } };
+    state._memoryStore = mem2;
+    ref.L0 = { taskGoal: "goal2", todos: [{ todoId: "t2" }] };
+    state._syncFromStateEngine();
+    expect(mem2.L0.taskGoal).toBe("goal2");
+    expect(mem2.L0.todos).toEqual([{ todoId: "t2" }]);
+  });
+
+  it("stateMethods: setAwaitUserFeedback/setTaskImpossible sync memoryStore + reason", () => {
+    const memoryStore = {};
+    const state = new DeepSearchState({ runId: "run_flags", taskGoal: "g", memoryStore });
+
+    state.setAwaitUserFeedback(true, "need input");
+    expect(state.L2.awaitUserFeedback).toBe(true);
+    expect(state.L2.reason).toBe("need input");
+    expect(memoryStore.awaitUserFeedback).toBe(true);
+
+    state.setAwaitUserFeedback(false);
+    expect(state.L2.awaitUserFeedback).toBe(false);
+    expect(state.L2.reason).toBe("");
+    expect(memoryStore.awaitUserFeedback).toBe(false);
+
+    const res = state.setTaskImpossible("blocked");
+    expect(res).toBe(false);
+    expect(state.L2.taskImpossible).toBe(false);
+    expect(memoryStore.taskImpossible).toBe(false);
+    expect(state.L2.awaitUserFeedback).toBe(true);
+    expect(state.L2.reason).toBe("blocked");
+  });
+
+  it("stateMethods: addNewGaps applies default maxGapDepth and emits skipped events", () => {
+    const state = new DeepSearchState({ runId: "run_gap_depth", taskGoal: "g", trajectoryId: "traj_1" });
+    state.L1.gaps = [{ gapId: "gap_1", depth: 3, question: "parent", status: "open" }];
+
+    const emit = vi.fn();
+    const added = state.addNewGaps(
+      [{ question: "child", parentGapId: "gap_1" }],
+      { timestamp: "2020-01-01T00:00:00.000Z" },
+      emit
+    );
+
+    expect(added).toEqual([]);
+    expect(state.L1.gaps).toHaveLength(1);
+    expect(emit).toHaveBeenCalledWith(
+      "deepsearch.gap.skipped",
+      expect.objectContaining({ type: "max_depth", parentGapId: "gap_1", depth: 4, maxGapDepth: 3, trajectoryId: "traj_1" })
+    );
   });
 });
