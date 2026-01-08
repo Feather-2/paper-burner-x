@@ -254,6 +254,147 @@ describe("deepsearch/model caller adapter", () => {
     expect(state.L2?.budgetState?.exceededTokens).toBe(true);
   });
 
+  it("getModelCaller: skips token tracking when state has no addTokenUsage", async () => {
+    const modelClient = new MockModelClient({ responses: { default: "ok" } });
+
+    const routerCalls = [];
+    async function routerCall(opts) {
+      routerCalls.push(opts);
+      return modelClient.chat(opts);
+    }
+
+    const emit = vi.fn();
+    const stageApi = {
+      signal: new AbortController().signal,
+      modelRouter: { call: routerCall },
+      emit,
+    };
+
+    const state = { userConfig: { budget: { maxTokens: 10, maxCostUSD: 1 } } };
+    const caller = getModelCaller(stageApi, { usage: "worker", state });
+    await caller([{ role: "user", content: "Hi" }], { cacheKeyInputs: { ignored: true } });
+
+    expect(routerCalls).toHaveLength(1);
+    expect(routerCalls[0].cacheKeyInputs).toBeUndefined();
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("getModelCaller: does not emit or track when usage cannot be normalized", async () => {
+    const modelClient = new MockModelClient({
+      handler: async () => ({ content: "ok", usage: {} }),
+    });
+
+    async function routerCall(opts) {
+      return modelClient.chat(opts);
+    }
+
+    const emit = vi.fn();
+    const stageApi = {
+      signal: new AbortController().signal,
+      modelRouter: { call: routerCall },
+      emit,
+    };
+
+    const state = {
+      userConfig: { budget: { prices: { "*": { input: 1, output: 1 } } } },
+      addTokenUsage: vi.fn(),
+    };
+
+    const caller = getModelCaller(stageApi, { usage: "worker", state });
+    await caller([{ role: "user", content: "Hi" }]);
+
+    expect(state.addTokenUsage).not.toHaveBeenCalled();
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("getModelCaller: uses opts.model for pricing when result.model is not a string", async () => {
+    const modelClient = new MockModelClient({
+      handler: async () => ({
+        content: "ok",
+        model: 123,
+        provider: "mock",
+        usage: { prompt_tokens: 1000, completion_tokens: 1000, total_tokens: 2000 },
+      }),
+    });
+
+    async function routerCall(opts) {
+      return modelClient.chat(opts);
+    }
+
+    const emitted = [];
+    const emit = vi.fn((name, record) => emitted.push({ name, record }));
+    const stageApi = {
+      signal: new AbortController().signal,
+      modelRouter: { call: routerCall },
+      emit,
+    };
+
+    const state = {
+      userConfig: { budget: { prices: { "priced-model": { input: 1, output: 2 } } } },
+      addTokenUsage: vi.fn((delta) => ({
+        input: delta.input,
+        output: delta.output,
+        total: delta.total,
+        estimatedCostUSD: delta.estimatedCostUSD,
+      })),
+    };
+
+    const caller = getModelCaller(stageApi, { usage: "worker", state });
+    await caller([{ role: "user", content: "Hi" }], { model: "priced-model-v1" });
+
+    expect(state.addTokenUsage).toHaveBeenCalledTimes(1);
+    expect(state.addTokenUsage.mock.calls[0][0]).toMatchObject({ estimatedCostUSD: 3 });
+
+    const tokenEvt = emitted.find((e) => e.name === "deepsearch.token.usage");
+    expect(tokenEvt).toBeTruthy();
+    expect(tokenEvt.record.payload.model).toBeUndefined();
+    expect(tokenEvt.record.payload.provider).toBe("mock");
+  });
+
+  it("getModelCaller: does not throttle deepsearch.token.usage events", async () => {
+    const modelClient = new MockModelClient({
+      handler: async () => ({
+        content: "ok",
+        model: "unit-test-model",
+        provider: "mock",
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+    });
+
+    async function routerCall(opts) {
+      return modelClient.chat(opts);
+    }
+
+    const emit = vi.fn();
+    const stageApi = {
+      signal: new AbortController().signal,
+      modelRouter: { call: routerCall },
+      emit,
+    };
+
+    let total = { input: 0, output: 0, total: 0, estimatedCostUSD: 0 };
+    const state = {
+      userConfig: { budget: { prices: { "unit-test-model": { input: 1, output: 1 } } } },
+      addTokenUsage: vi.fn((delta) => {
+        total = {
+          input: total.input + delta.input,
+          output: total.output + delta.output,
+          total: total.total + delta.total,
+          estimatedCostUSD: total.estimatedCostUSD + (delta.estimatedCostUSD ?? 0),
+        };
+        return total;
+      }),
+    };
+
+    const caller = getModelCaller(stageApi, { usage: "worker", state });
+    const messages = [{ role: "user", content: "Hi" }];
+    await caller(messages);
+    await caller(messages);
+
+    const tokenUsageCalls = emit.mock.calls.filter(([name]) => name === "deepsearch.token.usage");
+    expect(tokenUsageCalls).toHaveLength(2);
+  });
+
   it("getModelCaller: uses trajectory cache key selection and flushCompression barrier", async () => {
     const modelClient = new MockModelClient({ responses: { default: "ok" } });
 
@@ -310,6 +451,44 @@ describe("deepsearch/model caller adapter", () => {
     expect(firstFlushIdx).toBeGreaterThan(-1);
     expect(firstRouterIdx).toBeGreaterThan(-1);
     expect(firstFlushIdx).toBeLessThan(firstRouterIdx);
+  });
+
+  it("getModelCaller: falls back to stageApi.trajectoryCacheKeyInputs when opts.cacheKeyInputs is absent", async () => {
+    const modelClient = new MockModelClient({ responses: { default: "ok" } });
+
+    const routerCalls = [];
+    async function routerCall(opts) {
+      routerCalls.push(opts);
+      return modelClient.chat(opts);
+    }
+
+    const cacheStore = new Map();
+    const trajectoryCache = {
+      computeKey: vi.fn((stageName, inputs, meta) => `${stageName}:${JSON.stringify(inputs)}:${String(meta?.model || "")}`),
+      getOrCompute: vi.fn(async (key, compute) => {
+        if (cacheStore.has(key)) return cacheStore.get(key);
+        const value = await compute();
+        cacheStore.set(key, value);
+        return value;
+      }),
+    };
+
+    const stageApi = {
+      signal: new AbortController().signal,
+      modelRouter: { call: routerCall },
+      trajectoryCache,
+      trajectoryCachePolicy: "share",
+      trajectoryCacheStageName: "deepsearch",
+      trajectoryCacheKeyInputs: vi.fn((messages, opts) => ({ prompt: messages[0]?.content, extra: opts?.extra })),
+    };
+
+    const caller = getModelCaller(stageApi, { usage: "worker" });
+    const messages = [{ role: "user", content: "Hi" }];
+    await caller(messages, { model: "gpt-4o-mini", extra: 123 });
+
+    expect(stageApi.trajectoryCacheKeyInputs).toHaveBeenCalledTimes(1);
+    expect(trajectoryCache.computeKey).toHaveBeenCalledWith("deepsearch", { prompt: "Hi", extra: 123 }, { model: "gpt-4o-mini", temperature: undefined });
+    expect(routerCalls).toHaveLength(1);
   });
 
   it("getModelCaller: returns null when stageApi provides no model service", () => {
