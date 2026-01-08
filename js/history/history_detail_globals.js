@@ -356,6 +356,9 @@ function getQueryParam(name) {
   const url = new URL(window.location.href);
   return url.searchParams.get(name);
 }
+// 暴露到全局作用域
+window.getQueryParam = getQueryParam;
+
 /**
  * @type {Object|null}
  * @description 存储从 IndexedDB 加载的当前历史记录的详细数据。
