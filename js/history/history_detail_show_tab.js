@@ -2160,3 +2160,7 @@ function showTabImmediate(tab) {
   // 性能测试断点 - 总渲染结束
   console.timeEnd('[性能] showTab_总渲染');
 }
+
+// 暴露到全局作用域
+window.showTab = showTab;
+window.showTabImmediate = showTabImmediate;

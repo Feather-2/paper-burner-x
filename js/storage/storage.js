@@ -1505,6 +1505,11 @@ if (typeof window !== 'undefined') {
     // 暴露历史结果查询（PPT 素材导入使用）
     window.getAllResultsFromDB = getAllResultsFromDB;
     window.getResultFromDB = getResultFromDB;
+    // 暴露批注相关函数
+    window.saveAnnotationToDB = saveAnnotationToDB;
+    window.getAnnotationsForDocFromDB = getAnnotationsForDocFromDB;
+    window.updateAnnotationInDB = updateAnnotationInDB;
+    window.deleteAnnotationFromDB = deleteAnnotationFromDB;
     console.log('[Storage] 函数已暴露到全局作用域:', {
         loadAllCustomSourceSites: typeof window.loadAllCustomSourceSites,
         saveCustomSourceSite: typeof window.saveCustomSourceSite,
