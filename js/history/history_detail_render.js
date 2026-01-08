@@ -210,6 +210,9 @@ async function renderDetail() {
   // }
 }
 
+// 暴露到全局作用域，供 history_detail_scripts.js 调用
+window.renderDetail = renderDetail;
+
 /**
  * 切换并显示指定的标签页内容。
  * - 更新标签按钮的激活状态 (`active` class)。
