@@ -281,6 +281,8 @@ function unbindScrollForSavePosition() {
     lastScrollableElementForSave = null;
   }
 }
+window.bindScrollForSavePosition = bindScrollForSavePosition;
+window.unbindScrollForSavePosition = unbindScrollForSavePosition;
 
 // 辅助函数：获取元素的DOM路径
 function getElementPath(element) {
@@ -305,6 +307,7 @@ function getElementPath(element) {
   }
   return path.join(' > ');
 }
+window.getElementPath = getElementPath;
 
 function saveChatbotStateOnUnload() {
   if (docIdForLocalStorage && typeof window.isChatbotOpen !== 'undefined') {
