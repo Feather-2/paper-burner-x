@@ -10,6 +10,7 @@ if (PRODUCTION_MODE) {
 
 // ========== 新增：防止 showTab 重复渲染的锁 ==========
 let renderingTab = null;
+window.renderingTab = null; // 暴露到全局
 // =====================================================
 
 
@@ -309,6 +310,7 @@ function saveChatbotStateOnUnload() {
     // console.log(`Saved chatbot state on beforeunload for ${docIdForLocalStorage}: ${window.isChatbotOpen}`);
   }
 }
+window.saveChatbotStateOnUnload = saveChatbotStateOnUnload;
 
 // MOVED to dock_logic.js: function updateReadingProgress() { ... }
 // MOVED to dock_logic.js: const debouncedUpdateReadingProgress = debounce(updateReadingProgress, 100);

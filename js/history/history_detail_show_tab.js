@@ -106,11 +106,11 @@ function showTabImmediate(tab) {
     window.globalCurrentContentIdentifier = '';
   }
   // ========== 防抖锁：防止同一 tab 重复渲染 ==========
-  if (renderingTab === tab) {
+  if (window.renderingTab === tab) {
     console.log(`[showTab] Tab ${tab} 正在渲染中，跳过重复渲染`);
     return;
   }
-  renderingTab = tab;
+  window.renderingTab = tab;
   // ================================================
   // 性能测试断点 - 总渲染
   console.time('[性能] showTab_总渲染');
@@ -172,7 +172,7 @@ function showTabImmediate(tab) {
                  + `</div>`;
       document.getElementById('tabContent').innerHTML = warn;
       if (typeof window.refreshTocList === 'function') window.refreshTocList();
-      renderingTab = null;
+      window.renderingTab = null;
       console.timeEnd && console.timeEnd('[性能] showTab_总渲染');
       return;
     }
@@ -206,7 +206,7 @@ function showTabImmediate(tab) {
                  + `</div>`;
       document.getElementById('tabContent').innerHTML = warn;
       if (typeof window.refreshTocList === 'function') window.refreshTocList();
-      renderingTab = null;
+      window.renderingTab = null;
       console.timeEnd && console.timeEnd('[性能] showTab_总渲染');
       return;
     }
@@ -271,7 +271,7 @@ function showTabImmediate(tab) {
           </div>
         `;
       } finally {
-        renderingTab = null;
+        window.renderingTab = null;
         console.timeEnd && console.timeEnd('[性能] showTab_总渲染');
       }
     })();
@@ -1714,7 +1714,7 @@ function showTabImmediate(tab) {
                   window.refreshTocList();
                 }
                 // ========== 渲染完成，解锁 ==========='
-                renderingTab = null;
+                window.renderingTab = null;
                 // ====================================
                 // ========== 内容加载完成 =============
                 window.contentReady = true;
@@ -1728,7 +1728,7 @@ function showTabImmediate(tab) {
             });
           } else {
             // ========== 渲染完成，解锁 ==========='
-            renderingTab = null;
+            window.renderingTab = null;
             // ====================================
             // ========== 内容加载完成 =============
             window.contentReady = true;
@@ -1797,7 +1797,7 @@ function showTabImmediate(tab) {
                 window.refreshTocList();
               }
               // ========== 渲染完成，解锁 ==========='
-              renderingTab = null;
+              window.renderingTab = null;
               // ====================================
               // ========== 内容加载完成 =============
               window.contentReady = true;
@@ -1816,7 +1816,7 @@ function showTabImmediate(tab) {
           });
         } else {
           // ========== 渲染完成，解锁 ==========='
-          renderingTab = null;
+          window.renderingTab = null;
           // ====================================
           // ========== 内容加载完成 =============
           window.contentReady = true;
@@ -2049,7 +2049,7 @@ function showTabImmediate(tab) {
         }
      }, 0);
      // ========== 渲染完成，解锁 ===========
-     renderingTab = null;
+     window.renderingTab = null;
      // ====================================
   }
 
