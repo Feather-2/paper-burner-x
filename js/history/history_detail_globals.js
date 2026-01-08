@@ -98,6 +98,7 @@ function getCurrentScrollableElementForHistoryDetail() {
     // console.log(`[getCurrentScrollableElementForHistoryDetail] 返回document.documentElement作为滚动元素`);
     return document.documentElement;
 }
+window.getCurrentScrollableElementForHistoryDetail = getCurrentScrollableElementForHistoryDetail;
 
 function adjustLongHeadingsToParagraphs(parentElement) {
   if (!parentElement) return;
@@ -177,6 +178,7 @@ function adjustLongHeadingsToParagraphs(parentElement) {
 
   // console.log('[adjustLongHeadingsToParagraphs] 处理完成');
 }
+window.adjustLongHeadingsToParagraphs = adjustLongHeadingsToParagraphs;
 
 function debounce(func, delay) {
   let timeout;
