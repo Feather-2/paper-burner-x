@@ -37,6 +37,32 @@ const processModule = {
 // ESM 模块作用域：暴露到 window 以便子脚本可以访问
 window.processModule = processModule;
 
+// Ready signal for any caller that needs process functions.
+let _resolveReady = null;
+let _rejectReady = null;
+const _ready = new Promise((resolve, reject) => {
+  _resolveReady = resolve;
+  _rejectReady = reject;
+});
+processModule.ready = _ready;
+window.processModuleReady = _ready;
+
+// Provide async stubs so callers can safely invoke APIs before dynamic scripts finish loading.
+function installAsyncStub(name) {
+  if (!name || name === 'ready') return;
+  if (typeof window[name] === 'function') return;
+  window[name] = async (...args) => {
+    await _ready;
+    const fn = processModule[name];
+    if (typeof fn !== 'function') {
+      throw new Error(`processModule.${name} is not ready`);
+    }
+    return fn(...args);
+  };
+}
+
+Object.keys(processModule).forEach(installAsyncStub);
+
 // 在各模块加载完成后执行此函数，将所有函数挂载到全局
 /**
  * 初始化处理模块 (processModule)。
@@ -58,6 +84,7 @@ function initializeProcessModule() {
     }
 
     Object.entries(processModule).forEach(([key, value]) => {
+        if (key === 'ready') return;
         if (value !== null) {
             window[key] = value;
         } else {
@@ -100,23 +127,30 @@ function loadProcessingScripts() {
         'js/process/main.js'
     ];
 
-    let loaded = 0;
+    function loadScript(src) {
+        return new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = src;
+            // Dynamic scripts default to async; force ordered execution since modules depend on each other.
+            script.async = false;
+            script.onload = () => resolve();
+            script.onerror = (err) => reject(err);
+            document.head.appendChild(script);
+        });
+    }
 
-    scripts.forEach(src => {
-        const script = document.createElement('script');
-        script.src = src;
-        script.onload = () => {
-            loaded++;
-            if (loaded === scripts.length) {
-                // 所有脚本加载完成，初始化模块
-                initializeProcessModule();
+    (async () => {
+        try {
+            for (const src of scripts) {
+                await loadScript(src);
             }
-        };
-        script.onerror = (err) => {
-            console.error(`Failed to load script: ${src}`, err);
-        };
-        document.head.appendChild(script);
-    });
+            initializeProcessModule();
+            _resolveReady?.(true);
+        } catch (err) {
+            console.error('[process/index] Failed to load processing scripts:', err);
+            _rejectReady?.(err);
+        }
+    })();
 }
 
 // 开始加载脚本

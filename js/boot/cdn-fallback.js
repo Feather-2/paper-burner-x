@@ -5,15 +5,19 @@
  * 支持离线使用，同时兼容 Vercel 等云部署场景。
  */
 
+// NOTE: Keep this list minimal. Most runtime deps are loaded explicitly in `index.html`
+// to preserve deterministic load order. This file is only for deps that are NOT
+// otherwise included (e.g. docx-preview for Word preview).
 const CDN_FALLBACKS = {
-  'lib/pptxgen.bundle.js': 'https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js',
   'lib/docx-preview.min.js': 'https://gcore.jsdelivr.net/npm/docx-preview@0.3.7/dist/docx-preview.min.js',
-  'lib/iconify-icon.min.js': 'https://gcore.jsdelivr.net/npm/iconify-icon@2.0.0/dist/iconify-icon.min.js',
-  'lib/mammoth.browser.min.js': 'https://gcore.jsdelivr.net/npm/mammoth@1.4.21/mammoth.browser.min.js',
-  'lib/turndown.min.js': 'https://gcore.jsdelivr.net/npm/turndown@7.1.2/dist/turndown.min.js',
-  'lib/pdf.min.js': 'https://gcore.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js',
-  'lib/pdf.worker.min.js': 'https://gcore.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js',
-  'lib/html2pdf.bundle.min.js': 'https://gcore.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js',
+  // Optional: PPT export support (if needed outside `ppt.html`)
+  'lib/pptxgen.bundle.js': 'https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js',
+};
+
+// If these globals already exist, skip loading to avoid double-including UMD scripts.
+const GLOBAL_GUARDS = {
+  'lib/docx-preview.min.js': () => typeof window.docx !== 'undefined',
+  'lib/pptxgen.bundle.js': () => typeof window.PptxGenJS !== 'undefined',
 };
 
 /**
@@ -49,9 +53,15 @@ function loadScriptWithFallback(localPath, cdnUrl) {
  * 加载所有外部依赖
  */
 export async function loadExternalDeps() {
-  const tasks = Object.entries(CDN_FALLBACKS).map(([local, cdn]) =>
-    loadScriptWithFallback(local, cdn).catch(() => null)
-  );
+  const tasks = Object.entries(CDN_FALLBACKS).map(([local, cdn]) => {
+    try {
+      const guard = GLOBAL_GUARDS[local];
+      if (guard && guard()) return Promise.resolve(true);
+    } catch {
+      // ignore guard failures; attempt load
+    }
+    return loadScriptWithFallback(local, cdn).catch(() => null);
+  });
   await Promise.all(tasks);
   console.log('[CDN-Fallback] All external dependencies loaded');
 }

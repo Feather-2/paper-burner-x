@@ -1,5 +1,8 @@
-const fs = require("node:fs");
-const path = require("node:path");
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 function toPositiveInt(value, fallback) {
   const n = typeof value === "number" ? value : Number(value);
@@ -205,11 +208,10 @@ async function runCli() {
   }
 
   for (const file of benchFiles) {
-    // eslint-disable-next-line global-require, import/no-dynamic-require
-    const mod = require(file);
-    const fn = typeof mod === "function" ? mod : typeof mod?.default === "function" ? mod.default : null;
+    const mod = await import(pathToFileURL(file).href);
+    const fn = typeof mod?.default === "function" ? mod.default : null;
     if (!fn) {
-      console.error(`[bench] Skipping ${path.basename(file)} (expected module.exports = async (runner) => ...)`);
+      console.error(`[bench] Skipping ${path.basename(file)} (expected default export async (runner) => ...)`);
       continue;
     }
     // eslint-disable-next-line no-await-in-loop
@@ -228,12 +230,20 @@ async function runCli() {
   }
 }
 
-if (require.main === module) {
+const isMain = (() => {
+  try {
+    if (!process.argv[1]) return false;
+    return pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url;
+  } catch {
+    return false;
+  }
+})();
+
+if (isMain) {
   runCli().catch((err) => {
     console.error("[bench] Runner failed:", err);
     process.exitCode = 1;
   });
 }
 
-module.exports = { BenchmarkRunner };
-
+export { BenchmarkRunner };

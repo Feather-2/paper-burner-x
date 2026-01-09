@@ -18,6 +18,8 @@
 
     <!-- KaTeX CSS（本地优先，CDN fallback） -->
     <link rel="stylesheet" href="lib/katex.min.css" onerror="this.href='https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css'">
+    <!-- Font Awesome（用于部分 UI 图标，本地优先，CDN fallback） -->
+    <link rel="stylesheet" href="lib/fontawesome/all.min.css" onerror="this.href='https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css'">
     <link rel="stylesheet" href="css/history_detail/01-foundation/variables.css">
     <link rel="stylesheet" href="css/history_detail/05-utilities/buttons.css">
     <link rel="stylesheet" href="css/history_detail/04-features/markdown-enhancements.css">
@@ -1657,8 +1659,7 @@
     <script type="module" src="js/ppt/model-config/ppt_model_config_advanced.js"></script>
     <script type="module" src="js/ppt/model-config/ppt_model_config_core.js"></script>
     <script type="module" src="js/processing/markdown_processor_enhanced.js"></script>
-    <!-- markdown-it (AST 处理器依赖) -->
-    <script src="lib/markdown-it.min.js"></script>
+    <!-- markdown-it 由 js/boot/deps-loader.js 初始化并挂载到 window.markdownit -->
     <!-- AST-based processor (新架构) -->
     <script type="module" src="js/processing/annotation_plugin_ast.js"></script>  <!-- 注释插件 -->
     <script type="module" src="js/processing/markdown_processor_ast.js"></script>

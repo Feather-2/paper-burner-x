@@ -4,15 +4,21 @@
   <meta charset="UTF-8">
   <title>历史详情</title>
   <link rel="icon" type="image/svg+xml" href="../../public/pure.svg">
-<!-- CDN 性能优化：DNS 预连接 - 提前建立连接，节省 100-300ms -->  <link rel="dns-prefetch" href="https://gcore.jsdelivr.net">  <link rel="preconnect" href="https://gcore.jsdelivr.net" crossorigin>  <link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">  <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
   <!-- KaTeX 公式渲染样式 -->
-  <link rel="stylesheet" href="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
-<!-- KaTeX 字体预加载 - 优化慢网络环境下的加载性能 -->  <link rel="preload" href="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/fonts/KaTeX_Main-Regular.woff2" as="font" type="font/woff2" crossorigin>  <link rel="preload" href="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/fonts/KaTeX_Main-Bold.woff2" as="font" type="font/woff2" crossorigin>  <link rel="preload" href="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/fonts/KaTeX_Math-Italic.woff2" as="font" type="font/woff2" crossorigin>  <link rel="preload" href="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/fonts/KaTeX_Size1-Regular.woff2" as="font" type="font/woff2" crossorigin>  <link rel="preload" href="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/fonts/KaTeX_Size2-Regular.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/fonts/KaTeX_AMS-Regular.woff2" as="font" type="font/woff2" crossorigin>  <link rel="preload" href="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/fonts/KaTeX_Size3-Regular.woff2" as="font" type="font/woff2" crossorigin>  <link rel="preload" href="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/fonts/KaTeX_Size4-Regular.woff2" as="font" type="font/woff2" crossorigin>
-  <link type="text/css" rel="stylesheet" href="https://gcore.jsdelivr.net/npm/jsmind/style/jsmind.css" />
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+  <link rel="stylesheet" href="../../lib/katex.min.css">
+  <!-- KaTeX 字体预加载 -->
+  <link rel="preload" href="../../lib/fonts/KaTeX_Main-Regular.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="../../lib/fonts/KaTeX_Main-Bold.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="../../lib/fonts/KaTeX_Math-Italic.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="../../lib/fonts/KaTeX_Size1-Regular.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="../../lib/fonts/KaTeX_Size2-Regular.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="../../lib/fonts/KaTeX_AMS-Regular.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="../../lib/fonts/KaTeX_Size3-Regular.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="../../lib/fonts/KaTeX_Size4-Regular.woff2" as="font" type="font/woff2" crossorigin>
+  <link type="text/css" rel="stylesheet" href="../../lib/jsmind.css" />
+  <link rel="stylesheet" href="../../lib/fontawesome/all.min.css">
   <!-- Iconify 图标库（用于侧边栏） -->
-  <script src="https://gcore.jsdelivr.net/npm/iconify-icon@2.0.0/dist/iconify-icon.min.js"></script>
+  <script src="../../lib/iconify-icon.min.js"></script>
   <!-- Main CSS Entry Point (100% Modular Architecture) -->
   <link rel="stylesheet" href="../../css/history_detail.css">
 
@@ -404,11 +410,11 @@
   <!-- ===================== -->
   <!-- 依赖的JS库 -->
   <!-- ===================== -->
-  <script src="https://gcore.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+  <script src="../../lib/file-saver.min.js"></script>
   <script type="module" src="../../js/lib/jszip.min.js"></script>
   <!-- dagre.js for graph layout (层次化图布局算法) -->
-  <script src="https://gcore.jsdelivr.net/npm/graphlib@2.1.8/dist/graphlib.min.js"></script>
-  <script src="https://gcore.jsdelivr.net/npm/dagre@0.8.5/dist/dagre.min.js"></script>
+  <script src="../../lib/graphlib.min.js"></script>
+  <script src="../../lib/dagre.min.js"></script>
   <!-- DrawioLite DSL System (must load in order) -->
   <script type="module" src="../../js/chatbot/prompt/drawio-lite-spec.js"></script>
   <script type="module" src="../../js/chatbot/prompt/drawio-lite-prompt.js"></script>
@@ -423,20 +429,20 @@
   <!-- 移除失效的注释相关脚本引用 -->
   <script type="module" src="../../js/ui/toc_logic_enhanced.js"></script>
   <script type="module" src="../../js/ui/toc_scroll_sync.js"></script>
-  <script src="https://gcore.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <script src="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
-  <script src="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+  <script src="../../lib/marked.min.js"></script>
+  <script src="../../lib/katex.min.js"></script>
+  <script src="../../lib/katex-auto-render.min.js"></script>
   <!-- Markdown-it for AST-based processing (新架构) -->
-  <script src="https://gcore.jsdelivr.net/npm/markdown-it@14.0.0/dist/markdown-it.min.js"></script>
-  <script src="https://gcore.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
-  <script src="https://gcore.jsdelivr.net/npm/html2canvas-pro@1.5.13/dist/html2canvas-pro.min.js"></script>
-  <script src="https://gcore.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="../../lib/markdown-it.min.js"></script>
+  <script src="../../lib/mermaid.min.js"></script>
+  <script src="../../lib/html2canvas-pro.min.js"></script>
+  <script src="../../lib/jspdf.umd.min.js"></script>
 
   <!-- PDF.js for structured translation PDF comparison -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="../../lib/pdf.min.js"></script>
   <script>
     if (typeof pdfjsLib !== 'undefined') {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      pdfjsLib.GlobalWorkerOptions.workerSrc = '../../lib/pdf.worker.min.js';
     }
   </script>
 
@@ -446,7 +452,7 @@
   <script type="module" src="../../js/chatbot/utils/performance-monitor.js"></script>
   <script type="module" src="../../js/chatbot/utils/mermaid-loader.js"></script>
   <!-- XSS 防护：DOMPurify - 用于清理 AI 生成的 HTML 内容 -->
-  <script src="https://gcore.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+  <script src="../../lib/dompurify.min.js"></script>
   <!-- XSS 防护：安全的 Markdown 渲染（必须在 markdown-katex-render.js 之前加载） -->
   <script type="module" src="../../js/chatbot/utils/safe-markdown-render.js"></script>
   <!-- Phase 4.2+: KaTeX 公式缓存系统（解决充满公式场景 4.6s 阻塞问题） -->

@@ -33,8 +33,15 @@ const DYNAMIC_DIRS = [
   'js/processing',   // 处理模块
   'js/ui',           // UI 模块
   'js/utils',        // 工具函数
+  'js/core',         // 核心模块（key-provider 等）
+  'js/ppt',          // PPT 生成模块
   'css',             // 独立 CSS 文件
   'lib',             // 本地依赖库
+];
+
+// js/ 根目录下的单个文件（非子目录）
+const DYNAMIC_FILES = [
+  'js/app.js',
 ];
 
 // Vite 插件：构建后复制动态加载的目录
@@ -49,6 +56,16 @@ function copyDynamicDirs() {
           mkdirSync(dest, { recursive: true });
           cpSync(src, dest, { recursive: true });
           console.log(`[copy-dynamic-dirs] Copied ${dir} to dist/`);
+        }
+      }
+      // 复制单个文件
+      for (const file of DYNAMIC_FILES) {
+        const src = resolve(__dirname, file);
+        const dest = resolve(__dirname, 'dist', file);
+        if (existsSync(src)) {
+          mkdirSync(resolve(dest, '..'), { recursive: true });
+          cpSync(src, dest);
+          console.log(`[copy-dynamic-dirs] Copied ${file} to dist/`);
         }
       }
       // 复制 SVG 到 dist/public/ (因为代码中引用 public/xxx.svg)

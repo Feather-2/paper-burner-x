@@ -1,5 +1,5 @@
-const fs = require("node:fs");
-const path = require("node:path");
+import fs from "node:fs";
+import path from "node:path";
 
 function toNonEmptyString(value) {
   if (value === undefined || value === null) return undefined;
@@ -155,7 +155,7 @@ function matchRequest(expected, actual) {
   return true;
 }
 
-class VcrRecorder {
+export class VcrRecorder {
   constructor({ fixturesDir, mode } = {}) {
     this.fixturesDir = fixturesDir
       ? path.resolve(String(fixturesDir))
@@ -299,6 +299,3 @@ class VcrRecorder {
     return result;
   }
 }
-
-module.exports = { VcrRecorder };
-

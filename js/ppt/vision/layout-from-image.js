@@ -212,11 +212,15 @@ async function analyzeImage(imageData, context = {}) {
   return normalizeLayoutJson(parsed, { intentHint: context?.intentHint });
 }
 
-module.exports = {
+export const _internal = {
+  parseJsonFromModelText,
+  normalizeLayoutJson,
+  normalizeBounds,
+};
+
+export { analyzeImage };
+
+export default {
   analyzeImage,
-  _internal: {
-    parseJsonFromModelText,
-    normalizeLayoutJson,
-    normalizeBounds,
-  },
+  _internal,
 };

@@ -2263,17 +2263,39 @@ const PPTGeneratorEditor = {
 // 混入到 PPTGeneratorCtor.prototype（ESM 模式优先）
 (() => {
     try {
-        const ctor = PPTGeneratorCtor ||
-            (typeof globalThis !== 'undefined' && globalThis.PPTGeneratorCtor) ||
-            (typeof window !== 'undefined' && window.PPTGeneratorCtor);
+        const g = (typeof globalThis !== 'undefined') ? globalThis : null;
+        const w = (typeof window !== 'undefined') ? window : null;
+        const ctor =
+            (g && g.PPTGenerator?.prototype) ? g.PPTGenerator :
+            (w && w.PPTGenerator?.prototype) ? w.PPTGenerator :
+            (g && g.PPTGeneratorCtor?.prototype) ? g.PPTGeneratorCtor :
+            (w && w.PPTGeneratorCtor?.prototype) ? w.PPTGeneratorCtor :
+            (PPTGeneratorCtor?.prototype) ? PPTGeneratorCtor :
+            null;
 
         if (ctor?.prototype) {
             Object.assign(ctor.prototype, PPTGeneratorEditor);
             console.log('[PPTGeneratorEditor] 已混入到 PPTGeneratorCtor.prototype');
-        } else if (typeof window !== 'undefined' && window.PPTGenerator) {
+
+            // Also apply to an existing instance (or plain object test double) for backwards compatibility.
+            // This is safe for real instances, and required for tests that provide `window.PPTGenerator` as a POJO.
+            try {
+                if (typeof window !== 'undefined' && window.PPTGenerator && !window.PPTGenerator?.prototype) {
+                    Object.assign(window.PPTGenerator, PPTGeneratorEditor);
+                }
+                if (typeof globalThis !== 'undefined' && globalThis.PPTGenerator && !globalThis.PPTGenerator?.prototype) {
+                    Object.assign(globalThis.PPTGenerator, PPTGeneratorEditor);
+                }
+            } catch {
+                // ignore
+            }
+        } else if (typeof window !== 'undefined' && window.PPTGenerator && !window.PPTGenerator?.prototype) {
             // 回退：直接混入到实例
             Object.assign(window.PPTGenerator, PPTGeneratorEditor);
             console.log('[PPTGeneratorEditor] 已混入到 window.PPTGenerator 实例');
+        } else if (typeof globalThis !== 'undefined' && globalThis.PPTGenerator && !globalThis.PPTGenerator?.prototype) {
+            Object.assign(globalThis.PPTGenerator, PPTGeneratorEditor);
+            console.log('[PPTGeneratorEditor] 已混入到 globalThis.PPTGenerator 实例');
         } else {
             console.warn('[PPTGeneratorEditor] PPTGeneratorCtor 未定义，混入失败');
         }

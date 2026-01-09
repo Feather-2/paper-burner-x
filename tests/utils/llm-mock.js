@@ -1,5 +1,5 @@
-const fs = require("node:fs");
-const path = require("node:path");
+import fs from "node:fs";
+import path from "node:path";
 
 function toNonEmptyString(value) {
   if (value === undefined || value === null) return undefined;
@@ -197,7 +197,7 @@ function installFetchHookIfNeeded() {
  *  - function(ctx) => response
  * @returns {function():void} cleanup
  */
-function mockLlmResponse(pattern, response) {
+export function mockLlmResponse(pattern, response) {
   const matcher = toMatcher(pattern);
   const queue = normalizeResponseQueue(response);
   const mock = { matcher, queue, fallback: queue.length ? queue[queue.length - 1] : response, vcrCursor: 0, vcrCache: null };
@@ -216,7 +216,7 @@ function mockLlmResponse(pattern, response) {
   };
 }
 
-function resetLlmMocks() {
+export function resetLlmMocks() {
   const state = ensureState();
   state.mocks.length = 0;
   if (state.installed && state.restore) state.restore();
@@ -224,4 +224,4 @@ function resetLlmMocks() {
   state.restore = null;
 }
 
-module.exports = { mockLlmResponse, resetLlmMocks, loadLlmResponsesFromVcrCassette };
+export { loadLlmResponsesFromVcrCassette };

@@ -7,15 +7,21 @@ import PPTGeneratorCtor from './ppt_generator_core.js';
  */
 
 (function loadWorkflowMixins() {
-    // 优先使用 ESM 导入的 PPTGeneratorCtor
-    const GeneratorCtor = PPTGeneratorCtor ||
-        (typeof globalThis !== 'undefined' && globalThis.PPTGeneratorCtor?.prototype)
-            ? globalThis.PPTGeneratorCtor
-            : (
-                (typeof globalThis !== 'undefined' && globalThis.PPTGenerator?.prototype)
-                    ? globalThis.PPTGenerator
-                    : ((typeof PPTGenerator !== 'undefined' && PPTGenerator?.prototype) ? PPTGenerator : null)
-            );
+    function resolveGeneratorCtor() {
+        const g = (typeof globalThis !== 'undefined') ? globalThis : null;
+        const w = (typeof window !== 'undefined') ? window : null;
+        return (
+            (g && g.PPTGenerator?.prototype) ? g.PPTGenerator :
+            (w && w.PPTGenerator?.prototype) ? w.PPTGenerator :
+            (g && g.PPTGeneratorCtor?.prototype) ? g.PPTGeneratorCtor :
+            (w && w.PPTGeneratorCtor?.prototype) ? w.PPTGeneratorCtor :
+            (PPTGeneratorCtor?.prototype) ? PPTGeneratorCtor :
+            null
+        );
+    }
+
+    // Prefer the runtime/global ctor for tests + legacy flows; fall back to ESM core ctor.
+    const GeneratorCtor = resolveGeneratorCtor();
     const proto = GeneratorCtor?.prototype || null;
 
     let resolveReady = null;
@@ -75,14 +81,7 @@ import PPTGeneratorCtor from './ppt_generator_core.js';
             ...runtimeMixin,
         };
 
-        const ctor =
-            (typeof globalThis !== 'undefined' && globalThis.PPTGeneratorCtor?.prototype)
-                ? globalThis.PPTGeneratorCtor
-                : (
-                    (typeof globalThis !== 'undefined' && globalThis.PPTGenerator?.prototype)
-                        ? globalThis.PPTGenerator
-                        : GeneratorCtor
-                );
+        const ctor = GeneratorCtor;
         if (!ctor?.prototype) throw new ReferenceError('PPTGenerator is not defined');
         Object.assign(ctor.prototype, PPTGeneratorWorkflow);
 

@@ -2,8 +2,12 @@
  * 手动修复历史记录搜索防抖优化
  */
 
-const fs = require('fs');
-const path = require('path');
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const historyJsPath = path.join(__dirname, '../js/history/history.js');
 let content = fs.readFileSync(historyJsPath, 'utf8');

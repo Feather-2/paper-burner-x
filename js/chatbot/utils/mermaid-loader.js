@@ -6,7 +6,8 @@
  * - 非浏览器环境：导出函数但不触发任何副作用
  */
 
-const DEFAULT_MERMAID_SRC = 'https://gcore.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js';
+const DEFAULT_MERMAID_LOCAL_SRC = 'lib/mermaid.min.js';
+const DEFAULT_MERMAID_CDN_SRC = 'https://gcore.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js';
 
 /**
  * 确保 Mermaid 已加载并初始化
@@ -19,7 +20,8 @@ export function ensureMermaidLoaded(options = {}) {
     return Promise.resolve(false);
   }
 
-  const src = typeof options.src === 'string' && options.src ? options.src : DEFAULT_MERMAID_SRC;
+  const src = typeof options.src === 'string' && options.src ? options.src : DEFAULT_MERMAID_LOCAL_SRC;
+  const cdnSrc = typeof options.cdnSrc === 'string' && options.cdnSrc ? options.cdnSrc : DEFAULT_MERMAID_CDN_SRC;
 
   // 如果外部已通过 <script> 预加载 mermaid，则无需重复加载
   if (typeof window.mermaidLoaded === 'undefined') {
@@ -59,6 +61,21 @@ export function ensureMermaidLoaded(options = {}) {
     };
 
     script.onerror = function() {
+      if (cdnSrc && cdnSrc !== src) {
+        console.warn('[MermaidLoader] Local Mermaid failed, trying CDN:', cdnSrc);
+        const cdnScript = document.createElement('script');
+        cdnScript.src = cdnSrc;
+        cdnScript.async = true;
+        cdnScript.dataset.pbMermaidLoader = '1';
+        cdnScript.onload = script.onload;
+        cdnScript.onerror = function() {
+          console.error('[MermaidLoader] Failed to load Mermaid.js dynamically (local+CDN).');
+          resolve(false);
+        };
+        document.head.appendChild(cdnScript);
+        return;
+      }
+
       console.error('[MermaidLoader] Failed to load Mermaid.js dynamically.');
       resolve(false);
     };
@@ -75,4 +92,3 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     void ensureMermaidLoaded();
   }
 }
-

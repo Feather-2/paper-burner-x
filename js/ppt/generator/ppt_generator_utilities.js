@@ -517,10 +517,16 @@ const PPTGeneratorUtilities = {
 // Mixin install (legacy scripts + ESM entrypoints).
 (() => {
     try {
-        const ctor = PPTGeneratorCtor ||
-            (typeof globalThis !== 'undefined' && globalThis.PPTGeneratorCtor?.prototype)
-                ? globalThis.PPTGeneratorCtor
-                : ((typeof PPTGenerator !== 'undefined' && PPTGenerator?.prototype) ? PPTGenerator : null);
+        const g = (typeof globalThis !== 'undefined') ? globalThis : null;
+        const w = (typeof window !== 'undefined') ? window : null;
+        const ctor =
+            (g && g.PPTGenerator?.prototype) ? g.PPTGenerator :
+            (w && w.PPTGenerator?.prototype) ? w.PPTGenerator :
+            (g && g.PPTGeneratorCtor?.prototype) ? g.PPTGeneratorCtor :
+            (w && w.PPTGeneratorCtor?.prototype) ? w.PPTGeneratorCtor :
+            (PPTGeneratorCtor?.prototype) ? PPTGeneratorCtor :
+            null;
+
         if (!ctor?.prototype) return;
         Object.assign(ctor.prototype, PPTGeneratorUtilities);
     } catch {

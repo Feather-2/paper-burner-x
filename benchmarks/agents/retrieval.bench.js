@@ -21,7 +21,7 @@ function makeDocText(rng, idx) {
   return `Doc ${idx}: ${topic}\n` + words.join(" ");
 }
 
-module.exports = async function retrievalBench(runner) {
+export default async function retrievalBench(runner) {
   const { buildIndex, search } = await import("../../js/agents/retrieval/bm25.js");
 
   const rng = seededRand(1337);
@@ -48,5 +48,4 @@ module.exports = async function retrievalBench(runner) {
     },
     { iterations: 500, warmup: 50 }
   );
-};
-
+}
