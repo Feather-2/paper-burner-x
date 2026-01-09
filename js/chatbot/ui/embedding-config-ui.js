@@ -3,6 +3,7 @@
 (function(window, document) {
   'use strict';
 
+  if (!window || !document) return;
   if (window.EmbeddingConfigUILoaded) return;
 
   const PRESETS = {
@@ -869,4 +870,6 @@
 
   console.log('[EmbeddingConfigUI] 配置面板已加载');
 
-})(window, document);
+})(typeof window !== 'undefined' ? window : undefined, typeof document !== 'undefined' ? document : undefined);
+
+export const EmbeddingConfigUI = typeof window !== 'undefined' ? window.EmbeddingConfigUI : undefined;

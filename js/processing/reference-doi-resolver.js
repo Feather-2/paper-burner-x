@@ -8,6 +8,16 @@
      * 代理配置 - 从 localStorage 读取
      */
     function getProxyConfig() {
+        if (typeof localStorage === 'undefined') {
+            return {
+                enabled: false,
+                baseUrl: '',
+                authKey: null,
+                semanticScholarApiKey: null,
+                pubmedApiKey: null,
+                rateLimit: null
+            };
+        }
         try {
             const config = JSON.parse(localStorage.getItem('academicSearchProxyConfig') || 'null');
             if (!config) {
@@ -77,6 +87,17 @@
      * 获取学术搜索源配置
      */
     function getSourcesConfig() {
+        if (typeof localStorage === 'undefined') {
+            return {
+                sources: [
+                    { key: 'crossref', name: 'CrossRef', enabled: true, order: 0 },
+                    { key: 'openalex', name: 'OpenAlex', enabled: true, order: 1 },
+                    { key: 'arxiv', name: 'arXiv', enabled: true, order: 2 },
+                    { key: 'pubmed', name: 'PubMed', enabled: true, order: 3 },
+                    { key: 'semanticscholar', name: 'Semantic Scholar', enabled: true, order: 4 }
+                ]
+            };
+        }
         try {
             const config = JSON.parse(localStorage.getItem('academicSearchSourcesConfig') || 'null');
             if (!config || !config.sources) {
@@ -1428,4 +1449,4 @@
 
     console.log('[DOIResolver] Multi-source DOI resolver loaded (CrossRef + OpenAlex + arXiv + PubMed + Semantic Scholar).');
 
-})(window);
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

@@ -190,9 +190,13 @@
             }
 
             // 使用 KeyProvider 检查
-            if (currentTranslationModelForProvider) {
+            if (currentTranslationModelForProvider && typeof KeyProvider !== 'undefined') {
                 const translationKeyProvider = new KeyProvider(currentTranslationModelForProvider);
                 translationKeysAvailable = translationKeyProvider.hasAvailableKeys();
+            } else if (currentTranslationModelForProvider) {
+                // KeyProvider 未加载时，回退到旧方法检查
+                const keys = typeof loadModelKeys === 'function' ? loadModelKeys(currentTranslationModelForProvider) : [];
+                translationKeysAvailable = Array.isArray(keys) && keys.length > 0;
             }
         }
 

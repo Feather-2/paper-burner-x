@@ -1,0 +1,13 @@
+/* Tailwind CSS v4 预编译入口 */
+@import "tailwindcss";
+
+/* 自定义主题变量 (Tailwind v4 方式) */
+@theme {
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* 自定义基础样式 */
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background-color: #f8fafc;
+}

@@ -8,8 +8,6 @@
  * - On failure, returns a safe slide (title only)
  */
 
-const { htmlToDocument } = require("../dsl/serialize.js");
-
 function escapeHtml(s) {
   return String(s ?? "")
     .replace(/&/g, "&amp;")
@@ -244,11 +242,10 @@ function validateDslConstraints(html) {
     if (!isHex6(c)) throw new Error(`DSL: non-hex color: ${c}`);
   }
 
-  // Parse-level validation (structure).
-  const doc = htmlToDocument(s);
-  const slides = doc?.slides || (typeof doc?.getSlides === "function" ? doc.getSlides() : null);
-  if (!Array.isArray(slides) || slides.length !== 1) throw new Error("DSL: expected exactly 1 slide");
-  if (!slides[0]?.elements || !slides[0].elements.length) throw new Error("DSL: expected at least 1 element");
+  // Parse-level validation (structure) without depending on browser-only parsers.
+  const sections = [...s.matchAll(/<section\b[^>]*\bdata-type\s*=\s*["']freeform["'][^>]*>/gi)];
+  if (sections.length !== 1) throw new Error("DSL: expected exactly 1 freeform section");
+  if (!/data-el\s*=\s*["'][^"']+["']/.test(s)) throw new Error("DSL: expected at least 1 element");
   return true;
 }
 
@@ -267,13 +264,16 @@ function layoutToDsl(layoutJson, designSystem) {
   }
 }
 
-module.exports = {
-  layoutToDsl,
-  _internal: {
-    normalizeColor,
-    enforceMargins,
-    validateDslConstraints,
-    safeSlideHtml,
-  },
+export const _internal = {
+  normalizeColor,
+  enforceMargins,
+  validateDslConstraints,
+  safeSlideHtml,
 };
 
+export { layoutToDsl };
+
+export default {
+  layoutToDsl,
+  _internal,
+};

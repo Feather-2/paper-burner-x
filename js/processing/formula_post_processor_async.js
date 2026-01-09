@@ -467,16 +467,20 @@ self.postMessage({ type: 'ready' });
         }
     }
 
-    // 创建全局单例
-    global.FormulaPostProcessorAsync = new FormulaPostProcessorAsync();
+    // 创建全局单例（仅在浏览器环境启用）
+    if (typeof Worker !== 'undefined' && typeof Blob !== 'undefined') {
+        global.FormulaPostProcessorAsync = new FormulaPostProcessorAsync();
 
-    // 页面卸载时清理
-    window.addEventListener('beforeunload', () => {
-        if (global.FormulaPostProcessorAsync) {
-            global.FormulaPostProcessorAsync.destroy();
+        // 页面卸载时清理
+        if (typeof global.addEventListener === 'function') {
+            global.addEventListener('beforeunload', () => {
+                if (global.FormulaPostProcessorAsync) {
+                    global.FormulaPostProcessorAsync.destroy();
+                }
+            });
         }
-    });
+    }
 
     console.log('[FormulaPostProcessorAsync] 模块已加载');
 
-})(window);
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

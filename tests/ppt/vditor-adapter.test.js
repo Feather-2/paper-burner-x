@@ -1,8 +1,10 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const { parseHTML } = require('linkedom');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { parseHTML } from 'linkedom';
 
-const VditorAdapter = require('../../js/ppt/dashboard/vditor_adapter.js');
+import '../../js/ppt/dashboard/vditor_adapter.js';
+
+const VditorAdapter = globalThis.VditorAdapter;
 
 function setupDom(html = '<!doctype html><html><head></head><body></body></html>') {
   const { window, document } = parseHTML(html);

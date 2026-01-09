@@ -1,3 +1,6 @@
+// ESM 导入核心类以确保 mixin 安装时类已存在
+import PPTGeneratorCtor from './ppt_generator_core.js';
+
 const PPTGeneratorDeletion = {
     confirmDeleteProject(id) {
         console.log('[Deletion] confirmDeleteProject called with id:', id);
@@ -102,4 +105,22 @@ const PPTGeneratorDeletion = {
     }
 };
 
-Object.assign(PPTGenerator.prototype, PPTGeneratorDeletion);
+// Mixin install (legacy scripts + ESM entrypoints).
+(() => {
+    try {
+        const g = (typeof globalThis !== 'undefined') ? globalThis : null;
+        const w = (typeof window !== 'undefined') ? window : null;
+        const ctor =
+            (g && g.PPTGenerator?.prototype) ? g.PPTGenerator :
+            (w && w.PPTGenerator?.prototype) ? w.PPTGenerator :
+            (g && g.PPTGeneratorCtor?.prototype) ? g.PPTGeneratorCtor :
+            (w && w.PPTGeneratorCtor?.prototype) ? w.PPTGeneratorCtor :
+            (PPTGeneratorCtor?.prototype) ? PPTGeneratorCtor :
+            null;
+
+        if (!ctor?.prototype) return;
+        Object.assign(ctor.prototype, PPTGeneratorDeletion);
+    } catch {
+        // ignore
+    }
+})();

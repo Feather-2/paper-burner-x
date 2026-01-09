@@ -20,4 +20,4 @@
   Object.assign(ns.styles, { 
     getInjectedCss 
   });
-})(typeof window !== 'undefined' ? window : this);
+})(typeof window !== 'undefined' ? window : globalThis);

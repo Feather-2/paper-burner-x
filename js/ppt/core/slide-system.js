@@ -47,3 +47,5 @@ window.SlideSystem = {
 };
 
 console.log('SlideSystem loaded - HTML ↔ PPTX unified rendering');
+
+// ESM 导出

@@ -444,3 +444,6 @@ legend {
 
 // 导出到全局
 window.DRAWIO_LITE_SPEC = DRAWIO_LITE_SPEC;
+
+// ESM 导出
+export { DRAWIO_LITE_SPEC };

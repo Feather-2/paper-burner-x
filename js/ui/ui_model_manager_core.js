@@ -410,3 +410,6 @@
   window.supportedModelsForKeyManager = SUPPORTED_MODELS;
 
 })(window);
+
+// ESM 导出
+export const ModelManager = window.ModelManager;

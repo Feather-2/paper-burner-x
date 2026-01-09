@@ -1,30 +1,18 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
+import test from 'node:test';
+import assert from 'node:assert/strict';
 
-function setupBrowserGlobals() {
+import { SlideDocument } from '../../../js/ppt/editor/document.js';
+
+test.beforeEach(() => {
   globalThis.window = globalThis;
-  require('../../../js/ppt/editor/event-emitter.js');
-  require('../../../js/ppt/editor/document.js');
-  return {
-    SlideDocument: globalThis.SlideDocument,
-  };
-}
-
-function teardownBrowserGlobals() {
-  delete globalThis.window;
-  delete globalThis.EventEmitter;
-  delete globalThis.SlideDocument;
-  delete globalThis.PPTGenerator;
-}
+});
 
 test.afterEach(() => {
-  teardownBrowserGlobals();
-  delete require.cache[require.resolve('../../../js/ppt/editor/event-emitter.js')];
-  delete require.cache[require.resolve('../../../js/ppt/editor/document.js')];
+  delete globalThis.window;
+  delete globalThis.PPTGenerator;
 });
 
 test('SlideDocument.load(): deep copies input and ensures ids', () => {
-  const { SlideDocument } = setupBrowserGlobals();
   const doc = new SlideDocument();
 
   const input = [
@@ -48,7 +36,6 @@ test('SlideDocument.load(): deep copies input and ensures ids', () => {
 });
 
 test('SlideDocument: addSlide/removeSlide/moveSlide', () => {
-  const { SlideDocument } = setupBrowserGlobals();
   const doc = new SlideDocument();
 
   doc.load([
@@ -69,7 +56,6 @@ test('SlideDocument: addSlide/removeSlide/moveSlide', () => {
 });
 
 test('SlideDocument.getElementById(): supports group children via index', () => {
-  const { SlideDocument } = setupBrowserGlobals();
   const doc = new SlideDocument();
 
   doc.load([
@@ -97,7 +83,6 @@ test('SlideDocument.getElementById(): supports group children via index', () => 
 });
 
 test('SlideDocument.applyOperations(): updates document + PPTGenerator.slides + history', () => {
-  const { SlideDocument } = setupBrowserGlobals();
   const doc = new SlideDocument();
 
   const initialSlides = [
@@ -143,4 +128,3 @@ test('SlideDocument.applyOperations(): updates document + PPTGenerator.slides + 
   assert.equal(globalThis.PPTGenerator.slides[0].elements.some((el) => el.id === 't2'), false);
   assert.equal(globalThis.PPTGenerator.slides.length, 1);
 });
-

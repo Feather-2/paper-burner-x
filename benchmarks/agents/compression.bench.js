@@ -1,4 +1,4 @@
-module.exports = async function compressionBench(runner) {
+export default async function compressionBench(runner) {
   const { CicadaCompressor, CompressionLayer } = await import("../../js/agents/runtime/compression/cicada-compressor.js");
 
   const compressor = new CicadaCompressor({
@@ -49,5 +49,4 @@ module.exports = async function compressionBench(runner) {
     },
     { iterations: 200, warmup: 20 }
   );
-};
-
+}

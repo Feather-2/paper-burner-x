@@ -543,17 +543,14 @@ test("Design: qa-validator catches min font, overflow, and low contrast", async 
 test("Design: DesignStage triggers last-resort downgrade and deckHtmlDsl is parseable by SlideParser", async () => {
   const { DesignStage } = await import("../../js/agents/stages/design/design-agent.js");
   const { parseHTML } = await import("linkedom");
-  const fs = require("node:fs");
-  const vm = require("node:vm");
 
   // Provide a minimal DOM for SlideParser in Node.
   const { document, window } = parseHTML("<html><body></body></html>");
   globalThis.document = document;
   globalThis.window = window;
-  // Load the browser-oriented SlideParser into the current context for testing.
-  // slide-parser.js is not an ESM module, so we evaluate it and export the class to globalThis.
-  const slideParserSrc = fs.readFileSync("js/ppt/core/slide-parser.js", "utf8") + "\n;globalThis.SlideParser = SlideParser;";
-  vm.runInThisContext(slideParserSrc, { filename: "js/ppt/core/slide-parser.js" });
+
+  // Load SlideParser as ESM and use the global it installs.
+  await import("../../js/ppt/core/slide-parser.js");
   assert.ok(globalThis.SlideParser && typeof globalThis.SlideParser.parse === "function");
 
   const events = [];

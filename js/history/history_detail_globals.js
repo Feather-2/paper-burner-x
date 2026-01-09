@@ -10,6 +10,7 @@ if (PRODUCTION_MODE) {
 
 // ========== 新增：防止 showTab 重复渲染的锁 ==========
 let renderingTab = null;
+window.renderingTab = null; // 暴露到全局
 // =====================================================
 
 
@@ -97,6 +98,7 @@ function getCurrentScrollableElementForHistoryDetail() {
     // console.log(`[getCurrentScrollableElementForHistoryDetail] 返回document.documentElement作为滚动元素`);
     return document.documentElement;
 }
+window.getCurrentScrollableElementForHistoryDetail = getCurrentScrollableElementForHistoryDetail;
 
 function adjustLongHeadingsToParagraphs(parentElement) {
   if (!parentElement) return;
@@ -176,6 +178,7 @@ function adjustLongHeadingsToParagraphs(parentElement) {
 
   // console.log('[adjustLongHeadingsToParagraphs] 处理完成');
 }
+window.adjustLongHeadingsToParagraphs = adjustLongHeadingsToParagraphs;
 
 function debounce(func, delay) {
   let timeout;
@@ -278,6 +281,8 @@ function unbindScrollForSavePosition() {
     lastScrollableElementForSave = null;
   }
 }
+window.bindScrollForSavePosition = bindScrollForSavePosition;
+window.unbindScrollForSavePosition = unbindScrollForSavePosition;
 
 // 辅助函数：获取元素的DOM路径
 function getElementPath(element) {
@@ -302,6 +307,7 @@ function getElementPath(element) {
   }
   return path.join(' > ');
 }
+window.getElementPath = getElementPath;
 
 function saveChatbotStateOnUnload() {
   if (docIdForLocalStorage && typeof window.isChatbotOpen !== 'undefined') {
@@ -309,6 +315,7 @@ function saveChatbotStateOnUnload() {
     // console.log(`Saved chatbot state on beforeunload for ${docIdForLocalStorage}: ${window.isChatbotOpen}`);
   }
 }
+window.saveChatbotStateOnUnload = saveChatbotStateOnUnload;
 
 // MOVED to dock_logic.js: function updateReadingProgress() { ... }
 // MOVED to dock_logic.js: const debouncedUpdateReadingProgress = debounce(updateReadingProgress, 100);
@@ -356,6 +363,9 @@ function getQueryParam(name) {
   const url = new URL(window.location.href);
   return url.searchParams.get(name);
 }
+// 暴露到全局作用域
+window.getQueryParam = getQueryParam;
+
 /**
  * @type {Object|null}
  * @description 存储从 IndexedDB 加载的当前历史记录的详细数据。

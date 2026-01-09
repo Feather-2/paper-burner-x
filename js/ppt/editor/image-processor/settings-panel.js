@@ -307,3 +307,6 @@ class ImageProcessorSettings {
 const imageProcessorSettings = new ImageProcessorSettings();
 window.ImageProcessorSettings = ImageProcessorSettings;
 window.imageProcessorSettings = imageProcessorSettings;
+
+// ESM 导出
+export { ImageProcessorSettings };

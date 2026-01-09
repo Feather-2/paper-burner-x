@@ -1,0 +1,402 @@
+/* ==================== Requirements Form ==================== */
+.ppt-question-form {
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    margin: 0;
+    background: var(--ppt-surface);
+    border-radius: var(--ppt-radius-xl);
+    padding: 32px 40px;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--ppt-border);
+    animation: slideUp 0.4s ease-out;
+    box-sizing: border-box;
+    overflow: hidden; /* Prevent content overflow */
+    flex: 1;
+    min-height: 0;
+}
+
+.ppt-question-form:not(.page-layout) {
+    max-width: 1000px;
+    height: auto;
+    max-height: calc(100vh - 100px);
+    margin: 20px auto;
+}
+
+.ppt-question-form.page-layout {
+    padding: 0;
+}
+
+
+/* ==================== Page Layout Tabs ==================== */
+.ppt-page-layout-editor {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+    min-height: 0;
+}
+
+.ppt-page-layout-tabs {
+    display: flex;
+    align-items: center;
+    border-bottom: 1px solid var(--ppt-border);
+    background: var(--ppt-surface);
+    flex-shrink: 0;
+}
+
+.ppt-page-layout-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    cursor: pointer;
+    user-select: none;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--ppt-text-secondary);
+    transition: background 0.2s ease, color 0.2s ease;
+}
+
+.ppt-page-layout-tab:hover {
+    background: var(--ppt-bg-subtle);
+    color: var(--ppt-text-main);
+}
+
+.ppt-page-layout-tab.active {
+    background: var(--ppt-primary);
+    color: #fff;
+}
+
+.ppt-page-layout-content {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+    padding: 16px;
+}
+
+.ppt-page-layout-footer {
+    height: 64px;
+    padding: 12px 16px;
+    border-top: 1px solid var(--ppt-border);
+    background: var(--ppt-surface);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-shrink: 0;
+}
+
+.slide-intent-card {
+    border: 1px solid var(--ppt-border);
+    border-radius: var(--ppt-radius-lg);
+    padding: 12px 14px;
+    background: var(--ppt-bg-app);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.12s ease;
+}
+
+.slide-intent-card:hover {
+    border-color: color-mix(in srgb, var(--ppt-primary) 35%, var(--ppt-border));
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.06);
+    transform: translateY(-1px);
+}
+
+.slide-intent-card.dragging {
+    opacity: 0.5;
+}
+
+.slide-intent-card.drag-above {
+    border-top: 2px solid var(--ppt-primary);
+}
+
+.slide-intent-card.drag-below {
+    border-bottom: 2px solid var(--ppt-primary);
+}
+
+.form-header {
+    margin-bottom: 20px;
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--ppt-border);
+    flex-shrink: 0;
+}
+
+.form-header-text h3 {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--ppt-text-main);
+    margin: 0 0 6px 0;
+}
+
+.form-header-text p {
+    font-size: 15px;
+    color: var(--ppt-text-secondary);
+    margin: 0;
+}
+
+.form-body {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+    padding-right: 8px;
+    margin-bottom: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.form-footer {
+    flex-shrink: 0;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 12px;
+    padding-top: 20px;
+    border-top: 1px solid var(--ppt-border);
+    margin-top: auto; /* Push to bottom */
+}
+
+.form-footer .ppt-btn,
+.form-footer .ppt-btn-primary,
+.form-footer .ppt-btn-secondary {
+    white-space: nowrap; /* Prevent button text wrapping */
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border-radius: var(--ppt-radius-md);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s var(--ppt-ease);
+    border: none;
+    font-family: var(--ppt-font-sans);
+}
+
+.form-footer .ppt-btn-primary {
+    background: var(--ppt-primary);
+    color: white;
+    box-shadow: var(--ppt-shadow-sm), 0 4px 12px rgba(79, 70, 229, 0.2);
+}
+
+.form-footer .ppt-btn-primary:hover {
+    background: var(--ppt-primary-hover);
+    transform: translateY(-2px);
+    box-shadow: var(--ppt-shadow-md), 0 6px 16px rgba(79, 70, 229, 0.25);
+}
+
+.form-footer .ppt-btn-secondary {
+    background: transparent;
+    color: var(--ppt-text-secondary);
+    border: 1px solid var(--ppt-border);
+    box-shadow: none;
+}
+
+.form-footer .ppt-btn-secondary:hover {
+    background: var(--ppt-bg-subtle);
+    border-color: var(--ppt-border-hover);
+    color: var(--ppt-text-main);
+}
+
+.form-footer .ppt-btn-primary iconify-icon,
+.form-footer .ppt-btn-secondary iconify-icon {
+    font-size: 16px;
+}
+
+.form-group {
+    background: white;
+    padding: 16px 20px;
+    border-radius: var(--ppt-radius-lg);
+    border: 1px solid var(--ppt-border);
+    transition: all 0.2s;
+    box-shadow: none;
+}
+
+.form-group:hover {
+    border-color: var(--ppt-primary-light);
+    box-shadow: var(--ppt-shadow-sm);
+}
+
+.form-group label {
+    display: block;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ppt-text-main);
+    margin-bottom: 12px;
+}
+
+/* Radio Group Grid */
+.form-radio-group {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+/* Radio Option Card */
+.radio-option {
+    position: relative;
+    display: flex;
+    align-items: center;
+    padding: 14px 16px;
+    background: white;
+    border: 2px solid var(--ppt-border);
+    border-radius: var(--ppt-radius-md);
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: none;
+}
+
+.radio-option:hover {
+    border-color: var(--ppt-primary-light);
+    background: var(--ppt-bg-subtle);
+}
+
+/* Hide default radio */
+.radio-option input[type="radio"] {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.radio-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    gap: 12px;
+}
+
+.radio-label {
+    font-size: 14px;
+    color: var(--ppt-text-secondary);
+    font-weight: 500;
+    line-height: 1.4;
+}
+
+.radio-check-icon {
+    font-size: 20px;
+    color: var(--ppt-primary);
+    opacity: 0;
+    transform: scale(0.5);
+    transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    flex-shrink: 0;
+}
+
+/* Checked State */
+.radio-option:has(input:checked) {
+    border-color: var(--ppt-primary);
+    background: var(--ppt-primary-subtle);
+    box-shadow: 0 2px 8px -2px rgba(79, 70, 229, 0.1);
+}
+
+.radio-option input:checked + .radio-content .radio-label {
+    color: var(--ppt-primary);
+    font-weight: 600;
+}
+
+.radio-option input:checked + .radio-content .radio-check-icon {
+    opacity: 1;
+    transform: scale(1);
+}
+
+/* Custom Input Wrapper */
+.form-custom-input-wrapper {
+    display: flex;
+    gap: 10px;
+    padding-top: 16px;
+    border-top: 1px dashed var(--ppt-border);
+}
+
+.form-custom-input-wrapper .ppt-input-field {
+    background: var(--ppt-bg-subtle);
+    border: 1px solid var(--ppt-border);
+    transition: all 0.2s;
+    height: 40px;
+    border-radius: var(--ppt-radius-md);
+    padding: 0 14px;
+    font-size: 13.5px;
+}
+
+.form-custom-input-wrapper .ppt-input-field:focus {
+    background: white;
+    border-color: var(--ppt-primary);
+    box-shadow: 0 0 0 3px var(--ppt-primary-light);
+}
+
+.form-custom-input-wrapper .ppt-icon-btn {
+    width: 40px;
+    height: 40px;
+    background: var(--ppt-bg-subtle);
+    border: 1px solid var(--ppt-border);
+    color: var(--ppt-text-secondary);
+    border-radius: var(--ppt-radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.form-custom-input-wrapper .ppt-icon-btn:hover {
+    background: var(--ppt-primary);
+    color: white;
+    border-color: var(--ppt-primary);
+}
+
+.form-group textarea.ppt-input-field {
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid var(--ppt-border);
+    border-radius: var(--ppt-radius-md);
+    background: var(--ppt-bg-subtle);
+    font-size: 14px;
+    transition: all 0.2s;
+    outline: none;
+}
+
+.form-group textarea.ppt-input-field:focus {
+    background: white;
+    border-color: var(--ppt-primary);
+    box-shadow: 0 0 0 3px var(--ppt-primary-light);
+}
+
+.ppt-input {
+    width: 100%;
+    height: 40px;
+    padding: 0 14px;
+    border: 1px solid var(--ppt-border);
+    border-radius: var(--ppt-radius-md);
+    background: var(--ppt-bg-subtle);
+    font-size: 13.5px;
+    transition: all 0.2s;
+    outline: none;
+}
+
+select.ppt-input {
+    height: 40px;
+}
+
+textarea.ppt-input {
+    height: auto;
+    min-height: 120px;
+    padding: 12px 14px;
+    font-size: 13.5px;
+    line-height: 1.5;
+    resize: vertical;
+}
+
+.ppt-input:focus {
+    background: white;
+    border-color: var(--ppt-primary);
+    box-shadow: 0 0 0 3px var(--ppt-primary-light);
+}
+
+.ppt-input:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+

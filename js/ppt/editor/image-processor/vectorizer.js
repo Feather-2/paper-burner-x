@@ -646,3 +646,6 @@ ${pathsStr}
 const imageVectorizer = new ImageVectorizer();
 window.ImageVectorizer = ImageVectorizer;
 window.imageVectorizer = imageVectorizer;
+
+// ESM 导出
+export { ImageVectorizer };

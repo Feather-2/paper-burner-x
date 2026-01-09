@@ -6,7 +6,7 @@
  * @param {string} str 需要转义的原始字符串。
  * @returns {string} 转义后的安全字符串。
  */
-function escapeHtml(str) {
+export function escapeHtml(str) {
   return str.replace(/[&<>"']/g, function (c) {
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c];
   });
@@ -20,7 +20,7 @@ function escapeHtml(str) {
  *
  * @param {string} message 要在 Toast 中显示的消息文本。
  */
-function showToast(message) {
+export function showToast(message) {
   let toast = document.getElementById('chatbot-toast');
   if (!toast) {
     toast = document.createElement('div');
@@ -53,7 +53,7 @@ function showToast(message) {
  *
  * @param {number} messageIndex `ChatbotCore.chatHistory` 数组中目标助手消息的索引。
  */
-function copyAssistantMessage(messageIndex) {
+export function copyAssistantMessage(messageIndex) {
   if (!window.ChatbotCore || !window.ChatbotCore.chatHistory[messageIndex]) return;
   const text = window.ChatbotCore.chatHistory[messageIndex].content;
   navigator.clipboard.writeText(text).then(() => {
@@ -70,7 +70,7 @@ function copyAssistantMessage(messageIndex) {
  *
  * @param {number} messageIndex `ChatbotCore.chatHistory` 数组中目标助手消息的索引。
  */
-function exportMessageAsPng(messageIndex) {
+export function exportMessageAsPng(messageIndex) {
   if (!window.ChatbotCore || !window.ChatbotCore.chatHistory[messageIndex]) return;
   if (typeof html2canvas === 'undefined') {
     showToast('正在加载图片导出组件...');
@@ -96,7 +96,7 @@ function exportMessageAsPng(messageIndex) {
  *
  * @param {number} messageIndex 目标助手消息在 `ChatbotCore.chatHistory` 中的索引。
  */
-function doExportAsPng(messageIndex) {
+export function doExportAsPng(messageIndex) {
   // Phase 3.5: 添加导出状态锁，防止快速点击导致内存泄漏
   if (window.ChatbotRenderState && window.ChatbotRenderState.isExporting) {
     if (typeof showToast === 'function') {
@@ -606,7 +606,7 @@ function doActualExport(messageElement) {
  *
  * @param {string} content 要导出为图片的纯文本内容。
  */
-function exportContentDirectly(content) {
+export function exportContentDirectly(content) {
   let questionText = "未知问题";
   try {
     // Try to find the last user question in history to associate with this content
@@ -705,7 +705,7 @@ function exportContentDirectly(content) {
  * @param {string} md Markdown 格式的思维导图文本。
  * @returns {string} 生成的思维导图预览 HTML 字符串。
  */
-function renderMindmapShadow(md) {
+export function renderMindmapShadow(md) {
   // 解析 markdown 为树结构
   function parseTree(md) {
     const lines = md.split(/\r?\n/).filter(l => l.trim());
@@ -774,7 +774,7 @@ function renderMindmapShadow(md) {
  * @param {number} initialQuality - 初始压缩质量 (0-1)。
  * @returns {Promise<string>} - 压缩后的 Base64 图片数据。
  */
-async function compressImage(base64Src, targetSizeBytes, maxDimension, initialQuality = 0.85) {
+export async function compressImage(base64Src, targetSizeBytes, maxDimension, initialQuality = 0.85) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
@@ -829,7 +829,7 @@ async function compressImage(base64Src, targetSizeBytes, maxDimension, initialQu
  * @param {number} percent 初始进度 (0-100)
  * @returns {object} 包含update和close方法的对象
  */
-function showProgressToast(message, percent = 0) {
+export function showProgressToast(message, percent = 0) {
   let toast = document.getElementById('chatbot-progress-toast');
   if (!toast) {
     toast = document.createElement('div');
@@ -896,7 +896,7 @@ function showProgressToast(message, percent = 0) {
   };
 }
 
-window.ChatbotUtils = {
+export const ChatbotUtils = {
   escapeHtml,
   showToast,
   showProgressToast,
@@ -907,3 +907,8 @@ window.ChatbotUtils = {
   renderMindmapShadow,
   compressImage
 };
+
+// 向后兼容：暴露到 window
+if (typeof window !== 'undefined') {
+  window.ChatbotUtils = ChatbotUtils;
+}

@@ -1,9 +1,12 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const { parseHTML } = require("linkedom");
+import { parseHTML } from "linkedom";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 function readText(relPath) {
   const absPath = path.resolve(__dirname, "..", "..", relPath);
@@ -43,4 +46,3 @@ test("css/ppt/ppt_vditor.css: exists and uses --ppt- variables", () => {
   assert.ok(css.includes("#pptPreviewArea .vditor"));
   assert.match(css, /var\(--ppt-/);
 });
-

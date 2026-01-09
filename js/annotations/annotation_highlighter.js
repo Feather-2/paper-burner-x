@@ -8,7 +8,7 @@
  * @param {Array<Object>} allAnnotations - 文档的所有批注数据列表。
  * @param {string} contentIdentifier - 当前内容类型的标识符 ('ocr' 或 'translation')。
  */
-function applyBlockAnnotations(containerElement, allAnnotations, contentIdentifier) {
+export function applyBlockAnnotations(containerElement, allAnnotations, contentIdentifier) {
     const __ANNOTATION_DEBUG__ = (function(){
         try { return !!(window && (window.ENABLE_ANNOTATION_DEBUG || localStorage.getItem('ENABLE_ANNOTATION_DEBUG') === 'true')); } catch { return false; }
     })();
@@ -796,48 +796,6 @@ function findTextInDOMRange(element, targetText) {
     return null;
 }
 
-// 绑定标准标注事件
-function bindStandardAnnotationEvents(element, annotation, elementType, elementIdentifier) {
-    if (element._annotationEventBound) return;
-    
-    element.addEventListener('click', function handleClick(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        
-        const range = document.createRange();
-        range.selectNodeContents(this);
-        const selection = window.getSelection();
-        selection.removeAllRanges();
-        selection.addRange(range);
-        
-        window.globalCurrentSelection = {
-            text: this.textContent,
-            range: range.cloneRange(),
-            annotationId: this.dataset.annotationId,
-            targetElement: this,
-            subBlockId: elementIdentifier
-        };
-        
-        const parentBlock = this.closest('[data-block-index]');
-        if (parentBlock) {
-            window.globalCurrentSelection.blockIndex = parentBlock.dataset.blockIndex;
-        }
-        
-        if (typeof window.checkIfTargetIsHighlighted === 'function' &&
-            typeof window.checkIfTargetHasNote === 'function' &&
-            typeof window.updateContextMenuOptions === 'function' &&
-            typeof window.showContextMenu === 'function') {
-            const isHighlighted = window.checkIfTargetIsHighlighted(annotation.id, 'ocr', elementIdentifier, 'subBlockId');
-            const hasNoteForClick = window.checkIfTargetHasNote(annotation.id, 'ocr', elementIdentifier, 'subBlockId');
-            window.updateContextMenuOptions(isHighlighted, hasNoteForClick);
-            window.showContextMenu(e.pageX, e.pageY);
-        }
-    });
-    
-    element._annotationEventBound = true;
-    console.log('[事件绑定] 成功绑定标注事件到元素:', element);
-}
-
 // 应用结构化高亮（保持DOM结构）
 function applyStructuredHighlight(range, annotation, className = 'structured-highlight') {
     if (!range || range.collapsed) {
@@ -1040,7 +998,7 @@ function detectFormulaType(element) {
 }
 
 // ===== 新增：公式标注应用函数 =====
-function applyFormulaAnnotation(element, annotation, contentIdentifier, elementIdentifier, elementType, formulaInfo) {
+export function applyFormulaAnnotation(element, annotation, contentIdentifier, elementIdentifier, elementType, formulaInfo) {
     const color = getHighlightColor(annotation.highlightColor || 'yellow');
     const note = annotation.body && annotation.body.length > 0 && annotation.body[0].value ? annotation.body[0].value : '';
     
@@ -1272,7 +1230,7 @@ function getHighlightColor(color) {
  * @param {string} elementIdentifier - 元素标识符 (blockIndex 或 subBlockId)
  * @param {'block'|'subBlock'} elementType - 元素类型
  */
-function highlightBlockOrSubBlock(element, annotation, contentIdentifier, elementIdentifier, elementType) {
+export function highlightBlockOrSubBlock(element, annotation, contentIdentifier, elementIdentifier, elementType) {
     applyAnnotationToElement(element, annotation, contentIdentifier, elementIdentifier, elementType);
 }
 
@@ -1280,7 +1238,7 @@ function highlightBlockOrSubBlock(element, annotation, contentIdentifier, elemen
  * 只移除一个块或子块的高亮
  * @param {HTMLElement} element - 目标DOM元素
  */
-function removeHighlightFromBlockOrSubBlock(element) {
+export function removeHighlightFromBlockOrSubBlock(element) {
     if (!element) return;
     element.style.backgroundColor = '';
     element.style.border = '';
@@ -1309,23 +1267,23 @@ function removeHighlightFromBlockOrSubBlock(element) {
     });
 }
 
-// 暴露新函数
-window.applyBlockAnnotations = applyBlockAnnotations;
+// 兼容层：暴露到 window，供旧代码过渡期使用
+if (typeof window !== 'undefined') {
+    window.applyBlockAnnotations = applyBlockAnnotations;
+    // 暂时保留旧的函数别名以便兼容 (尽管其内部逻辑已更新)
+    window.applyParagraphAnnotations = applyBlockAnnotations;
 
-// 暂时保留旧的函数别名以便兼容 (尽管其内部逻辑已更新)
-window.applyParagraphAnnotations = applyBlockAnnotations;
+    // 移除原始的 applyPreprocessedAnnotations (如果存在)
+    if (window.applyPreprocessedAnnotations) {
+        delete window.applyPreprocessedAnnotations;
+    }
 
-// 移除原始的applyPreprocessedAnnotations (如果存在)
-if (window.applyPreprocessedAnnotations) {
-    delete window.applyPreprocessedAnnotations;
+    window.highlightBlockOrSubBlock = highlightBlockOrSubBlock;
+    window.removeHighlightFromBlockOrSubBlock = removeHighlightFromBlockOrSubBlock;
 }
 
-// 导出到 window
-window.highlightBlockOrSubBlock = highlightBlockOrSubBlock;
-window.removeHighlightFromBlockOrSubBlock = removeHighlightFromBlockOrSubBlock;
-
 // ===== 新增：跨子块标注渲染函数 =====
-function applyCrossBlockAnnotation(containerElement, annotation, contentIdentifier) {
+export function applyCrossBlockAnnotation(containerElement, annotation, contentIdentifier) {
     if (!annotation.target || !annotation.target.selector || !annotation.target.selector[0]) {
         console.warn('[跨子块高亮] 标注数据结构不完整:', annotation);
         return;
@@ -1797,7 +1755,7 @@ function applyPartialCrossBlockHighlight(element, annotation, color, note, start
 }
 
 // ===== 新增：跨子块高亮样式应用 =====
-function applyCrossBlockHighlightStyle(element, annotation, color, note, position, totalCount) {
+export function applyCrossBlockHighlightStyle(element, annotation, color, note, position, totalCount) {
     // 基础高亮样式
     element.style.backgroundColor = color;
     // 跨子块高亮不加水平内边距，避免视觉上“吃到”前后字符
@@ -1855,7 +1813,7 @@ function applyCrossBlockHighlightStyle(element, annotation, color, note, positio
 }
 
 // ===== 新增：跨子块标注事件绑定 =====
-function bindCrossBlockAnnotationEvents(element, annotation, contentIdentifier, affectedSubBlocks) {
+export function bindCrossBlockAnnotationEvents(element, annotation, contentIdentifier, affectedSubBlocks) {
     if (!element._crossBlockAnnotationEventBound) {
         element.addEventListener('click', function handleCrossBlockClick(e) {
             e.preventDefault();
@@ -1912,7 +1870,7 @@ function bindCrossBlockAnnotationEvents(element, annotation, contentIdentifier, 
 }
 
 // ===== 新增：滚动到批注位置 =====
-function scrollToAnnotation(annotationId, smooth = true) {
+export function scrollToAnnotation(annotationId, smooth = true) {
     // 优先锚点元素
     let target = document.getElementById(`ann-${annotationId}`);
     if (!target) {
@@ -1954,7 +1912,7 @@ function scrollToAnnotation(annotationId, smooth = true) {
 }
 
 // 异步等待目标高亮/元素出现后再跳转，解决延迟渲染/分批分块导致的找不到问题
-async function scrollToAnnotationAsync(annotationId, options = {}) {
+export async function scrollToAnnotationAsync(annotationId, options = {}) {
     const {
         targetType = null,       // 'ocr' | 'translation'
         subBlockId = null,       // 可选：回退匹配用
@@ -2031,13 +1989,16 @@ async function scrollToAnnotationAsync(annotationId, options = {}) {
     return false;
 }
 
-// 暴露跨子块高亮功能
-window.applyCrossBlockAnnotation = applyCrossBlockAnnotation;
-window.applyCrossBlockHighlightStyle = applyCrossBlockHighlightStyle;
-window.bindCrossBlockAnnotationEvents = bindCrossBlockAnnotationEvents;
-window.scrollToAnnotation = scrollToAnnotation;
-window.scrollToAnnotationAsync = scrollToAnnotationAsync;
+// 兼容层：暴露到 window，供旧代码过渡期使用
+if (typeof window !== 'undefined') {
+    // 跨子块高亮功能
+    window.applyCrossBlockAnnotation = applyCrossBlockAnnotation;
+    window.applyCrossBlockHighlightStyle = applyCrossBlockHighlightStyle;
+    window.bindCrossBlockAnnotationEvents = bindCrossBlockAnnotationEvents;
+    window.scrollToAnnotation = scrollToAnnotation;
+    window.scrollToAnnotationAsync = scrollToAnnotationAsync;
 
-// 暴露公式相关功能
-window.detectFormulaType = detectFormulaType;
-window.applyFormulaAnnotation = applyFormulaAnnotation;
+    // 公式相关功能
+    window.detectFormulaType = detectFormulaType;
+    window.applyFormulaAnnotation = applyFormulaAnnotation;
+}

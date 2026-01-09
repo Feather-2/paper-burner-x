@@ -45,7 +45,7 @@ const SHAPE_PRESETS = {
  * @param {string} dsl - DSL 文本
  * @returns {Object} { pages, hasMultiPage, nodes, edges, groups, subgraphs, legend }
  */
-function parseDrawioLite(dsl) {
+export function parseDrawioLite(dsl) {
   // 边界检查
   if (!dsl || typeof dsl !== 'string') {
     console.warn('[DrawioLite] 解析失败：输入为空或非字符串');
@@ -462,7 +462,7 @@ function generatePageXml(pageData, pageId, cellIdStart) {
 /**
  * 将 DrawioLite AST 转换为 Draw.io XML
  */
-function drawioLiteToXml(ast) {
+export function drawioLiteToXml(ast) {
   const { pages, hasMultiPage } = ast;
 
   let xml = '<mxfile>\n';
@@ -564,7 +564,7 @@ function validateAST(ast) {
 /**
  * 主转换函数：DrawioLite → Draw.io XML（带自动布局）
  */
-function convertDrawioLite(dslText) {
+export function convertDrawioLite(dslText) {
   try {
     console.log('[DrawioLite] 🎯 开始解析 DSL...');
 
@@ -581,7 +581,7 @@ function convertDrawioLite(dslText) {
     console.log('[DrawioLite] ✅ XML 生成完成');
 
     // 应用 Dagre 自动布局（现已支持多页图表）
-    if (window.DrawioLayoutOptimizer) {
+    if (typeof window !== 'undefined' && window.DrawioLayoutOptimizer) {
       console.log('[DrawioLite] 🎨 应用自动布局优化（多页支持）...');
       xml = window.DrawioLayoutOptimizer.optimizeDrawioLayout(xml, {
         dagreLayout: true,     // 使用 Dagre 算法
@@ -604,11 +604,14 @@ function convertDrawioLite(dslText) {
   }
 }
 
-// 导出到全局
-window.DrawioLiteParser = {
+export const DrawioLiteParser = {
   parseDrawioLite,
   drawioLiteToXml,
   convertDrawioLite
 };
 
-console.log('[DrawioLite] ✅ Parser 已加载（v1.1.0 - 支持复杂多图）');
+// 向后兼容：暴露到 window
+if (typeof window !== 'undefined') {
+  window.DrawioLiteParser = DrawioLiteParser;
+  console.log('[DrawioLite] ✅ Parser 已加载（v1.1.0 - 支持复杂多图）');
+}

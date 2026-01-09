@@ -2,7 +2,9 @@
  * 选择管理器
  * 管理元素选择状态
  */
-class SelectionManager extends EventEmitter {
+import { EventEmitter } from './event-emitter.js';
+
+export class SelectionManager extends EventEmitter {
     constructor(editor) {
         super();
         this.editor = editor;
@@ -283,4 +285,7 @@ class SelectionManager extends EventEmitter {
     }
 }
 
-window.SelectionManager = SelectionManager;
+// 兼容：全局挂载（给 legacy IIFE/脚本使用）
+if (typeof window !== 'undefined') {
+    window.SelectionManager = SelectionManager;
+}

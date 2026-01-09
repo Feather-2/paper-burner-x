@@ -174,3 +174,5 @@ function buildFallbackSemanticContext(userQuestion, groups) {
   };
 
 })();
+
+// ESM 导出

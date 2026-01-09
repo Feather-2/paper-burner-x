@@ -9,7 +9,7 @@
  * @returns {Object} 结构化的目录对象 (例如树形结构)。
  *                   示例: { title: "第一章", level: 1, children: [], startLine: 10, endLine: 50 }
  */
-function parseTableOfContents(tocInput) {
+export function parseTableOfContents(tocInput) {
     // TODO: 实现目录解析逻辑。
     // 可能涉及对纯文本的正则表达式处理，或对结构化输入的直接处理。
     console.log('[segmentation-strategy] 正在解析目录来源:', tocInput);
@@ -46,7 +46,7 @@ function parseTableOfContents(tocInput) {
  *                              // ... 更多章节
  *                          ]
  */
-function segmentDocumentByToC(fullDocumentText, structuredToC) {
+export function segmentDocumentByToC(fullDocumentText, structuredToC) {
     // New: 基于 Markdown 标题解析分段
     const headingRegex = /^#{1,6}\s+(.+)$/gm;
     const matches = [];
@@ -98,7 +98,7 @@ function segmentDocumentByToC(fullDocumentText, structuredToC) {
  * @param {string} text - 要分割的文本。
  * @returns {Array<string>} 段落字符串数组。
  */
-function splitIntoNaturalParagraphs(text) {
+export function splitIntoNaturalParagraphs(text) {
     if (!text) return [];
     // 按一个或多个换行符分割，然后去除首尾空格并过滤空字符串。
     // 对于Markdown段落，更稳健的方法是按两个或多个换行符分割。
@@ -114,7 +114,7 @@ function splitIntoNaturalParagraphs(text) {
  * @returns {Promise<Object>} 一个Promise，解析为一个包含以下内容的对象：
  *                            { summary: string, details: Array<string>, length: number }。
  */
-async function processSegment(segmentText) {
+export async function processSegment(segmentText) {
     try {
         // 使用 ChatbotCore.singleChunkSummary 生成摘要
         const config = window.ChatbotCore.getChatbotConfig();
@@ -130,7 +130,7 @@ async function processSegment(segmentText) {
 }
 
 // 新增：带重试机制的分段处理，指数退避
-async function processSegmentWithRetry(segmentText, retries = 3, initialDelay = 500) {
+export async function processSegmentWithRetry(segmentText, retries = 3, initialDelay = 500) {
     let attempt = 0;
     let delay = initialDelay;
     while (true) {
@@ -173,7 +173,7 @@ async function processSegmentWithRetry(segmentText, retries = 3, initialDelay = 
  *                                       ...
  *                                   ]
  */
-function buildPreprocessedJson(tocSections, allProcessedSegmentsData) {
+export function buildPreprocessedJson(tocSections, allProcessedSegmentsData) {
     // TODO: 将ToC结构与每个片段的处理数据结合起来。
     console.log('[segmentation-strategy] 正在构建预处理JSON。');
     const finalJson = [];
@@ -212,7 +212,7 @@ function buildPreprocessedJson(tocSections, allProcessedSegmentsData) {
  * @returns {Promise<Array<string>>} 一个Promise，解析为相关originalText字符串的数组，
  *                                   按相关性排序，并遵守字符限制。
  */
-async function retrieveRelevantContent(userQuery, preprocessedJson, charLimit = 50000, topN = 10) {
+export async function retrieveRelevantContent(userQuery, preprocessedJson, charLimit = 50000, topN = 10) {
     // TODO:
     // 1. 为LLM构建一个prompt，包括userQuery和preprocessedJson的表示
     //    （如果上下文窗口太大，则为其摘要/子集）。
@@ -310,7 +310,7 @@ async function processWithConcurrencyLimit(items, handler, limit) {
  * @param {string | Object} [tocInput] - 可选的ToC数据。如果未提供，可能会尝试推断或使用默认值。
  * @returns {Promise<Array<Object>>} 一个Promise，解析为预处理的JSON数据。
  */
-async function runSegmentationAndProcessing(documentText, tocInput) {
+export async function runSegmentationAndProcessing(documentText, tocInput) {
     console.log("[segmentation-strategy] 开始基于ToC的分段和处理。");
 
     // 1. 解析ToC
@@ -347,19 +347,23 @@ async function runSegmentationAndProcessing(documentText, tocInput) {
     return preprocessedJson;
 }
 
-// 暴露函数以供应用程序的其他部分使用，例如chatbot-core.js或app.js
-// 这使得可以通过SegmentationStrategy.functionName()访问它们
-if (typeof window.SegmentationStrategy === 'undefined') {
+export const SegmentationStrategy = {
+  parseTableOfContents,
+  segmentDocumentByToC,
+  processSegment,
+  processSegmentWithRetry,
+  buildPreprocessedJson,
+  retrieveRelevantContent,
+  runSegmentationAndProcessing,
+  splitIntoNaturalParagraphs
+};
+
+// 向后兼容：暴露到 window
+if (typeof window !== 'undefined') {
+  if (typeof window.SegmentationStrategy === 'undefined') {
     window.SegmentationStrategy = {};
+  }
+
+  Object.assign(window.SegmentationStrategy, SegmentationStrategy);
+  console.log('[segmentation-strategy.js] 已加载并附加到window.SegmentationStrategy。');
 }
-window.SegmentationStrategy.parseTableOfContents = parseTableOfContents;
-window.SegmentationStrategy.segmentDocumentByToC = segmentDocumentByToC;
-window.SegmentationStrategy.processSegment = processSegment;
-window.SegmentationStrategy.processSegmentWithRetry = processSegmentWithRetry;
-window.SegmentationStrategy.buildPreprocessedJson = buildPreprocessedJson;
-window.SegmentationStrategy.retrieveRelevantContent = retrieveRelevantContent;
-window.SegmentationStrategy.runSegmentationAndProcessing = runSegmentationAndProcessing;
-window.SegmentationStrategy.splitIntoNaturalParagraphs = splitIntoNaturalParagraphs; // 同时暴露辅助函数
-
-
-console.log('[segmentation-strategy.js] 已加载并附加到window.SegmentationStrategy。');

@@ -2,7 +2,9 @@
  * 变换控制器
  * 处理元素的拖拽、缩放、旋转
  */
-class TransformController extends EventEmitter {
+import { EventEmitter } from './event-emitter.js';
+
+export class TransformController extends EventEmitter {
     // 手柄类型
     static HANDLE = {
         MOVE: 'move',
@@ -466,4 +468,7 @@ class TransformController extends EventEmitter {
     }
 }
 
-window.TransformController = TransformController;
+// 兼容：全局挂载（给 legacy IIFE/脚本使用）
+if (typeof window !== 'undefined') {
+    window.TransformController = TransformController;
+}

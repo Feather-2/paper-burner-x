@@ -1,9 +1,26 @@
 /**
- * @file js/storage.js
+ * @file js/storage/storage.js
  * @description
  * 此文件负责管理应用程序中所有与浏览器本地存储相关的功能，
  * 包括 localStorage 和 IndexedDB。它提供了统一的接口来保存和加载用户设置、
  * API 密钥、已处理文件记录、模型配置以及其他需要持久化的数据。
+ *
+ * ============================================================================
+ * MIGRATION NOTICE (Phase 9 重构)
+ * ============================================================================
+ * 此文件正在逐步迁移到模块化 Repository 架构：
+ * - SettingsRepository (js/storage/repositories/settings-repository.js)
+ * - ApiKeysRepository (js/storage/repositories/api-keys-repository.js)
+ * - ResultsRepository (js/storage/repositories/results-repository.js)
+ * - ProcessedFilesRepository (js/storage/repositories/processed-files-repository.js)
+ * - AnnotationsRepository (js/storage/repositories/annotations-repository.js)
+ *
+ * 新代码请使用:
+ *   import { storage } from './storage-facade.js';
+ *   const settings = await storage.settings.loadSettings();
+ *
+ * 旧函数 loadSettings/saveSettings 等仍可用，但内部已委托到新 Repository。
+ * ============================================================================
  *
  * 主要功能包括：
  * - **常量定义**: 定义用于 localStorage 和 IndexedDB 存储键的常量。
@@ -20,6 +37,44 @@
  * - **旧配置迁移**: 实现将旧版本存储的自定义模型配置迁移到新版多源站点结构的功能。
  * - **自定义源站点配置**: 管理用户添加的自定义 API 源站点及其相关配置（如名称、Base URL、API Key、默认模型等）。
  */
+
+// =====================
+// Repository 桥接层（动态加载）
+// =====================
+let _settingsRepo = null;
+let _apiKeysRepo = null;
+let _repoInitPromise = null;
+
+/**
+ * 初始化 Repository 实例（懒加载）
+ * @returns {Promise<void>}
+ */
+async function _initRepositories() {
+  if (_repoInitPromise) return _repoInitPromise;
+
+  _repoInitPromise = (async () => {
+    try {
+      const [settingsModule, apiKeysModule] = await Promise.all([
+        import('./repositories/settings-repository.js'),
+        import('./repositories/api-keys-repository.js')
+      ]);
+      _settingsRepo = new settingsModule.SettingsRepository();
+      _apiKeysRepo = new apiKeysModule.ApiKeysRepository();
+      console.log('[Storage] Repository 桥接层已初始化');
+    } catch (e) {
+      console.warn('[Storage] Repository 加载失败，使用原生实现:', e.message);
+      _settingsRepo = null;
+      _apiKeysRepo = null;
+    }
+  })();
+
+  return _repoInitPromise;
+}
+
+// 预加载 Repository（非阻塞）
+if (typeof window !== 'undefined') {
+  setTimeout(() => _initRepositories(), 0);
+}
 
 // =====================
 // 常量定义
@@ -192,22 +247,32 @@ function markFileAsProcessed(fileIdentifier, processedFilesRecord) {
 /**
  * 保存设置项到 localStorage
  * @param {Object} settingsData - 设置对象
+ * @deprecated 请使用 storage.settings.saveSettings() 替代
  */
 function saveSettings(settingsData) {
-    // settingsData 应该是一个包含所有要保存设置的对象
-    // 例如: { maxTokensPerChunk: ..., skipProcessedFiles: ..., ... }
+    // 尝试使用新 Repository
+    if (_settingsRepo) {
+        _settingsRepo.saveSettings(settingsData).catch(e => {
+            console.warn('[Storage] Repository saveSettings 失败，回退到原生:', e);
+            _saveSettingsNative(settingsData);
+        });
+        return;
+    }
+    _saveSettingsNative(settingsData);
+}
+
+function _saveSettingsNative(settingsData) {
     try {
         localStorage.setItem(SETTINGS_KEY, JSON.stringify(settingsData));
-        //console.log("Settings saved:", settingsData);
     } catch (e) {
         console.error('保存设置失败:', e);
-        // showNotification('无法保存设置到浏览器缓存', 'error'); // 避免循环依赖
     }
 }
 
 /**
  * 加载设置项（带默认值）
  * @returns {Object} 设置对象
+ * @deprecated 请使用 await storage.settings.loadSettings() 替代
  */
 function loadSettings() {
     let settings = {
@@ -954,8 +1019,21 @@ function loadModelConfig(model) {
  * 保存某个模型的key列表 (支持对象数组)
  * @param {string} model
  * @param {Array<Object>} keysArray - [{ id, value, remark, status, order }, ...]
+ * @deprecated 请使用 await storage.apiKeys.saveModelKeys(model, keysArray) 替代
  */
 function saveModelKeys(model, keysArray) {
+    // 尝试使用新 Repository
+    if (_apiKeysRepo) {
+        _apiKeysRepo.saveModelKeys(model, keysArray).catch(e => {
+            console.warn('[Storage] Repository saveModelKeys 失败，回退到原生:', e);
+            _saveModelKeysNative(model, keysArray);
+        });
+        return;
+    }
+    _saveModelKeysNative(model, keysArray);
+}
+
+function _saveModelKeysNative(model, keysArray) {
     let allModelKeyStores = {};
     try {
         const raw = localStorage.getItem(MODEL_KEYS_KEY);
@@ -976,6 +1054,7 @@ function saveModelKeys(model, keysArray) {
  * 加载某个模型的key列表 (返回对象数组, 带兼容性处理)
  * @param {string} model
  * @returns {Array<Object>} [{ id, value, remark, status, order }, ...]
+ * @deprecated 请使用 await storage.apiKeys.loadModelKeys(model) 替代
  */
 function loadModelKeys(model) {
     let modelKeyStore = [];
@@ -1406,6 +1485,13 @@ async function deleteAnnotationFromDB(annotationId) {
 
 // --- 显式暴露必要的函数到全局作用域 ---
 if (typeof window !== 'undefined') {
+    // 暴露已处理文件记录函数（app.js 需要）
+    window.loadProcessedFilesRecord = loadProcessedFilesRecord;
+    window.saveProcessedFilesRecord = saveProcessedFilesRecord;
+    window.isAlreadyProcessed = isAlreadyProcessed;
+    window.markFileAsProcessed = markFileAsProcessed;
+    // 暴露 API Key 存取（ui.js 需要）
+    window.saveModelKeys = saveModelKeys;
     // 暴露提示词池需要的关键函数
     window.loadAllCustomSourceSites = loadAllCustomSourceSites;
     // 纠正导出名称：函数为 saveCustomSourceSite（单数）
@@ -1419,6 +1505,11 @@ if (typeof window !== 'undefined') {
     // 暴露历史结果查询（PPT 素材导入使用）
     window.getAllResultsFromDB = getAllResultsFromDB;
     window.getResultFromDB = getResultFromDB;
+    // 暴露批注相关函数
+    window.saveAnnotationToDB = saveAnnotationToDB;
+    window.getAnnotationsForDocFromDB = getAnnotationsForDocFromDB;
+    window.updateAnnotationInDB = updateAnnotationInDB;
+    window.deleteAnnotationFromDB = deleteAnnotationFromDB;
     console.log('[Storage] 函数已暴露到全局作用域:', {
         loadAllCustomSourceSites: typeof window.loadAllCustomSourceSites,
         saveCustomSourceSite: typeof window.saveCustomSourceSite,

@@ -92,7 +92,7 @@ const customSourceSiteToggleIcon = document.getElementById('customSourceSiteTogg
 /** @type {HTMLButtonElement | null} detectModelsBtn - "检测可用模型"按钮，通常用于自定义源站点。 */
 const detectModelsBtn = document.getElementById('detectModelsBtn');
 
-document.addEventListener('DOMContentLoaded', function() {
+function initUI() {
     // ... 其它初始化 ...
     if (customModelSettingsToggle && customModelSettings && customModelSettingsToggleIcon) {
         customModelSettingsToggle.addEventListener('click', function() {
@@ -690,7 +690,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     // 保存并重新渲染
                     localStorage.setItem('academicSearchSourcesConfig', JSON.stringify(config));
                     renderAcademicSourcesList(config);
-                    showNotification && showNotification('搜索源顺序已更新', 'success', 2000);
+                    if (typeof showNotification === 'function') showNotification('搜索源顺序已更新', 'success', 2000);
                 }
             });
         });
@@ -703,7 +703,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (source) {
                     source.enabled = e.target.checked;
                     localStorage.setItem('academicSearchSourcesConfig', JSON.stringify(config));
-                    showNotification && showNotification(`${source.name} 已${source.enabled ? '启用' : '禁用'}`, 'success', 2000);
+                    if (typeof showNotification === 'function') showNotification(`${source.name} 已${source.enabled ? '启用' : '禁用'}`, 'success', 2000);
                 }
             });
         });
@@ -714,7 +714,7 @@ document.addEventListener('DOMContentLoaded', function() {
         saveBtn.textContent = '保存配置';
         saveBtn.onclick = () => {
             localStorage.setItem('academicSearchSourcesConfig', JSON.stringify(config));
-            showNotification && showNotification('搜索源配置已保存', 'success');
+            if (typeof showNotification === 'function') showNotification('搜索源配置已保存', 'success');
         };
         listContainer.appendChild(saveBtn);
     }
@@ -889,7 +889,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
 
                 localStorage.setItem('academicSearchProxyConfig', JSON.stringify(newConfig));
-                showNotification && showNotification('学术搜索配置已保存', 'success');
+                if (typeof showNotification === 'function') showNotification('学术搜索配置已保存', 'success');
 
                 // 通知学术搜索设置管理器重新加载（如果存在）
                 if (window.academicSearchSettingsManager && typeof window.academicSearchSettingsManager.loadSettings === 'function') {
@@ -1227,7 +1227,7 @@ document.addEventListener('DOMContentLoaded', function() {
             try {
                 const detectedModels = await window.modelDetector.detectModelsForModal(baseUrl, tempApiKey, requestFormatValue, endpointModeValue);
                 if (usedStoredKey) {
-                    showNotification && showNotification('已使用已保存的 Key 进行模型检测。', 'info');
+                    if (typeof showNotification === 'function') showNotification('已使用已保存的 Key 进行模型检测。', 'info');
                 }
                 showNotification(`检测到 ${detectedModels.length} 个模型。`, 'success');
 
@@ -1581,7 +1581,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     saveBtn.textContent = '设为默认模型';
                     saveBtn.onclick = () => {
                         saveModelConfig('deepseek', { preferredModelId: select.value });
-                        showNotification && showNotification(`DeepSeek 默认模型已设为 ${select.value}`, 'success');
+                        if (typeof showNotification === 'function') showNotification(`DeepSeek 默认模型已设为 ${select.value}`, 'success');
                     };
 
                     area.innerHTML = '';
@@ -1679,7 +1679,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 saveBtn.textContent = '设为默认模型';
                 saveBtn.onclick = () => {
                     saveModelConfig('tongyi', { preferredModelId: select.value });
-                    showNotification && showNotification(`通义 默认模型已设为 ${select.value}`, 'success');
+                    if (typeof showNotification === 'function') showNotification(`通义 默认模型已设为 ${select.value}`, 'success');
                 };
                 area.innerHTML = '';
                 const controls = document.createElement('div');
@@ -1732,9 +1732,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 const saveBtn = area.querySelector('#volcanoKMSaveBtn');
                 saveBtn.onclick = () => {
                     const val = (area.querySelector('#volcanoKMManualInput').value || '').trim();
-                    if (!val) { showNotification && showNotification('请输入模型ID', 'warning'); return; }
+                    if (!val) { if (typeof showNotification === 'function') showNotification('请输入模型ID', 'warning'); return; }
                     saveModelConfig && saveModelConfig('volcano', { preferredModelId: val });
-                    showNotification && showNotification(`火山 默认模型已设为 ${val}`, 'success');
+                    if (typeof showNotification === 'function') showNotification(`火山 默认模型已设为 ${val}`, 'success');
                 };
                 // 不再绑定在线检测
                 return;
@@ -2495,4 +2495,23 @@ document.addEventListener('DOMContentLoaded', function() {
             detectBtn.innerHTML = originalBtnText;
         }
     }
-});
+}
+
+// 兼容层：暴露 initUI 供 ESM wrapper / 旧代码调用
+if (typeof window !== 'undefined' && typeof window.initUI !== 'function') {
+    window.initUI = initUI;
+}
+
+// 自动初始化：仅在真实浏览器环境（readyState 为 string）下执行
+if (typeof document !== 'undefined') {
+    const rs = document.readyState;
+    if (rs === 'loading') {
+        document.addEventListener('DOMContentLoaded', initUI);
+    } else if (typeof rs === 'string') {
+        initUI();
+    } else {
+        // 测试/非浏览器 DOM：不自动初始化
+    }
+}
+
+// ESM 导出

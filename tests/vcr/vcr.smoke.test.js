@@ -1,12 +1,12 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const http = require("node:http");
-const fs = require("node:fs");
-const os = require("node:os");
-const path = require("node:path");
+import test from "node:test";
+import assert from "node:assert/strict";
+import http from "node:http";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
-const { VcrRecorder } = require("../utils/vcr-recorder.js");
-const { mockLlmResponse, resetLlmMocks } = require("../utils/llm-mock.js");
+import { VcrRecorder } from "../utils/vcr-recorder.js";
+import { mockLlmResponse, resetLlmMocks } from "../utils/llm-mock.js";
 
 function listen(server) {
   return new Promise((resolve, reject) => {
@@ -140,4 +140,3 @@ test("LLM mock: load response from VCR cassette", async () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
-

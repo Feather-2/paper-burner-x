@@ -218,7 +218,7 @@
         this._renderUrlSidebar();
 
         try {
-            const { LocalMcpProvider } = await import('../agents/mcp/local-mcp-provider.js');
+            const { LocalMcpProvider } = await import('../../agents/mcp/local-mcp-provider.js');
             const provider = new LocalMcpProvider({
                 workerEndpoint: window.CF_WORKER_ENDPOINT || null,
             });
@@ -374,3 +374,5 @@
 
   });
 })();
+
+// ESM 导出

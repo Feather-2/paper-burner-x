@@ -1705,6 +1705,7 @@ function saveCurrentSettings() {
     // If a specific custom source site is selected, its details are already saved via key-manager-ui.js
     // and `loadAllCustomSourceSites()` in `handleProcessClick` will fetch them.
 }
+window.saveCurrentSettings = saveCurrentSettings;
 
 // =====================
 // 核心处理流程启动

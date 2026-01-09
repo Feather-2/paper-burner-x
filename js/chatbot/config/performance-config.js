@@ -2,6 +2,10 @@
  * Paper Burner - 性能优化配置
  * Phase 3.5: 统一管理所有性能相关的配置常量
  * Phase 4.4: 设备自适应配置 + 基础 A/B 测试框架
+ *
+ * 兼容性：
+ * - 提供显式 ESM 导出
+ * - 保留 window.* facade（PerformanceExperiment / PerformanceConfig / PerfLogger / ChatbotRenderState）
  */
 
 /**
@@ -9,11 +13,11 @@
  * - 基于 navigator.deviceMemory 与 navigator.hardwareConcurrency
  * - 返回 'high' | 'medium' | 'low'
  */
-function detectDevicePerformance() {
+export function detectDevicePerformance() {
   try {
-    var nav = window.navigator || {};
-    var memory = typeof nav.deviceMemory === 'number' ? nav.deviceMemory : 4; // 默认按中等设备处理
-    var cores = typeof nav.hardwareConcurrency === 'number' ? nav.hardwareConcurrency : 4;
+    const nav = (typeof navigator !== 'undefined' ? navigator : {}) || {};
+    const memory = typeof nav.deviceMemory === 'number' ? nav.deviceMemory : 4; // 默认按中等设备处理
+    const cores = typeof nav.hardwareConcurrency === 'number' ? nav.hardwareConcurrency : 4;
 
     if (memory >= 8 && cores >= 8) return 'high';
     if (memory >= 4 && cores >= 4) return 'medium';
@@ -29,12 +33,15 @@ function detectDevicePerformance() {
  * - 默认分组为 'control'，保持与当前行为尽量接近
  * - 实验分组可通过控制台手动切换：PerformanceExperiment.setVariant('variant_a')
  */
-window.PerformanceExperiment = (function() {
-  var STORAGE_KEY = 'perf_variant';
-  var variant = 'control';
+export const PerformanceExperiment = (function() {
+  const STORAGE_KEY = 'perf_variant';
+  let variant = 'control';
 
   try {
-    var saved = window.localStorage ? window.localStorage.getItem(STORAGE_KEY) : null;
+    const saved = (typeof localStorage !== 'undefined' && localStorage)
+      ? localStorage.getItem(STORAGE_KEY)
+      : null;
+
     if (saved === 'control' || saved === 'variant_a' || saved === 'variant_b') {
       variant = saved;
     }
@@ -42,19 +49,19 @@ window.PerformanceExperiment = (function() {
     // 本地存储不可用时，保持默认值 'control'
   }
 
-  var deviceTier = detectDevicePerformance();
+  const deviceTier = detectDevicePerformance();
 
   return {
     storageKey: STORAGE_KEY,
-    variant: variant,
-    deviceTier: deviceTier,
+    variant,
+    deviceTier,
 
-    setVariant: function(nextVariant) {
+    setVariant(nextVariant) {
       if (nextVariant !== 'control' && nextVariant !== 'variant_a' && nextVariant !== 'variant_b') return;
       this.variant = nextVariant;
       try {
-        if (window.localStorage) {
-          window.localStorage.setItem(STORAGE_KEY, nextVariant);
+        if (typeof localStorage !== 'undefined' && localStorage) {
+          localStorage.setItem(STORAGE_KEY, nextVariant);
         }
       } catch (e) {
         // 忽略本地存储错误
@@ -65,8 +72,8 @@ window.PerformanceExperiment = (function() {
      * 获取当前分组下的配置覆盖项
      * key 示例：'UPDATE_INTERVALS'
      */
-    getConfig: function(key) {
-      var variants = {
+    getConfig(key) {
+      const variants = {
         control: {
           UPDATE_INTERVALS: { FOREGROUND: 400, DEBOUNCE: 100 }
         },
@@ -79,24 +86,24 @@ window.PerformanceExperiment = (function() {
           UPDATE_INTERVALS: { FOREGROUND: 500, DEBOUNCE: 120 }
         }
       };
-      var group = variants[this.variant] || variants.control;
+      const group = variants[this.variant] || variants.control;
       return group[key];
     }
   };
 })();
 
 // 设备自适应基线配置（在实验覆盖前计算）
-var __pbDeviceTier = window.PerformanceExperiment && window.PerformanceExperiment.deviceTier
-  ? window.PerformanceExperiment.deviceTier
+const __pbDeviceTier = PerformanceExperiment && PerformanceExperiment.deviceTier
+  ? PerformanceExperiment.deviceTier
   : detectDevicePerformance();
 
 // 基线更新间隔（未应用 A/B 实验前）
-var __pbBaseForegroundInterval = __pbDeviceTier === 'high' ? 300 : 400;
-var __pbBaseDebounce = 100;
+let __pbBaseForegroundInterval = __pbDeviceTier === 'high' ? 300 : 400;
+let __pbBaseDebounce = 100;
 
 // 应用 A/B 实验覆盖（仅限 UPDATE_INTERVALS）
-var __pbExperimentIntervals = window.PerformanceExperiment && typeof window.PerformanceExperiment.getConfig === 'function'
-  ? window.PerformanceExperiment.getConfig('UPDATE_INTERVALS')
+const __pbExperimentIntervals = PerformanceExperiment && typeof PerformanceExperiment.getConfig === 'function'
+  ? PerformanceExperiment.getConfig('UPDATE_INTERVALS')
   : null;
 
 if (__pbExperimentIntervals) {
@@ -108,7 +115,7 @@ if (__pbExperimentIntervals) {
   }
 }
 
-window.PerformanceConfig = {
+export const PerformanceConfig = {
   // 流式更新间隔配置（设备自适应 + A/B 覆盖）
   UPDATE_INTERVALS: {
     FOREGROUND: __pbBaseForegroundInterval, // 前台标签页更新间隔 (ms)
@@ -121,8 +128,8 @@ window.PerformanceConfig = {
     HEAVY_THRESHOLD: (function() {
       // 高核机器允许更高的“重渲染”阈值
       try {
-        var cores = typeof window.navigator?.hardwareConcurrency === 'number'
-          ? window.navigator.hardwareConcurrency
+        const cores = (typeof navigator !== 'undefined' && typeof navigator.hardwareConcurrency === 'number')
+          ? navigator.hardwareConcurrency
           : 4;
         return cores > 4 ? 300 : 200;
       } catch (e) {
@@ -135,12 +142,12 @@ window.PerformanceConfig = {
     WARN_THRESHOLD: 400     // 日志警告阈值 (ms，用于性能日志)
   },
 
-  // PNG导出配置
+  // PNG 导出配置
   EXPORT: {
     MAX_WIDTH: 1200,          // 导出容器最大宽度 (px)
     ABSOLUTE_MAX_WIDTH: 2000, // 绝对最大宽度 (px)
-    LAYOUT_DELAY: 50,         // DOM重排延迟 (ms)
-    SCALE: 2                  // html2canvas缩放倍数
+    LAYOUT_DELAY: 50,         // DOM 重排延迟 (ms)
+    SCALE: 2                  // html2canvas 缩放倍数
   },
 
   // 日志配置
@@ -160,12 +167,12 @@ window.PerformanceConfig = {
 /**
  * 日志工具 - 根据配置级别输出日志
  */
-window.PerfLogger = {
+export const PerfLogger = {
   _shouldLog(level) {
-    if (!window.PerformanceConfig.LOGGING.ENABLED) return false;
+    if (!PerformanceConfig.LOGGING.ENABLED) return false;
 
     const levels = { debug: 0, info: 1, warn: 2, error: 3 };
-    const configLevel = levels[window.PerformanceConfig.LOGGING.LEVEL] || 1;
+    const configLevel = levels[PerformanceConfig.LOGGING.LEVEL] || 1;
     const currentLevel = levels[level] || 0;
 
     return currentLevel >= configLevel;
@@ -188,11 +195,11 @@ window.PerfLogger = {
   },
 
   perf(message, duration) {
-    if (!window.PerformanceConfig.LOGGING.PERFORMANCE_LOGS) return;
-    if (duration <= window.PerformanceConfig.ADAPTIVE_RENDER.WARN_THRESHOLD) return;
+    if (!PerformanceConfig.LOGGING.PERFORMANCE_LOGS) return;
+    if (duration <= PerformanceConfig.ADAPTIVE_RENDER.WARN_THRESHOLD) return;
 
     // 限制性能日志频率，避免在流式场景中产生成千上万条 warning
-    const minInterval = window.PerformanceConfig.LOGGING.PERF_MIN_INTERVAL_MS || 2000;
+    const minInterval = PerformanceConfig.LOGGING.PERF_MIN_INTERVAL_MS || 2000;
     const now = (typeof performance !== 'undefined' && typeof performance.now === 'function')
       ? performance.now()
       : Date.now();
@@ -209,7 +216,7 @@ window.PerfLogger = {
 /**
  * 渲染状态管理 - 避免全局变量污染
  */
-window.ChatbotRenderState = {
+export const ChatbotRenderState = {
   lastRenderedMessageCount: 0,
   isExporting: false,
   adaptiveMultiplier: 1,
@@ -222,3 +229,12 @@ window.ChatbotRenderState = {
     this.lastRenderDuration = 0;
   }
 };
+
+// 向后兼容：暴露到 window
+if (typeof window !== 'undefined') {
+  window.PerformanceExperiment = PerformanceExperiment;
+  window.PerformanceConfig = PerformanceConfig;
+  window.PerfLogger = PerfLogger;
+  window.ChatbotRenderState = ChatbotRenderState;
+}
+

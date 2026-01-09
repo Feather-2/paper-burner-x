@@ -63,6 +63,7 @@ const cspDirectives = {
     ...(allowInline ? ["'unsafe-inline'"] : []),
     'https://cdn.tailwindcss.com',
     'https://gcore.jsdelivr.net',
+    'https://cdn.jsdelivr.net',
     'https://cdnjs.cloudflare.com',
     'https://unpkg.com',
   ],
@@ -72,6 +73,7 @@ const cspDirectives = {
     ...(allowInline ? ["'unsafe-inline'"] : []),
     'https://cdn.tailwindcss.com',
     'https://gcore.jsdelivr.net',
+    'https://cdn.jsdelivr.net',
     'https://cdnjs.cloudflare.com',
     'https://unpkg.com',
   ],
@@ -81,6 +83,7 @@ const cspDirectives = {
     "'self'",
     "'unsafe-inline'",
     'https://gcore.jsdelivr.net',
+    'https://cdn.jsdelivr.net',
     'https://cdn.tailwindcss.com',
     'https://fonts.googleapis.com',
     'https://cdnjs.cloudflare.com',
@@ -93,6 +96,7 @@ const cspDirectives = {
     'data:',
     'https://fonts.gstatic.com',
     'https://gcore.jsdelivr.net',
+    'https://cdn.jsdelivr.net',
     'https://cdnjs.cloudflare.com',
     'https://unpkg.com',
   ],
@@ -278,6 +282,8 @@ const staticOptions = {
 app.use('/public', express.static(join(rootPath, 'public'), staticOptions));
 app.use('/css', express.static(join(rootPath, 'css'), staticOptions));
 app.use('/js', express.static(join(rootPath, 'js'), staticOptions));
+// Third-party runtime assets (pdf.js, mammoth, turndown, etc.)
+app.use('/lib', express.static(join(rootPath, 'lib'), staticOptions));
 app.use('/views', express.static(join(rootPath, 'views'), staticOptions));
 app.use('/workers', express.static(join(rootPath, 'workers'), staticOptions));
 app.use('/admin', express.static(join(rootPath, 'admin'), staticOptions));
@@ -349,6 +355,11 @@ app.use('/api/prompt-pool', promptPoolRoutes);
 // 登录页需显式返回 login.html，避免被通配符 * 误回退到 index.html
 app.get('/login.html', (req, res) => {
   res.sendFile(join(rootPath, 'login.html'));
+});
+
+// PPT 独立页面（避免被通配符 * 回退到 index.html）
+app.get('/ppt.html', (req, res) => {
+  res.sendFile(join(rootPath, 'ppt.html'));
 });
 
 // 管理员面板

@@ -609,3 +609,6 @@
   console.log('[ReActEngine] 核心引擎已加载');
 
 })(window);
+
+// ESM 导出
+export const ReActEngine = window.ReActEngine;

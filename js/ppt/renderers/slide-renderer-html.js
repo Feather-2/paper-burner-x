@@ -1137,3 +1137,18 @@ class HTMLSlideRenderer {
 // 4. PPTXSlideRenderer - 渲染到 PPTX
 // 使用与 HTMLSlideRenderer 相同的 SlideStyles 配置
 // ============================================================
+
+// Global export (legacy scripts + ESM import side-effects).
+try {
+    if (typeof globalThis !== 'undefined') {
+        globalThis.HTMLSlideRenderer = HTMLSlideRenderer;
+    }
+    if (typeof window !== 'undefined') {
+        window.HTMLSlideRenderer = HTMLSlideRenderer;
+    }
+} catch {
+    // ignore
+}
+
+// ESM 导出
+export { HTMLSlideRenderer };

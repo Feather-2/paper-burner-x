@@ -305,3 +305,6 @@ class ChatMessageEventManager {
 window.ChatMessageEventManager = ChatMessageEventManager;
 
 console.log('[ChatMessageEventManager] 类定义已加载');
+
+// ESM 导出
+export { ChatMessageEventManager };

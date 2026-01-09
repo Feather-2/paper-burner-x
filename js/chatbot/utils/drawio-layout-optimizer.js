@@ -141,11 +141,12 @@ function isOverlapping(rect1, rect2, minSpacing = 20) {
  */
 function applyDagreLayout(xmlDoc, options = {}) {
   // 检查 dagre 和 graphlib 是否可用（它们是两个独立的全局变量）
-  if (typeof window.dagre === 'undefined') {
+  const win = typeof window !== 'undefined' ? window : null;
+  if (!win || typeof win.dagre === 'undefined') {
     console.warn('[DrawioOptimizer] ❌ Dagre 库未加载，跳过 Dagre 布局');
     return 0;
   }
-  if (typeof window.graphlib === 'undefined') {
+  if (typeof win.graphlib === 'undefined') {
     console.warn('[DrawioOptimizer] ❌ Graphlib 库未加载，跳过 Dagre 布局');
     return 0;
   }
@@ -1179,8 +1180,14 @@ function optimizeDrawioLayoutMultiPage(xmlString, options = {}) {
   }
 }
 
-// 导出到全局
-window.DrawioLayoutOptimizer = {
+export const DrawioLayoutOptimizer = {
   optimizeDrawioLayout: optimizeDrawioLayoutMultiPage,  // 使用新的多页版本
   optimizeDrawioLayoutLegacy: optimizeDrawioLayout      // 保留旧版本
 };
+
+export { optimizeDrawioLayoutMultiPage, optimizeDrawioLayout as optimizeDrawioLayoutLegacy };
+
+// 向后兼容：暴露到 window
+if (typeof window !== 'undefined') {
+  window.DrawioLayoutOptimizer = DrawioLayoutOptimizer;
+}

@@ -2016,3 +2016,5 @@ async function singleChunkSummary(sysPrompt, userInput, config, apiKey) {
   };
 
 })();
+
+// ESM 导出

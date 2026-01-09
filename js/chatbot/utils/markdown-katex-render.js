@@ -12,7 +12,7 @@ if (typeof marked !== 'undefined' && typeof marked.setOptions === 'function') {
   });
 }
 
-window.renderWithKatexStreaming = function(md) {
+export function renderWithKatexStreaming(md) {
   const codeBlocks = [];
   let codeBlockCounter = 0;
 
@@ -185,7 +185,7 @@ window.renderWithKatexStreaming = function(md) {
   }
 
   // XSS 防护：使用 safeRenderMarkdown 替代直接 marked.parse()
-  if (typeof window.safeRenderMarkdown === 'function') {
+  if (typeof window !== 'undefined' && typeof window.safeRenderMarkdown === 'function') {
     return window.safeRenderMarkdown(md);
   }
 
@@ -193,7 +193,7 @@ window.renderWithKatexStreaming = function(md) {
   // 但会在控制台警告
   console.warn('[Security] safeRenderMarkdown not available, using unsafe marked.parse()');
   return marked.parse(md);
-};
+}
 
 /**
  * Phase 4.2 - 长公式增量渲染原型（ChatbotMathStreaming）
@@ -206,7 +206,7 @@ window.renderWithKatexStreaming = function(md) {
  * - 普通文本片段使用 safeRenderMarkdown（若存在）单独转为 HTML；
  * - 如果出现异常或环境不满足（如 window.katex 不存在），调用方应回退到完整重渲染。
  */
-window.ChatbotMathStreaming = (function() {
+export const ChatbotMathStreaming = (function() {
   function escapeHtml(text) {
     if (typeof text !== 'string') {
       return '';
@@ -225,7 +225,7 @@ window.ChatbotMathStreaming = (function() {
 
   function renderPlainMarkdown(text) {
     if (!text) return '';
-    if (typeof window.safeRenderMarkdown === 'function') {
+    if (typeof window !== 'undefined' && typeof window.safeRenderMarkdown === 'function') {
       return window.safeRenderMarkdown(text);
     }
     if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
@@ -361,3 +361,13 @@ window.ChatbotMathStreaming = (function() {
     renderIncremental: renderIncremental
   };
 })();
+
+// 向后兼容：暴露到 window
+if (typeof window !== 'undefined') {
+  if (typeof window.renderWithKatexStreaming !== 'function') {
+    window.renderWithKatexStreaming = renderWithKatexStreaming;
+  }
+  if (typeof window.ChatbotMathStreaming === 'undefined') {
+    window.ChatbotMathStreaming = ChatbotMathStreaming;
+  }
+}

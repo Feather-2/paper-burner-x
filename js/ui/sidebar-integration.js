@@ -759,11 +759,14 @@
 
   // ==================== 导出 ====================
 
-  // DOM 加载完成后初始化
-  if (document.readyState === 'loading') {
+  // DOM 加载完成后初始化：仅在真实浏览器环境（readyState 为 string）下执行
+  const rs = document.readyState;
+  if (rs === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
-  } else {
+  } else if (typeof rs === 'string') {
     init();
+  } else {
+    // 测试/非浏览器 DOM：不自动初始化
   }
 
   // 导出到全局（供调试使用）
@@ -779,3 +782,5 @@
   };
 
 })();
+
+// ESM 导出

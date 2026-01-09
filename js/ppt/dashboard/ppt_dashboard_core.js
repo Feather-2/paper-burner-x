@@ -507,8 +507,14 @@
   NS.PPTGeneratorAgentDashboard = PPTGeneratorAgentDashboard;
 
   try {
-    Object.assign(PPTGenerator.prototype, PPTGeneratorAgentDashboard);
+    const ctor =
+      (typeof globalThis !== 'undefined' && globalThis.PPTGeneratorCtor?.prototype)
+        ? globalThis.PPTGeneratorCtor
+        : ((typeof PPTGenerator !== 'undefined' && PPTGenerator?.prototype) ? PPTGenerator : null);
+    if (ctor?.prototype) Object.assign(ctor.prototype, PPTGeneratorAgentDashboard);
   } catch {
     // ignore (PPTGenerator may not be defined yet)
   }
 })();
+
+// ESM 导出

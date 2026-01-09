@@ -1,8 +1,7 @@
-(function(window) {
-  const DEFAULT_BRAND_LINK = 'https://github.com/Feather-2/paper-burner-x';
+const DEFAULT_BRAND_LINK = 'https://github.com/Feather-2/paper-burner-x';
 
 
-async function exportAsDocx(payload, options = {}, helpers = {}) {
+export async function exportAsDocx(payload, options = {}, helpers = {}) {
     const JSZipRef = window.JSZip;
     if (typeof JSZipRef !== 'function') {
       throw new Error('JSZip 组件未加载，无法导出 DOCX');
@@ -2174,9 +2173,20 @@ ${rels}
 
 
 function buildFileName(payload, ext) {
-    const modeKey = payload.tab.replace(/[^a-z\-]/gi, '') || 'export';
-    const timestamp = formatTimestamp(payload.exportTime);
-    return `${payload.fileNameBase}_${modeKey}_${timestamp}.${ext}`;
+    const safePayload = payload || {};
+    const modeSource = safePayload.tab || safePayload.modeLabel || 'export';
+    const modeKey = String(modeSource).replace(/[^a-z\-]/gi, '') || 'export';
+    const timestamp = formatTimestamp(
+      safePayload.exportTime instanceof Date ? safePayload.exportTime : new Date()
+    );
+
+    const baseCandidate =
+      safePayload.fileNameBase ||
+      (safePayload.data && safePayload.data.name ? String(safePayload.data.name) : '') ||
+      'document';
+    const safeBase = sanitizeFileName(baseCandidate).replace(/(\.[^.]+)?$/, '') || 'document';
+
+    return `${safeBase}_${modeKey}_${timestamp}.${ext}`;
   }
 
   function ensureFileExtension(name, ext) {
@@ -2210,10 +2220,6 @@ function buildFileName(payload, ext) {
   }
 
 
-
-function sanitizeFileName(name) {
-    return (name || 'document').replace(/[\\/:*?"<>|]/g, '_');
-  }
 
   // XML 结构验证函数
   function validateXmlStructure(xmlString) {
@@ -2283,19 +2289,12 @@ function sanitizeFileName(name) {
     return true;
   }
 
-  function formatDateTime(date) {
-    const pad = function(num) { return String(num).padStart(2, '0'); };
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-  }
+export const PBXHistoryExporterDocx = { exportAsDocx };
 
-  function formatTimestamp(date) {
-    const pad = function(num) { return String(num).padStart(2, '0'); };
-    return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}_${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
-  }
+export default PBXHistoryExporterDocx;
 
-
-
-
+// 兼容层：保留原 window.PBXHistoryExporterDocx
+if (typeof window !== 'undefined') {
   window.PBXHistoryExporterDocx = window.PBXHistoryExporterDocx || {};
-  Object.assign(window.PBXHistoryExporterDocx, { exportAsDocx });
-})(window);
+  Object.assign(window.PBXHistoryExporterDocx, PBXHistoryExporterDocx);
+}

@@ -12,11 +12,10 @@
 async function renderDetail() {
   const id = getQueryParam('id');
   if (!id) return;
-  docIdForLocalStorage = id; // Store doc ID for localStorage operations
-  window.docIdForLocalStorage = id; // 同时更新挂载到 window 对象上的变量
+  window.docIdForLocalStorage = id; // Store doc ID for localStorage operations
 
   // Restore chatbot open state
-  const savedChatbotOpenState = localStorage.getItem(`chatbotOpenState_${docIdForLocalStorage}`);
+  const savedChatbotOpenState = localStorage.getItem(`chatbotOpenState_${window.docIdForLocalStorage}`);
   if (savedChatbotOpenState === 'true') {
     window.isChatbotOpen = true;
   } else if (savedChatbotOpenState === 'false') {
@@ -24,7 +23,7 @@ async function renderDetail() {
   }
 
   // 从localStorage恢复保存的比例设置
-  const savedChunkCompareRatio = localStorage.getItem(`chunkCompareRatio_${docIdForLocalStorage}`);
+  const savedChunkCompareRatio = localStorage.getItem(`chunkCompareRatio_${window.docIdForLocalStorage}`);
   if (savedChunkCompareRatio !== null && !isNaN(parseFloat(savedChunkCompareRatio))) {
     window.chunkCompareRatio = parseFloat(savedChunkCompareRatio);
   }
@@ -33,13 +32,13 @@ async function renderDetail() {
 
   // Initialize Dock Logic once docIdForLocalStorage is available
   if (typeof window.DockLogic !== 'undefined' && typeof window.DockLogic.init === 'function') {
-    window.DockLogic.init(docIdForLocalStorage);
+    window.DockLogic.init(window.docIdForLocalStorage);
   } else {
     console.error("DockLogic not available or init function missing.");
   }
 
-  data = await getResultFromDB(id);
-  window.data = data; // for debugging
+  const data = await window.getResultFromDB(id);
+  window.data = data; // 暴露到全局供其他模块使用
   const fileMetaTimeEl = document.getElementById('fileMetaTime');
   const fileMetaImagesEl = document.getElementById('fileMetaImages');
 
@@ -127,8 +126,8 @@ async function renderDetail() {
 
   // Determine initial tab, AFTER annotations are loaded
   let initialTab = 'ocr'; // Default tab
-  if (docIdForLocalStorage) {
-    const savedTabKey = `activeTab_${docIdForLocalStorage}`;
+  if (window.docIdForLocalStorage) {
+    const savedTabKey = `activeTab_${window.docIdForLocalStorage}`;
     const savedTab = localStorage.getItem(savedTabKey);
     if (
       savedTab &&
@@ -209,6 +208,9 @@ async function renderDetail() {
   //   };
   // }
 }
+
+// 暴露到全局作用域，供 history_detail_scripts.js 调用
+window.renderDetail = renderDetail;
 
 /**
  * 切换并显示指定的标签页内容。

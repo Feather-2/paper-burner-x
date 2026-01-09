@@ -1630,6 +1630,9 @@ ${userRef}
 
 // 初始化提示词池UI
 if (typeof window !== 'undefined') {
+    window.PromptPoolUI = PromptPoolUI;
+    if (typeof globalThis !== 'undefined') globalThis.PromptPoolUI = PromptPoolUI;
+
     document.addEventListener('DOMContentLoaded', () => {
         window.promptPoolUI = new PromptPoolUI();
     });
@@ -1639,3 +1642,6 @@ if (typeof window !== 'undefined') {
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = PromptPoolUI;
 }
+
+// ESM 导出
+export { PromptPoolUI };

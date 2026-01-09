@@ -260,3 +260,5 @@ if (typeof module !== 'undefined' && module.exports) {
     isChatbotConfigured
   };
 }
+
+// ESM 导出

@@ -24,7 +24,7 @@ function safeEscapeHtmlForModel(str) {
   });
 }
 
-window.ChatbotModelSelectorUI = {
+export const ChatbotModelSelectorUI = {
   /**
    * 渲染模型选择器主界面，并绑定所有交互事件。
    *
@@ -440,3 +440,8 @@ window.ChatbotModelSelectorUI = {
     }
   }
 };
+
+// 向后兼容：挂载到 window（供旧版非 ESM 调用）
+if (typeof window !== 'undefined') {
+  window.ChatbotModelSelectorUI = ChatbotModelSelectorUI;
+}

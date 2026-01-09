@@ -7,57 +7,26 @@
     <title>Paper Burner X - AI文献阅读与智能分析平台</title>
     <link rel="icon" type="image/svg+xml" href="public/pure.svg">
 
-    <!-- CDN 性能优化：DNS 预连接 - 提前建立连接，节省 100-300ms -->    
-    <link rel="dns-prefetch" href="https://gcore.jsdelivr.net">    
-    <link rel="preconnect" href="https://gcore.jsdelivr.net" crossorigin>    
-    <link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">    
-    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>    
-    <link rel="dns-prefetch" href="https://cdn.tailwindcss.com">    
-    <link rel="preconnect" href="https://cdn.tailwindcss.com" crossorigin>
+    <!-- 依赖加载器：Vite 构建时打包所有依赖 -->
+    <script type="module" src="js/boot/deps-loader.js"></script>
 
-    <!-- XSS 防护：DOMPurify - 用于清理 AI 生成的 HTML 内容 -->
-    <script src="https://gcore.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+    <!-- Tailwind CSS（预编译，完全离线可用） -->
+    <link rel="stylesheet" href="css/tailwind.css">
 
-    <!-- Tailwind CSS & 依赖库 -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://gcore.jsdelivr.net/npm/iconify-icon@2.0.0/dist/iconify-icon.min.js"></script>
-    <script src="https://gcore.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
-    <script src="https://gcore.jsdelivr.net/npm/js-base64@3.7.5/base64.min.js"></script>
-    <script src="https://gcore.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
-    <script src="https://gcore.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <!-- 外部依赖：本地优先，CDN fallback（支持离线 + Vercel 部署） -->
+    <script type="module" src="js/boot/cdn-fallback.js"></script>
 
-    <!-- PptxGenJS for PowerPoint Export -->
-    <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
-
-    <!-- dagre.js for graph layout (层次化图布局算法) -->
-    <script src="https://gcore.jsdelivr.net/npm/graphlib@2.1.8/dist/graphlib.min.js"></script>
-    <script src="https://gcore.jsdelivr.net/npm/dagre@0.8.5/dist/dagre.min.js"></script>
-
-    <!-- docx-preview.js for Word preview -->
-    <script src="https://gcore.jsdelivr.net/npm/docx-preview@0.3.7/dist/docx-preview.min.js"></script>
-    <link rel="stylesheet" href="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <!-- KaTeX CSS（本地优先，CDN fallback） -->
+    <link rel="stylesheet" href="lib/katex.min.css" onerror="this.href='https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css'">
+    <!-- Font Awesome（用于部分 UI 图标，本地优先，CDN fallback） -->
+    <link rel="stylesheet" href="lib/fontawesome/all.min.css" onerror="this.href='https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css'">
     <link rel="stylesheet" href="css/history_detail/01-foundation/variables.css">
     <link rel="stylesheet" href="css/history_detail/05-utilities/buttons.css">
     <link rel="stylesheet" href="css/history_detail/04-features/markdown-enhancements.css">
     <link rel="stylesheet" href="css/history_detail/04-features/math-display.css">
-    <link rel="stylesheet" href="css/_deprecated/chatbot-model-config-modal.css">
+    <link rel="stylesheet" href="css/history_detail/03-components/chatbot/config-modal.css">
     <link rel="stylesheet" href="css/ppt/ppt_model_config_modal.css">
     <link rel="stylesheet" href="css/ppt/ppt_model_config.css">
-    <!-- PPT 已独立为 ppt.html -->
-    <script src="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
-    <script src="https://gcore.jsdelivr.net/npm/marked/marked.min.js"></script>
-
-    <!-- Markdown-it for AST-based processing (新架构) -->
-    <script src="https://gcore.jsdelivr.net/npm/markdown-it@14.0.0/dist/markdown-it.min.js"></script>
-    <script>
-      // failback: 如果 CDN 加载失败，自动加载本地 jszip
-      if (typeof JSZip === 'undefined') {
-        var script = document.createElement('script');
-        script.src = 'js/lib/jszip.min.js';
-        document.head.appendChild(script);
-      }
-    </script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
     <style>
         /* 谷歌字体 Inter */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
@@ -658,7 +627,7 @@
         </div>
       </div>
       <!-- 收起状态的底部按钮 -->
-      <div id="sidebarFooterCollapsed" class="hidden flex-col items-center p-3">
+      <div id="sidebarFooterCollapsed" class="flex-col items-center p-3" style="display: none;">
         <a href="https://github.com/Feather-2/paper-burner" target="_blank" class="w-10 h-10 flex items-center justify-center text-slate-400 hover:text-slate-600 transition-colors" title="GitHub 仓库">
           <iconify-icon icon="mdi:github" width="28"></iconify-icon>
         </a>
@@ -975,11 +944,11 @@
                                         </div>
                                         <!-- 管理API Key及检测模型的按钮（通常根据选择的源站点动态显示/隐藏） -->
                                         <div class="mt-2 flex justify-end w-full md:col-span-2">
-                                            <button id="manageSourceSiteKeyBtn" class="px-3 py-1.5 text-sm text-white rounded transition-colors flex items-center hidden" style="background-color: var(--color-primary);">
+                                            <button id="manageSourceSiteKeyBtn" class="px-3 py-1.5 text-sm text-white rounded transition-colors flex items-center" style="background-color: var(--color-primary); display: none;">
                                                 <iconify-icon icon="carbon:api" class="mr-1" width="16"></iconify-icon>
                                                 管理该站点 API Key
                                             </button>
-                                            <button id="detectModelsBtn" type="button" class="hidden px-3 py-1.5 text-sm text-white rounded transition-colors flex items-center" style="background-color: var(--color-primary);">
+                                            <button id="detectModelsBtn" type="button" class="px-3 py-1.5 text-sm text-white rounded transition-colors flex items-center" style="background-color: var(--color-primary); display: none;">
                                                 <iconify-icon icon="carbon:model-alt" class="mr-1" width="16"></iconify-icon>
                                                 检测可用模型
                                             </button>
@@ -1323,7 +1292,7 @@
                             </div>
                             文件上传
                         </h2>
-                        <label id="batchModeToggleWrapper" class="hidden flex items-center space-x-2 text-sm text-slate-600 bg-slate-100 px-3 py-1.5 rounded-full cursor-pointer hover:bg-slate-200 transition-colors">
+                        <label id="batchModeToggleWrapper" class="flex items-center space-x-2 text-sm text-slate-600 bg-slate-100 px-3 py-1.5 rounded-full cursor-pointer hover:bg-slate-200 transition-colors" style="display: none;">
                             <input type="checkbox" id="batchModeToggle" class="rounded border-slate-300 focus:ring-indigo-500 h-4 w-4" style="color: var(--color-primary); accent-color: var(--color-primary);">
                             <span class="select-none font-medium">批量模式</span>
                         </label>
@@ -1471,7 +1440,7 @@
             <!-- 进度与结果区域 -->
             <!-- ===================== -->
             <!-- 处理进度显示区 -->
-            <div id="progressSection" class="modern-card p-4 md:p-6 hidden">
+            <div id="progressSection" class="modern-card p-4 md:p-6" style="display: none;">
                 <div class="section-header">
                     <h2 class="section-title">
                         <div class="w-8 h-8 rounded-lg flex items-center justify-center mr-3" style="background-color: var(--indigo-100); color: var(--color-primary);">
@@ -1505,7 +1474,7 @@
             </div>
 
             <!-- 处理结果显示与下载区 -->
-            <div id="resultsSection" class="modern-card p-4 md:p-6 hidden">
+            <div id="resultsSection" class="modern-card p-4 md:p-6" style="display: none;">
                 <div class="section-header">
                     <h2 class="section-title">
                         <div class="w-8 h-8 rounded-lg bg-green-100 text-green-600 flex items-center justify-center mr-3">
@@ -1561,16 +1530,16 @@
     <!-- ===================== -->
     <!-- 脚本引入区（顺序不能乱） -->
     <!-- ===================== -->
-    <script src="https://unpkg.com/iconify-icon@1.0.7/dist/iconify-icon.min.js"></script>
+    <script src="lib/iconify-icon.min.js"></script>
     <!-- GitHub Stars 统一获取模块 -->
-    <script src="js/utils/github-stars.js"></script>
+    <script type="module" src="js/utils/github-stars.js"></script>
     <!-- 自动探测后端：若 /api/健康检查通过将切换为 backend；也可用 ?mode=backend 强制 -->
     <script>window.ENV_DEPLOYMENT_MODE = 'auto';</script>
-    <script src="js/api/api.js"></script>
-    <script src="js/storage/storage.js"></script>
+    <script type="module" src="js/api/api.js"></script>
+    <script type="module" src="js/storage/storage.js"></script>
     <!-- 先初始化存储适配器（提供 isFrontendMode 标记） -->
-    <script src="js/storage/storage-adapter.js"></script>
-    <script src="js/boot/backend-gate.js"></script>
+    <script type="module" src="js/storage/storage-adapter.js"></script>
+    <script type="module" src="js/boot/backend-gate.js"></script>
     <!-- 后端模式访问信任门禁：后端模式且未登录时，跳转到登录页 -->
     <script>
       (function() {
@@ -1607,115 +1576,96 @@
       })();
     </script>
     <!-- 再加载术语库存储（会依据适配器模式决定是否探测后端） -->
-    <script src="js/storage/glossary-storage.js"></script>
-    <script src="https://gcore.jsdelivr.net/npm/mammoth@1.4.21/mammoth.browser.min.js"></script>
-    <script src="https://gcore.jsdelivr.net/npm/turndown@7.1.2/dist/turndown.min.js"></script>
-    <script src="js/ui/ui-helpers.js"></script>
-    <script src="js/ui/ui-notifications.js"></script>
-    <script src="js/ui/ui-model-search.js"></script>
-    <script src="js/ui/ui-model-panels.js"></script>
-    <script src="js/ui/ui-processing.js"></script>
-    <script src="js/ui/ui-key-manager-modal.js"></script>
-    <script src="js/ui/key-manager-ui.js"></script>
-    <!-- Embedding 向量搜索与重排模块 -->
-    <script src="js/boot/ensure-embedding.js"></script>
-    <script src="js/chatbot/agents/embedding-client.js"></script>
-    <script>
-      (function(){
-        try {
-          if (!window.EmbeddingClient || typeof window.EmbeddingClient.saveConfig !== 'function') {
-            var s = document.createElement('script');
-            s.src = 'js/chatbot/agents/embedding-client.js?v=' + Date.now();
-            s.async = true;
-            s.onload = function(){ console.log('[Boot] EmbeddingClient loaded via cache-bust'); };
-            s.onerror = function(){ console.error('[Boot] Failed to load EmbeddingClient'); };
-            document.head.appendChild(s);
-          }
-        } catch (e) {
-          console.warn('[Boot] EmbeddingClient ensure failed:', e.message);
-        }
-      })();
-    </script>
-    <script src="js/chatbot/agents/rerank-client.js"></script>
-    <script src="js/chatbot/agents/vector-store.js"></script>
-    <script src="js/chatbot/agents/semantic-vector-search.js"></script>
-    <!-- 高级搜索工具模块 -->
-    <script src="js/chatbot/agents/advanced-search-tools.js"></script>
+    <script type="module" src="js/storage/glossary-storage.js"></script>
+    <script src="lib/mammoth.browser.min.js"></script>
+    <script src="lib/turndown.min.js"></script>
+    <script type="module" src="js/ui/ui-helpers.js"></script>
+    <script type="module" src="js/ui/ui-notifications.js"></script>
+    <script type="module" src="js/ui/ui-model-search.js"></script>
+    <script type="module" src="js/ui/ui-model-panels.js"></script>
+    <script type="module" src="js/core/api/key-provider.js"></script>
+    <script type="module" src="js/ui/ui-processing.js"></script>
+    <script type="module" src="js/ui/ui-key-manager-modal.js"></script>
+    <script type="module" src="js/ui/key-manager-ui.js"></script>
+    <!-- Embedding 向量搜索与重排模块 (已迁移到 js/agents/) -->
+    <script type="module" src="js/boot/ensure-embedding.js"></script>
+    <!-- 注意: js/chatbot/agents/ 已删除，功能由 js/agents/ 提供 -->
 
     <!-- ReAct 模块 v2.0 - 模块化重构版本 -->
     <!-- 注意：必须按此顺序加载，engine.js 依赖其他所有模块 -->
-    <script src="js/chatbot/react/token-budget.js"></script>
-    <script src="js/chatbot/react/tool-registry.js"></script>
-    <script src="js/chatbot/react/json-parser.js"></script>
-    <script src="js/chatbot/react/system-prompt.js"></script>
-    <script src="js/chatbot/react/context-builder.js"></script>
-    <script src="js/chatbot/react/engine.js"></script>
-    <script src="js/chatbot/react/index.js"></script>
+    <script type="module" src="js/chatbot/react/token-budget.js"></script>
+    <script type="module" src="js/chatbot/react/tool-registry.js"></script>
+    <script type="module" src="js/chatbot/react/json-parser.js"></script>
+    <script type="module" src="js/chatbot/react/system-prompt.js"></script>
+    <script type="module" src="js/chatbot/react/context-builder.js"></script>
+    <script type="module" src="js/chatbot/react/engine.js"></script>
+    <script type="module" src="js/chatbot/react/index.js"></script>
 
-    <script src="js/chatbot/core/llm-caller.js"></script>
+    <script type="module" src="js/chatbot/core/llm-caller.js"></script>
     <!-- Chatbot 配置管理模块 -->
-    <script src="js/chatbot/core/chatbot-config-manager.js?v=20251107c"></script>
-    <script src="js/chatbot/ui/chatbot-model-config-modal.js?v=20251107f"></script>
-    <script src="js/chatbot/ui/chatbot-floating-options.js"></script>
-    <script src="js/chatbot/ui/chatbot-tooltrace-ui.js"></script>
+    <script type="module" src="js/chatbot/core/chatbot-config-manager.js?v=20251107c"></script>
+    <script type="module" src="js/chatbot/ui/chatbot-model-config-modal.js?v=20251107f"></script>
+    <script type="module" src="js/chatbot/ui/chatbot-floating-options.js"></script>
+    <script type="module" src="js/chatbot/ui/chatbot-tooltrace-ui.js"></script>
     <!-- UI 模块化组件 (新增) -->
-    <script src="js/ui/ui_dom_elements.js"></script>
-    <script src="js/ui/ui_model_manager_core.js"></script>
-    <script src="js/ui/ui_model_ocr_config.js"></script>
-    <script src="js/ui/ui_embedding_config.js"></script>
+    <script type="module" src="js/ui/ui_dom_elements.js"></script>
+    <script type="module" src="js/ui/ui_model_manager_core.js"></script>
+    <script type="module" src="js/ui/ui_model_ocr_config.js"></script>
+    <script type="module" src="js/ui/ui_embedding_config.js"></script>
     <!-- UI 主文件 -->
-    <script src="js/ui/ui.js"></script>
-    <script src="js/ui/ocr-settings.js"></script> <!-- OCR 配置管理 -->
+    <script type="module" src="js/ui/ui.js"></script>
+    <script type="module" src="js/ui/ocr-settings.js"></script> <!-- OCR 配置管理 -->
     <!-- PDF.js 库（用于本地解析 PDF） -->
-    <script src="https://gcore.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+    <script src="lib/pdf.min.js"></script>
     <script>
         // 配置 PDF.js worker
         if (typeof pdfjsLib !== 'undefined') {
-            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://gcore.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'lib/pdf.worker.min.js';
         }
     </script>
     <!-- OCR 处理模块 -->
-    <script src="js/process/ocr-adapters/base-adapter.js"></script> <!-- 基类 -->
-    <script src="js/process/ocr-adapters/mistral-adapter.js"></script>
-    <script src="js/process/ocr-adapters/mineru-adapter.js"></script>
-    <script src="js/process/ocr-adapters/doc2x-adapter.js"></script>
-    <script src="js/process/ocr-adapters/local-adapter.js"></script> <!-- 本地 PDF 解析 -->
-    <script src="js/process/ocr-manager.js"></script> <!-- OCR 管理器 -->
-    <script src="js/process/glossary-matcher.js"></script> <!-- 高效术语匹配器 -->
+    <script type="module" src="js/process/ocr-adapters/base-adapter.js"></script> <!-- 基类 -->
+    <script type="module" src="js/process/ocr-adapters/mistral-adapter.js"></script>
+    <script type="module" src="js/process/ocr-adapters/mineru-adapter.js"></script>
+    <script type="module" src="js/process/ocr-adapters/doc2x-adapter.js"></script>
+    <script type="module" src="js/process/ocr-adapters/local-adapter.js"></script> <!-- 本地 PDF 解析 -->
+    <script type="module" src="js/process/ocr-manager.js"></script> <!-- OCR 管理器 -->
+    <script type="module" src="js/process/glossary-matcher.js"></script> <!-- 高效术语匹配器 -->
     <!-- glossary-core.js 由 index.js 动态加载，避免重复 -->
-    <script src="js/process/glossary-config.js"></script> <!-- 术语库性能配置 -->
-    <script src="js/ui/glossary-progress.js"></script> <!-- 术语库进度条 -->
-    <script src="js/ui/glossary-editor-enhanced.js"></script> <!-- 增强版术语库编辑器 -->
-    <script src="js/ui/glossary-ui.js"></script>
+    <script type="module" src="js/process/glossary-config.js"></script> <!-- 术语库性能配置 -->
+    <script type="module" src="js/ui/glossary-progress.js"></script> <!-- 术语库进度条 -->
+    <script type="module" src="js/ui/glossary-editor-enhanced.js"></script> <!-- 增强版术语库编辑器 -->
+    <script type="module" src="js/ui/glossary-ui.js"></script>
     <!-- 子块分割器（支持中英文标点分割），用于高亮与批注的精确定位 -->
-    <script src="js/processing/sub_block_segmenter.js"></script>
+    <script type="module" src="js/processing/sub_block_segmenter.js"></script>
     <!-- 修改为普通脚本标签，不使用模块 -->
-    <script src="js/process/index.js"></script>
-    <script src="js/process/prompt-pool-api.js"></script>
-    <script src="js/process/prompt-pool.js"></script>
-    <script src="js/process/image-generation.js"></script> <!-- 文生图适配器 (Gemini / OpenAI 兼容) -->
-    <script src="js/process/mineru-structured-translation.js"></script> <!-- MinerU 结构化翻译 -->
-    <script src="js/ui/prompt-pool-ui.js"></script>
-    <script src="js/api/model-detector.js"></script>
-    <script src="js/api/ai-api-service.js"></script>
-    <script src="js/app.js"></script>
-    <script src="js/ppt/model-config/ppt_model_config_constants.js"></script>
-    <script src="js/ppt/model-config/ppt_model_config_utils.js"></script>
-    <script src="js/ppt/model-config/ppt_model_config_view.js"></script>
-    <script src="js/ppt/model-config/ppt_model_config_styles.js"></script>
-    <script src="js/ppt/model-config/ppt_model_config_sources.js"></script>
-    <script src="js/ppt/model-config/ppt_model_config_roles.js"></script>
-    <script src="js/ppt/model-config/ppt_model_config_tabs.js"></script>
-    <script src="js/ppt/model-config/ppt_model_config_table.js"></script>
-    <script src="js/ppt/model-config/ppt_model_config_advanced.js"></script>
-    <script src="js/ppt/model-config/ppt_model_config_core.js"></script>
-    <script src="js/processing/markdown_processor_enhanced.js"></script>
+    <script type="module" src="js/process/index.js"></script>
+    <script type="module" src="js/process/prompt-pool-api.js"></script>
+    <script type="module" src="js/process/prompt-pool.js"></script>
+    <script type="module" src="js/process/image-generation.js"></script> <!-- 文生图适配器 (Gemini / OpenAI 兼容) -->
+    <script type="module" src="js/process/mineru-structured-translation.js"></script> <!-- MinerU 结构化翻译 -->
+    <script type="module" src="js/ui/prompt-pool-ui.js"></script>
+    <script type="module" src="js/api/model-detector.js"></script>
+    <script type="module" src="js/api/ai-api-service.js"></script>
+    <script type="module" src="js/app.js"></script>
+    <script type="module" src="js/ppt/model-config/ppt_model_config_constants.js"></script>
+    <script type="module" src="js/ppt/model-config/ppt_model_config_utils.js"></script>
+    <script type="module" src="js/ppt/model-config/ppt_model_config_view.js"></script>
+    <script type="module" src="js/ppt/model-config/ppt_model_config_styles.js"></script>
+    <script type="module" src="js/ppt/model-config/ppt_model_config_sources.js"></script>
+    <script type="module" src="js/ppt/model-config/ppt_model_config_roles.js"></script>
+    <script type="module" src="js/ppt/model-config/ppt_model_config_tabs.js"></script>
+    <script type="module" src="js/ppt/model-config/ppt_model_config_table.js"></script>
+    <script type="module" src="js/ppt/model-config/ppt_model_config_advanced.js"></script>
+    <script type="module" src="js/ppt/model-config/ppt_model_config_core.js"></script>
+    <script type="module" src="js/processing/markdown_processor_enhanced.js"></script>
+    <!-- markdown-it 由 js/boot/deps-loader.js 初始化并挂载到 window.markdownit -->
     <!-- AST-based processor (新架构) -->
-    <script src="js/processing/annotation_plugin_ast.js"></script>  <!-- 注释插件 -->
-    <script src="js/processing/markdown_processor_ast.js"></script>
-    <script src="js/processing/markdown_processor_integration.js"></script>  <!-- 集成层 -->
-    <script src="js/processing/markdown_text_fix.js"></script>
-    <script src="js/processing/markdown_processor.js"></script>
+    <script type="module" src="js/processing/annotation_plugin_ast.js"></script>  <!-- 注释插件 -->
+    <script type="module" src="js/processing/markdown_processor_ast.js"></script>
+    <script type="module" src="js/processing/markdown_processor_integration.js"></script>  <!-- 集成层 -->
+    <script type="module" src="js/processing/markdown_text_fix.js"></script>
+    <script type="module" src="js/processing/markdown_processor.js"></script>
 
     <!-- AST 架构状态显示 -->
     <script>
@@ -1734,24 +1684,31 @@
     </script>
 
     <!-- 文本自适应算法 (PDF 保留格式翻译) - 必须在 history 脚本之前加载 -->
-    <script src="js/utils/text-fitting.js"></script>
-    <script src="js/utils/text-fitting-integration.js"></script>
+    <script type="module" src="js/utils/text-fitting.js"></script>
+    <script type="module" src="js/utils/text-fitting-integration.js"></script>
 
-    <!-- DOCX 导出 - MathML → OMML 转换器 -->
-    <script src="js/history/exporter/mathml2omml.browser.js"></script> <!-- 专业转换库（优先） -->
-    <script src="js/history/exporter/docx_mathml_converter_enhanced.js"></script> <!-- 增强转换器（备用） -->
-    <script src="js/history/exporter/history_exporter_docx.js"></script>
-    <script src="js/history/history_exporter.js"></script>
-    <script src="js/history/history.js"></script>
+    <!-- History 模块 (ESM 统一入口) -->
+    <script type="module">
+      import * as HistoryModule from './js/history/index.js';
+      // 暴露到全局保持兼容
+      window.HistoryModule = HistoryModule;
+      window.PBXHistoryExporter = HistoryModule.PBXHistoryExporter;
+      window.refreshSidebarHistory = HistoryModule.refreshSidebarHistory;
+      window.deleteHistoryRecord = HistoryModule.deleteHistoryRecord;
+      window.showHistoryDetail = HistoryModule.showHistoryDetail;
+      window.downloadHistoryRecord = HistoryModule.downloadHistoryRecord;
+      window.retryTranslateRecord = HistoryModule.retryTranslateRecord;
+      console.log('[History] ESM modules loaded');
+    </script>
     <!-- PPT 模块已移至独立页面 ppt.html -->
 
-    <script src="https://gcore.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
+    <script src="lib/html2pdf.bundle.min.js"></script>
 
 
 
     <!-- ===================== -->
     <!-- 历史记录面板 (模态框) -->
-    <div id="historyPanel" class="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center hidden p-4 md:p-8">
+    <div id="historyPanel" class="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 md:p-8" style="display: none;">
       <div class="bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[85vh] flex flex-col overflow-hidden border border-slate-100">
         <div class="flex justify-between items-center p-5 border-b border-slate-100 bg-slate-50/50">
           <div class="flex items-center gap-3">
@@ -1805,7 +1762,7 @@
       </div>
     </div>
     <!-- 历史记录详情弹窗 (已废弃，详情在新页面打开) -->
-    <div id="historyDetailModal" class="fixed inset-0 z-[99999] bg-black bg-opacity-30 flex items-center justify-center hidden">
+    <div id="historyDetailModal" class="fixed inset-0 z-[99999] bg-black bg-opacity-30 flex items-center justify-center" style="display: none;">
       <div class="bg-white rounded-xl border-2 border-dashed border-gray-300 p-6 w-[90vw] max-w-2xl max-h-[90vh] overflow-y-auto relative">
         <button id="closeHistoryDetail" class="absolute top-2 right-2 text-gray-400 hover:text-red-500"><iconify-icon icon="carbon:close" width="20"></iconify-icon></button>
         <div id="historyDetailContent"></div>
@@ -1869,7 +1826,7 @@
     <!-- ===================== -->
     <!-- 模型搜索弹窗 -->
     <!-- ===================== -->
-    <div id="modelSearchOverlay" class="hidden fixed inset-0 z-[60] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+    <div id="modelSearchOverlay" class="fixed inset-0 z-[60] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4" style="display: none;">
       <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden border border-slate-100">
         <div class="flex items-center justify-between p-5 border-b border-slate-100">
           <h3 id="modelSearchTitle" class="text-lg font-bold text-slate-800">选择模型</h3>
@@ -1886,7 +1843,7 @@
             <div id="modelSearchList" class="space-y-2">
               <!-- 动态填充模型列表 -->
             </div>
-            <div id="modelSearchEmpty" class="hidden flex flex-col items-center justify-center py-12 text-slate-400">
+            <div id="modelSearchEmpty" class="flex flex-col items-center justify-center py-12 text-slate-400" style="display: none;">
                 <iconify-icon icon="carbon:search-locate" width="40" class="mb-2 opacity-50"></iconify-icon>
                 <p class="text-sm">未找到匹配的模型</p>
             </div>
@@ -1897,7 +1854,7 @@
 
     <!-- 模型与Key管理弹窗 -->
     <!-- ===================== -->
-    <div id="modelKeyManagerModal" class="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center hidden p-4 md:p-8">
+    <div id="modelKeyManagerModal" class="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 md:p-8" style="display: none;">
       <div class="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden border border-slate-100">
         <!-- 弹窗头部 -->
         <div class="flex justify-between items-center p-5 border-b border-slate-100 bg-slate-50/50">
@@ -1940,7 +1897,7 @@
     <!-- ===================== -->
     <!-- 版权声明浮动卡片 -->
     <!-- ===================== -->
-    <div id="copyrightModal" class="fixed inset-0 z-50 bg-black bg-opacity-30 flex items-center justify-center hidden px-4 py-8">
+    <div id="copyrightModal" class="fixed inset-0 z-50 bg-black bg-opacity-30 flex items-center justify-center px-4 py-8" style="display: none;">
       <div class="copyright-card-ani p-6 md:p-10 w-full max-w-6xl relative max-h-[90vh] flex flex-col">
         <button id="closeCopyrightModal" class="absolute top-4 right-4 text-gray-400 hover:text-red-500 transition-colors z-10">
             <iconify-icon icon="carbon:close" width="24"></iconify-icon>

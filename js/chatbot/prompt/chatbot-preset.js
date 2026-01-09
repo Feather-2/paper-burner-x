@@ -170,3 +170,4 @@ window.ChatbotPreset = {
   isMindMapRequest,
   isDrawioPicturesRequest
 };
+// ESM 导出

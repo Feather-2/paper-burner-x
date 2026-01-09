@@ -336,4 +336,4 @@
 
     console.log('[FormulaPostProcessor] Formula post processor loaded.');
 
-})(window);
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

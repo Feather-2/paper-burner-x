@@ -17,7 +17,7 @@ const USE_EVENT_DELEGATION = true;  // 已修复流式更新配置加载问题
  * 4. 渲染特殊消息（最终汇总、输入中指示器等）。
  * 5. 提供 Markdown 内容的样式。
  */
-window.ChatbotMessageRenderer = {
+export const ChatbotMessageRenderer = {
   /**
    * 生成消息操作按钮的 HTML（如删除、重发等）。
    *
@@ -551,3 +551,8 @@ window.ChatbotMessageRenderer = {
     return '';
   }
 };
+
+// 向后兼容：挂载到 window（供旧版非 ESM 调用）
+if (typeof window !== 'undefined') {
+  window.ChatbotMessageRenderer = ChatbotMessageRenderer;
+}

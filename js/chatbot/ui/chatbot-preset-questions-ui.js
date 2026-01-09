@@ -1,4 +1,4 @@
-window.ChatbotPresetQuestionsUI = {
+export const ChatbotPresetQuestionsUI = {
   /**
    * 渲染预设问题区域。
    * @param {HTMLElement} parentElement - presetContainer 将被添加到的父元素 (通常是 chatbotWindow 或 mainContentArea)。
@@ -200,3 +200,8 @@ window.ChatbotPresetQuestionsUI = {
     return presetContainer; // 返回创建的容器，主UI函数可以用它来计算布局
   }
 };
+
+// 向后兼容：挂载到 window（供旧版非 ESM 调用）
+if (typeof window !== 'undefined') {
+  window.ChatbotPresetQuestionsUI = ChatbotPresetQuestionsUI;
+}

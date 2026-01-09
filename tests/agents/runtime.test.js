@@ -1,5 +1,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const path = require("node:path");
+const { fileURLToPath } = require("node:url");
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // 以下测试引用了已删除的 run-context.js，已移除
 

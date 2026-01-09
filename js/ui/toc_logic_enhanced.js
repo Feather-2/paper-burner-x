@@ -1165,11 +1165,14 @@
     console.log('Enhanced TOC initialized successfully');
   }
 
-  // 启动初始化
-  if (document.readyState === 'loading') {
+  // 启动初始化：仅在真实浏览器环境（readyState 为 string）下执行
+  const rs = document.readyState;
+  if (rs === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
-  } else {
+  } else if (typeof rs === 'string') {
     init();
+  } else {
+    // 测试/非浏览器 DOM：不自动初始化
   }
 
   // 暴露API
@@ -1187,3 +1190,6 @@
   };
 
 })();
+
+// ESM 导出
+export const EnhancedTocFeature = window.EnhancedTocFeature;

@@ -309,3 +309,5 @@
   console.log('[SmartGranularitySelector] 智能粒度选择器已加载');
 
 })(window);
+
+// ESM 导出

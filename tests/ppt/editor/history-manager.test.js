@@ -1,34 +1,18 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
+import test from 'node:test';
+import assert from 'node:assert/strict';
 
-function setupBrowserGlobals() {
+import { SlideDocument } from '../../../js/ppt/editor/document.js';
+import { HistoryManager } from '../../../js/ppt/editor/history-manager.js';
+
+test.beforeEach(() => {
   globalThis.window = globalThis;
-  require('../../../js/ppt/editor/event-emitter.js');
-  require('../../../js/ppt/editor/document.js');
-  require('../../../js/ppt/editor/history-manager.js');
-  return {
-    SlideDocument: globalThis.SlideDocument,
-    HistoryManager: globalThis.HistoryManager,
-  };
-}
-
-function teardownBrowserGlobals() {
-  delete globalThis.window;
-  delete globalThis.EventEmitter;
-  delete globalThis.SlideDocument;
-  delete globalThis.HistoryManager;
-}
+});
 
 test.afterEach(() => {
-  teardownBrowserGlobals();
-  delete require.cache[require.resolve('../../../js/ppt/editor/event-emitter.js')];
-  delete require.cache[require.resolve('../../../js/ppt/editor/document.js')];
-  delete require.cache[require.resolve('../../../js/ppt/editor/history-manager.js')];
+  delete globalThis.window;
 });
 
 test('HistoryManager: push/undo/redo + canUndo/canRedo', () => {
-  const { SlideDocument, HistoryManager } = setupBrowserGlobals();
-
   const doc = new SlideDocument();
   doc.load([
     {
@@ -70,8 +54,6 @@ test('HistoryManager: push/undo/redo + canUndo/canRedo', () => {
 });
 
 test('HistoryManager: startAutoSave()/stopAutoSave() manages timer lifecycle', () => {
-  const { SlideDocument, HistoryManager } = setupBrowserGlobals();
-
   const doc = new SlideDocument();
   doc.load([{ id: 's1', type: 'freeform', background: '#fff', elements: [] }]);
 
@@ -90,4 +72,3 @@ test('HistoryManager: startAutoSave()/stopAutoSave() manages timer lifecycle', (
   history.stopAutoSave();
   assert.equal(history._autoSaveTimer, null);
 });
-

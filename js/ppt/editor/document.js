@@ -2,7 +2,9 @@
  * 文档管理器
  * 管理 Slide[] 数据源，提供统一的数据访问和修改接口
  */
-class SlideDocument extends EventEmitter {
+import { EventEmitter } from './event-emitter.js';
+
+export class SlideDocument extends EventEmitter {
     constructor() {
         super();
         this.slides = [];
@@ -791,4 +793,7 @@ class SlideDocument extends EventEmitter {
     }
 }
 
-window.SlideDocument = SlideDocument;
+// 兼容：全局挂载（给 legacy IIFE/脚本使用）
+if (typeof window !== 'undefined') {
+    window.SlideDocument = SlideDocument;
+}

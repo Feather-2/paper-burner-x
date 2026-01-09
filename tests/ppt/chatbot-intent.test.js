@@ -1,6 +1,6 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const { parseHTML } = require('linkedom');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { parseHTML } from 'linkedom';
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -28,11 +28,15 @@ test.afterEach(() => {
   delete globalThis.PPTGenerator;
 });
 
-function reload(modulePath) {
+async function importFresh(specifier) {
+  const url = new URL(specifier, import.meta.url);
+  url.searchParams.set('t', `${Date.now()}_${Math.random().toString(16).slice(2)}`);
+  return import(url.href);
+}
+
+async function reload(modulePath) {
   // Ensure mixins run against the current global PPTGenerator binding.
-  delete require.cache[require.resolve(modulePath)];
-  // eslint-disable-next-line global-require, import/no-dynamic-require
-  return require(modulePath);
+  await importFresh(modulePath);
 }
 
 test('chatbot: "把标题改成xxx" routes to edit (OperationPlanner via executeNaturalLanguage)', async () => {
@@ -46,10 +50,10 @@ test('chatbot: "把标题改成xxx" routes to edit (OperationPlanner via execute
     }
   };
 
-  reload('../../js/ppt/generator/ppt_generator_utilities.js');
+  await reload('../../js/ppt/generator/ppt_generator_utilities.js');
 
   // Real IntentParser (with parse alias)
-  reload('../../js/ppt/editor/intent/intent-parser.js');
+  await reload('../../js/ppt/editor/intent/intent-parser.js');
 
   const planCalls = [];
   window.OperationPlanner = {
@@ -92,8 +96,8 @@ test('chatbot: "重新设计第3页" routes to generation (Design Agent)', async
     }
   };
 
-  reload('../../js/ppt/generator/ppt_generator_utilities.js');
-  reload('../../js/ppt/editor/intent/intent-parser.js');
+  await reload('../../js/ppt/generator/ppt_generator_utilities.js');
+  await reload('../../js/ppt/editor/intent/intent-parser.js');
 
   const gen = new globalThis.PPTGenerator();
   gen.addChatMessage = () => {};
@@ -127,7 +131,7 @@ test('chatbot: IntentParser failure returns friendly message', async () => {
     }
   };
 
-  reload('../../js/ppt/generator/ppt_generator_utilities.js');
+  await reload('../../js/ppt/generator/ppt_generator_utilities.js');
 
   window.IntentParser = {
     parse: async () => {
@@ -154,8 +158,8 @@ test('chatbot: concurrent intents are queued (no overlap)', async () => {
     }
   };
 
-  reload('../../js/ppt/generator/ppt_generator_utilities.js');
-  reload('../../js/ppt/editor/intent/intent-parser.js');
+  await reload('../../js/ppt/generator/ppt_generator_utilities.js');
+  await reload('../../js/ppt/editor/intent/intent-parser.js');
 
   const gen = new globalThis.PPTGenerator();
   gen.addChatMessage = () => {};

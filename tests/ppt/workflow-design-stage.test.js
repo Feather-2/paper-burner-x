@@ -1,6 +1,6 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const { parseHTML } = require('linkedom');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { parseHTML } from 'linkedom';
 
 function setupDom(html = '<!doctype html><html><head></head><body></body></html>') {
   const { window, document } = parseHTML(html);
@@ -12,7 +12,6 @@ function setupDom(html = '<!doctype html><html><head></head><body></body></html>
 function teardownDom() {
   delete globalThis.window;
   delete globalThis.document;
-  delete globalThis.SlideParser;
 }
 
 if (!globalThis.PPTGenerator) {
@@ -39,7 +38,10 @@ if (!globalThis.PPTGenerator) {
   };
 }
 
-require('../../js/ppt/generator/ppt_generator_workflow.js');
+// Ensure SlideParser is available on globalThis for runtime mixins.
+await import('../../js/ppt/core/slide-parser.js');
+
+await import('../../js/ppt/generator/ppt_generator_workflow.js');
 
 test.before(async () => {
   // Ensure async mixins have been installed before calling non-stubbed methods.
@@ -72,7 +74,7 @@ function makeContentPackage(slideCount = 3) {
 
 test('design.batch calls DesignAgentLoop and populates deckHtmlDsl + slides', async () => {
   setupDom('<!doctype html><html><body></body></html>');
-  globalThis.SlideParser = require('../../js/ppt/core/slide-parser.js').SlideParser;
+  globalThis.window.SlideParser = globalThis.SlideParser;
 
   const gen = new globalThis.PPTGenerator();
   gen.updateTodos = () => {};
@@ -115,7 +117,7 @@ test('design.batch calls DesignAgentLoop and populates deckHtmlDsl + slides', as
 
 test('design.batch falls back to mock deck when DesignAgentLoop throws', async () => {
   setupDom('<!doctype html><html><body></body></html>');
-  globalThis.SlideParser = require('../../js/ppt/core/slide-parser.js').SlideParser;
+  globalThis.window.SlideParser = globalThis.SlideParser;
 
   const gen = new globalThis.PPTGenerator();
   gen.updateTodos = () => {};
@@ -151,7 +153,7 @@ test('design.batch falls back to mock deck when DesignAgentLoop throws', async (
 
 test('design.batch emits design.phase.transition and persists designPhase', async () => {
   setupDom('<!doctype html><html><body></body></html>');
-  globalThis.SlideParser = require('../../js/ppt/core/slide-parser.js').SlideParser;
+  globalThis.window.SlideParser = globalThis.SlideParser;
 
   const gen = new globalThis.PPTGenerator();
   gen.updateTodos = () => {};

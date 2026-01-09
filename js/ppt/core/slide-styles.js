@@ -266,3 +266,18 @@ const SlideStyles = {
 // ============================================================
 // 2. SlideParser - 从 HTML 解析出 Schema
 // ============================================================
+
+// Global export (legacy scripts + ESM import side-effects).
+try {
+    if (typeof globalThis !== 'undefined') {
+        globalThis.SlideStyles = SlideStyles;
+    }
+    if (typeof window !== 'undefined') {
+        window.SlideStyles = SlideStyles;
+    }
+} catch {
+    // ignore
+}
+
+// ESM 导出
+export { SlideStyles };

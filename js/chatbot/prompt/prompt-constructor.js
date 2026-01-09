@@ -223,3 +223,5 @@ window.PromptConstructor = (function() {
   };
 
 })();
+
+// ESM 导出

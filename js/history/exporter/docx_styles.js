@@ -3,13 +3,10 @@
  * 提供 Word 文档的样式定义和页脚模板
  */
 
-(function(window) {
-  'use strict';
-
-  /**
-   * 标题大纲级别映射
-   */
-  const HEADING_OUTLINE_LEVELS = {
+/**
+ * 标题大纲级别映射
+ */
+export const HEADING_OUTLINE_LEVELS = {
     Heading1: 0,
     Heading2: 1,
     Heading3: 2,
@@ -18,11 +15,11 @@
     Heading6: 5
   };
 
-  /**
-   * 构建 Word 样式 XML
-   * @returns {string} styles.xml 内容
-   */
-  function buildStylesXml() {
+/**
+ * 构建 Word 样式 XML
+ * @returns {string} styles.xml 内容
+ */
+export function buildStylesXml() {
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:docDefaults>
@@ -180,13 +177,13 @@
 </w:styles>`;
   }
 
-  /**
-   * 构建页脚 XML
-   * @param {string} footerText - 页脚文本
-   * @param {Object} options - 格式选项
-   * @returns {string} footer.xml 内容
-   */
-  function buildFooterXml(footerText = 'by Paper Burner X', options = {}) {
+/**
+ * 构建页脚 XML
+ * @param {string} footerText - 页脚文本
+ * @param {Object} options - 格式选项
+ * @returns {string} footer.xml 内容
+ */
+export function buildFooterXml(footerText = 'by Paper Burner X', options = {}) {
     const italic = options.italic !== false;
     const fontSize = options.fontSize || 18;
     const align = options.align || 'center';
@@ -213,11 +210,14 @@
 </w:ftr>`;
   }
 
-  // 导出到全局
-  window.PBXDocxStyles = {
-    HEADING_OUTLINE_LEVELS,
-    buildStylesXml,
-    buildFooterXml
-  };
+export const PBXDocxStyles = {
+  HEADING_OUTLINE_LEVELS,
+  buildStylesXml,
+  buildFooterXml
+};
 
-})(window);
+// 兼容层：保留原 window.PBXDocxStyles
+if (typeof window !== 'undefined') {
+  window.PBXDocxStyles = window.PBXDocxStyles || {};
+  Object.assign(window.PBXDocxStyles, PBXDocxStyles);
+}

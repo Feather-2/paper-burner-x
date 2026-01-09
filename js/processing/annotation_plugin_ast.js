@@ -296,4 +296,4 @@
         module.exports = createAnnotationPlugin;
     }
 
-})(window);
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

@@ -4,6 +4,49 @@
 // 历史记录面板相关逻辑
 // =====================
 
+let refreshSidebarHistoryImpl = null;
+let deleteHistoryRecordImpl = null;
+let downloadHistoryRecordImpl = null;
+let retryTranslateRecordImpl = null;
+
+export function refreshSidebarHistory() {
+    if (typeof refreshSidebarHistoryImpl === 'function') {
+        return refreshSidebarHistoryImpl();
+    }
+}
+
+export function deleteHistoryRecord(id, name) {
+    if (typeof deleteHistoryRecordImpl === 'function') {
+        return deleteHistoryRecordImpl(id, name);
+    }
+}
+
+export function showHistoryDetail(id) {
+    if (typeof window === 'undefined') return;
+    window.open('views/history/history_detail.html?id=' + encodeURIComponent(id), '_blank');
+}
+
+export async function downloadHistoryRecord(id) {
+    if (typeof downloadHistoryRecordImpl === 'function') {
+        return downloadHistoryRecordImpl(id);
+    }
+}
+
+export function retryTranslateRecord(id, mode) {
+    if (typeof retryTranslateRecordImpl === 'function') {
+        return retryTranslateRecordImpl(id, mode);
+    }
+}
+
+// 兼容层：保留原 window.* facade
+if (typeof window !== 'undefined') {
+    window.refreshSidebarHistory = refreshSidebarHistory;
+    window.deleteHistoryRecord = deleteHistoryRecord;
+    window.showHistoryDetail = showHistoryDetail;
+    window.downloadHistoryRecord = downloadHistoryRecord;
+    window.retryTranslateRecord = retryTranslateRecord;
+}
+
 /**
  * 当 HTML 文档完全加载并解析完成后，执行此函数。
  * 主要负责初始化历史记录面板的用户交互：
@@ -11,7 +54,7 @@
  *  - 为"关闭历史面板"按钮绑定点击事件。
  *  - 为"清空历史记录"按钮绑定点击事件，并在用户确认后清空所有历史数据并刷新列表。
  */
-document.addEventListener('DOMContentLoaded', function() {
+if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', function() {
     const REQUIRED_CLEAR_PHRASE = '确定删除';
 
     // --------------------------------------------------
@@ -101,7 +144,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         // 暴露给全局以便其他模块调用刷新
-        window.refreshSidebarHistory = renderSidebarQuickAccess;
+        refreshSidebarHistoryImpl = renderSidebarQuickAccess;
     }
 
     // 显示历史面板并渲染历史列表
@@ -127,10 +170,13 @@ document.addEventListener('DOMContentLoaded', function() {
     if (floatingHistoryBtn) {
         floatingHistoryBtn.addEventListener('click', openHistoryPanel);
     }
-    // 关闭历史面板
-    document.getElementById('closeHistoryPanel').onclick = function() {
-        document.getElementById('historyPanel').classList.add('hidden');
-    };
+    // 关闭历史面板（仅在 index.html 中存在）
+    const closeHistoryPanelBtn = document.getElementById('closeHistoryPanel');
+    if (closeHistoryPanelBtn) {
+        closeHistoryPanelBtn.onclick = function() {
+            document.getElementById('historyPanel').classList.add('hidden');
+        };
+    }
     const clearHistoryBtn = document.getElementById('clearHistoryBtn');
 
     const historyClearModal = document.getElementById('historyClearConfirmModal');
@@ -2167,7 +2213,7 @@ document.addEventListener('DOMContentLoaded', function() {
      * @param {string} id - 要删除的历史记录的唯一 ID (通常是 `result.id`)。
      * @returns {Promise<void>} 当删除和列表刷新完成后解决。
      */
-    window.deleteHistoryRecord = function(id, name) {
+    deleteHistoryRecordImpl = function(id, name) {
         openHistoryClearModal('record', { recordId: id, recordName: name || '' });
     };
 
@@ -2177,9 +2223,7 @@ document.addEventListener('DOMContentLoaded', function() {
      *
      * @param {string} id - 要查看详情的历史记录的唯一 ID。
      */
-    window.showHistoryDetail = function(id) {
-        window.open('views/history/history_detail.html?id=' + encodeURIComponent(id), '_blank');
-    };
+    window.showHistoryDetail = showHistoryDetail;
 
     /**
      * (全局可调用) 将指定 ID 的单条历史记录打包成一个 ZIP 文件并触发浏览器下载。
@@ -2203,7 +2247,7 @@ document.addEventListener('DOMContentLoaded', function() {
      * @param {string} id - 要下载的历史记录的唯一 ID。
      * @returns {Promise<void>} 当 ZIP 文件准备好并开始下载时解决，或在发生错误时提前返回。
      */
-    window.downloadHistoryRecord = async function(id) {
+    downloadHistoryRecordImpl = async function(id) {
         const r = await getResultFromDB(id);
         if (!r) return;
         if (typeof JSZip === 'undefined') {
@@ -2595,7 +2639,7 @@ document.addEventListener('DOMContentLoaded', function() {
      * @param {string} id 历史记录ID
      * @param {('all'|'failed')} mode 模式：全部或仅失败
      */
-    window.retryTranslateRecord = function(id, mode) {
+    retryTranslateRecordImpl = function(id, mode) {
         _retryRecordInternal(id, mode === 'all' ? 'all' : 'failed');
     };
 });

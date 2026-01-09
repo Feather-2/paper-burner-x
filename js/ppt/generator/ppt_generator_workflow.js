@@ -1,13 +1,27 @@
+// ESM 导入核心类以确保 mixin 安装时类已存在
+import PPTGeneratorCtor from './ppt_generator_core.js';
+
 /**
  * PPT Generator Workflow - 组合入口
  * 使用动态 import 加载 mixin 模块，保持与现有非模块脚本的兼容性
  */
 
 (function loadWorkflowMixins() {
-    const GeneratorCtor =
-        (typeof globalThis !== 'undefined' && globalThis.PPTGenerator?.prototype)
-            ? globalThis.PPTGenerator
-            : ((typeof PPTGenerator !== 'undefined' && PPTGenerator?.prototype) ? PPTGenerator : null);
+    function resolveGeneratorCtor() {
+        const g = (typeof globalThis !== 'undefined') ? globalThis : null;
+        const w = (typeof window !== 'undefined') ? window : null;
+        return (
+            (g && g.PPTGenerator?.prototype) ? g.PPTGenerator :
+            (w && w.PPTGenerator?.prototype) ? w.PPTGenerator :
+            (g && g.PPTGeneratorCtor?.prototype) ? g.PPTGeneratorCtor :
+            (w && w.PPTGeneratorCtor?.prototype) ? w.PPTGeneratorCtor :
+            (PPTGeneratorCtor?.prototype) ? PPTGeneratorCtor :
+            null
+        );
+    }
+
+    // Prefer the runtime/global ctor for tests + legacy flows; fall back to ESM core ctor.
+    const GeneratorCtor = resolveGeneratorCtor();
     const proto = GeneratorCtor?.prototype || null;
 
     let resolveReady = null;
@@ -67,10 +81,7 @@
             ...runtimeMixin,
         };
 
-        const ctor =
-            (typeof globalThis !== 'undefined' && globalThis.PPTGenerator?.prototype)
-                ? globalThis.PPTGenerator
-                : GeneratorCtor;
+        const ctor = GeneratorCtor;
         if (!ctor?.prototype) throw new ReferenceError('PPTGenerator is not defined');
         Object.assign(ctor.prototype, PPTGeneratorWorkflow);
 

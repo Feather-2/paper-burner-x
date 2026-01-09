@@ -275,4 +275,4 @@
         global.MarkdownProcessorEnhanced.fixRenderedMath = fixRenderedMath;
     }
 
-})(window);
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

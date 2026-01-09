@@ -1,6 +1,6 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const { parseHTML } = require('linkedom');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { parseHTML } from 'linkedom';
 
 function setupDom(html = '<!doctype html><html><head></head><body></body></html>') {
   const { window, document } = parseHTML(html);
@@ -35,7 +35,7 @@ if (!globalThis.PPTGenerator) {
   };
 }
 
-require('../../js/ppt/generator/ppt_generator_workflow.js');
+await import('../../js/ppt/generator/ppt_generator_workflow.js');
 
 test.afterEach(() => {
   teardownDom();
@@ -173,4 +173,3 @@ Second line`;
   assert.equal(intents[0].pageType, 'content');
   assert.equal(intents[0].content, md);
 });
-

@@ -2,7 +2,9 @@
  * 任务队列
  * 管理长时间运行的任务（如图片生成、导出等）
  */
-class TaskQueue extends EventEmitter {
+import { EventEmitter } from './event-emitter.js';
+
+export class TaskQueue extends EventEmitter {
     static STATUS = {
         PENDING: 'pending',
         RUNNING: 'running',
@@ -305,6 +307,12 @@ async function exportHandler(task, context) {
 }
 
 // 全局任务队列实例
-window.taskQueue = new TaskQueue();
-window.taskQueue.registerHandler('image-generation', imageGenerationHandler);
-window.taskQueue.registerHandler('export', exportHandler);
+export const taskQueue = new TaskQueue();
+taskQueue.registerHandler('image-generation', imageGenerationHandler);
+taskQueue.registerHandler('export', exportHandler);
+
+// 兼容：全局挂载（给 legacy IIFE/脚本使用）
+if (typeof window !== 'undefined') {
+    window.TaskQueue = TaskQueue;
+    window.taskQueue = taskQueue;
+}

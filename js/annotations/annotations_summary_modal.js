@@ -1,13 +1,93 @@
-const annotationsSummaryModal = document.getElementById('annotations-summary-modal');
-const annotationsSummaryCloseBtn = document.getElementById('annotations-summary-close-btn');
-const annotationsFilterTypeSelect = document.getElementById('annotations-filter-type');
-const annotationsFilterContentSelect = document.getElementById('annotations-filter-content');
-const annotationsSummaryTableBody = document.getElementById('annotations-summary-table-body');
-const annotationsSummaryColorFilter = document.getElementById('annotations-summary-color-filter');
+import { getHighlightColor } from './renderers/index.js';
+
+let annotationsSummaryModal = null;
+let annotationsSummaryCloseBtn = null;
+let annotationsFilterTypeSelect = null;
+let annotationsFilterContentSelect = null;
+let annotationsSummaryTableBody = null;
+let annotationsSummaryColorFilter = null;
+
+let isInitialized = false;
+let lastSeenColors = new Set();
+let pollTimerId = null;
+let pollActive = false;
+
+function resolveDomRefs() {
+  if (typeof document === 'undefined') return false;
+  annotationsSummaryModal = document.getElementById('annotations-summary-modal');
+  annotationsSummaryCloseBtn = document.getElementById('annotations-summary-close-btn');
+  annotationsFilterTypeSelect = document.getElementById('annotations-filter-type');
+  annotationsFilterContentSelect = document.getElementById('annotations-filter-content');
+  annotationsSummaryTableBody = document.getElementById('annotations-summary-table-body');
+  annotationsSummaryColorFilter = document.getElementById('annotations-summary-color-filter');
+  return !!(annotationsSummaryModal || annotationsSummaryTableBody);
+}
+
+export function initAnnotationsSummaryModal() {
+  if (isInitialized) return;
+  if (!resolveDomRefs()) return;
+
+  // 关闭按钮
+  if (annotationsSummaryCloseBtn) {
+    annotationsSummaryCloseBtn.onclick = closeAnnotationsSummaryModal;
+  }
+
+  // 点击遮罩关闭
+  if (annotationsSummaryModal) {
+    annotationsSummaryModal.addEventListener('click', function(event) {
+      if (event.target === annotationsSummaryModal) {
+        closeAnnotationsSummaryModal();
+      }
+    });
+  }
+
+  // 筛选下拉变化
+  if (annotationsFilterTypeSelect && annotationsFilterContentSelect && annotationsSummaryColorFilter) {
+    annotationsFilterTypeSelect.addEventListener('change', () => {
+      const checkedColors = Array.from(annotationsSummaryColorFilter.querySelectorAll('input[type="checkbox"]:checked')).map(cb => cb.value);
+      populateAnnotationsSummaryTable(annotationsFilterTypeSelect.value, annotationsFilterContentSelect.value, checkedColors);
+    });
+    annotationsFilterContentSelect.addEventListener('change', () => {
+      const checkedColors = Array.from(annotationsSummaryColorFilter.querySelectorAll('input[type="checkbox"]:checked')).map(cb => cb.value);
+      populateAnnotationsSummaryTable(annotationsFilterTypeSelect.value, annotationsFilterContentSelect.value, checkedColors);
+    });
+  }
+
+  // 初始化已知颜色集合
+  lastSeenColors = new Set(getAllHighlightColors());
+
+  // 每秒检查一次新颜色（页面隐藏时暂停轮询）
+  (function startPolling() {
+    if (pollActive) return;
+    pollActive = true;
+
+    function poll() {
+      if (!pollActive) return;
+      if (typeof document !== 'undefined' && !document.hidden) {
+        checkForNewColors();
+      }
+      pollTimerId = setTimeout(poll, 1000);
+    }
+
+    poll();
+  })();
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('beforeunload', () => {
+      pollActive = false;
+      if (pollTimerId) {
+        clearTimeout(pollTimerId);
+        pollTimerId = null;
+      }
+    });
+  }
+
+  isInitialized = true;
+}
 
 // 获取所有出现过的高亮颜色
 function getAllHighlightColors() {
-  if (!window.data || !window.data.annotations) return [];
+  if (typeof window === 'undefined' || !window.data || !window.data.annotations) return [];
   const colorSet = new Set();
   window.data.annotations.forEach(ann => {
     if (ann.highlightColor) colorSet.add(ann.highlightColor);
@@ -17,6 +97,7 @@ function getAllHighlightColors() {
 
 // 渲染颜色多选区
 function renderColorFilter(selectedColors) {
+  if (!annotationsSummaryColorFilter) return;
   const allColors = getAllHighlightColors();
   annotationsSummaryColorFilter.innerHTML = '';
   if (allColors.length === 0) return;
@@ -47,11 +128,14 @@ function renderColorFilter(selectedColors) {
 }
 
 // 主表格渲染函数，增加颜色筛选参数
-function populateAnnotationsSummaryTable(typeFilter = 'all', contentFilter = 'all', colorFilter = null) {
-  console.log('[调试] populateAnnotationsSummaryTable called, data:', window.data, 'tocStructure:', (typeof window.getCurrentTocStructure === 'function') ? window.getCurrentTocStructure() : null);
+export function populateAnnotationsSummaryTable(typeFilter = 'all', contentFilter = 'all', colorFilter = null) {
+  initAnnotationsSummaryModal();
+  console.log('[调试] populateAnnotationsSummaryTable called, data:', (typeof window !== 'undefined' ? window.data : null), 'tocStructure:', (typeof window !== 'undefined' && typeof window.getCurrentTocStructure === 'function') ? window.getCurrentTocStructure() : null);
 
-  if (!window.data || !window.data.annotations || !annotationsSummaryTableBody) {
-    annotationsSummaryTableBody.innerHTML = '<tr><td colspan="7">暂无数据或批注未加载。</td></tr>';
+  if (typeof window === 'undefined' || !window.data || !window.data.annotations || !annotationsSummaryTableBody) {
+    if (annotationsSummaryTableBody) {
+      annotationsSummaryTableBody.innerHTML = '<tr><td colspan="7">暂无数据或批注未加载。</td></tr>';
+    }
     return;
   }
 
@@ -914,8 +998,9 @@ function populateAnnotationsSummaryTable(typeFilter = 'all', contentFilter = 'al
   }
 }
 
-window.openAnnotationsSummaryModal = function(filterByType = 'all', filterByContent = 'all') {
-    if (!annotationsSummaryModal) return;
+export function openAnnotationsSummaryModal(filterByType = 'all', filterByContent = 'all') {
+    initAnnotationsSummaryModal();
+    if (!annotationsSummaryModal || !annotationsFilterTypeSelect || !annotationsFilterContentSelect) return;
 
     // Set initial filter values from parameters
     annotationsFilterTypeSelect.value = filterByType;
@@ -925,48 +1010,26 @@ window.openAnnotationsSummaryModal = function(filterByType = 'all', filterByCont
     const allColors = getAllHighlightColors();
     populateAnnotationsSummaryTable(filterByType, filterByContent, allColors);
     annotationsSummaryModal.classList.add('visible');
-};
+}
 
-function closeAnnotationsSummaryModal() {
+export function closeAnnotationsSummaryModal() {
+    initAnnotationsSummaryModal();
     if (annotationsSummaryModal) {
         annotationsSummaryModal.classList.remove('visible');
     }
 }
 
-if (annotationsSummaryCloseBtn) {
-    annotationsSummaryCloseBtn.onclick = closeAnnotationsSummaryModal;
-}
-if (annotationsSummaryModal) {
-    annotationsSummaryModal.addEventListener('click', function(event) {
-        if (event.target === annotationsSummaryModal) { // Click on overlay
-            closeAnnotationsSummaryModal();
-        }
-    });
-}
-if (annotationsFilterTypeSelect && annotationsFilterContentSelect) {
-    annotationsFilterTypeSelect.addEventListener('change', () => {
-        // 颜色多选保持当前选中
-        const checkedColors = Array.from(annotationsSummaryColorFilter.querySelectorAll('input[type="checkbox"]:checked')).map(cb => cb.value);
-        populateAnnotationsSummaryTable(annotationsFilterTypeSelect.value, annotationsFilterContentSelect.value, checkedColors);
-    });
-    annotationsFilterContentSelect.addEventListener('change', () => {
-        const checkedColors = Array.from(annotationsSummaryColorFilter.querySelectorAll('input[type="checkbox"]:checked')).map(cb => cb.value);
-        populateAnnotationsSummaryTable(annotationsFilterTypeSelect.value, annotationsFilterContentSelect.value, checkedColors);
-    });
-}
-
-// 存储上次看到的颜色集合，用于检测新颜色
-let lastSeenColors = new Set();
-
 // 定期检查是否有新颜色出现
 function checkForNewColors() {
-    const currentColors = new Set(getAllHighlightColors());
+    if (!annotationsSummaryModal || !annotationsSummaryColorFilter || !annotationsFilterTypeSelect || !annotationsFilterContentSelect) {
+        return;
+    }
 
-    // 找出新增的颜色
+    const currentColors = new Set(getAllHighlightColors());
     const newColors = Array.from(currentColors).filter(color => !lastSeenColors.has(color));
 
     // 如果有新颜色且模态框当前可见
-    if (newColors.length > 0 && annotationsSummaryModal && annotationsSummaryModal.classList.contains('visible')) {
+    if (newColors.length > 0 && annotationsSummaryModal.classList.contains('visible')) {
         console.log('检测到新颜色:', newColors);
 
         // 获取当前已选中的颜色
@@ -989,42 +1052,16 @@ function checkForNewColors() {
     lastSeenColors = currentColors;
 }
 
-// 初始化已知颜色集合
-lastSeenColors = new Set(getAllHighlightColors());
+// 兼容层：暴露到 window，供旧代码过渡期使用
+if (typeof window !== 'undefined') {
+    window.openAnnotationsSummaryModal = openAnnotationsSummaryModal;
+}
 
-// 每秒检查一次新颜色
-// 性能优化：页面隐藏时暂停轮询
-(function() {
-    let timerId = null;
-    let isActive = false;
-
-    function poll() {
-        if (!isActive) return;
-        if (!document.hidden) {
-            checkForNewColors();
-        }
-        timerId = setTimeout(poll, 1000);
+// 浏览器环境下自动初始化（避免在 Node 测试环境触发 DOM 访问）
+if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => initAnnotationsSummaryModal(), { once: true });
+    } else {
+        initAnnotationsSummaryModal();
     }
-
-    function start() {
-        if (isActive) return;
-        isActive = true;
-        poll();
-    }
-
-    function stop() {
-        isActive = false;
-        if (timerId) {
-            clearTimeout(timerId);
-            timerId = null;
-        }
-    }
-
-    document.addEventListener('visibilitychange', () => {
-        // 页面隐藏/显示时无需额外操作，poll 函数会自动跳过
-    });
-
-    window.addEventListener('beforeunload', stop);
-
-    start();
-})();
+}

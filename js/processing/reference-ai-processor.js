@@ -566,5 +566,4 @@
 
     console.log('[ReferenceAIProcessor] Reference AI processor loaded.');
 
-})(window);
-
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

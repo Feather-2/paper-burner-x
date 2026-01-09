@@ -160,11 +160,14 @@
     setTimeout(highlightActiveTocItem, 500);
   }
 
-  // 页面加载完成后初始化
-  if (document.readyState === 'loading') {
+  // 页面加载完成后初始化：仅在真实浏览器环境（readyState 为 string）下执行
+  const rs = document.readyState;
+  if (rs === 'loading') {
     document.addEventListener('DOMContentLoaded', initScrollSync);
-  } else {
+  } else if (typeof rs === 'string') {
     initScrollSync();
+  } else {
+    // 测试/非浏览器 DOM：不自动初始化
   }
 
   // 暴露一个全局方法以便在内容重新渲染后手动触发

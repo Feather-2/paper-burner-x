@@ -27,15 +27,15 @@ if (typeof marked !== 'undefined' && typeof marked.setOptions === 'function') {
  * 使用缓存渲染 KaTeX 公式
  * 自动降级到 katex.renderToString 如果缓存不可用
  */
-function renderKatexWithCache(tex, options) {
-  if (typeof window.renderKatexCached === 'function') {
+export function renderKatexWithCache(tex, options) {
+  if (typeof window !== 'undefined' && typeof window.renderKatexCached === 'function') {
     return window.renderKatexCached(tex, options);
   }
   // 降级到直接渲染
   return katex.renderToString(tex, options);
 }
 
-window.renderWithKatexStreaming = function(md) {
+export function renderWithKatexStreaming(md) {
   const codeBlocks = [];
   let codeBlockCounter = 0;
 
@@ -226,19 +226,19 @@ window.renderWithKatexStreaming = function(md) {
   }
 
   // XSS 防���：使用 safeRenderMarkdown 替代直接 marked.parse()
-  if (typeof window.safeRenderMarkdown === 'function') {
+  if (typeof window !== 'undefined' && typeof window.safeRenderMarkdown === 'function') {
     return window.safeRenderMarkdown(md);
   }
 
   // 降级方案：如果 safeRenderMarkdown 不可用，仍使用 marked.parse
   console.warn('[Security] safeRenderMarkdown not available, using unsafe marked.parse()');
   return marked.parse(md);
-};
+}
 
 /**
  * Phase 4.2 - 长公式增量渲染原型（带缓存支持）
  */
-window.ChatbotMathStreaming = (function() {
+export const ChatbotMathStreaming = (function() {
   function escapeHtml(text) {
     if (typeof text !== 'string') {
       return '';
@@ -257,7 +257,7 @@ window.ChatbotMathStreaming = (function() {
 
   function renderPlainMarkdown(text) {
     if (!text) return '';
-    if (typeof window.safeRenderMarkdown === 'function') {
+    if (typeof window !== 'undefined' && typeof window.safeRenderMarkdown === 'function') {
       return window.safeRenderMarkdown(text);
     }
     if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
@@ -383,5 +383,11 @@ window.ChatbotMathStreaming = (function() {
     renderIncremental: renderIncremental
   };
 })();
+
+// 向后兼容：暴露到 window
+if (typeof window !== 'undefined') {
+  window.renderWithKatexStreaming = renderWithKatexStreaming;
+  window.ChatbotMathStreaming = ChatbotMathStreaming;
+}
 
 console.log('[Phase 4.2+] KaTeX cached rendering enabled');

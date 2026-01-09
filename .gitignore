@@ -40,6 +40,7 @@ tatus
 /node_modules
 /log
 demo/ppt_workflow_preview.html
+/coverage
 /coverage/tmp
 /screenshots
 /plans

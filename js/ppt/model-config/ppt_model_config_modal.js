@@ -55,4 +55,4 @@
   })().catch((err) => {
     console.error('[PPTModelConfig] Failed to load split modules via legacy loader:', err);
   });
-})(typeof window !== 'undefined' ? window : this);
+})(typeof window !== 'undefined' ? window : globalThis);

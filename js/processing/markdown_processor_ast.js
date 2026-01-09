@@ -1052,4 +1052,4 @@
     console.log('%c[MarkdownProcessorAST] ✅ AST 架构已启用', 'color: #10b981; font-weight: bold', CONFIG.version);
     debug('MarkdownProcessorAST initialized', CONFIG.version);
 
-})(window);
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

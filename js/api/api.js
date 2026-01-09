@@ -407,6 +407,30 @@ async function testModelKey(modelName, keyValue, modelConfig) {
 }
 
 
-// --- 导出 API 相关函数 ---
-// (如果使用模块化)
-// export { uploadToMistral, getMistralSignedUrl, callMistralOcr, deleteMistralFile, callTranslationApi, getApiError, testModelKey };
+// --- Export (ESM) + expose globals for legacy scripts ---
+export {
+    uploadToMistral,
+    getMistralSignedUrl,
+    callMistralOcr,
+    deleteMistralFile,
+    callTranslationApi,
+    getApiError,
+    testModelKey
+};
+
+try {
+    const root = (typeof window !== 'undefined') ? window : (typeof globalThis !== 'undefined' ? globalThis : null);
+    if (root) {
+        Object.assign(root, {
+            uploadToMistral,
+            getMistralSignedUrl,
+            callMistralOcr,
+            deleteMistralFile,
+            callTranslationApi,
+            getApiError,
+            testModelKey
+        });
+    }
+} catch {
+    // ignore
+}

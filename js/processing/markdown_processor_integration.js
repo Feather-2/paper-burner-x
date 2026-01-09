@@ -146,4 +146,4 @@
 
     console.log('[MarkdownIntegration] 集成层已加载，当前架构:', getActiveArchitecture());
 
-})(window);
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

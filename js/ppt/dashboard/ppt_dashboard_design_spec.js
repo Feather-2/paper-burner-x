@@ -226,7 +226,7 @@
 
         // Call VLM to extract style
         try {
-            const { analyzeImage } = await import('./vision/layout-from-image.js');
+            const { analyzeImage } = await import('../vision/layout-from-image.js');
             const context = {
                 intentHint: 'style_reference',
                 modelRouter: window.modelRouter || this._modelRouter,
@@ -579,3 +579,5 @@
   });
 
 })();
+
+// ESM 导出

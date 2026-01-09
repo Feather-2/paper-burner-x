@@ -162,3 +162,6 @@
   console.log('[ReActJsonParser] 模块已加载');
 
 })(window);
+
+// ESM 导出
+export const ReActJsonParser = window.ReActJsonParser;

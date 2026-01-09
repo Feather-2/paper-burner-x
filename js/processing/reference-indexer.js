@@ -470,9 +470,10 @@
     // 导出API
     global.ReferenceIndexer = indexer;
 
-    // 添加CSS样式
-    const style = document.createElement('style');
-    style.textContent = `
+    // 添加CSS样式（仅在浏览器环境）
+    if (typeof document !== 'undefined' && document.head && typeof document.createElement === 'function') {
+        const style = document.createElement('style');
+        style.textContent = `
         .reference-citation {
             color: #2196F3;
             text-decoration: none;
@@ -504,11 +505,11 @@
             50% { opacity: 0.7; }
         }
     `;
-    document.head.appendChild(style);
+        document.head.appendChild(style);
+    }
 
     console.log('[ReferenceIndexer] Reference indexer loaded.');
 
-})(window);
-
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));
 
 

@@ -980,7 +980,22 @@ const PPTXFreeformMixin = {
     },
 };
 
+// Global export (legacy scripts + ESM import side-effects).
+try {
+    if (typeof globalThis !== 'undefined') {
+        globalThis.PPTXFreeformMixin = PPTXFreeformMixin;
+    }
+    if (typeof window !== 'undefined') {
+        window.PPTXFreeformMixin = PPTXFreeformMixin;
+    }
+} catch {
+    // ignore
+}
+
 // 导出供主类使用
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = PPTXFreeformMixin;
 }
+
+// ESM 导出
+export { PPTXFreeformMixin };
