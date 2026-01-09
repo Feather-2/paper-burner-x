@@ -307,6 +307,80 @@ describe('StateBus', () => {
       expect(json.user).toEqual({ name: 'Alice', age: 25 });
       expect(json.config).toEqual({ theme: 'dark' });
     });
+
+    it('should export a deep clone (mutating export does not affect state)', () => {
+      state.set('user', { name: 'Alice', nested: { a: 1 } });
+
+      const json = state.toJSON();
+      json.user.name = 'Bob';
+      json.user.nested.a = 2;
+
+      expect(state.get('user.name')).toBe('Alice');
+      expect(state.get('user.nested.a')).toBe(1);
+    });
+  });
+
+  describe('deepClone', () => {
+    let originalStructuredClone;
+    let structuredCloneDescriptor;
+
+    beforeEach(() => {
+      structuredCloneDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'structuredClone');
+      originalStructuredClone = structuredCloneDescriptor?.value;
+    });
+
+    afterEach(() => {
+      if (structuredCloneDescriptor) {
+        Object.defineProperty(globalThis, 'structuredClone', structuredCloneDescriptor);
+      } else {
+        delete globalThis.structuredClone;
+      }
+    });
+
+    it('should prefer structuredClone when available', () => {
+      const cloneSpy = vi.fn((value) => {
+        if (typeof originalStructuredClone === 'function') {
+          return originalStructuredClone(value);
+        }
+        return JSON.parse(JSON.stringify(value));
+      });
+
+      globalThis.structuredClone = cloneSpy;
+      state.set('when', new Date('2020-01-01T00:00:00.000Z'));
+
+      const json = state.toJSON();
+
+      expect(cloneSpy).toHaveBeenCalledTimes(1);
+
+      if (typeof originalStructuredClone === 'function') {
+        expect(json.when).toBeInstanceOf(Date);
+      } else {
+        expect(typeof json.when).toBe('string');
+      }
+    });
+
+    it('should fall back to JSON clone when structuredClone throws', () => {
+      const cloneSpy = vi.fn(() => {
+        throw new Error('DataCloneError');
+      });
+
+      globalThis.structuredClone = cloneSpy;
+      state.set('when', new Date('2020-01-01T00:00:00.000Z'));
+
+      const json = state.toJSON();
+
+      expect(cloneSpy).toHaveBeenCalledTimes(1);
+      expect(json.when).toBe('2020-01-01T00:00:00.000Z');
+    });
+
+    it('should fall back to JSON clone when structuredClone is missing', () => {
+      globalThis.structuredClone = undefined;
+      state.set('when', new Date('2020-01-01T00:00:00.000Z'));
+
+      const json = state.toJSON();
+
+      expect(json.when).toBe('2020-01-01T00:00:00.000Z');
+    });
   });
 
   describe('snapshot/rollback', () => {

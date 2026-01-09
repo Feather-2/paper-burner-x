@@ -1,6 +1,7 @@
 import { isPlainObject } from "../utils/value-utils.js";
 import { estimateTokensCached } from "../utils/token-cache.js";
 import { isWasmSupported } from "../utils/wasm-support.js";
+import { getGlobalContainer } from "../../runtime/di/global-container.js";
 
 function toText(value) {
   if (typeof value === "string") return value;
@@ -195,16 +196,20 @@ export function createAdaptiveTokenCounter(options = {}) {
   return { count, init, dispose, getStatus };
 }
 
-let _globalCounter = null;
+const TOKEN_COUNTER_SERVICE_ID = "tokenCounter";
 
 /**
  * Shared, process-wide token counter for convenience.
  * @returns {TokenCounter}
+ *
+ * @deprecated Prefer resolving via DI container (`ServiceId.TOKEN_COUNTER`) or passing an explicit counter instance.
  */
 export function getGlobalTokenCounter() {
-  if (_globalCounter) return _globalCounter;
-  _globalCounter = createAdaptiveTokenCounter();
-  return _globalCounter;
+  const container = getGlobalContainer();
+  if (!container.has(TOKEN_COUNTER_SERVICE_ID)) {
+    container.register(TOKEN_COUNTER_SERVICE_ID, () => createAdaptiveTokenCounter());
+  }
+  return container.get(TOKEN_COUNTER_SERVICE_ID);
 }
 
 export default { createAdaptiveTokenCounter, getGlobalTokenCounter };

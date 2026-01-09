@@ -13,18 +13,84 @@ import { cryptoRandomHex } from "../shared/utils/secure-id.js";
 /** @type {number} */
 let _globalSeq = 0;
 /** @type {string | null} */
-let _instanceId = null;
+let _globalInstanceId = null;
 
 /**
- * 获取实例 ID（用于跨 Worker 场景的序列号唯一性）
  * @returns {string}
  */
-function getInstanceId() {
-  if (_instanceId === null) {
-    // 生成 8 字符的随机实例 ID
-    _instanceId = cryptoRandomHex(4);
+function getGlobalInstanceId() {
+  if (_globalInstanceId === null) {
+    _globalInstanceId = cryptoRandomHex(4);
   }
-  return _instanceId;
+  return _globalInstanceId;
+}
+
+/**
+ * Lamport clock service.
+ *
+ * Each instance maintains its own sequence, so it's safe to register in a DI container.
+ */
+export class LamportClockService {
+  constructor() {
+    /** @type {number} */
+    this._seq = 0;
+    /** @type {string | null} */
+    this._instanceId = null;
+  }
+
+  /**
+   * 获取实例 ID（用于跨 Worker 场景的序列号唯一性）
+   * @returns {string}
+   */
+  _getInstanceId() {
+    if (this._instanceId === null) {
+      // 生成 8 字符的随机实例 ID
+      this._instanceId = cryptoRandomHex(4);
+    }
+    return this._instanceId;
+  }
+
+  /**
+   * 生成下一个逻辑时钟值
+   * @returns {LamportClockState}
+   */
+  nextTick() {
+    this._seq += 1;
+    return {
+      seq: this._seq,
+      ts: typeof performance !== "undefined" ? performance.now() : Date.now(),
+      id: `${this._getInstanceId()}_${this._seq}`,
+    };
+  }
+
+  /**
+   * 同步时钟（用于跨 Worker 场景）
+   * 当收到其他 Worker 的消息时，更新本地时钟以保证因果序
+   * @param {number} remoteSeq - 远端的序列号
+   * @returns {void}
+   */
+  sync(remoteSeq) {
+    if (typeof remoteSeq === "number" && Number.isFinite(remoteSeq) && remoteSeq > this._seq) {
+      this._seq = remoteSeq;
+    }
+  }
+
+  /**
+   * 获取当前序列号（不递增）
+   * @returns {number}
+   */
+  currentSeq() {
+    return this._seq;
+  }
+
+  /**
+   * 重置时钟（仅用于测试）
+   * @returns {void}
+   */
+  resetClock() {
+    this._seq = 0;
+    this._instanceId = null;
+  }
 }
 
 /**
@@ -36,7 +102,7 @@ export function nextTick() {
   return {
     seq: _globalSeq,
     ts: typeof performance !== "undefined" ? performance.now() : Date.now(),
-    id: `${getInstanceId()}_${_globalSeq}`,
+    id: `${getGlobalInstanceId()}_${_globalSeq}`,
   };
 }
 
@@ -66,7 +132,7 @@ export function currentSeq() {
  */
 export function resetClock() {
   _globalSeq = 0;
-  _instanceId = null;
+  _globalInstanceId = null;
 }
 
 /**

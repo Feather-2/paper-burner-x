@@ -5,7 +5,13 @@
  */
 
 import { Container, SINGLETON, TRANSIENT } from "./container.js";
+import { LamportClockService } from "../../core/lamport-clock.js";
 import { CircuitBreakerRegistry } from "../../shared/utils/circuit-breaker.js";
+import { createAdaptiveTokenCounter } from "../../shared/tokenizers/adaptive-token-counter.js";
+import { InjectionScanner } from "../../sdk/injection-scanner.js";
+import { FileLock } from "../../vfs/file-lock.js";
+import { createDefaultErrorBoundary } from "../core/error-boundary.js";
+import { TokenTracker } from "../telemetry/token-tracker.js";
 import { TraceContext } from "../telemetry/trace-context.js";
 
 /** @type {any} */
@@ -17,9 +23,13 @@ const process = /** @type {any} */ (globalThis).process;
 export const ServiceId = {
   LOGGER: "logger",
   EVENT_BUS: "eventBus",
+  LAMPORT_CLOCK: "lamportClock",
   TRACE_CONTEXT: "traceContext",
   RETRY_STRATEGY: "retryStrategy",
   ERROR_BOUNDARY: "errorBoundary",
+  INJECTION_SCANNER: "injectionScanner",
+  TOKEN_TRACKER: "tokenTracker",
+  TOKEN_COUNTER: "tokenCounter",
   DEGRADATION_MATRIX: "degradationMatrix",
   TOOL_QUOTA_MANAGER: "toolQuotaManager",
   MEMORY_STORE: "memoryStore",
@@ -28,6 +38,7 @@ export const ServiceId = {
   MCP_CLIENT: "mcpClient",
   RETRIEVAL_ROUTER: "retrievalRouter",
   BUDGET_MANAGER: "budgetManager",
+  SUBAGENT_REGISTRY: "subagentRegistry",
   CHECKPOINT_MANAGER: "checkpointManager",
   CIRCUIT_BREAKER_REGISTRY: "circuitBreakerRegistry",
   WATCHDOG: "watchdog",
@@ -71,6 +82,9 @@ export function createAgentContainer(overrides = {}) {
     return console; // Default to console, can be overridden
   });
 
+  // LamportClock (no dependencies)
+  container.register(ServiceId.LAMPORT_CLOCK, () => new LamportClockService(), { scope: SINGLETON });
+
   // EventBus (no dependencies)
   container.register(ServiceId.EVENT_BUS, async (c) => {
     const { EventBus } = await import("../../core/event-bus.js");
@@ -110,14 +124,16 @@ export function createAgentContainer(overrides = {}) {
   );
 
   // ErrorBoundary (no dependencies)
-  container.register(
-    ServiceId.ERROR_BOUNDARY,
-    async () => {
-      const { getErrorBoundary } = await import("../core/error-boundary.js");
-      return getErrorBoundary();
-    },
-    { scope: SINGLETON }
-  );
+  container.register(ServiceId.ERROR_BOUNDARY, () => createDefaultErrorBoundary(), { scope: SINGLETON });
+
+  // InjectionScanner (no dependencies)
+  container.register(ServiceId.INJECTION_SCANNER, () => new InjectionScanner(), { scope: SINGLETON });
+
+  // TokenTracker (no dependencies)
+  container.register(ServiceId.TOKEN_TRACKER, () => new TokenTracker(), { scope: SINGLETON });
+
+  // TokenCounter (adaptive-token-counter, no dependencies)
+  container.register(ServiceId.TOKEN_COUNTER, () => createAdaptiveTokenCounter(), { scope: SINGLETON });
 
   // DegradationMatrix (depends on logger)
   // Singleton so system-level metrics apply across services/stages.
@@ -226,6 +242,17 @@ export function createAgentContainer(overrides = {}) {
     const { createBudgetManager } = await import("../../shared/utils/budget.js");
     return createBudgetManager();
   });
+
+  // SubagentRegistry (no dependencies)
+  // Registered via DI to avoid runtime/tools importing from sdk directly.
+  container.register(
+    ServiceId.SUBAGENT_REGISTRY,
+    async () => {
+      const { globalSubagentRegistry } = await import("../../sdk/SubagentRegistry.js");
+      return globalSubagentRegistry;
+    },
+    { scope: SINGLETON }
+  );
 
   // CircuitBreakerRegistry (no dependencies)
   container.register(ServiceId.CIRCUIT_BREAKER_REGISTRY, () => {
@@ -351,10 +378,7 @@ export function createAgentContainer(overrides = {}) {
   // P6.6: File Lock (SINGLETON - 全局锁管理)
   container.register(
     ServiceId.FILE_LOCK,
-    async () => {
-      const { FileLockManager } = /** @type {any} */ (await import("../../vfs/file-lock.js"));
-      return new FileLockManager();
-    },
+    () => new FileLock(),
     { scope: SINGLETON }
   );
 

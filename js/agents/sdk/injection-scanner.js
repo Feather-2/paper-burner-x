@@ -11,6 +11,8 @@
  * 浏览器友好，无 Node.js 依赖。
  */
 
+import { getGlobalContainer } from "../runtime/di/global-container.js";
+
 /**
  * 扫描结果类型
  */
@@ -296,14 +298,19 @@ export class InjectionScanner {
   }
 }
 
-// 全局默认扫描器
-let _globalScanner = null;
+const INJECTION_SCANNER_SERVICE_ID = "injectionScanner";
 
+/**
+ * Global scanner singleton (compatibility layer).
+ *
+ * @deprecated Prefer resolving via DI container (`ServiceId.INJECTION_SCANNER`) or passing an explicit instance.
+ */
 export function getGlobalInjectionScanner() {
-  if (!_globalScanner) {
-    _globalScanner = new InjectionScanner();
+  const container = getGlobalContainer();
+  if (!container.has(INJECTION_SCANNER_SERVICE_ID)) {
+    container.register(INJECTION_SCANNER_SERVICE_ID, () => new InjectionScanner());
   }
-  return _globalScanner;
+  return container.get(INJECTION_SCANNER_SERVICE_ID);
 }
 
 /**

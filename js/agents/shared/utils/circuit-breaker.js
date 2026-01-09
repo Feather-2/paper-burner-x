@@ -10,6 +10,7 @@
  */
 
 import { toPositiveInt } from "./value-utils.js";
+import { getGlobalContainer } from "../../runtime/di/global-container.js";
 
 export const CircuitState = Object.freeze({
   CLOSED: "closed",       // 正常状态，允许请求
@@ -329,14 +330,19 @@ export class CircuitBreakerRegistry {
   }
 }
 
-// 全局默认注册表
-let _globalRegistry = null;
+const CIRCUIT_BREAKER_REGISTRY_SERVICE_ID = "circuitBreakerRegistry";
 
+/**
+ * Global registry singleton (compatibility layer).
+ *
+ * @deprecated Prefer resolving via DI container (`ServiceId.CIRCUIT_BREAKER_REGISTRY`) or passing an explicit registry instance.
+ */
 export function getGlobalCircuitBreakerRegistry() {
-  if (!_globalRegistry) {
-    _globalRegistry = new CircuitBreakerRegistry();
+  const container = getGlobalContainer();
+  if (!container.has(CIRCUIT_BREAKER_REGISTRY_SERVICE_ID)) {
+    container.register(CIRCUIT_BREAKER_REGISTRY_SERVICE_ID, () => new CircuitBreakerRegistry());
   }
-  return _globalRegistry;
+  return container.get(CIRCUIT_BREAKER_REGISTRY_SERVICE_ID);
 }
 
 /**

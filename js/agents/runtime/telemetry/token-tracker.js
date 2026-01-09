@@ -1,5 +1,6 @@
 import { cryptoRandomHex } from "../../shared/utils/secure-id.js";
 import { toNonNegativeInt } from "../../shared/utils/value-utils.js";
+import { getGlobalContainer } from "../di/global-container.js";
 
 /**
  * Token Tracker - LLM 调用 Token 使用率实时追踪
@@ -324,14 +325,19 @@ export class TokenTracker {
   }
 }
 
-// 全局默认 tracker
-let _globalTracker = null;
+const TOKEN_TRACKER_SERVICE_ID = "tokenTracker";
 
+/**
+ * Global token tracker singleton (compatibility layer).
+ *
+ * @deprecated Prefer resolving via DI container (`ServiceId.TOKEN_TRACKER`) or passing an explicit tracker instance.
+ */
 export function getGlobalTokenTracker() {
-  if (!_globalTracker) {
-    _globalTracker = new TokenTracker();
+  const container = getGlobalContainer();
+  if (!container.has(TOKEN_TRACKER_SERVICE_ID)) {
+    container.register(TOKEN_TRACKER_SERVICE_ID, () => new TokenTracker());
   }
-  return _globalTracker;
+  return container.get(TOKEN_TRACKER_SERVICE_ID);
 }
 
 /**

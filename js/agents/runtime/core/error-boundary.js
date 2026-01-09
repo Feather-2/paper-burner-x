@@ -9,6 +9,7 @@
  */
 
 import { createLogger } from "../../shared/utils/logger.js";
+import { getGlobalContainer } from "../di/global-container.js";
 
 const logger = createLogger("runtime/core/error-boundary");
 
@@ -298,7 +299,7 @@ export class ErrorBoundary {
 // Global Error Boundary
 // ─────────────────────────────────────────────────────────────────────────────
 
-let _globalBoundary = null;
+const ERROR_BOUNDARY_SERVICE_ID = "errorBoundary";
 
 function shouldDegrade(ctx) {
   if (!ctx || typeof ctx !== "object") return false;
@@ -372,20 +373,31 @@ function createDefaultFallback(category) {
 }
 
 /**
- * Get global error boundary
+ * Create the default ErrorBoundary instance (used by DI defaults).
  * @returns {ErrorBoundary}
  */
+export function createDefaultErrorBoundary() {
+  return new ErrorBoundary({
+    fallbacks: {
+      [ErrorCategory.NETWORK]: createDefaultFallback(ErrorCategory.NETWORK),
+      [ErrorCategory.TIMEOUT]: createDefaultFallback(ErrorCategory.TIMEOUT),
+      [ErrorCategory.QUOTA]: createDefaultFallback(ErrorCategory.QUOTA),
+    },
+  });
+}
+
+/**
+ * Get global error boundary (compatibility layer).
+ * @returns {ErrorBoundary}
+ *
+ * @deprecated Prefer resolving via DI container (`ServiceId.ERROR_BOUNDARY`) or passing an explicit boundary instance.
+ */
 export function getErrorBoundary() {
-  if (!_globalBoundary) {
-    _globalBoundary = new ErrorBoundary({
-      fallbacks: {
-        [ErrorCategory.NETWORK]: createDefaultFallback(ErrorCategory.NETWORK),
-        [ErrorCategory.TIMEOUT]: createDefaultFallback(ErrorCategory.TIMEOUT),
-        [ErrorCategory.QUOTA]: createDefaultFallback(ErrorCategory.QUOTA),
-      },
-    });
+  const container = getGlobalContainer();
+  if (!container.has(ERROR_BOUNDARY_SERVICE_ID)) {
+    container.register(ERROR_BOUNDARY_SERVICE_ID, () => createDefaultErrorBoundary());
   }
-  return _globalBoundary;
+  return container.get(ERROR_BOUNDARY_SERVICE_ID);
 }
 
 /**

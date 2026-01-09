@@ -9,6 +9,7 @@
  */
 
 import { createLogger } from "../shared/utils/logger.js";
+import { getGlobalContainer } from "../runtime/di/global-container.js";
 
 const logger = createLogger("vfs/file-lock");
 
@@ -366,17 +367,20 @@ export class FileLock {
 // Global Instance
 // ─────────────────────────────────────────────────────────────────────────────
 
-let _globalFileLock = null;
+const FILE_LOCK_SERVICE_ID = "fileLock";
 
 /**
  * Get global file lock instance
  * @returns {FileLock}
+ *
+ * @deprecated Prefer resolving via DI container (`ServiceId.FILE_LOCK`) or passing an explicit FileLock instance.
  */
 export function getFileLock() {
-  if (!_globalFileLock) {
-    _globalFileLock = new FileLock();
+  const container = getGlobalContainer();
+  if (!container.has(FILE_LOCK_SERVICE_ID)) {
+    container.register(FILE_LOCK_SERVICE_ID, () => new FileLock());
   }
-  return _globalFileLock;
+  return container.get(FILE_LOCK_SERVICE_ID);
 }
 
 /**

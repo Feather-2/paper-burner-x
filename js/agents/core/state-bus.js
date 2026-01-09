@@ -17,6 +17,24 @@
  * @typedef {StateChangeSubscriber | LegacyStateSubscriber} StateSubscriber
  */
 
+/**
+ * Deep clone helper with structuredClone preferred.
+ * Falls back to JSON clone for environments/values that are not cloneable.
+ * @template T
+ * @param {T} value
+ * @returns {T}
+ */
+function deepClone(value) {
+  if (typeof structuredClone === 'function') {
+    try {
+      return structuredClone(value);
+    } catch {
+      // fallback for non-cloneable values
+    }
+  }
+  return JSON.parse(JSON.stringify(value));
+}
+
 export class StateBus {
   /**
    * @param {StateBusOptions} [options]
@@ -218,7 +236,7 @@ export class StateBus {
    */
   snapshot(id = null) {
     const snapshotId = id || `snap_${Date.now()}`;
-    const data = JSON.parse(JSON.stringify(this._state));
+    const data = deepClone(this._state);
 
     // LRU eviction: remove oldest snapshots when limit exceeded
     if (this._snapshots.size >= this._maxSnapshots && !this._snapshots.has(snapshotId)) {
@@ -248,7 +266,7 @@ export class StateBus {
     }
 
     const oldState = this._state;
-    this._state = JSON.parse(JSON.stringify(data));
+    this._state = deepClone(data);
 
     this._emit('state.rollback', { id: snapshotId, oldState });
     this._notifyChange('*', this._state, oldState, { rollback: true });
@@ -278,7 +296,7 @@ export class StateBus {
    * @returns {Record<string, unknown>}
    */
   toJSON() {
-    return JSON.parse(JSON.stringify(this._state));
+    return deepClone(this._state);
   }
 
   /**
@@ -288,7 +306,7 @@ export class StateBus {
    */
   fromJSON(data) {
     if (data && typeof data === 'object') {
-      this._state = JSON.parse(JSON.stringify(data));
+      this._state = deepClone(data);
       this._emit('state.imported', { state: this._state });
     }
   }

@@ -9,7 +9,7 @@
  * 结果回传：通过 SharedContext.commit() 分层存储，只返回轻量引用
  */
 
-import { globalSubagentRegistry } from "../../sdk/SubagentRegistry.js";
+import { ServiceId } from "../di/index.js";
 
 /**
  * @typedef {import("../../sdk/SubagentRegistry.js").SubagentRegistry} SubagentRegistry
@@ -48,14 +48,56 @@ function extractKeywords(result) {
 }
 
 /**
+ * @param {any} container
+ * @returns {container is { get: (id: string) => any, tryGet?: (id: string) => any }}
+ */
+function isContainerLike(container) {
+    return !!container && typeof container === "object" && typeof container.get === "function";
+}
+
+/**
+ * Resolve SubagentRegistry from explicit options or a DI container.
+ *
+ * @param {SubagentRegistry | null | undefined} registry
+ * @param {any} container
+ * @param {any} context
+ * @returns {Promise<SubagentRegistry>}
+ */
+async function resolveRegistry(registry, container, context) {
+    if (registry) return registry;
+
+    /** @type {any[]} */
+    const candidates = [
+        container,
+        context?.container,
+        context?.services?.container,
+    ].filter(isContainerLike);
+
+    for (const c of candidates) {
+        try {
+            const value = typeof c.tryGet === "function" ? c.tryGet(ServiceId.SUBAGENT_REGISTRY) : c.get(ServiceId.SUBAGENT_REGISTRY);
+            const resolved = await value;
+            if (resolved) return resolved;
+        } catch {
+            // try next candidate
+        }
+    }
+
+    throw new Error(
+        `TaskTool: missing SubagentRegistry. Pass { registry } to createTaskTool(...) or provide a DI container with ServiceId.SUBAGENT_REGISTRY.`
+    );
+}
+
+/**
  * 创建 Task 工具 Handler
  * @param {Object} options
- * @param {SubagentRegistry} [options.registry] - 注册表，默认使用全局
+ * @param {SubagentRegistry} [options.registry] - 注册表（优先使用显式注入）
+ * @param {any} [options.container] - DI 容器（registry 未传时用来解析 ServiceId.SUBAGENT_REGISTRY）
  * @param {AgentInstance} [options.parentAgent] - 父代理实例
  * @param {Function} [options.buildHandoff] - 构建交接文档的函数
  * @returns {Function}
  */
-export function createTaskTool({ registry = globalSubagentRegistry, parentAgent, buildHandoff } = {}) {
+export function createTaskTool({ registry, container, parentAgent, buildHandoff } = {}) {
     /**
      * Task 工具实现
      * @param {Object} args
@@ -70,11 +112,13 @@ export function createTaskTool({ registry = globalSubagentRegistry, parentAgent,
 
         logger.info(`Launching subagent: ${subagent_type}`, { prompt, model_tier, context_mode });
 
-        const factory = registry.getFactory(subagent_type);
+        const resolvedRegistry = await resolveRegistry(registry, container, context);
+
+        const factory = resolvedRegistry.getFactory(subagent_type);
         if (!factory) {
             return {
                 ok: false,
-                error: `Unknown subagent type: ${subagent_type}. Available: ${registry.getAvailableTypes().map(t => t.type).join(", ")}`,
+                error: `Unknown subagent type: ${subagent_type}. Available: ${resolvedRegistry.getAvailableTypes().map(t => t.type).join(", ")}`,
             };
         }
 

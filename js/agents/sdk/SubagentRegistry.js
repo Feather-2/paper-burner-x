@@ -267,5 +267,10 @@ export class SubagentRegistry {
 }
 
 export { validateOutput, quarantineOutput, DEFAULT_OUTPUT_SCHEMA };
+/**
+ * Global registry singleton (compatibility layer).
+ *
+ * @deprecated Prefer resolving via DI container (`ServiceId.SUBAGENT_REGISTRY`) or passing an explicit registry instance.
+ */
 export const globalSubagentRegistry = new SubagentRegistry();
 export default SubagentRegistry;
