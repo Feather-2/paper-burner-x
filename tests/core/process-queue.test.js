@@ -167,6 +167,16 @@ describe('core/processing/process-queue (ProcessQueue)', () => {
     expect(mockedSemaphore.instances[0].limit).toBe(3);
   });
 
+  it('constructor clamps invalid concurrency/maxRetries', async () => {
+    const { ProcessQueue } = await loadProcessQueue();
+    const queue = new ProcessQueue({ concurrency: 0, maxRetries: -1 });
+
+    expect(queue._concurrency).toBe(1);
+    expect(queue._maxRetries).toBe(0);
+    expect(mockedSemaphore.instances).toHaveLength(1);
+    expect(mockedSemaphore.instances[0].limit).toBe(1);
+  });
+
   it('addFiles() adds files to the queue with identifiers and indices', async () => {
     const { ProcessQueue } = await loadProcessQueue();
     const queue = new ProcessQueue();
@@ -275,6 +285,105 @@ describe('core/processing/process-queue (ProcessQueue)', () => {
     expect(queue.isProcessing).toBe(false);
   });
 
+  it('start() throws when called while already processing', async () => {
+    const { ProcessQueue } = await loadProcessQueue();
+
+    const gate = deferred();
+    const processor = vi.fn(async () => {
+      await gate.promise;
+      return { ok: true };
+    });
+
+    const queue = new ProcessQueue({ concurrency: 1, processor });
+    const file1 = makeFile('a.pdf');
+
+    mockedFileUtils.getFileIdentifier.mockImplementationOnce(() => 'id-a');
+    queue.addFiles([file1]);
+
+    const startPromise = queue.start({ translationModel: 'none', processedFilesRecord: {} });
+
+    await expect(
+      queue.start({ translationModel: 'none', processedFilesRecord: {} }),
+    ).rejects.toThrow('Queue is already processing');
+
+    gate.resolve();
+    await startPromise;
+    expect(queue.isProcessing).toBe(false);
+  });
+
+  it('uses window.processSinglePdf when processor is not provided', async () => {
+    const { ProcessQueue } = await loadProcessQueue();
+
+    const processSinglePdf = vi.fn(async (file, keyObj) => ({
+      fileName: file.name,
+      usedKeyId: keyObj?.id || null,
+    }));
+
+    globalThis.window = { processSinglePdf };
+
+    try {
+      const queue = new ProcessQueue();
+      const file1 = makeFile('a.pdf');
+      mockedFileUtils.getFileIdentifier.mockImplementationOnce(() => 'id-a');
+      queue.addFiles([file1]);
+
+      const results = await queue.start({ translationModel: 'none', processedFilesRecord: {} });
+
+      expect(processSinglePdf).toHaveBeenCalledTimes(1);
+      expect(processSinglePdf).toHaveBeenCalledWith(file1, null, expect.any(Object));
+      expect(results).toEqual([expect.objectContaining({ fileName: 'a.pdf', usedKeyId: null })]);
+    } finally {
+      Reflect.deleteProperty(globalThis, 'window');
+    }
+  });
+
+  it('records an error result when no processor is available', async () => {
+    const { ProcessQueue } = await loadProcessQueue();
+
+    Reflect.deleteProperty(globalThis, 'window');
+
+    const onError = vi.fn();
+    const queue = new ProcessQueue({ maxRetries: 0, onError });
+    const file1 = makeFile('a.pdf');
+
+    mockedFileUtils.getFileIdentifier.mockImplementationOnce(() => 'id-a');
+    queue.addFiles([file1]);
+
+    const results = await queue.start({ translationModel: 'none', processedFilesRecord: {} });
+
+    expect(console.warn).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(queue.results[0]).toEqual(expect.objectContaining({ error: 'No processor available', file: file1 }));
+    expect(results).toEqual([expect.objectContaining({ error: 'No processor available', file: file1 })]);
+  });
+
+  it('marks key invalid when processor reports keyInvalid', async () => {
+    const { ProcessQueue } = await loadProcessQueue();
+
+    const onError = vi.fn();
+    const processor = vi.fn(async (_file, keyObj) => ({
+      keyInvalid: { keyId: keyObj.id },
+      usedKeyId: keyObj.id,
+    }));
+
+    const queue = new ProcessQueue({ maxRetries: 0, processor, onError });
+    const file1 = makeFile('a.pdf');
+    mockedFileUtils.getFileIdentifier.mockImplementationOnce(() => 'id-a');
+    queue.addFiles([file1]);
+
+    const results = await queue.start({ translationModel: 'gpt', processedFilesRecord: {} });
+
+    expect(mockedKeyProvider.instances).toHaveLength(1);
+    const keyProvider = mockedKeyProvider.instances[0];
+    expect(keyProvider.markKeyAsInvalid).toHaveBeenCalledTimes(1);
+    expect(keyProvider.markKeyAsInvalid).toHaveBeenCalledWith('key_1');
+    expect(keyProvider.recordSuccess).not.toHaveBeenCalled();
+
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(queue.results[0]).toEqual(expect.objectContaining({ error: 'API key invalid', file: file1 }));
+    expect(results).toEqual([expect.objectContaining({ error: 'API key invalid', file: file1 })]);
+  });
+
   it('stop() prevents queued items from starting', async () => {
     const { ProcessQueue } = await loadProcessQueue();
 
@@ -360,4 +469,3 @@ describe('core/processing/process-queue (ProcessQueue)', () => {
     expect(results).toEqual([expect.objectContaining({ error: 'permanent', file: file1 })]);
   });
 });
-

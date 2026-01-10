@@ -1,5 +1,5 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
+import test from "node:test";
+import assert from "node:assert/strict";
 
 test("Integration: DeepSearch ToolExecutor runs multiple tools end-to-end", async () => {
   const { createDeepSearchToolExecutor } = await import("../../js/agents/stages/deepsearch/tools/index.js");
@@ -35,4 +35,3 @@ test("Integration: DeepSearch ToolExecutor runs multiple tools end-to-end", asyn
   assert.ok(events.some((e) => e.name === "deepsearch.todo.created"));
   assert.ok(events.some((e) => e.name.startsWith("deepsearch.finding.")));
 });
-

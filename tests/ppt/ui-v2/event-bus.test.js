@@ -81,6 +81,62 @@ describe('UIEventBus', () => {
     expect(history.at(-1).name).toBe('e.119');
   });
 
+  it('getHistory supports string prefix and predicate filters', () => {
+    bus.emit('deepsearch.log.info', { i: 1 });
+    bus.emit('design.started', { i: 2 });
+    bus.emit('deepsearch.progress', { i: 3 });
+
+    expect(bus.getHistory('deepsearch').map((e) => e.name)).toEqual(['deepsearch.log.info', 'deepsearch.progress']);
+    expect(bus.getHistory((e) => e.payload?.i === 2).map((e) => e.name)).toEqual(['design.started']);
+  });
+
+  it('clearHistory empties stored events', () => {
+    bus.emit('a', { i: 1 });
+    bus.emit('b', { i: 2 });
+    expect(bus.getHistory()).toHaveLength(2);
+
+    bus.clearHistory();
+    expect(bus.getHistory()).toHaveLength(0);
+  });
+
+  it('emit isolates handler errors and continues dispatch', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const good = vi.fn();
+    bus.on('a', () => {
+      throw new Error('boom');
+    });
+    bus.on('a', good);
+
+    bus.emit('a', { ok: true });
+    expect(good).toHaveBeenCalledWith('a', { ok: true });
+    expect(errorSpy).toHaveBeenCalledWith('[UIEventBus] Handler error for a:', expect.any(Error));
+
+    const wildcardGood = vi.fn();
+    bus.on('deepsearch.*', () => {
+      throw new Error('wild boom');
+    });
+    bus.on('deepsearch.*', wildcardGood);
+
+    bus.emit('deepsearch.log.info', { i: 1 });
+    expect(wildcardGood).toHaveBeenCalledWith('deepsearch.log.info', { i: 1 });
+    expect(errorSpy).toHaveBeenCalledWith('[UIEventBus] Wildcard handler error for deepsearch.log.info:', expect.any(Error));
+  });
+
+  it('destroy removes listeners and clears history', () => {
+    const handler = vi.fn();
+    bus.on('a', handler);
+    bus.emit('a', { i: 1 });
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(bus.getHistory()).toHaveLength(1);
+
+    bus.destroy();
+    expect(bus.getHistory()).toHaveLength(0);
+
+    bus.emit('a', { i: 2 });
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
   it('rejects non-function handlers in on()', () => {
     expect(() => bus.on('a', null)).toThrow(TypeError);
   });

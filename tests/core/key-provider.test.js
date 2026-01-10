@@ -134,6 +134,35 @@ describe('core/api/key-provider (KeyProvider)', () => {
     expect(stored).toEqual({ otherModel: 'k0', openai: 'k9' });
   });
 
+  it('ignores invalid JSON in last-successful key storage', async () => {
+    globalThis.localStorage.setItem('paperBurnerLastSuccessfulKeys', 'not-json');
+
+    mockedStorageFacade.storage.apiKeys.getKeysForModel.mockResolvedValue([
+      { id: 'k1', value: 'v1', status: 'valid' },
+      { id: 'k2', value: 'v2', status: 'valid' },
+    ]);
+
+    const { KeyProvider } = await loadKeyProviderModule();
+    const provider = new KeyProvider('openai');
+
+    await expect(provider.getNextKey()).resolves.toMatchObject({ id: 'k1' });
+  });
+
+  it('recordSuccess warns but does not throw when stored JSON is invalid', async () => {
+    globalThis.localStorage.setItem('paperBurnerLastSuccessfulKeys', 'not-json');
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { KeyProvider } = await loadKeyProviderModule();
+    const provider = new KeyProvider('openai');
+
+    await expect(provider.recordSuccess('k1')).resolves.toBeUndefined();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to record success'),
+      expect.anything(),
+    );
+    expect(globalThis.localStorage.getItem('paperBurnerLastSuccessfulKeys')).toBe('not-json');
+  });
+
   it('markKeyAsInvalid removes key from rotation, persists, and refreshes UI', async () => {
     globalThis.window = {
       refreshKeyManagerForModel: vi.fn(),
@@ -164,6 +193,23 @@ describe('core/api/key-provider (KeyProvider)', () => {
     expect(globalThis.window.refreshKeyManagerForModel).toHaveBeenCalledWith('openai', 'k1', 'invalid');
 
     await expect(provider.getNextKey()).resolves.toMatchObject({ id: 'k2' });
+  });
+
+  it('markKeyAsInvalid adjusts currentIndex when removing a lower index', async () => {
+    mockedStorageFacade.storage.apiKeys.getKeysForModel.mockResolvedValue([
+      { id: 'k1', value: 'v1', status: 'valid' },
+      { id: 'k2', value: 'v2', status: 'valid' },
+      { id: 'k3', value: 'v3', status: 'valid' },
+    ]);
+
+    const { KeyProvider } = await loadKeyProviderModule();
+    const provider = new KeyProvider('openai');
+
+    await provider.init();
+    provider.currentIndex = 2;
+
+    await provider.markKeyAsInvalid('k1');
+    await expect(provider.getNextKey()).resolves.toMatchObject({ id: 'k3' });
   });
 
   it('markKeyAsInvalid falls back to window.saveModelKeys when repository update fails', async () => {
@@ -242,4 +288,3 @@ describe('core/api/key-provider (KeyProvider)', () => {
     expect(mockedStorageFacade.storage.apiKeys.getKeysForModel).toHaveBeenCalledTimes(2);
   });
 });
-

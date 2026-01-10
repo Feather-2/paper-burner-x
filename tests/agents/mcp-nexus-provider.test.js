@@ -1,5 +1,5 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
+import test from "node:test";
+import assert from "node:assert/strict";
 
 test("McpClient: search/fetch prefer standard tool names with fallback", async () => {
   const { McpClient, McpProvider, McpToolResult } = await import("../../js/agents/mcp/mcp-client.js");

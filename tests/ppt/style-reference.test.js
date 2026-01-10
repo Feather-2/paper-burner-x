@@ -1,6 +1,7 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const { parseHTML } = require('linkedom');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { parseHTML } from 'linkedom';
+import { _internal as layoutFromImageInternal } from '../../js/ppt/vision/layout-from-image.js';
 
 function setupDom(html = '<!doctype html><html><head></head><body></body></html>') {
   const { window, document } = parseHTML(html);
@@ -17,27 +18,25 @@ function teardownDom() {
 
 test.afterEach(() => {
   teardownDom();
-  delete require.cache[require.resolve('../../js/ppt/vision/layout-from-image.js')];
 });
 
 // Load the split dashboard modules once and reuse the mixin across tests.
 setupDom();
-require('../../js/ppt/dashboard/ppt_dashboard_utils.js');
-require('../../js/ppt/dashboard/ppt_dashboard_upload.js');
-require('../../js/ppt/dashboard/ppt_dashboard_history.js');
-require('../../js/ppt/dashboard/ppt_dashboard_url_input.js');
-require('../../js/ppt/dashboard/ppt_dashboard_paste.js');
-require('../../js/ppt/dashboard/ppt_dashboard_modals.js');
-require('../../js/ppt/dashboard/ppt_dashboard_deepsearch.js');
-require('../../js/ppt/dashboard/ppt_dashboard_page_layout.js');
-require('../../js/ppt/dashboard/ppt_dashboard_design_spec.js');
-require('../../js/ppt/dashboard/ppt_dashboard_outline.js');
-require('../../js/ppt/dashboard/ppt_dashboard_core.js');
+await import('../../js/ppt/dashboard/ppt_dashboard_utils.js');
+await import('../../js/ppt/dashboard/ppt_dashboard_upload.js');
+await import('../../js/ppt/dashboard/ppt_dashboard_history.js');
+await import('../../js/ppt/dashboard/ppt_dashboard_url_input.js');
+await import('../../js/ppt/dashboard/ppt_dashboard_paste.js');
+await import('../../js/ppt/dashboard/ppt_dashboard_modals.js');
+await import('../../js/ppt/dashboard/ppt_dashboard_deepsearch.js');
+await import('../../js/ppt/dashboard/ppt_dashboard_page_layout.js');
+await import('../../js/ppt/dashboard/ppt_dashboard_design_spec.js');
+await import('../../js/ppt/dashboard/ppt_dashboard_outline.js');
+await import('../../js/ppt/dashboard/ppt_dashboard_core.js');
 const DASHBOARD_MIXIN = globalThis.window?.PPTDashboard?.PPTGeneratorAgentDashboard || {};
 
 // Test 1: VLM prompt includes styleDescription schema for style_reference intent
 test('layout-from-image: buildPrompt includes styleDescription schema for style_reference intent', () => {
-  const { _internal } = require('../../js/ppt/vision/layout-from-image.js');
   // Access buildPrompt through module if exported, or test normalizeLayoutJson
   // Since buildPrompt is not exported, we test the normalization instead
   const input = {
@@ -54,7 +53,7 @@ test('layout-from-image: buildPrompt includes styleDescription schema for style_
     }
   };
 
-  const normalized = _internal.normalizeLayoutJson(input, { intentHint: 'style_reference' });
+  const normalized = layoutFromImageInternal.normalizeLayoutJson(input, { intentHint: 'style_reference' });
 
   assert.equal(normalized.intent, 'style_reference');
   assert.deepEqual(normalized.extractedPalette, ['#FF0000', '#00FF00']);
@@ -68,14 +67,13 @@ test('layout-from-image: buildPrompt includes styleDescription schema for style_
 
 // Test 2: normalizeLayoutJson handles missing styleDescription gracefully
 test('layout-from-image: normalizeLayoutJson handles missing styleDescription', () => {
-  const { _internal } = require('../../js/ppt/vision/layout-from-image.js');
   const input = {
     intent: 'style_reference',
     analysis: 'test',
     elements: []
   };
 
-  const normalized = _internal.normalizeLayoutJson(input);
+  const normalized = layoutFromImageInternal.normalizeLayoutJson(input);
 
   assert.equal(normalized.intent, 'style_reference');
   assert.equal(normalized.styleDescription, undefined);

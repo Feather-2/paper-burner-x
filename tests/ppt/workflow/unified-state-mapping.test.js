@@ -1,5 +1,5 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
+import test from 'node:test';
+import assert from 'node:assert/strict';
 
 async function loadUnifiedModule() {
   return await import("../../../js/ppt/workflow/unified-state-mapping.js");

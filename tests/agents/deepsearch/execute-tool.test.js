@@ -1,5 +1,5 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
+import test from "node:test";
+import assert from "node:assert/strict";
 
 test("executeTool: returns success:false when tool handler throws", async () => {
   const { tools, executeTool } = await import("../../../js/agents/stages/deepsearch/tools/index.js");

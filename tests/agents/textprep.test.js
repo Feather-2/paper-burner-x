@@ -1,5 +1,5 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
+import test from "node:test";
+import assert from "node:assert/strict";
 
 test("TextPrep TP1: normalizeText newline/NBSP + sha256 stability", async () => {
   const { normalizeText } = await import("../../js/agents/stages/textprep/normalize.js");

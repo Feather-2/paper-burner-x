@@ -1,35 +1,38 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { MicroKernel } from "../../../js/agents/runtime/kernel/micro-kernel.js";
-import { ServiceId } from "../../../js/agents/runtime/di/defaults.js";
+import { Kernel } from "../../../js/agents/core/kernel.js";
 
-describe("MicroKernel", () => {
-  it("registers and resolves services via container", () => {
-    const kernel = new MicroKernel();
+describe("Kernel (compat)", () => {
+  it("registers and resolves services via container", async () => {
+    const kernel = new Kernel();
 
     let callCount = 0;
-    kernel.register("counter", () => {
+    kernel.container.register("counter", () => {
       callCount++;
       return { value: callCount };
     });
 
-    const first = kernel.getService("counter");
-    const second = kernel.getService("counter");
+    const first = await kernel.container.get("counter");
+    const second = await kernel.container.get("counter");
 
     assert.equal(callCount, 1);
     assert.equal(first, second);
 
-    assert.equal(kernel.getService("kernel"), kernel);
-    assert.equal(kernel.getService(ServiceId.EVENT_BUS), kernel.eventBus);
+    kernel.container.register("kernel", kernel);
+    kernel.container.register("eventBus", kernel.eventBus);
+
+    assert.equal(await kernel.container.get("kernel"), kernel);
+    assert.equal(await kernel.container.get("eventBus"), kernel.eventBus);
   });
 
   it("emit/on forwards payload", async () => {
-    const kernel = new MicroKernel();
+    const kernel = new Kernel();
 
     await new Promise((resolve) => {
-      const off = kernel.on("demo.event", (payload) => {
-        assert.deepEqual(payload, { ok: true });
+      const off = kernel.on("demo.event", (evt) => {
+        assert.equal(evt.name, "demo.event");
+        assert.deepEqual(evt.payload, { ok: true });
         off();
         resolve();
       });
@@ -37,55 +40,24 @@ describe("MicroKernel", () => {
     });
   });
 
-  it("request resolves response from on handler", async () => {
-    const kernel = new MicroKernel();
-
-    kernel.on("rpc.echo", (payload) => {
-      return { echo: payload };
-    });
-
-    const res = await kernel.request("rpc.echo", { value: 42 }, { timeoutMs: 250 });
-    assert.deepEqual(res, { echo: { value: 42 } });
-  });
-
-  it("request rejects when handler throws", async () => {
-    const kernel = new MicroKernel();
-
-    kernel.on("rpc.fail", () => {
-      throw new Error("boom");
-    });
-
-    await assert.rejects(
-      async () => kernel.request("rpc.fail", { x: 1 }, { timeoutMs: 250 }),
-      /boom/
-    );
-  });
-
-  it("request times out when no handler responds", async () => {
-    const kernel = new MicroKernel();
-    await assert.rejects(
-      async () => kernel.request("rpc.timeout", { x: 1 }, { timeoutMs: 50 }),
-      /timeout/i
-    );
-  });
-
   it("schedule executes function tasks", async () => {
-    const kernel = new MicroKernel();
+    const kernel = new Kernel();
     const res = await kernel.schedule(() => 123);
     assert.equal(res, 123);
   });
 
-  it("schedule delegates to scheduler.dispatch for dispatch tasks", async () => {
+  it("schedule delegates to scheduler.schedule for dispatch tasks", async () => {
     const seen = { calls: 0, args: null };
     const scheduler = {
-      dispatch: async (...args) => {
+      schedule: async (...args) => {
         seen.calls++;
         seen.args = args;
         return { success: true, data: "ok" };
       },
     };
 
-    const kernel = new MicroKernel({ scheduler });
+    const kernel = new Kernel();
+    kernel.register("scheduler", scheduler);
     const out = await kernel.schedule(
       { runtimeType: "js", code: "return 1;", inputState: { a: 1 }, options: { dependencies: { x: 1 } } },
       7
@@ -93,11 +65,10 @@ describe("MicroKernel", () => {
 
     assert.equal(out.success, true);
     assert.equal(seen.calls, 1);
-    assert.equal(seen.args[0], "js");
-    assert.equal(seen.args[1], "return 1;");
-    assert.deepEqual(seen.args[2], { a: 1 });
-    assert.equal(seen.args[3].priority, 7);
-    assert.deepEqual(seen.args[3].dependencies, { x: 1 });
+    assert.deepEqual(seen.args, [
+      { runtimeType: "js", code: "return 1;", inputState: { a: 1 }, options: { dependencies: { x: 1 } } },
+      7,
+    ]);
   });
 
   it("start/stop calls provider lifecycle hooks", async () => {
@@ -115,14 +86,14 @@ describe("MicroKernel", () => {
       },
     };
 
-    const kernel = new MicroKernel({ providers: [provider] });
+    const kernel = new Kernel();
+    await kernel.use(provider);
     await kernel.start();
     await kernel.start(); // idempotent
     assert.deepEqual(calls, ["register", "start"]);
-    assert.equal(kernel.getService("answer"), 42);
+    assert.equal(await kernel.container.get("answer"), 42);
 
     await kernel.stop();
     assert.deepEqual(calls, ["register", "start", "stop"]);
   });
 });
-

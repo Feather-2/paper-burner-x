@@ -1,5 +1,5 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
+import test from "node:test";
+import assert from "node:assert/strict";
 
 test("DeepSearch tools: export definitions + catalog prompt", async () => {
   const { tools, getToolDefinitions, getToolCatalogPrompt } = await import("../../../js/agents/stages/deepsearch/tools/index.js");

@@ -945,9 +945,13 @@ export class FlowBuilder {
         const imageId = payload.imageId || payload.slotId;
         const id = this.designImageNodes?.get(imageId);
         if (id) {
+          const metrics = {};
+          if (payload.durationMs !== undefined) metrics.duration = payload.durationMs;
+          // Preserve the provider from `design.image.generate.started` unless explicitly provided here.
+          if (payload.provider !== undefined) metrics.provider = payload.provider;
           this._updateNode(id, {
             status: "completed",
-            metrics: { duration: payload.durationMs, provider: payload.provider }
+            metrics
           });
         }
         break;

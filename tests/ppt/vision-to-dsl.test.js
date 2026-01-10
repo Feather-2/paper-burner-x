@@ -1,9 +1,17 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
 
-const { analyzeImage, _internal: fromInternal } = require("../../js/ppt/vision/layout-from-image.js");
-const { layoutToDsl, _internal: toInternal } = require("../../js/ppt/vision/layout-to-dsl.js");
-const { htmlToDocument } = require("../../js/ppt/dsl/serialize.js");
+import '../../js/ppt/core/slide-parser.js';
+import '../../js/ppt/dsl/serialize.js';
+import { analyzeImage, _internal as fromInternal } from '../../js/ppt/vision/layout-from-image.js';
+import { layoutToDsl, _internal as toInternal } from '../../js/ppt/vision/layout-to-dsl.js';
+
+if (typeof globalThis.require !== 'function') {
+  globalThis.require = createRequire(import.meta.url);
+}
+
+const htmlToDocument = (html) => globalThis.PPTDSLSerialize.htmlToDocument(html);
 
 function muteConsole(fn) {
   const prev = console.log;
@@ -144,4 +152,3 @@ test("layout->dsl: enforceMargins ensures 5% padding", () => {
 test("vision->layout: parseJsonFromModelText returns null for non-JSON", () => {
   assert.equal(fromInternal.parseJsonFromModelText("nope"), null);
 });
-

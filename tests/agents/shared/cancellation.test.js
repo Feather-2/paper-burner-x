@@ -1,5 +1,5 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
+import test from "node:test";
+import assert from "node:assert/strict";
 
 test("cancellation.checkCancelled throws AbortError with reason message and cause", async () => {
   const { checkCancelled } = await import("../../../js/agents/shared/utils/cancellation.js");

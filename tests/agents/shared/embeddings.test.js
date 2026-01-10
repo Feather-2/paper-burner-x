@@ -1,5 +1,5 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
+import test from "node:test";
+import assert from "node:assert/strict";
 
 async function loadEmbeddings() {
   const svc = await import("../../../js/agents/shared/embeddings/embedding-service.js");

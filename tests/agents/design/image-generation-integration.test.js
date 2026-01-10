@@ -1,5 +1,5 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
+import test from "node:test";
+import assert from "node:assert/strict";
 
 function makeContentPackage({ runId = "run_img_e2e", slideCount = 6, constraints = {} } = {}) {
   const slideIntents = [

@@ -2,6 +2,25 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseHTML } from 'linkedom';
 
+function ensureLocalStorage() {
+  if (typeof globalThis.localStorage !== 'undefined') return globalThis.localStorage;
+  const storage = new Map();
+  globalThis.localStorage = {
+    getItem: (key) => storage.get(key) ?? null,
+    setItem: (key, value) => storage.set(key, String(value)),
+    removeItem: (key) => storage.delete(key),
+    clear: () => storage.clear(),
+    get length() { return storage.size; },
+    key: (index) => [...storage.keys()][index] ?? null,
+  };
+  return globalThis.localStorage;
+}
+
+function seedPptModelConfig() {
+  const ls = ensureLocalStorage();
+  ls.setItem('pptModelConfigLanguage', JSON.stringify({ modelKey: 'mock', modelId: '' }));
+}
+
 function setupDom(html = '<!doctype html><html><head></head><body></body></html>') {
   const { window, document } = parseHTML(html);
   globalThis.window = window;
@@ -48,6 +67,8 @@ test.before(async () => {
   const ready = globalThis.PPTGenerator?.prototype?.__pptWorkflowMixinsReady;
   if (ready && typeof ready.then === 'function') await ready;
 });
+
+seedPptModelConfig();
 
 test.afterEach(() => {
   teardownDom();

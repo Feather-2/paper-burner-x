@@ -1,5 +1,5 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
+import test from 'node:test';
+import assert from 'node:assert/strict';
 
 test("Slide Constants: element type validation + normalization", async () => {
   const { SlideElementType, isValidSlideElementType, normalizeSlideElementType } = await import("../../js/ppt/core/slide-constants.js");

@@ -251,7 +251,7 @@
 
             // 构建属性
             const attrs = {
-                'data-annotation-text': escapedText,
+                'data-annotation-text': text,
                 'data-content-id': config.contentIdentifier,
                 'class': 'annotation-highlight'
             };

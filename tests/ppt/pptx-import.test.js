@@ -1,6 +1,13 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const { parseHTML } = require('linkedom');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { parseHTML } from 'linkedom';
+import { SlideParser } from '../../js/ppt/core/slide-parser.js';
+
+function importFresh(modulePath) {
+  const moduleUrl = new URL(modulePath, import.meta.url);
+  moduleUrl.searchParams.set('t', `${Date.now()}_${Math.random().toString(16).slice(2)}`);
+  return import(moduleUrl.href);
+}
 
 function setupDom(html = '<!doctype html><html><head></head><body></body></html>') {
   const { window, document } = parseHTML(html);
@@ -19,12 +26,11 @@ function teardownDom() {
 
 test.afterEach(() => {
   teardownDom();
-  delete require.cache[require.resolve('../../js/ppt/generator/ppt_generator_workflow.js')];
 });
 
 test('import PPTX as deck: parsed → slideIntents set → design.batch template branch populates deckHtmlDsl', async () => {
   setupDom('<!doctype html><html><body></body></html>');
-  globalThis.SlideParser = require('../../js/ppt/core/slide-parser.js').SlideParser;
+  globalThis.SlideParser = SlideParser;
 
   globalThis.PPTGenerator = class PPTGenerator {
     constructor() {
@@ -40,7 +46,7 @@ test('import PPTX as deck: parsed → slideIntents set → design.batch template
     }
   };
 
-  require('../../js/ppt/generator/ppt_generator_workflow.js');
+  await importFresh('../../js/ppt/generator/ppt_generator_workflow.js');
 
   const gen = new globalThis.PPTGenerator();
   gen.updateTodos = () => {};
@@ -126,7 +132,7 @@ test('import PPTX as deck: parse failure falls back to manual flow', async () =>
     }
   };
 
-  require('../../js/ppt/generator/ppt_generator_workflow.js');
+  await importFresh('../../js/ppt/generator/ppt_generator_workflow.js');
 
   const gen = new globalThis.PPTGenerator();
   gen.updateTodos = () => {};
@@ -160,4 +166,3 @@ test('import PPTX as deck: parse failure falls back to manual flow', async () =>
   assert.equal(opened, 1);
   assert.ok(messages.some((m) => m.role === 'ai' && m.content.includes('PPTX 导入失败')));
 });
-

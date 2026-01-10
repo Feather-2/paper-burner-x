@@ -3,7 +3,7 @@
  * @description generateUUID (RFC 4122 v4) 单元测试
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 import { generateUUID } from "../../js/shared/utils/uuid.js";
 
@@ -30,6 +30,27 @@ const restoreCrypto = () => {
 };
 
 describe("generateUUID", () => {
+  it("should prefer crypto.randomUUID when available", () => {
+    const cryptoStub = {
+      randomUUID: vi.fn(() => "11111111-1111-4111-8111-111111111111"),
+      getRandomValues: vi.fn(() => {
+        throw new Error("getRandomValues should not be called when randomUUID exists");
+      }),
+    };
+
+    try {
+      setCrypto(cryptoStub);
+      const id = generateUUID();
+
+      expect(cryptoStub.randomUUID).toHaveBeenCalledTimes(1);
+      expect(cryptoStub.getRandomValues).not.toHaveBeenCalled();
+      expect(id).toBe("11111111-1111-4111-8111-111111111111");
+      expect(id).toMatch(UUID_V4_REGEX);
+    } finally {
+      restoreCrypto();
+    }
+  });
+
   it("should generate RFC 4122 UUID v4 format", () => {
     const id = generateUUID();
 
@@ -88,4 +109,3 @@ describe("generateUUID", () => {
     }
   });
 });
-

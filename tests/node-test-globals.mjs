@@ -60,4 +60,6 @@ if (typeof globalThis.crypto === 'undefined') {
   };
 }
 
-console.log('[node-test-globals] Test environment initialized');
+if (process?.env?.NODE_TEST_GLOBALS_DEBUG) {
+  console.log('[node-test-globals] Test environment initialized');
+}

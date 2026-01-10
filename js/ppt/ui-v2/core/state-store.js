@@ -280,7 +280,7 @@ export class StateStore {
     };
 
     const addAgentLog = (eventName, payload) => {
-      const m = typeof eventName === 'string' ? eventName.match(/^(deepsearch|design)\\.log\\.(debug|info|warn|error)$/) : null;
+      const m = typeof eventName === 'string' ? eventName.match(/^(deepsearch|design)\.log\.(debug|info|warn|error)$/) : null;
       if (!m) return;
       const scope = m[1];
       const level = m[2] === 'warn' ? 'warning' : m[2];

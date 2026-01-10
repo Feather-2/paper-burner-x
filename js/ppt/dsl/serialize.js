@@ -21,8 +21,17 @@
       return { document, window: typeof window !== "undefined" ? window : global };
     }
     // Node.js: 使用 linkedom
+    const req =
+      (typeof require !== "undefined" && typeof require === "function")
+        ? require
+        : (global && typeof global.require === "function" ? global.require : null);
+    if (!req) {
+      throw new Error(
+        "PPTDSLSerialize.ensureDom: require() is not available; set globalThis.require (createRequire) for Node ESM tests."
+      );
+    }
     // eslint-disable-next-line global-require
-    const { parseHTML } = require("linkedom");
+    const { parseHTML } = req("linkedom");
     const { document: doc, window: win } = parseHTML("<html><body></body></html>");
     return { document: doc, window: win };
   }
