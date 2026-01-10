@@ -219,6 +219,9 @@ self.onmessage = async (evt) => {
       if (payload.loadPlan) {
         await preloadWithPlan(payload.loadPlan);
       } else if (payload.loadScript) {
+        if (payload.allowLegacyLoadScript !== true) {
+          throw new Error("Legacy loadScript preload is disabled; use loadPlan or set allowLegacyLoadScript=true");
+        }
         // Legacy: dependency load script (generated JS code).
         const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
         const loadFn = new AsyncFunction('pyodide', payload.loadScript);

@@ -82,6 +82,28 @@ test("Design: DesignStage generates design tokens + emits design.* events", asyn
   assert.ok(events.every((e) => e.name !== "design.image.planning.completed"));
 });
 
+test("Design: ReactRefiner tool executor sanitizes injected HTML (no javascript: urls)", async () => {
+  const { createToolExecutor } = await import("../../js/agents/stages/design/refiner/react-refiner-tools.js");
+
+  const context = {
+    deckPackage: {
+      deckHtmlDsl: `<section data-type="freeform"><div data-el="el_1">x</div></section>`,
+      slidesMeta: [],
+    },
+    contentPackage: { slideIntents: [] },
+  };
+
+  const exec = createToolExecutor(context);
+  const res = await exec("editElement", {
+    slideIndex: 0,
+    elementId: "el_1",
+    changes: { html: `<form action="javascript:alert(1)"><button>go</button></form>` },
+  });
+
+  assert.equal(res.success, true);
+  assert.equal(String(context.deckPackage.deckHtmlDsl).includes("javascript:"), false);
+});
+
 test("Design: dsl-builder supports core page types and passes QA in safe mode", async () => {
   const { buildSlideHtml } = await import("../../js/agents/stages/design/dsl-builder.js");
   const { validateSlide } = await import("../../js/agents/stages/design/qa-validator.js");

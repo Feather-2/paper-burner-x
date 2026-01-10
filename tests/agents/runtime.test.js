@@ -92,6 +92,88 @@ test("Runtime Core: EventBus on/off/once/emit + EventRecord fields", async () =>
   assert.deepEqual(evt3.payload, { pct: 50 });
 });
 
+test("Core: KernelBuilder applies config for string plugins", async () => {
+  const { KernelBuilder } = await import("../../js/agents/core/index.js");
+
+  const kernel = await KernelBuilder.create()
+    .withPreset("minimal")
+    .withPlugin("resilience/retry", { maxRetries: 7 })
+    .build();
+
+  try {
+    const plugin = kernel._getPlugin("resilience/retry");
+    assert.equal(plugin?._config?.maxRetries, 7);
+  } finally {
+    await kernel.stop();
+  }
+});
+
+test("Runtime: JSRuntimeAdapter blocks main-thread fallback unless trusted", async () => {
+  const { JSRuntimeAdapter } = await import("../../js/agents/runtime/core/js-adapter.js");
+
+  const js = new JSRuntimeAdapter({ useWorkerSandbox: false });
+  const res = await js.execute("return 1 + 1;", { vfs: {}, state: {} });
+
+  assert.equal(res.success, false);
+  assert.match(String(res.error || ""), /Main-thread fallback blocked/);
+});
+
+test("Runtime: JSRuntimeAdapter allows main-thread fallback when trusted=true", async () => {
+  const { JSRuntimeAdapter } = await import("../../js/agents/runtime/core/js-adapter.js");
+
+  const js = new JSRuntimeAdapter({ useWorkerSandbox: false });
+  const res = await js.execute("return 40 + 2;", { vfs: {}, state: {}, trusted: true });
+
+  assert.equal(res.success, true);
+  assert.equal(res.data, 42);
+});
+
+test("Runtime: JSRuntimeAdapter main-thread fallback can be forced allow", async () => {
+  const { JSRuntimeAdapter } = await import("../../js/agents/runtime/core/js-adapter.js");
+
+  const js = new JSRuntimeAdapter({ useWorkerSandbox: false, mainThreadFallback: "allow" });
+  const res = await js.execute("return 6 * 7;", { vfs: {}, state: {} });
+
+  assert.equal(res.success, true);
+  assert.equal(res.data, 42);
+});
+
+test("Runtime: JSRuntimeAdapter reports aborted when signal already aborted", async () => {
+  const { JSRuntimeAdapter } = await import("../../js/agents/runtime/core/js-adapter.js");
+
+  const controller = new AbortController();
+  controller.abort("test_abort");
+
+  const js = new JSRuntimeAdapter({ useWorkerSandbox: false, mainThreadFallback: "allow" });
+  const res = await js.execute("return 1;", { vfs: {}, state: {}, signal: controller.signal });
+
+  assert.equal(res.success, false);
+  assert.match(String(res.error || ""), /Aborted/);
+  assert.equal(res.metrics?.aborted, true);
+});
+
+test("MCP: parseSseStream enforces default size limits", async () => {
+  const { parseSseStream } = await import("../../js/agents/mcp/sse.js");
+
+  const text = `data: ${"a".repeat(300 * 1024)}\n\n`;
+  const bytes = new TextEncoder().encode(text);
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(bytes);
+      controller.close();
+    },
+  });
+
+  await assert.rejects(
+    async () => {
+      for await (const _evt of parseSseStream(stream)) {
+        // drain
+      }
+    },
+    /SSE: line exceeds maxLineBytes/
+  );
+});
+
 test("VFS: MemoryVfs directory tree + mkdir/rmdir/unlink", async () => {
   const { MemoryVfs } = await import("../../js/agents/vfs/vfs.memory.js");
 
@@ -1103,6 +1185,108 @@ test("PromptLoader: browser manifest resolves prompt URLs (best-effort)", async 
   }
 });
 
+test("PromptLoader: maxPromptBytes blocks oversized prompt fetch (browser)", async () => {
+  const { PromptLoader } = await import("../../js/agents/prompts/prompt-loader.js");
+
+  const originalProcess = globalThis.process;
+  globalThis.process = undefined;
+
+  try {
+    const manifestUrl = "https://example.com/prompts/manifest.json";
+    let manifestFetches = 0;
+    let promptFetches = 0;
+
+    const loader = new PromptLoader({
+      maxPromptBytes: 50,
+      fetchImpl: async (url) => {
+        const u = String(url || "");
+
+        if (u === manifestUrl) {
+          manifestFetches += 1;
+          return {
+            ok: true,
+            status: 200,
+            async json() {
+              return {
+                prompts: [{ name: "deepsearch/system", path: "deepsearch/system.md" }],
+              };
+            },
+          };
+        }
+
+        if (u === "https://example.com/prompts/deepsearch/system.md") {
+          promptFetches += 1;
+          return new Response("x".repeat(200), {
+            status: 200,
+            headers: { "Content-Type": "text/plain; charset=utf-8" },
+          });
+        }
+
+        return new Response("not_found", { status: 404 });
+      },
+    });
+
+    await assert.rejects(
+      () => loader.loadPrompt("deepsearch/system", { cache: false, manifestUrl }),
+      /exceeds limit/i
+    );
+    assert.equal(manifestFetches, 1);
+    assert.equal(promptFetches, 1);
+  } finally {
+    globalThis.process = originalProcess;
+  }
+});
+
+test("PromptLoader: maxManifestBytes rejects oversized manifest then falls back to basePath fetch", async () => {
+  const { PromptLoader } = await import("../../js/agents/prompts/prompt-loader.js");
+
+  const originalProcess = globalThis.process;
+  globalThis.process = undefined;
+
+  try {
+    const manifestUrl = "https://example.com/prompts/manifest.json";
+    let manifestFetches = 0;
+    let promptFetches = 0;
+
+    const loader = new PromptLoader({
+      basePath: "https://example.com/prompts/",
+      maxManifestBytes: 50,
+      fetchImpl: async (url) => {
+        const u = String(url || "");
+
+        if (u === manifestUrl) {
+          manifestFetches += 1;
+          return new Response(
+            JSON.stringify({
+              prompts: [{ name: "deepsearch/system", path: "deepsearch/system.md", padding: "x".repeat(200) }],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+
+        if (u === "public/prompts/manifest.json") {
+          manifestFetches += 1;
+          return new Response("not_found", { status: 404 });
+        }
+
+        if (u === "https://example.com/prompts/deepsearch/system.md") {
+          promptFetches += 1;
+          return new Response("# system\n", { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+        }
+
+        return new Response("not_found", { status: 404 });
+      },
+    });
+
+    const out = await loader.loadPrompt("deepsearch/system", { cache: false, manifestUrl });
+    assert.equal(out, "# system");
+    assert.equal(manifestFetches, 2);
+    assert.equal(promptFetches, 1);
+  } finally {
+    globalThis.process = originalProcess;
+  }
+});
+
 test("ConfigLoader: loadAgentConfig loads .agent/agent.md in Node", async () => {
   const { loadAgentConfig } = await import("../../js/agents/sdk/config-loader.js");
   const fs = require("node:fs/promises");
@@ -1466,4 +1650,295 @@ test("RuntimeScheduler: isolation blocks dispatch and recoveryCheck restores run
   const after = await scheduler.dispatch("js", "return 1;", {}, {});
   assert.equal(after.success, true);
   assert.equal(scheduler.getHealthStatus("js"), RuntimeHealthStatus.HEALTHY);
+});
+
+test("Runtime: TaskGraph layered topo sort + cycle/missing detection", async () => {
+  const { TaskGraph } = await import("../../js/agents/runtime/parallel/task-graph.js");
+
+  const g = new TaskGraph();
+  g.addTask("A");
+  g.addTask("B", ["A"]);
+  g.addTask("C", ["A"]);
+  g.addTask("D", ["B", "C"]);
+
+  const levels = g.getLevels();
+  assert.deepEqual(levels, [["A"], ["B", "C"], ["D"]]);
+
+  const cycle = new TaskGraph();
+  cycle.addTask("A", ["B"]);
+  cycle.addTask("B", ["A"]);
+  assert.throws(() => cycle.getLevels(), /cycle detected/i);
+
+  const missing = new TaskGraph();
+  missing.addTask("A", ["NOPE"]);
+  assert.throws(() => missing.getLevels(), /missing dependency/i);
+});
+
+test("Runtime: command classifier parses compound commands and flags danger", async () => {
+  const { classifyCommand, parseCompoundCommand } = await import("../../js/agents/runtime/safety/command-classifier.js");
+
+  assert.deepEqual(parseCompoundCommand("echo hi && ls"), [["echo", "hi"], ["ls"]]);
+  assert.equal(classifyCommand(["ls", "-la"]).level, "safe");
+  assert.equal(classifyCommand("unknowncmd").level, "unknown");
+
+  const dangerous = classifyCommand("rm -rf /");
+  assert.equal(dangerous.level, "dangerous");
+  assert.equal(dangerous.requiresApproval, true);
+
+  const nested = classifyCommand(["bash", "-c", "ls && rm -rf /"]);
+  assert.equal(nested.level, "dangerous");
+});
+
+test("Runtime: EventBus hook registry attaches and PreToolUse hook can block", async () => {
+  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { enhanceEventBusWithHooks } = await import("../../js/agents/runtime/hooks/event-bus-hooks.js");
+  const { createPreToolUseHook } = await import("../../js/agents/runtime/hooks/hook-runner.js");
+
+  const bus = new EventBus();
+  enhanceEventBusWithHooks(bus);
+
+  bus.registerHook("PreToolUse", { type: "command", tools: "shell*", blocking: true });
+
+  const pre = createPreToolUseHook();
+  const blocked = await pre({
+    tool: "shell.run",
+    params: { command: "rm -rf /" },
+    context: { eventBus: bus },
+  });
+  assert.equal(blocked?.skip, true);
+  assert.match(String(blocked?.value?.error || ""), /requires approval/i);
+
+  const allowed = await pre({
+    tool: "shell.run",
+    params: { command: "ls -la" },
+    context: { eventBus: bus },
+  });
+  assert.equal(allowed, null);
+});
+
+test("Runtime: PreToolUse prompt hook allows/denies based on model output", async () => {
+  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { enhanceEventBusWithHooks } = await import("../../js/agents/runtime/hooks/event-bus-hooks.js");
+  const { createPreToolUseHook } = await import("../../js/agents/runtime/hooks/hook-runner.js");
+
+  const bus = new EventBus();
+  enhanceEventBusWithHooks(bus);
+
+  bus.registerHook("PreToolUse", {
+    type: "prompt",
+    blocking: true,
+    usage: "shadow",
+    prompt: "Tool={{tool}} Args={{args}}",
+  });
+
+  const pre = createPreToolUseHook();
+
+  const allow = await pre({
+    tool: "write_file",
+    params: { path: "a.txt", content: "hi" },
+    context: {
+      eventBus: bus,
+      modelRouter: {
+        call: async () => ({ content: '{"allow": true, "reason": "ok"}' }),
+      },
+    },
+  });
+  assert.equal(allow, null);
+
+  const deny = await pre({
+    tool: "write_file",
+    params: { path: "a.txt", content: "hi" },
+    context: {
+      eventBus: bus,
+      modelRouter: {
+        call: async () => ({ content: '{"allow": false, "reason": "no"}' }),
+      },
+    },
+  });
+  assert.equal(deny?.skip, true);
+  assert.match(String(deny?.value?.error || ""), /no/i);
+});
+
+test("Runtime: PreToolUse prompt hook blocks on unparseable decision when blocking=true", async () => {
+  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { enhanceEventBusWithHooks } = await import("../../js/agents/runtime/hooks/event-bus-hooks.js");
+  const { createPreToolUseHook } = await import("../../js/agents/runtime/hooks/hook-runner.js");
+
+  const bus = new EventBus();
+  enhanceEventBusWithHooks(bus);
+
+  bus.registerHook("PreToolUse", {
+    type: "prompt",
+    blocking: true,
+    usage: "shadow",
+    prompt: "Tool={{tool}} Args={{args}}",
+  });
+
+  const pre = createPreToolUseHook();
+  const out = await pre({
+    tool: "write_file",
+    params: { path: "a.txt" },
+    context: {
+      eventBus: bus,
+      modelRouter: { call: async () => ({ content: "maybe" }) },
+    },
+  });
+
+  assert.equal(out?.skip, true);
+  assert.match(String(out?.value?.error || ""), /unparseable/i);
+});
+
+test("Runtime: PreToolUse agent hook can block and can be cleared", async () => {
+  const { EventBus } = await import("../../js/agents/core/event-bus.js");
+  const { enhanceEventBusWithHooks } = await import("../../js/agents/runtime/hooks/event-bus-hooks.js");
+  const { createPreToolUseHook } = await import("../../js/agents/runtime/hooks/hook-runner.js");
+
+  const bus = new EventBus();
+  enhanceEventBusWithHooks(bus);
+
+  const makeRegistry = (allow) => ({
+    getFactory: () => async () => ({
+      run: async () => ({ allow, reason: allow ? "ok" : "nope" }),
+    }),
+  });
+
+  bus.registerHook("PreToolUse", { type: "agent", agentType: "Guard", blocking: true, prompt: "Tool={{tool}}" });
+
+  const pre = createPreToolUseHook();
+  const denied = await pre({
+    tool: "write_file",
+    params: { path: "a.txt" },
+    context: { eventBus: bus, subagentRegistry: makeRegistry(false) },
+  });
+  assert.equal(denied?.skip, true);
+  assert.match(String(denied?.value?.error || ""), /nope/i);
+
+  bus.clearHooks("PreToolUse");
+  bus.registerHook("PreToolUse", { type: "agent", agentType: "Guard", blocking: true, prompt: "Tool={{tool}}" });
+
+  const allowed = await pre({
+    tool: "write_file",
+    params: { path: "a.txt" },
+    context: { eventBus: bus, subagentRegistry: makeRegistry(true) },
+  });
+  assert.equal(allowed, null);
+});
+
+test("LLM: parseContextOverflowError handles OpenAI-style messages", async () => {
+  const { parseContextOverflowError, computeOverflowRetryMaxTokens } = await import("../../js/agents/llm/overflow-recovery.js");
+
+  const err = new Error(
+    "This model's maximum context length is 8192 tokens. However, you requested 9000 tokens (8000 in the messages, 1000 in the completion)."
+  );
+  const info = parseContextOverflowError(err);
+  assert.equal(info?.contextLimit, 8192);
+  assert.equal(info?.inputLength, 8000);
+  assert.equal(info?.maxTokens, 1000);
+
+  const next = computeOverflowRetryMaxTokens(info, { minTokens: 256, bufferTokens: 128 });
+  assert.equal(next, 256);
+});
+
+test("LLM: overflow recovery parses and retries with reduced max_tokens", async () => {
+  const { CliModelClient } = await import("../../js/agents/cli/model-client.js");
+
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+
+  globalThis.fetch = async (_url, init) => {
+    const body = init?.body ? JSON.parse(String(init.body)) : {};
+    calls.push({ max_tokens: body.max_tokens, messages: body.messages });
+
+    if (calls.length === 1) {
+      return {
+        ok: false,
+        status: 400,
+        headers: { get: () => "application/json" },
+        json: async () => ({
+          error: { message: "input length and `max_tokens` exceed context limit: 1500 + 900 > 2000" },
+        }),
+      };
+    }
+
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => "application/json" },
+      json: async () => ({
+        model: "mock-model",
+        choices: [{ message: { content: "ok" } }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      }),
+    };
+  };
+
+  try {
+    const client = new CliModelClient({
+      apiKey: "test",
+      baseUrl: "https://example.test/v1",
+      model: "mock-model",
+      contextWindow: 2000,
+    });
+
+    const messages = [
+      { role: "system", content: "sys" },
+      { role: "assistant", content: "", tool_calls: [{ id: "call_1" }] },
+      { role: "tool", tool_call_id: "call_1", content: "x".repeat(50_000) },
+      { role: "user", content: "later" },
+    ];
+
+    const out = await client.chat({ messages, maxTokens: 900 });
+    assert.equal(out.content, "ok");
+    assert.equal(calls.length, 2);
+    assert.ok(calls[1].max_tokens < calls[0].max_tokens);
+
+    // Truncation should not leave a dangling tool output without its call.
+    const sent = calls[0].messages;
+    const lastRole = sent[sent.length - 1]?.role;
+    assert.notEqual(lastRole, "tool");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Runtime: AgentOrchestrator.runStagesGraph executes by dependency levels", async () => {
+  const { AgentOrchestrator } = await import("../../js/agents/runtime/orchestrator.js");
+
+  const orch = new AgentOrchestrator({ scheduling: { mode: "parallel", maxConcurrency: 10 } });
+  orch.registerStage("a", async () => "A");
+  orch.registerStage("b", async () => "B");
+  orch.registerStage("c", async () => "C");
+
+  const results = await orch.runStagesGraph([
+    { name: "a" },
+    { name: "b", dependsOn: ["a"] },
+    { name: "c", dependsOn: ["a"] },
+  ]);
+
+  assert.equal(results.get("a").success, true);
+  assert.equal(results.get("b").success, true);
+  assert.equal(results.get("c").success, true);
+});
+
+test("Runtime: AgentOrchestrator.runStagesGraph skips dependents after failure when continueOnError=true", async () => {
+  const { AgentOrchestrator } = await import("../../js/agents/runtime/orchestrator.js");
+
+  const orch = new AgentOrchestrator({ scheduling: { mode: "parallel", maxConcurrency: 10 } });
+  orch.registerStage("a", async () => {
+    throw new Error("boom");
+  });
+  orch.registerStage("b", async () => "B");
+
+  const results = await orch.runStagesGraph(
+    [
+      { name: "a" },
+      { name: "b", dependsOn: ["a"] },
+    ],
+    { continueOnError: true }
+  );
+
+  assert.equal(results.get("a").success, false);
+  assert.equal(results.get("b").success, false);
+  assert.equal(results.get("b").skipped, true);
+  assert.match(String(results.get("b").error || ""), /dependency_failed:a/);
 });

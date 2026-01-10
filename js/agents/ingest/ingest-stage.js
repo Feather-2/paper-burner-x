@@ -14,8 +14,10 @@ import { understandAssets as runAssetUnderstanding } from "./asset-understanding
 import { normalizeText } from "../stages/textprep/normalize.js";
 import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
 import { validateFetchUrl } from "../mcp/http-proxy.js";
+import { createResponseTooLargeError, normalizeMaxBytes, readTextWithLimit } from "../shared/utils/response-limits.js";
 
 const MAX_DOC_CONCURRENCY = 16;
+const DEFAULT_MAX_URL_BYTES = 4 * 1024 * 1024; // 4 MiB
 
 function normalizeConcurrency(value, fallback = 1) {
   const n = typeof value === "number" ? value : Number(value);
@@ -286,6 +288,10 @@ export class IngestStage {
     const persistEnabled = config?.persist !== false;
     const docTimeoutMs = normalizeTimeoutMs(config?.docTimeoutMs ?? config?.perDocTimeoutMs ?? 0);
     const maxConcurrentDocs = normalizeConcurrency(config?.maxConcurrentDocs ?? config?.maxConcurrent ?? config?.concurrency, 1);
+    const maxUrlBytes = normalizeMaxBytes(
+      config?.maxUrlBytes ?? config?.maxUrlTextBytes ?? stageApi?.maxUrlBytes ?? stageApi?.maxUrlTextBytes,
+      DEFAULT_MAX_URL_BYTES
+    );
     const inputFingerprint = buildInputFingerprint({ files, urls, historyIds, rawTexts });
 
     const assets = new AssetManager();
@@ -554,15 +560,22 @@ export class IngestStage {
     };
 
     const fetchUrlText = async (targetUrl) => {
+      const enforceTextLimit = (text, label) => {
+        if (typeof text !== "string" || !text) throw new Error("empty response body");
+        if (maxUrlBytes !== Infinity && text.length > maxUrlBytes) {
+          throw createResponseTooLargeError(label, maxUrlBytes, text.length);
+        }
+        return text;
+      };
+
       if (urlFetcher) {
         const out = await urlFetcher(targetUrl, { signal: stageApi?.signal });
-        if (typeof out === "string") return { text: out, title: targetUrl, contentType: "" };
+        if (typeof out === "string") return { text: enforceTextLimit(out, `URL fetcher response: ${targetUrl}`), title: targetUrl, contentType: "" };
         if (out && typeof out === "object") {
           const text = typeof out.text === "string" ? out.text : typeof out.content === "string" ? out.content : "";
           const title = typeof out.title === "string" ? out.title : targetUrl;
           const contentType = typeof out.contentType === "string" ? out.contentType : "";
-          if (!text) throw new Error("urlFetcher returned empty content");
-          return { text, title, contentType };
+          return { text: enforceTextLimit(text, `URL fetcher response: ${targetUrl}`), title, contentType };
         }
         throw new Error("urlFetcher returned unsupported result");
       }
@@ -574,8 +587,7 @@ export class IngestStage {
         const jsonPart = Array.isArray(res?.content) ? res.content.find((c) => c?.type === "json" && c?.data) : null;
         const title = jsonPart?.data?.title || jsonPart?.data?.metadata?.title || targetUrl;
         const contentType = jsonPart?.data?.metadata?.contentType || "";
-        if (!text) throw new Error("MCP fetch_content returned empty text");
-        return { text, title, contentType };
+        return { text: enforceTextLimit(text, `MCP fetch_content response: ${targetUrl}`), title, contentType };
       }
 
       if (allowDirectUrlFetch && typeof fetch === "function") {
@@ -583,8 +595,12 @@ export class IngestStage {
         const resp = await fetch(safeUrl, { signal: stageApi?.signal });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const contentType = resp.headers?.get?.("content-type") || "";
-        const text = await resp.text();
-        if (!text) throw new Error("empty response body");
+        const text = await readTextWithLimit(resp, {
+          maxBytes: maxUrlBytes,
+          signal: stageApi?.signal,
+          context: `URL fetch response: ${safeUrl}`,
+        });
+        if (typeof text !== "string" || !text) throw new Error("empty response body");
         return { text, title: safeUrl, contentType };
       }
 

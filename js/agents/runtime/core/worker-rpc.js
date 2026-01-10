@@ -321,11 +321,38 @@ export class WorkerRpcClient {
  * @returns {function} Message handler
  */
 export function createRpcHandler(methods) {
+  const inFlight = new Map(); // id -> AbortController
+
   return async function handleMessage(event) {
     const data = event.data;
-    if (!data || data.type !== "rpc:request") return;
+    if (!data) return;
 
-    const { id, method, params } = data;
+    if (data.type === "rpc:cancel") {
+      const id = typeof data.id === "string" ? data.id : "";
+      if (!id) return;
+
+      const controller = inFlight.get(id);
+      if (!controller) return;
+
+      try {
+        controller.abort(data.reason || "cancelled");
+      } catch {
+        controller.abort();
+      } finally {
+        inFlight.delete(id);
+      }
+      return;
+    }
+
+    if (data.type !== "rpc:request") return;
+
+    const id = typeof data.id === "string" ? data.id : "";
+    const method = typeof data.method === "string" ? data.method : "";
+    const params = data.params;
+    if (!id || !method) return;
+
+    const controller = new AbortController();
+    inFlight.set(id, controller);
 
     try {
       const fn = methods[method];
@@ -333,7 +360,8 @@ export function createRpcHandler(methods) {
         throw new Error(`Unknown method: ${method}`);
       }
 
-      const result = await fn(params);
+      const result = await fn(params, { signal: controller.signal, id, method });
+      if (controller.signal.aborted) return;
 
       self.postMessage({
         type: "rpc:response",
@@ -342,12 +370,16 @@ export function createRpcHandler(methods) {
         result,
       });
     } catch (err) {
+      if (controller.signal.aborted) return;
+
       self.postMessage({
         type: "rpc:response",
         id,
         ok: false,
         error: err?.message || String(err),
       });
+    } finally {
+      inFlight.delete(id);
     }
   };
 }

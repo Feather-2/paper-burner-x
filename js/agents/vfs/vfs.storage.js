@@ -348,6 +348,19 @@ export class StorageVfs {
     return out;
   }
 
+  /**
+   * Legacy compatibility helper used by some runtimes.
+   * @param {string} path
+   * @returns {Promise<Array<{ name: string, kind: "file" | "dir" }>>}
+   */
+  async list(path) {
+    const dirents = await this.readdir(path, { withFileTypes: true });
+    if (!Array.isArray(dirents)) return [];
+    return dirents
+      .filter((e) => e && typeof e === "object" && typeof e.name === "string")
+      .map((e) => ({ name: e.name, kind: e.isDirectory?.() ? "dir" : "file" }));
+  }
+
   async copy(src, dest) {
     const s = normalizeVfsPath(src);
     const d = normalizeVfsPath(dest);

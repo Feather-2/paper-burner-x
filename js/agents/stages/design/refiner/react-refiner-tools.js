@@ -96,7 +96,7 @@ function escapeAttrSelectorValue(value) {
 }
 
 function isDangerousUrl(value) {
-  const raw = String(value ?? "").trim();
+  const raw = String(value ?? "").replace(/\u0000/g, "").trim();
   if (!raw) return false;
   const s = raw.toLowerCase();
   if (s.startsWith("javascript:") || s.startsWith("vbscript:")) return true;
@@ -143,7 +143,15 @@ function sanitizeElementTree(root) {
         el.removeAttribute?.(name);
         continue;
       }
-      if ((lower === "href" || lower === "src" || lower === "xlink:href" || lower === "formaction") && isDangerousUrl(attr.value)) {
+      if (
+        (lower === "href" ||
+          lower === "src" ||
+          lower === "xlink:href" ||
+          lower === "formaction" ||
+          lower === "action" ||
+          lower === "srcset") &&
+        isDangerousUrl(attr.value)
+      ) {
         el.removeAttribute?.(name);
         continue;
       }
@@ -157,15 +165,58 @@ function sanitizeElementTree(root) {
   }
 }
 
+let _domPurifyPromise = null;
+let _domPurify = null;
+
+async function getDomPurify() {
+  // DOMPurify is primarily needed for browser rendering safety.
+  // In Node.js, prefer our element-tree sanitizer (linkedom) to avoid relying on
+  // partial DOM implementations that may not enforce URL sanitization correctly.
+  if (!isBrowserEnv()) return null;
+
+  if (_domPurify && typeof _domPurify.sanitize === "function") return _domPurify;
+  if (_domPurifyPromise) return _domPurifyPromise;
+
+  _domPurifyPromise = (async () => {
+    const globalPurifier = /** @type {any} */ (globalThis).DOMPurify;
+    if (globalPurifier && typeof globalPurifier.sanitize === "function") return globalPurifier;
+
+    try {
+      const mod = await import("dompurify");
+      const maybeFactory = /** @type {any} */ (mod).default || mod;
+      if (maybeFactory && typeof maybeFactory.sanitize === "function") return maybeFactory;
+
+      if (typeof maybeFactory === "function") {
+        return maybeFactory(window);
+      }
+    } catch {
+      // ignore (DOMPurify import unavailable)
+    }
+
+    return null;
+  })()
+    .then((purifier) => {
+      _domPurify = purifier;
+      _domPurifyPromise = null;
+      return purifier;
+    })
+    .catch(() => {
+      _domPurifyPromise = null;
+      return null;
+    });
+
+  return _domPurifyPromise;
+}
+
 async function sanitizeHtmlFragment(html) {
   const input = typeof html === "string" ? html : String(html ?? "");
   if (!input.trim()) return "";
 
-  // Browser: prefer DOMPurify when available (loaded via CDN).
-  // This avoids relying on our lightweight tree sanitizer for XSS defense.
-  const purifier = globalThis.DOMPurify;
+  // Prefer DOMPurify (bundled dependency or CDN global).
+  // Keep the lightweight tree sanitizer only as a last-resort fallback.
+  const purifier = await getDomPurify();
   if (purifier && typeof purifier.sanitize === "function") {
-    return purifier.sanitize(input, { RETURN_DOM_FRAGMENT: false });
+    return purifier.sanitize(input, { RETURN_DOM_FRAGMENT: false, USE_PROFILES: { html: true } });
   }
 
   const WRAP_ID = "__pb_sanitize_wrap__";

@@ -65,6 +65,8 @@ export const DEFAULT_CORS_PROXIES = [
   "",
 ];
 
+const DEFAULT_MAX_BODY_BYTES = 4 * 1024 * 1024; // 4 MiB
+
 function looksLikeProxyErrorPage(html) {
   const s = typeof html === "string" ? html : String(html ?? "");
   if (!s) return false;
@@ -95,6 +97,95 @@ function looksLikeProxyErrorPage(html) {
   }
 
   return false;
+}
+
+function normalizeMaxBodyBytes(v, fallback) {
+  if (v === Infinity) return Infinity;
+  if (typeof v !== "number" || !Number.isFinite(v)) return fallback;
+  const n = Math.floor(v);
+  return n > 0 ? n : fallback;
+}
+
+function createBodyTooLargeError(maxBytes, observedBytes) {
+  const err = /** @type {Error & { code?: string, maxBytes?: number, observedBytes?: number }} */ (
+    new Error(`Response body exceeds limit (${observedBytes} > ${maxBytes} bytes)`)
+  );
+  err.name = "BodyTooLargeError";
+  err.code = "EHTTP_BODY_TOO_LARGE";
+  err.maxBytes = maxBytes;
+  err.observedBytes = observedBytes;
+  return err;
+}
+
+function tryGetHeader(response, name) {
+  try {
+    const headers = response?.headers;
+    if (headers && typeof headers.get === "function") return headers.get(name);
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+/**
+ * Read a Response-like object's body as text, enforcing a best-effort max byte limit.
+ * Falls back to response.text() when streams are unavailable (e.g., unit tests).
+ * @param {any} response
+ * @param {{ maxBytes?: number, signal?: AbortSignal }=} options
+ * @returns {Promise<string>}
+ */
+async function readTextWithLimit(response, { maxBytes = Infinity, signal } = {}) {
+  if (maxBytes === Infinity) return await response.text();
+
+  checkCancelled(signal);
+
+  const declared = (() => {
+    const raw = tryGetHeader(response, "content-length");
+    const n = raw ? Number.parseInt(String(raw), 10) : NaN;
+    return Number.isFinite(n) ? n : null;
+  })();
+  if (declared !== null && declared > maxBytes) {
+    throw createBodyTooLargeError(maxBytes, declared);
+  }
+
+  const body = response?.body;
+  if (body && typeof body.getReader === "function" && typeof TextDecoder === "function") {
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let bytes = 0;
+    const parts = [];
+
+    try {
+      while (true) {
+        checkCancelled(signal);
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!value) continue;
+
+        bytes += value.byteLength || 0;
+        if (bytes > maxBytes) {
+          try {
+            await reader.cancel();
+          } catch {
+            // ignore cancel errors
+          }
+          throw createBodyTooLargeError(maxBytes, bytes);
+        }
+
+        parts.push(decoder.decode(value, { stream: true }));
+      }
+    } finally {
+      parts.push(decoder.decode());
+    }
+
+    return parts.join("");
+  }
+
+  const text = await response.text();
+  if (text && text.length > maxBytes) {
+    throw createBodyTooLargeError(maxBytes, text.length);
+  }
+  return text;
 }
 
 function isIpv4Host(hostname) {
@@ -286,16 +377,17 @@ export class CorsProxyHttpClient {
   /**
    * 通过 CORS 代理链抓取 HTML（会抛出 AggregateError）
    * @param {string} url
-   * @param {{ timeoutMs?: number, tryDirect?: boolean, signal?: AbortSignal }=} options
+   * @param {{ timeoutMs?: number, tryDirect?: boolean, signal?: AbortSignal, maxBodyBytes?: number }=} options
    * @returns {Promise<CorsFetchResult>}
    */
-  async fetchWithCorsFallback(url, { timeoutMs = 10000, tryDirect = true, signal } = {}) {
+  async fetchWithCorsFallback(url, { timeoutMs = 10000, tryDirect = true, signal, maxBodyBytes } = {}) {
     checkCancelled(signal);
     const candidates = this._filterCorsProxyCooldown(this._buildCorsProxyCandidates({ tryDirect }));
     const errors = [];
     const redactedUrl = redactUrlForLog(url);
     // P3.2: 使用白名单模式或黑名单模式
     const proxyUrl = inspectUrlForProxy(url, { useWhitelist: this.useUrlWhitelist });
+    const maxBytes = normalizeMaxBodyBytes(maxBodyBytes, DEFAULT_MAX_BODY_BYTES);
 
     // P3.2: If params were stripped, expose via result object only (no console logging).
 
@@ -350,7 +442,7 @@ export class CorsProxyHttpClient {
         });
 
         if (response.ok || response.status === 0) {
-          const text = await response.text();
+          const text = await readTextWithLimit(response, { maxBytes, signal: controller.signal });
           if (text && text.length > 100 && !looksLikeProxyErrorPage(text)) {
             this._markCorsProxySuccess(proxy);
             return { text, url: targetUrl, proxy: proxy || "direct" };

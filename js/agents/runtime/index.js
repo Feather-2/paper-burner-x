@@ -17,6 +17,7 @@ export {
 export { StagePausedError, StageCancelledError, StageTimeoutError } from "./core/stage-errors.js";
 export { ActorType, OrchestratorState, isValidActorType } from "./core/constants.js";
 export { AgentOrchestrator, SchedulingMode } from "./orchestrator.js";
+export { TaskGraph } from "./parallel/task-graph.js";
 
 // Events
 export { EventBus } from "../core/event-bus.js";
@@ -74,6 +75,8 @@ export { UnifiedAgentContext } from "./context/unified-agent-context.js";
 
 // Tools
 export { ToolExecutor, createToolExecutor } from "./tools/tool-executor.js";
+export { HookRegistry, HookType, enhanceEventBusWithHooks, getHookRegistry, createPreToolUseHook } from "./hooks/index.js";
+export { classifyCommand, parseCompoundCommand } from "./safety/command-classifier.js";
 
 // Dependency Injection
 export {

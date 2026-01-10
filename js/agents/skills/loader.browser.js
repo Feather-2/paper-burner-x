@@ -11,13 +11,17 @@
 import { SkillScope } from "./model.js";
 import { initUserSkillStore, listUserSkills, getUserSkillBody } from "./user-store.js";
 import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
+import { createResponseTooLargeError, normalizeMaxBytes, readJsonWithLimit, readTextWithLimit } from "../shared/utils/response-limits.js";
 
 // Vite serves `public/` at the site root ("/skills/manifest.json").
 // Some deployments may still expose it under "/public/skills/manifest.json".
 const DEFAULT_MANIFEST_URL = "skills/manifest.json";
 const DEFAULT_MANIFEST_URL_FALLBACK = "public/skills/manifest.json";
 
-let _manifestCache = null; // { url, data, ts }
+const DEFAULT_MAX_MANIFEST_BYTES = 512 * 1024; // 512 KiB
+const DEFAULT_MAX_SKILL_BYTES = 2 * 1024 * 1024; // 2 MiB
+
+let _manifestCache = null; // { url, data, ts, maxBytes }
 const MANIFEST_CACHE_TTL_MS = 30_000;
 
 function normalizeStringArray(value) {
@@ -35,11 +39,11 @@ function resolveUrl(pathOrUrl) {
   }
 }
 
-async function fetchJson(url) {
+async function fetchJson(url, { maxBytes, context } = {}) {
   if (typeof fetch !== "function") throw new Error("fetch is not available in this environment");
   const resp = await fetch(url, { cache: "no-store" });
   if (!resp.ok) throw new Error(`Failed to fetch ${url}: ${resp.status}`);
-  return await resp.json();
+  return await readJsonWithLimit(resp, { maxBytes, context: context || `JSON response: ${url}` });
 }
 
 /**
@@ -180,21 +184,27 @@ function parseSkillMarkdown(contents, filePath, scope) {
   };
 }
 
-async function loadManifest(manifestUrl) {
+async function loadManifest(manifestUrl, { maxManifestBytes } = {}) {
   const primary = resolveUrl(manifestUrl || DEFAULT_MANIFEST_URL);
   const fallback = resolveUrl(DEFAULT_MANIFEST_URL_FALLBACK);
   const candidates = [primary, fallback].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
 
   const now = Date.now();
-  if (_manifestCache && _manifestCache.url === primary && now - _manifestCache.ts < MANIFEST_CACHE_TTL_MS) {
+  const maxBytes = normalizeMaxBytes(maxManifestBytes, DEFAULT_MAX_MANIFEST_BYTES);
+  if (
+    _manifestCache &&
+    _manifestCache.maxBytes === maxBytes &&
+    candidates.includes(_manifestCache.url) &&
+    now - _manifestCache.ts < MANIFEST_CACHE_TTL_MS
+  ) {
     return _manifestCache.data;
   }
 
   let lastErr = null;
   for (const url of candidates) {
     try {
-      const data = await fetchJson(url);
-      _manifestCache = { url, data, ts: now };
+      const data = await fetchJson(url, { maxBytes, context: `Skills manifest: ${url}` });
+      _manifestCache = { url, data, ts: now, maxBytes };
       return data;
     } catch (err) {
       lastErr = err;
@@ -267,12 +277,12 @@ function normalizeSkillFromUserStore(entry) {
  * @param {string} [options.manifestUrl] - manifest.json URL（默认 public/skills/manifest.json）
  * @returns {Promise<{skills:Array,errors:Array}>}
  */
-export async function loadSkills({ manifestUrl } = {}) {
+export async function loadSkills({ manifestUrl, maxManifestBytes } = {}) {
   const outcome = { skills: [], errors: [] };
 
   let manifest;
   try {
-    manifest = await loadManifest(manifestUrl);
+    manifest = await loadManifest(manifestUrl, { maxManifestBytes });
   } catch (err) {
     outcome.errors.push({
       path: toNonEmptyString(manifestUrl) || DEFAULT_MANIFEST_URL,
@@ -388,8 +398,8 @@ export async function loadSkillsFromNexus(nexusProvider) {
  * @param {any} [options.nexusProvider]
  * @returns {Promise<{skills:Array,errors:Array}>}
  */
-export async function loadAllSkills({ manifestUrl, nexusProvider } = {}) {
-  const localOutcome = await loadSkills({ manifestUrl });
+export async function loadAllSkills({ manifestUrl, nexusProvider, maxManifestBytes } = {}) {
+  const localOutcome = await loadSkills({ manifestUrl, maxManifestBytes });
   const remoteOutcome = await loadSkillsFromNexus(nexusProvider);
 
   const seen = new Set(localOutcome.skills.map((s) => s.metadata.name));
@@ -406,7 +416,17 @@ export async function loadAllSkills({ manifestUrl, nexusProvider } = {}) {
 /**
  * 从指定路径加载单个 Skill（Browser 版本：fetch）
  */
-export async function loadSkillFromPath(filePath, scope = SkillScope.SYSTEM) {
+export async function loadSkillFromPath(filePath, scope = SkillScope.SYSTEM, options = {}) {
+  /** @type {any} */
+  let opts = options;
+  /** @type {any} */
+  let normalizedScope = scope;
+  if (normalizedScope && typeof normalizedScope === "object" && !Array.isArray(normalizedScope)) {
+    opts = normalizedScope;
+    normalizedScope = SkillScope.SYSTEM;
+  }
+
+  const maxSkillBytes = normalizeMaxBytes(opts?.maxSkillBytes, DEFAULT_MAX_SKILL_BYTES);
   const raw = toNonEmptyString(filePath);
   if (!raw) throw new Error("loadSkillFromPath(filePath): filePath is required");
 
@@ -416,6 +436,9 @@ export async function loadSkillFromPath(filePath, scope = SkillScope.SYSTEM) {
     await initUserSkillStore();
     const text = getUserSkillBody(name);
     if (!text) throw new Error(`User skill missing body: ${name}`);
+    if (maxSkillBytes !== Infinity && text.length > maxSkillBytes) {
+      throw createResponseTooLargeError(`User skill body: ${name}`, maxSkillBytes, text.length);
+    }
     return parseSkillMarkdown(text, `user:${name}`, SkillScope.USER);
   }
 
@@ -425,8 +448,9 @@ export async function loadSkillFromPath(filePath, scope = SkillScope.SYSTEM) {
   if (typeof fetch !== "function") throw new Error("fetch is not available in this environment");
   const resp = await fetch(url, { cache: "no-store" });
   if (!resp.ok) throw new Error(`Failed to load skill: ${url} (${resp.status})`);
-  const text = await resp.text();
-  return parseSkillMarkdown(text, filePath, scope);
+  const text = await readTextWithLimit(resp, { maxBytes: maxSkillBytes, context: `Skill content: ${url}` });
+  if (typeof text !== "string" || !text) throw new Error(`Failed to load skill body: ${url}`);
+  return parseSkillMarkdown(text, filePath, normalizedScope);
 }
 
 export default {

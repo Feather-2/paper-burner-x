@@ -3,6 +3,8 @@ import { EventBus } from "../core/event-bus.js";
 import { ActorType, OrchestratorState, isValidActorType } from "./core/constants.js";
 import { ServiceId } from "./di/defaults.js";
 import { CommonSchemas, validateConfig } from "./core/config-validator.js";
+import { TaskGraph } from "./parallel/task-graph.js";
+import { enhanceEventBusWithHooks } from "./hooks/event-bus-hooks.js";
 
 import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
 
@@ -264,6 +266,7 @@ export class AgentOrchestrator {
 
     this._services = services && typeof services === "object" ? services : {};
     this.eventBus = eventBus instanceof EventBus ? eventBus : new EventBus({ runId: this.runId });
+    enhanceEventBusWithHooks(this.eventBus);
     // P2.1: 默认启用背压（浏览器和 Node.js 均生效），coalesce *.progress 事件
     if (typeof this.eventBus.enableBackpressure === "function") {
       const cfg = this._services?.eventBusBackpressure ?? this._services?.backpressure;
@@ -582,6 +585,87 @@ export class AgentOrchestrator {
     await runNext();
     // Wait for all remaining
     await Promise.all(executing);
+
+    return results;
+  }
+
+  /**
+   * Run stages with explicit DAG dependencies (layered parallelism).
+   *
+   * Example:
+   * - A (no deps)
+   * - B depends on A
+   * - C depends on A
+   * -> level1: [A], level2: [B, C]
+   *
+   * @param {Array<{name: string, input?: any, dependsOn?: string[]}>} stages
+   * @param {{ continueOnError?: boolean } | undefined} [options]
+   * @returns {Promise<Map<string, any>>} Map of stageName -> {success, result|error|skipped}
+   */
+  async runStagesGraph(stages, options = {}) {
+    const list = Array.isArray(stages) ? stages : [];
+    if (list.length === 0) return new Map();
+
+    const continueOnError = options?.continueOnError === true;
+
+    /** @type {Map<string, { name: string, input?: any, dependsOn?: string[] }>} */
+    const byName = new Map();
+    for (const item of list) {
+      const stageName = toNonEmptyString(item?.name);
+      if (!stageName) continue;
+      byName.set(stageName, item);
+    }
+
+    const graph = new TaskGraph();
+    for (const [stageName, item] of byName) {
+      const deps = Array.isArray(item?.dependsOn) ? item.dependsOn : [];
+      graph.addTask(stageName, deps);
+    }
+
+    const levels = graph.getLevels();
+    const results = new Map();
+
+    for (const level of levels) {
+      /** @type {Array<{name: string, input?: any}>} */
+      const runnable = [];
+
+      for (const stageName of level) {
+        const node = byName.get(stageName);
+        const deps = Array.isArray(node?.dependsOn) ? node.dependsOn : [];
+
+        let blockedBy = null;
+        for (const dep of deps) {
+          const r = results.get(dep);
+          if (r && r.success === false) {
+            blockedBy = dep;
+            break;
+          }
+        }
+
+        if (blockedBy) {
+          results.set(stageName, { success: false, skipped: true, error: `dependency_failed:${blockedBy}` });
+          continue;
+        }
+
+        runnable.push({ name: stageName, input: node?.input });
+      }
+
+      if (runnable.length) {
+        const levelResults = await this.runStagesParallel(runnable);
+        for (const [name, outcome] of levelResults.entries()) {
+          results.set(name, outcome);
+        }
+      }
+
+      if (!continueOnError) {
+        for (const stageName of level) {
+          const r = results.get(stageName);
+          if (r && r.success === false && !r.skipped) {
+            throw new Error(`Stage failed: ${stageName}: ${r.error || "unknown_error"}`);
+          }
+        }
+      }
+    }
 
     return results;
   }

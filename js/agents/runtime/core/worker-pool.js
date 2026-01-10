@@ -62,7 +62,7 @@ export class WorkerPool {
     this._workers = new Map();
     this._nextWorkerId = 0;
 
-    /** @type {Array<{ method: string, params: any, priority: number, resolve: Function, reject: Function, signal?: AbortSignal, timeoutMs?: number }>} */
+    /** @type {Array<{ method: string, params: any, priority: number, resolve: Function, reject: Function, signal?: AbortSignal, timeoutMs?: number, abortListener?: any }>} */
     this._taskQueue = [];
 
     this._idleCheckTimer = null;
@@ -110,7 +110,7 @@ export class WorkerPool {
     }
 
     return new Promise((resolve, reject) => {
-      const task = { method, params, priority, resolve, reject, signal, timeoutMs };
+      const task = { method, params, priority, resolve, reject, signal, timeoutMs, abortListener: null };
 
       // Insert by priority (lower = higher priority)
       let inserted = false;
@@ -134,6 +134,7 @@ export class WorkerPool {
             reject(new Error("Aborted"));
           }
         };
+        task.abortListener = onAbort;
         signal.addEventListener("abort", onAbort, { once: true });
       }
 
@@ -181,6 +182,16 @@ export class WorkerPool {
     // Take next task
     const task = this._taskQueue.shift();
     if (!task) return;
+
+    // Detach queue-level abort listener now that the task is being executed (WorkerRpcClient handles abort).
+    if (task.signal && task.abortListener && typeof task.signal.removeEventListener === "function") {
+      try {
+        task.signal.removeEventListener("abort", task.abortListener);
+      } catch {
+        // ignore
+      }
+      task.abortListener = null;
+    }
 
     // Skip if already aborted
     if (task.signal?.aborted) {
@@ -289,6 +300,13 @@ export class WorkerPool {
 
     // Reject pending tasks
     for (const task of this._taskQueue) {
+      if (task.signal && task.abortListener && typeof task.signal.removeEventListener === "function") {
+        try {
+          task.signal.removeEventListener("abort", task.abortListener);
+        } catch {
+          // ignore
+        }
+      }
       task.reject(new Error("WorkerPool closed"));
     }
     this._taskQueue.length = 0;

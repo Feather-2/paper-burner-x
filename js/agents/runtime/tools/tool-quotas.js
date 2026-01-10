@@ -8,6 +8,7 @@
  */
 
 import { createLogger } from "../../shared/utils/logger.js";
+import { createSafeRegex } from "../../shared/utils/safe-regex.js";
 
 const logger = createLogger("runtime/tools/tool-quotas");
 
@@ -445,9 +446,13 @@ export class ContractValidator {
         errors.push(`${path || "root"}: length must be <= ${schema.maxLength}`);
       }
       if (schema.pattern) {
-        const regex = new RegExp(schema.pattern);
-        if (!regex.test(value)) {
-          errors.push(`${path || "root"}: must match pattern ${schema.pattern}`);
+        try {
+          const regex = createSafeRegex(schema.pattern, "u");
+          if (!regex.test(value)) {
+            errors.push(`${path || "root"}: must match pattern ${schema.pattern}`);
+          }
+        } catch (err) {
+          errors.push(`${path || "root"}: invalid pattern ${schema.pattern} (${err?.message || String(err)})`);
         }
       }
     }

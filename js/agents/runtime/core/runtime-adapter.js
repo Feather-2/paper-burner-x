@@ -16,6 +16,7 @@ export const RuntimeType = {
  * @property {Object} state - 当前状态快照 (Readonly)
  * @property {Function} [emit] - 事件发送函数 (to EventBus)
  * @property {AbortSignal} [signal] - 中止信号
+ * @property {boolean} [trusted] - Whether this execution is trusted to use unsafe fallbacks
  */
 
 /**

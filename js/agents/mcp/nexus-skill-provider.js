@@ -11,6 +11,7 @@
  */
 
 import { parseSseStream } from "./sse.js";
+import { normalizeMaxBytes, readJsonWithLimit } from "../shared/utils/response-limits.js";
 
 /**
  * @typedef {Object} NexusSkillInfo
@@ -36,7 +37,11 @@ import { parseSseStream } from "./sse.js";
  * @property {number} [timeout=30000] - Request timeout ms
  * @property {boolean} [cacheEnabled=true] - Enable response caching
  * @property {number} [cacheTTL=300000] - Cache TTL in ms (5 min default)
+ * @property {number} [maxResponseBytes] - Max JSON response size (bytes), Infinity to disable
+ * @property {number} [maxSkillContentBytes] - Max skill content size (bytes), defaults to maxResponseBytes
  */
+
+const DEFAULT_MAX_RESPONSE_BYTES = 4 * 1024 * 1024; // 4 MiB
 
 export class NexusSkillProvider {
   /**
@@ -48,18 +53,34 @@ export class NexusSkillProvider {
     timeout = 30000,
     cacheEnabled = true,
     cacheTTL = 300000,
+    maxResponseBytes,
+    maxSkillContentBytes,
   } = {}) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
     this.authToken = authToken;
     this.timeout = timeout;
     this.cacheEnabled = cacheEnabled;
     this.cacheTTL = cacheTTL;
+    this.maxResponseBytes = normalizeMaxBytes(maxResponseBytes, DEFAULT_MAX_RESPONSE_BYTES);
+    this.maxSkillContentBytes = normalizeMaxBytes(maxSkillContentBytes, this.maxResponseBytes);
 
     /** @type {Map<string, { data: any, timestamp: number }>} */
     this.cache = new Map();
 
     /** @type {boolean} */
     this.connected = false;
+  }
+
+  async _readJson(response, { maxBytes, context, fallback } = {}) {
+    try {
+      return await readJsonWithLimit(response, { maxBytes, context });
+    } catch (err) {
+      if (err && typeof err === "object" && /** @type {any} */ (err).name === "ResponseTooLargeError") {
+        throw err;
+      }
+      if (fallback !== undefined) return fallback;
+      throw err;
+    }
   }
 
   /**
@@ -91,7 +112,10 @@ export class NexusSkillProvider {
       throw new Error(`Failed to list skills: ${response.status}`);
     }
 
-    const data = await response.json();
+    const data = await this._readJson(response, {
+      maxBytes: this.maxResponseBytes,
+      context: "Nexus skills list response",
+    });
     const skills = data.skills || [];
 
     this._setCache(cacheKey, skills);
@@ -116,7 +140,10 @@ export class NexusSkillProvider {
       throw new Error(`Failed to get skill content: ${response.status}`);
     }
 
-    const content = await response.json();
+    const content = await this._readJson(response, {
+      maxBytes: this.maxSkillContentBytes,
+      context: `Nexus skill content response: ${name}`,
+    });
     this._setCache(cacheKey, content);
     return content;
   }
@@ -139,11 +166,18 @@ export class NexusSkillProvider {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
+      const error = await this._readJson(response, {
+        maxBytes: this.maxResponseBytes,
+        context: `Nexus tool error response: ${toolId}`,
+        fallback: {},
+      });
       throw new Error(error.message || `Tool execution failed: ${response.status}`);
     }
 
-    return response.json();
+    return await this._readJson(response, {
+      maxBytes: this.maxResponseBytes,
+      context: `Nexus tool response: ${toolId}`,
+    });
   }
 
   /**
@@ -160,11 +194,18 @@ export class NexusSkillProvider {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
+      const error = await this._readJson(response, {
+        maxBytes: this.maxResponseBytes,
+        context: "Nexus workflow error response",
+        fallback: {},
+      });
       throw new Error(error.message || `Workflow execution failed: ${response.status}`);
     }
 
-    return response.json();
+    return await this._readJson(response, {
+      maxBytes: this.maxResponseBytes,
+      context: "Nexus workflow response",
+    });
   }
 
   /**

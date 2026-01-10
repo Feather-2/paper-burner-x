@@ -9,8 +9,9 @@ import { createLogger } from "../shared/utils/logger.js";
 import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
 const logger = createLogger("prompts/prompt-loader");
 
-/** @type {any} */
-const nodeProcess = /** @type {any} */ (globalThis).process;
+function getNodeProcess() {
+  return /** @type {any} */ (globalThis).process;
+}
 
 /**
  * `require` is a CommonJS-only global. This file is ESM, but we keep `typeof require`
@@ -32,6 +33,8 @@ var __dirname;
  * @typedef {object} PromptLoaderOptions
  * @property {number=} maxEntries
  * @property {number=} manifestTtlMs
+ * @property {number=} maxManifestBytes
+ * @property {number=} maxPromptBytes
  * @property {string=} basePath
  * @property {typeof fetch=} fetchImpl
  */
@@ -73,11 +76,104 @@ var __dirname;
 
 const PROMPT_CACHE_KEY_SEPARATOR = "::";
 
+const DEFAULT_MAX_MANIFEST_BYTES = 512 * 1024; // 512 KiB
+const DEFAULT_MAX_PROMPT_BYTES = 2 * 1024 * 1024; // 2 MiB
+
 function isNodeLike() {
+  const nodeProcess = getNodeProcess();
   return !!nodeProcess && typeof nodeProcess === "object" && !!nodeProcess.versions?.node;
 }
 
+function normalizeMaxBytes(value, fallback) {
+  if (value === Infinity) return Infinity;
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  const n = Math.floor(parsed);
+  return n > 0 ? n : fallback;
+}
+
+function createResponseTooLargeError(context, maxBytes, observedBytes) {
+  const err = /** @type {Error & { code?: string, maxBytes?: number, observedBytes?: number }} */ (
+    new Error(`${context} exceeds limit (${observedBytes} > ${maxBytes} bytes)`)
+  );
+  err.name = "ResponseTooLargeError";
+  err.code = "ERESPONSE_TOO_LARGE";
+  err.maxBytes = maxBytes;
+  err.observedBytes = observedBytes;
+  return err;
+}
+
+function tryGetHeader(response, name) {
+  try {
+    const headers = response?.headers;
+    if (headers && typeof headers.get === "function") return headers.get(name);
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+async function tryReadTextWithLimit(response, { maxBytes, context } = {}) {
+  const limit = normalizeMaxBytes(maxBytes, Infinity);
+  const label = typeof context === "string" && context.trim() ? context.trim() : "Response body";
+
+  if (limit !== Infinity) {
+    const declared = (() => {
+      const raw = tryGetHeader(response, "content-length");
+      const n = raw ? Number.parseInt(String(raw), 10) : NaN;
+      return Number.isFinite(n) ? n : null;
+    })();
+    if (declared !== null && declared > limit) {
+      throw createResponseTooLargeError(label, limit, declared);
+    }
+  }
+
+  const body = response?.body;
+  if (body && typeof body.getReader === "function" && typeof TextDecoder === "function") {
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let bytes = 0;
+    const parts = [];
+
+    try {
+      while (true) {
+        // eslint-disable-next-line no-await-in-loop
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!value) continue;
+
+        bytes += value.byteLength || 0;
+        if (limit !== Infinity && bytes > limit) {
+          try {
+            await reader.cancel();
+          } catch {
+            // ignore cancel errors
+          }
+          throw createResponseTooLargeError(label, limit, bytes);
+        }
+
+        parts.push(decoder.decode(value, { stream: true }));
+      }
+    } finally {
+      parts.push(decoder.decode());
+    }
+
+    return parts.join("");
+  }
+
+  if (typeof response?.text === "function") {
+    const text = await response.text();
+    if (limit !== Infinity && text.length > limit) {
+      throw createResponseTooLargeError(label, limit, text.length);
+    }
+    return text;
+  }
+
+  return null;
+}
+
 function resolvePromptCacheMaxEntries() {
+  const nodeProcess = getNodeProcess();
   const env = nodeProcess && typeof nodeProcess === "object" ? nodeProcess.env : null;
   const fromEnv = env?.PB_PROMPT_CACHE_MAX_ENTRIES;
   if (fromEnv !== undefined && fromEnv !== null) {
@@ -97,6 +193,7 @@ function resolvePromptCacheMaxEntries() {
 }
 
 function resolvePromptManifestCacheTtlMs() {
+  const nodeProcess = getNodeProcess();
   const env = nodeProcess && typeof nodeProcess === "object" ? nodeProcess.env : null;
   const fromEnv = env?.PB_PROMPT_MANIFEST_CACHE_TTL_MS;
   if (fromEnv !== undefined && fromEnv !== null) {
@@ -149,13 +246,15 @@ export class PromptLoader {
   /**
    * @param {PromptLoaderOptions} [options]
    */
-  constructor({ maxEntries, manifestTtlMs, basePath, fetchImpl } = {}) {
+  constructor({ maxEntries, manifestTtlMs, maxManifestBytes, maxPromptBytes, basePath, fetchImpl } = {}) {
     this._promptCache = new Map();
     this._promptCacheMaxEntries =
       maxEntries !== undefined ? this._normalizeMaxEntries(maxEntries) : resolvePromptCacheMaxEntries();
     this._promptManifestCacheTtlMs =
       manifestTtlMs !== undefined ? this._normalizeManifestTtlMs(manifestTtlMs) : resolvePromptManifestCacheTtlMs();
     this._manifestCacheByUrl = new Map(); // url -> { url, ts, byName: Map }
+    this._maxManifestBytes = normalizeMaxBytes(maxManifestBytes, DEFAULT_MAX_MANIFEST_BYTES);
+    this._maxPromptBytes = normalizeMaxBytes(maxPromptBytes, DEFAULT_MAX_PROMPT_BYTES);
     this._basePathOverride = toNonEmptyString(basePath) || null;
     this._fetchImpl = typeof fetchImpl === "function" ? fetchImpl : null;
   }
@@ -246,6 +345,14 @@ export class PromptLoader {
     if (!fetchFn) throw new Error("fetch is not available in this environment");
     const resp = await fetchFn(url, { cache: "no-store" });
     if (!resp.ok) throw new Error(`Failed to fetch ${url}: ${resp.status}`);
+    const text = await tryReadTextWithLimit(resp, { maxBytes: this._maxManifestBytes, context: "Prompt manifest" });
+    if (typeof text === "string") {
+      try {
+        return JSON.parse(text);
+      } catch (err) {
+        throw new Error(`Failed to parse JSON from ${url}: ${err?.message || String(err)}`);
+      }
+    }
     return await resp.json();
   }
 
@@ -351,7 +458,11 @@ export class PromptLoader {
         if (!resp.ok) {
           throw new Error(`Failed to load prompt: ${filePath} (${resp.status})`);
         }
-        content = await resp.text();
+        const text = await tryReadTextWithLimit(resp, { maxBytes: this._maxPromptBytes, context: "Prompt content" });
+        if (typeof text !== "string") {
+          throw new Error("Failed to read prompt content");
+        }
+        content = text;
       } catch (e) {
         throw new Error(`Failed to load prompt "${name}": ${e.message}`);
       }
@@ -368,6 +479,13 @@ export class PromptLoader {
         const candidateReal = await fs.realpath(candidatePath);
         if (!isPathInsideBase(candidateReal, baseReal, pathModule)) {
           throw new Error("Path security violation: resolved path is outside base directory");
+        }
+
+        if (this._maxPromptBytes !== Infinity) {
+          const st = await fs.stat(candidateReal).catch(() => null);
+          if (st && typeof st.size === "number" && st.size > this._maxPromptBytes) {
+            throw new Error(`Prompt content exceeds limit (${st.size} > ${this._maxPromptBytes} bytes)`);
+          }
         }
 
         content = await fs.readFile(candidateReal, "utf-8");
@@ -422,6 +540,13 @@ export class PromptLoader {
       const candidateReal = fs.realpathSync(candidatePath);
       if (!isPathInsideBase(candidateReal, baseReal, path)) {
         throw new Error("Path security violation: resolved path is outside base directory");
+      }
+
+      if (this._maxPromptBytes !== Infinity) {
+        const st = fs.statSync(candidateReal);
+        if (st && typeof st.size === "number" && st.size > this._maxPromptBytes) {
+          throw new Error(`Prompt content exceeds limit (${st.size} > ${this._maxPromptBytes} bytes)`);
+        }
       }
 
       const content = fs.readFileSync(candidateReal, "utf-8").trim();
@@ -502,6 +627,7 @@ function getBasePath() {
       // 使用 decodeURIComponent 处理 URL 编码的路径
       // 并移除 Windows 路径的前导斜杠（如 /C:/...）
       let pathname = decodeURIComponent(moduleUrl.pathname);
+      const nodeProcess = getNodeProcess();
       if (nodeProcess?.platform === "win32" && pathname.startsWith("/")) {
         pathname = pathname.slice(1);
       }

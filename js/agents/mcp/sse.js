@@ -1,7 +1,17 @@
 import { toNonEmptyString, toPositiveInt } from "../shared/utils/value-utils.js";
 
+const DEFAULT_MAX_LINE_BYTES = 256 * 1024; // 256KiB
+const DEFAULT_MAX_BUFFER_BYTES = 2 * 1024 * 1024; // 2MiB
+const DEFAULT_MAX_EVENT_CHARS = 1 * 1024 * 1024; // 1M chars
+
 function isTextDecoderAvailable() {
   return typeof TextDecoder !== "undefined";
+}
+
+function normalizeSseLimit(value, fallback) {
+  if (value === Infinity) return Infinity;
+  const n = toPositiveInt(value, 0);
+  return n > 0 ? n : fallback;
 }
 
 function asHeadersObject(headers) {
@@ -67,6 +77,13 @@ function makeReadTimeoutError(timeoutMs) {
   return err;
 }
 
+function makeSizeLimitError(message, code) {
+  const err = new Error(message);
+  err.name = "SseSizeLimitError";
+  err.code = code || "SSE_SIZE_LIMIT";
+  return err;
+}
+
 /**
  * A minimal, spec-aligned SSE decoder (line-based).
  *
@@ -75,11 +92,15 @@ function makeReadTimeoutError(timeoutMs) {
  * - Keeps `id` and `retry` across events (per SSE spec)
  */
 export class SseDecoder {
-  constructor() {
+  constructor({ maxEventChars = 0 } = {}) {
+    const limit = toPositiveInt(maxEventChars, 0);
+    this._maxEventChars = limit > 0 ? limit : Infinity;
+
     this._eventType = null;
     this._dataLines = [];
     this._eventId = null;
     this._retry = null;
+    this._dataChars = 0;
   }
 
   decode(line) {
@@ -112,6 +133,11 @@ export class SseDecoder {
     if (field === "event") {
       this._eventType = toNonEmptyString(value) || "message";
     } else if (field === "data") {
+      const next = this._dataChars + value.length + 1;
+      if (next > this._maxEventChars) {
+        throw makeSizeLimitError(`SSE: event data exceeds maxEventChars (${this._maxEventChars})`, "SSE_EVENT_LIMIT");
+      }
+      this._dataChars = next;
       this._dataLines.push(value);
     } else if (field === "id") {
       this._eventId = toNonEmptyString(value) || null;
@@ -138,6 +164,7 @@ export class SseDecoder {
   _resetCurrent() {
     this._eventType = null;
     this._dataLines = [];
+    this._dataChars = 0;
     // id/retry persist across events (per spec).
   }
 }
@@ -146,14 +173,24 @@ export class SseDecoder {
  * Byte-level newline decoder (CRLF + LF).
  */
 export class NewlineDecoder {
-  constructor() {
+  constructor({ maxBufferBytes = 0, maxLineBytes = 0 } = {}) {
+    const bufferLimit = toPositiveInt(maxBufferBytes, 0);
+    const lineLimit = toPositiveInt(maxLineBytes, 0);
+    this._maxBufferBytes = bufferLimit > 0 ? bufferLimit : Infinity;
+    this._maxLineBytes = lineLimit > 0 ? lineLimit : Infinity;
     this._buffer = new Uint8Array();
     this._carriageIndex = null;
   }
 
   decode(chunk) {
     const bytes = chunk instanceof Uint8Array ? chunk : new Uint8Array();
-    if (bytes.length) this._buffer = concatUint8Arrays([this._buffer, bytes]);
+    if (bytes.length) {
+      const next = this._buffer.length + bytes.length;
+      if (next > this._maxBufferBytes) {
+        throw makeSizeLimitError(`SSE: buffer exceeds maxBufferBytes (${this._maxBufferBytes})`, "SSE_BUFFER_LIMIT");
+      }
+      this._buffer = concatUint8Arrays([this._buffer, bytes]);
+    }
 
     const lines = [];
     while (true) {
@@ -161,6 +198,9 @@ export class NewlineDecoder {
       if (!lineEnd) break;
 
       const lineBytes = this._buffer.subarray(0, lineEnd.preceding);
+      if (lineBytes.length > this._maxLineBytes) {
+        throw makeSizeLimitError(`SSE: line exceeds maxLineBytes (${this._maxLineBytes})`, "SSE_LINE_LIMIT");
+      }
       lines.push(decodeUtf8(lineBytes));
 
       this._buffer = this._buffer.subarray(lineEnd.index);
@@ -172,6 +212,9 @@ export class NewlineDecoder {
 
   flush() {
     if (this._buffer.length === 0) return [];
+    if (this._buffer.length > this._maxLineBytes) {
+      throw makeSizeLimitError(`SSE: line exceeds maxLineBytes (${this._maxLineBytes})`, "SSE_LINE_LIMIT");
+    }
     const lines = [decodeUtf8(this._buffer)];
     this._buffer = new Uint8Array();
     this._carriageIndex = null;
@@ -204,7 +247,10 @@ export class NewlineDecoder {
   }
 }
 
-export async function* parseSseStream(stream, { signal, readTimeoutMs = 0 } = {}) {
+export async function* parseSseStream(
+  stream,
+  { signal, readTimeoutMs = 0, maxLineBytes = 0, maxBufferBytes = 0, maxEventChars = 0 } = {}
+) {
   if (!stream || typeof stream.getReader !== "function") {
     throw new Error("SSE: response body is not a readable stream");
   }
@@ -213,8 +259,11 @@ export async function* parseSseStream(stream, { signal, readTimeoutMs = 0 } = {}
   }
 
   const reader = stream.getReader();
-  const newlineDecoder = new NewlineDecoder();
-  const decoder = new SseDecoder();
+  const newlineDecoder = new NewlineDecoder({
+    maxLineBytes: normalizeSseLimit(maxLineBytes, DEFAULT_MAX_LINE_BYTES),
+    maxBufferBytes: normalizeSseLimit(maxBufferBytes, DEFAULT_MAX_BUFFER_BYTES),
+  });
+  const decoder = new SseDecoder({ maxEventChars: normalizeSseLimit(maxEventChars, DEFAULT_MAX_EVENT_CHARS) });
 
   try {
     while (true) {
@@ -358,6 +407,9 @@ export async function consumeSse({
   signal,
   connectTimeoutMs = 10_000,
   readTimeoutMs = 60_000,
+  maxLineBytes = 0,
+  maxBufferBytes = 0,
+  maxEventChars = 0,
   reconnect = true,
   maxReconnects = 3,
   reconnectBackoffMs = 1000,
@@ -408,7 +460,13 @@ export async function consumeSse({
       }
 
       retryHintMs = null;
-      for await (const evt of parseSseStream(res.body, { signal: controller.signal, readTimeoutMs: timeoutMs })) {
+      for await (const evt of parseSseStream(res.body, {
+        signal: controller.signal,
+        readTimeoutMs: timeoutMs,
+        maxLineBytes,
+        maxBufferBytes,
+        maxEventChars,
+      })) {
         if (controller.signal.aborted) break;
         retryHintMs = typeof evt.retry === "number" && Number.isFinite(evt.retry) ? Math.max(0, Math.floor(evt.retry)) : retryHintMs;
         emit({

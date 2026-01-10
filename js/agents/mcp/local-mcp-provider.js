@@ -232,8 +232,8 @@ export class LocalMcpProvider extends McpProvider {
   }
 
   // Tests rely on this method existing; logic delegated to http-proxy.
-  async _fetchWithCorsFallback(url, { timeoutMs = 10000, tryDirect = true, signal } = {}) {
-    return this._http.fetchWithCorsFallback(url, { timeoutMs, tryDirect, signal });
+  async _fetchWithCorsFallback(url, { timeoutMs = 10000, tryDirect = true, signal, maxBodyBytes } = {}) {
+    return this._http.fetchWithCorsFallback(url, { timeoutMs, tryDirect, signal, maxBodyBytes });
   }
 
   async _search({ query, domain, time_range, limit } = {}, { signal } = {}) {

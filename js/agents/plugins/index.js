@@ -25,6 +25,9 @@ const pluginRegistry = {
   'service/scheduler': () => import('./services/scheduler.js'),
   'service/vfs': () => import('./services/vfs.js'),
 
+  // Sandbox
+  'sandbox': () => import('../core/sandbox/plugin.js'),
+
   // Debug
   'debug/logger': () => import('./debug/logger.js'),
   'debug/inspector': () => import('./debug/inspector.js'),

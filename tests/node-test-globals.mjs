@@ -3,6 +3,13 @@
  * Provides browser-like globals for testing ESM modules
  */
 
+import { createRequire } from "node:module";
+
+// Provide a CommonJS `require` for tests running as ESM under `"type": "module"`.
+if (typeof globalThis.require === "undefined") {
+  globalThis.require = createRequire(import.meta.url);
+}
+
 // Provide a minimal globalThis.window for modules that check for browser environment
 if (typeof globalThis.window === 'undefined') {
   globalThis.window = globalThis;
