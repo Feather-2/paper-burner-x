@@ -1,0 +1,320 @@
+  <!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>MCP Provider 测试</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; }
+    .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 8px; }
+    .test-section h3 { margin-top: 0; }
+    button { padding: 8px 16px; margin: 5px; cursor: pointer; }
+    input { padding: 8px; width: 350px; }
+    pre { background: #f5f5f5; padding: 10px; overflow-x: auto; max-height: 300px; overflow-y: auto; font-size: 12px; }
+    .success { color: green; }
+    .error { color: red; }
+    .pending { color: orange; }
+    .config-section { background: #e8f4fc; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+    label { display: block; margin: 10px 0 5px; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>MCP Provider 测试</h1>
+
+  <div class="config-section">
+    <h3>配置</h3>
+    <label>Worker 端点 URL（留空使用 CORS 代理模式）:</label>
+    <input type="text" id="worker-endpoint" placeholder="https://mcp-proxy.xxx.workers.dev" value="">
+    <p style="font-size:12px;color:#666">
+      部署 CF Worker 后填入端点 URL，可获得更稳定的搜索体验。
+      Worker 代码位于 <code>cloudflare-workers/mcp-proxy-worker.js</code>
+    </p>
+  </div>
+
+  <div class="test-section">
+    <h3>1. CORS 代理测试</h3>
+    <p>测试各个 CORS 代理是否可用（仅在未配置 Worker 时使用）</p>
+    <button onclick="testCorsProxies()">测试 CORS 代理</button>
+    <pre id="cors-result">点击按钮开始测试...</pre>
+  </div>
+
+  <div class="test-section">
+    <h3>2. 搜索测试</h3>
+    <input type="text" id="search-query" placeholder="输入搜索词" value="JavaScript async await">
+    <label style="display:inline;font-weight:normal;margin-left:10px">
+      <input type="checkbox" id="search-debug"> 调试模式
+    </label>
+    <button onclick="testSearch()">测试搜索</button>
+    <pre id="search-result">点击按钮开始测试...</pre>
+  </div>
+
+  <div class="test-section">
+    <h3>3. 网页内容获取测试</h3>
+    <input type="text" id="fetch-url" placeholder="输入 URL" value="https://example.com">
+    <button onclick="testFetch()">测试获取</button>
+    <pre id="fetch-result">点击按钮开始测试...</pre>
+  </div>
+
+  <div class="test-section">
+    <h3>4. 完整 MCP 流程测试</h3>
+    <input type="text" id="mcp-query" placeholder="输入搜索词" value="什么是机器学习">
+    <button onclick="testFullMcp()">测试完整流程</button>
+    <pre id="mcp-result">点击按钮开始测试...</pre>
+  </div>
+
+  <script type="module">
+    // 导入 MCP 模块
+    import { LocalMcpProvider } from '../js/agents/mcp/local-mcp-provider.js';
+
+    const CORS_PROXIES = [
+      { name: "直接请求", prefix: "" },
+      { name: "allorigins", prefix: "https://api.allorigins.win/raw?url=" },
+      { name: "corsproxy.io", prefix: "https://corsproxy.io/?" },
+      { name: "codetabs", prefix: "https://api.codetabs.com/v1/proxy?quest=" },
+    ];
+
+    const TEST_URL = "https://example.com";
+
+    // 获取配置的 Worker 端点
+    function getWorkerEndpoint() {
+      const val = document.getElementById('worker-endpoint').value.trim();
+      return val || null;
+    }
+
+    // 创建 Provider
+    function createProvider() {
+      return new LocalMcpProvider({
+        id: 'test',
+        workerEndpoint: getWorkerEndpoint(),
+      });
+    }
+
+    // 测试 CORS 代理
+    window.testCorsProxies = async function() {
+      const resultEl = document.getElementById('cors-result');
+      resultEl.textContent = '正在测试...\n';
+
+      for (const proxy of CORS_PROXIES) {
+        const targetUrl = proxy.prefix ? `${proxy.prefix}${encodeURIComponent(TEST_URL)}` : TEST_URL;
+        resultEl.textContent += `\n测试 ${proxy.name}: ${targetUrl.slice(0, 60)}...\n`;
+
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+          const response = await fetch(targetUrl, {
+            method: 'GET',
+            signal: controller.signal,
+            mode: proxy.prefix ? 'cors' : 'no-cors',
+          });
+
+          clearTimeout(timeoutId);
+
+          if (response.ok || response.status === 0) {
+            const text = await response.text();
+            resultEl.textContent += `  ✅ 成功! 响应长度: ${text.length} 字符\n`;
+            if (text.length > 0) {
+              resultEl.textContent += `  内容预览: ${text.slice(0, 100)}...\n`;
+            }
+          } else {
+            resultEl.textContent += `  ❌ 失败: HTTP ${response.status}\n`;
+          }
+        } catch (err) {
+          resultEl.textContent += `  ❌ 错误: ${err.message}\n`;
+        }
+      }
+
+      resultEl.textContent += '\n测试完成!';
+    };
+
+    // 测试搜索
+    window.testSearch = async function() {
+      const query = document.getElementById('search-query').value;
+      const debug = document.getElementById('search-debug')?.checked || false;
+      const resultEl = document.getElementById('search-result');
+      const workerEndpoint = getWorkerEndpoint();
+
+      resultEl.textContent = `正在搜索 "${query}"...\n`;
+      resultEl.textContent += `模式: ${workerEndpoint ? 'Worker (' + workerEndpoint + ')' : 'CORS 代理'}\n`;
+      if (debug) resultEl.textContent += `调试模式: 开启\n`;
+      resultEl.textContent += `\n`;
+
+      try {
+        // 如果有 Worker 端点且开启调试，直接调用 Worker API
+        if (workerEndpoint && debug) {
+          const response = await fetch(`${workerEndpoint}/search`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query, limit: 5, debug: true }),
+          });
+          const data = await response.json();
+
+          resultEl.textContent += `成功: ${data.success}\n`;
+          resultEl.textContent += `结果数: ${data.count}\n`;
+          resultEl.textContent += `搜索引擎: ${data.engine || '无'}\n\n`;
+
+          if (data.debug) {
+            resultEl.textContent += `=== 调试信息 ===\n`;
+            resultEl.textContent += `尝试引擎: ${data.debug.triedEngines?.join(', ') || 'N/A'}\n`;
+            resultEl.textContent += `使用引擎: ${data.debug.usedEngine || '无'}\n`;
+
+            // SearXNG 调试信息
+            if (data.debug.searxng) {
+              resultEl.textContent += `\n--- SearXNG 实例尝试 ---\n`;
+              if (data.debug.searxng.tried?.length > 0) {
+                data.debug.searxng.tried.forEach(t => {
+                  resultEl.textContent += `  ${t.instance}: HTTP ${t.status}\n`;
+                });
+              }
+              if (data.debug.searxng.errors?.length > 0) {
+                resultEl.textContent += `\nSearXNG 错误:\n`;
+                data.debug.searxng.errors.forEach(e => {
+                  resultEl.textContent += `  ${e.instance}: ${e.error}\n`;
+                });
+              }
+            }
+
+            // DuckDuckGo 调试信息
+            if (data.debug.htmlLength) {
+              resultEl.textContent += `\n--- DuckDuckGo ---\n`;
+              resultEl.textContent += `HTML 长度: ${data.debug.htmlLength}\n`;
+              resultEl.textContent += `包含 result__: ${data.debug.hasResultClass}\n`;
+              resultEl.textContent += `包含 uddg=: ${data.debug.hasUddg}\n`;
+              resultEl.textContent += `\nHTML 预览:\n${data.debug.htmlPreview?.slice(0, 1500) || ''}\n`;
+            }
+          }
+
+          if (data.results?.length > 0) {
+            resultEl.textContent += `\n=== 搜索结果 ===\n`;
+            data.results.forEach((r, i) => {
+              resultEl.textContent += `[${i+1}] ${r.title}\n    ${r.url}\n`;
+              if (r.snippet) resultEl.textContent += `    ${r.snippet.slice(0, 100)}...\n`;
+            });
+          }
+          return;
+        }
+
+        const provider = createProvider();
+        const result = await provider.callTool('search', { query, limit: 5 });
+
+        resultEl.textContent += `成功: ${result.success}\n`;
+        resultEl.textContent += `错误: ${result.error || '无'}\n\n`;
+
+        if (result.success) {
+          const text = result.getText();
+          resultEl.textContent += `搜索结果:\n${text.slice(0, 2000)}`;
+
+          const jsonContent = result.content.find(c => c?.type === 'json');
+          if (jsonContent?.data?.results) {
+            resultEl.textContent += `\n\n找到 ${jsonContent.data.results.length} 个结果`;
+            if (jsonContent.data.via) {
+              resultEl.textContent += ` (via ${jsonContent.data.via})`;
+            }
+          }
+        } else {
+          resultEl.textContent += `错误详情: ${result.getText()}`;
+        }
+      } catch (err) {
+        resultEl.textContent += `\n❌ 异常: ${err.message}\n${err.stack}`;
+      }
+    };
+
+    // 测试获取网页
+    window.testFetch = async function() {
+      const url = document.getElementById('fetch-url').value;
+      const resultEl = document.getElementById('fetch-result');
+      const workerEndpoint = getWorkerEndpoint();
+
+      resultEl.textContent = `正在获取 "${url}"...\n`;
+      resultEl.textContent += `模式: ${workerEndpoint ? 'Worker (' + workerEndpoint + ')' : 'CORS 代理'}\n\n`;
+
+      try {
+        const provider = createProvider();
+        const result = await provider.callTool('fetch_content', { url });
+
+        resultEl.textContent += `成功: ${result.success}\n`;
+        resultEl.textContent += `错误: ${result.error || '无'}\n\n`;
+
+        if (result.success) {
+          const text = result.getText();
+          resultEl.textContent += `提取文本 (前 1000 字符):\n${text.slice(0, 1000)}...`;
+
+          const jsonContent = result.content.find(c => c?.type === 'json');
+          if (jsonContent?.data?.metadata) {
+            resultEl.textContent += `\n\n元数据:\n${JSON.stringify(jsonContent.data.metadata, null, 2)}`;
+          }
+        } else {
+          resultEl.textContent += `错误详情: ${result.getText()}`;
+        }
+      } catch (err) {
+        resultEl.textContent += `\n❌ 异常: ${err.message}\n${err.stack}`;
+      }
+    };
+
+    // 测试完整 MCP 流程
+    window.testFullMcp = async function() {
+      const query = document.getElementById('mcp-query').value;
+      const resultEl = document.getElementById('mcp-result');
+      const workerEndpoint = getWorkerEndpoint();
+
+      resultEl.textContent = `开始完整 MCP 流程测试...\n`;
+      resultEl.textContent += `查询: "${query}"\n`;
+      resultEl.textContent += `模式: ${workerEndpoint ? 'Worker (' + workerEndpoint + ')' : 'CORS 代理'}\n\n`;
+
+      try {
+        const provider = createProvider();
+
+        // Step 1: 搜索
+        resultEl.textContent += `[1/3] 执行搜索...\n`;
+        const searchResult = await provider.callTool('search', { query, limit: 3 });
+
+        if (!searchResult.success) {
+          resultEl.textContent += `❌ 搜索失败: ${searchResult.error}\n`;
+          return;
+        }
+
+        const jsonContent = searchResult.content.find(c => c?.type === 'json');
+        const results = jsonContent?.data?.results || [];
+        resultEl.textContent += `✅ 搜索完成，找到 ${results.length} 个结果\n\n`;
+
+        if (results.length === 0) {
+          resultEl.textContent += `没有搜索结果，测试结束`;
+          return;
+        }
+
+        // Step 2: 获取第一个结果的内容
+        const firstResult = results[0];
+        resultEl.textContent += `[2/3] 获取第一个结果内容...\n`;
+        resultEl.textContent += `URL: ${firstResult.url}\n`;
+        resultEl.textContent += `标题: ${firstResult.title}\n\n`;
+
+        const fetchResult = await provider.callTool('fetch_content', { url: firstResult.url });
+
+        if (!fetchResult.success) {
+          resultEl.textContent += `❌ 获取失败: ${fetchResult.error}\n`;
+          if (!workerEndpoint) {
+            resultEl.textContent += `(提示: 使用 Worker 模式可获得更好的兼容性)\n`;
+          }
+        } else {
+          const text = fetchResult.getText();
+          resultEl.textContent += `✅ 获取成功，内容长度: ${text.length} 字符\n`;
+          resultEl.textContent += `内容预览:\n${text.slice(0, 500)}...\n\n`;
+        }
+
+        // Step 3: 总结
+        resultEl.textContent += `[3/3] 测试总结\n`;
+        resultEl.textContent += `- 搜索功能: ${searchResult.success ? '✅ 正常' : '❌ 失败'}\n`;
+        resultEl.textContent += `- 内容获取: ${fetchResult.success ? '✅ 正常' : '⚠️ 受限'}\n`;
+        resultEl.textContent += `- 使用模式: ${workerEndpoint ? 'Worker' : 'CORS 代理'}\n`;
+        resultEl.textContent += `\n测试完成!`;
+
+      } catch (err) {
+        resultEl.textContent += `\n❌ 异常: ${err.message}\n${err.stack}`;
+      }
+    };
+
+    // 页面加载完成提示
+    console.log('MCP 测试页面已加载');
+    document.body.insertAdjacentHTML('afterbegin', '<p style="color:green">✅ MCP 模块加载成功</p>');
+  </script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+name = "academic-search-proxy"
+main = "src/index.js"
+compatibility_date = "2024-10-01"
+workers_dev = true
+
+# Variables (non-sensitive, optional)
+[vars]
+# 认证设置
+ENABLE_AUTH = "false"
+ALLOWED_ORIGINS = "http://localhost:8080,https://yourdomain.com"
+
+# 速率限制配置
+RATE_LIMIT_ENABLED = "true"        # 是否启用速率限制
+RATE_LIMIT_TPS = "10"              # 每秒请求数限制（总体）
+RATE_LIMIT_TPM = "300"             # 每分钟请求数限制（总体）
+RATE_LIMIT_PER_IP_TPS = "5"       # 每个 IP 每秒请求数
+RATE_LIMIT_PER_IP_TPM = "100"     # 每个 IP 每分钟请求数
+
+# 服务级别速率限制（可选）
+RATE_LIMIT_PUBMED_TPS = "3"           # PubMed 推荐 3/秒（无 API Key）
+RATE_LIMIT_PUBMED_TPM = "180"         # PubMed 每分钟限制
+RATE_LIMIT_SEMANTICSCHOLAR_TPS = "5"  # Semantic Scholar 限制
+RATE_LIMIT_SEMANTICSCHOLAR_TPM = "20" # S2 每分钟 20 次（无 API Key）
+
+# Secrets (set via: wrangler secret put VARIABLE_NAME)
+# - SEMANTIC_SCHOLAR_API_KEY (optional, improves rate limits)
+# - PUBMED_API_KEY (optional, improves rate limits)
+# - AUTH_SECRET (if ENABLE_AUTH = "true")
+

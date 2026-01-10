@@ -1,11 +1,11 @@
 /**
  * @file js/boot/deps-loader.js
- * @description 依赖加载器 - 在应用启动前初始化所有第三方依赖
+ * @description 依赖加载器 - Vite 打包所有依赖
  *
- * 生产构建时，这些依赖会被打包；开发时可选择使用 CDN。
+ * 开发时: Vite dev server 处理裸模块
+ * 构建后: 依赖打包到 vendor-*.js，双击 HTML 即可运行
  */
 
-// 核心依赖（同步导入，会被打包）
 import DOMPurify from 'dompurify';
 import axios from 'axios';
 import { Base64 } from 'js-base64';
@@ -18,7 +18,7 @@ import anime from 'animejs';
 import graphlib from 'graphlib';
 import dagre from 'dagre';
 
-// 暴露到全局（向后兼容）
+// 暴露到全局（向后兼容旧代码）
 if (typeof window !== 'undefined') {
   window.DOMPurify = DOMPurify;
   window.axios = axios;
@@ -32,10 +32,10 @@ if (typeof window !== 'undefined') {
   window.graphlib = graphlib;
   window.dagre = dagre;
 
-  console.log('[DepsLoader] Core dependencies initialized');
+  console.log('[DepsLoader] Dependencies initialized');
 }
 
-// 导出供 ESM 使用
+// ESM 导出
 export {
   DOMPurify,
   axios,

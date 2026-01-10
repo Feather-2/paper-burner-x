@@ -1,23 +1,29 @@
-��* . p d f 
- 
- o c r _ r e s u l t s _ * / 
- 
- 
-/.claude
-/test
-/todos.md
-
-
-
-# Docker & Backend
-/server/node_modules
-/server/.env
-/server/prisma/migrations
+# 环境和密钥
 .env
 .env.local
-*.log
+*.pdf
 
-# Database
+# Node
+node_modules/
+/server/node_modules
+/local-proxy/node_modules
+
+# 构建产物
+dist/
+build/
+coverage/
+.coverage/
+
+# 临时文件
+*.log
+log/
+screenshots/
+local-mcp-provider.lcov
+ocr_results_*/
+output/
+image/
+
+# 数据库
 *.sqlite
 *.db
 
@@ -25,31 +31,25 @@
 .DS_Store
 Thumbs.db
 
-# Build
-dist/
-build/
-/data
+# IDE
+.vscode/
+
+# 开发资料（不提交到仓库）
+docs/
+ref/
+demo/
+data/
+plans/
+
+# 废弃文件
 AGENTS.md
 NEXT_STEPS.md
 tatus
+todos.md
 
-/local-proxy/node_modules
-/.vscode
-/js/ppt/editor/vtracer-master
-/js/ppt/editor/visioncortex-master
-/node_modules
-/log
-demo/ppt_workflow_preview.html
-/coverage
-/coverage/tmp
-/screenshots
-/plans
-/.coverage
-
-/demo
-/image
+# 项目特定
 js/agents/cli/config.json
-/output
-/docs
-/ref
-/tests
+js/ppt/editor/vtracer-master
+js/ppt/editor/visioncortex-master
+/.claude
+/server

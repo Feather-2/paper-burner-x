@@ -1341,7 +1341,7 @@
                 }
             }
 
-            const successCount = results.filter(r => r.success).length;
+            let successCount = results.filter(r => r.success).length;
             console.log(`[DOIResolver] Primary phase complete: ${successCount}/${references.length}`);
 
             // 托底查询：使用 Semantic Scholar 处理失败的文献

@@ -1,0 +1,14 @@
+name = "pb-ocr-proxy"
+main = "src/index.js"
+compatibility_date = "2024-10-01"
+workers_dev = true
+
+# Variables (non-sensitive, optional)
+# [vars]
+# ENABLE_AUTH = "true"
+# ALLOWED_ORIGINS = "https://yourdomain.com"
+
+# Secrets (set via: wrangler secret put VARIABLE_NAME)
+# - MINERU_API_TOKEN
+# - DOC2X_API_TOKEN
+# - AUTH_SECRET (if ENABLE_AUTH = "true")
