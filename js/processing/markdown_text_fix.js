@@ -12,24 +12,32 @@
             return markdown;
         }
 
-        // 1. 保护已有的数学公式，避免被段落分割
+        // 1. 保护已有的数学公式，避免后续段落修复/空格修复破坏公式本体
+        // 优先保护 $$...$$，避免 $...$ 正则误匹配 display 公式内部的 $
         let processed = markdown;
+        const placeholders = [];
+
+        function storePlaceholder(match) {
+            const placeholder = `__PB_MATH_TOKEN_${placeholders.length}__`;
+            placeholders.push({ placeholder, value: match });
+            return placeholder;
+        }
+
+        processed = processed.replace(/\$\$[\s\S]*?\$\$/g, storePlaceholder);
+        processed = processed.replace(/(?<!\$)\$[^$\n]+?\$(?!\$)/g, storePlaceholder);
         
-        // 2. 修复段落内的公式换行问题
-        // 将段落内不必要的换行转换为空格，但保持公式完整
+        // 2. 修复段落内的换行问题
+        // 将段落内不必要的换行转换为空格，但保持公式完整（已通过占位符保护）
         processed = processed.replace(/([^.\n])\n(?![#\-*+\d\s])/g, '$1 ');
         
-        // 3. 确保数学公式前后有适当的空格
-        processed = processed.replace(/([^\s])\$\$/g, '$1 $$');
-        processed = processed.replace(/\$\$([^\s])/g, '$$ $1');
-        processed = processed.replace(/([^\s])\$([^$])/g, '$1 $$$2');
-        processed = processed.replace(/([^$])\$([^\s])/g, '$1$ $2');
-        
-        // 4. 修复中文和公式之间的空格问题
-        processed = processed.replace(/([\u4e00-\u9fff])\$\$/g, '$1 $$');
-        processed = processed.replace(/\$\$([\u4e00-\u9fff])/g, '$$ $1');
-        processed = processed.replace(/([\u4e00-\u9fff])\$([^$])/g, '$1 $$$2');
-        processed = processed.replace(/([^$])\$([\u4e00-\u9fff])/g, '$1$ $2');
+        // 3. 确保数学公式前后有适当的空格（不修改公式内容，仅处理与文本相邻的情况）
+        processed = processed.replace(/([\u4e00-\u9fff\w])(__PB_MATH_TOKEN_\d+__)/g, '$1 $2');
+        processed = processed.replace(/(__PB_MATH_TOKEN_\d+__)([\u4e00-\u9fff\w])/g, '$1 $2');
+
+        // 4. 恢复公式占位符
+        placeholders.forEach(({ placeholder, value }) => {
+            processed = processed.split(placeholder).join(value);
+        });
 
         return processed;
     }
@@ -258,7 +266,8 @@
         renderMathImproved: renderMathImproved,
         renderMathMarkdown: renderMathMarkdown,
         fixRenderedMath: fixRenderedMath,
-        enhancedKatexOptions: enhancedKatexOptions
+        enhancedKatexOptions: enhancedKatexOptions,
+        escapeHtml: escapeHtml
     };
 
     // 如果 MarkdownProcessor 存在，则扩展它

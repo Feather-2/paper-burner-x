@@ -6,6 +6,11 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     include: [
+      'tests/api/**/*.test.js',
+      'tests/chatbot/**/*.test.js',
+      'tests/core/**/*.test.js',
+      'tests/history/**/*.test.js',
+      'tests/processing/**/*.test.js',
       'tests/agents/core/**/*.test.js',
       'tests/agents/runtime/analysis.test.js',
       'tests/agents/runtime/compression.test.js',
@@ -19,6 +24,17 @@ export default defineConfig({
       'tests/agents/runtime/adaptive-token-counter.test.js',
       'tests/agents/runtime/token-tracker.test.js',
       'tests/agents/runtime/task-tool-di.test.js',
+      'tests/ppt/ui-v2/event-bus.test.js',
+      'tests/ppt/ui-v2/state-store.test.js',
+      'tests/ppt/dsl/serialize.test.js',
+      'tests/ppt/workflow/workflow-states.test.js',
+      'tests/ppt/core/math-converter.test.js',
+      'tests/ppt/core/health-check.test.js',
+      'tests/ui/**/*.test.js',
+      'tests/storage/**/*.test.js',
+      'tests/annotations/**/*.test.js',
+      'tests/shared/**/*.test.js',
+      'tests/utils/**/*.test.js',
     ],
     coverage: {
       provider: 'v8',

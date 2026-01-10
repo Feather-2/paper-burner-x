@@ -105,7 +105,11 @@ export class KeyProvider {
     }
 
     // 从可用列表中移除
+    const removedIndex = this.availableKeys.findIndex(k => k.id === keyId);
     this.availableKeys = this.availableKeys.filter(k => k.id !== keyId);
+    if (removedIndex !== -1 && removedIndex < this.currentIndex) {
+      this.currentIndex -= 1;
+    }
     if (this.availableKeys.length > 0) {
       this.currentIndex = this.currentIndex % this.availableKeys.length;
     } else {

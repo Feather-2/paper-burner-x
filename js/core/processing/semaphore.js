@@ -50,6 +50,14 @@ export function release(semaphore) {
  */
 export function updateLimit(semaphore, newLimit) {
   semaphore.limit = Math.max(1, newLimit);
+
+  // If the limit increased (or if there is newly available capacity),
+  // immediately grant slots to queued waiters.
+  while (semaphore.queue.length > 0 && semaphore.count < semaphore.limit) {
+    semaphore.count++;
+    const nextResolve = semaphore.queue.shift();
+    nextResolve();
+  }
 }
 
 /**

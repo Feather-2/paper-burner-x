@@ -845,3 +845,11 @@ window.modelDetector = {
         initModelDetectorUI
     };
 })();
+
+export {
+    appendQueryParamToUrl,
+    normalizeOpenAIModelsUrl,
+    normalizeGeminiModelsUrl,
+    mapGeminiModelsResponse,
+    isGeminiFormat
+};

@@ -235,8 +235,20 @@
     global.generateChunksFromContentList = generateChunksFromContentList;
     global.generateChunksFromFullText = generateChunksFromFullText;
 
+    // 提供对象形式的API（便于测试与模块化集成）
+    const api = {
+        generateChunksFromContentList,
+        generateChunksFromFullText,
+        groupByPage,
+        groupBySection,
+        extractTextFromSection,
+        estimateTokens,
+        version: '1.0.0'
+    };
+
+    global.ContentListToChunks = Object.assign(global.ContentListToChunks || {}, api);
+
     console.log('[ContentListToChunks] Content list to chunks converter loaded.');
 
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));
-
 

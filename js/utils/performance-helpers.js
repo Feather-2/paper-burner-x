@@ -66,39 +66,62 @@ export const PerformanceHelpers = {
     throttle(fn, delay, options = {}) {
         const { leading = true, trailing = true } = options;
 
-        let lastCall = 0;
+        let lastInvoke = 0;
         let timer = null;
+        let lastArgs = null;
+        let lastContext = null;
+
+        const invoke = (time) => {
+            lastInvoke = time;
+            const args = lastArgs;
+            const context = lastContext;
+            lastArgs = null;
+            lastContext = null;
+            return fn.apply(context, args);
+        };
+
+        const startTrailingTimer = (wait) => {
+            timer = setTimeout(() => {
+                timer = null;
+                if (!trailing || !lastArgs) return;
+                invoke(Date.now());
+            }, wait);
+        };
 
         return function throttled(...args) {
             const context = this;
             const now = Date.now();
-            const timeSinceLastCall = now - lastCall;
 
-            // 首次调用且 leading 为 true
-            if (leading && lastCall === 0) {
-                lastCall = now;
-                return fn.apply(context, args);
+            lastArgs = args;
+            lastContext = context;
+
+            // 首次调用且 leading 为 false：推迟到 trailing
+            if (lastInvoke === 0 && leading === false) {
+                lastInvoke = now;
             }
 
-            // 清除之前的尾调用定时器
-            if (timer) {
-                clearTimeout(timer);
-                timer = null;
-            }
+            const timeSinceLastInvoke = now - lastInvoke;
+            const remaining = delay - timeSinceLastInvoke;
 
-            // 如果距离上次调用超过了延迟时间
-            if (timeSinceLastCall >= delay) {
-                lastCall = now;
-                return fn.apply(context, args);
-            }
-
-            // 设置尾调用
-            if (trailing) {
-                timer = setTimeout(() => {
-                    lastCall = Date.now();
+            // 达到间隔：leading 为 true 时立即执行，否则进入新的等待周期
+            if (remaining <= 0 || remaining > delay) {
+                if (timer) {
+                    clearTimeout(timer);
                     timer = null;
-                    fn.apply(context, args);
-                }, delay - timeSinceLastCall);
+                }
+
+                if (leading === false) {
+                    lastInvoke = now;
+                    if (trailing) startTrailingTimer(delay);
+                    return;
+                }
+
+                return invoke(now);
+            }
+
+            // 未达间隔：设置一次 trailing 定时器（用最新参数）
+            if (!timer && trailing) {
+                startTrailingTimer(remaining);
             }
         };
     },
