@@ -23,7 +23,9 @@ export function deleteHistoryRecord(id, name) {
 
 export function showHistoryDetail(id) {
     if (typeof window === 'undefined') return;
-    window.open('views/history/history_detail.html?id=' + encodeURIComponent(id), '_blank');
+    const url = 'views/history/history_detail.html?id=' + encodeURIComponent(id);
+    const newWindow = window.open(url, '_blank', 'noopener,noreferrer');
+    if (newWindow) newWindow.opener = null;
 }
 
 export async function downloadHistoryRecord(id) {
@@ -64,36 +66,68 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
         const quickListEl = document.getElementById('sidebarHistoryQuickList');
         if (!quickListEl) return;
 
+        const clearQuickList = () => {
+            while (quickListEl.firstChild) quickListEl.removeChild(quickListEl.firstChild);
+        };
+
         try {
             // 假设 getAllResultsFromDB 是全局可用的 (在 storage.js 中定义)
             const results = await window.getAllResultsFromDB();
             if (!results || !Array.isArray(results) || results.length === 0) {
-                quickListEl.innerHTML = '<div class="px-3 py-2 text-xs text-slate-400 text-center">暂无记录</div>';
+                clearQuickList();
+                const empty = document.createElement('div');
+                empty.className = 'px-3 py-2 text-xs text-slate-400 text-center';
+                empty.textContent = '暂无记录';
+                quickListEl.appendChild(empty);
                 return;
             }
 
             // 按时间倒序取前 5 条
             const recent = results.slice().sort((a, b) => new Date(b.time) - new Date(a.time)).slice(0, 5);
 
-            quickListEl.innerHTML = recent.map(record => {
-                const safeId = escapeAttr(record.id);
-                const name = escapeHtml(record.name || '未命名文档');
-                // 简短时间格式: MM/DD HH:mm
-                const timeObj = new Date(record.time);
-                const timeStr = `${timeObj.getMonth() + 1}/${timeObj.getDate()} ${String(timeObj.getHours()).padStart(2, '0')}:${String(timeObj.getMinutes()).padStart(2, '0')}`;
+            clearQuickList();
+            recent.forEach((record) => {
+                const recordId = record && record.id != null ? String(record.id) : '';
+                if (!recordId) return;
 
-                return `
-                    <div class="group flex items-center gap-2 px-2 py-1.5 text-[13px] text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors cursor-pointer rounded-md mx-2 mb-0.5" onclick="showHistoryDetail('${safeId}')" title="${name}\n${timeObj.toLocaleString()}">
-                        <iconify-icon icon="carbon:document" width="14" class="flex-shrink-0 text-slate-400 group-hover:text-slate-500 transition-colors"></iconify-icon>
-                        <span class="truncate flex-1">${name}</span>
-                        <span class="text-[10px] text-slate-400 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">${timeStr}</span>
-                    </div>
-                `;
-            }).join('');
+                const displayName = record && record.name ? String(record.name) : '未命名文档';
+                const timeObj = new Date(record && record.time ? record.time : Date.now());
+                const timeOk = !Number.isNaN(timeObj.getTime());
+                const timeStr = timeOk
+                    ? `${timeObj.getMonth() + 1}/${timeObj.getDate()} ${String(timeObj.getHours()).padStart(2, '0')}:${String(timeObj.getMinutes()).padStart(2, '0')}`
+                    : '';
+
+                const item = document.createElement('div');
+                item.className = 'group flex items-center gap-2 px-2 py-1.5 text-[13px] text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors cursor-pointer rounded-md mx-2 mb-0.5';
+                item.title = timeOk ? `${displayName}\n${timeObj.toLocaleString()}` : displayName;
+                item.addEventListener('click', () => showHistoryDetail(recordId));
+
+                const icon = document.createElement('iconify-icon');
+                icon.setAttribute('icon', 'carbon:document');
+                icon.setAttribute('width', '14');
+                icon.className = 'flex-shrink-0 text-slate-400 group-hover:text-slate-500 transition-colors';
+
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'truncate flex-1';
+                nameSpan.textContent = displayName;
+
+                const timeSpan = document.createElement('span');
+                timeSpan.className = 'text-[10px] text-slate-400 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity';
+                timeSpan.textContent = timeStr;
+
+                item.appendChild(icon);
+                item.appendChild(nameSpan);
+                item.appendChild(timeSpan);
+                quickListEl.appendChild(item);
+            });
 
         } catch (e) {
             console.error('Failed to render sidebar history:', e);
-            quickListEl.innerHTML = '<div class="px-3 py-2 text-xs text-red-400 text-center">加载失败</div>';
+            clearQuickList();
+            const fail = document.createElement('div');
+            fail.className = 'px-3 py-2 text-xs text-red-400 text-center';
+            fail.textContent = '加载失败';
+            quickListEl.appendChild(fail);
         }
     }
 
@@ -1221,7 +1255,7 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
                 <iconify-icon icon="carbon:share" width="18"></iconify-icon>
             </button>`;
         const downloadBtnHtml = `
-            <button type="button" class="${ICON_BUTTON_CLASS} ${ICON_BUTTON_SUCCESS_EXTRA}" onclick="downloadHistoryRecord('${escapedRecordId}')" aria-label="下载记录" title="下载记录">
+            <button type="button" class="${ICON_BUTTON_CLASS} ${ICON_BUTTON_SUCCESS_EXTRA}" data-history-action="download-record" data-record-id="${escapedRecordId}" aria-label="下载记录" title="下载记录">
                 <iconify-icon icon="carbon:download" width="18"></iconify-icon>
             </button>`;
         const recordDisplayName = record.name || relativePathLabel || record.id || '历史记录';
@@ -1231,7 +1265,7 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
                 <iconify-icon icon="carbon:trash-can" width="18"></iconify-icon>
             </button>`;
         const startReadingBtnHtml = `
-            <button type="button" class="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1" onclick="showHistoryDetail('${escapedRecordId}')">
+            <button type="button" class="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1" data-history-action="open-record" data-record-id="${escapedRecordId}">
                 <iconify-icon icon="carbon:document-view" width="18"></iconify-icon>
                 <span>开始阅读</span>
             </button>`;
@@ -1287,8 +1321,8 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
                 <div class="text-xs text-gray-600 break-words">OCR：${ocrSnippet}</div>
                 <div class="text-xs text-gray-600 break-words">翻译：${translationSnippet}</div>
                 <div class="flex flex-wrap items-center gap-2 text-xs text-gray-600 mt-2">
-                    <button id="retry-failed-btn-${safeId}" onclick="retryTranslateRecord('${record.id}','failed')" class="px-2 py-1 border border-gray-200 rounded hover:bg-gray-100 ${retryDisabled}">重试失败段</button>
-                    <button id="retry-all-btn-${safeId}" onclick="retryTranslateRecord('${record.id}','all')" class="px-2 py-1 border border-gray-200 rounded hover:bg-gray-100">重新翻译全部</button>
+                    <button id="retry-failed-btn-${safeId}" data-history-action="retry-translate" data-record-id="${escapedRecordId}" data-retry-mode="failed" class="px-2 py-1 border border-gray-200 rounded hover:bg-gray-100 ${retryDisabled}">重试失败段</button>
+                    <button id="retry-all-btn-${safeId}" data-history-action="retry-translate" data-record-id="${escapedRecordId}" data-retry-mode="all" class="px-2 py-1 border border-gray-200 rounded hover:bg-gray-100">重新翻译全部</button>
                     <span id="retry-status-${safeId}" class="text-xs text-gray-500"></span>
                 </div>
                 ${renderExportConfigPanel({
@@ -1568,6 +1602,25 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
 
         try {
             switch (action) {
+                case 'open-record': {
+                    const recordId = actionButton.getAttribute('data-record-id');
+                    if (!recordId) break;
+                    showHistoryDetail(recordId);
+                    break;
+                }
+                case 'download-record': {
+                    const recordId = actionButton.getAttribute('data-record-id');
+                    if (!recordId) break;
+                    await downloadHistoryRecord(recordId);
+                    break;
+                }
+                case 'retry-translate': {
+                    const recordId = actionButton.getAttribute('data-record-id');
+                    if (!recordId) break;
+                    const mode = actionButton.getAttribute('data-retry-mode');
+                    retryTranslateRecord(recordId, mode === 'all' ? 'all' : 'failed');
+                    break;
+                }
                 case 'open-record-export':
                 case 'open-batch-export': {
                     const panel = targetId ? document.getElementById(targetId) : null;
@@ -2314,9 +2367,10 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
     }
 
     function _setBusy(id, busy, msg = '') {
-        const failedBtn = document.getElementById(`retry-failed-btn-${id}`);
-        const allBtn = document.getElementById(`retry-all-btn-${id}`);
-        const statusEl = document.getElementById(`retry-status-${id}`);
+        const safeId = sanitizeId(id);
+        const failedBtn = document.getElementById(`retry-failed-btn-${safeId}`);
+        const allBtn = document.getElementById(`retry-all-btn-${safeId}`);
+        const statusEl = document.getElementById(`retry-status-${safeId}`);
         if (failedBtn) failedBtn.disabled = !!busy;
         if (allBtn) allBtn.disabled = !!busy;
         if (statusEl) statusEl.textContent = msg || '';

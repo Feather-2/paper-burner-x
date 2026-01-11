@@ -12,6 +12,32 @@ if (typeof marked !== 'undefined' && typeof marked.setOptions === 'function') {
   });
 }
 
+function getDomPurify() {
+  const purifier = globalThis.DOMPurify || globalThis.window?.DOMPurify;
+  return purifier && typeof purifier.sanitize === 'function' ? purifier : null;
+}
+
+function sanitizeHtmlFragment(html, options = null) {
+  const raw = String(html ?? '');
+  if (!raw) return '';
+  const purifier = getDomPurify();
+  if (!purifier) {
+    return raw
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/\bon\w+\s*=/gi, 'data-removed-handler=');
+  }
+  try {
+    return purifier.sanitize(raw, {
+      SAFE_FOR_TEMPLATES: true,
+      KEEP_CONTENT: true,
+      ALLOW_DATA_ATTR: true,
+      ...(options || {})
+    });
+  } catch {
+    return raw;
+  }
+}
+
 export function renderWithKatexStreaming(md) {
   const codeBlocks = [];
   let codeBlockCounter = 0;
@@ -189,10 +215,15 @@ export function renderWithKatexStreaming(md) {
     return window.safeRenderMarkdown(md);
   }
 
-  // 降级方案：如果 safeRenderMarkdown 不可用，仍使用 marked.parse
-  // 但会在控制台警告
-  console.warn('[Security] safeRenderMarkdown not available, using unsafe marked.parse()');
-  return marked.parse(md);
+  // 安全降级：没有 safeRenderMarkdown 时，避免直接注入 marked.parse 结果
+  if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
+    try {
+      return sanitizeHtmlFragment(marked.parse(md));
+    } catch (e) {
+      return escapeHtml(md).replace(/\n/g, '<br>');
+    }
+  }
+  return escapeHtml(md).replace(/\n/g, '<br>');
 }
 
 /**
@@ -229,7 +260,11 @@ export const ChatbotMathStreaming = (function() {
       return window.safeRenderMarkdown(text);
     }
     if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
-      return marked.parse(text);
+      try {
+        return sanitizeHtmlFragment(marked.parse(String(text)));
+      } catch (e) {
+        return escapeHtml(String(text)).replace(/\n/g, '<br>');
+      }
     }
     return escapeHtml(text).replace(/\n/g, '<br>');
   }

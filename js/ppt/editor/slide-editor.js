@@ -2317,7 +2317,11 @@ export class SlideEditor extends EventEmitter {
                     preview.textContent = textarea.value;
                 }
             } catch (e) {
-                preview.innerHTML = `<span style="color:#ef4444">公式错误: ${e.message}</span>`;
+                preview.innerHTML = '';
+                const err = document.createElement('span');
+                err.style.color = '#ef4444';
+                err.textContent = `公式错误: ${e && e.message ? e.message : String(e)}`;
+                preview.appendChild(err);
             }
         };
         textarea.addEventListener('input', updatePreview);

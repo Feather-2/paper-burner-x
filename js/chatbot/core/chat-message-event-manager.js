@@ -95,6 +95,9 @@ class ChatMessageEventManager {
                 case 'open-drawio':
                     this._handleOpenDrawio(target.dataset.drawioUrl, e);
                     break;
+                case 'copy-drawio-xml':
+                    this._handleCopyDrawioXml(target.dataset.drawioDocId, target, e);
+                    break;
                 default:
                     console.warn(`[EventManager] 未知操作: ${action}`);
             }
@@ -251,7 +254,8 @@ class ChatMessageEventManager {
         console.log(`[EventManager] 🗺️ 打开思维导图: ${mindmapUrl}`);
 
         if (mindmapUrl) {
-            window.open(mindmapUrl, '_blank');
+            const newWindow = window.open(mindmapUrl, '_blank', 'noopener,noreferrer');
+            if (newWindow) newWindow.opener = null;
         } else {
             console.error('[EventManager] 思维导图 URL 为空');
         }
@@ -268,9 +272,64 @@ class ChatMessageEventManager {
         console.log(`[EventManager] 🧩 打开配图编辑器: ${drawioUrl}`);
 
         if (drawioUrl) {
-            window.open(drawioUrl, '_blank');
+            const newWindow = window.open(drawioUrl, '_blank', 'noopener,noreferrer');
+            if (newWindow) newWindow.opener = null;
         } else {
             console.error('[EventManager] 配图编辑器 URL 为空');
+        }
+    }
+
+    /**
+     * 复制 draw.io XML（从 localStorage 读取 drawioData_{docId}）
+     * @param {string} drawioDocId - 文档 ID
+     * @param {HTMLElement} button - 触发按钮
+     * @param {Event} event - 原始事件对象
+     * @private
+     */
+    _handleCopyDrawioXml(drawioDocId, button, event) {
+        event.stopPropagation();
+
+        const docId = String(drawioDocId ?? '').trim();
+        if (!docId) {
+            console.error('[EventManager] drawioDocId 为空，无法复制');
+            return;
+        }
+
+        const key = `drawioData_${docId}`;
+        let xmlText = '';
+        try {
+            xmlText = (window.localStorage && localStorage.getItem(key)) || '';
+        } catch (e) {
+            console.warn('[EventManager] localStorage 读取失败:', e);
+            xmlText = '';
+        }
+
+        const setButtonText = (text) => {
+            if (button && typeof button.textContent === 'string') {
+                button.textContent = text;
+            }
+        };
+
+        const originalLabel = button ? button.textContent : '';
+
+        if (!xmlText) {
+            setButtonText('无数据');
+            if (button) setTimeout(() => setButtonText(originalLabel), 1500);
+            return;
+        }
+
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            navigator.clipboard.writeText(xmlText).then(() => {
+                setButtonText('✓ 已复制');
+                if (button) setTimeout(() => setButtonText(originalLabel), 1500);
+            }).catch((e) => {
+                console.warn('[EventManager] 复制失败:', e);
+                setButtonText('复制失败');
+                if (button) setTimeout(() => setButtonText(originalLabel), 1500);
+            });
+        } else {
+            setButtonText('复制失败');
+            if (button) setTimeout(() => setButtonText(originalLabel), 1500);
         }
     }
 

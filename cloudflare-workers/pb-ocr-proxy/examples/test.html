@@ -821,7 +821,7 @@
             </div>
             <p><strong>下载文件:</strong></p>
             <div style="margin-top: 10px;">
-              <a href="${downloadUrl}" target="_blank" style="display: inline-block; padding: 10px 20px; background: #28a745; color: white; text-decoration: none; border-radius: 6px; font-weight: 600;">
+              <a href="${downloadUrl}" target="_blank" rel="noopener noreferrer" style="display: inline-block; padding: 10px 20px; background: #28a745; color: white; text-decoration: none; border-radius: 6px; font-weight: 600;">
                 📥 下载 ZIP 压缩包
               </a>
             </div>
@@ -832,7 +832,8 @@
 
           // 自动打开下载链接
           setTimeout(() => {
-            window.open(downloadUrl, '_blank');
+            const newWindow = window.open(downloadUrl, '_blank', 'noopener,noreferrer');
+            if (newWindow) newWindow.opener = null;
           }, 500);
         } else {
           log(`警告: 未找到下载链接，完整结果: ${JSON.stringify(result)}`, 'error');
@@ -925,7 +926,7 @@
               ⚠️ <strong>注意：</strong>下载链接有效期为 5 分钟，请立即下载！
             </div>
             <div style="margin-top: 10px;">
-              <a href="${exportUrl}" download target="_blank" id="exportDownloadLink" style="display: inline-block; padding: 10px 20px; background: #28a745; color: white; text-decoration: none; border-radius: 6px; font-weight: 600;">
+              <a href="${exportUrl}" download target="_blank" rel="noopener noreferrer" id="exportDownloadLink" style="display: inline-block; padding: 10px 20px; background: #28a745; color: white; text-decoration: none; border-radius: 6px; font-weight: 600;">
                 📥 下载 ${exportFormat.toUpperCase()} 文件
               </a>
               <button onclick="refreshExportLink('${uid}', '${exportFormat}', '${formulaMode}')" style="display: inline-block; padding: 10px 20px; margin-left: 10px; background: #007bff; width: auto; font-size: 14px;">
@@ -939,7 +940,8 @@
 
           // 自动触发下载
           setTimeout(() => {
-            window.open(exportUrl, '_blank');
+            const newWindow = window.open(exportUrl, '_blank', 'noopener,noreferrer');
+            if (newWindow) newWindow.opener = null;
           }, 500);
         }
 
@@ -1075,7 +1077,7 @@
             showQueryResult(true, `
               <h4>✅ 处理完成</h4>
               <p><strong>状态:</strong> ${result.state}</p>
-              <p><strong>下载:</strong> <a href="${result.full_zip_url}" target="_blank">${result.full_zip_url}</a></p>
+              <p><strong>下载:</strong> <a href="${result.full_zip_url}" target="_blank" rel="noopener noreferrer">${result.full_zip_url}</a></p>
               <pre>${JSON.stringify(result, null, 2)}</pre>
             `);
           } else if (result.state === 'running') {
@@ -1235,7 +1237,8 @@
         alert('✅ 下载链接已刷新！有效期5分钟');
 
         // 自动打开新链接
-        window.open(newUrl, '_blank');
+        const newWindow = window.open(newUrl, '_blank', 'noopener,noreferrer');
+        if (newWindow) newWindow.opener = null;
 
       } catch (error) {
         log('刷新失败: ' + error.message, 'error');

@@ -43,6 +43,42 @@ function safeJsonParse(value, fallback) {
   }
 }
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[ch]);
+}
+
+function getDomPurify() {
+  const purifier = globalThis.DOMPurify || globalThis.window?.DOMPurify;
+  return purifier && typeof purifier.sanitize === 'function' ? purifier : null;
+}
+
+function sanitizeHtmlFragment(html, options = null) {
+  const raw = String(html ?? '');
+  if (!raw) return '';
+  const purifier = getDomPurify();
+  if (!purifier) {
+    return raw
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/\bon\w+\s*=/gi, 'data-removed-handler=');
+  }
+  try {
+    return purifier.sanitize(raw, {
+      SAFE_FOR_TEMPLATES: true,
+      KEEP_CONTENT: true,
+      ALLOW_DATA_ATTR: true,
+      ...(options || {})
+    });
+  } catch {
+    return raw;
+  }
+}
+
 // 初始化（浏览器）全局状态变量
 if (typeof window !== 'undefined') {
   window.showModelSelectorForChatbot = showModelSelectorForChatbot;
@@ -652,7 +688,7 @@ export function updateChatbotUI() {
                     if (typeof renderWithKatexStreaming === 'function') {
                       reasoningContentDiv.innerHTML = renderWithKatexStreaming(lastMessage.reasoningContent);
                     } else {
-                      reasoningContentDiv.innerHTML = lastMessage.reasoningContent.replace(/\n/g, '<br>');
+                      reasoningContentDiv.innerHTML = window.ChatbotUtils.escapeHtml(lastMessage.reasoningContent).replace(/\n/g, '<br>');
                     }
                     reasoningBlock.dataset.lastReasoningLength = newReasoningLength.toString();
                   } catch (e) {
@@ -738,25 +774,25 @@ export function updateChatbotUI() {
                     // 回退：完整重渲染
                     let contentToRender = newContent;
 
-                    // 🔧 检测并修复历史数据中被转义的 HTML（向后兼容）
-                    if (!lastMessage.isRawHtml &&
-                        (contentToRender.includes('&lt;div') || contentToRender.includes('&lt;button')) &&
-                        (contentToRender.includes('配图 XML') || contentToRender.includes('手动修复'))) {
-                      console.log('[UI] 检测到被转义的 HTML，自动反转义');
-                      // 创建临时元素进行反转义
-                      const tempDiv = document.createElement('div');
-                      tempDiv.innerHTML = contentToRender;
-                      contentToRender = tempDiv.innerHTML; // 使用 innerHTML 而不是 textContent
-                      lastMessage.isRawHtml = true; // 标记为纯 HTML
-                    }
-
                     // 检查是否为纯 HTML 内容（不需要 Markdown 解析）
                     if (lastMessage.isRawHtml) {
-                      contentDiv.innerHTML = contentToRender;
+                      contentDiv.innerHTML = sanitizeHtmlFragment(contentToRender);
                     } else if (typeof renderWithKatexStreaming === 'function') {
                       contentDiv.innerHTML = renderWithKatexStreaming(contentToRender);
+                    } else if (typeof window.safeRenderMarkdown === 'function') {
+                      contentDiv.innerHTML = window.safeRenderMarkdown(contentToRender);
                     } else if (typeof marked !== 'undefined') {
-                      contentDiv.innerHTML = marked.parse(contentToRender);
+                      // 安全降级：避免在缺少 safeRenderMarkdown 时直接注入 marked.parse 结果
+                      try {
+                        const rawHtml = typeof marked.parse === 'function' ? marked.parse(contentToRender) : '';
+                        if (rawHtml) {
+                          contentDiv.innerHTML = sanitizeHtmlFragment(rawHtml);
+                        } else {
+                          contentDiv.innerHTML = (window.ChatbotUtils?.escapeHtml || escapeHtml)(contentToRender).replace(/\n/g, '<br>');
+                        }
+                      } catch (e) {
+                        contentDiv.innerHTML = (window.ChatbotUtils?.escapeHtml || escapeHtml)(contentToRender).replace(/\n/g, '<br>');
+                      }
                     } else {
                       contentDiv.textContent = contentToRender;
                     }
@@ -784,11 +820,15 @@ export function updateChatbotUI() {
 
               // 检查是否需要更新（比较HTML内容）
               if (toolCallBlockContainer) {
+                const safeToolCallHtml = sanitizeHtmlFragment(newToolCallHtml);
+                if (safeToolCallHtml && safeToolCallHtml !== newToolCallHtml) {
+                  lastMessage.toolCallHtml = safeToolCallHtml;
+                }
                 const currentHtml = toolCallBlockContainer.outerHTML;
-                if (currentHtml !== newToolCallHtml) {
+                if (safeToolCallHtml && currentHtml !== safeToolCallHtml) {
                   // 更新工具调用块HTML
                   const tempDiv = document.createElement('div');
-                  tempDiv.innerHTML = newToolCallHtml;
+                  tempDiv.innerHTML = safeToolCallHtml;
                   const newToolCallBlock = tempDiv.firstElementChild;
                   if (newToolCallBlock) {
                     toolCallBlockContainer.replaceWith(newToolCallBlock);
@@ -799,7 +839,11 @@ export function updateChatbotUI() {
                 const contentDiv = lastMessageContainer.querySelector('.markdown-content');
                 if (contentDiv && contentDiv.parentNode) {
                   const tempDiv = document.createElement('div');
-                  tempDiv.innerHTML = newToolCallHtml;
+                  const safeToolCallHtml = sanitizeHtmlFragment(newToolCallHtml);
+                  if (safeToolCallHtml && safeToolCallHtml !== newToolCallHtml) {
+                    lastMessage.toolCallHtml = safeToolCallHtml;
+                  }
+                  tempDiv.innerHTML = safeToolCallHtml;
                   const newToolCallBlock = tempDiv.firstElementChild;
                   if (newToolCallBlock) {
                     contentDiv.parentNode.insertBefore(newToolCallBlock, contentDiv);
@@ -1172,7 +1216,26 @@ function isChatbotInsideUnclosedBlock(oldContent) {
  * 4. **事件绑定**：为全屏、位置切换、关闭按钮绑定事件。
  * 5. **初始UI更新**：调用 `updateChatbotUI`。
  */
+function ensureChatbotControlHoverStyles() {
+  if (typeof document === 'undefined') return;
+  if (document.getElementById('chatbot-control-hover-styles')) return;
+
+  const style = document.createElement('style');
+  style.id = 'chatbot-control-hover-styles';
+  style.textContent = `
+#chatbot-float-toggle-btn:hover,
+#chatbot-fullscreen-toggle-btn:hover,
+#chatbot-position-toggle-btn:hover,
+#chatbot-close-btn:hover {
+  background: rgba(0,0,0,0.1) !important;
+  transform: scale(1.05) !important;
+}
+`;
+  document.head.appendChild(style);
+}
+
 export function initChatbotUI() {
+  ensureChatbotControlHoverStyles();
   // --- FAB (浮动操作按钮) 初始化 ---
   let fab = document.getElementById('chatbot-fab');
   if (!fab) {
@@ -1191,9 +1254,7 @@ export function initChatbotUI() {
     fab.style.zIndex = '99999';
     // FAB 内部的按钮 HTML，使用响应式尺寸和CSS变量
     fab.innerHTML = `
-      <button class="chatbot-fab-button"
-        onmouseover="this.style.transform='scale(1.05)';"
-        onmouseout="this.style.transform='scale(1)';">
+      <button class="chatbot-fab-button">
         <i class="fa-solid fa-robot"></i>
       </button>
     `;
@@ -1209,9 +1270,9 @@ export function initChatbotUI() {
 
   // --- Modal (主聊天窗口) 初始化 ---
   let modal = document.getElementById('chatbot-modal');
-  if (!modal) {
-    modal = document.createElement('div');
-    modal.id = 'chatbot-modal';
+	  if (!modal) {
+	    modal = document.createElement('div');
+	    modal.id = 'chatbot-modal';
     // Modal 作为聊天窗口的容器，初始隐藏，通过 flex 布局控制 chatbot-window 的居中（非全屏时）
     modal.style.position = 'fixed';
     modal.style.inset = '0'; // 等同于 top:0, left:0, bottom:0, right:0
@@ -1234,33 +1295,33 @@ export function initChatbotUI() {
           <div class="chatbot-resize-handle chatbot-resize-sw" data-direction="sw"></div>
           <div class="chatbot-resize-handle chatbot-resize-se" data-direction="se"></div>
         </div>
-        <!-- 浮动切换按钮 -->
-        <div style="position:absolute;top:12px;right:138px;z-index:11;">
-          <button id="chatbot-float-toggle-btn" title="浮动模式" style="width:32px;height:32px;border-radius:16px;border:none;background:rgba(0,0,0,0.06);color:#666;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.2s;box-shadow:0 2px 6px rgba(0,0,0,0.06);" onmouseover="this.style.background='rgba(0,0,0,0.1)';this.style.transform='scale(1.05)'" onmouseout="this.style.background='rgba(0,0,0,0.06)';this.style.transform='scale(1)'">
-            {/* 图标由 updateChatbotUI 动态设置 */}
-          </button>
-        </div>
-        <!-- 全屏切换按钮 -->
-        <div style="position:absolute;top:12px;right:98px;z-index:11;">
-          <button id="chatbot-fullscreen-toggle-btn" title="全屏模式" style="width:32px;height:32px;border-radius:16px;border:none;background:rgba(0,0,0,0.06);color:#666;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.2s;box-shadow:0 2px 6px rgba(0,0,0,0.06);" onmouseover="this.style.background='rgba(0,0,0,0.1)';this.style.transform='scale(1.05)'" onmouseout="this.style.background='rgba(0,0,0,0.06)';this.style.transform='scale(1)'">
-            {/* 图标由 updateChatbotUI 动态设置 */}
-          </button>
-        </div>
-        <!-- 位置切换按钮 -->
-        <div style="position:absolute;top:12px;right:58px;z-index:11;">
-          <button id="chatbot-position-toggle-btn" title="切换位置" style="width:32px;height:32px;border-radius:16px;border:none;background:rgba(0,0,0,0.06);color:#666;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.2s;box-shadow:0 2px 6px rgba(0,0,0,0.06);" onmouseover="this.style.background='rgba(0,0,0,0.1)';this.style.transform='scale(1.05)'" onmouseout="this.style.background='rgba(0,0,0,0.06)';this.style.transform='scale(1)'">
-            {/* 图标由 updateChatbotUI 动态设置 */}
-          </button>
-        </div>
-        <!-- 关闭按钮 -->
-        <div style="position:absolute;top:12px;right:18px;z-index:10;">
-          <button id="chatbot-close-btn" style="width:32px;height:32px;border-radius:16px;border:none;background:rgba(0,0,0,0.06);color:#666;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.2s;box-shadow:0 2px 6px rgba(0,0,0,0.06);" onmouseover="this.style.background='rgba(0,0,0,0.1)';this.style.transform='scale(1.05)'" onmouseout="this.style.background='rgba(0,0,0,0.06)';this.style.transform='scale(1)'">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18"></line>
-              <line x1="6" y1="6" x2="18" y2="18"></line>
-            </svg>
-          </button>
-        </div>
+	        <!-- 浮动切换按钮 -->
+	        <div style="position:absolute;top:12px;right:138px;z-index:11;">
+	          <button id="chatbot-float-toggle-btn" title="浮动模式" style="width:32px;height:32px;border-radius:16px;border:none;background:rgba(0,0,0,0.06);color:#666;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.2s;box-shadow:0 2px 6px rgba(0,0,0,0.06);">
+	            {/* 图标由 updateChatbotUI 动态设置 */}
+	          </button>
+	        </div>
+	        <!-- 全屏切换按钮 -->
+	        <div style="position:absolute;top:12px;right:98px;z-index:11;">
+	          <button id="chatbot-fullscreen-toggle-btn" title="全屏模式" style="width:32px;height:32px;border-radius:16px;border:none;background:rgba(0,0,0,0.06);color:#666;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.2s;box-shadow:0 2px 6px rgba(0,0,0,0.06);">
+	            {/* 图标由 updateChatbotUI 动态设置 */}
+	          </button>
+	        </div>
+	        <!-- 位置切换按钮 -->
+	        <div style="position:absolute;top:12px;right:58px;z-index:11;">
+	          <button id="chatbot-position-toggle-btn" title="切换位置" style="width:32px;height:32px;border-radius:16px;border:none;background:rgba(0,0,0,0.06);color:#666;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.2s;box-shadow:0 2px 6px rgba(0,0,0,0.06);">
+	            {/* 图标由 updateChatbotUI 动态设置 */}
+	          </button>
+	        </div>
+	        <!-- 关闭按钮 -->
+	        <div style="position:absolute;top:12px;right:18px;z-index:10;">
+	          <button id="chatbot-close-btn" style="width:32px;height:32px;border-radius:16px;border:none;background:rgba(0,0,0,0.06);color:#666;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.2s;box-shadow:0 2px 6px rgba(0,0,0,0.06);">
+	            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+	              <line x1="18" y1="6" x2="6" y2="18"></line>
+	              <line x1="6" y1="6" x2="18" y2="18"></line>
+	            </svg>
+	          </button>
+	        </div>
         <!-- 标题栏 (可拖拽移动窗口) -->
         <div id="chatbot-title-bar" class="chatbot-draggable-header" style="padding:12px 24px;display:flex;align-items:center;gap:8px;border-bottom:1px dashed rgba(0,0,0,0.1);flex-shrink:0;">
           <div style="width:32px;height:32px;border-radius:16px;background:linear-gradient(135deg,#3b82f6,#1d4ed8);display:flex;align-items:center;justify-content:center;">
@@ -1281,34 +1342,30 @@ export function initChatbotUI() {
             {/* 图片预览由 ChatbotImageUtils.updateSelectedImagesPreview 更新 */}
           </div>
           <!-- 输入框和发送按钮的 flex 容器 -->
-          <div class="chatbot-input-wrapper">
-            <!-- 添加图片按钮 -->
-            <button id="chatbot-add-image-btn" title="添加图片"
-              class="chatbot-input-btn chatbot-add-image-btn"
-              onclick="window.ChatbotImageUtils.openImageSelectionModal()">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
-            </button>
-            <!-- 文本输入框 -->
-            <input id="chatbot-input" type="text" placeholder="请输入问题..."
-              class="chatbot-input-field"
-              onkeydown="if(event.key==='Enter'){window.handleChatbotSend();}"
-            />
-            <!-- 发送按钮 -->
-            <button id="chatbot-send-btn"
-              class="chatbot-input-btn chatbot-send-btn"
-              onclick="window.handleChatbotSend()"
-            >
+	          <div class="chatbot-input-wrapper">
+	            <!-- 添加图片按钮 -->
+	            <button id="chatbot-add-image-btn" title="添加图片"
+	              class="chatbot-input-btn chatbot-add-image-btn">
+	              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+	            </button>
+	            <!-- 文本输入框 -->
+	            <input id="chatbot-input" type="text" placeholder="请输入问题..."
+	              class="chatbot-input-field"
+	            />
+	            <!-- 发送按钮 -->
+	            <button id="chatbot-send-btn"
+	              class="chatbot-input-btn chatbot-send-btn"
+	            >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <line x1="22" y1="2" x2="11" y2="13"></line>
                 <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
               </svg>
             </button>
-            <!-- 暂停按钮 -->
-            <button id="chatbot-stop-btn"
-              class="chatbot-input-btn chatbot-stop-btn"
-              onclick="window.handleChatbotStop()"
-              title="停止对话"
-            >
+	            <!-- 暂停按钮 -->
+	            <button id="chatbot-stop-btn"
+	              class="chatbot-input-btn chatbot-stop-btn"
+	              title="停止对话"
+	            >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="position:relative;z-index:1;">
                 <circle cx="12" cy="12" r="10"></circle>
                 <rect x="9" y="9" width="6" height="6" fill="currentColor"></rect>
@@ -1323,14 +1380,42 @@ export function initChatbotUI() {
       </div>
     `;
     /* c8 ignore stop */
-    document.body.appendChild(modal);
-  }
+	    document.body.appendChild(modal);
+	  }
 
-  // --- 浮动高级选项初始化 ---
-  const inputContainerElement = document.getElementById('chatbot-input-container');
-  if (window.ChatbotFloatingOptionsUI && typeof window.ChatbotFloatingOptionsUI.createBar === 'function') {
-    window.ChatbotFloatingOptionsUI.createBar(inputContainerElement, updateChatbotUI);
-  }
+	  // --- 输入区事件绑定（避免内联事件属性） ---
+	  const bindOnce = (el, type, handler, key) => {
+	    if (!el) return;
+	    const marker = `__pbBound_${key}`;
+	    if (el[marker]) return;
+	    el[marker] = true;
+	    el.addEventListener(type, handler);
+	  };
+
+	  bindOnce(document.getElementById('chatbot-add-image-btn'), 'click', () => {
+	    window.ChatbotImageUtils?.openImageSelectionModal?.();
+	  }, 'chatbot_add_image');
+
+	  bindOnce(document.getElementById('chatbot-send-btn'), 'click', () => {
+	    if (typeof window.handleChatbotSend === 'function') window.handleChatbotSend();
+	  }, 'chatbot_send');
+
+	  bindOnce(document.getElementById('chatbot-stop-btn'), 'click', () => {
+	    if (typeof window.handleChatbotStop === 'function') window.handleChatbotStop();
+	  }, 'chatbot_stop');
+
+	  bindOnce(document.getElementById('chatbot-input'), 'keydown', (event) => {
+	    if (event.key === 'Enter') {
+	      event.preventDefault();
+	      if (typeof window.handleChatbotSend === 'function') window.handleChatbotSend();
+	    }
+	  }, 'chatbot_input_enter');
+
+	  // --- 浮动高级选项初始化 ---
+	  const inputContainerElement = document.getElementById('chatbot-input-container');
+	  if (window.ChatbotFloatingOptionsUI && typeof window.ChatbotFloatingOptionsUI.createBar === 'function') {
+	    window.ChatbotFloatingOptionsUI.createBar(inputContainerElement, updateChatbotUI);
+	  }
 
   // --- 核心控制按钮事件绑定 ---
   // 浮动模式切换按钮点击事件

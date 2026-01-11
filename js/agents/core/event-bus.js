@@ -85,7 +85,7 @@ function isObject(value) {
  */
 function isValidEventName(name) {
   if (name === '*') return true;
-  return typeof name === 'string' && /^[a-z0-9_]+(\.[a-z0-9_]+)*$/i.test(name);
+  return typeof name === 'string' && /^[a-z0-9_]+(\.[a-z0-9_]+)*$/.test(name);
 }
 
 /**
@@ -210,6 +210,10 @@ export function createEventRecord({
     ? name
     : (typeof type === 'string' && type ? type : 'unknown');
 
+  if (!isValidEventName(resolvedName) || resolvedName === '*') {
+    throw new TypeError(`Invalid event name: ${resolvedName}`);
+  }
+
   const resolvedTs = typeof ts === 'string' && ts
     ? ts
     : (typeof timestamp === 'number' && Number.isFinite(timestamp)
@@ -267,10 +271,7 @@ export class RunStoreAdapter {
    * @param {any} runStore
    */
   constructor(runStore) {
-    if (!runStore || typeof runStore !== 'object') {
-      throw new TypeError('RunStoreAdapter(runStore): runStore must be an object');
-    }
-    if (typeof runStore.getEvents !== 'function') {
+    if (!runStore || typeof runStore.getEvents !== 'function') {
       throw new TypeError('RunStoreAdapter(runStore): runStore.getEvents must be a function');
     }
     if (typeof runStore.appendEvents !== 'function' && typeof runStore.appendEvent !== 'function') {
@@ -284,7 +285,7 @@ export class RunStoreAdapter {
    * @param {any[]} events
    * @returns {any}
    */
-  appendEvents(events) {
+  async appendEvents(events) {
     if (!Array.isArray(events)) {
       throw new TypeError('RunStoreAdapter.appendEvents(events): events must be an array');
     }
@@ -292,7 +293,7 @@ export class RunStoreAdapter {
 
     const runStore = this._runStore;
     const hasBatch = typeof runStore.appendEvents === 'function';
-    const total = events.length;
+    let total = 0;
 
     // 批量写入路径（优先）
     if (hasBatch) {
@@ -300,8 +301,11 @@ export class RunStoreAdapter {
       const byRunId = new Map();
       for (const evt of events) {
         if (!isObject(evt)) continue;
-        const runId = typeof evt.runId === 'string' ? evt.runId : null;
-        if (!runId) continue;
+        const runId = evt.runId;
+        if (typeof runId !== 'string' || !runId) {
+          throw new TypeError('RunStoreAdapter.appendEvents: events must include a string runId');
+        }
+        total += 1;
         const bucket = byRunId.get(runId);
         if (bucket) bucket.push(evt);
         else byRunId.set(runId, [evt]);
@@ -312,19 +316,24 @@ export class RunStoreAdapter {
         tasks.push(runStore.appendEvents(runId, batch));
       }
       if (tasks.length === 0) return 0;
-      return Promise.all(tasks).then(() => total);
+      await Promise.all(tasks);
+      return total;
     }
 
     // 单条写入路径（appendEvent-only）
     const tasks = [];
     for (const evt of events) {
       if (!isObject(evt)) continue;
-      const runId = typeof evt.runId === 'string' ? evt.runId : null;
-      if (!runId) continue;
+      const runId = evt.runId;
+      if (typeof runId !== 'string' || !runId) {
+        throw new TypeError('RunStoreAdapter.appendEvents: events must include a string runId');
+      }
+      total += 1;
       tasks.push(runStore.appendEvent(runId, evt));
     }
     if (tasks.length === 0) return 0;
-    return Promise.all(tasks).then(() => total);
+    await Promise.all(tasks);
+    return total;
   }
 
   /**
@@ -386,6 +395,13 @@ export class EventBus {
       throw new TypeError('EventBus.on: handler must be a function');
     }
 
+    if (typeof name !== 'string' || !name) {
+      throw new TypeError('EventBus.on: name must be a string');
+    }
+    if (!name.includes('*') && !isValidEventName(name)) {
+      throw new TypeError(`Invalid event name: ${name}`);
+    }
+
     const priority = options?.priority ?? 0;
 
     // 带优先级的订阅走 subscribe 路径
@@ -440,6 +456,18 @@ export class EventBus {
 
     if (typeof handler !== 'function') {
       throw new TypeError('EventBus.subscribe: handler must be a function');
+    }
+
+    if (typeof eventType !== 'string' || !eventType) {
+      throw new TypeError('EventBus.subscribe: eventType must be a string');
+    }
+    if (!eventType.includes('*') && !isValidEventName(eventType)) {
+      throw new TypeError(`Invalid event name: ${eventType}`);
+    }
+    if (options && Object.prototype.hasOwnProperty.call(options, 'priority')) {
+      if (typeof priority !== 'number' || !Number.isFinite(priority)) {
+        throw new TypeError('EventBus.subscribe: priority must be a finite number');
+      }
     }
 
     // AbortSignal 支持
@@ -529,6 +557,13 @@ export class EventBus {
    * @returns {EventRecord} 结构化事件记录
    */
   emit(name, data = {}) {
+    if (typeof name !== 'string' || !name) {
+      throw new TypeError('EventBus.emit: name must be a string');
+    }
+    if (!isValidEventName(name) || name === '*') {
+      throw new TypeError(`Invalid event name: ${name}`);
+    }
+
     const evt = this._createEvent(name, data);
 
     // 记录历史
@@ -659,12 +694,24 @@ export class EventBus {
    * @returns {this}
    */
   enableBackpressure(options = {}) {
+    if (options === undefined) options = {};
+    if (!isObject(options)) {
+      throw new TypeError('EventBus.enableBackpressure: options must be an object');
+    }
+
     const {
       batchWindowMs = 16,
       coalescePattern = /\.progress$/,
       deferNonCoalesced = true,
       maxQueueSize = 1000,
     } = options;
+
+    if (typeof batchWindowMs !== 'number' || !Number.isFinite(batchWindowMs) || batchWindowMs < 0) {
+      throw new TypeError('EventBus.enableBackpressure: batchWindowMs must be a non-negative number');
+    }
+    if (!(coalescePattern instanceof RegExp)) {
+      throw new TypeError('EventBus.enableBackpressure: coalescePattern must be a RegExp');
+    }
 
     if (this._backpressure?.enabled) {
       this.disableBackpressure();
@@ -680,6 +727,9 @@ export class EventBus {
       coalesced: new Map(),
       token: 0,
       scheduled: false,
+      rafId: null,
+      timerId: null,
+      flushToken: 0,
       generation: ++this._backpressureGen,
     };
 
@@ -693,6 +743,7 @@ export class EventBus {
   disableBackpressure() {
     if (!this._backpressure?.enabled) return this;
 
+    this._cancelScheduledFlush();
     this._flushBackpressure();
     this._backpressure = null;
     return this;
@@ -729,10 +780,19 @@ export class EventBus {
    */
   async replay(runId) {
     if (!this._persistenceAdapter) {
-      throw new Error('EventBus.replay: persistenceAdapter required');
+      throw new Error('EventBus.replay: persistenceAdapter is required');
     }
 
-    const events = await this._persistenceAdapter.getEvents(runId);
+    if (typeof runId !== 'string' || !runId) {
+      throw new TypeError('EventBus.replay: runId must be a string');
+    }
+
+    let events;
+    try {
+      events = await this._persistenceAdapter.getEvents(runId);
+    } catch (err) {
+      throw new Error(`EventBus.replay: failed to load events: ${err?.message || String(err)}`);
+    }
     if (!Array.isArray(events)) return [];
 
     const result = [];
@@ -947,7 +1007,9 @@ export class EventBus {
       bp.queue.shift();
     }
 
-    const shouldCoalesce = bp.coalescePattern.test(evt.name);
+    const re = bp.coalescePattern;
+    if (re.global || re.sticky) re.lastIndex = 0;
+    const shouldCoalesce = re.test(evt.name);
     if (shouldCoalesce) {
       bp.coalesced.set(evt.name, { token: ++bp.token, evt });
       bp.queue.push({ kind: 'coalesce', name: evt.name, token: bp.token });
@@ -970,16 +1032,19 @@ export class EventBus {
 
     bp.scheduled = true;
     const gen = bp.generation;
+    const token = ++bp.flushToken;
 
     const flush = () => {
       if (this._backpressure?.generation !== gen) return;
+      if (this._backpressure?.flushToken !== token) return;
       this._flushBackpressure();
     };
 
-    if (typeof requestAnimationFrame === 'function') {
-      requestAnimationFrame(flush);
+    const raf = globalThis.requestAnimationFrame;
+    if (typeof raf === 'function') {
+      bp.rafId = raf(flush);
     } else {
-      setTimeout(flush, bp.batchWindowMs);
+      bp.timerId = globalThis.setTimeout(flush, bp.batchWindowMs);
     }
   }
 
@@ -991,6 +1056,8 @@ export class EventBus {
     if (!bp) return;
 
     bp.scheduled = false;
+    bp.rafId = null;
+    bp.timerId = null;
     const queue = bp.queue;
     const coalesced = bp.coalesced;
 
@@ -1007,6 +1074,35 @@ export class EventBus {
         }
       }
     }
+  }
+
+  /**
+   * @returns {void}
+   */
+  _cancelScheduledFlush() {
+    const bp = this._backpressure;
+    if (!bp) return;
+
+    try {
+      const cancel = globalThis.cancelAnimationFrame;
+      if (typeof cancel === 'function' && bp.rafId !== null && bp.rafId !== undefined) {
+        cancel(bp.rafId);
+      }
+    } catch {
+      // ignore
+    }
+
+    try {
+      if (bp.timerId !== null && bp.timerId !== undefined) {
+        globalThis.clearTimeout(bp.timerId);
+      }
+    } catch {
+      // ignore
+    }
+
+    bp.rafId = null;
+    bp.timerId = null;
+    bp.scheduled = false;
   }
 
   /**

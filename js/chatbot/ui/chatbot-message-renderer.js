@@ -7,6 +7,69 @@
  */
 const USE_EVENT_DELEGATION = true;  // 已修复流式更新配置加载问题
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[ch]);
+}
+
+function escapeAttr(value) {
+  return escapeHtml(value).replace(/`/g, '&#96;');
+}
+
+function sanitizeUrlForAttr(value, { allowDataImage = true } = {}) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  const lower = raw.toLowerCase();
+  if (lower.startsWith('javascript:')) return '';
+  if (lower.startsWith('data:')) {
+    if (!allowDataImage) return '';
+    if (!lower.startsWith('data:image/')) return '';
+  }
+  return raw;
+}
+
+function getDomPurify() {
+  const purifier = globalThis.DOMPurify || globalThis.window?.DOMPurify;
+  return purifier && typeof purifier.sanitize === 'function' ? purifier : null;
+}
+
+function sanitizeHtmlFragment(html, options = null) {
+  const raw = String(html ?? '');
+  if (!raw) return '';
+  const purifier = getDomPurify();
+  if (!purifier) {
+    return raw
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/\bon\w+\s*=/gi, 'data-removed-handler=');
+  }
+  try {
+    return purifier.sanitize(raw, {
+      SAFE_FOR_TEMPLATES: true,
+      KEEP_CONTENT: true,
+      ALLOW_DATA_ATTR: true,
+      ...(options || {})
+    });
+  } catch {
+    return raw;
+  }
+}
+
+function safeRenderMarkdownOrEscape(markdown) {
+  const md = String(markdown ?? '');
+  if (typeof window !== 'undefined' && typeof window.safeRenderMarkdown === 'function') {
+    return window.safeRenderMarkdown(md);
+  }
+  if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
+    return sanitizeHtmlFragment(marked.parse(md));
+  }
+  return escapeHtml(md).replace(/\n/g, '<br>');
+}
+
 /**
  * ChatbotMessageRenderer 聊天消息渲染工具
  *
@@ -146,22 +209,24 @@ export const ChatbotMessageRenderer = {
           userMessageHtml += `<div style="margin-bottom:5px;">${window.ChatbotUtils.escapeHtml(part.text)}</div>`;
         } else if (part.type === 'image_url' && part.image_url && part.image_url.url) {
           const imageUrlForModal = part.image_url.fullUrl || part.image_url.url;
+          const safeSrc = escapeAttr(sanitizeUrlForAttr(part.image_url.url, { allowDataImage: true }));
+          const safeModalUrl = escapeAttr(sanitizeUrlForAttr(imageUrlForModal, { allowDataImage: true }));
 
           // Phase 3: 图片点击事件委托
           if (USE_EVENT_DELEGATION) {
             userMessageHtml += `
               <div class="message-image-container">
-                <img src="${part.image_url.url}"
+                <img src="${safeSrc}"
                      alt="用户图片"
                      class="user-message-image"
                      data-action="show-image"
-                     data-image-url="${imageUrlForModal}">
+                     data-image-url="${safeModalUrl}">
               </div>`;
           } else {
             // 旧版本：内联事件
             userMessageHtml += `
               <div class="message-image-container">
-                <img src="${part.image_url.url}" alt="用户图片" class="user-message-image" onclick="window.ChatbotImageUtils.showImageModal('${imageUrlForModal}')">
+                <img src="${safeSrc}" alt="用户图片" class="user-message-image" data-image-url="${safeModalUrl}" onclick="window.ChatbotImageUtils.showImageModal(this.getAttribute('data-image-url'))">
               </div>`;
           }
         }
@@ -209,7 +274,10 @@ export const ChatbotMessageRenderer = {
         safeMindMapData = '# 思维导图\n\n暂无结构化内容';
       }
       const mindmapUrlParams = `docId=${encodeURIComponent(docName || 'unknown')}_${(dataForMindmap.images||[]).length}_${(dataForMindmap.ocr|| '').length}_${(dataForMindmap.translation|| '').length}`;
-      const mindmapUrl = (window.location.pathname.endsWith('/history_detail.html') ? '../mindmap/mindmap.html' : 'views/mindmap/mindmap.html') + '?' + mindmapUrlParams;
+      const mindmapUrl = sanitizeUrlForAttr(
+        (window.location.pathname.endsWith('/history_detail.html') ? '../mindmap/mindmap.html' : 'views/mindmap/mindmap.html') + '?' + mindmapUrlParams,
+        { allowDataImage: false }
+      );
 
       // Phase 3: 思维导图按钮事件委托
       if (USE_EVENT_DELEGATION) {
@@ -219,30 +287,33 @@ export const ChatbotMessageRenderer = {
               ${window.ChatbotRenderingUtils.renderMindmapShadow(safeMindMapData)}
             </div>
             <div class="mindmap-preview-overlay">
-              <button class="mindmap-open-btn"
-                      data-action="open-mindmap"
-                      data-mindmap-url="${mindmapUrl}">放大查看/编辑思维导图</button>
-            </div>
-          </div>
-        `;
-      } else {
-        renderedContent = `
-          <div class="mindmap-preview-container">
-            <div class="mindmap-preview-content">
-              ${window.ChatbotRenderingUtils.renderMindmapShadow(safeMindMapData)}
-            </div>
-            <div class="mindmap-preview-overlay">
-              <button class="mindmap-open-btn" onclick="window.open('${mindmapUrl}','_blank')">放大查看/编辑思维导图</button>
-            </div>
-          </div>
-        `;
-      }
-    } else if (m.isDrawioPictures) {
+	              <button class="mindmap-open-btn"
+	                      data-action="open-mindmap"
+	                      data-mindmap-url="${escapeAttr(mindmapUrl)}">放大查看/编辑思维导图</button>
+	            </div>
+	          </div>
+	        `;
+		      } else {
+		        renderedContent = `
+		          <div class="mindmap-preview-container">
+		            <div class="mindmap-preview-content">
+		              ${window.ChatbotRenderingUtils.renderMindmapShadow(safeMindMapData)}
+		            </div>
+		            <div class="mindmap-preview-overlay">
+		              <button class="mindmap-open-btn" data-mindmap-url="${escapeAttr(mindmapUrl)}" onclick="window.open(this.dataset.mindmapUrl,'_blank','noopener,noreferrer')">放大查看/编辑思维导图</button>
+		            </div>
+		          </div>
+		        `;
+		      }
+	    } else if (m.isDrawioPictures) {
       // draw.io 配图消息特殊处理
       const docIdSafe = docId || 'unknown';
-      const drawioUrl = (window.location.pathname.endsWith('/history_detail.html')
-        ? '../drawio/drawio.html'
-        : 'views/drawio/drawio.html') + `?docId=${encodeURIComponent(docIdSafe)}`;
+      const drawioUrl = sanitizeUrlForAttr(
+        (window.location.pathname.endsWith('/history_detail.html')
+          ? '../drawio/drawio.html'
+          : 'views/drawio/drawio.html') + `?docId=${encodeURIComponent(docIdSafe)}`,
+        { allowDataImage: false }
+      );
 
       if (USE_EVENT_DELEGATION) {
         renderedContent = `
@@ -251,25 +322,25 @@ export const ChatbotMessageRenderer = {
               已生成 draw.io 兼容的配图 XML，可点击下方按钮在新窗口中查看和编辑。
             </div>
             <div class="drawio-preview-overlay">
-              <button class="mindmap-open-btn"
-                      data-action="open-drawio"
-                      data-drawio-url="${drawioUrl}">放大查看/编辑配图</button>
-            </div>
-          </div>
-        `;
-      } else {
-        renderedContent = `
-          <div class="drawio-preview-container">
-            <div class="drawio-preview-text">
-              已生成 draw.io 兼容的配图 XML，可点击下方按钮在新窗口中查看和编辑。
-            </div>
-            <div class="drawio-preview-overlay">
-              <button class="mindmap-open-btn" onclick="window.open('${drawioUrl}','_blank')">放大查看/编辑配图</button>
-            </div>
-          </div>
-        `;
-      }
-    } else {
+	              <button class="mindmap-open-btn"
+	                      data-action="open-drawio"
+	                      data-drawio-url="${escapeAttr(drawioUrl)}">放大查看/编辑配图</button>
+	            </div>
+	          </div>
+	        `;
+		      } else {
+		        renderedContent = `
+		          <div class="drawio-preview-container">
+		            <div class="drawio-preview-text">
+		              已生成 draw.io 兼容的配图 XML，可点击下方按钮在新窗口中查看和编辑。
+		            </div>
+		            <div class="drawio-preview-overlay">
+		              <button class="mindmap-open-btn" data-drawio-url="${escapeAttr(drawioUrl)}" onclick="window.open(this.dataset.drawioUrl,'_blank','noopener,noreferrer')">放大查看/编辑配图</button>
+		            </div>
+		          </div>
+		        `;
+		      }
+	    } else {
       // 普通文本/Markdown/LaTeX
       // Only show the logo if there is NO content, NO reasoning, and NO tool calls.
       // If there is reasoning or tool calls, they serve as the "activity indicator".
@@ -289,22 +360,17 @@ export const ChatbotMessageRenderer = {
           if (typeof marked !== 'undefined' && typeof katex !== 'undefined') {
             if (typeof renderWithKatexStreaming === 'function') {
               renderedContent = renderWithKatexStreaming(m.content);
-            } else if (typeof renderWithKatexFailback === 'function') {
-              renderedContent = renderWithKatexFailback(m.content);
-            } else {
-              // XSS 防护
-              if (typeof window.safeRenderMarkdown === 'function') {
-                renderedContent = window.safeRenderMarkdown(m.content);
-              } else {
-                renderedContent = marked.parse(m.content);
-              }
-            }
-          } else {
-            renderedContent = window.ChatbotUtils.escapeHtml(m.content).replace(/\n/g, '<br>');
-          }
-        } catch (e) {
-          renderedContent = window.ChatbotUtils.escapeHtml(m.content).replace(/\n/g, '<br>');
-        }
+	            } else if (typeof renderWithKatexFailback === 'function') {
+	              renderedContent = renderWithKatexFailback(m.content);
+	            } else {
+	              renderedContent = safeRenderMarkdownOrEscape(m.content);
+	            }
+	          } else {
+	            renderedContent = window.ChatbotUtils.escapeHtml(m.content).replace(/\n/g, '<br>');
+	          }
+	        } catch (e) {
+	          renderedContent = window.ChatbotUtils.escapeHtml(m.content).replace(/\n/g, '<br>');
+	        }
       }
     }
 
@@ -432,11 +498,11 @@ export const ChatbotMessageRenderer = {
         }
     }
 
-    // 工具调用块 (Legacy or Fallback)
-    let toolCallBlock = '';
-    if (m.toolCallHtml && !reactVizBlock) {
-      toolCallBlock = m.toolCallHtml;
-    }
+	    // 工具调用块 (Legacy or Fallback)
+	    let toolCallBlock = '';
+	    if (m.toolCallHtml && !reactVizBlock) {
+	      toolCallBlock = sanitizeHtmlFragment(m.toolCallHtml);
+	    }
 
     const actionButtons = this._createActionButtonsHTML('assistant', index);
 

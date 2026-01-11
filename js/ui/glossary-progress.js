@@ -6,6 +6,17 @@
 (function() {
   let progressModal = null;
 
+  function escapeHtml(value) {
+    const str = String(value ?? '');
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
+      .replace(/`/g, '&#96;');
+  }
+
   /**
    * 显示导入进度条
    * @param {string} title - 标题
@@ -22,7 +33,7 @@
       <div class="bg-white rounded-lg shadow-2xl p-6 w-full max-w-md mx-4">
         <div class="flex items-center gap-3 mb-4">
           <iconify-icon icon="carbon:import" width="24" class="text-blue-500"></iconify-icon>
-          <h3 class="text-lg font-semibold text-gray-800" id="glossaryProgressTitle">${title}</h3>
+          <h3 class="text-lg font-semibold text-gray-800" id="glossaryProgressTitle">${escapeHtml(title)}</h3>
         </div>
 
         <!-- 主进度条 -->
@@ -91,11 +102,15 @@
   function updateImportProgress(current, total, message) {
     if (!progressModal) return;
 
-    const percent = Math.min(100, Math.round((current / total) * 100));
+    const safeCurrent = Number.isFinite(Number(current)) ? Number(current) : 0;
+    const safeTotal = Number.isFinite(Number(total)) ? Number(total) : 0;
+    const percent = safeTotal > 0
+      ? Math.min(100, Math.round((safeCurrent / safeTotal) * 100))
+      : 0;
     const now = Date.now();
     const elapsed = now - progressState.startTime;
     const recentElapsed = now - progressState.lastUpdateTime;
-    const processed = current - progressState.lastProcessed;
+    const processed = safeCurrent - progressState.lastProcessed;
 
     // 更新进度条
     const progressBar = document.getElementById('glossaryProgressBar');
@@ -108,9 +123,15 @@
 
     if (progressBar) progressBar.style.width = percent + '%';
     if (progressPercent) progressPercent.textContent = percent + '%';
-    if (progressText) progressText.textContent = message || `正在保存 (${current.toLocaleString()} / ${total.toLocaleString()})`;
-    if (progressCurrent) progressCurrent.textContent = current.toLocaleString();
-    if (progressTotal) progressTotal.textContent = total.toLocaleString();
+    if (progressText) {
+      progressText.textContent =
+        message ||
+        (safeTotal > 0
+          ? `正在保存 (${safeCurrent.toLocaleString()} / ${safeTotal.toLocaleString()})`
+          : `正在保存 (${safeCurrent.toLocaleString()})`);
+    }
+    if (progressCurrent) progressCurrent.textContent = safeCurrent.toLocaleString();
+    if (progressTotal) progressTotal.textContent = safeTotal.toLocaleString();
 
     // 计算速度（条/秒）
     if (recentElapsed > 0 && processed > 0) {
@@ -118,8 +139,8 @@
       if (progressSpeed) progressSpeed.textContent = speed.toLocaleString() + ' 条/秒';
 
       // 计算预计剩余时间
-      const remaining = total - current;
-      const eta = Math.ceil(remaining / speed);
+      const remaining = Math.max(0, safeTotal - safeCurrent);
+      const eta = speed > 0 ? Math.ceil(remaining / speed) : 0;
       if (progressETA && eta > 0) {
         if (eta < 60) {
           progressETA.textContent = eta + ' 秒';
@@ -133,7 +154,7 @@
 
     // 更新状态
     progressState.lastUpdateTime = now;
-    progressState.lastProcessed = current;
+    progressState.lastProcessed = safeCurrent;
   }
 
   /**
@@ -157,17 +178,22 @@
     const icon = success ? 'carbon:checkmark-filled' : 'carbon:error-filled';
     const iconColor = success ? 'text-green-500' : 'text-red-500';
 
-    progressModal.innerHTML = `
-      <div class="bg-white rounded-lg shadow-2xl p-6 w-full max-w-md mx-4 text-center">
-        <iconify-icon icon="${icon}" width="48" class="${iconColor} mb-4"></iconify-icon>
-        <h3 class="text-lg font-semibold text-gray-800 mb-2">${success ? '导入完成' : '导入失败'}</h3>
-        <p class="text-gray-600 mb-4">${message}</p>
-        <button onclick="window.glossaryProgress.hide()"
-                class="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 transition-colors">
-          确定
-        </button>
-      </div>
-    `;
+	    progressModal.innerHTML = `
+	      <div class="bg-white rounded-lg shadow-2xl p-6 w-full max-w-md mx-4 text-center">
+	        <iconify-icon icon="${icon}" width="48" class="${iconColor} mb-4"></iconify-icon>
+	        <h3 class="text-lg font-semibold text-gray-800 mb-2">${success ? '导入完成' : '导入失败'}</h3>
+	        <p class="text-gray-600 mb-4">${escapeHtml(message)}</p>
+	        <button type="button" data-gp-action="hide"
+	                class="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 transition-colors">
+	          确定
+	        </button>
+	      </div>
+	    `;
+
+	    // Bind close action (avoid inline event handlers).
+	    progressModal.querySelector('[data-gp-action="hide"]')?.addEventListener('click', () => {
+	      hideImportProgress();
+	    });
 
     // 自动关闭
     if (success) {

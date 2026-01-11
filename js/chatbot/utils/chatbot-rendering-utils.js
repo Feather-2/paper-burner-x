@@ -8,6 +8,41 @@
  * 2. 渲染父元素下所有 Mermaid 代码块为 SVG。
  * 3. 提供与安全相关的HTML转义辅助（如有需要）。
  */
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[ch]);
+}
+
+function getDomPurify() {
+  const purifier = globalThis.DOMPurify || globalThis.window?.DOMPurify;
+  return purifier && typeof purifier.sanitize === 'function' ? purifier : null;
+}
+
+function sanitizeHtmlFragment(html, options = null) {
+  const raw = String(html ?? '');
+  if (!raw) return '';
+  const purifier = getDomPurify();
+  if (!purifier) {
+    return raw
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/\bon\w+\s*=/gi, 'data-removed-handler=');
+  }
+  try {
+    return purifier.sanitize(raw, {
+      SAFE_FOR_TEMPLATES: true,
+      KEEP_CONTENT: true,
+      ...(options || {})
+    });
+  } catch (e) {
+    return raw;
+  }
+}
+
 export const ChatbotRenderingUtils = {
   /**
    * 渲染思维导图的模糊预览（通常是Markdown的简化版或特定结构）。
@@ -21,25 +56,31 @@ export const ChatbotRenderingUtils = {
    * @returns {string} HTML字符串，表示思维导图的预览。
    */
   renderMindmapShadow: function(markdownData) {
-    if (typeof marked !== 'undefined') {
-      try {
-        // 使用 marked 解析 Markdown 为 HTML
-        let html = marked.parse(markdownData || '# 思维导图预览\n- 暂无内容');
-        // 可选：移除潜在危险标签，如 <script>（视 marked 配置而定）
-        // html = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+    const md = String(markdownData || '# 思维导图预览\n- 暂无内容');
+    try {
+      if (typeof window !== 'undefined' && typeof window.safeRenderMarkdown === 'function') {
+        const html = window.safeRenderMarkdown(md);
         return `<div class="mindmap-shadow-content" style="font-size: 0.8em; opacity: 0.7;">${html}</div>`;
-      } catch (e) {
-        console.error("Error rendering mindmap shadow with marked.js:", e);
-        return '<div class="mindmap-shadow-content" style="font-size: 0.8em; opacity: 0.7;">思维导图预览加载失败</div>';
       }
-    } else {
+
+      if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
+        const rawHtml = marked.parse(md);
+        const cleanHtml = sanitizeHtmlFragment(rawHtml, { ALLOW_DATA_ATTR: false });
+        return `<div class="mindmap-shadow-content" style="font-size: 0.8em; opacity: 0.7;">${cleanHtml}</div>`;
+      }
+
       console.warn("marked.js is not available for mindmap shadow rendering.");
-      // 退化为纯文本预览
-      const plainTextPreview = (markdownData || '')
+      const esc = (window.ChatbotUtils && typeof window.ChatbotUtils.escapeHtml === 'function')
+        ? window.ChatbotUtils.escapeHtml
+        : escapeHtml;
+      const plainTextPreview = md
         .split('\n')
-        .map(line => window.ChatbotUtils.escapeHtml(line))
+        .map(line => esc(line))
         .join('<br>');
       return `<div class="mindmap-shadow-content" style="font-size: 0.8em; opacity: 0.7; white-space: pre-wrap;">${plainTextPreview || '思维导图预览 (marked.js 未加载)'}</div>`;
+    } catch (e) {
+      console.error("Error rendering mindmap shadow:", e);
+      return '<div class="mindmap-shadow-content" style="font-size: 0.8em; opacity: 0.7;">思维导图预览加载失败</div>';
     }
   },
 
@@ -113,7 +154,11 @@ export const ChatbotRenderingUtils = {
         // Mermaid 渲染
         try {
             mermaid.render(containerId, mermaidCode, (svgCode, bindFunctions) => {
-                container.innerHTML = svgCode;
+                const cleanSvg = sanitizeHtmlFragment(svgCode, {
+                  USE_PROFILES: { svg: true, svgFilters: true },
+                  ALLOW_DATA_ATTR: true,
+                });
+                container.innerHTML = cleanSvg;
                 if (typeof bindFunctions === 'function') {
                     bindFunctions(container);
                 }
@@ -127,7 +172,10 @@ export const ChatbotRenderingUtils = {
             });
         } catch (err) {
             console.error("Mermaid rendering error:", err, "for code:", mermaidCode.substring(0,100));
-            container.innerHTML = `<pre style="color:red; background:#fff0f0; padding:10px; border:1px solid red;">Mermaid渲染错误:\n${window.ChatbotUtils.escapeHtml(String(err))}\n--- 源 代 码 ---\n${window.ChatbotUtils.escapeHtml(mermaidCode)}</pre>`;
+            const esc = (window.ChatbotUtils && typeof window.ChatbotUtils.escapeHtml === 'function')
+              ? window.ChatbotUtils.escapeHtml
+              : escapeHtml;
+            container.innerHTML = `<pre style="color:red; background:#fff0f0; padding:10px; border:1px solid red;">Mermaid渲染错误:\n${esc(String(err))}\n--- 源 代 码 ---\n${esc(mermaidCode)}</pre>`;
             if (preElement && preElement.parentNode) {
                  if (preElement.dataset.mermaidOriginalDisplay === undefined) {
                      preElement.dataset.mermaidOriginalDisplay = preElement.style.display;

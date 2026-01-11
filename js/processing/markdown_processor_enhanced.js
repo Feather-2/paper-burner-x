@@ -27,6 +27,32 @@
         /\\end\{(?:align\*?|aligned|flalign\*?|gather\*?|multline\*?|split|cases|array|pmatrix|bmatrix|vmatrix|Vmatrix|matrix|smallmatrix)\}/
     ];
 
+    function getDomPurify() {
+        const purifier = global.DOMPurify || (global.window && global.window.DOMPurify);
+        return purifier && typeof purifier.sanitize === 'function' ? purifier : null;
+    }
+
+    function sanitizeRenderedHtml(html) {
+        const raw = typeof html === 'string' ? html : '';
+        if (!raw) return '';
+        const purifier = getDomPurify();
+        if (!purifier) {
+            return raw
+                .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+                .replace(/\bon\w+\s*=/gi, 'data-removed-handler=');
+        }
+        try {
+            return purifier.sanitize(raw, {
+                SAFE_FOR_TEMPLATES: true,
+                KEEP_CONTENT: true,
+                ALLOW_DATA_ATTR: true
+            });
+        } catch (e) {
+            console.warn('[MarkdownProcessorEnhanced] DOMPurify sanitize failed:', e);
+            return raw;
+        }
+    }
+
     /**
      * Enhanced markdown preprocessing with robust formula and image handling
      * @param {string} md - Input markdown text
@@ -216,6 +242,8 @@
 
         // Restore protected content
         result = restoreContent(result, protectedContent);
+        // 安全处理：移除潜在脚本/事件处理器等
+        result = sanitizeRenderedHtml(result);
 
         // Cache management with size limit
         if (renderCache.size >= MAX_CACHE_SIZE) {

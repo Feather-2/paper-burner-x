@@ -3,8 +3,22 @@ import katexLib from 'katex';
 import MarkdownIt from 'markdown-it';
 
 const DOMPurifyStub = {
+  /**
+   * Minimal sanitizer fallback for environments where DOMPurify cannot run (e.g. workers).
+   * Removes <script> and event handler attributes, and blocks javascript:/data:text/html URLs.
+   */
   sanitize(value) {
-    return typeof value === 'string' ? value : '';
+    const raw = typeof value === 'string' ? value : '';
+    if (!raw) return '';
+    return raw
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
+      .replace(/<object\b[^<]*(?:(?!<\/object>)<[^<]*)*<\/object>/gi, '')
+      .replace(/<embed\b[^<]*>/gi, '')
+      .replace(/<foreignObject\b[^<]*(?:(?!<\/foreignObject>)<[^<]*)*<\/foreignObject>/gi, '')
+      .replace(/\bon\w+\s*=/gi, 'data-removed-handler=')
+      .replace(/\b(href|src|xlink:href)\s*=\s*(['"])\s*(?:javascript:|data:text\/html)[^'"]*\2/gi, '$1=$2#$2')
+      .replace(/\b(href|src|xlink:href)\s*=\s*(?:javascript:|data:text\/html)[^\s>]+/gi, '$1=\"#\"');
   }
 };
 
@@ -65,4 +79,3 @@ export function ensureProcessingDeps(root = globalThis) {
 
 // Side-effect: ensure legacy globals exist (without overriding existing window.*)
 ensureProcessingDeps();
-

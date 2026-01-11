@@ -28,10 +28,10 @@
     let runner = null;
     let isProcessing = false;
     
-    // 默认配置
-    const defaultConfig = {
-        mode: 'spline',
-        clustering_mode: 'color',
+	    // 默认配置
+	    const defaultConfig = {
+	        mode: 'spline',
+	        clustering_mode: 'color',
         hierarchical: 'stacked',
         filter_speckle: 4,
         color_precision: 6,
@@ -39,24 +39,60 @@
         corner_threshold: 60,
         length_threshold: 4,
         splice_threshold: 45,
-        path_precision: 8
-    };
-    
-    // 监听来自父窗口的消息
-    window.addEventListener('message', async (event) => {
-        const { type, data, config } = event.data;
-        
-        if (type === 'vectorize') {
-            try {
-                const result = await vectorize(data, { ...defaultConfig, ...config });
-                parent.postMessage({ type: 'vectorize-result', success: true, svg: result }, '*');
-            } catch (error) {
-                parent.postMessage({ type: 'vectorize-result', success: false, error: error.message }, '*');
-            }
-        } else if (type === 'ping') {
-            parent.postMessage({ type: 'pong', ready: typeof ColorImageConverter !== 'undefined' }, '*');
-        }
-    });
+	        path_precision: 8
+	    };
+	    
+	    function resolveParentOrigin() {
+	        const params = new URLSearchParams(window.location.search);
+	        const explicitOrigin = params.get('parentOrigin');
+	        if (explicitOrigin) return explicitOrigin;
+	        try {
+	            if (document.referrer) return new URL(document.referrer).origin;
+	        } catch (_) { /* ignore */ }
+	        return '';
+	    }
+	    
+	    const parentOrigin = resolveParentOrigin();
+	    
+	    function isTrustedParentMessage(event) {
+	        if (event.source !== window.parent) return false;
+	        if (!parentOrigin) return true;
+	        if (parentOrigin === 'null') return event.origin === 'null';
+	        return event.origin === parentOrigin;
+	    }
+	    
+	    function postToParent(message) {
+	        const targetOrigin = parentOrigin && parentOrigin !== 'null' ? parentOrigin : '*';
+	        window.parent.postMessage(message, targetOrigin);
+	    }
+	    
+	    function parseIncomingMessage(data) {
+	        if (!data) return null;
+	        if (typeof data === 'string') {
+	            try { return JSON.parse(data); } catch (_) { return null; }
+	        }
+	        if (typeof data === 'object') return data;
+	        return null;
+	    }
+	    
+	    // 监听来自父窗口的消息
+	    window.addEventListener('message', async (event) => {
+	        if (!isTrustedParentMessage(event)) return;
+	        const payload = parseIncomingMessage(event.data);
+	        if (!payload || typeof payload !== 'object') return;
+	        const { type, data, config, requestId } = payload;
+	        
+	        if (type === 'vectorize') {
+	            try {
+	                const result = await vectorize(data, { ...defaultConfig, ...config });
+	                postToParent({ type: 'vectorize-result', requestId, success: true, svg: result });
+	            } catch (error) {
+	                postToParent({ type: 'vectorize-result', requestId, success: false, error: error && error.message ? error.message : String(error) });
+	            }
+	        } else if (type === 'ping') {
+	            postToParent({ type: 'pong', requestId, ready: typeof ColorImageConverter !== 'undefined' });
+	        }
+	    });
     
     async function vectorize(imageDataUrl, config) {
         if (isProcessing) {
@@ -124,10 +160,10 @@
         });
     }
     
-    // 通知父窗口已加载
-    setTimeout(() => {
-        parent.postMessage({ type: 'bridge-ready' }, '*');
-    }, 500);
-    </script>
+	    // 通知父窗口已加载
+	    setTimeout(() => {
+	        postToParent({ type: 'bridge-ready' });
+	    }, 500);
+	    </script>
 </body>
 </html>

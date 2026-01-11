@@ -6,6 +6,21 @@
 (function(window) {
   'use strict';
 
+  function escapeHtml(value) {
+    const str = String(value ?? '');
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
+      .replace(/`/g, '&#96;');
+  }
+
+  function escapeAttr(value) {
+    return escapeHtml(value);
+  }
+
   // 确保 EmbeddingClient 已加载（必要时动态注入脚本）
   async function ensureEmbeddingClientLoaded() {
     if (window.EmbeddingClient && typeof window.EmbeddingClient.saveConfig === 'function') return true;
@@ -76,9 +91,11 @@
         cursor: pointer; transition: all 0.2s;
         border: 1px solid #e5e7eb;
       `;
+      const id = model?.id ?? '';
+      const ownedBy = model?.owned_by ?? '';
       item.innerHTML = `
-        <div style="font-weight: 500; color: #111827;">${model.id}</div>
-        ${model.owned_by ? `<div style="font-size: 12px; color: #6b7280; margin-top: 2px;">by ${model.owned_by}</div>` : ''}
+        <div style="font-weight: 500; color: #111827;">${escapeHtml(id)}</div>
+        ${ownedBy ? `<div style="font-size: 12px; color: #6b7280; margin-top: 2px;">by ${escapeHtml(ownedBy)}</div>` : ''}
       `;
 
       item.onmouseover = () => {
@@ -90,7 +107,7 @@
         item.style.borderColor = '#e5e7eb';
       };
       item.onclick = () => {
-        targetInput.value = model.id;
+        targetInput.value = String(id);
         document.body.removeChild(overlay);
         document.body.removeChild(container);
       };
@@ -152,14 +169,15 @@
         border: 1px solid #e5e7eb;
       `;
       const id = model.id || model.name || '';
+      const ownedBy = model.owned_by || '';
       item.innerHTML = `
-        <div style="font-weight: 500; color: #111827;">${id}</div>
-        ${model.owned_by ? `<div style="font-size: 12px; color: #6b7280; margin-top: 2px;">by ${model.owned_by}</div>` : ''}
+        <div style="font-weight: 500; color: #111827;">${escapeHtml(id)}</div>
+        ${ownedBy ? `<div style="font-size: 12px; color: #6b7280; margin-top: 2px;">by ${escapeHtml(ownedBy)}</div>` : ''}
       `;
       item.onmouseover = () => { item.style.background = '#f3f4f6'; item.style.borderColor = '#737373'; };
       item.onmouseout = () => { item.style.background = '#fff'; item.style.borderColor = '#e5e7eb'; };
       item.onclick = () => {
-        if (id) targetInput.value = id;
+        if (id) targetInput.value = String(id);
         document.body.removeChild(overlay);
         document.body.removeChild(container);
       };
@@ -251,7 +269,7 @@
       keyDiv.innerHTML = `
           <label class="block text-sm font-medium text-gray-700 mb-1">API Key</label>
           <div class="flex items-center gap-2">
-              <input type="password" id="emb-api-key-km" value="${config.apiKey || ''}" placeholder="sk-..." class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+              <input type="password" id="emb-api-key-km" value="${escapeAttr(config.apiKey || '')}" placeholder="sk-..." class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
               <button type="button" id="emb-api-key-toggle-km" class="px-2.5 py-2 border border-gray-300 rounded-md text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-1">
                   <iconify-icon icon="carbon:view" width="16"></iconify-icon>显示
               </button>
@@ -268,7 +286,7 @@
               Base URL
               <span class="text-xs text-gray-500">(如 https://api.openai.com/v1)</span>
           </label>
-          <input type="text" id="emb-endpoint-km" value="${displayUrl}" placeholder="https://api.openai.com/v1" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+          <input type="text" id="emb-endpoint-km" value="${escapeAttr(displayUrl)}" placeholder="https://api.openai.com/v1" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
       `;
       vectorContainer.appendChild(urlDiv);
 
@@ -277,7 +295,7 @@
       modelDiv.innerHTML = `
           <label class="block text-sm font-medium text-gray-700 mb-1">模型ID</label>
           <div class="flex gap-2">
-              <input type="text" id="emb-model-km" value="${config.model || ''}" placeholder="请输入模型ID，如: text-embedding-3-small" class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+              <input type="text" id="emb-model-km" value="${escapeAttr(config.model || '')}" placeholder="请输入模型ID，如: text-embedding-3-small" class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
               <button type="button" id="emb-fetch-models-km" class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors whitespace-nowrap" style="display: none;">
                   获取列表
               </button>
@@ -294,7 +312,7 @@
               向量维度
               <span class="text-xs text-gray-500">(可选，留空使用默认)</span>
           </label>
-          <input type="number" id="emb-dimensions-km" value="${config.dimensions || ''}" placeholder="1536" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+          <input type="number" id="emb-dimensions-km" value="${escapeAttr(config.dimensions || '')}" placeholder="1536" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
           <p class="mt-1 text-xs text-gray-500">降低维度可减少存储和计算，但可能影响精度</p>
       `;
       vectorContainer.appendChild(dimsDiv);
@@ -306,7 +324,7 @@
               并发请求数
               <span class="text-xs text-gray-500">(建议 5-20，最大50)</span>
           </label>
-          <input type="number" id="emb-concurrency-km" value="${config.concurrency || 5}" min="1" max="50" placeholder="5" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+          <input type="number" id="emb-concurrency-km" value="${escapeAttr(config.concurrency || 5)}" min="1" max="50" placeholder="5" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
           <p class="mt-1 text-xs text-gray-500">提高并发数可加快索引构建速度，但注意API速率限制</p>
       `;
       vectorContainer.appendChild(concurrencyDiv);
@@ -379,7 +397,7 @@
       rerankKeyDiv.innerHTML = `
           <label class="block text-sm font-medium text-gray-700 mb-1">API Key</label>
           <div class="flex items-center gap-2">
-              <input type="password" id="rerank-api-key-km" value="${rerankConfig.apiKey || ''}" placeholder="jina_..." class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+              <input type="password" id="rerank-api-key-km" value="${escapeAttr(rerankConfig.apiKey || '')}" placeholder="jina_..." class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
               <button type="button" id="rerank-api-key-toggle-km" class="px-2.5 py-2 border border-gray-300 rounded-md text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-1">
                   <iconify-icon icon="carbon:view" width="16"></iconify-icon>显示
               </button>
@@ -395,7 +413,7 @@
               Base URL
               <span class="text-xs text-gray-500">(如 https://api.jina.ai/v1 或 https://api.openai.com/v1)</span>
           </label>
-          <input type="text" id="rerank-endpoint-km" value="${displayRerankBaseUrl}" placeholder="https://api.jina.ai/v1" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+          <input type="text" id="rerank-endpoint-km" value="${escapeAttr(displayRerankBaseUrl)}" placeholder="https://api.jina.ai/v1" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
       `;
       rerankContainer.appendChild(rerankUrlDiv);
 
@@ -404,7 +422,7 @@
       rerankModelDiv.innerHTML = `
           <label class="block text-sm font-medium text-gray-700 mb-1">模型ID</label>
           <div class="flex gap-2">
-              <input type="text" id="rerank-model-km" value="${rerankConfig.model || 'jina-reranker-v2-base-multilingual'}" placeholder="例如: jina-reranker-v2-base-multilingual 或 cohere/rerank-multilingual-v3.0" class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+              <input type="text" id="rerank-model-km" value="${escapeAttr(rerankConfig.model || 'jina-reranker-v2-base-multilingual')}" placeholder="例如: jina-reranker-v2-base-multilingual 或 cohere/rerank-multilingual-v3.0" class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
               <button type="button" id="rerank-fetch-models-km" class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors whitespace-nowrap" style="display: none;">获取列表</button>
               <button type="button" id="rerank-check-model-km" class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors whitespace-nowrap">检测模型</button>
           </div>
@@ -419,7 +437,7 @@
               Top N
               <span class="text-xs text-gray-500">(返回前N个结果)</span>
           </label>
-          <input type="number" id="rerank-top-n-km" value="${rerankConfig.topN || 10}" min="1" max="50" placeholder="10" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+          <input type="number" id="rerank-top-n-km" value="${escapeAttr(rerankConfig.topN || 10)}" min="1" max="50" placeholder="10" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
           <p class="mt-1 text-xs text-gray-500">建议 5-20，根据实际需求调整</p>
       `;
       rerankContainer.appendChild(rerankTopNDiv);

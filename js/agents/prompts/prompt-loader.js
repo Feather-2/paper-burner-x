@@ -9,8 +9,9 @@ import { createLogger } from "../shared/utils/logger.js";
 import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
 const logger = createLogger("prompts/prompt-loader");
 
-/** @type {any} */
-const nodeProcess = /** @type {any} */ (globalThis).process;
+function getNodeProcess() {
+  return /** @type {any} */ (globalThis).process;
+}
 
 /**
  * `require` is a CommonJS-only global. This file is ESM, but we keep `typeof require`
@@ -74,10 +75,12 @@ var __dirname;
 const PROMPT_CACHE_KEY_SEPARATOR = "::";
 
 function isNodeLike() {
+  const nodeProcess = getNodeProcess();
   return !!nodeProcess && typeof nodeProcess === "object" && !!nodeProcess.versions?.node;
 }
 
 function resolvePromptCacheMaxEntries() {
+  const nodeProcess = getNodeProcess();
   const env = nodeProcess && typeof nodeProcess === "object" ? nodeProcess.env : null;
   const fromEnv = env?.PB_PROMPT_CACHE_MAX_ENTRIES;
   if (fromEnv !== undefined && fromEnv !== null) {
@@ -97,6 +100,7 @@ function resolvePromptCacheMaxEntries() {
 }
 
 function resolvePromptManifestCacheTtlMs() {
+  const nodeProcess = getNodeProcess();
   const env = nodeProcess && typeof nodeProcess === "object" ? nodeProcess.env : null;
   const fromEnv = env?.PB_PROMPT_MANIFEST_CACHE_TTL_MS;
   if (fromEnv !== undefined && fromEnv !== null) {
@@ -502,6 +506,7 @@ function getBasePath() {
       // 使用 decodeURIComponent 处理 URL 编码的路径
       // 并移除 Windows 路径的前导斜杠（如 /C:/...）
       let pathname = decodeURIComponent(moduleUrl.pathname);
+      const nodeProcess = getNodeProcess();
       if (nodeProcess?.platform === "win32" && pathname.startsWith("/")) {
         pathname = pathname.slice(1);
       }

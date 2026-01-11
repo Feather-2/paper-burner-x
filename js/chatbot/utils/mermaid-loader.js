@@ -9,6 +9,12 @@
 const DEFAULT_MERMAID_LOCAL_SRC = 'lib/mermaid.min.js';
 const DEFAULT_MERMAID_CDN_SRC = 'https://gcore.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js';
 
+const DEFAULT_MERMAID_INIT_CONFIG = {
+  startOnLoad: false,
+  // Harden against XSS via diagram directives/links.
+  securityLevel: 'strict',
+};
+
 /**
  * 确保 Mermaid 已加载并初始化
  * @param {Object} [options]
@@ -30,7 +36,7 @@ export function ensureMermaidLoaded(options = {}) {
 
   if (window.mermaidLoaded && typeof window.mermaid !== 'undefined') {
     try {
-      window.mermaid.initialize({ startOnLoad: false });
+      window.mermaid.initialize(DEFAULT_MERMAID_INIT_CONFIG);
     } catch (e) {
       console.warn('[MermaidLoader] mermaid.initialize failed:', e);
     }
@@ -52,7 +58,7 @@ export function ensureMermaidLoaded(options = {}) {
       window.mermaidLoaded = true;
       if (window.mermaid) {
         try {
-          window.mermaid.initialize({ startOnLoad: false });
+          window.mermaid.initialize(DEFAULT_MERMAID_INIT_CONFIG);
         } catch (e) {
           console.warn('[MermaidLoader] mermaid.initialize failed:', e);
         }

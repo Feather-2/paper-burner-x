@@ -123,6 +123,32 @@
       });
     }
 
+    function getDomPurify() {
+      const purifier = global.DOMPurify || (global.window && global.window.DOMPurify);
+      return purifier && typeof purifier.sanitize === 'function' ? purifier : null;
+    }
+
+    function sanitizeRenderedHtml(html) {
+      const raw = typeof html === 'string' ? html : '';
+      if (!raw) return '';
+      const purifier = getDomPurify();
+      if (!purifier) {
+        return raw
+          .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+          .replace(/\bon\w+\s*=/gi, 'data-removed-handler=');
+      }
+      try {
+        return purifier.sanitize(raw, {
+          SAFE_FOR_TEMPLATES: true,
+          KEEP_CONTENT: true,
+          ALLOW_DATA_ATTR: true
+        });
+      } catch (e) {
+        console.warn('[MarkdownProcessor] DOMPurify sanitize failed (legacy):', e);
+        return raw;
+      }
+    }
+
     function analyzeFormulaLayoutLegacy(content, displayHint) {
       const normalized = typeof content === 'string' ? content.trim() : '';
       if (!normalized) {
@@ -375,7 +401,8 @@
 
       md = restoreMarkdownCodeSegments(md, protectedSegments.placeholders);
       const markedOptions = customRenderer ? { renderer: customRenderer } : {};
-      const __rpResult = marked.parse(md, markedOptions);
+      let __rpResult = marked.parse(md, markedOptions);
+      __rpResult = sanitizeRenderedHtml(__rpResult);
       renderCache.set(rawMd, __rpResult);
       performance.mark('renderKatex-end');
       performance.measure('renderWithKatex', 'renderKatex-start', 'renderKatex-end');

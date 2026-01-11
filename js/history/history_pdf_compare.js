@@ -414,20 +414,20 @@ class PDFCompareView {
       <div class="pdf-compare-container" style="display: flex; height: 100vh; gap: 0; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: #f5f5f5; z-index: 1000;">
         <!-- 左侧：原文 PDF (50% 宽度) -->
         <div class="pdf-viewer-area pdf-original" style="flex: 1; border-right: 1px solid #e0e0e0; overflow: auto; background: #fff; position: relative; display: flex; flex-direction: column;">
-          <div class="pdf-controls" style="height: 56px; background: #ffffff; padding: 0 24px; border-bottom: 1px solid #e0e0e0; z-index: 10; display: flex; gap: 12px; align-items: center; flex-shrink: 0;">
-            <div style="display: flex; gap: 8px; align-items: center;">
-              <button id="pdf-prev-page" style="padding: 7px 14px; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; color: #495057; cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.2s;" onmouseover="this.style.background='#e9ecef'" onmouseout="this.style.background='#f8f9fa'">← 上一页</button>
-              <button id="pdf-next-page" style="padding: 7px 14px; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; color: #495057; cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.2s;" onmouseover="this.style.background='#e9ecef'" onmouseout="this.style.background='#f8f9fa'">下一页 →</button>
-            </div>
-            <span id="pdf-page-info" style="color: #6c757d; font-size: 13px; font-weight: 500; padding: 0 8px;">第 1 页 / 共 0 页</span>
-            <div style="flex: 1;"></div>
-            <div style="display: flex; gap: 6px; align-items: center; background: #f8f9fa; padding: 4px; border-radius: 6px;">
-              <button id="pdf-zoom-out" style="width: 32px; height: 32px; background: transparent; border: none; color: #495057; cursor: pointer; font-size: 18px; font-weight: 600; display: flex; align-items: center; justify-content: center; border-radius: 4px; transition: all 0.2s;" onmouseover="this.style.background='#e9ecef'" onmouseout="this.style.background='transparent'">−</button>
-              <span id="pdf-zoom-level" style="color: #495057; font-size: 13px; font-weight: 500; min-width: 48px; text-align: center;">100%</span>
-              <button id="pdf-zoom-in" style="width: 32px; height: 32px; background: transparent; border: none; color: #495057; cursor: pointer; font-size: 18px; font-weight: 600; display: flex; align-items: center; justify-content: center; border-radius: 4px; transition: all 0.2s;" onmouseover="this.style.background='#e9ecef'" onmouseout="this.style.background='transparent'">+</button>
-            </div>
-            <button id="pdf-exit-fullscreen" style="padding: 7px 16px; background: #dc3545; border: none; border-radius: 6px; color: white; cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.2s;" onmouseover="this.style.background='#c82333'" onmouseout="this.style.background='#dc3545'">退出对照</button>
-          </div>
+	          <div class="pdf-controls" style="height: 56px; background: #ffffff; padding: 0 24px; border-bottom: 1px solid #e0e0e0; z-index: 10; display: flex; gap: 12px; align-items: center; flex-shrink: 0;">
+	            <div style="display: flex; gap: 8px; align-items: center;">
+	              <button id="pdf-prev-page" style="padding: 7px 14px; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; color: #495057; cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.2s;">← 上一页</button>
+	              <button id="pdf-next-page" style="padding: 7px 14px; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; color: #495057; cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.2s;">下一页 →</button>
+	            </div>
+	            <span id="pdf-page-info" style="color: #6c757d; font-size: 13px; font-weight: 500; padding: 0 8px;">第 1 页 / 共 0 页</span>
+	            <div style="flex: 1;"></div>
+	            <div style="display: flex; gap: 6px; align-items: center; background: #f8f9fa; padding: 4px; border-radius: 6px;">
+	              <button id="pdf-zoom-out" style="width: 32px; height: 32px; background: transparent; border: none; color: #495057; cursor: pointer; font-size: 18px; font-weight: 600; display: flex; align-items: center; justify-content: center; border-radius: 4px; transition: all 0.2s;">−</button>
+	              <span id="pdf-zoom-level" style="color: #495057; font-size: 13px; font-weight: 500; min-width: 48px; text-align: center;">100%</span>
+	              <button id="pdf-zoom-in" style="width: 32px; height: 32px; background: transparent; border: none; color: #495057; cursor: pointer; font-size: 18px; font-weight: 600; display: flex; align-items: center; justify-content: center; border-radius: 4px; transition: all 0.2s;">+</button>
+	            </div>
+	            <button id="pdf-exit-fullscreen" style="padding: 7px 16px; background: #dc3545; border: none; border-radius: 6px; color: white; cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.2s;">退出对照</button>
+	          </div>
           <div class="pdf-scroll-area" id="pdf-original-scroll" style="flex: 1; overflow: auto; padding: 20px; position: relative; background: #f5f5f5;">
             <div id="pdf-original-segments" class="pdf-segments" style="position: relative; display: block;"></div>
           </div>
@@ -441,12 +441,12 @@ class PDFCompareView {
               <span style="color: #2e7d32; font-size: 13px; font-weight: 600;">译文对照</span>
             </div>
             <!-- 导出按钮（右对齐） -->
-            <div style="margin-left: auto; display: flex; gap: 8px; align-items: center;">
-              <button id="pdf-export-structured-translation" style="padding: 7px 16px; background: #1976d2; border: none; border-radius: 6px; color: #fff; cursor: pointer; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 6px; transition: all 0.2s; box-shadow: 0 2px 4px rgba(25, 118, 210, 0.2);" onmouseover="this.style.background='#1565c0'; this.style.boxShadow='0 4px 8px rgba(25, 118, 210, 0.3)'" onmouseout="this.style.background='#1976d2'; this.style.boxShadow='0 2px 4px rgba(25, 118, 210, 0.2)'" title="导出保留原格式的译文PDF">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style="flex-shrink: 0;"><path d="M12 15V3M12 15L7 10M12 15L17 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 17L2 19C2 20.1046 2.89543 21 4 21L20 21C21.1046 21 22 20.1046 22 19V17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-                <span>导出译文PDF</span>
-              </button>
-            </div>
+	            <div style="margin-left: auto; display: flex; gap: 8px; align-items: center;">
+	              <button id="pdf-export-structured-translation" style="padding: 7px 16px; background: #1976d2; border: none; border-radius: 6px; color: #fff; cursor: pointer; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 6px; transition: all 0.2s; box-shadow: 0 2px 4px rgba(25, 118, 210, 0.2);" title="导出保留原格式的译文PDF">
+	                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style="flex-shrink: 0;"><path d="M12 15V3M12 15L7 10M12 15L17 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 17L2 19C2 20.1046 2.89543 21 4 21L20 21C21.1046 21 22 20.1046 22 19V17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+	                <span>导出译文PDF</span>
+	              </button>
+	            </div>
           </div>
           <div class="pdf-scroll-area" id="pdf-translation-scroll" style="flex: 1; overflow: auto; padding: 20px; position: relative; background: #f5f5f5;">
             <div id="pdf-translation-segments" class="pdf-segments" style="position: relative; display: block;"></div>
@@ -1851,7 +1851,7 @@ class PDFCompareView {
           console.warn('[PDFCompareView] KaTeX 渲染失败:', e);
           this._katexWarned = true;
         }
-        return text;
+        return tempContainer.innerHTML;
       }
     } else {
       // 只警告一次
@@ -1859,7 +1859,9 @@ class PDFCompareView {
         console.warn('[renderFormulasInText] renderMathInElement 不可用');
         this._katexUnavailableWarned = true;
       }
-      return text;
+      const tempContainer = document.createElement('div');
+      tempContainer.textContent = text;
+      return tempContainer.innerHTML;
     }
   }
 

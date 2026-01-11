@@ -137,11 +137,17 @@ const PPTGeneratorExportFormats = {
             container.style.cssText = 'position: fixed; left: -9999px; top: 0; width: 960px; height: 540px; z-index: -9999; -webkit-font-smoothing: subpixel-antialiased; text-rendering: optimizeLegibility;';
             document.body.appendChild(container);
             
-            try {
-                const renderer = new HTMLSlideRenderer();
-                const bgFill = this._getSlideBackground(slide);
-                const bgStyle = bgFill ? `background: ${bgFill};` : 'background: #ffffff;';
-                container.innerHTML = `<div style="width: 960px; height: 540px; overflow: hidden; ${bgStyle}">${renderer.render(slide, index)}</div>`;
+	            try {
+	                const renderer = new HTMLSlideRenderer();
+	                const bgFill = this._getSlideBackground(slide);
+	                container.innerHTML = '';
+	                const wrapper = document.createElement('div');
+	                wrapper.style.width = '960px';
+	                wrapper.style.height = '540px';
+	                wrapper.style.overflow = 'hidden';
+	                wrapper.style.background = bgFill || '#ffffff';
+	                wrapper.innerHTML = renderer.render(slide, index);
+	                container.appendChild(wrapper);
 
                 // 确保所有 span 保持 inline 显示（避免 html2canvas 错误处理）
                 container.querySelectorAll('span').forEach(span => {
@@ -586,11 +592,17 @@ ${renderedSlides}
             container.style.cssText = 'position: fixed; left: -9999px; width: 960px; height: 540px; z-index: -9999;';
             document.body.appendChild(container);
             
-            try {
-                const renderer = new HTMLSlideRenderer();
-                const bgFill = this._getSlideBackground(slide);
-                const bgStyle = bgFill ? `background: ${bgFill};` : 'background: #ffffff;';
-                container.innerHTML = `<div style="width: 960px; height: 540px; overflow: hidden; ${bgStyle}">${renderer.render(slide, index)}</div>`;
+	            try {
+	                const renderer = new HTMLSlideRenderer();
+	                const bgFill = this._getSlideBackground(slide);
+	                container.innerHTML = '';
+	                const wrapper = document.createElement('div');
+	                wrapper.style.width = '960px';
+	                wrapper.style.height = '540px';
+	                wrapper.style.overflow = 'hidden';
+	                wrapper.style.background = bgFill || '#ffffff';
+	                wrapper.innerHTML = renderer.render(slide, index);
+	                container.appendChild(wrapper);
 
                 // 确保所有 span 保持 inline 显示（避免 html2canvas 错误处理）
                 container.querySelectorAll('span').forEach(span => {

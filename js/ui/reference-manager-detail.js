@@ -4,12 +4,91 @@
 (function(global) {
     'use strict';
 
+    const escapeHtml = (value) =>
+        String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;'
+        }[ch]));
+
+    const escapeAttr = (value) => escapeHtml(value);
+
+    const buildDoiUrl = (doi) => {
+        const value = String(doi || '').trim();
+        if (!value) return '';
+        const encoded = encodeURIComponent(value).replace(/%2F/gi, '/');
+        return `https://doi.org/${encoded}`;
+    };
+
     let currentDocumentId = null;
     let currentReferences = [];
     let isFloatingPanelOpen = false;
     let citationLocations = {}; // 记录每个文献的引用位置 {refIndex: [citationElementIds]}
     let activeTooltipLinkElement = null; // 记录当前激活tooltip的链接元素
     let hideTooltipTimer = null; // 记录隐藏tooltip的定时器
+    let uiActionsBound = false;
+
+    function bindReferenceUiActions() {
+        if (uiActionsBound) return;
+        uiActionsBound = true;
+
+        document.addEventListener('click', (e) => {
+            const el = e.target?.closest?.('[data-ref-action]');
+            if (!el) return;
+            const action = el.dataset.refAction;
+            if (!action) return;
+
+            const refIndex = el.dataset.refIndex != null ? Number(el.dataset.refIndex) : NaN;
+
+            switch (action) {
+                case 'toggle-panel':
+                    e.preventDefault();
+                    toggleFloatingPanel();
+                    return;
+                case 'extract':
+                    e.preventDefault();
+                    global.extractReferencesFromContent?.();
+                    return;
+                case 'show-full-manager':
+                    e.preventDefault();
+                    global.showFullReferenceManager?.();
+                    return;
+                case 'export':
+                    e.preventDefault();
+                    global.exportReferences?.();
+                    return;
+                case 'scroll-citation':
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (Number.isFinite(refIndex)) global.scrollToCitationInText?.(refIndex);
+                    hideReferenceDetailTooltip();
+                    return;
+                case 'scroll-reference':
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (Number.isFinite(refIndex)) global.scrollToReferenceItem?.(refIndex);
+                    hideReferenceDetailTooltip();
+                    return;
+                case 'toggle-tooltip-detail':
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (Number.isFinite(refIndex)) global.toggleReferenceDetail?.(refIndex);
+                    return;
+                case 'close-tooltip':
+                    e.preventDefault();
+                    hideReferenceDetailTooltip();
+                    return;
+                case 'close-modal':
+                    e.preventDefault();
+                    document.getElementById('reference-detail-modal')?.classList.remove('show');
+                    return;
+                default:
+                    return;
+            }
+        });
+    }
 
     /**
      * 初始化参考文献管理器（详情页版本）
@@ -45,6 +124,7 @@
 
         // 创建悬浮面板
         createFloatingPanel();
+        bindReferenceUiActions();
 
         // 处理页面刷新：仅在内容已就绪或数据已可用时尝试一次，
         // 否则等待 contentRendered 事件再处理，避免早期取不到内容
@@ -401,7 +481,7 @@
                 <div class="ref-panel-placeholder">
                     <i class="fa fa-book fa-3x"></i>
                     <p>暂无文献数据</p>
-                    <button onclick="window.extractReferencesFromContent()">提取文献</button>
+                    <button data-ref-action="extract">提取文献</button>
                 </div>
             `;
         } else {
@@ -418,24 +498,32 @@
      */
     function renderPanelList(references) {
         return references.map((ref, idx) => {
-            const authors = ref.authors && ref.authors.length > 0
-                ? (ref.authors.length > 2
-                    ? `${ref.authors.slice(0, 2).join(', ')} 等`
-                    : ref.authors.join(', '))
+            const safeRef = (ref && typeof ref === 'object') ? ref : {};
+            const authorsArr = Array.isArray(safeRef.authors) ? safeRef.authors : [];
+            const authorsText = authorsArr.length > 0
+                ? (authorsArr.length > 2
+                    ? `${authorsArr.slice(0, 2).join(', ')} 等`
+                    : authorsArr.join(', '))
                 : '作者未知';
+            const authors = escapeHtml(authorsText);
 
             const citationCount = citationLocations[idx] ? citationLocations[idx].length : 0;
+            const title = escapeHtml(safeRef.title || '未提取标题');
+            const year = safeRef.year ? escapeHtml(safeRef.year) : '';
+            const journal = safeRef.journal ? escapeHtml(safeRef.journal) : '';
+            const doiText = safeRef.doi ? String(safeRef.doi) : '';
+            const doiUrl = doiText ? buildDoiUrl(doiText) : '';
 
             return `
                 <div class="ref-panel-item">
                     <div class="ref-panel-header">
                         <div class="ref-panel-number">[${idx + 1}]</div>
-                        <div class="ref-panel-title">${ref.title || '未提取标题'}</div>
+                        <div class="ref-panel-title">${title}</div>
                     </div>
                     <div class="ref-panel-meta">
                         <div class="ref-panel-authors">${authors}</div>
-                        ${ref.year ? `<span class="ref-panel-year">${ref.year}</span>` : ''}
-                        ${ref.journal ? `<span class="ref-panel-journal">${ref.journal}</span>` : ''}
+                        ${year ? `<span class="ref-panel-year">${year}</span>` : ''}
+                        ${journal ? `<span class="ref-panel-journal">${journal}</span>` : ''}
                     </div>
                     ${citationCount > 0 ? `
                         <div class="ref-panel-citations">
@@ -443,14 +531,14 @@
                         </div>
                     ` : ''}
                     <div class="ref-panel-actions">
-                        <button class="ref-panel-action-btn" onclick="window.scrollToCitationInText(${idx})" title="跳转到原文">
+                        <button class="ref-panel-action-btn" data-ref-action="scroll-citation" data-ref-index="${idx}" title="跳转到原文">
                             <i class="fa fa-arrow-up"></i> 原文
                         </button>
-                        <button class="ref-panel-action-btn" onclick="window.scrollToReferenceItem(${idx})" title="查看详情">
+                        <button class="ref-panel-action-btn" data-ref-action="scroll-reference" data-ref-index="${idx}" title="查看详情">
                             <i class="fa fa-eye"></i> 详情
                         </button>
-                        ${ref.doi ? `
-                            <a href="https://doi.org/${ref.doi}" target="_blank" class="ref-panel-action-btn" title="打开DOI">
+                        ${doiUrl ? `
+                            <a href="${escapeAttr(doiUrl)}" target="_blank" rel="noopener noreferrer" class="ref-panel-action-btn" title="打开DOI">
                                 <i class="fa fa-external-link"></i> DOI
                             </a>
                         ` : ''}
@@ -800,43 +888,50 @@
                 return;
             }
 
-            const authors = ref.authors && ref.authors.length > 0
-                ? ref.authors.join(', ')
-                : '作者未知';
+            const authorsArr = Array.isArray(ref.authors) ? ref.authors : [];
+            const authors = authorsArr.length > 0 ? authorsArr.join(', ') : '作者未知';
+            const safeAuthors = escapeHtml(authors);
+            const safeTitle = ref.title ? escapeHtml(ref.title) : '';
+            const safeYear = ref.year ? escapeHtml(ref.year) : '';
+            const safeJournal = ref.journal ? escapeHtml(ref.journal) : '';
+            const safeVolume = ref.volume ? escapeHtml(ref.volume) : '';
+            const safeAbstract = ref.abstract ? escapeHtml(ref.abstract) : '';
+            const doiText = ref.doi ? String(ref.doi) : '';
+            const doiUrl = doiText ? buildDoiUrl(doiText) : '';
 
             const citationCount = citationLocations[refIndex] ? citationLocations[refIndex].length : 0;
 
             contentHTML = `
                 <div class="tooltip-detail-header">
                     <span class="tooltip-detail-number">[${refIndex + 1}]</span>
-                    <button class="tooltip-detail-close" onclick="document.getElementById('reference-detail-tooltip').classList.remove('show')">
+                    <button class="tooltip-detail-close" data-ref-action="close-tooltip">
                         <i class="fa fa-times"></i>
                     </button>
                 </div>
                 <div class="tooltip-detail-content">
-                    ${ref.title ? `<h4 class="tooltip-detail-title">${ref.title}</h4>` : '<h4 class="tooltip-detail-title">未提取标题</h4>'}
+                    ${safeTitle ? `<h4 class="tooltip-detail-title">${safeTitle}</h4>` : '<h4 class="tooltip-detail-title">未提取标题</h4>'}
 
                     <div class="tooltip-detail-authors">
-                        <i class="fa fa-user"></i> ${authors}
+                        <i class="fa fa-user"></i> ${safeAuthors}
                     </div>
 
                     <div class="tooltip-detail-meta">
-                        ${ref.year ? `<span><i class="fa fa-calendar"></i> ${ref.year}</span>` : ''}
-                        ${ref.journal ? `<span><i class="fa fa-book"></i> ${ref.journal}</span>` : ''}
-                        ${ref.volume ? `<span>Vol. ${ref.volume}</span>` : ''}
+                        ${safeYear ? `<span><i class="fa fa-calendar"></i> ${safeYear}</span>` : ''}
+                        ${safeJournal ? `<span><i class="fa fa-book"></i> ${safeJournal}</span>` : ''}
+                        ${safeVolume ? `<span>Vol. ${safeVolume}</span>` : ''}
                     </div>
 
-                    ${ref.abstract ? `
+                    ${safeAbstract ? `
                         <div class="tooltip-detail-abstract">
                             <strong>摘要：</strong>
-                            <p>${ref.abstract}</p>
+                            <p>${safeAbstract}</p>
                         </div>
                     ` : ''}
 
-                    ${ref.doi ? `
+                    ${doiUrl ? `
                         <div class="tooltip-detail-doi">
                             <strong>DOI:</strong>
-                            <a href="https://doi.org/${ref.doi}" target="_blank">${ref.doi} <i class="fa fa-external-link"></i></a>
+                            <a href="${escapeAttr(doiUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(doiText)} <i class="fa fa-external-link"></i></a>
                         </div>
                     ` : ''}
 
@@ -847,10 +942,10 @@
                     ` : ''}
                 </div>
                 <div class="tooltip-detail-actions">
-                    <button class="tooltip-action-btn" onclick="window.scrollToCitationInText(${refIndex}); document.getElementById('reference-detail-tooltip').classList.remove('show');">
+                    <button class="tooltip-action-btn" data-ref-action="scroll-citation" data-ref-index="${refIndex}">
                         <i class="fa fa-arrow-up"></i> 跳转引用
                     </button>
-                    <button class="tooltip-action-btn" onclick="window.scrollToReferenceItem(${refIndex}); document.getElementById('reference-detail-tooltip').classList.remove('show');">
+                    <button class="tooltip-action-btn" data-ref-action="scroll-reference" data-ref-index="${refIndex}">
                         <i class="fa fa-list"></i> 查看详情
                     </button>
                 </div>
@@ -862,7 +957,7 @@
             contentHTML = `
                 <div class="tooltip-detail-header">
                     <span class="tooltip-detail-number">[${refNumbersDisplay}]</span>
-                    <button class="tooltip-detail-close" onclick="document.getElementById('reference-detail-tooltip').classList.remove('show')">
+                    <button class="tooltip-detail-close" data-ref-action="close-tooltip">
                         <i class="fa fa-times"></i>
                     </button>
                 </div>
@@ -875,54 +970,64 @@
                             const ref = currentReferences[refIndex];
                             if (!ref) return '';
 
-                            const authors = ref.authors && ref.authors.length > 0
-                                ? ref.authors.slice(0, 2).join(', ') + (ref.authors.length > 2 ? ' 等' : '')
+                            const authorsArr = Array.isArray(ref.authors) ? ref.authors : [];
+                            const authors = authorsArr.length > 0
+                                ? authorsArr.slice(0, 2).join(', ') + (authorsArr.length > 2 ? ' 等' : '')
                                 : '作者未知';
 
-                            const allAuthors = ref.authors && ref.authors.length > 0
-                                ? ref.authors.join(', ')
-                                : '作者未知';
+                            const allAuthors = authorsArr.length > 0 ? authorsArr.join(', ') : '作者未知';
 
                             const citationCount = citationLocations[refIndex] ? citationLocations[refIndex].length : 0;
+                            const safeTitle = escapeHtml(ref.title || '未提取标题');
+                            const safeAuthors = escapeHtml(authors);
+                            const safeAllAuthors = escapeHtml(allAuthors);
+                            const safeYear = ref.year ? escapeHtml(ref.year) : '';
+                            const safeJournal = ref.journal ? String(ref.journal) : '';
+                            const safeVolume = ref.volume ? String(ref.volume) : '';
+                            const journalText = safeJournal ? `${safeJournal}${safeVolume ? ` Vol. ${safeVolume}` : ''}` : '';
+                            const safeJournalText = journalText ? escapeHtml(journalText) : '';
+                            const safeAbstract = ref.abstract ? escapeHtml(ref.abstract) : '';
+                            const doiText = ref.doi ? String(ref.doi) : '';
+                            const doiUrl = doiText ? buildDoiUrl(doiText) : '';
 
                             return `
                                 <div class="tooltip-ref-item" data-ref-index="${refIndex}">
-                                    <div class="tooltip-ref-header" onclick="window.toggleReferenceDetail(${refIndex})">
+                                    <div class="tooltip-ref-header" data-ref-action="toggle-tooltip-detail" data-ref-index="${refIndex}">
                                         <div class="tooltip-ref-number">[${refIndex + 1}]</div>
                                         <div class="tooltip-ref-info">
-                                            <div class="tooltip-ref-title">${ref.title || '未提取标题'}</div>
-                                            <div class="tooltip-ref-authors">${authors}${ref.year ? ` · ${ref.year}` : ''}</div>
+                                            <div class="tooltip-ref-title">${safeTitle}</div>
+                                            <div class="tooltip-ref-authors">${safeAuthors}${safeYear ? ` · ${safeYear}` : ''}</div>
                                         </div>
                                         <i class="fa fa-chevron-down tooltip-ref-toggle"></i>
                                     </div>
                                     <div class="tooltip-ref-detail" style="display: none;">
                                         <div class="tooltip-ref-detail-section">
                                             <strong><i class="fa fa-user"></i> 作者：</strong>
-                                            <span>${allAuthors}</span>
+                                            <span>${safeAllAuthors}</span>
                                         </div>
-                                        ${ref.year ? `
+                                        ${safeYear ? `
                                             <div class="tooltip-ref-detail-section">
                                                 <strong><i class="fa fa-calendar"></i> 年份：</strong>
-                                                <span>${ref.year}</span>
+                                                <span>${safeYear}</span>
                                             </div>
                                         ` : ''}
-                                        ${ref.journal ? `
+                                        ${safeJournalText ? `
                                             <div class="tooltip-ref-detail-section">
                                                 <strong><i class="fa fa-book"></i> 期刊：</strong>
-                                                <span>${ref.journal}${ref.volume ? ` Vol. ${ref.volume}` : ''}</span>
+                                                <span>${safeJournalText}</span>
                                             </div>
                                         ` : ''}
-                                        ${ref.abstract ? `
+                                        ${safeAbstract ? `
                                             <div class="tooltip-ref-detail-section">
                                                 <strong><i class="fa fa-file-text-o"></i> 摘要：</strong>
-                                                <p style="margin: 4px 0 0 0; line-height: 1.4; color: #475569;">${ref.abstract}</p>
+                                                <p style="margin: 4px 0 0 0; line-height: 1.4; color: #475569;">${safeAbstract}</p>
                                             </div>
                                         ` : ''}
-                                        ${ref.doi ? `
+                                        ${doiUrl ? `
                                             <div class="tooltip-ref-detail-section">
                                                 <strong><i class="fa fa-link"></i> DOI：</strong>
-                                                <a href="https://doi.org/${ref.doi}" target="_blank" style="color: #3b82f6; text-decoration: none;">
-                                                    ${ref.doi} <i class="fa fa-external-link" style="font-size: 10px;"></i>
+                                                <a href="${escapeAttr(doiUrl)}" target="_blank" rel="noopener noreferrer" style="color: #3b82f6; text-decoration: none;">
+                                                    ${escapeHtml(doiText)} <i class="fa fa-external-link" style="font-size: 10px;"></i>
                                                 </a>
                                             </div>
                                         ` : ''}
@@ -933,10 +1038,10 @@
                                             </div>
                                         ` : ''}
                                         <div class="tooltip-ref-detail-actions">
-                                            <button onclick="window.scrollToCitationInText(${refIndex}); event.stopPropagation();" class="tooltip-ref-action-btn">
+                                            <button data-ref-action="scroll-citation" data-ref-index="${refIndex}" class="tooltip-ref-action-btn">
                                                 <i class="fa fa-arrow-up"></i> 跳转引用
                                             </button>
-                                            <button onclick="window.scrollToReferenceItem(${refIndex}); document.getElementById('reference-detail-tooltip').classList.remove('show'); event.stopPropagation();" class="tooltip-ref-action-btn">
+                                            <button data-ref-action="scroll-reference" data-ref-index="${refIndex}" class="tooltip-ref-action-btn">
                                                 <i class="fa fa-list"></i> 查看原文
                                             </button>
                                         </div>
@@ -1075,8 +1180,18 @@
 
         // 构建详细内容
         const authors = ref.authors && ref.authors.length > 0
-            ? ref.authors.join(', ')
+            ? (Array.isArray(ref.authors) ? ref.authors.join(', ') : String(ref.authors))
             : '作者未知';
+        const safeAuthors = escapeHtml(authors);
+        const safeTitle = ref.title ? escapeHtml(ref.title) : '';
+        const safeYear = ref.year ? escapeHtml(ref.year) : '';
+        const safeJournal = ref.journal ? escapeHtml(ref.journal) : '';
+        const safeVolume = ref.volume ? escapeHtml(ref.volume) : '';
+        const safeIssue = ref.issue ? escapeHtml(ref.issue) : '';
+        const safePages = ref.pages ? escapeHtml(ref.pages) : '';
+        const safeAbstract = ref.abstract ? escapeHtml(ref.abstract) : '';
+        const doiText = ref.doi ? String(ref.doi) : '';
+        const doiUrl = doiText ? buildDoiUrl(doiText) : '';
 
         const citationCount = citationLocations[refIndex] ? citationLocations[refIndex].length : 0;
 
@@ -1084,40 +1199,40 @@
             <div class="reference-detail-card">
                 <div class="reference-detail-header">
                     <div class="reference-detail-number">[${refIndex + 1}]</div>
-                    <button class="reference-detail-close" onclick="document.getElementById('reference-detail-modal').classList.remove('show')">
+                    <button class="reference-detail-close" data-ref-action="close-modal">
                         <i class="fa fa-times"></i>
                     </button>
                 </div>
                 <div class="reference-detail-content">
-                    ${ref.title ? `<h3 class="reference-detail-title">${ref.title}</h3>` : '<h3 class="reference-detail-title">未提取标题</h3>'}
+                    ${safeTitle ? `<h3 class="reference-detail-title">${safeTitle}</h3>` : '<h3 class="reference-detail-title">未提取标题</h3>'}
 
                     <div class="reference-detail-meta">
                         <div class="reference-detail-authors">
-                            <i class="fa fa-user"></i> ${authors}
+                            <i class="fa fa-user"></i> ${safeAuthors}
                         </div>
-                        ${ref.year ? `<div class="reference-detail-year"><i class="fa fa-calendar"></i> ${ref.year}</div>` : ''}
-                        ${ref.journal ? `<div class="reference-detail-journal"><i class="fa fa-book"></i> ${ref.journal}</div>` : ''}
+                        ${safeYear ? `<div class="reference-detail-year"><i class="fa fa-calendar"></i> ${safeYear}</div>` : ''}
+                        ${safeJournal ? `<div class="reference-detail-journal"><i class="fa fa-book"></i> ${safeJournal}</div>` : ''}
                     </div>
 
                     ${ref.volume || ref.issue || ref.pages ? `
                         <div class="reference-detail-publication">
-                            ${ref.volume ? `<span>Vol. ${ref.volume}</span>` : ''}
-                            ${ref.issue ? `<span>No. ${ref.issue}</span>` : ''}
-                            ${ref.pages ? `<span>pp. ${ref.pages}</span>` : ''}
+                            ${safeVolume ? `<span>Vol. ${safeVolume}</span>` : ''}
+                            ${safeIssue ? `<span>No. ${safeIssue}</span>` : ''}
+                            ${safePages ? `<span>pp. ${safePages}</span>` : ''}
                         </div>
                     ` : ''}
 
-                    ${ref.abstract ? `
+                    ${safeAbstract ? `
                         <div class="reference-detail-abstract">
                             <h4><i class="fa fa-file-text"></i> 摘要</h4>
-                            <p>${ref.abstract}</p>
+                            <p>${safeAbstract}</p>
                         </div>
                     ` : ''}
 
-                    ${ref.doi ? `
+                    ${doiUrl ? `
                         <div class="reference-detail-doi">
                             <strong>DOI:</strong>
-                            <a href="https://doi.org/${ref.doi}" target="_blank">${ref.doi} <i class="fa fa-external-link"></i></a>
+                            <a href="${escapeAttr(doiUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(doiText)} <i class="fa fa-external-link"></i></a>
                         </div>
                     ` : ''}
 
@@ -1128,14 +1243,14 @@
                     ` : ''}
                 </div>
                 <div class="reference-detail-actions">
-                    <button class="ref-detail-btn" onclick="window.scrollToCitationInText(${refIndex})">
+                    <button class="ref-detail-btn" data-ref-action="scroll-citation" data-ref-index="${refIndex}">
                         <i class="fa fa-arrow-up"></i> 跳转到原文引用
                     </button>
-                    <button class="ref-detail-btn" onclick="window.scrollToReferenceItem(${refIndex})">
+                    <button class="ref-detail-btn" data-ref-action="scroll-reference" data-ref-index="${refIndex}">
                         <i class="fa fa-list"></i> 查看References区域
                     </button>
-                    ${ref.doi ? `
-                        <a href="https://doi.org/${ref.doi}" target="_blank" class="ref-detail-btn ref-detail-btn-primary">
+                    ${doiUrl ? `
+                        <a href="${escapeAttr(doiUrl)}" target="_blank" rel="noopener noreferrer" class="ref-detail-btn ref-detail-btn-primary">
                             <i class="fa fa-external-link"></i> 打开DOI链接
                         </a>
                     ` : ''}
@@ -1216,7 +1331,7 @@
         const li = document.createElement('li');
         li.className = 'toc-reference-link';
         li.innerHTML = `
-            <a href="#" class="toc-ref-link" onclick="window.toggleReferencePanel(); return false;">
+            <a href="#" class="toc-ref-link" data-ref-action="toggle-panel">
                 <i class="fa fa-book"></i> 参考文献 (${currentReferences.length})
             </a>
         `;
@@ -1254,22 +1369,22 @@
             <div class="reference-panel-header">
                 <h3><i class="fa fa-book"></i> 参考文献管理</h3>
                 <div class="reference-panel-actions">
-                    <button class="ref-panel-minimize" onclick="window.toggleReferencePanel()">
+                    <button class="ref-panel-minimize" data-ref-action="toggle-panel">
                         <i class="fa fa-minus"></i>
                     </button>
-                    <button class="ref-panel-close" onclick="window.toggleReferencePanel()">
+                    <button class="ref-panel-close" data-ref-action="toggle-panel">
                         <i class="fa fa-times"></i>
                     </button>
                 </div>
             </div>
             <div class="reference-panel-toolbar">
-                <button class="ref-toolbar-btn" onclick="window.extractReferencesFromContent()">
+                <button class="ref-toolbar-btn" data-ref-action="extract">
                     <i class="fa fa-sync"></i> 提取
                 </button>
-                <button class="ref-toolbar-btn" onclick="window.showFullReferenceManager()">
+                <button class="ref-toolbar-btn" data-ref-action="show-full-manager">
                     <i class="fa fa-th"></i> 完整管理
                 </button>
-                <button class="ref-toolbar-btn" onclick="window.exportReferences()">
+                <button class="ref-toolbar-btn" data-ref-action="export">
                     <i class="fa fa-download"></i> 导出
                 </button>
             </div>
@@ -1277,7 +1392,7 @@
                 <div class="ref-panel-placeholder">
                     <i class="fa fa-book fa-3x"></i>
                     <p>暂无文献数据</p>
-                    <button onclick="window.extractReferencesFromContent()">提取文献</button>
+                    <button data-ref-action="extract">提取文献</button>
                 </div>
             </div>
         `;
@@ -1363,30 +1478,6 @@
             }
 
             updatePanelContent();
-        }
-    }
-
-    /**
-     * 更新面板内容
-     */
-    function updatePanelContent() {
-        const content = document.getElementById('reference-panel-content');
-        if (!content) return;
-
-        if (currentReferences.length === 0) {
-            content.innerHTML = `
-                <div class="ref-panel-placeholder">
-                    <i class="fa fa-book fa-3x"></i>
-                    <p>暂无文献数据</p>
-                    <button onclick="window.extractReferencesFromContent()">提取文献</button>
-                </div>
-            `;
-        } else {
-            content.innerHTML = `
-                <div class="ref-panel-list">
-                    ${renderPanelList(currentReferences)}
-                </div>
-            `;
         }
     }
 

@@ -645,14 +645,16 @@ class TextFittingAdapter {
           console.warn('[TextFittingAdapter] KaTeX 渲染失败:', e);
           this._katexWarned = true;
         }
-        return text;
+        return tempContainer.innerHTML;
       }
     } else {
       if (!this._katexUnavailableWarned) {
         console.warn('[TextFittingAdapter] renderMathInElement 不可用');
         this._katexUnavailableWarned = true;
       }
-      return text;
+      const tempContainer = document.createElement('div');
+      tempContainer.textContent = text;
+      return tempContainer.innerHTML;
     }
   }
 

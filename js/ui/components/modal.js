@@ -6,6 +6,40 @@
 let modalStack = [];
 let backdropEl = null;
 
+function getDomPurify() {
+  const purifier = globalThis.DOMPurify || globalThis.window?.DOMPurify;
+  return purifier && typeof purifier.sanitize === 'function' ? purifier : null;
+}
+
+function sanitizeHtmlFragment(html, options = null) {
+  const raw = String(html ?? '');
+  if (!raw) return '';
+
+  const purifier = getDomPurify();
+  if (!purifier) {
+    return raw
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/\bon\w+\s*=/gi, 'data-removed-handler=')
+      .replace(/\b(href|src)\s*=\s*(['"])\s*javascript:[^'"]*\2/gi, '$1=$2#$2');
+  }
+
+  try {
+    return purifier.sanitize(raw, {
+      SAFE_FOR_TEMPLATES: true,
+      KEEP_CONTENT: true,
+      ...(options || {})
+    });
+  } catch {
+    return raw;
+  }
+}
+
+function isElement(value) {
+  if (!value) return false;
+  if (typeof HTMLElement !== 'undefined' && value instanceof HTMLElement) return true;
+  return value.nodeType === 1 && typeof value.appendChild === 'function';
+}
+
 /**
  * 确保背景遮罩存在
  */
@@ -147,8 +181,8 @@ export function createModal(options = {}) {
   `;
 
   if (typeof content === 'string') {
-    body.innerHTML = content;
-  } else if (content instanceof HTMLElement) {
+    body.innerHTML = sanitizeHtmlFragment(content);
+  } else if (isElement(content)) {
     body.appendChild(content);
   }
 
@@ -167,8 +201,8 @@ export function createModal(options = {}) {
     `;
 
     if (typeof footer === 'string') {
-      footerEl.innerHTML = footer;
-    } else if (footer instanceof HTMLElement) {
+      footerEl.innerHTML = sanitizeHtmlFragment(footer);
+    } else if (isElement(footer)) {
       footerEl.appendChild(footer);
     } else if (Array.isArray(footer)) {
       footer.forEach(btn => {
@@ -237,8 +271,8 @@ export function createModal(options = {}) {
 
     setContent(newContent) {
       if (typeof newContent === 'string') {
-        body.innerHTML = newContent;
-      } else if (newContent instanceof HTMLElement) {
+        body.innerHTML = sanitizeHtmlFragment(newContent);
+      } else if (isElement(newContent)) {
         body.innerHTML = '';
         body.appendChild(newContent);
       }
@@ -262,9 +296,12 @@ export function createModal(options = {}) {
  */
 export function confirm(message, options = {}) {
   return new Promise((resolve) => {
+    const messageEl = document.createElement('p');
+    messageEl.textContent = String(message ?? '');
+    messageEl.style.margin = '0';
     const modal = createModal({
       title: options.title || '确认',
-      content: `<p>${message}</p>`,
+      content: messageEl,
       footer: [
         {
           text: options.cancelText || '取消',
@@ -295,9 +332,12 @@ export function confirm(message, options = {}) {
  */
 export function alert(message, options = {}) {
   return new Promise((resolve) => {
+    const messageEl = document.createElement('p');
+    messageEl.textContent = String(message ?? '');
+    messageEl.style.margin = '0';
     const modal = createModal({
       title: options.title || '提示',
-      content: `<p>${message}</p>`,
+      content: messageEl,
       footer: [
         {
           text: options.buttonText || '确定',

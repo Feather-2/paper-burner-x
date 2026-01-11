@@ -153,7 +153,7 @@ async function _fetchArrayBufferWithProgress(url, onProgress) {
         if (done) break;
         chunks.push(value);
         received += value.byteLength;
-        onProgress?.(received, total || 0, total || 0);
+        onProgress?.(received, total || 0);
     }
 
     const merged = new Uint8Array(received);

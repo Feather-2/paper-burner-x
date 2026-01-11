@@ -102,6 +102,19 @@ const PPTHealthCheck = {
         // Remove existing if any
         document.querySelector('.health-check-overlay')?.remove();
 
+        const escapeHtml = (value) => {
+            const str = String(value ?? '');
+            return str
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;')
+                .replace(/`/g, '&#96;');
+        };
+
+        const escapeAttr = (value) => escapeHtml(value);
+
         const overlay = document.createElement('div');
         overlay.className = 'ppt-modal-overlay open health-check-overlay';
         overlay.style.zIndex = '2000';
@@ -110,6 +123,8 @@ const PPTHealthCheck = {
         const imgReady = results.models.img.ready;
         const mcpReady = results.mcp.gateway;
         const langModelKey = results.models.lang.fullKey;
+        const langName = results?.models?.lang?.name ?? '';
+        const imgName = results?.models?.img?.name ?? '';
         
         const isActuallyReady = langReady;
 
@@ -145,13 +160,13 @@ const PPTHealthCheck = {
                                     <div style="display:flex; justify-content:space-between; align-items:center;">
                                         <h4>模型服务状态</h4>
                                         ${langReady ? `
-                                            <button class="quick-apply-btn" onclick="window.PPTHealthCheck.quickApplyModel('${langModelKey}')" title="将此模型应用到所有角色">
+                                            <button class="quick-apply-btn" data-action="quick-apply-model" data-model-key="${escapeAttr(langModelKey)}" title="将此模型应用到所有角色">
                                                 一键全同步
                                             </button>
                                         ` : ''}
                                     </div>
                                     <span>${langReady ? '语言模型已就绪' : '核心语言模型未配置'}</span>
-                                    <small title="${results.models.lang.name}">${results.models.lang.name} / ${results.models.img.name}</small>
+                                    <small title="${escapeAttr(langName)}">${escapeHtml(langName)} / ${escapeHtml(imgName)}</small>
                                 </div>
                             </div>
 
@@ -167,20 +182,46 @@ const PPTHealthCheck = {
                             </div>
                         </div>
 
-                        <div class="health-actions">
-                            ${(isActuallyReady || !isBlocking) ? `
-                                <button class="ppt-btn-primary" onclick="this.closest('.ppt-modal-overlay').remove()">
-                                    确认并进入
-                                </button>
-                            ` : ''}
-                            <button class="${isActuallyReady ? 'ppt-btn-ghost' : 'ppt-btn-primary'}" onclick="if(window.PPTModelConfigModal) window.PPTModelConfigModal.openModal(); ${isActuallyReady ? "this.closest('.ppt-modal-overlay').remove()" : ""}">
-                                详细配置
-                            </button>
-                        </div>
-                    </div>
-                </div>
+	                        <div class="health-actions">
+	                            ${(isActuallyReady || !isBlocking) ? `
+	                                <button class="ppt-btn-primary" type="button" data-action="close-health-check">
+	                                    确认并进入
+	                                </button>
+	                            ` : ''}
+	                            <button class="${isActuallyReady ? 'ppt-btn-ghost' : 'ppt-btn-primary'}" type="button" data-action="open-model-config" data-close-after-open="${isActuallyReady ? 'true' : 'false'}">
+	                                详细配置
+	                            </button>
+	                        </div>
+	                    </div>
+	                </div>
             </div>
         `;
+
+	        overlay.addEventListener('click', (e) => {
+	            const quickApplyBtn = e.target.closest('button.quick-apply-btn[data-action="quick-apply-model"]');
+	            if (quickApplyBtn) {
+	                const fullKey = quickApplyBtn.dataset.modelKey;
+	                if (!fullKey) return;
+	                this.quickApplyModel(fullKey);
+	                return;
+	            }
+
+	            const actionBtn = e.target.closest('button[data-action]');
+	            if (!actionBtn) return;
+	            const action = actionBtn.dataset.action;
+
+	            if (action === 'close-health-check') {
+	                overlay.remove();
+	                return;
+	            }
+
+	            if (action === 'open-model-config') {
+	                if (window.PPTModelConfigModal) window.PPTModelConfigModal.openModal();
+	                if (actionBtn.dataset.closeAfterOpen === 'true') {
+	                    overlay.remove();
+	                }
+	            }
+	        });
 
         document.body.appendChild(overlay);
     }

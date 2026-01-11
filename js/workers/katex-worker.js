@@ -10,6 +10,21 @@
 
 'use strict';
 
+function escapeHtml(value) {
+  const str = String(value ?? '');
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/`/g, '&#96;');
+}
+
+function escapeAttr(value) {
+  return escapeHtml(value);
+}
+
 // 导入 KaTeX 库（通过 importScripts）
 try {
   // 尝试加载 KaTeX 库
@@ -96,13 +111,14 @@ function renderFormula(id, formula, options) {
 
   } catch (error) {
     // 渲染失败，返回错误信息
+    const errorMessage = error && error.message ? String(error.message) : String(error);
     return {
       type: 'error',
       id: id,
-      error: error.message,
+      error: errorMessage,
       originalFormula: formula,
       // 返回一个错误回退 HTML
-      html: `<span class="katex-fallback" title="${error.message}">${formula}</span>`
+      html: `<span class="katex-fallback" title="${escapeAttr(errorMessage)}">${escapeHtml(formula)}</span>`
     };
   }
 }

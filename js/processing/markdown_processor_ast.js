@@ -64,6 +64,24 @@
     }
 
     /**
+     * DOMPurify 清理渲染后的 HTML（防止注入事件属性/脚本等）
+     */
+    function sanitizeRenderedHtml(html) {
+        const purifier = global.DOMPurify || (global.window && global.window.DOMPurify);
+        if (!purifier || typeof purifier.sanitize !== 'function') return html;
+        try {
+            return purifier.sanitize(html, {
+                SAFE_FOR_TEMPLATES: true,
+                KEEP_CONTENT: true,
+                ALLOW_DATA_ATTR: true
+            });
+        } catch (e) {
+            console.warn('[MarkdownProcessorAST] DOMPurify sanitize failed:', e);
+            return html;
+        }
+    }
+
+    /**
      * 检测内容是否像段落（而非单个公式）
      */
     function looksLikeParagraph(text) {
@@ -939,7 +957,7 @@
             }
 
             // AST 渲染
-            const result = mdInstance.render(processed);
+            const result = sanitizeRenderedHtml(mdInstance.render(processed));
 
             // 缓存结果（注意：带注释的渲染不应缓存太久）
             if (!annotations || annotations.length === 0) {

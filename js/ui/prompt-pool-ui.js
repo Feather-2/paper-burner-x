@@ -35,6 +35,21 @@ class PromptPoolUI {
         setTimeout(() => { this.populateAvailableModels(); }, 1000);
   }
 
+    escapeHtml(value) {
+        const str = String(value ?? '');
+        return str
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;')
+            .replace(/`/g, '&#96;');
+    }
+
+    escapeAttr(value) {
+        return this.escapeHtml(value);
+    }
+
     /**
      * 加载保存的设置
      */
@@ -846,18 +861,18 @@ ${userRef}
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">最大连续失败次数</label>
-                            <input type="number" id="maxConsecutiveFailures" value="${config.maxConsecutiveFailures}" min="1" max="10" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
-                            <p class="text-xs text-gray-500 mt-1">超过此次数后提示词将被失活</p>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">复活时间（分钟）</label>
-                            <input type="number" id="resurrectionTimeMinutes" value="${config.resurrectionTimeMinutes}" min="1" max="1440" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
-                            <p class="text-xs text-gray-500 mt-1">失活后等待多久自动复活</p>
-                        </div>
-                    </div>
+	                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t">
+	                        <div>
+	                            <label class="block text-sm font-medium text-gray-700 mb-1">最大连续失败次数</label>
+	                            <input type="number" id="maxConsecutiveFailures" value="${this.escapeAttr(config.maxConsecutiveFailures)}" min="1" max="10" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+	                            <p class="text-xs text-gray-500 mt-1">超过此次数后提示词将被失活</p>
+	                        </div>
+	                        <div>
+	                            <label class="block text-sm font-medium text-gray-700 mb-1">复活时间（分钟）</label>
+	                            <input type="number" id="resurrectionTimeMinutes" value="${this.escapeAttr(config.resurrectionTimeMinutes)}" min="1" max="1440" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+	                            <p class="text-xs text-gray-500 mt-1">失活后等待多久自动复活</p>
+	                        </div>
+	                    </div>
 
                     <div class="bg-blue-50 border border-blue-200 rounded-md p-3">
                         <div class="flex items-start">
@@ -1037,7 +1052,7 @@ ${userRef}
         const controls = `
             <div class="flex items-center justify-between mb-2">
                 <div class="flex items-center space-x-2">
-                    <input id="ppFilterInput" type="text" placeholder="搜索名称/内容/标签" class="text-sm border rounded px-2 py-1 w-56" value="${this.searchKeyword.replace(/"/g,'&quot;')}">
+                    <input id="ppFilterInput" type="text" placeholder="搜索名称/内容/标签" class="text-sm border rounded px-2 py-1 w-56" value="${this.escapeAttr(this.searchKeyword)}">
                     <select id="ppHealthFilter" class="text-sm border rounded px-2 py-1">
                         <option value="all" ${this.filterHealth==='all'?'selected':''}>全部</option>
                         <option value="healthy" ${this.filterHealth==='healthy'?'selected':''}>健康</option>
@@ -1141,6 +1156,14 @@ ${userRef}
      * 创建提示词项目的HTML
      */
     createPromptItemHTML(prompt) {
+        const id = String(prompt?.id ?? '');
+        const safeIdAttr = this.escapeAttr(id);
+        const safeName = this.escapeHtml(prompt?.name ?? '');
+        const safeCategory = this.escapeHtml(prompt?.category ?? '');
+        const safeCreatedAt = this.escapeHtml(String(prompt?.created_at ?? '').replace('T',' ').replace('Z',''));
+        const safeSystemPreview = this.escapeHtml(this.truncateText(prompt?.systemPrompt ?? '', 60));
+        const safeUserPreview = this.escapeHtml(this.truncateText(prompt?.userPromptTemplate ?? '', 60));
+
         const isSelected = prompt.userSelected === true;
         const isRejected = prompt.userSelected === false;
         const isUnset = prompt.userSelected === null;
@@ -1157,39 +1180,39 @@ ${userRef}
         const healthText = healthStatus === 'healthy' ? '健康' : (healthStatus === 'degraded' ? '降级' : (healthStatus === 'deactivated' ? '失活' : '未知'));
 
         return `
-            <tr class="align-top" data-id="${prompt.id}">
-                <td class="px-2 py-2"><input type="checkbox" class="prompt-select-checkbox w-4 h-4" data-id="${prompt.id}" ${this.selectedIds.has(prompt.id) ? 'checked' : ''} /></td>
+            <tr class="align-top" data-id="${safeIdAttr}">
+                <td class="px-2 py-2"><input type="checkbox" class="prompt-select-checkbox w-4 h-4" data-id="${safeIdAttr}" ${this.selectedIds.has(id) ? 'checked' : ''} /></td>
                 <td class="px-2 py-2">
-                    <div class="text-gray-800 text-sm font-medium">${prompt.name}</div>
-                    <div class="text-xs text-gray-500 mt-0.5">系统: ${this.truncateText(prompt.systemPrompt, 60)}</div>
-                    <div class="text-xs text-gray-500">用户: ${this.truncateText(prompt.userPromptTemplate, 60)}</div>
+                    <div class="text-gray-800 text-sm font-medium">${safeName}</div>
+                    <div class="text-xs text-gray-500 mt-0.5">系统: ${safeSystemPreview}</div>
+                    <div class="text-xs text-gray-500">用户: ${safeUserPreview}</div>
                 </td>
-                <td class="px-2 py-2"><span class="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded">${prompt.category}</span></td>
+                <td class="px-2 py-2"><span class="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded">${safeCategory}</span></td>
                 <td class="px-2 py-2 text-xs">${healthText}</td>
                 <td class="px-2 py-2 text-xs ${successCls}">${successText}</td>
                 <td class="px-2 py-2 text-xs">${health.totalRequests || 0}</td>
                 <td class="px-2 py-2 text-xs ${health.consecutiveFailures>0?'text-red-600':''}">${health.consecutiveFailures || 0}</td>
                 <td class="px-2 py-2 text-xs">${avgTime}</td>
                 <td class="px-2 py-2 text-xs">${prompt.usage_count || 0}</td>
-                <td class="px-2 py-2 text-xs">${(prompt.created_at||'').replace('T',' ').replace('Z','')}</td>
+                <td class="px-2 py-2 text-xs">${safeCreatedAt}</td>
                 <td class="px-2 py-2">
                     <div class="flex items-center space-x-1">
                         <button class="prompt-select-btn p-1 rounded hover:bg-gray-100 ${healthStatus === 'deactivated' ? 'opacity-50 cursor-not-allowed' : ''}"
-                                data-id="${prompt.id}" data-action="select" title="选择使用" ${isSelected || healthStatus === 'deactivated' ? 'style=\"display:none\"' : ''}>
+                                data-id="${safeIdAttr}" data-action="select" title="选择使用" ${isSelected || healthStatus === 'deactivated' ? 'style=\"display:none\"' : ''}>
                             <iconify-icon icon="carbon:checkmark" class="text-green-600" width="16"></iconify-icon>
                         </button>
-                        <button class="prompt-reject-btn p-1 rounded hover:bg-gray-100" data-id="${prompt.id}" data-action="reject" title="拒绝使用" ${isRejected ? 'style=\"display:none\"' : ''}>
+                        <button class="prompt-reject-btn p-1 rounded hover:bg-gray-100" data-id="${safeIdAttr}" data-action="reject" title="拒绝使用" ${isRejected ? 'style=\"display:none\"' : ''}>
                             <iconify-icon icon="carbon:close" class="text-red-600" width="16"></iconify-icon>
                         </button>
                         ${healthStatus === 'deactivated' ? `
-                            <button class="prompt-resurrect-btn p-1 rounded hover:bg-gray-100" data-id="${prompt.id}" data-action="resurrect" title="手动复活">
+                            <button class="prompt-resurrect-btn p-1 rounded hover:bg-gray-100" data-id="${safeIdAttr}" data-action="resurrect" title="手动复活">
                                 <iconify-icon icon="carbon:restart" class="text-blue-600" width="16"></iconify-icon>
                             </button>
                         ` : ''}
-                        <button class="prompt-edit-btn p-1 rounded hover:bg-gray-100" data-id="${prompt.id}" data-action="edit" title="编辑">
+                        <button class="prompt-edit-btn p-1 rounded hover:bg-gray-100" data-id="${safeIdAttr}" data-action="edit" title="编辑">
                             <iconify-icon icon="carbon:edit" class="text-blue-600" width="16"></iconify-icon>
                         </button>
-                        <button class="prompt-delete-btn p-1 rounded hover:bg-gray-100" data-id="${prompt.id}" data-action="delete" title="删除">
+                        <button class="prompt-delete-btn p-1 rounded hover:bg-gray-100" data-id="${safeIdAttr}" data-action="delete" title="删除">
                             <iconify-icon icon="carbon:trash-can" class="text-red-600" width="16"></iconify-icon>
                         </button>
                     </div>
@@ -1365,7 +1388,7 @@ ${userRef}
      * 打开编辑模态框
      */
     openEditModal(id) {
-        const prompt = this.promptPool.getAllPrompts().find(p => p.id === id);
+        const prompt = this.promptPool.getAllPrompts().find(p => String(p.id) === String(id));
         if (!prompt) return;
 
         this.currentEditingId = id;
@@ -1384,30 +1407,30 @@ ${userRef}
                 <div class="flex-1 overflow-y-auto p-4 space-y-4">
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">名称</label>
-                        <input type="text" id="editPromptName" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500" value="${prompt.name}">
+                        <input type="text" id="editPromptName" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500" value="">
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">类别</label>
                         <select id="editPromptCategory" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500">
-                            <option value="academic" ${prompt.category === 'academic' ? 'selected' : ''}>学术</option>
-                            <option value="casual" ${prompt.category === 'casual' ? 'selected' : ''}>通俗</option>
-                            <option value="technical" ${prompt.category === 'technical' ? 'selected' : ''}>技术</option>
-                            <option value="business" ${prompt.category === 'business' ? 'selected' : ''}>商务</option>
-                            <option value="literary" ${prompt.category === 'literary' ? 'selected' : ''}>文学</option>
-                            <option value="custom" ${!['academic', 'casual', 'technical', 'business', 'literary'].includes(prompt.category) ? 'selected' : ''}>自定义</option>
+                            <option value="academic">学术</option>
+                            <option value="casual">通俗</option>
+                            <option value="technical">技术</option>
+                            <option value="business">商务</option>
+                            <option value="literary">文学</option>
+                            <option value="custom">自定义</option>
                         </select>
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">系统提示</label>
-                        <textarea id="editSystemPrompt" rows="4" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500">${prompt.systemPrompt}</textarea>
+                        <textarea id="editSystemPrompt" rows="4" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500"></textarea>
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">用户提示模板</label>
-                        <textarea id="editUserPromptTemplate" rows="6" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500">${prompt.userPromptTemplate}</textarea>
+                        <textarea id="editUserPromptTemplate" rows="6" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500"></textarea>
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">标签 (用空格分隔)</label>
-                        <input type="text" id="editPromptTags" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500" value="${prompt.tags.join(' ')}">
+                        <input type="text" id="editPromptTags" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500" value="">
                     </div>
                 </div>
                 <div class="flex justify-end space-x-2 p-4 border-t">
@@ -1418,6 +1441,33 @@ ${userRef}
         `;
 
         document.body.appendChild(modal);
+
+        const nameInput = modal.querySelector('#editPromptName');
+        if (nameInput) nameInput.value = String(prompt.name ?? '');
+
+        const categorySelect = modal.querySelector('#editPromptCategory');
+        if (categorySelect) {
+            const known = ['academic', 'casual', 'technical', 'business', 'literary', 'custom'];
+            const cat = String(prompt.category ?? '');
+            if (cat && !known.includes(cat)) {
+                const customOpt = document.createElement('option');
+                customOpt.value = cat;
+                customOpt.textContent = cat;
+                categorySelect.appendChild(customOpt);
+            }
+            categorySelect.value = cat || 'academic';
+        }
+
+        const sysTa = modal.querySelector('#editSystemPrompt');
+        if (sysTa) sysTa.value = String(prompt.systemPrompt ?? '');
+
+        const userTa = modal.querySelector('#editUserPromptTemplate');
+        if (userTa) userTa.value = String(prompt.userPromptTemplate ?? '');
+
+        const tagsInput = modal.querySelector('#editPromptTags');
+        if (tagsInput) {
+            tagsInput.value = Array.isArray(prompt.tags) ? prompt.tags.join(' ') : String(prompt.tags ?? '');
+        }
 
         // 添加事件监听器
         modal.querySelector('#closeEditModal').addEventListener('click', () => this.closeEditModal(modal));
@@ -1537,7 +1587,8 @@ ${userRef}
      * 截断文本
      */
     truncateText(text, maxLength) {
-        return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
+        const str = String(text ?? '');
+        return str.length > maxLength ? str.substring(0, maxLength) + '...' : str;
     }
 
     /**

@@ -66,6 +66,20 @@ const STATUS_META = {
   }
 };
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[ch]);
+}
+
+function escapeAttr(value) {
+  return escapeHtml(value).replace(/`/g, '&#96;');
+}
+
 function getFlowConfig() {
   return typeof window !== 'undefined'
     ? window.PPTDashboard?.PPTFlowConfig
@@ -141,7 +155,7 @@ export class ResearchView extends BaseView {
     return `
       <div class="ds-research-stage">
         <div class="ds-viz-panel">
-          <div id="${flowCanvasId}" class="ppt-flow-canvas"></div>
+          <div id="${escapeAttr(flowCanvasId)}" class="ppt-flow-canvas"></div>
         </div>
 
         <div class="ds-stepper-bar">
@@ -154,13 +168,13 @@ export class ResearchView extends BaseView {
           <div class="ds-status-badge-sm" id="dsPanelStatusBadge">
             <iconify-icon icon="${status.icon}"></iconify-icon>
           </div>
-          <span class="ds-status-label" id="dsPanelStatusTitle">${status.title}</span>
+          <span class="ds-status-label" id="dsPanelStatusTitle">${escapeHtml(status.title)}</span>
         </div>
 
         <div class="ds-process-panel">
           <div class="ds-panel-header">
             <span class="ds-panel-title">执行日志</span>
-            <span class="ds-panel-hint" id="dsPanelStatusSub">${status.desc}</span>
+            <span class="ds-panel-hint" id="dsPanelStatusSub">${escapeHtml(status.desc)}</span>
           </div>
           <div class="ds-context-panel" id="dsContextPanel">
             <div class="ds-context-row">
@@ -191,13 +205,13 @@ export class ResearchView extends BaseView {
 
     const icon = isCompleted ? '<iconify-icon icon="carbon:checkmark"></iconify-icon>' : num;
     const line = index < totalSteps - 1
-      ? `<div class="ds-step-line ${isCompleted ? 'completed' : ''}" data-step-state="${step.state}"></div>`
+      ? `<div class="ds-step-line ${isCompleted ? 'completed' : ''}" data-step-state="${escapeAttr(step.state)}"></div>`
       : '';
 
     return `
-      <div class="${className}" data-step-state="${step.state}">
+      <div class="${className}" data-step-state="${escapeAttr(step.state)}">
         <div class="ds-step-num">${icon}</div>
-        <span class="ds-step-text">${step.label}</span>
+        <span class="ds-step-text">${escapeHtml(step.label)}</span>
       </div>
       ${line}
     `;

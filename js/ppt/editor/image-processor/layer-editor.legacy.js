@@ -2102,9 +2102,11 @@ class LayerEditor {
         const overlay = this.container.querySelector('.ocr-grid-overlay');
         if (!overlay) return;
         
-        // 添加红色虚线框
-        let bboxSvg = '';
-        regions.forEach((region, idx) => {
+        const SVG_NS = 'http://www.w3.org/2000/svg';
+        const bboxGroup = document.createElementNS(SVG_NS, 'g');
+        bboxGroup.classList.add('ocr-bboxes');
+
+        regions.forEach((region) => {
             let left, top, width, height;
             
             if ('x1' in region && 'y1' in region) {
@@ -2140,11 +2142,27 @@ class LayerEditor {
             } else {
                 return;
             }
-            
-            bboxSvg += `
-                <rect x="${left}%" y="${top}%" width="${width}%" height="${height}%"
-                    fill="none" stroke="#ef4444" stroke-width="2" stroke-dasharray="5,3"/>
-            `;
+
+            if (![left, top, width, height].every((v) => typeof v === 'number' && Number.isFinite(v))) {
+                return;
+            }
+
+            const safeLeft = Math.max(0, Math.min(100, left));
+            const safeTop = Math.max(0, Math.min(100, top));
+            const safeWidth = Math.max(0, Math.min(100 - safeLeft, width));
+            const safeHeight = Math.max(0, Math.min(100 - safeTop, height));
+            if (safeWidth <= 0 || safeHeight <= 0) return;
+
+            const rect = document.createElementNS(SVG_NS, 'rect');
+            rect.setAttribute('x', `${safeLeft}%`);
+            rect.setAttribute('y', `${safeTop}%`);
+            rect.setAttribute('width', `${safeWidth}%`);
+            rect.setAttribute('height', `${safeHeight}%`);
+            rect.setAttribute('fill', 'none');
+            rect.setAttribute('stroke', '#ef4444');
+            rect.setAttribute('stroke-width', '2');
+            rect.setAttribute('stroke-dasharray', '5,3');
+            bboxGroup.appendChild(rect);
         });
         
         // 找到现有的 SVG 并添加 bbox
@@ -2154,20 +2172,19 @@ class LayerEditor {
             const oldBboxGroup = svg.querySelector('.ocr-bboxes');
             if (oldBboxGroup) oldBboxGroup.remove();
             
-            // 添加新的 bbox group
-            const bboxGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-            bboxGroup.classList.add('ocr-bboxes');
-            bboxGroup.innerHTML = bboxSvg;
             svg.appendChild(bboxGroup);
         }
         
         // 更新消息
         const msgDiv = overlay.querySelector('div[style*="top: 10px"]');
         if (msgDiv) {
-            msgDiv.innerHTML = `
-                <iconify-icon icon="carbon:checkmark" style="color:#22c55e;font-size:18px;"></iconify-icon>
-                识别完成，找到 ${regions.length} 个文字区域
-            `;
+            msgDiv.textContent = '';
+            const icon = document.createElement('iconify-icon');
+            icon.setAttribute('icon', 'carbon:checkmark');
+            icon.style.color = '#22c55e';
+            icon.style.fontSize = '18px';
+            msgDiv.appendChild(icon);
+            msgDiv.appendChild(document.createTextNode(`识别完成，找到 ${regions.length} 个文字区域`));
         }
     }
     
@@ -2646,13 +2663,36 @@ class LayerEditor {
     /**
      * 渲染矢量图层 - 直接插入 SVG（无损显示）
      */
-    _renderVectorLayer(layer, container) {
-        if (!layer.svg) return;
-        
-        // 直接插入 SVG 元素
-        const wrapper = document.createElement('div');
-        wrapper.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
-        wrapper.innerHTML = layer.svg;
+	    _renderVectorLayer(layer, container) {
+	        if (!layer.svg) return;
+	        
+	        // 直接插入 SVG 元素
+	        const wrapper = document.createElement('div');
+	        wrapper.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
+	        const sanitizeSvgFallback = (svgText) => {
+	            const raw = String(svgText ?? '');
+	            if (!raw) return '';
+	            return raw
+	                .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+	                .replace(/<foreignObject\b[^<]*(?:(?!<\/foreignObject>)<[^<]*)*<\/foreignObject>/gi, '')
+	                .replace(/\bon\w+\s*=/gi, 'data-removed-handler=')
+	                .replace(/\b(href|src|xlink:href)\s*=\s*(['"])\s*(?:javascript:|data:text\/html)[^'"]*\2/gi, '$1=$2#$2')
+	                .replace(/\b(href|src|xlink:href)\s*=\s*(?:javascript:|data:text\/html)[^\s>]+/gi, '$1=\"#\"');
+	        };
+	        try {
+	            const purifier = window.DOMPurify;
+	            wrapper.innerHTML = (purifier && typeof purifier.sanitize === 'function')
+	                ? purifier.sanitize(layer.svg, {
+	                    USE_PROFILES: { svg: true, svgFilters: true },
+	                    KEEP_CONTENT: true,
+	                    SAFE_FOR_TEMPLATES: true,
+	                    ALLOW_DATA_ATTR: true,
+	                })
+	                : sanitizeSvgFallback(layer.svg);
+	        } catch (e) {
+	            console.warn('[LayerEditor] DOMPurify sanitizeSvg failed:', e);
+	            wrapper.innerHTML = sanitizeSvgFallback(layer.svg);
+	        }
         
         // 确保 SVG 填满容器
         const svg = wrapper.querySelector('svg');

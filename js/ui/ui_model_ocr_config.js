@@ -6,6 +6,21 @@
 (function(window) {
   'use strict';
 
+  function escapeHtml(value) {
+    const str = String(value ?? '');
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
+      .replace(/`/g, '&#96;');
+  }
+
+  function escapeAttr(value) {
+    return escapeHtml(value);
+  }
+
   /**
    * 渲染 Mistral OCR 配置界面
    * @param {HTMLElement} container - 配置容器元素（modelConfigColumn）
@@ -30,7 +45,7 @@
     const currentBaseUrl = localStorage.getItem('ocrMistralBaseUrl') || 'https://api.mistral.ai';
     baseUrlDiv.innerHTML = `
       <label class="block text-sm font-medium text-gray-700 mb-1">API Base URL</label>
-      <input type="text" id="mistral-base-url-km" value="${currentBaseUrl}" placeholder="https://api.mistral.ai" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+      <input type="text" id="mistral-base-url-km" value="${escapeAttr(currentBaseUrl)}" placeholder="https://api.mistral.ai" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
       <p class="mt-1 text-xs text-gray-500">默认: https://api.mistral.ai，如需使用第三方代理可在此修改</p>
     `;
     configDiv.appendChild(baseUrlDiv);
@@ -72,7 +87,7 @@
     const urlDiv = document.createElement('div');
     urlDiv.innerHTML = `
       <label class="block text-sm font-medium text-gray-700 mb-1">Worker URL</label>
-      <input type="text" id="mineru-worker-url-km" value="${workerUrl}" placeholder="https://your-worker.workers.dev" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+      <input type="text" id="mineru-worker-url-km" value="${escapeAttr(workerUrl)}" placeholder="https://your-worker.workers.dev" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
       <p class="mt-1 text-xs text-gray-500">Cloudflare Worker 代理地址</p>
     `;
     configDiv.appendChild(urlDiv);
@@ -82,7 +97,7 @@
     authKeyDiv.innerHTML = `
       <label class="block text-sm font-medium text-gray-700 mb-1">Worker Auth Key（可选）</label>
       <div class="flex items-center gap-2">
-        <input type="password" id="mineru-auth-key-km" value="${authKey}" placeholder="如果 Worker 启用了访问控制，填写这里" class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+        <input type="password" id="mineru-auth-key-km" value="${escapeAttr(authKey)}" placeholder="如果 Worker 启用了访问控制，填写这里" class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
         <button type="button" id="mineru-auth-key-toggle" class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors flex items-center gap-1">
           <iconify-icon icon="carbon:view" width="16"></iconify-icon>
           <span>显示</span>
@@ -117,7 +132,7 @@
     frontendTokenDiv.innerHTML = `
       <label class="block text-sm font-medium text-gray-700 mb-1">MinerU Token</label>
       <div class="flex items-center gap-2">
-        <input type="password" id="mineru-token-km" value="${token}" placeholder="eyJ0eXBlIjoiSldUIi..." class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+        <input type="password" id="mineru-token-km" value="${escapeAttr(token)}" placeholder="eyJ0eXBlIjoiSldUIi..." class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
         <button type="button" id="mineru-token-toggle" class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors flex items-center gap-1">
           <iconify-icon icon="carbon:view" width="16"></iconify-icon>
           <span>显示</span>
@@ -348,7 +363,7 @@
     const urlDiv = document.createElement('div');
     urlDiv.innerHTML = `
       <label class="block text-sm font-medium text-gray-700 mb-1">Worker URL</label>
-      <input type="text" id="doc2x-worker-url-km" value="${workerUrl}" placeholder="https://your-worker.workers.dev" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+      <input type="text" id="doc2x-worker-url-km" value="${escapeAttr(workerUrl)}" placeholder="https://your-worker.workers.dev" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
       <p class="mt-1 text-xs text-gray-500">Cloudflare Worker 代理地址</p>
     `;
     configDiv.appendChild(urlDiv);
@@ -358,7 +373,7 @@
     authKeyDiv.innerHTML = `
       <label class="block text-sm font-medium text-gray-700 mb-1">Worker Auth Key（可选）</label>
       <div class="flex items-center gap-2">
-        <input type="password" id="doc2x-auth-key-km" value="${authKey}" placeholder="如果 Worker 启用了访问控制，填写这里" class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+        <input type="password" id="doc2x-auth-key-km" value="${escapeAttr(authKey)}" placeholder="如果 Worker 启用了访问控制，填写这里" class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
         <button type="button" id="doc2x-auth-key-toggle" class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors flex items-center gap-1">
           <iconify-icon icon="carbon:view" width="16"></iconify-icon>
           <span>显示</span>
@@ -393,7 +408,7 @@
     frontendTokenDiv.innerHTML = `
       <label class="block text-sm font-medium text-gray-700 mb-1">Doc2X Token</label>
       <div class="flex items-center gap-2">
-        <input type="password" id="doc2x-token-km" value="${token}" placeholder="your-doc2x-token" class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+        <input type="password" id="doc2x-token-km" value="${escapeAttr(token)}" placeholder="your-doc2x-token" class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
         <button type="button" id="doc2x-token-toggle" class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors flex items-center gap-1">
           <iconify-icon icon="carbon:view" width="16"></iconify-icon>
           <span>显示</span>

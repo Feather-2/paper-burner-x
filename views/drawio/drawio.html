@@ -351,12 +351,19 @@
       });
     }
 
-    function initDrawioCommunication(xml) {
-      const iframe = document.getElementById('drawio-frame');
-      if (!iframe) return;
+	    function initDrawioCommunication(xml) {
+	      const iframe = document.getElementById('drawio-frame');
+	      if (!iframe) return;
+	      const DRAWIO_ORIGIN = (() => {
+	        try {
+	          return new URL(iframe.src).origin;
+	        } catch (_) {
+	          return 'https://embed.diagrams.net';
+	        }
+	      })();
 
-      let hasReceivedInit = false; // 标记是否收到 init 事件
-      let initTimeout = null;
+	      let hasReceivedInit = false; // 标记是否收到 init 事件
+	      let initTimeout = null;
 
       // 验证 XML 格式
       function validateXml(xmlString) {
@@ -374,24 +381,102 @@
         } catch (e) {
           return { valid: false, error: e.message };
         }
-      }
+	      }
 
-      // 显示错误提示
-      function showError(errorMsg, xmlContent) {
-        const container = document.querySelector('.drawio-container');
-        const errorHtml = `
-          <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:80%;max-width:600px;background:#fff;padding:24px;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.1);text-align:center;z-index:1000;">
-            <div style="font-size:48px;margin-bottom:12px;">⚠️</div>
-            <div style="font-size:18px;font-weight:600;color:#dc2626;margin-bottom:12px;">配图加载失败</div>
-            <div style="font-size:14px;color:#64748b;margin-bottom:20px;max-height:200px;overflow-y:auto;background:#f8fafc;padding:12px;border-radius:6px;text-align:left;word-break:break-word;">${errorMsg}</div>
-            <div style="display:flex;gap:12px;justify-content:center;">
-              <button onclick="navigator.clipboard.writeText(decodeURIComponent('${encodeURIComponent(xmlContent)}'));this.textContent='✓ 已复制'" style="padding:8px 16px;background:#3b82f6;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px;">📋 复制 XML 到剪贴板</button>
-              <button onclick="window.location.reload()" style="padding:8px 16px;background:#64748b;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px;">🔄 刷新重试</button>
-            </div>
-          </div>
-        `;
-        container.insertAdjacentHTML('beforeend', errorHtml);
-      }
+	      // 显示错误提示
+	      function showError(errorMsg, xmlContent) {
+	        const container = document.querySelector('.drawio-container');
+	        if (!container) return;
+
+	        const existing = container.querySelector('.drawio-error-overlay');
+	        if (existing) existing.remove();
+
+	        const overlay = document.createElement('div');
+	        overlay.className = 'drawio-error-overlay';
+	        overlay.style.position = 'absolute';
+	        overlay.style.top = '50%';
+	        overlay.style.left = '50%';
+	        overlay.style.transform = 'translate(-50%,-50%)';
+	        overlay.style.width = '80%';
+	        overlay.style.maxWidth = '600px';
+	        overlay.style.background = '#fff';
+	        overlay.style.padding = '24px';
+	        overlay.style.borderRadius = '12px';
+	        overlay.style.boxShadow = '0 8px 32px rgba(0,0,0,0.1)';
+	        overlay.style.textAlign = 'center';
+	        overlay.style.zIndex = '1000';
+
+	        const icon = document.createElement('div');
+	        icon.textContent = '⚠️';
+	        icon.style.fontSize = '48px';
+	        icon.style.marginBottom = '12px';
+
+	        const title = document.createElement('div');
+	        title.textContent = '配图加载失败';
+	        title.style.fontSize = '18px';
+	        title.style.fontWeight = '600';
+	        title.style.color = '#dc2626';
+	        title.style.marginBottom = '12px';
+
+	        const message = document.createElement('div');
+	        message.textContent = String(errorMsg || '');
+	        message.style.fontSize = '14px';
+	        message.style.color = '#64748b';
+	        message.style.marginBottom = '20px';
+	        message.style.maxHeight = '200px';
+	        message.style.overflowY = 'auto';
+	        message.style.background = '#f8fafc';
+	        message.style.padding = '12px';
+	        message.style.borderRadius = '6px';
+	        message.style.textAlign = 'left';
+	        message.style.wordBreak = 'break-word';
+
+	        const actions = document.createElement('div');
+	        actions.style.display = 'flex';
+	        actions.style.gap = '12px';
+	        actions.style.justifyContent = 'center';
+
+	        const copyBtn = document.createElement('button');
+	        copyBtn.type = 'button';
+	        copyBtn.textContent = '📋 复制 XML 到剪贴板';
+	        copyBtn.style.padding = '8px 16px';
+	        copyBtn.style.background = '#3b82f6';
+	        copyBtn.style.color = '#fff';
+	        copyBtn.style.border = 'none';
+	        copyBtn.style.borderRadius = '6px';
+	        copyBtn.style.cursor = 'pointer';
+	        copyBtn.style.fontSize = '14px';
+	        copyBtn.addEventListener('click', async () => {
+	          try {
+	            await navigator.clipboard.writeText(String(xmlContent || ''));
+	            copyBtn.textContent = '✓ 已复制';
+	          } catch (e) {
+	            console.error('[drawio.html] Clipboard write failed:', e);
+	            copyBtn.textContent = '复制失败';
+	          }
+	        });
+
+	        const reloadBtn = document.createElement('button');
+	        reloadBtn.type = 'button';
+	        reloadBtn.textContent = '🔄 刷新重试';
+	        reloadBtn.style.padding = '8px 16px';
+	        reloadBtn.style.background = '#64748b';
+	        reloadBtn.style.color = '#fff';
+	        reloadBtn.style.border = 'none';
+	        reloadBtn.style.borderRadius = '6px';
+	        reloadBtn.style.cursor = 'pointer';
+	        reloadBtn.style.fontSize = '14px';
+	        reloadBtn.addEventListener('click', () => window.location.reload());
+
+	        actions.appendChild(copyBtn);
+	        actions.appendChild(reloadBtn);
+
+	        overlay.appendChild(icon);
+	        overlay.appendChild(title);
+	        overlay.appendChild(message);
+	        overlay.appendChild(actions);
+	        container.appendChild(overlay);
+	      }
 
       // 验证加载的 XML
       const validation = validateXml(xml);
@@ -402,22 +487,24 @@
       }
 
       // diagrams.net embed 模式使用 postMessage + proto=json 协议
-      function postDrawioMessage(msg) {
-        if (!iframe.contentWindow) {
-          console.error('[drawio.html] iframe.contentWindow 不可用');
-          return;
-        }
-        iframe.contentWindow.postMessage(JSON.stringify(msg), '*');
-        console.log('[drawio.html] 发送消息到 draw.io:', msg);
-      }
+	      function postDrawioMessage(msg) {
+	        if (!iframe.contentWindow) {
+	          console.error('[drawio.html] iframe.contentWindow 不可用');
+	          return;
+	        }
+	        iframe.contentWindow.postMessage(JSON.stringify(msg), DRAWIO_ORIGIN);
+	        console.log('[drawio.html] 发送消息到 draw.io:', msg);
+	      }
 
-      // 监听来自 diagrams.net 的消息
-      window.addEventListener('message', function (evt) {
-        if (!evt.data) return;
-        let data = null;
-        try {
-          data = typeof evt.data === 'string' ? JSON.parse(evt.data) : evt.data;
-        } catch (e) {
+	      // 监听来自 diagrams.net 的消息
+	      window.addEventListener('message', function (evt) {
+	        if (!evt.data) return;
+	        if (evt.source !== iframe.contentWindow) return;
+	        if (evt.origin !== DRAWIO_ORIGIN) return;
+	        let data = null;
+	        try {
+	          data = typeof evt.data === 'string' ? JSON.parse(evt.data) : evt.data;
+	        } catch (e) {
           return;
         }
         if (!data || !data.event) return;

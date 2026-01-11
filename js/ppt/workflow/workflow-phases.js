@@ -299,17 +299,36 @@ export const phasesMixin = {
         const grid = document.getElementById('fileProcessingGrid');
         if (!grid) return;
 
-        grid.innerHTML = files.map((f, i) => `
-            <div class="gen-file-item" id="file-node-${i}">
-                <div class="gen-file-icon">
-                    <iconify-icon icon="carbon:document"></iconify-icon>
-                </div>
-                <div class="gen-file-name">${f.name}</div>
-                <div class="gen-file-status">
-                    <span class="file-percent">0%</span>
-                </div>
-            </div>
-        `).join('');
+        grid.textContent = '';
+        const frag = document.createDocumentFragment();
+        (files || []).forEach((file, i) => {
+            const node = document.createElement('div');
+            node.className = 'gen-file-item';
+            node.id = `file-node-${i}`;
+
+            const iconWrap = document.createElement('div');
+            iconWrap.className = 'gen-file-icon';
+            const icon = document.createElement('iconify-icon');
+            icon.setAttribute('icon', 'carbon:document');
+            iconWrap.appendChild(icon);
+
+            const nameEl = document.createElement('div');
+            nameEl.className = 'gen-file-name';
+            nameEl.textContent = file && file.name ? String(file.name) : '未命名文件';
+
+            const statusEl = document.createElement('div');
+            statusEl.className = 'gen-file-status';
+            const percent = document.createElement('span');
+            percent.className = 'file-percent';
+            percent.textContent = '0%';
+            statusEl.appendChild(percent);
+
+            node.appendChild(iconWrap);
+            node.appendChild(nameEl);
+            node.appendChild(statusEl);
+            frag.appendChild(node);
+        });
+        grid.appendChild(frag);
     },
 
     async _simulateParallelReading(files, targetProgress = 100) {
@@ -364,13 +383,31 @@ export const phasesMixin = {
         const term = document.getElementById('agentTerminal');
         if (!term) return;
 
-        term.innerHTML = `
-            <div class="gen-log-dot"></div>
-            <div class="gen-log-content">
-                <span style="font-weight: 600; color: var(--ppt-accent);">${log.agent}:</span>
-                <span>${log.msg}</span>
-            </div>
-        `;
+        term.textContent = '';
+
+        const dot = document.createElement('div');
+        dot.className = 'gen-log-dot';
+
+        const content = document.createElement('div');
+        content.className = 'gen-log-content';
+
+        const agent = log && log.agent != null ? String(log.agent) : '';
+        const msg = log && log.msg != null ? String(log.msg) : '';
+
+        const agentSpan = document.createElement('span');
+        agentSpan.style.fontWeight = '600';
+        agentSpan.style.color = 'var(--ppt-accent)';
+        agentSpan.textContent = agent ? `${agent}:` : '系统:';
+
+        const msgSpan = document.createElement('span');
+        msgSpan.textContent = msg;
+
+        content.appendChild(agentSpan);
+        content.appendChild(document.createTextNode(' '));
+        content.appendChild(msgSpan);
+
+        term.appendChild(dot);
+        term.appendChild(content);
     },
 
     _abortWorkflow(err) {

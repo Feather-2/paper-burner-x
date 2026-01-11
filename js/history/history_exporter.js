@@ -819,7 +819,7 @@ body.history-export-print-mode .history-export-root .export-section {
 
   function buildBrandingBadgeHtml(options = {}) {
     if (options.includeBranding === false) return '';
-    return '<div class="export-brand-note">by <a href="' + BRAND_LINK + '" target="_blank" rel="noopener">Paper Burner X</a></div>';
+    return '<div class="export-brand-note">by <a href="' + BRAND_LINK + '" target="_blank" rel="noopener noreferrer">Paper Burner X</a></div>';
   }
 
   function embedImagesInMarkdown(markdown, images) {
@@ -1380,18 +1380,30 @@ body.history-export-print-mode .history-export-root .export-section {
     saveAs(blob, fileName);
   }
 
-  function renderMarkdown(markdown, images) {
-    const source = typeof markdown === 'string' ? markdown : '';
-    if (!source.trim()) return '';
-    if (window.MarkdownProcessor && typeof window.MarkdownProcessor.safeMarkdown === 'function' && typeof window.MarkdownProcessor.renderWithKatexFailback === 'function') {
-      const safeMd = window.MarkdownProcessor.safeMarkdown(source, images);
-      return window.MarkdownProcessor.renderWithKatexFailback(safeMd);
-    }
-    if (window.marked && typeof window.marked.parse === 'function') {
-      return window.marked.parse(source);
-    }
-    return `<pre>${escapeHtml(source)}</pre>`;
-  }
+	  function renderMarkdown(markdown, images) {
+	    const source = typeof markdown === 'string' ? markdown : '';
+	    if (!source.trim()) return '';
+	    if (window.MarkdownProcessor && typeof window.MarkdownProcessor.safeMarkdown === 'function' && typeof window.MarkdownProcessor.renderWithKatexFailback === 'function') {
+	      const safeMd = window.MarkdownProcessor.safeMarkdown(source, images);
+	      return window.MarkdownProcessor.renderWithKatexFailback(safeMd);
+	    }
+	    if (window.marked && typeof window.marked.parse === 'function') {
+	      const rawHtml = window.marked.parse(source);
+	      const purifier = window.DOMPurify;
+	      if (purifier && typeof purifier.sanitize === 'function') {
+	        try {
+	          return purifier.sanitize(rawHtml, {
+	            USE_PROFILES: { html: true },
+	            ADD_DATA_URI_TAGS: ['img']
+	          });
+	        } catch (e) {
+	          console.warn('[HistoryExporter] DOMPurify sanitize failed:', e);
+	        }
+	      }
+	      return `<pre>${escapeHtml(source)}</pre>`;
+	    }
+	    return `<pre>${escapeHtml(source)}</pre>`;
+	  }
 
   /**
    * 对表格内的 KaTeX 公式做简单的自适应：若宽度超出单元格，则按比例缩小字体。

@@ -172,11 +172,13 @@
 
         renderFallbackTextarea(options) {
             const value = escapeTextareaValue(options?.value ?? '');
-            const onInput = typeof options?.onInput === 'string' ? options.onInput : '';
+            const onInputRaw = typeof options?.onInput === 'string' ? options.onInput : '';
+            // 安全限制：避免在属性中注入引号/标签导致 XSS
+            const onInput = /[<>"'`]/.test(onInputRaw) ? '' : onInputRaw;
 
             return `
                 <textarea class="ppt-input-field" style="width: 100%; min-height: 360px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; line-height: 1.5;"
-                    oninput="${onInput}">${value}</textarea>
+                    data-vditor-fallback="true"${onInput ? ` oninput="${onInput}"` : ''}>${value}</textarea>
             `.trim();
         }
     };

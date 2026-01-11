@@ -4,6 +4,32 @@
 (function(global) {
     'use strict';
 
+    const escapeHtml = (value) =>
+        String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;'
+        }[ch]));
+
+    const escapeAttr = (value) => escapeHtml(value);
+
+    const safeHttpUrl = (url) => {
+        try {
+            const u = new URL(String(url || ''), window.location.href);
+            if (u.protocol === 'http:' || u.protocol === 'https:') return u.toString();
+        } catch (_) { /* ignore */ }
+        return '';
+    };
+
+    const buildDoiUrl = (doi) => {
+        const value = String(doi || '').trim();
+        if (!value) return '';
+        const encoded = encodeURIComponent(value).replace(/%2F/gi, '/');
+        return `https://doi.org/${encoded}`;
+    };
+
     /**
      * 参考文献管理UI类
      */
@@ -331,43 +357,61 @@
                 return;
             }
 
-            tbody.innerHTML = this.filteredReferences.map(ref => `
-                <tr data-index="${ref.index}">
-                    <td><input type="checkbox" class="ref-checkbox" data-index="${ref.index}" /></td>
-                    <td>${ref.index + 1}</td>
-                    <td class="ref-authors" title="${(ref.authors || []).join(', ')}">
-                        ${this.formatAuthors(ref.authors)}
-                    </td>
-                    <td class="ref-title" title="${ref.title || ''}">
-                        ${ref.title || '<em>未提取</em>'}
-                    </td>
-                    <td>${ref.year || '-'}</td>
-                    <td class="ref-journal" title="${ref.journal || ''}">
-                        ${ref.journal || '-'}
-                    </td>
-                    <td>
-                        ${ref.doi ?
-                            `<a href="https://doi.org/${ref.doi}" target="_blank" class="ref-doi">${ref.doi}</a>` :
-                            ref.doiFallback ?
-                                `<div style="display: flex; align-items: center; gap: 4px; color: #f59e0b;">
-                                    <span title="${ref.doiFallbackMessage || '未找到DOI'}">⚠️</span>
-                                    <a href="${ref.doiFallbackUrl}" target="_blank" style="color: #3b82f6; font-size: 0.9em;" title="在Google中搜索">🔍</a>
-                                </div>` :
-                                '-'}
-                    </td>
-                    <td class="ref-abstract" title="${ref.abstract || ''}">
-                        ${this.formatAbstract(ref.abstract)}
-                    </td>
-                    <td>
-                        ${this.renderTags(ref.tags)}
-                    </td>
-                    <td class="ref-actions">
-                        <button class="ref-action-btn" data-action="edit" data-index="${ref.index}" title="编辑"><i class="fa fa-edit"></i></button>
-                        <button class="ref-action-btn" data-action="view" data-index="${ref.index}" title="查看原文"><i class="fa fa-eye"></i></button>
-                        <button class="ref-action-btn" data-action="delete" data-index="${ref.index}" title="删除"><i class="fa fa-trash"></i></button>
-                    </td>
-                </tr>
-            `).join('');
+            tbody.innerHTML = this.filteredReferences.map((ref) => {
+                const safeRef = (ref && typeof ref === 'object') ? ref : {};
+                const rawIndex = Number.isFinite(safeRef.index) ? safeRef.index : parseInt(safeRef.index, 10);
+                const index = Number.isFinite(rawIndex) ? rawIndex : 0;
+                const authors = Array.isArray(safeRef.authors) ? safeRef.authors : [];
+                const title = safeRef.title == null ? '' : String(safeRef.title);
+                const journal = safeRef.journal == null ? '' : String(safeRef.journal);
+                const abstract = safeRef.abstract == null ? '' : String(safeRef.abstract);
+
+                let doiCell = '-';
+                if (safeRef.doi) {
+                    const doiText = String(safeRef.doi);
+                    const doiUrl = buildDoiUrl(doiText);
+                    doiCell = doiUrl
+                        ? `<a href="${escapeAttr(doiUrl)}" target="_blank" rel="noopener noreferrer" class="ref-doi">${escapeHtml(doiText)}</a>`
+                        : escapeHtml(doiText);
+                } else if (safeRef.doiFallback) {
+                    const msg = escapeAttr(safeRef.doiFallbackMessage || '未找到DOI');
+                    const fallbackUrl = safeHttpUrl(safeRef.doiFallbackUrl);
+                    const link = fallbackUrl
+                        ? `<a href="${escapeAttr(fallbackUrl)}" target="_blank" rel="noopener noreferrer" style="color: #3b82f6; font-size: 0.9em;" title="在Google中搜索">🔍</a>`
+                        : '';
+                    doiCell = `<div style="display: flex; align-items: center; gap: 4px; color: #f59e0b;">
+                        <span title="${msg}">⚠️</span>
+                        ${link}
+                    </div>`;
+                }
+
+                return `
+                    <tr data-index="${escapeAttr(index)}">
+                        <td><input type="checkbox" class="ref-checkbox" data-index="${escapeAttr(index)}" /></td>
+                        <td>${index + 1}</td>
+                        <td class="ref-authors" title="${escapeAttr(authors.join(', '))}">
+                            ${this.formatAuthors(authors)}
+                        </td>
+                        <td class="ref-title" title="${escapeAttr(title)}">
+                            ${title ? escapeHtml(title) : '<em>未提取</em>'}
+                        </td>
+                        <td>${safeRef.year ? escapeHtml(safeRef.year) : '-'}</td>
+                        <td class="ref-journal" title="${escapeAttr(journal)}">
+                            ${journal ? escapeHtml(journal) : '-'}
+                        </td>
+                        <td>${doiCell}</td>
+                        <td class="ref-abstract" title="${escapeAttr(abstract)}">
+                            ${this.formatAbstract(abstract)}
+                        </td>
+                        <td>${this.renderTags(safeRef.tags)}</td>
+                        <td class="ref-actions">
+                            <button class="ref-action-btn" data-action="edit" data-index="${escapeAttr(index)}" title="编辑"><i class="fa fa-edit"></i></button>
+                            <button class="ref-action-btn" data-action="view" data-index="${escapeAttr(index)}" title="查看原文"><i class="fa fa-eye"></i></button>
+                            <button class="ref-action-btn" data-action="delete" data-index="${escapeAttr(index)}" title="删除"><i class="fa fa-trash"></i></button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
 
             // 绑定操作按钮事件
             tbody.querySelectorAll('.ref-action-btn').forEach(btn => {
@@ -400,9 +444,9 @@
                 return '<em>未提取</em>';
             }
             if (authors.length === 1) {
-                return authors[0];
+                return escapeHtml(authors[0]);
             }
-            return `${authors[0]} 等 ${authors.length} 人`;
+            return `${escapeHtml(authors[0])} 等 ${authors.length} 人`;
         }
 
         /**
@@ -414,10 +458,9 @@
             }
             // 限制长度，显示前100个字符
             const maxLength = 100;
-            if (abstract.length <= maxLength) {
-                return abstract;
-            }
-            return abstract.substring(0, maxLength) + '...';
+            const text = String(abstract);
+            const truncated = text.length <= maxLength ? text : (text.substring(0, maxLength) + '...');
+            return escapeHtml(truncated);
         }
 
         /**
@@ -427,7 +470,8 @@
             if (!tags || tags.length === 0) {
                 return '-';
             }
-            return tags.map(tag => `<span class="ref-tag">${tag}</span>`).join(' ');
+            const safeTags = Array.isArray(tags) ? tags : [tags];
+            return safeTags.map(tag => `<span class="ref-tag">${escapeHtml(tag)}</span>`).join(' ');
         }
 
         /**
@@ -1162,14 +1206,17 @@
         /**
          * 显示进度
          */
-        showProgress(message) {
-            // 简单实现，可以改进为更好的进度条
-            const progress = document.createElement('div');
-            progress.id = 'ref-progress';
-            progress.className = 'ref-progress';
-            progress.innerHTML = `<div class="ref-progress-content">${message}</div>`;
-            document.body.appendChild(progress);
-        }
+	        showProgress(message) {
+	            // 简单实现，可以改进为更好的进度条
+	            const progress = document.createElement('div');
+	            progress.id = 'ref-progress';
+	            progress.className = 'ref-progress';
+	            const content = document.createElement('div');
+	            content.className = 'ref-progress-content';
+	            content.textContent = message ?? '';
+	            progress.appendChild(content);
+	            document.body.appendChild(progress);
+	        }
 
         /**
          * 更新进度

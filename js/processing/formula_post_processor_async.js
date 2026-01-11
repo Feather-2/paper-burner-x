@@ -83,6 +83,21 @@ try {
     self.postMessage({ type: 'error', error: 'Failed to load KaTeX library' });
 }
 
+function escapeHtml(value) {
+    const str = String(value ?? '');
+    return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/\`/g, '&#96;');
+}
+
+function escapeAttr(value) {
+    return escapeHtml(value);
+}
+
 // 修复公式错误
 function fixFormulaErrors(formula, isDisplay) {
     let fixed = formula;
@@ -123,12 +138,13 @@ function renderFormula(id, formula, options) {
         });
         return { type: 'success', id, html, originalFormula: formula };
     } catch (error) {
+        const errorMessage = error && error.message ? String(error.message) : String(error);
         return {
             type: 'error',
             id,
-            error: error.message,
+            error: errorMessage,
             originalFormula: formula,
-            html: \`<span class="katex-fallback" title="\${error.message}">\${formula}</span>\`
+            html: '<span class="katex-fallback" title="' + escapeAttr(errorMessage) + '">' + escapeHtml(formula) + '</span>'
         };
     }
 }

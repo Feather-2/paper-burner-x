@@ -14,6 +14,32 @@
     return window.storageAdapter && window.storageAdapter.isFrontendMode === false;
   }
 
+  function getDomPurify() {
+    const purifier = globalThis.DOMPurify || globalThis.window?.DOMPurify;
+    return purifier && typeof purifier.sanitize === 'function' ? purifier : null;
+  }
+
+  function sanitizeHtmlFragment(html, options = null) {
+    const raw = String(html ?? '');
+    if (!raw) return '';
+    const purifier = getDomPurify();
+    if (!purifier) {
+      return raw
+        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+        .replace(/\bon\w+\s*=/gi, 'data-removed-handler=');
+    }
+    try {
+      return purifier.sanitize(raw, {
+        SAFE_FOR_TEMPLATES: true,
+        KEEP_CONTENT: true,
+        ALLOW_DATA_ATTR: true,
+        ...(options || {})
+      });
+    } catch {
+      return raw;
+    }
+  }
+
   // =============== 对话历史持久化 ===============
 
   /**
@@ -83,23 +109,28 @@
       // 清理可能包含未正确格式化的toolCallHtml（修复旧版本的兼容性问题）
       history.forEach(msg => {
         if (msg.toolCallHtml && typeof msg.toolCallHtml === 'string') {
+          const rawToolCallHtml = msg.toolCallHtml;
           // 检查是否包含超大的未格式化JSON数据（可能导致显示问题）
-          const hasLargeJsonData = msg.toolCallHtml.includes('tool-step-detail">{') &&
-                                   msg.toolCallHtml.length > 10000;
+          const hasLargeJsonData = rawToolCallHtml.includes('tool-step-detail">{') &&
+                                   rawToolCallHtml.length > 10000;
 
           // 检查是否有HTML结构被破坏的迹象（如不匹配的div标签）
-          const openDivs = (msg.toolCallHtml.match(/<div/g) || []).length;
-          const closeDivs = (msg.toolCallHtml.match(/<\/div>/g) || []).length;
+          const openDivs = (rawToolCallHtml.match(/<div/g) || []).length;
+          const closeDivs = (rawToolCallHtml.match(/<\/div>/g) || []).length;
           const structureBroken = Math.abs(openDivs - closeDivs) > 2;
 
           if (hasLargeJsonData || structureBroken) {
             console.warn('[loadChatHistory] 检测到有问题的toolCallHtml，已清除', {
               hasLargeJsonData,
               structureBroken,
-              length: msg.toolCallHtml.length
+              length: rawToolCallHtml.length
             });
             delete msg.toolCallHtml;
+            return;
           }
+
+          // 安全处理：防止历史记录中的 HTML 注入
+          msg.toolCallHtml = sanitizeHtmlFragment(rawToolCallHtml);
         }
       });
 

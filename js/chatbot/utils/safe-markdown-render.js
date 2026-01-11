@@ -37,9 +37,14 @@ export function safeRenderMarkdown(markdown) {
     return escapeHtml(markdown).replace(/\n/g, '<br>');
   }
 
-  if (typeof DOMPurify === 'undefined') {
-    console.warn('safeRenderMarkdown: DOMPurify is not loaded, falling back to unsafe rendering');
-    return marked.parse(markdown);
+  const purifier = (typeof DOMPurify !== 'undefined' && DOMPurify && typeof DOMPurify.sanitize === 'function')
+    ? DOMPurify
+    : null;
+  const hasUsablePurifier = !!(purifier && (typeof purifier.addHook === 'function' || typeof purifier.setConfig === 'function' || 'isSupported' in purifier || 'version' in purifier));
+
+  if (!hasUsablePurifier) {
+    console.warn('safeRenderMarkdown: DOMPurify is not available, falling back to escaped rendering');
+    return escapeHtml(markdown).replace(/\n/g, '<br>');
   }
 
   // 1. 使用 marked 解析 Markdown
@@ -47,7 +52,7 @@ export function safeRenderMarkdown(markdown) {
   const rawHtml = marked.parse(markdown);
 
   // 2. 使用 DOMPurify 清理 - 宽松配置
-  const cleanHtml = DOMPurify.sanitize(rawHtml, {
+  const cleanHtml = purifier.sanitize(rawHtml, {
     // 允许的标签（宽松配置，支持教学示例）
     ALLOWED_TAGS: [
       // === Markdown 标准标签 ===
@@ -141,7 +146,10 @@ function escapeHtml(unsafe) {
  * @returns {boolean}
  */
 export function isDOMPurifyAvailable() {
-  return typeof DOMPurify !== 'undefined';
+  const purifier = (typeof DOMPurify !== 'undefined' && DOMPurify && typeof DOMPurify.sanitize === 'function')
+    ? DOMPurify
+    : null;
+  return !!(purifier && (typeof purifier.addHook === 'function' || typeof purifier.setConfig === 'function' || 'isSupported' in purifier || 'version' in purifier));
 }
 
 /**

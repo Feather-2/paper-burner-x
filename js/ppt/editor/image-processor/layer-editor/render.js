@@ -4,6 +4,7 @@
  */
 
 import { ensureFontLoaded } from './text-overlay.js';
+import { sanitizeSvg } from './dom-sanitizer.js';
 
 /**
  * 渲染 mixin
@@ -109,7 +110,7 @@ export const RenderMixin = {
             height: 100%;
             pointer-events: ${this.pathSelectMode ? 'all' : 'none'};
         `;
-        wrapper.innerHTML = layer.svg;
+        wrapper.innerHTML = sanitizeSvg(layer.svg);
         
         // 设置 SVG 样式
         const svg = wrapper.querySelector('svg');

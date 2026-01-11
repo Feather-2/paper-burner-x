@@ -5,6 +5,7 @@ class ReportReviewPanel {
         this.selectedVersionIndex = -1;
         this._rootId = 'pptReportReviewRoot';
         this._host = null;
+        this._bound = false;
     }
 
     _hasDom() {
@@ -22,6 +23,7 @@ class ReportReviewPanel {
             root.id = this._rootId;
             host.appendChild(root);
         }
+        this._ensureEventsBound(root);
         this.render();
     }
 
@@ -69,8 +71,14 @@ class ReportReviewPanel {
 
         const badge = btn.querySelector('.badge');
         if (newCount > 0) {
-            if (badge) badge.textContent = String(newCount);
-            else btn.insertAdjacentHTML('beforeend', `<span class="badge">${newCount}</span>`);
+            if (badge) {
+                badge.textContent = String(newCount);
+            } else {
+                const span = document.createElement('span');
+                span.className = 'badge';
+                span.textContent = String(newCount);
+                btn.appendChild(span);
+            }
         } else if (badge) {
             badge.remove();
         }
@@ -98,7 +106,7 @@ class ReportReviewPanel {
         if (this.versions.length === 0) return '';
         const newCount = this.getNewCount();
         return `
-            <button id="reportReviewBtn" class="ppt-report-review-btn" onclick="window.PPTGenerator.toggleReportReview()">
+            <button id="reportReviewBtn" class="ppt-report-review-btn" type="button" data-rr-action="toggle">
                 <iconify-icon icon="carbon:document-view" width="18"></iconify-icon>
                 <span>报告审阅</span>
                 ${newCount > 0 ? `<span class="badge">${newCount}</span>` : ''}
@@ -117,15 +125,15 @@ class ReportReviewPanel {
 
         const sidebar = hasVersions
             ? this.versions.slice().reverse().map((v, i) => {
-	                const idx = this.versions.length - 1 - i;
-	                const isActive = idx === selectedIndex;
-	                return `
-	                    <div class="ppt-rr-version-item ${v.isNew ? 'new' : ''} ${isActive ? 'active' : ''}"
-	                         onclick="window.PPTGenerator.selectReportVersion(${parseInt(idx, 10) || 0})">
-	                        <div class="ppt-rr-version-label">${this._escapeHtml(v.label)}</div>
-	                        <div class="ppt-rr-version-time">${this._escapeHtml(this.formatTime(v.timestamp))}</div>
-	                    </div>
-	                `;
+		                const idx = this.versions.length - 1 - i;
+		                const isActive = idx === selectedIndex;
+		                return `
+		                    <div class="ppt-rr-version-item ${v.isNew ? 'new' : ''} ${isActive ? 'active' : ''}"
+		                         data-rr-action="select-version" data-index="${parseInt(idx, 10) || 0}">
+		                        <div class="ppt-rr-version-label">${this._escapeHtml(v.label)}</div>
+		                        <div class="ppt-rr-version-time">${this._escapeHtml(this.formatTime(v.timestamp))}</div>
+		                    </div>
+		                `;
             }).join('')
             : `<div class="ppt-rr-empty">暂无版本</div>`;
 
@@ -137,7 +145,7 @@ class ReportReviewPanel {
             <div class="ppt-report-review-panel" role="dialog" aria-label="报告审阅">
                 <div class="ppt-rr-header">
                     <div class="ppt-rr-title">报告版本历史</div>
-                    <button class="ppt-rr-close" onclick="window.PPTGenerator.toggleReportReview()" aria-label="关闭">×</button>
+                    <button class="ppt-rr-close" type="button" data-rr-action="toggle" aria-label="关闭">×</button>
                 </div>
                 <div class="ppt-rr-body">
                     <div class="ppt-rr-sidebar custom-scrollbar">
@@ -148,11 +156,43 @@ class ReportReviewPanel {
                     </div>
                 </div>
                 <div class="ppt-rr-footer">
-                    <button class="ppt-btn ppt-btn-secondary" onclick="window.PPTGenerator.toggleReportReview()">关闭</button>
-                    <button class="ppt-btn ppt-btn-primary" onclick="window.PPTGenerator.confirmReport()">确认并继续到设计</button>
+                    <button class="ppt-btn ppt-btn-secondary" type="button" data-rr-action="toggle">关闭</button>
+                    <button class="ppt-btn ppt-btn-primary" type="button" data-rr-action="confirm">确认并继续到设计</button>
                 </div>
             </div>
         `;
+    }
+
+    _ensureEventsBound(root) {
+        if (this._bound) return;
+        if (!root) return;
+        this._bound = true;
+
+        root.addEventListener('click', (e) => {
+            const actionEl = e.target?.closest?.('[data-rr-action]');
+            if (!actionEl) return;
+            const action = actionEl.dataset.rrAction;
+            if (!action) return;
+
+            const generator = globalThis.PPTGenerator || globalThis.window?.PPTGenerator;
+            if (!generator) return;
+
+            if (action === 'toggle') {
+                e.preventDefault();
+                generator.toggleReportReview?.();
+                return;
+            }
+            if (action === 'confirm') {
+                e.preventDefault();
+                generator.confirmReport?.();
+                return;
+            }
+            if (action === 'select-version') {
+                e.preventDefault();
+                const idx = Number(actionEl.dataset.index);
+                if (Number.isFinite(idx)) generator.selectReportVersion?.(idx);
+            }
+        });
     }
 
     // Myers diff（行级）
@@ -263,6 +303,7 @@ class ReportReviewPanel {
 
         const root = document.getElementById(this._rootId);
         if (!root) return;
+        this._ensureEventsBound(root);
         root.innerHTML = `${this.renderButton()}${this.renderPanel()}`;
         this.updateBadge();
     }

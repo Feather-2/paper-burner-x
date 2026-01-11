@@ -562,14 +562,14 @@
             <img src="../../public/h_with_name.svg" alt="Paper Burner X">
         </div>
 
-        <!-- Center: Update Pill (Optional, can be hidden if needed) -->
-        <div id="headerBannerPill" class="hidden md:flex absolute left-1/2 -translate-x-1/2 items-center">
-             <div class="header-pill cursor-pointer" onclick="this.style.display='none'">
-                <iconify-icon icon="carbon:information-filled" class="text-blue-500" width="16"></iconify-icon>
-                <span>📚 全新 Agent 升级，支持多种检索工具</span>
-                <iconify-icon icon="carbon:close" class="text-gray-400 hover:text-gray-600 ml-1" width="14"></iconify-icon>
-            </div>
-        </div>
+	        <!-- Center: Update Pill (Optional, can be hidden if needed) -->
+	        <div id="headerBannerPill" class="hidden md:flex absolute left-1/2 -translate-x-1/2 items-center">
+	             <div class="header-pill cursor-pointer" id="headerBannerDismiss">
+	                <iconify-icon icon="carbon:information-filled" class="text-blue-500" width="16"></iconify-icon>
+	                <span>📚 全新 Agent 升级，支持多种检索工具</span>
+	                <iconify-icon icon="carbon:close" class="text-gray-400 hover:text-gray-600 ml-1" width="14"></iconify-icon>
+	            </div>
+	        </div>
 
         <!-- Right: Actions -->
         <div class="flex items-center gap-3 md:gap-4 flex-shrink-0">
@@ -609,7 +609,7 @@
                         </h1>
                         <p class="text-xs text-gray-500 mb-4 max-w-3xl mx-auto italic">
                             "在学习初期阶段延迟引入 AI 工具，优先促进自我驱动的认知建构。此种模式可在不牺牲工具效率的前提下，最大化长期神经发展与认知自主性（cognitive autonomy）"
-                            <a href="https://arxiv.org/pdf/2506.08872v1" target="_blank" class="text-blue-600 hover:underline ml-1">[arXiv:2506.08872]</a>
+                            <a href="https://arxiv.org/pdf/2506.08872v1" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline ml-1">[arXiv:2506.08872]</a>
                         </p>
                         <p class="text-lg md:text-xl text-gray-600 mb-8 max-w-3xl mx-auto hero-subtitle leading-relaxed">
                             原译对照阅读、学术公式增强、长文本智能检索，陪你读懂每一篇论文
@@ -1054,10 +1054,10 @@
                             </div>
                             <p class="mt-4 text-xs text-gray-400 italic">
                                 灵感来自
-                                <a href="https://github.com/baoyudu/paper-burner" target="_blank" class="text-[#5782F3] hover:text-blue-600 underline">Paper Burner</a>
+                                <a href="https://github.com/baoyudu/paper-burner" target="_blank" rel="noopener noreferrer" class="text-[#5782F3] hover:text-blue-600 underline">Paper Burner</a>
                                 开源项目，我们在此基础上持续优化迭代<br>
                                 OCR功能基于
-                                <a href="https://mistral.ai" target="_blank" class="text-[#5782F3] hover:text-blue-600 underline">Mistral OCR</a>
+                                <a href="https://mistral.ai" target="_blank" rel="noopener noreferrer" class="text-[#5782F3] hover:text-blue-600 underline">Mistral OCR</a>
                                 ，我们将在此基础上持续适配更多OCR
                             </p>
                         </article>
@@ -1327,6 +1327,14 @@
         // Show landing page and initialize animations
         if (landingPage) {
              setTimeout(initLandingPageAnimations, 100); // Delay animations slightly
+        }
+
+        // Dismiss banner pill (avoid inline event handlers)
+        const bannerDismiss = document.getElementById('headerBannerDismiss');
+        if (bannerDismiss) {
+            bannerDismiss.addEventListener('click', () => {
+                bannerDismiss.style.display = 'none';
+            });
         }
 
       })();

@@ -18,6 +18,114 @@
     selectAll: false
   };
 
+  let uiHandlersBound = false;
+
+  function bindEnhancedEditorUiActions() {
+    if (uiHandlersBound) return;
+    const panel = document.getElementById('glossaryEditorPanel');
+    if (!panel) return;
+    uiHandlersBound = true;
+
+    panel.addEventListener('click', (e) => {
+      const actionEl = e.target?.closest?.('[data-gee-action]');
+      if (!actionEl) return;
+      const action = actionEl.dataset.geeAction;
+      if (!action) return;
+
+      switch (action) {
+        case 'close':
+          e.preventDefault();
+          closeEditor();
+          return;
+        case 'add-entry':
+          e.preventDefault();
+          addNewEntry();
+          return;
+        case 'open-import':
+          e.preventDefault();
+          openImport();
+          return;
+        case 'open-export':
+          e.preventDefault();
+          openExport();
+          return;
+        case 'clear-search':
+          e.preventDefault();
+          clearSearch();
+          return;
+        case 'bulk-enable': {
+          e.preventDefault();
+          const enabled = actionEl.dataset.enabled === 'true';
+          bulkEnable(enabled);
+          return;
+        }
+        case 'bulk-delete':
+          e.preventDefault();
+          bulkDelete();
+          return;
+        case 'clear-selection':
+          e.preventDefault();
+          clearSelection();
+          return;
+        case 'delete-entry': {
+          e.preventDefault();
+          const entryId = actionEl.dataset.entryId;
+          if (entryId) deleteEntry(entryId);
+          return;
+        }
+        case 'go-to-page': {
+          e.preventDefault();
+          const page = Number(actionEl.dataset.page);
+          if (Number.isFinite(page)) goToPage(page);
+          return;
+        }
+        default:
+          return;
+      }
+    });
+
+    panel.addEventListener('change', (e) => {
+      const target = e.target;
+      const action = target?.dataset?.geeAction;
+      if (!action) return;
+
+      switch (action) {
+        case 'toggle-smart-filter':
+          toggleSmartFilter(!!target.checked);
+          return;
+        case 'update-max-terms':
+          updateMaxTerms(parseInt(target.value, 10));
+          return;
+        case 'toggle-selection': {
+          const entryId = target.dataset.entryId;
+          if (entryId) toggleSelection(entryId);
+          return;
+        }
+        case 'toggle-select-all':
+          toggleSelectAll(!!target.checked);
+          return;
+        case 'update-entry': {
+          const entryId = target.dataset.entryId;
+          const field = target.dataset.field;
+          if (!entryId || !field) return;
+          const value = target.type === 'checkbox' ? !!target.checked : target.value;
+          updateEntry(entryId, field, value);
+          return;
+        }
+        default:
+          return;
+      }
+    });
+
+    panel.addEventListener('input', (e) => {
+      const target = e.target;
+      const action = target?.dataset?.geeAction;
+      if (action === 'search') {
+        handleSearch(target.value);
+      }
+    });
+  }
+
   /**
    * 打开增强版编辑器
    * @param {string} setId - 术语库 ID
@@ -80,6 +188,7 @@
 
     panel.dataset.editingId = set.id;
     panel.classList.remove('hidden');
+    bindEnhancedEditorUiActions();
 
     // 渲染顶部工具栏
     renderToolbar(set);
@@ -115,7 +224,7 @@
               ${selectedCount > 0 ? `，已选择 ${selectedCount} 条` : ''}
             </p>
           </div>
-          <button onclick="window.glossaryEditorEnhanced.close()"
+          <button type="button" data-gee-action="close"
                   class="text-gray-400 hover:text-gray-600">
             <iconify-icon icon="carbon:close" width="24"></iconify-icon>
           </button>
@@ -124,17 +233,17 @@
         <!-- 操作按钮栏 -->
         <div class="flex flex-wrap items-center gap-2 justify-between">
           <div class="flex flex-wrap items-center gap-2">
-            <button onclick="window.glossaryEditorEnhanced.addNewEntry()"
+            <button type="button" data-gee-action="add-entry"
                     class="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition text-sm">
               <iconify-icon icon="carbon:add-alt" width="16"></iconify-icon>
               新增条目
             </button>
-            <button onclick="window.glossaryEditorEnhanced.openImport()"
+            <button type="button" data-gee-action="open-import"
                     class="inline-flex items-center gap-1 px-3 py-1.5 border border-gray-300 rounded-lg hover:border-blue-400 hover:text-blue-600 transition text-sm">
               <iconify-icon icon="carbon:import" width="16"></iconify-icon>
               导入
             </button>
-            <button onclick="window.glossaryEditorEnhanced.openExport()"
+            <button type="button" data-gee-action="open-export"
                     class="inline-flex items-center gap-1 px-3 py-1.5 border border-gray-300 rounded-lg hover:border-blue-400 hover:text-blue-600 transition text-sm">
               <iconify-icon icon="carbon:export" width="16"></iconify-icon>
               导出
@@ -146,7 +255,7 @@
             <label class="inline-flex items-center gap-2 cursor-pointer">
               <input type="checkbox"
                      ${set.enableSmartFilter ? 'checked' : ''}
-                     onchange="window.glossaryEditorEnhanced.toggleSmartFilter(this.checked)"
+                     data-gee-action="toggle-smart-filter"
                      class="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500">
               <iconify-icon icon="carbon:filter" width="16" class="${set.enableSmartFilter ? 'text-blue-600' : 'text-gray-600'}"></iconify-icon>
               <span class="${set.enableSmartFilter ? 'text-blue-700 font-medium' : 'text-gray-700'}">智能过滤</span>
@@ -158,7 +267,7 @@
                      value="${set.maxTermsInPrompt || 50}"
                      min="1"
                      max="500"
-                     onchange="window.glossaryEditorEnhanced.updateMaxTerms(parseInt(this.value))"
+                     data-gee-action="update-max-terms"
                      class="w-14 px-2 py-0.5 text-center border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-transparent text-sm">
               <span class="text-xs text-gray-600">条</span>
             </label>
@@ -175,9 +284,9 @@
                    placeholder="搜索术语或译文..."
                    value="${escapeHtml(editorState.searchQuery)}"
                    class="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                   oninput="window.glossaryEditorEnhanced.handleSearch(this.value)">
+                   data-gee-action="search">
             ${editorState.searchQuery ? `
-              <button onclick="window.glossaryEditorEnhanced.clearSearch()"
+              <button type="button" data-gee-action="clear-search"
                       class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
                 <iconify-icon icon="carbon:close-filled" width="20"></iconify-icon>
               </button>
@@ -190,22 +299,22 @@
           <div class="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-4 py-2">
             <span class="text-sm text-blue-700 font-medium">已选择 ${selectedCount} 条</span>
             <div class="flex-1"></div>
-            <button onclick="window.glossaryEditorEnhanced.bulkEnable(true)"
+            <button type="button" data-gee-action="bulk-enable" data-enabled="true"
                     class="text-sm text-blue-600 hover:text-blue-700 px-3 py-1 rounded hover:bg-blue-100">
               <iconify-icon icon="carbon:checkmark" width="16" class="inline-block"></iconify-icon>
               批量启用
             </button>
-            <button onclick="window.glossaryEditorEnhanced.bulkEnable(false)"
+            <button type="button" data-gee-action="bulk-enable" data-enabled="false"
                     class="text-sm text-gray-600 hover:text-gray-700 px-3 py-1 rounded hover:bg-gray-100">
               <iconify-icon icon="carbon:close" width="16" class="inline-block"></iconify-icon>
               批量禁用
             </button>
-            <button onclick="window.glossaryEditorEnhanced.bulkDelete()"
+            <button type="button" data-gee-action="bulk-delete"
                     class="text-sm text-red-600 hover:text-red-700 px-3 py-1 rounded hover:bg-red-100">
               <iconify-icon icon="carbon:trash-can" width="16" class="inline-block"></iconify-icon>
               批量删除
             </button>
-            <button onclick="window.glossaryEditorEnhanced.clearSelection()"
+            <button type="button" data-gee-action="clear-selection"
                     class="text-sm text-gray-600 hover:text-gray-700 px-3 py-1 rounded hover:bg-gray-100">
               取消选择
             </button>
@@ -242,49 +351,60 @@
 
       return `
         <tr class="border-b border-gray-100 hover:bg-gray-50 ${isSelected ? 'bg-blue-50' : ''}">
-          <td class="px-3 py-2 text-center">
-            <input type="checkbox"
-                   ${isSelected ? 'checked' : ''}
-                   onchange="window.glossaryEditorEnhanced.toggleSelection('${entry.id}')"
-                   class="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500">
-          </td>
-          <td class="px-3 py-2 text-gray-600 text-sm">${globalIndex + 1}</td>
-          <td class="px-3 py-2">
-            <input type="text"
-                   value="${escapeHtml(entry.term)}"
-                   onchange="window.glossaryEditorEnhanced.updateEntry('${entry.id}', 'term', this.value)"
-                   class="w-full px-2 py-1 border border-gray-200 rounded focus:ring-1 focus:ring-blue-500 focus:border-transparent">
-          </td>
-          <td class="px-3 py-2">
-            <input type="text"
-                   value="${escapeHtml(entry.translation)}"
-                   onchange="window.glossaryEditorEnhanced.updateEntry('${entry.id}', 'translation', this.value)"
-                   class="w-full px-2 py-1 border border-gray-200 rounded focus:ring-1 focus:ring-blue-500 focus:border-transparent">
-          </td>
-          <td class="px-3 py-2 text-center">
-            <input type="checkbox"
-                   ${entry.caseSensitive ? 'checked' : ''}
-                   onchange="window.glossaryEditorEnhanced.updateEntry('${entry.id}', 'caseSensitive', this.checked)"
-                   class="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500">
-          </td>
-          <td class="px-3 py-2 text-center">
-            <input type="checkbox"
-                   ${entry.wholeWord ? 'checked' : ''}
-                   onchange="window.glossaryEditorEnhanced.updateEntry('${entry.id}', 'wholeWord', this.checked)"
-                   class="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500">
-          </td>
-          <td class="px-3 py-2 text-center">
-            <input type="checkbox"
-                   ${entry.enabled !== false ? 'checked' : ''}
-                   onchange="window.glossaryEditorEnhanced.updateEntry('${entry.id}', 'enabled', this.checked)"
-                   class="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500">
-          </td>
-          <td class="px-3 py-2 text-center">
-            <button onclick="window.glossaryEditorEnhanced.deleteEntry('${entry.id}')"
-                    class="text-red-500 hover:text-red-700">
-              <iconify-icon icon="carbon:trash-can" width="18"></iconify-icon>
-            </button>
-          </td>
+		          <td class="px-3 py-2 text-center">
+		            <input type="checkbox"
+		                   ${isSelected ? 'checked' : ''}
+		                   data-entry-id="${escapeHtml(entry.id)}"
+		                   data-gee-action="toggle-selection"
+		                   class="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500">
+		          </td>
+	          <td class="px-3 py-2 text-gray-600 text-sm">${globalIndex + 1}</td>
+		          <td class="px-3 py-2">
+		            <input type="text"
+		                   value="${escapeHtml(entry.term)}"
+		                   data-entry-id="${escapeHtml(entry.id)}"
+		                   data-gee-action="update-entry"
+		                   data-field="term"
+		                   class="w-full px-2 py-1 border border-gray-200 rounded focus:ring-1 focus:ring-blue-500 focus:border-transparent">
+		          </td>
+		          <td class="px-3 py-2">
+		            <input type="text"
+		                   value="${escapeHtml(entry.translation)}"
+		                   data-entry-id="${escapeHtml(entry.id)}"
+		                   data-gee-action="update-entry"
+		                   data-field="translation"
+		                   class="w-full px-2 py-1 border border-gray-200 rounded focus:ring-1 focus:ring-blue-500 focus:border-transparent">
+		          </td>
+		          <td class="px-3 py-2 text-center">
+		            <input type="checkbox"
+		                   ${entry.caseSensitive ? 'checked' : ''}
+		                   data-entry-id="${escapeHtml(entry.id)}"
+		                   data-gee-action="update-entry"
+		                   data-field="caseSensitive"
+		                   class="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500">
+		          </td>
+		          <td class="px-3 py-2 text-center">
+		            <input type="checkbox"
+		                   ${entry.wholeWord ? 'checked' : ''}
+		                   data-entry-id="${escapeHtml(entry.id)}"
+		                   data-gee-action="update-entry"
+		                   data-field="wholeWord"
+		                   class="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500">
+		          </td>
+		          <td class="px-3 py-2 text-center">
+		            <input type="checkbox"
+		                   ${entry.enabled !== false ? 'checked' : ''}
+		                   data-entry-id="${escapeHtml(entry.id)}"
+		                   data-gee-action="update-entry"
+		                   data-field="enabled"
+		                   class="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500">
+		          </td>
+		          <td class="px-3 py-2 text-center">
+		            <button type="button" data-gee-action="delete-entry" data-entry-id="${escapeHtml(entry.id)}"
+		                    class="text-red-500 hover:text-red-700">
+		              <iconify-icon icon="carbon:trash-can" width="18"></iconify-icon>
+		            </button>
+		          </td>
         </tr>
       `;
     }).join('');
@@ -294,12 +414,12 @@
         <table class="w-full">
           <thead class="bg-gray-50 border-b border-gray-200">
             <tr>
-              <th class="px-3 py-2 text-center w-12">
-                <input type="checkbox"
-                       ${editorState.selectAll ? 'checked' : ''}
-                       onchange="window.glossaryEditorEnhanced.toggleSelectAll(this.checked)"
-                       class="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500">
-              </th>
+	              <th class="px-3 py-2 text-center w-12">
+	                <input type="checkbox"
+	                       ${editorState.selectAll ? 'checked' : ''}
+	                       data-gee-action="toggle-select-all"
+	                       class="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500">
+	              </th>
               <th class="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase w-16">#</th>
               <th class="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">术语</th>
               <th class="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">译文</th>
@@ -363,7 +483,7 @@
 
       const isActive = page === currentPage;
       return `
-        <button onclick="window.glossaryEditorEnhanced.goToPage(${page})"
+        <button type="button" data-gee-action="go-to-page" data-page="${page}"
                 class="px-3 py-1 rounded ${isActive
                   ? 'bg-blue-500 text-white font-medium'
                   : 'text-gray-600 hover:bg-gray-100'}">
@@ -374,7 +494,7 @@
 
     container.innerHTML = `
       <div class="flex items-center justify-center gap-2 py-4">
-        <button onclick="window.glossaryEditorEnhanced.goToPage(${currentPage - 1})"
+        <button type="button" data-gee-action="go-to-page" data-page="${currentPage - 1}"
                 ${currentPage === 1 ? 'disabled' : ''}
                 class="px-3 py-1 rounded text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed">
           <iconify-icon icon="carbon:chevron-left" width="20"></iconify-icon>
@@ -382,7 +502,7 @@
 
         ${buttonsHTML}
 
-        <button onclick="window.glossaryEditorEnhanced.goToPage(${currentPage + 1})"
+        <button type="button" data-gee-action="go-to-page" data-page="${currentPage + 1}"
                 ${currentPage === totalPages ? 'disabled' : ''}
                 class="px-3 py-1 rounded text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed">
           <iconify-icon icon="carbon:chevron-right" width="20"></iconify-icon>

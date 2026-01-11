@@ -306,6 +306,8 @@
 }
 
 .ppt-attachment-remove {
+    background: transparent;
+    border: none;
     cursor: pointer;
     color: #94a3b8;
     padding: 2px;

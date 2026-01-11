@@ -321,7 +321,8 @@ export async function renderAllMermaidBlocksInternal(chatBodyElement) {
                   const json = JSON.stringify(data);
                   const encoded = btoa(unescape(encodeURIComponent(json)));
                   const liveUrl = `https://mermaid.live/edit#${encoded}`;
-                  window.open(liveUrl, '_blank');
+                  const newWindow = window.open(liveUrl, '_blank', 'noopener,noreferrer');
+                  if (newWindow) newWindow.opener = null;
                 });
                 openLiveBtn.innerHTML = iconExternalLink + 'Mermaid.live';
 
@@ -707,7 +708,7 @@ export async function renderAllMermaidBlocksInternal(chatBodyElement) {
                 <pre style="color:#64748b;font-size:12px;background:#f3f4f6;border-radius:6px;padding:8px 12px;overflow-x:auto;margin-top:8px;white-space:pre-wrap;word-break:break-all;">${escapedCode}</pre>
               </details>
               <div style="margin-top:12px;font-size:12px;color:#64748b;">
-                💡 提示: 可尝试在 <a href="https://mermaid.live" target="_blank" style="color:#6366f1;text-decoration:underline;">Mermaid.live</a> 中调试代码
+                💡 提示: 可尝试在 <a href="https://mermaid.live" target="_blank" rel="noopener noreferrer" style="color:#6366f1;text-decoration:underline;">Mermaid.live</a> 中调试代码
               </div>
             `;
             mermaidDiv.style.border = '2px solid #e53e3e';

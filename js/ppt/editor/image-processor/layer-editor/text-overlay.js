@@ -3,6 +3,8 @@
  * 从 layer-editor.js 拆分出的文字覆盖相关方法
  */
 
+import { escapeHtml, sanitizeCssColor } from './dom-sanitizer.js';
+
 /**
  * 可用的免费商用字体列表
  */
@@ -275,11 +277,11 @@ export const TextOverlayMixin = {
                 </div>
                 <div class="property-row block">
                     <span class="property-label">原文</span>
-                    <textarea class="property-input" rows="2" readonly style="resize:none;background:#f8fafc;">${childLayer.text || ''}</textarea>
+                    <textarea class="property-input" rows="2" readonly style="resize:none;background:#f8fafc;">${escapeHtml(childLayer.text || '')}</textarea>
                 </div>
                 <div class="property-row block">
                     <span class="property-label">译文 / 替换文字</span>
-                    <textarea class="property-input" rows="3" data-text-prop="translatedText" style="resize:vertical;">${childLayer.translatedText || ''}</textarea>
+                    <textarea class="property-input" rows="3" data-text-prop="translatedText" style="resize:vertical;">${escapeHtml(childLayer.translatedText || '')}</textarea>
                 </div>
             </div>
             
@@ -310,7 +312,7 @@ export const TextOverlayMixin = {
                 </div>
                 <div class="property-row">
                     <span class="property-label">颜色</span>
-                    <input type="color" value="${style.color || '#000000'}" data-text-prop="color">
+                    <input type="color" value="${sanitizeCssColor(style.color || '#000000', '#000000')}" data-text-prop="color">
                 </div>
                 <div class="property-row">
                     <span class="property-label">背景</span>

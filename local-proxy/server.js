@@ -47,30 +47,78 @@ function loadEnv() {
 loadEnv();
 
 const PORT = parseInt(process.env.PORT || '3456', 10);
+const HOST = process.env.HOST || process.env.BIND_ADDRESS || '127.0.0.1';
 const MINERU_BASE_URL = 'https://mineru.net/api/v4';
 const DOC2X_BASE_URL = 'https://v2.doc2x.noedgeai.com';
+const MAX_BODY_SIZE = (() => {
+  const parsed = parseInt(process.env.MAX_BODY_SIZE || '104857600', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 104857600;
+})(); // 100MB
+const ALLOW_FILE_ORIGIN = /^(1|true|yes)$/i.test(String(process.env.ALLOW_FILE_ORIGIN || '').trim());
+const ALLOWED_ORIGINS = new Set(
+  String(process.env.ALLOWED_ORIGINS || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean)
+);
+
+function isLoopbackHost(hostname) {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+}
+
+function isOriginAllowed(origin) {
+  if (!origin) return true; // non-browser clients
+  if (ALLOWED_ORIGINS.size > 0) {
+    return ALLOWED_ORIGINS.has(origin);
+  }
+  if (origin === 'null') return ALLOW_FILE_ORIGIN;
+  try {
+    const url = new URL(origin);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+    return isLoopbackHost(url.hostname);
+  } catch (_) {
+    return false;
+  }
+}
+
+function forbiddenOrigin(res) {
+  res.writeHead(403, {
+    'Content-Type': 'application/json',
+    'Cache-Control': 'no-store',
+  });
+  res.end(JSON.stringify({ error: 'Forbidden origin' }));
+}
 
 // ==================== 工具函数 ====================
 
-function jsonResponse(res, data, status = 200, origin = '*') {
-  res.writeHead(status, {
+function jsonResponse(res, data, status = 200, origin = '') {
+  const headers = {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Methods': 'GET, HEAD, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Range, X-Auth-Key, X-Api-Key, X-MinerU-Key, X-Doc2X-Key',
     'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges',
-  });
+    'Cache-Control': 'no-store',
+  };
+  if (origin) {
+    headers['Access-Control-Allow-Origin'] = origin;
+    headers['Vary'] = 'Origin';
+  }
+  res.writeHead(status, headers);
   res.end(JSON.stringify(data));
 }
 
-function handleCORS(res, origin = '*') {
-  res.writeHead(204, {
-    'Access-Control-Allow-Origin': origin,
+function handleCORS(res, origin = '') {
+  const headers = {
     'Access-Control-Allow-Methods': 'GET, HEAD, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Range, X-Auth-Key, X-Api-Key, X-MinerU-Key, X-Doc2X-Key',
     'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges',
     'Access-Control-Max-Age': '86400',
-  });
+  };
+  if (origin) {
+    headers['Access-Control-Allow-Origin'] = origin;
+    headers['Vary'] = 'Origin';
+  }
+  res.writeHead(204, headers);
   res.end();
 }
 
@@ -93,9 +141,40 @@ function getToken(headers, service) {
 async function readBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
-    req.on('data', chunk => chunks.push(chunk));
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
+    let total = 0;
+    let settled = false;
+    const contentLength = parseInt(req.headers['content-length'] || '0', 10);
+    if (contentLength && contentLength > MAX_BODY_SIZE) {
+      const err = new Error(`Payload too large (limit: ${MAX_BODY_SIZE} bytes)`);
+      err.code = 'PAYLOAD_TOO_LARGE';
+      reject(err);
+      return;
+    }
+
+    req.on('data', chunk => {
+      total += chunk.length;
+      if (total > MAX_BODY_SIZE) {
+        if (!settled) {
+          settled = true;
+          const err = new Error(`Payload too large (limit: ${MAX_BODY_SIZE} bytes)`);
+          err.code = 'PAYLOAD_TOO_LARGE';
+          reject(err);
+        }
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      if (settled) return;
+      settled = true;
+      resolve(Buffer.concat(chunks));
+    });
+    req.on('error', err => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    });
   });
 }
 
@@ -229,6 +308,9 @@ async function handleMinerUUpload(req, res, origin) {
 
   } catch (error) {
     console.error('[MinerU] Upload error:', error.message);
+    if (error && error.code === 'PAYLOAD_TOO_LARGE') {
+      return jsonResponse(res, { error: error.message }, 413, origin);
+    }
     jsonResponse(res, { error: error.message }, 500, origin);
   }
 }
@@ -330,6 +412,9 @@ async function handleDoc2XUpload(req, res, origin) {
 
   } catch (error) {
     console.error('[Doc2X] Upload error:', error.message);
+    if (error && error.code === 'PAYLOAD_TOO_LARGE') {
+      return jsonResponse(res, { error: error.message }, 413, origin);
+    }
     jsonResponse(res, { error: error.message }, 500, origin);
   }
 }
@@ -406,6 +491,9 @@ async function handleDoc2XConvert(req, res, origin) {
 
   } catch (error) {
     console.error('[Doc2X] Convert error:', error.message);
+    if (error && error.code === 'PAYLOAD_TOO_LARGE') {
+      return jsonResponse(res, { error: error.message }, 413, origin);
+    }
     jsonResponse(res, { error: error.message }, 500, origin);
   }
 }
@@ -470,18 +558,22 @@ async function proxyPubMed(req, res, path, searchParams, origin) {
     console.log(`[PubMed] Proxying: ${url}`);
 
     const response = await fetch(url, { headers: { 'User-Agent': 'PaperBurner-LocalProxy/1.0' } });
-    const contentType = response.headers.get('content-type') || '';
-    const text = await response.text();
+	    const contentType = response.headers.get('content-type') || '';
+	    const text = await response.text();
 
-    res.writeHead(response.status, {
-      'Content-Type': contentType.includes('xml') ? 'application/xml' : 'text/plain',
-      'Access-Control-Allow-Origin': origin,
-    });
-    res.end(text);
-  } catch (error) {
-    console.error('[PubMed] Error:', error.message);
-    jsonResponse(res, { error: 'PubMed upstream error', message: error.message }, 503, origin);
-  }
+	    const responseHeaders = {
+	      'Content-Type': contentType.includes('xml') ? 'application/xml' : 'text/plain',
+	    };
+	    if (origin) {
+	      responseHeaders['Access-Control-Allow-Origin'] = origin;
+	      responseHeaders['Vary'] = 'Origin';
+	    }
+	    res.writeHead(response.status, responseHeaders);
+	    res.end(text);
+	  } catch (error) {
+	    console.error('[PubMed] Error:', error.message);
+	    jsonResponse(res, { error: 'PubMed upstream error', message: error.message }, 503, origin);
+	  }
 }
 
 async function proxyCrossRef(req, res, path, searchParams, origin) {
@@ -517,18 +609,22 @@ async function proxyArXiv(req, res, path, searchParams, origin) {
     const url = `http://export.arxiv.org/api/${path}?${searchParams}`;
     console.log(`[arXiv] Proxying: ${url}`);
 
-    const response = await fetch(url);
-    const text = await response.text();
+	    const response = await fetch(url);
+	    const text = await response.text();
 
-    res.writeHead(response.status, {
-      'Content-Type': 'application/xml',
-      'Access-Control-Allow-Origin': origin,
-    });
-    res.end(text);
-  } catch (error) {
-    console.error('[arXiv] Error:', error.message);
-    jsonResponse(res, { error: 'arXiv upstream error', message: error.message }, 503, origin);
-  }
+	    const responseHeaders = {
+	      'Content-Type': 'application/xml',
+	    };
+	    if (origin) {
+	      responseHeaders['Access-Control-Allow-Origin'] = origin;
+	      responseHeaders['Vary'] = 'Origin';
+	    }
+	    res.writeHead(response.status, responseHeaders);
+	    res.end(text);
+	  } catch (error) {
+	    console.error('[arXiv] Error:', error.message);
+	    jsonResponse(res, { error: 'arXiv upstream error', message: error.message }, 503, origin);
+	  }
 }
 
 // ==================== ZIP/PDF 代理 ====================
@@ -559,12 +655,15 @@ async function handleProxyDownload(req, res, downloadUrl, origin) {
 
     const responseHeaders = {
       'Content-Type': response.headers.get('Content-Type') || 'application/octet-stream',
-      'Access-Control-Allow-Origin': origin,
       'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Range, X-Auth-Key',
       'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges',
       'Cache-Control': 'no-store',
     };
+    if (origin) {
+      responseHeaders['Access-Control-Allow-Origin'] = origin;
+      responseHeaders['Vary'] = 'Origin';
+    }
 
     if (contentLength) {
       responseHeaders['Content-Length'] = contentLength;
@@ -613,14 +712,18 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const pathname = url.pathname;
   const searchParams = url.searchParams.toString();
-  const origin = req.headers.origin || '*';
+  const requestOrigin = typeof req.headers.origin === 'string' ? req.headers.origin : '';
+  const origin = requestOrigin && isOriginAllowed(requestOrigin) ? requestOrigin : '';
 
   // CORS 预检
   if (req.method === 'OPTIONS') {
+    if (requestOrigin && !origin) return forbiddenOrigin(res);
     return handleCORS(res, origin);
   }
 
   try {
+    if (requestOrigin && !origin) return forbiddenOrigin(res);
+
     // ===== OCR 路由 (兼容 CF Worker) =====
 
     // MinerU
@@ -729,11 +832,12 @@ server.timeout = 300000;
 server.keepAliveTimeout = 120000;
 server.headersTimeout = 120000;
 
-server.listen(PORT, () => {
+server.listen(PORT, HOST, () => {
   console.log(`
 ╔═══════════════════════════════════════════════════════╗
 ║     Paper Burner Local Proxy Server                   ║
 ╠═══════════════════════════════════════════════════════╣
+║  Bind: ${HOST.toString().padEnd(47)} ║
 ║  Port: ${PORT.toString().padEnd(47)} ║
 ║  URL:  http://localhost:${PORT.toString().padEnd(30)} ║
 ╠═══════════════════════════════════════════════════════╣

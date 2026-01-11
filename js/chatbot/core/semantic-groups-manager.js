@@ -36,75 +36,96 @@
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
     `;
 
-    dialog.innerHTML = `
-      <h3 style="margin: 0 0 16px 0; font-size: 18px; color: #1f2937;">检索Agent配置</h3>
-      <p style="margin: 0 0 20px 0; font-size: 14px; color: #6b7280; line-height: 1.6;">
-        这是您首次在此文档使用检索Agent。请选择启用的功能：
-      </p>
+	    dialog.innerHTML = `
+	      <h3 style="margin: 0 0 16px 0; font-size: 18px; color: #1f2937;">检索Agent配置</h3>
+	      <p style="margin: 0 0 20px 0; font-size: 14px; color: #6b7280; line-height: 1.6;">
+	        这是您首次在此文档使用检索Agent。请选择启用的功能：
+	      </p>
 
-      <div style="margin-bottom: 16px;">
-        <label style="display: flex; align-items: flex-start; cursor: pointer; padding: 12px; border-radius: 8px; transition: background 0.2s;"
-               onmouseover="this.style.background='#f3f4f6'"
-               onmouseout="this.style.background='transparent'">
-          <input type="checkbox" id="use-semantic-groups" checked style="margin-top: 2px; margin-right: 12px; cursor: pointer;">
-          <div>
-            <div style="font-weight: 500; color: #1f2937; margin-bottom: 4px;">意群分析</div>
-            <div style="font-size: 13px; color: #6b7280;">将文档智能分割为语义单元，提高检索准确性</div>
-          </div>
-        </label>
-      </div>
+	      <div style="margin-bottom: 16px;">
+	        <label class="pb-multi-hop-option" style="display: flex; align-items: flex-start; cursor: pointer; padding: 12px; border-radius: 8px; transition: background 0.2s;">
+	          <input type="checkbox" id="use-semantic-groups" checked style="margin-top: 2px; margin-right: 12px; cursor: pointer;">
+	          <div>
+	            <div style="font-weight: 500; color: #1f2937; margin-bottom: 4px;">意群分析</div>
+	            <div style="font-size: 13px; color: #6b7280;">将文档智能分割为语义单元，提高检索准确性</div>
+	          </div>
+	        </label>
+	      </div>
 
-      <div style="margin-bottom: 24px;">
-        <label style="display: flex; align-items: flex-start; cursor: pointer; padding: 12px; border-radius: 8px; transition: background 0.2s;"
-               onmouseover="this.style.background='#f3f4f6'"
-               onmouseout="this.style.background='transparent'">
-          <input type="checkbox" id="use-vector-search" checked style="margin-top: 2px; margin-right: 12px; cursor: pointer;">
-          <div>
-            <div style="font-weight: 500; color: #1f2937; margin-bottom: 4px;">向量搜索与重排</div>
-            <div style="font-size: 13px; color: #6b7280;">使用AI理解语义进行智能搜索，结果可选重排优化（需消耗API token）</div>
-          </div>
-        </label>
-      </div>
+	      <div style="margin-bottom: 24px;">
+	        <label class="pb-multi-hop-option" style="display: flex; align-items: flex-start; cursor: pointer; padding: 12px; border-radius: 8px; transition: background 0.2s;">
+	          <input type="checkbox" id="use-vector-search" checked style="margin-top: 2px; margin-right: 12px; cursor: pointer;">
+	          <div>
+	            <div style="font-weight: 500; color: #1f2937; margin-bottom: 4px;">向量搜索与重排</div>
+	            <div style="font-size: 13px; color: #6b7280;">使用AI理解语义进行智能搜索，结果可选重排优化（需消耗API token）</div>
+	          </div>
+	        </label>
+	      </div>
 
-      <div style="display: flex; gap: 12px; justify-content: flex-end;">
-        <button id="dialog-cancel" style="
-          padding: 8px 16px;
-          border: 1px solid #d1d5db;
-          background: white;
-          border-radius: 6px;
-          cursor: pointer;
-          font-size: 14px;
-          color: #374151;
-          transition: all 0.2s;
-        " onmouseover="this.style.background='#f9fafb'"
-           onmouseout="this.style.background='white'">取消</button>
-        <button id="dialog-confirm" style="
-          padding: 8px 16px;
-          border: none;
-          background: #059669;
-          color: white;
-          border-radius: 6px;
-          cursor: pointer;
-          font-size: 14px;
-          transition: all 0.2s;
-        " onmouseover="this.style.background='#047857'"
-           onmouseout="this.style.background='#059669'">确认</button>
-      </div>
-    `;
+	      <div style="display: flex; gap: 12px; justify-content: flex-end;">
+	        <button id="dialog-cancel" style="
+	          padding: 8px 16px;
+	          border: 1px solid #d1d5db;
+	          background: white;
+	          border-radius: 6px;
+	          cursor: pointer;
+	          font-size: 14px;
+	          color: #374151;
+	          transition: all 0.2s;
+	        ">取消</button>
+	        <button id="dialog-confirm" style="
+	          padding: 8px 16px;
+	          border: none;
+	          background: #059669;
+	          color: white;
+	          border-radius: 6px;
+	          cursor: pointer;
+	          font-size: 14px;
+	          transition: all 0.2s;
+	        ">确认</button>
+	      </div>
+	    `;
 
     overlay.appendChild(dialog);
     document.body.appendChild(overlay);
 
     // 绑定事件
-    const confirmBtn = dialog.querySelector('#dialog-confirm');
-    const cancelBtn = dialog.querySelector('#dialog-cancel');
-    const semanticGroupsCheckbox = dialog.querySelector('#use-semantic-groups');
-    const vectorSearchCheckbox = dialog.querySelector('#use-vector-search');
+	    const confirmBtn = dialog.querySelector('#dialog-confirm');
+	    const cancelBtn = dialog.querySelector('#dialog-cancel');
+	    const semanticGroupsCheckbox = dialog.querySelector('#use-semantic-groups');
+	    const vectorSearchCheckbox = dialog.querySelector('#use-vector-search');
 
-    const closeDialog = (result) => {
-      document.body.removeChild(overlay);
-      resolve(result);
-    };
+	    dialog.querySelectorAll('.pb-multi-hop-option').forEach((optionEl) => {
+	      optionEl.addEventListener('mouseenter', () => {
+	        optionEl.style.background = '#f3f4f6';
+	      });
+	      optionEl.addEventListener('mouseleave', () => {
+	        optionEl.style.background = 'transparent';
+	      });
+	    });
+
+	    if (cancelBtn) {
+	      cancelBtn.addEventListener('mouseenter', () => {
+	        cancelBtn.style.background = '#f9fafb';
+	      });
+	      cancelBtn.addEventListener('mouseleave', () => {
+	        cancelBtn.style.background = 'white';
+	      });
+	    }
+
+	    if (confirmBtn) {
+	      confirmBtn.addEventListener('mouseenter', () => {
+	        confirmBtn.style.background = '#047857';
+	      });
+	      confirmBtn.addEventListener('mouseleave', () => {
+	        confirmBtn.style.background = '#059669';
+	      });
+	    }
+
+	    const closeDialog = (result) => {
+	      document.body.removeChild(overlay);
+	      resolve(result);
+	    };
 
     confirmBtn.onclick = () => {
       const config = {
@@ -439,16 +460,20 @@ async function ensureSemanticGroupsReady(docContentInfo, getCurrentDocId, getCha
       targetChars: Number(s.targetChars) > 0 ? Number(s.targetChars) : 5000,
       minChars: Number(s.minChars) > 0 ? Number(s.minChars) : 2500,
       maxChars: Number(s.maxChars) > 0 ? Number(s.maxChars) : 6000,
-      concurrency: Number(s.concurrency) > 0 ? Number(s.concurrency) : 20,  // 恢复默认并发数
-      docContext: window.data.semanticDocGist || '',
-      onProgress: (current, total, message) => {
-        const percent = Math.round((current / total) * 100);
-        if (progressToast && typeof progressToast.update === 'function') {
-          progressToast.update(`${message} (${percent}%)`, percent);
-        }
-        console.log(`[ChatbotCore] 意群生成进度: ${current}/${total} (${percent}%)`);
-      }
-    });
+	      concurrency: Number(s.concurrency) > 0 ? Number(s.concurrency) : 20,  // 恢复默认并发数
+	      docContext: window.data.semanticDocGist || '',
+	      onProgress: (current, total, message) => {
+	        const safeCurrent = Number.isFinite(Number(current)) ? Number(current) : 0;
+	        const safeTotal = Number.isFinite(Number(total)) ? Number(total) : 0;
+	        const percent = safeTotal > 0
+	          ? Math.max(0, Math.min(100, Math.round((safeCurrent / safeTotal) * 100)))
+	          : 0;
+	        if (progressToast && typeof progressToast.update === 'function') {
+	          progressToast.update(`${message} (${percent}%)`, percent);
+	        }
+	        console.log(`[ChatbotCore] 意群生成进度: ${safeCurrent}/${safeTotal} (${percent}%)`);
+	      }
+	    });
 
     // 关闭进度提示
     if (progressToast && typeof progressToast.close === 'function') {
