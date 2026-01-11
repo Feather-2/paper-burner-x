@@ -425,15 +425,20 @@ const PPTGeneratorExportImage = {
         const ctx = finalCanvas.getContext('2d');
         ctx.scale(scale, scale);
         
-        // 1. 填充背景
-        if (backgroundFill && backgroundFill !== 'transparent') {
-            if (backgroundFill.includes('gradient')) {
-                container.innerHTML = `<div style="width: ${width}px; height: ${height}px; background: ${backgroundFill};"></div>`;
-                const bgCanvas = await this._captureToCanvas(container.firstChild, { scale, backgroundColor: null, foreignObjectRendering: false });
-                if (bgCanvas) {
-                    ctx.drawImage(bgCanvas, 0, 0, width, height);
-                    bgCanvas.width = 0; bgCanvas.height = 0;
-                }
+	        // 1. 填充背景
+	        if (backgroundFill && backgroundFill !== 'transparent') {
+	            if (backgroundFill.includes('gradient')) {
+	                container.innerHTML = '';
+	                const bgDiv = document.createElement('div');
+	                bgDiv.style.width = `${width}px`;
+	                bgDiv.style.height = `${height}px`;
+	                bgDiv.style.background = backgroundFill;
+	                container.appendChild(bgDiv);
+	                const bgCanvas = await this._captureToCanvas(container.firstChild, { scale, backgroundColor: null, foreignObjectRendering: false });
+	                if (bgCanvas) {
+	                    ctx.drawImage(bgCanvas, 0, 0, width, height);
+	                    bgCanvas.width = 0; bgCanvas.height = 0;
+	                }
             } else {
                 ctx.fillStyle = backgroundFill;
                 ctx.fillRect(0, 0, width, height);

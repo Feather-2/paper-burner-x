@@ -265,11 +265,15 @@ function showTabImmediate(tab) {
         console.log('[PDFCompareView] PDF 对照视图渲染完成');
       } catch (error) {
         console.error('[PDFCompareView] 渲染失败:', error);
-        document.getElementById('pdf-compare-container').innerHTML = `
-          <div class="error-box" style="padding:12px;border:1px solid #ef4444;background:#fef2f2;color:#991b1b;border-radius:8px;">
-            PDF 对照视图加载失败: ${error.message}
-          </div>
-        `;
+        const container = document.getElementById('pdf-compare-container');
+        if (container) {
+          container.textContent = '';
+          const box = document.createElement('div');
+          box.className = 'error-box';
+          box.style.cssText = 'padding:12px;border:1px solid #ef4444;background:#fef2f2;color:#991b1b;border-radius:8px;';
+          box.textContent = `PDF 对照视图加载失败: ${error && error.message ? error.message : String(error)}`;
+          container.appendChild(box);
+        }
       } finally {
         window.renderingTab = null;
         console.timeEnd && console.timeEnd('[性能] showTab_总渲染');
@@ -911,7 +915,15 @@ function showTabImmediate(tab) {
                   const imgs = (window.data && window.data.images) || [];
                   const html = window.MarkdownProcessor && window.MarkdownProcessor.renderWithKatexFailback
                     ? window.MarkdownProcessor.renderWithKatexFailback(window.MarkdownProcessor.safeMarkdown(md, imgs))
-                    : md.replace(/\n/g, '<br>');
+                    : ((window.ChatbotUtils && typeof window.ChatbotUtils.escapeHtml === 'function')
+                      ? window.ChatbotUtils.escapeHtml(md).replace(/\n/g, '<br>')
+                      : String(md ?? '').replace(/[&<>"']/g, (ch) => ({
+                        '&': '&amp;',
+                        '<': '&lt;',
+                        '>': '&gt;',
+                        '"': '&quot;',
+                        "'": '&#39;'
+                      }[ch])).replace(/\n/g, '<br>'));
                   content.innerHTML = html;
                   content.setAttribute('data-raw-markdown', encodeURIComponent(md));
                 } catch { content.textContent = md; }
@@ -951,7 +963,15 @@ function showTabImmediate(tab) {
                     const imgs = (window.data && window.data.images) || [];
                     const html = window.MarkdownProcessor && window.MarkdownProcessor.renderWithKatexFailback
                       ? window.MarkdownProcessor.renderWithKatexFailback(window.MarkdownProcessor.safeMarkdown(md, imgs))
-                      : md.replace(/\n/g, '<br>');
+                      : ((window.ChatbotUtils && typeof window.ChatbotUtils.escapeHtml === 'function')
+                        ? window.ChatbotUtils.escapeHtml(md).replace(/\n/g, '<br>')
+                        : String(md ?? '').replace(/[&<>"']/g, (ch) => ({
+                          '&': '&amp;',
+                          '<': '&lt;',
+                          '>': '&gt;',
+                          '"': '&quot;',
+                          "'": '&#39;'
+                        }[ch])).replace(/\n/g, '<br>'));
                     content.innerHTML = html;
                   } catch { content.textContent = md; }
                 }

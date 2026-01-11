@@ -118,6 +118,21 @@ function initUI() {
     let selectedModelForManager = null;
     const supportedModelsForKeyManager = window.supportedModelsForKeyManager || [];
 
+    function escapeHtml(value) {
+        const str = String(value ?? '');
+        return str
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;')
+            .replace(/`/g, '&#96;');
+    }
+
+    function escapeAttr(value) {
+        return escapeHtml(value);
+    }
+
     // 渲染模型列表 (委托给模块)
     function renderModelList() {
         if (window.modelManager) {
@@ -244,9 +259,11 @@ function initUI() {
                 cursor: pointer; transition: all 0.2s;
                 border: 1px solid #e5e7eb;
             `;
+            const id = model?.id ?? '';
+            const ownedBy = model?.owned_by ?? '';
             item.innerHTML = `
-                <div style="font-weight: 500; color: #111827;">${model.id}</div>
-                ${model.owned_by ? `<div style="font-size: 12px; color: #6b7280; margin-top: 2px;">by ${model.owned_by}</div>` : ''}
+                <div style="font-weight: 500; color: #111827;">${escapeHtml(id)}</div>
+                ${ownedBy ? `<div style="font-size: 12px; color: #6b7280; margin-top: 2px;">by ${escapeHtml(ownedBy)}</div>` : ''}
             `;
 
             item.onmouseover = () => {
@@ -258,7 +275,7 @@ function initUI() {
                 item.style.borderColor = '#e5e7eb';
             };
             item.onclick = () => {
-                targetInput.value = model.id;
+                targetInput.value = String(id);
                 document.body.removeChild(overlay);
                 document.body.removeChild(container);
             };
@@ -323,9 +340,10 @@ function initUI() {
                 border: 1px solid #e5e7eb;
             `;
             const id = model.id || model.name || '';
+            const ownedBy = model.owned_by || '';
             item.innerHTML = `
-                <div style="font-weight: 500; color: #111827;">${id}</div>
-                ${model.owned_by ? `<div style=\"font-size: 12px; color: #6b7280; margin-top: 2px;\">by ${model.owned_by}</div>` : ''}
+                <div style="font-weight: 500; color: #111827;">${escapeHtml(id)}</div>
+                ${ownedBy ? `<div style="font-size: 12px; color: #6b7280; margin-top: 2px;">by ${escapeHtml(ownedBy)}</div>` : ''}
             `;
             item.onmouseover = () => { item.style.background = '#f3f4f6'; item.style.borderColor = '#737373'; };
             item.onmouseout = () => { item.style.background = '#fff'; item.style.borderColor = '#e5e7eb'; };
@@ -641,9 +659,9 @@ function initUI() {
 
             item.innerHTML = `
                 <iconify-icon icon="carbon:draggable" width="16" class="text-gray-400"></iconify-icon>
-                <input type="checkbox" ${source.enabled ? 'checked' : ''} class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 source-enable-checkbox" data-key="${source.key}">
-                <span class="flex-grow text-sm text-gray-700 font-medium">${source.name}</span>
-                <span class="text-xs text-gray-400">${source.key}</span>
+                <input type="checkbox" ${source.enabled ? 'checked' : ''} class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 source-enable-checkbox" data-key="${escapeAttr(source.key)}">
+                <span class="flex-grow text-sm text-gray-700 font-medium">${escapeHtml(source.name)}</span>
+                <span class="text-xs text-gray-400">${escapeHtml(source.key)}</span>
             `;
 
             listContainer.appendChild(item);
@@ -741,7 +759,7 @@ function initUI() {
         const urlDiv = document.createElement('div');
         urlDiv.innerHTML = `
             <label class="block text-sm font-medium text-gray-700 mb-1">Worker URL</label>
-            <input type="text" id="academic-search-base-url" value="${config.baseUrl}" placeholder="https://your-worker.workers.dev" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+            <input type="text" id="academic-search-base-url" value="${escapeAttr(config.baseUrl)}" placeholder="https://your-worker.workers.dev" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
             <p class="mt-1 text-xs text-gray-500">Cloudflare Worker 学术搜索代理地址</p>
         `;
         container.appendChild(urlDiv);
@@ -777,13 +795,13 @@ function initUI() {
         s2KeyDiv.innerHTML = `
             <label class="block text-sm font-medium text-gray-700 mb-1">Semantic Scholar API Key（可选，透传模式）</label>
             <div class="flex items-center gap-2">
-                <input type="password" id="academic-search-s2-key" value="${config.semanticScholarApiKey || ''}" placeholder="留空则使用免费额度" class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                <input type="password" id="academic-search-s2-key" value="${escapeAttr(config.semanticScholarApiKey || '')}" placeholder="留空则使用免费额度" class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
                 <button type="button" id="academic-search-s2-toggle" class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors flex items-center gap-1">
                     <iconify-icon icon="carbon:view" width="16"></iconify-icon>
                     <span>显示</span>
                 </button>
             </div>
-            <p class="mt-1 text-xs text-gray-500">从 <a href="https://www.semanticscholar.org/product/api" target="_blank" class="text-blue-600 hover:underline">Semantic Scholar</a> 获取，提高请求限额</p>
+            <p class="mt-1 text-xs text-gray-500">从 <a href="https://www.semanticscholar.org/product/api" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline">Semantic Scholar</a> 获取，提高请求限额</p>
         `;
         container.appendChild(s2KeyDiv);
 
@@ -792,13 +810,13 @@ function initUI() {
         pubmedKeyDiv.innerHTML = `
             <label class="block text-sm font-medium text-gray-700 mb-1">PubMed API Key（可选，透传模式）</label>
             <div class="flex items-center gap-2">
-                <input type="password" id="academic-search-pubmed-key" value="${config.pubmedApiKey || ''}" placeholder="留空则使用免费额度" class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                <input type="password" id="academic-search-pubmed-key" value="${escapeAttr(config.pubmedApiKey || '')}" placeholder="留空则使用免费额度" class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
                 <button type="button" id="academic-search-pubmed-toggle" class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors flex items-center gap-1">
                     <iconify-icon icon="carbon:view" width="16"></iconify-icon>
                     <span>显示</span>
                 </button>
             </div>
-            <p class="mt-1 text-xs text-gray-500">从 <a href="https://www.ncbi.nlm.nih.gov/account/" target="_blank" class="text-blue-600 hover:underline">NCBI</a> 获取，提高请求限额</p>
+            <p class="mt-1 text-xs text-gray-500">从 <a href="https://www.ncbi.nlm.nih.gov/account/" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline">NCBI</a> 获取，提高请求限额</p>
         `;
         container.appendChild(pubmedKeyDiv);
 
@@ -808,7 +826,7 @@ function initUI() {
         authKeyDiv.innerHTML = `
             <label class="block text-sm font-medium text-gray-700 mb-1">Worker Auth Key（共享模式）</label>
             <div class="flex items-center gap-2">
-                <input type="password" id="academic-search-auth-key" value="${config.authKey || ''}" placeholder="如果 Worker 启用了 ENABLE_AUTH，填写这里" class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                <input type="password" id="academic-search-auth-key" value="${escapeAttr(config.authKey || '')}" placeholder="如果 Worker 启用了 ENABLE_AUTH，填写这里" class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
                 <button type="button" id="academic-search-auth-toggle" class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors flex items-center gap-1">
                     <iconify-icon icon="carbon:view" width="16"></iconify-icon>
                     <span>显示</span>
@@ -822,11 +840,11 @@ function initUI() {
         const emailDiv = document.createElement('div');
         emailDiv.innerHTML = `
             <label class="block text-sm font-medium text-gray-700 mb-1">联系邮箱（可选）</label>
-            <input type="email" id="academic-search-contact-email" value="${config.contactEmail || ''}" placeholder="your-email@example.com" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+            <input type="email" id="academic-search-contact-email" value="${escapeAttr(config.contactEmail || '')}" placeholder="your-email@example.com" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
             <p class="mt-1 text-xs text-gray-500">
                 提供邮箱（<span class="font-semibold">Polite Pool</span>）可获得
-                <a href="https://www.crossref.org/documentation/retrieve-metadata/rest-api/tips-for-using-the-crossref-rest-api/#00831" target="_blank" class="font-semibold text-blue-600 hover:underline">CrossRef</a> 和
-                <a href="https://docs.openalex.org/how-to-use-the-api/rate-limits-and-authentication#the-polite-pool" target="_blank" class="font-semibold text-blue-600 hover:underline">OpenAlex</a>
+                <a href="https://www.crossref.org/documentation/retrieve-metadata/rest-api/tips-for-using-the-crossref-rest-api/#00831" target="_blank" rel="noopener noreferrer" class="font-semibold text-blue-600 hover:underline">CrossRef</a> 和
+                <a href="https://docs.openalex.org/how-to-use-the-api/rate-limits-and-authentication#the-polite-pool" target="_blank" rel="noopener noreferrer" class="font-semibold text-blue-600 hover:underline">OpenAlex</a>
                 更高的速率限制（点击链接以了解更多）
             </p>
         `;
@@ -948,48 +966,75 @@ function initUI() {
                     currentConfig.rateLimit = data.rateLimit || null;
                     localStorage.setItem('academicSearchProxyConfig', JSON.stringify(currentConfig));
 
-                    // 格式化输出
-                    let servicesHtml = '';
-                    if (data.services) {
-                        servicesHtml = '<div class="mt-2"><strong>可用服务:</strong><ul class="list-disc list-inside text-xs mt-1">';
-                        for (const [service, info] of Object.entries(data.services)) {
-                            const status = info.enabled ? '✓' : '✗';
-                            const apiKeyStatus = info.hasApiKey !== undefined ? (info.hasApiKey ? ' (有密钥)' : ' (无密钥)') : '';
-                            servicesHtml += `<li>${status} ${service}${apiKeyStatus}</li>`;
-                        }
-                        servicesHtml += '</ul></div>';
-                    }
-
-                    let rateLimitHtml = '';
-                    if (data.rateLimit) {
-                        if (data.rateLimit.enabled) {
-                            rateLimitHtml = `<div class="mt-2 text-xs">
-                                <strong>速率限制:</strong> TPS: ${data.rateLimit.tps}, TPM: ${data.rateLimit.tpm}, 每IP TPS: ${data.rateLimit.perIpTps}, 每IP TPM: ${data.rateLimit.perIpTpm}`;
-
-                            // 显示服务级别速率限制
-                            if (data.rateLimit.services) {
-                                rateLimitHtml += '<div class="ml-4 mt-1 text-xs opacity-80">';
-                                if (data.rateLimit.services.pubmed) {
-                                    rateLimitHtml += `<div>• PubMed: TPS ${data.rateLimit.services.pubmed.tps}, TPM ${data.rateLimit.services.pubmed.tpm}</div>`;
-                                }
-                                if (data.rateLimit.services.semanticscholar) {
-                                    rateLimitHtml += `<div>• Semantic Scholar: TPS ${data.rateLimit.services.semanticscholar.tps}, TPM ${data.rateLimit.services.semanticscholar.tpm}</div>`;
-                                }
-                                rateLimitHtml += '</div>';
-                            }
-                            rateLimitHtml += '</div>';
-                        } else {
-                            rateLimitHtml = '<div class="mt-2 text-xs"><strong>速率限制:</strong> 未启用</div>';
-                        }
-                    }
-
-                    let authHtml = '';
-                    if (data.authentication) {
-                        authHtml = `<div class="mt-1 text-xs"><strong>认证:</strong> ${data.authentication.required ? '必需' : '不需要'}</div>`;
-                    }
-
                     resultDiv.className = 'text-sm mt-2 p-2 bg-green-50 border border-green-200 text-green-700 rounded';
-                    resultDiv.innerHTML = `✅ 连接成功！速率限制配置已保存${servicesHtml}${rateLimitHtml}${authHtml}`;
+                    resultDiv.textContent = '';
+                    resultDiv.appendChild(document.createTextNode('✅ 连接成功！速率限制配置已保存'));
+
+                    if (data && data.services && typeof data.services === 'object') {
+                        const servicesWrapper = document.createElement('div');
+                        servicesWrapper.className = 'mt-2';
+                        const servicesTitle = document.createElement('strong');
+                        servicesTitle.textContent = '可用服务:';
+                        servicesWrapper.appendChild(servicesTitle);
+
+                        const ul = document.createElement('ul');
+                        ul.className = 'list-disc list-inside text-xs mt-1';
+                        for (const [service, info] of Object.entries(data.services)) {
+                            const status = info && info.enabled ? '✓' : '✗';
+                            const hasApiKey = info && Object.prototype.hasOwnProperty.call(info, 'hasApiKey') ? info.hasApiKey : undefined;
+                            const apiKeyStatus = (hasApiKey === true) ? ' (有密钥)' : (hasApiKey === false) ? ' (无密钥)' : '';
+                            const li = document.createElement('li');
+                            li.textContent = `${status} ${service}${apiKeyStatus}`;
+                            ul.appendChild(li);
+                        }
+                        servicesWrapper.appendChild(ul);
+                        resultDiv.appendChild(servicesWrapper);
+                    }
+
+                    if (data && data.rateLimit) {
+                        const rl = data.rateLimit;
+                        const rateDiv = document.createElement('div');
+                        rateDiv.className = 'mt-2 text-xs';
+                        const rateTitle = document.createElement('strong');
+                        rateTitle.textContent = '速率限制:';
+                        rateDiv.appendChild(rateTitle);
+                        if (rl.enabled) {
+                            rateDiv.appendChild(document.createTextNode(
+                                ` TPS: ${rl.tps}, TPM: ${rl.tpm}, 每IP TPS: ${rl.perIpTps}, 每IP TPM: ${rl.perIpTpm}`
+                            ));
+                            if (rl.services && typeof rl.services === 'object') {
+                                const serviceRates = document.createElement('div');
+                                serviceRates.className = 'ml-4 mt-1 text-xs opacity-80';
+                                if (rl.services.pubmed) {
+                                    const pubmed = rl.services.pubmed;
+                                    const row = document.createElement('div');
+                                    row.textContent = `• PubMed: TPS ${pubmed.tps}, TPM ${pubmed.tpm}`;
+                                    serviceRates.appendChild(row);
+                                }
+                                if (rl.services.semanticscholar) {
+                                    const s2 = rl.services.semanticscholar;
+                                    const row = document.createElement('div');
+                                    row.textContent = `• Semantic Scholar: TPS ${s2.tps}, TPM ${s2.tpm}`;
+                                    serviceRates.appendChild(row);
+                                }
+                                if (serviceRates.childNodes.length) rateDiv.appendChild(serviceRates);
+                            }
+                        } else {
+                            rateDiv.appendChild(document.createTextNode(' 未启用'));
+                        }
+                        resultDiv.appendChild(rateDiv);
+                    }
+
+                    if (data && data.authentication) {
+                        const auth = data.authentication;
+                        const authDiv = document.createElement('div');
+                        authDiv.className = 'mt-1 text-xs';
+                        const authTitle = document.createElement('strong');
+                        authTitle.textContent = '认证:';
+                        authDiv.appendChild(authTitle);
+                        authDiv.appendChild(document.createTextNode(` ${auth.required ? '必需' : '不需要'}`));
+                        resultDiv.appendChild(authDiv);
+                    }
                 } else {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
@@ -1485,7 +1530,11 @@ function initUI() {
                     area.appendChild(controls);
                 } catch (e) {
                     console.error(e);
-                    area.innerHTML = `<span class="text-red-600">检测失败: ${e.message}</span>`;
+                    area.textContent = '';
+                    const errSpan = document.createElement('span');
+                    errSpan.className = 'text-red-600';
+                    errSpan.textContent = `检测失败: ${e && e.message ? e.message : String(e)}`;
+                    area.appendChild(errSpan);
                     setModelSearchCache('gemini_key_manager_detect_list', []);
                     if (searchBtn) searchBtn.disabled = true;
                 } finally {
@@ -1593,7 +1642,11 @@ function initUI() {
                     area.appendChild(controls);
                 } catch (error) {
                     console.error(error);
-                    area.innerHTML = `<span class="text-red-600">检测失败: ${error.message}</span>`;
+                    area.textContent = '';
+                    const errSpan = document.createElement('span');
+                    errSpan.className = 'text-red-600';
+                    errSpan.textContent = `检测失败: ${error && error.message ? error.message : String(error)}`;
+                    area.appendChild(errSpan);
                     setModelSearchCache('deepseek_key_manager_detect_list', []);
                     if (searchBtn) searchBtn.disabled = true;
                 } finally {
@@ -1690,7 +1743,11 @@ function initUI() {
                 area.appendChild(controls);
             } catch (e) {
                 if (typeof console !== 'undefined') console.error(e);
-                area.innerHTML = `<span class="text-red-600">检测失败: ${e.message}</span>`;
+                area.textContent = '';
+                const errSpan = document.createElement('span');
+                errSpan.className = 'text-red-600';
+                errSpan.textContent = `检测失败: ${e && e.message ? e.message : String(e)}`;
+                area.appendChild(errSpan);
                 setModelSearchCache('tongyi_key_manager_detect_list', []);
                 if (searchBtn) searchBtn.disabled = true;
             } finally {
@@ -2019,13 +2076,13 @@ function initUI() {
                 // 构建HTML以展示站点信息
                 let infoHtml = `
                     <div class="p-3">
-                        <h3 class="font-bold text-gray-800 text-xl mt-1 mb-2">${site.displayName || '未命名源站点'}</h3>
+                        <h3 class="font-bold text-gray-800 text-xl mt-1 mb-2">${escapeHtml(site.displayName || '未命名源站点')}</h3>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
-                            <div><span class="font-medium">API Base URL:</span> <span class="text-gray-600">${site.apiBaseUrl || '未设置'}</span></div>
-                            <div><span class="font-medium">端点补全:</span> <span class="text-gray-600">${endpointModeLabel}</span></div>
-                            <div><span class="font-medium">当前模型:</span> <span id="currentModelPreview_${siteId}" class="text-gray-600">${site.modelId || '未设置'}</span></div>
-                            <div><span class="font-medium">请求格式:</span> <span class="text-gray-600">${site.requestFormat || 'openai'}</span></div>
-                            <div><span class="font-medium">温度:</span> <span class="text-gray-600">${site.temperature || '0.5'}</span></div>
+                            <div><span class="font-medium">API Base URL:</span> <span class="text-gray-600">${escapeHtml(site.apiBaseUrl || '未设置')}</span></div>
+                            <div><span class="font-medium">端点补全:</span> <span class="text-gray-600">${escapeHtml(endpointModeLabel)}</span></div>
+                            <div><span class="font-medium">当前模型:</span> <span id="currentModelPreview_${escapeAttr(siteId)}" class="text-gray-600">${escapeHtml(site.modelId || '未设置')}</span></div>
+                            <div><span class="font-medium">请求格式:</span> <span class="text-gray-600">${escapeHtml(site.requestFormat || 'openai')}</span></div>
+                            <div><span class="font-medium">温度:</span> <span class="text-gray-600">${escapeHtml(site.temperature || '0.5')}</span></div>
                         </div>`;
 
                 // 如果有可用模型列表，则展示为可选择的下拉框
@@ -2039,28 +2096,28 @@ function initUI() {
                                         <iconify-icon icon="carbon:checkmark-filled" class="mr-1" width="14"></iconify-icon>
                                         检测到 ${site.availableModels.length} 个可用模型
                                     </span>
-                                    <button id="reDetectModelsBtn_${siteId}" class="ml-1 px-1.5 py-0.5 bg-gray-100 hover:bg-blue-100 text-blue-600 rounded flex items-center" title="重新检测模型">
+                                    <button id="reDetectModelsBtn_${escapeAttr(siteId)}" class="ml-1 px-1.5 py-0.5 bg-gray-100 hover:bg-blue-100 text-blue-600 rounded flex items-center" title="重新检测模型">
                                         <iconify-icon icon="carbon:renew" class="animate-spin-slow" width="16"></iconify-icon>
                                     </button>
                                 </div>
                             </div>
                             <div class="flex flex-col sm:flex-row sm:items-center sm:space-x-2 space-y-2 sm:space-y-0 mt-2">
-                                <select id="sourceSiteModelSelect_${siteId}" class="w-full sm:flex-1 px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors">`;
+                                <select id="sourceSiteModelSelect_${escapeAttr(siteId)}" class="w-full sm:flex-1 px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors">`;
 
                     site.availableModels.forEach(model => {
                         const modelName = model.name || model.id;
                         const modelId = model.id;
                         const isSelected = modelId === site.modelId;
-                        infoHtml += `<option value="${modelId}" ${isSelected ? 'selected' : ''}>${modelName}</option>`;
+                        infoHtml += `<option value="${escapeAttr(modelId)}" ${isSelected ? 'selected' : ''}>${escapeHtml(modelName)}</option>`;
                     });
 
                     // 添加当前使用的模型（如果不在列表中）
                     if (site.modelId && !site.availableModels.some(m => m.id === site.modelId)) {
-                        infoHtml += `<option value="${site.modelId}" selected>${site.modelId} (当前使用)</option>`;
+                        infoHtml += `<option value="${escapeAttr(site.modelId)}" selected>${escapeHtml(site.modelId)} (当前使用)</option>`;
                     }
 
                     infoHtml += `</select>
-                                <button id="sourceSiteModelSearchBtn_${siteId}" class="px-3 py-1.5 border border-gray-300 rounded text-xs text-gray-600 hover:text-blue-600 hover:border-blue-400 transition-colors flex items-center whitespace-nowrap">
+                                <button id="sourceSiteModelSearchBtn_${escapeAttr(siteId)}" class="px-3 py-1.5 border border-gray-300 rounded text-xs text-gray-600 hover:text-blue-600 hover:border-blue-400 transition-colors flex items-center whitespace-nowrap">
                                     <iconify-icon icon="carbon:search" class="mr-1" width="14"></iconify-icon>
                                     搜索模型
                                 </button>
@@ -2077,8 +2134,8 @@ function initUI() {
                             </div>
                         </div>
                         <div class="flex flex-col sm:flex-row sm:items-center gap-2 w-full">
-                            <input type="text" id="manualModelId_${siteId}" class="w-full sm:flex-1 px-3 py-1.5 border border-gray-300 rounded-l-md text-sm" value="${site.modelId || ''}" placeholder="例如: gpt-4-turbo">
-                            <button id="saveManualModelBtn_${siteId}" class="px-2 py-1.5 bg-blue-500 hover:bg-blue-600 text-white rounded sm:rounded-r-md text-xs flex items-center justify-center w-full sm:w-auto">
+                            <input type="text" id="manualModelId_${escapeAttr(siteId)}" class="w-full sm:flex-1 px-3 py-1.5 border border-gray-300 rounded-l-md text-sm" value="${escapeAttr(site.modelId || '')}" placeholder="例如: gpt-4-turbo">
+                            <button id="saveManualModelBtn_${escapeAttr(siteId)}" class="px-2 py-1.5 bg-blue-500 hover:bg-blue-600 text-white rounded sm:rounded-r-md text-xs flex items-center justify-center w-full sm:w-auto">
                                 <iconify-icon icon="carbon:save" class="mr-1" width="14"></iconify-icon>
                                 保存
                             </button>
@@ -2087,7 +2144,7 @@ function initUI() {
                             <span class="text-blue-600 inline-flex items-center">
                                 <iconify-icon icon="carbon:arrow-right" class="mr-1" width="14"></iconify-icon>
                                 点击
-                                <button id="infoDetectModelsBtn_${siteId}" class="mx-1 px-1.5 py-0.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs flex items-center">
+                                <button id="infoDetectModelsBtn_${escapeAttr(siteId)}" class="mx-1 px-1.5 py-0.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs flex items-center">
                                     <iconify-icon icon="carbon:model-alt" class="mr-1" width="12"></iconify-icon>
                                     检测可用模型
                                 </button>
@@ -2115,7 +2172,7 @@ function initUI() {
                                       `<iconify-icon icon="carbon:warning-filled" class="mr-1" width="14"></iconify-icon>无可用Key`}
                                 </span>
                             </div>
-                            <button id="infoManageKeyBtn_${siteId}" class="px-3 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded text-xs flex items-center justify-center w-full sm:w-auto" style="min-height:2.4em;">
+                            <button id="infoManageKeyBtn_${escapeAttr(siteId)}" class="px-3 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded text-xs flex items-center justify-center w-full sm:w-auto" style="min-height:2.4em;">
                                 <iconify-icon icon="carbon:api" class="mr-1" width="14"></iconify-icon>
                                 管理API Key
                             </button>

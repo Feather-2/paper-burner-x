@@ -183,7 +183,14 @@
       document.body.appendChild(toast);
     }
 
-    toast.innerHTML = `<iconify-icon icon="carbon:checkmark-filled" width="20"></iconify-icon> <span>${msg}</span>`;
+    toast.textContent = '';
+    const icon = document.createElement('iconify-icon');
+    icon.setAttribute('icon', 'carbon:checkmark-filled');
+    icon.setAttribute('width', '20');
+    const label = document.createElement('span');
+    label.textContent = String(msg ?? '');
+    toast.appendChild(icon);
+    toast.appendChild(label);
     toast.style.opacity = '1';
     toast.style.transform = 'translateX(-50%) translateY(0)';
 

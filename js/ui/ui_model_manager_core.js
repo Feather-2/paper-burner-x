@@ -294,7 +294,15 @@
       ocrWarning.className = 'mb-3 text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded px-3 py-2 flex items-start gap-2';
       const engineNames = { mistral: 'Mistral OCR', mineru: 'MinerU', doc2x: 'Doc2X' };
       const engineName = engineNames[currentOcrEngine] || currentOcrEngine;
-      ocrWarning.innerHTML = `<iconify-icon icon="carbon:warning" width="14"></iconify-icon><span>当前 OCR 引擎（${engineName}）未配置完成，无法进行 PDF 的 OCR 操作。</span>`;
+      const icon = document.createElement('iconify-icon');
+      icon.setAttribute('icon', 'carbon:warning');
+      icon.setAttribute('width', '14');
+
+      const text = document.createElement('span');
+      text.textContent = `当前 OCR 引擎（${engineName}）未配置完成，无法进行 PDF 的 OCR 操作。`;
+
+      ocrWarning.appendChild(icon);
+      ocrWarning.appendChild(text);
       this.modelListColumn.appendChild(ocrWarning);
     }
 
@@ -325,10 +333,10 @@
           const button = document.createElement('button');
           button.dataset.modelKey = model.key;
           button.className = 'w-full text-left px-3 py-2 text-sm rounded-md transition-colors ';
-          const indicator = modelHasValidKey[model.key]
-            ? '<span class="inline-block w-1.5 h-1.5 mr-2 rounded-full bg-emerald-500"></span>'
-            : '<span class="inline-block w-1.5 h-1.5 mr-2 rounded-full bg-slate-300"></span>';
-          button.innerHTML = indicator + model.name;
+          const indicator = document.createElement('span');
+          indicator.className = `inline-block w-1.5 h-1.5 mr-2 rounded-full ${modelHasValidKey[model.key] ? 'bg-emerald-500' : 'bg-slate-300'}`;
+          button.appendChild(indicator);
+          button.appendChild(document.createTextNode(model.name));
 
           if (model.key === this.selectedModelForManager) {
             button.classList.add('bg-blue-100', 'text-blue-700', 'font-semibold');

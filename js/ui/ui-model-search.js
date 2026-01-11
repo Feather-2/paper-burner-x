@@ -3,6 +3,67 @@
 (function(global) {
     'use strict';
 
+    function escapeHtml(value) {
+        return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;'
+        })[ch]);
+    }
+
+    // Returns safe HTML with <mark> wrappers (no raw HTML injection).
+    function highlightKeyword(text, keyword) {
+        const rawText = String(text ?? '');
+        const rawKeyword = String(keyword ?? '').trim();
+        if (!rawKeyword) return escapeHtml(rawText);
+
+        const tokens = rawKeyword
+            .split(/\s+/)
+            .map(t => t.trim())
+            .filter(Boolean)
+            .map(t => t.toLowerCase());
+        if (tokens.length === 0) return escapeHtml(rawText);
+
+        const lowerText = rawText.toLowerCase();
+        const ranges = [];
+
+        for (const token of tokens) {
+            if (!token) continue;
+            let fromIndex = 0;
+            while (fromIndex < lowerText.length) {
+                const hitIndex = lowerText.indexOf(token, fromIndex);
+                if (hitIndex === -1) break;
+                ranges.push([hitIndex, hitIndex + token.length]);
+                fromIndex = hitIndex + token.length;
+            }
+        }
+
+        if (ranges.length === 0) return escapeHtml(rawText);
+
+        ranges.sort((a, b) => (a[0] - b[0]) || (a[1] - b[1]));
+        const merged = [];
+        for (const [start, end] of ranges) {
+            const last = merged[merged.length - 1];
+            if (!last || start > last[1]) {
+                merged.push([start, end]);
+                continue;
+            }
+            last[1] = Math.max(last[1], end);
+        }
+
+        let out = '';
+        let cursor = 0;
+        for (const [start, end] of merged) {
+            if (cursor < start) out += escapeHtml(rawText.slice(cursor, start));
+            out += `<mark>${escapeHtml(rawText.slice(start, end))}</mark>`;
+            cursor = end;
+        }
+        if (cursor < rawText.length) out += escapeHtml(rawText.slice(cursor));
+        return out;
+    }
+
     const overlayState = {
         initialized: false,
         overlayEl: null,

@@ -1,11 +1,56 @@
 // ESM 导入核心类以确保 mixin 安装时类已存在
 import PPTGeneratorCtor from './ppt_generator_core.js';
 
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    })[ch]);
+}
+
+function escapeAttr(value) {
+    return escapeHtml(value).replace(/`/g, '&#96;');
+}
+
+function sanitizeUrlForAttr(value, { allowDataImage = true } = {}) {
+    const raw = String(value ?? '').trim();
+    if (!raw) return '';
+    const lower = raw.toLowerCase();
+    if (lower.startsWith('javascript:')) return '';
+    if (lower.startsWith('data:')) {
+        if (!allowDataImage) return '';
+        if (!lower.startsWith('data:image/')) return '';
+    }
+    return raw;
+}
+
+function getDomPurify() {
+    const purifier = globalThis.DOMPurify || globalThis.window?.DOMPurify;
+    return purifier && typeof purifier.sanitize === 'function' ? purifier : null;
+}
+
 function sanitizeHtml(html) {
     if (!html) return '';
-    return String(html)
-        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-        .replace(/\bon\w+\s*=/gi, 'data-removed-handler=');
+    const raw = String(html);
+    const purifier = getDomPurify();
+    if (!purifier) {
+        return raw
+            .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+            .replace(/\bon\w+\s*=/gi, 'data-removed-handler=')
+            .replace(/\b(href|src)\s*=\s*(['"])\s*javascript:[^'"]*\2/gi, '$1=$2#$2');
+    }
+    try {
+        return purifier.sanitize(raw, {
+            SAFE_FOR_TEMPLATES: true,
+            KEEP_CONTENT: true,
+            ALLOW_DATA_ATTR: true
+        });
+    } catch {
+        return raw;
+    }
 }
 
 const PPTGeneratorUtilities = {
@@ -35,35 +80,35 @@ const PPTGeneratorUtilities = {
             this.isTodoListExpanded = false;
         }
 
-        const listHtml = this.todos.map(todo => `
-            <div class="ppt-todo-item ${todo.status}">
-                <div class="ppt-todo-icon">
-                    ${todo.status === 'completed' ? '<iconify-icon icon="carbon:checkmark-filled"></iconify-icon>' :
-                      todo.status === 'active' ? '<iconify-icon icon="carbon:circle-dash" class="animate-spin"></iconify-icon>' :
-                      '<iconify-icon icon="carbon:radio-button"></iconify-icon>'}
-                </div>
-                <span>${todo.text}</span>
-            </div>
-        `).join('');
+	        const listHtml = this.todos.map(todo => `
+	            <div class="ppt-todo-item ${todo.status}">
+	                <div class="ppt-todo-icon">
+	                    ${todo.status === 'completed' ? '<iconify-icon icon="carbon:checkmark-filled"></iconify-icon>' :
+	                      todo.status === 'active' ? '<iconify-icon icon="carbon:circle-dash" class="animate-spin"></iconify-icon>' :
+	                      '<iconify-icon icon="carbon:radio-button"></iconify-icon>'}
+	                </div>
+	                <span>${escapeHtml(todo.text)}</span>
+	            </div>
+	        `).join('');
 
         const progressText = !this.isTodoListExpanded ? `<span style="font-weight: normal; color: var(--ppt-text-muted); margin-left: 8px;">${allCompleted ? '✓ 已完成' : `(${completedCount}/${totalCount})`}</span>` : '';
 
         const chevronIcon = this.isTodoListExpanded ? 'carbon:chevron-up' : 'carbon:chevron-down';
         const contentStyle = this.isTodoListExpanded ? '' : 'display: none;';
 
-        container.innerHTML = `
-            <div class="ppt-todo-header" onclick="window.PPTGenerator.toggleTodoList()">
-                <div style="display: flex; align-items: center;">
-                    <span>当前任务进度</span>
-                    ${progressText}
-                </div>
-                <iconify-icon icon="${chevronIcon}"></iconify-icon>
-            </div>
-            <div class="ppt-todo-content" style="${contentStyle}">
-                ${listHtml}
-            </div>
-        `;
-    },
+	        container.innerHTML = `
+	            <div class="ppt-todo-header" data-ppt-action="toggle-todo-list">
+	                <div style="display: flex; align-items: center;">
+	                    <span>当前任务进度</span>
+	                    ${progressText}
+	                </div>
+	                <iconify-icon icon="${chevronIcon}"></iconify-icon>
+	            </div>
+	            <div class="ppt-todo-content" style="${contentStyle}">
+	                ${listHtml}
+	            </div>
+	        `;
+	    },
 
     toggleTodoList() {
         this.isTodoListExpanded = !this.isTodoListExpanded;
@@ -93,10 +138,10 @@ const PPTGeneratorUtilities = {
         this._scrollToBottom();
     },
 
-    _appendMessageToDOM(msg) {
-        const container = document.getElementById('pptChatHistory');
-        const div = document.createElement('div');
-        div.className = `ppt-message ${msg.role}`;
+	    _appendMessageToDOM(msg) {
+	        const container = document.getElementById('pptChatHistory');
+	        const div = document.createElement('div');
+	        div.className = `ppt-message ${msg.role}`;
 
         // Only show avatar for user, or if it's the very first message for AI to establish context
         // But user requested "ugly AI avatar" to be removed. Let's make it cleaner.
@@ -121,34 +166,50 @@ const PPTGeneratorUtilities = {
             `;
         }
 
-        // 渲染附件
-        let attachmentsHtml = '';
-        if (msg.attachments && msg.attachments.length > 0) {
-            attachmentsHtml = `
-                <div class="ppt-msg-attachments">
-                    ${msg.attachments.map(att => `
-                        <div class="ppt-msg-attachment">
-                            ${att.preview 
-                                ? `<img src="${att.preview}" alt="${att.name}">` 
-                                : `<iconify-icon icon="carbon:document"></iconify-icon>`
-                            }
-                            <span>${att.name}</span>
-                        </div>
-                    `).join('')}
-                </div>
-            `;
-        }
+	        // 渲染附件
+	        let attachmentsHtml = '';
+	        if (msg.attachments && msg.attachments.length > 0) {
+	            attachmentsHtml = `
+	                <div class="ppt-msg-attachments">
+	                    ${msg.attachments.map(att => {
+                            const name = escapeHtml(att?.name ?? '');
+                            const previewUrl = sanitizeUrlForAttr(att?.preview);
+                            const previewHtml = previewUrl
+                                ? `<img src="${escapeAttr(previewUrl)}" alt="${escapeAttr(att?.name ?? '')}">`
+                                : `<iconify-icon icon="carbon:document"></iconify-icon>`;
+                            return `
+                                <div class="ppt-msg-attachment">
+                                    ${previewHtml}
+                                    <span>${name}</span>
+                                </div>
+                            `;
+                        }).join('')}
+	                </div>
+	            `;
+	        }
 
-	        div.innerHTML = `
-	            ${avatarHtml}
-	            <div class="ppt-bubble">
-	                ${attachmentsHtml}
-	                ${msg.content ? sanitizeHtml(marked.parse(msg.content)) : ''}
-	                ${msg.action ? `<div class="ppt-bubble-action">${msg.action}</div>` : ''}
-	            </div>
-	        `;
-	        container.appendChild(div);
-	    },
+                const contentText = msg?.content != null ? String(msg.content) : '';
+                let contentHtml = '';
+                if (contentText) {
+                    if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
+                        contentHtml = sanitizeHtml(marked.parse(contentText));
+                    } else {
+                        contentHtml = escapeHtml(contentText).replace(/\n/g, '<br>');
+                    }
+                }
+
+                const actionHtml = msg?.action ? sanitizeHtml(msg.action) : '';
+
+		        div.innerHTML = `
+		            ${avatarHtml}
+		            <div class="ppt-bubble">
+		                ${attachmentsHtml}
+		                ${contentHtml}
+		                ${actionHtml ? `<div class="ppt-bubble-action">${actionHtml}</div>` : ''}
+		            </div>
+		        `;
+		        container.appendChild(div);
+		    },
 
     _scrollToBottom() {
         const container = document.getElementById('pptChatHistory');

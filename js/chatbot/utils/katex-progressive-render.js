@@ -19,6 +19,43 @@ export const PROGRESSIVE_CONFIG = {
   ENABLE: true                      // 是否启用渐进式渲染
 };
 
+function escapeHtml(value) {
+  const str = String(value ?? '');
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/`/g, '&#96;');
+}
+
+function getDomPurify() {
+  const purifier = globalThis.DOMPurify || globalThis.window?.DOMPurify;
+  return purifier && typeof purifier.sanitize === 'function' ? purifier : null;
+}
+
+function sanitizeHtmlFragment(html, options = null) {
+  const raw = String(html ?? '');
+  if (!raw) return '';
+  const purifier = getDomPurify();
+  if (!purifier) {
+    return raw
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/\bon\w+\s*=/gi, 'data-removed-handler=');
+  }
+  try {
+    return purifier.sanitize(raw, {
+      SAFE_FOR_TEMPLATES: true,
+      KEEP_CONTENT: true,
+      ALLOW_DATA_ATTR: true,
+      ...(options || {})
+    });
+  } catch {
+    return raw;
+  }
+}
+
 /**
  * 渲染队列管理器
  */
@@ -187,9 +224,10 @@ export class KaTeXProgressiveRenderer {
       }
     } catch (error) {
       console.error('[KaTeX Progressive] 渲染失败:', formula.tex, error);
+      const safeTex = escapeHtml(formula.tex);
       placeholder.outerHTML = formula.displayMode
-        ? `<div class="katex-fallback katex-block"><pre>${formula.tex}</pre></div>`
-        : `<span class="katex-fallback katex-inline">${formula.tex}</span>`;
+        ? `<div class="katex-fallback katex-block"><pre>${safeTex}</pre></div>`
+        : `<span class="katex-fallback katex-inline">${safeTex}</span>`;
     }
   }
 
@@ -237,9 +275,15 @@ export function installKatexProgressiveRender() {
       if (typeof window.safeRenderMarkdown === 'function') {
         html = window.safeRenderMarkdown(mdWithPlaceholders);
       } else if (typeof marked !== 'undefined') {
-        html = marked.parse(mdWithPlaceholders);
+        try {
+          html = typeof marked.parse === 'function'
+            ? sanitizeHtmlFragment(marked.parse(mdWithPlaceholders))
+            : escapeHtml(mdWithPlaceholders).replace(/\n/g, '<br>');
+        } catch (e) {
+          html = escapeHtml(mdWithPlaceholders).replace(/\n/g, '<br>');
+        }
       } else {
-        html = mdWithPlaceholders;
+        html = escapeHtml(mdWithPlaceholders).replace(/\n/g, '<br>');
       }
 
       const firstPassDuration = performance.now() - startTime;
@@ -266,4 +310,3 @@ export function installKatexProgressiveRender() {
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   installKatexProgressiveRender();
 }
-

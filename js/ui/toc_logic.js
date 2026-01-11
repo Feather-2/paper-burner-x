@@ -7,6 +7,16 @@
 (function TocFeature(){
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
 
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    })[ch]);
+  }
+
   // 兼容层：避免其他脚本在 TOC 初始化前调用时报错
   if (typeof window.refreshTocList !== 'function') window.refreshTocList = function() {};
   if (typeof window.getCurrentTocStructure !== 'function') window.getCurrentTocStructure = function() { return null; };
@@ -1201,7 +1211,7 @@
           if (item.structureInfo && item.structureInfo.originalPrefix) {
             prefix = item.structureInfo.originalPrefix; // 使用标准化的格式，如"3.1.1"
           }
-          linkHTML += `<span class="toc-prefix">${prefix}</span> `;
+          linkHTML += `<span class="toc-prefix">${escapeHtml(prefix)}</span> `;
         }
 
         // 如果是图表标题，添加特殊图标
@@ -1226,10 +1236,10 @@
         }
 
         // 将文本内容包装在span中，确保正确显示
-        linkHTML += `<span class="toc-content">${displayText}</span>`;
+        linkHTML += `<span class="toc-content">${escapeHtml(displayText)}</span>`;
 
         if (item.translation && item.translation !== item.originalText) {
-          linkHTML += ` <span class="toc-en-translation">／ ${item.translation}</span>`;
+          linkHTML += ` <span class="toc-en-translation">／ ${escapeHtml(item.translation)}</span>`;
         }
 
         linkHTML += `</span>`;

@@ -168,14 +168,14 @@
      */
     function showPerformanceWarning(operation, duration) {
         const warningEl = document.createElement('div');
-        warningEl.className = 'performance-warning';
-        warningEl.innerHTML = `
-            <div class="warning-content">
-                <i class="fas fa-exclamation-triangle"></i>
-                <span>渲染耗时较长 (${(duration / 1000).toFixed(1)}秒)</span>
-                <button onclick="this.parentElement.parentElement.remove()">×</button>
-            </div>
-        `;
+	        warningEl.className = 'performance-warning';
+	        warningEl.innerHTML = `
+	            <div class="warning-content">
+	                <i class="fas fa-exclamation-triangle"></i>
+	                <span>渲染耗时较长 (${(duration / 1000).toFixed(1)}秒)</span>
+	                <button type="button" data-warning-action="close">×</button>
+	            </div>
+	        `;
         warningEl.style.cssText = `
             position: fixed;
             top: 20px;
@@ -189,7 +189,10 @@
             max-width: 300px;
         `;
 
-        document.body.appendChild(warningEl);
+	        document.body.appendChild(warningEl);
+	        warningEl.querySelector('[data-warning-action="close"]')?.addEventListener('click', () => {
+	            warningEl.remove();
+	        });
 
         // 5秒后自动移除
         setTimeout(() => {
@@ -286,21 +289,21 @@
             // 若已存在，不重复创建
             if (document.querySelector('.keyboard-hints')) return;
             const hintsEl = document.createElement('div');
-            hintsEl.className = 'keyboard-hints';
-            hintsEl.innerHTML = `
-                <div class="hints-content">
-                    <h4>键盘快捷键</h4>
+	            hintsEl.className = 'keyboard-hints';
+	            hintsEl.innerHTML = `
+	                <div class="hints-content">
+	                    <h4>键盘快捷键</h4>
                     <div class="hint-item">
                         <kbd>Ctrl/Cmd + Shift + P</kbd>
                         <span>切换性能模式</span>
                     </div>
-                    <div class="hint-item">
-                        <kbd>Ctrl/Cmd + Shift + S</kbd>
-                        <span>切换原文/译文位置</span>
-                    </div>
-                    <button class="close-hints" onclick="this.parentElement.parentElement.remove()">知道了</button>
-                </div>
-            `;
+	                    <div class="hint-item">
+	                        <kbd>Ctrl/Cmd + Shift + S</kbd>
+	                        <span>切换原文/译文位置</span>
+	                    </div>
+	                    <button type="button" class="close-hints">知道了</button>
+	                </div>
+	            `;
             hintsEl.style.cssText = `
                 position: fixed;
                 top: 50%;
@@ -315,7 +318,10 @@
                 max-width: 300px;
             `;
 
-            document.body.appendChild(hintsEl);
+	            document.body.appendChild(hintsEl);
+	            hintsEl.querySelector('.close-hints')?.addEventListener('click', () => {
+	                hintsEl.remove();
+	            });
 
             // 10秒后自动移除
             setTimeout(() => {

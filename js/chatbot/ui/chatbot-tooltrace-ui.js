@@ -12,6 +12,30 @@
   var batchTimer = null;
   var isFinished = false;
   var isCollapsed = false; // 默认展开，避免更新时自动收起
+  var eventsBound = false;
+
+  function ensureEventsBound() {
+    if (eventsBound) return;
+    eventsBound = true;
+
+    document.addEventListener('click', function(e) {
+      var actionEl = e.target && e.target.closest ? e.target.closest('[data-tooltrace-action]') : null;
+      if (!actionEl) return;
+      var action = actionEl.getAttribute('data-tooltrace-action');
+      if (!action) return;
+      e.preventDefault();
+
+      if (action === 'toggle-step-detail') {
+        var step = actionEl.closest ? actionEl.closest('.tool-step') : null;
+        if (step) step.classList.toggle('detail-open');
+      } else if (action === 'toggle-block-collapse') {
+        var block = actionEl.closest ? actionEl.closest('.tool-thinking-block') : null;
+        if (!block) return;
+        block.classList.toggle('collapsed');
+        isCollapsed = block.classList.contains('collapsed');
+      }
+    });
+  }
 
   function injectStyles() {
     if (stylesInjected) return;
@@ -344,18 +368,18 @@
     var title = getStepTitle(stepInfo);
     var detail = formatDetail(stepInfo.args || {});
 
-    var stepHtml = `
-      <div class="tool-step ${status}">
-        <div class="tool-step-indicator">${icon}</div>
-        <div class="tool-step-content">
-          <div class="tool-step-main">
-            <span class="tool-step-title">${escapeHtml(title)}</span>
-            <button class="tool-step-detail-toggle" onclick="this.closest('.tool-step').classList.toggle('detail-open')">详情</button>
-          </div>
-          <div class="tool-step-detail">${escapeHtml(detail)}</div>
-        </div>
-      </div>
-    `;
+	    var stepHtml = `
+	      <div class="tool-step ${status}">
+	        <div class="tool-step-indicator">${icon}</div>
+	        <div class="tool-step-content">
+	          <div class="tool-step-main">
+	            <span class="tool-step-title">${escapeHtml(title)}</span>
+	            <button type="button" class="tool-step-detail-toggle" data-tooltrace-action="toggle-step-detail">详情</button>
+	          </div>
+	          <div class="tool-step-detail">${escapeHtml(detail)}</div>
+	        </div>
+	      </div>
+	    `;
 
     currentStepsHtml.push(stepHtml);
   }
@@ -406,29 +430,12 @@
       return '';
     }
 
-    // 使用全局变量 isCollapsed 控制状态，并添加 onclick 事件来切换该变量
-    // 注意：这里我们使用 window.ChatbotToolTraceUI.toggleCollapse 来切换状态，而不是直接操作 DOM
-    // 这样可以确保状态同步
-    
-    // 为了支持 onclick 调用，我们需要暴露一个 toggle 方法
-    if (!window.ChatbotToolTraceUI.toggleCollapse) {
-      window.ChatbotToolTraceUI.toggleCollapse = function(el) {
-        isCollapsed = !isCollapsed;
-        var block = el.closest('.tool-thinking-block');
-        if (isCollapsed) {
-          block.classList.add('collapsed');
-        } else {
-          block.classList.remove('collapsed');
-        }
-      };
-    }
-
-    var html = `
-      <div class="tool-thinking-block ${collapsedClass}">
-        <div class="tool-thinking-header" onclick="window.ChatbotToolTraceUI.toggleCollapse(this)">
-          <div class="tool-thinking-title">
-            <div class="tool-thinking-icon-wrapper ${iconClass}">
-              ${headerIcon}
+	    var html = `
+	      <div class="tool-thinking-block ${collapsedClass}">
+	        <div class="tool-thinking-header" data-tooltrace-action="toggle-block-collapse">
+	          <div class="tool-thinking-title">
+	            <div class="tool-thinking-icon-wrapper ${iconClass}">
+	              ${headerIcon}
             </div>
             <span>${title}</span>
           </div>
@@ -1192,14 +1199,17 @@
     ensureStyles: injectStyles  // 导出以便外部调用
   };
 
-  // 页面加载时立即注入样式，确保刷新后样式可用
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', injectStyles);
-  } else {
-    injectStyles();
-  }
+	  // 页面加载时立即注入样式，确保刷新后样式可用
+	  if (document.readyState === 'loading') {
+	    document.addEventListener('DOMContentLoaded', injectStyles);
+	  } else {
+	    injectStyles();
+	  }
 
-  window.ChatbotToolTraceUIScriptLoaded = true;
+	  // Bind delegated events once (works even after sanitization strips inline handlers).
+	  ensureEventsBound();
+
+	  window.ChatbotToolTraceUIScriptLoaded = true;
 })(typeof window !== 'undefined' ? window : undefined, typeof document !== 'undefined' ? document : undefined);
 
 export const ChatbotToolTraceUI = typeof window !== 'undefined' ? window.ChatbotToolTraceUI : undefined;

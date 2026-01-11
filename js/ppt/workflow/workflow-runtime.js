@@ -2659,18 +2659,29 @@ export const runtimeMixin = {
                 return null;
             };
 
-            const makeMockDeckHtmlDsl = () => {
-                const intents = Array.isArray(contentPackage?.slideIntents) ? contentPackage.slideIntents : [];
-                const safeIntents = intents.length ? intents : [{ title: '内容', pageType: 'content', slideIntentId: 'mock-1' }];
-                return safeIntents.map((si, idx) => {
-                    const title = String(si?.title || `Slide ${idx + 1}`).replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                    return `
-<section data-type="freeform" id="mock-slide-${idx + 1}" data-bg="#ffffff" data-title="${title}" data-layout="content">
-  <div data-el="text" data-x="8%" data-y="10%" data-w="84%" data-h="auto" data-font="40" data-color="#0f172a" data-bold="true">${title}</div>
-  <div data-el="text" data-x="8%" data-y="22%" data-w="84%" data-h="auto" data-font="16" data-color="#334155">（设计引擎降级：使用模板占位内容）</div>
-</section>`.trim();
-                }).join('\n\n');
-            };
+	            const makeMockDeckHtmlDsl = () => {
+	                const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+	                    '&': '&amp;',
+	                    '<': '&lt;',
+	                    '>': '&gt;',
+	                    '"': '&quot;',
+	                    "'": '&#39;',
+	                })[ch]);
+	                const escapeAttr = (value) => escapeHtml(value);
+
+	                const intents = Array.isArray(contentPackage?.slideIntents) ? contentPackage.slideIntents : [];
+	                const safeIntents = intents.length ? intents : [{ title: '内容', pageType: 'content', slideIntentId: 'mock-1' }];
+	                return safeIntents.map((si, idx) => {
+	                    const rawTitle = si?.title || `Slide ${idx + 1}`;
+	                    const titleText = escapeHtml(rawTitle);
+	                    const titleAttr = escapeAttr(rawTitle);
+	                    return `
+	<section data-type="freeform" id="mock-slide-${idx + 1}" data-bg="#ffffff" data-title="${titleAttr}" data-layout="content">
+	  <div data-el="text" data-x="8%" data-y="10%" data-w="84%" data-h="auto" data-font="40" data-color="#0f172a" data-bold="true">${titleText}</div>
+	  <div data-el="text" data-x="8%" data-y="22%" data-w="84%" data-h="auto" data-font="16" data-color="#334155">（设计引擎降级：使用模板占位内容）</div>
+	</section>`.trim();
+	                }).join('\n\n');
+	            };
 
             const parseAndStoreSlides = (deckHtmlDsl) => {
                 if (typeof this._parseAndStoreSlides === 'function') {

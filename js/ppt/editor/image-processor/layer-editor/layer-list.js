@@ -3,6 +3,8 @@
  * 从 layer-editor.js 拆分出的图层列表方法
  */
 
+import { escapeAttr, escapeHtml, sanitizeCssColor, sanitizeUrlForAttr } from './dom-sanitizer.js';
+
 /**
  * 图层列表 mixin
  */
@@ -37,19 +39,21 @@ export const LayerListMixin = {
     /**
      * 渲染单个图层项
      */
-    _renderLayerItem(layer, index) {
-        const isSelected = index === this.selectedLayerIndex && this.selectedChildIndex === -1;
-        const isExpanded = layer.expanded !== false;
-        
-        let preview = '';
-        if (layer.type === 'original' && layer.image) {
-            preview = `<img src="${layer.image.src}" alt="">`;
-        } else if (layer.type === 'vector' && layer.color) {
-            preview = `<div class="color-preview" style="background:${layer.color};width:100%;height:100%;"></div>`;
-        } else if (layer.type === 'group') {
-            let icon = 'carbon:folder';
-            if (layer.ocrGroup || layer.textOverlayConfig) {
-                icon = 'carbon:text-recognition';
+	    _renderLayerItem(layer, index) {
+	        const isSelected = index === this.selectedLayerIndex && this.selectedChildIndex === -1;
+	        const isExpanded = layer.expanded !== false;
+	        
+	        let preview = '';
+	        if (layer.type === 'original' && layer.image) {
+	            const safeSrc = escapeAttr(sanitizeUrlForAttr(layer.image.src, { allowData: true }));
+	            preview = safeSrc ? `<img src="${safeSrc}" alt="">` : '';
+	        } else if (layer.type === 'vector' && layer.color) {
+	            const safeColor = sanitizeCssColor(layer.color, '#000000');
+	            preview = `<div class="color-preview" style="background:${safeColor};width:100%;height:100%;"></div>`;
+	        } else if (layer.type === 'group') {
+	            let icon = 'carbon:folder';
+	            if (layer.ocrGroup || layer.textOverlayConfig) {
+	                icon = 'carbon:text-recognition';
             } else if (layer.samGroup) {
                 icon = 'carbon:cut-out';
             }
@@ -69,39 +73,42 @@ export const LayerListMixin = {
             `;
         }
         
-        const expandIcon = layer.type === 'group' && layer.children?.length > 0
-            ? `<button class="layer-action-btn expand-btn" data-layer="${index}">
-                <iconify-icon icon="${isExpanded ? 'carbon:chevron-down' : 'carbon:chevron-right'}"></iconify-icon>
-               </button>`
-            : '';
-        
-        return `
-            <div class="layer-item ${isSelected ? 'selected' : ''}" data-layer="${index}">
-                ${expandIcon}
-                <div class="layer-preview">${preview}</div>
-                <span class="layer-name">${layer.name || '图层 ' + (index + 1)}</span>
-                <button class="layer-visibility" data-layer="${index}" title="${layer.visible !== false ? '隐藏' : '显示'}">
-                    <iconify-icon icon="${layer.visible !== false ? 'carbon:view' : 'carbon:view-off'}"></iconify-icon>
-                </button>
-            </div>
-            ${childrenHtml}
+	        const expandIcon = layer.type === 'group' && layer.children?.length > 0
+	            ? `<button class="layer-action-btn expand-btn" data-layer="${index}">
+	                <iconify-icon icon="${isExpanded ? 'carbon:chevron-down' : 'carbon:chevron-right'}"></iconify-icon>
+	               </button>`
+	            : '';
+	        
+	        const safeName = layer.name ? escapeHtml(layer.name) : ('图层 ' + (index + 1));
+	        
+	        return `
+	            <div class="layer-item ${isSelected ? 'selected' : ''}" data-layer="${index}">
+	                ${expandIcon}
+	                <div class="layer-preview">${preview}</div>
+	                <span class="layer-name">${safeName}</span>
+	                <button class="layer-visibility" data-layer="${index}" title="${layer.visible !== false ? '隐藏' : '显示'}">
+	                    <iconify-icon icon="${layer.visible !== false ? 'carbon:view' : 'carbon:view-off'}"></iconify-icon>
+	                </button>
+	            </div>
+	            ${childrenHtml}
         `;
     },
 
     /**
      * 渲染子图层项
      */
-    _renderChildLayerItem(child, parentIndex, childIndex, parentLayer) {
+	    _renderChildLayerItem(child, parentIndex, childIndex, parentLayer) {
         // 使用 _isChildSelected 检查多选状态
         const isSelected = this._isChildSelected?.(parentIndex, childIndex) ||
             (parentIndex === this.selectedLayerIndex && childIndex === this.selectedChildIndex);
         
-        let preview = '';
-        if (child.type === 'vector' && child.color) {
-            preview = `<div class="color-preview" style="background:${child.color};width:100%;height:100%;"></div>`;
-        } else if (child.type === 'text-overlay') {
-            preview = `<iconify-icon icon="carbon:text-font"></iconify-icon>`;
-        } else if (child.type === 'subgroup') {
+	        let preview = '';
+	        if (child.type === 'vector' && child.color) {
+	            const safeColor = sanitizeCssColor(child.color, '#000000');
+	            preview = `<div class="color-preview" style="background:${safeColor};width:100%;height:100%;"></div>`;
+	        } else if (child.type === 'text-overlay') {
+	            preview = `<iconify-icon icon="carbon:text-font"></iconify-icon>`;
+	        } else if (child.type === 'subgroup') {
             preview = `<iconify-icon icon="carbon:folder"></iconify-icon>`;
         } else if (child.type === 'sam-layer') {
             preview = `<iconify-icon icon="${child.isForeground ? 'carbon:image-copy' : 'carbon:image'}"></iconify-icon>`;
@@ -109,21 +116,23 @@ export const LayerListMixin = {
             preview = `<iconify-icon icon="carbon:shape"></iconify-icon>`;
         }
         
-        // 子组展开/收起
-        if (child.type === 'subgroup' && child.children?.length > 0) {
-            const isExpanded = child.expanded !== false;
-            return `
-                <div class="layer-item child-layer ${isSelected ? 'selected' : ''}" 
-                     data-parent="${parentIndex}" data-child="${childIndex}">
+	        const safeName = child.name ? escapeHtml(child.name) : (child.type === 'subgroup' ? '子组' : '子图层');
+	        
+	        // 子组展开/收起
+	        if (child.type === 'subgroup' && child.children?.length > 0) {
+	            const isExpanded = child.expanded !== false;
+	            return `
+	                <div class="layer-item child-layer ${isSelected ? 'selected' : ''}" 
+	                     data-parent="${parentIndex}" data-child="${childIndex}">
                     <button class="layer-action-btn expand-btn" data-parent="${parentIndex}" data-child="${childIndex}">
                         <iconify-icon icon="${isExpanded ? 'carbon:chevron-down' : 'carbon:chevron-right'}"></iconify-icon>
-                    </button>
-                    <div class="layer-preview">${preview}</div>
-                    <span class="layer-name">${child.name || '子组'}</span>
-                    <button class="layer-visibility child-vis" data-parent="${parentIndex}" data-child="${childIndex}">
-                        <iconify-icon icon="${child.visible !== false ? 'carbon:view' : 'carbon:view-off'}"></iconify-icon>
-                    </button>
-                </div>
+	                    </button>
+	                    <div class="layer-preview">${preview}</div>
+	                    <span class="layer-name">${safeName}</span>
+	                    <button class="layer-visibility child-vis" data-parent="${parentIndex}" data-child="${childIndex}">
+	                        <iconify-icon icon="${child.visible !== false ? 'carbon:view' : 'carbon:view-off'}"></iconify-icon>
+	                    </button>
+	                </div>
                 <div class="subgroup-children" style="display:${isExpanded ? 'block' : 'none'};padding-left:16px;">
                     ${child.children.map((subChild, subIdx) => 
                         this._renderSubgroupChild(subChild, parentIndex, childIndex, subIdx)
@@ -132,41 +141,44 @@ export const LayerListMixin = {
             `;
         }
         
-        return `
-            <div class="layer-item child-layer ${isSelected ? 'selected' : ''}" 
-                 data-parent="${parentIndex}" data-child="${childIndex}">
-                <div class="layer-preview">${preview}</div>
-                <span class="layer-name">${child.name || '子图层'}</span>
-                <button class="layer-visibility child-vis" data-parent="${parentIndex}" data-child="${childIndex}">
-                    <iconify-icon icon="${child.visible !== false ? 'carbon:view' : 'carbon:view-off'}"></iconify-icon>
-                </button>
-            </div>
-        `;
-    },
+	        return `
+	            <div class="layer-item child-layer ${isSelected ? 'selected' : ''}" 
+	                 data-parent="${parentIndex}" data-child="${childIndex}">
+	                <div class="layer-preview">${preview}</div>
+	                <span class="layer-name">${safeName}</span>
+	                <button class="layer-visibility child-vis" data-parent="${parentIndex}" data-child="${childIndex}">
+	                    <iconify-icon icon="${child.visible !== false ? 'carbon:view' : 'carbon:view-off'}"></iconify-icon>
+	                </button>
+	            </div>
+	        `;
+	    },
 
     /**
      * 渲染子组内的子元素
      */
-    _renderSubgroupChild(child, parentIndex, subgroupIndex, childIndex) {
-        let preview = '';
-        if (child.color) {
-            preview = `<div class="color-preview" style="background:${child.color};width:100%;height:100%;"></div>`;
-        } else {
-            preview = `<iconify-icon icon="carbon:shape"></iconify-icon>`;
-        }
-        
-        return `
-            <div class="layer-item child-layer subgroup-item" 
-                 data-parent="${parentIndex}" data-subgroup="${subgroupIndex}" data-subchild="${childIndex}">
-                <div class="layer-preview">${preview}</div>
-                <span class="layer-name">${child.name || '路径'}</span>
-                <button class="layer-visibility subgroup-vis" 
-                        data-parent="${parentIndex}" data-subgroup="${subgroupIndex}" data-subchild="${childIndex}">
-                    <iconify-icon icon="${child.visible !== false ? 'carbon:view' : 'carbon:view-off'}"></iconify-icon>
-                </button>
-            </div>
-        `;
-    },
+	    _renderSubgroupChild(child, parentIndex, subgroupIndex, childIndex) {
+	        let preview = '';
+	        if (child.color) {
+	            const safeColor = sanitizeCssColor(child.color, '#000000');
+	            preview = `<div class="color-preview" style="background:${safeColor};width:100%;height:100%;"></div>`;
+	        } else {
+	            preview = `<iconify-icon icon="carbon:shape"></iconify-icon>`;
+	        }
+	        
+	        const safeName = child.name ? escapeHtml(child.name) : '路径';
+	        
+	        return `
+	            <div class="layer-item child-layer subgroup-item" 
+	                 data-parent="${parentIndex}" data-subgroup="${subgroupIndex}" data-subchild="${childIndex}">
+	                <div class="layer-preview">${preview}</div>
+	                <span class="layer-name">${safeName}</span>
+	                <button class="layer-visibility subgroup-vis" 
+	                        data-parent="${parentIndex}" data-subgroup="${subgroupIndex}" data-subchild="${childIndex}">
+	                    <iconify-icon icon="${child.visible !== false ? 'carbon:view' : 'carbon:view-off'}"></iconify-icon>
+	                </button>
+	            </div>
+	        `;
+	    },
 
     /**
      * 绑定图层列表事件

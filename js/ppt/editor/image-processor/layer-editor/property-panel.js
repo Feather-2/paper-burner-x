@@ -4,6 +4,7 @@
  */
 
 import { AVAILABLE_FONTS, loadFontCSS } from './text-overlay.js';
+import { escapeAttr, escapeHtml, sanitizeCssColor } from './dom-sanitizer.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -199,15 +200,15 @@ export const PropertyPanelMixin = {
         const hasInpaintedBg = !!(layer.inpaintedBackground?.canvas);
         
         let content = `
-            <div class="property-group">
-                <div class="property-group-title">
-                    <iconify-icon icon="${isOcrGroup ? 'carbon:text-recognition' : 'carbon:folder'}"></iconify-icon>
-                    ${isOcrGroup ? '文字识别组' : '矢量组'}
-                </div>
-                <div class="property-row">
-                    <span class="property-label">名称</span>
-                    <input class="property-input" type="text" value="${layer.name || ''}" data-prop="name">
-                </div>
+	            <div class="property-group">
+	                <div class="property-group-title">
+	                    <iconify-icon icon="${isOcrGroup ? 'carbon:text-recognition' : 'carbon:folder'}"></iconify-icon>
+	                    ${isOcrGroup ? '文字识别组' : '矢量组'}
+	                </div>
+	                <div class="property-row">
+	                    <span class="property-label">名称</span>
+	                    <input class="property-input" type="text" value="${escapeAttr(layer.name || '')}" data-prop="name">
+	                </div>
                 <div class="property-row">
                     <span class="property-label">子图层数</span>
                     <span style="font-size:12px;color:var(--ie-text-secondary)">${childCount}</span>
@@ -255,11 +256,11 @@ export const PropertyPanelMixin = {
                             <option value="">加载中...</option>
                         </select>
                     </div>
-                    <div class="property-row" id="custom-font-row" style="display:${layer.globalFont && globalFontIndex < 0 ? 'flex' : 'none'};">
-                        <span class="property-label">字体名称</span>
-                        <input type="text" class="property-input" data-group-action="custom-font-name"
-                               placeholder="如: Arial, 微软雅黑" value="${layer.globalFont && globalFontIndex < 0 ? layer.globalFont : ''}" style="width:120px;">
-                    </div>
+	                    <div class="property-row" id="custom-font-row" style="display:${layer.globalFont && globalFontIndex < 0 ? 'flex' : 'none'};">
+	                        <span class="property-label">字体名称</span>
+	                        <input type="text" class="property-input" data-group-action="custom-font-name"
+	                               placeholder="如: Arial, 微软雅黑" value="${escapeAttr(layer.globalFont && globalFontIndex < 0 ? layer.globalFont : '')}" style="width:120px;">
+	                    </div>
                     <button class="btn-action" data-group-action="apply-global-font" style="margin-top:4px;">
                         <iconify-icon icon="carbon:checkmark"></iconify-icon>
                         应用到所有区域
@@ -437,7 +438,7 @@ export const PropertyPanelMixin = {
 
         const selected = Array.isArray(elements) ? elements.filter(Boolean) : [];
         if (selected.length === 0) {
-            slot.innerHTML = `
+	        slot.innerHTML = `
                 <div class="property-group">
                     <div class="property-group-title">
                         <iconify-icon icon="carbon:cursor-1"></iconify-icon>
@@ -484,16 +485,16 @@ export const PropertyPanelMixin = {
                     <iconify-icon icon="carbon:cursor-1"></iconify-icon>
                     元素属性 ${selected.length > 1 ? `(${selected.length} 个)` : ''}
                 </div>
-                <div class="property-row">
-                    <span class="property-label">名称</span>
-                    <input class="property-input" type="text" value="${nameValue.replace(/"/g, '&quot;')}"
-                        ${selected.length > 1 ? 'placeholder="（多选）将同时修改"' : ''}
-                        data-element-prop="name">
-                </div>
-                <div class="property-row">
-                    <span class="property-label">颜色</span>
-                    <input type="color" value="${colorValue}" data-element-prop="color">
-                </div>
+	                <div class="property-row">
+	                    <span class="property-label">名称</span>
+	                    <input class="property-input" type="text" value="${escapeAttr(nameValue)}"
+	                        ${selected.length > 1 ? 'placeholder="（多选）将同时修改"' : ''}
+	                        data-element-prop="name">
+	                </div>
+	                <div class="property-row">
+	                    <span class="property-label">颜色</span>
+	                    <input type="color" value="${sanitizeCssColor(colorValue, '#000000')}" data-element-prop="color">
+	                </div>
             </div>
 
             <div class="property-group">
@@ -900,16 +901,16 @@ export const PropertyPanelMixin = {
     _renderVectorLayerPanel(panel, layer) {
         const hexColor = this._toHexColor(layer.color);
         
-        panel.innerHTML = `
+	        panel.innerHTML = `
             <div class="property-group">
                 <div class="property-group-title">
                     <iconify-icon icon="carbon:shape"></iconify-icon>
                     矢量图层
                 </div>
-                <div class="property-row">
-                    <span class="property-label">名称</span>
-                    <input class="property-input" type="text" value="${layer.name || ''}" data-prop="name">
-                </div>
+	                <div class="property-row">
+	                    <span class="property-label">名称</span>
+	                    <input class="property-input" type="text" value="${escapeAttr(layer.name || '')}" data-prop="name">
+	                </div>
                 <div class="property-row">
                     <span class="property-label">颜色</span>
                     <input type="color" value="${hexColor}" data-prop="color">
@@ -1219,16 +1220,16 @@ export const PropertyPanelMixin = {
         const simplifyLevel = childLayer.simplifyLevel || 0;
         const hexColor = this._toHexColor(childLayer.color);
         
-        let content = `
+	        let content = `
             <div class="property-group">
                 <div class="property-group-title">
                     <iconify-icon icon="carbon:shape"></iconify-icon>
                     子图层属性
                 </div>
-                <div class="property-row">
-                    <span class="property-label">名称</span>
-                    <input class="property-input" type="text" value="${childLayer.name || '路径'}" data-child-prop="name">
-                </div>
+	                <div class="property-row">
+	                    <span class="property-label">名称</span>
+	                    <input class="property-input" type="text" value="${escapeAttr(childLayer.name || '路径')}" data-child-prop="name">
+	                </div>
                 <div class="property-row">
                     <span class="property-label">颜色</span>
                     <div style="display:flex;align-items:center;gap:8px;">
@@ -1482,9 +1483,9 @@ export const PropertyPanelMixin = {
             return;
         }
 
-        try {
-            // 请求字体访问权限
-            const fonts = await window.queryLocalFonts();
+	        try {
+	            // 请求字体访问权限
+	            const fonts = await window.queryLocalFonts();
 
             // 去重并按字体系列分组
             const fontFamilies = new Map();
@@ -1495,14 +1496,14 @@ export const PropertyPanelMixin = {
             }
 
             // 排序
-            const sortedFamilies = [...fontFamilies.keys()].sort((a, b) => a.localeCompare(b, 'zh-CN'));
+	            const sortedFamilies = [...fontFamilies.keys()].sort((a, b) => a.localeCompare(b, 'zh-CN'));
 
-            // 更新下拉列表
-            selectElement.innerHTML = '<option value="">请选择字体...</option>' +
-                sortedFamilies.map(family => `<option value="${family}">${family}</option>`).join('');
+	            // 更新下拉列表
+	            selectElement.innerHTML = '<option value="">请选择字体...</option>' +
+	                sortedFamilies.map(family => `<option value="${escapeAttr(family)}">${escapeHtml(family)}</option>`).join('');
 
-            this._showToast(`已加载 ${sortedFamilies.length} 个系统字体`);
-        } catch (err) {
+	            this._showToast(`已加载 ${sortedFamilies.length} 个系统字体`);
+	        } catch (err) {
             console.warn('[PropertyPanel] 获取系统字体失败:', err);
             if (err.name === 'NotAllowedError') {
                 selectElement.innerHTML = '<option value="">已拒绝字体访问权限</option>';

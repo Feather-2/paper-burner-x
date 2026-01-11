@@ -3,6 +3,8 @@
  * 从 layer-editor.js 拆分出的路径操作方法
  */
 
+import { escapeAttr, sanitizeCssColor } from './dom-sanitizer.js';
+
 /**
  * 路径操作 mixin
  */
@@ -174,19 +176,19 @@ export const PathOpsMixin = {
         overlay.className = 'path-select-overlay';
         overlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:100;';
         
-        const color = childLayer.color || '#000000';
+        const color = sanitizeCssColor(childLayer.color || '#000000', '#000000');
         const pathElements = subPaths.map((d, idx) => 
-            `<path d="${d.trim()}" fill="${color}" fill-opacity="0.01" stroke="transparent" stroke-width="10" 
-                   style="pointer-events:all;cursor:pointer;" data-subpath-idx="${idx}"/>`
+            `<path d="${escapeAttr(d.trim())}" fill="${escapeAttr(color)}" fill-opacity="0.01" stroke="transparent" stroke-width="10" 
+	                   style="pointer-events:all;cursor:pointer;" data-subpath-idx="${idx}"/>`
         ).join('');
         
         const svgWrapper = document.createElement('div');
         svgWrapper.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
         svgWrapper.innerHTML = `
-            <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"${viewBox ? ` viewBox="${viewBox}"` : ''} 
-                 style="width:100%;height:100%;" preserveAspectRatio="xMidYMid meet">
-                ${pathElements}
-            </svg>
+            <svg xmlns="http://www.w3.org/2000/svg" width="${escapeAttr(width)}" height="${escapeAttr(height)}"${viewBox ? ` viewBox="${escapeAttr(viewBox)}"` : ''} 
+	                 style="width:100%;height:100%;" preserveAspectRatio="xMidYMid meet">
+	                ${pathElements}
+	            </svg>
         `;
         overlay.appendChild(svgWrapper);
         

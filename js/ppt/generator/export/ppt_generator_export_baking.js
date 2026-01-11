@@ -294,8 +294,14 @@ const PPTGeneratorExportBaking = {
                 elements: combinedElements,
             };
 
-            const bgStyle = backgroundFill ? `background: ${backgroundFill};` : 'background: transparent;';
-            container.innerHTML = `<div style="width: 960px; height: 540px; overflow: visible; ${bgStyle}">${renderer.render(tempSlide, 0)}</div>`;
+            container.innerHTML = '';
+            const wrapper = document.createElement('div');
+            wrapper.style.width = '960px';
+            wrapper.style.height = '540px';
+            wrapper.style.overflow = 'visible';
+            wrapper.style.background = backgroundFill || 'transparent';
+            wrapper.innerHTML = renderer.render(tempSlide, 0);
+            container.appendChild(wrapper);
             
             const imgDivs = container.querySelectorAll('div > img');
             const maskedElements = [...imgDivs]
@@ -439,8 +445,14 @@ const PPTGeneratorExportBaking = {
             elements: sanitized || [],
         };
 
-        const bgStyle = opts.backgroundColor ? `background: ${opts.backgroundColor};` : 'background: transparent;';
-        container.innerHTML = `<div style="width: 960px; height: 540px; overflow: visible; ${bgStyle}">${renderer.render(tempSlide, 0)}</div>`;
+        container.innerHTML = '';
+        const wrapper = document.createElement('div');
+        wrapper.style.width = '960px';
+        wrapper.style.height = '540px';
+        wrapper.style.overflow = 'visible';
+        wrapper.style.background = opts.backgroundColor ?? 'transparent';
+        wrapper.innerHTML = renderer.render(tempSlide, 0);
+        container.appendChild(wrapper);
         await this._waitForIconsToLoad(container);
         await this._waitForImagesToLoad(container);
         await this._waitForKatexAndInlineStyles(container);

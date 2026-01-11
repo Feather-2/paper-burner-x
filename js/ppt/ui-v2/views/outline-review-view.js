@@ -339,6 +339,20 @@ export class OutlineReviewView extends BaseView {
     });
 
     const svg = this._generateMindMapSVG(nodes[0]);
+    const purifier = globalThis.DOMPurify || globalThis.window?.DOMPurify;
+    if (purifier && typeof purifier.sanitize === 'function') {
+      try {
+        container.innerHTML = purifier.sanitize(svg, {
+          USE_PROFILES: { svg: true, svgFilters: true },
+          KEEP_CONTENT: true,
+          SAFE_FOR_TEMPLATES: true,
+          ALLOW_DATA_ATTR: true,
+        });
+        return;
+      } catch {
+        // fall through
+      }
+    }
     container.innerHTML = svg;
   }
 

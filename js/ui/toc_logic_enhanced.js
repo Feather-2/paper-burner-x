@@ -13,10 +13,28 @@
  * - 快速导航
  */
 (function EnhancedTocFeature(){
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+
+  // 兼容层：避免其他脚本在 TOC 初始化前调用时报错
+  if (typeof window.refreshTocList !== 'function') window.refreshTocList = function() {};
+  if (typeof window.getCurrentTocStructure !== 'function') window.getCurrentTocStructure = function() { return null; };
+  if (typeof window.getTocNodes !== 'function') window.getTocNodes = function() { return []; };
+
   const tocBtn = document.getElementById('toc-float-btn');
   const tocPopup = document.getElementById('toc-popup');
   const tocList = document.getElementById('toc-list');
   const tocCloseBtn = document.getElementById('toc-popup-close-btn');
+  if (!tocBtn || !tocPopup || !tocList || !tocCloseBtn) return;
+
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    })[ch]);
+  }
 
   // 智能TOC缓存系统
   let tocCache = {
@@ -800,7 +818,7 @@
 
     // 添加结构化前缀
     if (item.structureInfo?.prefix) {
-      html += `<span class="toc-prefix">${item.structureInfo.prefix}</span>`;
+      html += `<span class="toc-prefix">${escapeHtml(item.structureInfo.prefix)}</span>`;
     }
 
     // 添加图表图标
@@ -816,11 +834,11 @@
       displayText = displayText.substring(item.structureInfo.prefix.length).trim();
     }
     
-    html += `<span class="toc-content">${displayText}</span>`;
+    html += `<span class="toc-content">${escapeHtml(displayText)}</span>`;
 
     // 添加翻译
     if (item.translation && item.translation !== item.originalText) {
-      html += `<span class="toc-en-translation">/ ${item.translation}</span>`;
+      html += `<span class="toc-en-translation">/ ${escapeHtml(item.translation)}</span>`;
     }
 
     html += '</span>';
@@ -1192,4 +1210,4 @@
 })();
 
 // ESM 导出
-export const EnhancedTocFeature = window.EnhancedTocFeature;
+export const EnhancedTocFeature = globalThis.window?.EnhancedTocFeature;

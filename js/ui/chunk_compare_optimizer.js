@@ -14,6 +14,7 @@ class ChunkCompareOptimizer {
         this.batchSize = 3; // 每批渲染的分块数量
         this.chunkHeight = 300; // 估算的分块高度
         this.bufferSize = 2; // 缓冲区大小（上下各2个分块）
+        this._delegatedControlsBound = false;
     }
 
     /**
@@ -22,6 +23,35 @@ class ChunkCompareOptimizer {
     init() {
         this.setupIntersectionObserver();
         this.setupPerformanceMonitor();
+        this._ensureDelegatedControlsBound();
+    }
+
+    _ensureDelegatedControlsBound() {
+        if (this._delegatedControlsBound) return;
+        this._delegatedControlsBound = true;
+
+        document.addEventListener('click', (event) => {
+            const target = event.target;
+            const actionEl = target && target.closest ? target.closest('[data-chunk-compare-action]') : null;
+            if (!actionEl) return;
+            const action = actionEl.getAttribute('data-chunk-compare-action');
+            if (!action) return;
+            event.preventDefault();
+
+            if (action === 'page-prev') {
+                this.navigateToPage(-1);
+            } else if (action === 'page-next') {
+                this.navigateToPage(1);
+            } else if (action === 'page-jump') {
+                this.jumpToPage();
+            } else if (action === 'load-full-chunk') {
+                const raw = actionEl.getAttribute('data-index');
+                const index = Number.parseInt(String(raw ?? ''), 10);
+                if (Number.isFinite(index)) {
+                    this.loadFullChunk(index);
+                }
+            }
+        });
     }
 
     /**
@@ -142,20 +172,20 @@ class ChunkCompareOptimizer {
                 <span>检测到大型文档，已启用高效浏览模式。使用分页浏览以获得更好的性能。</span>
             </div>
             <div class="chunk-pagination">
-                <button id="prev-page-btn" onclick="ChunkCompareOptimizer.instance.navigateToPage(-1)" disabled>
+                <button id="prev-page-btn" type="button" data-chunk-compare-action="page-prev" disabled>
                     ← 上一页
                 </button>
                 <span class="page-info">
                     第 <span id="current-page">1</span> 页，共 ${totalPages} 页
                 </span>
-                <button id="next-page-btn" onclick="ChunkCompareOptimizer.instance.navigateToPage(1)">
+                <button id="next-page-btn" type="button" data-chunk-compare-action="page-next">
                     下一页 →
                 </button>
                 <div class="page-jump">
                     跳转到第 
                     <input type="number" id="page-input" min="1" max="${totalPages}" value="1" style="width: 60px;">
                     页
-                    <button onclick="ChunkCompareOptimizer.instance.jumpToPage()">跳转</button>
+                    <button type="button" data-chunk-compare-action="page-jump">跳转</button>
                 </div>
             </div>
             <div class="chunk-compare-container large-document-mode" id="chunk-compare-container">
@@ -582,7 +612,9 @@ class ChunkCompareOptimizer {
             // 懒加载容器保持即可；更新加载按钮的 onclick（若存在）
             const loadBtn = el.querySelector('.load-full-content-btn');
             if (loadBtn) {
-                loadBtn.setAttribute('onclick', `ChunkCompareOptimizer.instance.loadFullChunk(${index})`);
+                loadBtn.removeAttribute('onclick');
+                loadBtn.setAttribute('data-chunk-compare-action', 'load-full-chunk');
+                loadBtn.setAttribute('data-index', String(index));
             }
             // 更新工具栏上的 data-block 标记
             el.querySelectorAll('[data-block]').forEach(node => {
@@ -845,6 +877,15 @@ class ChunkCompareOptimizer {
     renderContentSafely(content, images) {
         try {
             if (!content || content.trim() === '') return '';
+
+            const escapeHtml = (value) =>
+                String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+                    '&': '&amp;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                    "'": '&#39;'
+                }[ch]));
             
             // 使用简化的渲染避免复杂的KaTeX解析
             if (window.MarkdownProcessor?.renderWithKatexFailback) {
@@ -852,11 +893,17 @@ class ChunkCompareOptimizer {
                 return window.MarkdownProcessor.renderWithKatexFailback(safeContent);
             } else {
                 // 回退到简单的文本渲染
-                return content.replace(/\n/g, '<br>');
+                return escapeHtml(content).replace(/\n/g, '<br>');
             }
         } catch (error) {
             console.warn('内容渲染失败，使用简单模式:', error);
-            return content.replace(/\n/g, '<br>');
+            return String(content ?? '').replace(/[&<>"']/g, (ch) => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            }[ch])).replace(/\n/g, '<br>');
         }
     }
 
@@ -936,8 +983,12 @@ class ChunkCompareOptimizer {
      * 更新进度
      */
     updateProgress(rendered, total) {
-        const progress = Math.round((rendered / total) * 100);
-        console.log(`[ChunkOptimizer] 渲染进度: ${progress}% (${rendered}/${total})`);
+        const safeRendered = Number.isFinite(Number(rendered)) ? Number(rendered) : 0;
+        const safeTotal = Number.isFinite(Number(total)) ? Number(total) : 0;
+        const progress = safeTotal > 0
+          ? Math.max(0, Math.min(100, Math.round((safeRendered / safeTotal) * 100)))
+          : 0;
+        console.log(`[ChunkOptimizer] 渲染进度: ${progress}% (${safeRendered}/${safeTotal})`);
         
         // 可以在这里更新UI进度条
         const progressBar = document.querySelector('.chunk-progress-bar');
@@ -969,15 +1020,17 @@ class ChunkCompareOptimizer {
 ChunkCompareOptimizer.instance = new ChunkCompareOptimizer();
 
 // 在页面加载时初始化：仅在真实浏览器环境（readyState 为 string）下执行
-const rs = document.readyState;
-if (rs === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
+if (typeof document !== 'undefined') {
+    const rs = document.readyState;
+    if (rs === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+            ChunkCompareOptimizer.instance.init();
+        });
+    } else if (typeof rs === 'string') {
         ChunkCompareOptimizer.instance.init();
-    });
-} else if (typeof rs === 'string') {
-    ChunkCompareOptimizer.instance.init();
-} else {
-    // 测试/非浏览器 DOM：不自动初始化
+    } else {
+        // 测试/非浏览器 DOM：不自动初始化
+    }
 }
 
 // 导出供其他模块使用

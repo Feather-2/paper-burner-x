@@ -4,6 +4,20 @@
  */
 import { EventEmitter } from '../event-emitter.js';
 
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+    })[ch]);
+}
+
+function escapeAttr(value) {
+    return escapeHtml(value);
+}
+
 export class LayerPanel extends EventEmitter {
     constructor(editor, containerId) {
         super();
@@ -92,31 +106,34 @@ export class LayerPanel extends EventEmitter {
         this._updateSelection();
     }
 
-    _renderLayers(elements, bakingGroups) {
-        let html = '';
-        let currentGroup = null;
+	    _renderLayers(elements, bakingGroups) {
+	        let html = '';
+	        let currentGroup = null;
 
-        for (const el of elements) {
-            const group = bakingGroups.get(el.id);
+	        for (const el of elements) {
+	            const group = bakingGroups.get(el.id);
 
-            // 开始新的烘焙组
-            if (group && group !== currentGroup) {
-                if (currentGroup) {
-                    html += '</div></div>'; // 关闭上一个组
-                }
-                currentGroup = group;
-                const reasonIcon = this._getBakingReasonIcon(group.reason);
-                html += `
-                    <div class="layer-group" data-group="${group.id}">
-                        <div class="layer-group-header" data-action="toggle-group">
-                            <iconify-icon icon="mdi:chevron-down" class="group-chevron"></iconify-icon>
-                            <iconify-icon icon="${reasonIcon}" class="group-reason-icon"></iconify-icon>
-                            <span class="group-title">烘焙组 (${group.reason})</span>
-                            <div class="group-actions">
-                                <button class="layer-btn" data-action="select-group" title="全选组内元素">
-                                    <iconify-icon icon="mdi:select-all"></iconify-icon>
-                                </button>
-                                <button class="layer-btn" data-action="toggle-group-visible" title="显示/隐藏整组">
+	            // 开始新的烘焙组
+	            if (group && group !== currentGroup) {
+	                if (currentGroup) {
+	                    html += '</div></div>'; // 关闭上一个组
+	                }
+	                currentGroup = group;
+	                const reasonIcon = this._getBakingReasonIcon(group.reason);
+	                const safeGroupId = escapeAttr(group.id);
+	                const safeReasonIcon = escapeAttr(reasonIcon);
+	                const safeReason = escapeHtml(group.reason);
+	                html += `
+	                    <div class="layer-group" data-group="${safeGroupId}">
+	                        <div class="layer-group-header" data-action="toggle-group">
+	                            <iconify-icon icon="mdi:chevron-down" class="group-chevron"></iconify-icon>
+	                            <iconify-icon icon="${safeReasonIcon}" class="group-reason-icon"></iconify-icon>
+	                            <span class="group-title">烘焙组 (${safeReason})</span>
+	                            <div class="group-actions">
+	                                <button class="layer-btn" data-action="select-group" title="全选组内元素">
+	                                    <iconify-icon icon="mdi:select-all"></iconify-icon>
+	                                </button>
+	                                <button class="layer-btn" data-action="toggle-group-visible" title="显示/隐藏整组">
                                     <iconify-icon icon="mdi:eye"></iconify-icon>
                                 </button>
                             </div>
@@ -142,27 +159,30 @@ export class LayerPanel extends EventEmitter {
         return html;
     }
 
-    _renderLayerItem(el, indent = 0) {
-        const isSelected = this.editor.selection.isSelected(el.id);
-        const label = this._getElementLabel(el);
-        const isLocked = el.locked;
-        const isHidden = el.hidden;
-        const isGroup = el.type === 'group' && el.children?.length > 0;
+	    _renderLayerItem(el, indent = 0) {
+	        const isSelected = this.editor.selection.isSelected(el.id);
+	        const label = this._getElementLabel(el);
+	        const safeLabel = escapeHtml(label);
+	        const safeLabelAttr = escapeAttr(label);
+	        const safeElementId = escapeAttr(el.id);
+	        const isLocked = el.locked;
+	        const isHidden = el.hidden;
+	        const isGroup = el.type === 'group' && el.children?.length > 0;
 
-        const classes = ['layer-item'];
-        if (isSelected) classes.push('selected');
-        if (isHidden) classes.push('hidden-layer');
-        if (isLocked) classes.push('locked-layer');
+	        const classes = ['layer-item'];
+	        if (isSelected) classes.push('selected');
+	        if (isHidden) classes.push('hidden-layer');
+	        if (isLocked) classes.push('locked-layer');
 
-        // 生成缩略图内容
-        let thumbContent = '';
-        if (el.type === 'image' && el.src) {
-            thumbContent = `<img src="${el.src}" alt="img">`;
-        } else if (el.type === 'text') {
-            thumbContent = `<iconify-icon icon="mdi:format-text"></iconify-icon>`;
-        } else if (el.type === 'shape') {
-            thumbContent = `<iconify-icon icon="mdi:shape"></iconify-icon>`;
-        } else if (el.type === 'chart') {
+	        // 生成缩略图内容
+	        let thumbContent = '';
+	        if (el.type === 'image' && el.src) {
+	            thumbContent = `<img src="${escapeAttr(el.src)}" alt="img">`;
+	        } else if (el.type === 'text') {
+	            thumbContent = `<iconify-icon icon="mdi:format-text"></iconify-icon>`;
+	        } else if (el.type === 'shape') {
+	            thumbContent = `<iconify-icon icon="mdi:shape"></iconify-icon>`;
+	        } else if (el.type === 'chart') {
             thumbContent = `<iconify-icon icon="mdi:chart-bar"></iconify-icon>`;
         } else {
             const icon = this._getElementIcon(el.type);
@@ -171,16 +191,16 @@ export class LayerPanel extends EventEmitter {
 
         const indentStyle = indent > 0 ? `margin-left: ${indent * 16}px;` : '';
         
-        let html = `
-            <div class="${classes.join(' ')}" 
-                 data-element-id="${el.id}"
-                 data-is-group="${isGroup}"
-                 style="${indentStyle}"
-                 draggable="true">
-                ${isGroup ? `
-                    <div class="layer-group-toggle" data-action="toggle-group-expand">
-                        <iconify-icon icon="mdi:chevron-down" class="group-chevron"></iconify-icon>
-                    </div>
+	        let html = `
+	            <div class="${classes.join(' ')}" 
+	                 data-element-id="${safeElementId}"
+	                 data-is-group="${isGroup}"
+	                 style="${indentStyle}"
+	                 draggable="true">
+	                ${isGroup ? `
+	                    <div class="layer-group-toggle" data-action="toggle-group-expand">
+	                        <iconify-icon icon="mdi:chevron-down" class="group-chevron"></iconify-icon>
+	                    </div>
                 ` : `
                     <div class="layer-drag-handle">
                         <iconify-icon icon="mdi:drag"></iconify-icon>
@@ -188,16 +208,16 @@ export class LayerPanel extends EventEmitter {
                 `}
                 <div class="layer-thumbnail">
                     ${thumbContent}
-                </div>
-                <div class="layer-content">
-                    <div class="layer-label" title="${label}">${label}</div>
-                    <div class="layer-meta">
-                        ${el.blend && el.blend !== 'normal' ? `<span class="layer-badge blend">${el.blend}</span>` : ''}
-                        ${el.filter ? '<span class="layer-badge filter">滤镜</span>' : ''}
-                        ${el.opacity !== undefined && el.opacity < 1 ? `<span class="layer-badge opacity">${Math.round(el.opacity * 100)}%</span>` : ''}
-                    </div>
-                </div>
-                <div class="layer-actions">
+	                </div>
+	                <div class="layer-content">
+	                    <div class="layer-label" title="${safeLabelAttr}">${safeLabel}</div>
+	                    <div class="layer-meta">
+	                        ${el.blend && el.blend !== 'normal' ? `<span class="layer-badge blend">${escapeHtml(el.blend)}</span>` : ''}
+	                        ${el.filter ? '<span class="layer-badge filter">滤镜</span>' : ''}
+	                        ${el.opacity !== undefined && el.opacity < 1 ? `<span class="layer-badge opacity">${Math.round(el.opacity * 100)}%</span>` : ''}
+	                    </div>
+	                </div>
+	                <div class="layer-actions">
                     <button class="layer-btn ${isLocked ? 'active' : ''}" 
                             data-action="toggle-lock" 
                             title="${isLocked ? '解锁' : '锁定'}">
@@ -212,16 +232,16 @@ export class LayerPanel extends EventEmitter {
             </div>
         `;
 
-        // 递归渲染 group 子元素
-        if (isGroup) {
-            const childrenHtml = el.children
-                .map(child => this._renderLayerItem(child, indent + 1))
-                .join('');
-            html += `<div class="layer-group-children" data-parent-id="${el.id}">${childrenHtml}</div>`;
-        }
+	        // 递归渲染 group 子元素
+	        if (isGroup) {
+	            const childrenHtml = el.children
+	                .map(child => this._renderLayerItem(child, indent + 1))
+	                .join('');
+	            html += `<div class="layer-group-children" data-parent-id="${safeElementId}">${childrenHtml}</div>`;
+	        }
 
-        return html;
-    }
+	        return html;
+	    }
 
     _getElementIcon(type) {
         const icons = {

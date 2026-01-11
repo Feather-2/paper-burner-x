@@ -413,11 +413,13 @@
             scheduleTocRender(VditorAdapter.getValue?.() ?? md);
         } else if (typeof VditorAdapter !== 'undefined') {
             container.innerHTML = VditorAdapter.renderFallbackTextarea({
-                value: md,
-                onInput: 'window.PPTGenerator.updateReportMarkdown(this.value)'
+                value: md
             });
             const textarea = container.querySelector?.('textarea');
-            textarea?.addEventListener?.('input', () => scheduleTocRender(textarea.value));
+            textarea?.addEventListener?.('input', () => {
+                this.updateReportMarkdown(textarea.value);
+                scheduleTocRender(textarea.value);
+            });
             scheduleTocRender(md);
         }
     },

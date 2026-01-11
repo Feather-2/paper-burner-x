@@ -61,6 +61,13 @@ python -m http.server 8080
    npm start
    ```
 
+## 安全默认（重要）
+
+- 默认仅监听 `127.0.0.1`（仅本机可访问），避免局域网暴露。
+- 默认仅允许浏览器来自 `localhost/127.0.0.1/::1` 的 `Origin` 发起请求（降低被任意网站跨域调用的风险）。
+- 如果你用 `file://` 直接打开前端（浏览器 `Origin: null`），需要在 `.env` 中设置 `ALLOW_FILE_ORIGIN=true`。
+- 如需允许其他来源（不推荐），用 `ALLOWED_ORIGINS` 显式列出完整 Origin（逗号分隔）。
+
 ## API 路由
 
 ### OCR 服务

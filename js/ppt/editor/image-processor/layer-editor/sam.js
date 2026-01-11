@@ -373,7 +373,7 @@ export const SamMixin = {
                     <div style="color: rgba(255,255,255,0.8); font-size: 12px;">
                         本地 SAM3 模型未检测到。如需高精度分割，请下载模型到 <code style="background: rgba(255,255,255,0.15); padding: 2px 6px; border-radius: 4px;">models/sam3/</code> 目录
                     </div>
-                    <a href="https://huggingface.co/wkentaro/sam3-onnx-models" target="_blank"
+                    <a href="https://huggingface.co/wkentaro/sam3-onnx-models" target="_blank" rel="noopener noreferrer"
                        style="display: inline-flex; align-items: center; gap: 4px; margin-top: 8px; color: #60a5fa; text-decoration: none; font-size: 12px;">
                         <iconify-icon icon="carbon:download"></iconify-icon>
                         下载 SAM3 模型 (约 2GB)
@@ -1327,7 +1327,7 @@ export const SamMixin = {
                     <div style="color: rgba(255,255,255,0.8); font-size: 12px;">
                         本地 LaMa 模型未检测到。如需更快速度，请下载模型到 <code style="background: rgba(255,255,255,0.15); padding: 2px 6px; border-radius: 4px;">models/lama/</code> 目录
                     </div>
-                    <a href="https://huggingface.co/Carve/LaMa-ONNX" target="_blank"
+                    <a href="https://huggingface.co/Carve/LaMa-ONNX" target="_blank" rel="noopener noreferrer"
                        style="display: inline-flex; align-items: center; gap: 4px; margin-top: 8px; color: #60a5fa; text-decoration: none; font-size: 12px;">
                         <iconify-icon icon="carbon:download"></iconify-icon>
                         下载 LaMa 模型 (约 208MB)

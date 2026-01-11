@@ -177,9 +177,9 @@
             });
 
             processed = processed.replace(/!\[([^\]]*)\]\((?:images\/)?(img-\d+\.jpeg\.png)\)/gi, (match, alt, fname) => {
-                return imgMap.has(fname) 
+                return imgMap.has(fname)
                     ? `![${alt || ''}](${imgMap.get(fname)})`
-                    : `<span class="missing-image">[图片: ${alt || fname}]</span>`;
+                    : `<span class="missing-image">[图片: ${escapeHtml(alt || fname)}]</span>`;
             });
         }
 
@@ -196,11 +196,12 @@
 
         // 4. 使用 marked 处理其余 markdown
         try {
-            return marked.parse(processed, {
+            const rawHtml = marked.parse(processed, {
                 breaks: false, // 重要：不要将换行转换为 <br>
                 gfm: true,
                 sanitize: false
             });
+            return sanitizeRenderedHtml(rawHtml);
         } catch (error) {
             console.error('[MathFix] Marked parsing failed:', error);
             return `<div class="markdown-error">Markdown 解析失败: ${escapeHtml(error.message)}</div>`;
@@ -220,6 +221,32 @@
             "'": '&#39;'
         };
         return text.replace(/[&<>"']/g, m => map[m]);
+    }
+
+    function getDomPurify() {
+        const purifier = global.DOMPurify || (global.window && global.window.DOMPurify);
+        return purifier && typeof purifier.sanitize === 'function' ? purifier : null;
+    }
+
+    function sanitizeRenderedHtml(html) {
+        const raw = typeof html === 'string' ? html : '';
+        if (!raw) return '';
+        const purifier = getDomPurify();
+        if (!purifier) {
+            return raw
+                .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+                .replace(/\bon\w+\s*=/gi, 'data-removed-handler=');
+        }
+        try {
+            return purifier.sanitize(raw, {
+                SAFE_FOR_TEMPLATES: true,
+                KEEP_CONTENT: true,
+                ALLOW_DATA_ATTR: true
+            });
+        } catch (e) {
+            console.warn('[MathFix] DOMPurify sanitize failed:', e);
+            return raw;
+        }
     }
 
     /**

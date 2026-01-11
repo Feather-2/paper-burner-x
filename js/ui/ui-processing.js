@@ -53,23 +53,27 @@
                     virtualBadge = '<span class="ml-2 inline-block text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 flex-shrink-0">失败重试</span>';
                 }
 
-                const extSource = displayName || file.name || '';
-                const ext = (extSource.split('.').pop() || '').toLowerCase();
-                const icon = ext === 'pdf' ? 'carbon:document-pdf' : 'carbon:document';
-                const iconColor = ext === 'pdf' ? 'text-red-500' : 'text-gray-500';
-                const isExcluded = typeof global.isExtensionExcluded === 'function' ? global.isExtensionExcluded(ext) : false;
+	                const extSource = displayName || file.name || '';
+	                const ext = (extSource.split('.').pop() || '').toLowerCase();
+	                const icon = ext === 'pdf' ? 'carbon:document-pdf' : 'carbon:document';
+	                const iconColor = ext === 'pdf' ? 'text-red-500' : 'text-gray-500';
+	                const isExcluded = typeof global.isExtensionExcluded === 'function' ? global.isExtensionExcluded(ext) : false;
+	                const safeDisplayName = escapeHtml(displayName);
+	                const safeDisplayNameAttr = escapeAttr(displayName);
+	                const safeDisplayPath = escapeHtml(displayPath);
+	                const safeDisplayPathAttr = escapeAttr(displayPath);
 
-                listItem.innerHTML = `
-                <div class="flex items-center overflow-hidden mr-2">
-                    <iconify-icon icon="${icon}" class="${iconColor} mr-2 flex-shrink-0" width="20"></iconify-icon>
-                    <span class="flex flex-col overflow-hidden">
-                        <span class="text-sm text-gray-800 truncate" title="${displayName}">${displayName}</span>
-                        ${displayPath && displayPath !== displayName ? `<span class="text-[11px] text-gray-500 truncate" title="${displayPath}">${displayPath}</span>` : ''}
-                    </span>
-                    ${virtualBadge}
-                    ${isExcluded ? '<span class="ml-2 inline-block text-[10px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 flex-shrink-0">已排除</span>' : ''}
-                    <span class="text-xs text-gray-500 ml-2 flex-shrink-0">(${global.formatFileSize(file.size)})</span>
-                </div>
+	                listItem.innerHTML = `
+	                <div class="flex items-center overflow-hidden mr-2">
+	                    <iconify-icon icon="${icon}" class="${iconColor} mr-2 flex-shrink-0" width="20"></iconify-icon>
+	                    <span class="flex flex-col overflow-hidden">
+	                        <span class="text-sm text-gray-800 truncate" title="${safeDisplayNameAttr}">${safeDisplayName}</span>
+	                        ${displayPath && displayPath !== displayName ? `<span class="text-[11px] text-gray-500 truncate" title="${safeDisplayPathAttr}">${safeDisplayPath}</span>` : ''}
+	                    </span>
+	                    ${virtualBadge}
+	                    ${isExcluded ? '<span class="ml-2 inline-block text-[10px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 flex-shrink-0">已排除</span>' : ''}
+	                    <span class="text-xs text-gray-500 ml-2 flex-shrink-0">(${global.formatFileSize(file.size)})</span>
+	                </div>
                 <div class="flex items-center gap-2 flex-shrink-0">
                     <button data-index="${index}" class="preview-file-btn text-gray-400 hover:text-blue-600 flex-shrink-0" title="预览">
                         <iconify-icon icon="carbon:search" width="16"></iconify-icon>
@@ -294,14 +298,19 @@
         }
 
         // 显示问题
-        if (issues.length > 1) {
-            // 多个问题：合并显示
-            validationIcon.setAttribute('icon', 'carbon:warning-alt');
-            validationTitle.textContent = '配置检查';
-            validationMessage.innerHTML = issues.map(issue => `• ${issue.message}`).join('<br>');
+	        if (issues.length > 1) {
+	            // 多个问题：合并显示
+	            validationIcon.setAttribute('icon', 'carbon:warning-alt');
+	            validationTitle.textContent = '配置检查';
+	            validationMessage.textContent = '';
+	            issues.forEach(issue => {
+	                const line = document.createElement('div');
+	                line.textContent = `• ${issue.message}`;
+	                validationMessage.appendChild(line);
+	            });
 
-            validationActions.innerHTML = '';
-            const addedButtons = new Set();
+	            validationActions.innerHTML = '';
+	            const addedButtons = new Set();
             issues.forEach(issue => {
                 issue.actions.forEach(action => {
                     if (!addedButtons.has(action.text)) {
@@ -446,15 +455,15 @@
         if (ext === 'pdf') {
             fileInfoAndControls = document.createElement('div');
             fileInfoAndControls.className = 'px-6 py-3 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-blue-100 flex items-center justify-between';
-            fileInfoAndControls.innerHTML = `
-                <div class="flex items-center gap-6 text-sm text-gray-700">
-                    <div class="flex items-center gap-2">
-                        <iconify-icon icon="carbon:document-pdf" class="text-red-500" width="18"></iconify-icon>
-                        <span class="font-medium">${file.name}</span>
-                    </div>
-                    <div class="flex items-center gap-1 text-gray-600">
-                        <iconify-icon icon="carbon:data-1" width="14"></iconify-icon>
-                        <span>${global.formatFileSize ? global.formatFileSize(file.size) : (file.size / 1024).toFixed(2) + ' KB'}</span>
+	            fileInfoAndControls.innerHTML = `
+	                <div class="flex items-center gap-6 text-sm text-gray-700">
+	                    <div class="flex items-center gap-2">
+	                        <iconify-icon icon="carbon:document-pdf" class="text-red-500" width="18"></iconify-icon>
+	                        <span class="font-medium">${escapeHtml(file.name)}</span>
+	                    </div>
+	                    <div class="flex items-center gap-1 text-gray-600">
+	                        <iconify-icon icon="carbon:data-1" width="14"></iconify-icon>
+	                        <span>${global.formatFileSize ? global.formatFileSize(file.size) : (file.size / 1024).toFixed(2) + ' KB'}</span>
                     </div>
                     <div class="flex items-center gap-1 text-gray-500 text-xs">
                         <iconify-icon icon="carbon:information" width="14"></iconify-icon>
@@ -485,16 +494,16 @@
             // 非 PDF 文件，保持原有的文件信息显示
             fileInfoAndControls = document.createElement('div');
             fileInfoAndControls.className = 'px-6 py-3 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-blue-100';
-            fileInfoAndControls.innerHTML = `
-                <div class="flex items-center gap-6 text-sm text-gray-700">
-                    <div class="flex items-center gap-2">
-                        <iconify-icon icon="carbon:document" class="text-gray-500" width="18"></iconify-icon>
-                        <span class="font-medium">${file.name}</span>
-                    </div>
-                    <div class="flex items-center gap-1 text-gray-600">
-                        <iconify-icon icon="carbon:data-1" width="14"></iconify-icon>
-                        <span>${global.formatFileSize ? global.formatFileSize(file.size) : (file.size / 1024).toFixed(2) + ' KB'}</span>
-                    </div>
+	            fileInfoAndControls.innerHTML = `
+	                <div class="flex items-center gap-6 text-sm text-gray-700">
+	                    <div class="flex items-center gap-2">
+	                        <iconify-icon icon="carbon:document" class="text-gray-500" width="18"></iconify-icon>
+	                        <span class="font-medium">${escapeHtml(file.name)}</span>
+	                    </div>
+	                    <div class="flex items-center gap-1 text-gray-600">
+	                        <iconify-icon icon="carbon:data-1" width="14"></iconify-icon>
+	                        <span>${global.formatFileSize ? global.formatFileSize(file.size) : (file.size / 1024).toFixed(2) + ' KB'}</span>
+	                    </div>
                     <span class="text-gray-600">${ext.toUpperCase()}</span>
                 </div>
             `;
@@ -606,16 +615,17 @@
 
                     // 渲染所有缩略图（异步进行，不阻塞）
                     renderThumbnails();
-                } catch (error) {
-                    console.error('[PDF Preview] Error loading PDF:', error);
-                    contentArea.innerHTML = `
-                        <div class="flex flex-col items-center justify-center h-full text-gray-500">
-                            <iconify-icon icon="carbon:warning-alt" width="64" class="mb-4 text-red-500"></iconify-icon>
-                            <p class="text-lg">PDF 加载失败</p>
-                            <p class="text-sm mt-2">${error.message}</p>
-                        </div>
-                    `;
-                }
+	                } catch (error) {
+	                    console.error('[PDF Preview] Error loading PDF:', error);
+	                    const safeError = escapeHtml(error && error.message ? error.message : String(error));
+	                    contentArea.innerHTML = `
+	                        <div class="flex flex-col items-center justify-center h-full text-gray-500">
+	                            <iconify-icon icon="carbon:warning-alt" width="64" class="mb-4 text-red-500"></iconify-icon>
+	                            <p class="text-lg">PDF 加载失败</p>
+	                            <p class="text-sm mt-2">${safeError}</p>
+	                        </div>
+	                    `;
+	                }
             };
             fileReader.readAsArrayBuffer(file);
 
@@ -720,16 +730,17 @@
                         renderFootnotes: true,
                         renderEndnotes: true
                     });
-                } catch (error) {
-                    console.error('[Word Preview] Error rendering Word:', error);
-                    contentArea.innerHTML = `
-                        <div class="flex flex-col items-center justify-center h-full text-gray-500">
-                            <iconify-icon icon="carbon:warning-alt" width="64" class="mb-4 text-red-500"></iconify-icon>
-                            <p class="text-lg">Word 文件加载失败</p>
-                            <p class="text-sm mt-2">${error.message}</p>
-                        </div>
-                    `;
-                }
+	                } catch (error) {
+	                    console.error('[Word Preview] Error rendering Word:', error);
+	                    const safeError = escapeHtml(error && error.message ? error.message : String(error));
+	                    contentArea.innerHTML = `
+	                        <div class="flex flex-col items-center justify-center h-full text-gray-500">
+	                            <iconify-icon icon="carbon:warning-alt" width="64" class="mb-4 text-red-500"></iconify-icon>
+	                            <p class="text-lg">Word 文件加载失败</p>
+	                            <p class="text-sm mt-2">${safeError}</p>
+	                        </div>
+	                    `;
+	                }
             };
             reader.readAsArrayBuffer(file);
         } else if (['pptx', 'ppt'].includes(ext)) {
@@ -743,15 +754,15 @@
                     <p class="text-sm text-gray-600 text-center max-w-md">
                         建议使用 Microsoft PowerPoint 或其他本地应用打开此文件。
                     </p>
-                    <div class="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200 max-w-md">
-                        <p class="text-xs text-gray-600">
-                            <strong>文件信息：</strong><br>
-                            名称: ${file.name}<br>
-                            大小: ${global.formatFileSize ? global.formatFileSize(file.size) : (file.size / 1024).toFixed(2) + ' KB'}
-                        </p>
-                    </div>
-                </div>
-            `;
+	                    <div class="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200 max-w-md">
+	                        <p class="text-xs text-gray-600">
+	                            <strong>文件信息：</strong><br>
+	                            名称: ${escapeHtml(file.name)}<br>
+	                            大小: ${global.formatFileSize ? global.formatFileSize(file.size) : (file.size / 1024).toFixed(2) + ' KB'}
+	                        </p>
+	                    </div>
+	                </div>
+	            `;
         } else if (['txt', 'md', 'yaml', 'yml', 'html', 'htm'].includes(ext)) {
             // 文本文件预览
             const reader = new FileReader();
@@ -802,11 +813,22 @@
     /**
      * HTML 转义函数
      */
-    function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
+	    function escapeHtml(text) {
+	        const div = document.createElement('div');
+	        div.textContent = String(text ?? '');
+	        return div.innerHTML;
+	    }
+
+	    function escapeAttr(value) {
+	        const str = String(value ?? '');
+	        return str
+	            .replace(/&/g, '&amp;')
+	            .replace(/</g, '&lt;')
+	            .replace(/>/g, '&gt;')
+	            .replace(/"/g, '&quot;')
+	            .replace(/'/g, '&#39;')
+	            .replace(/`/g, '&#96;');
+	    }
 
     global.updateFileListUI = updateFileListUI;
     global.updateProcessButtonState = updateProcessButtonState;

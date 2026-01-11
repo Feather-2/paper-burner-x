@@ -86,20 +86,42 @@ export class ModernResearchView extends BaseView {
     const fsEl = this.$('#modernFileSystem');
     if (!fsEl) return;
 
-    if (files.length === 0) {
-      fsEl.innerHTML = '<div class="empty-state">暂无素材</div>';
+    if (!Array.isArray(files) || files.length === 0) {
+      fsEl.textContent = '';
+      const empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.textContent = '暂无素材';
+      fsEl.appendChild(empty);
       return;
     }
 
-    fsEl.innerHTML = files.map(file => `
-      <div class="file-item">
-        <iconify-icon icon="carbon:document"></iconify-icon>
-        <div class="file-info">
-          <div class="file-name">${file.name}</div>
-          <div class="file-meta">${file.size}</div>
-        </div>
-      </div>
-    `).join('');
+    fsEl.textContent = '';
+    const frag = document.createDocumentFragment();
+    files.forEach((file) => {
+      const item = document.createElement('div');
+      item.className = 'file-item';
+
+      const icon = document.createElement('iconify-icon');
+      icon.setAttribute('icon', 'carbon:document');
+
+      const info = document.createElement('div');
+      info.className = 'file-info';
+
+      const name = document.createElement('div');
+      name.className = 'file-name';
+      name.textContent = file && file.name ? String(file.name) : '未命名文件';
+
+      const meta = document.createElement('div');
+      meta.className = 'file-meta';
+      meta.textContent = file && file.size != null ? String(file.size) : '';
+
+      info.appendChild(name);
+      info.appendChild(meta);
+      item.appendChild(icon);
+      item.appendChild(info);
+      frag.appendChild(item);
+    });
+    fsEl.appendChild(frag);
   }
 
   _updateTimeline(state, data, ui) {
@@ -122,15 +144,33 @@ export class ModernResearchView extends BaseView {
       items.push({ title: meta.title, desc: meta.desc, active: state !== 'idle' });
     }
 
-    timelineEl.innerHTML = items.map(item => `
-        <div class="timeline-item ${item.active ? 'active' : ''}">
-          <div class="timeline-dot"></div>
-          <div class="timeline-content">
-            <div class="timeline-title">${item.title}</div>
-            <div class="timeline-desc">${item.desc}</div>
-          </div>
-        </div>
-      `).join('');
+    timelineEl.textContent = '';
+    const frag = document.createDocumentFragment();
+    items.forEach((item) => {
+      const row = document.createElement('div');
+      row.className = `timeline-item${item.active ? ' active' : ''}`;
+
+      const dot = document.createElement('div');
+      dot.className = 'timeline-dot';
+
+      const content = document.createElement('div');
+      content.className = 'timeline-content';
+
+      const title = document.createElement('div');
+      title.className = 'timeline-title';
+      title.textContent = item && item.title ? String(item.title) : '';
+
+      const desc = document.createElement('div');
+      desc.className = 'timeline-desc';
+      desc.textContent = item && item.desc ? String(item.desc) : '';
+
+      content.appendChild(title);
+      content.appendChild(desc);
+      row.appendChild(dot);
+      row.appendChild(content);
+      frag.appendChild(row);
+    });
+    timelineEl.appendChild(frag);
   }
 
   render() {

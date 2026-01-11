@@ -23,6 +23,11 @@ class ImageVectorizer {
         this.vecburnerUrl = './js/ppt/editor/image-processor/vecburner.js';
         // ImageTracer CDN (备选)
         this.imagetracerCdn = 'https://cdn.jsdelivr.net/npm/imagetracerjs@1.2.6/imagetracer_v1.2.6.js';
+
+        // VTracer (iframe bridge)
+        this.vtracerBridgeUrl = new URL('./vtracer-bridge.html', import.meta.url).toString();
+        this.vtracerIframe = null;
+        this.vtracerReady = false;
     }
     
     /**
@@ -183,14 +188,37 @@ class ImageVectorizer {
             // 创建隐藏的 iframe
             const iframe = document.createElement('iframe');
             iframe.style.cssText = 'position:absolute;left:-9999px;width:1px;height:1px;';
-            iframe.src = this.vtracerBridgeUrl;
+
+            const bridgeUrl = new URL(this.vtracerBridgeUrl);
+            try {
+                if (window.location && typeof window.location.origin === 'string') {
+                    bridgeUrl.searchParams.set('parentOrigin', window.location.origin);
+                }
+            } catch (_) { /* ignore */ }
+            iframe.src = bridgeUrl.toString();
+
+            const expectedOrigin = bridgeUrl.origin;
             
             const timeout = setTimeout(() => {
+                window.removeEventListener('message', messageHandler);
+                iframe.remove();
                 reject(new Error('VTracer 加载超时'));
             }, 10000);
             
             const messageHandler = (event) => {
-                if (event.data.type === 'bridge-ready') {
+                if (event.source !== iframe.contentWindow) return;
+                if (expectedOrigin === 'null') {
+                    if (event.origin !== 'null') return;
+                } else if (expectedOrigin && event.origin !== expectedOrigin) {
+                    return;
+                }
+
+                const payload = (typeof event.data === 'string')
+                    ? (() => { try { return JSON.parse(event.data); } catch (_) { return null; } })()
+                    : event.data;
+                if (!payload || typeof payload !== 'object') return;
+
+                if (payload.type === 'bridge-ready') {
                     clearTimeout(timeout);
                     window.removeEventListener('message', messageHandler);
                     this.vtracerIframe = iframe;
@@ -367,6 +395,10 @@ class ImageVectorizer {
      * 使用 VTracer iframe 矢量化
      */
     async _vectorizeWithVTracer(imageObj, preset) {
+        if (!this.vtracerIframe || !this.vtracerReady) {
+            await this._loadVTracerIframe();
+        }
+
         // 将 ImageData 转为 DataURL
         const canvas = document.createElement('canvas');
         canvas.width = imageObj.width;
@@ -388,29 +420,66 @@ class ImageVectorizer {
         
         return new Promise((resolve, reject) => {
             const timeout = setTimeout(() => {
+                window.removeEventListener('message', messageHandler);
                 reject(new Error('VTracer 处理超时'));
             }, 30000);
+
+            const requestId = (() => {
+                try {
+                    if (crypto && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+                    const arr = new Uint32Array(4);
+                    crypto.getRandomValues(arr);
+                    return Array.from(arr).map(n => n.toString(16).padStart(8, '0')).join('');
+                } catch (_) {
+                    return String(Date.now()) + Math.random().toString(16).slice(2);
+                }
+            })();
+
+            const expectedOrigin = (() => {
+                try { return new URL(this.vtracerIframe.src).origin; } catch (_) { return ''; }
+            })();
+            const targetOrigin = expectedOrigin && expectedOrigin !== 'null' ? expectedOrigin : '*';
+            const sourceWindow = this.vtracerIframe && this.vtracerIframe.contentWindow ? this.vtracerIframe.contentWindow : null;
+            if (!sourceWindow) {
+                clearTimeout(timeout);
+                reject(new Error('VTracer iframe 未就绪'));
+                return;
+            }
             
             const messageHandler = (event) => {
-                if (event.data.type === 'vectorize-result') {
+                if (event.source !== sourceWindow) return;
+                if (expectedOrigin === 'null') {
+                    if (event.origin !== 'null') return;
+                } else if (expectedOrigin && event.origin !== expectedOrigin) {
+                    return;
+                }
+
+                const payload = (typeof event.data === 'string')
+                    ? (() => { try { return JSON.parse(event.data); } catch (_) { return null; } })()
+                    : event.data;
+                if (!payload || typeof payload !== 'object') return;
+
+                if (payload.type === 'vectorize-result') {
+                    if (payload.requestId && payload.requestId !== requestId) return;
                     clearTimeout(timeout);
                     window.removeEventListener('message', messageHandler);
                     
-                    if (event.data.success) {
-                        const result = this._parseSvgResult(event.data.svg, imageObj.width, imageObj.height);
+                    if (payload.success) {
+                        const result = this._parseSvgResult(payload.svg, imageObj.width, imageObj.height);
                         resolve(result);
                     } else {
-                        reject(new Error(event.data.error));
+                        reject(new Error(payload.error));
                     }
                 }
             };
             
             window.addEventListener('message', messageHandler);
-            this.vtracerIframe.contentWindow.postMessage({
+            sourceWindow.postMessage({
                 type: 'vectorize',
                 data: dataUrl,
-                config: config
-            }, '*');
+                config: config,
+                requestId
+            }, targetOrigin);
         });
     }
     

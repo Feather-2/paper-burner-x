@@ -326,17 +326,20 @@ export const OcrMixin = {
     /**
      * 更新 OCR 网格覆盖层的 bbox 显示
      */
-    _updateOcrGridBboxes(regions, gridX = 10, gridY = 10) {
-        const overlay = this.container.querySelector('.ocr-grid-overlay');
-        if (!overlay) return;
-        
-        let bboxSvg = '';
-        regions.forEach((region, idx) => {
-            let left, top, width, height;
-            
-            if ('x1' in region && 'y1' in region) {
-                left = (region.x1 / gridX) * 100;
-                top = (region.y1 / gridY) * 100;
+	    _updateOcrGridBboxes(regions, gridX = 10, gridY = 10) {
+	        const overlay = this.container.querySelector('.ocr-grid-overlay');
+	        if (!overlay) return;
+	        
+	        const SVG_NS = 'http://www.w3.org/2000/svg';
+	        const bboxGroup = document.createElementNS(SVG_NS, 'g');
+	        bboxGroup.classList.add('ocr-bboxes');
+
+	        regions.forEach((region) => {
+	            let left, top, width, height;
+	            
+	            if ('x1' in region && 'y1' in region) {
+	                left = (region.x1 / gridX) * 100;
+	                top = (region.y1 / gridY) * 100;
                 width = ((region.x2 - region.x1) / gridX) * 100;
                 height = ((region.y2 - region.y1) / gridY) * 100;
             } else if (Array.isArray(region.bbox_2d) && region.bbox_2d.length === 4) {
@@ -385,35 +388,50 @@ export const OcrMixin = {
                 top = region.bbox.top * 100;
                 width = region.bbox.width * 100;
                 height = region.bbox.height * 100;
-            } else {
-                return;
-            }
-            
-            bboxSvg += `
-                <rect x="${left}%" y="${top}%" width="${width}%" height="${height}%"
-                    fill="none" stroke="#ef4444" stroke-width="2" stroke-dasharray="5,3"/>
-            `;
-        });
-        
-        let svg = overlay.querySelector('svg');
-        if (svg) {
-            const oldBboxGroup = svg.querySelector('.ocr-bboxes');
-            if (oldBboxGroup) oldBboxGroup.remove();
-            
-            const bboxGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-            bboxGroup.classList.add('ocr-bboxes');
-            bboxGroup.innerHTML = bboxSvg;
-            svg.appendChild(bboxGroup);
-        }
-        
-        const msgDiv = overlay.querySelector('div[style*="top: 10px"]');
-        if (msgDiv) {
-            msgDiv.innerHTML = `
-                <iconify-icon icon="carbon:checkmark" style="color:#22c55e;font-size:18px;"></iconify-icon>
-                识别完成，找到 ${regions.length} 个文字区域
-            `;
-        }
-    },
+	            } else {
+	                return;
+	            }
+
+	            if (![left, top, width, height].every((v) => typeof v === 'number' && Number.isFinite(v))) {
+	                return;
+	            }
+
+	            const safeLeft = Math.max(0, Math.min(100, left));
+	            const safeTop = Math.max(0, Math.min(100, top));
+	            const safeWidth = Math.max(0, Math.min(100 - safeLeft, width));
+	            const safeHeight = Math.max(0, Math.min(100 - safeTop, height));
+	            if (safeWidth <= 0 || safeHeight <= 0) return;
+
+	            const rect = document.createElementNS(SVG_NS, 'rect');
+	            rect.setAttribute('x', `${safeLeft}%`);
+	            rect.setAttribute('y', `${safeTop}%`);
+	            rect.setAttribute('width', `${safeWidth}%`);
+	            rect.setAttribute('height', `${safeHeight}%`);
+	            rect.setAttribute('fill', 'none');
+	            rect.setAttribute('stroke', '#ef4444');
+	            rect.setAttribute('stroke-width', '2');
+	            rect.setAttribute('stroke-dasharray', '5,3');
+	            bboxGroup.appendChild(rect);
+	        });
+	        
+	        let svg = overlay.querySelector('svg');
+	        if (svg) {
+	            const oldBboxGroup = svg.querySelector('.ocr-bboxes');
+	            if (oldBboxGroup) oldBboxGroup.remove();
+	            svg.appendChild(bboxGroup);
+	        }
+	        
+	        const msgDiv = overlay.querySelector('div[style*="top: 10px"]');
+	        if (msgDiv) {
+	            msgDiv.textContent = '';
+	            const icon = document.createElement('iconify-icon');
+	            icon.setAttribute('icon', 'carbon:checkmark');
+	            icon.style.color = '#22c55e';
+	            icon.style.fontSize = '18px';
+	            msgDiv.appendChild(icon);
+	            msgDiv.appendChild(document.createTextNode(`识别完成，找到 ${regions.length} 个文字区域`));
+	        }
+	    },
 
     /**
      * 显示文字覆盖操作提示
@@ -731,27 +749,14 @@ export const OcrMixin = {
             }
         }
         
-        let bboxSvg = '';
-        if (layer.children) {
-            layer.children.forEach(child => {
-                if (child.type !== 'text-overlay' || !child.bbox) return;
-                const left = child.bbox.left * 100;
-                const top = child.bbox.top * 100;
-                const width = child.bbox.width * 100;
-                const height = child.bbox.height * 100;
-                bboxSvg += `<rect x="${left}%" y="${top}%" width="${width}%" height="${height}%"
-                    fill="none" stroke="#ef4444" stroke-width="2" stroke-dasharray="5,3"/>`;
-            });
-        }
-        
-        overlay.innerHTML = `
-            <svg width="100%" height="100%" style="position:absolute;inset:0;">
-                ${gridLines}
-                <g class="ocr-bboxes">${bboxSvg}</g>
-            </svg>
-            <div style="
-                position: absolute;
-                bottom: 10px;
+	        overlay.innerHTML = `
+	            <svg width="100%" height="100%" style="position:absolute;inset:0;">
+	                ${gridLines}
+	                <g class="ocr-bboxes"></g>
+	            </svg>
+	            <div style="
+	                position: absolute;
+	                bottom: 10px;
                 left: 50%;
                 transform: translateX(-50%);
                 background: rgba(0,0,0,0.6);
@@ -760,10 +765,41 @@ export const OcrMixin = {
                 border-radius: 4px;
                 font-size: 11px;
             ">
-                ${layer.children?.length || 0} 个文字区域 · ${gridX}×${gridY} 参考网格
-            </div>
-        `;
-    },
+	                ${layer.children?.length || 0} 个文字区域 · ${gridX}×${gridY} 参考网格
+	            </div>
+	        `;
+
+	        const svg = overlay.querySelector('svg');
+	        const bboxGroup = svg?.querySelector('.ocr-bboxes');
+	        if (bboxGroup && layer.children) {
+	            const SVG_NS = 'http://www.w3.org/2000/svg';
+	            layer.children.forEach(child => {
+	                if (child.type !== 'text-overlay' || !child.bbox) return;
+	                const left = child.bbox.left * 100;
+	                const top = child.bbox.top * 100;
+	                const width = child.bbox.width * 100;
+	                const height = child.bbox.height * 100;
+	                if (![left, top, width, height].every((v) => typeof v === 'number' && Number.isFinite(v))) return;
+
+	                const safeLeft = Math.max(0, Math.min(100, left));
+	                const safeTop = Math.max(0, Math.min(100, top));
+	                const safeWidth = Math.max(0, Math.min(100 - safeLeft, width));
+	                const safeHeight = Math.max(0, Math.min(100 - safeTop, height));
+	                if (safeWidth <= 0 || safeHeight <= 0) return;
+
+	                const rect = document.createElementNS(SVG_NS, 'rect');
+	                rect.setAttribute('x', `${safeLeft}%`);
+	                rect.setAttribute('y', `${safeTop}%`);
+	                rect.setAttribute('width', `${safeWidth}%`);
+	                rect.setAttribute('height', `${safeHeight}%`);
+	                rect.setAttribute('fill', 'none');
+	                rect.setAttribute('stroke', '#ef4444');
+	                rect.setAttribute('stroke-width', '2');
+	                rect.setAttribute('stroke-dasharray', '5,3');
+	                bboxGroup.appendChild(rect);
+	            });
+	        }
+	    },
 
     /**
      * 隐藏持久化参考网格

@@ -3,18 +3,41 @@
 	  const NS = window.PPTDashboard;
 	  NS.outline = NS.outline || {};
 
-	  function escapeAttr(str) {
-	    if (str == null) return '';
-	    return String(str)
-	      .replace(/&/g, '&amp;')
-	      .replace(/"/g, '&quot;')
-	      .replace(/'/g, '&#39;')
-	      .replace(/</g, '&lt;')
-	      .replace(/>/g, '&gt;');
-	  }
+		  function escapeAttr(str) {
+		    if (str == null) return '';
+		    return String(str)
+		      .replace(/&/g, '&amp;')
+		      .replace(/"/g, '&quot;')
+		      .replace(/'/g, '&#39;')
+		      .replace(/</g, '&lt;')
+		      .replace(/>/g, '&gt;');
+		  }
 
-	  Object.assign(NS.outline, {
-    _renderOutlineReview() {
+		  function getDomPurify() {
+		    const purifier = globalThis.DOMPurify || globalThis.window?.DOMPurify;
+		    return purifier && typeof purifier.sanitize === 'function' ? purifier : null;
+		  }
+
+		  function sanitizeSvg(svgString) {
+		    const raw = String(svgString ?? '');
+		    if (!raw) return '';
+		    const purifier = getDomPurify();
+		    if (!purifier) return raw;
+		    try {
+		      return purifier.sanitize(raw, {
+		        USE_PROFILES: { svg: true, svgFilters: true },
+		        KEEP_CONTENT: true,
+		        SAFE_FOR_TEMPLATES: true,
+		        ALLOW_DATA_ATTR: true,
+		      });
+		    } catch (e) {
+		      console.warn('[PPTDashboardOutline] sanitizeSvg failed:', e);
+		      return raw;
+		    }
+		  }
+
+		  Object.assign(NS.outline, {
+	    _renderOutlineReview() {
         // Mock outline data if not present or empty
         let outline = this.workflowData.outline;
         if (!outline || outline.length === 0) {
@@ -208,10 +231,10 @@
             }
         });
 
-        // Render SVG
-        const svg = this._generateMindMapSVG(nodes[0]);
-        container.innerHTML = svg;
-    },
+	        // Render SVG
+	        const svg = this._generateMindMapSVG(nodes[0]);
+	        container.innerHTML = sanitizeSvg(svg);
+	    },
 
 
     _generateMindMapSVG(root) {

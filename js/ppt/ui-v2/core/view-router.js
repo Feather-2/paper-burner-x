@@ -96,7 +96,11 @@ export class ViewRouter {
     const ViewClass = this._views.get(viewType);
     if (!ViewClass) {
       console.warn(`ViewRouter: No view registered for type "${viewType}"`);
-      this._container.innerHTML = `<div class="error-view">视图未找到: ${viewType}</div>`;
+      this._container.textContent = '';
+      const errorView = document.createElement('div');
+      errorView.className = 'error-view';
+      errorView.textContent = `视图未找到: ${viewType}`;
+      this._container.appendChild(errorView);
       return;
     }
 

@@ -20,6 +20,214 @@ const PPTGeneratorNavigation = {
         }
     },
 
+    _ensureNavigationEventsBound() {
+        if (this.__pptNavigationEventsBound) return;
+        this.__pptNavigationEventsBound = true;
+
+        document.addEventListener('click', (event) => {
+            const actionEl = event.target.closest('[data-ppt-action]');
+            if (!actionEl) return;
+            const action = actionEl.getAttribute('data-ppt-action');
+            if (!action) return;
+
+            const generator = window.PPTGenerator;
+            if (!generator) return;
+
+            const getInt = (attr) => {
+                const raw = actionEl.getAttribute(attr);
+                const val = Number.parseInt(String(raw ?? ''), 10);
+                return Number.isFinite(val) ? val : null;
+            };
+
+            event.preventDefault();
+
+            switch (action) {
+                case 'open-model-config': {
+                    window.PPTModelConfigModal?.openModal?.();
+                    break;
+                }
+                case 'navigate': {
+                    const href = actionEl.getAttribute('data-href') || 'index.html';
+                    window.location.href = href;
+                    break;
+                }
+                case 'toggle-project-view': {
+                    const view = actionEl.getAttribute('data-view');
+                    if (view) generator.toggleProjectView(view);
+                    break;
+                }
+                case 'create-project': {
+                    const template = actionEl.getAttribute('data-template');
+                    if (template) {
+                        generator.createNewProject(template);
+                    } else {
+                        generator.createNewProject();
+                    }
+                    break;
+                }
+                case 'import-pptx': {
+                    generator.importPptx?.();
+                    break;
+                }
+                case 'debug-load-sample': {
+                    generator.debugLoadSample?.();
+                    break;
+                }
+                case 'load-project': {
+                    const projectId = actionEl.getAttribute('data-project-id');
+                    if (projectId) generator.loadProject(projectId);
+                    break;
+                }
+                case 'confirm-delete-project': {
+                    const projectId = actionEl.getAttribute('data-project-id');
+                    if (projectId) generator.confirmDeleteProject(projectId);
+                    break;
+                }
+                case 'toggle-chat-sidebar': {
+                    generator.toggleChatSidebar();
+                    break;
+                }
+                case 'show-project-list': {
+                    generator.showProjectList();
+                    break;
+                }
+                case 'remove-attachment': {
+                    const index = getInt('data-index');
+                    if (typeof index === 'number') generator.removeAttachment(index);
+                    break;
+                }
+                case 'preview-imported-slide': {
+                    const index = getInt('data-slide-index');
+                    if (typeof index === 'number') generator._previewImportedSlide(index);
+                    break;
+                }
+                case 'close-pptx-import-modal': {
+                    document.getElementById('pptxImportModal')?.remove();
+                    break;
+                }
+                case 'copy-imported-html': {
+                    generator._copyImportedHtml();
+                    break;
+                }
+                case 'use-import-as-reference': {
+                    generator._useAsReference();
+                    break;
+                }
+                case 'save-import-to-projects': {
+                    generator._saveImportToProjects();
+                    break;
+                }
+                case 'create-project-from-import': {
+                    generator._createProjectFromImport();
+                    break;
+                }
+                case 'enter-workspace': {
+                    generator.enterWorkspace?.();
+                    break;
+                }
+                case 'toggle-view-mode': {
+                    const view = actionEl.getAttribute('data-view');
+                    if (view) generator.toggleViewMode?.(view);
+                    break;
+                }
+                case 'start-slideshow': {
+                    generator.startSlideshow?.();
+                    break;
+                }
+                case 'toggle-export-menu': {
+                    generator.toggleExportMenu?.();
+                    break;
+                }
+                case 'export-pptx': {
+                    generator.exportPPTX?.();
+                    break;
+                }
+                case 'export-as': {
+                    const format = actionEl.getAttribute('data-format');
+                    if (format) generator.exportAs?.(format);
+                    break;
+                }
+                case 'go-to-slide': {
+                    const index = getInt('data-slide-index');
+                    if (typeof index === 'number') generator.goToSlide?.(index);
+                    break;
+                }
+                case 'go-to-slide-from-outline': {
+                    const index = getInt('data-slide-index');
+                    if (typeof index === 'number') generator.goToSlideFromOutline?.(index);
+                    break;
+                }
+                case 'prev-slide': {
+                    generator.prevSlide?.();
+                    break;
+                }
+                case 'next-slide': {
+                    generator.nextSlide?.();
+                    break;
+                }
+                case 'add-slide-ai': {
+                    generator.addSlideWithAI?.();
+                    break;
+                }
+                case 'duplicate-slide': {
+                    generator.duplicateSlide?.();
+                    break;
+                }
+                case 'delete-current-slide': {
+                    generator.deleteCurrentSlide?.();
+                    break;
+                }
+                case 'toggle-editor-mode': {
+                    generator.toggleEditorMode?.();
+                    break;
+                }
+                case 'add-text': {
+                    generator.addText?.();
+                    break;
+                }
+                case 'add-image': {
+                    generator.addImage?.();
+                    break;
+                }
+                case 'add-shape': {
+                    generator.addShape?.();
+                    break;
+                }
+                case 'add-chart': {
+                    generator.addChart?.();
+                    break;
+                }
+                case 'add-icon': {
+                    generator.addIcon?.();
+                    break;
+                }
+                case 'region-select-generate': {
+                    generator.regionSelectAndGenerate?.();
+                    break;
+                }
+                case 'undo': {
+                    generator.undo?.();
+                    break;
+                }
+                case 'redo': {
+                    generator.redo?.();
+                    break;
+                }
+                case 'align': {
+                    const align = actionEl.getAttribute('data-align');
+                    if (align) generator.align?.(align);
+                    break;
+                }
+                case 'toggle-todo-list': {
+                    generator.toggleTodoList?.();
+                    break;
+                }
+                default:
+                    break;
+            }
+        });
+    },
+
 	    async showProjectList() {
 	        if (this._carouselTimer) {
 	            clearInterval(this._carouselTimer);
@@ -28,6 +236,7 @@ const PPTGeneratorNavigation = {
 	        this.cleanupPresentationMode?.();
 
 	        await this._ensureWorkflowReady();
+            this._ensureNavigationEventsBound();
 	        this._forceWorkflowStateSafe(window.WorkflowState?.IDLE);
 	        this.currentProject = null;
 
@@ -62,10 +271,10 @@ const PPTGeneratorNavigation = {
                         </div>
                     </div>
                     <div class="ppt-header-right">
-                        <button class="ppt-icon-btn" onclick="if(window.PPTModelConfigModal) window.PPTModelConfigModal.openModal()" title="模型配置">
+                        <button class="ppt-icon-btn" data-ppt-action="open-model-config" title="模型配置">
                             <iconify-icon icon="carbon:settings"></iconify-icon>
                         </button>
-                        <button class="ppt-icon-btn" onclick="window.location.href='index.html'" title="返回主页">
+                        <button class="ppt-icon-btn" data-ppt-action="navigate" data-href="index.html" title="返回主页">
                             <iconify-icon icon="carbon:home"></iconify-icon>
                         </button>
                     </div>
@@ -87,20 +296,20 @@ const PPTGeneratorNavigation = {
                                 上传您的文档，让 AI 助手为您自动提取大纲、撰写内容、设计排版，生成专业的 PPT 演示文稿。
                             </p>
 
-                            <!-- Hero Actions -->
-                            <div class="ppt-hero-actions">
-                                <button class="ppt-cta-btn" onclick="window.PPTGenerator.createNewProject()">
-                                    <iconify-icon icon="carbon:add-large"></iconify-icon>
-                                    开始新创作
-                                </button>
-                                <button class="ppt-cta-btn secondary" onclick="window.PPTGenerator.importPptx()">
-                                    <iconify-icon icon="carbon:document-import"></iconify-icon>
-                                    导入 PPTX
-                                </button>
-                                <button class="ppt-cta-btn secondary" onclick="window.PPTGenerator.debugLoadSample()" title="跳过生成，直接加载 Sample 数据">
-                                    <iconify-icon icon="carbon:debug"></iconify-icon>
-                                    调试 Sample
-                                </button>
+	                            <!-- Hero Actions -->
+	                            <div class="ppt-hero-actions">
+	                                <button class="ppt-cta-btn" data-ppt-action="create-project">
+	                                    <iconify-icon icon="carbon:add-large"></iconify-icon>
+	                                    开始新创作
+	                                </button>
+	                                <button class="ppt-cta-btn secondary" data-ppt-action="import-pptx">
+	                                    <iconify-icon icon="carbon:document-import"></iconify-icon>
+	                                    导入 PPTX
+	                                </button>
+	                                <button class="ppt-cta-btn secondary" data-ppt-action="debug-load-sample" title="跳过生成，直接加载 Sample 数据">
+	                                    <iconify-icon icon="carbon:debug"></iconify-icon>
+	                                    调试 Sample
+	                                </button>
                                 
                                 <div class="ppt-status-row">
                                     <div class="ppt-status-pill-minimal">
@@ -188,7 +397,7 @@ const PPTGeneratorNavigation = {
                                     </h3>
                                 </div>
                                 <div class="ppt-template-grid">
-                                    <div class="ppt-template-card" onclick="window.PPTGenerator.createNewProject('academic')">
+                                    <div class="ppt-template-card" data-ppt-action="create-project" data-template="academic">
                                         <div class="ppt-template-preview t-academic">
                                             <iconify-icon icon="carbon:education"></iconify-icon>
                                         </div>
@@ -197,7 +406,7 @@ const PPTGeneratorNavigation = {
                                             <p>论文答辩、研究分享</p>
                                         </div>
                                     </div>
-                                    <div class="ppt-template-card" onclick="window.PPTGenerator.createNewProject('business')">
+                                    <div class="ppt-template-card" data-ppt-action="create-project" data-template="business">
                                         <div class="ppt-template-preview t-business">
                                             <iconify-icon icon="carbon:chart-line"></iconify-icon>
                                         </div>
@@ -206,7 +415,7 @@ const PPTGeneratorNavigation = {
                                             <p>项目路演、市场分析</p>
                                         </div>
                                     </div>
-                                    <div class="ppt-template-card" onclick="window.PPTGenerator.createNewProject('creative')">
+                                    <div class="ppt-template-card" data-ppt-action="create-project" data-template="creative">
                                         <div class="ppt-template-preview t-creative">
                                             <iconify-icon icon="carbon:color-palette"></iconify-icon>
                                         </div>
@@ -215,7 +424,7 @@ const PPTGeneratorNavigation = {
                                             <p>作品集、视觉展示</p>
                                         </div>
                                     </div>
-                                    <div class="ppt-template-card" onclick="window.PPTGenerator.createNewProject('minimal')">
+                                    <div class="ppt-template-card" data-ppt-action="create-project" data-template="minimal">
                                         <div class="ppt-template-preview t-minimal">
                                             <iconify-icon icon="carbon:clean"></iconify-icon>
                                         </div>
@@ -237,55 +446,55 @@ const PPTGeneratorNavigation = {
                                             最近项目
                                         </button>
                                     </div>
-                                    <div class="ppt-view-toggle">
-                                        <button class="ppt-icon-btn ${this.projectListViewMode === 'grid' ? 'active' : ''}" onclick="window.PPTGenerator.toggleProjectView('grid')" title="网格视图">
-                                            <iconify-icon icon="carbon:grid"></iconify-icon>
-                                        </button>
-                                        <button class="ppt-icon-btn ${this.projectListViewMode === 'list' ? 'active' : ''}" onclick="window.PPTGenerator.toggleProjectView('list')" title="列表视图">
-                                            <iconify-icon icon="carbon:list"></iconify-icon>
-                                        </button>
-                                    </div>
-                                </div>
-                                
-                                ${this.projectListViewMode === 'grid' ? `
-                                    <div class="ppt-project-grid">
-                                        ${projects.map(p => `
-                                            <div class="ppt-project-card" onclick="window.PPTGenerator.loadProject('${p.id}')">
-                                                <div class="ppt-card-icon">
-                                                    <iconify-icon icon="carbon:presentation-file"></iconify-icon>
-                                                </div>
-                                                <div class="ppt-card-info">
-                                                    <h3>${p.title || '未命名项目'}</h3>
-                                                    <span>${new Date(p.updatedAt).toLocaleDateString()}</span>
-                                                </div>
-                                                <button class="ppt-card-delete-btn" onclick="event.stopPropagation(); window.PPTGenerator.confirmDeleteProject('${p.id}')" title="删除项目">
-                                                    <iconify-icon icon="carbon:trash-can"></iconify-icon>
-                                                </button>
-                                            </div>
-                                        `).join('')}
-                                    </div>
-                                ` : `
-                                    <div class="ppt-project-list">
-                                        ${projects.map(p => `
-                                            <div class="ppt-project-list-item" onclick="window.PPTGenerator.loadProject('${p.id}')">
-                                                <div class="ppt-list-icon">
-                                                    <iconify-icon icon="carbon:presentation-file"></iconify-icon>
-                                                </div>
-                                                <div class="ppt-list-info">
-                                                    <div class="ppt-list-title">${p.title || '未命名项目'}</div>
-                                                    <div class="ppt-list-meta">
-                                                        更新于 ${new Date(p.updatedAt).toLocaleString()}
-                                                    </div>
-                                                </div>
-                                                <div class="ppt-list-actions">
-                                                    <button class="ppt-icon-btn" onclick="event.stopPropagation(); window.PPTGenerator.confirmDeleteProject('${p.id}')" title="删除项目">
-                                                        <iconify-icon icon="carbon:trash-can"></iconify-icon>
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        `).join('')}
-                                    </div>
-                                `}
+	                                    <div class="ppt-view-toggle">
+	                                        <button class="ppt-icon-btn ${this.projectListViewMode === 'grid' ? 'active' : ''}" data-ppt-action="toggle-project-view" data-view="grid" title="网格视图">
+	                                            <iconify-icon icon="carbon:grid"></iconify-icon>
+	                                        </button>
+	                                        <button class="ppt-icon-btn ${this.projectListViewMode === 'list' ? 'active' : ''}" data-ppt-action="toggle-project-view" data-view="list" title="列表视图">
+	                                            <iconify-icon icon="carbon:list"></iconify-icon>
+	                                        </button>
+	                                    </div>
+	                                </div>
+	                                
+	                                ${this.projectListViewMode === 'grid' ? `
+	                                    <div class="ppt-project-grid">
+	                                        ${projects.map(p => `
+	                                            <div class="ppt-project-card" data-ppt-action="load-project" data-project-id="${this._escapeHtml(p.id)}">
+	                                                <div class="ppt-card-icon">
+	                                                    <iconify-icon icon="carbon:presentation-file"></iconify-icon>
+	                                                </div>
+	                                                <div class="ppt-card-info">
+	                                                    <h3>${this._escapeHtml(p.title || '未命名项目')}</h3>
+	                                                    <span>${new Date(p.updatedAt).toLocaleDateString()}</span>
+	                                                </div>
+	                                                <button class="ppt-card-delete-btn" data-ppt-action="confirm-delete-project" data-project-id="${this._escapeHtml(p.id)}" title="删除项目">
+	                                                    <iconify-icon icon="carbon:trash-can"></iconify-icon>
+	                                                </button>
+	                                            </div>
+	                                        `).join('')}
+	                                    </div>
+	                                ` : `
+	                                    <div class="ppt-project-list">
+	                                        ${projects.map(p => `
+	                                            <div class="ppt-project-list-item" data-ppt-action="load-project" data-project-id="${this._escapeHtml(p.id)}">
+	                                                <div class="ppt-list-icon">
+	                                                    <iconify-icon icon="carbon:presentation-file"></iconify-icon>
+	                                                </div>
+	                                                <div class="ppt-list-info">
+	                                                    <div class="ppt-list-title">${this._escapeHtml(p.title || '未命名项目')}</div>
+	                                                    <div class="ppt-list-meta">
+	                                                        更新于 ${new Date(p.updatedAt).toLocaleString()}
+	                                                    </div>
+	                                                </div>
+	                                                <div class="ppt-list-actions">
+	                                                    <button class="ppt-icon-btn" data-ppt-action="confirm-delete-project" data-project-id="${this._escapeHtml(p.id)}" title="删除项目">
+	                                                        <iconify-icon icon="carbon:trash-can"></iconify-icon>
+	                                                    </button>
+	                                                </div>
+	                                            </div>
+	                                        `).join('')}
+	                                    </div>
+	                                `}
                             </div>
                         ` : `
                             <!-- Empty State for Recent Projects -->
@@ -302,15 +511,15 @@ const PPTGeneratorNavigation = {
                                         <iconify-icon icon="carbon:document-blank"></iconify-icon>
                                     </div>
                                     <h3>暂无最近项目</h3>
-                                    <p>您的创作历史将在这里显示。现在就开启一段新的灵感旅程吧！</p>
-                                    <div class="ppt-empty-state-actions">
-                                        <button class="ppt-cta-btn" onclick="window.PPTGenerator.createNewProject()">
-                                            <iconify-icon icon="carbon:add-large"></iconify-icon>
-                                            立即开始
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
+	                                    <p>您的创作历史将在这里显示。现在就开启一段新的灵感旅程吧！</p>
+	                                    <div class="ppt-empty-state-actions">
+	                                        <button class="ppt-cta-btn" data-ppt-action="create-project">
+	                                            <iconify-icon icon="carbon:add-large"></iconify-icon>
+	                                            立即开始
+	                                        </button>
+	                                    </div>
+	                                </div>
+	                            </div>
                         `}
                     </div>
                 </main>
@@ -528,28 +737,29 @@ const PPTGeneratorNavigation = {
         }
     },
 
-    renderWorkspaceLayout() {
-        this.elements.overlay.innerHTML = `
-            <div class="ppt-app-shell">
-                <header class="ppt-header">
-                    <div class="ppt-header-left">
-                        <div class="ppt-logo">
-                            <img src="public/h_with_name.svg" alt="Logo" class="ppt-logo-img" style="width: 100px; height: auto;">
-                        </div>
-                        <div class="ppt-project-title">${this.currentProject.title}</div>
-                    </div>
-                    <div class="ppt-header-right">
-                        <button class="ppt-icon-btn" onclick="window.PPTGenerator.toggleChatSidebar()" title="切换侧边栏">
-                            <iconify-icon icon="carbon:side-panel-open"></iconify-icon>
-                        </button>
-                        <button class="ppt-icon-btn" onclick="window.PPTGenerator.showProjectList()" title="项目列表">
-                            <iconify-icon icon="carbon:grid"></iconify-icon>
-                        </button>
-                        <button class="ppt-icon-btn" onclick="window.location.href='index.html'" title="返回主页">
-                            <iconify-icon icon="carbon:home"></iconify-icon>
-                        </button>
-                    </div>
-                </header>
+	    renderWorkspaceLayout() {
+	        this._ensureNavigationEventsBound();
+	        this.elements.overlay.innerHTML = `
+	            <div class="ppt-app-shell">
+	                <header class="ppt-header">
+	                    <div class="ppt-header-left">
+	                        <div class="ppt-logo">
+	                            <img src="public/h_with_name.svg" alt="Logo" class="ppt-logo-img" style="width: 100px; height: auto;">
+	                        </div>
+	                        <div class="ppt-project-title">${this._escapeHtml(this.currentProject?.title || '未命名项目')}</div>
+	                    </div>
+	                    <div class="ppt-header-right">
+	                        <button class="ppt-icon-btn" data-ppt-action="toggle-chat-sidebar" title="切换侧边栏">
+	                            <iconify-icon icon="carbon:side-panel-open"></iconify-icon>
+	                        </button>
+	                        <button class="ppt-icon-btn" data-ppt-action="show-project-list" title="项目列表">
+	                            <iconify-icon icon="carbon:grid"></iconify-icon>
+	                        </button>
+	                        <button class="ppt-icon-btn" data-ppt-action="navigate" data-href="index.html" title="返回主页">
+	                            <iconify-icon icon="carbon:home"></iconify-icon>
+	                        </button>
+	                    </div>
+	                </header>
                 <div class="ppt-workspace">
                     <div class="ppt-preview-area" id="pptPreviewArea">
                         <!-- Dynamic Agent Dashboard -->
@@ -736,23 +946,47 @@ const PPTGeneratorNavigation = {
         const container = document.getElementById('pptChatAttachments');
         if (!container) return;
 
-        if (!this.pendingAttachments || this.pendingAttachments.length === 0) {
-            container.innerHTML = '';
+        container.textContent = '';
+
+        if (!Array.isArray(this.pendingAttachments) || this.pendingAttachments.length === 0) {
             return;
         }
 
-        container.innerHTML = this.pendingAttachments.map((att, index) => `
-            <div class="ppt-attachment-item">
-                ${att.preview 
-                    ? `<img src="${att.preview}" alt="${att.name}">` 
-                    : `<iconify-icon icon="carbon:document" style="font-size: 20px; color: #64748b;"></iconify-icon>`
-                }
-                <span class="ppt-attachment-name">${att.name}</span>
-                <span class="ppt-attachment-remove" onclick="window.PPTGenerator.removeAttachment(${index})">
-                    <iconify-icon icon="carbon:close"></iconify-icon>
-                </span>
-            </div>
-        `).join('');
+        this.pendingAttachments.forEach((att, index) => {
+            const item = document.createElement('div');
+            item.className = 'ppt-attachment-item';
+
+            const previewUrl = att?.preview ? String(att.preview) : '';
+            if (previewUrl) {
+                const img = document.createElement('img');
+                img.src = previewUrl;
+                img.alt = String(att?.name ?? '');
+                item.appendChild(img);
+            } else {
+                const icon = document.createElement('iconify-icon');
+                icon.setAttribute('icon', 'carbon:document');
+                icon.style.cssText = 'font-size: 20px; color: #64748b;';
+                item.appendChild(icon);
+            }
+
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'ppt-attachment-name';
+            nameSpan.textContent = String(att?.name ?? '');
+            item.appendChild(nameSpan);
+
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'ppt-attachment-remove';
+            removeBtn.setAttribute('aria-label', '移除附件');
+            removeBtn.setAttribute('data-ppt-action', 'remove-attachment');
+            removeBtn.setAttribute('data-index', String(index));
+            const closeIcon = document.createElement('iconify-icon');
+            closeIcon.setAttribute('icon', 'carbon:close');
+            removeBtn.appendChild(closeIcon);
+            item.appendChild(removeBtn);
+
+            container.appendChild(item);
+        });
     },
 
     removeAttachment(index) {
@@ -861,28 +1095,28 @@ const PPTGeneratorNavigation = {
             // 获取第一个文本作为标题
             const firstText = textEls[0]?.content?.substring(0, 50) || '(无标题)';
             
-            return `
-                <div class="import-slide-item" style="padding: 8px 12px; border-bottom: 1px solid var(--ppt-border); cursor: pointer;" 
-                     onclick="window.PPTGenerator._previewImportedSlide(${i})">
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <span style="color: var(--ppt-text-muted); font-size: 12px; width: 24px;">${i + 1}</span>
-                        <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${this._escapeHtml(firstText)}</span>
-                        <span style="color: var(--ppt-text-muted); font-size: 11px;">
-                            ${textEls.length}文 ${shapeEls.length}形 ${imageEls.length}图
-                        </span>
-                    </div>
-                </div>
-            `;
-        }).join('');
+	            return `
+	                <div class="import-slide-item" style="padding: 8px 12px; border-bottom: 1px solid var(--ppt-border); cursor: pointer;"
+	                     data-ppt-action="preview-imported-slide" data-slide-index="${i}">
+	                    <div style="display: flex; align-items: center; gap: 8px;">
+	                        <span style="color: var(--ppt-text-muted); font-size: 12px; width: 24px;">${i + 1}</span>
+	                        <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${this._escapeHtml(firstText)}</span>
+	                        <span style="color: var(--ppt-text-muted); font-size: 11px;">
+	                            ${textEls.length}文 ${shapeEls.length}形 ${imageEls.length}图
+	                        </span>
+	                    </div>
+	                </div>
+	            `;
+	        }).join('');
         
         modal.querySelector('.ppt-modal').style.maxWidth = '800px';
-        modal.querySelector('.ppt-modal').innerHTML = `
-            <div class="ppt-modal-header">
-                <h3><iconify-icon icon="carbon:checkmark-filled" style="color: var(--ppt-success);"></iconify-icon> 导入成功</h3>
-                <button class="ppt-icon-btn" onclick="document.getElementById('pptxImportModal').remove()">
-                    <iconify-icon icon="carbon:close"></iconify-icon>
-                </button>
-            </div>
+	        modal.querySelector('.ppt-modal').innerHTML = `
+	            <div class="ppt-modal-header">
+	                <h3><iconify-icon icon="carbon:checkmark-filled" style="color: var(--ppt-success);"></iconify-icon> 导入成功</h3>
+	                <button class="ppt-icon-btn" data-ppt-action="close-pptx-import-modal">
+	                    <iconify-icon icon="carbon:close"></iconify-icon>
+	                </button>
+	            </div>
             <div class="ppt-modal-body" style="padding: 0;">
                 <div style="padding: 16px; background: var(--ppt-bg-secondary); border-bottom: 1px solid var(--ppt-border);">
                     <div style="display: flex; align-items: center; gap: 12px;">
@@ -910,22 +1144,22 @@ const PPTGeneratorNavigation = {
                         <pre id="importedHtmlCode" style="flex: 1; margin: 0; padding: 12px; font-size: 11px; overflow: auto; background: var(--ppt-bg-primary); font-family: 'Fira Code', monospace;">${this._escapeHtml(html)}</pre>
                     </div>
                 </div>
-            </div>
-            <div class="ppt-modal-footer" style="display: flex; gap: 8px; justify-content: flex-end; padding: 12px 16px; border-top: 1px solid var(--ppt-border);">
-                <button class="ppt-btn secondary" onclick="window.PPTGenerator._copyImportedHtml()">
-                    <iconify-icon icon="carbon:copy"></iconify-icon> 复制 HTML
-                </button>
-                <button class="ppt-btn secondary" onclick="window.PPTGenerator._useAsReference()">
-                    <iconify-icon icon="carbon:ai-status"></iconify-icon> 作为参考导入
-                </button>
-                <button class="ppt-btn secondary" onclick="window.PPTGenerator._saveImportToProjects()">
-                    <iconify-icon icon="carbon:folder-add"></iconify-icon> 添加到最近项目
-                </button>
-                <button class="ppt-btn primary" onclick="window.PPTGenerator._createProjectFromImport()">
-                    <iconify-icon icon="carbon:play-filled-alt"></iconify-icon> 立即编辑
-                </button>
-            </div>
-        `;
+	            </div>
+	            <div class="ppt-modal-footer" style="display: flex; gap: 8px; justify-content: flex-end; padding: 12px 16px; border-top: 1px solid var(--ppt-border);">
+	                <button class="ppt-btn secondary" data-ppt-action="copy-imported-html">
+	                    <iconify-icon icon="carbon:copy"></iconify-icon> 复制 HTML
+	                </button>
+	                <button class="ppt-btn secondary" data-ppt-action="use-import-as-reference">
+	                    <iconify-icon icon="carbon:ai-status"></iconify-icon> 作为参考导入
+	                </button>
+	                <button class="ppt-btn secondary" data-ppt-action="save-import-to-projects">
+	                    <iconify-icon icon="carbon:folder-add"></iconify-icon> 添加到最近项目
+	                </button>
+	                <button class="ppt-btn primary" data-ppt-action="create-project-from-import">
+	                    <iconify-icon icon="carbon:play-filled-alt"></iconify-icon> 立即编辑
+	                </button>
+	            </div>
+	        `;
         
         // 保存解析结果供后续使用
         this._importedPptxResult = result;
@@ -939,22 +1173,22 @@ const PPTGeneratorNavigation = {
         const modal = document.getElementById('pptxImportModal');
         if (!modal) return;
         
-        modal.querySelector('.ppt-modal').innerHTML = `
-            <div class="ppt-modal-header">
-                <h3><iconify-icon icon="carbon:warning-alt" style="color: var(--ppt-danger);"></iconify-icon> 导入失败</h3>
-                <button class="ppt-icon-btn" onclick="document.getElementById('pptxImportModal').remove()">
-                    <iconify-icon icon="carbon:close"></iconify-icon>
-                </button>
-            </div>
-            <div class="ppt-modal-body" style="text-align: center; padding: 40px;">
-                <iconify-icon icon="carbon:warning-alt-filled" style="font-size: 48px; color: var(--ppt-danger); margin-bottom: 16px;"></iconify-icon>
-                <p style="color: var(--ppt-text-secondary);">${this._escapeHtml(message)}</p>
-            </div>
-            <div class="ppt-modal-footer" style="display: flex; justify-content: center; padding: 12px 16px; border-top: 1px solid var(--ppt-border);">
-                <button class="ppt-btn secondary" onclick="document.getElementById('pptxImportModal').remove()">关闭</button>
-            </div>
-        `;
-    },
+	        modal.querySelector('.ppt-modal').innerHTML = `
+	            <div class="ppt-modal-header">
+	                <h3><iconify-icon icon="carbon:warning-alt" style="color: var(--ppt-danger);"></iconify-icon> 导入失败</h3>
+	                <button class="ppt-icon-btn" data-ppt-action="close-pptx-import-modal">
+	                    <iconify-icon icon="carbon:close"></iconify-icon>
+	                </button>
+	            </div>
+	            <div class="ppt-modal-body" style="text-align: center; padding: 40px;">
+	                <iconify-icon icon="carbon:warning-alt-filled" style="font-size: 48px; color: var(--ppt-danger); margin-bottom: 16px;"></iconify-icon>
+	                <p style="color: var(--ppt-text-secondary);">${this._escapeHtml(message)}</p>
+	            </div>
+	            <div class="ppt-modal-footer" style="display: flex; justify-content: center; padding: 12px 16px; border-top: 1px solid var(--ppt-border);">
+	                <button class="ppt-btn secondary" data-ppt-action="close-pptx-import-modal">关闭</button>
+	            </div>
+	        `;
+	    },
 
     /**
      * 复制导入的 HTML

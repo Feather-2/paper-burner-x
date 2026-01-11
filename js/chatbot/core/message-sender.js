@@ -4,6 +4,23 @@
 (function() {
   'use strict';
 
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, (ch) => {
+      switch (ch) {
+        case '&': return '&amp;';
+        case '<': return '&lt;';
+        case '>': return '&gt;';
+        case '"': return '&quot;';
+        case "'": return '&#39;';
+        default: return ch;
+      }
+    });
+  }
+
+  function escapeAttr(value) {
+    return escapeHtml(value);
+  }
+
   /**
    * 获取聊天机器人配置
    * 该函数负责从用户设置中加载并返回当前聊天机器人所需的配置信息。
@@ -1056,19 +1073,22 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
           console.log("[sendChatbotMessage] Mind Map: Content defaulted to '暂无结构化内容'. Original mindMapMarkdown was:", mindMapMarkdown);
         }
         console.log('存储到localStorage的思维导图内容:', safeMindMapMarkdown);
-        window.localStorage.setItem('mindmapData_' + docIdForThisMessage, safeMindMapMarkdown);
-        chatHistory[assistantMsgIndex].content =
-          `<div style="position:relative;">
-            <div id="mindmap-container" style="width:100%;height:400px;margin-top:20px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;overflow:auto;filter:blur(2.5px);transition:filter 0.3s;"></div>
-            <div style="position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;z-index:2;">
-              <button onclick="window.open((window.location.pathname.endsWith('/history_detail.html') ? '../mindmap/mindmap.html' : 'views/mindmap/mindmap.html') + '?docId=${encodeURIComponent(docIdForThisMessage)}','_blank')" style="padding:12px 28px;font-size:18px;background:rgba(59,130,246,0.92);color:#fff;border:none;border-radius:8px;box-shadow:0 2px 8px rgba(59,130,246,0.12);cursor:pointer;">放大查看/编辑思维导图</button>
-            </div>
-          </div>`;
-        chatHistory[assistantMsgIndex].hasMindMap = true;
-        chatHistory[assistantMsgIndex].mindMapData = safeMindMapMarkdown;
+	        window.localStorage.setItem('mindmapData_' + docIdForThisMessage, safeMindMapMarkdown);
+	        const mindmapUrlForThisMessage =
+	          (window.location.pathname.endsWith('/history_detail.html') ? '../mindmap/mindmap.html' : 'views/mindmap/mindmap.html')
+	          + '?docId=' + encodeURIComponent(docIdForThisMessage);
+	        chatHistory[assistantMsgIndex].content =
+	          `<div style="position:relative;">
+	            <div id="mindmap-container" style="width:100%;height:400px;margin-top:20px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;overflow:auto;filter:blur(2.5px);transition:filter 0.3s;"></div>
+	            <div style="position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;z-index:2;">
+	              <button data-action="open-mindmap" data-mindmap-url="${escapeAttr(mindmapUrlForThisMessage)}" style="padding:12px 28px;font-size:18px;background:rgba(59,130,246,0.92);color:#fff;border:none;border-radius:8px;box-shadow:0 2px 8px rgba(59,130,246,0.12);cursor:pointer;">放大查看/编辑思维导图</button>
+	            </div>
+	          </div>`;
+	        chatHistory[assistantMsgIndex].hasMindMap = true;
+	        chatHistory[assistantMsgIndex].mindMapData = safeMindMapMarkdown;
       } catch (error) {
         chatHistory[assistantMsgIndex].content +=
-          '\n\n<div style="color:#e53e3e;background:#fee;padding:12px;border-radius:6px;margin-top:16px;">思维导图数据处理失败: ' + error.message + '</div>';
+          '\n\n<div style="color:#e53e3e;background:#fee;padding:12px;border-radius:6px;margin-top:16px;">思维导图数据处理失败: ' + escapeHtml(error?.message || error) + '</div>';
       }
     }
 
@@ -1448,37 +1468,41 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
         }
 
         // 如果所有策略都失败，保存原始 XML 并显示友好的错误信息
-        if (!validXml) {
-          console.error('[Draw.io] 所有修复策略均失败，保存原始 XML 供手动编辑');
+	        if (!validXml) {
+	          console.error('[Draw.io] 所有修复策略均失败，保存原始 XML 供手动编辑');
 
-          // 仍然保存原始 XML 到 localStorage（用户可以手动修复）
-          window.localStorage.setItem('drawioData_' + docIdForThisMessage, xml);
-          console.log('[Draw.io] 原始 XML 已保存到 localStorage (需要手动修复), key:', 'drawioData_' + docIdForThisMessage);
+	          // 仍然保存原始 XML 到 localStorage（用户可以手动修复）
+	          window.localStorage.setItem('drawioData_' + docIdForThisMessage, xml);
+	          console.log('[Draw.io] 原始 XML 已保存到 localStorage (需要手动修复), key:', 'drawioData_' + docIdForThisMessage);
 
-          // 显示友好的错误提示，包含手动编辑选项
-          const errorHtml = `
-            <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:16px;margin-top:16px;">
-              <div style="display:flex;align-items:start;gap:12px;">
-                <div style="font-size:24px;">⚠️</div>
-                <div style="flex:1;">
-                  <div style="font-weight:600;color:#856404;margin-bottom:8px;">配图 XML 需要手动修复</div>
-                  <div style="font-size:14px;color:#856404;margin-bottom:12px;">
-                    AI 生成的 XML 包含格式错误，自动修复失败。您可以：
-                  </div>
-                  <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                    <button onclick="window.open((window.location.pathname.endsWith('/history_detail.html') ? '../drawio/drawio.html' : 'views/drawio/drawio.html') + '?docId=${encodeURIComponent(docIdForThisMessage)}', '_blank')"
-                            style="padding:8px 16px;background:#3b82f6;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;">
-                      🛠️ 在编辑器中手动修复
-                    </button>
-                    <button onclick="navigator.clipboard.writeText(\`${xml.replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`);this.textContent='✓ 已复制'"
-                            style="padding:8px 16px;background:#6c757d;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;">
-                      📋 复制 XML
-                    </button>
-                    <button onclick="if(window.ChatbotActions && window.ChatbotActions.deleteMessage) window.ChatbotActions.deleteMessage(${assistantMsgIndex})"
-                            style="padding:8px 16px;background:#dc3545;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;">
-                      🗑️ 删除此消息
-                    </button>
-                  </div>
+	          // 显示友好的错误提示，包含手动编辑选项
+	          const drawioUrlForThisMessage =
+	            (window.location.pathname.endsWith('/history_detail.html') ? '../drawio/drawio.html' : 'views/drawio/drawio.html')
+	            + '?docId=' + encodeURIComponent(docIdForThisMessage);
+
+		          const errorHtml = `
+		            <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:16px;margin-top:16px;">
+		              <div style="display:flex;align-items:start;gap:12px;">
+		                <div style="font-size:24px;">⚠️</div>
+		                <div style="flex:1;">
+		                  <div style="font-weight:600;color:#856404;margin-bottom:8px;">配图 XML 需要手动修复</div>
+		                  <div style="font-size:14px;color:#856404;margin-bottom:12px;">
+		                    AI 生成的 XML 包含格式错误，自动修复失败。您可以：
+		                  </div>
+		                  <div style="display:flex;gap:8px;flex-wrap:wrap;">
+		                    <button data-action="open-drawio" data-drawio-url="${escapeAttr(drawioUrlForThisMessage)}"
+		                            style="padding:8px 16px;background:#3b82f6;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;">
+		                      🛠️ 在编辑器中手动修复
+		                    </button>
+		                    <button data-action="copy-drawio-xml" data-drawio-doc-id="${escapeAttr(docIdForThisMessage)}"
+		                            style="padding:8px 16px;background:#6c757d;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;">
+		                      📋 复制 XML
+		                    </button>
+		                    <button data-action="delete" data-index="${assistantMsgIndex}"
+		                            style="padding:8px 16px;background:#dc3545;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;">
+		                      🗑️ 删除此消息
+	                    </button>
+	                  </div>
                   <div style="font-size:12px;color:#856404;margin-top:8px;line-height:1.4;">
                     💡 提示：点击"在编辑器中手动修复"可以在左侧文本框中编辑 XML，修复后刷新右侧预览。
                   </div>
@@ -1550,13 +1574,13 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
         // 用一个轻量占位内容替换聊天正文，后续由 MessageRenderer 渲染卡片
         chatHistory[assistantMsgIndex].content = '[DRAWIO_XML_EMBED]';
         chatHistory[assistantMsgIndex].isDrawioPictures = true;
-      } catch (error) {
-        console.error('[Draw.io] XML 处理失败:', error);
-        chatHistory[assistantMsgIndex].content += '\n\n<div style="color:#e53e3e;background:#fee;padding:12px;border-radius:6px;margin-top:16px;">⚠️ 配图 XML 处理失败: ' + error.message + '</div>';
-        chatHistory[assistantMsgIndex].isDrawioPictures = false;
-        chatHistory[assistantMsgIndex].isRawHtml = true; // 标记为纯 HTML，不进行 Markdown 解析
-      }
-    }
+	      } catch (error) {
+	        console.error('[Draw.io] XML 处理失败:', error);
+	        chatHistory[assistantMsgIndex].content += '\n\n<div style="color:#e53e3e;background:#fee;padding:12px;border-radius:6px;margin-top:16px;">⚠️ 配图 XML 处理失败: ' + escapeHtml(error?.message || error) + '</div>';
+	        chatHistory[assistantMsgIndex].isDrawioPictures = false;
+	        chatHistory[assistantMsgIndex].isRawHtml = true; // 标记为纯 HTML，不进行 Markdown 解析
+	      }
+	    }
   } catch (e) {
     // 处理用户中止的情况
     if (e.name === 'AbortError') {
@@ -1628,14 +1652,14 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
               mindmapContainer.innerHTML = '<div style="padding:20px;color:#e53e3e;text-align:center;">思维导图生成失败，请重试</div>';
             }
           }
-        } catch (err) {
-          const container = document.getElementById('mindmap-container');
-          if (container) {
-            container.innerHTML = '<div style="padding:20px;color:#e53e3e;text-align:center;">思维导图渲染出错: ' + err.message + '</div>';
-          }
-        }
-      }, 800);
-    }
+	        } catch (err) {
+	          const container = document.getElementById('mindmap-container');
+	          if (container) {
+	            container.innerHTML = '<div style="padding:20px;color:#e53e3e;text-align:center;">思维导图渲染出错: ' + escapeHtml(err?.message || err) + '</div>';
+	          }
+	        }
+	      }, 800);
+	    }
 
     saveChatHistory(docIdForThisMessage, chatHistory);
 

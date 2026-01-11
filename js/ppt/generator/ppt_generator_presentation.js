@@ -1,6 +1,20 @@
 // ESM 导入核心类以确保 mixin 安装时类已存在
 import PPTGeneratorCtor from './ppt_generator_core.js';
 
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    })[ch]);
+}
+
+function escapeAttr(value) {
+    return escapeHtml(value).replace(/`/g, '&#96;');
+}
+
 const PPTGeneratorPresentation = {
     renderPresentationMode(container) {
         // 更新外层 header，整合工具栏内容
@@ -13,7 +27,7 @@ const PPTGeneratorPresentation = {
                     <div class="sidebar-header" id="presSidebarHeader">幻灯片 (${this.slides.length}页)</div>
                     <div class="ppt-thumb-list custom-scrollbar" id="presThumbnails">
                         ${this.slides.map((slide, index) => `
-                            <div class="ppt-thumb-item ${index === this.currentSlideIndex ? 'active' : ''}" onclick="window.PPTGenerator.goToSlide(${index})">
+                            <div class="ppt-thumb-item ${index === this.currentSlideIndex ? 'active' : ''}" data-ppt-action="go-to-slide" data-slide-index="${index}">
                                 <div class="ppt-thumb-preview">
                                     ${this._renderThumbnail(slide, index)}
                                 </div>
@@ -42,53 +56,53 @@ const PPTGeneratorPresentation = {
                     </div>
                     <!-- Floating Toolbar - 移到 main-area 底部 -->
                     <div class="pres-toolbar-float">
-                        <button class="pres-tool-btn" onclick="window.PPTGenerator.prevSlide()" title="上一页">
+                        <button class="pres-tool-btn" data-ppt-action="prev-slide" title="上一页">
                             <iconify-icon icon="carbon:chevron-left"></iconify-icon>
                         </button>
                         <span class="pres-page-info" id="presPageInfo">${this.currentSlideIndex + 1} / ${this.slides.length}</span>
-                        <button class="pres-tool-btn" onclick="window.PPTGenerator.nextSlide()" title="下一页">
+                        <button class="pres-tool-btn" data-ppt-action="next-slide" title="下一页">
                             <iconify-icon icon="carbon:chevron-right"></iconify-icon>
                         </button>
                         <div class="pres-toolbar-divider"></div>
-                        <button class="pres-tool-btn" onclick="window.PPTGenerator.addSlideWithAI()" title="AI 新增幻灯片">
+                        <button class="pres-tool-btn" data-ppt-action="add-slide-ai" title="AI 新增幻灯片">
                             <iconify-icon icon="carbon:add"></iconify-icon>
                         </button>
-                        <button class="pres-tool-btn" onclick="window.PPTGenerator.duplicateSlide()" title="复制幻灯片">
+                        <button class="pres-tool-btn" data-ppt-action="duplicate-slide" title="复制幻灯片">
                             <iconify-icon icon="carbon:copy"></iconify-icon>
                         </button>
-                        <button class="pres-tool-btn danger" onclick="window.PPTGenerator.deleteCurrentSlide()" title="删除幻灯片">
+                        <button class="pres-tool-btn danger" data-ppt-action="delete-current-slide" title="删除幻灯片">
                             <iconify-icon icon="carbon:trash-can"></iconify-icon>
                         </button>
                         <div class="pres-toolbar-divider"></div>
-                        <button class="pres-tool-btn" id="editorModeBtn" onclick="window.PPTGenerator.toggleEditorMode()" title="编辑模式">
+                        <button class="pres-tool-btn" id="editorModeBtn" data-ppt-action="toggle-editor-mode" title="编辑模式">
                             <iconify-icon icon="carbon:touch-interaction"></iconify-icon>
                         </button>
                         <!-- 编辑模式工具（初始隐藏） -->
                         <div class="editor-tools" id="editorTools" style="display: none;">
-                            <button class="pres-tool-btn" onclick="window.PPTGenerator.addText()" title="添加文本">
+                            <button class="pres-tool-btn" data-ppt-action="add-text" title="添加文本">
                                 <iconify-icon icon="carbon:text-font"></iconify-icon>
                             </button>
-                            <button class="pres-tool-btn" onclick="window.PPTGenerator.addImage()" title="添加图片">
+                            <button class="pres-tool-btn" data-ppt-action="add-image" title="添加图片">
                                 <iconify-icon icon="carbon:image"></iconify-icon>
                             </button>
-                            <button class="pres-tool-btn" onclick="window.PPTGenerator.addShape()" title="添加形状">
+                            <button class="pres-tool-btn" data-ppt-action="add-shape" title="添加形状">
                                 <iconify-icon icon="carbon:shape-join"></iconify-icon>
                             </button>
-                            <button class="pres-tool-btn" onclick="window.PPTGenerator.addChart()" title="添加图表">
+                            <button class="pres-tool-btn" data-ppt-action="add-chart" title="添加图表">
                                 <iconify-icon icon="carbon:chart-bar"></iconify-icon>
                             </button>
-                            <button class="pres-tool-btn" onclick="window.PPTGenerator.addIcon()" title="添加图标">
+                            <button class="pres-tool-btn" data-ppt-action="add-icon" title="添加图标">
                                 <iconify-icon icon="carbon:face-satisfied"></iconify-icon>
                             </button>
                             <div class="pres-toolbar-divider"></div>
-                            <button class="pres-tool-btn ai-btn" onclick="window.PPTGenerator.regionSelectAndGenerate()" title="框选区域 AI 生图">
+                            <button class="pres-tool-btn ai-btn" data-ppt-action="region-select-generate" title="框选区域 AI 生图">
                                 <iconify-icon icon="carbon:select-window"></iconify-icon>
                             </button>
                             <div class="pres-toolbar-divider"></div>
-                            <button class="pres-tool-btn" onclick="window.PPTGenerator.undo()" title="撤销 (Ctrl+Z)">
+                            <button class="pres-tool-btn" data-ppt-action="undo" title="撤销 (Ctrl+Z)">
                                 <iconify-icon icon="carbon:undo"></iconify-icon>
                             </button>
-                            <button class="pres-tool-btn" onclick="window.PPTGenerator.redo()" title="重做 (Ctrl+Y)">
+                            <button class="pres-tool-btn" data-ppt-action="redo" title="重做 (Ctrl+Y)">
                                 <iconify-icon icon="carbon:redo"></iconify-icon>
                             </button>
                             <div class="pres-toolbar-divider"></div>
@@ -98,16 +112,16 @@ const PPTGeneratorPresentation = {
                                     <iconify-icon icon="carbon:chevron-down" style="font-size: 10px; margin-left: 2px;"></iconify-icon>
                                 </button>
                                 <div class="pres-tool-dropdown-menu" id="alignDropdownMenu" style="display: none;">
-                                    <button onclick="window.PPTGenerator.align('left')" title="左对齐"><iconify-icon icon="carbon:align-horizontal-left"></iconify-icon> 左对齐</button>
-                                    <button onclick="window.PPTGenerator.align('center')" title="水平居中"><iconify-icon icon="carbon:align-horizontal-center"></iconify-icon> 水平居中</button>
-                                    <button onclick="window.PPTGenerator.align('right')" title="右对齐"><iconify-icon icon="carbon:align-horizontal-right"></iconify-icon> 右对齐</button>
+                                    <button data-ppt-action="align" data-align="left" title="左对齐"><iconify-icon icon="carbon:align-horizontal-left"></iconify-icon> 左对齐</button>
+                                    <button data-ppt-action="align" data-align="center" title="水平居中"><iconify-icon icon="carbon:align-horizontal-center"></iconify-icon> 水平居中</button>
+                                    <button data-ppt-action="align" data-align="right" title="右对齐"><iconify-icon icon="carbon:align-horizontal-right"></iconify-icon> 右对齐</button>
                                     <div class="dropdown-divider"></div>
-                                    <button onclick="window.PPTGenerator.align('top')" title="顶部对齐"><iconify-icon icon="carbon:align-vertical-top"></iconify-icon> 顶部对齐</button>
-                                    <button onclick="window.PPTGenerator.align('middle')" title="垂直居中"><iconify-icon icon="carbon:align-vertical-center"></iconify-icon> 垂直居中</button>
-                                    <button onclick="window.PPTGenerator.align('bottom')" title="底部对齐"><iconify-icon icon="carbon:align-vertical-bottom"></iconify-icon> 底部对齐</button>
+                                    <button data-ppt-action="align" data-align="top" title="顶部对齐"><iconify-icon icon="carbon:align-vertical-top"></iconify-icon> 顶部对齐</button>
+                                    <button data-ppt-action="align" data-align="middle" title="垂直居中"><iconify-icon icon="carbon:align-vertical-center"></iconify-icon> 垂直居中</button>
+                                    <button data-ppt-action="align" data-align="bottom" title="底部对齐"><iconify-icon icon="carbon:align-vertical-bottom"></iconify-icon> 底部对齐</button>
                                     <div class="dropdown-divider"></div>
-                                    <button onclick="window.PPTGenerator.align('distributeH')" title="水平分布"><iconify-icon icon="carbon:distribute-horizontal-center"></iconify-icon> 水平分布</button>
-                                    <button onclick="window.PPTGenerator.align('distributeV')" title="垂直分布"><iconify-icon icon="carbon:distribute-vertical-center"></iconify-icon> 垂直分布</button>
+                                    <button data-ppt-action="align" data-align="distributeH" title="水平分布"><iconify-icon icon="carbon:distribute-horizontal-center"></iconify-icon> 水平分布</button>
+                                    <button data-ppt-action="align" data-align="distributeV" title="垂直分布"><iconify-icon icon="carbon:distribute-vertical-center"></iconify-icon> 垂直分布</button>
                                 </div>
                             </div>
                         </div>
@@ -257,51 +271,49 @@ const PPTGeneratorPresentation = {
     /**
      * 更新外层 header，整合视图切换和导出按钮
      */
-    _updateHeaderForPresentation() {
-        const header = document.querySelector('.ppt-header');
-        if (!header) return;
+	    _updateHeaderForPresentation() {
+	        const header = document.querySelector('.ppt-header');
+	        if (!header) return;
 
-        header.innerHTML = `
-            <div class="ppt-header-left">
-                <button class="ppt-icon-btn" onclick="window.PPTGenerator.enterWorkspace()">
-                    <iconify-icon icon="carbon:arrow-left"></iconify-icon>
-                </button>
-                <div class="ppt-logo">
-                    <img src="public/pure.svg" alt="Logo" class="ppt-logo-img">
-                    <span>智能演示文稿生成</span>
-                </div>
-                <div class="ppt-header-divider"></div>
-                <div class="pres-title-wrapper">
-                    <input type="text" class="pres-title-input" value="${this.currentProject.title}"
-                           onblur="window.PPTGenerator.updateProjectTitle(this.value)"
-                           onkeydown="if(event.key === 'Enter') this.blur()">
-                    <iconify-icon icon="carbon:edit" class="pres-title-icon"></iconify-icon>
-                </div>
-            </div>
-            <div class="ppt-header-center">
-                <div class="pres-view-toggle">
-                    <button class="pres-view-btn ${this.viewMode === 'slide' ? 'active' : ''}" onclick="window.PPTGenerator.toggleViewMode('slide')">
-                        <iconify-icon icon="carbon:presentation-file"></iconify-icon>
-                        <span>幻灯片</span>
-                    </button>
-                    <button class="pres-view-btn ${this.viewMode === 'outline' ? 'active' : ''}" onclick="window.PPTGenerator.toggleViewMode('outline')">
-                        <iconify-icon icon="carbon:list"></iconify-icon>
-                        <span>大纲</span>
-                    </button>
-                </div>
-            </div>
-            <div class="ppt-header-right">
-                <button class="ppt-play-btn" onclick="window.PPTGenerator.startSlideshow()">
-                    <iconify-icon icon="carbon:play-filled"></iconify-icon>
-                    <span>播放</span>
-                </button>
-                <div class="ppt-export-dropdown">
-                    <button class="ppt-export-btn" onclick="window.PPTGenerator.toggleExportMenu()">
-                        <iconify-icon icon="carbon:export"></iconify-icon>
-                        <span>导出</span>
-                        <iconify-icon icon="carbon:chevron-down" class="ppt-export-chevron"></iconify-icon>
-                    </button>
-                    <div class="ppt-export-menu" id="pptExportMenu">
+	        header.innerHTML = `
+	            <div class="ppt-header-left">
+	                <button class="ppt-icon-btn" data-ppt-action="enter-workspace">
+	                    <iconify-icon icon="carbon:arrow-left"></iconify-icon>
+	                </button>
+	                <div class="ppt-logo">
+	                    <img src="public/pure.svg" alt="Logo" class="ppt-logo-img">
+	                    <span>智能演示文稿生成</span>
+	                </div>
+	                <div class="ppt-header-divider"></div>
+	                <div class="pres-title-wrapper">
+	                    <input type="text" class="pres-title-input" value="${escapeAttr(this.currentProject?.title || '')}">
+	                    <iconify-icon icon="carbon:edit" class="pres-title-icon"></iconify-icon>
+	                </div>
+	            </div>
+	            <div class="ppt-header-center">
+	                <div class="pres-view-toggle">
+	                    <button class="pres-view-btn ${this.viewMode === 'slide' ? 'active' : ''}" data-ppt-action="toggle-view-mode" data-view="slide">
+	                        <iconify-icon icon="carbon:presentation-file"></iconify-icon>
+	                        <span>幻灯片</span>
+	                    </button>
+	                    <button class="pres-view-btn ${this.viewMode === 'outline' ? 'active' : ''}" data-ppt-action="toggle-view-mode" data-view="outline">
+	                        <iconify-icon icon="carbon:list"></iconify-icon>
+	                        <span>大纲</span>
+	                    </button>
+	                </div>
+	            </div>
+	            <div class="ppt-header-right">
+	                <button class="ppt-play-btn" data-ppt-action="start-slideshow">
+	                    <iconify-icon icon="carbon:play-filled"></iconify-icon>
+	                    <span>播放</span>
+	                </button>
+	                <div class="ppt-export-dropdown">
+	                    <button class="ppt-export-btn" data-ppt-action="toggle-export-menu">
+	                        <iconify-icon icon="carbon:export"></iconify-icon>
+	                        <span>导出</span>
+	                        <iconify-icon icon="carbon:chevron-down" class="ppt-export-chevron"></iconify-icon>
+	                    </button>
+	                    <div class="ppt-export-menu" id="pptExportMenu">
                         <div class="ppt-export-group-label">PPTX 导出设置</div>
                         <div class="ppt-export-options">
                             <div class="ppt-export-option-group">
@@ -320,37 +332,54 @@ const PPTGeneratorPresentation = {
                                 </div>
                             </div>
                         </div>
-                        <button class="ppt-export-action-btn" onclick="window.PPTGenerator.exportPPTX()">
-                            <iconify-icon icon="carbon:document-export"></iconify-icon>
-                            <span>导出 PPTX</span>
-                        </button>
-                        <div class="ppt-export-divider"></div>
-                        <button class="ppt-export-item" onclick="window.PPTGenerator.exportAs('pdf')">
-                            <iconify-icon icon="carbon:document-pdf"></iconify-icon>
-                            <div class="ppt-export-item-info">
-                                <span class="ppt-export-item-title">PDF 文档</span>
-                                <span class="ppt-export-item-desc">.pdf 便于分享</span>
-                            </div>
-                        </button>
-                        <div class="ppt-export-divider"></div>
-                        <button class="ppt-export-item" onclick="window.PPTGenerator.exportAs('images')">
-                            <iconify-icon icon="carbon:image"></iconify-icon>
-                            <div class="ppt-export-item-info">
-                                <span class="ppt-export-item-title">图片打包</span>
-                                <span class="ppt-export-item-desc">.zip 每页一张 PNG</span>
-                            </div>
-                        </button>
-                    </div>
-                </div>
-                <button class="ppt-icon-btn" onclick="window.PPTGenerator.showProjectList()" title="项目列表">
-                    <iconify-icon icon="carbon:grid"></iconify-icon>
-                </button>
-                <button class="ppt-icon-btn" onclick="window.location.href='index.html'" title="返回主页">
-                    <iconify-icon icon="carbon:home"></iconify-icon>
-                </button>
-            </div>
-        `;
-    },
+	                        <button class="ppt-export-action-btn" data-ppt-action="export-pptx">
+	                            <iconify-icon icon="carbon:document-export"></iconify-icon>
+	                            <span>导出 PPTX</span>
+	                        </button>
+	                        <div class="ppt-export-divider"></div>
+	                        <button class="ppt-export-item" data-ppt-action="export-as" data-format="pdf">
+	                            <iconify-icon icon="carbon:document-pdf"></iconify-icon>
+	                            <div class="ppt-export-item-info">
+	                                <span class="ppt-export-item-title">PDF 文档</span>
+	                                <span class="ppt-export-item-desc">.pdf 便于分享</span>
+	                            </div>
+	                        </button>
+	                        <div class="ppt-export-divider"></div>
+	                        <button class="ppt-export-item" data-ppt-action="export-as" data-format="images">
+	                            <iconify-icon icon="carbon:image"></iconify-icon>
+	                            <div class="ppt-export-item-info">
+	                                <span class="ppt-export-item-title">图片打包</span>
+	                                <span class="ppt-export-item-desc">.zip 每页一张 PNG</span>
+	                            </div>
+	                        </button>
+	                    </div>
+	                </div>
+	                <button class="ppt-icon-btn" data-ppt-action="show-project-list" title="项目列表">
+	                    <iconify-icon icon="carbon:grid"></iconify-icon>
+	                </button>
+	                <button class="ppt-icon-btn" data-ppt-action="navigate" data-href="index.html" title="返回主页">
+	                    <iconify-icon icon="carbon:home"></iconify-icon>
+	                </button>
+	            </div>
+	        `;
+
+	        // Ensure data-ppt-action event delegation is available.
+	        window.PPTGenerator?._ensureNavigationEventsBound?.();
+
+	        // Bind title editing handlers (avoid inline events).
+	        const titleInput = header.querySelector('.pres-title-input');
+	        if (titleInput) {
+	            titleInput.addEventListener('blur', () => {
+	                window.PPTGenerator?.updateProjectTitle?.(titleInput.value);
+	            });
+	            titleInput.addEventListener('keydown', (event) => {
+	                if (event.key === 'Enter') {
+	                    event.preventDefault();
+	                    titleInput.blur();
+	                }
+	            });
+	        }
+	    },
 
     // ============================================================
     // Presentation Navigation Logic
@@ -371,13 +400,13 @@ const PPTGeneratorPresentation = {
     /**
      * 渲染缩略图预览（缩小版的幻灯片内容）
      */
-    _renderThumbnail(slide, index) {
-        // 检查 HTMLSlideRenderer 是否可用
-        if (typeof HTMLSlideRenderer === 'undefined') {
-            // Fallback: 显示幻灯片类型和序号
-            const title = slide.title || slide.type || `幻灯片 ${index + 1}`;
-            return `<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:10px;color:#666;">${title}</div>`;
-        }
+	    _renderThumbnail(slide, index) {
+	        // 检查 HTMLSlideRenderer 是否可用
+	        if (typeof HTMLSlideRenderer === 'undefined') {
+	            // Fallback: 显示幻灯片类型和序号
+	            const title = slide.title || slide.type || `幻灯片 ${index + 1}`;
+	            return `<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:10px;color:#666;">${escapeHtml(title)}</div>`;
+	        }
         if (!this._htmlRenderer) {
             this._htmlRenderer = new HTMLSlideRenderer();
         }
@@ -386,167 +415,167 @@ const PPTGeneratorPresentation = {
         return `<div class="pres-thumb-content">${content}</div>`;
     },
 
-    _renderSlideContentLegacy(slide) {
-        if (slide.type === 'cover') {
-            return `
-                <div class="slide-modern-cover">
-                    <h1 contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'title', this.innerText)" style="font-size: 48px; font-weight: 800; margin-bottom: 20px;">${slide.title}</h1>
-                    <p contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'subtitle', this.innerText)" style="font-size: 24px; opacity: 0.8;">${slide.subtitle}</p>
-                    <div style="margin-top: 40px; font-size: 14px; opacity: 0.6;">Generated by Paper Burner X</div>
-                </div>
-            `;
-        } else if (slide.type === 'toc') {
+	    _renderSlideContentLegacy(slide) {
+	        if (slide.type === 'cover') {
+	            return `
+	                <div class="slide-modern-cover">
+	                    <h1 contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'title', this.innerText)" style="font-size: 48px; font-weight: 800; margin-bottom: 20px;">${escapeHtml(slide.title)}</h1>
+	                    <p contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'subtitle', this.innerText)" style="font-size: 24px; opacity: 0.8;">${escapeHtml(slide.subtitle)}</p>
+	                    <div style="margin-top: 40px; font-size: 14px; opacity: 0.6;">Generated by Paper Burner X</div>
+	                </div>
+	            `;
+	        } else if (slide.type === 'toc') {
             // 目录页 - 带序号的列表
-            return `
-                <div style="padding: 60px; height: 100%; display: flex; flex-direction: column;">
-                    <h2 contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'title', this.innerText)" style="font-size: 36px; font-weight: 700; color: var(--ppt-text-main); margin-bottom: 48px;">${slide.title}</h2>
-                    <div style="display: flex; flex-direction: column; gap: 20px;">
-                        ${slide.items.map((item, i) => `
-                            <div style="display: flex; align-items: center; gap: 20px;">
-                                <span style="width: 40px; height: 40px; background: var(--ppt-primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 18px;">${i + 1}</span>
-                                <span contenteditable="true" onblur="window.PPTGenerator.updateSlideItem(${this.currentSlideIndex}, ${i}, this.innerText)" style="font-size: 24px; color: var(--ppt-text-secondary);">${item}</span>
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
+	            return `
+	                <div style="padding: 60px; height: 100%; display: flex; flex-direction: column;">
+	                    <h2 contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'title', this.innerText)" style="font-size: 36px; font-weight: 700; color: var(--ppt-text-main); margin-bottom: 48px;">${escapeHtml(slide.title)}</h2>
+	                    <div style="display: flex; flex-direction: column; gap: 20px;">
+	                        ${slide.items.map((item, i) => `
+	                            <div style="display: flex; align-items: center; gap: 20px;">
+	                                <span style="width: 40px; height: 40px; background: var(--ppt-primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 18px;">${i + 1}</span>
+	                                <span contenteditable="true" onblur="window.PPTGenerator.updateSlideItem(${this.currentSlideIndex}, ${i}, this.innerText)" style="font-size: 24px; color: var(--ppt-text-secondary);">${escapeHtml(item)}</span>
+	                            </div>
+	                        `).join('')}
+	                    </div>
+	                </div>
             `;
-        } else if (slide.type === 'stats') {
-            // 数据统计页 - 大数字展示
-            return `
-                <div style="padding: 60px; height: 100%; display: flex; flex-direction: column;">
-                    <h2 contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'title', this.innerText)" style="font-size: 36px; font-weight: 700; color: var(--ppt-text-main); margin-bottom: 48px;">${slide.title}</h2>
-                    <div style="flex: 1; display: grid; grid-template-columns: repeat(${Math.min(slide.stats.length, 4)}, 1fr); gap: 32px; align-items: center;">
-                        ${slide.stats.map((stat, i) => `
-                            <div style="text-align: center; padding: 24px;">
-                                <div contenteditable="true" onblur="window.PPTGenerator.updateSlideStat(${this.currentSlideIndex}, ${i}, 'value', this.innerText)" style="font-size: 56px; font-weight: 800; color: var(--ppt-primary); margin-bottom: 12px;">${stat.value}</div>
-                                <div contenteditable="true" onblur="window.PPTGenerator.updateSlideStat(${this.currentSlideIndex}, ${i}, 'label', this.innerText)" style="font-size: 16px; color: var(--ppt-text-secondary);">${stat.label}</div>
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
-            `;
-        } else if (slide.type === 'comparison') {
+	        } else if (slide.type === 'stats') {
+	            // 数据统计页 - 大数字展示
+	            return `
+	                <div style="padding: 60px; height: 100%; display: flex; flex-direction: column;">
+	                    <h2 contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'title', this.innerText)" style="font-size: 36px; font-weight: 700; color: var(--ppt-text-main); margin-bottom: 48px;">${escapeHtml(slide.title)}</h2>
+	                    <div style="flex: 1; display: grid; grid-template-columns: repeat(${Math.min(slide.stats.length, 4)}, 1fr); gap: 32px; align-items: center;">
+	                        ${slide.stats.map((stat, i) => `
+	                            <div style="text-align: center; padding: 24px;">
+	                                <div contenteditable="true" onblur="window.PPTGenerator.updateSlideStat(${this.currentSlideIndex}, ${i}, 'value', this.innerText)" style="font-size: 56px; font-weight: 800; color: var(--ppt-primary); margin-bottom: 12px;">${escapeHtml(stat.value)}</div>
+	                                <div contenteditable="true" onblur="window.PPTGenerator.updateSlideStat(${this.currentSlideIndex}, ${i}, 'label', this.innerText)" style="font-size: 16px; color: var(--ppt-text-secondary);">${escapeHtml(stat.label)}</div>
+	                            </div>
+	                        `).join('')}
+	                    </div>
+	                </div>
+	            `;
+	        } else if (slide.type === 'comparison') {
             // 对比页 - 左右分栏
-            return `
-                <div style="padding: 60px; height: 100%; display: flex; flex-direction: column;">
-                    <h2 contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'title', this.innerText)" style="font-size: 36px; font-weight: 700; color: var(--ppt-text-main); margin-bottom: 40px;">${slide.title}</h2>
-                    <div style="flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 40px;">
-                        <div style="background: #fee2e2; border-radius: 16px; padding: 32px;">
-                            <h3 contenteditable="true" style="font-size: 24px; font-weight: 600; color: #dc2626; margin-bottom: 24px;">${slide.left.title}</h3>
-                            <ul style="list-style: none; padding: 0; margin: 0;">
-                                ${slide.left.items.map((item, i) => `
-                                    <li style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px; font-size: 18px; color: #991b1b;">
-                                        <iconify-icon icon="carbon:close-filled" style="color: #dc2626;"></iconify-icon>
-                                        <span contenteditable="true">${item}</span>
-                                    </li>
-                                `).join('')}
-                            </ul>
-                        </div>
-                        <div style="background: #dcfce7; border-radius: 16px; padding: 32px;">
-                            <h3 contenteditable="true" style="font-size: 24px; font-weight: 600; color: #16a34a; margin-bottom: 24px;">${slide.right.title}</h3>
-                            <ul style="list-style: none; padding: 0; margin: 0;">
-                                ${slide.right.items.map((item, i) => `
-                                    <li style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px; font-size: 18px; color: #166534;">
-                                        <iconify-icon icon="carbon:checkmark-filled" style="color: #16a34a;"></iconify-icon>
-                                        <span contenteditable="true">${item}</span>
-                                    </li>
-                                `).join('')}
-                            </ul>
-                        </div>
-                    </div>
-                </div>
-            `;
-        } else if (slide.type === 'image_text') {
+	            return `
+	                <div style="padding: 60px; height: 100%; display: flex; flex-direction: column;">
+	                    <h2 contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'title', this.innerText)" style="font-size: 36px; font-weight: 700; color: var(--ppt-text-main); margin-bottom: 40px;">${escapeHtml(slide.title)}</h2>
+	                    <div style="flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 40px;">
+	                        <div style="background: #fee2e2; border-radius: 16px; padding: 32px;">
+	                            <h3 contenteditable="true" style="font-size: 24px; font-weight: 600; color: #dc2626; margin-bottom: 24px;">${escapeHtml(slide.left.title)}</h3>
+	                            <ul style="list-style: none; padding: 0; margin: 0;">
+	                                ${slide.left.items.map((item, i) => `
+	                                    <li style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px; font-size: 18px; color: #991b1b;">
+	                                        <iconify-icon icon="carbon:close-filled" style="color: #dc2626;"></iconify-icon>
+	                                        <span contenteditable="true">${escapeHtml(item)}</span>
+	                                    </li>
+	                                `).join('')}
+	                            </ul>
+	                        </div>
+	                        <div style="background: #dcfce7; border-radius: 16px; padding: 32px;">
+	                            <h3 contenteditable="true" style="font-size: 24px; font-weight: 600; color: #16a34a; margin-bottom: 24px;">${escapeHtml(slide.right.title)}</h3>
+	                            <ul style="list-style: none; padding: 0; margin: 0;">
+	                                ${slide.right.items.map((item, i) => `
+	                                    <li style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px; font-size: 18px; color: #166534;">
+	                                        <iconify-icon icon="carbon:checkmark-filled" style="color: #16a34a;"></iconify-icon>
+	                                        <span contenteditable="true">${escapeHtml(item)}</span>
+	                                    </li>
+	                                `).join('')}
+	                            </ul>
+	                        </div>
+	                    </div>
+	                </div>
+	            `;
+	        } else if (slide.type === 'image_text') {
             // 图文混排页
-            return `
-                <div style="padding: 60px; height: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: center;">
-                    <div>
-                        <h2 contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'title', this.innerText)" style="font-size: 36px; font-weight: 700; color: var(--ppt-text-main); margin-bottom: 24px;">${slide.title}</h2>
-                        <p contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'content', this.innerText)" style="font-size: 20px; color: var(--ppt-text-secondary); line-height: 1.7;">${slide.content}</p>
-                    </div>
-                    <div style="background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%); border-radius: 16px; height: 280px; display: flex; align-items: center; justify-content: center; color: var(--ppt-primary); font-size: 18px;">
-                        <iconify-icon icon="carbon:image" style="font-size: 48px; opacity: 0.5; margin-right: 12px;"></iconify-icon>
-                        ${slide.imagePlaceholder || '图片占位'}
-                    </div>
-                </div>
-            `;
-        } else if (slide.type === 'icon_grid') {
+	            return `
+	                <div style="padding: 60px; height: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: center;">
+	                    <div>
+	                        <h2 contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'title', this.innerText)" style="font-size: 36px; font-weight: 700; color: var(--ppt-text-main); margin-bottom: 24px;">${escapeHtml(slide.title)}</h2>
+	                        <p contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'content', this.innerText)" style="font-size: 20px; color: var(--ppt-text-secondary); line-height: 1.7;">${escapeHtml(slide.content)}</p>
+	                    </div>
+	                    <div style="background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%); border-radius: 16px; height: 280px; display: flex; align-items: center; justify-content: center; color: var(--ppt-primary); font-size: 18px;">
+	                        <iconify-icon icon="carbon:image" style="font-size: 48px; opacity: 0.5; margin-right: 12px;"></iconify-icon>
+	                        ${escapeHtml(slide.imagePlaceholder || '图片占位')}
+	                    </div>
+	                </div>
+	            `;
+	        } else if (slide.type === 'icon_grid') {
             // 图标网格页
-            return `
-                <div style="padding: 60px; height: 100%; display: flex; flex-direction: column;">
-                    <h2 contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'title', this.innerText)" style="font-size: 36px; font-weight: 700; color: var(--ppt-text-main); margin-bottom: 48px;">${slide.title}</h2>
-                    <div style="flex: 1; display: grid; grid-template-columns: repeat(${Math.min(slide.items.length, 4)}, 1fr); gap: 32px;">
-                        ${slide.items.map((item, i) => `
-                            <div style="background: var(--ppt-bg-subtle); border-radius: 16px; padding: 32px; text-align: center;">
-                                <div style="width: 64px; height: 64px; background: var(--ppt-primary-subtle); border-radius: 16px; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px auto;">
-                                    <iconify-icon icon="${item.icon}" style="font-size: 32px; color: var(--ppt-primary);"></iconify-icon>
-                                </div>
-                                <h4 contenteditable="true" style="font-size: 20px; font-weight: 600; color: var(--ppt-text-main); margin-bottom: 8px;">${item.title}</h4>
-                                <p contenteditable="true" style="font-size: 14px; color: var(--ppt-text-secondary); margin: 0;">${item.desc}</p>
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
-            `;
-        } else if (slide.type === 'quote') {
+	            return `
+	                <div style="padding: 60px; height: 100%; display: flex; flex-direction: column;">
+	                    <h2 contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'title', this.innerText)" style="font-size: 36px; font-weight: 700; color: var(--ppt-text-main); margin-bottom: 48px;">${escapeHtml(slide.title)}</h2>
+	                    <div style="flex: 1; display: grid; grid-template-columns: repeat(${Math.min(slide.items.length, 4)}, 1fr); gap: 32px;">
+	                        ${slide.items.map((item, i) => `
+	                            <div style="background: var(--ppt-bg-subtle); border-radius: 16px; padding: 32px; text-align: center;">
+	                                <div style="width: 64px; height: 64px; background: var(--ppt-primary-subtle); border-radius: 16px; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px auto;">
+	                                    <iconify-icon icon="${escapeAttr(item.icon)}" style="font-size: 32px; color: var(--ppt-primary);"></iconify-icon>
+	                                </div>
+	                                <h4 contenteditable="true" style="font-size: 20px; font-weight: 600; color: var(--ppt-text-main); margin-bottom: 8px;">${escapeHtml(item.title)}</h4>
+	                                <p contenteditable="true" style="font-size: 14px; color: var(--ppt-text-secondary); margin: 0;">${escapeHtml(item.desc)}</p>
+	                            </div>
+	                        `).join('')}
+	                    </div>
+	                </div>
+	            `;
+	        } else if (slide.type === 'quote') {
             // 引用/评价页
-            return `
-                <div style="padding: 80px; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%);">
-                    <iconify-icon icon="carbon:quotes" style="font-size: 64px; color: var(--ppt-primary); opacity: 0.3; margin-bottom: 32px;"></iconify-icon>
-                    <p contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'quote', this.innerText)" style="font-size: 28px; color: var(--ppt-text-main); line-height: 1.6; max-width: 700px; margin-bottom: 40px; font-style: italic;">"${slide.quote}"</p>
-                    <div>
-                        <div contenteditable="true" style="font-size: 20px; font-weight: 600; color: var(--ppt-text-main);">${slide.author}</div>
-                        <div contenteditable="true" style="font-size: 16px; color: var(--ppt-text-secondary); margin-top: 4px;">${slide.company}</div>
-                    </div>
-                </div>
-            `;
-        } else if (slide.type === 'timeline') {
+	            return `
+	                <div style="padding: 80px; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%);">
+	                    <iconify-icon icon="carbon:quotes" style="font-size: 64px; color: var(--ppt-primary); opacity: 0.3; margin-bottom: 32px;"></iconify-icon>
+	                    <p contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'quote', this.innerText)" style="font-size: 28px; color: var(--ppt-text-main); line-height: 1.6; max-width: 700px; margin-bottom: 40px; font-style: italic;">"${escapeHtml(slide.quote)}"</p>
+	                    <div>
+	                        <div contenteditable="true" style="font-size: 20px; font-weight: 600; color: var(--ppt-text-main);">${escapeHtml(slide.author)}</div>
+	                        <div contenteditable="true" style="font-size: 16px; color: var(--ppt-text-secondary); margin-top: 4px;">${escapeHtml(slide.company)}</div>
+	                    </div>
+	                </div>
+	            `;
+	        } else if (slide.type === 'timeline') {
             // 时间轴/路线图页
-            return `
-                <div style="padding: 60px; height: 100%; display: flex; flex-direction: column;">
-                    <h2 contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'title', this.innerText)" style="font-size: 36px; font-weight: 700; color: var(--ppt-text-main); margin-bottom: 48px;">${slide.title}</h2>
-                    <div style="flex: 1; display: flex; align-items: center; position: relative;">
-                        <div style="position: absolute; top: 50%; left: 0; right: 0; height: 4px; background: var(--ppt-border); transform: translateY(-50%);"></div>
-                        <div style="display: grid; grid-template-columns: repeat(${slide.items.length}, 1fr); gap: 24px; width: 100%; position: relative;">
-                            ${slide.items.map((item, i) => `
-                                <div style="text-align: center;">
-                                    <div style="width: 56px; height: 56px; background: var(--ppt-primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 16px; margin: 0 auto 16px auto; position: relative; z-index: 1;">${item.phase}</div>
-                                    <div contenteditable="true" style="font-size: 18px; font-weight: 600; color: var(--ppt-text-main); margin-bottom: 8px;">${item.title}</div>
-                                    <div contenteditable="true" style="font-size: 14px; color: var(--ppt-text-secondary);">${item.desc}</div>
-                                </div>
-                            `).join('')}
-                        </div>
-                    </div>
-                </div>
-            `;
-        } else if (slide.type === 'end') {
+	            return `
+	                <div style="padding: 60px; height: 100%; display: flex; flex-direction: column;">
+	                    <h2 contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'title', this.innerText)" style="font-size: 36px; font-weight: 700; color: var(--ppt-text-main); margin-bottom: 48px;">${escapeHtml(slide.title)}</h2>
+	                    <div style="flex: 1; display: flex; align-items: center; position: relative;">
+	                        <div style="position: absolute; top: 50%; left: 0; right: 0; height: 4px; background: var(--ppt-border); transform: translateY(-50%);"></div>
+	                        <div style="display: grid; grid-template-columns: repeat(${slide.items.length}, 1fr); gap: 24px; width: 100%; position: relative;">
+	                            ${slide.items.map((item, i) => `
+	                                <div style="text-align: center;">
+	                                    <div style="width: 56px; height: 56px; background: var(--ppt-primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 16px; margin: 0 auto 16px auto; position: relative; z-index: 1;">${escapeHtml(item.phase)}</div>
+	                                    <div contenteditable="true" style="font-size: 18px; font-weight: 600; color: var(--ppt-text-main); margin-bottom: 8px;">${escapeHtml(item.title)}</div>
+	                                    <div contenteditable="true" style="font-size: 14px; color: var(--ppt-text-secondary);">${escapeHtml(item.desc)}</div>
+	                                </div>
+	                            `).join('')}
+	                        </div>
+	                    </div>
+	                </div>
+	            `;
+	        } else if (slide.type === 'end') {
             // 结束页
-            return `
-                <div class="slide-modern-cover" style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);">
-                    <h1 contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'title', this.innerText)" style="font-size: 48px; font-weight: 800; margin-bottom: 16px;">${slide.title}</h1>
-                    <p contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'subtitle', this.innerText)" style="font-size: 24px; opacity: 0.7; margin-bottom: 40px;">${slide.subtitle || ''}</p>
-                    ${slide.email ? `<div style="font-size: 18px; opacity: 0.5;"><iconify-icon icon="carbon:email"></iconify-icon> ${slide.email}</div>` : ''}
-                    <div style="margin-top: 60px; font-size: 14px; opacity: 0.4;">Generated by Paper Burner X</div>
-                </div>
-            `;
-        } else if (slide.type === 'list') {
-            return `
-                <div style="padding: 60px; height: 100%; display: flex; flex-direction: column;">
-                    <h2 contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'title', this.innerText)" style="font-size: 36px; font-weight: 700; color: var(--ppt-text-main); margin-bottom: 40px;">${slide.title}</h2>
-                    <ul style="font-size: 24px; color: var(--ppt-text-secondary); line-height: 1.8; padding-left: 40px;">
-                        ${slide.items.map((item, i) => `<li contenteditable="true" onblur="window.PPTGenerator.updateSlideItem(${this.currentSlideIndex}, ${i}, this.innerText)">${item}</li>`).join('')}
-                    </ul>
-                </div>
-            `;
-        } else {
-            return `
-                <div style="padding: 60px; height: 100%; display: flex; flex-direction: column; justify-content: center;">
-                    <h2 contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'title', this.innerText)" style="font-size: 36px; font-weight: 700; color: var(--ppt-text-main); margin-bottom: 24px;">${slide.title}</h2>
-                    <p contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'content', this.innerText)" style="font-size: 24px; color: var(--ppt-text-secondary); line-height: 1.6;">${slide.content}</p>
-                </div>
-            `;
-        }
-    },
+	            return `
+	                <div class="slide-modern-cover" style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);">
+	                    <h1 contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'title', this.innerText)" style="font-size: 48px; font-weight: 800; margin-bottom: 16px;">${escapeHtml(slide.title)}</h1>
+	                    <p contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'subtitle', this.innerText)" style="font-size: 24px; opacity: 0.7; margin-bottom: 40px;">${escapeHtml(slide.subtitle || '')}</p>
+	                    ${slide.email ? `<div style="font-size: 18px; opacity: 0.5;"><iconify-icon icon="carbon:email"></iconify-icon> ${escapeHtml(slide.email)}</div>` : ''}
+	                    <div style="margin-top: 60px; font-size: 14px; opacity: 0.4;">Generated by Paper Burner X</div>
+	                </div>
+	            `;
+	        } else if (slide.type === 'list') {
+	            return `
+	                <div style="padding: 60px; height: 100%; display: flex; flex-direction: column;">
+	                    <h2 contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'title', this.innerText)" style="font-size: 36px; font-weight: 700; color: var(--ppt-text-main); margin-bottom: 40px;">${escapeHtml(slide.title)}</h2>
+	                    <ul style="font-size: 24px; color: var(--ppt-text-secondary); line-height: 1.8; padding-left: 40px;">
+	                        ${slide.items.map((item, i) => `<li contenteditable="true" onblur="window.PPTGenerator.updateSlideItem(${this.currentSlideIndex}, ${i}, this.innerText)">${escapeHtml(item)}</li>`).join('')}
+	                    </ul>
+	                </div>
+	            `;
+	        } else {
+	            return `
+	                <div style="padding: 60px; height: 100%; display: flex; flex-direction: column; justify-content: center;">
+	                    <h2 contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'title', this.innerText)" style="font-size: 36px; font-weight: 700; color: var(--ppt-text-main); margin-bottom: 24px;">${escapeHtml(slide.title)}</h2>
+	                    <p contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'content', this.innerText)" style="font-size: 24px; color: var(--ppt-text-secondary); line-height: 1.6;">${escapeHtml(slide.content)}</p>
+	                </div>
+	            `;
+	        }
+	    },
 
     updateSlideContent(slideIndex, field, value) {
         if (this.slides[slideIndex]) {
@@ -598,30 +627,30 @@ const PPTGeneratorPresentation = {
         return scripts[index] || "No speaker notes available.";
     },
 
-    _renderOutlineContent() {
-        return `
-            <div class="ppt-outline-container">
-                ${this.slides.map((slide, index) => {
-                    // 从 elements 中提取标题和内容
-                    const info = this._extractSlideInfo(slide);
-                    return `
-                    <div class="ppt-outline-item" onclick="window.PPTGenerator.goToSlideFromOutline(${index})">
-                        <div class="ppt-outline-num">${index + 1}</div>
-                        <div class="ppt-outline-content">
-                            <div class="ppt-outline-title">${info.title || `幻灯片 ${index + 1}`}</div>
-                            ${info.subtitle ? `<div class="ppt-outline-text">${info.subtitle}</div>` : ''}
-                            ${info.bullets.length > 0 ? `
-                                <ul class="ppt-outline-list">
-                                    ${info.bullets.slice(0, 5).map(b => `<li>${b}</li>`).join('')}
-                                    ${info.bullets.length > 5 ? `<li>... 还有 ${info.bullets.length - 5} 项</li>` : ''}
-                                </ul>
-                            ` : ''}
-                        </div>
-                    </div>
-                `;}).join('')}
-            </div>
-        `;
-    },
+	    _renderOutlineContent() {
+	        return `
+	            <div class="ppt-outline-container">
+	                ${this.slides.map((slide, index) => {
+	                    // 从 elements 中提取标题和内容
+	                    const info = this._extractSlideInfo(slide);
+	                    return `
+	                    <div class="ppt-outline-item" data-ppt-action="go-to-slide-from-outline" data-slide-index="${index}">
+	                        <div class="ppt-outline-num">${index + 1}</div>
+	                        <div class="ppt-outline-content">
+	                            <div class="ppt-outline-title">${escapeHtml(info.title || `幻灯片 ${index + 1}`)}</div>
+	                            ${info.subtitle ? `<div class="ppt-outline-text">${escapeHtml(info.subtitle)}</div>` : ''}
+	                            ${info.bullets.length > 0 ? `
+	                                <ul class="ppt-outline-list">
+	                                    ${info.bullets.slice(0, 5).map(b => `<li>${escapeHtml(b)}</li>`).join('')}
+	                                    ${info.bullets.length > 5 ? `<li>... 还有 ${info.bullets.length - 5} 项</li>` : ''}
+	                                </ul>
+	                            ` : ''}
+	                        </div>
+	                    </div>
+	                `;}).join('')}
+	            </div>
+	        `;
+	    },
 
     /**
      * 从幻灯片数据中提取标题、副标题和要点
