@@ -1,25 +1,6 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import { parseHTML } from 'linkedom';
-
-function ensureLocalStorage() {
-  if (typeof globalThis.localStorage !== 'undefined') return globalThis.localStorage;
-  const storage = new Map();
-  globalThis.localStorage = {
-    getItem: (key) => storage.get(key) ?? null,
-    setItem: (key, value) => storage.set(key, String(value)),
-    removeItem: (key) => storage.delete(key),
-    clear: () => storage.clear(),
-    get length() { return storage.size; },
-    key: (index) => [...storage.keys()][index] ?? null,
-  };
-  return globalThis.localStorage;
-}
-
-function seedPptModelConfig() {
-  const ls = ensureLocalStorage();
-  ls.setItem('pptModelConfigLanguage', JSON.stringify({ modelKey: 'mock', modelId: '' }));
-}
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { parseHTML } = require('linkedom');
 
 function setupDom(html = '<!doctype html><html><head></head><body></body></html>') {
   const { window, document } = parseHTML(html);
@@ -36,7 +17,6 @@ function teardownDom() {
 
 // Ensure a window exists before loading dashboard modules (they register on `window.PPTDashboard`).
 setupDom();
-seedPptModelConfig();
 
 // Provide a global PPTGenerator binding before requiring mixins.
 if (!globalThis.PPTGenerator) {
@@ -62,18 +42,18 @@ if (!globalThis.PPTGenerator) {
   };
 }
 
-await import('../../js/ppt/dashboard/ppt_dashboard_utils.js');
-await import('../../js/ppt/dashboard/ppt_dashboard_upload.js');
-await import('../../js/ppt/dashboard/ppt_dashboard_history.js');
-await import('../../js/ppt/dashboard/ppt_dashboard_url_input.js');
-await import('../../js/ppt/dashboard/ppt_dashboard_paste.js');
-await import('../../js/ppt/dashboard/ppt_dashboard_modals.js');
-await import('../../js/ppt/dashboard/ppt_dashboard_deepsearch.js');
-await import('../../js/ppt/dashboard/ppt_dashboard_page_layout.js');
-await import('../../js/ppt/dashboard/ppt_dashboard_design_spec.js');
-await import('../../js/ppt/dashboard/ppt_dashboard_outline.js');
-await import('../../js/ppt/dashboard/ppt_dashboard_core.js');
-await import('../../js/ppt/generator/ppt_generator_workflow.js');
+require('../../js/ppt/dashboard/ppt_dashboard_utils.js');
+require('../../js/ppt/dashboard/ppt_dashboard_upload.js');
+require('../../js/ppt/dashboard/ppt_dashboard_history.js');
+require('../../js/ppt/dashboard/ppt_dashboard_url_input.js');
+require('../../js/ppt/dashboard/ppt_dashboard_paste.js');
+require('../../js/ppt/dashboard/ppt_dashboard_modals.js');
+require('../../js/ppt/dashboard/ppt_dashboard_deepsearch.js');
+require('../../js/ppt/dashboard/ppt_dashboard_page_layout.js');
+require('../../js/ppt/dashboard/ppt_dashboard_design_spec.js');
+require('../../js/ppt/dashboard/ppt_dashboard_outline.js');
+require('../../js/ppt/dashboard/ppt_dashboard_core.js');
+require('../../js/ppt/generator/ppt_generator_workflow.js');
 
 test.afterEach(() => {
   teardownDom();
@@ -97,7 +77,7 @@ test('design spec: renders with defaults and current values', () => {
   assert.ok(primaryInput);
   assert.equal(primaryInput.value.toLowerCase(), '#0ea5e9');
 
-  const modeBalanced = document.querySelector('button[data-action="updateVisualPreferenceMode"][data-mode="balanced"]');
+  const modeBalanced = document.querySelector("button[onclick*=\"updateVisualPreferenceMode('balanced')\"]");
   assert.ok(modeBalanced);
   assert.ok(modeBalanced.classList.contains('active'));
 
@@ -147,7 +127,7 @@ test('batch size change updates workflowData.batchSize', () => {
   gen.updateBatchSize(2);
   assert.equal(gen.workflowData.batchSize, 2);
 
-  const btn = document.querySelector('button[data-action="updateBatchSize"][data-size="2"]');
+  const btn = document.querySelector("button[onclick*='updateBatchSize(2)']");
   assert.ok(btn);
   assert.ok(btn.classList.contains('active'));
 });
@@ -161,7 +141,7 @@ test('visualPreference.mode change updates UI + userConfig', () => {
   gen.updateVisualPreferenceMode('svg-first');
   assert.equal(gen.workflowData.designSystem.designSystemOverrides.visualPreference.mode, 'svg-first');
 
-  const btn = document.querySelector('button[data-action="updateVisualPreferenceMode"][data-mode="svg-first"]');
+  const btn = document.querySelector("button[onclick*=\"updateVisualPreferenceMode('svg-first')\"]");
   assert.ok(btn);
   assert.ok(btn.classList.contains('active'));
 });

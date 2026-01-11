@@ -1,5 +1,5 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
+const test = require("node:test");
+const assert = require("node:assert/strict");
 
 async function loadRegistryModule() {
   return await import("../../../js/ppt/workflow/event-handler-registry.js");

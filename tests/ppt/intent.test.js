@@ -1,26 +1,16 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import { parseHTML } from 'linkedom';
-import { createRequire } from 'node:module';
+const test = require("node:test");
+const assert = require("node:assert/strict");
 
-import '../../js/ppt/editor/intent/intent-parser.js';
-import '../../js/ppt/editor/intent/operation-planner.js';
-import '../../js/ppt/dsl/serialize.js';
+const { parseIntent } = require("../../js/ppt/editor/intent/intent-parser.js");
+const { planOperations } = require("../../js/ppt/editor/intent/operation-planner.js");
+const { documentToHtml, htmlToDocument } = require("../../js/ppt/dsl/serialize.js");
 
-if (typeof globalThis.require !== 'function') {
-  globalThis.require = createRequire(import.meta.url);
-}
-
-const parseIntent = (...args) => globalThis.IntentParser.parseIntent(...args);
-const planOperations = (...args) => globalThis.OperationPlanner.planOperations(...args);
-const documentToHtml = (...args) => globalThis.PPTDSLSerialize.documentToHtml(...args);
-const htmlToDocument = (...args) => globalThis.PPTDSLSerialize.htmlToDocument(...args);
-
-async function setupBrowserGlobals() {
-  globalThis.window = globalThis;
-  await import("../../js/ppt/editor/event-emitter.js");
-  await import("../../js/ppt/editor/document.js");
-  await import("../../js/ppt/core/slide-parser.js");
+function setupBrowserGlobals() {
+  global.window = global;
+  // EventEmitter + SlideDocument（脚本风格，挂到 window）
+  require("../../js/ppt/editor/event-emitter.js");
+  require("../../js/ppt/editor/document.js");
+  require("../../js/ppt/core/slide-parser.js");
 }
 
 test("IntentParser: regex intents", async () => {
@@ -106,7 +96,7 @@ test("IntentParser: LLM fallback + unknown fallback", async () => {
 });
 
 test("OperationPlanner: slide/element ops + batch", async () => {
-  await setupBrowserGlobals();
+  setupBrowserGlobals();
 
   const SlideDocument = window.SlideDocument;
   const doc = new SlideDocument();
@@ -247,8 +237,8 @@ test("OperationPlanner: slide/element ops + batch", async () => {
   }
 });
 
-test("SlideDocument.applyOperations: updates document + PPTGenerator.slides + history", async () => {
-  await setupBrowserGlobals();
+test("SlideDocument.applyOperations: updates document + PPTGenerator.slides + history", () => {
+  setupBrowserGlobals();
 
   const SlideDocument = window.SlideDocument;
   const doc = new SlideDocument();
@@ -272,8 +262,8 @@ test("SlideDocument.applyOperations: updates document + PPTGenerator.slides + hi
   assert.equal(pushed[0].type, "element.update");
 });
 
-test("Serialize: documentToHtml/htmlToDocument roundtrip keeps IDs", async () => {
-  await setupBrowserGlobals();
+test("Serialize: documentToHtml/htmlToDocument roundtrip keeps IDs", () => {
+  setupBrowserGlobals();
 
   // 静音 SlideParser 的 debug log，避免污染测试输出
   const origLog = console.log;
@@ -321,8 +311,10 @@ test("Serialize: documentToHtml/htmlToDocument roundtrip keeps IDs", async () =>
   }
 });
 
-test("Serialize: covers element types + incremental + parser fallback paths", async () => {
-  await setupBrowserGlobals();
+test("Serialize: covers element types + incremental + parser fallback paths", () => {
+  setupBrowserGlobals();
+
+  const { parseHTML } = require("linkedom");
 
   const origLog = console.log;
   console.log = () => {};
@@ -399,13 +391,15 @@ test("Serialize: covers element types + incremental + parser fallback paths", as
       global.window = prevWin;
     }
 
-    // htmlToDocument：SlideParser 不存在 → 抛错
+    // htmlToDocument：getSlideParser(require) 分支 + SlideDocument 不存在分支
     const prevParser = global.SlideParser;
     const prevDocCtor = global.SlideDocument;
     delete global.SlideParser;
     delete global.SlideDocument;
     try {
-      assert.throws(() => htmlToDocument(html2), /SlideParser 未加载/);
+      const out = htmlToDocument(html2);
+      assert.ok(out && Array.isArray(out.slides));
+      assert.equal(out.slides[0].id, "slide:1");
     } finally {
       global.SlideParser = prevParser;
       global.SlideDocument = prevDocCtor;

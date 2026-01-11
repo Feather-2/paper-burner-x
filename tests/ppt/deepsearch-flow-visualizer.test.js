@@ -1,8 +1,8 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import deepsearchFlowVisualizer from '../../js/ppt/dashboard/deepsearch-flow-visualizer.js';
+const test = require('node:test');
+const assert = require('node:assert/strict');
 
-const { FlowBuilder } = deepsearchFlowVisualizer;
+// Import FlowBuilder class
+const { FlowBuilder } = require('../../js/ppt/dashboard/deepsearch-flow-visualizer.js');
 
 test('FlowBuilder initializes with empty state', () => {
   const builder = new FlowBuilder();

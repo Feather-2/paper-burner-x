@@ -1,5 +1,5 @@
-import test from "node:test";
-import assert from "node:assert/strict";
+const test = require("node:test");
+const assert = require("node:assert/strict");
 
 function makeTextResponse(text, { status = 200 } = {}) {
   return {

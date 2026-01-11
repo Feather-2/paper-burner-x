@@ -1,5 +1,5 @@
-import test from "node:test";
-import assert from "node:assert/strict";
+const test = require("node:test");
+const assert = require("node:assert/strict");
 
 test("estimateTokensCached: empty/non-string -> 0", async () => {
   const { estimateTokensCached, clearTokenCache } = await import("../../../js/agents/shared/utils/token-cache.js");
@@ -76,3 +76,4 @@ test("estimateTokensCached: evicts oldest when exceeding max size", async () => 
   assert.equal(getTokenCacheStats().size, maxSize);
   assert.equal(getTokenCacheStats().misses, maxSize + 25);
 });
+

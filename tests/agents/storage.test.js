@@ -1,7 +1,7 @@
-import test from "node:test";
-import assert from "node:assert/strict";
+const test = require("node:test");
+const assert = require("node:assert/strict");
 
-import "fake-indexeddb/auto";
+require("fake-indexeddb/auto");
 
 function makeDbName(label) {
   return `AgentRuntimeDB_${label}_${Date.now()}_${Math.random().toString(16).slice(2)}`;

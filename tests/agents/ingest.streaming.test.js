@@ -1,11 +1,11 @@
-import test from "node:test";
-import assert from "node:assert/strict";
+const test = require("node:test");
+const assert = require("node:assert/strict");
 
-import * as fs from "node:fs";
-import * as fsp from "node:fs/promises";
-import * as os from "node:os";
-import * as path from "node:path";
-import { Readable } from "node:stream";
+const fs = require("node:fs");
+const fsp = require("node:fs/promises");
+const os = require("node:os");
+const path = require("node:path");
+const { Readable } = require("node:stream");
 
 function expectedChunkCount(textLen, { chunkSize, overlap }) {
   if (textLen <= 0) return 0;

@@ -672,12 +672,7 @@ export default TextFittingAdapter;
 
 // CommonJS 兼容
 if (typeof module !== 'undefined' && module.exports) {
-  try {
-    module.exports = TextFittingAdapter;
-  } catch (error) {
-    // Some ESM/bundler environments expose a read-only `module.exports` shim.
-    // Ignore assignment failures and rely on ESM exports instead.
-  }
+  module.exports = TextFittingAdapter;
 }
 
 // 浏览器全局兼容

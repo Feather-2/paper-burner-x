@@ -1,10 +1,7 @@
-import test from "node:test";
-import assert from "node:assert/strict";
-import * as fs from "node:fs/promises";
-import * as os from "node:os";
-import * as path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
-
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const path = require("node:path");
+const { fileURLToPath } = require("node:url");
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // 以下测试引用了已删除的 run-context.js，已移除
@@ -49,7 +46,7 @@ test("Runtime Core: EventBus on/off/once/emit + EventRecord fields", async () =>
 
   assert.ok(isValidEventName("run.started"));
   assert.ok(isValidEventName("textprep.chunk.completed"));
-  assert.equal(isValidEventName("Run.Started"), true);
+  assert.equal(isValidEventName("Run.Started"), false);
   assert.equal(isValidEventName("bad..name"), false);  // 连续点号不合法
   assert.ok(isValidEventName("bad_name"));  // 下划线现在合法
 
@@ -391,13 +388,16 @@ test("Runtime Core: EventBus backpressure ignores stale scheduled flush callback
   const originalRaf = globalThis.requestAnimationFrame;
   const originalCancel = globalThis.cancelAnimationFrame;
 
+  const callbacks = new Map();
+  let nextId = 1;
+
   try {
-    const scheduled = [];
     globalThis.requestAnimationFrame = (cb) => {
-      scheduled.push(cb);
-      return scheduled.length;
+      const id = nextId++;
+      callbacks.set(id, cb);
+      return id;
     };
-    // Simulate a buggy cancelAnimationFrame (noop): stale callbacks may still fire.
+    // Simulate a buggy cancelAnimationFrame (noop): old callbacks may still fire.
     globalThis.cancelAnimationFrame = () => {};
 
     const bus = new EventBus({ runId: "run_test" });
@@ -408,22 +408,20 @@ test("Runtime Core: EventBus backpressure ignores stale scheduled flush callback
 
     bus.enableBackpressure({ batchWindowMs: 0 });
     bus.emit("run.log", { msg: "old" });
-    assert.equal(scheduled.length, 1);
-    const oldFlush = scheduled[0];
+    const oldId = bus._backpressure?.rafId;
 
     bus.disableBackpressure();
     assert.equal(hits, 1);
 
     bus.enableBackpressure({ batchWindowMs: 0 });
     bus.emit("run.log", { msg: "new" });
-    assert.equal(scheduled.length, 2);
-    const newFlush = scheduled[1];
+    const newId = bus._backpressure?.rafId;
     assert.equal(hits, 1);
 
-    oldFlush(Date.now());
+    callbacks.get(oldId)?.(Date.now());
     assert.equal(hits, 1);
 
-    newFlush(Date.now());
+    callbacks.get(newId)?.(Date.now());
     assert.equal(hits, 2);
   } finally {
     globalThis.requestAnimationFrame = originalRaf;
@@ -433,11 +431,16 @@ test("Runtime Core: EventBus backpressure ignores stale scheduled flush callback
 
 test("Runtime Core: EventBus validation errors", async () => {
   const { EventBus, createEventRecord } = await import("../../js/agents/core/event-bus.js");
-  assert.ok(createEventRecord({ name: "Bad.Name" }));
+
+  assert.throws(() => createEventRecord({ name: "Bad.Name" }), /Invalid event name/);
 
   const bus = new EventBus({ runId: "run_test" });
   assert.throws(() => bus.on("run.log", "nope"), /handler must be a function/);
-  assert.throws(() => bus.subscribe("run.log", "nope"), /handler must be a function/);
+  assert.throws(() => bus.on("Bad.Name", () => {}), /Invalid event name/);
+
+  assert.throws(() => bus.enableBackpressure(123), /options must be an object/);
+  assert.throws(() => bus.enableBackpressure({ batchWindowMs: -1 }), /batchWindowMs/);
+  assert.throws(() => bus.enableBackpressure({ coalescePattern: "x" }), /coalescePattern/);
 });
 
 test("Runtime Core: EventBus backpressure re-enable flushes queued and cancels timer", async () => {
@@ -453,11 +456,11 @@ test("Runtime Core: EventBus backpressure re-enable flushes queued and cancels t
   bus.emit("run.log", { msg: "queued" });
 
   // Re-enabling should cancel the pending timer and flush queued events immediately.
-  bus.enableBackpressure({ batchWindowMs: 1, coalescePattern: /\.progress$/ });
+  bus.enableBackpressure({ batchWindowMs: 1, coalescePattern: /\.progress$/g });
   assert.equal(seen.length, 1);
   assert.deepEqual(seen[0].payload, { msg: "queued" });
 
-  // Also exercise coalescing behavior.
+  // Also exercise global-regexp coalescing behavior.
   const progress = [];
   bus.on("run.progress", (e) => progress.push(e));
   bus.emit("run.progress", { i: 1 });
@@ -517,9 +520,18 @@ test("Runtime Core: EventBus replay loads events and marks meta.replay", async (
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   // No adapter -> clear error.
-  await assert.rejects(() => new EventBus().replay("run_test"), /persistenceAdapter required/);
+  await assert.rejects(() => new EventBus().replay("run_test"), /persistenceAdapter is required/);
 
-  // getEvents throws -> bubbled error.
+  // Bad runId.
+  await assert.rejects(
+    () =>
+      new EventBus({
+        persistenceAdapter: { appendEvents: async () => {}, getEvents: async () => [] },
+      }).replay(123),
+    /runId must be a string/
+  );
+
+  // getEvents throws -> wrapped error.
   await assert.rejects(
     () =>
       new EventBus({
@@ -530,7 +542,7 @@ test("Runtime Core: EventBus replay loads events and marks meta.replay", async (
           },
         },
       }).replay("run_test"),
-    /boom/
+    /failed to load events/
   );
 
   // Successful replay.
@@ -562,7 +574,7 @@ test("Runtime Core: EventBus replay loads events and marks meta.replay", async (
 test("Runtime Core: RunStoreAdapter validation + appendEvents branches", async () => {
   const { RunStoreAdapter } = await import("../../js/agents/core/event-bus.js");
 
-  assert.throws(() => new RunStoreAdapter(null), /runStore must be an object/);
+  assert.throws(() => new RunStoreAdapter(null), /runStore.getEvents must be a function/);
   assert.throws(() => new RunStoreAdapter({ getEvents: async () => [] }), /appendEvents\/appendEvent/);
 
   // appendEvents path
@@ -576,7 +588,7 @@ test("Runtime Core: RunStoreAdapter validation + appendEvents branches", async (
     };
     const adapter = new RunStoreAdapter(runStore);
 
-    assert.throws(() => adapter.appendEvents("nope"), /events must be an array/);
+    await assert.rejects(() => adapter.appendEvents("nope"), /events must be an array/);
     assert.equal(await adapter.appendEvents([]), 0);
 
     const n = await adapter.appendEvents([
@@ -603,9 +615,7 @@ test("Runtime Core: RunStoreAdapter validation + appendEvents branches", async (
     };
     const adapter = new RunStoreAdapter(runStore);
 
-    const n0 = await adapter.appendEvents([{ name: "run.log" }]);
-    assert.equal(n0, 0);
-    assert.equal(calls.length, 0);
+    await assert.rejects(() => adapter.appendEvents([{ name: "run.log" }]), /must include a string runId/);
 
     const n = await adapter.appendEvents([
       { runId: "run_b", name: "run.log", payload: { i: 1 } },
@@ -627,13 +637,13 @@ test("Runtime Core: EventBus subscribe with wildcard pattern", async () => {
   const deepSearchEvents = [];
   const designEvents = [];
 
-  bus.subscribe("deepsearch.*", (e) => deepSearchEvents.push(e));
-  bus.subscribe("design.*", (e) => designEvents.push(e));
+	  bus.subscribe("deepsearch.*", (e) => deepSearchEvents.push(e));
+	  bus.subscribe("design.*", (e) => designEvents.push(e));
 
-  bus.emit("deepsearch.scan.started", { status: "started" });
-  bus.emit("deepsearch.gaps.completed", { status: "completed" });
-  bus.emit("design.started", { status: "started" });
-  bus.emit("run.started", { status: "started" });
+	  bus.emit("deepsearch.scan.started", { status: "started" });
+	  bus.emit("deepsearch.gaps.completed", { status: "completed" });
+	  bus.emit("design.started", { status: "started" });
+	  bus.emit("run.started", { status: "started" });
 
   assert.equal(deepSearchEvents.length, 2);
   assert.equal(designEvents.length, 1);
@@ -717,8 +727,8 @@ test("Runtime Core: EventBus subscribe priority validation", async () => {
 
   const bus = new EventBus({ runId: "run_test" });
 
-  assert.doesNotThrow(() => bus.subscribe("test.event", () => {}, { priority: "high" }));
-  assert.doesNotThrow(() => bus.subscribe("test.event", () => {}, { priority: Infinity }));
+  assert.throws(() => bus.subscribe("test.event", () => {}, { priority: "high" }), /priority must be a finite number/);
+  assert.throws(() => bus.subscribe("test.event", () => {}, { priority: Infinity }), /priority must be a finite number/);
 });
 
 test("Runtime Core: EventBus listener errors are isolated (sync + async)", async () => {
@@ -781,6 +791,8 @@ test("Runtime Telemetry: subscribeTelemetry keeps bounded in-memory timeline", a
 });
 
 test("Runtime Tools: ToolExecutor worker isolation enforces hard timeout for sync work", async () => {
+  const path = require("node:path");
+  const { pathToFileURL } = require("node:url");
   const { ToolExecutor } = await import("../../js/agents/runtime/tools/tool-executor.js");
 
   const fixturePath = path.join(__dirname, "../fixtures/tool-executor/busy-loop.mjs");
@@ -1025,9 +1037,12 @@ test("PromptLoader: LRU cache evicts oldest prompts", async () => {
 });
 
 test("PromptLoader: browser manifest resolves prompt URLs (best-effort)", async () => {
+  const { loadPrompt, clearPromptCache } = await import("../../js/agents/prompts/prompt-loader.js");
+
   const originalProcess = globalThis.process;
   const originalFetch = globalThis.fetch;
-  let clearPromptCache = null;
+
+  clearPromptCache();
 
   try {
     globalThis.process = undefined;
@@ -1072,17 +1087,11 @@ test("PromptLoader: browser manifest resolves prompt URLs (best-effort)", async 
       };
     };
 
-    const promptLoader = await import(
-      `../../js/agents/prompts/prompt-loader.js?t=${Date.now()}_${Math.random().toString(16).slice(2)}`
-    );
-    clearPromptCache = promptLoader.clearPromptCache;
-    clearPromptCache();
-
-    const first = await promptLoader.loadPrompt("deepsearch/system", { cache: false, manifestUrl });
+    const first = await loadPrompt("deepsearch/system", { cache: false, manifestUrl });
     assert.equal(first, "# system");
 
     // Second call should reuse the cached manifest (no second manifest fetch).
-    const second = await promptLoader.loadPrompt("deepsearch/system", { cache: false, manifestUrl });
+    const second = await loadPrompt("deepsearch/system", { cache: false, manifestUrl });
     assert.equal(second, "# system");
 
     assert.equal(manifestFetches, 1);
@@ -1090,12 +1099,15 @@ test("PromptLoader: browser manifest resolves prompt URLs (best-effort)", async 
   } finally {
     globalThis.fetch = originalFetch;
     globalThis.process = originalProcess;
-    clearPromptCache?.();
+    clearPromptCache();
   }
 });
 
 test("ConfigLoader: loadAgentConfig loads .agent/agent.md in Node", async () => {
   const { loadAgentConfig } = await import("../../js/agents/sdk/config-loader.js");
+  const fs = require("node:fs/promises");
+  const path = require("node:path");
+  const os = require("node:os");
 
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "pb-agentcfg-"));
   try {

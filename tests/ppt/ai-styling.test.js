@@ -1,12 +1,6 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import { parseHTML } from 'linkedom';
-
-function importFresh(modulePath) {
-  const moduleUrl = new URL(modulePath, import.meta.url);
-  moduleUrl.searchParams.set('t', `${Date.now()}_${Math.random().toString(16).slice(2)}`);
-  return import(moduleUrl.href);
-}
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { parseHTML } = require('linkedom');
 
 function setupDom(html = '<!doctype html><html><head></head><body></body></html>') {
   const { window, document } = parseHTML(html);
@@ -41,6 +35,8 @@ class Emitter {
 
 test.afterEach(() => {
   teardownDom();
+  delete require.cache[require.resolve('../../js/ppt/editor/panels/property-panel.js')];
+  delete require.cache[require.resolve('../../js/ppt/generator/ppt_generator_editor.js')];
 });
 
 test('AI 微调: property-panel button triggers ImagePlanner → editor.updateElement → syncDSL', async () => {
@@ -48,7 +44,7 @@ test('AI 微调: property-panel button triggers ImagePlanner → editor.updateEl
 
   // Minimal EventEmitter for PropertyPanel class definition.
   globalThis.EventEmitter = Emitter;
-  await importFresh('../../js/ppt/editor/panels/property-panel.js');
+  require('../../js/ppt/editor/panels/property-panel.js');
 
   const calls = { update: [], sync: [] };
 
@@ -71,12 +67,12 @@ test('AI 微调: property-panel button triggers ImagePlanner → editor.updateEl
   };
   window.PPTGenerator = gen;
 
-  await importFresh('../../js/ppt/generator/ppt_generator_editor.js');
+  require('../../js/ppt/generator/ppt_generator_editor.js');
   gen.editor = editor;
   gen.syncDSL = (opts) => calls.sync.push(opts);
 
   // Force deterministic ImagePlanner output.
-  const mod = await import('../../js/agents/stages/design/image/image-planner.js');
+  const mod = await import('../../js/agents/stages/design/image-planner.js');
   const original = mod.ImagePlanner.suggestElementPatch;
   mod.ImagePlanner.suggestElementPatch = () => ({
     patch: { opacity: 0.5, blend: 'multiply' },
@@ -110,7 +106,7 @@ test('AI 微调: property-panel button triggers ImagePlanner → editor.updateEl
 test('AI 微调: blend/opacity/mask patches applied for image elements', async () => {
   setupDom('<!doctype html><html><body><div id="editorPropertyPanel"></div></body></html>');
   globalThis.EventEmitter = Emitter;
-  await importFresh('../../js/ppt/editor/panels/property-panel.js');
+  require('../../js/ppt/editor/panels/property-panel.js');
 
   const calls = { update: [], sync: [] };
   const selection = new Emitter();
@@ -130,11 +126,11 @@ test('AI 微调: blend/opacity/mask patches applied for image elements', async (
   };
   window.PPTGenerator = gen;
 
-  await importFresh('../../js/ppt/generator/ppt_generator_editor.js');
+  require('../../js/ppt/generator/ppt_generator_editor.js');
   gen.editor = editor;
   gen.syncDSL = (opts) => calls.sync.push(opts);
 
-  const mod = await import('../../js/agents/stages/design/image/image-planner.js');
+  const mod = await import('../../js/agents/stages/design/image-planner.js');
   const original = mod.ImagePlanner.suggestElementPatch;
   mod.ImagePlanner.suggestElementPatch = () => ({
     patch: { opacity: 0.92, blend: 'multiply', mask: 'rounded:12' },

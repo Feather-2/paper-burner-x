@@ -1,5 +1,5 @@
-import test from "node:test";
-import assert from "node:assert/strict";
+const test = require("node:test");
+const assert = require("node:assert/strict");
 
 test("stripThinkingTags: removes <think> blocks from R1 model output", async () => {
   const { stripThinkingTags } = await import("../../../js/agents/stages/deepsearch/state.js");

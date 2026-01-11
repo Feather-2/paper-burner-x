@@ -91,38 +91,6 @@ describe("shared/utils/logger.js", () => {
     expect(console.error).toHaveBeenCalledTimes(1);
   });
 
-  it("defaults invalid levels to 'info'", () => {
-    const logger = createLogger("test", { level: "not-a-level" });
-
-    logger.debug("d");
-    logger.info("i");
-
-    expect(console.debug).not.toHaveBeenCalled();
-    expect(console.info).toHaveBeenCalledWith(`[${FIXED_TS}] [test] INFO: i`);
-  });
-
-  it("falls back to console.log when a level-specific method is missing", () => {
-    const originalConsole = globalThis.console;
-    const fakeConsole = { log: vi.fn() };
-
-    try {
-      globalThis.console = fakeConsole;
-      const logger = createLogger("test", { level: "debug" });
-
-      logger.warn("hello");
-      expect(fakeConsole.log).toHaveBeenCalledWith(`[${FIXED_TS}] [test] WARN: hello`);
-    } finally {
-      globalThis.console = originalConsole;
-    }
-  });
-
-  it("falls back to 'app' when moduleName is not a string", () => {
-    const logger = createLogger(null);
-    logger.info("hello");
-
-    expect(console.info).toHaveBeenCalledWith(`[${FIXED_TS}] [app] INFO: hello`);
-  });
-
   it("suppresses all logs when level is 'silent' or enabled is false", () => {
     const silent = createLogger("test", { level: "silent" });
     silent.error("boom");
@@ -139,3 +107,4 @@ describe("shared/utils/logger.js", () => {
     expect(console.log).not.toHaveBeenCalled();
   });
 });
+

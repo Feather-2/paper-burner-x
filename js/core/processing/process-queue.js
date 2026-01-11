@@ -21,8 +21,8 @@ export class ProcessQueue {
    * @param {Function} [options.processor] - 文件处理函数
    */
   constructor(options = {}) {
-    this._concurrency = Math.max(1, options.concurrency ?? 3);
-    this._maxRetries = Math.max(0, options.maxRetries ?? 3);
+    this._concurrency = options.concurrency || 3;
+    this._maxRetries = options.maxRetries || 3;
     this._onProgress = options.onProgress || (() => {});
     this._onFileComplete = options.onFileComplete || (() => {});
     this._onError = options.onError || (() => {});
@@ -102,46 +102,39 @@ export class ProcessQueue {
    */
   async _processItem(item, config, keyProvider) {
     if (this._isStopped) return;
-    const stopSentinel = Symbol('ProcessQueue.stop');
 
-    while (!this._isStopped) {
+    return this._semaphore.run(async () => {
+      if (this._isStopped) return;
+
       const attempts = this._retryAttempts.get(item.index) || 0;
 
       try {
-        const result = await this._semaphore.run(async () => {
-          if (this._isStopped) return stopSentinel;
+        let result;
 
-          let output;
-
-          if (this._processor) {
-            // 使用自定义处理器
+        if (this._processor) {
+          // 使用自定义处理器
+          const keyObj = keyProvider ? await keyProvider.getNextKey() : null;
+          result = await this._processor(item.file, keyObj, config);
+        } else {
+          // 使用全局 processSinglePdf（兼容旧代码）
+          if (typeof window !== 'undefined' && typeof window.processSinglePdf === 'function') {
             const keyObj = keyProvider ? await keyProvider.getNextKey() : null;
-            output = await this._processor(item.file, keyObj, config);
+            result = await window.processSinglePdf(item.file, keyObj, config);
           } else {
-            // 使用全局 processSinglePdf（兼容旧代码）
-            if (typeof window !== 'undefined' && typeof window.processSinglePdf === 'function') {
-              const keyObj = keyProvider ? await keyProvider.getNextKey() : null;
-              output = await window.processSinglePdf(item.file, keyObj, config);
-            } else {
-              throw new Error('No processor available');
-            }
+            throw new Error('No processor available');
           }
+        }
 
-          // 检查密钥是否失效
-          if (output?.keyInvalid && keyProvider) {
-            await keyProvider.markKeyAsInvalid(output.keyInvalid.keyId);
-            throw new Error('API key invalid');
-          }
+        // 检查密钥是否失效
+        if (result?.keyInvalid && keyProvider) {
+          await keyProvider.markKeyAsInvalid(result.keyInvalid.keyId);
+          throw new Error('API key invalid');
+        }
 
-          // 记录成功
-          if (keyProvider && output?.usedKeyId) {
-            await keyProvider.recordSuccess(output.usedKeyId);
-          }
-
-          return output;
-        });
-
-        if (result === stopSentinel) return;
+        // 记录成功
+        if (keyProvider && result?.usedKeyId) {
+          await keyProvider.recordSuccess(result.usedKeyId);
+        }
 
         this._results[item.index] = result;
         this._onFileComplete(result, item.file, item.index);
@@ -152,7 +145,7 @@ export class ProcessQueue {
         if (attempts < this._maxRetries && !this._isStopped) {
           this._retryAttempts.set(item.index, attempts + 1);
           console.warn(`[ProcessQueue] Retrying ${item.file.name} (${attempts + 1}/${this._maxRetries})`);
-          continue;
+          return this._processItem(item, config, keyProvider);
         }
 
         this._results[item.index] = { error: error.message, file: item.file };
@@ -161,7 +154,7 @@ export class ProcessQueue {
 
         return null;
       }
-    }
+    });
   }
 
   /**

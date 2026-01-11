@@ -1,5 +1,5 @@
-import test from "node:test";
-import assert from "node:assert/strict";
+const test = require("node:test");
+const assert = require("node:assert/strict");
 
 test("VisualRenderer: dispatches by renderType + emits unified events", async () => {
   const { VisualRenderer } = await import("../../../js/agents/stages/design/image/visual-renderer.js");
