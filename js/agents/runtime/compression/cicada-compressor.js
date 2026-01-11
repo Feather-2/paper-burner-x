@@ -150,6 +150,85 @@ function normalizeMessage(message) {
   return { role: "assistant", content: "" };
 }
 
+function isToolRoleMessage(message) {
+  return !!message && typeof message === "object" && (message.role === "tool" || message.role === "function");
+}
+
+function isAssistantToolCallMessage(message) {
+  if (!message || typeof message !== "object") return false;
+  if (message.role !== "assistant") return false;
+  if (Array.isArray(message.tool_calls) || Array.isArray(message.toolCalls)) return true;
+  if (message.function_call && typeof message.function_call === "object") return true;
+  if (message.functionCall && typeof message.functionCall === "object") return true;
+  return false;
+}
+
+function extractToolCallIds(message) {
+  const m = message && typeof message === "object" ? message : null;
+  const calls = Array.isArray(m?.tool_calls) ? m.tool_calls : Array.isArray(m?.toolCalls) ? m.toolCalls : null;
+  if (!calls) return [];
+  const ids = [];
+  for (const c of calls) {
+    const id = typeof c?.id === "string" ? c.id : "";
+    if (id) ids.push(id);
+  }
+  return ids;
+}
+
+function extractToolMessageCallId(message) {
+  const m = message && typeof message === "object" ? message : null;
+  if (!m) return "";
+  return (
+    (typeof m.tool_call_id === "string" ? m.tool_call_id : "") ||
+    (typeof m.toolCallId === "string" ? m.toolCallId : "") ||
+    (typeof m.call_id === "string" ? m.call_id : "") ||
+    (typeof m.callId === "string" ? m.callId : "")
+  );
+}
+
+function adjustStartForToolPairs(messages, startIndex) {
+  const list = Array.isArray(messages) ? messages : [];
+  let start = Number.isFinite(startIndex) ? Math.max(0, Math.floor(startIndex)) : 0;
+  if (start <= 0 || start >= list.length) return start;
+
+  // If the kept window would start with tool output(s), include the preceding assistant tool-call message when possible.
+  if (isToolRoleMessage(list[start])) {
+    let prev = start - 1;
+    while (prev >= 0 && isToolRoleMessage(list[prev])) prev -= 1;
+
+    if (prev >= 0 && isAssistantToolCallMessage(list[prev])) {
+      return prev;
+    }
+
+    // Otherwise, drop leading tool outputs so we don't keep a dangling tool message.
+    while (start < list.length && isToolRoleMessage(list[start])) start += 1;
+  }
+
+  return start;
+}
+
+function removeOrphanedToolMessages(messages) {
+  const list = Array.isArray(messages) ? messages.slice() : [];
+  if (list.length === 0) return list;
+
+  const referenced = new Set();
+  for (const msg of list) {
+    for (const id of extractToolCallIds(msg)) referenced.add(id);
+  }
+
+  let cleaned = list;
+  if (referenced.size) {
+    cleaned = cleaned.filter((msg) => {
+      if (!isToolRoleMessage(msg)) return true;
+      const id = extractToolMessageCallId(msg);
+      return !id || referenced.has(id);
+    });
+  }
+
+  while (cleaned.length && isToolRoleMessage(cleaned[0])) cleaned = cleaned.slice(1);
+  return cleaned;
+}
+
 function isMergeSafeMessage(message) {
   if (!message || typeof message !== "object") return false;
   const keys = Object.keys(message);
@@ -541,8 +620,11 @@ export class CicadaCompressor {
     }
 
     const compressible = merged.slice(anchorEnd);
-    const start = Math.max(compressible.length - keepLastTurns, 0);
-    const kept = [...anchors, ...compressible.slice(start)];
+    let start = Math.max(compressible.length - keepLastTurns, 0);
+    start = adjustStartForToolPairs(compressible, start);
+
+    const keptTail = removeOrphanedToolMessages(compressible.slice(start));
+    const kept = [...anchors, ...keptTail];
     const older = compressible.slice(0, start);
     stats.keptMessages = kept.length;
     stats.summarizedMessages = older.length;

@@ -34,7 +34,8 @@ function createRestrictedGlobals(state, emit) {
   }
 
   // 注入上下文
-  restricted.state = Object.freeze(JSON.parse(JSON.stringify(state || {})));
+  const normalizedState = state && typeof state === "object" ? state : {};
+  restricted.state = Object.freeze(normalizedState);
   restricted.emit = (name, payload) => {
     self.postMessage({ type: 'emit', name, payload });
   };

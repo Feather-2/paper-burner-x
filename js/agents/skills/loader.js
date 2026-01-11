@@ -14,12 +14,14 @@
  * @property {string} [cwd] - Node: repo cwd
  * @property {string} [homeDir] - Node: home directory
  * @property {string} [manifestUrl] - Browser: manifest URL
+ * @property {number} [maxManifestBytes] - Browser: max manifest size (bytes), Infinity to disable
  *
  * @typedef {Object} LoadAllSkillsOptions
  * @property {string} [cwd]
  * @property {string} [homeDir]
  * @property {string} [manifestUrl]
  * @property {any} [nexusProvider]
+ * @property {number} [maxManifestBytes] - Browser: max manifest size (bytes), Infinity to disable
  */
 
 const isNode =
@@ -76,11 +78,12 @@ export async function loadAllSkills(options = {}) {
  *
  * @param {string} filePath
  * @param {string} [scope]
+ * @param {{ maxSkillBytes?: number }=} options
  * @returns {Promise<SkillContent>}
  */
-export async function loadSkillFromPath(filePath, scope) {
+export async function loadSkillFromPath(filePath, scope, options) {
   const mod = await getImpl();
-  return mod.loadSkillFromPath(filePath, scope);
+  return mod.loadSkillFromPath(filePath, scope, options);
 }
 
 /** @type {{ loadSkills: typeof loadSkills, loadSkillFromPath: typeof loadSkillFromPath, loadSkillsFromNexus: typeof loadSkillsFromNexus, loadAllSkills: typeof loadAllSkills }} */

@@ -3,10 +3,10 @@
  * Provides browser-like globals for testing ESM modules
  */
 
-// Enable CommonJS-style require() in ESM tests (some legacy tests still use it).
-// Note: This does not change module loading semantics for local ESM files.
-import { createRequire } from 'node:module';
-if (typeof globalThis.require === 'undefined') {
+import { createRequire } from "node:module";
+
+// Provide a CommonJS `require` for tests running as ESM under `"type": "module"`.
+if (typeof globalThis.require === "undefined") {
   globalThis.require = createRequire(import.meta.url);
 }
 

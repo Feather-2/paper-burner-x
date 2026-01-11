@@ -5,7 +5,7 @@
  * 代码在 WASM 虚拟机中执行，无法访问宿主对象。
  */
 
-import { SandboxCapability, ResourceLimits } from './index.js';
+import { SandboxCapability, ResourceLimits } from './constants.js';
 
 // 动态导入 quickjs-emscripten（支持 tree-shaking）
 let _quickjsModule = null;
@@ -31,6 +31,17 @@ async function getQuickJS() {
         'WASM sandbox requires quickjs-emscripten. Install with: npm install quickjs-emscripten'
       );
     }
+  }
+}
+
+function tryJsonStringify(value) {
+  try {
+    return {
+      ok: true,
+      json: JSON.stringify(value, (_key, v) => (typeof v === "bigint" ? v.toString() : v)),
+    };
+  } catch {
+    return { ok: false, json: "" };
   }
 }
 
@@ -118,7 +129,10 @@ export class WasmSandbox {
     // state（如果有权限）
     if (this.capabilities.has(SandboxCapability.STATE)) {
       // 深冻结状态，防止篡改
-      const stateJson = JSON.stringify(this.state);
+      const stateJson = (() => {
+        const out = tryJsonStringify(this.state);
+        return out.ok ? out.json : "{}";
+      })();
       const result = vm.evalCode(`(${stateJson})`);
       if (result.error) {
         result.error.dispose();
@@ -181,7 +195,9 @@ export class WasmSandbox {
 
     // 注入额外上下文
     for (const [key, value] of Object.entries(context)) {
-      const json = JSON.stringify(value);
+      const out = tryJsonStringify(value);
+      if (!out.ok) continue;
+      const json = out.json;
       const result = vm.evalCode(`(${json})`);
       if (!result.error) {
         vm.setProp(vm.global, key, result.value);
@@ -201,9 +217,6 @@ export class WasmSandbox {
     try {
       // 执行代码
       const result = vm.evalCode(code);
-
-      clearTimeout(timeoutId);
-      this._runtime.setInterruptHandler(() => false);
 
       const duration = performance.now() - startTime;
 
@@ -240,8 +253,6 @@ export class WasmSandbox {
         },
       };
     } catch (err) {
-      clearTimeout(timeoutId);
-
       return {
         success: false,
         data: null,
@@ -251,6 +262,13 @@ export class WasmSandbox {
           memoryUsed: 0,
         },
       };
+    } finally {
+      clearTimeout(timeoutId);
+      try {
+        this._runtime.setInterruptHandler(() => false);
+      } catch {
+        // ignore
+      }
     }
   }
 
@@ -292,14 +310,48 @@ export class WasmSandbox {
   }
 
   /**
+   * Reset VM/runtime state for reuse (keeps the instance, recreates the context on next init).
+   * This is used by SandboxPool to ensure cross-run isolation.
+   *
+   * @param {Object} [options]
+   * @param {Object} [options.state]
+   * @param {Function} [options.onLog]
+   * @param {Function} [options.onEmit]
+   * @param {Object} [options.limits]
+   * @returns {boolean} true if recycled, false if already disposed
+   */
+  recycle(options = {}) {
+    if (this._disposed) return false;
+
+    const nextState = options && typeof options === "object" && "state" in options ? options.state : undefined;
+    if (nextState !== undefined) this.state = nextState || {};
+    if (typeof options?.onLog === "function") this.onLog = options.onLog;
+    if (typeof options?.onEmit === "function") this.onEmit = options.onEmit;
+    if (options?.limits && typeof options.limits === "object") this.limits = { ...this.limits, ...options.limits };
+
+    if (this._vm) {
+      this._vm.dispose();
+      this._vm = null;
+    }
+    if (this._runtime) {
+      this._runtime.dispose();
+      this._runtime = null;
+    }
+
+    this._initialized = false;
+    return true;
+  }
+
+  /**
    * 更新状态
    */
   updateState(newState) {
     this.state = { ...this.state, ...newState };
 
     if (this._initialized && this.capabilities.has(SandboxCapability.STATE)) {
-      const stateJson = JSON.stringify(this.state);
-      const result = this._vm.evalCode(`globalThis.state = ${stateJson};`);
+      const out = tryJsonStringify(this.state);
+      if (!out.ok) return;
+      const result = this._vm.evalCode(`globalThis.state = ${out.json};`);
       if (result.error) {
         result.error.dispose();
       } else {

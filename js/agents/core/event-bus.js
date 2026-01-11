@@ -89,6 +89,36 @@ function isValidEventName(name) {
 }
 
 /**
+ * @param {unknown} pattern
+ * @returns {boolean}
+ */
+function isValidEventPattern(pattern) {
+  if (pattern === '*') return true;
+  if (typeof pattern !== 'string') return false;
+  // Allow wildcard segments while keeping the same "dot-separated tokens" shape.
+  return /^[a-z0-9_*?]+(\.[a-z0-9_*?]+)*$/.test(pattern);
+}
+
+function assertValidEventName(name) {
+  if (!isValidEventName(name)) {
+    throw new TypeError(`Invalid event name: ${String(name)}`);
+  }
+}
+
+function assertValidEventPattern(pattern) {
+  if (!isValidEventPattern(pattern)) {
+    throw new TypeError(`Invalid event pattern: ${String(pattern)}`);
+  }
+}
+
+function regexTest(re, text) {
+  if (!re || typeof re.test !== 'function') return false;
+  // Avoid RegExp.lastIndex footguns with /g and /y.
+  if (re.global || re.sticky) re.lastIndex = 0;
+  return re.test(text);
+}
+
+/**
  * @param {string | null | undefined} runId
  * @param {number} seq
  * @returns {string}
@@ -210,9 +240,7 @@ export function createEventRecord({
     ? name
     : (typeof type === 'string' && type ? type : 'unknown');
 
-  if (!isValidEventName(resolvedName) || resolvedName === '*') {
-    throw new TypeError(`Invalid event name: ${resolvedName}`);
-  }
+  assertValidEventName(resolvedName);
 
   const resolvedTs = typeof ts === 'string' && ts
     ? ts
@@ -271,14 +299,15 @@ export class RunStoreAdapter {
    * @param {any} runStore
    */
   constructor(runStore) {
-    if (!runStore || typeof runStore.getEvents !== 'function') {
+    const store = runStore && typeof runStore === 'object' ? runStore : {};
+    if (typeof store.getEvents !== 'function') {
       throw new TypeError('RunStoreAdapter(runStore): runStore.getEvents must be a function');
     }
-    if (typeof runStore.appendEvents !== 'function' && typeof runStore.appendEvent !== 'function') {
+    if (typeof store.appendEvents !== 'function' && typeof store.appendEvent !== 'function') {
       throw new TypeError('RunStoreAdapter(runStore): runStore.appendEvents/appendEvent must be a function');
     }
 
-    this._runStore = runStore;
+    this._runStore = store;
   }
 
   /**
@@ -291,21 +320,25 @@ export class RunStoreAdapter {
     }
     if (events.length === 0) return 0;
 
+    for (const evt of events) {
+      if (!isObject(evt)) {
+        throw new TypeError('RunStoreAdapter.appendEvents(events): each event must be an object');
+      }
+      if (typeof evt.runId !== 'string' || !evt.runId) {
+        throw new TypeError('RunStoreAdapter.appendEvents(events): each event must include a string runId');
+      }
+    }
+
     const runStore = this._runStore;
     const hasBatch = typeof runStore.appendEvents === 'function';
-    let total = 0;
+    const total = events.length;
 
     // 批量写入路径（优先）
     if (hasBatch) {
       /** @type {Map<string, any[]>} */
       const byRunId = new Map();
       for (const evt of events) {
-        if (!isObject(evt)) continue;
         const runId = evt.runId;
-        if (typeof runId !== 'string' || !runId) {
-          throw new TypeError('RunStoreAdapter.appendEvents: events must include a string runId');
-        }
-        total += 1;
         const bucket = byRunId.get(runId);
         if (bucket) bucket.push(evt);
         else byRunId.set(runId, [evt]);
@@ -323,12 +356,7 @@ export class RunStoreAdapter {
     // 单条写入路径（appendEvent-only）
     const tasks = [];
     for (const evt of events) {
-      if (!isObject(evt)) continue;
       const runId = evt.runId;
-      if (typeof runId !== 'string' || !runId) {
-        throw new TypeError('RunStoreAdapter.appendEvents: events must include a string runId');
-      }
-      total += 1;
       tasks.push(runStore.appendEvent(runId, evt));
     }
     if (tasks.length === 0) return 0;
@@ -396,11 +424,10 @@ export class EventBus {
     }
 
     if (typeof name !== 'string' || !name) {
-      throw new TypeError('EventBus.on: name must be a string');
+      throw new TypeError('Invalid event name');
     }
-    if (!name.includes('*') && !isValidEventName(name)) {
-      throw new TypeError(`Invalid event name: ${name}`);
-    }
+    if (name.includes('*') || name.includes('?')) assertValidEventPattern(name);
+    else assertValidEventName(name);
 
     const priority = options?.priority ?? 0;
 
@@ -459,15 +486,13 @@ export class EventBus {
     }
 
     if (typeof eventType !== 'string' || !eventType) {
-      throw new TypeError('EventBus.subscribe: eventType must be a string');
+      throw new TypeError('Invalid event name');
     }
-    if (!eventType.includes('*') && !isValidEventName(eventType)) {
-      throw new TypeError(`Invalid event name: ${eventType}`);
-    }
-    if (options && Object.prototype.hasOwnProperty.call(options, 'priority')) {
-      if (typeof priority !== 'number' || !Number.isFinite(priority)) {
-        throw new TypeError('EventBus.subscribe: priority must be a finite number');
-      }
+    if (eventType.includes('*') || eventType.includes('?')) assertValidEventPattern(eventType);
+    else assertValidEventName(eventType);
+
+    if (typeof priority !== 'number' || !Number.isFinite(priority)) {
+      throw new TypeError('EventBus.subscribe: priority must be a finite number');
     }
 
     // AbortSignal 支持
@@ -557,13 +582,6 @@ export class EventBus {
    * @returns {EventRecord} 结构化事件记录
    */
   emit(name, data = {}) {
-    if (typeof name !== 'string' || !name) {
-      throw new TypeError('EventBus.emit: name must be a string');
-    }
-    if (!isValidEventName(name) || name === '*') {
-      throw new TypeError(`Invalid event name: ${name}`);
-    }
-
     const evt = this._createEvent(name, data);
 
     // 记录历史
@@ -694,8 +712,7 @@ export class EventBus {
    * @returns {this}
    */
   enableBackpressure(options = {}) {
-    if (options === undefined) options = {};
-    if (!isObject(options)) {
+    if (!options || typeof options !== 'object' || Array.isArray(options)) {
       throw new TypeError('EventBus.enableBackpressure: options must be an object');
     }
 
@@ -707,10 +724,13 @@ export class EventBus {
     } = options;
 
     if (typeof batchWindowMs !== 'number' || !Number.isFinite(batchWindowMs) || batchWindowMs < 0) {
-      throw new TypeError('EventBus.enableBackpressure: batchWindowMs must be a non-negative number');
+      throw new TypeError('EventBus.enableBackpressure: batchWindowMs must be a non-negative finite number');
     }
     if (!(coalescePattern instanceof RegExp)) {
       throw new TypeError('EventBus.enableBackpressure: coalescePattern must be a RegExp');
+    }
+    if (typeof maxQueueSize !== 'number' || !Number.isFinite(maxQueueSize) || maxQueueSize <= 0) {
+      throw new TypeError('EventBus.enableBackpressure: maxQueueSize must be a positive finite number');
     }
 
     if (this._backpressure?.enabled) {
@@ -728,8 +748,7 @@ export class EventBus {
       token: 0,
       scheduled: false,
       rafId: null,
-      timerId: null,
-      flushToken: 0,
+      timeoutId: null,
       generation: ++this._backpressureGen,
     };
 
@@ -743,7 +762,23 @@ export class EventBus {
   disableBackpressure() {
     if (!this._backpressure?.enabled) return this;
 
-    this._cancelScheduledFlush();
+    const bp = this._backpressure;
+    if (bp) {
+      try {
+        if (bp.rafId !== null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(bp.rafId);
+      } catch {
+        // ignore
+      }
+      try {
+        if (bp.timeoutId !== null) clearTimeout(bp.timeoutId);
+      } catch {
+        // ignore
+      }
+      bp.rafId = null;
+      bp.timeoutId = null;
+      bp.scheduled = false;
+    }
+
     this._flushBackpressure();
     this._backpressure = null;
     return this;
@@ -791,7 +826,7 @@ export class EventBus {
     try {
       events = await this._persistenceAdapter.getEvents(runId);
     } catch (err) {
-      throw new Error(`EventBus.replay: failed to load events: ${err?.message || String(err)}`);
+      throw new Error(`EventBus.replay: failed to load events (${err?.message || String(err)})`);
     }
     if (!Array.isArray(events)) return [];
 
@@ -800,13 +835,17 @@ export class EventBus {
       if (!isObject(raw)) continue;
       const rawRunId = typeof raw.runId === 'string' ? raw.runId : undefined;
       const rawMeta = isObject(raw.meta) ? raw.meta : undefined;
-      const evt = createEventRecord({
-        ...raw,
-        runId: rawRunId ?? runId,
-        meta: { ...(rawMeta || {}), replay: true },
-      });
-      this._dispatch(evt);
-      result.push(evt);
+      try {
+        const evt = createEventRecord({
+          ...raw,
+          runId: rawRunId ?? runId,
+          meta: { ...(rawMeta || {}), replay: true },
+        });
+        this._dispatch(evt);
+        result.push(evt);
+      } catch {
+        // Skip malformed events.
+      }
     }
 
     return result;
@@ -1007,9 +1046,7 @@ export class EventBus {
       bp.queue.shift();
     }
 
-    const re = bp.coalescePattern;
-    if (re.global || re.sticky) re.lastIndex = 0;
-    const shouldCoalesce = re.test(evt.name);
+    const shouldCoalesce = regexTest(bp.coalescePattern, evt.name);
     if (shouldCoalesce) {
       bp.coalesced.set(evt.name, { token: ++bp.token, evt });
       bp.queue.push({ kind: 'coalesce', name: evt.name, token: bp.token });
@@ -1032,19 +1069,19 @@ export class EventBus {
 
     bp.scheduled = true;
     const gen = bp.generation;
-    const token = ++bp.flushToken;
 
     const flush = () => {
-      if (this._backpressure?.generation !== gen) return;
-      if (this._backpressure?.flushToken !== token) return;
+      const current = this._backpressure;
+      if (!current || current.generation !== gen) return;
+      current.rafId = null;
+      current.timeoutId = null;
       this._flushBackpressure();
     };
 
-    const raf = globalThis.requestAnimationFrame;
-    if (typeof raf === 'function') {
-      bp.rafId = raf(flush);
+    if (typeof requestAnimationFrame === 'function' && bp.batchWindowMs <= 0) {
+      bp.rafId = requestAnimationFrame(flush);
     } else {
-      bp.timerId = globalThis.setTimeout(flush, bp.batchWindowMs);
+      bp.timeoutId = setTimeout(flush, bp.batchWindowMs);
     }
   }
 
@@ -1056,8 +1093,6 @@ export class EventBus {
     if (!bp) return;
 
     bp.scheduled = false;
-    bp.rafId = null;
-    bp.timerId = null;
     const queue = bp.queue;
     const coalesced = bp.coalesced;
 
@@ -1074,35 +1109,6 @@ export class EventBus {
         }
       }
     }
-  }
-
-  /**
-   * @returns {void}
-   */
-  _cancelScheduledFlush() {
-    const bp = this._backpressure;
-    if (!bp) return;
-
-    try {
-      const cancel = globalThis.cancelAnimationFrame;
-      if (typeof cancel === 'function' && bp.rafId !== null && bp.rafId !== undefined) {
-        cancel(bp.rafId);
-      }
-    } catch {
-      // ignore
-    }
-
-    try {
-      if (bp.timerId !== null && bp.timerId !== undefined) {
-        globalThis.clearTimeout(bp.timerId);
-      }
-    } catch {
-      // ignore
-    }
-
-    bp.rafId = null;
-    bp.timerId = null;
-    bp.scheduled = false;
   }
 
   /**

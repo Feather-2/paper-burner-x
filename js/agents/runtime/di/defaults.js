@@ -13,6 +13,7 @@ import { FileLock } from "../../vfs/file-lock.js";
 import { createDefaultErrorBoundary } from "../core/error-boundary.js";
 import { TokenTracker } from "../telemetry/token-tracker.js";
 import { TraceContext } from "../telemetry/trace-context.js";
+import { enhanceEventBusWithHooks } from "../hooks/event-bus-hooks.js";
 
 /** @type {any} */
 const process = /** @type {any} */ (globalThis).process;
@@ -89,6 +90,7 @@ export function createAgentContainer(overrides = {}) {
   container.register(ServiceId.EVENT_BUS, async (c) => {
     const { EventBus } = await import("../../core/event-bus.js");
     const eventBus = new EventBus();
+    enhanceEventBusWithHooks(eventBus);
     // P4.6: 默认启用背压，避免高频事件堆积（浏览器和 Node.js 均生效）
     if (typeof eventBus.enableBackpressure === "function") {
       try {

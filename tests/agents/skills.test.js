@@ -6,7 +6,10 @@ import { promises as fs } from "node:fs";
 
 import { SkillScope } from "../../js/agents/skills/model.js";
 import { loadSkills } from "../../js/agents/skills/loader.js";
+import { loadSkillFromPath as loadSkillFromPathBrowser, loadSkills as loadSkillsBrowser } from "../../js/agents/skills/loader.browser.js";
 import { SkillsManager } from "../../js/agents/skills/manager.js";
+import { NexusSkillProvider } from "../../js/agents/mcp/nexus-skill-provider.js";
+import { readJsonWithLimit, readTextWithLimit } from "../../js/agents/shared/utils/response-limits.js";
 
 async function writeSkillFile(rootDir, scope, name, body, frontmatter) {
   const skillsDir = path.join(rootDir, ".paper-burner", "skills", name);
@@ -97,6 +100,126 @@ describe("skills/manager", () => {
       assert.equal(catalog.includes(cwd.replaceAll("\\", "/")), false);
     } finally {
       await fs.rm(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("shared/utils/response-limits", () => {
+  it("rejects responses exceeding declared content-length", async () => {
+    const resp = {
+      headers: { get: (name) => (String(name).toLowerCase() === "content-length" ? "20" : null) },
+      text: async () => '{"a":1}',
+    };
+    await assert.rejects(
+      () => readTextWithLimit(resp, { maxBytes: 10, context: "test" }),
+      (err) => err && err.name === "ResponseTooLargeError" && err.code === "ERESPONSE_TOO_LARGE"
+    );
+  });
+
+  it("enforces byte limits when reading streams", async () => {
+    const enc = new TextEncoder();
+    const body = new ReadableStream({
+      start(controller) {
+        controller.enqueue(enc.encode("abc"));
+        controller.enqueue(enc.encode("def"));
+        controller.close();
+      },
+    });
+    const resp = { headers: { get: () => null }, body };
+    await assert.rejects(
+      () => readTextWithLimit(resp, { maxBytes: 4, context: "stream" }),
+      (err) => err && err.name === "ResponseTooLargeError"
+    );
+
+    const okBody = new ReadableStream({
+      start(controller) {
+        controller.enqueue(enc.encode("abc"));
+        controller.enqueue(enc.encode("def"));
+        controller.close();
+      },
+    });
+    const okResp = { headers: { get: () => null }, body: okBody };
+    const text = await readTextWithLimit(okResp, { maxBytes: 10, context: "stream" });
+    assert.equal(text, "abcdef");
+  });
+
+  it("reads JSON with a size guard", async () => {
+    const resp = { headers: { get: () => null }, text: async () => '{"ok":true}' };
+    const data = await readJsonWithLimit(resp, { maxBytes: 100, context: "json" });
+    assert.deepEqual(data, { ok: true });
+  });
+});
+
+describe("skills/loader.browser", () => {
+  it("falls back to the secondary manifest url when the primary is too large", async () => {
+    const originalFetch = globalThis.fetch;
+    const calls = [];
+    globalThis.fetch = async (url) => {
+      calls.push(String(url));
+      if (String(url).includes("skills/manifest.json") && !String(url).includes("public/skills/manifest.json")) {
+        return new Response('{"skills":[]}', { status: 200, headers: { "content-length": "500" } });
+      }
+      if (String(url).includes("public/skills/manifest.json")) {
+        return new Response('{"skills":[{"name":"A","description":"a","path":"a.md"}]}', {
+          status: 200,
+          headers: { "content-length": "80" },
+        });
+      }
+      throw new Error(`unexpected fetch url: ${url}`);
+    };
+
+    try {
+      const outcome = await loadSkillsBrowser({ manifestUrl: "skills/manifest.json", maxManifestBytes: 100 });
+      assert.equal(outcome.errors.length, 0);
+      assert.equal(outcome.skills.length, 1);
+      assert.equal(outcome.skills[0].metadata.name, "A");
+      assert.ok(calls.some((u) => u.includes("skills/manifest.json")));
+      assert.ok(calls.some((u) => u.includes("public/skills/manifest.json")));
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("enforces maxSkillBytes when loading a skill body via fetch", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () =>
+      new Response(
+        [
+          "---",
+          "name: BigSkill",
+          "description: big",
+          "---",
+          "",
+          "x".repeat(200),
+          "",
+        ].join("\n"),
+        { status: 200, headers: { "content-length": "250" } }
+      );
+
+    try {
+      await assert.rejects(
+        () => loadSkillFromPathBrowser("https://example.com/BigSkill.md", SkillScope.SYSTEM, { maxSkillBytes: 100 }),
+        (err) => err && err.name === "ResponseTooLargeError"
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+describe("mcp/nexus-skill-provider size limits", () => {
+  it("enforces maxResponseBytes on listSkills", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => new Response('{"skills":[]}', { status: 200, headers: { "content-length": "20" } });
+
+    try {
+      const provider = new NexusSkillProvider({ maxResponseBytes: 10 });
+      await assert.rejects(
+        () => provider.listSkills(),
+        (err) => err && err.name === "ResponseTooLargeError" && err.code === "ERESPONSE_TOO_LARGE"
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
     }
   });
 });

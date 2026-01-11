@@ -35,6 +35,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 const DEFAULT_CHUNK_BYTES = 256 * 1024; // 256KB
+const DEFAULT_MAX_TRANSFER_BYTES = 64 * 1024 * 1024; // 64MB
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Support Detection
@@ -89,6 +90,7 @@ export class MessagePortFallback {
    * @param {MessagePort} port
    * @param {object} [options]
    * @param {number} [options.chunkBytes=256*1024]
+   * @param {number} [options.maxByteLength=64*1024*1024]
    */
   constructor(port, options = {}) {
     if (!port) {
@@ -96,6 +98,7 @@ export class MessagePortFallback {
     }
     this._port = port;
     this._chunkBytes = options.chunkBytes ?? DEFAULT_CHUNK_BYTES;
+    this._maxByteLength = options.maxByteLength ?? DEFAULT_MAX_TRANSFER_BYTES;
     this._transfers = new Map(); // id → { byteLength, buffer?, received, resolve?, reject?, error?, result? }
     this._boundOnMessage = this._handleMessage.bind(this);
 
@@ -140,26 +143,37 @@ export class MessagePortFallback {
    * @private
    */
   _handleStart(id, byteLength, chunkBytes) {
+    const declared = Number.isFinite(byteLength) ? Math.floor(byteLength) : 0;
+    if (declared < 0) {
+      this._fail(id, new Error("byteLength must be non-negative"));
+      return;
+    }
+    const limit = Number.isFinite(this._maxByteLength) ? Math.max(0, Math.floor(this._maxByteLength)) : Infinity;
+    if (declared > limit) {
+      this._fail(id, new Error(`byteLength exceeds limit (${declared} > ${limit})`));
+      return;
+    }
+
     const existing = this._transfers.get(id);
 
     if (existing) {
       // Validate byteLength matches
-      if (existing.byteLength !== byteLength) {
-        this._fail(id, new Error(`byteLength mismatch: expected ${existing.byteLength}, got ${byteLength}`));
+      if (existing.byteLength !== declared) {
+        this._fail(id, new Error(`byteLength mismatch: expected ${existing.byteLength}, got ${declared}`));
         return;
       }
     }
 
-    const buffer = new ArrayBuffer(byteLength);
+    const buffer = new ArrayBuffer(declared);
     const entry = existing || {};
-    entry.byteLength = byteLength;
+    entry.byteLength = declared;
     entry.buffer = buffer;
     entry.received = 0;
     entry.chunkBytes = chunkBytes;
     this._transfers.set(id, entry);
 
     // Check if already complete (0-byte transfer)
-    if (byteLength === 0) {
+    if (declared === 0) {
       entry.result = buffer;
       if (entry.resolve) {
         entry.resolve(buffer);
@@ -264,24 +278,40 @@ export class MessagePortFallback {
 
     const id = packet.id;
     const byteLength = packet.byteLength;
+    const declared = Number.isFinite(byteLength) ? Math.floor(byteLength) : 0;
+    const limit = Number.isFinite(this._maxByteLength) ? Math.max(0, Math.floor(this._maxByteLength)) : Infinity;
+    if (declared < 0) {
+      return Promise.reject(new Error("byteLength must be non-negative"));
+    }
+    if (declared > limit) {
+      return Promise.reject(new Error(`byteLength exceeds limit (${declared} > ${limit})`));
+    }
 
     return new Promise((resolve, reject) => {
       const existing = this._transfers.get(id);
 
       if (existing?.error) {
+        this._transfers.delete(id);
         reject(existing.error);
         return;
       }
 
       if (existing?.result) {
+        this._transfers.delete(id);
         resolve(existing.result);
         return;
       }
 
-      const entry = existing || { byteLength, received: 0 };
-      entry.byteLength = byteLength;
-      entry.resolve = resolve;
-      entry.reject = reject;
+      const entry = existing || { byteLength: declared, received: 0 };
+      entry.byteLength = declared;
+      entry.resolve = (buffer) => {
+        this._transfers.delete(id);
+        resolve(buffer);
+      };
+      entry.reject = (error) => {
+        this._transfers.delete(id);
+        reject(error);
+      };
       this._transfers.set(id, entry);
     });
   }

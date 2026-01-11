@@ -4,8 +4,8 @@
  * 原有的 JS 执行逻辑封装。
  *
  * 安全策略（按优先级）：
- *   1. Worker 沙箱（隔离 + 受限 globals）
- *   2. 主线程 + 危险模式检测（fallback）
+ *   1. Worker 隔离执行（best-effort；不是强安全边界）
+ *   2. 主线程 fallback（仅用于 trusted 执行；默认拒绝不可信代码）
  *
  * TODO(AI4Sci): 添加 quickjs-emscripten WASM 沙箱作为第三层
  */
@@ -21,6 +21,7 @@ import { createLogger } from "../../shared/utils/logger.js";
  * @property {string} [id]
  * @property {boolean} [skipValidation]
  * @property {boolean} [useWorkerSandbox]
+ * @property {'allow'|'trustedOnly'|'deny'} [mainThreadFallback] - policy when Worker is unavailable
  * @property {number} [timeout]
  *
  * @typedef {{ valid: boolean, reason?: string }} CodeValidationResult
@@ -58,6 +59,15 @@ function validateCode(code) {
   return { valid: true };
 }
 
+function normalizeMainThreadFallbackPolicy(value) {
+  const raw = typeof value === "string" ? value.trim() : "";
+  const v = raw.toLowerCase();
+  if (v === "allow") return "allow";
+  if (v === "deny" || v === "off" || v === "none") return "deny";
+  if (v === "trustedonly" || v === "trusted_only" || v === "trusted") return "trustedOnly";
+  return "trustedOnly";
+}
+
 export class JSRuntimeAdapter extends RuntimeAdapter {
   /**
    * @param {JSRuntimeAdapterOptions} [options]
@@ -66,6 +76,7 @@ export class JSRuntimeAdapter extends RuntimeAdapter {
     super({ ...options, type: RuntimeType.JS });
     this.skipValidation = options.skipValidation || false;
     this.useWorkerSandbox = options.useWorkerSandbox !== false; // 默认启用
+    this.mainThreadFallback = normalizeMainThreadFallbackPolicy(options.mainThreadFallback);
     this.timeout = options.timeout || 30000;
     /** @type {Worker | null} */
     this._worker = null;
@@ -143,11 +154,51 @@ export class JSRuntimeAdapter extends RuntimeAdapter {
    * @returns {Promise<ExecutionResult>}
    */
   async _executeInWorker(code, context) {
+    const signal = context?.signal;
+    if (signal?.aborted) {
+      return { success: false, error: "Aborted", metrics: { duration: 0, aborted: true } };
+    }
+
     const id = ++this._requestId;
 
     return new Promise((resolve) => {
-      const timeoutId = setTimeout(() => {
+      const startTime = Date.now();
+      let done = false;
+      const finish = (result) => {
+        if (done) return;
+        done = true;
+        resolve(result);
+      };
+
+      const cleanup = () => {
         this._pendingRequests.delete(id);
+        signal?.removeEventListener?.("abort", onAbort);
+      };
+
+      const onAbort = () => {
+        cleanup();
+        // Best-effort: stop execution by terminating the worker (cannot cancel sync JS otherwise).
+        try {
+          this._worker?.terminate?.();
+        } catch {
+          // ignore
+        }
+        this._worker = null;
+        try {
+          context?.emit?.("runtime.worker_aborted", { runtime: "js" });
+        } catch {
+          // ignore
+        }
+        finish({ success: false, error: "Aborted", metrics: { duration: Date.now() - startTime, aborted: true } });
+      };
+
+      if (signal) {
+        if (signal.aborted) return onAbort();
+        signal.addEventListener("abort", onAbort, { once: true });
+      }
+
+      const timeoutId = setTimeout(() => {
+        cleanup();
         // If the worker is stuck (e.g. sync infinite loop), terminate it to avoid a wedged sandbox.
         try {
           this._worker?.terminate?.();
@@ -155,27 +206,39 @@ export class JSRuntimeAdapter extends RuntimeAdapter {
           // ignore
         }
         this._worker = null;
-        resolve({
+        try {
+          context?.emit?.("runtime.worker_timeout", { runtime: "js", timeoutMs: this.timeout });
+        } catch {
+          // ignore
+        }
+        finish({
           success: false,
           error: 'Worker execution timeout',
-          metrics: { duration: this.timeout }
+          metrics: { duration: this.timeout, timedOut: true }
         });
       }, this.timeout + 1000); // 额外 1s 给 Worker 内部超时
 
       this._pendingRequests.set(id, {
         resolve: (result) => {
           clearTimeout(timeoutId);
-          resolve(result);
+          cleanup();
+          finish(result);
         }
       });
 
-      this._worker.postMessage({
-        type: 'execute',
-        id,
-        code,
-        state: context?.state,
-        timeout: this.timeout
-      });
+      try {
+        this._worker.postMessage({
+          type: 'execute',
+          id,
+          code,
+          state: context?.state,
+          timeout: this.timeout
+        });
+      } catch (err) {
+        clearTimeout(timeoutId);
+        cleanup();
+        finish({ success: false, error: err?.message || String(err), metrics: { duration: Date.now() - startTime } });
+      }
     });
   }
 
@@ -186,6 +249,40 @@ export class JSRuntimeAdapter extends RuntimeAdapter {
    */
   async _executeInMainThread(code, context) {
     const startTime = Date.now();
+    const signal = context?.signal;
+
+    if (signal?.aborted) {
+      return { success: false, error: "Aborted", metrics: { duration: 0, aborted: true } };
+    }
+
+    const trusted = context?.trusted === true;
+    if (this.mainThreadFallback === "deny" || (this.mainThreadFallback !== "allow" && !trusted)) {
+      try {
+        context?.emit?.("runtime.fallback_blocked", {
+          runtime: "js",
+          mode: "main_thread",
+          policy: this.mainThreadFallback,
+        });
+      } catch {
+        // ignore
+      }
+      return {
+        success: false,
+        error: `Main-thread fallback blocked (policy=${this.mainThreadFallback}; trusted=${String(trusted)})`,
+        metrics: { duration: Date.now() - startTime, blocked: true },
+      };
+    }
+
+    try {
+      context?.emit?.("runtime.fallback_used", {
+        runtime: "js",
+        mode: "main_thread",
+        policy: this.mainThreadFallback,
+        trusted,
+      });
+    } catch {
+      // ignore
+    }
 
     // 安全检查
     if (!this.skipValidation) {
@@ -201,13 +298,37 @@ export class JSRuntimeAdapter extends RuntimeAdapter {
 
     try {
       const fn = new Function('context', `
-        const { state, vfs, emit } = context;
+        "use strict";
+        const { state, vfs, emit } = context || {};
+        const globalThis = undefined;
+        const window = undefined;
+        const document = undefined;
+        const self = undefined;
+        const fetch = undefined;
+        const XMLHttpRequest = undefined;
+        const WebSocket = undefined;
+        const importScripts = undefined;
+        const Function = undefined;
         return (async () => {
           ${code}
         })();
       `);
 
-      const result = await fn(context);
+      let timeoutId = null;
+      const execPromise = fn(context);
+      const timeoutPromise =
+        this.timeout > 0
+          ? new Promise((_, reject) => {
+              timeoutId = setTimeout(() => reject(new Error("Execution timeout")), this.timeout);
+            })
+          : null;
+
+      let result;
+      try {
+        result = timeoutPromise ? await Promise.race([execPromise, timeoutPromise]) : await execPromise;
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId);
+      }
 
       return {
         success: true,

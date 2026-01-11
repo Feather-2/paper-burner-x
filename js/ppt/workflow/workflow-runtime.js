@@ -585,9 +585,16 @@ export const runtimeMixin = {
 	        // Inject global AI services + ModelRouter (for pptRolePriority-aware routing)
 	        let aiApiService = baseAiApiService;
 	        let modelRouter = null;
+	        let executeWithOverflowRecovery = null;
         try {
             const { buildPptUsageConfigForModelRouter, createPptAwareAiApiService } = await import('../../agents/llm/ppt-model-bridge.js');
             aiApiService = typeof createPptAwareAiApiService === 'function' ? createPptAwareAiApiService(baseAiApiService) : baseAiApiService;
+            try {
+                const mod = await import('../../agents/llm/overflow-recovery.js');
+                executeWithOverflowRecovery = typeof mod?.executeWithOverflowRecovery === 'function' ? mod.executeWithOverflowRecovery : null;
+            } catch (e) {
+                executeWithOverflowRecovery = null;
+            }
 
             const usageConfig = typeof buildPptUsageConfigForModelRouter === 'function' ? buildPptUsageConfigForModelRouter() : null;
             if (usageConfig && typeof usageConfig === 'object') {
@@ -670,7 +677,7 @@ export const runtimeMixin = {
                         if (!baseAiApiService) throw new Error('aiApiService not available');
 
 	                        // 重试逻辑：对于 401/429 错误，等待后重试一次
-	                        const attemptCall = async () => {
+	                        const attemptCallWithMaxTokens = async (attemptMaxTokens) => {
 	                            if (typeof baseAiApiService?._resolveModelConfig === 'function' && typeof baseAiApiService?._callApi === 'function') {
 	                                const idx = modelId.indexOf(':');
 	                                const sourceKey = idx > 0 ? modelId.slice(0, idx) : modelId;
@@ -683,19 +690,27 @@ export const runtimeMixin = {
                                     throw new Error(`No available model config for: ${modelId || 'auto'}`);
                                 }
 
-                                return await baseAiApiService._callApi(config, messages, temperature, maxTokens, { signal });
+                                return await baseAiApiService._callApi(config, messages, temperature, attemptMaxTokens, { signal });
                             }
 
                             if (typeof baseAiApiService?.chat !== 'function') throw new Error('aiApiService.chat not available');
-	                            return await baseAiApiService.chat({ messages, model: modelId || 'auto', temperature, maxTokens });
+	                            return await baseAiApiService.chat({ messages, model: modelId || 'auto', temperature, maxTokens: attemptMaxTokens });
 	                        };
 	
-	                        const runAttempt = () => {
-	                            if (!llmRateLimiter) return attemptCall();
-	                            return llmRateLimiter.schedule(() => attemptCall(), {
+	                        const runAttemptWithMaxTokens = (attemptMaxTokens) => {
+	                            if (!llmRateLimiter) return attemptCallWithMaxTokens(attemptMaxTokens);
+	                            return llmRateLimiter.schedule(() => attemptCallWithMaxTokens(attemptMaxTokens), {
 	                                signal,
 	                                label: `provider.chat:${modelId || 'auto'}`
 	                            });
+	                        };
+
+	                        const runAttempt = () => {
+	                            if (!executeWithOverflowRecovery) return runAttemptWithMaxTokens(maxTokens);
+	                            return executeWithOverflowRecovery(
+	                                (attemptMaxTokens) => runAttemptWithMaxTokens(attemptMaxTokens),
+	                                { initialMaxTokens: maxTokens, minTokens: 256, bufferTokens: 128, maxRetries: 2 }
+	                            );
 	                        };
 	
 	                        try {
@@ -786,6 +801,35 @@ export const runtimeMixin = {
 	                };
 	            } catch (err) {
 	                console.warn('[PPTGeneratorWorkflow] Rate-limited aiApiService wrapper failed:', err);
+	            }
+	        }
+
+	        if (executeWithOverflowRecovery && aiApiService && typeof aiApiService.chat === 'function') {
+	            try {
+	                const rawChat = aiApiService.chat.bind(aiApiService);
+	                const rawCallApi = typeof aiApiService._callApi === 'function' ? aiApiService._callApi.bind(aiApiService) : null;
+
+	                aiApiService = {
+	                    ...aiApiService,
+	                    chat: async (opts = {}) => {
+	                        const initialMaxTokens = typeof opts?.maxTokens === 'number' && Number.isFinite(opts.maxTokens) ? opts.maxTokens : 4096;
+	                        return executeWithOverflowRecovery(
+	                            (attemptMaxTokens) => rawChat({ ...opts, maxTokens: attemptMaxTokens }),
+	                            { initialMaxTokens, minTokens: 256, bufferTokens: 128, maxRetries: 2 }
+	                        );
+	                    },
+	                    ...(rawCallApi ? {
+	                        _callApi: (config, messages, temperature, maxTokens, callOpts = {}) => {
+	                            const initialMaxTokens = typeof maxTokens === 'number' && Number.isFinite(maxTokens) ? maxTokens : 4096;
+	                            return executeWithOverflowRecovery(
+	                                (attemptMaxTokens) => rawCallApi(config, messages, temperature, attemptMaxTokens, callOpts),
+	                                { initialMaxTokens, minTokens: 256, bufferTokens: 128, maxRetries: 2 }
+	                            );
+	                        }
+	                    } : {})
+	                };
+	            } catch (err) {
+	                console.warn('[PPTGeneratorWorkflow] Overflow-recovery aiApiService wrapper failed:', err);
 	            }
 	        }
 	

@@ -6,38 +6,49 @@
 
 import { createPlugin } from '../plugin.js';
 import { SandboxPool } from './pool.js';
-import { SandboxPreset, ResourceLimits, SandboxCapability } from './index.js';
+import { SandboxPreset, ResourceLimits } from './constants.js';
+
+const SANDBOX_POOL = Symbol('sandboxPool');
 
 /**
  * 创建沙箱插件
  */
 export function createSandboxPlugin(options = {}) {
+  const defaultConfig = {
+    poolSize: 4,
+    idleTimeoutMs: 60000,
+    defaultCapabilities: SandboxPreset.SKILL,
+    defaultLimits: ResourceLimits.STANDARD,
+    ...options,
+  };
+
   return createPlugin({
     name: 'sandbox',
     version: '1.0.0',
     description: 'WASM sandbox for secure code execution',
+    defaultConfig,
 
     async install(ctx) {
       const pool = new SandboxPool({
-        maxSize: options.poolSize || 4,
-        idleTimeoutMs: options.idleTimeoutMs || 60000,
-        defaultCapabilities: options.defaultCapabilities || SandboxPreset.SKILL,
-        defaultLimits: options.defaultLimits || ResourceLimits.STANDARD,
+        maxSize: ctx.config.poolSize,
+        idleTimeoutMs: ctx.config.idleTimeoutMs,
+        defaultCapabilities: ctx.config.defaultCapabilities,
+        defaultLimits: ctx.config.defaultLimits,
       });
 
       // 注册服务
-      ctx.services.register('sandbox', {
+      ctx.registerService('sandbox', {
         /**
          * 执行代码
          * @param {string} code
          * @param {Object} options
          */
-        async execute(code, options = {}) {
+        async execute(code, execOptions = {}) {
           return pool.withSandbox(
             {
-              capabilities: options.capabilities,
-              limits: options.limits,
-              state: options.state,
+              capabilities: execOptions.capabilities,
+              limits: execOptions.limits,
+              state: execOptions.state,
               onLog: (level, args) => {
                 ctx.events.emit('sandbox:log', { level, args });
               },
@@ -46,9 +57,9 @@ export function createSandboxPlugin(options = {}) {
               },
             },
             async sandbox => {
-              return options.async
-                ? sandbox.executeAsync(code, options.context)
-                : sandbox.execute(code, options.context);
+              return execOptions.async
+                ? sandbox.executeAsync(code, execOptions.context)
+                : sandbox.execute(code, execOptions.context);
             }
           );
         },
@@ -89,24 +100,17 @@ export function createSandboxPlugin(options = {}) {
         },
       });
 
-      // 保存池引用，用于清理
-      ctx.set('sandbox:pool', pool);
+      ctx[SANDBOX_POOL] = pool;
     },
 
-    async onStop(ctx) {
-      const pool = ctx.get('sandbox:pool');
-      if (pool) {
-        pool.dispose();
-      }
-    },
-
-    // 导出常量供外部使用
-    exports: {
-      SandboxCapability,
-      SandboxPreset,
-      ResourceLimits,
+    async uninstall(ctx) {
+      const pool = ctx[SANDBOX_POOL];
+      if (pool) pool.dispose();
+      ctx[SANDBOX_POOL] = null;
     },
   });
 }
 
-export default createSandboxPlugin;
+const defaultSandboxPlugin = createSandboxPlugin();
+
+export default defaultSandboxPlugin;

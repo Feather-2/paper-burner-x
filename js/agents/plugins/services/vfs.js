@@ -76,8 +76,16 @@ export default createPlugin({
       },
 
       // 目录操作
-      async readdir(path) {
-        return vfs.readdir(path);
+      async readdir(path, options) {
+        return vfs.readdir(path, options);
+      },
+
+      async list(path) {
+        const entries = await vfs.readdir(path, { withFileTypes: true });
+        if (!Array.isArray(entries)) return [];
+        return entries
+          .filter((e) => e && typeof e === "object" && typeof e.name === "string")
+          .map((e) => ({ name: e.name, kind: e.isDirectory?.() ? "dir" : "file" }));
       },
 
       async mkdir(path, options) {

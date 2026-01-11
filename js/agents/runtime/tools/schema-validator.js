@@ -5,6 +5,8 @@
  * 支持简化参数描述和完整 JSON Schema 两种格式。
  */
 
+import { createSafeRegex } from "../../shared/utils/safe-regex.js";
+
 /**
  * 验证参数是否符合 schema
  * @param {Object} args - 待验证参数
@@ -69,11 +71,12 @@ export function validateArgs(args, schema) {
       // Pattern 检查
       if (prop.pattern && typeof value === "string") {
         try {
-          if (!new RegExp(prop.pattern).test(value)) {
+          const regex = createSafeRegex(prop.pattern, "u");
+          if (!regex.test(value)) {
             errors.push(`${key}: does not match pattern ${prop.pattern}`);
           }
-        } catch {
-          // 忽略无效正则
+        } catch (err) {
+          errors.push(`${key}: invalid pattern ${prop.pattern} (${err?.message || String(err)})`);
         }
       }
     }

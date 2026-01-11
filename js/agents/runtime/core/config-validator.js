@@ -9,6 +9,7 @@
  */
 
 import { createLogger } from "../../shared/utils/logger.js";
+import { createSafeRegex } from "../../shared/utils/safe-regex.js";
 
 const logger = createLogger("runtime/core/config-validator");
 
@@ -204,9 +205,13 @@ export class ConfigValidator {
         errors.push({ path, message: `Length must be <= ${schema.maxLength}`, value });
       }
       if (schema.pattern) {
-        const regex = new RegExp(schema.pattern);
-        if (!regex.test(value)) {
-          errors.push({ path, message: `Value must match pattern: ${schema.pattern}`, value });
+        try {
+          const regex = createSafeRegex(schema.pattern, "u");
+          if (!regex.test(value)) {
+            errors.push({ path, message: `Value must match pattern: ${schema.pattern}`, value });
+          }
+        } catch (err) {
+          errors.push({ path, message: `Invalid pattern: ${schema.pattern} (${err?.message || String(err)})`, value });
         }
       }
     }

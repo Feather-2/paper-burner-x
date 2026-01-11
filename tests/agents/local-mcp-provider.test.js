@@ -720,6 +720,32 @@ test("LocalMcpProvider: proxy fetch schedules timeout using provided timeoutMs",
   assert.deepEqual(cleared, [123]);
 });
 
+test("LocalMcpProvider: proxy fetch enforces maxBodyBytes (best-effort)", async () => {
+  const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
+
+  const fetchMock = createFetchMock();
+  fetchMock.when((url) => url.startsWith("https://p1/?"), async () => {
+    return new Response(longHtml("<title>ok</title>"), {
+      status: 200,
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
+  });
+
+  const provider = new LocalMcpProvider({
+    corsProxies: ["https://p1/?"],
+    fetchImpl: fetchMock,
+  });
+
+  await assert.rejects(
+    () => provider._fetchWithCorsFallback("https://target.example/huge", { tryDirect: false, maxBodyBytes: 50 }),
+    (err) => {
+      assert.ok(err instanceof AggregateError);
+      assert.ok(err.errors?.some((e) => String(e?.message || "").includes("Response body exceeds limit")));
+      return true;
+    }
+  );
+});
+
 test("validateFetchUrl: blocks IPv4-mapped IPv6 private hosts by default", async () => {
   const { validateFetchUrl } = await import("../../js/agents/mcp/http-proxy.js");
 

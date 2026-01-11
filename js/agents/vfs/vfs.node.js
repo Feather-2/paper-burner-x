@@ -79,6 +79,19 @@ export class NodeFsVfs {
     return entries;
   }
 
+  /**
+   * Legacy compatibility helper used by some runtimes.
+   * @param {string} path
+   * @returns {Promise<Array<{ name: string, kind: "file" | "dir" }>>}
+   */
+  async list(path) {
+    const entries = await this.readdir(path, { withFileTypes: true });
+    if (!Array.isArray(entries)) return [];
+    return entries
+      .filter((e) => e && typeof e === "object" && typeof e.name === "string")
+      .map((e) => ({ name: e.name, kind: e.isDirectory?.() ? "dir" : "file" }));
+  }
+
   async listFiles({ prefix = "", recursive = true } = {}) {
     const root = joinFsPath(this._rootPath, prefix);
     const fs = await this._fs();

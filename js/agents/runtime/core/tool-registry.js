@@ -6,6 +6,8 @@
  * - 工具调用（含 Hook 集成）
  */
 
+import { createPreToolUseHook } from "../hooks/hook-runner.js";
+
 /**
  * @typedef {Record<string, any>} AnyRecord
  *
@@ -191,6 +193,10 @@ export class ToolRegistry {
         this._hooks.after = [...options.hooks.after];
       }
     }
+
+    // Claude/Codex-style PreToolUse hooks (registered on EventBus) as a built-in before-hook.
+    // No-op unless the provided context includes an enhanced EventBus with registered hooks.
+    this._hooks.before.unshift(createPreToolUseHook());
   }
 
   /** @param {ToolDefinitions | null | undefined} tools */

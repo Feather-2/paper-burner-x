@@ -566,6 +566,16 @@ describe('KernelBuilder', () => {
 
     expect(kernel.id).toBe('builder-kernel');
   });
+
+  it('should apply config for string plugins', async () => {
+    kernel = await KernelBuilder.create()
+      .withPreset('minimal')
+      .withPlugin('resilience/retry', { maxRetries: 7 })
+      .build();
+
+    const plugin = kernel._getPlugin('resilience/retry');
+    expect(plugin?._config).toMatchObject({ maxRetries: 7 });
+  });
 });
 
 describe('Plugin system (core/plugin.js)', () => {

@@ -1,208 +1,207 @@
 /**
- * MicroKernel (legacy compatibility)
+ * MicroKernel (legacy-compatible)
  *
- * Runtime 2.x moved to `js/agents/core/kernel.js`, but some consumers/tests still
- * import the old MicroKernel entrypoint. This module provides a small, stable
- * subset of the historical API.
+ * This is a small compatibility layer used by older runtime code/tests.
+ * The main system uses `core/Kernel`, but some unit tests still expect the
+ * historical MicroKernel surface.
  */
 
 import { EventBus } from "../../core/event-bus.js";
+import { ServiceId } from "../di/defaults.js";
+import { enhanceEventBusWithHooks } from "../hooks/event-bus-hooks.js";
 
-function isPlainObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
+function toFiniteTimeoutMs(value, fallback) {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  return Math.floor(n);
 }
 
 export class MicroKernel {
   /**
    * @param {{ scheduler?: any, providers?: any[] }} [options]
    */
-  constructor({ scheduler = null, providers = [] } = {}) {
-    this.eventBus = new EventBus();
-    this.scheduler = scheduler;
-    this.providers = Array.isArray(providers) ? providers : [];
+  constructor(options = {}) {
+    const base = options && typeof options === "object" ? options : {};
 
-    /** @type {Map<string, unknown>} */
-    this._services = new Map();
-    /** @type {Map<string, Function>} */
-    this._factories = new Map();
-    /** @type {Map<string, Set<Function>>} */
-    this._handlers = new Map();
+    /** @type {EventBus} */
+    this.eventBus = new EventBus({ runId: base.runId || null });
+    enhanceEventBusWithHooks(this.eventBus);
 
+    /** @type {any} */
+    this.scheduler = base.scheduler || null;
+
+    /** @type {any[]} */
+    this.providers = Array.isArray(base.providers) ? base.providers : [];
+
+    /** @type {boolean} */
     this._started = false;
 
-    // Built-in services.
+    /** @type {Map<string, any>} */
+    this._instances = new Map();
+
+    /** @type {Map<string, () => any>} */
+    this._factories = new Map();
+
+    /**
+     * eventType -> Map(handler -> wrapper)
+     * (wrapper is used to bridge core EventBus event records -> raw payload)
+     * @type {Map<string, Map<Function, Function>>}
+     */
+    this._handlerWrappers = new Map();
+
+    // Built-in services
+    this.register(ServiceId.KERNEL, this);
     this.register("kernel", this);
-    this.register("eventBus", this.eventBus);
+    this.register(ServiceId.EVENT_BUS, this.eventBus);
   }
 
   /**
-   * Register a service factory or value.
+   * Register a service (singleton).
+   * If a factory is provided, it will run on first getService().
+   *
    * @param {string} id
-   * @param {unknown} factoryOrValue
+   * @param {any} factoryOrValue
    * @returns {this}
    */
   register(id, factoryOrValue) {
-    if (typeof id !== "string" || !id) {
-      throw new TypeError("MicroKernel.register: id must be a non-empty string");
-    }
+    const key = String(id || "");
+    if (!key) throw new TypeError("MicroKernel.register(id): id is required");
 
     if (typeof factoryOrValue === "function") {
-      this._factories.set(id, factoryOrValue);
-      this._services.delete(id);
+      this._factories.set(key, factoryOrValue);
+      this._instances.delete(key);
       return this;
     }
 
-    this._factories.delete(id);
-    this._services.set(id, factoryOrValue);
+    this._instances.set(key, factoryOrValue);
+    this._factories.delete(key);
     return this;
   }
 
   /**
-   * Resolve a service by id (singleton).
+   * Resolve a service synchronously.
    * @param {string} id
    * @returns {any|null}
    */
   getService(id) {
     const key = String(id || "");
-    if (this._services.has(key)) return this._services.get(key);
+    if (!key) return null;
+
+    if (this._instances.has(key)) return this._instances.get(key);
 
     const factory = this._factories.get(key);
     if (!factory) return null;
 
-    const instance = factory();
-    this._services.set(key, instance);
-    return instance;
+    const value = factory(this);
+    this._factories.delete(key);
+    this._instances.set(key, value);
+    return value;
   }
 
   /**
-   * Subscribe to an event (payload-first).
-   * @param {string} type
-   * @param {(payload: any) => any} handler
-   * @returns {() => void}
-   */
-  on(type, handler) {
-    const eventType = String(type || "");
-    if (typeof handler !== "function") {
-      throw new TypeError("MicroKernel.on: handler must be a function");
-    }
-
-    let set = this._handlers.get(eventType);
-    if (!set) {
-      set = new Set();
-      this._handlers.set(eventType, set);
-    }
-    set.add(handler);
-
-    return () => {
-      set.delete(handler);
-      if (set.size === 0) this._handlers.delete(eventType);
-    };
-  }
-
-  /**
-   * Emit an event (payload-first).
+   * Emit an event with a raw payload.
    * @param {string} type
    * @param {any} payload
    * @returns {void}
    */
   emit(type, payload) {
-    const eventType = String(type || "");
-    const handlers = this._handlers.get(eventType);
-    if (handlers && handlers.size > 0) {
-      for (const fn of Array.from(handlers)) {
-        fn(payload);
-      }
-    }
-
-    // Best-effort: also mirror to the structured EventBus.
-    try {
-      this.eventBus.emit(eventType, payload);
-    } catch {
-      // ignore
-    }
+    this.eventBus.emit(String(type || ""), payload);
   }
 
   /**
-   * Request/response helper: resolves with the first non-undefined handler result.
-   * Times out if no handler responds.
+   * Subscribe to events; handler receives the raw payload.
+   * @param {string} type
+   * @param {(payload: any) => any} handler
+   * @returns {() => void}
+   */
+  on(type, handler) {
+    const name = String(type || "");
+    if (!name) throw new TypeError("MicroKernel.on(type): type is required");
+    if (typeof handler !== "function") throw new TypeError("MicroKernel.on(type): handler must be a function");
+
+    let map = this._handlerWrappers.get(name);
+    if (!map) {
+      map = new Map();
+      this._handlerWrappers.set(name, map);
+    }
+
+    const wrapper = (evt) => handler(evt?.payload);
+    map.set(handler, wrapper);
+
+    const offCore = this.eventBus.on(name, wrapper);
+    return () => {
+      offCore?.();
+      map.delete(handler);
+      if (map.size === 0) this._handlerWrappers.delete(name);
+    };
+  }
+
+  /**
+   * Request/response helper that invokes the first registered handler.
    * @param {string} type
    * @param {any} payload
-   * @param {{ timeoutMs?: number }} [options]
+   * @param {{ timeoutMs?: number, timeout?: number }} [options]
    * @returns {Promise<any>}
    */
-  request(type, payload, { timeoutMs = 5_000 } = {}) {
-    const eventType = String(type || "");
-    const timeout = typeof timeoutMs === "number" && Number.isFinite(timeoutMs) ? timeoutMs : 5_000;
+  async request(type, payload, options = {}) {
+    const name = String(type || "");
+    if (!name) throw new TypeError("MicroKernel.request(type): type is required");
 
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      const timer = globalThis.setTimeout(() => {
-        settled = true;
-        reject(new Error(`Request timeout: ${eventType}`));
-      }, timeout);
+    const timeoutMs = toFiniteTimeoutMs(options?.timeoutMs ?? options?.timeout, 30_000);
+    const handlers = this._handlerWrappers.get(name);
+    const handler = handlers ? handlers.keys().next().value : null;
 
-      const handlers = this._handlers.get(eventType);
-      const list = handlers ? Array.from(handlers) : [];
+    if (typeof handler !== "function") {
+      await new Promise((resolve) => setTimeout(resolve, timeoutMs));
+      throw new Error(`Request timeout: ${name}`);
+    }
 
-      Promise.resolve()
-        .then(async () => {
-          for (const fn of list) {
-            const res = await fn(payload);
-            if (res !== undefined) return res;
-          }
-          return undefined;
-        })
-        .then(
-          (res) => {
-            if (settled) return;
-            if (res === undefined) return; // wait for timeout
-            settled = true;
-            globalThis.clearTimeout(timer);
-            resolve(res);
-          },
-          (err) => {
-            if (settled) return;
-            settled = true;
-            globalThis.clearTimeout(timer);
-            reject(err);
-          }
-        );
-    });
+    let timer = null;
+    const timeoutPromise =
+      timeoutMs > 0
+        ? new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error(`Request timeout: ${name}`)), timeoutMs);
+          })
+        : null;
+
+    try {
+      const resultPromise = Promise.resolve().then(() => handler(payload));
+      return timeoutPromise ? await Promise.race([resultPromise, timeoutPromise]) : await resultPromise;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   /**
-   * Task scheduling helper.
-   * - Functions execute directly.
-   * - DispatchTask objects delegate to scheduler.dispatch(runtimeType, code, inputState, options).
-   * @param {Function | { runtimeType?: string, type?: string, code?: string, inputState?: any, options?: any }} task
+   * Schedule either a function or a dispatch task.
+   * @param {(() => any) | { runtimeType?: string, type?: string, code: string, inputState?: any, options?: any }} task
    * @param {number} [priority]
    * @returns {Promise<any>}
    */
   async schedule(task, priority) {
     if (typeof task === "function") {
-      return await Promise.resolve().then(() => task());
+      return await task();
     }
 
-    if (!isPlainObject(task)) {
-      throw new TypeError("MicroKernel.schedule: task must be a function or an object");
+    if (!task || typeof task !== "object") {
+      throw new TypeError("MicroKernel.schedule(task): task must be a function or dispatch object");
     }
 
     if (!this.scheduler || typeof this.scheduler.dispatch !== "function") {
-      throw new Error("MicroKernel.schedule: scheduler.dispatch is required for dispatch tasks");
+      throw new Error("Scheduler not available");
     }
 
-    const runtimeType = String(task.runtimeType || task.type || "js");
+    const runtimeType = String(task.runtimeType || task.type || "");
     const code = String(task.code || "");
-    const inputState = isPlainObject(task.inputState) ? task.inputState : task.inputState ?? {};
-    const options = isPlainObject(task.options) ? task.options : {};
+    const inputState = task.inputState && typeof task.inputState === "object" ? task.inputState : {};
+    const options = task.options && typeof task.options === "object" ? task.options : {};
 
-    return await this.scheduler.dispatch(runtimeType, code, inputState, { ...options, priority });
+    return await this.scheduler.dispatch(runtimeType, code, inputState, {
+      ...options,
+      priority: typeof priority === "number" && Number.isFinite(priority) ? priority : options.priority,
+    });
   }
 
-  /**
-   * Start providers (idempotent).
-   * @returns {Promise<void>}
-   */
   async start() {
     if (this._started) return;
     this._started = true;
@@ -215,22 +214,18 @@ export class MicroKernel {
 
     for (const provider of this.providers) {
       if (provider && typeof provider.start === "function") {
-        await provider.start();
+        await provider.start(this);
       }
     }
   }
 
-  /**
-   * Stop providers (best-effort, idempotent).
-   * @returns {Promise<void>}
-   */
   async stop() {
     if (!this._started) return;
     this._started = false;
 
     for (const provider of this.providers) {
       if (provider && typeof provider.stop === "function") {
-        await provider.stop();
+        await provider.stop(this);
       }
     }
   }

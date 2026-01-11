@@ -203,7 +203,7 @@ export class KernelBuilder {
       config: Object.fromEntries(
         this._plugins
           .filter(p => Object.keys(p.config).length > 0)
-          .map(p => [typeof p.plugin === 'string' ? p : p.plugin.name, p.config])
+          .map(p => [typeof p.plugin === 'string' ? p.plugin : p.plugin.name, p.config])
       ),
     });
 

@@ -73,6 +73,7 @@ export {
   // Orchestrator
   AgentOrchestrator,
   SchedulingMode,
+  TaskGraph,
 
   // Events
   EventBus as RuntimeEventBus,
@@ -98,6 +99,14 @@ export {
   Container,
   createContainer,
   ServiceId,
+
+  // Hooks / Safety
+  HookRegistry,
+  HookType,
+  enhanceEventBusWithHooks,
+  createPreToolUseHook,
+  classifyCommand,
+  parseCompoundCommand,
 } from './runtime/index.js';
 
 // ============================================================

@@ -15,6 +15,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { toNonEmptyString } from "../shared/utils/value-utils.js";
 import { estimateTokensCached } from "../shared/utils/token-cache.js";
+import { executeWithOverflowRecovery } from "../llm/overflow-recovery.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONFIG_FILE = join(__dirname, "config.json");
@@ -96,30 +97,104 @@ function estimateMessageTokens(message) {
 }
 
 function estimateMessagesTokens(messages) {
-    if (!Array.isArray(messages)) return 0;
-    let total = 0;
-    for (const m of messages) total += estimateMessageTokens(m);
-    return total;
+  if (!Array.isArray(messages)) return 0;
+  let total = 0;
+  for (const m of messages) total += estimateMessageTokens(m);
+  return total;
+}
+
+function extractToolCallIds(message) {
+  const m = message && typeof message === "object" ? message : null;
+  const toolCalls = Array.isArray(m?.tool_calls) ? m.tool_calls : Array.isArray(m?.toolCalls) ? m.toolCalls : null;
+  if (!toolCalls) return [];
+  const ids = [];
+  for (const tc of toolCalls) {
+    const id = typeof tc?.id === "string" ? tc.id : "";
+    if (id) ids.push(id);
+  }
+  return ids;
+}
+
+function extractToolMessageCallId(message) {
+  const m = message && typeof message === "object" ? message : null;
+  const id =
+    (typeof m?.tool_call_id === "string" ? m.tool_call_id : "") ||
+    (typeof m?.toolCallId === "string" ? m.toolCallId : "") ||
+    (typeof m?.call_id === "string" ? m.call_id : "") ||
+    (typeof m?.callId === "string" ? m.callId : "");
+  return id || "";
+}
+
+function isToolRole(message) {
+  const role = message && typeof message === "object" ? message.role : null;
+  return role === "tool" || role === "function";
+}
+
+function isToolCallAssistantMessage(message) {
+  const m = message && typeof message === "object" ? message : null;
+  if (!m) return false;
+  if (m.role !== "assistant") return false;
+  if (Array.isArray(m.tool_calls) || Array.isArray(m.toolCalls)) return true;
+  if (m.function_call && typeof m.function_call === "object") return true;
+  if (m.functionCall && typeof m.functionCall === "object") return true;
+  return false;
 }
 
 function truncateMessagesToBudget(messages, { maxInputTokens } = {}) {
-    if (!Array.isArray(messages)) return [];
-    const budget = typeof maxInputTokens === "number" && Number.isFinite(maxInputTokens) ? Math.max(0, Math.floor(maxInputTokens)) : 0;
-    if (!budget) return messages;
+  if (!Array.isArray(messages)) return [];
+  const budget = typeof maxInputTokens === "number" && Number.isFinite(maxInputTokens) ? Math.max(0, Math.floor(maxInputTokens)) : 0;
+  if (!budget) return messages;
 
-    const system = [];
-    const rest = [];
-    for (const m of messages) {
-        if (m && typeof m === "object" && m.role === "system") system.push(m);
-        else rest.push(m);
+  const system = [];
+  const rest = [];
+  for (const m of messages) {
+    if (m && typeof m === "object" && m.role === "system") system.push(m);
+    else rest.push(m);
+  }
+
+  let startIndex = 0;
+  while (startIndex < rest.length && estimateMessagesTokens([...system, ...rest.slice(startIndex)]) > budget) {
+    const current = rest[startIndex];
+
+    // If dropping an assistant tool-call message, also drop the contiguous tool outputs that follow it.
+    if (isToolCallAssistantMessage(current)) {
+      startIndex += 1;
+      while (startIndex < rest.length && isToolRole(rest[startIndex])) {
+        startIndex += 1;
+      }
+      continue;
     }
 
-    let kept = rest.slice();
-    while (kept.length > 0 && estimateMessagesTokens([...system, ...kept]) > budget) {
-        kept = kept.slice(1);
+    // Never keep a conversation that starts with tool output only.
+    if (isToolRole(current)) {
+      while (startIndex < rest.length && isToolRole(rest[startIndex])) {
+        startIndex += 1;
+      }
+      continue;
     }
 
-    return [...system, ...kept];
+    startIndex += 1;
+  }
+
+  let kept = rest.slice(startIndex);
+
+  // Extra cleanup: avoid orphaned tool outputs if tool_call_id references are present.
+  const referenced = new Set();
+  for (const msg of kept) {
+    for (const id of extractToolCallIds(msg)) referenced.add(id);
+  }
+  if (referenced.size) {
+    kept = kept.filter((msg) => {
+      if (!isToolRole(msg)) return true;
+      const id = extractToolMessageCallId(msg);
+      return !id || referenced.has(id);
+    });
+  }
+
+  // Ensure we never start with a tool message (best-effort).
+  while (kept.length && isToolRole(kept[0])) kept = kept.slice(1);
+
+  return [...system, ...kept];
 }
 
 async function buildHttpError(response, { url, maxChars = 1500 } = {}) {
@@ -281,57 +356,75 @@ export class CliModelClient {
      */
     async chat(options) {
         const { messages, temperature = 0.7, maxTokens, signal, timeoutMs } = options || {};
-        const resolvedMaxTokens = typeof maxTokens === "number" ? maxTokens : (this.maxOutputTokens || 4096);
+        const initialMaxTokens = typeof maxTokens === "number" ? maxTokens : (this.maxOutputTokens || 4096);
 
         if (!this.apiKey) {
             throw new Error("API Key 未设置");
         }
 
-        // Best-effort input truncation to avoid context overflow.
-        let finalMessages = messages;
-        const windowTokens = typeof this.contextWindow === "number" && this.contextWindow > 0 ? this.contextWindow : null;
-        if (windowTokens && Array.isArray(messages)) {
-            // Conservative safety buffer for tool/system overhead.
-            const safety = 512;
-            const budget = Math.max(0, windowTokens - resolvedMaxTokens - safety);
-            if (budget > 0) {
-                finalMessages = truncateMessagesToBudget(messages, { maxInputTokens: budget });
-            }
-        }
-
         const url = `${this.baseUrl}/chat/completions`;
-        const body = {
-            model: this.model,
-            messages: finalMessages,
-            temperature,
-            max_tokens: resolvedMaxTokens,
-        };
+        let safetyBuffer = 512;
+        let effectiveContextWindow = typeof this.contextWindow === "number" && this.contextWindow > 0 ? this.contextWindow : null;
 
-        const response = await fetchWithTimeout(
-            url,
-            {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${this.apiKey}`,
+        const doRequest = async (maxOutTokens) => {
+            // Best-effort input truncation to avoid context overflow.
+            let finalMessages = messages;
+            const windowTokens = effectiveContextWindow;
+            if (windowTokens && Array.isArray(messages)) {
+                const budget = Math.max(0, windowTokens - maxOutTokens - safetyBuffer);
+                if (budget > 0) {
+                    finalMessages = truncateMessagesToBudget(messages, { maxInputTokens: budget });
+                }
+            }
+
+            const body = {
+                model: this.model,
+                messages: finalMessages,
+                temperature,
+                max_tokens: maxOutTokens,
+            };
+
+            const response = await fetchWithTimeout(
+                url,
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${this.apiKey}`,
+                    },
+                    body: JSON.stringify(body),
                 },
-                body: JSON.stringify(body),
-            },
-            { timeoutMs: toTimeoutMs(timeoutMs ?? this.timeoutMs, 60_000), signal }
-        );
+                { timeoutMs: toTimeoutMs(timeoutMs ?? this.timeoutMs, 60_000), signal }
+            );
 
-        if (!response.ok) {
-            throw await buildHttpError(response, { url });
-        }
+            if (!response.ok) {
+                throw await buildHttpError(response, { url });
+            }
 
-        const data = await response.json();
-        const choice = data.choices?.[0];
+            const data = await response.json();
+            const choice = data.choices?.[0];
 
-        return {
-            content: choice?.message?.content || "",
-            model: data.model,
-            usage: data.usage,
+            return {
+                content: choice?.message?.content || "",
+                model: data.model,
+                usage: data.usage,
+            };
         };
+
+        return await executeWithOverflowRecovery(doRequest, {
+            initialMaxTokens: initialMaxTokens,
+            minTokens: 256,
+            bufferTokens: 128,
+            maxRetries: 2,
+            onOverflow: async ({ info }) => {
+                // If the API reports the true context limit, adopt it for subsequent retries.
+                if (!effectiveContextWindow && typeof info?.contextLimit === "number" && info.contextLimit > 0) {
+                    effectiveContextWindow = Math.floor(info.contextLimit);
+                }
+                // Increase truncation conservatism after an overflow.
+                safetyBuffer = Math.max(safetyBuffer, 1024);
+            },
+        });
     }
 
     /**

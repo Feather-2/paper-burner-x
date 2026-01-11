@@ -353,6 +353,7 @@ export class RuntimeScheduler {
    * @param {Object} options 额外选项
    * @param {number} [options.priority=TaskPriority.NORMAL] - 任务优先级
    * @param {AbortSignal} [options.signal]
+   * @param {boolean} [options.trusted] - Whether this code is trusted to use unsafe fallbacks
    * @param {Object} [options.dependencies]
    */
   async dispatch(type, code, inputState, options = {}) {
@@ -416,7 +417,8 @@ export class RuntimeScheduler {
       vfs: this.vfs,
       state: inputState,
       emit: (name, payload) => this.eventBus?.emit(name, payload),
-      signal: options.signal
+      signal: options.signal,
+      trusted: options.trusted === true,
     };
 
     const startTime = this._time.now();

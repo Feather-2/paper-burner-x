@@ -329,11 +329,17 @@ export class DependencyManager {
         try {
           const stat = await this.vfs.stat(fullPath);
           totalSize += stat.size || 0;
+          const mtimeMs =
+            typeof stat.mtimeMs === "number" && Number.isFinite(stat.mtimeMs)
+              ? stat.mtimeMs
+              : typeof stat.mtime === "number" && Number.isFinite(stat.mtime)
+                ? stat.mtime
+                : 0;
           files.push({
             name: e.name,
             path: fullPath,
             size: stat.size || 0,
-            mtime: stat.mtime || 0,
+            mtimeMs,
           });
         } catch {
           // 忽略无法 stat 的文件
@@ -343,7 +349,7 @@ export class DependencyManager {
       if (totalSize <= maxBytes) return;
 
       // LRU: 按 mtime 排序，删除最旧的
-      files.sort((a, b) => a.mtime - b.mtime);
+      files.sort((a, b) => a.mtimeMs - b.mtimeMs);
 
       while (totalSize > maxBytes && files.length > 0) {
         const oldest = files.shift();
