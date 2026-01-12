@@ -319,7 +319,7 @@ async function generateBatchWithLLM(batchSlots, designSystem, slideHtmlMap, opti
     { role: "user", content: prompt },
   ];
 
-  console.log("[svg-generator] generateBatchWithLLM started", { slotIds, promptLength: prompt.length });
+  logger.debug("generateBatchWithLLM started", { slotIds, promptLength: prompt.length });
 
   // Retry up to 2 times based on classification
   let lastErr = null;
@@ -328,13 +328,13 @@ async function generateBatchWithLLM(batchSlots, designSystem, slideHtmlMap, opti
     if (signal?.aborted) break;
 
     try {
-      console.log("[svg-generator] LLM call attempt", { attempt: attempt + 1, slotIds });
+      logger.debug("LLM call attempt", { attempt: attempt + 1, slotIds });
       const resp = await modelCaller(messages, { temperature: 0.5, maxTokens: 6000, signal, timeoutMs: 90_000 });
       const rawContent = resp?.content || "";
-      console.log("[svg-generator] LLM response received", { contentLength: rawContent.length, preview: rawContent.slice(0, 500) });
+      logger.debug("LLM response received", { contentLength: rawContent.length, preview: rawContent.slice(0, 500) });
 
       const parsed = extractJsonFromResponse(rawContent);
-      console.log("[svg-generator] JSON parse result", {
+      logger.debug("JSON parse result", {
         isArray: Array.isArray(parsed),
         itemCount: Array.isArray(parsed) ? parsed.length : 0,
         parseResult: parsed === null ? "null" : typeof parsed,
@@ -350,7 +350,7 @@ async function generateBatchWithLLM(batchSlots, designSystem, slideHtmlMap, opti
         const svgContent = toNonEmptyString(item?.svg) || extractSvgFromText(item?.svg);
         if (slotId && svgContent) {
           resultById.set(slotId, svgContent);
-          console.log("[svg-generator] SVG extracted", { slotId, svgLength: svgContent.length });
+          logger.debug("SVG extracted", { slotId, svgLength: svgContent.length });
         } else {
           logger.warn("[svg-generator] Failed to extract SVG", {
             slotId,
@@ -360,7 +360,7 @@ async function generateBatchWithLLM(batchSlots, designSystem, slideHtmlMap, opti
         }
       }
 
-      console.log("[svg-generator] Batch complete", { requested: slotIds, extracted: [...resultById.keys()] });
+      logger.debug("Batch complete", { requested: slotIds, extracted: [...resultById.keys()] });
 
       const results = batchSlots.map((slot) => {
         const slotId = toNonEmptyString(slot?.slotId);
