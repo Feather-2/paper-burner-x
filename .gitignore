@@ -35,7 +35,6 @@ Thumbs.db
 .vscode/
 
 # 开发资料（不提交到仓库）
-docs/
 ref/
 demo/
 data/
@@ -53,3 +52,6 @@ js/ppt/editor/vtracer-master
 js/ppt/editor/visioncortex-master
 /.claude
 /server
+docs/ai4sci.txt
+/.skills
+/docs
