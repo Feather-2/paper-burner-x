@@ -1,7 +1,5 @@
 /**
  * Skill Tool - 让模型主动调用 Skills
- *
- * 参考 agentsdk-go 的 SkillTool 设计
  */
 
 import { loadSkills, loadSkillFromPath } from "../../../../skills/loader.js";

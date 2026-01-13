@@ -9,6 +9,22 @@
  * - next: 调用下一个中间件
  */
 
+// ===== Stage 常量 (Agent 生命周期阶段) =====
+
+/**
+ * Agent 生命周期阶段常量
+ */
+export const Stage = Object.freeze({
+  BEFORE_AGENT: "beforeAgent",
+  BEFORE_MODEL: "beforeModel",
+  AFTER_MODEL: "afterModel",
+  BEFORE_TOOL: "beforeTool",
+  AFTER_TOOL: "afterTool",
+  AFTER_AGENT: "afterAgent",
+});
+
+// ===== MiddlewareChain =====
+
 /**
  * 中间件链执行器
  */
@@ -400,6 +416,7 @@ export function createDefaultMiddlewareChain(options = {}) {
 }
 
 export default {
+  Stage,
   MiddlewareChain,
   createLoggingMiddleware,
   createTelemetryMiddleware,

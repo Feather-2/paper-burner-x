@@ -1,28 +1,86 @@
 # hooks - 钩子系统
 
-工具调用前后的拦截和处理。
+工具调用和 Agent 运行的拦截和处理。
 
 ## 核心文件
 
 | 文件 | 职责 |
 |------|------|
 | `index.js` | 入口，导出所有钩子 API |
-| `hook-registry.js` | HookRegistry - 钩子注册表 |
-| `pre-tool-hook.js` | Pre-Tool 钩子 |
-| `post-tool-hook.js` | Post-Tool 钩子 |
+| `hook-registry.js` | HookRegistry - 钩子注册表，HookType/HookEvent 常量 |
+| `hook-runner.js` | Tool/Agent 级别钩子执行器 |
+| `event-bus-hooks.js` | EventBus 钩子增强 |
+| `middleware-chain.js` | **已废弃** - 重导出 `../middleware/middleware-chain.js` |
 
-## 钩子类型
+## 钩子事件 (HookEvent)
+
+```javascript
+const HookEvent = {
+  // Agent 级别 - 每次 execute() 只执行一次
+  PRE_AGENT: 'PreAgent',   // 请求入口：鉴权、限流、审计初始化
+  POST_AGENT: 'PostAgent', // 请求结束：用量上报、持久化、清理
+
+  // LLM 级别 - 每次 LLM 调用
+  PRE_LLM_CALL: 'PreLLMCall',
+  POST_LLM_CALL: 'PostLLMCall',
+
+  // Tool 级别 - 每次工具调用
+  PRE_TOOL_USE: 'PreToolUse',
+  POST_TOOL_USE: 'PostToolUse',
+};
+```
+
+## 钩子实现类型 (HookType)
 
 ```javascript
 const HookType = {
-  PRE_TOOL_USE: 'pre_tool_use',
-  POST_TOOL_USE: 'post_tool_use',
-  PRE_LLM_CALL: 'pre_llm_call',
-  POST_LLM_CALL: 'post_llm_call',
+  COMMAND: 'command',  // 命令分类器/自定义函数
+  PROMPT: 'prompt',    // LLM 审批
+  AGENT: 'agent',      // Subagent 审批
 };
 ```
 
 ## 使用示例
+
+### Agent 级别钩子
+
+```javascript
+import {
+  enhanceEventBusWithHooks,
+  HookEvent,
+} from 'js/agents/runtime/hooks';
+
+// 增强 EventBus
+const eventBus = enhanceEventBusWithHooks(rawEventBus);
+
+// 注册 PreAgent 钩子 - 速率限制
+eventBus.registerHook('PreAgent', {
+  type: 'command',
+  handler: async (ctx) => {
+    const allowed = await checkRateLimit(ctx.sessionId);
+    if (!allowed) {
+      return { skip: true, reason: 'Rate limit exceeded' };
+    }
+    return null; // 允许继续
+  },
+});
+
+// 注册 PostAgent 钩子 - 用量上报
+eventBus.registerHook('PostAgent', {
+  type: 'command',
+  blocking: false,
+  handler: async (ctx) => {
+    await reportUsage({
+      sessionId: ctx.sessionId,
+      runId: ctx.runId,
+      duration: ctx.duration,
+      error: ctx.error?.message,
+    });
+  },
+});
+```
+
+### Tool 级别钩子
 
 ```javascript
 import { HookRegistry, HookType, createPreToolUseHook } from 'js/agents/runtime/hooks';
@@ -30,20 +88,41 @@ import { HookRegistry, HookType, createPreToolUseHook } from 'js/agents/runtime/
 const registry = new HookRegistry();
 
 // 注册 Pre-Tool 钩子
-registry.register(HookType.PRE_TOOL_USE, createPreToolUseHook((toolName, args) => {
-  if (toolName === 'bash') {
-    const classification = classifyCommand(args.command);
-    if (classification.risk === 'high') {
-      return { allow: false, reason: 'High risk command blocked' };
-    }
-  }
-  return { allow: true };
-}));
-
-// 注册 Post-Tool 钩子
-registry.register(HookType.POST_TOOL_USE, (toolName, args, result) => {
-  trackToolCall(toolName, args, result);
+registry.register('PreToolUse', {
+  type: HookType.COMMAND,
+  tools: ['bash', 'exec*'],  // 支持通配符
+  blocking: true,
 });
+```
+
+## 执行流程
+
+```
+用户请求
+    ↓
+┌─────────────────────────────────────────┐
+│ [PreAgent] ← 请求入口，只执行 1 次       │
+│    ↓                                     │
+│    ┌─────────────────────────────────┐  │
+│    │ Agent Loop (可能循环多次)         │  │
+│    │    ↓                             │  │
+│    │ [PreLLMCall]                     │  │
+│    │    ↓                             │  │
+│    │  Model.call()                    │  │
+│    │    ↓                             │  │
+│    │ [PostLLMCall]                    │  │
+│    │    ↓                             │  │
+│    │ [PreToolUse]                     │  │
+│    │    ↓                             │  │
+│    │  Tool.execute()                  │  │
+│    │    ↓                             │  │
+│    │ [PostToolUse]                    │  │
+│    └─────────────────────────────────┘  │
+│    ↓                                     │
+│ [PostAgent] ← 请求结束，只执行 1 次      │
+└─────────────────────────────────────────┘
+    ↓
+用户响应
 ```
 
 ## 与 EventBus 集成
@@ -51,5 +130,26 @@ registry.register(HookType.POST_TOOL_USE, (toolName, args, result) => {
 ```javascript
 import { enhanceEventBusWithHooks } from 'js/agents/runtime/hooks';
 
-const enhancedBus = enhanceEventBusWithHooks(eventBus, hookRegistry);
+const enhancedBus = enhanceEventBusWithHooks(eventBus);
+
+// 现在可以使用 eventBus.registerHook()
+enhancedBus.registerHook('PreAgent', {
+  type: 'command',
+  handler: async (ctx) => { ... }
+});
 ```
+
+## MiddlewareChain
+
+> **注意**: MiddlewareChain 已统一到 `runtime/middleware/middleware-chain.js`，此处保留向后兼容导出。
+
+```javascript
+// 推荐：直接从 middleware/ 导入
+import { MiddlewareChain, Stage } from 'js/agents/runtime/middleware/middleware-chain.js';
+
+// 向后兼容：从 hooks/ 导入仍可用
+import { MiddlewareChain, Stage } from 'js/agents/runtime/hooks';
+```
+
+详细文档见 `runtime/middleware/CLAUDE.md`。
+

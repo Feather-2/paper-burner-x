@@ -3,8 +3,6 @@
  *
  * 每个插件导出声明式的 Metadata（名称、版本、Schema、所需权限），
  * 支持 UI 层的快速发现与权限预审。
- *
- * 参考 agentsdk-go 的 plugin.json 设计。
  */
 
 /**

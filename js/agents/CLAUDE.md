@@ -63,7 +63,8 @@ const agent = await createAgent({ model: 'gpt-4o', skills: ['search'] });
 - `compression/CLAUDE.md` - 上下文压缩
 - `telemetry/CLAUDE.md` - 遥测追踪
 - `memory/CLAUDE.md` - 记忆系统
-- `hooks/CLAUDE.md` - 钩子系统
+- `hooks/CLAUDE.md` - 钩子系统 (HookRegistry)
+- `middleware/CLAUDE.md` - 中间件链 (MiddlewareChain + Stage)
 - `di/CLAUDE.md` - 依赖注入
 - `tools/CLAUDE.md` - 内置工具
 - `parallel/CLAUDE.md` - 并行任务
