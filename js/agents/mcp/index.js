@@ -14,14 +14,34 @@ import { McpNexusProvider } from "./mcp-nexus-provider.js";
 import { McpResourceManager } from "./resource-manager.js";
 import { createSseParser, consumeSse, consumeSseJson } from "./sse.js";
 
+// Transport Layer
+import { McpTransport, MCP_PROTOCOL_VERSION, MCP_SUPPORTED_VERSIONS, McpMethods } from "./mcp-transport.js";
+import { StdioMcpTransport, createStdioMcpTransport } from "./stdio-mcp-transport.js";
+import { StdioMcpProvider, createStdioMcpProvider } from "./stdio-mcp-provider.js";
+
 export {
+  // Core
   McpProvider,
   McpClient,
   McpToolDefinition,
   McpToolResult,
+
+  // Providers
   LocalMcpProvider,
   createLocalMcpProvider,
   McpNexusProvider,
+  StdioMcpProvider,
+  createStdioMcpProvider,
+
+  // Transport Layer
+  McpTransport,
+  StdioMcpTransport,
+  createStdioMcpTransport,
+  MCP_PROTOCOL_VERSION,
+  MCP_SUPPORTED_VERSIONS,
+  McpMethods,
+
+  // Utilities
   McpResourceManager,
   createSseParser,
   consumeSse,
@@ -48,6 +68,15 @@ export function createMcpClient(options = {}) {
         ...(options.nexusOptions && typeof options.nexusOptions === "object" ? options.nexusOptions : {}),
       })
     );
+  }
+
+  // 支持 stdio providers
+  if (Array.isArray(options.stdioProviders)) {
+    for (const config of options.stdioProviders) {
+      if (config && config.command) {
+        client.addProvider(new StdioMcpProvider(config));
+      }
+    }
   }
 
   return client;
