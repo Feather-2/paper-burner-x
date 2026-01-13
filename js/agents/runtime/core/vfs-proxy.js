@@ -259,7 +259,7 @@ export class VfsProxy {
     });
 
     const res = Atomics.wait(header, 0, 0, this.timeoutMs);
-    if (res !== 'ok') {
+    if (res === 'timed-out') {
       throw new Error(`VfsProxy: ${op} timed out for ${path}`);
     }
 

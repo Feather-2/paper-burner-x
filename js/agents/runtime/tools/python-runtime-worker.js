@@ -9,6 +9,7 @@
  */
 
 import { createLogger } from "../../shared/utils/logger.js";
+import { VfsProxyClient } from "../core/vfs-proxy-client.js";
 
 const logger = createLogger("runtime/tools/python-runtime-worker");
 
@@ -22,6 +23,41 @@ const PYODIDE_MJS_SRI = PYODIDE_MJS_SRI_BY_VERSION[PYODIDE_VERSION] || null;
 
 let loadPyodide = null;
 let pyodide = null;
+/** @type {VfsProxyClient | null} */
+let vfsProxy = null;
+let vfsProxyMounted = false;
+let vfsProxyMountError = null;
+
+function isSharedArrayBuffer(value) {
+  return typeof SharedArrayBuffer !== "undefined" && value instanceof SharedArrayBuffer;
+}
+
+function ensureDir(FS, path) {
+  try {
+    FS.mkdir(path);
+  } catch (err) {
+    // EEXIST is fine.
+  }
+}
+
+function ensureDirTree(FS, path) {
+  try {
+    FS.mkdirTree(path);
+  } catch (err) {
+    // Ignore.
+  }
+}
+
+function ensureSymlink(FS, target, linkPath) {
+  try {
+    // Ensure parent exists.
+    const parent = linkPath.split("/").slice(0, -1).join("/") || "/";
+    ensureDirTree(FS, parent);
+    FS.symlink(target, linkPath);
+  } catch (err) {
+    // EEXIST is fine (or link already present).
+  }
+}
 
 function decodeBase64ToBytes(b64) {
   const s = typeof b64 === "string" ? b64.trim() : "";
@@ -100,6 +136,356 @@ async function initPyodide(indexUrl) {
     stdout: (text) => self.postMessage({ type: 'stdout', text }),
     stderr: (text) => self.postMessage({ type: 'stderr', text }),
   });
+}
+
+function getErrnoCodes(pyodideInstance) {
+  const FS = pyodideInstance?.FS;
+  return FS?.ERRNO_CODES || pyodideInstance?._module?.ERRNO_CODES || pyodideInstance?.ERRNO_CODES || {};
+}
+
+function makeErrnoError(pyodideInstance, code) {
+  const FS = pyodideInstance?.FS;
+  const ErrnoError = FS?.ErrnoError;
+  const ERRNO_CODES = getErrnoCodes(pyodideInstance);
+  const FALLBACK_ERRNO = {
+    EPERM: 1,
+    ENOENT: 2,
+    EIO: 5,
+    EBADF: 9,
+    EACCES: 13,
+    EEXIST: 17,
+    ENOTDIR: 20,
+    EISDIR: 21,
+    EINVAL: 22,
+    ENOSYS: 38,
+    ENOTEMPTY: 39,
+  };
+  const errno =
+    typeof ERRNO_CODES?.[code] === "number"
+      ? ERRNO_CODES[code]
+      : typeof code === "number"
+        ? code
+        : typeof code === "string" && typeof FALLBACK_ERRNO[code] === "number"
+          ? FALLBACK_ERRNO[code]
+          : 1;
+  if (typeof ErrnoError === "function") return new ErrnoError(errno);
+  const err = new Error(code);
+  // @ts-ignore
+  err.errno = errno;
+  return err;
+}
+
+function isNotFoundError(err) {
+  const code = String(err?.code || "");
+  if (code === "ENOENT") return true;
+  const msg = String(err?.message || err || "");
+  return msg.includes("ENOENT") || msg.includes("NotFoundError");
+}
+
+function joinPath(base, name) {
+  const b = String(base || "");
+  const n = String(name || "");
+  if (!b || b === "/") return `/${n}`.replace(/\/+$/, "");
+  return b.endsWith("/") ? `${b}${n}` : `${b}/${n}`;
+}
+
+/**
+ * Mount a proxy filesystem at /vfs that forwards sync operations to the main-thread VFS.
+ *
+ * For "transparent" paths, we also create symlinks:
+ * - /mnt/workspace -> /vfs/mnt/workspace
+ * - /output        -> /vfs/output
+ * - /workspace     -> /vfs/workspace
+ *
+ * @param {object} options
+ * @param {string} [options.mountPoint='/vfs']
+ * @param {string[]} [options.aliases]
+ */
+function ensureVfsProxyMounted({ mountPoint = "/vfs", aliases = ["/mnt/workspace", "/output", "/workspace"] } = {}) {
+  if (!pyodide || vfsProxyMounted || vfsProxyMountError) return;
+  if (!vfsProxy) {
+    vfsProxyMountError = new Error("VfsProxyClient not initialized");
+    return;
+  }
+  if (!vfsProxy.supportsSync) {
+    vfsProxyMountError = new Error("SharedArrayBuffer+Atomics.wait not available; cannot mount PROXYFS");
+    logger.warn("[PythonWorker] VFS proxy sync unsupported; skipping mount");
+    return;
+  }
+
+  const FS = pyodide.FS;
+
+  const throwErr = (code) => {
+    throw makeErrnoError(pyodide, code);
+  };
+
+  const toHostPath = (nodePath) => {
+    const p = String(nodePath || "/");
+    if (p === mountPoint) return "/";
+    if (p.startsWith(`${mountPoint}/`)) {
+      const out = p.slice(mountPoint.length);
+      return out.startsWith("/") ? out : `/${out}`;
+    }
+    return p;
+  };
+
+  const modeDir = 0o040000 | 0o777;
+  const modeFile = 0o100000 | 0o666;
+
+  const PROXYFS = {
+    mount: (mount) => {
+      const node = PROXYFS.createNode(null, "/", modeDir, 0);
+      return node;
+    },
+
+    createNode: (parent, name, mode, dev) => {
+      if (!FS.isDir(mode) && !FS.isFile(mode)) {
+        throwErr("EINVAL");
+      }
+      const node = FS.createNode(parent, name, mode, dev);
+      node.node_ops = PROXYFS.node_ops;
+      node.stream_ops = PROXYFS.stream_ops;
+      // Simple cache for directory entries (best-effort).
+      node.contents = FS.isDir(mode) ? {} : null;
+      node.size = 0;
+      node.timestamp = Date.now();
+      return node;
+    },
+
+    node_ops: {
+      getattr: (node) => {
+        const hostPath = toHostPath(node.path);
+        let st;
+        try {
+          st = vfsProxy.statSync(hostPath);
+        } catch (err) {
+          if (isNotFoundError(err)) throwErr("ENOENT");
+          throwErr("EIO");
+        }
+        if (!st || st.exists === false) throwErr("ENOENT");
+
+        const isDir = !!st.isDirectory;
+        const isFile = !!st.isFile || !isDir;
+        const mode = isDir ? modeDir : modeFile;
+        node.mode = mode;
+        node.size = typeof st.size === "number" ? st.size : 0;
+        const ts = typeof st.mtimeMs === "number" ? st.mtimeMs : Date.now();
+        node.timestamp = ts;
+
+        const dt = new Date(ts);
+        return {
+          dev: 1,
+          ino: node.id,
+          mode: node.mode,
+          nlink: isDir ? 2 : 1,
+          uid: 0,
+          gid: 0,
+          rdev: 0,
+          size: node.size,
+          atime: dt,
+          mtime: dt,
+          ctime: dt,
+          blksize: 4096,
+          blocks: Math.ceil((node.size || 0) / 4096),
+        };
+      },
+
+      setattr: (node, attr) => {
+        if (!attr || typeof attr !== "object") return;
+        if (typeof attr.size === "number" && Number.isFinite(attr.size) && attr.size >= 0) {
+          const hostPath = toHostPath(node.path);
+          const newSize = Math.floor(attr.size);
+          let cur = new Uint8Array(0);
+          try {
+            cur = vfsProxy.readFileSync(hostPath, { sizeHint: node.size || 0 });
+          } catch (err) {
+            if (!isNotFoundError(err)) throwErr("EIO");
+          }
+          const next = new Uint8Array(newSize);
+          next.set(cur.subarray(0, Math.min(cur.length, next.length)));
+          vfsProxy.writeFileSync(hostPath, next);
+          node.size = next.length;
+        }
+      },
+
+      lookup: (parent, name) => {
+        if (name === ".") return parent;
+        if (name === "..") return parent.parent || parent;
+
+        const cached = parent?.contents && parent.contents[name];
+        if (cached) return cached;
+
+        const nodePath = joinPath(parent.path, name);
+        const hostPath = toHostPath(nodePath);
+
+        let st;
+        try {
+          st = vfsProxy.statSync(hostPath);
+        } catch (err) {
+          if (isNotFoundError(err)) throwErr("ENOENT");
+          throwErr("EIO");
+        }
+        if (!st || st.exists === false) throwErr("ENOENT");
+
+        const isDir = !!st.isDirectory;
+        const mode = isDir ? modeDir : modeFile;
+        const node = PROXYFS.createNode(parent, name, mode, 0);
+        node.size = typeof st.size === "number" ? st.size : 0;
+        node.timestamp = typeof st.mtimeMs === "number" ? st.mtimeMs : Date.now();
+        if (parent?.contents) parent.contents[name] = node;
+        return node;
+      },
+
+      readdir: (node) => {
+        const hostPath = toHostPath(node.path);
+        let listing;
+        try {
+          listing = vfsProxy.listSync(hostPath);
+        } catch (err) {
+          if (isNotFoundError(err)) throwErr("ENOENT");
+          throwErr("EIO");
+        }
+        if (!listing || listing.exists === false) throwErr("ENOENT");
+
+        const names = Array.isArray(listing.entries) ? listing.entries.map((e) => e?.name).filter(Boolean) : [];
+        return [".", "..", ...names];
+      },
+
+      mknod: (parent, name, mode, dev) => {
+        const nodePath = joinPath(parent.path, name);
+        const hostPath = toHostPath(nodePath);
+
+        if (FS.isDir(mode)) {
+          vfsProxy.mkdirSync(hostPath, { recursive: true });
+          const node = PROXYFS.createNode(parent, name, modeDir, dev);
+          if (parent?.contents) parent.contents[name] = node;
+          return node;
+        }
+
+        // Create empty file.
+        vfsProxy.writeFileSync(hostPath, new Uint8Array(0));
+        const node = PROXYFS.createNode(parent, name, modeFile, dev);
+        if (parent?.contents) parent.contents[name] = node;
+        return node;
+      },
+
+      mkdir: (parent, name, mode) => {
+        const nodePath = joinPath(parent.path, name);
+        const hostPath = toHostPath(nodePath);
+        vfsProxy.mkdirSync(hostPath, { recursive: true });
+        const node = PROXYFS.createNode(parent, name, modeDir, 0);
+        if (parent?.contents) parent.contents[name] = node;
+        return node;
+      },
+
+      unlink: (parent, name) => {
+        const nodePath = joinPath(parent.path, name);
+        const hostPath = toHostPath(nodePath);
+        try {
+          vfsProxy.deleteSync(hostPath, { recursive: false });
+        } catch (err) {
+          if (isNotFoundError(err)) throwErr("ENOENT");
+          throwErr("EIO");
+        }
+        if (parent?.contents) delete parent.contents[name];
+      },
+
+      rmdir: (parent, name) => {
+        const nodePath = joinPath(parent.path, name);
+        const hostPath = toHostPath(nodePath);
+        try {
+          vfsProxy.deleteSync(hostPath, { recursive: false });
+        } catch (err) {
+          if (isNotFoundError(err)) throwErr("ENOENT");
+          throwErr("EIO");
+        }
+        if (parent?.contents) delete parent.contents[name];
+      },
+    },
+
+    stream_ops: {
+      open: (stream) => stream,
+      close: (stream) => stream,
+
+      read: (stream, buffer, offset, length, position) => {
+        const hostPath = toHostPath(stream.node.path);
+        let bytes;
+        try {
+          bytes = vfsProxy.readFileSync(hostPath, { sizeHint: stream.node.size || 0 });
+        } catch (err) {
+          if (isNotFoundError(err)) throwErr("ENOENT");
+          throwErr("EIO");
+        }
+
+        const pos = typeof position === "number" && Number.isFinite(position) ? position : stream.position || 0;
+        const start = Math.max(0, pos | 0);
+        const end = Math.min(bytes.length, start + (length | 0));
+        const slice = bytes.subarray(start, end);
+        buffer.set(slice, offset);
+        return slice.length;
+      },
+
+      write: (stream, buffer, offset, length, position) => {
+        const hostPath = toHostPath(stream.node.path);
+        const chunk = buffer.subarray(offset, offset + length);
+        const p = typeof position === "number" && Number.isFinite(position) ? position : stream.position || 0;
+        const pos = Math.max(0, p | 0);
+
+        let cur = new Uint8Array(0);
+        try {
+          cur = vfsProxy.readFileSync(hostPath, { sizeHint: stream.node.size || 0 });
+        } catch (err) {
+          if (!isNotFoundError(err)) throwErr("EIO");
+        }
+
+        const newSize = Math.max(cur.length, pos + chunk.length);
+        const next = new Uint8Array(newSize);
+        next.set(cur);
+        next.set(chunk, pos);
+        vfsProxy.writeFileSync(hostPath, next);
+        stream.node.size = next.length;
+        return chunk.length;
+      },
+
+      llseek: (stream, offset, whence) => {
+        const SEEK_SET = 0;
+        const SEEK_CUR = 1;
+        const SEEK_END = 2;
+
+        let position;
+        if (whence === SEEK_SET) position = offset;
+        else if (whence === SEEK_CUR) position = stream.position + offset;
+        else if (whence === SEEK_END) position = (stream.node.size || 0) + offset;
+        else throwErr("EINVAL");
+
+        if (position < 0) throwErr("EINVAL");
+        stream.position = position;
+        return position;
+      },
+    },
+  };
+
+  try {
+    ensureDir(FS, mountPoint);
+    FS.mount(PROXYFS, {}, mountPoint);
+
+    // Create transparent aliases (symlinks) into /vfs.
+    for (const alias of Array.isArray(aliases) ? aliases : []) {
+      const a = String(alias || "").trim();
+      if (!a || a === mountPoint) continue;
+      const target = `${mountPoint}${a.startsWith("/") ? a : `/${a}`}`;
+      ensureSymlink(FS, target, a);
+    }
+
+    // Common parent dir for /mnt/workspace.
+    ensureDirTree(FS, "/mnt");
+
+    vfsProxyMounted = true;
+    logger.debug("[PythonWorker] Mounted VFS proxy", { mountPoint, aliases });
+  } catch (err) {
+    vfsProxyMountError = err;
+    logger.error("[PythonWorker] Failed to mount VFS proxy", { error: err?.message || String(err) });
+  }
 }
 
 /**
@@ -211,6 +597,14 @@ self.onmessage = async (evt) => {
   try {
     if (type === 'init') {
       await initPyodide(payload.indexUrl);
+      if (!vfsProxy) {
+        // The proxy is inert until the main thread wires a VfsProxyHost.
+        const sharedBuffer = isSharedArrayBuffer(payload?.vfsProxy?.sharedBuffer) ? payload.vfsProxy.sharedBuffer : null;
+        vfsProxy = new VfsProxyClient({ target: self, sharedBuffer });
+      }
+      if (payload?.vfsProxy?.enabled) {
+        ensureVfsProxyMounted({ aliases: payload?.vfsProxy?.aliases });
+      }
       self.postMessage({ type: 'ready', id });
     } else if (type === 'preload') {
       await initPyodide(payload.indexUrl);
@@ -236,9 +630,19 @@ self.onmessage = async (evt) => {
       self.postMessage({ type: 'preloaded', id });
     } else if (type === 'execute') {
       await initPyodide(payload.indexUrl);
+
+      // Ensure proxy FS is mounted for this run (if enabled).
+      if (payload?.vfsProxy?.enabled) {
+        if (!vfsProxy) {
+          const sharedBuffer = isSharedArrayBuffer(payload?.vfsProxy?.sharedBuffer) ? payload.vfsProxy.sharedBuffer : null;
+          vfsProxy = new VfsProxyClient({ target: self, sharedBuffer });
+        }
+        ensureVfsProxyMounted({ aliases: payload?.vfsProxy?.aliases });
+      }
+      const useProxyVfs = payload?.vfsProxy?.enabled === true && vfsProxyMounted && !vfsProxyMountError;
       
       // 1. 同步输入文件
-      if (payload.files) {
+      if (payload.files && !useProxyVfs) {
         await syncFilesToPyodide(payload.files);
       }
 
@@ -259,7 +663,8 @@ self.onmessage = async (evt) => {
       const result = await pyodide.runPythonAsync(payload.code);
       
       // 5. 收集输出文件
-      const outputFiles = payload.watchPaths ? await collectFilesFromPyodide(payload.watchPaths) : [];
+      const outputFiles =
+        payload.watchPaths && !useProxyVfs ? await collectFilesFromPyodide(payload.watchPaths) : [];
       
       // 6. 返回结果
       self.postMessage({ 

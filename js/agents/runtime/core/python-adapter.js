@@ -1,5 +1,7 @@
 import { RuntimeAdapter, RuntimeType } from './runtime-adapter.js';
 import { createLogger } from "../../shared/utils/logger.js";
+import { VfsProxyHost } from "./vfs-proxy-host.js";
+import { VFS_REQUEST } from "./vfs-proxy-protocol.js";
 
 /**
  * @typedef {import('./runtime-adapter.js').ExecutionContext} ExecutionContext
@@ -20,9 +22,13 @@ import { createLogger } from "../../shared/utils/logger.js";
  * @property {(path: string, data: any) => Promise<any>} writeFile
  *
  * @typedef {{ path: string, content: any }} PreparedFile
+ *
+ * @typedef {{ path: string, kind: string, depth: number }} VfsCollectedEntry
  */
 
 const logger = createLogger("runtime/core/python-adapter");
+
+const DEFAULT_VFS_CONCURRENCY = 8;
 
 export class PythonRuntimeAdapter extends RuntimeAdapter {
   /**
@@ -37,6 +43,39 @@ export class PythonRuntimeAdapter extends RuntimeAdapter {
     this.pendingRequests = new Map();
     this._requestId = 0;
     this.watchPaths = options.watchPaths || ['/mnt/workspace'];
+    /** @type {VfsProxyHost | null} */
+    this.vfsProxyHost = null;
+    /** @type {SharedArrayBuffer | null} */
+    this.vfsProxySharedBuffer = null;
+  }
+
+  _ensureVfsProxySharedBuffer() {
+    if (this.vfsProxySharedBuffer) return this.vfsProxySharedBuffer;
+    try {
+      if (typeof SharedArrayBuffer === "undefined") return null;
+      // A reusable response buffer for sync VFS proxy. The worker can resize if needed.
+      this.vfsProxySharedBuffer = new SharedArrayBuffer(16 + 4 * 1024 * 1024);
+      return this.vfsProxySharedBuffer;
+    } catch (err) {
+      logger.warn("[PythonRuntime] SharedArrayBuffer unavailable; VFS proxy will fallback to snapshot mode", {
+        error: err?.message || String(err),
+      });
+      this.vfsProxySharedBuffer = null;
+      return null;
+    }
+  }
+
+  _getVfsProxyAliases() {
+    const aliases = new Set();
+    for (const p of Array.isArray(this.watchPaths) ? this.watchPaths : []) {
+      const s = String(p ?? "").trim();
+      if (s) aliases.add(s);
+    }
+    // Common legacy path used by older code.
+    aliases.add("/workspace");
+    // Default output mount.
+    aliases.add("/output");
+    return Array.from(aliases);
   }
 
   /**
@@ -48,9 +87,13 @@ export class PythonRuntimeAdapter extends RuntimeAdapter {
     // 创建专用 Worker（路径相对于 runtime/core/）
     const workerUrl = new URL('../tools/python-runtime-worker.js', import.meta.url);
     this.worker = new Worker(workerUrl, { type: 'module' });
+    this.vfsProxyHost = new VfsProxyHost(null, this.worker);
 
     this.worker.onmessage = async (evt) => {
       const { type, id, data, error, text, files } = evt.data;
+
+      // VFS proxy requests are handled by VfsProxyHost via addEventListener.
+      if (type === VFS_REQUEST) return;
 
       if (type === 'stdout') logger.debug(`[Python Stdout] ${text}`);
       if (type === 'stderr') logger.error(`[Python Stderr] ${text}`);
@@ -76,7 +119,13 @@ export class PythonRuntimeAdapter extends RuntimeAdapter {
       }
     };
 
-    return this._send('init', { indexUrl: this.indexUrl });
+    const sharedBuffer = this._ensureVfsProxySharedBuffer();
+    return this._send("init", {
+      indexUrl: this.indexUrl,
+      vfsProxy: sharedBuffer
+        ? { enabled: false, sharedBuffer, aliases: this._getVfsProxyAliases() }
+        : { enabled: false },
+    });
   }
 
   /**
@@ -126,24 +175,130 @@ export class PythonRuntimeAdapter extends RuntimeAdapter {
    * @returns {Promise<PreparedFile[]>}
    */
   async _prepareFiles(vfs, paths) {
-    const files = [];
-    for (const p of paths) {
-      try {
-        const entries = await vfs.list(p);
-        for (const entry of entries) {
-          if (entry.kind === 'file') {
-            const content = await vfs.readFile(`${p}/${entry.name}`);
-            files.push({
-              path: `${p}/${entry.name}`,
-              content
-            });
+    const concurrency = DEFAULT_VFS_CONCURRENCY;
+
+    /**
+     * @param {any} err
+     * @returns {string}
+     */
+    const formatError = (err) => err?.message || String(err || "");
+
+    /**
+     * @param {any} err
+     * @returns {boolean}
+     */
+    const isNotFoundError = (err) => {
+      const msg = formatError(err);
+      return err?.code === "ENOENT" || msg.includes("ENOENT") || msg.includes("NotFoundError");
+    };
+
+    /**
+     * @param {string} base
+     * @param {string} name
+     * @returns {string}
+     */
+    const joinPath = (base, name) => {
+      const b = String(base ?? "");
+      const n = String(name ?? "");
+      if (!b) return n;
+      if (b === "/") return `/${n}`;
+      return b.endsWith("/") ? `${b}${n}` : `${b}/${n}`;
+    };
+
+    /**
+     * @param {any} kind
+     * @returns {boolean}
+     */
+    const isDirectoryKind = (kind) => kind === "dir" || kind === "directory";
+
+    /**
+     * 批量并发执行任务（控制并发数）
+     * @template T, U
+     * @param {T[]} tasks
+     * @param {(task: T) => Promise<U>} fn
+     * @returns {Promise<U[]>}
+     */
+    const runBatch = async (tasks, fn) => {
+      const results = [];
+      const limit = Number.isFinite(concurrency) && concurrency > 0 ? Math.floor(concurrency) : DEFAULT_VFS_CONCURRENCY;
+      for (let i = 0; i < tasks.length; i += limit) {
+        const batch = tasks.slice(i, i + limit);
+        const batchResults = await Promise.all(batch.map(fn));
+        results.push(...batchResults);
+      }
+      return results;
+    };
+
+    /**
+     * 递归收集所有文件和目录（不读取文件内容）
+     * @param {string} rootPath
+     * @returns {Promise<VfsCollectedEntry[]>}
+     */
+    const collectEntries = async (rootPath) => {
+      /** @type {VfsCollectedEntry[]} */
+      const entries = [];
+      /** @type {Array<{ path: string, depth: number }>} */
+      const stack = [{ path: rootPath, depth: 0 }];
+
+      while (stack.length > 0) {
+        const { path: currentPath, depth } = stack.pop();
+        let items;
+        try {
+          items = await vfs.list(currentPath);
+        } catch (err) {
+          const msg = formatError(err);
+          if (isNotFoundError(err)) {
+            logger.debug("[PythonRuntime] VFS path missing, skipping", { path: currentPath, error: msg });
+          } else {
+            logger.warn("[PythonRuntime] Failed to list VFS path", { path: currentPath, error: msg });
           }
-          // 简化处理：目前只做一级目录
+          continue;
         }
-      } catch (e) {
-        // 忽略不存在的目录
+
+        for (const entry of items) {
+          const entryPath = joinPath(currentPath, entry.name);
+          entries.push({ path: entryPath, kind: entry.kind, depth });
+          if (isDirectoryKind(entry.kind)) {
+            stack.push({ path: entryPath, depth: depth + 1 });
+          }
+        }
+      }
+
+      // 按深度排序，确保结果稳定（父目录优先）
+      entries.sort((a, b) => a.depth - b.depth);
+      return entries;
+    };
+
+    /** @type {PreparedFile[]} */
+    const files = [];
+    const roots = Array.isArray(paths) ? paths : [];
+    logger.debug("[PythonRuntime] Preparing VFS snapshot for worker", { roots: roots.length, concurrency });
+
+    for (const rootPath of roots) {
+      const entries = await collectEntries(rootPath);
+      const fileEntries = entries.filter((e) => e.kind === "file");
+
+      const prepared = await runBatch(fileEntries, async (entry) => {
+        try {
+          const content = await vfs.readFile(entry.path);
+          return { path: entry.path, content };
+        } catch (err) {
+          const msg = formatError(err);
+          if (isNotFoundError(err)) {
+            logger.debug("[PythonRuntime] VFS file missing, skipping", { path: entry.path, error: msg });
+          } else {
+            logger.warn("[PythonRuntime] Failed to read VFS file", { path: entry.path, error: msg });
+          }
+          return null;
+        }
+      });
+
+      for (const f of prepared) {
+        if (f) files.push(f);
       }
     }
+
+    logger.debug("[PythonRuntime] Prepared VFS snapshot", { files: files.length });
     return files;
   }
 
@@ -157,10 +312,13 @@ export class PythonRuntimeAdapter extends RuntimeAdapter {
     const startTime = Date.now();
 
     try {
-      // 1. 准备输入文件 (VFS -> Worker)
+      const sharedBuffer = this._ensureVfsProxySharedBuffer();
+      const canUseVfsProxy = !!context.vfs && !!sharedBuffer && !!this.vfsProxyHost;
+
+      // 1. 准备输入文件 (VFS -> Worker) - legacy snapshot fallback
       let files = [];
-      if (context.vfs) {
-        files = await this._prepareFiles(context.vfs, ['/workspace']);
+      if (context.vfs && !canUseVfsProxy) {
+        files = await this._prepareFiles(context.vfs, ["/workspace"]);
       }
 
       // 2. 识别 SharedArrayBuffer
@@ -173,6 +331,10 @@ export class PythonRuntimeAdapter extends RuntimeAdapter {
         }
       }
 
+      if (canUseVfsProxy) {
+        this.vfsProxyHost.setVfs(context.vfs);
+      }
+
       // 3. 发送执行请求
       const result = await this._send('execute', { 
         code, 
@@ -180,6 +342,9 @@ export class PythonRuntimeAdapter extends RuntimeAdapter {
         files,
         sharedBuffers,
         watchPaths: this.watchPaths,
+        vfsProxy: canUseVfsProxy
+          ? { enabled: true, sharedBuffer, aliases: this._getVfsProxyAliases() }
+          : { enabled: false },
         indexUrl: this.indexUrl
       }, context.vfs);
 
@@ -202,6 +367,10 @@ export class PythonRuntimeAdapter extends RuntimeAdapter {
    * @returns {Promise<void>}
    */
   async terminate() {
+    if (this.vfsProxyHost) {
+      this.vfsProxyHost.dispose();
+      this.vfsProxyHost = null;
+    }
     if (this.worker) {
       this.worker.terminate();
       this.worker = null;
