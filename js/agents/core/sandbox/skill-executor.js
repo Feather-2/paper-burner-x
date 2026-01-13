@@ -5,7 +5,7 @@
  */
 
 import { SandboxPool } from './pool.js';
-import { SandboxPreset, ResourceLimits, SandboxCapability } from './index.js';
+import { SandboxPreset, ResourceLimits, SandboxCapability } from './constants.js';
 
 /**
  * SkillExecutor - 安全的 Skill 执行器

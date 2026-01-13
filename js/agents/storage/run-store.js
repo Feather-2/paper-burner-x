@@ -1,5 +1,6 @@
 import { createLogger } from "../shared/utils/logger.js";
 import { isPlainObject } from "../shared/utils/value-utils.js";
+import { safeJsonParse } from "../shared/utils/safe-json.js";
 
 const logger = createLogger("storage/run-store");
 
@@ -205,6 +206,7 @@ export class RunStore {
   }
 
   async close() {
+    if (!this._dbp) return;
     const db = await this._dbp;
     if (db) db.close();
     this._dbp = null;
@@ -249,12 +251,12 @@ export class RunStore {
 
     if (this.storage?.get) {
       const data = await this.storage.get(this._keyForTask(taskId));
-      return data ? JSON.parse(data) : null;
+      return data ? safeJsonParse(data, null) : null;
     }
 
     const data = await this.getArtifact(taskId, "task.json");
     if (data === null || data === undefined) return null;
-    return typeof data === "string" ? JSON.parse(data) : data;
+    return typeof data === "string" ? safeJsonParse(data, null) : data;
   }
 
   async saveState(runId, state) {
@@ -279,12 +281,12 @@ export class RunStore {
 
     if (this.storage?.get) {
       const data = await this.storage.get(this._keyForState(runId));
-      return data ? JSON.parse(data) : null;
+      return data ? safeJsonParse(data, null) : null;
     }
 
     const data = await this.getArtifact(runId, "state.json");
     if (data === null || data === undefined) return null;
-    return typeof data === "string" ? JSON.parse(data) : data;
+    return typeof data === "string" ? safeJsonParse(data, null) : data;
   }
 
   async estimateQuota() {

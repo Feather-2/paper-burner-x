@@ -7,8 +7,18 @@
  */
 
 import { globalSubagentRegistry } from "../../../../sdk/SubagentRegistry.js";
-// 确保子代理已注册
-import "../../subagents.js";
+
+// 延迟注册子代理，避免循环依赖
+let _subagentsRegistered = false;
+async function ensureSubagentsRegistered() {
+  if (_subagentsRegistered) return;
+  _subagentsRegistered = true;
+  try {
+    await import("../../subagents.js");
+  } catch (e) {
+    console.warn("[task/handler] subagents registration failed:", e);
+  }
+}
 import SourceManager from "../../source-manager.js";
 import { makeSecureTimestampedId } from "../../../../shared/utils/secure-id.js";
 import { toPositiveInt } from "../../../../shared/utils/value-utils.js";
@@ -149,6 +159,9 @@ export const definition = {
  * @param {Object} context - { state, emit, stageApi, sharedContext }
  */
 export async function handler(args, context) {
+  // 确保子代理已注册（延迟加载，避免循环依赖）
+  await ensureSubagentsRegistered();
+
   const { state, emit, stageApi, sharedContext } = context;
   const { subagent_type = "researcher", prompt, sourceIds, async: isAsync = true } = args;
 

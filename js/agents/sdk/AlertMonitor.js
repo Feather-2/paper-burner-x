@@ -272,7 +272,7 @@ export class AlertMonitor {
      * @returns {void}
      */
     _forceBacktrack(reason) {
-        this.agent.eventBus.emit("alertmonitor.force_backtrack", { reason });
+        this.agent?.eventBus?.emit("alertmonitor.force_backtrack", { reason });
     }
 
     /**

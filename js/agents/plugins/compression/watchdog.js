@@ -18,6 +18,7 @@ export default createPlugin({
     threshold: 0.75,
     checkInterval: 5000,
     autoCompress: true,
+    maxContextTokens: 100000,
   },
 
   /**

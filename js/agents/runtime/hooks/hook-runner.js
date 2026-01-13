@@ -1,6 +1,8 @@
 import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
 import { robustParseJson } from "../../shared/utils/robust-json.js";
-import { ServiceId } from "../di/defaults.js";
+// 避免循环依赖：直接使用 ServiceId 常量值而非从 defaults.js 导入
+const SERVICE_ID_MODEL_ROUTER = "modelRouter";
+const SERVICE_ID_SUBAGENT_REGISTRY = "subagentRegistry";
 
 import { HookType } from "./hook-registry.js";
 import { getHookRegistry } from "./event-bus-hooks.js";
@@ -55,14 +57,14 @@ async function resolveModelRouter(context) {
   const ctx = context && typeof context === "object" ? context : null;
   const direct = ctx?.modelRouter || ctx?.stageApi?.modelRouter;
   if (direct && typeof direct.call === "function") return direct;
-  return await resolveFromContainer(context, ServiceId.MODEL_ROUTER);
+  return await resolveFromContainer(context, SERVICE_ID_MODEL_ROUTER);
 }
 
 async function resolveSubagentRegistry(context) {
   const ctx = context && typeof context === "object" ? context : null;
   const direct = ctx?.subagentRegistry || ctx?.stageApi?.subagentRegistry;
   if (direct && typeof direct.getFactory === "function") return direct;
-  return await resolveFromContainer(context, ServiceId.SUBAGENT_REGISTRY);
+  return await resolveFromContainer(context, SERVICE_ID_SUBAGENT_REGISTRY);
 }
 
 function normalizeModelTier(input) {
