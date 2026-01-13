@@ -12,6 +12,58 @@ Agent Loop 的核心组件。
 | `status-controller.js` | StatusController - 状态控制 |
 | `message-manager.js` | MessageManager - 消息管理 |
 | `tool-registry.js` | ToolRegistry - 工具注册 |
+| `persisted-output.js` | 大输出持久化处理 |
+
+## 持久化输出 (Persisted Output)
+
+防止工具返回的大输出撑爆 token 窗口。
+
+### 数据流
+
+```
+Tool.execute()
+    ↓
+[After Hook] createPersistedOutputHook()
+    ↓
+result.data > 400KB? → wrapPersistedOutput() → <persisted-output>预览</persisted-output>
+    ↓
+MessageManager.addMessage()
+    ↓
+压缩触发时 → cleanOldOutputs(3) → 保留最近 3 个大输出
+```
+
+### 使用方式
+
+```javascript
+import {
+  ToolRegistry,
+  createPersistedOutputHook,
+  MessageManager,
+} from 'js/agents/runtime';
+
+// 方式 1: ToolRegistry after hook (推荐)
+const registry = new ToolRegistry({ tools });
+registry.useHook('after', createPersistedOutputHook());
+
+// 方式 2: ToolExecutor hooks
+const executor = new ToolExecutor({
+  tools,
+  hooks: { after: [createPersistedOutputHook()] },
+});
+
+// 方式 3: MessageManager 手动包装
+const mm = new MessageManager();
+const wrapped = mm.wrapToolOutput(largeContent);
+mm.cleanOldOutputs(3);  // 清理旧大输出
+```
+
+### 常量
+
+| 常量 | 默认值 | 说明 |
+|------|--------|------|
+| `OUTPUT_THRESHOLD` | 400000 | 触发包装的字节阈值 |
+| `PREVIEW_SIZE` | 2000 | 预览字符数 |
+| `KEEP_RECENT_OUTPUTS` | 3 | 保留的大输出数量 |
 
 ## 运行时适配
 
