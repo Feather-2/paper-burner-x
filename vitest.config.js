@@ -6,6 +6,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     include: [
+      'tests/app/**/*.test.js',
       'tests/api/**/*.test.js',
       'tests/chatbot/**/*.test.js',
       'tests/core/**/*.test.js',
