@@ -48,6 +48,7 @@ export {
 // Memory
 export { MemoryStore } from "./memory/memory-store.js";
 export { StateEngine } from "./memory/state-engine.js";
+export { UnifiedMemoryStore } from "./memory/unified-memory-store.js";
 export { RetrievalEngine } from "./memory/retrieval-engine.js";
 
 // Core Components (extracted from BaseAgentLoop)

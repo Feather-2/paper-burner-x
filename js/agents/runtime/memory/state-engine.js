@@ -20,6 +20,7 @@ import { isPlainObject, toNonEmptyString, deepClone } from "../../shared/utils/v
 import { cloneJson, buildStatePatch, applyStatePatch, diffLayers } from "./state-diff.js";
 import { cryptoRandomHex } from "../../shared/utils/secure-id.js";
 import { createLogger } from "../../shared/utils/logger.js";
+import { normalizeTodoEntry, normalizeTodoPriority, normalizeTodoStatus } from "./todo-normalize.js";
 
 const logger = createLogger("runtime/memory/state-engine");
 import {
@@ -67,56 +68,6 @@ function generateId(prefix = "id") {
   const ts = Date.now().toString(36);
   const rand = cryptoRandomHex(3);
   return `${prefix}_${ts}_${rand}`;
-}
-
-function normalizeTodoStatus(value) {
-  const v = typeof value === "string" ? value.trim().toLowerCase() : "";
-  if (!v) return "pending";
-  if (v === "done" || v === "complete" || v === "completed") return "completed";
-  if (v === "inprogress" || v === "in_progress" || v === "in-progress" || v === "in progress") return "in_progress";
-  if (v === "cancel" || v === "canceled" || v === "cancelled") return "cancelled";
-  return v;
-}
-
-function normalizeTodoPriority(value) {
-  const v = typeof value === "string" ? value.trim().toLowerCase() : "";
-  if (v === "high" || v === "medium" || v === "low") return v;
-  if (v === "normal") return "medium";
-  return v || "medium";
-}
-
-function normalizeTodoEntry(todo) {
-  const raw = isPlainObject(todo) ? todo : { text: String(todo ?? "") };
-
-  const todoId = toNonEmptyString(raw.todoId) || toNonEmptyString(raw.id);
-  const id = toNonEmptyString(raw.id) || todoId || generateId("todo");
-
-  const text =
-    toNonEmptyString(raw.text) ||
-    toNonEmptyString(raw.content) ||
-    toNonEmptyString(raw.title) ||
-    toNonEmptyString(raw.message) ||
-    "";
-
-  const status = normalizeTodoStatus(raw.status);
-  const priority = normalizeTodoPriority(raw.priority);
-
-  const createdAt = typeof raw.createdAt === "string" && raw.createdAt ? raw.createdAt : new Date().toISOString();
-  const updatedAt = typeof raw.updatedAt === "string" && raw.updatedAt ? raw.updatedAt : createdAt;
-  const ts = typeof raw.ts === "number" && Number.isFinite(raw.ts) ? raw.ts : Date.now();
-
-  return {
-    ...raw,
-    id,
-    todoId: todoId || id,
-    text: text || "",
-    content: text || "",
-    status,
-    priority,
-    ts,
-    createdAt,
-    updatedAt,
-  };
 }
 
 function truncate(text, maxLen = 200) {
@@ -202,7 +153,7 @@ function reduceL0(state, action) {
     }
 
     case L0_ADD_TODO: {
-      const entry = normalizeTodoEntry(payload?.todo);
+      const entry = normalizeTodoEntry(payload?.todo, { generateId, fillTimestamps: true });
       const key = toNonEmptyString(entry.todoId) || toNonEmptyString(entry.id);
       const existingIdx = key ? L0.todos.findIndex((t) => t?.id === key || t?.todoId === key) : -1;
 
@@ -246,7 +197,9 @@ function reduceL0(state, action) {
     }
 
     case L0_REPLACE_TODOS: {
-      const todos = Array.isArray(payload?.todos) ? payload.todos.map(normalizeTodoEntry) : [];
+      const todos = Array.isArray(payload?.todos)
+        ? payload.todos.map((t) => normalizeTodoEntry(t, { generateId, fillTimestamps: true }))
+        : [];
       return { ...state, L0: { ...L0, todos } };
     }
 
@@ -297,12 +250,12 @@ function reduceL1(state, action) {
     case L1_ADD_SIGNAL: {
       const signal = payload?.signal || {};
       const entry = {
-        id: generateId("sig"),
-        type: signal.type || "info",
-        message: signal.message || "",
+        id: toNonEmptyString(signal.id) || generateId("sig"),
+        type: toNonEmptyString(signal.type) || "info",
+        message: toNonEmptyString(signal.message) || "",
         payload: signal.payload || {},
-        acknowledged: false,
-        ts: Date.now(),
+        acknowledged: Boolean(signal.acknowledged),
+        ts: typeof signal.ts === "number" && Number.isFinite(signal.ts) ? signal.ts : Date.now(),
       };
       return { ...state, L1: { ...L1, signals: [...L1.signals, entry] } };
     }
@@ -322,11 +275,11 @@ function reduceL1(state, action) {
     case L1_RECORD_DECISION: {
       const decision = payload?.decision || {};
       const entry = {
-        id: generateId("dec"),
+        id: toNonEmptyString(decision.id) || generateId("dec"),
         action: decision.action || decision.type || "unknown",
         reason: decision.reason || "",
         result: decision.result || null,
-        ts: Date.now(),
+        ts: typeof decision.ts === "number" && Number.isFinite(decision.ts) ? decision.ts : Date.now(),
       };
       return { ...state, L1: { ...L1, decisions: [...L1.decisions, entry] } };
     }

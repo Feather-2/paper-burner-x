@@ -13,6 +13,7 @@ import { estimateTokensCached } from "../../shared/utils/token-cache.js";
 import { getGlobalTokenCounter } from "../../shared/tokenizers/adaptive-token-counter.js";
 import { makeSecureTimestampedId } from "../../shared/utils/secure-id.js";
 import { RetrievalEngine } from "./retrieval-engine.js";
+import { normalizeTodoEntry, normalizeTodoInPlace, normalizeTodoStatus } from "./todo-normalize.js";
 
 // 默认配置
 const DEFAULT_CONFIG = Object.freeze({
@@ -49,70 +50,6 @@ function truncate(text, maxLen = 200) {
 // 生成唯一 ID
 function genId(prefix = "id") {
   return makeSecureTimestampedId(prefix);
-}
-
-function normalizeTodoStatus(value) {
-  const v = typeof value === "string" ? value.trim().toLowerCase() : "";
-  if (!v) return "pending";
-  if (v === "done" || v === "complete" || v === "completed") return "completed";
-  if (v === "inprogress" || v === "in_progress" || v === "in-progress" || v === "in progress") return "in_progress";
-  if (v === "cancel" || v === "canceled" || v === "cancelled") return "cancelled";
-  return v;
-}
-
-function normalizeTodoPriority(value) {
-  const v = typeof value === "string" ? value.trim().toLowerCase() : "";
-  if (v === "high" || v === "medium" || v === "low") return v;
-  if (v === "normal") return "medium";
-  return v || "medium";
-}
-
-function normalizeTodoEntry(todo) {
-  const raw = isPlainObject(todo) ? todo : { text: String(todo ?? "") };
-
-  const todoId = toNonEmptyString(raw.todoId) || toNonEmptyString(raw.id);
-  const id = toNonEmptyString(raw.id) || todoId || genId("todo");
-
-  const text =
-    toNonEmptyString(raw.text) ||
-    toNonEmptyString(raw.content) ||
-    toNonEmptyString(raw.title) ||
-    toNonEmptyString(raw.message) ||
-    "";
-
-  const status = normalizeTodoStatus(raw.status);
-  const priority = normalizeTodoPriority(raw.priority);
-
-  const createdAt = typeof raw.createdAt === "string" && raw.createdAt ? raw.createdAt : null;
-  const updatedAt = typeof raw.updatedAt === "string" && raw.updatedAt ? raw.updatedAt : null;
-  const ts = typeof raw.ts === "number" && Number.isFinite(raw.ts) ? raw.ts : Date.now();
-
-  return {
-    ...raw,
-    id,
-    todoId: todoId || id,
-    text: text || "",
-    content: text || "",
-    status,
-    priority,
-    ts,
-    ...(createdAt ? { createdAt } : {}),
-    ...(updatedAt ? { updatedAt } : {}),
-  };
-}
-
-function normalizeTodoInPlace(todo) {
-  if (!todo || typeof todo !== "object") return null;
-
-  if (todo.todoId && !todo.id) todo.id = todo.todoId;
-  if (todo.id && !todo.todoId) todo.todoId = todo.id;
-
-  if (todo.text && !todo.content) todo.content = todo.text;
-  if (todo.content && !todo.text) todo.text = todo.content;
-
-  if ("status" in todo) todo.status = normalizeTodoStatus(todo.status);
-  if ("priority" in todo) todo.priority = normalizeTodoPriority(todo.priority);
-  return todo;
 }
 
 function isFiniteNumber(value) {
@@ -307,7 +244,7 @@ export class MemoryStore {
   }
 
   addTodo(todo) {
-    const entry = normalizeTodoEntry(todo);
+    const entry = normalizeTodoEntry(todo, { generateId: genId, fillTimestamps: false });
     // Avoid accidental duplicates when callers re-add an existing todoId.
     const key = toNonEmptyString(entry.todoId) || toNonEmptyString(entry.id);
     if (key) {
@@ -406,7 +343,7 @@ export class MemoryStore {
    * @returns {any[]}
    */
   replaceTodos(todos) {
-    const next = Array.isArray(todos) ? todos.map(normalizeTodoEntry) : [];
+    const next = Array.isArray(todos) ? todos.map((t) => normalizeTodoEntry(t, { generateId: genId, fillTimestamps: false })) : [];
     const prev = Array.isArray(this._L0.todos) ? this._L0.todos : [];
 
     let prevTokens = 0;

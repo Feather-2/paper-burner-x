@@ -20,6 +20,53 @@ function buildArchiveEmbeddingText(entry) {
   return text.trim();
 }
 
+function getTimeline(store) {
+  const t = store?._L3?.index?.timeline ?? store?.L3?.index?.timeline ?? null;
+  return Array.isArray(t) ? t : null;
+}
+
+function getSnapshots(store) {
+  return store?._L3?.snapshots ?? store?.L3?.snapshots ?? null;
+}
+
+function getKeywordIndex(store) {
+  return store?._L3?.index?.keywords ?? store?.L3?.index?.keywords ?? null;
+}
+
+function getSnapshotById(snapshots, id) {
+  if (!snapshots || !id) return null;
+  if (typeof snapshots.get === "function") return snapshots.get(id) || null;
+  if (typeof snapshots === "object") return snapshots[id] || null;
+  return null;
+}
+
+function *iterateSnapshotsEntries(snapshots) {
+  if (!snapshots) return;
+  if (typeof snapshots.entries === "function") {
+    yield *snapshots.entries();
+    return;
+  }
+  if (typeof snapshots === "object") {
+    yield *Object.entries(snapshots);
+  }
+}
+
+function getKeywordIds(keywordIndex, kw) {
+  if (!keywordIndex || !kw) return [];
+  if (typeof keywordIndex.get === "function") {
+    const ids = keywordIndex.get(kw);
+    if (!ids) return [];
+    if (Array.isArray(ids)) return ids;
+    if (typeof ids[Symbol.iterator] === "function") return Array.from(ids);
+    return [];
+  }
+  if (typeof keywordIndex === "object") {
+    const ids = keywordIndex[kw];
+    return Array.isArray(ids) ? ids : [];
+  }
+  return [];
+}
+
 export class RetrievalEngine {
   constructor(options = {}) {
     const opts = isPlainObject(options) ? options : {};
@@ -109,7 +156,7 @@ export class RetrievalEngine {
     if (!svc || typeof svc.enqueue !== "function") return false;
     if (!idx || typeof idx.upsert !== "function") return false;
 
-    const entry = this.memoryStore?._L3?.snapshots?.get?.(id) || null;
+    const entry = getSnapshotById(getSnapshots(this.memoryStore), id);
     if (!entry) return false;
 
     const text = buildArchiveEmbeddingText(entry);
@@ -171,11 +218,11 @@ export class RetrievalEngine {
     if (!svc || typeof svc.embed !== "function") return false;
     if (!idx || typeof idx.upsert !== "function") return false;
 
-    const snapshots = this.memoryStore?._L3?.snapshots;
-    if (!snapshots || typeof snapshots.entries !== "function") return true;
-
     const pending = [];
-    for (const [id, entry] of snapshots.entries()) {
+    const snapshots = getSnapshots(this.memoryStore);
+    if (!snapshots) return true;
+
+    for (const [id, entry] of iterateSnapshotsEntries(snapshots)) {
       if (typeof idx.has === "function" && idx.has(id)) continue;
       const text = buildArchiveEmbeddingText(entry);
       if (!text) continue;
@@ -220,10 +267,10 @@ export class RetrievalEngine {
     const q = toNonEmptyString(query) || "";
     const k = toPositiveInt(limit, 3);
 
-    const timeline = this.memoryStore?._L3?.index?.timeline;
-    const snapshots = this.memoryStore?._L3?.snapshots;
-    const keywordIndex = this.memoryStore?._L3?.index?.keywords;
-    if (!Array.isArray(timeline) || !snapshots || typeof snapshots.get !== "function") return [];
+    const timeline = getTimeline(this.memoryStore);
+    const snapshots = getSnapshots(this.memoryStore);
+    const keywordIndex = getKeywordIndex(this.memoryStore);
+    if (!Array.isArray(timeline) || !snapshots) return [];
 
     const keywords = tokenizeQuery(q);
     if (!keywords.length) {
@@ -231,7 +278,7 @@ export class RetrievalEngine {
         .slice(-k)
         .reverse()
         .map((t) => {
-          const snap = snapshots.get(t.id);
+          const snap = getSnapshotById(snapshots, t.id);
           return snap ? { id: t.id, summary: t.summary, data: snap.data } : null;
         })
         .filter(Boolean);
@@ -239,8 +286,7 @@ export class RetrievalEngine {
 
     const scores = new Map();
     for (const kw of keywords) {
-      const ids = keywordIndex?.get?.(kw.toLowerCase());
-      if (!ids) continue;
+      const ids = getKeywordIds(keywordIndex, kw.toLowerCase());
       for (const id of ids) {
         scores.set(id, (scores.get(id) || 0) + 1);
       }
@@ -252,7 +298,7 @@ export class RetrievalEngine {
 
     return ranked
       .map(([id]) => {
-        const snap = snapshots.get(id);
+        const snap = getSnapshotById(snapshots, id);
         return snap ? { id, summary: snap.summary, data: snap.data } : null;
       })
       .filter(Boolean);
@@ -282,7 +328,7 @@ export class RetrievalEngine {
     const hits = idx.search(v, { topK: k });
     const out = [];
     for (const h of hits) {
-      const snap = this.memoryStore?._L3?.snapshots?.get?.(h.id) || null;
+      const snap = getSnapshotById(getSnapshots(this.memoryStore), h.id);
       if (!snap) continue;
       out.push({ id: h.id, score: h.score, summary: snap.summary, data: snap.data });
     }
