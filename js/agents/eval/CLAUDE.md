@@ -1,88 +1,115 @@
-# eval - 内容质量评估框架
+# eval - Agent 评估框架
 
-可扩展的插件化内容评估系统，支持自定义评估器注册。
+完整的 Agent evaluation harness：支持多次 trial、transcript 记录、确定性/LLM graders、统计指标（pass@k / pass^k）与结果聚合。
 
-## 核心类
+## 目录结构
 
-### EvaluateStage
+```
+js/agents/eval/
+├── index.js
+├── types.js
+├── graders/
+│   ├── index.js
+│   ├── deterministic.js
+│   ├── llm-judge.js
+│   ├── composite.js
+│   └── content.js          # EvaluateStage (back-compat) + contentGrader
+├── harness.js
+└── metrics.js
+```
 
-```javascript
-import { EvaluateStage } from 'js/agents/eval';
+## 快速开始
 
-const stage = new EvaluateStage({
-  passThreshold: 0.6,   // 通过阈值
-  strict: false,        // 严格模式（有 error 即不通过）
-  dimensions: null,     // 启用的维度（null = 全部）
-  dimensionConfig: {    // 维度权重配置
-    accuracy: { weight: 2 },
+### 1) 运行一个 task（多次 trial）
+
+```js
+import { EvalHarness } from "js/agents/eval";
+
+const harness = new EvalHarness({
+  // 你提供一个创建 Agent 的函数（每次 trial 都应返回全新实例）
+  agentFactory: async ({ task, trialIndex }) => {
+    return {
+      async run(input) {
+        return `echo:${input}`;
+      },
+    };
   },
+  trialsPerTask: 3,
+  concurrency: 4,
 });
 
-const result = await stage.run(ctx, {
-  content: '待评估内容',
-  original: '原始输入（用于相关性评估）',
-  context: { type: 'report' },
-});
+const task = {
+  id: "t1",
+  description: "Echo task",
+  input: "hello",
+  graders: [
+    { type: "regex", options: { pattern: "^echo:hello$" } },
+  ],
+};
 
-// result: { passed, score, issues, dimensions }
+const result = await harness.runTask(task);
+// result: { taskId, trials, passRate, passAtK, passExpK }
 ```
 
-## 内置评估器
+### 2) 运行 suite（并发）
 
-| 维度 | 评估内容 | 检测问题 |
-|------|----------|----------|
-| **completeness** | 完整性 | 内容过短、缺少结构（标题） |
-| **accuracy** | 准确性 | 占位符 (TODO/TBD)、未完成句子 |
-| **clarity** | 清晰度 | 段落过长、内容重复 |
-| **relevance** | 相关性 | 与原始输入词汇重叠度低 |
-
-## 自定义评估器
-
-```javascript
-stage.registerEvaluator('security', (content, input, config) => ({
-  score: content.includes('password') ? 0.5 : 1.0,
-  issues: content.includes('password')
-    ? [{ type: 'sensitive_data', severity: 'error', message: 'Contains password' }]
-    : [],
-}));
+```js
+const suite = { suiteId: "demo", tasks: [task] };
+const suiteResult = await harness.runSuite(suite, { concurrency: 4 });
+// suiteResult: { suiteId, tasks, aggregated }
 ```
 
-## 类型定义
+## 核心数据结构（JSDoc）
 
-```typescript
-interface EvaluationResult {
-  passed: boolean;           // 是否通过
-  score: number;             // 总分 (0-1)
-  issues: EvaluationIssue[]; // 问题列表
-  dimensions: Record<string, number>; // 各维度得分
-}
+- `js/agents/eval/types.js`: `EvalTask`, `Trial`, `Transcript`, `GraderConfig`, `GraderResult`, `EvalSuiteResult` 等。
 
-interface EvaluationIssue {
-  type: string;              // 问题类型
-  severity: 'error' | 'warning' | 'info';
-  message: string;
-  location?: string;
-}
+## 内置 Graders
 
-type Evaluator = (
-  content: string,
-  input: EvaluationInput,
-  config: EvaluatorConfig
-) => EvaluatorResult | Promise<EvaluatorResult>;
+### Deterministic（推荐优先使用）
+
+- `regex`：输出文本正则匹配（`options.pattern/patterns`, `match:any|all`, `invert`, `minMatches`）
+- `state_check`：检查 outcome（支持 `options.path` 与 subset match）
+- `tool_calls`：校验 transcript 中的工具调用（required/forbidden/sequence/match）
+- `transcript`：对 turns/tokens/latency 等做约束
+
+### LLM-as-Judge（需要 llmClient）
+
+需要在 `runTask/runSuite` 传入 `llmClient`（或在 `new EvalHarness({ llmClient })` 注入）。支持 `MockModelClient` 的 `.chat()` 形态。
+
+- `llm_rubric`：基于 rubric 评分（`options.rubric`）
+- `llm_assertion`：自然语言断言（`options.assertions`）
+- `llm_pairwise`：A/B 对比（trial 输出 vs `options.baseline/outputB`）
+
+与 `testing/mock-suite.js` 集成示例：
+
+```js
+import { createMockTestEnv } from "js/agents/testing/mock-suite.js";
+import { EvalHarness } from "js/agents/eval";
+
+const env = createMockTestEnv({ model: { responses: { default: "{\"passed\":true,\"score\":1,\"reason\":\"ok\",\"issues\":[]}" } } });
+const harness = new EvalHarness({ agentFactory: async () => ({ run: async () => "answer" }), llmClient: env.modelClient });
 ```
 
-## API
+### Composite（组合评分）
 
-| 方法 | 说明 |
-|------|------|
-| `run(ctx, input)` | 执行评估 |
-| `registerEvaluator(name, fn, config?)` | 注册自定义评估器 |
-| `unregisterEvaluator(name)` | 移除评估器 |
-| `getEvaluatorNames()` | 获取所有评估器名称 |
+将多个 grader 的结果组合成一个新的 `GraderResult`：
 
-## 使用场景
+- `all_pass`：全部通过才通过（score 取最小值）
+- `weighted`：加权平均（可用 `options.weights` 覆盖权重）
+- `threshold`：基于阈值判定通过（`options.threshold`, `use: avg|min|max`）
 
-- Agent 输出质量把关
-- PPT 内容完整性检查
-- 报告生成后自动审核
-- 回归测试基准
+提示：把 composite grader 放在 `task.graders` 的最后，可以作为 trial 的最终 `passed/score`（也可用 `options.final: true` 显式指定）。
+
+## Backward compatibility：EvaluateStage
+
+原 `EvaluateStage` 已移动到 `js/agents/eval/graders/content.js`，依然可以从 `js/agents/eval` 导入：
+
+```js
+import EvaluateStage, { EvaluateStage as Named } from "js/agents/eval";
+```
+
+同时提供 `content` grader（包装 EvaluateStage）用于 harness：
+
+```js
+{ type: "content", options: { stage: { passThreshold: 0.6 }, input: { context: { type: "report" } } } }
+```
