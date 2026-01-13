@@ -55,6 +55,19 @@ export { ToolRegistry, normalizeToolResult, resolveToolExecutor } from "./core/t
 export { MessageManager } from "./core/message-manager.js";
 export { StatusController } from "./core/status-controller.js";
 
+// Persisted Output (large output handling)
+export {
+  wrapPersistedOutput,
+  cleanOldPersistedOutputs,
+  createPersistedOutputHook,
+  isPersistedOutput,
+  OUTPUT_THRESHOLD,
+  PREVIEW_SIZE,
+  KEEP_RECENT_OUTPUTS,
+  PERSISTED_OUTPUT_START,
+  PERSISTED_OUTPUT_END,
+} from "./core/persisted-output.js";
+
 // Compression + Watchdog
 export { Watchdog } from "./compression/watchdog.js";
 export { CicadaCompressor, CompressionLayer } from "./compression/cicada-compressor.js";

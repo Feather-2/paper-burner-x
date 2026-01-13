@@ -11,6 +11,7 @@ import { estimateTokensCached } from "../../shared/utils/token-cache.js";
 import { getGlobalTokenCounter } from "../../shared/tokenizers/adaptive-token-counter.js";
 import { CompressionCoordinator } from "../compression/coordinator.js";
 import { DEFAULT_CONTEXT_CONFIG } from "./context-config.js";
+import { wrapPersistedOutput, cleanOldPersistedOutputs, KEEP_RECENT_OUTPUTS } from "./persisted-output.js";
 
 /**
  * @typedef {Record<string, any>} AnyRecord
@@ -335,6 +336,26 @@ export class MessageManager {
       compressionPending: !!this._compressionPending,
       compressionCount: this._compressionHistory.length,
     };
+  }
+
+  /**
+   * 处理工具输出，大输出自动包装为持久化格式
+   * @param {string} content - 工具输出内容
+   * @param {object} [options]
+   * @param {number} [options.threshold] - 大小阈值
+   * @returns {string} - 处理后的内容
+   */
+  wrapToolOutput(content, options) {
+    return wrapPersistedOutput(content, options);
+  }
+
+  /**
+   * 清理旧的持久化输出，保留最近 N 个
+   * @param {number} [keepRecent] - 保留数量
+   */
+  cleanOldOutputs(keepRecent = KEEP_RECENT_OUTPUTS) {
+    this._messages = cleanOldPersistedOutputs(this._messages, keepRecent);
+    this._recalculateTokenUsage();
   }
 }
 

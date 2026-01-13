@@ -39,6 +39,7 @@ Agent Loop 的核心组件。
 | `constants.js` | ActorType, OrchestratorState |
 | `config-validator.js` | 配置验证 |
 | `context-config.js` | 上下文配置 |
+| `persisted-output.js` | 大输出持久化处理 |
 | `vfs-proxy.js` | VFS 代理 |
 | `shared-memory.js` | 共享内存 |
 | `mechanisms.js` | 核心机制 |
