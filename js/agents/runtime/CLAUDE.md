@@ -32,6 +32,7 @@ Agent Loop 基础设施，包括生命周期、工具执行、压缩、遥测和
 | **context** | `context/` | UnifiedAgentContext |
 | **safety** | `safety/` | 命令分类器 |
 | **analysis** | `analysis/` | 行为分析 |
+| **transports** | `transports/CLAUDE.md` | 外部二进制通信 (ProcessTransport, BinarySkillProvider) |
 
 ## 状态机
 
