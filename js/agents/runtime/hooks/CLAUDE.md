@@ -8,9 +8,31 @@
 |------|------|
 | `index.js` | 入口，导出所有钩子 API |
 | `hook-registry.js` | HookRegistry - 钩子注册表，HookType/HookEvent 常量 |
-| `hook-runner.js` | Tool/Agent 级别钩子执行器 |
+| `hook-runner.js` | 钩子工厂函数 (createPreToolUseHook/createPreAgentHook/createPostAgentHook) |
 | `event-bus-hooks.js` | EventBus 钩子增强 |
 | `middleware-chain.js` | **已废弃** - 重导出 `../middleware/middleware-chain.js` |
+
+## 钩子工厂函数
+
+| 函数 | 用途 |
+|------|------|
+| `createPreToolUseHook(options)` | 工具调用前拦截（命令分类、权限检查） |
+| `createPreAgentHook(options)` | 请求入口拦截（鉴权、限流、审计初始化） |
+| `createPostAgentHook(options)` | 请求结束处理（用量上报、持久化、清理） |
+
+### AgentLoop 集成
+
+`BaseAgentLoop.execute()` 已内置 PreAgent/PostAgent 钩子调用：
+
+```javascript
+// agent-loop.js 内部流程
+const preResult = await createPreAgentHook()({ sessionId, runId, input, context });
+if (preResult?.skip) return { ok: false, error: preResult.reason };
+
+const result = await this.run(input, context);
+
+await createPostAgentHook()({ sessionId, runId, result, duration, context });
+```
 
 ## 钩子事件 (HookEvent)
 
