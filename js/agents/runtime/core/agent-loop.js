@@ -10,6 +10,7 @@ import { MessageManager } from "./message-manager.js";
 import { ToolRegistry } from "./tool-registry.js";
 import { StatusController } from "./status-controller.js";
 import { DEFAULT_CONTEXT_CONFIG, mergeContextConfig } from "./context-config.js";
+import { createPreAgentHook, createPostAgentHook } from "../hooks/hook-runner.js";
 
 /**
  * @typedef {Record<string, any>} AnyRecord
@@ -710,8 +711,63 @@ export class BaseAgentLoop {
       this._attachPauseListener(this.eventBus, { signal: combinedSignal });
     }
 
+    // 生成 runId 用于追踪
+    const runId = `run_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    const startTime = Date.now();
+    const sessionId = runContext?.sessionId || runContext?.id || null;
+
     try {
-      return await this.run(input, context);
+      // === PreAgent 钩子 ===
+      const preAgentHook = createPreAgentHook();
+      const preResult = await preAgentHook({
+        sessionId,
+        runId,
+        input,
+        context: { eventBus: this.eventBus, stageApi: base, signal: combinedSignal },
+      });
+      if (preResult?.skip) {
+        // 钩子拒绝了请求，提前返回
+        const emit = this.emit || this.eventBus?.emit;
+        if (typeof emit === "function") {
+          emit(`${this.stageName}.agent.skipped`, {
+            actor: this.actor,
+            status: "skipped",
+            payload: { runId, reason: preResult.reason, duration: Date.now() - startTime },
+          });
+        }
+        return preResult.value ?? { ok: false, error: preResult.reason };
+      }
+
+      // === 执行主逻辑 ===
+      const result = await this.run(input, context);
+
+      // === PostAgent 钩子 (成功) ===
+      const postAgentHook = createPostAgentHook();
+      await postAgentHook({
+        sessionId,
+        runId,
+        input,
+        result,
+        error: null,
+        duration: Date.now() - startTime,
+        context: { eventBus: this.eventBus, stageApi: base },
+      });
+
+      return result;
+    } catch (err) {
+      // === PostAgent 钩子 (失败) ===
+      const postAgentHook = createPostAgentHook();
+      await postAgentHook({
+        sessionId,
+        runId,
+        input,
+        result: null,
+        error: err,
+        duration: Date.now() - startTime,
+        context: { eventBus: this.eventBus, stageApi: base },
+      });
+
+      throw err;
     } finally {
       try {
         executeController.abort("completed");

@@ -1,9 +1,27 @@
 import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
 
+/**
+ * Hook 实现类型 - 定义钩子如何执行
+ */
 export const HookType = Object.freeze({
   COMMAND: "command",
   PROMPT: "prompt",
   AGENT: "agent",
+});
+
+/**
+ * Hook 事件名常量 - 定义钩子触发时机
+ */
+export const HookEvent = Object.freeze({
+  // Agent 级别 (每次 execute 只执行一次)
+  PRE_AGENT: "PreAgent",
+  POST_AGENT: "PostAgent",
+  // LLM 级别 (每次 LLM 调用)
+  PRE_LLM_CALL: "PreLLMCall",
+  POST_LLM_CALL: "PostLLMCall",
+  // Tool 级别 (每次工具调用)
+  PRE_TOOL_USE: "PreToolUse",
+  POST_TOOL_USE: "PostToolUse",
 });
 
 /** @type {Set<string>} */

@@ -243,5 +243,87 @@ export function createPreToolUseHook(options = {}) {
   };
 }
 
-export default { createPreToolUseHook };
+/**
+ * Agent 级别 Hook - 请求入口拦截
+ *
+ * 用途：鉴权、速率限制、审计初始化
+ *
+ * @param {{ eventName?: string }} [options]
+ * @returns {(ctx: { sessionId?: string, runId?: string, input?: any, context: any }) => Promise<{ skip?: boolean, value?: any, reason?: string } | null>}
+ */
+export function createPreAgentHook(options = {}) {
+  const hookEventName = toNonEmptyString(options?.eventName) || "PreAgent";
+
+  return async ({ sessionId, runId, input, context }) => {
+    const eventBus = resolveEventBus(context);
+    const registry = getHookRegistry(eventBus);
+    if (!registry) return null;
+
+    const hooks = registry.list(hookEventName);
+    if (!hooks.length) return null;
+
+    for (const hook of hooks) {
+      const blocking = hook.blocking !== false;
+
+      // handler 模式：直接执行自定义函数
+      if (typeof hook.handler === "function") {
+        try {
+          const result = await hook.handler({ sessionId, runId, input, context });
+          if (result?.skip && blocking) {
+            const reason = toNonEmptyString(result.reason) || "PreAgent hook denied";
+            eventBus?.emit?.("agent.denied", { sessionId, runId, reason });
+            return { skip: true, value: result.value, reason };
+          }
+        } catch (err) {
+          if (blocking) {
+            const reason = `PreAgent hook error: ${err?.message || String(err)}`;
+            eventBus?.emit?.("agent.denied", { sessionId, runId, reason });
+            return { skip: true, reason };
+          }
+        }
+      }
+    }
+
+    return null;
+  };
+}
+
+/**
+ * Agent 级别 Hook - 请求结束处理
+ *
+ * 用途：用量上报、持久化、审计完成
+ *
+ * @param {{ eventName?: string }} [options]
+ * @returns {(ctx: { sessionId?: string, runId?: string, input?: any, result?: any, error?: Error, duration?: number, context: any }) => Promise<void>}
+ */
+export function createPostAgentHook(options = {}) {
+  const hookEventName = toNonEmptyString(options?.eventName) || "PostAgent";
+
+  return async ({ sessionId, runId, input, result, error, duration, context }) => {
+    const eventBus = resolveEventBus(context);
+    const registry = getHookRegistry(eventBus);
+    if (!registry) return;
+
+    const hooks = registry.list(hookEventName);
+    if (!hooks.length) return;
+
+    for (const hook of hooks) {
+      if (typeof hook.handler === "function") {
+        try {
+          await hook.handler({ sessionId, runId, input, result, error, duration, context });
+        } catch (err) {
+          // PostAgent 错误不阻塞，只记录
+          eventBus?.emit?.("agent.hook.error", {
+            sessionId,
+            runId,
+            hookEvent: hookEventName,
+            error: err?.message || String(err),
+          });
+        }
+      }
+    }
+  };
+}
+
+export default { createPreToolUseHook, createPreAgentHook, createPostAgentHook };
 
