@@ -19,6 +19,7 @@
 
 import * as LamportClockModule from './lamport-clock.js';
 import { LamportClock } from './lamport-clock.js';
+import { createLogger } from '../shared/utils/logger.js';
 
 /**
  * @typedef {import('./types.d.ts').EventBusOptions} CoreEventBusOptions
@@ -66,6 +67,7 @@ import { LamportClock } from './lamport-clock.js';
  */
 
 const SCHEMA_VERSION = '0.1';
+const logger = createLogger('core/event-bus');
 
 // ============================================================
 // 工具函数
@@ -1121,7 +1123,7 @@ export class EventBus {
     queueMicrotask(() => {
       try {
         const result = this._persistenceAdapter.appendEvents(events);
-        if (result?.then) result.catch(() => {});
+        if (result?.then) result.catch((err) => logger.warn("Event persistence error", { error: err.message }));
       } catch {}
     });
   }

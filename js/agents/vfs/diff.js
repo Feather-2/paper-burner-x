@@ -1,3 +1,5 @@
+import { isNodeLike } from "../shared/platform.js";
+
 function splitLines(text) {
   const s = typeof text === "string" ? text : String(text ?? "");
   const lines = s.split("\n");
@@ -207,13 +209,6 @@ export function createUnifiedDiff({ path = "file", beforeText = "", afterText = 
   }
 
   return { hunks, text: [...header, ...body].join("\n") + (body.length ? "\n" : "") };
-}
-
-/** @type {any} */
-const nodeProcess = /** @type {any} */ (globalThis).process;
-
-function isNodeLike() {
-  return !!nodeProcess && typeof nodeProcess === "object" && !!nodeProcess.versions?.node;
 }
 
 function canUseWorker() {

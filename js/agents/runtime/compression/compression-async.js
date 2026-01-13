@@ -8,14 +8,10 @@
  */
 
 import { createLogger } from "../../shared/utils/logger.js";
+import { isNodeLike } from "../../shared/platform.js";
 import { WorkerRpcClient } from "../core/worker-rpc.js";
 
 const logger = createLogger("runtime/compression/compression-async");
-
-function isNodeLike() {
-  const proc = /** @type {any} */ (globalThis).process;
-  return !!(proc && proc.versions && proc.versions.node);
-}
 
 function canUseWorker() {
   return !isNodeLike() && typeof Worker !== "undefined" && typeof URL !== "undefined";

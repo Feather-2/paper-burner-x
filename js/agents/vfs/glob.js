@@ -1,15 +1,9 @@
+import { isNodeLike } from "../shared/platform.js";
 import { normalizeVfsPath } from "./path.js";
 import { isScanWorkerAvailable, scanOpfsAsync } from "./vfs-scan-async.js";
 
-/** @type {any} */
-const nodeProcess = /** @type {any} */ (globalThis).process;
-
 function escapeRegExp(s) {
   return s.replace(/[\\^$+?.()|[\]{}]/g, "\\$&");
-}
-
-function isNodeLike() {
-  return !!nodeProcess && typeof nodeProcess === "object" && !!nodeProcess.versions?.node;
 }
 
 function canUseWorker() {

@@ -14,6 +14,7 @@
 import { validateArgs } from "./schema-validator.js";
 
 import { isPlainObject, toPositiveInt } from "../../shared/utils/value-utils.js";
+import { isNodeLike } from "../../shared/platform.js";
 import { createPreToolUseHook } from "../hooks/hook-runner.js";
 
 /**
@@ -540,9 +541,8 @@ export class ToolExecutor {
       const exportName = typeof workerConfig?.exportName === "string" ? workerConfig.exportName : null;
 
       if (moduleUrl) {
-        const isNode = !!(/** @type {any} */ (globalThis)).process?.versions?.node;
         const resolvedModuleUrl = resolveAndValidateWorkerModuleUrl(moduleUrl, {
-          isNode,
+          isNode: isNodeLike(),
           policy: workerConfig?.moduleUrlPolicy,
           allowedOrigins: workerConfig?.allowedOrigins,
           baseUrl: import.meta.url,
@@ -586,8 +586,7 @@ export class ToolExecutor {
   }
 
   async _executeInWorker(moduleUrl, exportName, args, context, timeoutMs) {
-    const isNode = !!(/** @type {any} */ (globalThis)).process?.versions?.node;
-    if (isNode) {
+    if (isNodeLike()) {
       return this._executeInNodeWorker(moduleUrl, exportName, args, context, timeoutMs);
     }
     return this._executeInWebWorker(moduleUrl, exportName, args, context, timeoutMs);

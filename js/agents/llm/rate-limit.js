@@ -1,6 +1,9 @@
 import { safeJsonParse } from "../shared/utils/safe-json.js";
+import { createLogger } from "../shared/utils/logger.js";
 
 import { isPlainObject } from "../shared/utils/value-utils.js";
+
+const logger = createLogger("llm/rate-limit");
 function isStorageLike(value) {
   return (
     value !== null &&
@@ -196,7 +199,7 @@ export class TokenBucketRateLimiter {
       this._pumpRequested = true;
       return;
     }
-    this._pump().catch(() => {});
+    this._pump().catch((err) => logger.warn("Pump error", { error: err.message }));
   }
 
   _refill(nowMs) {

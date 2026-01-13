@@ -5,6 +5,8 @@
  * - Browser: loads from a fetchable manifest (public/skills/manifest.json)
  */
 
+import { isNodeLike } from "../shared/platform.js";
+
 /**
  * @typedef {import("./model.js").SkillMetadata} SkillMetadata
  * @typedef {{ metadata: SkillMetadata, body: (string | null), supportFiles?: Record<string, string> }} SkillContent
@@ -24,17 +26,11 @@
  * @property {number} [maxManifestBytes] - Browser: max manifest size (bytes), Infinity to disable
  */
 
-const isNode =
-  /** @ts-ignore */
-  typeof process !== "undefined" &&
-  /** @ts-ignore */
-  !!process.versions?.node;
-
 let _implPromise = null;
 
 async function getImpl() {
   if (_implPromise) return _implPromise;
-  _implPromise = isNode
+  _implPromise = isNodeLike()
     ? import("./loader.node.js")
     : import("./loader.browser.js");
   return _implPromise;

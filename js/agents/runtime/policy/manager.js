@@ -3,6 +3,7 @@ import { PolicyEngine } from "./engine.js";
 import { PolicyRuleStore } from "./store.js";
 import { makeSecureTimestampedId } from "../../shared/utils/secure-id.js";
 
+import { isNodeLike } from "../../shared/platform.js";
 import { toNonEmptyString } from "../../shared/utils/value-utils.js";
 
 /**
@@ -56,11 +57,6 @@ import { toNonEmptyString } from "../../shared/utils/value-utils.js";
 /**
  * @typedef {(req: PolicyRequest, response?: ApprovalResponsePayload | null) => PolicyRule | null} DeriveRuleFn
  */
-
-function isNodeLike() {
-  const proc = /** @type {any} */ (globalThis).process;
-  return !!(proc && proc.versions && proc.versions.node);
-}
 
 function summarizeArgs(args) {
   if (args === null || args === undefined) return { kind: "null" };

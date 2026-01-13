@@ -68,6 +68,7 @@ export class WorkerRpcClient {
     this._createWorker = typeof createWorker === "function" ? createWorker : null;
     this._timeoutMs = timeoutMs;
     this._pending = new Map(); // id → { resolve, reject, timer }
+    this._disposed = false;
     this._boundOnMessage = this._onMessage.bind(this);
     this._boundOnError = this._onError.bind(this);
 
@@ -200,6 +201,10 @@ export class WorkerRpcClient {
    * @returns {Promise<any>}
    */
   call(method, params, options = {}) {
+    if (this._disposed) {
+      return Promise.reject(new Error("WorkerRpcClient is disposed"));
+    }
+
     const { timeoutMs = this._timeoutMs, signal, transferables } = options;
 
     // Validate method
@@ -290,6 +295,42 @@ export class WorkerRpcClient {
   }
 
   /**
+   * Dispose client and underlying worker
+   * - Rejects and clears all pending calls
+   * - Detaches listeners
+   * - Terminates worker if supported
+   */
+  dispose() {
+    if (this._disposed) return;
+    this._disposed = true;
+
+    const disposeError = new Error("WorkerRpcClient is disposed");
+
+    // Reject all pending calls (also removes AbortSignal listeners via cleanup)
+    for (const pending of Array.from(this._pending.values())) {
+      try {
+        pending.reject(disposeError);
+      } catch {
+        // ignore
+      }
+    }
+    this._pending.clear();
+
+    const worker = this._workerInstance;
+    if (worker) {
+      this._detachListeners(worker);
+      if (typeof worker.terminate === "function") {
+        try {
+          worker.terminate();
+        } catch {
+          // ignore terminate errors
+        }
+      }
+      this._workerInstance = null;
+    }
+  }
+
+  /**
    * Terminate worker
    * @param {string} [reason] - Reason for termination
    */
@@ -298,7 +339,9 @@ export class WorkerRpcClient {
 
     if (this._workerInstance) {
       this._detachListeners(this._workerInstance);
-      this._workerInstance.terminate();
+      if (typeof this._workerInstance.terminate === "function") {
+        this._workerInstance.terminate();
+      }
       this._workerInstance = null;
     }
 

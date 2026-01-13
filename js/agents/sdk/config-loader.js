@@ -11,9 +11,7 @@
  * 自定义系统指令内容...
  */
 
-function isNodeLike() {
-    return typeof process !== "undefined" && !!process.versions?.node;
-}
+import { isNodeLike } from "../shared/platform.js";
 
 /**
  * 解析 YAML frontmatter

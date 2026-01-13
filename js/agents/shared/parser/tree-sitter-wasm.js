@@ -2,13 +2,7 @@ let _initPromise = null;
 let _parserMod = null;
 
 import { isWasmSupported } from "../utils/wasm-support.js";
-
-/** @type {any} */
-const nodeProcess = /** @type {any} */ (globalThis).process;
-
-function isNodeLike() {
-  return !!nodeProcess && typeof nodeProcess === "object" && !!nodeProcess.versions?.node;
-}
+import { isNodeLike } from "../platform.js";
 
 function isWebRuntime() {
   if (isNodeLike()) return false;

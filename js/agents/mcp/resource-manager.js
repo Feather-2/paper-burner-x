@@ -1,8 +1,12 @@
 import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
 import { McpClient } from "./mcp-client.js";
 import { FallbackAdapter } from "../shared/archive/archive.js";
+import { isNodeLike } from "../shared/platform.js";
 import { safeJsonParse } from "../shared/utils/safe-json.js";
 import { canUseStorageEncryption, decryptString, encryptString, isEncryptedString } from "../shared/utils/storage-crypto.js";
+import { createLogger } from "../shared/utils/logger.js";
+
+const logger = createLogger("mcp/resource-manager");
 
 /**
  * @typedef {object} McpResourceDefinition
@@ -117,10 +121,6 @@ function normalizeEncryptionConfig(input) {
 
 function isAsyncStore(value) {
   return value !== null && typeof value === "object" && typeof value.get === "function" && typeof value.set === "function";
-}
-
-function isNodeLike() {
-  return typeof process !== "undefined" && !!process.versions?.node;
 }
 
 function hasIndexedDB() {
@@ -377,7 +377,7 @@ export class McpResourceManager {
         iterations: this.encryption.iterations,
       })
         .then((enc) => storeSetFireAndForget(store, RESOURCES_CACHE_KEY, enc))
-        .catch(() => {});
+        .catch((err) => logger.warn("Resource cache persist error", { error: err.message }));
       return true;
     }
 

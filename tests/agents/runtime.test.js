@@ -152,6 +152,90 @@ test("Runtime: JSRuntimeAdapter reports aborted when signal already aborted", as
   assert.equal(res.metrics?.aborted, true);
 });
 
+test("Runtime: WorkerRpcClient dispose rejects pending calls and detaches listeners", async () => {
+  const { WorkerRpcClient } = await import("../../js/agents/runtime/core/worker-rpc.js");
+
+  class SpyWorker {
+    constructor() {
+      this.listeners = { message: new Set(), error: new Set() };
+      this.postMessageCalls = [];
+      this.terminateCalls = 0;
+    }
+
+    addEventListener(type, fn) {
+      this.listeners[type]?.add(fn);
+    }
+
+    removeEventListener(type, fn) {
+      this.listeners[type]?.delete(fn);
+    }
+
+    postMessage(msg) {
+      this.postMessageCalls.push(msg);
+    }
+
+    terminate() {
+      this.terminateCalls += 1;
+    }
+  }
+
+  const worker = new SpyWorker();
+  const client = new WorkerRpcClient({ worker, timeoutMs: 1_000 });
+
+  const pending = client.call("hang", null, { timeoutMs: 1_000 });
+  client.dispose();
+
+  await assert.rejects(async () => pending, /disposed/i);
+  assert.equal(client.worker, null);
+  assert.equal(client._pending.size, 0);
+  assert.equal(worker.terminateCalls, 1);
+  assert.equal(worker.listeners.message.size, 0);
+  assert.equal(worker.listeners.error.size, 0);
+
+  await assert.rejects(async () => client.call("ping", {}), /disposed/i);
+  assert.equal(worker.postMessageCalls.length, 1);
+});
+
+test("Runtime: WorkerRpcClient dispose clears onmessage/onerror fallback path", async () => {
+  const { WorkerRpcClient } = await import("../../js/agents/runtime/core/worker-rpc.js");
+
+  const worker = {
+    postMessage() {},
+    terminate() {},
+    onmessage: null,
+    onerror: null,
+  };
+
+  const client = new WorkerRpcClient({ worker, timeoutMs: 100 });
+  assert.equal(typeof worker.onmessage, "function");
+  assert.equal(typeof worker.onerror, "function");
+
+  client.dispose();
+  assert.equal(worker.onmessage, null);
+  assert.equal(worker.onerror, null);
+});
+
+test("Runtime: WorkerRpcClient call rejects after dispose without creating worker", async () => {
+  const { WorkerRpcClient } = await import("../../js/agents/runtime/core/worker-rpc.js");
+
+  let created = 0;
+  const client = new WorkerRpcClient({
+    createWorker: () => {
+      created += 1;
+      return {
+        postMessage() {},
+        terminate() {},
+        addEventListener() {},
+        removeEventListener() {},
+      };
+    },
+  });
+
+  client.dispose();
+  await assert.rejects(async () => client.call("ping", {}), /disposed/i);
+  assert.equal(created, 0);
+});
+
 test("MCP: parseSseStream enforces default size limits", async () => {
   const { parseSseStream } = await import("../../js/agents/mcp/sse.js");
 

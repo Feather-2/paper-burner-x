@@ -1,14 +1,8 @@
+import { isNodeLike } from "../shared/platform.js";
 import MemoryVfs from "./vfs.memory.js";
 import { supportsOpfs, OpfsVfs } from "./vfs.opfs.js";
 import { createStorageAdapter } from "./storage-adapter.js";
 import { StorageVfs } from "./vfs.storage.js";
-
-/** @type {any} */
-const nodeProcess = /** @type {any} */ (globalThis).process;
-
-function isNodeLike() {
-  return !!nodeProcess && typeof nodeProcess === "object" && !!nodeProcess.versions?.node;
-}
 
 /**
  * Create a VFS implementation that works in both Browser and Node.

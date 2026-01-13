@@ -1,14 +1,8 @@
+import { isNodeLike } from "../shared/platform.js";
 import { normalizeVfsPath } from "./path.js";
 
 /** @type {any} */
-const nodeProcess = /** @type {any} */ (globalThis).process;
-
-/** @type {any} */
 const NodeBuffer = /** @type {any} */ (globalThis).Buffer;
-
-function isNodeLike() {
-  return !!nodeProcess && typeof nodeProcess === "object" && !!nodeProcess.versions?.node;
-}
 
 function joinFsPath(rootPath, vfsPath) {
   const root = String(rootPath || ".").replaceAll("\\", "/").replace(/\/+$/, "");

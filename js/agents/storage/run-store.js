@@ -380,7 +380,7 @@ export class RunStore {
           reason: "quota_low",
         })
       )
-      .catch(() => {})
+      .catch((err) => logger.warn("Store cleanup error", { error: err.message }))
       .finally(() => {
         this._cleanupPromise = null;
         this._lastCleanupMs = Date.now();

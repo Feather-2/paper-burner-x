@@ -3,6 +3,9 @@ import { TransportKind } from "./constants.js";
 import { consumeSseJson } from "./sse.js";
 
 import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
+import { createLogger } from "../shared/utils/logger.js";
+
+const logger = createLogger("mcp/mcp-nexus-provider");
 
 /**
  * @typedef {object} McpNexusProviderOptions
@@ -578,7 +581,7 @@ export class McpNexusProvider extends McpProvider {
         if (connected) continue;
       }
     })()
-      .catch(() => { })
+      .catch((err) => logger.debug("Nexus cleanup error", { error: err.message }))
       .finally(() => {
         if (state.controller === controller) {
           state.controller = null;

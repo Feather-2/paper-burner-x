@@ -2,9 +2,7 @@ import { RunStore, RunStoreConstants } from "./run-store.js";
 import { createManifest, SUPPORTED_ARTIFACT_TYPES } from "./artifact-manager.js";
 
 import { isPlainObject } from "../shared/utils/value-utils.js";
-function isNodeLike() {
-  return typeof process !== "undefined" && !!process.versions?.node;
-}
+import { isNodeLike } from "../shared/platform.js";
 
 async function getJSZip() {
   if (globalThis.JSZip) return globalThis.JSZip;

@@ -1,4 +1,8 @@
 import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
+import { isNodeLike } from "../shared/platform.js";
+import { createLogger } from "../shared/utils/logger.js";
+
+const logger = createLogger("skills/user-store");
 
 const INDEX_KEY = "paperburner_user_skills_index_v1";
 const BODY_PREFIX = "paperburner_user_skills_body_v1:";
@@ -12,11 +16,6 @@ function hasLocalStorage() {
   } catch {
     return false;
   }
-}
-
-function isNodeLike() {
-  const nodeProcess = /** @type {any} */ (globalThis).process;
-  return !!nodeProcess?.versions?.node;
 }
 
 function hasIndexedDB() {
@@ -351,11 +350,11 @@ export function listUserSkills() {
 
 export function loadUserSkillsIndex() {
   if (shouldUseIndexedDB()) {
-    if (!_initDone) void initUserSkillStore().catch(() => {});
+    if (!_initDone) void initUserSkillStore().catch((err) => logger.debug("User store error", { error: err?.message }));
     return normalizeIndex(MEMORY.index);
   }
   if (_encryptionConfig.enabled) {
-    if (!_initDone) void initUserSkillStore().catch(() => {});
+    if (!_initDone) void initUserSkillStore().catch((err) => logger.debug("User store error", { error: err?.message }));
     return normalizeIndex(MEMORY.index);
   }
   if (!hasLocalStorage()) return normalizeIndex(MEMORY.index);
@@ -376,9 +375,9 @@ export function saveUserSkillsIndex(index) {
         if (!db) return;
         const enc = await encryptIfNeeded(JSON.stringify(normalized));
         await idbSet(db, INDEX_KEY, enc);
-      })().catch(() => {});
+      })().catch((err) => logger.debug("User store error", { error: err?.message }));
     } else {
-      void openUserSkillsDb().then((db) => idbSet(db, INDEX_KEY, normalized)).catch(() => {});
+      void openUserSkillsDb().then((db) => idbSet(db, INDEX_KEY, normalized)).catch((err) => logger.debug("User store error", { error: err?.message }));
     }
     return true;
   }
@@ -396,7 +395,7 @@ export function saveUserSkillsIndex(index) {
           // ignore
         }
       })
-      .catch(() => {});
+      .catch((err) => logger.debug("User store error", { error: err?.message }));
   } else {
     localStorage.setItem(INDEX_KEY, JSON.stringify(normalized));
   }
@@ -407,11 +406,11 @@ export function getUserSkillBody(name) {
   const id = toNonEmptyString(name);
   if (!id) return "";
   if (shouldUseIndexedDB()) {
-    if (!_initDone) void initUserSkillStore().catch(() => {});
+    if (!_initDone) void initUserSkillStore().catch((err) => logger.debug("User store error", { error: err?.message }));
     return String(MEMORY.bodies.get(id) || "");
   }
   if (_encryptionConfig.enabled) {
-    if (!_initDone) void initUserSkillStore().catch(() => {});
+    if (!_initDone) void initUserSkillStore().catch((err) => logger.debug("User store error", { error: err?.message }));
     return String(MEMORY.bodies.get(id) || "");
   }
   if (!hasLocalStorage()) return String(MEMORY.bodies.get(id) || "");
@@ -431,9 +430,9 @@ export function setUserSkillBody(name, body) {
         if (!db) return;
         const enc = await encryptIfNeeded(text);
         await idbSet(db, BODY_PREFIX + id, enc);
-      })().catch(() => {});
+      })().catch((err) => logger.debug("User store error", { error: err?.message }));
     } else {
-      void openUserSkillsDb().then((db) => idbSet(db, BODY_PREFIX + id, text)).catch(() => {});
+      void openUserSkillsDb().then((db) => idbSet(db, BODY_PREFIX + id, text)).catch((err) => logger.debug("User store error", { error: err?.message }));
     }
     return true;
   }
@@ -451,7 +450,7 @@ export function setUserSkillBody(name, body) {
           // ignore
         }
       })
-      .catch(() => {});
+      .catch((err) => logger.debug("User store error", { error: err?.message }));
   } else {
     localStorage.setItem(BODY_PREFIX + id, text);
   }
@@ -513,7 +512,7 @@ export function deleteUserSkill(name) {
   MEMORY.bodies.delete(id);
 
   if (shouldUseIndexedDB()) {
-    void openUserSkillsDb().then((db) => idbDelete(db, BODY_PREFIX + id)).catch(() => {});
+    void openUserSkillsDb().then((db) => idbDelete(db, BODY_PREFIX + id)).catch((err) => logger.debug("User store error", { error: err?.message }));
     return true;
   }
 

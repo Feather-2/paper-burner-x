@@ -7,6 +7,9 @@
 
 import { WasmSandbox } from './wasm-sandbox.js';
 import { SandboxPreset, ResourceLimits } from './constants.js';
+import { createLogger } from "../../shared/utils/logger.js";
+
+const logger = createLogger("core/sandbox/pool");
 
 /**
  * SandboxPool - 沙箱对象池
@@ -101,7 +104,10 @@ export class SandboxPool {
     this._draining = true;
     Promise.resolve()
       .then(() => this._drainWaitQueue())
-      .catch(() => { })
+      .catch((err) => {
+        logger.error("SandboxPool drain failed", { error: err?.message, stack: err?.stack });
+        this._rejectAllWaiters(err);
+      })
       .finally(() => {
         this._draining = false;
         if (!this._disposed && this._waitQueue.length && this._inUseCount < this.maxActive) {
@@ -110,53 +116,81 @@ export class SandboxPool {
       });
   }
 
+  _rejectAllWaiters(err) {
+    const waiters = this._waitQueue.splice(0, this._waitQueue.length);
+    if (!waiters.length) return;
+
+    const error = err instanceof Error ? err : new Error(err ? String(err) : "SandboxPool drain failed");
+    for (const waiter of waiters) {
+      try {
+        waiter?.reject?.(error);
+      } catch {
+        // ignore
+      }
+    }
+  }
+
   async _drainWaitQueue() {
     while (!this._disposed && this._waitQueue.length && this._inUseCount < this.maxActive) {
       const waiter = this._waitQueue.shift();
       if (!waiter) break;
 
       const { key, options, resolve, reject } = waiter;
-      const capabilities = options?.capabilities || this.defaultCapabilities;
-      const limits = options?.limits || this.defaultLimits;
 
       let sandbox = null;
-      const pool = this._pools.get(key);
-      if (pool && pool.length > 0) {
-        const entry = pool.pop();
-        clearTimeout(entry.timeoutId);
-        sandbox = entry.sandbox;
-      }
-
-      if (!sandbox) {
-        sandbox = new WasmSandbox({
-          capabilities,
-          limits,
-          state: options?.state,
-          onLog: options?.onLog,
-          onEmit: options?.onEmit,
-        });
-        this._totalCount++;
-      }
-
-      sandbox.recycle({
-        state: options?.state || {},
-        onLog: options?.onLog || (() => {}),
-        onEmit: options?.onEmit || (() => {}),
-        limits,
-      });
-
+      let removedFromPool = false;
       try {
+        const capabilities = options?.capabilities || this.defaultCapabilities;
+        const limits = options?.limits || this.defaultLimits;
+
+        const pool = this._pools.get(key);
+        if (pool && pool.length > 0) {
+          const entry = pool.pop();
+          clearTimeout(entry.timeoutId);
+          sandbox = entry.sandbox;
+          removedFromPool = true;
+        }
+
+        if (!sandbox) {
+          sandbox = new WasmSandbox({
+            capabilities,
+            limits,
+            state: options?.state,
+            onLog: options?.onLog,
+            onEmit: options?.onEmit,
+          });
+          this._totalCount++;
+        }
+
+        sandbox.recycle({
+          state: options?.state || {},
+          onLog: options?.onLog || (() => {}),
+          onEmit: options?.onEmit || (() => {}),
+          limits,
+        });
+
         await sandbox.init();
         this._inUseCount++;
         resolve(sandbox);
       } catch (err) {
+        // Ensure the popped waiter never hangs on unexpected errors (e.g. recycle/create failures).
         try {
-          sandbox.dispose();
+          reject(err);
         } catch {
           // ignore
         }
-        this._totalCount = Math.max(0, this._totalCount - 1);
-        reject(err);
+
+        if (sandbox) {
+          try {
+            sandbox.dispose();
+          } catch {
+            // ignore
+          }
+          // If the sandbox existed (created or from pool), ensure total count reflects disposal.
+          if (removedFromPool || sandbox) {
+            this._totalCount = Math.max(0, this._totalCount - 1);
+          }
+        }
       }
     }
   }

@@ -7,6 +7,7 @@
 import { createLogger } from "../shared/utils/logger.js";
 
 import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
+import { isNodeLike } from "../shared/platform.js";
 const logger = createLogger("prompts/prompt-loader");
 
 function getNodeProcess() {
@@ -78,11 +79,6 @@ const PROMPT_CACHE_KEY_SEPARATOR = "::";
 
 const DEFAULT_MAX_MANIFEST_BYTES = 512 * 1024; // 512 KiB
 const DEFAULT_MAX_PROMPT_BYTES = 2 * 1024 * 1024; // 2 MiB
-
-function isNodeLike() {
-  const nodeProcess = getNodeProcess();
-  return !!nodeProcess && typeof nodeProcess === "object" && !!nodeProcess.versions?.node;
-}
 
 function normalizeMaxBytes(value, fallback) {
   if (value === Infinity) return Infinity;

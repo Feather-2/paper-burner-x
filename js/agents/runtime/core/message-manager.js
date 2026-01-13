@@ -8,10 +8,13 @@
  */
 
 import { estimateTokensCached } from "../../shared/utils/token-cache.js";
+import { createLogger } from "../../shared/utils/logger.js";
 import { getGlobalTokenCounter } from "../../shared/tokenizers/adaptive-token-counter.js";
 import { CompressionCoordinator } from "../compression/coordinator.js";
 import { DEFAULT_CONTEXT_CONFIG } from "./context-config.js";
 import { wrapPersistedOutput, cleanOldPersistedOutputs, KEEP_RECENT_OUTPUTS } from "./persisted-output.js";
+
+const fallbackLogger = createLogger("runtime/core/message-manager");
 
 /**
  * @typedef {Record<string, any>} AnyRecord
@@ -240,13 +243,16 @@ export class MessageManager {
     queueMicrotask(() => {
       Promise.resolve()
         .then(() => this._compress())
-        .catch(() => {})
+        .catch((err) => {
+          const logger = this._logger && typeof this._logger.warn === "function" ? this._logger : fallbackLogger;
+          logger.warn("Message compression error", { error: String(err?.message || err) });
+        })
         .finally(() => {
           this._lastCompressionAtMs = Date.now();
           this._compressionPending = false;
           if (this._compressionPromise === done) this._compressionPromise = null;
           resolve?.();
-      });
+        });
     });
   }
 
@@ -268,7 +274,10 @@ export class MessageManager {
       this._compressionPending = true;
       const p = Promise.resolve()
         .then(() => this._compress())
-        .catch(() => {})
+        .catch((err) => {
+          const logger = this._logger && typeof this._logger.warn === "function" ? this._logger : fallbackLogger;
+          logger.warn("Message compression error", { error: String(err?.message || err) });
+        })
         .finally(() => {
           this._lastCompressionAtMs = Date.now();
           this._compressionPending = false;

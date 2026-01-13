@@ -1,4 +1,7 @@
 import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { createLogger } from "../../shared/utils/logger.js";
+
+const logger = createLogger("runtime/telemetry/runstore-telemetry");
 
 function ensureEventBus(eventBus) {
   if (!eventBus || typeof eventBus.on !== "function") {
@@ -75,7 +78,7 @@ export function subscribeTelemetry(eventBus, runStore, options = {}) {
 
     const runId = toNonEmptyString(evt?.runId) || toNonEmptyString(bus?.runId);
     if (!runId) return;
-    pending = pending.then(() => store.appendEvent(runId, evt)).catch(() => {});
+    pending = pending.then(() => store.appendEvent(runId, evt)).catch((err) => logger.warn("Telemetry append error", { error: err.message }));
   };
 
   const unsubscribe = bus.on("*", handler);
