@@ -10,7 +10,6 @@
 | `hook-registry.js` | HookRegistry - 钩子注册表，HookType/HookEvent 常量 |
 | `hook-runner.js` | 钩子工厂函数 (createPreToolUseHook/createPreAgentHook/createPostAgentHook) |
 | `event-bus-hooks.js` | EventBus 钩子增强 |
-| `middleware-chain.js` | **已废弃** - 重导出 `../middleware/middleware-chain.js` |
 
 ## 钩子工厂函数
 
@@ -160,18 +159,4 @@ enhancedBus.registerHook('PreAgent', {
   handler: async (ctx) => { ... }
 });
 ```
-
-## MiddlewareChain
-
-> **注意**: MiddlewareChain 已统一到 `runtime/middleware/middleware-chain.js`，此处保留向后兼容导出。
-
-```javascript
-// 推荐：直接从 middleware/ 导入
-import { MiddlewareChain, Stage } from 'js/agents/runtime/middleware/middleware-chain.js';
-
-// 向后兼容：从 hooks/ 导入仍可用
-import { MiddlewareChain, Stage } from 'js/agents/runtime/hooks';
-```
-
-详细文档见 `runtime/middleware/CLAUDE.md`。
 
