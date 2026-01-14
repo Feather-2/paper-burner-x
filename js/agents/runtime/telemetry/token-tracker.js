@@ -2,6 +2,8 @@ import { cryptoRandomHex } from "../../shared/utils/secure-id.js";
 import { toNonNegativeInt } from "../../shared/utils/value-utils.js";
 import { getGlobalContainer } from "../di/global-container.js";
 
+const MAX_RECORDS = 500;
+
 /**
  * Token Tracker - LLM 调用 Token 使用率实时追踪
  *
@@ -39,15 +41,17 @@ function generateId() {
 export class TokenTracker {
   /**
    * @param {object} options
-   * @param {number} [options.maxRecords=10000] - 最大记录数
+   * @param {number} [options.maxRecords=500] - 最大记录数
    * @param {function} [options.onRecord] - 记录回调
    */
-  constructor({ maxRecords = 10000, onRecord = null } = {}) {
-    this.maxRecords = toNonNegativeInt(maxRecords, 10000);
+  constructor({ maxRecords = MAX_RECORDS, onRecord = null } = {}) {
+    this.maxRecords = Math.min(toNonNegativeInt(maxRecords, MAX_RECORDS), MAX_RECORDS);
     this.onRecord = typeof onRecord === "function" ? onRecord : null;
 
-    /** @type {TokenUsageRecord[]} */
-    this._records = [];
+    /** @type {Array<TokenUsageRecord | undefined>} */
+    this._records = this.maxRecords > 0 ? new Array(this.maxRecords) : [];
+    this._head = 0;
+    this._size = 0;
 
     // 聚合统计
     this._stats = {
@@ -107,12 +111,7 @@ export class TokenTracker {
     };
 
     // 添加到记录列表
-    this._records.push(record);
-
-    // 限制记录数
-    if (this._records.length > this.maxRecords) {
-      this._records.shift();
-    }
+    this._pushRecord(record);
 
     // 更新聚合统计
     this._updateStats(record);
@@ -123,6 +122,18 @@ export class TokenTracker {
     }
 
     return record;
+  }
+
+  /**
+   * Ring buffer push (overwrites oldest when full).
+   * @param {TokenUsageRecord} record
+   */
+  _pushRecord(record) {
+    if (this.maxRecords <= 0) return;
+
+    this._records[this._head] = record;
+    this._head = (this._head + 1) % this.maxRecords;
+    if (this._size < this.maxRecords) this._size++;
   }
 
   /**
@@ -216,15 +227,41 @@ export class TokenTracker {
    * @param {number} [limit=100]
    */
   getRecentRecords(limit = 100) {
-    const n = Math.min(toNonNegativeInt(limit, 100), this._records.length);
-    return this._records.slice(-n);
+    const n = Math.min(toNonNegativeInt(limit, 100), this._size);
+    if (n <= 0 || this.maxRecords <= 0) return [];
+
+    const out = new Array(n);
+    const start = (this._head - n + this.maxRecords) % this.maxRecords;
+    for (let i = 0; i < n; i++) {
+      out[i] = this._records[(start + i) % this.maxRecords];
+    }
+    return out;
   }
 
   /**
    * 获取所有记录
    */
   getAllRecords() {
-    return this._records.slice();
+    if (this._size === 0 || this.maxRecords <= 0) return [];
+
+    const out = new Array(this._size);
+    const start = (this._head - this._size + this.maxRecords) % this.maxRecords;
+    for (let i = 0; i < this._size; i++) out[i] = this._records[(start + i) % this.maxRecords];
+    return out;
+  }
+
+  /**
+   * Compatibility alias.
+   */
+  getRecords() {
+    return this.getAllRecords();
+  }
+
+  /**
+   * Compatibility alias.
+   */
+  getTotalTokens() {
+    return this._stats.totalTokens;
   }
 
   /**
@@ -234,7 +271,7 @@ export class TokenTracker {
     return JSON.stringify({
       exportedAt: new Date().toISOString(),
       summary: this.getSummary(),
-      records: this._records,
+      records: this.getAllRecords(),
     }, null, 2);
   }
 
@@ -258,7 +295,7 @@ export class TokenTracker {
 
     const rows = [headers.join(",")];
 
-    for (const r of this._records) {
+    for (const r of this.getAllRecords()) {
       const row = [
         r.id,
         new Date(r.timestamp).toISOString(),
@@ -282,7 +319,9 @@ export class TokenTracker {
    * 清空所有记录和统计
    */
   clear() {
-    this._records = [];
+    this._records = this.maxRecords > 0 ? new Array(this.maxRecords) : [];
+    this._head = 0;
+    this._size = 0;
     this._stats = {
       totalCalls: 0,
       successCalls: 0,
@@ -303,7 +342,7 @@ export class TokenTracker {
    * @param {number} endMs - 结束时间 (Unix ms)
    */
   getRecordsInRange(startMs, endMs) {
-    return this._records.filter(
+    return this.getAllRecords().filter(
       (r) => r.timestamp >= startMs && r.timestamp <= endMs
     );
   }
@@ -313,7 +352,7 @@ export class TokenTracker {
    */
   getRecordsByModel(model) {
     const m = String(model).toLowerCase();
-    return this._records.filter((r) => r.model.toLowerCase() === m);
+    return this.getAllRecords().filter((r) => r.model.toLowerCase() === m);
   }
 
   /**
@@ -321,7 +360,7 @@ export class TokenTracker {
    */
   getRecordsByUsage(usage) {
     const u = String(usage).toLowerCase();
-    return this._records.filter((r) => r.usage.toLowerCase() === u);
+    return this.getAllRecords().filter((r) => r.usage.toLowerCase() === u);
   }
 }
 
