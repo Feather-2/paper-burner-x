@@ -14,6 +14,7 @@ import { isPlainObject, toNonEmptyString, deepClone } from "../../shared/utils/v
 import { estimateTokensCached } from "../../shared/utils/token-cache.js";
 import { getGlobalTokenCounter } from "../../shared/tokenizers/adaptive-token-counter.js";
 import { makeSecureTimestampedId } from "../../shared/utils/secure-id.js";
+import { Platform } from "../../shared/platform.js";
 
 import { diffLayers } from "./state-diff.js";
 import { RetrievalEngine } from "./retrieval-engine.js";
@@ -56,7 +57,22 @@ const DEFAULT_CONFIG = Object.freeze({
   keepLastTurns: 6,
   compressThreshold: 0.8,
   contextWindow: 128000,
+  // L3 归档/检查点总上限：浏览器 5GB，Node/Bun/Deno 无限制
+  maxL3Bytes: Platform.isBrowser ? 5 * 1024 * 1024 * 1024 : Infinity,
 });
+
+// 估算对象字节大小（粗略）
+function estimateBytes(obj) {
+  if (obj === null || obj === undefined) return 0;
+  if (typeof obj === "string") return obj.length * 2; // UTF-16
+  if (typeof obj === "number") return 8;
+  if (typeof obj === "boolean") return 4;
+  try {
+    return JSON.stringify(obj).length * 2;
+  } catch {
+    return 1024; // fallback
+  }
+}
 
 function estimateTokensValue(text, tokenCounter) {
   if (text === null || text === undefined) return 0;
@@ -132,6 +148,9 @@ export class UnifiedMemoryStore {
       L3: false,
     };
     this._lastSnapshotTs = 0;
+
+    // L3 字节使用统计
+    this._l3BytesUsed = 0;
 
     // Keep dirty flags in sync with state changes.
     this._unsubscribeEngine = this._engine.subscribe((action, prevState, nextState) => {
@@ -585,6 +604,16 @@ export class UnifiedMemoryStore {
   // ─────────────────────────────────────────────────────────────────────────────
 
   archive(stageKey, data, keywords = []) {
+    // 估算即将添加的条目大小并确保容量
+    const entry = {
+      stageKey,
+      data,
+      summary: data?.summary || (typeof data === "object" ? JSON.stringify(data).slice(0, 200) : String(data).slice(0, 200)),
+      ts: Date.now(),
+    };
+    const entryBytes = estimateBytes(entry);
+    this._ensureL3Capacity(entryBytes);
+
     const prevLen = Array.isArray(this._getStateRef().L3?.index?.timeline) ? this._getStateRef().L3.index.timeline.length : 0;
     this.dispatchSync({ type: L3_ARCHIVE, payload: { stageKey, data, keywords } });
     const timeline = Array.isArray(this._getStateRef().L3?.index?.timeline) ? this._getStateRef().L3.index.timeline : [];
@@ -592,6 +621,8 @@ export class UnifiedMemoryStore {
     const id = toNonEmptyString(last?.id);
     if (id) {
       const snap = this._getStateRef().L3?.snapshots?.[id] || null;
+      // 更新字节统计
+      this._l3BytesUsed += estimateBytes(snap || entry);
       this._emit("memory.archived", { id, stageKey: last?.stageKey || stageKey || null, summary: snap?.summary || last?.summary, ts: last?.ts });
     }
     // No-op: keep API compatible even if archive didn't change state.
@@ -682,7 +713,11 @@ export class UnifiedMemoryStore {
       if (last?.id) snapshot.baseId = last.id;
     }
 
+    const snapshotBytes = estimateBytes(snapshot);
+    this._ensureL3Capacity(snapshotBytes);
+
     this.dispatchSync({ type: L3_ADD_CHECKPOINT, payload: { checkpoint: deepClone(snapshot) } });
+    this._l3BytesUsed += snapshotBytes;
     this._clearDirty();
     return id;
   }
@@ -1055,9 +1090,31 @@ export class UnifiedMemoryStore {
     }
 
     this._engine.restoreSnapshot({ state: nextState, clock: this.getClockValue(), ts: Date.now() });
+
+    // 重算 L3 字节使用量
+    this._recalculateL3Bytes();
+
     this._clearDirty();
     this._updateTokenUsage();
     return true;
+  }
+
+  /**
+   * 重新计算 L3 字节使用量
+   * @private
+   */
+  _recalculateL3Bytes() {
+    const s = this._getStateRef();
+    let total = 0;
+    const snapshots = s.L3?.snapshots || {};
+    for (const entry of Object.values(snapshots)) {
+      total += estimateBytes(entry);
+    }
+    const checkpoints = Array.isArray(s.L3?.checkpoints) ? s.L3.checkpoints : [];
+    for (const ckpt of checkpoints) {
+      total += estimateBytes(ckpt);
+    }
+    this._l3BytesUsed = total;
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -1216,6 +1273,106 @@ export class UnifiedMemoryStore {
 
   _hasAnyDirty() {
     return Boolean(this._dirty.L0 || this._dirty.L1 || this._dirty.L2 || this._dirty.L3);
+  }
+
+  /**
+   * 淘汰最旧的快照
+   * @private
+   */
+  _evictOldestSnapshot() {
+    const s = this._getStateRef();
+    const timeline = Array.isArray(s.L3?.index?.timeline) ? s.L3.index.timeline : [];
+    if (timeline.length === 0) return;
+
+    const oldest = timeline[0];
+    if (!oldest?.id) return;
+
+    const snapshots = s.L3?.snapshots || {};
+    const entry = snapshots[oldest.id];
+    if (entry) {
+      this._l3BytesUsed -= estimateBytes(entry);
+    }
+
+    // 构建新的 L3 状态
+    const newSnapshots = { ...snapshots };
+    delete newSnapshots[oldest.id];
+
+    const newTimeline = timeline.slice(1);
+
+    const newKeywords = {};
+    const oldKeywords = s.L3?.index?.keywords || {};
+    for (const [kw, ids] of Object.entries(oldKeywords)) {
+      const filtered = Array.isArray(ids) ? ids.filter((id) => id !== oldest.id) : [];
+      if (filtered.length > 0) newKeywords[kw] = filtered;
+    }
+
+    // 通过 restoreSnapshot 更新状态
+    const prev = this._getStateRef();
+    const nextState = {
+      ...prev,
+      L3: {
+        ...prev.L3,
+        snapshots: newSnapshots,
+        index: {
+          ...prev.L3?.index,
+          keywords: newKeywords,
+          timeline: newTimeline,
+        },
+      },
+    };
+    this._engine.restoreSnapshot({ state: nextState, clock: this.getClockValue(), ts: Date.now() });
+  }
+
+  /**
+   * 淘汰最旧的检查点
+   * @private
+   */
+  _evictOldestCheckpoint() {
+    const s = this._getStateRef();
+    const checkpoints = Array.isArray(s.L3?.checkpoints) ? s.L3.checkpoints : [];
+    if (checkpoints.length === 0) return;
+
+    const oldest = checkpoints[0];
+    if (oldest) {
+      this._l3BytesUsed -= estimateBytes(oldest);
+    }
+
+    // 通过 restoreSnapshot 更新状态
+    const prev = this._getStateRef();
+    const nextState = {
+      ...prev,
+      L3: {
+        ...prev.L3,
+        checkpoints: checkpoints.slice(1),
+      },
+    };
+    this._engine.restoreSnapshot({ state: nextState, clock: this.getClockValue(), ts: Date.now() });
+  }
+
+  /**
+   * 确保 L3 有足够容量
+   * @param {number} incomingBytes
+   * @private
+   */
+  _ensureL3Capacity(incomingBytes) {
+    const maxBytes = this.config.maxL3Bytes;
+    if (!Number.isFinite(maxBytes) || maxBytes <= 0) return;
+
+    const s = this._getStateRef();
+
+    // 优先淘汰 snapshots（摘要，重要性较低）
+    let timeline = Array.isArray(s.L3?.index?.timeline) ? s.L3.index.timeline : [];
+    while (this._l3BytesUsed + incomingBytes > maxBytes && timeline.length > 0) {
+      this._evictOldestSnapshot();
+      timeline = Array.isArray(this._getStateRef().L3?.index?.timeline) ? this._getStateRef().L3.index.timeline : [];
+    }
+
+    // 其次淘汰 checkpoints（保留更多，因为可能被 backtrack 依赖）
+    let checkpoints = Array.isArray(this._getStateRef().L3?.checkpoints) ? this._getStateRef().L3.checkpoints : [];
+    while (this._l3BytesUsed + incomingBytes > maxBytes && checkpoints.length > 1) {
+      this._evictOldestCheckpoint();
+      checkpoints = Array.isArray(this._getStateRef().L3?.checkpoints) ? this._getStateRef().L3.checkpoints : [];
+    }
   }
 
   _emit(name, payload) {

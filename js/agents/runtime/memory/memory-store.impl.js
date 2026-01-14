@@ -12,6 +12,7 @@ import { isPlainObject, toNonEmptyString, deepClone } from "../../shared/utils/v
 import { estimateTokensCached } from "../../shared/utils/token-cache.js";
 import { getGlobalTokenCounter } from "../../shared/tokenizers/adaptive-token-counter.js";
 import { makeSecureTimestampedId } from "../../shared/utils/secure-id.js";
+import { Platform } from "../../shared/platform.js";
 import { RetrievalEngine } from "./retrieval-engine.js";
 import { normalizeTodoEntry, normalizeTodoInPlace, normalizeTodoStatus } from "./todo-normalize.js";
 
@@ -23,7 +24,22 @@ const DEFAULT_CONFIG = Object.freeze({
   keepLastTurns: 6,       // 压缩时保留最近轮数
   compressThreshold: 0.8, // 触发压缩的填充率
   contextWindow: 128000,  // 上下文窗口大小
+  // L3 归档/检查点总上限：浏览器 5GB，Node/Bun/Deno 无限制
+  maxL3Bytes: Platform.isBrowser ? 5 * 1024 * 1024 * 1024 : Infinity,
 });
+
+// 估算对象字节大小（粗略）
+function estimateBytes(obj) {
+  if (obj === null || obj === undefined) return 0;
+  if (typeof obj === "string") return obj.length * 2; // UTF-16
+  if (typeof obj === "number") return 8;
+  if (typeof obj === "boolean") return 4;
+  try {
+    return JSON.stringify(obj).length * 2;
+  } catch {
+    return 1024; // fallback
+  }
+}
 
 // Token 估算 (4 chars ≈ 1 token)
 function estimateTokens(text, tokenCounter) {
@@ -126,6 +142,9 @@ export class MemoryStore {
       compressionCount: 0,
       recallCount: 0,
     };
+
+    // L3 字节使用统计
+    this._l3BytesUsed = 0;
 
     // Dirty tracking for incremental snapshots
     this._dirty = {
@@ -618,6 +637,60 @@ export class MemoryStore {
 
   // ===== L3: Archive =====
 
+  /**
+   * 淘汰最老的 snapshot 以释放空间
+   * @private
+   */
+  _evictOldestSnapshot() {
+    const timeline = this._L3.index.timeline;
+    if (timeline.length === 0) return;
+
+    const oldest = timeline.shift();
+    if (!oldest?.id) return;
+
+    const entry = this._L3.snapshots.get(oldest.id);
+    if (entry) {
+      this._l3BytesUsed -= estimateBytes(entry);
+      this._L3.snapshots.delete(oldest.id);
+    }
+
+    // 清理关键词索引
+    for (const [, idSet] of this._L3.index.keywords) {
+      idSet.delete(oldest.id);
+    }
+  }
+
+  /**
+   * 淘汰最老的 checkpoint 以释放空间
+   * @private
+   */
+  _evictOldestCheckpoint() {
+    if (this._L3.checkpoints.length === 0) return;
+    const oldest = this._L3.checkpoints.shift();
+    if (oldest) {
+      this._l3BytesUsed -= estimateBytes(oldest);
+    }
+  }
+
+  /**
+   * 确保 L3 字节使用在限制内
+   * @private
+   * @param {number} incomingBytes - 即将添加的字节数
+   */
+  _ensureL3Capacity(incomingBytes) {
+    const maxBytes = this.config.maxL3Bytes;
+    if (!Number.isFinite(maxBytes) || maxBytes <= 0) return;
+
+    // 优先淘汰 snapshots（摘要，重要性较低）
+    while (this._l3BytesUsed + incomingBytes > maxBytes && this._L3.index.timeline.length > 0) {
+      this._evictOldestSnapshot();
+    }
+    // 其次淘汰 checkpoints（保留更多，因为可能被 backtrack 依赖）
+    while (this._l3BytesUsed + incomingBytes > maxBytes && this._L3.checkpoints.length > 1) {
+      this._evictOldestCheckpoint();
+    }
+  }
+
   archive(stageKey, data, keywords = []) {
     const id = genId("snap");
     const entry = {
@@ -628,8 +701,12 @@ export class MemoryStore {
       ts: Date.now(),
     };
 
+    const entryBytes = estimateBytes(entry);
+    this._ensureL3Capacity(entryBytes);
+
     // 存储
     this._L3.snapshots.set(id, entry);
+    this._l3BytesUsed += entryBytes;
     this._markDirty("L3");
 
     // 建立关键词索引
@@ -750,7 +827,11 @@ export class MemoryStore {
       if (lastCkpt) snapshot.baseId = lastCkpt.id;
     }
 
+    const snapshotBytes = estimateBytes(snapshot);
+    this._ensureL3Capacity(snapshotBytes);
+
     this._L3.checkpoints.push(snapshot);
+    this._l3BytesUsed += snapshotBytes;
     this._clearDirty(); // Reset dirty flags after checkpoint
     return id;
   }
@@ -1287,10 +1368,28 @@ export class MemoryStore {
       this._stats = { ...this._stats, ...s.stats };
     }
 
+    // 重算 L3 字节使用量
+    this._recalculateL3Bytes();
+
     // Clear dirty flags after restore (state is now in sync)
     this._clearDirty();
     this._updateTokenUsage();
     return true;
+  }
+
+  /**
+   * 重新计算 L3 字节使用量
+   * @private
+   */
+  _recalculateL3Bytes() {
+    let total = 0;
+    for (const entry of this._L3.snapshots.values()) {
+      total += estimateBytes(entry);
+    }
+    for (const ckpt of this._L3.checkpoints) {
+      total += estimateBytes(ckpt);
+    }
+    this._l3BytesUsed = total;
   }
 }
 
