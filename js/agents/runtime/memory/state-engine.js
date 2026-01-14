@@ -17,6 +17,7 @@
 
 import { nextTick, sync as syncClock, currentSeq } from "../../core/lamport-clock.js";
 import { isPlainObject, toNonEmptyString, deepClone } from "../../shared/utils/value-utils.js";
+import { DisposableBase } from "../../shared/base/disposable-base.js";
 import { cloneJson, buildStatePatch, applyStatePatch, diffLayers } from "./state-diff.js";
 import { cryptoRandomHex } from "../../shared/utils/secure-id.js";
 import { createLogger } from "../../shared/utils/logger.js";
@@ -555,7 +556,7 @@ function rootReducer(state, action) {
 // StateEngine Class
 // ─────────────────────────────────────────────────────────────────────────────
 
-export class StateEngine {
+export class StateEngine extends DisposableBase {
   /**
    * @param {object} options
    * @param {object} [options.initialState] - Initial state
@@ -571,6 +572,8 @@ export class StateEngine {
     eventBus = null,
     actorId,
   } = {}) {
+    super();
+
     this._state = initialState
       ? { ...createInitialState(), ...initialState }
       : createInitialState();
@@ -589,6 +592,15 @@ export class StateEngine {
     // Dispatch queue for serializing concurrent dispatches
     this._dispatchQueue = [];
     this._isDispatching = false;
+
+    // Register cleanup for dispose
+    this._registerDisposable(() => {
+      this._listeners.clear();
+      this._layerListeners.clear();
+      this._actionHistory.length = 0;
+      this._checkpoints.clear();
+      this._dispatchQueue.length = 0;
+    });
   }
 
   /**
@@ -612,6 +624,8 @@ export class StateEngine {
    * @returns {object} The dispatched action with metadata
    */
   dispatch(action) {
+    this._ensureNotDisposed();
+
     if (!action || typeof action !== "object" || !action.type) {
       throw new TypeError("StateEngine.dispatch: action must have a type");
     }
@@ -632,6 +646,8 @@ export class StateEngine {
    * @returns {Promise<object[]>} The dispatched actions with metadata
    */
   async dispatchBatch(actions) {
+    this._ensureNotDisposed();
+
     if (!Array.isArray(actions) || actions.length === 0) {
       return [];
     }
@@ -804,6 +820,8 @@ export class StateEngine {
    * @returns {function} Unsubscribe function
    */
   subscribe(listenerOrLayer, layerListener) {
+    this._ensureNotDisposed();
+
     // Overload: subscribe("L0", fn) -> layer subscription
     if (typeof listenerOrLayer === "string" && typeof layerListener === "function") {
       return this.subscribeLayer(listenerOrLayer, layerListener);

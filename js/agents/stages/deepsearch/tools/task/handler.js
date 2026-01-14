@@ -7,6 +7,7 @@
  */
 
 import { globalSubagentRegistry } from "../../../../sdk/SubagentRegistry.js";
+import { DisposableBase } from "../../../../shared/base/disposable-base.js";
 
 // 延迟注册子代理，避免循环依赖
 let _subagentsRegistered = false;
@@ -32,7 +33,122 @@ const COMPLETED_TASK_TTL_MS = toPositiveInt(env.DEEPSEARCH_TASK_TTL_MS, 30 * 60 
 const CLEANUP_INTERVAL_MS = toPositiveInt(env.DEEPSEARCH_TASK_CLEANUP_INTERVAL_MS, 5 * 60 * 1000);
 const RESULT_PREVIEW_CHARS = toPositiveInt(env.DEEPSEARCH_TASK_RESULT_PREVIEW_CHARS, 2000);
 
-const runningTasks = new Map();
+// ─────────────────────────────────────────────────────────────────────────────
+// TaskManager Class - 替代模块级全局状态，支持 dispose
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 任务管理器 - 管理运行中的任务和定时清理
+ * @extends DisposableBase
+ */
+class TaskManager extends DisposableBase {
+  constructor() {
+    super();
+    /** @type {Map<string, any>} */
+    this._runningTasks = new Map();
+    /** @type {ReturnType<typeof setInterval> | null} */
+    this._timer = null;
+
+    // 启动定时清理
+    if (typeof setInterval === "function" && CLEANUP_INTERVAL_MS > 0) {
+      this._timer = setInterval(() => this._prune(), CLEANUP_INTERVAL_MS);
+      /** @type {any} */ (this._timer).unref?.();
+      this._registerDisposable(() => {
+        if (this._timer) clearInterval(this._timer);
+      });
+    }
+  }
+
+  get size() {
+    return this._runningTasks.size;
+  }
+
+  get(taskId) {
+    return this._runningTasks.get(taskId);
+  }
+
+  set(taskId, task) {
+    this._runningTasks.set(taskId, task);
+  }
+
+  _prune(options = {}) {
+    const now = options.now ?? Date.now();
+    // TTL: 清理已完成/失败任务
+    for (const [taskId, task] of this._runningTasks) {
+      if (!task || task.status === "running") continue;
+      const expiresAt = Number(task.expiresAt);
+      if (!Number.isNaN(expiresAt) && expiresAt < now) {
+        this._runningTasks.delete(taskId);
+      }
+    }
+    // Capacity: 超过上限时移除最老的已完成任务
+    while (this._runningTasks.size > MAX_RUNNING_TASKS * 2) {
+      let oldest = null;
+      let oldestId = null;
+      for (const [taskId, task] of this._runningTasks) {
+        if (task.status === "running") continue;
+        if (!oldest || task.completedAt < oldest.completedAt) {
+          oldest = task;
+          oldestId = taskId;
+        }
+      }
+      if (oldestId) {
+        this._runningTasks.delete(oldestId);
+      } else {
+        break;
+      }
+    }
+  }
+
+  prune(options) {
+    this._prune(options);
+  }
+}
+
+// Singleton with lazy init
+/** @type {TaskManager | null} */
+let _taskManager = null;
+
+/**
+ * 获取 TaskManager 单例（懒加载）
+ * @returns {TaskManager}
+ */
+export function getTaskManager() {
+  if (!_taskManager) {
+    _taskManager = new TaskManager();
+  }
+  return _taskManager;
+}
+
+/**
+ * 重置 TaskManager（测试/HMR 时使用）
+ * @returns {Promise<void>}
+ */
+export async function resetTaskManager() {
+  if (_taskManager) {
+    await _taskManager.dispose();
+    _taskManager = null;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Legacy pruneRunningTasks - 委托给 TaskManager
+// ─────────────────────────────────────────────────────────────────────────────
+
+function pruneRunningTasks(options) {
+  getTaskManager().prune(options);
+}
+
+function canAcceptNewTask() {
+  const mgr = getTaskManager();
+  if (mgr.size >= MAX_RUNNING_TASKS) {
+    return {
+      ok: false,
+      error: `Too many running tasks (${mgr.size}/${MAX_RUNNING_TASKS}). Try again later.`,
+    };
+  }
+  return { ok: true };
+}
 
 function compactResult(result) {
   if (!result || typeof result !== "object") return result;
@@ -71,66 +187,6 @@ function compactTaskRecord(task) {
     result: task.status === "completed" ? compactResult(task.result) : undefined,
     compacted: task.status === "completed",
   };
-}
-
-function pruneRunningTasks({ now = Date.now() } = {}) {
-  // 1) TTL: 清理已完成/失败任务
-  for (const [taskId, task] of runningTasks) {
-    if (!task || task.status === "running") continue;
-    const expiresAt = Number(task.expiresAt);
-    const completedAt = Number(task.completedAt);
-    const expired = Number.isFinite(expiresAt)
-      ? expiresAt <= now
-      : Number.isFinite(completedAt) && (now - completedAt) > COMPLETED_TASK_TTL_MS;
-    if (expired) runningTasks.delete(taskId);
-  }
-
-  // 2) 上限：只淘汰最旧的已完成/失败任务，永不淘汰运行中任务
-  if (runningTasks.size <= MAX_RUNNING_TASKS) return;
-
-  const evictable = [];
-  for (const [taskId, task] of runningTasks) {
-    if (!task || task.status === "running") continue;
-    const ts = Number(task.completedAt) || Number(task.startedAt) || 0;
-    evictable.push([ts, taskId]);
-  }
-  evictable.sort((a, b) => a[0] - b[0]);
-
-  for (const [, taskId] of evictable) {
-    if (runningTasks.size <= MAX_RUNNING_TASKS) break;
-    runningTasks.delete(taskId);
-  }
-}
-
-function reserveRunningTaskSlot() {
-  pruneRunningTasks();
-  if (runningTasks.size < MAX_RUNNING_TASKS) return { ok: true };
-
-  // 尝试清理一个最旧的已完成任务，为新任务腾位置
-  let oldestKey = null;
-  let oldestTs = Infinity;
-  for (const [taskId, task] of runningTasks) {
-    if (!task || task.status === "running") continue;
-    const ts = Number(task.completedAt) || Number(task.startedAt) || 0;
-    if (ts < oldestTs) {
-      oldestTs = ts;
-      oldestKey = taskId;
-    }
-  }
-  if (oldestKey) {
-    runningTasks.delete(oldestKey);
-    return { ok: true, evictedTaskId: oldestKey };
-  }
-
-  return {
-    ok: false,
-    error: `Too many running tasks (${runningTasks.size}/${MAX_RUNNING_TASKS}). Try again later.`,
-  };
-}
-
-if (typeof setInterval === "function" && CLEANUP_INTERVAL_MS > 0) {
-  const timer = setInterval(() => pruneRunningTasks(), CLEANUP_INTERVAL_MS);
-  /** @type {any} */ (timer).unref?.();
 }
 
 export const definition = {
@@ -250,7 +306,7 @@ export async function handler(args, context) {
       }
 
       // 更新任务注册表
-      runningTasks.set(taskId, compactTaskRecord(taskResult));
+      getTaskManager().set(taskId, compactTaskRecord(taskResult));
       pruneRunningTasks({ now: completedAt });
 
       emit?.("deepsearch.subagent.completed", { taskId, type: subagent_type, ok: result?.ok !== false });
@@ -270,7 +326,7 @@ export async function handler(args, context) {
         expiresAt: completedAt + COMPLETED_TASK_TTL_MS,
       };
 
-      runningTasks.set(taskId, compactTaskRecord(taskResult));
+      getTaskManager().set(taskId, compactTaskRecord(taskResult));
       pruneRunningTasks({ now: completedAt });
       if (sharedContext?.store) {
         sharedContext.store(taskId, taskResult);
@@ -283,7 +339,7 @@ export async function handler(args, context) {
   };
 
   const taskPromise = executeTask();
-  runningTasks.set(taskId, {
+  getTaskManager().set(taskId, {
     taskId,
     type: subagent_type,
     prompt,
@@ -319,7 +375,7 @@ export async function handler(args, context) {
  */
 export function getTaskStatus(taskId) {
   pruneRunningTasks();
-  return runningTasks.get(taskId);
+  return getTaskManager().get(taskId);
 }
 
 /**
@@ -327,7 +383,7 @@ export function getTaskStatus(taskId) {
  */
 export async function waitForTask(taskId, timeout = 60000) {
   pruneRunningTasks();
-  const task = runningTasks.get(taskId);
+  const task = getTaskManager().get(taskId);
   if (!task) return null;
 
   if (task.status !== "running") {
@@ -348,4 +404,4 @@ export async function waitForTask(taskId, timeout = 60000) {
   return task;
 }
 
-export default { definition, handler, getTaskStatus, waitForTask };
+export default { definition, handler, getTaskStatus, waitForTask, getTaskManager, resetTaskManager };
