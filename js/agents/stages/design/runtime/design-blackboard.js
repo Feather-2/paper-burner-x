@@ -13,6 +13,7 @@
  */
 
 import { toNonEmptyString, isPlainObject } from "../../../shared/utils/value-utils.js";
+import { DisposableBase } from "../../../shared/base/disposable-base.js";
 import {
   L1_ADD_SIGNAL,
   L1_ACKNOWLEDGE_SIGNAL,
@@ -41,11 +42,12 @@ function stripDesignPrefix(value) {
   return s.startsWith(DESIGN_PREFIX) ? s.slice(DESIGN_PREFIX.length) : s;
 }
 
-export class DesignBlackboard {
+export class DesignBlackboard extends DisposableBase {
   /**
    * @param {{ runId?: string, limits?: Record<string, any>, memoryStore?: any, stateEngine?: any }} [options]
    */
   constructor({ runId, limits = {}, memoryStore = null, stateEngine = null } = {}) {
+    super();
     this.runId = toNonEmptyString(runId) || `design_${Date.now()}`;
     this.createdAt = new Date().toISOString();
 
@@ -68,6 +70,26 @@ export class DesignBlackboard {
     this._versions = [];
     this._deck = null;
 
+    // Register cleanup for all subscriptions/resources
+    this._registerDisposable(() => {
+      if (this._stateEngineUnsubscribe) {
+        try {
+          this._stateEngineUnsubscribe();
+        } catch { /* ignore */ }
+        this._stateEngineUnsubscribe = null;
+      }
+      this._stateEngine = null;
+      this._memoryStore = null;
+
+      try {
+        this._summaries?.clear?.();
+      } catch { /* ignore */ }
+      if (Array.isArray(this._signals)) this._signals.length = 0;
+      if (Array.isArray(this._decisions)) this._decisions.length = 0;
+      if (Array.isArray(this._versions)) this._versions.length = 0;
+      this._deck = null;
+    });
+
     if (stateEngine) this.bindStateEngine(stateEngine);
   }
 
@@ -75,6 +97,7 @@ export class DesignBlackboard {
    * 绑定 MemoryStore
    */
   bindMemoryStore(memoryStore) {
+    this._ensureNotDisposed();
     this._memoryStore = memoryStore || null;
     if (!memoryStore) return;
 
@@ -102,6 +125,7 @@ export class DesignBlackboard {
    * 绑定 StateEngine
    */
   bindStateEngine(stateEngine) {
+    this._ensureNotDisposed();
     if (this._stateEngineUnsubscribe) {
       try {
         this._stateEngineUnsubscribe();
@@ -243,6 +267,7 @@ export class DesignBlackboard {
   // ===== Deck =====
 
   setDeck(deck) {
+    this._ensureNotDisposed();
     this._deck = deck ?? null;
     this._syncDeckToStateEngine(this._deck);
     return this._deck;
@@ -264,6 +289,7 @@ export class DesignBlackboard {
   // ===== L1: Summaries =====
 
   setSummary(stage, summary) {
+    this._ensureNotDisposed();
     const s = toNonEmptyString(stage);
     if (!s) return;
     const text = String(summary || "");
@@ -356,6 +382,7 @@ export class DesignBlackboard {
   // ===== Signals =====
 
   pushSignal(type, payload = {}) {
+    this._ensureNotDisposed();
     const signal = {
       type: toNonEmptyString(type) || "unknown",
       payload,
@@ -430,6 +457,7 @@ export class DesignBlackboard {
   // ===== Decisions =====
 
   logDecision(action, reason, meta = {}) {
+    this._ensureNotDisposed();
     const decision = {
       action: toNonEmptyString(action) || "unknown",
       reason: toNonEmptyString(reason) || "",
