@@ -10,6 +10,32 @@ import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js"
 import { isNodeLike } from "../shared/platform.js";
 const logger = createLogger("prompts/prompt-loader");
 
+// === 跨环境缓存适配器 ===
+// Web Worker 中 localStorage 不可用，使用内存缓存降级
+const isWorkerEnv = typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScope;
+const memoryCache = new Map();
+
+function getCacheItem(key) {
+  if (isWorkerEnv) return memoryCache.get(key) ?? null;
+  try {
+    return typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
+  } catch {
+    return memoryCache.get(key) ?? null;
+  }
+}
+
+function setCacheItem(key, value) {
+  if (isWorkerEnv) {
+    memoryCache.set(key, value);
+    return;
+  }
+  try {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(key, value);
+  } catch {
+    memoryCache.set(key, value);
+  }
+}
+
 function getNodeProcess() {
   return /** @type {any} */ (globalThis).process;
 }
@@ -178,7 +204,7 @@ function resolvePromptCacheMaxEntries() {
   }
 
   try {
-    const raw = typeof localStorage !== "undefined" ? localStorage.getItem("pb_promptCacheMaxEntries") : null;
+    const raw = getCacheItem("pb_promptCacheMaxEntries");
     if (raw) {
       const parsed = parseInt(String(raw), 10);
       if (Number.isFinite(parsed)) return Math.max(0, parsed);
@@ -198,7 +224,7 @@ function resolvePromptManifestCacheTtlMs() {
   }
 
   try {
-    const raw = typeof localStorage !== "undefined" ? localStorage.getItem("pb_promptManifestCacheTtlMs") : null;
+    const raw = getCacheItem("pb_promptManifestCacheTtlMs");
     if (raw) {
       const parsed = parseInt(String(raw), 10);
       if (Number.isFinite(parsed)) return Math.max(0, parsed);
