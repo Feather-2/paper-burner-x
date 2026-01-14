@@ -9,6 +9,7 @@
  */
 
 import { createLogger } from "../../shared/utils/logger.js";
+import { validateRpcResponse } from "../../shared/contracts/index.js";
 
 const logger = createLogger("runtime/core/worker-rpc");
 
@@ -213,6 +214,14 @@ export class WorkerRpcClient {
 
     this._pending.delete(data.id);
     clearTimeout(pending.timer);
+
+    // Validate response structure
+    const validated = validateRpcResponse(data);
+    if (!validated.ok) {
+      logger.warn("Invalid RPC response", { error: validated.error, id: data.id });
+      pending.reject(new Error(validated.error));
+      return;
+    }
 
     if (data.ok) {
       pending.resolve(data.result);

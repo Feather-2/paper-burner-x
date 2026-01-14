@@ -1,5 +1,6 @@
 import { createStageApi } from "../../shared/utils/stage-api.js";
 import { checkCancelled } from "../../shared/utils/cancellation.js";
+import { normalizeToolResult } from "../../shared/contracts/index.js";
 import { StagePausedError } from "./stage-errors.js";
 import { AgentStatus, isValidAgentStatus } from "./agent-status.js";
 import { getRuntimeState } from "../telemetry/loop-runtime-state.js";
@@ -226,19 +227,8 @@ export function checkCancelledOrPaused(signal) {
   checkPaused(signal);
 }
 
-/**
- * @param {any} result
- * @returns {ToolResult}
- */
-export function normalizeToolResult(result) {
-  if (result && typeof result === "object" && Object.prototype.hasOwnProperty.call(result, "ok")) {
-    return result;
-  }
-  if (result && typeof result === "object" && ("error" in result || "data" in result)) {
-    return { ok: !result.error, data: result.data, error: result.error };
-  }
-  return { ok: true, data: result };
-}
+// Re-export from contracts for backward compatibility
+export { normalizeToolResult };
 
 /**
  * @param {any} context

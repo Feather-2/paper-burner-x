@@ -48,6 +48,16 @@ export {
   withCircuitBreaker,
 } from "./utils/circuit-breaker.js";
 
+// Contracts (Runtime Boundary Validation)
+export {
+  validateRpcRequest,
+  validateRpcResponse,
+  validateLlmResponse,
+  validateToolCall,
+  validateToolResult,
+  normalizeToolResult,
+} from "./contracts/index.js";
+
 // Embeddings
 export { EmbeddingService, createEmbeddingService, normalizeEmbeddingConfig } from "./embeddings/embedding-service.js";
 export { VectorIndex } from "./embeddings/vector-index.js";

@@ -52,6 +52,14 @@
 |------|------|
 | `tokenizers/adaptive-token-counter.js` | 自适应 Token 计数 |
 
+### Contracts (运行时契约)
+
+| 文件 | 职责 |
+|------|------|
+| `contracts/rpc-message.js` | 跨 Agent RPC 消息验证 |
+| `contracts/llm-response.js` | LLM 响应结构验证 |
+| `contracts/tool-result.js` | 工具结果标准化 |
+
 ### Parser
 
 | 文件 | 职责 |
@@ -81,4 +89,15 @@ const data = robustParseJson(maybeJson, { default: {} });
 // 熔断器
 const breaker = new CircuitBreaker({ failureThreshold: 3 });
 const result = await breaker.call(() => fetchData());
+```
+
+```javascript
+// 运行时契约验证
+import { validateRpcRequest, normalizeToolResult } from 'js/agents/shared';
+
+const req = validateRpcRequest(msg);
+if (!req.ok) return console.warn(req.error);
+
+const toolResult = normalizeToolResult(rawOutput);
+// { ok, success, data, error?, meta? }
 ```

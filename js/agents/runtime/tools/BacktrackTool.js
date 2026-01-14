@@ -4,7 +4,7 @@
  * 允许模型在发现错误、死胡同或需要尝试不同路径时，主动回溯到之前的 Checkpoint。
  */
 
-import { normalizeToolResult } from "../core/agent-loop.js";
+import { normalizeToolResult } from "../../shared/contracts/index.js";
 
 /**
  * @typedef {object} BacktrackManager

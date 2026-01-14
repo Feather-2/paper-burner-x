@@ -4,7 +4,7 @@
  * 对应 cc.md 中提到的"平时记纲要，用时翻档案"的设计。
  */
 
-import { normalizeToolResult } from "../core/agent-loop.js";
+import { normalizeToolResult } from "../../shared/contracts/index.js";
 
 /**
  * @typedef {object} CicadaCompressor

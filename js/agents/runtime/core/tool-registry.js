@@ -7,6 +7,10 @@
  */
 
 import { createPreToolUseHook } from "../hooks/hook-runner.js";
+import { normalizeToolResult } from "../../shared/contracts/index.js";
+
+// Re-export for backward compatibility
+export { normalizeToolResult };
 
 /**
  * @typedef {Record<string, any>} AnyRecord
@@ -40,20 +44,6 @@ import { createPreToolUseHook } from "../hooks/hook-runner.js";
  * @property {{ before?: BeforeHook[], after?: AfterHook[] } | null} [hooks]
  * @property {LoggerLike | null} [logger]
  */
-
-/**
- * @param {any} result
- * @returns {ToolResult}
- */
-export function normalizeToolResult(result) {
-  if (result && typeof result === "object" && Object.prototype.hasOwnProperty.call(result, "ok")) {
-    return result;
-  }
-  if (result && typeof result === "object" && ("error" in result || "data" in result)) {
-    return { ok: !result.error, data: result.data, error: result.error };
-  }
-  return { ok: true, data: result };
-}
 
 /**
  * @param {any} context
