@@ -66,9 +66,13 @@ export class CompressionCoordinator {
    * Encapsulates trigger logic for title-only mode and worker threshold.
    *
    * @param {Array} messages
+   * @param {object} [runtime]
+   * @param {AbortSignal} [runtime.signal]
+   * @param {boolean} [runtime.useWorker]
+   * @param {number} [runtime.workerThresholdMessages]
    * @returns {Promise<{messages:Array, sessionSummary:string|null, stats:object|null, afterTokens:number|undefined}>}
    */
-  async maybeCompress(messages) {
+  async maybeCompress(messages, runtime = {}) {
     const cfg = this._getContextConfig?.() || {};
     const totalTokens = this._resolveTokenUsageTotal();
     const fillRatio = computeFillRatio(totalTokens, cfg.contextWindow);
@@ -77,10 +81,16 @@ export class CompressionCoordinator {
       typeof titleThresholdRaw === "number" && Number.isFinite(titleThresholdRaw) ? titleThresholdRaw : 0.8;
     const titleOnly = fillRatio >= titleThreshold;
 
-    const runtime = {
-      useWorker: cfg.useCompressionWorker !== false,
-      workerThresholdMessages: cfg.workerThresholdMessages,
+    const runtimeOpts = runtime && typeof runtime === "object" ? runtime : {};
+    /** @type {any} */
+    const runtimeResolved = {
+      useWorker: typeof runtimeOpts.useWorker === "boolean" ? runtimeOpts.useWorker : cfg.useCompressionWorker !== false,
+      workerThresholdMessages:
+        typeof runtimeOpts.workerThresholdMessages === "number" && Number.isFinite(runtimeOpts.workerThresholdMessages)
+          ? runtimeOpts.workerThresholdMessages
+          : cfg.workerThresholdMessages,
     };
+    if (runtimeOpts.signal) runtimeResolved.signal = runtimeOpts.signal;
 
     try {
       return await compressAgentLoopMessagesAsync(
@@ -92,7 +102,7 @@ export class CompressionCoordinator {
           titleMaxChars: cfg.titleOnlySummaryMaxChars,
           maxKeptMessageChars: cfg.maxKeptMessageChars,
         },
-        runtime
+        runtimeResolved
       );
     } catch (err) {
       if (this._logger && typeof this._logger.warn === "function") {

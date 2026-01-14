@@ -19,6 +19,96 @@ function safeStringify(value, maxChars = 2000) {
   }
 }
 
+const REDACTED = "[REDACTED]";
+const SENSITIVE_KEY_RE =
+  /(?:pass(word)?|passwd|passphrase|pwd|secret|token|api[_-]?key|apikey|authorization|cookie|session|jwt|private[_-]?key|client[_-]?secret)/i;
+
+function sanitizeString(input, maxChars) {
+  const maxLen = Number.isFinite(maxChars) ? Math.max(32, Math.floor(maxChars)) : 500;
+  let s = String(input ?? "");
+
+  // Common secrets in headers / query params / cli flags.
+  s = s.replace(/(authorization\s*:\s*)(bearer|token)\s+([^\s"']+)/gi, (_m, prefix, scheme) => `${prefix}${scheme} ${REDACTED}`);
+  s = s.replace(/\b((?:access|refresh|id)?_?token|api[_-]?key|password|passwd|pwd|secret)=([^\s&]+)/gi, (_m, key) => `${key}=${REDACTED}`);
+  s = s.replace(/\B--(token|password|passwd|pwd|secret|api[_-]?key)=([^\s]+)/gi, (_m, key) => `--${key}=${REDACTED}`);
+  s = s.replace(/\B--(token|password|passwd|pwd|secret|api[_-]?key)\s+([^\s]+)/gi, (_m, key) => `--${key} ${REDACTED}`);
+  s = s.replace(/(\b--user\s+)([^\s:]+):([^\s]+)/gi, (_m, prefix, user) => `${prefix}${user}:${REDACTED}`);
+  s = s.replace(/(\B-u\s+)([^\s:]+):([^\s]+)/g, (_m, prefix, user) => `${prefix}${user}:${REDACTED}`);
+  s = s.replace(/(\/\/[^/\s:@]+:)([^@\s]+)(@)/g, (_m, prefix, _pw, suffix) => `${prefix}${REDACTED}${suffix}`);
+
+  // KEY=... style (env vars / shell exports), but avoid false-positives like "monkey=banana".
+  const secretEnvSegment = /(^|_)(TOKEN|KEY|SECRET|PASSWORD|PASS|PWD)($|_)/i;
+  s = s.replace(/\b([A-Za-z_][A-Za-z0-9_]*)=([^\s"'`]+)/g, (m, name) => (secretEnvSegment.test(name) ? `${name}=${REDACTED}` : m));
+
+  // Common token formats.
+  s = s.replace(/\bsk-[A-Za-z0-9]{16,}\b/g, `sk-${REDACTED}`);
+  s = s.replace(/\bghp_[A-Za-z0-9]{20,}\b/g, `ghp_${REDACTED}`);
+  s = s.replace(/\bgithub_pat_[A-Za-z0-9_]{20,}\b/g, `github_pat_${REDACTED}`);
+  s = s.replace(/\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g, `xox-...-${REDACTED}`);
+  s = s.replace(/\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*\b/g, REDACTED);
+
+  return s.length > maxLen ? s.slice(0, Math.max(0, maxLen - 3)) + "..." : s;
+}
+
+function sanitizeArgs(args, { maxDepth = 6, maxKeys = 50, maxArray = 50, maxString = 500 } = {}) {
+  const seen = new WeakSet();
+
+  const visit = (value, depth) => {
+    if (value === null || value === undefined) return value;
+
+    const t = typeof value;
+    if (t === "string") return sanitizeString(value, maxString);
+    if (t === "number" || t === "boolean") return value;
+    if (t === "bigint") return String(value);
+    if (t === "function") return "[Function]";
+    if (t !== "object") return String(value);
+
+    if (seen.has(value)) return "[Circular]";
+    if (depth <= 0) return "[MaxDepth]";
+    seen.add(value);
+
+    // Handle typed arrays / buffers without copying contents.
+    if (typeof ArrayBuffer !== "undefined") {
+      if (value instanceof ArrayBuffer) return `[ArrayBuffer ${value.byteLength} bytes]`;
+      if (typeof ArrayBuffer.isView === "function" && ArrayBuffer.isView(value)) {
+        const name = value?.constructor?.name || "TypedArray";
+        return `[${name} ${value.byteLength} bytes]`;
+      }
+    }
+
+    if (Array.isArray(value)) {
+      const out = [];
+      const len = Math.min(value.length, maxArray);
+      for (let i = 0; i < len; i++) out.push(visit(value[i], depth - 1));
+      if (value.length > len) out.push(`[+${value.length - len} items]`);
+      return out;
+    }
+
+    const obj = value && typeof value === "object" ? value : null;
+    if (!obj) return String(value);
+
+    const keys = Object.keys(obj);
+    const limitedKeys = keys.slice(0, maxKeys);
+    /** @type {Record<string, any>} */
+    const out = {};
+    for (const k of limitedKeys) {
+      if (SENSITIVE_KEY_RE.test(k)) {
+        out[k] = REDACTED;
+        continue;
+      }
+      out[k] = visit(obj[k], depth - 1);
+    }
+    if (keys.length > limitedKeys.length) out.__truncatedKeys = keys.length - limitedKeys.length;
+    return out;
+  };
+
+  try {
+    return visit(args, maxDepth);
+  } catch {
+    return "[Unserializable]";
+  }
+}
+
 function renderTemplate(tpl, vars) {
   const template = String(tpl ?? "");
   return template.replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g, (_m, key) => {
@@ -135,7 +225,12 @@ export function createPreToolUseHook(options = {}) {
         const classification = classifyCommand(cmd);
         if (classification.requiresApproval && blocking) {
           const reason = `Command requires approval: ${classification.baseCommand || "unknown"}`;
-          eventBus?.emit?.("tool.denied", { tool: toolName, args: params, reason, policy: { hookType: "command", level: classification.level } });
+          eventBus?.emit?.("tool.denied", {
+            tool: toolName,
+            reason,
+            args: sanitizeArgs(params),
+            policy: { hookType: "command", level: classification.level },
+          });
           return { skip: true, value: { ok: false, error: reason, policy: { hookType: "command", ...classification } } };
         }
         continue;
@@ -146,7 +241,12 @@ export function createPreToolUseHook(options = {}) {
         if (!modelRouter || typeof modelRouter.call !== "function") {
           if (blocking) {
             const reason = "Prompt hook blocked: ModelRouter unavailable";
-            eventBus?.emit?.("tool.denied", { tool: toolName, args: params, reason, policy: { hookType: "prompt", error: "model_router_unavailable" } });
+            eventBus?.emit?.("tool.denied", {
+              tool: toolName,
+              reason,
+              args: sanitizeArgs(params),
+              policy: { hookType: "prompt", error: "model_router_unavailable" },
+            });
             return { skip: true, value: { ok: false, error: reason, policy: { hookType: "prompt", error: "model_router_unavailable" } } };
           }
           continue;
@@ -166,20 +266,30 @@ export function createPreToolUseHook(options = {}) {
           if (!decision) {
             if (blocking) {
               const reason = "Prompt hook blocked: unparseable decision";
-              eventBus?.emit?.("tool.denied", { tool: toolName, args: params, reason, policy: { hookType: "prompt", error: "unparseable" } });
+              eventBus?.emit?.("tool.denied", {
+                tool: toolName,
+                reason,
+                args: sanitizeArgs(params),
+                policy: { hookType: "prompt", error: "unparseable" },
+              });
               return { skip: true, value: { ok: false, error: reason, policy: { hookType: "prompt", error: "unparseable" } } };
             }
             continue;
           }
           if (!decision.allow && blocking) {
             const reason = decision.reason || "Prompt hook denied";
-            eventBus?.emit?.("tool.denied", { tool: toolName, args: params, reason, policy: { hookType: "prompt" } });
+            eventBus?.emit?.("tool.denied", { tool: toolName, reason, args: sanitizeArgs(params), policy: { hookType: "prompt" } });
             return { skip: true, value: { ok: false, error: reason, policy: { hookType: "prompt" } } };
           }
         } catch (err) {
           if (blocking) {
             const reason = `Prompt hook blocked: ${err?.message || String(err)}`;
-            eventBus?.emit?.("tool.denied", { tool: toolName, args: params, reason, policy: { hookType: "prompt", error: "model_call_failed" } });
+            eventBus?.emit?.("tool.denied", {
+              tool: toolName,
+              reason,
+              args: sanitizeArgs(params),
+              policy: { hookType: "prompt", error: "model_call_failed" },
+            });
             return { skip: true, value: { ok: false, error: reason, policy: { hookType: "prompt", error: "model_call_failed" } } };
           }
         }
@@ -192,7 +302,12 @@ export function createPreToolUseHook(options = {}) {
         if (!registry || typeof registry.getFactory !== "function") {
           if (blocking) {
             const reason = "Agent hook blocked: SubagentRegistry unavailable";
-            eventBus?.emit?.("tool.denied", { tool: toolName, args: params, reason, policy: { hookType: "agent", error: "registry_unavailable" } });
+            eventBus?.emit?.("tool.denied", {
+              tool: toolName,
+              reason,
+              args: sanitizeArgs(params),
+              policy: { hookType: "agent", error: "registry_unavailable" },
+            });
             return { skip: true, value: { ok: false, error: reason, policy: { hookType: "agent", error: "registry_unavailable" } } };
           }
           continue;
@@ -203,7 +318,12 @@ export function createPreToolUseHook(options = {}) {
         if (!factory) {
           if (blocking) {
             const reason = `Agent hook blocked: unknown agentType "${agentType || ""}"`;
-            eventBus?.emit?.("tool.denied", { tool: toolName, args: params, reason, policy: { hookType: "agent", error: "unknown_agent" } });
+            eventBus?.emit?.("tool.denied", {
+              tool: toolName,
+              reason,
+              args: sanitizeArgs(params),
+              policy: { hookType: "agent", error: "unknown_agent" },
+            });
             return { skip: true, value: { ok: false, error: reason, policy: { hookType: "agent", error: "unknown_agent" } } };
           }
           continue;
@@ -226,13 +346,13 @@ export function createPreToolUseHook(options = {}) {
           const finalAllow = allow && !denied;
           if (!finalAllow && blocking) {
             const reason = toNonEmptyString(out?.reason) || toNonEmptyString(out?.error) || "Agent hook denied";
-            eventBus?.emit?.("tool.denied", { tool: toolName, args: params, reason, policy: { hookType: "agent", agentType } });
+            eventBus?.emit?.("tool.denied", { tool: toolName, reason, args: sanitizeArgs(params), policy: { hookType: "agent", agentType } });
             return { skip: true, value: { ok: false, error: reason, policy: { hookType: "agent", agentType } } };
           }
         } catch (err) {
           if (blocking) {
             const reason = `Agent hook blocked: ${err?.message || String(err)}`;
-            eventBus?.emit?.("tool.denied", { tool: toolName, args: params, reason, policy: { hookType: "agent", agentType } });
+            eventBus?.emit?.("tool.denied", { tool: toolName, reason, args: sanitizeArgs(params), policy: { hookType: "agent", agentType } });
             return { skip: true, value: { ok: false, error: reason, policy: { hookType: "agent", agentType } } };
           }
         }
@@ -328,4 +448,3 @@ export function createPostAgentHook(options = {}) {
 }
 
 export default { createPreToolUseHook, createPreAgentHook, createPostAgentHook };
-

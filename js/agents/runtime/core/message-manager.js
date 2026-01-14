@@ -77,6 +77,7 @@ export class MessageManager {
    */
   constructor(options = {}) {
     this._messages = [];
+    this._disposed = false;
     this._contextConfig = { ...DEFAULT_CONTEXT_CONFIG, ...options.contextConfig };
     this._tokenCounter = options.tokenCounter === null ? null : options.tokenCounter || getGlobalTokenCounter();
     /** @type {TokenUsage} */
@@ -91,6 +92,7 @@ export class MessageManager {
     this._compressionHistory = [];
     this._lastCompressionAtMs = 0;
     this._compressionCooldownTimer = null;
+    this._compressionAbortController = null;
     this._logger = options.logger || null;
     this._emit = options.emit || null;
     this._stageName = options.stageName || "agent";
@@ -123,6 +125,7 @@ export class MessageManager {
 
   /** @param {ChatMessage} message @returns {ChatMessage} */
   addMessage(message) {
+    if (this._disposed) return message;
     this._messages.push(message);
     const messageTokens = estimateTokens(message.content, this._tokenCounter);
     this._tokenUsage.input += messageTokens;
@@ -137,6 +140,7 @@ export class MessageManager {
 
   /** @param {ChatMessage[]} messages */
   addMessages(messages) {
+    if (this._disposed) return;
     let addedTokens = 0;
     for (const msg of messages) {
       this._messages.push(msg);
@@ -201,8 +205,38 @@ export class MessageManager {
     }
   }
 
+  /** @param {string} [reason] */
+  _abortActiveCompression(reason = "aborted") {
+    const controller = this._compressionAbortController;
+    if (!controller) return;
+    try {
+      controller.abort(reason);
+    } catch {
+      try {
+        controller.abort();
+      } catch {
+        // ignore
+      }
+    } finally {
+      if (this._compressionAbortController === controller) {
+        this._compressionAbortController = null;
+      }
+    }
+  }
+
+  /** @param {any} err @returns {boolean} */
+  _isAbortError(err) {
+    if (!err) return false;
+    const name = err?.name || err?.code;
+    if (name === "AbortError" || name === "CanceledError" || name === "CancelledError") return true;
+    const msg = err instanceof Error ? err.message : String(err);
+    const lower = msg.toLowerCase();
+    return lower.includes("aborted") || lower.includes("canceled") || lower.includes("cancelled");
+  }
+
   /** @param {{ force?: boolean } | null | undefined} [options] */
   _scheduleCompression({ force = false } = {}) {
+    if (this._disposed) return;
     if (this._compressionPending) return;
 
     const cooldownRaw = this._contextConfig?.compressCooldownMs;
@@ -215,6 +249,7 @@ export class MessageManager {
           const waitMs = Math.max(0, cooldownMs - elapsed);
           const t = setTimeout(() => {
             this._compressionCooldownTimer = null;
+            if (this._disposed) return;
             if (this._shouldCompress()) this._scheduleCompression({ force: true });
           }, waitMs);
           const maybeTimer = /** @type {any} */ (t);
@@ -244,6 +279,7 @@ export class MessageManager {
       Promise.resolve()
         .then(() => this._compress())
         .catch((err) => {
+          if (this._disposed || this._isAbortError(err)) return;
           const logger = this._logger && typeof this._logger.warn === "function" ? this._logger : fallbackLogger;
           logger.warn("Message compression error", { error: String(err?.message || err) });
         })
@@ -258,6 +294,7 @@ export class MessageManager {
 
   /** @param {{ maxRounds?: number } | null | undefined} [options] */
   async flushCompression(options = {}) {
+    if (this._disposed) return;
     const maxRoundsRaw = typeof options?.maxRounds === "number" && Number.isFinite(options.maxRounds) ? options.maxRounds : 2;
     const maxRounds = Math.max(0, Math.floor(maxRoundsRaw));
 
@@ -269,12 +306,13 @@ export class MessageManager {
 
     this._clearCooldownTimer();
     let rounds = 0;
-    while (this._shouldCompress() && rounds < maxRounds) {
+    while (!this._disposed && this._shouldCompress() && rounds < maxRounds) {
       rounds += 1;
       this._compressionPending = true;
       const p = Promise.resolve()
         .then(() => this._compress())
         .catch((err) => {
+          if (this._disposed || this._isAbortError(err)) return;
           const logger = this._logger && typeof this._logger.warn === "function" ? this._logger : fallbackLogger;
           logger.warn("Message compression error", { error: String(err?.message || err) });
         })
@@ -293,19 +331,30 @@ export class MessageManager {
   /** @returns {Promise<void>} */
   async _compress() {
     this._clearCooldownTimer();
+    if (this._disposed) return;
     const beforeCount = this._messages.length;
     const beforeTokens = this._tokenUsage.total;
     if (!this._compressionCoordinator || typeof this._compressionCoordinator.maybeCompress !== "function") {
       return;
     }
 
-    const result = await this._compressionCoordinator.maybeCompress(this._messages);
-    if (result && Array.isArray(result.messages)) {
-      this._messages = result.messages;
-    }
+    this._abortActiveCompression("superseded");
+    const controller = new AbortController();
+    this._compressionAbortController = controller;
+    try {
+      const result = await this._compressionCoordinator.maybeCompress(this._messages, { signal: controller.signal });
+      if (this._disposed || controller.signal.aborted) return;
+      if (result && Array.isArray(result.messages)) {
+        this._messages = result.messages;
+      }
 
-    this._recalculateTokenUsage();
-    this._recordCompression(beforeCount, beforeTokens);
+      this._recalculateTokenUsage();
+      this._recordCompression(beforeCount, beforeTokens);
+    } finally {
+      if (this._compressionAbortController === controller) {
+        this._compressionAbortController = null;
+      }
+    }
   }
 
   /**
@@ -365,6 +414,15 @@ export class MessageManager {
   cleanOldOutputs(keepRecent = KEEP_RECENT_OUTPUTS) {
     this._messages = cleanOldPersistedOutputs(this._messages, keepRecent);
     this._recalculateTokenUsage();
+  }
+
+  dispose() {
+    if (this._disposed) return;
+    this._disposed = true;
+
+    this._clearCooldownTimer();
+    this._abortActiveCompression("disposed");
+    this._compressionPending = false;
   }
 }
 

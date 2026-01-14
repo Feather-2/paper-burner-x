@@ -7,6 +7,29 @@
 import { SandboxPool } from './pool.js';
 import { SandboxPreset, ResourceLimits, SandboxCapability } from './constants.js';
 
+// Skill metadata 中允许声明的能力（白名单，声明 != 授权）
+// 注意：这里的 key 为 Skill 声明用的字符串，value 为实际沙箱能力常量。
+const ALLOWED_CAPABILITIES = Object.freeze({
+  // Network
+  network: SandboxCapability.FETCH,
+  fetch: SandboxCapability.FETCH,
+});
+
+function normalizeCapabilityName(value) {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function normalizeCapabilityList(value) {
+  if (Array.isArray(value)) return value.map(normalizeCapabilityName).filter(Boolean);
+  if (typeof value === 'string') {
+    return value
+      .split(',')
+      .map(normalizeCapabilityName)
+      .filter(Boolean);
+  }
+  return [];
+}
+
 /**
  * SkillExecutor - 安全的 Skill 执行器
  */
@@ -39,22 +62,50 @@ export class SkillExecutor {
   /**
    * 确定 Skill 的能力级别
    */
-  _determineCapabilities(skill) {
+  _determineCapabilities(skill, context = {}) {
     const isTrusted = this.trustChecker(skill);
 
     if (isTrusted) {
       return SandboxPreset.TRUSTED;
     }
 
-    // 检查 Skill 声明的能力需求
-    const declared = skill?.metadata?.capabilities || [];
-
     // 基础能力
     const caps = [...SandboxPreset.SKILL];
 
-    // 按需添加网络能力
-    if (declared.includes('network') || declared.includes('fetch')) {
-      caps.push(SandboxCapability.FETCH);
+    // 检查 Skill 声明的能力需求（声明本身不等于授权）
+    const declared = normalizeCapabilityList(skill?.metadata?.capabilities);
+    const approved = normalizeCapabilityList(context?.approvedCapabilities);
+
+    /** @type {Set<string>} */
+    const requestedCaps = new Set();
+    for (const cap of declared) {
+      const mapped = ALLOWED_CAPABILITIES[cap];
+      if (!mapped) {
+        // 未知能力声明仅告警，不授予
+        // eslint-disable-next-line no-console
+        console.warn?.('[SkillExecutor] Unknown capability declared by skill', {
+          skill: skill?.metadata?.name,
+          capability: cap,
+        });
+        continue;
+      }
+      requestedCaps.add(mapped);
+    }
+
+    // 仅在显式批准的情况下授予声明能力（并且必须在白名单中）
+    for (const cap of approved) {
+      const mapped = ALLOWED_CAPABILITIES[cap];
+      if (!mapped) {
+        // eslint-disable-next-line no-console
+        console.warn?.('[SkillExecutor] Unknown capability approval ignored', {
+          skill: skill?.metadata?.name,
+          capability: cap,
+        });
+        continue;
+      }
+      if (requestedCaps.has(mapped) && !caps.includes(mapped)) {
+        caps.push(mapped);
+      }
     }
 
     return caps;
@@ -92,7 +143,7 @@ export class SkillExecutor {
       };
     }
 
-    const capabilities = this._determineCapabilities(skill);
+    const capabilities = this._determineCapabilities(skill, context);
     const limits = this._determineLimits(skill);
 
     // 构建状态

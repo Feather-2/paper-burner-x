@@ -650,10 +650,19 @@ export class EventBus {
         return;
       }
 
+      let settled = false;
+
+      const toWaitForResult = (evt) => ({
+        type: evt.name,
+        payload: evt.payload ?? evt,
+        // 兼容旧 API
+        event: evt.name,
+        data: evt.payload ?? evt,
+      });
+
       const timer = timeout > 0
         ? setTimeout(() => {
-            cleanup();
-            reject(new Error(`EventBus.waitFor timeout: ${pattern}`));
+            waiter.reject(new Error(`EventBus.waitFor timeout: ${pattern}`));
           }, timeout)
         : null;
 
@@ -667,21 +676,25 @@ export class EventBus {
         }
       };
 
+      const settle = (fn) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        fn();
+      };
+
       const waiter = {
         resolve: (evt) => {
-          cleanup();
-          // 同时提供新旧字段名以保持兼容
-          resolve({
-            type: evt.name,
-            payload: evt.payload ?? evt,
-            // 兼容旧 API
-            event: evt.name,
-            data: evt.payload ?? evt,
-          });
+          settle(() => resolve(toWaitForResult(evt)));
         },
         reject: (err) => {
+          settle(() => reject(err));
+        },
+        _deferResolve: (evt) => {
+          if (settled) return null;
+          settled = true;
           cleanup();
-          reject(err);
+          return () => resolve(toWaitForResult(evt));
         },
         timer,
       };
@@ -689,8 +702,7 @@ export class EventBus {
       // 设置 abort 处理
       if (signal) {
         abortHandler = () => {
-          cleanup();
-          reject(signal.reason || new Error('Aborted'));
+          waiter.reject(signal.reason || new Error('Aborted'));
         };
         signal.addEventListener('abort', abortHandler, { once: true });
       }
@@ -1010,12 +1022,24 @@ export class EventBus {
    * @returns {void}
    */
   _resolveWaiters(eventName, evt) {
+    const toResolve = [];
+
     for (const [pattern, waiters] of this._waiters) {
       if (matchPattern(pattern, eventName)) {
-        for (const waiter of waiters) {
-          waiter.resolve(evt);
+        toResolve.push({ pattern, waiters: [...waiters] });
+      }
+    }
+
+    for (const { pattern, waiters } of toResolve) {
+      this._waiters.delete(pattern);
+
+      for (const waiter of waiters) {
+        const deliver = typeof waiter._deferResolve === 'function'
+          ? waiter._deferResolve(evt)
+          : () => waiter.resolve(evt);
+        if (deliver) {
+          queueMicrotask(deliver);
         }
-        this._waiters.delete(pattern);
       }
     }
   }

@@ -270,4 +270,3 @@ describe('Event-driven plugins', () => {
     expect(clearIntervalSpy).toHaveBeenCalled();
   });
 });
-

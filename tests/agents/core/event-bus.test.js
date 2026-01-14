@@ -174,6 +174,7 @@ describe('EventBus', () => {
       await expect(
         bus.waitFor('never.happens', { timeout: 50 })
       ).rejects.toThrow();
+      expect(bus._waiters.size).toBe(0);
     });
 
     it('should support abort signal', async () => {
@@ -184,6 +185,19 @@ describe('EventBus', () => {
       setTimeout(() => controller.abort(), 10);
 
       await expect(promise).rejects.toThrow();
+      expect(bus._waiters.size).toBe(0);
+    });
+
+    it('should resolve if event occurs before abort', async () => {
+      const controller = new AbortController();
+      const promise = bus.waitFor('race.event', { signal: controller.signal });
+
+      bus.emitSync('race.event', { ok: true });
+      controller.abort(new Error('abort after emit'));
+
+      const evt = await promise;
+      expect(evt.type).toBe('race.event');
+      expect(evt.payload).toEqual({ ok: true });
     });
 
     it('should accept numeric timeout argument', async () => {

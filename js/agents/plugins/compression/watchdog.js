@@ -26,8 +26,15 @@ export default createPlugin({
    * @returns {Promise<void>}
    */
   async install(ctx) {
+    // 防御：重复安装时先清理旧资源，避免 interval / listener 叠加
+    if (typeof ctx._watchdogCleanup === 'function') {
+      try { ctx._watchdogCleanup(); } catch {}
+    }
+
     /** @type {ReturnType<typeof setInterval> | null} */
     let intervalId = null;
+    /** @type {(() => void) | null} */
+    let unsubscribe = null;
     let lastCheck = 0;
 
     /**
@@ -63,35 +70,58 @@ export default createPlugin({
       lastCheck = Date.now();
     };
 
-    // 定期检查
-    if (ctx.config.checkInterval > 0) {
-      intervalId = setInterval(checkHealth, ctx.config.checkInterval);
-    }
-
-    // 订阅 token 更新事件
-    ctx.on('runtime.tokens.*', () => {
-      if (Date.now() - lastCheck > 1000) {
-        checkHealth();
+    const cleanup = () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
       }
-    });
+      if (unsubscribe) {
+        try { unsubscribe(); } catch {}
+        unsubscribe = null;
+      }
+      ctx._watchdogInterval = null;
+      ctx._watchdogCleanup = null;
+    };
 
-    // 暴露手动检查接口
-    ctx.registerService('watchdog', {
-      /**
-       * @returns {Promise<void>}
-       */
-      check: checkHealth,
+    // 提前暴露清理函数：保证 install 过程中抛错时也能回收资源
+    ctx._watchdogCleanup = cleanup;
 
-      /**
-       * @returns {any}
-       */
-      getHealth: () => ctx.state.get('health'),
-    });
+    try {
+      // 定期检查
+      if (ctx.config.checkInterval > 0) {
+        intervalId = setInterval(() => {
+          void checkHealth();
+        }, ctx.config.checkInterval);
+      }
 
-    ctx.log.info('Watchdog plugin installed');
+      // 订阅 token 更新事件
+      unsubscribe = ctx.on('runtime.tokens.*', () => {
+        if (Date.now() - lastCheck > 1000) {
+          void checkHealth();
+        }
+      });
 
-    // 保存清理函数
-    ctx._watchdogInterval = intervalId;
+      // 暴露手动检查接口
+      ctx.registerService('watchdog', {
+        /**
+         * @returns {Promise<void>}
+         */
+        check: checkHealth,
+
+        /**
+         * @returns {any}
+         */
+        getHealth: () => ctx.state.get('health'),
+      });
+
+      ctx.log.info('Watchdog plugin installed');
+
+      // 保存清理函数
+      ctx._watchdogInterval = intervalId;
+    } catch (error) {
+      cleanup();
+      throw error;
+    }
   },
 
   /**
@@ -99,8 +129,11 @@ export default createPlugin({
    * @returns {Promise<void>}
    */
   async uninstall(ctx) {
-    if (ctx._watchdogInterval) {
+    if (typeof ctx._watchdogCleanup === 'function') {
+      ctx._watchdogCleanup();
+    } else if (ctx._watchdogInterval) {
       clearInterval(ctx._watchdogInterval);
+      ctx._watchdogInterval = null;
     }
     ctx.log.info('Watchdog plugin uninstalled');
   },

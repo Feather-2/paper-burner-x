@@ -666,6 +666,73 @@ describe('runtime/core message-manager', () => {
       compressSpy.mockRestore();
     }
   });
+
+  it('dispose() clears cooldown timers and cancels in-flight compression', async () => {
+    const logger = { warn: vi.fn() };
+    const tokenCounter = { count: (text) => text.length };
+    const manager = new MessageManager({
+      logger,
+      tokenCounter,
+      contextConfig: { contextWindow: 100, compressThreshold: 0.8, compressCooldownMs: 50 },
+    });
+
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(1_000));
+      manager._lastCompressionAtMs = Date.now();
+      manager._compressionCoordinator.shouldCompress = vi.fn(() => true);
+
+      manager._scheduleCompression();
+      expect(manager._compressionCooldownTimer).not.toBe(null);
+
+      manager.dispose();
+      expect(manager._disposed).toBe(true);
+      expect(manager._compressionCooldownTimer).toBe(null);
+
+      await vi.advanceTimersByTimeAsync(50);
+      await Promise.resolve();
+      expect(manager._compressionPending).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const manager2 = new MessageManager({
+      logger,
+      tokenCounter,
+      contextConfig: { contextWindow: 10, compressThreshold: 0.1, compressCooldownMs: 0 },
+    });
+    manager2._compressionCoordinator.shouldCompress = vi.fn(() => true);
+    manager2._compressionCoordinator.maybeCompress = vi.fn((_messages, runtime) => {
+      const signal = runtime?.signal;
+      return new Promise((resolve, reject) => {
+        if (signal?.aborted) {
+          const err = new Error("aborted");
+          err.name = "AbortError";
+          reject(err);
+          return;
+        }
+        signal?.addEventListener(
+          "abort",
+          () => {
+            const err = new Error("aborted");
+            err.name = "AbortError";
+            reject(err);
+          },
+          { once: true }
+        );
+      });
+    });
+
+    manager2._scheduleCompression({ force: true });
+    await Promise.resolve(); // flush microtasks so _compress starts
+
+    const pending = manager2._compressionPromise;
+    expect(pending).not.toBe(null);
+
+    manager2.dispose();
+    await expect(pending).resolves.toBeUndefined();
+    expect(manager2._compressionAbortController).toBe(null);
+  });
 });
 
 describe('runtime/core context-config', () => {

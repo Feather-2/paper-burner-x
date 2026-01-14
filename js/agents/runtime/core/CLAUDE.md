@@ -55,6 +55,7 @@ const executor = new ToolExecutor({
 const mm = new MessageManager();
 const wrapped = mm.wrapToolOutput(largeContent);
 mm.cleanOldOutputs(3);  // 清理旧大输出
+mm.dispose();           // 不再使用时清理定时器/压缩任务
 ```
 
 ### 常量

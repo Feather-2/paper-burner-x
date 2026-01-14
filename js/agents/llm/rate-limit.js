@@ -4,6 +4,8 @@ import { createLogger } from "../shared/utils/logger.js";
 import { isPlainObject } from "../shared/utils/value-utils.js";
 
 const logger = createLogger("llm/rate-limit");
+const queueMicrotaskSafe =
+  typeof globalThis.queueMicrotask === "function" ? globalThis.queueMicrotask.bind(globalThis) : (fn) => Promise.resolve().then(fn);
 function isStorageLike(value) {
   return (
     value !== null &&
@@ -101,6 +103,7 @@ export class TokenBucketRateLimiter {
     this._inFlight = 0;
     this._pumping = false;
     this._pumpRequested = false;
+    this._pumpScheduled = false;
   }
 
   getState() {
@@ -202,6 +205,15 @@ export class TokenBucketRateLimiter {
     this._pump().catch((err) => logger.warn("Pump error", { error: err.message }));
   }
 
+  _requestPumpSoon() {
+    if (this._pumpScheduled) return;
+    this._pumpScheduled = true;
+    queueMicrotaskSafe(() => {
+      this._pumpScheduled = false;
+      this._requestPump();
+    });
+  }
+
   _refill(nowMs) {
     if (this._rps === Infinity) {
       this._tokens = Infinity;
@@ -273,6 +285,14 @@ export class TokenBucketRateLimiter {
         }
 
         this._inFlight += 1;
+        const decrementInFlight = (() => {
+          let done = false;
+          return () => {
+            if (done) return;
+            done = true;
+            this._inFlight = Math.max(0, this._inFlight - 1);
+          };
+        })();
         item.started = true;
         try {
           item.cleanupAbort?.();
@@ -284,7 +304,7 @@ export class TokenBucketRateLimiter {
           .then(() => item.execute())
           .then(item.resolve, item.reject)
           .finally(() => {
-            this._inFlight = Math.max(0, this._inFlight - 1);
+            decrementInFlight();
             this._requestPump();
           });
       }
@@ -292,7 +312,7 @@ export class TokenBucketRateLimiter {
       this._pumping = false;
       if (this._pumpRequested) {
         this._pumpRequested = false;
-        this._requestPump();
+        this._requestPumpSoon();
       }
     }
   }
