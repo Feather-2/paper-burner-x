@@ -10,6 +10,8 @@ Agent Loop 基础设施，包括生命周期、工具执行、压缩、遥测和
 | **Orchestrator** | `orchestrator.js` | 多 Agent 编排，调度模式 |
 | **ToolRegistry** | `core/tool-registry.js` | 工具注册/解析/执行 |
 | **ToolExecutor** | `tools/tool-executor.js` | 工具执行器 |
+| **WorkerFactory** | `core/worker-factory.js` | createWorker(), terminateWorker() - 跨平台 Worker 创建 |
+| **WorkerRpcClient** | `core/worker-rpc.js` | Worker RPC 通信 (含 dispose()) |
 | **Hooks** | `hooks/` | Pre/Post Tool Use 钩子 |
 | **StatusController** | `core/status-controller.js` | Agent 状态机 |
 | **MessageManager** | `core/message-manager.js` | 消息历史管理 |
@@ -19,6 +21,7 @@ Agent Loop 基础设施，包括生命周期、工具执行、压缩、遥测和
 | 子模块 | 路径 | 职责 |
 |--------|------|------|
 | **core** | `core/CLAUDE.md` | AgentLoop, ToolRegistry, MessageManager, StatusController |
+| **tools** | `tools/CLAUDE.md` | 工具执行器 (含共享逻辑 tool-executor-worker-shared.js) |
 | **compression** | `compression/` | Watchdog + CicadaCompressor + Coordinator |
 | **telemetry** | `telemetry/` | TokenTracker, TraceContext, Replay |
 | **memory** | `memory/` | MemoryStore, StateEngine, RetrievalEngine |
@@ -60,4 +63,16 @@ const hook = createPreToolUseHook((toolName, args) => {
   if (toolName === 'bash') return classifyCommand(args.command);
   return { allow: true };
 });
+```
+
+## Worker
+
+```javascript
+import { createWorker, isWorkerSupported, terminateWorker } from 'js/agents/runtime/core';
+
+if (isWorkerSupported()) {
+  const worker = await createWorker('/path/to/worker.js');
+  // ... 使用 worker
+  await terminateWorker(worker);
+}
 ```

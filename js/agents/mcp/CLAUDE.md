@@ -18,9 +18,10 @@
 ├─────────────────────────────────────────────────────────────────┤
 │                      Transport Layer                             │
 │  ├─ McpTransport (抽象基类)                                      │
-│  └─ StdioMcpTransport (包装 ProcessTransport)                   │
-│           ↓                                                      │
-│     ProcessTransport (runtime/transports)                        │
+│  ├─ StdioMcpTransport (Node.js only)                            │
+│  ├─ HttpMcpTransport (跨平台) ← NEW                              │
+│  ├─ SseMcpTransport (跨平台) ← NEW                               │
+│  └─ createMcpTransport() (Factory) ← NEW                        │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -34,6 +35,9 @@
 | `stdio-mcp-provider.js` | Stdio 进程通信 Provider |
 | `mcp-transport.js` | Transport 抽象接口 |
 | `stdio-mcp-transport.js` | Stdio Transport 实现 |
+| `transport-factory.js` | createMcpTransport(), getSupportedTransports() |
+| `http-mcp-transport.js` | HTTP 传输 (fetch-based, 跨平台) |
+| `sse-mcp-transport.js` | SSE 传输 (EventSource, 跨平台) |
 | `resource-manager.js` | MCP 资源管理 |
 | `sse.js` | SSE 解析器 |
 
@@ -59,6 +63,21 @@ const client = createMcpClient({ useLocal: true });
 
 // 调用工具
 const result = await client.callTool('search.query', { query: 'AI news' });
+```
+
+### Transport Factory
+
+```javascript
+import { createMcpTransport, getSupportedTransports } from 'js/agents/mcp';
+
+// 自动选择传输方式
+const transport = await createMcpTransport({ 
+  type: 'auto',  // 'stdio' | 'http' | 'sse' | 'auto'
+  url: 'http://localhost:3000/mcp',
+});
+
+// 查看支持的传输类型
+console.log(getSupportedTransports()); // ['http', 'sse'] or ['stdio', 'http', 'sse']
 ```
 
 ### 添加 Stdio Provider
@@ -132,8 +151,8 @@ await transport.disconnect();
 | Transport | Runtime | 协议 | 说明 |
 |-----------|---------|------|------|
 | `StdioMcpTransport` | Node.js | JSON-RPC 2.0 / JSONL | ✅ 已实现 |
-| HTTP | Browser/Node | HTTP REST | LocalMcpProvider 内置 |
-| SSE | Browser/Node | Server-Sent Events | LocalMcpProvider 内置 |
+| `HttpMcpTransport` | Browser/Node | HTTP (fetch) | ✅ 已实现 |
+| `SseMcpTransport` | Browser/Node | Server-Sent Events (EventSource) | ✅ 已实现 |
 | WebSocket | Browser/Node | WebSocket | 未来扩展 |
 
 ## MCP 协议版本

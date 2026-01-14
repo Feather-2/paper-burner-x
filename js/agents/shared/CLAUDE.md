@@ -31,6 +31,13 @@
 | `utils/secure-id.js` | 安全 ID 生成 |
 | `utils/storage-crypto.js` | 存储加密 |
 
+### Platform (平台检测)
+
+| 文件 | 职责 |
+|------|------|
+| `platform.js` | Platform 对象, isNodeLike() - 统一跨平台检测 |
+| `utils/event-emitter.js` | EventEmitter - 跨平台事件发射器 |
+
 ### Embeddings (向量)
 
 | 文件 | 职责 |
@@ -52,6 +59,18 @@
 | `parser/tree-sitter-wasm.js` | Tree-sitter WASM 封装 |
 
 ## 常用模式
+
+```javascript
+// 平台检测
+import { Platform, isNodeLike } from 'js/agents/shared/platform.js';
+
+if (Platform.isNode) {
+  // Node.js 特定逻辑
+}
+if (isNodeLike()) {
+  // Node.js 或 Bun
+}
+```
 
 ```javascript
 import { robustParseJson, createLogger, CircuitBreaker } from 'js/agents/shared';
