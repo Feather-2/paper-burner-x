@@ -2,6 +2,14 @@
 
 基于 QuickJS WASM 的安全执行环境，用于运行不可信 Skill 代码。
 
+## 降级策略（WASM 不可用时）
+
+某些运行环境可能不支持 WebAssembly（或 WASM 沙箱依赖无法加载）。此时：
+
+- `SkillExecutor` 会在无法创建/初始化 WASM 沙箱时，默认降级到受限 JS 执行（best-effort；不是强安全边界）。
+- 可通过 `fallbackMode: "none"` 禁用降级，强制要求 WASM 沙箱可用。
+- 可通过 `isWasmSupported()` 进行外部能力探测。
+
 ## 架构
 
 ```

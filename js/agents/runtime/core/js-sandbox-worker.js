@@ -21,10 +21,10 @@ const ALLOWED_GLOBALS = new Set([
 // 创建受限执行环境
 /**
  * @param {unknown} state
- * @param {unknown} [emit]
+ * @param {unknown} [globals]
  * @returns {Record<string, any>}
  */
-function createRestrictedGlobals(state, emit) {
+function createRestrictedGlobals(state, globals) {
   const restricted = Object.create(null);
 
   for (const key of ALLOWED_GLOBALS) {
@@ -48,6 +48,15 @@ function createRestrictedGlobals(state, emit) {
     info: (...args) => self.postMessage({ type: 'log', level: 'info', args: args.map(String) }),
   };
 
+  // 注入额外 globals（兼容 SkillExecutor 注入 args 变量的行为）
+  const normalizedGlobals = globals && typeof globals === "object" ? globals : null;
+  if (normalizedGlobals) {
+    for (const [k, v] of Object.entries(normalizedGlobals)) {
+      if (k in restricted) continue;
+      restricted[k] = v;
+    }
+  }
+
   // Shadow common escape hatches (best-effort; not a complete security boundary).
   restricted.self = undefined;
   restricted.globalThis = undefined;
@@ -65,7 +74,7 @@ function createRestrictedGlobals(state, emit) {
  * @returns {Promise<void>}
  */
 self.onmessage = async (evt) => {
-  const { type, id, code, state, timeout = 30000 } = evt.data;
+  const { type, id, code, state, globals, timeout = 30000 } = evt.data;
 
   if (type !== 'execute') return;
 
@@ -79,7 +88,7 @@ self.onmessage = async (evt) => {
       timeoutId = setTimeout(() => reject(new Error('Execution timeout')), timeout);
     });
 
-    const restricted = createRestrictedGlobals(state);
+    const restricted = createRestrictedGlobals(state, globals);
 
     // 构建受限执行函数
     const wrappedCode = `

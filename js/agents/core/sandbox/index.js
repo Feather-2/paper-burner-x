@@ -13,7 +13,7 @@
 export { WasmSandbox, createSandbox } from './wasm-sandbox.js';
 export { SandboxPool } from './pool.js';
 export { createSandboxPlugin } from './plugin.js';
-export { SkillExecutor, createSkillExecutor } from './skill-executor.js';
+export { SkillExecutor, createSkillExecutor, isWasmSupported } from './skill-executor.js';
 
 import { SandboxCapability, SandboxPreset, ResourceLimits } from './constants.js';
 
