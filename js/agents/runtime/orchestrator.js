@@ -584,7 +584,11 @@ export class AgentOrchestrator {
 
     await runNext();
     // Wait for all remaining
-    await Promise.all(executing);
+    const settled = await Promise.allSettled(executing);
+    const errors = settled.filter((r) => r.status === "rejected").map((r) => r.reason);
+    if (errors.length > 0) {
+      throw new AggregateError(errors, `${errors.length} parallel stages failed`);
+    }
 
     return results;
   }
