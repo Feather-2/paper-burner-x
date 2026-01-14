@@ -44,6 +44,7 @@ const DANGEROUS_PATTERNS = [
   /\bXMLHttpRequest\b/,
   /__proto__/,
   /\bconstructor\s*\[/,
+  /\bconstructor\s*\.\s*constructor\b/,
 ];
 
 /**
@@ -66,6 +67,108 @@ function normalizeMainThreadFallbackPolicy(value) {
   if (v === "deny" || v === "off" || v === "none") return "deny";
   if (v === "trustedonly" || v === "trusted_only" || v === "trusted") return "trustedOnly";
   return "trustedOnly";
+}
+
+// Minimal safe globals exposed to sandboxed code in main-thread fallback (best-effort).
+/** @type {Set<string>} */
+const SANDBOX_ALLOWED_GLOBALS = new Set([
+  'Array', 'ArrayBuffer', 'Boolean', 'DataView', 'Date', 'Error',
+  'Float32Array', 'Float64Array', 'Int8Array', 'Int16Array', 'Int32Array',
+  'JSON', 'Map', 'Math', 'Number', 'Object', 'Promise', 'Proxy',
+  'Reflect', 'RegExp', 'Set', 'String', 'Symbol', 'TypeError',
+  'Uint8Array', 'Uint16Array', 'Uint32Array', 'Uint8ClampedArray',
+  'WeakMap', 'WeakSet', 'console', 'isNaN', 'isFinite', 'parseFloat', 'parseInt',
+  'decodeURI', 'decodeURIComponent', 'encodeURI', 'encodeURIComponent',
+  'undefined', 'NaN', 'Infinity'
+]);
+
+/** @type {Set<string>} */
+const SANDBOX_BLOCKED_GLOBALS = new Set([
+  // Dynamic code execution
+  "eval",
+  "Function",
+  "AsyncFunction",
+  "GeneratorFunction",
+
+  // Module/require
+  "require",
+  "module",
+  "exports",
+
+  // Network / IO
+  "fetch",
+  "XMLHttpRequest",
+  "WebSocket",
+  "importScripts",
+
+  // Escape hatches
+  "postMessage",
+  "onmessage",
+  "addEventListener",
+  "removeEventListener",
+  "dispatchEvent",
+  "close",
+
+  // Prototype / constructor escape patterns
+  "__proto__",
+  "prototype",
+  "constructor",
+]);
+
+/**
+ * @param {Record<string, any>} base
+ * @param {{ blockedAccesses?: Set<string> } | null | undefined} audit
+ */
+function createSandboxProxy(base, audit) {
+  const target = Object.create(null);
+
+  /** @type {any} */
+  const proxy = new Proxy(target, {
+    has() {
+      return true;
+    },
+    get(t, prop) {
+      if (prop === Symbol.unscopables) return undefined;
+      if (typeof prop !== "string") return undefined;
+
+      // Provide a sandboxed "global" reference (does not expose the host globalThis).
+      if (prop === "globalThis" || prop === "self") return proxy;
+
+      if (SANDBOX_BLOCKED_GLOBALS.has(prop)) {
+        if (audit?.blockedAccesses && audit.blockedAccesses.size < 32) audit.blockedAccesses.add(prop);
+        return undefined;
+      }
+
+      if (Object.prototype.hasOwnProperty.call(t, prop)) return t[prop];
+      if (Object.prototype.hasOwnProperty.call(base, prop)) return base[prop];
+      return undefined;
+    },
+    set(t, prop, value) {
+      if (typeof prop !== "string") return false;
+      if (SANDBOX_BLOCKED_GLOBALS.has(prop)) {
+        if (audit?.blockedAccesses && audit.blockedAccesses.size < 32) audit.blockedAccesses.add(prop);
+        return true;
+      }
+      t[prop] = value;
+      return true;
+    },
+    defineProperty(t, prop, descriptor) {
+      if (typeof prop !== "string") return false;
+      if (SANDBOX_BLOCKED_GLOBALS.has(prop)) {
+        if (audit?.blockedAccesses && audit.blockedAccesses.size < 32) audit.blockedAccesses.add(prop);
+        return false;
+      }
+      return Reflect.defineProperty(t, prop, descriptor);
+    },
+    getPrototypeOf() {
+      return null;
+    },
+    setPrototypeOf() {
+      return false;
+    },
+  });
+
+  return proxy;
 }
 
 export class JSRuntimeAdapter extends RuntimeAdapter {
@@ -97,11 +200,16 @@ export class JSRuntimeAdapter extends RuntimeAdapter {
       this._worker = new Worker(workerUrl, { type: 'module' });
 
       this._worker.onmessage = (evt) => {
-        const { type, id, success, data, error, metrics, name, payload, level, args } = evt.data;
+        const { type, id, success, data, error, metrics, name, payload, level, args, event } = evt.data;
 
         if (type === 'emit') {
           // 转发 emit 事件
           logger.debug(`[JSSandbox] emit: ${name}`, payload);
+          return;
+        }
+
+        if (type === 'audit') {
+          logger.debug(`[JSSandbox] audit: ${event}`, payload);
           return;
         }
 
@@ -296,26 +404,46 @@ export class JSRuntimeAdapter extends RuntimeAdapter {
       }
     }
 
+    const audit = { blockedAccesses: new Set() };
+
     try {
-      const fn = new Function('context', `
-        "use strict";
-        const { state, vfs, emit } = context || {};
-        const globalThis = undefined;
-        const window = undefined;
-        const document = undefined;
-        const self = undefined;
-        const fetch = undefined;
-        const XMLHttpRequest = undefined;
-        const WebSocket = undefined;
-        const importScripts = undefined;
-        const Function = undefined;
-        return (async () => {
-          ${code}
-        })();
+      const base = Object.create(null);
+      const root = typeof globalThis !== "undefined" ? globalThis : undefined;
+
+      logger.debug("[JSSandbox] audit: start", {
+        mode: "main_thread",
+        timeoutMs: this.timeout,
+        codeLength: typeof code === "string" ? code.length : 0,
+        trusted,
+      });
+
+      for (const key of SANDBOX_ALLOWED_GLOBALS) {
+        if (root && key in root) base[key] = root[key];
+      }
+
+      const normalizedState = context?.state && typeof context.state === "object" ? context.state : {};
+      base.state = Object.freeze(normalizedState);
+      base.vfs = context?.vfs;
+      base.emit = typeof context?.emit === "function" ? context.emit.bind(context) : undefined;
+
+      // Prevent accidentally exposing blocked globals via injected context.
+      for (const k of Object.keys(base)) {
+        if (SANDBOX_BLOCKED_GLOBALS.has(k)) delete base[k];
+      }
+
+      const sandbox = createSandboxProxy(base, audit);
+
+      // eslint-disable-next-line no-new-func
+      const fn = new Function('sandbox', `
+        return (async function () {
+          with (sandbox) {
+            ${code}
+          }
+        }).call(sandbox);
       `);
 
       let timeoutId = null;
-      const execPromise = fn(context);
+      const execPromise = fn(sandbox);
       const timeoutPromise =
         this.timeout > 0
           ? new Promise((_, reject) => {
@@ -333,14 +461,30 @@ export class JSRuntimeAdapter extends RuntimeAdapter {
       return {
         success: true,
         data: result,
-        metrics: { duration: Date.now() - startTime }
+        metrics: {
+          duration: Date.now() - startTime,
+          blockedGlobals: Array.from(audit.blockedAccesses),
+        }
       };
     } catch (err) {
       return {
         success: false,
         error: err.message,
-        metrics: { duration: Date.now() - startTime }
+        metrics: {
+          duration: Date.now() - startTime,
+          blockedGlobals: Array.from(audit.blockedAccesses),
+        }
       };
+    } finally {
+      try {
+        logger.debug("[JSSandbox] audit: end", {
+          mode: "main_thread",
+          duration: Date.now() - startTime,
+          blockedGlobals: Array.from(audit.blockedAccesses),
+        });
+      } catch {
+        // ignore
+      }
     }
   }
 

@@ -1,4 +1,5 @@
 import { isPlainObject, safeInt, toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { DisposableBase } from "../../shared/base/disposable-base.js";
 import { ensureTokenUsage, EVENT_SCHEMA_VERSION, EventStatus, extractJsonCandidate, normalizeBudgetConfig, stripThinkingTags } from "./utils/state-utils.js";
 import { Deque } from "../../shared/utils/deque.js";
 import { makeStageEmitter, generateNodeId, checkCancelled } from "./stage-utils.js";
@@ -49,7 +50,7 @@ const DEFAULT_MAX_ITERATIONS = 5;
  * @property {any=} stateEngine
  */
 
-export class DeepSearchState {
+export class DeepSearchState extends DisposableBase {
   /**
    * @param {DeepSearchStateSnapshot} [snapshot]
    */
@@ -77,6 +78,8 @@ export class DeepSearchState {
     memoryStore,
     stateEngine,
   } = {}) {
+    super();
+
     this.schemaVersion = toNonEmptyString(schemaVersion) || STATE_SCHEMA_VERSION;
     this.runId = toNonEmptyString(runId) || "run_unknown";
     this.createdAt = toNonEmptyString(createdAt) || new Date().toISOString();
@@ -87,6 +90,12 @@ export class DeepSearchState {
     this._stateEngineUnsubscribe = null;
     this._localTaskGoal = toNonEmptyString(taskGoal) || "";
     this._todos = Array.isArray(todos) ? todos : [];
+
+    // Ensure StateEngine is disposed when this state is disposed.
+    this._registerDisposable(async () => {
+      const engine = this._stateEngine;
+      if (engine && typeof engine.dispose === "function") await engine.dispose();
+    });
 
     this.task = new TaskState(this);
     this.iterationState = new IterationState(this);
@@ -155,6 +164,19 @@ export class DeepSearchState {
     this.timeline = new Deque(Array.isArray(timeline) ? timeline : []);
     this.writeBacktrackCount = Math.max(0, safeInt(writeBacktrackCount) ?? 0);
     this.writeSnapshots = Array.isArray(writeSnapshots) ? writeSnapshots : [];
+  }
+
+  async dispose() {
+    // Unsubscribe early to avoid callbacks during teardown.
+    if (this._stateEngineUnsubscribe) {
+      try {
+        this._stateEngineUnsubscribe();
+      } catch {
+        // ignore
+      }
+      this._stateEngineUnsubscribe = null;
+    }
+    await super.dispose();
   }
 
   get taskGoal() {
@@ -227,9 +249,19 @@ export class DeepSearchState {
     this._syncFromStateEngine();
 
     if (typeof engine.subscribe === "function") {
-      this._stateEngineUnsubscribe = engine.subscribe("L0", (_action, _prevL0, nextL0) => {
+      const rawUnsubscribe = engine.subscribe("L0", (_action, _prevL0, nextL0) => {
         this._syncFromStateEngine(nextL0);
       });
+      if (typeof rawUnsubscribe === "function") {
+        let called = false;
+        const unsubscribe = () => {
+          if (called) return;
+          called = true;
+          rawUnsubscribe();
+        };
+        this._stateEngineUnsubscribe = unsubscribe;
+        this._registerSubscription(unsubscribe);
+      }
     }
   }
 
@@ -349,3 +381,58 @@ export class DeepSearchState {
 
 Object.assign(DeepSearchState.prototype, memoryMethods, stateMethods, checkpointMethods, serializationMethods);
 DeepSearchState.deserialize = deserialize;
+
+// Enforce that the state cannot be used after being disposed.
+// This wraps all prototype methods and accessors (including mixins) to call `_ensureNotDisposed()`.
+function guardDisposablePrototype(prototype) {
+  const excluded = new Set([
+    "constructor",
+    "dispose",
+    "_onDispose",
+    "_ensureNotDisposed",
+    "_registerDisposable",
+    "_registerSubscription",
+    "_registerTimer",
+  ]);
+
+  for (const key of Object.getOwnPropertyNames(prototype)) {
+    if (excluded.has(key)) continue;
+    const desc = Object.getOwnPropertyDescriptor(prototype, key);
+    if (!desc) continue;
+
+    if (typeof desc.value === "function") {
+      const original = desc.value;
+      Object.defineProperty(prototype, key, {
+        ...desc,
+        value: function guarded(...args) {
+          this._ensureNotDisposed();
+          return original.apply(this, args);
+        },
+      });
+      continue;
+    }
+
+    const needsGetWrap = typeof desc.get === "function";
+    const needsSetWrap = typeof desc.set === "function";
+    if (!needsGetWrap && !needsSetWrap) continue;
+
+    const next = { ...desc };
+    if (needsGetWrap) {
+      const originalGet = desc.get;
+      next.get = function guardedGet() {
+        this._ensureNotDisposed();
+        return originalGet.call(this);
+      };
+    }
+    if (needsSetWrap) {
+      const originalSet = desc.set;
+      next.set = function guardedSet(value) {
+        this._ensureNotDisposed();
+        return originalSet.call(this, value);
+      };
+    }
+    Object.defineProperty(prototype, key, next);
+  }
+}
+
+guardDisposablePrototype(DeepSearchState.prototype);
