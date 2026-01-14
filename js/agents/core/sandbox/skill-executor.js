@@ -37,6 +37,7 @@ const FALLBACK_BLOCK_PATTERNS = [
   /\bimportScripts\b/,
   /__proto__/,
   /\bconstructor\s*\[/,
+  /\bconstructor\s*\.\s*constructor\b/,
 ];
 
 /** @type {Set<string>} */
@@ -50,6 +51,101 @@ const FALLBACK_ALLOWED_GLOBALS = new Set([
   'decodeURI', 'decodeURIComponent', 'encodeURI', 'encodeURIComponent',
   'undefined', 'NaN', 'Infinity'
 ]);
+
+// Fallback sandbox blocked bindings/APIs (best-effort; Proxy prevents fallback to real globals).
+/** @type {Set<string>} */
+const FALLBACK_BLOCKED_GLOBALS = new Set([
+  // Dynamic code execution
+  'eval',
+  'Function',
+  'AsyncFunction',
+  'GeneratorFunction',
+
+  // Module/require
+  'require',
+  'module',
+  'exports',
+
+  // Network / IO
+  'fetch',
+  'XMLHttpRequest',
+  'WebSocket',
+  'importScripts',
+
+  // Escape hatches
+  'postMessage',
+  'onmessage',
+  'addEventListener',
+  'removeEventListener',
+  'dispatchEvent',
+  'close',
+
+  // Prototype / constructor escape patterns
+  '__proto__',
+  'prototype',
+  'constructor',
+]);
+
+/**
+ * Create a Proxy suitable for `with (...)` that prevents identifier lookup from falling back to real globals.
+ *
+ * Note: This is a best-effort sandbox; use the QuickJS WASM sandbox for a strong isolation boundary.
+ *
+ * @param {Record<string, any>} base
+ * @param {{ blockedAccesses?: Set<string> } | null | undefined} audit
+ * @returns {any}
+ */
+function createFallbackProxyGlobals(base, audit) {
+  const target = Object.create(null);
+
+  /** @type {any} */
+  const proxy = new Proxy(target, {
+    has() {
+      return true;
+    },
+    get(t, prop) {
+      if (prop === Symbol.unscopables) return undefined;
+      if (typeof prop !== 'string') return undefined;
+
+      // Provide a sandboxed "global" reference (does not expose the host globalThis).
+      if (prop === 'globalThis' || prop === 'self') return proxy;
+
+      if (FALLBACK_BLOCKED_GLOBALS.has(prop)) {
+        if (audit?.blockedAccesses && audit.blockedAccesses.size < 32) audit.blockedAccesses.add(prop);
+        return undefined;
+      }
+
+      if (Object.prototype.hasOwnProperty.call(t, prop)) return t[prop];
+      if (Object.prototype.hasOwnProperty.call(base, prop)) return base[prop];
+      return undefined;
+    },
+    set(t, prop, value) {
+      if (typeof prop !== 'string') return false;
+      if (FALLBACK_BLOCKED_GLOBALS.has(prop)) {
+        if (audit?.blockedAccesses && audit.blockedAccesses.size < 32) audit.blockedAccesses.add(prop);
+        return true;
+      }
+      t[prop] = value;
+      return true;
+    },
+    defineProperty(t, prop, descriptor) {
+      if (typeof prop !== 'string') return false;
+      if (FALLBACK_BLOCKED_GLOBALS.has(prop)) {
+        if (audit?.blockedAccesses && audit.blockedAccesses.size < 32) audit.blockedAccesses.add(prop);
+        return false;
+      }
+      return Reflect.defineProperty(t, prop, descriptor);
+    },
+    getPrototypeOf() {
+      return null;
+    },
+    setPrototypeOf() {
+      return false;
+    },
+  });
+
+  return proxy;
+}
 
 function normalizeCapabilityName(value) {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
@@ -137,6 +233,7 @@ function createFallbackGlobals({ state, args, onLog, onEmit }) {
   // 注入 args（兼容 WASM 直接注入变量的行为）
   const normalizedArgs = args && typeof args === 'object' ? args : {};
   for (const [k, v] of Object.entries(normalizedArgs)) {
+    if (FALLBACK_BLOCKED_GLOBALS.has(k)) continue;
     if (!(k in globals)) globals[k] = v;
   }
 
@@ -459,6 +556,11 @@ export class SkillExecutor {
 
     const validation = validateFallbackCode(code);
     if (!validation.valid) {
+      try {
+        this.logger.warn('Sandbox blocked code (fallback)', { skillId, reason: validation.reason });
+      } catch {
+        // ignore
+      }
       return {
         success: false,
         data: null,
@@ -545,10 +647,19 @@ export class SkillExecutor {
       }
 
       worker.onmessage = (evt) => {
-        const { type, success, data, error, metrics, name, payload, level, args } = evt.data || {};
+        const { type, success, data, error, metrics, name, payload, level, args, event } = evt.data || {};
 
         if (type === 'emit') {
           options?.onEmit?.(name, payload);
+          return;
+        }
+
+        if (type === 'audit') {
+          try {
+            this.logger.debug('Sandbox audit', { mode: 'worker', event, payload });
+          } catch {
+            // ignore
+          }
           return;
         }
 
@@ -605,28 +716,38 @@ export class SkillExecutor {
     const startTime = Date.now();
     const timeoutMs = Math.max(0, Number(options?.timeoutMs ?? 30000));
 
-    const globals = createFallbackGlobals({
+    const baseGlobals = createFallbackGlobals({
       state: options.state,
       args: options.globals,
       onLog: options.onLog || (() => {}),
       onEmit: options.onEmit || (() => {}),
     });
+    const audit = { blockedAccesses: new Set() };
+    const sandbox = createFallbackProxyGlobals(baseGlobals, audit);
 
     try {
+      this.logger.debug('Sandbox audit', {
+        mode: 'eval',
+        event: 'start',
+        timeoutMs,
+        codeLength: typeof options?.code === 'string' ? options.code.length : 0,
+      });
+
       // 构建受限执行函数（best-effort；不是强安全边界）
       const wrappedCode = `
-        return (async function(globals) {
-          with (globals) {
+        return (async function () {
+          with (sandbox) {
             ${options.code}
           }
-        }).call(globals, globals);
+        }).call(sandbox);
       `;
 
-      const fn = new Function(wrappedCode);
+      // eslint-disable-next-line no-new-func
+      const fn = new Function('sandbox', wrappedCode);
 
       /** @type {ReturnType<typeof setTimeout> | null} */
       let timeoutId = null;
-      const execPromise = fn.call(globals, globals);
+      const execPromise = fn(sandbox);
       const timeoutPromise =
         timeoutMs > 0
           ? new Promise((_, reject) => {
@@ -644,15 +765,34 @@ export class SkillExecutor {
       return {
         success: true,
         data: result,
-        metrics: { duration: Date.now() - startTime, mode: 'eval' },
+        metrics: {
+          duration: Date.now() - startTime,
+          mode: 'eval',
+          blockedGlobals: Array.from(audit.blockedAccesses),
+        },
       };
     } catch (err) {
       return {
         success: false,
         data: null,
         error: err?.message || String(err),
-        metrics: { duration: Date.now() - startTime, mode: 'eval' },
+        metrics: {
+          duration: Date.now() - startTime,
+          mode: 'eval',
+          blockedGlobals: Array.from(audit.blockedAccesses),
+        },
       };
+    } finally {
+      try {
+        this.logger.debug('Sandbox audit', {
+          mode: 'eval',
+          event: 'end',
+          duration: Date.now() - startTime,
+          blockedGlobals: Array.from(audit.blockedAccesses),
+        });
+      } catch {
+        // ignore
+      }
     }
   }
 

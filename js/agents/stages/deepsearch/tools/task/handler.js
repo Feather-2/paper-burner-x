@@ -63,6 +63,14 @@ class TaskManager extends DisposableBase {
     return this._runningTasks.size;
   }
 
+  get runningCount() {
+    let count = 0;
+    for (const task of this._runningTasks.values()) {
+      if (task?.status === "running") count += 1;
+    }
+    return count;
+  }
+
   get(taskId) {
     return this._runningTasks.get(taskId);
   }
@@ -141,13 +149,18 @@ function pruneRunningTasks(options) {
 
 function canAcceptNewTask() {
   const mgr = getTaskManager();
-  if (mgr.size >= MAX_RUNNING_TASKS) {
+  if (mgr.runningCount >= MAX_RUNNING_TASKS) {
     return {
       ok: false,
-      error: `Too many running tasks (${mgr.size}/${MAX_RUNNING_TASKS}). Try again later.`,
+      error: `Too many running tasks (${mgr.runningCount}/${MAX_RUNNING_TASKS}). Try again later.`,
     };
   }
   return { ok: true };
+}
+
+function reserveRunningTaskSlot() {
+  pruneRunningTasks();
+  return canAcceptNewTask();
 }
 
 function compactResult(result) {
