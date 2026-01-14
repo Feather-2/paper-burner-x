@@ -2,6 +2,30 @@
   "name": "paper-burner-root",
   "private": true,
   "type": "module",
+  "exports": {
+    "./agents/vfs": {
+      "node": "./js/agents/vfs/index.node.js",
+      "browser": "./js/agents/vfs/index.browser.js",
+      "default": "./js/agents/vfs/index.js"
+    },
+    "./agents/runtime/transports": {
+      "node": "./js/agents/runtime/transports/index.node.js",
+      "browser": "./js/agents/runtime/transports/index.browser.js",
+      "default": "./js/agents/runtime/transports/index.js"
+    },
+    "./agents/mcp": {
+      "default": "./js/agents/mcp/index.js"
+    },
+    "./agents/mcp/transport": {
+      "default": "./js/agents/mcp/transport-factory.js"
+    },
+    "./agents/runtime/core": {
+      "default": "./js/agents/runtime/core/index.js"
+    },
+    "./agents/shared/platform": {
+      "default": "./js/agents/shared/platform.js"
+    }
+  },
   "scripts": {
     "dev:fe": "vite",
     "build:fe": "vite build",

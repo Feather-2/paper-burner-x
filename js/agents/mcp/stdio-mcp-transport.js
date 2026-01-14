@@ -8,7 +8,6 @@
  */
 
 import { McpTransport, MCP_PROTOCOL_VERSION, McpMethods } from "./mcp-transport.js";
-import { ProcessTransport } from "../runtime/transports/process-transport.js";
 
 /**
  * @typedef {object} StdioMcpTransportOptions
@@ -62,14 +61,19 @@ export class StdioMcpTransport extends McpTransport {
     this.command = options.command;
     this.args = options.args || [];
     this.env = options.env || {};
-    this.cwd = options.cwd || process.cwd();
+    const defaultCwd =
+      typeof process !== "undefined" && typeof process.cwd === "function" ? process.cwd() : ".";
+    this.cwd = options.cwd || defaultCwd;
     this.signal = options.signal || null;
     this.autoInit = options.autoInit !== false;
     this.clientName = options.clientName || "js-agents";
     this.clientVersion = options.clientVersion || "1.0.0";
 
-    /** @type {ProcessTransport | null} */
+    /** @type {import("../runtime/transports/process-transport.js").ProcessTransport | null} */
     this._process = null;
+
+    /** @type {null | typeof import("../runtime/transports/process-transport.js")} */
+    this._processTransportModule = null;
 
     /** @type {any} */
     this.serverInfo = null;
@@ -84,6 +88,8 @@ export class StdioMcpTransport extends McpTransport {
    */
   async connect() {
     if (this._connected) return;
+
+    const ProcessTransport = await this._getProcessTransport();
 
     // 创建 ProcessTransport
     this._process = new ProcessTransport({
@@ -115,6 +121,13 @@ export class StdioMcpTransport extends McpTransport {
     }
 
     this.emit("connect");
+  }
+
+  async _getProcessTransport() {
+    if (!this._processTransportModule) {
+      this._processTransportModule = await import("../runtime/transports/process-transport.js");
+    }
+    return this._processTransportModule.ProcessTransport;
   }
 
   /**

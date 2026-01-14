@@ -8,5 +8,13 @@
  * - (Future) WorkerTransport: Web Worker / Worker Threads
  */
 
-export { ProcessTransport, createProcessTransport } from "./process-transport.js";
-export { BinarySkillProvider, createBinarySkillProvider } from "./binary-skill-provider.js";
+import { Platform } from "../../shared/platform.js";
+
+const impl = Platform.isNode ? await import("./index.node.js") : await import("./index.browser.js");
+
+export const ProcessTransport = impl.ProcessTransport;
+export const createProcessTransport = impl.createProcessTransport;
+export const BinarySkillProvider = impl.BinarySkillProvider;
+export const createBinarySkillProvider = impl.createBinarySkillProvider;
+
+export default impl;

@@ -18,6 +18,7 @@ import { createSseParser, consumeSse, consumeSseJson } from "./sse.js";
 import { McpTransport, MCP_PROTOCOL_VERSION, MCP_SUPPORTED_VERSIONS, McpMethods } from "./mcp-transport.js";
 import { StdioMcpTransport, createStdioMcpTransport } from "./stdio-mcp-transport.js";
 import { StdioMcpProvider, createStdioMcpProvider } from "./stdio-mcp-provider.js";
+import { createMcpTransport, getSupportedTransports } from "./transport-factory.js";
 
 export {
   // Core
@@ -37,6 +38,8 @@ export {
   McpTransport,
   StdioMcpTransport,
   createStdioMcpTransport,
+  createMcpTransport,
+  getSupportedTransports,
   MCP_PROTOCOL_VERSION,
   MCP_SUPPORTED_VERSIONS,
   McpMethods,

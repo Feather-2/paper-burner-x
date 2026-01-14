@@ -9,6 +9,7 @@
  */
 
 import { WorkerRpcClient } from "./worker-rpc.js";
+import { createWorker as createDefaultWorker } from "./worker-factory.js";
 import { createLogger } from "../../shared/utils/logger.js";
 
 const logger = createLogger("runtime/core/worker-pool");
@@ -38,22 +39,28 @@ export const TaskPriority = {
 export class WorkerPool {
   /**
    * @param {object} [options]
-   * @param {function} [options.createWorker] - Factory function to create Worker
+   * @param {string|URL} [options.scriptUrl] - Worker script path (used with WorkerFactory default)
+   * @param {object} [options.workerOptions] - Worker options (used with WorkerFactory default)
+   * @param {function} [options.createWorker] - Factory function to create Worker (overrides WorkerFactory default)
    * @param {number} [options.maxWorkers=4]
    * @param {number} [options.idleTimeoutMs=30000]
    * @param {number} [options.taskTimeoutMs=60000]
    */
   constructor({
+    scriptUrl,
+    workerOptions = {},
     createWorker,
     maxWorkers = DEFAULT_MAX_WORKERS,
     idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_MS,
     taskTimeoutMs = DEFAULT_TASK_TIMEOUT_MS,
   } = {}) {
-    if (typeof createWorker !== "function") {
-      throw new Error("WorkerPool requires createWorker function");
+    if (typeof createWorker !== "function" && !scriptUrl) {
+      throw new Error("WorkerPool requires createWorker function or scriptUrl");
     }
 
-    this._createWorker = createWorker;
+    const workerFactory = typeof createWorker === "function" ? createWorker : () => createDefaultWorker(scriptUrl, workerOptions);
+
+    this._createWorker = workerFactory;
     this._maxWorkers = maxWorkers;
     this._idleTimeoutMs = idleTimeoutMs;
     this._taskTimeoutMs = taskTimeoutMs;

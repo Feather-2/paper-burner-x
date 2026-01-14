@@ -1,4 +1,3 @@
-import { isNodeLike } from "../shared/platform.js";
 import { normalizeVfsPath } from "./path.js";
 
 /** @type {any} */
@@ -12,7 +11,6 @@ function joinFsPath(rootPath, vfsPath) {
 
 export class NodeFsVfs {
   constructor({ rootPath = "." } = {}) {
-    if (!isNodeLike()) throw new Error("NodeFsVfs is only available in Node.js");
     this._rootPath = rootPath;
   }
 

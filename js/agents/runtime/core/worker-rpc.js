@@ -60,17 +60,19 @@ export class WorkerRpcClient {
   /**
    * @param {object} options
    * @param {Worker} [options.worker] - Worker instance
-   * @param {function} [options.createWorker] - Factory function to create worker
+   * @param {function} [options.createWorker] - Factory function to create worker (can return Worker or Promise<Worker>)
    * @param {number} [options.timeoutMs=30000]
    */
   constructor({ worker, createWorker, timeoutMs = 30000 } = {}) {
     this._workerInstance = worker || null;
     this._createWorker = typeof createWorker === "function" ? createWorker : null;
+    this._workerPromise = null;
     this._timeoutMs = timeoutMs;
     this._pending = new Map(); // id → { resolve, reject, timer }
     this._disposed = false;
     this._boundOnMessage = this._onMessage.bind(this);
     this._boundOnError = this._onError.bind(this);
+    this._boundOnExit = this._onExit.bind(this);
 
     if (this._workerInstance) {
       this._attachListeners(this._workerInstance);
@@ -86,18 +88,43 @@ export class WorkerRpcClient {
 
   /**
    * Get or create worker
-   * @returns {Worker}
+   * @returns {Promise<Worker>}
    */
-  _getWorker() {
+  async _getWorker() {
     if (this._workerInstance) return this._workerInstance;
 
-    if (this._createWorker) {
-      this._workerInstance = this._createWorker();
-      this._attachListeners(this._workerInstance);
-      return this._workerInstance;
+    if (!this._createWorker) {
+      throw new Error("No worker available");
     }
 
-    throw new Error("No worker available");
+    if (this._workerPromise) return this._workerPromise;
+
+    this._workerPromise = Promise.resolve()
+      .then(() => this._createWorker())
+      .then((worker) => {
+        if (!worker) {
+          throw new Error("createWorker returned no worker");
+        }
+
+        // If disposed while creating, try to cleanup and fail the request.
+        if (this._disposed) {
+          try {
+            if (typeof worker.terminate === "function") worker.terminate();
+          } catch {
+            // ignore
+          }
+          throw new Error("WorkerRpcClient is disposed");
+        }
+
+        this._workerInstance = worker;
+        this._attachListeners(worker);
+        return worker;
+      })
+      .finally(() => {
+        this._workerPromise = null;
+      });
+
+    return this._workerPromise;
   }
 
   /**
@@ -109,6 +136,20 @@ export class WorkerRpcClient {
     if (typeof worker.addEventListener === "function") {
       worker.addEventListener("message", this._boundOnMessage);
       worker.addEventListener("error", this._boundOnError);
+      if (typeof worker.addEventListener === "function") {
+        worker.addEventListener("exit", this._boundOnExit);
+      }
+      return;
+    }
+
+    // Node.js Worker Threads (EventEmitter)
+    if (typeof worker.on === "function") {
+      worker.on("message", this._boundOnMessage);
+      worker.on("error", this._boundOnError);
+      if (typeof worker.on === "function") {
+        worker.on("exit", this._boundOnExit);
+      }
+      return;
     } else {
       // Fallback to onmessage/onerror
       worker.onmessage = this._boundOnMessage;
@@ -125,6 +166,34 @@ export class WorkerRpcClient {
     if (typeof worker.removeEventListener === "function") {
       worker.removeEventListener("message", this._boundOnMessage);
       worker.removeEventListener("error", this._boundOnError);
+      try {
+        worker.removeEventListener("exit", this._boundOnExit);
+      } catch {
+        // ignore
+      }
+      return;
+    }
+
+    if (typeof worker.off === "function") {
+      worker.off("message", this._boundOnMessage);
+      worker.off("error", this._boundOnError);
+      try {
+        worker.off("exit", this._boundOnExit);
+      } catch {
+        // ignore
+      }
+      return;
+    }
+
+    if (typeof worker.removeListener === "function") {
+      worker.removeListener("message", this._boundOnMessage);
+      worker.removeListener("error", this._boundOnError);
+      try {
+        worker.removeListener("exit", this._boundOnExit);
+      } catch {
+        // ignore
+      }
+      return;
     } else {
       if (worker.onmessage === this._boundOnMessage) worker.onmessage = null;
       if (worker.onerror === this._boundOnError) worker.onerror = null;
@@ -136,7 +205,7 @@ export class WorkerRpcClient {
    * @param {MessageEvent} event
    */
   _onMessage(event) {
-    const data = event.data;
+    const data = event?.data ?? event;
     if (!data || data.type !== "rpc:response") return;
 
     const pending = this._pending.get(data.id);
@@ -159,6 +228,26 @@ export class WorkerRpcClient {
   _onError(event) {
     const message = event?.message || String(event);
     logger.error("Worker error", { message });
+
+    // Clear worker reference for recreation
+    this._detachListeners(this._workerInstance);
+    this._workerInstance = null;
+
+    // Reject all pending calls
+    for (const [id, pending] of this._pending) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error(message));
+    }
+    this._pending.clear();
+  }
+
+  /**
+   * Handle worker exit (Node.js Worker Threads)
+   * @param {number} code
+   */
+  _onExit(code) {
+    const message = code === 0 ? "Worker exited" : `Worker exited with code ${code}`;
+    logger.error("Worker exit", { code, message });
 
     // Clear worker reference for recreation
     this._detachListeners(this._workerInstance);
@@ -224,14 +313,6 @@ export class WorkerRpcClient {
     }
 
     return new Promise((resolve, reject) => {
-      let worker;
-      try {
-        worker = this._getWorker();
-      } catch (err) {
-        reject(err);
-        return;
-      }
-
       const id = generateId();
 
       const request = {
@@ -280,17 +361,61 @@ export class WorkerRpcClient {
         timer,
       });
 
-      // Send request
-      try {
-        if (transferables?.length) {
-          worker.postMessage(request, transferables);
-        } else {
-          worker.postMessage(request);
+      // Fast path: if we already have a worker instance, send synchronously.
+      // This keeps call() "fire-and-forget" scheduling deterministic for tests
+      // and avoids races with dispose() clearing pending calls.
+      if (this._workerInstance) {
+        // Request already timed out / aborted
+        if (!this._pending.has(id)) return;
+
+        // Double-check abort before sending
+        if (signal?.aborted) {
+          onAbort();
+          return;
         }
-      } catch (err) {
-        cleanup();
-        reject(err);
+
+        try {
+          if (transferables?.length) {
+            this._workerInstance.postMessage(request, transferables);
+          } else {
+            this._workerInstance.postMessage(request);
+          }
+        } catch (err) {
+          cleanup();
+          reject(err);
+        }
+        return;
       }
+
+      // Ensure worker and send request (supports async createWorker)
+      Promise.resolve()
+        .then(() => this._getWorker())
+        .then((worker) => {
+          // Request already timed out / aborted
+          if (!this._pending.has(id)) return;
+
+          // Double-check abort after async worker creation
+          if (signal?.aborted) {
+            onAbort();
+            return;
+          }
+
+          try {
+            if (transferables?.length) {
+              worker.postMessage(request, transferables);
+            } else {
+              worker.postMessage(request);
+            }
+          } catch (err) {
+            cleanup();
+            reject(err);
+          }
+        })
+        .catch((err) => {
+          if (!this._pending.has(id)) return;
+          cleanup();
+          reject(err);
+        });
     });
   }
 
