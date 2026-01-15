@@ -102,6 +102,9 @@ export {
   MODE_PRIORITY,
 } from "./context/subagent-budget.js";
 
+// Checkpoints
+export { AgentCheckpointStore } from "./checkpoints/agent-checkpoint-store.js";
+
 // Tools
 export { ToolExecutor, createToolExecutor } from "./tools/tool-executor.js";
 export { HookRegistry, HookType, enhanceEventBusWithHooks, getHookRegistry, createPreToolUseHook } from "./hooks/index.js";

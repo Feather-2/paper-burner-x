@@ -1775,6 +1775,38 @@ test("Runtime: command classifier parses compound commands and flags danger", as
   assert.equal(nested.level, "dangerous");
 });
 
+test("Runtime: AgentCheckpointStore persists and restores checkpoints", async () => {
+  const { AgentCheckpointStore } = await import("../../js/agents/runtime/checkpoints/agent-checkpoint-store.js");
+  const { MemoryVfs } = await import("../../js/agents/vfs/vfs.memory.js");
+
+  const vfs = new MemoryVfs();
+  const store = new AgentCheckpointStore({ vfs, runId: "run_test" });
+
+  const saved = await store.saveCheckpoint({
+    messages: [{ role: "user", content: "hello" }],
+    toolCalls: [{ action: "noop", args: {}, result: { ok: true } }],
+    results: [{ kind: "final", output: "ok" }],
+    metadata: { note: "checkpoint" },
+    iteration: 1,
+  });
+
+  assert.ok(saved.checkpointId);
+
+  const list = await store.listCheckpoints();
+  assert.equal(list.length, 1);
+  assert.equal(list[0].checkpointId, saved.checkpointId);
+
+  const last = await store.loadCheckpoint({ mode: "last" });
+  assert.equal(last.checkpointId, saved.checkpointId);
+  assert.deepEqual(last.messages, [{ role: "user", content: "hello" }]);
+
+  const byStep = await store.loadCheckpoint({ mode: "step", step: 1 });
+  assert.equal(byStep.checkpointId, saved.checkpointId);
+
+  const byId = await store.loadCheckpoint({ checkpointId: saved.checkpointId });
+  assert.equal(byId.checkpointId, saved.checkpointId);
+});
+
 test("Runtime: EventBus hook registry attaches and PreToolUse hook can block", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
   const { enhanceEventBusWithHooks } = await import("../../js/agents/runtime/hooks/event-bus-hooks.js");
