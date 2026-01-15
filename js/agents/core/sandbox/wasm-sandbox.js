@@ -15,14 +15,14 @@ async function getQuickJS() {
 
   try {
     // 优先使用 quickjs-emscripten
-    /** @ts-ignore */
+    /** @ts-ignore - quickjs-emscripten 是可选依赖，类型定义可能不存在 */
     const { getQuickJS } = await import('quickjs-emscripten');
     _quickjsModule = await getQuickJS();
     return _quickjsModule;
   } catch (err) {
     // 回退到 quickjs-emscripten-core（更轻量）
     try {
-      /** @ts-ignore */
+      /** @ts-ignore - quickjs-emscripten-core 是可选依赖，类型定义可能不存在 */
       const { newQuickJSWASMModule } = await import('quickjs-emscripten-core');
       _quickjsModule = await newQuickJSWASMModule();
       return _quickjsModule;

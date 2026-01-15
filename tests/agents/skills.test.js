@@ -9,6 +9,7 @@ import { loadSkills } from "../../js/agents/skills/loader.js";
 import { loadSkillFromPath as loadSkillFromPathBrowser, loadSkills as loadSkillsBrowser } from "../../js/agents/skills/loader.browser.js";
 import { SkillsManager } from "../../js/agents/skills/manager.js";
 import { NexusSkillProvider } from "../../js/agents/mcp/nexus-skill-provider.js";
+import { SkillExecutor } from "../../js/agents/core/sandbox/skill-executor.js";
 import { readJsonWithLimit, readTextWithLimit } from "../../js/agents/shared/utils/response-limits.js";
 
 async function writeSkillFile(rootDir, scope, name, body, frontmatter) {
@@ -220,6 +221,34 @@ describe("mcp/nexus-skill-provider size limits", () => {
       );
     } finally {
       globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+describe("core/sandbox/skill-executor fallback", () => {
+  it("isolates host globals via Proxy", async () => {
+    const executor = new SkillExecutor({ fallbackMode: "eval" });
+    // Avoid trying to initialize QuickJS WASM in Node tests.
+    executor.wasmSupported = false;
+
+    const originalWorker = globalThis.Worker;
+    try {
+      // Ensure we hit main-thread fallback in Node environments.
+      if (typeof originalWorker !== "undefined") globalThis.Worker = undefined;
+
+      const result = await executor.execute(
+        {
+          body: "return typeof Buffer;",
+          metadata: { name: "ProxyIsolation", scope: "user" },
+        },
+        { args: {}, state: {} }
+      );
+
+      assert.equal(result.success, true);
+      assert.equal(result.data, "undefined");
+      assert.equal(result.metrics.mode, "eval");
+    } finally {
+      if (typeof originalWorker !== "undefined") globalThis.Worker = originalWorker;
     }
   });
 });

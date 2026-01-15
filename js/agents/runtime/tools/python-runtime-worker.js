@@ -170,7 +170,7 @@ function makeErrnoError(pyodideInstance, code) {
           : 1;
   if (typeof ErrnoError === "function") return new ErrnoError(errno);
   const err = new Error(code);
-  // @ts-ignore
+  // @ts-ignore - 动态添加 errno 属性以模拟 Node.js ErrnoError
   err.errno = errno;
   return err;
 }

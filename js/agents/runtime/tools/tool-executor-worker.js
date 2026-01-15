@@ -1,4 +1,4 @@
-/** @ts-ignore */
+/** @ts-ignore - 浏览器构建不包含 @types/node，此导入在浏览器环境会被打包工具替换 */
 import { parentPort } from "node:worker_threads";
 import { createToolExecutorHandler } from "./tool-executor-worker-shared.js";
 

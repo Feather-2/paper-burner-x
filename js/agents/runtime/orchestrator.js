@@ -5,6 +5,7 @@ import { ServiceId } from "./di/defaults.js";
 import { CommonSchemas, validateConfig } from "./core/config-validator.js";
 import { TaskGraph } from "./parallel/task-graph.js";
 import { enhanceEventBusWithHooks } from "./hooks/event-bus-hooks.js";
+import { DisposableBase } from "../shared/base/disposable-base.js";
 
 import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
 
@@ -256,17 +257,20 @@ export const SchedulingMode = Object.freeze({
   PARALLEL: "parallel",
 });
 
-export class AgentOrchestrator {
+export class AgentOrchestrator extends DisposableBase {
   /**
    * @param {AgentOrchestratorOptions} [options]
    */
   constructor({ mode, scenario, constraints, services, eventBus, runId, scheduling, degradationMatrix, configValidation } = {}) {
+    super();
+
     this.runContext = buildRunContext({ runId, mode, scenario, constraints });
     this.runId = this.runContext.runId;
 
     this._services = services && typeof services === "object" ? services : {};
     this.eventBus = eventBus instanceof EventBus ? eventBus : new EventBus({ runId: this.runId });
     enhanceEventBusWithHooks(this.eventBus);
+    this._registerDisposable(this.eventBus);
     // P2.1: 默认启用背压（浏览器和 Node.js 均生效），coalesce *.progress 事件
     if (typeof this.eventBus.enableBackpressure === "function") {
       const cfg = this._services?.eventBusBackpressure ?? this._services?.backpressure;
@@ -312,13 +316,48 @@ export class AgentOrchestrator {
       coerce: globalCfg.coerce === true,
     };
 
-    this.emit = (name, record) => this.eventBus.emit(name, record);
+    /** @type {Set<any>} */
+    this._childAgents = new Set();
+    const initialAgents = this._services?.agents ?? this._services?.childAgents;
+    if (Array.isArray(initialAgents)) {
+      for (const agent of initialAgents) this.registerAgent(agent);
+    } else if (initialAgents instanceof Map || initialAgents instanceof Set) {
+      for (const agent of initialAgents.values()) this.registerAgent(agent);
+    } else if (isPlainObject(initialAgents)) {
+      for (const agent of Object.values(initialAgents)) this.registerAgent(agent);
+    }
+
+    this._registerDisposable(async () => {
+      const agents = Array.from(this._childAgents);
+      this._childAgents.clear();
+      if (agents.length === 0) return;
+
+      const settled = await Promise.allSettled(
+        agents.map(async (agent) => {
+          if (!agent || typeof agent.dispose !== "function") return;
+          await agent.dispose();
+        })
+      );
+      const errors = settled.filter((r) => r.status === "rejected").map((r) => r.reason);
+      if (errors.length > 0) {
+        console.warn(`[${this.constructor.name}] ${errors.length} child agent(s) failed to dispose`, errors);
+      }
+    });
+
+    this.taskGraph = new TaskGraph();
+    this._registerDisposable(this.taskGraph);
+
+    this.emit = (name, record) => {
+      this._ensureNotDisposed();
+      this.eventBus.emit(name, record);
+    };
   }
 
   /**
    * @returns {Promise<any|null>}
    */
   async _getDegradationMatrix() {
+    this._ensureNotDisposed();
     if (isDegradationMatrixLike(this._degradationMatrix)) return this._degradationMatrix;
 
     const fromServices = this._services?.degradationMatrix;
@@ -357,6 +396,7 @@ export class AgentOrchestrator {
    * @returns {Promise<number>}
    */
   async _getEffectiveConcurrencyLimit() {
+    this._ensureNotDisposed();
     const limit = this._maxConcurrency;
     const matrix = await this._getDegradationMatrix();
     if (!matrix) return limit;
@@ -372,6 +412,7 @@ export class AgentOrchestrator {
    * @returns {void}
    */
   _emitRunStarted() {
+    this._ensureNotDisposed();
     if (this._runStarted) return;
     this._runStarted = true;
     this.emit("run.started", {
@@ -390,6 +431,7 @@ export class AgentOrchestrator {
    * @returns {void}
    */
   _emitRunCancelled(reason) {
+    this._ensureNotDisposed();
     if (this._runCancelled) return;
     this._runCancelled = true;
     this.emit("run.cancelled", {
@@ -404,6 +446,7 @@ export class AgentOrchestrator {
    * @returns {void}
    */
   _emitRunFailed({ error, stage } = {}) {
+    this._ensureNotDisposed();
     if (this._runFailed) return;
     this._runFailed = true;
     const message = toNonEmptyString(error) || "Unknown error";
@@ -423,6 +466,7 @@ export class AgentOrchestrator {
    * @returns {void}
    */
   _emitRunCompleted({ reason } = {}) {
+    this._ensureNotDisposed();
     if (this._runCompleted) return;
     this._runCompleted = true;
     const r = toNonEmptyString(reason) || "completed";
@@ -435,6 +479,7 @@ export class AgentOrchestrator {
    * @returns {void}
    */
   _emitRunEnded({ reason } = {}) {
+    this._ensureNotDisposed();
     if (this._runEnded) return;
     this._runEnded = true;
     const r = toNonEmptyString(reason);
@@ -452,6 +497,7 @@ export class AgentOrchestrator {
    * @returns {this}
    */
   registerStage(name, handler, options = {}) {
+    this._ensureNotDisposed();
     const stageName = toNonEmptyString(name);
     if (!stageName) throw new Error("AgentOrchestrator.registerStage(name, handler): name must be a non-empty string");
     if (typeof handler !== "function") throw new TypeError("AgentOrchestrator.registerStage(name, handler): handler must be a function");
@@ -473,9 +519,23 @@ export class AgentOrchestrator {
   }
 
   /**
+   * Register a disposable child agent to be cleaned up when this orchestrator is disposed.
+   * @param {any} agent
+   * @returns {this}
+   */
+  registerAgent(agent) {
+    this._ensureNotDisposed();
+    if (agent && typeof agent.dispose === "function") {
+      this._childAgents.add(agent);
+    }
+    return this;
+  }
+
+  /**
    * @returns {void}
    */
   start() {
+    this._ensureNotDisposed();
     if (this.state === OrchestratorState.RUNNING) return;
     this.state = OrchestratorState.RUNNING;
     this._emitRunStarted();
@@ -486,6 +546,7 @@ export class AgentOrchestrator {
    * @returns {void}
    */
   stop(reason = "cancelled") {
+    this._ensureNotDisposed();
     if (this.signal.aborted) return;
     const r = toNonEmptyString(reason) || "cancelled";
     const isFailure =
@@ -507,6 +568,7 @@ export class AgentOrchestrator {
    * @returns {void}
    */
   end(reason = "completed") {
+    this._ensureNotDisposed();
     if (this.state === OrchestratorState.ENDED) return;
     if (this.state === OrchestratorState.RUNNING) {
       this.state = OrchestratorState.ENDED;
@@ -523,6 +585,7 @@ export class AgentOrchestrator {
    * @returns {Promise<any>}
    */
   async runStage(stageName, input) {
+    this._ensureNotDisposed();
     const name = toNonEmptyString(stageName);
     if (!name) throw new Error("AgentOrchestrator.runStage(stageName): stageName must be a non-empty string");
 
@@ -544,6 +607,7 @@ export class AgentOrchestrator {
    * @returns {Promise<Map<string, any>>} Map of stageName -> result
    */
   async runStagesParallel(stages) {
+    this._ensureNotDisposed();
     if (!Array.isArray(stages) || stages.length === 0) {
       return new Map();
     }
@@ -607,6 +671,7 @@ export class AgentOrchestrator {
    * @returns {Promise<Map<string, any>>} Map of stageName -> {success, result|error|skipped}
    */
   async runStagesGraph(stages, options = {}) {
+    this._ensureNotDisposed();
     const list = Array.isArray(stages) ? stages : [];
     if (list.length === 0) return new Map();
 
@@ -620,58 +685,63 @@ export class AgentOrchestrator {
       byName.set(stageName, item);
     }
 
-    const graph = new TaskGraph();
-    for (const [stageName, item] of byName) {
-      const deps = Array.isArray(item?.dependsOn) ? item.dependsOn : [];
-      graph.addTask(stageName, deps);
-    }
-
-    const levels = graph.getLevels();
-    const results = new Map();
-
-    for (const level of levels) {
-      /** @type {Array<{name: string, input?: any}>} */
-      const runnable = [];
-
-      for (const stageName of level) {
-        const node = byName.get(stageName);
-        const deps = Array.isArray(node?.dependsOn) ? node.dependsOn : [];
-
-        let blockedBy = null;
-        for (const dep of deps) {
-          const r = results.get(dep);
-          if (r && r.success === false) {
-            blockedBy = dep;
-            break;
-          }
-        }
-
-        if (blockedBy) {
-          results.set(stageName, { success: false, skipped: true, error: `dependency_failed:${blockedBy}` });
-          continue;
-        }
-
-        runnable.push({ name: stageName, input: node?.input });
+    const graph = this.taskGraph;
+    graph.clear();
+    try {
+      for (const [stageName, item] of byName) {
+        const deps = Array.isArray(item?.dependsOn) ? item.dependsOn : [];
+        graph.addTask(stageName, deps);
       }
 
-      if (runnable.length) {
-        const levelResults = await this.runStagesParallel(runnable);
-        for (const [name, outcome] of levelResults.entries()) {
-          results.set(name, outcome);
-        }
-      }
+      const levels = graph.getLevels();
+      const results = new Map();
 
-      if (!continueOnError) {
+      for (const level of levels) {
+        /** @type {Array<{name: string, input?: any}>} */
+        const runnable = [];
+
         for (const stageName of level) {
-          const r = results.get(stageName);
-          if (r && r.success === false && !r.skipped) {
-            throw new Error(`Stage failed: ${stageName}: ${r.error || "unknown_error"}`);
+          const node = byName.get(stageName);
+          const deps = Array.isArray(node?.dependsOn) ? node.dependsOn : [];
+
+          let blockedBy = null;
+          for (const dep of deps) {
+            const r = results.get(dep);
+            if (r && r.success === false) {
+              blockedBy = dep;
+              break;
+            }
+          }
+
+          if (blockedBy) {
+            results.set(stageName, { success: false, skipped: true, error: `dependency_failed:${blockedBy}` });
+            continue;
+          }
+
+          runnable.push({ name: stageName, input: node?.input });
+        }
+
+        if (runnable.length) {
+          const levelResults = await this.runStagesParallel(runnable);
+          for (const [name, outcome] of levelResults.entries()) {
+            results.set(name, outcome);
+          }
+        }
+
+        if (!continueOnError) {
+          for (const stageName of level) {
+            const r = results.get(stageName);
+            if (r && r.success === false && !r.skipped) {
+              throw new Error(`Stage failed: ${stageName}: ${r.error || "unknown_error"}`);
+            }
           }
         }
       }
-    }
 
-    return results;
+      return results;
+    } finally {
+      graph.clear();
+    }
   }
 
   /**
@@ -682,6 +752,7 @@ export class AgentOrchestrator {
    * @returns {Promise<any>}
    */
   async _runStageParallel(stageName, input) {
+    this._ensureNotDisposed();
     // Wait for slot
     const limit = await this._getEffectiveConcurrencyLimit();
     while (this._inFlight >= limit) {
@@ -703,6 +774,7 @@ export class AgentOrchestrator {
    * @returns {Promise<any>}
    */
   async _runStageNow(stageName, input) {
+    this._ensureNotDisposed();
     if (this.state !== OrchestratorState.RUNNING) this.start();
     if (this.signal.aborted) throw new Error("Run cancelled");
 
@@ -761,7 +833,7 @@ export class AgentOrchestrator {
     const api = createStageApi({
       signal: stageSignal,
       eventBus: this.eventBus,
-      emit: (name, record) => this.eventBus.emit(name, record),
+      emit: this.emit,
       ...this._services,
       ...(degradation ? { degradation } : {}),
       ...(userConfigValidation ? { configValidation: { userConfig: userConfigValidation } } : {}),
@@ -830,5 +902,23 @@ export class AgentOrchestrator {
 
       cleanup();
     }
+  }
+
+  /**
+   * @protected
+   * @returns {void}
+   */
+  _onDispose() {
+    try {
+      if (!this.signal.aborted) {
+        this._abortController.abort("disposed");
+      }
+    } catch {
+      // ignore
+    }
+
+    this._stages.clear();
+    this._queue = Promise.resolve();
+    this._inFlight = 0;
   }
 }

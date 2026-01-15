@@ -18,7 +18,7 @@ function toHex(bytes) {
 function sha256HexUtf8(str) {
   // TextEncoder is available in modern browsers and Node >= 11.
   const enc = typeof TextEncoder !== "undefined" ? new TextEncoder() : null;
-  /** @ts-ignore */
+  /** @ts-ignore - 浏览器环境无 Buffer，Node 环境无需 TextEncoder 的 fallback */
   const msg = enc ? enc.encode(str) : Uint8Array.from(Buffer.from(String(str), "utf8"));
 
   const K = new Uint32Array([

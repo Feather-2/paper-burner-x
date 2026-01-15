@@ -70,3 +70,43 @@ test("SDK: registering subagents adds the Task tool automatically", async () => 
   assert.equal(agent.capabilities.has("Task"), true);
 });
 
+test("SDK: AgentInstance.dispose unsubscribes + rejects further use", async () => {
+  const { AgentBuilder } = await import("../../js/agents/sdk/AgentBuilder.js");
+
+  let cfgHandlerCalls = 0;
+  let manualHandlerCalls = 0;
+
+  const builder = new AgentBuilder({ actor: "test" });
+  builder.useCapability("Echo", async (args) => ({ echo: String(args.text || "") }));
+  builder.onEvent("sdk.dispose.test", () => {
+    cfgHandlerCalls += 1;
+  });
+
+  const agent = builder.build();
+  const unsubscribe = agent.on("sdk.dispose.test", () => {
+    manualHandlerCalls += 1;
+  });
+
+  agent.eventBus.emitSync("sdk.dispose.test", { ok: true });
+  assert.equal(cfgHandlerCalls, 1);
+  assert.equal(manualHandlerCalls, 1);
+
+  // Ensure loop exists so loop cleanup can be validated.
+  await agent.run({ tool: "Echo", args: { text: "hi" } }, { state: {}, signal: null });
+  assert.ok(agent._loop);
+
+  await agent.dispose();
+  agent.eventBus.emitSync("sdk.dispose.test", { ok: true });
+
+  assert.equal(cfgHandlerCalls, 1);
+  assert.equal(manualHandlerCalls, 1);
+  assert.equal(agent._loop, null);
+
+  // Returned unsubscribe should be safe to call after dispose.
+  unsubscribe();
+
+  assert.throws(() => agent.run({ tool: "Echo", args: { text: "hi" } }, { state: {}, signal: null }), /disposed/i);
+  assert.throws(() => agent.on("x", () => {}), /disposed/i);
+  assert.throws(() => agent.getCapabilityDefinitions(), /disposed/i);
+  assert.throws(() => agent.toolExecutor, /disposed/i);
+});

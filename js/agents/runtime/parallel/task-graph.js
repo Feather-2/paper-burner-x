@@ -12,6 +12,22 @@ export class TaskGraph {
   }
 
   /**
+   * Clear all tasks from the graph.
+   * @returns {void}
+   */
+  clear() {
+    this._tasks.clear();
+  }
+
+  /**
+   * Dispose the graph (alias for clear).
+   * @returns {void}
+   */
+  dispose() {
+    this.clear();
+  }
+
+  /**
    * @param {string} taskId
    * @param {string[] | null | undefined} [dependencies]
    * @returns {this}
@@ -106,4 +122,3 @@ export class TaskGraph {
 }
 
 export default TaskGraph;
-

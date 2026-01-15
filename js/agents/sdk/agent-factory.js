@@ -1,5 +1,6 @@
 import { EventBus } from "../core/event-bus.js";
 import { BaseAgentLoop } from "../runtime/core/agent-loop.js";
+import { DisposableBase } from "../shared/base/disposable-base.js";
 import { useLogger } from "../shared/utils/logger.js";
 import { createTaskTool, TASK_TOOL_DEFINITION } from "../runtime/tools/TaskTool.js";
 import { createRecallTool, RECALL_TOOL_DEFINITION } from "../runtime/tools/RecallTool.js";
@@ -14,7 +15,7 @@ import { DefaultAgentLoop } from "./DefaultAgentLoop.js";
 /**
  * Agent 实例 - 由 AgentFactory 创建
  */
-export class AgentInstance {
+export class AgentInstance extends DisposableBase {
   constructor({
     eventBus,
     logger,
@@ -28,10 +29,11 @@ export class AgentInstance {
     actor,
     options,
   }) {
+    super();
+
     this.eventBus = eventBus;
     this.logger = logger;
     this.capabilities = capabilities;
-    this.toolExecutor = toolExecutor;
     this.mcpConfig = mcpConfig;
     this.subagentRegistry = subagentRegistry;
     this.memory = compressor; // CicadaCompressor 实例
@@ -40,7 +42,63 @@ export class AgentInstance {
     this.alertMonitor = null; // AlertMonitor 实例
     this.actor = actor;
     this.options = options;
+
+    /** @type {((name: string, params: any, context: any) => Promise<any>) | null} */
+    this._toolExecutor = null;
+    this.toolExecutor = toolExecutor;
+
     this._loop = null;
+
+    // Ensure internal resources are released on dispose.
+    this._registerDisposable(() => {
+      this._toolExecutor = null;
+    });
+
+    this._registerDisposable(async () => {
+      const compressorRef = this.memory;
+      if (compressorRef && typeof compressorRef.dispose === "function") {
+        await compressorRef.dispose();
+      }
+    });
+
+    this._registerDisposable(async () => {
+      const loop = this._loop;
+      this._loop = null;
+      if (!loop) return;
+
+      try {
+        loop._executeAbortController?.abort?.("disposed");
+      } catch {
+        // ignore
+      }
+
+      try {
+        loop._detachEventBusListeners?.();
+      } catch {
+        // ignore
+      }
+
+      if (typeof loop.dispose === "function") {
+        await loop.dispose();
+      }
+    });
+  }
+
+  get toolExecutor() {
+    return this._toolExecutor;
+  }
+
+  set toolExecutor(fn) {
+    if (typeof fn !== "function") {
+      this._toolExecutor = null;
+      return;
+    }
+
+    const wrapped = async (name, params, context) => {
+      this._ensureNotDisposed();
+      return await fn(name, params, context);
+    };
+    this._toolExecutor = wrapped;
   }
 
   /** @deprecated Use capabilities instead */
@@ -186,16 +244,79 @@ export class AgentInstance {
    * @returns {Function}
    */
   on(pattern, handler) {
-    return this.eventBus.subscribe(pattern, handler);
-  }
+    const unsubscribe = this.eventBus.subscribe(pattern, handler);
 
-  /**
-   * 取消所有订阅
-   */
-  dispose() {
-    this.eventBus.clear?.();
+    if (typeof unsubscribe !== "function") {
+      // Defensive: EventBus.subscribe is expected to return an unsubscribe fn.
+      return unsubscribe;
+    }
+
+    let done = false;
+    const safeUnsubscribe = () => {
+      if (done) return;
+      done = true;
+      unsubscribe();
+    };
+
+    this._registerDisposable(safeUnsubscribe);
+    return safeUnsubscribe;
   }
 }
+
+// Enforce that the instance cannot be used after being disposed.
+// This wraps all prototype methods and accessors to call `_ensureNotDisposed()`.
+function guardDisposablePrototype(prototype) {
+  const excluded = new Set([
+    "constructor",
+    "dispose",
+    "_onDispose",
+    "_ensureNotDisposed",
+    "_registerDisposable",
+    "_registerSubscription",
+    "_registerTimer",
+  ]);
+
+  for (const key of Object.getOwnPropertyNames(prototype)) {
+    if (excluded.has(key)) continue;
+    const desc = Object.getOwnPropertyDescriptor(prototype, key);
+    if (!desc) continue;
+
+    if (typeof desc.value === "function") {
+      const original = desc.value;
+      Object.defineProperty(prototype, key, {
+        ...desc,
+        value: function guarded(...args) {
+          this._ensureNotDisposed();
+          return original.apply(this, args);
+        },
+      });
+      continue;
+    }
+
+    const needsGetWrap = typeof desc.get === "function";
+    const needsSetWrap = typeof desc.set === "function";
+    if (!needsGetWrap && !needsSetWrap) continue;
+
+    const next = { ...desc };
+    if (needsGetWrap) {
+      const originalGet = desc.get;
+      next.get = function guardedGet() {
+        this._ensureNotDisposed();
+        return originalGet.call(this);
+      };
+    }
+    if (needsSetWrap) {
+      const originalSet = desc.set;
+      next.set = function guardedSet(value) {
+        this._ensureNotDisposed();
+        return originalSet.call(this, value);
+      };
+    }
+    Object.defineProperty(prototype, key, next);
+  }
+}
+
+guardDisposablePrototype(AgentInstance.prototype);
 
 export class AgentFactory {
   /**
@@ -218,10 +339,6 @@ export class AgentFactory {
           // ignore
         }
       }
-    }
-
-    for (const { pattern, handler } of config.eventHandlers) {
-      eventBus.subscribe(pattern, /** @type {any} */ (handler));
     }
 
     const capabilities = config.capabilities;
@@ -272,28 +389,6 @@ export class AgentFactory {
       });
     }
 
-    const agent = new AgentInstance({
-      eventBus,
-      logger,
-      capabilities,
-      toolExecutor: null,
-      mcpConfig: config.mcpConfig,
-      subagentRegistry,
-      compressor,
-      backtrackManager,
-      discoveryManager,
-      actor: config.actor,
-      options: config.options,
-    });
-
-    if (config.alertMonitorConfig) {
-      agent.alertMonitor = new AlertMonitor({
-        agent,
-        logger,
-        ...config.alertMonitorConfig,
-      });
-    }
-
     const executor = new ToolExecutor({
       tools: Object.fromEntries(capabilities),
       hooks,
@@ -320,7 +415,32 @@ export class AgentFactory {
       return executor.execute(name, params, capabilityContext);
     };
 
-    agent.toolExecutor = toolExecutor;
+    const agent = new AgentInstance({
+      eventBus,
+      logger,
+      capabilities,
+      toolExecutor,
+      mcpConfig: config.mcpConfig,
+      subagentRegistry,
+      compressor,
+      backtrackManager,
+      discoveryManager,
+      actor: config.actor,
+      options: config.options,
+    });
+
+    for (const { pattern, handler } of config.eventHandlers) {
+      agent.on(pattern, /** @type {any} */ (handler));
+    }
+
+    if (config.alertMonitorConfig) {
+      agent.alertMonitor = new AlertMonitor({
+        agent,
+        logger,
+        ...config.alertMonitorConfig,
+      });
+    }
+
     return agent;
   }
 }
