@@ -143,7 +143,7 @@ export class MessageManager {
     if (this._disposed) return message;
     this._messages.push(message);
     const messageTokens = estimateTokens(message.content, this._tokenCounter);
-    message._tokens = messageTokens; // 缓存 token 数
+    this._cacheTokenCount(message, messageTokens); // 缓存 token 数 + hash
     this._tokenUsage.input += messageTokens;
     this._tokenUsage.total += messageTokens;
 
@@ -202,10 +202,76 @@ export class MessageManager {
   _recalculateTokenUsage() {
     let total = 0;
     for (const msg of this._messages) {
-      total += estimateTokens(msg.content, this._tokenCounter);
+      // 优先使用缓存（带 hash 验证），未命中则重新计算
+      const cached = this._getCachedTokenCount(msg);
+      if (cached !== undefined) {
+        total += cached;
+      } else {
+        const tokens = estimateTokens(msg.content, this._tokenCounter);
+        this._cacheTokenCount(msg, tokens);
+        total += tokens;
+      }
     }
     this._tokenUsage.input = total;
     this._tokenUsage.total = total;
+  }
+
+  // ==========================================================================
+  // Token 缓存（基于内容 hash 的失效机制）
+  // ==========================================================================
+
+  /**
+   * 计算内容的简单 hash（32-bit）
+   * @private
+   * @param {unknown} content
+   * @returns {number}
+   */
+  _computeContentHash(content) {
+    let str;
+    if (typeof content === "string") {
+      str = content;
+    } else if (content === null || content === undefined) {
+      return 0;
+    } else {
+      try {
+        str = JSON.stringify(content);
+      } catch {
+        str = String(content);
+      }
+    }
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = ((hash << 5) - hash) + str.charCodeAt(i);
+      hash |= 0; // Convert to 32-bit integer
+    }
+    return hash;
+  }
+
+  /**
+   * 缓存消息的 token 计数，附带内容 hash
+   * @private
+   * @param {ChatMessage} message
+   * @param {number} count
+   */
+  _cacheTokenCount(message, count) {
+    message._tokens = count;
+    message._contentHash = this._computeContentHash(message.content);
+  }
+
+  /**
+   * 获取缓存的 token 计数（验证 hash 是否匹配）
+   * @private
+   * @param {ChatMessage} message
+   * @returns {number | undefined} - 缓存有效返回 token 数，否则 undefined
+   */
+  _getCachedTokenCount(message) {
+    if (message._tokens !== undefined && message._contentHash !== undefined) {
+      const currentHash = this._computeContentHash(message.content);
+      if (currentHash === message._contentHash) {
+        return message._tokens;
+      }
+    }
+    return undefined;
   }
 
   /** @returns {boolean} */

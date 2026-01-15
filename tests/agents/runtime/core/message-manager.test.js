@@ -535,4 +535,179 @@ describe("runtime/core/message-manager", () => {
       expect(manager._pendingSummaryPromises.size).toBe(0);
     });
   });
+
+  // ==========================================================================
+  // Token 缓存失效机制测试
+  // ==========================================================================
+
+  describe("token cache invalidation", () => {
+    it("_computeContentHash() returns consistent hash for same content", () => {
+      const tokenCounter = { count: (text) => text.length };
+      const manager = new MessageManager({ tokenCounter });
+
+      const content = "hello world";
+      const hash1 = manager._computeContentHash(content);
+      const hash2 = manager._computeContentHash(content);
+
+      expect(hash1).toBe(hash2);
+      expect(typeof hash1).toBe("number");
+    });
+
+    it("_computeContentHash() returns different hash for different content", () => {
+      const tokenCounter = { count: (text) => text.length };
+      const manager = new MessageManager({ tokenCounter });
+
+      const hash1 = manager._computeContentHash("hello");
+      const hash2 = manager._computeContentHash("world");
+
+      expect(hash1).not.toBe(hash2);
+    });
+
+    it("_computeContentHash() handles null, undefined, and objects", () => {
+      const tokenCounter = { count: (text) => text.length };
+      const manager = new MessageManager({ tokenCounter });
+
+      expect(manager._computeContentHash(null)).toBe(0);
+      expect(manager._computeContentHash(undefined)).toBe(0);
+
+      const objHash = manager._computeContentHash({ key: "value" });
+      expect(typeof objHash).toBe("number");
+      expect(objHash).not.toBe(0);
+    });
+
+    it("_cacheTokenCount() stores token count with content hash", () => {
+      const tokenCounter = { count: (text) => text.length };
+      const manager = new MessageManager({ tokenCounter });
+
+      const msg = { role: "user", content: "hello" };
+      manager._cacheTokenCount(msg, 5);
+
+      expect(msg._tokens).toBe(5);
+      expect(msg._contentHash).toBe(manager._computeContentHash("hello"));
+    });
+
+    it("_getCachedTokenCount() returns cached value when content unchanged", () => {
+      const tokenCounter = { count: (text) => text.length };
+      const manager = new MessageManager({ tokenCounter });
+
+      const msg = { role: "user", content: "hello" };
+      manager._cacheTokenCount(msg, 5);
+
+      const cached = manager._getCachedTokenCount(msg);
+      expect(cached).toBe(5);
+    });
+
+    it("_getCachedTokenCount() returns undefined when content changed", () => {
+      const tokenCounter = { count: (text) => text.length };
+      const manager = new MessageManager({ tokenCounter });
+
+      const msg = { role: "user", content: "hello" };
+      manager._cacheTokenCount(msg, 5);
+
+      // 修改消息内容
+      msg.content = "hello world";
+
+      const cached = manager._getCachedTokenCount(msg);
+      expect(cached).toBeUndefined();
+    });
+
+    it("_getCachedTokenCount() returns undefined when hash is missing", () => {
+      const tokenCounter = { count: (text) => text.length };
+      const manager = new MessageManager({ tokenCounter });
+
+      const msg = { role: "user", content: "hello", _tokens: 5 };
+      // 没有 _contentHash
+
+      const cached = manager._getCachedTokenCount(msg);
+      expect(cached).toBeUndefined();
+    });
+
+    it("addMessage() caches token count with hash", () => {
+      const tokenCounter = { count: (text) => text.length };
+      const manager = new MessageManager({
+        tokenCounter,
+        contextConfig: { contextWindow: 1000, compressThreshold: 0.9, compressCooldownMs: 0 },
+      });
+
+      const msg = { role: "user", content: "hello" };
+      manager.addMessage(msg);
+
+      expect(msg._tokens).toBe(5);
+      expect(msg._contentHash).toBe(manager._computeContentHash("hello"));
+    });
+
+    it("_recalculateTokenUsage() uses cached tokens when content unchanged", () => {
+      const countFn = vi.fn((text) => text.length);
+      const tokenCounter = { count: countFn };
+      const manager = new MessageManager({
+        tokenCounter,
+        contextConfig: { contextWindow: 1000, compressThreshold: 0.9, compressCooldownMs: 0 },
+      });
+
+      const msg = { role: "user", content: "hello" };
+      manager.addMessage(msg);
+
+      const callsAfterAdd = countFn.mock.calls.length;
+
+      // 重算应使用缓存，不再调用 count
+      manager._recalculateTokenUsage();
+
+      expect(countFn.mock.calls.length).toBe(callsAfterAdd);
+      expect(manager.tokenUsage.total).toBe(5);
+    });
+
+    it("_recalculateTokenUsage() recounts tokens when content changed", () => {
+      const countFn = vi.fn((text) => text.length);
+      const tokenCounter = { count: countFn };
+      const manager = new MessageManager({
+        tokenCounter,
+        contextConfig: { contextWindow: 1000, compressThreshold: 0.9, compressCooldownMs: 0 },
+      });
+
+      const msg = { role: "user", content: "hello" };
+      manager.addMessage(msg);
+
+      expect(manager.tokenUsage.total).toBe(5);
+
+      const callsAfterAdd = countFn.mock.calls.length;
+
+      // 修改消息内容
+      msg.content = "hello world";
+
+      // 重算应检测到 hash 不匹配，重新计数
+      manager._recalculateTokenUsage();
+
+      expect(countFn.mock.calls.length).toBeGreaterThan(callsAfterAdd);
+      expect(manager.tokenUsage.total).toBe(11); // "hello world".length
+      expect(msg._tokens).toBe(11);
+      expect(msg._contentHash).toBe(manager._computeContentHash("hello world"));
+    });
+
+    it("token cache correctly handles object content modification", () => {
+      const tokenCounter = { count: (text) => text.length };
+      const manager = new MessageManager({
+        tokenCounter,
+        contextConfig: { contextWindow: 1000, compressThreshold: 0.9, compressCooldownMs: 0 },
+      });
+
+      const originalContent = { text: "hello" };
+      const msg = { role: "user", content: originalContent };
+      manager.addMessage(msg);
+
+      const originalTokens = msg._tokens;
+      const originalHash = msg._contentHash;
+
+      // 修改对象内容
+      msg.content.text = "hello world updated";
+
+      // 缓存应失效
+      const cached = manager._getCachedTokenCount(msg);
+      expect(cached).toBeUndefined();
+
+      // 重算应更新
+      manager._recalculateTokenUsage();
+      expect(msg._tokens).not.toBe(originalTokens);
+      expect(msg._contentHash).not.toBe(originalHash);
+    });
+  });
 });

@@ -73,6 +73,15 @@ export {
 export { Watchdog } from "./compression/watchdog.js";
 export { CicadaCompressor, CompressionLayer } from "./compression/cicada-compressor.js";
 export { CompressionCoordinator } from "./compression/coordinator.js";
+// Adaptive Context Management (主动上下文管理)
+export { ContextPredictor } from "./compression/context-predictor.js";
+export { AdaptiveZoneManager } from "./compression/adaptive-zone-manager.js";
+export {
+  ProactiveCompressor,
+  PRESETS as PROACTIVE_PRESETS,
+  autoSelectPreset as autoSelectProactivePreset,
+} from "./compression/proactive-compressor.js";
+export { CompressionQualityMonitor } from "./compression/quality-monitor.js";
 
 // Telemetry
 export { getRuntimeState, setRuntimeState } from "./telemetry/loop-runtime-state.js";
@@ -86,6 +95,12 @@ export { StageApiFactory } from "./api/stage-api-factory.js";
 
 // Context
 export { UnifiedAgentContext } from "./context/unified-agent-context.js";
+export {
+  SubagentBudgetManager,
+  createSubagentBudgetManager,
+  MODE_ALLOCATION_RATIOS,
+  MODE_PRIORITY,
+} from "./context/subagent-budget.js";
 
 // Tools
 export { ToolExecutor, createToolExecutor } from "./tools/tool-executor.js";

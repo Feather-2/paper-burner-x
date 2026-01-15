@@ -864,4 +864,232 @@ describe("runtime/memory/memory-store.js", () => {
     await expect(store.dispose()).resolves.toBeUndefined();
     expect(store.disposed).toBe(true);
   });
+
+  // ===== Observability: Event Emission and Metrics =====
+
+  describe("observability", () => {
+    it("emits memory:l1:add events when adding messages, signals, and decisions", async () => {
+      const eventBus = { emit: vi.fn() };
+      const store = await createStore({ eventBus });
+
+      store.addMessage({ role: "user", content: "hello" });
+      expect(eventBus.emit).toHaveBeenCalledWith(
+        "memory:l1:add",
+        expect.objectContaining({
+          actor: "memory",
+          payload: expect.objectContaining({ type: "message", role: "user" }),
+        })
+      );
+
+      eventBus.emit.mockClear();
+      const sig = store.addSignal({ type: "warn", message: "alert" });
+      expect(eventBus.emit).toHaveBeenCalledWith(
+        "memory:l1:add",
+        expect.objectContaining({
+          actor: "memory",
+          payload: expect.objectContaining({ type: "signal", signalType: "warn", id: sig.id }),
+        })
+      );
+
+      eventBus.emit.mockClear();
+      const dec = store.recordDecision({ action: "search", reason: "find info" });
+      expect(eventBus.emit).toHaveBeenCalledWith(
+        "memory:l1:add",
+        expect.objectContaining({
+          actor: "memory",
+          payload: expect.objectContaining({ type: "decision", action: "search", id: dec.id }),
+        })
+      );
+    });
+
+    it("emits memory:l2:compress event when compressing messages", async () => {
+      const eventBus = { emit: vi.fn() };
+      const store = await createStore({ eventBus });
+
+      // Add enough messages to compress
+      store.addMessages([
+        { role: "user", content: "first" },
+        { role: "assistant", content: "response" },
+        { role: "user", content: "second" },
+        { role: "assistant", content: "another response" },
+        { role: "user", content: "third" },
+      ]);
+
+      eventBus.emit.mockClear();
+      store.compress({ force: true });
+
+      expect(eventBus.emit).toHaveBeenCalledWith(
+        "memory:l2:compress",
+        expect.objectContaining({
+          actor: "memory",
+          payload: expect.objectContaining({
+            compressedCount: expect.any(Number),
+            keptCount: expect.any(Number),
+            summaryTokens: expect.any(Number),
+          }),
+        })
+      );
+    });
+
+    it("emits memory:l3:archive event when archiving data", async () => {
+      const eventBus = { emit: vi.fn() };
+      const store = await createStore({ eventBus });
+
+      eventBus.emit.mockClear();
+      const id = await store.archive("stage1", { summary: "Test" }, ["keyword1", "keyword2"]);
+
+      expect(eventBus.emit).toHaveBeenCalledWith(
+        "memory:l3:archive",
+        expect.objectContaining({
+          actor: "memory",
+          payload: expect.objectContaining({
+            id,
+            stageKey: "stage1",
+            keywordCount: 2,
+          }),
+        })
+      );
+    });
+
+    it("emits memory:recall event when recalling memories", async () => {
+      const eventBus = { emit: vi.fn() };
+      const store = await createStore({ eventBus });
+
+      await store.archive("stage", { summary: "Alpha summary" }, ["alpha"]);
+
+      eventBus.emit.mockClear();
+      store.recall("alpha", 3);
+
+      expect(eventBus.emit).toHaveBeenCalledWith(
+        "memory:recall",
+        expect.objectContaining({
+          actor: "memory",
+          payload: expect.objectContaining({
+            query: "alpha",
+            resultCount: expect.any(Number),
+            method: "keyword",
+          }),
+        })
+      );
+    });
+
+    it("emits memory:recall with method=semantic for semanticRecall", async () => {
+      const retrievalEngine = {
+        recall: vi.fn(() => []),
+        semanticRecall: vi.fn(async () => [{ id: "s1" }]),
+        hybridRecall: vi.fn(async () => []),
+      };
+      const eventBus = { emit: vi.fn() };
+      const store = await createStore({ eventBus, retrievalEngine });
+
+      await store.semanticRecall("test query", { limit: 5 });
+
+      expect(eventBus.emit).toHaveBeenCalledWith(
+        "memory:recall",
+        expect.objectContaining({
+          actor: "memory",
+          payload: expect.objectContaining({
+            method: "semantic",
+            resultCount: 1,
+          }),
+        })
+      );
+    });
+
+    it("emits memory:recall with method=hybrid for hybridRecall", async () => {
+      const retrievalEngine = {
+        recall: vi.fn(() => []),
+        semanticRecall: vi.fn(async () => []),
+        hybridRecall: vi.fn(async () => [{ id: "h1" }, { id: "h2" }]),
+      };
+      const eventBus = { emit: vi.fn() };
+      const store = await createStore({ eventBus, retrievalEngine });
+
+      await store.hybridRecall("test query", { limit: 5 });
+
+      expect(eventBus.emit).toHaveBeenCalledWith(
+        "memory:recall",
+        expect.objectContaining({
+          actor: "memory",
+          payload: expect.objectContaining({
+            method: "hybrid",
+            resultCount: 2,
+          }),
+        })
+      );
+    });
+
+    it("returns structured metrics from getMetrics()", async () => {
+      const store = await createStore();
+
+      // Populate all layers
+      store.addMessage({ role: "user", content: "hello" });
+      store.addMessage({ role: "assistant", content: "hi there" });
+      store.addSignal({ type: "info", message: "test signal" });
+      store.recordDecision({ action: "search", reason: "need info" });
+      store.setStageSummary("scan", "Found 3 documents");
+      store.addClaim({ content: "Claim 1" });
+      await store.archive("stage1", { summary: "Archive 1" }, ["kw"]);
+      await store.checkpoint();
+      store.recall("test", 3);
+
+      const metrics = store.getMetrics();
+
+      // Verify L1 metrics
+      expect(metrics.l1).toEqual({
+        messageCount: 2,
+        signalCount: 1,
+        decisionCount: 1,
+        tokenEstimate: expect.any(Number),
+      });
+      expect(metrics.l1.tokenEstimate).toBeGreaterThan(0);
+
+      // Verify L2 metrics
+      expect(metrics.l2).toEqual({
+        stageSummaryCount: 1,
+        claimCount: 1,
+      });
+
+      // Verify L3 metrics
+      expect(metrics.l3).toEqual({
+        archiveCount: 1,
+        checkpointCount: 1,
+      });
+
+      // Verify operations metrics
+      expect(metrics.operations).toEqual({
+        recallCount: 1,
+        compressCount: 0,
+        archiveCount: 1,
+      });
+    });
+
+    it("increments operation counters correctly across multiple operations", async () => {
+      const store = await createStore();
+
+      // Multiple archives
+      await store.archive("s1", { summary: "A1" }, []);
+      await store.archive("s2", { summary: "A2" }, []);
+      await store.archive("s3", { summary: "A3" }, []);
+
+      // Multiple recalls
+      store.recall("test1", 1);
+      store.recall("test2", 1);
+
+      // Force compression
+      store.addMessages([
+        { role: "user", content: "a" },
+        { role: "assistant", content: "b" },
+        { role: "user", content: "c" },
+        { role: "assistant", content: "d" },
+      ]);
+      store.compress({ force: true });
+
+      const metrics = store.getMetrics();
+
+      expect(metrics.operations.archiveCount).toBe(3);
+      expect(metrics.operations.recallCount).toBe(2);
+      expect(metrics.operations.compressCount).toBe(1);
+    });
+  });
 });

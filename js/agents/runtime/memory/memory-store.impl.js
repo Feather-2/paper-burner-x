@@ -428,6 +428,7 @@ export class MemoryStore extends DisposableBase {
     this._stats.l1Tokens += addedTokens;
     this._stats.tokenUsage += addedTokens;
     this._markDirty("L1");
+    this._emit("memory:l1:add", { type: "message", role: message.role, tokenEstimate: addedTokens });
     this._checkCompress();
     return message;
   }
@@ -472,6 +473,7 @@ export class MemoryStore extends DisposableBase {
     this._L1.signals.push(entry);
     this._pruneArray(this._L1.signals, this.config.maxSignals);
     this._markDirty("L1");
+    this._emit("memory:l1:add", { type: "signal", signalType: entry.type, id: entry.id });
     return entry;
   }
 
@@ -502,6 +504,7 @@ export class MemoryStore extends DisposableBase {
     this._L1.decisions.push(entry);
     this._pruneArray(this._L1.decisions, this.config.maxDecisions);
     this._markDirty("L1");
+    this._emit("memory:l1:add", { type: "decision", action: entry.action, id: entry.id });
     return entry;
   }
 
@@ -739,9 +742,12 @@ export class MemoryStore extends DisposableBase {
       const entry = await l3Storage.getSnapshot(id);
       if (entry) {
         this._emit("memory.archived", { id, stageKey: entry.stageKey, summary: entry.summary, ts: entry.ts });
+        this._emit("memory:l3:archive", { id, stageKey: entry.stageKey, keywordCount: keywords.length });
       } else {
         this._emit("memory.archived", { id, stageKey, ts: Date.now() });
+        this._emit("memory:l3:archive", { id, stageKey, keywordCount: keywords.length });
       }
+      this._stats.archiveCount = (this._stats.archiveCount || 0) + 1;
       return id;
     }
 
@@ -780,6 +786,8 @@ export class MemoryStore extends DisposableBase {
     // 时间线
     this._L3.index.timeline.push({ id, ts: entry.ts, summary: entry.summary });
     this._emit("memory.archived", { id, stageKey: entry.stageKey, summary: entry.summary, ts: entry.ts });
+    this._emit("memory:l3:archive", { id, stageKey: entry.stageKey, keywordCount: keywords.length });
+    this._stats.archiveCount = (this._stats.archiveCount || 0) + 1;
 
     return id;
   }
@@ -801,21 +809,30 @@ export class MemoryStore extends DisposableBase {
    * @deprecated Use `new RetrievalEngine({ memoryStore }).recall(...)`.
    */
   recall(query, limit = 3) {
-    return this._getRetrievalEngine().recall(query, limit);
+    this._stats.recallCount++;
+    const results = this._getRetrievalEngine().recall(query, limit);
+    this._emit("memory:recall", { query: typeof query === "string" ? query.slice(0, 100) : "(non-string)", resultCount: results.length, method: "keyword" });
+    return results;
   }
 
   /**
    * @deprecated Use `new RetrievalEngine({ memoryStore }).semanticRecall(...)`.
    */
   async semanticRecall(query, options) {
-    return await this._getRetrievalEngine().semanticRecall(query, options);
+    this._stats.recallCount++;
+    const results = await this._getRetrievalEngine().semanticRecall(query, options);
+    this._emit("memory:recall", { query: typeof query === "string" ? query.slice(0, 100) : "(non-string)", resultCount: results.length, method: "semantic" });
+    return results;
   }
 
   /**
    * @deprecated Use `new RetrievalEngine({ memoryStore }).hybridRecall(...)`.
    */
   async hybridRecall(query, options) {
-    return await this._getRetrievalEngine().hybridRecall(query, options);
+    this._stats.recallCount++;
+    const results = await this._getRetrievalEngine().hybridRecall(query, options);
+    this._emit("memory:recall", { query: typeof query === "string" ? query.slice(0, 100) : "(non-string)", resultCount: results.length, method: "hybrid" });
+    return results;
   }
 
   listArchives(limit = 10) {
@@ -1144,6 +1161,11 @@ export class MemoryStore extends DisposableBase {
       compressedCount: toCompress.length,
       keptCount: kept.length,
     });
+    this._emit("memory:l2:compress", {
+      compressedCount: toCompress.length,
+      keptCount: kept.length,
+      summaryTokens: addedL2Tokens,
+    });
 
     return true;
   }
@@ -1305,6 +1327,40 @@ export class MemoryStore extends DisposableBase {
       checkpointCount: this._L3.checkpoints.length,
       compressionCount: this._stats.compressionCount,
       recallCount: this._stats.recallCount,
+    };
+  }
+
+  /**
+   * Get structured metrics for observability.
+   * @returns {{
+   *   l1: { messageCount: number, signalCount: number, decisionCount: number, tokenEstimate: number },
+   *   l2: { stageSummaryCount: number, claimCount: number },
+   *   l3: { archiveCount: number, checkpointCount: number },
+   *   operations: { recallCount: number, compressCount: number, archiveCount: number }
+   * }}
+   */
+  getMetrics() {
+    this._recalculateTotalTokens();
+    return {
+      l1: {
+        messageCount: this._L1.messages.length,
+        signalCount: this._L1.signals.length,
+        decisionCount: this._L1.decisions.length,
+        tokenEstimate: this._stats.l1Tokens || 0,
+      },
+      l2: {
+        stageSummaryCount: this._L2.stageSummaries.size,
+        claimCount: this._L2.claims.length,
+      },
+      l3: {
+        archiveCount: this._L3.snapshots.size,
+        checkpointCount: this._L3.checkpoints.length,
+      },
+      operations: {
+        recallCount: this._stats.recallCount || 0,
+        compressCount: this._stats.compressionCount || 0,
+        archiveCount: this._stats.archiveCount || 0,
+      },
     };
   }
 

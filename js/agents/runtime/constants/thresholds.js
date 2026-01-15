@@ -56,6 +56,14 @@ export const THRESHOLDS = Object.freeze({
   SEMANTIC_SIMILARITY: 0.7,
   /** 关键词匹配阈值 (BM25) */
   KEYWORD_MATCH_SCORE: 1.0,
+
+  // ===== L2→L3 迁移 =====
+  /** L2 条目超过此时间迁移到 L3 (30 分钟) */
+  L2_ARCHIVE_AGE_MS: 30 * 60 * 1000,
+  /** L2 条目超过此数量触发迁移 */
+  L2_ARCHIVE_COUNT: 50,
+  /** L2 总大小超过此值触发迁移 (1MB) */
+  L2_ARCHIVE_SIZE_BYTES: 1024 * 1024,
 });
 
 /**
