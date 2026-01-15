@@ -200,10 +200,10 @@ export async function computeSha256(data) {
 
   // Node fallback (older runtimes)
   try {
-    /** @ts-ignore */
+    /** @ts-ignore - node:crypto 仅 Node.js 可用，浏览器构建会忽略此路径 */
     const { createHash } = await import(/* @vite-ignore */ "node:crypto");
     const h = createHash("sha256");
-    /** @ts-ignore */
+    /** @ts-ignore - Buffer 是 Node.js 全局对象，浏览器环境不存在 */
     h.update(Buffer.from(buf));
     return h.digest("hex");
   } catch {
