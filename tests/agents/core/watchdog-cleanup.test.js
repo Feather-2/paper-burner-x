@@ -39,7 +39,7 @@ describe('compression/watchdog cleanup', () => {
     expect(ctx._watchdogCleanup).toBeNull();
 
     // Keep tests isolated (service registry / subscriptions)
-    ctx.cleanup();
+    ctx.dispose();
   });
 });
 

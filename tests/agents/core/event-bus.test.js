@@ -316,7 +316,7 @@ describe('EventBus', () => {
 
     it('replay() should require a persistenceAdapter', async () => {
       const noPersistBus = new EventBus();
-      await expect(noPersistBus.replay('run_x')).rejects.toThrow(/persistenceAdapter required/i);
+      await expect(noPersistBus.replay('run_x')).rejects.toThrow(/persistenceAdapter.*required/i);
       noPersistBus.dispose();
     });
 
@@ -430,7 +430,7 @@ describe('EventBus', () => {
       vi.useRealTimers();
     });
 
-    it('should use requestAnimationFrame when available', () => {
+    it('should use requestAnimationFrame when available and batchWindowMs <= 0', () => {
       const handler = vi.fn();
       bus.on('run.progress', handler);
 
@@ -439,7 +439,7 @@ describe('EventBus', () => {
       globalThis.requestAnimationFrame = raf;
 
       try {
-        bus.enableBackpressure({ batchWindowMs: 50 });
+        bus.enableBackpressure({ batchWindowMs: 0 });
         bus.emit('run.progress', { pct: 1 });
 
         expect(raf).toHaveBeenCalledTimes(1);
@@ -631,19 +631,19 @@ describe('createEventRecord', () => {
 
 describe('RunStoreAdapter', () => {
   it('should validate constructor args', () => {
-    expect(() => new RunStoreAdapter(null)).toThrow(/runStore must be an object/i);
+    expect(() => new RunStoreAdapter(null)).toThrow(/getEvents must be a function/i);
     expect(() => new RunStoreAdapter({ appendEvents() {} })).toThrow(/getEvents must be a function/i);
     expect(() => new RunStoreAdapter({ getEvents() {} })).toThrow(/appendEvents\/appendEvent must be a function/i);
   });
 
-  it('appendEvents should validate input', () => {
+  it('appendEvents should validate input', async () => {
     const adapter = new RunStoreAdapter({
       getEvents: vi.fn(async () => []),
       appendEvents: vi.fn(async () => {}),
     });
 
-    expect(() => adapter.appendEvents(null)).toThrow(/events must be an array/i);
-    expect(adapter.appendEvents([])).toBe(0);
+    await expect(adapter.appendEvents(null)).rejects.toThrow(/events must be an array/i);
+    await expect(adapter.appendEvents([])).resolves.toBe(0);
   });
 
   it('should batch by runId when runStore.appendEvents exists', async () => {

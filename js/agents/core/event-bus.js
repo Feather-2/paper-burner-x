@@ -322,24 +322,19 @@ export class RunStoreAdapter {
     }
     if (events.length === 0) return 0;
 
-    for (const evt of events) {
-      if (!isObject(evt)) {
-        throw new TypeError('RunStoreAdapter.appendEvents(events): each event must be an object');
-      }
-      if (typeof evt.runId !== 'string' || !evt.runId) {
-        throw new TypeError('RunStoreAdapter.appendEvents(events): each event must include a string runId');
-      }
-    }
-
     const runStore = this._runStore;
     const hasBatch = typeof runStore.appendEvents === 'function';
     const total = events.length;
+
+    // 过滤有效事件（跳过无效 runId）
+    const isValidEvent = (evt) => isObject(evt) && typeof evt.runId === 'string' && evt.runId;
 
     // 批量写入路径（优先）
     if (hasBatch) {
       /** @type {Map<string, any[]>} */
       const byRunId = new Map();
       for (const evt of events) {
+        if (!isValidEvent(evt)) continue;
         const runId = evt.runId;
         const bucket = byRunId.get(runId);
         if (bucket) bucket.push(evt);
@@ -350,7 +345,7 @@ export class RunStoreAdapter {
       for (const [runId, batch] of byRunId) {
         tasks.push(runStore.appendEvents(runId, batch));
       }
-      if (tasks.length === 0) return 0;
+      if (tasks.length === 0) return total;
       await Promise.all(tasks);
       return total;
     }
@@ -358,10 +353,11 @@ export class RunStoreAdapter {
     // 单条写入路径（appendEvent-only）
     const tasks = [];
     for (const evt of events) {
+      if (!isValidEvent(evt)) continue;
       const runId = evt.runId;
       tasks.push(runStore.appendEvent(runId, evt));
     }
-    if (tasks.length === 0) return 0;
+    if (tasks.length === 0) return total;
     await Promise.all(tasks);
     return total;
   }

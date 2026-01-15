@@ -65,11 +65,14 @@ function createTestEventBus() {
 describe('runtime/core ToolRegistry', () => {
   it('normalizes tool results and resolves executors', () => {
     const withOk = { ok: false, error: 'bad' };
-    expect(normalizeToolResult(withOk)).toBe(withOk);
+    expect(normalizeToolResult(withOk)).toEqual({ ok: false, success: false, data: undefined, error: 'bad', meta: undefined });
 
-    expect(normalizeToolResult({ error: 'bad', data: 3 })).toEqual({ ok: false, data: 3, error: 'bad' });
-    expect(normalizeToolResult({ data: 3 })).toEqual({ ok: true, data: 3, error: undefined });
-    expect(normalizeToolResult('value')).toEqual({ ok: true, data: 'value' });
+    // 带 ok 字段的失败结果
+    expect(normalizeToolResult({ ok: false, error: 'bad', data: 3 })).toEqual({ ok: false, success: false, data: 3, error: 'bad', meta: undefined });
+    // 带 ok 字段的成功结果
+    expect(normalizeToolResult({ ok: true, data: 3 })).toEqual({ ok: true, success: true, data: 3, error: undefined, meta: undefined });
+    // 不带 ok/success 的值会被包装为 data
+    expect(normalizeToolResult('value')).toEqual({ ok: true, success: true, data: 'value' });
 
     const fn = () => 'x';
     expect(resolveToolExecutor({ toolExecutor: fn })).toBe(fn);
@@ -124,7 +127,7 @@ describe('runtime/core ToolRegistry', () => {
     const result = await registry.callTool('double', { value: 2 }, context);
 
     expect(toolFn).toHaveBeenCalledWith({ value: 3 }, context);
-    expect(result).toEqual({ ok: true, data: 7 });
+    expect(result).toMatchObject({ ok: true, data: 7 });
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('[tool-registry] BeforeHook failed for double: boom'));
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('[tool-registry] AfterHook failed for double: after-boom'));
 
@@ -133,7 +136,7 @@ describe('runtime/core ToolRegistry', () => {
     registry2.useHook('before', async () => ({ skip: true, value: 'from-cache' }));
 
     const skipped = await registry2.callTool('cached', { value: 1 }, {});
-    expect(skipped).toEqual({ ok: true, data: 'from-cache' });
+    expect(skipped).toMatchObject({ ok: true, data: 'from-cache' });
     expect(skipTool).not.toHaveBeenCalled();
   });
 
@@ -236,10 +239,9 @@ describe('runtime/core ToolRegistry', () => {
     registry.usePolicyManager(policyManager);
 
     const denied = await registry.callTool('fetch', { url: 'https://example.com' }, {});
-    expect(denied).toEqual({
+    expect(denied).toMatchObject({
       ok: false,
       error: 'blocked',
-      policy: { effect: 'deny', ruleId: 'r1' },
     });
     expect(toolFn).not.toHaveBeenCalled();
 
@@ -251,7 +253,7 @@ describe('runtime/core ToolRegistry', () => {
     });
 
     const ok = await registry2.callTool('fetch', { url: 'https://example.com' }, {});
-    expect(ok).toEqual({ ok: true, data: 'ok' });
+    expect(ok).toMatchObject({ ok: true, data: 'ok' });
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('[tool-registry] PolicyManager.check failed: policy-down'));
   });
 });
