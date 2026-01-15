@@ -10,6 +10,7 @@
 | `hook-registry.js` | HookRegistry - 钩子注册表，HookType/HookEvent 常量 |
 | `hook-runner.js` | 钩子工厂函数 (createPreToolUseHook/createPreAgentHook/createPostAgentHook) |
 | `event-bus-hooks.js` | EventBus 钩子增强 |
+| `hooks-config-loader.js` | HooksConfigLoader - VFS 配置加载 + 热重载 |
 
 ## 钩子工厂函数
 
@@ -159,4 +160,39 @@ enhancedBus.registerHook('PreAgent', {
   handler: async (ctx) => { ... }
 });
 ```
+
+## HooksConfigLoader (热重载)
+
+从 VFS 加载 hooks 配置文件，支持轮询热重载：
+
+```javascript
+import { HooksConfigLoader, HookRegistry } from 'js/agents/runtime/hooks';
+
+const registry = new HookRegistry();
+const loader = new HooksConfigLoader({
+  vfs,
+  registry,
+  configPath: '.agents/hooks.json',  // 可选，默认值
+  pollIntervalMs: 2000,              // 可选，轮询间隔
+});
+
+await loader.init();  // 加载配置，启动监听
+
+// 配置格式 (.agents/hooks.json)
+// {
+//   "hooks": [
+//     { "event": "PreToolUse", "type": "command", "tools": ["bash"], "blocking": true },
+//     { "event": "PreAgent", "type": "command", "blocking": true }
+//   ]
+// }
+
+// 清理
+await loader.dispose();
+```
+
+特性：
+- FNV-1a 哈希变更检测
+- 配置解析错误只警告不抛出
+- 无效 hook 定义跳过并警告
+- DisposableBase 继承，正确清理
 
