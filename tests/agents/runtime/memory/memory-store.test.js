@@ -779,4 +779,89 @@ describe("runtime/memory/memory-store.js", () => {
     expect(store._tokenize("Hello, world Q3")).toEqual(["hello", "world", "q3"]);
     expect(store._tokenize("a b c")).toEqual([]); // tokens <2 chars are filtered
   });
+
+  it("extends DisposableBase and cleans up resources on dispose", async () => {
+    const eventBus = { emit: vi.fn(), on: vi.fn(() => vi.fn()) };
+    const { MemoryVfs } = await import("../../../../js/agents/vfs/vfs.memory.js");
+    const vfs = new MemoryVfs();
+
+    const store = await createStore({ eventBus, vfs });
+
+    // Trigger lazy creation of RetrievalEngine and L3Storage
+    await store._getL3Storage();
+    store._getRetrievalEngine();
+
+    expect(store._l3Storage).not.toBeNull();
+    expect(store._retrievalEngine).not.toBeNull();
+
+    // Should have `disposed` property from DisposableBase
+    expect(store.disposed).toBe(false);
+
+    await store.dispose();
+
+    expect(store.disposed).toBe(true);
+    expect(store._l3Storage).toBeNull();
+    expect(store._l3StoragePromise).toBeNull();
+    expect(store._retrievalEngine).toBeNull();
+    expect(store._sharedContext).toBeNull();
+    expect(store._discoveryManager).toBeNull();
+    expect(store.eventBus).toBeNull();
+
+    // Calling dispose again should be a no-op
+    await store.dispose();
+    expect(store.disposed).toBe(true);
+  });
+
+  it("dispose cleans up RetrievalEngine subscriptions", async () => {
+    const unsubscribe = vi.fn();
+    const eventBus = {
+      emit: vi.fn(),
+      on: vi.fn(() => unsubscribe),
+    };
+
+    const store = await createStore({ eventBus });
+
+    // Force RetrievalEngine creation (it subscribes to eventBus in constructor)
+    const engine = store._getRetrievalEngine();
+    expect(engine._unsubscribeArchived).not.toBeNull();
+
+    await store.dispose();
+
+    // RetrievalEngine.dispose() should have been called, which calls unsubscribe
+    expect(unsubscribe).toHaveBeenCalled();
+  });
+
+  it("dispose handles missing dispose methods gracefully", async () => {
+    const store = await createStore();
+
+    // Inject mocks without dispose methods
+    store._retrievalEngine = { recall: vi.fn() }; // no dispose
+    store._l3Storage = {}; // no dispose
+
+    // Should not throw
+    await expect(store.dispose()).resolves.toBeUndefined();
+
+    expect(store._retrievalEngine).toBeNull();
+    expect(store._l3Storage).toBeNull();
+  });
+
+  it("dispose handles errors in cleanup gracefully", async () => {
+    const store = await createStore();
+
+    // Inject mocks that throw on dispose
+    store._retrievalEngine = {
+      dispose: vi.fn(() => {
+        throw new Error("retrieval error");
+      }),
+    };
+    store._l3Storage = {
+      dispose: vi.fn(async () => {
+        throw new Error("l3 error");
+      }),
+    };
+
+    // Should not throw even when cleanup throws
+    await expect(store.dispose()).resolves.toBeUndefined();
+    expect(store.disposed).toBe(true);
+  });
 });

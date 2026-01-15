@@ -304,4 +304,235 @@ describe("runtime/core/message-manager", () => {
     expect(manager.tokenUsage.total).toBe(expected);
     expect(manager.tokenUsage.total).not.toBe(before);
   });
+
+  // ==========================================================================
+  // 异步摘要竞态条件修复测试
+  // ==========================================================================
+
+  describe("async summary race condition fixes", () => {
+    it("_compress() waits for pending summaries before compression", async () => {
+      const tokenCounter = { count: (text) => text.length };
+      let summaryResolve;
+      const summaryPromise = new Promise((resolve) => {
+        summaryResolve = resolve;
+      });
+
+      const manager = new MessageManager({
+        tokenCounter,
+        asyncSummaryEnabled: true,
+        summaryGenerator: async (msg) => {
+          await summaryPromise;
+          return `Summary of: ${msg.content}`;
+        },
+        contextConfig: { contextWindow: 10000, compressThreshold: 0.9, compressCooldownMs: 0 },
+      });
+
+      // 添加一条长消息触发异步摘要
+      const msg = { role: "assistant", content: "x".repeat(300), _tokens: 300 };
+      manager.addMessage(msg);
+
+      // 此时摘要尚未完成
+      expect(msg._summary).toBeUndefined();
+      expect(manager._pendingSummaryPromises.size).toBe(1);
+
+      // 启动压缩（会等待摘要）
+      const compressPromise = manager._compress();
+
+      // 摘要仍未完成
+      expect(msg._summary).toBeUndefined();
+
+      // 完成摘要生成
+      summaryResolve();
+
+      // 等待压缩完成
+      await compressPromise;
+
+      // 摘要应该已生成
+      expect(msg._summary).toBe("Summary of: " + "x".repeat(300));
+    });
+
+    it("dispose() cancels pending summaries via AbortController", async () => {
+      const tokenCounter = { count: (text) => text.length };
+      let summaryStarted = false;
+      let summaryAborted = false;
+
+      const manager = new MessageManager({
+        tokenCounter,
+        asyncSummaryEnabled: true,
+        summaryGenerator: async () => {
+          summaryStarted = true;
+          // 模拟长时间操作
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          return "summary";
+        },
+        contextConfig: { contextWindow: 10000, compressThreshold: 0.9, compressCooldownMs: 0 },
+      });
+
+      // 添加长消息触发摘要
+      const msg = { role: "assistant", content: "x".repeat(300), _tokens: 300 };
+      manager.addMessage(msg);
+
+      // 等待摘要开始
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      // dispose 应该取消摘要
+      manager.dispose();
+
+      expect(manager._summaryAbortController).toBe(null);
+      expect(manager._pendingSummaryPromises.size).toBe(0);
+    });
+
+    it("_abortPendingSummaries() tolerates abort() failures", () => {
+      const tokenCounter = { count: (text) => text.length };
+      const manager = new MessageManager({
+        tokenCounter,
+        contextConfig: { contextWindow: 100, compressThreshold: 0.9, compressCooldownMs: 0 },
+      });
+
+      const controller = {
+        abort: vi.fn(() => {
+          throw new Error("abort blocked");
+        }),
+      };
+      // @ts-expect-error: inject a fake controller
+      manager._summaryAbortController = controller;
+      manager._pendingSummaryPromises.set("test", Promise.resolve());
+
+      expect(() => manager._abortPendingSummaries("test")).not.toThrow();
+      expect(controller.abort).toHaveBeenCalledTimes(2);
+      expect(manager._summaryAbortController).toBe(null);
+      expect(manager._pendingSummaryPromises.size).toBe(0);
+    });
+
+    it("reset() clears pending summary tracking", async () => {
+      const tokenCounter = { count: (text) => text.length };
+      const manager = new MessageManager({
+        tokenCounter,
+        asyncSummaryEnabled: true,
+        contextConfig: { contextWindow: 10000, compressThreshold: 0.9, compressCooldownMs: 0 },
+      });
+
+      // 添加长消息触发摘要
+      const msg = { role: "assistant", content: "x".repeat(300), _tokens: 300 };
+      manager.addMessage(msg);
+
+      expect(manager._pendingSummaryPromises.size).toBeGreaterThan(0);
+
+      await manager.reset();
+
+      expect(manager._pendingSummaryPromises.size).toBe(0);
+      expect(manager._summaryAbortController).toBe(null);
+    });
+
+    it("_generateSummaryAsync respects abort signal", async () => {
+      const tokenCounter = { count: (text) => text.length };
+      let generatorCalled = false;
+
+      const manager = new MessageManager({
+        tokenCounter,
+        asyncSummaryEnabled: true,
+        summaryGenerator: async () => {
+          generatorCalled = true;
+          return "summary";
+        },
+        contextConfig: { contextWindow: 10000, compressThreshold: 0.9, compressCooldownMs: 0 },
+      });
+
+      const msg = { role: "assistant", content: "x".repeat(300), _tokens: 300 };
+      const abortController = new AbortController();
+      abortController.abort();
+
+      await manager._generateSummaryAsync(msg, abortController.signal);
+
+      // 因为 signal 已经 aborted，不应该调用生成器
+      expect(generatorCalled).toBe(false);
+      expect(msg._summary).toBeUndefined();
+    });
+
+    it("_waitForPendingSummaries resolves immediately when no pending summaries", async () => {
+      const tokenCounter = { count: (text) => text.length };
+      const manager = new MessageManager({
+        tokenCounter,
+        contextConfig: { contextWindow: 100, compressThreshold: 0.9, compressCooldownMs: 0 },
+      });
+
+      const start = Date.now();
+      await manager._waitForPendingSummaries();
+      const elapsed = Date.now() - start;
+
+      expect(elapsed).toBeLessThan(50);
+    });
+
+    it("_waitForPendingSummaries waits for all pending summaries", async () => {
+      const tokenCounter = { count: (text) => text.length };
+      const manager = new MessageManager({
+        tokenCounter,
+        contextConfig: { contextWindow: 100, compressThreshold: 0.9, compressCooldownMs: 0 },
+      });
+
+      let resolved1 = false;
+      let resolved2 = false;
+
+      manager._pendingSummaryPromises.set("1", new Promise((resolve) => {
+        setTimeout(() => {
+          resolved1 = true;
+          resolve();
+        }, 20);
+      }));
+      manager._pendingSummaryPromises.set("2", new Promise((resolve) => {
+        setTimeout(() => {
+          resolved2 = true;
+          resolve();
+        }, 30);
+      }));
+
+      await manager._waitForPendingSummaries();
+
+      expect(resolved1).toBe(true);
+      expect(resolved2).toBe(true);
+    });
+
+    it("_waitForPendingSummaries tolerates errors in pending summaries", async () => {
+      const tokenCounter = { count: (text) => text.length };
+      const manager = new MessageManager({
+        tokenCounter,
+        contextConfig: { contextWindow: 100, compressThreshold: 0.9, compressCooldownMs: 0 },
+      });
+
+      manager._pendingSummaryPromises.set("1", Promise.reject(new Error("boom")));
+      manager._pendingSummaryPromises.set("2", Promise.resolve());
+
+      // Should not throw
+      await expect(manager._waitForPendingSummaries()).resolves.toBeUndefined();
+    });
+
+    it("summary promise is removed from map after completion", async () => {
+      const tokenCounter = { count: (text) => text.length };
+      let summaryResolve;
+      const summaryPromise = new Promise((resolve) => {
+        summaryResolve = resolve;
+      });
+
+      const manager = new MessageManager({
+        tokenCounter,
+        asyncSummaryEnabled: true,
+        summaryGenerator: async () => {
+          await summaryPromise;
+          return "summary";
+        },
+        contextConfig: { contextWindow: 10000, compressThreshold: 0.9, compressCooldownMs: 0 },
+      });
+
+      const msg = { role: "assistant", content: "x".repeat(300), _tokens: 300 };
+      manager.addMessage(msg);
+
+      expect(manager._pendingSummaryPromises.size).toBe(1);
+
+      summaryResolve();
+      // 等待摘要完成
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(manager._pendingSummaryPromises.size).toBe(0);
+    });
+  });
 });

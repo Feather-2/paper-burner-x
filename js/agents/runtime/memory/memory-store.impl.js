@@ -13,6 +13,7 @@ import { estimateTokensCached } from "../../shared/utils/token-cache.js";
 import { getGlobalTokenCounter } from "../../shared/tokenizers/adaptive-token-counter.js";
 import { makeSecureTimestampedId } from "../../shared/utils/secure-id.js";
 import { Platform } from "../../shared/platform.js";
+import { DisposableBase } from "../../shared/base/disposable-base.js";
 import { RetrievalEngine } from "./retrieval-engine.js";
 import { L3Storage } from "./l3-storage.js";
 import { normalizeTodoEntry, normalizeTodoInPlace, normalizeTodoStatus } from "./todo-normalize.js";
@@ -75,9 +76,14 @@ function isFiniteNumber(value) {
 
 /** @typedef {import("../context/snapshotable.js").Snapshotable} Snapshotable */
 
-/** @implements {Snapshotable} */
-export class MemoryStore {
+/**
+ * MemoryStore - 统一记忆管理
+ * @implements {Snapshotable}
+ * @extends {DisposableBase}
+ */
+export class MemoryStore extends DisposableBase {
   constructor(options = {}) {
+    super();
     this.runId = toNonEmptyString(options.runId) || genId("run");
     this.config = { ...DEFAULT_CONFIG, ...options.config };
     this.eventBus = options.eventBus || null;
@@ -1547,6 +1553,46 @@ export class MemoryStore {
       total += estimateBytes(ckpt);
     }
     this._l3BytesUsed = total;
+  }
+
+  /**
+   * 释放资源（DisposableBase 钩子）
+   * @protected
+   * @override
+   * @returns {Promise<void>}
+   */
+  async _onDispose() {
+    // 清理 RetrievalEngine（会解除其 eventBus 订阅）
+    if (this._retrievalEngine) {
+      if (typeof this._retrievalEngine.dispose === "function") {
+        try {
+          this._retrievalEngine.dispose();
+        } catch {
+          // ignore
+        }
+      }
+      this._retrievalEngine = null;
+    }
+
+    // 清理 L3Storage
+    if (this._l3Storage) {
+      if (typeof this._l3Storage.dispose === "function") {
+        try {
+          await this._l3Storage.dispose();
+        } catch {
+          // ignore
+        }
+      }
+      this._l3Storage = null;
+    }
+    this._l3StoragePromise = null;
+
+    // 清理委托层引用
+    this._sharedContext = null;
+    this._discoveryManager = null;
+
+    // 清理 eventBus 引用（不清理 eventBus 本身，它可能是外部传入的）
+    this.eventBus = null;
   }
 }
 

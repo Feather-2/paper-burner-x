@@ -5,6 +5,7 @@
  * - 消息存储和访问
  * - Token 计数
  * - 压缩调度和执行
+ * - 异步摘要预生成（用于主动压缩）
  */
 
 import { estimateTokensCached } from "../../shared/utils/token-cache.js";
@@ -49,6 +50,8 @@ const fallbackLogger = createLogger("runtime/core/message-manager");
  * @property {EmitFn | null} [emit]
  * @property {string} [stageName]
  * @property {string} [actor]
+ * @property {boolean} [asyncSummaryEnabled] - 是否启用异步摘要预生成
+ * @property {(message: ChatMessage) => Promise<string|null>} [summaryGenerator] - 自定义摘要生成器
  */
 
 /**
@@ -97,6 +100,18 @@ export class MessageManager {
     this._emit = options.emit || null;
     this._stageName = options.stageName || "agent";
     this._actor = options.actor || "agent";
+
+    // 异步摘要预生成配置
+    this._asyncSummaryEnabled = options.asyncSummaryEnabled !== false;
+    this._summaryGenerator = options.summaryGenerator || null;
+    /** @type {WeakSet<ChatMessage>} 已触发异步摘要的消息 */
+    this._pendingSummaries = new WeakSet();
+    /** @type {Map<string, Promise<void>>} 进行中的摘要 Promise，用于压缩前等待 */
+    this._pendingSummaryPromises = new Map();
+    /** @type {AbortController|null} 摘要生成的取消控制器 */
+    this._summaryAbortController = null;
+    /** @type {number} 摘要 ID 计数器 */
+    this._summaryIdCounter = 0;
   }
 
   /** @returns {ChatMessage[]} */
@@ -128,8 +143,14 @@ export class MessageManager {
     if (this._disposed) return message;
     this._messages.push(message);
     const messageTokens = estimateTokens(message.content, this._tokenCounter);
+    message._tokens = messageTokens; // 缓存 token 数
     this._tokenUsage.input += messageTokens;
     this._tokenUsage.total += messageTokens;
+
+    // 异步摘要预生成（不阻塞主流程）
+    if (this._asyncSummaryEnabled && this._shouldGenerateSummary(message)) {
+      this._scheduleAsyncSummary(message);
+    }
 
     if (this._shouldCompress()) {
       this._scheduleCompression();
@@ -171,6 +192,10 @@ export class MessageManager {
     this._compressionPromise = null;
     this._lastCompressionAtMs = 0;
     if (clearHistory) this._compressionHistory = [];
+
+    // 清理摘要追踪（不取消，等待自然完成后 Map 自动清空）
+    this._abortPendingSummaries("reset");
+    this._pendingSummaries = new WeakSet();
   }
 
   /** @returns {void} */
@@ -332,6 +357,11 @@ export class MessageManager {
   async _compress() {
     this._clearCooldownTimer();
     if (this._disposed) return;
+
+    // 等待所有进行中的摘要完成，确保压缩时摘要已生成
+    await this._waitForPendingSummaries();
+
+    if (this._disposed) return;
     const beforeCount = this._messages.length;
     const beforeTokens = this._tokenUsage.total;
     if (!this._compressionCoordinator || typeof this._compressionCoordinator.maybeCompress !== "function") {
@@ -354,6 +384,21 @@ export class MessageManager {
       if (this._compressionAbortController === controller) {
         this._compressionAbortController = null;
       }
+    }
+  }
+
+  /**
+   * 等待所有进行中的摘要生成完成
+   * @private
+   * @returns {Promise<void>}
+   */
+  async _waitForPendingSummaries() {
+    if (this._pendingSummaryPromises.size === 0) return;
+    const promises = Array.from(this._pendingSummaryPromises.values());
+    try {
+      await Promise.all(promises);
+    } catch {
+      // 忽略摘要生成错误
     }
   }
 
@@ -416,13 +461,198 @@ export class MessageManager {
     this._recalculateTokenUsage();
   }
 
+  // ==========================================================================
+  // 异步摘要预生成
+  // ==========================================================================
+
+  /**
+   * 判断消息是否需要预生成摘要
+   * @private
+   * @param {ChatMessage} message
+   * @returns {boolean}
+   */
+  _shouldGenerateSummary(message) {
+    if (!message || typeof message !== "object") return false;
+    if (message._summary) return false; // 已有摘要
+    if (this._pendingSummaries.has(message)) return false; // 已在处理
+
+    const content = message.content || message.text;
+    if (!content) return false;
+
+    // 只对较长的消息或 thinking 消息生成摘要
+    const tokens = message._tokens || 0;
+    if (tokens < 100) return false;
+
+    // thinking 消息优先生成摘要
+    if (this._isThinkingMessage(message)) return true;
+
+    // 较长消息也生成
+    return tokens > 200;
+  }
+
+  /**
+   * 检测是否为 thinking 消息
+   * @private
+   * @param {ChatMessage} message
+   * @returns {boolean}
+   */
+  _isThinkingMessage(message) {
+    if (!message || typeof message !== "object") return false;
+    if (message.thinking === true || message.internal === true) return true;
+    if (message.type === "thinking") return true;
+    const content = String(message.content || message.text || "").trim();
+    if (!content) return false;
+    return /^<(think|analysis)>/i.test(content) || /^(thoughts?|analysis|internal):/i.test(content);
+  }
+
+  /**
+   * 异步生成摘要（不阻塞主流程）
+   * @private
+   * @param {ChatMessage} message
+   */
+  _scheduleAsyncSummary(message) {
+    if (this._disposed) return;
+    this._pendingSummaries.add(message);
+
+    // 生成唯一 ID 用于追踪
+    const summaryId = String(++this._summaryIdCounter);
+
+    // 确保有 AbortController
+    if (!this._summaryAbortController) {
+      this._summaryAbortController = new AbortController();
+    }
+    const signal = this._summaryAbortController.signal;
+
+    // 创建可追踪的 Promise
+    const summaryPromise = Promise.resolve().then(async () => {
+      if (this._disposed || signal.aborted) return;
+      try {
+        await this._generateSummaryAsync(message, signal);
+      } catch {
+        // 忽略错误，摘要生成失败不影响主流程
+      } finally {
+        // 完成后从 Map 移除
+        this._pendingSummaryPromises.delete(summaryId);
+      }
+    });
+
+    this._pendingSummaryPromises.set(summaryId, summaryPromise);
+  }
+
+  /**
+   * 异步生成摘要
+   * @private
+   * @param {ChatMessage} message
+   * @param {AbortSignal} [signal]
+   * @returns {Promise<void>}
+   */
+  async _generateSummaryAsync(message, signal) {
+    if (this._disposed || message._summary || signal?.aborted) return;
+
+    try {
+      let summary = null;
+
+      // 优先使用自定义生成器
+      if (typeof this._summaryGenerator === "function") {
+        summary = await this._summaryGenerator(message);
+        if (signal?.aborted) return; // 生成后检查是否已取消
+      } else {
+        // 内置摘要生成
+        summary = this._generateBuiltinSummary(message);
+      }
+
+      if (summary && !message._summary && !signal?.aborted) {
+        message._summary = summary;
+        message._summaryTokens = estimateTokens(summary, this._tokenCounter);
+      }
+    } catch {
+      // 静默失败，不影响主流程
+    }
+  }
+
+  /**
+   * 内置摘要生成（快速，无 LLM 调用）
+   * @private
+   * @param {ChatMessage} message
+   * @returns {string|null}
+   */
+  _generateBuiltinSummary(message) {
+    const content = String(message.content || message.text || "");
+    if (!content) return null;
+
+    const isThinking = this._isThinkingMessage(message);
+    if (isThinking) {
+      // 提取关键决策点
+      const lines = content.split("\n");
+      const decisions = [];
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (/^(决定|选择|确定|采用|使用|将|要|需要|应该|因此|所以|结论)/i.test(trimmed) ||
+            /^(decide|choose|will|should|therefore|conclusion|plan to)/i.test(trimmed)) {
+          decisions.push(trimmed.slice(0, 80));
+          if (decisions.length >= 3) break;
+        }
+      }
+      if (decisions.length > 0) {
+        return `[决策] ${decisions.join("; ")}`;
+      }
+      return `[Thinking] ${content.slice(0, 80)}...`;
+    }
+
+    // 普通消息：首尾截取
+    if (content.length > 200) {
+      return content.slice(0, 100) + " ... " + content.slice(-50);
+    }
+    return null;
+  }
+
+  /**
+   * 设置自定义摘要生成器
+   * @param {(message: ChatMessage) => Promise<string|null>} generator
+   */
+  setSummaryGenerator(generator) {
+    this._summaryGenerator = generator;
+  }
+
+  /**
+   * 启用/禁用异步摘要
+   * @param {boolean} enabled
+   */
+  setAsyncSummaryEnabled(enabled) {
+    this._asyncSummaryEnabled = enabled;
+  }
+
   dispose() {
     if (this._disposed) return;
     this._disposed = true;
 
     this._clearCooldownTimer();
     this._abortActiveCompression("disposed");
+    this._abortPendingSummaries("disposed");
     this._compressionPending = false;
+  }
+
+  /**
+   * 取消所有进行中的摘要生成
+   * @private
+   * @param {string} [reason]
+   */
+  _abortPendingSummaries(reason = "aborted") {
+    // 取消摘要生成
+    if (this._summaryAbortController) {
+      try {
+        this._summaryAbortController.abort(reason);
+      } catch {
+        try {
+          this._summaryAbortController.abort();
+        } catch {
+          // ignore
+        }
+      }
+      this._summaryAbortController = null;
+    }
+    // 清空追踪 Map（Promise 会自行完成或被取消）
+    this._pendingSummaryPromises.clear();
   }
 }
 
