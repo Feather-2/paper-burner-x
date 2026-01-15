@@ -11,29 +11,95 @@ import { DiscoveryManager } from "./DiscoveryManager.js";
 import { AlertMonitor } from "./AlertMonitor.js";
 import { ToolExecutor } from "../runtime/tools/tool-executor.js";
 import { DefaultAgentLoop } from "./DefaultAgentLoop.js";
+import { isPlainObject } from "../shared/utils/value-utils.js";
+
+/**
+ * @typedef {object} AgentInstanceCore
+ * @property {EventBus} eventBus
+ * @property {any} logger
+ * @property {string} actor
+ *
+ * @typedef {object} AgentInstanceCapabilities
+ * @property {Map<string, any>} capabilities
+ * @property {((name: string, params: any, context: any) => Promise<any>) | null} toolExecutor
+ * @property {any} mcpConfig
+ * @property {any} subagentRegistry
+ *
+ * @typedef {object} AgentInstanceManagers
+ * @property {any} compressor
+ * @property {any} backtrackManager
+ * @property {any} discoveryManager
+ *
+ * @typedef {object} AgentInstanceConfig
+ * @property {AgentInstanceCore} core
+ * @property {AgentInstanceCapabilities} capabilities
+ * @property {AgentInstanceManagers} managers
+ * @property {any} options
+ */
+
+/**
+ * @param {any} input
+ * @returns {AgentInstanceConfig}
+ */
+function normalizeAgentInstanceConfig(input) {
+  const raw = isPlainObject(input) ? input : {};
+  const hasGroups = isPlainObject(raw.core) || isPlainObject(raw.capabilities) || isPlainObject(raw.managers) || isPlainObject(raw.options);
+
+  if (hasGroups) {
+    return {
+      core: isPlainObject(raw.core) ? raw.core : {},
+      capabilities: isPlainObject(raw.capabilities) ? raw.capabilities : {},
+      managers: isPlainObject(raw.managers) ? raw.managers : {},
+      options: raw.options,
+    };
+  }
+
+  return {
+    core: {
+      eventBus: raw.eventBus,
+      logger: raw.logger,
+      actor: raw.actor,
+    },
+    capabilities: {
+      capabilities: raw.capabilities,
+      toolExecutor: raw.toolExecutor,
+      mcpConfig: raw.mcpConfig,
+      subagentRegistry: raw.subagentRegistry,
+    },
+    managers: {
+      compressor: raw.compressor,
+      backtrackManager: raw.backtrackManager,
+      discoveryManager: raw.discoveryManager,
+    },
+    options: raw.options,
+  };
+}
 
 /**
  * Agent 实例 - 由 AgentFactory 创建
  */
 export class AgentInstance extends DisposableBase {
-  constructor({
-    eventBus,
-    logger,
-    capabilities,
-    toolExecutor,
-    mcpConfig,
-    subagentRegistry,
-    compressor,
-    backtrackManager,
-    discoveryManager,
-    actor,
-    options,
-  }) {
+  /**
+   * @param {AgentInstanceConfig | any} input
+   */
+  constructor(input) {
     super();
+
+    const { core, capabilities, managers, options } = normalizeAgentInstanceConfig(input);
+    const eventBus = core.eventBus;
+    const logger = core.logger;
+    const actor = core.actor;
+    const capabilityMap = capabilities.capabilities;
+    const toolExecutor = capabilities.toolExecutor;
+    const mcpConfig = capabilities.mcpConfig;
+    const subagentRegistry = capabilities.subagentRegistry;
+    const compressor = managers.compressor;
+    const backtrackManager = managers.backtrackManager;
+    const discoveryManager = managers.discoveryManager;
 
     this.eventBus = eventBus;
     this.logger = logger;
-    this.capabilities = capabilities;
+    this.capabilities = capabilityMap;
     this.mcpConfig = mcpConfig;
     this.subagentRegistry = subagentRegistry;
     this.memory = compressor; // CicadaCompressor 实例
@@ -416,16 +482,22 @@ export class AgentFactory {
     };
 
     const agent = new AgentInstance({
-      eventBus,
-      logger,
-      capabilities,
-      toolExecutor,
-      mcpConfig: config.mcpConfig,
-      subagentRegistry,
-      compressor,
-      backtrackManager,
-      discoveryManager,
-      actor: config.actor,
+      core: {
+        eventBus,
+        logger,
+        actor: config.actor,
+      },
+      capabilities: {
+        capabilities,
+        toolExecutor,
+        mcpConfig: config.mcpConfig,
+        subagentRegistry,
+      },
+      managers: {
+        compressor,
+        backtrackManager,
+        discoveryManager,
+      },
       options: config.options,
     });
 
