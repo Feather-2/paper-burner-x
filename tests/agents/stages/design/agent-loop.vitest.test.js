@@ -668,4 +668,142 @@ describe("design/agent-loop (DesignAgentLoop)", () => {
     defs.push({ name: "mutate" });
     expect(loop.getToolDefinitions()).toEqual(DESIGN_AGENT_TOOL_DEFINITIONS);
   });
+
+  it("resumeDesignAgentLoop toolExecutor falls back to _tools when no baseExecutor", async () => {
+    const stageApi = {
+      archive: {
+        restore: vi.fn(async () => ({
+          nodeStates: {
+            phase: DesignPhase.GENERATING,
+            loopStatus: AgentStatus.RUNNING,
+            generated: [{ id: "g1" }],
+            contentPackage: { runId: "r4" },
+          },
+          metadata: { runId: "r4" },
+        })),
+      },
+      runContext: { runId: "r4" },
+      // No toolExecutor provided - should fall back to _tools
+    };
+
+    const runSpy = vi.spyOn(DesignAgentLoop.prototype, "run").mockImplementation(async function (content, ctx) {
+      // Access the toolExecutor and test it
+      const result = await ctx.toolExecutor("unknown_tool", {});
+      return { toolResult: result };
+    });
+
+    const out = await resumeDesignAgentLoop("cp456", stageApi);
+    expect(out.toolResult).toEqual({ ok: false, error: "Unknown tool: unknown_tool" });
+    runSpy.mockRestore();
+  });
+
+  it("resumeDesignAgentLoop toolExecutor uses _tools function when available", async () => {
+    const customToolFn = vi.fn((params) => ({ custom: true, params }));
+
+    const stageApi = {
+      archive: {
+        restore: vi.fn(async () => ({
+          nodeStates: {
+            phase: DesignPhase.GENERATING,
+            loopStatus: AgentStatus.RUNNING,
+            generated: [{ id: "g1" }],
+            contentPackage: { runId: "r5" },
+          },
+          metadata: { runId: "r5" },
+        })),
+      },
+      runContext: { runId: "r5" },
+      tools: { my_custom_tool: customToolFn },
+    };
+
+    const runSpy = vi.spyOn(DesignAgentLoop.prototype, "run").mockImplementation(async function (content, ctx) {
+      // Set _tools on the loop instance through the context
+      this._tools = stageApi.tools;
+      const result = await ctx.toolExecutor("my_custom_tool", { arg: 1 });
+      return { toolResult: result };
+    });
+
+    const out = await resumeDesignAgentLoop("cp789", stageApi);
+    expect(out.toolResult).toEqual({ custom: true, params: { arg: 1 } });
+    runSpy.mockRestore();
+  });
+
+  it("resumeDesignAgentLoop uses spawn_slide_agent cached generated when canUseGenerated is true", async () => {
+    const stageApi = {
+      archive: {
+        restore: vi.fn(async () => ({
+          nodeStates: {
+            phase: DesignPhase.VISUAL_FILLING, // Phase after GENERATING
+            loopStatus: AgentStatus.RUNNING,
+            generated: [{ slideId: "cached_1" }, { slideId: "cached_2" }],
+            contentPackage: { runId: "r6" },
+          },
+          metadata: { runId: "r6" },
+        })),
+      },
+      runContext: { runId: "r6" },
+    };
+
+    const runSpy = vi.spyOn(DesignAgentLoop.prototype, "run").mockImplementation(async function (content, ctx) {
+      const result = await ctx.toolExecutor("spawn_slide_agent", {});
+      return { toolResult: result };
+    });
+
+    const out = await resumeDesignAgentLoop("cp_visual", stageApi);
+    expect(out.toolResult.generated).toEqual([{ slideId: "cached_1" }, { slideId: "cached_2" }]);
+    runSpy.mockRestore();
+  });
+
+  it("resumeDesignAgentLoop handles statusHistory restoration", async () => {
+    const stageApi = {
+      archive: {
+        restore: vi.fn(async () => ({
+          nodeStates: {
+            phase: DesignPhase.IDLE,
+            loopStatus: AgentStatus.IDLE,
+            statusHistory: [
+              { status: AgentStatus.IDLE, timestamp: 1000 },
+              { status: AgentStatus.RUNNING, timestamp: 2000 },
+            ],
+            contentPackage: { runId: "r7" },
+          },
+          metadata: { runId: "r7" },
+        })),
+      },
+      runContext: { runId: "r7" },
+    };
+
+    let capturedLoop;
+    const runSpy = vi.spyOn(DesignAgentLoop.prototype, "run").mockImplementation(async function () {
+      capturedLoop = this;
+      return { ok: true };
+    });
+
+    await resumeDesignAgentLoop("cp_history", stageApi);
+    expect(capturedLoop._statusHistory).toHaveLength(2);
+    expect(capturedLoop._statusHistory[0].status).toBe(AgentStatus.IDLE);
+    runSpy.mockRestore();
+  });
+
+  it("resumeDesignAgentLoop creates MapAdapter when indexedDB is undefined", async () => {
+    const originalIndexedDB = globalThis.indexedDB;
+    delete globalThis.indexedDB;
+
+    const mockArchive = {
+      restore: vi.fn(async () => ({
+        nodeStates: {
+          phase: DesignPhase.IDLE,
+          contentPackage: { runId: "r8" },
+        },
+      })),
+    };
+
+    const runSpy = vi.spyOn(DesignAgentLoop.prototype, "run").mockResolvedValue({ ok: true });
+
+    await resumeDesignAgentLoop("cp_no_idb", { archive: mockArchive, runContext: { runId: "r8" } });
+    expect(runSpy).toHaveBeenCalled();
+
+    runSpy.mockRestore();
+    globalThis.indexedDB = originalIndexedDB;
+  });
 });
