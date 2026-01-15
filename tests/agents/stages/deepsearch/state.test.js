@@ -614,6 +614,7 @@ describe("deepsearch/state", () => {
 
     const ref = { L0: { taskGoal: "", todos: [] } };
     const dispatched = [];
+    const rawUnsubscribe = vi.fn();
     /** @type {any} */
     const engine = {
       _getStateRef: () => ref,
@@ -627,7 +628,7 @@ describe("deepsearch/state", () => {
         const nextL0 = { taskGoal: "from_subscribe", todos: [{ todoId: "t_sub" }] };
         ref.L0 = { ...nextL0 };
         cb(null, null, nextL0);
-        return vi.fn();
+        return rawUnsubscribe;
       },
     };
 
@@ -641,9 +642,8 @@ describe("deepsearch/state", () => {
     expect(state.todos.map((t) => t.todoId)).toEqual(["t_sub"]);
 
     // Ensure unsubscribe is invoked when rebinding.
-    const nextUnsub = state._stateEngineUnsubscribe;
     state.bindStateEngine(null);
-    expect(nextUnsub).toHaveBeenCalled();
+    expect(rawUnsubscribe).toHaveBeenCalled();
   });
 
   it("DeepSearchState._syncFromStateEngine: handles engine errors and syncs MemoryStore", () => {
