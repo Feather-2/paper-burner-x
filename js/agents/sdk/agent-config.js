@@ -15,6 +15,8 @@ const logger = createLogger("sdk/agent-config");
 /**
  * @typedef {object} AgentConfigOptions
  * @property {string} [actor]
+ * @property {string} [permissionLevel]
+ * @property {any} [toolRestrictions]
  */
 
 export class AgentConfig {

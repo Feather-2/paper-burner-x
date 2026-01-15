@@ -136,6 +136,8 @@ function normalizeActionList(decision) {
  * @property {number} [maxToolResultChars]
  * @property {string} [usage]
  * @property {{ execute: Function }} [middlewareChain]
+ * @property {string} [permissionLevel]
+ * @property {any} [toolRestrictions]
  *
  * @typedef {object} StageApiLike
  * @property {AbortSignal} [signal]
@@ -147,6 +149,8 @@ function normalizeActionList(decision) {
  * @property {any} [logger]
  * @property {any} [callModel]
  * @property {any} [state]
+ * @property {string} [permissionLevel]
+ * @property {any} [toolRestrictions]
  */
 
 export class DefaultAgentLoop extends BaseAgentLoop {
@@ -170,6 +174,8 @@ export class DefaultAgentLoop extends BaseAgentLoop {
     this.maxIterations = Math.max(1, safeInt(opts.maxIterations) ?? 8);
     this.maxToolResultChars = Math.max(1000, safeInt(opts.maxToolResultChars) ?? 8000);
     this.usage = toNonEmptyString(opts.usage) || "worker";
+    this.permissionLevel = toNonEmptyString(opts.permissionLevel) || null;
+    this.toolRestrictions = opts.toolRestrictions ?? null;
 
     // Default (no-op) middleware chain to avoid dead-code and keep integration points available.
     // Callers can inject their own chain via opts.middlewareChain or stageApi.middlewareChain.
@@ -226,7 +232,19 @@ export class DefaultAgentLoop extends BaseAgentLoop {
           ? (event, payload) => this.eventBus.emit(event, payload)
           : null;
 
-    const baseCtx = { ...api, signal, emit, logger: api.logger ?? this.logger, actor: this.actor, stageName: this.stageName };
+    const permissionLevel = toNonEmptyString(api.permissionLevel) || this.permissionLevel || null;
+    const toolRestrictions = api.toolRestrictions ?? this.toolRestrictions ?? null;
+
+    const baseCtx = {
+      ...api,
+      signal,
+      emit,
+      logger: api.logger ?? this.logger,
+      actor: this.actor,
+      stageName: this.stageName,
+      ...(permissionLevel ? { permissionLevel } : {}),
+      ...(toolRestrictions ? { toolRestrictions } : {}),
+    };
 
     const runWithMiddleware = async (stepName, handler, extra = {}) => {
       const ctx = { ...baseCtx, ...extra, stepName, phase: stepName, state: api.state ?? {}, messages: this.messages };

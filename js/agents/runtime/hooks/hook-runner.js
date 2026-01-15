@@ -7,7 +7,7 @@ const SERVICE_ID_SUBAGENT_REGISTRY = "subagentRegistry";
 import { HookType } from "./hook-registry.js";
 import { getHookRegistry } from "./event-bus-hooks.js";
 import { classifyCommand } from "../safety/command-classifier.js";
-import { evaluateToolRestrictions } from "../safety/tool-restrictions.js";
+import { evaluateToolRestrictions, normalizeToolRestrictions } from "../safety/tool-restrictions.js";
 
 function safeStringify(value, maxChars = 2000) {
   try {
@@ -136,6 +136,71 @@ function resolveToolRestrictions(context) {
   );
 }
 
+function resolvePermissionLevel(context) {
+  const ctx = context && typeof context === "object" ? context : null;
+  const raw =
+    toNonEmptyString(ctx?.permissionLevel) ||
+    toNonEmptyString(ctx?.stageApi?.permissionLevel) ||
+    toNonEmptyString(ctx?.options?.permissionLevel) ||
+    "";
+  const normalized = raw.toLowerCase();
+  if (normalized === "readonly" || normalized === "read-only") return "readonly";
+  if (normalized === "elevated") return "elevated";
+  if (normalized === "standard") return "standard";
+  return normalized || "standard";
+}
+
+const READONLY_BLOCKED_TOOLS = [
+  "write",
+  "edit",
+  "multiedit",
+  "multi_edit",
+  "write_file",
+  "apply_patch",
+  "delete_file",
+  "remove_file",
+];
+
+const READONLY_BASH_ALLOW = ["ls", "cat", "git log"];
+
+function buildReadonlyRestrictions() {
+  return {
+    blockedTools: READONLY_BLOCKED_TOOLS,
+    bash: {
+      allowedCommands: READONLY_BASH_ALLOW,
+      toolNames: ["bash"],
+    },
+  };
+}
+
+function mergeToolRestrictions(base, extra) {
+  const left = normalizeToolRestrictions(base) || {};
+  const right = normalizeToolRestrictions(extra) || {};
+
+  const allowedTools = [...(left.allowedTools || []), ...(right.allowedTools || [])];
+  const blockedTools = [...(left.blockedTools || []), ...(right.blockedTools || [])];
+
+  const leftBash = left.bash || {};
+  const rightBash = right.bash || {};
+  const bashAllowed = rightBash.allowedCommands?.length ? rightBash.allowedCommands : leftBash.allowedCommands || [];
+  const bashBlocked = [...(leftBash.blockedCommands || []), ...(rightBash.blockedCommands || [])];
+  const bashToolNames = [...(leftBash.toolNames || []), ...(rightBash.toolNames || [])].filter(Boolean);
+
+  return {
+    ...(allowedTools.length ? { allowedTools } : {}),
+    ...(blockedTools.length ? { blockedTools } : {}),
+    ...(bashAllowed.length || bashBlocked.length || bashToolNames.length
+      ? {
+          bash: {
+            ...(bashAllowed.length ? { allowedCommands: bashAllowed } : {}),
+            ...(bashBlocked.length ? { blockedCommands: bashBlocked } : {}),
+            toolNames: bashToolNames.length ? bashToolNames : ["bash"],
+          },
+        }
+      : {}),
+  };
+}
+
 async function resolveFromContainer(context, serviceId) {
   const ctx = context && typeof context === "object" ? context : null;
   const container = ctx?.container || ctx?.stageApi?.container || ctx?.services?.container || null;
@@ -223,7 +288,12 @@ export function createPreToolUseHook(options = {}) {
   return async ({ tool, params, context }) => {
     const eventBus = resolveEventBus(context);
     const toolName = toNonEmptyString(tool) || "";
-    const restrictionConfig = resolveToolRestrictions(context);
+    const permissionLevel = resolvePermissionLevel(context);
+    const baseRestrictions = resolveToolRestrictions(context);
+    const restrictionConfig =
+      permissionLevel === "readonly"
+        ? mergeToolRestrictions(baseRestrictions, buildReadonlyRestrictions())
+        : baseRestrictions;
     if (restrictionConfig) {
       const decision = evaluateToolRestrictions({
         toolName,

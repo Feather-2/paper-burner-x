@@ -11,7 +11,7 @@ import { DiscoveryManager } from "./DiscoveryManager.js";
 import { AlertMonitor } from "./AlertMonitor.js";
 import { ToolExecutor } from "../runtime/tools/tool-executor.js";
 import { DefaultAgentLoop } from "./DefaultAgentLoop.js";
-import { isPlainObject } from "../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString } from "../shared/utils/value-utils.js";
 
 /**
  * @typedef {object} AgentInstanceCore
@@ -273,6 +273,9 @@ export class AgentInstance extends DisposableBase {
         const opts = this.options && typeof this.options === "object" ? this.options : {};
         const defaultLoopOptions =
           opts.defaultLoop && typeof opts.defaultLoop === "object" && !Array.isArray(opts.defaultLoop) ? opts.defaultLoop : {};
+        const permissionLevel =
+          toNonEmptyString(defaultLoopOptions.permissionLevel) || toNonEmptyString(opts.permissionLevel) || null;
+        const toolRestrictions = defaultLoopOptions.toolRestrictions ?? opts.toolRestrictions ?? null;
 
         this._loop = new DefaultAgentLoop({
           actor: this.actor,
@@ -283,6 +286,8 @@ export class AgentInstance extends DisposableBase {
           capabilities: this.capabilities,
           getCatalogPrompt: () => this.getCapabilityCatalogPrompt(),
           ...defaultLoopOptions,
+          ...(permissionLevel ? { permissionLevel } : {}),
+          ...(toolRestrictions ? { toolRestrictions } : {}),
         });
       }
 
