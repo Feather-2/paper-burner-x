@@ -295,5 +295,181 @@ describe("L3Storage", () => {
     await assert.rejects(async () => storage.getSnapshot(snapId), /disposed/i);
     await assert.rejects(async () => storage.getCheckpoint(ckptId), /disposed/i);
   });
+
+  it("persistIndex() uses atomic write pattern", async () => {
+    const runId = "run_atomic";
+    const vfs = new MemoryVfs();
+    const { indexPath } = getPaths(runId);
+    const tempPath = indexPath + ".tmp";
+
+    // Add rename support to test atomic path
+    let renameCalledWith = null;
+    vfs.rename = async (from, to) => {
+      renameCalledWith = { from, to };
+      // Use vfs.move internally (MemoryVfs has move method)
+      await vfs.move(from, to);
+    };
+
+    const storage = new L3Storage({ vfs, runId });
+    await storage.archive("stage1", { summary: "atomic test" }, ["k"]);
+
+    // Verify rename was called with correct paths
+    assert.ok(renameCalledWith !== null);
+    assert.equal(renameCalledWith.from, tempPath);
+    assert.equal(renameCalledWith.to, indexPath);
+
+    // Verify temp file is cleaned up
+    assert.equal(await vfs.exists(tempPath), false);
+
+    // Verify index was persisted correctly
+    const index = JSON.parse(await vfs.readText(indexPath));
+    assert.ok(index.timeline.length > 0);
+  });
+
+  it("persistIndex() falls back when rename is not available", async () => {
+    const runId = "run_fallback";
+    const vfs = new MemoryVfs();
+    const { indexPath } = getPaths(runId);
+    const tempPath = indexPath + ".tmp";
+
+    // MemoryVfs has unlink but not rename - use fallback path
+    // Track unlink calls
+    const originalUnlink = vfs.unlink.bind(vfs);
+    let unlinkCalled = false;
+    vfs.unlink = async (path) => {
+      unlinkCalled = true;
+      return originalUnlink(path);
+    };
+
+    const storage = new L3Storage({ vfs, runId });
+    await storage.archive("stage1", { summary: "fallback test" }, ["k"]);
+
+    // Verify unlink was called to clean up temp
+    assert.ok(unlinkCalled);
+
+    // Verify temp file is cleaned up
+    assert.equal(await vfs.exists(tempPath), false);
+
+    // Verify index was persisted correctly
+    const index = JSON.parse(await vfs.readText(indexPath));
+    assert.ok(index.timeline.length > 0);
+  });
+
+  it("restoreIndex() recovers from orphaned .tmp file", async () => {
+    const runId = "run_recovery";
+    const vfs = new MemoryVfs();
+    const { basePath, indexPath } = getPaths(runId);
+    const tempPath = indexPath + ".tmp";
+
+    // Create directories first
+    await vfs.mkdir(basePath, { recursive: true });
+
+    // Simulate interrupted write: .tmp exists but index.json does not
+    const orphanedIndex = {
+      schemaVersion: "0.1",
+      runId,
+      updatedAt: Date.now(),
+      timeline: [{ id: "snap_orphan", ts: 123, summary: "orphaned" }],
+      keywords: [],
+      stages: [],
+      checkpointIndex: [],
+    };
+    await vfs.writeText(tempPath, JSON.stringify(orphanedIndex));
+
+    // MemoryVfs already has unlink
+
+    const storage = new L3Storage({ vfs, runId });
+    await storage.init();
+
+    // Verify recovery: timeline should have the orphaned entry
+    const timeline = storage.getTimeline();
+    assert.equal(timeline.length, 1);
+    assert.equal(timeline[0].id, "snap_orphan");
+
+    // Verify temp file is cleaned up after recovery
+    assert.equal(await vfs.exists(tempPath), false);
+
+    // Verify index.json now exists with recovered data
+    const index = JSON.parse(await vfs.readText(indexPath));
+    assert.equal(index.timeline[0].id, "snap_orphan");
+  });
+
+  it("restoreIndex() removes corrupted .tmp file", async () => {
+    const runId = "run_corrupted_tmp";
+    const vfs = new MemoryVfs();
+    const { basePath, indexPath } = getPaths(runId);
+    const tempPath = indexPath + ".tmp";
+
+    // Create directories first
+    await vfs.mkdir(basePath, { recursive: true });
+
+    // Simulate corrupted temp file (invalid JSON)
+    await vfs.writeText(tempPath, "not valid json {{{");
+
+    // Also seed a valid index.json
+    const validIndex = {
+      schemaVersion: "0.1",
+      runId,
+      timeline: [{ id: "snap_valid", ts: 456, summary: "valid" }],
+      keywords: [],
+      stages: [],
+      checkpointIndex: [],
+    };
+    await vfs.writeText(indexPath, JSON.stringify(validIndex));
+
+    // MemoryVfs already has unlink
+
+    const storage = new L3Storage({ vfs, runId });
+    await storage.init();
+
+    // Verify corrupted temp was removed
+    assert.equal(await vfs.exists(tempPath), false);
+
+    // Verify we loaded from the valid index.json
+    const timeline = storage.getTimeline();
+    assert.equal(timeline.length, 1);
+    assert.equal(timeline[0].id, "snap_valid");
+  });
+
+  it("restoreIndex() recovers with rename support", async () => {
+    const runId = "run_recovery_rename";
+    const vfs = new MemoryVfs();
+    const { basePath, indexPath } = getPaths(runId);
+    const tempPath = indexPath + ".tmp";
+
+    // Create directories first
+    await vfs.mkdir(basePath, { recursive: true });
+
+    // Simulate orphaned .tmp file
+    const orphanedIndex = {
+      schemaVersion: "0.1",
+      runId,
+      timeline: [{ id: "snap_rename", ts: 789, summary: "rename recovery" }],
+      keywords: [],
+      stages: [],
+      checkpointIndex: [],
+    };
+    await vfs.writeText(tempPath, JSON.stringify(orphanedIndex));
+
+    // Add rename support using vfs.move
+    let renameCalledWith = null;
+    vfs.rename = async (from, to) => {
+      renameCalledWith = { from, to };
+      await vfs.move(from, to);
+    };
+
+    const storage = new L3Storage({ vfs, runId });
+    await storage.init();
+
+    // Verify rename was used for recovery
+    assert.ok(renameCalledWith !== null);
+    assert.equal(renameCalledWith.from, tempPath);
+    assert.equal(renameCalledWith.to, indexPath);
+
+    // Verify recovery succeeded
+    const timeline = storage.getTimeline();
+    assert.equal(timeline.length, 1);
+    assert.equal(timeline[0].id, "snap_rename");
+  });
 });
 

@@ -142,3 +142,12 @@ export {
   BinarySkillProvider,
   createBinarySkillProvider,
 } from "./transports/index.js";
+
+// Error Handling
+export {
+  SilentErrorReporter,
+  ErrorCategory,
+  silentErrors,
+  reportSilentError,
+  createScopedReporter,
+} from "./errors/index.js";

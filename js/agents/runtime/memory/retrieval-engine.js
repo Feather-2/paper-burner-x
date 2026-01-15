@@ -1,6 +1,7 @@
 import { isPlainObject, toNonEmptyString, toPositiveInt } from "../../shared/utils/value-utils.js";
 import { EmbeddingService } from "../../shared/embeddings/embedding-service.js";
 import { VectorIndex } from "../../shared/embeddings/vector-index.js";
+import { TokenBucketRateLimiter } from "../../llm/rate-limit.js";
 
 function tokenizeQuery(text) {
   if (!text) return [];
@@ -100,6 +101,22 @@ export class RetrievalEngine {
     this._indexMaxConcurrent = toPositiveInt(opts.indexMaxConcurrent, 3);
     this._indexDroppedCount = 0;
 
+    // 限流配置
+    const rlOpts = isPlainObject(opts.rateLimit) ? opts.rateLimit : {};
+    const rlEnabled = rlOpts.enabled !== false && opts.rateLimiter !== null;
+    if (opts.rateLimiter instanceof TokenBucketRateLimiter) {
+      this._rateLimiter = opts.rateLimiter;
+    } else if (rlEnabled) {
+      this._rateLimiter = new TokenBucketRateLimiter({
+        rps: toPositiveInt(rlOpts.rps, 100),
+        burst: toPositiveInt(rlOpts.burst, 200),
+        concurrency: toPositiveInt(rlOpts.concurrency, 50),
+        maxQueue: toPositiveInt(rlOpts.maxQueue, 500),
+      });
+    } else {
+      this._rateLimiter = null;
+    }
+
     this._unsubscribeArchived = null;
     if (opts.subscribe !== false) {
       this._subscribeToMemoryEvents();
@@ -140,6 +157,7 @@ export class RetrievalEngine {
       inFlight: this._indexInFlight,
       maxConcurrent: this._indexMaxConcurrent,
       droppedCount: this._indexDroppedCount,
+      rateLimiter: this._rateLimiter?.getState?.() ?? null,
     };
   }
 
@@ -263,6 +281,16 @@ export class RetrievalEngine {
     return this.keywordRecall(query, { limit: /** @type {number} */ (limitOrOptions) });
   }
 
+  /**
+   * 内部方法：通过限流器获取执行权限
+   * @param {string} [label]
+   * @returns {Promise<void>}
+   */
+  async _acquireRateLimit(label) {
+    if (!this._rateLimiter) return;
+    await this._rateLimiter.schedule(() => {}, { label });
+  }
+
   keywordRecall(query, { limit = 3 } = {}) {
     const q = toNonEmptyString(query) || "";
     const k = toPositiveInt(limit, 3);
@@ -309,6 +337,7 @@ export class RetrievalEngine {
    * @param {{ limit?: number, fallback?: boolean, timeoutMs?: number }} [options]
    */
   async semanticRecall(query, { limit = 3, fallback = true, timeoutMs } = {}) {
+    await this._acquireRateLimit("semanticRecall");
     const q = toNonEmptyString(query) || "";
     const k = toPositiveInt(limit, 3);
 
@@ -353,6 +382,7 @@ export class RetrievalEngine {
    * @param {number} [options.keywordWeight=1.0] - Weight multiplier for keyword results
    */
   async hybridRecall(query, { limit = 3, fallback = true, timeoutMs, rrfK = 60, semanticWeight = 1.0, keywordWeight = 1.0 } = {}) {
+    await this._acquireRateLimit("hybridRecall");
     const q = toNonEmptyString(query) || "";
     const k = toPositiveInt(limit, 3);
     const rrfConstant = toPositiveInt(rrfK, 60);

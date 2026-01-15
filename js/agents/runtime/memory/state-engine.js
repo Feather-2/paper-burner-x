@@ -564,6 +564,7 @@ export class StateEngine extends DisposableBase {
    * @param {boolean} [options.enableActionHistory=true] - Enable action history for replay
    * @param {object} [options.eventBus] - EventBus for emitting state changes
    * @param {string} [options.actorId] - Actor ID for Lamport clock
+   * @param {number} [options.maxQueueSize=1000] - Max dispatch queue size (backpressure)
    */
   constructor({
     initialState,
@@ -571,6 +572,7 @@ export class StateEngine extends DisposableBase {
     enableActionHistory = true,
     eventBus = null,
     actorId,
+    maxQueueSize = 1000,
   } = {}) {
     super();
 
@@ -592,6 +594,10 @@ export class StateEngine extends DisposableBase {
     // Dispatch queue for serializing concurrent dispatches
     this._dispatchQueue = [];
     this._isDispatching = false;
+
+    // Backpressure: limit queue size to prevent OOM
+    this._maxQueueSize = maxQueueSize;
+    this._queueDropCount = 0;
 
     // Register cleanup for dispose
     this._registerDisposable(() => {
@@ -619,6 +625,60 @@ export class StateEngine extends DisposableBase {
   }
 
   /**
+   * Enqueue a dispatch item with backpressure handling
+   * @param {object} item - Queue item { action?, actions?, isBatch?, resolve }
+   * @returns {boolean} true if enqueued, false if queue was full and oldest dropped
+   * @private
+   */
+  _enqueue(item) {
+    let dropped = false;
+
+    // Backpressure: drop oldest when queue is full
+    if (this._dispatchQueue.length >= this._maxQueueSize) {
+      const droppedItem = this._dispatchQueue.shift();
+      this._queueDropCount++;
+      dropped = true;
+
+      // Reject the dropped promise to notify caller
+      if (droppedItem?.resolve) {
+        droppedItem.resolve({ dropped: true, reason: "queue_overflow" });
+      }
+
+      // Emit overflow event
+      if (this._eventBus?.emit) {
+        this._eventBus.emit("stateEngine:queueOverflow", {
+          dropped: 1,
+          totalDropped: this._queueDropCount,
+          queueSize: this._dispatchQueue.length,
+          maxQueueSize: this._maxQueueSize,
+        });
+      }
+
+      logger.warn("[StateEngine] Queue overflow, dropped oldest action", {
+        totalDropped: this._queueDropCount,
+        queueSize: this._dispatchQueue.length,
+      });
+    }
+
+    this._dispatchQueue.push(item);
+    return !dropped;
+  }
+
+  /**
+   * Get queue metrics for monitoring
+   * @returns {object} Queue metrics
+   */
+  getQueueMetrics() {
+    return {
+      queueSize: this._dispatchQueue.length,
+      maxQueueSize: this._maxQueueSize,
+      isDispatching: this._isDispatching,
+      totalDropped: this._queueDropCount,
+      utilizationPercent: Math.round((this._dispatchQueue.length / this._maxQueueSize) * 100),
+    };
+  }
+
+  /**
    * Dispatch an action to update state
    * @param {object} action - Action object { type, payload, meta? }
    * @returns {object} The dispatched action with metadata
@@ -630,9 +690,9 @@ export class StateEngine extends DisposableBase {
       throw new TypeError("StateEngine.dispatch: action must have a type");
     }
 
-    // Queue the action
+    // Queue the action with backpressure
     return new Promise((resolve) => {
-      this._dispatchQueue.push({ action, resolve });
+      this._enqueue({ action, resolve });
       this._processQueue();
     });
   }
@@ -660,7 +720,7 @@ export class StateEngine extends DisposableBase {
     }
 
     return new Promise((resolve) => {
-      this._dispatchQueue.push({ actions, isBatch: true, resolve });
+      this._enqueue({ actions, isBatch: true, resolve });
       this._processQueue();
     });
   }

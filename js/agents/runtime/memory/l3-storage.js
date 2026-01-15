@@ -118,6 +118,10 @@ export class L3Storage extends DisposableBase {
     return `${this._basePath}/index.json`;
   }
 
+  _indexTmpPath() {
+    return `${this._basePath}/index.json.tmp`;
+  }
+
   _snapshotPath(id) {
     return `${this._snapshotsDir()}/${id}.json`;
   }
@@ -334,23 +338,102 @@ export class L3Storage extends DisposableBase {
 
   /**
    * Persist the current index (timeline/keywords/stages + checkpoint metadata) to VFS.
+   * Uses atomic write pattern: write to .tmp file, then rename (or fallback).
    * @returns {Promise<void>}
    */
   async persistIndex() {
     this._ensureNotDisposed();
     await this._ensureDirs();
-    await this._writeJson(this._indexPath(), this._serializeIndex());
+
+    const indexPath = this._indexPath();
+    const tempPath = this._indexTmpPath();
+    const data = this._serializeIndex();
+    const json = JSON.stringify(data);
+    const bytes = encoder.encode(json);
+
+    // Step 1: Write to temporary file
+    await this._vfs.writeFile(tempPath, bytes);
+
+    // Step 2: Atomic rename if VFS supports it
+    if (typeof this._vfs.rename === "function") {
+      await this._vfs.rename(tempPath, indexPath);
+    } else {
+      // Fallback: write to target, then remove temp
+      await this._vfs.writeFile(indexPath, bytes);
+      try {
+        if (typeof this._vfs.unlink === "function") {
+          await this._vfs.unlink(tempPath);
+        }
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
   }
 
   /**
    * Restore index (timeline/keywords/stages + checkpoint metadata) from VFS.
+   * Checks for incomplete writes (.tmp file) and recovers if needed.
    * @returns {Promise<void>}
    */
   async restoreIndex() {
     this._ensureNotDisposed();
     await this._ensureDirs();
 
-    const raw = await this._readJson(this._indexPath());
+    const indexPath = this._indexPath();
+    const tempPath = this._indexTmpPath();
+
+    // Recovery: check for orphaned .tmp file from interrupted write
+    let tempExists = false;
+    if (typeof this._vfs.exists === "function") {
+      tempExists = await this._vfs.exists(tempPath);
+    } else {
+      try {
+        await this._vfs.readFile(tempPath);
+        tempExists = true;
+      } catch {
+        tempExists = false;
+      }
+    }
+
+    if (tempExists) {
+      // Attempt to recover from temp file
+      let tempData = null;
+      try {
+        tempData = await this._readJson(tempPath);
+      } catch {
+        // Parse error - treat as corrupted
+        tempData = null;
+      }
+
+      if (tempData && typeof tempData === "object") {
+        // Temp file is valid - complete the interrupted atomic write
+        if (typeof this._vfs.rename === "function") {
+          await this._vfs.rename(tempPath, indexPath);
+        } else {
+          const json = JSON.stringify(tempData);
+          const bytes = encoder.encode(json);
+          await this._vfs.writeFile(indexPath, bytes);
+          try {
+            if (typeof this._vfs.unlink === "function") {
+              await this._vfs.unlink(tempPath);
+            }
+          } catch {
+            // Ignore cleanup errors
+          }
+        }
+      } else {
+        // Temp file is corrupted - remove it
+        try {
+          if (typeof this._vfs.unlink === "function") {
+            await this._vfs.unlink(tempPath);
+          }
+        } catch {
+          // Ignore cleanup errors
+        }
+      }
+    }
+
+    const raw = await this._readJson(indexPath);
     if (!raw || typeof raw !== "object") return;
 
     const timeline = Array.isArray(raw.timeline) ? raw.timeline : [];

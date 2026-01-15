@@ -437,3 +437,78 @@ describe("rootReducer", () => {
     assert.strictEqual(result, state); // Should return same state reference
   });
 });
+
+describe("Queue Backpressure", () => {
+  it("should track dropped count in metrics via _enqueue directly", () => {
+    const engine = new StateEngine({ maxQueueSize: 3 });
+
+    // Directly test _enqueue backpressure by simulating queued items
+    // First fill the queue
+    for (let i = 0; i < 5; i++) {
+      engine._enqueue({ action: { type: "TEST", payload: i }, resolve: () => {} });
+    }
+
+    const metrics = engine.getQueueMetrics();
+    assert.strictEqual(metrics.queueSize, 3, "Queue should be at maxQueueSize");
+    assert.strictEqual(metrics.totalDropped, 2, "Should have dropped 2 oldest actions");
+  });
+
+  it("should emit overflow event when dropping", () => {
+    const events = [];
+    const mockEventBus = {
+      emit: (name, data) => events.push({ name, data }),
+    };
+
+    const engine = new StateEngine({ maxQueueSize: 2, eventBus: mockEventBus });
+
+    // Directly fill the queue to trigger overflow
+    for (let i = 0; i < 5; i++) {
+      engine._enqueue({ action: { type: "TEST", payload: i }, resolve: () => {} });
+    }
+
+    const overflowEvents = events.filter(e => e.name === "stateEngine:queueOverflow");
+    assert.strictEqual(overflowEvents.length, 3, "Should have emitted 3 overflow events");
+    assert.strictEqual(overflowEvents[0].data.dropped, 1);
+    assert.ok(overflowEvents[0].data.totalDropped > 0);
+  });
+
+  it("should call resolve with dropped info for overflow items", () => {
+    const resolutions = [];
+    const engine = new StateEngine({ maxQueueSize: 2 });
+
+    // Queue items with tracked resolvers
+    for (let i = 0; i < 5; i++) {
+      engine._enqueue({
+        action: { type: "TEST", payload: i },
+        resolve: (result) => resolutions.push({ i, result }),
+      });
+    }
+
+    // First 3 should have been dropped (items 0, 1, 2)
+    const dropped = resolutions.filter(r => r.result?.dropped === true);
+    assert.strictEqual(dropped.length, 3, "Should have 3 dropped resolutions");
+  });
+
+  it("should return queue metrics", () => {
+    const engine = new StateEngine({ maxQueueSize: 100 });
+
+    const metrics = engine.getQueueMetrics();
+    assert.strictEqual(metrics.queueSize, 0);
+    assert.strictEqual(metrics.maxQueueSize, 100);
+    assert.strictEqual(metrics.isDispatching, false);
+    assert.strictEqual(metrics.totalDropped, 0);
+    assert.strictEqual(metrics.utilizationPercent, 0);
+  });
+
+  it("should use custom maxQueueSize from options", () => {
+    const engine = new StateEngine({ maxQueueSize: 500 });
+    const metrics = engine.getQueueMetrics();
+    assert.strictEqual(metrics.maxQueueSize, 500);
+  });
+
+  it("should default maxQueueSize to 1000", () => {
+    const engine = new StateEngine();
+    const metrics = engine.getQueueMetrics();
+    assert.strictEqual(metrics.maxQueueSize, 1000);
+  });
+});
