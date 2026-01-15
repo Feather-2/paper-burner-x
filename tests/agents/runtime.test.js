@@ -2070,3 +2070,43 @@ test("Runtime: AgentOrchestrator.runStagesGraph skips dependents after failure w
   assert.equal(results.get("b").skipped, true);
   assert.match(String(results.get("b").error || ""), /dependency_failed:a/);
 });
+
+test("Runtime: concurrent agent loops keep isolated sessions", async () => {
+  const { DefaultAgentLoop } = await import("../../js/agents/sdk/DefaultAgentLoop.js");
+
+  const makeCallModel = (label, delayMs) => async () => {
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    return JSON.stringify({ action: "complete", final: `done:${label}` });
+  };
+
+  const loopA = new DefaultAgentLoop({ actor: "agent-a", stageName: "agent-a" });
+  const loopB = new DefaultAgentLoop({ actor: "agent-b", stageName: "agent-b" });
+
+  const [resA, resB] = await Promise.all([
+    loopA.run("hello A", { callModel: makeCallModel("A", 20) }),
+    loopB.run("hello B", { callModel: makeCallModel("B", 5) }),
+  ]);
+
+  assert.equal(resA.success, true);
+  assert.equal(resB.success, true);
+  assert.equal(resA.output, "done:A");
+  assert.equal(resB.output, "done:B");
+  assert.equal(resA.toolCalls.length, 0);
+  assert.equal(resB.toolCalls.length, 0);
+
+  assert.notStrictEqual(loopA.messages, loopB.messages);
+
+  const aUserMessages = loopA.messages
+    .filter((m) => m.role === "user")
+    .map((m) => m.content)
+    .join(" ");
+  const bUserMessages = loopB.messages
+    .filter((m) => m.role === "user")
+    .map((m) => m.content)
+    .join(" ");
+
+  assert.match(aUserMessages, /hello A/);
+  assert.match(bUserMessages, /hello B/);
+  assert.equal(/hello B/.test(aUserMessages), false);
+  assert.equal(/hello A/.test(bUserMessages), false);
+});
