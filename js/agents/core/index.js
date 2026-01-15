@@ -10,6 +10,7 @@
 
 // === Level 2 & 3: 完整控制 ===
 export { Kernel, KernelStatus } from './kernel.js';
+export { KernelCompat } from './kernel-compat.js';
 export {
   EventBus,
   RunStoreAdapter,
