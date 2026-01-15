@@ -1,34 +1,92 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AgentBuilder, createAgent } from '../../../js/agents/sdk/AgentBuilder.js';
+const mockedLogger = vi.hoisted(() => ({
+  createLogger: vi.fn(() => ({
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  })),
+}));
+
+const mockedAgentConfig = vi.hoisted(() => {
+  const instances = [];
+  const ctor = vi.fn();
+
+  class AgentConfig {
+    constructor(options = {}) {
+      ctor(options);
+      this.options = options;
+      this.actor = options.actor;
+
+      // Methods that AgentBuilder delegates to.
+      this.useCapability = vi.fn();
+      this.useCapabilities = vi.fn();
+      this.useHook = vi.fn();
+      this.useMcp = vi.fn();
+      this.useCicada = vi.fn();
+      this.useBacktrack = vi.fn();
+      this.useWatchdog = vi.fn();
+      this.useDiscovery = vi.fn();
+      this.useAlertMonitor = vi.fn();
+      this.onEvent = vi.fn();
+      this.setActor = vi.fn();
+      this.useSubagent = vi.fn();
+
+      instances.push(this);
+    }
+  }
+
+  return { AgentConfig, ctor, instances };
+});
+
+const mockedAgentFactory = vi.hoisted(() => {
+  const instances = [];
+
+  class AgentFactory {
+    constructor() {
+      this.create = vi.fn();
+      instances.push(this);
+    }
+  }
+
+  // Re-exported by AgentBuilder.js (not used by these tests, but required by module shape).
+  class AgentInstance {}
+
+  return { AgentFactory, AgentInstance, instances };
+});
+
+vi.mock('../../../js/agents/shared/utils/logger.js', () => mockedLogger);
+vi.mock('../../../js/agents/sdk/agent-config.js', () => ({ AgentConfig: mockedAgentConfig.AgentConfig }));
+vi.mock('../../../js/agents/sdk/agent-factory.js', () => ({
+  AgentFactory: mockedAgentFactory.AgentFactory,
+  AgentInstance: mockedAgentFactory.AgentInstance,
+}));
 
 describe('agents/sdk AgentBuilder', () => {
-  it('createAgent() returns an AgentBuilder and forwards options', () => {
-    const builder = createAgent({ actor: 'tester' });
-    expect(builder).toBeInstanceOf(AgentBuilder);
-
-    // AgentBuilder stores AgentConfig internally; validate that options were forwarded.
-    expect(builder._config.actor).toBe('tester');
-    expect(builder._config.options.actor).toBe('tester');
+  beforeEach(() => {
+    mockedAgentConfig.instances.length = 0;
+    mockedAgentFactory.instances.length = 0;
+    vi.clearAllMocks();
+    vi.resetModules();
   });
 
-  it('exposes a fluent API that delegates to AgentConfig', () => {
-    const builder = new AgentBuilder({ actor: 'test' });
+  it('createAgent() returns an AgentBuilder and forwards options to AgentConfig', async () => {
+    const { AgentBuilder, createAgent } = await import('../../../js/agents/sdk/AgentBuilder.js');
 
-    const spies = {
-      useCapability: vi.spyOn(builder._config, 'useCapability'),
-      useCapabilities: vi.spyOn(builder._config, 'useCapabilities'),
-      useHook: vi.spyOn(builder._config, 'useHook'),
-      useMcp: vi.spyOn(builder._config, 'useMcp'),
-      useCicada: vi.spyOn(builder._config, 'useCicada'),
-      useBacktrack: vi.spyOn(builder._config, 'useBacktrack'),
-      useWatchdog: vi.spyOn(builder._config, 'useWatchdog'),
-      useDiscovery: vi.spyOn(builder._config, 'useDiscovery'),
-      useAlertMonitor: vi.spyOn(builder._config, 'useAlertMonitor'),
-      onEvent: vi.spyOn(builder._config, 'onEvent'),
-      setActor: vi.spyOn(builder._config, 'setActor'),
-      useSubagent: vi.spyOn(builder._config, 'useSubagent'),
-    };
+    const builder = createAgent({ actor: 'tester', some: 'opt' });
+    expect(builder).toBeInstanceOf(AgentBuilder);
+
+    expect(mockedAgentConfig.ctor).toHaveBeenCalledWith({ actor: 'tester', some: 'opt' });
+    expect(mockedAgentConfig.instances).toHaveLength(1);
+    expect(builder._config).toBe(mockedAgentConfig.instances[0]);
+    expect(mockedAgentFactory.instances).toHaveLength(1);
+  });
+
+  it('exposes a fluent API that delegates to AgentConfig and returns `this`', async () => {
+    const { AgentBuilder } = await import('../../../js/agents/sdk/AgentBuilder.js');
+
+    const builder = new AgentBuilder({ actor: 'test' });
 
     const beforeHook = vi.fn(async () => {});
     const afterHook = vi.fn(async () => {});
@@ -49,40 +107,43 @@ describe('agents/sdk AgentBuilder', () => {
       .useHook('after', afterHook)
       .useMcp({ provider: 'local' })
       .useCicada({ enabled: true })
-      .useBacktrack({ maxSteps: 3 })
-      .useWatchdog({ maxIterations: 5 })
-      .useDiscovery({ enabled: true })
-      .useAlertMonitor({ maxWarnings: 1 })
+      .useBacktrack()
+      .useWatchdog()
+      .useDiscovery()
+      .useAlertMonitor()
       .onEvent('sdk.test.event', onEventHandler)
       .actor('actor2')
-      .useSubagent('Explore', subagentFactory, 'desc');
+      .useSubagent('Explore', subagentFactory)
+      .useSubagent('Write', subagentFactory, 'desc');
 
     expect(chain).toBe(builder);
 
-    expect(spies.useCapability).toHaveBeenCalledWith('Echo', echoHandler);
-    expect(spies.useCapability).toHaveBeenCalledWith('Lazy', lazyCap);
-    expect(spies.useCapabilities).toHaveBeenCalledWith({ Extra: expect.any(Function) });
-    expect(spies.useHook).toHaveBeenCalledWith('before', beforeHook);
-    expect(spies.useHook).toHaveBeenCalledWith('after', afterHook);
-    expect(spies.useMcp).toHaveBeenCalledWith({ provider: 'local' });
-    expect(spies.useCicada).toHaveBeenCalledWith({ enabled: true });
-    expect(spies.useBacktrack).toHaveBeenCalledWith({ maxSteps: 3 });
-    expect(spies.useWatchdog).toHaveBeenCalledWith({ maxIterations: 5 });
-    expect(spies.useDiscovery).toHaveBeenCalledWith({ enabled: true });
-    expect(spies.useAlertMonitor).toHaveBeenCalledWith({ maxWarnings: 1 });
-    expect(spies.onEvent).toHaveBeenCalledWith('sdk.test.event', onEventHandler);
-    expect(spies.setActor).toHaveBeenCalledWith('actor2');
-    expect(spies.useSubagent).toHaveBeenCalledWith('Explore', subagentFactory, 'desc');
+    expect(builder._config.useCapability).toHaveBeenCalledWith('Echo', echoHandler);
+    expect(builder._config.useCapability).toHaveBeenCalledWith('Lazy', lazyCap);
+    expect(builder._config.useCapabilities).toHaveBeenCalledWith({ Extra: expect.any(Function) });
+    expect(builder._config.useHook).toHaveBeenCalledWith('before', beforeHook);
+    expect(builder._config.useHook).toHaveBeenCalledWith('after', afterHook);
+    expect(builder._config.useMcp).toHaveBeenCalledWith({ provider: 'local' });
+    expect(builder._config.useCicada).toHaveBeenCalledWith({ enabled: true });
+    expect(builder._config.useBacktrack).toHaveBeenCalledWith({});
+    expect(builder._config.useWatchdog).toHaveBeenCalledWith({});
+    expect(builder._config.useDiscovery).toHaveBeenCalledWith({});
+    expect(builder._config.useAlertMonitor).toHaveBeenCalledWith({});
+    expect(builder._config.onEvent).toHaveBeenCalledWith('sdk.test.event', onEventHandler);
+    expect(builder._config.setActor).toHaveBeenCalledWith('actor2');
+    expect(builder._config.useSubagent).toHaveBeenCalledWith('Explore', subagentFactory, '');
+    expect(builder._config.useSubagent).toHaveBeenCalledWith('Write', subagentFactory, 'desc');
   });
 
-  it('build() calls AgentFactory.create(config) and returns its result', () => {
+  it('build() calls AgentFactory.create(config) and returns its result', async () => {
+    const { AgentBuilder } = await import('../../../js/agents/sdk/AgentBuilder.js');
+
     const builder = new AgentBuilder({ actor: 'builder' });
 
     const fakeAgent = { kind: 'agent-instance' };
-    const createSpy = vi.spyOn(builder._factory, 'create').mockReturnValue(fakeAgent);
+    builder._factory.create.mockReturnValue(fakeAgent);
 
     expect(builder.build()).toBe(fakeAgent);
-    expect(createSpy).toHaveBeenCalledWith(builder._config);
+    expect(builder._factory.create).toHaveBeenCalledWith(builder._config);
   });
 });
-
