@@ -302,6 +302,7 @@ export class AgentOrchestrator extends DisposableBase {
     this._schedulingMode = sched.mode === SchedulingMode.PARALLEL ? SchedulingMode.PARALLEL : SchedulingMode.SEQUENTIAL;
     this._maxConcurrency = normalizeTimeoutMs(sched.maxConcurrency, 3);
     this._inFlight = 0;
+    this._parallelWaiters = [];
 
     this._degradationMatrix = isDegradationMatrixLike(degradationMatrix) ? degradationMatrix : null;
     this._lastOperationLevel = null;
@@ -756,7 +757,7 @@ export class AgentOrchestrator extends DisposableBase {
     // Wait for slot
     const limit = await this._getEffectiveConcurrencyLimit();
     while (this._inFlight >= limit) {
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      await this._waitForParallelSlot();
       if (this.signal.aborted) throw new Error("Run cancelled");
     }
 
@@ -765,6 +766,72 @@ export class AgentOrchestrator extends DisposableBase {
       return await this._runStageNow(stageName, input);
     } finally {
       this._inFlight--;
+      this._releaseParallelSlot();
+    }
+  }
+
+  /**
+   * @private
+   * @returns {Promise<void>}
+   */
+  async _waitForParallelSlot() {
+    if (this.signal.aborted) throw new Error("Run cancelled");
+    return await new Promise((resolve, reject) => {
+      const entry = { resolve, reject, onAbort: null };
+      if (this.signal && typeof this.signal.addEventListener === "function") {
+        entry.onAbort = () => {
+          this._removeParallelWaiter(entry);
+          reject(new Error("Run cancelled"));
+        };
+        this.signal.addEventListener("abort", entry.onAbort, { once: true });
+      }
+      this._parallelWaiters.push(entry);
+    });
+  }
+
+  /**
+   * @private
+   * @param {{ resolve: Function, reject: Function, onAbort: Function | null }} entry
+   * @returns {void}
+   */
+  _removeParallelWaiter(entry) {
+    if (entry?.onAbort && this.signal && typeof this.signal.removeEventListener === "function") {
+      this.signal.removeEventListener("abort", entry.onAbort);
+    }
+    this._parallelWaiters = this._parallelWaiters.filter((w) => w !== entry);
+  }
+
+  /**
+   * @private
+   * @returns {void}
+   */
+  _releaseParallelSlot() {
+    while (this._parallelWaiters.length) {
+      const waiter = this._parallelWaiters.shift();
+      if (!waiter) continue;
+      if (waiter.onAbort && this.signal && typeof this.signal.removeEventListener === "function") {
+        this.signal.removeEventListener("abort", waiter.onAbort);
+      }
+      waiter.resolve();
+      break;
+    }
+  }
+
+  /**
+   * @private
+   * @param {Error | string} reason
+   * @returns {void}
+   */
+  _rejectParallelWaiters(reason) {
+    if (!this._parallelWaiters.length) return;
+    const err = reason instanceof Error ? reason : new Error(String(reason || "Orchestrator disposed"));
+    const waiters = this._parallelWaiters.splice(0);
+    for (const waiter of waiters) {
+      if (!waiter) continue;
+      if (waiter.onAbort && this.signal && typeof this.signal.removeEventListener === "function") {
+        this.signal.removeEventListener("abort", waiter.onAbort);
+      }
+      waiter.reject(err);
     }
   }
 
@@ -920,5 +987,6 @@ export class AgentOrchestrator extends DisposableBase {
     this._stages.clear();
     this._queue = Promise.resolve();
     this._inFlight = 0;
+    this._rejectParallelWaiters("Orchestrator disposed");
   }
 }
