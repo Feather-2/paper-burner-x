@@ -1,5 +1,4 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+import { describe, expect, it } from "vitest";
 import {
   isScanWorkerAvailable,
   terminateScanWorker,
@@ -11,16 +10,16 @@ describe("vfs-scan-async", () => {
     it("should return false in Node.js environment", () => {
       // Node.js doesn't have Worker + navigator.storage.getDirectory
       const available = isScanWorkerAvailable();
-      assert.strictEqual(available, false);
+      expect(available).toBe(false);
     });
   });
 
   describe("terminateScanWorker", () => {
     it("should not throw when called multiple times", () => {
-      assert.doesNotThrow(() => {
+      expect(() => {
         terminateScanWorker();
         terminateScanWorker();
-      });
+      }).not.toThrow();
     });
   });
 
@@ -38,7 +37,7 @@ describe("vfs-scan-async", () => {
         fallbackListFiles,
       });
 
-      assert.deepStrictEqual(result, mockFiles);
+      expect(result).toEqual(mockFiles);
     });
 
     it("should return empty array when no fallback provided", async () => {
@@ -48,7 +47,7 @@ describe("vfs-scan-async", () => {
         recursive: true,
       });
 
-      assert.deepStrictEqual(result, []);
+      expect(result).toEqual([]);
     });
 
     it("should respect maxFiles in fallback mode", async () => {
@@ -61,21 +60,20 @@ describe("vfs-scan-async", () => {
         fallbackListFiles,
       });
 
-      assert.strictEqual(result.length, 3);
-      assert.deepStrictEqual(result, ["a.txt", "b.txt", "c.txt"]);
+      expect(result).toHaveLength(3);
+      expect(result).toEqual(["a.txt", "b.txt", "c.txt"]);
     });
 
     it("should throw on aborted signal", async () => {
       const ac = new AbortController();
       ac.abort();
 
-      await assert.rejects(
+      await expect(
         scanOpfsAsync({
           rootDirName: "test-root",
           signal: ac.signal,
-        }),
-        /aborted/
-      );
+        })
+      ).rejects.toThrow(/aborted/i);
     });
 
     it("should handle fallback function errors gracefully", async () => {
@@ -89,7 +87,7 @@ describe("vfs-scan-async", () => {
       });
 
       // 回退失败时返回空数组，不抛错
-      assert.deepStrictEqual(result, []);
+      expect(result).toEqual([]);
     });
 
     it("should propagate abort error from fallback", async () => {
@@ -97,13 +95,12 @@ describe("vfs-scan-async", () => {
         throw new Error("scan: aborted");
       };
 
-      await assert.rejects(
+      await expect(
         scanOpfsAsync({
           rootDirName: "test-root",
           fallbackListFiles,
-        }),
-        /aborted/
-      );
+        })
+      ).rejects.toThrow(/aborted/i);
     });
   });
 });
