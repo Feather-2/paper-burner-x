@@ -132,7 +132,7 @@ export class PluginContext {
   /**
    * 清理所有订阅和服务
    */
-  cleanup() {
+  dispose() {
     for (const unsub of this._subscriptions) {
       try { unsub(); } catch {}
     }
@@ -209,7 +209,7 @@ export class PluginManager {
       this._kernel.events.emitSync('plugin.installed', { name: pluginName });
     } catch (error) {
       entry.status = PluginStatus.ERROR;
-      ctx.cleanup();
+      ctx.dispose();
       this._contexts.delete(pluginName);
       throw error;
     }
@@ -251,7 +251,7 @@ export class PluginManager {
     try {
       await plugin.uninstall(ctx);
     } finally {
-      ctx.cleanup();
+      ctx.dispose();
       this._contexts.delete(pluginName);
       entry.status = PluginStatus.UNINSTALLED;
       plugin._status = PluginStatus.UNINSTALLED;
