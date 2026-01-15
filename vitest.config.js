@@ -25,6 +25,7 @@ export default defineConfig({
       'tests/agents/runtime/adaptive-token-counter.test.js',
       'tests/agents/runtime/token-tracker.test.js',
       'tests/agents/runtime/task-tool-di.test.js',
+      'tests/agents/runtime/hooks/hooks-config-loader.test.js',
       'tests/ppt/ui-v2/event-bus.test.js',
       'tests/ppt/ui-v2/state-store.test.js',
       'tests/ppt/dsl/serialize.test.js',
