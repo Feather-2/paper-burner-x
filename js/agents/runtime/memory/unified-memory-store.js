@@ -18,6 +18,7 @@ import { Platform } from "../../shared/platform.js";
 
 import { diffLayers } from "./state-diff.js";
 import { RetrievalEngine } from "./retrieval-engine.js";
+import { L3Storage } from "./l3-storage.js";
 import { StateEngine } from "./state-engine.js";
 import {
   L0_SET_SYSTEM_PROMPT,
@@ -117,6 +118,22 @@ export class UnifiedMemoryStore {
     // 委托层：工具层兼容
     this._sharedContext = options.sharedContext || null;
     this._discoveryManager = options.discoveryManager || null;
+
+    /** @private */
+    this._vfs = null;
+    /** @private */
+    this._l3Storage = null;
+    /** @private */
+    this._l3StoragePromise = null;
+
+    const l3Storage = options.l3Storage;
+    if (l3Storage && typeof l3Storage === "object") {
+      this._l3Storage = l3Storage;
+    } else if (options.vfs && typeof options.vfs === "object") {
+      // Lazily construct L3Storage when first needed.
+      this._vfs = options.vfs;
+      this._l3Storage = null;
+    }
 
     // StateEngine 作为 SSOT
     this._engine = new StateEngine({
@@ -603,7 +620,19 @@ export class UnifiedMemoryStore {
   // L3: Archive (MemoryStore-style API)
   // ─────────────────────────────────────────────────────────────────────────────
 
-  archive(stageKey, data, keywords = []) {
+  async archive(stageKey, data, keywords = []) {
+    const l3Storage = await this._getL3Storage();
+    if (l3Storage) {
+      const id = await l3Storage.archive(stageKey, data, keywords);
+      const entry = await l3Storage.getSnapshot(id);
+      if (entry) {
+        this._emit("memory.archived", { id, stageKey: entry.stageKey, summary: entry.summary, ts: entry.ts });
+      } else {
+        this._emit("memory.archived", { id, stageKey, ts: Date.now() });
+      }
+      return id;
+    }
+
     // 估算即将添加的条目大小并确保容量
     const entry = {
       stageKey,
@@ -676,7 +705,55 @@ export class UnifiedMemoryStore {
   // Checkpoint / Restore (MemoryStore-style)
   // ─────────────────────────────────────────────────────────────────────────────
 
-  checkpoint({ incremental = true, fullSnapshotEvery = 5 } = {}) {
+  async checkpoint(options) {
+    const opts = isPlainObject(options) ? options : {};
+    const incremental = opts.incremental ?? true;
+    const fullSnapshotEvery = opts.fullSnapshotEvery ?? 5;
+
+    const l3Storage = await this._getL3Storage();
+    if (l3Storage) {
+      this._updateTokenUsage();
+      const id = genId("ckpt");
+      const ts = Date.now();
+
+      const checkpointIndex = await l3Storage.listCheckpoints();
+      const checkpointCount = Array.isArray(checkpointIndex) ? checkpointIndex.length : 0;
+      const shouldFull = !incremental || checkpointCount % fullSnapshotEvery === 0;
+
+      /** @type {any} */
+      let snapshot;
+      if (shouldFull || !this._hasAnyDirty()) {
+        snapshot = {
+          id,
+          runId: this.runId,
+          ts,
+          encoding: "full",
+          L0: this.cloneL0(),
+          L1: this.cloneL1(),
+          L2: this.cloneL2(),
+        };
+      } else {
+        snapshot = {
+          id,
+          runId: this.runId,
+          ts,
+          encoding: "incremental",
+          dirtyLayers: { ...this._dirty },
+        };
+        if (this._dirty.L0) snapshot.L0 = this.cloneL0();
+        if (this._dirty.L1) snapshot.L1 = this.cloneL1();
+        if (this._dirty.L2) snapshot.L2 = this.cloneL2();
+
+        const lastMeta = checkpointCount > 0 ? checkpointIndex[checkpointCount - 1] : null;
+        const baseId = toNonEmptyString(lastMeta?.id);
+        if (baseId) snapshot.baseId = baseId;
+      }
+
+      await l3Storage.checkpoint(snapshot);
+      this._clearDirty();
+      return id;
+    }
+
     this._updateTokenUsage();
     const id = genId("ckpt");
     const ts = Date.now();
@@ -1255,6 +1332,24 @@ export class UnifiedMemoryStore {
   // ─────────────────────────────────────────────────────────────────────────────
   // Utilities
   // ─────────────────────────────────────────────────────────────────────────────
+
+  async _getL3Storage() {
+    const existing = this._l3Storage;
+    if (existing) return existing;
+    const vfs = this._vfs;
+    if (!vfs) return null;
+
+    const inFlight = this._l3StoragePromise;
+    if (inFlight) return await inFlight;
+
+    this._l3StoragePromise = (async () => {
+      const created = new L3Storage({ vfs, runId: this.runId });
+      this._l3Storage = created;
+      return created;
+    })();
+
+    return await this._l3StoragePromise;
+  }
 
   _markDirty(layer) {
     if (layer in this._dirty) this._dirty[layer] = true;
