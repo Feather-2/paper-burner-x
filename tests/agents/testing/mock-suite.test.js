@@ -6,6 +6,7 @@ import {
   MockModelClient,
   MockMcpProvider,
   MockEventBus,
+  MockServer,
   ScenarioRunner,
   createMockTestEnv,
 } from "../../../js/agents/testing/mock-suite.js";
@@ -347,6 +348,38 @@ describe("mock-suite", () => {
 
       expect(bus.assertEmittedInOrder(["a", "c"])).toBe(true);
       expect(() => bus.assertEmittedInOrder([])).toThrow(/non-empty array/i);
+    });
+  });
+
+  describe("MockServer", () => {
+    it("should serve text responses", async () => {
+      const server = new MockServer();
+      server.setTextResponse("/hello", "world");
+
+      const res = await server.fetch("http://mock.local/hello");
+      expect(res.ok).toBe(true);
+      expect(await res.text()).toBe("world");
+    });
+
+    it("should serve json responses", async () => {
+      const server = new MockServer();
+      server.setJsonResponse("/json", { ok: true });
+
+      const res = await server.fetch("/json");
+      expect(res.headers.get("content-type")).toContain("application/json");
+      await expect(res.json()).resolves.toEqual({ ok: true });
+    });
+
+    it("should stream responses in chunks", async () => {
+      const server = new MockServer();
+      server.setStreamResponse("/stream", ["a", "b", "c"]);
+
+      const res = await server.fetch("/stream");
+      const chunks = [];
+      for await (const chunk of res.stream()) {
+        chunks.push(chunk);
+      }
+      expect(chunks.join("")).toBe("abc");
     });
   });
 

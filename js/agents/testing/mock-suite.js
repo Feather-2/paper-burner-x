@@ -419,6 +419,205 @@ export class MockEventBus {
   }
 }
 
+class MockHeaders {
+  constructor(init = {}) {
+    this._map = new Map();
+    for (const [key, value] of Object.entries(init || {})) {
+      this.set(key, value);
+    }
+  }
+
+  set(name, value) {
+    const key = String(name || "").toLowerCase();
+    if (!key) return;
+    this._map.set(key, String(value ?? ""));
+  }
+
+  get(name) {
+    const key = String(name || "").toLowerCase();
+    return this._map.has(key) ? this._map.get(key) : null;
+  }
+
+  has(name) {
+    const key = String(name || "").toLowerCase();
+    return this._map.has(key);
+  }
+
+  entries() {
+    return Array.from(this._map.entries());
+  }
+}
+
+function normalizeMethod(method) {
+  const m = typeof method === "string" && method.trim() ? method.trim().toUpperCase() : "GET";
+  return m;
+}
+
+function normalizePath(input, baseUrl) {
+  const raw = typeof input === "string" ? input : String(input ?? "");
+  if (!raw) return "/";
+  try {
+    const url = new URL(raw, baseUrl || "http://mock.local");
+    return url.pathname + url.search;
+  } catch {
+    return raw.startsWith("/") ? raw : `/${raw}`;
+  }
+}
+
+function normalizeBody(body) {
+  if (body === null || body === undefined) return "";
+  if (typeof body === "string") return body;
+  try {
+    return JSON.stringify(body);
+  } catch {
+    return String(body);
+  }
+}
+
+class MockResponse {
+  constructor({ status = 200, headers = {}, body = "", stream = null, delay = 0 } = {}) {
+    this.status = Number.isFinite(status) ? status : 200;
+    this.headers = new MockHeaders(headers);
+    this._body = normalizeBody(body);
+    this._delay = Number.isFinite(delay) ? Math.max(0, Math.floor(delay)) : 0;
+    this._streamChunks = Array.isArray(stream) ? stream.slice() : stream ? [stream] : null;
+  }
+
+  get ok() {
+    return this.status >= 200 && this.status < 300;
+  }
+
+  async text() {
+    if (this._delay) await new Promise((r) => setTimeout(r, this._delay));
+    if (!this._streamChunks) return this._body;
+    let out = "";
+    for await (const chunk of this.stream()) {
+      out += String(chunk ?? "");
+    }
+    return out;
+  }
+
+  async json() {
+    const text = await this.text();
+    return JSON.parse(text);
+  }
+
+  async arrayBuffer() {
+    const text = await this.text();
+    return new TextEncoder().encode(text).buffer;
+  }
+
+  async *stream() {
+    if (!this._streamChunks) {
+      yield this._body;
+      return;
+    }
+    for (const chunk of this._streamChunks) {
+      yield chunk;
+    }
+  }
+}
+
+/**
+ * Mock Server - API 响应模拟
+ *
+ * 支持:
+ * - setTextResponse / setJsonResponse
+ * - setStreamResponse (分块/流式输出)
+ * - fetch() 兼容调用
+ */
+export class MockServer {
+  constructor(options = {}) {
+    this.baseUrl = options.baseUrl || "http://mock.local";
+    this.routes = [];
+    this.callHistory = [];
+  }
+
+  _addRoute({ path, method, handler }) {
+    this.routes.push({
+      path,
+      method: normalizeMethod(method),
+      handler,
+    });
+  }
+
+  _matchRoute(method, path) {
+    return this.routes.find((route) => {
+      if (route.method && route.method !== method && route.method !== "*") return false;
+      if (route.path instanceof RegExp) return route.path.test(path);
+      if (typeof route.path === "function") return route.path(path);
+      return normalizePath(route.path, this.baseUrl) === path;
+    });
+  }
+
+  setTextResponse(path, text, options = {}) {
+    const { status = 200, headers = {}, method = "GET", delay = 0 } = options || {};
+    this._addRoute({
+      path,
+      method,
+      handler: () => new MockResponse({ status, headers, body: text, delay }),
+    });
+    return this;
+  }
+
+  setJsonResponse(path, data, options = {}) {
+    const { status = 200, headers = {}, method = "GET", delay = 0 } = options || {};
+    const nextHeaders = { "content-type": "application/json", ...headers };
+    this._addRoute({
+      path,
+      method,
+      handler: () => new MockResponse({ status, headers: nextHeaders, body: JSON.stringify(data), delay }),
+    });
+    return this;
+  }
+
+  setStreamResponse(path, chunks, options = {}) {
+    const { status = 200, headers = {}, method = "GET", delay = 0 } = options || {};
+    const streamChunks = Array.isArray(chunks) ? chunks.slice() : [chunks];
+    this._addRoute({
+      path,
+      method,
+      handler: () => new MockResponse({ status, headers, stream: streamChunks, delay }),
+    });
+    return this;
+  }
+
+  setHandler(path, handler, options = {}) {
+    const method = normalizeMethod(options.method || "GET");
+    this._addRoute({ path, method, handler });
+    return this;
+  }
+
+  async fetch(url, options = {}) {
+    const method = normalizeMethod(options.method);
+    const path = normalizePath(url, this.baseUrl);
+    const req = {
+      method,
+      url: typeof url === "string" ? url : String(url ?? ""),
+      path,
+      headers: options.headers || {},
+      body: options.body,
+    };
+
+    this.callHistory.push({ ...req, timestamp: Date.now() });
+
+    const route = this._matchRoute(method, path);
+    if (!route) {
+      return new MockResponse({ status: 404, body: "Not Found" });
+    }
+
+    const result = typeof route.handler === "function" ? await route.handler(req) : route.handler;
+    if (result instanceof MockResponse) return result;
+    if (result && typeof result === "object") return new MockResponse(result);
+    return new MockResponse({ body: normalizeBody(result) });
+  }
+
+  reset() {
+    this.routes = [];
+    this.callHistory = [];
+  }
+}
+
 /**
  * Scenario Runner - 预定义场景回放
  *
@@ -605,6 +804,7 @@ export default {
   MockModelClient,
   MockMcpProvider,
   MockEventBus,
+  MockServer,
   ScenarioRunner,
   createMockTestEnv,
 };
