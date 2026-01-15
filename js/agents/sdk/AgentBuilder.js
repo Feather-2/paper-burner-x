@@ -16,17 +16,6 @@ const logger = createLogger("sdk/AgentBuilder");
  * @typedef {import("./agent-config.js").AgentConfigOptions} AgentBuilderOptions
  */
 
-let didWarnUseSkillDeprecated = false;
-
-function warnUseSkillDeprecatedOnce() {
-  if (didWarnUseSkillDeprecated) return;
-  didWarnUseSkillDeprecated = true;
-
-  logger.warn(
-    "useSkill/useSkills are deprecated since 1.0.0 and will be removed in 2.0.0; use useCapability/useCapabilities instead (see docs/DEPRECATIONS.md)."
-  );
-}
-
 /**
  * Fluent builder for creating {@link AgentInstance}.
  * @param {AgentBuilderOptions} [options]
@@ -58,27 +47,6 @@ export class AgentBuilder {
   useCapabilities(capabilitiesMap) {
     this._config.useCapabilities(capabilitiesMap);
     return this;
-  }
-
-  /**
-   * @deprecated Use useCapability instead
-   * @param {string} name
-   * @param {any} config
-   * @returns {AgentBuilder}
-   */
-  useSkill(name, config) {
-    warnUseSkillDeprecatedOnce();
-    return this.useCapability(name, config);
-  }
-
-  /**
-   * @deprecated Use useCapabilities instead
-   * @param {Object<string, any>} skillsMap
-   * @returns {AgentBuilder}
-   */
-  useSkills(skillsMap) {
-    warnUseSkillDeprecatedOnce();
-    return this.useCapabilities(skillsMap);
   }
 
   /**

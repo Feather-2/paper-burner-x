@@ -101,29 +101,6 @@ function extractJsonBlock(text) {
 }
 
 /**
- * @deprecated 危险的正则修复，已废弃
- * 保留此函数签名以兼容旧代码，但不再执行修复
- */
-function fixCommonJsonIssues(jsonStr, options = {}) {
-  if (!jsonStr || typeof jsonStr !== "string") return jsonStr;
-
-  // 严格模式（默认）：仅做安全预处理
-  if (options.strict !== false) {
-    return safePreprocess(jsonStr);
-  }
-
-  // 非严格模式（已废弃，仅用于迁移期）
-  logger.warn("[RobustJSON] Non-strict mode is deprecated and may introduce injection vulnerabilities");
-
-  let fixed = safePreprocess(jsonStr);
-
-  // 仅保留最安全的修复：移除尾部逗号
-  fixed = fixed.replace(/,(\s*[}\]])/g, "$1");
-
-  return fixed;
-}
-
-/**
  * 解析结果类型
  */
 export const ParseResultCode = Object.freeze({
@@ -246,6 +223,5 @@ Please try again with properly formatted JSON.`;
 // 导出工具函数供测试
 export const __test = {
   extractJsonBlock,
-  fixCommonJsonIssues,
   safePreprocess,
 };
