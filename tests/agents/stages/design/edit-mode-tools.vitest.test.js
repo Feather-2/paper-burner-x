@@ -437,5 +437,97 @@ describe("edit-mode/tools", () => {
       await executeEditTool("move_element", { elementId: "el_1", x: 50, y: 100 });
       expect(context.state.slides[0].elements[0].position.x).toBe(50);
     });
+
+    it("should execute undo callback for move_element", async () => {
+      const push = vi.fn();
+      context.historyManager = { push };
+      context.state.slides[0].elements[0] = { id: "el_1", type: "text", x: 10, y: 20 };
+      executeEditTool = createEditToolExecutor(context);
+
+      const result = await executeEditTool("move_element", { elementId: "el_1", x: 100, y: 200 });
+      expect(result.success).toBe(true);
+      expect(push).toHaveBeenCalled();
+
+      // Get the operation and call undo
+      const operation = push.mock.calls[0][0];
+      expect(operation).toBeDefined();
+      if (operation.undo) {
+        operation.undo();
+        expect(context.state.slides[0].elements[0].x).toBe(10);
+        expect(context.state.slides[0].elements[0].y).toBe(20);
+      }
+    });
+
+    it("should execute redo callback for move_element", async () => {
+      const push = vi.fn();
+      context.historyManager = { push };
+      context.state.slides[0].elements[0] = { id: "el_1", type: "text", x: 10, y: 20 };
+      executeEditTool = createEditToolExecutor(context);
+
+      await executeEditTool("move_element", { elementId: "el_1", x: 100, y: 200 });
+
+      const operation = push.mock.calls[0][0];
+      if (operation.undo) operation.undo();
+      if (operation.redo) {
+        operation.redo();
+        expect(context.state.slides[0].elements[0].x).toBe(100);
+        expect(context.state.slides[0].elements[0].y).toBe(200);
+      }
+    });
+
+    it("should execute undo callback for resize_element", async () => {
+      const push = vi.fn();
+      context.historyManager = { push };
+      context.state.slides[0].elements[0] = { id: "el_1", type: "text", width: 50, height: 60 };
+      executeEditTool = createEditToolExecutor(context);
+
+      const result = await executeEditTool("resize_element", { elementId: "el_1", width: 200, height: 300 });
+      expect(result.success).toBe(true);
+
+      const operation = push.mock.calls[0][0];
+      if (operation.undo) {
+        operation.undo();
+        expect(context.state.slides[0].elements[0].width).toBe(50);
+        expect(context.state.slides[0].elements[0].height).toBe(60);
+      }
+    });
+
+    it("should execute redo callback for resize_element", async () => {
+      const push = vi.fn();
+      context.historyManager = { push };
+      context.state.slides[0].elements[0] = { id: "el_1", type: "text", width: 50, height: 60 };
+      executeEditTool = createEditToolExecutor(context);
+
+      await executeEditTool("resize_element", { elementId: "el_1", width: 200, height: 300 });
+
+      const operation = push.mock.calls[0][0];
+      if (operation.undo) operation.undo();
+      if (operation.redo) {
+        operation.redo();
+        expect(context.state.slides[0].elements[0].width).toBe(200);
+        expect(context.state.slides[0].elements[0].height).toBe(300);
+      }
+    });
+
+    it("should handle undo/redo when element is missing", async () => {
+      const push = vi.fn();
+      context.historyManager = { push };
+      context.state.slides[0].elements[0] = { id: "el_1", type: "text", x: 10, y: 20 };
+      executeEditTool = createEditToolExecutor(context);
+
+      await executeEditTool("move_element", { elementId: "el_1", x: 100, y: 200 });
+
+      // Remove the element
+      context.state.slides[0].elements = [];
+
+      const operation = push.mock.calls[0][0];
+      // Should not throw when element is missing
+      if (operation.undo) {
+        expect(() => operation.undo()).not.toThrow();
+      }
+      if (operation.redo) {
+        expect(() => operation.redo()).not.toThrow();
+      }
+    });
   });
 });

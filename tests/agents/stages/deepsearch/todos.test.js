@@ -214,4 +214,73 @@ describe("deepsearch/todos stage", () => {
     expect(out.todos.length).toBeGreaterThan(0);
     expect(out.todos.some((t) => String(t.text || "").includes("结构化研究摘要"))).toBe(true);
   });
+
+  it("falls back when LLM returns object without todos array", async () => {
+    const stageApi = { emit: vi.fn() };
+    const { DeepSearchState } = await import("../../../../js/agents/stages/deepsearch/state.js");
+    const { runDeepSearchTodosStage } = await import("../../../../js/agents/stages/deepsearch/todos.js");
+
+    // LLM returns an object but not with todos array - should fall back
+    hoisted.getModelCaller.mockReturnValue(
+      vi.fn(async () => ({
+        content: '{"result": "success", "data": "not todos"}',
+      }))
+    );
+
+    const state = new DeepSearchState({ runId: "run_object_no_todos", taskGoal: "goal" });
+    state.todos = [];
+
+    const out = await runDeepSearchTodosStage(null, state, stageApi);
+    // Should fall back to heuristic todos
+    expect(out.todos.length).toBeGreaterThan(0);
+  });
+
+  it("falls back when LLM returns non-JSON content", async () => {
+    const stageApi = { emit: vi.fn() };
+    const { DeepSearchState } = await import("../../../../js/agents/stages/deepsearch/state.js");
+    const { runDeepSearchTodosStage } = await import("../../../../js/agents/stages/deepsearch/todos.js");
+
+    // LLM returns plain text - should fall back
+    hoisted.getModelCaller.mockReturnValue(
+      vi.fn(async () => ({
+        content: "This is plain text without any JSON",
+      }))
+    );
+
+    const state = new DeepSearchState({ runId: "run_plain_text", taskGoal: "goal" });
+    state.todos = [];
+
+    const out = await runDeepSearchTodosStage(null, state, stageApi);
+    expect(out.todos.length).toBeGreaterThan(0);
+  });
+
+  it("handles empty keyTopics in fallback path", async () => {
+    const stageApi = { emit: vi.fn() };
+    const { DeepSearchState } = await import("../../../../js/agents/stages/deepsearch/state.js");
+    const { runDeepSearchTodosStage } = await import("../../../../js/agents/stages/deepsearch/todos.js");
+
+    hoisted.getModelCaller.mockReturnValue(null);
+
+    const state = new DeepSearchState({ runId: "run_no_topics", taskGoal: "research" });
+    state.todos = [];
+
+    // No keyTopics - should still create fallback todos
+    const out = await runDeepSearchTodosStage(null, { state, scanSummary: { keyTopics: [], summaryText: "summary text" } }, stageApi);
+    expect(out.todos.length).toBeGreaterThan(0);
+  });
+
+  it("handles missing taskGoal in fallback path", async () => {
+    const stageApi = { emit: vi.fn() };
+    const { DeepSearchState } = await import("../../../../js/agents/stages/deepsearch/state.js");
+    const { runDeepSearchTodosStage } = await import("../../../../js/agents/stages/deepsearch/todos.js");
+
+    hoisted.getModelCaller.mockReturnValue(null);
+
+    const state = new DeepSearchState({ runId: "run_no_goal" });
+    state.taskGoal = ""; // Empty task goal
+    state.todos = [];
+
+    const out = await runDeepSearchTodosStage(null, { state, scanSummary: { keyTopics: ["topic1"], summaryText: "" } }, stageApi);
+    expect(out.todos.length).toBeGreaterThan(0);
+  });
 });
