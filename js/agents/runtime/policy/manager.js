@@ -69,7 +69,7 @@ async function sha256OfJson(value) {
   try {
     return await computeSha256(JSON.stringify(value ?? null));
   } catch {
-    return undefined;
+    return null;
   }
 }
 

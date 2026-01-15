@@ -243,7 +243,7 @@ function enforcePromptCacheLimit(promptCache, limit) {
 }
 
 function lruGet(promptCache, key) {
-  if (!promptCache.has(key)) return undefined;
+  if (!promptCache.has(key)) return null;
   const value = promptCache.get(key);
   // Refresh insertion order (Map iteration order) to approximate LRU.
   promptCache.delete(key);

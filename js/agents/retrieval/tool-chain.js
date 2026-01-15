@@ -102,8 +102,8 @@ export const ToolChainStrategy = Object.freeze({
  */
 export function normalizeToolChainStrategy(value) {
   const s = toNonEmptyString(value)?.toLowerCase();
-  if (!s) return undefined;
-  return Object.values(ToolChainStrategy).includes(s) ? s : undefined;
+  if (!s) return null;
+  return Object.values(ToolChainStrategy).includes(s) ? s : null;
 }
 
 // 全局 glob 缓存（避免重复扫描）
