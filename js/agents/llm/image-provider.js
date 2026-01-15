@@ -15,6 +15,12 @@ function sanitizeBaseUrl(url, fallback) {
   return raw.replace(/\/+$/, "");
 }
 
+function normalizeEnumValue(value, allowed, fallback) {
+  const v = toNonEmptyString(value);
+  if (v && Array.isArray(allowed) && allowed.includes(v)) return v;
+  return fallback;
+}
+
 function parseSizeString(size) {
   const s = toNonEmptyString(size);
   if (!s) return null;
@@ -158,8 +164,11 @@ export async function GeminiImageAdapter(request, apiKey, opts = {}) {
   const baseUrl = sanitizeBaseUrl(opts.baseUrl, "https://generativelanguage.googleapis.com");
   const endpoint = `${baseUrl}/v1beta/models/${encodeURIComponent(modelId)}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
-  const aspectRatio = assertEnumValue(request.aspectRatio ?? opts.aspectRatio, GEMINI_ASPECT_RATIOS, { name: "aspectRatio", fallback: "1:1" });
-  const imageSize = assertEnumValue(request.imageSize ?? opts.imageSize, GEMINI_IMAGE_SIZES, { name: "imageSize", fallback: "1K" });
+  // Gemini's API only supports a known set of values; tolerate unknown input by falling back.
+  const requestedAspectRatio = toNonEmptyString(request.aspectRatio ?? opts.aspectRatio) || "1:1";
+  const requestedImageSize = toNonEmptyString(request.imageSize ?? opts.imageSize) || "1K";
+  const aspectRatio = normalizeEnumValue(requestedAspectRatio, GEMINI_ASPECT_RATIOS, "1:1");
+  const imageSize = normalizeEnumValue(requestedImageSize, GEMINI_IMAGE_SIZES, "1K");
 
   const body = {
     contents: [{ role: "user", parts: [{ text: prompt }] }],
@@ -171,7 +180,12 @@ export async function GeminiImageAdapter(request, apiKey, opts = {}) {
 
   const resp = await fetchWithTimeout(
     endpoint,
-    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      ...(opts.signal ? { signal: opts.signal } : {}),
+    },
     { timeoutMs: opts.timeoutMs }
   );
 
@@ -197,8 +211,8 @@ export async function GeminiImageAdapter(request, apiKey, opts = {}) {
 
   const mimeType = toNonEmptyString(inline?.mimeType || inline?.mime_type) || "image/png";
   const dims = deriveGeminiDimensions({
-    aspectRatio,
-    imageSize,
+    aspectRatio: requestedAspectRatio,
+    imageSize: requestedImageSize,
     width: request.width,
     height: request.height,
   });
@@ -243,6 +257,7 @@ export async function OpenAIImageAdapter(request, apiKey, opts = {}) {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify(payload),
+      ...(opts.signal ? { signal: opts.signal } : {}),
     },
     { timeoutMs: opts.timeoutMs }
   );

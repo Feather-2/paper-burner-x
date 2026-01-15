@@ -60,6 +60,7 @@ export default defineConfig({
       'tests/agents/stages/deepsearch/**/*.test.js',
       // Design stage unit tests (Vitest-based only; node:test suites live under the same folder).
       'tests/agents/stages/design/**/*.vitest.test.js',
+      'tests/agents/stages/design/edit-mode-history.test.js',
       'tests/agents/sdk/agent-builder.test.js',
       'tests/agents/sdk/agent-factory.test.js',
       'tests/agents/llm/**/*.vitest.test.js',

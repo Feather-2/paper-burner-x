@@ -139,6 +139,63 @@ function isThinkingMessage(message) {
   return /^<(think|analysis)>/i.test(content) || /^(thoughts?|analysis|internal):/i.test(content);
 }
 
+/**
+ * 从 thinking 消息中提取关键决策点，生成摘要。
+ * 用于渐进式压缩（而非完全删除 thinking）。
+ *
+ * @param {object} message
+ * @param {{ maxChars?: number }} [options]
+ * @returns {object} 摘要后的消息
+ */
+function summarizeThinkingMessage(message, { maxChars = 150 } = {}) {
+  if (!message || typeof message !== "object") return message;
+
+  const content = String(message.content || message.text || "");
+  if (!content) return message;
+
+  const lines = content.split("\n");
+  const decisions = [];
+
+  // 提取决策性语句
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    // 匹配决策模式（中英文）
+    const isDecision =
+      /^(决定|选择|确定|采用|使用|将|要|需要|应该|因此|所以|结论|计划|方案)/i.test(trimmed) ||
+      /^(decide|choose|will|should|therefore|conclusion|plan|approach|solution)/i.test(trimmed) ||
+      /^[-*•]\s*(决定|选择|will|should|plan)/i.test(trimmed);
+
+    if (isDecision) {
+      decisions.push(trimmed.slice(0, 80));
+    }
+  }
+
+  let summary;
+  if (decisions.length > 0) {
+    // 有明确决策：使用决策点
+    summary = `[思考摘要] ${decisions.slice(0, 3).join("; ")}`;
+  } else {
+    // 无明确决策：保留首尾
+    const head = content.slice(0, 60).replace(/\s+/g, " ");
+    const tail = content.length > 120 ? content.slice(-40).replace(/\s+/g, " ") : "";
+    summary = `[思考摘要] ${head}${tail ? " ... " + tail : ""}`;
+  }
+
+  // 确保不超过 maxChars
+  if (summary.length > maxChars) {
+    summary = summary.slice(0, maxChars - 3) + "...";
+  }
+
+  return {
+    ...message,
+    content: summary,
+    _originalLength: content.length,
+    _thinkingSummarized: true,
+  };
+}
+
 function normalizeMessage(message) {
   if (typeof message === "string") {
     return { role: "assistant", content: message };
@@ -565,10 +622,15 @@ export class CicadaCompressor {
     const titleOnly = options.titleOnly === true;
     const titleMaxWords = Number.isFinite(options.titleMaxWords) ? Math.max(1, Math.floor(options.titleMaxWords)) : 10;
     const titleMaxChars = Number.isFinite(options.titleMaxChars) ? Math.max(10, Math.floor(options.titleMaxChars)) : 80;
+    // 新增：thinking 摘要选项（默认 false 保持向后兼容）
+    const summarizeThinking = options.summarizeThinking === true;
+    const thinkingSummaryMaxChars = Number.isFinite(options.thinkingSummaryMaxChars) ? options.thinkingSummaryMaxChars : 150;
+
     const stats = {
       totalMessages: 0,
       mergedMessages: 0,
       removedThinking: 0,
+      summarizedThinking: 0, // 新增：摘要的 thinking 消息数
       keptMessages: 0,
       summarizedMessages: 0,
     };
@@ -584,8 +646,17 @@ export class CicadaCompressor {
     const merged = [];
     for (const message of messages) {
       if (isThinkingMessage(message)) {
-        stats.removedThinking += 1;
-        continue;
+        if (summarizeThinking) {
+          // 渐进式摘要：提取决策点
+          const summarized = summarizeThinkingMessage(message, { maxChars: thinkingSummaryMaxChars });
+          merged.push(summarized);
+          stats.summarizedThinking += 1;
+          continue; // 已处理，跳过合并逻辑
+        } else {
+          // 向后兼容：完全删除
+          stats.removedThinking += 1;
+          continue;
+        }
       }
       const last = merged[merged.length - 1];
       // Avoid merging system messages; system is reserved for pinned prompts/anchors/summaries.

@@ -178,3 +178,15 @@ export class HtmlAdapter extends BaseAdapter {
     return parsed;
   }
 }
+
+// Expose internal helpers for unit tests (keeps the public adapter API intact).
+export const __internal = {
+  guessMimeType,
+  decodeUtf8,
+  resolveTurndownService,
+  importTurndownService,
+  extFromMime,
+  parseDataUri,
+  extractDataUriImagesFromHtml,
+  extractEmbeddedDataUriImagesFromMarkdown,
+};

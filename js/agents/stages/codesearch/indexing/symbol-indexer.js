@@ -523,7 +523,8 @@ export class SymbolIndexer {
    * @returns {Promise<any[]>}
    */
   async query({ query = "", pathPrefix = "", limit = 50 } = {}) {
-    const q = toNonEmptyString(query).toLowerCase();
+    // `toNonEmptyString()` returns `undefined` for empty input; normalize to "" so query() is total.
+    const q = (toNonEmptyString(query) || "").toLowerCase();
     const prefix = toNonEmptyString(pathPrefix);
     const lim = Number.isFinite(Number(limit)) ? Math.max(1, Math.floor(Number(limit))) : 50;
 
