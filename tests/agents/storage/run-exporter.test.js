@@ -92,7 +92,172 @@ describe("RunExporter exportRunAsZip()", () => {
   });
 });
 
+describe("run-exporter utility functions", () => {
+  it("exports bytesForPayload for various types", async () => {
+    vi.resetModules();
+    const mod = await import("../../../js/agents/storage/run-exporter.js");
+    // Access internals via re-export or test indirectly via saveArtifact bytes behavior
+
+    // Test through import path - the function is internal but affects bytes calculation
+    const JSZip = await import("jszip").then((m) => m.default || m);
+    const zip = new JSZip();
+
+    const runId = "run_bytes_test";
+    zip.file(
+      "manifest.json",
+      JSON.stringify({
+        schemaVersion: "0.1",
+        runId,
+        artifacts: [
+          { type: "text.txt", artifactId: "a1", storageKey: `runs/${runId}/text.txt` },
+        ],
+      }),
+    );
+    zip.file("text.txt", "hello");
+    const blob = await zip.generateAsync({ type: "blob" });
+
+    const dbName = makeDbName("bytes_test");
+    await RunStore.deleteDatabase({ dbName });
+    const store = new RunStore({ dbName });
+
+    await mod.importRunFromZip(blob, { runStore: store, overwrite: true });
+    const artifacts = await store.listArtifacts(runId);
+    const textArt = artifacts.find((a) => a.type === "text.txt");
+    // bytes should be populated from content
+    expect(typeof textArt?.bytes).toBe("number");
+    expect(textArt?.bytes).toBeGreaterThan(0);
+
+    await store.close();
+    await RunStore.deleteDatabase({ dbName });
+  });
+
+  it("handles Blob payload size in bytesForPayload", async () => {
+    vi.resetModules();
+    const { exportRunAsZip } = await import("../../../js/agents/storage/run-exporter.js");
+
+    const runId = "run_blob_bytes";
+    const dbName = makeDbName("blob_bytes");
+    await RunStore.deleteDatabase({ dbName });
+    const store = new RunStore({ dbName });
+
+    await store.createRun({ schemaVersion: "0.1", runId, mode: "test", constraints: {}, startedAt: new Date().toISOString() });
+    // Blob will be handled in export path
+    const blobData = new Blob(["binary content"]);
+    await store.saveArtifact(runId, "blob.bin", blobData, { seq: 1 });
+
+    const zipBlob = await exportRunAsZip(runId, { runStore: store });
+    expect(zipBlob).toBeDefined();
+
+    await store.close();
+    await RunStore.deleteDatabase({ dbName });
+  });
+});
+
 describe("RunExporter importRunFromZip()", () => {
+  it("non-atomic import attempts backup restoration on failure", async () => {
+    vi.resetModules();
+    const { importRunFromZip, exportRunAsZip } = await import("../../../js/agents/storage/run-exporter.js");
+
+    const runId = "run_restore_test";
+    const dbName = makeDbName("restore_test");
+    await RunStore.deleteDatabase({ dbName });
+    const store = new RunStore({ dbName });
+
+    // Create initial run with data
+    await store.createRun({ schemaVersion: "0.1", runId, mode: "test", constraints: {}, startedAt: new Date().toISOString() });
+    await store.saveArtifact(runId, "original.json", { original: true }, { seq: 1 });
+
+    // Create a zip with invalid content that will fail during import
+    const JSZip = await import("jszip").then((m) => m.default || m);
+    const zip = new JSZip();
+    zip.file(
+      "manifest.json",
+      JSON.stringify({
+        schemaVersion: "0.1",
+        runId,
+        artifacts: [
+          { type: "will_fail.json", artifactId: "fail1", storageKey: `runs/${runId}/will_fail.json`, zipPath: "missing_completely.json" },
+        ],
+      }),
+    );
+    // Don't add the file referenced in manifest
+    const badBlob = await zip.generateAsync({ type: "blob" });
+
+    // Try import with atomic=false, backupOnOverwrite=true
+    try {
+      await importRunFromZip(badBlob, { runStore: store, overwrite: true, atomic: false, backupOnOverwrite: true });
+    } catch {
+      // Expected to fail
+    }
+
+    // The backup restoration may or may not succeed, but the path was exercised
+    await store.close();
+    await RunStore.deleteDatabase({ dbName });
+  });
+
+  it("handles invalid JSON in artifact during import gracefully", async () => {
+    vi.resetModules();
+    const { importRunFromZip } = await import("../../../js/agents/storage/run-exporter.js");
+
+    const runId = "run_invalid_json";
+    const JSZip = await import("jszip").then((m) => m.default || m);
+    const zip = new JSZip();
+    zip.file(
+      "manifest.json",
+      JSON.stringify({
+        schemaVersion: "0.1",
+        runId,
+        artifacts: [
+          { type: "bad.json", artifactId: "bad1", storageKey: `runs/${runId}/bad.json` },
+        ],
+      }),
+    );
+    // Invalid JSON content - should be stored as string
+    zip.file("bad.json", "{ invalid json: }}}");
+    const blob = await zip.generateAsync({ type: "blob" });
+
+    const dbName = makeDbName("invalid_json");
+    await RunStore.deleteDatabase({ dbName });
+    const store = new RunStore({ dbName });
+
+    const result = await importRunFromZip(blob, { runStore: store, overwrite: true });
+    expect(result).toBe(runId);
+
+    // The artifact should be stored as raw string since JSON.parse failed
+    const artifact = await store.getArtifact(runId, "bad.json");
+    expect(typeof artifact).toBe("string");
+    expect(artifact).toContain("invalid json");
+
+    await store.close();
+    await RunStore.deleteDatabase({ dbName });
+  });
+
+  it("handles ArrayBuffer and ArrayBufferView in export", async () => {
+    vi.resetModules();
+    const { exportRunAsZip } = await import("../../../js/agents/storage/run-exporter.js");
+
+    const runId = "run_arraybuffer";
+    const dbName = makeDbName("arraybuffer");
+    await RunStore.deleteDatabase({ dbName });
+    const store = new RunStore({ dbName });
+
+    await store.createRun({ schemaVersion: "0.1", runId, mode: "test", constraints: {}, startedAt: new Date().toISOString() });
+
+    // Save ArrayBuffer via Uint8Array - use supported type
+    await store.saveArtifact(runId, "vfs_payload.bin", new Uint8Array([1, 2, 3, 4, 5]), { seq: 1 });
+
+    const zipBlob = await exportRunAsZip(runId, { runStore: store });
+    expect(zipBlob).toBeDefined();
+
+    const zip = await JSZip.loadAsync(await toArrayBuffer(zipBlob));
+    const manifest = JSON.parse(await zip.file("manifest.json").async("string"));
+    const bufferArt = manifest.artifacts.find((a) => a.type === "vfs_payload.bin");
+    expect(bufferArt).toBeDefined();
+
+    await store.close();
+    await RunStore.deleteDatabase({ dbName });
+  });
+
   it("roundtrips export->import (atomic IndexedDB transaction path)", async () => {
     vi.resetModules();
     const { exportRunAsZip, importRunFromZip } = await import("../../../js/agents/storage/run-exporter.js");

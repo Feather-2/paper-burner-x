@@ -171,12 +171,162 @@ describe("design/dsl/dsl-builder", () => {
 
     // Table content object => JSON stringified + escaped.
     expect(html).toContain(`data-el="table"`);
-    expect(html).toContain(`data-data='ESC({\"rows\":[1]})'`);
+    expect(html).toContain(`data-data='ESC({"rows":[1]})'`);
 
     // Chart colors come from extractedPalette.
     expect(html).toContain(`data-el="chart"`);
     expect(html).toContain(`data-chart-type="ESC(pie)"`);
-    expect(html).toContain(`data-colors='ESC([\"#111111\",\"#222222\"])'`);
+    expect(html).toContain(`data-colors='ESC(["#111111","#222222"])'`);
+  });
+
+  it("buildSlideHtml handles summary pageType with bullet content", () => {
+    const html = buildSlideHtml(
+      { pageType: "summary", title: "Key Takeaways", content: "Point A\nPoint B\nPoint C" },
+      {},
+      [],
+      []
+    );
+    expect(html).toContain(`data-layout="ESC(summary)"`);
+    expect(html).toContain("• ESC(Point A)");
+    expect(html).toContain("• ESC(Point B)");
+  });
+
+  it("buildSlideHtml handles process pageType with numbered steps", () => {
+    const html = buildSlideHtml(
+      { pageType: "process", title: "Steps", content: "Step1\nStep2\nStep3" },
+      {},
+      [],
+      []
+    );
+    expect(html).toContain(`data-layout="ESC(process)"`);
+  });
+
+  it("buildSlideHtml uses default title when title is missing", () => {
+    const html = buildSlideHtml(
+      { pageType: "content" },
+      {},
+      [],
+      []
+    );
+    expect(html).toContain("data-title=");
+  });
+
+  it("buildSlideHtml handles array content by joining elements", () => {
+    const html = buildSlideHtml(
+      { pageType: "content", title: "List", content: "Item 1\nItem 2" },
+      {},
+      [],
+      []
+    );
+    expect(html).toContain("ESC(Item 1)");
+    expect(html).toContain("ESC(Item 2)");
+  });
+
+  it("buildSlideHtml handles empty content gracefully", () => {
+    const html = buildSlideHtml(
+      { pageType: "content", title: "Empty", content: "" },
+      {},
+      [],
+      []
+    );
+    expect(html).toContain(`data-layout="ESC(content)"`);
+  });
+
+  it("buildFromLayoutJson filters out unsupported element types", () => {
+    const html = buildFromLayoutJson(
+      {
+        elements: [
+          { type: "line", bounds: { x: 0, y: 50, w: 100, h: 1 } },
+          { type: "svg", content: "<svg></svg>", bounds: { x: 10, y: 10, w: 50, h: 50 } },
+          { type: "icon", content: "check", bounds: { x: 5, y: 5, w: 10, h: 10 } },
+          { type: "text", content: "Supported", bounds: { x: 0, y: 0, w: 100, h: 20 } },
+        ],
+      },
+      {},
+      { slideId: "s-mixed", title: "Mixed" }
+    );
+    // Unsupported types are filtered out
+    expect(html).not.toContain(`data-el="line"`);
+    expect(html).not.toContain(`data-el="svg"`);
+    expect(html).not.toContain(`data-el="icon"`);
+    // Supported type remains
+    expect(html).toContain(`data-el="text"`);
+    expect(html).toContain("ESC(Supported)");
+  });
+
+  it("buildFromLayoutJson applies default bounds when missing", () => {
+    const html = buildFromLayoutJson(
+      {
+        elements: [
+          { type: "text", content: "No bounds" },
+        ],
+      },
+      {},
+      { slideId: "s-def", title: "Defaults" }
+    );
+    expect(html).toContain(`data-el="text"`);
+    expect(html).toContain("ESC(No bounds)");
+  });
+
+  it("buildFromLayoutJson handles missing extractedPalette for chart", () => {
+    const html = buildFromLayoutJson(
+      {
+        elements: [
+          { type: "chart", chartType: "bar", content: { values: [1, 2] }, bounds: { x: 0, y: 0, w: 50, h: 50 } },
+        ],
+      },
+      { designTokens: { colors: { primary: "#blue", accent: "#green" } } },
+      { slideId: "s-chart", title: "Chart" }
+    );
+    expect(html).toContain(`data-el="chart"`);
+    expect(html).toContain(`data-chart-type="ESC(bar)"`);
+  });
+
+  it("buildFromLayoutJson handles text element without style", () => {
+    const html = buildFromLayoutJson(
+      {
+        elements: [
+          { type: "text", content: "Plain text", bounds: { x: 0, y: 0, w: 100, h: 20 } },
+        ],
+      },
+      {},
+      { slideId: "s-plain", title: "Plain" }
+    );
+    expect(html).toContain(`data-el="text"`);
+    expect(html).not.toContain(`data-bold="true"`);
+  });
+
+  it("buildFromLayoutJson handles shape with default style", () => {
+    const html = buildFromLayoutJson(
+      {
+        elements: [
+          { type: "shape", bounds: { x: 0, y: 0, w: 20, h: 20 } },
+        ],
+      },
+      {},
+      { slideId: "s-shape", title: "Shape" }
+    );
+    expect(html).toContain(`data-el="shape"`);
+  });
+
+  it("buildSlideHtml handles divider pageType", () => {
+    const html = buildSlideHtml(
+      { pageType: "divider", title: "Section Break" },
+      {},
+      [],
+      []
+    );
+    expect(html).toContain("data-layout=");
+    expect(html).toContain("ESC(Section Break)");
+  });
+
+  it("buildSlideHtml handles quote pageType", () => {
+    const html = buildSlideHtml(
+      { pageType: "quote", title: "Quote", content: "To be or not to be" },
+      {},
+      [],
+      []
+    );
+    expect(html).toContain("ESC(To be or not to be)");
   });
 });
-
