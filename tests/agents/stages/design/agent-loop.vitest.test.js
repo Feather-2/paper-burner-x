@@ -806,4 +806,287 @@ describe("design/agent-loop (DesignAgentLoop)", () => {
     runSpy.mockRestore();
     globalThis.indexedDB = originalIndexedDB;
   });
+
+  it("_runCore pauses and ends the active step when _shouldPauseFromError returns true (error path)", async () => {
+    const loop = new DesignAgentLoop();
+    const endSpy = vi.spyOn(loop, "_endStep");
+    const shouldPauseSpy = vi.spyOn(loop, "_shouldPauseFromError").mockReturnValueOnce(true);
+    const pauseErrSpy = vi.spyOn(loop, "_createPauseError");
+
+    runPreparationPhase.mockImplementationOnce(async (_loop, { startExecution }) => {
+      // Ensure _activeStep exists so _runCore catch-path calls _endStep(...paused...).
+      await startExecution("prep", { from: "test" });
+      throw new Error("prep boom");
+    });
+
+    await expect(loop._runCore({ runId: "r_pause", slideIntents: [] }, { signal: { __runtimeState: {} } })).rejects.toMatchObject({
+      message: "paused",
+      runId: "r_pause",
+    });
+
+    expect(shouldPauseSpy).toHaveBeenCalled();
+    expect(endSpy).toHaveBeenCalledWith(null, expect.objectContaining({ status: "paused", error: "prep boom" }));
+    expect(pauseErrSpy).toHaveBeenCalledWith(expect.objectContaining({ runId: "r_pause" }));
+
+    pauseErrSpy.mockRestore();
+    shouldPauseSpy.mockRestore();
+    endSpy.mockRestore();
+  });
+
+  it("_runCore returns empty output when phase.status is not DesignPhase.GENERATING (fallback path)", async () => {
+    const loop = new DesignAgentLoop();
+
+    // Simulate a no-op phase transition to GENERATING so the generating branch is skipped
+    // and _runCore returns the defensive empty result package.
+    const originalTransitionPhase = loop._transitionPhase.bind(loop);
+    const transitionSpy = vi.spyOn(loop, "_transitionPhase").mockImplementation((state, next, ctx) => {
+      if (next === DesignPhase.GENERATING) return next;
+      return originalTransitionPhase(state, next, ctx);
+    });
+
+    const out = await loop._runCore({ runId: "r_fallback", slideIntents: [] }, {});
+
+    expect(out).toMatchObject({
+      runId: "r_fallback",
+      designSystem: null,
+      deckHtmlDsl: "",
+      slidesMeta: [],
+    });
+    expect(loop.loopStatus).toBe(AgentStatus.COMPLETED);
+    expect(runGeneratingPhase).not.toHaveBeenCalled();
+    expect(runBatchRepairPhase).not.toHaveBeenCalled();
+    expect(runVisualPhase).not.toHaveBeenCalled();
+
+    transitionSpy.mockRestore();
+  });
+
+  it("resumeDesignAgentLoop backfills state.contentPackage from stageApi.contentPackage when checkpoint missing it", async () => {
+    const fallbackContentPackage = { runId: "r_backfill", slideIntents: [{ slideIntentId: "s1" }] };
+    const stageApi = {
+      archive: {
+        restore: vi.fn(async () => ({
+          nodeStates: {
+            phase: DesignPhase.IDLE,
+            loopStatus: AgentStatus.IDLE,
+            // No contentPackage/parsedContentPackage in snapshot -> forces fallbackContentPackage path.
+          },
+          metadata: { runId: "r_backfill" },
+        })),
+      },
+      contentPackage: fallbackContentPackage,
+      runContext: { runId: "r_backfill" },
+    };
+
+    let capturedContentPackage;
+    const runSpy = vi.spyOn(DesignAgentLoop.prototype, "run").mockImplementation(async function () {
+      capturedContentPackage = this.state?.contentPackage;
+      return { ok: true };
+    });
+
+    await resumeDesignAgentLoop("cp_backfill", stageApi);
+    expect(capturedContentPackage).toEqual(fallbackContentPackage);
+    expect(capturedContentPackage).not.toBe(fallbackContentPackage); // deepClone backfill
+
+    runSpy.mockRestore();
+  });
+
+  it("_emitAgentStatusChanged no-ops when neither this.emit nor this.eventBus.emit exist (edge)", () => {
+    const loop = new DesignAgentLoop();
+    loop.emit = null;
+    loop.eventBus = null;
+
+    expect(() => loop._emitAgentStatusChanged({ from: "X", to: "Y" })).not.toThrow();
+  });
+
+  it("hydrateFromNodeStates handles non-object source and non-object this.state (edges)", () => {
+    const loop = new DesignAgentLoop();
+    loop.state.deckHtmlDsl = "keep";
+
+    // source non-object -> treated as {}
+    loop.hydrateFromNodeStates("not-an-object");
+    expect(loop.state.deckHtmlDsl).toBe("keep");
+
+    // this.state non-object -> recreated via createEmptyDesignLoopState()
+    loop.state = "bad_state";
+    loop.hydrateFromNodeStates({ deckHtmlDsl: "D", slideHtmls: ["<section/>"] });
+    expect(loop.state).toBeTypeOf("object");
+    expect(loop.state.deckHtmlDsl).toBe("D");
+    expect(loop.state.slideHtmls).toEqual(["<section/>"]);
+  });
+
+  it("_runCore ignores secondary transition failures when moving to FAILED (error path)", async () => {
+    const loop = new DesignAgentLoop();
+
+    runPreparationPhase.mockImplementationOnce(async () => {
+      throw new Error("prep boom");
+    });
+
+    const originalTransitionTo = loop._transitionTo.bind(loop);
+    const transitionSpy = vi.spyOn(loop, "_transitionTo").mockImplementation(async (status, meta) => {
+      if (status === AgentStatus.FAILED) {
+        throw new Error("secondary transition boom");
+      }
+      return originalTransitionTo(status, meta);
+    });
+
+    const { createLifecycleEmitter } = await import("../../../../js/agents/runtime/core/lifecycle.js");
+
+    await expect(loop._runCore({ runId: "r_failed_transition", slideIntents: [] }, {})).rejects.toThrow("prep boom");
+
+    expect(transitionSpy).toHaveBeenCalledWith(
+      AgentStatus.FAILED,
+      expect.objectContaining({ runId: "r_failed_transition", error: "prep boom" })
+    );
+
+    const lifecycle =
+      createLifecycleEmitter.mock.results[createLifecycleEmitter.mock.results.length - 1]?.value;
+    expect(lifecycle.failed).toHaveBeenCalledWith("r_failed_transition", expect.any(Error));
+
+    transitionSpy.mockRestore();
+  });
+
+  it("run() watchdog health check triggers intervention when unhealthy (refine_step path)", async () => {
+    const loop = new DesignAgentLoop();
+    const { emitStage, buildDesignWatchdogAdvice } = await import("../../../../js/agents/stages/design/design-helpers.js");
+
+    let refineHandler = null;
+    const offFn = vi.fn();
+    const eventBus = {
+      on: vi.fn((eventName, handler) => {
+        if (eventName === "design.refine.step") refineHandler = handler;
+        return offFn;
+      }),
+      enableBackpressure: vi.fn(),
+      _backpressure: { enabled: false },
+    };
+
+    const emit = vi.fn();
+    const watchdog = {
+      reset: vi.fn(),
+      configure: vi.fn(),
+      tick: vi.fn(),
+      recordOutput: vi.fn(),
+      resetOscillation: vi.fn(),
+      checkHealth: vi.fn(() => ({ healthy: false, issues: ["oscillation"], stats: { iterations: 7 } })),
+    };
+
+    runPreparationPhase.mockImplementationOnce(async () => {
+      throw new Error("stop after watchdog wiring");
+    });
+
+    await expect(loop._runCore({ runId: "r_watchdog_unhealthy", slideIntents: [] }, { eventBus, emit, watchdog })).rejects.toThrow(
+      "stop after watchdog wiring"
+    );
+
+    expect(eventBus.on).toHaveBeenCalledWith("design.refine.step", expect.any(Function));
+    expect(refineHandler).toBeTypeOf("function");
+
+    // Trigger the refine-step handler and ensure unhealthy -> intervention branch runs.
+    refineHandler({ runId: "r_watchdog_unhealthy", payload: { stepIndex: 3 } });
+
+    expect(watchdog.checkHealth).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maxIterations: 200,
+      })
+    );
+    expect(buildDesignWatchdogAdvice).toHaveBeenCalledWith(["oscillation"]);
+    expect(watchdog.resetOscillation).toHaveBeenCalled();
+
+    expect(emitStage).toHaveBeenCalledWith(
+      emit,
+      "design.watchdog.intervention",
+      "warn",
+      expect.objectContaining({
+        runId: "r_watchdog_unhealthy",
+        source: "refine_step",
+        refineStep: 3,
+        issues: ["oscillation"],
+        stats: { iterations: 7 },
+        advice: "advice",
+      })
+    );
+    expect(emit).toHaveBeenCalledWith(
+      "design.watchdog.intervention",
+      expect.objectContaining({
+        actor: "design",
+        status: "warn",
+        payload: expect.objectContaining({ advice: "advice" }),
+      })
+    );
+    expect(loop._blackboard.logDecision).toHaveBeenCalledWith(
+      "watchdog_intervention",
+      "advice",
+      expect.objectContaining({ runId: "r_watchdog_unhealthy", source: "refine_step", refineStep: 3 })
+    );
+  });
+
+  it("run() backpressure config skips enableBackpressure when cfg is false", async () => {
+    const loop = new DesignAgentLoop();
+    const eventBus = {
+      enableBackpressure: vi.fn(),
+      _backpressure: { enabled: false },
+    };
+
+    runPreparationPhase.mockImplementationOnce(async () => {
+      throw new Error("stop");
+    });
+
+    await expect(
+      loop._runCore({ runId: "r_backpressure_false", slideIntents: [] }, { eventBus, eventBusBackpressure: false })
+    ).rejects.toThrow("stop");
+
+    expect(eventBus.enableBackpressure).not.toHaveBeenCalled();
+  });
+
+  it("run() backpressure config merges enableBackpressure options when cfg is an object", async () => {
+    const loop = new DesignAgentLoop();
+    const eventBus = {
+      enableBackpressure: vi.fn(),
+      _backpressure: { enabled: false },
+    };
+
+    runPreparationPhase.mockImplementationOnce(async () => {
+      throw new Error("stop");
+    });
+
+    await expect(
+      loop._runCore(
+        { runId: "r_backpressure_obj", slideIntents: [] },
+        { eventBus, eventBusBackpressure: { maxQueueSize: 12, deferNonCoalesced: true, customFlag: "x" } }
+      )
+    ).rejects.toThrow("stop");
+
+    expect(eventBus.enableBackpressure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        coalescePattern: expect.any(RegExp),
+        deferNonCoalesced: true, // overridden
+        maxQueueSize: 12, // overridden
+        customFlag: "x",
+      })
+    );
+  });
+
+  it("_runCore uses traceContext.withSpan when traceContext is provided (phase spans)", async () => {
+    const loop = new DesignAgentLoop();
+
+    const spanSetAttributes = vi.fn();
+    const traceContext = {
+      withSpan: vi.fn(async (_name, fn) => fn({ setAttributes: spanSetAttributes })),
+    };
+
+    await loop._runCore({ runId: "r_trace_spans", slideIntents: [] }, { traceContext, enableLayout: false });
+
+    expect(traceContext.withSpan).toHaveBeenCalledWith("design.phase.preparation", expect.any(Function));
+    expect(traceContext.withSpan).toHaveBeenCalledWith("design.phase.planning", expect.any(Function));
+    expect(spanSetAttributes).toHaveBeenCalledWith(expect.objectContaining({ runId: "r_trace_spans" }));
+  });
+
+  it("_savePreActionCheckpoint returns null when archive is not configured", async () => {
+    const loop = new DesignAgentLoop();
+    loop.archive = null;
+
+    const checkpointId = await loop._savePreActionCheckpoint({ runId: "r_no_archive" });
+    expect(checkpointId).toBe(null);
+    expect(createCheckpoint).not.toHaveBeenCalled();
+  });
 });

@@ -11,6 +11,74 @@ describe("runtime/core/tool-registry", () => {
     expect(() => registry.useHook("before", null)).toThrow(/Hook must be a function/i);
   });
 
+  it("guards tool registration boundaries", () => {
+    const registry = new ToolRegistry();
+
+    expect(() => registry.registerTools(null)).not.toThrow();
+    expect(() => registry.registerTools("nope")).toThrow(/tools must be an object, array, or map/i);
+    expect(() => registry.registerTool("", () => {})).toThrow(/name must be a non-empty string/i);
+    // @ts-expect-error: invalid tool function
+    expect(() => registry.registerTool("demo", null)).toThrow(/fn must be a function/i);
+
+    const map = new Map([[123, () => {}]]);
+    expect(() => registry.registerTools(map)).toThrow(/name must be a non-empty string/i);
+  });
+
+  it("uses context executors and normalizes executor results", async () => {
+    const toolFn = vi.fn(async () => "pong");
+    const registry = new ToolRegistry({ tools: { ping: toolFn } });
+    const executor = vi.fn(async () => "from-executor");
+    const context = { toolExecutor: executor };
+
+    const result = await registry.callTool("ping", { n: 1 }, context);
+
+    expect(result).toMatchObject({ ok: true, success: true, data: "from-executor" });
+    expect(executor).toHaveBeenCalledWith("ping", { n: 1 }, context);
+    expect(toolFn).not.toHaveBeenCalled();
+  });
+
+  it("returns unknown tool errors when lookup fails", async () => {
+    const registry = new ToolRegistry();
+
+    const result = await registry.callTool("missing", { n: 1 }, {});
+
+    expect(result).toEqual({ ok: false, error: "Unknown tool: missing" });
+  });
+
+  it("runs quota-block after hooks, supports override, and logs hook failures", async () => {
+    const logger = { warn: vi.fn() };
+    const toolFn = vi.fn(async () => "pong");
+    const registry = new ToolRegistry({ tools: { ping: toolFn }, logger });
+
+    const overrideHook = vi.fn(async () => ({ ok: true, data: "override" }));
+    const failingHook = vi.fn(async () => {
+      throw new Error("after-fail");
+    });
+
+    registry.useHook("after", overrideHook);
+    registry.useHook("after", failingHook);
+
+    const quotaManager = {
+      tryCall: vi.fn(() => ({ allowed: false, reason: "hard_limit" })),
+      getToolStats: vi.fn(() => ({ limit: 1, used: 1 })),
+    };
+
+    const result = await registry.callTool(
+      "ping",
+      { n: 1 },
+      {
+        toolQuotaConfig: { mode: "block" },
+        toolQuotaManager: quotaManager,
+      }
+    );
+
+    expect(toolFn).not.toHaveBeenCalled();
+    expect(overrideHook).toHaveBeenCalledTimes(1);
+    expect(failingHook).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ ok: true, data: "override" });
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("[tool-registry] AfterHook failed for ping: after-fail"));
+  });
+
   it("bypasses quota checks when toolQuotaConfig disables quotas", async () => {
     const toolFn = vi.fn(async () => "pong");
     const registry = new ToolRegistry({ tools: { ping: toolFn } });
@@ -138,4 +206,3 @@ describe("runtime/core/tool-registry", () => {
     );
   });
 });
-

@@ -123,6 +123,26 @@ describe("agents/llm/image-provider", () => {
     expect(out43.height).toBe(768);
   });
 
+  it("GeminiImageAdapter: tolerates invalid aspectRatio/imageSize by falling back and still returns sensible dims (covers default branch)", async () => {
+    const calls = [];
+    globalThis.fetch = vi.fn(async (url, init) => {
+      calls.push({ url: String(url), init });
+      return makeResponse({
+        jsonData: {
+          candidates: [{ content: { parts: [{ inlineData: { data: "b64" } }] } }],
+        },
+      });
+    });
+
+    const out = await GeminiImageAdapter({ prompt: "x", aspectRatio: "9:16", imageSize: "4K" }, "k");
+    expect(out.width).toBe(1024);
+    expect(out.height).toBe(1024);
+
+    const body = JSON.parse(calls[0].init.body);
+    // Unknown values are normalized for the API request.
+    expect(body.generationConfig.imageConfig).toEqual({ aspectRatio: "1:1", imageSize: "1K" });
+  });
+
   it("GeminiImageAdapter: non-ok response throws parsed JSON http error", async () => {
     globalThis.fetch = vi.fn(async () =>
       makeResponse({
@@ -171,6 +191,51 @@ describe("agents/llm/image-provider", () => {
     // Attach the rejection handler before advancing timers to avoid transient unhandled rejections.
     const assertion = expect(p).rejects.toMatchObject({ name: "TimeoutError", code: "ETIMEDOUT", timeoutMs: 5 });
     await vi.advanceTimersByTimeAsync(5);
+    await assertion;
+  });
+
+  it("GeminiImageAdapter: respects parent abort signal already aborted (covers abortFromParent immediate branch)", async () => {
+    const parent = new AbortController();
+    parent.abort();
+
+    globalThis.fetch = vi.fn(async (url, init) => {
+      if (init?.signal?.aborted) {
+        const err = new Error("aborted");
+        err.name = "AbortError";
+        throw err;
+      }
+      return makeResponse({
+        jsonData: {
+          candidates: [{ content: { parts: [{ inlineData: { data: "b64" } }] } }],
+        },
+      });
+    });
+
+    await expect(GeminiImageAdapter({ prompt: "x" }, "k", { signal: parent.signal, timeoutMs: 123 })).rejects.toMatchObject({
+      name: "TimeoutError",
+      code: "ETIMEDOUT",
+      timeoutMs: 123,
+    });
+  });
+
+  it("GeminiImageAdapter: aborts in-flight request when parent signal fires (covers abort listener branch)", async () => {
+    const parent = new AbortController();
+
+    globalThis.fetch = vi.fn((url, init) => {
+      return new Promise((resolve, reject) => {
+        const onAbort = () => {
+          const err = new Error("aborted");
+          err.name = "AbortError";
+          reject(err);
+        };
+        init?.signal?.addEventListener?.("abort", onAbort, { once: true });
+      });
+    });
+
+    const p = GeminiImageAdapter({ prompt: "x" }, "k", { signal: parent.signal, timeoutMs: 321 });
+    // Attach the rejection handler before aborting to avoid transient unhandled rejections.
+    const assertion = expect(p).rejects.toMatchObject({ name: "TimeoutError", code: "ETIMEDOUT", timeoutMs: 321 });
+    parent.abort();
     await assertion;
   });
 
@@ -345,5 +410,23 @@ describe("agents/llm/image-provider", () => {
     const p = createImageProviderFromConfig({ storage });
     expect(p.apiKey).toBe("k_global");
     expect(globalThis.loadModelKeys).toHaveBeenCalled();
+  });
+
+  it("createImageProviderFromConfig(): skips key loading when no keyLoader/global loader is available (covers null-loader branch)", () => {
+    const storage = { getItem: vi.fn(() => JSON.stringify({ provider: "gemini-image" })) };
+
+    const p = createImageProviderFromConfig({ storage });
+    expect(p.provider).toBe("gemini-image");
+    expect(p.apiKey).toBe("");
+  });
+
+  it("createImageProviderFromConfig(): uses provider as modelKey fallback and handles empty key lists (covers mapping/empty branches)", () => {
+    const storage = { getItem: vi.fn(() => JSON.stringify({ provider: "custom" })) };
+    const keyLoader = vi.fn(() => null);
+
+    const p = createImageProviderFromConfig({ storage, keyLoader });
+    expect(keyLoader).toHaveBeenCalledWith("custom");
+    expect(p.provider).toBe("custom");
+    expect(p.apiKey).toBe("");
   });
 });

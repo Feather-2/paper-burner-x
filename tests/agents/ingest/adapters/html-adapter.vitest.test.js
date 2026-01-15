@@ -30,6 +30,7 @@ const turndownMocks = vi.hoisted(() => ({
 
 const turndownMockControl = vi.hoisted(() => ({
   throwOnDefaultAccess: false,
+  defaultExportMode: "function",
 }));
 
 vi.mock("turndown", () => ({
@@ -37,6 +38,7 @@ vi.mock("turndown", () => ({
     // `importTurndownService()` does `mod?.default || mod`. Throwing from this getter
     // exercises the try/catch "import failed" path without needing per-test re-mocking.
     if (turndownMockControl.throwOnDefaultAccess) throw new Error("turndown unavailable (mocked)");
+    if (turndownMockControl.defaultExportMode === "undefined") return undefined;
     return turndownMocks.TurndownService;
   },
 }));
@@ -51,6 +53,7 @@ describe("HtmlAdapter (vitest)", () => {
     turndownMocks.ctor.mockReset();
     turndownMocks.turndown.mockReset();
     turndownMockControl.throwOnDefaultAccess = false;
+    turndownMockControl.defaultExportMode = "function";
 
     priorTurndownService = globalThis.TurndownService;
     priorTextDecoder = globalThis.TextDecoder;
@@ -253,6 +256,162 @@ describe("HtmlAdapter (vitest)", () => {
     expect(dataToMime.get("SSSS")).toBe("image/svg+xml");
     expect(dataToMime.get("UUUU")).toBe("image/png");
     expect(dataToMime.get("INLINE")).toBe("image/png");
+  });
+
+  it("covers filename fallbacks, explicit size branch, and UTF-8 ArrayBuffer decoding (special chars)", async () => {
+    const { HtmlAdapter } = await import("../../../../js/agents/ingest/adapters/html.js");
+
+    const html = "<p>Hi\u00A0你好 &amp; &lt;tag&gt; ©</p>";
+    const buf = Buffer.from(html, "utf8");
+    const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+    const arrayBuffer = vi.fn(async () => ab);
+
+    class TurndownServiceStub {
+      turndown(inputHtml) {
+        // Verify UTF-8 decode preserves special characters.
+        expect(inputHtml).toContain("Hi\u00A0你好");
+        expect(inputHtml).toContain("&amp;");
+        expect(inputHtml).toContain("&lt;tag&gt;");
+        expect(inputHtml).toContain("©");
+        return "md";
+      }
+    }
+
+    const adapter = new HtmlAdapter({ defaultChunkOptions: { chunkSize: 64, overlap: 0, includeLineNumbers: false } });
+    const parsed = await adapter.parse(
+      {
+        // Blank name -> falls back to `filename` branch.
+        name: "   ",
+        filename: "from-filename.htm",
+        // Blank `type` -> uses `mimeType` branch.
+        type: "",
+        mimeType: "text/html",
+        // Finite size -> exercises the `Number.isFinite(input.size)` true branch.
+        size: 999,
+        arrayBuffer,
+      },
+      { TurndownService: TurndownServiceStub }
+    );
+
+    expect(arrayBuffer).toHaveBeenCalledTimes(1);
+    expect(parsed.origin.filename).toBe("from-filename.htm");
+    expect(parsed.origin.mimeType).toBe("text/html");
+    // Explicit size should win over inferred ArrayBuffer length.
+    expect(parsed.origin.size).toBe(999);
+    expect(parsed.markdown).toBe("md");
+  });
+
+  it("infers size from ArrayBuffer when input.size is missing (ArrayBuffer branch)", async () => {
+    const { HtmlAdapter } = await import("../../../../js/agents/ingest/adapters/html.js");
+
+    const html = "<p>abc</p>";
+    const buf = Buffer.from(html, "utf8");
+    const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+    const arrayBuffer = vi.fn(async () => ab);
+
+    class TurndownServiceStub {
+      turndown(inputHtml) {
+        expect(inputHtml).toContain(html);
+        return "ok";
+      }
+    }
+
+    const adapter = new HtmlAdapter({ defaultChunkOptions: { chunkSize: 64, overlap: 0, includeLineNumbers: false } });
+    const parsed = await adapter.parse({ name: "buf.html", arrayBuffer }, { TurndownService: TurndownServiceStub });
+
+    expect(arrayBuffer).toHaveBeenCalledTimes(1);
+    expect(parsed.origin.size).toBe(buf.byteLength);
+  });
+
+  it("handles non-ArrayBuffer arrayBuffer() results: empty HTML + undefined size + empty markdown", async () => {
+    const { HtmlAdapter } = await import("../../../../js/agents/ingest/adapters/html.js");
+
+    const arrayBuffer = vi.fn(async () => "not-bytes");
+
+    class TurndownServiceStub {
+      turndown(inputHtml) {
+        // decodeUtf8() falls back to decoding an empty buffer for non-bytes.
+        expect(inputHtml).toBe("");
+        return "";
+      }
+    }
+
+    const adapter = new HtmlAdapter({ defaultChunkOptions: { chunkSize: 64, overlap: 0, includeLineNumbers: false } });
+    const parsed = await adapter.parse({ name: "weird.html", size: Number.NaN, arrayBuffer }, { TurndownService: TurndownServiceStub });
+
+    expect(arrayBuffer).toHaveBeenCalledTimes(1);
+    expect(parsed.origin.size).toBeUndefined();
+    expect(parsed.markdown).toBe("");
+    expect(parsed.assets).toHaveLength(0);
+  });
+
+  it("parses data URIs without `;` and skips malformed URIs with no payload (HTML extraction boundaries)", async () => {
+    const { HtmlAdapter } = await import("../../../../js/agents/ingest/adapters/html.js");
+
+    const html = [
+      // No `;base64,` segment -> semi=-1, comma>5 -> still extracts.
+      '<img alt="ok" src="data:image/png,AAAA">',
+      // No comma payload -> should not extract; leaves HTML untouched for this image.
+      '<img alt="bad" src="data:image/pngbase64BBBB">',
+      "",
+    ].join("");
+
+    class TurndownServiceStub {
+      turndown(inputHtml) {
+        expect(inputHtml).toContain('src="images/html_img_1.png"');
+        expect(inputHtml).toContain('src="data:image/pngbase64BBBB"');
+        return ["![](images/html_img_1.png)", "![](data:image/pngbase64BBBB)", ""].join("\n");
+      }
+    }
+
+    const adapter = new HtmlAdapter({ defaultChunkOptions: { chunkSize: 64, overlap: 0, includeLineNumbers: false } });
+    const parsed = await adapter.parse({ name: "x.html", content: html }, { TurndownService: TurndownServiceStub });
+
+    expect(parsed.assets).toHaveLength(1);
+    expect(parsed.assets[0].data).toBe("AAAA");
+  });
+
+  it("reports a helpful error when `turndown` resolves but does not export a function (default undefined)", async () => {
+    delete globalThis.TurndownService;
+    turndownMockControl.defaultExportMode = "undefined";
+
+    const { HtmlAdapter } = await import("../../../../js/agents/ingest/adapters/html.js");
+    const adapter = new HtmlAdapter();
+
+    await expect(adapter.parse({ name: "x.html", content: "<p>x</p>" })).rejects.toThrow(/TurndownService is required/i);
+  });
+
+  it("falls back to document.html when neither name nor filename is provided (file-like boundary)", async () => {
+    const { HtmlAdapter } = await import("../../../../js/agents/ingest/adapters/html.js");
+
+    class TurndownServiceStub {
+      turndown() {
+        return "ok";
+      }
+    }
+
+    const adapter = new HtmlAdapter({ defaultChunkOptions: { chunkSize: 64, overlap: 0, includeLineNumbers: false } });
+    const parsed = await adapter.parse({ content: "<p>x</p>" }, { TurndownService: TurndownServiceStub });
+    expect(parsed.origin.filename).toBe("document.html");
+  });
+
+  it("exposes internal helpers for unit testing (parseDataUri/extFromMime/idPrefix fallback)", async () => {
+    const { __internal } = await import("../../../../js/agents/ingest/adapters/html.js");
+
+    // guessMimeType(): `filename || ""` falsy branch.
+    expect(__internal.guessMimeType(undefined)).toBe("text/html");
+
+    // parseDataUri(): `dataUri || ""` + `!startsWith(\"data:\")` branches.
+    expect(__internal.parseDataUri(undefined)).toBeNull();
+    expect(__internal.parseDataUri("http://example.com")).toBeNull();
+
+    // extFromMime(): `mimeType || \"\"` branch.
+    expect(__internal.extFromMime(undefined)).toBe("png");
+
+    // Embedded markdown extractor: `idPrefix || \"img\"` fallback branch.
+    const embedded = __internal.extractEmbeddedDataUriImagesFromMarkdown("![x](data:image/png;base64,AAAA)", {});
+    expect(embedded.markdown).toContain("images/img_1.png");
+    expect(embedded.images).toEqual([{ id: "img_1.png", data: "AAAA" }]);
   });
 
   it("reports a helpful error when TurndownService cannot be resolved (import fails)", async () => {

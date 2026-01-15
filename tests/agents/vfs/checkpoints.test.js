@@ -133,6 +133,31 @@ describe("vfs/checkpoints: recordVfsCheckpoint", () => {
     expect(createUnifiedDiffAsync).toHaveBeenCalled();
   });
 
+  it("treats unified diff generation as best-effort (diff is omitted when the diff helper throws)", async () => {
+    const createUnifiedDiffAsync = vi.fn(async () => {
+      throw new Error("diff boom");
+    });
+    const { recordVfsCheckpoint } = await importCheckpoints({ createUnifiedDiffAsyncImpl: createUnifiedDiffAsync });
+
+    const runStore = {
+      saveArtifact: vi.fn(async () => "artifact:ckpt:1"),
+      getArtifactById: vi.fn(),
+    };
+
+    const { checkpoint } = await recordVfsCheckpoint({
+      runStore,
+      runId: "run_1",
+      path: "a.txt",
+      before: "a",
+      after: "b",
+      maxEmbedBytes: 10_000,
+    });
+
+    expect(checkpoint.diff).toBeUndefined();
+    expect(checkpoint.diffPromise).toBeUndefined();
+    expect(createUnifiedDiffAsync).toHaveBeenCalled();
+  });
+
   it("stores large binary payloads out-of-band when using runStore (payload is bytes, not base64)", async () => {
     const { recordVfsCheckpoint, VFS_PAYLOAD_TYPE, VFS_CHECKPOINT_TYPE } = await importCheckpoints();
 
@@ -217,6 +242,83 @@ describe("vfs/checkpoints: recordVfsCheckpoint", () => {
     const keys = Array.from(kv.keys());
     expect(keys.some((k) => k.includes(`|${VFS_PAYLOAD_TYPE}|run_1|`))).toBe(true);
     expect(keys.some((k) => k.includes(`|${VFS_CHECKPOINT_TYPE}|run_1|`))).toBe(true);
+  });
+
+  it("embeds non-string plain objects/arrays as JSON strings", async () => {
+    const { recordVfsCheckpoint } = await importCheckpoints();
+
+    const runStore = {
+      saveArtifact: vi.fn(async () => "artifact:ckpt:1"),
+      getArtifactById: vi.fn(),
+    };
+
+    const { checkpoint } = await recordVfsCheckpoint({
+      runStore,
+      runId: "run_1",
+      path: "data.json",
+      before: { a: 1 },
+      after: [1, 2],
+      // Avoid diff noise; we only care about payload encoding/embedding.
+      skipDiff: true,
+      maxEmbedBytes: 10_000,
+    });
+
+    expect(checkpoint.before.text).toBe('{"a":1}');
+    expect(checkpoint.after.text).toBe("[1,2]");
+    expect(checkpoint.before.preview).toBe('{"a":1}');
+    expect(checkpoint.after.preview).toBe("[1,2]");
+  });
+
+  it("falls back to String() encoding for non-plain objects", async () => {
+    const { recordVfsCheckpoint } = await importCheckpoints();
+
+    const runStore = {
+      saveArtifact: vi.fn(async () => "artifact:ckpt:1"),
+      getArtifactById: vi.fn(),
+    };
+
+    const { checkpoint } = await recordVfsCheckpoint({
+      runStore,
+      runId: "run_1",
+      path: "data.txt",
+      before: new Map([["a", 1]]),
+      after: 123,
+      skipDiff: true,
+      maxEmbedBytes: 10_000,
+    });
+
+    expect(checkpoint.before.text).toBe("[object Map]");
+    expect(checkpoint.after.text).toBe("123");
+  });
+
+  it("rejects a storageAdapter that is missing delete()/keys() (required for local artifact lifecycle)", async () => {
+    const { recordVfsCheckpoint } = await importCheckpoints();
+
+    // Looks "almost" right but fails isStorageAdapterLike() because delete/keys are required.
+    const storageAdapter = {
+      get: vi.fn(async () => undefined),
+      set: vi.fn(async () => undefined),
+    };
+
+    await expect(
+      recordVfsCheckpoint({ storageAdapter, runId: "run_1", path: "a.txt", before: "x", after: "y" })
+    ).rejects.toThrow(/runStore or storageAdapter/i);
+  });
+
+  it("treats whitespace-only runId as invalid when generating local artifact keys (boundary case)", async () => {
+    const { recordVfsCheckpoint } = await importCheckpoints();
+
+    const kv = new Map();
+    const storageAdapter = {
+      get: vi.fn(async (k) => kv.get(k)),
+      set: vi.fn(async (k, v) => void kv.set(k, v)),
+      delete: vi.fn(async (k) => void kv.delete(k)),
+      keys: vi.fn(async () => Array.from(kv.keys())),
+    };
+
+    await expect(
+      recordVfsCheckpoint({ storageAdapter, runId: "   ", path: "a.txt", before: "x", after: "y" })
+    ).rejects.toThrow(/makeLocalArtifactKey/i);
   });
 
   it("falls back to a non-crypto local id generator when makeSecureTimestampedId() fails", async () => {
@@ -324,6 +426,79 @@ describe("vfs/checkpoints: recordVfsCheckpoint", () => {
     expect(createUnifiedDiffAsync).not.toHaveBeenCalled();
   });
 
+  it("falls back to text.length when TextEncoder fails (encodeUtf8Bytes() catch branch)", async () => {
+    const originalTextEncoder = globalThis.TextEncoder;
+    try {
+      // Force encodeUtf8Bytes() to take the catch branch.
+      vi.stubGlobal(
+        "TextEncoder",
+        class BrokenTextEncoder {
+          encode() {
+            throw new Error("no TextEncoder");
+          }
+        }
+      );
+
+      const { recordVfsCheckpoint } = await importCheckpoints();
+
+      const runStore = {
+        saveArtifact: vi.fn(async () => "artifact:ckpt:1"),
+        getArtifactById: vi.fn(),
+      };
+
+      // Binary payloads avoid dataToBytes() paths that would otherwise need TextEncoder.
+      const bytes = new Uint8Array([0, 255, 1]);
+      const { checkpoint } = await recordVfsCheckpoint({
+        runStore,
+        runId: "run_1",
+        path: "bin.dat",
+        before: bytes,
+        after: bytes,
+        maxEmbedBytes: 10_000,
+      });
+
+      const opts = runStore.saveArtifact.mock.calls.at(-1)?.[3];
+      expect(opts?.bytes).toBe(JSON.stringify(checkpoint).length);
+    } finally {
+      vi.unstubAllGlobals();
+      if (originalTextEncoder) globalThis.TextEncoder = originalTextEncoder;
+    }
+  });
+
+  it("falls back to empty base64 when neither Buffer nor btoa is available (bytesToBase64 fallback)", async () => {
+    const originalBuffer = globalThis.Buffer;
+    const originalBtoa = globalThis.btoa;
+    try {
+      // Force the module-level `NodeBuffer` to be undefined and bypass the browser btoa path.
+      vi.stubGlobal("Buffer", undefined);
+      vi.stubGlobal("btoa", undefined);
+
+      const { recordVfsCheckpoint } = await importCheckpoints();
+
+      const runStore = {
+        saveArtifact: vi.fn(async () => "artifact:ckpt:1"),
+        getArtifactById: vi.fn(),
+      };
+
+      const bytes = new Uint8Array([0, 255, 1]);
+      const { checkpoint } = await recordVfsCheckpoint({
+        runStore,
+        runId: "run_1",
+        path: "bin.dat",
+        before: bytes,
+        after: bytes,
+        maxEmbedBytes: 10_000,
+      });
+
+      expect(checkpoint.before.base64).toBe("");
+      expect(checkpoint.after.base64).toBe("");
+    } finally {
+      vi.unstubAllGlobals();
+      if (originalBuffer) globalThis.Buffer = originalBuffer;
+      if (originalBtoa) globalThis.btoa = originalBtoa;
+    }
+  });
+
   it("validates required inputs", async () => {
     const { recordVfsCheckpoint } = await importCheckpoints();
 
@@ -336,6 +511,12 @@ describe("vfs/checkpoints: recordVfsCheckpoint", () => {
 });
 
 describe("vfs/checkpoints: listVfsCheckpoints", () => {
+  it("returns an empty list when no runStore or storageAdapter is available", async () => {
+    const { listVfsCheckpoints } = await importCheckpoints();
+
+    await expect(listVfsCheckpoints(null, "run_1")).resolves.toEqual([]);
+  });
+
   it("prefers listArtifactSummaries() when provided, and sorts by seq", async () => {
     const { listVfsCheckpoints, VFS_CHECKPOINT_TYPE } = await importCheckpoints();
 
@@ -350,6 +531,23 @@ describe("vfs/checkpoints: listVfsCheckpoints", () => {
 
     const out = await listVfsCheckpoints(runStore, "run_1");
     expect(out.map((r) => r.artifactId)).toEqual(["a1", "a2"]);
+  });
+
+  it("falls back to listArtifacts() when listArtifactSummaries is not provided", async () => {
+    const { listVfsCheckpoints, VFS_CHECKPOINT_TYPE } = await importCheckpoints();
+
+    const runStore = {
+      saveArtifact: vi.fn(),
+      getArtifactById: vi.fn(),
+      listArtifacts: vi.fn(async () => [
+        { artifactId: "x", type: "other", seq: 1 },
+        { artifactId: "b2", type: VFS_CHECKPOINT_TYPE, seq: 2 },
+        { artifactId: "b1", type: VFS_CHECKPOINT_TYPE, seq: 1 },
+      ]),
+    };
+
+    const out = await listVfsCheckpoints(runStore, "run_1");
+    expect(out.map((r) => r.artifactId)).toEqual(["b1", "b2"]);
   });
 
   it("falls back to listArtifacts() when listArtifactSummaries fails", async () => {
@@ -402,6 +600,20 @@ describe("vfs/checkpoints: restoreVfsCheckpoint", () => {
     const runStore = {
       saveArtifact: vi.fn(),
       getArtifactById: vi.fn(async () => ({ path: "a.txt", encoding: "utf8", before: { text: "hello" } })),
+    };
+
+    const vfs = { writeFile: vi.fn(async () => true), writeText: vi.fn(async () => true) };
+    const res = await restoreVfsCheckpoint({ vfs, runStore, artifactId: "ckpt_1" });
+    expect(res).toEqual({ ok: true, path: "a.txt", encoding: "utf8" });
+    expect(vfs.writeText).toHaveBeenCalledWith("a.txt", "hello");
+  });
+
+  it("defaults encoding to utf8 when restoring embedded before.text and checkpoint.encoding is missing", async () => {
+    const { restoreVfsCheckpoint } = await importCheckpoints();
+
+    const runStore = {
+      saveArtifact: vi.fn(),
+      getArtifactById: vi.fn(async () => ({ path: "a.txt", before: { text: "hello" } })), // no encoding field
     };
 
     const vfs = { writeFile: vi.fn(async () => true), writeText: vi.fn(async () => true) };
@@ -469,6 +681,32 @@ describe("vfs/checkpoints: restoreVfsCheckpoint", () => {
 
     const res2 = await restoreVfsCheckpoint({ vfs, storageAdapter, artifactId: checkpointId2 });
     expect(res2).toEqual({ ok: true, path: "b.bin", encoding: "binary", payloadArtifactId: payloadBinId });
+    expect(vfs.writeFile).toHaveBeenCalledWith("b.bin", new Uint8Array([4, 5]));
+  });
+
+  it("treats non-string payload encoding as binary (payload encoding validation branch)", async () => {
+    const { restoreVfsCheckpoint } = await importCheckpoints();
+
+    const checkpointId = "ckpt_bad_enc";
+    const payloadId = "payload_bad_enc";
+
+    const kv = new Map();
+    kv.set(checkpointId, {
+      path: "b.bin",
+      before: { payload: { artifactId: payloadId, encoding: 123 } }, // non-string -> treated as ""
+    });
+    kv.set(payloadId, Buffer.from([4, 5]).toString("base64"));
+
+    const storageAdapter = {
+      get: vi.fn(async (k) => kv.get(k)),
+      set: vi.fn(async (k, v) => void kv.set(k, v)),
+      delete: vi.fn(async (k) => void kv.delete(k)),
+      keys: vi.fn(async () => Array.from(kv.keys())),
+    };
+
+    const vfs = { writeFile: vi.fn(async () => true), writeText: vi.fn(async () => true) };
+    const res = await restoreVfsCheckpoint({ vfs, storageAdapter, artifactId: checkpointId });
+    expect(res).toEqual({ ok: true, path: "b.bin", encoding: "binary", payloadArtifactId: payloadId });
     expect(vfs.writeFile).toHaveBeenCalledWith("b.bin", new Uint8Array([4, 5]));
   });
 
@@ -613,6 +851,32 @@ describe("vfs/checkpoints: restoreVfsCheckpoint", () => {
     expect(res.error).toMatch(/Failed to restore payload payload_1/i);
   });
 
+  it("includes the thrown value when payload restore fails without an Error.message (restore failure formatting branch)", async () => {
+    const { restoreVfsCheckpoint } = await importCheckpoints();
+
+    const storageAdapter = {
+      get: vi.fn(async () => {
+        throw "payload missing"; // non-Error -> err?.message is undefined
+      }),
+      set: vi.fn(async () => {}),
+      delete: vi.fn(async () => {}),
+      keys: vi.fn(async () => []),
+    };
+
+    const runStore = {
+      saveArtifact: vi.fn(),
+      getArtifactById: vi.fn(async (id) => {
+        if (id === "ckpt_1") return { path: "a.txt", before: { payload: { artifactId: "payload_1", encoding: "utf8" } } };
+        throw new Error("store miss");
+      }),
+    };
+
+    const vfs = { writeFile: vi.fn(async () => true), writeText: vi.fn(async () => true) };
+    const res = await restoreVfsCheckpoint({ vfs, runStore, storageAdapter, artifactId: "ckpt_1" });
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/Failed to restore payload payload_1: payload missing/i);
+  });
+
   it("covers browser base64 helpers when Buffer is unavailable (btoa/atob branches)", async () => {
     const originalBuffer = globalThis.Buffer;
     try {
@@ -648,6 +912,35 @@ describe("vfs/checkpoints: restoreVfsCheckpoint", () => {
       vi.unstubAllGlobals();
       // Ensure the original Buffer is restored even if stubGlobal couldn't.
       if (originalBuffer) globalThis.Buffer = originalBuffer;
+    }
+  });
+
+  it("falls back to empty bytes when base64 decoding helpers are unavailable (base64ToBytes fallback)", async () => {
+    const originalBuffer = globalThis.Buffer;
+    const originalAtob = globalThis.atob;
+    try {
+      // Force base64ToBytes() to take the final fallback branch.
+      vi.stubGlobal("Buffer", undefined);
+      vi.stubGlobal("atob", undefined);
+
+      const { restoreVfsCheckpoint } = await importCheckpoints();
+
+      const runStore = {
+        saveArtifact: vi.fn(),
+        getArtifactById: vi.fn(async () => ({
+          path: "bin.dat",
+          before: { base64: "AAEC" }, // non-empty string so base64ToBytes() doesn't return early
+        })),
+      };
+
+      const vfs = { writeFile: vi.fn(async () => true), writeText: vi.fn(async () => true) };
+      const res = await restoreVfsCheckpoint({ vfs, runStore, artifactId: "ckpt_1" });
+      expect(res).toEqual({ ok: true, path: "bin.dat", encoding: "binary" });
+      expect(vfs.writeFile).toHaveBeenCalledWith("bin.dat", new Uint8Array(0));
+    } finally {
+      vi.unstubAllGlobals();
+      if (originalBuffer) globalThis.Buffer = originalBuffer;
+      if (originalAtob) globalThis.atob = originalAtob;
     }
   });
 
@@ -692,5 +985,17 @@ describe("vfs/checkpoints: restoreVfsCheckpoint", () => {
     await expect(restoreVfsCheckpoint({ vfs: { writeFile: vi.fn() }, runStore: { saveArtifact: vi.fn(), getArtifactById: vi.fn() } })).rejects.toThrow(
       /artifactId must be a non-empty string/i
     );
+  });
+
+  it("throws when the checkpoint artifact is missing a usable path (restore failure path)", async () => {
+    const { restoreVfsCheckpoint } = await importCheckpoints();
+
+    const runStore = {
+      saveArtifact: vi.fn(),
+      getArtifactById: vi.fn(async () => ({ before: { text: "hello" } })), // missing path
+    };
+
+    const vfs = { writeFile: vi.fn(async () => true), writeText: vi.fn(async () => true) };
+    await expect(restoreVfsCheckpoint({ vfs, runStore, artifactId: "ckpt_1" })).rejects.toThrow(/checkpoint missing path/i);
   });
 });

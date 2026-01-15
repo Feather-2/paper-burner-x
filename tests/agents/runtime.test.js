@@ -781,7 +781,9 @@ test("Runtime Core: RunStoreAdapter validation + appendEvents branches", async (
     };
     const adapter = new RunStoreAdapter(runStore);
 
-    await assert.rejects(() => adapter.appendEvents([{ name: "run.log" }]), /must include a string runId/);
+    // Invalid events are skipped (best-effort) rather than rejected.
+    assert.equal(await adapter.appendEvents([{ name: "run.log" }]), 1);
+    assert.equal(calls.length, 0);
 
     const n = await adapter.appendEvents([
       { runId: "run_b", name: "run.log", payload: { i: 1 } },

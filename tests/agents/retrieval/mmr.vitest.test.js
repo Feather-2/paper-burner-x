@@ -20,6 +20,21 @@ describe("agents/retrieval/mmr", () => {
     expect(out.map((r) => r.chunkId)).toEqual(["a", "c"]);
   });
 
+  it("lambda=0 performs diversity-only selection (chooses the lowest-similarity item next)", async () => {
+    const { mmrSelect } = await import("../../../js/agents/retrieval/mmr.js");
+
+    const out = mmrSelect(
+      [
+        { chunkId: "a", text: "alpha beta", score: 10 },
+        { chunkId: "b", text: "alpha beta", score: 9 },
+        { chunkId: "c", text: "gamma delta", score: 0 },
+      ],
+      { topK: 2, lambda: 0 }
+    );
+
+    expect(out.map((r) => r.chunkId)).toEqual(["a", "c"]);
+  });
+
   it("clamps lambda into [0, 1] (lambda > 1 becomes pure relevance ranking)", async () => {
     const { mmrSelect } = await import("../../../js/agents/retrieval/mmr.js");
 
@@ -31,6 +46,22 @@ describe("agents/retrieval/mmr", () => {
 
     const out = mmrSelect(candidates, { topK: 3, lambda: 2 });
     expect(out.map((r) => r.chunkId)).toEqual(["a", "b", "c"]);
+  });
+
+  it("treats non-finite scores as 0 relevance and supports the default topK=list.length", async () => {
+    const { mmrSelect } = await import("../../../js/agents/retrieval/mmr.js");
+
+    const out = mmrSelect(
+      [
+        { chunkId: "a", text: "alpha beta", score: 2 },
+        { chunkId: "b", text: "alpha beta", score: Number.NaN }, // rel=0
+        { chunkId: "c", text: "gamma delta", score: 1 },
+      ],
+      // topK omitted => k=list.length
+      { lambda: 0.5 }
+    );
+
+    expect(out.map((r) => r.chunkId)).toEqual(["a", "c", "b"]);
   });
 
   it("prefers seed items first and de-dupes by chunkId", async () => {
@@ -49,6 +80,35 @@ describe("agents/retrieval/mmr", () => {
 
     const out = mmrSelect(candidates, { topK: 2, seed, lambda: 0.7 });
     expect(out.map((r) => r.chunkId)).toEqual(["c", "a"]);
+  });
+
+  it("seed handling: ignores invalid entries and returns early once seed fills topK (empty candidates stay empty)", async () => {
+    const { mmrSelect } = await import("../../../js/agents/retrieval/mmr.js");
+
+    expect(mmrSelect(null, { topK: 5 })).toEqual([]);
+
+    const out = mmrSelect(
+      [
+        null, // skipped by byId builder (`if (!c) continue`)
+        { chunkId: "a", text: "alpha beta", score: 1 },
+        { chunkId: "b", text: "gamma delta", score: 0.9 },
+      ],
+      {
+        topK: 2,
+        seed: [null, { chunkId: "", text: "bad seed", score: 100 }, { chunkId: "s1", text: "seed1", score: 0 }, { chunkId: "s2", text: "seed2", score: 0 }],
+      }
+    );
+
+    expect(out.map((r) => r.chunkId)).toEqual(["s1", "s2"]);
+
+    const seedNotArray = mmrSelect(
+      [
+        { chunkId: "a", text: "alpha beta", score: 1 },
+        { chunkId: "b", text: "gamma delta", score: 0.9 },
+      ],
+      { topK: 1, seed: "nope", lambda: 1 }
+    );
+    expect(seedNotArray.map((r) => r.chunkId)).toEqual(["a"]);
   });
 
   it("uses Intl.Segmenter when available and ignores non-word-like segments", async () => {
@@ -82,6 +142,56 @@ describe("agents/retrieval/mmr", () => {
     // tokenizeForSimilarity lowercases the input before passing it to segment()
     expect(segment.mock.calls[0][0]).toBe("alpha beta");
     expect(out.map((r) => r.chunkId)).toEqual(["a", "c"]);
+  });
+
+  it("tokenizeForSimilarity de-dupes terms, skips blank segments, and stops at maxTokens (segmenter path)", async () => {
+    const segment = vi.fn((text) => {
+      const parts = [];
+      for (const w of String(text).split(/\s+/).filter(Boolean)) {
+        parts.push({ segment: w, isWordLike: true });
+        parts.push({ segment: w, isWordLike: true }); // duplicate => seen.has(t)
+        parts.push({ isWordLike: true }); // missing segment => `part?.segment || ""` + `!t` continue
+      }
+      return parts;
+    });
+    const Segmenter = vi.fn(function SegmenterCtor() {
+      return { segment };
+    });
+    vi.stubGlobal("Intl", { Segmenter });
+
+    const { mmrSelect } = await import("../../../js/agents/retrieval/mmr.js");
+
+    const long = Array.from({ length: 25 }, (_, i) => `t${i + 1}`).join(" ");
+    const out = mmrSelect(
+      [
+        { chunkId: "a", text: long, score: 1.0 },
+        { chunkId: "b", text: "t1 t2 t3", score: 0.9 },
+        { chunkId: "c", text: "gamma delta", score: 0.8 },
+      ],
+      { topK: 2, lambda: 0.5, maxTokens: 10 }
+    );
+
+    expect(out.map((r) => r.chunkId)).toEqual(["a", "c"]);
+  });
+
+  it("regex tokenization: punctuation-only strings produce no tokens (match=null) and similarity treats empty/non-empty as 0", async () => {
+    // Force the no-segmenter path in getMmrSegmenter().
+    vi.stubGlobal("Intl", {});
+
+    const { mmrSelect } = await import("../../../js/agents/retrieval/mmr.js");
+
+    const out = mmrSelect(
+      [
+        { chunkId: "a", text: "alpha beta", score: 1.0 },
+        { chunkId: "b", text: "!!!", score: 0.9 }, // no word tokens
+        { chunkId: "c", text: "alpha beta", score: 0.8 },
+      ],
+      // Infinity => non-finite => tokenizeForSimilarity falls back to 200
+      { topK: 2, lambda: 0, maxTokens: Infinity }
+    );
+
+    // lambda=0 picks the least similar candidate next: empty tokens (sim=0) beats identical text (sim=1).
+    expect(out.map((r) => r.chunkId)).toEqual(["a", "b"]);
   });
 
   it("falls back to regex tokenization if Intl.Segmenter construction throws", async () => {

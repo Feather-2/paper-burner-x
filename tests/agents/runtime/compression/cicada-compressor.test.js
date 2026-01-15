@@ -145,6 +145,46 @@ describe("runtime/compression/cicada-compressor.js", () => {
     expect(compressed.sessionSummary).toContain("system: [Context Summary]");
   });
 
+  it("session history supports summarizeThinking strategy (including empty thinking messages) and enforces thinkingSummaryMaxChars", async () => {
+    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    tokenCache.estimateTokensCached.mockReturnValue(0);
+
+    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+
+    const compressor = new CicadaCompressor({ layers: ["session_history"] });
+    const input = {
+      messages: [
+        { role: "system", content: "Anchor A" },
+        {
+          role: "assistant",
+          content: "<analysis>\nDecide to use a very long approach for testing summary truncation.\nDecide to keep it deterministic.\n</analysis>",
+        },
+        // Empty thinking message should not throw; summary helper returns the original message.
+        { role: "assistant", thinking: true, content: "" },
+        { role: "assistant", content: "Tail" },
+      ],
+    };
+
+    const { compressed, stats } = compressor._compressSessionHistory(input, {
+      keepLastTurns: 10,
+      summarizeThinking: true,
+      thinkingSummaryMaxChars: 25,
+    });
+
+    expect(stats.removedThinking).toBe(0);
+    expect(stats.summarizedThinking).toBe(2);
+
+    const summarizedThinking = compressed.messages.find((m) => m?._thinkingSummarized === true);
+    expect(summarizedThinking?.content).toContain("[思考摘要]");
+    expect(summarizedThinking?.content).toContain("Decide");
+    expect(summarizedThinking?.content.length).toBeLessThanOrEqual(25);
+    expect(summarizedThinking?.content.endsWith("...")).toBe(true);
+    expect(summarizedThinking?._originalLength).toBeGreaterThan(0);
+
+    const emptyThinking = compressed.messages.find((m) => m?.thinking === true && m?.content === "");
+    expect(emptyThinking).toBeDefined();
+  });
+
   it("session history threshold avoids dangling leading tool messages (no tool-call ids present)", async () => {
     const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
     tokenCache.estimateTokensCached.mockReturnValue(0);
@@ -319,6 +359,21 @@ describe("runtime/compression/cicada-compressor.js", () => {
     expect(llm.errors.some((line) => /error|failed/i.test(line))).toBe(true);
     expect(llm.stats.promptTokens).toBe(5);
     expect(llm.stats.summaryTokens).toBe(5);
+  });
+
+  it("callModel returns null when modelRouter lacks call/chat, and token stats handle empty summary boundary", async () => {
+    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    tokenCache.estimateTokensCached.mockImplementation((text) => (String(text).length ? 1 : 0));
+
+    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const compressor = new CicadaCompressor({ modelRouter: {} });
+
+    await expect(compressor._callModel([{ role: "user", content: "x" }])).resolves.toBe(null);
+
+    const llm = await compressor._compressWithLLM("", { maxInputChars: 10 });
+    expect(llm).toMatchObject({ summary: "", keyPoints: [], decisions: [], errors: [] });
+    expect(llm.stats.promptTokens).toBe(1);
+    expect(llm.stats.summaryTokens).toBe(0);
   });
 
   it("LLM summary returns empty payload when context is empty string, and _callModel throws when call() has no fallback signature", async () => {
@@ -581,5 +636,416 @@ describe("runtime/compression/cicada-compressor.js", () => {
     expect(handoff.resumeGuide.context).toEqual({ stage: "ctx" });
     expect(handoff.resumeGuide.warnings).toEqual(["w1"]);
     expect(handoff.resumeGuide.iteration).toBe(3);
+  });
+
+  it("session history summary uses non-titleOnly truncation (preserves tail) for older messages", async () => {
+    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    tokenCache.estimateTokensCached.mockReturnValue(0);
+
+    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+
+    const compressor = new CicadaCompressor({ layers: ["session_history"] });
+
+    const long = "abcd" + "x".repeat(20) + "Z";
+    const { compressed } = compressor._compressSessionHistory(
+      {
+        messages: [
+          { role: "user", content: long },
+          { role: "assistant", content: "tail" },
+        ],
+      },
+      { keepLastTurns: 1, summaryLineChars: 8, titleOnly: false }
+    );
+
+    // truncateText(…, 8) => head(4) + "..." + tail(1)
+    expect(compressed.sessionSummary).toContain("user: abcd...Z");
+  });
+
+  it("tool output compression keeps small plain objects, drops non-plain objects, and defaults maxToolOutputChars from maxTokens", async () => {
+    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    tokenCache.estimateTokensCached.mockReturnValue(0);
+
+    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+
+    // maxTokens=100 => default maxToolOutputChars = max(200, 100*4)=400
+    const compressor = new CicadaCompressor({ maxTokens: 100 });
+    const { compressed, stats } = compressor._compressToolOutput({
+      toolOutput: [
+        {
+          id: "call_1",
+          output: "o".repeat(450), // verbose => kept + truncated to 400 chars
+          bigField: "b".repeat(450), // non-important + non-small => removed
+          smallObj: { a: 1, b: 2, c: 3, d: 4, e: 5 }, // plain object <= 5 keys => kept via isSmallValue
+          weirdObj: new Date("2020-01-01T00:00:00Z"), // non-plain object => removed via isSmallValue=false
+        },
+      ],
+    });
+
+    expect(compressed.toolOutput).toHaveLength(1);
+    expect(compressed.toolOutput[0].id).toBe("call_1");
+    expect(compressed.toolOutput[0].output).toContain("...");
+    expect(compressed.toolOutput[0].output.length).toBe(400);
+
+    expect(compressed.toolOutput[0].smallObj).toEqual({ a: 1, b: 2, c: 3, d: 4, e: 5 });
+    expect(compressed.toolOutput[0].bigField).toBeUndefined();
+    expect(compressed.toolOutput[0].weirdObj).toBeUndefined();
+
+    expect(stats.removedFields).toBeGreaterThanOrEqual(2);
+    expect(stats.truncatedFields).toBeGreaterThanOrEqual(1);
+  });
+
+  it("LLM summary returns empty payload when value-utils.isPlainObject is forced false (normalizeSummaryPayload fallback)", async () => {
+    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    tokenCache.estimateTokensCached.mockImplementation((text) => (String(text).length ? 1 : 0));
+
+    // Force normalizeSummaryPayload() to hit the `!isPlainObject(src)` early return.
+    vi.doMock("../../../../js/agents/shared/utils/value-utils.js", async () => {
+      const actual = await vi.importActual("../../../../js/agents/shared/utils/value-utils.js");
+      return {
+        ...actual,
+        isPlainObject: vi.fn(() => false),
+      };
+    });
+
+    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const compressor = new CicadaCompressor({ modelRouter: null });
+
+    const llm = await compressor._compressWithLLM("Decision: use A\nError: failed hard", { maxInputChars: 500 });
+
+    expect(llm).toMatchObject({ summary: "", keyPoints: [], decisions: [], errors: [] });
+    expect(llm.stats).toEqual({ promptTokens: 1, summaryTokens: 0 });
+
+    vi.doUnmock("../../../../js/agents/shared/utils/value-utils.js");
+  });
+
+  it("session history filtering supports toolCalls + role=function tool messages (toolCallId), and drops orphan function outputs", async () => {
+    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    tokenCache.estimateTokensCached.mockReturnValue(0);
+
+    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+
+    const compressor = new CicadaCompressor({ layers: ["session_history"] });
+    const { compressed } = compressor._compressSessionHistory(
+      {
+        // Use alternate history key to cover historyKey selection.
+        sessionHistory: [
+          { role: "assistant", content: "call", toolCalls: [{ id: "call_1" }] }, // toolCalls variant
+          { role: "function", toolCallId: "call_1", content: "kept result" }, // role=function treated as tool
+          { role: "function", toolCallId: "orphan", content: "drop me" },
+          { role: "assistant", content: "tail" },
+        ],
+      },
+      { keepLastTurns: 10 }
+    );
+
+    expect(Array.isArray(compressed.sessionHistory)).toBe(true);
+    expect(compressed.sessionHistory.some((m) => m?.role === "function" && m?.toolCallId === "orphan")).toBe(false);
+    expect(compressed.sessionHistory.some((m) => m?.role === "function" && m?.toolCallId === "call_1")).toBe(true);
+    expect(compressed.sessionHistory.some((m) => m?.role === "assistant" && Array.isArray(m.toolCalls))).toBe(true);
+  });
+
+  it("session history summarizeThinking falls back to head/tail when no explicit decisions are present", async () => {
+    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    tokenCache.estimateTokensCached.mockReturnValue(0);
+
+    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+
+    const compressor = new CicadaCompressor({ layers: ["session_history"] });
+    const text = "This is just exploration.\n" + "x".repeat(140) + "\nStill exploring.";
+    const { compressed, stats } = compressor._compressSessionHistory(
+      {
+        messages: [
+          { role: "system", content: "Anchor A" },
+          { role: "assistant", content: `<analysis>\n${text}\n</analysis>` },
+          { role: "assistant", content: "tail" },
+        ],
+      },
+      { keepLastTurns: 10, summarizeThinking: true, thinkingSummaryMaxChars: 120 }
+    );
+
+    expect(stats.removedThinking).toBe(0);
+    expect(stats.summarizedThinking).toBe(1);
+
+    const summarized = compressed.messages.find((m) => m?._thinkingSummarized === true);
+    expect(summarized?.content).toContain("[思考摘要]");
+    // Head/tail path includes the separator when tail exists.
+    expect(summarized?.content).toContain(" ... ");
+  });
+
+  it("session history titleOnly uses word-based and char-based truncation for non-CJK messages (prevents merge)", async () => {
+    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    tokenCache.estimateTokensCached.mockReturnValue(0);
+
+    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const compressor = new CicadaCompressor({ layers: ["session_history"] });
+
+    // Prevent merge of the older assistant message into the kept tail by adding metadata on the tail.
+    const byWords = compressor._compressSessionHistory(
+      {
+        messages: [
+          { role: "assistant", content: "one two three four five six seven" },
+          { role: "assistant", content: "tail", meta: { keep: true } },
+        ],
+      },
+      { keepLastTurns: 1, titleOnly: true, titleMaxWords: 3, titleMaxChars: 80 }
+    );
+
+    expect(byWords.compressed.sessionSummary).toContain("assistant: one two three...");
+
+    const byChars = compressor._compressSessionHistory(
+      {
+        messages: [
+          { role: "assistant", content: "ABCDEFGHIJKLmnopqrstuvwxyz" },
+          { role: "assistant", content: "tail", meta: { keep: true } },
+        ],
+      },
+      // maxWords large so truncation is driven by maxChars (normalized.length > clipped.length)
+      { keepLastTurns: 1, titleOnly: true, titleMaxWords: 50, titleMaxChars: 10 }
+    );
+
+    expect(byChars.compressed.sessionSummary).toContain("assistant: ABCDEFGHIJ...");
+  });
+
+  it("session history normalizes string/null entries + message.text, supports history key, and summarizes unknown roles", async () => {
+    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    tokenCache.estimateTokensCached.mockReturnValue(0);
+
+    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const compressor = new CicadaCompressor({ layers: ["session_history"] });
+
+    const { compressed } = compressor._compressSessionHistory(
+      {
+        history: [
+          "raw assistant string",
+          null,
+          { role: "user", text: "from text field" }, // normalizeMessage should prefer text when content is nullish
+          { content: "role missing should be summarized" }, // no role => "unknown:"
+          { role: "user" }, // no content/text => skipped by summarizer
+          { role: "assistant", content: "tail", meta: { keep: true } }, // prevent merges
+        ],
+      },
+      { keepLastTurns: 1, summaryLineChars: 50 }
+    );
+
+    expect(Array.isArray(compressed.history)).toBe(true);
+    expect(compressed.sessionSummary).toContain("assistant: raw assistant string");
+    expect(compressed.sessionSummary).toContain("user: from text field");
+    expect(compressed.sessionSummary).toContain("unknown: role missing should be summarized");
+  });
+
+  it("session history thinking detection supports meta.type + text fallback and summarizes short no-decision thinking without tail", async () => {
+    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    tokenCache.estimateTokensCached.mockReturnValue(0);
+
+    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const compressor = new CicadaCompressor({ layers: ["session_history"] });
+
+    const { compressed, stats } = compressor._compressSessionHistory(
+      {
+        messages: [
+          { role: "system", content: "Anchor A" },
+          // meta.type path in isThinkingMessage()
+          { role: "assistant", meta: { type: "thinking" }, content: "Just exploring." },
+          // Force message.text branch in isThinkingMessage() by keeping content="".
+          { role: "assistant", content: "", text: "<analysis>\njust exploration\n</analysis>" },
+          { role: "assistant", content: "tail" },
+        ],
+      },
+      { keepLastTurns: 10, summarizeThinking: true, thinkingSummaryMaxChars: 150 }
+    );
+
+    expect(stats.summarizedThinking).toBe(2);
+
+    const summaries = compressed.messages.filter((m) => m?._thinkingSummarized === true);
+    expect(summaries).toHaveLength(2);
+    // Short/no-tail path should omit the head/tail separator.
+    expect(summaries.every((m) => !String(m.content).includes(" ... "))).toBe(true);
+  });
+
+  it("session history kept-window adjustment treats assistant function_call/functionCall as tool-call and avoids dangling tool outputs", async () => {
+    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    tokenCache.estimateTokensCached.mockReturnValue(0);
+
+    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const compressor = new CicadaCompressor({ layers: ["session_history"] });
+
+    const fnCall = compressor._compressSessionHistory(
+      {
+        messages: [
+          { role: "user", content: "u1" },
+          { role: "assistant", content: "call", function_call: { name: "search" } },
+          { role: "tool", content: "result" },
+          { role: "assistant", content: "tail" },
+        ],
+      },
+      // keepLastTurns=2 starts on the tool message; should expand to include the assistant tool-call message.
+      { keepLastTurns: 2 }
+    );
+
+    expect(fnCall.compressed.messages.some((m) => m?.role === "assistant" && m?.function_call)).toBe(true);
+    expect(fnCall.compressed.messages.some((m) => m?.role === "tool")).toBe(true);
+
+    const fnCallCamel = compressor._compressSessionHistory(
+      {
+        messages: [
+          { role: "user", content: "u1" },
+          { role: "assistant", content: "call", functionCall: { name: "search" } },
+          { role: "tool", content: "result" },
+          { role: "assistant", content: "tail" },
+        ],
+      },
+      { keepLastTurns: 2 }
+    );
+
+    expect(fnCallCamel.compressed.messages.some((m) => m?.role === "assistant" && m?.functionCall)).toBe(true);
+    expect(fnCallCamel.compressed.messages.some((m) => m?.role === "tool")).toBe(true);
+  });
+
+  it("compress() wraps primitive contexts, archives with empty summary when llm_summary is absent, and only signals sharedContext", async () => {
+    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    tokenCache.estimateTokensCached.mockReturnValue(0);
+
+    const { CicadaCompressor, CompressionLayer } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+
+    const sharedContext = { setSummary: vi.fn(), setIndex: vi.fn(), signal: vi.fn() };
+    const compressor = new CicadaCompressor({ modelRouter: null });
+
+    const result = await compressor.compress("hello", { stageKey: "stage-primitive", sharedContext });
+
+    expect(result.metadata.layersApplied).toEqual([CompressionLayer.TOOL_OUTPUT, CompressionLayer.SESSION_HISTORY]);
+    expect(result.metadata.llmSummary).toBe(null);
+    expect(result.metadata.archiveId).toBe("stage-primitive");
+
+    // No llmSummary => summaryText is empty, so setSummary/setIndex should be skipped.
+    expect(sharedContext.setSummary).not.toHaveBeenCalled();
+    expect(sharedContext.setIndex).not.toHaveBeenCalled();
+    expect(sharedContext.signal).toHaveBeenCalledWith(
+      "stage-primitive",
+      expect.objectContaining({ type: "CICADA_SHED", archiveId: "stage-primitive" })
+    );
+  });
+
+  it("compressToolOutput counts tool message content via content/output/result/empty fallbacks", async () => {
+    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    tokenCache.estimateTokensCached.mockReturnValue(0);
+
+    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const compressor = new CicadaCompressor();
+
+    const { compressed, stats } = compressor._compressToolOutput(
+      {
+        messages: [
+          { role: "tool", content: null, output: "OUT" },
+          { role: "tool", content: null, result: { ok: true } },
+          { role: "tool", content: null }, // content/output/result all missing -> empty string
+          { role: "assistant", content: "ok" },
+        ],
+      },
+      { maxToolOutputChars: 5 }
+    );
+
+    expect(compressed.messages).toHaveLength(4);
+    expect(stats.originalSize).toBeGreaterThan(0);
+  });
+
+  it("_compressWithLLM accepts resp.text + raw objects, and normalizes wrong-type keyPoints/decisions/errors to empty arrays", async () => {
+    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    tokenCache.estimateTokensCached.mockReturnValue(1);
+
+    const modelRouterText = {
+      call: vi.fn(async () => ({
+        text: JSON.stringify({ summary: "S", keyPoints: "k", decisions: "d", errors: 5 }),
+      })),
+    };
+
+    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const compressorText = new CicadaCompressor({ modelRouter: modelRouterText });
+
+    const fromText = await compressorText._compressWithLLM({ any: "ctx" }, { maxInputChars: 500 });
+    expect(fromText.summary).toBe("S");
+    expect(fromText.keyPoints).toEqual([]);
+    expect(fromText.decisions).toEqual([]);
+    expect(fromText.errors).toEqual([]);
+
+    const modelRouterObj = {
+      call: vi.fn(async () => ({ summary: "S2", keyPoints: ["k2"], decisions: [], errors: [] })),
+    };
+    const compressorObj = new CicadaCompressor({ modelRouter: modelRouterObj });
+
+    const fromObj = await compressorObj._compressWithLLM({ any: "ctx" }, { maxInputChars: 500 });
+    expect(fromObj.summary).toBe("S2");
+    expect(fromObj.keyPoints).toEqual(["k2"]);
+  });
+
+  it("archive adapter fallbacks: store()/archive() returning empty use key; listArchives pattern can match id when summary doesn't", async () => {
+    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    tokenCache.estimateTokensCached.mockReturnValue(0);
+
+    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+
+    const adapterStore = { store: vi.fn(async () => "") };
+    const compressorStore = new CicadaCompressor({ archive: adapterStore });
+    const storedKey = await compressorStore.archive("k1", { summary: "x", metadata: {} });
+    expect(storedKey).toBe("k1");
+
+    const adapterArchive = { archive: vi.fn(async () => "") };
+    const compressorArchive = new CicadaCompressor({ archive: adapterArchive });
+    const archivedKey = await compressorArchive.archive("k2", { summary: "y", metadata: {} });
+    expect(archivedKey).toBe("k2");
+
+    await compressorArchive.archive("idmatch", { summary: "nope", metadata: {} });
+    const byId = await compressorArchive.listArchives({ limit: 10, pattern: "^idmatch$" });
+    expect(byId.some((e) => e.id === "idmatch")).toBe(true);
+  });
+
+  it("buildHandoff covers fallback fields when sharedContext is missing and todos use title/text fields", async () => {
+    const tokenCache = await import("../../../../js/agents/shared/utils/token-cache.js");
+    tokenCache.estimateTokensCached.mockReturnValue(0);
+
+    const { CicadaCompressor } = await import("../../../../js/agents/runtime/compression/cicada-compressor.js");
+    const compressor = new CicadaCompressor();
+
+    const handoff = compressor.buildHandoff(
+      {
+        runId: "run_fallbacks",
+        // todos is not an array => fallback to []
+        todos: "not an array",
+        L1: { condensedMemory: { summary: "state summary", decisionTrace: ["d1"] } },
+        L2: {},
+      },
+      null
+    );
+
+    expect(handoff.accomplished.summary).toBe("state summary");
+    expect(handoff.accomplished.completedTodos).toEqual([]);
+    expect(handoff.accomplished.claimCount).toBe(0);
+    expect(handoff.pending.todos).toEqual([]);
+    expect(handoff.pending.taskGoal).toBe("");
+    expect(handoff.decisions).toEqual(["d1"]);
+    expect(handoff.resumeGuide.nextAction).toBe(null);
+    expect(handoff.resumeGuide.context).toEqual({});
+    expect(handoff.resumeGuide.warnings).toEqual([]);
+    expect(handoff.resumeGuide.iteration).toBe(0);
+
+    // Also cover title/text todo fallbacks.
+    const handoffTodos = compressor.buildHandoff(
+      {
+        runId: "run_titles",
+        taskGoal: "goal",
+        todos: [
+          { title: "done via title", status: "done" },
+          { text: "done via text", status: "completed" },
+          { title: "pending via title", status: "open", priority: "high" },
+        ],
+        L1: { condensedMemory: { decisionTrace: [] }, claims: [] },
+        L2: { warnings: ["w"] },
+        iteration: 0,
+      },
+      {}
+    );
+
+    expect(handoffTodos.accomplished.completedTodos).toEqual(["done via title", "done via text"]);
+    expect(handoffTodos.pending.todos).toEqual([{ content: "pending via title", priority: "high" }]);
+    expect(handoffTodos.resumeGuide.nextAction).toBe("pending via title");
   });
 });
