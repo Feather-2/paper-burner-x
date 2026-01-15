@@ -121,6 +121,10 @@ export class RetrievalEngine {
     if (opts.subscribe !== false) {
       this._subscribeToMemoryEvents();
     }
+
+    // Prewarm state
+    this._prewarmAbort = null;
+    this._indexedCount = 0;
   }
 
   _subscribeToMemoryEvents() {
@@ -145,6 +149,11 @@ export class RetrievalEngine {
       this._unsubscribeArchived = null;
     }
     this._indexQueue.length = 0;
+    // Abort any running prewarm
+    if (this._prewarmAbort) {
+      this._prewarmAbort.abort();
+      this._prewarmAbort = null;
+    }
   }
 
   /**
@@ -159,6 +168,157 @@ export class RetrievalEngine {
       droppedCount: this._indexDroppedCount,
       rateLimiter: this._rateLimiter?.getState?.() ?? null,
     };
+  }
+
+  /**
+   * Returns true if all archives are indexed (warmup complete).
+   * @type {boolean}
+   */
+  get isWarmed() {
+    const idx = this.vectorIndex;
+    if (!idx || typeof idx.has !== "function") return false;
+
+    const snapshots = getSnapshots(this.memoryStore);
+    if (!snapshots) return true;
+
+    for (const [id, entry] of iterateSnapshotsEntries(snapshots)) {
+      const text = buildArchiveEmbeddingText(entry);
+      if (!text) continue;
+      if (!idx.has(id)) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Returns warmup progress statistics.
+   * @returns {{ indexed: number, total: number, coverage: number }}
+   */
+  getWarmupProgress() {
+    const idx = this.vectorIndex;
+    const snapshots = getSnapshots(this.memoryStore);
+
+    if (!snapshots || !idx || typeof idx.has !== "function") {
+      return { indexed: 0, total: 0, coverage: 1 };
+    }
+
+    let total = 0;
+    let indexed = 0;
+
+    for (const [id, entry] of iterateSnapshotsEntries(snapshots)) {
+      const text = buildArchiveEmbeddingText(entry);
+      if (!text) continue;
+      total++;
+      if (idx.has(id)) indexed++;
+    }
+
+    const coverage = total > 0 ? indexed / total : 1;
+    return { indexed, total, coverage };
+  }
+
+  /**
+   * Prewarm the vector index by indexing all un-indexed archives in batches.
+   * Can be interrupted; returns partial progress on abort.
+   *
+   * @param {{ batchSize?: number, progressCallback?: (indexed: number, total: number) => void, signal?: AbortSignal, timeoutMs?: number }} [options]
+   * @returns {Promise<{ indexed: number, skipped: number, elapsed: number }>}
+   */
+  async prewarm({ batchSize = 10, progressCallback, signal, timeoutMs } = {}) {
+    const startTime = Date.now();
+    const svc = this.embeddingService;
+    const idx = this.vectorIndex;
+
+    // Early exit if no embedding service or vector index
+    if (!svc || typeof svc.embed !== "function" || !idx || typeof idx.upsert !== "function") {
+      return { indexed: 0, skipped: 0, elapsed: Date.now() - startTime };
+    }
+
+    const snapshots = getSnapshots(this.memoryStore);
+    if (!snapshots) {
+      return { indexed: 0, skipped: 0, elapsed: Date.now() - startTime };
+    }
+
+    // Setup abort controller for cancellation
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    this._prewarmAbort = controller;
+
+    const isAborted = () => {
+      if (signal?.aborted) return true;
+      if (controller?.signal?.aborted) return true;
+      return false;
+    };
+
+    // Collect all un-indexed entries
+    const pending = [];
+    let skipped = 0;
+
+    for (const [id, entry] of iterateSnapshotsEntries(snapshots)) {
+      const text = buildArchiveEmbeddingText(entry);
+      if (!text) {
+        skipped++;
+        continue;
+      }
+      if (idx.has(id)) {
+        skipped++;
+        continue;
+      }
+      pending.push({ id, entry, text });
+    }
+
+    const total = pending.length + skipped;
+    let indexed = skipped; // Start with skipped as "already done"
+
+    // Report initial progress
+    if (typeof progressCallback === "function") {
+      try { progressCallback(indexed, total); } catch { /* ignore */ }
+    }
+
+    // Process in batches
+    const batch = toPositiveInt(batchSize, 10);
+    for (let i = 0; i < pending.length; i += batch) {
+      if (isAborted()) break;
+
+      const chunk = pending.slice(i, i + batch);
+      const texts = chunk.map((p) => p.text);
+
+      try {
+        const vectors = await svc.embed(texts, { ...(timeoutMs ? { timeoutMs } : {}) });
+
+        if (!Array.isArray(vectors) || vectors.length !== texts.length) {
+          // Partial failure - continue with next batch
+          continue;
+        }
+
+        for (let j = 0; j < chunk.length; j++) {
+          if (isAborted()) break;
+          const row = chunk[j];
+          const vec = vectors[j];
+          if (!vec) continue;
+
+          try {
+            idx.upsert(row.id, vec, { stageKey: row.entry.stageKey, ts: row.entry.ts });
+            indexed++;
+            this._indexedCount++;
+          } catch {
+            // Dimension mismatch or index error - skip
+          }
+        }
+
+        // Emit progress event
+        if (this.eventBus && typeof this.eventBus.emit === "function") {
+          this.eventBus.emit("retrieval:indexProgress", { indexed, total, coverage: indexed / total });
+        }
+
+        // Report progress via callback
+        if (typeof progressCallback === "function") {
+          try { progressCallback(indexed, total); } catch { /* ignore */ }
+        }
+      } catch {
+        // Embedding service error - continue with next batch
+      }
+    }
+
+    this._prewarmAbort = null;
+    return { indexed: indexed - skipped, skipped, elapsed: Date.now() - startTime };
   }
 
   /**
@@ -228,9 +388,11 @@ export class RetrievalEngine {
   }
 
   /**
-   * @param {{ timeoutMs?: number }} [options]
+   * Ensure all archives are indexed. Supports batched processing and progress events.
+   * @param {{ timeoutMs?: number, batchSize?: number }} [options]
+   * @returns {Promise<boolean>}
    */
-  async ensureIndexed({ timeoutMs } = {}) {
+  async ensureIndexed({ timeoutMs, batchSize } = {}) {
     const svc = this.embeddingService;
     const idx = this.vectorIndex;
     if (!svc || typeof svc.embed !== "function") return false;
@@ -249,24 +411,74 @@ export class RetrievalEngine {
 
     if (!pending.length) return true;
 
-    const vectors = await svc.embed(
-      pending.map((p) => p.text),
-      { ...(timeoutMs ? { timeoutMs } : {}) }
-    );
-    if (!Array.isArray(vectors) || vectors.length !== pending.length) return false;
+    const batch = toPositiveInt(batchSize, 0);
+    const total = pending.length;
+    let indexed = 0;
 
-    for (let i = 0; i < pending.length; i++) {
-      const row = pending[i];
-      const vec = vectors[i];
-      if (!vec) continue;
+    // If no batchSize specified, use original behavior (single batch)
+    if (batch <= 0) {
+      const vectors = await svc.embed(
+        pending.map((p) => p.text),
+        { ...(timeoutMs ? { timeoutMs } : {}) }
+      );
+      if (!Array.isArray(vectors) || vectors.length !== pending.length) return false;
+
+      for (let i = 0; i < pending.length; i++) {
+        const row = pending[i];
+        const vec = vectors[i];
+        if (!vec) continue;
+        try {
+          idx.upsert(row.id, vec, { stageKey: row.entry.stageKey, ts: row.entry.ts });
+          indexed++;
+          this._indexedCount++;
+        } catch {
+          // ignore vector dimension errors / index failures
+        }
+      }
+
+      // Emit final progress event
+      if (this.eventBus && typeof this.eventBus.emit === "function") {
+        this.eventBus.emit("retrieval:indexProgress", { indexed, total, coverage: indexed / total });
+      }
+
+      return true;
+    }
+
+    // Batched processing
+    for (let i = 0; i < pending.length; i += batch) {
+      const chunk = pending.slice(i, i + batch);
+      const texts = chunk.map((p) => p.text);
+
       try {
-        idx.upsert(row.id, vec, { stageKey: row.entry.stageKey, ts: row.entry.ts });
+        const vectors = await svc.embed(texts, { ...(timeoutMs ? { timeoutMs } : {}) });
+
+        if (!Array.isArray(vectors) || vectors.length !== texts.length) {
+          continue; // Partial failure - continue with next batch
+        }
+
+        for (let j = 0; j < chunk.length; j++) {
+          const row = chunk[j];
+          const vec = vectors[j];
+          if (!vec) continue;
+          try {
+            idx.upsert(row.id, vec, { stageKey: row.entry.stageKey, ts: row.entry.ts });
+            indexed++;
+            this._indexedCount++;
+          } catch {
+            // ignore vector dimension errors / index failures
+          }
+        }
+
+        // Emit progress event after each batch
+        if (this.eventBus && typeof this.eventBus.emit === "function") {
+          this.eventBus.emit("retrieval:indexProgress", { indexed, total, coverage: indexed / total });
+        }
       } catch {
-        // ignore vector dimension errors / index failures
+        // Embedding service error - continue with next batch
       }
     }
 
-    return true;
+    return indexed > 0;
   }
 
   /**

@@ -4,6 +4,43 @@ import DisposableBase from "../../shared/base/disposable-base.js";
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
+/**
+ * cyrb53 - fast, high-quality 53-bit hash.
+ * @see https://github.com/bryc/code/blob/master/jshash/experimental/cyrb53.js
+ * @param {string} str
+ * @param {number} [seed=0]
+ * @returns {string} hex string
+ */
+function cyrb53(str, seed = 0) {
+  let h1 = 0xdeadbeef ^ seed;
+  let h2 = 0x41c6ce57 ^ seed;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
+  h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
+  h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  // 53-bit integer as hex string
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16);
+}
+
+/**
+ * Compute content hash for deduplication.
+ * @param {any} data
+ * @returns {string}
+ */
+function computeContentHash(data) {
+  try {
+    const str = typeof data === "string" ? data : JSON.stringify(data);
+    return cyrb53(str);
+  } catch {
+    return cyrb53(String(data ?? ""));
+  }
+}
+
 function toNonEmptyString(value) {
   const s = typeof value === "string" ? value.trim() : "";
   return s ? s : null;
@@ -44,12 +81,23 @@ function isMissingPathError(err) {
   return msg.includes("ENOENT") || msg.includes("NotFoundError") || msg.includes("NOT_FOUND");
 }
 
+/** Default max snapshots before eviction */
+const DEFAULT_MAX_SNAPSHOTS = 1000;
+/** Default max storage bytes (100MB) */
+const DEFAULT_MAX_STORAGE_BYTES = 100 * 1024 * 1024;
+/** Estimated bytes per character in summary (UTF-8 avg) */
+const BYTES_PER_CHAR = 2;
+/** Base overhead per snapshot entry (id, ts, stageKey, accessedAt, etc.) */
+const ENTRY_OVERHEAD_BYTES = 200;
+
 /**
  * L3Storage - L3 cold storage for MemoryStore.
  *
  * Persists snapshots + checkpoints to VFS, keeping only:
  * - index metadata
  * - a small LRU cache of recent snapshots/checkpoints
+ *
+ * Supports LRU eviction when snapshot count or storage bytes exceed limits.
  */
 export class L3Storage extends DisposableBase {
   /**
@@ -58,6 +106,10 @@ export class L3Storage extends DisposableBase {
    * @param {string} options.runId - Run ID (required)
    * @param {number} [options.cacheSize=10] - Snapshot LRU cache size
    * @param {number} [options.checkpointCacheSize=5] - Checkpoint LRU cache size
+   * @param {boolean} [options.deduplicateByDefault=true] - Default deduplication behavior
+   * @param {number} [options.maxSnapshots=1000] - Max snapshot count before eviction
+   * @param {number} [options.maxStorageBytes=104857600] - Max storage bytes before eviction (100MB)
+   * @param {object} [options.eventBus] - Optional EventBus for emitting l3:evicted events
    */
   constructor(options) {
     super();
@@ -80,12 +132,31 @@ export class L3Storage extends DisposableBase {
         ? Math.max(1, Math.floor(checkpointCacheSizeRaw))
         : 5;
 
+    // Eviction config
+    const maxSnapshotsRaw = o.maxSnapshots;
+    const maxStorageBytesRaw = o.maxStorageBytes;
+    /** @private */
+    this._maxSnapshots =
+      typeof maxSnapshotsRaw === "number" && Number.isFinite(maxSnapshotsRaw) && maxSnapshotsRaw > 0
+        ? Math.floor(maxSnapshotsRaw)
+        : DEFAULT_MAX_SNAPSHOTS;
+    /** @private */
+    this._maxStorageBytes =
+      typeof maxStorageBytesRaw === "number" && Number.isFinite(maxStorageBytesRaw) && maxStorageBytesRaw > 0
+        ? Math.floor(maxStorageBytesRaw)
+        : DEFAULT_MAX_STORAGE_BYTES;
+
+    /** @private */
+    this._eventBus = o.eventBus && typeof o.eventBus === "object" ? o.eventBus : null;
+
     /** @private */
     this._vfs = vfs;
     /** @private */
     this._runId = runId;
     /** @private */
     this._basePath = `.agents/runs/${runId}/l3`;
+    /** @private */
+    this._deduplicateByDefault = o.deduplicateByDefault !== false;
 
     /** @private */
     this._snapshotCache = new LRUCache({ maxSize: cacheSize });
@@ -94,9 +165,10 @@ export class L3Storage extends DisposableBase {
 
     /** @private */
     this._index = {
-      timeline: [],
+      timeline: [], // entries now include accessedAt field
       keywords: new Map(), // keyword -> Set<snapshotId>
       stages: new Map(), // stageKey -> snapshotId (latest)
+      hashIndex: new Map(), // contentHash -> snapshotId
     };
 
     /** @private */
@@ -104,6 +176,12 @@ export class L3Storage extends DisposableBase {
 
     /** @private */
     this._initialized = false;
+
+    /** @private @type {{ id: string, deduplicated: boolean } | null} */
+    this._lastArchiveResult = null;
+
+    /** @private - pending eviction promise (for testing/await) */
+    this._evictionPromise = null;
   }
 
   _snapshotsDir() {
@@ -168,6 +246,7 @@ export class L3Storage extends DisposableBase {
       timeline: Array.isArray(this._index.timeline) ? this._index.timeline : [],
       keywords: Array.from(this._index.keywords.entries()).map(([k, set]) => [k, Array.from(set || [])]),
       stages: Array.from(this._index.stages.entries()),
+      hashIndex: Array.from(this._index.hashIndex.entries()),
       checkpointIndex: Array.isArray(this._checkpointIndex) ? this._checkpointIndex : [],
     };
   }
@@ -187,14 +266,30 @@ export class L3Storage extends DisposableBase {
 
   /**
    * Archive a snapshot to VFS and update the in-memory index.
+   * Supports content-based deduplication via hash.
+   * Triggers background LRU eviction if limits are exceeded.
    * @param {string} stageKey
    * @param {any} data
    * @param {string[]} [keywords=[]]
-   * @returns {Promise<string>} Snapshot ID
+   * @param {{ deduplicate?: boolean }} [options={}]
+   * @returns {Promise<string>} Snapshot ID (may be existing if deduplicated)
    */
-  async archive(stageKey, data, keywords = []) {
+  async archive(stageKey, data, keywords = [], options = {}) {
     this._ensureNotDisposed();
     await this.init();
+
+    const opts = options && typeof options === "object" ? options : {};
+    const shouldDeduplicate = typeof opts.deduplicate === "boolean" ? opts.deduplicate : this._deduplicateByDefault;
+
+    // Compute content hash for deduplication
+    const contentHash = computeContentHash(data);
+
+    // Check for existing snapshot with same content
+    if (shouldDeduplicate && this._index.hashIndex.has(contentHash)) {
+      const existingId = this._index.hashIndex.get(contentHash);
+      this._lastArchiveResult = { id: existingId, deduplicated: true };
+      return existingId;
+    }
 
     // genId pattern: snap_<ts>_<rand>
     const id = "snap_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
@@ -209,6 +304,7 @@ export class L3Storage extends DisposableBase {
       keywords: normalizedKeywords,
       ts,
       summary: getSummary(data),
+      contentHash,
       data,
     };
 
@@ -221,14 +317,24 @@ export class L3Storage extends DisposableBase {
     }
 
     if (stage) this._index.stages.set(stage, id);
-    this._index.timeline.push({ id, ts, summary: entry.summary, stageKey: stage || undefined });
+    // Include accessedAt for LRU tracking (initialized to ts)
+    this._index.timeline.push({ id, ts, accessedAt: ts, summary: entry.summary, stageKey: stage || undefined });
+    this._index.hashIndex.set(contentHash, id);
 
     await this.persistIndex();
+    this._lastArchiveResult = { id, deduplicated: false };
+
+    // Trigger background eviction (non-blocking)
+    this._evictionPromise = this._maybeEvict().catch((err) => {
+      console.warn("[L3Storage] eviction error:", err);
+    });
+
     return id;
   }
 
   /**
    * Fetch a snapshot by ID (cache-first).
+   * Updates accessedAt for LRU tracking.
    * @param {string} id
    * @returns {Promise<any | null>}
    */
@@ -238,6 +344,13 @@ export class L3Storage extends DisposableBase {
 
     const snapId = toNonEmptyString(id);
     if (!snapId) return null;
+
+    // Update accessedAt in timeline for LRU tracking
+    const timelineEntry = this._index.timeline.find((e) => e?.id === snapId);
+    if (timelineEntry) {
+      timelineEntry.accessedAt = Date.now();
+      // Persist is deferred (not blocking getSnapshot)
+    }
 
     const cached = this._snapshotCache.get(snapId);
     if (cached) return cached;
@@ -439,6 +552,7 @@ export class L3Storage extends DisposableBase {
     const timeline = Array.isArray(raw.timeline) ? raw.timeline : [];
     const keywordEntries = Array.isArray(raw.keywords) ? raw.keywords : [];
     const stageEntries = Array.isArray(raw.stages) ? raw.stages : [];
+    const hashIndexEntries = Array.isArray(raw.hashIndex) ? raw.hashIndex : [];
     const checkpointIndex = Array.isArray(raw.checkpointIndex)
       ? raw.checkpointIndex
       : Array.isArray(raw.checkpoints)
@@ -454,7 +568,129 @@ export class L3Storage extends DisposableBase {
     this._index.stages = new Map(
       stageEntries.filter((e) => Array.isArray(e) && typeof e[0] === "string" && typeof e[1] === "string")
     );
+    this._index.hashIndex = new Map(
+      hashIndexEntries.filter((e) => Array.isArray(e) && typeof e[0] === "string" && typeof e[1] === "string")
+    );
     this._checkpointIndex = checkpointIndex;
+  }
+
+  /**
+   * Estimate total storage bytes used by snapshots.
+   * Uses summary length as proxy (actual file size varies).
+   * @private
+   * @returns {number}
+   */
+  _estimateStorageBytes() {
+    const timeline = Array.isArray(this._index.timeline) ? this._index.timeline : [];
+    let bytes = 0;
+    for (const entry of timeline) {
+      const summaryLen = typeof entry?.summary === "string" ? entry.summary.length : 0;
+      bytes += ENTRY_OVERHEAD_BYTES + summaryLen * BYTES_PER_CHAR;
+    }
+    return bytes;
+  }
+
+  /**
+   * Background eviction: remove oldest snapshots if limits exceeded.
+   * Evicts by snapshot count or storage bytes, using LRU (accessedAt) ordering.
+   * @private
+   * @returns {Promise<void>}
+   */
+  async _maybeEvict() {
+    const timeline = this._index.timeline;
+    if (!Array.isArray(timeline) || timeline.length === 0) return;
+
+    // Check if eviction needed
+    const count = timeline.length;
+    const bytes = this._estimateStorageBytes();
+    if (count <= this._maxSnapshots && bytes <= this._maxStorageBytes) return;
+
+    // Sort by accessedAt (oldest first) for LRU eviction
+    const sorted = [...timeline].sort((a, b) => {
+      const aAt = typeof a?.accessedAt === "number" ? a.accessedAt : a?.ts || 0;
+      const bAt = typeof b?.accessedAt === "number" ? b.accessedAt : b?.ts || 0;
+      return aAt - bAt;
+    });
+
+    const evicted = [];
+
+    // Evict until under both limits
+    for (const entry of sorted) {
+      const currentCount = this._index.timeline.length;
+      const currentBytes = this._estimateStorageBytes();
+      if (currentCount <= this._maxSnapshots && currentBytes <= this._maxStorageBytes) break;
+
+      const id = entry?.id;
+      if (!id) continue;
+
+      // Remove from VFS
+      try {
+        if (typeof this._vfs.unlink === "function") {
+          await this._vfs.unlink(this._snapshotPath(id));
+        }
+      } catch {
+        // Ignore removal errors
+      }
+
+      // Remove from indexes
+      this._snapshotCache.delete(id);
+      this._index.timeline = this._index.timeline.filter((e) => e?.id !== id);
+
+      // Remove from keyword index
+      for (const [, idSet] of this._index.keywords) {
+        idSet.delete(id);
+      }
+
+      // Remove from stages if this was the latest
+      for (const [stage, snapId] of this._index.stages) {
+        if (snapId === id) {
+          this._index.stages.delete(stage);
+        }
+      }
+
+      // Remove from hashIndex
+      for (const [hash, snapId] of this._index.hashIndex) {
+        if (snapId === id) {
+          this._index.hashIndex.delete(hash);
+        }
+      }
+
+      evicted.push(id);
+    }
+
+    if (evicted.length > 0) {
+      await this.persistIndex();
+
+      // Emit event if eventBus is available
+      if (this._eventBus && typeof this._eventBus.emit === "function") {
+        this._eventBus.emit("l3:evicted", { runId: this._runId, evictedIds: evicted, count: evicted.length });
+      }
+    }
+  }
+
+  /**
+   * Get current storage statistics.
+   * @returns {{ snapshotCount: number, estimatedBytes: number, maxSnapshots: number, maxStorageBytes: number }}
+   */
+  getStorageStats() {
+    const timeline = Array.isArray(this._index.timeline) ? this._index.timeline : [];
+    return {
+      snapshotCount: timeline.length,
+      estimatedBytes: this._estimateStorageBytes(),
+      maxSnapshots: this._maxSnapshots,
+      maxStorageBytes: this._maxStorageBytes,
+    };
+  }
+
+  /**
+   * Wait for any pending eviction to complete.
+   * Useful for testing to ensure eviction finishes before assertions.
+   * @returns {Promise<void>}
+   */
+  async waitForEviction() {
+    if (this._evictionPromise) {
+      await this._evictionPromise;
+    }
   }
 
   /**
@@ -477,6 +713,27 @@ export class L3Storage extends DisposableBase {
     const ids = this._index.keywords.get(k);
     if (!ids) return [];
     return Array.from(ids || []);
+  }
+
+  /**
+   * Check if data would be deduplicated (without archiving).
+   * @param {any} data
+   * @returns {{ duplicate: boolean, existingId?: string }}
+   */
+  isDuplicate(data) {
+    const contentHash = computeContentHash(data);
+    if (this._index.hashIndex.has(contentHash)) {
+      return { duplicate: true, existingId: this._index.hashIndex.get(contentHash) };
+    }
+    return { duplicate: false };
+  }
+
+  /**
+   * Get the result of the last archive() call.
+   * @returns {{ id: string, deduplicated: boolean } | null}
+   */
+  getLastArchiveStats() {
+    return this._lastArchiveResult;
   }
 
   /**

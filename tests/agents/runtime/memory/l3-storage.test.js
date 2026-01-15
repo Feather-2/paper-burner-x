@@ -471,5 +471,321 @@ describe("L3Storage", () => {
     assert.equal(timeline.length, 1);
     assert.equal(timeline[0].id, "snap_rename");
   });
+
+  it("archive() deduplicates identical content by default", async () => {
+    const runId = "run_dedupe";
+    const vfs = new MemoryVfs();
+    const storage = new L3Storage({ vfs, runId });
+
+    const data = { summary: "test data", value: 42 };
+    const snapId1 = await storage.archive("stage1", data, ["k1"]);
+    const snapId2 = await storage.archive("stage2", data, ["k2"]);
+
+    // Should return the same ID (deduplicated)
+    assert.equal(snapId1, snapId2);
+
+    // getLastArchiveStats should indicate deduplication
+    const stats = storage.getLastArchiveStats();
+    assert.ok(stats !== null);
+    assert.equal(stats.id, snapId1);
+    assert.equal(stats.deduplicated, true);
+
+    // Timeline should only have 1 entry (no duplicate)
+    const timeline = storage.getTimeline();
+    assert.equal(timeline.length, 1);
+  });
+
+  it("archive() creates new snapshot for different content", async () => {
+    const runId = "run_no_dedupe";
+    const vfs = new MemoryVfs();
+    const storage = new L3Storage({ vfs, runId });
+
+    const snapId1 = await storage.archive("stage1", { value: 1 }, ["k1"]);
+    const snapId2 = await storage.archive("stage2", { value: 2 }, ["k2"]);
+
+    // Should have different IDs
+    assert.notEqual(snapId1, snapId2);
+
+    // getLastArchiveStats should indicate no deduplication
+    const stats = storage.getLastArchiveStats();
+    assert.ok(stats !== null);
+    assert.equal(stats.id, snapId2);
+    assert.equal(stats.deduplicated, false);
+
+    // Timeline should have 2 entries
+    const timeline = storage.getTimeline();
+    assert.equal(timeline.length, 2);
+  });
+
+  it("archive() with deduplicate=false forces new snapshot", async () => {
+    const runId = "run_force_new";
+    const vfs = new MemoryVfs();
+    const storage = new L3Storage({ vfs, runId });
+
+    const data = { summary: "same data" };
+    const snapId1 = await storage.archive("stage1", data, ["k1"]);
+    const snapId2 = await storage.archive("stage2", data, ["k2"], { deduplicate: false });
+
+    // Should have different IDs even with same content
+    assert.notEqual(snapId1, snapId2);
+
+    // Timeline should have 2 entries
+    const timeline = storage.getTimeline();
+    assert.equal(timeline.length, 2);
+
+    // Both should be retrievable
+    const snap1 = await storage.getSnapshot(snapId1);
+    const snap2 = await storage.getSnapshot(snapId2);
+    assert.ok(snap1 !== null);
+    assert.ok(snap2 !== null);
+  });
+
+  it("isDuplicate() checks without archiving", async () => {
+    const runId = "run_is_duplicate";
+    const vfs = new MemoryVfs();
+    const storage = new L3Storage({ vfs, runId });
+
+    const data = { value: "test" };
+
+    // Before archiving, should not be duplicate
+    const check1 = storage.isDuplicate(data);
+    assert.equal(check1.duplicate, false);
+    assert.equal(check1.existingId, undefined);
+
+    // Archive the data
+    const snapId = await storage.archive("stage1", data, []);
+
+    // Now should be duplicate
+    const check2 = storage.isDuplicate(data);
+    assert.equal(check2.duplicate, true);
+    assert.equal(check2.existingId, snapId);
+
+    // Different data should not be duplicate
+    const check3 = storage.isDuplicate({ value: "different" });
+    assert.equal(check3.duplicate, false);
+  });
+
+  it("deduplicateByDefault=false disables deduplication globally", async () => {
+    const runId = "run_no_default_dedupe";
+    const vfs = new MemoryVfs();
+    const storage = new L3Storage({ vfs, runId, deduplicateByDefault: false });
+
+    const data = { summary: "test" };
+    const snapId1 = await storage.archive("stage1", data, []);
+    const snapId2 = await storage.archive("stage2", data, []);
+
+    // Should create different snapshots (no deduplication)
+    assert.notEqual(snapId1, snapId2);
+    assert.equal(storage.getTimeline().length, 2);
+  });
+
+  it("hashIndex persists and restores correctly", async () => {
+    const runId = "run_hash_persist";
+    const vfs = new MemoryVfs();
+    const { indexPath } = getPaths(runId);
+
+    const storage1 = new L3Storage({ vfs, runId });
+    const data = { value: "persist test" };
+    const snapId = await storage1.archive("stage1", data, []);
+
+    // Verify hashIndex is in persisted index
+    const index = JSON.parse(await vfs.readText(indexPath));
+    assert.ok(Array.isArray(index.hashIndex));
+    assert.ok(index.hashIndex.length > 0);
+
+    // Create new storage instance and verify deduplication still works
+    const storage2 = new L3Storage({ vfs, runId });
+    await storage2.init();
+    const snapId2 = await storage2.archive("stage2", data, []);
+
+    // Should deduplicate based on restored hashIndex
+    assert.equal(snapId, snapId2);
+    assert.equal(storage2.getLastArchiveStats().deduplicated, true);
+  });
+
+  it("getStorageStats() returns correct statistics", async () => {
+    const runId = "run_stats";
+    const vfs = new MemoryVfs();
+    const storage = new L3Storage({ vfs, runId, maxSnapshots: 100, maxStorageBytes: 50000 });
+
+    // Initially empty
+    const stats0 = storage.getStorageStats();
+    assert.equal(stats0.snapshotCount, 0);
+    assert.equal(stats0.estimatedBytes, 0);
+    assert.equal(stats0.maxSnapshots, 100);
+    assert.equal(stats0.maxStorageBytes, 50000);
+
+    // After archiving
+    await storage.archive("stage1", { summary: "test data" }, []);
+    await storage.waitForEviction();
+
+    const stats1 = storage.getStorageStats();
+    assert.equal(stats1.snapshotCount, 1);
+    assert.ok(stats1.estimatedBytes > 0);
+    assert.equal(stats1.maxSnapshots, 100);
+  });
+
+  it("LRU eviction triggers when maxSnapshots exceeded", async () => {
+    const runId = "run_evict_count";
+    const vfs = new MemoryVfs();
+    const storage = new L3Storage({ vfs, runId, maxSnapshots: 3 });
+
+    // Archive 5 snapshots with staggered timestamps
+    const ids = [];
+    for (let i = 0; i < 5; i++) {
+      const id = await storage.archive("stage" + i, { summary: "data" + i, n: i }, [], { deduplicate: false });
+      ids.push(id);
+      await new Promise((r) => setTimeout(r, 5)); // Stagger timestamps
+    }
+
+    // Wait for eviction to complete
+    await storage.waitForEviction();
+
+    // Should have exactly maxSnapshots entries
+    const stats = storage.getStorageStats();
+    assert.equal(stats.snapshotCount, 3);
+
+    // Oldest 2 should be evicted (ids[0] and ids[1])
+    const timeline = storage.getTimeline();
+    const remainingIds = timeline.map((e) => e.id);
+    assert.ok(!remainingIds.includes(ids[0]), "oldest should be evicted");
+    assert.ok(!remainingIds.includes(ids[1]), "second oldest should be evicted");
+    assert.ok(remainingIds.includes(ids[2]), "newer should remain");
+    assert.ok(remainingIds.includes(ids[3]), "newer should remain");
+    assert.ok(remainingIds.includes(ids[4]), "newest should remain");
+  });
+
+  it("LRU eviction respects accessedAt (recently accessed survives)", async () => {
+    const runId = "run_evict_lru";
+    const vfs = new MemoryVfs();
+    const storage = new L3Storage({ vfs, runId, maxSnapshots: 2 });
+
+    // Archive 2 snapshots with staggered timestamps
+    const id1 = await storage.archive("stage1", { summary: "first", n: 1 }, [], { deduplicate: false });
+    await storage.waitForEviction();
+    await new Promise((r) => setTimeout(r, 20));
+
+    const id2 = await storage.archive("stage2", { summary: "second", n: 2 }, [], { deduplicate: false });
+    await storage.waitForEviction();
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Access the first one to update its accessedAt (now it's newer than id2)
+    await storage.getSnapshot(id1);
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Archive a third snapshot - should evict id2 (older accessedAt) not id1
+    const id3 = await storage.archive("stage3", { summary: "third", n: 3 }, [], { deduplicate: false });
+    await storage.waitForEviction();
+
+    const timeline = storage.getTimeline();
+    const remainingIds = timeline.map((e) => e.id);
+
+    assert.equal(timeline.length, 2, `expected 2 entries, got ${timeline.length}: ${remainingIds.join(", ")}`);
+    assert.ok(remainingIds.includes(id1), `recently accessed (${id1}) should survive, remaining: ${remainingIds.join(", ")}`);
+    assert.ok(remainingIds.includes(id3), `newest (${id3}) should survive, remaining: ${remainingIds.join(", ")}`);
+    assert.ok(!remainingIds.includes(id2), `older accessed (${id2}) should be evicted, remaining: ${remainingIds.join(", ")}`);
+  });
+
+  it("LRU eviction triggers when maxStorageBytes exceeded", async () => {
+    const runId = "run_evict_bytes";
+    const vfs = new MemoryVfs();
+    // Set a low byte limit (each entry is ~200 + summary_len * 2 bytes)
+    const storage = new L3Storage({ vfs, runId, maxSnapshots: 1000, maxStorageBytes: 600 });
+
+    // Archive multiple snapshots with moderate summaries
+    const ids = [];
+    for (let i = 0; i < 5; i++) {
+      const id = await storage.archive("stage" + i, { summary: "summary" + i }, [], { deduplicate: false });
+      ids.push(id);
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    await storage.waitForEviction();
+
+    // Should have fewer snapshots than archived due to byte limit
+    const stats = storage.getStorageStats();
+    assert.ok(stats.snapshotCount < 5, "some snapshots should be evicted");
+    assert.ok(stats.estimatedBytes <= 600, "should be under byte limit");
+  });
+
+  it("l3:evicted event is emitted on eviction", async () => {
+    const runId = "run_evict_event";
+    const vfs = new MemoryVfs();
+
+    const emittedEvents = [];
+    const eventBus = {
+      emit(name, data) {
+        emittedEvents.push({ name, data });
+      },
+    };
+
+    const storage = new L3Storage({ vfs, runId, maxSnapshots: 2, eventBus });
+
+    // Archive 3 snapshots to trigger eviction
+    await storage.archive("stage1", { summary: "a", n: 1 }, [], { deduplicate: false });
+    await new Promise((r) => setTimeout(r, 5));
+    await storage.archive("stage2", { summary: "b", n: 2 }, [], { deduplicate: false });
+    await new Promise((r) => setTimeout(r, 5));
+    await storage.archive("stage3", { summary: "c", n: 3 }, [], { deduplicate: false });
+    await storage.waitForEviction();
+
+    // Should have emitted l3:evicted event
+    const evictedEvents = emittedEvents.filter((e) => e.name === "l3:evicted");
+    assert.ok(evictedEvents.length > 0, "should emit l3:evicted event");
+
+    const event = evictedEvents[evictedEvents.length - 1];
+    assert.equal(event.data.runId, runId);
+    assert.ok(Array.isArray(event.data.evictedIds), "should include evictedIds");
+    assert.ok(event.data.evictedIds.length > 0, "should have evicted at least one");
+    assert.ok(typeof event.data.count === "number", "should include count");
+  });
+
+  it("waitForEviction() awaits pending eviction", async () => {
+    const runId = "run_wait_eviction";
+    const vfs = new MemoryVfs();
+    const storage = new L3Storage({ vfs, runId, maxSnapshots: 1 });
+
+    // Archive 2 snapshots
+    await storage.archive("stage1", { summary: "a" }, [], { deduplicate: false });
+    await storage.archive("stage2", { summary: "b" }, [], { deduplicate: false });
+
+    // Before waiting, eviction might not be complete
+    await storage.waitForEviction();
+
+    // After waiting, should have exactly 1 snapshot
+    const stats = storage.getStorageStats();
+    assert.equal(stats.snapshotCount, 1);
+  });
+
+  it("eviction removes VFS files", async () => {
+    const runId = "run_evict_vfs";
+    const vfs = new MemoryVfs();
+    const { snapshotPath } = getPaths(runId);
+    const storage = new L3Storage({ vfs, runId, maxSnapshots: 1 });
+
+    // Archive 2 snapshots
+    const id1 = await storage.archive("stage1", { summary: "first" }, [], { deduplicate: false });
+    await new Promise((r) => setTimeout(r, 5));
+    await storage.archive("stage2", { summary: "second" }, [], { deduplicate: false });
+    await storage.waitForEviction();
+
+    // Evicted snapshot file should be removed
+    assert.equal(await vfs.exists(snapshotPath(id1)), false, "evicted file should be deleted");
+  });
+
+  it("eviction cleans up keyword and stage indexes", async () => {
+    const runId = "run_evict_indexes";
+    const vfs = new MemoryVfs();
+    const storage = new L3Storage({ vfs, runId, maxSnapshots: 1 });
+
+    // Archive with keywords
+    const id1 = await storage.archive("myStage", { summary: "first" }, ["keyword1"], { deduplicate: false });
+    await new Promise((r) => setTimeout(r, 5));
+    await storage.archive("myStage", { summary: "second" }, ["keyword2"], { deduplicate: false });
+    await storage.waitForEviction();
+
+    // Evicted snapshot's keyword should be removed
+    const keyword1Results = storage.searchByKeyword("keyword1");
+    assert.ok(!keyword1Results.includes(id1), "evicted id should not appear in keyword search");
+  });
 });
 
