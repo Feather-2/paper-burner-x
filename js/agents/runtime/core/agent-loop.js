@@ -12,6 +12,7 @@ import { ToolRegistry } from "./tool-registry.js";
 import { StatusController } from "./status-controller.js";
 import { DEFAULT_CONTEXT_CONFIG, mergeContextConfig } from "./context-config.js";
 import { createPreAgentHook, createPostAgentHook } from "../hooks/hook-runner.js";
+import { getLimit } from "../constants/limits.js";
 
 /**
  * @typedef {Record<string, any>} AnyRecord
@@ -47,6 +48,7 @@ import { createPreAgentHook, createPostAgentHook } from "../hooks/hook-runner.js
  * @property {LoggerLike | null} [logger]
  * @property {boolean} [strictLoopStatus]
  * @property {TokenCounterLike | null} [tokenCounter]
+ * @property {number} [maxUserInputs]
  *
  * @typedef {{ timeout?: number, eventBus?: EventBusLike | null, signal?: AbortSignal }} WaitForUserActionOptions
  * @typedef {{ eventName?: string, signal?: AbortSignal }} AttachListenerOptions
@@ -373,6 +375,7 @@ export class BaseAgentLoop {
     // 用户输入管理（保留在 BaseAgentLoop）
     this._activeStep = null;
     this._userInputs = [];
+    this._maxUserInputs = getLimit("MAX_USER_INPUTS", options?.maxUserInputs);
     this._userInputUnsub = null;
     this._userInputBus = null;
     this._userInputEvent = "user.input";
@@ -840,6 +843,10 @@ export class BaseAgentLoop {
       ts: Date.now(),
     };
     this._userInputs.push(entry);
+    const limit = this._maxUserInputs;
+    if (typeof limit === "number" && Number.isFinite(limit) && limit > 0 && this._userInputs.length > limit) {
+      this._userInputs.splice(0, this._userInputs.length - limit);
+    }
     const emit = this.emit || this.eventBus?.emit;
     if (typeof emit === "function") {
       emit(`${this.stageName}.user.input`, { actor: this.actor, status: "info", payload: entry });

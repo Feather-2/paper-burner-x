@@ -74,6 +74,8 @@ export const LIMITS = Object.freeze({
   // ===== 输入 =====
   /** 用户输入最大长度 */
   MAX_USER_INPUT_LENGTH: 100_000,
+  /** 用户输入历史上限 */
+  MAX_USER_INPUTS: 1000,
   /** 文件上传最大大小 */
   MAX_FILE_SIZE: 100 * 1024 * 1024,
 
