@@ -1771,6 +1771,16 @@ test("Runtime: command classifier parses compound commands and flags danger", as
   assert.equal(dangerous.level, "dangerous");
   assert.equal(dangerous.requiresApproval, true);
 
+  const forkBomb = classifyCommand("bash -c ':(){ :|:& };:'");
+  assert.equal(forkBomb.level, "dangerous");
+  assert.equal(forkBomb.requiresApproval, true);
+  assert.deepEqual(forkBomb.reasons, ["fork_bomb"]);
+
+  const sensitive = classifyCommand("cat /etc/shadow");
+  assert.equal(sensitive.level, "dangerous");
+  assert.equal(sensitive.requiresApproval, true);
+  assert.deepEqual(sensitive.reasons, ["sensitive_path"]);
+
   const nested = classifyCommand(["bash", "-c", "ls && rm -rf /"]);
   assert.equal(nested.level, "dangerous");
 });

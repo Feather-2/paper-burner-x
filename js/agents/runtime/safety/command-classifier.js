@@ -42,6 +42,19 @@ const DANGEROUS_COMMANDS = new Set([
   "umount",
 ]);
 
+const SENSITIVE_PATH_PATTERNS = [
+  /(^|\/)etc\/passwd$/i,
+  /(^|\/)etc\/shadow$/i,
+  /(^|\/)etc\/ssh(\/|$)/i,
+  /(^|\/)\.ssh(\/|$)/i,
+  /(^|\/)\.aws\/credentials$/i,
+  /(^|\/)\.gnupg(\/|$)/i,
+  /(^|\/)\.npmrc$/i,
+  /(^|\/)\.env$/i,
+  /(^|\/)\.git\/config$/i,
+  /id_rsa|id_ed25519|authorized_keys|known_hosts/i,
+];
+
 function toBaseName(cmd) {
   const raw = typeof cmd === "string" ? cmd.trim() : "";
   if (!raw) return "";
@@ -52,6 +65,32 @@ function toBaseName(cmd) {
 
 function isConnector(token) {
   return token === "&&" || token === "||" || token === ";" || token === "|" || token === "&";
+}
+
+function normalizePathArg(arg) {
+  const raw = String(arg ?? "");
+  if (!raw) return "";
+  return raw
+    .replaceAll("\\", "/")
+    .replace(/^~(?=\/|$)/, "/home")
+    .replace(/\$HOME/g, "/home")
+    .trim()
+    .toLowerCase();
+}
+
+function looksSensitivePath(arg) {
+  const candidate = normalizePathArg(arg);
+  if (!candidate) return false;
+  return SENSITIVE_PATH_PATTERNS.some((pattern) => pattern.test(candidate));
+}
+
+function looksLikeForkBomb(command) {
+  const raw = typeof command === "string" ? command : Array.isArray(command) ? command.join(" ") : "";
+  const compact = raw.replace(/\s+/g, "");
+  if (!compact) return false;
+  if (compact.includes(":(){:|:&};:")) return true;
+  if (compact.includes("fork(){fork|fork&};fork")) return true;
+  return false;
 }
 
 /**
@@ -191,6 +230,10 @@ export function parseCompoundCommand(input) {
  * @returns {CommandClassification}
  */
 export function classifyCommand(command) {
+  if (looksLikeForkBomb(command)) {
+    return { level: "dangerous", requiresApproval: true, reasons: ["fork_bomb"] };
+  }
+
   const parsed = parseCompoundCommand(command);
   if (parsed.length === 0) return { level: "unknown", requiresApproval: true, reasons: ["empty_command"] };
 
@@ -202,6 +245,10 @@ export function classifyCommand(command) {
     if (!base) {
       worst = worst || { level: "unknown", requiresApproval: true, reasons: ["missing_executable"] };
       continue;
+    }
+
+    if (argv.slice(1).some(looksSensitivePath)) {
+      return { level: "dangerous", requiresApproval: true, baseCommand: base, reasons: ["sensitive_path"] };
     }
 
     if (DANGEROUS_COMMANDS.has(base)) {
@@ -228,4 +275,3 @@ export default {
   parseCompoundCommand,
   classifyCommand,
 };
-
