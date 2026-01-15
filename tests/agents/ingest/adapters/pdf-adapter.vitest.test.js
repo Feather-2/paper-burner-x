@@ -37,7 +37,7 @@ describe("PdfAdapter (vitest)", () => {
   it("parses a path input via injected OCR, forwards onProgress, and mocks fs reads", async () => {
     delete globalThis.OcrManager;
 
-    const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
+    const { PdfAdapter } = await import("../../../../js/agents/ingest/adapters/pdf.js");
 
     const pdfPath = "/virtual/Paper.PDF";
     const bytes = Buffer.from("%PDF-1.4\nHello from mocked fs\n", "utf8");
@@ -99,7 +99,7 @@ describe("PdfAdapter (vitest)", () => {
   it("falls back to embedded ASCII string extraction when OCR is unavailable", async () => {
     delete globalThis.OcrManager;
 
-    const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
+    const { PdfAdapter } = await import("../../../../js/agents/ingest/adapters/pdf.js");
 
     // Include non-printable bytes to force segmentation inside extractAsciiStrings().
     const bytes = Buffer.from([0x00, 0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x00, 0x57, 0x6f, 0x72, 0x6c, 0x64, 0x00]);
@@ -143,7 +143,7 @@ describe("PdfAdapter (vitest)", () => {
 
     globalThis.OcrManager = OcrManager;
 
-    const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
+    const { PdfAdapter } = await import("../../../../js/agents/ingest/adapters/pdf.js");
 
     const adapter = new PdfAdapter({ defaultChunkOptions: { chunkSize: 32, overlap: 0, includeLineNumbers: false } });
     const file = {
@@ -172,7 +172,7 @@ describe("PdfAdapter (vitest)", () => {
     }));
     globalThis.OcrManager = { processFile };
 
-    const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
+    const { PdfAdapter } = await import("../../../../js/agents/ingest/adapters/pdf.js");
 
     const adapter = new PdfAdapter({ defaultChunkOptions: { chunkSize: 32, overlap: 0, includeLineNumbers: false } });
     const parsed = await adapter.parse(
@@ -194,7 +194,7 @@ describe("PdfAdapter (vitest)", () => {
   it("fallback hint differs when globalThis.OcrManager exists but has no processFile()", async () => {
     globalThis.OcrManager = {};
 
-    const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
+    const { PdfAdapter } = await import("../../../../js/agents/ingest/adapters/pdf.js");
 
     // Printable, but < minLen (4) => no extracted strings.
     const bytes = Buffer.from("abc", "utf8");
@@ -216,7 +216,7 @@ describe("PdfAdapter (vitest)", () => {
 
   it("validates input shape and maxFileSize before invoking OCR", async () => {
     delete globalThis.OcrManager;
-    const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
+    const { PdfAdapter } = await import("../../../../js/agents/ingest/adapters/pdf.js");
 
     const processFile = vi.fn(async () => ({ markdown: "", images: [] }));
     const adapter = new PdfAdapter({ maxFileSize: 5 });
@@ -241,7 +241,7 @@ describe("PdfAdapter (vitest)", () => {
 
   it("rejects oversized path inputs before readFile()", async () => {
     delete globalThis.OcrManager;
-    const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
+    const { PdfAdapter } = await import("../../../../js/agents/ingest/adapters/pdf.js");
 
     const pdfPath = "/virtual/too-big.pdf";
     fsMocks.stat.mockResolvedValue({ size: 10 });

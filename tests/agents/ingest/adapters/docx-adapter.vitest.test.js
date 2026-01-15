@@ -60,7 +60,7 @@ describe("DocxAdapter (vitest)", () => {
   });
 
   it("parses a path input, extracts images (including placeholder on read error), and strips data URIs", async () => {
-    const { DocxAdapter } = await import("../../../js/agents/ingest/adapters/docx.js");
+    const { DocxAdapter } = await import("../../../../js/agents/ingest/adapters/docx.js");
 
     const docxPath = "/virtual/doc.docx";
     const bytes = Buffer.from("PK\x03\x04fake-docx", "utf8");
@@ -155,7 +155,7 @@ describe("DocxAdapter (vitest)", () => {
   });
 
   it("falls back to mocked dynamic imports when stageApi does not inject mammoth/TurndownService", async () => {
-    const { DocxAdapter } = await import("../../../js/agents/ingest/adapters/docx.js");
+    const { DocxAdapter } = await import("../../../../js/agents/ingest/adapters/docx.js");
 
     mammothMocks.convertToHtml.mockResolvedValue({ value: "<p>From imported mammoth</p>", messages: [] });
     turndownMocks.turndown.mockReturnValue("# From imported TurndownService\n");
@@ -175,7 +175,7 @@ describe("DocxAdapter (vitest)", () => {
   });
 
   it("rejects unsupported file-like inputs and oversized files before converting", async () => {
-    const { DocxAdapter } = await import("../../../js/agents/ingest/adapters/docx.js");
+    const { DocxAdapter } = await import("../../../../js/agents/ingest/adapters/docx.js");
 
     const convertToHtml = vi.fn(async () => ({ value: "", messages: [] }));
     class TurndownServiceStub {
@@ -208,7 +208,7 @@ describe("DocxAdapter (vitest)", () => {
   });
 
   it("uses application/octet-stream when input name is not .docx and type is missing", async () => {
-    const { DocxAdapter } = await import("../../../js/agents/ingest/adapters/docx.js");
+    const { DocxAdapter } = await import("../../../../js/agents/ingest/adapters/docx.js");
 
     const adapter = new DocxAdapter({ defaultChunkOptions: { chunkSize: 64, overlap: 0, includeLineNumbers: false } });
     const parsed = await adapter.parse(
@@ -230,7 +230,7 @@ describe("DocxAdapter (vitest)", () => {
   });
 
   it("rejects oversized path inputs before readFile()", async () => {
-    const { DocxAdapter } = await import("../../../js/agents/ingest/adapters/docx.js");
+    const { DocxAdapter } = await import("../../../../js/agents/ingest/adapters/docx.js");
 
     const docxPath = "/virtual/big.docx";
     fsMocks.stat.mockResolvedValue({ size: 2 });
@@ -242,7 +242,7 @@ describe("DocxAdapter (vitest)", () => {
   });
 
   it("defaults unknown image contentType to .png via extFromMime()", async () => {
-    const { DocxAdapter } = await import("../../../js/agents/ingest/adapters/docx.js");
+    const { DocxAdapter } = await import("../../../../js/agents/ingest/adapters/docx.js");
 
     const mammoth = {
       // No `images.imgElement` -> exercise the direct convertImageImpl branch.
