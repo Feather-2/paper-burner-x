@@ -144,18 +144,18 @@ describe("MemoryStore", () => {
   });
 
   describe("L3: Archive", () => {
-    it("should archive and recall by keywords", () => {
-      store.archive("read_reportA", { content: "Q3 revenue analysis" }, ["Q3", "revenue"]);
-      store.archive("read_reportB", { content: "Market share data" }, ["market", "share"]);
+    it("should archive and recall by keywords", async () => {
+      await store.archive("read_reportA", { content: "Q3 revenue analysis" }, ["Q3", "revenue"]);
+      await store.archive("read_reportB", { content: "Market share data" }, ["market", "share"]);
 
       const results = store.recall("Q3 revenue");
       assert.strictEqual(results.length, 1);
       assert.ok(results[0].data.content.includes("Q3"));
     });
 
-    it("should list archives", () => {
-      store.archive("stage1", { data: "test1" });
-      store.archive("stage2", { data: "test2" });
+    it("should list archives", async () => {
+      await store.archive("stage1", { data: "test1" });
+      await store.archive("stage2", { data: "test2" });
 
       const list = store.listArchives();
       assert.strictEqual(list.length, 2);
@@ -163,12 +163,12 @@ describe("MemoryStore", () => {
   });
 
 	  describe("Checkpoint", () => {
-	    it("should checkpoint and restore state", () => {
+	    it("should checkpoint and restore state", async () => {
 	      store.setTaskGoal("Original goal");
 	      store.addTodo({ content: "Task 1" });
 	      store.addMessage({ role: "user", content: "Hello" });
 	
-	      const ckptId = store.checkpoint();
+	      const ckptId = await store.checkpoint();
 	      assert.ok(ckptId);
 	      const snapshot = store.L3.checkpoints.find((c) => c.id === ckptId);
 	      assert.ok(snapshot);
@@ -190,7 +190,7 @@ describe("MemoryStore", () => {
 	      assert.strictEqual(store.L1.messages.length, 2);
 
       // Restore
-      const restored = store.restore(ckptId);
+      const restored = await store.restore(ckptId);
       assert.strictEqual(restored, true);
       assert.strictEqual(store.L0.taskGoal, "Original goal");
       assert.strictEqual(store.L0.todos.length, 1);
@@ -238,13 +238,13 @@ describe("MemoryStore", () => {
   });
 
   describe("Stats", () => {
-    it("should track statistics", () => {
+    it("should track statistics", async () => {
       store.addMessage({ role: "user", content: "Hello" });
       store.addTodo({ content: "Task" });
       store.addSignal({ type: "info" });
       store.recordDecision({ action: "test" });
       store.syncDiscovery("gap_001", {});
-      store.archive("test", {});
+      await store.archive("test", {});
 
       const stats = store.getStats();
       assert.strictEqual(stats.messageCount, 1);

@@ -14,6 +14,7 @@ import { getGlobalTokenCounter } from "../../shared/tokenizers/adaptive-token-co
 import { makeSecureTimestampedId } from "../../shared/utils/secure-id.js";
 import { Platform } from "../../shared/platform.js";
 import { RetrievalEngine } from "./retrieval-engine.js";
+import { L3Storage } from "./l3-storage.js";
 import { normalizeTodoEntry, normalizeTodoInPlace, normalizeTodoStatus } from "./todo-normalize.js";
 
 // 默认配置
@@ -91,6 +92,22 @@ export class MemoryStore {
     this._sharedContext = options.sharedContext || null;
     this._discoveryManager = options.discoveryManager || null;
 
+    /** @private */
+    this._vfs = null;
+    /** @private */
+    this._l3Storage = null;
+    /** @private */
+    this._l3StoragePromise = null;
+
+    const l3Storage = options.l3Storage;
+    if (l3Storage && typeof l3Storage === "object") {
+      this._l3Storage = l3Storage;
+    } else if (options.vfs && typeof options.vfs === "object") {
+      // Lazily construct L3Storage when first needed.
+      this._vfs = options.vfs;
+      this._l3Storage = null;
+    }
+
     // Internal layers (do not expose mutable references).
     this._L0 = {
       systemPrompt: "",
@@ -154,6 +171,24 @@ export class MemoryStore {
       L3: false,
     };
     this._lastSnapshotTs = 0;
+  }
+
+  async _getL3Storage() {
+    const existing = this._l3Storage;
+    if (existing) return existing;
+    const vfs = this._vfs;
+    if (!vfs) return null;
+
+    const inFlight = this._l3StoragePromise;
+    if (inFlight) return await inFlight;
+
+    this._l3StoragePromise = (async () => {
+      const created = new L3Storage({ vfs, runId: this.runId });
+      this._l3Storage = created;
+      return created;
+    })();
+
+    return await this._l3StoragePromise;
   }
 
   _markDirty(layer) {
@@ -691,7 +726,19 @@ export class MemoryStore {
     }
   }
 
-  archive(stageKey, data, keywords = []) {
+  async archive(stageKey, data, keywords = []) {
+    const l3Storage = await this._getL3Storage();
+    if (l3Storage) {
+      const id = await l3Storage.archive(stageKey, data, keywords);
+      const entry = await l3Storage.getSnapshot(id);
+      if (entry) {
+        this._emit("memory.archived", { id, stageKey: entry.stageKey, summary: entry.summary, ts: entry.ts });
+      } else {
+        this._emit("memory.archived", { id, stageKey, ts: Date.now() });
+      }
+      return id;
+    }
+
     const id = genId("snap");
     const entry = {
       id,
@@ -769,6 +816,15 @@ export class MemoryStore {
     return this._L3.index.timeline.slice(-limit).reverse();
   }
 
+  async getSnapshot(snapshotId) {
+    const l3Storage = await this._getL3Storage();
+    if (l3Storage) return await l3Storage.getSnapshot(snapshotId);
+
+    const id = toNonEmptyString(snapshotId);
+    if (!id) return null;
+    return this._L3.snapshots.get(id) || null;
+  }
+
   // ===== Checkpoint =====
 
   /**
@@ -776,9 +832,58 @@ export class MemoryStore {
    * @param {Object} [options]
    * @param {boolean} [options.incremental=true] - Use incremental snapshot if possible
    * @param {number} [options.fullSnapshotEvery=5] - Force full snapshot every N checkpoints
-   * @returns {string} Checkpoint ID
+   * @returns {Promise<string>} Checkpoint ID
    */
-  checkpoint({ incremental = true, fullSnapshotEvery = 5 } = {}) {
+  async checkpoint(options) {
+    const opts = isPlainObject(options) ? options : {};
+    const incremental = opts.incremental ?? true;
+    const fullSnapshotEvery = opts.fullSnapshotEvery ?? 5;
+
+    const l3Storage = await this._getL3Storage();
+    if (l3Storage) {
+      this._recalculateTotalTokens();
+
+      const id = genId("ckpt");
+      const ts = Date.now();
+
+      const checkpointIndex = await l3Storage.listCheckpoints();
+      const checkpointCount = Array.isArray(checkpointIndex) ? checkpointIndex.length : 0;
+      const shouldFull = !incremental || checkpointCount % fullSnapshotEvery === 0;
+
+      /** @type {any} */
+      let snapshot;
+      if (shouldFull || !this._hasAnyDirty()) {
+        snapshot = {
+          id,
+          runId: this.runId,
+          ts,
+          encoding: "full",
+          L0: this.cloneL0(),
+          L1: this.cloneL1(),
+          L2: this.cloneL2(),
+        };
+      } else {
+        snapshot = {
+          id,
+          runId: this.runId,
+          ts,
+          encoding: "incremental",
+          dirtyLayers: { ...this._dirty },
+        };
+        if (this._dirty.L0) snapshot.L0 = this.cloneL0();
+        if (this._dirty.L1) snapshot.L1 = this.cloneL1();
+        if (this._dirty.L2) snapshot.L2 = this.cloneL2();
+
+        const lastMeta = checkpointCount > 0 ? checkpointIndex[checkpointCount - 1] : null;
+        const baseId = toNonEmptyString(lastMeta?.id);
+        if (baseId) snapshot.baseId = baseId;
+      }
+
+      await l3Storage.checkpoint(snapshot);
+      this._clearDirty();
+      return id;
+    }
+
     this._recalculateTotalTokens();
     const id = genId("ckpt");
     const ts = Date.now();
@@ -844,7 +949,33 @@ export class MemoryStore {
     return this._dirty.L0 || this._dirty.L1 || this._dirty.L2 || this._dirty.L3;
   }
 
-  restore(checkpointId) {
+  async restore(checkpointId) {
+    const l3Storage = await this._getL3Storage();
+    if (l3Storage) {
+      const id = toNonEmptyString(checkpointId);
+      if (!id) return false;
+
+      const ckpt = await l3Storage.getCheckpoint(id);
+      if (!ckpt) return false;
+
+      if (ckpt.encoding === "incremental" && ckpt.baseId) {
+        const baseRestored = await this._restoreFromBaseStorage(ckpt, l3Storage);
+        if (!baseRestored) {
+          if (ckpt.L0) this._L0 = deepClone(ckpt.L0);
+          if (ckpt.L1) this._L1 = deepClone(ckpt.L1);
+          if (ckpt.L2) this._L2 = deepClone(ckpt.L2);
+        }
+      } else {
+        if (ckpt.L0) this._L0 = deepClone(ckpt.L0);
+        if (ckpt.L1) this._L1 = deepClone(ckpt.L1);
+        if (ckpt.L2) this._L2 = deepClone(ckpt.L2);
+      }
+
+      this._updateTokenUsage();
+      this._clearDirty();
+      return true;
+    }
+
     const ckpt = this._L3.checkpoints.find(c => c.id === checkpointId);
     if (!ckpt) return false;
 
@@ -892,6 +1023,32 @@ export class MemoryStore {
         return true;
       }
       baseId = base.baseId;
+    }
+
+    return false;
+  }
+
+  async _restoreFromBaseStorage(incrementalCkpt, l3Storage) {
+    let baseId = toNonEmptyString(incrementalCkpt?.baseId);
+    const chain = [incrementalCkpt];
+    const seen = new Set([toNonEmptyString(incrementalCkpt?.id) || ""]);
+
+    while (baseId) {
+      if (seen.has(baseId)) break;
+      seen.add(baseId);
+
+      const base = await l3Storage.getCheckpoint(baseId);
+      if (!base) break;
+      chain.unshift(base);
+      if (base.encoding === "full") {
+        for (const ckpt of chain) {
+          if (ckpt.L0) this._L0 = deepClone(ckpt.L0);
+          if (ckpt.L1) this._L1 = deepClone(ckpt.L1);
+          if (ckpt.L2) this._L2 = deepClone(ckpt.L2);
+        }
+        return true;
+      }
+      baseId = toNonEmptyString(base.baseId);
     }
 
     return false;

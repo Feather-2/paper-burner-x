@@ -112,8 +112,8 @@ describe("runtime/memory/retrieval-engine.js", () => {
     const { RetrievalEngine } = await import("../../../js/agents/runtime/memory/retrieval-engine.js");
 
     const store = new MemoryStore({ runId: "re_kw_latest", tokenCounter: null });
-    const id1 = store.archive("s1", { summary: "First summary" });
-    const id2 = store.archive("s2", { summary: "Second summary" });
+    const id1 = await store.archive("s1", { summary: "First summary" });
+    const id2 = await store.archive("s2", { summary: "Second summary" });
 
     const engine = new RetrievalEngine({ memoryStore: store, subscribe: false });
     const hits = engine.keywordRecall("a", { limit: 1 }); // "a" is filtered out (<2 chars)
@@ -130,8 +130,8 @@ describe("runtime/memory/retrieval-engine.js", () => {
     const { RetrievalEngine } = await import("../../../js/agents/runtime/memory/retrieval-engine.js");
 
     const store = new MemoryStore({ runId: "re_kw_score", tokenCounter: null });
-    const id1 = store.archive("stage1", { summary: "Q3 revenue analysis" }, ["q3", "revenue"]);
-    const id2 = store.archive("stage2", { summary: "Q3 highlights" }, ["q3"]);
+    const id1 = await store.archive("stage1", { summary: "Q3 revenue analysis" }, ["q3", "revenue"]);
+    const id2 = await store.archive("stage2", { summary: "Q3 highlights" }, ["q3"]);
 
     const engine = new RetrievalEngine({ memoryStore: store, subscribe: false });
     const hits = engine.keywordRecall("q3 revenue", { limit: 2 });
@@ -144,7 +144,7 @@ describe("runtime/memory/retrieval-engine.js", () => {
     const { RetrievalEngine } = await import("../../../js/agents/runtime/memory/retrieval-engine.js");
 
     const store = new MemoryStore({ runId: "re_sem_no_fallback", tokenCounter: null });
-    store.archive("stage1", { summary: "Q3 revenue analysis" }, ["q3", "revenue"]);
+    await store.archive("stage1", { summary: "Q3 revenue analysis" }, ["q3", "revenue"]);
 
     const engine = new RetrievalEngine({ memoryStore: store, subscribe: false });
     const hits = await engine.semanticRecall("revenue", { limit: 1, fallback: false });
@@ -171,12 +171,12 @@ describe("runtime/memory/retrieval-engine.js", () => {
       indexMaxConcurrent: 1,
     });
 
-    const ids = [
+    const ids = await Promise.all([
       store.archive("s1", { summary: "one" }),
       store.archive("s2", { summary: "two" }),
       store.archive("s3", { summary: "three" }),
       store.archive("s4", { summary: "four" }),
-    ];
+    ]);
 
     for (const id of ids) engine.queueIndexArchive(id);
 
@@ -201,7 +201,7 @@ describe("runtime/memory/retrieval-engine.js", () => {
     const vectorIndex = { upsert: vi.fn(() => true) };
 
     const engine = new RetrievalEngine({ memoryStore: store, embeddingService, vectorIndex, eventBus: bus });
-    const id = store.archive("stage", { summary: "hello world" });
+    const id = await store.archive("stage", { summary: "hello world" });
 
     // Wait a tick for async index task to run.
     await Promise.resolve();
@@ -227,13 +227,13 @@ describe("runtime/memory/memory-store.impl.js", () => {
     store.setTaskGoal("Goal");
     store.addTodo({ content: "Task 1" });
 
-    const ckpt1 = store.checkpoint({ incremental: true, fullSnapshotEvery: 99 });
+    const ckpt1 = await store.checkpoint({ incremental: true, fullSnapshotEvery: 99 });
     const snap1 = store.L3.checkpoints.find((c) => c.id === ckpt1);
     expect(snap1).toBeTruthy();
     expect(snap1.encoding).toBe("full");
 
     store.addMessage({ role: "user", content: "hello" });
-    const ckpt2 = store.checkpoint({ incremental: true, fullSnapshotEvery: 99 });
+    const ckpt2 = await store.checkpoint({ incremental: true, fullSnapshotEvery: 99 });
     const snap2 = store.L3.checkpoints.find((c) => c.id === ckpt2);
     expect(snap2).toBeTruthy();
     expect(snap2.encoding).toBe("incremental");
@@ -248,7 +248,7 @@ describe("runtime/memory/memory-store.impl.js", () => {
     expect(store.L0.taskGoal).toBe("Changed");
     expect(store.L1.messages).toHaveLength(2);
 
-    expect(store.restore(ckpt2)).toBe(true);
+    expect(await store.restore(ckpt2)).toBe(true);
     expect(store.L0.taskGoal).toBe("Goal");
     expect(store.L0.todos).toHaveLength(1);
     expect(store.L1.messages).toHaveLength(1);
@@ -268,4 +268,3 @@ describe("runtime/memory/index.js", () => {
     expect(memory.L0_SET_TASK_GOAL).toBe(actions.L0_SET_TASK_GOAL);
   });
 });
-

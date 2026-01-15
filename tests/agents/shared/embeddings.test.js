@@ -160,8 +160,8 @@ test("MemoryStore: semanticRecall prefers vector matches when available", async 
   );
 
   const store = new MemoryStore({ runId: "mem_semantic", embeddingService: svc });
-  const id1 = store.archive("stage1", { summary: "Q3 revenue analysis", content: "..." }, ["q3"]);
-  const id2 = store.archive("stage2", { summary: "Market share data", content: "..." }, ["market"]);
+  const id1 = await store.archive("stage1", { summary: "Q3 revenue analysis", content: "..." }, ["q3"]);
+  const id2 = await store.archive("stage2", { summary: "Market share data", content: "..." }, ["market"]);
 
   await svc.flush();
   await Promise.resolve(); // let archive() upsert callbacks run
