@@ -35,6 +35,45 @@ function deepClone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+/**
+ * 双指针通配符匹配（单段，无正则回溯）
+ * @param {string} pattern
+ * @param {string} text
+ * @returns {boolean}
+ */
+function matchSegment(pattern, text) {
+  let pi = 0;
+  let ti = 0;
+  let starIdx = -1;
+  let matchIdx = -1;
+  const pLen = pattern.length;
+  const tLen = text.length;
+
+  while (ti < tLen) {
+    if (pi < pLen && (pattern[pi] === text[ti] || pattern[pi] === '?')) {
+      pi += 1;
+      ti += 1;
+      continue;
+    }
+    if (pi < pLen && pattern[pi] === '*') {
+      starIdx = pi;
+      matchIdx = ti;
+      pi += 1;
+      continue;
+    }
+    if (starIdx !== -1) {
+      pi = starIdx + 1;
+      matchIdx += 1;
+      ti = matchIdx;
+      continue;
+    }
+    return false;
+  }
+
+  while (pi < pLen && pattern[pi] === '*') pi += 1;
+  return pi === pLen;
+}
+
 export class StateBus {
   /**
    * @param {StateBusOptions} [options]
@@ -396,14 +435,21 @@ export class StateBus {
     // 前缀匹配: 'runtime.*' 匹配 'runtime.tokens.input'
     if (pattern.endsWith('.*')) {
       const prefix = pattern.slice(0, -2);
-      return path === prefix || path.startsWith(prefix + '.');
+      if (!prefix.includes('*')) {
+        return path === prefix || path.startsWith(prefix + '.');
+      }
     }
 
-    // 通配符匹配
-    const regex = new RegExp(
-      '^' + pattern.replace(/\./g, '\\.').replace(/\*/g, '[^.]*') + '$'
-    );
-    return regex.test(path);
+    if (!pattern.includes('*') && !pattern.includes('?')) return false;
+
+    const patternParts = pattern.split('.');
+    const pathParts = path.split('.');
+    if (patternParts.length !== pathParts.length) return false;
+
+    for (let i = 0; i < patternParts.length; i += 1) {
+      if (!matchSegment(patternParts[i], pathParts[i])) return false;
+    }
+    return true;
   }
 
   /**
