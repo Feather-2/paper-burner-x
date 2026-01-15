@@ -17,7 +17,8 @@ const DEFAULT_MAX_CHARS = 1_000_000;
  * @param {{maxChars?: number}} [options]
  * @returns {any|null}
  */
-export function safeJsonParse(value, { maxChars } = {}) {
+export function safeJsonParse(value, options) {
+  const { maxChars } = options && typeof options === "object" ? options : {};
   if (value === null || value === undefined) return null;
   if (typeof value === "object") return value;
   const raw = typeof value === "string" ? value : String(value);
@@ -35,4 +36,3 @@ export function safeJsonParse(value, { maxChars } = {}) {
 }
 
 export default { safeJsonParse };
-

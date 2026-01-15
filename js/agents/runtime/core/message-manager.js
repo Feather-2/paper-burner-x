@@ -14,8 +14,10 @@ import { getGlobalTokenCounter } from "../../shared/tokenizers/adaptive-token-co
 import { CompressionCoordinator } from "../compression/coordinator.js";
 import { DEFAULT_CONTEXT_CONFIG } from "./context-config.js";
 import { wrapPersistedOutput, cleanOldPersistedOutputs, KEEP_RECENT_OUTPUTS } from "./persisted-output.js";
+import { createScopedReporter, ErrorCategory } from "../errors/silent-error-reporter.js";
 
 const fallbackLogger = createLogger("runtime/core/message-manager");
+const silentReporter = createScopedReporter("MessageManager");
 
 /**
  * @typedef {Record<string, any>} AnyRecord
@@ -181,8 +183,8 @@ export class MessageManager {
 
     try {
       await this.flushCompression({ maxRounds: 0 });
-    } catch {
-      // ignore
+    } catch (e) {
+      silentReporter.report(e, "reset.flushCompression");
     }
 
     this._clearCooldownTimer();
@@ -463,8 +465,8 @@ export class MessageManager {
     const promises = Array.from(this._pendingSummaryPromises.values());
     try {
       await Promise.all(promises);
-    } catch {
-      // 忽略摘要生成错误
+    } catch (e) {
+      silentReporter.report(e, "_waitForPendingSummaries");
     }
   }
 
@@ -594,8 +596,8 @@ export class MessageManager {
       if (this._disposed || signal.aborted) return;
       try {
         await this._generateSummaryAsync(message, signal);
-      } catch {
-        // 忽略错误，摘要生成失败不影响主流程
+      } catch (e) {
+        silentReporter.report(e, "_scheduleSummaryGeneration");
       } finally {
         // 完成后从 Map 移除
         this._pendingSummaryPromises.delete(summaryId);
@@ -631,8 +633,8 @@ export class MessageManager {
         message._summary = summary;
         message._summaryTokens = estimateTokens(summary, this._tokenCounter);
       }
-    } catch {
-      // 静默失败，不影响主流程
+    } catch (e) {
+      silentReporter.report(e, "_generateSummaryAsync");
     }
   }
 
