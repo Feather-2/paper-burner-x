@@ -7,6 +7,7 @@ const SERVICE_ID_SUBAGENT_REGISTRY = "subagentRegistry";
 import { HookType } from "./hook-registry.js";
 import { getHookRegistry } from "./event-bus-hooks.js";
 import { classifyCommand } from "../safety/command-classifier.js";
+import { evaluateToolRestrictions } from "../safety/tool-restrictions.js";
 
 function safeStringify(value, maxChars = 2000) {
   try {
@@ -123,6 +124,18 @@ function resolveEventBus(context) {
   return ctx?.eventBus || ctx?.stageApi?.eventBus || ctx?.services?.eventBus || null;
 }
 
+function resolveToolRestrictions(context) {
+  const ctx = context && typeof context === "object" ? context : null;
+  return (
+    ctx?.toolRestrictions ||
+    ctx?.toolRestriction ||
+    ctx?.stageApi?.toolRestrictions ||
+    ctx?.stageApi?.toolRestriction ||
+    ctx?.options?.toolRestrictions ||
+    null
+  );
+}
+
 async function resolveFromContainer(context, serviceId) {
   const ctx = context && typeof context === "object" ? context : null;
   const container = ctx?.container || ctx?.stageApi?.container || ctx?.services?.container || null;
@@ -209,10 +222,32 @@ export function createPreToolUseHook(options = {}) {
 
   return async ({ tool, params, context }) => {
     const eventBus = resolveEventBus(context);
+    const toolName = toNonEmptyString(tool) || "";
+    const restrictionConfig = resolveToolRestrictions(context);
+    if (restrictionConfig) {
+      const decision = evaluateToolRestrictions({
+        toolName,
+        command: extractCommandFromToolArgs(params),
+        restrictions: restrictionConfig,
+      });
+      if (decision && decision.allowed === false) {
+        const reason = toNonEmptyString(decision.reason) || "tool_restricted";
+        eventBus?.emit?.("tool.denied", {
+          tool: toolName,
+          reason,
+          args: sanitizeArgs(params),
+          policy: { hookType: "restriction", ...(decision.policy || {}) },
+        });
+        return {
+          skip: true,
+          value: { ok: false, error: reason, policy: { hookType: "restriction", ...(decision.policy || {}) } },
+        };
+      }
+    }
+
     const registry = getHookRegistry(eventBus);
     if (!registry) return null;
 
-    const toolName = toNonEmptyString(tool) || "";
     const hooks = registry.match(hookEventName, toolName);
     if (!hooks.length) return null;
 
