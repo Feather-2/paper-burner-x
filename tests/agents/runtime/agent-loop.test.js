@@ -278,7 +278,7 @@ it("BaseAgentLoop.run throws by default", async () => {
 
 it("BaseAgentLoop waitForUserAction requires an event bus", async () => {
   const loop = await createTestLoop();
-  await expect(loop.waitForUserAction("confirm").rejects).toThrow(/eventBus/);
+  await expect(loop.waitForUserAction("confirm")).rejects.toThrow(/eventBus/);
 });
 
 it("BaseStage execute emits lifecycle and delegates to run", async () => {

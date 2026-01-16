@@ -838,7 +838,7 @@ it("waitForUserAction rejects on abort", async () => {
 it("waitForUserAction requires an eventBus with subscribe", async () => {
   const loop = await createTestLoop();
 
-  await expect(loop.waitForUserAction("missing").rejects).toThrow(/eventBus with subscribe/);
+  await expect(loop.waitForUserAction("missing")).rejects.toThrow(/eventBus with subscribe/);
 });
 
 // ============================================================================

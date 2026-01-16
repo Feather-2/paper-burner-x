@@ -116,7 +116,7 @@ it("McpProvider: base class throws not implemented errors", async () => {
   expect(provider.endpoint).toBe("local");
 
   await expect(provider.listTools()).rejects.toThrow(/not implemented/i);
-  await expect(provider.callTool("foo").rejects.toThrow({}), /not implemented/i);
+  await expect(provider.callTool("foo", {})).rejects.toThrow(/not implemented/i);
 });
 
 it("McpProvider: defaults id/name/endpoint when missing", async () => {
@@ -159,7 +159,7 @@ it("McpClient: addProvider adds and sets default", async () => {
   client.addProvider(new TestProvider());
 
   expect(client.listProviders()).toEqual(["test"]);
-  expect(client.getProvider("test").toBeTruthy() instanceof McpProvider);
+  expect(client.getProvider("test")).toBeInstanceOf(McpProvider);
 });
 
 it("McpClient: addProvider throws for non-McpProvider", async () => {
@@ -567,7 +567,7 @@ it("McpTransport: request throws when not connected", async () => {
   const { McpTransport } = await import("../../../js/agents/mcp/mcp-transport.js");
 
   const transport = new McpTransport();
-  await expect(transport.request("test").rejects.toThrow({}), /not connected/i);
+  await expect(transport.request("test", {}).rejects.toThrow, /not connected/i);
 });
 
 it("McpTransport: request/response handling via _handleMessage", async () => {
@@ -626,7 +626,7 @@ it("McpTransport: request handles error response", async () => {
   }
 
   const transport = new ErrorTransport();
-  await expect(transport.request("test").rejects.toThrow({}), /Invalid Request/);
+  await expect(transport.request("test", {}).rejects.toThrow, /Invalid Request/);
 });
 
 it("McpTransport: request times out", async () => {
@@ -643,7 +643,7 @@ it("McpTransport: request times out", async () => {
   }
 
   const transport = new SlowTransport();
-  await expect(transport.request("test").rejects.toThrow({}), /timeout/i);
+  await expect(transport.request("test", {}).rejects.toThrow, /timeout/i);
 });
 
 it("McpTransport: notify sends message without id", async () => {
@@ -1328,7 +1328,7 @@ it("McpTransport: request handles send failure", async () => {
   }
 
   const transport = new FailingSendTransport();
-  await expect(transport.request("test").rejects.toThrow({}), /Send failed/);
+  await expect(transport.request("test", {}).rejects.toThrow, /Send failed/);
 });
 
 it("McpTransport: _handleMessage handles response with unknown id gracefully", async () => {

@@ -371,7 +371,7 @@ it("FileLock: read/write locking", async (t) => {
 
     const w = await lock.acquire("/test/file.txt");
 
-    await expect(lock.acquire("/test/file.txt").rejects).toThrow(/timeout/);
+    await expect(lock.acquire("/test/file.txt")).rejects.toThrow(/timeout/);
 
     w.release();
   });

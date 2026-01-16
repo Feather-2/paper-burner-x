@@ -208,7 +208,7 @@ it("ConvergenceDetector: semantic convergence", async (t) => {
 
     // Callback may or may not fire depending on exact convergence criteria
     // Just verify the detector works without errors
-    expect(typeof detector.isConverged().toBeTruthy() === "boolean");
+    expect(typeof detector.isConverged()).toBe("boolean");
   });
 });
 
@@ -294,7 +294,7 @@ it("BehaviorFingerprint: loop detection", async (t) => {
 
     // Loop may or may not be detected depending on exact pattern
     // Verify no errors occur
-    expect(typeof fingerprint.isInLoop().toBeTruthy() === "boolean");
+    expect(typeof fingerprint.isInLoop()).toBe("boolean");
   });
 
   await t.it("getSuggestion provides actionable advice", () => {

@@ -1406,7 +1406,7 @@ describe("ToolExecutor", () => {
         maxWorkers: 1,
       });
 
-      await expect(pool.acquire().rejects).toThrow(/Creation failed/);
+      await expect(pool.acquire()).rejects.toThrow(/Creation failed/);
     });
 
     it("should ignore release of destroyed worker", async () => {

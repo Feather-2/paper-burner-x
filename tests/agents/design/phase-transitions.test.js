@@ -325,5 +325,5 @@ it("DesignAgentLoop runs repair + final review when enabled", async () => {
 
   expect(transitions.includes(DesignPhase.REPAIR)).toBeTruthy();
   expect(transitions.includes(DesignPhase.REVIEWING)).toBeTruthy();
-  expect(transitions.at(-1).toBeTruthy() === DesignPhase.COMPLETED);
+  expect(transitions.at(-1)).toBe(DesignPhase.COMPLETED);
 });
