@@ -400,7 +400,7 @@ it("Design: generateBatch injects brainstorm outputs and patches placeholder dat
   const selectedIdeas = [
     {
       slideIntentId: "s1",
-      atmosphere: { mood: "Neo noir", colorScheme: "Indigo + cyan accents"sualWeight: "Heavy" },
+      atmosphere: { mood: "Neo noir", colorScheme: "Indigo + cyan accents", visualWeight: "Heavy" },
       elementsMarkdown: "- Strong title hierarchy\n- Full-bleed hero image\n- Subtle grid texture",
       visualSlots: [
         {

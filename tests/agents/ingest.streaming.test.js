@@ -24,9 +24,9 @@ it("Ingest streaming: ByteBuffer append/slice/indexOf/consume", async () => {
   buf.append([5, 6, 7]);
 
   expect(buf.length).toBe(7);
-  expect(buf.indexOf([3).toBe(4, 5]), 2);
+  expect(buf.indexOf([3, 4, 5])).toBe(2);
   expect(buf.indexOf([9])).toBe(-1);
-  expect(Array.from(buf.slice(1).toEqual(4)), [2, 3, 4]);
+  expect(Array.from(buf.slice(1, 4))).toEqual([2, 3, 4]);
   expect(Array.from(buf.slice(-2))).toEqual([6, 7]);
 
   // Cover compaction + growth paths deterministically.
@@ -35,17 +35,17 @@ it("Ingest streaming: ByteBuffer append/slice/indexOf/consume", async () => {
   big.consume(100); // leave room at the front
   big.append(new Uint8Array(70).fill(2)); // triggers compaction (end+len exceeds cap but required fits)
   expect(big.length).toBe(170);
-  expect(big.indexOf([2).toBe(2, 2]), 100);
+  expect(big.indexOf([2, 2, 2])).toBe(100);
   big.append(new Uint8Array(300).fill(3)); // triggers growth
   expect(big.length).toBe(470);
-  expect(big.indexOf([3).toBe(3, 3]), 170);
+  expect(big.indexOf([3, 3, 3])).toBe(170);
 
   buf.consume(3);
   expect(buf.length).toBe(4);
   expect(Array.from(buf.slice())).toEqual([4, 5, 6, 7]);
 
   buf.append(new Uint8Array(250).fill(8)); // triggers compaction (end+len exceeds cap but required fits)
-  expect(buf.indexOf([5).toBe(6, 7]), 1);
+  expect(buf.indexOf([5, 6, 7])).toBe(1);
 });
 
 it("Ingest streaming: BaseAdapter.parseStream matches normalizeText+chunkText (string parts)", async () => {

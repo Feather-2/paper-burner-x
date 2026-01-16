@@ -347,7 +347,7 @@ it("ImageGeneration E2E: over maxCostUSD skips optional slots first (priority or
   expect(report.summary.attempted).toBe(1);
   expect(report.summary.succeeded).toBe(1);
   expect(report.summary.skipped).toBe(2);
-  expect(report.tasks.find((t).toBeTruthy() => t.slotId === "img_critical")?.status === "success");
-  expect(report.tasks.find((t).toBeTruthy() => t.slotId === "img_optional_1")?.status === "skipped");
-  expect(report.tasks.find((t).toBeTruthy() => t.slotId === "img_optional_2")?.status === "skipped");
+  expect(report.tasks.find(t => t.slotId === "img_critical")?.status).toBe("success");
+  expect(report.tasks.find(t => t.slotId === "img_optional_1")?.status).toBe("skipped");
+  expect(report.tasks.find(t => t.slotId === "img_optional_2")?.status).toBe("skipped");
 });

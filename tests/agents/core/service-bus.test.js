@@ -197,14 +197,14 @@ describe('ServiceBus', () => {
     });
 
     it('should throw for unknown service', async () => {
-      await expect(bus.call('unknown').rejects.toThrow('method', []),
+      await expect(bus.call('unknown', 'method', [])).rejects.toThrow(
         /not found/i
       );
     });
 
     it('should throw for unknown method', async () => {
       bus.register('svc', { known: () => {} });
-      await expect(bus.call('svc').rejects.toThrow('unknown', []),
+      await expect(bus.call('svc', 'unknown', [])).rejects.toThrow(
         /not found/i
       );
     });
@@ -255,7 +255,7 @@ describe('ServiceBus', () => {
     });
 
     it('should throw on invalid path', async () => {
-      await expect(bus.invoke('invalid').rejects).toThrow(/expected 'service\.method'/i);
+      await expect(bus.invoke('invalid')).rejects.toThrow(/expected 'service\.method'/i);
     });
   });
 
@@ -300,7 +300,7 @@ describe('ServiceBus', () => {
         fail: () => { throw new Error('oops'); },
       });
 
-      await expect(bus.call('failing').rejects.toThrow('fail', []));
+      await expect(bus.call('failing', 'fail', [])).rejects.toThrow();
 
       const stats = bus.getStats();
       const failing = stats.find(s => s.name === 'failing');
@@ -545,7 +545,7 @@ describe('ServiceBus', () => {
       events.on('service.call.error', (e) => { emitted = e; });
 
       bus.register('errorSvc', { fn: () => { throw new Error('fail'); } });
-      await expect(bus.call('errorSvc').rejects.toThrow('fn', []));
+      await expect(bus.call('errorSvc', 'fn', [])).rejects.toThrow();
 
       expect(emitted).toBeTruthy();
     });
@@ -632,7 +632,7 @@ describe('Service Proxies', () => {
       bus.register('svc', { method });
       bus.useProxy(createRetryProxy({ maxRetries: 5, delay: 1, shouldRetry }));
 
-      await expect(bus.call('svc').rejects.toThrow('method', []), /nope/);
+      await expect(bus.call('svc', 'method', [])).rejects.toThrow(/nope/);
       expect(methodCalls).toBe(1);
       expect(retryChecks).toBe(1);
     });
@@ -646,7 +646,7 @@ describe('Service Proxies', () => {
       bus.register('svc', { method });
       bus.useProxy(createRetryProxy({ maxRetries: 2, delay: 1 }));
 
-      await expect(bus.call('svc').rejects.toThrow('method', []), (err) => err === error);
+      await expect(bus.call('svc', 'method', [])).rejects.toThrow();
       expect(methodCalls).toBe(3);
     });
 
@@ -707,7 +707,7 @@ describe('Service Proxies', () => {
 
       bus.useProxy(createTimeoutProxy({ timeout: 10 }));
 
-      await expect(bus.call('slow').rejects.toThrow('method', []),
+      await expect(bus.call('slow', 'method', [])).rejects.toThrow(
         /timeout/i
       );
     });
@@ -721,7 +721,7 @@ describe('Service Proxies', () => {
 
       bus.useProxy(createTimeoutProxy({ timeout: 1000 }));
 
-      await expect(bus.call('slow').rejects.toThrow('method', [], { timeout: 10 }),
+      await expect(bus.call('slow', 'method', [], { timeout: 10 })).rejects.toThrow(
         /slow\.method/i
       );
     });

@@ -509,7 +509,7 @@ it("Checkpoint E2E: 保存完整状态并恢复", async () => {
   state.restoreCheckpoint("cp_full_e2e");
 
   const restored = state.toJSON({ includeCheckpoints: false });
-  expect({ ...restored).toEqual(timeline: restored.timeline.slice(0, -1) }, original);
+  expect({ ...restored, timeline: restored.timeline.slice(0, -1) }).toEqual(original);
   expect(restored.timeline.at(-1).name).toBe("deepsearch.checkpoint.restored");
 });
 
