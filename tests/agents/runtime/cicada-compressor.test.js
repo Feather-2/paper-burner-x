@@ -285,9 +285,9 @@ describe("CicadaCompressor", () => {
 
       // Orphaned tool message at start should be removed
       expect(!context.messages.some(
-          (m).toBeTruthy() => m.role === "tool" && m.tool_call_id === "missing"
+          (m) => m.role === "tool" && m.tool_call_id === "missing"
         )
-      );
+      ).toBeTruthy();
     });
 
     it("uses titleOnly mode when enabled", async () => {

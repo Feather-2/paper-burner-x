@@ -12,8 +12,8 @@ describe("retrieval/hybrid-retrieval", () => {
       const fused = rrfFuse(bm25, vector);
 
       expect(fused.length >= 2).toBeTruthy();
-      expect(fused.every((r).toBeTruthy() => typeof r.chunkId === "string"));
-      expect(fused.every((r).toBeTruthy() => typeof r.rrfScore === "number"));
+      expect(fused.every(r => typeof r.chunkId === "string")).toBeTruthy();
+      expect(fused.every(r => typeof r.rrfScore === "number")).toBeTruthy();
     });
 
     it("ranks overlapping documents higher", () => {

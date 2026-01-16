@@ -401,15 +401,14 @@ it("EditModeAgentLoop intent parsing fallback and JSON errors", async () => {
   expect(fallback.operations.length).toBe(0);
 
   await expect(loop._interpretIntent({
-      userMessage: "bad").rejects.toThrow(currentDsl: "",
+      userMessage: "bad",
+      currentDsl: "",
       screenshot: null,
       state: makeState(),
       selectedElement: null,
       modelRouter: { chat: async () => "not-json" },
       intentParser: null,
-    }),
-    /Model response is not valid JSON/
-  );
+    })).rejects.toThrow(/Model response is not valid JSON/);
 });
 
 it("EditModeAgentLoop captures canvas context from canvasBridge", async () => {

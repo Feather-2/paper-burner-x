@@ -10,7 +10,7 @@ it("ReactRefiner: validateStepSchema validates action steps", async () => {
   const { __test } = await loadRefiner();
   const { validateStepSchema } = __test;
 
-  expect(validateStepSchema({ thought: "t").toEqual(action: { tool: "editSlide", params: { slideIndex: 0, changes: { title: "X" } } } }),
+  expect(validateStepSchema({ thought: "t", action: { tool: "editSlide", params: { slideIndex: 0, changes: { title: "X" } } } })).toEqual(
     { valid: true }
   );
 
@@ -18,22 +18,22 @@ it("ReactRefiner: validateStepSchema validates action steps", async () => {
   expect(validateStepSchema(null).error).toMatch(/Step must be a JSON object/);
 
   expect(validateStepSchema({}).error).toMatch(/either 'action' or 'finish'/);
-  expect(validateStepSchema({ action: {}).toMatch(finish: {} }).error, /cannot have both/);
+  expect(validateStepSchema({ action: {}, finish: {} }).error).toMatch(/cannot have both/);
 
-  expect(validateStepSchema({ action: { tool: "").toMatch(params: {} } }).error, /must specify 'tool'/);
-  expect(validateStepSchema({ action: { tool: "editSlide").toMatch(params: null } }).error, /provide 'params' object/);
+  expect(validateStepSchema({ action: { tool: "", params: {} } }).error).toMatch(/must specify 'tool'/);
+  expect(validateStepSchema({ action: { tool: "editSlide", params: null } }).error).toMatch(/provide 'params' object/);
 });
 
 it("ReactRefiner: validateStepSchema validates finish steps and catches errors", async () => {
   const { __test } = await loadRefiner();
   const { validateStepSchema } = __test;
 
-  expect(validateStepSchema({ finish: { qualityScore: 7).toEqual(remainingIssues: 3, refinements: [] } }), { valid: true });
+  expect(validateStepSchema({ finish: { qualityScore: 7, remainingIssues: 3, refinements: [] } })).toEqual({ valid: true });
 
-  expect(validateStepSchema({ finish: { qualityScore: 0).toMatch(remainingIssues: 0, refinements: [] } }).error, /qualityScore must be 1-10/);
-  expect(validateStepSchema({ finish: { qualityScore: 11).toMatch(remainingIssues: 0, refinements: [] } }).error, /qualityScore must be 1-10/);
-  expect(validateStepSchema({ finish: { qualityScore: 7).toMatch(remainingIssues: -1, refinements: [] } }).error, /remainingIssues must be >= 0/);
-  expect(validateStepSchema({ finish: { qualityScore: 7).toMatch(remainingIssues: 0, refinements: "nope" } }).error, /refinements array/);
+  expect(validateStepSchema({ finish: { qualityScore: 0, remainingIssues: 0, refinements: [] } }).error).toMatch(/qualityScore must be 1-10/);
+  expect(validateStepSchema({ finish: { qualityScore: 11, remainingIssues: 0, refinements: [] } }).error).toMatch(/qualityScore must be 1-10/);
+  expect(validateStepSchema({ finish: { qualityScore: 7, remainingIssues: -1, refinements: [] } }).error).toMatch(/remainingIssues must be >= 0/);
+  expect(validateStepSchema({ finish: { qualityScore: 7, remainingIssues: 0, refinements: "nope" } }).error).toMatch(/refinements array/);
 });
 
 it("ReactRefiner: validateFinishConditions accepts valid finish data (AI decides quality)", async () => {
@@ -41,11 +41,11 @@ it("ReactRefiner: validateFinishConditions accepts valid finish data (AI decides
   const { validateFinishConditions } = __test;
 
   // AI 自主决定质量，只要数据格式有效就接受
-  expect(validateFinishConditions({ qualityScore: 7).toEqual(remainingIssues: 3 }), { accepted: true });
-  expect(validateFinishConditions({ qualityScore: 6).toEqual(remainingIssues: 0 }), { accepted: true });
-  expect(validateFinishConditions({ qualityScore: 9).toEqual(remainingIssues: 4 }), { accepted: true });
+  expect(validateFinishConditions({ qualityScore: 7, remainingIssues: 3 })).toEqual({ accepted: true });
+  expect(validateFinishConditions({ qualityScore: 6, remainingIssues: 0 })).toEqual({ accepted: true });
+  expect(validateFinishConditions({ qualityScore: 9, remainingIssues: 4 })).toEqual({ accepted: true });
   // 无效数据仍然拒绝
-  expect(validateFinishConditions({ qualityScore: "x").toMatch(remainingIssues: 0 }).reason, /Invalid finish data/);
+  expect(validateFinishConditions({ qualityScore: "x", remainingIssues: 0 }).reason).toMatch(/Invalid finish data/);
 });
 
 it("ReactRefiner: getAvailableTools differs between generation and edit", async () => {

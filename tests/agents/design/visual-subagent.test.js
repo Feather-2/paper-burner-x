@@ -152,7 +152,7 @@ it("VisualSubAgent: infers render types and aspect ratios", async () => {
   const visualSlots = [
     { slotId: "hero_slot", renderType: "ai-image", position: { w: "80%", h: "50%" }, slideIndex: 0 },
     { slotId: "svg_slot", svgSpec: { description: "Diagram" }, slideIndex: 1 },
-    { slotId: "chart_slot"sualType: "chart", slideIndex: 2 },
+    { slotId: "chart_slot", visualType: "chart", slideIndex: 2 },
     { slotId: "default_slot", slideIndex: 3 },
   ];
 

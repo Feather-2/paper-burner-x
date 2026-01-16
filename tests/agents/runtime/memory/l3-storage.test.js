@@ -34,11 +34,11 @@ function spyReadFile(vfs) {
 describe("L3Storage", () => {
   it("validates constructor options (requires vfs and runId)", () => {
     expect(() => new L3Storage()).toThrow(/requires\s+\{\s*vfs\s*\}/i);
-    expect(() => new L3Storage({ vfs: new MemoryVfs().toThrow() }), /requires\s+\{\s*runId\s*\}/i);
+    expect(() => new L3Storage({ vfs: new MemoryVfs() })).toThrow(/requires\s+\{\s*runId\s*\}/i);
 
     expect(() => new L3Storage({ vfs: {}, runId: "run_1" })).toThrow(/vfs\.readFile/i);
-    expect(() => new L3Storage({ vfs: { readFile().toThrow() {} }, runId: "run_1" }), /vfs\.writeFile/i);
-    expect(() => new L3Storage({ vfs: { readFile().toThrow() {}, writeFile() {} }, runId: "run_1" }),
+    expect(() => new L3Storage({ vfs: { readFile() {} }, runId: "run_1" })).toThrow(/vfs\.writeFile/i);
+    expect(() => new L3Storage({ vfs: { readFile() {}, writeFile() {} }, runId: "run_1" })).toThrow(
       /vfs\.mkdir/i
     );
   });

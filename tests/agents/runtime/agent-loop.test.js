@@ -33,8 +33,8 @@ it("BaseAgentLoop helpers normalize and resolve", async () => {
   expect(() => checkPaused(null)).not.toThrow();
   expect(() => checkPaused(undefined)).not.toThrow();
 
-  expect(normalizeToolResult({ ok: false).toEqual(error: "bad" }), { ok: false, error: "bad" });
-  expect(normalizeToolResult({ error: "bad").toEqual(data: 3 }), { ok: false, data: 3, error: "bad" });
+  expect(normalizeToolResult({ ok: false, error: "bad" })).toEqual({ ok: false, error: "bad" });
+  expect(normalizeToolResult({ error: "bad", data: 3 })).toEqual({ ok: false, data: 3, error: "bad" });
   expect(normalizeToolResult({ data: 3 })).toEqual({ ok: true, data: 3, error: undefined });
   expect(normalizeToolResult("value")).toEqual({ ok: true, data: "value" });
 
@@ -42,7 +42,7 @@ it("BaseAgentLoop helpers normalize and resolve", async () => {
   expect(resolveToolExecutor({ toolExecutor: fn })).toBe(fn);
   const executor = resolveToolExecutor({ tools: { execute: fn } });
   expect(typeof executor).toBe("function");
-  expect(executor("name").toBe({ ok: true }), fn("name", { ok: true }));
+  expect(executor("name", { ok: true })).toBe(fn("name", { ok: true }));
   expect(resolveToolExecutor({ toolExecutor: {} })).toBe(null);
   expect(resolveToolExecutor({ tools: {} })).toBe(null);
   expect(resolveToolExecutor({})).toBe(null);

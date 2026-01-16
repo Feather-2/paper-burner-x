@@ -281,7 +281,7 @@ it("VFS: MemoryVfs directory tree + mkdir/rmdir/unlink", async () => {
   expect(aStat.isDirectory()).toBe(true);
 
   expect(await vfs.readdir("a")).toEqual(["b.txt"]);
-  expect(await vfs.listFiles({ prefix: "a").toEqual(recursive: true }), ["a/b.txt"]);
+  expect(await vfs.listFiles({ prefix: "a", recursive: true })).toEqual(["a/b.txt"]);
   expect(await vfs.listFiles({ prefix: "a/b.txt" })).toEqual(["a/b.txt"]);
 
   await vfs.copy("a/b.txt", "a/c.txt");
@@ -806,7 +806,7 @@ it("Runtime Core: EventBus subscribe with wildcard pattern", async () => {
 
   expect(deepSearchEvents.length).toBe(2);
   expect(designEvents.length).toBe(1);
-  expect(deepSearchEvents.every((e).toBeTruthy() => e.name.startsWith("deepsearch.")));
+  expect(deepSearchEvents.every((e) => e.name.startsWith("deepsearch."))).toBeTruthy();
 });
 
 it("Runtime Core: EventBus subscribe returns unsubscribe function", async () => {
@@ -1746,7 +1746,7 @@ it("Runtime: command classifier parses compound commands and flags danger", asyn
   const { classifyCommand, parseCompoundCommand } = await import("../../js/agents/runtime/safety/command-classifier.js");
 
   expect(parseCompoundCommand("echo hi && ls")).toEqual([["echo", "hi"], ["ls"]]);
-  expect(classifyCommand(["ls").toBe("-la"]).level, "safe");
+  expect(classifyCommand(["ls", "-la"]).level).toBe("safe");
   expect(classifyCommand("unknowncmd").level).toBe("unknown");
 
   const dangerous = classifyCommand("rm -rf /");

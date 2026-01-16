@@ -763,10 +763,10 @@ describe("createEventRecord", () => {
 describe("RunStoreAdapter", () => {
   it("should validate constructor args", () => {
     expect(() => new RunStoreAdapter(null)).toThrow(/getEvents must be a function/i);
-    expect(() => new RunStoreAdapter({ appendEvents().toThrow() {} }),
+    expect(() => new RunStoreAdapter({ appendEvents() {} })).toThrow(
       /getEvents must be a function/i
     );
-    expect(() => new RunStoreAdapter({ getEvents().toThrow() {} }),
+    expect(() => new RunStoreAdapter({ getEvents() {} })).toThrow(
       /appendEvents\/appendEvent must be a function/i
     );
   });

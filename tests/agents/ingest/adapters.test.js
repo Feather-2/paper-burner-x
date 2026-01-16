@@ -134,13 +134,13 @@ it("BaseAdapter: _validateChunks detects invalid chunks", async () => {
   const { BaseAdapter } = await import("../../../js/agents/ingest/adapters/base.js");
   const adapter = new BaseAdapter();
 
-  expect(adapter._validateChunks([]).toEqual({}), { ok: true, reason: "empty" });
-  expect(adapter._validateChunks([{ text: "" }]).toEqual({}), { ok: false, reason: "chunk_missing_text" });
-  expect(adapter._validateChunks([{ text: "ok" }]).toEqual({}), { ok: false, reason: "chunk_missing_locator" });
-  expect(adapter._validateChunks([{ text: "ok").toEqual(locator: { charStart: 10, charEnd: 5 } }], {}), { ok: false, reason: "chunk_bad_locator" });
+  expect(adapter._validateChunks([])).toEqual({ ok: true, reason: "empty" });
+  expect(adapter._validateChunks([{ text: "" }])).toEqual({ ok: false, reason: "chunk_missing_text" });
+  expect(adapter._validateChunks([{ text: "ok" }])).toEqual({ ok: false, reason: "chunk_missing_locator" });
+  expect(adapter._validateChunks([{ text: "ok", locator: { charStart: 10, charEnd: 5 } }])).toEqual({ ok: false, reason: "chunk_bad_locator" });
 
   const validChunk = { text: "hello", locator: { charStart: 0, charEnd: 5 } };
-  expect(adapter._validateChunks([validChunk]).toEqual({ maxSize: 100 }), { ok: true });
+  expect(adapter._validateChunks([validChunk], { maxSize: 100 })).toEqual({ ok: true });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

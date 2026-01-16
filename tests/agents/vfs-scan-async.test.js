@@ -29,9 +29,9 @@ describe("vfs-scan-async", () => {
   describe("terminateScanWorker", () => {
     it("does nothing when no worker exists", () => {
       // 应该不抛错
-      expect(().not.toThrow() => {
+      expect(() => {
         terminateScanWorker();
-      });
+      }).not.toThrow();
     });
 
     it("can be called multiple times safely", () => {

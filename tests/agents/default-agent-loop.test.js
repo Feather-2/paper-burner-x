@@ -243,10 +243,10 @@ it("formatUserInputs handles various payload types", async () => {
   expect(loop.formatUserInputs([{ payload: { foo: "bar" } }])).toBe('{"foo":"bar"}');
 
   // null payload 会回退到 item 本身并序列化
-  expect(loop.formatUserInputs([{ payload: null }).toBe({ payload: "valid" }]), '{"payload":null}\nvalid');
+  expect(loop.formatUserInputs([{ payload: null }, { payload: "valid" }])).toBe('{"payload":null}\nvalid');
 
   // 纯 null 作为 item 会跳过
-  expect(loop.formatUserInputs([null).toBe("direct"]), "direct");
+  expect(loop.formatUserInputs([null, "direct"])).toBe("direct");
 
   // 空数组
   expect(loop.formatUserInputs([])).toBe("");

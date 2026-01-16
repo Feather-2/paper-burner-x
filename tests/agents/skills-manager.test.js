@@ -717,7 +717,7 @@ describe("SkillsManager", () => {
 
       const results = await Promise.all(promises);
 
-      expect(results.every((r).toBeTruthy() => r.skills.length === 1));
+      expect(results.every(r => r.skills.length === 1)).toBeTruthy();
     });
 
     it("should handle concurrent calls to different cwds", async () => {

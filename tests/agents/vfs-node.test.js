@@ -72,7 +72,7 @@ describe("NodeFsVfs", () => {
       const ab = new ArrayBuffer(6);
       new Uint8Array(ab).set([0x00, 0x01, 0x02, 0x03, 0x04, 0x05]);
       const view = new Uint8Array(ab, 2, 3);
-      await vfs.writeFile("offset.bin"ew);
+      await vfs.writeFile("offset.bin", view);
       const buf = await fs.readFile(path.join(tmpDir, "offset.bin"));
       expect([...buf]).toEqual([0x02, 0x03, 0x04]);
     });

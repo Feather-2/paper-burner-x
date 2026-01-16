@@ -59,7 +59,7 @@ describe("Layout Generator", () => {
 
     it("should generate two-column layout", () => {
       const intent = { slideIntentId: "s2", title: "Overview", keyPoints: ["Point 1", "Point 2"] };
-      const plan = { layoutHint: "two-column"sualFocus: "right" };
+      const plan = { layoutHint: "two-column", visualFocus: "right" };
       const html = generateLayoutHtml(intent, plan);
       expect(html.includes("layout-two-column")).toBeTruthy();
       expect(html.includes("layout-split")).toBeTruthy();

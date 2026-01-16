@@ -50,11 +50,11 @@ describe("design-phases helpers", () => {
     });
 
     it("should return true when both are present", () => {
-      expect(hasImagePlanningConfig({ imagePolicy: "aggressive").toBe(imageBudget: 20 }), true);
+      expect(hasImagePlanningConfig({ imagePolicy: "aggressive", imageBudget: 20 })).toBe(true);
     });
 
     it("should return false for unrelated keys", () => {
-      expect(hasImagePlanningConfig({ maxSlides: 10).toBe(tone: "formal" }), false);
+      expect(hasImagePlanningConfig({ maxSlides: 10, tone: "formal" })).toBe(false);
     });
   });
 
@@ -139,15 +139,15 @@ describe("design-phases emitStage helper", () => {
   });
 
   it("should handle null emit gracefully", () => {
-    expect(().not.toThrow() => {
+    expect(() => {
       emitStage(null, "design.test", "test", {});
-    });
+    }).not.toThrow();
   });
 
   it("should handle undefined emit gracefully", () => {
-    expect(().not.toThrow() => {
+    expect(() => {
       emitStage(undefined, "design.test", "test", {});
-    });
+    }).not.toThrow();
   });
 });
 

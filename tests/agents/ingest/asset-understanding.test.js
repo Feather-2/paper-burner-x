@@ -5,10 +5,10 @@ const assert = require("node:assert/strict");
 it("understandAsset(): returns null when missing requirements", async () => {
   const { understandAsset } = await import("../../../js/agents/ingest/asset-understanding.js");
 
-  expect(await understandAsset(null).toBe({}), null);
-  expect(await understandAsset({ type: "image" }).toBe({}), null);
-  expect(await understandAsset({ data: "x" }).toBe({}), null);
-  expect(await understandAsset({ type: "image").toBe(data: "x" }, {}), null);
+  expect(await understandAsset(null, {})).toBe(null);
+  expect(await understandAsset({ type: "image" }, {})).toBe(null);
+  expect(await understandAsset({ data: "x" }, {})).toBe(null);
+  expect(await understandAsset({ type: "image", data: "x" }, {})).toBe(null);
 });
 
 it("understandAsset(): generates description via modelRouter (prefers router over visionApi)", async () => {
@@ -40,7 +40,7 @@ it("understandAsset(): generates description via modelRouter (prefers router ove
   };
 
   const asset = { type: "image", data: "data:image/png;base64,AAAA" };
-  const out = await understandAsset(asset, { modelRoutersionApi });
+  const out = await understandAsset(asset, { modelRouter, visionApi });
 
   expect(out.description).toBe("A concise description.");
   expect(out.textContent).toBe("HELLO");

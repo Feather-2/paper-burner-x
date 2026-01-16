@@ -79,9 +79,9 @@ it("rrfFuse: respects weight parameters", async () => {
 it("rrfFuse: handles empty inputs", async () => {
   const { rrfFuse } = await loadHybrid();
 
-  expect(rrfFuse([]).toEqual([], {}), []);
-  expect(rrfFuse([{ chunkId: "a").toBe(score: 1 }], [], { limit: 10 }).length, 1);
-  expect(rrfFuse([]).toBe([{ chunkId: "b", score: 1 }], { limit: 10 }).length, 1);
+  expect(rrfFuse([], [], {})).toEqual([]);
+  expect(rrfFuse([{ chunkId: "a", score: 1 }], [], { limit: 10 }).length).toBe(1);
+  expect(rrfFuse([], [{ chunkId: "b", score: 1 }], { limit: 10 }).length).toBe(1);
 });
 
 it("rrfFuse: ignores invalid chunkIds", async () => {
@@ -189,10 +189,10 @@ it("hybridSearch: fallback=false throws on vector failure", async () => {
   const vectorSearchFn = async () => { throw new Error("boom"); };
 
   await expect(hybridSearch(
-      { bm25Index: {}).rejects.toThrow(vectorIndex: {} },
+      { bm25Index: {}, vectorIndex: {} },
       "query",
       { limit: 3, rrfK: 1, bm25SearchFn, vectorSearchFn, fallback: false }
-    ),
+    )).rejects.toThrow(
     /vector search failed/i
   );
 });
@@ -403,9 +403,9 @@ it("mmrSelect: respects seed items", async () => {
 it("mmrSelect: handles empty/null inputs", async () => {
   const { mmrSelect } = await loadMmr();
 
-  expect(mmrSelect(null).toEqual({ topK: 5 }), []);
-  expect(mmrSelect([]).toEqual({ topK: 5 }), []);
-  expect(mmrSelect([{ chunkId: "a").toEqual(text: "x", score: 1 }], { topK: 0 }), []);
+  expect(mmrSelect(null, { topK: 5 })).toEqual([]);
+  expect(mmrSelect([], { topK: 5 })).toEqual([]);
+  expect(mmrSelect([{ chunkId: "a", text: "x", score: 1 }], { topK: 0 })).toEqual([]);
 });
 
 it("mmrSelect: skips entries without valid chunkId", async () => {

@@ -86,9 +86,9 @@ it("design.slide.started event payload includes complete slideIntent fields", as
     expect(slideIntent.title, `event ${i}: slideIntent should have title`).toBeTruthy();
     expect(slideIntent.pageType, `event ${i}: slideIntent should have pageType`).toBeTruthy();
     expect(slideIntent.objective, `event ${i}: slideIntent should have objective`).toBeTruthy();
-    expect(Array.isArray(slideIntent.keyPoints).toBeTruthy(), `event ${i}: slideIntent should have keyPoints array`);
-    expect(Array.isArray(slideIntent.claimIds).toBeTruthy(), `event ${i}: slideIntent should have claimIds array`);
-    expect(Array.isArray(slideIntent.dataTableIds).toBeTruthy(), `event ${i}: slideIntent should have dataTableIds array`);
+    expect(Array.isArray(slideIntent.keyPoints)).toBeTruthy();
+    expect(Array.isArray(slideIntent.claimIds)).toBeTruthy();
+    expect(Array.isArray(slideIntent.dataTableIds)).toBeTruthy();
   }
 
   const s1Event = startedEvents.find((e) => e.record?.payload?.slideIntent?.id === "s1");
@@ -247,7 +247,7 @@ it("generateBatch handles image slots and applies visual slot hints", async () =
   const selectedIdeas = [
     {
       slideIntentId: "s1",
-      atmosphere: { mood: "Professional", colorScheme: "Blue"sualWeight: "Balanced" },
+      atmosphere: { mood: "Professional", colorScheme: "Blue", visualWeight: "Balanced" },
       elementsMarkdown: "- Hero image\n- Title",
       visualSlots: [
         {

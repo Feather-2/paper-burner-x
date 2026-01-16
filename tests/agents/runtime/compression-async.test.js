@@ -216,10 +216,10 @@ describe("compression-async", () => {
   describe("terminateCompressionWorker", () => {
     it("should not throw when called multiple times", () => {
       // Should be safe to call even when no worker exists
-      expect(().not.toThrow() => {
+      expect(() => {
         terminateCompressionWorker();
         terminateCompressionWorker();
-      });
+      }).not.toThrow();
     });
   });
 });

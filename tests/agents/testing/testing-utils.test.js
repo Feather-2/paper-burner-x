@@ -419,7 +419,7 @@ describe("MockEventBus", () => {
 
     it("throws when no payload satisfies predicate", () => {
       bus.emit("data", { value: 1 });
-      expect(() => bus.assertEmittedWith("data", (p).toThrow() => p.value > 100, "value > 100"),
+      expect(() => bus.assertEmittedWith("data", (p) => p.value > 100, "value > 100")).toThrow(
         /satisfy predicate.*value > 100/
       );
     });

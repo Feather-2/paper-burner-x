@@ -132,7 +132,7 @@ describe("middleware-chain", () => {
 
       it("should throw TypeError for invalid middleware in array", () => {
         const chain = new MiddlewareChain();
-        expect(() => chain.useAll([async (ctx, next).toThrow() => next(), "invalid"]),
+        expect(() => chain.useAll([async (ctx, next) => next(), "invalid"])).toThrow(
           TypeError
         );
       });
@@ -693,8 +693,8 @@ describe("middleware-chain", () => {
         throw new Error("failure");
       });
 
-      await expect(() => chain.execute({}));
-      expect(attemptsSeen).toEqual([0).rejects.toThrow(1, 2]);
+      await expect(() => chain.execute({})).rejects.toThrow();
+      expect(attemptsSeen).toEqual([0, 1, 2]);
     });
 
     it("should increase delay with each retry", async () => {

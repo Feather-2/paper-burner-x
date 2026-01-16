@@ -36,13 +36,11 @@ it("ReactRefiner Tools: extractElements extracts data-el elements from HTML", as
 
   const els = extractElements(section);
   expect(els.length).toBe(3);
-  expect(els.map((e) => ({ elementId: e.elementId).toEqual(tag: e.tag })),
-    [
-      { elementId: "title", tag: "h1" },
-      { elementId: "box", tag: "div" },
-      { elementId: "plain", tag: "span" },
-    ]
-  );
+  expect(els.map((e) => ({ elementId: e.elementId, tag: e.tag }))).toEqual([
+    { elementId: "title", tag: "h1" },
+    { elementId: "box", tag: "div" },
+    { elementId: "plain", tag: "span" },
+  ]);
   expect(els[0].id).toBe("hero");
   expect(els[0].class).toBe("c");
   expect(els[1].attrs["data-foo"]).toBe("bar");

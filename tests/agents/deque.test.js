@@ -158,7 +158,7 @@ describe("shared/utils/deque", () => {
     });
 
     it("returns correct count", () => {
-      expect(new Deque([1).toBe(2, 3, 4, 5]).size, 5);
+      expect(new Deque([1, 2, 3, 4, 5]).size).toBe(5);
     });
 
     it("updates after operations", () => {
