@@ -24,12 +24,16 @@ export default defineConfig({
       'tests/history/**/*.test.js',
       'tests/processing/**/*.test.js',
       'tests/agents/core/**/*.test.js',
+      // Exclude node:test suites from vitest
+      '!tests/agents/core/state-bus.test.js',
       'tests/agents/ingest/**/*.vitest.test.js',
       'tests/agents/retrieval/**/*.vitest.test.js',
       'tests/agents/shared/utils/**/*.test.js',
       'tests/agents/vfs/**/*.test.js',
       'tests/agents/plugins/**/*.test.js',
       'tests/agents/skills/**/*.test.js',
+      // Exclude node:test suites from vitest
+      '!tests/agents/skills/skills-render.test.js',
       'tests/agents/storage/**/*.test.js',
       'tests/agents/mcp/**/*.test.js',
       'tests/agents/stages/codesearch/**/*.vitest.test.js',
@@ -42,6 +46,8 @@ export default defineConfig({
       'tests/agents/runtime/compression/quality-monitor.test.js',
       'tests/agents/runtime/core.test.js',
       'tests/agents/runtime/core/**/*.test.js',
+      // Exclude node:test suites from vitest
+      '!tests/agents/runtime/core/message-manager.test.js',
       'tests/agents/runtime/di-defaults-smoke.test.js',
       'tests/agents/runtime/di-singletons.test.js',
       'tests/agents/runtime/file-lock.test.js',
@@ -60,6 +66,7 @@ export default defineConfig({
       'tests/agents/stages/deepsearch/**/*.test.js',
       // Design stage unit tests (Vitest-based only; node:test suites live under the same folder).
       'tests/agents/stages/design/**/*.vitest.test.js',
+      'tests/agents/stages/design/edit-mode/edit-loop.test.js',
       'tests/agents/stages/design/edit-mode-history.test.js',
       'tests/agents/sdk/agent-builder.test.js',
       'tests/agents/sdk/agent-factory.test.js',

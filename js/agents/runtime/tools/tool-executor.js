@@ -369,6 +369,14 @@ export class ToolExecutor {
     Object.assign(this.tools, tools);
   }
 
+  hasTool(name) {
+    return Object.prototype.hasOwnProperty.call(this.tools, name);
+  }
+
+  getTool(name) {
+    return this.tools[name];
+  }
+
   /**
    * 获取工具定义（用于 prompt 注入）
    */

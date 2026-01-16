@@ -135,5 +135,172 @@ describe("runtime/telemetry/token-tracker", () => {
     expect(exportTokenUsageJson()).toContain('"totalCalls": 1');
     expect(exportTokenUsageCsv().split("\n")[0]).toContain("timestamp");
   });
-});
 
+  it("invokes onRecord callback when recording", () => {
+    const callbackRecords = [];
+    const tracker = new TokenTracker({
+      maxRecords: 5,
+      onRecord: (rec) => callbackRecords.push(rec),
+    });
+
+    tracker.record({
+      model: "test-model",
+      provider: "test-provider",
+      usage: "worker",
+      promptTokens: 10,
+      completionTokens: 5,
+      latencyMs: 100,
+    });
+
+    expect(callbackRecords).toHaveLength(1);
+    expect(callbackRecords[0].model).toBe("test-model");
+    expect(callbackRecords[0].totalTokens).toBe(15);
+  });
+
+  it("handles maxRecords <= 0 gracefully (no storage)", () => {
+    const tracker = new TokenTracker({ maxRecords: 0 });
+
+    tracker.record({
+      model: "m",
+      provider: "p",
+      usage: "u",
+      promptTokens: 5,
+      completionTokens: 5,
+      latencyMs: 10,
+    });
+
+    // Stats still accumulated even when records not stored
+    expect(tracker.getSummary().totalCalls).toBe(1);
+    expect(tracker.getSummary().totalTokens).toBe(10);
+
+    // No records stored
+    expect(tracker.getAllRecords()).toHaveLength(0);
+    expect(tracker.getRecentRecords(10)).toHaveLength(0);
+
+    // Clear with maxRecords=0 should not throw
+    tracker.clear();
+    expect(tracker.getSummary().totalCalls).toBe(0);
+  });
+
+  it("getRecords and getTotalTokens aliases work correctly", () => {
+    const tracker = new TokenTracker({ maxRecords: 10 });
+
+    tracker.record({
+      model: "m",
+      provider: "p",
+      usage: "u",
+      promptTokens: 100,
+      completionTokens: 50,
+      latencyMs: 20,
+    });
+
+    // getRecords is alias for getAllRecords
+    expect(tracker.getRecords()).toEqual(tracker.getAllRecords());
+    expect(tracker.getRecords()).toHaveLength(1);
+
+    // getTotalTokens returns cumulative total
+    expect(tracker.getTotalTokens()).toBe(150);
+  });
+
+  it("getRecentRecords returns empty array when limit coerced to 0", () => {
+    const tracker = new TokenTracker({ maxRecords: 10 });
+
+    tracker.record({
+      model: "m",
+      provider: "p",
+      usage: "u",
+      promptTokens: 1,
+      completionTokens: 1,
+      latencyMs: 1,
+    });
+
+    // Negative limit coerced to default 100, but requesting 0 returns empty
+    expect(tracker.getRecentRecords(0)).toHaveLength(0);
+    // Negative coerced to 100 default then clamped to _size
+    expect(tracker.getRecentRecords(-5)).toHaveLength(1);
+  });
+
+  it("defaults null/undefined model, provider, usage to 'unknown'", () => {
+    const tracker = new TokenTracker({ maxRecords: 5 });
+
+    const rec = tracker.record({
+      model: null,
+      provider: undefined,
+      usage: "",
+      promptTokens: 1,
+      completionTokens: 1,
+      latencyMs: 10,
+    });
+
+    // falsy values are replaced with "unknown"
+    expect(rec.model).toBe("unknown");
+    expect(rec.provider).toBe("unknown");
+    expect(rec.usage).toBe("unknown");
+  });
+
+  it("getSummary returns zeros when there are no calls", () => {
+    const tracker = new TokenTracker({ maxRecords: 5 });
+    const summary = tracker.getSummary();
+
+    expect(summary.totalCalls).toBe(0);
+    expect(summary.successRate).toBe(0);
+    expect(summary.avgLatencyMs).toBe(0);
+    expect(summary.avgTokensPerCall).toBe(0);
+  });
+
+  it("getRecentRecords returns correct order after ring buffer wrap-around", () => {
+    const tracker = new TokenTracker({ maxRecords: 3 });
+
+    for (let i = 1; i <= 5; i++) {
+      tracker.record({
+        model: `m${i}`,
+        provider: "p",
+        usage: "u",
+        promptTokens: i,
+        completionTokens: 0,
+        latencyMs: 1,
+      });
+    }
+
+    const recent = tracker.getRecentRecords(3);
+    expect(recent.map((rec) => rec.promptTokens)).toEqual([3, 4, 5]);
+  });
+
+  it("defaults options when constructed without args", () => {
+    const tracker = new TokenTracker();
+
+    expect(tracker.maxRecords).toBe(500);
+    expect(tracker.onRecord).toBeNull();
+
+    tracker.record({
+      model: "m",
+      provider: "p",
+      usage: "u",
+      promptTokens: 1,
+      completionTokens: 1,
+      latencyMs: 1,
+    });
+
+    expect(tracker.getAllRecords()).toHaveLength(1);
+  });
+
+  it("clamps maxRecords to MAX_RECORDS when provided value is too large", () => {
+    const tracker = new TokenTracker({ maxRecords: 900 });
+
+    expect(tracker.maxRecords).toBe(500);
+
+    for (let i = 0; i < 510; i++) {
+      tracker.record({
+        model: "m",
+        provider: "p",
+        usage: "u",
+        promptTokens: i,
+        completionTokens: 0,
+        latencyMs: 1,
+      });
+    }
+
+    expect(tracker.getAllRecords()).toHaveLength(500);
+    expect(tracker.getRecentRecords(5).map((rec) => rec.promptTokens)).toEqual([505, 506, 507, 508, 509]);
+  });
+});

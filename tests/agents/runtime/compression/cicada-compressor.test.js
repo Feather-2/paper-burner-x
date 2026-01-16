@@ -1048,4 +1048,81 @@ describe("runtime/compression/cicada-compressor.js", () => {
     expect(handoffTodos.pending.todos).toEqual([{ content: "pending via title", priority: "high" }]);
     expect(handoffTodos.resumeGuide.nextAction).toBe("pending via title");
   });
+
+  async function loadCicadaInternals() {
+    const [{ readFile }, { fileURLToPath }] = await Promise.all([
+      import("node:fs/promises"),
+      import("node:url"),
+    ]);
+    const cicadaUrl = new URL("../../../../js/agents/runtime/compression/cicada-compressor.js", import.meta.url);
+    const cicadaPath = fileURLToPath(cicadaUrl);
+    const source = await readFile(cicadaUrl, "utf8");
+    const importRe = /^import\s+\{\s*([^}]+)\}\s+from\s+["'][^"']+["'];/gm;
+    let prepared = source.replace(importRe, "const { $1 } = __deps;");
+    if (prepared === source) throw new Error("cicada test hook could not rewrite imports");
+    prepared = prepared.replace(/^export\s+default\s+.*$/gm, "");
+    prepared = prepared.replace(/^export\s+/gm, "");
+
+    const factory = new Function(
+      "__deps",
+      `${prepared}\nreturn { safeStringify, truncateText, containsCjk, toTitle, isMergeSafeMessage };` +
+        `\n//# sourceURL=${cicadaPath}`
+    );
+
+    return factory({
+      isPlainObject: () => false,
+      toNonEmptyString: (value) => (typeof value === "string" && value.trim() ? value : ""),
+      estimateTokensCached: () => 0,
+      robustParseJson: () => null,
+      CicadaEvents: {},
+      makeSecureTimestampedId: () => "archive_test",
+      createLogger: () => ({
+        log: () => {},
+        debug: () => {},
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+      }),
+    });
+  }
+
+  it("truncateText handles maxChars <= 3 without ellipsis", async () => {
+    const { truncateText } = await loadCicadaInternals();
+    expect(truncateText("abcdef", 3)).toBe("abc");
+    expect(truncateText("abcdef", 2)).toBe("ab");
+  });
+
+  it("containsCjk returns false for empty and null inputs", async () => {
+    const { containsCjk } = await loadCicadaInternals();
+    expect(containsCjk("")).toBe(false);
+    expect(containsCjk(null)).toBe(false);
+  });
+
+  it("toTitle falls back to defaults when maxWords/maxChars are non-numeric", async () => {
+    const { toTitle } = await loadCicadaInternals();
+    const byWords = toTitle(
+      "one two three four five six seven eight nine ten eleven twelve",
+      { maxWords: "nope", maxChars: "bad" }
+    );
+    expect(byWords).toBe("one two three four five six seven eight nine ten...");
+
+    const byChars = toTitle("a".repeat(100), { maxWords: "nope", maxChars: "bad" });
+    expect(byChars.length).toBe(83);
+    expect(byChars.endsWith("...")).toBe(true);
+  });
+
+  it("isMergeSafeMessage rejects null/non-object inputs and extra attributes", async () => {
+    const { isMergeSafeMessage } = await loadCicadaInternals();
+    expect(isMergeSafeMessage(null)).toBe(false);
+    expect(isMergeSafeMessage("nope")).toBe(false);
+    expect(isMergeSafeMessage({ role: "assistant", content: "hi", extra: true })).toBe(false);
+    expect(isMergeSafeMessage({ role: "assistant", content: "hi" })).toBe(true);
+  });
+
+  it("safeStringify falls back for circular references", async () => {
+    const { safeStringify } = await loadCicadaInternals();
+    const obj = {};
+    obj.self = obj;
+    expect(safeStringify(obj)).toBe("[object Object]");
+  });
 });

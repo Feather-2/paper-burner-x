@@ -224,4 +224,142 @@ describe("PptxAdapter (vitest)", () => {
     // @ts-expect-error - intentional bad input for runtime validation.
     await expect(adapter.parse(123)).rejects.toThrow(/input must be a path string/i);
   });
+
+  it("mimeFromDataUri handles edge cases (no semicolon, no comma, invalid format)", async () => {
+    delete globalThis.PPTXSlideParser;
+
+    const { PptxAdapter } = await import("../../../../js/agents/ingest/adapters/pptx.js");
+
+    const pptxParser = {
+      parse: vi.fn(async () => ({
+        slides: [
+          {
+            elements: [
+              // No semicolon before comma
+              { type: "image", src: "data:image/png,NOBASE64" },
+              // No comma at all - should be skipped or handled
+              { type: "image", src: "data:image/png;base64" },
+              // Invalid format (no data: prefix) - should be skipped
+              { type: "image", src: "http://example.com/img.png" },
+              // Empty src
+              { type: "image", src: "" },
+            ],
+          },
+        ],
+        metadata: {},
+      })),
+    };
+
+    const adapter = new PptxAdapter();
+    const parsed = await adapter.parse(
+      { name: "edge.pptx", arrayBuffer: vi.fn(async () => new ArrayBuffer(1)) },
+      { pptxParser }
+    );
+
+    // Only data:image/* URIs are processed; the edge cases should be handled gracefully
+    expect(parsed.sourceType).toBe("pptx");
+    // The http:// and empty src should be skipped
+    expect(parsed.assets.length).toBeLessThanOrEqual(2);
+  });
+
+  it("slideTitle returns empty string when no title role element exists", async () => {
+    delete globalThis.PPTXSlideParser;
+
+    const { PptxAdapter } = await import("../../../../js/agents/ingest/adapters/pptx.js");
+
+    const pptxParser = {
+      parse: vi.fn(async () => ({
+        slides: [
+          {
+            elements: [
+              { type: "text", role: "body", content: "Body text only" },
+              { type: "text", content: "No role at all" },
+            ],
+          },
+        ],
+        metadata: { slideCount: 1 },
+      })),
+    };
+
+    const adapter = new PptxAdapter();
+    const parsed = await adapter.parse(
+      { name: "notitle.pptx", arrayBuffer: vi.fn(async () => new ArrayBuffer(1)) },
+      { pptxParser }
+    );
+
+    // Slide header should not include title suffix
+    expect(parsed.markdown).toContain("## Slide 1\n");
+    expect(parsed.markdown).not.toContain("## Slide 1:");
+  });
+
+  it("handles slides with null/undefined elements array", async () => {
+    delete globalThis.PPTXSlideParser;
+
+    const { PptxAdapter } = await import("../../../../js/agents/ingest/adapters/pptx.js");
+
+    const pptxParser = {
+      parse: vi.fn(async () => ({
+        slides: [
+          { elements: null },
+          { elements: undefined },
+          {},
+        ],
+        metadata: { slideCount: 3 },
+      })),
+    };
+
+    const adapter = new PptxAdapter();
+    const parsed = await adapter.parse(
+      { name: "empty.pptx", arrayBuffer: vi.fn(async () => new ArrayBuffer(1)) },
+      { pptxParser }
+    );
+
+    expect(parsed.sourceType).toBe("pptx");
+    expect(parsed.metadata.slideCount).toBe(3);
+    expect(parsed.markdown).toContain("## Slide 1");
+    expect(parsed.markdown).toContain("## Slide 2");
+    expect(parsed.markdown).toContain("## Slide 3");
+  });
+
+  it("uses input.filename when input.name is missing", async () => {
+    delete globalThis.PPTXSlideParser;
+
+    const { PptxAdapter } = await import("../../../../js/agents/ingest/adapters/pptx.js");
+
+    const pptxParser = {
+      parse: vi.fn(async () => ({
+        slides: [],
+        metadata: {},
+      })),
+    };
+
+    const adapter = new PptxAdapter();
+    const parsed = await adapter.parse(
+      { filename: "alt.pptx", arrayBuffer: vi.fn(async () => new ArrayBuffer(1)) },
+      { pptxParser }
+    );
+
+    expect(parsed.origin.filename).toBe("alt.pptx");
+  });
+
+  it("uses input.mimeType when input.type is missing", async () => {
+    delete globalThis.PPTXSlideParser;
+
+    const { PptxAdapter } = await import("../../../../js/agents/ingest/adapters/pptx.js");
+
+    const pptxParser = {
+      parse: vi.fn(async () => ({
+        slides: [],
+        metadata: {},
+      })),
+    };
+
+    const adapter = new PptxAdapter();
+    const parsed = await adapter.parse(
+      { name: "x.pptx", mimeType: "custom/mime", arrayBuffer: vi.fn(async () => new ArrayBuffer(1)) },
+      { pptxParser }
+    );
+
+    expect(parsed.origin.mimeType).toBe("custom/mime");
+  });
 });

@@ -535,6 +535,39 @@ describe("design/agent-loop (DesignAgentLoop)", () => {
     );
   });
 
+  it("_transitionTo stores checkpoint and updates runtimeState when entering RUNNING", async () => {
+    const runtimeState = { status: "running" };
+    const archive = { save: vi.fn(async () => "cp_running") };
+    const loop = new DesignAgentLoop({ archive });
+    loop.emit = vi.fn();
+
+    const checkpointId = await loop._transitionTo(AgentStatus.RUNNING, {
+      runId: "r_checkpoint",
+      stageApi: { signal: { __runtimeState: runtimeState } },
+    });
+
+    expect(checkpointId).toBe("cp_running");
+    expect(runtimeState.lastCheckpointId).toBe("cp_running");
+    expect(loop.statusHistory[0]).toEqual(expect.objectContaining({ to: AgentStatus.RUNNING, checkpointId: "cp_running" }));
+  });
+
+  it("_transitionTo pauses when runtimeState requests pause and preserves checkpoint metadata", async () => {
+    const runtimeState = { status: "paused", pausedReason: "runtime" };
+    const archive = { save: vi.fn(async () => "cp_runtime_pause") };
+    const loop = new DesignAgentLoop({ archive });
+    loop.emit = vi.fn();
+
+    await expect(
+      loop._transitionTo(AgentStatus.RUNNING, { runId: "r_rt_pause", stageApi: { signal: { __runtimeState: runtimeState } } })
+    ).rejects.toBeInstanceOf(StagePausedError);
+
+    expect(loop.loopStatus).toBe(AgentStatus.PAUSED);
+    expect(runtimeState.lastCheckpointId).toBe("cp_runtime_pause");
+    expect(loop.statusHistory[0]).toEqual(
+      expect.objectContaining({ to: AgentStatus.PAUSED, pausedReason: "runtime", checkpointId: "cp_runtime_pause" })
+    );
+  });
+
   it("_savePreActionCheckpoint merges nodeStates and calls archive.save", async () => {
     const archive = { save: vi.fn(async () => "cp_saved") };
     const loop = new DesignAgentLoop({ archive });
@@ -649,6 +682,58 @@ describe("design/agent-loop (DesignAgentLoop)", () => {
     const spawned = await ctx.toolExecutor("spawn_slide_agent", {});
     // phase is STYLE_CONFIRMING => canUseGenerated=false => delegates to base executor
     expect(spawned).toEqual({ ok: true, name: "spawn_slide_agent", via: "base" });
+  });
+
+  it("resumeDesignAgentLoop builds cached generated entries from slideHtmls when slidesMeta is missing", async () => {
+    const stageApi = {
+      archive: {
+        restore: vi.fn(async () => ({
+          nodeStates: {
+            phase: DesignPhase.VISUAL_FILLING,
+            loopStatus: AgentStatus.RUNNING,
+            slideHtmls: ["<section>resume</section>"],
+            contentPackage: { runId: "r_cached" },
+          },
+          metadata: { runId: "r_cached" },
+        })),
+      },
+      runContext: { runId: "r_cached" },
+    };
+
+    const runSpy = vi.spyOn(DesignAgentLoop.prototype, "run").mockImplementation(async function (_content, ctx) {
+      return { toolResult: await ctx.toolExecutor("spawn_slide_agent", {}) };
+    });
+
+    const out = await resumeDesignAgentLoop("cp_cached_generated", stageApi);
+    expect(out.toolResult.generated).toEqual([{ slideHtml: "<section>resume</section>", source: "resume" }]);
+    runSpy.mockRestore();
+  });
+
+  it("resumeDesignAgentLoop short-circuits parse_outline even when resumeState slideIntents is empty", async () => {
+    const stageApi = {
+      archive: {
+        restore: vi.fn(async () => ({
+          nodeStates: {
+            phase: DesignPhase.STYLE_EXTRACTING,
+            loopStatus: AgentStatus.PAUSED,
+            contentPackage: { runId: "r_outline", slideIntents: [{ slideIntentId: "s1" }] },
+          },
+          metadata: { runId: "r_outline" },
+        })),
+      },
+      runContext: { runId: "r_outline" },
+      toolExecutor: vi.fn(async () => ({ ok: true, via: "base" })),
+    };
+
+    const runSpy = vi.spyOn(DesignAgentLoop.prototype, "run").mockImplementation(async function (_content, ctx) {
+      return { toolResult: await ctx.toolExecutor("parse_outline", {}) };
+    });
+
+    const out = await resumeDesignAgentLoop("cp_outline", stageApi);
+    expect(out.toolResult.slideIntents).toEqual([]);
+    expect(out.toolResult.contentPackage).toMatchObject({ runId: "r_outline" });
+    expect(stageApi.toolExecutor).not.toHaveBeenCalled();
+    runSpy.mockRestore();
   });
 
   it("resumeDesignAgentLoop validates snapshot and contentPackage presence (edge cases)", async () => {
@@ -833,6 +918,51 @@ describe("design/agent-loop (DesignAgentLoop)", () => {
     endSpy.mockRestore();
   });
 
+  it("_runCore rethrows StagePausedError and does not mark the run failed", async () => {
+    const loop = new DesignAgentLoop();
+    const endSpy = vi.spyOn(loop, "_endStep");
+    const transitionSpy = vi.spyOn(loop, "_transitionTo");
+    const { createLifecycleEmitter } = await import("../../../../js/agents/runtime/core/lifecycle.js");
+
+    runPreparationPhase.mockImplementationOnce(async (_loop, { startExecution }) => {
+      await startExecution("prep", { from: "test" });
+      throw new StagePausedError("paused", { checkpointId: "cp_stage_pause" });
+    });
+
+    await expect(loop._runCore({ runId: "r_stage_pause", slideIntents: [] }, {})).rejects.toBeInstanceOf(StagePausedError);
+
+    expect(endSpy).toHaveBeenCalledWith(null, expect.objectContaining({ status: "failed", error: "paused" }));
+    expect(transitionSpy.mock.calls.some(([status]) => status === AgentStatus.FAILED)).toBe(false);
+
+    const lifecycle = createLifecycleEmitter.mock.results[createLifecycleEmitter.mock.results.length - 1]?.value;
+    expect(lifecycle.failed).not.toHaveBeenCalled();
+
+    transitionSpy.mockRestore();
+    endSpy.mockRestore();
+  });
+
+  it("_runCore rethrows BacktrackError without ending the step or failing", async () => {
+    const loop = new DesignAgentLoop();
+    const endSpy = vi.spyOn(loop, "_endStep");
+    const transitionSpy = vi.spyOn(loop, "_transitionTo");
+    const { createLifecycleEmitter } = await import("../../../../js/agents/runtime/core/lifecycle.js");
+
+    runPreparationPhase.mockImplementationOnce(async () => {
+      throw new BacktrackError(DesignPhase.GENERATING, "cp_backtrack", "auto");
+    });
+
+    await expect(loop._runCore({ runId: "r_backtrack", slideIntents: [] }, {})).rejects.toBeInstanceOf(BacktrackError);
+
+    expect(endSpy).not.toHaveBeenCalled();
+    expect(transitionSpy.mock.calls.some(([status]) => status === AgentStatus.FAILED)).toBe(false);
+
+    const lifecycle = createLifecycleEmitter.mock.results[createLifecycleEmitter.mock.results.length - 1]?.value;
+    expect(lifecycle.failed).not.toHaveBeenCalled();
+
+    transitionSpy.mockRestore();
+    endSpy.mockRestore();
+  });
+
   it("_runCore returns empty output when phase.status is not DesignPhase.GENERATING (fallback path)", async () => {
     const loop = new DesignAgentLoop();
 
@@ -896,6 +1026,20 @@ describe("design/agent-loop (DesignAgentLoop)", () => {
     loop.eventBus = null;
 
     expect(() => loop._emitAgentStatusChanged({ from: "X", to: "Y" })).not.toThrow();
+  });
+
+  it("_emitAgentStatusChanged falls back to eventBus.emit when emit is unset", () => {
+    const loop = new DesignAgentLoop();
+    const eventBus = { emit: vi.fn() };
+    loop.emit = null;
+    loop.eventBus = eventBus;
+
+    loop._emitAgentStatusChanged({ from: AgentStatus.IDLE, to: AgentStatus.RUNNING });
+
+    expect(eventBus.emit).toHaveBeenCalledWith(
+      "design.agent.status.changed",
+      expect.objectContaining({ payload: expect.objectContaining({ to: AgentStatus.RUNNING }) })
+    );
   });
 
   it("hydrateFromNodeStates handles non-object source and non-object this.state (edges)", () => {
@@ -1038,6 +1182,22 @@ describe("design/agent-loop (DesignAgentLoop)", () => {
     expect(eventBus.enableBackpressure).not.toHaveBeenCalled();
   });
 
+  it("run() backpressure does not re-enable when already enabled", async () => {
+    const loop = new DesignAgentLoop();
+    const eventBus = {
+      enableBackpressure: vi.fn(),
+      _backpressure: { enabled: true },
+    };
+
+    runPreparationPhase.mockImplementationOnce(async () => {
+      throw new Error("stop");
+    });
+
+    await expect(loop._runCore({ runId: "r_backpressure_enabled", slideIntents: [] }, { eventBus })).rejects.toThrow("stop");
+
+    expect(eventBus.enableBackpressure).not.toHaveBeenCalled();
+  });
+
   it("run() backpressure config merges enableBackpressure options when cfg is an object", async () => {
     const loop = new DesignAgentLoop();
     const eventBus = {
@@ -1079,6 +1239,90 @@ describe("design/agent-loop (DesignAgentLoop)", () => {
     expect(traceContext.withSpan).toHaveBeenCalledWith("design.phase.preparation", expect.any(Function));
     expect(traceContext.withSpan).toHaveBeenCalledWith("design.phase.planning", expect.any(Function));
     expect(spanSetAttributes).toHaveBeenCalledWith(expect.objectContaining({ runId: "r_trace_spans" }));
+  });
+
+  it("run() watchdog intervention fires on deck update health check (deck path)", async () => {
+    const loop = new DesignAgentLoop();
+    const { emitStage, buildDesignWatchdogAdvice } = await import("../../../../js/agents/stages/design/design-helpers.js");
+
+    const watchdog = {
+      reset: vi.fn(),
+      configure: vi.fn(),
+      tick: vi.fn(),
+      recordOutput: vi.fn(),
+      resetOscillation: vi.fn(),
+      checkHealth: vi.fn(() => ({ healthy: false, issues: ["loop"], stats: { iterations: 2 } })),
+    };
+
+    runGeneratingPhase.mockImplementationOnce(async (_loop, args) => {
+      args.emitDeckUpdate?.("<section>deck</section>", [{ slideIntentId: "s1" }], { source: "gen" });
+      return {
+        generated: [],
+        slideHtmls: [],
+        slidesMeta: [],
+        imageSlots: [],
+        baseDeckHtmlDsl: "<section>deck</section>",
+        pendingImages: [],
+        brainstormResult: null,
+        degradedCount: 0,
+      };
+    });
+
+    const emit = vi.fn();
+    await loop._runCore({ runId: "r_watchdog_deck", slideIntents: [] }, { emit, watchdog });
+
+    expect(watchdog.recordOutput).toHaveBeenCalledWith(expect.stringContaining("deck_update"));
+    expect(buildDesignWatchdogAdvice).toHaveBeenCalledWith(["loop"]);
+    expect(watchdog.resetOscillation).toHaveBeenCalled();
+    expect(emitStage).toHaveBeenCalledWith(
+      emit,
+      "design.watchdog.intervention",
+      "warn",
+      expect.objectContaining({ runId: "r_watchdog_deck", source: "gen", issues: ["loop"] })
+    );
+  });
+
+  it("run() watchdog throttles repeated interventions within 1500ms (deck path)", async () => {
+    const loop = new DesignAgentLoop();
+    const { buildDesignWatchdogAdvice } = await import("../../../../js/agents/stages/design/design-helpers.js");
+
+    const watchdog = {
+      reset: vi.fn(),
+      configure: vi.fn(),
+      tick: vi.fn(),
+      recordOutput: vi.fn(),
+      resetOscillation: vi.fn(),
+      checkHealth: vi.fn(() => ({ healthy: false, issues: ["loop"], stats: {} })),
+    };
+
+    runGeneratingPhase.mockImplementationOnce(async (_loop, args) => {
+      args.emitDeckUpdate?.("<section>a</section>", [], { source: "gen" });
+      args.emitDeckUpdate?.("<section>b</section>", [], { source: "gen" });
+      return {
+        generated: [],
+        slideHtmls: [],
+        slidesMeta: [],
+        imageSlots: [],
+        baseDeckHtmlDsl: "<section>a</section>",
+        pendingImages: [],
+        brainstormResult: null,
+        degradedCount: 0,
+      };
+    });
+
+    let nowCalls = 0;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => {
+      nowCalls += 1;
+      if (nowCalls === 2) return 2000;
+      return nowCalls >= 3 ? 2100 : 0;
+    });
+
+    await loop._runCore({ runId: "r_watchdog_throttle", slideIntents: [] }, { emit: vi.fn(), watchdog });
+
+    expect(buildDesignWatchdogAdvice).toHaveBeenCalledTimes(1);
+    expect(watchdog.resetOscillation).toHaveBeenCalledTimes(1);
+
+    nowSpy.mockRestore();
   });
 
   it("_savePreActionCheckpoint returns null when archive is not configured", async () => {

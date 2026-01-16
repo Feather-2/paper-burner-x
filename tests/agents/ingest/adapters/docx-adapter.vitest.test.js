@@ -271,4 +271,106 @@ describe("DocxAdapter (vitest)", () => {
     expect(parsed.assets).toHaveLength(1);
     expect(parsed.assets[0].mimeType).toBe("image/png");
   });
+
+  it("normalizeMaxFileSize handles Infinity and invalid values", async () => {
+    const { DocxAdapter } = await import("../../../../js/agents/ingest/adapters/docx.js");
+
+    // Infinity should pass through (no size limit)
+    const adapterInf = new DocxAdapter({ maxFileSize: Infinity });
+    mammothMocks.convertToHtml.mockResolvedValue({ value: "<p>ok</p>", messages: [] });
+    turndownMocks.turndown.mockReturnValue("ok");
+
+    const parsed = await adapterInf.parse({
+      name: "huge.docx",
+      size: 999999999,
+      arrayBuffer: vi.fn(async () => new ArrayBuffer(1)),
+    });
+    expect(parsed.sourceType).toBe("docx");
+
+    // Negative and zero should fallback to default
+    const adapterNeg = new DocxAdapter({ maxFileSize: -1 });
+    const adapterZero = new DocxAdapter({ maxFileSize: 0 });
+    // These use internal default (25MB), just check they don't throw on small files
+    const small = { name: "s.docx", size: 100, arrayBuffer: vi.fn(async () => new ArrayBuffer(1)) };
+    const p1 = await adapterNeg.parse(small);
+    const p2 = await adapterZero.parse(small);
+    expect(p1.sourceType).toBe("docx");
+    expect(p2.sourceType).toBe("docx");
+  });
+
+  it("uses globalThis.mammoth and globalThis.TurndownService when stageApi is empty", async () => {
+    const convertToHtml = vi.fn(async () => ({ value: "<p>global</p>", messages: [] }));
+    globalThis.mammoth = { convertToHtml };
+    globalThis.TurndownService = class {
+      turndown() { return "from global"; }
+    };
+
+    // Reset modules to clear cached dynamic imports
+    vi.resetModules();
+    const { DocxAdapter } = await import("../../../../js/agents/ingest/adapters/docx.js");
+
+    const adapter = new DocxAdapter();
+    const parsed = await adapter.parse({
+      name: "g.docx",
+      size: 1,
+      arrayBuffer: vi.fn(async () => new ArrayBuffer(1)),
+    }, {});
+
+    expect(convertToHtml).toHaveBeenCalled();
+    expect(parsed.markdown).toBe("from global");
+
+    delete globalThis.mammoth;
+    delete globalThis.TurndownService;
+  });
+
+  it("extFromMime handles jpg variant", async () => {
+    const { DocxAdapter } = await import("../../../../js/agents/ingest/adapters/docx.js");
+
+    const mammoth = {
+      convertToHtml: vi.fn(async ({ convertImage }) => {
+        const jpgImage = { contentType: "image/jpg", read: vi.fn(async () => "JPGDATA") };
+        const el = await convertImage(jpgImage);
+        return { value: `<img src="${el.src}">`, messages: [] };
+      }),
+    };
+
+    class TurndownServiceStub {
+      turndown() { return "![](images/img_1.jpg)\n"; }
+    }
+
+    const adapter = new DocxAdapter();
+    const parsed = await adapter.parse(
+      { name: "x.docx", arrayBuffer: vi.fn(async () => new ArrayBuffer(1)) },
+      { mammoth, TurndownService: TurndownServiceStub }
+    );
+
+    expect(parsed.assets.length).toBeGreaterThanOrEqual(1);
+    // The image filename in docxImages should have .jpg extension
+    expect(parsed.markdown).toContain("img_1.jpg");
+  });
+
+  it("warning limit is respected (MAX_WARNINGS)", async () => {
+    const { DocxAdapter } = await import("../../../../js/agents/ingest/adapters/docx.js");
+
+    const manyWarnings = Array.from({ length: 100 }, (_, i) => ({ message: `warn${i}` }));
+    const mammoth = {
+      convertToHtml: vi.fn(async () => ({
+        value: "<p>x</p>",
+        messages: manyWarnings,
+      })),
+    };
+
+    class TurndownServiceStub {
+      turndown() { return "x"; }
+    }
+
+    const adapter = new DocxAdapter();
+    const parsed = await adapter.parse(
+      { name: "w.docx", size: 1, arrayBuffer: vi.fn(async () => new ArrayBuffer(1)) },
+      { mammoth, TurndownService: TurndownServiceStub }
+    );
+
+    // MAX_WARNINGS is 50
+    expect(parsed.parseInfo.warnings.length).toBeLessThanOrEqual(50);
+  });
 });

@@ -102,6 +102,32 @@ describe("RunStore (IndexedDB mode)", () => {
     await expect(store.open()).rejects.toThrow(/IndexedDB is not available/i);
   });
 
+  it("open() clears cached promise when open fails", async () => {
+    const dbName = makeDbName("open_error");
+    const store = new RunStore({ dbName });
+
+    const openMock = vi.fn(() => {
+      const req = {
+        error: new Error("open failed"),
+        onerror: null,
+        onsuccess: null,
+        onupgradeneeded: null,
+        onblocked: null,
+        result: null,
+      };
+      Promise.resolve().then(() => req.onerror && req.onerror());
+      return req;
+    });
+
+    vi.stubGlobal("indexedDB", { open: openMock });
+
+    await expect(store.open()).rejects.toThrow(/open failed/i);
+    expect(store._dbp).toBeNull();
+
+    await expect(store.open()).rejects.toThrow(/open failed/i);
+    expect(openMock).toHaveBeenCalledTimes(2);
+  });
+
   it("open() caches the open promise and close() releases it", async () => {
     const dbName = makeDbName("open_cache");
     await RunStore.deleteDatabase({ dbName });
@@ -220,6 +246,23 @@ describe("RunStore (IndexedDB mode)", () => {
     await RunStore.deleteDatabase({ dbName });
   });
 
+  it("loadTask/loadState return null for invalid JSON artifacts", async () => {
+    const dbName = makeDbName("task_state_invalid_json");
+    await RunStore.deleteDatabase({ dbName });
+    const store = new RunStore({ dbName });
+
+    await store.saveArtifact("task_bad_json", "task.json", "{nope", { seq: 1 });
+    await expect(store.loadTask("task_bad_json")).resolves.toBeNull();
+
+    const runId = "run_bad_state_json";
+    await store.createRun({ schemaVersion: "0.1", runId, mode: "test", constraints: {}, startedAt: new Date().toISOString() });
+    await store.saveArtifact(runId, "state.json", "{bad", { seq: 1 });
+    await expect(store.loadState(runId)).resolves.toBeNull();
+
+    await store.close();
+    await RunStore.deleteDatabase({ dbName });
+  });
+
   it("events: appendEvent/appendEvents/getEvents + events.jsonl fallback artifact", async () => {
     const dbName = makeDbName("events");
     await RunStore.deleteDatabase({ dbName });
@@ -246,6 +289,20 @@ describe("RunStore (IndexedDB mode)", () => {
     const jsonl = await store.getArtifact(runId, "events.jsonl");
     expect(jsonl).toContain('"eventId":"evt_0"');
     expect(jsonl.endsWith("\n")).toBe(true);
+
+    await store.close();
+    await RunStore.deleteDatabase({ dbName });
+  });
+
+  it("events.jsonl fallback returns empty string when no events exist", async () => {
+    const dbName = makeDbName("events_empty");
+    await RunStore.deleteDatabase({ dbName });
+    const store = new RunStore({ dbName });
+
+    const runId = "run_events_empty";
+    await store.createRun({ schemaVersion: "0.1", runId, mode: "test", constraints: {}, startedAt: new Date().toISOString() });
+
+    await expect(store.getArtifact(runId, "events.jsonl")).resolves.toBe("");
 
     await store.close();
     await RunStore.deleteDatabase({ dbName });
@@ -660,6 +717,51 @@ describe("RunStore (IndexedDB mode)", () => {
 
     const abId = await store.saveArtifact(runId, "vfs_payload.bin", new ArrayBuffer(9));
     expect((await store.getArtifactRecord(abId)).bytes).toBe(9);
+
+    await store.close();
+    await RunStore.deleteDatabase({ dbName });
+  });
+
+  it("saveArtifact() assigns default mime types based on artifact type", async () => {
+    const dbName = makeDbName("saveArtifact_mime");
+    await RunStore.deleteDatabase({ dbName });
+    const store = new RunStore({ dbName });
+
+    const runId = "run_saveArtifact_mime";
+    await store.createRun({ schemaVersion: "0.1", runId, mode: "test", constraints: {}, startedAt: new Date().toISOString() });
+
+    const eventsId = await store.saveArtifact(runId, "events.jsonl", "");
+    const jsonId = await store.saveArtifact(runId, "content_package.json", { ok: true });
+    const binId = await store.saveArtifact(runId, "blob.bin", new Uint8Array(2));
+
+    expect((await store.getArtifactRecord(eventsId)).mime).toBe("application/x-ndjson");
+    expect((await store.getArtifactRecord(jsonId)).mime).toBe("application/json");
+    expect((await store.getArtifactRecord(binId)).mime).toBe("application/octet-stream");
+
+    await store.close();
+    await RunStore.deleteDatabase({ dbName });
+  });
+
+  it("saveArtifact() seeds seq from existing artifacts when counter record is missing", async () => {
+    const dbName = makeDbName("saveArtifact_seq_fallback");
+    await RunStore.deleteDatabase({ dbName });
+    const store = new RunStore({ dbName });
+
+    const runId = "run_seq_fallback";
+    await store.createRun({ schemaVersion: "0.1", runId, mode: "test", constraints: {}, startedAt: new Date().toISOString() });
+
+    const firstId = await store.saveArtifact(runId, "plan.json", { v: 1 }, { seq: 1 });
+    expect(firstId).toMatch(/_001$/);
+
+    const db = await store.open();
+    const tx = db.transaction([RunStoreConstants.STORE_COUNTERS], "readwrite");
+    const counters = tx.objectStore(RunStoreConstants.STORE_COUNTERS);
+    counters.delete([runId, "plan.json"]);
+    await promisifyTransaction(tx);
+
+    const nextId = await store.saveArtifact(runId, "plan.json", { v: 2 });
+    const nextRec = await store.getArtifactRecord(nextId);
+    expect(nextRec.seq).toBe(2);
 
     await store.close();
     await RunStore.deleteDatabase({ dbName });

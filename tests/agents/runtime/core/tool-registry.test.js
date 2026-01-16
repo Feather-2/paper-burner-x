@@ -37,6 +37,19 @@ describe("runtime/core/tool-registry", () => {
     expect(toolFn).not.toHaveBeenCalled();
   });
 
+  it("uses executor containers with execute()", async () => {
+    const toolFn = vi.fn(async () => "pong");
+    const registry = new ToolRegistry({ tools: { ping: toolFn } });
+    const execute = vi.fn(async () => "from-container");
+    const context = { toolExecutor: { execute } };
+
+    const result = await registry.callTool("ping", { n: 1 }, context);
+
+    expect(result).toMatchObject({ ok: true, data: "from-container" });
+    expect(execute).toHaveBeenCalledWith("ping", { n: 1 }, context);
+    expect(toolFn).not.toHaveBeenCalled();
+  });
+
   it("returns unknown tool errors when lookup fails", async () => {
     const registry = new ToolRegistry();
 
@@ -178,6 +191,153 @@ describe("runtime/core/tool-registry", () => {
 
     const result = await registry.callTool("boom", {}, {});
     expect(result).toEqual({ ok: false, error: "bad" });
+  });
+
+  it("registers tools from array objects and exposes lookups", async () => {
+    const toolFn = vi.fn(async () => "pong");
+    const registry = new ToolRegistry();
+
+    registry.registerTools([{ name: "ping", fn: toolFn }]);
+
+    expect(registry.hasTool("ping")).toBe(true);
+    expect(registry.hasTool("missing")).toBe(false);
+    expect(registry.getToolNames()).toEqual(["ping"]);
+    expect(registry.getTool("ping")).toBe(toolFn);
+    expect(registry.getTool("missing")).toBeUndefined();
+
+    const result = await registry.callTool("ping", {}, {});
+    expect(result).toMatchObject({ ok: true, data: "pong" });
+  });
+
+  it("resolves traceContext from stageApi and records span metadata", async () => {
+    const toolFn = vi.fn(async () => "pong");
+    const registry = new ToolRegistry({ tools: { ping: toolFn } });
+    const span = { setAttribute: vi.fn(), setStatus: vi.fn() };
+    const traceContext = {
+      startSpan: vi.fn(),
+      endSpan: vi.fn(),
+      withSpan: vi.fn(async (name, fn, options) => fn(span, options)),
+    };
+
+    const result = await registry.callTool("ping", { n: 1 }, { stageApi: { traceContext } });
+
+    expect(result).toMatchObject({ ok: true, data: "pong" });
+    expect(traceContext.withSpan).toHaveBeenCalledWith("tool.ping", expect.any(Function), { attributes: { tool: "ping" } });
+    expect(span.setAttribute).toHaveBeenCalledWith("tool.name", "ping");
+    expect(span.setStatus).not.toHaveBeenCalled();
+  });
+
+  it("resolves traceContext from container and marks span errors", async () => {
+    const registry = new ToolRegistry();
+    const span = { setAttribute: vi.fn(), setStatus: vi.fn() };
+    const traceContext = {
+      startSpan: vi.fn(),
+      endSpan: vi.fn(),
+      withSpan: vi.fn(async (name, fn, options) => fn(span, options)),
+    };
+    const container = {
+      get: vi.fn(() => traceContext),
+    };
+
+    const result = await registry.callTool("missing", { n: 1 }, { container });
+
+    expect(result).toEqual({ ok: false, error: "Unknown tool: missing" });
+    expect(container.get).toHaveBeenCalledWith("traceContext");
+    expect(traceContext.withSpan).toHaveBeenCalledWith("tool.missing", expect.any(Function), { attributes: { tool: "missing" } });
+    expect(span.setStatus).toHaveBeenCalledWith("error", "Unknown tool: missing");
+  });
+
+  it("treats enforce as block mode for quotas", async () => {
+    const toolFn = vi.fn(async () => "pong");
+    const registry = new ToolRegistry({ tools: { ping: toolFn } });
+
+    const quotaManager = {
+      tryCall: vi.fn(() => ({ allowed: false, reason: "limit" })),
+      getToolStats: vi.fn(),
+    };
+
+    const result = await registry.callTool("ping", { n: 1 }, { toolQuotaManager: quotaManager, toolQuotaConfig: { mode: "enforce" } });
+
+    expect(result).toMatchObject({ ok: false, error: "limit" });
+    expect(toolFn).not.toHaveBeenCalled();
+  });
+
+  it("treats warnOnly as warn mode and records calls", async () => {
+    const toolFn = vi.fn(async () => "pong");
+    const registry = new ToolRegistry({ tools: { ping: toolFn } });
+
+    const quotaManager = {
+      tryCall: vi.fn(() => ({ allowed: false, reason: "over" })),
+      recordCall: vi.fn(),
+      getToolStats: vi.fn(() => ({ limit: 1, used: 2 })),
+    };
+
+    const result = await registry.callTool("ping", { n: 1 }, { toolQuotaManager: quotaManager, toolQuotaConfig: { warnOnly: true } });
+
+    expect(result).toMatchObject({ ok: true, data: "pong", quota: { allowed: false, reason: "over" } });
+    expect(toolFn).toHaveBeenCalledTimes(1);
+    expect(quotaManager.recordCall).toHaveBeenCalledWith("ping");
+  });
+
+  it("allows before hooks to override params", async () => {
+    const toolFn = vi.fn(async ({ value }) => value);
+    const registry = new ToolRegistry({ tools: { ping: toolFn } });
+
+    registry.useHook("before", async ({ params }) => ({ params: { ...params, value: "updated" } }));
+
+    const result = await registry.callTool("ping", { value: "original" }, {});
+
+    expect(result).toMatchObject({ ok: true, data: "updated" });
+    expect(toolFn).toHaveBeenCalledWith({ value: "updated" }, {});
+  });
+
+  it("allows before hooks to skip execution", async () => {
+    const toolFn = vi.fn(async () => "pong");
+    const registry = new ToolRegistry({ tools: { ping: toolFn } });
+    const afterHook = vi.fn();
+
+    registry.useHook("before", async () => ({ skip: true, value: { ok: true, data: "skipped" } }));
+    registry.useHook("after", afterHook);
+
+    const result = await registry.callTool("ping", { n: 1 }, {});
+
+    expect(result).toMatchObject({ ok: true, data: "skipped" });
+    expect(toolFn).not.toHaveBeenCalled();
+    expect(afterHook).not.toHaveBeenCalled();
+  });
+
+  it("PolicyManager deny path blocks execution", async () => {
+    const toolFn = vi.fn(async () => "ok");
+    const registry = new ToolRegistry({ tools: { readFile: toolFn } });
+
+    const policyManager = {
+      check: vi.fn(async () => ({ effect: "deny", reason: "nope", ruleId: "rule-1" })),
+    };
+    registry.usePolicyManager(policyManager);
+
+    const result = await registry.callTool("readFile", { path: "/tmp/demo.txt" }, {});
+
+    expect(result).toMatchObject({ ok: false, error: "nope" });
+    expect(toolFn).not.toHaveBeenCalled();
+  });
+
+  it("PolicyManager check failures fail open", async () => {
+    const logger = { warn: vi.fn() };
+    const toolFn = vi.fn(async () => "ok");
+    const registry = new ToolRegistry({ tools: { readFile: toolFn }, logger });
+
+    const policyManager = {
+      check: vi.fn(async () => {
+        throw new Error("policy-failed");
+      }),
+    };
+    registry.usePolicyManager(policyManager);
+
+    const result = await registry.callTool("readFile", { path: "/tmp/demo.txt" }, {});
+
+    expect(result).toMatchObject({ ok: true, data: "ok" });
+    expect(toolFn).toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("[tool-registry] PolicyManager.check failed: policy-failed"));
   });
 
   it("PolicyManager allow-path passes request info (resource from path) and keeps execution", async () => {

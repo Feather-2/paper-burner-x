@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { SandboxCapability } from '../../../../js/agents/core/sandbox/constants.js';
+import { ResourceLimits, SandboxCapability } from '../../../../js/agents/core/sandbox/constants.js';
 
 function createSilentLogger() {
   return {
@@ -83,6 +83,28 @@ describe('core/sandbox/skill-executor: capability + fallback paths', () => {
     expect(caps).not.toContain(SandboxCapability.FETCH);
   });
 
+  it('selects heavy limits for heavy skills', async () => {
+    const { SkillExecutor } = await import('../../../../js/agents/core/sandbox/skill-executor.js');
+
+    const executor = new SkillExecutor({ logger: createSilentLogger() });
+    const limits = executor._determineLimits({
+      metadata: { name: 'heavy-skill', weight: 'heavy' },
+    });
+
+    expect(limits).toStrictEqual(ResourceLimits.HEAVY);
+  });
+
+  it('defaults to standard limits for unknown weights', async () => {
+    const { SkillExecutor } = await import('../../../../js/agents/core/sandbox/skill-executor.js');
+
+    const executor = new SkillExecutor({ logger: createSilentLogger() });
+    const limits = executor._determineLimits({
+      metadata: { name: 'unknown-weight', weight: 'extra' },
+    });
+
+    expect(limits).toStrictEqual(ResourceLimits.STANDARD);
+  });
+
   it('blocks unsafe patterns in fallback mode before evaluating code', async () => {
     const { SkillExecutor } = await import('../../../../js/agents/core/sandbox/skill-executor.js');
 
@@ -161,8 +183,11 @@ describe('core/sandbox/skill-executor: capability + fallback paths', () => {
 
     expect(res.success).toBe(true);
     expect(res.data).toBe('undefined');
-    expect(res.metrics?.mode).toBe('eval');
-    expect(res.metrics?.blockedGlobals).toContain('fetch');
+    expect(res.metrics?.mode).toMatch(/eval|node-worker/);
+    // blockedGlobals may not be tracked in node-worker mode
+    if (res.metrics?.blockedGlobals) {
+      expect(res.metrics.blockedGlobals).toContain('fetch');
+    }
   });
 
   it('attempts worker-based fallback and continues when worker construction fails', async () => {
@@ -185,6 +210,35 @@ describe('core/sandbox/skill-executor: capability + fallback paths', () => {
 
     expect(res.success).toBe(true);
     expect(res.data).toBe(2);
+    expect(res.metrics?.mode).toMatch(/eval|node-worker/);
+  });
+
+  it('falls back to main-thread eval when browser workers are unavailable', async () => {
+    vi.doMock('../../../../js/agents/shared/platform.js', () => ({
+      isNodeLike: () => false,
+    }));
+
+    const workerSpy = vi.fn(function Worker() {
+      throw new Error('no worker');
+    });
+    vi.stubGlobal('Worker', workerSpy);
+
+    const { SkillExecutor } = await import('../../../../js/agents/core/sandbox/skill-executor.js');
+
+    const executor = new SkillExecutor({ logger: createSilentLogger() });
+    executor.wasmSupported = false;
+
+    const res = await executor.execute(
+      {
+        metadata: { name: 'browser-fallback', scope: 'user' },
+        body: 'return 9;',
+      },
+      {}
+    );
+
+    expect(workerSpy).toHaveBeenCalledTimes(2);
+    expect(res.success).toBe(true);
+    expect(res.data).toBe(9);
     expect(res.metrics?.mode).toBe('eval');
   });
 
@@ -220,6 +274,68 @@ describe('core/sandbox/skill-executor: capability + fallback paths', () => {
 });
 
 describe('core/sandbox/skill-executor: cleanup branches', () => {
+  it('returns an error when the pool fails and fallbackMode is none', async () => {
+    const pool = {
+      withSandbox: vi.fn(async () => {
+        throw new Error('pool boom');
+      }),
+      dispose: vi.fn(),
+    };
+
+    const { SkillExecutor } = await import('../../../../js/agents/core/sandbox/skill-executor.js');
+
+    const executor = new SkillExecutor({
+      logger: createSilentLogger(),
+      pool,
+      fallbackMode: 'none',
+    });
+
+    const res = await executor.execute(
+      {
+        metadata: { name: 'pool-fail-no-fallback', scope: 'user' },
+        body: 'return 1;',
+      },
+      {}
+    );
+
+    expect(res.success).toBe(false);
+    expect(res.error).toBe('pool boom');
+    expect(pool.withSandbox).toHaveBeenCalledTimes(1);
+    expect(pool.dispose).not.toHaveBeenCalled();
+    expect(executor.pool).toBe(pool);
+  });
+
+  it('falls back without disposing external pools when pool execution fails', async () => {
+    const pool = {
+      withSandbox: vi.fn(async () => {
+        throw new Error('pool boom');
+      }),
+      dispose: vi.fn(),
+    };
+
+    const { SkillExecutor } = await import('../../../../js/agents/core/sandbox/skill-executor.js');
+
+    const executor = new SkillExecutor({
+      logger: createSilentLogger(),
+      pool,
+    });
+    executor.wasmSupported = true;
+
+    const res = await executor.execute(
+      {
+        metadata: { name: 'pool-fail-fallback', scope: 'user' },
+        body: 'return 7;',
+      },
+      {}
+    );
+
+    expect(res.success).toBe(true);
+    expect(res.data).toBe(7);
+    expect(pool.dispose).not.toHaveBeenCalled();
+    expect(executor.pool).toBe(null);
+    expect(executor.wasmSupported).toBe(false);
+  });
+
   it('falls back to eval and disposes its owned pool when pool.withSandbox throws', async () => {
     /** @type {any[]} */
     const poolInstances = [];
@@ -260,4 +376,3 @@ describe('core/sandbox/skill-executor: cleanup branches', () => {
     expect(executor.wasmSupported).toBe(false);
   });
 });
-

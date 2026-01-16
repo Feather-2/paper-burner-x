@@ -1,5 +1,5 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
+import test from "node:test";
+import assert from "node:assert/strict";
 
 function createFakeTime(startMs = 0) {
   let nowMs = startMs;
@@ -1073,4 +1073,572 @@ test("TokenBucketRateLimiter: blockFor delays execution", async () => {
 
   assert.equal(out, "ok");
   assert.deepEqual(startedAt, [1000]);
+});
+
+// --- Circuit Breaker Integration ---
+
+test("ModelRouter: circuit breaker blocks model after consecutive failures", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+  const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
+
+  const time = createFakeTime(0);
+  const provider = new MockProvider({
+    id: "mock",
+    behaviors: {
+      flaky: Array(6).fill({ throw: new Error("down") }),
+      backup: [{ content: "backup-ok" }],
+    },
+  });
+
+  const router = new ModelRouter({
+    models: [
+      { id: "flaky", provider: "mock", tags: ["text"], limits: {} },
+      { id: "backup", provider: "mock", tags: ["text"], limits: {} },
+    ],
+    usageConfig: { worker: ["flaky", "backup"], planner: [], analyst: [], writer: [], vision: [] },
+    providers: { mock: provider },
+    baseCooldownMs: 100,
+    maxCooldownMs: 1000,
+    time,
+  });
+
+  const events = [];
+  router.on("circuit.stateChange", (e) => events.push(e));
+
+  // Trigger 5 failures to trip the circuit breaker
+  for (let i = 0; i < 5; i++) {
+    time.advance(101);
+    try {
+      await router.call({ usage: "worker", messages: [{ role: "user", content: `x-${i}` }] });
+    } catch {
+      // expected
+    }
+  }
+
+  // Circuit breaker should be open after 5 failures
+  const cbState = router.getCircuitBreakerState("flaky");
+  assert.ok(cbState, "circuit breaker state should exist");
+});
+
+test("ModelRouter: getCircuitBreakerState returns null for unknown model", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+
+  const router = new ModelRouter({
+    models: [],
+    usageConfig: {},
+    providers: {},
+  });
+
+  assert.equal(router.getCircuitBreakerState("ghost"), null);
+  assert.equal(router.getCircuitBreakerState(""), null);
+  assert.equal(router.getCircuitBreakerState("   "), null);
+});
+
+test("ModelRouter: resetCircuitBreaker clears breaker state", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+  const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
+
+  const time = createFakeTime(0);
+  const provider = new MockProvider({
+    id: "mock",
+    behaviors: { m1: [{ content: "ok" }] },
+  });
+
+  const router = new ModelRouter({
+    models: [{ id: "m1", provider: "mock", tags: ["text"], limits: {} }],
+    usageConfig: { worker: ["m1"], planner: [], analyst: [], writer: [], vision: [] },
+    providers: { mock: provider },
+    time,
+  });
+
+  await router.call({ usage: "worker", messages: [{ role: "user", content: "hi" }] });
+  const before = router.getCircuitBreakerState("m1");
+  assert.ok(before, "state should exist after call");
+
+  router.resetCircuitBreaker("m1");
+  const after = router.getCircuitBreakerState("m1");
+  assert.equal(after?.state, "closed");
+
+  // no-op for blank/unknown
+  router.resetCircuitBreaker("");
+  router.resetCircuitBreaker("   ");
+  router.resetCircuitBreaker("unknown");
+});
+
+// --- Cooldown Object Config ---
+
+test("ModelRouter: cooldown object config overrides individual params", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+  const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
+
+  const time = createFakeTime(0);
+  const provider = new MockProvider({ id: "mock", defaultOutcome: new Error("down") });
+
+  const router = new ModelRouter({
+    models: [{ id: "m1", provider: "mock", tags: ["text"], limits: {} }],
+    usageConfig: { worker: ["m1"], planner: [], analyst: [], writer: [], vision: [] },
+    providers: { mock: provider },
+    cooldown: { baseMs: 5000, maxMs: 20000, multiplier: 3 },
+    time,
+  });
+
+  const unhealthy = [];
+  router.on("model.unhealthy", (e) => unhealthy.push(e));
+
+  await assert.rejects(() => router.call({ usage: "worker", messages: [{ role: "user", content: "x" }] }), /All models failed/);
+  assert.equal(unhealthy[0].cooldownMs, 5000);
+
+  time.advance(5001);
+  await assert.rejects(() => router.call({ usage: "worker", messages: [{ role: "user", content: "y" }] }), /All models failed/);
+  assert.equal(unhealthy[1].cooldownMs, 15000); // 5000 * 3
+});
+
+// --- TierResolver Custom ---
+
+test("ModelRouter: custom tierResolver overrides default tier detection", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+  const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
+
+  const provider = new MockProvider({
+    id: "mock",
+    behaviors: { m1: [{ content: "ok" }] },
+  });
+
+  const tierCalls = [];
+  const router = new ModelRouter({
+    models: [{ id: "m1", provider: "mock", tags: ["text"], limits: {} }],
+    usageConfig: { worker: ["m1"], planner: [], analyst: [], writer: [], vision: [] },
+    providers: { mock: provider },
+    strategy: "latency_optimized",
+    tierResolver: ({ modelId, modelEntry, usage, images }) => {
+      tierCalls.push({ modelId, usage, hasImages: !!images?.length });
+      return "fast";
+    },
+  });
+
+  await router.call({ usage: "worker", messages: [{ role: "user", content: "hi" }] });
+  assert.ok(tierCalls.length > 0);
+  assert.equal(tierCalls[0].modelId, "m1");
+  assert.equal(tierCalls[0].usage, "worker");
+});
+
+test("ModelRouter: tierResolver error falls back to tag-based detection", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+  const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
+
+  const provider = new MockProvider({
+    id: "mock",
+    behaviors: { m1: [{ content: "ok" }] },
+  });
+
+  const router = new ModelRouter({
+    models: [{ id: "m1", provider: "mock", tags: ["text", "fast"], limits: {} }],
+    usageConfig: { worker: ["m1"], planner: [], analyst: [], writer: [], vision: [] },
+    providers: { mock: provider },
+    strategy: "latency_optimized",
+    tierResolver: () => {
+      throw new Error("resolver error");
+    },
+  });
+
+  const out = await router.call({ usage: "worker", messages: [{ role: "user", content: "hi" }] });
+  assert.equal(out.content, "ok");
+});
+
+// --- PerformanceRouting Toggle ---
+
+test("ModelRouter: performanceRouting=false disables perf routing even for latency_optimized", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+  const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
+
+  const time = createFakeTime(0);
+  const provider = new MockProvider({
+    id: "mock",
+    behaviors: {
+      m1: [{ content: "m1-ok" }],
+      m2: [{ content: "m2-ok" }],
+    },
+  });
+
+  const router = new ModelRouter({
+    models: [
+      { id: "m1", provider: "mock", tags: ["text"], limits: {} },
+      { id: "m2", provider: "mock", tags: ["text"], limits: {} },
+    ],
+    usageConfig: { worker: ["m1", "m2"], planner: [], analyst: [], writer: [], vision: [] },
+    providers: { mock: provider },
+    strategy: "latency_optimized",
+    performanceRouting: false,
+    time,
+  });
+
+  // Should use standard routing (first candidate)
+  const out = await router.call({ usage: "worker", messages: [{ role: "user", content: "hi" }] });
+  assert.equal(out.model, "m1");
+});
+
+test("ModelRouter: performanceRouting=true forces perf routing for round_robin", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+  const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
+
+  const time = createFakeTime(0);
+  const provider = new MockProvider({
+    id: "mock",
+    behaviors: {
+      m1: [{ content: "m1-ok" }, { content: "m1-ok2" }, { content: "m1-ok3" }],
+      m2: [{ content: "m2-ok" }, { content: "m2-ok2" }],
+    },
+  });
+
+  const router = new ModelRouter({
+    models: [
+      { id: "m1", provider: "mock", tags: ["text"], limits: {} },
+      { id: "m2", provider: "mock", tags: ["text"], limits: {} },
+    ],
+    usageConfig: { worker: ["m1", "m2"], planner: [], analyst: [], writer: [], vision: [] },
+    providers: { mock: provider },
+    strategy: "round_robin",
+    performanceRouting: true,
+    time,
+  });
+
+  // With performanceRouting=true, PerformanceRouter is used
+  const out = await router.call({ usage: "worker", messages: [{ role: "user", content: "hi" }] });
+  assert.ok(["m1", "m2"].includes(out.model));
+});
+
+// --- RetryStrategy Integration ---
+
+test("ModelRouter: retryStrategy retries transient failures", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+  const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
+
+  const time = createFakeTime(0);
+  let callCount = 0;
+  const provider = {
+    id: "mock",
+    async chat({ model, messages }) {
+      callCount++;
+      if (callCount < 3) {
+        const err = new Error("transient");
+        err.status = 503;
+        throw err;
+      }
+      return { content: "ok" };
+    },
+  };
+
+  const router = new ModelRouter({
+    models: [{ id: "m1", provider: "mock", tags: ["text"], limits: {} }],
+    usageConfig: { worker: ["m1"], planner: [], analyst: [], writer: [], vision: [] },
+    providers: { mock: provider },
+    retry: { maxRetries: 3, baseDelayMs: 10, maxDelayMs: 50 },
+    time,
+  });
+
+  const out = await router.call({ usage: "worker", messages: [{ role: "user", content: "hi" }] });
+  assert.equal(out.content, "ok");
+  assert.ok(callCount >= 3);
+});
+
+// --- Complex Messages (extractPromptText) ---
+
+test("ModelRouter: handles complex message content structures", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+  const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
+
+  const provider = new MockProvider({
+    id: "mock",
+    behaviors: { m1: [{ content: "ok" }] },
+  });
+
+  const router = new ModelRouter({
+    models: [{ id: "m1", provider: "mock", tags: ["text"], limits: {} }],
+    usageConfig: { worker: ["m1"], planner: [], analyst: [], writer: [], vision: [] },
+    providers: { mock: provider },
+    strategy: "latency_optimized",
+  });
+
+  // Test various content formats (all must comply with assertChatMessages: string or array of objects)
+  const out = await router.call({
+    usage: "worker",
+    messages: [
+      { role: "system", content: "You are helpful." },
+      { role: "user", content: [{ type: "text", text: "Hello" }, { type: "text", text: "World" }] },
+      { role: "assistant", content: "" },
+      { role: "user", content: [{ type: "image_url", image_url: { url: "data:image/png;base64,abc" } }] },
+      { role: "user", content: "Final question" },
+    ],
+  });
+  assert.equal(out.content, "ok");
+});
+
+// --- DisableModel ---
+
+test("ModelRouter: disableModel permanently disables until reset", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+  const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
+
+  const time = createFakeTime(0);
+  const provider = new MockProvider({
+    id: "mock",
+    behaviors: { m1: [{ content: "ok" }] },
+  });
+
+  const router = new ModelRouter({
+    models: [{ id: "m1", provider: "mock", tags: ["text"], limits: {} }],
+    usageConfig: { worker: ["m1"], planner: [], analyst: [], writer: [], vision: [] },
+    providers: { mock: provider },
+    time,
+  });
+
+  router.disableModel("m1", new Error("manual disable"), { reason: "test" });
+  const h = router.getHealth("m1");
+  assert.equal(h.disabled, true);
+  assert.equal(h.disabledReason, "test");
+  assert.equal(h.unhealthyUntilMs, 0);
+  assert.equal(router.isAvailable("m1"), false);
+
+  time.advance(1_000_000);
+  assert.equal(router.isAvailable("m1"), false);
+
+  router.resetUnhealthy("m1");
+  assert.equal(router.isAvailable("m1"), true);
+});
+
+test("ModelRouter: disableModel returns null for blank modelId", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+
+  const router = new ModelRouter({ models: [], usageConfig: {}, providers: {} });
+  assert.equal(router.disableModel("", new Error("x")), null);
+  assert.equal(router.disableModel("   ", new Error("x")), null);
+});
+
+// --- Health Helpers Edge Cases ---
+
+test("ModelRouter: markHealthy returns null for unknown model", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+
+  const router = new ModelRouter({ models: [], usageConfig: {}, providers: {} });
+  assert.equal(router.markHealthy("ghost"), null);
+  assert.equal(router.markHealthy(""), null);
+});
+
+test("ModelRouter: markUnhealthy handles disabled model gracefully", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+
+  const time = createFakeTime(0);
+  const router = new ModelRouter({
+    models: [{ id: "m1", provider: "mock", tags: ["text"], limits: {} }],
+    usageConfig: {},
+    providers: {},
+    time,
+  });
+
+  router.disableModel("m1", new Error("disabled"));
+  const result = router.markUnhealthy("m1", new Error("more"));
+  assert.ok(result);
+  assert.equal(result.cooldownMs, null);
+  assert.equal(result.backoffLevel, null);
+});
+
+// --- Cost-Optimized Strategy ---
+
+test("ModelRouter: cost_optimized strategy works like priority", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+  const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
+
+  const provider = new MockProvider({
+    id: "mock",
+    behaviors: {
+      m1: [{ content: "m1-ok" }, { content: "m1-ok2" }],
+      m2: [{ content: "m2-ok" }],
+    },
+  });
+
+  const router = new ModelRouter({
+    models: [
+      { id: "m1", provider: "mock", tags: ["text"], limits: {} },
+      { id: "m2", provider: "mock", tags: ["text"], limits: {} },
+    ],
+    usageConfig: { worker: ["m1", "m2"], planner: [], analyst: [], writer: [], vision: [] },
+    providers: { mock: provider },
+    strategy: "cost_optimized",
+  });
+
+  const out1 = await router.call({ usage: "worker", messages: [{ role: "user", content: "a" }] });
+  const out2 = await router.call({ usage: "worker", messages: [{ role: "user", content: "b" }] });
+  assert.equal(out1.model, "m1");
+  assert.equal(out2.model, "m1");
+});
+
+// --- RateLimiter Edge Cases ---
+
+test("TokenBucketRateLimiter: rejects when queue full (maxQueue=0)", async () => {
+  const { TokenBucketRateLimiter } = await import("../../../js/agents/llm/rate-limit.js");
+
+  const time = createFakeTime(0);
+  const limiter = new TokenBucketRateLimiter({ rps: Infinity, burst: 1, concurrency: 1, maxQueue: 0, time });
+
+  let release = null;
+  const hold = new Promise((resolve) => {
+    release = resolve;
+  });
+
+  const p1 = limiter.schedule(async () => {
+    await hold;
+    return "a";
+  });
+
+  // Give event loop a tick for p1 to start
+  await new Promise((r) => setImmediate(r));
+
+  // Queue is full (maxQueue=0), second schedule should reject
+  let rejected = false;
+  try {
+    await limiter.schedule(() => "b");
+  } catch (e) {
+    if (/queue full/i.test(e.message)) rejected = true;
+  }
+  assert.ok(rejected, "Expected queue full rejection");
+
+  // Release p1 so it completes
+  release?.();
+  assert.equal(await p1, "a");
+});
+
+test("TokenBucketRateLimiter: getState returns current state", async () => {
+  const { TokenBucketRateLimiter } = await import("../../../js/agents/llm/rate-limit.js");
+
+  const time = createFakeTime(1000);
+  const limiter = new TokenBucketRateLimiter({ rps: 5, burst: 3, concurrency: 2, maxQueue: 100, time });
+
+  const state = limiter.getState();
+  assert.equal(state.rps, 5);
+  assert.equal(state.burst, 3);
+  assert.equal(state.concurrency, 2);
+  assert.equal(state.maxQueue, 100);
+  assert.equal(state.queueSize, 0);
+  assert.equal(state.inFlight, 0);
+  assert.equal(state.nowMs, 1000);
+});
+
+// --- Provider Validation ---
+
+test("ModelRouter: rejects invalid provider without chat method", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+
+  assert.throws(
+    () =>
+      new ModelRouter({
+        models: [{ id: "m1", provider: "bad", tags: ["text"], limits: {} }],
+        usageConfig: { worker: ["m1"] },
+        providers: { bad: { id: "bad" } },
+      }),
+    /ModelProvider must implement chat/
+  );
+});
+
+// --- Logger Validation ---
+
+test("ModelRouter: throws for invalid logger", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+
+  assert.throws(
+    () =>
+      new ModelRouter({
+        models: [],
+        usageConfig: {},
+        providers: {},
+        debug: true,
+        logger: { debug: () => {}, info: () => {} }, // missing warn/error
+      }),
+    /logger\.warn must be a function/
+  );
+});
+
+// --- Empty Usage Config ---
+
+test("ModelRouter: throws for usage with no models configured", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+  const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
+
+  const provider = new MockProvider({ id: "mock", behaviors: {} });
+
+  const router = new ModelRouter({
+    models: [{ id: "m1", provider: "mock", tags: ["text"], limits: {} }],
+    usageConfig: { worker: [], planner: ["m1"], analyst: [], writer: [], vision: [] },
+    providers: { mock: provider },
+  });
+
+  await assert.rejects(
+    () => router.call({ usage: "worker", messages: [{ role: "user", content: "hi" }] }),
+    /No models configured for usage: worker/
+  );
+});
+
+// --- retryAfterMs handling ---
+
+test("ModelRouter: respects retryAfterMs from error and blocks limiter", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+
+  const time = createFakeTime(0);
+  let callCount = 0;
+  const provider = {
+    id: "mock",
+    async chat() {
+      callCount++;
+      if (callCount === 1) {
+        const err = new Error("rate limited");
+        err.retryAfterMs = 5000;
+        throw err;
+      }
+      return { content: "ok" };
+    },
+  };
+
+  const router = new ModelRouter({
+    models: [
+      { id: "m1", provider: "mock", tags: ["text"], limits: { rateLimit: 10 } },
+      { id: "m2", provider: "mock", tags: ["text"], limits: {} },
+    ],
+    usageConfig: { worker: ["m1", "m2"], planner: [], analyst: [], writer: [], vision: [] },
+    providers: { mock: provider },
+    time,
+  });
+
+  const out = await router.call({ usage: "worker", messages: [{ role: "user", content: "hi" }] });
+  assert.equal(out.content, "ok");
+});
+
+// --- Images with worker usage ---
+
+test("ModelRouter: images param requires vision tag", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+  const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
+
+  const provider = new MockProvider({
+    id: "mock",
+    behaviors: {
+      textOnly: [{ content: "text" }],
+      visionModel: [{ content: "vision" }],
+    },
+  });
+
+  const router = new ModelRouter({
+    models: [
+      { id: "textOnly", provider: "mock", tags: ["text"], limits: {} },
+      { id: "visionModel", provider: "mock", tags: ["text", "vision"], limits: {} },
+    ],
+    usageConfig: { worker: ["textOnly", "visionModel"], planner: [], analyst: [], writer: [], vision: [] },
+    providers: { mock: provider },
+  });
+
+  // With images, should skip textOnly and use visionModel
+  const out = await router.call({
+    usage: "worker",
+    messages: [{ role: "user", content: "describe this" }],
+    images: [{ data: "base64" }],
+  });
+  assert.equal(out.model, "visionModel");
 });

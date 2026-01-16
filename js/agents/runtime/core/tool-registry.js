@@ -138,27 +138,44 @@ function resolveToolQuotaMode(context) {
  * @param {any} context
  * @returns {TraceContextLike | null}
  */
+function isTraceContextLike(traceContext) {
+  return (
+    traceContext &&
+    typeof traceContext === "object" &&
+    typeof traceContext.startSpan === "function" &&
+    typeof traceContext.endSpan === "function" &&
+    typeof traceContext.withSpan === "function"
+  );
+}
+
 function resolveTraceContext(context) {
   const direct = context?.traceContext;
-  if (
-    direct &&
-    typeof direct === "object" &&
-    typeof direct.startSpan === "function" &&
-    typeof direct.endSpan === "function" &&
-    typeof direct.withSpan === "function"
-  ) {
+  if (isTraceContextLike(direct)) {
     return direct;
   }
   const fromStageApi = context?.stageApi?.traceContext;
-  if (
-    fromStageApi &&
-    typeof fromStageApi === "object" &&
-    typeof fromStageApi.startSpan === "function" &&
-    typeof fromStageApi.endSpan === "function" &&
-    typeof fromStageApi.withSpan === "function"
-  ) {
+  if (isTraceContextLike(fromStageApi)) {
     return fromStageApi;
   }
+
+  const container = context?.container || context?.stageApi?.container;
+  if (container && typeof container === "object") {
+    const tryGet = typeof container.tryGet === "function" ? container.tryGet.bind(container) : null;
+    if (tryGet) {
+      const candidate = tryGet("traceContext");
+      if (isTraceContextLike(candidate)) return candidate;
+    }
+    const get = typeof container.get === "function" ? container.get.bind(container) : null;
+    if (get) {
+      try {
+        const candidate = get("traceContext");
+        if (isTraceContextLike(candidate)) return candidate;
+      } catch {
+        // ignore
+      }
+    }
+  }
+
   return null;
 }
 
@@ -199,8 +216,17 @@ export class ToolRegistry {
       return;
     }
     if (Array.isArray(tools)) {
-      for (const [name, fn] of tools) {
-        this.registerTool(name, fn);
+      for (const entry of tools) {
+        if (Array.isArray(entry)) {
+          const [name, fn] = entry;
+          this.registerTool(name, fn);
+          continue;
+        }
+        if (entry && typeof entry === "object") {
+          this.registerTool(entry.name, entry.fn);
+          continue;
+        }
+        throw new TypeError("ToolRegistry.registerTools: tools must be an object, array, or map");
       }
       return;
     }
@@ -232,6 +258,11 @@ export class ToolRegistry {
   /** @returns {string[]} */
   getToolNames() {
     return Object.keys(this._tools);
+  }
+
+  /** @param {string} name @returns {Function | undefined} */
+  getTool(name) {
+    return this.hasTool(name) ? this._tools[name] : undefined;
   }
 
   /**

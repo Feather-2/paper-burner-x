@@ -383,4 +383,102 @@ describe("agents/retrieval/bm25", () => {
     ]);
     expect(search(restored, "alpha", 8).map((h) => h.chunkId)).toEqual(["c1", "c2"]);
   });
+
+  async function loadBm25Internals(options = {}) {
+    await loadBm25(options);
+
+    const [{ readFile }, { fileURLToPath }] = await Promise.all([import("node:fs/promises"), import("node:url")]);
+    const bm25Url = new URL("../../../js/agents/retrieval/bm25.js", import.meta.url);
+    const bm25Path = fileURLToPath(bm25Url);
+    const source = await readFile(bm25Url, "utf8");
+    const importRe = /^import\s+\{\s*isPlainObject\s*\}\s+from\s+["'][^"']+value-utils\.js["'];/m;
+    let prepared = source.replace(importRe, "const { isPlainObject } = __deps;");
+    if (prepared === source) throw new Error("bm25 test hook could not rewrite imports");
+    prepared = prepared.replace(/^export\s+/gm, "");
+
+    const { isPlainObject } = await import("../../../js/agents/shared/utils/value-utils.js");
+    const factory = new Function(
+      "__deps",
+      `${prepared}\nreturn { isCjkCodePoint, isAllCjkToken, pushCjkBigrams, getWordSegmenter, normalizeLimit, shouldDropSingleCharToken };` +
+        `\n//# sourceURL=${bm25Path}`
+    );
+    return factory({ isPlainObject });
+  }
+
+  it("isCjkCodePoint covers extension ranges plus kana/hangul", async () => {
+    const { isCjkCodePoint } = await loadBm25Internals();
+    const samples = [
+      0x20000, // Extension B
+      0x2a700, // Extension C
+      0x2b740, // Extension D
+      0x2b820, // Extension E
+      0x2ceb0, // Extension F
+      0x30000, // Extension G
+      0x3042, // Hiragana
+      0x30a2, // Katakana
+      0x31f0, // Katakana Phonetic Extensions
+      0xac00, // Hangul Syllables
+    ];
+
+    for (const cp of samples) expect(isCjkCodePoint(cp)).toBe(true);
+    expect(isCjkCodePoint(0x41)).toBe(false);
+  });
+
+  it("isAllCjkToken rejects empty/mixed/non-string tokens", async () => {
+    const { isAllCjkToken } = await loadBm25Internals();
+
+    expect(isAllCjkToken("")).toBe(false);
+    expect(isAllCjkToken(null)).toBe(false);
+    expect(isAllCjkToken(123)).toBe(false);
+    expect(isAllCjkToken("\u4e00a")).toBe(false);
+    expect(isAllCjkToken("\u4e00\u4e8c")).toBe(true);
+  });
+
+  it("pushCjkBigrams respects maxBigrams edge values", async () => {
+    const { pushCjkBigrams } = await loadBm25Internals();
+
+    const token = "\u4f60\u597d\u4e16\u754c";
+    const chars = Array.from(token);
+    const all = [chars[0] + chars[1], chars[1] + chars[2], chars[2] + chars[3]];
+    const expectedEdge = [all[0], all[2]];
+
+    const out1 = [];
+    pushCjkBigrams(token, out1, { maxBigrams: 1 });
+    expect(out1).toEqual(expectedEdge);
+
+    const out2 = [];
+    pushCjkBigrams(token, out2, { maxBigrams: Number.NaN });
+    expect(out2).toEqual(all);
+
+    const out3 = [];
+    pushCjkBigrams(token, out3, { maxBigrams: -5 });
+    expect(out3).toEqual(expectedEdge);
+  });
+
+  it("getWordSegmenter returns undefined when Intl.Segmenter throws", async () => {
+    const { getWordSegmenter } = await loadBm25Internals();
+    const Segmenter = vi.fn(function SegmenterCtor() {
+      throw new Error("boom");
+    });
+    vi.stubGlobal("Intl", { Segmenter });
+
+    expect(getWordSegmenter()).toBeUndefined();
+    expect(getWordSegmenter()).toBeUndefined();
+    expect(Segmenter).toHaveBeenCalledTimes(1);
+  });
+
+  it("normalizeLimit handles Infinity, negatives, and NaN", async () => {
+    const { normalizeLimit } = await loadBm25Internals();
+
+    expect(normalizeLimit(Infinity, 10)).toBe(Infinity);
+    expect(normalizeLimit(-3, 10)).toBe(10);
+    expect(normalizeLimit(Number.NaN, 10)).toBe(10);
+  });
+
+  it("shouldDropSingleCharToken keeps non-Latin single chars", async () => {
+    const { shouldDropSingleCharToken } = await loadBm25Internals();
+
+    expect(shouldDropSingleCharToken("7")).toBe(false);
+    expect(shouldDropSingleCharToken("\u4e00")).toBe(false);
+  });
 });

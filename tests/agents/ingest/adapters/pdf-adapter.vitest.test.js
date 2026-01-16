@@ -254,4 +254,113 @@ describe("PdfAdapter (vitest)", () => {
     expect(fsMocks.readFile).not.toHaveBeenCalled();
     expect(processFile).not.toHaveBeenCalled();
   });
+
+  it("normalizeMaxFileSize handles Infinity and passes through large files", async () => {
+    delete globalThis.OcrManager;
+    const { PdfAdapter } = await import("../../../../js/agents/ingest/adapters/pdf.js");
+
+    const processFile = vi.fn(async () => ({
+      markdown: "# huge\n",
+      images: [],
+      metadata: { engine: "mock" },
+    }));
+
+    const adapter = new PdfAdapter({ maxFileSize: Infinity });
+    const hugeFile = {
+      name: "huge.pdf",
+      size: 999999999,
+      async arrayBuffer() { return new ArrayBuffer(1); },
+    };
+
+    const parsed = await adapter.parse(hugeFile, { ocr: { processFile } });
+    expect(processFile).toHaveBeenCalled();
+    expect(parsed.sourceType).toBe("pdf");
+  });
+
+  it("extractAsciiStrings handles strings longer than 512 chars and respects limits", async () => {
+    delete globalThis.OcrManager;
+    const { PdfAdapter } = await import("../../../../js/agents/ingest/adapters/pdf.js");
+
+    // Create a buffer with a long printable string (> 512 chars)
+    const longString = "A".repeat(600);
+    const bytes = Buffer.from(longString, "utf8");
+    const file = {
+      name: "long.pdf",
+      size: bytes.length,
+      async arrayBuffer() {
+        return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+      },
+    };
+
+    const adapter = new PdfAdapter();
+    const parsed = await adapter.parse(file, {});
+
+    expect(parsed.metadata.engine).toBe("fallback");
+    // The long string should be split by the internal 512-char pushCur
+    expect(parsed.markdown).toContain("A");
+  });
+
+  it("OcrManager class instantiation fails processFile check returns null for ocr", async () => {
+    class OcrManagerBroken {
+      constructor() {
+        // No processFile method
+      }
+    }
+    globalThis.OcrManager = OcrManagerBroken;
+
+    const { PdfAdapter } = await import("../../../../js/agents/ingest/adapters/pdf.js");
+
+    const bytes = Buffer.from("test text here", "utf8");
+    const file = {
+      name: "broken.pdf",
+      size: bytes.length,
+      async arrayBuffer() {
+        return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+      },
+    };
+
+    const adapter = new PdfAdapter();
+    const parsed = await adapter.parse(file, {});
+
+    // Should fallback since OcrManager instance has no processFile
+    expect(parsed.metadata.engine).toBe("fallback");
+    expect(parsed.metadata.hint).toMatch(/processFile\(\) unavailable/i);
+  });
+
+  it("fileLabel returns default for null/undefined input", async () => {
+    delete globalThis.OcrManager;
+    const { PdfAdapter } = await import("../../../../js/agents/ingest/adapters/pdf.js");
+
+    const adapter = new PdfAdapter();
+
+    // Passing an object without name/filename uses default
+    const file = {
+      size: 5,
+      async arrayBuffer() { return new ArrayBuffer(5); },
+    };
+
+    const parsed = await adapter.parse(file, {});
+    expect(parsed.origin.filename).toBe("document.pdf");
+  });
+
+  it("handles file with stream() and text() but no arrayBuffer()", async () => {
+    delete globalThis.OcrManager;
+    const { PdfAdapter } = await import("../../../../js/agents/ingest/adapters/pdf.js");
+
+    const bytes = Buffer.from("stream test", "utf8");
+    const file = {
+      name: "stream.pdf",
+      size: bytes.length,
+      stream() { return null; },
+      text() { return ""; },
+    };
+
+    const adapter = new PdfAdapter();
+    // Should not throw since stream() and text() are present (passes validation)
+    // But fallback path uses arrayBuffer which is missing - will get empty
+    const parsed = await adapter.parse(file, {});
+    expect(parsed.sourceType).toBe("pdf");
+    // With no arrayBuffer, markdown will be empty/default
+    expect(parsed.markdown).toContain("# stream.pdf");
+  });
 });
