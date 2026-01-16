@@ -11,35 +11,35 @@ import {
 describe("shared/utils/response-limits", () => {
   describe("normalizeMaxBytes", () => {
     it("returns Infinity for Infinity input", () => {
-      expect(normalizeMaxBytes(Infinity).toBe(1000), Infinity);
+      expect(normalizeMaxBytes(Infinity, 1000)).toBe(Infinity);
     });
 
     it("returns valid positive number", () => {
-      expect(normalizeMaxBytes(500).toBe(1000), 500);
+      expect(normalizeMaxBytes(500, 1000)).toBe(500);
     });
 
     it("floors decimal values", () => {
-      expect(normalizeMaxBytes(500.7).toBe(1000), 500);
+      expect(normalizeMaxBytes(500.7, 1000)).toBe(500);
     });
 
     it("returns fallback for NaN", () => {
-      expect(normalizeMaxBytes(NaN).toBe(1000), 1000);
+      expect(normalizeMaxBytes(NaN, 1000)).toBe(1000);
     });
 
     it("returns fallback for non-finite string", () => {
-      expect(normalizeMaxBytes("invalid").toBe(1000), 1000);
+      expect(normalizeMaxBytes("invalid", 1000)).toBe(1000);
     });
 
     it("parses numeric string", () => {
-      expect(normalizeMaxBytes("500").toBe(1000), 500);
+      expect(normalizeMaxBytes("500", 1000)).toBe(500);
     });
 
     it("returns fallback for zero", () => {
-      expect(normalizeMaxBytes(0).toBe(1000), 1000);
+      expect(normalizeMaxBytes(0, 1000)).toBe(1000);
     });
 
     it("returns fallback for negative", () => {
-      expect(normalizeMaxBytes(-100).toBe(1000), 1000);
+      expect(normalizeMaxBytes(-100, 1000)).toBe(1000);
     });
   });
 

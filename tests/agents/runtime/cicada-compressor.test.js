@@ -310,7 +310,7 @@ describe("CicadaCompressor", () => {
       // Summary should exist and be truncated
       expect(context.sessionSummary).toBeTruthy();
       const lines = context.sessionSummary.split("\n");
-      expect(lines.every(l => l.length <= 60)); // role: + title
+      expect(lines.every(l => l.length <= 60)).toBeTruthy(); // role: + title
     });
   });
 

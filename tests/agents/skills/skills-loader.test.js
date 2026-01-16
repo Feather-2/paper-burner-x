@@ -197,7 +197,7 @@ describe("loader.node.js - loadSkills", async () => {
 
       expect(out.skills.length).toBe(0);
       expect(out.errors.length).toBe(1);
-      expect(out.errors[0].message.toLowerCase().toBeTruthy().includes("frontmatter"));
+      expect(out.errors[0].message.toLowerCase().includes("frontmatter")).toBeTruthy();
     } finally {
       await cleanupDir(cwd);
     }
@@ -745,8 +745,8 @@ describe("loader.node.js - loadAllSkills", async () => {
 
       expect(out.skills.length).toBe(0);
       expect(out.errors.length).toBe(2);
-      expect(out.errors.some(e => e.message.includes("frontmatter")).toBeTruthy());
-      expect(out.errors.some(e => e.message.includes("remote error")).toBeTruthy());
+      expect(out.errors.some(e => e.message.includes("frontmatter"))).toBeTruthy();
+      expect(out.errors.some(e => e.message.includes("remote error"))).toBeTruthy();
     } finally {
       await cleanupDir(cwd);
     }

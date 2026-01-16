@@ -128,7 +128,7 @@ it("ImageGenerator: maxImages budget causes later tasks to be skipped", async ()
   expect(calls).toBe(2);
   expect(report.summary.attempted).toBe(2);
   expect(report.summary.skipped).toBe(1);
-  expect(report.tasks.some(t => t.status === "skipped"));
+  expect(report.tasks.some(t => t.status === "skipped")).toBeTruthy();
 });
 
 it("ImageGenerator: maxCostUSD prevents later tasks from starting (provider-based estimate)", async () => {

@@ -447,7 +447,7 @@ it("Runtime Core: EventBus backpressure batching + coalesce + order + seq", asyn
   bus.emit("run.log", { msg: "c" });
   await sleep(60);
   expect(events.filter((e) => e.payload?.msg === "c").length).toBe(1);
-  expect(seqOf(events.at(-1)).toBeTruthy() > seqs.at(-1));
+  expect(seqOf(events.at(-1))).toBeGreaterThan(seqs.at(-1));
 });
 
 it("Runtime Core: EventBus backpressure custom coalescePattern + disable restores sync", async () => {
@@ -971,7 +971,7 @@ it("Runtime Tools: ToolExecutor worker isolation enforces hard timeout for sync 
   const elapsedMs = Date.now() - started;
 
   expect(result.success).toBe(false);
-  expect(String(result.error || "").toBeTruthy().includes("timed out"));
+  expect(String(result.error || "")).toContain("timed out");
   expect(elapsedMs < 300).toBeTruthy();
 });
 
@@ -1450,7 +1450,7 @@ it("PlanStore: lifecycle transitions enforce draft→approved→in_progress", as
   const plan = createPlan({ runId: "run_test", title: "T", steps: [] });
   expect(plan.lifecycleStatus).toBe(PlanLifecycleStatus.DRAFT);
 
-  expect(canTransitionPlanLifecycle(PlanLifecycleStatus.DRAFT).toBe(PlanLifecycleStatus.IN_PROGRESS), false);
+  expect(canTransitionPlanLifecycle(PlanLifecycleStatus.DRAFT, PlanLifecycleStatus.IN_PROGRESS)).toBe(false);
 
   const approved = setPlanLifecycleStatus(plan, PlanLifecycleStatus.APPROVED);
   expect(approved.lifecycleStatus).toBe(PlanLifecycleStatus.APPROVED);

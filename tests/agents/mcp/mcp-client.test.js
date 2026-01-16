@@ -226,7 +226,7 @@ it("McpClient: callTool returns error result for missing provider", async () => 
 
   expect(result.success).toBe(false);
   expect(result.isError).toBe(true);
-  expect(String(result.error).toBeTruthy().includes("No provider found"));
+  expect(String(result.error)).toContain("No provider found");
 });
 
 it("McpClient: callTool routes to correct provider", async () => {
@@ -293,7 +293,7 @@ it("McpClient: callTool handles provider exceptions", async () => {
 
   expect(result.success).toBe(false);
   expect(result.isError).toBe(true);
-  expect(String(result.error).toBeTruthy().includes("Provider crashed"));
+  expect(String(result.error)).toContain("Provider crashed");
 });
 
 it("McpClient: listAllTools merges tools from all providers", async () => {
@@ -369,7 +369,7 @@ it("McpClient: listAllTools captures provider failures (non-fatal)", async () =>
   expect(Array.isArray(tools.errors)).toBeTruthy();
   expect(tools.errors.length).toBe(1);
   expect(tools.errors[0].providerId).toBe("bad");
-  expect(String(tools.errors[0].error).toBeTruthy().includes("boom"));
+  expect(String(tools.errors[0].error)).toContain("boom");
 });
 
 it("McpClient: listAllTools uses 'Unknown error' when a provider rejects with falsy reason", async () => {
@@ -424,7 +424,7 @@ it("McpClient: healthCheck returns not ok for missing provider", async () => {
   const health = await client.healthCheck({ providerId: "missing" });
 
   expect(health.ok).toBe(false);
-  expect(String(health.error).toBeTruthy().includes("No provider found"));
+  expect(String(health.error)).toContain("No provider found");
 });
 
 it("McpClient: healthCheck uses provider.healthCheck if available", async () => {
@@ -475,7 +475,7 @@ it("McpClient: healthCheck returns ok:false when provider.healthCheck throws", a
 
   expect(health.ok).toBe(false);
   expect(health.providerId).toBe("failing");
-  expect(String(health.error).toBeTruthy().includes("health check failed"));
+  expect(String(health.error)).toContain("health check failed");
 });
 
 it("McpClient: healthCheckAll checks all providers", async () => {
@@ -515,7 +515,7 @@ it("McpClient: healthCheckAll checks all providers", async () => {
 
   expect(good.ok).toBe(true);
   expect(bad.ok).toBe(false);
-  expect(String(bad.error).toBeTruthy().includes("Provider down"));
+  expect(String(bad.error)).toContain("Provider down");
 });
 
 it("McpClient: healthCheck handles missing defaultProvider", async () => {
@@ -567,7 +567,7 @@ it("McpTransport: request throws when not connected", async () => {
   const { McpTransport } = await import("../../../js/agents/mcp/mcp-transport.js");
 
   const transport = new McpTransport();
-  await expect(transport.request("test", {}).rejects.toThrow, /not connected/i);
+  await expect(transport.request("test", {})).rejects.toThrow(/not connected/i);
 });
 
 it("McpTransport: request/response handling via _handleMessage", async () => {
@@ -626,7 +626,7 @@ it("McpTransport: request handles error response", async () => {
   }
 
   const transport = new ErrorTransport();
-  await expect(transport.request("test", {}).rejects.toThrow, /Invalid Request/);
+  await expect(transport.request("test", {})).rejects.toThrow(/Invalid Request/);
 });
 
 it("McpTransport: request times out", async () => {
@@ -643,7 +643,7 @@ it("McpTransport: request times out", async () => {
   }
 
   const transport = new SlowTransport();
-  await expect(transport.request("test", {}).rejects.toThrow, /timeout/i);
+  await expect(transport.request("test", {})).rejects.toThrow(/timeout/i);
 });
 
 it("McpTransport: notify sends message without id", async () => {
@@ -823,7 +823,7 @@ it("McpClient: circuit breaker opens after repeated failures", async () => {
 
   const blocked = await client.callTool("x", {});
   expect(blocked.success).toBe(false);
-  expect(String(blocked.error).toBeTruthy().toLowerCase().includes("circuit open"));
+  expect(String(blocked.error).toLowerCase()).toContain("circuit open");
   expect(provider.calls).toBe(3);
 });
 
@@ -850,7 +850,7 @@ it("McpClient: circuit breaker ignores unknown tool errors", async () => {
   for (let i = 0; i < 6; i++) {
     const r = await client.callTool("nope", {});
     expect(r.success).toBe(false);
-    expect(String(r.error).toBeTruthy().includes("unknown tool"));
+    expect(String(r.error)).toContain("unknown tool");
   }
   expect(provider.calls).toBe(6);
 });
@@ -1113,11 +1113,11 @@ it("McpClient: search/fetch return last result when all fail", async () => {
 
   const sr = await client.search({ query: "x" });
   expect(sr.success).toBe(false);
-  expect(String(sr.error).toBeTruthy().includes("fail:search"));
+  expect(String(sr.error)).toContain("fail:search");
 
   const fr = await client.fetch({ url: "https://example.com" });
   expect(fr.success).toBe(false);
-  expect(String(fr.error).toBeTruthy().includes("fail:fetch"));
+  expect(String(fr.error)).toContain("fail:fetch");
 });
 
 // ============================================================================
@@ -1328,7 +1328,7 @@ it("McpTransport: request handles send failure", async () => {
   }
 
   const transport = new FailingSendTransport();
-  await expect(transport.request("test", {}).rejects.toThrow, /Send failed/);
+  await expect(transport.request("test", {})).rejects.toThrow(/Send failed/);
 });
 
 it("McpTransport: _handleMessage handles response with unknown id gracefully", async () => {

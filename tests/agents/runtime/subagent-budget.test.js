@@ -46,7 +46,7 @@ describe("SubagentBudgetManager", () => {
       const mgr = new SubagentBudgetManager({ parentBudget: 100000 });
       const result = mgr.allocate("sub1", { mode: "isolated" });
 
-      expect(!("error" in result).toBeTruthy());
+      expect(!("error" in result)).toBeTruthy();
       expect(result.mode).toBe("isolated");
       expect(result.budget).toBe(12000); // 80000 * 0.15
       expect(result.priority).toBe(3);
@@ -56,7 +56,7 @@ describe("SubagentBudgetManager", () => {
       const mgr = new SubagentBudgetManager({ parentBudget: 100000 });
       const result = mgr.allocate("sub1", { mode: "shared" });
 
-      expect(!("error" in result).toBeTruthy());
+      expect(!("error" in result)).toBeTruthy();
       expect(result.mode).toBe("shared");
       expect(result.budget).toBe(20000); // 80000 * 0.25
       expect(result.priority).toBe(2);
@@ -66,7 +66,7 @@ describe("SubagentBudgetManager", () => {
       const mgr = new SubagentBudgetManager({ parentBudget: 100000 });
       const result = mgr.allocate("sub1", { mode: "handoff" });
 
-      expect(!("error" in result).toBeTruthy());
+      expect(!("error" in result)).toBeTruthy();
       expect(result.mode).toBe("handoff");
       expect(result.budget).toBe(28000); // 80000 * 0.35
       expect(result.priority).toBe(1);
@@ -76,7 +76,7 @@ describe("SubagentBudgetManager", () => {
       const mgr = new SubagentBudgetManager({ parentBudget: 100000 });
       const result = mgr.allocate("sub1", { mode: "handoff", requestedBudget: 5000 });
 
-      expect(!("error" in result).toBeTruthy());
+      expect(!("error" in result)).toBeTruthy();
       expect(result.budget).toBe(5000);
     });
 
@@ -84,7 +84,7 @@ describe("SubagentBudgetManager", () => {
       const mgr = new SubagentBudgetManager({ parentBudget: 100000 });
       const result = mgr.allocate("sub1", { mode: "isolated", requestedBudget: 50000 });
 
-      expect(!("error" in result).toBeTruthy());
+      expect(!("error" in result)).toBeTruthy();
       expect(result.budget).toBe(12000); // capped at 80000 * 0.15
     });
 
@@ -132,7 +132,7 @@ describe("SubagentBudgetManager", () => {
       const mgr = new SubagentBudgetManager({ parentBudget: 100000 });
       const result = mgr.allocate("sub1", { mode: "SHARED" });
 
-      expect(!("error" in result).toBeTruthy());
+      expect(!("error" in result)).toBeTruthy();
       expect(result.mode).toBe("shared");
     });
 
@@ -140,7 +140,7 @@ describe("SubagentBudgetManager", () => {
       const mgr = new SubagentBudgetManager({ parentBudget: 100000 });
       const result = mgr.allocate("sub1", { mode: "unknown" });
 
-      expect(!("error" in result).toBeTruthy());
+      expect(!("error" in result)).toBeTruthy();
       expect(result.mode).toBe("isolated");
     });
   });
@@ -231,7 +231,7 @@ describe("SubagentBudgetManager", () => {
 
       // Same ID can be reused after release
       const result = mgr.allocate("sub1", { mode: "shared" });
-      expect(!("error" in result).toBeTruthy());
+      expect(!("error" in result)).toBeTruthy();
     });
   });
 

@@ -63,9 +63,9 @@ describe("retrieval/hybrid-retrieval", () => {
     });
 
     it("handles empty arrays", () => {
-      expect(rrfFuse([]).toEqual([]), []);
-      expect(rrfFuse([{ chunkId: "a" }], []).toBeTruthy().length === 1);
-      expect(rrfFuse([], [{ chunkId: "a" }]).toBeTruthy().length === 1);
+      expect(rrfFuse([])).toEqual([]);
+      expect(rrfFuse([{ chunkId: "a" }], []).length).toBe(1);
+      expect(rrfFuse([], [{ chunkId: "a" }]).length).toBe(1);
     });
 
     it("skips entries without chunkId", () => {

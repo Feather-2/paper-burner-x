@@ -295,11 +295,11 @@ describe("Planning Phase", () => {
     });
 
     it("should return false for completed status", () => {
-      expect(!isTodoOpen({ status: TodoStatus.COMPLETED }).toBeTruthy());
+      expect(isTodoOpen({ status: TodoStatus.COMPLETED })).toBeFalsy();
     });
 
     it("should return false for cancelled status", () => {
-      expect(!isTodoOpen({ status: TodoStatus.CANCELLED }).toBeTruthy());
+      expect(isTodoOpen({ status: TodoStatus.CANCELLED })).toBeFalsy();
     });
   });
 

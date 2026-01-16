@@ -1,7 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-const assert = require("node:assert/strict");
-
 async function loadTools() {
   return import("../../../js/agents/stages/design/refiner/react-refiner-tools.js");
 }
@@ -186,7 +184,7 @@ it("ReactRefiner Tools: valid HTML is preserved while sanitizing innerHTML", asy
   expect(res.data.updatedSectionHtml.includes('href="https://example.com"')).toBeTruthy();
 });
 
-it("ReactRefiner Tools: uses DOMPurify when available (environment detection)", async (t) => {
+it("ReactRefiner Tools: uses DOMPurify when available (environment detection)", async () => {
   const calls = [];
   globalThis.DOMPurify = {
     sanitize: (html, opts) => {
@@ -194,20 +192,21 @@ it("ReactRefiner Tools: uses DOMPurify when available (environment detection)", 
       return `<section data-title="PURIFIED"><div data-el="x">ok</div></section>`;
     },
   };
-  t.after(() => {
+
+  try {
+    const { createToolExecutor } = await loadTools();
+    const context = { deckPackage: { deckHtmlDsl: makeDeckHtmlDsl() }, contentPackage: {} };
+    const exec = createToolExecutor(context);
+
+    const input = `<section data-title="ORIG"><img src="x" onerror="alert(1)"></section>`;
+    const res = await exec("editSlide", { slideIndex: 0, changes: { html: input } });
+    expect(res.success).toBe(true);
+    expect(res.data.updatedSectionHtml.includes('data-title="PURIFIED"')).toBeTruthy();
+
+    expect(calls.length).toBe(1);
+    expect(calls[0].html).toBe(input);
+    expect(calls[0].opts?.RETURN_DOM_FRAGMENT).toBe(false);
+  } finally {
     delete globalThis.DOMPurify;
-  });
-
-  const { createToolExecutor } = await loadTools();
-  const context = { deckPackage: { deckHtmlDsl: makeDeckHtmlDsl() }, contentPackage: {} };
-  const exec = createToolExecutor(context);
-
-  const input = `<section data-title="ORIG"><img src="x" onerror="alert(1)"></section>`;
-  const res = await exec("editSlide", { slideIndex: 0, changes: { html: input } });
-  expect(res.success).toBe(true);
-  expect(res.data.updatedSectionHtml.includes('data-title="PURIFIED"')).toBeTruthy();
-
-  expect(calls.length).toBe(1);
-  expect(calls[0].html).toBe(input);
-  expect(calls[0].opts?.RETURN_DOM_FRAGMENT).toBe(false);
+  }
 });

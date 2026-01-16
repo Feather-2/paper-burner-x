@@ -62,7 +62,7 @@ it("CliModelClient: chat throws without API key", async () => {
   );
 });
 
-it("CliModelClient: chat constructs correct request", async (t) => {
+it("CliModelClient: chat constructs correct request", async () => {
   const { CliModelClient } = await import("../../../js/agents/cli/model-client.js");
 
   let capturedRequest = null;
@@ -81,38 +81,38 @@ it("CliModelClient: chat constructs correct request", async (t) => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = mockFetch;
 
-  t.after(() => {
+  try {
+    const client = new CliModelClient({
+      apiKey: "sk-test",
+      baseUrl: "https://test.api/v1",
+      model: "test-model",
+    });
+
+    const result = await client.chat({
+      messages: [{ role: "user", content: "hello" }],
+      temperature: 0.5,
+      maxTokens: 1000,
+    });
+
+    expect(capturedRequest.url).toBe("https://test.api/v1/chat/completions");
+    expect(capturedRequest.method).toBe("POST");
+    expect(capturedRequest.headers["Authorization"].includes("sk-test")).toBeTruthy();
+
+    const body = JSON.parse(capturedRequest.body);
+    expect(body.model).toBe("test-model");
+    expect(body.temperature).toBe(0.5);
+    expect(body.max_tokens).toBe(1000);
+    expect(body.messages).toEqual([{ role: "user", content: "hello" }]);
+
+    expect(result.content).toBe("response");
+    expect(result.model).toBe("test-model");
+    expect(result.usage).toEqual({ total_tokens: 10 });
+  } finally {
     globalThis.fetch = originalFetch;
-  });
-
-  const client = new CliModelClient({
-    apiKey: "sk-test",
-    baseUrl: "https://test.api/v1",
-    model: "test-model",
-  });
-
-  const result = await client.chat({
-    messages: [{ role: "user", content: "hello" }],
-    temperature: 0.5,
-    maxTokens: 1000,
-  });
-
-  expect(capturedRequest.url).toBe("https://test.api/v1/chat/completions");
-  expect(capturedRequest.method).toBe("POST");
-  expect(capturedRequest.headers["Authorization"].includes("sk-test")).toBeTruthy();
-
-  const body = JSON.parse(capturedRequest.body);
-  expect(body.model).toBe("test-model");
-  expect(body.temperature).toBe(0.5);
-  expect(body.max_tokens).toBe(1000);
-  expect(body.messages).toEqual([{ role: "user", content: "hello" }]);
-
-  expect(result.content).toBe("response");
-  expect(result.model).toBe("test-model");
-  expect(result.usage).toEqual({ total_tokens: 10 });
+  }
 });
 
-it("CliModelClient: chat uses default maxTokens from options", async (t) => {
+it("CliModelClient: chat uses default maxTokens from options", async () => {
   const { CliModelClient } = await import("../../../js/agents/cli/model-client.js");
 
   let capturedBody = null;
@@ -130,20 +130,21 @@ it("CliModelClient: chat uses default maxTokens from options", async (t) => {
 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = mockFetch;
-  t.after(() => {
+
+  try {
+    const client = new CliModelClient({
+      apiKey: "sk-test",
+      maxOutputTokens: 2048,
+    });
+
+    await client.chat({ messages: [{ role: "user", content: "hi" }] });
+    expect(capturedBody.max_tokens).toBe(2048);
+  } finally {
     globalThis.fetch = originalFetch;
-  });
-
-  const client = new CliModelClient({
-    apiKey: "sk-test",
-    maxOutputTokens: 2048,
-  });
-
-  await client.chat({ messages: [{ role: "user", content: "hi" }] });
-  expect(capturedBody.max_tokens).toBe(2048);
+  }
 });
 
-it("CliModelClient: chat handles HTTP error", async (t) => {
+it("CliModelClient: chat handles HTTP error", async () => {
   const { CliModelClient } = await import("../../../js/agents/cli/model-client.js");
 
   const mockFetch = async () => ({
@@ -157,18 +158,19 @@ it("CliModelClient: chat handles HTTP error", async (t) => {
 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = mockFetch;
-  t.after(() => {
+
+  try {
+    const client = new CliModelClient({ apiKey: "sk-test" });
+
+    await expect(() => client.chat({ messages: [{ role: "user", content: "hi" }] }),
+      (err) => err.message.includes("API 请求失败") && err.message.includes("401")
+    );
+  } finally {
     globalThis.fetch = originalFetch;
-  });
-
-  const client = new CliModelClient({ apiKey: "sk-test" });
-
-  await expect(() => client.chat({ messages: [{ role: "user", content: "hi" }] }),
-    (err) => err.message.includes("API 请求失败") && err.message.includes("401")
-  );
+  }
 });
 
-it("CliModelClient: chat handles non-JSON error response", async (t) => {
+it("CliModelClient: chat handles non-JSON error response", async () => {
   const { CliModelClient } = await import("../../../js/agents/cli/model-client.js");
 
   const mockFetch = async () => ({
@@ -180,18 +182,19 @@ it("CliModelClient: chat handles non-JSON error response", async (t) => {
 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = mockFetch;
-  t.after(() => {
+
+  try {
+    const client = new CliModelClient({ apiKey: "sk-test" });
+
+    await expect(() => client.chat({ messages: [{ role: "user", content: "hi" }] }),
+      (err) => err.message.includes("500") && err.message.includes("Internal Server Error")
+    );
+  } finally {
     globalThis.fetch = originalFetch;
-  });
-
-  const client = new CliModelClient({ apiKey: "sk-test" });
-
-  await expect(() => client.chat({ messages: [{ role: "user", content: "hi" }] }),
-    (err) => err.message.includes("500") && err.message.includes("Internal Server Error")
-  );
+  }
 });
 
-it("CliModelClient: ask builds messages correctly", async (t) => {
+it("CliModelClient: ask builds messages correctly", async () => {
   const { CliModelClient } = await import("../../../js/agents/cli/model-client.js");
 
   let capturedMessages = null;
@@ -209,22 +212,23 @@ it("CliModelClient: ask builds messages correctly", async (t) => {
 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = mockFetch;
-  t.after(() => {
+
+  try {
+    const client = new CliModelClient({ apiKey: "sk-test" });
+
+    const result = await client.ask("What is 2+2?", "You are a math tutor");
+    expect(result).toBe("answer");
+    expect(capturedMessages.length).toBe(2);
+    expect(capturedMessages[0].role).toBe("system");
+    expect(capturedMessages[0].content).toBe("You are a math tutor");
+    expect(capturedMessages[1].role).toBe("user");
+    expect(capturedMessages[1].content).toBe("What is 2+2?");
+  } finally {
     globalThis.fetch = originalFetch;
-  });
-
-  const client = new CliModelClient({ apiKey: "sk-test" });
-
-  const result = await client.ask("What is 2+2?", "You are a math tutor");
-  expect(result).toBe("answer");
-  expect(capturedMessages.length).toBe(2);
-  expect(capturedMessages[0].role).toBe("system");
-  expect(capturedMessages[0].content).toBe("You are a math tutor");
-  expect(capturedMessages[1].role).toBe("user");
-  expect(capturedMessages[1].content).toBe("What is 2+2?");
+  }
 });
 
-it("CliModelClient: ask without system prompt", async (t) => {
+it("CliModelClient: ask without system prompt", async () => {
   const { CliModelClient } = await import("../../../js/agents/cli/model-client.js");
 
   let capturedMessages = null;
@@ -242,22 +246,23 @@ it("CliModelClient: ask without system prompt", async (t) => {
 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = mockFetch;
-  t.after(() => {
+
+  try {
+    const client = new CliModelClient({ apiKey: "sk-test" });
+
+    await client.ask("Hello");
+    expect(capturedMessages.length).toBe(1);
+    expect(capturedMessages[0].role).toBe("user");
+  } finally {
     globalThis.fetch = originalFetch;
-  });
-
-  const client = new CliModelClient({ apiKey: "sk-test" });
-
-  await client.ask("Hello");
-  expect(capturedMessages.length).toBe(1);
-  expect(capturedMessages[0].role).toBe("user");
+  }
 });
 
 // ============================================================================
 // CliModelRouter Tests
 // ============================================================================
 
-it("CliModelRouter: constructor without config or env warns", async (t) => {
+it("CliModelRouter: constructor without config or env warns", async () => {
   const { CliModelRouter } = await import("../../../js/agents/cli/model-client.js");
 
   const originalEnv = process.env.OPENAI_API_KEY;
@@ -267,17 +272,17 @@ it("CliModelRouter: constructor without config or env warns", async (t) => {
   const originalWarn = console.warn;
   console.warn = (msg) => warns.push(msg);
 
-  t.after(() => {
+  try {
+    const router = new CliModelRouter();
+    expect(router.config).toBe(null);
+    expect(warns.some(w => w.includes("未找到配置"))).toBeTruthy();
+  } finally {
     process.env.OPENAI_API_KEY = originalEnv;
     console.warn = originalWarn;
-  });
-
-  const router = new CliModelRouter();
-  expect(router.config).toBe(null);
-  expect(warns.some(w => w.includes("未找到配置")).toBeTruthy());
+  }
 });
 
-it("CliModelRouter: getClient with env var returns env client", async (t) => {
+it("CliModelRouter: getClient with env var returns env client", async () => {
   const { CliModelRouter } = await import("../../../js/agents/cli/model-client.js");
 
   const originalKey = process.env.OPENAI_API_KEY;
@@ -288,42 +293,42 @@ it("CliModelRouter: getClient with env var returns env client", async (t) => {
   process.env.OPENAI_BASE_URL = "https://env.api/v1";
   process.env.OPENAI_MODEL = "env-model";
 
-  t.after(() => {
+  try {
+    const router = new CliModelRouter();
+    const client = router.getClient("worker");
+
+    expect(client.apiKey).toBe("sk-env-test");
+    expect(client.baseUrl).toBe("https://env.api/v1");
+    expect(client.model).toBe("env-model");
+  } finally {
     if (originalKey) process.env.OPENAI_API_KEY = originalKey;
     else delete process.env.OPENAI_API_KEY;
     if (originalUrl) process.env.OPENAI_BASE_URL = originalUrl;
     else delete process.env.OPENAI_BASE_URL;
     if (originalModel) process.env.OPENAI_MODEL = originalModel;
     else delete process.env.OPENAI_MODEL;
-  });
-
-  const router = new CliModelRouter();
-  const client = router.getClient("worker");
-
-  expect(client.apiKey).toBe("sk-env-test");
-  expect(client.baseUrl).toBe("https://env.api/v1");
-  expect(client.model).toBe("env-model");
+  }
 });
 
-it("CliModelRouter: getClient caches env client", async (t) => {
+it("CliModelRouter: getClient caches env client", async () => {
   const { CliModelRouter } = await import("../../../js/agents/cli/model-client.js");
 
   const originalKey = process.env.OPENAI_API_KEY;
   process.env.OPENAI_API_KEY = "sk-cache-test";
 
-  t.after(() => {
+  try {
+    const router = new CliModelRouter();
+    const client1 = router.getClient("worker");
+    const client2 = router.getClient("planner");
+
+    expect(client1).toBe(client2);
+  } finally {
     if (originalKey) process.env.OPENAI_API_KEY = originalKey;
     else delete process.env.OPENAI_API_KEY;
-  });
-
-  const router = new CliModelRouter();
-  const client1 = router.getClient("worker");
-  const client2 = router.getClient("planner");
-
-  expect(client1).toBe(client2);
+  }
 });
 
-it("CliModelRouter: getClient throws without config or env", async (t) => {
+it("CliModelRouter: getClient throws without config or env", async () => {
   const { CliModelRouter } = await import("../../../js/agents/cli/model-client.js");
 
   const originalKey = process.env.OPENAI_API_KEY;
@@ -333,17 +338,17 @@ it("CliModelRouter: getClient throws without config or env", async (t) => {
   const originalWarn = console.warn;
   console.warn = () => {};
 
-  t.after(() => {
+  try {
+    const router = new CliModelRouter();
+
+    expect(() => router.getClient("worker")).toThrow(/未配置模型/);
+  } finally {
     if (originalKey) process.env.OPENAI_API_KEY = originalKey;
     console.warn = originalWarn;
-  });
-
-  const router = new CliModelRouter();
-
-  expect(() => router.getClient("worker")).toThrow(/未配置模型/);
+  }
 });
 
-it("CliModelRouter: getAvailableModels with env returns env model", async (t) => {
+it("CliModelRouter: getAvailableModels with env returns env model", async () => {
   const { CliModelRouter } = await import("../../../js/agents/cli/model-client.js");
 
   const originalKey = process.env.OPENAI_API_KEY;
@@ -352,20 +357,20 @@ it("CliModelRouter: getAvailableModels with env returns env model", async (t) =>
   process.env.OPENAI_API_KEY = "sk-test";
   process.env.OPENAI_MODEL = "test-model";
 
-  t.after(() => {
+  try {
+    const router = new CliModelRouter();
+    const models = router.getAvailableModels();
+
+    expect(models).toEqual(["env:test-model"]);
+  } finally {
     if (originalKey) process.env.OPENAI_API_KEY = originalKey;
     else delete process.env.OPENAI_API_KEY;
     if (originalModel) process.env.OPENAI_MODEL = originalModel;
     else delete process.env.OPENAI_MODEL;
-  });
-
-  const router = new CliModelRouter();
-  const models = router.getAvailableModels();
-
-  expect(models).toEqual(["env:test-model"]);
+  }
 });
 
-it("CliModelRouter: getAvailableModels without config returns empty", async (t) => {
+it("CliModelRouter: getAvailableModels without config returns empty", async () => {
   const { CliModelRouter } = await import("../../../js/agents/cli/model-client.js");
 
   const originalKey = process.env.OPENAI_API_KEY;
@@ -374,18 +379,18 @@ it("CliModelRouter: getAvailableModels without config returns empty", async (t) 
   const originalWarn = console.warn;
   console.warn = () => {};
 
-  t.after(() => {
+  try {
+    const router = new CliModelRouter();
+    const models = router.getAvailableModels();
+
+    expect(models).toEqual([]);
+  } finally {
     if (originalKey) process.env.OPENAI_API_KEY = originalKey;
     console.warn = originalWarn;
-  });
-
-  const router = new CliModelRouter();
-  const models = router.getAvailableModels();
-
-  expect(models).toEqual([]);
+  }
 });
 
-it("CliModelRouter: getTierMapping returns empty without config", async (t) => {
+it("CliModelRouter: getTierMapping returns empty without config", async () => {
   const { CliModelRouter } = await import("../../../js/agents/cli/model-client.js");
 
   const originalKey = process.env.OPENAI_API_KEY;
@@ -394,33 +399,28 @@ it("CliModelRouter: getTierMapping returns empty without config", async (t) => {
   const originalWarn = console.warn;
   console.warn = () => {};
 
-  t.after(() => {
+  try {
+    const router = new CliModelRouter();
+    const tiers = router.getTierMapping();
+
+    expect(tiers).toEqual({});
+  } finally {
     if (originalKey) process.env.OPENAI_API_KEY = originalKey;
     console.warn = originalWarn;
-  });
-
-  const router = new CliModelRouter();
-  const tiers = router.getTierMapping();
-
-  expect(tiers).toEqual({});
+  }
 });
 
 // ============================================================================
 // createAiApiServiceAdapter Tests
 // ============================================================================
 
-it("createAiApiServiceAdapter: chat delegates to router", async (t) => {
+it("createAiApiServiceAdapter: chat delegates to router", async () => {
   const { CliModelRouter, createAiApiServiceAdapter, CliModelClient } = await import(
     "../../../js/agents/cli/model-client.js"
   );
 
   const originalKey = process.env.OPENAI_API_KEY;
   process.env.OPENAI_API_KEY = "sk-adapter-test";
-
-  t.after(() => {
-    if (originalKey) process.env.OPENAI_API_KEY = originalKey;
-    else delete process.env.OPENAI_API_KEY;
-  });
 
   const mockFetch = async () => ({
     ok: true,
@@ -433,22 +433,25 @@ it("createAiApiServiceAdapter: chat delegates to router", async (t) => {
 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = mockFetch;
-  t.after(() => {
+
+  try {
+    const router = new CliModelRouter();
+    const adapter = createAiApiServiceAdapter(router);
+
+    const result = await adapter.chat({
+      messages: [{ role: "user", content: "hi" }],
+      usage: "worker",
+    });
+
+    expect(result.content).toBe("adapter response");
+  } finally {
+    if (originalKey) process.env.OPENAI_API_KEY = originalKey;
+    else delete process.env.OPENAI_API_KEY;
     globalThis.fetch = originalFetch;
-  });
-
-  const router = new CliModelRouter();
-  const adapter = createAiApiServiceAdapter(router);
-
-  const result = await adapter.chat({
-    messages: [{ role: "user", content: "hi" }],
-    usage: "worker",
-  });
-
-  expect(result.content).toBe("adapter response");
+  }
 });
 
-it("createAiApiServiceAdapter: getAvailableModels returns formatted models", async (t) => {
+it("createAiApiServiceAdapter: getAvailableModels returns formatted models", async () => {
   const { CliModelRouter, createAiApiServiceAdapter } = await import(
     "../../../js/agents/cli/model-client.js"
   );
@@ -459,22 +462,22 @@ it("createAiApiServiceAdapter: getAvailableModels returns formatted models", asy
   process.env.OPENAI_API_KEY = "sk-test";
   process.env.OPENAI_MODEL = "gpt-4";
 
-  t.after(() => {
+  try {
+    const router = new CliModelRouter();
+    const adapter = createAiApiServiceAdapter(router);
+
+    const models = adapter.getAvailableModels();
+
+    expect(models.length).toBe(1);
+    expect(models[0].id).toBe("env:gpt-4");
+    expect(models[0].name).toBe("env:gpt-4");
+    expect(models[0].type).toBe("cli");
+  } finally {
     if (originalKey) process.env.OPENAI_API_KEY = originalKey;
     else delete process.env.OPENAI_API_KEY;
     if (originalModel) process.env.OPENAI_MODEL = originalModel;
     else delete process.env.OPENAI_MODEL;
-  });
-
-  const router = new CliModelRouter();
-  const adapter = createAiApiServiceAdapter(router);
-
-  const models = adapter.getAvailableModels();
-
-  expect(models.length).toBe(1);
-  expect(models[0].id).toBe("env:gpt-4");
-  expect(models[0].name).toBe("env:gpt-4");
-  expect(models[0].type).toBe("cli");
+  }
 });
 
 // ============================================================================
@@ -496,7 +499,7 @@ it("default export includes all expected exports", async () => {
 // Edge Cases and Error Handling
 // ============================================================================
 
-it("CliModelClient: handles empty response choice", async (t) => {
+it("CliModelClient: handles empty response choice", async () => {
   const { CliModelClient } = await import("../../../js/agents/cli/model-client.js");
 
   const mockFetch = async () => ({
@@ -510,17 +513,18 @@ it("CliModelClient: handles empty response choice", async (t) => {
 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = mockFetch;
-  t.after(() => {
+
+  try {
+    const client = new CliModelClient({ apiKey: "sk-test" });
+    const result = await client.chat({ messages: [{ role: "user", content: "hi" }] });
+
+    expect(result.content).toBe("");
+  } finally {
     globalThis.fetch = originalFetch;
-  });
-
-  const client = new CliModelClient({ apiKey: "sk-test" });
-  const result = await client.chat({ messages: [{ role: "user", content: "hi" }] });
-
-  expect(result.content).toBe("");
+  }
 });
 
-it("CliModelClient: handles missing message content", async (t) => {
+it("CliModelClient: handles missing message content", async () => {
   const { CliModelClient } = await import("../../../js/agents/cli/model-client.js");
 
   const mockFetch = async () => ({
@@ -534,17 +538,18 @@ it("CliModelClient: handles missing message content", async (t) => {
 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = mockFetch;
-  t.after(() => {
+
+  try {
+    const client = new CliModelClient({ apiKey: "sk-test" });
+    const result = await client.chat({ messages: [{ role: "user", content: "hi" }] });
+
+    expect(result.content).toBe("");
+  } finally {
     globalThis.fetch = originalFetch;
-  });
-
-  const client = new CliModelClient({ apiKey: "sk-test" });
-  const result = await client.chat({ messages: [{ role: "user", content: "hi" }] });
-
-  expect(result.content).toBe("");
+  }
 });
 
-it("CliModelClient: respects abort signal", async (t) => {
+it("CliModelClient: respects abort signal", async () => {
   const { CliModelClient } = await import("../../../js/agents/cli/model-client.js");
 
   const mockFetch = async (url, init) => {
@@ -563,24 +568,25 @@ it("CliModelClient: respects abort signal", async (t) => {
 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = mockFetch;
-  t.after(() => {
+
+  try {
+    const client = new CliModelClient({ apiKey: "sk-test" });
+    const controller = new AbortController();
+
+    const promise = client.chat({
+      messages: [{ role: "user", content: "hi" }],
+      signal: controller.signal,
+    });
+
+    controller.abort();
+
+    await expect(promise).rejects.toThrow("Aborted");
+  } finally {
     globalThis.fetch = originalFetch;
-  });
-
-  const client = new CliModelClient({ apiKey: "sk-test" });
-  const controller = new AbortController();
-
-  const promise = client.chat({
-    messages: [{ role: "user", content: "hi" }],
-    signal: controller.signal,
-  });
-
-  controller.abort();
-
-  await expect(promise).rejects.toThrow((err) => err.name === "AbortError");
+  }
 });
 
-it("CliModelClient: chat handles retry-after header", async (t) => {
+it("CliModelClient: chat handles retry-after header", async () => {
   const { CliModelClient } = await import("../../../js/agents/cli/model-client.js");
 
   const mockFetch = async () => ({
@@ -598,18 +604,19 @@ it("CliModelClient: chat handles retry-after header", async (t) => {
 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = mockFetch;
-  t.after(() => {
+
+  try {
+    const client = new CliModelClient({ apiKey: "sk-test" });
+
+    await expect(() => client.chat({ messages: [{ role: "user", content: "hi" }] }),
+      (err) => err.status === 429 && err.retryAfter === "30"
+    );
+  } finally {
     globalThis.fetch = originalFetch;
-  });
-
-  const client = new CliModelClient({ apiKey: "sk-test" });
-
-  await expect(() => client.chat({ messages: [{ role: "user", content: "hi" }] }),
-    (err) => err.status === 429 && err.retryAfter === "30"
-  );
+  }
 });
 
-it("CliModelClient: handles timeout", async (t) => {
+it("CliModelClient: handles timeout", async () => {
   const { CliModelClient } = await import("../../../js/agents/cli/model-client.js");
 
   const mockFetch = async (url, init) => {
@@ -639,18 +646,19 @@ it("CliModelClient: handles timeout", async (t) => {
 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = mockFetch;
-  t.after(() => {
+
+  try {
+    const client = new CliModelClient({ apiKey: "sk-test", timeoutMs: 50 });
+
+    await expect(() => client.chat({ messages: [{ role: "user", content: "hi" }] }),
+      (err) => err.message.includes("timeout") || err.name === "AbortError"
+    );
+  } finally {
     globalThis.fetch = originalFetch;
-  });
-
-  const client = new CliModelClient({ apiKey: "sk-test", timeoutMs: 50 });
-
-  await expect(() => client.chat({ messages: [{ role: "user", content: "hi" }] }),
-    (err) => err.message.includes("timeout") || err.name === "AbortError"
-  );
+  }
 });
 
-it("CliModelClient: contextWindow truncation is applied", async (t) => {
+it("CliModelClient: contextWindow truncation is applied", async () => {
   const { CliModelClient } = await import("../../../js/agents/cli/model-client.js");
 
   let capturedMessages = null;
@@ -668,45 +676,41 @@ it("CliModelClient: contextWindow truncation is applied", async (t) => {
 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = mockFetch;
-  t.after(() => {
+
+  try {
+    const client = new CliModelClient({
+      apiKey: "sk-test",
+      contextWindow: 100,
+    });
+
+    const longMessages = [
+      { role: "system", content: "sys" },
+      { role: "user", content: "a".repeat(50) },
+      { role: "assistant", content: "b".repeat(50) },
+      { role: "user", content: "final" },
+    ];
+
+    await client.chat({ messages: longMessages, maxTokens: 50 });
+
+    // Should have truncated some messages but kept system
+    expect(capturedMessages.length <= longMessages.length).toBeTruthy();
+    expect(capturedMessages.some(m => m.role === "system")).toBeTruthy();
+  } finally {
     globalThis.fetch = originalFetch;
-  });
-
-  const client = new CliModelClient({
-    apiKey: "sk-test",
-    contextWindow: 100,
-  });
-
-  const longMessages = [
-    { role: "system", content: "sys" },
-    { role: "user", content: "a".repeat(50) },
-    { role: "assistant", content: "b".repeat(50) },
-    { role: "user", content: "final" },
-  ];
-
-  await client.chat({ messages: longMessages, maxTokens: 50 });
-
-  // Should have truncated some messages but kept system
-  expect(capturedMessages.length <= longMessages.length).toBeTruthy();
-  expect(capturedMessages.some(m => m.role === "system")).toBeTruthy();
+  }
 });
 
 // ============================================================================
 // Integration-style Tests
 // ============================================================================
 
-it("CliModelRouter + CliModelClient integration", async (t) => {
+it("CliModelRouter + CliModelClient integration", async () => {
   const { CliModelRouter, CliModelClient } = await import(
     "../../../js/agents/cli/model-client.js"
   );
 
   const originalKey = process.env.OPENAI_API_KEY;
   process.env.OPENAI_API_KEY = "sk-integration";
-
-  t.after(() => {
-    if (originalKey) process.env.OPENAI_API_KEY = originalKey;
-    else delete process.env.OPENAI_API_KEY;
-  });
 
   const mockFetch = async () => ({
     ok: true,
@@ -719,15 +723,18 @@ it("CliModelRouter + CliModelClient integration", async (t) => {
 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = mockFetch;
-  t.after(() => {
+
+  try {
+    const router = new CliModelRouter();
+    const client = router.getClient("worker");
+
+    expect(client instanceof CliModelClient).toBeTruthy();
+
+    const result = await client.ask("test");
+    expect(result).toBe("integrated");
+  } finally {
+    if (originalKey) process.env.OPENAI_API_KEY = originalKey;
+    else delete process.env.OPENAI_API_KEY;
     globalThis.fetch = originalFetch;
-  });
-
-  const router = new CliModelRouter();
-  const client = router.getClient("worker");
-
-  expect(client instanceof CliModelClient).toBeTruthy();
-
-  const result = await client.ask("test");
-  expect(result).toBe("integrated");
+  }
 });

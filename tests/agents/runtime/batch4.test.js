@@ -10,7 +10,7 @@ it("RecursiveBudgetManager: budget inheritance", async (t) => {
     AllocationStrategy,
   } = await import("../../../js/agents/shared/utils/budget.js");
 
-  await t.it("creates child with inherited budget", () => {
+  it("creates child with inherited budget", () => {
     const parent = new RecursiveBudgetManager({
       maxInputTokens: 100000,
       maxOutputTokens: 50000,
@@ -24,7 +24,7 @@ it("RecursiveBudgetManager: budget inheritance", async (t) => {
     expect(child.limits.total).toBe(75000);
   });
 
-  await t.it("inherits from remaining budget", () => {
+  it("inherits from remaining budget", () => {
     const parent = new RecursiveBudgetManager({
       maxInputTokens: 100000,
       maxOutputTokens: 50000,
@@ -40,7 +40,7 @@ it("RecursiveBudgetManager: budget inheritance", async (t) => {
     expect(child.limits.output).toBe(15000);
   });
 
-  await t.it("tracks hierarchy depth", () => {
+  it("tracks hierarchy depth", () => {
     const root = new RecursiveBudgetManager({ maxDepth: 3 });
     const child1 = root.createChildBudget();
     const child2 = child1.createChildBudget();
@@ -50,7 +50,7 @@ it("RecursiveBudgetManager: budget inheritance", async (t) => {
     expect(child2.getHierarchyInfo().depth).toBe(2);
   });
 
-  await t.it("enforces max depth", () => {
+  it("enforces max depth", () => {
     const root = new RecursiveBudgetManager({ maxDepth: 2 });
     const child1 = root.createChildBudget();
     const child2 = child1.createChildBudget();
@@ -58,7 +58,7 @@ it("RecursiveBudgetManager: budget inheritance", async (t) => {
     expect(() => child2.createChildBudget()).toThrow(/Max recursion depth/);
   });
 
-  await t.it("tracks children", () => {
+  it("tracks children", () => {
     const parent = new RecursiveBudgetManager();
 
     parent.createChildBudget();
@@ -68,7 +68,7 @@ it("RecursiveBudgetManager: budget inheritance", async (t) => {
     expect(parent.getHierarchyInfo().childCount).toBe(3);
   });
 
-  await t.it("calculates descendant usage", () => {
+  it("calculates descendant usage", () => {
     const root = new RecursiveBudgetManager();
     const child1 = root.createChildBudget();
     const child2 = root.createChildBudget();
@@ -81,7 +81,7 @@ it("RecursiveBudgetManager: budget inheritance", async (t) => {
     expect(descendantUsage.output).toBe(1500);
   });
 
-  await t.it("inherits degradeThreshold", () => {
+  it("inherits degradeThreshold", () => {
     const parent = new RecursiveBudgetManager({
       degradeThreshold: 0.7,
     });
@@ -90,7 +90,7 @@ it("RecursiveBudgetManager: budget inheritance", async (t) => {
     expect(child.degradeThreshold).toBe(0.7);
   });
 
-  await t.it("AllocationStrategy constants", () => {
+  it("AllocationStrategy constants", () => {
     expect(AllocationStrategy.EQUAL).toBe("equal");
     expect(AllocationStrategy.PROPORTIONAL).toBe("proportional");
     expect(AllocationStrategy.FIXED).toBe("fixed");
@@ -106,19 +106,19 @@ it("ConvergenceDetector: semantic convergence", async (t) => {
     jaccardSimilarity,
   } = await import("../../../js/agents/runtime/analysis/convergence-detector.js");
 
-  await t.it("tokenize handles various text", () => {
+  it("tokenize handles various text", () => {
     const tokens = tokenize("Hello World! This is a test.");
     expect(tokens.includes("hello")).toBeTruthy();
     expect(tokens.includes("world")).toBeTruthy();
     expect(tokens.includes("test")).toBeTruthy();
   });
 
-  await t.it("tokenize handles empty input", () => {
+  it("tokenize handles empty input", () => {
     expect(tokenize("")).toEqual([]);
     expect(tokenize(null)).toEqual([]);
   });
 
-  await t.it("jaccardSimilarity computes correctly", () => {
+  it("jaccardSimilarity computes correctly", () => {
     const a = new Set(["hello", "world"]);
     const b = new Set(["hello", "there"]);
 
@@ -126,12 +126,12 @@ it("ConvergenceDetector: semantic convergence", async (t) => {
     expect(similarity).toBe(1 / 3); // intersection=1, union=3
   });
 
-  await t.it("jaccardSimilarity handles empty sets", () => {
-    expect(jaccardSimilarity(new Set()).toBe(new Set()), 1);
-    expect(jaccardSimilarity(new Set(["a"]))).toBe(new Set(), 0);
+  it("jaccardSimilarity handles empty sets", () => {
+    expect(jaccardSimilarity(new Set(), new Set())).toBe(1);
+    expect(jaccardSimilarity(new Set(["a"]), new Set())).toBe(0);
   });
 
-  await t.it("detects convergence with similar outputs", () => {
+  it("detects convergence with similar outputs", () => {
     const detector = new ConvergenceDetector({
       windowSize: 5,
       entropyThreshold: 0.5,
@@ -147,7 +147,7 @@ it("ConvergenceDetector: semantic convergence", async (t) => {
     expect(metrics.avgSimilarity > 0.9).toBeTruthy();
   });
 
-  await t.it("does not converge with diverse outputs", () => {
+  it("does not converge with diverse outputs", () => {
     const detector = new ConvergenceDetector();
 
     const samples = [
@@ -165,7 +165,7 @@ it("ConvergenceDetector: semantic convergence", async (t) => {
     expect(detector.isConverged()).toBe(false);
   });
 
-  await t.it("getSuggestion returns actionable advice", () => {
+  it("getSuggestion returns actionable advice", () => {
     const detector = new ConvergenceDetector();
 
     // Add several samples to avoid "focus" suggestion (high entropy with few samples)
@@ -178,18 +178,18 @@ it("ConvergenceDetector: semantic convergence", async (t) => {
     expect(suggestion.reason).toBeTruthy();
   });
 
-  await t.it("reset clears state", () => {
+  it("reset clears state", () => {
     const detector = new ConvergenceDetector();
 
     detector.addSample("Test sample");
-    expect(detector.getMetrics().toBeTruthy().sampleCount > 0);
+    expect(detector.getMetrics().sampleCount).toBeGreaterThan(0);
 
     detector.reset();
     expect(detector.getMetrics().sampleCount).toBe(0);
     expect(detector.isConverged()).toBe(false);
   });
 
-  await t.it("onConvergence callback fires", async () => {
+  it("onConvergence callback fires", async () => {
     let callbackFired = false;
 
     const detector = new ConvergenceDetector({
@@ -221,7 +221,7 @@ it("BehaviorFingerprint: loop detection", async (t) => {
     findConsecutiveLoops,
   } = await import("../../../js/agents/runtime/analysis/behavior-fingerprint.js");
 
-  await t.it("createActionSignature creates consistent signatures", () => {
+  it("createActionSignature creates consistent signatures", () => {
     const sig1 = createActionSignature({ type: "search", params: { query: "test" } });
     const sig2 = createActionSignature({ type: "search", params: { query: "other" } });
 
@@ -229,7 +229,7 @@ it("BehaviorFingerprint: loop detection", async (t) => {
     expect(sig1).toBe(sig2);
   });
 
-  await t.it("createActionSignature handles different structures", () => {
+  it("createActionSignature handles different structures", () => {
     const sig1 = createActionSignature({ type: "search", params: { query: "test" } });
     const sig2 = createActionSignature({ type: "search", params: { query: "test", limit: 10 } });
 
@@ -237,7 +237,7 @@ it("BehaviorFingerprint: loop detection", async (t) => {
     expect(sig1).not.toBe(sig2);
   });
 
-  await t.it("findRepeatingPatterns finds patterns", () => {
+  it("findRepeatingPatterns finds patterns", () => {
     const sequence = ["A", "B", "C", "A", "B", "C", "D"];
     const patterns = findRepeatingPatterns(sequence, 2, 4);
 
@@ -246,7 +246,7 @@ it("BehaviorFingerprint: loop detection", async (t) => {
     expect(abcPattern.count).toBe(2);
   });
 
-  await t.it("findConsecutiveLoops detects tight loops", () => {
+  it("findConsecutiveLoops detects tight loops", () => {
     const sequence = ["A", "B", "A", "B", "A", "B", "C"];
     const loops = findConsecutiveLoops(sequence, 2, 4);
 
@@ -255,7 +255,7 @@ it("BehaviorFingerprint: loop detection", async (t) => {
     expect(abLoop.consecutiveCount).toBe(3);
   });
 
-  await t.it("recordAction tracks behavior", () => {
+  it("recordAction tracks behavior", () => {
     const fingerprint = new BehaviorFingerprint();
 
     fingerprint.recordAction({ type: "search", params: { query: "test" } });
@@ -266,7 +266,7 @@ it("BehaviorFingerprint: loop detection", async (t) => {
     expect(analysis.uniqueActions).toBe(2);
   });
 
-  await t.it("detects loop when threshold reached", () => {
+  it("detects loop when threshold reached", () => {
     const fingerprint = new BehaviorFingerprint({ loopThreshold: 3 });
 
     // Create a loop: A -> B -> A -> B -> A -> B
@@ -277,7 +277,7 @@ it("BehaviorFingerprint: loop detection", async (t) => {
     expect(fingerprint.isInLoop()).toBe(true);
   });
 
-  await t.it("onLoopDetected callback fires", () => {
+  it("onLoopDetected callback fires", () => {
     let loopInfo = null;
 
     const fingerprint = new BehaviorFingerprint({
@@ -297,7 +297,7 @@ it("BehaviorFingerprint: loop detection", async (t) => {
     expect(typeof fingerprint.isInLoop()).toBe("boolean");
   });
 
-  await t.it("getSuggestion provides actionable advice", () => {
+  it("getSuggestion provides actionable advice", () => {
     const fingerprint = new BehaviorFingerprint();
 
     fingerprint.recordAction({ type: "search" });
@@ -308,7 +308,7 @@ it("BehaviorFingerprint: loop detection", async (t) => {
     expect(suggestion.severity).toBeTruthy();
   });
 
-  await t.it("reset clears state", () => {
+  it("reset clears state", () => {
     const fingerprint = new BehaviorFingerprint();
 
     fingerprint.recordAction({ type: "test" });
@@ -319,7 +319,7 @@ it("BehaviorFingerprint: loop detection", async (t) => {
     expect(fingerprint.stats.loopCount).toBe(0);
   });
 
-  await t.it("getRecentActions returns correct count", () => {
+  it("getRecentActions returns correct count", () => {
     const fingerprint = new BehaviorFingerprint();
 
     for (let i = 0; i < 5; i++) {
@@ -334,7 +334,7 @@ it("BehaviorFingerprint: loop detection", async (t) => {
 it("ContextDistiller: context extraction", async (t) => {
   const { ContextDistiller } = await import("../../../js/agents/runtime/analysis/behavior-fingerprint.js");
 
-  await t.it("distills relevant discoveries", () => {
+  it("distills relevant discoveries", () => {
     const distiller = new ContextDistiller();
 
     const parentContext = {
@@ -354,21 +354,21 @@ it("ContextDistiller: context extraction", async (t) => {
     expect(Array.isArray(distilled.relevantDiscoveries)).toBeTruthy();
   });
 
-  await t.it("handles empty context", () => {
+  it("handles empty context", () => {
     const distiller = new ContextDistiller();
 
     const distilled = distiller.distill({}, "Some task");
     expect(distilled.childTask === "Some task").toBeTruthy();
   });
 
-  await t.it("handles null input", () => {
+  it("handles null input", () => {
     const distiller = new ContextDistiller();
 
     const distilled = distiller.distill(null, null);
     expect(distilled).toEqual({});
   });
 
-  await t.it("truncates long goal", () => {
+  it("truncates long goal", () => {
     const distiller = new ContextDistiller();
 
     const longGoal = "A".repeat(500);
@@ -377,7 +377,7 @@ it("ContextDistiller: context extraction", async (t) => {
     expect(distilled.parentGoal.length <= 203).toBeTruthy(); // 200 + "..."
   });
 
-  await t.it("summarizes tool history", () => {
+  it("summarizes tool history", () => {
     const distiller = new ContextDistiller();
 
     const parentContext = {
@@ -397,7 +397,7 @@ it("ContextDistiller: context extraction", async (t) => {
     expect(distilled.toolSummary.edit).toBe(1);
   });
 
-  await t.it("respects maxTokens option", () => {
+  it("respects maxTokens option", () => {
     const distiller = new ContextDistiller({ maxTokens: 100 });
     // The distiller is created successfully
     expect(distiller).toBeTruthy();

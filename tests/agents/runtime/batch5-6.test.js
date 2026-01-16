@@ -11,7 +11,7 @@ it("PerformanceRouter: EWMA and routing", async (t) => {
     estimateComplexity,
   } = await import("../../../js/agents/runtime/routing/performance-router.js");
 
-  await t.it("EwmaTracker computes EWMA", () => {
+  it("EwmaTracker computes EWMA", () => {
     const tracker = new EwmaTracker({ alpha: 0.5 });
 
     tracker.record(100);
@@ -24,7 +24,7 @@ it("PerformanceRouter: EWMA and routing", async (t) => {
     expect(tracker.value).toBe(125); // 0.5 * 100 + 0.5 * 150
   });
 
-  await t.it("EwmaTracker tracks min/max", () => {
+  it("EwmaTracker tracks min/max", () => {
     const tracker = new EwmaTracker();
 
     tracker.record(50);
@@ -37,7 +37,7 @@ it("PerformanceRouter: EWMA and routing", async (t) => {
     expect(stats.count).toBe(3);
   });
 
-  await t.it("EwmaTracker handles invalid input", () => {
+  it("EwmaTracker handles invalid input", () => {
     const tracker = new EwmaTracker();
 
     tracker.record(100);
@@ -47,7 +47,7 @@ it("PerformanceRouter: EWMA and routing", async (t) => {
     expect(tracker.value).toBe(100); // Should not change
   });
 
-  await t.it("registerEndpoint adds endpoints", () => {
+  it("registerEndpoint adds endpoints", () => {
     const router = new PerformanceRouter();
 
     router.registerEndpoint("gpt-4", { tier: ModelTier.POWER });
@@ -60,7 +60,7 @@ it("PerformanceRouter: EWMA and routing", async (t) => {
     expect(stats["gpt-3.5"].tier).toBe(ModelTier.FAST);
   });
 
-  await t.it("recordResult updates stats", () => {
+  it("recordResult updates stats", () => {
     const router = new PerformanceRouter();
 
     router.registerEndpoint("test");
@@ -74,7 +74,7 @@ it("PerformanceRouter: EWMA and routing", async (t) => {
     expect(stats.latency.ewma > 0).toBeTruthy();
   });
 
-  await t.it("selectEndpoint chooses best endpoint", () => {
+  it("selectEndpoint chooses best endpoint", () => {
     const router = new PerformanceRouter();
 
     router.registerEndpoint("fast", { tier: ModelTier.FAST });
@@ -88,7 +88,7 @@ it("PerformanceRouter: EWMA and routing", async (t) => {
     expect(result.endpointId).toBe("fast");
   });
 
-  await t.it("selectEndpoint respects excludeIds", () => {
+  it("selectEndpoint respects excludeIds", () => {
     const router = new PerformanceRouter();
 
     router.registerEndpoint("a");
@@ -98,14 +98,14 @@ it("PerformanceRouter: EWMA and routing", async (t) => {
     expect(result.endpointId).toBe("b");
   });
 
-  await t.it("selectEndpoint returns null when no candidates", () => {
+  it("selectEndpoint returns null when no candidates", () => {
     const router = new PerformanceRouter();
 
     const result = router.selectEndpoint();
     expect(result).toBe(null);
   });
 
-  await t.it("getRankedEndpoints sorts by score", () => {
+  it("getRankedEndpoints sorts by score", () => {
     const router = new PerformanceRouter();
 
     router.registerEndpoint("good");
@@ -118,19 +118,19 @@ it("PerformanceRouter: EWMA and routing", async (t) => {
     expect(ranked[0].id).toBe("good");
   });
 
-  await t.it("estimateComplexity categorizes tasks", () => {
+  it("estimateComplexity categorizes tasks", () => {
     expect(estimateComplexity({ prompt: "short" })).toBe(TaskComplexity.SIMPLE);
     expect(estimateComplexity({ prompt: "a".repeat(500) })).toBe(TaskComplexity.MODERATE);
     expect(estimateComplexity({ prompt: "a".repeat(3000) })).toBe(TaskComplexity.COMPLEX);
   });
 
-  await t.it("ModelTier constants", () => {
+  it("ModelTier constants", () => {
     expect(ModelTier.FAST).toBe("fast");
     expect(ModelTier.POWER).toBe("power");
     expect(ModelTier.FALLBACK).toBe("fallback");
   });
 
-  await t.it("setWeight updates endpoint weight", () => {
+  it("setWeight updates endpoint weight", () => {
     const router = new PerformanceRouter();
 
     router.registerEndpoint("test", { weight: 1 });
@@ -148,7 +148,7 @@ it("ToolQuotaManager: quota management", async (t) => {
     createToolContract,
   } = await import("../../../js/agents/runtime/tools/tool-quotas.js");
 
-  await t.it("setQuota configures tool quotas", () => {
+  it("setQuota configures tool quotas", () => {
     const manager = new ToolQuotaManager();
 
     manager.setQuota("search", { maxCalls: 10, windowMs: 1000 });
@@ -158,7 +158,7 @@ it("ToolQuotaManager: quota management", async (t) => {
     expect(stats.windowMs).toBe(1000);
   });
 
-  await t.it("tryCall allows within quota", () => {
+  it("tryCall allows within quota", () => {
     const manager = new ToolQuotaManager();
 
     manager.setQuota("search", { maxCalls: 5 });
@@ -168,7 +168,7 @@ it("ToolQuotaManager: quota management", async (t) => {
     expect(result.remaining).toBe(4);
   });
 
-  await t.it("tryCall blocks over quota", () => {
+  it("tryCall blocks over quota", () => {
     const manager = new ToolQuotaManager();
 
     manager.setQuota("search", { maxCalls: 2 });
@@ -181,7 +181,7 @@ it("ToolQuotaManager: quota management", async (t) => {
     expect(result.reason.includes("Quota exceeded")).toBeTruthy();
   });
 
-  await t.it("canCall checks without counting", () => {
+  it("canCall checks without counting", () => {
     const manager = new ToolQuotaManager();
 
     manager.setQuota("search", { maxCalls: 1 });
@@ -191,7 +191,7 @@ it("ToolQuotaManager: quota management", async (t) => {
     expect(manager.canCall("search")).toBe(false);
   });
 
-  await t.it("getBlockedTools returns blocked tools", () => {
+  it("getBlockedTools returns blocked tools", () => {
     const manager = new ToolQuotaManager();
 
     manager.setQuota("blocked", { maxCalls: 1 });
@@ -205,7 +205,7 @@ it("ToolQuotaManager: quota management", async (t) => {
     expect(blocked[0].toolName).toBe("blocked");
   });
 
-  await t.it("onQuotaExceeded callback fires", () => {
+  it("onQuotaExceeded callback fires", () => {
     let exceeded = null;
 
     const manager = new ToolQuotaManager({
@@ -222,7 +222,7 @@ it("ToolQuotaManager: quota management", async (t) => {
     expect(exceeded.toolName).toBe("test");
   });
 
-  await t.it("resetTool clears tool stats", () => {
+  it("resetTool clears tool stats", () => {
     const manager = new ToolQuotaManager();
 
     manager.setQuota("test", { maxCalls: 2 });
@@ -234,7 +234,7 @@ it("ToolQuotaManager: quota management", async (t) => {
     expect(manager.canCall("test")).toBe(true);
   });
 
-  await t.it("summary provides overview", () => {
+  it("summary provides overview", () => {
     const manager = new ToolQuotaManager();
 
     manager.setQuota("a", { maxCalls: 1 });
@@ -252,7 +252,7 @@ it("ToolQuotaManager: quota management", async (t) => {
     expect(summary.totalBlocked).toBe(1);
   });
 
-  await t.it("ContractValidator validates schema", () => {
+  it("ContractValidator validates schema", () => {
     const validator = new ContractValidator({
       type: "object",
       properties: {
@@ -272,7 +272,7 @@ it("ToolQuotaManager: quota management", async (t) => {
     expect(wrongType.valid).toBe(false);
   });
 
-  await t.it("createToolContract creates input/output validators", () => {
+  it("createToolContract creates input/output validators", () => {
     const contract = createToolContract(
       { type: "object", properties: { query: { type: "string" } } },
       { type: "array", items: { type: "object" } }
@@ -296,19 +296,19 @@ it("TraceContext: distributed tracing", async (t) => {
     generateSpanId,
   } = await import("../../../js/agents/runtime/telemetry/trace-context.js");
 
-  await t.it("generateTraceId creates 32-char hex", () => {
+  it("generateTraceId creates 32-char hex", () => {
     const id = generateTraceId();
     expect(id.length).toBe(32);
     expect(/^[0-9a-f]+$/.test(id)).toBeTruthy();
   });
 
-  await t.it("generateSpanId creates 16-char hex", () => {
+  it("generateSpanId creates 16-char hex", () => {
     const id = generateSpanId();
     expect(id.length).toBe(16);
     expect(/^[0-9a-f]+$/.test(id)).toBeTruthy();
   });
 
-  await t.it("startSpan creates new span", () => {
+  it("startSpan creates new span", () => {
     const ctx = new TraceContext();
 
     const span = ctx.startSpan("test-operation");
@@ -319,7 +319,7 @@ it("TraceContext: distributed tracing", async (t) => {
     expect(span.isEnded).toBe(false);
   });
 
-  await t.it("span tracks parent relationship", () => {
+  it("span tracks parent relationship", () => {
     const ctx = new TraceContext();
 
     const parent = ctx.startSpan("parent");
@@ -328,7 +328,7 @@ it("TraceContext: distributed tracing", async (t) => {
     expect(child.parentSpanId).toBe(parent.spanId);
   });
 
-  await t.it("span.setAttribute sets attribute", () => {
+  it("span.setAttribute sets attribute", () => {
     const ctx = new TraceContext();
     const span = ctx.startSpan("test");
 
@@ -336,7 +336,7 @@ it("TraceContext: distributed tracing", async (t) => {
     expect(span.attributes.key).toBe("value");
   });
 
-  await t.it("span.addEvent records event", () => {
+  it("span.addEvent records event", () => {
     const ctx = new TraceContext();
     const span = ctx.startSpan("test");
 
@@ -346,7 +346,7 @@ it("TraceContext: distributed tracing", async (t) => {
     expect(span.events[0].name).toBe("custom-event");
   });
 
-  await t.it("span.recordException captures error", () => {
+  it("span.recordException captures error", () => {
     const ctx = new TraceContext();
     const span = ctx.startSpan("test");
 
@@ -356,7 +356,7 @@ it("TraceContext: distributed tracing", async (t) => {
     expect(span.events.some(e => e.name === "exception")).toBeTruthy();
   });
 
-  await t.it("span.end finalizes span", () => {
+  it("span.end finalizes span", () => {
     const ctx = new TraceContext();
     const span = ctx.startSpan("test");
 
@@ -367,7 +367,7 @@ it("TraceContext: distributed tracing", async (t) => {
     expect(span.duration >= 0).toBeTruthy();
   });
 
-  await t.it("withSpan executes and ends span", async () => {
+  it("withSpan executes and ends span", async () => {
     const ctx = new TraceContext();
 
     const result = await ctx.withSpan("operation", async (span) => {
@@ -382,7 +382,7 @@ it("TraceContext: distributed tracing", async (t) => {
     expect(spans[0].status).toBe(SpanStatus.OK);
   });
 
-  await t.it("withSpan captures exceptions", async () => {
+  it("withSpan captures exceptions", async () => {
     const ctx = new TraceContext();
 
     await expect(ctx.withSpan("failing").rejects.toThrow(async () => {
@@ -395,7 +395,7 @@ it("TraceContext: distributed tracing", async (t) => {
     expect(spans[0].status).toBe(SpanStatus.ERROR);
   });
 
-  await t.it("getTraceparent returns W3C format", () => {
+  it("getTraceparent returns W3C format", () => {
     const ctx = new TraceContext();
     ctx.startSpan("test");
 
@@ -408,7 +408,7 @@ it("TraceContext: distributed tracing", async (t) => {
     expect(parts[3]).toBe("01"); // flags
   });
 
-  await t.it("parseTraceparent extracts components", () => {
+  it("parseTraceparent extracts components", () => {
     const parsed = TraceContext.parseTraceparent("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01");
 
     expect(parsed).toBeTruthy();
@@ -417,18 +417,18 @@ it("TraceContext: distributed tracing", async (t) => {
     expect(parsed.sampled).toBe(true);
   });
 
-  await t.it("parseTraceparent returns null for invalid", () => {
+  it("parseTraceparent returns null for invalid", () => {
     expect(TraceContext.parseTraceparent("invalid")).toBe(null);
     expect(TraceContext.parseTraceparent(null)).toBe(null);
   });
 
-  await t.it("SpanStatus constants", () => {
+  it("SpanStatus constants", () => {
     expect(SpanStatus.OK).toBe("ok");
     expect(SpanStatus.ERROR).toBe("error");
     expect(SpanStatus.UNSET).toBe("unset");
   });
 
-  await t.it("SpanKind constants", () => {
+  it("SpanKind constants", () => {
     expect(SpanKind.INTERNAL).toBe("internal");
     expect(SpanKind.CLIENT).toBe("client");
     expect(SpanKind.SERVER).toBe("server");
@@ -443,12 +443,12 @@ it("DegradationMatrix: resilience management", async (t) => {
     DegradationTrigger,
   } = await import("../../../js/agents/runtime/resilience/degradation-matrix.js");
 
-  await t.it("starts at NORMAL level", () => {
+  it("starts at NORMAL level", () => {
     const matrix = new DegradationMatrix();
     expect(matrix.currentLevel).toBe(OperationLevel.NORMAL);
   });
 
-  await t.it("recordRequest tracks metrics", () => {
+  it("recordRequest tracks metrics", () => {
     const matrix = new DegradationMatrix();
 
     matrix.recordRequest({ latencyMs: 100, isError: false });
@@ -458,7 +458,7 @@ it("DegradationMatrix: resilience management", async (t) => {
     expect(status.metrics.requestCount).toBe(2);
   });
 
-  await t.it("degrades on high error rate", () => {
+  it("degrades on high error rate", () => {
     const matrix = new DegradationMatrix();
 
     // Record many errors
@@ -469,7 +469,7 @@ it("DegradationMatrix: resilience management", async (t) => {
     expect(matrix.currentLevel).not.toBe(OperationLevel.NORMAL);
   });
 
-  await t.it("degrades on high latency", () => {
+  it("degrades on high latency", () => {
     const matrix = new DegradationMatrix();
 
     // Record high latency requests
@@ -480,7 +480,7 @@ it("DegradationMatrix: resilience management", async (t) => {
     expect(matrix.currentLevel).not.toBe(OperationLevel.NORMAL);
   });
 
-  await t.it("isFeatureEnabled checks feature availability", () => {
+  it("isFeatureEnabled checks feature availability", () => {
     const matrix = new DegradationMatrix();
 
     // Normal level - all features enabled
@@ -488,14 +488,14 @@ it("DegradationMatrix: resilience management", async (t) => {
     expect(matrix.isFeatureEnabled("retries")).toBe(true);
   });
 
-  await t.it("setManualOverride forces level", () => {
+  it("setManualOverride forces level", () => {
     const matrix = new DegradationMatrix();
 
     matrix.setManualOverride(OperationLevel.CRITICAL);
     expect(matrix.currentLevel).toBe(OperationLevel.CRITICAL);
   });
 
-  await t.it("clearManualOverride returns to auto", () => {
+  it("clearManualOverride returns to auto", () => {
     const matrix = new DegradationMatrix();
 
     matrix.setManualOverride(OperationLevel.CRITICAL);
@@ -506,7 +506,7 @@ it("DegradationMatrix: resilience management", async (t) => {
     expect(matrix.currentLevel).toBe(OperationLevel.NORMAL);
   });
 
-  await t.it("onLevelChange callback fires", () => {
+  it("onLevelChange callback fires", () => {
     let change = null;
 
     const matrix = new DegradationMatrix({
@@ -522,7 +522,7 @@ it("DegradationMatrix: resilience management", async (t) => {
     expect(change.to).toBe(OperationLevel.DEGRADED);
   });
 
-  await t.it("getEnabledFeatures returns feature list", () => {
+  it("getEnabledFeatures returns feature list", () => {
     const matrix = new DegradationMatrix();
 
     const features = matrix.getEnabledFeatures();
@@ -530,7 +530,7 @@ it("DegradationMatrix: resilience management", async (t) => {
     expect(features.includes("caching")).toBeTruthy();
   });
 
-  await t.it("getRecommendations provides actionable advice", () => {
+  it("getRecommendations provides actionable advice", () => {
     const matrix = new DegradationMatrix();
 
     // Create degraded state
@@ -542,7 +542,7 @@ it("DegradationMatrix: resilience management", async (t) => {
     expect(Array.isArray(recommendations)).toBeTruthy();
   });
 
-  await t.it("reset returns to normal", () => {
+  it("reset returns to normal", () => {
     const matrix = new DegradationMatrix();
 
     matrix.setManualOverride(OperationLevel.CRITICAL);
@@ -551,7 +551,7 @@ it("DegradationMatrix: resilience management", async (t) => {
     expect(matrix.currentLevel).toBe(OperationLevel.NORMAL);
   });
 
-  await t.it("DegradationPolicy customizes thresholds", () => {
+  it("DegradationPolicy customizes thresholds", () => {
     const policy = new DegradationPolicy({
       thresholds: { errorRateDegraded: 0.5 },
     });
@@ -559,14 +559,14 @@ it("DegradationMatrix: resilience management", async (t) => {
     expect(policy.thresholds.errorRateDegraded).toBe(0.5);
   });
 
-  await t.it("OperationLevel constants", () => {
+  it("OperationLevel constants", () => {
     expect(OperationLevel.NORMAL).toBe("normal");
     expect(OperationLevel.DEGRADED).toBe("degraded");
     expect(OperationLevel.CRITICAL).toBe("critical");
     expect(OperationLevel.OFFLINE).toBe("offline");
   });
 
-  await t.it("DegradationTrigger constants", () => {
+  it("DegradationTrigger constants", () => {
     expect(DegradationTrigger.ERROR_RATE).toBe("error_rate");
     expect(DegradationTrigger.LATENCY).toBe("latency");
     expect(DegradationTrigger.MEMORY).toBe("memory");

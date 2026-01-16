@@ -468,7 +468,7 @@ describe('StateBus', () => {
     it('should generate snapshot id when not provided', () => {
       const id = state.snapshot();
       expect(id).toMatch(/^snap_/);
-      expect(state.listSnapshots().toBeTruthy().includes(id));
+      expect(state.listSnapshots()).toContain(id);
     });
 
     it('should snapshot and rollback state', () => {

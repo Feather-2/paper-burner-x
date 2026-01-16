@@ -30,7 +30,7 @@ it("SharedMemoryBridge: support detection + SAB path", async (t) => {
   const mod = await import("../../../js/agents/runtime/core/shared-memory.js");
   const { SharedMemoryBridge, pack, unpack } = mod;
 
-  await t.it("getSupport() reports SAB + COI gating", () => {
+  it("getSupport() reports SAB + COI gating", () => {
     const baseline = SharedMemoryBridge.getSupport();
     expect(typeof baseline.sharedArrayBuffer).toBe("boolean");
     expect(typeof baseline.crossOriginIsolatedKnown).toBe("boolean");
@@ -54,7 +54,7 @@ it("SharedMemoryBridge: support detection + SAB path", async (t) => {
     });
   });
 
-  await t.it("getSupport()/isCrossOriginIsolated() tolerate throwing COI getter", () => {
+  it("getSupport()/isCrossOriginIsolated() tolerate throwing COI getter", () => {
     withProperty("crossOriginIsolated", { get: () => { throw new Error("boom"); } }, () => {
       const s = SharedMemoryBridge.getSupport();
       expect(s.crossOriginIsolatedKnown).toBe(false);
@@ -63,20 +63,20 @@ it("SharedMemoryBridge: support detection + SAB path", async (t) => {
     });
   });
 
-  await t.it("isSupported() returns false when SAB constructor throws", () => {
+  it("isSupported() returns false when SAB constructor throws", () => {
     withGlobal("SharedArrayBuffer", function SharedArrayBuffer() { throw new Error("no"); }, () => {
       expect(SharedMemoryBridge.isSupported()).toBe(false);
     });
   });
 
-  await t.it("allocate() validates byteLength", () => {
+  it("allocate() validates byteLength", () => {
     expect(() => SharedMemoryBridge.allocate(0)).toThrow(/byteLength must be positive/);
     const buf = SharedMemoryBridge.allocate(16);
     expect(buf.byteLength).toBe(16);
     expect(buf instanceof SharedArrayBuffer).toBeTruthy();
   });
 
-  await t.it("copyToShared() copies TypedArray + ArrayBuffer", () => {
+  it("copyToShared() copies TypedArray + ArrayBuffer", () => {
     const input = new Uint8Array([1, 2, 3, 4]);
     const sab = SharedMemoryBridge.copyToShared(input);
     expect(sab instanceof SharedArrayBuffer).toBeTruthy();
@@ -93,7 +93,7 @@ it("SharedMemoryBridge: support detection + SAB path", async (t) => {
     expect(() => SharedMemoryBridge.copyToShared({ byteLength: 1 })).toThrow(/must be TypedArray, ArrayBuffer, or SharedArrayBuffer/);
   });
 
-  await t.it("copyToShared() respects COI gating when known=false/true", () => {
+  it("copyToShared() respects COI gating when known=false/true", () => {
     // When COI is explicitly false, treat SAB as disabled and require fallback.
     withGlobal("crossOriginIsolated", false, () => {
       expect(() => SharedMemoryBridge.copyToShared(new Uint8Array([1]).toThrow()), /not enabled/);
@@ -106,7 +106,7 @@ it("SharedMemoryBridge: support detection + SAB path", async (t) => {
     });
   });
 
-  await t.it("createView() accepts ArrayBufferLike", () => {
+  it("createView() accepts ArrayBufferLike", () => {
     const buf = new ArrayBuffer(16);
     expect(SharedMemoryBridge.createView(buf, "u1").toBeTruthy() instanceof Uint8Array);
     expect(SharedMemoryBridge.createView(buf, "i1").toBeTruthy() instanceof Int8Array);
@@ -120,7 +120,7 @@ it("SharedMemoryBridge: support detection + SAB path", async (t) => {
     expect(() => SharedMemoryBridge.createView(null)).toThrow(/must be SharedArrayBuffer or ArrayBuffer/);
   });
 
-  await t.it("toPython() uses provided pyodide interface", async () => {
+  it("toPython() uses provided pyodide interface", async () => {
     const seen = { view: null, dtype: null };
     const pyodide = {
       toPy(v) {
@@ -144,7 +144,7 @@ it("SharedMemoryBridge: support detection + SAB path", async (t) => {
     await expect(async () => SharedMemoryBridge.toPython(pyodide, null), /must be SharedArrayBuffer or ArrayBuffer/);
   });
 
-  await t.it("pack()/unpack() use SAB when enabled", async () => {
+  it("pack()/unpack() use SAB when enabled", async () => {
     const had = Object.prototype.hasOwnProperty.call(globalThis, "crossOriginIsolated");
     const prev = globalThis.crossOriginIsolated;
     globalThis.crossOriginIsolated = true;
@@ -163,18 +163,18 @@ it("SharedMemoryBridge: support detection + SAB path", async (t) => {
     await expect(async () => unpack({ kind: "sab", buffer: new ArrayBuffer(1) }), /invalid SAB packet\.buffer/);
   });
 
-  await t.it("wrap() aliases copyToShared()", () => {
+  it("wrap() aliases copyToShared()", () => {
     const buf = SharedMemoryBridge.wrap(new Uint8Array([1, 2]));
     expect(buf instanceof SharedArrayBuffer).toBeTruthy();
   });
 
-  await t.it("pack(mode='sab') throws when SAB not enabled", () => {
+  it("pack(mode='sab') throws when SAB not enabled", () => {
     withGlobal("crossOriginIsolated", false, () => {
       expect(() => SharedMemoryBridge.pack(new Uint8Array([1]), { mode: "sab" })).toThrow(/not enabled/);
     });
   });
 
-  await t.it("estimateOverhead() reports copy vs zero-copy", () => {
+  it("estimateOverhead() reports copy vs zero-copy", () => {
     const sab = new SharedArrayBuffer(2);
     const a = SharedMemoryBridge.estimateOverhead(sab);
     expect(a.supported).toBe(true);
@@ -354,7 +354,7 @@ it("SharedMemoryBridge: behaves when SharedArrayBuffer is absent", async (t) => 
   const mod = await import("../../../js/agents/runtime/core/shared-memory.js");
   const { SharedMemoryBridge } = mod;
 
-  await t.it("getSupport() reflects missing SAB", () =>
+  it("getSupport() reflects missing SAB", () =>
     withGlobal("SharedArrayBuffer", undefined, () => {
       const s = SharedMemoryBridge.getSupport();
       expect(s.sharedArrayBuffer).toBe(false);
@@ -362,7 +362,7 @@ it("SharedMemoryBridge: behaves when SharedArrayBuffer is absent", async (t) => 
       expect(s.mode).toBe("messageport");
     }));
 
-  await t.it("allocate()/copyToShared() throw clean errors", () =>
+  it("allocate()/copyToShared() throw clean errors", () =>
     withGlobal("SharedArrayBuffer", undefined, () => {
       expect(() => SharedMemoryBridge.allocate(8)).toThrow(/not available/);
       expect(() => SharedMemoryBridge.copyToShared(new Uint8Array([1]).toThrow()), /not enabled/);

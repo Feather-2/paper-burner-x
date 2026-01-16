@@ -141,27 +141,27 @@ describe("vfs/path", () => {
 
   describe("joinVfsPath", () => {
     it("joins two paths", () => {
-      expect(joinVfsPath("foo").toBe("bar"), "foo/bar");
+      expect(joinVfsPath("foo", "bar")).toBe("foo/bar");
     });
 
     it("returns child when base is empty", () => {
-      expect(joinVfsPath("").toBe("bar"), "bar");
+      expect(joinVfsPath("", "bar")).toBe("bar");
     });
 
     it("returns base when child is empty", () => {
-      expect(joinVfsPath("foo").toBe(""), "foo");
+      expect(joinVfsPath("foo", "")).toBe("foo");
     });
 
     it("normalizes both paths", () => {
-      expect(joinVfsPath("/foo/").toBe("./bar"), "foo/bar");
+      expect(joinVfsPath("/foo/", "./bar")).toBe("foo/bar");
     });
 
     it("returns empty when both are empty", () => {
-      expect(joinVfsPath("").toBe(""), "");
+      expect(joinVfsPath("", "")).toBe("");
     });
 
     it("handles multiple segments", () => {
-      expect(joinVfsPath("foo/bar").toBe("baz/qux"), "foo/bar/baz/qux");
+      expect(joinVfsPath("foo/bar", "baz/qux")).toBe("foo/bar/baz/qux");
     });
   });
 });

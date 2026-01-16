@@ -45,7 +45,7 @@ it("extractAssetsFromMarkdown(): maps placeholders to locators + image data", as
   const start = markdown.indexOf(placeholder);
   expect(start >= 0).toBeTruthy();
   expect(a0.locator).toEqual({ charStart: start, charEnd: start + placeholder.length });
-  expect(String(a0.assetId).toBeTruthy().startsWith("asset_"));
+  expect(String(a0.assetId)).toMatch(/^asset_/);
 });
 
 it("PdfAdapter: calls injected OCR + builds ParsedDocument + extracts assets", async () => {
@@ -125,7 +125,7 @@ it("PdfAdapter: falls back to embedded text extraction when OCR is missing", asy
     const parsed = await adapter.parse(makePdfFile({ bytes: Buffer.from("%PDF-1.4\nHello\n") }), {});
     expect(parsed.sourceType).toBe("pdf");
     expect(parsed.metadata.engine).toBe("fallback");
-    expect(String(parsed.markdown).toBeTruthy().includes("%PDF-1.4"));
+    expect(String(parsed.markdown)).toContain("%PDF-1.4");
   } finally {
     globalThis.OcrManager = prior;
   }

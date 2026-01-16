@@ -106,7 +106,7 @@ it("BaseStage.run throws when not implemented", async () => {
   const { BaseStage } = await import("../../js/agents/runtime/core/agent-loop.js");
   const stage = new BaseStage({ name: "base" });
 
-  await expect(stage.run("input").rejects.toThrow({}), /Subclass must implement run/);
+  await expect(stage.run("input")).rejects.toThrow(/Subclass must implement run/);
 });
 
 // ============================================================================
@@ -817,7 +817,7 @@ it("waitForUserAction rejects on timeout", async () => {
   const eventBus = new EventBus({ runId: "timeout" });
   const loop = await createTestLoop({ eventBus });
 
-  await expect(loop.waitForUserAction("idle").rejects.toThrow({ eventBus, timeout: 20 }),
+  await expect(loop.waitForUserAction("idle", { eventBus, timeout: 20 })).rejects.toThrow(
     /Timeout waiting for user action: idle/
   );
 });
@@ -1183,7 +1183,7 @@ it("BaseAgentLoop.run throws when not implemented", async () => {
   const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
   const loop = new BaseAgentLoop();
 
-  await expect(loop.run("input").rejects.toThrow({}), /not implemented/);
+  await expect(loop.run("input")).rejects.toThrow(/not implemented/);
 });
 
 it("constructor with tools as Map", async () => {
@@ -1257,7 +1257,7 @@ it("_isAbortError detects abort errors", async () => {
   const abortError = new Error("AbortError");
   abortError.name = "AbortError";
 
-  expect(loop._isAbortError(abortError).toBe(controller.signal), true);
+  expect(loop._isAbortError(abortError, controller.signal)).toBe(true);
 });
 
 it("_isAbortError returns false for non-abort errors", async () => {
@@ -1266,5 +1266,5 @@ it("_isAbortError returns false for non-abort errors", async () => {
   const regularError = new Error("regular");
   const controller = new AbortController();
 
-  expect(loop._isAbortError(regularError).toBe(controller.signal), false);
+  expect(loop._isAbortError(regularError, controller.signal)).toBe(false);
 });

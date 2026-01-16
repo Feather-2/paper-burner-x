@@ -165,8 +165,8 @@ it("setUserSkillBody: stores and retrieves body", async () => {
 it("setUserSkillBody: returns false for empty name", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
-  expect(mod.setUserSkillBody("").toBe("body"), false);
-  expect(mod.setUserSkillBody(null).toBe("body"), false);
+  expect(mod.setUserSkillBody("", "body")).toBe(false);
+  expect(mod.setUserSkillBody(null, "body")).toBe(false);
 });
 
 it("setUserSkillBody: converts non-string body", async () => {
@@ -358,7 +358,7 @@ it("clearUserSkills: removes all skills", async () => {
     body: "Body 2",
   });
 
-  expect(mod.listUserSkills().toBeTruthy().length >= 2);
+  expect(mod.listUserSkills().length).toBeGreaterThanOrEqual(2);
 
   const result = mod.clearUserSkills();
   expect(result).toBe(true);

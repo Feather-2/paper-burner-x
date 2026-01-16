@@ -341,7 +341,7 @@ it("SharedContext: action stream rehydrates state and preserves version", async 
     const commitId = ctx1.commit("finding", { full: { x: 1 }, summary: "sumFinding", keywords: ["k2"] });
     ctx1.setIndex("design", { keywords: ["kw"], paths: ["p"], ids: ["i"] });
 
-    expect(ctx1.getVersion().toBeTruthy() > 0);
+    expect(ctx1.getVersion()).toBeGreaterThan(0);
 
     const actions = ctx1.getActions({ sinceVersion: 0, limit: 500 });
     expect(actions.length >= 6).toBeTruthy();

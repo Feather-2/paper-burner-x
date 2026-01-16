@@ -99,9 +99,9 @@ describe("SubagentRegistry", () => {
 
       const result = registry.getAvailableTypes();
       expect(result.length).toBe(3);
-      expect(result.some(r => r.type === "agent1" && r.description === "First agent"));
-      expect(result.some(r => r.type === "agent2" && r.description === "Second agent"));
-      expect(result.some(r => r.type === "agent3" && r.description === "Third agent"));
+      expect(result.some(r => r.type === "agent1" && r.description === "First agent")).toBeTruthy();
+      expect(result.some(r => r.type === "agent2" && r.description === "Second agent")).toBeTruthy();
+      expect(result.some(r => r.type === "agent3" && r.description === "Third agent")).toBeTruthy();
     });
   });
 
@@ -250,7 +250,7 @@ describe("validateOutput()", () => {
       const result = validateOutput(output);
 
       expect(result.valid).toBe(false);
-      expect(result.errors.some(e => e.includes("Missing required field: ok")));
+      expect(result.errors.some(e => e.includes("Missing required field: ok"))).toBeTruthy();
     });
 
     it("should allow missing optional fields", () => {
@@ -266,34 +266,34 @@ describe("validateOutput()", () => {
     it("should validate boolean type", () => {
       const result = validateOutput({ ok: "true" });
       expect(result.valid).toBe(false);
-      expect(result.errors.some(e => e.includes("expected boolean")));
+      expect(result.errors.some(e => e.includes("expected boolean"))).toBeTruthy();
     });
 
     it("should validate string type", () => {
       const result = validateOutput({ ok: true, summary: 123 });
       expect(result.valid).toBe(false);
-      expect(result.errors.some(e => e.includes("expected string")));
+      expect(result.errors.some(e => e.includes("expected string"))).toBeTruthy();
     });
 
     it("should validate with custom schema for number type", () => {
       const schema = { count: { type: "number", required: true } };
       const result = validateOutput({ count: "10" }, schema);
       expect(result.valid).toBe(false);
-      expect(result.errors.some(e => e.includes("expected number")));
+      expect(result.errors.some(e => e.includes("expected number"))).toBeTruthy();
     });
 
     it("should validate with custom schema for array type", () => {
       const schema = { items: { type: "array", required: true } };
       const result = validateOutput({ items: "not array" }, schema);
       expect(result.valid).toBe(false);
-      expect(result.errors.some(e => e.includes("expected array")));
+      expect(result.errors.some(e => e.includes("expected array"))).toBeTruthy();
     });
 
     it("should validate with custom schema for object type", () => {
       const schema = { data: { type: "object", required: true } };
       const result = validateOutput({ data: [1, 2] }, schema);
       expect(result.valid).toBe(false);
-      expect(result.errors.some(e => e.includes("expected object")));
+      expect(result.errors.some(e => e.includes("expected object"))).toBeTruthy();
     });
   });
 
@@ -303,7 +303,7 @@ describe("validateOutput()", () => {
       const result = validateOutput(output);
 
       expect(result.valid).toBe(false);
-      expect(result.errors.some(e => e.includes("exceeds maxLength")));
+      expect(result.errors.some(e => e.includes("exceeds maxLength"))).toBeTruthy();
     });
 
     it("should still copy truncated string to sanitized even with error", () => {
@@ -325,7 +325,7 @@ describe("validateOutput()", () => {
       const result = validateOutput(output, schema);
 
       expect(result.valid).toBe(false);
-      expect(result.errors.some(e => e.includes("exceeds maxItems")));
+      expect(result.errors.some(e => e.includes("exceeds maxItems"))).toBeTruthy();
     });
   });
 
@@ -342,7 +342,7 @@ describe("validateOutput()", () => {
       const result = validateOutput(output);
 
       expect(result.valid).toBe(false);
-      expect(result.errors.some(e => e.includes("Suspicious field rejected")));
+      expect(result.errors.some(e => e.includes("Suspicious field rejected"))).toBeTruthy();
       expect(result.sanitized._private).toBe(undefined);
     });
 
@@ -357,14 +357,14 @@ describe("validateOutput()", () => {
       });
       const result = validateOutput(output);
 
-      expect(result.errors.some(e => e.includes("Suspicious field rejected")));
+      expect(result.errors.some(e => e.includes("Suspicious field rejected"))).toBeTruthy();
     });
 
     it("should reject constructor field", () => {
       const output = { ok: true, constructor: {} };
       const result = validateOutput(output);
 
-      expect(result.errors.some(e => e.includes("Suspicious field rejected")));
+      expect(result.errors.some(e => e.includes("Suspicious field rejected"))).toBeTruthy();
     });
   });
 });
@@ -413,7 +413,7 @@ describe("quarantineOutput()", () => {
     const result = quarantineOutput(output, DEFAULT_OUTPUT_SCHEMA, "test", scanner);
 
     expect(result._quarantine.injectionDetections).toBeTruthy();
-    expect(result._quarantine.injectionDetections.some(d => d.field === "report"));
+    expect(result._quarantine.injectionDetections.some(d => d.field === "report")).toBeTruthy();
   });
 
   it("should handle scanner without scan method", () => {

@@ -97,7 +97,7 @@ describe("schema-validator", () => {
 
         const { valid, errors } = validateArgs({}, schema);
         expect(valid).toBe(false);
-        expect(errors.some(e => e.includes("Missing required field: name")).toBeTruthy());
+        expect(errors.some(e => e.includes("Missing required field: name"))).toBeTruthy();
       });
 
       it("should fail when required field is null", () => {
@@ -111,7 +111,7 @@ describe("schema-validator", () => {
 
         const { valid, errors } = validateArgs({ name: null }, schema);
         expect(valid).toBe(false);
-        expect(errors.some(e => e.includes("Missing required field: name")).toBeTruthy());
+        expect(errors.some(e => e.includes("Missing required field: name"))).toBeTruthy();
       });
 
       it("should fail when required field is undefined", () => {
@@ -125,7 +125,7 @@ describe("schema-validator", () => {
 
         const { valid, errors } = validateArgs({ name: undefined }, schema);
         expect(valid).toBe(false);
-        expect(errors.some(e => e.includes("Missing required field: name")).toBeTruthy());
+        expect(errors.some(e => e.includes("Missing required field: name"))).toBeTruthy();
       });
 
       it("should pass when required field has falsy but valid value", () => {
@@ -157,8 +157,8 @@ describe("schema-validator", () => {
         const { valid, errors } = validateArgs({}, schema);
         expect(valid).toBe(false);
         expect(errors.length).toBe(2);
-        expect(errors.some(e => e.includes("name")).toBeTruthy());
-        expect(errors.some(e => e.includes("age")).toBeTruthy());
+        expect(errors.some(e => e.includes("name"))).toBeTruthy();
+        expect(errors.some(e => e.includes("age"))).toBeTruthy();
       });
     });
 
@@ -173,7 +173,7 @@ describe("schema-validator", () => {
 
         const { valid, errors } = validateArgs({ age: "not a number" }, schema);
         expect(valid).toBe(false);
-        expect(errors.some(e => e.includes("expected number")).toBeTruthy());
+        expect(errors.some(e => e.includes("expected number"))).toBeTruthy();
       });
 
       it("should accept integer as number type when integer is expected", () => {
@@ -324,7 +324,7 @@ describe("schema-validator", () => {
 
         const { valid: valid2, errors } = validateArgs({ status: "unknown" }, schema);
         expect(valid2).toBe(false);
-        expect(errors.some(e => e.includes("must be one of")).toBeTruthy());
+        expect(errors.some(e => e.includes("must be one of"))).toBeTruthy();
       });
 
       it("should validate enum with different types", () => {
@@ -371,11 +371,11 @@ describe("schema-validator", () => {
 
         const { valid: valid2, errors: e2 } = validateArgs({ count: -1 }, schema);
         expect(valid2).toBe(false);
-        expect(e2.some(e => e.includes(">= 0")).toBeTruthy());
+        expect(e2.some(e => e.includes(">= 0"))).toBeTruthy();
 
         const { valid: valid3, errors: e3 } = validateArgs({ count: 101 }, schema);
         expect(valid3).toBe(false);
-        expect(e3.some(e => e.includes("<= 100")).toBeTruthy());
+        expect(e3.some(e => e.includes("<= 100"))).toBeTruthy();
       });
 
       it("should allow boundary values", () => {
@@ -438,11 +438,11 @@ describe("schema-validator", () => {
 
         const { valid: valid2, errors: e2 } = validateArgs({ name: "a" }, schema);
         expect(valid2).toBe(false);
-        expect(e2.some(e => e.includes(">= 2")).toBeTruthy());
+        expect(e2.some(e => e.includes(">= 2"))).toBeTruthy();
 
         const { valid: valid3, errors: e3 } = validateArgs({ name: "verylongname" }, schema);
         expect(valid3).toBe(false);
-        expect(e3.some(e => e.includes("<= 10")).toBeTruthy());
+        expect(e3.some(e => e.includes("<= 10"))).toBeTruthy();
       });
 
       it("should allow boundary lengths", () => {
@@ -487,11 +487,11 @@ describe("schema-validator", () => {
 
         const { valid: valid2, errors: e2 } = validateArgs({ items: [] }, schema);
         expect(valid2).toBe(false);
-        expect(e2.some(e => e.includes(">= 1")).toBeTruthy());
+        expect(e2.some(e => e.includes(">= 1"))).toBeTruthy();
 
         const { valid: valid3, errors: e3 } = validateArgs({ items: [1, 2, 3, 4] }, schema);
         expect(valid3).toBe(false);
-        expect(e3.some(e => e.includes("<= 3")).toBeTruthy());
+        expect(e3.some(e => e.includes("<= 3"))).toBeTruthy();
       });
 
       it("should allow boundary items count", () => {
@@ -536,7 +536,7 @@ describe("schema-validator", () => {
 
         const { valid: valid2, errors } = validateArgs({ email: "invalid" }, schema);
         expect(valid2).toBe(false);
-        expect(errors.some(e => e.includes("does not match pattern")).toBeTruthy());
+        expect(errors.some(e => e.includes("does not match pattern"))).toBeTruthy();
       });
 
       it("should handle invalid pattern gracefully", () => {
@@ -549,7 +549,7 @@ describe("schema-validator", () => {
 
         const { valid, errors } = validateArgs({ value: "test" }, schema);
         expect(valid).toBe(false);
-        expect(errors.some(e => e.includes("invalid pattern")).toBeTruthy());
+        expect(errors.some(e => e.includes("invalid pattern"))).toBeTruthy();
       });
 
       it("should skip pattern check for non-string values", () => {
@@ -592,7 +592,7 @@ describe("schema-validator", () => {
 
         const { valid, errors } = validateArgs({ name: "test", extra: "field" }, schema);
         expect(valid).toBe(false);
-        expect(errors.some(e => e.includes("Unknown field: extra")).toBeTruthy());
+        expect(errors.some(e => e.includes("Unknown field: extra"))).toBeTruthy();
       });
 
       it("should allow additional properties by default", () => {

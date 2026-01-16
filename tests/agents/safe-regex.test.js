@@ -28,19 +28,19 @@ describe("shared/utils/safe-regex", () => {
     });
 
     it("returns true for nested quantifiers (a+)+", () => {
-      expect(isPotentiallyDangerous("(a+).toBeTruthy()+"));
+      expect(isPotentiallyDangerous("(a+)+")).toBeTruthy();
     });
 
     it("returns true for nested quantifiers (a*)*", () => {
-      expect(isPotentiallyDangerous("(a*).toBeTruthy()*"));
+      expect(isPotentiallyDangerous("(a*)*")).toBeTruthy();
     });
 
     it("returns true for repeated alternation (a|ab)+", () => {
-      expect(isPotentiallyDangerous("(a|ab).toBeTruthy()+"));
+      expect(isPotentiallyDangerous("(a|ab)+")).toBeTruthy();
     });
 
     it("returns true for many alternations in groups", () => {
-      expect(isPotentiallyDangerous("(a|b).toBeTruthy()(c|d)(e|f)(g|h)"));
+      expect(isPotentiallyDangerous("(a|b)(c|d)(e|f)(g|h)")).toBeTruthy();
     });
 
     it("returns true for nested ranges", () => {
@@ -74,9 +74,7 @@ describe("shared/utils/safe-regex", () => {
     });
 
     it("throws for dangerous pattern", () => {
-      expect(() => createSafeRegex("(a+).toThrow()+"),
-        /ReDoS/
-      );
+      expect(() => createSafeRegex("(a+)+")).toThrow(/ReDoS/);
     });
 
     it("throws for invalid regex syntax", () => {
@@ -115,24 +113,24 @@ describe("shared/utils/safe-regex", () => {
   describe("globToRegex", () => {
     it("converts simple glob", () => {
       const regex = globToRegex("*.js");
-      expect(regex.it("file.js")).toBeTruthy();
+      expect(regex.test("file.js")).toBeTruthy();
       // Note: globToRegex does partial matching, not anchored
     });
 
     it("handles ** for directory matching", () => {
       const regex = globToRegex("**/*.js");
-      expect(regex.it("src/components/file.js")).toBeTruthy();
+      expect(regex.test("src/components/file.js")).toBeTruthy();
     });
 
     it("handles ? for single character", () => {
       const regex = globToRegex("file?.txt");
-      expect(regex.it("file1.txt")).toBeTruthy();
-      expect(regex.it("fileA.txt")).toBeTruthy();
+      expect(regex.test("file1.txt")).toBeTruthy();
+      expect(regex.test("fileA.txt")).toBeTruthy();
     });
 
     it("escapes regex special characters", () => {
       const regex = globToRegex("file.name+test");
-      expect(regex.it("file.name+test")).toBeTruthy();
+      expect(regex.test("file.name+test")).toBeTruthy();
     });
 
     it("handles null input", () => {
@@ -147,7 +145,7 @@ describe("shared/utils/safe-regex", () => {
 
     it("matches exact pattern", () => {
       const regex = globToRegex("exact");
-      expect(regex.it("exact")).toBeTruthy();
+      expect(regex.test("exact")).toBeTruthy();
     });
   });
 });

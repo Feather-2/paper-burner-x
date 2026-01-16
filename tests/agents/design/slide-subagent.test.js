@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
@@ -12,60 +11,63 @@ function makeTempFile(content) {
   return { dir, filePath };
 }
 
-it("SlideSubAgent: generates HTML, extracts visual slots, uses linked context", async (t) => {
+it("SlideSubAgent: generates HTML, extracts visual slots, uses linked context", async () => {
   const { SlideSubAgent } = await import("../../../js/agents/stages/design/subagents/slide-agent.js");
   const { AssetRegistry } = await import("../../../js/agents/stages/design/subagents/asset-registry.js");
   const { SlideStatus } = await import("../../../js/agents/stages/design/states.js");
 
   const { dir, filePath } = makeTempFile("Quarterly revenue up 12%.");
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-  const registry = new AssetRegistry();
-  registry.addAsset({ assetId: "asset_001", type: "image", source: "upload", context: "Company logo" });
+  try {
+    const registry = new AssetRegistry();
+    registry.addAsset({ assetId: "asset_001", type: "image", source: "upload", context: "Company logo" });
 
-  const slideIntent = {
-    slideIntentId: "s1",
-    slideIndex: 0,
-    title: "Growth",
-    keyPoints: ["Revenue", "Margin"],
-    linkedFiles: [filePath],
-    linkedAssets: ["asset_001"],
-  };
-
-  let capturedMessages = null;
-  const modelCaller = async (messages) => {
-    capturedMessages = messages;
-    return {
-      content: JSON.stringify([
-        {
-          slideIntentId: "s1",
-          slideHtml: "<section data-type=\"freeform\" data-bg=\"#fff\"><div data-el=\"text\">Title</div><div data-el=\"image-placeholder\" data-slot-id=\"slot_1\" data-render-type=\"svg\" data-x=\"10%\" data-y=\"20%\" data-w=\"30%\" data-h=\"40%\" data-effects=\"{\\\"blur\\\":2}\"></div></section>",
-        },
-      ]),
+    const slideIntent = {
+      slideIntentId: "s1",
+      slideIndex: 0,
+      title: "Growth",
+      keyPoints: ["Revenue", "Margin"],
+      linkedFiles: [filePath],
+      linkedAssets: ["asset_001"],
     };
-  };
 
-  const agent = new SlideSubAgent({
-    slideIntent,
-    designSystem: { designTokens: { colors: { bg: "#ffffff", text: "#111111" } } },
-    assetRegistry: registry,
-    modelCaller,
-    dslRules: "DSL RULES",
-  });
+    let capturedMessages = null;
+    const modelCaller = async (messages) => {
+      capturedMessages = messages;
+      return {
+        content: JSON.stringify([
+          {
+            slideIntentId: "s1",
+            slideHtml: "<section data-type=\"freeform\" data-bg=\"#fff\"><div data-el=\"text\">Title</div><div data-el=\"image-placeholder\" data-slot-id=\"slot_1\" data-render-type=\"svg\" data-x=\"10%\" data-y=\"20%\" data-w=\"30%\" data-h=\"40%\" data-effects=\"{\\\"blur\\\":2}\"></div></section>",
+          },
+        ]),
+      };
+    };
 
-  const result = await agent.run({ contentPackage: { runId: "run_slide" } });
+    const agent = new SlideSubAgent({
+      slideIntent,
+      designSystem: { designTokens: { colors: { bg: "#ffffff", text: "#111111" } } },
+      assetRegistry: registry,
+      modelCaller,
+      dslRules: "DSL RULES",
+    });
 
-  expect(capturedMessages, "modelCaller should be invoked").toBeTruthy();
-  const prompt = capturedMessages[1]?.content || "";
-  expect(prompt.includes("linked.txt")).toBeTruthy();
-  expect(prompt.includes("Company logo")).toBeTruthy();
+    const result = await agent.run({ contentPackage: { runId: "run_slide" } });
 
-  expect(result.htmlDsl.includes("data-el=\"image-placeholder\"")).toBeTruthy();
-  expect(result.visualSlots.length).toBe(1);
-  expect(result.visualSlots[0].slotId).toBe("slot_1");
-  expect(result.visualSlots[0].renderType).toBe("svg");
-  expect(result.status).toBe(SlideStatus.VISUAL_PENDING);
-  expect(agent.statusLog.some(row => row.to === SlideStatus.GENERATING)).toBeTruthy();
+    expect(capturedMessages, "modelCaller should be invoked").toBeTruthy();
+    const prompt = capturedMessages[1]?.content || "";
+    expect(prompt.includes("linked.txt")).toBeTruthy();
+    expect(prompt.includes("Company logo")).toBeTruthy();
+
+    expect(result.htmlDsl.includes("data-el=\"image-placeholder\"")).toBeTruthy();
+    expect(result.visualSlots.length).toBe(1);
+    expect(result.visualSlots[0].slotId).toBe("slot_1");
+    expect(result.visualSlots[0].renderType).toBe("svg");
+    expect(result.status).toBe(SlideStatus.VISUAL_PENDING);
+    expect(agent.statusLog.some(row => row.to === SlideStatus.GENERATING)).toBeTruthy();
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 it("SlideSubAgent: completes when no visual placeholders", async () => {
@@ -93,7 +95,7 @@ it("SlideSubAgent: completes when no visual placeholders", async () => {
   expect(result.status).toBe(SlideStatus.COMPLETED);
 });
 
-it("SlideSubAgent: appends supplemental content and handles missing linked files", async (t) => {
+it("SlideSubAgent: appends supplemental content and handles missing linked files", async () => {
   const { SlideSubAgent } = await import("../../../js/agents/stages/design/subagents/slide-agent.js");
   const { AssetRegistry } = await import("../../../js/agents/stages/design/subagents/asset-registry.js");
 

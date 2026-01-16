@@ -68,7 +68,7 @@ it("toErrorPayload includes pause metadata", async () => {
     runId: "run_3",
   });
 
-  expect(toErrorPayload(err).toEqual({ includeStack: false }), {
+  expect(toErrorPayload(err, { includeStack: false })).toEqual({
     message: "Paused",
     name: "StagePausedError",
     checkpointId: "ckpt_2",
@@ -117,7 +117,7 @@ it("toErrorPayload falls back for empty message/name and non-empty-string conver
 
   const err = new Error("");
   err.name = "";
-  expect(toErrorPayload(err).toEqual({ includeStack: false }), { message: "Error", name: "Error" });
+  expect(toErrorPayload(err, { includeStack: false })).toEqual({ message: "Error", name: "Error" });
 
   expect(toErrorPayload("   ")).toEqual({ message: "   ", name: "Error" });
 });
@@ -141,9 +141,9 @@ it("abortReasonToMessage handles strings, errors, and fallback", async () => {
   const { abortReasonToMessage } = await import("../../../js/agents/runtime/core/stage-errors.js");
 
   expect(abortReasonToMessage("stop")).toBe("stop");
-  expect(abortReasonToMessage("  ").toBe("fallback"), "fallback");
+  expect(abortReasonToMessage("  ", "fallback")).toBe("fallback");
   expect(abortReasonToMessage(new Error("boom"))).toBe("boom");
-  expect(abortReasonToMessage(new Error("")).toBe("fallback"), "fallback");
+  expect(abortReasonToMessage(new Error(""), "fallback")).toBe("fallback");
 });
 
 it("cancelledErrorFromSignal returns StageCancelledError", async () => {
@@ -165,7 +165,7 @@ it("toErrorPayload formats common error shapes", async () => {
   expect(toErrorPayload("bad")).toEqual({ message: "bad", name: "Error" });
 
   const timeout = new StageTimeoutError("Timeout", { stageName: "unit", timeoutMs: 123 });
-  expect(toErrorPayload(timeout).toEqual({ includeStack: false }), {
+  expect(toErrorPayload(timeout, { includeStack: false })).toEqual({
     message: "Timeout",
     name: "StageTimeoutError",
     stageName: "unit",
@@ -173,7 +173,7 @@ it("toErrorPayload formats common error shapes", async () => {
   });
 
   const cancelled = new StageCancelledError("Cancelled", { stageName: "unit" });
-  expect(toErrorPayload(cancelled).toEqual({ includeStack: false }), {
+  expect(toErrorPayload(cancelled, { includeStack: false })).toEqual({
     message: "Cancelled",
     name: "StageCancelledError",
     stageName: "unit",

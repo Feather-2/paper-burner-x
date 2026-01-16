@@ -56,9 +56,7 @@ it("CodeSearch todos: LLM unavailable triggers awaitUserFeedback pause", async (
 
   const stage = new CodeSearchStage({ maxSteps: 1 });
 
-  await expect(stage.execute({ runId: "run_codesearch_pause" }).rejects.toThrow({ query: "Inspect repo" }, {}),
-    (err) => err instanceof StagePausedError
-  );
+  await expect(stage.execute({ runId: "run_codesearch_pause", query: "Inspect repo" })).rejects.toThrow(StagePausedError);
 
   expect(stage.loopState?.awaitUserFeedback).toBe(true);
   expect(stage.loopState?.pauseReason).toBe("LLM unavailable, awaiting user input");

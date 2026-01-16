@@ -613,7 +613,7 @@ describe('Kernel', () => {
       await kernel.use(plugin);
       await kernel.start();
 
-      expect(kernel._getPlugin('test').toBeTruthy() !== null);
+      expect(kernel._getPlugin('test')).toBeTruthy();
     });
   });
 
@@ -928,7 +928,7 @@ describe('PluginContext', () => {
     ctx.state.merge('obj', { x: 1 });
 
     expect(ctx.state.get('a')).toBe(1);
-    expect(ctx.state.get().toBeTruthy() !== undefined);
+    expect(ctx.state.get()).toBeDefined();
     expect(ctx.state.getGlobal('plugins.ctx.a')).toBe(1);
   });
 
@@ -944,7 +944,7 @@ describe('PluginContext', () => {
     ctx.state.subscribe('plugins.ctx.*', subscriber);
     ctx.state.set('b', 2);
 
-    expect(subscriber.mock.calls.length.toBeTruthy() >= 1);
+    expect(subscriber.mock.calls.length).toBeGreaterThanOrEqual(1);
   });
 
   it('should provide logger methods', async () => {

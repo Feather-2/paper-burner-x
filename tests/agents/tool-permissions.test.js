@@ -172,8 +172,8 @@ describe("runtime/safety/tool-permissions", () => {
           .block(["tool1", "tool2"])
           .blockBash(["cmd1"]);
 
-        expect(perm.check("tool1", null).toBeTruthy().allowed === false);
-        expect(perm.check("tool2", null).toBeTruthy().allowed === false);
+        expect(perm.check("tool1", null).allowed).toBe(false);
+        expect(perm.check("tool2", null).allowed).toBe(false);
       });
     });
 
@@ -256,7 +256,7 @@ describe("runtime/safety/tool-permissions", () => {
         const restored = ToolPermissions.fromJSON(json);
 
         expect(restored.getLevel()).toBe("readonly");
-        expect(restored.check("extra").toBe(null).allowed, false);
+        expect(restored.check("extra").allowed).toBe(false);
       });
 
       it("fromJSON handles invalid input", () => {

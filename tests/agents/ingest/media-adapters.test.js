@@ -40,7 +40,7 @@ it("AudioAdapter: transcribes via whisperApi and outputs LRC + chunkable markdow
   expect(parsed.lrc).toBe(["[00:00.00]Welcome to the presentation.", "[00:03.50]Today we will discuss Alpha and Beta."].join("\n")
   );
   expect(parsed.textNormalized.includes("Welcome")).toBeTruthy();
-  expect(String(parsed.textHash || "").toBeTruthy().startsWith("sha256:"));
+  expect(String(parsed.textHash || "")).toMatch(/^sha256:/);
   expect(Array.isArray(parsed.chunks ) && parsed.chunks.length >= 1).toBeTruthy();
 });
 
@@ -182,7 +182,7 @@ it("getVideoFrames: uses mediabunny if provided and samples evenly by time", asy
 
 it("getVideoFrames: returns [] when disabled or unavailable", async () => {
   const { getVideoFrames } = await import("../../../js/agents/ingest/tools/video-frames.js");
-  expect(await getVideoFrames(new Blob(["x"])).toEqual(0, 1, 0), []);
-  expect(await getVideoFrames(new Blob(["x"])).toEqual(0, 1, 2, { mediabunny: null }), []);
+  expect(await getVideoFrames(new Blob(["x"]), 0, 1, 0)).toEqual([]);
+  expect(await getVideoFrames(new Blob(["x"]), 0, 1, 2, { mediabunny: null })).toEqual([]);
 });
 

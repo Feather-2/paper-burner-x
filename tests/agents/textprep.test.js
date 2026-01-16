@@ -83,10 +83,10 @@ it("TextPrep TP4: planSlides parses LLM JSON and ensures core slides", async () 
   expect(calls.length).toBe(1);
 
   expect(intents.length >= 4).toBeTruthy();
-  expect(intents.some(s => s.pageType === "cover"));
-  expect(intents.some(s => s.pageType === "agenda"));
-  expect(intents.some(s => s.pageType === "overview"));
-  expect(intents.some(s => s.pageType === "summary"));
+  expect(intents.some(s => s.pageType === "cover")).toBeTruthy();
+  expect(intents.some(s => s.pageType === "agenda")).toBeTruthy();
+  expect(intents.some(s => s.pageType === "overview")).toBeTruthy();
+  expect(intents.some(s => s.pageType === "summary")).toBeTruthy();
 
   // Allowed pageType only.
   for (const s of intents) expect(s.pageType).toMatch(/^(cover|agenda|overview|comparison|process|summary|appendix)$/);
@@ -100,8 +100,8 @@ it("TextPrep TP4: planSlides falls back when LLM output invalid", async () => {
   const aiApiService = { chat: async () => ({ content: "not json" }) };
   const intents = await planSlides(chunks, { __services: { aiApiService }, pageCount: 5 });
   expect(intents.length >= 4).toBeTruthy();
-  expect(intents.some(s => s.pageType === "cover"));
-  expect(intents.some(s => s.pageType === "summary"));
+  expect(intents.some(s => s.pageType === "cover")).toBeTruthy();
+  expect(intents.some(s => s.pageType === "summary")).toBeTruthy();
 });
 
 it("TextPrep TP5: extractClaims enforces evidence linkage + quote locatable", async () => {

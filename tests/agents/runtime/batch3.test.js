@@ -13,7 +13,7 @@ it("DeltaSync: hash and manifest", async (t) => {
     DeltaSyncSession,
   } = await import("../../../js/agents/vfs/delta-sync.js");
 
-  await t.it("computeHash produces consistent hash", async () => {
+  it("computeHash produces consistent hash", async () => {
     const h1 = await computeHash("hello world");
     const h2 = await computeHash("hello world");
     expect(h1).toBe(h2);
@@ -22,7 +22,7 @@ it("DeltaSync: hash and manifest", async (t) => {
     expect(h1).not.toBe(h3);
   });
 
-  await t.it("computeHash handles various input types", async () => {
+  it("computeHash handles various input types", async () => {
     const text = "test data";
     const bytes = new TextEncoder().encode(text);
     const buffer = bytes.buffer;
@@ -35,11 +35,11 @@ it("DeltaSync: hash and manifest", async (t) => {
     expect(h2).toBe(h3);
   });
 
-  await t.it("computeHash rejects invalid input", async () => {
+  it("computeHash rejects invalid input", async () => {
     await expect(computeHash(123)).rejects.toThrow(/must be string/);
   });
 
-  await t.it("buildManifest creates correct structure", async () => {
+  it("buildManifest creates correct structure", async () => {
     const files = [
       { path: "/a.txt", content: "content a" },
       { path: "/b.txt", content: "content b", mtime: 1000 },
@@ -61,7 +61,7 @@ it("DeltaSync: hash and manifest", async (t) => {
     expect(bEntry.mtime).toBe(1000);
   });
 
-  await t.it("computeDelta detects changes", async () => {
+  it("computeDelta detects changes", async () => {
     const base = await buildManifest([
       { path: "/a.txt", content: "a" },
       { path: "/b.txt", content: "b" },
@@ -93,7 +93,7 @@ it("DeltaSync: hash and manifest", async (t) => {
     expect(unchanged).toBe(undefined);
   });
 
-  await t.it("detectConflicts finds conflicts", () => {
+  it("detectConflicts finds conflicts", () => {
     const localDelta = [
       { path: "/a.txt", type: "modify", hash: "local_hash" },
       { path: "/b.txt", type: "delete" },
@@ -111,7 +111,7 @@ it("DeltaSync: hash and manifest", async (t) => {
     expect(conflicts.some(c => c.path === "/b.txt")).toBeTruthy();
   });
 
-  await t.it("resolveConflicts applies strategy", async () => {
+  it("resolveConflicts applies strategy", async () => {
     const conflicts = [{ path: "/a.txt", local: { type: "modify" }, remote: { type: "modify" } }];
 
     const localManifest = await buildManifest([{ path: "/a.txt", content: "local", mtime: 2000 }]);
@@ -127,7 +127,7 @@ it("DeltaSync: hash and manifest", async (t) => {
     expect(resolved3[0].resolution).toBe("local"); // local has newer mtime
   });
 
-  await t.it("DeltaSyncSession computes sync plan", async () => {
+  it("DeltaSyncSession computes sync plan", async () => {
     const session = new DeltaSyncSession();
 
     const baseManifest = await buildManifest([
@@ -154,7 +154,7 @@ it("DeltaSync: hash and manifest", async (t) => {
     expect(plan.toDownload.length > 0).toBeTruthy(); // remote.txt
   });
 
-  await t.it("ConflictStrategy constants", () => {
+  it("ConflictStrategy constants", () => {
     expect(ConflictStrategy.LOCAL_WINS).toBe("local_wins");
     expect(ConflictStrategy.REMOTE_WINS).toBe("remote_wins");
     expect(ConflictStrategy.NEWER_WINS).toBe("newer_wins");
@@ -165,17 +165,17 @@ it("DeltaSync: hash and manifest", async (t) => {
 it("ConfigValidator: schema validation", async (t) => {
   const { ConfigValidator, validateConfig, CommonSchemas } = await import("../../../js/agents/runtime/core/config-validator.js");
 
-  await t.it("validates required fields", () => {
+  it("validates required fields", () => {
     const validator = new ConfigValidator({
       name: { type: "string", required: true },
     });
 
     const result = validator.validate({});
     expect(result.valid).toBe(false);
-    expect(result.errors.some(e => e.message.includes("Required")).toBeTruthy());
+    expect(result.errors.some(e => e.message.includes("Required"))).toBeTruthy();
   });
 
-  await t.it("fills default values", () => {
+  it("fills default values", () => {
     const validator = new ConfigValidator({
       timeout: { type: "number", default: 5000 },
       enabled: { type: "boolean", default: true },
@@ -187,7 +187,7 @@ it("ConfigValidator: schema validation", async (t) => {
     expect(result.config.enabled).toBe(true);
   });
 
-  await t.it("validates types", () => {
+  it("validates types", () => {
     const validator = new ConfigValidator({
       count: { type: "number" },
       name: { type: "string" },
@@ -212,7 +212,7 @@ it("ConfigValidator: schema validation", async (t) => {
     expect(invalid.errors.some(e => e.path === "count")).toBeTruthy();
   });
 
-  await t.it("validates enum values", () => {
+  it("validates enum values", () => {
     const validator = new ConfigValidator({
       level: { type: "string", enum: ["low", "medium", "high"] },
     });
@@ -224,7 +224,7 @@ it("ConfigValidator: schema validation", async (t) => {
     expect(invalid.valid).toBe(false);
   });
 
-  await t.it("validates number constraints", () => {
+  it("validates number constraints", () => {
     const validator = new ConfigValidator({
       port: { type: "number", min: 1, max: 65535 },
     });
@@ -239,7 +239,7 @@ it("ConfigValidator: schema validation", async (t) => {
     expect(tooHigh.valid).toBe(false);
   });
 
-  await t.it("validates string constraints", () => {
+  it("validates string constraints", () => {
     const validator = new ConfigValidator({
       name: { type: "string", minLength: 2, maxLength: 10 },
       email: { type: "string", pattern: "^[^@]+@[^@]+$" },
@@ -255,7 +255,7 @@ it("ConfigValidator: schema validation", async (t) => {
     expect(badPattern.valid).toBe(false);
   });
 
-  await t.it("validates nested objects", () => {
+  it("validates nested objects", () => {
     const validator = new ConfigValidator({
       server: {
         type: "object",
@@ -272,7 +272,7 @@ it("ConfigValidator: schema validation", async (t) => {
     expect(result.config.server.port).toBe(80);
   });
 
-  await t.it("validates array items", () => {
+  it("validates array items", () => {
     const validator = new ConfigValidator({
       ports: {
         type: "array",
@@ -287,7 +287,7 @@ it("ConfigValidator: schema validation", async (t) => {
     expect(invalid.valid).toBe(false);
   });
 
-  await t.it("custom validator function", () => {
+  it("custom validator function", () => {
     const validator = new ConfigValidator({
       value: {
         type: "number",
@@ -303,15 +303,15 @@ it("ConfigValidator: schema validation", async (t) => {
     expect(invalid.errors[0].message.includes("even")).toBeTruthy();
   });
 
-  await t.it("strict mode rejects unknown fields", () => {
+  it("strict mode rejects unknown fields", () => {
     const validator = new ConfigValidator({ known: { type: "string" } }, { strict: true });
 
     const result = validator.validate({ known: "ok", unknown: "bad" });
     expect(result.valid).toBe(false);
-    expect(result.errors.some(e => e.message.includes("Unknown")).toBeTruthy());
+    expect(result.errors.some(e => e.message.includes("Unknown"))).toBeTruthy();
   });
 
-  await t.it("coerce mode converts types", () => {
+  it("coerce mode converts types", () => {
     const validator = new ConfigValidator({ count: { type: "number" } }, { coerce: true });
 
     const result = validator.validate({ count: "42" });
@@ -319,12 +319,12 @@ it("ConfigValidator: schema validation", async (t) => {
     expect(result.config.count).toBe(42);
   });
 
-  await t.it("validateConfig convenience function", () => {
+  it("validateConfig convenience function", () => {
     const result = validateConfig({ name: "test" }, { name: { type: "string" } });
     expect(result.valid).toBe(true);
   });
 
-  await t.it("CommonSchemas are defined", () => {
+  it("CommonSchemas are defined", () => {
     expect(CommonSchemas.positiveNumber).toBeTruthy();
     expect(CommonSchemas.nonEmptyString).toBeTruthy();
     expect(CommonSchemas.url).toBeTruthy();
@@ -342,7 +342,7 @@ it("ErrorBoundary: error handling", async (t) => {
     withErrorBoundary,
   } = await import("../../../js/agents/runtime/core/error-boundary.js");
 
-  await t.it("categorizeError identifies categories", () => {
+  it("categorizeError identifies categories", () => {
     const networkErr = new Error("fetch failed");
     networkErr.code = "ECONNRESET";
     expect(categorizeError(networkErr)).toBe(ErrorCategory.NETWORK);
@@ -368,7 +368,7 @@ it("ErrorBoundary: error handling", async (t) => {
     expect(categorizeError(null)).toBe(ErrorCategory.UNKNOWN);
   });
 
-  await t.it("createErrorInfo creates structured info", () => {
+  it("createErrorInfo creates structured info", () => {
     const error = new Error("test error");
     error.code = "TEST_CODE";
 
@@ -382,7 +382,7 @@ it("ErrorBoundary: error handling", async (t) => {
     expect(info.recovered).toBe(false);
   });
 
-  await t.it("wrap catches errors and returns fallback", async () => {
+  it("wrap catches errors and returns fallback", async () => {
     const boundary = new ErrorBoundary();
 
     const result = await boundary.wrap(
@@ -396,7 +396,7 @@ it("ErrorBoundary: error handling", async (t) => {
     expect(boundary.errors.length).toBe(1);
   });
 
-  await t.it("wrap with rethrow passes error through", async () => {
+  it("wrap with rethrow passes error through", async () => {
     const boundary = new ErrorBoundary();
 
     await expect(
@@ -409,7 +409,7 @@ it("ErrorBoundary: error handling", async (t) => {
     ).rejects.toThrow(/should rethrow/);
   });
 
-  await t.it("wrap with fallback function", async () => {
+  it("wrap with fallback function", async () => {
     const boundary = new ErrorBoundary({
       fallbacks: {
         [ErrorCategory.NETWORK]: () => "network fallback",
@@ -426,7 +426,7 @@ it("ErrorBoundary: error handling", async (t) => {
     expect(result).toBe("network fallback");
   });
 
-  await t.it("onError callback is called", async () => {
+  it("onError callback is called", async () => {
     let capturedInfo = null;
     const boundary = new ErrorBoundary({
       onError: (info) => {
@@ -442,7 +442,7 @@ it("ErrorBoundary: error handling", async (t) => {
     expect(capturedInfo.message).toBe("test");
   });
 
-  await t.it("report adds error manually", () => {
+  it("report adds error manually", () => {
     const boundary = new ErrorBoundary();
 
     boundary.report(new Error("manual error"), { source: "test" });
@@ -451,7 +451,7 @@ it("ErrorBoundary: error handling", async (t) => {
     expect(boundary.errors[0].context.source).toBe("test");
   });
 
-  await t.it("markRecovered updates error", async () => {
+  it("markRecovered updates error", async () => {
     let recovered = null;
     const boundary = new ErrorBoundary({
       onRecovery: (info) => {
@@ -470,7 +470,7 @@ it("ErrorBoundary: error handling", async (t) => {
     expect(recovered).toBeTruthy();
   });
 
-  await t.it("stats reports error counts", async () => {
+  it("stats reports error counts", async () => {
     const boundary = new ErrorBoundary();
 
     const networkErr = new Error("network");
@@ -485,7 +485,7 @@ it("ErrorBoundary: error handling", async (t) => {
     expect(stats.byCategory[ErrorCategory.UNKNOWN]).toBe(1);
   });
 
-  await t.it("clear removes all errors", async () => {
+  it("clear removes all errors", async () => {
     const boundary = new ErrorBoundary();
 
     await boundary.wrap(async () => { throw new Error("test"); });
@@ -495,7 +495,7 @@ it("ErrorBoundary: error handling", async (t) => {
     expect(boundary.errors.length).toBe(0);
   });
 
-  await t.it("maxErrors limits history", async () => {
+  it("maxErrors limits history", async () => {
     const boundary = new ErrorBoundary({ maxErrors: 3 });
 
     for (let i = 0; i < 5; i++) {
@@ -505,13 +505,13 @@ it("ErrorBoundary: error handling", async (t) => {
     expect(boundary.errors.length).toBe(3);
   });
 
-  await t.it("getErrorBoundary returns singleton", () => {
+  it("getErrorBoundary returns singleton", () => {
     const b1 = getErrorBoundary();
     const b2 = getErrorBoundary();
     expect(b1).toBe(b2);
   });
 
-  await t.it("withErrorBoundary uses global boundary", async () => {
+  it("withErrorBoundary uses global boundary", async () => {
     const result = await withErrorBoundary(
       async () => {
         throw new Error("global test");
@@ -522,7 +522,7 @@ it("ErrorBoundary: error handling", async (t) => {
     expect(result).toBe("global fallback");
   });
 
-  await t.it("ErrorCategory constants", () => {
+  it("ErrorCategory constants", () => {
     expect(ErrorCategory.NETWORK).toBe("network");
     expect(ErrorCategory.VALIDATION).toBe("validation");
     expect(ErrorCategory.TIMEOUT).toBe("timeout");

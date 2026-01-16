@@ -34,7 +34,7 @@ it("Integration: DeepSearch ToolExecutor runs multiple tools end-to-end", async 
   expect(r2.success).toBe(true);
   expect(Array.isArray(commits ) && commits.length >= 1).toBeTruthy();
 
-  expect(events.some(e => e.name === "deepsearch.todo.created"));
-  expect(events.some(e => e.name.startsWith("deepsearch.finding.")));
+  expect(events.some(e => e.name === "deepsearch.todo.created")).toBeTruthy();
+  expect(events.some(e => e.name.startsWith("deepsearch.finding."))).toBeTruthy();
 });
 

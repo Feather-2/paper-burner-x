@@ -453,7 +453,7 @@ it("edit loop rolls back transaction when a tool fails", async () => {
   await loop.run(state, { actions: [{ type: "chat_message", message: "change" }, { type: "exit" }], chat });
 
   expect(state.slides[0].elements[0].text).toBe("Title");
-  expect(messages.some(msg => msg.includes("操作失败")).toBeTruthy());
+  expect(messages.some(msg => msg.includes("操作失败"))).toBeTruthy();
 });
 
 it("edit loop requires a waitForUserAction or actions queue", async () => {

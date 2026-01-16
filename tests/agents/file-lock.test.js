@@ -258,7 +258,7 @@ describe("vfs/file-lock", () => {
       lock.releaseAllForHolder("holder-a");
 
       expect(lock.isLocked("/file1.txt").locked).toBe(false);
-      expect(lock.isLocked("/file2.txt").toBeTruthy().locked);
+      expect(lock.isLocked("/file2.txt").locked).toBeTruthy();
 
       lock2.release();
     });

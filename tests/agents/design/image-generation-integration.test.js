@@ -120,9 +120,9 @@ it("ImageGeneration E2E: PromptBuilder includes claim-derived keywords (integrat
 
   const prompt = buildPrompt(slot, { imageStyle: "Modern, high clarity." }, contentPackage);
   expect(prompt.includes("Key concepts:")).toBeTruthy();
-  expect(prompt.toLowerCase().toBeTruthy().includes("evidence"));
-  expect(prompt.toLowerCase().toBeTruthy().includes("citation"));
-  expect(prompt.toLowerCase().toBeTruthy().includes("tracking"));
+  expect(prompt.toLowerCase().includes("evidence")).toBeTruthy();
+  expect(prompt.toLowerCase().includes("citation")).toBeTruthy();
+  expect(prompt.toLowerCase().includes("tracking")).toBeTruthy();
 });
 
 it("ImageGeneration E2E: DesignStage imagePolicy=rich plans enough slots and populates DeckPackage fields", async () => {

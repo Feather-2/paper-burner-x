@@ -43,7 +43,7 @@ it("PromptBuilder: purpose=chart_fallback adjusts guidance", async () => {
   };
 
   const prompt = buildPrompt(slot, { imageStyle: "Flat vector, clear shapes." }, {});
-  expect(prompt.toLowerCase().toBeTruthy().includes("avoid literal charts"));
+  expect(prompt.toLowerCase().includes("avoid literal charts")).toBeTruthy();
 });
 
 it("PromptBuilder: extracts keywords from claims when claimIds are present", async () => {
@@ -71,9 +71,9 @@ it("PromptBuilder: extracts keywords from claims when claimIds are present", asy
   const prompt = buildPrompt(slot, { imageStyle: "Modern, high clarity." }, contentPackage);
 
   expect(prompt.includes("Key concepts:")).toBeTruthy();
-  expect(prompt.toLowerCase().toBeTruthy().includes("evidence"));
-  expect(prompt.toLowerCase().toBeTruthy().includes("citation"));
-  expect(prompt.toLowerCase().toBeTruthy().includes("tracking"));
+  expect(prompt.toLowerCase().includes("evidence")).toBeTruthy();
+  expect(prompt.toLowerCase().includes("citation")).toBeTruthy();
+  expect(prompt.toLowerCase().includes("tracking")).toBeTruthy();
 });
 
 it("PromptBuilder: handles missing designSystem.imageStyle and missing claims gracefully", async () => {
@@ -93,6 +93,6 @@ it("PromptBuilder: handles missing designSystem.imageStyle and missing claims gr
 
   const prompt = buildPrompt(slot, { theme: "dark", designTokens: { colors: { primary: "#38bdf8", bg: "#0b1220" } } }, { claims: [] });
   expect(prompt.includes("Style guidelines:")).toBeTruthy();
-  expect(!prompt.includes("Key concepts:")).toBeTruthy();
+  expect(prompt.includes("Key concepts:")).toBeFalsy();
 });
 

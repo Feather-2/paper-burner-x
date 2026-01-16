@@ -443,7 +443,7 @@ it("LocalMcpProvider: proxy failure redacts sensitive query params in error mess
     (err) => {
       expect(err instanceof AggregateError).toBeTruthy();
       expect(String(err.message).includes("token=abc")).toBe(false);
-      expect(String(err.message).toBeTruthy().includes("token=REDACTED"));
+      expect(String(err.message)).toContain("token=REDACTED");
       return true;
     }
   );
@@ -641,8 +641,8 @@ it("LocalMcpProvider: proxyCooldownMs configurable + proxy re-enters after coold
     time.set(1001);
     await provider._fetchWithCorsFallback("https://target.example/3", { tryDirect: false });
     const thirdUrls = fetchMock.calls.slice(4).map((c) => c.url);
-    expect(thirdUrls[0].startsWith("https://p3/?").toBeTruthy(), "last-good should be tried first");
-    expect(thirdUrls[1].startsWith("https://p1/?").toBeTruthy(), "p1 should re-enter after cooldown");
+    expect(thirdUrls[0].startsWith("https://p3/?")).toBeTruthy(); // last-good should be tried first
+    expect(thirdUrls[1].startsWith("https://p1/?")).toBeTruthy(); // p1 should re-enter after cooldown
     expect(thirdUrls.some((u) => u.startsWith("https://p2/?"))).toBe(false, "p2 should still be in cooldown");
   });
 });

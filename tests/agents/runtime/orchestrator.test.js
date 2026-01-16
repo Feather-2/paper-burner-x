@@ -322,7 +322,7 @@ describe("AgentOrchestrator", () => {
 
       expect(results.get("ok").success).toBe(true);
       expect(results.get("fail").success).toBe(false);
-      expect(results.get("fail").toBeTruthy().error.includes("boom"));
+      expect(results.get("fail").error).toContain("boom");
     });
 
     it("passes input to stages", async () => {
@@ -387,7 +387,7 @@ describe("AgentOrchestrator", () => {
 
       expect(results.get("a").success).toBe(false);
       expect(results.get("b").success).toBe(false);
-      expect(results.get("b").toBeTruthy().skipped);
+      expect(results.get("b").skipped).toBeTruthy();
     });
 
     it("throws on stage failure without continueOnError", async () => {

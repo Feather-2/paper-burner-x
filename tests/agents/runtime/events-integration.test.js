@@ -76,16 +76,16 @@ it("Runtime Events: exports new event groups", async () => {
 it("Runtime Events: matchEventPattern matches archive.* and nested patterns", async () => {
   const { ArchiveEvents, ReviewEvents, matchEventPattern } = await import("../../../js/agents/runtime/events/events.js");
 
-  expect(matchEventPattern("archive.*").toBe(ArchiveEvents.CHECKPOINT_SAVED), true);
-  expect(matchEventPattern("archive.*").toBe(ArchiveEvents.CHECKPOINT_RESTORED), true);
-  expect(matchEventPattern("archive.*").toBe(ArchiveEvents.CHECKPOINT_DELETED), true);
+  expect(matchEventPattern("archive.*", ArchiveEvents.CHECKPOINT_SAVED)).toBe(true);
+  expect(matchEventPattern("archive.*", ArchiveEvents.CHECKPOINT_RESTORED)).toBe(true);
+  expect(matchEventPattern("archive.*", ArchiveEvents.CHECKPOINT_DELETED)).toBe(true);
 
-  expect(matchEventPattern("archive.checkpoint.*").toBe(ArchiveEvents.CHECKPOINT_SAVED), true);
-  expect(matchEventPattern("archive.checkpoint.*").toBe(ArchiveEvents.CHECKPOINT_DELETED), true);
+  expect(matchEventPattern("archive.checkpoint.*", ArchiveEvents.CHECKPOINT_SAVED)).toBe(true);
+  expect(matchEventPattern("archive.checkpoint.*", ArchiveEvents.CHECKPOINT_DELETED)).toBe(true);
 
-  expect(matchEventPattern("archive.*").toBe(ReviewEvents.REVIEW_STARTED), false);
-  expect(matchEventPattern("archive.*").toBe("archiveX.checkpoint.saved"), false);
-  expect(matchEventPattern("*").toBe(ArchiveEvents.CHECKPOINT_SAVED), true);
+  expect(matchEventPattern("archive.*", ReviewEvents.REVIEW_STARTED)).toBe(false);
+  expect(matchEventPattern("archive.*", "archiveX.checkpoint.saved")).toBe(false);
+  expect(matchEventPattern("*", ArchiveEvents.CHECKPOINT_SAVED)).toBe(true);
 });
 
 it("Runtime Events: EventBus wildcard subscription integrates with archive.*", async () => {

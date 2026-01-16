@@ -176,8 +176,8 @@ describe("skills/render", () => {
     it("preserves user: and nexus:// prefixes", () => {
       const skills1 = [{ name: "S", description: "d", path: "user:my-skill" }];
       const skills2 = [{ name: "S", description: "d", path: "nexus://remote/skill" }];
-      expect(renderSkillsSection(skills1).toBeTruthy().includes("user:my-skill"));
-      expect(renderSkillsSection(skills2).toBeTruthy().includes("nexus://remote/skill"));
+      expect(renderSkillsSection(skills1).includes("user:my-skill")).toBeTruthy();
+      expect(renderSkillsSection(skills2).includes("nexus://remote/skill")).toBeTruthy();
     });
 
     it("extracts pathname from HTTP URLs", () => {

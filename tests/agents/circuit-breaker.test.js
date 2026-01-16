@@ -219,7 +219,7 @@ describe("shared/utils/circuit-breaker", () => {
         b.trip("test");
         b.reset();
 
-        expect(events.some(e => e.reason === "manual_reset"));
+        expect(events.some(e => e.reason === "manual_reset")).toBeTruthy();
       });
     });
 

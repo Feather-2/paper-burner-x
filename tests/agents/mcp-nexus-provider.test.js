@@ -70,7 +70,7 @@ it("McpClient: listAllTools captures provider failures (non-fatal)", async () =>
   expect(Array.isArray(tools.errors)).toBeTruthy();
   expect(tools.errors.length).toBe(1);
   expect(tools.errors[0].providerId).toBe("bad");
-  expect(String(tools.errors[0].error).toBeTruthy().includes("boom"));
+  expect(String(tools.errors[0].error)).toContain("boom");
 });
 
 it("McpClient: circuit breaker opens after repeated provider failures", async () => {
@@ -100,7 +100,7 @@ it("McpClient: circuit breaker opens after repeated provider failures", async ()
 
   const blocked = await client.callTool("x", {});
   expect(blocked.success).toBe(false);
-  expect(String(blocked.error).toBeTruthy().toLowerCase().includes("circuit open"));
+  expect(String(blocked.error).toLowerCase()).toContain("circuit open");
   expect(provider.calls).toBe(3);
 });
 
@@ -127,7 +127,7 @@ it("McpClient: circuit breaker ignores unknown tool errors", async () => {
   for (let i = 0; i < 6; i++) {
     const r = await client.callTool("nope", {});
     expect(r.success).toBe(false);
-    expect(String(r.error).toBeTruthy().includes("unknown tool"));
+    expect(String(r.error)).toContain("unknown tool");
   }
   expect(provider.calls).toBe(6);
 });

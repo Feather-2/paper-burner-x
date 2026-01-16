@@ -556,9 +556,7 @@ it("DesignAgentLoop rejects when cancelled", async () => {
   const controller = new AbortController();
   controller.abort({ code: "stop" });
 
-  await expect(loop.run(contentPackage).rejects.toThrow({ runContext: { runId: "run_cancel", constraints: contentPackage.constraints }, signal: controller.signal }),
-    /Run cancelled/
-  );
+  await expect(loop.run(contentPackage, { runContext: { runId: "run_cancel", constraints: contentPackage.constraints }, signal: controller.signal })).rejects.toThrow(/Run cancelled/);
 });
 
 it("DesignAgentLoop._transitionPhase rejects invalid states", async () => {

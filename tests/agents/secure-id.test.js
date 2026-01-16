@@ -54,7 +54,7 @@ describe("shared/utils/secure-id", () => {
       const uuid = cryptoRandomUuid();
       // UUID v4 format: xxxxxxxx-xxxx-4xxx-axxx-xxxxxxxxxxxx
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-      expect(uuidRegex.test(uuid).toBeTruthy(), `UUID should match format: ${uuid}`);
+      expect(uuidRegex.test(uuid)).toBeTruthy();
     });
 
     it("generates different UUIDs each call", () => {

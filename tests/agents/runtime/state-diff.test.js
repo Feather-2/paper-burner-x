@@ -70,8 +70,8 @@ describe("state-diff", () => {
     });
 
     it("should support root replace/remove", () => {
-      expect(applyStatePatch({ a: 1 }).toEqual([{ op: "replace", path: [], value: { b: 2 } }]), { b: 2 });
-      expect(applyStatePatch({ a: 1 }).toBe([{ op: "remove", path: [] }]), undefined);
+      expect(applyStatePatch({ a: 1 }, [{ op: "replace", path: [], value: { b: 2 } }])).toEqual({ b: 2 });
+      expect(applyStatePatch({ a: 1 }, [{ op: "remove", path: [] }])).toBe(undefined);
     });
 
     it("should throw on unsafe path segments and invalid ops", () => {
@@ -102,7 +102,7 @@ describe("state-diff", () => {
       const next = { arr: [shared, { id: 2 }] };
       const patch = buildStatePatch(base, next);
       expect(patch.some(op => op.op === "add" && op.path[0] === "arr")).toBeTruthy();
-      expect(applyStatePatch(base).toEqual(patch), next);
+      expect(applyStatePatch(base, patch)).toEqual(next);
     });
 
     it("should produce incremental ops for array middle removal", () => {
@@ -114,7 +114,7 @@ describe("state-diff", () => {
 
       const patch = buildStatePatch(base, next);
       expect(patch).toEqual([{ op: "remove", path: ["arr", 1] }]);
-      expect(applyStatePatch(base).toEqual(patch), next);
+      expect(applyStatePatch(base, patch)).toEqual(next);
     });
 
     it("should diff array element updates by path when possible", () => {
@@ -125,10 +125,8 @@ describe("state-diff", () => {
       const next = { arr: [a, { ...b, id: "b2" }, c] };
 
       const patch = buildStatePatch(base, next, { maxDepth: 10 });
-      expect(patch.some(op => op.op === "replace" && op.path[0] === "arr" && op.path[1] === 1),
-        "expected replace inside arr[1] subtree"
-      );
-      expect(applyStatePatch(base).toEqual(patch), next);
+      expect(patch.some(op => op.op === "replace" && op.path[0] === "arr" && op.path[1] === 1)).toBeTruthy();
+      expect(applyStatePatch(base, patch)).toEqual(next);
     });
 
     it("should fall back to replacing arrays when array diff is too large", () => {
@@ -136,7 +134,7 @@ describe("state-diff", () => {
       const next = { arr: [1, 2, 3, 4, 5] };
       const patch = buildStatePatch(base, next, { maxArrayOps: 1 });
       expect(patch).toEqual([{ op: "replace", path: ["arr"], value: next.arr }]);
-      expect(applyStatePatch(base).toEqual(patch), next);
+      expect(applyStatePatch(base, patch)).toEqual(next);
     });
 
     it("should fall back to replacing when depth is exceeded", () => {
@@ -144,7 +142,7 @@ describe("state-diff", () => {
       const next = { a: { b: { c: 2 } } };
       const patch = buildStatePatch(base, next, { maxDepth: 1 });
       expect(patch).toEqual([{ op: "replace", path: ["a"], value: next.a }]);
-      expect(applyStatePatch(base).toEqual(patch), next);
+      expect(applyStatePatch(base, patch)).toEqual(next);
     });
 
     it("should fall back to root replace when ops limit is exceeded", () => {
@@ -152,7 +150,7 @@ describe("state-diff", () => {
       const next = { a: 1, c: 3 };
       const patch = buildStatePatch(base, next, { maxOps: 1 });
       expect(patch).toEqual([{ op: "replace", path: [], value: next }]);
-      expect(applyStatePatch(base).toEqual(patch), next);
+      expect(applyStatePatch(base, patch)).toEqual(next);
     });
 
     it("should fall back to root replace on unsafe keys", () => {
@@ -165,7 +163,7 @@ describe("state-diff", () => {
 
       const patch = buildStatePatch(base, next);
       expect(patch).toEqual([{ op: "replace", path: [], value: next }]);
-      expect(applyStatePatch(base).toEqual(patch), next);
+      expect(applyStatePatch(base, patch)).toEqual(next);
     });
   });
 
@@ -194,7 +192,7 @@ describe("state-diff", () => {
   describe("path helpers", () => {
     it("getAtPath/updateAtPath should work with structural sharing", () => {
       const base = { a: { b: 1 }, keep: { x: 1 } };
-      expect(getAtPath(base).toBe(["a", "b"]), 1);
+      expect(getAtPath(base, ["a", "b"])).toBe(1);
 
       const out = updateAtPath(base, ["a", "b"], (v) => (typeof v === "number" ? v + 1 : 0));
       expect(out).toEqual({ a: { b: 2 }, keep: { x: 1 } });

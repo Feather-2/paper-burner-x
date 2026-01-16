@@ -147,7 +147,7 @@ describe("EventBus", () => {
       const handler = vi.fn();
       bus.once("wrapped.once", handler);
 
-      expect(bus.off("wrapped.once").toBe(handler), true);
+      expect(bus.off("wrapped.once", handler)).toBe(true);
       bus.emit("wrapped.once", {});
       expect(handler.mock.calls.length).toBe(0);
     });
@@ -178,10 +178,10 @@ describe("EventBus", () => {
     });
 
     it("should validate priority is finite number", () => {
-      expect(() => bus.subscribe("test", () => {}, { priority: NaN }),
+      expect(() => bus.subscribe("test", () => {}, { priority: NaN })).toThrow(
         /priority must be a finite number/i
       );
-      expect(() => bus.subscribe("test", () => {}, { priority: Infinity }),
+      expect(() => bus.subscribe("test", () => {}, { priority: Infinity })).toThrow(
         /priority must be a finite number/i
       );
     });
@@ -201,7 +201,7 @@ describe("EventBus", () => {
     });
 
     it("should timeout if event not received", async () => {
-      await expect(() => bus.waitFor("never.happens", { timeout: 50 }),
+      await expect(bus.waitFor("never.happens", { timeout: 50 })).rejects.toThrow(
         /timeout/i
       );
       expect(bus._waiters.size).toBe(0);
@@ -243,7 +243,7 @@ describe("EventBus", () => {
       const controller = new AbortController();
       controller.abort(new Error("already aborted"));
 
-      await expect(() => bus.waitFor("never", { signal: controller.signal }),
+      await expect(bus.waitFor("never", { signal: controller.signal })).rejects.toThrow(
         /already aborted/i
       );
     });
@@ -371,8 +371,7 @@ describe("EventBus", () => {
 
     it("replay() should require a persistenceAdapter", async () => {
       const noPersistBus = new EventBus();
-      await expect(() => noPersistBus.replay("run_x")).rejects.toThrow(/persistenceAdapter.*required/i
-      );
+      await expect(noPersistBus.replay("run_x")).rejects.toThrow(/persistenceAdapter.*required/i);
       noPersistBus.dispose();
     });
 
@@ -419,10 +418,8 @@ describe("EventBus", () => {
       };
       const replayBus = new EventBus({ persistenceAdapter: adapter });
 
-      await expect(() => replayBus.replay("")).rejects.toThrow(/runId must be a string/i
-      );
-      await expect(() => replayBus.replay(null)).rejects.toThrow(/runId must be a string/i
-      );
+      await expect(replayBus.replay("")).rejects.toThrow(/runId must be a string/i);
+      await expect(replayBus.replay(null)).rejects.toThrow(/runId must be a string/i);
       replayBus.dispose();
     });
 
@@ -639,7 +636,7 @@ describe("EventBus", () => {
 
     it("off() should return false for non-existent handler", () => {
       const handler = vi.fn();
-      expect(bus.off("nonexistent").toBe(handler), false);
+      expect(bus.off("nonexistent", handler)).toBe(false);
     });
 
     it("should support ? wildcard when combined with *", () => {
@@ -665,30 +662,30 @@ describe("matchPattern / isValidEventName", () => {
   });
 
   it("matchPattern should support fast path prefix.* and exact match", () => {
-    expect(matchPattern("user.*").toBe("user"), true);
-    expect(matchPattern("user.*").toBe("user.login"), true);
-    expect(matchPattern("user.login").toBe("user.login"), true);
-    expect(matchPattern("user.login").toBe("user.logout"), false);
+    expect(matchPattern("user.*", "user")).toBe(true);
+    expect(matchPattern("user.*", "user.login")).toBe(true);
+    expect(matchPattern("user.login", "user.login")).toBe(true);
+    expect(matchPattern("user.login", "user.logout")).toBe(false);
   });
 
   it("matchPattern should support general * and ? wildcards (no ReDoS regex)", () => {
-    expect(matchPattern("run.*.progress").toBe("run.step.progress"), true);
-    expect(matchPattern("a*?d").toBe("abcd"), true);
-    expect(matchPattern("a*?d").toBe("abdd"), true);
-    expect(matchPattern("a*?d").toBe("ad"), false);
+    expect(matchPattern("run.*.progress", "run.step.progress")).toBe(true);
+    expect(matchPattern("a*?d", "abcd")).toBe(true);
+    expect(matchPattern("a*?d", "abdd")).toBe(true);
+    expect(matchPattern("a*?d", "ad")).toBe(false);
   });
 
   it("matchPattern should return false for non-string inputs", () => {
-    expect(matchPattern(null).toBe("x"), false);
-    expect(matchPattern("x").toBe(null), false);
+    expect(matchPattern(null, "x")).toBe(false);
+    expect(matchPattern("x", null)).toBe(false);
   });
 
   it("matchPattern should handle edge cases", () => {
-    expect(matchPattern("*").toBe("anything.here"), true);
-    expect(matchPattern("").toBe(""), true);
-    expect(matchPattern("a").toBe("a"), true);
-    expect(matchPattern("a").toBe("b"), false);
-    expect(matchPattern("***").toBe("abc"), true);
+    expect(matchPattern("*", "anything.here")).toBe(true);
+    expect(matchPattern("", "")).toBe(true);
+    expect(matchPattern("a", "a")).toBe(true);
+    expect(matchPattern("a", "b")).toBe(false);
+    expect(matchPattern("***", "abc")).toBe(true);
   });
 });
 

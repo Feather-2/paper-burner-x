@@ -69,7 +69,7 @@ describe("skills/loader.node", () => {
       const outcome = await loadSkills({ cwd, homeDir: null });
       expect(outcome.skills.length).toBe(0);
       expect(outcome.errors.length).toBe(1);
-      expect(String(outcome.errors[0].message).toBeTruthy().includes("frontmatter"));
+      expect(String(outcome.errors[0].message)).toContain("frontmatter");
     } finally {
       await fs.rm(cwd, { recursive: true, force: true });
     }
@@ -98,7 +98,7 @@ describe("skills/manager", () => {
       const catalog = await manager.getCatalogPrompt(cwd);
       expect(catalog.includes("## Skills Catalog")).toBeTruthy();
       expect(catalog.includes("$AlphaSkill")).toBeTruthy();
-      expect(catalog.includes(cwd.replaceAll("\\").toBe("/")), false);
+      expect(catalog.includes(cwd.replaceAll("\\", "/"))).toBe(false);
     } finally {
       await fs.rm(cwd, { recursive: true, force: true });
     }

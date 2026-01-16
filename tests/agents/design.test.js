@@ -76,11 +76,11 @@ it("Design: DesignStage generates design tokens + emits design.* events", async 
   expect(Array.isArray(deck.slidesMeta ) && deck.slidesMeta.length === contentPackage.slideIntents.length).toBeTruthy();
   expect(typeof deck.deckHtmlDsl === "string" && deck.deckHtmlDsl.includes('data-type="freeform"')).toBeTruthy();
 
-  expect(events.some(e => e.name === "design.started"));
-  expect(events.some(e => e.name === "design.tokens.ended"));
-  expect(events.some(e => e.name === "design.generate.ended"));
-  expect(events.some(e => e.name === "design.qa.ended"));
-  expect(events.some(e => e.name === "design.ended"));
+  expect(events.some(e => e.name === "design.started")).toBeTruthy();
+  expect(events.some(e => e.name === "design.tokens.ended")).toBeTruthy();
+  expect(events.some(e => e.name === "design.generate.ended")).toBeTruthy();
+  expect(events.some(e => e.name === "design.qa.ended")).toBeTruthy();
+  expect(events.some(e => e.name === "design.ended")).toBeTruthy();
   expect(events.every(e => e.name !== "design.image.planning.completed")).toBeTruthy();
 });
 
@@ -298,7 +298,7 @@ it("Design: batch-generator respects concurrency, emits events, and retries once
 
   const slides = await generateBatch(slideIntents, contentPackage, designSystem, { aiApiService, emit, batchSize: 2 });
   expect(slides.length).toBe(5);
-  expect(slides.every(s => s.source === "llm"));
+  expect(slides.every(s => s.source === "llm")).toBeTruthy();
 
   // batchConcurrency=2 (default), batchSize=2, so max 2 batches * 2 slides = 4 concurrent
   expect(maxActive <= 4).toBe(true);
@@ -313,8 +313,8 @@ it("Design: batch-generator respects concurrency, emits events, and retries once
     expect(idxStarted >= 0 && idxCompleted >= 0 && idxStarted < idxCompleted).toBeTruthy();
   }
 
-  expect(events.some(e => e.name === "design.slide.retrying" && e.record?.payload?.slideIndex === 2));
-  expect(!events.some(e => e.name === "design.slide.failed" && e.record?.payload?.slideIndex === 2));
+  expect(events.some(e => e.name === "design.slide.retrying" && e.record?.payload?.slideIndex === 2)).toBeTruthy();
+  expect(!events.some(e => e.name === "design.slide.failed" && e.record?.payload?.slideIndex === 2)).toBeTruthy();
 });
 
 it("Design: DesignStage calls ImagePlanner between tokens and batch, emits planning event, and inserts placeholders", async () => {
@@ -509,7 +509,7 @@ it("Design: imagePolicy=none yields no placeholders and no pending images", asyn
   const stage = new DesignStage({ batchSize: 4 });
   const deck = await stage.run(contentPackage, { runContext: { runId: "run_test", constraints: contentPackage.constraints }, emit });
 
-  expect(events.some(e => e.name === "design.image.planning.completed"));
+  expect(events.some(e => e.name === "design.image.planning.completed")).toBeTruthy();
   expect(Array.isArray(deck.imageSlots ) && deck.imageSlots.length === 0).toBeTruthy();
   expect(Array.isArray(deck.pendingImages ) && deck.pendingImages.length === 0).toBeTruthy();
   expect(typeof deck.deckHtmlDsl === "string" && !deck.deckHtmlDsl.includes('data-el="image-placeholder"')).toBeTruthy();
@@ -537,9 +537,9 @@ it("Design: DesignStage calls ImageGenerator when provider exists and fills plac
   const stage = new DesignStage({ batchSize: 2 });
   const deck = await stage.run(contentPackage, { runContext: { runId: "run_test", constraints: contentPackage.constraints }, emit, imageService });
 
-  expect(events.some(e => e.name === "design.image.generate.started"));
-  expect(events.some(e => e.name === "design.image.generate.succeeded"));
-  expect(events.some(e => e.name === "design.image.fill.completed"));
+  expect(events.some(e => e.name === "design.image.generate.started")).toBeTruthy();
+  expect(events.some(e => e.name === "design.image.generate.succeeded")).toBeTruthy();
+  expect(events.some(e => e.name === "design.image.fill.completed")).toBeTruthy();
 
   expect(typeof deck.deckHtmlDsl === "string" && deck.deckHtmlDsl.includes('data-el="image"')).toBeTruthy();
   expect(deck.deckHtmlDsl.includes('data-status="filled"')).toBeTruthy();
@@ -601,13 +601,13 @@ it("Design: DesignStage triggers last-resort downgrade and deckHtmlDsl is parsea
   const stage = new DesignStage({ batchSize: 4 });
   const deck = await stage.run(contentPackage, { runContext: { runId: "run_test", constraints: contentPackage.constraints }, emit, aiApiService });
 
-  expect(deck.slidesMeta.some(m => m.degraded === true));
-  expect(deck.slidesMeta.every(m => m.qa?.pass === true));
-  expect(events.some(e => e.name === "design.degraded"));
+  expect(deck.slidesMeta.some(m => m.degraded === true)).toBeTruthy();
+  expect(deck.slidesMeta.every(m => m.qa?.pass === true)).toBeTruthy();
+  expect(events.some(e => e.name === "design.degraded")).toBeTruthy();
 
   const slides = globalThis.SlideParser.parse(deck.deckHtmlDsl);
   expect(slides.length).toBe(contentPackage.slideIntents.length);
-  expect(slides.every(s => Array.isArray(s.elements)));
+  expect(slides.every(s => Array.isArray(s.elements))).toBeTruthy();
 });
 
 it("Design: image-prompt-builder exports buildPrompt and includes no-text guidance", async () => {

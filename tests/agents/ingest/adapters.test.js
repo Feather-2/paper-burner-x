@@ -407,7 +407,7 @@ it("DocxAdapter: converts via mammoth + turndown and extracts images as assets",
   expect(parsed.assets[0].data).toBe("AAAA");
   expect(parsed.assets[0].source).toBe("extracted");
   expect(parsed.assets[0].docId).toBe(parsed.docId);
-  expect(Array.isArray(parsed.parseInfo.warnings).toBeTruthy() && parsed.parseInfo.warnings.some((w) => w.includes("mammoth")));
+  expect(Array.isArray(parsed.parseInfo.warnings) && parsed.parseInfo.warnings.some((w) => w.includes("mammoth"))).toBeTruthy();
 });
 
 it("DocxAdapter: rejects oversized inputs before invoking mammoth", async () => {
@@ -698,7 +698,7 @@ it("DocxAdapter: handles image read failure gracefully", async () => {
   expect(parsed.sourceType).toBe("docx");
   expect(parsed.markdown.includes("Doc")).toBeTruthy();
   expect(parsed.assets.length >= 1).toBeTruthy();
-  expect(parsed.parseInfo.warnings?.some(w => w.includes("Image read failed")).toBeTruthy());
+  expect(parsed.parseInfo.warnings?.some(w => w.includes("Image read failed"))).toBeTruthy();
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

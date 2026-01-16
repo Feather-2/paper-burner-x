@@ -13,12 +13,12 @@ it("WorkerPool: basic lifecycle", async (t) => {
     terminate: () => { workerCount--; },
   });
 
-  await t.it("constructor requires createWorker", () => {
+  it("constructor requires createWorker", () => {
     expect(() => new WorkerPool()).toThrow(/requires createWorker/);
     expect(() => new WorkerPool({})).toThrow(/requires createWorker/);
   });
 
-  await t.it("stats reports pool state", () => {
+  it("stats reports pool state", () => {
     const pool = new WorkerPool({ createWorker: mockWorker });
     const stats = pool.stats;
     expect(stats.total).toBe(0);
@@ -29,7 +29,7 @@ it("WorkerPool: basic lifecycle", async (t) => {
     pool.close();
   });
 
-  await t.it("warmup creates workers", () => {
+  it("warmup creates workers", () => {
     const pool = new WorkerPool({ createWorker: mockWorker, maxWorkers: 3 });
     pool.warmup(2);
     expect(pool.stats.total).toBe(2);
@@ -37,28 +37,28 @@ it("WorkerPool: basic lifecycle", async (t) => {
     pool.close();
   });
 
-  await t.it("close rejects pending tasks", async () => {
+  it("close rejects pending tasks", async () => {
     const pool = new WorkerPool({ createWorker: mockWorker });
     const pending = pool.exec("test", {});
     pool.close();
     await expect(pending).rejects.toThrow(/closed/);
   });
 
-  await t.it("exec rejects after close", async () => {
+  it("exec rejects after close", async () => {
     const pool = new WorkerPool({ createWorker: mockWorker });
     pool.close();
-    await expect(pool.exec("test").rejects.toThrow({}), /closed/);
+    await expect(pool.exec("test")).rejects.toThrow(/closed/);
   });
 
-  await t.it("exec respects abort signal", async () => {
+  it("exec respects abort signal", async () => {
     const pool = new WorkerPool({ createWorker: mockWorker });
     const ac = new AbortController();
     ac.abort();
-    await expect(pool.exec("test").rejects.toThrow({}, { signal: ac.signal }), /Aborted/);
+    await expect(pool.exec("test", { signal: ac.signal })).rejects.toThrow(/Aborted/);
     pool.close();
   });
 
-  await t.it("TaskPriority constants exist", () => {
+  it("TaskPriority constants exist", () => {
     expect(TaskPriority.HIGH).toBe(0);
     expect(TaskPriority.NORMAL).toBe(1);
     expect(TaskPriority.LOW).toBe(2);
@@ -68,7 +68,7 @@ it("WorkerPool: basic lifecycle", async (t) => {
 it("ResourceGuard: quota management", async (t) => {
   const { ResourceGuard } = await import("../../../js/agents/runtime/core/resource-guard.js");
 
-  await t.it("stats reports current state", () => {
+  it("stats reports current state", () => {
     const guard = new ResourceGuard({ maxConcurrent: 4 });
     const stats = guard.stats;
     expect(stats.concurrent).toBe(0);
@@ -76,7 +76,7 @@ it("ResourceGuard: quota management", async (t) => {
     expect(stats.paused).toBe(false);
   });
 
-  await t.it("acquire/release manages concurrency", () => {
+  it("acquire/release manages concurrency", () => {
     const guard = new ResourceGuard({ maxConcurrent: 2 });
 
     expect(guard.acquire()).toBe(true);
@@ -96,7 +96,7 @@ it("ResourceGuard: quota management", async (t) => {
     expect(guard.stats.concurrent).toBe(2);
   });
 
-  await t.it("pause/resume controls acquisition", () => {
+  it("pause/resume controls acquisition", () => {
     const guard = new ResourceGuard({ maxConcurrent: 4 });
 
     expect(guard.acquire()).toBe(true);
@@ -111,7 +111,7 @@ it("ResourceGuard: quota management", async (t) => {
     expect(guard.acquire()).toBe(true);
   });
 
-  await t.it("canAcquire checks without modifying state", () => {
+  it("canAcquire checks without modifying state", () => {
     const guard = new ResourceGuard({ maxConcurrent: 1 });
 
     const check1 = guard.canAcquire();
@@ -125,7 +125,7 @@ it("ResourceGuard: quota management", async (t) => {
     expect(check2.reason).toBe("max_concurrent");
   });
 
-  await t.it("run() executes with guard", async () => {
+  it("run() executes with guard", async () => {
     const guard = new ResourceGuard({ maxConcurrent: 1 });
 
     let executed = false;
@@ -140,7 +140,7 @@ it("ResourceGuard: quota management", async (t) => {
     expect(guard.stats.concurrent).toBe(0);
   });
 
-  await t.it("onQuotaExceeded callback fires", () => {
+  it("onQuotaExceeded callback fires", () => {
     let callbackData = null;
     const guard = new ResourceGuard({
       maxConcurrent: 1,
@@ -158,7 +158,7 @@ it("ResourceGuard: quota management", async (t) => {
 it("RetryStrategy: retry behavior", async (t) => {
   const { RetryStrategy, isRetryableError, withRetry } = await import("../../../js/agents/runtime/core/retry-strategy.js");
 
-  await t.it("isRetryableError detects retryable errors", () => {
+  it("isRetryableError detects retryable errors", () => {
     expect(isRetryableError(null)).toBe(false);
     expect(isRetryableError(new Error("generic"))).toBe(false);
 
@@ -178,7 +178,7 @@ it("RetryStrategy: retry behavior", async (t) => {
     expect(isRetryableError(httpError)).toBe(true);
   });
 
-  await t.it("calculateDelay uses exponential backoff", () => {
+  it("calculateDelay uses exponential backoff", () => {
     const strategy = new RetryStrategy({ baseDelayMs: 1000, maxDelayMs: 30000, jitterFactor: 0 });
 
     expect(strategy.calculateDelay(0)).toBe(1000);
@@ -188,7 +188,7 @@ it("RetryStrategy: retry behavior", async (t) => {
     expect(strategy.calculateDelay(10)).toBe(30000); // Capped
   });
 
-  await t.it("execute succeeds without retry", async () => {
+  it("execute succeeds without retry", async () => {
     const strategy = new RetryStrategy();
     let attempts = 0;
 
@@ -201,7 +201,7 @@ it("RetryStrategy: retry behavior", async (t) => {
     expect(attempts).toBe(1);
   });
 
-  await t.it("execute retries on retryable error", async () => {
+  it("execute retries on retryable error", async () => {
     const strategy = new RetryStrategy({ baseDelayMs: 10, maxRetries: 2 });
     let attempts = 0;
 
@@ -219,7 +219,7 @@ it("RetryStrategy: retry behavior", async (t) => {
     expect(attempts).toBe(3);
   });
 
-  await t.it("execute throws after max retries", async () => {
+  it("execute throws after max retries", async () => {
     const strategy = new RetryStrategy({ baseDelayMs: 10, maxRetries: 2 });
     let attempts = 0;
 
@@ -235,7 +235,7 @@ it("RetryStrategy: retry behavior", async (t) => {
     expect(attempts).toBe(3); // 1 initial + 2 retries
   });
 
-  await t.it("execute respects abort signal", async () => {
+  it("execute respects abort signal", async () => {
     const strategy = new RetryStrategy({ baseDelayMs: 100 });
     const ac = new AbortController();
     ac.abort();
@@ -245,7 +245,7 @@ it("RetryStrategy: retry behavior", async (t) => {
     ).rejects.toThrow(/Aborted/);
   });
 
-  await t.it("withRetry convenience function works", async () => {
+  it("withRetry convenience function works", async () => {
     let attempts = 0;
     const result = await withRetry(async () => {
       attempts++;
@@ -261,7 +261,7 @@ it("RetryStrategy: retry behavior", async (t) => {
     expect(attempts).toBe(2);
   });
 
-  await t.it("stats tracks retry budget", () => {
+  it("stats tracks retry budget", () => {
     const strategy = new RetryStrategy({ globalBudgetPerMinute: 10 });
     const stats = strategy.stats;
 
@@ -281,7 +281,7 @@ it("RetryStrategy: retry behavior", async (t) => {
 it("FileLock: read/write locking", async (t) => {
   const { FileLock, LockType, getFileLock, acquireLock, withLock } = await import("../../../js/agents/vfs/file-lock.js");
 
-  await t.it("acquire/release basic flow", async () => {
+  it("acquire/release basic flow", async () => {
     const lock = new FileLock();
 
     const { release, holder } = await lock.acquire("/test/file.txt");
@@ -297,7 +297,7 @@ it("FileLock: read/write locking", async (t) => {
     expect(status2.locked).toBe(false);
   });
 
-  await t.it("tryAcquire returns immediately", () => {
+  it("tryAcquire returns immediately", () => {
     const lock = new FileLock();
 
     const result1 = lock.tryAcquire("/test/file.txt");
@@ -314,7 +314,7 @@ it("FileLock: read/write locking", async (t) => {
     result3.release();
   });
 
-  await t.it("multiple read locks allowed", async () => {
+  it("multiple read locks allowed", async () => {
     const lock = new FileLock();
 
     const r1 = await lock.acquire("/test/file.txt", { type: LockType.READ });
@@ -329,7 +329,7 @@ it("FileLock: read/write locking", async (t) => {
     r2.release();
   });
 
-  await t.it("write lock blocks other locks", async () => {
+  it("write lock blocks other locks", async () => {
     const lock = new FileLock();
 
     const w = await lock.acquire("/test/file.txt", { type: LockType.WRITE });
@@ -340,7 +340,7 @@ it("FileLock: read/write locking", async (t) => {
     w.release();
   });
 
-  await t.it("read lock blocks write lock", async () => {
+  it("read lock blocks write lock", async () => {
     const lock = new FileLock();
 
     const r = await lock.acquire("/test/file.txt", { type: LockType.READ });
@@ -351,7 +351,7 @@ it("FileLock: read/write locking", async (t) => {
     r.release();
   });
 
-  await t.it("acquire waits for lock release", async () => {
+  it("acquire waits for lock release", async () => {
     const lock = new FileLock({ acquireTimeoutMs: 1000 });
 
     const w1 = await lock.acquire("/test/file.txt");
@@ -366,7 +366,7 @@ it("FileLock: read/write locking", async (t) => {
     w2.release();
   });
 
-  await t.it("acquire timeout", async () => {
+  it("acquire timeout", async () => {
     const lock = new FileLock({ acquireTimeoutMs: 50 });
 
     const w = await lock.acquire("/test/file.txt");
@@ -376,7 +376,7 @@ it("FileLock: read/write locking", async (t) => {
     w.release();
   });
 
-  await t.it("acquire respects abort signal", async () => {
+  it("acquire respects abort signal", async () => {
     const lock = new FileLock();
     const ac = new AbortController();
 
@@ -390,7 +390,7 @@ it("FileLock: read/write locking", async (t) => {
     w.release();
   });
 
-  await t.it("releaseAllForHolder releases all locks", async () => {
+  it("releaseAllForHolder releases all locks", async () => {
     const lock = new FileLock();
 
     const holder = "test_holder_123";
@@ -408,7 +408,7 @@ it("FileLock: read/write locking", async (t) => {
     lock.release("/c.txt", "other");
   });
 
-  await t.it("expired locks are cleaned up", async () => {
+  it("expired locks are cleaned up", async () => {
     const lock = new FileLock({ lockTimeoutMs: 50 });
 
     await lock.acquire("/test/file.txt");
@@ -421,13 +421,13 @@ it("FileLock: read/write locking", async (t) => {
     expect(lock.isLocked("/test/file.txt").locked).toBe(false);
   });
 
-  await t.it("getFileLock returns singleton", () => {
+  it("getFileLock returns singleton", () => {
     const lock1 = getFileLock();
     const lock2 = getFileLock();
     expect(lock1).toBe(lock2);
   });
 
-  await t.it("withLock executes with automatic release", async () => {
+  it("withLock executes with automatic release", async () => {
     const lock = new FileLock();
 
     let executed = false;
@@ -441,12 +441,12 @@ it("FileLock: read/write locking", async (t) => {
     expect(typeof withLock === "function").toBeTruthy();
   });
 
-  await t.it("LockType constants", () => {
+  it("LockType constants", () => {
     expect(LockType.READ).toBe("read");
     expect(LockType.WRITE).toBe("write");
   });
 
-  await t.it("getAllLocks returns map", async () => {
+  it("getAllLocks returns map", async () => {
     const lock = new FileLock();
 
     const w = await lock.acquire("/test/file.txt");

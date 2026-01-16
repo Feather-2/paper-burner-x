@@ -13,16 +13,16 @@ it("TodoStatus transitions update status/history and reject invalid moves", asyn
   });
   const createdAt = todo.updatedAt;
 
-  expect(transitionTodoStatus(todo).toBe("pending"), true);
+  expect(transitionTodoStatus(todo, "pending")).toBe(true);
   expect(todo.status).toBe("pending");
   expect(todo.updatedAt).not.toBe(createdAt);
   expect(todo.history.length >= 2).toBe(true);
 
-  expect(transitionTodoStatus(todo).toBe("completed"), true);
+  expect(transitionTodoStatus(todo, "completed")).toBe(true);
   expect(todo.status).toBe("completed");
 
   // 简化后允许任意有效状态转换
-  expect(transitionTodoStatus(todo).toBe("cancelled"), true);
+  expect(transitionTodoStatus(todo, "cancelled")).toBe(true);
   expect(todo.status).toBe("cancelled");
 });
 
@@ -149,6 +149,6 @@ it("states helpers validate enums", async () => {
   expect(isValidDecisionStage("draft")).toBe(false);
 
   const todo = { status: TodoStatus.OPEN };
-  expect(transitionTodoStatus(todo).toBe(TodoStatus.PENDING), true);
+  expect(transitionTodoStatus(todo, TodoStatus.PENDING)).toBe(true);
   expect(todo.status).toBe(TodoStatus.PENDING);
 });

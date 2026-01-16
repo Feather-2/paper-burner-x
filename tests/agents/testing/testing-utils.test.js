@@ -747,7 +747,7 @@ describe("ScenarioRunner", () => {
         teardown: () => { throw new Error("teardown boom"); },
       });
       expect(result.passed).toBe(false);
-      expect(result.errors.some(e => e.includes("Teardown failed")).toBeTruthy());
+      expect(result.errors.some(e => e.includes("Teardown failed"))).toBeTruthy();
     });
 
     it("supports regex in expectedResult", async () => {

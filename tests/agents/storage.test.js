@@ -70,12 +70,12 @@ it("RunStore: IndexedDB CRUD (runs/events/artifacts)", async () => {
   expect(events[0].eventId).toBe(evt.eventId);
 
   await store.saveArtifact(runId, "content_package.json", { hello: "world" });
-  expect(await store.getArtifact(runId).toEqual("content_package.json"), { hello: "world" });
+  expect(await store.getArtifact(runId, "content_package.json")).toEqual({ hello: "world" });
 
   await store.deleteRun(runId);
   expect(await store.getRun(runId)).toBe(null);
   expect(await store.getEvents(runId)).toEqual([]);
-  expect(await store.getArtifact(runId).toBe("content_package.json"), null);
+  expect(await store.getArtifact(runId, "content_package.json")).toBe(null);
 
   await store.close();
   await RunStore.deleteDatabase({ dbName });
@@ -116,7 +116,7 @@ it("RunStore: events.jsonl append + readback (1000+ events)", async () => {
 
   const jsonl = await store.getArtifact(runId, "events.jsonl");
   expect(typeof jsonl === "string" && jsonl.includes(`"eventId":"evt_${runId}_1"`)).toBeTruthy();
-  expect(jsonl.split("\n").toBeTruthy().filter(Boolean).length === 1200);
+  expect(jsonl.split("\n").filter(Boolean).length).toBe(1200);
 
   await store.close();
   await RunStore.deleteDatabase({ dbName });
@@ -163,7 +163,7 @@ it("ArtifactManager: manifest integrity + sha256", async () => {
   expect(back.runId).toBe(runId);
   expect(typeof back.createdAt === "string" && back.createdAt.includes("T")).toBeTruthy();
   expect(back.artifacts.length).toBe(2);
-  expect(back.artifacts.some(a => a.type === "content_package.json" && a.sha256 === sha));
+  expect(back.artifacts.some(a => a.type === "content_package.json" && a.sha256 === sha)).toBeTruthy();
 
   await store.close();
   await RunStore.deleteDatabase({ dbName });
@@ -246,16 +246,16 @@ it("RunExporter: zip export/import roundtrip", async () => {
   const importedRunId = await importRunFromZip(zipBlob, { runStore: store2, overwrite: true });
   expect(importedRunId).toBe(runId);
 
-  expect(await store2.getArtifact(runId).toEqual("content_package.json"), contentPkg);
-  expect(await store2.getArtifact(runId).toEqual("deck_package.json"), deckPkg);
-  expect(await store2.getArtifact(runId).toEqual("plan.json"), plan2);
-  expect(await store2.getArtifact(runId).toEqual("vfs_payload.bin"), bin);
+  expect(await store2.getArtifact(runId, "content_package.json")).toEqual(contentPkg);
+  expect(await store2.getArtifact(runId, "deck_package.json")).toEqual(deckPkg);
+  expect(await store2.getArtifact(runId, "plan.json")).toEqual(plan2);
+  expect(await store2.getArtifact(runId, "vfs_payload.bin")).toEqual(bin);
   expect(await store2.getEvents(runId)).toEqual(events);
 
   const backManifest = await store2.getManifest(runId);
   expect(backManifest.runId).toBe(runId);
-  expect(backManifest.artifacts.some(a => a.type === "events.jsonl"));
-  expect(backManifest.artifacts.some(a => a.type === "plan.json"));
+  expect(backManifest.artifacts.some(a => a.type === "events.jsonl")).toBeTruthy();
+  expect(backManifest.artifacts.some(a => a.type === "plan.json")).toBeTruthy();
 
   const importedPlans = (await store2.listArtifacts(runId)).filter((a) => a && a.type === "plan.json");
   expect(importedPlans.length).toBe(2);
@@ -446,9 +446,9 @@ it("PlanStore: create/save/update plan artifacts", async () => {
   expect(plan.runId).toBe(runId);
   expect(plan.steps.length).toBe(2);
   expect(plan.selectedStepIndex).toBe(1);
-  expect(findPlanStepIndex(plan).toBe(0), 0);
-  expect(findPlanStepIndex(plan).toBe("analyze"), 1);
-  expect(findPlanStepIndex(plan).toBe("missing"), -1);
+  expect(findPlanStepIndex(plan, 0)).toBe(0);
+  expect(findPlanStepIndex(plan, "analyze")).toBe(1);
+  expect(findPlanStepIndex(plan, "missing")).toBe(-1);
 
   const normalized = normalizePlanStep({ stepId: "x", status: "weird" }, { fallbackIndex: 0 });
   expect(normalized.status).toBe("pending");

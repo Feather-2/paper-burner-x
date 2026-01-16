@@ -60,7 +60,7 @@ it("rrfFuse: merges BM25 and vector results with RRF scoring", async () => {
   const fused = rrfFuse(bm25, vector, { limit: 10, rrfK: 1, bm25Weight: 1, vectorWeight: 1 });
 
   expect(fused.map((r) => r.chunkId)).toEqual(["b", "a", "c"]);
-  expect(Math.abs(fused[0].rrfScore - 0.8333333).toBeTruthy() < 0.0001);
+  expect(Math.abs(fused[0].rrfScore - 0.8333333) < 0.0001).toBeTruthy();
   expect(fused[0].bm25Score).toBe(9);
   expect(fused[0].vectorScore).toBe(0.9);
 });
@@ -202,17 +202,15 @@ it("hybridSearch: fallback=false throws on BM25 failure", async () => {
 
   const bm25SearchFn = () => { throw new Error("boom"); };
 
-  await expect(hybridSearch({ bm25Index: {} }).rejects.toThrow("query", { bm25SearchFn, fallback: false }),
-    /bm25 failed/i
-  );
+  await expect(hybridSearch({ bm25Index: {} }, "query", { bm25SearchFn, fallback: false })).rejects.toThrow(/bm25 failed/i);
 });
 
 it("hybridSearch: validates inputs", async () => {
   const { hybridSearch } = await loadHybrid();
 
-  await expect(hybridSearch(null).rejects.toThrow("q", {}), /indexes must be an object/i);
-  await expect(hybridSearch({}).rejects.toThrow(123, {}), /query must be a string/i);
-  await expect(hybridSearch({}).rejects.toThrow("q", null), /options must be an object/i);
+  await expect(hybridSearch(null, "q", {})).rejects.toThrow(/indexes must be an object/i);
+  await expect(hybridSearch({}, 123, {})).rejects.toThrow(/query must be a string/i);
+  await expect(hybridSearch({}, "q", null)).rejects.toThrow(/options must be an object/i);
 });
 
 it("hybridSearch: handles non-array retriever results gracefully", async () => {
@@ -322,9 +320,7 @@ it("bm25: buildIndexAsync supports abort signal", async () => {
   const controller = new AbortController();
   controller.abort();
 
-  await expect(buildIndexAsync(chunks).rejects.toThrow({ signal: controller.signal }),
-    /aborted/i
-  );
+  await expect(buildIndexAsync(chunks, { signal: controller.signal })).rejects.toThrow(/aborted/i);
 });
 
 it("bm25: validates inputs", async () => {
@@ -576,7 +572,7 @@ it("vector-search: validates inputs", async () => {
   expect(() => search({}, [1, 0], 3)).toThrow(/VectorIndex-like/i);
 
   const index = buildIndex([{ chunkId: "a", embedding: [1, 0] }]);
-  await expect(searchAsync(index).rejects.toThrow(123), /query must be a string/i);
+  await expect(searchAsync(index, 123)).rejects.toThrow(/query must be a string/i);
 });
 
 // =========================================================================
@@ -607,7 +603,7 @@ it("RetrievalRouter: retrieve with basic config", async () => {
   });
 
   // Test the function returns valid array
-  expect(Array.isArray(results).toBeTruthy(), "Should return an array");
+  expect(Array.isArray(results)).toBeTruthy();
   // The retrieve function may or may not find results depending on internal scoring
   // This tests the API contract, not specific behavior
 });
@@ -635,7 +631,7 @@ it("RetrievalRouter: supports gap with queryHints", async () => {
   });
 
   // Result might be empty if grep doesn't match case-sensitively; check array exists
-  expect(Array.isArray(results).toBeTruthy(), "Should return an array");
+  expect(Array.isArray(results)).toBeTruthy();
 });
 
 it("RetrievalRouter: windowSize expands context", async () => {
@@ -662,7 +658,7 @@ it("RetrievalRouter: windowSize expands context", async () => {
 
   // If grep finds "target" in c2, windowSize=1 should expand to include c1 and c3
   // If no grep hit, results might be empty - that's OK for this test
-  expect(Array.isArray(results).toBeTruthy(), "Should return an array");
+  expect(Array.isArray(results)).toBeTruthy();
   if (results.length > 0) {
     // If we got hits, window expansion should give us more than 1 result
     expect(results.length >= 1, "Should have at least the hit").toBeTruthy();
@@ -684,10 +680,10 @@ it("RetrievalRouter: handles empty gaps", async () => {
 it("RetrievalRouter: validates inputs", async () => {
   const { retrieve } = await loadRouter();
 
-  await expect(retrieve(null).rejects.toThrow([], {}), /sourceIndex must be an object/i);
-  await expect(retrieve({}).rejects.toThrow([], {}), /chunks must be an array/i);
-  await expect(retrieve({ chunks: [] }).rejects.toThrow(null, {}), /gaps must be an array/i);
-  await expect(retrieve({ chunks: [] }).rejects.toThrow([], null), /config must be an object/i);
+  await expect(retrieve(null, [], {})).rejects.toThrow(/sourceIndex must be an object/i);
+  await expect(retrieve({}, [], {})).rejects.toThrow(/chunks must be an array/i);
+  await expect(retrieve({ chunks: [] }, null, {})).rejects.toThrow(/gaps must be an array/i);
+  await expect(retrieve({ chunks: [] }, [], null)).rejects.toThrow(/config must be an object/i);
 });
 
 it("RetrievalRouter: class wrapper works", async () => {
@@ -743,9 +739,7 @@ it("RetrievalRouter: supports abort signal", async () => {
   const controller = new AbortController();
   controller.abort();
 
-  await expect(retrieve(sourceIndex).rejects.toThrow([{ query: "test" }], { signal: controller.signal }),
-    /cancelled|aborted/i
-  );
+  await expect(retrieve(sourceIndex, [{ query: "test" }], { signal: controller.signal })).rejects.toThrow(/cancelled|aborted/i);
 });
 
 // =========================================================================

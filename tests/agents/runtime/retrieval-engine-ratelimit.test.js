@@ -239,7 +239,7 @@ describe("RetrievalEngine rate limiting", () => {
 
     // keywordRecall should return synchronously
     const result = engine.keywordRecall("test");
-    expect(Array.isArray(result).toBeTruthy(), "should return array synchronously");
+    expect(Array.isArray(result)).toBeTruthy();
   });
 
   it("_acquireRateLimit is no-op when limiter is null", async () => {

@@ -138,11 +138,11 @@ describe("shared/utils/deque", () => {
 
   describe("isEmpty", () => {
     it("returns true for empty deque", () => {
-      expect(new Deque().toBeTruthy().isEmpty());
+      expect(new Deque().isEmpty()).toBeTruthy();
     });
 
     it("returns false for non-empty deque", () => {
-      expect(!new Deque([1]).toBeTruthy().isEmpty());
+      expect(new Deque([1]).isEmpty()).toBeFalsy();
     });
 
     it("returns true after all elements removed", () => {

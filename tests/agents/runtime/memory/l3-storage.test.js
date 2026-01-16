@@ -102,7 +102,7 @@ describe("L3Storage", () => {
 
     const index = JSON.parse(await vfs.readText(indexPath));
     expect(index.runId).toBe(runId);
-    expect(Array.isArray(index.timeline).toBeTruthy() && index.timeline.some((e) => e?.id === snapId));
+    expect(Array.isArray(index.timeline) && index.timeline.some((e) => e?.id === snapId)).toBeTruthy();
 
     const stages = new Map(Array.isArray(index.stages) ? index.stages : []);
     expect(stages.get("stage1")).toBe(snapId);
@@ -679,10 +679,10 @@ describe("L3Storage", () => {
     const timeline = storage.getTimeline();
     const remainingIds = timeline.map((e) => e.id);
 
-    expect(timeline.length).toBe(2, `expected 2 entries, got ${timeline.length}: ${remainingIds.join(", ")}`);
-    expect(remainingIds.includes(id1).toBeTruthy(), `recently accessed (${id1}) should survive, remaining: ${remainingIds.join(", ")}`);
-    expect(remainingIds.includes(id3).toBeTruthy(), `newest (${id3}) should survive, remaining: ${remainingIds.join(", ")}`);
-    expect(!remainingIds.includes(id2)).toBeTruthy(); // `older accessed (${id2}) should be evicted, remaining: ${remainingIds.join(", ")}`);
+    expect(timeline.length).toBe(2);
+    expect(remainingIds.includes(id1)).toBeTruthy();
+    expect(remainingIds.includes(id3)).toBeTruthy();
+    expect(!remainingIds.includes(id2)).toBeTruthy();
   });
 
   it("LRU eviction triggers when maxStorageBytes exceeded", async () => {
@@ -733,9 +733,9 @@ describe("L3Storage", () => {
 
     const event = evictedEvents[evictedEvents.length - 1];
     expect(event.data.runId).toBe(runId);
-    expect(Array.isArray(event.data.evictedIds).toBeTruthy(), "should include evictedIds");
-    expect(event.data.evictedIds.length > 0, "should have evicted at least one").toBeTruthy();
-    expect(typeof event.data.count === "number", "should include count").toBeTruthy();
+    expect(Array.isArray(event.data.evictedIds)).toBeTruthy();
+    expect(event.data.evictedIds.length > 0).toBeTruthy();
+    expect(typeof event.data.count === "number").toBeTruthy();
   });
 
   it("waitForEviction() awaits pending eviction", async () => {

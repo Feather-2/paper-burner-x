@@ -184,8 +184,8 @@ describe("vfs/vfs.memory", () => {
       await vfs.mkdir("/dir/subdir");
 
       const entries = await vfs.list("/dir");
-      expect(entries.some(e => e.name === "file.txt" && e.kind === "file"));
-      expect(entries.some(e => e.name === "subdir" && e.kind === "dir"));
+      expect(entries.some(e => e.name === "file.txt" && e.kind === "file")).toBeTruthy();
+      expect(entries.some(e => e.name === "subdir" && e.kind === "dir")).toBeTruthy();
     });
   });
 
