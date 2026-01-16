@@ -115,7 +115,7 @@ describe("prompts/prompt-template", () => {
       const result = renderPromptTemplate("{{items|bullets}}", {
         vars: { items: ["one", "two"] },
       });
-      expect(result.includes("- one") || result.includes("• one").toBeTruthy());
+      expect(result.includes("- one") || result.includes("• one")).toBeTruthy();
     });
 
     it("applies trim formatter", () => {

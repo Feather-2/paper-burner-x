@@ -1182,5 +1182,5 @@ export class EventBus {
 // ============================================================
 
 export { LamportClock };
-export { isValidEventName, matchPattern };
+export { isValidEventName, matchPattern, createEventId };
 export default EventBus;

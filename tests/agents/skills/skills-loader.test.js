@@ -368,7 +368,7 @@ describe("loader.node.js - YAML parsing", async () => {
       const skill = await mod.loadSkillFromPath(filePath, "user");
 
       expect(skill.body.includes("# Instructions")).toBeTruthy();
-      expect(skill.body.includes("code().toBeTruthy()"));
+      expect(skill.body.includes("code()")).toBeTruthy();
     } finally {
       await cleanupDir(cwd);
     }

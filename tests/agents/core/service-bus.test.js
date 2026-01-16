@@ -505,7 +505,7 @@ describe('ServiceBus', () => {
       bus.useProxy(createTimeoutProxy({ timeout: 1000 }));
 
       await bus.call('svc', 'fn', []);
-      expect(bus.getStats('svc').toBeTruthy() !== null);
+      expect(bus.getStats('svc')).toBeTruthy();
 
       bus.clear();
 

@@ -454,7 +454,7 @@ it("PlanStore: create/save/update plan artifacts", async () => {
   expect(normalized.status).toBe("pending");
 
   const art1 = await savePlan({ runStore: store, runId, plan, type: PLAN_ARTIFACT_TYPE });
-  expect(typeof art1 === "string" && art1.startsWith(`art_${runId}_${PLAN_ARTIFACT_TYPE.replaceAll("/", "_").toBeTruthy()}_`));
+  expect(typeof art1 === "string" && art1.startsWith(`art_${runId}_${PLAN_ARTIFACT_TYPE.replaceAll("/", "_")}_`)).toBeTruthy();
 
   const updated1 = setPlanStepStatus(plan, "ingest", "in_progress");
   const updated2 = setPlanStepStatus(updated1, 1, "completed", { select: false });

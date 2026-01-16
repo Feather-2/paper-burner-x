@@ -36,7 +36,7 @@ describe("runtime/exec", () => {
       const result = await exec("pwd", [], { cwd: "/tmp" });
 
       expect(result.success).toBe(true);
-      expect(result.stdout.includes("/tmp") || result.stdout.includes("\\tmp").toBeTruthy());
+      expect(result.stdout.includes("/tmp") || result.stdout.includes("\\tmp")).toBeTruthy();
     });
 
     it("collects streaming output via callbacks", async () => {

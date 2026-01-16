@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Configuration for check-stale.js and module-analyzer.js",
+
+  "ignore": [
+    "tests/**",
+    "test/**",
+    "docs/**",
+    "examples/**",
+    "scripts/**",
+    "*.test.js",
+    "*.spec.js"
+  ],
+
+  "features": {
+    "doc": true,
+    "audit": true,
+    "kanban": true
+  },
+
+  "notify": {
+    "enabled": true,
+    "threshold": 3,
+    "onSessionStart": true
+  },
+
+  "concurrency": 6,
+  "timeout": 180000
+}

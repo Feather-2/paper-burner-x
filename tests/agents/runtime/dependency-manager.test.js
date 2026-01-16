@@ -161,7 +161,7 @@ describe("DependencyManager", () => {
       });
 
       expect(script.includes('__pb_builtin = ["numpy","pandas"]')).toBeTruthy();
-      expect(script.includes("pyodide.loadPackage(__pb_builtin).toBeTruthy()"));
+      expect(script.includes("pyodide.loadPackage(__pb_builtin)")).toBeTruthy();
     });
 
     it("should generate micropip install script", () => {
@@ -172,7 +172,7 @@ describe("DependencyManager", () => {
         wheels: [],
       });
 
-      expect(script.includes("pyodide.loadPackage('micropip').toBeTruthy()"));
+      expect(script.includes("pyodide.loadPackage('micropip')")).toBeTruthy();
       expect(script.includes('__pb_micropip = ["tabulate"]')).toBeTruthy();
     });
 

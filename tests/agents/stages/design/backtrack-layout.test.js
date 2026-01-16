@@ -112,7 +112,7 @@ describe("Layout Generator", () => {
 
     it("should handle null/undefined intent", () => {
       const html = generateLayoutHtml(null, {});
-      expect(html.includes("(未命名).toBeTruthy()"));
+      expect(html.includes("(未命名)")).toBeTruthy();
     });
   });
 

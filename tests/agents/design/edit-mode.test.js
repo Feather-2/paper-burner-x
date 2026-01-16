@@ -381,7 +381,7 @@ it("edit loop handles clarification, quick actions, and parsing errors", async (
     chat: { send: async ({ message }) => chatMessages.push(message) },
   });
 
-  expect(chatMessages.some(msg => msg.includes("clarify")).toBeTruthy());
+  expect(chatMessages.some(msg => msg.includes("clarify"))).toBeTruthy();
   expect(emits.some(evt => evt.name === "edit.session.transition")).toBeTruthy();
 });
 

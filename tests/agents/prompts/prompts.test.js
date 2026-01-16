@@ -426,7 +426,7 @@ it("renderPromptTemplate: formatter pipeline |code(lang)", async () => {
     escapeVars: false,
   });
   expect(result.includes("```python")).toBeTruthy();
-  expect(result.includes("print(1).toBeTruthy()"));
+  expect(result.includes("print(1)")).toBeTruthy();
 });
 
 it("renderPromptTemplate: unknown formatter marks as unresolved", async () => {

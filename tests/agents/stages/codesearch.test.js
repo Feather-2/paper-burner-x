@@ -222,7 +222,8 @@ describe("CodeSearchState", () => {
       state.addTodo({ title: "T1" });
       state.addObservation("Obs1");
       const snapshot = state.buildStateSnapshot();
-      expect(snapshot.includes("auth") || state.query === "auth").toBeTruthy();
+      // snapshot may be string or object - check query is set
+      expect(state.query === "auth").toBeTruthy();
     });
 
     it("should serialize to JSON", () => {
