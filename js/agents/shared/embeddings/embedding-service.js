@@ -176,7 +176,10 @@ export class EmbeddingService {
   constructor(config = {}, { fetchImpl } = {}) {
     const normalized = normalizeEmbeddingConfig(config);
     this._cfg = normalized;
-    this._fetch = typeof fetchImpl === "function" ? fetchImpl : typeof fetch === "function" ? fetch.bind(globalThis) : null;
+    // If fetchImpl is explicitly passed (even as null), use it; otherwise fallback to global fetch
+    this._fetch = arguments.length >= 2 && arguments[1] && "fetchImpl" in arguments[1]
+      ? (typeof fetchImpl === "function" ? fetchImpl : null)
+      : (typeof fetch === "function" ? fetch.bind(globalThis) : null);
 
     this._queue = [];
     this._flushTimer = null;
