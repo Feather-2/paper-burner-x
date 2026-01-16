@@ -134,6 +134,13 @@ describe("agents/vfs/storage-adapter", () => {
     await expect(adapter.keys()).resolves.toEqual([]);
   });
 
+  it("LocalStorageAdapter.getUsage returns zero usage for empty storage", async () => {
+    vi.stubGlobal("localStorage", createLocalStorageMock());
+
+    const adapter = new LocalStorageAdapter({ prefix: "pb_" });
+    await expect(adapter.getUsage()).resolves.toEqual({ used: 0, quota: 5 * 1024 * 1024 });
+  });
+
   it("IndexedDbStorageAdapter supports CRUD + keys + clear + close (fake-indexeddb)", async () => {
     vi.stubGlobal("indexedDB", fakeIndexedDB);
 
@@ -164,6 +171,26 @@ describe("agents/vfs/storage-adapter", () => {
     adapter.close();
     await adapter.set("k3", 3);
     await expect(adapter.get("k3")).resolves.toBe(3);
+  });
+
+  it("IndexedDbStorageAdapter rejects when indexedDB.open errors", async () => {
+    const openError = new Error("open failed");
+
+    vi.stubGlobal("indexedDB", {
+      open: () => {
+        const request = {
+          error: openError,
+          onerror: null,
+          onsuccess: null,
+          onupgradeneeded: null,
+        };
+        setImmediate(() => request.onerror?.());
+        return request;
+      },
+    });
+
+    const adapter = new IndexedDbStorageAdapter({ dbName: "pb_fail_db", storeName: "kv" });
+    await expect(adapter.get("k")).rejects.toBe(openError);
   });
 
   it("OpfsStorageAdapter round-trips values and supports keys/clear/usage", async () => {
@@ -207,6 +234,19 @@ describe("agents/vfs/storage-adapter", () => {
 
     await adapter.clear();
     await expect(adapter.keys()).resolves.toEqual([]);
+  });
+
+  it("OpfsStorageAdapter encodes special characters in keys and decodes them back", async () => {
+    const root = createMockOpfsRoot();
+    vi.stubGlobal("navigator", { storage: { getDirectory: vi.fn(async () => root) } });
+
+    const adapter = new OpfsStorageAdapter({ rootDirName: "encode_test" });
+    const key = "a/b c%";
+
+    expect(adapter._keyToPath(key)).toBe("a_2Fb_20c_25");
+
+    await adapter.set(key, "value");
+    await expect(adapter.keys()).resolves.toEqual([key]);
   });
 
   it("OpfsStorageAdapter.getUsage returns zeros when navigator.storage.estimate is unavailable", async () => {
@@ -296,6 +336,45 @@ describe("agents/vfs/storage-adapter", () => {
     expect(warnSpy).toHaveBeenCalled();
   });
 
+  it("createStorageAdapter stays silent when silent=true across fallback paths", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+
+    vi.stubGlobal("navigator", { storage: { getDirectory: vi.fn(async () => {
+      throw new Error("no opfs");
+    }) } });
+    vi.stubGlobal("indexedDB", fakeIndexedDB);
+    vi.stubGlobal("localStorage", createLocalStorageMock());
+
+    const a1 = await createStorageAdapter({ preferOpfs: true, silent: true });
+    expect(a1).toBeInstanceOf(IndexedDbStorageAdapter);
+    expect(warnSpy).not.toHaveBeenCalled();
+    expect(infoSpy).not.toHaveBeenCalled();
+    await flushFakeIndexedDbEvents();
+
+    warnSpy.mockClear();
+    infoSpy.mockClear();
+
+    vi.stubGlobal("indexedDB", { open: () => {
+      throw new Error("no idb");
+    }, deleteDatabase: () => {} });
+    vi.stubGlobal("localStorage", createLocalStorageMock());
+
+    const a2 = await createStorageAdapter({ preferOpfs: true, silent: true });
+    expect(a2).toBeInstanceOf(LocalStorageAdapter);
+    expect(warnSpy).not.toHaveBeenCalled();
+    expect(infoSpy).not.toHaveBeenCalled();
+
+    vi.stubGlobal("localStorage", { setItem: () => {
+      throw new Error("no ls");
+    }, removeItem: () => {} });
+
+    const a3 = await createStorageAdapter({ preferOpfs: true, silent: true });
+    expect(a3).toBeInstanceOf(MemoryStorageAdapter);
+    expect(warnSpy).not.toHaveBeenCalled();
+    expect(infoSpy).not.toHaveBeenCalled();
+  });
+
   it("detectAvailableBackends returns OPFS/IndexedDB/localStorage when present (and always includes memory)", async () => {
     const root = createMockOpfsRoot();
     vi.stubGlobal("navigator", { storage: { getDirectory: vi.fn(async () => root) } });
@@ -311,5 +390,16 @@ describe("agents/vfs/storage-adapter", () => {
     ]);
 
     await flushFakeIndexedDbEvents();
+  });
+
+  it("detectAvailableBackends skips OPFS when detection throws", async () => {
+    vi.stubGlobal("navigator", { storage: { getDirectory: vi.fn(async () => {
+      throw new Error("no opfs");
+    }) } });
+    vi.stubGlobal("indexedDB", undefined);
+    vi.stubGlobal("localStorage", undefined);
+
+    const backends = await detectAvailableBackends();
+    expect(backends).toEqual([StorageBackend.MEMORY]);
   });
 });

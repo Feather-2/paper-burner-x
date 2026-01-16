@@ -111,13 +111,21 @@ export class OpfsVfs {
 
   /**
    * @param {string} path
-   * @returns {Promise<Uint8Array>}
+   * @returns {Promise<Uint8Array | null>}
    */
   async readFile(path) {
-    const handle = await getFileHandle(this._root, path, { create: false });
-    const file = await handle.getFile();
-    const buf = await file.arrayBuffer();
-    return new Uint8Array(buf);
+    const p = normalizeVfsPath(path);
+    if (!p) throw new Error("EISDIR: /");
+    try {
+      const handle = await getFileHandle(this._root, p, { create: false });
+      const file = await handle.getFile();
+      const buf = await file.arrayBuffer();
+      return new Uint8Array(buf);
+    } catch (err) {
+      if (err?.name === "NotFoundError") return null;
+      if (err?.name === "TypeMismatchError") throw new Error(`EISDIR: ${p}`);
+      throw err;
+    }
   }
 
   /**
@@ -126,6 +134,7 @@ export class OpfsVfs {
    */
   async readText(path) {
     const bytes = await this.readFile(path);
+    if (bytes == null) throw new Error(`ENOENT: ${normalizeVfsPath(path)}`);
     return new TextDecoder().decode(bytes);
   }
 
@@ -136,6 +145,7 @@ export class OpfsVfs {
    */
   async writeFile(path, data) {
     const p = normalizeVfsPath(path);
+    if (!p) throw new Error("EISDIR: /");
     await ensureParentDir(this._root, p);
     const handle = await getFileHandle(this._root, p, { create: true });
     const writable = await handle.createWritable();
@@ -182,8 +192,13 @@ export class OpfsVfs {
   async rmdir(path, { recursive = false } = {}) {
     const p = normalizeVfsPath(path);
     if (!p) throw new Error("EPERM: cannot remove root");
-    const parent = await getDirHandle(this._root, dirnameVfsPath(p), { create: false });
-    await parent.removeEntry(basenameVfsPath(p), { recursive: !!recursive });
+    try {
+      const parent = await getDirHandle(this._root, dirnameVfsPath(p), { create: false });
+      await parent.removeEntry(basenameVfsPath(p), { recursive: !!recursive });
+    } catch (err) {
+      if (err?.name === "NotFoundError") throw new Error(`ENOENT: ${p}`);
+      throw err;
+    }
     return true;
   }
 
@@ -194,8 +209,13 @@ export class OpfsVfs {
   async unlink(path) {
     const p = normalizeVfsPath(path);
     if (!p) throw new Error("EISDIR: /");
-    const parent = await getDirHandle(this._root, dirnameVfsPath(p), { create: false });
-    await parent.removeEntry(basenameVfsPath(p));
+    try {
+      const parent = await getDirHandle(this._root, dirnameVfsPath(p), { create: false });
+      await parent.removeEntry(basenameVfsPath(p));
+    } catch (err) {
+      if (err?.name === "NotFoundError") throw new Error(`ENOENT: ${p}`);
+      throw err;
+    }
     return true;
   }
 
@@ -217,10 +237,14 @@ export class OpfsVfs {
         isFile: () => true,
         isDirectory: () => false,
       };
-    } catch {
-      // maybe directory
-      const dir = await getDirHandle(this._root, p, { create: false });
-      if (dir) return { size: 0, isFile: () => false, isDirectory: () => true };
+    } catch (err) {
+      if (err?.name !== "NotFoundError" && err?.name !== "TypeMismatchError") throw err;
+      try {
+        const dir = await getDirHandle(this._root, p, { create: false });
+        if (dir) return { size: 0, isFile: () => false, isDirectory: () => true };
+      } catch (dirErr) {
+        if (dirErr?.name !== "NotFoundError") throw dirErr;
+      }
       throw new Error(`ENOENT: ${p}`);
     }
   }
@@ -233,7 +257,14 @@ export class OpfsVfs {
   async readdir(path, options = {}) {
     const p = normalizeVfsPath(path);
     const withFileTypes = !!options.withFileTypes;
-    const dir = await getDirHandle(this._root, p, { create: false });
+    let dir;
+    try {
+      dir = await getDirHandle(this._root, p, { create: false });
+    } catch (err) {
+      if (err?.name === "NotFoundError") throw new Error(`ENOENT: ${p}`);
+      if (err?.name === "TypeMismatchError") throw new Error(`ENOTDIR: ${p}`);
+      throw err;
+    }
 
     const entries = [];
     for await (const [name, handle] of dir.entries()) {
@@ -281,6 +312,7 @@ export class OpfsVfs {
    */
   async copy(src, dest) {
     const bytes = await this.readFile(src);
+    if (bytes == null) throw new Error(`ENOENT: ${normalizeVfsPath(src)}`);
     await this.writeFile(dest, bytes);
     return true;
   }

@@ -113,6 +113,23 @@ describe("agents/vfs/vfs.storage", () => {
     await expect(vfs.readText("num.txt")).resolves.toBe("123");
   });
 
+  it("throws for read/write edge cases and missing directories", async () => {
+    const adapter = createMapAdapter();
+    const vfs = new StorageVfs(adapter, { keyPrefix: "t:" });
+
+    await expect(vfs.readFile("missing.bin")).rejects.toThrow(/ENOENT/i);
+
+    await adapter.set("t:file:dir", { kind: "dir", path: "dir" });
+    await expect(vfs.readFile("dir")).rejects.toThrow(/EISDIR/i);
+
+    await expect(vfs.writeFile("", new Uint8Array([1]))).rejects.toThrow(/EISDIR/i);
+
+    await expect(vfs.readdir("missing-dir")).rejects.toThrow(/ENOENT/i);
+
+    await expect(vfs.mkdir("empty-dir")).resolves.toBe(true);
+    await expect(vfs.readdir("empty-dir")).resolves.toEqual([]);
+  });
+
   it("handles stat() for root/file/dir and can infer implicit directory existence", async () => {
     const adapter = createMapAdapter();
     const vfs = new StorageVfs(adapter, { keyPrefix: "t:" });
@@ -163,6 +180,7 @@ describe("agents/vfs/vfs.storage", () => {
     await vfs.writeText("dir/sub/b.txt", "b");
 
     await expect(vfs.rmdir("dir")).rejects.toThrow(/ENOTEMPTY/i);
+    await expect(vfs.rm("dir")).rejects.toThrow(/ENOTEMPTY/i);
     await expect(vfs.rmdir("dir", { recursive: true })).resolves.toBe(true);
     await expect(vfs.exists("dir/a.txt")).resolves.toBe(false);
 
@@ -215,6 +233,20 @@ describe("agents/vfs/vfs.storage", () => {
       size: 2,
     });
     await expect(vfs.readText("weird.bin")).resolves.toBe("hi");
+  });
+
+  it("rejects root paths for copy/move/rename", async () => {
+    const adapter = createMapAdapter();
+    const vfs = new StorageVfs(adapter, { keyPrefix: "t:" });
+
+    await expect(vfs.copy("", "dest.txt")).rejects.toThrow(/EISDIR/i);
+    await expect(vfs.copy("file.txt", "")).rejects.toThrow(/EISDIR/i);
+
+    await expect(vfs.move("", "dest.txt")).rejects.toThrow(/EISDIR/i);
+    await expect(vfs.move("file.txt", "")).rejects.toThrow(/EISDIR/i);
+
+    await expect(vfs.rename("", "dest.txt")).rejects.toThrow(/EISDIR/i);
+    await expect(vfs.rename("file.txt", "")).rejects.toThrow(/EISDIR/i);
   });
 });
 

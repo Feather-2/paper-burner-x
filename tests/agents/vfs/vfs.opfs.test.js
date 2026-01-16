@@ -111,6 +111,36 @@ describe("agents/vfs/vfs.opfs", () => {
     await expect(vfs.exists("base/dir")).resolves.toBe(false);
   });
 
+  it("maps OPFS errors to VFS-style behaviors", async () => {
+    const root = createMockOpfsRoot();
+    vi.stubGlobal("navigator", { storage: { getDirectory: async () => root } });
+
+    const vfs = await OpfsVfs.create({ rootDirName: "w3" });
+
+    await vfs.mkdir("dir");
+    await vfs.writeText("dir/file.txt", "x");
+
+    await expect(vfs.readFile("missing.txt")).resolves.toBeNull();
+    await expect(vfs.readFile("dir")).rejects.toThrow(/EISDIR/i);
+
+    await expect(vfs.writeFile("", new Uint8Array([1]))).rejects.toThrow(/EISDIR/i);
+
+    await expect(vfs.stat("missing-dir")).rejects.toThrow(/ENOENT/i);
+    await expect(vfs.unlink("missing.txt")).rejects.toThrow(/ENOENT/i);
+    await expect(vfs.rmdir("missing-dir")).rejects.toThrow(/ENOENT/i);
+    await expect(vfs.readdir("missing-dir")).rejects.toThrow(/ENOENT/i);
+    await expect(vfs.readdir("dir/file.txt")).rejects.toThrow(/ENOTDIR/i);
+
+    await expect(vfs.copy("missing.txt", "dest.txt")).rejects.toThrow(/ENOENT/i);
+
+    if (typeof vfs.rename === "function") {
+      await vfs.writeText("rename.txt", "r");
+      await expect(vfs.rename("rename.txt", "renamed.txt")).resolves.toBe(true);
+      await expect(vfs.exists("rename.txt")).resolves.toBe(false);
+      await expect(vfs.readText("renamed.txt")).resolves.toBe("r");
+    }
+  });
+
   it("mkdir(recursive:false) rejects when parent doesn't exist", async () => {
     const root = createMockOpfsRoot();
     vi.stubGlobal("navigator", { storage: { getDirectory: async () => root } });
@@ -119,4 +149,3 @@ describe("agents/vfs/vfs.opfs", () => {
     await expect(vfs.mkdir("a/b", { recursive: false })).rejects.toBeInstanceOf(NotFoundError);
   });
 });
-
