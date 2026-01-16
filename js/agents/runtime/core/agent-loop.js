@@ -337,7 +337,20 @@ export class BaseAgentLoop {
   /**
    * @param {BaseAgentLoopOptions} [options]
    */
-  constructor({ eventBus, stateMachine, tools, actor, stageName, emit, hooks, contextConfig, logger, strictLoopStatus, tokenCounter } = {}) {
+  constructor({
+    eventBus,
+    stateMachine,
+    tools,
+    actor,
+    stageName,
+    emit,
+    hooks,
+    contextConfig,
+    logger,
+    strictLoopStatus,
+    tokenCounter,
+    maxUserInputs,
+  } = {}) {
     this.eventBus = eventBus || null;
     this.logger = logger || null;
     this.stateMachine = stateMachine || null;
@@ -375,7 +388,7 @@ export class BaseAgentLoop {
     // 用户输入管理（保留在 BaseAgentLoop）
     this._activeStep = null;
     this._userInputs = [];
-    this._maxUserInputs = getLimit("MAX_USER_INPUTS", options?.maxUserInputs);
+    this._maxUserInputs = getLimit("MAX_USER_INPUTS", maxUserInputs);
     this._userInputUnsub = null;
     this._userInputBus = null;
     this._userInputEvent = "user.input";
