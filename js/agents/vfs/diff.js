@@ -309,4 +309,185 @@ export async function createUnifiedDiffAsync(options = {}, runtime = {}) {
   }
 }
 
-export default { createUnifiedDiff, createUnifiedDiffAsync };
+export default { createUnifiedDiff, createUnifiedDiffAsync, applyPatch, parsePatch };
+
+/**
+ * Parse a unified diff text into structured hunks.
+ *
+ * @param {string} patchText - Unified diff text
+ * @returns {{ path: string, hunks: Array<{ aStart: number, aCount: number, bStart: number, bCount: number, lines: Array<{ tag: string, line: string }> }> }}
+ */
+export function parsePatch(patchText) {
+  const lines = (typeof patchText === 'string' ? patchText : '').split('\n');
+  let path = 'file';
+  const hunks = [];
+  let currentHunk = null;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Parse file header
+    if (line.startsWith('--- a/')) {
+      path = line.slice(6).trim();
+      continue;
+    }
+    if (line.startsWith('+++ b/')) {
+      continue;
+    }
+
+    // Parse hunk header: @@ -start,count +start,count @@
+    const hunkMatch = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
+    if (hunkMatch) {
+      if (currentHunk) hunks.push(currentHunk);
+      currentHunk = {
+        aStart: parseInt(hunkMatch[1], 10),
+        aCount: hunkMatch[2] !== undefined ? parseInt(hunkMatch[2], 10) : 1,
+        bStart: parseInt(hunkMatch[3], 10),
+        bCount: hunkMatch[4] !== undefined ? parseInt(hunkMatch[4], 10) : 1,
+        lines: [],
+      };
+      continue;
+    }
+
+    // Parse hunk content
+    if (currentHunk) {
+      if (line.startsWith('-')) {
+        currentHunk.lines.push({ tag: '-', line: line.slice(1) });
+      } else if (line.startsWith('+')) {
+        currentHunk.lines.push({ tag: '+', line: line.slice(1) });
+      } else if (line.startsWith(' ') || line === '') {
+        // Context line or empty line
+        currentHunk.lines.push({ tag: ' ', line: line.slice(1) });
+      }
+    }
+  }
+
+  if (currentHunk) hunks.push(currentHunk);
+
+  return { path, hunks };
+}
+
+/**
+ * Apply a unified diff patch to the original text.
+ *
+ * @param {string} originalText - Original file content
+ * @param {string | { path: string, hunks: Array }} patch - Unified diff text or parsed patch object
+ * @param {{ fuzz?: number, reverse?: boolean }} [options] - Options
+ * @returns {{ success: boolean, result: string, appliedHunks: number, failedHunks: Array<{ hunk: number, reason: string }> }}
+ */
+export function applyPatch(originalText, patch, options = {}) {
+  const opts = options && typeof options === 'object' ? options : {};
+  const fuzz = typeof opts.fuzz === 'number' && Number.isFinite(opts.fuzz) ? Math.max(0, Math.floor(opts.fuzz)) : 0;
+  const reverse = opts.reverse === true;
+
+  // Parse patch if it's a string
+  const parsed = typeof patch === 'string' ? parsePatch(patch) : patch;
+  if (!parsed || !Array.isArray(parsed.hunks)) {
+    return { success: false, result: originalText, appliedHunks: 0, failedHunks: [{ hunk: 0, reason: 'Invalid patch format' }] };
+  }
+
+  const originalLines = splitLines(originalText);
+  const result = [...originalLines];
+  let offset = 0; // Track line offset due to insertions/deletions
+  let appliedHunks = 0;
+  const failedHunks = [];
+
+  for (let hunkIndex = 0; hunkIndex < parsed.hunks.length; hunkIndex++) {
+    const hunk = parsed.hunks[hunkIndex];
+
+    // Extract context and changes from hunk
+    const contextLines = [];
+    const deletions = [];
+    const insertions = [];
+
+    for (const line of hunk.lines) {
+      if (reverse) {
+        // Reverse: + becomes -, - becomes +
+        if (line.tag === '-') insertions.push(line.line);
+        else if (line.tag === '+') deletions.push(line.line);
+        else contextLines.push({ tag: ' ', line: line.line });
+      } else {
+        if (line.tag === '-') deletions.push(line.line);
+        else if (line.tag === '+') insertions.push(line.line);
+        else contextLines.push({ tag: ' ', line: line.line });
+      }
+    }
+
+    // Find the correct position to apply hunk
+    const targetStart = (reverse ? hunk.bStart : hunk.aStart) - 1 + offset;
+    let foundStart = -1;
+
+    // Try exact match first, then with fuzz
+    for (let f = 0; f <= fuzz && foundStart < 0; f++) {
+      for (let pos = Math.max(0, targetStart - f); pos <= Math.min(result.length, targetStart + f); pos++) {
+        if (matchHunkAtPosition(result, pos, hunk.lines, reverse)) {
+          foundStart = pos;
+          break;
+        }
+      }
+    }
+
+    if (foundStart < 0) {
+      failedHunks.push({ hunk: hunkIndex + 1, reason: 'Context mismatch' });
+      continue;
+    }
+
+    // Apply the hunk
+    const linesToRemove = hunk.lines.filter(l => (reverse ? l.tag === '+' : l.tag === '-') || l.tag === ' ').length;
+    const newLines = [];
+
+    for (const line of hunk.lines) {
+      if (line.tag === ' ') {
+        newLines.push(line.line);
+      } else if (reverse) {
+        if (line.tag === '-') newLines.push(line.line);
+        // Skip + lines in reverse mode
+      } else {
+        if (line.tag === '+') newLines.push(line.line);
+        // Skip - lines in normal mode
+      }
+    }
+
+    // Calculate lines to remove (context + deletions in original)
+    let removeCount = 0;
+    for (const line of hunk.lines) {
+      if (line.tag === ' ') removeCount++;
+      else if (reverse ? line.tag === '+' : line.tag === '-') removeCount++;
+    }
+
+    result.splice(foundStart, removeCount, ...newLines);
+    offset += newLines.length - removeCount;
+    appliedHunks++;
+  }
+
+  const success = failedHunks.length === 0;
+  const finalText = result.join('\n') + (originalText.endsWith('\n') ? '\n' : '');
+
+  return { success, result: finalText, appliedHunks, failedHunks };
+}
+
+/**
+ * Check if hunk lines match at a given position in the result array.
+ *
+ * @param {string[]} lines
+ * @param {number} pos
+ * @param {Array<{ tag: string, line: string }>} hunkLines
+ * @param {boolean} reverse
+ * @returns {boolean}
+ */
+function matchHunkAtPosition(lines, pos, hunkLines, reverse) {
+  let lineIndex = pos;
+
+  for (const hl of hunkLines) {
+    // Only check context and deletion lines (or insertion in reverse mode)
+    const shouldMatch = hl.tag === ' ' || (reverse ? hl.tag === '+' : hl.tag === '-');
+
+    if (shouldMatch) {
+      if (lineIndex >= lines.length) return false;
+      if (lines[lineIndex] !== hl.line) return false;
+      lineIndex++;
+    }
+  }
+
+  return true;
+}

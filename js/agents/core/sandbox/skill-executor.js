@@ -11,6 +11,7 @@
 import { SandboxPool } from './pool.js';
 import { SandboxPreset, ResourceLimits, SandboxCapability } from './constants.js';
 import { createLogger } from '../../shared/utils/logger.js';
+import { isNodeLike } from '../../shared/platform.js';
 
 // Skill metadata 中允许声明的能力（白名单，声明 != 授权）
 // 注意：这里的 key 为 Skill 声明用的字符串，value 为实际沙箱能力常量。
@@ -570,7 +571,22 @@ export class SkillExecutor {
     }
 
     // Try Worker-based restricted execution first.
-    if (typeof Worker !== 'undefined') {
+    // Node.js: use worker_threads with dedicated worker file
+    // Browser: use Web Worker
+    if (isNodeLike()) {
+      try {
+        return await this._executeFallbackInNodeWorker({
+          code,
+          state: exec?.state,
+          globals: context?.args,
+          timeoutMs,
+          onLog: exec?.onLog,
+          onEmit: exec?.onEmit,
+        });
+      } catch (err) {
+        this.logger.warn('Node worker unavailable, using main-thread eval', { error: err?.message });
+      }
+    } else if (typeof Worker !== 'undefined') {
       try {
         const workerUrl = new URL('../../runtime/core/js-sandbox-worker.js', import.meta.url);
         return await this._executeFallbackInWorker(workerUrl, {
@@ -707,6 +723,141 @@ export class SkillExecutor {
           data: null,
           error: err?.message || String(err),
           metrics: { duration: Date.now() - startTime, mode: 'worker' },
+        });
+      }
+    });
+  }
+
+  /**
+   * Node.js worker_threads 执行
+   * @param {Object} options
+   * @returns {Promise<{ success: boolean, data: any, error?: string, metrics: any }>}
+   */
+  async _executeFallbackInNodeWorker(options) {
+    const startTime = Date.now();
+    const timeoutMs = Math.max(0, Number(options?.timeoutMs ?? 30000));
+
+    // Dynamic import for Node.js worker_threads
+    const { Worker } = await import(/* @vite-ignore */ 'node:worker_threads');
+    const workerPath = new URL('../../runtime/core/js-sandbox-worker.node.js', import.meta.url);
+
+    /** @type {import('node:worker_threads').Worker | null} */
+    let worker = null;
+    try {
+      worker = new Worker(workerPath);
+    } catch (err) {
+      throw new Error(`Failed to create Node worker: ${err?.message}`);
+    }
+
+    const id = 1;
+
+    return await new Promise((resolve) => {
+      let done = false;
+      /** @type {ReturnType<typeof setTimeout> | null} */
+      let timeoutId = null;
+
+      const finish = (result) => {
+        if (done) return;
+        done = true;
+        resolve(result);
+      };
+
+      const cleanup = () => {
+        if (timeoutId) clearTimeout(timeoutId);
+        try {
+          worker?.terminate?.();
+        } catch {
+          // ignore
+        }
+        worker = null;
+      };
+
+      // Host-side timeout
+      if (timeoutMs > 0) {
+        timeoutId = setTimeout(() => {
+          cleanup();
+          finish({
+            success: false,
+            data: null,
+            error: 'Worker execution timeout',
+            metrics: { duration: Date.now() - startTime, timedOut: true, mode: 'node-worker' },
+          });
+        }, timeoutMs + 1000);
+      }
+
+      worker.on('message', (data) => {
+        const { type, success, data: resultData, error, metrics, name, payload, level, args, event } = data || {};
+
+        if (type === 'emit') {
+          options?.onEmit?.(name, payload);
+          return;
+        }
+
+        if (type === 'audit') {
+          try {
+            this.logger.debug('Sandbox audit', { mode: 'node-worker', event, payload });
+          } catch {
+            // ignore
+          }
+          return;
+        }
+
+        if (type === 'log') {
+          options?.onLog?.(level, args);
+          return;
+        }
+
+        if (type === 'result') {
+          cleanup();
+          const nextMetrics = metrics && typeof metrics === 'object' ? { ...metrics } : { duration: Date.now() - startTime };
+          nextMetrics.mode = 'node-worker';
+          finish({
+            success: Boolean(success),
+            data: success ? resultData : null,
+            error: success ? undefined : String(error || 'Unknown error'),
+            metrics: nextMetrics,
+          });
+        }
+      });
+
+      worker.on('error', (err) => {
+        cleanup();
+        finish({
+          success: false,
+          data: null,
+          error: err?.message || String(err),
+          metrics: { duration: Date.now() - startTime, mode: 'node-worker' },
+        });
+      });
+
+      worker.on('exit', (code) => {
+        if (!done && code !== 0) {
+          cleanup();
+          finish({
+            success: false,
+            data: null,
+            error: `Worker exited with code ${code}`,
+            metrics: { duration: Date.now() - startTime, mode: 'node-worker' },
+          });
+        }
+      });
+
+      try {
+        worker.postMessage({
+          type: 'execute',
+          id,
+          code: options.code,
+          state: options.state,
+          globals: options.globals,
+          timeout: timeoutMs,
+        });
+      } catch (err) {
+        cleanup();
+        finish({
+          success: false,
+          data: null,
+          error: err?.message || String(err),
+          metrics: { duration: Date.now() - startTime, mode: 'node-worker' },
         });
       }
     });

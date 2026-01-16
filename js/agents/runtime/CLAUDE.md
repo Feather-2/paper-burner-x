@@ -21,7 +21,8 @@ Agent Loop 基础设施，包括生命周期、工具执行、压缩、遥测和
 | 子模块 | 路径 | 职责 |
 |--------|------|------|
 | **core** | `core/CLAUDE.md` | AgentLoop, ToolRegistry, MessageManager, StatusController |
-| **tools** | `tools/CLAUDE.md` | 工具执行器 (含共享逻辑 tool-executor-worker-shared.js) |
+| **tools** | `tools/CLAUDE.md` | 工具执行器 + 内置工具 + 平台适配器 |
+| **tools/platform** | `tools/platform/CLAUDE.md` | 跨平台工具 (Browser VFS / Node fs) |
 | **compression** | `compression/` | Watchdog + CicadaCompressor + Coordinator |
 | **telemetry** | `telemetry/` | TokenTracker, TraceContext, Replay |
 | **memory** | `memory/` | MemoryStore, StateEngine, RetrievalEngine |
@@ -74,5 +75,22 @@ if (isWorkerSupported()) {
   const worker = await createWorker('/path/to/worker.js');
   // ... 使用 worker
   await terminateWorker(worker);
+}
+```
+
+## Platform Tools
+
+```javascript
+import { createPlatformTools, hasCapability } from 'js/agents/runtime/tools';
+
+const tools = await createPlatformTools({ vfs, basePath });
+
+// 统一 API (两端可用)
+const { files } = await tools.glob({ pattern: '**/*.js' });
+const { content } = await tools.read({ path: 'src/index.js' });
+
+// 条件执行 (仅 Node)
+if (tools.bash) {
+  await tools.bash({ command: 'npm test' });
 }
 ```

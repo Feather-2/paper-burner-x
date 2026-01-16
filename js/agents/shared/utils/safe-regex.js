@@ -70,3 +70,25 @@ export function safeMatch(text, regex, timeoutMs = DEFAULT_TIMEOUT_MS) {
   void timeoutMs;
   return String(text ?? "").match(regex);
 }
+
+/**
+ * Converts a glob pattern to a RegExp.
+ *
+ * Supports:
+ * - `*` → match any characters except path separators
+ * - `**` → match any characters including path separators
+ * - `?` → match single character
+ *
+ * @param {string} pattern - Glob pattern
+ * @returns {RegExp}
+ */
+export function globToRegex(pattern) {
+  const src = (pattern && typeof pattern === 'string') ? pattern : '*';
+  const escaped = src
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*\*/g, '<<<GLOBSTAR>>>')
+    .replace(/\*/g, '[^/\\\\]*')
+    .replace(/<<<GLOBSTAR>>>/g, '.*')
+    .replace(/\?/g, '.');
+  return new RegExp(escaped);
+}
