@@ -161,7 +161,20 @@ const READONLY_BLOCKED_TOOLS = [
   "remove_file",
 ];
 
-const READONLY_BASH_ALLOW = ["ls", "cat", "git log"];
+const READONLY_BASH_ALLOW = [
+  // 文件查看
+  "ls", "cat", "head", "tail", "less", "more",
+  // 搜索
+  "grep", "find", "locate", "which", "whereis",
+  // 文件信息
+  "file", "stat", "wc", "du", "df",
+  // 环境
+  "pwd", "echo", "env", "printenv", "id", "whoami", "hostname", "uname",
+  // Git 只读
+  "git status", "git log", "git diff", "git show", "git branch", "git remote",
+  // 其他只读
+  "date", "uptime", "free", "ps", "top",
+];
 
 function buildReadonlyRestrictions() {
   return {

@@ -11,6 +11,34 @@ const CHECKPOINT_KIND = "agent_checkpoint";
 const INDEX_KIND = "agent_checkpoint_index";
 const INDEX_FILE = "index.json";
 
+/** @type {Map<string, Promise<void>>} */
+const indexLocks = new Map();
+
+/**
+ * 简易互斥锁 - 保证同一 runId 的索引操作串行
+ * @param {string} runId
+ * @param {() => Promise<T>} fn
+ * @returns {Promise<T>}
+ * @template T
+ */
+async function withIndexLock(runId, fn) {
+  const key = runId || "__default__";
+  while (indexLocks.has(key)) {
+    await indexLocks.get(key);
+  }
+  let release;
+  const lock = new Promise((resolve) => {
+    release = resolve;
+  });
+  indexLocks.set(key, lock);
+  try {
+    return await fn();
+  } finally {
+    indexLocks.delete(key);
+    release();
+  }
+}
+
 function safeSegment(value, fallback) {
   const raw = toNonEmptyString(value);
   if (!raw) return fallback;
@@ -200,16 +228,19 @@ export class AgentCheckpointStore {
 
     await writeText(vfs, buildCheckpointPath(id, checkpointId), safeJsonStringify(checkpoint));
 
-    const index = await loadIndex(vfs, id);
-    const entry = normalizeIndexEntry({
-      checkpointId,
-      ts,
-      step: stepValue ?? undefined,
-      iteration: iterationValue ?? undefined,
-      metadata: checkpoint.metadata,
+    // 使用锁保护索引读写，防止并发竞态
+    await withIndexLock(id, async () => {
+      const index = await loadIndex(vfs, id);
+      const entry = normalizeIndexEntry({
+        checkpointId,
+        ts,
+        step: stepValue ?? undefined,
+        iteration: iterationValue ?? undefined,
+        metadata: checkpoint.metadata,
+      });
+      if (entry) index.push(entry);
+      await saveIndex(vfs, id, index);
     });
-    if (entry) index.push(entry);
-    await saveIndex(vfs, id, index);
 
     return { checkpointId, checkpoint };
   }

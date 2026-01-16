@@ -754,9 +754,10 @@ export class AgentOrchestrator extends DisposableBase {
    */
   async _runStageParallel(stageName, input) {
     this._ensureNotDisposed();
-    // Wait for slot
-    const limit = await this._getEffectiveConcurrencyLimit();
-    while (this._inFlight >= limit) {
+    // Wait for slot - 每次唤醒后重新获取 limit（可能动态变化）
+    while (true) {
+      const limit = await this._getEffectiveConcurrencyLimit();
+      if (this._inFlight < limit) break;
       await this._waitForParallelSlot();
       if (this.signal.aborted) throw new Error("Run cancelled");
     }

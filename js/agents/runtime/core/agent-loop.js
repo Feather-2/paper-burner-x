@@ -13,6 +13,7 @@ import { StatusController } from "./status-controller.js";
 import { DEFAULT_CONTEXT_CONFIG, mergeContextConfig } from "./context-config.js";
 import { createPreAgentHook, createPostAgentHook } from "../hooks/hook-runner.js";
 import { getLimit } from "../constants/limits.js";
+import { Deque } from "../../shared/utils/deque.js";
 
 /**
  * @typedef {Record<string, any>} AnyRecord
@@ -387,7 +388,8 @@ export class BaseAgentLoop {
 
     // 用户输入管理（保留在 BaseAgentLoop）
     this._activeStep = null;
-    this._userInputs = [];
+    /** @type {Deque<UserInputEntry>} */
+    this._userInputs = new Deque();
     this._maxUserInputs = getLimit("MAX_USER_INPUTS", maxUserInputs);
     this._userInputUnsub = null;
     this._userInputBus = null;
@@ -857,8 +859,11 @@ export class BaseAgentLoop {
     };
     this._userInputs.push(entry);
     const limit = this._maxUserInputs;
-    if (typeof limit === "number" && Number.isFinite(limit) && limit > 0 && this._userInputs.length > limit) {
-      this._userInputs.splice(0, this._userInputs.length - limit);
+    // O(1) 裁剪：从头部移除超出的元素
+    if (typeof limit === "number" && Number.isFinite(limit) && limit > 0) {
+      while (this._userInputs.size > limit) {
+        this._userInputs.shift();
+      }
     }
     const emit = this.emit || this.eventBus?.emit;
     if (typeof emit === "function") {
@@ -872,8 +877,8 @@ export class BaseAgentLoop {
    * @returns {UserInputEntry[]}
    */
   consumeUserInputs({ clear = true } = {}) {
-    const items = Array.isArray(this._userInputs) ? [...this._userInputs] : [];
-    if (clear) this._userInputs = [];
+    const items = this._userInputs.toArray();
+    if (clear) this._userInputs.clear();
     return items;
   }
 
@@ -906,7 +911,7 @@ export class BaseAgentLoop {
 
   /** @returns {boolean} */
   hasPendingUserInputs() {
-    return Array.isArray(this._userInputs) && this._userInputs.length > 0;
+    return this._userInputs && this._userInputs.size > 0;
   }
 
   /**
