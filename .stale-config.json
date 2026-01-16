@@ -24,6 +24,24 @@
     "onSessionStart": true
   },
 
+  "conventions": {
+    "language": "JavaScript + JSDoc",
+    "noTypescript": true,
+    "rules": [
+      "使用 ES Modules (import/export)",
+      "JSDoc 类型注解 (@typedef/@param/@returns)",
+      "事件名: domain:action 格式",
+      "服务名: camelCase 格式",
+      "测试覆盖 >= 90%"
+    ],
+    "auditFocus": [
+      "检查是否有 TypeScript 语法误入",
+      "验证 JSDoc 类型注解完整性",
+      "检查 async/await 错误处理",
+      "确保浏览器兼容性 (无 Node-only API)"
+    ]
+  },
+
   "concurrency": 6,
   "timeout": 180000
 }

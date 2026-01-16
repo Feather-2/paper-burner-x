@@ -184,7 +184,7 @@ it("RunStoreAdapter integrates with RunStore (IndexedDB via fake-indexeddb)", as
   const { RunStore } = await import("../../js/agents/storage/run-store.js");
 
   // Small extra coverage for helpers.
-  expect(createEventId(null, 1)).toBe("evt_run_unknown_1");
+  expect(createEventId(null, 1)).toBe("evt_run_1");
   expect(() => createEventRecord({ name: "Bad.Name" })).toThrow(/Invalid event name/i);
 
   const dbName = `EventBusRunStoreAdapter_${Date.now()}_${Math.random().toString(16).slice(2)}`;

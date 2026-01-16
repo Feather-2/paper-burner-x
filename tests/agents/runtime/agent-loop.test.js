@@ -165,7 +165,7 @@ it("BaseAgentLoop transitions without a state machine", async () => {
 
 it("BaseAgentLoop transitions without state object", async () => {
   const loop = await createTestLoop({ stageName: "simple", actor: "simple" });
-  expect(loop._transitionPhase(null).toBe("next"), "next");
+  expect(loop._transitionPhase(null, "next")).toBe("next");
 });
 
 it("BaseAgentLoop emits stages with actor via emit callback", async () => {
