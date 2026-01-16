@@ -40,6 +40,31 @@ const agent = AgentBuilder.create()
 const result = await agent.run('分析这份文档');
 ```
 
+## DefaultAgentLoop 配置
+
+```javascript
+import { DefaultAgentLoop } from 'js/agents/sdk';
+
+const loop = new DefaultAgentLoop({
+  toolExecutor,
+  capabilities,
+  maxIterations: 10,
+
+  // Action 执行模式 (默认: 'sequential')
+  actionExecution: 'parallel',  // 'sequential' | 'parallel'
+  maxParallelActions: 5,        // 并行模式下最大并发数
+});
+```
+
+### 执行模式
+
+| 模式 | 说明 | 适用场景 |
+|------|------|----------|
+| `sequential` | 串行执行，按顺序一个个跑 | 默认，actions 有隐式依赖时 |
+| `parallel` | 并行执行，Promise.all + 限流 | 独立 actions，如多个 bash 命令 |
+
+**注意**：并行模式下用户需自行保证 actions 无依赖冲突。
+
 ## 预构建 Agents
 
 ```javascript

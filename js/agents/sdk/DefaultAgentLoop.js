@@ -195,6 +195,8 @@ function resolveCheckpointStore(api, { runId, logger, fallbackStore } = {}) {
  * @property {any} [toolRestrictions]
  * @property {any} [checkpointStore]
  * @property {any} [checkpoint]
+ * @property {'sequential'|'parallel'} [actionExecution] - Action execution mode (default: 'sequential')
+ * @property {number} [maxParallelActions] - Max concurrent actions in parallel mode (default: 5)
  *
  * @typedef {object} StageApiLike
  * @property {AbortSignal} [signal]
@@ -240,6 +242,8 @@ export class DefaultAgentLoop extends BaseAgentLoop {
     this.toolRestrictions = opts.toolRestrictions ?? null;
     this.checkpointStore = opts.checkpointStore || null;
     this.checkpointOptions = opts.checkpoint || null;
+    this.actionExecution = opts.actionExecution === 'parallel' ? 'parallel' : 'sequential';
+    this.maxParallelActions = Math.max(1, safeInt(opts.maxParallelActions) ?? 5);
 
     // Default (no-op) middleware chain to avoid dead-code and keep integration points available.
     // Callers can inject their own chain via opts.middlewareChain or stageApi.middlewareChain.
@@ -483,41 +487,78 @@ export class DefaultAgentLoop extends BaseAgentLoop {
       const actions = normalizeActionList(decision);
       let didTool = false;
 
-      for (const step of actions) {
-        const action = toNonEmptyString(step.action) || "complete";
-        if (action === "complete") {
-          results.push({ kind: "final", iteration: i + 1, output: step.final || "" });
-          await saveCheckpoint({ iteration: i + 1, status: "completed", output: step.final || "", force: true });
-          return {
-            success: true,
-            mode: "llm",
-            output: step.final || "",
-            toolCalls,
-            iterations: i + 1,
-            parsed: true,
-          };
+      // Check for 'complete' action first (must be handled immediately)
+      const completeAction = actions.find(a => (toNonEmptyString(a.action) || "complete") === "complete");
+      if (completeAction) {
+        results.push({ kind: "final", iteration: i + 1, output: completeAction.final || "" });
+        await saveCheckpoint({ iteration: i + 1, status: "completed", output: completeAction.final || "", force: true });
+        return {
+          success: true,
+          mode: "llm",
+          output: completeAction.final || "",
+          toolCalls,
+          iterations: i + 1,
+          parsed: true,
+        };
+      }
+
+      // Filter tool actions (exclude 'complete')
+      const toolActions = actions.filter(a => (toNonEmptyString(a.action) || "complete") !== "complete");
+
+      if (toolActions.length > 0 && !toolExecutor) {
+        const action = toNonEmptyString(toolActions[0].action);
+        results.push({ kind: "error", iteration: i + 1, error: `No toolExecutor available for action: ${action}` });
+        await saveCheckpoint({
+          iteration: i + 1,
+          status: "error",
+          output: `No toolExecutor available for action: ${action}`,
+          force: true,
+        });
+        return { success: false, mode: "llm", error: `No toolExecutor available for action: ${action}`, toolCalls, iterations: i + 1 };
+      }
+
+      // Execute tool actions (sequential or parallel based on config)
+      if (toolActions.length > 0) {
+        const executeAction = async (step) => {
+          const action = toNonEmptyString(step.action) || "complete";
+          const args = isPlainObject(step.args) ? step.args : {};
+          const result = await runWithMiddleware(`tool:${action}`, (ctx) => toolExecutor(action, args, ctx), { tool: action, args });
+          return { action, args, result };
+        };
+
+        let actionResults;
+        if (this.actionExecution === 'parallel' && toolActions.length > 1) {
+          // Parallel execution with concurrency limit
+          const limit = this.maxParallelActions;
+          const pending = [...toolActions];
+          actionResults = [];
+          while (pending.length > 0) {
+            const batch = pending.splice(0, limit);
+            const batchResults = await Promise.all(batch.map(executeAction));
+            actionResults.push(...batchResults);
+          }
+        } else {
+          // Sequential execution (default)
+          actionResults = [];
+          for (const step of toolActions) {
+            actionResults.push(await executeAction(step));
+          }
         }
 
-        if (!toolExecutor) {
-          results.push({ kind: "error", iteration: i + 1, error: `No toolExecutor available for action: ${action}` });
-          await saveCheckpoint({
-            iteration: i + 1,
-            status: "error",
-            output: `No toolExecutor available for action: ${action}`,
-            force: true,
-          });
-          return { success: false, mode: "llm", error: `No toolExecutor available for action: ${action}`, toolCalls, iterations: i + 1 };
+        // Record results
+        for (const { action, args, result } of actionResults) {
+          toolCalls.push({ action, args, result });
+          results.push({ kind: "tool", iteration: i + 1, tool: action, result });
+          didTool = true;
         }
 
-        const args = isPlainObject(step.args) ? step.args : {};
-        const result = await runWithMiddleware(`tool:${action}`, (ctx) => toolExecutor(action, args, ctx), { tool: action, args });
-        toolCalls.push({ action, args, result });
-        results.push({ kind: "tool", iteration: i + 1, tool: action, result });
-        didTool = true;
-
+        // Add combined results to message
+        const resultsText = actionResults
+          .map(({ action, result }) => `[${action}]: ${safeStringify(result, { maxChars: Math.floor(this.maxToolResultChars / actionResults.length) })}`)
+          .join("\n\n");
         this.addMessage({
           role: "user",
-          content: `Result: ${safeStringify(result, { maxChars: this.maxToolResultChars })}\n\nContinue.`,
+          content: `Results:\n${resultsText}\n\nContinue.`,
         });
       }
 
