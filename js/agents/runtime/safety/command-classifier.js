@@ -43,16 +43,36 @@ const DANGEROUS_COMMANDS = new Set([
 ]);
 
 const SENSITIVE_PATH_PATTERNS = [
+  // 系统密码和认证
   /(^|\/)etc\/passwd$/i,
   /(^|\/)etc\/shadow$/i,
+  /(^|\/)etc\/sudoers(\.d)?(\/|$)/i,
+  // SSH
   /(^|\/)etc\/ssh(\/|$)/i,
   /(^|\/)\.ssh(\/|$)/i,
-  /(^|\/)\.aws\/credentials$/i,
+  /id_rsa|id_ed25519|id_ecdsa|id_dsa|authorized_keys|known_hosts/i,
+  // 云凭证
+  /(^|\/)\.aws\/(credentials|config)$/i,
+  /(^|\/)\.azure(\/|$)/i,
+  /(^|\/)(\.gcloud|\.config\/gcloud)(\/|$)/i,
+  // 容器和编排
+  /(^|\/)\.docker\/(config\.json|daemon\.json)$/i,
+  /(^|\/)\.kube\/(config|credentials)/i,
+  // GPG 和加密
   /(^|\/)\.gnupg(\/|$)/i,
-  /(^|\/)\.npmrc$/i,
-  /(^|\/)\.env$/i,
+  /(^|\/)\.password-store(\/|$)/i,
+  // 开发凭证
+  /(^|\/)\.(npmrc|yarnrc)$/i,
+  /(^|\/)\.netrc$/i,
+  /(^|\/)\.git-credentials$/i,
   /(^|\/)\.git\/config$/i,
-  /id_rsa|id_ed25519|authorized_keys|known_hosts/i,
+  // 环境变量
+  /(^|\/)\.env(\..*)?$/i,
+  // Linux 特殊文件系统
+  /^\/proc\/(self|\d+)\/(environ|cmdline|maps|fd)/i,
+  /^\/sys\/(class|devices|kernel)/i,
+  // 历史文件
+  /(^|\/)\.(bash_history|zsh_history|python_history)$/i,
 ];
 
 function toBaseName(cmd) {
@@ -84,12 +104,53 @@ function looksSensitivePath(arg) {
   return SENSITIVE_PATH_PATTERNS.some((pattern) => pattern.test(candidate));
 }
 
+/**
+ * Fork bomb 检测 - 基于行为特征而非字面匹配
+ *
+ * 检测模式:
+ * 1. 函数定义 + 递归调用 + 后台执行 (: (){ :|:& };:)
+ * 2. 无限循环 + 进程派生 (while true; do ... & done)
+ * 3. 自我复制脚本 ($0 & $0 &)
+ */
 function looksLikeForkBomb(command) {
   const raw = typeof command === "string" ? command : Array.isArray(command) ? command.join(" ") : "";
+  if (!raw || raw.length < 5) return false;
+
+  // 移除空白进行紧凑匹配
   const compact = raw.replace(/\s+/g, "");
-  if (!compact) return false;
-  if (compact.includes(":(){:|:&};:")) return true;
-  if (compact.includes("fork(){fork|fork&};fork")) return true;
+  const lower = raw.toLowerCase();
+
+  // 1. 经典 fork bomb 变体 (函数定义 + 管道/后台 + 递归)
+  // 匹配: :(){:|:&};: 及其变体 (任意函数名)
+  if (/(\w+)\(\)\{[\s]*\1[\s]*[|&][\s]*\1/.test(raw)) return true;
+  if (/(\w+)\(\)\{[^}]*\1[^}]*[&]/.test(raw)) return true;
+
+  // 2. 紧凑形式检测
+  // :(){:|:&};: 或 :(){ :|:& };: 等
+  if (/:\(\)\{[^}]*:[|&]/.test(compact)) return true;
+  if (/\w\(\)\{\w[|&]\w[&]?\}/.test(compact)) return true;
+
+  // 3. while/for 无限循环 + 后台派生
+  // while true; do cmd & done 或 for((;;)); do cmd & done
+  if (/while\s*(true|1|:)/.test(lower) && /&/.test(raw) && /done/.test(lower)) return true;
+  if (/for\s*\(\(?\s*;?\s*;?\s*\)?\)/.test(lower) && /&/.test(raw)) return true;
+
+  // 4. 自我复制 $0 & $0 &
+  if (/\$0\s*&[^&]*\$0\s*&/.test(raw)) return true;
+  if (/\$\{?0\}?\s*&/.test(raw) && (raw.match(/\$\{?0\}?\s*&/g) || []).length >= 2) return true;
+
+  // 5. 通过 bash -c 递归
+  if (/bash\s+-c\s*['"](.*)\1['"]\s*&/.test(raw)) return true;
+
+  // 6. 函数内调用自身两次以上（指数增长）
+  const funcMatch = raw.match(/(\w+)\s*\(\)\s*\{([^}]+)\}/);
+  if (funcMatch) {
+    const funcName = funcMatch[1];
+    const funcBody = funcMatch[2];
+    const callCount = (funcBody.match(new RegExp(`\\b${funcName}\\b`, "g")) || []).length;
+    if (callCount >= 2 && /[&|]/.test(funcBody)) return true;
+  }
+
   return false;
 }
 

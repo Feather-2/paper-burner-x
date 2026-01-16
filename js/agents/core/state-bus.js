@@ -432,14 +432,24 @@ export class StateBus {
   _matchPath(pattern, path) {
     if (pattern === '*' || pattern === path) return true;
 
-    // 前缀匹配: 'runtime.*' 匹配 'runtime.tokens.input'
+    // 模式 1: 前缀匹配 - 'runtime.*' 匹配 'runtime', 'runtime.tokens', 'runtime.tokens.input'
+    // 条件: 以 '.*' 结尾，且前缀部分不含通配符
     if (pattern.endsWith('.*')) {
       const prefix = pattern.slice(0, -2);
-      if (!prefix.includes('*')) {
+      if (!prefix.includes('*') && !prefix.includes('?')) {
         return path === prefix || path.startsWith(prefix + '.');
       }
+      // 前缀含通配符（如 'a.b*.*'），继续用段匹配但允许末尾多段
+      const patternParts = pattern.slice(0, -2).split('.');
+      const pathParts = path.split('.');
+      if (pathParts.length < patternParts.length) return false;
+      for (let i = 0; i < patternParts.length; i += 1) {
+        if (!matchSegment(patternParts[i], pathParts[i])) return false;
+      }
+      return true;
     }
 
+    // 模式 2: 段数精确匹配 - 'runtime.*.input' 只匹配 3 段路径
     if (!pattern.includes('*') && !pattern.includes('?')) return false;
 
     const patternParts = pattern.split('.');
