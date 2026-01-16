@@ -10,9 +10,8 @@ try {
   // Best-effort: tests can still run without coverage output.
 }
 
-// Repo has a mix of `node:test` and `vitest` test files.
-// This config scopes Vitest to the Vitest-based runtime tests so `npx vitest run tests/agents/runtime`
-// doesn't attempt to execute `node:test` suites (which would fail under Vitest).
+// Repo has been fully migrated to vitest for tests/agents.
+// All tests under tests/agents now use vitest syntax.
 export default defineConfig({
   test: {
     testTimeout: 30000,
@@ -23,54 +22,8 @@ export default defineConfig({
       'tests/core/**/*.test.js',
       'tests/history/**/*.test.js',
       'tests/processing/**/*.test.js',
-      'tests/agents/core/**/*.test.js',
-      // Exclude node:test suites from vitest
-      '!tests/agents/core/state-bus.test.js',
-      'tests/agents/ingest/**/*.vitest.test.js',
-      'tests/agents/retrieval/**/*.vitest.test.js',
-      'tests/agents/shared/utils/**/*.test.js',
-      'tests/agents/vfs/**/*.test.js',
-      'tests/agents/plugins/**/*.test.js',
-      'tests/agents/skills/**/*.test.js',
-      // Exclude node:test suites from vitest
-      '!tests/agents/skills/skills-render.test.js',
-      'tests/agents/storage/**/*.test.js',
-      'tests/agents/mcp/**/*.test.js',
-      'tests/agents/stages/codesearch/**/*.vitest.test.js',
-      'tests/agents/runtime/analysis.test.js',
-      'tests/agents/runtime/compression.test.js',
-      'tests/agents/runtime/compression/cicada-compressor.test.js',
-      'tests/agents/runtime/compression/context-predictor.test.js',
-      'tests/agents/runtime/compression/adaptive-zone-manager.test.js',
-      'tests/agents/runtime/compression/proactive-compressor.test.js',
-      'tests/agents/runtime/compression/quality-monitor.test.js',
-      'tests/agents/runtime/core.test.js',
-      'tests/agents/runtime/core/**/*.test.js',
-      // Exclude node:test suites from vitest
-      '!tests/agents/runtime/core/message-manager.test.js',
-      'tests/agents/runtime/di-defaults-smoke.test.js',
-      'tests/agents/runtime/di-singletons.test.js',
-      'tests/agents/runtime/file-lock.test.js',
-      'tests/agents/runtime/injection-scanner.test.js',
-      'tests/agents/runtime/memory.test.js',
-      'tests/agents/runtime/memory/memory-store.test.js',
-      'tests/agents/runtime/telemetry.test.js',
-      'tests/agents/runtime/adaptive-token-counter.test.js',
-      'tests/agents/runtime/token-tracker.test.js',
-      'tests/agents/runtime/task-tool-di.test.js',
-      'tests/agents/runtime/hooks/hook-event.test.js',
-      'tests/agents/runtime/hooks/hook-registry.test.js',
-      'tests/agents/runtime/hooks/hooks-config-loader.test.js',
-      'tests/agents/runtime/constants/thresholds.test.js',
-      // DeepSearch stage unit tests (Vitest-based only; avoid mixed node:test suites under tests/agents/stages/*).
-      'tests/agents/stages/deepsearch/**/*.test.js',
-      // Design stage unit tests (Vitest-based only; node:test suites live under the same folder).
-      'tests/agents/stages/design/**/*.vitest.test.js',
-      'tests/agents/stages/design/edit-mode/edit-loop.test.js',
-      'tests/agents/stages/design/edit-mode-history.test.js',
-      'tests/agents/sdk/agent-builder.test.js',
-      'tests/agents/sdk/agent-factory.test.js',
-      'tests/agents/llm/**/*.vitest.test.js',
+      // All agents tests are now vitest
+      'tests/agents/**/*.test.js',
       'tests/ppt/ui-v2/event-bus.test.js',
       'tests/ppt/ui-v2/state-store.test.js',
       'tests/ppt/dsl/serialize.test.js',

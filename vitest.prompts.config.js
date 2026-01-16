@@ -4,7 +4,12 @@ import { defineConfig } from "vitest/config";
 // Keeps this suite independent from the repo's broader mixed node:test/vitest setup.
 export default defineConfig({
   test: {
-    include: ["tests/agents/prompts/**/*.test.js"],
+    // Exclude prompts.test.js which uses node:test format, not vitest
+    include: [
+      "tests/agents/prompts/formatters.test.js",
+      "tests/agents/prompts/prompt-registry.test.js",
+      "tests/agents/prompts/prompt-template.test.js",
+    ],
     coverage: {
       provider: "v8",
       reporter: ["text"],
