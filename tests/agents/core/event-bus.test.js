@@ -2,8 +2,7 @@
  * EventBus 测试 - 使用 node:test
  */
 
-import { describe, it, beforeEach, afterEach, mock } from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import {
   EventBus,
@@ -39,53 +38,53 @@ describe("EventBus", () => {
 
   describe("emit and on", () => {
     it("should emit and receive events", async () => {
-      const handler = mock.fn();
+      const handler = vi.fn();
       bus.on("test.event", handler);
 
       bus.emit("test.event", { value: 42 });
 
-      assert.equal(handler.mock.callCount(), 1);
-      const evt = handler.mock.calls[0].arguments[0];
-      assert.equal(evt.type, "test.event");
-      assert.equal(evt.schemaVersion, "0.1");
-      assert.deepEqual(evt.payload, { value: 42 });
+      expect(handler.mock.calls.length).toBe(1);
+      const evt = handler.mock.calls[0][0];
+      expect(evt.type).toBe("test.event");
+      expect(evt.schemaVersion).toBe("0.1");
+      expect(evt.payload).toEqual({ value: 42 });
     });
 
     it("should support wildcard patterns", () => {
-      const handler = mock.fn();
+      const handler = vi.fn();
       bus.on("user.*", handler);
 
       bus.emit("user.login", { id: 1 });
       bus.emit("user.logout", { id: 1 });
       bus.emit("system.error", {}); // should not match
 
-      assert.equal(handler.mock.callCount(), 2);
+      expect(handler.mock.calls.length).toBe(2);
     });
 
     it("should support global wildcard *", () => {
-      const handler = mock.fn();
+      const handler = vi.fn();
       bus.on("*", handler);
 
       bus.emit("any.event", {});
       bus.emit("another", {});
 
-      assert.equal(handler.mock.callCount(), 2);
+      expect(handler.mock.calls.length).toBe(2);
     });
 
     it("should unsubscribe correctly", () => {
-      const handler = mock.fn();
+      const handler = vi.fn();
       const unsub = bus.on("test", handler);
 
       bus.emit("test", {});
-      assert.equal(handler.mock.callCount(), 1);
+      expect(handler.mock.calls.length).toBe(1);
 
       unsub();
       bus.emit("test", {});
-      assert.equal(handler.mock.callCount(), 1); // still 1
+      expect(handler.mock.calls.length).toBe(1); // still 1
     });
 
     it("should accept EventRecord-like payload/meta input", () => {
-      const handler = mock.fn();
+      const handler = vi.fn();
       bus.on("record.like", handler);
 
       const evt = bus.emit("record.like", {
@@ -96,61 +95,61 @@ describe("EventBus", () => {
         meta: { source: "test" },
       });
 
-      assert.equal(handler.mock.callCount(), 1);
-      assert.equal(evt.actor, "alice");
-      assert.equal(evt.status, "ok");
-      assert.equal(evt.level, "info");
-      assert.deepEqual(evt.payload, { value: 1 });
-      assert.deepEqual(evt.meta, { source: "test" });
+      expect(handler.mock.calls.length).toBe(1);
+      expect(evt.actor).toBe("alice");
+      expect(evt.status).toBe("ok");
+      expect(evt.level).toBe("info");
+      expect(evt.payload).toEqual({ value: 1 });
+      expect(evt.meta).toEqual({ source: "test" });
     });
 
     it("should throw for invalid event names", () => {
-      assert.throws(() => bus.on("Bad Name", () => {}), /Invalid event/);
-      assert.throws(() => bus.on("a..b", () => {}), /Invalid event/);
+      expect(() => bus.on("Bad Name", () => {})).toThrow(/Invalid event/);
+      expect(() => bus.on("a..b", () => {})).toThrow(/Invalid event/);
     });
 
     it("should throw for invalid handler", () => {
-      assert.throws(() => bus.on("test", null), /handler must be a function/i);
-      assert.throws(() => bus.on("test", "not-a-fn"), /handler must be a function/i);
+      expect(() => bus.on("test", null)).toThrow(/handler must be a function/i);
+      expect(() => bus.on("test", "not-a-fn")).toThrow(/handler must be a function/i);
     });
   });
 
   describe("emitSync", () => {
     it("should emit synchronously", () => {
-      const handler = mock.fn();
+      const handler = vi.fn();
       bus.on("sync.event", handler);
 
       bus.emitSync("sync.event", { sync: true });
 
-      assert.equal(handler.mock.callCount(), 1);
+      expect(handler.mock.calls.length).toBe(1);
     });
 
     it("should record history", () => {
       bus.emitSync("sync.hist", { n: 1 });
       const hist = bus.getHistory();
-      assert.equal(hist.length, 1);
-      assert.equal(hist[0].name, "sync.hist");
+      expect(hist.length).toBe(1);
+      expect(hist[0].name).toBe("sync.hist");
     });
   });
 
   describe("once", () => {
     it("should only fire once", () => {
-      const handler = mock.fn();
+      const handler = vi.fn();
       bus.once("one.time", handler);
 
       bus.emit("one.time", {});
       bus.emit("one.time", {});
 
-      assert.equal(handler.mock.callCount(), 1);
+      expect(handler.mock.calls.length).toBe(1);
     });
 
     it("off() should accept original handler for once() wrapper", () => {
-      const handler = mock.fn();
+      const handler = vi.fn();
       bus.once("wrapped.once", handler);
 
-      assert.equal(bus.off("wrapped.once", handler), true);
+      expect(bus.off("wrapped.once").toBe(handler), true);
       bus.emit("wrapped.once", {});
-      assert.equal(handler.mock.callCount(), 0);
+      expect(handler.mock.calls.length).toBe(0);
     });
   });
 
@@ -164,27 +163,25 @@ describe("EventBus", () => {
 
       bus.emit("priority.test", {});
 
-      assert.deepEqual(order, ["high", "normal", "low"]);
+      expect(order).toEqual(["high", "normal", "low"]);
     });
 
     it("should support wildcard priority subscriptions", () => {
-      const handler = mock.fn();
+      const handler = vi.fn();
       bus.subscribe("user.*", handler, { priority: 5 });
 
       bus.emit("user.login", { id: 1 });
       bus.emit("system.error", {}); // should not match
 
-      assert.equal(handler.mock.callCount(), 1);
-      assert.equal(handler.mock.calls[0].arguments[0].name, "user.login");
+      expect(handler.mock.calls.length).toBe(1);
+      expect(handler.mock.calls[0][0].name).toBe("user.login");
     });
 
     it("should validate priority is finite number", () => {
-      assert.throws(
-        () => bus.subscribe("test", () => {}, { priority: NaN }),
+      expect(() => bus.subscribe("test", () => {}, { priority: NaN }),
         /priority must be a finite number/i
       );
-      assert.throws(
-        () => bus.subscribe("test", () => {}, { priority: Infinity }),
+      expect(() => bus.subscribe("test", () => {}, { priority: Infinity }),
         /priority must be a finite number/i
       );
     });
@@ -199,16 +196,15 @@ describe("EventBus", () => {
       }, 10);
 
       const event = await promise;
-      assert.equal(event.type, "delayed.event");
-      assert.deepEqual(event.payload, { delayed: true });
+      expect(event.type).toBe("delayed.event");
+      expect(event.payload).toEqual({ delayed: true });
     });
 
     it("should timeout if event not received", async () => {
-      await assert.rejects(
-        () => bus.waitFor("never.happens", { timeout: 50 }),
+      await expect(() => bus.waitFor("never.happens", { timeout: 50 }),
         /timeout/i
       );
-      assert.equal(bus._waiters.size, 0);
+      expect(bus._waiters.size).toBe(0);
     });
 
     it("should support abort signal", async () => {
@@ -218,8 +214,8 @@ describe("EventBus", () => {
 
       setTimeout(() => controller.abort(), 10);
 
-      await assert.rejects(promise, /abort/i);
-      assert.equal(bus._waiters.size, 0);
+      await expect(promise).rejects.toThrow(/abort/i);
+      expect(bus._waiters.size).toBe(0);
     });
 
     it("should resolve if event occurs before abort", async () => {
@@ -230,8 +226,8 @@ describe("EventBus", () => {
       controller.abort(new Error("abort after emit"));
 
       const evt = await promise;
-      assert.equal(evt.type, "race.event");
-      assert.deepEqual(evt.payload, { ok: true });
+      expect(evt.type).toBe("race.event");
+      expect(evt.payload).toEqual({ ok: true });
     });
 
     it("should accept numeric timeout argument", async () => {
@@ -239,16 +235,15 @@ describe("EventBus", () => {
       bus.emitSync("numeric.timeout", { ok: true });
 
       const evt = await promise;
-      assert.equal(evt.type, "numeric.timeout");
-      assert.deepEqual(evt.payload, { ok: true });
+      expect(evt.type).toBe("numeric.timeout");
+      expect(evt.payload).toEqual({ ok: true });
     });
 
     it("should reject immediately if signal already aborted", async () => {
       const controller = new AbortController();
       controller.abort(new Error("already aborted"));
 
-      await assert.rejects(
-        () => bus.waitFor("never", { signal: controller.signal }),
+      await expect(() => bus.waitFor("never", { signal: controller.signal }),
         /already aborted/i
       );
     });
@@ -259,7 +254,7 @@ describe("EventBus", () => {
       setTimeout(() => bus.emitSync("user.login", { id: 1 }), 10);
 
       const evt = await promise;
-      assert.equal(evt.type, "user.login");
+      expect(evt.type).toBe("user.login");
     });
   });
 
@@ -269,9 +264,9 @@ describe("EventBus", () => {
       bus.emit("event.2", { n: 2 });
 
       const history = bus.getHistory();
-      assert.equal(history.length, 2);
-      assert.equal(history[0].type, "event.1");
-      assert.equal(history[1].type, "event.2");
+      expect(history.length).toBe(2);
+      expect(history[0].type).toBe("event.1");
+      expect(history[1].type).toBe("event.2");
     });
 
     it("should respect maxHistory", () => {
@@ -282,8 +277,8 @@ describe("EventBus", () => {
       }
 
       const history = smallBus.getHistory();
-      assert.equal(history.length, 3);
-      assert.equal(history[0].payload.i, 2); // oldest kept
+      expect(history.length).toBe(3);
+      expect(history[0].payload.i).toBe(2); // oldest kept
 
       smallBus.dispose();
     });
@@ -294,20 +289,20 @@ describe("EventBus", () => {
       bus.emit("system.ready", {});
 
       const userEvents = bus.getHistory("user.*");
-      assert.deepEqual(userEvents.map((e) => e.name), ["user.login", "user.logout"]);
+      expect(userEvents.map((e) => e.name)).toEqual(["user.login", "user.logout"]);
     });
 
     it("should clear history", () => {
       bus.emit("event.1", { n: 1 });
-      assert.equal(bus.getHistory().length, 1);
+      expect(bus.getHistory().length).toBe(1);
       bus.clearHistory();
-      assert.deepEqual(bus.getHistory(), []);
+      expect(bus.getHistory()).toEqual([]);
     });
 
     it("should return empty array when history disabled", () => {
       const noHistBus = new EventBus({ keepHistory: false });
       noHistBus.emit("evt", {});
-      assert.deepEqual(noHistBus.getHistory(), []);
+      expect(noHistBus.getHistory()).toEqual([]);
       noHistBus.dispose();
     });
   });
@@ -318,7 +313,7 @@ describe("EventBus", () => {
       bus.emit("tick", {});
       const clock2 = bus.getClock();
 
-      assert.ok(clock2.seq > clock1.seq);
+      expect(clock2.seq > clock1.seq).toBeTruthy();
     });
 
     it("events should have monotonically increasing seq", () => {
@@ -326,67 +321,65 @@ describe("EventBus", () => {
       const e2 = bus.emit("b", {});
       const e3 = bus.emit("c", {});
 
-      assert.ok(e1.seq < e2.seq);
-      assert.ok(e2.seq < e3.seq);
+      expect(e1.seq < e2.seq).toBeTruthy();
+      expect(e2.seq < e3.seq).toBeTruthy();
     });
   });
 
   describe("persistenceAdapter", () => {
     it("should append events asynchronously via queueMicrotask", async () => {
-      const appendEvents = mock.fn(() => Promise.resolve());
-      const adapter = { appendEvents, getEvents: mock.fn(async () => []) };
+      const appendEvents = vi.fn(() => Promise.resolve());
+      const adapter = { appendEvents, getEvents: vi.fn(async () => []) };
       const persistBus = new EventBus({ runId: "run_persist", persistenceAdapter: adapter });
 
       persistBus.emit("run.started", { ok: true });
-      assert.equal(appendEvents.mock.callCount(), 0);
+      expect(appendEvents.mock.calls.length).toBe(0);
 
       await nextMicrotask();
 
-      assert.equal(appendEvents.mock.callCount(), 1);
-      const [events] = appendEvents.mock.calls[0].arguments;
-      assert.ok(Array.isArray(events));
-      assert.equal(events[0].runId, "run_persist");
-      assert.equal(events[0].name, "run.started");
+      expect(appendEvents.mock.calls.length).toBe(1);
+      const [events] = appendEvents.mock.calls[0];
+      expect(Array.isArray(events)).toBeTruthy();
+      expect(events[0].runId).toBe("run_persist");
+      expect(events[0].name).toBe("run.started");
       persistBus.dispose();
     });
 
     it("should swallow synchronous errors thrown by appendEvents", async () => {
-      const appendEvents = mock.fn(() => {
+      const appendEvents = vi.fn(() => {
         throw new Error("append failed");
       });
-      const adapter = { appendEvents, getEvents: mock.fn(async () => []) };
+      const adapter = { appendEvents, getEvents: vi.fn(async () => []) };
       const persistBus = new EventBus({ persistenceAdapter: adapter });
 
-      assert.doesNotThrow(() => persistBus.emit("run.progress", { pct: 1 }));
+      expect(() => persistBus.emit("run.progress", { pct: 1 })).not.toThrow();
       await nextMicrotask();
-      assert.equal(appendEvents.mock.callCount(), 1);
+      expect(appendEvents.mock.calls.length).toBe(1);
       persistBus.dispose();
     });
 
     it("should catch rejected appendEvents promises", async () => {
-      const appendEvents = mock.fn(() => Promise.reject(new Error("rejected")));
-      const adapter = { appendEvents, getEvents: mock.fn(async () => []) };
+      const appendEvents = vi.fn(() => Promise.reject(new Error("rejected")));
+      const adapter = { appendEvents, getEvents: vi.fn(async () => []) };
       const persistBus = new EventBus({ persistenceAdapter: adapter });
 
       persistBus.emit("run.progress", { pct: 1 });
       await nextMicrotask();
-      assert.equal(appendEvents.mock.callCount(), 1);
+      expect(appendEvents.mock.calls.length).toBe(1);
       persistBus.dispose();
     });
 
     it("replay() should require a persistenceAdapter", async () => {
       const noPersistBus = new EventBus();
-      await assert.rejects(
-        () => noPersistBus.replay("run_x"),
-        /persistenceAdapter.*required/i
+      await expect(() => noPersistBus.replay("run_x")).rejects.toThrow(/persistenceAdapter.*required/i
       );
       noPersistBus.dispose();
     });
 
     it("replay() should dispatch events and mark meta.replay", async () => {
       const adapter = {
-        appendEvents: mock.fn(),
-        getEvents: mock.fn(async (runId) => [
+        appendEvents: vi.fn(),
+        getEvents: vi.fn(async (runId) => [
           { runId, name: "run.started", payload: { ok: true }, meta: { fromStore: true } },
           { name: "run.progress", payload: { pct: 50 } },
         ]),
@@ -398,108 +391,104 @@ describe("EventBus", () => {
 
       const replayed = await replayBus.replay("run_replay");
 
-      assert.deepEqual(replayed.map((e) => e.name), ["run.started", "run.progress"]);
-      assert.equal(seen.length, 2);
-      assert.deepEqual(seen[0].meta, { fromStore: true, replay: true });
-      assert.equal(seen[1].runId, "run_replay");
-      assert.deepEqual(seen[1].meta, { replay: true });
-      assert.equal(adapter.appendEvents.mock.callCount(), 0);
+      expect(replayed.map((e) => e.name)).toEqual(["run.started", "run.progress"]);
+      expect(seen.length).toBe(2);
+      expect(seen[0].meta).toEqual({ fromStore: true, replay: true });
+      expect(seen[1].runId).toBe("run_replay");
+      expect(seen[1].meta).toEqual({ replay: true });
+      expect(adapter.appendEvents.mock.calls.length).toBe(0);
       replayBus.dispose();
     });
 
     it("replay() should return empty array when getEvents() is not an array", async () => {
       const adapter = {
-        appendEvents: mock.fn(),
-        getEvents: mock.fn(async () => null),
+        appendEvents: vi.fn(),
+        getEvents: vi.fn(async () => null),
       };
       const replayBus = new EventBus({ persistenceAdapter: adapter });
 
       const result = await replayBus.replay("run_x");
-      assert.deepEqual(result, []);
+      expect(result).toEqual([]);
       replayBus.dispose();
     });
 
     it("replay() should validate runId", async () => {
       const adapter = {
-        appendEvents: mock.fn(),
-        getEvents: mock.fn(async () => []),
+        appendEvents: vi.fn(),
+        getEvents: vi.fn(async () => []),
       };
       const replayBus = new EventBus({ persistenceAdapter: adapter });
 
-      await assert.rejects(
-        () => replayBus.replay(""),
-        /runId must be a string/i
+      await expect(() => replayBus.replay("")).rejects.toThrow(/runId must be a string/i
       );
-      await assert.rejects(
-        () => replayBus.replay(null),
-        /runId must be a string/i
+      await expect(() => replayBus.replay(null)).rejects.toThrow(/runId must be a string/i
       );
       replayBus.dispose();
     });
 
     it("replay() should throw on getEvents failure", async () => {
       const adapter = {
-        appendEvents: mock.fn(),
-        getEvents: mock.fn(async () => {
+        appendEvents: vi.fn(),
+        getEvents: vi.fn(async () => {
           throw new Error("storage error");
         }),
       };
       const replayBus = new EventBus({ persistenceAdapter: adapter });
 
-      await assert.rejects(() => replayBus.replay("run_x"), /failed to load events/i);
+      await expect(() => replayBus.replay("run_x")).rejects.toThrow(/failed to load events/i);
       replayBus.dispose();
     });
   });
 
   describe("backpressure", () => {
     it("should coalesce *.progress events and only dispatch the latest", async () => {
-      const handler = mock.fn();
+      const handler = vi.fn();
       bus.on("run.progress", handler);
 
       bus.enableBackpressure({ batchWindowMs: 20 });
       bus.emit("run.progress", { pct: 1 });
       bus.emit("run.progress", { pct: 2 });
 
-      assert.equal(handler.mock.callCount(), 0);
+      expect(handler.mock.calls.length).toBe(0);
 
       await delay(50);
 
-      assert.equal(handler.mock.callCount(), 1);
-      assert.deepEqual(handler.mock.calls[0].arguments[0].payload, { pct: 2 });
+      expect(handler.mock.calls.length).toBe(1);
+      expect(handler.mock.calls[0][0].payload).toEqual({ pct: 2 });
 
       bus.disableBackpressure();
     });
 
     it("should defer non-coalesced events and dispatch on flush", async () => {
-      const handler = mock.fn();
+      const handler = vi.fn();
       bus.on("run.started", handler);
 
       bus.enableBackpressure({ batchWindowMs: 20 });
       bus.emit("run.started", { ok: true });
 
-      assert.equal(handler.mock.callCount(), 0);
+      expect(handler.mock.calls.length).toBe(0);
 
       await delay(50);
 
-      assert.equal(handler.mock.callCount(), 1);
+      expect(handler.mock.calls.length).toBe(1);
 
       bus.disableBackpressure();
     });
 
     it("should dispatch non-coalesced events immediately when deferNonCoalesced=false", () => {
-      const handler = mock.fn();
+      const handler = vi.fn();
       bus.on("run.started", handler);
 
       bus.enableBackpressure({ deferNonCoalesced: false });
       bus.emit("run.started", { ok: true });
 
-      assert.equal(handler.mock.callCount(), 1);
+      expect(handler.mock.calls.length).toBe(1);
       bus.disableBackpressure();
     });
 
     it("should drop oldest items when queue exceeds maxQueueSize", async () => {
       const bpBus = new EventBus();
-      const handler = mock.fn();
+      const handler = vi.fn();
       bpBus.on("evt", handler);
 
       bpBus.enableBackpressure({
@@ -513,62 +502,50 @@ describe("EventBus", () => {
 
       await delay(50);
 
-      assert.equal(handler.mock.callCount(), 1);
-      assert.deepEqual(handler.mock.calls[0].arguments[0].payload, { n: 2 });
+      expect(handler.mock.calls.length).toBe(1);
+      expect(handler.mock.calls[0][0].payload).toEqual({ n: 2 });
 
       bpBus.dispose();
     });
 
     it("should validate enableBackpressure options", () => {
-      assert.throws(
-        () => bus.enableBackpressure(null),
-        /options must be an object/i
-      );
-      assert.throws(
-        () => bus.enableBackpressure({ batchWindowMs: -1 }),
-        /batchWindowMs must be a non-negative finite number/i
-      );
-      assert.throws(
-        () => bus.enableBackpressure({ coalescePattern: "not-regex" }),
-        /coalescePattern must be a RegExp/i
-      );
-      assert.throws(
-        () => bus.enableBackpressure({ maxQueueSize: 0 }),
-        /maxQueueSize must be a positive finite number/i
-      );
+      expect(() => bus.enableBackpressure(null)).toThrow(/options must be an object/i);
+      expect(() => bus.enableBackpressure({ batchWindowMs: -1 })).toThrow(/batchWindowMs must be a non-negative finite number/i);
+      expect(() => bus.enableBackpressure({ coalescePattern: "not-regex" })).toThrow(/coalescePattern must be a RegExp/i);
+      expect(() => bus.enableBackpressure({ maxQueueSize: 0 })).toThrow(/maxQueueSize must be a positive finite number/i);
     });
 
     it("should disable backpressure idempotently", () => {
       bus.enableBackpressure({});
       bus.disableBackpressure();
-      assert.doesNotThrow(() => bus.disableBackpressure());
+      expect(() => bus.disableBackpressure()).not.toThrow();
     });
   });
 
   describe("error handling", () => {
     it("should isolate handler errors and continue with other handlers", () => {
-      const good = mock.fn();
-      const bad = mock.fn(() => {
+      const good = vi.fn();
+      const bad = vi.fn(() => {
         throw new Error("boom");
       });
 
       bus.on("err.event", bad);
       bus.on("err.event", good);
 
-      assert.doesNotThrow(() => bus.emitSync("err.event", {}));
-      assert.equal(good.mock.callCount(), 1);
+      expect(() => bus.emitSync("err.event", {})).not.toThrow();
+      expect(good.mock.calls.length).toBe(1);
     });
 
     it("should delegate sync/async errors to onListenerError", async () => {
-      const onListenerError = mock.fn();
+      const onListenerError = vi.fn();
       const errBus = new EventBus({ onListenerError });
 
       const syncErr = new Error("sync");
       const asyncErr = new Error("async");
-      const badSync = mock.fn(() => {
+      const badSync = vi.fn(() => {
         throw syncErr;
       });
-      const badAsync = mock.fn(() => Promise.reject(asyncErr));
+      const badAsync = vi.fn(() => Promise.reject(asyncErr));
 
       errBus.on("err", badSync);
       errBus.on("err", badAsync);
@@ -576,17 +553,17 @@ describe("EventBus", () => {
       errBus.emit("err", {});
       await nextMicrotask();
 
-      assert.equal(onListenerError.mock.callCount(), 2);
+      expect(onListenerError.mock.calls.length).toBe(2);
 
-      const call1 = onListenerError.mock.calls[0].arguments;
-      assert.equal(call1[0], syncErr);
-      assert.equal(call1[1].name, "err");
-      assert.equal(call1[2], badSync);
+      const call1 = onListenerError.mock.calls[0];
+      expect(call1[0]).toBe(syncErr);
+      expect(call1[1].name).toBe("err");
+      expect(call1[2]).toBe(badSync);
 
-      const call2 = onListenerError.mock.calls[1].arguments;
-      assert.equal(call2[0], asyncErr);
-      assert.equal(call2[1].name, "err");
-      assert.equal(call2[2], badAsync);
+      const call2 = onListenerError.mock.calls[1];
+      expect(call2[0]).toBe(asyncErr);
+      expect(call2[1].name).toBe("err");
+      expect(call2[2]).toBe(badAsync);
 
       errBus.dispose();
     });
@@ -602,7 +579,7 @@ describe("EventBus", () => {
         throw new Error("handler failed");
       });
 
-      assert.doesNotThrow(() => errBus.emitSync("err", {}));
+      expect(() => errBus.emitSync("err", {})).not.toThrow();
       errBus.dispose();
     });
   });
@@ -610,108 +587,108 @@ describe("EventBus", () => {
   describe("subscribe AbortSignal", () => {
     it("should auto-unsubscribe when signal aborts", async () => {
       const controller = new AbortController();
-      const handler = mock.fn();
+      const handler = vi.fn();
 
       bus.subscribe("abort.test", handler, { signal: controller.signal });
 
       bus.emit("abort.test", { n: 1 });
-      assert.equal(handler.mock.callCount(), 1);
+      expect(handler.mock.calls.length).toBe(1);
 
       controller.abort();
       bus.emit("abort.test", { n: 2 });
-      assert.equal(handler.mock.callCount(), 1);
+      expect(handler.mock.calls.length).toBe(1);
     });
 
     it("should be a noop if signal is already aborted", () => {
       const controller = new AbortController();
       controller.abort();
 
-      const handler = mock.fn();
+      const handler = vi.fn();
       const unsub = bus.subscribe("already.aborted", handler, { signal: controller.signal });
 
-      assert.equal(typeof unsub, "function");
+      expect(typeof unsub).toBe("function");
       bus.emit("already.aborted", {});
-      assert.equal(handler.mock.callCount(), 0);
+      expect(handler.mock.calls.length).toBe(0);
     });
   });
 
   describe("misc", () => {
     it("on() should validate handler type", () => {
-      assert.throws(() => bus.on("bad.handler", null), /handler must be a function/i);
+      expect(() => bus.on("bad.handler", null)).toThrow(/handler must be a function/i);
     });
 
     it("clear() should remove listeners and reset history", () => {
-      const handler = mock.fn();
+      const handler = vi.fn();
       bus.on("clear.event", handler);
       bus.emit("clear.event", {});
-      assert.equal(bus.getHistory().length, 1);
+      expect(bus.getHistory().length).toBe(1);
 
       bus.clear();
-      assert.deepEqual(bus.getHistory(), []);
+      expect(bus.getHistory()).toEqual([]);
       bus.emitSync("clear.event", {});
-      assert.equal(handler.mock.callCount(), 1);
-      assert.deepEqual(bus.getHistory().map((e) => e.name), ["clear.event"]);
+      expect(handler.mock.calls.length).toBe(1);
+      expect(bus.getHistory().map((e) => e.name)).toEqual(["clear.event"]);
     });
 
     it("getClock() should return a snapshot object", () => {
       const clock = bus.getClock();
-      assert.equal(typeof clock.seq, "number");
-      assert.ok(clock.id.startsWith("eventbus_"));
-      assert.equal(typeof clock.ts, "number");
+      expect(typeof clock.seq).toBe("number");
+      expect(clock.id.startsWith("eventbus_")).toBeTruthy();
+      expect(typeof clock.ts).toBe("number");
     });
 
     it("off() should return false for non-existent handler", () => {
-      const handler = mock.fn();
-      assert.equal(bus.off("nonexistent", handler), false);
+      const handler = vi.fn();
+      expect(bus.off("nonexistent").toBe(handler), false);
     });
 
     it("should support ? wildcard when combined with *", () => {
       // Note: ? alone doesn't trigger wildcard storage, must combine with *
-      const handler = mock.fn();
+      const handler = vi.fn();
       bus.on("user.*?", handler);
 
       bus.emit("user.ab", {});
       bus.emit("user.a", {});
 
-      assert.equal(handler.mock.callCount(), 2);
+      expect(handler.mock.calls.length).toBe(2);
     });
   });
 });
 
 describe("matchPattern / isValidEventName", () => {
   it("isValidEventName should validate event names and global wildcard", () => {
-    assert.equal(isValidEventName("*"), true);
-    assert.equal(isValidEventName("user.login"), true);
-    assert.equal(isValidEventName("user_login"), true);
-    assert.equal(isValidEventName("Bad Name"), false);
-    assert.equal(isValidEventName("a..b"), false);
+    expect(isValidEventName("*")).toBe(true);
+    expect(isValidEventName("user.login")).toBe(true);
+    expect(isValidEventName("user_login")).toBe(true);
+    expect(isValidEventName("Bad Name")).toBe(false);
+    expect(isValidEventName("a..b")).toBe(false);
   });
 
   it("matchPattern should support fast path prefix.* and exact match", () => {
-    assert.equal(matchPattern("user.*", "user"), true);
-    assert.equal(matchPattern("user.*", "user.login"), true);
-    assert.equal(matchPattern("user.login", "user.login"), true);
-    assert.equal(matchPattern("user.login", "user.logout"), false);
+    expect(matchPattern("user.*").toBe("user"), true);
+    expect(matchPattern("user.*").toBe("user.login"), true);
+    expect(matchPattern("user.login").toBe("user.login"), true);
+    expect(matchPattern("user.login").toBe("user.logout"), false);
   });
 
   it("matchPattern should support general * and ? wildcards (no ReDoS regex)", () => {
-    assert.equal(matchPattern("run.*.progress", "run.step.progress"), true);
-    assert.equal(matchPattern("a*?d", "abcd"), true);
-    assert.equal(matchPattern("a*?d", "abdd"), true);
-    assert.equal(matchPattern("a*?d", "ad"), false);
+    expect(matchPattern("run.*.progress").toBe("run.step.progress"), true);
+    expect(matchPattern("a*?d").toBe("abcd"), true);
+    expect(matchPattern("a*?d").toBe("abdd"), true);
+    expect(matchPattern("a*?d").toBe("ad"), false);
   });
 
   it("matchPattern should return false for non-string inputs", () => {
-    assert.equal(matchPattern(null, "x"), false);
-    assert.equal(matchPattern("x", null), false);
+    expect(matchPattern(null).toBe("x"), false);
+    expect(matchPattern("x").toBe(null), false);
   });
 
   it("matchPattern should handle edge cases", () => {
-    assert.equal(matchPattern("*", "anything.here"), true);
-    assert.equal(matchPattern("", ""), true);
-    assert.equal(matchPattern("a", "a"), true);
-    assert.equal(matchPattern("a", "b"), false);
-    assert.equal(matchPattern("***", "abc"), true);
+    expect(matchPattern("*").toBe("anything.here"), true);
+    expect(matchPattern("").toBe(""), true);
+    expect(matchPattern("a").toBe("a"), true);
+    expect(matchPattern("a").toBe("b"), false);
+    expect(matchPattern("***").toBe("abc"), true);
   });
 });
 
@@ -728,41 +705,41 @@ describe("createEventRecord", () => {
       clock: { seq: 7, ts: 0, id: "node" },
     });
 
-    assert.equal(record.eventId, "evt_legacy_1");
-    assert.equal(record.name, "legacy.event");
-    assert.equal(record.timestamp, 1_700_000_000_000);
-    assert.equal(record.seq, 7);
-    assert.equal(record._clock.seq, 7);
-    assert.equal(record.actor, "system");
+    expect(record.eventId).toBe("evt_legacy_1");
+    expect(record.name).toBe("legacy.event");
+    expect(record.timestamp).toBe(1_700_000_000_000);
+    expect(record.seq).toBe(7);
+    expect(record._clock.seq).toBe(7);
+    expect(record.actor).toBe("system");
   });
 
   it("should derive timestamp from ts when timestamp is missing", () => {
     const ts = "2020-01-01T00:00:00.000Z";
     const record = createEventRecord({ name: "ts.test", ts });
-    assert.equal(record.ts, ts);
-    assert.equal(record.timestamp, Date.parse(ts));
+    expect(record.ts).toBe(ts);
+    expect(record.timestamp).toBe(Date.parse(ts));
   });
 
   it("should fall back to Date.now() when ts is invalid and timestamp missing", () => {
     const now = Date.now();
     const record = createEventRecord({ name: "bad.ts", ts: "not-a-date" });
-    assert.ok(record.timestamp >= now - 1000);
-    assert.ok(record.timestamp <= now + 1000);
+    expect(record.timestamp >= now - 1000).toBeTruthy();
+    expect(record.timestamp <= now + 1000).toBeTruthy();
   });
 
   it("should generate default values for minimal input", () => {
     const record = createEventRecord({ name: "minimal" });
-    assert.equal(record.name, "minimal");
-    assert.equal(record.type, "minimal");
-    assert.equal(record.schemaVersion, "0.1");
-    assert.equal(record.actor, "system");
-    assert.equal(typeof record.seq, "number");
-    assert.ok(record.eventId.startsWith("evt_"));
+    expect(record.name).toBe("minimal");
+    expect(record.type).toBe("minimal");
+    expect(record.schemaVersion).toBe("0.1");
+    expect(record.actor).toBe("system");
+    expect(typeof record.seq).toBe("number");
+    expect(record.eventId.startsWith("evt_")).toBeTruthy();
   });
 
   it("should default name to 'unknown' when missing", () => {
     const record = createEventRecord({});
-    assert.equal(record.name, "unknown");
+    expect(record.name).toBe("unknown");
   });
 
   it("should include optional fields when provided", () => {
@@ -775,42 +752,40 @@ describe("createEventRecord", () => {
       meta: { key: "val" },
     });
 
-    assert.equal(record.level, "warn");
-    assert.equal(record.status, "pending");
-    assert.equal(record.durationMs, 123);
-    assert.deepEqual(record.payload, { data: 1 });
-    assert.deepEqual(record.meta, { key: "val" });
+    expect(record.level).toBe("warn");
+    expect(record.status).toBe("pending");
+    expect(record.durationMs).toBe(123);
+    expect(record.payload).toEqual({ data: 1 });
+    expect(record.meta).toEqual({ key: "val" });
   });
 });
 
 describe("RunStoreAdapter", () => {
   it("should validate constructor args", () => {
-    assert.throws(() => new RunStoreAdapter(null), /getEvents must be a function/i);
-    assert.throws(
-      () => new RunStoreAdapter({ appendEvents() {} }),
+    expect(() => new RunStoreAdapter(null)).toThrow(/getEvents must be a function/i);
+    expect(() => new RunStoreAdapter({ appendEvents().toThrow() {} }),
       /getEvents must be a function/i
     );
-    assert.throws(
-      () => new RunStoreAdapter({ getEvents() {} }),
+    expect(() => new RunStoreAdapter({ getEvents().toThrow() {} }),
       /appendEvents\/appendEvent must be a function/i
     );
   });
 
   it("appendEvents should validate input", async () => {
     const adapter = new RunStoreAdapter({
-      getEvents: mock.fn(async () => []),
-      appendEvents: mock.fn(async () => {}),
+      getEvents: vi.fn(async () => []),
+      appendEvents: vi.fn(async () => {}),
     });
 
-    await assert.rejects(() => adapter.appendEvents(null), /events must be an array/i);
+    await expect(() => adapter.appendEvents(null)).rejects.toThrow(/events must be an array/i);
     const result = await adapter.appendEvents([]);
-    assert.equal(result, 0);
+    expect(result).toBe(0);
   });
 
   it("should batch by runId when runStore.appendEvents exists", async () => {
     const runStore = {
-      getEvents: mock.fn(async () => []),
-      appendEvents: mock.fn(async () => {}),
+      getEvents: vi.fn(async () => []),
+      appendEvents: vi.fn(async () => {}),
     };
     const adapter = new RunStoreAdapter(runStore);
 
@@ -823,14 +798,14 @@ describe("RunStoreAdapter", () => {
     ];
 
     const result = await adapter.appendEvents(events);
-    assert.equal(result, events.length);
-    assert.equal(runStore.appendEvents.mock.callCount(), 2);
+    expect(result).toBe(events.length);
+    expect(runStore.appendEvents.mock.calls.length).toBe(2);
   });
 
   it("should fall back to per-event append when appendEvent-only", async () => {
     const runStore = {
-      getEvents: mock.fn(async () => []),
-      appendEvent: mock.fn(async () => {}),
+      getEvents: vi.fn(async () => []),
+      appendEvent: vi.fn(async () => {}),
     };
     const adapter = new RunStoreAdapter(runStore);
 
@@ -841,20 +816,20 @@ describe("RunStoreAdapter", () => {
     ];
 
     const result = await adapter.appendEvents(events);
-    assert.equal(result, events.length);
-    assert.equal(runStore.appendEvent.mock.callCount(), 2);
+    expect(result).toBe(events.length);
+    expect(runStore.appendEvent.mock.calls.length).toBe(2);
   });
 
   it("getEvents should delegate to runStore", async () => {
     const runStore = {
-      getEvents: mock.fn(async (runId) => [{ runId, name: "evt" }]),
-      appendEvents: mock.fn(),
+      getEvents: vi.fn(async (runId) => [{ runId, name: "evt" }]),
+      appendEvents: vi.fn(),
     };
     const adapter = new RunStoreAdapter(runStore);
 
     const events = await adapter.getEvents("run_1");
-    assert.deepEqual(events, [{ runId: "run_1", name: "evt" }]);
-    assert.equal(runStore.getEvents.mock.callCount(), 1);
+    expect(events).toEqual([{ runId: "run_1", name: "evt" }]);
+    expect(runStore.getEvents.mock.calls.length).toBe(1);
   });
 });
 
@@ -862,14 +837,14 @@ describe("LamportClock class", () => {
   it("should start at 0", () => {
     const clock = new LamportClock("node1");
     const state = clock.get();
-    assert.equal(state.seq, 0);
+    expect(state.seq).toBe(0);
   });
 
   it("should increment on tick", () => {
     const clock = new LamportClock("node1");
     clock.tick();
     clock.tick();
-    assert.equal(clock.get().seq, 2);
+    expect(clock.get().seq).toBe(2);
   });
 
   it("should update from remote clock", () => {
@@ -884,18 +859,18 @@ describe("LamportClock class", () => {
 
     clock2.update(clock1.get()); // should jump to 4
 
-    assert.equal(clock2.get().seq, 4);
+    expect(clock2.get().seq).toBe(4);
   });
 
   it("should include node id", () => {
     const clock = new LamportClock("my-node");
     const state = clock.tick();
-    assert.ok(state.id.includes("my-node"));
+    expect(state.id.includes("my-node")).toBeTruthy();
   });
 
   it("should generate random nodeId when not provided", () => {
     const clock = new LamportClock();
     const state = clock.tick();
-    assert.ok(state.id.match(/^[0-9a-f]+_1$/i));
+    expect(state.id.match(/^[0-9a-f]+_1$/i)).toBeTruthy();
   });
 });

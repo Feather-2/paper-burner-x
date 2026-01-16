@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
-import assert from "node:assert";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import { BacktrackError } from "../../../../js/agents/stages/design/agent-loop.js";
 import { DesignPhase, designPhaseMachine } from "../../../../js/agents/stages/design/states.js";
 import { generateLayoutHtml, generateLayoutBatch } from "../../../../js/agents/stages/design/generators/layout-generator.js";
@@ -7,43 +7,43 @@ import { generateLayoutHtml, generateLayoutBatch } from "../../../../js/agents/s
 describe("BacktrackError", () => {
   it("should create error with correct properties", () => {
     const err = new BacktrackError(DesignPhase.OUTLINE_PARSING, "outline", "user_requested");
-    assert.strictEqual(err.name, "BacktrackError");
-    assert.strictEqual(err.targetPhase, DesignPhase.OUTLINE_PARSING);
-    assert.strictEqual(err.label, "outline");
-    assert.strictEqual(err.reason, "user_requested");
-    assert.ok(err.message.includes("Backtrack to"));
+    expect(err.name).toBe("BacktrackError");
+    expect(err.targetPhase).toBe(DesignPhase.OUTLINE_PARSING);
+    expect(err.label).toBe("outline");
+    expect(err.reason).toBe("user_requested");
+    expect(err.message.includes("Backtrack to")).toBeTruthy();
   });
 
   it("should be instanceof Error", () => {
     const err = new BacktrackError(DesignPhase.IDLE, "test", "test");
-    assert.ok(err instanceof Error);
-    assert.ok(err instanceof BacktrackError);
+    expect(err instanceof Error).toBeTruthy();
+    expect(err instanceof BacktrackError).toBeTruthy();
   });
 });
 
 describe("Layout Phase States", () => {
   it("should have LAYOUT_DEVELOPING state", () => {
-    assert.strictEqual(DesignPhase.LAYOUT_DEVELOPING, "layout_developing");
+    expect(DesignPhase.LAYOUT_DEVELOPING).toBe("layout_developing");
   });
 
   it("should have LAYOUT_CONFIRMING state", () => {
-    assert.strictEqual(DesignPhase.LAYOUT_CONFIRMING, "layout_confirming");
+    expect(DesignPhase.LAYOUT_CONFIRMING).toBe("layout_confirming");
   });
 
   it("should allow transition from PLAN_CONFIRMING to LAYOUT_DEVELOPING", () => {
-    assert.ok(designPhaseMachine.canTransition(DesignPhase.PLAN_CONFIRMING, DesignPhase.LAYOUT_DEVELOPING));
+    expect(designPhaseMachine.canTransition(DesignPhase.PLAN_CONFIRMING, DesignPhase.LAYOUT_DEVELOPING)).toBeTruthy();
   });
 
   it("should allow transition from LAYOUT_DEVELOPING to LAYOUT_CONFIRMING", () => {
-    assert.ok(designPhaseMachine.canTransition(DesignPhase.LAYOUT_DEVELOPING, DesignPhase.LAYOUT_CONFIRMING));
+    expect(designPhaseMachine.canTransition(DesignPhase.LAYOUT_DEVELOPING, DesignPhase.LAYOUT_CONFIRMING)).toBeTruthy();
   });
 
   it("should allow transition from LAYOUT_CONFIRMING to GENERATING", () => {
-    assert.ok(designPhaseMachine.canTransition(DesignPhase.LAYOUT_CONFIRMING, DesignPhase.GENERATING));
+    expect(designPhaseMachine.canTransition(DesignPhase.LAYOUT_CONFIRMING, DesignPhase.GENERATING)).toBeTruthy();
   });
 
   it("should allow backtrack from LAYOUT_CONFIRMING to LAYOUT_DEVELOPING", () => {
-    assert.ok(designPhaseMachine.canTransition(DesignPhase.LAYOUT_CONFIRMING, DesignPhase.LAYOUT_DEVELOPING));
+    expect(designPhaseMachine.canTransition(DesignPhase.LAYOUT_CONFIRMING, DesignPhase.LAYOUT_DEVELOPING)).toBeTruthy();
   });
 });
 
@@ -53,66 +53,66 @@ describe("Layout Generator", () => {
       const intent = { slideIntentId: "s1", title: "Welcome", keyPoints: ["Subtitle here"] };
       const plan = { layoutHint: "hero" };
       const html = generateLayoutHtml(intent, plan);
-      assert.ok(html.includes("layout-hero"));
-      assert.ok(html.includes("Welcome"));
+      expect(html.includes("layout-hero")).toBeTruthy();
+      expect(html.includes("Welcome")).toBeTruthy();
     });
 
     it("should generate two-column layout", () => {
       const intent = { slideIntentId: "s2", title: "Overview", keyPoints: ["Point 1", "Point 2"] };
-      const plan = { layoutHint: "two-column", visualFocus: "right" };
+      const plan = { layoutHint: "two-column"sualFocus: "right" };
       const html = generateLayoutHtml(intent, plan);
-      assert.ok(html.includes("layout-two-column"));
-      assert.ok(html.includes("layout-split"));
+      expect(html.includes("layout-two-column")).toBeTruthy();
+      expect(html.includes("layout-split")).toBeTruthy();
     });
 
     it("should generate timeline layout", () => {
       const intent = { slideIntentId: "s3", title: "History", keyPoints: ["2020", "2021", "2022"] };
       const plan = { layoutHint: "timeline" };
       const html = generateLayoutHtml(intent, plan);
-      assert.ok(html.includes("layout-timeline"));
-      assert.ok(html.includes("layout-timeline-item"));
+      expect(html.includes("layout-timeline")).toBeTruthy();
+      expect(html.includes("layout-timeline-item")).toBeTruthy();
     });
 
     it("should generate list layout", () => {
       const intent = { slideIntentId: "s4", title: "Features", keyPoints: ["Fast", "Secure"] };
       const plan = { layoutHint: "list" };
       const html = generateLayoutHtml(intent, plan);
-      assert.ok(html.includes("layout-list"));
-      assert.ok(html.includes("layout-points"));
+      expect(html.includes("layout-list")).toBeTruthy();
+      expect(html.includes("layout-points")).toBeTruthy();
     });
 
     it("should generate chart-focus layout", () => {
       const intent = { slideIntentId: "s5", title: "Data", keyPoints: ["Key insight"] };
       const plan = { layoutHint: "chart-focus" };
       const html = generateLayoutHtml(intent, plan);
-      assert.ok(html.includes("layout-chart"));
-      assert.ok(html.includes("layout-placeholder-chart"));
+      expect(html.includes("layout-chart")).toBeTruthy();
+      expect(html.includes("layout-placeholder-chart")).toBeTruthy();
     });
 
     it("should generate image-focus layout", () => {
       const intent = { slideIntentId: "s6", title: "Photo", keyPoints: [] };
       const plan = { layoutHint: "image-focus" };
       const html = generateLayoutHtml(intent, plan);
-      assert.ok(html.includes("layout-image"));
-      assert.ok(html.includes("layout-full"));
+      expect(html.includes("layout-image")).toBeTruthy();
+      expect(html.includes("layout-full")).toBeTruthy();
     });
 
     it("should generate standard layout by default", () => {
       const intent = { slideIntentId: "s7", title: "Default", keyPoints: ["A", "B"] };
       const html = generateLayoutHtml(intent, {});
-      assert.ok(html.includes("layout-standard"));
+      expect(html.includes("layout-standard")).toBeTruthy();
     });
 
     it("should escape HTML in title", () => {
       const intent = { slideIntentId: "s8", title: "<script>alert(1)</script>", keyPoints: [] };
       const html = generateLayoutHtml(intent, {});
-      assert.ok(!html.includes("<script>"));
-      assert.ok(html.includes("&lt;script&gt;"));
+      expect(!html.includes("<script>")).toBeTruthy();
+      expect(html.includes("&lt;script&gt;")).toBeTruthy();
     });
 
     it("should handle null/undefined intent", () => {
       const html = generateLayoutHtml(null, {});
-      assert.ok(html.includes("(未命名)"));
+      expect(html.includes("(未命名).toBeTruthy()"));
     });
   });
 
@@ -127,18 +127,18 @@ describe("Layout Generator", () => {
         { slideIntentId: "s2", layoutHint: "list" },
       ];
       const results = generateLayoutBatch(intents, plans);
-      assert.strictEqual(results.length, 2);
-      assert.strictEqual(results[0].slideIntentId, "s1");
-      assert.ok(results[0].layoutHtml.includes("layout-hero"));
-      assert.strictEqual(results[1].slideIntentId, "s2");
-      assert.ok(results[1].layoutHtml.includes("layout-list"));
+      expect(results.length).toBe(2);
+      expect(results[0].slideIntentId).toBe("s1");
+      expect(results[0].layoutHtml.includes("layout-hero")).toBeTruthy();
+      expect(results[1].slideIntentId).toBe("s2");
+      expect(results[1].layoutHtml.includes("layout-list")).toBeTruthy();
     });
 
     it("should handle missing plans", () => {
       const intents = [{ slideIntentId: "s1", title: "Test", keyPoints: [] }];
       const results = generateLayoutBatch(intents, []);
-      assert.strictEqual(results.length, 1);
-      assert.ok(results[0].layoutHtml.includes("layout-standard"));
+      expect(results.length).toBe(1);
+      expect(results[0].layoutHtml.includes("layout-standard")).toBeTruthy();
     });
   });
 });

@@ -1,5 +1,5 @@
-import { describe, it, beforeEach, afterEach } from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import os from "node:os";
 import path from "node:path";
 import { promises as fs } from "node:fs";
@@ -11,32 +11,32 @@ describe("runtime/exec", () => {
     it("executes command and returns result", async () => {
       const result = await exec("echo", ["hello"]);
 
-      assert.equal(result.success, true);
-      assert.equal(result.exitCode, 0);
-      assert.ok(result.stdout.includes("hello"));
-      assert.equal(result.timedOut, false);
+      expect(result.success).toBe(true);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.includes("hello")).toBeTruthy();
+      expect(result.timedOut).toBe(false);
     });
 
     it("captures stderr for failed commands", async () => {
       const result = await exec("ls", ["nonexistent_file_xyz_123"]);
 
-      assert.equal(result.success, false);
-      assert.notEqual(result.exitCode, 0);
+      expect(result.success).toBe(false);
+      expect(result.exitCode).not.toBe(0);
     });
 
     it("respects timeout option", async () => {
       const result = await exec("sleep", ["10"], { timeout: 100 });
 
-      assert.equal(result.success, false);
-      assert.equal(result.timedOut, true);
-      assert.ok(result.error?.includes("timed out"));
+      expect(result.success).toBe(false);
+      expect(result.timedOut).toBe(true);
+      expect(result.error?.includes("timed out")).toBeTruthy();
     });
 
     it("respects cwd option", async () => {
       const result = await exec("pwd", [], { cwd: "/tmp" });
 
-      assert.equal(result.success, true);
-      assert.ok(result.stdout.includes("/tmp") || result.stdout.includes("\\tmp"));
+      expect(result.success).toBe(true);
+      expect(result.stdout.includes("/tmp") || result.stdout.includes("\\tmp").toBeTruthy());
     });
 
     it("collects streaming output via callbacks", async () => {
@@ -45,8 +45,8 @@ describe("runtime/exec", () => {
         onStdout: (chunk) => chunks.push(chunk),
       });
 
-      assert.equal(result.success, true);
-      assert.ok(chunks.length >= 1);
+      expect(result.success).toBe(true);
+      expect(chunks.length >= 1).toBeTruthy();
     });
 
     it("truncates output exceeding maxOutputBytes", async () => {
@@ -55,8 +55,8 @@ describe("runtime/exec", () => {
         maxOutputBytes: 100,
       });
 
-      assert.equal(result.truncated, true);
-      assert.ok(result.stdout.length <= 100);
+      expect(result.truncated).toBe(true);
+      expect(result.stdout.length <= 100).toBeTruthy();
     });
 
     it("respects AbortSignal", async () => {
@@ -67,15 +67,15 @@ describe("runtime/exec", () => {
 
       const result = await exec("sleep", ["10"], { signal: controller.signal });
 
-      assert.equal(result.success, false);
-      assert.ok(result.error?.includes("abort"));
+      expect(result.success).toBe(false);
+      expect(result.error?.includes("abort")).toBeTruthy();
     });
 
     it("writes to stdin when provided", async () => {
       const result = await exec("cat", [], { stdin: "stdin input" });
 
-      assert.equal(result.success, true);
-      assert.ok(result.stdout.includes("stdin input"));
+      expect(result.success).toBe(true);
+      expect(result.stdout.includes("stdin input")).toBeTruthy();
     });
   });
 
@@ -83,16 +83,16 @@ describe("runtime/exec", () => {
     it("executes shell command string", async () => {
       const result = await execShell("echo hello && echo world");
 
-      assert.equal(result.success, true);
-      assert.ok(result.stdout.includes("hello"));
-      assert.ok(result.stdout.includes("world"));
+      expect(result.success).toBe(true);
+      expect(result.stdout.includes("hello")).toBeTruthy();
+      expect(result.stdout.includes("world")).toBeTruthy();
     });
 
     it("handles pipes", async () => {
       const result = await execShell("echo 'line1\nline2\nline3' | wc -l");
 
-      assert.equal(result.success, true);
-      assert.ok(result.stdout.includes("3"));
+      expect(result.success).toBe(true);
+      expect(result.stdout.includes("3")).toBeTruthy();
     });
   });
 
@@ -100,15 +100,14 @@ describe("runtime/exec", () => {
     it("returns stdout on success", async () => {
       const output = await execSimple("echo", ["simple output"]);
 
-      assert.ok(output.includes("simple output"));
+      expect(output.includes("simple output")).toBeTruthy();
     });
 
     it("throws on failure", async () => {
-      await assert.rejects(
-        () => execSimple("ls", ["nonexistent_file_xyz_123"]),
+      await expect(() => execSimple("ls", ["nonexistent_file_xyz_123"]),
         (err) => {
-          assert.ok(err instanceof Error);
-          assert.ok(typeof err.exitCode === "number");
+          expect(err instanceof Error).toBeTruthy();
+          expect(typeof err.exitCode === "number").toBeTruthy();
           return true;
         }
       );
@@ -118,17 +117,17 @@ describe("runtime/exec", () => {
   describe("commandExists", () => {
     it("returns true for existing commands", async () => {
       const exists = await commandExists("echo");
-      assert.equal(exists, true);
+      expect(exists).toBe(true);
     });
 
     it("returns false for non-existing commands", async () => {
       const exists = await commandExists("nonexistent_command_xyz_123");
-      assert.equal(exists, false);
+      expect(exists).toBe(false);
     });
 
     it("returns true for node", async () => {
       const exists = await commandExists("node");
-      assert.equal(exists, true);
+      expect(exists).toBe(true);
     });
   });
 
@@ -136,8 +135,8 @@ describe("runtime/exec", () => {
     it("handles spawn errors gracefully", async () => {
       const result = await exec("/nonexistent/binary/xyz", []);
 
-      assert.equal(result.success, false);
-      assert.ok(result.error?.length > 0);
+      expect(result.success).toBe(false);
+      expect(result.error?.length > 0).toBeTruthy();
     });
   });
 });

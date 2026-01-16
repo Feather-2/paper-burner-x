@@ -10,8 +10,7 @@
  * - 多 Agent 编排
  */
 
-import { describe, it, beforeEach, afterEach, mock } from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import { AgentOrchestrator, SchedulingMode } from "../../../js/agents/runtime/orchestrator.js";
 import { OrchestratorState } from "../../../js/agents/runtime/core/constants.js";
@@ -59,9 +58,9 @@ describe("AgentOrchestrator", () => {
   describe("construction", () => {
     it("creates with default options", () => {
       orchestrator = new AgentOrchestrator();
-      assert.equal(orchestrator.state, OrchestratorState.IDLE);
-      assert.ok(orchestrator.runId);
-      assert.ok(orchestrator.eventBus);
+      expect(orchestrator.state).toBe(OrchestratorState.IDLE);
+      expect(orchestrator.runId).toBeTruthy();
+      expect(orchestrator.eventBus).toBeTruthy();
     });
 
     it("accepts custom runId and mode", () => {
@@ -70,22 +69,22 @@ describe("AgentOrchestrator", () => {
         mode: "design",
         scenario: "custom",
       });
-      assert.equal(orchestrator.runId, "test-run-123");
-      assert.equal(orchestrator.runContext.mode, "design");
-      assert.equal(orchestrator.runContext.scenario, "custom");
+      expect(orchestrator.runId).toBe("test-run-123");
+      expect(orchestrator.runContext.mode).toBe("design");
+      expect(orchestrator.runContext.scenario).toBe("custom");
     });
 
     it("defaults to sequential scheduling", () => {
       orchestrator = new AgentOrchestrator();
-      assert.equal(orchestrator._schedulingMode, SchedulingMode.SEQUENTIAL);
+      expect(orchestrator._schedulingMode).toBe(SchedulingMode.SEQUENTIAL);
     });
 
     it("accepts parallel scheduling mode", () => {
       orchestrator = new AgentOrchestrator({
         scheduling: { mode: SchedulingMode.PARALLEL, maxConcurrency: 5 },
       });
-      assert.equal(orchestrator._schedulingMode, SchedulingMode.PARALLEL);
-      assert.equal(orchestrator._maxConcurrency, 5);
+      expect(orchestrator._schedulingMode).toBe(SchedulingMode.PARALLEL);
+      expect(orchestrator._maxConcurrency).toBe(5);
     });
   });
 
@@ -101,28 +100,24 @@ describe("AgentOrchestrator", () => {
     it("registers a stage handler", () => {
       const handler = () => "result";
       orchestrator.registerStage("test.stage", handler);
-      assert.ok(orchestrator._stages.has("test.stage"));
+      expect(orchestrator._stages.has("test.stage")).toBeTruthy();
     });
 
     it("throws on empty name", () => {
-      assert.throws(
-        () => orchestrator.registerStage("", () => {}),
+      expect(() => orchestrator.registerStage("", () => {}),
         /name must be a non-empty string/
       );
     });
 
     it("throws on non-function handler", () => {
-      assert.throws(
-        () => orchestrator.registerStage("test", "not-a-function"),
-        /handler must be a function/
-      );
+      expect(() => orchestrator.registerStage("test", "not-a-function")).toThrow(/handler must be a function/);
     });
 
     it("allows method chaining", () => {
       const result = orchestrator
         .registerStage("a", () => {})
         .registerStage("b", () => {});
-      assert.equal(result, orchestrator);
+      expect(result).toBe(orchestrator);
     });
 
     it("registers with options", () => {
@@ -131,8 +126,8 @@ describe("AgentOrchestrator", () => {
         timeoutMs: 5000,
       });
       const entry = orchestrator._stages.get("test.stage");
-      assert.equal(entry.options.actor, "design");
-      assert.equal(entry.options.timeoutMs, 5000);
+      expect(entry.options.actor).toBe("design");
+      expect(entry.options.timeoutMs).toBe(5000);
     });
   });
 
@@ -151,14 +146,12 @@ describe("AgentOrchestrator", () => {
       });
 
       const result = await orchestrator.runStage("test.run", { value: 42 });
-      assert.equal(result.received.value, 42);
-      assert.equal(result.runId, orchestrator.runId);
+      expect(result.received.value).toBe(42);
+      expect(result.runId).toBe(orchestrator.runId);
     });
 
     it("throws on unregistered stage", async () => {
-      await assert.rejects(
-        () => orchestrator.runStage("unknown.stage"),
-        /Stage not registered: unknown\.stage/
+      await expect(() => orchestrator.runStage("unknown.stage")).rejects.toThrow(/Stage not registered: unknown\.stage/
       );
     });
 
@@ -170,8 +163,8 @@ describe("AgentOrchestrator", () => {
       orchestrator.registerStage("test", () => "done");
       await orchestrator.runStage("test");
 
-      assert.ok(events.some((e) => e.status === "started"));
-      assert.ok(events.some((e) => e.status === "completed"));
+      expect(events.some(e => e.status === "started")).toBeTruthy();
+      expect(events.some(e => e.status === "completed")).toBeTruthy();
     });
 
     it("emits failed event on error", async () => {
@@ -182,8 +175,8 @@ describe("AgentOrchestrator", () => {
         throw new Error("stage error");
       });
 
-      await assert.rejects(() => orchestrator.runStage("test"), /stage error/);
-      assert.ok(events.some((e) => e.status === "failed"));
+      await expect(() => orchestrator.runStage("test")).rejects.toThrow(/stage error/);
+      expect(events.some(e => e.status === "failed")).toBeTruthy();
     });
 
     it("runs stages sequentially", async () => {
@@ -201,7 +194,7 @@ describe("AgentOrchestrator", () => {
       const p2 = orchestrator.runStage("b");
 
       await Promise.all([p1, p2]);
-      assert.deepEqual(order, ["a", "b"]);
+      expect(order).toEqual(["a", "b"]);
     });
 
     it("provides api with progress callback", async () => {
@@ -217,7 +210,7 @@ describe("AgentOrchestrator", () => {
       await orchestrator.runStage("test");
       // Wait for backpressure flush
       await delay(50);
-      assert.ok(events.length >= 1, "should emit at least one progress event");
+      expect(events.length >= 1, "should emit at least one progress event").toBeTruthy();
     });
   });
 
@@ -251,7 +244,7 @@ describe("AgentOrchestrator", () => {
       ];
 
       await Promise.all(promises);
-      assert.equal(maxConcurrent, 2);
+      expect(maxConcurrent).toBe(2);
     });
 
     it("respects concurrency limit", async () => {
@@ -271,7 +264,7 @@ describe("AgentOrchestrator", () => {
         orchestrator.runStage("limited"),
       ]);
 
-      assert.equal(exceeded, false);
+      expect(exceeded).toBe(false);
     });
   });
 
@@ -304,16 +297,16 @@ describe("AgentOrchestrator", () => {
         { name: "slow" },
       ]);
 
-      assert.ok(results.has("fast"));
-      assert.ok(results.has("slow"));
-      assert.equal(results.get("fast").success, true);
-      assert.equal(results.get("fast").result, "fast-result");
-      assert.equal(results.get("slow").success, true);
+      expect(results.has("fast")).toBeTruthy();
+      expect(results.has("slow")).toBeTruthy();
+      expect(results.get("fast").success).toBe(true);
+      expect(results.get("fast").result).toBe("fast-result");
+      expect(results.get("slow").success).toBe(true);
     });
 
     it("returns empty map for empty input", async () => {
       const results = await orchestrator.runStagesParallel([]);
-      assert.equal(results.size, 0);
+      expect(results.size).toBe(0);
     });
 
     it("captures stage errors without throwing", async () => {
@@ -327,9 +320,9 @@ describe("AgentOrchestrator", () => {
         { name: "fail" },
       ]);
 
-      assert.equal(results.get("ok").success, true);
-      assert.equal(results.get("fail").success, false);
-      assert.ok(results.get("fail").error.includes("boom"));
+      expect(results.get("ok").success).toBe(true);
+      expect(results.get("fail").success).toBe(false);
+      expect(results.get("fail").toBeTruthy().error.includes("boom"));
     });
 
     it("passes input to stages", async () => {
@@ -341,7 +334,7 @@ describe("AgentOrchestrator", () => {
       ]);
 
       // Note: both use same stage name, last result wins
-      assert.ok(results.has("echo"));
+      expect(results.has("echo")).toBeTruthy();
     });
   });
 
@@ -373,9 +366,9 @@ describe("AgentOrchestrator", () => {
         { name: "c", dependsOn: ["a"] },
       ]);
 
-      assert.equal(order[0], "a");
-      assert.ok(order.includes("b"));
-      assert.ok(order.includes("c"));
+      expect(order[0]).toBe("a");
+      expect(order.includes("b")).toBeTruthy();
+      expect(order.includes("c")).toBeTruthy();
     });
 
     it("skips stages when dependency fails", async () => {
@@ -392,9 +385,9 @@ describe("AgentOrchestrator", () => {
         { continueOnError: true }
       );
 
-      assert.equal(results.get("a").success, false);
-      assert.equal(results.get("b").success, false);
-      assert.ok(results.get("b").skipped);
+      expect(results.get("a").success).toBe(false);
+      expect(results.get("b").success).toBe(false);
+      expect(results.get("b").toBeTruthy().skipped);
     });
 
     it("throws on stage failure without continueOnError", async () => {
@@ -402,15 +395,13 @@ describe("AgentOrchestrator", () => {
         throw new Error("fail");
       });
 
-      await assert.rejects(
-        () => orchestrator.runStagesGraph([{ name: "fail" }]),
-        /Stage failed: fail/
+      await expect(() => orchestrator.runStagesGraph([{ name: "fail" }])).rejects.toThrow(/Stage failed: fail/
       );
     });
 
     it("returns empty map for empty input", async () => {
       const results = await orchestrator.runStagesGraph([]);
-      assert.equal(results.size, 0);
+      expect(results.size).toBe(0);
     });
 
     it("runs parallel stages at same level", async () => {
@@ -446,34 +437,34 @@ describe("AgentOrchestrator", () => {
     });
 
     it("starts and transitions to RUNNING", () => {
-      assert.equal(orchestrator.state, OrchestratorState.IDLE);
+      expect(orchestrator.state).toBe(OrchestratorState.IDLE);
       orchestrator.start();
-      assert.equal(orchestrator.state, OrchestratorState.RUNNING);
+      expect(orchestrator.state).toBe(OrchestratorState.RUNNING);
     });
 
     it("start is idempotent", () => {
       orchestrator.start();
       orchestrator.start();
-      assert.equal(orchestrator.state, OrchestratorState.RUNNING);
+      expect(orchestrator.state).toBe(OrchestratorState.RUNNING);
     });
 
     it("stop cancels the run", () => {
       orchestrator.start();
       orchestrator.stop("user-cancelled");
-      assert.equal(orchestrator.state, OrchestratorState.CANCELLED);
-      assert.ok(orchestrator.signal.aborted);
+      expect(orchestrator.state).toBe(OrchestratorState.CANCELLED);
+      expect(orchestrator.signal.aborted).toBeTruthy();
     });
 
     it("stop with failure reason sets FAILED state", () => {
       orchestrator.start();
       orchestrator.stop("stage_failed");
-      assert.equal(orchestrator.state, OrchestratorState.FAILED);
+      expect(orchestrator.state).toBe(OrchestratorState.FAILED);
     });
 
     it("end completes the run", () => {
       orchestrator.start();
       orchestrator.end("done");
-      assert.equal(orchestrator.state, OrchestratorState.ENDED);
+      expect(orchestrator.state).toBe(OrchestratorState.ENDED);
     });
 
     it("emits run lifecycle events", () => {
@@ -485,7 +476,7 @@ describe("AgentOrchestrator", () => {
       orchestrator.start();
       orchestrator.end();
 
-      assert.deepEqual(events, ["started", "completed", "ended"]);
+      expect(events).toEqual(["started", "completed", "ended"]);
     });
 
     it("emits run.cancelled on stop", () => {
@@ -496,7 +487,7 @@ describe("AgentOrchestrator", () => {
       orchestrator.start();
       orchestrator.stop();
 
-      assert.deepEqual(events, ["cancelled", "ended"]);
+      expect(events).toEqual(["cancelled", "ended"]);
     });
   });
 
@@ -530,7 +521,7 @@ describe("AgentOrchestrator", () => {
       orchestrator.stop();
 
       await handled;
-      assert.ok(wasRejected, "promise should be rejected");
+      expect(wasRejected, "promise should be rejected").toBeTruthy();
     });
 
     it("rejects pending parallel waiters on stop", async () => {
@@ -555,16 +546,14 @@ describe("AgentOrchestrator", () => {
       orchestrator.stop();
 
       await Promise.allSettled([r1, r2]);
-      assert.ok(rejected1 || rejected2, "at least one promise should be rejected");
+      expect(rejected1 || rejected2, "at least one promise should be rejected").toBeTruthy();
     });
 
     it("runStage throws after stop", async () => {
       orchestrator.registerStage("test", () => "result");
       orchestrator.stop();
 
-      await assert.rejects(
-        () => orchestrator.runStage("test"),
-        /Run cancelled/
+      await expect(() => orchestrator.runStage("test")).rejects.toThrow(/Run cancelled/
       );
     });
   });
@@ -583,8 +572,8 @@ describe("AgentOrchestrator", () => {
         throw new Error("stage-error");
       });
 
-      await assert.rejects(() => orchestrator.runStage("fail"));
-      assert.equal(orchestrator.state, OrchestratorState.FAILED);
+      await expect(() => orchestrator.runStage("fail"));
+      expect(orchestrator.state).toBe(OrchestratorState.FAILED);
     });
 
     it("emits run.failed on stage error", async () => {
@@ -595,19 +584,16 @@ describe("AgentOrchestrator", () => {
         throw new Error("boom");
       });
 
-      await assert.rejects(() => orchestrator.runStage("fail"));
-      assert.equal(events.length, 1);
-      assert.ok(events[0].payload.error.includes("boom"));
+      await expect(() => orchestrator.runStage("fail"));
+      expect(events.length).toBe(1);
+      expect(events[0].payload.error.includes("boom")).toBeTruthy();
     });
 
     it("throws on disposed orchestrator", async () => {
       orchestrator.registerStage("test", () => "result");
       await orchestrator.dispose();
 
-      assert.throws(
-        () => orchestrator.start(),
-        /disposed/i
-      );
+      expect(() => orchestrator.start()).toThrow(/disposed/i);
     });
   });
 
@@ -623,19 +609,19 @@ describe("AgentOrchestrator", () => {
     it("registers child agent", () => {
       const agent = new MockAgent("child");
       orchestrator.registerAgent(agent);
-      assert.ok(orchestrator._childAgents.has(agent));
+      expect(orchestrator._childAgents.has(agent)).toBeTruthy();
     });
 
     it("allows method chaining", () => {
       const result = orchestrator
         .registerAgent(new MockAgent("a"))
         .registerAgent(new MockAgent("b"));
-      assert.equal(result, orchestrator);
+      expect(result).toBe(orchestrator);
     });
 
     it("ignores non-disposable objects", () => {
       orchestrator.registerAgent({ name: "invalid" });
-      assert.equal(orchestrator._childAgents.size, 0);
+      expect(orchestrator._childAgents.size).toBe(0);
     });
 
     it("disposes child agents on orchestrator dispose", async () => {
@@ -645,8 +631,8 @@ describe("AgentOrchestrator", () => {
       orchestrator.registerAgent(agent1).registerAgent(agent2);
       await orchestrator.dispose();
 
-      assert.ok(agent1.disposed);
-      assert.ok(agent2.disposed);
+      expect(agent1.disposed).toBeTruthy();
+      expect(agent2.disposed).toBeTruthy();
     });
 
     it("accepts agents via constructor services", async () => {
@@ -655,7 +641,7 @@ describe("AgentOrchestrator", () => {
         services: { agents: [agent] },
       });
 
-      assert.ok(orchestrator._childAgents.has(agent));
+      expect(orchestrator._childAgents.has(agent)).toBeTruthy();
     });
   });
 
@@ -685,9 +671,7 @@ describe("AgentOrchestrator", () => {
         { timeoutMs: 50 }
       );
 
-      await assert.rejects(
-        () => orchestrator.runStage("slow"),
-        /stage_timeout|aborted|cancelled/i
+      await expect(() => orchestrator.runStage("slow")).rejects.toThrow(/stage_timeout|aborted|cancelled/i
       );
     });
   });
@@ -704,8 +688,7 @@ describe("AgentOrchestrator", () => {
 
       orchestrator.registerStage("test", () => "ok");
 
-      await assert.rejects(
-        () =>
+      await expect(() =>
           orchestrator.runStage("test", {
             userConfig: { maxIterations: "invalid" },
           }),
@@ -728,7 +711,7 @@ describe("AgentOrchestrator", () => {
       });
 
       // coerce should convert string "10" to number 10
-      assert.equal(receivedConfig.maxIterations, 10);
+      expect(receivedConfig.maxIterations).toBe(10);
     });
   });
 
@@ -743,8 +726,8 @@ describe("AgentOrchestrator", () => {
 
       await orchestrator.dispose();
 
-      assert.equal(orchestrator._stages.size, 0);
-      assert.ok(orchestrator.disposed);
+      expect(orchestrator._stages.size).toBe(0);
+      expect(orchestrator.disposed).toBeTruthy();
     });
 
     it("aborts signal on dispose", async () => {
@@ -753,7 +736,7 @@ describe("AgentOrchestrator", () => {
 
       await orchestrator.dispose();
 
-      assert.ok(signal.aborted);
+      expect(signal.aborted).toBeTruthy();
     });
 
     it("rejects parallel waiters on dispose", async () => {
@@ -779,7 +762,7 @@ describe("AgentOrchestrator", () => {
 
       await Promise.allSettled([r1, r2]);
       // At least one should be rejected (the waiting one)
-      assert.ok(rejected1 || rejected2, "at least one promise should be rejected");
+      expect(rejected1 || rejected2, "at least one promise should be rejected").toBeTruthy();
     });
   });
 });

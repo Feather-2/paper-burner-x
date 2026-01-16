@@ -1,7 +1,8 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
-test("StageApiFactory createBaseApi merges services and overrides", async () => {
+it("StageApiFactory createBaseApi merges services and overrides", async () => {
   const { StageApiFactory } = await import("../../../js/agents/runtime/api/stage-api-factory.js");
 
   let emitted = null;
@@ -25,17 +26,17 @@ test("StageApiFactory createBaseApi merges services and overrides", async () => 
     custom: "fromOverrides",
   });
 
-  assert.equal(api.eventBus, eventBus);
-  assert.equal(api.aiApiService, overrideAiApi);
-  assert.equal(api.custom, "fromOverrides");
-  assert.ok(api.signal);
-  assert.equal(typeof api.emit, "function");
+  expect(api.eventBus).toBe(eventBus);
+  expect(api.aiApiService).toBe(overrideAiApi);
+  expect(api.custom).toBe("fromOverrides");
+  expect(api.signal).toBeTruthy();
+  expect(typeof api.emit).toBe("function");
 
   api.emit("run.test", { ok: true });
-  assert.deepEqual(emitted, { name: "run.test", payload: { ok: true } });
+  expect(emitted).toEqual({ name: "run.test", payload: { ok: true } });
 });
 
-test("StageApiFactory createDeepSearchApi injects services", async () => {
+it("StageApiFactory createDeepSearchApi injects services", async () => {
   const { StageApiFactory } = await import("../../../js/agents/runtime/api/stage-api-factory.js");
 
   const factory = new StageApiFactory({
@@ -47,15 +48,15 @@ test("StageApiFactory createDeepSearchApi injects services", async () => {
 
   const api = factory.createDeepSearchApi({ storageAdapter: "override" });
 
-  assert.equal(api.localRetriever, "local");
-  assert.equal(api.externalSearchProvider, "external");
-  assert.equal(api.storageAdapter, "override");
-  assert.equal(api.ocr, "ocr");
+  expect(api.localRetriever).toBe("local");
+  expect(api.externalSearchProvider).toBe("external");
+  expect(api.storageAdapter).toBe("override");
+  expect(api.ocr).toBe("ocr");
   // Note: logger.warn is used internally, not console.warn
   // Missing aiApiService warning is logged via createLogger
 });
 
-test("StageApiFactory createDesignApi injects services and skips warnings when complete", async () => {
+it("StageApiFactory createDesignApi injects services and skips warnings when complete", async () => {
   const { StageApiFactory } = await import("../../../js/agents/runtime/api/stage-api-factory.js");
 
   const warnings = [];
@@ -77,25 +78,25 @@ test("StageApiFactory createDesignApi injects services and skips warnings when c
     console.warn = originalWarn;
   }
 
-  assert.equal(api.aiApiService.chat.name, "chat");
-  assert.equal(api.imageProvider, "override");
-  assert.equal(api.svgGenerator, "svg");
-  assert.equal(api.modelRouter, "router");
-  assert.equal(typeof api.emit, "function");
-  assert.equal(warnings.length, 0);
+  expect(api.aiApiService.chat.name).toBe("chat");
+  expect(api.imageProvider).toBe("override");
+  expect(api.svgGenerator).toBe("svg");
+  expect(api.modelRouter).toBe("router");
+  expect(typeof api.emit).toBe("function");
+  expect(warnings.length).toBe(0);
 });
 
-test("StageApiFactory createTextPrepApi passes overrides", async () => {
+it("StageApiFactory createTextPrepApi passes overrides", async () => {
   const { StageApiFactory } = await import("../../../js/agents/runtime/api/stage-api-factory.js");
 
   const factory = new StageApiFactory({ aiApiService: { chat() {} } });
   const api = factory.createTextPrepApi({ mode: "textprep" });
 
-  assert.equal(api.mode, "textprep");
-  assert.ok(api.signal);
+  expect(api.mode).toBe("textprep");
+  expect(api.signal).toBeTruthy();
 });
 
-test("StageApiFactory validate returns boolean", async () => {
+it("StageApiFactory validate returns boolean", async () => {
   const { StageApiFactory } = await import("../../../js/agents/runtime/api/stage-api-factory.js");
 
   const factory = new StageApiFactory();
@@ -103,12 +104,12 @@ test("StageApiFactory validate returns boolean", async () => {
   const ok = factory.validate({ signal: "sig", emit: () => {} }, ["signal", "emit"]);
   const bad = factory.validate({ emit: () => {} }, ["signal", "emit"]);
 
-  assert.equal(ok, true);
-  assert.equal(bad, false);
+  expect(ok).toBe(true);
+  expect(bad).toBe(false);
   // Note: logger.warn is used internally for missing fields warning
 });
 
-test("StageApiFactory fromWorkflowContext maps services and exports are wired", async () => {
+it("StageApiFactory fromWorkflowContext maps services and exports are wired", async () => {
   const mod = await import("../../../js/agents/runtime/api/stage-api-factory.js");
   const { StageApiFactory, createStageApiFactory, default: DefaultExport } = mod;
 
@@ -130,14 +131,14 @@ test("StageApiFactory fromWorkflowContext maps services and exports are wired", 
   };
 
   const factory = StageApiFactory.fromWorkflowContext(ctx);
-  assert.ok(factory instanceof StageApiFactory);
-  assert.equal(factory.services.signal, "sig");
-  assert.equal(factory.services.emit, eventBus.emit);
-  assert.equal(factory.services.imageProvider, "image-provider");
-  assert.equal(factory.services.archive, "archive");
-  assert.equal(factory.services.logger, "logger");
+  expect(factory instanceof StageApiFactory).toBeTruthy();
+  expect(factory.services.signal).toBe("sig");
+  expect(factory.services.emit).toBe(eventBus.emit);
+  expect(factory.services.imageProvider).toBe("image-provider");
+  expect(factory.services.archive).toBe("archive");
+  expect(factory.services.logger).toBe("logger");
 
   const created = createStageApiFactory({ signal: "s" });
-  assert.ok(created instanceof StageApiFactory);
-  assert.equal(DefaultExport, StageApiFactory);
+  expect(created instanceof StageApiFactory).toBeTruthy();
+  expect(DefaultExport).toBe(StageApiFactory);
 });

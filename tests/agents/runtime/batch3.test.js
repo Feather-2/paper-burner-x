@@ -1,7 +1,8 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
-test("DeltaSync: hash and manifest", async (t) => {
+it("DeltaSync: hash and manifest", async (t) => {
   const {
     computeHash,
     buildManifest,
@@ -12,16 +13,16 @@ test("DeltaSync: hash and manifest", async (t) => {
     DeltaSyncSession,
   } = await import("../../../js/agents/vfs/delta-sync.js");
 
-  await t.test("computeHash produces consistent hash", async () => {
+  await t.it("computeHash produces consistent hash", async () => {
     const h1 = await computeHash("hello world");
     const h2 = await computeHash("hello world");
-    assert.equal(h1, h2);
+    expect(h1).toBe(h2);
 
     const h3 = await computeHash("different");
-    assert.notEqual(h1, h3);
+    expect(h1).not.toBe(h3);
   });
 
-  await t.test("computeHash handles various input types", async () => {
+  await t.it("computeHash handles various input types", async () => {
     const text = "test data";
     const bytes = new TextEncoder().encode(text);
     const buffer = bytes.buffer;
@@ -30,15 +31,15 @@ test("DeltaSync: hash and manifest", async (t) => {
     const h2 = await computeHash(bytes);
     const h3 = await computeHash(buffer);
 
-    assert.equal(h1, h2);
-    assert.equal(h2, h3);
+    expect(h1).toBe(h2);
+    expect(h2).toBe(h3);
   });
 
-  await t.test("computeHash rejects invalid input", async () => {
-    await assert.rejects(computeHash(123), /must be string/);
+  await t.it("computeHash rejects invalid input", async () => {
+    await expect(computeHash(123)).rejects.toThrow(/must be string/);
   });
 
-  await t.test("buildManifest creates correct structure", async () => {
+  await t.it("buildManifest creates correct structure", async () => {
     const files = [
       { path: "/a.txt", content: "content a" },
       { path: "/b.txt", content: "content b", mtime: 1000 },
@@ -46,21 +47,21 @@ test("DeltaSync: hash and manifest", async (t) => {
 
     const manifest = await buildManifest(files);
 
-    assert.ok(manifest.id.startsWith("manifest_"));
-    assert.ok(manifest.ts > 0);
-    assert.equal(manifest.files.size, 2);
+    expect(manifest.id.startsWith("manifest_")).toBeTruthy();
+    expect(manifest.ts > 0).toBeTruthy();
+    expect(manifest.files.size).toBe(2);
 
     const aEntry = manifest.files.get("/a.txt");
-    assert.ok(aEntry);
-    assert.equal(aEntry.path, "/a.txt");
-    assert.ok(aEntry.hash);
-    assert.ok(aEntry.size > 0);
+    expect(aEntry).toBeTruthy();
+    expect(aEntry.path).toBe("/a.txt");
+    expect(aEntry.hash).toBeTruthy();
+    expect(aEntry.size > 0).toBeTruthy();
 
     const bEntry = manifest.files.get("/b.txt");
-    assert.equal(bEntry.mtime, 1000);
+    expect(bEntry.mtime).toBe(1000);
   });
 
-  await t.test("computeDelta detects changes", async () => {
+  await t.it("computeDelta detects changes", async () => {
     const base = await buildManifest([
       { path: "/a.txt", content: "a" },
       { path: "/b.txt", content: "b" },
@@ -76,23 +77,23 @@ test("DeltaSync: hash and manifest", async (t) => {
     const delta = computeDelta(base, target);
 
     const modified = delta.find((d) => d.path === "/a.txt");
-    assert.ok(modified);
-    assert.equal(modified.type, "modify");
+    expect(modified).toBeTruthy();
+    expect(modified.type).toBe("modify");
 
     const added = delta.find((d) => d.path === "/d.txt");
-    assert.ok(added);
-    assert.equal(added.type, "add");
+    expect(added).toBeTruthy();
+    expect(added.type).toBe("add");
 
     const deleted = delta.find((d) => d.path === "/c.txt");
-    assert.ok(deleted);
-    assert.equal(deleted.type, "delete");
+    expect(deleted).toBeTruthy();
+    expect(deleted.type).toBe("delete");
 
     // /b.txt should not be in delta
     const unchanged = delta.find((d) => d.path === "/b.txt");
-    assert.equal(unchanged, undefined);
+    expect(unchanged).toBe(undefined);
   });
 
-  await t.test("detectConflicts finds conflicts", () => {
+  await t.it("detectConflicts finds conflicts", () => {
     const localDelta = [
       { path: "/a.txt", type: "modify", hash: "local_hash" },
       { path: "/b.txt", type: "delete" },
@@ -105,28 +106,28 @@ test("DeltaSync: hash and manifest", async (t) => {
 
     const conflicts = detectConflicts(localDelta, remoteDelta);
 
-    assert.equal(conflicts.length, 2);
-    assert.ok(conflicts.some((c) => c.path === "/a.txt"));
-    assert.ok(conflicts.some((c) => c.path === "/b.txt"));
+    expect(conflicts.length).toBe(2);
+    expect(conflicts.some(c => c.path === "/a.txt")).toBeTruthy();
+    expect(conflicts.some(c => c.path === "/b.txt")).toBeTruthy();
   });
 
-  await t.test("resolveConflicts applies strategy", async () => {
+  await t.it("resolveConflicts applies strategy", async () => {
     const conflicts = [{ path: "/a.txt", local: { type: "modify" }, remote: { type: "modify" } }];
 
     const localManifest = await buildManifest([{ path: "/a.txt", content: "local", mtime: 2000 }]);
     const remoteManifest = await buildManifest([{ path: "/a.txt", content: "remote", mtime: 1000 }]);
 
     const resolved1 = resolveConflicts(conflicts, ConflictStrategy.LOCAL_WINS, localManifest, remoteManifest);
-    assert.equal(resolved1[0].resolution, "local");
+    expect(resolved1[0].resolution).toBe("local");
 
     const resolved2 = resolveConflicts(conflicts, ConflictStrategy.REMOTE_WINS, localManifest, remoteManifest);
-    assert.equal(resolved2[0].resolution, "remote");
+    expect(resolved2[0].resolution).toBe("remote");
 
     const resolved3 = resolveConflicts(conflicts, ConflictStrategy.NEWER_WINS, localManifest, remoteManifest);
-    assert.equal(resolved3[0].resolution, "local"); // local has newer mtime
+    expect(resolved3[0].resolution).toBe("local"); // local has newer mtime
   });
 
-  await t.test("DeltaSyncSession computes sync plan", async () => {
+  await t.it("DeltaSyncSession computes sync plan", async () => {
     const session = new DeltaSyncSession();
 
     const baseManifest = await buildManifest([
@@ -149,44 +150,44 @@ test("DeltaSync: hash and manifest", async (t) => {
 
     const plan = session.computeSyncPlan();
 
-    assert.ok(plan.toUpload.length > 0); // local.txt and modified a.txt
-    assert.ok(plan.toDownload.length > 0); // remote.txt
+    expect(plan.toUpload.length > 0).toBeTruthy(); // local.txt and modified a.txt
+    expect(plan.toDownload.length > 0).toBeTruthy(); // remote.txt
   });
 
-  await t.test("ConflictStrategy constants", () => {
-    assert.equal(ConflictStrategy.LOCAL_WINS, "local_wins");
-    assert.equal(ConflictStrategy.REMOTE_WINS, "remote_wins");
-    assert.equal(ConflictStrategy.NEWER_WINS, "newer_wins");
-    assert.equal(ConflictStrategy.MANUAL, "manual");
+  await t.it("ConflictStrategy constants", () => {
+    expect(ConflictStrategy.LOCAL_WINS).toBe("local_wins");
+    expect(ConflictStrategy.REMOTE_WINS).toBe("remote_wins");
+    expect(ConflictStrategy.NEWER_WINS).toBe("newer_wins");
+    expect(ConflictStrategy.MANUAL).toBe("manual");
   });
 });
 
-test("ConfigValidator: schema validation", async (t) => {
+it("ConfigValidator: schema validation", async (t) => {
   const { ConfigValidator, validateConfig, CommonSchemas } = await import("../../../js/agents/runtime/core/config-validator.js");
 
-  await t.test("validates required fields", () => {
+  await t.it("validates required fields", () => {
     const validator = new ConfigValidator({
       name: { type: "string", required: true },
     });
 
     const result = validator.validate({});
-    assert.equal(result.valid, false);
-    assert.ok(result.errors.some((e) => e.message.includes("Required")));
+    expect(result.valid).toBe(false);
+    expect(result.errors.some(e => e.message.includes("Required")).toBeTruthy());
   });
 
-  await t.test("fills default values", () => {
+  await t.it("fills default values", () => {
     const validator = new ConfigValidator({
       timeout: { type: "number", default: 5000 },
       enabled: { type: "boolean", default: true },
     });
 
     const result = validator.validate({});
-    assert.equal(result.valid, true);
-    assert.equal(result.config.timeout, 5000);
-    assert.equal(result.config.enabled, true);
+    expect(result.valid).toBe(true);
+    expect(result.config.timeout).toBe(5000);
+    expect(result.config.enabled).toBe(true);
   });
 
-  await t.test("validates types", () => {
+  await t.it("validates types", () => {
     const validator = new ConfigValidator({
       count: { type: "number" },
       name: { type: "string" },
@@ -202,59 +203,59 @@ test("ConfigValidator: schema validation", async (t) => {
       items: [1, 2],
       meta: { key: "value" },
     });
-    assert.equal(valid.valid, true);
+    expect(valid.valid).toBe(true);
 
     const invalid = validator.validate({
       count: "not a number",
     });
-    assert.equal(invalid.valid, false);
-    assert.ok(invalid.errors.some((e) => e.path === "count"));
+    expect(invalid.valid).toBe(false);
+    expect(invalid.errors.some(e => e.path === "count")).toBeTruthy();
   });
 
-  await t.test("validates enum values", () => {
+  await t.it("validates enum values", () => {
     const validator = new ConfigValidator({
       level: { type: "string", enum: ["low", "medium", "high"] },
     });
 
     const valid = validator.validate({ level: "medium" });
-    assert.equal(valid.valid, true);
+    expect(valid.valid).toBe(true);
 
     const invalid = validator.validate({ level: "invalid" });
-    assert.equal(invalid.valid, false);
+    expect(invalid.valid).toBe(false);
   });
 
-  await t.test("validates number constraints", () => {
+  await t.it("validates number constraints", () => {
     const validator = new ConfigValidator({
       port: { type: "number", min: 1, max: 65535 },
     });
 
     const valid = validator.validate({ port: 8080 });
-    assert.equal(valid.valid, true);
+    expect(valid.valid).toBe(true);
 
     const tooLow = validator.validate({ port: 0 });
-    assert.equal(tooLow.valid, false);
+    expect(tooLow.valid).toBe(false);
 
     const tooHigh = validator.validate({ port: 70000 });
-    assert.equal(tooHigh.valid, false);
+    expect(tooHigh.valid).toBe(false);
   });
 
-  await t.test("validates string constraints", () => {
+  await t.it("validates string constraints", () => {
     const validator = new ConfigValidator({
       name: { type: "string", minLength: 2, maxLength: 10 },
       email: { type: "string", pattern: "^[^@]+@[^@]+$" },
     });
 
     const valid = validator.validate({ name: "hello", email: "test@example.com" });
-    assert.equal(valid.valid, true);
+    expect(valid.valid).toBe(true);
 
     const tooShort = validator.validate({ name: "a" });
-    assert.equal(tooShort.valid, false);
+    expect(tooShort.valid).toBe(false);
 
     const badPattern = validator.validate({ email: "invalid" });
-    assert.equal(badPattern.valid, false);
+    expect(badPattern.valid).toBe(false);
   });
 
-  await t.test("validates nested objects", () => {
+  await t.it("validates nested objects", () => {
     const validator = new ConfigValidator({
       server: {
         type: "object",
@@ -266,12 +267,12 @@ test("ConfigValidator: schema validation", async (t) => {
     });
 
     const result = validator.validate({ server: { host: "localhost" } });
-    assert.equal(result.valid, true);
-    assert.equal(result.config.server.host, "localhost");
-    assert.equal(result.config.server.port, 80);
+    expect(result.valid).toBe(true);
+    expect(result.config.server.host).toBe("localhost");
+    expect(result.config.server.port).toBe(80);
   });
 
-  await t.test("validates array items", () => {
+  await t.it("validates array items", () => {
     const validator = new ConfigValidator({
       ports: {
         type: "array",
@@ -280,13 +281,13 @@ test("ConfigValidator: schema validation", async (t) => {
     });
 
     const valid = validator.validate({ ports: [80, 443, 8080] });
-    assert.equal(valid.valid, true);
+    expect(valid.valid).toBe(true);
 
     const invalid = validator.validate({ ports: [80, "invalid"] });
-    assert.equal(invalid.valid, false);
+    expect(invalid.valid).toBe(false);
   });
 
-  await t.test("custom validator function", () => {
+  await t.it("custom validator function", () => {
     const validator = new ConfigValidator({
       value: {
         type: "number",
@@ -295,43 +296,43 @@ test("ConfigValidator: schema validation", async (t) => {
     });
 
     const valid = validator.validate({ value: 4 });
-    assert.equal(valid.valid, true);
+    expect(valid.valid).toBe(true);
 
     const invalid = validator.validate({ value: 3 });
-    assert.equal(invalid.valid, false);
-    assert.ok(invalid.errors[0].message.includes("even"));
+    expect(invalid.valid).toBe(false);
+    expect(invalid.errors[0].message.includes("even")).toBeTruthy();
   });
 
-  await t.test("strict mode rejects unknown fields", () => {
+  await t.it("strict mode rejects unknown fields", () => {
     const validator = new ConfigValidator({ known: { type: "string" } }, { strict: true });
 
     const result = validator.validate({ known: "ok", unknown: "bad" });
-    assert.equal(result.valid, false);
-    assert.ok(result.errors.some((e) => e.message.includes("Unknown")));
+    expect(result.valid).toBe(false);
+    expect(result.errors.some(e => e.message.includes("Unknown")).toBeTruthy());
   });
 
-  await t.test("coerce mode converts types", () => {
+  await t.it("coerce mode converts types", () => {
     const validator = new ConfigValidator({ count: { type: "number" } }, { coerce: true });
 
     const result = validator.validate({ count: "42" });
-    assert.equal(result.valid, true);
-    assert.equal(result.config.count, 42);
+    expect(result.valid).toBe(true);
+    expect(result.config.count).toBe(42);
   });
 
-  await t.test("validateConfig convenience function", () => {
+  await t.it("validateConfig convenience function", () => {
     const result = validateConfig({ name: "test" }, { name: { type: "string" } });
-    assert.equal(result.valid, true);
+    expect(result.valid).toBe(true);
   });
 
-  await t.test("CommonSchemas are defined", () => {
-    assert.ok(CommonSchemas.positiveNumber);
-    assert.ok(CommonSchemas.nonEmptyString);
-    assert.ok(CommonSchemas.url);
-    assert.ok(CommonSchemas.email);
+  await t.it("CommonSchemas are defined", () => {
+    expect(CommonSchemas.positiveNumber).toBeTruthy();
+    expect(CommonSchemas.nonEmptyString).toBeTruthy();
+    expect(CommonSchemas.url).toBeTruthy();
+    expect(CommonSchemas.email).toBeTruthy();
   });
 });
 
-test("ErrorBoundary: error handling", async (t) => {
+it("ErrorBoundary: error handling", async (t) => {
   const {
     ErrorBoundary,
     ErrorCategory,
@@ -341,47 +342,47 @@ test("ErrorBoundary: error handling", async (t) => {
     withErrorBoundary,
   } = await import("../../../js/agents/runtime/core/error-boundary.js");
 
-  await t.test("categorizeError identifies categories", () => {
+  await t.it("categorizeError identifies categories", () => {
     const networkErr = new Error("fetch failed");
     networkErr.code = "ECONNRESET";
-    assert.equal(categorizeError(networkErr), ErrorCategory.NETWORK);
+    expect(categorizeError(networkErr)).toBe(ErrorCategory.NETWORK);
 
     const timeoutErr = new Error("timeout");
     timeoutErr.name = "TimeoutError";
-    assert.equal(categorizeError(timeoutErr), ErrorCategory.TIMEOUT);
+    expect(categorizeError(timeoutErr)).toBe(ErrorCategory.TIMEOUT);
 
     const validationErr = new Error("invalid input");
     validationErr.name = "ValidationError";
-    assert.equal(categorizeError(validationErr), ErrorCategory.VALIDATION);
+    expect(categorizeError(validationErr)).toBe(ErrorCategory.VALIDATION);
 
     const quotaErr = new Error("quota exceeded");
-    assert.equal(categorizeError(quotaErr), ErrorCategory.QUOTA);
+    expect(categorizeError(quotaErr)).toBe(ErrorCategory.QUOTA);
 
     const permErr = new Error("permission denied");
-    assert.equal(categorizeError(permErr), ErrorCategory.PERMISSION);
+    expect(categorizeError(permErr)).toBe(ErrorCategory.PERMISSION);
 
     const httpErr = new Error("server error");
     httpErr.status = 500;
-    assert.equal(categorizeError(httpErr), ErrorCategory.EXTERNAL);
+    expect(categorizeError(httpErr)).toBe(ErrorCategory.EXTERNAL);
 
-    assert.equal(categorizeError(null), ErrorCategory.UNKNOWN);
+    expect(categorizeError(null)).toBe(ErrorCategory.UNKNOWN);
   });
 
-  await t.test("createErrorInfo creates structured info", () => {
+  await t.it("createErrorInfo creates structured info", () => {
     const error = new Error("test error");
     error.code = "TEST_CODE";
 
     const info = createErrorInfo(error, { userId: 123 });
 
-    assert.ok(info.id.startsWith("err_"));
-    assert.equal(info.message, "test error");
-    assert.equal(info.code, "TEST_CODE");
-    assert.ok(info.ts > 0);
-    assert.equal(info.context.userId, 123);
-    assert.equal(info.recovered, false);
+    expect(info.id.startsWith("err_")).toBeTruthy();
+    expect(info.message).toBe("test error");
+    expect(info.code).toBe("TEST_CODE");
+    expect(info.ts > 0).toBeTruthy();
+    expect(info.context.userId).toBe(123);
+    expect(info.recovered).toBe(false);
   });
 
-  await t.test("wrap catches errors and returns fallback", async () => {
+  await t.it("wrap catches errors and returns fallback", async () => {
     const boundary = new ErrorBoundary();
 
     const result = await boundary.wrap(
@@ -391,25 +392,24 @@ test("ErrorBoundary: error handling", async (t) => {
       { fallbackValue: "fallback" }
     );
 
-    assert.equal(result, "fallback");
-    assert.equal(boundary.errors.length, 1);
+    expect(result).toBe("fallback");
+    expect(boundary.errors.length).toBe(1);
   });
 
-  await t.test("wrap with rethrow passes error through", async () => {
+  await t.it("wrap with rethrow passes error through", async () => {
     const boundary = new ErrorBoundary();
 
-    await assert.rejects(
+    await expect(
       boundary.wrap(
         async () => {
           throw new Error("should rethrow");
         },
         { rethrow: true }
-      ),
-      /should rethrow/
-    );
+      )
+    ).rejects.toThrow(/should rethrow/);
   });
 
-  await t.test("wrap with fallback function", async () => {
+  await t.it("wrap with fallback function", async () => {
     const boundary = new ErrorBoundary({
       fallbacks: {
         [ErrorCategory.NETWORK]: () => "network fallback",
@@ -423,10 +423,10 @@ test("ErrorBoundary: error handling", async (t) => {
       throw error;
     });
 
-    assert.equal(result, "network fallback");
+    expect(result).toBe("network fallback");
   });
 
-  await t.test("onError callback is called", async () => {
+  await t.it("onError callback is called", async () => {
     let capturedInfo = null;
     const boundary = new ErrorBoundary({
       onError: (info) => {
@@ -438,20 +438,20 @@ test("ErrorBoundary: error handling", async (t) => {
       throw new Error("test");
     });
 
-    assert.ok(capturedInfo);
-    assert.equal(capturedInfo.message, "test");
+    expect(capturedInfo).toBeTruthy();
+    expect(capturedInfo.message).toBe("test");
   });
 
-  await t.test("report adds error manually", () => {
+  await t.it("report adds error manually", () => {
     const boundary = new ErrorBoundary();
 
     boundary.report(new Error("manual error"), { source: "test" });
 
-    assert.equal(boundary.errors.length, 1);
-    assert.equal(boundary.errors[0].context.source, "test");
+    expect(boundary.errors.length).toBe(1);
+    expect(boundary.errors[0].context.source).toBe("test");
   });
 
-  await t.test("markRecovered updates error", async () => {
+  await t.it("markRecovered updates error", async () => {
     let recovered = null;
     const boundary = new ErrorBoundary({
       onRecovery: (info) => {
@@ -466,11 +466,11 @@ test("ErrorBoundary: error handling", async (t) => {
     const errorId = boundary.errors[0].id;
     boundary.markRecovered(errorId);
 
-    assert.equal(boundary.errors[0].recovered, true);
-    assert.ok(recovered);
+    expect(boundary.errors[0].recovered).toBe(true);
+    expect(recovered).toBeTruthy();
   });
 
-  await t.test("stats reports error counts", async () => {
+  await t.it("stats reports error counts", async () => {
     const boundary = new ErrorBoundary();
 
     const networkErr = new Error("network");
@@ -480,38 +480,38 @@ test("ErrorBoundary: error handling", async (t) => {
     await boundary.wrap(async () => { throw new Error("generic"); });
 
     const stats = boundary.stats;
-    assert.equal(stats.total, 2);
-    assert.equal(stats.byCategory[ErrorCategory.NETWORK], 1);
-    assert.equal(stats.byCategory[ErrorCategory.UNKNOWN], 1);
+    expect(stats.total).toBe(2);
+    expect(stats.byCategory[ErrorCategory.NETWORK]).toBe(1);
+    expect(stats.byCategory[ErrorCategory.UNKNOWN]).toBe(1);
   });
 
-  await t.test("clear removes all errors", async () => {
+  await t.it("clear removes all errors", async () => {
     const boundary = new ErrorBoundary();
 
     await boundary.wrap(async () => { throw new Error("test"); });
-    assert.equal(boundary.errors.length, 1);
+    expect(boundary.errors.length).toBe(1);
 
     boundary.clear();
-    assert.equal(boundary.errors.length, 0);
+    expect(boundary.errors.length).toBe(0);
   });
 
-  await t.test("maxErrors limits history", async () => {
+  await t.it("maxErrors limits history", async () => {
     const boundary = new ErrorBoundary({ maxErrors: 3 });
 
     for (let i = 0; i < 5; i++) {
       await boundary.wrap(async () => { throw new Error(`error ${i}`); });
     }
 
-    assert.equal(boundary.errors.length, 3);
+    expect(boundary.errors.length).toBe(3);
   });
 
-  await t.test("getErrorBoundary returns singleton", () => {
+  await t.it("getErrorBoundary returns singleton", () => {
     const b1 = getErrorBoundary();
     const b2 = getErrorBoundary();
-    assert.equal(b1, b2);
+    expect(b1).toBe(b2);
   });
 
-  await t.test("withErrorBoundary uses global boundary", async () => {
+  await t.it("withErrorBoundary uses global boundary", async () => {
     const result = await withErrorBoundary(
       async () => {
         throw new Error("global test");
@@ -519,17 +519,17 @@ test("ErrorBoundary: error handling", async (t) => {
       { fallbackValue: "global fallback" }
     );
 
-    assert.equal(result, "global fallback");
+    expect(result).toBe("global fallback");
   });
 
-  await t.test("ErrorCategory constants", () => {
-    assert.equal(ErrorCategory.NETWORK, "network");
-    assert.equal(ErrorCategory.VALIDATION, "validation");
-    assert.equal(ErrorCategory.TIMEOUT, "timeout");
-    assert.equal(ErrorCategory.QUOTA, "quota");
-    assert.equal(ErrorCategory.PERMISSION, "permission");
-    assert.equal(ErrorCategory.INTERNAL, "internal");
-    assert.equal(ErrorCategory.EXTERNAL, "external");
-    assert.equal(ErrorCategory.UNKNOWN, "unknown");
+  await t.it("ErrorCategory constants", () => {
+    expect(ErrorCategory.NETWORK).toBe("network");
+    expect(ErrorCategory.VALIDATION).toBe("validation");
+    expect(ErrorCategory.TIMEOUT).toBe("timeout");
+    expect(ErrorCategory.QUOTA).toBe("quota");
+    expect(ErrorCategory.PERMISSION).toBe("permission");
+    expect(ErrorCategory.INTERNAL).toBe("internal");
+    expect(ErrorCategory.EXTERNAL).toBe("external");
+    expect(ErrorCategory.UNKNOWN).toBe("unknown");
   });
 });

@@ -8,8 +8,8 @@
  * - formatters/*: escapeTemplateDelimiters, formatBullets, formatCodeBlock, formatJson, formatLines, formatTrim, formatUpper
  */
 
-import test from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -20,157 +20,157 @@ const PROMPTS_DIR = path.resolve(__dirname, "../../../js/agents/prompts");
 // formatters/escape-template-delimiters.js
 // ============================================================================
 
-test("escapeTemplateDelimiters: escapes {{ and }} with zero-width break", async () => {
+it("escapeTemplateDelimiters: escapes {{ and }} with zero-width break", async () => {
   const { escapeTemplateDelimiters } = await import(
     "../../../js/agents/prompts/formatters/escape-template-delimiters.js"
   );
 
   const result = escapeTemplateDelimiters("Hello {{name}}!");
-  assert.ok(result.includes("{\u200B{"));
-  assert.ok(result.includes("}\u200B}"));
-  assert.ok(!result.includes("{{"));
-  assert.ok(!result.includes("}}"));
+  expect(result.includes("{\u200B{")).toBeTruthy();
+  expect(result.includes("}\u200B}")).toBeTruthy();
+  expect(!result.includes("{{")).toBeTruthy();
+  expect(!result.includes("}}")).toBeTruthy();
 });
 
-test("escapeTemplateDelimiters: returns empty string for null/undefined", async () => {
+it("escapeTemplateDelimiters: returns empty string for null/undefined", async () => {
   const { escapeTemplateDelimiters } = await import(
     "../../../js/agents/prompts/formatters/escape-template-delimiters.js"
   );
 
-  assert.equal(escapeTemplateDelimiters(null), "");
-  assert.equal(escapeTemplateDelimiters(undefined), "");
-  assert.equal(escapeTemplateDelimiters(""), "");
+  expect(escapeTemplateDelimiters(null)).toBe("");
+  expect(escapeTemplateDelimiters(undefined)).toBe("");
+  expect(escapeTemplateDelimiters("")).toBe("");
 });
 
-test("escapeTemplateDelimiters: converts non-string to string", async () => {
+it("escapeTemplateDelimiters: converts non-string to string", async () => {
   const { escapeTemplateDelimiters } = await import(
     "../../../js/agents/prompts/formatters/escape-template-delimiters.js"
   );
 
-  assert.equal(escapeTemplateDelimiters(123), "123");
-  assert.equal(escapeTemplateDelimiters(true), "true");
+  expect(escapeTemplateDelimiters(123)).toBe("123");
+  expect(escapeTemplateDelimiters(true)).toBe("true");
 });
 
 // ============================================================================
 // formatters/format-bullets.js
 // ============================================================================
 
-test("formatBullets: formats array as bullet list", async () => {
+it("formatBullets: formats array as bullet list", async () => {
   const { formatBullets } = await import(
     "../../../js/agents/prompts/formatters/format-bullets.js"
   );
 
   const result = formatBullets(["one", "two", "three"]);
-  assert.equal(result, "- one\n- two\n- three");
+  expect(result).toBe("- one\n- two\n- three");
 });
 
-test("formatBullets: splits string by newlines", async () => {
+it("formatBullets: splits string by newlines", async () => {
   const { formatBullets } = await import(
     "../../../js/agents/prompts/formatters/format-bullets.js"
   );
 
   const result = formatBullets("line1\nline2\nline3");
-  assert.equal(result, "- line1\n- line2\n- line3");
+  expect(result).toBe("- line1\n- line2\n- line3");
 });
 
-test("formatBullets: filters empty lines", async () => {
+it("formatBullets: filters empty lines", async () => {
   const { formatBullets } = await import(
     "../../../js/agents/prompts/formatters/format-bullets.js"
   );
 
   const result = formatBullets(["one", "", "  ", "two"]);
-  assert.equal(result, "- one\n- two");
+  expect(result).toBe("- one\n- two");
 });
 
-test("formatBullets: custom bullet and indent", async () => {
+it("formatBullets: custom bullet and indent", async () => {
   const { formatBullets } = await import(
     "../../../js/agents/prompts/formatters/format-bullets.js"
   );
 
   const result = formatBullets(["a", "b"], { bullet: "* ", indent: "  " });
-  assert.equal(result, "  * a\n  * b");
+  expect(result).toBe("  * a\n  * b");
 });
 
-test("formatBullets: returns empty for null/undefined", async () => {
+it("formatBullets: returns empty for null/undefined", async () => {
   const { formatBullets } = await import(
     "../../../js/agents/prompts/formatters/format-bullets.js"
   );
 
-  assert.equal(formatBullets(null), "");
-  assert.equal(formatBullets(undefined), "");
+  expect(formatBullets(null)).toBe("");
+  expect(formatBullets(undefined)).toBe("");
 });
 
-test("formatBullets: converts other types to single bullet", async () => {
+it("formatBullets: converts other types to single bullet", async () => {
   const { formatBullets } = await import(
     "../../../js/agents/prompts/formatters/format-bullets.js"
   );
 
-  assert.equal(formatBullets(42), "- 42");
-  assert.equal(formatBullets(true), "- true");
+  expect(formatBullets(42)).toBe("- 42");
+  expect(formatBullets(true)).toBe("- true");
 });
 
 // ============================================================================
 // formatters/format-code-block.js
 // ============================================================================
 
-test("formatCodeBlock: wraps content in fenced code block", async () => {
+it("formatCodeBlock: wraps content in fenced code block", async () => {
   const { formatCodeBlock } = await import(
     "../../../js/agents/prompts/formatters/format-code-block.js"
   );
 
   const result = formatCodeBlock("const x = 1;", { lang: "js" });
-  assert.equal(result, "```js\nconst x = 1;\n```");
+  expect(result).toBe("```js\nconst x = 1;\n```");
 });
 
-test("formatCodeBlock: no language specified", async () => {
+it("formatCodeBlock: no language specified", async () => {
   const { formatCodeBlock } = await import(
     "../../../js/agents/prompts/formatters/format-code-block.js"
   );
 
   const result = formatCodeBlock("plain text");
-  assert.equal(result, "```\nplain text\n```");
+  expect(result).toBe("```\nplain text\n```");
 });
 
-test("formatCodeBlock: handles null/undefined", async () => {
+it("formatCodeBlock: handles null/undefined", async () => {
   const { formatCodeBlock } = await import(
     "../../../js/agents/prompts/formatters/format-code-block.js"
   );
 
-  assert.equal(formatCodeBlock(null), "```\n\n```");
-  assert.equal(formatCodeBlock(undefined), "```\n\n```");
+  expect(formatCodeBlock(null)).toBe("```\n\n```");
+  expect(formatCodeBlock(undefined)).toBe("```\n\n```");
 });
 
 // ============================================================================
 // formatters/format-json.js
 // ============================================================================
 
-test("formatJson: formats object as pretty JSON", async () => {
+it("formatJson: formats object as pretty JSON", async () => {
   const { formatJson } = await import(
     "../../../js/agents/prompts/formatters/format-json.js"
   );
 
   const result = formatJson({ a: 1, b: 2 });
-  assert.equal(result, '{\n  "a": 1,\n  "b": 2\n}');
+  expect(result).toBe('{\n  "a": 1,\n  "b": 2\n}');
 });
 
-test("formatJson: custom space", async () => {
+it("formatJson: custom space", async () => {
   const { formatJson } = await import(
     "../../../js/agents/prompts/formatters/format-json.js"
   );
 
   const result = formatJson({ x: 1 }, { space: 4 });
-  assert.equal(result, '{\n    "x": 1\n}');
+  expect(result).toBe('{\n    "x": 1\n}');
 });
 
-test("formatJson: handles null", async () => {
+it("formatJson: handles null", async () => {
   const { formatJson } = await import(
     "../../../js/agents/prompts/formatters/format-json.js"
   );
 
-  assert.equal(formatJson(null), "null");
+  expect(formatJson(null)).toBe("null");
 });
 
-test("formatJson: falls back for circular refs", async () => {
+it("formatJson: falls back for circular refs", async () => {
   const { formatJson } = await import(
     "../../../js/agents/prompts/formatters/format-json.js"
   );
@@ -178,150 +178,150 @@ test("formatJson: falls back for circular refs", async () => {
   const obj = {};
   obj.self = obj;
   const result = formatJson(obj);
-  assert.equal(result, "[object Object]");
+  expect(result).toBe("[object Object]");
 });
 
 // ============================================================================
 // formatters/format-lines.js
 // ============================================================================
 
-test("formatLines: joins array with newlines", async () => {
+it("formatLines: joins array with newlines", async () => {
   const { formatLines } = await import(
     "../../../js/agents/prompts/formatters/format-lines.js"
   );
 
   const result = formatLines(["a", "b", "c"]);
-  assert.equal(result, "a\nb\nc");
+  expect(result).toBe("a\nb\nc");
 });
 
-test("formatLines: filters empty items", async () => {
+it("formatLines: filters empty items", async () => {
   const { formatLines } = await import(
     "../../../js/agents/prompts/formatters/format-lines.js"
   );
 
   const result = formatLines(["a", "", "  ", "b"]);
-  assert.equal(result, "a\nb");
+  expect(result).toBe("a\nb");
 });
 
-test("formatLines: returns string as-is", async () => {
+it("formatLines: returns string as-is", async () => {
   const { formatLines } = await import(
     "../../../js/agents/prompts/formatters/format-lines.js"
   );
 
-  assert.equal(formatLines("hello"), "hello");
+  expect(formatLines("hello")).toBe("hello");
 });
 
-test("formatLines: handles null/undefined", async () => {
+it("formatLines: handles null/undefined", async () => {
   const { formatLines } = await import(
     "../../../js/agents/prompts/formatters/format-lines.js"
   );
 
-  assert.equal(formatLines(null), "");
-  assert.equal(formatLines(undefined), "");
+  expect(formatLines(null)).toBe("");
+  expect(formatLines(undefined)).toBe("");
 });
 
 // ============================================================================
 // formatters/format-trim.js
 // ============================================================================
 
-test("formatTrim: trims whitespace", async () => {
+it("formatTrim: trims whitespace", async () => {
   const { formatTrim } = await import(
     "../../../js/agents/prompts/formatters/format-trim.js"
   );
 
-  assert.equal(formatTrim("  hello  "), "hello");
-  assert.equal(formatTrim("\n\ttext\n"), "text");
+  expect(formatTrim("  hello  ")).toBe("hello");
+  expect(formatTrim("\n\ttext\n")).toBe("text");
 });
 
-test("formatTrim: handles null/undefined", async () => {
+it("formatTrim: handles null/undefined", async () => {
   const { formatTrim } = await import(
     "../../../js/agents/prompts/formatters/format-trim.js"
   );
 
-  assert.equal(formatTrim(null), "");
-  assert.equal(formatTrim(undefined), "");
+  expect(formatTrim(null)).toBe("");
+  expect(formatTrim(undefined)).toBe("");
 });
 
-test("formatTrim: converts non-string", async () => {
+it("formatTrim: converts non-string", async () => {
   const { formatTrim } = await import(
     "../../../js/agents/prompts/formatters/format-trim.js"
   );
 
-  assert.equal(formatTrim(123), "123");
+  expect(formatTrim(123)).toBe("123");
 });
 
 // ============================================================================
 // formatters/format-upper.js
 // ============================================================================
 
-test("formatUpper: uppercases string", async () => {
+it("formatUpper: uppercases string", async () => {
   const { formatUpper } = await import(
     "../../../js/agents/prompts/formatters/format-upper.js"
   );
 
-  assert.equal(formatUpper("hello"), "HELLO");
-  assert.equal(formatUpper("MixedCase"), "MIXEDCASE");
+  expect(formatUpper("hello")).toBe("HELLO");
+  expect(formatUpper("MixedCase")).toBe("MIXEDCASE");
 });
 
-test("formatUpper: handles null/undefined", async () => {
+it("formatUpper: handles null/undefined", async () => {
   const { formatUpper } = await import(
     "../../../js/agents/prompts/formatters/format-upper.js"
   );
 
-  assert.equal(formatUpper(null), "");
-  assert.equal(formatUpper(undefined), "");
+  expect(formatUpper(null)).toBe("");
+  expect(formatUpper(undefined)).toBe("");
 });
 
-test("formatUpper: converts non-string", async () => {
+it("formatUpper: converts non-string", async () => {
   const { formatUpper } = await import(
     "../../../js/agents/prompts/formatters/format-upper.js"
   );
 
-  assert.equal(formatUpper(123), "123");
-  assert.equal(formatUpper(true), "TRUE");
+  expect(formatUpper(123)).toBe("123");
+  expect(formatUpper(true)).toBe("TRUE");
 });
 
 // ============================================================================
 // formatters/index.js - DEFAULT_FORMATTERS
 // ============================================================================
 
-test("DEFAULT_FORMATTERS: exports all formatters", async () => {
+it("DEFAULT_FORMATTERS: exports all formatters", async () => {
   const { DEFAULT_FORMATTERS } = await import(
     "../../../js/agents/prompts/formatters/index.js"
   );
 
-  assert.equal(typeof DEFAULT_FORMATTERS.bullets, "function");
-  assert.equal(typeof DEFAULT_FORMATTERS.code, "function");
-  assert.equal(typeof DEFAULT_FORMATTERS.json, "function");
-  assert.equal(typeof DEFAULT_FORMATTERS.lines, "function");
-  assert.equal(typeof DEFAULT_FORMATTERS.trim, "function");
-  assert.equal(typeof DEFAULT_FORMATTERS.upper, "function");
+  expect(typeof DEFAULT_FORMATTERS.bullets).toBe("function");
+  expect(typeof DEFAULT_FORMATTERS.code).toBe("function");
+  expect(typeof DEFAULT_FORMATTERS.json).toBe("function");
+  expect(typeof DEFAULT_FORMATTERS.lines).toBe("function");
+  expect(typeof DEFAULT_FORMATTERS.trim).toBe("function");
+  expect(typeof DEFAULT_FORMATTERS.upper).toBe("function");
 });
 
 // ============================================================================
 // prompt-template.js
 // ============================================================================
 
-test("renderPromptTemplate: replaces {{var}} placeholders", async () => {
+it("renderPromptTemplate: replaces {{var}} placeholders", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
 
   const result = renderPromptTemplate("Hello {{name}}!", { vars: { name: "World" } });
   // Escaped delimiters are not present in output since name does not contain {{ or }}
-  assert.ok(result.includes("World"));
+  expect(result.includes("World")).toBeTruthy();
 });
 
-test("renderPromptTemplate: case-insensitive matching", async () => {
+it("renderPromptTemplate: case-insensitive matching", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
 
   const result = renderPromptTemplate("Hello {{NAME}}!", { vars: { name: "Test" } });
-  assert.ok(result.includes("Test"));
+  expect(result.includes("Test")).toBeTruthy();
 });
 
-test("renderPromptTemplate: dotted key support", async () => {
+it("renderPromptTemplate: dotted key support", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
@@ -329,19 +329,19 @@ test("renderPromptTemplate: dotted key support", async () => {
   const result = renderPromptTemplate("Config: {{config.value}}", {
     vars: { config: { value: 42 } },
   });
-  assert.ok(result.includes("42"));
+  expect(result.includes("42")).toBeTruthy();
 });
 
-test("renderPromptTemplate: keeps unresolved by default", async () => {
+it("renderPromptTemplate: keeps unresolved by default", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
 
   const result = renderPromptTemplate("Hello {{unknown}}!", { vars: {} });
-  assert.ok(result.includes("{{unknown}}"));
+  expect(result.includes("{{unknown}}")).toBeTruthy();
 });
 
-test("renderPromptTemplate: removes unresolved when keepUnresolved=false", async () => {
+it("renderPromptTemplate: removes unresolved when keepUnresolved=false", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
@@ -350,25 +350,23 @@ test("renderPromptTemplate: removes unresolved when keepUnresolved=false", async
     vars: {},
     keepUnresolved: false,
   });
-  assert.equal(result, "Hello !");
+  expect(result).toBe("Hello !");
 });
 
-test("renderPromptTemplate: failOnUnresolved throws", async () => {
+it("renderPromptTemplate: failOnUnresolved throws", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
 
-  assert.throws(
-    () =>
+  expect(() =>
       renderPromptTemplate("Hello {{missing}}!", {
         vars: {},
         failOnUnresolved: true,
-      }),
-    /Unresolved placeholders/
-  );
+      })
+  ).toThrow(/Unresolved placeholders/);
 });
 
-test("renderPromptTemplate: onUnresolved callback", async () => {
+it("renderPromptTemplate: onUnresolved callback", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
@@ -379,11 +377,11 @@ test("renderPromptTemplate: onUnresolved callback", async () => {
     onUnresolved: (names) => unresolved.push(...names),
   });
 
-  assert.ok(unresolved.includes("a"));
-  assert.ok(unresolved.includes("b"));
+  expect(unresolved.includes("a")).toBeTruthy();
+  expect(unresolved.includes("b")).toBeTruthy();
 });
 
-test("renderPromptTemplate: formatter pipeline |json", async () => {
+it("renderPromptTemplate: formatter pipeline |json", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
@@ -391,10 +389,10 @@ test("renderPromptTemplate: formatter pipeline |json", async () => {
   const result = renderPromptTemplate("Data: {{data|json}}", {
     vars: { data: { x: 1 } },
   });
-  assert.ok(result.includes('"x": 1'));
+  expect(result.includes('"x": 1')).toBeTruthy();
 });
 
-test("renderPromptTemplate: formatter pipeline |upper", async () => {
+it("renderPromptTemplate: formatter pipeline |upper", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
@@ -403,10 +401,10 @@ test("renderPromptTemplate: formatter pipeline |upper", async () => {
     vars: { msg: "hello" },
     escapeVars: false,
   });
-  assert.equal(result, "HELLO");
+  expect(result).toBe("HELLO");
 });
 
-test("renderPromptTemplate: formatter pipeline |bullets", async () => {
+it("renderPromptTemplate: formatter pipeline |bullets", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
@@ -415,10 +413,10 @@ test("renderPromptTemplate: formatter pipeline |bullets", async () => {
     vars: { items: ["a", "b"] },
     escapeVars: false,
   });
-  assert.equal(result, "- a\n- b");
+  expect(result).toBe("- a\n- b");
 });
 
-test("renderPromptTemplate: formatter pipeline |code(lang)", async () => {
+it("renderPromptTemplate: formatter pipeline |code(lang)", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
@@ -427,26 +425,24 @@ test("renderPromptTemplate: formatter pipeline |code(lang)", async () => {
     vars: { src: "print(1)" },
     escapeVars: false,
   });
-  assert.ok(result.includes("```python"));
-  assert.ok(result.includes("print(1)"));
+  expect(result.includes("```python")).toBeTruthy();
+  expect(result.includes("print(1).toBeTruthy()"));
 });
 
-test("renderPromptTemplate: unknown formatter marks as unresolved", async () => {
+it("renderPromptTemplate: unknown formatter marks as unresolved", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
 
-  assert.throws(
-    () =>
+  expect(() =>
       renderPromptTemplate("{{x|unknownFormatter}}", {
         vars: { x: "val" },
         failOnUnresolved: true,
-      }),
-    /Unresolved placeholders/
-  );
+      })
+  ).toThrow(/Unresolved placeholders/);
 });
 
-test("renderPromptTemplate: custom formatters", async () => {
+it("renderPromptTemplate: custom formatters", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
@@ -458,10 +454,10 @@ test("renderPromptTemplate: custom formatters", async () => {
     },
     escapeVars: false,
   });
-  assert.equal(result, "cba");
+  expect(result).toBe("cba");
 });
 
-test("renderPromptTemplate: appendIfMissing adds content", async () => {
+it("renderPromptTemplate: appendIfMissing adds content", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
@@ -469,11 +465,11 @@ test("renderPromptTemplate: appendIfMissing adds content", async () => {
   const result = renderPromptTemplate("Main content", {
     appendIfMissing: { extra: "Extra section" },
   });
-  assert.ok(result.includes("Main content"));
-  assert.ok(result.includes("Extra section"));
+  expect(result.includes("Main content")).toBeTruthy();
+  expect(result.includes("Extra section")).toBeTruthy();
 });
 
-test("renderPromptTemplate: appendIfMissing skips if placeholder exists", async () => {
+it("renderPromptTemplate: appendIfMissing skips if placeholder exists", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
@@ -482,10 +478,10 @@ test("renderPromptTemplate: appendIfMissing skips if placeholder exists", async 
     vars: { extra: "value" },
     appendIfMissing: { extra: "Should not appear" },
   });
-  assert.ok(!result.includes("Should not appear"));
+  expect(!result.includes("Should not appear")).toBeTruthy();
 });
 
-test("renderPromptTemplate: escapeVars prevents injection", async () => {
+it("renderPromptTemplate: escapeVars prevents injection", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
@@ -495,21 +491,21 @@ test("renderPromptTemplate: escapeVars prevents injection", async () => {
     escapeVars: true,
   });
   // Should contain escaped braces
-  assert.ok(result.includes("\u200B"));
-  assert.ok(!result.includes("{{secret}}"));
+  expect(result.includes("\u200B")).toBeTruthy();
+  expect(!result.includes("{{secret}}")).toBeTruthy();
 });
 
-test("renderPromptTemplate: Map vars support", async () => {
+it("renderPromptTemplate: Map vars support", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
 
   const vars = new Map([["key", "mapValue"]]);
   const result = renderPromptTemplate("{{key}}", { vars, escapeVars: false });
-  assert.equal(result, "mapValue");
+  expect(result).toBe("mapValue");
 });
 
-test("renderPromptTemplate: handles number/boolean/bigint", async () => {
+it("renderPromptTemplate: handles number/boolean/bigint", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
@@ -518,12 +514,12 @@ test("renderPromptTemplate: handles number/boolean/bigint", async () => {
     vars: { n: 42, b: true, bi: BigInt(100) },
     escapeVars: false,
   });
-  assert.ok(result.includes("42"));
-  assert.ok(result.includes("true"));
-  assert.ok(result.includes("100"));
+  expect(result.includes("42")).toBeTruthy();
+  expect(result.includes("true")).toBeTruthy();
+  expect(result.includes("100")).toBeTruthy();
 });
 
-test("renderPromptTemplate: null/undefined var becomes empty", async () => {
+it("renderPromptTemplate: null/undefined var becomes empty", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
@@ -532,37 +528,37 @@ test("renderPromptTemplate: null/undefined var becomes empty", async () => {
     vars: { n: null, u: undefined },
     escapeVars: false,
   });
-  assert.equal(result, "ABC");
+  expect(result).toBe("ABC");
 });
 
 // ============================================================================
 // prompt-template.js - PromptTemplate class
 // ============================================================================
 
-test("PromptTemplate: render method works", async () => {
+it("PromptTemplate: render method works", async () => {
   const { PromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
 
   const tpl = new PromptTemplate("Hello {{name}}!");
   const result = tpl.render({ vars: { name: "World" }, escapeVars: false });
-  assert.equal(result, "Hello World!");
+  expect(result).toBe("Hello World!");
 });
 
-test("PromptTemplate: constructor handles non-string", async () => {
+it("PromptTemplate: constructor handles non-string", async () => {
   const { PromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
 
   const tpl = new PromptTemplate(null);
-  assert.equal(tpl.template, "");
+  expect(tpl.template).toBe("");
 });
 
 // ============================================================================
 // prompt-registry.js
 // ============================================================================
 
-test("PromptRegistry: register and get", async () => {
+it("PromptRegistry: register and get", async () => {
   const { PromptRegistry } = await import(
     "../../../js/agents/prompts/prompt-registry.js"
   );
@@ -571,21 +567,21 @@ test("PromptRegistry: register and get", async () => {
   registry.register("test", "Hello {{name}}");
 
   const tpl = registry.get("test");
-  assert.ok(tpl !== null);
-  assert.equal(tpl.template, "Hello {{name}}");
+  expect(tpl !== null).toBeTruthy();
+  expect(tpl.template).toBe("Hello {{name}}");
 });
 
-test("PromptRegistry: register throws on empty name", async () => {
+it("PromptRegistry: register throws on empty name", async () => {
   const { PromptRegistry } = await import(
     "../../../js/agents/prompts/prompt-registry.js"
   );
 
   const registry = new PromptRegistry();
-  assert.throws(() => registry.register("", "template"), /non-empty string/);
-  assert.throws(() => registry.register("   ", "template"), /non-empty string/);
+  expect(() => registry.register("", "template")).toThrow(/non-empty string/);
+  expect(() => registry.register("   ", "template")).toThrow(/non-empty string/);
 });
 
-test("PromptRegistry: has method", async () => {
+it("PromptRegistry: has method", async () => {
   const { PromptRegistry } = await import(
     "../../../js/agents/prompts/prompt-registry.js"
   );
@@ -593,12 +589,12 @@ test("PromptRegistry: has method", async () => {
   const registry = new PromptRegistry();
   registry.register("exists", "content");
 
-  assert.equal(registry.has("exists"), true);
-  assert.equal(registry.has("notexists"), false);
-  assert.equal(registry.has(""), false);
+  expect(registry.has("exists")).toBe(true);
+  expect(registry.has("notexists")).toBe(false);
+  expect(registry.has("")).toBe(false);
 });
 
-test("PromptRegistry: list method", async () => {
+it("PromptRegistry: list method", async () => {
   const { PromptRegistry } = await import(
     "../../../js/agents/prompts/prompt-registry.js"
   );
@@ -608,11 +604,11 @@ test("PromptRegistry: list method", async () => {
   registry.register("b", "B");
 
   const list = registry.list();
-  assert.ok(list.includes("a"));
-  assert.ok(list.includes("b"));
+  expect(list.includes("a")).toBeTruthy();
+  expect(list.includes("b")).toBeTruthy();
 });
 
-test("PromptRegistry: clear specific and all", async () => {
+it("PromptRegistry: clear specific and all", async () => {
   const { PromptRegistry } = await import(
     "../../../js/agents/prompts/prompt-registry.js"
   );
@@ -622,14 +618,14 @@ test("PromptRegistry: clear specific and all", async () => {
   registry.register("b", "B");
 
   registry.clear("a");
-  assert.equal(registry.has("a"), false);
-  assert.equal(registry.has("b"), true);
+  expect(registry.has("a")).toBe(false);
+  expect(registry.has("b")).toBe(true);
 
   registry.clear();
-  assert.equal(registry.list().length, 0);
+  expect(registry.list().length).toBe(0);
 });
 
-test("PromptRegistry: render method", async () => {
+it("PromptRegistry: render method", async () => {
   const { PromptRegistry } = await import(
     "../../../js/agents/prompts/prompt-registry.js"
   );
@@ -638,19 +634,19 @@ test("PromptRegistry: render method", async () => {
   registry.register("greeting", "Hello {{name}}!");
 
   const result = registry.render("greeting", { vars: { name: "Test" }, escapeVars: false });
-  assert.equal(result, "Hello Test!");
+  expect(result).toBe("Hello Test!");
 });
 
-test("PromptRegistry: render throws for unknown", async () => {
+it("PromptRegistry: render throws for unknown", async () => {
   const { PromptRegistry } = await import(
     "../../../js/agents/prompts/prompt-registry.js"
   );
 
   const registry = new PromptRegistry();
-  assert.throws(() => registry.render("unknown"), /unknown prompt/);
+  expect(() => registry.render("unknown")).toThrow(/unknown prompt/);
 });
 
-test("PromptRegistry: registerMany with object", async () => {
+it("PromptRegistry: registerMany with object", async () => {
   const { PromptRegistry } = await import(
     "../../../js/agents/prompts/prompt-registry.js"
   );
@@ -661,11 +657,11 @@ test("PromptRegistry: registerMany with object", async () => {
     tpl2: "Template 2",
   });
 
-  assert.equal(registry.has("tpl1"), true);
-  assert.equal(registry.has("tpl2"), true);
+  expect(registry.has("tpl1")).toBe(true);
+  expect(registry.has("tpl2")).toBe(true);
 });
 
-test("PromptRegistry: registerMany with array", async () => {
+it("PromptRegistry: registerMany with array", async () => {
   const { PromptRegistry } = await import(
     "../../../js/agents/prompts/prompt-registry.js"
   );
@@ -676,11 +672,11 @@ test("PromptRegistry: registerMany with array", async () => {
     ["arr2", "Array 2"],
   ]);
 
-  assert.equal(registry.has("arr1"), true);
-  assert.equal(registry.has("arr2"), true);
+  expect(registry.has("arr1")).toBe(true);
+  expect(registry.has("arr2")).toBe(true);
 });
 
-test("PromptRegistry: registerMany with Map", async () => {
+it("PromptRegistry: registerMany with Map", async () => {
   const { PromptRegistry } = await import(
     "../../../js/agents/prompts/prompt-registry.js"
   );
@@ -692,40 +688,40 @@ test("PromptRegistry: registerMany with Map", async () => {
   ]);
   registry.registerMany(map);
 
-  assert.equal(registry.has("map1"), true);
-  assert.equal(registry.has("map2"), true);
+  expect(registry.has("map1")).toBe(true);
+  expect(registry.has("map2")).toBe(true);
 });
 
-test("PromptRegistry: registerMany with null returns this", async () => {
+it("PromptRegistry: registerMany with null returns this", async () => {
   const { PromptRegistry } = await import(
     "../../../js/agents/prompts/prompt-registry.js"
   );
 
   const registry = new PromptRegistry();
   const result = registry.registerMany(null);
-  assert.equal(result, registry);
+  expect(result).toBe(registry);
 });
 
-test("PromptRegistry: registerMany throws on invalid type", async () => {
+it("PromptRegistry: registerMany throws on invalid type", async () => {
   const { PromptRegistry } = await import(
     "../../../js/agents/prompts/prompt-registry.js"
   );
 
   const registry = new PromptRegistry();
-  assert.throws(() => registry.registerMany("string"), /must be an object/);
+  expect(() => registry.registerMany("string")).toThrow(/must be an object/);
 });
 
-test("PromptRegistry: get returns null for unknown", async () => {
+it("PromptRegistry: get returns null for unknown", async () => {
   const { PromptRegistry } = await import(
     "../../../js/agents/prompts/prompt-registry.js"
   );
 
   const registry = new PromptRegistry();
-  assert.equal(registry.get("unknown"), null);
-  assert.equal(registry.get(""), null);
+  expect(registry.get("unknown")).toBe(null);
+  expect(registry.get("")).toBe(null);
 });
 
-test("PromptRegistry: register with PromptTemplate instance", async () => {
+it("PromptRegistry: register with PromptTemplate instance", async () => {
   const { PromptRegistry } = await import(
     "../../../js/agents/prompts/prompt-registry.js"
   );
@@ -737,14 +733,14 @@ test("PromptRegistry: register with PromptTemplate instance", async () => {
   const tpl = new PromptTemplate("Instance template");
   registry.register("inst", tpl);
 
-  assert.equal(registry.get("inst"), tpl);
+  expect(registry.get("inst")).toBe(tpl);
 });
 
 // ============================================================================
 // prompt-loader.js - PromptLoader class
 // ============================================================================
 
-test("PromptLoader: constructor with options", async () => {
+it("PromptLoader: constructor with options", async () => {
   const { PromptLoader } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
@@ -756,11 +752,11 @@ test("PromptLoader: constructor with options", async () => {
   });
 
   const config = loader.configureCache();
-  assert.equal(config.maxEntries, 64);
-  assert.equal(config.manifestTtlMs, 60000);
+  expect(config.maxEntries).toBe(64);
+  expect(config.manifestTtlMs).toBe(60000);
 });
 
-test("PromptLoader: configureCache updates settings", async () => {
+it("PromptLoader: configureCache updates settings", async () => {
   const { PromptLoader } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
@@ -768,35 +764,33 @@ test("PromptLoader: configureCache updates settings", async () => {
   const loader = new PromptLoader({ basePath: PROMPTS_DIR });
   const config = loader.configureCache({ maxEntries: 32, manifestTtlMs: 30000 });
 
-  assert.equal(config.maxEntries, 32);
-  assert.equal(config.manifestTtlMs, 30000);
+  expect(config.maxEntries).toBe(32);
+  expect(config.manifestTtlMs).toBe(30000);
 });
 
-test("PromptLoader: configureCache throws on invalid maxEntries", async () => {
+it("PromptLoader: configureCache throws on invalid maxEntries", async () => {
   const { PromptLoader } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
 
   const loader = new PromptLoader({ basePath: PROMPTS_DIR });
-  assert.throws(
-    () => loader.configureCache({ maxEntries: "invalid" }),
+  expect(() => loader.configureCache({ maxEntries: "invalid" })).toThrow(
     /must be a finite integer/
   );
 });
 
-test("PromptLoader: configureCache throws on invalid manifestTtlMs", async () => {
+it("PromptLoader: configureCache throws on invalid manifestTtlMs", async () => {
   const { PromptLoader } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
 
   const loader = new PromptLoader({ basePath: PROMPTS_DIR });
-  assert.throws(
-    () => loader.configureCache({ manifestTtlMs: "invalid" }),
+  expect(() => loader.configureCache({ manifestTtlMs: "invalid" })).toThrow(
     /must be a finite integer/
   );
 });
 
-test("PromptLoader: loadPrompt loads .md file", async () => {
+it("PromptLoader: loadPrompt loads .md file", async () => {
   const { PromptLoader } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
@@ -804,11 +798,11 @@ test("PromptLoader: loadPrompt loads .md file", async () => {
   const loader = new PromptLoader({ basePath: PROMPTS_DIR });
   const content = await loader.loadPrompt("deepsearch/system");
 
-  assert.ok(content.length > 0);
-  assert.equal(typeof content, "string");
+  expect(content.length > 0).toBeTruthy();
+  expect(typeof content).toBe("string");
 });
 
-test("PromptLoader: loadPrompt with .md suffix works", async () => {
+it("PromptLoader: loadPrompt with .md suffix works", async () => {
   const { PromptLoader } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
@@ -816,10 +810,10 @@ test("PromptLoader: loadPrompt with .md suffix works", async () => {
   const loader = new PromptLoader({ basePath: PROMPTS_DIR });
   const content = await loader.loadPrompt("deepsearch/system.md");
 
-  assert.ok(content.length > 0);
+  expect(content.length > 0).toBeTruthy();
 });
 
-test("PromptLoader: loadPrompt caches result", async () => {
+it("PromptLoader: loadPrompt caches result", async () => {
   const { PromptLoader } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
@@ -828,10 +822,10 @@ test("PromptLoader: loadPrompt caches result", async () => {
   await loader.loadPrompt("deepsearch/quick");
 
   const names = loader.getCachedPromptNames();
-  assert.ok(names.includes("deepsearch/quick"));
+  expect(names.includes("deepsearch/quick")).toBeTruthy();
 });
 
-test("PromptLoader: loadPrompt cache=false skips cache", async () => {
+it("PromptLoader: loadPrompt cache=false skips cache", async () => {
   const { PromptLoader } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
@@ -842,49 +836,43 @@ test("PromptLoader: loadPrompt cache=false skips cache", async () => {
   await loader.loadPrompt("deepsearch/quick", { cache: false });
 
   const names = loader.getCachedPromptNames();
-  assert.ok(!names.includes("deepsearch/quick"));
+  expect(!names.includes("deepsearch/quick")).toBeTruthy();
 });
 
-test("PromptLoader: loadPrompt rejects path traversal", async () => {
+it("PromptLoader: loadPrompt rejects path traversal", async () => {
   const { PromptLoader } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
 
   const loader = new PromptLoader({ basePath: PROMPTS_DIR });
 
-  await assert.rejects(
-    () => loader.loadPrompt("../../../package"),
-    /Path traversal is forbidden/
+  await expect(() => loader.loadPrompt("../../../package")).rejects.toThrow(/Path traversal is forbidden/
   );
 });
 
-test("PromptLoader: loadPrompt rejects invalid characters", async () => {
+it("PromptLoader: loadPrompt rejects invalid characters", async () => {
   const { PromptLoader } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
 
   const loader = new PromptLoader({ basePath: PROMPTS_DIR });
 
-  await assert.rejects(
-    () => loader.loadPrompt("invalid@name"),
-    /Path traversal is forbidden/
+  await expect(() => loader.loadPrompt("invalid@name")).rejects.toThrow(/Path traversal is forbidden/
   );
 });
 
-test("PromptLoader: loadPrompt throws on missing file", async () => {
+it("PromptLoader: loadPrompt throws on missing file", async () => {
   const { PromptLoader } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
 
   const loader = new PromptLoader({ basePath: PROMPTS_DIR });
 
-  await assert.rejects(
-    () => loader.loadPrompt("nonexistent/prompt"),
-    /Failed to load prompt/
+  await expect(() => loader.loadPrompt("nonexistent/prompt")).rejects.toThrow(/Failed to load prompt/
   );
 });
 
-test("PromptLoader: loadPromptSync loads file synchronously", async () => {
+it("PromptLoader: loadPromptSync loads file synchronously", async () => {
   const { PromptLoader } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
@@ -894,27 +882,24 @@ test("PromptLoader: loadPromptSync loads file synchronously", async () => {
   // In native ESM without require shim, this may throw
   try {
     const content = loader.loadPromptSync("deepsearch/system");
-    assert.ok(content.length > 0);
+    expect(content.length > 0).toBeTruthy();
   } catch (e) {
     // Expected in pure ESM environment
-    assert.ok(e.message.includes("Sync file access is unavailable") || e.message.includes("Failed to load"));
+    expect(e.message.includes("Sync file access is unavailable") || e.message.includes("Failed to load")).toBeTruthy();
   }
 });
 
-test("PromptLoader: loadPromptSync rejects path traversal", async () => {
+it("PromptLoader: loadPromptSync rejects path traversal", async () => {
   const { PromptLoader } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
 
   const loader = new PromptLoader({ basePath: PROMPTS_DIR });
 
-  assert.throws(
-    () => loader.loadPromptSync("../escape"),
-    /Path traversal is forbidden/
-  );
+  expect(() => loader.loadPromptSync("../escape")).toThrow(/Path traversal is forbidden/);
 });
 
-test("PromptLoader: clearPromptCache clears all", async () => {
+it("PromptLoader: clearPromptCache clears all", async () => {
   const { PromptLoader } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
@@ -925,10 +910,10 @@ test("PromptLoader: clearPromptCache clears all", async () => {
 
   loader.clearPromptCache();
 
-  assert.equal(loader.getCachedPromptNames().length, 0);
+  expect(loader.getCachedPromptNames().length).toBe(0);
 });
 
-test("PromptLoader: clearPromptCache clears specific", async () => {
+it("PromptLoader: clearPromptCache clears specific", async () => {
   const { PromptLoader } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
@@ -940,11 +925,11 @@ test("PromptLoader: clearPromptCache clears specific", async () => {
   loader.clearPromptCache("deepsearch/quick");
 
   const names = loader.getCachedPromptNames();
-  assert.ok(!names.includes("deepsearch/quick"));
-  assert.ok(names.includes("deepsearch/deeper"));
+  expect(!names.includes("deepsearch/quick")).toBeTruthy();
+  expect(names.includes("deepsearch/deeper")).toBeTruthy();
 });
 
-test("PromptLoader: preloadPrompts loads multiple", async () => {
+it("PromptLoader: preloadPrompts loads multiple", async () => {
   const { PromptLoader } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
@@ -958,13 +943,13 @@ test("PromptLoader: preloadPrompts loads multiple", async () => {
     "nonexistent/file",
   ]);
 
-  assert.ok(results instanceof Map);
-  assert.ok(results.has("deepsearch/quick"));
-  assert.ok(results.has("deepsearch/deeper"));
-  assert.ok(!results.has("nonexistent/file"));
+  expect(results instanceof Map).toBeTruthy();
+  expect(results.has("deepsearch/quick")).toBeTruthy();
+  expect(results.has("deepsearch/deeper")).toBeTruthy();
+  expect(!results.has("nonexistent/file")).toBeTruthy();
 });
 
-test("PromptLoader: preloadPrompts with non-array returns empty map", async () => {
+it("PromptLoader: preloadPrompts with non-array returns empty map", async () => {
   const { PromptLoader } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
@@ -972,87 +957,87 @@ test("PromptLoader: preloadPrompts with non-array returns empty map", async () =
   const loader = new PromptLoader({ basePath: PROMPTS_DIR });
   const results = await loader.preloadPrompts(null);
 
-  assert.ok(results instanceof Map);
-  assert.equal(results.size, 0);
+  expect(results instanceof Map).toBeTruthy();
+  expect(results.size).toBe(0);
 });
 
 // ============================================================================
 // prompt-loader.js - module exports
 // ============================================================================
 
-test("prompt-loader: exports loadPrompt function", async () => {
+it("prompt-loader: exports loadPrompt function", async () => {
   const { loadPrompt } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
 
-  assert.equal(typeof loadPrompt, "function");
+  expect(typeof loadPrompt).toBe("function");
 });
 
-test("prompt-loader: exports loadPromptSync function", async () => {
+it("prompt-loader: exports loadPromptSync function", async () => {
   const { loadPromptSync } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
 
-  assert.equal(typeof loadPromptSync, "function");
+  expect(typeof loadPromptSync).toBe("function");
 });
 
-test("prompt-loader: exports preloadPrompts function", async () => {
+it("prompt-loader: exports preloadPrompts function", async () => {
   const { preloadPrompts } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
 
-  assert.equal(typeof preloadPrompts, "function");
+  expect(typeof preloadPrompts).toBe("function");
 });
 
-test("prompt-loader: exports clearPromptCache function", async () => {
+it("prompt-loader: exports clearPromptCache function", async () => {
   const { clearPromptCache } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
 
-  assert.equal(typeof clearPromptCache, "function");
+  expect(typeof clearPromptCache).toBe("function");
 });
 
-test("prompt-loader: exports getCachedPromptNames function", async () => {
+it("prompt-loader: exports getCachedPromptNames function", async () => {
   const { getCachedPromptNames } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
 
-  assert.equal(typeof getCachedPromptNames, "function");
+  expect(typeof getCachedPromptNames).toBe("function");
 });
 
-test("prompt-loader: exports configurePromptCache function", async () => {
+it("prompt-loader: exports configurePromptCache function", async () => {
   const { configurePromptCache } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
 
-  assert.equal(typeof configurePromptCache, "function");
+  expect(typeof configurePromptCache).toBe("function");
 });
 
-test("prompt-loader: exports renderPromptTemplate function", async () => {
+it("prompt-loader: exports renderPromptTemplate function", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
 
-  assert.equal(typeof renderPromptTemplate, "function");
+  expect(typeof renderPromptTemplate).toBe("function");
 });
 
-test("prompt-loader: default export contains all methods", async () => {
+it("prompt-loader: default export contains all methods", async () => {
   const mod = await import("../../../js/agents/prompts/prompt-loader.js");
 
-  assert.equal(typeof mod.default.loadPrompt, "function");
-  assert.equal(typeof mod.default.loadPromptSync, "function");
-  assert.equal(typeof mod.default.preloadPrompts, "function");
-  assert.equal(typeof mod.default.clearPromptCache, "function");
-  assert.equal(typeof mod.default.getCachedPromptNames, "function");
-  assert.equal(typeof mod.default.configurePromptCache, "function");
-  assert.equal(typeof mod.default.renderPromptTemplate, "function");
+  expect(typeof mod.default.loadPrompt).toBe("function");
+  expect(typeof mod.default.loadPromptSync).toBe("function");
+  expect(typeof mod.default.preloadPrompts).toBe("function");
+  expect(typeof mod.default.clearPromptCache).toBe("function");
+  expect(typeof mod.default.getCachedPromptNames).toBe("function");
+  expect(typeof mod.default.configurePromptCache).toBe("function");
+  expect(typeof mod.default.renderPromptTemplate).toBe("function");
 });
 
 // ============================================================================
 // prompt-loader.js - renderPromptTemplate (duplicate API)
 // ============================================================================
 
-test("prompt-loader renderPromptTemplate: basic variable replacement", async () => {
+it("prompt-loader renderPromptTemplate: basic variable replacement", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
@@ -1061,10 +1046,10 @@ test("prompt-loader renderPromptTemplate: basic variable replacement", async () 
     vars: { name: "World" },
     escapeVars: false,
   });
-  assert.equal(result, "Hello World!");
+  expect(result).toBe("Hello World!");
 });
 
-test("prompt-loader renderPromptTemplate: warnOnUnresolved logs warning", async () => {
+it("prompt-loader renderPromptTemplate: warnOnUnresolved logs warning", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
@@ -1074,14 +1059,14 @@ test("prompt-loader renderPromptTemplate: warnOnUnresolved logs warning", async 
     vars: {},
     warnOnUnresolved: true,
   });
-  assert.ok(result.includes("{{missing}}"));
+  expect(result.includes("{{missing}}")).toBeTruthy();
 });
 
 // ============================================================================
 // Multi-language support (i18n-like patterns)
 // ============================================================================
 
-test("prompt-template: supports unicode variable values", async () => {
+it("prompt-template: supports unicode variable values", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
@@ -1091,11 +1076,11 @@ test("prompt-template: supports unicode variable values", async () => {
     escapeVars: false,
   });
 
-  assert.ok(result.includes("Hello"));
-  assert.ok(result.includes("Alice"));
+  expect(result.includes("Hello")).toBeTruthy();
+  expect(result.includes("Alice")).toBeTruthy();
 });
 
-test("prompt-template: handles Chinese characters", async () => {
+it("prompt-template: handles Chinese characters", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
@@ -1105,10 +1090,10 @@ test("prompt-template: handles Chinese characters", async () => {
     escapeVars: false,
   });
 
-  assert.equal(result, "Hello");
+  expect(result).toBe("Hello");
 });
 
-test("prompt-template: handles mixed language content", async () => {
+it("prompt-template: handles mixed language content", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
@@ -1118,11 +1103,11 @@ test("prompt-template: handles mixed language content", async () => {
     escapeVars: false,
   });
 
-  assert.ok(result.includes("Hello"));
-  assert.ok(result.includes("Konnichiwa"));
+  expect(result.includes("Hello")).toBeTruthy();
+  expect(result.includes("Konnichiwa")).toBeTruthy();
 });
 
-test("prompt-template: emoji in variables", async () => {
+it("prompt-template: emoji in variables", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
@@ -1132,33 +1117,33 @@ test("prompt-template: emoji in variables", async () => {
     escapeVars: false,
   });
 
-  assert.ok(result.includes("Done!"));
+  expect(result.includes("Done!")).toBeTruthy();
 });
 
 // ============================================================================
 // Edge cases
 // ============================================================================
 
-test("renderPromptTemplate: empty template", async () => {
+it("renderPromptTemplate: empty template", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
 
-  assert.equal(renderPromptTemplate(""), "");
-  assert.equal(renderPromptTemplate(null), "");
-  assert.equal(renderPromptTemplate(undefined), "");
+  expect(renderPromptTemplate("")).toBe("");
+  expect(renderPromptTemplate(null)).toBe("");
+  expect(renderPromptTemplate(undefined)).toBe("");
 });
 
-test("renderPromptTemplate: no vars provided", async () => {
+it("renderPromptTemplate: no vars provided", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
 
   const result = renderPromptTemplate("Static text");
-  assert.equal(result, "Static text");
+  expect(result).toBe("Static text");
 });
 
-test("renderPromptTemplate: whitespace in placeholder", async () => {
+it("renderPromptTemplate: whitespace in placeholder", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
@@ -1167,10 +1152,10 @@ test("renderPromptTemplate: whitespace in placeholder", async () => {
     vars: { name: "test" },
     escapeVars: false,
   });
-  assert.equal(result, "test");
+  expect(result).toBe("test");
 });
 
-test("renderPromptTemplate: array value without formatter", async () => {
+it("renderPromptTemplate: array value without formatter", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
@@ -1179,10 +1164,10 @@ test("renderPromptTemplate: array value without formatter", async () => {
     vars: { items: ["a", "b", "c"] },
     escapeVars: false,
   });
-  assert.equal(result, "a\nb\nc");
+  expect(result).toBe("a\nb\nc");
 });
 
-test("renderPromptTemplate: object value without formatter", async () => {
+it("renderPromptTemplate: object value without formatter", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
@@ -1192,11 +1177,11 @@ test("renderPromptTemplate: object value without formatter", async () => {
     escapeVars: false,
   });
   // Should be JSON stringified
-  assert.ok(result.includes('"x"'));
-  assert.ok(result.includes("1"));
+  expect(result.includes('"x"')).toBeTruthy();
+  expect(result.includes("1")).toBeTruthy();
 });
 
-test("formatters: chained formatters |trim|upper", async () => {
+it("formatters: chained formatters |trim|upper", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
@@ -1205,10 +1190,10 @@ test("formatters: chained formatters |trim|upper", async () => {
     vars: { x: "  hello  " },
     escapeVars: false,
   });
-  assert.equal(result, "HELLO");
+  expect(result).toBe("HELLO");
 });
 
-test("PromptLoader: LRU cache eviction", async () => {
+it("PromptLoader: LRU cache eviction", async () => {
   const { PromptLoader } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
@@ -1225,12 +1210,12 @@ test("PromptLoader: LRU cache eviction", async () => {
 
   const names = loader.getCachedPromptNames();
   // Only 2 should remain due to LRU eviction
-  assert.equal(names.length, 2);
+  expect(names.length).toBe(2);
   // First loaded should be evicted
-  assert.ok(!names.includes("deepsearch/quick"));
+  expect(!names.includes("deepsearch/quick")).toBeTruthy();
 });
 
-test("PromptLoader: maxPromptBytes limit", async () => {
+it("PromptLoader: maxPromptBytes limit", async () => {
   const { PromptLoader } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
@@ -1240,9 +1225,7 @@ test("PromptLoader: maxPromptBytes limit", async () => {
     maxPromptBytes: 10, // Very small limit
   });
 
-  await assert.rejects(
-    () => loader.loadPrompt("deepsearch/system"),
-    /exceeds limit/
+  await expect(() => loader.loadPrompt("deepsearch/system")).rejects.toThrow(/exceeds limit/
   );
 });
 
@@ -1250,7 +1233,7 @@ test("PromptLoader: maxPromptBytes limit", async () => {
 // Additional prompt-loader.js renderPromptTemplate coverage
 // ============================================================================
 
-test("prompt-loader renderPromptTemplate: appendIfMissing with empty placeholder name", async () => {
+it("prompt-loader renderPromptTemplate: appendIfMissing with empty placeholder name", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
@@ -1258,11 +1241,11 @@ test("prompt-loader renderPromptTemplate: appendIfMissing with empty placeholder
   const result = renderPromptTemplate("Main", {
     appendIfMissing: { "": "should skip", valid: "added" },
   });
-  assert.ok(!result.includes("should skip"));
-  assert.ok(result.includes("added"));
+  expect(!result.includes("should skip")).toBeTruthy();
+  expect(result.includes("added")).toBeTruthy();
 });
 
-test("prompt-loader renderPromptTemplate: appendIfMissing with empty content", async () => {
+it("prompt-loader renderPromptTemplate: appendIfMissing with empty content", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
@@ -1270,10 +1253,10 @@ test("prompt-loader renderPromptTemplate: appendIfMissing with empty content", a
   const result = renderPromptTemplate("Main", {
     appendIfMissing: { empty: "", valid: "added" },
   });
-  assert.ok(result.includes("added"));
+  expect(result.includes("added")).toBeTruthy();
 });
 
-test("prompt-loader renderPromptTemplate: onUnresolved callback that throws", async () => {
+it("prompt-loader renderPromptTemplate: onUnresolved callback that throws", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
@@ -1285,10 +1268,10 @@ test("prompt-loader renderPromptTemplate: onUnresolved callback that throws", as
       throw new Error("callback error");
     },
   });
-  assert.ok(result.includes("{{missing}}"));
+  expect(result.includes("{{missing}}")).toBeTruthy();
 });
 
-test("prompt-loader renderPromptTemplate: more than 20 unresolved truncated", async () => {
+it("prompt-loader renderPromptTemplate: more than 20 unresolved truncated", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
@@ -1303,19 +1286,19 @@ test("prompt-loader renderPromptTemplate: more than 20 unresolved truncated", as
   });
 
   // Only first 20 should be reported
-  assert.equal(received.length, 20);
+  expect(received.length).toBe(20);
 });
 
-test("prompt-loader renderPromptTemplate: empty key placeholder", async () => {
+it("prompt-loader renderPromptTemplate: empty key placeholder", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
 
   const result = renderPromptTemplate("{{  }}", { vars: {} });
-  assert.equal(result, "{{  }}");
+  expect(result).toBe("{{  }}");
 });
 
-test("prompt-loader renderPromptTemplate: non-object appendIfMissing ignored", async () => {
+it("prompt-loader renderPromptTemplate: non-object appendIfMissing ignored", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
@@ -1323,10 +1306,10 @@ test("prompt-loader renderPromptTemplate: non-object appendIfMissing ignored", a
   const result = renderPromptTemplate("Main", {
     appendIfMissing: "not-an-object",
   });
-  assert.equal(result, "Main");
+  expect(result).toBe("Main");
 });
 
-test("prompt-loader renderPromptTemplate: keepUnresolved false with empty key", async () => {
+it("prompt-loader renderPromptTemplate: keepUnresolved false with empty key", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
@@ -1335,10 +1318,10 @@ test("prompt-loader renderPromptTemplate: keepUnresolved false with empty key", 
     vars: {},
     keepUnresolved: false,
   });
-  assert.equal(result, "");
+  expect(result).toBe("");
 });
 
-test("prompt-loader renderPromptTemplate: object/array values kept as placeholder", async () => {
+it("prompt-loader renderPromptTemplate: object/array values kept as placeholder", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
@@ -1348,14 +1331,14 @@ test("prompt-loader renderPromptTemplate: object/array values kept as placeholde
     vars: { arr: [1, 2, 3], obj: { x: 1 } },
   });
   // Should keep as unresolved since arrays/objects not handled
-  assert.ok(result.includes("{{arr}}") || result.includes("{{obj}}"));
+  expect(result.includes("{{arr}}") || result.includes("{{obj}}")).toBeTruthy();
 });
 
 // ============================================================================
 // PromptLoader constructor edge cases
 // ============================================================================
 
-test("PromptLoader: constructor with Infinity maxManifestBytes", async () => {
+it("PromptLoader: constructor with Infinity maxManifestBytes", async () => {
   const { PromptLoader } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
@@ -1366,10 +1349,10 @@ test("PromptLoader: constructor with Infinity maxManifestBytes", async () => {
   });
 
   // Should not throw
-  assert.ok(loader);
+  expect(loader).toBeTruthy();
 });
 
-test("PromptLoader: constructor with invalid maxManifestBytes uses default", async () => {
+it("PromptLoader: constructor with invalid maxManifestBytes uses default", async () => {
   const { PromptLoader } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
@@ -1380,10 +1363,10 @@ test("PromptLoader: constructor with invalid maxManifestBytes uses default", asy
   });
 
   // Should not throw, uses default
-  assert.ok(loader);
+  expect(loader).toBeTruthy();
 });
 
-test("PromptLoader: constructor with negative maxPromptBytes uses default", async () => {
+it("PromptLoader: constructor with negative maxPromptBytes uses default", async () => {
   const { PromptLoader } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
@@ -1394,10 +1377,10 @@ test("PromptLoader: constructor with negative maxPromptBytes uses default", asyn
   });
 
   // Should not throw
-  assert.ok(loader);
+  expect(loader).toBeTruthy();
 });
 
-test("PromptLoader: constructor with custom fetchImpl", async () => {
+it("PromptLoader: constructor with custom fetchImpl", async () => {
   const { PromptLoader } = await import(
     "../../../js/agents/prompts/prompt-loader.js"
   );
@@ -1408,14 +1391,14 @@ test("PromptLoader: constructor with custom fetchImpl", async () => {
     fetchImpl: customFetch,
   });
 
-  assert.ok(loader);
+  expect(loader).toBeTruthy();
 });
 
 // ============================================================================
 // prompt-template.js additional coverage
 // ============================================================================
 
-test("prompt-template: formatter with args context", async () => {
+it("prompt-template: formatter with args context", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
@@ -1425,10 +1408,10 @@ test("prompt-template: formatter with args context", async () => {
     vars: { data: { a: 1 } },
     escapeVars: false,
   });
-  assert.ok(result.includes("    ")); // 4-space indent
+  expect(result.includes("    ")).toBeTruthy(); // 4-space indent
 });
 
-test("prompt-template: nested object flattening depth limit", async () => {
+it("prompt-template: nested object flattening depth limit", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
@@ -1439,10 +1422,10 @@ test("prompt-template: nested object flattening depth limit", async () => {
     vars: deep,
   });
   // l5 should not be accessible due to depth limit
-  assert.ok(result.includes("{{l1.l2.l3.l4.l5}}"));
+  expect(result.includes("{{l1.l2.l3.l4.l5}}")).toBeTruthy();
 });
 
-test("prompt-template: array in vars not flattened", async () => {
+it("prompt-template: array in vars not flattened", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
@@ -1451,10 +1434,10 @@ test("prompt-template: array in vars not flattened", async () => {
     vars: { items: ["a", "b", "c"] },
     escapeVars: false,
   });
-  assert.equal(result, "a\nb\nc");
+  expect(result).toBe("a\nb\nc");
 });
 
-test("prompt-template: warnOnUnresolved with multiple placeholders", async () => {
+it("prompt-template: warnOnUnresolved with multiple placeholders", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
@@ -1464,10 +1447,10 @@ test("prompt-template: warnOnUnresolved with multiple placeholders", async () =>
     vars: {},
     warnOnUnresolved: true,
   });
-  assert.ok(result.includes("{{a}}"));
+  expect(result.includes("{{a}}")).toBeTruthy();
 });
 
-test("prompt-template: object at intermediate key also stored", async () => {
+it("prompt-template: object at intermediate key also stored", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
@@ -1477,11 +1460,11 @@ test("prompt-template: object at intermediate key also stored", async () => {
     vars: { config: { value: 42 } },
     escapeVars: false,
   });
-  assert.ok(result.includes('"value"'));
-  assert.ok(result.includes("42"));
+  expect(result.includes('"value"')).toBeTruthy();
+  expect(result.includes("42")).toBeTruthy();
 });
 
-test("prompt-template: empty formatter name in pipeline", async () => {
+it("prompt-template: empty formatter name in pipeline", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
@@ -1492,10 +1475,10 @@ test("prompt-template: empty formatter name in pipeline", async () => {
     failOnUnresolved: true,
   });
   // Empty formatter is skipped
-  assert.ok(result.includes("val"));
+  expect(result.includes("val")).toBeTruthy();
 });
 
-test("prompt-template: formatter with multiple args", async () => {
+it("prompt-template: formatter with multiple args", async () => {
   const { renderPromptTemplate } = await import(
     "../../../js/agents/prompts/prompt-template.js"
   );
@@ -1508,45 +1491,45 @@ test("prompt-template: formatter with multiple args", async () => {
     },
     escapeVars: false,
   });
-  assert.equal(result, "a,b");
+  expect(result).toBe("a,b");
 });
 
 // ============================================================================
 // formatters/index.js DEFAULT_FORMATTERS with args
 // ============================================================================
 
-test("DEFAULT_FORMATTERS.code: uses lang from args", async () => {
+it("DEFAULT_FORMATTERS.code: uses lang from args", async () => {
   const { DEFAULT_FORMATTERS } = await import(
     "../../../js/agents/prompts/formatters/index.js"
   );
 
   const result = DEFAULT_FORMATTERS.code("content", { args: ["typescript"] });
-  assert.ok(result.includes("```typescript"));
+  expect(result.includes("```typescript")).toBeTruthy();
 });
 
-test("DEFAULT_FORMATTERS.json: uses space from args", async () => {
+it("DEFAULT_FORMATTERS.json: uses space from args", async () => {
   const { DEFAULT_FORMATTERS } = await import(
     "../../../js/agents/prompts/formatters/index.js"
   );
 
   const result = DEFAULT_FORMATTERS.json({ x: 1 }, { args: ["4"] });
-  assert.ok(result.includes("    ")); // 4-space indent
+  expect(result.includes("    ")).toBeTruthy(); // 4-space indent
 });
 
-test("DEFAULT_FORMATTERS.bullets: called without ctx", async () => {
+it("DEFAULT_FORMATTERS.bullets: called without ctx", async () => {
   const { DEFAULT_FORMATTERS } = await import(
     "../../../js/agents/prompts/formatters/index.js"
   );
 
   const result = DEFAULT_FORMATTERS.bullets(["a", "b"]);
-  assert.equal(result, "- a\n- b");
+  expect(result).toBe("- a\n- b");
 });
 
 // ============================================================================
 // PromptRegistry additional edge cases
 // ============================================================================
 
-test("PromptRegistry: chain register calls", async () => {
+it("PromptRegistry: chain register calls", async () => {
   const { PromptRegistry } = await import(
     "../../../js/agents/prompts/prompt-registry.js"
   );
@@ -1554,25 +1537,25 @@ test("PromptRegistry: chain register calls", async () => {
   const registry = new PromptRegistry();
   const result = registry.register("a", "A").register("b", "B");
 
-  assert.equal(result, registry);
-  assert.ok(registry.has("a"));
-  assert.ok(registry.has("b"));
+  expect(result).toBe(registry);
+  expect(registry.has("a")).toBeTruthy();
+  expect(registry.has("b")).toBeTruthy();
 });
 
-test("PromptRegistry: whitespace-only name in get returns null", async () => {
+it("PromptRegistry: whitespace-only name in get returns null", async () => {
   const { PromptRegistry } = await import(
     "../../../js/agents/prompts/prompt-registry.js"
   );
 
   const registry = new PromptRegistry();
-  assert.equal(registry.get("   "), null);
+  expect(registry.get("   ")).toBe(null);
 });
 
-test("PromptRegistry: whitespace-only name in has returns false", async () => {
+it("PromptRegistry: whitespace-only name in has returns false", async () => {
   const { PromptRegistry } = await import(
     "../../../js/agents/prompts/prompt-registry.js"
   );
 
   const registry = new PromptRegistry();
-  assert.equal(registry.has("   "), false);
+  expect(registry.has("   ")).toBe(false);
 });

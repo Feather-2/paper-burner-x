@@ -1,5 +1,5 @@
-import { describe, it, mock } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import { createTaskTool, ContextMode, TASK_TOOL_DEFINITION } from "../../../js/agents/runtime/tools/TaskTool.js";
 import { SubagentRegistry } from "../../../js/agents/sdk/SubagentRegistry.js";
@@ -9,14 +9,14 @@ import { Watchdog } from "../../../js/agents/runtime/compression/watchdog.js";
 describe("TaskTool", () => {
   it("should have context_mode in schema", () => {
     const props = TASK_TOOL_DEFINITION.parameters.properties;
-    assert.ok(props.context_mode);
-    assert.deepEqual(props.context_mode.enum, ["isolated", "shared", "handoff"]);
+    expect(props.context_mode).toBeTruthy();
+    expect(props.context_mode.enum).toEqual(["isolated", "shared", "handoff"]);
   });
 
   it("should export ContextMode enum", () => {
-    assert.equal(ContextMode.ISOLATED, "isolated");
-    assert.equal(ContextMode.SHARED, "shared");
-    assert.equal(ContextMode.HANDOFF, "handoff");
+    expect(ContextMode.ISOLATED).toBe("isolated");
+    expect(ContextMode.SHARED).toBe("shared");
+    expect(ContextMode.HANDOFF).toBe("handoff");
   });
 
   it("isolated mode: only passes sharedContext", async () => {
@@ -38,10 +38,10 @@ describe("TaskTool", () => {
 
     await handler({ subagent_type: "test", prompt: "do something", context_mode: "isolated" }, context);
 
-    assert.ok(receivedContext);
-    assert.deepEqual(receivedContext.sharedContext, { test: 1 });
-    assert.equal(receivedContext.messages, undefined);
-    assert.equal(receivedContext.handoff, undefined);
+    expect(receivedContext).toBeTruthy();
+    expect(receivedContext.sharedContext).toEqual({ test: 1 });
+    expect(receivedContext.messages).toBe(undefined);
+    expect(receivedContext.handoff).toBe(undefined);
   });
 
   it("shared mode: passes sharedContext only (no messages)", async () => {
@@ -68,10 +68,10 @@ describe("TaskTool", () => {
 
     await handler({ subagent_type: "test", prompt: "do something", context_mode: "shared" }, context);
 
-    assert.ok(receivedContext);
+    expect(receivedContext).toBeTruthy();
     // shared 模式不再传 messages（避免上下文膨胀）
-    assert.equal(receivedContext.messages, undefined);
-    assert.deepEqual(receivedContext.sharedContext, { shared: true });
+    expect(receivedContext.messages).toBe(undefined);
+    expect(receivedContext.sharedContext).toEqual({ shared: true });
   });
 
   it("handoff mode: passes handoff document", async () => {
@@ -99,11 +99,11 @@ describe("TaskTool", () => {
 
     await handler({ subagent_type: "test", prompt: "do something", context_mode: "handoff" }, context);
 
-    assert.ok(receivedContext);
-    assert.ok(receivedContext.handoff);
-    assert.equal(receivedContext.handoff.taskGoal, "test goal");
-    assert.equal(receivedContext.handoff.iteration, 5);
-    assert.equal(receivedContext.handoff.summary, "test summary");
+    expect(receivedContext).toBeTruthy();
+    expect(receivedContext.handoff).toBeTruthy();
+    expect(receivedContext.handoff.taskGoal).toBe("test goal");
+    expect(receivedContext.handoff.iteration).toBe(5);
+    expect(receivedContext.handoff.summary).toBe("test summary");
   });
 
   it("default mode is isolated", async () => {
@@ -126,22 +126,22 @@ describe("TaskTool", () => {
     // 不传 context_mode
     await handler({ subagent_type: "test", prompt: "do something" }, context);
 
-    assert.ok(receivedContext);
-    assert.equal(receivedContext.messages, undefined);
-    assert.equal(receivedContext.handoff, undefined);
+    expect(receivedContext).toBeTruthy();
+    expect(receivedContext.messages).toBe(undefined);
+    expect(receivedContext.handoff).toBe(undefined);
   });
 });
 
 describe("Watchdog", () => {
   it("should track iterations with tick()", () => {
     const watchdog = new Watchdog({});
-    assert.equal(watchdog._iterationCount, 0);
+    expect(watchdog._iterationCount).toBe(0);
 
     watchdog.tick();
     watchdog.tick();
     watchdog.tick();
 
-    assert.equal(watchdog._iterationCount, 3);
+    expect(watchdog._iterationCount).toBe(3);
   });
 
   it("should detect max iterations exceeded", () => {
@@ -150,8 +150,8 @@ describe("Watchdog", () => {
     for (let i = 0; i < 10; i++) watchdog.tick();
 
     const result = watchdog.checkHealth({ maxIterations: 5 });
-    assert.equal(result.healthy, false);
-    assert.ok(result.issues.some(i => i.type === "max_iterations"));
+    expect(result.healthy).toBe(false);
+    expect(result.issues.some(i => i.type === "max_iterations")).toBeTruthy();
   });
 
   it("should be healthy when under limits", () => {
@@ -159,8 +159,8 @@ describe("Watchdog", () => {
     watchdog.tick();
 
     const result = watchdog.checkHealth({ maxIterations: 50, maxTimeMs: 600000 });
-    assert.equal(result.healthy, true);
-    assert.equal(result.issues.length, 0);
+    expect(result.healthy).toBe(true);
+    expect(result.issues.length).toBe(0);
   });
 
   it("should reset counters", () => {
@@ -169,9 +169,9 @@ describe("Watchdog", () => {
 
     watchdog.reset();
 
-    assert.equal(watchdog._iterationCount, 0);
+    expect(watchdog._iterationCount).toBe(0);
     const result = watchdog.checkHealth({ maxIterations: 5 });
-    assert.equal(result.healthy, true);
+    expect(result.healthy).toBe(true);
   });
 });
 
@@ -196,23 +196,23 @@ describe("CicadaCompressor.buildHandoff", () => {
 
     const handoff = compressor.buildHandoff(state, null);
 
-    assert.equal(handoff.runId, "run_123");
-    assert.ok(handoff.timestamp);
-    assert.equal(handoff.accomplished.claimCount, 3);
-    assert.deepEqual(handoff.accomplished.completedTodos, ["step 1"]);
-    assert.equal(handoff.pending.taskGoal, "analyze data");
-    assert.equal(handoff.pending.todos.length, 1);
-    assert.equal(handoff.resumeGuide.iteration, 3);
-    assert.equal(handoff.resumeGuide.nextAction, "step 2");
+    expect(handoff.runId).toBe("run_123");
+    expect(handoff.timestamp).toBeTruthy();
+    expect(handoff.accomplished.claimCount).toBe(3);
+    expect(handoff.accomplished.completedTodos).toEqual(["step 1"]);
+    expect(handoff.pending.taskGoal).toBe("analyze data");
+    expect(handoff.pending.todos.length).toBe(1);
+    expect(handoff.resumeGuide.iteration).toBe(3);
+    expect(handoff.resumeGuide.nextAction).toBe("step 2");
   });
 
   it("should handle empty state", () => {
     const compressor = new CicadaCompressor({});
     const handoff = compressor.buildHandoff({}, null);
 
-    assert.ok(handoff.timestamp);
-    assert.equal(handoff.accomplished.summary, "");
-    assert.deepEqual(handoff.accomplished.completedTodos, []);
-    assert.deepEqual(handoff.pending.todos, []);
+    expect(handoff.timestamp).toBeTruthy();
+    expect(handoff.accomplished.summary).toBe("");
+    expect(handoff.accomplished.completedTodos).toEqual([]);
+    expect(handoff.pending.todos).toEqual([]);
   });
 });

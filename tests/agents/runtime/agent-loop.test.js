@@ -1,4 +1,5 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
 async function createTestLoop(options) {
@@ -11,7 +12,7 @@ async function createTestLoop(options) {
   return new TestLoop(options);
 }
 
-test("BaseAgentLoop helpers normalize and resolve", async () => {
+it("BaseAgentLoop helpers normalize and resolve", async () => {
   const {
     getEmitFn,
     checkCancelled,
@@ -24,36 +25,36 @@ test("BaseAgentLoop helpers normalize and resolve", async () => {
   const { setRuntimeState, LoopRuntimeStatuses } = await import("../../../js/agents/runtime/telemetry/loop-runtime-state.js");
 
   const emit = () => {};
-  assert.equal(getEmitFn({ emit }), emit);
-  assert.equal(getEmitFn({ eventBus: { emit } }), emit);
-  assert.equal(getEmitFn({}), null);
-  assert.equal(getEmitFn(null), null);
+  expect(getEmitFn({ emit })).toBe(emit);
+  expect(getEmitFn({ eventBus: { emit } })).toBe(emit);
+  expect(getEmitFn({})).toBe(null);
+  expect(getEmitFn(null)).toBe(null);
 
-  assert.doesNotThrow(() => checkPaused(null));
-  assert.doesNotThrow(() => checkPaused(undefined));
+  expect(() => checkPaused(null)).not.toThrow();
+  expect(() => checkPaused(undefined)).not.toThrow();
 
-  assert.deepEqual(normalizeToolResult({ ok: false, error: "bad" }), { ok: false, error: "bad" });
-  assert.deepEqual(normalizeToolResult({ error: "bad", data: 3 }), { ok: false, data: 3, error: "bad" });
-  assert.deepEqual(normalizeToolResult({ data: 3 }), { ok: true, data: 3, error: undefined });
-  assert.deepEqual(normalizeToolResult("value"), { ok: true, data: "value" });
+  expect(normalizeToolResult({ ok: false).toEqual(error: "bad" }), { ok: false, error: "bad" });
+  expect(normalizeToolResult({ error: "bad").toEqual(data: 3 }), { ok: false, data: 3, error: "bad" });
+  expect(normalizeToolResult({ data: 3 })).toEqual({ ok: true, data: 3, error: undefined });
+  expect(normalizeToolResult("value")).toEqual({ ok: true, data: "value" });
 
   const fn = () => {};
-  assert.equal(resolveToolExecutor({ toolExecutor: fn }), fn);
+  expect(resolveToolExecutor({ toolExecutor: fn })).toBe(fn);
   const executor = resolveToolExecutor({ tools: { execute: fn } });
-  assert.equal(typeof executor, "function");
-  assert.equal(executor("name", { ok: true }), fn("name", { ok: true }));
-  assert.equal(resolveToolExecutor({ toolExecutor: {} }), null);
-  assert.equal(resolveToolExecutor({ tools: {} }), null);
-  assert.equal(resolveToolExecutor({}), null);
+  expect(typeof executor).toBe("function");
+  expect(executor("name").toBe({ ok: true }), fn("name", { ok: true }));
+  expect(resolveToolExecutor({ toolExecutor: {} })).toBe(null);
+  expect(resolveToolExecutor({ tools: {} })).toBe(null);
+  expect(resolveToolExecutor({})).toBe(null);
 
   const controller = new AbortController();
-  assert.doesNotThrow(() => checkCancelled(controller.signal));
+  expect(() => checkCancelled(controller.signal)).not.toThrow();
   controller.abort("stop");
-  assert.throws(() => checkCancelled(controller.signal), /stop/);
+  expect(() => checkCancelled(controller.signal)).toThrow(/stop/);
 
   const controller2 = new AbortController();
   controller2.abort(new Error("boom"));
-  assert.throws(() => checkCancelled(controller2.signal), /boom/);
+  expect(() => checkCancelled(controller2.signal)).toThrow(/boom/);
 
   const pauseController = new AbortController();
   setRuntimeState(pauseController.signal, {
@@ -61,17 +62,17 @@ test("BaseAgentLoop helpers normalize and resolve", async () => {
     pausedReason: "user",
     lastCheckpointId: "ckpt_1",
   });
-  assert.throws(() => checkPaused(pauseController.signal), /Run paused/);
+  expect(() => checkPaused(pauseController.signal)).toThrow(/Run paused/);
 
-  assert.doesNotThrow(() => checkCancelledOrPaused(null));
-  assert.doesNotThrow(() => checkCancelledOrPaused(undefined));
+  expect(() => checkCancelledOrPaused(null)).not.toThrow();
+  expect(() => checkCancelledOrPaused(undefined)).not.toThrow();
 
   const cancelController = new AbortController();
   cancelController.abort("stop");
-  assert.throws(() => checkCancelledOrPaused(cancelController.signal), /stop/);
+  expect(() => checkCancelledOrPaused(cancelController.signal)).toThrow(/stop/);
 });
 
-test("BaseAgentLoop registers tools and calls them", async () => {
+it("BaseAgentLoop registers tools and calls them", async () => {
   const loop = await createTestLoop({
     tools: {
       ping: async ({ value }) => ({ value }),
@@ -83,17 +84,17 @@ test("BaseAgentLoop registers tools and calls them", async () => {
   loop.registerTool("pong", async () => "ok");
 
   const result = await loop._callTool("ping", { value: 2 }, {});
-  assert.deepEqual(result, { ok: true, data: { value: 2 } });
+  expect(result).toEqual({ ok: true, data: { value: 2 } });
 
   const pong = await loop._callTool("pong", {}, {});
-  assert.deepEqual(pong, { ok: true, data: "ok" });
+  expect(pong).toEqual({ ok: true, data: "ok" });
 
   const missing = await loop._callTool("nope", {}, {});
-  assert.equal(missing.ok, false);
-  assert.match(missing.error, /Unknown tool/);
+  expect(missing.ok).toBe(false);
+  expect(missing.error).toMatch(/Unknown tool/);
 });
 
-test("BaseAgentLoop flushCompression waits for scheduled compression", async () => {
+it("BaseAgentLoop flushCompression waits for scheduled compression", async () => {
   const loop = await createTestLoop({
     contextConfig: { contextWindow: 800, compressThreshold: 0.9, keepLastTurns: 1 },
   });
@@ -102,21 +103,21 @@ test("BaseAgentLoop flushCompression waits for scheduled compression", async () 
   loop.addMessage({ role: "user", content: "x".repeat(8000) });
   loop.addMessage({ role: "assistant", content: "ok" });
 
-  assert.equal(loop.getContextStatus().needsCompression, true);
+  expect(loop.getContextStatus().needsCompression).toBe(true);
 
   await loop.flushCompression();
 
   const ctx = loop.getContextStatus();
-  assert.equal(ctx.compressionPending, false);
-  assert.equal(ctx.needsCompression, false);
+  expect(ctx.compressionPending).toBe(false);
+  expect(ctx.needsCompression).toBe(false);
 
-  assert.equal(loop.messages.length, 2);
-  assert.equal(loop.messages[0].content, "ok");
-  assert.equal(loop.messages[1].role, "system");
-  assert.ok(loop.messages[1].content.startsWith("[Context Summary]"));
+  expect(loop.messages.length).toBe(2);
+  expect(loop.messages[0].content).toBe("ok");
+  expect(loop.messages[1].role).toBe("system");
+  expect(loop.messages[1].content.startsWith("[Context Summary]")).toBeTruthy();
 });
 
-test("BaseAgentLoop clears cooldown timers during flushCompression", async () => {
+it("BaseAgentLoop clears cooldown timers during flushCompression", async () => {
   const loop = await createTestLoop({
     contextConfig: { contextWindow: 800, compressThreshold: 0.9, keepLastTurns: 1, compressCooldownMs: 1000 },
   });
@@ -128,28 +129,28 @@ test("BaseAgentLoop clears cooldown timers during flushCompression", async () =>
   loop.addMessage({ role: "user", content: "x".repeat(8000) });
   loop.addMessage({ role: "assistant", content: "ok" });
   // Timer is now in _messageManager
-  assert.ok(loop._messageManager._compressionCooldownTimer);
+  expect(loop._messageManager._compressionCooldownTimer).toBeTruthy();
 
   await loop.flushCompression();
-  assert.equal(loop._messageManager._compressionCooldownTimer, null);
+  expect(loop._messageManager._compressionCooldownTimer).toBe(null);
 });
 
-test("BaseAgentLoop uses tool executor when provided", async () => {
+it("BaseAgentLoop uses tool executor when provided", async () => {
   const loop = await createTestLoop();
 
   const toolExecutor = async () => ({ data: "from-executor" });
   const result = await loop._callTool("external", { value: 1 }, { toolExecutor });
-  assert.deepEqual(result, { ok: true, data: "from-executor", error: undefined });
+  expect(result).toEqual({ ok: true, data: "from-executor", error: undefined });
 
   const executorObj = {
     execute: async () => ({ ok: false, error: "nope" }),
   };
   const failed = await loop._callTool("external", { value: 1 }, { toolExecutor: executorObj });
-  assert.equal(failed.ok, false);
-  assert.equal(failed.error, "nope");
+  expect(failed.ok).toBe(false);
+  expect(failed.error).toBe("nope");
 });
 
-test("BaseAgentLoop transitions without a state machine", async () => {
+it("BaseAgentLoop transitions without a state machine", async () => {
   const loop = await createTestLoop({ stageName: "simple", actor: "simple" });
   const events = [];
   const emit = (name, record) => events.push({ name, record });
@@ -157,17 +158,17 @@ test("BaseAgentLoop transitions without a state machine", async () => {
 
   loop._transitionPhase(state, "done", { emit, runId: "run_simple" });
 
-  assert.equal(state.state, "done");
-  assert.equal(events[0].name, "simple.phase.transition");
-  assert.equal(events[0].record.payload.to, "done");
+  expect(state.state).toBe("done");
+  expect(events[0].name).toBe("simple.phase.transition");
+  expect(events[0].record.payload.to).toBe("done");
 });
 
-test("BaseAgentLoop transitions without state object", async () => {
+it("BaseAgentLoop transitions without state object", async () => {
   const loop = await createTestLoop({ stageName: "simple", actor: "simple" });
-  assert.equal(loop._transitionPhase(null, "next"), "next");
+  expect(loop._transitionPhase(null).toBe("next"), "next");
 });
 
-test("BaseAgentLoop emits stages with actor via emit callback", async () => {
+it("BaseAgentLoop emits stages with actor via emit callback", async () => {
   const events = [];
   const emit = (name, record) => events.push({ name, record });
 
@@ -176,14 +177,14 @@ test("BaseAgentLoop emits stages with actor via emit callback", async () => {
   // Use emit directly instead of _emitStage (which is on BaseStage, not BaseAgentLoop)
   emit("demo.started", { actor: "demo", status: "started", payload: { ok: true } });
 
-  assert.equal(events.length, 1);
-  assert.equal(events[0].name, "demo.started");
-  assert.equal(events[0].record.actor, "demo");
-  assert.equal(events[0].record.status, "started");
-  assert.deepEqual(events[0].record.payload, { ok: true });
+  expect(events.length).toBe(1);
+  expect(events[0].name).toBe("demo.started");
+  expect(events[0].record.actor).toBe("demo");
+  expect(events[0].record.status).toBe("started");
+  expect(events[0].record.payload).toEqual({ ok: true });
 });
 
-test("BaseAgentLoop _checkPaused delegates to runtime pause check", async () => {
+it("BaseAgentLoop _checkPaused delegates to runtime pause check", async () => {
   const { BaseAgentLoop } = await import("../../../js/agents/runtime/core/agent-loop.js");
   const { setRuntimeState, LoopRuntimeStatuses } = await import("../../../js/agents/runtime/telemetry/loop-runtime-state.js");
 
@@ -194,14 +195,14 @@ test("BaseAgentLoop _checkPaused delegates to runtime pause check", async () => 
   }
 
   const loop = new TestLoop();
-  assert.doesNotThrow(() => loop._checkPaused(null));
+  expect(() => loop._checkPaused(null)).not.toThrow();
 
   const controller = new AbortController();
   setRuntimeState(controller.signal, { status: LoopRuntimeStatuses.PAUSED });
-  assert.throws(() => loop._checkPaused(controller.signal), /Run paused/);
+  expect(() => loop._checkPaused(controller.signal)).toThrow(/Run paused/);
 });
 
-test("BaseAgentLoop reports tool errors", async () => {
+it("BaseAgentLoop reports tool errors", async () => {
   const loop = await createTestLoop({
     tools: {
       fail: async () => {
@@ -211,11 +212,11 @@ test("BaseAgentLoop reports tool errors", async () => {
   });
 
   const result = await loop._callTool("fail", {}, {});
-  assert.equal(result.ok, false);
-  assert.equal(result.error, "boom");
+  expect(result.ok).toBe(false);
+  expect(result.error).toBe("boom");
 });
 
-test("BaseAgentLoop waitForUserAction resolves, aborts, and times out", async () => {
+it("BaseAgentLoop waitForUserAction resolves, aborts, and times out", async () => {
   const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const eventBus = new EventBus({ runId: "run_wait" });
@@ -224,18 +225,18 @@ test("BaseAgentLoop waitForUserAction resolves, aborts, and times out", async ()
   const action = loop.waitForUserAction("confirm", { timeout: 50 });
   eventBus.emit("user.action.confirm", { ok: true });
   const payload = await action;
-  assert.deepEqual(payload, { ok: true });
+  expect(payload).toEqual({ ok: true });
 
   const controller = new AbortController();
   const aborted = loop.waitForUserAction("confirm", { eventBus, signal: controller.signal });
   controller.abort("stop");
-  await assert.rejects(aborted, /Run cancelled/);
+  await expect(aborted).rejects.toThrow(/Run cancelled/);
 
   const timed = loop.waitForUserAction("confirm", { eventBus, timeout: 5 });
-  await assert.rejects(timed, /Timeout waiting for user action/);
+  await expect(timed).rejects.toThrow(/Timeout waiting for user action/);
 });
 
-test("BaseAgentLoop execute adapts stage inputs", async () => {
+it("BaseAgentLoop execute adapts stage inputs", async () => {
   const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
   const eventBus = new EventBus({ runId: "run_exec" });
@@ -243,11 +244,11 @@ test("BaseAgentLoop execute adapts stage inputs", async () => {
 
   const result = await loop.execute({ runId: "run_exec" }, { value: 1 }, { eventBus });
 
-  assert.equal(result.context.runContext.runId, "run_exec");
-  assert.deepEqual(result.input, { value: 1 });
+  expect(result.context.runContext.runId).toBe("run_exec");
+  expect(result.input).toEqual({ value: 1 });
 });
 
-test("BaseAgentLoop execute cleans up EventBus subscriptions", async () => {
+it("BaseAgentLoop execute cleans up EventBus subscriptions", async () => {
   const { BaseAgentLoop } = await import("../../../js/agents/runtime/core/agent-loop.js");
   const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
@@ -255,8 +256,8 @@ test("BaseAgentLoop execute cleans up EventBus subscriptions", async () => {
 
   class TestLoop extends BaseAgentLoop {
     async run() {
-      assert.equal(eventBus._listeners.get("user.input")?.size ?? 0, 1);
-      assert.equal(eventBus._listeners.get("user.action.pause")?.size ?? 0, 1);
+      expect(eventBus._listeners.get("user.input")?.size ?? 0).toBe(1);
+      expect(eventBus._listeners.get("user.action.pause")?.size ?? 0).toBe(1);
       return { ok: true };
     }
   }
@@ -264,23 +265,23 @@ test("BaseAgentLoop execute cleans up EventBus subscriptions", async () => {
   const loop = new TestLoop({ eventBus, stageName: "exec_cleanup" });
   await loop.execute({ runId: "run_exec_cleanup" }, { value: 1 }, { eventBus });
 
-  assert.equal(eventBus._listeners.get("user.input"), undefined);
-  assert.equal(eventBus._listeners.get("user.action.pause"), undefined);
+  expect(eventBus._listeners.get("user.input")).toBe(undefined);
+  expect(eventBus._listeners.get("user.action.pause")).toBe(undefined);
 });
 
-test("BaseAgentLoop.run throws by default", async () => {
+it("BaseAgentLoop.run throws by default", async () => {
   const { BaseAgentLoop } = await import("../../../js/agents/runtime/core/agent-loop.js");
   const loop = new BaseAgentLoop();
 
-  await assert.rejects(() => loop.run(), /not implemented/);
+  await expect(() => loop.run()).rejects.toThrow(/not implemented/);
 });
 
-test("BaseAgentLoop waitForUserAction requires an event bus", async () => {
+it("BaseAgentLoop waitForUserAction requires an event bus", async () => {
   const loop = await createTestLoop();
-  await assert.rejects(loop.waitForUserAction("confirm"), /eventBus/);
+  await expect(loop.waitForUserAction("confirm").rejects).toThrow(/eventBus/);
 });
 
-test("BaseStage execute emits lifecycle and delegates to run", async () => {
+it("BaseStage execute emits lifecycle and delegates to run", async () => {
   const { BaseStage } = await import("../../../js/agents/runtime/core/agent-loop.js");
 
   const calls = [];
@@ -292,7 +293,7 @@ test("BaseStage execute emits lifecycle and delegates to run", async () => {
     }
 
     async run(input, context) {
-      assert.equal(context.runContext.runId, "run_1");
+      expect(context.runContext.runId).toBe("run_1");
       return { ok: true, input, hasEmit: typeof context.emit === "function" };
     }
   }
@@ -300,15 +301,15 @@ test("BaseStage execute emits lifecycle and delegates to run", async () => {
   const stage = new TestStage();
   const result = await stage.execute({ runId: "run_1" }, { value: 1 }, { emit });
 
-  assert.deepEqual(result, { ok: true, input: { value: 1 }, hasEmit: true });
-  assert.equal(calls[0].name, "unit.started");
-  assert.equal(calls[0].record.actor, "unit");
-  assert.equal(calls[0].record.status, "started");
-  assert.equal(calls[1].name, "unit.completed");
-  assert.equal(calls[1].record.status, "completed");
+  expect(result).toEqual({ ok: true, input: { value: 1 }, hasEmit: true });
+  expect(calls[0].name).toBe("unit.started");
+  expect(calls[0].record.actor).toBe("unit");
+  expect(calls[0].record.status).toBe("started");
+  expect(calls[1].name).toBe("unit.completed");
+  expect(calls[1].record.status).toBe("completed");
 });
 
-test("BaseStage execute emits failed when cancelled during run", async () => {
+it("BaseStage execute emits failed when cancelled during run", async () => {
   const { BaseStage } = await import("../../../js/agents/runtime/core/agent-loop.js");
 
   const calls = [];
@@ -328,6 +329,6 @@ test("BaseStage execute emits failed when cancelled during run", async () => {
   }
 
   const stage = new TestStage();
-  await assert.rejects(() => stage.execute({ runId: "run_cancel" }, { value: 1 }, { emit, signal: controller.signal }), /stop|cancel/i);
-  assert.ok(calls.some((e) => e.name === "cancel.failed"));
+  await expect(() => stage.execute({ runId: "run_cancel" }, { value: 1 }, { emit, signal: controller.signal }), /stop|cancel/i);
+  expect(calls.some(e => e.name === "cancel.failed")).toBeTruthy();
 });

@@ -1,4 +1,5 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
 function makeContentPackage({ runId = "run_test", slideCount = 2 } = {}) {
@@ -47,7 +48,7 @@ async function makeSlideHtml(slideIntent, designSystem, contentPackage) {
   return buildSlideHtml(slideIntent, designSystem, contentPackage, { safeMode: true, slideNo: 1 });
 }
 
-test("DesignAgentLoop runs phases, uses tools, emits events", async () => {
+it("DesignAgentLoop runs phases, uses tools, emits events", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
   const { DesignPhase } = await import("../../../js/agents/stages/design/states.js");
 
@@ -92,17 +93,17 @@ test("DesignAgentLoop runs phases, uses tools, emits events", async () => {
     skipReview: true,
   });
 
-  assert.equal(deck.schemaVersion, "0.1");
-  assert.equal(deck.slidesMeta.length, 2);
-  assert.ok(deck.deckHtmlDsl.includes("<section"));
+  expect(deck.schemaVersion).toBe("0.1");
+  expect(deck.slidesMeta.length).toBe(2);
+  expect(deck.deckHtmlDsl.includes("<section")).toBeTruthy();
 
-  assert.deepEqual(calls, ["parse_outline", "extract_style", "spawn_slide_agent", "fill_visual"]);
+  expect(calls).toEqual(["parse_outline", "extract_style", "spawn_slide_agent", "fill_visual"]);
 
   const transitions = events
     .filter((evt) => evt.name === "design.phase.transition")
     .map((evt) => evt.record.payload.to);
 
-  assert.deepEqual(transitions, [
+  expect(transitions).toEqual([
     DesignPhase.OUTLINE_PARSING,
     DesignPhase.OUTLINE_CONFIRMING,
     DesignPhase.STYLE_EXTRACTING,
@@ -117,14 +118,14 @@ test("DesignAgentLoop runs phases, uses tools, emits events", async () => {
     DesignPhase.COMPLETED,
   ]);
 
-  assert.ok(events.some((evt) => evt.name === "design.started"));
-  assert.ok(events.some((evt) => evt.name === "design.tokens.ended"));
-  assert.ok(events.some((evt) => evt.name === "design.generate.ended"));
-  assert.ok(events.some((evt) => evt.name === "design.qa.ended"));
-  assert.ok(events.some((evt) => evt.name === "design.ended"));
+  expect(events.some(evt => evt.name === "design.started")).toBeTruthy();
+  expect(events.some(evt => evt.name === "design.tokens.ended")).toBeTruthy();
+  expect(events.some(evt => evt.name === "design.generate.ended")).toBeTruthy();
+  expect(events.some(evt => evt.name === "design.qa.ended")).toBeTruthy();
+  expect(events.some(evt => evt.name === "design.ended")).toBeTruthy();
 });
 
-test("DesignAgentLoop waits for confirmations across phases", async () => {
+it("DesignAgentLoop waits for confirmations across phases", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
   const { DesignPhase } = await import("../../../js/agents/stages/design/states.js");
   const { EventBus } = await import("../../../js/agents/core/event-bus.js");
@@ -190,13 +191,13 @@ test("DesignAgentLoop waits for confirmations across phases", async () => {
     brainstormResult: { ideaPool: [], selectedIdeas: [], imageSlots: [], candidatesBySlide: [] },
   });
 
-  assert.equal(deck.slidesMeta.length, updatedSlides.length);
-  assert.ok(events.some((evt) => evt.name === "design.phase.transition" && evt.record.payload.to === DesignPhase.PLAN_CONFIRMING));
-  assert.ok(events.some((evt) => evt.name === "design.phase.transition" && evt.record.payload.to === DesignPhase.LAYOUT_CONFIRMING));
-  assert.ok(calls.includes("spawn_slide_agent"));
+  expect(deck.slidesMeta.length).toBe(updatedSlides.length);
+  expect(events.some(evt => evt.name === "design.phase.transition" && evt.record.payload.to === DesignPhase.PLAN_CONFIRMING)).toBeTruthy();
+  expect(events.some(evt => evt.name === "design.phase.transition" && evt.record.payload.to === DesignPhase.LAYOUT_CONFIRMING)).toBeTruthy();
+  expect(calls.includes("spawn_slide_agent")).toBeTruthy();
 });
 
-test("DesignAgentLoop reports QA failures and keeps degraded count", async () => {
+it("DesignAgentLoop reports QA failures and keeps degraded count", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
 
   const contentPackage = makeContentPackage({ slideCount: 1 });
@@ -234,16 +235,16 @@ test("DesignAgentLoop reports QA failures and keeps degraded count", async () =>
     brainstormResult: { ideaPool: [], selectedIdeas: [], imageSlots: [], candidatesBySlide: [] },
   });
 
-  assert.equal(deck.editHints.degradedCount, 1);
+  expect(deck.editHints.degradedCount).toBe(1);
   // After safeMode fallback, qa reflects the fixed HTML (passes), but degraded=true marks it
-  assert.equal(deck.slidesMeta[0].qa.pass, true);
-  assert.equal(deck.slidesMeta[0].degraded, true);
-  assert.ok(events.some((evt) => evt.name === "design.qa.ended" && evt.record.payload?.degradedCount === 1));
+  expect(deck.slidesMeta[0].qa.pass).toBe(true);
+  expect(deck.slidesMeta[0].degraded).toBe(true);
+  expect(events.some(evt => evt.name === "design.qa.ended" && evt.record.payload?.degradedCount === 1)).toBeTruthy();
   // design.degraded event is emitted when safeMode fallback occurs
-  assert.ok(events.some((evt) => evt.name === "design.degraded"));
+  expect(events.some(evt => evt.name === "design.degraded")).toBeTruthy();
 });
 
-test("DesignAgentLoop._renderVisuals fills placeholders", async () => {
+it("DesignAgentLoop._renderVisuals fills placeholders", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
   const { VisualSubAgent } = await import("../../../js/agents/stages/design/subagents/visual-agent.js");
 
@@ -288,16 +289,16 @@ test("DesignAgentLoop._renderVisuals fills placeholders", async () => {
       ["img1"]
     );
 
-    assert.ok(result.deckHtmlDsl.includes("data-el=\"image\""));
-    assert.ok(result.deckHtmlDsl.includes("data-el=\"svg\""));
-    assert.ok(result.deckHtmlDsl.includes("data-render-type=\"asset\""));
-    assert.deepEqual(result.pendingImages, []);
+    expect(result.deckHtmlDsl.includes("data-el=\"image\"")).toBeTruthy();
+    expect(result.deckHtmlDsl.includes("data-el=\"svg\"")).toBeTruthy();
+    expect(result.deckHtmlDsl.includes("data-render-type=\"asset\"")).toBeTruthy();
+    expect(result.pendingImages).toEqual([]);
   } finally {
     VisualSubAgent.prototype.run = originalRun;
   }
 });
 
-test("DesignAgentLoop._renderVisuals handles renderer errors", async () => {
+it("DesignAgentLoop._renderVisuals handles renderer errors", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
   const { VisualSubAgent } = await import("../../../js/agents/stages/design/subagents/visual-agent.js");
 
@@ -321,15 +322,15 @@ test("DesignAgentLoop._renderVisuals handles renderer errors", async () => {
       ["img1"]
     );
 
-    assert.equal(result.visualReport.hasFatalError, true);
-    assert.ok(result.imageReport.error.includes("Render exploded"));
-    assert.deepEqual(result.pendingImages, ["img1"]);
+    expect(result.visualReport.hasFatalError).toBe(true);
+    expect(result.imageReport.error.includes("Render exploded")).toBeTruthy();
+    expect(result.pendingImages).toEqual(["img1"]);
   } finally {
     VisualSubAgent.prototype.run = originalRun;
   }
 });
 
-test("DesignAgentLoop._toolChatAsk waits for user action", async () => {
+it("DesignAgentLoop._toolChatAsk waits for user action", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
   const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
@@ -343,44 +344,44 @@ test("DesignAgentLoop._toolChatAsk waits for user action", async () => {
 
   const result = await promise;
 
-  assert.equal(result.actionName, "chat_reply");
-  assert.deepEqual(result.payload, { reply: "ok" });
-  assert.ok(events.some((evt) => evt.name === "design.chat.ask"));
+  expect(result.actionName).toBe("chat_reply");
+  expect(result.payload).toEqual({ reply: "ok" });
+  expect(events.some(evt => evt.name === "design.chat.ask")).toBeTruthy();
 });
 
-test("DesignAgentLoop._callTool resolves executors and reports errors", async () => {
+it("DesignAgentLoop._callTool resolves executors and reports errors", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
 
   const loop = new DesignAgentLoop();
 
   const errorResult = await loop._callTool("parse_outline", {}, { toolExecutor: async () => ({ error: "nope" }) });
-  assert.equal(errorResult.ok, false);
-  assert.equal(errorResult.error, "nope");
+  expect(errorResult.ok).toBe(false);
+  expect(errorResult.error).toBe("nope");
 
   const rawResult = await loop._callTool("parse_outline", {}, { tools: { execute: async () => "raw" } });
-  assert.equal(rawResult.ok, true);
-  assert.equal(rawResult.data, "raw");
+  expect(rawResult.ok).toBe(true);
+  expect(rawResult.data).toBe("raw");
 
   loop._tools.thrower = async () => {
     throw new Error("boom");
   };
   const thrown = await loop._callTool("thrower", {}, {});
-  assert.equal(thrown.ok, false);
-  assert.equal(thrown.error, "boom");
+  expect(thrown.ok).toBe(false);
+  expect(thrown.error).toBe("boom");
 
   const missing = await loop._callTool("unknown_tool", {}, {});
-  assert.equal(missing.ok, false);
-  assert.ok(missing.error.includes("Unknown tool"));
+  expect(missing.ok).toBe(false);
+  expect(missing.error.includes("Unknown tool")).toBeTruthy();
 });
 
-test("DesignAgentLoop.waitForUserAction requires an event bus", async () => {
+it("DesignAgentLoop.waitForUserAction requires an event bus", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
 
   const loop = new DesignAgentLoop();
-  await assert.rejects(loop.waitForUserAction("confirm_outline"), /eventBus/);
+  await expect(loop.waitForUserAction("confirm_outline")).rejects.toThrow(/eventBus/);
 });
 
-test("DesignAgentLoop._buildVisualSlots falls back to svg without image provider", async () => {
+it("DesignAgentLoop._buildVisualSlots falls back to svg without image provider", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
 
   const loop = new DesignAgentLoop();
@@ -406,13 +407,13 @@ test("DesignAgentLoop._buildVisualSlots falls back to svg without image provider
     null
   );
 
-  assert.equal(slots.length, 1);
-  assert.equal(slots[0].renderType, "svg");
-  assert.equal(slots[0].svgSpec.type, "chart");
-  assert.equal(slots[0].svgSpec.description, "Use bars");
+  expect(slots.length).toBe(1);
+  expect(slots[0].renderType).toBe("svg");
+  expect(slots[0].svgSpec.type).toBe("chart");
+  expect(slots[0].svgSpec.description).toBe("Use bars");
 });
 
-test("DesignAgentLoop._buildVisualSlots falls back to image slots when brainstorm empty", async () => {
+it("DesignAgentLoop._buildVisualSlots falls back to image slots when brainstorm empty", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
 
   const loop = new DesignAgentLoop();
@@ -436,15 +437,15 @@ test("DesignAgentLoop._buildVisualSlots falls back to image slots when brainstor
     {}
   );
 
-  assert.equal(slots.length, 1);
-  assert.equal(slots[0].renderType, "ai-image");
-  assert.equal(slots[0].imageSpec.prompt, "Mountain view");
-  assert.equal(slots[0].imageSpec.style, "photo");
-  assert.equal(slots[0].assetSpec.assetId, "asset_1");
-  assert.deepEqual(slots[0].effects, { blur: 2 });
+  expect(slots.length).toBe(1);
+  expect(slots[0].renderType).toBe("ai-image");
+  expect(slots[0].imageSpec.prompt).toBe("Mountain view");
+  expect(slots[0].imageSpec.style).toBe("photo");
+  expect(slots[0].assetSpec.assetId).toBe("asset_1");
+  expect(slots[0].effects).toEqual({ blur: 2 });
 });
 
-test("DesignAgentLoop._renderVisuals returns defaults when no visual slots", async () => {
+it("DesignAgentLoop._renderVisuals returns defaults when no visual slots", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
 
   const loop = new DesignAgentLoop();
@@ -461,13 +462,13 @@ test("DesignAgentLoop._renderVisuals returns defaults when no visual slots", asy
     []
   );
 
-  assert.equal(result.visualReport, null);
-  assert.equal(result.imageReport, null);
-  assert.deepEqual(result.finalImageSlots, []);
-  assert.equal(result.deckHtmlDsl, slideHtmls.join("\n\n"));
+  expect(result.visualReport).toBe(null);
+  expect(result.imageReport).toBe(null);
+  expect(result.finalImageSlots).toEqual([]);
+  expect(result.deckHtmlDsl).toBe(slideHtmls.join("\n\n"));
 });
 
-test("DesignAgentLoop emits image planning events when configured", async () => {
+it("DesignAgentLoop emits image planning events when configured", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
 
   const contentPackage = makeContentPackage({ slideCount: 1 });
@@ -513,13 +514,13 @@ test("DesignAgentLoop emits image planning events when configured", async () => 
   });
 
   const planning = events.find((evt) => evt.name === "design.image.planning.completed");
-  assert.ok(planning, "planning event should be emitted");
-  assert.equal(planning.record.payload.planned, 2);
-  assert.equal(planning.record.payload.estimatedCostUSD, 0.08);
-  assert.ok(calls.includes("spawn_slide_agent"));
+  expect(planning, "planning event should be emitted").toBeTruthy();
+  expect(planning.record.payload.planned).toBe(2);
+  expect(planning.record.payload.estimatedCostUSD).toBe(0.08);
+  expect(calls.includes("spawn_slide_agent")).toBeTruthy();
 });
 
-test("DesignAgentLoop.getToolDefinitions returns a copy", async () => {
+it("DesignAgentLoop.getToolDefinitions returns a copy", async () => {
   const { DesignAgentLoop, DESIGN_AGENT_TOOL_DEFINITIONS } = await import("../../../js/agents/stages/design/agent-loop.js");
 
   const loop = new DesignAgentLoop();
@@ -527,11 +528,11 @@ test("DesignAgentLoop.getToolDefinitions returns a copy", async () => {
   defs.push({ name: "fake_tool" });
 
   const next = loop.getToolDefinitions();
-  assert.equal(next.some((def) => def.name === "fake_tool"), false);
-  assert.notEqual(defs, DESIGN_AGENT_TOOL_DEFINITIONS);
+  expect(next.some((def) => def.name === "fake_tool")).toBe(false);
+  expect(defs).not.toBe(DESIGN_AGENT_TOOL_DEFINITIONS);
 });
 
-test("DesignAgentLoop.waitForUserAction handles aborts and timeouts", async () => {
+it("DesignAgentLoop.waitForUserAction handles aborts and timeouts", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
   const { EventBus } = await import("../../../js/agents/core/event-bus.js");
 
@@ -541,13 +542,13 @@ test("DesignAgentLoop.waitForUserAction handles aborts and timeouts", async () =
 
   const aborted = loop.waitForUserAction("confirm_outline", { eventBus, signal: controller.signal });
   controller.abort({ code: "stop" });
-  await assert.rejects(aborted, /Run cancelled/);
+  await expect(aborted).rejects.toThrow(/Run cancelled/);
 
   const timed = loop.waitForUserAction("confirm_outline", { eventBus, timeout: 5 });
-  await assert.rejects(timed, /Timeout waiting for user action/);
+  await expect(timed).rejects.toThrow(/Timeout waiting for user action/);
 });
 
-test("DesignAgentLoop rejects when cancelled", async () => {
+it("DesignAgentLoop rejects when cancelled", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
 
   const loop = new DesignAgentLoop();
@@ -555,74 +556,64 @@ test("DesignAgentLoop rejects when cancelled", async () => {
   const controller = new AbortController();
   controller.abort({ code: "stop" });
 
-  await assert.rejects(
-    loop.run(contentPackage, { runContext: { runId: "run_cancel", constraints: contentPackage.constraints }, signal: controller.signal }),
+  await expect(loop.run(contentPackage).rejects.toThrow({ runContext: { runId: "run_cancel", constraints: contentPackage.constraints }, signal: controller.signal }),
     /Run cancelled/
   );
 });
 
-test("DesignAgentLoop._transitionPhase rejects invalid states", async () => {
+it("DesignAgentLoop._transitionPhase rejects invalid states", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
 
   const loop = new DesignAgentLoop();
-  assert.throws(
-    () => loop._transitionPhase({ status: "idle" }, "invalid_state", { emit: () => {} }),
+  expect(() => loop._transitionPhase({ status: "idle" }, "invalid_state", { emit: () => {} }),
     /Invalid state transition/
   );
 });
 
-test("DesignAgentLoop loop status records history", async () => {
+it("DesignAgentLoop loop status records history", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
   const { AgentStatus } = await import("../../../js/agents/runtime/core/agent-status.js");
 
   const loop = new DesignAgentLoop();
-  assert.equal(loop.loopStatus, AgentStatus.IDLE);
-  assert.equal(loop.statusHistory.length, 0);
+  expect(loop.loopStatus).toBe(AgentStatus.IDLE);
+  expect(loop.statusHistory.length).toBe(0);
 
   await loop._transitionTo(AgentStatus.RUNNING, { runId: "run_loop" });
 
-  assert.equal(loop.loopStatus, AgentStatus.RUNNING);
-  assert.equal(loop.statusHistory.length, 1);
-  assert.deepEqual(
-    loop.statusHistory.map((entry) => entry.to),
-    [AgentStatus.RUNNING]
+  expect(loop.loopStatus).toBe(AgentStatus.RUNNING);
+  expect(loop.statusHistory.length).toBe(1);
+  expect(loop.statusHistory.map((entry) => entry.to)).toEqual([AgentStatus.RUNNING]
   );
-  assert.equal(loop.statusHistory[0].from, AgentStatus.IDLE);
-  assert.equal(loop.statusHistory[0].runId, "run_loop");
-  assert.equal(typeof loop.statusHistory[0].timestamp, "number");
+  expect(loop.statusHistory[0].from).toBe(AgentStatus.IDLE);
+  expect(loop.statusHistory[0].runId).toBe("run_loop");
+  expect(typeof loop.statusHistory[0].timestamp).toBe("number");
 });
 
-test("DesignAgentLoop loop status rejects invalid transitions", async () => {
+it("DesignAgentLoop loop status rejects invalid transitions", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
   const { AgentStatus } = await import("../../../js/agents/runtime/core/agent-status.js");
 
   const loop = new DesignAgentLoop();
 
   // IDLE -> COMPLETED is invalid (must go through RUNNING first)
-  await assert.rejects(
-    loop._transitionTo(AgentStatus.COMPLETED),
-    (err) => {
-      assert.equal(err.code, "INVALID_STATE_TRANSITION");
-      return /Invalid DesignLoop state transition/.test(err.message);
-    }
-  );
+  await expect(loop._transitionTo(AgentStatus.COMPLETED)).rejects.toThrow(/Invalid DesignLoop state transition/);
 
-  assert.equal(loop.statusHistory.length, 0);
-  assert.equal(loop.loopStatus, AgentStatus.IDLE);
+  expect(loop.statusHistory.length).toBe(0);
+  expect(loop.loopStatus).toBe(AgentStatus.IDLE);
 });
 
-test("DesignAgentLoop.pause sets pause flag and isPaused getter", async () => {
+it("DesignAgentLoop.pause sets pause flag and isPaused getter", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
 
   const loop = new DesignAgentLoop();
-  assert.equal(loop.isPaused, false);
+  expect(loop.isPaused).toBe(false);
 
   loop.pause();
 
-  assert.equal(loop.isPaused, true);
+  expect(loop.isPaused).toBe(true);
 });
 
-test("DesignAgentLoop._transitionTo throws StagePausedError when pause requested", async () => {
+it("DesignAgentLoop._transitionTo throws StagePausedError when pause requested", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
   const { AgentStatus } = await import("../../../js/agents/runtime/core/agent-status.js");
   const { StagePausedError } = await import("../../../js/agents/runtime/core/stage-errors.js");
@@ -632,19 +623,18 @@ test("DesignAgentLoop._transitionTo throws StagePausedError when pause requested
   loop.pause("manual_pause");
 
   // Pause is checked when transitioning to RUNNING
-  await assert.rejects(
-    () => loop._transitionTo(AgentStatus.RUNNING, { runId: "run_pause", checkpointId: "cp_pause" }),
+  await expect(() => loop._transitionTo(AgentStatus.RUNNING, { runId: "run_pause", checkpointId: "cp_pause" }),
     (err) => {
-      assert.ok(err instanceof StagePausedError);
-      assert.equal(err.reason, "manual_pause");
+      expect(err instanceof StagePausedError).toBeTruthy();
+      expect(err.reason).toBe("manual_pause");
       return true;
     }
   );
 
-  assert.equal(loop.loopStatus, AgentStatus.PAUSED);
+  expect(loop.loopStatus).toBe(AgentStatus.PAUSED);
 });
 
-test("DesignAgentLoop run pauses before executing and persists checkpoint", async () => {
+it("DesignAgentLoop run pauses before executing and persists checkpoint", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
   const { AgentStatus } = await import("../../../js/agents/runtime/core/agent-status.js");
   const { StagePausedError } = await import("../../../js/agents/runtime/core/stage-errors.js");
@@ -674,24 +664,24 @@ test("DesignAgentLoop run pauses before executing and persists checkpoint", asyn
     pauseError = err;
   }
 
-  assert.ok(pauseError instanceof StagePausedError);
-  assert.equal(pauseError.reason, "manual_pause");
+  expect(pauseError instanceof StagePausedError).toBeTruthy();
+  expect(pauseError.reason).toBe("manual_pause");
 
-  assert.equal(loop.loopStatus, AgentStatus.PAUSED);
+  expect(loop.loopStatus).toBe(AgentStatus.PAUSED);
 });
 
-test("DesignAgentLoop._toolTakeScreenshot and _toolFixSlide return defaults", async () => {
+it("DesignAgentLoop._toolTakeScreenshot and _toolFixSlide return defaults", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
 
   const loop = new DesignAgentLoop();
   const shot = await loop._toolTakeScreenshot();
   const fix = await loop._toolFixSlide();
 
-  assert.deepEqual(shot, { screenshots: [] });
-  assert.equal(typeof fix.fixedHtml, "string");
+  expect(shot).toEqual({ screenshots: [] });
+  expect(typeof fix.fixedHtml).toBe("string");
 });
 
-test("DesignAgentLoop.execute proxies to run", async () => {
+it("DesignAgentLoop.execute proxies to run", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
 
   const contentPackage = makeContentPackage({ slideCount: 1 });
@@ -710,10 +700,10 @@ test("DesignAgentLoop.execute proxies to run", async () => {
 
   const loop = new DesignAgentLoop();
   const deck = await loop.execute({ runId: "run_execute", constraints: contentPackage.constraints }, contentPackage, { toolExecutor });
-  assert.equal(deck.runId, "run_execute");
+  expect(deck.runId).toBe("run_execute");
 });
 
-test("DesignAgentLoop falls back when design system overrides are invalid", async () => {
+it("DesignAgentLoop falls back when design system overrides are invalid", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
 
   const loop = new DesignAgentLoop();
@@ -722,10 +712,10 @@ test("DesignAgentLoop falls back when design system overrides are invalid", asyn
     {}
   );
 
-  assert.ok(style.designSystem?.designTokens, "fallback design tokens should be present");
+  expect(style.designSystem?.designTokens, "fallback design tokens should be present").toBeTruthy();
 });
 
-test("DesignAgentLoop._renderVisuals emits visual error events", async () => {
+it("DesignAgentLoop._renderVisuals emits visual error events", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
   const { VisualSubAgent } = await import("../../../js/agents/stages/design/subagents/visual-agent.js");
 
@@ -756,10 +746,10 @@ test("DesignAgentLoop._renderVisuals emits visual error events", async () => {
     VisualSubAgent.prototype.run = originalRun;
   }
 
-  assert.ok(events.some((evt) => evt.name === "design.visual.errors"));
+  expect(events.some(evt => evt.name === "design.visual.errors")).toBeTruthy();
 });
 
-test("DesignAgentLoop serializes and hydrates node states", async () => {
+it("DesignAgentLoop serializes and hydrates node states", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
 
   const contentPackage = makeContentPackage({ runId: "run_state", slideCount: 1 });
@@ -780,21 +770,21 @@ test("DesignAgentLoop serializes and hydrates node states", async () => {
   const serialized = loop.serializeNodeStates();
   loop.state.contentPackage.runId = "mutated";
 
-  assert.equal(serialized.contentPackage.runId, "run_state");
-  assert.deepEqual(serialized.imageSlots, imageSlots);
-  assert.deepEqual(serialized.visualSlots, visualSlots);
+  expect(serialized.contentPackage.runId).toBe("run_state");
+  expect(serialized.imageSlots).toEqual(imageSlots);
+  expect(serialized.visualSlots).toEqual(visualSlots);
 
   const restored = new DesignAgentLoop();
   restored.hydrateFromNodeStates(serialized);
 
-  assert.equal(restored.state.contentPackage.runId, "run_state");
-  assert.deepEqual(restored.state.slideIntents, contentPackage.slideIntents);
-  assert.deepEqual(restored.state.slideHtmls, [slideHtml]);
-  assert.deepEqual(restored.state.imageSlots, imageSlots);
-  assert.deepEqual(restored.state.visualSlots, visualSlots);
+  expect(restored.state.contentPackage.runId).toBe("run_state");
+  expect(restored.state.slideIntents).toEqual(contentPackage.slideIntents);
+  expect(restored.state.slideHtmls).toEqual([slideHtml]);
+  expect(restored.state.imageSlots).toEqual(imageSlots);
+  expect(restored.state.visualSlots).toEqual(visualSlots);
 });
 
-test("DesignAgentLoop.backtrackTo restores blackboard version", async () => {
+it("DesignAgentLoop.backtrackTo restores blackboard version", async () => {
   const { DesignAgentLoop, BacktrackError } = await import("../../../js/agents/stages/design/agent-loop.js");
   const { DesignPhase } = await import("../../../js/agents/stages/design/states.js");
 
@@ -805,15 +795,15 @@ test("DesignAgentLoop.backtrackTo restores blackboard version", async () => {
 
   try {
     loop.backtrackTo("v1", "test");
-    assert.fail("Expected backtrackTo to throw BacktrackError");
+    throw new Error("Expected backtrackTo to throw BacktrackError" || 'Test failed');
   } catch (err) {
-    assert.ok(err instanceof BacktrackError);
-    assert.equal(err.targetPhase, DesignPhase.GENERATING);
-    assert.equal(loop.blackboard._currentVersion, "v1");
+    expect(err instanceof BacktrackError).toBeTruthy();
+    expect(err.targetPhase).toBe(DesignPhase.GENERATING);
+    expect(loop.blackboard._currentVersion).toBe("v1");
   }
 });
 
-test("DesignAgentLoop runs refine when enabled", async () => {
+it("DesignAgentLoop runs refine when enabled", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
 
   const contentPackage = makeContentPackage({ slideCount: 1 });
@@ -843,10 +833,10 @@ test("DesignAgentLoop runs refine when enabled", async () => {
     brainstormResult: { ideaPool: [], selectedIdeas: [], imageSlots: [], candidatesBySlide: [] },
   });
 
-  assert.ok(deck.refineReport, "refine report should be present when enabled");
+  expect(deck.refineReport, "refine report should be present when enabled").toBeTruthy();
 });
 
-test("resumeDesignAgentLoop skips outline/style tools at deck planning checkpoint", async () => {
+it("resumeDesignAgentLoop skips outline/style tools at deck planning checkpoint", async () => {
   const { resumeDesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
   const { DesignPhase } = await import("../../../js/agents/stages/design/states.js");
   const { Archive, MapAdapter } = await import("../../../js/agents/shared/archive/archive.js");
@@ -885,11 +875,11 @@ test("resumeDesignAgentLoop skips outline/style tools at deck planning checkpoin
     brainstormResult: { ideaPool: [], selectedIdeas: [], imageSlots: [], candidatesBySlide: [] },
   });
 
-  assert.ok(deck.deckHtmlDsl.includes("<section"));
-  assert.deepEqual(calls, ["spawn_slide_agent", "fill_visual"]);
+  expect(deck.deckHtmlDsl.includes("<section")).toBeTruthy();
+  expect(calls).toEqual(["spawn_slide_agent", "fill_visual"]);
 });
 
-test("DesignAgentLoop saves pre-action checkpoint before executing", async () => {
+it("DesignAgentLoop saves pre-action checkpoint before executing", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
   const { AgentStatus } = await import("../../../js/agents/runtime/core/agent-status.js");
   const { DesignPhase } = await import("../../../js/agents/stages/design/states.js");
@@ -915,26 +905,26 @@ test("DesignAgentLoop saves pre-action checkpoint before executing", async () =>
 
   const checkpointId = await loop._transitionTo(AgentStatus.RUNNING, { runId, iteration: 1, nodeStates });
 
-  assert.ok(typeof checkpointId === "string" && checkpointId.includes(":"));
+  expect(typeof checkpointId === "string" && checkpointId.includes(":")).toBeTruthy();
   const snapshot = await archive.restore(checkpointId);
-  assert.equal(snapshot.schemaVersion, "1.0");
-  assert.equal(snapshot.metadata.type, "pre-action");
-  assert.equal(snapshot.metadata.runId, runId);
-  assert.equal(snapshot.nodeStates.phase, DesignPhase.REVIEWING);
-  assert.equal(snapshot.nodeStates.loopStatus, AgentStatus.IDLE);
-  assert.deepEqual(snapshot.nodeStates.slidesMeta, nodeStates.slidesMeta);
+  expect(snapshot.schemaVersion).toBe("1.0");
+  expect(snapshot.metadata.type).toBe("pre-action");
+  expect(snapshot.metadata.runId).toBe(runId);
+  expect(snapshot.nodeStates.phase).toBe(DesignPhase.REVIEWING);
+  expect(snapshot.nodeStates.loopStatus).toBe(AgentStatus.IDLE);
+  expect(snapshot.nodeStates.slidesMeta).toEqual(nodeStates.slidesMeta);
   // nodeStates override serialized values for conflicts
-  assert.deepEqual(snapshot.nodeStates.imageSlots, nodeStates.imageSlots);
-  assert.deepEqual(snapshot.nodeStates.contentPackage, contentPackage);
-  assert.deepEqual(snapshot.nodeStates.slideIntents, contentPackage.slideIntents);
-  assert.deepEqual(snapshot.nodeStates.designSystem, designSystem);
-  assert.deepEqual(snapshot.nodeStates.slideHtmls, loop.state.slideHtmls);
-  assert.equal(snapshot.nodeStates.deckHtmlDsl, loop.state.deckHtmlDsl);
-  assert.deepEqual(snapshot.nodeStates.visualSlots, loop.state.visualSlots);
-  assert.ok(Array.isArray(snapshot.nodeStates.statusHistory));
+  expect(snapshot.nodeStates.imageSlots).toEqual(nodeStates.imageSlots);
+  expect(snapshot.nodeStates.contentPackage).toEqual(contentPackage);
+  expect(snapshot.nodeStates.slideIntents).toEqual(contentPackage.slideIntents);
+  expect(snapshot.nodeStates.designSystem).toEqual(designSystem);
+  expect(snapshot.nodeStates.slideHtmls).toEqual(loop.state.slideHtmls);
+  expect(snapshot.nodeStates.deckHtmlDsl).toBe(loop.state.deckHtmlDsl);
+  expect(snapshot.nodeStates.visualSlots).toEqual(loop.state.visualSlots);
+  expect(Array.isArray(snapshot.nodeStates.statusHistory)).toBeTruthy();
 });
 
-test("resumeDesignAgentLoop returns DeckPackage", async () => {
+it("resumeDesignAgentLoop returns DeckPackage", async () => {
   const { resumeDesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
   const { AgentStatus } = await import("../../../js/agents/runtime/core/agent-status.js");
   const { DesignPhase } = await import("../../../js/agents/stages/design/states.js");
@@ -989,15 +979,15 @@ test("resumeDesignAgentLoop returns DeckPackage", async () => {
     brainstormResult: { ideaPool: [], selectedIdeas: [], imageSlots: [], candidatesBySlide: [] },
   });
 
-  assert.ok(deck);
-  assert.equal(deck.runId, contentPackage.runId);
-  assert.ok(deck.designSystem);
-  assert.ok(deck.deckHtmlDsl.includes("<section"));
-  assert.equal(deck.slidesMeta.length, 1);
-  assert.deepEqual(calls, ["fill_visual"]);
+  expect(deck).toBeTruthy();
+  expect(deck.runId).toBe(contentPackage.runId);
+  expect(deck.designSystem).toBeTruthy();
+  expect(deck.deckHtmlDsl.includes("<section")).toBeTruthy();
+  expect(deck.slidesMeta.length).toBe(1);
+  expect(calls).toEqual(["fill_visual"]);
 });
 
-test("resumeDesignAgentLoop continues after pause checkpoint", async () => {
+it("resumeDesignAgentLoop continues after pause checkpoint", async () => {
   const { DesignAgentLoop, resumeDesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
   const { StagePausedError } = await import("../../../js/agents/runtime/core/stage-errors.js");
   const { Archive, MapAdapter } = await import("../../../js/agents/shared/archive/archive.js");
@@ -1021,16 +1011,15 @@ test("resumeDesignAgentLoop continues after pause checkpoint", async () => {
   loop.pause("manual_pause");
 
   let checkpointId;
-  await assert.rejects(
-    () =>
+  await expect(() =>
       loop.run(contentPackage, {
         runContext: { runId: contentPackage.runId, constraints: contentPackage.constraints },
         toolExecutor,
       }),
     (err) => {
-      assert.ok(err instanceof StagePausedError);
+      expect(err instanceof StagePausedError).toBeTruthy();
       checkpointId = err.checkpointId;
-      assert.ok(typeof checkpointId === "string" && checkpointId.includes(":"));
+      expect(typeof checkpointId === "string" && checkpointId.includes(":")).toBeTruthy();
       return true;
     }
   );
@@ -1048,15 +1037,15 @@ test("resumeDesignAgentLoop continues after pause checkpoint", async () => {
     contentPackage, // 提供 contentPackage 作为 fallback
   });
 
-  assert.ok(deck);
-  assert.equal(deck.runId, contentPackage.runId);
-  assert.equal(deck.slidesMeta.length, 1);
-  assert.ok(deck.designSystem);
+  expect(deck).toBeTruthy();
+  expect(deck.runId).toBe(contentPackage.runId);
+  expect(deck.slidesMeta.length).toBe(1);
+  expect(deck.designSystem).toBeTruthy();
   // 由于暂停发生在 IDLE 阶段，resume 会重新执行所有步骤
-  assert.ok(calls.includes("parse_outline") || calls.length > 0);
+  expect(calls.includes("parse_outline") || calls.length > 0).toBeTruthy();
 });
 
-test("DesignAgentLoop checkpoint snapshot is JSON serializable", async () => {
+it("DesignAgentLoop checkpoint snapshot is JSON serializable", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
   const { AgentStatus } = await import("../../../js/agents/runtime/core/agent-status.js");
   const { Archive, MapAdapter } = await import("../../../js/agents/shared/archive/archive.js");
@@ -1074,6 +1063,6 @@ test("DesignAgentLoop checkpoint snapshot is JSON serializable", async () => {
   const serialized = JSON.stringify(snapshot);
   const roundtrip = JSON.parse(serialized);
 
-  assert.equal(roundtrip.nodeStates.loopStatus, AgentStatus.IDLE);
-  assert.ok(Array.isArray(roundtrip.nodeStates.statusHistory));
+  expect(roundtrip.nodeStates.loopStatus).toBe(AgentStatus.IDLE);
+  expect(Array.isArray(roundtrip.nodeStates.statusHistory)).toBeTruthy();
 });

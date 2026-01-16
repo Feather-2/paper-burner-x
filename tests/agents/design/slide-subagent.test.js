@@ -1,4 +1,5 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -11,7 +12,7 @@ function makeTempFile(content) {
   return { dir, filePath };
 }
 
-test("SlideSubAgent: generates HTML, extracts visual slots, uses linked context", async (t) => {
+it("SlideSubAgent: generates HTML, extracts visual slots, uses linked context", async (t) => {
   const { SlideSubAgent } = await import("../../../js/agents/stages/design/subagents/slide-agent.js");
   const { AssetRegistry } = await import("../../../js/agents/stages/design/subagents/asset-registry.js");
   const { SlideStatus } = await import("../../../js/agents/stages/design/states.js");
@@ -54,20 +55,20 @@ test("SlideSubAgent: generates HTML, extracts visual slots, uses linked context"
 
   const result = await agent.run({ contentPackage: { runId: "run_slide" } });
 
-  assert.ok(capturedMessages, "modelCaller should be invoked");
+  expect(capturedMessages, "modelCaller should be invoked").toBeTruthy();
   const prompt = capturedMessages[1]?.content || "";
-  assert.ok(prompt.includes("linked.txt"), "prompt should include linked file name");
-  assert.ok(prompt.includes("Company logo"), "prompt should include linked asset context");
+  expect(prompt.includes("linked.txt")).toBeTruthy();
+  expect(prompt.includes("Company logo")).toBeTruthy();
 
-  assert.ok(result.htmlDsl.includes("data-el=\"image-placeholder\""));
-  assert.equal(result.visualSlots.length, 1);
-  assert.equal(result.visualSlots[0].slotId, "slot_1");
-  assert.equal(result.visualSlots[0].renderType, "svg");
-  assert.equal(result.status, SlideStatus.VISUAL_PENDING);
-  assert.ok(agent.statusLog.some((row) => row.to === SlideStatus.GENERATING));
+  expect(result.htmlDsl.includes("data-el=\"image-placeholder\"")).toBeTruthy();
+  expect(result.visualSlots.length).toBe(1);
+  expect(result.visualSlots[0].slotId).toBe("slot_1");
+  expect(result.visualSlots[0].renderType).toBe("svg");
+  expect(result.status).toBe(SlideStatus.VISUAL_PENDING);
+  expect(agent.statusLog.some(row => row.to === SlideStatus.GENERATING)).toBeTruthy();
 });
 
-test("SlideSubAgent: completes when no visual placeholders", async () => {
+it("SlideSubAgent: completes when no visual placeholders", async () => {
   const { SlideSubAgent } = await import("../../../js/agents/stages/design/subagents/slide-agent.js");
   const { SlideStatus } = await import("../../../js/agents/stages/design/states.js");
 
@@ -88,11 +89,11 @@ test("SlideSubAgent: completes when no visual placeholders", async () => {
   });
 
   const result = await agent.run({ contentPackage: { runId: "run_slide_2" } });
-  assert.equal(result.visualSlots.length, 0);
-  assert.equal(result.status, SlideStatus.COMPLETED);
+  expect(result.visualSlots.length).toBe(0);
+  expect(result.status).toBe(SlideStatus.COMPLETED);
 });
 
-test("SlideSubAgent: appends supplemental content and handles missing linked files", async (t) => {
+it("SlideSubAgent: appends supplemental content and handles missing linked files", async (t) => {
   const { SlideSubAgent } = await import("../../../js/agents/stages/design/subagents/slide-agent.js");
   const { AssetRegistry } = await import("../../../js/agents/stages/design/subagents/asset-registry.js");
 
@@ -129,14 +130,14 @@ test("SlideSubAgent: appends supplemental content and handles missing linked fil
   const result = await agent.run({ contentPackage: { runId: "run_supplemental" } });
   const prompt = capturedMessages?.[1]?.content || "";
 
-  assert.ok(prompt.includes("Base content"));
-  assert.ok(prompt.includes("Linked files:"));
-  assert.ok(prompt.includes("read failed"));
-  assert.ok(prompt.includes("tags:alpha, beta"));
-  assert.equal(result.status, agent.status);
+  expect(prompt.includes("Base content")).toBeTruthy();
+  expect(prompt.includes("Linked files:")).toBeTruthy();
+  expect(prompt.includes("read failed")).toBeTruthy();
+  expect(prompt.includes("tags:alpha, beta")).toBeTruthy();
+  expect(result.status).toBe(agent.status);
 });
 
-test("SlideSubAgent: merges supplemental content into markdown objects", async () => {
+it("SlideSubAgent: merges supplemental content into markdown objects", async () => {
   const { SlideSubAgent } = await import("../../../js/agents/stages/design/subagents/slide-agent.js");
 
   let capturedMessages = null;
@@ -161,11 +162,11 @@ test("SlideSubAgent: merges supplemental content into markdown objects", async (
 
   await agent.run({ contentPackage: { runId: "run_markdown" } });
   const prompt = capturedMessages?.[1]?.content || "";
-  assert.ok(prompt.includes("Base markdown"));
-  assert.ok(prompt.includes("User notes"));
+  expect(prompt.includes("Base markdown")).toBeTruthy();
+  expect(prompt.includes("User notes")).toBeTruthy();
 });
 
-test("SlideSubAgent: returns failed when run is cancelled", async () => {
+it("SlideSubAgent: returns failed when run is cancelled", async () => {
   const { SlideSubAgent } = await import("../../../js/agents/stages/design/subagents/slide-agent.js");
   const { SlideStatus } = await import("../../../js/agents/stages/design/states.js");
 
@@ -179,19 +180,19 @@ test("SlideSubAgent: returns failed when run is cancelled", async () => {
   });
 
   const result = await agent.run({ signal: controller.signal });
-  assert.equal(result.status, SlideStatus.FAILED);
-  assert.equal(result.error, "Stop");
-  assert.ok(agent.statusLog.some((row) => row.to === SlideStatus.FAILED));
+  expect(result.status).toBe(SlideStatus.FAILED);
+  expect(result.error).toBe("Stop");
+  expect(agent.statusLog.some(row => row.to === SlideStatus.FAILED)).toBeTruthy();
 });
 
-test("SlideSubAgent: throws when required inputs are missing", async () => {
+it("SlideSubAgent: throws when required inputs are missing", async () => {
   const { SlideSubAgent } = await import("../../../js/agents/stages/design/subagents/slide-agent.js");
 
   const agent = new SlideSubAgent({ slideIntent: { slideIntentId: "s_missing" } });
-  await assert.rejects(agent.run(), /designSystem/);
+  await expect(agent.run()).rejects.toThrow(/designSystem/);
 });
 
-test("AssetRegistry normalizes categories and links assets", async () => {
+it("AssetRegistry normalizes categories and links assets", async () => {
   const { AssetRegistry } = await import("../../../js/agents/stages/design/subagents/asset-registry.js");
 
   const registry = new AssetRegistry({
@@ -203,24 +204,24 @@ test("AssetRegistry normalizes categories and links assets", async () => {
   registry.addAsset({ assetId: "asset_2", source: "video_frame" }, { category: "frames" });
   registry.linkToSlide("slide_1", ["asset_2", "", null]);
 
-  assert.equal(registry.uploaded.length, 0);
-  assert.equal(registry.extracted.length, 1);
-  assert.equal(registry.videoFrames.length, 1);
-  assert.equal(registry.getAssetsForSlide("slide_1").length, 2);
+  expect(registry.uploaded.length).toBe(0);
+  expect(registry.extracted.length).toBe(1);
+  expect(registry.videoFrames.length).toBe(1);
+  expect(registry.getAssetsForSlide("slide_1").length).toBe(2);
 
   const exported = registry.export();
-  assert.ok(exported.slideAssetMapping.slide_1.includes("asset_1"));
-  assert.ok(exported.slideAssetMapping.slide_1.includes("asset_2"));
+  expect(exported.slideAssetMapping.slide_1.includes("asset_1")).toBeTruthy();
+  expect(exported.slideAssetMapping.slide_1.includes("asset_2")).toBeTruthy();
 });
 
-test("AssetRegistry generates ids and infers categories", async () => {
+it("AssetRegistry generates ids and infers categories", async () => {
   const { AssetRegistry } = await import("../../../js/agents/stages/design/subagents/asset-registry.js");
 
   const registry = new AssetRegistry();
   const assetId = registry.addAsset({ source: "custom_source", description: "Unknown asset" });
   const fallbackId = registry.addAsset({ description: "No source asset" });
 
-  assert.ok(assetId.startsWith("asset_"));
-  assert.ok(fallbackId.startsWith("asset_"));
-  assert.equal(registry.generated.length, 2);
+  expect(assetId.startsWith("asset_")).toBeTruthy();
+  expect(fallbackId.startsWith("asset_")).toBeTruthy();
+  expect(registry.generated.length).toBe(2);
 });

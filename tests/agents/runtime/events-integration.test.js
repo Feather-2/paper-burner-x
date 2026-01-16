@@ -1,4 +1,5 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -44,16 +45,16 @@ function validateArchivePayload(payload) {
   return errors;
 }
 
-test("Runtime Events: exports new event groups", async () => {
+it("Runtime Events: exports new event groups", async () => {
   const { ReviewEvents, CompressionEvents, ArchiveEvents } = await import("../../../js/agents/runtime/events/events.js");
 
-  assert.deepEqual(ReviewEvents, {
+  expect(ReviewEvents).toEqual({
     REVIEW_STARTED: "review.started",
     REVIEW_COMPLETED: "review.completed",
     REVIEW_FAILED: "review.failed",
   });
 
-  assert.deepEqual(CompressionEvents, {
+  expect(CompressionEvents).toEqual({
     COMPRESSION_SCHEDULED: "compression.scheduled",
     COMPRESSION_APPLIED: "compression.applied",
     COMPRESSION_FAILED: "compression.failed",
@@ -61,33 +62,33 @@ test("Runtime Events: exports new event groups", async () => {
     COMPRESSION_FORCED: "compression.forced",
   });
 
-  assert.deepEqual(ArchiveEvents, {
+  expect(ArchiveEvents).toEqual({
     CHECKPOINT_SAVED: "archive.checkpoint.saved",
     CHECKPOINT_RESTORED: "archive.checkpoint.restored",
     CHECKPOINT_DELETED: "archive.checkpoint.deleted",
   });
 
-  assert.ok(Object.isFrozen(ReviewEvents));
-  assert.ok(Object.isFrozen(CompressionEvents));
-  assert.ok(Object.isFrozen(ArchiveEvents));
+  expect(Object.isFrozen(ReviewEvents)).toBeTruthy();
+  expect(Object.isFrozen(CompressionEvents)).toBeTruthy();
+  expect(Object.isFrozen(ArchiveEvents)).toBeTruthy();
 });
 
-test("Runtime Events: matchEventPattern matches archive.* and nested patterns", async () => {
+it("Runtime Events: matchEventPattern matches archive.* and nested patterns", async () => {
   const { ArchiveEvents, ReviewEvents, matchEventPattern } = await import("../../../js/agents/runtime/events/events.js");
 
-  assert.equal(matchEventPattern("archive.*", ArchiveEvents.CHECKPOINT_SAVED), true);
-  assert.equal(matchEventPattern("archive.*", ArchiveEvents.CHECKPOINT_RESTORED), true);
-  assert.equal(matchEventPattern("archive.*", ArchiveEvents.CHECKPOINT_DELETED), true);
+  expect(matchEventPattern("archive.*").toBe(ArchiveEvents.CHECKPOINT_SAVED), true);
+  expect(matchEventPattern("archive.*").toBe(ArchiveEvents.CHECKPOINT_RESTORED), true);
+  expect(matchEventPattern("archive.*").toBe(ArchiveEvents.CHECKPOINT_DELETED), true);
 
-  assert.equal(matchEventPattern("archive.checkpoint.*", ArchiveEvents.CHECKPOINT_SAVED), true);
-  assert.equal(matchEventPattern("archive.checkpoint.*", ArchiveEvents.CHECKPOINT_DELETED), true);
+  expect(matchEventPattern("archive.checkpoint.*").toBe(ArchiveEvents.CHECKPOINT_SAVED), true);
+  expect(matchEventPattern("archive.checkpoint.*").toBe(ArchiveEvents.CHECKPOINT_DELETED), true);
 
-  assert.equal(matchEventPattern("archive.*", ReviewEvents.REVIEW_STARTED), false);
-  assert.equal(matchEventPattern("archive.*", "archiveX.checkpoint.saved"), false);
-  assert.equal(matchEventPattern("*", ArchiveEvents.CHECKPOINT_SAVED), true);
+  expect(matchEventPattern("archive.*").toBe(ReviewEvents.REVIEW_STARTED), false);
+  expect(matchEventPattern("archive.*").toBe("archiveX.checkpoint.saved"), false);
+  expect(matchEventPattern("*").toBe(ArchiveEvents.CHECKPOINT_SAVED), true);
 });
 
-test("Runtime Events: EventBus wildcard subscription integrates with archive.*", async () => {
+it("Runtime Events: EventBus wildcard subscription integrates with archive.*", async () => {
   const { EventBus } = await import("../../../js/agents/core/event-bus.js");
   const { ArchiveEvents } = await import("../../../js/agents/runtime/events/events.js");
 
@@ -118,27 +119,25 @@ test("Runtime Events: EventBus wildcard subscription integrates with archive.*",
   bus.emit(ArchiveEvents.CHECKPOINT_RESTORED, { actor: "orchestrator", status: "completed", payload: payloadRestored });
   bus.emit(ArchiveEvents.CHECKPOINT_DELETED, { actor: "orchestrator", status: "completed", payload: payloadDeleted });
 
-  assert.equal(seen.length, 3);
-  assert.deepEqual(
-    seen.map((evt) => evt.name),
-    [ArchiveEvents.CHECKPOINT_SAVED, ArchiveEvents.CHECKPOINT_RESTORED, ArchiveEvents.CHECKPOINT_DELETED]
+  expect(seen.length).toBe(3);
+  expect(seen.map((evt) => evt.name)).toEqual([ArchiveEvents.CHECKPOINT_SAVED, ArchiveEvents.CHECKPOINT_RESTORED, ArchiveEvents.CHECKPOINT_DELETED]
   );
 
-  assert.deepEqual(validateArchivePayload(seen[0].payload), []);
-  assert.deepEqual(validateArchivePayload(seen[1].payload), []);
-  assert.deepEqual(validateArchivePayload(seen[2].payload), []);
+  expect(validateArchivePayload(seen[0].payload)).toEqual([]);
+  expect(validateArchivePayload(seen[1].payload)).toEqual([]);
+  expect(validateArchivePayload(seen[2].payload)).toEqual([]);
 });
 
-test("Runtime Events: payload shape validators cover the new typedefs", async () => {
+it("Runtime Events: payload shape validators cover the new typedefs", async () => {
   const validReview = { stageId: "stage_1", pass: true, severity: "info", reason: "ok" };
   const invalidReview = { stageId: 123, pass: "yes", severity: "fatal", reason: null };
-  assert.deepEqual(validateReviewPayload(validReview), []);
-  assert.notEqual(validateReviewPayload(invalidReview).length, 0);
+  expect(validateReviewPayload(validReview)).toEqual([]);
+  expect(validateReviewPayload(invalidReview).length).not.toBe(0);
 
   const validCompression = { stageId: "stage_1", status: "scheduled", priority: 10 };
   const invalidCompression = { stageId: "", status: "queued", priority: "high" };
-  assert.deepEqual(validateCompressionPayload(validCompression), []);
-  assert.notEqual(validateCompressionPayload(invalidCompression).length, 0);
+  expect(validateCompressionPayload(validCompression)).toEqual([]);
+  expect(validateCompressionPayload(invalidCompression).length).not.toBe(0);
 
   const validArchive = {
     runId: "run_1",
@@ -147,6 +146,6 @@ test("Runtime Events: payload shape validators cover the new typedefs", async ()
     nodeStates: { nodeA: { ok: true } },
   };
   const invalidArchive = { runId: null, checkpointId: 1, timestamp: "not-a-date", nodeStates: [] };
-  assert.deepEqual(validateArchivePayload(validArchive), []);
-  assert.notEqual(validateArchivePayload(invalidArchive).length, 0);
+  expect(validateArchivePayload(validArchive)).toEqual([]);
+  expect(validateArchivePayload(invalidArchive).length).not.toBe(0);
 });

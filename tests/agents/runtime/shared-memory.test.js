@@ -1,4 +1,5 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
 function withGlobal(name, value, fn) {
@@ -25,101 +26,101 @@ function withProperty(name, descriptor, fn) {
   }
 }
 
-test("SharedMemoryBridge: support detection + SAB path", async (t) => {
+it("SharedMemoryBridge: support detection + SAB path", async (t) => {
   const mod = await import("../../../js/agents/runtime/core/shared-memory.js");
   const { SharedMemoryBridge, pack, unpack } = mod;
 
-  await t.test("getSupport() reports SAB + COI gating", () => {
+  await t.it("getSupport() reports SAB + COI gating", () => {
     const baseline = SharedMemoryBridge.getSupport();
-    assert.equal(typeof baseline.sharedArrayBuffer, "boolean");
-    assert.equal(typeof baseline.crossOriginIsolatedKnown, "boolean");
-    assert.equal(typeof baseline.crossOriginIsolated, "boolean");
-    assert.equal(typeof baseline.sharedArrayBufferEnabled, "boolean");
-    assert.ok(baseline.mode === "sab" || baseline.mode === "messageport");
+    expect(typeof baseline.sharedArrayBuffer).toBe("boolean");
+    expect(typeof baseline.crossOriginIsolatedKnown).toBe("boolean");
+    expect(typeof baseline.crossOriginIsolated).toBe("boolean");
+    expect(typeof baseline.sharedArrayBufferEnabled).toBe("boolean");
+    expect(baseline.mode === "sab" || baseline.mode === "messageport").toBeTruthy();
 
     withGlobal("crossOriginIsolated", false, () => {
       const s = SharedMemoryBridge.getSupport();
-      assert.equal(s.crossOriginIsolatedKnown, true);
-      assert.equal(s.crossOriginIsolated, false);
-      assert.equal(s.sharedArrayBufferEnabled, false);
-      assert.equal(s.mode, "messageport");
+      expect(s.crossOriginIsolatedKnown).toBe(true);
+      expect(s.crossOriginIsolated).toBe(false);
+      expect(s.sharedArrayBufferEnabled).toBe(false);
+      expect(s.mode).toBe("messageport");
     });
 
     withGlobal("crossOriginIsolated", true, () => {
       const s = SharedMemoryBridge.getSupport();
-      assert.equal(s.crossOriginIsolatedKnown, true);
-      assert.equal(s.crossOriginIsolated, true);
-      assert.equal(s.sharedArrayBufferEnabled, s.sharedArrayBuffer);
+      expect(s.crossOriginIsolatedKnown).toBe(true);
+      expect(s.crossOriginIsolated).toBe(true);
+      expect(s.sharedArrayBufferEnabled).toBe(s.sharedArrayBuffer);
     });
   });
 
-  await t.test("getSupport()/isCrossOriginIsolated() tolerate throwing COI getter", () => {
+  await t.it("getSupport()/isCrossOriginIsolated() tolerate throwing COI getter", () => {
     withProperty("crossOriginIsolated", { get: () => { throw new Error("boom"); } }, () => {
       const s = SharedMemoryBridge.getSupport();
-      assert.equal(s.crossOriginIsolatedKnown, false);
-      assert.equal(s.crossOriginIsolated, false);
-      assert.equal(SharedMemoryBridge.isCrossOriginIsolated(), false);
+      expect(s.crossOriginIsolatedKnown).toBe(false);
+      expect(s.crossOriginIsolated).toBe(false);
+      expect(SharedMemoryBridge.isCrossOriginIsolated()).toBe(false);
     });
   });
 
-  await t.test("isSupported() returns false when SAB constructor throws", () => {
+  await t.it("isSupported() returns false when SAB constructor throws", () => {
     withGlobal("SharedArrayBuffer", function SharedArrayBuffer() { throw new Error("no"); }, () => {
-      assert.equal(SharedMemoryBridge.isSupported(), false);
+      expect(SharedMemoryBridge.isSupported()).toBe(false);
     });
   });
 
-  await t.test("allocate() validates byteLength", () => {
-    assert.throws(() => SharedMemoryBridge.allocate(0), /byteLength must be positive/);
+  await t.it("allocate() validates byteLength", () => {
+    expect(() => SharedMemoryBridge.allocate(0)).toThrow(/byteLength must be positive/);
     const buf = SharedMemoryBridge.allocate(16);
-    assert.equal(buf.byteLength, 16);
-    assert.ok(buf instanceof SharedArrayBuffer);
+    expect(buf.byteLength).toBe(16);
+    expect(buf instanceof SharedArrayBuffer).toBeTruthy();
   });
 
-  await t.test("copyToShared() copies TypedArray + ArrayBuffer", () => {
+  await t.it("copyToShared() copies TypedArray + ArrayBuffer", () => {
     const input = new Uint8Array([1, 2, 3, 4]);
     const sab = SharedMemoryBridge.copyToShared(input);
-    assert.ok(sab instanceof SharedArrayBuffer);
-    assert.deepEqual(new Uint8Array(sab), input);
+    expect(sab instanceof SharedArrayBuffer).toBeTruthy();
+    expect(new Uint8Array(sab)).toEqual(input);
 
     const u16 = new Uint16Array([0x1234, 0xabcd]);
     const sab2 = SharedMemoryBridge.copyToShared(u16);
-    assert.deepEqual(new Uint8Array(sab2), new Uint8Array(u16.buffer));
+    expect(new Uint8Array(sab2)).toEqual(new Uint8Array(u16.buffer));
 
     const ab = new Uint8Array([9, 8, 7]).buffer;
     const sab3 = SharedMemoryBridge.copyToShared(ab);
-    assert.deepEqual(new Uint8Array(sab3), new Uint8Array(ab));
+    expect(new Uint8Array(sab3)).toEqual(new Uint8Array(ab));
 
-    assert.throws(() => SharedMemoryBridge.copyToShared({ byteLength: 1 }), /must be TypedArray, ArrayBuffer, or SharedArrayBuffer/);
+    expect(() => SharedMemoryBridge.copyToShared({ byteLength: 1 })).toThrow(/must be TypedArray, ArrayBuffer, or SharedArrayBuffer/);
   });
 
-  await t.test("copyToShared() respects COI gating when known=false/true", () => {
+  await t.it("copyToShared() respects COI gating when known=false/true", () => {
     // When COI is explicitly false, treat SAB as disabled and require fallback.
     withGlobal("crossOriginIsolated", false, () => {
-      assert.throws(() => SharedMemoryBridge.copyToShared(new Uint8Array([1])), /not enabled/);
+      expect(() => SharedMemoryBridge.copyToShared(new Uint8Array([1]).toThrow()), /not enabled/);
     });
 
     // Passing an existing SAB should still be a no-op.
     const existing = new SharedArrayBuffer(4);
     withGlobal("crossOriginIsolated", false, () => {
-      assert.equal(SharedMemoryBridge.copyToShared(existing), existing);
+      expect(SharedMemoryBridge.copyToShared(existing)).toBe(existing);
     });
   });
 
-  await t.test("createView() accepts ArrayBufferLike", () => {
+  await t.it("createView() accepts ArrayBufferLike", () => {
     const buf = new ArrayBuffer(16);
-    assert.ok(SharedMemoryBridge.createView(buf, "u1") instanceof Uint8Array);
-    assert.ok(SharedMemoryBridge.createView(buf, "i1") instanceof Int8Array);
-    assert.ok(SharedMemoryBridge.createView(buf, "u2") instanceof Uint16Array);
-    assert.ok(SharedMemoryBridge.createView(buf, "i2") instanceof Int16Array);
-    assert.ok(SharedMemoryBridge.createView(buf, "u4") instanceof Uint32Array);
-    assert.ok(SharedMemoryBridge.createView(buf, "i4") instanceof Int32Array);
-    assert.ok(SharedMemoryBridge.createView(buf, "f4") instanceof Float32Array);
-    assert.ok(SharedMemoryBridge.createView(buf, "f8") instanceof Float64Array);
-    assert.ok(SharedMemoryBridge.createView(buf, "unknown") instanceof Uint8Array);
-    assert.throws(() => SharedMemoryBridge.createView(null), /must be SharedArrayBuffer or ArrayBuffer/);
+    expect(SharedMemoryBridge.createView(buf, "u1").toBeTruthy() instanceof Uint8Array);
+    expect(SharedMemoryBridge.createView(buf, "i1").toBeTruthy() instanceof Int8Array);
+    expect(SharedMemoryBridge.createView(buf, "u2").toBeTruthy() instanceof Uint16Array);
+    expect(SharedMemoryBridge.createView(buf, "i2").toBeTruthy() instanceof Int16Array);
+    expect(SharedMemoryBridge.createView(buf, "u4").toBeTruthy() instanceof Uint32Array);
+    expect(SharedMemoryBridge.createView(buf, "i4").toBeTruthy() instanceof Int32Array);
+    expect(SharedMemoryBridge.createView(buf, "f4").toBeTruthy() instanceof Float32Array);
+    expect(SharedMemoryBridge.createView(buf, "f8").toBeTruthy() instanceof Float64Array);
+    expect(SharedMemoryBridge.createView(buf, "unknown").toBeTruthy() instanceof Uint8Array);
+    expect(() => SharedMemoryBridge.createView(null)).toThrow(/must be SharedArrayBuffer or ArrayBuffer/);
   });
 
-  await t.test("toPython() uses provided pyodide interface", async () => {
+  await t.it("toPython() uses provided pyodide interface", async () => {
     const seen = { view: null, dtype: null };
     const pyodide = {
       toPy(v) {
@@ -136,58 +137,58 @@ test("SharedMemoryBridge: support detection + SAB path", async (t) => {
 
     const sab = SharedMemoryBridge.copyToShared(new Uint8Array([5, 6, 7]));
     const out = await SharedMemoryBridge.toPython(pyodide, sab, "uint8");
-    assert.deepEqual(out, { pyMemory: { __py__: true, v: seen.view }, dtype: "uint8" });
-    assert.ok(seen.view instanceof Uint8Array);
-    assert.deepEqual(Array.from(seen.view), [5, 6, 7]);
+    expect(out).toEqual({ pyMemory: { __py__: true, v: seen.view }, dtype: "uint8" });
+    expect(seen.view instanceof Uint8Array).toBeTruthy();
+    expect(Array.from(seen.view)).toEqual([5, 6, 7]);
 
-    await assert.rejects(async () => SharedMemoryBridge.toPython(pyodide, null), /must be SharedArrayBuffer or ArrayBuffer/);
+    await expect(async () => SharedMemoryBridge.toPython(pyodide, null), /must be SharedArrayBuffer or ArrayBuffer/);
   });
 
-  await t.test("pack()/unpack() use SAB when enabled", async () => {
+  await t.it("pack()/unpack() use SAB when enabled", async () => {
     const had = Object.prototype.hasOwnProperty.call(globalThis, "crossOriginIsolated");
     const prev = globalThis.crossOriginIsolated;
     globalThis.crossOriginIsolated = true;
     try {
       const bytes = new Uint8Array([10, 20, 30]);
       const packed = pack(bytes); // default mode=auto
-      assert.equal(packed.kind, "sab");
+      expect(packed.kind).toBe("sab");
       const buf = await unpack(packed);
-      assert.ok(buf instanceof SharedArrayBuffer);
-      assert.deepEqual(new Uint8Array(buf), bytes);
+      expect(buf instanceof SharedArrayBuffer).toBeTruthy();
+      expect(new Uint8Array(buf)).toEqual(bytes);
     } finally {
       if (had) globalThis.crossOriginIsolated = prev;
       else delete globalThis.crossOriginIsolated;
     }
 
-    await assert.rejects(async () => unpack({ kind: "sab", buffer: new ArrayBuffer(1) }), /invalid SAB packet\.buffer/);
+    await expect(async () => unpack({ kind: "sab", buffer: new ArrayBuffer(1) }), /invalid SAB packet\.buffer/);
   });
 
-  await t.test("wrap() aliases copyToShared()", () => {
+  await t.it("wrap() aliases copyToShared()", () => {
     const buf = SharedMemoryBridge.wrap(new Uint8Array([1, 2]));
-    assert.ok(buf instanceof SharedArrayBuffer);
+    expect(buf instanceof SharedArrayBuffer).toBeTruthy();
   });
 
-  await t.test("pack(mode='sab') throws when SAB not enabled", () => {
+  await t.it("pack(mode='sab') throws when SAB not enabled", () => {
     withGlobal("crossOriginIsolated", false, () => {
-      assert.throws(() => SharedMemoryBridge.pack(new Uint8Array([1]), { mode: "sab" }), /not enabled/);
+      expect(() => SharedMemoryBridge.pack(new Uint8Array([1]), { mode: "sab" })).toThrow(/not enabled/);
     });
   });
 
-  await t.test("estimateOverhead() reports copy vs zero-copy", () => {
+  await t.it("estimateOverhead() reports copy vs zero-copy", () => {
     const sab = new SharedArrayBuffer(2);
     const a = SharedMemoryBridge.estimateOverhead(sab);
-    assert.equal(a.supported, true);
-    assert.equal(a.needsCopy, false);
-    assert.match(a.description, /zero-copy/i);
+    expect(a.supported).toBe(true);
+    expect(a.needsCopy).toBe(false);
+    expect(a.description).toMatch(/zero-copy/i);
 
     const b = SharedMemoryBridge.estimateOverhead(new ArrayBuffer(3));
-    assert.equal(typeof b.supported, "boolean");
-    assert.equal(b.needsCopy, true);
-    assert.match(b.description, /Will copy/i);
+    expect(typeof b.supported).toBe("boolean");
+    expect(b.needsCopy).toBe(true);
+    expect(b.description).toMatch(/Will copy/i);
   });
 });
 
-test("SharedMemoryBridge: MessagePort fallback chunking (256KB)", async () => {
+it("SharedMemoryBridge: MessagePort fallback chunking (256KB)", async () => {
   const mod = await import("../../../js/agents/runtime/core/shared-memory.js");
   const { MessagePortFallback, SharedMemoryBridge } = mod;
 
@@ -203,31 +204,31 @@ test("SharedMemoryBridge: MessagePort fallback chunking (256KB)", async () => {
   });
 
   const chunkBytes = receiver.chunkBytes;
-  assert.equal(chunkBytes, 256 * 1024);
+  expect(chunkBytes).toBe(256 * 1024);
 
   const total = chunkBytes * 2 + 123;
   const bytes = new Uint8Array(total);
   for (let i = 0; i < bytes.length; i += 1) bytes[i] = i % 251;
 
   const packet = SharedMemoryBridge.pack(bytes, { mode: "messageport", port: port1 });
-  assert.equal(packet.kind, "messageport");
-  assert.equal(packet.byteLength, total);
+  expect(packet.kind).toBe("messageport");
+  expect(packet.byteLength).toBe(total);
 
   const out = await SharedMemoryBridge.unpack(packet, { port: port2 });
-  assert.ok(out instanceof ArrayBuffer);
-  assert.deepEqual(new Uint8Array(out), bytes);
+  expect(out instanceof ArrayBuffer).toBeTruthy();
+  expect(new Uint8Array(out)).toEqual(bytes);
 
-  assert.deepEqual(seenChunkSizes, [chunkBytes, chunkBytes, 123]);
+  expect(seenChunkSizes).toEqual([chunkBytes, chunkBytes, 123]);
 
   receiver.close();
   port1.close();
   port2.close();
 });
 
-test("MessagePortFallback: edge cases + internal branches", async () => {
+it("MessagePortFallback: edge cases + internal branches", async () => {
   const { MessagePortFallback } = await import("../../../js/agents/runtime/core/shared-memory.js");
 
-  assert.throws(() => new MessagePortFallback(null), /port must be a MessagePort/);
+  expect(() => new MessagePortFallback(null)).toThrow(/port must be a MessagePort/);
 
   // Exercise _start() onmessage fallback path and close() nulls it out.
   let started = 0;
@@ -239,10 +240,10 @@ test("MessagePortFallback: edge cases + internal branches", async () => {
     onmessage: null,
   };
   const stub = new MessagePortFallback(stubPort);
-  assert.equal(typeof stubPort.onmessage, "function");
-  assert.equal(started, 1);
+  expect(typeof stubPort.onmessage).toBe("function");
+  expect(started).toBe(1);
   stub.close();
-  assert.equal(stubPort.onmessage, null);
+  expect(stubPort.onmessage).toBe(null);
 
   // close() should swallow removeEventListener errors.
   const noisyPort = {
@@ -257,7 +258,7 @@ test("MessagePortFallback: edge cases + internal branches", async () => {
   noisy.close();
 
   // unpack() rejects when id is missing.
-  await assert.rejects(async () => stub.unpack({ kind: "messageport", id: "", byteLength: 0 }), /packet\.id is required/);
+  await expect(async () => stub.unpack({ kind: "messageport", id: "", byteLength: 0 }), /packet\.id is required/);
 
   // Cover existing.result path: 0-byte transfer completes before unpack() is called.
   {
@@ -267,8 +268,8 @@ test("MessagePortFallback: edge cases + internal branches", async () => {
     const packet = sender.pack(new Uint8Array([]));
     await new Promise((r) => setTimeout(r, 0));
     const out = await receiver.unpack(packet);
-    assert.ok(out instanceof ArrayBuffer);
-    assert.equal(out.byteLength, 0);
+    expect(out instanceof ArrayBuffer).toBeTruthy();
+    expect(out.byteLength).toBe(0);
     sender.close();
     receiver.close();
     port1.close();
@@ -283,7 +284,7 @@ test("MessagePortFallback: edge cases + internal branches", async () => {
     port1.postMessage({ type: "shared-memory:port-fallback:start", id, byteLength: 1, chunkBytes: 1024 });
     port1.postMessage({ type: "shared-memory:port-fallback:chunk", id, offset: 0, chunk: "bad" });
     await new Promise((r) => setTimeout(r, 0));
-    await assert.rejects(async () => receiver.unpack({ kind: "messageport", id, byteLength: 1 }), /chunk must be an ArrayBuffer/);
+    await expect(async () => receiver.unpack({ kind: "messageport", id, byteLength: 1 }), /chunk must be an ArrayBuffer/);
     receiver.close();
     port1.close();
     port2.close();
@@ -296,7 +297,7 @@ test("MessagePortFallback: edge cases + internal branches", async () => {
     const id = "mismatch";
     const pending = receiver.unpack({ kind: "messageport", id, byteLength: 4 });
     port1.postMessage({ type: "shared-memory:port-fallback:start", id, byteLength: 1, chunkBytes: 1024 });
-    await assert.rejects(async () => pending, /byteLength mismatch/);
+    await expect(async () => pending, /byteLength mismatch/);
     receiver.close();
     port1.close();
     port2.close();
@@ -311,7 +312,7 @@ test("MessagePortFallback: edge cases + internal branches", async () => {
     port1.postMessage({ type: "shared-memory:port-fallback:start", id, byteLength: 1, chunkBytes: 1024 });
     const chunk = new ArrayBuffer(2);
     port1.postMessage({ type: "shared-memory:port-fallback:chunk", id, offset: 0, chunk }, [chunk]);
-    await assert.rejects(async () => pending, /chunk overflow/);
+    await expect(async () => pending, /chunk overflow/);
     receiver.close();
     port1.close();
     port2.close();
@@ -325,14 +326,14 @@ test("MessagePortFallback: edge cases + internal branches", async () => {
 
     withProperty("crypto", { value: { getRandomValues: () => { throw new Error("no"); } } }, () => {
       const packet = sender.pack(new Int16Array([1, 2, 3])); // ArrayBuffer.isView branch
-      assert.equal(packet.kind, "messageport");
-      assert.ok(typeof packet.id === "string" && packet.id.startsWith("sm_"));
+      expect(packet.kind).toBe("messageport");
+      expect(typeof packet.id === "string" && packet.id.startsWith("sm_")).toBeTruthy();
     });
 
     const packet2 = sender.pack(new Uint8Array([9, 8, 7]).buffer); // ArrayBufferLike branch
-    assert.equal(packet2.byteLength, 3);
+    expect(packet2.byteLength).toBe(3);
 
-    assert.throws(() => sender.pack({}), /data must be TypedArray, ArrayBuffer, or SharedArrayBuffer/);
+    expect(() => sender.pack({})).toThrow(/data must be TypedArray, ArrayBuffer, or SharedArrayBuffer/);
 
     sender.close();
     receiver.close();
@@ -341,29 +342,29 @@ test("MessagePortFallback: edge cases + internal branches", async () => {
   }
 });
 
-test("SharedMemoryBridge: fallback errors when port missing", async () => {
+it("SharedMemoryBridge: fallback errors when port missing", async () => {
   const { SharedMemoryBridge } = await import("../../../js/agents/runtime/core/shared-memory.js");
-  assert.throws(() => SharedMemoryBridge.pack(new Uint8Array([1]), { mode: "messageport" }), /MessagePort required/);
-  await assert.rejects(async () => SharedMemoryBridge.unpack({ kind: "messageport", id: "x", byteLength: 1 }), /MessagePort required/);
-  assert.throws(() => SharedMemoryBridge.pack(new Uint8Array([1]), { mode: "bogus" }), /unsupported mode/);
-  await assert.rejects(async () => SharedMemoryBridge.unpack({ kind: "bogus" }), /unsupported packet kind/);
+  expect(() => SharedMemoryBridge.pack(new Uint8Array([1]), { mode: "messageport" })).toThrow(/MessagePort required/);
+  await expect(async () => SharedMemoryBridge.unpack({ kind: "messageport", id: "x", byteLength: 1 })).rejects.toThrow(/MessagePort required/);
+  expect(() => SharedMemoryBridge.pack(new Uint8Array([1]), { mode: "bogus" })).toThrow(/unsupported mode/);
+  await expect(async () => SharedMemoryBridge.unpack({ kind: "bogus" })).rejects.toThrow(/unsupported packet kind/);
 });
 
-test("SharedMemoryBridge: behaves when SharedArrayBuffer is absent", async (t) => {
+it("SharedMemoryBridge: behaves when SharedArrayBuffer is absent", async (t) => {
   const mod = await import("../../../js/agents/runtime/core/shared-memory.js");
   const { SharedMemoryBridge } = mod;
 
-  await t.test("getSupport() reflects missing SAB", () =>
+  await t.it("getSupport() reflects missing SAB", () =>
     withGlobal("SharedArrayBuffer", undefined, () => {
       const s = SharedMemoryBridge.getSupport();
-      assert.equal(s.sharedArrayBuffer, false);
-      assert.equal(s.sharedArrayBufferEnabled, false);
-      assert.equal(s.mode, "messageport");
+      expect(s.sharedArrayBuffer).toBe(false);
+      expect(s.sharedArrayBufferEnabled).toBe(false);
+      expect(s.mode).toBe("messageport");
     }));
 
-  await t.test("allocate()/copyToShared() throw clean errors", () =>
+  await t.it("allocate()/copyToShared() throw clean errors", () =>
     withGlobal("SharedArrayBuffer", undefined, () => {
-      assert.throws(() => SharedMemoryBridge.allocate(8), /not available/);
-      assert.throws(() => SharedMemoryBridge.copyToShared(new Uint8Array([1])), /not enabled/);
+      expect(() => SharedMemoryBridge.allocate(8)).toThrow(/not available/);
+      expect(() => SharedMemoryBridge.copyToShared(new Uint8Array([1]).toThrow()), /not enabled/);
     }));
 });

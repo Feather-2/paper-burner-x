@@ -1,5 +1,5 @@
-import { describe, it, beforeEach, mock } from "node:test";
-import assert from "node:assert";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
 import { RetrievalEngine } from "../../../../js/agents/runtime/memory/retrieval-engine.js";
 
 /**
@@ -15,8 +15,8 @@ function createMockMemoryStore(snapshots = {}) {
       },
     },
     eventBus: {
-      on: mock.fn(() => () => {}),
-      emit: mock.fn(),
+      on: vi.fn(() => () => {}),
+      emit: vi.fn(),
     },
   };
 }
@@ -58,12 +58,12 @@ describe("RetrievalEngine prewarm", () => {
 
   describe("isWarmed", () => {
     it("should return false when no archives are indexed", () => {
-      assert.strictEqual(engine.isWarmed, false);
+      expect(engine.isWarmed).toBe(false);
     });
 
     it("should return true when all archives are indexed", async () => {
       await engine.prewarm();
-      assert.strictEqual(engine.isWarmed, true);
+      expect(engine.isWarmed).toBe(true);
     });
 
     it("should return true when memoryStore has no snapshots", () => {
@@ -73,7 +73,7 @@ describe("RetrievalEngine prewarm", () => {
         embeddingService,
         subscribe: false,
       });
-      assert.strictEqual(emptyEngine.isWarmed, true);
+      expect(emptyEngine.isWarmed).toBe(true);
     });
 
     it("should return false when vectorIndex is null", () => {
@@ -82,24 +82,24 @@ describe("RetrievalEngine prewarm", () => {
         embeddingService: null,
         subscribe: false,
       });
-      assert.strictEqual(noIdxEngine.isWarmed, false);
+      expect(noIdxEngine.isWarmed).toBe(false);
     });
   });
 
   describe("getWarmupProgress", () => {
     it("should return zero indexed before prewarm", () => {
       const progress = engine.getWarmupProgress();
-      assert.strictEqual(progress.indexed, 0);
-      assert.strictEqual(progress.total, 3);
-      assert.strictEqual(progress.coverage, 0);
+      expect(progress.indexed).toBe(0);
+      expect(progress.total).toBe(3);
+      expect(progress.coverage).toBe(0);
     });
 
     it("should return full coverage after prewarm", async () => {
       await engine.prewarm();
       const progress = engine.getWarmupProgress();
-      assert.strictEqual(progress.indexed, 3);
-      assert.strictEqual(progress.total, 3);
-      assert.strictEqual(progress.coverage, 1);
+      expect(progress.indexed).toBe(3);
+      expect(progress.total).toBe(3);
+      expect(progress.coverage).toBe(1);
     });
 
     it("should return partial coverage during incremental indexing", async () => {
@@ -122,9 +122,9 @@ describe("RetrievalEngine prewarm", () => {
       await partialEngine.prewarm({ batchSize: 2 });
       const progress = partialEngine.getWarmupProgress();
 
-      assert.strictEqual(progress.indexed, 2);
-      assert.strictEqual(progress.total, 3);
-      assert.ok(progress.coverage > 0 && progress.coverage < 1);
+      expect(progress.indexed).toBe(2);
+      expect(progress.total).toBe(3);
+      expect(progress.coverage > 0 && progress.coverage < 1).toBeTruthy();
     });
 
     it("should handle empty snapshots gracefully", () => {
@@ -135,9 +135,9 @@ describe("RetrievalEngine prewarm", () => {
         subscribe: false,
       });
       const progress = emptyEngine.getWarmupProgress();
-      assert.strictEqual(progress.indexed, 0);
-      assert.strictEqual(progress.total, 0);
-      assert.strictEqual(progress.coverage, 1);
+      expect(progress.indexed).toBe(0);
+      expect(progress.total).toBe(0);
+      expect(progress.coverage).toBe(1);
     });
   });
 
@@ -145,10 +145,10 @@ describe("RetrievalEngine prewarm", () => {
     it("should index all archives and return stats", async () => {
       const result = await engine.prewarm();
 
-      assert.strictEqual(result.indexed, 3);
-      assert.strictEqual(result.skipped, 0);
-      assert.ok(result.elapsed >= 0);
-      assert.strictEqual(engine.isWarmed, true);
+      expect(result.indexed).toBe(3);
+      expect(result.skipped).toBe(0);
+      expect(result.elapsed >= 0).toBeTruthy();
+      expect(engine.isWarmed).toBe(true);
     });
 
     it("should respect batchSize parameter", async () => {
@@ -169,7 +169,7 @@ describe("RetrievalEngine prewarm", () => {
       await trackingEngine.prewarm({ batchSize: 2 });
 
       // 3 archives with batchSize=2 should result in 2 embed calls
-      assert.strictEqual(embedCalls, 2);
+      expect(embedCalls).toBe(2);
     });
 
     it("should call progressCallback with correct values", async () => {
@@ -181,9 +181,9 @@ describe("RetrievalEngine prewarm", () => {
       await engine.prewarm({ batchSize: 1, progressCallback });
 
       // Should have initial call + one call per batch
-      assert.ok(progressCalls.length >= 2);
-      assert.strictEqual(progressCalls[0].total, 3);
-      assert.strictEqual(progressCalls[progressCalls.length - 1].indexed, 3);
+      expect(progressCalls.length >= 2).toBeTruthy();
+      expect(progressCalls[0].total).toBe(3);
+      expect(progressCalls[progressCalls.length - 1].indexed).toBe(3);
     });
 
     it("should skip already indexed archives", async () => {
@@ -202,9 +202,9 @@ describe("RetrievalEngine prewarm", () => {
       engine.embeddingService = trackingService;
       const result = await engine.prewarm();
 
-      assert.strictEqual(embedCalls, 0);
-      assert.strictEqual(result.indexed, 0);
-      assert.strictEqual(result.skipped, 3);
+      expect(embedCalls).toBe(0);
+      expect(result.indexed).toBe(0);
+      expect(result.skipped).toBe(3);
     });
 
     it("should handle empty snapshots", async () => {
@@ -217,8 +217,8 @@ describe("RetrievalEngine prewarm", () => {
 
       const result = await emptyEngine.prewarm();
 
-      assert.strictEqual(result.indexed, 0);
-      assert.strictEqual(result.skipped, 0);
+      expect(result.indexed).toBe(0);
+      expect(result.skipped).toBe(0);
     });
 
     it("should be interruptible via dispose()", async () => {
@@ -246,7 +246,7 @@ describe("RetrievalEngine prewarm", () => {
       const result = await prewarmPromise;
 
       // Should have partial results due to interruption
-      assert.ok(result.indexed < 3);
+      expect(result.indexed < 3).toBeTruthy();
     });
 
     it("should emit retrieval:indexProgress events", async () => {
@@ -257,10 +257,10 @@ describe("RetrievalEngine prewarm", () => {
         (call) => call.arguments[0] === "retrieval:indexProgress"
       );
 
-      assert.ok(progressEvents.length > 0);
+      expect(progressEvents.length > 0).toBeTruthy();
       const lastEvent = progressEvents[progressEvents.length - 1];
-      assert.strictEqual(lastEvent.arguments[0], "retrieval:indexProgress");
-      assert.ok(lastEvent.arguments[1].coverage > 0);
+      expect(lastEvent.arguments[0]).toBe("retrieval:indexProgress");
+      expect(lastEvent.arguments[1].coverage > 0).toBeTruthy();
     });
 
     it("should handle embedding service errors gracefully", async () => {
@@ -284,8 +284,8 @@ describe("RetrievalEngine prewarm", () => {
       const result = await failingEngine.prewarm({ batchSize: 1 });
 
       // Should continue despite first batch failing
-      assert.ok(result.indexed > 0);
-      assert.ok(result.indexed < 3);
+      expect(result.indexed > 0).toBeTruthy();
+      expect(result.indexed < 3).toBeTruthy();
     });
 
     it("should return early when no embedding service", async () => {
@@ -297,16 +297,16 @@ describe("RetrievalEngine prewarm", () => {
 
       const result = await noSvcEngine.prewarm();
 
-      assert.strictEqual(result.indexed, 0);
-      assert.strictEqual(result.skipped, 0);
+      expect(result.indexed).toBe(0);
+      expect(result.skipped).toBe(0);
     });
   });
 
   describe("ensureIndexed with batchSize", () => {
     it("should work without batchSize (original behavior)", async () => {
       const result = await engine.ensureIndexed();
-      assert.strictEqual(result, true);
-      assert.strictEqual(engine.isWarmed, true);
+      expect(result).toBe(true);
+      expect(engine.isWarmed).toBe(true);
     });
 
     it("should process in batches when batchSize specified", async () => {
@@ -327,7 +327,7 @@ describe("RetrievalEngine prewarm", () => {
       await trackingEngine.ensureIndexed({ batchSize: 2 });
 
       // 3 archives with batchSize=2 should result in 2 embed calls
-      assert.strictEqual(embedCalls, 2);
+      expect(embedCalls).toBe(2);
     });
 
     it("should emit progress events during batched processing", async () => {
@@ -338,7 +338,7 @@ describe("RetrievalEngine prewarm", () => {
         (call) => call.arguments[0] === "retrieval:indexProgress"
       );
 
-      assert.ok(progressEvents.length > 0);
+      expect(progressEvents.length > 0).toBeTruthy();
     });
 
     it("should continue on partial batch failures", async () => {
@@ -362,7 +362,7 @@ describe("RetrievalEngine prewarm", () => {
       const result = await partialEngine.ensureIndexed({ batchSize: 2 });
 
       // Should return true if at least some indexed
-      assert.strictEqual(result, true);
+      expect(result).toBe(true);
     });
   });
 
@@ -387,13 +387,13 @@ describe("RetrievalEngine prewarm", () => {
       slowEngine.dispose();
 
       const result = await prewarmPromise;
-      assert.ok(result.indexed < 3);
+      expect(result.indexed < 3).toBeTruthy();
     });
 
     it("should clean up prewarm abort controller", async () => {
       await engine.prewarm();
       engine.dispose();
-      assert.strictEqual(engine._prewarmAbort, null);
+      expect(engine._prewarmAbort).toBe(null);
     });
   });
 });

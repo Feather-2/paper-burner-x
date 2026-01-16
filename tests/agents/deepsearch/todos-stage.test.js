@@ -1,7 +1,8 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
-test("DeepSearch todos: LLM success generates todos and emits events", async () => {
+it("DeepSearch todos: LLM success generates todos and emits events", async () => {
   const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
   const { runDeepSearchTodosStage } = await import("../../../js/agents/stages/deepsearch/todos.js");
 
@@ -31,17 +32,17 @@ test("DeepSearch todos: LLM success generates todos and emits events", async () 
 
   const result = await runDeepSearchTodosStage({ runId: "run_todos_llm" }, { state }, { modelRouter, eventBus: bus });
 
-  assert.equal(calls.length, 1);
-  assert.equal(result.todos.length, 2);
-  assert.equal(state.todos.length, 2);
-  assert.equal(state.todos[0].source, "llm");
+  expect(calls.length).toBe(1);
+  expect(result.todos.length).toBe(2);
+  expect(state.todos.length).toBe(2);
+  expect(state.todos[0].source).toBe("llm");
 
-  assert.equal(events.some((e) => e.name === "deepsearch.todos.started"), true);
-  assert.equal(events.filter((e) => e.name === "deepsearch.todo.created").length, 2);
-  assert.equal(events.some((e) => e.name === "deepsearch.todos.completed"), true);
+  expect(events.some((e) => e.name === "deepsearch.todos.started")).toBe(true);
+  expect(events.filter((e) => e.name === "deepsearch.todo.created").length).toBe(2);
+  expect(events.some((e) => e.name === "deepsearch.todos.completed")).toBe(true);
 });
 
-test("DeepSearch todos: LLM unavailable falls back to heuristic todos", async () => {
+it("DeepSearch todos: LLM unavailable falls back to heuristic todos", async () => {
   const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
   const { runDeepSearchTodosStage } = await import("../../../js/agents/stages/deepsearch/todos.js");
 
@@ -49,12 +50,12 @@ test("DeepSearch todos: LLM unavailable falls back to heuristic todos", async ()
 
   const result = await runDeepSearchTodosStage({ runId: "run_todos_pause" }, { state }, {});
 
-  assert.equal(Array.isArray(result.todos), true);
-  assert.equal(result.todos.length > 0, true);
-  assert.equal(state.L2.awaitUserFeedback, false);
+  expect(Array.isArray(result.todos)).toBe(true);
+  expect(result.todos.length > 0).toBe(true);
+  expect(state.L2.awaitUserFeedback).toBe(false);
 });
 
-test("DeepSearch todos: invalid LLM output falls back to heuristic todos", async () => {
+it("DeepSearch todos: invalid LLM output falls back to heuristic todos", async () => {
   const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
   const { runDeepSearchTodosStage } = await import("../../../js/agents/stages/deepsearch/todos.js");
 
@@ -65,11 +66,11 @@ test("DeepSearch todos: invalid LLM output falls back to heuristic todos", async
   const state = new DeepSearchState({ runId: "run_todos_bad", taskGoal: "Explain Gamma" });
 
   const result = await runDeepSearchTodosStage({ runId: "run_todos_bad" }, { state }, { modelRouter });
-  assert.equal(result.todos.length > 0, true);
-  assert.equal(state.L2.awaitUserFeedback, false);
+  expect(result.todos.length > 0).toBe(true);
+  expect(state.L2.awaitUserFeedback).toBe(false);
 });
 
-test("DeepSearch todos: skips LLM when user todos exist", async () => {
+it("DeepSearch todos: skips LLM when user todos exist", async () => {
   const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
   const { runDeepSearchTodosStage } = await import("../../../js/agents/stages/deepsearch/todos.js");
   const { createTodo } = await import("../../../js/agents/stages/deepsearch/utils/todo-utils.js");
@@ -90,9 +91,9 @@ test("DeepSearch todos: skips LLM when user todos exist", async () => {
 
   const result = await runDeepSearchTodosStage({ runId: "run_todos_user" }, { state }, { modelRouter, eventBus: bus });
 
-  assert.equal(called, false);
-  assert.equal(result.todos.length, 1);
-  assert.equal(events.some((e) => e.name === "deepsearch.todos.started"), true);
-  assert.equal(events.some((e) => e.name === "deepsearch.todos.completed"), true);
-  assert.equal(events.some((e) => e.name === "deepsearch.todo.created"), false);
+  expect(called).toBe(false);
+  expect(result.todos.length).toBe(1);
+  expect(events.some((e) => e.name === "deepsearch.todos.started")).toBe(true);
+  expect(events.some((e) => e.name === "deepsearch.todos.completed")).toBe(true);
+  expect(events.some((e) => e.name === "deepsearch.todo.created")).toBe(false);
 });

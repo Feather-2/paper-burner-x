@@ -1,4 +1,5 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
 function defer() {
@@ -21,7 +22,7 @@ function withPatchedConsole(fn) {
     .finally(restore);
 }
 
-test("Logger: createLogger emits structured events", async () => {
+it("Logger: createLogger emits structured events", async () => {
   const { createLogger } = await import("../../../js/agents/stages/deepsearch/runtime/logger.js");
 
   await withPatchedConsole(async (calls) => {
@@ -34,24 +35,24 @@ test("Logger: createLogger emits structured events", async () => {
 
     logger.info("hello", { data: { sourceCount: 3 } });
 
-    assert.equal(emitted.length, 1);
-    assert.equal(emitted[0].name, "deepsearch.log.info");
-    assert.equal(emitted[0].meta.status, "info");
-    assert.equal(emitted[0].payload.level, "info");
-    assert.equal(emitted[0].payload.message, "hello");
-    assert.equal(emitted[0].payload.runId, "run_1");
-    assert.equal(emitted[0].payload.iteration, 2);
-    assert.equal(emitted[0].payload.stage, "scan");
-    assert.deepEqual(emitted[0].payload.data, { sourceCount: 3 });
-    assert.ok(typeof emitted[0].payload.timestamp === "string");
+    expect(emitted.length).toBe(1);
+    expect(emitted[0].name).toBe("deepsearch.log.info");
+    expect(emitted[0].meta.status).toBe("info");
+    expect(emitted[0].payload.level).toBe("info");
+    expect(emitted[0].payload.message).toBe("hello");
+    expect(emitted[0].payload.runId).toBe("run_1");
+    expect(emitted[0].payload.iteration).toBe(2);
+    expect(emitted[0].payload.stage).toBe("scan");
+    expect(emitted[0].payload.data).toEqual({ sourceCount: 3 });
+    expect(typeof emitted[0].payload.timestamp === "string").toBeTruthy();
 
-    assert.equal(calls.log.length, 1);
-    assert.equal(calls.log[0][0], "[deepsearch:scan]");
-    assert.equal(calls.log[0][1], "hello");
+    expect(calls.log.length).toBe(1);
+    expect(calls.log[0][0]).toBe("[deepsearch:scan]");
+    expect(calls.log[0][1]).toBe("hello");
   });
 });
 
-test("Logger: warn/error choose console method + status", async () => {
+it("Logger: warn/error choose console method + status", async () => {
   const { createLogger } = await import("../../../js/agents/stages/deepsearch/runtime/logger.js");
 
   await withPatchedConsole(async (calls) => {
@@ -65,18 +66,18 @@ test("Logger: warn/error choose console method + status", async () => {
     logger.warn("w1");
     logger.error("e1");
 
-    assert.equal(calls.warn.length, 1);
-    assert.equal(calls.error.length, 1);
+    expect(calls.warn.length).toBe(1);
+    expect(calls.error.length).toBe(1);
 
-    assert.equal(emitted.length, 2);
-    assert.equal(emitted[0].name, "deepsearch.log.warn");
-    assert.equal(emitted[0].meta.status, "info");
-    assert.equal(emitted[1].name, "deepsearch.log.error");
-    assert.equal(emitted[1].meta.status, "failed");
+    expect(emitted.length).toBe(2);
+    expect(emitted[0].name).toBe("deepsearch.log.warn");
+    expect(emitted[0].meta.status).toBe("info");
+    expect(emitted[1].name).toBe("deepsearch.log.error");
+    expect(emitted[1].meta.status).toBe("failed");
   });
 });
 
-test("Logger: data overrides context fields", async () => {
+it("Logger: data overrides context fields", async () => {
   const { createLogger } = await import("../../../js/agents/stages/deepsearch/runtime/logger.js");
 
   await withPatchedConsole(async () => {
@@ -88,26 +89,26 @@ test("Logger: data overrides context fields", async () => {
 
     logger.info("override", { stage: "scan" });
 
-    assert.equal(emitted[0].payload.stage, "scan");
-    assert.equal(emitted[0].payload.runId, "run_ctx");
+    expect(emitted[0].payload.stage).toBe("scan");
+    expect(emitted[0].payload.runId).toBe("run_ctx");
   });
 });
 
-test("Logger: enabled=false suppresses emit + console", async () => {
+it("Logger: enabled=false suppresses emit + console", async () => {
   const { createLogger } = await import("../../../js/agents/stages/deepsearch/runtime/logger.js");
 
   await withPatchedConsole(async (calls) => {
     const emitted = [];
     const logger = createLogger({ emit: (name, payload) => emitted.push({ name, payload }), enabled: false });
     logger.info("nope");
-    assert.equal(emitted.length, 0);
-    assert.equal(calls.log.length, 0);
-    assert.equal(calls.warn.length, 0);
-    assert.equal(calls.error.length, 0);
+    expect(emitted.length).toBe(0);
+    expect(calls.log.length).toBe(0);
+    expect(calls.warn.length).toBe(0);
+    expect(calls.error.length).toBe(0);
   });
 });
 
-test("Logger: multiple instances concurrent do not conflict", async () => {
+it("Logger: multiple instances concurrent do not conflict", async () => {
   const { createLogger } = await import("../../../js/agents/stages/deepsearch/runtime/logger.js");
 
   await withPatchedConsole(async () => {
@@ -140,24 +141,24 @@ test("Logger: multiple instances concurrent do not conflict", async () => {
     const aEvents = emitted.filter((e) => e.payload.message === "A");
     const bEvents = emitted.filter((e) => e.payload.message === "B");
 
-    assert.equal(aEvents.length, 20);
-    assert.equal(bEvents.length, 20);
+    expect(aEvents.length).toBe(20);
+    expect(bEvents.length).toBe(20);
 
     for (const e of aEvents) {
-      assert.equal(e.payload.runId, "run_A");
-      assert.equal(e.payload.stage, "scan");
-      assert.ok(typeof e.payload.iteration === "number" && e.payload.iteration >= 0 && e.payload.iteration < 20);
+      expect(e.payload.runId).toBe("run_A");
+      expect(e.payload.stage).toBe("scan");
+      expect(typeof e.payload.iteration === "number" && e.payload.iteration >= 0 && e.payload.iteration < 20).toBeTruthy();
     }
 
     for (const e of bEvents) {
-      assert.equal(e.payload.runId, "run_B");
-      assert.equal(e.payload.stage, "gaps");
-      assert.ok(typeof e.payload.iteration === "number" && e.payload.iteration >= 100 && e.payload.iteration < 120);
+      expect(e.payload.runId).toBe("run_B");
+      expect(e.payload.stage).toBe("gaps");
+      expect(typeof e.payload.iteration === "number" && e.payload.iteration >= 100 && e.payload.iteration < 120).toBeTruthy();
     }
   });
 });
 
-test("Logger: trackToolCall success + failure", async () => {
+it("Logger: trackToolCall success + failure", async () => {
   const { createLogger, trackToolCall } = await import("../../../js/agents/stages/deepsearch/runtime/logger.js");
 
   await withPatchedConsole(async () => {
@@ -165,10 +166,9 @@ test("Logger: trackToolCall success + failure", async () => {
     const logger = createLogger({ emit: (name, payload) => emitted.push({ name, payload }) });
 
     const ok = await trackToolCall(logger, "grep", { pattern: "x" }, async () => ["a", "b"]);
-    assert.deepEqual(ok, ["a", "b"]);
+    expect(ok).toEqual(["a", "b"]);
 
-    await assert.rejects(
-      () =>
+    await expect(() =>
         trackToolCall(logger, "glob", { pattern: "*.js" }, async () => {
           throw new Error("boom");
         }),
@@ -176,21 +176,21 @@ test("Logger: trackToolCall success + failure", async () => {
     );
 
     const toolEvents = emitted.filter((e) => e.payload.stage === "tool");
-    assert.ok(toolEvents.length >= 4);
-    assert.equal(toolEvents[0].payload.message, "Tool call: grep");
-    assert.equal(toolEvents[1].payload.message, "Tool completed: grep");
-    assert.equal(toolEvents[2].payload.message, "Tool call: glob");
-    assert.equal(toolEvents[3].payload.message, "Tool failed: glob");
+    expect(toolEvents.length >= 4).toBeTruthy();
+    expect(toolEvents[0].payload.message).toBe("Tool call: grep");
+    expect(toolEvents[1].payload.message).toBe("Tool completed: grep");
+    expect(toolEvents[2].payload.message).toBe("Tool call: glob");
+    expect(toolEvents[3].payload.message).toBe("Tool failed: glob");
   });
 });
 
-test("Logger: deprecated logEvent exists", async () => {
+it("Logger: deprecated logEvent exists", async () => {
   const { logEvent } = await import("../../../js/agents/stages/deepsearch/runtime/logger.js");
 
   await withPatchedConsole(async (calls) => {
     logEvent({ message: "legacy" });
-    assert.equal(calls.log.length, 1);
+    expect(calls.log.length).toBe(1);
     // logEvent 现在使用通用 [Agent] 前缀
-    assert.equal(calls.log[0][0], "[Agent]");
+    expect(calls.log[0][0]).toBe("[Agent]");
   });
 });

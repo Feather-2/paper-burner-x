@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import { rrfFuse, hybridSearch } from "../../js/agents/retrieval/hybrid-retrieval.js";
 
@@ -11,9 +11,9 @@ describe("retrieval/hybrid-retrieval", () => {
 
       const fused = rrfFuse(bm25, vector);
 
-      assert.ok(fused.length >= 2);
-      assert.ok(fused.every((r) => typeof r.chunkId === "string"));
-      assert.ok(fused.every((r) => typeof r.rrfScore === "number"));
+      expect(fused.length >= 2).toBeTruthy();
+      expect(fused.every((r).toBeTruthy() => typeof r.chunkId === "string"));
+      expect(fused.every((r).toBeTruthy() => typeof r.rrfScore === "number"));
     });
 
     it("ranks overlapping documents higher", () => {
@@ -25,7 +25,7 @@ describe("retrieval/hybrid-retrieval", () => {
       // Overlapping doc should have higher score
       const overlap = fused.find((r) => r.chunkId === "overlap");
       const bm25only = fused.find((r) => r.chunkId === "bm25only");
-      assert.ok(overlap.rrfScore > bm25only.rrfScore);
+      expect(overlap.rrfScore > bm25only.rrfScore).toBeTruthy();
     });
 
     it("respects limit option", () => {
@@ -34,7 +34,7 @@ describe("retrieval/hybrid-retrieval", () => {
 
       const fused = rrfFuse(bm25, vector, { limit: 2 });
 
-      assert.equal(fused.length, 2);
+      expect(fused.length).toBe(2);
     });
 
     it("uses custom rrfK parameter", () => {
@@ -47,7 +47,7 @@ describe("retrieval/hybrid-retrieval", () => {
       // Different k values should produce different scores
       const score1 = fused1.find((r) => r.chunkId === "a").rrfScore;
       const score2 = fused2.find((r) => r.chunkId === "a").rrfScore;
-      assert.notEqual(score1, score2);
+      expect(score1).not.toBe(score2);
     });
 
     it("applies weights to BM25 and vector scores", () => {
@@ -59,13 +59,13 @@ describe("retrieval/hybrid-retrieval", () => {
 
       const scoreA1 = fusedEqual.find((r) => r.chunkId === "a").rrfScore;
       const scoreA2 = fusedBm25Heavy.find((r) => r.chunkId === "a").rrfScore;
-      assert.ok(scoreA2 > scoreA1);
+      expect(scoreA2 > scoreA1).toBeTruthy();
     });
 
     it("handles empty arrays", () => {
-      assert.deepEqual(rrfFuse([], []), []);
-      assert.ok(rrfFuse([{ chunkId: "a" }], []).length === 1);
-      assert.ok(rrfFuse([], [{ chunkId: "a" }]).length === 1);
+      expect(rrfFuse([]).toEqual([]), []);
+      expect(rrfFuse([{ chunkId: "a" }], []).toBeTruthy().length === 1);
+      expect(rrfFuse([], [{ chunkId: "a" }]).toBeTruthy().length === 1);
     });
 
     it("skips entries without chunkId", () => {
@@ -73,13 +73,13 @@ describe("retrieval/hybrid-retrieval", () => {
       const vector = [{ chunkId: "b" }];
 
       const fused = rrfFuse(bm25, vector);
-      assert.equal(fused.length, 2);
+      expect(fused.length).toBe(2);
     });
 
     it("throws on invalid input", () => {
-      assert.throws(() => rrfFuse(null, []), /array/);
-      assert.throws(() => rrfFuse([], null), /array/);
-      assert.throws(() => rrfFuse([], [], "invalid"), /object/);
+      expect(() => rrfFuse(null, [])).toThrow(/array/);
+      expect(() => rrfFuse([], null)).toThrow(/array/);
+      expect(() => rrfFuse([], [], "invalid")).toThrow(/object/);
     });
 
     it("preserves original scores", () => {
@@ -89,8 +89,8 @@ describe("retrieval/hybrid-retrieval", () => {
       const fused = rrfFuse(bm25, vector);
       const item = fused.find((r) => r.chunkId === "a");
 
-      assert.equal(item.bm25Score, 1.5);
-      assert.equal(item.vectorScore, 0.9);
+      expect(item.bm25Score).toBe(1.5);
+      expect(item.vectorScore).toBe(0.9);
     });
 
     it("handles Infinity limit", () => {
@@ -98,7 +98,7 @@ describe("retrieval/hybrid-retrieval", () => {
       const vector = [];
 
       const fused = rrfFuse(bm25, vector, { limit: Infinity });
-      assert.equal(fused.length, 20);
+      expect(fused.length).toBe(20);
     });
   });
 
@@ -114,12 +114,12 @@ describe("retrieval/hybrid-retrieval", () => {
         vectorSearchFn: async () => [{ chunkId: "vectorresult", score: 0.9 }],
       });
 
-      assert.ok(result.length >= 1);
+      expect(result.length >= 1).toBeTruthy();
     });
 
     it("returns empty for empty query", async () => {
       const result = await hybridSearch({}, "   ", {});
-      assert.deepEqual(result, []);
+      expect(result).toEqual([]);
     });
 
     it("handles missing indexes gracefully", async () => {
@@ -127,7 +127,7 @@ describe("retrieval/hybrid-retrieval", () => {
         bm25SearchFn: () => [],
         vectorSearchFn: async () => [],
       });
-      assert.deepEqual(result, []);
+      expect(result).toEqual([]);
     });
 
     it("continues on BM25 failure when fallback=true", async () => {
@@ -144,7 +144,7 @@ describe("retrieval/hybrid-retrieval", () => {
         vectorSearchFn: async () => [{ chunkId: "vector" }],
       });
 
-      assert.ok(result.length >= 1);
+      expect(result.length >= 1).toBeTruthy();
     });
 
     it("continues on vector failure when fallback=true", async () => {
@@ -161,14 +161,13 @@ describe("retrieval/hybrid-retrieval", () => {
         },
       });
 
-      assert.ok(result.length >= 1);
+      expect(result.length >= 1).toBeTruthy();
     });
 
     it("throws on failure when fallback=false", async () => {
       const indexes = { bm25Index: {} };
 
-      await assert.rejects(
-        () =>
+      await expect(() =>
           hybridSearch(indexes, "test", {
             fallback: false,
             bm25SearchFn: () => {
@@ -193,26 +192,23 @@ describe("retrieval/hybrid-retrieval", () => {
           Array.from({ length: 10 }, (_, i) => ({ chunkId: `v${i}` })),
       });
 
-      assert.equal(result.length, 2);
+      expect(result.length).toBe(2);
     });
 
     it("throws on invalid indexes", async () => {
-      await assert.rejects(
-        () => hybridSearch(null, "test"),
+      await expect(() => hybridSearch(null, "test"),
         /indexes must be an object/
       );
     });
 
     it("throws on invalid query", async () => {
-      await assert.rejects(
-        () => hybridSearch({}, 123),
+      await expect(() => hybridSearch({}, 123),
         /query must be a string/
       );
     });
 
     it("throws on invalid options", async () => {
-      await assert.rejects(
-        () => hybridSearch({}, "test", "invalid"),
+      await expect(() => hybridSearch({}, "test", "invalid"),
         /options must be an object/
       );
     });
@@ -228,7 +224,7 @@ describe("retrieval/hybrid-retrieval", () => {
         vectorSearchFn: async () => "not an array",
       });
 
-      assert.deepEqual(result, []);
+      expect(result).toEqual([]);
     });
   });
 });

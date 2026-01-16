@@ -1,42 +1,42 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import { Platform, isNodeLike } from "../../js/agents/shared/platform.js";
 
 describe("shared/platform", () => {
   describe("Platform", () => {
     it("exports Platform object", () => {
-      assert.ok(Platform);
-      assert.ok(typeof Platform.runtime === "string");
+      expect(Platform).toBeTruthy();
+      expect(typeof Platform.runtime === "string").toBeTruthy();
     });
 
     it("has runtime property", () => {
-      assert.ok(["node", "bun", "deno", "browser", "unknown"].includes(Platform.runtime));
+      expect(["node", "bun", "deno", "browser", "unknown"].includes(Platform.runtime)).toBeTruthy();
     });
 
     it("has boolean flags", () => {
-      assert.equal(typeof Platform.isNode, "boolean");
-      assert.equal(typeof Platform.isBun, "boolean");
-      assert.equal(typeof Platform.isDeno, "boolean");
-      assert.equal(typeof Platform.isBrowser, "boolean");
+      expect(typeof Platform.isNode).toBe("boolean");
+      expect(typeof Platform.isBun).toBe("boolean");
+      expect(typeof Platform.isDeno).toBe("boolean");
+      expect(typeof Platform.isBrowser).toBe("boolean");
     });
 
     it("detects Node.js in test environment", () => {
       // In Node.js test environment, should detect as node
-      assert.ok(Platform.isNode || Platform.isBun);
-      assert.equal(Platform.isBrowser, false);
+      expect(Platform.isNode || Platform.isBun).toBeTruthy();
+      expect(Platform.isBrowser).toBe(false);
     });
   });
 
   describe("isNodeLike", () => {
     it("returns boolean", () => {
       const result = isNodeLike();
-      assert.equal(typeof result, "boolean");
+      expect(typeof result).toBe("boolean");
     });
 
     it("returns true in Node.js test environment", () => {
       // Running in Node.js, should return true
-      assert.ok(isNodeLike());
+      expect(isNodeLike()).toBeTruthy();
     });
   });
 });

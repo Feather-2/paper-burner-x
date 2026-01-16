@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   EmbeddingService,
@@ -666,5 +666,1011 @@ describe("shared/embeddings/embedding-service", () => {
 
     await expect(svc._callEmbeddings(["a"], { signal: upstream })).resolves.toHaveLength(1);
     expect(seenSignal).toBe(upstream);
+  });
+});
+
+// ============================================================================
+// normalizeEmbeddingConfig Tests
+// ============================================================================
+
+describe("normalizeEmbeddingConfig", () => {
+  it("should return null for invalid input", () => {
+    expect(normalizeEmbeddingConfig(null)).toBe(null);
+    expect(normalizeEmbeddingConfig(undefined)).toBe(null);
+    expect(normalizeEmbeddingConfig("string")).toBe(null);
+    expect(normalizeEmbeddingConfig(123)).toBe(null);
+  });
+
+  it("should return null without endpoint", () => {
+    expect(normalizeEmbeddingConfig({})).toBe(null);
+    expect(normalizeEmbeddingConfig({ model: "test" })).toBe(null);
+  });
+
+  it("should return null when disabled", () => {
+    expect(
+      normalizeEmbeddingConfig({ endpoint: "http://test", enabled: false })
+    ).toBe(null);
+  });
+
+  it("should normalize valid config with defaults", () => {
+    const cfg = normalizeEmbeddingConfig({ endpoint: "http://test" });
+    expect(cfg.endpoint).toBe("http://test");
+    expect(cfg.model).toBe(null);
+    expect(cfg.apiKey).toBe(null);
+    expect(cfg.headers).toStrictEqual({});
+    expect(cfg.timeoutMs).toBe(5000);
+    expect(cfg.batchSize).toBe(32);
+    expect(cfg.flushIntervalMs).toBe(30);
+    expect(cfg.maxQueue).toBe(2000);
+    expect(cfg.cooldownMs).toBe(300000);
+  });
+
+  it("should accept url or baseUrl as endpoint", () => {
+    const cfg1 = normalizeEmbeddingConfig({ url: "http://a" });
+    const cfg2 = normalizeEmbeddingConfig({ baseUrl: "http://b" });
+    expect(cfg1.endpoint).toBe("http://a");
+    expect(cfg2.endpoint).toBe("http://b");
+  });
+
+  it("should normalize model and apiKey", () => {
+    const cfg = normalizeEmbeddingConfig({
+      endpoint: "http://test",
+      model: "text-embedding-3",
+      key: "sk-123",
+    });
+    expect(cfg.model).toBe("text-embedding-3");
+    expect(cfg.apiKey).toBe("sk-123");
+  });
+
+  it("should accept apiKey field", () => {
+    const cfg = normalizeEmbeddingConfig({
+      endpoint: "http://test",
+      apiKey: "sk-456",
+    });
+    expect(cfg.apiKey).toBe("sk-456");
+  });
+
+  it("should parse custom headers", () => {
+    const cfg = normalizeEmbeddingConfig({
+      endpoint: "http://test",
+      headers: { "X-Custom": "value", invalid: null },
+    });
+    expect(cfg.headers["X-Custom"]).toBe("value");
+    expect(cfg.headers["invalid"]).toBe("");
+  });
+
+  it("should ignore non-object headers", () => {
+    const cfg = normalizeEmbeddingConfig({
+      endpoint: "http://test",
+      headers: "not-an-object",
+    });
+    expect(cfg.headers).toStrictEqual({});
+  });
+});
+
+// ============================================================================
+// EmbeddingService Tests
+// ============================================================================
+
+describe("EmbeddingService", () => {
+  describe("constructor and enabled state", () => {
+    it("should be disabled without valid config", () => {
+      const svc = new EmbeddingService(null);
+      expect(svc.enabled).toBe(false);
+    });
+
+    it("should be disabled without fetch", () => {
+      const svc = new EmbeddingService(
+        { endpoint: "http://test" },
+        { fetchImpl: null }
+      );
+      expect(svc.enabled).toBe(false);
+    });
+
+    it("should be enabled with valid config and fetch", () => {
+      const svc = new EmbeddingService(
+        { endpoint: "http://test" },
+        { fetchImpl: () => Promise.resolve({ ok: true, json: () => ({}) }) }
+      );
+      expect(svc.enabled).toBe(true);
+    });
+  });
+
+  describe("getStatus", () => {
+    it("should return status object", () => {
+      const svc = new EmbeddingService(
+        { endpoint: "http://test", model: "text-3" },
+        { fetchImpl: () => {} }
+      );
+      const status = svc.getStatus();
+      expect(status.enabled).toBe(true);
+      expect(status.available).toBe(null);
+      expect(status.failures).toBe(0);
+      expect(status.endpoint).toBe("http://test");
+      expect(status.model).toBe("text-3");
+    });
+
+    it("should return null endpoint/model when disabled", () => {
+      const svc = new EmbeddingService(null);
+      const status = svc.getStatus();
+      expect(status.enabled).toBe(false);
+      expect(status.endpoint).toBe(null);
+      expect(status.model).toBe(null);
+    });
+  });
+
+  describe("embed with mock API", () => {
+    let fetchCalls;
+
+    beforeEach(() => {
+      fetchCalls = [];
+    });
+
+    function createMockFetch(response) {
+      return async (url, options) => {
+        fetchCalls.push({ url, options });
+        return response;
+      };
+    }
+
+    it("should return null when disabled", async () => {
+      const svc = new EmbeddingService(null);
+      const result = await svc.embed("hello");
+      expect(result).toBe(null);
+    });
+
+    it("should return empty array for empty input", async () => {
+      const svc = new EmbeddingService(
+        { endpoint: "http://test" },
+        {
+          fetchImpl: createMockFetch({
+            ok: true,
+            json: () => ({ data: [{ embedding: [1, 2, 3], index: 0 }] }),
+          }),
+        }
+      );
+      const result = await svc.embed([]);
+      expect(result).toStrictEqual([]);
+      expect(fetchCalls.length).toBe(0);
+    });
+
+    it("should filter out empty/whitespace strings", async () => {
+      const svc = new EmbeddingService(
+        { endpoint: "http://test" },
+        {
+          fetchImpl: createMockFetch({
+            ok: true,
+            json: () => ({ data: [{ embedding: [1], index: 0 }] }),
+          }),
+        }
+      );
+      const result = await svc.embed(["", "  ", "valid"]);
+      expect(result.length).toBe(1);
+      const body = JSON.parse(fetchCalls[0].options.body);
+      expect(body.input).toStrictEqual(["valid"]);
+    });
+
+    it("should call API and return embeddings (OpenAI format)", async () => {
+      const svc = new EmbeddingService(
+        { endpoint: "http://test", model: "text-3", apiKey: "sk-test" },
+        {
+          fetchImpl: createMockFetch({
+            ok: true,
+            json: () => ({
+              data: [
+                { embedding: [0.1, 0.2, 0.3], index: 0 },
+                { embedding: [0.4, 0.5, 0.6], index: 1 },
+              ],
+            }),
+          }),
+        }
+      );
+
+      const result = await svc.embed(["hello", "world"]);
+      expect(result.length).toBe(2);
+      expect(result[0] instanceof Float32Array).toBeTruthy();
+      expect(result[1] instanceof Float32Array).toBeTruthy();
+      expect(result[0].length).toBe(3);
+      expect(Math.abs(result[0][0] - 0.1) < 0.001).toBeTruthy();
+      expect(Math.abs(result[1][0] - 0.4) < 0.001).toBeTruthy();
+
+      expect(fetchCalls.length).toBe(1);
+      const body = JSON.parse(fetchCalls[0].options.body);
+      expect(body.model).toBe("text-3");
+      expect(body.input).toStrictEqual(["hello", "world"]);
+      expect(
+        fetchCalls[0].options.headers.Authorization.includes("sk-test")
+      ).toBeTruthy();
+    });
+
+    it("should handle unordered index in response", async () => {
+      const svc = new EmbeddingService(
+        { endpoint: "http://test" },
+        {
+          fetchImpl: createMockFetch({
+            ok: true,
+            json: () => ({
+              data: [
+                { embedding: [0.4, 0.5, 0.6], index: 1 },
+                { embedding: [0.1, 0.2, 0.3], index: 0 },
+              ],
+            }),
+          }),
+        }
+      );
+
+      const result = await svc.embed(["a", "b"]);
+      expect(Math.abs(result[0][0] - 0.1) < 0.001).toBeTruthy();
+      expect(Math.abs(result[1][0] - 0.4) < 0.001).toBeTruthy();
+    });
+
+    it("should handle embeddings array format", async () => {
+      const svc = new EmbeddingService(
+        { endpoint: "http://test" },
+        {
+          fetchImpl: createMockFetch({
+            ok: true,
+            json: () => ({ embeddings: [[0.1, 0.2], [0.3, 0.4]] }),
+          }),
+        }
+      );
+
+      const result = await svc.embed(["a", "b"]);
+      expect(result.length).toBe(2);
+    });
+
+    it("should handle single embedding format", async () => {
+      const svc = new EmbeddingService(
+        { endpoint: "http://test" },
+        {
+          fetchImpl: createMockFetch({
+            ok: true,
+            json: () => ({ embedding: [0.1, 0.2, 0.3] }),
+          }),
+        }
+      );
+
+      const result = await svc.embed("single");
+      expect(result.length).toBe(1);
+    });
+
+    it("should handle vector format", async () => {
+      const svc = new EmbeddingService(
+        { endpoint: "http://test" },
+        {
+          fetchImpl: createMockFetch({
+            ok: true,
+            json: () => ({ vector: [0.1, 0.2, 0.3] }),
+          }),
+        }
+      );
+
+      const result = await svc.embed("single");
+      expect(result.length).toBe(1);
+    });
+
+    it("should handle nested array format in data", async () => {
+      const svc = new EmbeddingService(
+        { endpoint: "http://test" },
+        {
+          fetchImpl: createMockFetch({
+            ok: true,
+            json: () => ({ data: [[0.1, 0.2], [0.3, 0.4]] }),
+          }),
+        }
+      );
+
+      const result = await svc.embed(["a", "b"]);
+      expect(result.length).toBe(2);
+    });
+
+    it("should mark failure on non-ok response", async () => {
+      const svc = new EmbeddingService(
+        { endpoint: "http://test", cooldownMs: 1000 },
+        { fetchImpl: createMockFetch({ ok: false, status: 500 }) }
+      );
+
+      const result = await svc.embed("test");
+      expect(result).toBe(null);
+      expect(svc.getStatus().available).toBe(false);
+      expect(svc.getStatus().failures).toBe(1);
+    });
+
+    it("should mark failure on json parse error", async () => {
+      const svc = new EmbeddingService(
+        { endpoint: "http://test", cooldownMs: 1000 },
+        {
+          fetchImpl: createMockFetch({
+            ok: true,
+            json: () => {
+              throw new Error("parse error");
+            },
+          }),
+        }
+      );
+
+      const result = await svc.embed("test");
+      expect(result).toBe(null);
+      expect(svc.getStatus().failures).toBe(1);
+    });
+
+    it("should mark failure on invalid response format", async () => {
+      const svc = new EmbeddingService(
+        { endpoint: "http://test", cooldownMs: 1000 },
+        {
+          fetchImpl: createMockFetch({
+            ok: true,
+            json: () => ({ unexpected: "format" }),
+          }),
+        }
+      );
+
+      const result = await svc.embed("test");
+      expect(result).toBe(null);
+      expect(svc.getStatus().failures).toBe(1);
+    });
+
+    it("should mark failure on fetch exception", async () => {
+      const svc = new EmbeddingService(
+        { endpoint: "http://test", cooldownMs: 1000 },
+        {
+          fetchImpl: async () => {
+            throw new Error("network error");
+          },
+        }
+      );
+
+      const result = await svc.embed("test");
+      expect(result).toBe(null);
+      expect(svc.getStatus().failures).toBe(1);
+    });
+
+    it("should respect cooldown after failure", async () => {
+      let callCount = 0;
+      const svc = new EmbeddingService(
+        { endpoint: "http://test", cooldownMs: 60000 },
+        {
+          fetchImpl: async () => {
+            callCount++;
+            throw new Error("fail");
+          },
+        }
+      );
+
+      await svc.embed("test1");
+      expect(callCount).toBe(1);
+
+      await svc.embed("test2");
+      expect(callCount).toBe(1);
+    });
+
+    it("should not skip existing authorization header", async () => {
+      const svc = new EmbeddingService(
+        {
+          endpoint: "http://test",
+          apiKey: "sk-test",
+          headers: { Authorization: "Custom auth" },
+        },
+        {
+          fetchImpl: createMockFetch({
+            ok: true,
+            json: () => ({ embedding: [1] }),
+          }),
+        }
+      );
+
+      await svc.embed("test");
+      expect(fetchCalls[0].options.headers.Authorization).toBe("Custom auth");
+    });
+  });
+
+  describe("enqueue and flush", () => {
+    it("should batch multiple enqueue calls", async () => {
+      let batchSizes = [];
+      const svc = new EmbeddingService(
+        { endpoint: "http://test", batchSize: 10, flushIntervalMs: 5 },
+        {
+          fetchImpl: async (url, opts) => {
+            const body = JSON.parse(opts.body);
+            batchSizes.push(body.input.length);
+            return {
+              ok: true,
+              json: () => ({
+                data: body.input.map((_, i) => ({ embedding: [i], index: i })),
+              }),
+            };
+          },
+        }
+      );
+
+      const p1 = svc.enqueue(["a", "b", "c"]);
+      const p2 = svc.enqueue(["d", "e"]);
+
+      // Manually flush to ensure promises resolve before test ends
+      await svc.flush();
+
+      const [r1, r2] = await Promise.all([p1, p2]);
+      expect(r1.length).toBe(3);
+      expect(r2.length).toBe(2);
+    });
+
+    it("should respect maxQueue limit", async () => {
+      const svc = new EmbeddingService(
+        { endpoint: "http://test", maxQueue: 5, flushIntervalMs: 1000 },
+        {
+          fetchImpl: async () => ({
+            ok: true,
+            json: () => ({ data: [{ embedding: [1], index: 0 }] }),
+          }),
+        }
+      );
+
+      // Enqueue items but don't await them (they'll exceed maxQueue)
+      const pendingPromises = [];
+      for (let i = 0; i < 10; i++) {
+        pendingPromises.push(svc.enqueue(`text-${i}`));
+      }
+
+      const result = await svc.enqueue("overflow");
+      expect(result).toBe(null);
+
+      // Cleanup: flush and await all pending to avoid leaked promises
+      await svc.flush();
+      await Promise.all(pendingPromises);
+    });
+
+    it("should handle immediate flush", async () => {
+      let flushCount = 0;
+      const svc = new EmbeddingService(
+        { endpoint: "http://test", flushIntervalMs: 10000 },
+        {
+          fetchImpl: async (url, opts) => {
+            flushCount++;
+            const body = JSON.parse(opts.body);
+            return {
+              ok: true,
+              json: () => ({
+                data: body.input.map((_, i) => ({ embedding: [i], index: i })),
+              }),
+            };
+          },
+        }
+      );
+
+      const result = await svc.enqueue("test", { immediate: true });
+      expect(result.length).toBe(1);
+      expect(flushCount).toBe(1);
+    });
+
+    it("should return null from enqueue when disabled", async () => {
+      const svc = new EmbeddingService(null);
+      const result = await svc.enqueue("test");
+      expect(result).toBe(null);
+    });
+
+    it("should return empty array for empty enqueue", async () => {
+      const svc = new EmbeddingService(
+        { endpoint: "http://test" },
+        { fetchImpl: async () => ({ ok: true, json: () => ({}) }) }
+      );
+      const result = await svc.enqueue([]);
+      expect(result).toStrictEqual([]);
+    });
+  });
+
+  describe("flush edge cases", () => {
+    it("should return false when disabled", async () => {
+      const svc = new EmbeddingService(null);
+      const result = await svc.flush();
+      expect(result).toBe(false);
+    });
+
+    it("should return true when queue is empty", async () => {
+      const svc = new EmbeddingService(
+        { endpoint: "http://test" },
+        { fetchImpl: async () => ({ ok: true, json: () => ({}) }) }
+      );
+      const result = await svc.flush();
+      expect(result).toBe(true);
+    });
+  });
+
+  describe("createEmbeddingService factory", () => {
+    it("should create service instance", () => {
+      const svc = createEmbeddingService(
+        { endpoint: "http://test" },
+        { fetchImpl: () => {} }
+      );
+      expect(svc instanceof EmbeddingService).toBeTruthy();
+    });
+  });
+});
+
+// ============================================================================
+// VectorIndex Tests
+// ============================================================================
+
+describe("VectorIndex", () => {
+  /** @type {VectorIndex} */
+  let index;
+
+  beforeEach(() => {
+    index = new VectorIndex({ maxItems: 100 });
+  });
+
+  describe("basic operations", () => {
+    it("should upsert and retrieve vectors", () => {
+      const v1 = [1, 0, 0];
+      const v2 = [0, 1, 0];
+
+      expect(index.upsert("a", v1, { label: "first" })).toBeTruthy();
+      expect(index.upsert("b", v2, { label: "second" })).toBeTruthy();
+
+      expect(index.size).toBe(2);
+      expect(index.dimension).toBe(3);
+      expect(index.has("a")).toBeTruthy();
+      expect(index.has("b")).toBeTruthy();
+      expect(!index.has("c")).toBeTruthy();
+    });
+
+    it("should update existing vector", () => {
+      index.upsert("a", [1, 0, 0]);
+      index.upsert("a", [0, 1, 0]);
+
+      expect(index.size).toBe(1);
+      const results = index.search([0, 1, 0], { topK: 1 });
+      expect(results[0].id).toBe("a");
+      expect(results[0].score > 0.99).toBeTruthy();
+    });
+
+    it("should delete vectors", () => {
+      index.upsert("a", [1, 0, 0]);
+      index.upsert("b", [0, 1, 0]);
+
+      expect(index.delete("a")).toBeTruthy();
+      expect(index.size).toBe(1);
+      expect(!index.has("a")).toBeTruthy();
+      expect(index.has("b")).toBeTruthy();
+
+      expect(!index.delete("nonexistent")).toBeTruthy();
+    });
+
+    it("should clear all vectors", () => {
+      index.upsert("a", [1, 0]);
+      index.upsert("b", [0, 1]);
+
+      index.clear();
+
+      expect(index.size).toBe(0);
+      expect(index.dimension).toBe(null);
+    });
+
+    it("should throw on dimension mismatch", () => {
+      index.upsert("a", [1, 0, 0]);
+
+      expect(() => index.upsert("b", [1, 0, 0, 0])).toThrow(
+        /dimension mismatch/
+      );
+    });
+
+    it("should respect maxItems limit with LRU eviction", () => {
+      const smallIndex = new VectorIndex({ maxItems: 3 });
+      smallIndex.upsert("a", [1, 0]);
+      smallIndex.upsert("b", [0, 1]);
+      smallIndex.upsert("c", [1, 1]);
+      smallIndex.upsert("d", [0.5, 0.5]);
+
+      expect(smallIndex.size).toBe(3);
+      expect(!smallIndex.has("a")).toBeTruthy();
+      expect(smallIndex.has("b")).toBeTruthy();
+      expect(smallIndex.has("c")).toBeTruthy();
+      expect(smallIndex.has("d")).toBeTruthy();
+    });
+
+    it("should refresh LRU order on update", () => {
+      const smallIndex = new VectorIndex({ maxItems: 3 });
+      smallIndex.upsert("a", [1, 0]);
+      smallIndex.upsert("b", [0, 1]);
+      smallIndex.upsert("a", [1, 0]);
+      smallIndex.upsert("c", [1, 1]);
+      smallIndex.upsert("d", [0.5, 0.5]);
+
+      expect(smallIndex.size).toBe(3);
+      expect(smallIndex.has("a")).toBeTruthy();
+      expect(!smallIndex.has("b")).toBeTruthy();
+    });
+  });
+
+  describe("vector normalization", () => {
+    it("should accept Float32Array", () => {
+      const vec = new Float32Array([1, 0, 0]);
+      expect(index.upsert("a", vec)).toBeTruthy();
+    });
+
+    it("should accept regular array", () => {
+      expect(index.upsert("a", [1, 0, 0])).toBeTruthy();
+    });
+
+    it("should accept ArrayBuffer", () => {
+      const arr = new Float32Array([1, 0, 0]);
+      expect(index.upsert("a", arr.buffer)).toBeTruthy();
+    });
+
+    it("should accept Uint8Array view", () => {
+      const f32 = new Float32Array([1, 0, 0]);
+      const u8 = new Uint8Array(f32.buffer);
+      expect(index.upsert("a", u8)).toBeTruthy();
+    });
+
+    it("should reject null/undefined vectors", () => {
+      expect(index.upsert("a", null)).toBe(false);
+      expect(index.upsert("a", undefined)).toBe(false);
+    });
+
+    it("should reject empty vectors", () => {
+      expect(index.upsert("a", [])).toBe(false);
+    });
+
+    it("should reject zero vectors", () => {
+      expect(index.upsert("a", [0, 0, 0])).toBe(false);
+    });
+
+    it("should reject invalid id", () => {
+      expect(index.upsert("", [1, 0])).toBe(false);
+      expect(index.upsert(null, [1, 0])).toBe(false);
+    });
+
+    it("should handle NaN by converting to 0", () => {
+      expect(index.upsert("a", [NaN, 1, 0])).toBeTruthy();
+    });
+
+    it("should reject vector with all NaN", () => {
+      expect(index.upsert("a", [NaN, NaN, NaN])).toBe(false);
+    });
+  });
+
+  describe("search", () => {
+    beforeEach(() => {
+      index.upsert("north", [0, 1, 0], { direction: "north" });
+      index.upsert("south", [0, -1, 0], { direction: "south" });
+      index.upsert("east", [1, 0, 0], { direction: "east" });
+      index.upsert("west", [-1, 0, 0], { direction: "west" });
+      index.upsert("northeast", [0.707, 0.707, 0], {
+        direction: "northeast",
+      });
+    });
+
+    it("should return empty for empty index", () => {
+      const emptyIndex = new VectorIndex();
+      const results = emptyIndex.search([1, 0, 0]);
+      expect(results.length).toBe(0);
+    });
+
+    it("should find exact match with highest score", () => {
+      const results = index.search([0, 1, 0], { topK: 1 });
+      expect(results.length).toBe(1);
+      expect(results[0].id).toBe("north");
+      expect(results[0].score > 0.99).toBeTruthy();
+    });
+
+    it("should respect topK parameter", () => {
+      const results = index.search([0.5, 0.5, 0], { topK: 3 });
+      expect(results.length).toBe(3);
+    });
+
+    it("should default topK to 5", () => {
+      const results = index.search([0.5, 0.5, 0]);
+      expect(results.length).toBe(5);
+    });
+
+    it("should sort by descending score", () => {
+      const results = index.search([0, 1, 0], { topK: 5 });
+      for (let i = 1; i < results.length; i++) {
+        expect(results[i - 1].score >= results[i].score).toBeTruthy();
+      }
+    });
+
+    it("should apply minScore filter", () => {
+      const results = index.search([0, 1, 0], { topK: 10, minScore: 0.5 });
+      for (const r of results) {
+        expect(r.score >= 0.5).toBeTruthy();
+      }
+    });
+
+    it("should apply custom filter", () => {
+      const results = index.search([0, 1, 0], {
+        topK: 10,
+        filter: (meta) => meta.direction.includes("east"),
+      });
+      for (const r of results) {
+        expect(r.meta.direction.includes("east")).toBeTruthy();
+      }
+    });
+
+    it("should pass id to filter function", () => {
+      const ids = [];
+      index.search([1, 0, 0], {
+        topK: 5,
+        filter: (meta, id) => {
+          ids.push(id);
+          return true;
+        },
+      });
+      expect(ids.includes("north")).toBeTruthy();
+      expect(ids.includes("east")).toBeTruthy();
+    });
+
+    it("should return empty for invalid query vector", () => {
+      expect(index.search(null).length).toBe(0);
+      expect(index.search([]).length).toBe(0);
+      expect(index.search([0, 0, 0]).length).toBe(0);
+    });
+
+    it("should return empty for dimension mismatch query", () => {
+      const results = index.search([1, 0], { topK: 5 });
+      expect(results.length).toBe(0);
+    });
+
+    it("should include meta in results", () => {
+      const results = index.search([1, 0, 0], { topK: 1 });
+      expect(results[0].meta.direction).toBe("east");
+    });
+  });
+
+  describe("partition filtering", () => {
+    it("should filter by hot/warm/cold partitions", () => {
+      const now = Date.now();
+      index.upsert("hot1", [1, 0, 0], { ts: now - 1000 });
+      index.upsert("warm1", [0.9, 0.1, 0], {
+        ts: now - 2 * 60 * 60 * 1000,
+      });
+      index.upsert("cold1", [0.8, 0.2, 0], {
+        ts: now - 48 * 60 * 60 * 1000,
+      });
+
+      const hotResults = index.search([1, 0, 0], {
+        topK: 10,
+        partitions: "hot",
+      });
+      expect(hotResults.length).toBe(1);
+      expect(hotResults[0].id).toBe("hot1");
+
+      const warmResults = index.search([1, 0, 0], {
+        topK: 10,
+        partitions: ["warm"],
+      });
+      expect(warmResults.length).toBe(1);
+      expect(warmResults[0].id).toBe("warm1");
+
+      const multiResults = index.search([1, 0, 0], {
+        topK: 10,
+        partitions: ["hot", "warm"],
+      });
+      expect(multiResults.length).toBe(2);
+    });
+
+    it("should classify missing ts as cold", () => {
+      const now = Date.now();
+      index.upsert("no-ts", [1, 0, 0], {});
+      index.upsert("hot", [0.9, 0.1, 0], { ts: now - 1000 });
+
+      const coldResults = index.search([1, 0, 0], {
+        topK: 10,
+        partitions: "cold",
+      });
+      expect(coldResults.length).toBe(1);
+      expect(coldResults[0].id).toBe("no-ts");
+    });
+
+    it("should handle null partitions (no filter)", () => {
+      const now = Date.now();
+      index.upsert("hot", [1, 0, 0], { ts: now - 1000 });
+      index.upsert("cold", [0.9, 0.1, 0], {});
+
+      const results = index.search([1, 0, 0], { topK: 10, partitions: null });
+      expect(results.length).toBe(2);
+    });
+  });
+
+  describe("getPartitionStats", () => {
+    it("should return partition counts", () => {
+      const now = Date.now();
+      index.upsert("hot1", [1, 0, 0], { ts: now - 1000 });
+      index.upsert("hot2", [0, 1, 0], { ts: now - 2000 });
+      index.upsert("warm1", [0, 0, 1], {
+        ts: now - 2 * 60 * 60 * 1000,
+      });
+      index.upsert("cold1", [1, 1, 0], {
+        ts: now - 48 * 60 * 60 * 1000,
+      });
+
+      const stats = index.getPartitionStats();
+      expect(stats.hot).toBe(2);
+      expect(stats.warm).toBe(1);
+      expect(stats.cold).toBe(1);
+      expect(stats.total).toBe(4);
+    });
+
+    it("should return zeros for empty index", () => {
+      const stats = index.getPartitionStats();
+      expect(stats.hot).toBe(0);
+      expect(stats.warm).toBe(0);
+      expect(stats.cold).toBe(0);
+      expect(stats.total).toBe(0);
+    });
+  });
+
+  describe("edge cases", () => {
+    it("should handle has with invalid id", () => {
+      expect(index.has("")).toBe(false);
+      expect(index.has(null)).toBe(false);
+    });
+
+    it("should handle delete with invalid id", () => {
+      expect(index.delete("")).toBe(false);
+      expect(index.delete(null)).toBe(false);
+    });
+
+    it("should handle search with topK <= 0", () => {
+      index.upsert("a", [1, 0]);
+      expect(index.search([1, 0], { topK: 0 }).length).toBe(1);
+      expect(index.search([1, 0], { topK: -1 }).length).toBe(1);
+    });
+
+    it("should handle default options", () => {
+      const idx = new VectorIndex();
+      expect(idx.dimension).toBe(null);
+      expect(idx.size).toBe(0);
+    });
+
+    it("should handle non-object options", () => {
+      const idx = new VectorIndex("invalid");
+      expect(idx.size).toBe(0);
+    });
+  });
+});
+
+// ============================================================================
+// Multi-provider Support Tests
+// ============================================================================
+
+describe("Multi-provider embedding support", () => {
+  it("should work with OpenAI response format", async () => {
+    const svc = new EmbeddingService(
+      { endpoint: "https://api.openai.com/v1/embeddings" },
+      {
+        fetchImpl: async () => ({
+          ok: true,
+          json: () => ({
+            object: "list",
+            data: [{ object: "embedding", embedding: [0.1, 0.2], index: 0 }],
+            model: "text-embedding-3-small",
+            usage: { prompt_tokens: 5, total_tokens: 5 },
+          }),
+        }),
+      }
+    );
+
+    const result = await svc.embed("test");
+    expect(result.length).toBe(1);
+    expect(result[0] instanceof Float32Array).toBeTruthy();
+  });
+
+  it("should work with Ollama response format", async () => {
+    const svc = new EmbeddingService(
+      { endpoint: "http://localhost:11434/api/embeddings" },
+      {
+        fetchImpl: async () => ({
+          ok: true,
+          json: () => ({
+            embedding: [0.1, 0.2, 0.3, 0.4],
+          }),
+        }),
+      }
+    );
+
+    const result = await svc.embed("test");
+    expect(result.length).toBe(1);
+    expect(result[0].length).toBe(4);
+  });
+
+  it("should work with batch array format", async () => {
+    const svc = new EmbeddingService(
+      { endpoint: "http://custom-api/embed" },
+      {
+        fetchImpl: async () => ({
+          ok: true,
+          json: () => ({
+            data: [[0.1, 0.2], [0.3, 0.4]],
+          }),
+        }),
+      }
+    );
+
+    const result = await svc.embed(["a", "b"]);
+    expect(result.length).toBe(2);
+  });
+
+  it("should include custom headers", async () => {
+    let capturedHeaders;
+    const svc = new EmbeddingService(
+      {
+        endpoint: "http://test",
+        headers: { "X-Api-Version": "2024-01" },
+        apiKey: "test-key",
+      },
+      {
+        fetchImpl: async (url, opts) => {
+          capturedHeaders = opts.headers;
+          return {
+            ok: true,
+            json: () => ({ embedding: [1, 2, 3] }),
+          };
+        },
+      }
+    );
+
+    await svc.embed("test");
+    expect(capturedHeaders["X-Api-Version"]).toBe("2024-01");
+    expect(capturedHeaders["Authorization"].includes("test-key")).toBeTruthy();
+  });
+
+  it("should omit model when not provided", async () => {
+    let capturedBody;
+    const svc = new EmbeddingService(
+      { endpoint: "http://test" },
+      {
+        fetchImpl: async (url, opts) => {
+          capturedBody = JSON.parse(opts.body);
+          return {
+            ok: true,
+            json: () => ({ embedding: [1] }),
+          };
+        },
+      }
+    );
+
+    await svc.embed("test");
+    expect(capturedBody.model).toBe(undefined);
+  });
+});
+
+// ============================================================================
+// Integration Tests with MemoryStore/SourceManager
+// ============================================================================
+
+describe("EmbeddingService integration", () => {
+  it("should integrate with VectorIndex for semantic search", async () => {
+    const fetchImpl = async (url, opts) => {
+      const body = JSON.parse(opts.body);
+      const inputs = Array.isArray(body.input) ? body.input : [];
+      const data = inputs.map((text, index) => {
+        const s = String(text).toLowerCase();
+        const revenue = s.includes("revenue") ? 1 : 0;
+        const market = s.includes("market") ? 1 : 0;
+        return { index, embedding: [revenue, market, 0] };
+      });
+      return { ok: true, json: () => ({ data }) };
+    };
+
+    const svc = new EmbeddingService(
+      { endpoint: "http://test", flushIntervalMs: 0 },
+      { fetchImpl }
+    );
+
+    const vectorIndex = new VectorIndex({ maxItems: 100 });
+
+    const texts = ["Q3 revenue analysis", "Market share data", "Other content"];
+    const embeddings = await svc.embed(texts);
+
+    texts.forEach((text, i) => {
+      vectorIndex.upsert(`doc-${i}`, embeddings[i], { text });
+    });
+
+    const queryEmbedding = await svc.embed("revenue");
+    const results = vectorIndex.search(queryEmbedding[0], { topK: 2 });
+
+    expect(results[0].id).toBe("doc-0");
+    expect(results[0].meta.text.includes("revenue")).toBeTruthy();
   });
 });

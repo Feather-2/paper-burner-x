@@ -1,7 +1,8 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
-test("DesignStage._buildVisualSlots: maps slots correctly with imageProvider", async () => {
+it("DesignStage._buildVisualSlots: maps slots correctly with imageProvider", async () => {
   const { DesignStage } = await import("../../../js/agents/stages/design/design-agent.js");
 
   const stage = new DesignStage();
@@ -22,12 +23,12 @@ test("DesignStage._buildVisualSlots: maps slots correctly with imageProvider", a
 
   // With imageProvider
   const slotsWithProvider = stage._buildVisualSlots(brainstormResult, imageSlots, { generate: () => {} });
-  assert.equal(slotsWithProvider.length, 2);
-  assert.equal(slotsWithProvider[0].renderType, "ai-image");
-  assert.equal(slotsWithProvider[1].renderType, "svg");
+  expect(slotsWithProvider.length).toBe(2);
+  expect(slotsWithProvider[0].renderType).toBe("ai-image");
+  expect(slotsWithProvider[1].renderType).toBe("svg");
 });
 
-test("DesignStage._buildVisualSlots: fallback ai-image to svg without imageProvider", async () => {
+it("DesignStage._buildVisualSlots: fallback ai-image to svg without imageProvider", async () => {
   const { DesignStage } = await import("../../../js/agents/stages/design/design-agent.js");
 
   const stage = new DesignStage();
@@ -44,8 +45,8 @@ test("DesignStage._buildVisualSlots: fallback ai-image to svg without imageProvi
 
   // Without imageProvider - should fallback to svg
   const slots = stage._buildVisualSlots(brainstormResult, [], null);
-  assert.equal(slots.length, 1);
-  assert.equal(slots[0].renderType, "svg");
-  assert.ok(slots[0].svgSpec);
+  expect(slots.length).toBe(1);
+  expect(slots[0].renderType).toBe("svg");
+  expect(slots[0].svgSpec).toBeTruthy();
 });
 

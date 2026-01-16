@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import {
   normalizeVfsPath,
@@ -11,178 +11,157 @@ import {
 describe("vfs/path", () => {
   describe("normalizeVfsPath", () => {
     it("returns empty for empty string", () => {
-      assert.equal(normalizeVfsPath(""), "");
+      expect(normalizeVfsPath("")).toBe("");
     });
 
     it("returns empty for '.'", () => {
-      assert.equal(normalizeVfsPath("."), "");
+      expect(normalizeVfsPath(".")).toBe("");
     });
 
     it("returns empty for './'", () => {
-      assert.equal(normalizeVfsPath("./"), "");
+      expect(normalizeVfsPath("./")).toBe("");
     });
 
     it("returns empty for '/'", () => {
-      assert.equal(normalizeVfsPath("/"), "");
+      expect(normalizeVfsPath("/")).toBe("");
     });
 
     it("strips leading slashes", () => {
-      assert.equal(normalizeVfsPath("/foo/bar"), "foo/bar");
+      expect(normalizeVfsPath("/foo/bar")).toBe("foo/bar");
     });
 
     it("strips multiple leading slashes", () => {
-      assert.equal(normalizeVfsPath("///foo"), "foo");
+      expect(normalizeVfsPath("///foo")).toBe("foo");
     });
 
     it("strips leading ./ sequences", () => {
-      assert.equal(normalizeVfsPath("./foo/bar"), "foo/bar");
+      expect(normalizeVfsPath("./foo/bar")).toBe("foo/bar");
     });
 
     it("converts backslashes to forward slashes", () => {
-      assert.equal(normalizeVfsPath("foo\\bar\\baz"), "foo/bar/baz");
+      expect(normalizeVfsPath("foo\\bar\\baz")).toBe("foo/bar/baz");
     });
 
     it("collapses . segments", () => {
-      assert.equal(normalizeVfsPath("foo/./bar"), "foo/bar");
+      expect(normalizeVfsPath("foo/./bar")).toBe("foo/bar");
     });
 
     it("collapses empty segments", () => {
-      assert.equal(normalizeVfsPath("foo//bar"), "foo/bar");
+      expect(normalizeVfsPath("foo//bar")).toBe("foo/bar");
     });
 
     it("throws for .. traversal", () => {
-      assert.throws(
-        () => normalizeVfsPath("foo/../bar"),
-        /traversal/
-      );
+      expect(() => normalizeVfsPath("foo/../bar")).toThrow(/traversal/);
     });
 
     it("throws for leading .. traversal", () => {
-      assert.throws(
-        () => normalizeVfsPath("../foo"),
-        /traversal/
-      );
+      expect(() => normalizeVfsPath("../foo")).toThrow(/traversal/);
     });
 
     it("throws for Windows absolute path", () => {
-      assert.throws(
-        () => normalizeVfsPath("C:/foo/bar"),
-        /absolute path/
-      );
+      expect(() => normalizeVfsPath("C:/foo/bar")).toThrow(/absolute path/);
     });
 
     it("throws for invalid characters", () => {
-      assert.throws(
-        () => normalizeVfsPath("foo<bar"),
-        /Invalid VFS path segment/
-      );
+      expect(() => normalizeVfsPath("foo<bar")).toThrow(/Invalid VFS path segment/);
     });
 
     it("throws for control characters", () => {
-      assert.throws(
-        () => normalizeVfsPath("foo\x00bar"),
-        /Invalid VFS path segment/
-      );
+      expect(() => normalizeVfsPath("foo\x00bar")).toThrow(/Invalid VFS path segment/);
     });
 
     it("throws for Windows reserved names", () => {
-      assert.throws(
-        () => normalizeVfsPath("CON"),
-        /reserved name/
-      );
+      expect(() => normalizeVfsPath("CON")).toThrow(/reserved name/);
     });
 
     it("throws for Windows reserved names with extension", () => {
-      assert.throws(
-        () => normalizeVfsPath("nul.txt"),
-        /reserved name/
-      );
+      expect(() => normalizeVfsPath("nul.txt")).toThrow(/reserved name/);
     });
 
     it("handles normal path", () => {
-      assert.equal(normalizeVfsPath("foo/bar/baz.txt"), "foo/bar/baz.txt");
+      expect(normalizeVfsPath("foo/bar/baz.txt")).toBe("foo/bar/baz.txt");
     });
 
     it("handles spaces in path", () => {
-      assert.equal(normalizeVfsPath("foo/bar baz"), "foo/bar baz");
+      expect(normalizeVfsPath("foo/bar baz")).toBe("foo/bar baz");
     });
 
     it("handles null input", () => {
-      assert.equal(normalizeVfsPath(null), "");
+      expect(normalizeVfsPath(null)).toBe("");
     });
 
     it("handles undefined input", () => {
-      assert.equal(normalizeVfsPath(undefined), "");
+      expect(normalizeVfsPath(undefined)).toBe("");
     });
   });
 
   describe("dirnameVfsPath", () => {
     it("returns parent directory", () => {
-      assert.equal(dirnameVfsPath("foo/bar/baz.txt"), "foo/bar");
+      expect(dirnameVfsPath("foo/bar/baz.txt")).toBe("foo/bar");
     });
 
     it("returns empty for root file", () => {
-      assert.equal(dirnameVfsPath("file.txt"), "");
+      expect(dirnameVfsPath("file.txt")).toBe("");
     });
 
     it("returns empty for root path", () => {
-      assert.equal(dirnameVfsPath("/"), "");
+      expect(dirnameVfsPath("/")).toBe("");
     });
 
     it("normalizes path before extracting dirname", () => {
-      assert.equal(dirnameVfsPath("/foo/bar"), "foo");
+      expect(dirnameVfsPath("/foo/bar")).toBe("foo");
     });
 
     it("handles deeply nested path", () => {
-      assert.equal(dirnameVfsPath("a/b/c/d/e.txt"), "a/b/c/d");
+      expect(dirnameVfsPath("a/b/c/d/e.txt")).toBe("a/b/c/d");
     });
   });
 
   describe("basenameVfsPath", () => {
     it("returns filename from path", () => {
-      assert.equal(basenameVfsPath("foo/bar/baz.txt"), "baz.txt");
+      expect(basenameVfsPath("foo/bar/baz.txt")).toBe("baz.txt");
     });
 
     it("returns name for root file", () => {
-      assert.equal(basenameVfsPath("file.txt"), "file.txt");
+      expect(basenameVfsPath("file.txt")).toBe("file.txt");
     });
 
     it("returns empty for root path", () => {
-      assert.equal(basenameVfsPath("/"), "");
+      expect(basenameVfsPath("/")).toBe("");
     });
 
     it("normalizes path before extracting basename", () => {
-      assert.equal(basenameVfsPath("/foo/bar"), "bar");
+      expect(basenameVfsPath("/foo/bar")).toBe("bar");
     });
 
     it("handles directory name", () => {
-      assert.equal(basenameVfsPath("foo/bar/"), "bar");
+      expect(basenameVfsPath("foo/bar/")).toBe("bar");
     });
   });
 
   describe("joinVfsPath", () => {
     it("joins two paths", () => {
-      assert.equal(joinVfsPath("foo", "bar"), "foo/bar");
+      expect(joinVfsPath("foo").toBe("bar"), "foo/bar");
     });
 
     it("returns child when base is empty", () => {
-      assert.equal(joinVfsPath("", "bar"), "bar");
+      expect(joinVfsPath("").toBe("bar"), "bar");
     });
 
     it("returns base when child is empty", () => {
-      assert.equal(joinVfsPath("foo", ""), "foo");
+      expect(joinVfsPath("foo").toBe(""), "foo");
     });
 
     it("normalizes both paths", () => {
-      assert.equal(joinVfsPath("/foo/", "./bar"), "foo/bar");
+      expect(joinVfsPath("/foo/").toBe("./bar"), "foo/bar");
     });
 
     it("returns empty when both are empty", () => {
-      assert.equal(joinVfsPath("", ""), "");
+      expect(joinVfsPath("").toBe(""), "");
     });
 
     it("handles multiple segments", () => {
-      assert.equal(joinVfsPath("foo/bar", "baz/qux"), "foo/bar/baz/qux");
+      expect(joinVfsPath("foo/bar").toBe("baz/qux"), "foo/bar/baz/qux");
     });
   });
 });

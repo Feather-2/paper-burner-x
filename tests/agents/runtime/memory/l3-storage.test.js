@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import { L3Storage } from "../../../../js/agents/runtime/memory/l3-storage.js";
 import { MemoryVfs } from "../../../../js/agents/vfs/vfs.memory.js";
@@ -33,13 +33,12 @@ function spyReadFile(vfs) {
 
 describe("L3Storage", () => {
   it("validates constructor options (requires vfs and runId)", () => {
-    assert.throws(() => new L3Storage(), /requires\s+\{\s*vfs\s*\}/i);
-    assert.throws(() => new L3Storage({ vfs: new MemoryVfs() }), /requires\s+\{\s*runId\s*\}/i);
+    expect(() => new L3Storage()).toThrow(/requires\s+\{\s*vfs\s*\}/i);
+    expect(() => new L3Storage({ vfs: new MemoryVfs().toThrow() }), /requires\s+\{\s*runId\s*\}/i);
 
-    assert.throws(() => new L3Storage({ vfs: {}, runId: "run_1" }), /vfs\.readFile/i);
-    assert.throws(() => new L3Storage({ vfs: { readFile() {} }, runId: "run_1" }), /vfs\.writeFile/i);
-    assert.throws(
-      () => new L3Storage({ vfs: { readFile() {}, writeFile() {} }, runId: "run_1" }),
+    expect(() => new L3Storage({ vfs: {}, runId: "run_1" })).toThrow(/vfs\.readFile/i);
+    expect(() => new L3Storage({ vfs: { readFile().toThrow() {} }, runId: "run_1" }), /vfs\.writeFile/i);
+    expect(() => new L3Storage({ vfs: { readFile().toThrow() {}, writeFile() {} }, runId: "run_1" }),
       /vfs\.mkdir/i
     );
   });
@@ -66,18 +65,18 @@ describe("L3Storage", () => {
 
     await vfs.writeText(indexPath, JSON.stringify(seededIndex));
 
-    assert.equal(await vfs.exists(snapshotsDir), false);
-    assert.equal(await vfs.exists(checkpointsDir), false);
+    expect(await vfs.exists(snapshotsDir)).toBe(false);
+    expect(await vfs.exists(checkpointsDir)).toBe(false);
 
     const storage = new L3Storage({ vfs, runId });
     await storage.init();
 
-    assert.equal(await vfs.exists(snapshotsDir), true);
-    assert.equal(await vfs.exists(checkpointsDir), true);
+    expect(await vfs.exists(snapshotsDir)).toBe(true);
+    expect(await vfs.exists(checkpointsDir)).toBe(true);
 
-    assert.deepEqual(storage.getTimeline(), seededIndex.timeline);
-    assert.deepEqual(storage.searchByKeyword("ALPHA").sort(), ["snap_1", "snap_2"].sort());
-    assert.deepEqual(await storage.listCheckpoints(), [
+    expect(storage.getTimeline()).toEqual(seededIndex.timeline);
+    expect(storage.searchByKeyword("ALPHA").sort()).toEqual(["snap_1", "snap_2"].sort());
+    expect(await storage.listCheckpoints()).toEqual([
       { id: "ckpt_1", ts: 10, encoding: "json", baseId: null },
       { id: "ckpt_2", ts: 20, encoding: null, baseId: "snap_1" },
     ]);
@@ -91,26 +90,26 @@ describe("L3Storage", () => {
     const storage = new L3Storage({ vfs, runId });
     const snapId = await storage.archive("stage1", { summary: "hello", value: 123 }, ["Alpha", "alpha", " Beta "]);
 
-    assert.ok(typeof snapId === "string" && snapId.startsWith("snap_"));
+    expect(typeof snapId === "string" && snapId.startsWith("snap_")).toBeTruthy();
 
     const entry = JSON.parse(await vfs.readText(snapshotPath(snapId)));
-    assert.equal(entry.id, snapId);
-    assert.equal(entry.runId, runId);
-    assert.equal(entry.stageKey, "stage1");
-    assert.deepEqual(entry.keywords, ["alpha", "beta"]);
-    assert.equal(entry.summary, "hello");
-    assert.deepEqual(entry.data, { summary: "hello", value: 123 });
+    expect(entry.id).toBe(snapId);
+    expect(entry.runId).toBe(runId);
+    expect(entry.stageKey).toBe("stage1");
+    expect(entry.keywords).toEqual(["alpha", "beta"]);
+    expect(entry.summary).toBe("hello");
+    expect(entry.data).toEqual({ summary: "hello", value: 123 });
 
     const index = JSON.parse(await vfs.readText(indexPath));
-    assert.equal(index.runId, runId);
-    assert.ok(Array.isArray(index.timeline) && index.timeline.some((e) => e?.id === snapId));
+    expect(index.runId).toBe(runId);
+    expect(Array.isArray(index.timeline).toBeTruthy() && index.timeline.some((e) => e?.id === snapId));
 
     const stages = new Map(Array.isArray(index.stages) ? index.stages : []);
-    assert.equal(stages.get("stage1"), snapId);
+    expect(stages.get("stage1")).toBe(snapId);
 
     const keywords = new Map(Array.isArray(index.keywords) ? index.keywords : []);
-    assert.deepEqual(new Set(keywords.get("alpha") || []), new Set([snapId]));
-    assert.deepEqual(new Set(keywords.get("beta") || []), new Set([snapId]));
+    expect(new Set(keywords.get("alpha") || [])).toEqual(new Set([snapId]));
+    expect(new Set(keywords.get("beta") || [])).toEqual(new Set([snapId]));
   });
 
   it("getSnapshot() returns from cache or VFS", async () => {
@@ -125,19 +124,19 @@ describe("L3Storage", () => {
     try {
       // cache-first: archive() populated the snapshot cache.
       const cached = await storage1.getSnapshot(snapId);
-      assert.equal(cached?.id, snapId);
-      assert.equal(spy.calls.length, 0);
+      expect(cached?.id).toBe(snapId);
+      expect(spy.calls.length).toBe(0);
 
       // new instance: forces VFS read, then caches.
       const storage2 = new L3Storage({ vfs, runId });
       const fromVfs = await storage2.getSnapshot(snapId);
-      assert.equal(fromVfs?.id, snapId);
-      assert.equal(spy.calls.filter((p) => p === snapshotPath(snapId)).length, 1);
+      expect(fromVfs?.id).toBe(snapId);
+      expect(spy.calls.filter((p) => p === snapshotPath(snapId)).length).toBe(1);
 
       spy.calls.length = 0;
       const cachedAgain = await storage2.getSnapshot(snapId);
-      assert.equal(cachedAgain?.id, snapId);
-      assert.equal(spy.calls.length, 0);
+      expect(cachedAgain?.id).toBe(snapId);
+      expect(spy.calls.length).toBe(0);
     } finally {
       spy.restore();
     }
@@ -157,19 +156,19 @@ describe("L3Storage", () => {
       payload: { a: 1 },
     });
 
-    assert.equal(ckptId, "ckpt_fixed");
+    expect(ckptId).toBe("ckpt_fixed");
 
     const checkpoint = JSON.parse(await vfs.readText(checkpointPath(ckptId)));
-    assert.equal(checkpoint.id, ckptId);
-    assert.equal(checkpoint.ts, 123);
-    assert.equal(checkpoint.runId, runId);
-    assert.equal(checkpoint.encoding, "json");
-    assert.equal(checkpoint.baseId, "snap_x");
-    assert.deepEqual(checkpoint.payload, { a: 1 });
+    expect(checkpoint.id).toBe(ckptId);
+    expect(checkpoint.ts).toBe(123);
+    expect(checkpoint.runId).toBe(runId);
+    expect(checkpoint.encoding).toBe("json");
+    expect(checkpoint.baseId).toBe("snap_x");
+    expect(checkpoint.payload).toEqual({ a: 1 });
 
     const index = JSON.parse(await vfs.readText(indexPath));
-    assert.ok(Array.isArray(index.checkpointIndex));
-    assert.equal(index.checkpointIndex[index.checkpointIndex.length - 1]?.id, ckptId);
+    expect(Array.isArray(index.checkpointIndex)).toBeTruthy();
+    expect(index.checkpointIndex[index.checkpointIndex.length - 1]?.id).toBe(ckptId);
   });
 
   it("getCheckpoint() returns from cache or VFS", async () => {
@@ -183,18 +182,18 @@ describe("L3Storage", () => {
     const spy = spyReadFile(vfs);
     try {
       const cached = await storage1.getCheckpoint(ckptId);
-      assert.equal(cached?.id, ckptId);
-      assert.equal(spy.calls.length, 0);
+      expect(cached?.id).toBe(ckptId);
+      expect(spy.calls.length).toBe(0);
 
       const storage2 = new L3Storage({ vfs, runId });
       const fromVfs = await storage2.getCheckpoint(ckptId);
-      assert.equal(fromVfs?.id, ckptId);
-      assert.equal(spy.calls.filter((p) => p === checkpointPath(ckptId)).length, 1);
+      expect(fromVfs?.id).toBe(ckptId);
+      expect(spy.calls.filter((p) => p === checkpointPath(ckptId)).length).toBe(1);
 
       spy.calls.length = 0;
       const cachedAgain = await storage2.getCheckpoint(ckptId);
-      assert.equal(cachedAgain?.id, ckptId);
-      assert.equal(spy.calls.length, 0);
+      expect(cachedAgain?.id).toBe(ckptId);
+      expect(spy.calls.length).toBe(0);
     } finally {
       spy.restore();
     }
@@ -204,7 +203,7 @@ describe("L3Storage", () => {
     {
       const vfs = new MemoryVfs();
       const storage = new L3Storage({ vfs, runId: "run_latest_empty" });
-      assert.equal(await storage.getLatestCheckpoint(), null);
+      expect(await storage.getLatestCheckpoint()).toBe(null);
     }
 
     const runId = "run_latest";
@@ -215,9 +214,9 @@ describe("L3Storage", () => {
     await storage.checkpoint({ id: "ckpt_2", ts: 2, payload: { n: 2 } });
 
     const latest = await storage.getLatestCheckpoint();
-    assert.equal(latest?.id, "ckpt_2");
-    assert.equal(latest?.ts, 2);
-    assert.deepEqual(latest?.payload, { n: 2 });
+    expect(latest?.id).toBe("ckpt_2");
+    expect(latest?.ts).toBe(2);
+    expect(latest?.payload).toEqual({ n: 2 });
   });
 
   it("listCheckpoints() returns checkpoint metadata index", async () => {
@@ -228,7 +227,7 @@ describe("L3Storage", () => {
     await storage.checkpoint({ id: "ckpt_a", ts: 10, encoding: "json", baseId: "snap_1" });
     await storage.checkpoint({ id: "ckpt_b", ts: 20, encoding: "raw" });
 
-    assert.deepEqual(await storage.listCheckpoints(), [
+    expect(await storage.listCheckpoints()).toEqual([
       { id: "ckpt_a", ts: 10, encoding: "json", baseId: "snap_1" },
       { id: "ckpt_b", ts: 20, encoding: "raw", baseId: null },
     ]);
@@ -243,13 +242,13 @@ describe("L3Storage", () => {
     const snapId2 = await storage.archive("stage2", { summary: "two" }, ["k2"]);
 
     const timeline1 = storage.getTimeline();
-    assert.equal(timeline1.length, 2);
-    assert.equal(timeline1[0]?.id, snapId1);
-    assert.equal(timeline1[1]?.id, snapId2);
+    expect(timeline1.length).toBe(2);
+    expect(timeline1[0]?.id).toBe(snapId1);
+    expect(timeline1[1]?.id).toBe(snapId2);
 
     timeline1[0].summary = "mutated";
     const timeline2 = storage.getTimeline();
-    assert.equal(timeline2[0]?.summary, "one");
+    expect(timeline2[0]?.summary).toBe("one");
   });
 
   it("searchByKeyword() returns matching snapshot IDs", async () => {
@@ -259,11 +258,11 @@ describe("L3Storage", () => {
 
     const snapId = await storage.archive("stage1", { summary: "hello" }, [" Alpha ", "beta", "BETA"]);
 
-    assert.deepEqual(storage.searchByKeyword("alpha"), [snapId]);
-    assert.deepEqual(storage.searchByKeyword("ALPHA"), [snapId]);
-    assert.deepEqual(storage.searchByKeyword("beta"), [snapId]);
-    assert.deepEqual(storage.searchByKeyword("missing"), []);
-    assert.deepEqual(storage.searchByKeyword(" "), []);
+    expect(storage.searchByKeyword("alpha")).toEqual([snapId]);
+    expect(storage.searchByKeyword("ALPHA")).toEqual([snapId]);
+    expect(storage.searchByKeyword("beta")).toEqual([snapId]);
+    expect(storage.searchByKeyword("missing")).toEqual([]);
+    expect(storage.searchByKeyword(" ")).toEqual([]);
   });
 
   it("dispose() persists index and clears caches", async () => {
@@ -276,24 +275,24 @@ describe("L3Storage", () => {
     const snapId = await storage.archive("stage1", { summary: "snap" }, ["k"]);
     const ckptId = await storage.checkpoint({ id: "ckpt_1", ts: 1, payload: { ok: true } });
 
-    assert.ok(storage._snapshotCache.size > 0);
-    assert.ok(storage._checkpointCache.size > 0);
+    expect(storage._snapshotCache.size > 0).toBeTruthy();
+    expect(storage._checkpointCache.size > 0).toBeTruthy();
 
     // Add an unpersisted timeline entry to prove dispose() persists.
     storage._index.timeline.push({ id: "manual_entry", ts: 999, summary: "manual" });
 
     await storage.dispose();
-    assert.equal(storage.disposed, true);
-    assert.equal(storage._snapshotCache.size, 0);
-    assert.equal(storage._checkpointCache.size, 0);
+    expect(storage.disposed).toBe(true);
+    expect(storage._snapshotCache.size).toBe(0);
+    expect(storage._checkpointCache.size).toBe(0);
 
     const index = JSON.parse(await vfs.readText(indexPath));
-    assert.ok(index.timeline.some((e) => e?.id === snapId));
-    assert.ok(index.checkpointIndex.some((e) => e?.id === ckptId));
-    assert.ok(index.timeline.some((e) => e?.id === "manual_entry"));
+    expect(index.timeline.some(e => e?.id === snapId)).toBeTruthy();
+    expect(index.checkpointIndex.some(e => e?.id === ckptId)).toBeTruthy();
+    expect(index.timeline.some(e => e?.id === "manual_entry")).toBeTruthy();
 
-    await assert.rejects(async () => storage.getSnapshot(snapId), /disposed/i);
-    await assert.rejects(async () => storage.getCheckpoint(ckptId), /disposed/i);
+    await expect(async () => storage.getSnapshot(snapId), /disposed/i);
+    await expect(async () => storage.getCheckpoint(ckptId), /disposed/i);
   });
 
   it("persistIndex() uses atomic write pattern", async () => {
@@ -314,16 +313,16 @@ describe("L3Storage", () => {
     await storage.archive("stage1", { summary: "atomic test" }, ["k"]);
 
     // Verify rename was called with correct paths
-    assert.ok(renameCalledWith !== null);
-    assert.equal(renameCalledWith.from, tempPath);
-    assert.equal(renameCalledWith.to, indexPath);
+    expect(renameCalledWith !== null).toBeTruthy();
+    expect(renameCalledWith.from).toBe(tempPath);
+    expect(renameCalledWith.to).toBe(indexPath);
 
     // Verify temp file is cleaned up
-    assert.equal(await vfs.exists(tempPath), false);
+    expect(await vfs.exists(tempPath)).toBe(false);
 
     // Verify index was persisted correctly
     const index = JSON.parse(await vfs.readText(indexPath));
-    assert.ok(index.timeline.length > 0);
+    expect(index.timeline.length > 0).toBeTruthy();
   });
 
   it("persistIndex() falls back when rename is not available", async () => {
@@ -345,14 +344,14 @@ describe("L3Storage", () => {
     await storage.archive("stage1", { summary: "fallback test" }, ["k"]);
 
     // Verify unlink was called to clean up temp
-    assert.ok(unlinkCalled);
+    expect(unlinkCalled).toBeTruthy();
 
     // Verify temp file is cleaned up
-    assert.equal(await vfs.exists(tempPath), false);
+    expect(await vfs.exists(tempPath)).toBe(false);
 
     // Verify index was persisted correctly
     const index = JSON.parse(await vfs.readText(indexPath));
-    assert.ok(index.timeline.length > 0);
+    expect(index.timeline.length > 0).toBeTruthy();
   });
 
   it("restoreIndex() recovers from orphaned .tmp file", async () => {
@@ -383,15 +382,15 @@ describe("L3Storage", () => {
 
     // Verify recovery: timeline should have the orphaned entry
     const timeline = storage.getTimeline();
-    assert.equal(timeline.length, 1);
-    assert.equal(timeline[0].id, "snap_orphan");
+    expect(timeline.length).toBe(1);
+    expect(timeline[0].id).toBe("snap_orphan");
 
     // Verify temp file is cleaned up after recovery
-    assert.equal(await vfs.exists(tempPath), false);
+    expect(await vfs.exists(tempPath)).toBe(false);
 
     // Verify index.json now exists with recovered data
     const index = JSON.parse(await vfs.readText(indexPath));
-    assert.equal(index.timeline[0].id, "snap_orphan");
+    expect(index.timeline[0].id).toBe("snap_orphan");
   });
 
   it("restoreIndex() removes corrupted .tmp file", async () => {
@@ -423,12 +422,12 @@ describe("L3Storage", () => {
     await storage.init();
 
     // Verify corrupted temp was removed
-    assert.equal(await vfs.exists(tempPath), false);
+    expect(await vfs.exists(tempPath)).toBe(false);
 
     // Verify we loaded from the valid index.json
     const timeline = storage.getTimeline();
-    assert.equal(timeline.length, 1);
-    assert.equal(timeline[0].id, "snap_valid");
+    expect(timeline.length).toBe(1);
+    expect(timeline[0].id).toBe("snap_valid");
   });
 
   it("restoreIndex() recovers with rename support", async () => {
@@ -462,14 +461,14 @@ describe("L3Storage", () => {
     await storage.init();
 
     // Verify rename was used for recovery
-    assert.ok(renameCalledWith !== null);
-    assert.equal(renameCalledWith.from, tempPath);
-    assert.equal(renameCalledWith.to, indexPath);
+    expect(renameCalledWith !== null).toBeTruthy();
+    expect(renameCalledWith.from).toBe(tempPath);
+    expect(renameCalledWith.to).toBe(indexPath);
 
     // Verify recovery succeeded
     const timeline = storage.getTimeline();
-    assert.equal(timeline.length, 1);
-    assert.equal(timeline[0].id, "snap_rename");
+    expect(timeline.length).toBe(1);
+    expect(timeline[0].id).toBe("snap_rename");
   });
 
   it("archive() deduplicates identical content by default", async () => {
@@ -482,17 +481,17 @@ describe("L3Storage", () => {
     const snapId2 = await storage.archive("stage2", data, ["k2"]);
 
     // Should return the same ID (deduplicated)
-    assert.equal(snapId1, snapId2);
+    expect(snapId1).toBe(snapId2);
 
     // getLastArchiveStats should indicate deduplication
     const stats = storage.getLastArchiveStats();
-    assert.ok(stats !== null);
-    assert.equal(stats.id, snapId1);
-    assert.equal(stats.deduplicated, true);
+    expect(stats !== null).toBeTruthy();
+    expect(stats.id).toBe(snapId1);
+    expect(stats.deduplicated).toBe(true);
 
     // Timeline should only have 1 entry (no duplicate)
     const timeline = storage.getTimeline();
-    assert.equal(timeline.length, 1);
+    expect(timeline.length).toBe(1);
   });
 
   it("archive() creates new snapshot for different content", async () => {
@@ -504,17 +503,17 @@ describe("L3Storage", () => {
     const snapId2 = await storage.archive("stage2", { value: 2 }, ["k2"]);
 
     // Should have different IDs
-    assert.notEqual(snapId1, snapId2);
+    expect(snapId1).not.toBe(snapId2);
 
     // getLastArchiveStats should indicate no deduplication
     const stats = storage.getLastArchiveStats();
-    assert.ok(stats !== null);
-    assert.equal(stats.id, snapId2);
-    assert.equal(stats.deduplicated, false);
+    expect(stats !== null).toBeTruthy();
+    expect(stats.id).toBe(snapId2);
+    expect(stats.deduplicated).toBe(false);
 
     // Timeline should have 2 entries
     const timeline = storage.getTimeline();
-    assert.equal(timeline.length, 2);
+    expect(timeline.length).toBe(2);
   });
 
   it("archive() with deduplicate=false forces new snapshot", async () => {
@@ -527,17 +526,17 @@ describe("L3Storage", () => {
     const snapId2 = await storage.archive("stage2", data, ["k2"], { deduplicate: false });
 
     // Should have different IDs even with same content
-    assert.notEqual(snapId1, snapId2);
+    expect(snapId1).not.toBe(snapId2);
 
     // Timeline should have 2 entries
     const timeline = storage.getTimeline();
-    assert.equal(timeline.length, 2);
+    expect(timeline.length).toBe(2);
 
     // Both should be retrievable
     const snap1 = await storage.getSnapshot(snapId1);
     const snap2 = await storage.getSnapshot(snapId2);
-    assert.ok(snap1 !== null);
-    assert.ok(snap2 !== null);
+    expect(snap1 !== null).toBeTruthy();
+    expect(snap2 !== null).toBeTruthy();
   });
 
   it("isDuplicate() checks without archiving", async () => {
@@ -549,20 +548,20 @@ describe("L3Storage", () => {
 
     // Before archiving, should not be duplicate
     const check1 = storage.isDuplicate(data);
-    assert.equal(check1.duplicate, false);
-    assert.equal(check1.existingId, undefined);
+    expect(check1.duplicate).toBe(false);
+    expect(check1.existingId).toBe(undefined);
 
     // Archive the data
     const snapId = await storage.archive("stage1", data, []);
 
     // Now should be duplicate
     const check2 = storage.isDuplicate(data);
-    assert.equal(check2.duplicate, true);
-    assert.equal(check2.existingId, snapId);
+    expect(check2.duplicate).toBe(true);
+    expect(check2.existingId).toBe(snapId);
 
     // Different data should not be duplicate
     const check3 = storage.isDuplicate({ value: "different" });
-    assert.equal(check3.duplicate, false);
+    expect(check3.duplicate).toBe(false);
   });
 
   it("deduplicateByDefault=false disables deduplication globally", async () => {
@@ -575,8 +574,8 @@ describe("L3Storage", () => {
     const snapId2 = await storage.archive("stage2", data, []);
 
     // Should create different snapshots (no deduplication)
-    assert.notEqual(snapId1, snapId2);
-    assert.equal(storage.getTimeline().length, 2);
+    expect(snapId1).not.toBe(snapId2);
+    expect(storage.getTimeline().length).toBe(2);
   });
 
   it("hashIndex persists and restores correctly", async () => {
@@ -590,8 +589,8 @@ describe("L3Storage", () => {
 
     // Verify hashIndex is in persisted index
     const index = JSON.parse(await vfs.readText(indexPath));
-    assert.ok(Array.isArray(index.hashIndex));
-    assert.ok(index.hashIndex.length > 0);
+    expect(Array.isArray(index.hashIndex)).toBeTruthy();
+    expect(index.hashIndex.length > 0).toBeTruthy();
 
     // Create new storage instance and verify deduplication still works
     const storage2 = new L3Storage({ vfs, runId });
@@ -599,8 +598,8 @@ describe("L3Storage", () => {
     const snapId2 = await storage2.archive("stage2", data, []);
 
     // Should deduplicate based on restored hashIndex
-    assert.equal(snapId, snapId2);
-    assert.equal(storage2.getLastArchiveStats().deduplicated, true);
+    expect(snapId).toBe(snapId2);
+    expect(storage2.getLastArchiveStats().deduplicated).toBe(true);
   });
 
   it("getStorageStats() returns correct statistics", async () => {
@@ -610,19 +609,19 @@ describe("L3Storage", () => {
 
     // Initially empty
     const stats0 = storage.getStorageStats();
-    assert.equal(stats0.snapshotCount, 0);
-    assert.equal(stats0.estimatedBytes, 0);
-    assert.equal(stats0.maxSnapshots, 100);
-    assert.equal(stats0.maxStorageBytes, 50000);
+    expect(stats0.snapshotCount).toBe(0);
+    expect(stats0.estimatedBytes).toBe(0);
+    expect(stats0.maxSnapshots).toBe(100);
+    expect(stats0.maxStorageBytes).toBe(50000);
 
     // After archiving
     await storage.archive("stage1", { summary: "test data" }, []);
     await storage.waitForEviction();
 
     const stats1 = storage.getStorageStats();
-    assert.equal(stats1.snapshotCount, 1);
-    assert.ok(stats1.estimatedBytes > 0);
-    assert.equal(stats1.maxSnapshots, 100);
+    expect(stats1.snapshotCount).toBe(1);
+    expect(stats1.estimatedBytes > 0).toBeTruthy();
+    expect(stats1.maxSnapshots).toBe(100);
   });
 
   it("LRU eviction triggers when maxSnapshots exceeded", async () => {
@@ -643,16 +642,16 @@ describe("L3Storage", () => {
 
     // Should have exactly maxSnapshots entries
     const stats = storage.getStorageStats();
-    assert.equal(stats.snapshotCount, 3);
+    expect(stats.snapshotCount).toBe(3);
 
     // Oldest 2 should be evicted (ids[0] and ids[1])
     const timeline = storage.getTimeline();
     const remainingIds = timeline.map((e) => e.id);
-    assert.ok(!remainingIds.includes(ids[0]), "oldest should be evicted");
-    assert.ok(!remainingIds.includes(ids[1]), "second oldest should be evicted");
-    assert.ok(remainingIds.includes(ids[2]), "newer should remain");
-    assert.ok(remainingIds.includes(ids[3]), "newer should remain");
-    assert.ok(remainingIds.includes(ids[4]), "newest should remain");
+    expect(!remainingIds.includes(ids[0])).toBeTruthy();
+    expect(!remainingIds.includes(ids[1])).toBeTruthy();
+    expect(remainingIds.includes(ids[2])).toBeTruthy();
+    expect(remainingIds.includes(ids[3])).toBeTruthy();
+    expect(remainingIds.includes(ids[4])).toBeTruthy();
   });
 
   it("LRU eviction respects accessedAt (recently accessed survives)", async () => {
@@ -680,10 +679,10 @@ describe("L3Storage", () => {
     const timeline = storage.getTimeline();
     const remainingIds = timeline.map((e) => e.id);
 
-    assert.equal(timeline.length, 2, `expected 2 entries, got ${timeline.length}: ${remainingIds.join(", ")}`);
-    assert.ok(remainingIds.includes(id1), `recently accessed (${id1}) should survive, remaining: ${remainingIds.join(", ")}`);
-    assert.ok(remainingIds.includes(id3), `newest (${id3}) should survive, remaining: ${remainingIds.join(", ")}`);
-    assert.ok(!remainingIds.includes(id2), `older accessed (${id2}) should be evicted, remaining: ${remainingIds.join(", ")}`);
+    expect(timeline.length).toBe(2, `expected 2 entries, got ${timeline.length}: ${remainingIds.join(", ")}`);
+    expect(remainingIds.includes(id1).toBeTruthy(), `recently accessed (${id1}) should survive, remaining: ${remainingIds.join(", ")}`);
+    expect(remainingIds.includes(id3).toBeTruthy(), `newest (${id3}) should survive, remaining: ${remainingIds.join(", ")}`);
+    expect(!remainingIds.includes(id2)).toBeTruthy(); // `older accessed (${id2}) should be evicted, remaining: ${remainingIds.join(", ")}`);
   });
 
   it("LRU eviction triggers when maxStorageBytes exceeded", async () => {
@@ -703,8 +702,8 @@ describe("L3Storage", () => {
 
     // Should have fewer snapshots than archived due to byte limit
     const stats = storage.getStorageStats();
-    assert.ok(stats.snapshotCount < 5, "some snapshots should be evicted");
-    assert.ok(stats.estimatedBytes <= 600, "should be under byte limit");
+    expect(stats.snapshotCount < 5, "some snapshots should be evicted").toBeTruthy();
+    expect(stats.estimatedBytes <= 600, "should be under byte limit").toBeTruthy();
   });
 
   it("l3:evicted event is emitted on eviction", async () => {
@@ -730,13 +729,13 @@ describe("L3Storage", () => {
 
     // Should have emitted l3:evicted event
     const evictedEvents = emittedEvents.filter((e) => e.name === "l3:evicted");
-    assert.ok(evictedEvents.length > 0, "should emit l3:evicted event");
+    expect(evictedEvents.length > 0, "should emit l3:evicted event").toBeTruthy();
 
     const event = evictedEvents[evictedEvents.length - 1];
-    assert.equal(event.data.runId, runId);
-    assert.ok(Array.isArray(event.data.evictedIds), "should include evictedIds");
-    assert.ok(event.data.evictedIds.length > 0, "should have evicted at least one");
-    assert.ok(typeof event.data.count === "number", "should include count");
+    expect(event.data.runId).toBe(runId);
+    expect(Array.isArray(event.data.evictedIds).toBeTruthy(), "should include evictedIds");
+    expect(event.data.evictedIds.length > 0, "should have evicted at least one").toBeTruthy();
+    expect(typeof event.data.count === "number", "should include count").toBeTruthy();
   });
 
   it("waitForEviction() awaits pending eviction", async () => {
@@ -753,7 +752,7 @@ describe("L3Storage", () => {
 
     // After waiting, should have exactly 1 snapshot
     const stats = storage.getStorageStats();
-    assert.equal(stats.snapshotCount, 1);
+    expect(stats.snapshotCount).toBe(1);
   });
 
   it("eviction removes VFS files", async () => {
@@ -769,7 +768,7 @@ describe("L3Storage", () => {
     await storage.waitForEviction();
 
     // Evicted snapshot file should be removed
-    assert.equal(await vfs.exists(snapshotPath(id1)), false, "evicted file should be deleted");
+    expect(await vfs.exists(snapshotPath(id1))).toBe(false, "evicted file should be deleted");
   });
 
   it("eviction cleans up keyword and stage indexes", async () => {
@@ -785,7 +784,7 @@ describe("L3Storage", () => {
 
     // Evicted snapshot's keyword should be removed
     const keyword1Results = storage.searchByKeyword("keyword1");
-    assert.ok(!keyword1Results.includes(id1), "evicted id should not appear in keyword search");
+    expect(!keyword1Results.includes(id1)).toBeTruthy();
   });
 });
 

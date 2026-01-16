@@ -1,16 +1,17 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
-test("stripThinkingTags: removes <think> blocks from R1 model output", async () => {
+it("stripThinkingTags: removes <think> blocks from R1 model output", async () => {
   const { stripThinkingTags } = await import("../../../js/agents/stages/deepsearch/state.js");
 
   // Basic case
   const input1 = '<think>This is reasoning...</think>{"result": "success"}';
-  assert.equal(stripThinkingTags(input1), '{"result": "success"}');
+  expect(stripThinkingTags(input1)).toBe('{"result": "success"}');
 
   // Multiple think blocks
   const input2 = '<think>First thought</think>prefix<think>Second thought</think>{"data": 1}';
-  assert.equal(stripThinkingTags(input2), 'prefix{"data": 1}');
+  expect(stripThinkingTags(input2)).toBe('prefix{"data": 1}');
 
   // Multiline think content
   const input3 = `<think>
@@ -18,18 +19,18 @@ Line 1
 Line 2
 </think>
 {"json": true}`;
-  assert.equal(stripThinkingTags(input3), '{"json": true}');
+  expect(stripThinkingTags(input3)).toBe('{"json": true}');
 
   // No think tags - should return as-is
   const input4 = '{"normal": "json"}';
-  assert.equal(stripThinkingTags(input4), '{"normal": "json"}');
+  expect(stripThinkingTags(input4)).toBe('{"normal": "json"}');
 
   // Case insensitive
   const input5 = '<THINK>Uppercase</THINK>{"result": 1}';
-  assert.equal(stripThinkingTags(input5), '{"result": 1}');
+  expect(stripThinkingTags(input5)).toBe('{"result": 1}');
 });
 
-test("extractJsonCandidate: extracts JSON after stripping think tags", async () => {
+it("extractJsonCandidate: extracts JSON after stripping think tags", async () => {
   const { extractJsonCandidate } = await import("../../../js/agents/stages/deepsearch/state.js");
 
   // R1 style output with think block followed by JSON
@@ -44,11 +45,11 @@ Let me analyze this step by step:
 
   const result = extractJsonCandidate(r1Output);
   const parsed = JSON.parse(result);
-  assert.ok(Array.isArray(parsed.gaps));
-  assert.equal(parsed.gaps[0].question, "What is X?");
+  expect(Array.isArray(parsed.gaps)).toBeTruthy();
+  expect(parsed.gaps[0].question).toBe("What is X?");
 });
 
-test("extractJsonCandidate: handles fenced code blocks after think tags", async () => {
+it("extractJsonCandidate: handles fenced code blocks after think tags", async () => {
   const { extractJsonCandidate } = await import("../../../js/agents/stages/deepsearch/state.js");
 
   const input = `<think>Some reasoning here</think>
@@ -59,38 +60,38 @@ test("extractJsonCandidate: handles fenced code blocks after think tags", async 
 
   const result = extractJsonCandidate(input);
   const parsed = JSON.parse(result);
-  assert.equal(parsed.title, "Test");
+  expect(parsed.title).toBe("Test");
 });
 
-test("extractJsonCandidate: supports top-level JSON arrays", async () => {
+it("extractJsonCandidate: supports top-level JSON arrays", async () => {
   const { extractJsonCandidate } = await import("../../../js/agents/stages/deepsearch/state.js");
 
   const input = 'prefix [{"a":1},{"b":2}] suffix';
   const result = extractJsonCandidate(input);
   const parsed = JSON.parse(result);
-  assert.ok(Array.isArray(parsed));
-  assert.equal(parsed[0].a, 1);
-  assert.equal(parsed[1].b, 2);
+  expect(Array.isArray(parsed)).toBeTruthy();
+  expect(parsed[0].a).toBe(1);
+  expect(parsed[1].b).toBe(2);
 });
 
-test("extractJsonCandidate: selects the correct closing brace when extra braces exist", async () => {
+it("extractJsonCandidate: selects the correct closing brace when extra braces exist", async () => {
   const { extractJsonCandidate } = await import("../../../js/agents/stages/deepsearch/state.js");
 
   const input = 'prefix {"a":1} suffix } trailing';
   const result = extractJsonCandidate(input);
-  assert.equal(result, '{"a":1}');
+  expect(result).toBe('{"a":1}');
 });
 
-test("extractJsonCandidate: handles empty or null input", async () => {
+it("extractJsonCandidate: handles empty or null input", async () => {
   const { extractJsonCandidate } = await import("../../../js/agents/stages/deepsearch/state.js");
 
-  assert.equal(extractJsonCandidate(null), null);
-  assert.equal(extractJsonCandidate(""), null);
-  assert.equal(extractJsonCandidate("   "), null);
-  assert.equal(extractJsonCandidate("<think>only thinking</think>"), null);
+  expect(extractJsonCandidate(null)).toBe(null);
+  expect(extractJsonCandidate("")).toBe(null);
+  expect(extractJsonCandidate("   ")).toBe(null);
+  expect(extractJsonCandidate("<think>only thinking</think>")).toBe(null);
 });
 
-test("DeepSearchState.clone: uses structuredClone for non-JSON types when available", async () => {
+it("DeepSearchState.clone: uses structuredClone for non-JSON types when available", async () => {
   if (typeof structuredClone !== "function") return;
   const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
 
@@ -101,16 +102,16 @@ test("DeepSearchState.clone: uses structuredClone for non-JSON types when availa
   state.todos = [{ todoId: "t1", status: "open", text: "x", when, meta, tags }];
 
   const cloned = state.clone();
-  assert.notEqual(cloned, state);
-  assert.notEqual(cloned.todos, state.todos);
-  assert.equal(cloned.todos[0].when instanceof Date, true);
-  assert.equal(cloned.todos[0].meta instanceof Map, true);
-  assert.equal(cloned.todos[0].tags instanceof Set, true);
-  assert.deepEqual([...cloned.todos[0].meta.entries()], [...meta.entries()]);
-  assert.deepEqual([...cloned.todos[0].tags.values()], [...tags.values()]);
+  expect(cloned).not.toBe(state);
+  expect(cloned.todos).not.toBe(state.todos);
+  expect(cloned.todos[0].when instanceof Date).toBe(true);
+  expect(cloned.todos[0].meta instanceof Map).toBe(true);
+  expect(cloned.todos[0].tags instanceof Set).toBe(true);
+  expect([...cloned.todos[0].meta.entries()]).toEqual([...meta.entries()]);
+  expect([...cloned.todos[0].tags.values()]).toEqual([...tags.values()]);
 });
 
-test("DeepSearchState.clone: falls back safely for function/symbol values", async () => {
+it("DeepSearchState.clone: falls back safely for function/symbol values", async () => {
   if (typeof structuredClone !== "function") return;
   const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
 
@@ -119,8 +120,8 @@ test("DeepSearchState.clone: falls back safely for function/symbol values", asyn
     const fn = () => {};
     state.todos = [{ todoId: "t1", bad: fn }];
     const cloned = state.clone();
-    assert.equal(typeof cloned.todos[0].bad, "function");
-    assert.equal(cloned.todos[0].bad, fn);
+    expect(typeof cloned.todos[0].bad).toBe("function");
+    expect(cloned.todos[0].bad).toBe(fn);
   }
 
   {
@@ -128,12 +129,12 @@ test("DeepSearchState.clone: falls back safely for function/symbol values", asyn
     const sym = Symbol("x");
     state.todos = [{ todoId: "t1", bad: sym }];
     const cloned = state.clone();
-    assert.equal(typeof cloned.todos[0].bad, "symbol");
-    assert.equal(cloned.todos[0].bad, sym);
+    expect(typeof cloned.todos[0].bad).toBe("symbol");
+    expect(cloned.todos[0].bad).toBe(sym);
   }
 });
 
-test("cloneValue: avoids recursion overflow in hasCycle for deep objects", async () => {
+it("cloneValue: avoids recursion overflow in hasCycle for deep objects", async () => {
   const { cloneValue } = await import("../../../js/agents/stages/deepsearch/runtime/checkpoint.js");
 
   const originalStructuredClone = globalThis.structuredClone;
@@ -148,23 +149,23 @@ test("cloneValue: avoids recursion overflow in hasCycle for deep objects", async
     }
 
     const cloned = cloneValue(root);
-    assert.equal(cloned, root);
+    expect(cloned).toBe(root);
   } finally {
     globalThis.structuredClone = originalStructuredClone;
   }
 });
 
-test("DeepSearchState.saveCheckpoint: stamps checkpoint schema version", async () => {
+it("DeepSearchState.saveCheckpoint: stamps checkpoint schema version", async () => {
   const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
 
   const state = new DeepSearchState({ runId: "run_ckpt_schema", taskGoal: "t" });
   const cp = state.saveCheckpoint({ checkpointId: "cp1" });
 
-  assert.equal(cp.schemaVersion, "1.0");
-  assert.equal(cp.stateSnapshot.checkpointSchemaVersion, "1.0");
+  expect(cp.schemaVersion).toBe("1.0");
+  expect(cp.stateSnapshot.checkpointSchemaVersion).toBe("1.0");
 });
 
-test("DeepSearchState.saveCheckpoint: minimal strategy produces lean snapshot", async () => {
+it("DeepSearchState.saveCheckpoint: minimal strategy produces lean snapshot", async () => {
   const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
 
   const state = new DeepSearchState({
@@ -176,18 +177,18 @@ test("DeepSearchState.saveCheckpoint: minimal strategy produces lean snapshot", 
   state.L2.tokenUsage = { input: 1, output: 2, total: 3, estimatedCostUSD: 0 };
 
   const cp = state.saveCheckpoint({ checkpointId: "cp_min" });
-  assert.equal(cp.strategy, "minimal");
-  assert.equal(cp.stateSnapshot.snapshotStrategy, "minimal");
-  assert.equal("retrievedChunkIds" in cp.stateSnapshot.L2, false);
+  expect(cp.strategy).toBe("minimal");
+  expect(cp.stateSnapshot.snapshotStrategy).toBe("minimal");
+  expect("retrievedChunkIds" in cp.stateSnapshot.L2).toBe(false);
 
   state.L2.retrievedChunks = [{ chunkId: "c2", text: "y" }];
   state.restoreCheckpoint("cp_min");
-  assert.equal(state.L2.restoredFromMinimalCheckpoint, true);
-  assert.deepEqual(state.L2.retrievedChunks, []);
-  assert.equal(state.L2.tokenUsage.total, 3);
+  expect(state.L2.restoredFromMinimalCheckpoint).toBe(true);
+  expect(state.L2.retrievedChunks).toEqual([]);
+  expect(state.L2.tokenUsage.total).toBe(3);
 });
 
-test("DeepSearchState.addTimeline: enforces maxTimeline cap", async () => {
+it("DeepSearchState.addTimeline: enforces maxTimeline cap", async () => {
   const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
 
   const state = new DeepSearchState({
@@ -201,13 +202,13 @@ test("DeepSearchState.addTimeline: enforces maxTimeline cap", async () => {
   state.addTimeline({ name: "e3" });
 
   // timeline 是 Deque，使用 size 和 toArray()
-  assert.equal(state.timeline.size, 2);
+  expect(state.timeline.size).toBe(2);
   const arr = state.timeline.toArray();
-  assert.equal(arr[0].name, "e2");
-  assert.equal(arr[1].name, "e3");
+  expect(arr[0].name).toBe("e2");
+  expect(arr[1].name).toBe("e3");
 });
 
-test("DeepSearchState.saveCheckpoint: enforces maxCheckpoints cap", async () => {
+it("DeepSearchState.saveCheckpoint: enforces maxCheckpoints cap", async () => {
   const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
 
   const state = new DeepSearchState({
@@ -220,12 +221,12 @@ test("DeepSearchState.saveCheckpoint: enforces maxCheckpoints cap", async () => 
   state.saveCheckpoint({ checkpointId: "cp2" });
   state.saveCheckpoint({ checkpointId: "cp3" });
 
-  assert.equal(state.checkpoints.length, 2);
-  assert.equal(state.checkpoints[0].checkpointId, "cp2");
-  assert.equal(state.checkpoints[1].checkpointId, "cp3");
+  expect(state.checkpoints.length).toBe(2);
+  expect(state.checkpoints[0].checkpointId).toBe("cp2");
+  expect(state.checkpoints[1].checkpointId).toBe("cp3");
 });
 
-test("SharedContext: prunes store, signals, decisions, seen, and index", async () => {
+it("SharedContext: prunes store, signals, decisions, seen, and index", async () => {
   const { SharedContext } = await import("../../../js/agents/stages/deepsearch/runtime/shared-context.js");
 
   {
@@ -233,10 +234,10 @@ test("SharedContext: prunes store, signals, decisions, seen, and index", async (
     ctx.store("a", { v: 1 });
     ctx.store("b", { v: 2 });
     ctx.store("c", { v: 3 });
-    assert.equal(ctx.has("a"), false);
-    assert.equal(ctx.has("b"), true);
-    assert.equal(ctx.has("c"), true);
-    assert.equal(ctx.getStats().storeItems, 2);
+    expect(ctx.has("a")).toBe(false);
+    expect(ctx.has("b")).toBe(true);
+    expect(ctx.has("c")).toBe(true);
+    expect(ctx.getStats().storeItems).toBe(2);
   }
 
   {
@@ -244,12 +245,10 @@ test("SharedContext: prunes store, signals, decisions, seen, and index", async (
     const s1 = ctx.signal("s", { type: "t1" });
     const s2 = ctx.signal("s", { type: "t2" });
     const s3 = ctx.signal("s", { type: "t3" });
-    assert.deepEqual(
-      ctx.getSignals().map((s) => s.id),
-      [s2.id, s3.id]
+    expect(ctx.getSignals().map((s) => s.id)).toEqual([s2.id, s3.id]
     );
-    assert.notEqual(s1.id, s2.id);
-    assert.notEqual(s2.id, s3.id);
+    expect(s1.id).not.toBe(s2.id);
+    expect(s2.id).not.toBe(s3.id);
   }
 
   {
@@ -257,12 +256,10 @@ test("SharedContext: prunes store, signals, decisions, seen, and index", async (
     const d1 = ctx.recordDecision({ action: "a" });
     const d2 = ctx.recordDecision({ action: "b" });
     const d3 = ctx.recordDecision({ action: "c" });
-    assert.deepEqual(
-      ctx.getDecisions().map((d) => d.id),
-      [d2.id, d3.id]
+    expect(ctx.getDecisions().map((d) => d.id)).toEqual([d2.id, d3.id]
     );
-    assert.notEqual(d1.id, d2.id);
-    assert.notEqual(d2.id, d3.id);
+    expect(d1.id).not.toBe(d2.id);
+    expect(d2.id).not.toBe(d3.id);
   }
 
   {
@@ -270,9 +267,9 @@ test("SharedContext: prunes store, signals, decisions, seen, and index", async (
     ctx.markSeen("alpha");
     ctx.markSeen("beta");
     ctx.markSeen("gamma");
-    assert.equal(ctx.hasSeen("alpha"), false);
-    assert.equal(ctx.hasSeen("beta"), true);
-    assert.equal(ctx.hasSeen("gamma"), true);
+    expect(ctx.hasSeen("alpha")).toBe(false);
+    expect(ctx.hasSeen("beta")).toBe(true);
+    expect(ctx.hasSeen("gamma")).toBe(true);
   }
 
   {
@@ -285,10 +282,10 @@ test("SharedContext: prunes store, signals, decisions, seen, and index", async (
       const id1 = ctx.commit("s", { full: { n: 1 }, keywords: ["a"] });
       const id2 = ctx.commit("s", { full: { n: 2 }, keywords: ["b"] });
       const id3 = ctx.commit("s", { full: { n: 3 }, keywords: ["c"] });
-      assert.equal(ctx.search("a").length, 0);
-      assert.deepEqual(ctx.search("b"), [id2]);
-      assert.deepEqual(ctx.search("c"), [id3]);
-      assert.equal(ctx.has(id1), true);
+      expect(ctx.search("a").length).toBe(0);
+      expect(ctx.search("b")).toEqual([id2]);
+      expect(ctx.search("c")).toEqual([id3]);
+      expect(ctx.has(id1)).toBe(true);
     } finally {
       Date.now = originalNow;
     }
@@ -307,15 +304,15 @@ test("SharedContext: prunes store, signals, decisions, seen, and index", async (
       const id1 = ctx.commit("s", { full: { n: 1 }, keywords: ["k"] });
       const id2 = ctx.commit("s", { full: { n: 2 }, keywords: ["k"] });
       const id3 = ctx.commit("s", { full: { n: 3 }, keywords: ["k"] });
-      assert.deepEqual(ctx.search("k"), [id2, id3]);
-      assert.equal(ctx.has(id1), true);
+      expect(ctx.search("k")).toEqual([id2, id3]);
+      expect(ctx.has(id1)).toBe(true);
     } finally {
       Date.now = originalNow;
     }
   }
 });
 
-test("SharedContext: action stream rehydrates state and preserves version", async () => {
+it("SharedContext: action stream rehydrates state and preserves version", async () => {
   const { SharedContext } = await import("../../../js/agents/stages/deepsearch/runtime/shared-context.js");
 
   const originalNow = Date.now;
@@ -334,7 +331,7 @@ test("SharedContext: action stream rehydrates state and preserves version", asyn
       },
     });
 
-    assert.equal(ctx1.getVersion(), 0);
+    expect(ctx1.getVersion()).toBe(0);
 
     ctx1.setSummary("stageA", "sumA");
     const sig = ctx1.signal("advice", { type: "advice", message: "hello" });
@@ -344,12 +341,12 @@ test("SharedContext: action stream rehydrates state and preserves version", asyn
     const commitId = ctx1.commit("finding", { full: { x: 1 }, summary: "sumFinding", keywords: ["k2"] });
     ctx1.setIndex("design", { keywords: ["kw"], paths: ["p"], ids: ["i"] });
 
-    assert.ok(ctx1.getVersion() > 0);
+    expect(ctx1.getVersion().toBeTruthy() > 0);
 
     const actions = ctx1.getActions({ sinceVersion: 0, limit: 500 });
-    assert.ok(actions.length >= 6);
-    assert.equal(actions.every((a) => typeof a?.kind === "string" && a.kind.length > 0), true);
-    assert.equal(actions.every((a) => Number.isFinite(Number(a?.version))), true);
+    expect(actions.length >= 6).toBeTruthy();
+    expect(actions.every((a) => typeof a?.kind === "string" && a.kind.length > 0)).toBe(true);
+    expect(actions.every((a) => Number.isFinite(Number(a?.version)))).toBe(true);
 
     const ctx2 = new SharedContext({
       runId: "ctx_actions_dst",
@@ -365,28 +362,28 @@ test("SharedContext: action stream rehydrates state and preserves version", asyn
 
     ctx2.applyActions(actions);
 
-    assert.equal(ctx2.getVersion(), ctx1.getVersion());
-    assert.equal(ctx2.getSummary("stageA"), "sumA");
-    assert.equal(ctx2.has("id123"), true);
-    assert.equal(ctx2.has(commitId), true);
-    assert.equal(ctx2.search("k").includes("id123"), true);
-    assert.equal(ctx2.search("k2").includes(commitId), true);
+    expect(ctx2.getVersion()).toBe(ctx1.getVersion());
+    expect(ctx2.getSummary("stageA")).toBe("sumA");
+    expect(ctx2.has("id123")).toBe(true);
+    expect(ctx2.has(commitId)).toBe(true);
+    expect(ctx2.search("k").includes("id123")).toBe(true);
+    expect(ctx2.search("k2").includes(commitId)).toBe(true);
 
     const appliedSignals = ctx2.getSignals();
-    assert.equal(appliedSignals.length > 0, true);
-    assert.equal(appliedSignals.some((s) => s?.id === sig.id), true);
-    assert.equal(appliedSignals.some((s) => s?.payload?.message === "hello"), true);
+    expect(appliedSignals.length > 0).toBe(true);
+    expect(appliedSignals.some((s) => s?.id === sig.id)).toBe(true);
+    expect(appliedSignals.some((s) => s?.payload?.message === "hello")).toBe(true);
 
     const appliedDecisions = ctx2.getDecisions();
-    assert.equal(appliedDecisions.length > 0, true);
-    assert.equal(appliedDecisions.some((d) => d?.id === dec.id), true);
-    assert.equal(appliedDecisions.some((d) => d?.action === "do"), true);
+    expect(appliedDecisions.length > 0).toBe(true);
+    expect(appliedDecisions.some((d) => d?.id === dec.id)).toBe(true);
+    expect(appliedDecisions.some((d) => d?.action === "do")).toBe(true);
   } finally {
     Date.now = originalNow;
   }
 });
 
-test("SharedContext: filters signals by targetTaskId (keeps broadcast signals)", async () => {
+it("SharedContext: filters signals by targetTaskId (keeps broadcast signals)", async () => {
   const { SharedContext } = await import("../../../js/agents/stages/deepsearch/runtime/shared-context.js");
 
   const ctx = new SharedContext({ runId: "ctx_task_scope" });
@@ -395,23 +392,23 @@ test("SharedContext: filters signals by targetTaskId (keeps broadcast signals)",
   ctx.signal("notice", { type: "notice", message: "broadcast" });
 
   const scopedPrompt = ctx.buildBlackboardPrompt({ maxSignals: 10, targetTaskId: "task_a" });
-  assert.ok(scopedPrompt.includes("for A"));
-  assert.ok(scopedPrompt.includes("broadcast"));
-  assert.equal(scopedPrompt.includes("for B"), false);
+  expect(scopedPrompt.includes("for A")).toBeTruthy();
+  expect(scopedPrompt.includes("broadcast")).toBeTruthy();
+  expect(scopedPrompt.includes("for B")).toBe(false);
 
   const allPrompt = ctx.buildBlackboardPrompt({ maxSignals: 10 });
-  assert.ok(allPrompt.includes("for A"));
-  assert.ok(allPrompt.includes("for B"));
-  assert.ok(allPrompt.includes("broadcast"));
+  expect(allPrompt.includes("for A")).toBeTruthy();
+  expect(allPrompt.includes("for B")).toBeTruthy();
+  expect(allPrompt.includes("broadcast")).toBeTruthy();
 
   const scopedSignals = ctx.getSignals({ targetTaskId: "task_a" });
   const scopedMsgs = scopedSignals.map((s) => s?.payload?.message).filter(Boolean);
-  assert.ok(scopedMsgs.includes("for A"));
-  assert.ok(scopedMsgs.includes("broadcast"));
-  assert.equal(scopedMsgs.includes("for B"), false);
+  expect(scopedMsgs.includes("for A")).toBeTruthy();
+  expect(scopedMsgs.includes("broadcast")).toBeTruthy();
+  expect(scopedMsgs.includes("for B")).toBe(false);
 });
 
-test("DeepSearchState.restoreCheckpoint: migrates legacy checkpoints without schemaVersion", async () => {
+it("DeepSearchState.restoreCheckpoint: migrates legacy checkpoints without schemaVersion", async () => {
   const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
 
   const state = new DeepSearchState({ runId: "run_ckpt_migrate", taskGoal: "t" });
@@ -423,11 +420,11 @@ test("DeepSearchState.restoreCheckpoint: migrates legacy checkpoints without sch
   state.iteration = 99;
   state.restoreCheckpoint("cp_legacy");
 
-  assert.equal(state.iteration, 2);
-  assert.equal(state.checkpoints[0].schemaVersion, "1.0");
+  expect(state.iteration).toBe(2);
+  expect(state.checkpoints[0].schemaVersion).toBe("1.0");
 });
 
-test("DeepSearchState.restoreCheckpoint: warns on unknown checkpoint schema versions", async () => {
+it("DeepSearchState.restoreCheckpoint: warns on unknown checkpoint schema versions", async () => {
   const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
 
   const state = new DeepSearchState({ runId: "run_ckpt_warn", taskGoal: "t" });
@@ -446,10 +443,10 @@ test("DeepSearchState.restoreCheckpoint: warns on unknown checkpoint schema vers
     console.warn = originalWarn;
   }
 
-  assert.ok(warnCount >= 1);
+  expect(warnCount >= 1).toBeTruthy();
 });
 
-test("Checkpoint E2E: 保存完整状态并恢复", async () => {
+it("Checkpoint E2E: 保存完整状态并恢复", async () => {
   if (typeof structuredClone !== "function") return;
   const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
 
@@ -482,27 +479,27 @@ test("Checkpoint E2E: 保存完整状态并恢复", async () => {
   const original = structuredClone(state.toJSON({ includeCheckpoints: false }));
   const cp = state.saveCheckpoint({ checkpointId: "cp_full_e2e" });
 
-  assert.equal(cp.schemaVersion, "1.0");
-  assert.equal(cp.strategy, "full");
+  expect(cp.schemaVersion).toBe("1.0");
+  expect(cp.strategy).toBe("full");
   // 优化后快照是普通对象而非 DeepSearchState 实例（restoreCheckpoint 时重建）
-  assert.ok(typeof cp.stateSnapshot === "object" && cp.stateSnapshot !== null);
+  expect(typeof cp.stateSnapshot === "object" && cp.stateSnapshot !== null).toBeTruthy();
 
-  assert.notEqual(cp.stateSnapshot, state);
-  assert.notEqual(cp.stateSnapshot.L1, state.L1);
-  assert.notEqual(cp.stateSnapshot.L1.gaps, state.L1.gaps);
-  assert.equal(cp.stateSnapshot.L1.gaps[0].createdAt instanceof Date, true);
-  assert.equal(cp.stateSnapshot.L1.gaps[0].meta instanceof Map, true);
-  assert.equal(cp.stateSnapshot.L1.gaps[0].tags instanceof Set, true);
-  assert.notEqual(cp.stateSnapshot.L1.gaps[0].meta, state.L1.gaps[0].meta);
-  assert.notEqual(cp.stateSnapshot.L1.gaps[0].tags, state.L1.gaps[0].tags);
+  expect(cp.stateSnapshot).not.toBe(state);
+  expect(cp.stateSnapshot.L1).not.toBe(state.L1);
+  expect(cp.stateSnapshot.L1.gaps).not.toBe(state.L1.gaps);
+  expect(cp.stateSnapshot.L1.gaps[0].createdAt instanceof Date).toBe(true);
+  expect(cp.stateSnapshot.L1.gaps[0].meta instanceof Map).toBe(true);
+  expect(cp.stateSnapshot.L1.gaps[0].tags instanceof Set).toBe(true);
+  expect(cp.stateSnapshot.L1.gaps[0].meta).not.toBe(state.L1.gaps[0].meta);
+  expect(cp.stateSnapshot.L1.gaps[0].tags).not.toBe(state.L1.gaps[0].tags);
 
   state.L1.gaps[0].question = "mutated";
   state.L1.gaps[0].meta.set("k", "mutated");
   state.L2.scratchpad.rounds.push(999);
 
-  assert.equal(cp.stateSnapshot.L1.gaps[0].question, "What is X?");
-  assert.equal(cp.stateSnapshot.L1.gaps[0].meta.get("k"), "v");
-  assert.deepEqual(cp.stateSnapshot.L2.scratchpad.rounds, [1, 2]);
+  expect(cp.stateSnapshot.L1.gaps[0].question).toBe("What is X?");
+  expect(cp.stateSnapshot.L1.gaps[0].meta.get("k")).toBe("v");
+  expect(cp.stateSnapshot.L2.scratchpad.rounds).toEqual([1, 2]);
 
   state.iteration = 123;
   state.L0.sources = [];
@@ -512,11 +509,11 @@ test("Checkpoint E2E: 保存完整状态并恢复", async () => {
   state.restoreCheckpoint("cp_full_e2e");
 
   const restored = state.toJSON({ includeCheckpoints: false });
-  assert.deepEqual({ ...restored, timeline: restored.timeline.slice(0, -1) }, original);
-  assert.equal(restored.timeline.at(-1).name, "deepsearch.checkpoint.restored");
+  expect({ ...restored).toEqual(timeline: restored.timeline.slice(0, -1) }, original);
+  expect(restored.timeline.at(-1).name).toBe("deepsearch.checkpoint.restored");
 });
 
-test("Checkpoint E2E: legacy checkpoint 迁移", async () => {
+it("Checkpoint E2E: legacy checkpoint 迁移", async () => {
   const { loadCheckpoint } = await import("../../../js/agents/stages/deepsearch/state.js");
 
   const legacy = {
@@ -529,13 +526,13 @@ test("Checkpoint E2E: legacy checkpoint 迁移", async () => {
   };
 
   const migrated = loadCheckpoint(legacy);
-  assert.notEqual(migrated, legacy);
-  assert.equal(migrated.schemaVersion, "1.0");
-  assert.equal(migrated.checkpointId, "cp_legacy_no_version");
-  assert.equal(loadCheckpoint(migrated), migrated);
+  expect(migrated).not.toBe(legacy);
+  expect(migrated.schemaVersion).toBe("1.0");
+  expect(migrated.checkpointId).toBe("cp_legacy_no_version");
+  expect(loadCheckpoint(migrated)).toBe(migrated);
 });
 
-test("Checkpoint E2E: 中断恢复场景", async () => {
+it("Checkpoint E2E: 中断恢复场景", async () => {
   const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
 
   const runRounds = (state, { stopAfterIteration } = {}) => {
@@ -565,23 +562,23 @@ test("Checkpoint E2E: 中断恢复场景", async () => {
     checkpoint = state.saveCheckpoint({ checkpointId: "cp_interrupt" });
     throw new Error("interrupted");
   } catch (err) {
-    assert.equal(String(err?.message), "interrupted");
+    expect(String(err?.message)).toBe("interrupted");
   }
 
   const resumed = new DeepSearchState({ runId: "run_new", taskGoal: "new" });
   resumed.checkpoints = [checkpoint];
   resumed.restoreCheckpoint("cp_interrupt");
 
-  assert.equal(resumed.runId, "run_ckpt_interrupt");
-  assert.equal(resumed.iteration, 2);
-  assert.deepEqual(resumed.L2.scratchpad.rounds, [1, 2]);
+  expect(resumed.runId).toBe("run_ckpt_interrupt");
+  expect(resumed.iteration).toBe(2);
+  expect(resumed.L2.scratchpad.rounds).toEqual([1, 2]);
 
   runRounds(resumed);
-  assert.equal(resumed.iteration, 5);
-  assert.deepEqual(resumed.L2.scratchpad.rounds, [1, 2, 3, 4, 5]);
+  expect(resumed.iteration).toBe(5);
+  expect(resumed.L2.scratchpad.rounds).toEqual([1, 2, 3, 4, 5]);
 });
 
-test("SourceManager: reads docs with consistent modes and caches line indexes", async () => {
+it("SourceManager: reads docs with consistent modes and caches line indexes", async () => {
   const { SourceManager } = await import("../../../js/agents/stages/deepsearch/source-manager.js");
 
   const doc1 = {
@@ -598,45 +595,45 @@ test("SourceManager: reads docs with consistent modes and caches line indexes", 
   const manager = new SourceManager([doc1, doc2], { maxCachedLineIndexes: 1 });
 
   const full = manager.read("doc_1", { maxLength: 10000 });
-  assert.equal(full.success, true);
-  assert.equal(full.readMode, "full");
-  assert.equal(full.lineStart, 1);
-  assert.equal(typeof full.lineEnd, "number");
+  expect(full.success).toBe(true);
+  expect(full.readMode).toBe("full");
+  expect(full.lineStart).toBe(1);
+  expect(typeof full.lineEnd).toBe("number");
 
   const preview = manager.read("doc_1", { preview: true, maxLength: 10000 });
-  assert.equal(preview.success, true);
-  assert.equal(preview.readMode, "preview");
-  assert.ok(preview.content.includes("## 文档结构"));
-  assert.ok(preview.content.includes("## 内容预览"));
-  assert.equal(typeof preview.headingCount, "number");
+  expect(preview.success).toBe(true);
+  expect(preview.readMode).toBe("preview");
+  expect(preview.content.includes("## 文档结构")).toBeTruthy();
+  expect(preview.content.includes("## 内容预览")).toBeTruthy();
+  expect(typeof preview.headingCount).toBe("number");
 
   const section = manager.read("doc_1", { section: "## A", maxLength: 10000 });
-  assert.equal(section.success, true);
-  assert.equal(section.readMode, "section");
-  assert.ok(section.content.includes("## A"));
-  assert.ok(section.content.includes("A1"));
-  assert.ok(section.lineStart >= 1);
-  assert.ok(section.lineEnd >= section.lineStart);
+  expect(section.success).toBe(true);
+  expect(section.readMode).toBe("section");
+  expect(section.content.includes("## A")).toBeTruthy();
+  expect(section.content.includes("A1")).toBeTruthy();
+  expect(section.lineStart >= 1).toBeTruthy();
+  expect(section.lineEnd >= section.lineStart).toBeTruthy();
 
   const lines = manager.read("doc_2", { startLine: 2, endLine: 2, maxLength: 10000 });
-  assert.equal(lines.success, true);
-  assert.equal(lines.readMode, "lines");
-  assert.equal(lines.content.trim(), "Line2");
-  assert.equal(lines.lineStart, 2);
-  assert.equal(lines.lineEnd, 2);
+  expect(lines.success).toBe(true);
+  expect(lines.readMode).toBe("lines");
+  expect(lines.content.trim()).toBe("Line2");
+  expect(lines.lineStart).toBe(2);
+  expect(lines.lineEnd).toBe(2);
 
   // LRU cap keeps only the most recent entry
-  assert.equal(manager._lineStartsCache.size, 1);
-  assert.equal(manager._lineStartsCache.has("doc_2"), true);
+  expect(manager._lineStartsCache.size).toBe(1);
+  expect(manager._lineStartsCache.has("doc_2")).toBe(true);
 
   const chars = manager.read("doc_2", { start: 0, end: 1, maxLength: 10000 });
-  assert.equal(chars.success, true);
-  assert.equal(chars.readMode, "chars");
-  assert.equal(chars.lineStart, 1);
-  assert.equal(chars.lineEnd, 1);
+  expect(chars.success).toBe(true);
+  expect(chars.readMode).toBe("chars");
+  expect(chars.lineStart).toBe(1);
+  expect(chars.lineEnd).toBe(1);
 });
 
-test("read-doc/search-docs tools: share SourceManager and keep outputs stable", async () => {
+it("read-doc/search-docs tools: share SourceManager and keep outputs stable", async () => {
   const { default: SourceManager } = await import("../../../js/agents/stages/deepsearch/source-manager.js");
   const { handler: readDoc } = await import("../../../js/agents/stages/deepsearch/tools/read-doc/handler.js");
   const { handler: searchDocs } = await import("../../../js/agents/stages/deepsearch/tools/search-docs/handler.js");
@@ -664,11 +661,11 @@ test("read-doc/search-docs tools: share SourceManager and keep outputs stable", 
       sourceManager: manager,
     }
   );
-  assert.equal(readRes.success, true);
-  assert.equal(readRes.readMode, "lines");
-  assert.equal(readRes.content.trim(), "beta");
-  assert.deepEqual(state.L1.readDocIds, ["s1"]);
-  assert.ok(events.some((e) => e.name === "deepsearch.doc.read"));
+  expect(readRes.success).toBe(true);
+  expect(readRes.readMode).toBe("lines");
+  expect(readRes.content.trim()).toBe("beta");
+  expect(state.L1.readDocIds).toEqual(["s1"]);
+  expect(events.some(e => e.name === "deepsearch.doc.read")).toBeTruthy();
 
   const searchRes = await searchDocs(
     { query: "alpha", limit: 10 },
@@ -678,9 +675,9 @@ test("read-doc/search-docs tools: share SourceManager and keep outputs stable", 
       sourceManager: manager,
     }
   );
-  assert.equal(searchRes.success, true);
-  assert.equal(Array.isArray(searchRes.results), true);
-  assert.equal(searchRes.results.some((r) => r.sourceId === "s1"), true);
+  expect(searchRes.success).toBe(true);
+  expect(Array.isArray(searchRes.results)).toBe(true);
+  expect(searchRes.results.some((r) => r.sourceId === "s1")).toBe(true);
 
   const restricted = await searchDocs(
     { query: "alpha", sources: ["s2"], limit: 10 },
@@ -690,11 +687,11 @@ test("read-doc/search-docs tools: share SourceManager and keep outputs stable", 
       sourceManager: manager,
     }
   );
-  assert.equal(restricted.success, true);
-  assert.equal(restricted.results.length, 0);
+  expect(restricted.success).toBe(true);
+  expect(restricted.results.length).toBe(0);
 });
 
-test("report-postprocess: review/reorder/validate share a single implementation", async () => {
+it("report-postprocess: review/reorder/validate share a single implementation", async () => {
   const {
     reviewReportMarkdown,
     reorderReportSections,
@@ -726,50 +723,50 @@ test("report-postprocess: review/reorder/validate share a single implementation"
   ].join("\n");
 
   const reviewed = reviewReportMarkdown(markdown);
-  assert.equal(reviewed.fixed, true);
-  assert.equal(reviewed.markdown.includes("REMOVE_ME"), false);
-  assert.equal(reviewed.markdown.includes("**\n\n**"), false);
-  assert.equal(reviewed.issues.some((i) => i.type === "duplicate_heading"), true);
-  assert.equal(reviewed.issues.some((i) => i.type === "duplicate_paragraph"), true);
-  assert.equal(reviewed.issues.some((i) => i.type === "broken_formatting"), true);
+  expect(reviewed.fixed).toBe(true);
+  expect(reviewed.markdown.includes("REMOVE_ME")).toBe(false);
+  expect(reviewed.markdown.includes("**\n\n**")).toBe(false);
+  expect(reviewed.issues.some((i) => i.type === "duplicate_heading")).toBe(true);
+  expect(reviewed.issues.some((i) => i.type === "duplicate_paragraph")).toBe(true);
+  expect(reviewed.issues.some((i) => i.type === "broken_formatting")).toBe(true);
 
   const reordered = reorderReportSections(
     ["## X", "", "x", "", "## 参考文献", "", "ref1", "", "## Y", "", "y", "", "## 参考文献", "", "ref2"].join("\n")
   );
-  assert.equal((reordered.match(/## 参考文献/g) || []).length, 1);
-  assert.equal(reordered.indexOf("## Y") < reordered.indexOf("## 参考文献"), true);
-  assert.equal(reordered.includes("ref1"), true);
-  assert.equal(reordered.includes("ref2"), true);
+  expect((reordered.match(/## 参考文献/g) || []).length).toBe(1);
+  expect(reordered.indexOf("## Y") < reordered.indexOf("## 参考文献")).toBe(true);
+  expect(reordered.includes("ref1")).toBe(true);
+  expect(reordered.includes("ref2")).toBe(true);
 
   const state = { globalConfig: { report: { quick: { minWords: 10, minReferences: 1 } } } };
   const okReport = "## 摘要\n\n内容 [doc:L1]\n\n## 发现\n\nOK";
   const ok = validateReport(okReport, "quick", state);
-  assert.equal(ok.valid, true);
-  assert.equal(ok.warnings.some((w) => w.includes("信息缺口")), true);
+  expect(ok.valid).toBe(true);
+  expect(ok.warnings.some((w) => w.includes("信息缺口"))).toBe(true);
 
   const progress = getReportProgress({ markdown: okReport }, "quick", state);
-  assert.equal(progress.isReady, true);
+  expect(progress.isReady).toBe(true);
 
   const processed = prepareReportForSubmit(
     "## 摘要\n\n内容 [doc:L1]\n\n## 发现\n\nOK\n\n## 参考文献\n\nrefA\n\n## 参考文献\n\nrefB\n",
     "quick",
     state
   );
-  assert.equal(processed.validation.valid, true);
-  assert.equal((processed.markdown.match(/## 参考文献/g) || []).length, 1);
-  assert.equal(processed.markdown.includes("refA"), true);
-  assert.equal(processed.markdown.includes("refB"), true);
-  assert.equal(processed.review.fixed, false);
+  expect(processed.validation.valid).toBe(true);
+  expect((processed.markdown.match(/## 参考文献/g) || []).length).toBe(1);
+  expect(processed.markdown.includes("refA")).toBe(true);
+  expect(processed.markdown.includes("refB")).toBe(true);
+  expect(processed.review.fixed).toBe(false);
 });
 
-test("report-postprocess: returns issues on invalid reports", async () => {
+it("report-postprocess: returns issues on invalid reports", async () => {
   const { reviewReportMarkdown, validateReport, getReportProgress } = await import(
     "../../../js/agents/stages/deepsearch/report/report-postprocess.js"
   );
 
   const empty = reviewReportMarkdown("");
-  assert.equal(empty.fixed, false);
-  assert.deepEqual(empty.issues, []);
+  expect(empty.fixed).toBe(false);
+  expect(empty.issues).toEqual([]);
 
   const state = {
     globalConfig: {
@@ -780,16 +777,16 @@ test("report-postprocess: returns issues on invalid reports", async () => {
   };
   const badReport = "no sections and no refs";
   const bad = validateReport(badReport, "quick", state);
-  assert.equal(bad.valid, false);
-  assert.equal(bad.issues.some((i) => i.includes("缺少必需章节")), true);
-  assert.equal(bad.issues.some((i) => i.includes("引用不足")), true);
-  assert.equal(bad.warnings.some((w) => w.includes("建议添加章节")), true);
+  expect(bad.valid).toBe(false);
+  expect(bad.issues.some((i) => i.includes("缺少必需章节"))).toBe(true);
+  expect(bad.issues.some((i) => i.includes("引用不足"))).toBe(true);
+  expect(bad.warnings.some((w) => w.includes("建议添加章节"))).toBe(true);
 
   const progress = getReportProgress({ markdown: badReport }, "quick", state);
-  assert.equal(progress.isReady, false);
+  expect(progress.isReady).toBe(false);
 });
 
-test("WritingPhaseHandler: system retries do not consume writing iterations", async () => {
+it("WritingPhaseHandler: system retries do not consume writing iterations", async () => {
   const { WritingPhaseHandler } = await import("../../../js/agents/stages/deepsearch/runtime/writing-phase-handler.js");
 
   let calls = 0;
@@ -829,11 +826,11 @@ test("WritingPhaseHandler: system retries do not consume writing iterations", as
     signal,
   });
 
-  assert.equal(calls, 3);
-  assert.equal(result.iterations, 1);
+  expect(calls).toBe(3);
+  expect(result.iterations).toBe(1);
 });
 
-test("DeepSearchAgentLoop: caps system retries without consuming iteration budget", async () => {
+it("DeepSearchAgentLoop: caps system retries without consuming iteration budget", async () => {
   const { DeepSearchAgentLoop, AgentStatus } = await import("../../../js/agents/stages/deepsearch/deepsearch-agent-loop.js");
 
   let calls = 0;
@@ -865,11 +862,11 @@ test("DeepSearchAgentLoop: caps system retries without consuming iteration budge
     { stageApi }
   );
 
-  assert.equal(calls, 4);
-  assert.equal(output.status, AgentStatus.COMPLETED);
+  expect(calls).toBe(4);
+  expect(output.status).toBe(AgentStatus.COMPLETED);
 });
 
-test("DeepSearchAgentLoop: fail-fast on non-recoverable model errors", async () => {
+it("DeepSearchAgentLoop: fail-fast on non-recoverable model errors", async () => {
   const { DeepSearchAgentLoop, AgentStatus } = await import("../../../js/agents/stages/deepsearch/deepsearch-agent-loop.js");
 
   let calls = 0;
@@ -891,8 +888,7 @@ test("DeepSearchAgentLoop: fail-fast on non-recoverable model errors", async () 
     config: { report: { quick: { minWords: 0 } }, agent: { quick: { writeIterations: 1 } } },
   });
 
-  await assert.rejects(
-    () =>
+  await expect(() =>
       agent.run(
         {
           runId: "run_fail_fast_auth",
@@ -906,6 +902,6 @@ test("DeepSearchAgentLoop: fail-fast on non-recoverable model errors", async () 
     /Unauthorized/
   );
 
-  assert.equal(calls, 1);
-  assert.equal(agent.status, AgentStatus.FAILED);
+  expect(calls).toBe(1);
+  expect(agent.status).toBe(AgentStatus.FAILED);
 });

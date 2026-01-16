@@ -1,5 +1,5 @@
-import { describe, it, beforeEach, afterEach, mock } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import {
   ToolExecutor,
@@ -49,9 +49,9 @@ describe("ToolExecutor", () => {
 
       const result = await executor.execute("greet", { name: "World" }, {});
 
-      assert.equal(result.success, true);
-      assert.equal(result.ok, true);
-      assert.equal(result.data.message, "Hello, World!");
+      expect(result.success).toBe(true);
+      expect(result.ok).toBe(true);
+      expect(result.data.message).toBe("Hello, World!");
     });
 
     it("should return error for unknown tool", async () => {
@@ -59,9 +59,9 @@ describe("ToolExecutor", () => {
 
       const result = await executor.execute("unknown", {}, {});
 
-      assert.equal(result.success, false);
-      assert.equal(result.ok, false);
-      assert.ok(result.error.includes("Unknown tool"));
+      expect(result.success).toBe(false);
+      expect(result.ok).toBe(false);
+      expect(result.error.includes("Unknown tool")).toBeTruthy();
     });
 
     it("should handle tool errors", async () => {
@@ -74,8 +74,8 @@ describe("ToolExecutor", () => {
 
       const result = await executor.execute("fail", {}, {});
 
-      assert.equal(result.success, false);
-      assert.ok(result.error.includes("Intentional failure"));
+      expect(result.success).toBe(false);
+      expect(result.error.includes("Intentional failure")).toBeTruthy();
     });
 
     it("should retry on failure", async () => {
@@ -95,8 +95,8 @@ describe("ToolExecutor", () => {
 
       const result = await executor.execute("flaky", {}, {});
 
-      assert.equal(result.success, true);
-      assert.equal(attempts, 2);
+      expect(result.success).toBe(true);
+      expect(attempts).toBe(2);
     });
 
     it("should timeout long-running tools", async () => {
@@ -110,8 +110,8 @@ describe("ToolExecutor", () => {
 
       const result = await executor.execute("slow", {}, {});
 
-      assert.equal(result.success, false);
-      assert.ok(result.error.includes("timed out"));
+      expect(result.success).toBe(false);
+      expect(result.error.includes("timed out")).toBeTruthy();
     });
 
     it("should support function-style tools", async () => {
@@ -123,8 +123,8 @@ describe("ToolExecutor", () => {
 
       const result = await executor.execute("add", { a: 2, b: 3 }, {});
 
-      assert.equal(result.success, true);
-      assert.equal(result.data, 5);
+      expect(result.success).toBe(true);
+      expect(result.data).toBe(5);
     });
 
     it("should return error if tool has no handler", async () => {
@@ -136,8 +136,8 @@ describe("ToolExecutor", () => {
 
       const result = await executor.execute("noHandler", {}, {});
 
-      assert.equal(result.success, false);
-      assert.ok(result.error.includes("no handler"));
+      expect(result.success).toBe(false);
+      expect(result.error.includes("no handler")).toBeTruthy();
     });
 
     it("should use per-call timeoutMs option", async () => {
@@ -151,8 +151,8 @@ describe("ToolExecutor", () => {
 
       const result = await executor.execute("slow", {}, {}, { timeoutMs: 30 });
 
-      assert.equal(result.success, false);
-      assert.ok(result.error.includes("timed out"));
+      expect(result.success).toBe(false);
+      expect(result.error.includes("timed out")).toBeTruthy();
     });
 
     it("should use per-call retries option", async () => {
@@ -172,8 +172,8 @@ describe("ToolExecutor", () => {
 
       const result = await executor.execute("flaky", {}, {}, { retries: 5 });
 
-      assert.equal(result.success, true);
-      assert.equal(attempts, 3);
+      expect(result.success).toBe(true);
+      expect(attempts).toBe(3);
     });
   });
 
@@ -199,8 +199,8 @@ describe("ToolExecutor", () => {
 
       const result = await executor.execute("search", {}, {});
 
-      assert.equal(result.success, true);
-      assert.ok(emitted.some(e => e.name === "tool.validation.failed"));
+      expect(result.success).toBe(true);
+      expect(emitted.some(e => e.name === "tool.validation.failed")).toBeTruthy();
     });
 
     it("should fail in strict validation mode when schema invalid", async () => {
@@ -223,8 +223,8 @@ describe("ToolExecutor", () => {
 
       const result = await executor.execute("search", {}, {});
 
-      assert.equal(result.success, false);
-      assert.ok(result.error.includes("Validation failed"));
+      expect(result.success).toBe(false);
+      expect(result.error.includes("Validation failed")).toBeTruthy();
     });
 
     it("should skip validation when validateSchema is false", async () => {
@@ -245,8 +245,8 @@ describe("ToolExecutor", () => {
 
       const result = await executor.execute("search", {}, {});
 
-      assert.equal(result.success, true);
-      assert.ok(!emitted.some(e => e.name === "tool.validation.failed"));
+      expect(result.success).toBe(true);
+      expect(!emitted.some(e => e.name === "tool.validation.failed")).toBeTruthy();
     });
 
     it("should allow per-call validation override", async () => {
@@ -266,8 +266,8 @@ describe("ToolExecutor", () => {
         strictValidation: true,
       });
 
-      assert.equal(result.success, false);
-      assert.ok(result.error.includes("Validation failed"));
+      expect(result.success).toBe(false);
+      expect(result.error.includes("Validation failed")).toBeTruthy();
     });
 
     it("should use definition.parameters as fallback", async () => {
@@ -285,7 +285,7 @@ describe("ToolExecutor", () => {
 
       const result = await executor.execute("search", {}, {});
 
-      assert.equal(result.success, false);
+      expect(result.success).toBe(false);
     });
   });
 
@@ -305,9 +305,9 @@ describe("ToolExecutor", () => {
 
       const result = await executor.execute("echo", { original: true }, {});
 
-      assert.equal(result.success, true);
-      assert.equal(result.data.injected, true);
-      assert.equal(result.data.original, true);
+      expect(result.success).toBe(true);
+      expect(result.data.injected).toBe(true);
+      expect(result.data.original).toBe(true);
     });
 
     it("should allow before hook to skip execution", async () => {
@@ -325,8 +325,8 @@ describe("ToolExecutor", () => {
 
       const result = await executor.execute("echo", {}, {});
 
-      assert.equal(result.success, true);
-      assert.equal(result.data.intercepted, true);
+      expect(result.success).toBe(true);
+      expect(result.data.intercepted).toBe(true);
     });
 
     it("should continue if before hook throws", async () => {
@@ -349,9 +349,9 @@ describe("ToolExecutor", () => {
 
       const result = await executor.execute("echo", {}, {});
 
-      assert.equal(result.success, true);
-      assert.equal(result.data, "executed");
-      assert.ok(logged.some(l => l.msg.includes("Before hook failed")));
+      expect(result.success).toBe(true);
+      expect(result.data).toBe("executed");
+      expect(logged.some(l => l.msg.includes("Before hook failed"))).toBeTruthy();
     });
   });
 
@@ -371,8 +371,8 @@ describe("ToolExecutor", () => {
 
       const result = await executor.execute("echo", { val: "original" }, {});
 
-      assert.equal(result.success, true);
-      assert.equal(result.data, "modified:original");
+      expect(result.success).toBe(true);
+      expect(result.data).toBe("modified:original");
     });
 
     it("should continue if after hook throws", async () => {
@@ -395,14 +395,14 @@ describe("ToolExecutor", () => {
 
       const result = await executor.execute("echo", {}, {});
 
-      assert.equal(result.success, true);
-      assert.equal(result.data, "value");
-      assert.ok(logged.some(l => l.msg.includes("After hook failed")));
+      expect(result.success).toBe(true);
+      expect(result.data).toBe("value");
+      expect(logged.some(l => l.msg.includes("After hook failed"))).toBeTruthy();
     });
 
     it("should accept per-call hooks override", async () => {
-      const globalAfter = mock.fn(async () => "global");
-      const localAfter = mock.fn(async () => "local");
+      const globalAfter = vi.fn(async () => "global");
+      const localAfter = vi.fn(async () => "local");
 
       const executor = new ToolExecutor({
         tools: {
@@ -418,9 +418,9 @@ describe("ToolExecutor", () => {
         hooks: { before: [], after: [localAfter] },
       });
 
-      assert.equal(result.data, "local");
-      assert.equal(globalAfter.mock.calls.length, 0);
-      assert.equal(localAfter.mock.calls.length, 1);
+      expect(result.data).toBe("local");
+      expect(globalAfter.mock.calls.length).toBe(0);
+      expect(localAfter.mock.calls.length).toBe(1);
     });
   });
 
@@ -440,9 +440,9 @@ describe("ToolExecutor", () => {
 
       const result = await executor.execute("dangerous", {}, {});
 
-      assert.equal(result.success, false);
-      assert.ok(result.error.includes("Policy denied"));
-      assert.ok(emitted.some(e => e.name === "tool.denied"));
+      expect(result.success).toBe(false);
+      expect(result.error.includes("Policy denied")).toBeTruthy();
+      expect(emitted.some(e => e.name === "tool.denied")).toBeTruthy();
     });
 
     it("should allow execution when policy returns allowed=true", async () => {
@@ -458,8 +458,8 @@ describe("ToolExecutor", () => {
 
       const result = await executor.execute("safe", {}, {});
 
-      assert.equal(result.success, true);
-      assert.equal(result.data, "executed");
+      expect(result.success).toBe(true);
+      expect(result.data).toBe("executed");
     });
 
     it("should skip policy check if no policyMapper", async () => {
@@ -474,7 +474,7 @@ describe("ToolExecutor", () => {
 
       const result = await executor.execute("test", {}, {});
 
-      assert.equal(result.success, true);
+      expect(result.success).toBe(true);
     });
 
     it("should skip policy check if mapper returns null", async () => {
@@ -490,7 +490,7 @@ describe("ToolExecutor", () => {
 
       const result = await executor.execute("test", {}, {});
 
-      assert.equal(result.success, true);
+      expect(result.success).toBe(true);
     });
 
     it("should handle policy.authorize throwing", async () => {
@@ -508,9 +508,9 @@ describe("ToolExecutor", () => {
 
       const result = await executor.execute("test", {}, {});
 
-      assert.equal(result.success, false);
-      assert.ok(result.error.includes("Policy error"));
-      assert.ok(emitted.some(e => e.name === "tool.denied" && e.payload.reason === "policy_error"));
+      expect(result.success).toBe(false);
+      expect(result.error.includes("Policy error")).toBeTruthy();
+      expect(emitted.some(e => e.name === "tool.denied" && e.payload.reason === "policy_error")).toBeTruthy();
     });
 
     it("should use per-call policy override", async () => {
@@ -530,7 +530,7 @@ describe("ToolExecutor", () => {
         policyMapper: (name) => ({ tool: name }),
       });
 
-      assert.equal(result.success, true);
+      expect(result.success).toBe(true);
     });
   });
 
@@ -547,9 +547,9 @@ describe("ToolExecutor", () => {
       await executor.execute("ping", {}, {});
 
       const completed = emitted.find(e => e.name === "tool.completed");
-      assert.ok(completed);
-      assert.equal(completed.payload.tool, "ping");
-      assert.ok(typeof completed.payload.duration === "number");
+      expect(completed).toBeTruthy();
+      expect(completed.payload.tool).toBe("ping");
+      expect(typeof completed.payload.duration === "number").toBeTruthy();
     });
 
     it("should emit tool.failed event on all retries exhausted", async () => {
@@ -565,9 +565,9 @@ describe("ToolExecutor", () => {
       await executor.execute("fail", {}, {});
 
       const failed = emitted.find(e => e.name === "tool.failed");
-      assert.ok(failed);
-      assert.equal(failed.payload.tool, "fail");
-      assert.ok(failed.payload.error.includes("Always fails"));
+      expect(failed).toBeTruthy();
+      expect(failed.payload.tool).toBe("fail");
+      expect(failed.payload.error.includes("Always fails")).toBeTruthy();
     });
 
     it("should call logger.debug on success", async () => {
@@ -583,7 +583,7 @@ describe("ToolExecutor", () => {
 
       await executor.execute("ping", {}, {});
 
-      assert.ok(logged.some(l => l.level === "debug" && l.msg.includes("completed")));
+      expect(logged.some(l => l.level === "debug" && l.msg.includes("completed"))).toBeTruthy();
     });
 
     it("should call logger.warn on retry", async () => {
@@ -608,7 +608,7 @@ describe("ToolExecutor", () => {
 
       await executor.execute("flaky", {}, {});
 
-      assert.ok(logged.some(l => l.level === "warn" && l.msg.includes("failed")));
+      expect(logged.some(l => l.level === "warn" && l.msg.includes("failed"))).toBeTruthy();
     });
   });
 
@@ -626,9 +626,9 @@ describe("ToolExecutor", () => {
         { action: "triple", args: { n: 5 } },
       ], {});
 
-      assert.equal(results.length, 2);
-      assert.equal(results[0].data, 10);
-      assert.equal(results[1].data, 15);
+      expect(results.length).toBe(2);
+      expect(results[0].data).toBe(10);
+      expect(results[1].data).toBe(15);
     });
 
     it("should handle mixed success and failure", async () => {
@@ -645,8 +645,8 @@ describe("ToolExecutor", () => {
         { action: "fail", args: {} },
       ], {});
 
-      assert.equal(results[0].success, true);
-      assert.equal(results[1].success, false);
+      expect(results[0].success).toBe(true);
+      expect(results[1].success).toBe(false);
     });
 
     it("should support name field as alias for action", async () => {
@@ -660,7 +660,7 @@ describe("ToolExecutor", () => {
         { name: "ping", args: {} },
       ], {});
 
-      assert.equal(results[0].data, "pong");
+      expect(results[0].data).toBe("pong");
     });
   });
 
@@ -671,8 +671,8 @@ describe("ToolExecutor", () => {
       executor.register("echo", { handler: async (args) => args });
 
       const result = await executor.execute("echo", { msg: "test" }, {});
-      assert.equal(result.success, true);
-      assert.equal(result.data.msg, "test");
+      expect(result.success).toBe(true);
+      expect(result.data.msg).toBe("test");
     });
 
     it("should register multiple tools at once", async () => {
@@ -686,8 +686,8 @@ describe("ToolExecutor", () => {
       const resultA = await executor.execute("a", {}, {});
       const resultB = await executor.execute("b", {}, {});
 
-      assert.equal(resultA.data, "a");
-      assert.equal(resultB.data, "b");
+      expect(resultA.data).toBe("a");
+      expect(resultB.data).toBe("b");
     });
   });
 
@@ -699,10 +699,10 @@ describe("ToolExecutor", () => {
         },
       });
 
-      assert.equal(executor.hasTool("ping"), true);
-      assert.equal(executor.hasTool("missing"), false);
-      assert.equal(typeof executor.getTool("ping").handler, "function");
-      assert.equal(executor.getTool("missing"), undefined);
+      expect(executor.hasTool("ping")).toBe(true);
+      expect(executor.hasTool("missing")).toBe(false);
+      expect(typeof executor.getTool("ping").handler).toBe("function");
+      expect(executor.getTool("missing")).toBe(undefined);
     });
   });
 
@@ -720,9 +720,9 @@ describe("ToolExecutor", () => {
 
       const defs = executor.getToolDefinitions();
 
-      assert.equal(defs.length, 1);
-      assert.equal(defs[0].name, "search");
-      assert.equal(defs[0].description, "Search documents");
+      expect(defs.length).toBe(1);
+      expect(defs[0].name).toBe("search");
+      expect(defs[0].description).toBe("Search documents");
     });
 
     it("should use definition.parameters as fallback", () => {
@@ -740,7 +740,7 @@ describe("ToolExecutor", () => {
 
       const defs = executor.getToolDefinitions();
 
-      assert.deepEqual(defs[0].parameters, { q: { type: "string" } });
+      expect(defs[0].parameters).toEqual({ q: { type: "string" } });
     });
   });
 
@@ -751,7 +751,7 @@ describe("ToolExecutor", () => {
       });
 
       const result = await executor.execute("test", {}, {});
-      assert.equal(result.data, "ok");
+      expect(result.data).toBe("ok");
     });
   });
 
@@ -762,7 +762,7 @@ describe("ToolExecutor", () => {
       };
 
       const result = await executeTool(tools, "ping", {}, {});
-      assert.equal(result.data, "pong");
+      expect(result.data).toBe("pong");
     });
   });
 
@@ -773,8 +773,8 @@ describe("ToolExecutor", () => {
       });
 
       const result = await executor.execute("t", {}, {});
-      assert.equal(result.success, true);
-      assert.equal(result.data, "value");
+      expect(result.success).toBe(true);
+      expect(result.data).toBe("value");
     });
 
     it("should normalize { ok, result } format", async () => {
@@ -783,7 +783,7 @@ describe("ToolExecutor", () => {
       });
 
       const result = await executor.execute("t", {}, {});
-      assert.equal(result.success, true);
+      expect(result.success).toBe(true);
     });
 
     it("should normalize { error } format", async () => {
@@ -792,8 +792,8 @@ describe("ToolExecutor", () => {
       });
 
       const result = await executor.execute("t", {}, {});
-      assert.equal(result.success, false);
-      assert.equal(result.error, "failed");
+      expect(result.success).toBe(false);
+      expect(result.error).toBe("failed");
     });
 
     it("should handle null return value", async () => {
@@ -802,8 +802,8 @@ describe("ToolExecutor", () => {
       });
 
       const result = await executor.execute("t", {}, {});
-      assert.equal(result.success, true);
-      assert.equal(result.data, null);
+      expect(result.success).toBe(true);
+      expect(result.data).toBe(null);
     });
 
     it("should handle undefined return value", async () => {
@@ -812,8 +812,8 @@ describe("ToolExecutor", () => {
       });
 
       const result = await executor.execute("t", {}, {});
-      assert.equal(result.success, true);
-      assert.equal(result.data, null);
+      expect(result.success).toBe(true);
+      expect(result.data).toBe(null);
     });
 
     it("should handle primitive return values", async () => {
@@ -829,9 +829,9 @@ describe("ToolExecutor", () => {
       const strResult = await executor.execute("str", {}, {});
       const boolResult = await executor.execute("bool", {}, {});
 
-      assert.equal(numResult.data, 42);
-      assert.equal(strResult.data, "hello");
-      assert.equal(boolResult.data, true);
+      expect(numResult.data).toBe(42);
+      expect(strResult.data).toBe("hello");
+      expect(boolResult.data).toBe(true);
     });
 
     it("should include raw property for object results", async () => {
@@ -841,39 +841,39 @@ describe("ToolExecutor", () => {
       });
 
       const result = await executor.execute("t", {}, {});
-      assert.deepEqual(result.raw, rawValue);
+      expect(result.raw).toEqual(rawValue);
     });
   });
 
   describe("constructor options", () => {
     it("should use default timeoutMs of 30000", () => {
       const executor = new ToolExecutor({});
-      assert.equal(executor.defaultTimeoutMs, 30000);
+      expect(executor.defaultTimeoutMs).toBe(30000);
     });
 
     it("should use default maxRetries of 1", () => {
       const executor = new ToolExecutor({});
-      assert.equal(executor.maxRetries, 1);
+      expect(executor.maxRetries).toBe(1);
     });
 
     it("should respect custom timeoutMs", () => {
       const executor = new ToolExecutor({ timeoutMs: 5000 });
-      assert.equal(executor.defaultTimeoutMs, 5000);
+      expect(executor.defaultTimeoutMs).toBe(5000);
     });
 
     it("should respect custom maxRetries", () => {
       const executor = new ToolExecutor({ maxRetries: 3 });
-      assert.equal(executor.maxRetries, 3);
+      expect(executor.maxRetries).toBe(3);
     });
 
     it("should default validateSchema to true", () => {
       const executor = new ToolExecutor({});
-      assert.equal(executor.validateSchema, true);
+      expect(executor.validateSchema).toBe(true);
     });
 
     it("should default strictValidation to false", () => {
       const executor = new ToolExecutor({});
-      assert.equal(executor.strictValidation, false);
+      expect(executor.strictValidation).toBe(false);
     });
 
     it("should normalize isolation mode", () => {
@@ -883,18 +883,18 @@ describe("ToolExecutor", () => {
       const e4 = new ToolExecutor({ isolation: "none" });
       const e5 = new ToolExecutor({ isolation: "invalid" });
 
-      assert.equal(e1.defaultIsolation, "worker");
-      assert.equal(e2.defaultIsolation, "worker");
-      assert.equal(e3.defaultIsolation, "worker");
-      assert.equal(e4.defaultIsolation, "none");
-      assert.equal(e5.defaultIsolation, "none");
+      expect(e1.defaultIsolation).toBe("worker");
+      expect(e2.defaultIsolation).toBe("worker");
+      expect(e3.defaultIsolation).toBe("worker");
+      expect(e4.defaultIsolation).toBe("none");
+      expect(e5.defaultIsolation).toBe("none");
     });
 
     it("should initialize hooks arrays", () => {
       const executor = new ToolExecutor({});
-      assert.ok(Array.isArray(executor.hooks.before));
-      assert.ok(Array.isArray(executor.hooks.after));
-      assert.ok(executor.hooks.before.length > 0); // createPreToolUseHook added
+      expect(Array.isArray(executor.hooks.before)).toBeTruthy();
+      expect(Array.isArray(executor.hooks.after)).toBeTruthy();
+      expect(executor.hooks.before.length > 0).toBeTruthy(); // createPreToolUseHook added
     });
 
     it("should copy provided hooks arrays", () => {
@@ -902,8 +902,8 @@ describe("ToolExecutor", () => {
       const after = [async () => null];
       const executor = new ToolExecutor({ hooks: { before, after } });
 
-      assert.notEqual(executor.hooks.before, before);
-      assert.notEqual(executor.hooks.after, after);
+      expect(executor.hooks.before).not.toBe(before);
+      expect(executor.hooks.after).not.toBe(after);
     });
   });
 
@@ -921,9 +921,9 @@ describe("ToolExecutor", () => {
 
       const result = await executor.execute("t", { value: 1 }, {});
 
-      assert.equal(result.success, true);
-      assert.equal(executor.workerCalls.length, 1);
-      assert.equal(executor.workerCalls[0].moduleUrl, busyLoopUrl);
+      expect(result.success).toBe(true);
+      expect(executor.workerCalls.length).toBe(1);
+      expect(executor.workerCalls[0].moduleUrl).toBe(busyLoopUrl);
     });
 
     it("should allow per-call isolation override", async () => {
@@ -939,8 +939,8 @@ describe("ToolExecutor", () => {
 
       const result = await executor.execute("t", { value: 1 }, {}, { isolation: "worker" });
 
-      assert.equal(result.success, true);
-      assert.equal(executor.workerCalls.length, 1);
+      expect(result.success).toBe(true);
+      expect(executor.workerCalls.length).toBe(1);
     });
 
     it("should allow per-call isolation to disable worker execution", async () => {
@@ -956,9 +956,9 @@ describe("ToolExecutor", () => {
 
       const result = await executor.execute("t", {}, {}, { isolation: "none" });
 
-      assert.equal(result.success, true);
-      assert.equal(result.data, "direct");
-      assert.equal(executor.workerCalls.length, 0);
+      expect(result.success).toBe(true);
+      expect(result.data).toBe("direct");
+      expect(executor.workerCalls.length).toBe(0);
     });
   });
 
@@ -977,14 +977,13 @@ describe("ToolExecutor", () => {
         }
       );
 
-      assert.equal(result.data.moduleUrl, "tool-module");
+      expect(result.data.moduleUrl).toBe("tool-module");
     });
 
     it("should block bare moduleUrl when policy is sameOrigin", async () => {
       const executor = new WorkerSpyExecutor();
 
-      await assert.rejects(
-        () => executor._executeWithTimeout(
+      await expect(() => executor._executeWithTimeout(
           () => "direct",
           {},
           {},
@@ -1012,15 +1011,14 @@ describe("ToolExecutor", () => {
         }
       );
 
-      assert.equal(result.data.moduleUrl, busyLoopUrl);
+      expect(result.data.moduleUrl).toBe(busyLoopUrl);
     });
 
     it("should enforce allowed origins in browser-like runtime", async () => {
       const executor = new WorkerSpyExecutor();
 
       await withBrowserLikeRuntime(async () => {
-        await assert.rejects(
-          () => executor._executeWithTimeout(
+        await expect(() => executor._executeWithTimeout(
             () => "direct",
             {},
             {},
@@ -1056,7 +1054,7 @@ describe("ToolExecutor", () => {
           }
         );
 
-        assert.equal(result.data.moduleUrl, "https://allowed.example.com/worker.mjs");
+        expect(result.data.moduleUrl).toBe("https://allowed.example.com/worker.mjs");
       });
     });
   });
@@ -1071,10 +1069,10 @@ describe("ToolExecutor", () => {
         extra: "skip",
       });
 
-      assert.deepEqual(snapshot, { state: { nested: { value: 1 } }, runId: "run-1" });
+      expect(snapshot).toEqual({ state: { nested: { value: 1 } }, runId: "run-1" });
 
       state.nested.value = 2;
-      assert.equal(snapshot.state.nested.value, 1);
+      expect(snapshot.state.nested.value).toBe(1);
     });
 
     it("should return empty object when snapshot is not cloneable", () => {
@@ -1084,7 +1082,7 @@ describe("ToolExecutor", () => {
         runId: "run-2",
       });
 
-      assert.deepEqual(snapshot, {});
+      expect(snapshot).toEqual({});
     });
   });
 
@@ -1111,9 +1109,9 @@ describe("ToolExecutor", () => {
       const executor = new RoutingExecutor();
       const result = await executor._executeInWorker("module", "handler", {}, {}, 10);
 
-      assert.equal(result, "node");
-      assert.equal(executor.nodeCalls, 1);
-      assert.equal(executor.webCalls, 0);
+      expect(result).toBe("node");
+      expect(executor.nodeCalls).toBe(1);
+      expect(executor.webCalls).toBe(0);
     });
   });
 
@@ -1128,15 +1126,14 @@ describe("ToolExecutor", () => {
         500
       );
 
-      assert.equal(result.ok, true);
-      assert.equal(result.durationMs, 5);
+      expect(result.ok).toBe(true);
+      expect(result.durationMs).toBe(5);
     });
 
     it("should surface worker errors from missing handlers", async () => {
       const executor = new ToolExecutor();
 
-      await assert.rejects(
-        () => executor._executeInNodeWorker(
+      await expect(() => executor._executeInNodeWorker(
           busyLoopUrl,
           "missing",
           {},
@@ -1224,8 +1221,8 @@ describe("ToolExecutor", () => {
         200
       );
 
-      assert.equal(result.ok, true);
-      assert.deepEqual(result.echo.context, { state: { ok: true }, runId: "run-web" });
+      expect(result.ok).toBe(true);
+      expect(result.echo.context).toEqual({ state: { ok: true }, runId: "run-web" });
     });
 
     it("should surface web worker error messages", async () => {
@@ -1235,8 +1232,7 @@ describe("ToolExecutor", () => {
       });
 
       const executor = new ToolExecutor();
-      await assert.rejects(
-        () => executor._executeInWebWorker(
+      await expect(() => executor._executeInWebWorker(
           "https://example.com/worker.mjs",
           "handler",
           {},
@@ -1251,8 +1247,7 @@ describe("ToolExecutor", () => {
       MockWorker.behavior = "error-event";
 
       const executor = new ToolExecutor();
-      await assert.rejects(
-        () => executor._executeInWebWorker(
+      await expect(() => executor._executeInWebWorker(
           "https://example.com/worker.mjs",
           "handler",
           {},
@@ -1267,8 +1262,7 @@ describe("ToolExecutor", () => {
       globalThis.Worker = undefined;
       const executor = new ToolExecutor();
 
-      await assert.rejects(
-        () => executor._executeInWebWorker(
+      await expect(() => executor._executeInWebWorker(
           "https://example.com/worker.mjs",
           "handler",
           {},
@@ -1282,18 +1276,18 @@ describe("ToolExecutor", () => {
 
   describe("WorkerPool", () => {
     it("should throw if createWorker is not a function", () => {
-      assert.throws(() => new WorkerPool({}), TypeError);
-      assert.throws(() => new WorkerPool({ createWorker: "not a function" }), TypeError);
+      expect(() => new WorkerPool({})).toThrow(TypeError);
+      expect(() => new WorkerPool({ createWorker: "not a function" })).toThrow(TypeError);
     });
 
     it("should use default maxWorkers of 2", () => {
       const pool = new WorkerPool({ createWorker: async () => ({}) });
-      assert.equal(pool._maxWorkers, 2);
+      expect(pool._maxWorkers).toBe(2);
     });
 
     it("should respect custom maxWorkers", () => {
       const pool = new WorkerPool({ createWorker: async () => ({}), maxWorkers: 5 });
-      assert.equal(pool._maxWorkers, 5);
+      expect(pool._maxWorkers).toBe(5);
     });
 
     it("should acquire and release workers", async () => {
@@ -1313,19 +1307,19 @@ describe("ToolExecutor", () => {
       const w1 = await pool.acquire();
       const w2 = await pool.acquire();
 
-      assert.equal(created, 2);
-      assert.equal(pool._idle.length, 0);
+      expect(created).toBe(2);
+      expect(pool._idle.length).toBe(0);
 
       pool.release(w1);
-      assert.equal(pool._idle.length, 1);
+      expect(pool._idle.length).toBe(1);
 
       pool.release(w2);
-      assert.equal(pool._idle.length, 2);
+      expect(pool._idle.length).toBe(2);
 
       // Re-acquire should reuse
       const w3 = await pool.acquire();
-      assert.equal(created, 2);
-      assert.equal(pool._idle.length, 1);
+      expect(created).toBe(2);
+      expect(pool._idle.length).toBe(1);
 
       pool.release(w3);
     });
@@ -1343,10 +1337,10 @@ describe("ToolExecutor", () => {
       });
 
       const w1 = await pool.acquire();
-      assert.equal(refCount, 1);
+      expect(refCount).toBe(1);
 
       pool.release(w1);
-      assert.equal(unrefCount, 1);
+      expect(unrefCount).toBe(1);
     });
 
     it("should queue acquires when pool is exhausted", async () => {
@@ -1366,11 +1360,11 @@ describe("ToolExecutor", () => {
       acquirePromise.then(() => { resolved = true; });
 
       await new Promise(r => setTimeout(r, 10));
-      assert.equal(resolved, false);
+      expect(resolved).toBe(false);
 
       pool.release(w1);
       await new Promise(r => setTimeout(r, 10));
-      assert.equal(resolved, true);
+      expect(resolved).toBe(true);
     });
 
     it("should destroy worker and remove from pool", async () => {
@@ -1385,21 +1379,21 @@ describe("ToolExecutor", () => {
       });
 
       const w1 = await pool.acquire();
-      assert.equal(pool._all.size, 1);
+      expect(pool._all.size).toBe(1);
 
       await pool.destroy(w1);
-      assert.equal(terminated, true);
-      assert.equal(pool._all.size, 0);
+      expect(terminated).toBe(true);
+      expect(pool._all.size).toBe(0);
     });
 
     it("should only increase maxWorkers via setMaxWorkers", () => {
       const pool = new WorkerPool({ createWorker: async () => ({}), maxWorkers: 3 });
 
-      assert.equal(pool.setMaxWorkers(5), 5);
-      assert.equal(pool._maxWorkers, 5);
+      expect(pool.setMaxWorkers(5)).toBe(5);
+      expect(pool._maxWorkers).toBe(5);
 
-      assert.equal(pool.setMaxWorkers(2), 5);
-      assert.equal(pool._maxWorkers, 5);
+      expect(pool.setMaxWorkers(2)).toBe(5);
+      expect(pool._maxWorkers).toBe(5);
     });
 
     it("should reject all waiters when createWorker fails", async () => {
@@ -1412,7 +1406,7 @@ describe("ToolExecutor", () => {
         maxWorkers: 1,
       });
 
-      await assert.rejects(pool.acquire(), /Creation failed/);
+      await expect(pool.acquire().rejects).toThrow(/Creation failed/);
     });
 
     it("should ignore release of destroyed worker", async () => {
@@ -1429,7 +1423,7 @@ describe("ToolExecutor", () => {
       await pool.destroy(w1);
 
       pool.release(w1);
-      assert.equal(pool._idle.length, 0);
+      expect(pool._idle.length).toBe(0);
     });
 
     it("should try to fulfill waiter after destroy", async () => {
@@ -1452,8 +1446,8 @@ describe("ToolExecutor", () => {
       await pool.destroy(w1);
       const w2 = await acquirePromise;
 
-      assert.equal(createCount, 2);
-      assert.ok(w2);
+      expect(createCount).toBe(2);
+      expect(w2).toBeTruthy();
     });
   });
 });

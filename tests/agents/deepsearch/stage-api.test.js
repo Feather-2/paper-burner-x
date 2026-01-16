@@ -1,30 +1,31 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
-test("validateStageApi: rejects non-objects and reports missing required fields", async () => {
+it("validateStageApi: rejects non-objects and reports missing required fields", async () => {
   const { validateStageApi } = await import("../../../js/agents/stages/deepsearch/utils/stage-api.js");
 
   {
     const out = validateStageApi(null);
-    assert.equal(out.valid, false);
-    assert.ok(out.missing.some((x) => String(x).includes("stageApi must be an object")));
+    expect(out.valid).toBe(false);
+    expect(out.missing.some(x => String(x).includes("stageApi must be an object")));
   }
 
   {
     const out = validateStageApi(123);
-    assert.equal(out.valid, false);
-    assert.ok(out.missing.some((x) => String(x).includes("stageApi must be an object")));
+    expect(out.valid).toBe(false);
+    expect(out.missing.some(x => String(x).includes("stageApi must be an object")));
   }
 
   {
     const out = validateStageApi({});
-    assert.equal(out.valid, false);
-    assert.deepEqual(out.missing, ["signal"]);
-    assert.deepEqual(out.warnings, []);
+    expect(out.valid).toBe(false);
+    expect(out.missing).toEqual(["signal"]);
+    expect(out.warnings).toEqual([]);
   }
 });
 
-test("validateStageApi: emits warnings for invalid optional field types", async () => {
+it("validateStageApi: emits warnings for invalid optional field types", async () => {
   const { validateStageApi } = await import("../../../js/agents/stages/deepsearch/utils/stage-api.js");
 
   const controller = new AbortController();
@@ -35,20 +36,20 @@ test("validateStageApi: emits warnings for invalid optional field types", async 
     aiApiService: { chat: 1 },
   });
 
-  assert.equal(out.valid, true);
-  assert.ok(out.warnings.includes("emit should be a function"));
-  assert.ok(out.warnings.includes("modelRouter.call should be a function"));
-  assert.ok(out.warnings.includes("aiApiService.chat should be a function"));
+  expect(out.valid).toBe(true);
+  expect(out.warnings.includes("emit should be a function")).toBeTruthy();
+  expect(out.warnings.includes("modelRouter.call should be a function")).toBeTruthy();
+  expect(out.warnings.includes("aiApiService.chat should be a function")).toBeTruthy();
 });
 
-test("createStageApi: fills defaults (signal, emit, checkCancelled) and supports strict warnings", async () => {
+it("createStageApi: fills defaults (signal, emit, checkCancelled) and supports strict warnings", async () => {
   const { createStageApi } = await import("../../../js/agents/stages/deepsearch/utils/stage-api.js");
 
   {
     const api = createStageApi();
-    assert.ok(api.signal && typeof api.signal.aborted === "boolean");
-    assert.equal(typeof api.emit, "function");
-    assert.equal(typeof api.checkCancelled, "function");
+    expect(api.signal && typeof api.signal.aborted === "boolean").toBeTruthy();
+    expect(typeof api.emit).toBe("function");
+    expect(typeof api.checkCancelled).toBe("function");
   }
 
   {
@@ -61,17 +62,17 @@ test("createStageApi: fills defaults (signal, emit, checkCancelled) and supports
 
     const api = createStageApi({ eventBus: bus });
     api.emit("evt", { ok: true });
-    assert.equal(busCalls.length, 1);
-    assert.equal(busCalls[0].name, "evt");
-    assert.deepEqual(busCalls[0].record, { ok: true });
-    assert.equal(busCalls[0].thisValue, bus);
+    expect(busCalls.length).toBe(1);
+    expect(busCalls[0].name).toBe("evt");
+    expect(busCalls[0].record).toEqual({ ok: true });
+    expect(busCalls[0].thisValue).toBe(bus);
   }
 
   {
     const controller = new AbortController();
     const api = createStageApi({ signal: controller.signal, emit: 1 });
     controller.abort("cancelled");
-    assert.throws(() => api.checkCancelled(), /cancelled|cancel/i);
+    expect(() => api.checkCancelled()).toThrow(/cancelled|cancel/i);
   }
 
   {
@@ -81,24 +82,24 @@ test("createStageApi: fills defaults (signal, emit, checkCancelled) and supports
     try {
       // Force warnings: aiApiService present but invalid shape.
       const api = createStageApi({ aiApiService: {} }, { strict: true });
-      assert.ok(api.signal);
-      assert.ok(warnings.length >= 1);
+      expect(api.signal).toBeTruthy();
+      expect(warnings.length >= 1).toBeTruthy();
     } finally {
       console.warn = originalWarn;
     }
   }
 });
 
-test("extractServices: provides safe fallbacks and binds emit correctly", async () => {
+it("extractServices: provides safe fallbacks and binds emit correctly", async () => {
   const { extractServices } = await import("../../../js/agents/stages/deepsearch/utils/stage-api.js");
 
   {
     const { signal, emit, checkCancelled, eventBus } = extractServices(null);
-    assert.equal(signal, null);
-    assert.equal(eventBus, null);
-    assert.equal(typeof emit, "function");
-    assert.equal(typeof checkCancelled, "function");
-    assert.doesNotThrow(() => checkCancelled());
+    expect(signal).toBe(null);
+    expect(eventBus).toBe(null);
+    expect(typeof emit).toBe("function");
+    expect(typeof checkCancelled).toBe("function");
+    expect(() => checkCancelled()).not.toThrow();
   }
 
   {
@@ -110,8 +111,8 @@ test("extractServices: provides safe fallbacks and binds emit correctly", async 
     };
     const { emit } = extractServices(stageApi);
     emit("evt", { a: 1 });
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0].thisValue, stageApi);
+    expect(calls.length).toBe(1);
+    expect(calls[0].thisValue).toBe(stageApi);
   }
 
   {
@@ -123,12 +124,12 @@ test("extractServices: provides safe fallbacks and binds emit correctly", async 
     };
     const { emit } = extractServices({ eventBus: bus });
     emit("evt_bus", { b: 2 });
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0].thisValue, bus);
+    expect(calls.length).toBe(1);
+    expect(calls[0].thisValue).toBe(bus);
   }
 });
 
-test("mergeStageApis: merges non-null/undefined values and returns a complete api", async () => {
+it("mergeStageApis: merges non-null/undefined values and returns a complete api", async () => {
   const { mergeStageApis } = await import("../../../js/agents/stages/deepsearch/utils/stage-api.js");
 
   const a = new AbortController();
@@ -143,22 +144,22 @@ test("mergeStageApis: merges non-null/undefined values and returns a complete ap
     { eventBus: busB }
   );
 
-  assert.equal(merged.signal, b.signal);
-  assert.equal(merged.eventBus, busB);
-  assert.ok(merged.modelRouter && typeof merged.modelRouter.call === "function");
-  assert.equal(typeof merged.emit, "function");
-  assert.equal(typeof merged.checkCancelled, "function");
+  expect(merged.signal).toBe(b.signal);
+  expect(merged.eventBus).toBe(busB);
+  expect(merged.modelRouter && typeof merged.modelRouter.call === "function").toBeTruthy();
+  expect(typeof merged.emit).toBe("function");
+  expect(typeof merged.checkCancelled).toBe("function");
 });
 
-test("createChildApi: inherits parent values and allows overrides", async () => {
+it("createChildApi: inherits parent values and allows overrides", async () => {
   const { createChildApi } = await import("../../../js/agents/stages/deepsearch/utils/stage-api.js");
 
   const controller = new AbortController();
   const parent = { signal: controller.signal, logger: { info: () => {} } };
   const child = createChildApi(parent, { externalSearchProvider: { search: async () => [] } });
 
-  assert.equal(child.signal, controller.signal);
-  assert.ok(child.logger && typeof child.logger.info === "function");
-  assert.ok(child.externalSearchProvider && typeof child.externalSearchProvider.search === "function");
+  expect(child.signal).toBe(controller.signal);
+  expect(child.logger && typeof child.logger.info === "function").toBeTruthy();
+  expect(child.externalSearchProvider && typeof child.externalSearchProvider.search === "function").toBeTruthy();
 });
 

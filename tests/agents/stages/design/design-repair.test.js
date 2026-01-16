@@ -1,5 +1,5 @@
-import { describe, it, mock } from "node:test";
-import assert from "node:assert";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import { buildRepairTask, REPAIR_CONFIG } from "../../../../js/agents/stages/design/refiner/design-repair.js";
 
 describe("DesignRepair", () => {
@@ -19,13 +19,13 @@ describe("DesignRepair", () => {
 
       const task = buildRepairTask(slideHtml, qaResult, slideIntent, { slideIndex: 0 });
 
-      assert.strictEqual(task.slideHtml, slideHtml);
-      assert.strictEqual(task.slideIntentId, "s1");
-      assert.strictEqual(task.slideIndex, 0);
-      assert.strictEqual(task.pageType, "content");
-      assert.deepStrictEqual(task.issues, ["Missing title", "Invalid structure"]);
-      assert.strictEqual(task.qaScore, 3);
-      assert.strictEqual(task.qaPass, false);
+      expect(task.slideHtml).toBe(slideHtml);
+      expect(task.slideIntentId).toBe("s1");
+      expect(task.slideIndex).toBe(0);
+      expect(task.pageType).toBe("content");
+      expect(task.issues).toEqual(["Missing title", "Invalid structure"]);
+      expect(task.qaScore).toBe(3);
+      expect(task.qaPass).toBe(false);
     });
 
     it("should handle object issues", () => {
@@ -40,25 +40,25 @@ describe("DesignRepair", () => {
 
       const task = buildRepairTask("<section/>", qaResult, {});
 
-      assert.strictEqual(task.issues[0], "Error 1");
-      assert.strictEqual(task.issues[1], "Error 2");
-      assert.ok(task.issues[2].includes("other"));
+      expect(task.issues[0]).toBe("Error 1");
+      expect(task.issues[1]).toBe("Error 2");
+      expect(task.issues[2].includes("other")).toBeTruthy();
     });
 
     it("should handle missing data gracefully", () => {
       const task = buildRepairTask("<section/>", {}, null);
 
-      assert.strictEqual(task.slideHtml, "<section/>");
-      assert.deepStrictEqual(task.issues, []);
-      assert.strictEqual(task.slideIntentId, undefined);
+      expect(task.slideHtml).toBe("<section/>");
+      expect(task.issues).toEqual([]);
+      expect(task.slideIntentId).toBe(undefined);
     });
   });
 
   describe("REPAIR_CONFIG", () => {
     it("should have default values", () => {
-      assert.strictEqual(REPAIR_CONFIG.maxRetries, 3);
-      assert.strictEqual(REPAIR_CONFIG.maxStepsPerRetry, 5);
-      assert.strictEqual(REPAIR_CONFIG.qualityThreshold, 6);
+      expect(REPAIR_CONFIG.maxRetries).toBe(3);
+      expect(REPAIR_CONFIG.maxStepsPerRetry).toBe(5);
+      expect(REPAIR_CONFIG.qualityThreshold).toBe(6);
     });
   });
 });

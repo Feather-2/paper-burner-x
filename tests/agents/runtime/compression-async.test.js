@@ -1,5 +1,5 @@
-import { describe, it, beforeEach } from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import {
   compressSessionHistoryAsync,
   compressSessionHistorySync,
@@ -12,7 +12,7 @@ describe("compression-async", () => {
     it("should return false in Node.js environment", () => {
       // Node.js doesn't have Worker API like browsers
       const available = isCompressionWorkerAvailable();
-      assert.strictEqual(available, false);
+      expect(available).toBe(false);
     });
   });
 
@@ -31,11 +31,11 @@ describe("compression-async", () => {
       const result = compressSessionHistorySync(messages, { keepLastTurns: 2 });
 
       // Should keep system anchor + last 2 turns
-      assert.ok(result.messages.length < messages.length);
-      assert.strictEqual(result.messages[0].role, "system");
-      assert.strictEqual(result.messages[0].content, "You are an assistant");
-      assert.ok(result.sessionSummary);
-      assert.ok(result.stats.summarizedMessages > 0);
+      expect(result.messages.length < messages.length).toBeTruthy();
+      expect(result.messages[0].role).toBe("system");
+      expect(result.messages[0].content).toBe("You are an assistant");
+      expect(result.sessionSummary).toBeTruthy();
+      expect(result.stats.summarizedMessages > 0).toBeTruthy();
     });
 
     it("should remove thinking messages", () => {
@@ -47,9 +47,9 @@ describe("compression-async", () => {
 
       const result = compressSessionHistorySync(messages, { keepLastTurns: 10 });
 
-      assert.strictEqual(result.stats.removedThinking, 1);
+      expect(result.stats.removedThinking).toBe(1);
       const hasThinking = result.messages.some(m => m.thinking === true);
-      assert.strictEqual(hasThinking, false);
+      expect(hasThinking).toBe(false);
     });
 
     it("should merge consecutive same-role messages", () => {
@@ -61,10 +61,10 @@ describe("compression-async", () => {
 
       const result = compressSessionHistorySync(messages, { keepLastTurns: 10 });
 
-      assert.strictEqual(result.stats.mergedMessages, 1);
+      expect(result.stats.mergedMessages).toBe(1);
       const userMsg = result.messages.find(m => m.role === "user");
-      assert.ok(userMsg.content.includes("Part 1"));
-      assert.ok(userMsg.content.includes("Part 2"));
+      expect(userMsg.content.includes("Part 1")).toBeTruthy();
+      expect(userMsg.content.includes("Part 2")).toBeTruthy();
     });
 
     it("should preserve existing sessionSummary", () => {
@@ -80,8 +80,8 @@ describe("compression-async", () => {
         sessionSummary: "Previous summary",
       });
 
-      assert.ok(result.sessionSummary);
-      assert.ok(result.sessionSummary.startsWith("Previous summary"));
+      expect(result.sessionSummary).toBeTruthy();
+      expect(result.sessionSummary.startsWith("Previous summary")).toBeTruthy();
     });
 
     it("should use titleOnly mode", () => {
@@ -98,12 +98,12 @@ describe("compression-async", () => {
         titleMaxChars: 30,
       });
 
-      assert.ok(result.sessionSummary);
+      expect(result.sessionSummary).toBeTruthy();
       // Title-only summaries should be shorter
       const lines = result.sessionSummary.split("\n");
       for (const line of lines) {
         // Each line should be role: title format, relatively short
-        assert.ok(line.length < 100, `Line too long: ${line}`);
+        expect(line.length < 100, `Line too long: ${line}`).toBeTruthy();
       }
     });
 
@@ -120,8 +120,8 @@ describe("compression-async", () => {
       // System and tool messages should not be merged
       const systemMsgs = result.messages.filter(m => m.role === "system");
       const toolMsgs = result.messages.filter(m => m.role === "tool");
-      assert.strictEqual(systemMsgs.length, 2);
-      assert.strictEqual(toolMsgs.length, 2);
+      expect(systemMsgs.length).toBe(2);
+      expect(toolMsgs.length).toBe(2);
     });
 
     it("should calculate afterTokens", () => {
@@ -132,8 +132,8 @@ describe("compression-async", () => {
 
       const result = compressSessionHistorySync(messages, { keepLastTurns: 10 });
 
-      assert.ok(typeof result.afterTokens === "number");
-      assert.ok(result.afterTokens > 0);
+      expect(typeof result.afterTokens === "number").toBeTruthy();
+      expect(result.afterTokens > 0).toBeTruthy();
     });
 
     it("should handle CJK characters in token estimation", () => {
@@ -145,7 +145,7 @@ describe("compression-async", () => {
 
       // CJK characters should contribute more to token count
       // 4 CJK chars * 1.6 ≈ 6-7 tokens
-      assert.ok(result.afterTokens >= 5);
+      expect(result.afterTokens >= 5).toBeTruthy();
     });
 
     it("should handle Context Summary messages as anchors", () => {
@@ -158,8 +158,8 @@ describe("compression-async", () => {
       const result = compressSessionHistorySync(messages, { keepLastTurns: 10 });
 
       // Context Summary is a system message, treated as anchor (kept at start)
-      assert.strictEqual(result.messages.length, 3);
-      assert.strictEqual(result.messages[0].role, "system");
+      expect(result.messages.length).toBe(3);
+      expect(result.messages[0].role).toBe("system");
     });
   });
 
@@ -172,17 +172,16 @@ describe("compression-async", () => {
 
       const result = await compressSessionHistoryAsync(messages, { keepLastTurns: 10 });
 
-      assert.ok(Array.isArray(result.messages));
-      assert.ok(typeof result.stats === "object");
-      assert.ok(typeof result.afterTokens === "number");
+      expect(Array.isArray(result.messages)).toBeTruthy();
+      expect(typeof result.stats === "object").toBeTruthy();
+      expect(typeof result.afterTokens === "number").toBeTruthy();
     });
 
     it("should respect abort signal", async () => {
       const controller = new AbortController();
       controller.abort();
 
-      await assert.rejects(
-        async () => {
+      await expect(async () => {
           await compressSessionHistoryAsync(
             [{ role: "user", content: "test" }],
             {},
@@ -209,15 +208,15 @@ describe("compression-async", () => {
         { useWorker: false }
       );
 
-      assert.ok(result.sessionSummary);
-      assert.ok(result.sessionSummary.startsWith("Prior"));
+      expect(result.sessionSummary).toBeTruthy();
+      expect(result.sessionSummary.startsWith("Prior")).toBeTruthy();
     });
   });
 
   describe("terminateCompressionWorker", () => {
     it("should not throw when called multiple times", () => {
       // Should be safe to call even when no worker exists
-      assert.doesNotThrow(() => {
+      expect(().not.toThrow() => {
         terminateCompressionWorker();
         terminateCompressionWorker();
       });

@@ -1,7 +1,8 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
-test("DeepSearchState.dispose: unsubscribes + disposes StateEngine and rejects further use", async () => {
+it("DeepSearchState.dispose: unsubscribes + disposes StateEngine and rejects further use", async () => {
   const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
 
   let unsubCalls = 0;
@@ -20,15 +21,15 @@ test("DeepSearchState.dispose: unsubscribes + disposes StateEngine and rejects f
   };
 
   const state = new DeepSearchState({ runId: "run_dispose", taskGoal: "g", stateEngine: engine });
-  assert.equal(state.disposed, false);
+  expect(state.disposed).toBe(false);
 
   await state.dispose();
-  assert.equal(state.disposed, true);
-  assert.equal(unsubCalls, 1);
-  assert.equal(engineDisposeCalls, 1);
+  expect(state.disposed).toBe(true);
+  expect(unsubCalls).toBe(1);
+  expect(engineDisposeCalls).toBe(1);
 
-  assert.throws(() => {
-    state.addTodo({ todoId: "t1", text: "x", status: "open" });
+  expect(() => {
+    state.addTodo({ todoId: "t1", text: "x", status: "open" }).toThrow();
   }, /disposed/i);
 });
 

@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import { WritingPhaseHandler } from "../../../js/agents/stages/deepsearch/runtime/writing-phase-handler.js";
 
@@ -35,7 +35,7 @@ describe("WritingPhaseHandler", () => {
         toolCallCount: 10,
         maxToolCalls: 50,
       });
-      assert.equal(result, true);
+      expect(result).toBe(true);
     });
 
     it("should return true when tool call limit reached", () => {
@@ -49,7 +49,7 @@ describe("WritingPhaseHandler", () => {
         toolCallCount: 50,
         maxToolCalls: 50,
       });
-      assert.equal(result, true);
+      expect(result).toBe(true);
     });
 
     it("should return false when word count meets minimum", () => {
@@ -64,7 +64,7 @@ describe("WritingPhaseHandler", () => {
         toolCallCount: 10,
         maxToolCalls: 50,
       });
-      assert.equal(result, false);
+      expect(result).toBe(false);
     });
 
     it("should return false when limits not reached", () => {
@@ -78,7 +78,7 @@ describe("WritingPhaseHandler", () => {
         toolCallCount: 10,
         maxToolCalls: 50,
       });
-      assert.equal(result, false);
+      expect(result).toBe(false);
     });
   });
 
@@ -98,10 +98,10 @@ describe("WritingPhaseHandler", () => {
         globalConfig: {},
       });
 
-      assert.equal(stats.wordCount, 6);
-      assert.equal(stats.minWords, 6000);
-      assert.equal(stats.doneTodos, 2);
-      assert.equal(stats.totalTodos, 3);
+      expect(stats.wordCount).toBe(6);
+      expect(stats.minWords).toBe(6000);
+      expect(stats.doneTodos).toBe(2);
+      expect(stats.totalTodos).toBe(3);
     });
 
     it("should handle empty state", () => {
@@ -112,9 +112,9 @@ describe("WritingPhaseHandler", () => {
         globalConfig: {},
       });
 
-      assert.equal(stats.wordCount, 0);
-      assert.equal(stats.doneTodos, 0);
-      assert.equal(stats.totalTodos, 0);
+      expect(stats.wordCount).toBe(0);
+      expect(stats.doneTodos).toBe(0);
+      expect(stats.totalTodos).toBe(0);
     });
   });
 
@@ -146,7 +146,7 @@ describe("WritingPhaseHandler", () => {
         signal: null,
       });
 
-      assert.ok(messages.length >= 2);
+      expect(messages.length >= 2).toBeTruthy();
     });
 
     it("should stop on max parse failures", async () => {
@@ -165,7 +165,7 @@ describe("WritingPhaseHandler", () => {
 
       // Should have stopped after 2 parse failures
       const parseFailureMessages = messages.filter(m => m.content?.includes("JSON 解析失败"));
-      assert.ok(parseFailureMessages.length <= 2);
+      expect(parseFailureMessages.length <= 2).toBeTruthy();
     });
 
     it("should respect abort signal", async () => {
@@ -185,7 +185,7 @@ describe("WritingPhaseHandler", () => {
       });
 
       // Should exit immediately due to abort
-      assert.equal(messages.filter(m => m.role === "assistant").length, 0);
+      expect(messages.filter(m => m.role === "assistant").length).toBe(0);
     });
   });
 });

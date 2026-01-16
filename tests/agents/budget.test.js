@@ -1,5 +1,5 @@
-import { describe, it, beforeEach } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import {
   BudgetManager,
@@ -12,20 +12,20 @@ import {
 describe("shared/utils/budget", () => {
   describe("BudgetAction", () => {
     it("exports frozen constants", () => {
-      assert.equal(BudgetAction.CONTINUE, "continue");
-      assert.equal(BudgetAction.DEGRADE, "degrade");
-      assert.equal(BudgetAction.STOP, "stop");
-      assert.ok(Object.isFrozen(BudgetAction));
+      expect(BudgetAction.CONTINUE).toBe("continue");
+      expect(BudgetAction.DEGRADE).toBe("degrade");
+      expect(BudgetAction.STOP).toBe("stop");
+      expect(Object.isFrozen(BudgetAction)).toBeTruthy();
     });
   });
 
   describe("AllocationStrategy", () => {
     it("exports frozen constants", () => {
-      assert.equal(AllocationStrategy.EQUAL, "equal");
-      assert.equal(AllocationStrategy.PROPORTIONAL, "proportional");
-      assert.equal(AllocationStrategy.FIXED, "fixed");
-      assert.equal(AllocationStrategy.REMAINING, "remaining");
-      assert.ok(Object.isFrozen(AllocationStrategy));
+      expect(AllocationStrategy.EQUAL).toBe("equal");
+      expect(AllocationStrategy.PROPORTIONAL).toBe("proportional");
+      expect(AllocationStrategy.FIXED).toBe("fixed");
+      expect(AllocationStrategy.REMAINING).toBe("remaining");
+      expect(Object.isFrozen(AllocationStrategy)).toBeTruthy();
     });
   });
 
@@ -45,9 +45,9 @@ describe("shared/utils/budget", () => {
     describe("constructor", () => {
       it("creates with default options", () => {
         const m = new BudgetManager();
-        assert.ok(m.limits.input > 0);
-        assert.ok(m.limits.output > 0);
-        assert.ok(m.limits.total > 0);
+        expect(m.limits.input > 0).toBeTruthy();
+        expect(m.limits.output > 0).toBeTruthy();
+        expect(m.limits.total > 0).toBeTruthy();
       });
 
       it("enforces minimum limits", () => {
@@ -55,69 +55,69 @@ describe("shared/utils/budget", () => {
           maxInputTokens: 0,
           maxOutputTokens: -100,
         });
-        assert.ok(m.limits.input >= 1);
-        assert.ok(m.limits.output >= 1);
+        expect(m.limits.input >= 1).toBeTruthy();
+        expect(m.limits.output >= 1).toBeTruthy();
       });
 
       it("clamps degradeThreshold", () => {
         const low = new BudgetManager({ degradeThreshold: 0.01 });
-        assert.ok(low.degradeThreshold >= 0.1);
+        expect(low.degradeThreshold >= 0.1).toBeTruthy();
 
         const high = new BudgetManager({ degradeThreshold: 1.5 });
-        assert.ok(high.degradeThreshold <= 0.99);
+        expect(high.degradeThreshold <= 0.99).toBeTruthy();
       });
     });
 
     describe("checkBudget", () => {
       it("returns CONTINUE when under budget", () => {
-        assert.equal(manager.checkBudget(), BudgetAction.CONTINUE);
+        expect(manager.checkBudget()).toBe(BudgetAction.CONTINUE);
       });
 
       it("returns DEGRADE when over threshold", () => {
         manager.usage.input = 850; // 85% of 1000
         const result = manager.checkBudget();
-        assert.equal(result, BudgetAction.DEGRADE);
-        assert.ok(manager.degraded);
+        expect(result).toBe(BudgetAction.DEGRADE);
+        expect(manager.degraded).toBeTruthy();
       });
 
       it("returns STOP when over limit", () => {
         manager.usage.input = 1100;
         const result = manager.checkBudget();
-        assert.equal(result, BudgetAction.STOP);
-        assert.ok(manager.stopped);
+        expect(result).toBe(BudgetAction.STOP);
+        expect(manager.stopped).toBeTruthy();
       });
 
       it("returns STOP if already stopped", () => {
         manager.stopped = true;
-        assert.equal(manager.checkBudget(), BudgetAction.STOP);
+        expect(manager.checkBudget()).toBe(BudgetAction.STOP);
       });
 
       it("returns DEGRADE if already degraded but under limit", () => {
         manager.degraded = true;
         manager.usage.input = 500;
-        assert.equal(manager.checkBudget(), BudgetAction.DEGRADE);
+        expect(manager.checkBudget()).toBe(BudgetAction.DEGRADE);
       });
 
       it("calls onThresholdReached for DEGRADE", () => {
         let called = false;
         manager.onThresholdReached = (event) => {
           called = true;
-          assert.equal(event.action, BudgetAction.DEGRADE);
+          expect(event.action).toBe(BudgetAction.DEGRADE);
         };
         manager.usage.input = 850;
         manager.checkBudget();
-        assert.ok(called);
+        expect(called).toBeTruthy();
       });
 
       it("calls onThresholdReached for STOP", () => {
         let called = false;
         manager.onThresholdReached = (event) => {
           called = true;
-          assert.equal(event.action, BudgetAction.STOP);
+          expect(event.action).toBe(BudgetAction.STOP);
         };
         manager.usage.input = 1100;
         manager.checkBudget();
-        assert.ok(called);
+        expect(called).toBeTruthy();
       });
 
       it("does not call onThresholdReached twice for DEGRADE", () => {
@@ -126,40 +126,40 @@ describe("shared/utils/budget", () => {
         manager.usage.input = 850;
         manager.checkBudget();
         manager.checkBudget();
-        assert.equal(callCount, 1);
+        expect(callCount).toBe(1);
       });
     });
 
     describe("recordUsage", () => {
       it("adds to usage", () => {
         manager.recordUsage({ input: 100, output: 50 });
-        assert.equal(manager.usage.input, 100);
-        assert.equal(manager.usage.output, 50);
-        assert.equal(manager.usage.total, 150);
+        expect(manager.usage.input).toBe(100);
+        expect(manager.usage.output).toBe(50);
+        expect(manager.usage.total).toBe(150);
       });
 
       it("accumulates usage", () => {
         manager.recordUsage({ input: 100 });
         manager.recordUsage({ input: 200, output: 100 });
-        assert.equal(manager.usage.input, 300);
-        assert.equal(manager.usage.output, 100);
+        expect(manager.usage.input).toBe(300);
+        expect(manager.usage.output).toBe(100);
       });
 
       it("handles negative values", () => {
         manager.recordUsage({ input: -100, output: -50 });
-        assert.equal(manager.usage.input, 0);
-        assert.equal(manager.usage.output, 0);
+        expect(manager.usage.input).toBe(0);
+        expect(manager.usage.output).toBe(0);
       });
 
       it("handles missing values", () => {
         manager.recordUsage({});
-        assert.equal(manager.usage.input, 0);
-        assert.equal(manager.usage.output, 0);
+        expect(manager.usage.input).toBe(0);
+        expect(manager.usage.output).toBe(0);
       });
 
       it("returns budget action", () => {
         const result = manager.recordUsage({ input: 850 });
-        assert.equal(result, BudgetAction.DEGRADE);
+        expect(result).toBe(BudgetAction.DEGRADE);
       });
     });
 
@@ -169,15 +169,15 @@ describe("shared/utils/budget", () => {
         manager.usage.output = 200;
         manager.usage.total = 500;
         const remaining = manager.getRemaining();
-        assert.equal(remaining.input, 700);
-        assert.equal(remaining.output, 300);
-        assert.equal(remaining.total, 1000);
+        expect(remaining.input).toBe(700);
+        expect(remaining.output).toBe(300);
+        expect(remaining.total).toBe(1000);
       });
 
       it("returns 0 when over budget", () => {
         manager.usage.input = 1500;
         const remaining = manager.getRemaining();
-        assert.equal(remaining.input, 0);
+        expect(remaining.input).toBe(0);
       });
     });
 
@@ -187,9 +187,9 @@ describe("shared/utils/budget", () => {
         manager.usage.output = 250;
         manager.usage.total = 750;
         const ratio = manager.getUsageRatio();
-        assert.equal(ratio.input, 0.5);
-        assert.equal(ratio.output, 0.5);
-        assert.equal(ratio.total, 0.5);
+        expect(ratio.input).toBe(0.5);
+        expect(ratio.output).toBe(0.5);
+        expect(ratio.total).toBe(0.5);
       });
     });
 
@@ -198,12 +198,12 @@ describe("shared/utils/budget", () => {
         manager.usage.input = 100;
         manager.degraded = true;
         const stats = manager.getStats();
-        assert.deepEqual(stats.usage, manager.usage);
-        assert.deepEqual(stats.limits, manager.limits);
-        assert.ok(stats.remaining);
-        assert.ok(stats.ratio);
-        assert.equal(stats.degraded, true);
-        assert.equal(stats.stopped, false);
+        expect(stats.usage).toEqual(manager.usage);
+        expect(stats.limits).toEqual(manager.limits);
+        expect(stats.remaining).toBeTruthy();
+        expect(stats.ratio).toBeTruthy();
+        expect(stats.degraded).toBe(true);
+        expect(stats.stopped).toBe(false);
       });
     });
 
@@ -213,11 +213,11 @@ describe("shared/utils/budget", () => {
         manager.degraded = true;
         manager.stopped = true;
         manager.reset();
-        assert.equal(manager.usage.input, 0);
-        assert.equal(manager.usage.output, 0);
-        assert.equal(manager.usage.total, 0);
-        assert.equal(manager.degraded, false);
-        assert.equal(manager.stopped, false);
+        expect(manager.usage.input).toBe(0);
+        expect(manager.usage.output).toBe(0);
+        expect(manager.usage.total).toBe(0);
+        expect(manager.degraded).toBe(false);
+        expect(manager.stopped).toBe(false);
       });
     });
   });
@@ -230,18 +230,18 @@ describe("shared/utils/budget", () => {
           maxOutputTokens: 500,
         },
       });
-      assert.equal(manager.limits.input, 1000);
-      assert.equal(manager.limits.output, 500);
+      expect(manager.limits.input).toBe(1000);
+      expect(manager.limits.output).toBe(500);
     });
 
     it("creates manager with default config", () => {
       const manager = createBudgetManager();
-      assert.ok(manager instanceof BudgetManager);
+      expect(manager instanceof BudgetManager).toBeTruthy();
     });
 
     it("handles empty budget config", () => {
       const manager = createBudgetManager({});
-      assert.ok(manager instanceof BudgetManager);
+      expect(manager instanceof BudgetManager).toBeTruthy();
     });
   });
 
@@ -251,8 +251,8 @@ describe("shared/utils/budget", () => {
         const manager = new RecursiveBudgetManager({
           maxInputTokens: 1000,
         });
-        assert.ok(manager);
-        assert.equal(manager._depth, 0);
+        expect(manager).toBeTruthy();
+        expect(manager._depth).toBe(0);
       });
 
       it("inherits budget from parent", () => {
@@ -265,8 +265,8 @@ describe("shared/utils/budget", () => {
           parent,
           inheritRatio: 0.5,
         });
-        assert.equal(child.limits.input, 500);
-        assert.equal(child.limits.output, 250);
+        expect(child.limits.input).toBe(500);
+        expect(child.limits.output).toBe(250);
       });
 
       it("clamps inheritRatio", () => {
@@ -275,7 +275,7 @@ describe("shared/utils/budget", () => {
           parent,
           inheritRatio: 1.5,
         });
-        assert.ok(child.limits.input <= 1000);
+        expect(child.limits.input <= 1000).toBeTruthy();
       });
     });
 
@@ -285,8 +285,8 @@ describe("shared/utils/budget", () => {
           maxInputTokens: 1000,
         });
         const child = parent.createChildBudget();
-        assert.ok(child instanceof RecursiveBudgetManager);
-        assert.equal(child._depth, 1);
+        expect(child instanceof RecursiveBudgetManager).toBeTruthy();
+        expect(child._depth).toBe(1);
       });
 
       it("throws at max depth", () => {
@@ -294,17 +294,14 @@ describe("shared/utils/budget", () => {
           maxDepth: 1,
           depth: 1,
         });
-        assert.throws(
-          () => manager.createChildBudget(),
-          /Max recursion depth/
-        );
+        expect(() => manager.createChildBudget()).toThrow(/Max recursion depth/);
       });
 
       it("adds child to children array", () => {
         const parent = new RecursiveBudgetManager();
         parent.createChildBudget();
         parent.createChildBudget();
-        assert.equal(parent._children.length, 2);
+        expect(parent._children.length).toBe(2);
       });
 
       it("uses custom options for child", () => {
@@ -314,7 +311,7 @@ describe("shared/utils/budget", () => {
         const child = parent.createChildBudget({
           degradeThreshold: 0.7,
         });
-        assert.equal(child.degradeThreshold, 0.7);
+        expect(child.degradeThreshold).toBe(0.7);
       });
     });
 
@@ -339,9 +336,9 @@ describe("shared/utils/budget", () => {
         const parent = new RecursiveBudgetManager({ maxDepth: 10 });
         const child = parent.createChildBudget();
         const info = child.getHierarchyInfo();
-        assert.equal(info.depth, 1);
-        assert.equal(info.maxDepth, 10);
-        assert.equal(info.hasParent, true);
+        expect(info.depth).toBe(1);
+        expect(info.maxDepth).toBe(10);
+        expect(info.hasParent).toBe(true);
       });
     });
 
@@ -349,9 +346,9 @@ describe("shared/utils/budget", () => {
       it("returns zero for no children", () => {
         const manager = new RecursiveBudgetManager();
         const usage = manager.getTotalDescendantUsage();
-        assert.equal(usage.input, 0);
-        assert.equal(usage.output, 0);
-        assert.equal(usage.total, 0);
+        expect(usage.input).toBe(0);
+        expect(usage.output).toBe(0);
+        expect(usage.total).toBe(0);
       });
 
       it("sums child usage", () => {
@@ -361,8 +358,8 @@ describe("shared/utils/budget", () => {
         child1.recordUsage({ input: 100, output: 50 });
         child2.recordUsage({ input: 200, output: 100 });
         const usage = parent.getTotalDescendantUsage();
-        assert.equal(usage.input, 300);
-        assert.equal(usage.output, 150);
+        expect(usage.input).toBe(300);
+        expect(usage.output).toBe(150);
       });
 
       it("includes grandchild usage", () => {
@@ -371,8 +368,8 @@ describe("shared/utils/budget", () => {
         const grandchild = child.createChildBudget();
         grandchild.recordUsage({ input: 50, output: 25 });
         const usage = root.getTotalDescendantUsage();
-        assert.equal(usage.input, 50);
-        assert.equal(usage.output, 25);
+        expect(usage.input).toBe(50);
+        expect(usage.output).toBe(25);
       });
     });
   });

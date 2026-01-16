@@ -1,5 +1,5 @@
-import { describe, it, beforeEach, afterEach } from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import os from "node:os";
 import path from "node:path";
 import { promises as fs } from "node:fs";
@@ -15,29 +15,29 @@ describe("runtime/tools/platform", () => {
   describe("platform detection", () => {
     it("getPlatformType returns valid type", () => {
       const type = getPlatformType();
-      assert.ok(["browser", "node", "bun", "deno", "unknown"].includes(type));
+      expect(["browser", "node", "bun", "deno", "unknown"].includes(type)).toBeTruthy();
     });
 
     it("isNodeLike returns true in Node environment", () => {
-      assert.equal(isNodeLike(), true);
+      expect(isNodeLike()).toBe(true);
     });
   });
 
   describe("hasCapability", () => {
     it("bash is available in Node environment", () => {
-      assert.equal(hasCapability("bash"), true);
+      expect(hasCapability("bash")).toBe(true);
     });
 
     it("python is always available", () => {
-      assert.equal(hasCapability("python"), true);
+      expect(hasCapability("python")).toBe(true);
     });
 
     it("js_sandbox is always available", () => {
-      assert.equal(hasCapability("js_sandbox"), true);
+      expect(hasCapability("js_sandbox")).toBe(true);
     });
 
     it("unknown capability returns false", () => {
-      assert.equal(hasCapability("unknown_capability"), false);
+      expect(hasCapability("unknown_capability")).toBe(false);
     });
   });
 
@@ -56,13 +56,13 @@ describe("runtime/tools/platform", () => {
     it("creates tools with all expected methods", async () => {
       const tools = await createPlatformTools({ basePath: testDir });
 
-      assert.equal(typeof tools.glob, "function");
-      assert.equal(typeof tools.grep, "function");
-      assert.equal(typeof tools.read, "function");
-      assert.equal(typeof tools.write, "function");
-      assert.equal(typeof tools.list, "function");
-      assert.equal(typeof tools.bash, "function");
-      assert.ok(["node", "bun", "deno"].includes(tools.platform));
+      expect(typeof tools.glob).toBe("function");
+      expect(typeof tools.grep).toBe("function");
+      expect(typeof tools.read).toBe("function");
+      expect(typeof tools.write).toBe("function");
+      expect(typeof tools.list).toBe("function");
+      expect(typeof tools.bash).toBe("function");
+      expect(["node", "bun", "deno"].includes(tools.platform)).toBeTruthy();
     });
 
     it("glob finds files matching pattern", async () => {
@@ -73,9 +73,9 @@ describe("runtime/tools/platform", () => {
       const tools = await createPlatformTools({ basePath: testDir });
       const { files } = await tools.glob({ pattern: "*.js" });
 
-      assert.equal(files.length, 2);
-      assert.ok(files.some((f) => f.includes("foo.js")));
-      assert.ok(files.some((f) => f.includes("bar.js")));
+      expect(files.length).toBe(2);
+      expect(files.some(f => f.includes("foo.js")));
+      expect(files.some(f => f.includes("bar.js")));
     });
 
     it("grep finds matches in files", async () => {
@@ -84,7 +84,7 @@ describe("runtime/tools/platform", () => {
       const tools = await createPlatformTools({ basePath: testDir });
       const { matches } = await tools.grep({ pattern: "hello", path: testDir });
 
-      assert.ok(matches.length >= 1);
+      expect(matches.length >= 1).toBeTruthy();
     });
 
     it("read returns file content", async () => {
@@ -94,7 +94,7 @@ describe("runtime/tools/platform", () => {
       const tools = await createPlatformTools({ basePath: testDir });
       const result = await tools.read({ path: path.join(testDir, "readme.txt") });
 
-      assert.equal(result.content, content);
+      expect(result.content).toBe(content);
     });
 
     it("write creates file with content", async () => {
@@ -103,9 +103,9 @@ describe("runtime/tools/platform", () => {
 
       const result = await tools.write({ path: filePath, content: "written content" });
 
-      assert.equal(result.success, true);
+      expect(result.success).toBe(true);
       const actual = await fs.readFile(filePath, "utf8");
-      assert.equal(actual, "written content");
+      expect(actual).toBe("written content");
     });
 
     it("list returns directory entries", async () => {
@@ -115,24 +115,24 @@ describe("runtime/tools/platform", () => {
       const tools = await createPlatformTools({ basePath: testDir });
       const { entries } = await tools.list({ path: testDir });
 
-      assert.ok(entries.includes("file1.txt"));
-      assert.ok(entries.includes("subdir"));
+      expect(entries.includes("file1.txt")).toBeTruthy();
+      expect(entries.includes("subdir")).toBeTruthy();
     });
 
     it("bash executes commands", async () => {
       const tools = await createPlatformTools({ basePath: testDir });
       const result = await tools.bash({ command: "echo hello" });
 
-      assert.equal(result.exitCode, 0);
-      assert.ok(result.stdout.includes("hello"));
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.includes("hello")).toBeTruthy();
     });
 
     it("bash respects timeout", async () => {
       const tools = await createPlatformTools({ basePath: testDir });
       const result = await tools.bash({ command: "sleep 10", timeout: 100 });
 
-      assert.equal(result.exitCode, -1);
-      assert.ok(result.error?.includes("timeout") || result.stderr?.length >= 0);
+      expect(result.exitCode).toBe(-1);
+      expect(result.error?.includes("timeout") || result.stderr?.length >= 0).toBeTruthy();
     });
   });
 });

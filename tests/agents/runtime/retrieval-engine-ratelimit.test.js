@@ -1,5 +1,5 @@
-import { test, describe, beforeEach } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import { RetrievalEngine } from "../../../js/agents/runtime/memory/retrieval-engine.js";
 import { TokenBucketRateLimiter } from "../../../js/agents/llm/rate-limit.js";
@@ -69,14 +69,14 @@ function createControllableRateLimiter({ rps = 2, burst = 2, concurrency = 1 } =
 }
 
 describe("RetrievalEngine rate limiting", () => {
-  test("constructor creates default rate limiter when no options", () => {
+  it("constructor creates default rate limiter when no options", () => {
     const store = createMockMemoryStore();
     const engine = new RetrievalEngine({ memoryStore: store, subscribe: false });
     const stats = engine.getIndexQueueStats();
-    assert.ok(stats.rateLimiter !== null, "should have rateLimiter in stats");
+    expect(stats.rateLimiter !== null, "should have rateLimiter in stats").toBeTruthy();
   });
 
-  test("constructor uses provided rateLimiter instance", () => {
+  it("constructor uses provided rateLimiter instance", () => {
     const store = createMockMemoryStore();
     const customLimiter = new TokenBucketRateLimiter({ rps: 5, burst: 10 });
     const engine = new RetrievalEngine({
@@ -84,30 +84,30 @@ describe("RetrievalEngine rate limiting", () => {
       rateLimiter: customLimiter,
       subscribe: false,
     });
-    assert.strictEqual(engine._rateLimiter, customLimiter);
+    expect(engine._rateLimiter).toBe(customLimiter);
   });
 
-  test("constructor disables rate limiter when rateLimiter: null", () => {
+  it("constructor disables rate limiter when rateLimiter: null", () => {
     const store = createMockMemoryStore();
     const engine = new RetrievalEngine({
       memoryStore: store,
       rateLimiter: null,
       subscribe: false,
     });
-    assert.strictEqual(engine._rateLimiter, null);
+    expect(engine._rateLimiter).toBe(null);
   });
 
-  test("constructor disables rate limiter when rateLimit.enabled: false", () => {
+  it("constructor disables rate limiter when rateLimit.enabled: false", () => {
     const store = createMockMemoryStore();
     const engine = new RetrievalEngine({
       memoryStore: store,
       rateLimit: { enabled: false },
       subscribe: false,
     });
-    assert.strictEqual(engine._rateLimiter, null);
+    expect(engine._rateLimiter).toBe(null);
   });
 
-  test("constructor uses rateLimit config options", () => {
+  it("constructor uses rateLimit config options", () => {
     const store = createMockMemoryStore();
     const engine = new RetrievalEngine({
       memoryStore: store,
@@ -115,12 +115,12 @@ describe("RetrievalEngine rate limiting", () => {
       subscribe: false,
     });
     const state = engine._rateLimiter.getState();
-    assert.strictEqual(state.rps, 10);
-    assert.strictEqual(state.burst, 20);
-    assert.strictEqual(state.concurrency, 5);
+    expect(state.rps).toBe(10);
+    expect(state.burst).toBe(20);
+    expect(state.concurrency).toBe(5);
   });
 
-  test("getIndexQueueStats includes rateLimiter state", () => {
+  it("getIndexQueueStats includes rateLimiter state", () => {
     const store = createMockMemoryStore();
     const engine = new RetrievalEngine({
       memoryStore: store,
@@ -128,11 +128,11 @@ describe("RetrievalEngine rate limiting", () => {
       subscribe: false,
     });
     const stats = engine.getIndexQueueStats();
-    assert.ok(stats.rateLimiter);
-    assert.strictEqual(stats.rateLimiter.rps, 50);
+    expect(stats.rateLimiter).toBeTruthy();
+    expect(stats.rateLimiter.rps).toBe(50);
   });
 
-  test("semanticRecall acquires rate limit before execution", async () => {
+  it("semanticRecall acquires rate limit before execution", async () => {
     const embeddingService = createMockEmbeddingService();
     const vectorIndex = createMockVectorIndex();
     vectorIndex.upsert("doc1", [0.1, 0.2, 0.3], { stageKey: "test", ts: Date.now() });
@@ -152,15 +152,15 @@ describe("RetrievalEngine rate limiting", () => {
     const originalAcquire = engine._acquireRateLimit.bind(engine);
     engine._acquireRateLimit = async (label) => {
       acquireCount++;
-      assert.strictEqual(label, "semanticRecall");
+      expect(label).toBe("semanticRecall");
       return originalAcquire(label);
     };
 
     await engine.semanticRecall("test query");
-    assert.strictEqual(acquireCount, 1, "should acquire rate limit once");
+    expect(acquireCount).toBe(1, "should acquire rate limit once");
   });
 
-  test("hybridRecall acquires rate limit before execution", async () => {
+  it("hybridRecall acquires rate limit before execution", async () => {
     const embeddingService = createMockEmbeddingService();
     const vectorIndex = createMockVectorIndex();
     vectorIndex.upsert("doc1", [0.1, 0.2, 0.3], { stageKey: "test", ts: Date.now() });
@@ -186,11 +186,11 @@ describe("RetrievalEngine rate limiting", () => {
 
     await engine.hybridRecall("test query");
     // hybridRecall calls _acquireRateLimit once, then calls semanticRecall which calls it again
-    assert.ok(acquireLabels.includes("hybridRecall"), "should acquire for hybridRecall");
-    assert.ok(acquireLabels.includes("semanticRecall"), "should acquire for semanticRecall");
+    expect(acquireLabels.includes("hybridRecall")).toBeTruthy();
+    expect(acquireLabels.includes("semanticRecall")).toBeTruthy();
   });
 
-  test("rate limiter throttles high-frequency calls", async () => {
+  it("rate limiter throttles high-frequency calls", async () => {
     const { limiter, advanceTime } = createControllableRateLimiter({ rps: 2, burst: 2, concurrency: 10 });
 
     const embeddingService = createMockEmbeddingService();
@@ -217,10 +217,10 @@ describe("RetrievalEngine rate limiting", () => {
     await p3;
 
     const end = limiter.getState().nowMs;
-    assert.ok(end > start, "time should have advanced for rate limiting");
+    expect(end > start, "time should have advanced for rate limiting").toBeTruthy();
   });
 
-  test("keywordRecall is synchronous and not rate limited", () => {
+  it("keywordRecall is synchronous and not rate limited", () => {
     const timeline = [
       { id: "doc1", summary: "first" },
       { id: "doc2", summary: "second" },
@@ -239,10 +239,10 @@ describe("RetrievalEngine rate limiting", () => {
 
     // keywordRecall should return synchronously
     const result = engine.keywordRecall("test");
-    assert.ok(Array.isArray(result), "should return array synchronously");
+    expect(Array.isArray(result).toBeTruthy(), "should return array synchronously");
   });
 
-  test("_acquireRateLimit is no-op when limiter is null", async () => {
+  it("_acquireRateLimit is no-op when limiter is null", async () => {
     const store = createMockMemoryStore();
     const engine = new RetrievalEngine({
       memoryStore: store,
@@ -252,6 +252,6 @@ describe("RetrievalEngine rate limiting", () => {
 
     // Should not throw
     await engine._acquireRateLimit("test");
-    assert.ok(true, "_acquireRateLimit completes without limiter");
+    expect(true, "_acquireRateLimit completes without limiter").toBeTruthy();
   });
 });

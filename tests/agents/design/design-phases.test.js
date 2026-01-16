@@ -3,10 +3,10 @@
  *
  * 测试阶段处理函数的辅助逻辑（不涉及完整 loop 执行）
  */
-import { describe, it, mock, beforeEach } from "node:test";
-import assert from "node:assert";
 
 // 测试辅助函数（从 design-phases.js 提取的纯函数逻辑）
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
 function hasImagePlanningConfig(constraints) {
   if (!constraints || typeof constraints !== "object") return false;
   return (
@@ -26,78 +26,78 @@ function estimateSlotCostUSD(slot) {
 describe("design-phases helpers", () => {
   describe("hasImagePlanningConfig", () => {
     it("should return false for null/undefined", () => {
-      assert.strictEqual(hasImagePlanningConfig(null), false);
-      assert.strictEqual(hasImagePlanningConfig(undefined), false);
+      expect(hasImagePlanningConfig(null)).toBe(false);
+      expect(hasImagePlanningConfig(undefined)).toBe(false);
     });
 
     it("should return false for non-object", () => {
-      assert.strictEqual(hasImagePlanningConfig("string"), false);
-      assert.strictEqual(hasImagePlanningConfig(123), false);
+      expect(hasImagePlanningConfig("string")).toBe(false);
+      expect(hasImagePlanningConfig(123)).toBe(false);
     });
 
     it("should return false for empty object", () => {
-      assert.strictEqual(hasImagePlanningConfig({}), false);
+      expect(hasImagePlanningConfig({})).toBe(false);
     });
 
     it("should return true when imagePolicy is present", () => {
-      assert.strictEqual(hasImagePlanningConfig({ imagePolicy: "balanced" }), true);
-      assert.strictEqual(hasImagePlanningConfig({ imagePolicy: null }), true); // key exists
+      expect(hasImagePlanningConfig({ imagePolicy: "balanced" })).toBe(true);
+      expect(hasImagePlanningConfig({ imagePolicy: null })).toBe(true); // key exists
     });
 
     it("should return true when imageBudget is present", () => {
-      assert.strictEqual(hasImagePlanningConfig({ imageBudget: 10 }), true);
-      assert.strictEqual(hasImagePlanningConfig({ imageBudget: 0 }), true);
+      expect(hasImagePlanningConfig({ imageBudget: 10 })).toBe(true);
+      expect(hasImagePlanningConfig({ imageBudget: 0 })).toBe(true);
     });
 
     it("should return true when both are present", () => {
-      assert.strictEqual(hasImagePlanningConfig({ imagePolicy: "aggressive", imageBudget: 20 }), true);
+      expect(hasImagePlanningConfig({ imagePolicy: "aggressive").toBe(imageBudget: 20 }), true);
     });
 
     it("should return false for unrelated keys", () => {
-      assert.strictEqual(hasImagePlanningConfig({ maxSlides: 10, tone: "formal" }), false);
+      expect(hasImagePlanningConfig({ maxSlides: 10).toBe(tone: "formal" }), false);
     });
   });
 
   describe("estimateSlotCostUSD", () => {
     it("should return 0.003 for basic slots", () => {
-      assert.strictEqual(estimateSlotCostUSD({}), 0.003);
-      assert.strictEqual(estimateSlotCostUSD({ style: "flat" }), 0.003);
-      assert.strictEqual(estimateSlotCostUSD({ style: "minimal" }), 0.003);
-      assert.strictEqual(estimateSlotCostUSD({ style: "illustration" }), 0.003);
+      expect(estimateSlotCostUSD({})).toBe(0.003);
+      expect(estimateSlotCostUSD({ style: "flat" })).toBe(0.003);
+      expect(estimateSlotCostUSD({ style: "minimal" })).toBe(0.003);
+      expect(estimateSlotCostUSD({ style: "illustration" })).toBe(0.003);
     });
 
     it("should return 0.04 for 3D style", () => {
-      assert.strictEqual(estimateSlotCostUSD({ style: "3d" }), 0.04);
-      assert.strictEqual(estimateSlotCostUSD({ style: "3D render" }), 0.04);
-      assert.strictEqual(estimateSlotCostUSD({ style: "isometric 3d" }), 0.04);
+      expect(estimateSlotCostUSD({ style: "3d" })).toBe(0.04);
+      expect(estimateSlotCostUSD({ style: "3D render" })).toBe(0.04);
+      expect(estimateSlotCostUSD({ style: "isometric 3d" })).toBe(0.04);
     });
 
     it("should return 0.04 for photo style", () => {
-      assert.strictEqual(estimateSlotCostUSD({ style: "photo" }), 0.04);
-      assert.strictEqual(estimateSlotCostUSD({ style: "photorealistic" }), 0.04);
-      assert.strictEqual(estimateSlotCostUSD({ style: "stock photo" }), 0.04);
+      expect(estimateSlotCostUSD({ style: "photo" })).toBe(0.04);
+      expect(estimateSlotCostUSD({ style: "photorealistic" })).toBe(0.04);
+      expect(estimateSlotCostUSD({ style: "stock photo" })).toBe(0.04);
     });
 
     it("should return 0.04 for HD style", () => {
-      assert.strictEqual(estimateSlotCostUSD({ style: "hd" }), 0.04);
-      assert.strictEqual(estimateSlotCostUSD({ style: "HD quality" }), 0.04);
-      assert.strictEqual(estimateSlotCostUSD({ style: "ultra hd" }), 0.04);
+      expect(estimateSlotCostUSD({ style: "hd" })).toBe(0.04);
+      expect(estimateSlotCostUSD({ style: "HD quality" })).toBe(0.04);
+      expect(estimateSlotCostUSD({ style: "ultra hd" })).toBe(0.04);
     });
 
     it("should return 0.04 for cinematic style", () => {
-      assert.strictEqual(estimateSlotCostUSD({ style: "cinematic" }), 0.04);
-      assert.strictEqual(estimateSlotCostUSD({ style: "cinematic lighting" }), 0.04);
+      expect(estimateSlotCostUSD({ style: "cinematic" })).toBe(0.04);
+      expect(estimateSlotCostUSD({ style: "cinematic lighting" })).toBe(0.04);
     });
 
     it("should handle null/undefined slot", () => {
-      assert.strictEqual(estimateSlotCostUSD(null), 0.003);
-      assert.strictEqual(estimateSlotCostUSD(undefined), 0.003);
+      expect(estimateSlotCostUSD(null)).toBe(0.003);
+      expect(estimateSlotCostUSD(undefined)).toBe(0.003);
     });
 
     it("should be case insensitive", () => {
-      assert.strictEqual(estimateSlotCostUSD({ style: "PHOTO" }), 0.04);
-      assert.strictEqual(estimateSlotCostUSD({ style: "Cinematic" }), 0.04);
-      assert.strictEqual(estimateSlotCostUSD({ style: "3D" }), 0.04);
+      expect(estimateSlotCostUSD({ style: "PHOTO" })).toBe(0.04);
+      expect(estimateSlotCostUSD({ style: "Cinematic" })).toBe(0.04);
+      expect(estimateSlotCostUSD({ style: "3D" })).toBe(0.04);
     });
   });
 
@@ -111,12 +111,12 @@ describe("design-phases helpers", () => {
       ];
       const totalCost = slots.reduce((sum, s) => sum + estimateSlotCostUSD(s), 0);
       // 0.003 + 0.04 + 0.04 + 0.003 = 0.086
-      assert.ok(Math.abs(totalCost - 0.086) < 0.0001, `Expected ~0.086, got ${totalCost}`);
+      expect(Math.abs(totalCost - 0.086).toBeTruthy() < 0.0001, `Expected ~0.086, got ${totalCost}`);
     });
 
     it("should handle empty slots array", () => {
       const totalCost = [].reduce((sum, s) => sum + estimateSlotCostUSD(s), 0);
-      assert.strictEqual(totalCost, 0);
+      expect(totalCost).toBe(0);
     });
   });
 });
@@ -127,25 +127,25 @@ describe("design-phases emitStage helper", () => {
   }
 
   it("should call emit with correct structure", () => {
-    const emitFn = mock.fn();
+    const emitFn = vi.fn();
     emitStage(emitFn, "design.tokens.ended", "ended", { theme: "dark" });
 
-    assert.strictEqual(emitFn.mock.calls.length, 1);
-    const [eventName, eventData] = emitFn.mock.calls[0].arguments;
-    assert.strictEqual(eventName, "design.tokens.ended");
-    assert.strictEqual(eventData.actor, "design");
-    assert.strictEqual(eventData.status, "ended");
-    assert.deepStrictEqual(eventData.payload, { theme: "dark" });
+    expect(emitFn.mock.calls.length).toBe(1);
+    const [eventName, eventData] = emitFn.mock.calls[0];
+    expect(eventName).toBe("design.tokens.ended");
+    expect(eventData.actor).toBe("design");
+    expect(eventData.status).toBe("ended");
+    expect(eventData.payload).toEqual({ theme: "dark" });
   });
 
   it("should handle null emit gracefully", () => {
-    assert.doesNotThrow(() => {
+    expect(().not.toThrow() => {
       emitStage(null, "design.test", "test", {});
     });
   });
 
   it("should handle undefined emit gracefully", () => {
-    assert.doesNotThrow(() => {
+    expect(().not.toThrow() => {
       emitStage(undefined, "design.test", "test", {});
     });
   });
@@ -184,9 +184,9 @@ describe("design-phases QA validation flow", () => {
       {}
     );
 
-    assert.strictEqual(result.html, "<section>Valid</section>");
-    assert.strictEqual(result.qa.pass, true);
-    assert.strictEqual(result.degraded, false);
+    expect(result.html).toBe("<section>Valid</section>");
+    expect(result.qa.pass).toBe(true);
+    expect(result.degraded).toBe(false);
   });
 
   it("should degrade on first QA failure", () => {
@@ -205,9 +205,9 @@ describe("design-phases QA validation flow", () => {
       {}
     );
 
-    assert.strictEqual(result.html, "<section>SafeMode</section>");
-    assert.strictEqual(result.qa.pass, true);
-    assert.strictEqual(result.degraded, true);
+    expect(result.html).toBe("<section>SafeMode</section>");
+    expect(result.qa.pass).toBe(true);
+    expect(result.degraded).toBe(true);
   });
 
   it("should double-degrade on persistent QA failure", () => {
@@ -231,8 +231,8 @@ describe("design-phases QA validation flow", () => {
       {}
     );
 
-    assert.strictEqual(result.html, "<section>MinimalFallback</section>");
-    assert.strictEqual(result.qa.pass, true);
-    assert.strictEqual(result.degraded, true);
+    expect(result.html).toBe("<section>MinimalFallback</section>");
+    expect(result.qa.pass).toBe(true);
+    expect(result.degraded).toBe(true);
   });
 });

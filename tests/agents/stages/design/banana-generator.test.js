@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
-import assert from "node:assert";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import {
   buildImagePrompt,
   runBananaGenerate,
@@ -19,9 +19,9 @@ describe("BananaGenerator", () => {
         keyMessage: "Key point",
       };
       const prompt = buildImagePrompt(intent, {});
-      assert.ok(prompt.includes("Test Slide"));
-      assert.ok(prompt.includes("content"));
-      assert.ok(prompt.includes("chart"));
+      expect(prompt.includes("Test Slide")).toBeTruthy();
+      expect(prompt.includes("content")).toBeTruthy();
+      expect(prompt.includes("chart")).toBeTruthy();
     });
 
     it("should include design system info", () => {
@@ -31,8 +31,8 @@ describe("BananaGenerator", () => {
         colorScheme: "blue",
       };
       const prompt = buildImagePrompt(intent, designSystem);
-      assert.ok(prompt.includes("modern"));
-      assert.ok(prompt.includes("blue"));
+      expect(prompt.includes("modern")).toBeTruthy();
+      expect(prompt.includes("blue")).toBeTruthy();
     });
 
     it("should include bullets", () => {
@@ -41,21 +41,21 @@ describe("BananaGenerator", () => {
         bullets: ["Point 1", "Point 2"],
       };
       const prompt = buildImagePrompt(intent, {});
-      assert.ok(prompt.includes("Point 1"));
+      expect(prompt.includes("Point 1")).toBeTruthy();
     });
 
     it("should include additional prompt", () => {
       const intent = { title: "Test" };
       const prompt = buildImagePrompt(intent, {}, { additionalPrompt: "Extra info" });
-      assert.ok(prompt.includes("Extra info"));
+      expect(prompt.includes("Extra info")).toBeTruthy();
     });
   });
 
   describe("runBananaGenerate", () => {
     it("should require imageGenerator", async () => {
       const result = await runBananaGenerate([], {});
-      assert.strictEqual(result.success, false);
-      assert.ok(result.error.includes("imageGenerator"));
+      expect(result.success).toBe(false);
+      expect(result.error.includes("imageGenerator")).toBeTruthy();
     });
 
     it("should generate images for all intents", async () => {
@@ -67,9 +67,9 @@ describe("BananaGenerator", () => {
         { slideIntentId: "s2", title: "Slide 2" },
       ];
       const result = await runBananaGenerate(intents, {}, { imageGenerator: mockGenerator });
-      assert.strictEqual(result.success, true);
-      assert.strictEqual(result.results.length, 2);
-      assert.strictEqual(result.summary.success, 2);
+      expect(result.success).toBe(true);
+      expect(result.results.length).toBe(2);
+      expect(result.summary.success).toBe(2);
     });
 
     it("should handle generation errors", async () => {
@@ -80,20 +80,20 @@ describe("BananaGenerator", () => {
       };
       const intents = [{ slideIntentId: "s1", title: "Slide 1" }];
       const result = await runBananaGenerate(intents, {}, { imageGenerator: mockGenerator });
-      assert.strictEqual(result.results[0].success, false);
+      expect(result.results[0].success).toBe(false);
     });
   });
 
   describe("regenerate", () => {
     it("should require imageGenerator", async () => {
       const result = await regenerate({ slideIndex: 0, command: "test" }, {});
-      assert.strictEqual(result.success, false);
+      expect(result.success).toBe(false);
     });
 
     it("should regenerate with modified prompt", async () => {
       const mockGenerator = {
         generate: async ({ prompt }) => {
-          assert.ok(prompt.includes("Make it blue"));
+          expect(prompt.includes("Make it blue")).toBeTruthy();
           return { url: "http://test.com/new.png" };
         },
       };
@@ -105,13 +105,13 @@ describe("BananaGenerator", () => {
         },
         { imageGenerator: mockGenerator }
       );
-      assert.strictEqual(result.success, true);
+      expect(result.success).toBe(true);
     });
 
     it("should include bbox reference", async () => {
       const mockGenerator = {
         generate: async ({ prompt }) => {
-          assert.ok(prompt.includes("x=10"));
+          expect(prompt.includes("x=10")).toBeTruthy();
           return { url: "http://test.com/new.png" };
         },
       };
@@ -123,28 +123,28 @@ describe("BananaGenerator", () => {
         },
         { imageGenerator: mockGenerator }
       );
-      assert.strictEqual(result.success, true);
+      expect(result.success).toBe(true);
     });
   });
 
   describe("BANANA_CONFIG", () => {
     it("should have default values", () => {
-      assert.ok(BANANA_CONFIG.defaultWidth > 0);
-      assert.ok(BANANA_CONFIG.defaultHeight > 0);
-      assert.ok(BANANA_CONFIG.maxConcurrency > 0);
+      expect(BANANA_CONFIG.defaultWidth > 0).toBeTruthy();
+      expect(BANANA_CONFIG.defaultHeight > 0).toBeTruthy();
+      expect(BANANA_CONFIG.maxConcurrency > 0).toBeTruthy();
     });
   });
 
   describe("BananaGenerator class", () => {
     it("should create instance", () => {
       const generator = createBananaGenerator();
-      assert.ok(generator instanceof BananaGenerator);
+      expect(generator instanceof BananaGenerator).toBeTruthy();
     });
 
     it("should get config", () => {
       const generator = createBananaGenerator();
       const config = generator.getConfig();
-      assert.ok(config.defaultWidth);
+      expect(config.defaultWidth).toBeTruthy();
     });
 
     it("should set image generator", () => {

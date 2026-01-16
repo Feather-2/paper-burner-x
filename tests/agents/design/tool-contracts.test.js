@@ -1,7 +1,6 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-test("fill_visual: normalizes visualSlots -> visualSlotsForRender", async () => {
+it("fill_visual: normalizes visualSlots -> visualSlotsForRender", async () => {
   const { createDesignToolHandlers } = await import("../../../js/agents/stages/design/design-tools.js");
 
   let calledWith = null;
@@ -18,11 +17,11 @@ test("fill_visual: normalizes visualSlots -> visualSlotsForRender", async () => 
 
   await handlers.fill_visual({ visualSlots }, {});
 
-  assert.ok(calledWith, "Expected _renderVisuals to be called");
-  assert.deepEqual(calledWith[0], visualSlots);
+  expect(calledWith, "Expected _renderVisuals to be called").toBeTruthy();
+  expect(calledWith[0]).toEqual(visualSlots);
 });
 
-test("fill_visual: prefers visualSlotsForRender when provided", async () => {
+it("fill_visual: prefers visualSlotsForRender when provided", async () => {
   const { createDesignToolHandlers } = await import("../../../js/agents/stages/design/design-tools.js");
 
   let calledWith = null;
@@ -40,11 +39,11 @@ test("fill_visual: prefers visualSlotsForRender when provided", async () => {
 
   await handlers.fill_visual({ visualSlots, visualSlotsForRender }, {});
 
-  assert.ok(calledWith, "Expected _renderVisuals to be called");
-  assert.deepEqual(calledWith[0], visualSlotsForRender);
+  expect(calledWith, "Expected _renderVisuals to be called").toBeTruthy();
+  expect(calledWith[0]).toEqual(visualSlotsForRender);
 });
 
-test("fix_slide: enriches missing currentHtml/designSystem from agentLoop.state", async () => {
+it("fix_slide: enriches missing currentHtml/designSystem from agentLoop.state", async () => {
   const { createDesignToolHandlers } = await import("../../../js/agents/stages/design/design-tools.js");
 
   const stateDeckHtml = '<section data-type="freeform">state</section>';
@@ -61,10 +60,10 @@ test("fix_slide: enriches missing currentHtml/designSystem from agentLoop.state"
     { aiApiService: null }
   );
 
-  assert.equal(result.fixedHtml, stateDeckHtml);
+  expect(result.fixedHtml).toBe(stateDeckHtml);
 });
 
-test("fix_slide: uses enriched values in LLM prompt when available", async () => {
+it("fix_slide: uses enriched values in LLM prompt when available", async () => {
   const { createDesignToolHandlers } = await import("../../../js/agents/stages/design/design-tools.js");
 
   const stateDeckHtml = '<section data-type="freeform">state</section>';
@@ -89,12 +88,12 @@ test("fix_slide: uses enriched values in LLM prompt when available", async () =>
     { aiApiService }
   );
 
-  assert.equal(result.fixedHtml, "<section>fixed</section>");
-  assert.ok(seenUserPrompt.includes(stateDeckHtml));
-  assert.ok(seenUserPrompt.includes('"brand":"acme"'));
+  expect(result.fixedHtml).toBe("<section>fixed</section>");
+  expect(seenUserPrompt.includes(stateDeckHtml)).toBeTruthy();
+  expect(seenUserPrompt.includes('"brand":"acme"')).toBeTruthy();
 });
 
-test("fix_slide: respects explicit currentHtml/designSystem over state", async () => {
+it("fix_slide: respects explicit currentHtml/designSystem over state", async () => {
   const { createDesignToolHandlers } = await import("../../../js/agents/stages/design/design-tools.js");
 
   const stateDeckHtml = '<section data-type="freeform">state</section>';
@@ -122,12 +121,12 @@ test("fix_slide: respects explicit currentHtml/designSystem over state", async (
     { aiApiService }
   );
 
-  assert.ok(seenUserPrompt.includes(currentHtml));
-  assert.ok(seenUserPrompt.includes('"brand":"params"'));
-  assert.ok(!seenUserPrompt.includes('"brand":"state"'));
+  expect(seenUserPrompt.includes(currentHtml)).toBeTruthy();
+  expect(seenUserPrompt.includes('"brand":"params"')).toBeTruthy();
+  expect(!seenUserPrompt.includes('"brand":"state"')).toBeTruthy();
 });
 
-test("other design tools: basic handler contract sanity", async () => {
+it("other design tools: basic handler contract sanity", async () => {
   const { createDesignToolHandlers, getToolDefinitions } = await import("../../../js/agents/stages/design/design-tools.js");
 
   const agentLoop = {
@@ -147,33 +146,33 @@ test("other design tools: basic handler contract sanity", async () => {
 
   const handlers = createDesignToolHandlers(agentLoop);
 
-  assert.ok(Array.isArray(getToolDefinitions()));
+  expect(Array.isArray(getToolDefinitions())).toBeTruthy();
 
   const parsed = await handlers.parse_outline({ contentPackage: { slideIntents: [{ slideIntentId: "s1" }] } });
-  assert.equal(parsed.slideIntents.length, 1);
+  expect(parsed.slideIntents.length).toBe(1);
 
   const extracted = await handlers.extract_style(
     { contentPackage: { runId: "r1" }, constraints: { tone: "business" }, userConfig: { theme: "dark" } },
     { aiApiService: null }
   );
-  assert.ok(extracted.designSystem?.ok);
+  expect(extracted.designSystem?.ok).toBeTruthy();
 
   const spawned = await handlers.spawn_slide_agent({}, { aiApiService: null });
-  assert.deepEqual(spawned.generated, []);
+  expect(spawned.generated).toEqual([]);
 
   const screenshots = await handlers.take_screenshot();
-  assert.deepEqual(screenshots.screenshots, []);
+  expect(screenshots.screenshots).toEqual([]);
 
   const emitted = [];
   const chatReply = await handlers.chat_ask({ message: "hello" }, { emit: (n, r) => emitted.push({ n, r }) });
-  assert.equal(chatReply.actionName, "chat_reply");
-  assert.ok(emitted.some((evt) => evt.n === "design.chat.ask"));
+  expect(chatReply.actionName).toBe("chat_reply");
+  expect(emitted.some(evt => evt.n === "design.chat.ask")).toBeTruthy();
 
   const chatWithAction = await handlers.chat_ask(
     { message: "confirm", actionName: "confirm_action" },
     { emit: () => {}, eventBus: {}, signal: null }
   );
-  assert.equal(chatWithAction.actionName, "confirm_action");
-  assert.ok(chatWithAction.payload?.ok);
+  expect(chatWithAction.actionName).toBe("confirm_action");
+  expect(chatWithAction.payload?.ok).toBeTruthy();
 });
 

@@ -1,7 +1,8 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
-test("validateIteration: skips FILLED gaps when evidence insufficient", async () => {
+it("validateIteration: skips FILLED gaps when evidence insufficient", async () => {
   const { validateIteration } = await import("../../../js/agents/stages/deepsearch/state.js");
 
   const state = {
@@ -19,12 +20,12 @@ test("validateIteration: skips FILLED gaps when evidence insufficient", async ()
     roundHits: new Map([["g_filled", 0]]),
   });
 
-  assert.equal(state.L1.gaps[0].status, "filled");
-  assert.equal(state.L1.gaps[0].missCount, 1);
-  assert.deepEqual(result, { filledCount: 0, blockedCount: 0, openCount: 0, stillOpenCount: 0 });
+  expect(state.L1.gaps[0].status).toBe("filled");
+  expect(state.L1.gaps[0].missCount).toBe(1);
+  expect(result).toEqual({ filledCount: 0, blockedCount: 0, openCount: 0, stillOpenCount: 0 });
 });
 
-test("validateIteration: skips BLOCKED gaps when evidence insufficient", async () => {
+it("validateIteration: skips BLOCKED gaps when evidence insufficient", async () => {
   const { validateIteration } = await import("../../../js/agents/stages/deepsearch/state.js");
 
   const state = {
@@ -42,8 +43,8 @@ test("validateIteration: skips BLOCKED gaps when evidence insufficient", async (
     roundHits: new Map([["g_blocked", 0]]),
   });
 
-  assert.equal(state.L1.gaps[0].status, "blocked");
-  assert.equal(state.L1.gaps[0].missCount, 5);
-  assert.deepEqual(result, { filledCount: 0, blockedCount: 0, openCount: 0, stillOpenCount: 0 });
+  expect(state.L1.gaps[0].status).toBe("blocked");
+  expect(state.L1.gaps[0].missCount).toBe(5);
+  expect(result).toEqual({ filledCount: 0, blockedCount: 0, openCount: 0, stillOpenCount: 0 });
 });
 

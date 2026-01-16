@@ -5,14 +5,13 @@
  * Uses node:test + node:assert/strict.
  */
 
-import test from "node:test";
-import assert from "node:assert/strict";
-
 // ============================================================================
 // McpToolDefinition Tests
 // ============================================================================
 
-test("McpToolDefinition: constructs with valid options", async () => {
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
+it("McpToolDefinition: constructs with valid options", async () => {
   const { McpToolDefinition } = await import("../../../js/agents/mcp/mcp-client.js");
 
   const tool = new McpToolDefinition({
@@ -21,40 +20,40 @@ test("McpToolDefinition: constructs with valid options", async () => {
     inputSchema: { type: "object", properties: { query: { type: "string" } } },
   });
 
-  assert.equal(tool.name, "search.query");
-  assert.equal(tool.description, "Search the web");
-  assert.deepEqual(tool.inputSchema, { type: "object", properties: { query: { type: "string" } } });
+  expect(tool.name).toBe("search.query");
+  expect(tool.description).toBe("Search the web");
+  expect(tool.inputSchema).toEqual({ type: "object", properties: { query: { type: "string" } } });
 });
 
-test("McpToolDefinition: handles missing/invalid options gracefully", async () => {
+it("McpToolDefinition: handles missing/invalid options gracefully", async () => {
   const { McpToolDefinition } = await import("../../../js/agents/mcp/mcp-client.js");
 
   const tool = new McpToolDefinition({});
-  assert.equal(tool.name, "unknown");
-  assert.equal(tool.description, "");
-  assert.deepEqual(tool.inputSchema, { type: "object", properties: {} });
+  expect(tool.name).toBe("unknown");
+  expect(tool.description).toBe("");
+  expect(tool.inputSchema).toEqual({ type: "object", properties: {} });
 
   const tool2 = new McpToolDefinition({ name: "", description: null, inputSchema: "invalid" });
-  assert.equal(tool2.name, "unknown");
-  assert.equal(tool2.description, "");
-  assert.deepEqual(tool2.inputSchema, { type: "object", properties: {} });
+  expect(tool2.name).toBe("unknown");
+  expect(tool2.description).toBe("");
+  expect(tool2.inputSchema).toEqual({ type: "object", properties: {} });
 });
 
 // ============================================================================
 // McpToolResult Tests
 // ============================================================================
 
-test("McpToolResult: constructs with default values", async () => {
+it("McpToolResult: constructs with default values", async () => {
   const { McpToolResult } = await import("../../../js/agents/mcp/mcp-client.js");
 
   const result = new McpToolResult({});
-  assert.equal(result.success, true);
-  assert.deepEqual(result.content, []);
-  assert.equal(result.error, null);
-  assert.equal(result.isError, false);
+  expect(result.success).toBe(true);
+  expect(result.content).toEqual([]);
+  expect(result.error).toBe(null);
+  expect(result.isError).toBe(false);
 });
 
-test("McpToolResult: constructs with provided values", async () => {
+it("McpToolResult: constructs with provided values", async () => {
   const { McpToolResult } = await import("../../../js/agents/mcp/mcp-client.js");
 
   const result = new McpToolResult({
@@ -64,13 +63,13 @@ test("McpToolResult: constructs with provided values", async () => {
     isError: true,
   });
 
-  assert.equal(result.success, false);
-  assert.equal(result.content.length, 1);
-  assert.equal(result.error, "Network failure");
-  assert.equal(result.isError, true);
+  expect(result.success).toBe(false);
+  expect(result.content.length).toBe(1);
+  expect(result.error).toBe("Network failure");
+  expect(result.isError).toBe(true);
 });
 
-test("McpToolResult: getText extracts text content", async () => {
+it("McpToolResult: getText extracts text content", async () => {
   const { McpToolResult } = await import("../../../js/agents/mcp/mcp-client.js");
 
   const result = new McpToolResult({
@@ -81,67 +80,67 @@ test("McpToolResult: getText extracts text content", async () => {
     ],
   });
 
-  assert.equal(result.getText(), "Hello\nWorld");
+  expect(result.getText()).toBe("Hello\nWorld");
 });
 
-test("McpToolResult: getText handles empty content", async () => {
+it("McpToolResult: getText handles empty content", async () => {
   const { McpToolResult } = await import("../../../js/agents/mcp/mcp-client.js");
 
   const result = new McpToolResult({ content: [] });
-  assert.equal(result.getText(), "");
+  expect(result.getText()).toBe("");
 
   const result2 = new McpToolResult({ content: [{ type: "json", data: {} }] });
-  assert.equal(result2.getText(), "");
+  expect(result2.getText()).toBe("");
 });
 
-test("McpToolResult: coerces non-array content and tolerates missing text fields", async () => {
+it("McpToolResult: coerces non-array content and tolerates missing text fields", async () => {
   const { McpToolResult } = await import("../../../js/agents/mcp/mcp-client.js");
 
   const r1 = new McpToolResult({ success: true, content: /** @type {any} */ ("nope") });
-  assert.deepEqual(r1.content, []);
+  expect(r1.content).toEqual([]);
 
   const r2 = new McpToolResult({ success: true, content: [{ type: "text" }] });
-  assert.equal(r2.getText(), "");
+  expect(r2.getText()).toBe("");
 });
 
 // ============================================================================
 // McpProvider Tests
 // ============================================================================
 
-test("McpProvider: base class throws not implemented errors", async () => {
+it("McpProvider: base class throws not implemented errors", async () => {
   const { McpProvider } = await import("../../../js/agents/mcp/mcp-client.js");
 
   const provider = new McpProvider({ id: "test", name: "Test", endpoint: "local" });
-  assert.equal(provider.id, "test");
-  assert.equal(provider.name, "Test");
-  assert.equal(provider.endpoint, "local");
+  expect(provider.id).toBe("test");
+  expect(provider.name).toBe("Test");
+  expect(provider.endpoint).toBe("local");
 
-  await assert.rejects(provider.listTools(), /not implemented/i);
-  await assert.rejects(provider.callTool("foo", {}), /not implemented/i);
+  await expect(provider.listTools()).rejects.toThrow(/not implemented/i);
+  await expect(provider.callTool("foo").rejects.toThrow({}), /not implemented/i);
 });
 
-test("McpProvider: defaults id/name/endpoint when missing", async () => {
+it("McpProvider: defaults id/name/endpoint when missing", async () => {
   const { McpProvider } = await import("../../../js/agents/mcp/mcp-client.js");
 
   const provider = new McpProvider({});
-  assert.equal(provider.id, "provider_unknown");
-  assert.equal(provider.name, "provider_unknown");
-  assert.equal(provider.endpoint, "local");
+  expect(provider.id).toBe("provider_unknown");
+  expect(provider.name).toBe("provider_unknown");
+  expect(provider.endpoint).toBe("local");
 });
 
 // ============================================================================
 // McpClient Tests
 // ============================================================================
 
-test("McpClient: constructs with no providers", async () => {
+it("McpClient: constructs with no providers", async () => {
   const { McpClient } = await import("../../../js/agents/mcp/mcp-client.js");
 
   const client = new McpClient();
-  assert.deepEqual(client.listProviders(), []);
-  assert.equal(client.getProvider("any"), null);
+  expect(client.listProviders()).toEqual([]);
+  expect(client.getProvider("any")).toBe(null);
 });
 
-test("McpClient: addProvider adds and sets default", async () => {
+it("McpClient: addProvider adds and sets default", async () => {
   const { McpClient, McpProvider, McpToolResult } = await import("../../../js/agents/mcp/mcp-client.js");
 
   class TestProvider extends McpProvider {
@@ -159,19 +158,19 @@ test("McpClient: addProvider adds and sets default", async () => {
   const client = new McpClient();
   client.addProvider(new TestProvider());
 
-  assert.deepEqual(client.listProviders(), ["test"]);
-  assert.ok(client.getProvider("test") instanceof McpProvider);
+  expect(client.listProviders()).toEqual(["test"]);
+  expect(client.getProvider("test").toBeTruthy() instanceof McpProvider);
 });
 
-test("McpClient: addProvider throws for non-McpProvider", async () => {
+it("McpClient: addProvider throws for non-McpProvider", async () => {
   const { McpClient } = await import("../../../js/agents/mcp/mcp-client.js");
 
   const client = new McpClient();
-  assert.throws(() => client.addProvider({}), /must be McpProvider instance/);
-  assert.throws(() => client.addProvider(null), /must be McpProvider instance/);
+  expect(() => client.addProvider({})).toThrow(/must be McpProvider instance/);
+  expect(() => client.addProvider(null)).toThrow(/must be McpProvider instance/);
 });
 
-test("McpClient: setDefaultProvider works correctly", async () => {
+it("McpClient: setDefaultProvider works correctly", async () => {
   const { McpClient, McpProvider, McpToolResult } = await import("../../../js/agents/mcp/mcp-client.js");
 
   class P1 extends McpProvider {
@@ -199,38 +198,38 @@ test("McpClient: setDefaultProvider works correctly", async () => {
   }
 
   const client = new McpClient({ providers: [new P1(), new P2()] });
-  assert.equal(client._defaultProviderId, "p1");
+  expect(client._defaultProviderId).toBe("p1");
 
   client.setDefaultProvider("p2");
-  assert.equal(client._defaultProviderId, "p2");
+  expect(client._defaultProviderId).toBe("p2");
 });
 
-test("McpClient: setDefaultProvider throws for unknown provider", async () => {
+it("McpClient: setDefaultProvider throws for unknown provider", async () => {
   const { McpClient } = await import("../../../js/agents/mcp/mcp-client.js");
 
   const client = new McpClient();
-  assert.throws(() => client.setDefaultProvider("unknown"), /provider not found/);
+  expect(() => client.setDefaultProvider("unknown")).toThrow(/provider not found/);
 });
 
-test("McpClient: setDefaultProvider throws for empty string", async () => {
+it("McpClient: setDefaultProvider throws for empty string", async () => {
   const { McpClient } = await import("../../../js/agents/mcp/mcp-client.js");
 
   const client = new McpClient();
-  assert.throws(() => client.setDefaultProvider(""), /must be a non-empty string/);
+  expect(() => client.setDefaultProvider("")).toThrow(/must be a non-empty string/);
 });
 
-test("McpClient: callTool returns error result for missing provider", async () => {
+it("McpClient: callTool returns error result for missing provider", async () => {
   const { McpClient } = await import("../../../js/agents/mcp/mcp-client.js");
 
   const client = new McpClient();
   const result = await client.callTool("test", {});
 
-  assert.equal(result.success, false);
-  assert.equal(result.isError, true);
-  assert.ok(String(result.error).includes("No provider found"));
+  expect(result.success).toBe(false);
+  expect(result.isError).toBe(true);
+  expect(String(result.error).toBeTruthy().includes("No provider found"));
 });
 
-test("McpClient: callTool routes to correct provider", async () => {
+it("McpClient: callTool routes to correct provider", async () => {
   const { McpClient, McpProvider, McpToolResult } = await import("../../../js/agents/mcp/mcp-client.js");
 
   const calls = [];
@@ -264,17 +263,17 @@ test("McpClient: callTool routes to correct provider", async () => {
   const client = new McpClient({ providers: [new P1(), new P2()], defaultProvider: "p1" });
 
   const r1 = await client.callTool("foo", { x: 1 });
-  assert.equal(r1.success, true);
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].provider, "p1");
+  expect(r1.success).toBe(true);
+  expect(calls.length).toBe(1);
+  expect(calls[0].provider).toBe("p1");
 
   const r2 = await client.callTool("bar", { y: 2 }, { providerId: "p2" });
-  assert.equal(r2.success, true);
-  assert.equal(calls.length, 2);
-  assert.equal(calls[1].provider, "p2");
+  expect(r2.success).toBe(true);
+  expect(calls.length).toBe(2);
+  expect(calls[1].provider).toBe("p2");
 });
 
-test("McpClient: callTool handles provider exceptions", async () => {
+it("McpClient: callTool handles provider exceptions", async () => {
   const { McpClient, McpProvider } = await import("../../../js/agents/mcp/mcp-client.js");
 
   class ThrowingProvider extends McpProvider {
@@ -292,12 +291,12 @@ test("McpClient: callTool handles provider exceptions", async () => {
   const client = new McpClient({ providers: [new ThrowingProvider()] });
   const result = await client.callTool("test", {});
 
-  assert.equal(result.success, false);
-  assert.equal(result.isError, true);
-  assert.ok(String(result.error).includes("Provider crashed"));
+  expect(result.success).toBe(false);
+  expect(result.isError).toBe(true);
+  expect(String(result.error).toBeTruthy().includes("Provider crashed"));
 });
 
-test("McpClient: listAllTools merges tools from all providers", async () => {
+it("McpClient: listAllTools merges tools from all providers", async () => {
   const { McpClient, McpProvider, McpToolDefinition } = await import("../../../js/agents/mcp/mcp-client.js");
 
   class P1 extends McpProvider {
@@ -327,14 +326,14 @@ test("McpClient: listAllTools merges tools from all providers", async () => {
   const client = new McpClient({ providers: [new P1(), new P2()] });
   const tools = await client.listAllTools();
 
-  assert.equal(tools.length, 2);
-  assert.equal(tools[0].name, "tool1");
-  assert.equal(tools[0].providerId, "p1");
-  assert.equal(tools[1].name, "tool2");
-  assert.equal(tools[1].providerId, "p2");
+  expect(tools.length).toBe(2);
+  expect(tools[0].name).toBe("tool1");
+  expect(tools[0].providerId).toBe("p1");
+  expect(tools[1].name).toBe("tool2");
+  expect(tools[1].providerId).toBe("p2");
 });
 
-test("McpClient: listAllTools captures provider failures (non-fatal)", async () => {
+it("McpClient: listAllTools captures provider failures (non-fatal)", async () => {
   const { McpClient, McpProvider } = await import("../../../js/agents/mcp/mcp-client.js");
 
   class GoodProvider extends McpProvider {
@@ -363,17 +362,17 @@ test("McpClient: listAllTools captures provider failures (non-fatal)", async () 
 
   const client = new McpClient({ providers: [new GoodProvider(), new BadProvider()], defaultProvider: "good" });
   const tools = await client.listAllTools();
-  assert.equal(Array.isArray(tools), true);
-  assert.equal(tools.length, 1);
-  assert.equal(tools[0].providerId, "good");
+  expect(Array.isArray(tools)).toBe(true);
+  expect(tools.length).toBe(1);
+  expect(tools[0].providerId).toBe("good");
 
-  assert.ok(Array.isArray(tools.errors));
-  assert.equal(tools.errors.length, 1);
-  assert.equal(tools.errors[0].providerId, "bad");
-  assert.ok(String(tools.errors[0].error).includes("boom"));
+  expect(Array.isArray(tools.errors)).toBeTruthy();
+  expect(tools.errors.length).toBe(1);
+  expect(tools.errors[0].providerId).toBe("bad");
+  expect(String(tools.errors[0].error).toBeTruthy().includes("boom"));
 });
 
-test("McpClient: listAllTools uses 'Unknown error' when a provider rejects with falsy reason", async () => {
+it("McpClient: listAllTools uses 'Unknown error' when a provider rejects with falsy reason", async () => {
   const { McpClient, McpProvider } = await import("../../../js/agents/mcp/mcp-client.js");
 
   class BadProvider extends McpProvider {
@@ -390,12 +389,12 @@ test("McpClient: listAllTools uses 'Unknown error' when a provider rejects with 
 
   const client = new McpClient({ providers: [new BadProvider()], defaultProvider: "bad" });
   const tools = await client.listAllTools();
-  assert.equal(tools.length, 0);
-  assert.ok(Array.isArray(tools.errors));
-  assert.ok(tools.errors[0].error.includes("Unknown error"));
+  expect(tools.length).toBe(0);
+  expect(Array.isArray(tools.errors)).toBeTruthy();
+  expect(tools.errors[0].error.includes("Unknown error")).toBeTruthy();
 });
 
-test("McpClient: healthCheck returns ok for provider with listTools", async () => {
+it("McpClient: healthCheck returns ok for provider with listTools", async () => {
   const { McpClient, McpProvider, McpToolDefinition } = await import("../../../js/agents/mcp/mcp-client.js");
 
   class HealthyProvider extends McpProvider {
@@ -413,22 +412,22 @@ test("McpClient: healthCheck returns ok for provider with listTools", async () =
   const client = new McpClient({ providers: [new HealthyProvider()] });
   const health = await client.healthCheck({ providerId: "healthy" });
 
-  assert.equal(health.ok, true);
-  assert.equal(health.providerId, "healthy");
-  assert.equal(health.toolCount, 1);
+  expect(health.ok).toBe(true);
+  expect(health.providerId).toBe("healthy");
+  expect(health.toolCount).toBe(1);
 });
 
-test("McpClient: healthCheck returns not ok for missing provider", async () => {
+it("McpClient: healthCheck returns not ok for missing provider", async () => {
   const { McpClient } = await import("../../../js/agents/mcp/mcp-client.js");
 
   const client = new McpClient();
   const health = await client.healthCheck({ providerId: "missing" });
 
-  assert.equal(health.ok, false);
-  assert.ok(String(health.error).includes("No provider found"));
+  expect(health.ok).toBe(false);
+  expect(String(health.error).toBeTruthy().includes("No provider found"));
 });
 
-test("McpClient: healthCheck uses provider.healthCheck if available", async () => {
+it("McpClient: healthCheck uses provider.healthCheck if available", async () => {
   const { McpClient, McpProvider } = await import("../../../js/agents/mcp/mcp-client.js");
 
   class CustomHealthProvider extends McpProvider {
@@ -449,11 +448,11 @@ test("McpClient: healthCheck uses provider.healthCheck if available", async () =
   const client = new McpClient({ providers: [new CustomHealthProvider()] });
   const health = await client.healthCheck({ providerId: "custom" });
 
-  assert.equal(health.ok, true);
-  assert.equal(health.custom, true);
+  expect(health.ok).toBe(true);
+  expect(health.custom).toBe(true);
 });
 
-test("McpClient: healthCheck returns ok:false when provider.healthCheck throws", async () => {
+it("McpClient: healthCheck returns ok:false when provider.healthCheck throws", async () => {
   const { McpClient, McpProvider } = await import("../../../js/agents/mcp/mcp-client.js");
 
   class FailingHealthProvider extends McpProvider {
@@ -474,12 +473,12 @@ test("McpClient: healthCheck returns ok:false when provider.healthCheck throws",
   const client = new McpClient({ providers: [new FailingHealthProvider()] });
   const health = await client.healthCheck({ providerId: "failing" });
 
-  assert.equal(health.ok, false);
-  assert.equal(health.providerId, "failing");
-  assert.ok(String(health.error).includes("health check failed"));
+  expect(health.ok).toBe(false);
+  expect(health.providerId).toBe("failing");
+  expect(String(health.error).toBeTruthy().includes("health check failed"));
 });
 
-test("McpClient: healthCheckAll checks all providers", async () => {
+it("McpClient: healthCheckAll checks all providers", async () => {
   const { McpClient, McpProvider, McpToolResult } = await import("../../../js/agents/mcp/mcp-client.js");
 
   class GoodProvider extends McpProvider {
@@ -509,26 +508,26 @@ test("McpClient: healthCheckAll checks all providers", async () => {
   const client = new McpClient({ providers: [new GoodProvider(), new BadProvider()] });
   const results = await client.healthCheckAll();
 
-  assert.equal(results.length, 2);
+  expect(results.length).toBe(2);
 
   const good = results.find((r) => r.providerId === "good");
   const bad = results.find((r) => r.providerId === "bad");
 
-  assert.equal(good.ok, true);
-  assert.equal(bad.ok, false);
-  assert.ok(String(bad.error).includes("Provider down"));
+  expect(good.ok).toBe(true);
+  expect(bad.ok).toBe(false);
+  expect(String(bad.error).toBeTruthy().includes("Provider down"));
 });
 
-test("McpClient: healthCheck handles missing defaultProvider", async () => {
+it("McpClient: healthCheck handles missing defaultProvider", async () => {
   const { McpClient } = await import("../../../js/agents/mcp/mcp-client.js");
 
   const client = new McpClient();
   const r = await client.healthCheck();
-  assert.equal(r.ok, false);
-  assert.equal(r.providerId, null);
+  expect(r.ok).toBe(false);
+  expect(r.providerId).toBe(null);
 });
 
-test("McpClient: healthCheck handles non-array listTools results", async () => {
+it("McpClient: healthCheck handles non-array listTools results", async () => {
   const { McpClient, McpProvider } = await import("../../../js/agents/mcp/mcp-client.js");
 
   class WeirdProvider extends McpProvider {
@@ -545,33 +544,33 @@ test("McpClient: healthCheck handles non-array listTools results", async () => {
 
   const client = new McpClient({ providers: [new WeirdProvider()] });
   const r = await client.healthCheck({ providerId: "weird" });
-  assert.equal(r.ok, true);
-  assert.equal(r.toolCount, 0);
+  expect(r.ok).toBe(true);
+  expect(r.toolCount).toBe(0);
 });
 
 // ============================================================================
 // McpTransport Tests
 // ============================================================================
 
-test("McpTransport: base class throws not implemented for abstract methods", async () => {
+it("McpTransport: base class throws not implemented for abstract methods", async () => {
   const { McpTransport } = await import("../../../js/agents/mcp/mcp-transport.js");
 
   const transport = new McpTransport();
-  assert.equal(transport.isConnected(), false);
+  expect(transport.isConnected()).toBe(false);
 
-  await assert.rejects(transport.connect(), /not implemented/i);
-  await assert.rejects(transport.disconnect(), /not implemented/i);
-  await assert.rejects(transport.send({}), /not implemented/i);
+  await expect(transport.connect()).rejects.toThrow(/not implemented/i);
+  await expect(transport.disconnect()).rejects.toThrow(/not implemented/i);
+  await expect(transport.send({})).rejects.toThrow(/not implemented/i);
 });
 
-test("McpTransport: request throws when not connected", async () => {
+it("McpTransport: request throws when not connected", async () => {
   const { McpTransport } = await import("../../../js/agents/mcp/mcp-transport.js");
 
   const transport = new McpTransport();
-  await assert.rejects(transport.request("test", {}), /not connected/i);
+  await expect(transport.request("test").rejects.toThrow({}), /not connected/i);
 });
 
-test("McpTransport: request/response handling via _handleMessage", async () => {
+it("McpTransport: request/response handling via _handleMessage", async () => {
   const { McpTransport } = await import("../../../js/agents/mcp/mcp-transport.js");
 
   class MockTransport extends McpTransport {
@@ -602,12 +601,12 @@ test("McpTransport: request/response handling via _handleMessage", async () => {
   const transport = new MockTransport();
   const result = await transport.request("test.method", { foo: "bar" });
 
-  assert.deepEqual(result, { echo: { foo: "bar" } });
-  assert.equal(transport.sent.length, 1);
-  assert.equal(transport.sent[0].method, "test.method");
+  expect(result).toEqual({ echo: { foo: "bar" } });
+  expect(transport.sent.length).toBe(1);
+  expect(transport.sent[0].method).toBe("test.method");
 });
 
-test("McpTransport: request handles error response", async () => {
+it("McpTransport: request handles error response", async () => {
   const { McpTransport } = await import("../../../js/agents/mcp/mcp-transport.js");
 
   class ErrorTransport extends McpTransport {
@@ -627,10 +626,10 @@ test("McpTransport: request handles error response", async () => {
   }
 
   const transport = new ErrorTransport();
-  await assert.rejects(transport.request("test", {}), /Invalid Request/);
+  await expect(transport.request("test").rejects.toThrow({}), /Invalid Request/);
 });
 
-test("McpTransport: request times out", async () => {
+it("McpTransport: request times out", async () => {
   const { McpTransport } = await import("../../../js/agents/mcp/mcp-transport.js");
 
   class SlowTransport extends McpTransport {
@@ -644,10 +643,10 @@ test("McpTransport: request times out", async () => {
   }
 
   const transport = new SlowTransport();
-  await assert.rejects(transport.request("test", {}), /timeout/i);
+  await expect(transport.request("test").rejects.toThrow({}), /timeout/i);
 });
 
-test("McpTransport: notify sends message without id", async () => {
+it("McpTransport: notify sends message without id", async () => {
   const { McpTransport } = await import("../../../js/agents/mcp/mcp-transport.js");
 
   class MockTransport extends McpTransport {
@@ -664,13 +663,13 @@ test("McpTransport: notify sends message without id", async () => {
   const transport = new MockTransport();
   await transport.notify("notifications/initialized", { ready: true });
 
-  assert.equal(transport.sent.length, 1);
-  assert.equal(transport.sent[0].id, undefined);
-  assert.equal(transport.sent[0].method, "notifications/initialized");
-  assert.deepEqual(transport.sent[0].params, { ready: true });
+  expect(transport.sent.length).toBe(1);
+  expect(transport.sent[0].id).toBe(undefined);
+  expect(transport.sent[0].method).toBe("notifications/initialized");
+  expect(transport.sent[0].params).toEqual({ ready: true });
 });
 
-test("McpTransport: _handleMessage emits notification events", async () => {
+it("McpTransport: _handleMessage emits notification events", async () => {
   const { McpTransport } = await import("../../../js/agents/mcp/mcp-transport.js");
 
   const transport = new McpTransport();
@@ -686,11 +685,11 @@ test("McpTransport: _handleMessage emits notification events", async () => {
     params: { reason: "added" },
   });
 
-  assert.equal(received.length, 1);
-  assert.deepEqual(received[0], { reason: "added" });
+  expect(received.length).toBe(1);
+  expect(received[0]).toEqual({ reason: "added" });
 });
 
-test("McpTransport: _rejectAllPending clears pending requests", async () => {
+it("McpTransport: _rejectAllPending clears pending requests", async () => {
   const { McpTransport } = await import("../../../js/agents/mcp/mcp-transport.js");
 
   class MockTransport extends McpTransport {
@@ -711,17 +710,17 @@ test("McpTransport: _rejectAllPending clears pending requests", async () => {
   // Give time for requests to be pending
   await new Promise((r) => setImmediate(r));
 
-  assert.equal(transport._pending.size, 2);
+  expect(transport._pending.size).toBe(2);
 
   transport._rejectAllPending(new Error("Connection lost"));
 
   const [r1, r2] = await Promise.all([p1, p2]);
-  assert.equal(r1, "Connection lost");
-  assert.equal(r2, "Connection lost");
-  assert.equal(transport._pending.size, 0);
+  expect(r1).toBe("Connection lost");
+  expect(r2).toBe("Connection lost");
+  expect(transport._pending.size).toBe(0);
 });
 
-test("McpTransport: _handleMessage emits generic message event", async () => {
+it("McpTransport: _handleMessage emits generic message event", async () => {
   const { McpTransport } = await import("../../../js/agents/mcp/mcp-transport.js");
 
   const transport = new McpTransport();
@@ -737,67 +736,67 @@ test("McpTransport: _handleMessage emits generic message event", async () => {
     params: { data: "test" },
   });
 
-  assert.equal(received.length, 1);
-  assert.equal(received[0].method, "some/notification");
+  expect(received.length).toBe(1);
+  expect(received[0].method).toBe("some/notification");
 });
 
 // ============================================================================
 // MCP Protocol Constants Tests
 // ============================================================================
 
-test("MCP constants are exported correctly", async () => {
+it("MCP constants are exported correctly", async () => {
   const { MCP_PROTOCOL_VERSION, MCP_SUPPORTED_VERSIONS, McpMethods } = await import(
     "../../../js/agents/mcp/mcp-transport.js"
   );
 
-  assert.equal(typeof MCP_PROTOCOL_VERSION, "string");
-  assert.ok(Array.isArray(MCP_SUPPORTED_VERSIONS));
-  assert.ok(MCP_SUPPORTED_VERSIONS.includes(MCP_PROTOCOL_VERSION));
+  expect(typeof MCP_PROTOCOL_VERSION).toBe("string");
+  expect(Array.isArray(MCP_SUPPORTED_VERSIONS)).toBeTruthy();
+  expect(MCP_SUPPORTED_VERSIONS.includes(MCP_PROTOCOL_VERSION)).toBeTruthy();
 
-  assert.equal(McpMethods.INITIALIZE, "initialize");
-  assert.equal(McpMethods.TOOLS_LIST, "tools/list");
-  assert.equal(McpMethods.TOOLS_CALL, "tools/call");
-  assert.equal(McpMethods.PING, "ping");
-  assert.equal(McpMethods.INITIALIZED, "notifications/initialized");
-  assert.equal(McpMethods.SHUTDOWN, "shutdown");
-  assert.equal(McpMethods.RESOURCES_LIST, "resources/list");
-  assert.equal(McpMethods.RESOURCES_READ, "resources/read");
-  assert.equal(McpMethods.PROMPTS_LIST, "prompts/list");
-  assert.equal(McpMethods.PROMPTS_GET, "prompts/get");
+  expect(McpMethods.INITIALIZE).toBe("initialize");
+  expect(McpMethods.TOOLS_LIST).toBe("tools/list");
+  expect(McpMethods.TOOLS_CALL).toBe("tools/call");
+  expect(McpMethods.PING).toBe("ping");
+  expect(McpMethods.INITIALIZED).toBe("notifications/initialized");
+  expect(McpMethods.SHUTDOWN).toBe("shutdown");
+  expect(McpMethods.RESOURCES_LIST).toBe("resources/list");
+  expect(McpMethods.RESOURCES_READ).toBe("resources/read");
+  expect(McpMethods.PROMPTS_LIST).toBe("prompts/list");
+  expect(McpMethods.PROMPTS_GET).toBe("prompts/get");
 });
 
 // ============================================================================
 // Transport Constants Tests
 // ============================================================================
 
-test("TransportKind constants and validators", async () => {
+it("TransportKind constants and validators", async () => {
   const { TransportKind, isValidTransportKind, normalizeTransportKind } = await import(
     "../../../js/agents/mcp/constants.js"
   );
 
-  assert.equal(TransportKind.JSONRPC, "jsonrpc");
-  assert.equal(TransportKind.TOOLAPI, "toolapi");
-  assert.equal(TransportKind.REST, "rest");
+  expect(TransportKind.JSONRPC).toBe("jsonrpc");
+  expect(TransportKind.TOOLAPI).toBe("toolapi");
+  expect(TransportKind.REST).toBe("rest");
 
-  assert.equal(isValidTransportKind("jsonrpc"), true);
-  assert.equal(isValidTransportKind("toolapi"), true);
-  assert.equal(isValidTransportKind("rest"), true);
-  assert.equal(isValidTransportKind("invalid"), false);
-  assert.equal(isValidTransportKind(null), false);
-  assert.equal(isValidTransportKind(undefined), false);
+  expect(isValidTransportKind("jsonrpc")).toBe(true);
+  expect(isValidTransportKind("toolapi")).toBe(true);
+  expect(isValidTransportKind("rest")).toBe(true);
+  expect(isValidTransportKind("invalid")).toBe(false);
+  expect(isValidTransportKind(null)).toBe(false);
+  expect(isValidTransportKind(undefined)).toBe(false);
 
-  assert.equal(normalizeTransportKind("JSONRPC"), "jsonrpc");
-  assert.equal(normalizeTransportKind("  rest  "), "rest");
-  assert.equal(normalizeTransportKind("TOOLAPI"), "toolapi");
-  assert.equal(normalizeTransportKind("unknown"), undefined);
-  assert.equal(normalizeTransportKind(123), undefined);
+  expect(normalizeTransportKind("JSONRPC")).toBe("jsonrpc");
+  expect(normalizeTransportKind("  rest  ")).toBe("rest");
+  expect(normalizeTransportKind("TOOLAPI")).toBe("toolapi");
+  expect(normalizeTransportKind("unknown")).toBe(undefined);
+  expect(normalizeTransportKind(123)).toBe(undefined);
 });
 
 // ============================================================================
 // Circuit Breaker Integration Tests
 // ============================================================================
 
-test("McpClient: circuit breaker opens after repeated failures", async () => {
+it("McpClient: circuit breaker opens after repeated failures", async () => {
   const { McpClient, McpProvider, McpToolResult } = await import("../../../js/agents/mcp/mcp-client.js");
 
   class FailingProvider extends McpProvider {
@@ -819,16 +818,16 @@ test("McpClient: circuit breaker opens after repeated failures", async () => {
 
   for (let i = 0; i < 3; i++) {
     const r = await client.callTool("x", {});
-    assert.equal(r.success, false);
+    expect(r.success).toBe(false);
   }
 
   const blocked = await client.callTool("x", {});
-  assert.equal(blocked.success, false);
-  assert.ok(String(blocked.error).toLowerCase().includes("circuit open"));
-  assert.equal(provider.calls, 3);
+  expect(blocked.success).toBe(false);
+  expect(String(blocked.error).toBeTruthy().toLowerCase().includes("circuit open"));
+  expect(provider.calls).toBe(3);
 });
 
-test("McpClient: circuit breaker ignores unknown tool errors", async () => {
+it("McpClient: circuit breaker ignores unknown tool errors", async () => {
   const { McpClient, McpProvider, McpToolResult } = await import("../../../js/agents/mcp/mcp-client.js");
 
   class UnknownToolProvider extends McpProvider {
@@ -850,13 +849,13 @@ test("McpClient: circuit breaker ignores unknown tool errors", async () => {
 
   for (let i = 0; i < 6; i++) {
     const r = await client.callTool("nope", {});
-    assert.equal(r.success, false);
-    assert.ok(String(r.error).includes("unknown tool"));
+    expect(r.success).toBe(false);
+    expect(String(r.error).toBeTruthy().includes("unknown tool"));
   }
-  assert.equal(provider.calls, 6);
+  expect(provider.calls).toBe(6);
 });
 
-test("McpClient: circuit breaker ignores AbortError", async () => {
+it("McpClient: circuit breaker ignores AbortError", async () => {
   const { McpClient, McpProvider } = await import("../../../js/agents/mcp/mcp-client.js");
 
   class AbortingProvider extends McpProvider {
@@ -883,13 +882,13 @@ test("McpClient: circuit breaker ignores AbortError", async () => {
 
   for (let i = 0; i < 5; i++) {
     const r = await client.callTool("test", {});
-    assert.equal(r.success, false);
+    expect(r.success).toBe(false);
   }
 
-  assert.equal(provider.calls, 5);
+  expect(provider.calls).toBe(5);
 });
 
-test("McpClient: circuit breaker ignores 'invalid arguments' errors", async () => {
+it("McpClient: circuit breaker ignores 'invalid arguments' errors", async () => {
   const { McpClient, McpProvider, McpToolResult } = await import("../../../js/agents/mcp/mcp-client.js");
 
   class InvalidArgsProvider extends McpProvider {
@@ -916,10 +915,10 @@ test("McpClient: circuit breaker ignores 'invalid arguments' errors", async () =
     await client.callTool("test", {});
   }
 
-  assert.equal(provider.calls, 6);
+  expect(provider.calls).toBe(6);
 });
 
-test("McpClient: circuit breaker ignores 'no such tool' errors", async () => {
+it("McpClient: circuit breaker ignores 'no such tool' errors", async () => {
   const { McpClient, McpProvider, McpToolResult } = await import("../../../js/agents/mcp/mcp-client.js");
 
   class NoSuchToolProvider extends McpProvider {
@@ -946,10 +945,10 @@ test("McpClient: circuit breaker ignores 'no such tool' errors", async () => {
     await client.callTool("test", {});
   }
 
-  assert.equal(provider.calls, 6);
+  expect(provider.calls).toBe(6);
 });
 
-test("McpClient: circuit breaker ignores 'tool not found' errors", async () => {
+it("McpClient: circuit breaker ignores 'tool not found' errors", async () => {
   const { McpClient, McpProvider, McpToolResult } = await import("../../../js/agents/mcp/mcp-client.js");
 
   class ToolNotFoundProvider extends McpProvider {
@@ -976,14 +975,14 @@ test("McpClient: circuit breaker ignores 'tool not found' errors", async () => {
     await client.callTool("test", {});
   }
 
-  assert.equal(provider.calls, 6);
+  expect(provider.calls).toBe(6);
 });
 
 // ============================================================================
 // Convenience Methods Tests
 // ============================================================================
 
-test("McpClient: search convenience method tries standard names first", async () => {
+it("McpClient: search convenience method tries standard names first", async () => {
   const { McpClient, McpProvider, McpToolResult } = await import("../../../js/agents/mcp/mcp-client.js");
 
   const calls = [];
@@ -1007,11 +1006,11 @@ test("McpClient: search convenience method tries standard names first", async ()
   const client = new McpClient({ providers: [new SearchProvider()] });
   const result = await client.search({ query: "test" });
 
-  assert.equal(result.success, true);
-  assert.equal(calls[0], "search.query");
+  expect(result.success).toBe(true);
+  expect(calls[0]).toBe("search.query");
 });
 
-test("McpClient: fetch convenience method tries standard names first", async () => {
+it("McpClient: fetch convenience method tries standard names first", async () => {
   const { McpClient, McpProvider, McpToolResult } = await import("../../../js/agents/mcp/mcp-client.js");
 
   const calls = [];
@@ -1035,11 +1034,11 @@ test("McpClient: fetch convenience method tries standard names first", async () 
   const client = new McpClient({ providers: [new FetchProvider()] });
   const result = await client.fetch({ url: "https://example.com" });
 
-  assert.equal(result.success, true);
-  assert.equal(calls[0], "search.fetch");
+  expect(result.success).toBe(true);
+  expect(calls[0]).toBe("search.fetch");
 });
 
-test("McpClient: search falls back to legacy tool names", async () => {
+it("McpClient: search falls back to legacy tool names", async () => {
   const { McpClient, McpProvider, McpToolResult } = await import("../../../js/agents/mcp/mcp-client.js");
 
   const calls = [];
@@ -1063,11 +1062,11 @@ test("McpClient: search falls back to legacy tool names", async () => {
   const client = new McpClient({ providers: [new LegacyProvider()] });
   const result = await client.search({ query: "test" });
 
-  assert.equal(result.success, true);
-  assert.deepEqual(calls, ["search.query", "search"]);
+  expect(result.success).toBe(true);
+  expect(calls).toEqual(["search.query", "search"]);
 });
 
-test("McpClient: fetch falls back to legacy tool names", async () => {
+it("McpClient: fetch falls back to legacy tool names", async () => {
   const { McpClient, McpProvider, McpToolResult } = await import("../../../js/agents/mcp/mcp-client.js");
 
   const calls = [];
@@ -1091,11 +1090,11 @@ test("McpClient: fetch falls back to legacy tool names", async () => {
   const client = new McpClient({ providers: [new LegacyFetchProvider()] });
   const result = await client.fetch({ url: "https://example.com" });
 
-  assert.equal(result.success, true);
-  assert.deepEqual(calls, ["search.fetch", "fetch_content"]);
+  expect(result.success).toBe(true);
+  expect(calls).toEqual(["search.fetch", "fetch_content"]);
 });
 
-test("McpClient: search/fetch return last result when all fail", async () => {
+it("McpClient: search/fetch return last result when all fail", async () => {
   const { McpClient, McpProvider, McpToolResult } = await import("../../../js/agents/mcp/mcp-client.js");
 
   class AlwaysFailProvider extends McpProvider {
@@ -1113,19 +1112,19 @@ test("McpClient: search/fetch return last result when all fail", async () => {
   const client = new McpClient({ providers: [new AlwaysFailProvider()] });
 
   const sr = await client.search({ query: "x" });
-  assert.equal(sr.success, false);
-  assert.ok(String(sr.error).includes("fail:search"));
+  expect(sr.success).toBe(false);
+  expect(String(sr.error).toBeTruthy().includes("fail:search"));
 
   const fr = await client.fetch({ url: "https://example.com" });
-  assert.equal(fr.success, false);
-  assert.ok(String(fr.error).includes("fail:fetch"));
+  expect(fr.success).toBe(false);
+  expect(String(fr.error).toBeTruthy().includes("fail:fetch"));
 });
 
 // ============================================================================
 // Constructor Options Tests
 // ============================================================================
 
-test("McpClient: accepts defaultProvider as McpProvider instance", async () => {
+it("McpClient: accepts defaultProvider as McpProvider instance", async () => {
   const { McpClient, McpProvider, McpToolResult } = await import("../../../js/agents/mcp/mcp-client.js");
 
   class DirectProvider extends McpProvider {
@@ -1143,11 +1142,11 @@ test("McpClient: accepts defaultProvider as McpProvider instance", async () => {
   const provider = new DirectProvider();
   const client = new McpClient({ defaultProvider: provider });
 
-  assert.deepEqual(client.listProviders(), ["direct"]);
-  assert.equal(client._defaultProviderId, "direct");
+  expect(client.listProviders()).toEqual(["direct"]);
+  expect(client._defaultProviderId).toBe("direct");
 });
 
-test("McpClient: accepts defaultProvider as string", async () => {
+it("McpClient: accepts defaultProvider as string", async () => {
   const { McpClient, McpProvider, McpToolResult } = await import("../../../js/agents/mcp/mcp-client.js");
 
   class P1 extends McpProvider {
@@ -1179,10 +1178,10 @@ test("McpClient: accepts defaultProvider as string", async () => {
     defaultProvider: "p2",
   });
 
-  assert.equal(client._defaultProviderId, "p2");
+  expect(client._defaultProviderId).toBe("p2");
 });
 
-test("McpTransport: respects constructor options", async () => {
+it("McpTransport: respects constructor options", async () => {
   const { McpTransport } = await import("../../../js/agents/mcp/mcp-transport.js");
 
   const transport = new McpTransport({
@@ -1192,28 +1191,28 @@ test("McpTransport: respects constructor options", async () => {
     reconnectDelayBase: 2000,
   });
 
-  assert.equal(transport.timeout, 10000);
-  assert.equal(transport.heartbeatInterval, 5000);
-  assert.equal(transport.maxRetries, 5);
-  assert.equal(transport.reconnectDelayBase, 2000);
+  expect(transport.timeout).toBe(10000);
+  expect(transport.heartbeatInterval).toBe(5000);
+  expect(transport.maxRetries).toBe(5);
+  expect(transport.reconnectDelayBase).toBe(2000);
 });
 
-test("McpTransport: uses default options when not provided", async () => {
+it("McpTransport: uses default options when not provided", async () => {
   const { McpTransport } = await import("../../../js/agents/mcp/mcp-transport.js");
 
   const transport = new McpTransport();
 
-  assert.equal(transport.timeout, 30000);
-  assert.equal(transport.heartbeatInterval, 30000);
-  assert.equal(transport.maxRetries, 3);
-  assert.equal(transport.reconnectDelayBase, 1000);
+  expect(transport.timeout).toBe(30000);
+  expect(transport.heartbeatInterval).toBe(30000);
+  expect(transport.maxRetries).toBe(3);
+  expect(transport.reconnectDelayBase).toBe(1000);
 });
 
 // ============================================================================
 // Edge Cases and Error Handling
 // ============================================================================
 
-test("McpClient: callTool returns provider result when success:false", async () => {
+it("McpClient: callTool returns provider result when success:false", async () => {
   const { McpClient, McpProvider, McpToolResult } = await import("../../../js/agents/mcp/mcp-client.js");
 
   const providerResult = new McpToolResult({
@@ -1237,10 +1236,10 @@ test("McpClient: callTool returns provider result when success:false", async () 
 
   const client = new McpClient({ providers: [new ReturnFailureProvider()], time: { now: () => 0 } });
   const r = await client.callTool("t", { a: 1 });
-  assert.equal(r, providerResult);
+  expect(r).toBe(providerResult);
 });
 
-test("McpClient: handles empty/falsy thrown errors", async () => {
+it("McpClient: handles empty/falsy thrown errors", async () => {
   const { McpClient, McpProvider } = await import("../../../js/agents/mcp/mcp-client.js");
 
   let throwEmpty = true;
@@ -1263,14 +1262,14 @@ test("McpClient: handles empty/falsy thrown errors", async () => {
   const client = new McpClient({ providers: [new EmptyErrorProvider()], time: { now: () => 0 } });
 
   const r1 = await client.callTool("x", {});
-  assert.equal(r1.success, false);
+  expect(r1.success).toBe(false);
 
   throwEmpty = false;
   const r2 = await client.callTool("x", {});
-  assert.equal(r2.success, false);
+  expect(r2.success).toBe(false);
 });
 
-test("McpClient: getProvider uses defaultProviderId when no id provided", async () => {
+it("McpClient: getProvider uses defaultProviderId when no id provided", async () => {
   const { McpClient, McpProvider, McpToolResult } = await import("../../../js/agents/mcp/mcp-client.js");
 
   class P1 extends McpProvider {
@@ -1288,12 +1287,12 @@ test("McpClient: getProvider uses defaultProviderId when no id provided", async 
   const p1 = new P1();
   const client = new McpClient({ providers: [p1] });
 
-  assert.equal(client.getProvider(), p1);
-  assert.equal(client.getProvider("p1"), p1);
-  assert.equal(client.getProvider("nonexistent"), null);
+  expect(client.getProvider()).toBe(p1);
+  expect(client.getProvider("p1")).toBe(p1);
+  expect(client.getProvider("nonexistent")).toBe(null);
 });
 
-test("McpClient: handles non-McpProvider in providers array", async () => {
+it("McpClient: handles non-McpProvider in providers array", async () => {
   const { McpClient, McpProvider, McpToolResult } = await import("../../../js/agents/mcp/mcp-client.js");
 
   class ValidProvider extends McpProvider {
@@ -1312,10 +1311,10 @@ test("McpClient: handles non-McpProvider in providers array", async () => {
     providers: [new ValidProvider(), {}, null, "invalid"],
   });
 
-  assert.deepEqual(client.listProviders(), ["valid"]);
+  expect(client.listProviders()).toEqual(["valid"]);
 });
 
-test("McpTransport: request handles send failure", async () => {
+it("McpTransport: request handles send failure", async () => {
   const { McpTransport } = await import("../../../js/agents/mcp/mcp-transport.js");
 
   class FailingSendTransport extends McpTransport {
@@ -1329,10 +1328,10 @@ test("McpTransport: request handles send failure", async () => {
   }
 
   const transport = new FailingSendTransport();
-  await assert.rejects(transport.request("test", {}), /Send failed/);
+  await expect(transport.request("test").rejects.toThrow({}), /Send failed/);
 });
 
-test("McpTransport: _handleMessage handles response with unknown id gracefully", async () => {
+it("McpTransport: _handleMessage handles response with unknown id gracefully", async () => {
   const { McpTransport } = await import("../../../js/agents/mcp/mcp-transport.js");
 
   const transport = new McpTransport();
@@ -1349,6 +1348,6 @@ test("McpTransport: _handleMessage handles response with unknown id gracefully",
     result: { data: "orphan" },
   });
 
-  assert.equal(received.length, 1);
-  assert.equal(received[0].id, 999);
+  expect(received.length).toBe(1);
+  expect(received[0].id).toBe(999);
 });

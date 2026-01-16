@@ -1,5 +1,5 @@
-import { describe, it, beforeEach } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import {
   HookType,
@@ -10,49 +10,49 @@ import {
 describe("runtime/hooks/hook-registry", () => {
   describe("HookType", () => {
     it("is frozen", () => {
-      assert.ok(Object.isFrozen(HookType));
+      expect(Object.isFrozen(HookType)).toBeTruthy();
     });
 
     it("has COMMAND type", () => {
-      assert.equal(HookType.COMMAND, "command");
+      expect(HookType.COMMAND).toBe("command");
     });
 
     it("has PROMPT type", () => {
-      assert.equal(HookType.PROMPT, "prompt");
+      expect(HookType.PROMPT).toBe("prompt");
     });
 
     it("has AGENT type", () => {
-      assert.equal(HookType.AGENT, "agent");
+      expect(HookType.AGENT).toBe("agent");
     });
   });
 
   describe("HookEvent", () => {
     it("is frozen", () => {
-      assert.ok(Object.isFrozen(HookEvent));
+      expect(Object.isFrozen(HookEvent)).toBeTruthy();
     });
 
     it("has PRE_AGENT event", () => {
-      assert.equal(HookEvent.PRE_AGENT, "PreAgent");
+      expect(HookEvent.PRE_AGENT).toBe("PreAgent");
     });
 
     it("has POST_AGENT event", () => {
-      assert.equal(HookEvent.POST_AGENT, "PostAgent");
+      expect(HookEvent.POST_AGENT).toBe("PostAgent");
     });
 
     it("has PRE_LLM_CALL event", () => {
-      assert.equal(HookEvent.PRE_LLM_CALL, "PreLLMCall");
+      expect(HookEvent.PRE_LLM_CALL).toBe("PreLLMCall");
     });
 
     it("has POST_LLM_CALL event", () => {
-      assert.equal(HookEvent.POST_LLM_CALL, "PostLLMCall");
+      expect(HookEvent.POST_LLM_CALL).toBe("PostLLMCall");
     });
 
     it("has PRE_TOOL_USE event", () => {
-      assert.equal(HookEvent.PRE_TOOL_USE, "PreToolUse");
+      expect(HookEvent.PRE_TOOL_USE).toBe("PreToolUse");
     });
 
     it("has POST_TOOL_USE event", () => {
-      assert.equal(HookEvent.POST_TOOL_USE, "PostToolUse");
+      expect(HookEvent.POST_TOOL_USE).toBe("PostToolUse");
     });
   });
 
@@ -66,54 +66,42 @@ describe("runtime/hooks/hook-registry", () => {
 
     describe("constructor", () => {
       it("creates empty registry", () => {
-        assert.ok(registry);
-        assert.deepEqual(registry.list("PreToolUse"), []);
+        expect(registry).toBeTruthy();
+        expect(registry.list("PreToolUse")).toEqual([]);
       });
     });
 
     describe("register", () => {
       it("registers command hook", () => {
         const def = registry.register("PreToolUse", { type: "command" });
-        assert.equal(def.type, "command");
-        assert.equal(def.blocking, true);
+        expect(def.type).toBe("command");
+        expect(def.blocking).toBe(true);
       });
 
       it("throws for empty event name", () => {
-        assert.throws(
-          () => registry.register("", { type: "command" }),
-          /eventName must be a non-empty string/
-        );
+        expect(() => registry.register("", { type: "command" })).toThrow(/eventName must be a non-empty string/);
       });
 
       it("throws for non-object definition", () => {
-        assert.throws(
-          () => registry.register("PreToolUse", "invalid"),
-          /must be an object/
-        );
+        expect(() => registry.register("PreToolUse", "invalid")).toThrow(/must be an object/);
       });
 
       it("throws for missing type", () => {
-        assert.throws(
-          () => registry.register("PreToolUse", {}),
-          /type must be one of/
-        );
+        expect(() => registry.register("PreToolUse", {})).toThrow(/type must be one of/);
       });
 
       it("throws for invalid type", () => {
-        assert.throws(
-          () => registry.register("PreToolUse", { type: "invalid" }),
-          /type must be one of/
-        );
+        expect(() => registry.register("PreToolUse", { type: "invalid" })).toThrow(/type must be one of/);
       });
 
       it("normalizes type to lowercase", () => {
         const def = registry.register("PreToolUse", { type: "COMMAND" });
-        assert.equal(def.type, "command");
+        expect(def.type).toBe("command");
       });
 
       it("sets blocking to true by default", () => {
         const def = registry.register("PreToolUse", { type: "command" });
-        assert.equal(def.blocking, true);
+        expect(def.blocking).toBe(true);
       });
 
       it("respects blocking=false", () => {
@@ -121,7 +109,7 @@ describe("runtime/hooks/hook-registry", () => {
           type: "command",
           blocking: false,
         });
-        assert.equal(def.blocking, false);
+        expect(def.blocking).toBe(false);
       });
 
       it("normalizes tool patterns", () => {
@@ -129,7 +117,7 @@ describe("runtime/hooks/hook-registry", () => {
           type: "command",
           tools: ["bash", "exec*"],
         });
-        assert.deepEqual(def.tools, ["bash", "exec*"]);
+        expect(def.tools).toEqual(["bash", "exec*"]);
       });
 
       it("normalizes single tool to array", () => {
@@ -137,7 +125,7 @@ describe("runtime/hooks/hook-registry", () => {
           type: "command",
           tool: "bash",
         });
-        assert.deepEqual(def.tools, ["bash"]);
+        expect(def.tools).toEqual(["bash"]);
       });
 
       it("removes duplicate tools", () => {
@@ -145,14 +133,11 @@ describe("runtime/hooks/hook-registry", () => {
           type: "command",
           tools: ["bash", "bash", "exec"],
         });
-        assert.deepEqual(def.tools, ["bash", "exec"]);
+        expect(def.tools).toEqual(["bash", "exec"]);
       });
 
       it("throws for prompt type without prompt", () => {
-        assert.throws(
-          () => registry.register("PreToolUse", { type: "prompt" }),
-          /prompt is required/
-        );
+        expect(() => registry.register("PreToolUse", { type: "prompt" })).toThrow(/prompt is required/);
       });
 
       it("registers prompt hook with prompt", () => {
@@ -160,7 +145,7 @@ describe("runtime/hooks/hook-registry", () => {
           type: "prompt",
           prompt: "Check if command is safe",
         });
-        assert.equal(def.prompt, "Check if command is safe");
+        expect(def.prompt).toBe("Check if command is safe");
       });
 
       it("captures usage for prompt hook", () => {
@@ -169,14 +154,11 @@ describe("runtime/hooks/hook-registry", () => {
           prompt: "Check",
           usage: "fast",
         });
-        assert.equal(def.usage, "fast");
+        expect(def.usage).toBe("fast");
       });
 
       it("throws for agent type without agentType", () => {
-        assert.throws(
-          () => registry.register("PreToolUse", { type: "agent" }),
-          /agentType is required/
-        );
+        expect(() => registry.register("PreToolUse", { type: "agent" })).toThrow(/agentType is required/);
       });
 
       it("registers agent hook with agentType", () => {
@@ -184,7 +166,7 @@ describe("runtime/hooks/hook-registry", () => {
           type: "agent",
           agentType: "security-checker",
         });
-        assert.equal(def.agentType, "security-checker");
+        expect(def.agentType).toBe("security-checker");
       });
 
       it("captures modelTier for agent hook", () => {
@@ -193,33 +175,33 @@ describe("runtime/hooks/hook-registry", () => {
           agentType: "checker",
           modelTier: "fast",
         });
-        assert.equal(def.modelTier, "fast");
+        expect(def.modelTier).toBe("fast");
       });
     });
 
     describe("list", () => {
       it("returns empty array for unknown event", () => {
         const hooks = registry.list("Unknown");
-        assert.deepEqual(hooks, []);
+        expect(hooks).toEqual([]);
       });
 
       it("returns empty array for empty event name", () => {
         const hooks = registry.list("");
-        assert.deepEqual(hooks, []);
+        expect(hooks).toEqual([]);
       });
 
       it("returns registered hooks", () => {
         registry.register("PreToolUse", { type: "command" });
         registry.register("PreToolUse", { type: "command" });
         const hooks = registry.list("PreToolUse");
-        assert.equal(hooks.length, 2);
+        expect(hooks.length).toBe(2);
       });
 
       it("returns copy of hooks", () => {
         registry.register("PreToolUse", { type: "command" });
         const hooks = registry.list("PreToolUse");
         hooks.push({ type: "modified" });
-        assert.equal(registry.list("PreToolUse").length, 1);
+        expect(registry.list("PreToolUse").length).toBe(1);
       });
     });
 
@@ -228,23 +210,23 @@ describe("runtime/hooks/hook-registry", () => {
         registry.register("PreToolUse", { type: "command" });
         registry.register("PostToolUse", { type: "command" });
         registry.clear();
-        assert.deepEqual(registry.list("PreToolUse"), []);
-        assert.deepEqual(registry.list("PostToolUse"), []);
+        expect(registry.list("PreToolUse")).toEqual([]);
+        expect(registry.list("PostToolUse")).toEqual([]);
       });
 
       it("clears hooks for specific event", () => {
         registry.register("PreToolUse", { type: "command" });
         registry.register("PostToolUse", { type: "command" });
         registry.clear("PreToolUse");
-        assert.deepEqual(registry.list("PreToolUse"), []);
-        assert.equal(registry.list("PostToolUse").length, 1);
+        expect(registry.list("PreToolUse")).toEqual([]);
+        expect(registry.list("PostToolUse").length).toBe(1);
       });
 
       it("handles empty event name", () => {
         registry.register("PreToolUse", { type: "command" });
         registry.clear("");
         // Empty string clears all
-        assert.deepEqual(registry.list("PreToolUse"), []);
+        expect(registry.list("PreToolUse")).toEqual([]);
       });
     });
 
@@ -257,22 +239,22 @@ describe("runtime/hooks/hook-registry", () => {
 
       it("matches exact tool name", () => {
         const matches = registry.match("PreToolUse", "bash");
-        assert.equal(matches.length, 2); // bash + all
+        expect(matches.length).toBe(2); // bash + all
       });
 
       it("matches wildcard pattern", () => {
         const matches = registry.match("PreToolUse", "execute");
-        assert.equal(matches.length, 2); // exec* + all
+        expect(matches.length).toBe(2); // exec* + all
       });
 
       it("matches hooks without tool filter", () => {
         const matches = registry.match("PreToolUse", "unknown");
-        assert.equal(matches.length, 1); // only all
+        expect(matches.length).toBe(1); // only all
       });
 
       it("returns empty for unknown event", () => {
         const matches = registry.match("Unknown", "bash");
-        assert.deepEqual(matches, []);
+        expect(matches).toEqual([]);
       });
 
       it("handles empty tool name gracefully", () => {
@@ -282,17 +264,17 @@ describe("runtime/hooks/hook-registry", () => {
         try {
           const matches = registry.match("PreToolUse", "");
           // If it returns, should only match hooks without tool filter
-          assert.ok(Array.isArray(matches));
+          expect(Array.isArray(matches)).toBeTruthy();
         } catch (e) {
           // Implementation may not support empty tool names
-          assert.ok(e instanceof Error);
+          expect(e instanceof Error).toBeTruthy();
         }
       });
 
       it("matches multiple wildcards", () => {
         registry.register("PreToolUse", { type: "command", tools: ["*bash*"] });
         const matches = registry.match("PreToolUse", "run_bash_script");
-        assert.ok(matches.length >= 2);
+        expect(matches.length >= 2).toBeTruthy();
       });
     });
   });

@@ -1,5 +1,5 @@
-import { describe, it, beforeEach } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import {
   createPreToolUseHook,
@@ -35,7 +35,7 @@ async function getDeniedArgs(params, contextOverrides = {}) {
   const hook = createPreToolUseHook();
   await hook({ tool: "write", params, context });
   const denied = eventBus.events.find((e) => e.event === "tool.denied");
-  assert.ok(denied, "expected tool.denied event");
+  expect(denied, "expected tool.denied event").toBeTruthy();
   return denied.payload.args;
 }
 
@@ -63,14 +63,14 @@ describe("createPreToolUseHook", () => {
     it("returns null when no eventBus in context", async () => {
       const hook = createPreToolUseHook();
       const result = await hook({ tool: "read", params: {}, context: {} });
-      assert.equal(result, null);
+      expect(result).toBe(null);
     });
 
     it("returns null when no hooks registered", async () => {
       const eventBus = createMockEventBus();
       const hook = createPreToolUseHook();
       const result = await hook({ tool: "read", params: {}, context: createContext(eventBus) });
-      assert.equal(result, null);
+      expect(result).toBe(null);
     });
 
     it("accepts custom eventName option", async () => {
@@ -84,7 +84,7 @@ describe("createPreToolUseHook", () => {
         context: createContext(eventBus),
       });
       // COMMAND hook with safe command => null (allow)
-      assert.equal(result, null);
+      expect(result).toBe(null);
     });
   });
 
@@ -98,10 +98,10 @@ describe("createPreToolUseHook", () => {
       const hook = createPreToolUseHook();
       const result = await hook({ tool: "write", params: { path: "/tmp/x" }, context });
 
-      assert.equal(result.skip, true);
-      assert.equal(result.value.ok, false);
-      assert.equal(result.value.error, "tool_blocked");
-      assert.equal(result.value.policy.hookType, "restriction");
+      expect(result.skip).toBe(true);
+      expect(result.value.ok).toBe(false);
+      expect(result.value.error).toBe("tool_blocked");
+      expect(result.value.policy.hookType).toBe("restriction");
     });
 
     it("allows tool not in blockedTools", async () => {
@@ -112,7 +112,7 @@ describe("createPreToolUseHook", () => {
 
       const hook = createPreToolUseHook();
       const result = await hook({ tool: "read", params: {}, context });
-      assert.equal(result, null);
+      expect(result).toBe(null);
     });
 
     it("emits tool.denied event when blocked", async () => {
@@ -125,8 +125,8 @@ describe("createPreToolUseHook", () => {
       await hook({ tool: "delete_file", params: { path: "/x" }, context });
 
       const denied = eventBus.events.find((e) => e.event === "tool.denied");
-      assert.ok(denied);
-      assert.equal(denied.payload.tool, "delete_file");
+      expect(denied).toBeTruthy();
+      expect(denied.payload.tool).toBe("delete_file");
     });
   });
 
@@ -140,8 +140,8 @@ describe("createPreToolUseHook", () => {
       const hook = createPreToolUseHook();
       const result = await hook({ tool: "write", params: {}, context });
 
-      assert.equal(result.skip, true);
-      assert.equal(result.value.error, "tool_not_allowed");
+      expect(result.skip).toBe(true);
+      expect(result.value.error).toBe("tool_not_allowed");
     });
 
     it("allows tool in allowedTools", async () => {
@@ -152,7 +152,7 @@ describe("createPreToolUseHook", () => {
 
       const hook = createPreToolUseHook();
       const result = await hook({ tool: "glob", params: {}, context });
-      assert.equal(result, null);
+      expect(result).toBe(null);
     });
   });
 
@@ -164,8 +164,8 @@ describe("createPreToolUseHook", () => {
       const hook = createPreToolUseHook();
       const result = await hook({ tool: "write", params: {}, context });
 
-      assert.equal(result.skip, true);
-      assert.equal(result.value.ok, false);
+      expect(result.skip).toBe(true);
+      expect(result.value.ok).toBe(false);
     });
 
     it("allows read tools in readonly mode", async () => {
@@ -174,7 +174,7 @@ describe("createPreToolUseHook", () => {
 
       const hook = createPreToolUseHook();
       const result = await hook({ tool: "read", params: {}, context });
-      assert.equal(result, null);
+      expect(result).toBe(null);
     });
 
     it("blocks non-readonly bash commands", async () => {
@@ -188,7 +188,7 @@ describe("createPreToolUseHook", () => {
         context,
       });
 
-      assert.equal(result.skip, true);
+      expect(result.skip).toBe(true);
     });
 
     it("allows readonly bash commands (ls, cat, grep)", async () => {
@@ -198,7 +198,7 @@ describe("createPreToolUseHook", () => {
       const hook = createPreToolUseHook();
       for (const cmd of ["ls -la", "cat file.txt", "grep pattern file"]) {
         const result = await hook({ tool: "bash", params: { command: cmd }, context });
-        assert.equal(result, null, `should allow: ${cmd}`);
+        expect(result).toBe(null, `should allow: ${cmd}`);
       }
     });
   });
@@ -219,8 +219,8 @@ describe("createPreToolUseHook", () => {
         context: createContext(eventBus),
       });
 
-      assert.equal(result.skip, true);
-      assert.ok(result.value.error.includes("requires approval"));
+      expect(result.skip).toBe(true);
+      expect(result.value.error.includes("requires approval")).toBeTruthy();
     });
 
     it("allows safe command", async () => {
@@ -238,7 +238,7 @@ describe("createPreToolUseHook", () => {
         context: createContext(eventBus),
       });
 
-      assert.equal(result, null);
+      expect(result).toBe(null);
     });
 
     it("does not block in non-blocking mode", async () => {
@@ -257,7 +257,7 @@ describe("createPreToolUseHook", () => {
       });
 
       // non-blocking => continues, returns null
-      assert.equal(result, null);
+      expect(result).toBe(null);
     });
   });
 
@@ -277,8 +277,8 @@ describe("createPreToolUseHook", () => {
         context: createContext(eventBus),
       });
 
-      assert.equal(result.skip, true);
-      assert.ok(result.value.error.includes("ModelRouter unavailable"));
+      expect(result.skip).toBe(true);
+      expect(result.value.error.includes("ModelRouter unavailable")).toBeTruthy();
     });
 
     it("continues when ModelRouter unavailable (non-blocking)", async () => {
@@ -296,7 +296,7 @@ describe("createPreToolUseHook", () => {
         context: createContext(eventBus),
       });
 
-      assert.equal(result, null);
+      expect(result).toBe(null);
     });
 
     it("allows when model returns allow", async () => {
@@ -315,7 +315,7 @@ describe("createPreToolUseHook", () => {
       const hook = createPreToolUseHook();
       const result = await hook({ tool: "read", params: {}, context });
 
-      assert.equal(result, null);
+      expect(result).toBe(null);
     });
 
     it("blocks when model returns deny", async () => {
@@ -334,8 +334,8 @@ describe("createPreToolUseHook", () => {
       const hook = createPreToolUseHook();
       const result = await hook({ tool: "bash", params: {}, context });
 
-      assert.equal(result.skip, true);
-      assert.equal(result.value.error, "not safe");
+      expect(result.skip).toBe(true);
+      expect(result.value.error).toBe("not safe");
     });
 
     it("blocks when model response unparseable (blocking)", async () => {
@@ -354,8 +354,8 @@ describe("createPreToolUseHook", () => {
       const hook = createPreToolUseHook();
       const result = await hook({ tool: "read", params: {}, context });
 
-      assert.equal(result.skip, true);
-      assert.ok(result.value.error.includes("unparseable"));
+      expect(result.skip).toBe(true);
+      expect(result.value.error.includes("unparseable")).toBeTruthy();
     });
 
     it("blocks when model call throws (blocking)", async () => {
@@ -376,8 +376,8 @@ describe("createPreToolUseHook", () => {
       const hook = createPreToolUseHook();
       const result = await hook({ tool: "read", params: {}, context });
 
-      assert.equal(result.skip, true);
-      assert.ok(result.value.error.includes("network error"));
+      expect(result.skip).toBe(true);
+      expect(result.value.error.includes("network error")).toBeTruthy();
     });
   });
 
@@ -397,8 +397,8 @@ describe("createPreToolUseHook", () => {
         context: createContext(eventBus),
       });
 
-      assert.equal(result.skip, true);
-      assert.ok(result.value.error.includes("SubagentRegistry unavailable"));
+      expect(result.skip).toBe(true);
+      expect(result.value.error.includes("SubagentRegistry unavailable")).toBeTruthy();
     });
 
     it("blocks when agentType not found (blocking)", async () => {
@@ -417,8 +417,8 @@ describe("createPreToolUseHook", () => {
       const hook = createPreToolUseHook();
       const result = await hook({ tool: "bash", params: {}, context });
 
-      assert.equal(result.skip, true);
-      assert.ok(result.value.error.includes("unknown agentType"));
+      expect(result.skip).toBe(true);
+      expect(result.value.error.includes("unknown agentType")).toBeTruthy();
     });
 
     it("allows when agent returns allow", async () => {
@@ -445,7 +445,7 @@ describe("createPreToolUseHook", () => {
       const hook = createPreToolUseHook();
       const result = await hook({ tool: "read", params: {}, context });
 
-      assert.equal(result, null);
+      expect(result).toBe(null);
     });
 
     it("blocks when agent returns deny", async () => {
@@ -471,8 +471,8 @@ describe("createPreToolUseHook", () => {
       const hook = createPreToolUseHook();
       const result = await hook({ tool: "bash", params: {}, context });
 
-      assert.equal(result.skip, true);
-      assert.equal(result.value.error, "risky");
+      expect(result.skip).toBe(true);
+      expect(result.value.error).toBe("risky");
     });
 
     it("blocks when agent throws (blocking)", async () => {
@@ -495,8 +495,8 @@ describe("createPreToolUseHook", () => {
       const hook = createPreToolUseHook();
       const result = await hook({ tool: "read", params: {}, context });
 
-      assert.equal(result.skip, true);
-      assert.ok(result.value.error.includes("agent crashed"));
+      expect(result.skip).toBe(true);
+      expect(result.value.error.includes("agent crashed")).toBeTruthy();
     });
 
     it("continues when SubagentRegistry unavailable (non-blocking)", async () => {
@@ -514,7 +514,7 @@ describe("createPreToolUseHook", () => {
         context: createContext(eventBus),
       });
 
-      assert.equal(result, null);
+      expect(result).toBe(null);
     });
   });
 
@@ -525,7 +525,7 @@ describe("createPreToolUseHook", () => {
 
       const hook = createPreToolUseHook();
       const result = await hook({ tool: "read", params: {}, context });
-      assert.equal(result, null);
+      expect(result).toBe(null);
     });
 
     it("resolves eventBus from services.eventBus", async () => {
@@ -534,7 +534,7 @@ describe("createPreToolUseHook", () => {
 
       const hook = createPreToolUseHook();
       const result = await hook({ tool: "read", params: {}, context });
-      assert.equal(result, null);
+      expect(result).toBe(null);
     });
 
     it("resolves toolRestrictions from stageApi", async () => {
@@ -546,7 +546,7 @@ describe("createPreToolUseHook", () => {
 
       const hook = createPreToolUseHook();
       const result = await hook({ tool: "write", params: {}, context });
-      assert.equal(result.skip, true);
+      expect(result.skip).toBe(true);
     });
 
     it("resolves permissionLevel from options", async () => {
@@ -558,7 +558,7 @@ describe("createPreToolUseHook", () => {
 
       const hook = createPreToolUseHook();
       const result = await hook({ tool: "edit", params: {}, context });
-      assert.equal(result.skip, true);
+      expect(result.skip).toBe(true);
     });
   });
 
@@ -574,7 +574,7 @@ describe("createPreToolUseHook", () => {
         context: createContext(eventBus),
       });
 
-      assert.equal(result.skip, true);
+      expect(result.skip).toBe(true);
     });
 
     it("extracts command from params.cmd", async () => {
@@ -588,7 +588,7 @@ describe("createPreToolUseHook", () => {
         context: createContext(eventBus),
       });
 
-      assert.equal(result.skip, true);
+      expect(result.skip).toBe(true);
     });
 
     it("extracts command from params.argv array", async () => {
@@ -602,7 +602,7 @@ describe("createPreToolUseHook", () => {
         context: createContext(eventBus),
       });
 
-      assert.equal(result.skip, true);
+      expect(result.skip).toBe(true);
     });
 
     it("handles string params directly", async () => {
@@ -616,7 +616,7 @@ describe("createPreToolUseHook", () => {
         context: createContext(eventBus),
       });
 
-      assert.equal(result.skip, true);
+      expect(result.skip).toBe(true);
     });
   });
 
@@ -639,7 +639,7 @@ describe("createPreToolUseHook", () => {
         context: createContext(eventBus),
       });
 
-      assert.equal(result.skip, true);
+      expect(result.skip).toBe(true);
     });
   });
 });
@@ -652,14 +652,14 @@ describe("createPreAgentHook", () => {
   it("returns null when no eventBus in context", async () => {
     const hook = createPreAgentHook();
     const result = await hook({ sessionId: "s1", runId: "r1", input: {}, context: {} });
-    assert.equal(result, null);
+    expect(result).toBe(null);
   });
 
   it("returns null when no hooks registered", async () => {
     const eventBus = createMockEventBus();
     const hook = createPreAgentHook();
     const result = await hook({ sessionId: "s1", runId: "r1", input: {}, context: createContext(eventBus) });
-    assert.equal(result, null);
+    expect(result).toBe(null);
   });
 
   it("accepts custom eventName", async () => {
@@ -676,7 +676,7 @@ describe("createPreAgentHook", () => {
     const hook = createPreAgentHook({ eventName: "CustomPreAgent" });
     await hook({ sessionId: "s1", runId: "r1", input: {}, context: createContext(eventBus) });
 
-    assert.equal(called, true);
+    expect(called).toBe(true);
   });
 
   it("calls handler with correct params", async () => {
@@ -699,9 +699,9 @@ describe("createPreAgentHook", () => {
       context: createContext(eventBus),
     });
 
-    assert.equal(receivedCtx.sessionId, "sess123");
-    assert.equal(receivedCtx.runId, "run456");
-    assert.deepEqual(receivedCtx.input, { query: "hello" });
+    expect(receivedCtx.sessionId).toBe("sess123");
+    expect(receivedCtx.runId).toBe("run456");
+    expect(receivedCtx.input).toEqual({ query: "hello" });
   });
 
   it("blocks when handler returns skip (blocking)", async () => {
@@ -720,8 +720,8 @@ describe("createPreAgentHook", () => {
       context: createContext(eventBus),
     });
 
-    assert.equal(result.skip, true);
-    assert.equal(result.reason, "rate limited");
+    expect(result.skip).toBe(true);
+    expect(result.reason).toBe("rate limited");
   });
 
   it("emits agent.denied event when blocked", async () => {
@@ -736,9 +736,9 @@ describe("createPreAgentHook", () => {
     await hook({ sessionId: "s1", runId: "r1", input: {}, context: createContext(eventBus) });
 
     const denied = eventBus.events.find((e) => e.event === "agent.denied");
-    assert.ok(denied);
-    assert.equal(denied.payload.sessionId, "s1");
-    assert.equal(denied.payload.reason, "quota exceeded");
+    expect(denied).toBeTruthy();
+    expect(denied.payload.sessionId).toBe("s1");
+    expect(denied.payload.reason).toBe("quota exceeded");
   });
 
   it("does not block when handler returns skip but non-blocking", async () => {
@@ -757,7 +757,7 @@ describe("createPreAgentHook", () => {
       context: createContext(eventBus),
     });
 
-    assert.equal(result, null);
+    expect(result).toBe(null);
   });
 
   it("blocks when handler throws (blocking)", async () => {
@@ -778,8 +778,8 @@ describe("createPreAgentHook", () => {
       context: createContext(eventBus),
     });
 
-    assert.equal(result.skip, true);
-    assert.ok(result.reason.includes("auth failed"));
+    expect(result.skip).toBe(true);
+    expect(result.reason.includes("auth failed")).toBeTruthy();
   });
 
   it("continues when handler throws (non-blocking)", async () => {
@@ -800,7 +800,7 @@ describe("createPreAgentHook", () => {
       context: createContext(eventBus),
     });
 
-    assert.equal(result, null);
+    expect(result).toBe(null);
   });
 
   it("supports value in blocked result", async () => {
@@ -819,8 +819,8 @@ describe("createPreAgentHook", () => {
       context: createContext(eventBus),
     });
 
-    assert.equal(result.skip, true);
-    assert.deepEqual(result.value, { cached: true });
+    expect(result.skip).toBe(true);
+    expect(result.value).toEqual({ cached: true });
   });
 
   it("executes multiple hooks in order", async () => {
@@ -845,7 +845,7 @@ describe("createPreAgentHook", () => {
     const hook = createPreAgentHook();
     await hook({ sessionId: "s1", runId: "r1", input: {}, context: createContext(eventBus) });
 
-    assert.deepEqual(order, [1, 2]);
+    expect(order).toEqual([1, 2]);
   });
 });
 
@@ -880,7 +880,7 @@ describe("createPostAgentHook", () => {
     const hook = createPostAgentHook({ eventName: "CustomPostAgent" });
     await hook({ sessionId: "s1", runId: "r1", result: {}, context: createContext(eventBus) });
 
-    assert.equal(called, true);
+    expect(called).toBe(true);
   });
 
   it("calls handler with all params", async () => {
@@ -905,11 +905,11 @@ describe("createPostAgentHook", () => {
       context: createContext(eventBus),
     });
 
-    assert.equal(receivedCtx.sessionId, "sess123");
-    assert.equal(receivedCtx.runId, "run456");
-    assert.deepEqual(receivedCtx.input, { query: "hello" });
-    assert.deepEqual(receivedCtx.result, { answer: "world" });
-    assert.equal(receivedCtx.duration, 1234);
+    expect(receivedCtx.sessionId).toBe("sess123");
+    expect(receivedCtx.runId).toBe("run456");
+    expect(receivedCtx.input).toEqual({ query: "hello" });
+    expect(receivedCtx.result).toEqual({ answer: "world" });
+    expect(receivedCtx.duration).toBe(1234);
   });
 
   it("does not block on handler error", async () => {
@@ -932,7 +932,7 @@ describe("createPostAgentHook", () => {
     const hook = createPostAgentHook();
     await hook({ sessionId: "s1", runId: "r1", result: {}, context: createContext(eventBus) });
 
-    assert.equal(secondCalled, true);
+    expect(secondCalled).toBe(true);
   });
 
   it("emits agent.hook.error when handler throws", async () => {
@@ -948,9 +948,9 @@ describe("createPostAgentHook", () => {
     await hook({ sessionId: "s1", runId: "r1", result: {}, context: createContext(eventBus) });
 
     const errEvt = eventBus.events.find((e) => e.event === "agent.hook.error");
-    assert.ok(errEvt);
-    assert.equal(errEvt.payload.sessionId, "s1");
-    assert.ok(errEvt.payload.error.includes("db write failed"));
+    expect(errEvt).toBeTruthy();
+    expect(errEvt.payload.sessionId).toBe("s1");
+    expect(errEvt.payload.error.includes("db write failed")).toBeTruthy();
   });
 
   it("executes all hooks even if some fail", async () => {
@@ -981,9 +981,9 @@ describe("createPostAgentHook", () => {
     const hook = createPostAgentHook();
     await hook({ sessionId: "s1", runId: "r1", result: {}, context: createContext(eventBus) });
 
-    assert.deepEqual(order, [1, 2, 3]);
+    expect(order).toEqual([1, 2, 3]);
     const errors = eventBus.events.filter((e) => e.event === "agent.hook.error");
-    assert.equal(errors.length, 2);
+    expect(errors.length).toBe(2);
   });
 
   it("receives error object when agent failed", async () => {
@@ -1007,7 +1007,7 @@ describe("createPostAgentHook", () => {
       context: createContext(eventBus),
     });
 
-    assert.equal(receivedError, testError);
+    expect(receivedError).toBe(testError);
   });
 });
 
@@ -1038,7 +1038,7 @@ describe("Hook factory integration", () => {
       context: { eventBus },
     });
 
-    assert.equal(result.skip, true);
+    expect(result.skip).toBe(true);
   });
 });
 
@@ -1056,11 +1056,11 @@ describe("sanitizeString", () => {
       slackValue: "xoxb-1234567890-abcdefghij",
     });
 
-    assert.equal(args.headerValue, "Authorization: Bearer [REDACTED]");
-    assert.equal(args.openaiValue, "sk-[REDACTED]");
-    assert.equal(args.ghValue, "ghp_[REDACTED]");
-    assert.equal(args.patValue, "github_pat_[REDACTED]");
-    assert.equal(args.slackValue, "xox-...-[REDACTED]");
+    expect(args.headerValue).toBe("Authorization: Bearer [REDACTED]");
+    expect(args.openaiValue).toBe("sk-[REDACTED]");
+    expect(args.ghValue).toBe("ghp_[REDACTED]");
+    expect(args.patValue).toBe("github_pat_[REDACTED]");
+    expect(args.slackValue).toBe("xox-...-[REDACTED]");
   });
 
   it("redacts jwt tokens and password flags", async () => {
@@ -1069,10 +1069,10 @@ describe("sanitizeString", () => {
       cliValue: "run --password supersecret -u admin:supersecret",
     });
 
-    assert.equal(args.payloadValue, "[REDACTED]");
-    assert.ok(args.cliValue.includes("--password [REDACTED]"));
-    assert.ok(args.cliValue.includes("-u admin:[REDACTED]"));
-    assert.ok(!args.cliValue.includes("supersecret"));
+    expect(args.payloadValue).toBe("[REDACTED]");
+    expect(args.cliValue.includes("--password [REDACTED]")).toBeTruthy();
+    expect(args.cliValue.includes("-u admin:[REDACTED]")).toBeTruthy();
+    expect(!args.cliValue.includes("supersecret")).toBeTruthy();
   });
 
   it("redacts env var style secrets", async () => {
@@ -1080,7 +1080,7 @@ describe("sanitizeString", () => {
       envValue: "API_KEY=supersecret OTHER=ok",
     });
 
-    assert.equal(args.envValue, "API_KEY=[REDACTED] OTHER=ok");
+    expect(args.envValue).toBe("API_KEY=[REDACTED] OTHER=ok");
   });
 });
 
@@ -1094,11 +1094,11 @@ describe("sanitizeArgs", () => {
       nested: { password: "nested" },
     });
 
-    assert.equal(args.password, "[REDACTED]");
-    assert.equal(args.secret, "[REDACTED]");
-    assert.equal(args.token, "[REDACTED]");
-    assert.equal(args.api_key, "[REDACTED]");
-    assert.equal(args.nested.password, "[REDACTED]");
+    expect(args.password).toBe("[REDACTED]");
+    expect(args.secret).toBe("[REDACTED]");
+    expect(args.token).toBe("[REDACTED]");
+    expect(args.api_key).toBe("[REDACTED]");
+    expect(args.nested.password).toBe("[REDACTED]");
   });
 
   it("handles circular references", async () => {
@@ -1106,22 +1106,22 @@ describe("sanitizeArgs", () => {
     node.self = node;
 
     const args = await getDeniedArgs({ node });
-    assert.equal(args.node.self, "[Circular]");
+    expect(args.node.self).toBe("[Circular]");
   });
 
   it("caps max depth", async () => {
     const deep = { a: { b: { c: { d: { e: { f: { g: "too deep" } } } } } } };
     const args = await getDeniedArgs({ deep });
 
-    assert.equal(args.deep.a.b.c.d.e, "[MaxDepth]");
+    expect(args.deep.a.b.c.d.e).toBe("[MaxDepth]");
   });
 
   it("caps array length", async () => {
     const items = Array.from({ length: 55 }, (_, idx) => idx);
     const args = await getDeniedArgs({ items });
 
-    assert.equal(args.items.length, 51);
-    assert.equal(args.items[50], "[+5 items]");
+    expect(args.items.length).toBe(51);
+    expect(args.items[50]).toBe("[+5 items]");
   });
 
   it("formats typed arrays and array buffers", async () => {
@@ -1130,8 +1130,8 @@ describe("sanitizeArgs", () => {
       typedValue: new Uint8Array(4),
     });
 
-    assert.equal(args.bufferValue, "[ArrayBuffer 8 bytes]");
-    assert.equal(args.typedValue, "[Uint8Array 4 bytes]");
+    expect(args.bufferValue).toBe("[ArrayBuffer 8 bytes]");
+    expect(args.typedValue).toBe("[Uint8Array 4 bytes]");
   });
 });
 
@@ -1157,8 +1157,8 @@ describe("renderTemplate", () => {
     const params = { foo: "bar" };
     const result = await hook({ tool: "read", params, context });
 
-    assert.equal(result, null);
-    assert.equal(promptText, `tool=read args=${JSON.stringify(params)} missing=`);
+    expect(result).toBe(null);
+    expect(promptText).toBe(`tool=read args=${JSON.stringify(params)} missing=`);
   });
 });
 
@@ -1166,26 +1166,26 @@ describe("parseAllowDenyText", () => {
   it("accepts JSON allow variants", async () => {
     for (const content of ['{"allow": true}', '{"allowed": true}', '{"decision": "allow"}']) {
       const result = await runPromptDecision(content);
-      assert.equal(result, null, `should allow: ${content}`);
+      expect(result).toBe(null, `should allow: ${content}`);
     }
   });
 
   it("denies JSON decision deny", async () => {
     const result = await runPromptDecision('{"decision": "deny"}');
-    assert.equal(result.skip, true);
+    expect(result.skip).toBe(true);
   });
 
   it("accepts text allow/ok/permit", async () => {
     for (const content of ["allow", "ok", "permit"]) {
       const result = await runPromptDecision(content);
-      assert.equal(result, null, `should allow: ${content}`);
+      expect(result).toBe(null, `should allow: ${content}`);
     }
   });
 
   it("denies text deny/block", async () => {
     for (const content of ["deny", "block"]) {
       const result = await runPromptDecision(content);
-      assert.equal(result.skip, true, `should deny: ${content}`);
+      expect(result.skip).toBe(true, `should deny: ${content}`);
     }
   });
 });
@@ -1218,9 +1218,9 @@ describe("container resolution", () => {
     const hook = createPreToolUseHook();
     const result = await hook({ tool: "read", params: {}, context });
 
-    assert.equal(result, null);
-    assert.equal(requestedId, "modelRouter");
-    assert.equal(routerCalled, true);
+    expect(result).toBe(null);
+    expect(requestedId).toBe("modelRouter");
+    expect(routerCalled).toBe(true);
   });
 
   it("resolves subagentRegistry from container", async () => {
@@ -1252,7 +1252,7 @@ describe("container resolution", () => {
     const hook = createPreToolUseHook();
     const result = await hook({ tool: "read", params: {}, context });
 
-    assert.equal(result, null);
-    assert.equal(requestedId, "subagentRegistry");
+    expect(result).toBe(null);
+    expect(requestedId).toBe("subagentRegistry");
   });
 });

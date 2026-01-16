@@ -4,10 +4,9 @@
  * 验证 batch-generator.js 和 slide-agent.js 中的正则已被安全替换
  */
 
-import { describe, it } from "node:test";
-import assert from "node:assert";
-
 // 生成 ReDoS 攻击载荷
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 function generateReDoSPayload(length = 50000) {
   // 经典 ReDoS 模式: 大量重复字符后跟不匹配字符
   return "<div " + "x".repeat(length) + "!";
@@ -31,7 +30,7 @@ describe("ReDoS Safety", () => {
       }
       const elapsed = Date.now() - start;
       // 安全实现应在 100ms 内完成
-      assert.ok(elapsed < 1000, `Should complete quickly, took ${elapsed}ms`);
+      expect(elapsed < 1000, `Should complete quickly, took ${elapsed}ms`).toBeTruthy();
     });
 
     it("findImagePlaceholders should handle malicious input quickly", async () => {
@@ -47,7 +46,7 @@ describe("ReDoS Safety", () => {
         pos = tagEnd + 1;
       }
       const elapsed = Date.now() - start;
-      assert.ok(elapsed < 100, `Should complete quickly, took ${elapsed}ms`);
+      expect(elapsed < 100, `Should complete quickly, took ${elapsed}ms`).toBeTruthy();
     });
   });
 
@@ -67,7 +66,7 @@ describe("ReDoS Safety", () => {
         // 可能没有暴露该方法
       }
       const elapsed = Date.now() - start;
-      assert.ok(elapsed < 100, `Should complete quickly, took ${elapsed}ms`);
+      expect(elapsed < 100, `Should complete quickly, took ${elapsed}ms`).toBeTruthy();
     });
   });
 
@@ -92,9 +91,9 @@ describe("ReDoS Safety", () => {
         }
         pos = tagEnd + 1;
       }
-      assert.strictEqual(results.length, 2);
-      assert.ok(results[0].includes("slot1"));
-      assert.ok(results[1].includes("slot2"));
+      expect(results.length).toBe(2);
+      expect(results[0].includes("slot1")).toBeTruthy();
+      expect(results[1].includes("slot2")).toBeTruthy();
     });
 
     it("should handle edge cases", () => {
@@ -120,7 +119,7 @@ describe("ReDoS Safety", () => {
           }
           pos = tagEnd + 1;
         }
-        assert.strictEqual(count, expected, `Failed for input: ${input}`);
+        expect(count).toBe(expected, `Failed for input: ${input}`);
       }
     });
   });

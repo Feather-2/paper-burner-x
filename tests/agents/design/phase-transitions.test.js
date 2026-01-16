@@ -1,4 +1,5 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
 function makeContentPackage({ runId = "run_test", slideCount = 1 } = {}) {
@@ -45,19 +46,19 @@ function makeDesignSystem() {
   };
 }
 
-test("designPhaseMachine.transition enforces DESIGN_PHASE_VALID_TRANSITIONS", async () => {
+it("designPhaseMachine.transition enforces DESIGN_PHASE_VALID_TRANSITIONS", async () => {
   const { DesignPhase, designPhaseMachine } = await import("../../../js/agents/stages/design/states.js");
 
   const state = { status: DesignPhase.PLAN_CONFIRMING };
 
-  assert.throws(() => {
-    designPhaseMachine.transition(state, DesignPhase.REVIEWING, { from: state.status });
+  expect(() => {
+    designPhaseMachine.transition(state, DesignPhase.REVIEWING, { from: state.status }).toThrow();
   }, /Invalid state transition/);
 
-  assert.equal(state.status, DesignPhase.PLAN_CONFIRMING);
+  expect(state.status).toBe(DesignPhase.PLAN_CONFIRMING);
 });
 
-test("designPhaseMachine supports pipeline chain (planning -> layout -> repair -> final-review)", async () => {
+it("designPhaseMachine supports pipeline chain (planning -> layout -> repair -> final-review)", async () => {
   const { DesignPhase, designPhaseMachine } = await import("../../../js/agents/stages/design/states.js");
 
   const state = { status: DesignPhase.DECK_PLANNING };
@@ -76,10 +77,10 @@ test("designPhaseMachine supports pipeline chain (planning -> layout -> repair -
     designPhaseMachine.transition(state, next, { from: state.status });
   }
 
-  assert.equal(state.status, DesignPhase.COMPLETED);
+  expect(state.status).toBe(DesignPhase.COMPLETED);
 });
 
-test("runGeneratingPhase is pure (no phase transitions) and emits design.qa.ended", async () => {
+it("runGeneratingPhase is pure (no phase transitions) and emits design.qa.ended", async () => {
   const { runGeneratingPhase } = await import("../../../js/agents/stages/design/runtime/design-phases.js");
   const { DesignPhase } = await import("../../../js/agents/stages/design/states.js");
 
@@ -128,15 +129,15 @@ test("runGeneratingPhase is pure (no phase transitions) and emits design.qa.ende
   });
 
   const qaEnded = events.find((evt) => evt.name === "design.qa.ended");
-  assert.ok(qaEnded, "Expected design.qa.ended event to be emitted");
-  assert.deepEqual(qaEnded.record, {
+  expect(qaEnded, "Expected design.qa.ended event to be emitted").toBeTruthy();
+  expect(qaEnded.record).toEqual({
     actor: "design",
     status: "ended",
     payload: { slides: 1, degradedCount: 0, qaFailed: 0 },
   });
 });
 
-test("runVisualPhase supports deferredVisuals fast-path", async () => {
+it("runVisualPhase supports deferredVisuals fast-path", async () => {
   const { runVisualPhase } = await import("../../../js/agents/stages/design/runtime/design-phases.js");
   const { DesignPhase } = await import("../../../js/agents/stages/design/states.js");
 
@@ -181,13 +182,13 @@ test("runVisualPhase supports deferredVisuals fast-path", async () => {
     emitDeckUpdate: () => { },
   });
 
-  assert.equal(phase.status, DesignPhase.VISUAL_FILLING);
-  assert.equal(result.imageReport.deferred, true);
-  assert.deepEqual(result.pendingImages, ["img1", "img2"]);
-  assert.ok(events.some((evt) => evt.name === "design.visual.deferred"));
+  expect(phase.status).toBe(DesignPhase.VISUAL_FILLING);
+  expect(result.imageReport.deferred).toBe(true);
+  expect(result.pendingImages).toEqual(["img1", "img2"]);
+  expect(events.some(evt => evt.name === "design.visual.deferred")).toBeTruthy();
 });
 
-test("DesignAgentLoop skips final review when skipReview is true", async () => {
+it("DesignAgentLoop skips final review when skipReview is true", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
   const { DesignPhase } = await import("../../../js/agents/stages/design/states.js");
   const { EventBus } = await import("../../../js/agents/core/event-bus.js");
@@ -249,20 +250,20 @@ test("DesignAgentLoop skips final review when skipReview is true", async () => {
     brainstormResult: { ideaPool: [], selectedIdeas: [], imageSlots: [], candidatesBySlide: [] },
   });
 
-  assert.equal(deck.runId, "run_skip_review");
-  assert.ok(events.some((evt) => evt.name === "design.qa.ended"));
+  expect(deck.runId).toBe("run_skip_review");
+  expect(events.some(evt => evt.name === "design.qa.ended")).toBeTruthy();
 
   const transitions = events
     .filter((evt) => evt.name === "design.phase.transition")
     .map((evt) => evt.record.payload.to);
 
-  assert.ok(transitions.includes(DesignPhase.VISUAL_FILLING));
-  assert.ok(transitions.includes(DesignPhase.COMPLETED));
-  assert.ok(!transitions.includes(DesignPhase.REVIEWING), "Expected REVIEWING to be skipped");
-  assert.ok(!events.some((evt) => evt.name === "design.review.started"), "Expected no review events when skipReview is true");
+  expect(transitions.includes(DesignPhase.VISUAL_FILLING)).toBeTruthy();
+  expect(transitions.includes(DesignPhase.COMPLETED)).toBeTruthy();
+  expect(!transitions.includes(DesignPhase.REVIEWING)).toBeTruthy();
+  expect(!events.some(evt => evt.name === "design.review.started"), "Expected no review events when skipReview is true");
 });
 
-test("DesignAgentLoop runs repair + final review when enabled", async () => {
+it("DesignAgentLoop runs repair + final review when enabled", async () => {
   const { DesignAgentLoop } = await import("../../../js/agents/stages/design/agent-loop.js");
   const { DesignPhase } = await import("../../../js/agents/stages/design/states.js");
 
@@ -314,15 +315,15 @@ test("DesignAgentLoop runs repair + final review when enabled", async () => {
     brainstormResult: { ideaPool: [], selectedIdeas: [], imageSlots: [], candidatesBySlide: [] },
   });
 
-  assert.equal(deck.runId, "run_final_review");
-  assert.ok(events.some((evt) => evt.name === "design.repair.started"), "Expected repair to run when QA fails");
-  assert.ok(events.some((evt) => evt.name === "design.review.started"), "Expected final review to run when enabled");
+  expect(deck.runId).toBe("run_final_review");
+  expect(events.some(evt => evt.name === "design.repair.started"), "Expected repair to run when QA fails");
+  expect(events.some(evt => evt.name === "design.review.started"), "Expected final review to run when enabled");
 
   const transitions = events
     .filter((evt) => evt.name === "design.phase.transition")
     .map((evt) => evt.record.payload.to);
 
-  assert.ok(transitions.includes(DesignPhase.REPAIR));
-  assert.ok(transitions.includes(DesignPhase.REVIEWING));
-  assert.ok(transitions.at(-1) === DesignPhase.COMPLETED);
+  expect(transitions.includes(DesignPhase.REPAIR)).toBeTruthy();
+  expect(transitions.includes(DesignPhase.REVIEWING)).toBeTruthy();
+  expect(transitions.at(-1).toBeTruthy() === DesignPhase.COMPLETED);
 });

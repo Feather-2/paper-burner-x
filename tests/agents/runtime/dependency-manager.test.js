@@ -2,8 +2,7 @@
  * DependencyManager 测试
  */
 
-import { describe, it, mock, beforeEach } from "node:test";
-import assert from "node:assert";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import {
   DependencyManager,
@@ -15,36 +14,36 @@ import {
 describe("DependencyManager", () => {
   describe("parsePackageName", () => {
     it("should parse simple package name", () => {
-      assert.strictEqual(parsePackageName("numpy"), "numpy");
+      expect(parsePackageName("numpy")).toBe("numpy");
     });
 
     it("should strip version constraints", () => {
-      assert.strictEqual(parsePackageName("pandas>=1.0"), "pandas");
-      assert.strictEqual(parsePackageName("scipy<2.0"), "scipy");
-      assert.strictEqual(parsePackageName("pyyaml==6.0"), "pyyaml");
-      assert.strictEqual(parsePackageName("requests~=2.28"), "requests");
+      expect(parsePackageName("pandas>=1.0")).toBe("pandas");
+      expect(parsePackageName("scipy<2.0")).toBe("scipy");
+      expect(parsePackageName("pyyaml==6.0")).toBe("pyyaml");
+      expect(parsePackageName("requests~=2.28")).toBe("requests");
     });
 
     it("should handle extras", () => {
-      assert.strictEqual(parsePackageName("package[extra]>=1.0"), "package");
+      expect(parsePackageName("package[extra]>=1.0")).toBe("package");
     });
 
     it("should lowercase package names", () => {
-      assert.strictEqual(parsePackageName("NumPy"), "numpy");
+      expect(parsePackageName("NumPy")).toBe("numpy");
     });
   });
 
   describe("PYODIDE_BUILTIN", () => {
     it("should include common scientific packages", () => {
-      assert.ok(PYODIDE_BUILTIN.has("numpy"));
-      assert.ok(PYODIDE_BUILTIN.has("pandas"));
-      assert.ok(PYODIDE_BUILTIN.has("scipy"));
-      assert.ok(PYODIDE_BUILTIN.has("matplotlib"));
+      expect(PYODIDE_BUILTIN.has("numpy")).toBeTruthy();
+      expect(PYODIDE_BUILTIN.has("pandas")).toBeTruthy();
+      expect(PYODIDE_BUILTIN.has("scipy")).toBeTruthy();
+      expect(PYODIDE_BUILTIN.has("matplotlib")).toBeTruthy();
     });
 
     it("should not include non-builtin packages", () => {
-      assert.ok(!PYODIDE_BUILTIN.has("transformers"));
-      assert.ok(!PYODIDE_BUILTIN.has("torch"));
+      expect(!PYODIDE_BUILTIN.has("transformers")).toBeTruthy();
+      expect(!PYODIDE_BUILTIN.has("torch")).toBeTruthy();
     });
   });
 
@@ -52,24 +51,24 @@ describe("DependencyManager", () => {
     it("should compute hash for Uint8Array", async () => {
       const data = new Uint8Array([1, 2, 3, 4]);
       const hash = await sha256(data);
-      assert.strictEqual(typeof hash, "string");
-      assert.strictEqual(hash.length, 64); // SHA-256 = 64 hex chars
+      expect(typeof hash).toBe("string");
+      expect(hash.length).toBe(64); // SHA-256 = 64 hex chars
     });
 
     it("should produce consistent results", async () => {
       const data = new Uint8Array([1, 2, 3, 4]);
       const hash1 = await sha256(data);
       const hash2 = await sha256(data);
-      assert.strictEqual(hash1, hash2);
+      expect(hash1).toBe(hash2);
     });
   });
 
   describe("constructor", () => {
     it("should create with defaults", () => {
       const mgr = new DependencyManager();
-      assert.strictEqual(mgr.vfs, null);
-      assert.strictEqual(mgr.cacheDir, "/cache/pyodide-wheels");
-      assert.strictEqual(mgr.maxCacheBytes, 500 * 1024 * 1024);
+      expect(mgr.vfs).toBe(null);
+      expect(mgr.cacheDir).toBe("/cache/pyodide-wheels");
+      expect(mgr.maxCacheBytes).toBe(500 * 1024 * 1024);
     });
 
     it("should accept custom options", () => {
@@ -79,22 +78,22 @@ describe("DependencyManager", () => {
         cacheDir: "/custom/cache",
         maxCacheBytes: 100 * 1024 * 1024,
       });
-      assert.strictEqual(mgr.vfs, vfs);
-      assert.strictEqual(mgr.cacheDir, "/custom/cache");
-      assert.strictEqual(mgr.maxCacheBytes, 100 * 1024 * 1024);
+      expect(mgr.vfs).toBe(vfs);
+      expect(mgr.cacheDir).toBe("/custom/cache");
+      expect(mgr.maxCacheBytes).toBe(100 * 1024 * 1024);
     });
   });
 
   describe("isBuiltin", () => {
     it("should return true for builtin packages", () => {
       const mgr = new DependencyManager();
-      assert.strictEqual(mgr.isBuiltin("numpy"), true);
-      assert.strictEqual(mgr.isBuiltin("pandas>=1.0"), true);
+      expect(mgr.isBuiltin("numpy")).toBe(true);
+      expect(mgr.isBuiltin("pandas>=1.0")).toBe(true);
     });
 
     it("should return false for non-builtin packages", () => {
       const mgr = new DependencyManager();
-      assert.strictEqual(mgr.isBuiltin("my-custom-package"), false);
+      expect(mgr.isBuiltin("my-custom-package")).toBe(false);
     });
   });
 
@@ -105,9 +104,9 @@ describe("DependencyManager", () => {
         builtin: ["numpy", "pandas"],
       });
 
-      assert.deepStrictEqual(plan.builtin, ["numpy", "pandas"]);
-      assert.deepStrictEqual(plan.micropip, []);
-      assert.deepStrictEqual(plan.wheels, []);
+      expect(plan.builtin).toEqual(["numpy", "pandas"]);
+      expect(plan.micropip).toEqual([]);
+      expect(plan.wheels).toEqual([]);
     });
 
     it("should categorize micropip packages", async () => {
@@ -116,8 +115,8 @@ describe("DependencyManager", () => {
         micropip: ["tabulate>=0.9", "pyyaml"],
       });
 
-      assert.deepStrictEqual(plan.builtin, []);
-      assert.deepStrictEqual(plan.micropip, ["tabulate>=0.9", "pyyaml"]);
+      expect(plan.builtin).toEqual([]);
+      expect(plan.micropip).toEqual(["tabulate>=0.9", "pyyaml"]);
     });
 
     it("should fallback non-builtin to micropip", async () => {
@@ -126,8 +125,8 @@ describe("DependencyManager", () => {
         builtin: ["unknown-package"],
       });
 
-      assert.deepStrictEqual(plan.builtin, []);
-      assert.deepStrictEqual(plan.micropip, ["unknown-package"]);
+      expect(plan.builtin).toEqual([]);
+      expect(plan.micropip).toEqual(["unknown-package"]);
     });
 
     it("should not duplicate already loaded packages", async () => {
@@ -138,7 +137,7 @@ describe("DependencyManager", () => {
         builtin: ["numpy", "pandas"],
       });
 
-      assert.deepStrictEqual(plan.builtin, ["pandas"]);
+      expect(plan.builtin).toEqual(["pandas"]);
     });
 
     it("should pass through wheels", async () => {
@@ -147,8 +146,8 @@ describe("DependencyManager", () => {
         wheels: [{ url: "https://example.com/pkg.whl" }],
       });
 
-      assert.strictEqual(plan.wheels.length, 1);
-      assert.strictEqual(plan.wheels[0].url, "https://example.com/pkg.whl");
+      expect(plan.wheels.length).toBe(1);
+      expect(plan.wheels[0].url).toBe("https://example.com/pkg.whl");
     });
   });
 
@@ -161,8 +160,8 @@ describe("DependencyManager", () => {
         wheels: [],
       });
 
-      assert.ok(script.includes('__pb_builtin = ["numpy","pandas"]'));
-      assert.ok(script.includes("pyodide.loadPackage(__pb_builtin)"));
+      expect(script.includes('__pb_builtin = ["numpy","pandas"]')).toBeTruthy();
+      expect(script.includes("pyodide.loadPackage(__pb_builtin).toBeTruthy()"));
     });
 
     it("should generate micropip install script", () => {
@@ -173,8 +172,8 @@ describe("DependencyManager", () => {
         wheels: [],
       });
 
-      assert.ok(script.includes("pyodide.loadPackage('micropip')"));
-      assert.ok(script.includes('__pb_micropip = ["tabulate"]'));
+      expect(script.includes("pyodide.loadPackage('micropip').toBeTruthy()"));
+      expect(script.includes('__pb_micropip = ["tabulate"]')).toBeTruthy();
     });
 
     it("should generate wheel install script", () => {
@@ -185,7 +184,7 @@ describe("DependencyManager", () => {
         wheels: [{ url: "https://example.com/pkg.whl" }],
       });
 
-      assert.ok(script.includes('__pb_wheels = ["https://example.com/pkg.whl"]'));
+      expect(script.includes('__pb_wheels = ["https://example.com/pkg.whl"]')).toBeTruthy();
     });
 
     it("should use local path for cached wheels", () => {
@@ -196,7 +195,7 @@ describe("DependencyManager", () => {
         wheels: [{ url: "https://example.com/pkg.whl", cached: true, localPath: "/cache/pkg.whl" }],
       });
 
-      assert.ok(script.includes("emfs:/cache/pkg.whl"));
+      expect(script.includes("emfs:/cache/pkg.whl")).toBeTruthy();
     });
 
     it("should return empty string for no dependencies", () => {
@@ -208,8 +207,8 @@ describe("DependencyManager", () => {
       });
 
       // New implementation always generates template script (safe by design)
-      assert.ok(typeof script === "string");
-      assert.ok(script.includes("__pb_builtin = []"));
+      expect(typeof script === "string").toBeTruthy();
+      expect(script.includes("__pb_builtin = []")).toBeTruthy();
     });
   });
 
@@ -217,13 +216,13 @@ describe("DependencyManager", () => {
     it("should track loaded packages", () => {
       const mgr = new DependencyManager();
 
-      assert.strictEqual(mgr.isLoaded("numpy"), false);
+      expect(mgr.isLoaded("numpy")).toBe(false);
 
       mgr.markLoaded(["numpy", "pandas>=1.0"]);
 
-      assert.strictEqual(mgr.isLoaded("numpy"), true);
-      assert.strictEqual(mgr.isLoaded("pandas"), true);
-      assert.strictEqual(mgr.isLoaded("scipy"), false);
+      expect(mgr.isLoaded("numpy")).toBe(true);
+      expect(mgr.isLoaded("pandas")).toBe(true);
+      expect(mgr.isLoaded("scipy")).toBe(false);
     });
   });
 
@@ -232,26 +231,26 @@ describe("DependencyManager", () => {
       const mgr = new DependencyManager();
       const stats = await mgr.getCacheStats();
 
-      assert.strictEqual(stats.available, false);
-      assert.strictEqual(stats.totalSize, 0);
-      assert.strictEqual(stats.fileCount, 0);
+      expect(stats.available).toBe(false);
+      expect(stats.totalSize).toBe(0);
+      expect(stats.fileCount).toBe(0);
     });
 
     it("should return stats with vfs", async () => {
       const mockVfs = {
-        list: mock.fn(() => [
+        list: vi.fn(() => [
           { name: "pkg1.whl", kind: "file" },
           { name: "pkg2.whl", kind: "file" },
         ]),
-        stat: mock.fn(() => ({ size: 1024, mtime: Date.now() })),
+        stat: vi.fn(() => ({ size: 1024, mtime: Date.now() })),
       };
 
       const mgr = new DependencyManager({ vfs: mockVfs });
       const stats = await mgr.getCacheStats();
 
-      assert.strictEqual(stats.available, true);
-      assert.strictEqual(stats.fileCount, 2);
-      assert.strictEqual(stats.totalSize, 2048);
+      expect(stats.available).toBe(true);
+      expect(stats.fileCount).toBe(2);
+      expect(stats.totalSize).toBe(2048);
     });
   });
 });

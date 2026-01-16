@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import {
   safeExec,
@@ -15,7 +15,7 @@ describe("shared/utils/error-utils", () => {
   describe("safeExec", () => {
     it("returns result of successful sync function", () => {
       const result = safeExec(() => 42, { context: "test" });
-      assert.equal(result, 42);
+      expect(result).toBe(42);
     });
 
     it("returns fallback on sync error", () => {
@@ -23,7 +23,7 @@ describe("shared/utils/error-utils", () => {
         () => { throw new Error("fail"); },
         { context: "test", fallback: "default" }
       );
-      assert.equal(result, "default");
+      expect(result).toBe("default");
     });
 
     it("returns undefined fallback by default", () => {
@@ -31,7 +31,7 @@ describe("shared/utils/error-utils", () => {
         () => { throw new Error("fail"); },
         { context: "test" }
       );
-      assert.equal(result, undefined);
+      expect(result).toBe(undefined);
     });
 
     it("calls onError handler on sync error", () => {
@@ -40,13 +40,13 @@ describe("shared/utils/error-utils", () => {
         () => { throw new Error("test error"); },
         { context: "test", onError: (err) => { capturedError = err; } }
       );
-      assert.ok(capturedError);
-      assert.equal(capturedError.message, "test error");
+      expect(capturedError).toBeTruthy();
+      expect(capturedError.message).toBe("test error");
     });
 
     it("returns result of successful async function", async () => {
       const result = await safeExec(async () => 100, { context: "test" });
-      assert.equal(result, 100);
+      expect(result).toBe(100);
     });
 
     it("returns fallback on async error", async () => {
@@ -54,7 +54,7 @@ describe("shared/utils/error-utils", () => {
         async () => { throw new Error("async fail"); },
         { context: "test", fallback: "async default" }
       );
-      assert.equal(result, "async default");
+      expect(result).toBe("async default");
     });
 
     it("calls onError handler on async error", async () => {
@@ -63,13 +63,13 @@ describe("shared/utils/error-utils", () => {
         async () => { throw new Error("async error"); },
         { context: "test", onError: (err) => { capturedError = err; } }
       );
-      assert.ok(capturedError);
-      assert.equal(capturedError.message, "async error");
+      expect(capturedError).toBeTruthy();
+      expect(capturedError.message).toBe("async error");
     });
 
     it("uses default context when not provided", () => {
       const result = safeExec(() => { throw new Error("fail"); });
-      assert.equal(result, undefined);
+      expect(result).toBe(undefined);
     });
   });
 
@@ -77,25 +77,25 @@ describe("shared/utils/error-utils", () => {
     it("returns fallback value", () => {
       const handler = catchAndLog("test", "fallback");
       const result = handler(new Error("test error"));
-      assert.equal(result, "fallback");
+      expect(result).toBe("fallback");
     });
 
     it("handles non-Error objects", () => {
       const handler = catchAndLog("test", "fallback");
       const result = handler("string error");
-      assert.equal(result, "fallback");
+      expect(result).toBe("fallback");
     });
 
     it("returns undefined when no fallback", () => {
       const handler = catchAndLog("test");
       const result = handler(new Error("test"));
-      assert.equal(result, undefined);
+      expect(result).toBe(undefined);
     });
 
     it("can be used with promise catch", async () => {
       const result = await Promise.reject(new Error("fail"))
         .catch(catchAndLog("test", "recovered"));
-      assert.equal(result, "recovered");
+      expect(result).toBe("recovered");
     });
   });
 
@@ -103,25 +103,25 @@ describe("shared/utils/error-utils", () => {
     it("wraps sync function", () => {
       const unsafe = () => 42;
       const safe = makeSafe(unsafe);
-      assert.equal(safe(), 42);
+      expect(safe()).toBe(42);
     });
 
     it("catches sync errors and returns fallback", () => {
       const unsafe = () => { throw new Error("fail"); };
       const safe = makeSafe(unsafe, { fallback: "safe" });
-      assert.equal(safe(), "safe");
+      expect(safe()).toBe("safe");
     });
 
     it("wraps async function", async () => {
       const unsafe = async () => 100;
       const safe = makeSafe(unsafe);
-      assert.equal(await safe(), 100);
+      expect(await safe()).toBe(100);
     });
 
     it("catches async errors and returns fallback", async () => {
       const unsafe = async () => { throw new Error("async fail"); };
       const safe = makeSafe(unsafe, { fallback: "safe" });
-      assert.equal(await safe(), "safe");
+      expect(await safe()).toBe("safe");
     });
 
     it("preserves this context", () => {
@@ -130,33 +130,33 @@ describe("shared/utils/error-utils", () => {
         method() { return this.value; },
       };
       obj.safeMethod = makeSafe(obj.method);
-      assert.equal(obj.safeMethod(), 10);
+      expect(obj.safeMethod()).toBe(10);
     });
 
     it("passes arguments through", () => {
       const unsafe = (a, b) => a + b;
       const safe = makeSafe(unsafe);
-      assert.equal(safe(3, 4), 7);
+      expect(safe(3, 4)).toBe(7);
     });
   });
 
   describe("isErrorType", () => {
     it("returns true for matching error name", () => {
       const err = new TypeError("test");
-      assert.ok(isErrorType(err, "TypeError"));
+      expect(isErrorType(err, "TypeError")).toBeTruthy();
     });
 
     it("returns false for non-matching error name", () => {
       const err = new Error("test");
-      assert.equal(isErrorType(err, "TypeError"), false);
+      expect(isErrorType(err, "TypeError")).toBe(false);
     });
 
     it("returns false for non-Error objects", () => {
-      assert.equal(isErrorType("not an error", "Error"), false);
+      expect(isErrorType("not an error", "Error")).toBe(false);
     });
 
     it("returns false for null", () => {
-      assert.equal(isErrorType(null, "Error"), false);
+      expect(isErrorType(null, "Error")).toBe(false);
     });
   });
 
@@ -164,21 +164,21 @@ describe("shared/utils/error-utils", () => {
     it("returns true for AbortError name", () => {
       const err = new Error("abort");
       err.name = "AbortError";
-      assert.ok(isAbortError(err));
+      expect(isAbortError(err)).toBeTruthy();
     });
 
     it("returns true for ABORT_ERR code", () => {
       const err = new Error("abort");
       err.code = "ABORT_ERR";
-      assert.ok(isAbortError(err));
+      expect(isAbortError(err)).toBeTruthy();
     });
 
     it("returns false for regular Error", () => {
-      assert.equal(isAbortError(new Error("test")), false);
+      expect(isAbortError(new Error("test"))).toBe(false);
     });
 
     it("returns false for null", () => {
-      assert.equal(isAbortError(null), false);
+      expect(isAbortError(null)).toBe(false);
     });
   });
 
@@ -186,17 +186,17 @@ describe("shared/utils/error-utils", () => {
     it("returns true for TimeoutError name", () => {
       const err = new Error("timeout");
       err.name = "TimeoutError";
-      assert.ok(isTimeoutError(err));
+      expect(isTimeoutError(err)).toBeTruthy();
     });
 
     it("returns true for ETIMEDOUT code", () => {
       const err = new Error("timeout");
       err.code = "ETIMEDOUT";
-      assert.ok(isTimeoutError(err));
+      expect(isTimeoutError(err)).toBeTruthy();
     });
 
     it("returns false for regular Error", () => {
-      assert.equal(isTimeoutError(new Error("test")), false);
+      expect(isTimeoutError(new Error("test"))).toBe(false);
     });
   });
 
@@ -205,22 +205,22 @@ describe("shared/utils/error-utils", () => {
       const original = new Error("original message");
       const wrapped = wrapError(original, "Additional context");
 
-      assert.ok(wrapped.message.includes("Additional context"));
-      assert.ok(wrapped.message.includes("original message"));
+      expect(wrapped.message.includes("Additional context")).toBeTruthy();
+      expect(wrapped.message.includes("original message")).toBeTruthy();
     });
 
     it("preserves original error as cause", () => {
       const original = new Error("original");
       const wrapped = wrapError(original, "Context");
 
-      assert.equal(wrapped.cause, original);
+      expect(wrapped.cause).toBe(original);
     });
 
     it("includes original stack in new stack", () => {
       const original = new Error("original");
       const wrapped = wrapError(original, "Context");
 
-      assert.ok(wrapped.stack.includes("Caused by:"));
+      expect(wrapped.stack.includes("Caused by:")).toBeTruthy();
     });
   });
 });

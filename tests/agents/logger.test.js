@@ -1,5 +1,5 @@
-import { describe, it, beforeEach } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import {
   createLogger,
@@ -12,16 +12,16 @@ describe("shared/utils/logger", () => {
   describe("createLogger", () => {
     it("creates logger with default options", () => {
       const logger = createLogger();
-      assert.ok(logger);
-      assert.ok(typeof logger.debug === "function");
-      assert.ok(typeof logger.info === "function");
-      assert.ok(typeof logger.warn === "function");
-      assert.ok(typeof logger.error === "function");
+      expect(logger).toBeTruthy();
+      expect(typeof logger.debug === "function").toBeTruthy();
+      expect(typeof logger.info === "function").toBeTruthy();
+      expect(typeof logger.warn === "function").toBeTruthy();
+      expect(typeof logger.error === "function").toBeTruthy();
     });
 
     it("accepts string as stage name", () => {
       const logger = createLogger("my-stage");
-      assert.ok(logger);
+      expect(logger).toBeTruthy();
     });
 
     it("logs with emit function", () => {
@@ -33,9 +33,9 @@ describe("shared/utils/logger", () => {
 
       logger.info("test message", { extra: "data" });
 
-      assert.equal(emitted.length, 1);
-      assert.ok(emitted[0].event.includes("log.info"));
-      assert.equal(emitted[0].payload.message, "test message");
+      expect(emitted.length).toBe(1);
+      expect(emitted[0].event.includes("log.info")).toBeTruthy();
+      expect(emitted[0].payload.message).toBe("test message");
     });
 
     it("logs error with failed status", () => {
@@ -47,8 +47,8 @@ describe("shared/utils/logger", () => {
 
       logger.error("error message");
 
-      assert.equal(emitted.length, 1);
-      assert.equal(emitted[0].meta.status, "failed");
+      expect(emitted.length).toBe(1);
+      expect(emitted[0].meta.status).toBe("failed");
     });
 
     it("uses getContext function", () => {
@@ -61,7 +61,7 @@ describe("shared/utils/logger", () => {
 
       logger.info("with context");
 
-      assert.equal(emitted[0].requestId, "abc123");
+      expect(emitted[0].requestId).toBe("abc123");
     });
 
     it("does not log when disabled", () => {
@@ -73,7 +73,7 @@ describe("shared/utils/logger", () => {
 
       logger.info("should not emit");
 
-      assert.equal(emitted.length, 0);
+      expect(emitted.length).toBe(0);
     });
 
     it("handles null getContext", () => {
@@ -84,7 +84,7 @@ describe("shared/utils/logger", () => {
       });
 
       logger.info("message");
-      assert.ok(emitted.length === 1);
+      expect(emitted.length === 1).toBeTruthy();
     });
 
     it("handles getContext returning non-object", () => {
@@ -96,12 +96,12 @@ describe("shared/utils/logger", () => {
       });
 
       logger.info("message");
-      assert.ok(emitted[0].message === "message");
+      expect(emitted[0].message === "message").toBeTruthy();
     });
 
     it("handles null options", () => {
       const logger = createLogger(null);
-      assert.ok(logger);
+      expect(logger).toBeTruthy();
     });
 
     it("uses custom actor name", () => {
@@ -113,7 +113,7 @@ describe("shared/utils/logger", () => {
 
       logger.info("test");
 
-      assert.ok(emitted[0].includes("custom-actor"));
+      expect(emitted[0].includes("custom-actor")).toBeTruthy();
     });
 
     it("handles data as non-object", () => {
@@ -123,13 +123,13 @@ describe("shared/utils/logger", () => {
       });
 
       logger.info("message", "string data");
-      assert.ok(emitted[0]);
+      expect(emitted[0]).toBeTruthy();
     });
   });
 
   describe("useLogger", () => {
     it("is alias for createLogger", () => {
-      assert.equal(useLogger, createLogger);
+      expect(useLogger).toBe(createLogger);
     });
   });
 
@@ -137,7 +137,7 @@ describe("shared/utils/logger", () => {
     it("executes function and returns result", async () => {
       const logger = createLogger({ enabled: false });
       const result = await trackToolCall(logger, "testTool", { arg: 1 }, () => 42);
-      assert.equal(result, 42);
+      expect(result).toBe(42);
     });
 
     it("logs tool call and completion", async () => {
@@ -149,9 +149,9 @@ describe("shared/utils/logger", () => {
 
       await trackToolCall(logger, "myTool", { x: 1 }, async () => "result");
 
-      assert.equal(logs.length, 2);
-      assert.ok(logs[0].msg.includes("myTool"));
-      assert.ok(logs[1].msg.includes("completed"));
+      expect(logs.length).toBe(2);
+      expect(logs[0].msg.includes("myTool")).toBeTruthy();
+      expect(logs[1].msg.includes("completed")).toBeTruthy();
     });
 
     it("logs error on failure", async () => {
@@ -161,26 +161,25 @@ describe("shared/utils/logger", () => {
         error: (msg, data) => logs.push({ level: "error", msg, data }),
       };
 
-      await assert.rejects(
-        () => trackToolCall(logger, "failTool", {}, async () => {
+      await expect(() => trackToolCall(logger, "failTool", {}, async () => {
           throw new Error("tool failed");
         }),
         /tool failed/
       );
 
       const errorLog = logs.find((l) => l.level === "error");
-      assert.ok(errorLog);
-      assert.ok(errorLog.msg.includes("failed"));
+      expect(errorLog).toBeTruthy();
+      expect(errorLog.msg.includes("failed")).toBeTruthy();
     });
 
     it("returns result without logger", async () => {
       const result = await trackToolCall(null, "tool", {}, () => "value");
-      assert.equal(result, "value");
+      expect(result).toBe("value");
     });
 
     it("returns result with invalid logger", async () => {
       const result = await trackToolCall({}, "tool", {}, () => 123);
-      assert.equal(result, 123);
+      expect(result).toBe(123);
     });
 
     it("handles array result", async () => {
@@ -192,9 +191,9 @@ describe("shared/utils/logger", () => {
 
       const result = await trackToolCall(logger, "arrayTool", {}, async () => [1, 2, 3]);
 
-      assert.deepEqual(result, [1, 2, 3]);
+      expect(result).toEqual([1, 2, 3]);
       const completionLog = logs.find((l) => l.msg.includes("completed"));
-      assert.ok(completionLog.data.toolCalls[0].result.length === 3);
+      expect(completionLog.data.toolCalls[0].result.length === 3).toBeTruthy();
     });
 
     it("handles non-object result", async () => {
@@ -207,7 +206,7 @@ describe("shared/utils/logger", () => {
       await trackToolCall(logger, "primitiveTool", {}, async () => "string result");
 
       const completionLog = logs.find((l) => l.msg.includes("completed"));
-      assert.equal(completionLog.data.toolCalls[0].result, "string result");
+      expect(completionLog.data.toolCalls[0].result).toBe("string result");
     });
   });
 

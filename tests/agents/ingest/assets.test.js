@@ -1,4 +1,5 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
 const fs = require("node:fs/promises");
@@ -25,7 +26,7 @@ function makePdfFile({ name = "doc.pdf", type = "application/pdf", bytes = Buffe
   };
 }
 
-test("extractAssetsFromMarkdown(): maps placeholders to locators + image data", async () => {
+it("extractAssetsFromMarkdown(): maps placeholders to locators + image data", async () => {
   const { extractAssetsFromMarkdown } = await import("../../../js/agents/ingest/extract-assets.js");
 
   const placeholder = "![Fig](images/img-001.png)";
@@ -33,28 +34,28 @@ test("extractAssetsFromMarkdown(): maps placeholders to locators + image data", 
   const images = [{ id: "img-001.png", data: "data:image/png;base64,AAAA" }];
 
   const assets = extractAssetsFromMarkdown(markdown, images);
-  assert.equal(assets.length, 1);
+  expect(assets.length).toBe(1);
 
   const a0 = assets[0];
-  assert.equal(a0.type, "image");
-  assert.equal(a0.source, "ocr");
-  assert.equal(a0.mimeType, "image/png");
-  assert.equal(a0.data, "data:image/png;base64,AAAA");
+  expect(a0.type).toBe("image");
+  expect(a0.source).toBe("ocr");
+  expect(a0.mimeType).toBe("image/png");
+  expect(a0.data).toBe("data:image/png;base64,AAAA");
 
   const start = markdown.indexOf(placeholder);
-  assert.ok(start >= 0);
-  assert.deepEqual(a0.locator, { charStart: start, charEnd: start + placeholder.length });
-  assert.ok(String(a0.assetId).startsWith("asset_"));
+  expect(start >= 0).toBeTruthy();
+  expect(a0.locator).toEqual({ charStart: start, charEnd: start + placeholder.length });
+  expect(String(a0.assetId).toBeTruthy().startsWith("asset_"));
 });
 
-test("PdfAdapter: calls injected OCR + builds ParsedDocument + extracts assets", async () => {
+it("PdfAdapter: calls injected OCR + builds ParsedDocument + extracts assets", async () => {
   const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
 
   const file = makePdfFile({ name: "paper.pdf" });
   const placeholder = "![P](images/img-001.png)";
   const mockOcr = {
     async processFile(f, onProgress) {
-      assert.equal(f.name, "paper.pdf");
+      expect(f.name).toBe("paper.pdf");
       onProgress?.(50, 100, "halfway");
       return {
         markdown: `# Paper\n\n${placeholder}\n`,
@@ -67,24 +68,24 @@ test("PdfAdapter: calls injected OCR + builds ParsedDocument + extracts assets",
   const adapter = new PdfAdapter({ defaultChunkOptions: { chunkSize: 10, overlap: 0, includeLineNumbers: false } });
   const parsed = await adapter.parse(file, { ocr: mockOcr });
 
-  assert.equal(parsed.sourceType, "pdf");
-  assert.equal(parsed.origin.mimeType, "application/pdf");
-  assert.equal(parsed.origin.filename, "paper.pdf");
-  assert.equal(parsed.metadata.pageCount, 2);
-  assert.equal(parsed.metadata.engine, "mock");
-  assert.ok(parsed.docId.startsWith("pdf_"));
+  expect(parsed.sourceType).toBe("pdf");
+  expect(parsed.origin.mimeType).toBe("application/pdf");
+  expect(parsed.origin.filename).toBe("paper.pdf");
+  expect(parsed.metadata.pageCount).toBe(2);
+  expect(parsed.metadata.engine).toBe("mock");
+  expect(parsed.docId.startsWith("pdf_")).toBeTruthy();
 
-  assert.equal(parsed.markdown.includes("Paper"), true);
-  assert.equal(parsed.textHash.startsWith("sha256:"), true);
-  assert.ok(Array.isArray(parsed.toc) && parsed.toc.length >= 1);
-  assert.ok(Array.isArray(parsed.chunks) && parsed.chunks.length >= 1);
+  expect(parsed.markdown.includes("Paper")).toBe(true);
+  expect(parsed.textHash.startsWith("sha256:")).toBe(true);
+  expect(Array.isArray(parsed.toc ) && parsed.toc.length >= 1).toBeTruthy();
+  expect(Array.isArray(parsed.chunks ) && parsed.chunks.length >= 1).toBeTruthy();
 
-  assert.ok(Array.isArray(parsed.assets) && parsed.assets.length === 1);
-  assert.equal(parsed.assets[0].docId, parsed.docId);
-  assert.equal(parsed.assets[0].locator.charStart, parsed.markdown.indexOf(placeholder));
+  expect(Array.isArray(parsed.assets ) && parsed.assets.length === 1).toBeTruthy();
+  expect(parsed.assets[0].docId).toBe(parsed.docId);
+  expect(parsed.assets[0].locator.charStart).toBe(parsed.markdown.indexOf(placeholder));
 });
 
-test("IngestStage: dispatches application/pdf to PdfAdapter + AssetManager dedups", async () => {
+it("IngestStage: dispatches application/pdf to PdfAdapter + AssetManager dedups", async () => {
   const { IngestStage } = await import("../../../js/agents/ingest/ingest-stage.js");
 
   const file = makePdfFile({ name: "dup.pdf" });
@@ -104,17 +105,17 @@ test("IngestStage: dispatches application/pdf to PdfAdapter + AssetManager dedup
   const stage = new IngestStage({ defaultChunkOptions: { chunkSize: 20, overlap: 0, includeLineNumbers: false } });
   const out = await stage.execute({ runId: "run_pdf_dedup", constraints: {} }, { files: [file] }, { ocr: mockOcr });
 
-  assert.equal(out.metrics.totalDocs, 1);
-  assert.equal(out.metrics.successDocs, 1);
-  assert.equal(out.metrics.failedDocs, 0);
+  expect(out.metrics.totalDocs).toBe(1);
+  expect(out.metrics.successDocs).toBe(1);
+  expect(out.metrics.failedDocs).toBe(0);
 
-  assert.equal(out.assets.length, 1);
-  assert.equal(out.sources.length, 1);
-  assert.equal(out.sources[0].kind, "pdf");
-  assert.deepEqual(out.sources[0].assetIds, [out.assets[0].assetId]);
+  expect(out.assets.length).toBe(1);
+  expect(out.sources.length).toBe(1);
+  expect(out.sources[0].kind).toBe("pdf");
+  expect(out.sources[0].assetIds).toEqual([out.assets[0].assetId]);
 });
 
-test("PdfAdapter: falls back to embedded text extraction when OCR is missing", async () => {
+it("PdfAdapter: falls back to embedded text extraction when OCR is missing", async () => {
   const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
 
   const prior = globalThis.OcrManager;
@@ -122,27 +123,27 @@ test("PdfAdapter: falls back to embedded text extraction when OCR is missing", a
     delete globalThis.OcrManager;
     const adapter = new PdfAdapter();
     const parsed = await adapter.parse(makePdfFile({ bytes: Buffer.from("%PDF-1.4\nHello\n") }), {});
-    assert.equal(parsed.sourceType, "pdf");
-    assert.equal(parsed.metadata.engine, "fallback");
-    assert.ok(String(parsed.markdown).includes("%PDF-1.4"));
+    expect(parsed.sourceType).toBe("pdf");
+    expect(parsed.metadata.engine).toBe("fallback");
+    expect(String(parsed.markdown).toBeTruthy().includes("%PDF-1.4"));
   } finally {
     globalThis.OcrManager = prior;
   }
 });
 
-test("PdfAdapter: validates input type and file-like shape", async () => {
+it("PdfAdapter: validates input type and file-like shape", async () => {
   const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
 
   const adapter = new PdfAdapter();
   const mockOcr = { async processFile() {} };
 
-  await assert.rejects(() => adapter.parse(null, { ocr: mockOcr }), /input must be a path string or a file-like object/);
-  await assert.rejects(() => adapter.parse(123, { ocr: mockOcr }), /input must be a path string or a file-like object/);
+  await expect(() => adapter.parse(null, { ocr: mockOcr }), /input must be a path string or a file-like object/);
+  await expect(() => adapter.parse(123, { ocr: mockOcr }), /input must be a path string or a file-like object/);
 
-  await assert.rejects(() => adapter.parse({ name: "x.pdf" }, { ocr: mockOcr }), /unsupported file-like input/);
+  await expect(() => adapter.parse({ name: "x.pdf" }, { ocr: mockOcr }), /unsupported file-like input/);
 });
 
-test("PdfAdapter: rejects oversized inputs before invoking OCR", async () => {
+it("PdfAdapter: rejects oversized inputs before invoking OCR", async () => {
   const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
 
   let called = false;
@@ -155,18 +156,18 @@ test("PdfAdapter: rejects oversized inputs before invoking OCR", async () => {
 
   const adapter = new PdfAdapter({ maxFileSize: 10 });
   const file = makePdfFile({ name: "big.pdf", bytes: Buffer.alloc(11) });
-  await assert.rejects(() => adapter.parse(file, { ocr: mockOcr }), /file too large/);
-  assert.equal(called, false);
+  await expect(() => adapter.parse(file, { ocr: mockOcr }), /file too large/);
+  expect(called).toBe(false);
 
   await withTempDir(async (dir) => {
     const pdfPath = path.join(dir, "big.pdf");
     await fs.writeFile(pdfPath, Buffer.alloc(11));
-    await assert.rejects(() => adapter.parse(pdfPath, { ocr: mockOcr }), /file too large/);
-    assert.equal(called, false);
+    await expect(() => adapter.parse(pdfPath, { ocr: mockOcr }), /file too large/);
+    expect(called).toBe(false);
   });
 });
 
-test("PdfAdapter: propagates OCR failure", async () => {
+it("PdfAdapter: propagates OCR failure", async () => {
   const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
 
   const adapter = new PdfAdapter();
@@ -176,10 +177,10 @@ test("PdfAdapter: propagates OCR failure", async () => {
     },
   };
 
-  await assert.rejects(() => adapter.parse(makePdfFile(), { ocr: mockOcr }), /ocr failed/);
+  await expect(() => adapter.parse(makePdfFile(), { ocr: mockOcr }), /ocr failed/);
 });
 
-test("PdfAdapter: handles empty markdown, missing images, and malformed image paths", async () => {
+it("PdfAdapter: handles empty markdown, missing images, and malformed image paths", async () => {
   const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
 
   const adapter = new PdfAdapter({ defaultChunkOptions: { chunkSize: 20, overlap: 0, includeLineNumbers: false } });
@@ -194,12 +195,12 @@ test("PdfAdapter: handles empty markdown, missing images, and malformed image pa
   };
 
   const parsed = await adapter.parse(makePdfFile({ name: "edge.PDF", type: "" }), { ocr: mockOcr });
-  assert.equal(parsed.origin.mimeType, "application/pdf");
-  assert.equal(parsed.markdown, "![Broken](images/img-1.png\n\n");
-  assert.ok(Array.isArray(parsed.assets) && parsed.assets.length === 0);
+  expect(parsed.origin.mimeType).toBe("application/pdf");
+  expect(parsed.markdown).toBe("![Broken](images/img-1.png\n\n");
+  expect(Array.isArray(parsed.assets ) && parsed.assets.length === 0).toBeTruthy();
 });
 
-test("PdfAdapter: supports string path input (reads file) and forwards onProgress", async () => {
+it("PdfAdapter: supports string path input (reads file) and forwards onProgress", async () => {
   const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
 
   await withTempDir(async (dir) => {
@@ -212,8 +213,8 @@ test("PdfAdapter: supports string path input (reads file) and forwards onProgres
       async processFile(file, onProgress) {
         onProgress?.(1, 2, "starting");
         const ab = await file.arrayBuffer();
-        assert.ok(ab instanceof ArrayBuffer);
-        assert.equal(ab.byteLength, bytes.length);
+        expect(ab instanceof ArrayBuffer).toBeTruthy();
+        expect(ab.byteLength).toBe(bytes.length);
         onProgress?.(2, 2, "done");
         return { markdown: "# OK\n", images: [] };
       },
@@ -228,13 +229,13 @@ test("PdfAdapter: supports string path input (reads file) and forwards onProgres
       },
     });
 
-    assert.equal(parsed.origin.filename, "X.PDF");
-    assert.equal(parsed.origin.mimeType, "application/pdf");
-    assert.ok(stageProgress.length >= 2);
+    expect(parsed.origin.filename).toBe("X.PDF");
+    expect(parsed.origin.mimeType).toBe("application/pdf");
+    expect(stageProgress.length >= 2).toBeTruthy();
   });
 });
 
-test("PdfAdapter: falls back to globalThis.OcrManager (object and class) when stageApi.ocr missing", async () => {
+it("PdfAdapter: falls back to globalThis.OcrManager (object and class) when stageApi.ocr missing", async () => {
   const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
 
   const prior = globalThis.OcrManager;
@@ -252,9 +253,9 @@ test("PdfAdapter: falls back to globalThis.OcrManager (object and class) when st
     };
 
     const parsed1 = await adapter.parse(makePdfFile({ name: "a.pdf" }), { ocr: {} });
-    assert.equal(parsed1.metadata.engine, "global_object");
-    assert.equal(parsed1.assets.length, 1);
-    assert.equal(parsed1.assets[0].mimeType, "image/jpeg");
+    expect(parsed1.metadata.engine).toBe("global_object");
+    expect(parsed1.assets.length).toBe(1);
+    expect(parsed1.assets[0].mimeType).toBe("image/jpeg");
 
     globalThis.OcrManager = class {
       async processFile() {
@@ -263,14 +264,14 @@ test("PdfAdapter: falls back to globalThis.OcrManager (object and class) when st
     };
 
     const parsed2 = await adapter.parse(makePdfFile({ name: "b.pdf" }), {});
-    assert.equal(parsed2.metadata.engine, "global_class");
-    assert.equal(parsed2.assets.length, 0);
+    expect(parsed2.metadata.engine).toBe("global_class");
+    expect(parsed2.assets.length).toBe(0);
   } finally {
     globalThis.OcrManager = prior;
   }
 });
 
-test("PdfAdapter: uses application/octet-stream when file-like has no type and non-pdf name", async () => {
+it("PdfAdapter: uses application/octet-stream when file-like has no type and non-pdf name", async () => {
   const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
 
   const adapter = new PdfAdapter();
@@ -286,5 +287,5 @@ test("PdfAdapter: uses application/octet-stream when file-like has no type and n
     { ocr: mockOcr }
   );
 
-  assert.equal(parsed.origin.mimeType, "application/octet-stream");
+  expect(parsed.origin.mimeType).toBe("application/octet-stream");
 });

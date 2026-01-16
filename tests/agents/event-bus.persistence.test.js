@@ -1,3 +1,5 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
@@ -25,7 +27,7 @@ async function deleteDb(dbName) {
   });
 }
 
-test("EventBus persistence: no adapter keeps behavior unchanged", async () => {
+it("EventBus persistence: no adapter keeps behavior unchanged", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const bus = new EventBus({ runId: "run_no_adapter" });
@@ -34,12 +36,12 @@ test("EventBus persistence: no adapter keeps behavior unchanged", async () => {
   bus.on("*", (e) => seen.push(e));
 
   const evt = bus.emit("run.started", { actor: "system", status: "started", payload: { ok: true } });
-  assert.equal(evt.runId, "run_no_adapter");
-  assert.equal(seen.length, 1);
-  assert.equal(seen[0].eventId, evt.eventId);
+  expect(evt.runId).toBe("run_no_adapter");
+  expect(seen.length).toBe(1);
+  expect(seen[0].eventId).toBe(evt.eventId);
 });
 
-test("EventBus persistence: emit() calls adapter.appendEvents asynchronously", async () => {
+it("EventBus persistence: emit() calls adapter.appendEvents asynchronously", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const calls = [];
@@ -55,21 +57,21 @@ test("EventBus persistence: emit() calls adapter.appendEvents asynchronously", a
   const bus = new EventBus({ runId: "run_persist", persistenceAdapter: adapter });
 
   const evt = bus.emit("run.progress", { pct: 50 });
-  assert.equal(calls.length, 0);
+  expect(calls.length).toBe(0);
 
   await tick();
-  assert.equal(calls.length, 1);
-  assert.equal(Array.isArray(calls[0]), true);
-  assert.equal(calls[0].length, 1);
+  expect(calls.length).toBe(1);
+  expect(Array.isArray(calls[0])).toBe(true);
+  expect(calls[0].length).toBe(1);
 
   const persisted = calls[0][0];
-  assert.equal(persisted.runId, "run_persist");
-  assert.equal(persisted.eventId, evt.eventId);
-  assert.equal(persisted.name, "run.progress");
-  assert.deepEqual(persisted.payload, { pct: 50 });
+  expect(persisted.runId).toBe("run_persist");
+  expect(persisted.eventId).toBe(evt.eventId);
+  expect(persisted.name).toBe("run.progress");
+  expect(persisted.payload).toEqual({ pct: 50 });
 });
 
-test("EventBus replay(runId): calls getEvents, marks meta.replay, does not re-persist, seq unchanged", async () => {
+it("EventBus replay(runId): calls getEvents, marks meta.replay, does not re-persist, seq unchanged", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const persistedBatches = [];
@@ -100,10 +102,10 @@ test("EventBus replay(runId): calls getEvents, marks meta.replay, does not re-pe
   const bus = new EventBus({ runId: "run_replay", persistenceAdapter: adapter });
 
   const evt1 = bus.emit("run.progress", { pct: 1 });
-  assert.match(evt1.eventId, /_1$/);
+  expect(evt1.eventId).toMatch(/_1$/);
 
   await tick();
-  assert.equal(persistedBatches.length, 1);
+  expect(persistedBatches.length).toBe(1);
 
   const seen = [];
   bus.on("run.progress", (e) => seen.push(e));
@@ -111,20 +113,20 @@ test("EventBus replay(runId): calls getEvents, marks meta.replay, does not re-pe
   const persistedCountBeforeReplay = persistedBatches.length;
   const replayed = await bus.replay("run_replay");
 
-  assert.equal(getEventsRunId, "run_replay");
-  assert.equal(replayed.length, 1);
-  assert.equal(seen.length, 1);
-  assert.equal(seen[0].meta.replay, true);
-  assert.equal(seen[0].meta.fromStore, true);
+  expect(getEventsRunId).toBe("run_replay");
+  expect(replayed.length).toBe(1);
+  expect(seen.length).toBe(1);
+  expect(seen[0].meta.replay).toBe(true);
+  expect(seen[0].meta.fromStore).toBe(true);
 
   await tick();
-  assert.equal(persistedBatches.length, persistedCountBeforeReplay);
+  expect(persistedBatches.length).toBe(persistedCountBeforeReplay);
 
   const evt2 = bus.emit("run.progress", { pct: 2 });
-  assert.match(evt2.eventId, /_2$/);
+  expect(evt2.eventId).toMatch(/_2$/);
 });
 
-test("EventBus replay(runId): syncs Lamport clock to replayed seq for cross-stage ordering", async () => {
+it("EventBus replay(runId): syncs Lamport clock to replayed seq for cross-stage ordering", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const remoteSeq = 1_000_000_000;
@@ -151,11 +153,11 @@ test("EventBus replay(runId): syncs Lamport clock to replayed seq for cross-stag
   await bus.replay("run_lamport");
 
   const evt = bus.emit("run.progress", { pct: 20 });
-  assert.ok(evt.seq > remoteSeq);
-  assert.ok(evt._clock && evt._clock.seq > remoteSeq);
+  expect(evt.seq > remoteSeq).toBeTruthy();
+  expect(evt._clock && evt._clock.seq > remoteSeq).toBeTruthy();
 });
 
-test("EventBus replay(runId): missing runId throws clear error", async () => {
+it("EventBus replay(runId): missing runId throws clear error", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const adapter = {
@@ -166,24 +168,24 @@ test("EventBus replay(runId): missing runId throws clear error", async () => {
   };
 
   const bus = new EventBus({ runId: "run_x", persistenceAdapter: adapter });
-  await assert.rejects(() => bus.replay("run_missing"), /no events found.*runId=run_missing/i);
+  await expect(() => bus.replay("run_missing")).rejects.toThrow(/no events found.*runId=run_missing/i);
 });
 
-test("EventBus persistenceAdapter validation: missing methods throws", async () => {
+it("EventBus persistenceAdapter validation: missing methods throws", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
-  assert.throws(() => new EventBus({ persistenceAdapter: {} }), /persistenceAdapter\.appendEvents/i);
-  assert.throws(() => new EventBus({ persistenceAdapter: { appendEvents() {} } }), /persistenceAdapter\.getEvents/i);
-  assert.throws(() => new EventBus({ persistenceAdapter: 123 }), /persistenceAdapter must be an object/i);
+  expect(() => new EventBus({ persistenceAdapter: {} })).toThrow(/persistenceAdapter\.appendEvents/i);
+  expect(() => new EventBus({ persistenceAdapter: { appendEvents() {} } })).toThrow(/persistenceAdapter\.getEvents/i);
+  expect(() => new EventBus({ persistenceAdapter: 123 })).toThrow(/persistenceAdapter must be an object/i);
 });
 
-test("RunStoreAdapter integrates with RunStore (IndexedDB via fake-indexeddb)", async () => {
+it("RunStoreAdapter integrates with RunStore (IndexedDB via fake-indexeddb)", async () => {
   const { EventBus, RunStoreAdapter, createEventId, createEventRecord } = await import("../../js/agents/core/event-bus.js");
   const { RunStore } = await import("../../js/agents/storage/run-store.js");
 
   // Small extra coverage for helpers.
-  assert.equal(createEventId(null, 1), "evt_run_unknown_1");
-  assert.throws(() => createEventRecord({ name: "Bad.Name" }), /Invalid event name/i);
+  expect(createEventId(null, 1)).toBe("evt_run_unknown_1");
+  expect(() => createEventRecord({ name: "Bad.Name" })).toThrow(/Invalid event name/i);
 
   const dbName = `EventBusRunStoreAdapter_${Date.now()}_${Math.random().toString(16).slice(2)}`;
   await deleteDb(dbName);
@@ -199,33 +201,33 @@ test("RunStoreAdapter integrates with RunStore (IndexedDB via fake-indexeddb)", 
   await waitFor(async () => (await runStore.getEvents(runId)).length === 2);
 
   const storedBeforeReplay = await runStore.getEvents(runId);
-  assert.equal(storedBeforeReplay.length, 2);
-  assert.equal(storedBeforeReplay[0].runId, runId);
-  assert.ok(storedBeforeReplay[0].eventId);
+  expect(storedBeforeReplay.length).toBe(2);
+  expect(storedBeforeReplay[0].runId).toBe(runId);
+  expect(storedBeforeReplay[0].eventId).toBeTruthy();
 
   const replayBus = new EventBus({ runId: "run_store_replay", persistenceAdapter: adapter });
   const replayedSeen = [];
   replayBus.on("*", (e) => replayedSeen.push(e));
   await replayBus.replay(runId);
-  assert.equal(replayedSeen.length, 2);
-  assert.ok(replayedSeen.every((e) => e.meta && e.meta.replay === true));
+  expect(replayedSeen.length).toBe(2);
+  expect(replayedSeen.every(e => e.meta && e.meta.replay === true)).toBeTruthy();
 
   const storedAfterReplay = await runStore.getEvents(runId);
-  assert.equal(storedAfterReplay.length, 2);
+  expect(storedAfterReplay.length).toBe(2);
 
   await runStore.close();
   await deleteDb(dbName);
 });
 
-test("EventBus.on(): validates handler type and event name", async () => {
+it("EventBus.on(): validates handler type and event name", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
   const bus = new EventBus({ runId: "run_on_validate" });
 
-  assert.throws(() => bus.on("run.started", 123), /handler must be a function/i);
-  assert.throws(() => bus.on("Run.Started", () => {}), /Invalid event name/i);
+  expect(() => bus.on("run.started", 123)).toThrow(/handler must be a function/i);
+  expect(() => bus.on("Run.Started", () => {})).toThrow(/Invalid event name/i);
 });
 
-test("EventBus.once()/off(): basic lifecycle", async () => {
+it("EventBus.once()/off(): basic lifecycle", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
   const bus = new EventBus({ runId: "run_once_off" });
 
@@ -235,7 +237,7 @@ test("EventBus.once()/off(): basic lifecycle", async () => {
   });
   bus.emit("run.started", { actor: "system", status: "started" });
   bus.emit("run.started", { actor: "system", status: "started" });
-  assert.equal(onceHits, 1);
+  expect(onceHits).toBe(1);
 
   let offHits = 0;
   const fn = () => {
@@ -244,14 +246,14 @@ test("EventBus.once()/off(): basic lifecycle", async () => {
   bus.on("run.ended", fn);
   bus.off("run.ended", fn);
   bus.emit("run.ended", { actor: "system", status: "ended" });
-  assert.equal(offHits, 0);
+  expect(offHits).toBe(0);
 
   // Empty backpressure queue flush branch.
   bus.enableBackpressure({ batchWindowMs: 0 });
   bus.disableBackpressure();
 });
 
-test("EventBus backpressure: coalesces *.progress and keeps non-progress events", async () => {
+it("EventBus backpressure: coalesces *.progress and keeps non-progress events", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
   const bus = new EventBus({ runId: "run_bp" });
 
@@ -265,17 +267,17 @@ test("EventBus backpressure: coalesces *.progress and keeps non-progress events"
   for (let i = 1; i <= 5; i++) bus.emit("textprep.chunk.progress", { pct: i });
   bus.emit("textprep.chunk.ended", { actor: "system", status: "ended" });
 
-  assert.equal(seen.length, 0);
+  expect(seen.length).toBe(0);
   await new Promise((resolve) => setTimeout(resolve, 0));
 
-  assert.equal(seen.length, 3);
-  assert.equal(seen[0].name, "textprep.chunk.started");
-  assert.equal(seen[1].name, "textprep.chunk.progress");
-  assert.deepEqual(seen[1].payload, { pct: 5 });
-  assert.equal(seen[2].name, "textprep.chunk.ended");
+  expect(seen.length).toBe(3);
+  expect(seen[0].name).toBe("textprep.chunk.started");
+  expect(seen[1].name).toBe("textprep.chunk.progress");
+  expect(seen[1].payload).toEqual({ pct: 5 });
+  expect(seen[2].name).toBe("textprep.chunk.ended");
 });
 
-test("EventBus backpressure: disableBackpressure flushes queue and restores synchronous emit", async () => {
+it("EventBus backpressure: disableBackpressure flushes queue and restores synchronous emit", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
   const bus = new EventBus({ runId: "run_bp_disable" });
 
@@ -284,36 +286,36 @@ test("EventBus backpressure: disableBackpressure flushes queue and restores sync
 
   bus.enableBackpressure({ batchWindowMs: 10_000 });
   bus.emit("run.started", { actor: "system", status: "started" });
-  assert.equal(hits, 0);
+  expect(hits).toBe(0);
 
   bus.disableBackpressure();
-  assert.equal(hits, 1);
+  expect(hits).toBe(1);
 
   bus.emit("run.started", { actor: "system", status: "started" });
-  assert.equal(hits, 2);
+  expect(hits).toBe(2);
 });
 
-test("EventBus backpressure: option validation and re-enable flushes pending queue", async () => {
+it("EventBus backpressure: option validation and re-enable flushes pending queue", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
   const bus = new EventBus({ runId: "run_bp_opts" });
 
-  assert.throws(() => bus.enableBackpressure("nope"), /options must be an object/i);
-  assert.throws(() => bus.enableBackpressure({ batchWindowMs: -1 }), /batchWindowMs/i);
-  assert.throws(() => bus.enableBackpressure({ coalescePattern: "nope" }), /coalescePattern/i);
+  expect(() => bus.enableBackpressure("nope")).toThrow(/options must be an object/i);
+  expect(() => bus.enableBackpressure({ batchWindowMs: -1 })).toThrow(/batchWindowMs/i);
+  expect(() => bus.enableBackpressure({ coalescePattern: "nope" })).toThrow(/coalescePattern/i);
 
   const seen = [];
   bus.on("run.started", (e) => seen.push(e));
 
   bus.enableBackpressure({ batchWindowMs: 10_000 });
   bus.emit("run.started", { actor: "system", status: "started" });
-  assert.equal(seen.length, 0);
+  expect(seen.length).toBe(0);
 
   // Calling enableBackpressure again flushes any pending queue.
   bus.enableBackpressure({ batchWindowMs: 0 });
-  assert.equal(seen.length, 1);
+  expect(seen.length).toBe(1);
 });
 
-test("EventBus backpressure: requestAnimationFrame scheduling and cancellation", async () => {
+it("EventBus backpressure: requestAnimationFrame scheduling and cancellation", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const prevRaf = globalThis.requestAnimationFrame;
@@ -338,24 +340,24 @@ test("EventBus backpressure: requestAnimationFrame scheduling and cancellation",
     bus.enableBackpressure({ batchWindowMs: 0 });
     bus.emit("run.progress", { pct: 1 });
 
-    assert.equal(typeof rafCb, "function");
-    assert.equal(hits, 0);
+    expect(typeof rafCb).toBe("function");
+    expect(hits).toBe(0);
 
     // Disable should cancel and flush immediately.
     bus.disableBackpressure();
-    assert.deepEqual(cancelled, [1]);
-    assert.equal(hits, 1);
+    expect(cancelled).toEqual([1]);
+    expect(hits).toBe(1);
 
     // Late rAF callback should be a no-op.
     rafCb();
-    assert.equal(hits, 1);
+    expect(hits).toBe(1);
   } finally {
     globalThis.requestAnimationFrame = prevRaf;
     globalThis.cancelAnimationFrame = prevCancel;
   }
 });
 
-test("EventBus persistence: adapter errors are best-effort (no unhandled rejection)", async () => {
+it("EventBus persistence: adapter errors are best-effort (no unhandled rejection)", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   {
@@ -391,32 +393,32 @@ test("EventBus persistence: adapter errors are best-effort (no unhandled rejecti
   }
 });
 
-test("EventBus.replay(runId): argument and adapter return validation", async () => {
+it("EventBus.replay(runId): argument and adapter return validation", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const busNoAdapter = new EventBus({ runId: "run_no_adapter_2" });
-  await assert.rejects(() => busNoAdapter.replay("run_no_adapter_2"), /persistenceAdapter is required/i);
+  await expect(() => busNoAdapter.replay("run_no_adapter_2")).rejects.toThrow(/persistenceAdapter is required/i);
 
   const busBadRunId = new EventBus({
     runId: "run_bad_runid",
     persistenceAdapter: { appendEvents() {}, async getEvents() { return []; } },
   });
-  await assert.rejects(() => busBadRunId.replay(null), /runId must be a string/i);
+  await expect(() => busBadRunId.replay(null)).rejects.toThrow(/runId must be a string/i);
 
   const busNonArray = new EventBus({
     runId: "run_nonarray",
     persistenceAdapter: { appendEvents() {}, async getEvents() { return "nope"; } },
   });
-  await assert.rejects(() => busNonArray.replay("run_nonarray"), /must return an array/i);
+  await expect(() => busNonArray.replay("run_nonarray")).rejects.toThrow(/must return an array/i);
 
   const busThrows = new EventBus({
     runId: "run_throws",
     persistenceAdapter: { appendEvents() {}, async getEvents() { throw new Error("db down"); } },
   });
-  await assert.rejects(() => busThrows.replay("run_throws"), /failed to load events.*db down/i);
+  await expect(() => busThrows.replay("run_throws")).rejects.toThrow(/failed to load events.*db down/i);
 });
 
-test("RunStoreAdapter: supports appendEvent-only runStore and validates inputs", async () => {
+it("RunStoreAdapter: supports appendEvent-only runStore and validates inputs", async () => {
   const { RunStoreAdapter } = await import("../../js/agents/core/event-bus.js");
 
   const appended = [];
@@ -432,34 +434,34 @@ test("RunStoreAdapter: supports appendEvent-only runStore and validates inputs",
 
   const adapter = new RunStoreAdapter(runStore);
 
-  assert.throws(() => new RunStoreAdapter({ appendEvents() {} }), /getEvents/i);
-  assert.throws(() => new RunStoreAdapter({ getEvents() {} }), /appendEvents\/appendEvent/i);
-  await assert.rejects(() => adapter.appendEvents("nope"), /events must be an array/i);
-  await assert.rejects(() => adapter.appendEvents([{ eventId: "evt_x" }]), /must include a string runId/i);
+  expect(() => new RunStoreAdapter({ appendEvents() {} })).toThrow(/getEvents/i);
+  expect(() => new RunStoreAdapter({ getEvents() {} })).toThrow(/appendEvents\/appendEvent/i);
+  await expect(() => adapter.appendEvents("nope")).rejects.toThrow(/events must be an array/i);
+  await expect(() => adapter.appendEvents([{ eventId: "evt_x" }])).rejects.toThrow(/must include a string runId/i);
 
   const count = await adapter.appendEvents([
     { runId: "run_a", eventId: "evt_a_1", name: "run.started" },
     { runId: "run_a", eventId: "evt_a_2", name: "run.progress" },
   ]);
-  assert.equal(count, 2);
-  assert.equal(appended.length, 2);
+  expect(count).toBe(2);
+  expect(appended.length).toBe(2);
 });
 
-test("isValidEventName allows underscores in segments", async () => {
+it("isValidEventName allows underscores in segments", async () => {
   const { isValidEventName } = await import("../../js/agents/core/event-bus.js");
 
   // 带下划线的事件名应该有效
-  assert.equal(isValidEventName("deepsearch.write.react.parse_retry"), true);
-  assert.equal(isValidEventName("design.refine.finish_accepted"), true);
-  assert.equal(isValidEventName("a_b.c_d.e_f"), true);
+  expect(isValidEventName("deepsearch.write.react.parse_retry")).toBe(true);
+  expect(isValidEventName("design.refine.finish_accepted")).toBe(true);
+  expect(isValidEventName("a_b.c_d.e_f")).toBe(true);
 
   // 原有规则仍然有效
-  assert.equal(isValidEventName("run.started"), true);
-  assert.equal(isValidEventName("single"), true);
+  expect(isValidEventName("run.started")).toBe(true);
+  expect(isValidEventName("single")).toBe(true);
 
   // 无效情况
-  assert.equal(isValidEventName(""), false);
-  assert.equal(isValidEventName(".start"), false);
-  assert.equal(isValidEventName("end."), false);
-  assert.equal(isValidEventName("A.B"), false); // 大写不允许
+  expect(isValidEventName("")).toBe(false);
+  expect(isValidEventName(".start")).toBe(false);
+  expect(isValidEventName("end.")).toBe(false);
+  expect(isValidEventName("A.B")).toBe(false); // 大写不允许
 });

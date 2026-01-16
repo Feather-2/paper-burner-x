@@ -1,4 +1,5 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
 async function loadModules() {
@@ -20,7 +21,7 @@ function makeLogger() {
   return { info: () => {}, warn: () => {} };
 }
 
-test("BacktrackManager backtrack without extra params behaves as before", async () => {
+it("BacktrackManager backtrack without extra params behaves as before", async () => {
   const { BacktrackManager, DeepSearchState } = await loadModules();
   const restoredState = new DeepSearchState({ runId: "restored" });
   restoredState.todos = [{ todoId: "todo_1", status: "open" }];
@@ -35,19 +36,19 @@ test("BacktrackManager backtrack without extra params behaves as before", async 
   const state = new DeepSearchState({ runId: "run_1" });
   const result = await manager.backtrack(state, "checkpoint_1");
 
-  assert.equal(result.success, true);
-  assert.equal(result.reason, "restored");
-  assert.ok(result.state instanceof DeepSearchState);
+  expect(result.success).toBe(true);
+  expect(result.reason).toBe("restored");
+  expect(result.state instanceof DeepSearchState).toBeTruthy();
 
-  assert.equal(events.length, 1);
-  assert.equal(events[0].name, "deepsearch.agent.backtracked");
-  assert.equal(events[0].payload.checkpointId, "checkpoint_1");
-  assert.equal(events[0].payload.backtrackCount, 1);
-  assert.equal(events[0].payload.failReason, null);
-  assert.equal(events[0].payload.correctionHint, null);
+  expect(events.length).toBe(1);
+  expect(events[0].name).toBe("deepsearch.agent.backtracked");
+  expect(events[0].payload.checkpointId).toBe("checkpoint_1");
+  expect(events[0].payload.backtrackCount).toBe(1);
+  expect(events[0].payload.failReason).toBe(null);
+  expect(events[0].payload.correctionHint).toBe(null);
 });
 
-test("BacktrackManager backtrack includes failReason in event payload", async () => {
+it("BacktrackManager backtrack includes failReason in event payload", async () => {
   const { BacktrackManager, DeepSearchState } = await loadModules();
   const restoredState = new DeepSearchState({ runId: "restored" });
   const events = [];
@@ -61,13 +62,13 @@ test("BacktrackManager backtrack includes failReason in event payload", async ()
   const state = new DeepSearchState({ runId: "run_1" });
   const result = await manager.backtrack(state, "checkpoint_2", { failReason: "validation_failed" });
 
-  assert.equal(result.success, true);
-  assert.equal(events.length, 1);
-  assert.equal(events[0].payload.failReason, "validation_failed");
-  assert.equal(events[0].payload.correctionHint, null);
+  expect(result.success).toBe(true);
+  expect(events.length).toBe(1);
+  expect(events[0].payload.failReason).toBe("validation_failed");
+  expect(events[0].payload.correctionHint).toBe(null);
 });
 
-test("BacktrackManager backtrack calls sharedContext.signal when provided", async () => {
+it("BacktrackManager backtrack calls sharedContext.signal when provided", async () => {
   const { BacktrackManager, DeepSearchState } = await loadModules();
   const restoredState = new DeepSearchState({ runId: "restored" });
   const events = [];
@@ -89,17 +90,17 @@ test("BacktrackManager backtrack calls sharedContext.signal when provided", asyn
     sharedContext,
   });
 
-  assert.equal(result.success, true);
-  assert.equal(signals.length, 1);
-  assert.equal(signals[0].name, "backtrack_hint");
-  assert.equal(signals[0].payload.stage, "backtrack-manager");
-  assert.equal(signals[0].payload.failReason, "timeout");
-  assert.equal(signals[0].payload.correctionHint, "retry_with_smaller_batch");
-  assert.equal(signals[0].payload.checkpointId, "checkpoint_3");
-  assert.equal(signals[0].payload.backtrackCount, 1);
+  expect(result.success).toBe(true);
+  expect(signals.length).toBe(1);
+  expect(signals[0].name).toBe("backtrack_hint");
+  expect(signals[0].payload.stage).toBe("backtrack-manager");
+  expect(signals[0].payload.failReason).toBe("timeout");
+  expect(signals[0].payload.correctionHint).toBe("retry_with_smaller_batch");
+  expect(signals[0].payload.checkpointId).toBe("checkpoint_3");
+  expect(signals[0].payload.backtrackCount).toBe(1);
 });
 
-test("BacktrackManager backtrack degrades gracefully without sharedContext", async () => {
+it("BacktrackManager backtrack degrades gracefully without sharedContext", async () => {
   const { BacktrackManager, DeepSearchState } = await loadModules();
   const restoredState = new DeepSearchState({ runId: "restored" });
   const events = [];
@@ -113,23 +114,23 @@ test("BacktrackManager backtrack degrades gracefully without sharedContext", asy
   const state = new DeepSearchState({ runId: "run_1" });
   const result = await manager.backtrack(state, "checkpoint_4", { sharedContext: null });
 
-  assert.equal(result.success, true);
-  assert.equal(events.length, 1);
-  assert.equal(events[0].payload.checkpointId, "checkpoint_4");
+  expect(result.success).toBe(true);
+  expect(events.length).toBe(1);
+  expect(events[0].payload.checkpointId).toBe("checkpoint_4");
 });
 
-test("BacktrackManager returns no_archive when archive is missing", async () => {
+it("BacktrackManager returns no_archive when archive is missing", async () => {
   const { BacktrackManager, DeepSearchState } = await loadModules();
   const manager = new BacktrackManager();
 
   const state = new DeepSearchState({ runId: "run_1" });
   const result = await manager.backtrack(state, "checkpoint_1");
 
-  assert.equal(result.success, false);
-  assert.equal(result.reason, "no_archive");
+  expect(result.success).toBe(false);
+  expect(result.reason).toBe("no_archive");
 });
 
-test("BacktrackManager emits backtrack_limit and summarizes todos", async () => {
+it("BacktrackManager emits backtrack_limit and summarizes todos", async () => {
   const { BacktrackManager, DeepSearchState } = await loadModules();
   const events = [];
   const state = new DeepSearchState({ runId: "run_1" });
@@ -149,11 +150,11 @@ test("BacktrackManager emits backtrack_limit and summarizes todos", async () => 
 
   const result = await manager.backtrack(state, "checkpoint_limit");
 
-  assert.equal(result.success, false);
-  assert.equal(result.reason, "limit_reached");
-  assert.equal(events.length, 1);
-  assert.equal(events[0].name, "deepsearch.agent.backtrack_limit");
-  assert.deepEqual(events[0].payload.todoContext, {
+  expect(result.success).toBe(false);
+  expect(result.reason).toBe("limit_reached");
+  expect(events.length).toBe(1);
+  expect(events[0].name).toBe("deepsearch.agent.backtrack_limit");
+  expect(events[0].payload.todoContext).toEqual({
     todoCount: 3,
     openTodoCount: 1,
     completedTodoCount: 1,
@@ -162,7 +163,7 @@ test("BacktrackManager emits backtrack_limit and summarizes todos", async () => 
   });
 });
 
-test("BacktrackManager uses default hints when sharedContext is provided", async () => {
+it("BacktrackManager uses default hints when sharedContext is provided", async () => {
   const { BacktrackManager, DeepSearchState } = await loadModules();
   const restoredState = new DeepSearchState({ runId: "restored" });
   const signals = [];
@@ -178,13 +179,13 @@ test("BacktrackManager uses default hints when sharedContext is provided", async
   const state = new DeepSearchState({ runId: "run_1" });
   const result = await manager.backtrack(state, "checkpoint_default_hint", { sharedContext });
 
-  assert.equal(result.success, true);
-  assert.equal(signals.length, 1);
-  assert.equal(signals[0].payload.failReason, "unknown");
-  assert.equal(signals[0].payload.correctionHint, null);
+  expect(result.success).toBe(true);
+  expect(signals.length).toBe(1);
+  expect(signals[0].payload.failReason).toBe("unknown");
+  expect(signals[0].payload.correctionHint).toBe(null);
 });
 
-test("BacktrackManager handles non-array todos in limit event", async () => {
+it("BacktrackManager handles non-array todos in limit event", async () => {
   const { BacktrackManager, DeepSearchState } = await loadModules();
   const events = [];
   const state = new DeepSearchState({ runId: "run_1" });
@@ -200,8 +201,8 @@ test("BacktrackManager handles non-array todos in limit event", async () => {
 
   const result = await manager.backtrack(state, "checkpoint_limit");
 
-  assert.equal(result.success, false);
-  assert.deepEqual(events[0].payload.todoContext, {
+  expect(result.success).toBe(false);
+  expect(events[0].payload.todoContext).toEqual({
     todoCount: 0,
     openTodoCount: 0,
     completedTodoCount: 0,
@@ -210,7 +211,7 @@ test("BacktrackManager handles non-array todos in limit event", async () => {
   });
 });
 
-test("BacktrackManager falls back to the previous checkpoint id", async () => {
+it("BacktrackManager falls back to the previous checkpoint id", async () => {
   const { BacktrackManager, DeepSearchState } = await loadModules();
   const restoredState = new DeepSearchState({ runId: "restored" });
   const restoredIds = [];
@@ -229,18 +230,18 @@ test("BacktrackManager falls back to the previous checkpoint id", async () => {
 
   const result = await manager.backtrack(state);
 
-  assert.equal(result.success, true);
-  assert.deepEqual(restoredIds, ["checkpoint_2"]);
+  expect(result.success).toBe(true);
+  expect(restoredIds).toEqual(["checkpoint_2"]);
 });
 
-test("BacktrackManager _getFallbackCheckpointId handles non-array checkpoints", async () => {
+it("BacktrackManager _getFallbackCheckpointId handles non-array checkpoints", async () => {
   const { BacktrackManager } = await loadModules();
   const manager = new BacktrackManager({ logger: makeLogger() });
 
-  assert.equal(manager._getFallbackCheckpointId({ checkpoints: "nope" }), null);
+  expect(manager._getFallbackCheckpointId({ checkpoints: "nope" })).toBe(null);
 });
 
-test("BacktrackManager returns no_checkpoint when none available", async () => {
+it("BacktrackManager returns no_checkpoint when none available", async () => {
   const { BacktrackManager, DeepSearchState } = await loadModules();
   const restoredState = new DeepSearchState({ runId: "restored" });
   const manager = new BacktrackManager({
@@ -253,11 +254,11 @@ test("BacktrackManager returns no_checkpoint when none available", async () => {
 
   const result = await manager.backtrack(state);
 
-  assert.equal(result.success, false);
-  assert.equal(result.reason, "no_checkpoint");
+  expect(result.success).toBe(false);
+  expect(result.reason).toBe("no_checkpoint");
 });
 
-test("BacktrackManager returns invalid_checkpoint when payload is missing nodeStates", async () => {
+it("BacktrackManager returns invalid_checkpoint when payload is missing nodeStates", async () => {
   const { BacktrackManager, DeepSearchState } = await loadModules();
   const manager = new BacktrackManager({
     archive: { restore: async () => null },
@@ -267,11 +268,11 @@ test("BacktrackManager returns invalid_checkpoint when payload is missing nodeSt
   const state = new DeepSearchState({ runId: "run_1" });
   const result = await manager.backtrack(state, "checkpoint_invalid");
 
-  assert.equal(result.success, false);
-  assert.equal(result.reason, "invalid_checkpoint");
+  expect(result.success).toBe(false);
+  expect(result.reason).toBe("invalid_checkpoint");
 });
 
-test("BacktrackManager returns restore_failed when archive restore throws", async () => {
+it("BacktrackManager returns restore_failed when archive restore throws", async () => {
   const { BacktrackManager, DeepSearchState } = await loadModules();
   const manager = new BacktrackManager({
     archive: {
@@ -285,12 +286,12 @@ test("BacktrackManager returns restore_failed when archive restore throws", asyn
   const state = new DeepSearchState({ runId: "run_1" });
   const result = await manager.backtrack(state, "checkpoint_error");
 
-  assert.equal(result.success, false);
-  assert.equal(result.reason, "restore_failed");
-  assert.equal(result.error, "restore blew up");
+  expect(result.success).toBe(false);
+  expect(result.reason).toBe("restore_failed");
+  expect(result.error).toBe("restore blew up");
 });
 
-test("BacktrackManager uses fallback todo defaults when fields are missing", async () => {
+it("BacktrackManager uses fallback todo defaults when fields are missing", async () => {
   const { BacktrackManager, DeepSearchState } = await loadModules();
   const restoredState = new DeepSearchState({ runId: "restored" });
   restoredState.todos = [{}];
@@ -305,8 +306,8 @@ test("BacktrackManager uses fallback todo defaults when fields are missing", asy
   const state = new DeepSearchState({ runId: "run_1" });
   const result = await manager.backtrack(state, "checkpoint_todo_defaults");
 
-  assert.equal(result.success, true);
-  assert.deepEqual(events[0].payload.todoContext, {
+  expect(result.success).toBe(true);
+  expect(events[0].payload.todoContext).toEqual({
     todoCount: 1,
     openTodoCount: 1,
     completedTodoCount: 0,
@@ -315,25 +316,25 @@ test("BacktrackManager uses fallback todo defaults when fields are missing", asy
   });
 });
 
-test("BacktrackManager reset clears count and canBacktrack respects limits", async () => {
+it("BacktrackManager reset clears count and canBacktrack respects limits", async () => {
   const { BacktrackManager } = await loadModules();
   const manager = new BacktrackManager({ archive: {}, maxBacktracks: 2, logger: makeLogger() });
   manager._backtrackCount = 2;
 
-  assert.equal(manager.canBacktrack(), false);
-  assert.equal(manager.remaining, 0);
+  expect(manager.canBacktrack()).toBe(false);
+  expect(manager.remaining).toBe(0);
 
   manager.reset();
 
-  assert.equal(manager.backtrackCount, 0);
-  assert.equal(manager.canBacktrack(), true);
-  assert.equal(manager.remaining, 2);
+  expect(manager.backtrackCount).toBe(0);
+  expect(manager.canBacktrack()).toBe(true);
+  expect(manager.remaining).toBe(2);
 });
 
-test("createBacktrackManager returns a BacktrackManager instance", async () => {
+it("createBacktrackManager returns a BacktrackManager instance", async () => {
   const { createBacktrackManager, BacktrackManager } = await import("../../../js/agents/stages/deepsearch/runtime/backtrack-manager.js");
   const manager = createBacktrackManager({ maxBacktracks: 4, logger: makeLogger() });
 
-  assert.ok(manager instanceof BacktrackManager);
-  assert.equal(manager.maxBacktracks, 4);
+  expect(manager instanceof BacktrackManager).toBeTruthy();
+  expect(manager.maxBacktracks).toBe(4);
 });

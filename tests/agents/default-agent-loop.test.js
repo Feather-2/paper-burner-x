@@ -12,14 +12,13 @@
  * - 并发执行安全
  */
 
-import test from "node:test";
-import assert from "node:assert/strict";
-
 /**
  * 创建测试用 BaseAgentLoop 实例
  * @param {object} options
  * @returns {Promise<InstanceType<typeof import("../js/agents/runtime/core/agent-loop.js").BaseAgentLoop>>}
  */
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 async function createTestLoop(options = {}) {
   const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
 
@@ -36,7 +35,7 @@ async function createTestLoop(options = {}) {
 // BaseStage lifecycle tests
 // ============================================================================
 
-test("BaseStage.execute emits started/completed events", async () => {
+it("BaseStage.execute emits started/completed events", async () => {
   const { BaseStage } = await import("../../js/agents/runtime/core/agent-loop.js");
   const events = [];
   const emit = (name, record) => events.push({ name, record });
@@ -50,17 +49,17 @@ test("BaseStage.execute emits started/completed events", async () => {
   const stage = new TestStage({ name: "demo", eventBus: { emit } });
   const result = await stage.execute({ runId: "run_1" }, { value: 1 }, { emit });
 
-  assert.deepEqual(result.input, { value: 1 });
-  assert.deepEqual(result.runContext, { runId: "run_1" });
-  assert.equal(result.hasSignal, true);
+  expect(result.input).toEqual({ value: 1 });
+  expect(result.runContext).toEqual({ runId: "run_1" });
+  expect(result.hasSignal).toBe(true);
 
-  assert.equal(events.length, 2);
-  assert.equal(events[0].name, "demo.started");
-  assert.equal(events[1].name, "demo.completed");
-  assert.equal(events[1].record.payload.result.input.value, 1);
+  expect(events.length).toBe(2);
+  expect(events[0].name).toBe("demo.started");
+  expect(events[1].name).toBe("demo.completed");
+  expect(events[1].record.payload.result.input.value).toBe(1);
 });
 
-test("BaseStage.execute emits failed event on error", async () => {
+it("BaseStage.execute emits failed event on error", async () => {
   const { BaseStage } = await import("../../js/agents/runtime/core/agent-loop.js");
   const events = [];
   const emit = (name, record) => events.push({ name, record });
@@ -73,15 +72,15 @@ test("BaseStage.execute emits failed event on error", async () => {
 
   const stage = new FailStage({ name: "fail", eventBus: { emit } });
 
-  await assert.rejects(() => stage.execute({}, {}, { emit }), /boom/);
+  await expect(() => stage.execute({}, {}, { emit }), /boom/);
 
-  assert.equal(events.length, 2);
-  assert.equal(events[0].name, "fail.started");
-  assert.equal(events[1].name, "fail.failed");
-  assert.equal(events[1].record.payload.error, "boom");
+  expect(events.length).toBe(2);
+  expect(events[0].name).toBe("fail.started");
+  expect(events[1].name).toBe("fail.failed");
+  expect(events[1].record.payload.error).toBe("boom");
 });
 
-test("BaseStage.execute respects cancellation before start", async () => {
+it("BaseStage.execute respects cancellation before start", async () => {
   const { BaseStage } = await import("../../js/agents/runtime/core/agent-loop.js");
   const events = [];
   const emit = (name, record) => events.push({ name, record });
@@ -96,52 +95,51 @@ test("BaseStage.execute respects cancellation before start", async () => {
   controller.abort("stop");
 
   const stage = new CancelStage({ name: "cancel", eventBus: { emit } });
-  await assert.rejects(
-    () => stage.execute({}, {}, { emit, signal: controller.signal }),
+  await expect(() => stage.execute({}, {}, { emit, signal: controller.signal }),
     (err) => err?.name === "AbortError"
   );
 
-  assert.equal(events.length, 0);
+  expect(events.length).toBe(0);
 });
 
-test("BaseStage.run throws when not implemented", async () => {
+it("BaseStage.run throws when not implemented", async () => {
   const { BaseStage } = await import("../../js/agents/runtime/core/agent-loop.js");
   const stage = new BaseStage({ name: "base" });
 
-  await assert.rejects(stage.run("input", {}), /Subclass must implement run/);
+  await expect(stage.run("input").rejects.toThrow({}), /Subclass must implement run/);
 });
 
 // ============================================================================
 // 用户输入队列管理测试
 // ============================================================================
 
-test("recordUserInput stores entries with timestamp", async () => {
+it("recordUserInput stores entries with timestamp", async () => {
   const loop = await createTestLoop({ stageName: "test", actor: "test" });
 
   const before = Date.now();
   const entry = loop.recordUserInput({ text: "hello" });
   const after = Date.now();
 
-  assert.deepEqual(entry.payload, { text: "hello" });
-  assert.ok(entry.ts >= before && entry.ts <= after, "timestamp should be in valid range");
-  assert.equal(loop._userInputs.size, 1);
+  expect(entry.payload).toEqual({ text: "hello" });
+  expect(entry.ts >= before && entry.ts <= after, "timestamp should be in valid range").toBeTruthy();
+  expect(loop._userInputs.size).toBe(1);
 });
 
-test("recordUserInput emits user.input event", async () => {
+it("recordUserInput emits user.input event", async () => {
   const events = [];
   const emit = (name, record) => events.push({ name, record });
 
   const loop = await createTestLoop({ stageName: "demo", actor: "demo", emit });
   loop.recordUserInput("test message");
 
-  assert.equal(events.length, 1);
-  assert.equal(events[0].name, "demo.user.input");
-  assert.equal(events[0].record.actor, "demo");
-  assert.equal(events[0].record.status, "info");
-  assert.equal(events[0].record.payload.payload, "test message");
+  expect(events.length).toBe(1);
+  expect(events[0].name).toBe("demo.user.input");
+  expect(events[0].record.actor).toBe("demo");
+  expect(events[0].record.status).toBe("info");
+  expect(events[0].record.payload.payload).toBe("test message");
 });
 
-test("recordUserInput respects maxUserInputs limit", async () => {
+it("recordUserInput respects maxUserInputs limit", async () => {
   const loop = await createTestLoop({ maxUserInputs: 3 });
 
   loop.recordUserInput("first");
@@ -150,14 +148,14 @@ test("recordUserInput respects maxUserInputs limit", async () => {
   loop.recordUserInput("fourth");
   loop.recordUserInput("fifth");
 
-  assert.equal(loop._userInputs.size, 3);
+  expect(loop._userInputs.size).toBe(3);
   const items = loop.consumeUserInputs({ clear: false });
-  assert.equal(items[0].payload, "third");
-  assert.equal(items[1].payload, "fourth");
-  assert.equal(items[2].payload, "fifth");
+  expect(items[0].payload).toBe("third");
+  expect(items[1].payload).toBe("fourth");
+  expect(items[2].payload).toBe("fifth");
 });
 
-test("recordUserInput handles invalid maxUserInputs", async () => {
+it("recordUserInput handles invalid maxUserInputs", async () => {
   const loop = await createTestLoop({ maxUserInputs: -1 });
 
   loop.recordUserInput("a");
@@ -165,10 +163,10 @@ test("recordUserInput handles invalid maxUserInputs", async () => {
   loop.recordUserInput("c");
 
   // 负数或无效值不应限制队列
-  assert.equal(loop._userInputs.size, 3);
+  expect(loop._userInputs.size).toBe(3);
 });
 
-test("consumeUserInputs returns all entries and clears by default", async () => {
+it("consumeUserInputs returns all entries and clears by default", async () => {
   const loop = await createTestLoop();
 
   loop.recordUserInput("one");
@@ -176,13 +174,13 @@ test("consumeUserInputs returns all entries and clears by default", async () => 
 
   const items = loop.consumeUserInputs();
 
-  assert.equal(items.length, 2);
-  assert.equal(items[0].payload, "one");
-  assert.equal(items[1].payload, "two");
-  assert.equal(loop._userInputs.size, 0);
+  expect(items.length).toBe(2);
+  expect(items[0].payload).toBe("one");
+  expect(items[1].payload).toBe("two");
+  expect(loop._userInputs.size).toBe(0);
 });
 
-test("consumeUserInputs with clear=false preserves entries", async () => {
+it("consumeUserInputs with clear=false preserves entries", async () => {
   const loop = await createTestLoop();
 
   loop.recordUserInput("one");
@@ -190,11 +188,11 @@ test("consumeUserInputs with clear=false preserves entries", async () => {
 
   const items = loop.consumeUserInputs({ clear: false });
 
-  assert.equal(items.length, 2);
-  assert.equal(loop._userInputs.size, 2);
+  expect(items.length).toBe(2);
+  expect(loop._userInputs.size).toBe(2);
 });
 
-test("drainUserInputsAsText returns items and formatted text", async () => {
+it("drainUserInputsAsText returns items and formatted text", async () => {
   const loop = await createTestLoop();
 
   loop.recordUserInput("first line");
@@ -202,66 +200,66 @@ test("drainUserInputsAsText returns items and formatted text", async () => {
 
   const result = loop.drainUserInputsAsText();
 
-  assert.equal(result.items.length, 2);
-  assert.equal(result.text, "first line\nsecond line");
-  assert.equal(loop._userInputs.size, 0);
+  expect(result.items.length).toBe(2);
+  expect(result.text).toBe("first line\nsecond line");
+  expect(loop._userInputs.size).toBe(0);
 });
 
-test("drainUserInputsAsText with clear=false preserves entries", async () => {
+it("drainUserInputsAsText with clear=false preserves entries", async () => {
   const loop = await createTestLoop();
 
   loop.recordUserInput("test");
   const result = loop.drainUserInputsAsText({ clear: false });
 
-  assert.equal(result.items.length, 1);
-  assert.equal(loop._userInputs.size, 1);
+  expect(result.items.length).toBe(1);
+  expect(loop._userInputs.size).toBe(1);
 });
 
-test("hasPendingUserInputs returns correct status", async () => {
+it("hasPendingUserInputs returns correct status", async () => {
   const loop = await createTestLoop();
 
-  assert.equal(loop.hasPendingUserInputs(), false);
+  expect(loop.hasPendingUserInputs()).toBe(false);
 
   loop.recordUserInput("test");
-  assert.equal(loop.hasPendingUserInputs(), true);
+  expect(loop.hasPendingUserInputs()).toBe(true);
 
   loop.consumeUserInputs();
-  assert.equal(loop.hasPendingUserInputs(), false);
+  expect(loop.hasPendingUserInputs()).toBe(false);
 });
 
-test("formatUserInputs handles various payload types", async () => {
+it("formatUserInputs handles various payload types", async () => {
   const loop = await createTestLoop();
 
   // 字符串
-  assert.equal(loop.formatUserInputs([{ payload: "  hello  " }]), "hello");
+  expect(loop.formatUserInputs([{ payload: "  hello  " }])).toBe("hello");
 
   // 带 text 属性的对象
-  assert.equal(loop.formatUserInputs([{ payload: { text: "  world  " } }]), "world");
+  expect(loop.formatUserInputs([{ payload: { text: "  world  " } }])).toBe("world");
 
   // 带 message 属性的对象
-  assert.equal(loop.formatUserInputs([{ payload: { message: "  msg  " } }]), "msg");
+  expect(loop.formatUserInputs([{ payload: { message: "  msg  " } }])).toBe("msg");
 
   // 普通对象 (JSON 序列化)
-  assert.equal(loop.formatUserInputs([{ payload: { foo: "bar" } }]), '{"foo":"bar"}');
+  expect(loop.formatUserInputs([{ payload: { foo: "bar" } }])).toBe('{"foo":"bar"}');
 
   // null payload 会回退到 item 本身并序列化
-  assert.equal(loop.formatUserInputs([{ payload: null }, { payload: "valid" }]), '{"payload":null}\nvalid');
+  expect(loop.formatUserInputs([{ payload: null }).toBe({ payload: "valid" }]), '{"payload":null}\nvalid');
 
   // 纯 null 作为 item 会跳过
-  assert.equal(loop.formatUserInputs([null, "direct"]), "direct");
+  expect(loop.formatUserInputs([null).toBe("direct"]), "direct");
 
   // 空数组
-  assert.equal(loop.formatUserInputs([]), "");
+  expect(loop.formatUserInputs([])).toBe("");
 
   // 非数组输入
-  assert.equal(loop.formatUserInputs(null), "");
+  expect(loop.formatUserInputs(null)).toBe("");
 
   // 多行组合
   const multiResult = loop.formatUserInputs([{ payload: "line1" }, { payload: { text: "line2" } }, { payload: { message: "line3" } }]);
-  assert.equal(multiResult, "line1\nline2\nline3");
+  expect(multiResult).toBe("line1\nline2\nline3");
 });
 
-test("formatUserInputs handles circular reference objects", async () => {
+it("formatUserInputs handles circular reference objects", async () => {
   const loop = await createTestLoop();
 
   const circular = { a: 1 };
@@ -269,10 +267,10 @@ test("formatUserInputs handles circular reference objects", async () => {
 
   // 应该优雅处理循环引用，回退到 String()
   const result = loop.formatUserInputs([{ payload: circular }]);
-  assert.ok(result.includes("object"), "should contain string representation");
+  expect(result.includes("object")).toBeTruthy(); // should contain string representation
 });
 
-test("applyUserInputsToConfig merges inputs into config", async () => {
+it("applyUserInputsToConfig merges inputs into config", async () => {
   const loop = await createTestLoop();
 
   loop.recordUserInput("note 1");
@@ -281,25 +279,25 @@ test("applyUserInputsToConfig merges inputs into config", async () => {
   const config = { existingKey: "value" };
   const result = loop.applyUserInputsToConfig(config);
 
-  assert.equal(result.existingKey, "value");
-  assert.deepEqual(result.userNotes, ["note 1\nnote 2"]);
-  assert.equal(result._lastUserNote, "note 1\nnote 2");
-  assert.ok(result._lastUserNoteAt > 0);
-  assert.equal(result._rawUserInputs.length, 2);
-  assert.equal(loop._userInputs.size, 0);
+  expect(result.existingKey).toBe("value");
+  expect(result.userNotes).toEqual(["note 1\nnote 2"]);
+  expect(result._lastUserNote).toBe("note 1\nnote 2");
+  expect(result._lastUserNoteAt > 0).toBeTruthy();
+  expect(result._rawUserInputs.length).toBe(2);
+  expect(loop._userInputs.size).toBe(0);
 });
 
-test("applyUserInputsToConfig with custom key", async () => {
+it("applyUserInputsToConfig with custom key", async () => {
   const loop = await createTestLoop();
 
   loop.recordUserInput("custom note");
 
   const result = loop.applyUserInputsToConfig({}, { key: "customNotes" });
 
-  assert.deepEqual(result.customNotes, ["custom note"]);
+  expect(result.customNotes).toEqual(["custom note"]);
 });
 
-test("applyUserInputsToConfig appends to existing array", async () => {
+it("applyUserInputsToConfig appends to existing array", async () => {
   const loop = await createTestLoop();
 
   loop.recordUserInput("new note");
@@ -307,10 +305,10 @@ test("applyUserInputsToConfig appends to existing array", async () => {
   const config = { userNotes: ["existing note"] };
   const result = loop.applyUserInputsToConfig(config);
 
-  assert.deepEqual(result.userNotes, ["existing note", "new note"]);
+  expect(result.userNotes).toEqual(["existing note", "new note"]);
 });
 
-test("applyUserInputsToConfig converts existing string to array", async () => {
+it("applyUserInputsToConfig converts existing string to array", async () => {
   const loop = await createTestLoop();
 
   loop.recordUserInput("second");
@@ -318,36 +316,36 @@ test("applyUserInputsToConfig converts existing string to array", async () => {
   const config = { userNotes: "first" };
   const result = loop.applyUserInputsToConfig(config);
 
-  assert.deepEqual(result.userNotes, ["first", "second"]);
+  expect(result.userNotes).toEqual(["first", "second"]);
 });
 
-test("applyUserInputsToConfig returns original config if no inputs", async () => {
+it("applyUserInputsToConfig returns original config if no inputs", async () => {
   const loop = await createTestLoop();
 
   const config = { key: "value" };
   const result = loop.applyUserInputsToConfig(config);
 
-  assert.equal(result, config);
+  expect(result).toBe(config);
 });
 
-test("applyUserInputsToConfig handles null/undefined config", async () => {
+it("applyUserInputsToConfig handles null/undefined config", async () => {
   const loop = await createTestLoop();
 
   loop.recordUserInput("test");
 
   const result1 = loop.applyUserInputsToConfig(null);
-  assert.deepEqual(result1.userNotes, ["test"]);
+  expect(result1.userNotes).toEqual(["test"]);
 
   loop.recordUserInput("test2");
   const result2 = loop.applyUserInputsToConfig(undefined);
-  assert.deepEqual(result2.userNotes, ["test2"]);
+  expect(result2.userNotes).toEqual(["test2"]);
 });
 
 // ============================================================================
 // Step 生命周期测试
 // ============================================================================
 
-test("_beginStep creates step with metadata and emits started event", async () => {
+it("_beginStep creates step with metadata and emits started event", async () => {
   const events = [];
   const emit = (name, record) => events.push({ name, record });
 
@@ -357,56 +355,56 @@ test("_beginStep creates step with metadata and emits started event", async () =
   const { step, context } = loop._beginStep({ name: "test-step", runId: "run_1", iteration: 0 });
   const after = Date.now();
 
-  assert.ok(step.stepId.startsWith("lifecycle_"));
-  assert.equal(step.name, "test-step");
-  assert.equal(step.runId, "run_1");
-  assert.equal(step.iteration, 0);
-  assert.ok(step.startedAt >= before && step.startedAt <= after);
-  assert.ok(context.signal instanceof AbortSignal);
+  expect(step.stepId.startsWith("lifecycle_")).toBeTruthy();
+  expect(step.name).toBe("test-step");
+  expect(step.runId).toBe("run_1");
+  expect(step.iteration).toBe(0);
+  expect(step.startedAt >= before && step.startedAt <= after).toBeTruthy();
+  expect(context.signal instanceof AbortSignal).toBeTruthy();
 
-  assert.equal(events.length, 1);
-  assert.equal(events[0].name, "lifecycle.step.started");
-  assert.equal(events[0].record.status, "started");
+  expect(events.length).toBe(1);
+  expect(events[0].name).toBe("lifecycle.step.started");
+  expect(events[0].record.status).toBe("started");
 });
 
-test("_beginStep uses stepId from meta if provided", async () => {
+it("_beginStep uses stepId from meta if provided", async () => {
   const loop = await createTestLoop({ stageName: "lifecycle" });
 
   const { step } = loop._beginStep({ stepId: "custom_step_123" });
 
-  assert.equal(step.stepId, "custom_step_123");
+  expect(step.stepId).toBe("custom_step_123");
 });
 
-test("_beginStep uses step field as fallback for name", async () => {
+it("_beginStep uses step field as fallback for name", async () => {
   const loop = await createTestLoop({ stageName: "lifecycle" });
 
   const { step } = loop._beginStep({ step: "fallback-name" });
 
-  assert.equal(step.name, "fallback-name");
+  expect(step.name).toBe("fallback-name");
 });
 
-test("_beginStep defaults name to 'step' if not provided", async () => {
+it("_beginStep defaults name to 'step' if not provided", async () => {
   const loop = await createTestLoop({ stageName: "lifecycle" });
 
   const { step } = loop._beginStep({});
 
-  assert.equal(step.name, "step");
+  expect(step.name).toBe("step");
 });
 
-test("_beginStep sets _activeStep", async () => {
+it("_beginStep sets _activeStep", async () => {
   const loop = await createTestLoop({ stageName: "lifecycle" });
 
-  assert.equal(loop._activeStep, null);
+  expect(loop._activeStep).toBe(null);
 
   loop._beginStep({ name: "active" });
 
-  assert.ok(loop._activeStep);
-  assert.equal(loop._activeStep.name, "active");
-  assert.ok(loop._activeStep.signal instanceof AbortSignal);
-  assert.ok(loop._activeStep.controller instanceof AbortController);
+  expect(loop._activeStep).toBeTruthy();
+  expect(loop._activeStep.name).toBe("active");
+  expect(loop._activeStep.signal instanceof AbortSignal).toBeTruthy();
+  expect(loop._activeStep.controller instanceof AbortController).toBeTruthy();
 });
 
-test("_endStep emits completed event by default", async () => {
+it("_endStep emits completed event by default", async () => {
   const events = [];
   const emit = (name, record) => events.push({ name, record });
 
@@ -417,12 +415,12 @@ test("_endStep emits completed event by default", async () => {
 
   loop._endStep({ step });
 
-  assert.equal(events.length, 1);
-  assert.equal(events[0].name, "lifecycle.step.completed");
-  assert.equal(events[0].record.status, "completed");
+  expect(events.length).toBe(1);
+  expect(events[0].name).toBe("lifecycle.step.completed");
+  expect(events[0].record.status).toBe("completed");
 });
 
-test("_endStep emits custom status", async () => {
+it("_endStep emits custom status", async () => {
   const events = [];
   const emit = (name, record) => events.push({ name, record });
 
@@ -433,12 +431,12 @@ test("_endStep emits custom status", async () => {
 
   loop._endStep({ step }, { status: "failed", error: "boom" });
 
-  assert.equal(events[0].name, "lifecycle.step.failed");
-  assert.equal(events[0].record.status, "failed");
-  assert.equal(events[0].record.payload.error, "boom");
+  expect(events[0].name).toBe("lifecycle.step.failed");
+  expect(events[0].record.status).toBe("failed");
+  expect(events[0].record.payload.error).toBe("boom");
 });
 
-test("_endStep includes result in payload", async () => {
+it("_endStep includes result in payload", async () => {
   const events = [];
   const emit = (name, record) => events.push({ name, record });
 
@@ -449,35 +447,35 @@ test("_endStep includes result in payload", async () => {
 
   loop._endStep({ step }, { result: { data: "success" } });
 
-  assert.deepEqual(events[0].record.payload.result, { data: "success" });
+  expect(events[0].record.payload.result).toEqual({ data: "success" });
 });
 
-test("_endStep clears _activeStep when matching", async () => {
+it("_endStep clears _activeStep when matching", async () => {
   const loop = await createTestLoop({ stageName: "lifecycle" });
 
   const { step } = loop._beginStep({ name: "test" });
-  assert.ok(loop._activeStep);
+  expect(loop._activeStep).toBeTruthy();
 
   loop._endStep({ step });
-  assert.equal(loop._activeStep, null);
+  expect(loop._activeStep).toBe(null);
 });
 
-test("_endStep does not clear _activeStep when not matching", async () => {
+it("_endStep does not clear _activeStep when not matching", async () => {
   const loop = await createTestLoop({ stageName: "lifecycle" });
 
   loop._beginStep({ name: "first" });
   const firstStep = { ...loop._activeStep };
 
   loop._beginStep({ name: "second" });
-  assert.notEqual(loop._activeStep.stepId, firstStep.stepId);
+  expect(loop._activeStep.stepId).not.toBe(firstStep.stepId);
 
   // 结束第一个 step 不应清除当前活跃的第二个 step
   loop._endStep({ step: firstStep });
-  assert.ok(loop._activeStep);
-  assert.equal(loop._activeStep.name, "second");
+  expect(loop._activeStep).toBeTruthy();
+  expect(loop._activeStep.name).toBe("second");
 });
 
-test("_endStep uses _activeStep if step not provided", async () => {
+it("_endStep uses _activeStep if step not provided", async () => {
   const events = [];
   const emit = (name, record) => events.push({ name, record });
 
@@ -488,123 +486,123 @@ test("_endStep uses _activeStep if step not provided", async () => {
 
   loop._endStep(null);
 
-  assert.equal(events[0].record.payload.name, "implicit");
+  expect(events[0].record.payload.name).toBe("implicit");
 });
 
-test("_endStep handles null stepInfo gracefully", async () => {
+it("_endStep handles null stepInfo gracefully", async () => {
   const loop = await createTestLoop({ stageName: "lifecycle" });
 
   // 没有活跃 step 时调用不应抛出
-  assert.doesNotThrow(() => loop._endStep(null));
-  assert.doesNotThrow(() => loop._endStep(undefined));
-  assert.doesNotThrow(() => loop._endStep({}));
+  expect(() => loop._endStep(null)).not.toThrow();
+  expect(() => loop._endStep(undefined)).not.toThrow();
+  expect(() => loop._endStep({})).not.toThrow();
 });
 
-test("_abortActiveStep aborts the active step controller", async () => {
+it("_abortActiveStep aborts the active step controller", async () => {
   const loop = await createTestLoop({ stageName: "lifecycle" });
 
   loop._beginStep({ name: "to-abort" });
   const controller = loop._activeStep.controller;
 
-  assert.equal(controller.signal.aborted, false);
+  expect(controller.signal.aborted).toBe(false);
 
   loop._abortActiveStep("test reason");
 
-  assert.equal(controller.signal.aborted, true);
+  expect(controller.signal.aborted).toBe(true);
 });
 
-test("_abortActiveStep uses default reason if not provided", async () => {
+it("_abortActiveStep uses default reason if not provided", async () => {
   const loop = await createTestLoop({ stageName: "lifecycle" });
 
   loop._beginStep({ name: "to-abort" });
 
   loop._abortActiveStep();
 
-  assert.equal(loop._activeStep.controller.signal.aborted, true);
+  expect(loop._activeStep.controller.signal.aborted).toBe(true);
 });
 
-test("_abortActiveStep does nothing if no active step", async () => {
+it("_abortActiveStep does nothing if no active step", async () => {
   const loop = await createTestLoop({ stageName: "lifecycle" });
 
-  assert.doesNotThrow(() => loop._abortActiveStep("reason"));
+  expect(() => loop._abortActiveStep("reason")).not.toThrow();
 });
 
-test("_abortActiveStep does nothing if already aborted", async () => {
+it("_abortActiveStep does nothing if already aborted", async () => {
   const loop = await createTestLoop({ stageName: "lifecycle" });
 
   loop._beginStep({ name: "already-aborted" });
   loop._activeStep.controller.abort("first");
 
-  assert.doesNotThrow(() => loop._abortActiveStep("second"));
+  expect(() => loop._abortActiveStep("second")).not.toThrow();
 });
 
-test("_createStepSignal creates independent signal", async () => {
+it("_createStepSignal creates independent signal", async () => {
   const loop = await createTestLoop({ stageName: "lifecycle" });
 
   const { signal, controller } = loop._createStepSignal(null);
 
-  assert.ok(signal instanceof AbortSignal);
-  assert.ok(controller instanceof AbortController);
-  assert.equal(signal.aborted, false);
+  expect(signal instanceof AbortSignal).toBeTruthy();
+  expect(controller instanceof AbortController).toBeTruthy();
+  expect(signal.aborted).toBe(false);
 
   controller.abort("test");
-  assert.equal(signal.aborted, true);
+  expect(signal.aborted).toBe(true);
 });
 
-test("_createStepSignal merges with parent signal", async () => {
+it("_createStepSignal merges with parent signal", async () => {
   const loop = await createTestLoop({ stageName: "lifecycle" });
 
   const parentController = new AbortController();
   const { signal } = loop._createStepSignal(parentController.signal);
 
-  assert.equal(signal.aborted, false);
+  expect(signal.aborted).toBe(false);
 
   parentController.abort("parent");
-  assert.equal(signal.aborted, true);
+  expect(signal.aborted).toBe(true);
 });
 
-test("_emitStepEvent does nothing if no emit function", async () => {
+it("_emitStepEvent does nothing if no emit function", async () => {
   const loop = await createTestLoop({ stageName: "lifecycle" });
 
   // 确保没有 emit 函数
   loop.emit = null;
   loop.eventBus = null;
 
-  assert.doesNotThrow(() => loop._emitStepEvent("test", { data: "value" }));
+  expect(() => loop._emitStepEvent("test", { data: "value" })).not.toThrow();
 });
 
 // ============================================================================
 // Loop 状态转换测试
 // ============================================================================
 
-test("_transitionPhase updates state.status", async () => {
+it("_transitionPhase updates state.status", async () => {
   const loop = await createTestLoop({ stageName: "transition" });
 
   const state = { status: "idle" };
   loop._transitionPhase(state, "running");
 
-  assert.equal(state.status, "running");
+  expect(state.status).toBe("running");
 });
 
-test("_transitionPhase updates state.state when status not present", async () => {
+it("_transitionPhase updates state.state when status not present", async () => {
   const loop = await createTestLoop({ stageName: "transition" });
 
   const state = { state: "idle" };
   loop._transitionPhase(state, "running");
 
-  assert.equal(state.state, "running");
+  expect(state.state).toBe("running");
 });
 
-test("_transitionPhase adds status to empty state object", async () => {
+it("_transitionPhase adds status to empty state object", async () => {
   const loop = await createTestLoop({ stageName: "transition" });
 
   const state = {};
   loop._transitionPhase(state, "running");
 
-  assert.equal(state.status, "running");
+  expect(state.status).toBe("running");
 });
 
-test("_transitionPhase throws when state machine rejects transition", async () => {
+it("_transitionPhase throws when state machine rejects transition", async () => {
   const stateMachine = {
     transition: () => false,
   };
@@ -613,10 +611,10 @@ test("_transitionPhase throws when state machine rejects transition", async () =
 
   const state = { status: "idle" };
 
-  assert.throws(() => loop._transitionPhase(state, "invalid"), /phase transition rejected/);
+  expect(() => loop._transitionPhase(state, "invalid")).toThrow(/phase transition rejected/);
 });
 
-test("_transitionPhase emits event with payload", async () => {
+it("_transitionPhase emits event with payload", async () => {
   const events = [];
   const emit = (name, record) => events.push({ name, record });
 
@@ -625,15 +623,15 @@ test("_transitionPhase emits event with payload", async () => {
   const state = { status: "idle" };
   loop._transitionPhase(state, "running", { emit, runId: "run_1", payload: { extra: "data" } });
 
-  assert.equal(events.length, 1);
-  assert.equal(events[0].name, "transition.phase.transition");
-  assert.equal(events[0].record.payload.from, "idle");
-  assert.equal(events[0].record.payload.to, "running");
-  assert.equal(events[0].record.payload.runId, "run_1");
-  assert.equal(events[0].record.payload.extra, "data");
+  expect(events.length).toBe(1);
+  expect(events[0].name).toBe("transition.phase.transition");
+  expect(events[0].record.payload.from).toBe("idle");
+  expect(events[0].record.payload.to).toBe("running");
+  expect(events[0].record.payload.runId).toBe("run_1");
+  expect(events[0].record.payload.extra).toBe("data");
 });
 
-test("_transitionPhase uses custom eventName", async () => {
+it("_transitionPhase uses custom eventName", async () => {
   const events = [];
   const emit = (name, record) => events.push({ name, record });
 
@@ -642,10 +640,10 @@ test("_transitionPhase uses custom eventName", async () => {
   const state = { status: "idle" };
   loop._transitionPhase(state, "running", { emit, eventName: "custom.transition" });
 
-  assert.equal(events[0].name, "custom.transition");
+  expect(events[0].name).toBe("custom.transition");
 });
 
-test("_transitionPhase uses loop emit when no emit provided", async () => {
+it("_transitionPhase uses loop emit when no emit provided", async () => {
   const events = [];
   const emit = (name, record) => events.push({ name, record });
 
@@ -654,17 +652,17 @@ test("_transitionPhase uses loop emit when no emit provided", async () => {
   const state = { status: "idle" };
   loop._transitionPhase(state, "running", { runId: "run_2" });
 
-  assert.equal(events.length, 1);
-  assert.equal(events[0].name, "transition.phase.transition");
-  assert.equal(events[0].record.payload.from, "idle");
-  assert.equal(events[0].record.payload.to, "running");
+  expect(events.length).toBe(1);
+  expect(events[0].name).toBe("transition.phase.transition");
+  expect(events[0].record.payload.from).toBe("idle");
+  expect(events[0].record.payload.to).toBe("running");
 });
 
 // ============================================================================
 // execute + hook tests
 // ============================================================================
 
-test("execute triggers PreAgent and PostAgent hooks", async () => {
+it("execute triggers PreAgent and PostAgent hooks", async () => {
   const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
   const { enhanceEventBusWithHooks } = await import("../../js/agents/runtime/hooks/index.js");
@@ -696,17 +694,17 @@ test("execute triggers PreAgent and PostAgent hooks", async () => {
   const loop = new HookLoop({ eventBus, stageName: "hooked", actor: "hooked" });
   const result = await loop.execute({ sessionId: "s1" }, { text: "hello" }, { eventBus });
 
-  assert.equal(result.ok, true);
-  assert.equal(preCalls.length, 1);
-  assert.equal(postCalls.length, 1);
-  assert.equal(preCalls[0].sessionId, "s1");
-  assert.equal(preCalls[0].input.text, "hello");
-  assert.equal(typeof preCalls[0].runId, "string");
-  assert.equal(postCalls[0].result.ok, true);
-  assert.equal(typeof postCalls[0].duration, "number");
+  expect(result.ok).toBe(true);
+  expect(preCalls.length).toBe(1);
+  expect(postCalls.length).toBe(1);
+  expect(preCalls[0].sessionId).toBe("s1");
+  expect(preCalls[0].input.text).toBe("hello");
+  expect(typeof preCalls[0].runId).toBe("string");
+  expect(postCalls[0].result.ok).toBe(true);
+  expect(typeof postCalls[0].duration).toBe("number");
 });
 
-test("execute respects PreAgent skip and emits skipped event", async () => {
+it("execute respects PreAgent skip and emits skipped event", async () => {
   const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
   const { enhanceEventBusWithHooks } = await import("../../js/agents/runtime/hooks/index.js");
@@ -731,14 +729,14 @@ test("execute respects PreAgent skip and emits skipped event", async () => {
   const loop = new SkipLoop({ eventBus, stageName: "skipper", actor: "skipper", emit });
   const result = await loop.execute({ sessionId: "s2" }, { text: "hi" }, { eventBus, emit });
 
-  assert.equal(runCalls, 0);
-  assert.deepEqual(result, { ok: false, error: "blocked" });
-  assert.equal(events.length, 1);
-  assert.equal(events[0].name, "skipper.agent.skipped");
-  assert.equal(events[0].record.payload.reason, "blocked");
+  expect(runCalls).toBe(0);
+  expect(result).toEqual({ ok: false, error: "blocked" });
+  expect(events.length).toBe(1);
+  expect(events[0].name).toBe("skipper.agent.skipped");
+  expect(events[0].record.payload.reason).toBe("blocked");
 });
 
-test("execute calls PostAgent hook with error on failure", async () => {
+it("execute calls PostAgent hook with error on failure", async () => {
   const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
   const { enhanceEventBusWithHooks } = await import("../../js/agents/runtime/hooks/index.js");
@@ -760,13 +758,13 @@ test("execute calls PostAgent hook with error on failure", async () => {
   }
 
   const loop = new FailLoop({ eventBus, stageName: "failure", actor: "failure" });
-  await assert.rejects(() => loop.execute({ sessionId: "s3" }, { text: "x" }, { eventBus }), /boom/);
+  await expect(() => loop.execute({ sessionId: "s3" }, { text: "x" }, { eventBus }), /boom/);
 
-  assert.equal(postCalls.length, 1);
-  assert.equal(postCalls[0].error.message, "boom");
+  expect(postCalls.length).toBe(1);
+  expect(postCalls[0].error.message).toBe("boom");
 });
 
-test("execute swallows PostAgent hook errors and emits hook error event", async () => {
+it("execute swallows PostAgent hook errors and emits hook error event", async () => {
   const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
   const { enhanceEventBusWithHooks } = await import("../../js/agents/runtime/hooks/index.js");
@@ -791,16 +789,16 @@ test("execute swallows PostAgent hook errors and emits hook error event", async 
   const loop = new OkLoop({ eventBus, stageName: "post", actor: "post" });
   const result = await loop.execute({}, { text: "ok" }, { eventBus });
 
-  assert.equal(result, "ok");
-  assert.equal(hookErrors.length, 1);
-  assert.equal(hookErrors[0].payload.error, "post boom");
+  expect(result).toBe("ok");
+  expect(hookErrors.length).toBe(1);
+  expect(hookErrors[0].payload.error).toBe("post boom");
 });
 
 // ============================================================================
 // waitForUserAction tests
 // ============================================================================
 
-test("waitForUserAction resolves with payload", async () => {
+it("waitForUserAction resolves with payload", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const eventBus = new EventBus({ runId: "wait" });
@@ -810,22 +808,21 @@ test("waitForUserAction resolves with payload", async () => {
   eventBus.emit("user.action.confirm", { payload: { ok: true } });
 
   const result = await promise;
-  assert.deepEqual(result, { ok: true });
+  expect(result).toEqual({ ok: true });
 });
 
-test("waitForUserAction rejects on timeout", async () => {
+it("waitForUserAction rejects on timeout", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const eventBus = new EventBus({ runId: "timeout" });
   const loop = await createTestLoop({ eventBus });
 
-  await assert.rejects(
-    loop.waitForUserAction("idle", { eventBus, timeout: 20 }),
+  await expect(loop.waitForUserAction("idle").rejects.toThrow({ eventBus, timeout: 20 }),
     /Timeout waiting for user action: idle/
   );
 });
 
-test("waitForUserAction rejects on abort", async () => {
+it("waitForUserAction rejects on abort", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const eventBus = new EventBus({ runId: "abort" });
@@ -835,20 +832,20 @@ test("waitForUserAction rejects on abort", async () => {
   const promise = loop.waitForUserAction("cancel", { eventBus, signal: controller.signal, timeout: 200 });
   controller.abort("stop");
 
-  await assert.rejects(promise, /Run cancelled/);
+  await expect(promise).rejects.toThrow(/Run cancelled/);
 });
 
-test("waitForUserAction requires an eventBus with subscribe", async () => {
+it("waitForUserAction requires an eventBus with subscribe", async () => {
   const loop = await createTestLoop();
 
-  await assert.rejects(loop.waitForUserAction("missing"), /eventBus with subscribe/);
+  await expect(loop.waitForUserAction("missing").rejects).toThrow(/eventBus with subscribe/);
 });
 
 // ============================================================================
 // 并发安全测试
 // ============================================================================
 
-test("execute aborts superseded run", async () => {
+it("execute aborts superseded run", async () => {
   const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
   let firstSignal = null;
   let releaseFirst = null;
@@ -871,19 +868,19 @@ test("execute aborts superseded run", async () => {
   const firstPromise = loop.execute({}, "first");
   const secondResult = await loop.execute({}, "second");
 
-  assert.deepEqual(secondResult, { ok: true, input: "second" });
-  assert.equal(firstSignal?.aborted, true);
+  expect(secondResult).toEqual({ ok: true, input: "second" });
+  expect(firstSignal?.aborted).toBe(true);
 
   releaseFirst();
   const firstResult = await firstPromise;
-  assert.deepEqual(firstResult, { ok: true, input: "first" });
+  expect(firstResult).toEqual({ ok: true, input: "first" });
 });
 
 // ============================================================================
 // pause/resume 测试
 // ============================================================================
 
-test("pause sets status to PAUSED and aborts active step", async () => {
+it("pause sets status to PAUSED and aborts active step", async () => {
   const { AgentStatus } = await import("../../js/agents/runtime/core/agent-status.js");
   const loop = await createTestLoop({ stageName: "pausable" });
 
@@ -894,28 +891,28 @@ test("pause sets status to PAUSED and aborts active step", async () => {
 
   loop.pause("test reason");
 
-  assert.equal(loop.isPaused, true);
-  assert.equal(loop._pauseReason, "test reason");
-  assert.equal(stepController.signal.aborted, true);
+  expect(loop.isPaused).toBe(true);
+  expect(loop._pauseReason).toBe("test reason");
+  expect(stepController.signal.aborted).toBe(true);
 });
 
-test("resume sets status to RUNNING from PAUSED", async () => {
+it("resume sets status to RUNNING from PAUSED", async () => {
   const loop = await createTestLoop({ stageName: "pausable" });
 
   loop.pause("hold");
-  assert.equal(loop.isPaused, true);
+  expect(loop.isPaused).toBe(true);
 
   loop.resume();
 
-  assert.equal(loop.isPaused, false);
-  assert.equal(loop._pauseReason, null);
+  expect(loop.isPaused).toBe(false);
+  expect(loop._pauseReason).toBe(null);
 });
 
 // ============================================================================
 // 工具调用边界测试
 // ============================================================================
 
-test("_callTool catches synchronous errors", async () => {
+it("_callTool catches synchronous errors", async () => {
   const loop = await createTestLoop({
     tools: {
       syncFail: () => {
@@ -926,11 +923,11 @@ test("_callTool catches synchronous errors", async () => {
 
   const result = await loop._callTool("syncFail", {}, {});
 
-  assert.equal(result.ok, false);
-  assert.equal(result.error, "sync error");
+  expect(result.ok).toBe(false);
+  expect(result.error).toBe("sync error");
 });
 
-test("_callTool handles tool returning undefined", async () => {
+it("_callTool handles tool returning undefined", async () => {
   const loop = await createTestLoop({
     tools: {
       noReturn: () => undefined,
@@ -939,11 +936,11 @@ test("_callTool handles tool returning undefined", async () => {
 
   const result = await loop._callTool("noReturn", {}, {});
 
-  assert.equal(result.ok, true);
-  assert.equal(result.data, undefined);
+  expect(result.ok).toBe(true);
+  expect(result.data).toBe(undefined);
 });
 
-test("_callTool handles tool returning null", async () => {
+it("_callTool handles tool returning null", async () => {
   const loop = await createTestLoop({
     tools: {
       nullReturn: () => null,
@@ -952,15 +949,15 @@ test("_callTool handles tool returning null", async () => {
 
   const result = await loop._callTool("nullReturn", {}, {});
 
-  assert.equal(result.ok, true);
-  assert.equal(result.data, null);
+  expect(result.ok).toBe(true);
+  expect(result.data).toBe(null);
 });
 
 // ============================================================================
 // EventBus 监听器管理测试
 // ============================================================================
 
-test("_attachUserInputListener subscribes to user.input event", async () => {
+it("_attachUserInputListener subscribes to user.input event", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const eventBus = new EventBus({ runId: "test" });
@@ -970,18 +967,18 @@ test("_attachUserInputListener subscribes to user.input event", async () => {
 
   eventBus.emit("user.input", { payload: "test input" });
 
-  assert.equal(loop._userInputs.size, 1);
-  assert.equal(loop._userInputs.toArray()[0].payload, "test input");
+  expect(loop._userInputs.size).toBe(1);
+  expect(loop._userInputs.toArray()[0].payload).toBe("test input");
 });
 
-test("_attachUserInputListener does nothing without eventBus", async () => {
+it("_attachUserInputListener does nothing without eventBus", async () => {
   const loop = await createTestLoop({ stageName: "input" });
 
-  assert.doesNotThrow(() => loop._attachUserInputListener(null));
-  assert.doesNotThrow(() => loop._attachUserInputListener(undefined));
+  expect(() => loop._attachUserInputListener(null)).not.toThrow();
+  expect(() => loop._attachUserInputListener(undefined)).not.toThrow();
 });
 
-test("_attachPauseListener subscribes once and pauses with reason", async () => {
+it("_attachPauseListener subscribes once and pauses with reason", async () => {
   const loop = await createTestLoop({ stageName: "pause" });
   const calls = [];
   const eventBus = {
@@ -996,14 +993,14 @@ test("_attachPauseListener subscribes once and pauses with reason", async () => 
   loop._attachPauseListener(eventBus);
   loop._attachPauseListener(eventBus);
 
-  assert.equal(calls.length, 1);
+  expect(calls.length).toBe(1);
   calls[0].handler({ payload: { reason: "coffee" } });
 
-  assert.equal(loop.isPaused, true);
-  assert.equal(loop._pauseReason, "coffee");
+  expect(loop.isPaused).toBe(true);
+  expect(loop._pauseReason).toBe("coffee");
 });
 
-test("_detachEventBusListeners unsubscribes pause listener", async () => {
+it("_detachEventBusListeners unsubscribes pause listener", async () => {
   let unsubCalls = 0;
   const eventBus = {
     subscribe: () => () => {
@@ -1016,10 +1013,10 @@ test("_detachEventBusListeners unsubscribes pause listener", async () => {
   loop._attachPauseListener(eventBus);
   loop._detachEventBusListeners();
 
-  assert.equal(unsubCalls, 1);
+  expect(unsubCalls).toBe(1);
 });
 
-test("_detachEventBusListeners cleans up subscriptions", async () => {
+it("_detachEventBusListeners cleans up subscriptions", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const eventBus = new EventBus({ runId: "test" });
@@ -1028,21 +1025,21 @@ test("_detachEventBusListeners cleans up subscriptions", async () => {
   loop._attachUserInputListener(eventBus);
   loop._attachPauseListener(eventBus);
 
-  assert.ok(loop._userInputUnsub);
-  assert.ok(loop._pauseListenerUnsub);
+  expect(loop._userInputUnsub).toBeTruthy();
+  expect(loop._pauseListenerUnsub).toBeTruthy();
 
   loop._detachEventBusListeners();
 
-  assert.equal(loop._userInputUnsub, null);
-  assert.equal(loop._userInputBus, null);
-  assert.equal(loop._pauseListenerUnsub, null);
+  expect(loop._userInputUnsub).toBe(null);
+  expect(loop._userInputBus).toBe(null);
+  expect(loop._pauseListenerUnsub).toBe(null);
 });
 
 // ============================================================================
 // getContextStatus 测试
 // ============================================================================
 
-test("getContextStatus returns context information", async () => {
+it("getContextStatus returns context information", async () => {
   const loop = await createTestLoop({
     contextConfig: { contextWindow: 1000, compressThreshold: 0.9 },
   });
@@ -1051,27 +1048,27 @@ test("getContextStatus returns context information", async () => {
 
   const status = loop.getContextStatus();
 
-  assert.equal(typeof status.tokenUsage.total, "number");
-  assert.equal(typeof status.fillRatio, "number");
-  assert.equal(typeof status.needsCompression, "boolean");
-  assert.equal(typeof status.compressionPending, "boolean");
+  expect(typeof status.tokenUsage.total).toBe("number");
+  expect(typeof status.fillRatio).toBe("number");
+  expect(typeof status.needsCompression).toBe("boolean");
+  expect(typeof status.compressionPending).toBe("boolean");
 });
 
 // ============================================================================
 // 消息管理测试
 // ============================================================================
 
-test("addMessage delegates to MessageManager", async () => {
+it("addMessage delegates to MessageManager", async () => {
   const loop = await createTestLoop();
 
   loop.addMessage({ role: "user", content: "test" });
 
-  assert.equal(loop.messages.length, 1);
-  assert.equal(loop.messages[0].role, "user");
-  assert.equal(loop.messages[0].content, "test");
+  expect(loop.messages.length).toBe(1);
+  expect(loop.messages[0].role).toBe("user");
+  expect(loop.messages[0].content).toBe("test");
 });
 
-test("addMessages appends multiple messages", async () => {
+it("addMessages appends multiple messages", async () => {
   const loop = await createTestLoop();
 
   loop.addMessages([
@@ -1079,40 +1076,40 @@ test("addMessages appends multiple messages", async () => {
     { role: "assistant", content: "two" },
   ]);
 
-  assert.equal(loop.messages.length, 2);
-  assert.equal(loop.messages[0].role, "user");
-  assert.equal(loop.messages[1].role, "assistant");
+  expect(loop.messages.length).toBe(2);
+  expect(loop.messages[0].role).toBe("user");
+  expect(loop.messages[1].role).toBe("assistant");
 });
 
-test("resetMessages clears messages", async () => {
+it("resetMessages clears messages", async () => {
   const loop = await createTestLoop();
 
   loop.addMessage({ role: "user", content: "one" });
   loop.addMessage({ role: "assistant", content: "two" });
 
-  assert.equal(loop.messages.length, 2);
+  expect(loop.messages.length).toBe(2);
 
   await loop.resetMessages();
 
-  assert.equal(loop.messages.length, 0);
+  expect(loop.messages.length).toBe(0);
 });
 
 // ============================================================================
 // 工具注册测试
 // ============================================================================
 
-test("registerTool adds tool to registry", async () => {
+it("registerTool adds tool to registry", async () => {
   const loop = await createTestLoop();
 
   loop.registerTool("custom", async () => "result");
 
   const result = await loop._callTool("custom", {}, {});
 
-  assert.equal(result.ok, true);
-  assert.equal(result.data, "result");
+  expect(result.ok).toBe(true);
+  expect(result.data).toBe("result");
 });
 
-test("tool registry exposes registered tool names", async () => {
+it("tool registry exposes registered tool names", async () => {
   const loop = await createTestLoop({
     tools: {
       tool1: () => {},
@@ -1122,15 +1119,15 @@ test("tool registry exposes registered tool names", async () => {
 
   const tools = loop._toolRegistry.getToolNames();
 
-  assert.ok(tools.includes("tool1"));
-  assert.ok(tools.includes("tool2"));
+  expect(tools.includes("tool1")).toBeTruthy();
+  expect(tools.includes("tool2")).toBeTruthy();
 });
 
 // ============================================================================
 // hooks 测试
 // ============================================================================
 
-test("hooks are called during tool execution", async () => {
+it("hooks are called during tool execution", async () => {
   const beforeCalls = [];
   const afterCalls = [];
 
@@ -1156,40 +1153,40 @@ test("hooks are called during tool execution", async () => {
 
   await loop._callTool("myTool", { value: 5 }, {});
 
-  assert.equal(beforeCalls.length, 1);
-  assert.equal(beforeCalls[0].tool, "myTool");
-  assert.deepEqual(beforeCalls[0].params, { value: 5 });
+  expect(beforeCalls.length).toBe(1);
+  expect(beforeCalls[0].tool).toBe("myTool");
+  expect(beforeCalls[0].params).toEqual({ value: 5 });
 
-  assert.equal(afterCalls.length, 1);
-  assert.equal(afterCalls[0].tool, "myTool");
+  expect(afterCalls.length).toBe(1);
+  expect(afterCalls[0].tool).toBe("myTool");
 });
 
 // ============================================================================
 // dispose 测试
 // ============================================================================
 
-test("message manager dispose marks instance as disposed", async () => {
+it("message manager dispose marks instance as disposed", async () => {
   const loop = await createTestLoop();
 
   loop.addMessage({ role: "user", content: "test" });
 
   loop._messageManager.dispose();
 
-  assert.equal(loop._messageManager._disposed, true);
+  expect(loop._messageManager._disposed).toBe(true);
 });
 
 // ============================================================================
 // 初始化测试
 // ============================================================================
 
-test("BaseAgentLoop.run throws when not implemented", async () => {
+it("BaseAgentLoop.run throws when not implemented", async () => {
   const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
   const loop = new BaseAgentLoop();
 
-  await assert.rejects(loop.run("input", {}), /not implemented/);
+  await expect(loop.run("input").rejects.toThrow({}), /not implemented/);
 });
 
-test("constructor with tools as Map", async () => {
+it("constructor with tools as Map", async () => {
   const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
 
   const toolsMap = new Map([
@@ -1206,11 +1203,11 @@ test("constructor with tools as Map", async () => {
   const loop = new TestLoop({ tools: toolsMap });
   const tools = loop._toolRegistry.getToolNames();
 
-  assert.ok(tools.includes("mapTool1"));
-  assert.ok(tools.includes("mapTool2"));
+  expect(tools.includes("mapTool1")).toBeTruthy();
+  expect(tools.includes("mapTool2")).toBeTruthy();
 });
 
-test("constructor with tools as array of tuples", async () => {
+it("constructor with tools as array of tuples", async () => {
   const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
 
   const toolsArray = [
@@ -1227,11 +1224,11 @@ test("constructor with tools as array of tuples", async () => {
   const loop = new TestLoop({ tools: toolsArray });
   const tools = loop._toolRegistry.getToolNames();
 
-  assert.ok(tools.includes("arrayTool1"));
-  assert.ok(tools.includes("arrayTool2"));
+  expect(tools.includes("arrayTool1")).toBeTruthy();
+  expect(tools.includes("arrayTool2")).toBeTruthy();
 });
 
-test("constructor without options uses defaults", async () => {
+it("constructor without options uses defaults", async () => {
   const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
 
   class TestLoop extends BaseAgentLoop {
@@ -1242,16 +1239,16 @@ test("constructor without options uses defaults", async () => {
 
   const loop = new TestLoop();
 
-  assert.equal(loop.stageName, "agent");
-  assert.equal(loop.actor, "agent");
-  assert.equal(loop.eventBus, null);
+  expect(loop.stageName).toBe("agent");
+  expect(loop.actor).toBe("agent");
+  expect(loop.eventBus).toBe(null);
 });
 
 // ============================================================================
 // _isAbortError 测试
 // ============================================================================
 
-test("_isAbortError detects abort errors", async () => {
+it("_isAbortError detects abort errors", async () => {
   const loop = await createTestLoop();
 
   const controller = new AbortController();
@@ -1260,14 +1257,14 @@ test("_isAbortError detects abort errors", async () => {
   const abortError = new Error("AbortError");
   abortError.name = "AbortError";
 
-  assert.equal(loop._isAbortError(abortError, controller.signal), true);
+  expect(loop._isAbortError(abortError).toBe(controller.signal), true);
 });
 
-test("_isAbortError returns false for non-abort errors", async () => {
+it("_isAbortError returns false for non-abort errors", async () => {
   const loop = await createTestLoop();
 
   const regularError = new Error("regular");
   const controller = new AbortController();
 
-  assert.equal(loop._isAbortError(regularError, controller.signal), false);
+  expect(loop._isAbortError(regularError).toBe(controller.signal), false);
 });

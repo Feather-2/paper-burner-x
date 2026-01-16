@@ -10,8 +10,7 @@
  * - resolveToolExecutor
  */
 
-import { describe, it, beforeEach, mock } from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import {
   ToolRegistry,
@@ -23,7 +22,7 @@ describe("ToolRegistry", () => {
   describe("constructor", () => {
     it("should create empty registry", () => {
       const registry = new ToolRegistry();
-      assert.deepEqual(registry.getToolNames(), []);
+      expect(registry.getToolNames()).toEqual([]);
     });
 
     it("should accept tools via options", () => {
@@ -33,7 +32,7 @@ describe("ToolRegistry", () => {
           bar: () => "bar",
         },
       });
-      assert.deepEqual(registry.getToolNames().sort(), ["bar", "foo"]);
+      expect(registry.getToolNames().sort()).toEqual(["bar", "foo"]);
     });
 
     it("should accept hooks via options", () => {
@@ -46,8 +45,8 @@ describe("ToolRegistry", () => {
         },
       });
       // 内部 _hooks 包含传入的 hook + 内置 PreToolUseHook
-      assert.ok(registry._hooks.before.length >= 2);
-      assert.ok(registry._hooks.after.includes(afterHook));
+      expect(registry._hooks.before.length >= 2).toBeTruthy();
+      expect(registry._hooks.after.includes(afterHook)).toBeTruthy();
     });
 
     it("should accept logger via options", async () => {
@@ -65,7 +64,7 @@ describe("ToolRegistry", () => {
         logger,
       });
       await registry.callTool("test", {}, {});
-      assert.ok(warnings.some((w) => w.includes("BeforeHook failed")));
+      expect(warnings.some(w => w.includes("BeforeHook failed"))).toBeTruthy();
     });
   });
 
@@ -73,38 +72,29 @@ describe("ToolRegistry", () => {
     it("should register a tool", () => {
       const registry = new ToolRegistry();
       registry.registerTool("greet", (params) => `Hello ${params.name}`);
-      assert.ok(registry.hasTool("greet"));
+      expect(registry.hasTool("greet")).toBeTruthy();
     });
 
     it("should throw if name is empty", () => {
       const registry = new ToolRegistry();
-      assert.throws(
-        () => registry.registerTool("", () => {}),
-        /name must be a non-empty string/
-      );
+      expect(() => registry.registerTool("", () => {})).toThrow(/name must be a non-empty string/);
     });
 
     it("should throw if name is not a string", () => {
       const registry = new ToolRegistry();
-      assert.throws(
-        () => registry.registerTool(123, () => {}),
-        /name must be a non-empty string/
-      );
+      expect(() => registry.registerTool(123, () => {})).toThrow(/name must be a non-empty string/);
     });
 
     it("should throw if fn is not a function", () => {
       const registry = new ToolRegistry();
-      assert.throws(
-        () => registry.registerTool("test", "not a function"),
-        /fn must be a function/
-      );
+      expect(() => registry.registerTool("test", "not a function")).toThrow(/fn must be a function/);
     });
 
     it("should overwrite existing tool", () => {
       const registry = new ToolRegistry();
       registry.registerTool("test", () => "v1");
       registry.registerTool("test", () => "v2");
-      assert.ok(registry.hasTool("test"));
+      expect(registry.hasTool("test")).toBeTruthy();
     });
   });
 
@@ -115,7 +105,7 @@ describe("ToolRegistry", () => {
         a: () => "a",
         b: () => "b",
       });
-      assert.deepEqual(registry.getToolNames().sort(), ["a", "b"]);
+      expect(registry.getToolNames().sort()).toEqual(["a", "b"]);
     });
 
     it("should register tools from Map", () => {
@@ -125,7 +115,7 @@ describe("ToolRegistry", () => {
         ["y", () => "y"],
       ]);
       registry.registerTools(map);
-      assert.deepEqual(registry.getToolNames().sort(), ["x", "y"]);
+      expect(registry.getToolNames().sort()).toEqual(["x", "y"]);
     });
 
     it("should register tools from array of tuples", () => {
@@ -134,48 +124,45 @@ describe("ToolRegistry", () => {
         ["p", () => "p"],
         ["q", () => "q"],
       ]);
-      assert.deepEqual(registry.getToolNames().sort(), ["p", "q"]);
+      expect(registry.getToolNames().sort()).toEqual(["p", "q"]);
     });
 
     it("should throw for invalid input", () => {
       const registry = new ToolRegistry();
-      assert.throws(
-        () => registry.registerTools("invalid"),
-        /tools must be an object, array, or map/
-      );
+      expect(() => registry.registerTools("invalid")).toThrow(/tools must be an object, array, or map/);
     });
 
     it("should handle null/undefined gracefully", () => {
       const registry = new ToolRegistry();
       registry.registerTools(null);
       registry.registerTools(undefined);
-      assert.deepEqual(registry.getToolNames(), []);
+      expect(registry.getToolNames()).toEqual([]);
     });
   });
 
   describe("hasTool", () => {
     it("should return true for registered tool", () => {
       const registry = new ToolRegistry({ tools: { test: () => {} } });
-      assert.equal(registry.hasTool("test"), true);
+      expect(registry.hasTool("test")).toBe(true);
     });
 
     it("should return false for unregistered tool", () => {
       const registry = new ToolRegistry();
-      assert.equal(registry.hasTool("nonexistent"), false);
+      expect(registry.hasTool("nonexistent")).toBe(false);
     });
   });
 
   describe("getToolNames", () => {
     it("should return empty array for empty registry", () => {
       const registry = new ToolRegistry();
-      assert.deepEqual(registry.getToolNames(), []);
+      expect(registry.getToolNames()).toEqual([]);
     });
 
     it("should return all tool names", () => {
       const registry = new ToolRegistry({
         tools: { alpha: () => {}, beta: () => {}, gamma: () => {} },
       });
-      assert.deepEqual(registry.getToolNames().sort(), ["alpha", "beta", "gamma"]);
+      expect(registry.getToolNames().sort()).toEqual(["alpha", "beta", "gamma"]);
     });
   });
 
@@ -184,25 +171,25 @@ describe("ToolRegistry", () => {
       const registry = new ToolRegistry();
       const hook = () => null;
       const result = registry.useHook("before", hook);
-      assert.equal(result, registry); // chainable
-      assert.ok(registry._hooks.before.includes(hook));
+      expect(result).toBe(registry); // chainable
+      expect(registry._hooks.before.includes(hook)).toBeTruthy();
     });
 
     it("should register after hook", () => {
       const registry = new ToolRegistry();
       const hook = () => undefined;
       registry.useHook("after", hook);
-      assert.ok(registry._hooks.after.includes(hook));
+      expect(registry._hooks.after.includes(hook)).toBeTruthy();
     });
 
     it("should throw for invalid phase", () => {
       const registry = new ToolRegistry();
-      assert.throws(() => registry.useHook("invalid", () => {}), /Invalid hook phase/);
+      expect(() => registry.useHook("invalid", () => {})).toThrow(/Invalid hook phase/);
     });
 
     it("should throw for non-function hook", () => {
       const registry = new ToolRegistry();
-      assert.throws(() => registry.useHook("before", "not a function"), /Hook must be a function/);
+      expect(() => registry.useHook("before", "not a function")).toThrow(/Hook must be a function/);
     });
   });
 
@@ -214,15 +201,15 @@ describe("ToolRegistry", () => {
         },
       });
       const result = await registry.callTool("add", { a: 2, b: 3 }, {});
-      assert.equal(result.ok, true);
-      assert.equal(result.data, 5);
+      expect(result.ok).toBe(true);
+      expect(result.data).toBe(5);
     });
 
     it("should return error for unknown tool", async () => {
       const registry = new ToolRegistry();
       const result = await registry.callTool("unknown", {}, {});
-      assert.equal(result.ok, false);
-      assert.ok(result.error.includes("Unknown tool"));
+      expect(result.ok).toBe(false);
+      expect(result.error.includes("Unknown tool")).toBeTruthy();
     });
 
     it("should catch tool errors", async () => {
@@ -234,8 +221,8 @@ describe("ToolRegistry", () => {
         },
       });
       const result = await registry.callTool("fail", {}, {});
-      assert.equal(result.ok, false);
-      assert.ok(result.error.includes("Intentional failure"));
+      expect(result.ok).toBe(false);
+      expect(result.error.includes("Intentional failure")).toBeTruthy();
     });
 
     it("should handle async tools", async () => {
@@ -248,8 +235,8 @@ describe("ToolRegistry", () => {
         },
       });
       const result = await registry.callTool("delay", { value: 5 }, {});
-      assert.equal(result.ok, true);
-      assert.equal(result.data, 10);
+      expect(result.ok).toBe(true);
+      expect(result.data).toBe(10);
     });
 
     it("should pass context to tool", async () => {
@@ -259,9 +246,9 @@ describe("ToolRegistry", () => {
         },
       });
       const result = await registry.callTool("echo", { msg: "hi" }, { userId: 42 });
-      assert.equal(result.ok, true);
-      assert.equal(result.data.userId, 42);
-      assert.equal(result.data.params.msg, "hi");
+      expect(result.ok).toBe(true);
+      expect(result.data.userId).toBe(42);
+      expect(result.data.params.msg).toBe("hi");
     });
   });
 
@@ -280,9 +267,9 @@ describe("ToolRegistry", () => {
         },
       });
       await registry.callTool("test", { x: 1 }, {});
-      assert.equal(calls.length, 1);
-      assert.equal(calls[0].tool, "test");
-      assert.equal(calls[0].params.x, 1);
+      expect(calls.length).toBe(1);
+      expect(calls[0].tool).toBe("test");
+      expect(calls[0].params.x).toBe(1);
     });
 
     it("should allow before hook to skip execution", async () => {
@@ -293,8 +280,8 @@ describe("ToolRegistry", () => {
         },
       });
       const result = await registry.callTool("test", {}, {});
-      assert.equal(result.ok, true);
-      assert.equal(result.data.skipped, true);
+      expect(result.ok).toBe(true);
+      expect(result.data.skipped).toBe(true);
     });
 
     it("should allow before hook to modify params", async () => {
@@ -305,8 +292,8 @@ describe("ToolRegistry", () => {
         },
       });
       const result = await registry.callTool("double", { n: 5 }, {});
-      assert.equal(result.ok, true);
-      assert.equal(result.data, 30); // (5 + 10) * 2
+      expect(result.ok).toBe(true);
+      expect(result.data).toBe(30); // (5 + 10) * 2
     });
 
     it("should run after hooks", async () => {
@@ -323,9 +310,9 @@ describe("ToolRegistry", () => {
         },
       });
       await registry.callTool("test", {}, {});
-      assert.equal(calls.length, 1);
-      assert.equal(calls[0].tool, "test");
-      assert.equal(calls[0].data, "ok");
+      expect(calls.length).toBe(1);
+      expect(calls[0].tool).toBe("test");
+      expect(calls[0].data).toBe("ok");
     });
 
     it("should allow after hook to transform result", async () => {
@@ -336,8 +323,8 @@ describe("ToolRegistry", () => {
         },
       });
       const result = await registry.callTool("test", {}, {});
-      assert.equal(result.ok, true);
-      assert.equal(result.data, 15);
+      expect(result.ok).toBe(true);
+      expect(result.data).toBe(15);
     });
 
     it("should catch before hook errors", async () => {
@@ -354,9 +341,9 @@ describe("ToolRegistry", () => {
         logger: { warn: (msg) => warnings.push(msg) },
       });
       const result = await registry.callTool("test", {}, {});
-      assert.equal(result.ok, true);
-      assert.equal(result.data, "ok");
-      assert.ok(warnings.some((w) => w.includes("BeforeHook failed")));
+      expect(result.ok).toBe(true);
+      expect(result.data).toBe("ok");
+      expect(warnings.some(w => w.includes("BeforeHook failed"))).toBeTruthy();
     });
 
     it("should catch after hook errors", async () => {
@@ -373,8 +360,8 @@ describe("ToolRegistry", () => {
         logger: { warn: (msg) => warnings.push(msg) },
       });
       const result = await registry.callTool("test", {}, {});
-      assert.equal(result.ok, true);
-      assert.ok(warnings.some((w) => w.includes("AfterHook failed")));
+      expect(result.ok).toBe(true);
+      expect(warnings.some(w => w.includes("AfterHook failed"))).toBeTruthy();
     });
   });
 
@@ -385,8 +372,8 @@ describe("ToolRegistry", () => {
         toolExecutor: (name, params) => ({ executed: name, params }),
       };
       const result = await registry.callTool("anyTool", { key: "val" }, context);
-      assert.equal(result.ok, true);
-      assert.equal(result.data.executed, "anyTool");
+      expect(result.ok).toBe(true);
+      expect(result.data.executed).toBe("anyTool");
     });
 
     it("should use toolExecutor.execute method", async () => {
@@ -397,8 +384,8 @@ describe("ToolRegistry", () => {
         },
       };
       const result = await registry.callTool("test", {}, context);
-      assert.equal(result.ok, true);
-      assert.equal(result.data.method, "execute");
+      expect(result.ok).toBe(true);
+      expect(result.data.method).toBe("execute");
     });
 
     it("should use context.tools as executor", async () => {
@@ -407,8 +394,8 @@ describe("ToolRegistry", () => {
         tools: (name, params) => ({ via: "tools", name }),
       };
       const result = await registry.callTool("myTool", {}, context);
-      assert.equal(result.ok, true);
-      assert.equal(result.data.via, "tools");
+      expect(result.ok).toBe(true);
+      expect(result.data.via).toBe("tools");
     });
   });
 
@@ -425,9 +412,9 @@ describe("ToolRegistry", () => {
         toolQuotaConfig: { mode: "block" },
       };
       const result = await registry.callTool("test", {}, context);
-      assert.equal(result.ok, false);
-      assert.ok(result.error.includes("quota exceeded"));
-      assert.ok(result.quota);
+      expect(result.ok).toBe(false);
+      expect(result.error.includes("quota exceeded")).toBeTruthy();
+      expect(result.quota).toBeTruthy();
     });
 
     it("should emit quota exceeded event", async () => {
@@ -443,7 +430,7 @@ describe("ToolRegistry", () => {
         emit: (name, data) => events.push({ name, data }),
       };
       await registry.callTool("test", {}, context);
-      assert.ok(events.some((e) => e.name === "tool.quota.exceeded"));
+      expect(events.some(e => e.name === "tool.quota.exceeded")).toBeTruthy();
     });
 
     it("should warn but continue in warn mode", async () => {
@@ -459,9 +446,9 @@ describe("ToolRegistry", () => {
         toolQuotaConfig: { mode: "warn" },
       };
       const result = await registry.callTool("test", {}, context);
-      assert.equal(result.ok, true);
-      assert.equal(result.data, "ok");
-      assert.ok(recordedCalls.includes("test"));
+      expect(result.ok).toBe(true);
+      expect(result.data).toBe("ok");
+      expect(recordedCalls.includes("test")).toBeTruthy();
     });
 
     it("should skip quota check when mode is off", async () => {
@@ -475,7 +462,7 @@ describe("ToolRegistry", () => {
         toolQuotaConfig: { mode: "off" },
       };
       const result = await registry.callTool("test", {}, context);
-      assert.equal(result.ok, true);
+      expect(result.ok).toBe(true);
     });
 
     it("should resolve quota manager from stageApi", async () => {
@@ -491,7 +478,7 @@ describe("ToolRegistry", () => {
         },
       };
       const result = await registry.callTool("test", {}, context);
-      assert.equal(result.ok, false);
+      expect(result.ok).toBe(false);
     });
 
     it("should attach quota snapshot to result", async () => {
@@ -505,8 +492,8 @@ describe("ToolRegistry", () => {
         toolQuotaConfig: { mode: "warn" },
       };
       const result = await registry.callTool("test", {}, context);
-      assert.equal(result.ok, true);
-      assert.equal(result.quota.remaining, 5);
+      expect(result.ok).toBe(true);
+      expect(result.quota.remaining).toBe(5);
     });
   });
 
@@ -534,10 +521,10 @@ describe("ToolRegistry", () => {
         },
       };
       const result = await registry.callTool("test", {}, context);
-      assert.equal(result.ok, true);
-      assert.equal(spans.length, 1);
-      assert.equal(spans[0].name, "tool.test");
-      assert.equal(spans[0].attrs["tool.name"], "test");
+      expect(result.ok).toBe(true);
+      expect(spans.length).toBe(1);
+      expect(spans[0].name).toBe("tool.test");
+      expect(spans[0].attrs["tool.name"]).toBe("test");
     });
 
     it("should set error status on failure", async () => {
@@ -566,8 +553,8 @@ describe("ToolRegistry", () => {
         },
       };
       const result = await registry.callTool("fail", {}, context);
-      assert.equal(result.ok, false);
-      assert.equal(spans[0].status.s, "error");
+      expect(result.ok).toBe(false);
+      expect(spans[0].status.s).toBe("error");
     });
   });
 
@@ -585,11 +572,11 @@ describe("ToolRegistry", () => {
         },
       };
       const result = registry.usePolicyManager(policyManager);
-      assert.equal(result, registry); // chainable
+      expect(result).toBe(registry); // chainable
 
       const callResult = await registry.callTool("test", {}, {});
-      assert.equal(callResult.ok, false);
-      assert.ok(callResult.error.includes("policy denied"));
+      expect(callResult.ok).toBe(false);
+      expect(callResult.error.includes("policy denied")).toBeTruthy();
       // policy 字段被 normalizeToolResult 丢弃，这是设计行为
     });
 
@@ -601,8 +588,8 @@ describe("ToolRegistry", () => {
         check: async () => ({ effect: "allow" }),
       });
       const result = await registry.callTool("allowed", {}, {});
-      assert.equal(result.ok, true);
-      assert.equal(result.data, "success");
+      expect(result.ok).toBe(true);
+      expect(result.data).toBe("success");
     });
 
     it("should handle policy check errors gracefully", async () => {
@@ -617,8 +604,8 @@ describe("ToolRegistry", () => {
         },
       });
       const result = await registry.callTool("test", {}, {});
-      assert.equal(result.ok, true); // fail-open
-      assert.ok(warnings.some((w) => w.includes("PolicyManager.check failed")));
+      expect(result.ok).toBe(true); // fail-open
+      expect(warnings.some(w => w.includes("PolicyManager.check failed"))).toBeTruthy();
     });
 
     it("should ignore invalid policy manager", () => {
@@ -626,9 +613,9 @@ describe("ToolRegistry", () => {
       const result1 = registry.usePolicyManager(null);
       const result2 = registry.usePolicyManager({});
       const result3 = registry.usePolicyManager({ check: "not a function" });
-      assert.equal(result1, registry);
-      assert.equal(result2, registry);
-      assert.equal(result3, registry);
+      expect(result1).toBe(registry);
+      expect(result2).toBe(registry);
+      expect(result3).toBe(registry);
     });
 
     it("should include resource in policy request", async () => {
@@ -643,8 +630,8 @@ describe("ToolRegistry", () => {
         },
       });
       await registry.callTool("test", { url: "https://example.com", query: "test" }, {});
-      assert.equal(requests[0].resource, "https://example.com");
-      assert.equal(requests[0].args.query, "test");
+      expect(requests[0].resource).toBe("https://example.com");
+      expect(requests[0].args.query).toBe("test");
     });
   });
 });
@@ -654,64 +641,64 @@ describe("resolveToolExecutor", () => {
     const fn = (name, params) => ({ name, params });
     const context = { toolExecutor: fn };
     const resolved = resolveToolExecutor(context);
-    assert.equal(resolved, fn);
+    expect(resolved).toBe(fn);
   });
 
   it("should wrap executor with execute method", () => {
     const executor = { execute: (name, params) => ({ name }) };
     const context = { toolExecutor: executor };
     const resolved = resolveToolExecutor(context);
-    assert.equal(typeof resolved, "function");
+    expect(typeof resolved).toBe("function");
     const result = resolved("test", {});
-    assert.equal(result.name, "test");
+    expect(result.name).toBe("test");
   });
 
   it("should use context.tools as executor", () => {
     const fn = (name) => name;
     const context = { tools: fn };
     const resolved = resolveToolExecutor(context);
-    assert.equal(resolved, fn);
+    expect(resolved).toBe(fn);
   });
 
   it("should return null for invalid context", () => {
-    assert.equal(resolveToolExecutor(null), null);
-    assert.equal(resolveToolExecutor(undefined), null);
-    assert.equal(resolveToolExecutor({}), null);
-    assert.equal(resolveToolExecutor({ toolExecutor: "string" }), null);
+    expect(resolveToolExecutor(null)).toBe(null);
+    expect(resolveToolExecutor(undefined)).toBe(null);
+    expect(resolveToolExecutor({})).toBe(null);
+    expect(resolveToolExecutor({ toolExecutor: "string" })).toBe(null);
   });
 });
 
 describe("normalizeToolResult (re-export)", () => {
   it("should normalize successful result", () => {
     const result = normalizeToolResult({ ok: true, data: "value" });
-    assert.equal(result.ok, true);
-    assert.equal(result.success, true);
-    assert.equal(result.data, "value");
+    expect(result.ok).toBe(true);
+    expect(result.success).toBe(true);
+    expect(result.data).toBe("value");
   });
 
   it("should normalize error result", () => {
     const result = normalizeToolResult({ ok: false, error: "failed" });
-    assert.equal(result.ok, false);
-    assert.equal(result.success, false);
-    assert.equal(result.error, "failed");
+    expect(result.ok).toBe(false);
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("failed");
   });
 
   it("should normalize primitive values", () => {
     const result = normalizeToolResult(42);
-    assert.equal(result.ok, true);
-    assert.equal(result.data, 42);
+    expect(result.ok).toBe(true);
+    expect(result.data).toBe(42);
   });
 
   it("should normalize Error objects", () => {
     const result = normalizeToolResult(new Error("test error"));
-    assert.equal(result.ok, false);
-    assert.equal(result.error, "test error");
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("test error");
   });
 
   it("should normalize null/undefined", () => {
     const result1 = normalizeToolResult(null);
     const result2 = normalizeToolResult(undefined);
-    assert.equal(result1.ok, true);
-    assert.equal(result2.ok, true);
+    expect(result1.ok).toBe(true);
+    expect(result2.ok).toBe(true);
   });
 });

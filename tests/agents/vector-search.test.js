@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import { buildIndex, searchAsync } from "../../js/agents/retrieval/vector-search.js";
 
@@ -13,8 +13,8 @@ describe("retrieval/vector-search", () => {
 
       const index = buildIndex(chunks);
 
-      assert.ok(index.vectorIndex);
-      assert.deepEqual(index.chunkIds, ["c1", "c2"]);
+      expect(index.vectorIndex).toBeTruthy();
+      expect(index.chunkIds).toEqual(["c1", "c2"]);
     });
 
     it("generates chunkIds when not provided", () => {
@@ -25,8 +25,8 @@ describe("retrieval/vector-search", () => {
 
       const index = buildIndex(chunks);
 
-      assert.equal(index.chunkIds[0], "chunk_1");
-      assert.equal(index.chunkIds[1], "chunk_2");
+      expect(index.chunkIds[0]).toBe("chunk_1");
+      expect(index.chunkIds[1]).toBe("chunk_2");
     });
 
     it("skips chunks without embeddings", () => {
@@ -38,7 +38,7 @@ describe("retrieval/vector-search", () => {
 
       const index = buildIndex(chunks);
 
-      assert.equal(index.chunkIds.length, 3);
+      expect(index.chunkIds.length).toBe(3);
     });
 
     it("uses custom getEmbedding function", () => {
@@ -51,7 +51,7 @@ describe("retrieval/vector-search", () => {
         getEmbedding: (c) => c.vec,
       });
 
-      assert.ok(index.vectorIndex);
+      expect(index.vectorIndex).toBeTruthy();
     });
 
     it("accepts injected vectorIndex", () => {
@@ -64,21 +64,21 @@ describe("retrieval/vector-search", () => {
         vectorIndex: mockIndex,
       });
 
-      assert.equal(index.vectorIndex, mockIndex);
+      expect(index.vectorIndex).toBe(mockIndex);
     });
 
     it("throws on invalid chunks", () => {
-      assert.throws(() => buildIndex(null), /array/);
-      assert.throws(() => buildIndex("not array"), /array/);
+      expect(() => buildIndex(null)).toThrow(/array/);
+      expect(() => buildIndex("not array")).toThrow(/array/);
     });
 
     it("throws on invalid options", () => {
-      assert.throws(() => buildIndex([], "invalid"), /object/);
+      expect(() => buildIndex([], "invalid")).toThrow(/object/);
     });
 
     it("handles empty chunks array", () => {
       const index = buildIndex([]);
-      assert.deepEqual(index.chunkIds, []);
+      expect(index.chunkIds).toEqual([]);
     });
   });
 
@@ -103,7 +103,7 @@ describe("retrieval/vector-search", () => {
         },
       });
 
-      assert.ok(results.length >= 1);
+      expect(results.length >= 1).toBeTruthy();
     });
 
     it("returns empty for empty query", async () => {
@@ -111,12 +111,11 @@ describe("retrieval/vector-search", () => {
       const results = await searchAsync(mockIndex, "", 5, {
         embeddingService: { embed: async () => [[0.1]] },
       });
-      assert.deepEqual(results, []);
+      expect(results).toEqual([]);
     });
 
     it("throws on null index", async () => {
-      await assert.rejects(
-        () => searchAsync(null, "test", 5, {
+      await expect(() => searchAsync(null, "test", 5, {
           embeddingService: { embed: async () => [[0.1]] },
         }),
         /VectorIndex-like/
@@ -124,8 +123,7 @@ describe("retrieval/vector-search", () => {
     });
 
     it("throws on index without search method", async () => {
-      await assert.rejects(
-        () => searchAsync({}, "test", 5, {
+      await expect(() => searchAsync({}, "test", 5, {
           embeddingService: { embed: async () => [[0.1]] },
         }),
         /VectorIndex-like/
@@ -139,8 +137,8 @@ describe("retrieval/vector-search", () => {
         embeddingService: { embed: async () => [[0.1]] },
       });
 
-      assert.equal(results[0].chunkId, "chunk1");
-      assert.equal(results[0].score, 0.95);
+      expect(results[0].chunkId).toBe("chunk1");
+      expect(results[0].score).toBe(0.95);
     });
 
     it("respects topK limit", async () => {
@@ -153,7 +151,7 @@ describe("retrieval/vector-search", () => {
         embeddingService: { embed: async () => [[0.1]] },
       });
 
-      assert.equal(results.length, 3);
+      expect(results.length).toBe(3);
     });
 
     it("returns empty when embedding fails", async () => {
@@ -161,8 +159,7 @@ describe("retrieval/vector-search", () => {
 
       // When embedding throws, searchAsync should propagate the error
       // unless handled internally - let's check actual behavior
-      await assert.rejects(
-        () => searchAsync(mockIndex, "query", 5, {
+      await expect(() => searchAsync(mockIndex, "query", 5, {
           embeddingService: {
             embed: async () => {
               throw new Error("Embedding failed");

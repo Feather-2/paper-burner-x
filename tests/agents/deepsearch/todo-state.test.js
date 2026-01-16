@@ -1,7 +1,8 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
-test("TodoStatus transitions update status/history and reject invalid moves", async () => {
+it("TodoStatus transitions update status/history and reject invalid moves", async () => {
   const { createTodo, transitionTodoStatus } = await import("../../../js/agents/stages/deepsearch/utils/todo-utils.js");
 
   const todo = createTodo({
@@ -12,20 +13,20 @@ test("TodoStatus transitions update status/history and reject invalid moves", as
   });
   const createdAt = todo.updatedAt;
 
-  assert.equal(transitionTodoStatus(todo, "pending"), true);
-  assert.equal(todo.status, "pending");
-  assert.notEqual(todo.updatedAt, createdAt);
-  assert.equal(todo.history.length >= 2, true);
+  expect(transitionTodoStatus(todo).toBe("pending"), true);
+  expect(todo.status).toBe("pending");
+  expect(todo.updatedAt).not.toBe(createdAt);
+  expect(todo.history.length >= 2).toBe(true);
 
-  assert.equal(transitionTodoStatus(todo, "completed"), true);
-  assert.equal(todo.status, "completed");
+  expect(transitionTodoStatus(todo).toBe("completed"), true);
+  expect(todo.status).toBe("completed");
 
   // 简化后允许任意有效状态转换
-  assert.equal(transitionTodoStatus(todo, "cancelled"), true);
-  assert.equal(todo.status, "cancelled");
+  expect(transitionTodoStatus(todo).toBe("cancelled"), true);
+  expect(todo.status).toBe("cancelled");
 });
 
-test("validateTodo enforces schema requirements", async () => {
+it("validateTodo enforces schema requirements", async () => {
   const { createTodo, validateTodo } = await import("../../../js/agents/stages/deepsearch/utils/todo-utils.js");
 
   const validTodo = createTodo({
@@ -38,18 +39,18 @@ test("validateTodo enforces schema requirements", async () => {
     source: "user",
   });
   const validResult = validateTodo(validTodo);
-  assert.equal(validResult.valid, true);
-  assert.equal(validResult.issues.length, 0);
+  expect(validResult.valid).toBe(true);
+  expect(validResult.issues.length).toBe(0);
 
   const invalidResult = validateTodo({ text: "", status: "weird", queryHints: ["", 1], createdAt: "not-a-date" });
-  assert.equal(invalidResult.valid, false);
-  assert.equal(invalidResult.issues.some((issue) => issue.includes("todoId")), true);
-  assert.equal(invalidResult.issues.some((issue) => issue.includes("status")), true);
-  assert.equal(invalidResult.issues.some((issue) => issue.includes("queryHints")), true);
-  assert.equal(invalidResult.issues.some((issue) => issue.includes("createdAt")), true);
+  expect(invalidResult.valid).toBe(false);
+  expect(invalidResult.issues.some((issue) => issue.includes("todoId"))).toBe(true);
+  expect(invalidResult.issues.some((issue) => issue.includes("status"))).toBe(true);
+  expect(invalidResult.issues.some((issue) => issue.includes("queryHints"))).toBe(true);
+  expect(invalidResult.issues.some((issue) => issue.includes("createdAt"))).toBe(true);
 });
 
-test("L2 control flags serialize/deserialize across minimal checkpoints", async () => {
+it("L2 control flags serialize/deserialize across minimal checkpoints", async () => {
   const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
 
   const state = new DeepSearchState({
@@ -60,20 +61,20 @@ test("L2 control flags serialize/deserialize across minimal checkpoints", async 
   state.setAwaitUserFeedback(true, "need user input");
 
   const cp = state.saveCheckpoint({ checkpointId: "cp_l2" });
-  assert.equal(cp.stateSnapshot.L2.awaitUserFeedback, true);
-  assert.equal(cp.stateSnapshot.L2.taskImpossible, false);
-  assert.equal(cp.stateSnapshot.L2.reason, "need user input");
+  expect(cp.stateSnapshot.L2.awaitUserFeedback).toBe(true);
+  expect(cp.stateSnapshot.L2.taskImpossible).toBe(false);
+  expect(cp.stateSnapshot.L2.reason).toBe("need user input");
 
   state.setAwaitUserFeedback(false);
   state.L2.taskImpossible = false;
   state.L2.reason = "";
   state.restoreCheckpoint("cp_l2");
 
-  assert.equal(state.L2.awaitUserFeedback, true);
-  assert.equal(state.L2.reason, "need user input");
+  expect(state.L2.awaitUserFeedback).toBe(true);
+  expect(state.L2.reason).toBe("need user input");
 });
 
-test("loadCheckpoint migrates gaps into todos and stamps L2 flags", async () => {
+it("loadCheckpoint migrates gaps into todos and stamps L2 flags", async () => {
   const { loadCheckpoint } = await import("../../../js/agents/stages/deepsearch/runtime/checkpoint.js");
 
   const checkpoint = {
@@ -103,17 +104,17 @@ test("loadCheckpoint migrates gaps into todos and stamps L2 flags", async () => 
   };
 
   const loaded = loadCheckpoint(checkpoint);
-  assert.ok(Array.isArray(loaded.stateSnapshot.todos));
-  assert.equal(loaded.stateSnapshot.todos.length, 1);
+  expect(Array.isArray(loaded.stateSnapshot.todos)).toBeTruthy();
+  expect(loaded.stateSnapshot.todos.length).toBe(1);
   const todo = loaded.stateSnapshot.todos[0];
-  assert.equal(todo.relatedGapId, "gap_1");
-  assert.equal(todo.status, "completed");
-  assert.equal(todo.priority, "high");
-  assert.equal(loaded.stateSnapshot.L2.awaitUserFeedback, false);
-  assert.equal(loaded.stateSnapshot.L2.taskImpossible, false);
+  expect(todo.relatedGapId).toBe("gap_1");
+  expect(todo.status).toBe("completed");
+  expect(todo.priority).toBe("high");
+  expect(loaded.stateSnapshot.L2.awaitUserFeedback).toBe(false);
+  expect(loaded.stateSnapshot.L2.taskImpossible).toBe(false);
 });
 
-test("states helpers validate enums", async () => {
+it("states helpers validate enums", async () => {
   const {
     GapPriority,
     GapStatus,
@@ -132,22 +133,22 @@ test("states helpers validate enums", async () => {
   } = await import("../../../js/agents/stages/deepsearch/states.js");
   const { transitionTodoStatus } = await import("../../../js/agents/stages/deepsearch/utils/todo-utils.js");
 
-  assert.equal(isValidGapPriority(GapPriority.HIGH), true);
-  assert.equal(isValidGapPriority("urgent"), false);
-  assert.equal(isValidGapStatus(GapStatus.OPEN), true);
-  assert.equal(isValidGapStatus("done"), false);
-  assert.equal(isValidTodoStatus(TodoStatus.OPEN), true);
-  assert.equal(isValidTodoStatus("waiting"), false);
-  assert.equal(isValidPlanNodeStatus(PlanNodeStatus.ACTIVE), true);
-  assert.equal(isValidPlanNodeStatus("paused"), false);
-  assert.equal(isValidPlanNodeType(PlanNodeType.QUERY), true);
-  assert.equal(isValidPlanNodeType("task"), false);
-  assert.equal(isValidDecisionOutcome(DecisionOutcome.SUCCESS), true);
-  assert.equal(isValidDecisionOutcome("maybe"), false);
-  assert.equal(isValidDecisionStage(DecisionStage.SCAN), true);
-  assert.equal(isValidDecisionStage("draft"), false);
+  expect(isValidGapPriority(GapPriority.HIGH)).toBe(true);
+  expect(isValidGapPriority("urgent")).toBe(false);
+  expect(isValidGapStatus(GapStatus.OPEN)).toBe(true);
+  expect(isValidGapStatus("done")).toBe(false);
+  expect(isValidTodoStatus(TodoStatus.OPEN)).toBe(true);
+  expect(isValidTodoStatus("waiting")).toBe(false);
+  expect(isValidPlanNodeStatus(PlanNodeStatus.ACTIVE)).toBe(true);
+  expect(isValidPlanNodeStatus("paused")).toBe(false);
+  expect(isValidPlanNodeType(PlanNodeType.QUERY)).toBe(true);
+  expect(isValidPlanNodeType("task")).toBe(false);
+  expect(isValidDecisionOutcome(DecisionOutcome.SUCCESS)).toBe(true);
+  expect(isValidDecisionOutcome("maybe")).toBe(false);
+  expect(isValidDecisionStage(DecisionStage.SCAN)).toBe(true);
+  expect(isValidDecisionStage("draft")).toBe(false);
 
   const todo = { status: TodoStatus.OPEN };
-  assert.equal(transitionTodoStatus(todo, TodoStatus.PENDING), true);
-  assert.equal(todo.status, TodoStatus.PENDING);
+  expect(transitionTodoStatus(todo).toBe(TodoStatus.PENDING), true);
+  expect(todo.status).toBe(TodoStatus.PENDING);
 });

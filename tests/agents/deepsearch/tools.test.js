@@ -1,43 +1,44 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
-test("DeepSearch tools: export definitions + catalog prompt", async () => {
+it("DeepSearch tools: export definitions + catalog prompt", async () => {
   const { tools, getToolDefinitions, getToolCatalogPrompt } = await import("../../../js/agents/stages/deepsearch/tools/index.js");
 
-  assert.ok(tools && typeof tools === "object");
-  assert.equal(typeof getToolDefinitions, "function");
-  assert.equal(typeof getToolCatalogPrompt, "function");
+  expect(tools && typeof tools === "object").toBeTruthy();
+  expect(typeof getToolDefinitions).toBe("function");
+  expect(typeof getToolCatalogPrompt).toBe("function");
 
   const defs = getToolDefinitions();
-  assert.ok(Array.isArray(defs));
-  assert.ok(defs.length >= 10);
-  assert.ok(defs.some((d) => d?.name === "search-docs"));
+  expect(Array.isArray(defs)).toBeTruthy();
+  expect(defs.length >= 10).toBeTruthy();
+  expect(defs.some(d => d?.name === "search-docs")).toBeTruthy();
 
   for (const [name, tool] of Object.entries(tools)) {
-    assert.equal(typeof name, "string");
-    assert.equal(typeof tool?.handler, "function");
-    assert.ok(tool?.definition && typeof tool.definition.name === "string");
+    expect(typeof name).toBe("string");
+    expect(typeof tool?.handler).toBe("function");
+    expect(tool?.definition && typeof tool.definition.name === "string").toBeTruthy();
   }
 
   const prompt = getToolCatalogPrompt({ showPriority: true });
-  assert.ok(prompt.includes("## 可用工具"));
+  expect(prompt.includes("## 可用工具")).toBeTruthy();
 });
 
-test("DeepSearch tool: manage-todos create/list happy path", async () => {
+it("DeepSearch tool: manage-todos create/list happy path", async () => {
   const { handler } = await import("../../../js/agents/stages/deepsearch/tools/manage-todos/handler.js");
 
   const state = { todos: [] };
   const out1 = await handler({ action: "create", text: "Do thing" }, { state, emit: () => {} });
-  assert.equal(out1.success, true);
-  assert.ok(out1.todo && out1.todo.todoId);
+  expect(out1.success).toBe(true);
+  expect(out1.todo && out1.todo.todoId).toBeTruthy();
 
   const out2 = await handler({ action: "list" }, { state, emit: () => {} });
-  assert.equal(out2.success, true);
-  assert.equal(out2.todos.length, 1);
-  assert.equal(out2.todos[0].text, "Do thing");
+  expect(out2.success).toBe(true);
+  expect(out2.todos.length).toBe(1);
+  expect(out2.todos[0].text).toBe("Do thing");
 });
 
-test("DeepSearch tool: record-finding batches and formats refs", async () => {
+it("DeepSearch tool: record-finding batches and formats refs", async () => {
   const { handler } = await import("../../../js/agents/stages/deepsearch/tools/record-finding/handler.js");
 
   const seen = new Set();
@@ -60,8 +61,8 @@ test("DeepSearch tool: record-finding batches and formats refs", async () => {
     { state, emit: () => {}, sharedContext }
   );
 
-  assert.equal(out.success, true);
-  assert.equal(out.recorded, 2);
-  assert.ok(out.findings[0].ref.includes("[doc1:L10-L12]"));
-  assert.ok(commits.length >= 2);
+  expect(out.success).toBe(true);
+  expect(out.recorded).toBe(2);
+  expect(out.findings[0].ref.includes("[doc1:L10-L12]")).toBeTruthy();
+  expect(commits.length >= 2).toBeTruthy();
 });

@@ -1,4 +1,5 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
 function withEnv(patch, fn) {
@@ -58,26 +59,26 @@ function createFakeSignal() {
   };
 }
 
-test("Design model-caller: logger injection, debug gating, hard timeout, and cleanup", async () => {
+it("Design model-caller: logger injection, debug gating, hard timeout, and cleanup", async () => {
   const { NonRetryableError, isNonRetryableError, getDesignModelCaller, setLogger } = await import("../../../js/agents/stages/design/model.js");
 
   // NonRetryable helpers (exported)
-  assert.equal(isNonRetryableError(null), false);
-  assert.equal(isNonRetryableError(new NonRetryableError("x")), true);
-  assert.equal(isNonRetryableError(new Error("401 Unauthorized")), true);
-  assert.equal(isNonRetryableError("Invalid API key"), true);
-  assert.equal(isNonRetryableError(new Error("random")), false);
+  expect(isNonRetryableError(null)).toBe(false);
+  expect(isNonRetryableError(new NonRetryableError("x"))).toBe(true);
+  expect(isNonRetryableError(new Error("401 Unauthorized"))).toBe(true);
+  expect(isNonRetryableError("Invalid API key")).toBe(true);
+  expect(isNonRetryableError(new Error("random"))).toBe(false);
 
   // setLogger contract
   setLogger(null);
   setLogger(() => {});
   setLogger({ debug: () => {} });
-  assert.throws(() => setLogger(123), /loggerFn/i);
+  expect(() => setLogger(123)).toThrow(/loggerFn/i);
   setLogger(null);
 
   // getDesignModelCaller returns null without services
   await withEnv({ DESIGN_MODEL_TIMEOUT_MS: undefined }, async () => {
-    assert.equal(getDesignModelCaller({}), null);
+    expect(getDesignModelCaller({})).toBe(null);
   });
 
   // Debug gating: debug disabled => injected logger not called.
@@ -96,12 +97,12 @@ test("Design model-caller: logger injection, debug gating, hard timeout, and cle
     };
 
     const callModel = getDesignModelCaller(stageApi, { usage: "designer", timeoutMs: 5_000 });
-    assert.equal(typeof callModel, "function");
+    expect(typeof callModel).toBe("function");
 
     const out = await callModel([{ role: "user", content: "hi" }], { timeoutMs: 5_000 });
-    assert.equal(out.content, "ok");
-    assert.equal(routerCalls.length, 1);
-    assert.equal(logCalls.length, 0);
+    expect(out.content).toBe("ok");
+    expect(routerCalls.length).toBe(1);
+    expect(logCalls.length).toBe(0);
   }).finally(() => setLogger(null));
 
   // Debug enabled => injected logger captures logs, and console.log is the default in dev.
@@ -117,8 +118,8 @@ test("Design model-caller: logger injection, debug gating, hard timeout, and cle
 
     const callModel = getDesignModelCaller(stageApi, { usage: "designer", timeoutMs: 5_000 });
     const out = await callModel([{ role: "user", content: "hi" }], { timeoutMs: 5_000 });
-    assert.equal(out.content, "ok");
-    assert.ok(injectedCalls.some((c) => String(c.msg).includes("[design.model] call via ModelRouter")));
+    expect(out.content).toBe("ok");
+    expect(injectedCalls.some(c => String(c.msg).includes("[design.model] call via ModelRouter")));
 
     setLogger(null);
     const consoleCalls = [];
@@ -128,10 +129,10 @@ test("Design model-caller: logger injection, debug gating, hard timeout, and cle
       },
       async () => {
         const out2 = await callModel([{ role: "user", content: "hi" }], { timeoutMs: 5_000 });
-        assert.equal(out2.content, "ok");
+        expect(out2.content).toBe("ok");
       }
     );
-    assert.ok(consoleCalls.some((c) => String(c.msg).includes("[design.model] call via ModelRouter")));
+    expect(consoleCalls.some(c => String(c.msg).includes("[design.model] call via ModelRouter")));
   }).finally(() => setLogger(null));
 
   // Production env: debug logs are suppressed even if DEBUG_DESIGN_MODEL is set.
@@ -147,14 +148,14 @@ test("Design model-caller: logger injection, debug gating, hard timeout, and cle
 
     const callModel = getDesignModelCaller(stageApi);
     const out = await callModel([{ role: "user", content: "hi" }], { timeoutMs: 5_000 });
-    assert.equal(out.content, "ok");
-    assert.equal(logCalls.length, 0);
+    expect(out.content).toBe("ok");
+    expect(logCalls.length).toBe(0);
   }).finally(() => setLogger(null));
 
   // Hard timeout: aborts and rejects with code=124; removes outer abort listeners on completion.
   await withEnv({ NODE_ENV: "development", DEBUG_DESIGN_MODEL: "0", DESIGN_MODEL_TIMEOUT_MS: "25" }, async () => {
     const outerSignal = createFakeSignal();
-    assert.equal(outerSignal._listeners.size, 0);
+    expect(outerSignal._listeners.size).toBe(0);
 
     let capturedHardSignal = null;
     const stageApi = {
@@ -169,13 +170,12 @@ test("Design model-caller: logger injection, debug gating, hard timeout, and cle
     };
 
     const callModel = getDesignModelCaller(stageApi);
-    await assert.rejects(
-      () => callModel([{ role: "user", content: "hi" }], { signal: outerSignal }),
+    await expect(() => callModel([{ role: "user", content: "hi" }], { signal: outerSignal }),
       (err) => err && err.code === 124 && err.name === "TimeoutError"
     );
 
-    assert.ok(capturedHardSignal && capturedHardSignal.aborted === true);
-    assert.equal(outerSignal._listeners.size, 0);
+    expect(capturedHardSignal && capturedHardSignal.aborted === true).toBeTruthy();
+    expect(outerSignal._listeners.size).toBe(0);
   }).finally(() => setLogger(null));
 
   // Cleanup: outer abort listeners are removed after a successful call.
@@ -190,8 +190,8 @@ test("Design model-caller: logger injection, debug gating, hard timeout, and cle
 
     const callModel = getDesignModelCaller(stageApi, { timeoutMs: 5_000 });
     const out = await callModel([{ role: "user", content: "hi" }], { signal: outerSignal });
-    assert.equal(out.content, "ok");
-    assert.equal(outerSignal._listeners.size, 0);
+    expect(out.content).toBe("ok");
+    expect(outerSignal._listeners.size).toBe(0);
   });
 
   // Outer abort: propagates as AbortError and preserves string and Error reasons.
@@ -201,15 +201,15 @@ test("Design model-caller: logger injection, debug gating, hard timeout, and cle
 
     const abortedString = createFakeSignal();
     abortedString.abort("stop-now");
-    await assert.rejects(() => callModel([{ role: "user", content: "hi" }], { signal: abortedString }), /stop-now/);
+    await expect(() => callModel([{ role: "user", content: "hi" }], { signal: abortedString }), /stop-now/);
 
     const abortedError = createFakeSignal();
     abortedError.abort(new Error("stop-error"));
-    await assert.rejects(() => callModel([{ role: "user", content: "hi" }], { signal: abortedError }), /stop-error/);
+    await expect(() => callModel([{ role: "user", content: "hi" }], { signal: abortedError }), /stop-error/);
 
     const abortedUnknown = createFakeSignal();
     abortedUnknown.abort({ any: "thing" });
-    await assert.rejects(() => callModel([{ role: "user", content: "hi" }], { signal: abortedUnknown }), /Run cancelled/);
+    await expect(() => callModel([{ role: "user", content: "hi" }], { signal: abortedUnknown }), /Run cancelled/);
   });
 
   // aiApiService.chat fallback path
@@ -225,8 +225,8 @@ test("Design model-caller: logger injection, debug gating, hard timeout, and cle
     };
     const callModel = getDesignModelCaller(stageApi, { timeoutMs: 5_000 });
     const out = await callModel([{ role: "user", content: "hi" }], { timeoutMs: 5_000 });
-    assert.equal(out.content, "ok-chat");
-    assert.ok(capturedSignal && typeof capturedSignal.addEventListener === "function");
+    expect(out.content).toBe("ok-chat");
+    expect(capturedSignal && typeof capturedSignal.addEventListener === "function").toBeTruthy();
   });
 
   // Legacy router signature (routerCall.length >= 2)
@@ -243,10 +243,10 @@ test("Design model-caller: logger injection, debug gating, hard timeout, and cle
 
     const callModel = getDesignModelCaller(stageApi, { usage: "brainstorm", timeoutMs: 5_000 });
     const out = await callModel([{ role: "user", content: "hi" }], null);
-    assert.equal(out.content, "ok-legacy");
-    assert.equal(seen.length, 1);
-    assert.equal(seen[0].opts.usage, "brainstorm");
-    assert.ok(seen[0].opts.signal && typeof seen[0].opts.signal.addEventListener === "function");
+    expect(out.content).toBe("ok-legacy");
+    expect(seen.length).toBe(1);
+    expect(seen[0].opts.usage).toBe("brainstorm");
+    expect(seen[0].opts.signal && typeof seen[0].opts.signal.addEventListener === "function").toBeTruthy();
   });
 });
 

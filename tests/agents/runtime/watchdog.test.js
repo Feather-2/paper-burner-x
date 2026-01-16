@@ -1,4 +1,5 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
 function makeEventBus() {
@@ -9,29 +10,29 @@ function makeEventBus() {
   };
 }
 
-test("Watchdog.tick tracks iterations", async () => {
+it("Watchdog.tick tracks iterations", async () => {
   const { Watchdog } = await import("../../../js/agents/runtime/compression/watchdog.js");
   const watchdog = new Watchdog();
 
-  assert.equal(watchdog._iterationCount, 0);
+  expect(watchdog._iterationCount).toBe(0);
   watchdog.tick();
-  assert.equal(watchdog._iterationCount, 1);
+  expect(watchdog._iterationCount).toBe(1);
   watchdog.tick();
-  assert.equal(watchdog._iterationCount, 2);
+  expect(watchdog._iterationCount).toBe(2);
 });
 
-test("Watchdog.checkHealth detects max iterations exceeded", async () => {
+it("Watchdog.checkHealth detects max iterations exceeded", async () => {
   const { Watchdog } = await import("../../../js/agents/runtime/compression/watchdog.js");
   const watchdog = new Watchdog();
 
   for (let i = 0; i < 5; i++) watchdog.tick();
 
   const result = watchdog.checkHealth({ maxIterations: 3 });
-  assert.equal(result.healthy, false);
-  assert.ok(result.issues.some((i) => i.type === "max_iterations"));
+  expect(result.healthy).toBe(false);
+  expect(result.issues.some(i => i.type === "max_iterations")).toBeTruthy();
 });
 
-test("Watchdog.observe and intervene notify handlers", async () => {
+it("Watchdog.observe and intervene notify handlers", async () => {
   const { Watchdog } = await import("../../../js/agents/runtime/compression/watchdog.js");
   const { WatchdogEvents } = await import("../../../js/agents/runtime/events/events.js");
   const watchdog = new Watchdog();
@@ -43,16 +44,16 @@ test("Watchdog.observe and intervene notify handlers", async () => {
 
   // intervene 现在接受 (reason, options) 而非 { action, reason }
   const decision = watchdog.intervene("retry", { context: "test" });
-  assert.equal(decision.reason, "retry");
-  assert.equal(seen.reason, "retry");
+  expect(decision.reason).toBe("retry");
+  expect(seen.reason).toBe("retry");
 
   off();
   seen = null;
   watchdog.intervene("skip", { context: "test" });
-  assert.equal(seen, null);
+  expect(seen).toBe(null);
 });
 
-test("Watchdog.observe unsubscribe is idempotent (does not remove newly added handlers)", async () => {
+it("Watchdog.observe unsubscribe is idempotent (does not remove newly added handlers)", async () => {
   const { Watchdog } = await import("../../../js/agents/runtime/compression/watchdog.js");
   const { WatchdogEvents } = await import("../../../js/agents/runtime/events/events.js");
   const watchdog = new Watchdog();
@@ -72,24 +73,24 @@ test("Watchdog.observe unsubscribe is idempotent (does not remove newly added ha
   off1();
   watchdog.intervene("retry");
 
-  assert.equal(called1, 0);
-  assert.equal(called2, 1);
+  expect(called1).toBe(0);
+  expect(called2).toBe(1);
   off2();
 });
 
-test("Watchdog.reset clears state", async () => {
+it("Watchdog.reset clears state", async () => {
   const { Watchdog } = await import("../../../js/agents/runtime/compression/watchdog.js");
   const watchdog = new Watchdog();
 
   watchdog.tick();
   watchdog.tick();
-  assert.equal(watchdog._iterationCount, 2);
+  expect(watchdog._iterationCount).toBe(2);
 
   watchdog.reset();
-  assert.equal(watchdog._iterationCount, 0);
+  expect(watchdog._iterationCount).toBe(0);
 });
 
-test("Watchdog emits events via eventBus", async () => {
+it("Watchdog emits events via eventBus", async () => {
   const { Watchdog } = await import("../../../js/agents/runtime/compression/watchdog.js");
   const bus = makeEventBus();
   const watchdog = new Watchdog({ eventBus: bus });
@@ -97,5 +98,5 @@ test("Watchdog emits events via eventBus", async () => {
   for (let i = 0; i < 10; i++) watchdog.tick();
   watchdog.checkHealth({ maxIterations: 5 });
 
-  assert.ok(bus.events.length > 0);
+  expect(bus.events.length > 0).toBeTruthy();
 });

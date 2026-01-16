@@ -1,7 +1,8 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
-test("VisualRenderer: dispatches by renderType + emits unified events", async () => {
+it("VisualRenderer: dispatches by renderType + emits unified events", async () => {
   const { VisualRenderer } = await import("../../../js/agents/stages/design/image/visual-renderer.js");
 
   const calls = { image: null, svg: null, asset: null };
@@ -49,25 +50,23 @@ test("VisualRenderer: dispatches by renderType + emits unified events", async ()
   const renderer = new VisualRenderer({ imageGenerator, svgGenerator, assetResolver });
   const out = await renderer.render(visualSlots, { runId: "run_vr", constraints: {} }, {}, { emit, runId: "run_vr" });
 
-  assert.equal(calls.svg.slots.map((s) => s.slotId).join(","), "svg_1");
-  assert.equal(calls.asset.slots.map((s) => s.slotId).join(","), "asset_1");
-  assert.deepEqual(
-    calls.image.slots.map((s) => s.slotId).sort(),
-    ["img_1", "unknown_1"].sort()
+  expect(calls.svg.slots.map((s) => s.slotId).join(").toBe("), "svg_1");
+  expect(calls.asset.slots.map((s) => s.slotId).join(").toBe("), "asset_1");
+  expect(calls.image.slots.map((s) => s.slotId).sort()).toEqual(["img_1", "unknown_1"].sort()
   );
-  assert.ok(calls.image.opts && calls.image.opts.runId === "run_vr");
+  expect(calls.image.opts && calls.image.opts.runId === "run_vr").toBeTruthy();
 
   const names = events.map((e) => e.name);
-  assert.deepEqual(names, ["design.visual.render.started", "design.visual.render.completed"]);
-  assert.equal(events[0].record.actor, "design");
-  assert.equal(events[1].record.status, "completed");
-  assert.equal(out.report.runId, "run_vr");
-  assert.equal(out.report.planned.total, 4);
-  assert.equal(out.report.completed.svg, 1);
-  assert.equal(out.report.completed.asset, 1);
+  expect(names).toEqual(["design.visual.render.started", "design.visual.render.completed"]);
+  expect(events[0].record.actor).toBe("design");
+  expect(events[1].record.status).toBe("completed");
+  expect(out.report.runId).toBe("run_vr");
+  expect(out.report.planned.total).toBe(4);
+  expect(out.report.completed.svg).toBe(1);
+  expect(out.report.completed.asset).toBe(1);
 });
 
-test("SVGGenerator: generates deterministic SVG and fillSvgPlaceholders patches HTML", async () => {
+it("SVGGenerator: generates deterministic SVG and fillSvgPlaceholders patches HTML", async () => {
   const { SVGGenerator, fillSvgPlaceholders } = await import("../../../js/agents/stages/design/generators/svg-generator.js");
 
   const gen = new SVGGenerator();
@@ -87,48 +86,48 @@ test("SVGGenerator: generates deterministic SVG and fillSvgPlaceholders patches 
     { designTokens: { colors: { primary: "#111111", secondary: "#222222", surface: "#ffffff", text: "#000000", textMuted: "#666666" } } }
   );
 
-  assert.equal(res.length, 1);
-  assert.equal(res[0].slotId, "data_flow");
-  assert.ok(res[0].svgContent.includes("<svg"));
-  assert.ok(Number.isFinite(res[0].width) && res[0].width > 0);
+  expect(res.length).toBe(1);
+  expect(res[0].slotId).toBe("data_flow");
+  expect(res[0].svgContent.includes("<svg")).toBeTruthy();
+  expect(Number.isFinite(res[0].width) && res[0].width > 0).toBeTruthy();
 
   const html = `<section><div data-el="image-placeholder" id="data_flow" data-slot-id="data_flow" data-render-type="svg"></div></section>`;
   const patched = fillSvgPlaceholders(html, res);
-  assert.ok(patched.html.includes('data-el="svg"'));
-  assert.ok(patched.html.includes("<svg"));
-  assert.ok(!patched.html.includes('data-el="image-placeholder" id="data_flow"'));
+  expect(patched.html.includes('data-el="svg"')).toBeTruthy();
+  expect(patched.html.includes("<svg")).toBeTruthy();
+  expect(!patched.html.includes('data-el="image-placeholder" id="data_flow"')).toBeTruthy();
 });
 
-test("AssetResolver: resolves assetId and fillAssetPlaceholders patches HTML", async () => {
+it("AssetResolver: resolves assetId and fillAssetPlaceholders patches HTML", async () => {
   const { AssetResolver, fillAssetPlaceholders } = await import("../../../js/agents/stages/design/image/asset-resolver.js");
 
   const assets = [{ assetId: "asset_001", type: "image", mimeType: "image/png", data: "QUJD", width: 100, height: 80 }];
   const resolver = new AssetResolver(assets);
   const resolved = resolver.resolve([{ slotId: "fig_1", renderType: "asset", assetSpec: { assetId: "asset_001" } }]);
 
-  assert.equal(resolved.length, 1);
-  assert.ok(resolved[0].assetUri.startsWith("data:image/png;base64,"));
+  expect(resolved.length).toBe(1);
+  expect(resolved[0].assetUri.startsWith("data:image/png;base64,")).toBeTruthy();
 
   const html = `<section><div data-el="image-placeholder" id="fig_1" data-slot-id="fig_1" data-render-type="asset"></div></section>`;
   const patched = fillAssetPlaceholders(html, resolved);
-  assert.ok(patched.html.includes('data-el="image"'));
-  assert.ok(patched.html.includes('data-src="data:image/png;base64,QUJD"'));
-  assert.ok(!patched.html.includes('data-el="image-placeholder" id="fig_1"'));
+  expect(patched.html.includes('data-el="image"')).toBeTruthy();
+  expect(patched.html.includes('data-src="data:image/png;base64,QUJD"')).toBeTruthy();
+  expect(!patched.html.includes('data-el="image-placeholder" id="fig_1"')).toBeTruthy();
 });
 
-test("AssetResolver: fillAssetPlaceholders handles unquoted attrs + self-closing placeholder", async () => {
+it("AssetResolver: fillAssetPlaceholders handles unquoted attrs + self-closing placeholder", async () => {
   const { fillAssetPlaceholders } = await import("../../../js/agents/stages/design/image/asset-resolver.js");
 
   const html = `<section><div id=fig_1 data-slot-id=fig_1 data-render-type=asset data-el=image-placeholder/></section>`;
   const patched = fillAssetPlaceholders(html, [{ slotId: "fig_1", assetUri: "data:image/png;base64,QUJD", width: 10, height: 10 }]);
 
-  assert.ok(patched.html.includes('data-el="image"'));
-  assert.ok(patched.html.includes('data-render-type="asset"'));
-  assert.ok(patched.html.includes('data-src="data:image/png;base64,QUJD"'));
-  assert.equal(patched.html.includes("image-placeholder"), false);
+  expect(patched.html.includes('data-el="image"')).toBeTruthy();
+  expect(patched.html.includes('data-render-type="asset"')).toBeTruthy();
+  expect(patched.html.includes('data-src="data:image/png;base64,QUJD"')).toBeTruthy();
+  expect(patched.html.includes("image-placeholder")).toBe(false);
 });
 
-test("SVGGenerator: classifySvgError categorizes errors correctly", async () => {
+it("SVGGenerator: classifySvgError categorizes errors correctly", async () => {
   const { SVGGenerator } = await import("../../../js/agents/stages/design/generators/svg-generator.js");
 
   const gen = new SVGGenerator();
@@ -142,20 +141,20 @@ test("SVGGenerator: classifySvgError categorizes errors correctly", async () => 
     { emit, modelRouter: null, aiApiService: null }
   );
 
-  assert.equal(results.length, 1);
-  assert.equal(results[0].source, "fallback");
-  assert.ok(results[0].error);
-  assert.equal(results[0].error.level, "fatal");
-  assert.equal(results[0].error.code, "CONFIG_OR_AUTH");
+  expect(results.length).toBe(1);
+  expect(results[0].source).toBe("fallback");
+  expect(results[0].error).toBeTruthy();
+  expect(results[0].error.level).toBe("fatal");
+  expect(results[0].error.code).toBe("CONFIG_OR_AUTH");
 
   // 验证 report 结构
-  assert.ok(report);
-  assert.equal(report.llmGenerated, 0);
-  assert.equal(report.fallback, 1);
-  assert.ok(report.errors.length > 0);
+  expect(report).toBeTruthy();
+  expect(report.llmGenerated).toBe(0);
+  expect(report.fallback).toBe(1);
+  expect(report.errors.length > 0).toBeTruthy();
 });
 
-test("SVGGenerator: emits design.svg.batch.failed on error", async () => {
+it("SVGGenerator: emits design.svg.batch.failed on error", async () => {
   const { SVGGenerator } = await import("../../../js/agents/stages/design/generators/svg-generator.js");
 
   const gen = new SVGGenerator();
@@ -169,11 +168,11 @@ test("SVGGenerator: emits design.svg.batch.failed on error", async () => {
   );
 
   const failedEvents = events.filter((e) => e.name === "design.svg.batch.failed");
-  assert.ok(failedEvents.length > 0, "Should emit batch.failed event");
-  assert.ok(failedEvents[0].record.payload.error);
+  expect(failedEvents.length > 0, "Should emit batch.failed event").toBeTruthy();
+  expect(failedEvents[0].record.payload.error).toBeTruthy();
 });
 
-test("SVGGenerator: returns structured report with errors array", async () => {
+it("SVGGenerator: returns structured report with errors array", async () => {
   const { SVGGenerator } = await import("../../../js/agents/stages/design/generators/svg-generator.js");
 
   const gen = new SVGGenerator();
@@ -186,9 +185,9 @@ test("SVGGenerator: returns structured report with errors array", async () => {
     { emit: () => {} }
   );
 
-  assert.ok(report);
-  assert.equal(typeof report.planned, "number");
-  assert.equal(typeof report.llmGenerated, "number");
-  assert.equal(typeof report.fallback, "number");
-  assert.ok(Array.isArray(report.errors));
+  expect(report).toBeTruthy();
+  expect(typeof report.planned).toBe("number");
+  expect(typeof report.llmGenerated).toBe("number");
+  expect(typeof report.fallback).toBe("number");
+  expect(Array.isArray(report.errors)).toBeTruthy();
 });

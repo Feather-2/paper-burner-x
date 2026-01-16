@@ -4,8 +4,7 @@
  * P1.1: 测试状态引擎的并发安全性和正确性
  */
 
-import { describe, it, beforeEach, mock } from "node:test";
-import assert from "node:assert";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import { StateEngine, createInitialState, rootReducer } from "../../../js/agents/runtime/memory/state-engine.js";
 import {
@@ -40,19 +39,19 @@ describe("StateEngine", () => {
   describe("createInitialState", () => {
     it("should create valid initial state structure", () => {
       const state = createInitialState();
-      assert.ok(state.runId);
-      assert.strictEqual(state.schemaVersion, "1.0");
-      assert.ok(state.L0);
-      assert.ok(state.L1);
-      assert.ok(state.L2);
-      assert.ok(state.L3);
-      assert.deepStrictEqual(state.L0.todos, []);
-      assert.deepStrictEqual(state.L1.messages, []);
+      expect(state.runId).toBeTruthy();
+      expect(state.schemaVersion).toBe("1.0");
+      expect(state.L0).toBeTruthy();
+      expect(state.L1).toBeTruthy();
+      expect(state.L2).toBeTruthy();
+      expect(state.L3).toBeTruthy();
+      expect(state.L0.todos).toEqual([]);
+      expect(state.L1.messages).toEqual([]);
     });
 
     it("should accept custom runId", () => {
       const state = createInitialState({ runId: "custom_run" });
-      assert.strictEqual(state.runId, "custom_run");
+      expect(state.runId).toBe("custom_run");
     });
   });
 
@@ -61,19 +60,17 @@ describe("StateEngine", () => {
       const action = await engine.dispatch(setTaskGoal("Test goal"));
 
       const state = engine.getState();
-      assert.strictEqual(state.L0.taskGoal, "Test goal");
-      assert.ok(action.meta.seq > 0);
-      assert.ok(action.meta.ts);
+      expect(state.L0.taskGoal).toBe("Test goal");
+      expect(action.meta.seq > 0).toBeTruthy();
+      expect(action.meta.ts).toBeTruthy();
     });
 
     it("should throw on invalid action", async () => {
-      await assert.rejects(
-        async () => engine.dispatch(null),
+      await expect(async () => engine.dispatch(null),
         /action must have a type/
       );
 
-      await assert.rejects(
-        async () => engine.dispatch({}),
+      await expect(async () => engine.dispatch({}),
         /action must have a type/
       );
     });
@@ -84,15 +81,15 @@ describe("StateEngine", () => {
       const action = engine.dispatchSync(setTaskGoal("Sync goal"));
 
       const state = engine.getState();
-      assert.strictEqual(state.L0.taskGoal, "Sync goal");
-      assert.ok(action.meta.seq > 0);
+      expect(state.L0.taskGoal).toBe("Sync goal");
+      expect(action.meta.seq > 0).toBeTruthy();
     });
   });
 
   describe("L0 Actions", () => {
     it("should handle setTaskGoal", () => {
       engine.dispatchSync(setTaskGoal("My task"));
-      assert.strictEqual(engine.getState().L0.taskGoal, "My task");
+      expect(engine.getState().L0.taskGoal).toBe("My task");
     });
 
     it("should handle addTodo", () => {
@@ -100,10 +97,10 @@ describe("StateEngine", () => {
       engine.dispatchSync(addTodo({ text: "Todo 2", status: "in_progress" }));
 
       const todos = engine.getState().L0.todos;
-      assert.strictEqual(todos.length, 2);
-      assert.strictEqual(todos[0].text, "Todo 1");
-      assert.strictEqual(todos[0].status, "pending");
-      assert.strictEqual(todos[1].status, "in_progress");
+      expect(todos.length).toBe(2);
+      expect(todos[0].text).toBe("Todo 1");
+      expect(todos[0].status).toBe("pending");
+      expect(todos[1].status).toBe("in_progress");
     });
 
     it("should handle addTodo with existing id (update)", () => {
@@ -111,8 +108,8 @@ describe("StateEngine", () => {
       engine.dispatchSync(addTodo({ id: "todo_1", text: "Updated" }));
 
       const todos = engine.getState().L0.todos;
-      assert.strictEqual(todos.length, 1);
-      assert.strictEqual(todos[0].text, "Updated");
+      expect(todos.length).toBe(1);
+      expect(todos[0].text).toBe("Updated");
     });
 
     it("should handle updateTodo", () => {
@@ -120,7 +117,7 @@ describe("StateEngine", () => {
       engine.dispatchSync(updateTodo("todo_1", { status: "completed" }));
 
       const todos = engine.getState().L0.todos;
-      assert.strictEqual(todos[0].status, "completed");
+      expect(todos[0].status).toBe("completed");
     });
 
     it("should handle removeTodo", () => {
@@ -129,8 +126,8 @@ describe("StateEngine", () => {
       engine.dispatchSync(removeTodo("todo_1"));
 
       const todos = engine.getState().L0.todos;
-      assert.strictEqual(todos.length, 1);
-      assert.strictEqual(todos[0].id, "todo_2");
+      expect(todos.length).toBe(1);
+      expect(todos[0].id).toBe("todo_2");
     });
   });
 
@@ -140,8 +137,8 @@ describe("StateEngine", () => {
       engine.dispatchSync(addMessage({ role: "assistant", content: "Hi there" }));
 
       const messages = engine.getState().L1.messages;
-      assert.strictEqual(messages.length, 2);
-      assert.strictEqual(messages[0].content, "Hello");
+      expect(messages.length).toBe(2);
+      expect(messages[0].content).toBe("Hello");
     });
 
     it("should handle addMessages batch", () => {
@@ -151,29 +148,29 @@ describe("StateEngine", () => {
       ]));
 
       const messages = engine.getState().L1.messages;
-      assert.strictEqual(messages.length, 2);
+      expect(messages.length).toBe(2);
     });
 
     it("should handle addSignal and acknowledgeSignal", () => {
       engine.dispatchSync(addSignal({ type: "warning", message: "Low memory" }));
 
       let signals = engine.getState().L1.signals;
-      assert.strictEqual(signals.length, 1);
-      assert.strictEqual(signals[0].acknowledged, false);
+      expect(signals.length).toBe(1);
+      expect(signals[0].acknowledged).toBe(false);
 
       const signalId = signals[0].id;
       engine.dispatchSync(acknowledgeSignal(signalId));
 
       signals = engine.getState().L1.signals;
-      assert.strictEqual(signals[0].acknowledged, true);
+      expect(signals[0].acknowledged).toBe(true);
     });
 
     it("should handle recordDecision", () => {
       engine.dispatchSync(recordDecision({ action: "search", reason: "Need more info" }));
 
       const decisions = engine.getState().L1.decisions;
-      assert.strictEqual(decisions.length, 1);
-      assert.strictEqual(decisions[0].action, "search");
+      expect(decisions.length).toBe(1);
+      expect(decisions[0].action).toBe("search");
     });
 
     it("should handle setScratchpad", () => {
@@ -181,31 +178,31 @@ describe("StateEngine", () => {
       engine.dispatchSync(setScratchpad({ key2: "value2", key3: "value3" }));
 
       const scratchpad = engine.getState().L1.scratchpad;
-      assert.strictEqual(scratchpad.key1, "value1");
-      assert.strictEqual(scratchpad.key2, "value2");
+      expect(scratchpad.key1).toBe("value1");
+      expect(scratchpad.key2).toBe("value2");
     });
 
     it("should handle setFlag", () => {
       engine.dispatchSync(setFlag("awaitUserFeedback", true));
 
       const flags = engine.getState().L1.flags;
-      assert.strictEqual(flags.awaitUserFeedback, true);
+      expect(flags.awaitUserFeedback).toBe(true);
     });
 
     it("should handle syncDiscovery", () => {
       engine.dispatchSync(syncDiscovery("disc_1", { status: "open", keywords: ["test"] }));
 
       const discoveries = engine.getState().L1.syncTable.discoveries;
-      assert.ok(discoveries.disc_1);
-      assert.strictEqual(discoveries.disc_1.status, "open");
+      expect(discoveries.disc_1).toBeTruthy();
+      expect(discoveries.disc_1.status).toBe("open");
     });
 
     it("should handle syncSubagent", () => {
       engine.dispatchSync(syncSubagent("agent_1", { status: "running", progress: 50 }));
 
       const subagents = engine.getState().L1.syncTable.subagents;
-      assert.ok(subagents.agent_1);
-      assert.strictEqual(subagents.agent_1.progress, 50);
+      expect(subagents.agent_1).toBeTruthy();
+      expect(subagents.agent_1.progress).toBe(50);
     });
   });
 
@@ -214,15 +211,15 @@ describe("StateEngine", () => {
       engine.dispatchSync(setStageSummary("retrieve", "Found 10 documents"));
 
       const summaries = engine.getState().L2.stageSummaries;
-      assert.strictEqual(summaries.retrieve, "Found 10 documents");
+      expect(summaries.retrieve).toBe("Found 10 documents");
     });
 
     it("should handle addClaim", () => {
       engine.dispatchSync(addClaim({ content: "The sky is blue", confidence: 0.9 }));
 
       const claims = engine.getState().L2.claims;
-      assert.strictEqual(claims.length, 1);
-      assert.strictEqual(claims[0].confidence, 0.9);
+      expect(claims.length).toBe(1);
+      expect(claims[0].confidence).toBe(0.9);
     });
   });
 
@@ -232,9 +229,9 @@ describe("StateEngine", () => {
 
       const state = engine.getState();
       const snapshotIds = Object.keys(state.L3.snapshots);
-      assert.strictEqual(snapshotIds.length, 1);
-      assert.ok(state.L3.index.keywords.search);
-      assert.ok(state.L3.index.keywords.docs);
+      expect(snapshotIds.length).toBe(1);
+      expect(state.L3.index.keywords.search).toBeTruthy();
+      expect(state.L3.index.keywords.docs).toBeTruthy();
     });
   });
 
@@ -248,9 +245,9 @@ describe("StateEngine", () => {
       ]));
 
       const state = engine.getState();
-      assert.strictEqual(state.L0.taskGoal, "Batch goal");
-      assert.strictEqual(state.L0.todos.length, 2);
-      assert.strictEqual(state.L1.messages.length, 1);
+      expect(state.L0.taskGoal).toBe("Batch goal");
+      expect(state.L0.todos.length).toBe(2);
+      expect(state.L1.messages.length).toBe(1);
     });
   });
 
@@ -264,15 +261,15 @@ describe("StateEngine", () => {
       engine.dispatchSync(setTaskGoal("Goal 1"));
       engine.dispatchSync(setTaskGoal("Goal 2"));
 
-      assert.strictEqual(calls.length, 2);
-      assert.strictEqual(calls[0].prevGoal, "");
-      assert.strictEqual(calls[0].nextGoal, "Goal 1");
-      assert.strictEqual(calls[1].prevGoal, "Goal 1");
-      assert.strictEqual(calls[1].nextGoal, "Goal 2");
+      expect(calls.length).toBe(2);
+      expect(calls[0].prevGoal).toBe("");
+      expect(calls[0].nextGoal).toBe("Goal 1");
+      expect(calls[1].prevGoal).toBe("Goal 1");
+      expect(calls[1].nextGoal).toBe("Goal 2");
 
       unsubscribe();
       engine.dispatchSync(setTaskGoal("Goal 3"));
-      assert.strictEqual(calls.length, 2); // No new calls after unsubscribe
+      expect(calls.length).toBe(2); // No new calls after unsubscribe
     });
 
     it("should not notify on no-op dispatch", () => {
@@ -282,7 +279,7 @@ describe("StateEngine", () => {
       engine.subscribe((action) => calls.push(action.type));
 
       engine.dispatchSync(setTaskGoal("Same goal")); // No change
-      assert.strictEqual(calls.length, 0);
+      expect(calls.length).toBe(0);
     });
   });
 
@@ -292,9 +289,9 @@ describe("StateEngine", () => {
       engine.dispatchSync(addTodo({ text: "Todo 1" }));
 
       const history = engine.getActionHistory();
-      assert.strictEqual(history.length, 2);
-      assert.strictEqual(history[0].type, L0_SET_TASK_GOAL);
-      assert.strictEqual(history[1].type, L0_ADD_TODO);
+      expect(history.length).toBe(2);
+      expect(history[0].type).toBe(L0_SET_TASK_GOAL);
+      expect(history[1].type).toBe(L0_ADD_TODO);
     });
 
     it("should limit action history size", () => {
@@ -305,7 +302,7 @@ describe("StateEngine", () => {
       }
 
       const history = smallEngine.getActionHistory();
-      assert.strictEqual(history.length, 3);
+      expect(history.length).toBe(3);
     });
 
     it("should support replay", () => {
@@ -316,8 +313,8 @@ describe("StateEngine", () => {
       const history = engine.getActionHistory();
       const replayed = engine.replay(history);
 
-      assert.strictEqual(replayed.L0.taskGoal, "Goal");
-      assert.strictEqual(replayed.L0.todos.length, 2);
+      expect(replayed.L0.taskGoal).toBe("Goal");
+      expect(replayed.L0.todos.length).toBe(2);
     });
   });
 
@@ -327,8 +324,8 @@ describe("StateEngine", () => {
       const action2 = engine.dispatchSync(setTaskGoal("Goal 2"));
       const action3 = engine.dispatchSync(addTodo({ text: "Todo" }));
 
-      assert.ok(action2.meta.seq > action1.meta.seq);
-      assert.ok(action3.meta.seq > action2.meta.seq);
+      expect(action2.meta.seq > action1.meta.seq).toBeTruthy();
+      expect(action3.meta.seq > action2.meta.seq).toBeTruthy();
     });
 
     it("should handle clock receive", () => {
@@ -336,7 +333,7 @@ describe("StateEngine", () => {
       engine.receiveClockValue(100);
       const afterReceive = engine.getClockValue();
 
-      assert.ok(afterReceive >= 100);
+      expect(afterReceive >= 100).toBeTruthy();
     });
   });
 
@@ -350,15 +347,14 @@ describe("StateEngine", () => {
       await Promise.all(promises);
 
       const todos = engine.getState().L0.todos;
-      assert.strictEqual(todos.length, 100);
+      expect(todos.length).toBe(100);
 
       // Verify seq numbers are monotonically increasing
       const history = engine.getActionHistory();
       for (let i = 1; i < history.length; i++) {
-        assert.ok(
-          history[i].meta.seq > history[i - 1].meta.seq,
+        expect(history[i].meta.seq > history[i - 1].meta.seq,
           `seq ${history[i].meta.seq} should be > ${history[i - 1].meta.seq}`
-        );
+        ).toBeTruthy();
       }
     });
   });
@@ -371,11 +367,11 @@ describe("StateEngine", () => {
       const snapshot = engine.createSnapshot();
 
       engine.reset();
-      assert.strictEqual(engine.getState().L0.taskGoal, "");
+      expect(engine.getState().L0.taskGoal).toBe("");
 
       engine.restoreSnapshot(snapshot);
-      assert.strictEqual(engine.getState().L0.taskGoal, "Goal");
-      assert.strictEqual(engine.getState().L0.todos.length, 1);
+      expect(engine.getState().L0.taskGoal).toBe("Goal");
+      expect(engine.getState().L0.todos.length).toBe(1);
     });
   });
 
@@ -387,9 +383,9 @@ describe("StateEngine", () => {
       engine.reset();
 
       const state = engine.getState();
-      assert.strictEqual(state.L0.taskGoal, "");
-      assert.strictEqual(state.L0.todos.length, 0);
-      assert.strictEqual(engine.getActionHistory().length, 0);
+      expect(state.L0.taskGoal).toBe("");
+      expect(state.L0.todos.length).toBe(0);
+      expect(engine.getActionHistory().length).toBe(0);
     });
 
     it("should notify subscribers on reset", () => {
@@ -401,7 +397,7 @@ describe("StateEngine", () => {
       });
 
       engine.reset();
-      assert.ok(resetCalled);
+      expect(resetCalled).toBeTruthy();
     });
   });
 
@@ -413,7 +409,7 @@ describe("StateEngine", () => {
       state1.L0.todos.push({ text: "Mutated" });
 
       const state2 = engine.getState();
-      assert.strictEqual(state2.L0.todos.length, 1);
+      expect(state2.L0.todos.length).toBe(1);
     });
 
     it("should not mutate state on reducer", () => {
@@ -424,8 +420,8 @@ describe("StateEngine", () => {
       const afterState = engine.getState();
 
       // Original state should be unchanged
-      assert.strictEqual(beforeState.L0.todos.length, 1);
-      assert.strictEqual(afterState.L0.todos.length, 2);
+      expect(beforeState.L0.todos.length).toBe(1);
+      expect(afterState.L0.todos.length).toBe(2);
     });
   });
 });
@@ -434,7 +430,7 @@ describe("rootReducer", () => {
   it("should handle unknown action types gracefully", () => {
     const state = createInitialState();
     const result = rootReducer(state, { type: "UNKNOWN_ACTION", payload: {} });
-    assert.strictEqual(result, state); // Should return same state reference
+    expect(result).toBe(state); // Should return same state reference
   });
 });
 
@@ -449,8 +445,8 @@ describe("Queue Backpressure", () => {
     }
 
     const metrics = engine.getQueueMetrics();
-    assert.strictEqual(metrics.queueSize, 3, "Queue should be at maxQueueSize");
-    assert.strictEqual(metrics.totalDropped, 2, "Should have dropped 2 oldest actions");
+    expect(metrics.queueSize).toBe(3, "Queue should be at maxQueueSize");
+    expect(metrics.totalDropped).toBe(2, "Should have dropped 2 oldest actions");
   });
 
   it("should emit overflow event when dropping", () => {
@@ -467,9 +463,9 @@ describe("Queue Backpressure", () => {
     }
 
     const overflowEvents = events.filter(e => e.name === "stateEngine:queueOverflow");
-    assert.strictEqual(overflowEvents.length, 3, "Should have emitted 3 overflow events");
-    assert.strictEqual(overflowEvents[0].data.dropped, 1);
-    assert.ok(overflowEvents[0].data.totalDropped > 0);
+    expect(overflowEvents.length).toBe(3, "Should have emitted 3 overflow events");
+    expect(overflowEvents[0].data.dropped).toBe(1);
+    expect(overflowEvents[0].data.totalDropped > 0).toBeTruthy();
   });
 
   it("should call resolve with dropped info for overflow items", () => {
@@ -486,29 +482,29 @@ describe("Queue Backpressure", () => {
 
     // First 3 should have been dropped (items 0, 1, 2)
     const dropped = resolutions.filter(r => r.result?.dropped === true);
-    assert.strictEqual(dropped.length, 3, "Should have 3 dropped resolutions");
+    expect(dropped.length).toBe(3, "Should have 3 dropped resolutions");
   });
 
   it("should return queue metrics", () => {
     const engine = new StateEngine({ maxQueueSize: 100 });
 
     const metrics = engine.getQueueMetrics();
-    assert.strictEqual(metrics.queueSize, 0);
-    assert.strictEqual(metrics.maxQueueSize, 100);
-    assert.strictEqual(metrics.isDispatching, false);
-    assert.strictEqual(metrics.totalDropped, 0);
-    assert.strictEqual(metrics.utilizationPercent, 0);
+    expect(metrics.queueSize).toBe(0);
+    expect(metrics.maxQueueSize).toBe(100);
+    expect(metrics.isDispatching).toBe(false);
+    expect(metrics.totalDropped).toBe(0);
+    expect(metrics.utilizationPercent).toBe(0);
   });
 
   it("should use custom maxQueueSize from options", () => {
     const engine = new StateEngine({ maxQueueSize: 500 });
     const metrics = engine.getQueueMetrics();
-    assert.strictEqual(metrics.maxQueueSize, 500);
+    expect(metrics.maxQueueSize).toBe(500);
   });
 
   it("should default maxQueueSize to 1000", () => {
     const engine = new StateEngine();
     const metrics = engine.getQueueMetrics();
-    assert.strictEqual(metrics.maxQueueSize, 1000);
+    expect(metrics.maxQueueSize).toBe(1000);
   });
 });

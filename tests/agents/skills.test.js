@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import os from "node:os";
 import path from "node:path";
 import { promises as fs } from "node:fs";
@@ -45,14 +45,14 @@ describe("skills/loader.node", () => {
       await writeSkillFile(cwd, SkillScope.REPO, "OtherSkill", "other", { name: "OtherSkill", description: "other", keywords: "alpha" });
 
       const outcome = await loadSkills({ cwd, homeDir: home });
-      assert.equal(outcome.errors.length, 0);
+      expect(outcome.errors.length).toBe(0);
       const names = outcome.skills.map((s) => s.metadata.name);
-      assert.deepEqual(names, ["OtherSkill", "SameSkill"]);
+      expect(names).toEqual(["OtherSkill", "SameSkill"]);
 
       const same = outcome.skills.find((s) => s.metadata.name === "SameSkill");
-      assert.equal(same.metadata.scope, SkillScope.REPO);
-      assert.equal(same.metadata.path, repoPath);
-      assert.equal(same.body.includes("from repo"), true);
+      expect(same.metadata.scope).toBe(SkillScope.REPO);
+      expect(same.metadata.path).toBe(repoPath);
+      expect(same.body.includes("from repo")).toBe(true);
     } finally {
       await fs.rm(cwd, { recursive: true, force: true });
       await fs.rm(home, { recursive: true, force: true });
@@ -67,9 +67,9 @@ describe("skills/loader.node", () => {
       await fs.writeFile(path.join(badDir, "SKILL.md"), "no frontmatter", "utf8");
 
       const outcome = await loadSkills({ cwd, homeDir: null });
-      assert.equal(outcome.skills.length, 0);
-      assert.equal(outcome.errors.length, 1);
-      assert.ok(String(outcome.errors[0].message).includes("frontmatter"));
+      expect(outcome.skills.length).toBe(0);
+      expect(outcome.errors.length).toBe(1);
+      expect(String(outcome.errors[0].message).toBeTruthy().includes("frontmatter"));
     } finally {
       await fs.rm(cwd, { recursive: true, force: true });
     }
@@ -87,18 +87,18 @@ describe("skills/manager", () => {
       });
 
       const outcome = await loadSkills({ cwd, homeDir: null });
-      assert.equal(outcome.skills.length, 1);
-      assert.equal(outcome.skills[0].metadata.name, "AlphaSkill");
+      expect(outcome.skills.length).toBe(1);
+      expect(outcome.skills[0].metadata.name).toBe("AlphaSkill");
 
       const manager = new SkillsManager({ cacheTtlMs: 60_000 });
       const a = await manager.getSkillsForCwd(cwd);
       const b = await manager.getSkillsForCwd(cwd);
-      assert.equal(a, b);
+      expect(a).toBe(b);
 
       const catalog = await manager.getCatalogPrompt(cwd);
-      assert.ok(catalog.includes("## Skills Catalog"));
-      assert.ok(catalog.includes("$AlphaSkill"));
-      assert.equal(catalog.includes(cwd.replaceAll("\\", "/")), false);
+      expect(catalog.includes("## Skills Catalog")).toBeTruthy();
+      expect(catalog.includes("$AlphaSkill")).toBeTruthy();
+      expect(catalog.includes(cwd.replaceAll("\\").toBe("/")), false);
     } finally {
       await fs.rm(cwd, { recursive: true, force: true });
     }
@@ -111,8 +111,7 @@ describe("shared/utils/response-limits", () => {
       headers: { get: (name) => (String(name).toLowerCase() === "content-length" ? "20" : null) },
       text: async () => '{"a":1}',
     };
-    await assert.rejects(
-      () => readTextWithLimit(resp, { maxBytes: 10, context: "test" }),
+    await expect(() => readTextWithLimit(resp, { maxBytes: 10, context: "test" }),
       (err) => err && err.name === "ResponseTooLargeError" && err.code === "ERESPONSE_TOO_LARGE"
     );
   });
@@ -127,8 +126,7 @@ describe("shared/utils/response-limits", () => {
       },
     });
     const resp = { headers: { get: () => null }, body };
-    await assert.rejects(
-      () => readTextWithLimit(resp, { maxBytes: 4, context: "stream" }),
+    await expect(() => readTextWithLimit(resp, { maxBytes: 4, context: "stream" }),
       (err) => err && err.name === "ResponseTooLargeError"
     );
 
@@ -141,13 +139,13 @@ describe("shared/utils/response-limits", () => {
     });
     const okResp = { headers: { get: () => null }, body: okBody };
     const text = await readTextWithLimit(okResp, { maxBytes: 10, context: "stream" });
-    assert.equal(text, "abcdef");
+    expect(text).toBe("abcdef");
   });
 
   it("reads JSON with a size guard", async () => {
     const resp = { headers: { get: () => null }, text: async () => '{"ok":true}' };
     const data = await readJsonWithLimit(resp, { maxBytes: 100, context: "json" });
-    assert.deepEqual(data, { ok: true });
+    expect(data).toEqual({ ok: true });
   });
 });
 
@@ -171,11 +169,11 @@ describe("skills/loader.browser", () => {
 
     try {
       const outcome = await loadSkillsBrowser({ manifestUrl: "skills/manifest.json", maxManifestBytes: 100 });
-      assert.equal(outcome.errors.length, 0);
-      assert.equal(outcome.skills.length, 1);
-      assert.equal(outcome.skills[0].metadata.name, "A");
-      assert.ok(calls.some((u) => u.includes("skills/manifest.json")));
-      assert.ok(calls.some((u) => u.includes("public/skills/manifest.json")));
+      expect(outcome.errors.length).toBe(0);
+      expect(outcome.skills.length).toBe(1);
+      expect(outcome.skills[0].metadata.name).toBe("A");
+      expect(calls.some(u => u.includes("skills/manifest.json")));
+      expect(calls.some(u => u.includes("public/skills/manifest.json")));
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -198,8 +196,7 @@ describe("skills/loader.browser", () => {
       );
 
     try {
-      await assert.rejects(
-        () => loadSkillFromPathBrowser("https://example.com/BigSkill.md", SkillScope.SYSTEM, { maxSkillBytes: 100 }),
+      await expect(() => loadSkillFromPathBrowser("https://example.com/BigSkill.md", SkillScope.SYSTEM, { maxSkillBytes: 100 }),
         (err) => err && err.name === "ResponseTooLargeError"
       );
     } finally {
@@ -215,8 +212,7 @@ describe("mcp/nexus-skill-provider size limits", () => {
 
     try {
       const provider = new NexusSkillProvider({ maxResponseBytes: 10 });
-      await assert.rejects(
-        () => provider.listSkills(),
+      await expect(() => provider.listSkills(),
         (err) => err && err.name === "ResponseTooLargeError" && err.code === "ERESPONSE_TOO_LARGE"
       );
     } finally {
@@ -239,12 +235,11 @@ describe("core/sandbox/skill-executor fallback", () => {
       { args: {}, state: {} }
     );
 
-    assert.equal(result.success, true);
-    assert.equal(result.data, "undefined");
+    expect(result.success).toBe(true);
+    expect(result.data).toBe("undefined");
     // Node 环境下优先使用 worker_threads，mode 为 'node-worker'
     // 浏览器环境下使用 Web Worker 或 main-thread eval
-    assert.ok(
-      ["eval", "node-worker", "worker"].includes(result.metrics.mode),
+    expect(["eval", "node-worker", "worker"].includes(result.metrics.mode).toBeTruthy(),
       `Expected mode to be eval, node-worker, or worker, got: ${result.metrics.mode}`
     );
   });

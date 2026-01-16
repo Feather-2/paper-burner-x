@@ -1,11 +1,12 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
 async function loadModule() {
   return import("../../../js/agents/shared/archive/checkpoint-schema.js");
 }
 
-test("createCheckpoint: builds schema with defaults", async () => {
+it("createCheckpoint: builds schema with defaults", async () => {
   const { createCheckpoint, CHECKPOINT_SCHEMA_VERSION, CheckpointType } = await loadModule();
   const originalNow = Date.now;
 
@@ -13,31 +14,31 @@ test("createCheckpoint: builds schema with defaults", async () => {
     Date.now = () => 123456;
     const checkpoint = createCheckpoint({ ok: true }, { runId: "run_1", iteration: 2 });
 
-    assert.equal(checkpoint.schemaVersion, CHECKPOINT_SCHEMA_VERSION);
-    assert.deepEqual(checkpoint.nodeStates, { ok: true });
-    assert.equal(checkpoint.timestamp, 123456);
-    assert.equal(checkpoint.metadata.type, CheckpointType.PRE_ACTION);
-    assert.equal(checkpoint.metadata.runId, "run_1");
-    assert.equal(checkpoint.metadata.iteration, 2);
+    expect(checkpoint.schemaVersion).toBe(CHECKPOINT_SCHEMA_VERSION);
+    expect(checkpoint.nodeStates).toEqual({ ok: true });
+    expect(checkpoint.timestamp).toBe(123456);
+    expect(checkpoint.metadata.type).toBe(CheckpointType.PRE_ACTION);
+    expect(checkpoint.metadata.runId).toBe("run_1");
+    expect(checkpoint.metadata.iteration).toBe(2);
   } finally {
     Date.now = originalNow;
   }
 });
 
-test("validateCheckpoint: accepts valid payloads and rejects invalid ones", async () => {
+it("validateCheckpoint: accepts valid payloads and rejects invalid ones", async () => {
   const { createCheckpoint, validateCheckpoint } = await loadModule();
 
   const checkpoint = createCheckpoint({ ok: true }, { runId: "run_ok" });
-  assert.equal(validateCheckpoint(checkpoint), true);
+  expect(validateCheckpoint(checkpoint)).toBe(true);
 
-  assert.equal(validateCheckpoint(null), false);
-  assert.equal(validateCheckpoint(undefined), false);
-  assert.equal(validateCheckpoint({}), false);
-  assert.equal(validateCheckpoint({ schemaVersion: "1.0" }), false);
-  assert.equal(validateCheckpoint({ nodeStates: {} }), false);
+  expect(validateCheckpoint(null)).toBe(false);
+  expect(validateCheckpoint(undefined)).toBe(false);
+  expect(validateCheckpoint({})).toBe(false);
+  expect(validateCheckpoint({ schemaVersion: "1.0" })).toBe(false);
+  expect(validateCheckpoint({ nodeStates: {} })).toBe(false);
 });
 
-test("migrateCheckpoint: upgrades legacy snapshots without schemaVersion", async () => {
+it("migrateCheckpoint: upgrades legacy snapshots without schemaVersion", async () => {
   const { migrateCheckpoint, CHECKPOINT_SCHEMA_VERSION, CheckpointType } = await loadModule();
   const originalNow = Date.now;
 
@@ -46,10 +47,10 @@ test("migrateCheckpoint: upgrades legacy snapshots without schemaVersion", async
     const legacy = { nodeStates: { a: 1 } };
     const migrated = migrateCheckpoint(legacy);
 
-    assert.equal(migrated.schemaVersion, CHECKPOINT_SCHEMA_VERSION);
-    assert.deepEqual(migrated.nodeStates, { a: 1 });
-    assert.equal(migrated.timestamp, 654321);
-    assert.deepEqual(migrated.metadata, { type: CheckpointType.ARCHIVE });
+    expect(migrated.schemaVersion).toBe(CHECKPOINT_SCHEMA_VERSION);
+    expect(migrated.nodeStates).toEqual({ a: 1 });
+    expect(migrated.timestamp).toBe(654321);
+    expect(migrated.metadata).toEqual({ type: CheckpointType.ARCHIVE });
   } finally {
     Date.now = originalNow;
   }

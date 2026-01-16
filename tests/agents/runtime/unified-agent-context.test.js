@@ -1,5 +1,5 @@
-import { describe, it, mock } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import { UnifiedAgentContext } from "../../../js/agents/runtime/context/unified-agent-context.js";
 
@@ -7,12 +7,12 @@ describe("UnifiedAgentContext", () => {
   describe("constructor", () => {
     it("should create with default runId", () => {
       const ctx = new UnifiedAgentContext();
-      assert.ok(ctx.runId.startsWith("ctx_"));
+      expect(ctx.runId.startsWith("ctx_")).toBeTruthy();
     });
 
     it("should accept custom runId", () => {
       const ctx = new UnifiedAgentContext({ runId: "test_123" });
-      assert.equal(ctx.runId, "test_123");
+      expect(ctx.runId).toBe("test_123");
     });
   });
 
@@ -25,9 +25,9 @@ describe("UnifiedAgentContext", () => {
 
       ctx.bind({ state: mockState, memory: mockMemory, sharedContext: mockShared });
 
-      assert.equal(ctx._state, mockState);
-      assert.equal(ctx._memory, mockMemory);
-      assert.equal(ctx._sharedContext, mockShared);
+      expect(ctx._state).toBe(mockState);
+      expect(ctx._memory).toBe(mockMemory);
+      expect(ctx._sharedContext).toBe(mockShared);
     });
   });
 
@@ -42,7 +42,7 @@ describe("UnifiedAgentContext", () => {
       ctx._memory = { L0: { taskGoal: "from memory" } };
 
       // Memory takes priority now (P1.2 change)
-      assert.equal(ctx.taskGoal, "from memory");
+      expect(ctx.taskGoal).toBe("from memory");
     });
 
     it("should fallback to state when memory is empty", () => {
@@ -50,19 +50,19 @@ describe("UnifiedAgentContext", () => {
       ctx._state = { taskGoal: "from state" };
       ctx._memory = { L0: { taskGoal: "" } };
 
-      assert.equal(ctx.taskGoal, "from state");
+      expect(ctx.taskGoal).toBe("from state");
     });
 
     it("should fallback to state when memory is undefined", () => {
       const ctx = new UnifiedAgentContext();
       ctx._state = { taskGoal: "from state" };
 
-      assert.equal(ctx.taskGoal, "from state");
+      expect(ctx.taskGoal).toBe("from state");
     });
 
     it("should NOT modify memory when reading (no self-heal)", () => {
       const ctx = new UnifiedAgentContext();
-      const setTaskGoalMock = mock.fn();
+      const setTaskGoalMock = vi.fn();
       ctx._memory = { L0: { taskGoal: "" }, setTaskGoal: setTaskGoalMock };
       ctx._state = { taskGoal: "state goal" };
 
@@ -72,7 +72,7 @@ describe("UnifiedAgentContext", () => {
       void ctx.taskGoal;
 
       // CRITICAL: setTaskGoal should NEVER be called during reads
-      assert.equal(setTaskGoalMock.mock.callCount(), 0);
+      expect(setTaskGoalMock.mock.calls.length).toBe(0);
     });
 
     it("should NOT modify state when reading (no self-heal)", () => {
@@ -87,7 +87,7 @@ describe("UnifiedAgentContext", () => {
       void ctx.taskGoal;
 
       // CRITICAL: state.taskGoal should remain unchanged
-      assert.equal(ctx._state.taskGoal, originalStateGoal);
+      expect(ctx._state.taskGoal).toBe(originalStateGoal);
     });
 
     it("should set to both state and memory via explicit setTaskGoal", () => {
@@ -97,8 +97,8 @@ describe("UnifiedAgentContext", () => {
 
       ctx.setTaskGoal("new goal");
 
-      assert.equal(ctx._state.taskGoal, "new goal");
-      assert.equal(ctx._memory.L0.taskGoal, "new goal");
+      expect(ctx._state.taskGoal).toBe("new goal");
+      expect(ctx._memory.L0.taskGoal).toBe("new goal");
     });
   });
 
@@ -109,7 +109,7 @@ describe("UnifiedAgentContext", () => {
       ctx._memory = { L0: { todos: [{ id: "memory" }] } };
 
       // Memory takes priority (P1.2 change)
-      assert.deepEqual(ctx.todos, [{ id: "memory" }]);
+      expect(ctx.todos).toEqual([{ id: "memory" }]);
     });
 
     it("should fallback to state when memory todos is empty", () => {
@@ -120,14 +120,14 @@ describe("UnifiedAgentContext", () => {
       // Empty array is falsy for || check, so returns state
       // Actually [] is truthy but we check length implicitly via Array.isArray check
       // Let me verify: Array.isArray([]) returns true, so it returns []
-      assert.deepEqual(ctx.todos, []);
+      expect(ctx.todos).toEqual([]);
     });
 
     it("should fallback to state when memory is undefined", () => {
       const ctx = new UnifiedAgentContext();
       ctx._state = { todos: [{ id: 1 }] };
 
-      assert.deepEqual(ctx.todos, [{ id: 1 }]);
+      expect(ctx.todos).toEqual([{ id: 1 }]);
     });
 
     it("should NOT modify memory when reading (no self-heal)", () => {
@@ -142,8 +142,8 @@ describe("UnifiedAgentContext", () => {
       void ctx.todos;
 
       // CRITICAL: memory.L0.todos should remain unchanged
-      assert.equal(ctx._memory.L0.todos, originalMemoryTodos);
-      assert.equal(ctx._memory.L0.todos.length, 0);
+      expect(ctx._memory.L0.todos).toBe(originalMemoryTodos);
+      expect(ctx._memory.L0.todos.length).toBe(0);
     });
 
     it("should NOT modify state when reading (no self-heal)", () => {
@@ -158,8 +158,8 @@ describe("UnifiedAgentContext", () => {
       void ctx.todos;
 
       // CRITICAL: state.todos should remain unchanged
-      assert.equal(ctx._state.todos, originalStateTodos);
-      assert.equal(ctx._state.todos.length, 0);
+      expect(ctx._state.todos).toBe(originalStateTodos);
+      expect(ctx._state.todos.length).toBe(0);
     });
 
     it("should add to state when available via explicit addTodo", () => {
@@ -167,13 +167,13 @@ describe("UnifiedAgentContext", () => {
       const stateTodos = [];
 
       ctx._state = { addTodo: (t) => { stateTodos.push(t); return t; } };
-      ctx._memory = { addTodo: mock.fn() };
+      ctx._memory = { addTodo: vi.fn() };
 
       ctx.addTodo({ id: 1, text: "test" });
 
       // Prefers state.addTodo
-      assert.equal(stateTodos.length, 1);
-      assert.equal(ctx._memory.addTodo.mock.callCount(), 0);
+      expect(stateTodos.length).toBe(1);
+      expect(ctx._memory.addTodo.mock.calls.length).toBe(0);
     });
   });
 
@@ -183,14 +183,14 @@ describe("UnifiedAgentContext", () => {
       ctx._memory = { L2: { claims: [{ text: "memory claim" }] } };
       ctx._state = { L1: { claims: [{ text: "state claim" }] } };
 
-      assert.deepEqual(ctx.claims, [{ text: "memory claim" }]);
+      expect(ctx.claims).toEqual([{ text: "memory claim" }]);
     });
 
     it("should fallback to state L1", () => {
       const ctx = new UnifiedAgentContext();
       ctx._state = { L1: { claims: [{ text: "claim1" }] } };
 
-      assert.deepEqual(ctx.claims, [{ text: "claim1" }]);
+      expect(ctx.claims).toEqual([{ text: "claim1" }]);
     });
 
     it("should add to state and sharedContext", () => {
@@ -203,9 +203,9 @@ describe("UnifiedAgentContext", () => {
 
       ctx.addClaim({ text: "test claim", source: "doc1" });
 
-      assert.ok(stateClaim);
-      assert.ok(sharedFinding);
-      assert.equal(sharedFinding.type, "claim");
+      expect(stateClaim).toBeTruthy();
+      expect(sharedFinding).toBeTruthy();
+      expect(sharedFinding.type).toBe("claim");
     });
   });
 
@@ -221,8 +221,8 @@ describe("UnifiedAgentContext", () => {
 
       ctx.signal("test_signal", { data: 1 });
 
-      assert.deepEqual(signaled, { type: "test_signal", payload: { data: 1 } });
-      assert.deepEqual(ctx.getSignals(), [{ type: "test" }]);
+      expect(signaled).toEqual({ type: "test_signal", payload: { data: 1 } });
+      expect(ctx.getSignals()).toEqual([{ type: "test" }]);
     });
   });
 
@@ -231,10 +231,10 @@ describe("UnifiedAgentContext", () => {
       const ctx = new UnifiedAgentContext();
       ctx._state = { iteration: 5 };
 
-      assert.equal(ctx.iteration, 5);
+      expect(ctx.iteration).toBe(5);
 
       ctx.iteration = 10;
-      assert.equal(ctx._state.iteration, 10);
+      expect(ctx._state.iteration).toBe(10);
     });
   });
 
@@ -243,7 +243,7 @@ describe("UnifiedAgentContext", () => {
       const ctx = new UnifiedAgentContext();
       ctx._state = { L1: { report: { markdown: "# Report" } } };
 
-      assert.deepEqual(ctx.report, { markdown: "# Report" });
+      expect(ctx.report).toEqual({ markdown: "# Report" });
     });
 
     it("should set to state L1", () => {
@@ -252,7 +252,7 @@ describe("UnifiedAgentContext", () => {
 
       ctx.setReport({ markdown: "# New Report" });
 
-      assert.deepEqual(ctx._state.L1.report, { markdown: "# New Report" });
+      expect(ctx._state.L1.report).toEqual({ markdown: "# New Report" });
     });
   });
 
@@ -276,11 +276,11 @@ describe("UnifiedAgentContext", () => {
 
       const checkpoint = await ctx.saveCheckpoint();
 
-      assert.equal(checkpoint.runId, "test_run");
-      assert.ok(checkpoint.timestamp);
-      assert.deepEqual(checkpoint.state, { iteration: 5 });
-      assert.equal(checkpoint.memory.L0.taskGoal, "test");
-      assert.deepEqual(checkpoint.sharedContext, { signals: [] });
+      expect(checkpoint.runId).toBe("test_run");
+      expect(checkpoint.timestamp).toBeTruthy();
+      expect(checkpoint.state).toEqual({ iteration: 5 });
+      expect(checkpoint.memory.L0.taskGoal).toBe("test");
+      expect(checkpoint.sharedContext).toEqual({ signals: [] });
     });
 
     it("should restore checkpoint", async () => {
@@ -324,10 +324,10 @@ describe("UnifiedAgentContext", () => {
 
       const result = await ctx.restoreCheckpoint(checkpoint);
 
-      assert.equal(result, true);
-      assert.deepEqual(restoredState, { iteration: 10 });
-      assert.equal(ctx._memory.L0.taskGoal, "restored");
-      assert.deepEqual(restoredShared, { signals: [{ type: "test" }] });
+      expect(result).toBe(true);
+      expect(restoredState).toEqual({ iteration: 10 });
+      expect(ctx._memory.L0.taskGoal).toBe("restored");
+      expect(restoredShared).toEqual({ signals: [{ type: "test" }] });
     });
 
     it("should support incremental snapshots (P2.3)", async () => {
@@ -344,8 +344,8 @@ describe("UnifiedAgentContext", () => {
 
       await ctx.saveCheckpoint({ incremental: true });
 
-      assert.ok(toSnapshotOptions);
-      assert.equal(toSnapshotOptions.incremental, true);
+      expect(toSnapshotOptions).toBeTruthy();
+      expect(toSnapshotOptions.incremental).toBe(true);
     });
   });
 
@@ -362,12 +362,12 @@ describe("UnifiedAgentContext", () => {
 
       const status = ctx.getContextStatus();
 
-      assert.equal(status.runId, "status_test");
-      assert.equal(status.iteration, 3);
-      assert.equal(status.todoCount, 2);
-      assert.equal(status.claimCount, 1);
-      assert.equal(status.messageCount, 3);
-      assert.equal(status.tokenUsage.total, 1000);
+      expect(status.runId).toBe("status_test");
+      expect(status.iteration).toBe(3);
+      expect(status.todoCount).toBe(2);
+      expect(status.claimCount).toBe(1);
+      expect(status.messageCount).toBe(3);
+      expect(status.tokenUsage.total).toBe(1000);
     });
   });
 
@@ -383,12 +383,12 @@ describe("UnifiedAgentContext", () => {
 
       const serialized = ctx.serialize();
 
-      assert.equal(serialized.runId, "ser_test");
-      assert.equal(serialized.taskGoal, "test goal");
-      assert.equal(serialized.iteration, 5);
-      assert.deepEqual(serialized.todos, [{ id: 1 }]);
-      assert.deepEqual(serialized.claims, [{ text: "claim" }]);
-      assert.deepEqual(serialized.report, { markdown: "# Report" });
+      expect(serialized.runId).toBe("ser_test");
+      expect(serialized.taskGoal).toBe("test goal");
+      expect(serialized.iteration).toBe(5);
+      expect(serialized.todos).toEqual([{ id: 1 }]);
+      expect(serialized.claims).toEqual([{ text: "claim" }]);
+      expect(serialized.report).toEqual({ markdown: "# Report" });
     });
   });
 });

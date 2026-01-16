@@ -1,22 +1,22 @@
-import test from "node:test";
-import assert from "node:assert/strict";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // BaseAdapter Tests
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("BaseAdapter: constructor sets defaults", async () => {
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
+it("BaseAdapter: constructor sets defaults", async () => {
   const { BaseAdapter } = await import("../../../js/agents/ingest/adapters/base.js");
   const a = new BaseAdapter();
-  assert.equal(a.adapterName, "base");
-  assert.deepEqual(a.defaultChunkOptions, { chunkSize: 2000, overlap: 200, includeLineNumbers: true });
+  expect(a.adapterName).toBe("base");
+  expect(a.defaultChunkOptions).toEqual({ chunkSize: 2000, overlap: 200, includeLineNumbers: true });
 
   const b = new BaseAdapter({ adapterName: "custom", defaultChunkOptions: { chunkSize: 500, overlap: 50 } });
-  assert.equal(b.adapterName, "custom");
-  assert.equal(b.defaultChunkOptions.chunkSize, 500);
+  expect(b.adapterName).toBe("custom");
+  expect(b.defaultChunkOptions.chunkSize).toBe(500);
 });
 
-test("BaseAdapter: parseStream yields chunks with locators", async () => {
+it("BaseAdapter: parseStream yields chunks with locators", async () => {
   const { BaseAdapter } = await import("../../../js/agents/ingest/adapters/base.js");
   const adapter = new BaseAdapter({ defaultChunkOptions: { chunkSize: 10, overlap: 2, includeLineNumbers: true } });
 
@@ -31,14 +31,14 @@ test("BaseAdapter: parseStream yields chunks with locators", async () => {
     chunks.push(c);
   }
 
-  assert.ok(chunks.length >= 2, "should produce multiple chunks");
-  assert.ok(chunks[0].chunkId.startsWith("chunk_"));
-  assert.equal(typeof chunks[0].locator.charStart, "number");
-  assert.equal(typeof chunks[0].locator.charEnd, "number");
-  assert.equal(chunks[0].locator.charStart, 0);
+  expect(chunks.length >= 2, "should produce multiple chunks").toBeTruthy();
+  expect(chunks[0].chunkId.startsWith("chunk_")).toBeTruthy();
+  expect(typeof chunks[0].locator.charStart).toBe("number");
+  expect(typeof chunks[0].locator.charEnd).toBe("number");
+  expect(chunks[0].locator.charStart).toBe(0);
 });
 
-test("BaseAdapter: parseStream handles Uint8Array input", async () => {
+it("BaseAdapter: parseStream handles Uint8Array input", async () => {
   const { BaseAdapter } = await import("../../../js/agents/ingest/adapters/base.js");
   const adapter = new BaseAdapter({ defaultChunkOptions: { chunkSize: 100, overlap: 0 } });
 
@@ -49,11 +49,11 @@ test("BaseAdapter: parseStream handles Uint8Array input", async () => {
   }
 
   const chunks = await adapter.parse(bytesSource());
-  assert.ok(Array.isArray(chunks) && chunks.length >= 1);
-  assert.ok(chunks[0].text.includes("Line 1"));
+  expect(Array.isArray(chunks ) && chunks.length >= 1).toBeTruthy();
+  expect(chunks[0].text.includes("Line 1")).toBeTruthy();
 });
 
-test("BaseAdapter: parseStream respects AbortSignal", async () => {
+it("BaseAdapter: parseStream respects AbortSignal", async () => {
   const { BaseAdapter } = await import("../../../js/agents/ingest/adapters/base.js");
   const adapter = new BaseAdapter({ defaultChunkOptions: { chunkSize: 5, overlap: 0 } });
 
@@ -64,8 +64,7 @@ test("BaseAdapter: parseStream respects AbortSignal", async () => {
     yield "def";
   }
 
-  await assert.rejects(
-    async () => {
+  await expect(async () => {
       // eslint-disable-next-line no-unused-vars
       for await (const _ of adapter.parseStream(slowSource(), { signal: ac.signal })) {
         // consume
@@ -75,12 +74,11 @@ test("BaseAdapter: parseStream respects AbortSignal", async () => {
   );
 });
 
-test("BaseAdapter: parseStream rejects invalid options", async () => {
+it("BaseAdapter: parseStream rejects invalid options", async () => {
   const { BaseAdapter } = await import("../../../js/agents/ingest/adapters/base.js");
   const adapter = new BaseAdapter();
 
-  await assert.rejects(
-    async () => {
+  await expect(async () => {
       // eslint-disable-next-line no-unused-vars
       for await (const _ of adapter.parseStream(["test"], { chunkOptions: { chunkSize: 10, overlap: 20 } })) {
         // consume
@@ -90,12 +88,11 @@ test("BaseAdapter: parseStream rejects invalid options", async () => {
   );
 });
 
-test("BaseAdapter: parseStream rejects non-iterable input", async () => {
+it("BaseAdapter: parseStream rejects non-iterable input", async () => {
   const { BaseAdapter } = await import("../../../js/agents/ingest/adapters/base.js");
   const adapter = new BaseAdapter();
 
-  await assert.rejects(
-    async () => {
+  await expect(async () => {
       // eslint-disable-next-line no-unused-vars
       for await (const _ of adapter.parseStream(42)) {
         // consume
@@ -105,15 +102,15 @@ test("BaseAdapter: parseStream rejects non-iterable input", async () => {
   );
 });
 
-test("BaseAdapter: parse collects parseStream into array", async () => {
+it("BaseAdapter: parse collects parseStream into array", async () => {
   const { BaseAdapter } = await import("../../../js/agents/ingest/adapters/base.js");
   const adapter = new BaseAdapter({ defaultChunkOptions: { chunkSize: 10, overlap: 0 } });
 
   const result = await adapter.parse(["0123456789", "abcdefghij"]);
-  assert.ok(Array.isArray(result) && result.length >= 2);
+  expect(Array.isArray(result ) && result.length >= 2).toBeTruthy();
 });
 
-test("BaseAdapter: buildParsedDocument produces valid structure", async () => {
+it("BaseAdapter: buildParsedDocument produces valid structure", async () => {
   const { BaseAdapter } = await import("../../../js/agents/ingest/adapters/base.js");
   const adapter = new BaseAdapter({ adapterName: "test" });
 
@@ -125,32 +122,32 @@ test("BaseAdapter: buildParsedDocument produces valid structure", async () => {
     metadata: { title: "Test" },
   });
 
-  assert.ok(doc.docId.startsWith("markdown_"));
-  assert.equal(doc.sourceType, "markdown");
-  assert.ok(doc.textHash.startsWith("sha256:"));
-  assert.ok(Array.isArray(doc.chunks) && doc.chunks.length >= 1);
-  assert.ok(Array.isArray(doc.toc));
-  assert.equal(doc.parseInfo.adapter, "test");
+  expect(doc.docId.startsWith("markdown_")).toBeTruthy();
+  expect(doc.sourceType).toBe("markdown");
+  expect(doc.textHash.startsWith("sha256:")).toBeTruthy();
+  expect(Array.isArray(doc.chunks ) && doc.chunks.length >= 1).toBeTruthy();
+  expect(Array.isArray(doc.toc)).toBeTruthy();
+  expect(doc.parseInfo.adapter).toBe("test");
 });
 
-test("BaseAdapter: _validateChunks detects invalid chunks", async () => {
+it("BaseAdapter: _validateChunks detects invalid chunks", async () => {
   const { BaseAdapter } = await import("../../../js/agents/ingest/adapters/base.js");
   const adapter = new BaseAdapter();
 
-  assert.deepEqual(adapter._validateChunks([], {}), { ok: true, reason: "empty" });
-  assert.deepEqual(adapter._validateChunks([{ text: "" }], {}), { ok: false, reason: "chunk_missing_text" });
-  assert.deepEqual(adapter._validateChunks([{ text: "ok" }], {}), { ok: false, reason: "chunk_missing_locator" });
-  assert.deepEqual(adapter._validateChunks([{ text: "ok", locator: { charStart: 10, charEnd: 5 } }], {}), { ok: false, reason: "chunk_bad_locator" });
+  expect(adapter._validateChunks([]).toEqual({}), { ok: true, reason: "empty" });
+  expect(adapter._validateChunks([{ text: "" }]).toEqual({}), { ok: false, reason: "chunk_missing_text" });
+  expect(adapter._validateChunks([{ text: "ok" }]).toEqual({}), { ok: false, reason: "chunk_missing_locator" });
+  expect(adapter._validateChunks([{ text: "ok").toEqual(locator: { charStart: 10, charEnd: 5 } }], {}), { ok: false, reason: "chunk_bad_locator" });
 
   const validChunk = { text: "hello", locator: { charStart: 0, charEnd: 5 } };
-  assert.deepEqual(adapter._validateChunks([validChunk], { maxSize: 100 }), { ok: true });
+  expect(adapter._validateChunks([validChunk]).toEqual({ maxSize: 100 }), { ok: true });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PdfAdapter Tests
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("PdfAdapter: uses OCR when available", async () => {
+it("PdfAdapter: uses OCR when available", async () => {
   const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
 
   const ocr = {
@@ -177,12 +174,12 @@ test("PdfAdapter: uses OCR when available", async () => {
     { ocr }
   );
 
-  assert.equal(parsed.sourceType, "pdf");
-  assert.ok(parsed.markdown.includes("OCR Title"));
-  assert.equal(parsed.metadata.engine, "test-ocr");
+  expect(parsed.sourceType).toBe("pdf");
+  expect(parsed.markdown.includes("OCR Title")).toBeTruthy();
+  expect(parsed.metadata.engine).toBe("test-ocr");
 });
 
-test("PdfAdapter: fallback extracts ASCII when OCR unavailable", async () => {
+it("PdfAdapter: fallback extracts ASCII when OCR unavailable", async () => {
   const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
   const adapter = new PdfAdapter({ defaultChunkOptions: { chunkSize: 50, overlap: 0 } });
 
@@ -198,17 +195,16 @@ test("PdfAdapter: fallback extracts ASCII when OCR unavailable", async () => {
     },
   });
 
-  assert.equal(parsed.sourceType, "pdf");
-  assert.ok(parsed.markdown.includes("doc.pdf"));
-  assert.equal(parsed.metadata.engine, "fallback");
+  expect(parsed.sourceType).toBe("pdf");
+  expect(parsed.markdown.includes("doc.pdf")).toBeTruthy();
+  expect(parsed.metadata.engine).toBe("fallback");
 });
 
-test("PdfAdapter: rejects oversized files", async () => {
+it("PdfAdapter: rejects oversized files", async () => {
   const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
   const adapter = new PdfAdapter({ maxFileSize: 50 });
 
-  await assert.rejects(
-    () =>
+  await expect(() =>
       adapter.parse({
         name: "big.pdf",
         size: 100,
@@ -220,15 +216,13 @@ test("PdfAdapter: rejects oversized files", async () => {
   );
 });
 
-test("PdfAdapter: rejects invalid input types", async () => {
+it("PdfAdapter: rejects invalid input types", async () => {
   const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
   const adapter = new PdfAdapter();
 
-  await assert.rejects(() => adapter.parse(12345), /must be a path string or a file-like object/);
+  await expect(() => adapter.parse(12345)).rejects.toThrow(/must be a path string or a file-like object/);
 
-  await assert.rejects(
-    () => adapter.parse({ name: "test.pdf" }),
-    /unsupported file-like input/
+  await expect(() => adapter.parse({ name: "test.pdf" })).rejects.toThrow(/unsupported file-like input/
   );
 });
 
@@ -236,7 +230,7 @@ test("PdfAdapter: rejects invalid input types", async () => {
 // MarkdownAdapter Tests
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("MarkdownAdapter: parses file-like with text() method", async () => {
+it("MarkdownAdapter: parses file-like with text() method", async () => {
   const { MarkdownAdapter } = await import("../../../js/agents/ingest/adapters/markdown.js");
   const adapter = new MarkdownAdapter({ defaultChunkOptions: { chunkSize: 50, overlap: 0 } });
 
@@ -248,12 +242,12 @@ test("MarkdownAdapter: parses file-like with text() method", async () => {
     },
   });
 
-  assert.equal(parsed.sourceType, "markdown");
-  assert.equal(parsed.origin.filename, "readme.md");
-  assert.ok(parsed.markdown.includes("Readme"));
+  expect(parsed.sourceType).toBe("markdown");
+  expect(parsed.origin.filename).toBe("readme.md");
+  expect(parsed.markdown.includes("Readme")).toBeTruthy();
 });
 
-test("MarkdownAdapter: parses file-like with arrayBuffer() method", async () => {
+it("MarkdownAdapter: parses file-like with arrayBuffer() method", async () => {
   const { MarkdownAdapter } = await import("../../../js/agents/ingest/adapters/markdown.js");
   const adapter = new MarkdownAdapter({ defaultChunkOptions: { chunkSize: 50, overlap: 0 } });
 
@@ -267,11 +261,11 @@ test("MarkdownAdapter: parses file-like with arrayBuffer() method", async () => 
     },
   });
 
-  assert.equal(parsed.sourceType, "markdown");
-  assert.ok(parsed.markdown.includes("From Buffer"));
+  expect(parsed.sourceType).toBe("markdown");
+  expect(parsed.markdown.includes("From Buffer")).toBeTruthy();
 });
 
-test("MarkdownAdapter: parses object with content property", async () => {
+it("MarkdownAdapter: parses object with content property", async () => {
   const { MarkdownAdapter } = await import("../../../js/agents/ingest/adapters/markdown.js");
   const adapter = new MarkdownAdapter();
 
@@ -280,20 +274,20 @@ test("MarkdownAdapter: parses object with content property", async () => {
     filename: "inline.md",
   });
 
-  assert.equal(parsed.origin.filename, "inline.md");
-  assert.ok(parsed.markdown.includes("Direct Content"));
+  expect(parsed.origin.filename).toBe("inline.md");
+  expect(parsed.markdown.includes("Direct Content")).toBeTruthy();
 });
 
-test("MarkdownAdapter: rejects unsupported input", async () => {
+it("MarkdownAdapter: rejects unsupported input", async () => {
   const { MarkdownAdapter } = await import("../../../js/agents/ingest/adapters/markdown.js");
   const adapter = new MarkdownAdapter();
 
-  await assert.rejects(() => adapter.parse(42), /must be a path string or a file-like object/);
+  await expect(() => adapter.parse(42)).rejects.toThrow(/must be a path string or a file-like object/);
 
-  await assert.rejects(() => adapter.parse({ name: "test.md" }), /unsupported file-like input/);
+  await expect(() => adapter.parse({ name: "test.md" })).rejects.toThrow(/unsupported file-like input/);
 });
 
-test("MarkdownAdapter: uses default filename when not provided", async () => {
+it("MarkdownAdapter: uses default filename when not provided", async () => {
   const { MarkdownAdapter } = await import("../../../js/agents/ingest/adapters/markdown.js");
   const adapter = new MarkdownAdapter();
 
@@ -301,14 +295,14 @@ test("MarkdownAdapter: uses default filename when not provided", async () => {
     content: "No name given.",
   });
 
-  assert.equal(parsed.origin.filename, "untitled.md");
+  expect(parsed.origin.filename).toBe("untitled.md");
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HtmlAdapter Additional Tests
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("HtmlAdapter: parses with arrayBuffer input", async () => {
+it("HtmlAdapter: parses with arrayBuffer input", async () => {
   const { HtmlAdapter } = await import("../../../js/agents/ingest/adapters/html.js");
   const adapter = new HtmlAdapter({ defaultChunkOptions: { chunkSize: 50, overlap: 0 } });
 
@@ -322,11 +316,11 @@ test("HtmlAdapter: parses with arrayBuffer input", async () => {
     },
   });
 
-  assert.equal(parsed.sourceType, "html");
-  assert.ok(parsed.markdown.includes("Buffer HTML"));
+  expect(parsed.sourceType).toBe("html");
+  expect(parsed.markdown.includes("Buffer HTML")).toBeTruthy();
 });
 
-test("HtmlAdapter: parses with content property", async () => {
+it("HtmlAdapter: parses with content property", async () => {
   const { HtmlAdapter } = await import("../../../js/agents/ingest/adapters/html.js");
   const adapter = new HtmlAdapter();
 
@@ -335,40 +329,40 @@ test("HtmlAdapter: parses with content property", async () => {
     content: "<h2>Inline</h2><p>Text</p>",
   });
 
-  assert.ok(parsed.markdown.includes("Inline"));
+  expect(parsed.markdown.includes("Inline")).toBeTruthy();
 });
 
-test("HtmlAdapter: rejects unsupported input", async () => {
+it("HtmlAdapter: rejects unsupported input", async () => {
   const { HtmlAdapter } = await import("../../../js/agents/ingest/adapters/html.js");
   const adapter = new HtmlAdapter();
 
-  await assert.rejects(() => adapter.parse(123), /must be a path string or a file-like object/);
-  await assert.rejects(() => adapter.parse({ name: "test.html" }), /unsupported file-like input/);
+  await expect(() => adapter.parse(123)).rejects.toThrow(/must be a path string or a file-like object/);
+  await expect(() => adapter.parse({ name: "test.html" })).rejects.toThrow(/unsupported file-like input/);
 });
 
-test("HtmlAdapter: __internal helpers work correctly", async () => {
+it("HtmlAdapter: __internal helpers work correctly", async () => {
   const { __internal } = await import("../../../js/agents/ingest/adapters/html.js");
 
-  assert.equal(__internal.guessMimeType("page.html"), "text/html");
-  assert.equal(__internal.guessMimeType("page.htm"), "text/html");
-  assert.equal(__internal.extFromMime("image/jpeg"), "jpg");
-  assert.equal(__internal.extFromMime("image/png"), "png");
+  expect(__internal.guessMimeType("page.html")).toBe("text/html");
+  expect(__internal.guessMimeType("page.htm")).toBe("text/html");
+  expect(__internal.extFromMime("image/jpeg")).toBe("jpg");
+  expect(__internal.extFromMime("image/png")).toBe("png");
 
   const parsed = __internal.parseDataUri("data:image/png;base64,AAAA");
-  assert.equal(parsed.mimeType, "image/png");
-  assert.equal(parsed.base64, "AAAA");
-  assert.equal(__internal.parseDataUri("invalid"), null);
+  expect(parsed.mimeType).toBe("image/png");
+  expect(parsed.base64).toBe("AAAA");
+  expect(__internal.parseDataUri("invalid")).toBe(null);
 
   const extracted = __internal.extractDataUriImagesFromHtml('<img src="data:image/png;base64,XXXX">');
-  assert.ok(extracted.images.length === 1);
-  assert.equal(extracted.images[0].data, "XXXX");
+  expect(extracted.images.length === 1).toBeTruthy();
+  expect(extracted.images[0].data).toBe("XXXX");
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DocxAdapter Tests
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("DocxAdapter: converts via mammoth + turndown and extracts images as assets", async () => {
+it("DocxAdapter: converts via mammoth + turndown and extracts images as assets", async () => {
   const { DocxAdapter } = await import("../../../js/agents/ingest/adapters/docx.js");
 
   const mammothStub = {
@@ -381,7 +375,7 @@ test("DocxAdapter: converts via mammoth + turndown and extracts images as assets
       const fakeImage = {
         contentType: "image/png",
         async read(kind) {
-          assert.equal(kind, "base64");
+          expect(kind).toBe("base64");
           return "AAAA";
         },
       };
@@ -406,17 +400,17 @@ test("DocxAdapter: converts via mammoth + turndown and extracts images as assets
     { mammoth: mammothStub }
   );
 
-  assert.equal(parsed.sourceType, "docx");
-  assert.ok(parsed.markdown.includes("Hello"));
-  assert.ok(Array.isArray(parsed.assets) && parsed.assets.length === 1);
-  assert.equal(parsed.assets[0].mimeType, "image/png");
-  assert.equal(parsed.assets[0].data, "AAAA");
-  assert.equal(parsed.assets[0].source, "extracted");
-  assert.equal(parsed.assets[0].docId, parsed.docId);
-  assert.ok(Array.isArray(parsed.parseInfo.warnings) && parsed.parseInfo.warnings.some((w) => w.includes("mammoth")));
+  expect(parsed.sourceType).toBe("docx");
+  expect(parsed.markdown.includes("Hello")).toBeTruthy();
+  expect(Array.isArray(parsed.assets ) && parsed.assets.length === 1).toBeTruthy();
+  expect(parsed.assets[0].mimeType).toBe("image/png");
+  expect(parsed.assets[0].data).toBe("AAAA");
+  expect(parsed.assets[0].source).toBe("extracted");
+  expect(parsed.assets[0].docId).toBe(parsed.docId);
+  expect(Array.isArray(parsed.parseInfo.warnings).toBeTruthy() && parsed.parseInfo.warnings.some((w) => w.includes("mammoth")));
 });
 
-test("DocxAdapter: rejects oversized inputs before invoking mammoth", async () => {
+it("DocxAdapter: rejects oversized inputs before invoking mammoth", async () => {
   const { DocxAdapter } = await import("../../../js/agents/ingest/adapters/docx.js");
 
   let called = false;
@@ -433,8 +427,7 @@ test("DocxAdapter: rejects oversized inputs before invoking mammoth", async () =
   };
 
   const adapter = new DocxAdapter({ maxFileSize: 1 });
-  await assert.rejects(
-    () =>
+  await expect(() =>
       adapter.parse(
         {
           name: "big.docx",
@@ -447,10 +440,10 @@ test("DocxAdapter: rejects oversized inputs before invoking mammoth", async () =
       ),
     /file too large/
   );
-  assert.equal(called, false);
+  expect(called).toBe(false);
 });
 
-test("PptxAdapter: extracts slide text + images as assets", async () => {
+it("PptxAdapter: extracts slide text + images as assets", async () => {
   const { PptxAdapter } = await import("../../../js/agents/ingest/adapters/pptx.js");
 
   const pptxParser = {
@@ -484,17 +477,17 @@ test("PptxAdapter: extracts slide text + images as assets", async () => {
     { pptxParser }
   );
 
-  assert.equal(parsed.sourceType, "pptx");
-  assert.equal(parsed.metadata.slideCount, 1);
-  assert.ok(parsed.markdown.includes("Slide 1: Deck Title"));
-  assert.ok(parsed.markdown.includes("Point A"));
-  assert.ok(Array.isArray(parsed.assets) && parsed.assets.length === 1);
-  assert.equal(parsed.assets[0].mimeType, "image/png");
-  assert.equal(parsed.assets[0].data, "BBBB");
-  assert.equal(parsed.assets[0].source, "extracted");
+  expect(parsed.sourceType).toBe("pptx");
+  expect(parsed.metadata.slideCount).toBe(1);
+  expect(parsed.markdown.includes("Slide 1: Deck Title")).toBeTruthy();
+  expect(parsed.markdown.includes("Point A")).toBeTruthy();
+  expect(Array.isArray(parsed.assets ) && parsed.assets.length === 1).toBeTruthy();
+  expect(parsed.assets[0].mimeType).toBe("image/png");
+  expect(parsed.assets[0].data).toBe("BBBB");
+  expect(parsed.assets[0].source).toBe("extracted");
 });
 
-test("HtmlAdapter: converts HTML to markdown and extracts base64 images", async () => {
+it("HtmlAdapter: converts HTML to markdown and extracts base64 images", async () => {
   const { HtmlAdapter } = await import("../../../js/agents/ingest/adapters/html.js");
 
   const html = `<h1>Hi</h1><p>Body</p><img src="data:image/png;base64,CCCC">`;
@@ -507,16 +500,16 @@ test("HtmlAdapter: converts HTML to markdown and extracts base64 images", async 
     },
   });
 
-  assert.equal(parsed.sourceType, "html");
-  assert.ok(parsed.markdown.includes("# Hi"));
-  assert.ok(parsed.markdown.includes("Body"));
-  assert.ok(!parsed.markdown.includes("data:image/"));
-  assert.ok(Array.isArray(parsed.assets) && parsed.assets.length === 1);
-  assert.equal(parsed.assets[0].data, "CCCC");
-  assert.equal(parsed.assets[0].mimeType, "image/png");
+  expect(parsed.sourceType).toBe("html");
+  expect(parsed.markdown.includes("# Hi")).toBeTruthy();
+  expect(parsed.markdown.includes("Body")).toBeTruthy();
+  expect(!parsed.markdown.includes("data:image/")).toBeTruthy();
+  expect(Array.isArray(parsed.assets ) && parsed.assets.length === 1).toBeTruthy();
+  expect(parsed.assets[0].data).toBe("CCCC");
+  expect(parsed.assets[0].mimeType).toBe("image/png");
 });
 
-test("EpubAdapter: parses OPF+spine, converts chapters, extracts images as assets", async () => {
+it("EpubAdapter: parses OPF+spine, converts chapters, extracts images as assets", async () => {
   const { default: JSZip } = await import("jszip");
   const { EpubAdapter } = await import("../../../js/agents/ingest/adapters/epub.js");
 
@@ -571,34 +564,32 @@ test("EpubAdapter: parses OPF+spine, converts chapters, extracts images as asset
     },
   });
 
-  assert.equal(parsed.sourceType, "epub");
-  assert.equal(parsed.metadata.chapterCount, 1);
-  assert.ok(Array.isArray(parsed.chapters) && parsed.chapters.length === 1);
-  assert.equal(parsed.chapters[0].title, "Chapter One");
-  assert.ok(parsed.markdown.includes("## Chapter One"));
-  assert.ok(parsed.markdown.includes("Text"));
-  assert.ok(Array.isArray(parsed.assets) && parsed.assets.length === 1);
-  assert.equal(parsed.assets[0].data, expectedBase64);
-  assert.equal(parsed.assets[0].mimeType, "image/png");
-  assert.equal(parsed.assets[0].source, "extracted");
+  expect(parsed.sourceType).toBe("epub");
+  expect(parsed.metadata.chapterCount).toBe(1);
+  expect(Array.isArray(parsed.chapters ) && parsed.chapters.length === 1).toBeTruthy();
+  expect(parsed.chapters[0].title).toBe("Chapter One");
+  expect(parsed.markdown.includes("## Chapter One")).toBeTruthy();
+  expect(parsed.markdown.includes("Text")).toBeTruthy();
+  expect(Array.isArray(parsed.assets ) && parsed.assets.length === 1).toBeTruthy();
+  expect(parsed.assets[0].data).toBe(expectedBase64);
+  expect(parsed.assets[0].mimeType).toBe("image/png");
+  expect(parsed.assets[0].source).toBe("extracted");
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PptxAdapter Additional Tests
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("PptxAdapter: rejects invalid input types", async () => {
+it("PptxAdapter: rejects invalid input types", async () => {
   const { PptxAdapter } = await import("../../../js/agents/ingest/adapters/pptx.js");
   const adapter = new PptxAdapter();
 
-  await assert.rejects(() => adapter.parse(12345), /must be a path string or a file-like object/);
-  await assert.rejects(
-    () => adapter.parse({ name: "slides.pptx" }),
-    /unsupported file-like input/
+  await expect(() => adapter.parse(12345)).rejects.toThrow(/must be a path string or a file-like object/);
+  await expect(() => adapter.parse({ name: "slides.pptx" })).rejects.toThrow(/unsupported file-like input/
   );
 });
 
-test("PptxAdapter: handles empty slides array", async () => {
+it("PptxAdapter: handles empty slides array", async () => {
   const { PptxAdapter } = await import("../../../js/agents/ingest/adapters/pptx.js");
 
   const pptxParser = {
@@ -618,12 +609,12 @@ test("PptxAdapter: handles empty slides array", async () => {
     { pptxParser }
   );
 
-  assert.equal(parsed.sourceType, "pptx");
-  assert.equal(parsed.metadata.slideCount, 0);
-  assert.ok(parsed.markdown.includes("empty.pptx"));
+  expect(parsed.sourceType).toBe("pptx");
+  expect(parsed.metadata.slideCount).toBe(0);
+  expect(parsed.markdown.includes("empty.pptx")).toBeTruthy();
 });
 
-test("PptxAdapter: handles slides without title", async () => {
+it("PptxAdapter: handles slides without title", async () => {
   const { PptxAdapter } = await import("../../../js/agents/ingest/adapters/pptx.js");
 
   const pptxParser = {
@@ -651,27 +642,25 @@ test("PptxAdapter: handles slides without title", async () => {
     { pptxParser }
   );
 
-  assert.ok(parsed.markdown.includes("## Slide 1"));
-  assert.ok(!parsed.markdown.includes("Slide 1:"));
-  assert.ok(parsed.markdown.includes("Bullet point only"));
+  expect(parsed.markdown.includes("## Slide 1")).toBeTruthy();
+  expect(!parsed.markdown.includes("Slide 1:")).toBeTruthy();
+  expect(parsed.markdown.includes("Bullet point only")).toBeTruthy();
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DocxAdapter Additional Tests
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("DocxAdapter: rejects invalid input types", async () => {
+it("DocxAdapter: rejects invalid input types", async () => {
   const { DocxAdapter } = await import("../../../js/agents/ingest/adapters/docx.js");
   const adapter = new DocxAdapter();
 
-  await assert.rejects(() => adapter.parse(12345), /must be a path string or a file-like object/);
-  await assert.rejects(
-    () => adapter.parse({ name: "doc.docx" }),
-    /unsupported file-like input/
+  await expect(() => adapter.parse(12345)).rejects.toThrow(/must be a path string or a file-like object/);
+  await expect(() => adapter.parse({ name: "doc.docx" })).rejects.toThrow(/unsupported file-like input/
   );
 });
 
-test("DocxAdapter: handles image read failure gracefully", async () => {
+it("DocxAdapter: handles image read failure gracefully", async () => {
   const { DocxAdapter } = await import("../../../js/agents/ingest/adapters/docx.js");
 
   const mammothStub = {
@@ -706,46 +695,46 @@ test("DocxAdapter: handles image read failure gracefully", async () => {
     { mammoth: mammothStub }
   );
 
-  assert.equal(parsed.sourceType, "docx");
-  assert.ok(parsed.markdown.includes("Doc"));
-  assert.ok(parsed.assets.length >= 1);
-  assert.ok(parsed.parseInfo.warnings?.some((w) => w.includes("Image read failed")));
+  expect(parsed.sourceType).toBe("docx");
+  expect(parsed.markdown.includes("Doc")).toBeTruthy();
+  expect(parsed.assets.length >= 1).toBeTruthy();
+  expect(parsed.parseInfo.warnings?.some(w => w.includes("Image read failed")).toBeTruthy());
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // BaseAdapter Edge Cases
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("BaseAdapter: parseStream handles CRLF line endings", async () => {
+it("BaseAdapter: parseStream handles CRLF line endings", async () => {
   const { BaseAdapter } = await import("../../../js/agents/ingest/adapters/base.js");
   const adapter = new BaseAdapter({ defaultChunkOptions: { chunkSize: 50, overlap: 0, includeLineNumbers: true } });
 
   const chunks = await adapter.parse(["Line1\r\nLine2\rLine3\n"]);
   const combined = chunks.map((c) => c.text).join("");
-  assert.ok(combined.includes("Line1"));
-  assert.ok(combined.includes("Line2"));
-  assert.ok(combined.includes("Line3"));
-  assert.ok(!combined.includes("\r"), "CRLF should be normalized to LF");
+  expect(combined.includes("Line1")).toBeTruthy();
+  expect(combined.includes("Line2")).toBeTruthy();
+  expect(combined.includes("Line3")).toBeTruthy();
+  expect(!combined.includes("\r")).toBeTruthy();
 });
 
-test("BaseAdapter: parseStream handles NBSP normalization", async () => {
+it("BaseAdapter: parseStream handles NBSP normalization", async () => {
   const { BaseAdapter } = await import("../../../js/agents/ingest/adapters/base.js");
   const adapter = new BaseAdapter({ defaultChunkOptions: { chunkSize: 50, overlap: 0 } });
 
   const chunks = await adapter.parse(["Hello\u00A0World"]);
   const combined = chunks.map((c) => c.text).join("");
-  assert.ok(combined.includes("Hello World"), "NBSP should be normalized to space");
+  expect(combined.includes("Hello World")).toBeTruthy();
 });
 
-test("BaseAdapter: parseStream handles empty input", async () => {
+it("BaseAdapter: parseStream handles empty input", async () => {
   const { BaseAdapter } = await import("../../../js/agents/ingest/adapters/base.js");
   const adapter = new BaseAdapter();
 
   const chunks = await adapter.parse([]);
-  assert.deepEqual(chunks, []);
+  expect(chunks).toEqual([]);
 });
 
-test("BaseAdapter: buildParsedDocument with smartChunk enabled", async () => {
+it("BaseAdapter: buildParsedDocument with smartChunk enabled", async () => {
   const { BaseAdapter } = await import("../../../js/agents/ingest/adapters/base.js");
   const adapter = new BaseAdapter({ adapterName: "smart" });
 
@@ -758,16 +747,16 @@ test("BaseAdapter: buildParsedDocument with smartChunk enabled", async () => {
     useSmartChunk: true,
   });
 
-  assert.ok(Array.isArray(doc.chunks));
-  assert.ok(doc.chunkStrategy);
-  assert.ok(doc.chunkMeta);
+  expect(Array.isArray(doc.chunks)).toBeTruthy();
+  expect(doc.chunkStrategy).toBeTruthy();
+  expect(doc.chunkMeta).toBeTruthy();
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PdfAdapter Edge Cases
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("PdfAdapter: handles empty PDF gracefully", async () => {
+it("PdfAdapter: handles empty PDF gracefully", async () => {
   const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
   const adapter = new PdfAdapter({ defaultChunkOptions: { chunkSize: 50, overlap: 0 } });
 
@@ -780,11 +769,11 @@ test("PdfAdapter: handles empty PDF gracefully", async () => {
     },
   });
 
-  assert.equal(parsed.sourceType, "pdf");
-  assert.ok(parsed.markdown.includes("empty.pdf"));
+  expect(parsed.sourceType).toBe("pdf");
+  expect(parsed.markdown.includes("empty.pdf")).toBeTruthy();
 });
 
-test("PdfAdapter: calls onProgress when provided", async () => {
+it("PdfAdapter: calls onProgress when provided", async () => {
   const { PdfAdapter } = await import("../../../js/agents/ingest/adapters/pdf.js");
 
   const progressCalls = [];
@@ -811,7 +800,7 @@ test("PdfAdapter: calls onProgress when provided", async () => {
     }
   );
 
-  assert.equal(progressCalls.length, 3);
-  assert.equal(progressCalls[0].msg, "start");
-  assert.equal(progressCalls[2].msg, "done");
+  expect(progressCalls.length).toBe(3);
+  expect(progressCalls[0].msg).toBe("start");
+  expect(progressCalls[2].msg).toBe("done");
 });

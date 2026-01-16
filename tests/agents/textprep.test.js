@@ -1,67 +1,66 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-test("TextPrep TP1: normalizeText newline/NBSP + sha256 stability", async () => {
+it("TextPrep TP1: normalizeText newline/NBSP + sha256 stability", async () => {
   const { normalizeText } = await import("../../js/agents/stages/textprep/normalize.js");
 
   const a = normalizeText("A\r\nB\rC\u00A0D\n");
   const b = normalizeText("A\nB\nC D\n");
 
-  assert.equal(a.normalized, "A\nB\nC D\n");
-  assert.equal(b.normalized, "A\nB\nC D\n");
-  assert.equal(a.textHash, b.textHash);
+  expect(a.normalized).toBe("A\nB\nC D\n");
+  expect(b.normalized).toBe("A\nB\nC D\n");
+  expect(a.textHash).toBe(b.textHash);
 
-  assert.equal(a.textHash.startsWith("sha256:"), true);
-  assert.ok(a.normalization && a.normalization.profile === "v0");
-  assert.ok(a.normalization.ops.includes("newline_to_lf"));
-  assert.ok(a.normalization.ops.includes("nbsp_to_space"));
+  expect(a.textHash.startsWith("sha256:")).toBe(true);
+  expect(a.normalization && a.normalization.profile === "v0").toBeTruthy();
+  expect(a.normalization.ops.includes("newline_to_lf")).toBeTruthy();
+  expect(a.normalization.ops.includes("nbsp_to_space")).toBeTruthy();
 
   // Known SHA-256 test vector.
   const v = normalizeText("abc");
-  assert.equal(v.textHash, "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+  expect(v.textHash).toBe("sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
 
   // No-op path is stable too.
   const c = normalizeText("plain\ntext");
-  assert.equal(c.normalized, "plain\ntext");
-  assert.deepEqual(c.normalization.ops, []);
+  expect(c.normalized).toBe("plain\ntext");
+  expect(c.normalization.ops).toEqual([]);
 });
 
-test("TextPrep TP2: chunkText overlap/locator boundaries + line numbers", async () => {
+it("TextPrep TP2: chunkText overlap/locator boundaries + line numbers", async () => {
   const { chunkText } = await import("../../js/agents/stages/textprep/chunk.js");
 
   {
     const chunks = chunkText("0123456789", { chunkSize: 4, overlap: 1, includeLineNumbers: false });
-    assert.equal(chunks.length, 3);
+    expect(chunks.length).toBe(3);
 
-    assert.deepEqual(
-      chunks.map((c) => [c.locator.charStart, c.locator.charEnd, c.text]),
-      [
-        [0, 4, "0123"],
-        [3, 7, "3456"],
-        [6, 10, "6789"],
-      ]
-    );
-    assert.equal(chunks[0].locator.charEnd, chunks[1].locator.charStart + 1); // overlap=1
+    expect(chunks.map((c) => [c.locator.charStart, c.locator.charEnd, c.text])).toEqual([
+      [0, 4, "0123"],
+      [3, 7, "3456"],
+      [6, 10, "6789"],
+    ]);
+    expect(chunks[0].locator.charEnd).toBe(chunks[1].locator.charStart + 1); // overlap=1
   }
 
   {
     const text = "a\nb\nc\nd";
     const chunks = chunkText(text, { chunkSize: 4, overlap: 0, includeLineNumbers: true });
-    assert.equal(chunks.length, 2);
-    assert.deepEqual(chunks[0], { chunkId: "chunk_1", text: "a\nb\n", locator: { charStart: 0, charEnd: 4, lineStart: 1, lineEnd: 2 } });
-    assert.deepEqual(chunks[1], { chunkId: "chunk_2", text: "c\nd", locator: { charStart: 4, charEnd: 7, lineStart: 3, lineEnd: 4 } });
+    expect(chunks.length).toBe(2);
+    expect(chunks[0]).toEqual({ chunkId: "chunk_1", text: "a\nb\n", locator: { charStart: 0, charEnd: 4, lineStart: 1, lineEnd: 2 } });
+    expect(chunks[1]).toEqual({ chunkId: "chunk_2", text: "c\nd", locator: { charStart: 4, charEnd: 7, lineStart: 3, lineEnd: 4 } });
   }
 
   {
-    assert.throws(() => chunkText("hello", { chunkSize: 4, overlap: 4 }), /overlap must be < chunkSize/);
+    expect(() => chunkText("hello", { chunkSize: 4, overlap: 4 })).toThrow(/overlap must be < chunkSize/);
   }
 
   {
-    assert.deepEqual(chunkText("", { chunkSize: 4, overlap: 0 }), []);
+    expect(chunkText("", { chunkSize: 4, overlap: 0 })).toEqual([]);
   }
 });
 
-test("TextPrep TP4: planSlides parses LLM JSON and ensures core slides", async () => {
+it("TextPrep TP4: planSlides parses LLM JSON and ensures core slides", async () => {
   const { planSlides } = await import("../../js/agents/stages/textprep/slideplan.js");
   const { chunkText } = await import("../../js/agents/stages/textprep/chunk.js");
 
@@ -81,31 +80,31 @@ test("TextPrep TP4: planSlides parses LLM JSON and ensures core slides", async (
   };
 
   const intents = await planSlides(chunks, { __services: { aiApiService }, pageCount: 6 });
-  assert.equal(calls.length, 1);
+  expect(calls.length).toBe(1);
 
-  assert.ok(intents.length >= 4);
-  assert.ok(intents.some((s) => s.pageType === "cover"));
-  assert.ok(intents.some((s) => s.pageType === "agenda"));
-  assert.ok(intents.some((s) => s.pageType === "overview"));
-  assert.ok(intents.some((s) => s.pageType === "summary"));
+  expect(intents.length >= 4).toBeTruthy();
+  expect(intents.some(s => s.pageType === "cover"));
+  expect(intents.some(s => s.pageType === "agenda"));
+  expect(intents.some(s => s.pageType === "overview"));
+  expect(intents.some(s => s.pageType === "summary"));
 
   // Allowed pageType only.
-  for (const s of intents) assert.match(s.pageType, /^(cover|agenda|overview|comparison|process|summary|appendix)$/);
+  for (const s of intents) expect(s.pageType).toMatch(/^(cover|agenda|overview|comparison|process|summary|appendix)$/);
 });
 
-test("TextPrep TP4: planSlides falls back when LLM output invalid", async () => {
+it("TextPrep TP4: planSlides falls back when LLM output invalid", async () => {
   const { planSlides } = await import("../../js/agents/stages/textprep/slideplan.js");
   const { chunkText } = await import("../../js/agents/stages/textprep/chunk.js");
 
   const chunks = chunkText("Topic\nBody.\n", { chunkSize: 20, overlap: 0 });
   const aiApiService = { chat: async () => ({ content: "not json" }) };
   const intents = await planSlides(chunks, { __services: { aiApiService }, pageCount: 5 });
-  assert.ok(intents.length >= 4);
-  assert.ok(intents.some((s) => s.pageType === "cover"));
-  assert.ok(intents.some((s) => s.pageType === "summary"));
+  expect(intents.length >= 4).toBeTruthy();
+  expect(intents.some(s => s.pageType === "cover"));
+  expect(intents.some(s => s.pageType === "summary"));
 });
 
-test("TextPrep TP5: extractClaims enforces evidence linkage + quote locatable", async () => {
+it("TextPrep TP5: extractClaims enforces evidence linkage + quote locatable", async () => {
   const { normalizeText } = await import("../../js/agents/stages/textprep/normalize.js");
   const { chunkText } = await import("../../js/agents/stages/textprep/chunk.js");
   const { extractClaims } = await import("../../js/agents/stages/textprep/claims.js");
@@ -120,25 +119,25 @@ test("TextPrep TP5: extractClaims enforces evidence linkage + quote locatable", 
   ];
 
   const { claims, evidenceLedger } = extractClaims(chunks, slideIntents, { sourceId: "user_text", sourceTextNormalized: norm.normalized, maxQuoteLen: 60 });
-  assert.ok(claims.length >= 1);
-  assert.ok(evidenceLedger.length >= 1);
+  expect(claims.length >= 1).toBeTruthy();
+  expect(evidenceLedger.length >= 1).toBeTruthy();
 
   const evidenceById = new Map(evidenceLedger.map((e) => [e.evidenceId, e]));
   for (const c of claims) {
-    assert.ok(Array.isArray(c.evidenceIds) && c.evidenceIds.length >= 1);
-    for (const eid of c.evidenceIds) assert.ok(evidenceById.has(eid));
+    expect(Array.isArray(c.evidenceIds ) && c.evidenceIds.length >= 1).toBeTruthy();
+    for (const eid of c.evidenceIds) expect(evidenceById.has(eid)).toBeTruthy();
   }
 
   for (const e of evidenceLedger) {
-    assert.equal(e.sourceId, "user_text");
-    assert.ok(typeof e.locator?.charStart === "number" && typeof e.locator?.charEnd === "number");
-    assert.ok(e.locator.charStart < e.locator.charEnd);
+    expect(e.sourceId).toBe("user_text");
+    expect(typeof e.locator?.charStart === "number" && typeof e.locator?.charEnd === "number").toBeTruthy();
+    expect(e.locator.charStart < e.locator.charEnd).toBeTruthy();
     const slice = norm.normalized.slice(e.locator.charStart, e.locator.charEnd);
-    assert.ok(slice.includes(e.quote));
+    expect(slice.includes(e.quote)).toBeTruthy();
   }
 });
 
-test("TextPrep TP6: buildContentPackage validates hard gates (H1-H4)", async () => {
+it("TextPrep TP6: buildContentPackage validates hard gates (H1-H4)", async () => {
   const { buildContentPackage } = await import("../../js/agents/stages/textprep/build-content-package.js");
 
   const runContext = { runId: "run_test", constraints: { pageCount: 5 } };
@@ -156,17 +155,16 @@ test("TextPrep TP6: buildContentPackage validates hard gates (H1-H4)", async () 
   const evidenceLedger = [{ evidenceId: "e1", sourceId: "user_text", locator: { charStart: 0, charEnd: 10 }, quote: "Alpha beta" }];
 
   const pkg = buildContentPackage(runContext, sources, slideIntents, claims, evidenceLedger, []);
-  assert.equal(pkg.schemaVersion, "0.1");
-  assert.equal(pkg.mode, "textprep");
-  assert.equal(pkg.runId, "run_test");
-  assert.ok(Array.isArray(pkg.sources) && pkg.sources.length === 1);
-  assert.equal(pkg.sources[0].sourceId, "user_text");
-  assert.equal(pkg.sources[0].kind, "user_text");
-  assert.equal(pkg.sources[0].textHash, "sha256:deadbeef");
-  assert.ok(typeof pkg.summary === "string" && pkg.summary.length > 0);
+  expect(pkg.schemaVersion).toBe("0.1");
+  expect(pkg.mode).toBe("textprep");
+  expect(pkg.runId).toBe("run_test");
+  expect(Array.isArray(pkg.sources ) && pkg.sources.length === 1).toBeTruthy();
+  expect(pkg.sources[0].sourceId).toBe("user_text");
+  expect(pkg.sources[0].kind).toBe("user_text");
+  expect(pkg.sources[0].textHash).toBe("sha256:deadbeef");
+  expect(typeof pkg.summary === "string" && pkg.summary.length > 0).toBeTruthy();
 
-  assert.throws(
-    () =>
+  expect(() =>
       buildContentPackage(
         runContext,
         sources,
@@ -174,14 +172,13 @@ test("TextPrep TP6: buildContentPackage validates hard gates (H1-H4)", async () 
         claims,
         evidenceLedger,
         []
-      ),
-    /Unresolvable claimId reference/
-  );
+      )
+  ).toThrow(/Unresolvable claimId reference/);
 });
 
 // 以下测试引用了已删除的 run-context.js，已移除
 
-test("TextPrep Stage: accepts Ingest output input", async () => {
+it("TextPrep Stage: accepts Ingest output input", async () => {
   const { IngestStage } = await import("../../js/agents/ingest/ingest-stage.js");
   const { TextPrepStage } = await import("../../js/agents/stages/textprep/index.js");
   const { normalizeText } = await import("../../js/agents/stages/textprep/normalize.js");
@@ -200,9 +197,9 @@ test("TextPrep Stage: accepts Ingest output input", async () => {
   const stage = new TextPrepStage({ defaultChunkOptions: { chunkSize: 80, overlap: 0, includeLineNumbers: true } });
   const pkg = await stage.run(ingestOut, { runContext: { runId: "run_textprep_from_ingest", constraints: { pageCount: 4 } } });
 
-  assert.equal(pkg.mode, "textprep");
-  assert.ok(Array.isArray(pkg.slideIntents) && pkg.slideIntents.length >= 4);
-  assert.ok(Array.isArray(pkg.claims) && pkg.claims.length >= 1);
+  expect(pkg.mode).toBe("textprep");
+  expect(Array.isArray(pkg.slideIntents ) && pkg.slideIntents.length >= 4).toBeTruthy();
+  expect(Array.isArray(pkg.claims ) && pkg.claims.length >= 1).toBeTruthy();
 
   const merged = ingestOut.sources
     .map((s) => s.sourceTextNormalized || s.text || "")
@@ -210,15 +207,15 @@ test("TextPrep Stage: accepts Ingest output input", async () => {
     .join("\n\n---\n\n");
   const normalizedMerged = normalizeText(merged).normalized;
 
-  assert.equal(pkg.metrics.textprep.sourceChars, normalizedMerged.length);
+  expect(pkg.metrics.textprep.sourceChars).toBe(normalizedMerged.length);
 });
 
-test("TextPrep Stage: cancellation via AbortSignal stops execution", async () => {
+it("TextPrep Stage: cancellation via AbortSignal stops execution", async () => {
   const { TextPrepStage } = await import("../../js/agents/stages/textprep/index.js");
 
   const stage = new TextPrepStage();
   const ac = new AbortController();
   ac.abort("stop");
 
-  await assert.rejects(() => stage.execute({ runId: "run_test", constraints: {} }, "Hello", { signal: ac.signal }), /stop|cancel/i);
+  await expect(() => stage.execute({ runId: "run_test", constraints: {} }, "Hello", { signal: ac.signal })).rejects.toThrow(/stop|cancel/i);
 });

@@ -1,5 +1,5 @@
-import { describe, it, beforeEach, mock } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import { BacktrackManager } from "../../../js/agents/sdk/BacktrackManager.js";
 
@@ -18,8 +18,8 @@ function createMockCompressor({
   onRestore = null,
 } = {}) {
   return {
-    listArchives: mock.fn(async () => archives),
-    restore: mock.fn(async (checkpointId) => {
+    listArchives: vi.fn(async () => archives),
+    restore: vi.fn(async (checkpointId) => {
       if (onRestore) onRestore(checkpointId);
       if (restoreError) throw restoreError;
       return snapshot;
@@ -29,10 +29,10 @@ function createMockCompressor({
 
 function createMockLogger() {
   return {
-    info: mock.fn(),
-    warn: mock.fn(),
-    error: mock.fn(),
-    debug: mock.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
   };
 }
 
@@ -41,9 +41,9 @@ describe("BacktrackManager", () => {
     it("should use default values when no options provided", () => {
       const manager = new BacktrackManager();
 
-      assert.equal(manager.compressor, null);
-      assert.equal(manager.maxBacktracks, 3);
-      assert.equal(manager.backtrackCount, 0);
+      expect(manager.compressor).toBe(null);
+      expect(manager.maxBacktracks).toBe(3);
+      expect(manager.backtrackCount).toBe(0);
     });
 
     it("should accept custom options", () => {
@@ -56,25 +56,25 @@ describe("BacktrackManager", () => {
         logger,
       });
 
-      assert.equal(manager.compressor, compressor);
-      assert.equal(manager.maxBacktracks, 5);
-      assert.equal(manager._logger, logger);
+      expect(manager.compressor).toBe(compressor);
+      expect(manager.maxBacktracks).toBe(5);
+      expect(manager._logger).toBe(logger);
     });
 
     it("should handle maxBacktracks of 0", () => {
       const manager = new BacktrackManager({ maxBacktracks: 0 });
-      assert.equal(manager.maxBacktracks, 0);
-      assert.equal(manager.remaining, 0);
+      expect(manager.maxBacktracks).toBe(0);
+      expect(manager.remaining).toBe(0);
     });
   });
 
   describe("backtrackCount getter", () => {
     it("should return current backtrack count", () => {
       const manager = new BacktrackManager();
-      assert.equal(manager.backtrackCount, 0);
+      expect(manager.backtrackCount).toBe(0);
 
       manager._backtrackCount = 2;
-      assert.equal(manager.backtrackCount, 2);
+      expect(manager.backtrackCount).toBe(2);
     });
   });
 
@@ -82,27 +82,27 @@ describe("BacktrackManager", () => {
     it("should calculate remaining backtracks correctly", () => {
       const manager = new BacktrackManager({ maxBacktracks: 5 });
 
-      assert.equal(manager.remaining, 5);
+      expect(manager.remaining).toBe(5);
 
       manager._backtrackCount = 2;
-      assert.equal(manager.remaining, 3);
+      expect(manager.remaining).toBe(3);
 
       manager._backtrackCount = 5;
-      assert.equal(manager.remaining, 0);
+      expect(manager.remaining).toBe(0);
     });
 
     it("should never return negative values", () => {
       const manager = new BacktrackManager({ maxBacktracks: 2 });
       manager._backtrackCount = 10;
 
-      assert.equal(manager.remaining, 0);
+      expect(manager.remaining).toBe(0);
     });
   });
 
   describe("canBacktrack", () => {
     it("should return false when no compressor", () => {
       const manager = new BacktrackManager({ maxBacktracks: 3 });
-      assert.equal(manager.canBacktrack(), false);
+      expect(manager.canBacktrack()).toBe(false);
     });
 
     it("should return true when compressor exists and under limit", () => {
@@ -110,7 +110,7 @@ describe("BacktrackManager", () => {
         compressor: createMockCompressor(),
         maxBacktracks: 3,
       });
-      assert.equal(manager.canBacktrack(), true);
+      expect(manager.canBacktrack()).toBe(true);
     });
 
     it("should return false when at limit", () => {
@@ -120,7 +120,7 @@ describe("BacktrackManager", () => {
       });
       manager._backtrackCount = 3;
 
-      assert.equal(manager.canBacktrack(), false);
+      expect(manager.canBacktrack()).toBe(false);
     });
 
     it("should return false when over limit", () => {
@@ -130,7 +130,7 @@ describe("BacktrackManager", () => {
       });
       manager._backtrackCount = 5;
 
-      assert.equal(manager.canBacktrack(), false);
+      expect(manager.canBacktrack()).toBe(false);
     });
   });
 
@@ -141,8 +141,8 @@ describe("BacktrackManager", () => {
 
         const result = await manager.prepareBacktrack("checkpoint_1");
 
-        assert.equal(result.success, false);
-        assert.equal(result.reason, "no_memory_system");
+        expect(result.success).toBe(false);
+        expect(result.reason).toBe("no_memory_system");
       });
 
       it("should return limit_reached when at max backtracks", async () => {
@@ -154,8 +154,8 @@ describe("BacktrackManager", () => {
 
         const result = await manager.prepareBacktrack("checkpoint_1");
 
-        assert.equal(result.success, false);
-        assert.equal(result.reason, "limit_reached");
+        expect(result.success).toBe(false);
+        expect(result.reason).toBe("limit_reached");
       });
 
       it("should return no_previous_checkpoint when only one archive exists", async () => {
@@ -166,8 +166,8 @@ describe("BacktrackManager", () => {
 
         const result = await manager.prepareBacktrack();
 
-        assert.equal(result.success, false);
-        assert.equal(result.reason, "no_previous_checkpoint");
+        expect(result.success).toBe(false);
+        expect(result.reason).toBe("no_previous_checkpoint");
       });
 
       it("should return no_previous_checkpoint when no archives exist", async () => {
@@ -176,9 +176,9 @@ describe("BacktrackManager", () => {
 
         const result = await manager.prepareBacktrack();
 
-        assert.equal(result.success, false);
+        expect(result.success).toBe(false);
         // Empty archives treated same as single archive (no previous to backtrack to)
-        assert.equal(result.reason, "no_previous_checkpoint");
+        expect(result.reason).toBe("no_previous_checkpoint");
       });
 
       it("should return snapshot_not_found when restore returns null", async () => {
@@ -187,8 +187,8 @@ describe("BacktrackManager", () => {
 
         const result = await manager.prepareBacktrack("checkpoint_1");
 
-        assert.equal(result.success, false);
-        assert.equal(result.reason, "snapshot_not_found");
+        expect(result.success).toBe(false);
+        expect(result.reason).toBe("snapshot_not_found");
       });
 
       it("should return restore_error when restore throws", async () => {
@@ -200,10 +200,10 @@ describe("BacktrackManager", () => {
 
         const result = await manager.prepareBacktrack("checkpoint_1");
 
-        assert.equal(result.success, false);
-        assert.equal(result.reason, "restore_error");
-        assert.equal(result.error, "Database connection failed");
-        assert.equal(logger.error.mock.calls.length, 1);
+        expect(result.success).toBe(false);
+        expect(result.reason).toBe("restore_error");
+        expect(result.error).toBe("Database connection failed");
+        expect(logger.error.mock.calls.length).toBe(1);
       });
     });
 
@@ -220,11 +220,11 @@ describe("BacktrackManager", () => {
 
         const result = await manager.prepareBacktrack("checkpoint_42");
 
-        assert.equal(result.success, true);
-        assert.deepEqual(result.state, { messages: ["hello"] });
-        assert.equal(result.checkpointId, "checkpoint_42");
-        assert.deepEqual(restoredIds, ["checkpoint_42"]);
-        assert.equal(manager.backtrackCount, 1);
+        expect(result.success).toBe(true);
+        expect(result.state).toEqual({ messages: ["hello"] });
+        expect(result.checkpointId).toBe("checkpoint_42");
+        expect(restoredIds).toEqual(["checkpoint_42"]);
+        expect(manager.backtrackCount).toBe(1);
       });
 
       it("should auto-select previous checkpoint when ID not provided", async () => {
@@ -239,9 +239,9 @@ describe("BacktrackManager", () => {
 
         const result = await manager.prepareBacktrack();
 
-        assert.equal(result.success, true);
-        assert.deepEqual(restoredIds, ["previous_checkpoint"]);
-        assert.equal(result.checkpointId, "previous_checkpoint");
+        expect(result.success).toBe(true);
+        expect(restoredIds).toEqual(["previous_checkpoint"]);
+        expect(result.checkpointId).toBe("previous_checkpoint");
       });
 
       it("should return snapshot directly when no context property", async () => {
@@ -251,8 +251,8 @@ describe("BacktrackManager", () => {
 
         const result = await manager.prepareBacktrack("cp_1");
 
-        assert.equal(result.success, true);
-        assert.deepEqual(result.state, { data: "raw_snapshot" });
+        expect(result.success).toBe(true);
+        expect(result.state).toEqual({ data: "raw_snapshot" });
       });
 
       it("should increment backtrack count on success", async () => {
@@ -261,16 +261,16 @@ describe("BacktrackManager", () => {
         });
         const manager = new BacktrackManager({ compressor, maxBacktracks: 5 });
 
-        assert.equal(manager.backtrackCount, 0);
+        expect(manager.backtrackCount).toBe(0);
 
         await manager.prepareBacktrack("cp_1");
-        assert.equal(manager.backtrackCount, 1);
+        expect(manager.backtrackCount).toBe(1);
 
         await manager.prepareBacktrack("cp_2");
-        assert.equal(manager.backtrackCount, 2);
+        expect(manager.backtrackCount).toBe(2);
 
         await manager.prepareBacktrack("cp_3");
-        assert.equal(manager.backtrackCount, 3);
+        expect(manager.backtrackCount).toBe(3);
       });
 
       it("should log backtrack info on success", async () => {
@@ -286,11 +286,11 @@ describe("BacktrackManager", () => {
 
         await manager.prepareBacktrack("my_checkpoint");
 
-        assert.equal(logger.info.mock.calls.length, 1);
-        const logMessage = logger.info.mock.calls[0].arguments[0];
-        assert.ok(logMessage.includes("春秋蝉"));
-        assert.ok(logMessage.includes("1/3"));
-        assert.ok(logMessage.includes("my_checkpoint"));
+        expect(logger.info.mock.calls.length).toBe(1);
+        const logMessage = logger.info.mock.calls[0][0];
+        expect(logMessage.includes("春秋蝉")).toBeTruthy();
+        expect(logMessage.includes("1/3")).toBeTruthy();
+        expect(logMessage.includes("my_checkpoint")).toBeTruthy();
       });
     });
 
@@ -311,8 +311,8 @@ describe("BacktrackManager", () => {
         result.state.metadata.count = 999;
 
         // Original should be unchanged
-        assert.equal(originalContext.messages.length, 1);
-        assert.equal(originalContext.metadata.count, 1);
+        expect(originalContext.messages.length).toBe(1);
+        expect(originalContext.metadata.count).toBe(1);
       });
 
       it("should handle complex nested objects", async () => {
@@ -330,7 +330,7 @@ describe("BacktrackManager", () => {
 
         const result = await manager.prepareBacktrack("cp_1");
 
-        assert.deepEqual(result.state.nested.deep.array, [1, 2, { value: 3 }]);
+        expect(result.state.nested.deep.array).toEqual([1, 2, { value: 3 }]);
       });
     });
   });
@@ -342,8 +342,8 @@ describe("BacktrackManager", () => {
 
       manager.reset();
 
-      assert.equal(manager.backtrackCount, 0);
-      assert.equal(manager.remaining, 5);
+      expect(manager.backtrackCount).toBe(0);
+      expect(manager.remaining).toBe(5);
     });
 
     it("should allow backtracking again after reset", () => {
@@ -353,11 +353,11 @@ describe("BacktrackManager", () => {
       });
       manager._backtrackCount = 2;
 
-      assert.equal(manager.canBacktrack(), false);
+      expect(manager.canBacktrack()).toBe(false);
 
       manager.reset();
 
-      assert.equal(manager.canBacktrack(), true);
+      expect(manager.canBacktrack()).toBe(true);
     });
   });
 
@@ -370,8 +370,8 @@ describe("BacktrackManager", () => {
 
       const result = await manager.prepareBacktrack("cp_1");
 
-      assert.equal(result.success, true);
-      assert.deepEqual(result.state, {});
+      expect(result.success).toBe(true);
+      expect(result.state).toEqual({});
     });
 
     it("should handle null context in snapshot", async () => {
@@ -382,9 +382,9 @@ describe("BacktrackManager", () => {
 
       const result = await manager.prepareBacktrack("cp_1");
 
-      assert.equal(result.success, true);
+      expect(result.success).toBe(true);
       // When context is null, should fall back to snapshot itself
-      assert.deepEqual(result.state, { context: null });
+      expect(result.state).toEqual({ context: null });
     });
 
     it("should handle undefined context in snapshot", async () => {
@@ -395,8 +395,8 @@ describe("BacktrackManager", () => {
 
       const result = await manager.prepareBacktrack("cp_1");
 
-      assert.equal(result.success, true);
-      assert.deepEqual(result.state, { data: "value" });
+      expect(result.success).toBe(true);
+      expect(result.state).toEqual({ data: "value" });
     });
 
     it("should work with multiple sequential backtracks", async () => {
@@ -407,23 +407,23 @@ describe("BacktrackManager", () => {
 
       // First backtrack
       let result = await manager.prepareBacktrack("cp_1");
-      assert.equal(result.success, true);
-      assert.equal(manager.remaining, 2);
+      expect(result.success).toBe(true);
+      expect(manager.remaining).toBe(2);
 
       // Second backtrack
       result = await manager.prepareBacktrack("cp_2");
-      assert.equal(result.success, true);
-      assert.equal(manager.remaining, 1);
+      expect(result.success).toBe(true);
+      expect(manager.remaining).toBe(1);
 
       // Third backtrack
       result = await manager.prepareBacktrack("cp_3");
-      assert.equal(result.success, true);
-      assert.equal(manager.remaining, 0);
+      expect(result.success).toBe(true);
+      expect(manager.remaining).toBe(0);
 
       // Fourth should fail
       result = await manager.prepareBacktrack("cp_4");
-      assert.equal(result.success, false);
-      assert.equal(result.reason, "limit_reached");
+      expect(result.success).toBe(false);
+      expect(result.reason).toBe("limit_reached");
     });
   });
 });

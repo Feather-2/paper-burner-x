@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import render, {
   renderSkillsSection,
@@ -12,66 +12,66 @@ const { getSkillPriority, groupSkillsByPriority } = render;
 describe("skills/render", () => {
   describe("getSkillPriority", () => {
     it("returns 'critical' for priority='critical'", () => {
-      assert.equal(getSkillPriority({ priority: "critical" }), "critical");
+      expect(getSkillPriority({ priority: "critical" })).toBe("critical");
     });
 
     it("returns 'important' for priority=0 (falsy, treated as undefined)", () => {
       // priority=0 is falsy, so `priority || activation?.priority` returns undefined
       // This is a quirk of the implementation - 0 is not recognized as critical
-      assert.equal(getSkillPriority({ priority: 0 }), "important");
+      expect(getSkillPriority({ priority: 0 })).toBe("important");
     });
 
     it("returns 'critical' for priority<=50", () => {
-      assert.equal(getSkillPriority({ priority: 50 }), "critical");
-      assert.equal(getSkillPriority({ priority: 1 }), "critical");
-      assert.equal(getSkillPriority({ priority: 49 }), "critical");
+      expect(getSkillPriority({ priority: 50 })).toBe("critical");
+      expect(getSkillPriority({ priority: 1 })).toBe("critical");
+      expect(getSkillPriority({ priority: 49 })).toBe("critical");
     });
 
     it("returns 'optional' for priority='optional'", () => {
-      assert.equal(getSkillPriority({ priority: "optional" }), "optional");
+      expect(getSkillPriority({ priority: "optional" })).toBe("optional");
     });
 
     it("returns 'critical' for priority=2 (<=50)", () => {
       // priority=2 is <= 50, so returns critical
-      assert.equal(getSkillPriority({ priority: 2 }), "critical");
+      expect(getSkillPriority({ priority: 2 })).toBe("critical");
     });
 
     it("returns 'optional' for priority>=150", () => {
-      assert.equal(getSkillPriority({ priority: 150 }), "optional");
-      assert.equal(getSkillPriority({ priority: 200 }), "optional");
+      expect(getSkillPriority({ priority: 150 })).toBe("optional");
+      expect(getSkillPriority({ priority: 200 })).toBe("optional");
     });
 
     it("returns 'important' for priority=1 (between 50 and 150)", () => {
       // Note: priority=1 is actually <=50, so it's critical
       // Let's test values between 51-149
-      assert.equal(getSkillPriority({ priority: 51 }), "important");
-      assert.equal(getSkillPriority({ priority: 100 }), "important");
-      assert.equal(getSkillPriority({ priority: 149 }), "important");
+      expect(getSkillPriority({ priority: 51 })).toBe("important");
+      expect(getSkillPriority({ priority: 100 })).toBe("important");
+      expect(getSkillPriority({ priority: 149 })).toBe("important");
     });
 
     it("returns 'important' for priority='important'", () => {
-      assert.equal(getSkillPriority({ priority: "important" }), "important");
+      expect(getSkillPriority({ priority: "important" })).toBe("important");
     });
 
     it("returns 'important' by default (no priority)", () => {
-      assert.equal(getSkillPriority({}), "important");
-      assert.equal(getSkillPriority({ name: "test" }), "important");
+      expect(getSkillPriority({})).toBe("important");
+      expect(getSkillPriority({ name: "test" })).toBe("important");
     });
 
     it("reads priority from metadata.priority", () => {
-      assert.equal(getSkillPriority({ metadata: { priority: "critical" } }), "critical");
+      expect(getSkillPriority({ metadata: { priority: "critical" } })).toBe("critical");
     });
 
     it("reads priority from activation.priority", () => {
-      assert.equal(getSkillPriority({ activation: { priority: "critical" } }), "critical");
-      assert.equal(getSkillPriority({ metadata: { activation: { priority: "optional" } } }), "optional");
+      expect(getSkillPriority({ activation: { priority: "critical" } })).toBe("critical");
+      expect(getSkillPriority({ metadata: { activation: { priority: "optional" } } })).toBe("optional");
     });
   });
 
   describe("groupSkillsByPriority", () => {
     it("returns empty groups for empty array", () => {
       const result = groupSkillsByPriority([]);
-      assert.deepEqual(result, { critical: [], important: [], optional: [] });
+      expect(result).toEqual({ critical: [], important: [], optional: [] });
     });
 
     it("groups skills by priority correctly", () => {
@@ -84,36 +84,36 @@ describe("skills/render", () => {
         { name: "F", priority: 200 }, // >=150 -> optional
       ];
       const result = groupSkillsByPriority(skills);
-      assert.equal(result.critical.length, 2);
-      assert.equal(result.important.length, 2);
-      assert.equal(result.optional.length, 2);
-      assert.deepEqual(result.critical.map(s => s.name), ["A", "D"]);
-      assert.deepEqual(result.important.map(s => s.name), ["B", "E"]);
-      assert.deepEqual(result.optional.map(s => s.name), ["C", "F"]);
+      expect(result.critical.length).toBe(2);
+      expect(result.important.length).toBe(2);
+      expect(result.optional.length).toBe(2);
+      expect(result.critical.map(s => s.name)).toEqual(["A", "D"]);
+      expect(result.important.map(s => s.name)).toEqual(["B", "E"]);
+      expect(result.optional.map(s => s.name)).toEqual(["C", "F"]);
     });
 
     it("defaults to 'important' when no priority specified", () => {
       const skills = [{ name: "NoPriority" }];
       const result = groupSkillsByPriority(skills);
-      assert.equal(result.important.length, 1);
-      assert.equal(result.critical.length, 0);
-      assert.equal(result.optional.length, 0);
+      expect(result.important.length).toBe(1);
+      expect(result.critical.length).toBe(0);
+      expect(result.optional.length).toBe(0);
     });
   });
 
   describe("renderSkillsSection", () => {
     it("returns null for empty skills", () => {
-      assert.equal(renderSkillsSection([]), null);
-      assert.equal(renderSkillsSection(null), null);
-      assert.equal(renderSkillsSection(undefined), null);
+      expect(renderSkillsSection([])).toBe(null);
+      expect(renderSkillsSection(null)).toBe(null);
+      expect(renderSkillsSection(undefined)).toBe(null);
     });
 
     it("renders skills section with header", () => {
       const skills = [{ name: "TestSkill", description: "A test skill" }];
       const result = renderSkillsSection(skills);
-      assert.ok(result.includes("## Skills"));
-      assert.ok(result.includes("TestSkill"));
-      assert.ok(result.includes("A test skill"));
+      expect(result.includes("## Skills")).toBeTruthy();
+      expect(result.includes("TestSkill")).toBeTruthy();
+      expect(result.includes("A test skill")).toBeTruthy();
     });
 
     it("shows priority group titles by default", () => {
@@ -123,9 +123,9 @@ describe("skills/render", () => {
         { name: "Optional", description: "desc", priority: "optional" },
       ];
       const result = renderSkillsSection(skills);
-      assert.ok(result.includes("Core Skills"));
-      assert.ok(result.includes("Standard Skills"));
-      assert.ok(result.includes("Optional Skills"));
+      expect(result.includes("Core Skills")).toBeTruthy();
+      expect(result.includes("Standard Skills")).toBeTruthy();
+      expect(result.includes("Optional Skills")).toBeTruthy();
     });
 
     it("hides priority group titles when showPriority=false", () => {
@@ -134,13 +134,13 @@ describe("skills/render", () => {
         { name: "Important", description: "desc", priority: "important" },
       ];
       const result = renderSkillsSection(skills, { showPriority: false });
-      assert.ok(!result.includes("### "));
+      expect(!result.includes("### ")).toBeTruthy();
     });
 
     it("includes file path when available", () => {
       const skills = [{ name: "PathSkill", description: "desc", path: "/home/user/skill.md" }];
       const result = renderSkillsSection(skills);
-      assert.ok(result.includes("(file:"));
+      expect(result.includes("(file:")).toBeTruthy();
     });
 
     it("reads metadata from skill.metadata", () => {
@@ -148,63 +148,63 @@ describe("skills/render", () => {
         metadata: { name: "MetaSkill", description: "from meta", path: "test.md" }
       }];
       const result = renderSkillsSection(skills);
-      assert.ok(result.includes("MetaSkill"));
-      assert.ok(result.includes("from meta"));
+      expect(result.includes("MetaSkill")).toBeTruthy();
+      expect(result.includes("from meta")).toBeTruthy();
     });
 
     it("includes usage instructions in output", () => {
       const skills = [{ name: "TestSkill", description: "desc" }];
       const result = renderSkillsSection(skills);
-      assert.ok(result.includes("Discovery:"));
-      assert.ok(result.includes("Trigger rules:"));
-      assert.ok(result.includes("How to use a skill"));
+      expect(result.includes("Discovery:")).toBeTruthy();
+      expect(result.includes("Trigger rules:")).toBeTruthy();
+      expect(result.includes("How to use a skill")).toBeTruthy();
     });
 
     it("normalizes absolute paths to filename only", () => {
       const skills = [{ name: "S", description: "d", path: "/long/absolute/path/to/skill.md" }];
       const result = renderSkillsSection(skills);
-      assert.ok(result.includes("skill.md"));
-      assert.ok(!result.includes("/long/absolute/path"));
+      expect(result.includes("skill.md")).toBeTruthy();
+      expect(!result.includes("/long/absolute/path")).toBeTruthy();
     });
 
     it("normalizes Windows paths", () => {
       const skills = [{ name: "S", description: "d", path: "C:\\Users\\test\\skill.md" }];
       const result = renderSkillsSection(skills);
-      assert.ok(result.includes("skill.md"));
+      expect(result.includes("skill.md")).toBeTruthy();
     });
 
     it("preserves user: and nexus:// prefixes", () => {
       const skills1 = [{ name: "S", description: "d", path: "user:my-skill" }];
       const skills2 = [{ name: "S", description: "d", path: "nexus://remote/skill" }];
-      assert.ok(renderSkillsSection(skills1).includes("user:my-skill"));
-      assert.ok(renderSkillsSection(skills2).includes("nexus://remote/skill"));
+      expect(renderSkillsSection(skills1).toBeTruthy().includes("user:my-skill"));
+      expect(renderSkillsSection(skills2).toBeTruthy().includes("nexus://remote/skill"));
     });
 
     it("extracts pathname from HTTP URLs", () => {
       const skills = [{ name: "S", description: "d", path: "https://example.com/skills/my-skill?v=1" }];
       const result = renderSkillsSection(skills);
-      assert.ok(result.includes("/skills/my-skill?v=1"));
-      assert.ok(!result.includes("https://example.com"));
+      expect(result.includes("/skills/my-skill?v=1")).toBeTruthy();
+      expect(!result.includes("https://example.com")).toBeTruthy();
     });
   });
 
   describe("renderSkillsList", () => {
     it("returns empty string for empty skills", () => {
-      assert.equal(renderSkillsList([]), "");
-      assert.equal(renderSkillsList(null), "");
-      assert.equal(renderSkillsList(undefined), "");
+      expect(renderSkillsList([])).toBe("");
+      expect(renderSkillsList(null)).toBe("");
+      expect(renderSkillsList(undefined)).toBe("");
     });
 
     it("renders available skills header", () => {
       const skills = [{ name: "Test", description: "desc" }];
       const result = renderSkillsList(skills);
-      assert.ok(result.includes("Available skills:"));
+      expect(result.includes("Available skills:")).toBeTruthy();
     });
 
     it("prefixes skill names with $", () => {
       const skills = [{ name: "MySkill", description: "desc" }];
       const result = renderSkillsList(skills);
-      assert.ok(result.includes("$MySkill"));
+      expect(result.includes("$MySkill")).toBeTruthy();
     });
 
     it("shows priority icons for critical and optional", () => {
@@ -219,9 +219,9 @@ describe("skills/render", () => {
       const criticalLine = lines.find(l => l.includes("$Critical"));
       const optionalLine = lines.find(l => l.includes("$Optional"));
       const importantLine = lines.find(l => l.includes("$Important"));
-      assert.ok(criticalLine.includes("\u{1F534}")); // red circle
-      assert.ok(optionalLine.includes("\u26AA")); // white circle
-      assert.ok(!importantLine.includes("\u{1F534}") && !importantLine.includes("\u26AA"));
+      expect(criticalLine.includes("\u{1F534}")).toBeTruthy(); // red circle
+      expect(optionalLine.includes("\u26AA")).toBeTruthy(); // white circle
+      expect(!importantLine.includes("\u{1F534}")).toBeTruthy() && !importantLine.includes("\u26AA"));
     });
 
     it("uses shortDescription when available", () => {
@@ -231,8 +231,8 @@ describe("skills/render", () => {
         shortDescription: "short desc"
       }];
       const result = renderSkillsList(skills);
-      assert.ok(result.includes("short desc"));
-      assert.ok(!result.includes("long description"));
+      expect(result.includes("short desc")).toBeTruthy();
+      expect(!result.includes("long description")).toBeTruthy();
     });
 
     it("orders skills by priority: critical, important, optional", () => {
@@ -243,23 +243,23 @@ describe("skills/render", () => {
       ];
       const result = renderSkillsList(skills);
       const lines = result.split("\\n").filter(l => l.startsWith("-"));
-      assert.ok(lines[0].includes("Critical"));
-      assert.ok(lines[1].includes("Important"));
-      assert.ok(lines[2].includes("Optional"));
+      expect(lines[0].includes("Critical")).toBeTruthy();
+      expect(lines[1].includes("Important")).toBeTruthy();
+      expect(lines[2].includes("Optional")).toBeTruthy();
     });
 
     it("reads from metadata", () => {
       const skills = [{ metadata: { name: "FromMeta", description: "meta desc" } }];
       const result = renderSkillsList(skills);
-      assert.ok(result.includes("$FromMeta"));
-      assert.ok(result.includes("meta desc"));
+      expect(result.includes("$FromMeta")).toBeTruthy();
+      expect(result.includes("meta desc")).toBeTruthy();
     });
   });
 
   describe("renderUnifiedCatalog", () => {
     it("returns header for empty input", () => {
       const result = renderUnifiedCatalog({});
-      assert.ok(result.includes("## "));
+      expect(result.includes("## ")).toBeTruthy();
     });
 
     it("renders capabilities section", () => {
@@ -268,9 +268,9 @@ describe("skills/render", () => {
         { definition: { name: "Tool2", description: "desc2", priority: "critical" } },
       ];
       const result = renderUnifiedCatalog({ capabilities });
-      assert.ok(result.includes("Capabilities"));
-      assert.ok(result.includes("**Tool1**"));
-      assert.ok(result.includes("**Tool2**"));
+      expect(result.includes("Capabilities")).toBeTruthy();
+      expect(result.includes("**Tool1**")).toBeTruthy();
+      expect(result.includes("**Tool2**")).toBeTruthy();
     });
 
     it("renders skills section", () => {
@@ -279,9 +279,9 @@ describe("skills/render", () => {
         { name: "Skill2", description: "desc2", priority: "optional" },
       ];
       const result = renderUnifiedCatalog({ skills });
-      assert.ok(result.includes("Skills"));
-      assert.ok(result.includes("**$Skill1**"));
-      assert.ok(result.includes("**$Skill2**"));
+      expect(result.includes("Skills")).toBeTruthy();
+      expect(result.includes("**$Skill1**")).toBeTruthy();
+      expect(result.includes("**$Skill2**")).toBeTruthy();
     });
 
     it("shows priority icons for capabilities", () => {
@@ -291,9 +291,9 @@ describe("skills/render", () => {
         { definition: { name: "Important", description: "d" } },
       ];
       const result = renderUnifiedCatalog({ capabilities });
-      assert.ok(result.includes("\u{1F534}")); // red
-      assert.ok(result.includes("\u26AA")); // white
-      assert.ok(result.includes("\u{1F7E1}")); // yellow
+      expect(result.includes("\u{1F534}")).toBeTruthy(); // red
+      expect(result.includes("\u26AA")).toBeTruthy(); // white
+      expect(result.includes("\u{1F7E1}")).toBeTruthy(); // yellow
     });
 
     it("shows priority icons for skills", () => {
@@ -303,9 +303,9 @@ describe("skills/render", () => {
         { name: "Important", description: "d" },
       ];
       const result = renderUnifiedCatalog({ skills });
-      assert.ok(result.includes("\u{1F534}")); // red
-      assert.ok(result.includes("\u26AA")); // white
-      assert.ok(result.includes("\u{1F7E1}")); // yellow
+      expect(result.includes("\u{1F534}")).toBeTruthy(); // red
+      expect(result.includes("\u26AA")).toBeTruthy(); // white
+      expect(result.includes("\u{1F7E1}")).toBeTruthy(); // yellow
     });
 
     it("uses shortDescription for skills when available", () => {
@@ -315,7 +315,7 @@ describe("skills/render", () => {
         shortDescription: "short"
       }];
       const result = renderUnifiedCatalog({ skills });
-      assert.ok(result.includes("short"));
+      expect(result.includes("short")).toBeTruthy();
     });
 
     it("reads capability from definition or directly", () => {
@@ -324,8 +324,8 @@ describe("skills/render", () => {
         { definition: { name: "Wrapped", description: "wrapped desc" } },
       ];
       const result = renderUnifiedCatalog({ capabilities });
-      assert.ok(result.includes("**Direct**"));
-      assert.ok(result.includes("**Wrapped**"));
+      expect(result.includes("**Direct**")).toBeTruthy();
+      expect(result.includes("**Wrapped**")).toBeTruthy();
     });
 
     it("groups capabilities by priority: critical first, then important, then optional", () => {
@@ -338,8 +338,8 @@ describe("skills/render", () => {
       const critIdx = result.indexOf("**Crit**");
       const impIdx = result.indexOf("**Imp**");
       const optIdx = result.indexOf("**Opt**");
-      assert.ok(critIdx < impIdx, "critical should come before important");
-      assert.ok(impIdx < optIdx, "important should come before optional");
+      expect(critIdx < impIdx, "critical should come before important").toBeTruthy();
+      expect(impIdx < optIdx, "important should come before optional").toBeTruthy();
     });
 
     it("handles activation.priority for capabilities", () => {
@@ -350,7 +350,7 @@ describe("skills/render", () => {
       // priority 0 = critical
       const critIdx = result.indexOf("\u{1F534}");
       const actIdx = result.indexOf("**Act**");
-      assert.ok(critIdx < actIdx || result.includes("\u{1F534} **Act**"));
+      expect(critIdx < actIdx || result.includes("\u{1F534} **Act**")).toBeTruthy();
     });
 
     it("reads skill metadata from skill.metadata", () => {
@@ -358,27 +358,27 @@ describe("skills/render", () => {
         metadata: { name: "FromMeta", description: "meta desc", priority: "critical" }
       }];
       const result = renderUnifiedCatalog({ skills });
-      assert.ok(result.includes("**$FromMeta**"));
+      expect(result.includes("**$FromMeta**")).toBeTruthy();
     });
 
     it("renders both capabilities and skills together", () => {
       const capabilities = [{ definition: { name: "Cap", description: "cap desc" } }];
       const skills = [{ name: "Skill", description: "skill desc" }];
       const result = renderUnifiedCatalog({ capabilities, skills });
-      assert.ok(result.includes("Capabilities"));
-      assert.ok(result.includes("Skills"));
-      assert.ok(result.includes("**Cap**"));
-      assert.ok(result.includes("**$Skill**"));
+      expect(result.includes("Capabilities")).toBeTruthy();
+      expect(result.includes("Skills")).toBeTruthy();
+      expect(result.includes("**Cap**")).toBeTruthy();
+      expect(result.includes("**$Skill**")).toBeTruthy();
     });
   });
 
   describe("default export", () => {
     it("exports all functions", () => {
-      assert.equal(typeof render.renderSkillsSection, "function");
-      assert.equal(typeof render.renderSkillsList, "function");
-      assert.equal(typeof render.renderUnifiedCatalog, "function");
-      assert.equal(typeof render.groupSkillsByPriority, "function");
-      assert.equal(typeof render.getSkillPriority, "function");
+      expect(typeof render.renderSkillsSection).toBe("function");
+      expect(typeof render.renderSkillsList).toBe("function");
+      expect(typeof render.renderUnifiedCatalog).toBe("function");
+      expect(typeof render.groupSkillsByPriority).toBe("function");
+      expect(typeof render.getSkillPriority).toBe("function");
     });
   });
 
@@ -386,7 +386,7 @@ describe("skills/render", () => {
     it("handles empty path", () => {
       const skills = [{ name: "S", description: "d", path: "" }];
       const result = renderSkillsSection(skills);
-      assert.ok(!result.includes("(file:"));
+      expect(!result.includes("(file:")).toBeTruthy();
     });
 
     it("handles null/undefined path", () => {
@@ -394,26 +394,26 @@ describe("skills/render", () => {
       const skills2 = [{ name: "S", description: "d", path: undefined }];
       const result1 = renderSkillsSection(skills1);
       const result2 = renderSkillsSection(skills2);
-      assert.ok(!result1.includes("(file:"));
-      assert.ok(!result2.includes("(file:"));
+      expect(!result1.includes("(file:")).toBeTruthy();
+      expect(!result2.includes("(file:")).toBeTruthy();
     });
 
     it("handles remote: prefix", () => {
       const skills = [{ name: "S", description: "d", path: "remote:some-skill" }];
       const result = renderSkillsSection(skills);
-      assert.ok(result.includes("remote:some-skill"));
+      expect(result.includes("remote:some-skill")).toBeTruthy();
     });
 
     it("handles relative paths", () => {
       const skills = [{ name: "S", description: "d", path: "skills/my-skill.md" }];
       const result = renderSkillsSection(skills);
-      assert.ok(result.includes("skills/my-skill.md"));
+      expect(result.includes("skills/my-skill.md")).toBeTruthy();
     });
 
     it("handles relative paths with backslashes", () => {
       const skills = [{ name: "S", description: "d", path: "skills\\sub\\my-skill.md" }];
       const result = renderSkillsSection(skills);
-      assert.ok(result.includes("skills/sub/my-skill.md"));
+      expect(result.includes("skills/sub/my-skill.md")).toBeTruthy();
     });
 
     it("handles invalid HTTP URL gracefully", () => {
@@ -421,7 +421,7 @@ describe("skills/render", () => {
       const skills = [{ name: "S", description: "d", path: "http://[invalid" }];
       const result = renderSkillsSection(skills);
       // Should fall back to returning the raw path
-      assert.ok(result.includes("http://[invalid"));
+      expect(result.includes("http://[invalid")).toBeTruthy();
     });
   });
 });

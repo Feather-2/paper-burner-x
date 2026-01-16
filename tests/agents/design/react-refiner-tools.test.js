@@ -1,4 +1,5 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
 async function loadTools() {
@@ -12,7 +13,7 @@ function makeDeckHtmlDsl() {
   ].join("\n\n");
 }
 
-test("ReactRefiner Tools: parseSections/joinSections roundtrip consistency", async () => {
+it("ReactRefiner Tools: parseSections/joinSections roundtrip consistency", async () => {
   const { parseSections, joinSections } = await loadTools();
 
   const s1 = `<section data-title="A"><div data-el="x1">X</div></section>`;
@@ -20,11 +21,11 @@ test("ReactRefiner Tools: parseSections/joinSections roundtrip consistency", asy
   const src = `\n\n${s1}\n\n${s2}\n\n`;
 
   const sections = parseSections(src);
-  assert.deepStrictEqual(sections, [s1, s2]);
-  assert.equal(joinSections(sections), `${s1}\n\n${s2}`);
+  expect(sections).toEqual([s1, s2]);
+  expect(joinSections(sections)).toBe(`${s1}\n\n${s2}`);
 });
 
-test("ReactRefiner Tools: extractElements extracts data-el elements from HTML", async () => {
+it("ReactRefiner Tools: extractElements extracts data-el elements from HTML", async () => {
   const { extractElements } = await loadTools();
 
   const section = `<section>
@@ -34,39 +35,38 @@ test("ReactRefiner Tools: extractElements extracts data-el elements from HTML", 
   </section>`;
 
   const els = extractElements(section);
-  assert.equal(els.length, 3);
-  assert.deepStrictEqual(
-    els.map((e) => ({ elementId: e.elementId, tag: e.tag })),
+  expect(els.length).toBe(3);
+  expect(els.map((e) => ({ elementId: e.elementId).toEqual(tag: e.tag })),
     [
       { elementId: "title", tag: "h1" },
       { elementId: "box", tag: "div" },
       { elementId: "plain", tag: "span" },
     ]
   );
-  assert.equal(els[0].id, "hero");
-  assert.equal(els[0].class, "c");
-  assert.equal(els[1].attrs["data-foo"], "bar");
-  assert.equal(els[2].textPreview, "Text only");
+  expect(els[0].id).toBe("hero");
+  expect(els[0].class).toBe("c");
+  expect(els[1].attrs["data-foo"]).toBe("bar");
+  expect(els[2].textPreview).toBe("Text only");
 });
 
-test("ReactRefiner Tools: getSlideContent normal and out-of-range", async () => {
+it("ReactRefiner Tools: getSlideContent normal and out-of-range", async () => {
   const { createToolExecutor } = await loadTools();
 
   const context = { deckPackage: { deckHtmlDsl: makeDeckHtmlDsl() }, contentPackage: {} };
   const exec = createToolExecutor(context);
 
   const ok = await exec("getSlideContent", { slideIndex: 0 });
-  assert.equal(ok.success, true);
-  assert.equal(ok.data.slideIndex, 0);
-  assert.ok(ok.data.html.includes('data-title="A"'));
-  assert.ok(ok.data.elementCount >= 2);
+  expect(ok.success).toBe(true);
+  expect(ok.data.slideIndex).toBe(0);
+  expect(ok.data.html.includes('data-title="A"')).toBeTruthy();
+  expect(ok.data.elementCount >= 2).toBeTruthy();
 
   const bad = await exec("getSlideContent", { slideIndex: 99 });
-  assert.equal(bad.success, false);
-  assert.match(bad.error, /Invalid slideIndex/);
+  expect(bad.success).toBe(false);
+  expect(bad.error).toMatch(/Invalid slideIndex/);
 });
 
-test("ReactRefiner Tools: getSlideContext normal and missing meta/intent", async () => {
+it("ReactRefiner Tools: getSlideContext normal and missing meta/intent", async () => {
   const { createToolExecutor } = await loadTools();
 
   const context = {
@@ -83,35 +83,35 @@ test("ReactRefiner Tools: getSlideContext normal and missing meta/intent", async
   const exec = createToolExecutor(context);
 
   const ok = await exec("getSlideContext", { slideIndex: 0 });
-  assert.equal(ok.success, true);
-  assert.equal(ok.data.slideIndex, 0);
-  assert.equal(ok.data.slideIntent.slideIntentId, "s1");
-  assert.equal(ok.data.slideMeta.title, "A");
-  assert.deepStrictEqual(ok.data.claims.map((c) => c.claimId), ["c1"]);
-  assert.equal(ok.data.imageSlots.length, 1);
-  assert.equal(ok.data.imageSlots[0].slotId, "img0");
+  expect(ok.success).toBe(true);
+  expect(ok.data.slideIndex).toBe(0);
+  expect(ok.data.slideIntent.slideIntentId).toBe("s1");
+  expect(ok.data.slideMeta.title).toBe("A");
+  expect(ok.data.claims.map((c) => c.claimId)).toEqual(["c1"]);
+  expect(ok.data.imageSlots.length).toBe(1);
+  expect(ok.data.imageSlots[0].slotId).toBe("img0");
 
   const missingContext = { deckPackage: { deckHtmlDsl: makeDeckHtmlDsl() }, contentPackage: {} };
   const exec2 = createToolExecutor(missingContext);
   const missing = await exec2("getSlideContext", { slideIndex: 0 });
-  assert.equal(missing.success, true);
-  assert.equal(missing.data.slideIntent, null);
-  assert.equal(missing.data.slideMeta, null);
+  expect(missing.success).toBe(true);
+  expect(missing.data.slideIntent).toBe(null);
+  expect(missing.data.slideMeta).toBe(null);
 });
 
-test("ReactRefiner Tools: editSlide replaces section HTML", async () => {
+it("ReactRefiner Tools: editSlide replaces section HTML", async () => {
   const { createToolExecutor } = await loadTools();
 
   const context = { deckPackage: { deckHtmlDsl: makeDeckHtmlDsl() }, contentPackage: {} };
   const exec = createToolExecutor(context);
 
   const res = await exec("editSlide", { slideIndex: 0, changes: { html: `<section data-title="NEW"><div data-el="t1">X</div></section>` } });
-  assert.equal(res.success, true);
-  assert.ok(context.deckPackage.deckHtmlDsl.includes('data-title="NEW"'));
-  assert.ok(res.data.updatedSectionHtml.includes('data-title="NEW"'));
+  expect(res.success).toBe(true);
+  expect(context.deckPackage.deckHtmlDsl.includes('data-title="NEW"')).toBeTruthy();
+  expect(res.data.updatedSectionHtml.includes('data-title="NEW"')).toBeTruthy();
 });
 
-test("ReactRefiner Tools: editElement updates matched elements", async () => {
+it("ReactRefiner Tools: editElement updates matched elements", async () => {
   const { createToolExecutor } = await loadTools();
 
   const deckHtmlDsl = `<section><div data-el="t1">Old</div><div data-el="t2">Keep</div></section>`;
@@ -119,38 +119,38 @@ test("ReactRefiner Tools: editElement updates matched elements", async () => {
   const exec = createToolExecutor(context);
 
   const res = await exec("editElement", { slideIndex: 0, elementId: "t1", changes: { text: "New", style: "color:red", attrs: { "data-x": "1" }, foo: "bar" } });
-  assert.equal(res.success, true);
-  assert.equal(res.data.matchCount, 1);
-  assert.ok(res.data.updatedSectionHtml.includes(">New<"));
-  assert.ok(res.data.updatedSectionHtml.includes('style="color:red"'));
-  assert.ok(res.data.updatedSectionHtml.includes('data-x="1"'));
-  assert.ok(res.data.updatedSectionHtml.includes('data-foo="bar"'));
+  expect(res.success).toBe(true);
+  expect(res.data.matchCount).toBe(1);
+  expect(res.data.updatedSectionHtml.includes(">New<")).toBeTruthy();
+  expect(res.data.updatedSectionHtml.includes('style="color:red"')).toBeTruthy();
+  expect(res.data.updatedSectionHtml.includes('data-x="1"')).toBeTruthy();
+  expect(res.data.updatedSectionHtml.includes('data-foo="bar"')).toBeTruthy();
 });
 
-test("ReactRefiner Tools: screenshot returns base64 in mock Node environment", async () => {
+it("ReactRefiner Tools: screenshot returns base64 in mock Node environment", async () => {
   const { createToolExecutor } = await loadTools();
 
   const context = { deckPackage: { deckHtmlDsl: makeDeckHtmlDsl() }, contentPackage: {} };
   const exec = createToolExecutor(context);
 
   const res = await exec("screenshot", { slideIndex: 0 });
-  assert.equal(res.success, true);
-  assert.ok(res.data.base64.startsWith("data:image/png;base64,"));
-  assert.equal(res.data.mock, true);
+  expect(res.success).toBe(true);
+  expect(res.data.base64.startsWith("data:image/png;base64,")).toBeTruthy();
+  expect(res.data.mock).toBe(true);
 });
 
-test("ReactRefiner Tools: screenshotRenderer output is normalized to data URL", async () => {
+it("ReactRefiner Tools: screenshotRenderer output is normalized to data URL", async () => {
   const { createToolExecutor } = await loadTools();
 
   const context = { deckPackage: { deckHtmlDsl: makeDeckHtmlDsl() }, contentPackage: {} };
   const exec = createToolExecutor(context, { screenshotRenderer: async () => "AAAA" });
 
   const res = await exec("screenshot", { slideIndex: 0 });
-  assert.equal(res.success, true);
-  assert.equal(res.data.base64, "data:image/png;base64,AAAA");
+  expect(res.success).toBe(true);
+  expect(res.data.base64).toBe("data:image/png;base64,AAAA");
 });
 
-test("ReactRefiner Tools: XSS payloads are sanitized (Node/linkedom fallback)", async () => {
+it("ReactRefiner Tools: XSS payloads are sanitized (Node/linkedom fallback)", async () => {
   const { createToolExecutor } = await loadTools();
 
   const context = { deckPackage: { deckHtmlDsl: makeDeckHtmlDsl() }, contentPackage: {} };
@@ -165,15 +165,15 @@ test("ReactRefiner Tools: XSS payloads are sanitized (Node/linkedom fallback)", 
   </section>`;
 
   const res = await exec("editSlide", { slideIndex: 0, changes: { html: xss } });
-  assert.equal(res.success, true);
-  assert.ok(res.data.updatedSectionHtml.includes('data-title="XSS"'));
-  assert.ok(res.data.updatedSectionHtml.includes('data-el="p1"'));
-  assert.doesNotMatch(res.data.updatedSectionHtml, /<script\b/i);
-  assert.doesNotMatch(res.data.updatedSectionHtml, /\sonerror=/i);
-  assert.doesNotMatch(res.data.updatedSectionHtml, /javascript:/i);
+  expect(res.success).toBe(true);
+  expect(res.data.updatedSectionHtml.includes('data-title="XSS"')).toBeTruthy();
+  expect(res.data.updatedSectionHtml.includes('data-el="p1"')).toBeTruthy();
+  expect(res.data.updatedSectionHtml).not.toMatch(/<script\b/i);
+  expect(res.data.updatedSectionHtml).not.toMatch(/\sonerror=/i);
+  expect(res.data.updatedSectionHtml).not.toMatch(/javascript:/i);
 });
 
-test("ReactRefiner Tools: valid HTML is preserved while sanitizing innerHTML", async () => {
+it("ReactRefiner Tools: valid HTML is preserved while sanitizing innerHTML", async () => {
   const { createToolExecutor } = await loadTools();
 
   const deckHtmlDsl = `<section><div data-el="t1">Old</div></section>`;
@@ -182,13 +182,13 @@ test("ReactRefiner Tools: valid HTML is preserved while sanitizing innerHTML", a
 
   const html = `<div class="ok"><span>Hi</span> <a href="https://example.com">link</a></div>`;
   const res = await exec("editElement", { slideIndex: 0, elementId: "t1", changes: { html } });
-  assert.equal(res.success, true);
-  assert.ok(res.data.updatedSectionHtml.includes('class="ok"'));
-  assert.ok(res.data.updatedSectionHtml.includes("<span>Hi</span>"));
-  assert.ok(res.data.updatedSectionHtml.includes('href="https://example.com"'));
+  expect(res.success).toBe(true);
+  expect(res.data.updatedSectionHtml.includes('class="ok"')).toBeTruthy();
+  expect(res.data.updatedSectionHtml.includes("<span>Hi</span>")).toBeTruthy();
+  expect(res.data.updatedSectionHtml.includes('href="https://example.com"')).toBeTruthy();
 });
 
-test("ReactRefiner Tools: uses DOMPurify when available (environment detection)", async (t) => {
+it("ReactRefiner Tools: uses DOMPurify when available (environment detection)", async (t) => {
   const calls = [];
   globalThis.DOMPurify = {
     sanitize: (html, opts) => {
@@ -206,10 +206,10 @@ test("ReactRefiner Tools: uses DOMPurify when available (environment detection)"
 
   const input = `<section data-title="ORIG"><img src="x" onerror="alert(1)"></section>`;
   const res = await exec("editSlide", { slideIndex: 0, changes: { html: input } });
-  assert.equal(res.success, true);
-  assert.ok(res.data.updatedSectionHtml.includes('data-title="PURIFIED"'));
+  expect(res.success).toBe(true);
+  expect(res.data.updatedSectionHtml.includes('data-title="PURIFIED"')).toBeTruthy();
 
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].html, input);
-  assert.equal(calls[0].opts?.RETURN_DOM_FRAGMENT, false);
+  expect(calls.length).toBe(1);
+  expect(calls[0].html).toBe(input);
+  expect(calls[0].opts?.RETURN_DOM_FRAGMENT).toBe(false);
 });

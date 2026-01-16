@@ -1,5 +1,5 @@
-import { describe, it, beforeEach, mock } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import { AlertMonitor } from "../../js/agents/sdk/AlertMonitor.js";
 
@@ -19,7 +19,7 @@ function createMockAgent(overrides = {}) {
             for (const h of list) h({ payload });
         },
         eventBus: {
-            emit: mock.fn(),
+            emit: vi.fn(),
         },
         loop: { iteration: 0 },
         _loop: { messages: [] },
@@ -33,10 +33,10 @@ function createMockAgent(overrides = {}) {
  */
 function createMockLogger() {
     return {
-        info: mock.fn(),
-        warn: mock.fn(),
-        error: mock.fn(),
-        debug: mock.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
     };
 }
 
@@ -46,10 +46,10 @@ describe("AlertMonitor", () => {
             const logger = createMockLogger();
             const monitor = new AlertMonitor({ logger });
 
-            assert.equal(monitor.auditorModel, "haiku");
-            assert.equal(monitor.policy, "advisor");
-            assert.equal(monitor._pendingAlerts.length, 0);
-            assert.equal(monitor._isFlowActive, false);
+            expect(monitor.auditorModel).toBe("haiku");
+            expect(monitor.policy).toBe("advisor");
+            expect(monitor._pendingAlerts.length).toBe(0);
+            expect(monitor._isFlowActive).toBe(false);
         });
 
         it("should accept custom options", () => {
@@ -60,8 +60,8 @@ describe("AlertMonitor", () => {
                 policy: "governor",
             });
 
-            assert.equal(monitor.auditorModel, "gpt-4o");
-            assert.equal(monitor.policy, "governor");
+            expect(monitor.auditorModel).toBe("gpt-4o");
+            expect(monitor.policy).toBe("governor");
         });
     });
 
@@ -70,15 +70,15 @@ describe("AlertMonitor", () => {
             const logger = createMockLogger();
             const monitor = new AlertMonitor({ logger });
 
-            assert.equal(monitor._isFlowActive, false);
+            expect(monitor._isFlowActive).toBe(false);
 
             monitor.enterQuiet();
-            assert.equal(monitor._isFlowActive, true);
-            assert.equal(logger.info.mock.callCount(), 1);
+            expect(monitor._isFlowActive).toBe(true);
+            expect(logger.info.mock.calls.length).toBe(1);
 
             monitor.exitQuiet();
-            assert.equal(monitor._isFlowActive, false);
-            assert.equal(logger.info.mock.callCount(), 2);
+            expect(monitor._isFlowActive).toBe(false);
+            expect(logger.info.mock.calls.length).toBe(2);
         });
     });
 
@@ -98,8 +98,8 @@ describe("AlertMonitor", () => {
                 severity: "low",
             });
 
-            assert.equal(monitor._pendingAlerts.length, 1);
-            assert.equal(monitor._pendingAlerts[0].message, "test message");
+            expect(monitor._pendingAlerts.length).toBe(1);
+            expect(monitor._pendingAlerts[0].message).toBe("test message");
         });
 
         it("should prevent duplicate alerts", () => {
@@ -107,7 +107,7 @@ describe("AlertMonitor", () => {
             monitor._triggerAlert(alert);
             monitor._triggerAlert(alert);
 
-            assert.equal(monitor._pendingAlerts.length, 1);
+            expect(monitor._pendingAlerts.length).toBe(1);
         });
 
         it("should discard low confidence alerts in flow mode", () => {
@@ -118,7 +118,7 @@ describe("AlertMonitor", () => {
                 confidence: 0.5,
             });
 
-            assert.equal(monitor._pendingAlerts.length, 0);
+            expect(monitor._pendingAlerts.length).toBe(0);
         });
 
         it("should keep high confidence alerts in flow mode", () => {
@@ -129,7 +129,7 @@ describe("AlertMonitor", () => {
                 confidence: 0.8,
             });
 
-            assert.equal(monitor._pendingAlerts.length, 1);
+            expect(monitor._pendingAlerts.length).toBe(1);
         });
 
         it("should trigger force backtrack for critical alerts in governor mode", () => {
@@ -146,10 +146,10 @@ describe("AlertMonitor", () => {
                 severity: "critical",
             });
 
-            assert.equal(agent.eventBus.emit.mock.callCount(), 1);
-            const [eventName, payload] = agent.eventBus.emit.mock.calls[0].arguments;
-            assert.equal(eventName, "alertmonitor.force_backtrack");
-            assert.equal(payload.reason, "critical issue");
+            expect(agent.eventBus.emit.mock.calls.length).toBe(1);
+            const [eventName, payload] = agent.eventBus.emit.mock.calls[0];
+            expect(eventName).toBe("alertmonitor.force_backtrack");
+            expect(payload.reason).toBe("critical issue");
         });
     });
 
@@ -163,8 +163,8 @@ describe("AlertMonitor", () => {
 
             const drained = monitor.drainAlerts();
 
-            assert.equal(drained.length, 2);
-            assert.equal(monitor._pendingAlerts.length, 0);
+            expect(drained.length).toBe(2);
+            expect(monitor._pendingAlerts.length).toBe(0);
         });
     });
 
@@ -177,8 +177,8 @@ describe("AlertMonitor", () => {
             monitor._checkPlanningDrift("search", {});
             monitor._checkPlanningDrift("search", {});
 
-            assert.equal(monitor._pendingAlerts.length, 1);
-            assert.ok(monitor._pendingAlerts[0].message.includes("重复调用"));
+            expect(monitor._pendingAlerts.length).toBe(1);
+            expect(monitor._pendingAlerts[0].message.includes("重复调用")).toBeTruthy();
         });
 
         it("should not trigger for varied tool calls", () => {
@@ -189,7 +189,7 @@ describe("AlertMonitor", () => {
             monitor._checkPlanningDrift("read", {});
             monitor._checkPlanningDrift("write", {});
 
-            assert.equal(monitor._pendingAlerts.length, 0);
+            expect(monitor._pendingAlerts.length).toBe(0);
         });
     });
 
@@ -203,9 +203,9 @@ describe("AlertMonitor", () => {
                 status: "contradicted",
             });
 
-            assert.equal(monitor._pendingAlerts.length, 1);
-            assert.ok(monitor._pendingAlerts[0].message.includes("gap-123"));
-            assert.equal(monitor._pendingAlerts[0].severity, "high");
+            expect(monitor._pendingAlerts.length).toBe(1);
+            expect(monitor._pendingAlerts[0].message.includes("gap-123")).toBeTruthy();
+            expect(monitor._pendingAlerts[0].severity).toBe("high");
         });
 
         it("should not trigger for suppressed IDs", async () => {
@@ -218,7 +218,7 @@ describe("AlertMonitor", () => {
                 status: "contradicted",
             });
 
-            assert.equal(monitor._pendingAlerts.length, 0);
+            expect(monitor._pendingAlerts.length).toBe(0);
         });
     });
 
@@ -233,7 +233,7 @@ describe("AlertMonitor", () => {
 
             monitor._learnFromFeedback(messages);
 
-            assert.ok(monitor._suppressedIds.has("gap-abc"));
+            expect(monitor._suppressedIds.has("gap-abc")).toBeTruthy();
         });
 
         it("should handle empty messages", () => {
@@ -242,7 +242,7 @@ describe("AlertMonitor", () => {
 
             monitor._learnFromFeedback([]);
 
-            assert.equal(monitor._suppressedIds.size, 0);
+            expect(monitor._suppressedIds.size).toBe(0);
         });
     });
 
@@ -265,8 +265,8 @@ describe("AlertMonitor", () => {
 
             const filtered = monitor._filterAlerts(alerts, []);
 
-            assert.equal(filtered.length, 1);
-            assert.equal(filtered[0].id, "gap-2");
+            expect(filtered.length).toBe(1);
+            expect(filtered[0].id).toBe("gap-2");
         });
 
         it("should filter status/guidance when agent discusses reports", () => {
@@ -282,8 +282,8 @@ describe("AlertMonitor", () => {
 
             const filtered = monitor._filterAlerts(alerts, messages);
 
-            assert.equal(filtered.length, 1);
-            assert.equal(filtered[0].type, "suggestion");
+            expect(filtered.length).toBe(1);
+            expect(filtered[0].type).toBe("suggestion");
         });
 
         it("should filter low confidence alerts in long conversations", () => {
@@ -296,13 +296,13 @@ describe("AlertMonitor", () => {
 
             const filtered = monitor._filterAlerts(alerts, messages);
 
-            assert.equal(filtered.length, 1);
-            assert.equal(filtered[0].message, "High conf");
+            expect(filtered.length).toBe(1);
+            expect(filtered[0].message).toBe("High conf");
         });
 
         it("should return empty array for empty input", () => {
             const filtered = monitor._filterAlerts([], []);
-            assert.equal(filtered.length, 0);
+            expect(filtered.length).toBe(0);
         });
     });
 
@@ -317,7 +317,7 @@ describe("AlertMonitor", () => {
 
         it("should return null when no alerts", () => {
             const prompt = monitor.getInjectedPrompt([]);
-            assert.equal(prompt, null);
+            expect(prompt).toBe(null);
         });
 
         it("should format alerts as markdown", () => {
@@ -326,9 +326,9 @@ describe("AlertMonitor", () => {
 
             const prompt = monitor.getInjectedPrompt([]);
 
-            assert.ok(prompt.includes("### 提醒"));
-            assert.ok(prompt.includes("- Alert 1"));
-            assert.ok(prompt.includes("- Alert 2"));
+            expect(prompt.includes("### 提醒")).toBeTruthy();
+            expect(prompt.includes("- Alert 1")).toBeTruthy();
+            expect(prompt.includes("- Alert 2")).toBeTruthy();
         });
 
         it("should only return high/critical in flow mode", () => {
@@ -340,12 +340,12 @@ describe("AlertMonitor", () => {
 
             const prompt = monitor.getInjectedPrompt([]);
 
-            assert.ok(prompt.includes("High"));
-            assert.ok(!prompt.includes("Low"));
+            expect(prompt.includes("High")).toBeTruthy();
+            expect(!prompt.includes("Low")).toBeTruthy();
 
             // low severity should remain in pending
-            assert.equal(monitor._pendingAlerts.length, 1);
-            assert.equal(monitor._pendingAlerts[0].message, "Low");
+            expect(monitor._pendingAlerts.length).toBe(1);
+            expect(monitor._pendingAlerts[0].message).toBe("Low");
         });
 
         it("should drain alerts after injection (non-flow mode)", () => {
@@ -353,7 +353,7 @@ describe("AlertMonitor", () => {
 
             monitor.getInjectedPrompt([]);
 
-            assert.equal(monitor._pendingAlerts.length, 0);
+            expect(monitor._pendingAlerts.length).toBe(0);
         });
     });
 
@@ -373,7 +373,7 @@ describe("AlertMonitor", () => {
             const monitor = new AlertMonitor({ agent, logger });
             monitor._auditGlobalState();
 
-            assert.ok(monitor._pendingAlerts.some(a => a.message.includes("冲突证据")));
+            expect(monitor._pendingAlerts.some(a => a.message.includes("冲突证据"))).toBeTruthy();
         });
 
         it("should not duplicate conflict notification if alerts pending", () => {
@@ -393,7 +393,7 @@ describe("AlertMonitor", () => {
             monitor._auditGlobalState();
 
             // 不应新增冲突通知
-            assert.equal(monitor._pendingAlerts.length, 1);
+            expect(monitor._pendingAlerts.length).toBe(1);
         });
     });
 
@@ -407,7 +407,7 @@ describe("AlertMonitor", () => {
             const monitor = new AlertMonitor({ agent, logger });
             monitor._auditResearchHealth([]);
 
-            assert.ok(monitor._pendingAlerts.some(a => a.message.includes("Recall")));
+            expect(monitor._pendingAlerts.some(a => a.message.includes("Recall"))).toBeTruthy();
         });
 
         it("should suggest Task for many gaps when not in flow mode", () => {
@@ -421,7 +421,7 @@ describe("AlertMonitor", () => {
 
             monitor._auditResearchHealth(manyGaps);
 
-            assert.ok(monitor._pendingAlerts.some(a => a.message.includes("Task")));
+            expect(monitor._pendingAlerts.some(a => a.message.includes("Task"))).toBeTruthy();
         });
 
         it("should not suggest Task in flow mode", () => {
@@ -436,7 +436,7 @@ describe("AlertMonitor", () => {
 
             monitor._auditResearchHealth(manyGaps);
 
-            assert.ok(!monitor._pendingAlerts.some(a => a.message.includes("Task")));
+            expect(!monitor._pendingAlerts.some(a => a.message.includes("Task"))).toBeTruthy();
         });
 
         it("should suggest focus when progress is low", () => {
@@ -453,7 +453,7 @@ describe("AlertMonitor", () => {
 
             monitor._auditResearchHealth(gaps);
 
-            assert.ok(monitor._pendingAlerts.some(a => a.message.includes("聚焦核心路径")));
+            expect(monitor._pendingAlerts.some(a => a.message.includes("聚焦核心路径"))).toBeTruthy();
         });
     });
 
@@ -485,7 +485,7 @@ describe("AlertMonitor", () => {
             // 等待异步处理
             await new Promise(r => setTimeout(r, 10));
 
-            assert.ok(monitor._pendingAlerts.some(a => a.message.includes("test-gap")));
+            expect(monitor._pendingAlerts.some(a => a.message.includes("test-gap"))).toBeTruthy();
         });
     });
 
@@ -497,10 +497,10 @@ describe("AlertMonitor", () => {
 
             monitor._forceBacktrack("test reason");
 
-            assert.equal(agent.eventBus.emit.mock.callCount(), 1);
-            const [eventName, payload] = agent.eventBus.emit.mock.calls[0].arguments;
-            assert.equal(eventName, "alertmonitor.force_backtrack");
-            assert.equal(payload.reason, "test reason");
+            expect(agent.eventBus.emit.mock.calls.length).toBe(1);
+            const [eventName, payload] = agent.eventBus.emit.mock.calls[0];
+            expect(eventName).toBe("alertmonitor.force_backtrack");
+            expect(payload.reason).toBe("test reason");
         });
 
         it("should handle missing agent gracefully", () => {

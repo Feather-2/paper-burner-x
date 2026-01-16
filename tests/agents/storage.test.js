@@ -1,3 +1,5 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
@@ -31,7 +33,7 @@ async function setRunCreatedAt({ store, runStoreName, runId, createdAt }) {
   await promisifyTransaction(tx);
 }
 
-test("RunStore: IndexedDB CRUD (runs/events/artifacts)", async () => {
+it("RunStore: IndexedDB CRUD (runs/events/artifacts)", async () => {
   const { RunStore } = await import("../../js/agents/storage/run-store.js");
 
   const dbName = makeDbName("crud");
@@ -42,15 +44,15 @@ test("RunStore: IndexedDB CRUD (runs/events/artifacts)", async () => {
   const runContext = { schemaVersion: "0.1", runId, mode: "textprep", constraints: {}, startedAt: new Date().toISOString() };
 
   await store.createRun(runContext);
-  assert.deepEqual(await store.getRun(runId), runContext);
+  expect(await store.getRun(runId)).toEqual(runContext);
 
   const all = await store.listRuns();
-  assert.equal(all.length, 1);
-  assert.deepEqual(all[0], runContext);
+  expect(all.length).toBe(1);
+  expect(all[0]).toEqual(runContext);
 
   const updated = await store.updateRunContext(runId, { title: "Hello", tags: ["demo"] });
-  assert.deepEqual(updated, { ...runContext, title: "Hello", tags: ["demo"] });
-  assert.deepEqual(await store.getRun(runId), updated);
+  expect(updated).toEqual({ ...runContext, title: "Hello", tags: ["demo"] });
+  expect(await store.getRun(runId)).toEqual(updated);
 
   const evt = {
     schemaVersion: "0.1",
@@ -64,22 +66,22 @@ test("RunStore: IndexedDB CRUD (runs/events/artifacts)", async () => {
   };
   await store.appendEvent(runId, evt);
   const events = await store.getEvents(runId);
-  assert.equal(events.length, 1);
-  assert.equal(events[0].eventId, evt.eventId);
+  expect(events.length).toBe(1);
+  expect(events[0].eventId).toBe(evt.eventId);
 
   await store.saveArtifact(runId, "content_package.json", { hello: "world" });
-  assert.deepEqual(await store.getArtifact(runId, "content_package.json"), { hello: "world" });
+  expect(await store.getArtifact(runId).toEqual("content_package.json"), { hello: "world" });
 
   await store.deleteRun(runId);
-  assert.equal(await store.getRun(runId), null);
-  assert.deepEqual(await store.getEvents(runId), []);
-  assert.equal(await store.getArtifact(runId, "content_package.json"), null);
+  expect(await store.getRun(runId)).toBe(null);
+  expect(await store.getEvents(runId)).toEqual([]);
+  expect(await store.getArtifact(runId).toBe("content_package.json"), null);
 
   await store.close();
   await RunStore.deleteDatabase({ dbName });
 });
 
-test("RunStore: events.jsonl append + readback (1000+ events)", async () => {
+it("RunStore: events.jsonl append + readback (1000+ events)", async () => {
   const { RunStore } = await import("../../js/agents/storage/run-store.js");
 
   const dbName = makeDbName("events");
@@ -105,22 +107,22 @@ test("RunStore: events.jsonl append + readback (1000+ events)", async () => {
   }
 
   const n = await store.appendEvents(runId, batch);
-  assert.equal(n, 1200);
+  expect(n).toBe(1200);
 
   const events = await store.getEvents(runId);
-  assert.equal(events.length, 1200);
-  assert.equal(events[0].eventId, `evt_${runId}_1`);
-  assert.equal(events[1199].eventId, `evt_${runId}_1200`);
+  expect(events.length).toBe(1200);
+  expect(events[0].eventId).toBe(`evt_${runId}_1`);
+  expect(events[1199].eventId).toBe(`evt_${runId}_1200`);
 
   const jsonl = await store.getArtifact(runId, "events.jsonl");
-  assert.ok(typeof jsonl === "string" && jsonl.includes(`"eventId":"evt_${runId}_1"`));
-  assert.ok(jsonl.split("\n").filter(Boolean).length === 1200);
+  expect(typeof jsonl === "string" && jsonl.includes(`"eventId":"evt_${runId}_1"`)).toBeTruthy();
+  expect(jsonl.split("\n").toBeTruthy().filter(Boolean).length === 1200);
 
   await store.close();
   await RunStore.deleteDatabase({ dbName });
 });
 
-test("ArtifactManager: manifest integrity + sha256", async () => {
+it("ArtifactManager: manifest integrity + sha256", async () => {
   const { RunStore } = await import("../../js/agents/storage/run-store.js");
   const { createManifest, addArtifactToManifest, generateArtifactId, computeSha256 } = await import("../../js/agents/storage/artifact-manager.js");
 
@@ -133,7 +135,7 @@ test("ArtifactManager: manifest integrity + sha256", async () => {
 
   const content = { a: 1, b: { c: 2 } };
   const sha = await computeSha256(content);
-  assert.ok(typeof sha === "string" && sha.length === 64);
+  expect(typeof sha === "string" && sha.length === 64).toBeTruthy();
 
   const manifest = createManifest(runId);
   const contentId = generateArtifactId(runId, "content_package.json", 1);
@@ -157,17 +159,17 @@ test("ArtifactManager: manifest integrity + sha256", async () => {
   await store.updateManifest(runId, manifest);
   const back = await store.getManifest(runId);
 
-  assert.equal(back.schemaVersion, "0.1");
-  assert.equal(back.runId, runId);
-  assert.ok(typeof back.createdAt === "string" && back.createdAt.includes("T"));
-  assert.equal(back.artifacts.length, 2);
-  assert.ok(back.artifacts.some((a) => a.type === "content_package.json" && a.sha256 === sha));
+  expect(back.schemaVersion).toBe("0.1");
+  expect(back.runId).toBe(runId);
+  expect(typeof back.createdAt === "string" && back.createdAt.includes("T")).toBeTruthy();
+  expect(back.artifacts.length).toBe(2);
+  expect(back.artifacts.some(a => a.type === "content_package.json" && a.sha256 === sha));
 
   await store.close();
   await RunStore.deleteDatabase({ dbName });
 });
 
-test("RunExporter: zip export/import roundtrip", async () => {
+it("RunExporter: zip export/import roundtrip", async () => {
   const { RunStore } = await import("../../js/agents/storage/run-store.js");
   const { createManifest, addArtifactToManifest, generateArtifactId } = await import("../../js/agents/storage/artifact-manager.js");
   const { exportRunAsZip, importRunFromZip } = await import("../../js/agents/storage/run-exporter.js");
@@ -233,7 +235,7 @@ test("RunExporter: zip export/import roundtrip", async () => {
   await store1.updateManifest(runId, manifest);
 
   const zipBlob = await exportRunAsZip(runId, { runStore: store1 });
-  assert.ok(zipBlob);
+  expect(zipBlob).toBeTruthy();
 
   await store1.close();
 
@@ -242,28 +244,28 @@ test("RunExporter: zip export/import roundtrip", async () => {
   const store2 = new RunStore({ dbName: dbName2 });
 
   const importedRunId = await importRunFromZip(zipBlob, { runStore: store2, overwrite: true });
-  assert.equal(importedRunId, runId);
+  expect(importedRunId).toBe(runId);
 
-  assert.deepEqual(await store2.getArtifact(runId, "content_package.json"), contentPkg);
-  assert.deepEqual(await store2.getArtifact(runId, "deck_package.json"), deckPkg);
-  assert.deepEqual(await store2.getArtifact(runId, "plan.json"), plan2);
-  assert.deepEqual(await store2.getArtifact(runId, "vfs_payload.bin"), bin);
-  assert.deepEqual(await store2.getEvents(runId), events);
+  expect(await store2.getArtifact(runId).toEqual("content_package.json"), contentPkg);
+  expect(await store2.getArtifact(runId).toEqual("deck_package.json"), deckPkg);
+  expect(await store2.getArtifact(runId).toEqual("plan.json"), plan2);
+  expect(await store2.getArtifact(runId).toEqual("vfs_payload.bin"), bin);
+  expect(await store2.getEvents(runId)).toEqual(events);
 
   const backManifest = await store2.getManifest(runId);
-  assert.equal(backManifest.runId, runId);
-  assert.ok(backManifest.artifacts.some((a) => a.type === "events.jsonl"));
-  assert.ok(backManifest.artifacts.some((a) => a.type === "plan.json"));
+  expect(backManifest.runId).toBe(runId);
+  expect(backManifest.artifacts.some(a => a.type === "events.jsonl"));
+  expect(backManifest.artifacts.some(a => a.type === "plan.json"));
 
   const importedPlans = (await store2.listArtifacts(runId)).filter((a) => a && a.type === "plan.json");
-  assert.equal(importedPlans.length, 2);
+  expect(importedPlans.length).toBe(2);
 
   await store2.close();
   await RunStore.deleteDatabase({ dbName: dbName1 });
   await RunStore.deleteDatabase({ dbName: dbName2 });
 });
 
-test("RunStore: storage quota detection does not throw", async () => {
+it("RunStore: storage quota detection does not throw", async () => {
   const { RunStore } = await import("../../js/agents/storage/run-store.js");
 
   const dbName = makeDbName("quota");
@@ -271,13 +273,13 @@ test("RunStore: storage quota detection does not throw", async () => {
   const store = new RunStore({ dbName });
 
   const est = await store.estimateQuota();
-  assert.ok(est && typeof est === "object" && "supported" in est);
+  expect(est && typeof est === "object" && "supported" in est).toBeTruthy();
 
   await store.close();
   await RunStore.deleteDatabase({ dbName });
 });
 
-test("RunStore: cleanupRuns respects maxRuns + pinned", async () => {
+it("RunStore: cleanupRuns respects maxRuns + pinned", async () => {
   const { RunStore, RunStoreConstants } = await import("../../js/agents/storage/run-store.js");
 
   const dbName = makeDbName("cleanup_maxRuns");
@@ -302,20 +304,20 @@ test("RunStore: cleanupRuns respects maxRuns + pinned", async () => {
   await setRunCreatedAt({ store, runStoreName: RunStoreConstants.STORE_RUNS, runId: ids[4], createdAt: iso(now - 1 * 86400000) });
 
   const result = await store.cleanupRuns({ retention: { maxRuns: 2 }, reason: "test_maxRuns" });
-  assert.deepEqual(result.plannedDeleteRunIds, [ids[0], ids[2]]);
-  assert.deepEqual(result.deletedRunIds, [ids[0], ids[2]]);
+  expect(result.plannedDeleteRunIds).toEqual([ids[0], ids[2]]);
+  expect(result.deletedRunIds).toEqual([ids[0], ids[2]]);
 
-  assert.equal(await store.getRun(ids[0]), null);
-  assert.ok(await store.getRun(ids[1]));
-  assert.equal(await store.getRun(ids[2]), null);
-  assert.ok(await store.getRun(ids[3]));
-  assert.ok(await store.getRun(ids[4]));
+  expect(await store.getRun(ids[0])).toBe(null);
+  expect(await store.getRun(ids[1])).toBeTruthy();
+  expect(await store.getRun(ids[2])).toBe(null);
+  expect(await store.getRun(ids[3])).toBeTruthy();
+  expect(await store.getRun(ids[4])).toBeTruthy();
 
   await store.close();
   await RunStore.deleteDatabase({ dbName });
 });
 
-test("RunStore: cleanupRuns respects maxAgeDays", async () => {
+it("RunStore: cleanupRuns respects maxAgeDays", async () => {
   const { RunStore, RunStoreConstants } = await import("../../js/agents/storage/run-store.js");
 
   const dbName = makeDbName("cleanup_maxAgeDays");
@@ -335,15 +337,15 @@ test("RunStore: cleanupRuns respects maxAgeDays", async () => {
   await setRunCreatedAt({ store, runStoreName: RunStoreConstants.STORE_RUNS, runId: newId, createdAt: iso(now - 1 * 86400000) });
 
   const result = await store.cleanupRuns({ retention: { maxAgeDays: 3 }, reason: "test_maxAgeDays" });
-  assert.deepEqual(result.deletedRunIds, [oldId]);
-  assert.equal(await store.getRun(oldId), null);
-  assert.ok(await store.getRun(newId));
+  expect(result.deletedRunIds).toEqual([oldId]);
+  expect(await store.getRun(oldId)).toBe(null);
+  expect(await store.getRun(newId)).toBeTruthy();
 
   await store.close();
   await RunStore.deleteDatabase({ dbName });
 });
 
-test("RunStore: cleanupRuns respects maxTotalBytes", async () => {
+it("RunStore: cleanupRuns respects maxTotalBytes", async () => {
   const { RunStore, RunStoreConstants } = await import("../../js/agents/storage/run-store.js");
 
   const dbName = makeDbName("cleanup_maxBytes");
@@ -368,19 +370,19 @@ test("RunStore: cleanupRuns respects maxTotalBytes", async () => {
   await store.saveArtifact(ids[2], "vfs_payload.bin", new Uint8Array(100));
 
   const result = await store.cleanupRuns({ retention: { maxTotalBytes: 300 }, reason: "test_maxTotalBytes" });
-  assert.deepEqual(result.deletedRunIds, [ids[0]]);
-  assert.ok(typeof result.bytesBefore === "number" && result.bytesBefore >= 500);
-  assert.ok(typeof result.bytesAfter === "number" && result.bytesAfter <= 300);
+  expect(result.deletedRunIds).toEqual([ids[0]]);
+  expect(typeof result.bytesBefore === "number" && result.bytesBefore >= 500).toBeTruthy();
+  expect(typeof result.bytesAfter === "number" && result.bytesAfter <= 300).toBeTruthy();
 
-  assert.equal(await store.getRun(ids[0]), null);
-  assert.ok(await store.getRun(ids[1]));
-  assert.ok(await store.getRun(ids[2]));
+  expect(await store.getRun(ids[0])).toBe(null);
+  expect(await store.getRun(ids[1])).toBeTruthy();
+  expect(await store.getRun(ids[2])).toBeTruthy();
 
   await store.close();
   await RunStore.deleteDatabase({ dbName });
 });
 
-test("RunStore: cleanupRuns dryRun + keepRunIds", async () => {
+it("RunStore: cleanupRuns dryRun + keepRunIds", async () => {
   const { RunStore, RunStoreConstants } = await import("../../js/agents/storage/run-store.js");
 
   const dbName = makeDbName("cleanup_dryRun");
@@ -400,17 +402,17 @@ test("RunStore: cleanupRuns dryRun + keepRunIds", async () => {
   await setRunCreatedAt({ store, runStoreName: RunStoreConstants.STORE_RUNS, runId: otherId, createdAt: iso(now - 1 * 86400000) });
 
   const result = await store.cleanupRuns({ retention: { maxRuns: 1 }, keepRunIds: [keepId], dryRun: true, reason: "test_dryRun" });
-  assert.deepEqual(result.deletedRunIds, []);
-  assert.deepEqual(result.plannedDeleteRunIds, []);
+  expect(result.deletedRunIds).toEqual([]);
+  expect(result.plannedDeleteRunIds).toEqual([]);
 
-  assert.ok(await store.getRun(keepId));
-  assert.ok(await store.getRun(otherId));
+  expect(await store.getRun(keepId)).toBeTruthy();
+  expect(await store.getRun(otherId)).toBeTruthy();
 
   await store.close();
   await RunStore.deleteDatabase({ dbName });
 });
 
-test("PlanStore: create/save/update plan artifacts", async () => {
+it("PlanStore: create/save/update plan artifacts", async () => {
   const { RunStore } = await import("../../js/agents/storage/run-store.js");
   const {
     PLAN_ARTIFACT_TYPE,
@@ -440,40 +442,40 @@ test("PlanStore: create/save/update plan artifacts", async () => {
     meta: { source: "test" },
   });
 
-  assert.equal(plan.schemaVersion, "0.1");
-  assert.equal(plan.runId, runId);
-  assert.equal(plan.steps.length, 2);
-  assert.equal(plan.selectedStepIndex, 1);
-  assert.equal(findPlanStepIndex(plan, 0), 0);
-  assert.equal(findPlanStepIndex(plan, "analyze"), 1);
-  assert.equal(findPlanStepIndex(plan, "missing"), -1);
+  expect(plan.schemaVersion).toBe("0.1");
+  expect(plan.runId).toBe(runId);
+  expect(plan.steps.length).toBe(2);
+  expect(plan.selectedStepIndex).toBe(1);
+  expect(findPlanStepIndex(plan).toBe(0), 0);
+  expect(findPlanStepIndex(plan).toBe("analyze"), 1);
+  expect(findPlanStepIndex(plan).toBe("missing"), -1);
 
   const normalized = normalizePlanStep({ stepId: "x", status: "weird" }, { fallbackIndex: 0 });
-  assert.equal(normalized.status, "pending");
+  expect(normalized.status).toBe("pending");
 
   const art1 = await savePlan({ runStore: store, runId, plan, type: PLAN_ARTIFACT_TYPE });
-  assert.ok(typeof art1 === "string" && art1.startsWith(`art_${runId}_${PLAN_ARTIFACT_TYPE.replaceAll("/", "_")}_`));
+  expect(typeof art1 === "string" && art1.startsWith(`art_${runId}_${PLAN_ARTIFACT_TYPE.replaceAll("/", "_").toBeTruthy()}_`));
 
   const updated1 = setPlanStepStatus(plan, "ingest", "in_progress");
   const updated2 = setPlanStepStatus(updated1, 1, "completed", { select: false });
 
-  assert.equal(updated2.steps[0].status, "in_progress");
-  assert.equal(updated2.steps[1].status, "completed");
-  assert.equal(updated2.selectedStepIndex, 0);
+  expect(updated2.steps[0].status).toBe("in_progress");
+  expect(updated2.steps[1].status).toBe("completed");
+  expect(updated2.selectedStepIndex).toBe(0);
 
-  assert.throws(() => setPlanStepStatus(plan, "ingest", "nope"), /invalid status/i);
+  expect(() => setPlanStepStatus(plan, "ingest", "nope")).toThrow(/invalid status/i);
 
   const art2 = await savePlan({ runStore: store, runId, plan: updated2 });
-  assert.notEqual(art2, art1);
+  expect(art2).not.toBe(art1);
 
   const loaded = await store.getArtifactById(art2);
-  assert.equal(loaded.planId, plan.planId);
-  assert.equal(loaded.steps[0].status, "in_progress");
-  assert.equal(loaded.steps[1].status, "completed");
+  expect(loaded.planId).toBe(plan.planId);
+  expect(loaded.steps[0].status).toBe("in_progress");
+  expect(loaded.steps[1].status).toBe("completed");
 
   const artifacts = await store.listArtifacts(runId);
   const plans = artifacts.filter((a) => a.type === PLAN_ARTIFACT_TYPE);
-  assert.equal(plans.length, 2);
+  expect(plans.length).toBe(2);
 
   await store.close();
   await RunStore.deleteDatabase({ dbName });

@@ -3,8 +3,8 @@
  * 使用 node:test + node:assert/strict
  */
 
-import { describe, it, beforeEach, afterEach, mock } from 'node:test';
-import assert from 'node:assert/strict';
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
 import {
   Kernel,
   KernelStatus,
@@ -46,30 +46,30 @@ describe('Kernel', () => {
   describe('constructor', () => {
     it('should create with CREATED status', () => {
       kernel = new Kernel();
-      assert.equal(kernel.status, KernelStatus.CREATED);
+      expect(kernel.status).toBe(KernelStatus.CREATED);
     });
 
     it('should use custom id when provided', () => {
       kernel = new Kernel({ id: 'my-kernel' });
-      assert.equal(kernel.id, 'my-kernel');
+      expect(kernel.id).toBe('my-kernel');
     });
 
     it('should generate id when not provided', () => {
       kernel = new Kernel();
-      assert.match(kernel.id, /^kernel_\d+$/);
+      expect(kernel.id).toMatch(/^kernel_\d+$/);
     });
 
     it('should initialize three buses', () => {
       kernel = new Kernel();
-      assert.ok(kernel.events instanceof EventBus);
-      assert.ok(kernel.state instanceof StateBus);
-      assert.ok(kernel.services instanceof ServiceBus);
+      expect(kernel.events instanceof EventBus).toBeTruthy();
+      expect(kernel.state instanceof StateBus).toBeTruthy();
+      expect(kernel.services instanceof ServiceBus).toBeTruthy();
     });
 
     it('should set initial meta state', () => {
       kernel = new Kernel({ id: 'test-id' });
-      assert.equal(kernel.state.get('meta.kernelId'), 'test-id');
-      assert.equal(kernel.state.get('meta.status'), KernelStatus.CREATED);
+      expect(kernel.state.get('meta.kernelId')).toBe('test-id');
+      expect(kernel.state.get('meta.status')).toBe(KernelStatus.CREATED);
     });
   });
 
@@ -77,14 +77,14 @@ describe('Kernel', () => {
     it('should transition to RUNNING on start', async () => {
       kernel = new Kernel();
       await kernel.start();
-      assert.equal(kernel.status, KernelStatus.RUNNING);
+      expect(kernel.status).toBe(KernelStatus.RUNNING);
     });
 
     it('should transition to STOPPED on stop', async () => {
       kernel = new Kernel();
       await kernel.start();
       await kernel.stop();
-      assert.equal(kernel.status, KernelStatus.STOPPED);
+      expect(kernel.status).toBe(KernelStatus.STOPPED);
     });
 
     it('should emit lifecycle events', async () => {
@@ -94,13 +94,13 @@ describe('Kernel', () => {
 
       const history = kernel.events.getHistory();
       const types = history.map(e => e.type);
-      assert.ok(types.includes('kernel.started'));
-      assert.ok(types.includes('kernel.stopped'));
+      expect(types.includes('kernel.started')).toBeTruthy();
+      expect(types.includes('kernel.stopped')).toBeTruthy();
     });
 
     it('start() should be idempotent when already RUNNING', async () => {
-      const installFn = mock.fn();
-      const onStart = mock.fn();
+      const installFn = vi.fn();
+      const onStart = vi.fn();
       const plugin = createPlugin({
         name: 'idempotent-start',
         install: installFn,
@@ -112,13 +112,13 @@ describe('Kernel', () => {
       await kernel.start();
       await kernel.start();
 
-      assert.equal(kernel.status, KernelStatus.RUNNING);
-      assert.equal(installFn.mock.callCount(), 1);
-      assert.equal(onStart.mock.callCount(), 1);
+      expect(kernel.status).toBe(KernelStatus.RUNNING);
+      expect(installFn.mock.calls.length).toBe(1);
+      expect(onStart.mock.calls.length).toBe(1);
     });
 
     it('stop() should be idempotent when already STOPPED', async () => {
-      const uninstall = mock.fn();
+      const uninstall = vi.fn();
       const plugin = createPlugin({
         name: 'idempotent-stop',
         uninstall,
@@ -130,8 +130,8 @@ describe('Kernel', () => {
       await kernel.stop();
       await kernel.stop();
 
-      assert.equal(kernel.status, KernelStatus.STOPPED);
-      assert.equal(uninstall.mock.callCount(), 1);
+      expect(kernel.status).toBe(KernelStatus.STOPPED);
+      expect(uninstall.mock.calls.length).toBe(1);
     });
 
     it('should reflect STARTING status during async install', async () => {
@@ -145,11 +145,11 @@ describe('Kernel', () => {
       await kernel.use(plugin);
 
       const startPromise = kernel.start();
-      assert.equal(kernel.status, KernelStatus.STARTING);
+      expect(kernel.status).toBe(KernelStatus.STARTING);
 
       gate.resolve();
       await startPromise;
-      assert.equal(kernel.status, KernelStatus.RUNNING);
+      expect(kernel.status).toBe(KernelStatus.RUNNING);
     });
 
     it('should reflect STOPPING status during async uninstall', async () => {
@@ -164,11 +164,11 @@ describe('Kernel', () => {
       await kernel.start();
 
       const stopPromise = kernel.stop();
-      assert.equal(kernel.status, KernelStatus.STOPPING);
+      expect(kernel.status).toBe(KernelStatus.STOPPING);
 
       gate.resolve();
       await stopPromise;
-      assert.equal(kernel.status, KernelStatus.STOPPED);
+      expect(kernel.status).toBe(KernelStatus.STOPPED);
     });
 
     it('should enter ERROR state when plugin install fails', async () => {
@@ -180,11 +180,11 @@ describe('Kernel', () => {
       kernel = new Kernel({ keepHistory: true });
       await kernel.use(plugin);
 
-      await assert.rejects(() => kernel.start(), /install boom/);
-      assert.equal(kernel.status, KernelStatus.ERROR);
+      await expect(() => kernel.start()).rejects.toThrow(/install boom/);
+      expect(kernel.status).toBe(KernelStatus.ERROR);
 
       const types = kernel.events.getHistory().map(e => e.type);
-      assert.ok(types.includes('kernel.error'));
+      expect(types.includes('kernel.error')).toBeTruthy();
     });
 
     it('should enter ERROR state when onStop throws', async () => {
@@ -197,16 +197,16 @@ describe('Kernel', () => {
       await kernel.use(plugin);
       await kernel.start();
 
-      await assert.rejects(() => kernel.stop(), /stop boom/);
-      assert.equal(kernel.status, KernelStatus.ERROR);
+      await expect(() => kernel.stop()).rejects.toThrow(/stop boom/);
+      expect(kernel.status).toBe(KernelStatus.ERROR);
     });
 
     it('should set meta.startedAt on start', async () => {
       kernel = new Kernel();
       await kernel.start();
       const startedAt = kernel.state.get('meta.startedAt');
-      assert.ok(typeof startedAt === 'number');
-      assert.ok(startedAt > 0);
+      expect(typeof startedAt === 'number').toBeTruthy();
+      expect(startedAt > 0).toBeTruthy();
     });
 
     it('should set meta.stoppedAt on stop', async () => {
@@ -214,25 +214,25 @@ describe('Kernel', () => {
       await kernel.start();
       await kernel.stop();
       const stoppedAt = kernel.state.get('meta.stoppedAt');
-      assert.ok(typeof stoppedAt === 'number');
-      assert.ok(stoppedAt > 0);
+      expect(typeof stoppedAt === 'number').toBeTruthy();
+      expect(stoppedAt > 0).toBeTruthy();
     });
   });
 
   describe('static create()', () => {
     it('should create and start with minimal preset', async () => {
       kernel = await Kernel.create('minimal');
-      assert.equal(kernel.status, KernelStatus.RUNNING);
+      expect(kernel.status).toBe(KernelStatus.RUNNING);
     });
 
     it('should accept custom config', async () => {
       kernel = await Kernel.create('minimal', { id: 'test-kernel' });
-      assert.equal(kernel.id, 'test-kernel');
+      expect(kernel.id).toBe('test-kernel');
     });
 
     it('should default to minimal preset', async () => {
       kernel = await Kernel.create();
-      assert.equal(kernel.status, KernelStatus.RUNNING);
+      expect(kernel.status).toBe(KernelStatus.RUNNING);
     });
   });
 
@@ -246,22 +246,22 @@ describe('Kernel', () => {
       kernel.registerService('greeter', myService);
 
       const service = await kernel.services.get('greeter');
-      assert.equal(service.greet(), 'hello');
+      expect(service.greet()).toBe('hello');
     });
 
     it('should support factory registration (lazy load)', async () => {
-      const factory = mock.fn(() => ({ value: 42 }));
+      const factory = vi.fn(() => ({ value: 42 }));
       kernel.registerServiceFactory('lazy', factory);
 
-      assert.equal(factory.mock.callCount(), 0);
+      expect(factory.mock.calls.length).toBe(0);
 
       const service = await kernel.services.get('lazy');
-      assert.equal(factory.mock.callCount(), 1);
-      assert.equal(service.value, 42);
+      expect(factory.mock.calls.length).toBe(1);
+      expect(service.value).toBe(42);
 
       // Second get should not call factory again
       await kernel.services.get('lazy');
-      assert.equal(factory.mock.callCount(), 1);
+      expect(factory.mock.calls.length).toBe(1);
     });
 
     it('should call service methods via call()', async () => {
@@ -271,7 +271,7 @@ describe('Kernel', () => {
 
       await kernel.start();
       const sum = await kernel.call('math', 'add', [2, 3]);
-      assert.equal(sum, 5);
+      expect(sum).toBe(5);
     });
 
     it('should call service methods via invoke()', async () => {
@@ -281,7 +281,7 @@ describe('Kernel', () => {
 
       await kernel.start();
       const product = await kernel.invoke('math.multiply', 4, 5);
-      assert.equal(product, 20);
+      expect(product).toBe(20);
     });
 
     it('getServices() should list registered services', () => {
@@ -289,21 +289,21 @@ describe('Kernel', () => {
       kernel.registerService('svc2', {});
 
       const services = kernel.getServices();
-      assert.ok(services.some(s => s.name === 'svc1'));
-      assert.ok(services.some(s => s.name === 'svc2'));
+      expect(services.some(s => s.name === 'svc1')).toBeTruthy();
+      expect(services.some(s => s.name === 'svc2')).toBeTruthy();
     });
 
     it('getServices() should include lazy factories', () => {
       kernel.registerServiceFactory('lazy-service', () => ({ ok: true }));
 
       const services = kernel.getServices();
-      assert.ok(services.some(s => s.name === 'lazy-service' && s.registeredAt === 0));
+      expect(services.some(s => s.name === 'lazy-service' && s.registeredAt === 0)).toBeTruthy();
     });
   });
 
   describe('plugins', () => {
     it('should install plugin on start', async () => {
-      const installFn = mock.fn();
+      const installFn = vi.fn();
       const plugin = createPlugin({
         name: 'test-plugin',
         install: installFn,
@@ -313,7 +313,7 @@ describe('Kernel', () => {
       await kernel.use(plugin);
       await kernel.start();
 
-      assert.equal(installFn.mock.callCount(), 1);
+      expect(installFn.mock.calls.length).toBe(1);
     });
 
     it('should pass PluginContext to plugin', async () => {
@@ -327,10 +327,10 @@ describe('Kernel', () => {
       await kernel.use(plugin);
       await kernel.start();
 
-      assert.ok(capturedCtx !== undefined);
-      assert.ok(capturedCtx.events instanceof EventBus);
-      assert.ok(capturedCtx.services instanceof ServiceBus);
-      assert.ok(capturedCtx.log !== undefined);
+      expect(capturedCtx !== undefined).toBeTruthy();
+      expect(capturedCtx.events instanceof EventBus).toBeTruthy();
+      expect(capturedCtx.services instanceof ServiceBus).toBeTruthy();
+      expect(capturedCtx.log !== undefined).toBeTruthy();
     });
 
     it('should respect plugin dependencies', async () => {
@@ -353,7 +353,7 @@ describe('Kernel', () => {
       await kernel.use(pluginA);
       await kernel.start();
 
-      assert.deepEqual(order, ['a', 'b']);
+      expect(order).toEqual(['a', 'b']);
     });
 
     it('should call onStart and onStop hooks', async () => {
@@ -370,7 +370,7 @@ describe('Kernel', () => {
       await kernel.start();
       await kernel.stop();
 
-      assert.deepEqual(hooks, ['install', 'start', 'stop']);
+      expect(hooks).toEqual(['install', 'start', 'stop']);
     });
 
     it('should call onStop in reverse order on stop', async () => {
@@ -404,7 +404,7 @@ describe('Kernel', () => {
       await stopPromise;
 
       // B depends on A, so B should be uninstalled first
-      assert.deepEqual(calls, ['b', 'a']);
+      expect(calls).toEqual(['b', 'a']);
     });
 
     it('should provide scoped state to plugins', async () => {
@@ -423,11 +423,11 @@ describe('Kernel', () => {
       await kernel.start();
 
       // Plugin state is scoped
-      assert.equal(pluginState.get('counter'), 0);
-      assert.equal(pluginState.get('name'), 'test');
+      expect(pluginState.get('counter')).toBe(0);
+      expect(pluginState.get('name')).toBe('test');
 
       // Global state access
-      assert.equal(kernel.state.get('plugins.state-plugin.counter'), 0);
+      expect(kernel.state.get('plugins.state-plugin.counter')).toBe(0);
     });
 
     it('getPlugins() should list all registered plugins', async () => {
@@ -438,13 +438,13 @@ describe('Kernel', () => {
       await kernel.start();
 
       const plugins = kernel.getPlugins();
-      assert.ok(plugins.some(p => p.name === 'list-test'));
+      expect(plugins.some(p => p.name === 'list-test')).toBeTruthy();
     });
   });
 
   describe('plugin loaders', () => {
     it('should use injected pluginLoader', async () => {
-      const customLoader = mock.fn(async (name) => {
+      const customLoader = vi.fn(async (name) => {
         return createPlugin({
           name,
           install: () => {},
@@ -455,13 +455,13 @@ describe('Kernel', () => {
       await kernel.use('custom/my-plugin');
       await kernel.start();
 
-      assert.equal(customLoader.mock.callCount(), 1);
-      assert.deepEqual(customLoader.mock.calls[0].arguments, ['custom/my-plugin']);
+      expect(customLoader.mock.calls.length).toBe(1);
+      expect(customLoader.mock.calls[0]).toEqual(['custom/my-plugin']);
     });
 
     it('should support registerPluginLoader() for prefix matching', async () => {
-      const installFn = mock.fn();
-      const loader = mock.fn(async (name) => {
+      const installFn = vi.fn();
+      const loader = vi.fn(async (name) => {
         return createPlugin({
           name,
           install: installFn,
@@ -474,22 +474,20 @@ describe('Kernel', () => {
       await kernel.use('custom/foo');
       await kernel.start();
 
-      assert.equal(loader.mock.callCount(), 1);
-      assert.deepEqual(loader.mock.calls[0].arguments, ['custom/foo']);
-      assert.equal(installFn.mock.callCount(), 1);
+      expect(loader.mock.calls.length).toBe(1);
+      expect(loader.mock.calls[0]).toEqual(['custom/foo']);
+      expect(installFn.mock.calls.length).toBe(1);
     });
 
     it('registerPluginLoader() should return this for chaining', () => {
       kernel = new Kernel();
       const result = kernel.registerPluginLoader('prefix/', () => {});
-      assert.equal(result, kernel);
+      expect(result).toBe(kernel);
     });
 
     it('should throw when no loader available', async () => {
       kernel = new Kernel();
-      await assert.rejects(
-        () => kernel.use('unknown/plugin'),
-        /cannot load plugin/i,
+      await expect(() => kernel.use('unknown/plugin')).rejects.toThrow(/cannot load plugin/i,
       );
     });
   });
@@ -500,7 +498,7 @@ describe('Kernel', () => {
       await kernel.usePreset('minimal');
       await kernel.start();
 
-      assert.equal(kernel.status, KernelStatus.RUNNING);
+      expect(kernel.status).toBe(KernelStatus.RUNNING);
     });
 
     it('should emit kernel.preset.loaded event', async () => {
@@ -509,8 +507,8 @@ describe('Kernel', () => {
 
       const history = kernel.events.getHistory();
       const loadedEvent = history.find(e => e.type === 'kernel.preset.loaded');
-      assert.ok(loadedEvent);
-      assert.equal(loadedEvent.payload.preset, 'minimal');
+      expect(loadedEvent).toBeTruthy();
+      expect(loadedEvent.payload.preset).toBe('minimal');
     });
 
     it('should merge user config with preset config', async () => {
@@ -523,8 +521,8 @@ describe('Kernel', () => {
       await kernel.start();
 
       const plugin = kernel._getPlugin('compression/cicada');
-      assert.ok(plugin);
-      assert.equal(plugin._config?.aggressive, true);
+      expect(plugin).toBeTruthy();
+      expect(plugin._config?.aggressive).toBe(true);
     });
 
     it('should warn but continue when plugin fails to load', async () => {
@@ -539,7 +537,7 @@ describe('Kernel', () => {
 
       console.warn = originalWarn;
       // Should have warned about failed plugin load
-      assert.ok(warnCount >= 1);
+      expect(warnCount >= 1).toBeTruthy();
     });
   });
 
@@ -548,26 +546,26 @@ describe('Kernel', () => {
       kernel = await Kernel.create('minimal');
       const health = await kernel.healthCheck();
 
-      assert.equal(health.kernelId, kernel.id);
-      assert.equal(health.status, KernelStatus.RUNNING);
-      assert.ok(health.uptime >= 0);
-      assert.ok(health.plugins !== undefined);
-      assert.ok(health.services !== undefined);
+      expect(health.kernelId).toBe(kernel.id);
+      expect(health.status).toBe(KernelStatus.RUNNING);
+      expect(health.uptime >= 0).toBeTruthy();
+      expect(health.plugins !== undefined).toBeTruthy();
+      expect(health.services !== undefined).toBeTruthy();
     });
 
     it('should count active plugins', async () => {
       kernel = await Kernel.create('minimal');
       const health = await kernel.healthCheck();
 
-      assert.ok(health.plugins.total >= 1);
-      assert.ok(health.plugins.active >= 1);
-      assert.equal(health.plugins.errors, 0);
+      expect(health.plugins.total >= 1).toBeTruthy();
+      expect(health.plugins.active >= 1).toBeTruthy();
+      expect(health.plugins.errors).toBe(0);
     });
 
     it('should return 0 uptime before start', async () => {
       kernel = new Kernel();
       const health = await kernel.healthCheck();
-      assert.equal(health.uptime, 0);
+      expect(health.uptime).toBe(0);
     });
   });
 
@@ -576,12 +574,12 @@ describe('Kernel', () => {
       kernel = await Kernel.create('minimal');
       const snapshot = kernel.snapshot();
 
-      assert.equal(snapshot.kernelId, kernel.id);
-      assert.equal(snapshot.status, KernelStatus.RUNNING);
-      assert.ok(snapshot.state !== undefined);
-      assert.ok(Array.isArray(snapshot.plugins));
-      assert.ok(Array.isArray(snapshot.services));
-      assert.ok(snapshot.timestamp > 0);
+      expect(snapshot.kernelId).toBe(kernel.id);
+      expect(snapshot.status).toBe(KernelStatus.RUNNING);
+      expect(snapshot.state !== undefined).toBeTruthy();
+      expect(Array.isArray(snapshot.plugins)).toBeTruthy();
+      expect(Array.isArray(snapshot.services)).toBeTruthy();
+      expect(snapshot.timestamp > 0).toBeTruthy();
     });
   });
 
@@ -595,18 +593,18 @@ describe('Kernel', () => {
       kernel.state.set('debug.value', 1);
 
       const info = kernel.inspect();
-      assert.equal(info.id, kernel.id);
-      assert.equal(info.status, KernelStatus.RUNNING);
-      assert.ok(Array.isArray(info.eventHistory));
-      assert.ok(Array.isArray(info.stateChangeLog));
-      assert.ok(Array.isArray(info.serviceStats));
+      expect(info.id).toBe(kernel.id);
+      expect(info.status).toBe(KernelStatus.RUNNING);
+      expect(Array.isArray(info.eventHistory)).toBeTruthy();
+      expect(Array.isArray(info.stateChangeLog)).toBeTruthy();
+      expect(Array.isArray(info.serviceStats)).toBeTruthy();
     });
   });
 
   describe('_getPlugin', () => {
     it('should return null for unknown plugin names', () => {
       kernel = new Kernel();
-      assert.equal(kernel._getPlugin('missing'), null);
+      expect(kernel._getPlugin('missing')).toBe(null);
     });
 
     it('should return plugin after registration', async () => {
@@ -615,7 +613,7 @@ describe('Kernel', () => {
       await kernel.use(plugin);
       await kernel.start();
 
-      assert.ok(kernel._getPlugin('test') !== null);
+      expect(kernel._getPlugin('test').toBeTruthy() !== null);
     });
   });
 
@@ -624,26 +622,26 @@ describe('Kernel', () => {
       kernel = new Kernel();
       await kernel.start();
       // Retry proxy should be applied
-      assert.ok(kernel.services._proxies.some(p => p.proxyName === 'retry'));
+      expect(kernel.services._proxies.some(p => p.proxyName === 'retry')).toBeTruthy();
     });
 
     it('should enable timeout proxy by default', async () => {
       kernel = new Kernel();
       await kernel.start();
       // Timeout proxy should be applied
-      assert.ok(kernel.services._proxies.some(p => p.proxyName === 'timeout'));
+      expect(kernel.services._proxies.some(p => p.proxyName === 'timeout')).toBeTruthy();
     });
 
     it('should disable retry proxy when enableRetry is false', async () => {
       kernel = new Kernel({ enableRetry: false });
       await kernel.start();
-      assert.ok(!kernel.services._proxies.some(p => p.proxyName === 'retry'));
+      expect(!kernel.services._proxies.some(p => p.proxyName === 'retry')).toBeTruthy();
     });
 
     it('should disable timeout proxy when enableTimeout is false', async () => {
       kernel = new Kernel({ enableTimeout: false });
       await kernel.start();
-      assert.ok(!kernel.services._proxies.some(p => p.proxyName === 'timeout'));
+      expect(!kernel.services._proxies.some(p => p.proxyName === 'timeout')).toBeTruthy();
     });
   });
 });
@@ -664,7 +662,7 @@ describe('KernelBuilder', () => {
       .withPreset('minimal')
       .build();
 
-    assert.equal(kernel.status, KernelStatus.RUNNING);
+    expect(kernel.status).toBe(KernelStatus.RUNNING);
   });
 
   it('should add plugins via builder', async () => {
@@ -679,7 +677,7 @@ describe('KernelBuilder', () => {
       .build();
 
     const plugins = kernel.getPlugins();
-    assert.ok(plugins.some(p => p.name === 'builder-plugin'));
+    expect(plugins.some(p => p.name === 'builder-plugin')).toBeTruthy();
   });
 
   it('should add services via builder', async () => {
@@ -688,7 +686,7 @@ describe('KernelBuilder', () => {
       .withService('my-service', { hello: 'world' })
       .build();
 
-    assert.ok(kernel.services.has('my-service'));
+    expect(kernel.services.has('my-service')).toBeTruthy();
   });
 
   it('should merge config via builder', async () => {
@@ -697,7 +695,7 @@ describe('KernelBuilder', () => {
       .withConfig({ id: 'builder-kernel' })
       .build();
 
-    assert.equal(kernel.id, 'builder-kernel');
+    expect(kernel.id).toBe('builder-kernel');
   });
 
   it('should apply config for string plugins', async () => {
@@ -707,7 +705,7 @@ describe('KernelBuilder', () => {
       .build();
 
     const plugin = kernel._getPlugin('resilience/retry');
-    assert.ok(plugin?._config?.maxRetries === 7);
+    expect(plugin?._config?.maxRetries === 7).toBeTruthy();
   });
 });
 
@@ -730,7 +728,7 @@ describe('PluginManager', () => {
       const pm = new PluginManager(k);
       const plugin = createPlugin({ name: 'test' });
       pm.register(plugin);
-      assert.equal(pm.getStatus('test'), PluginStatus.PENDING);
+      expect(pm.getStatus('test')).toBe(PluginStatus.PENDING);
     });
 
     it('should reject duplicate plugin names', () => {
@@ -738,26 +736,26 @@ describe('PluginManager', () => {
       const plugin = createPlugin({ name: 'dup' });
 
       pm.register(plugin);
-      assert.throws(() => pm.register(plugin), /already registered/);
+      expect(() => pm.register(plugin)).toThrow(/already registered/);
     });
   });
 
   describe('install', () => {
     it('should error when plugin is missing', async () => {
       const pm = new PluginManager(k);
-      await assert.rejects(() => pm.install('missing'), /Plugin not found/);
+      await expect(() => pm.install('missing')).rejects.toThrow(/Plugin not found/);
     });
 
     it('should be idempotent when already ACTIVE', async () => {
       const pm = new PluginManager(k);
-      const install = mock.fn();
+      const install = vi.fn();
       pm.register(createPlugin({ name: 'once', install }));
 
       await pm.install('once');
       await pm.install('once');
 
-      assert.equal(install.mock.callCount(), 1);
-      assert.equal(pm.getStatus('once'), PluginStatus.ACTIVE);
+      expect(install.mock.calls.length).toBe(1);
+      expect(pm.getStatus('once')).toBe(PluginStatus.ACTIVE);
     });
 
     it('should resolve dependencies', async () => {
@@ -768,14 +766,14 @@ describe('PluginManager', () => {
       pm.register(createPlugin({ name: 'b', dependencies: ['a'], install: () => order.push('b') }));
 
       await pm.install('b');
-      assert.deepEqual(order, ['a', 'b']);
+      expect(order).toEqual(['a', 'b']);
     });
 
     it('should throw on missing dependency', async () => {
       const pm = new PluginManager(k);
       pm.register(createPlugin({ name: 'needs-missing', dependencies: ['missing'] }));
 
-      await assert.rejects(() => pm.installAll(), /Missing dependency/);
+      await expect(() => pm.installAll()).rejects.toThrow(/Missing dependency/);
     });
 
     it('should cleanup context when install throws', async () => {
@@ -789,10 +787,10 @@ describe('PluginManager', () => {
       });
 
       pm.register(plugin);
-      await assert.rejects(() => pm.install('bad-install'), /install boom/);
-      assert.equal(pm.getStatus('bad-install'), PluginStatus.ERROR);
-      assert.equal(pm.getContext('bad-install'), undefined);
-      assert.equal(k.services.has('tmp'), false);
+      await expect(() => pm.install('bad-install')).rejects.toThrow(/install boom/);
+      expect(pm.getStatus('bad-install')).toBe(PluginStatus.ERROR);
+      expect(pm.getContext('bad-install')).toBe(undefined);
+      expect(k.services.has('tmp')).toBe(false);
     });
   });
 
@@ -800,8 +798,8 @@ describe('PluginManager', () => {
     it('should return false when plugin is not ACTIVE', async () => {
       const pm = new PluginManager(k);
       pm.register(createPlugin({ name: 'inactive' }));
-      assert.equal(await pm.uninstall('inactive'), false);
-      assert.equal(await pm.uninstall('missing'), false);
+      expect(await pm.uninstall('inactive')).toBe(false);
+      expect(await pm.uninstall('missing')).toBe(false);
     });
 
     it('should reject when other ACTIVE plugins depend on it', async () => {
@@ -810,7 +808,7 @@ describe('PluginManager', () => {
       pm.register(createPlugin({ name: 'dep', dependencies: ['base'] }));
 
       await pm.installAll();
-      await assert.rejects(() => pm.uninstall('base'), /depends on it/);
+      await expect(() => pm.uninstall('base')).rejects.toThrow(/depends on it/);
     });
 
     it('should cleanup and mark UNINSTALLED even when uninstall throws', async () => {
@@ -828,16 +826,16 @@ describe('PluginManager', () => {
       pm.register(plugin);
       await pm.install('bad-uninstall');
 
-      await assert.rejects(() => pm.uninstall('bad-uninstall'), /uninstall boom/);
-      assert.equal(pm.getStatus('bad-uninstall'), PluginStatus.UNINSTALLED);
-      assert.equal(k.services.has('tmp'), false);
+      await expect(() => pm.uninstall('bad-uninstall')).rejects.toThrow(/uninstall boom/);
+      expect(pm.getStatus('bad-uninstall')).toBe(PluginStatus.UNINSTALLED);
+      expect(k.services.has('tmp')).toBe(false);
     });
   });
 
   describe('getStatus', () => {
     it('should return null when missing', () => {
       const pm = new PluginManager(k);
-      assert.equal(pm.getStatus('missing'), null);
+      expect(pm.getStatus('missing')).toBe(null);
     });
   });
 
@@ -848,29 +846,29 @@ describe('PluginManager', () => {
       pm.register(createPlugin({ name: 'b', version: '2.0.0' }));
 
       const list = pm.list();
-      assert.equal(list.length, 2);
-      assert.ok(list.some(p => p.name === 'a' && p.version === '1.0.0'));
-      assert.ok(list.some(p => p.name === 'b' && p.version === '2.0.0'));
+      expect(list.length).toBe(2);
+      expect(list.some(p => p.name === 'a' && p.version === '1.0.0')).toBeTruthy();
+      expect(list.some(p => p.name === 'b' && p.version === '2.0.0')).toBeTruthy();
     });
   });
 });
 
 describe('createPlugin', () => {
   it('should validate name is required', () => {
-    assert.throws(() => createPlugin({}), /must have a name/);
+    expect(() => createPlugin({})).toThrow(/must have a name/);
   });
 
   it('should validate name is a string', () => {
-    assert.throws(() => createPlugin({ name: 123 }), /must have a name/);
+    expect(() => createPlugin({ name: 123 })).toThrow(/must have a name/);
   });
 
   it('should use default values', () => {
     const plugin = createPlugin({ name: 'test' });
-    assert.equal(plugin.name, 'test');
-    assert.equal(plugin.version, '1.0.0');
-    assert.equal(plugin.description, '');
-    assert.deepEqual(plugin.dependencies, []);
-    assert.deepEqual(plugin.defaultConfig, {});
+    expect(plugin.name).toBe('test');
+    expect(plugin.version).toBe('1.0.0');
+    expect(plugin.description).toBe('');
+    expect(plugin.dependencies).toEqual([]);
+    expect(plugin.defaultConfig).toEqual({});
   });
 
   it('should use provided values', () => {
@@ -882,11 +880,11 @@ describe('createPlugin', () => {
       defaultConfig: { key: 'value' },
     });
 
-    assert.equal(plugin.name, 'my-plugin');
-    assert.equal(plugin.version, '2.0.0');
-    assert.equal(plugin.description, 'My plugin');
-    assert.deepEqual(plugin.dependencies, ['dep1', 'dep2']);
-    assert.deepEqual(plugin.defaultConfig, { key: 'value' });
+    expect(plugin.name).toBe('my-plugin');
+    expect(plugin.version).toBe('2.0.0');
+    expect(plugin.description).toBe('My plugin');
+    expect(plugin.dependencies).toEqual(['dep1', 'dep2']);
+    expect(plugin.defaultConfig).toEqual({ key: 'value' });
   });
 });
 
@@ -915,7 +913,7 @@ describe('PluginContext', () => {
     await pm.install('ctx');
     const ctx = pm.getContext('ctx');
 
-    assert.deepEqual(ctx.config, { a: 1, b: 3, c: 4 });
+    expect(ctx.config).toEqual({ a: 1, b: 3, c: 4 });
   });
 
   it('should provide scoped state helpers', async () => {
@@ -929,9 +927,9 @@ describe('PluginContext', () => {
     ctx.state.set('a', 1);
     ctx.state.merge('obj', { x: 1 });
 
-    assert.equal(ctx.state.get('a'), 1);
-    assert.ok(ctx.state.get() !== undefined);
-    assert.equal(ctx.state.getGlobal('plugins.ctx.a'), 1);
+    expect(ctx.state.get('a')).toBe(1);
+    expect(ctx.state.get().toBeTruthy() !== undefined);
+    expect(ctx.state.getGlobal('plugins.ctx.a')).toBe(1);
   });
 
   it('should support state subscription with auto-cleanup', async () => {
@@ -942,11 +940,11 @@ describe('PluginContext', () => {
     await pm.install('ctx');
     const ctx = pm.getContext('ctx');
 
-    const subscriber = mock.fn();
+    const subscriber = vi.fn();
     ctx.state.subscribe('plugins.ctx.*', subscriber);
     ctx.state.set('b', 2);
 
-    assert.ok(subscriber.mock.callCount() >= 1);
+    expect(subscriber.mock.calls.length.toBeTruthy() >= 1);
   });
 
   it('should provide logger methods', async () => {
@@ -976,10 +974,10 @@ describe('PluginContext', () => {
       ctx.log.warn('w');
       ctx.log.error('e');
 
-      assert.ok(debugCalls.length > 0);
-      assert.ok(infoCalls.length > 0);
-      assert.ok(warnCalls.length > 0);
-      assert.ok(errorCalls.length > 0);
+      expect(debugCalls.length > 0).toBeTruthy();
+      expect(infoCalls.length > 0).toBeTruthy();
+      expect(warnCalls.length > 0).toBeTruthy();
+      expect(errorCalls.length > 0).toBeTruthy();
     } finally {
       console.debug = originalDebug;
       console.info = originalInfo;
@@ -999,15 +997,15 @@ describe('PluginContext', () => {
 
     pm.register(plugin);
     await pm.install('svc-test');
-    assert.ok(k.services.has('tmp'));
+    expect(k.services.has('tmp')).toBeTruthy();
 
     await pm.uninstall('svc-test');
-    assert.equal(k.services.has('tmp'), false);
+    expect(k.services.has('tmp')).toBe(false);
   });
 
   it('should auto-cleanup event subscriptions on dispose', async () => {
     const pm = new PluginManager(k);
-    const handler = mock.fn();
+    const handler = vi.fn();
     const plugin = createPlugin({
       name: 'evt-test',
       install: (ctx) => {
@@ -1019,22 +1017,22 @@ describe('PluginContext', () => {
     await pm.install('evt-test');
 
     k.events.emit('test.event', {});
-    assert.equal(handler.mock.callCount(), 1);
+    expect(handler.mock.calls.length).toBe(1);
 
     await pm.uninstall('evt-test');
 
     k.events.emit('test.event', {});
-    assert.equal(handler.mock.callCount(), 1); // Should still be 1
+    expect(handler.mock.calls.length).toBe(1); // Should still be 1
   });
 });
 
 describe('KernelStatus', () => {
   it('should export all status values', () => {
-    assert.equal(KernelStatus.CREATED, 'created');
-    assert.equal(KernelStatus.STARTING, 'starting');
-    assert.equal(KernelStatus.RUNNING, 'running');
-    assert.equal(KernelStatus.STOPPING, 'stopping');
-    assert.equal(KernelStatus.STOPPED, 'stopped');
-    assert.equal(KernelStatus.ERROR, 'error');
+    expect(KernelStatus.CREATED).toBe('created');
+    expect(KernelStatus.STARTING).toBe('starting');
+    expect(KernelStatus.RUNNING).toBe('running');
+    expect(KernelStatus.STOPPING).toBe('stopping');
+    expect(KernelStatus.STOPPED).toBe('stopped');
+    expect(KernelStatus.ERROR).toBe('error');
   });
 });

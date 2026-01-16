@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import {
   createAdaptiveTokenCounter,
@@ -9,67 +9,64 @@ describe("shared/tokenizers/adaptive-token-counter", () => {
   describe("createAdaptiveTokenCounter", () => {
     it("creates token counter", () => {
       const counter = createAdaptiveTokenCounter({ warmup: false });
-      assert.ok(counter);
-      assert.equal(typeof counter.count, "function");
-      assert.equal(typeof counter.init, "function");
-      assert.equal(typeof counter.dispose, "function");
-      assert.equal(typeof counter.getStatus, "function");
+      expect(counter).toBeTruthy();
+      expect(typeof counter.count).toBe("function");
+      expect(typeof counter.init).toBe("function");
+      expect(typeof counter.dispose).toBe("function");
+      expect(typeof counter.getStatus).toBe("function");
       counter.dispose();
     });
 
     it("throws for non-object options", () => {
-      assert.throws(
-        () => createAdaptiveTokenCounter("invalid"),
-        /options must be an object/
-      );
+      expect(() => createAdaptiveTokenCounter("invalid")).toThrow(/options must be an object/);
     });
 
     it("counts tokens for string", () => {
       const counter = createAdaptiveTokenCounter({ warmup: false });
       const count = counter.count("Hello world");
-      assert.ok(count > 0);
+      expect(count > 0).toBeTruthy();
       counter.dispose();
     });
 
     it("returns 0 for empty string", () => {
       const counter = createAdaptiveTokenCounter({ warmup: false });
       const count = counter.count("");
-      assert.equal(count, 0);
+      expect(count).toBe(0);
       counter.dispose();
     });
 
     it("returns 0 for null", () => {
       const counter = createAdaptiveTokenCounter({ warmup: false });
       const count = counter.count(null);
-      assert.equal(count, 0);
+      expect(count).toBe(0);
       counter.dispose();
     });
 
     it("returns 0 for undefined", () => {
       const counter = createAdaptiveTokenCounter({ warmup: false });
       const count = counter.count(undefined);
-      assert.equal(count, 0);
+      expect(count).toBe(0);
       counter.dispose();
     });
 
     it("counts tokens for object (stringified)", () => {
       const counter = createAdaptiveTokenCounter({ warmup: false });
       const count = counter.count({ key: "value" });
-      assert.ok(count > 0);
+      expect(count > 0).toBeTruthy();
       counter.dispose();
     });
 
     it("counts tokens for array", () => {
       const counter = createAdaptiveTokenCounter({ warmup: false });
       const count = counter.count([1, 2, 3]);
-      assert.ok(count > 0);
+      expect(count > 0).toBeTruthy();
       counter.dispose();
     });
 
     it("counts tokens for number", () => {
       const counter = createAdaptiveTokenCounter({ warmup: false });
       const count = counter.count(12345);
-      assert.ok(count > 0);
+      expect(count > 0).toBeTruthy();
       counter.dispose();
     });
 
@@ -77,9 +74,9 @@ describe("shared/tokenizers/adaptive-token-counter", () => {
       it("returns initial status", () => {
         const counter = createAdaptiveTokenCounter({ warmup: false });
         const status = counter.getStatus();
-        assert.equal(status.mode, "heuristic");
-        assert.equal(status.ready, false);
-        assert.equal(status.failed, false);
+        expect(status.mode).toBe("heuristic");
+        expect(status.ready).toBe(false);
+        expect(status.failed).toBe(false);
         counter.dispose();
       });
     });
@@ -89,8 +86,8 @@ describe("shared/tokenizers/adaptive-token-counter", () => {
         const counter = createAdaptiveTokenCounter({ warmup: false });
         counter.dispose();
         const status = counter.getStatus();
-        assert.equal(status.mode, "heuristic");
-        assert.equal(status.ready, false);
+        expect(status.mode).toBe("heuristic");
+        expect(status.ready).toBe(false);
       });
 
       it("can be called multiple times", () => {
@@ -109,7 +106,7 @@ describe("shared/tokenizers/adaptive-token-counter", () => {
         // Will fail because tiktoken is not installed
         const status = counter.getStatus();
         // Either ready or failed
-        assert.ok(status.ready || status.failed);
+        expect(status.ready || status.failed).toBeTruthy();
         counter.dispose();
       });
 
@@ -119,7 +116,7 @@ describe("shared/tokenizers/adaptive-token-counter", () => {
         const status = counter.getStatus();
         if (status.failed) {
           const result = await counter.init();
-          assert.equal(result, false);
+          expect(result).toBe(false);
         }
         counter.dispose();
       });
@@ -131,7 +128,7 @@ describe("shared/tokenizers/adaptive-token-counter", () => {
           model: "gpt-4",
           warmup: false,
         });
-        assert.ok(counter);
+        expect(counter).toBeTruthy();
         counter.dispose();
       });
 
@@ -140,7 +137,7 @@ describe("shared/tokenizers/adaptive-token-counter", () => {
           encoding: "cl100k_base",
           warmup: false,
         });
-        assert.ok(counter);
+        expect(counter).toBeTruthy();
         counter.dispose();
       });
 

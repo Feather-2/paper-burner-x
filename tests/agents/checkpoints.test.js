@@ -1,5 +1,5 @@
-import { describe, it, beforeEach, afterEach } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import { AgentCheckpointStore } from "../../js/agents/runtime/checkpoints/agent-checkpoint-store.js";
 import { MemoryVfs } from "../../js/agents/vfs/vfs.memory.js";
@@ -19,27 +19,27 @@ describe("runtime/checkpoints/agent-checkpoint-store", () => {
   describe("constructor", () => {
     it("accepts vfs option", () => {
       const s = new AgentCheckpointStore({ vfs });
-      assert.ok(s);
+      expect(s).toBeTruthy();
     });
 
     it("accepts runId option", () => {
       const s = new AgentCheckpointStore({ vfs, runId: "my-run" });
-      assert.equal(s.runId, "my-run");
+      expect(s.runId).toBe("my-run");
     });
 
     it("handles missing runId", () => {
       const s = new AgentCheckpointStore({ vfs });
-      assert.equal(s.runId, null);
+      expect(s.runId).toBe(null);
     });
 
     it("runId setter works", () => {
       store.runId = "new-run";
-      assert.equal(store.runId, "new-run");
+      expect(store.runId).toBe("new-run");
     });
 
     it("runId setter handles empty string", () => {
       store.runId = "";
-      assert.equal(store.runId, null);
+      expect(store.runId).toBe(null);
     });
   });
 
@@ -53,17 +53,15 @@ describe("runtime/checkpoints/agent-checkpoint-store", () => {
         step: 1,
       });
 
-      assert.ok(result.checkpointId);
-      assert.ok(result.checkpointId.startsWith("ckpt"));
-      assert.ok(result.checkpoint);
-      assert.equal(result.checkpoint.runId, runId);
+      expect(result.checkpointId).toBeTruthy();
+      expect(result.checkpointId.startsWith("ckpt")).toBeTruthy();
+      expect(result.checkpoint).toBeTruthy();
+      expect(result.checkpoint.runId).toBe(runId);
     });
 
     it("throws without runId", async () => {
       const s = new AgentCheckpointStore({ vfs });
-      await assert.rejects(
-        () => s.saveCheckpoint({ messages: [] }),
-        /runId is required/
+      await expect(() => s.saveCheckpoint({ messages: [] })).rejects.toThrow(/runId is required/
       );
     });
 
@@ -73,7 +71,7 @@ describe("runtime/checkpoints/agent-checkpoint-store", () => {
         runId: "override-run",
         messages: [],
       });
-      assert.equal(result.checkpoint.runId, "override-run");
+      expect(result.checkpoint.runId).toBe("override-run");
     });
 
     it("stores messages array", async () => {
@@ -82,7 +80,7 @@ describe("runtime/checkpoints/agent-checkpoint-store", () => {
         { role: "assistant", content: "Hi" },
       ];
       const result = await store.saveCheckpoint({ messages });
-      assert.deepEqual(result.checkpoint.messages, messages);
+      expect(result.checkpoint.messages).toEqual(messages);
     });
 
     it("stores toolCalls and results", async () => {
@@ -93,8 +91,8 @@ describe("runtime/checkpoints/agent-checkpoint-store", () => {
         toolCalls,
         results,
       });
-      assert.deepEqual(result.checkpoint.toolCalls, toolCalls);
-      assert.deepEqual(result.checkpoint.results, results);
+      expect(result.checkpoint.toolCalls).toEqual(toolCalls);
+      expect(result.checkpoint.results).toEqual(results);
     });
 
     it("stores step and iteration", async () => {
@@ -103,22 +101,22 @@ describe("runtime/checkpoints/agent-checkpoint-store", () => {
         step: 5,
         iteration: 10,
       });
-      assert.equal(result.checkpoint.step, 5);
-      assert.equal(result.checkpoint.iteration, 10);
+      expect(result.checkpoint.step).toBe(5);
+      expect(result.checkpoint.iteration).toBe(10);
     });
 
     it("handles missing arrays gracefully", async () => {
       const result = await store.saveCheckpoint({});
-      assert.ok(Array.isArray(result.checkpoint.messages));
-      assert.ok(Array.isArray(result.checkpoint.toolCalls));
-      assert.ok(Array.isArray(result.checkpoint.results));
+      expect(Array.isArray(result.checkpoint.messages)).toBeTruthy();
+      expect(Array.isArray(result.checkpoint.toolCalls)).toBeTruthy();
+      expect(Array.isArray(result.checkpoint.results)).toBeTruthy();
     });
   });
 
   describe("listCheckpoints", () => {
     it("returns empty array initially", async () => {
       const list = await store.listCheckpoints();
-      assert.deepEqual(list, []);
+      expect(list).toEqual([]);
     });
 
     it("returns saved checkpoints", async () => {
@@ -126,7 +124,7 @@ describe("runtime/checkpoints/agent-checkpoint-store", () => {
       await store.saveCheckpoint({ messages: [], step: 2 });
 
       const list = await store.listCheckpoints();
-      assert.equal(list.length, 2);
+      expect(list.length).toBe(2);
     });
 
     it("includes checkpoint metadata", async () => {
@@ -137,21 +135,21 @@ describe("runtime/checkpoints/agent-checkpoint-store", () => {
       });
 
       const list = await store.listCheckpoints();
-      assert.equal(list[0].step, 1);
-      assert.ok(list[0].checkpointId);
-      assert.ok(list[0].ts);
+      expect(list[0].step).toBe(1);
+      expect(list[0].checkpointId).toBeTruthy();
+      expect(list[0].ts).toBeTruthy();
     });
 
     it("accepts runId in options", async () => {
       await store.saveCheckpoint({ runId: "other-run", messages: [] });
 
       const list = await store.listCheckpoints({ runId: "other-run" });
-      assert.equal(list.length, 1);
+      expect(list.length).toBe(1);
     });
 
     it("returns empty for unknown runId", async () => {
       const list = await store.listCheckpoints({ runId: "unknown" });
-      assert.deepEqual(list, []);
+      expect(list).toEqual([]);
     });
   });
 
@@ -161,8 +159,8 @@ describe("runtime/checkpoints/agent-checkpoint-store", () => {
       await store.saveCheckpoint({ messages: [{ content: "second" }], step: 2 });
 
       const loaded = await store.loadCheckpoint();
-      assert.equal(loaded.step, 2);
-      assert.equal(loaded.messages[0].content, "second");
+      expect(loaded.step).toBe(2);
+      expect(loaded.messages[0].content).toBe("second");
     });
 
     it("loads checkpoint by id", async () => {
@@ -173,7 +171,7 @@ describe("runtime/checkpoints/agent-checkpoint-store", () => {
       await store.saveCheckpoint({ messages: [{ content: "other" }], step: 2 });
 
       const loaded = await store.loadCheckpoint({ checkpointId });
-      assert.equal(loaded.messages[0].content, "target");
+      expect(loaded.messages[0].content).toBe("target");
     });
 
     it("loads checkpoint by step", async () => {
@@ -182,24 +180,24 @@ describe("runtime/checkpoints/agent-checkpoint-store", () => {
       await store.saveCheckpoint({ messages: [{ content: "step3" }], step: 3 });
 
       const loaded = await store.loadCheckpoint({ step: 2, mode: "step" });
-      assert.equal(loaded.step, 2);
-      assert.equal(loaded.messages[0].content, "step2");
+      expect(loaded.step).toBe(2);
+      expect(loaded.messages[0].content).toBe("step2");
     });
 
     it("returns null for missing checkpoint", async () => {
       const loaded = await store.loadCheckpoint({ checkpointId: "nonexistent" });
-      assert.equal(loaded, null);
+      expect(loaded).toBe(null);
     });
 
     it("returns null for missing runId", async () => {
       const s = new AgentCheckpointStore({ vfs });
       const loaded = await s.loadCheckpoint();
-      assert.equal(loaded, null);
+      expect(loaded).toBe(null);
     });
 
     it("returns null for empty index", async () => {
       const loaded = await store.loadCheckpoint();
-      assert.equal(loaded, null);
+      expect(loaded).toBe(null);
     });
 
     it("handles mode=last", async () => {
@@ -207,7 +205,7 @@ describe("runtime/checkpoints/agent-checkpoint-store", () => {
       await store.saveCheckpoint({ messages: [{ content: "last" }] });
 
       const loaded = await store.loadCheckpoint({ mode: "last" });
-      assert.equal(loaded.messages[0].content, "last");
+      expect(loaded.messages[0].content).toBe("last");
     });
 
     it("handles mode=latest", async () => {
@@ -215,7 +213,7 @@ describe("runtime/checkpoints/agent-checkpoint-store", () => {
       await store.saveCheckpoint({ messages: [{ content: "latest" }] });
 
       const loaded = await store.loadCheckpoint({ mode: "latest" });
-      assert.equal(loaded.messages[0].content, "latest");
+      expect(loaded.messages[0].content).toBe("latest");
     });
   });
 
@@ -227,22 +225,20 @@ describe("runtime/checkpoints/agent-checkpoint-store", () => {
 
       const results = await Promise.all(promises);
 
-      assert.equal(results.length, 5);
+      expect(results.length).toBe(5);
       const ids = results.map((r) => r.checkpointId);
       const uniqueIds = new Set(ids);
-      assert.equal(uniqueIds.size, 5);
+      expect(uniqueIds.size).toBe(5);
 
       const list = await store.listCheckpoints();
-      assert.equal(list.length, 5);
+      expect(list.length).toBe(5);
     });
   });
 
   describe("error handling", () => {
     it("throws without vfs", async () => {
       const s = new AgentCheckpointStore({ runId: "test" });
-      await assert.rejects(
-        () => s.saveCheckpoint({ messages: [] }),
-        /requires vfs/
+      await expect(() => s.saveCheckpoint({ messages: [] })).rejects.toThrow(/requires vfs/
       );
     });
 
@@ -253,7 +249,7 @@ describe("runtime/checkpoints/agent-checkpoint-store", () => {
       await vfs.writeText(indexPath, "not valid json {{{");
 
       const list = await store.listCheckpoints();
-      assert.deepEqual(list, []);
+      expect(list).toEqual([]);
     });
   });
 });

@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import {
   isWasmSupported,
@@ -10,39 +10,39 @@ describe("shared/utils/wasm-support", () => {
   describe("isWasmSupported", () => {
     it("returns boolean", () => {
       const result = isWasmSupported();
-      assert.equal(typeof result, "boolean");
+      expect(typeof result).toBe("boolean");
     });
 
     it("returns true in Node.js (which supports WASM)", () => {
       // Node.js has WebAssembly support
-      assert.ok(isWasmSupported());
+      expect(isWasmSupported()).toBeTruthy();
     });
 
     it("caches result on subsequent calls", () => {
       const first = isWasmSupported();
       const second = isWasmSupported();
-      assert.equal(first, second);
+      expect(first).toBe(second);
     });
   });
 
   describe("isWasmThreadsSupported", () => {
     it("returns boolean", () => {
       const result = isWasmThreadsSupported();
-      assert.equal(typeof result, "boolean");
+      expect(typeof result).toBe("boolean");
     });
 
     it("returns false if WASM not supported", () => {
       // If WASM is not supported, threads definitely aren't
       // This is a consistency check
       if (!isWasmSupported()) {
-        assert.equal(isWasmThreadsSupported(), false);
+        expect(isWasmThreadsSupported()).toBe(false);
       }
     });
 
     it("returns consistent result", () => {
       const first = isWasmThreadsSupported();
       const second = isWasmThreadsSupported();
-      assert.equal(first, second);
+      expect(first).toBe(second);
     });
   });
 });

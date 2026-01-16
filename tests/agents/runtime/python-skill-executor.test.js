@@ -4,8 +4,7 @@
  * 注意：这些测试使用 mock，不会真正加载 Pyodide
  */
 
-import { describe, it, mock, beforeEach } from "node:test";
-import assert from "node:assert";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import {
   PythonSkillExecutor,
@@ -18,9 +17,9 @@ describe("PythonSkillExecutor", () => {
   describe("constructor", () => {
     it("should create with defaults", () => {
       const executor = new PythonSkillExecutor();
-      assert.strictEqual(executor.vfs, null);
-      assert.strictEqual(executor.pythonAdapter, null);
-      assert.ok(executor.dependencyManager);
+      expect(executor.vfs).toBe(null);
+      expect(executor.pythonAdapter).toBe(null);
+      expect(executor.dependencyManager).toBeTruthy();
     });
 
     it("should accept custom options", () => {
@@ -32,8 +31,8 @@ describe("PythonSkillExecutor", () => {
         pythonAdapter: mockAdapter,
       });
 
-      assert.strictEqual(executor.vfs, mockVfs);
-      assert.strictEqual(executor.pythonAdapter, mockAdapter);
+      expect(executor.vfs).toBe(mockVfs);
+      expect(executor.pythonAdapter).toBe(mockAdapter);
     });
   });
 
@@ -47,8 +46,8 @@ describe("PythonSkillExecutor", () => {
 
       const result = await executor.execute(skill, {});
 
-      assert.strictEqual(result.success, false);
-      assert.ok(result.error.includes("Expected Python skill"));
+      expect(result.success).toBe(false);
+      expect(result.error.includes("Expected Python skill")).toBeTruthy();
     });
 
     it("should require VFS for code reading", async () => {
@@ -56,8 +55,8 @@ describe("PythonSkillExecutor", () => {
 
       // Mock the adapter to avoid actual initialization
       executor.pythonAdapter = {
-        initialize: mock.fn(() => Promise.resolve()),
-        preloadPlan: mock.fn(() => Promise.resolve()),
+        initialize: vi.fn(() => Promise.resolve()),
+        preloadPlan: vi.fn(() => Promise.resolve()),
         _requestId: 0,
         pendingRequests: new Map(),
         worker: { postMessage: () => {} },
@@ -75,23 +74,23 @@ describe("PythonSkillExecutor", () => {
 
       const result = await executor.execute(skill, { state: {} });
 
-      assert.strictEqual(result.success, false);
-      assert.ok(result.error.includes("VFS required"));
+      expect(result.success).toBe(false);
+      expect(result.error.includes("VFS required")).toBeTruthy();
     });
 
     it("should execute Python skill with mocked adapter", async () => {
       const mockCode = 'print("hello")';
 
       const mockVfs = {
-        readFile: mock.fn(() => Promise.resolve(mockCode)),
-        mkdir: mock.fn(() => Promise.resolve()),
-        list: mock.fn(() => Promise.resolve([])),
+        readFile: vi.fn(() => Promise.resolve(mockCode)),
+        mkdir: vi.fn(() => Promise.resolve()),
+        list: vi.fn(() => Promise.resolve([])),
       };
 
       const mockAdapter = {
-        initialize: mock.fn(() => Promise.resolve()),
-        preloadPlan: mock.fn(() => Promise.resolve()),
-        execute: mock.fn(() =>
+        initialize: vi.fn(() => Promise.resolve()),
+        preloadPlan: vi.fn(() => Promise.resolve()),
+        execute: vi.fn(() =>
           Promise.resolve({
             success: true,
             data: "hello",
@@ -101,7 +100,7 @@ describe("PythonSkillExecutor", () => {
         _requestId: 0,
         pendingRequests: new Map(),
         worker: {
-          postMessage: mock.fn(() => {
+          postMessage: vi.fn(() => {
             // Simulate preload response
             const id = mockAdapter._requestId;
             const req = mockAdapter.pendingRequests.get(id);
@@ -131,31 +130,31 @@ describe("PythonSkillExecutor", () => {
 
       const result = await executor.execute(skill, { state: { x: 1 } });
 
-      assert.strictEqual(result.success, true);
-      assert.strictEqual(result.data, "hello");
-      assert.ok(mockVfs.readFile.mock.calls.length > 0);
-      assert.ok(mockAdapter.execute.mock.calls.length > 0);
+      expect(result.success).toBe(true);
+      expect(result.data).toBe("hello");
+      expect(mockVfs.readFile.mock.calls.length > 0).toBeTruthy();
+      expect(mockAdapter.execute.mock.calls.length > 0).toBeTruthy();
     });
 
     it("should use default entrypoint main.py", async () => {
       const mockVfs = {
-        readFile: mock.fn((path) => {
-          assert.ok(path.endsWith("main.py"));
+        readFile: vi.fn((path) => {
+          expect(path.endsWith("main.py")).toBeTruthy();
           return Promise.resolve('print("test")');
         }),
-        mkdir: mock.fn(() => Promise.resolve()),
-        list: mock.fn(() => Promise.resolve([])),
+        mkdir: vi.fn(() => Promise.resolve()),
+        list: vi.fn(() => Promise.resolve([])),
       };
 
       const mockAdapter = {
-        initialize: mock.fn(() => Promise.resolve()),
-        preloadPlan: mock.fn(() => Promise.resolve()),
-        execute: mock.fn(() =>
+        initialize: vi.fn(() => Promise.resolve()),
+        preloadPlan: vi.fn(() => Promise.resolve()),
+        execute: vi.fn(() =>
           Promise.resolve({ success: true, data: null, metrics: {} })
         ),
         _requestId: 0,
         pendingRequests: new Map(),
-        worker: { postMessage: mock.fn() },
+        worker: { postMessage: vi.fn() },
       };
 
       const executor = new PythonSkillExecutor({
@@ -175,20 +174,20 @@ describe("PythonSkillExecutor", () => {
 
       await executor.execute(skill, {});
 
-      assert.ok(mockVfs.readFile.mock.calls.length > 0);
+      expect(mockVfs.readFile.mock.calls.length > 0).toBeTruthy();
     });
 
     it("should handle execution errors gracefully", async () => {
       const mockVfs = {
-        readFile: mock.fn(() => Promise.resolve("bad code")),
-        mkdir: mock.fn(() => Promise.resolve()),
-        list: mock.fn(() => Promise.resolve([])),
+        readFile: vi.fn(() => Promise.resolve("bad code")),
+        mkdir: vi.fn(() => Promise.resolve()),
+        list: vi.fn(() => Promise.resolve([])),
       };
 
       const mockAdapter = {
-        initialize: mock.fn(() => Promise.resolve()),
-        preloadPlan: mock.fn(() => Promise.resolve()),
-        execute: mock.fn(() =>
+        initialize: vi.fn(() => Promise.resolve()),
+        preloadPlan: vi.fn(() => Promise.resolve()),
+        execute: vi.fn(() =>
           Promise.resolve({
             success: false,
             error: "SyntaxError: invalid syntax",
@@ -197,7 +196,7 @@ describe("PythonSkillExecutor", () => {
         ),
         _requestId: 0,
         pendingRequests: new Map(),
-        worker: { postMessage: mock.fn() },
+        worker: { postMessage: vi.fn() },
       };
 
       const executor = new PythonSkillExecutor({
@@ -213,30 +212,30 @@ describe("PythonSkillExecutor", () => {
 
       const result = await executor.execute(skill, {});
 
-      assert.strictEqual(result.success, false);
-      assert.ok(result.error.includes("SyntaxError"));
+      expect(result.success).toBe(false);
+      expect(result.error.includes("SyntaxError")).toBeTruthy();
     });
 
     it("should decode Uint8Array code", async () => {
       const codeBytes = new TextEncoder().encode('print("bytes")');
 
       const mockVfs = {
-        readFile: mock.fn(() => Promise.resolve(codeBytes)),
-        mkdir: mock.fn(() => Promise.resolve()),
-        list: mock.fn(() => Promise.resolve([])),
+        readFile: vi.fn(() => Promise.resolve(codeBytes)),
+        mkdir: vi.fn(() => Promise.resolve()),
+        list: vi.fn(() => Promise.resolve([])),
       };
 
       const mockAdapter = {
-        initialize: mock.fn(() => Promise.resolve()),
-        preloadPlan: mock.fn(() => Promise.resolve()),
-        execute: mock.fn((code) => {
-          assert.strictEqual(typeof code, "string");
-          assert.ok(code.includes("print"));
+        initialize: vi.fn(() => Promise.resolve()),
+        preloadPlan: vi.fn(() => Promise.resolve()),
+        execute: vi.fn((code) => {
+          expect(typeof code).toBe("string");
+          expect(code.includes("print")).toBeTruthy();
           return Promise.resolve({ success: true, data: null, metrics: {} });
         }),
         _requestId: 0,
         pendingRequests: new Map(),
-        worker: { postMessage: mock.fn() },
+        worker: { postMessage: vi.fn() },
       };
 
       const executor = new PythonSkillExecutor({
@@ -251,14 +250,14 @@ describe("PythonSkillExecutor", () => {
       };
 
       const result = await executor.execute(skill, {});
-      assert.strictEqual(result.success, true);
+      expect(result.success).toBe(true);
     });
   });
 
   describe("terminate", () => {
     it("should terminate adapter", async () => {
       const mockAdapter = {
-        terminate: mock.fn(() => Promise.resolve()),
+        terminate: vi.fn(() => Promise.resolve()),
       };
 
       const executor = new PythonSkillExecutor({
@@ -268,9 +267,9 @@ describe("PythonSkillExecutor", () => {
 
       await executor.terminate();
 
-      assert.ok(mockAdapter.terminate.mock.calls.length > 0);
-      assert.strictEqual(executor.pythonAdapter, null);
-      assert.strictEqual(executor._initialized, false);
+      expect(mockAdapter.terminate.mock.calls.length > 0).toBeTruthy();
+      expect(executor.pythonAdapter).toBe(null);
+      expect(executor._initialized).toBe(false);
     });
 
     it("should handle no adapter", async () => {
@@ -282,16 +281,16 @@ describe("PythonSkillExecutor", () => {
   describe("createPythonSkillExecutor", () => {
     it("should create executor", () => {
       const executor = createPythonSkillExecutor({ vfs: {} });
-      assert.ok(executor instanceof PythonSkillExecutor);
+      expect(executor instanceof PythonSkillExecutor).toBeTruthy();
     });
   });
 
   describe("executePythonSkill (convenience)", () => {
     it("should execute skill with temporary executor", async () => {
       const mockVfs = {
-        readFile: mock.fn(() => Promise.resolve("pass")),
-        mkdir: mock.fn(() => Promise.resolve()),
-        list: mock.fn(() => Promise.resolve([])),
+        readFile: vi.fn(() => Promise.resolve("pass")),
+        mkdir: vi.fn(() => Promise.resolve()),
+        list: vi.fn(() => Promise.resolve([])),
       };
 
       const skill = {
@@ -301,15 +300,15 @@ describe("PythonSkillExecutor", () => {
 
       const result = await executePythonSkill(skill, { vfs: mockVfs });
 
-      assert.strictEqual(result.success, false);
-      assert.ok(result.error.includes("Expected Python"));
+      expect(result.success).toBe(false);
+      expect(result.error.includes("Expected Python")).toBeTruthy();
     });
   });
 });
 
 describe("SkillRuntime", () => {
   it("should export runtime types", () => {
-    assert.strictEqual(SkillRuntime.JS, "js");
-    assert.strictEqual(SkillRuntime.PYTHON, "python");
+    expect(SkillRuntime.JS).toBe("js");
+    expect(SkillRuntime.PYTHON).toBe("python");
   });
 });

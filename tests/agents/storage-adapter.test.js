@@ -1,5 +1,5 @@
-import { describe, it, beforeEach } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import {
   StorageBackend,
@@ -10,84 +10,73 @@ import {
 describe("vfs/storage-adapter", () => {
   describe("StorageBackend", () => {
     it("exports frozen constants", () => {
-      assert.ok(Object.isFrozen(StorageBackend));
+      expect(Object.isFrozen(StorageBackend)).toBeTruthy();
     });
 
     it("has OPFS backend", () => {
-      assert.equal(StorageBackend.OPFS, "opfs");
+      expect(StorageBackend.OPFS).toBe("opfs");
     });
 
     it("has INDEXEDDB backend", () => {
-      assert.equal(StorageBackend.INDEXEDDB, "indexeddb");
+      expect(StorageBackend.INDEXEDDB).toBe("indexeddb");
     });
 
     it("has LOCALSTORAGE backend", () => {
-      assert.equal(StorageBackend.LOCALSTORAGE, "localstorage");
+      expect(StorageBackend.LOCALSTORAGE).toBe("localstorage");
     });
 
     it("has MEMORY backend", () => {
-      assert.equal(StorageBackend.MEMORY, "memory");
+      expect(StorageBackend.MEMORY).toBe("memory");
     });
   });
 
   describe("StorageAdapter", () => {
     it("is abstract base class", () => {
       const adapter = new StorageAdapter("test");
-      assert.equal(adapter.backend, "test");
+      expect(adapter.backend).toBe("test");
     });
 
     it("get throws not implemented", async () => {
       const adapter = new StorageAdapter("test");
-      await assert.rejects(
-        () => adapter.get("key"),
-        /Not implemented/
+      await expect(() => adapter.get("key")).rejects.toThrow(/Not implemented/
       );
     });
 
     it("set throws not implemented", async () => {
       const adapter = new StorageAdapter("test");
-      await assert.rejects(
-        () => adapter.set("key", "value"),
+      await expect(() => adapter.set("key", "value"),
         /Not implemented/
       );
     });
 
     it("delete throws not implemented", async () => {
       const adapter = new StorageAdapter("test");
-      await assert.rejects(
-        () => adapter.delete("key"),
-        /Not implemented/
+      await expect(() => adapter.delete("key")).rejects.toThrow(/Not implemented/
       );
     });
 
     it("has throws not implemented", async () => {
       const adapter = new StorageAdapter("test");
-      await assert.rejects(
-        () => adapter.has("key"),
-        /Not implemented/
+      await expect(() => adapter.has("key")).rejects.toThrow(/Not implemented/
       );
     });
 
     it("keys throws not implemented", async () => {
       const adapter = new StorageAdapter("test");
-      await assert.rejects(
-        () => adapter.keys(),
-        /Not implemented/
+      await expect(() => adapter.keys()).rejects.toThrow(/Not implemented/
       );
     });
 
     it("clear throws not implemented", async () => {
       const adapter = new StorageAdapter("test");
-      await assert.rejects(
-        () => adapter.clear(),
-        /Not implemented/
+      await expect(() => adapter.clear()).rejects.toThrow(/Not implemented/
       );
     });
 
     it("getUsage returns zeros", async () => {
       const adapter = new StorageAdapter("test");
       const usage = await adapter.getUsage();
-      assert.deepEqual(usage, { used: 0, quota: 0 });
+      expect(usage).toEqual({ used: 0, quota: 0 });
     });
   });
 
@@ -100,37 +89,37 @@ describe("vfs/storage-adapter", () => {
     });
 
     it("has memory backend", () => {
-      assert.equal(adapter.backend, StorageBackend.MEMORY);
+      expect(adapter.backend).toBe(StorageBackend.MEMORY);
     });
 
     describe("get/set", () => {
       it("stores and retrieves value", async () => {
         await adapter.set("key1", { data: "value" });
         const result = await adapter.get("key1");
-        assert.deepEqual(result, { data: "value" });
+        expect(result).toEqual({ data: "value" });
       });
 
       it("returns undefined for missing key", async () => {
         const result = await adapter.get("missing");
-        assert.equal(result, undefined);
+        expect(result).toBe(undefined);
       });
 
       it("overwrites existing key", async () => {
         await adapter.set("key1", "first");
         await adapter.set("key1", "second");
         const result = await adapter.get("key1");
-        assert.equal(result, "second");
+        expect(result).toBe("second");
       });
     });
 
     describe("has", () => {
       it("returns true for existing key", async () => {
         await adapter.set("key1", "value");
-        assert.ok(await adapter.has("key1"));
+        expect(await adapter.has("key1")).toBeTruthy();
       });
 
       it("returns false for missing key", async () => {
-        assert.equal(await adapter.has("missing"), false);
+        expect(await adapter.has("missing")).toBe(false);
       });
     });
 
@@ -138,13 +127,13 @@ describe("vfs/storage-adapter", () => {
       it("removes existing key", async () => {
         await adapter.set("key1", "value");
         const result = await adapter.delete("key1");
-        assert.ok(result);
-        assert.equal(await adapter.has("key1"), false);
+        expect(result).toBeTruthy();
+        expect(await adapter.has("key1")).toBe(false);
       });
 
       it("returns false for missing key", async () => {
         const result = await adapter.delete("missing");
-        assert.equal(result, false);
+        expect(result).toBe(false);
       });
     });
 
@@ -154,12 +143,12 @@ describe("vfs/storage-adapter", () => {
         await adapter.set("b", 2);
         await adapter.set("c", 3);
         const keys = await adapter.keys();
-        assert.deepEqual(keys.sort(), ["a", "b", "c"]);
+        expect(keys.sort()).toEqual(["a", "b", "c"]);
       });
 
       it("returns empty array when empty", async () => {
         const keys = await adapter.keys();
-        assert.deepEqual(keys, []);
+        expect(keys).toEqual([]);
       });
     });
 
@@ -169,7 +158,7 @@ describe("vfs/storage-adapter", () => {
         await adapter.set("b", 2);
         await adapter.clear();
         const keys = await adapter.keys();
-        assert.deepEqual(keys, []);
+        expect(keys).toEqual([]);
       });
     });
   });

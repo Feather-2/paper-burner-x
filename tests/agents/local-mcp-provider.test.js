@@ -1,3 +1,5 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
@@ -70,7 +72,7 @@ function longHtml(extra = "") {
   return `<!doctype html><html><head>${extra}</head><body>${"x".repeat(200)}</body></html>`;
 }
 
-test("LocalMcpProvider: workerEndpoint success skips CORS proxies (search)", async () => {
+it("LocalMcpProvider: workerEndpoint success skips CORS proxies (search)", async () => {
   const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
 
   const fetchMock = createFetchMock();
@@ -90,12 +92,12 @@ test("LocalMcpProvider: workerEndpoint success skips CORS proxies (search)", asy
   });
 
   const out = await provider.callTool("search", { query: "hello" });
-  assert.equal(out.success, true);
-  assert.equal(fetchMock.calls.length, 1);
-  assert.equal(fetchMock.calls[0].url, "https://worker.example/search");
+  expect(out.success).toBe(true);
+  expect(fetchMock.calls.length).toBe(1);
+  expect(fetchMock.calls[0].url).toBe("https://worker.example/search");
 });
 
-test("LocalMcpProvider: workerEndpoint failure falls back to CORS proxies (search)", async () => {
+it("LocalMcpProvider: workerEndpoint failure falls back to CORS proxies (search)", async () => {
   const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
 
   const fetchMock = createFetchMock();
@@ -122,26 +124,26 @@ test("LocalMcpProvider: workerEndpoint failure falls back to CORS proxies (searc
   });
 
   const out = await provider.callTool("search", { query: "hello", domain: "example.com", time_range: "week", limit: 2 });
-  assert.equal(out.success, true);
+  expect(out.success).toBe(true);
 
-  assert.equal(fetchMock.calls.length, 2);
-  assert.equal(fetchMock.calls[0].url, "https://worker.example/search");
-  assert.ok(fetchMock.calls[1].url.startsWith("https://p1/?"));
+  expect(fetchMock.calls.length).toBe(2);
+  expect(fetchMock.calls[0].url).toBe("https://worker.example/search");
+  expect(fetchMock.calls[1].url.startsWith("https://p1/?")).toBeTruthy();
 
   const { options } = fetchMock.calls[1];
-  assert.equal(options.method, "GET");
-  assert.equal(options.mode, "cors");
-  assert.ok(options.signal, "expected AbortSignal");
-  assert.equal(options.headers.Accept.includes("text/html"), true);
-  assert.equal(typeof options.headers["Accept-Language"], "string");
+  expect(options.method).toBe("GET");
+  expect(options.mode).toBe("cors");
+  expect(options.signal, "expected AbortSignal").toBeTruthy();
+  expect(options.headers.Accept.includes("text/html")).toBe(true);
+  expect(typeof options.headers["Accept-Language"]).toBe("string");
 
   const encoded = fetchMock.calls[1].url.slice("https://p1/?".length);
   const decoded = decodeURIComponent(encoded);
-  assert.ok(decoded.startsWith("https://html.duckduckgo.com/html/?"));
-  assert.ok(decoded.includes("q=site%3Aexample.com"), "expected site:domain injected and encoded");
+  expect(decoded.startsWith("https://html.duckduckgo.com/html/?")).toBeTruthy();
+  expect(decoded.includes("q=site%3Aexample.com")).toBeTruthy();
 });
 
-test("LocalMcpProvider: search paginates when limit exceeds first page", async () => {
+it("LocalMcpProvider: search paginates when limit exceeds first page", async () => {
   const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
 
   const fetchMock = createFetchMock();
@@ -182,19 +184,17 @@ test("LocalMcpProvider: search paginates when limit exceeds first page", async (
   });
 
   const out = await provider.callTool("search", { query: "hello", limit: 3 });
-  assert.equal(out.success, true);
-  assert.equal(fetchMock.calls.length, 2);
+  expect(out.success).toBe(true);
+  expect(fetchMock.calls.length).toBe(2);
 
   const json = out.content.find((c) => c.type === "json")?.data;
-  assert.ok(json && Array.isArray(json.results));
-  assert.equal(json.results.length, 3);
-  assert.deepEqual(
-    json.results.map((r) => r.url),
-    ["https://example.com/1", "https://example.com/2", "https://example.com/3"]
+  expect(json && Array.isArray(json.results)).toBeTruthy();
+  expect(json.results.length).toBe(3);
+  expect(json.results.map((r) => r.url)).toEqual(["https://example.com/1", "https://example.com/2", "https://example.com/3"]
   );
 });
 
-test("LocalMcpProvider: workerEndpoint success skips CORS proxies (fetch_content)", async () => {
+it("LocalMcpProvider: workerEndpoint success skips CORS proxies (fetch_content)", async () => {
   const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
 
   const fetchMock = createFetchMock();
@@ -216,12 +216,12 @@ test("LocalMcpProvider: workerEndpoint success skips CORS proxies (fetch_content
   });
 
   const out = await provider.callTool("fetch_content", { url: "https://site.example/page" });
-  assert.equal(out.success, true);
-  assert.equal(fetchMock.calls.length, 1);
-  assert.equal(fetchMock.calls[0].url, "https://worker.example/fetch");
+  expect(out.success).toBe(true);
+  expect(fetchMock.calls.length).toBe(1);
+  expect(fetchMock.calls[0].url).toBe("https://worker.example/fetch");
 });
 
-test("LocalMcpProvider: workerEndpoint failure falls back to CORS proxies (fetch_content) and extracts metadata", async () => {
+it("LocalMcpProvider: workerEndpoint failure falls back to CORS proxies (fetch_content) and extracts metadata", async () => {
   const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
 
   const fetchMock = createFetchMock();
@@ -252,23 +252,23 @@ test("LocalMcpProvider: workerEndpoint failure falls back to CORS proxies (fetch
   });
 
   const out = await provider.callTool("fetch_content", { url: "https://site.example/page" });
-  assert.equal(out.success, true);
+  expect(out.success).toBe(true);
 
   const json = out.content.find((c) => c.type === "json")?.data;
-  assert.ok(json && json.metadata);
-  assert.equal(json.metadata.url, "https://site.example/page");
-  assert.equal(json.metadata.title, "My & Title");
-  assert.equal(json.metadata.description, "Second desc");
-  assert.equal(json.metadata.proxy, "https://p1/?");
+  expect(json && json.metadata).toBeTruthy();
+  expect(json.metadata.url).toBe("https://site.example/page");
+  expect(json.metadata.title).toBe("My & Title");
+  expect(json.metadata.description).toBe("Second desc");
+  expect(json.metadata.proxy).toBe("https://p1/?");
 
   const text = out.content.find((c) => c.type === "text")?.text || "";
-  assert.ok(text.includes("Hello world"));
-  assert.equal(text.includes("https://evil.example"), false);
-  assert.equal(text.includes("var x"), false);
-  assert.equal(text.includes("font-size"), false);
+  expect(text.includes("Hello world")).toBeTruthy();
+  expect(text.includes("https://evil.example")).toBe(false);
+  expect(text.includes("var x")).toBe(false);
+  expect(text.includes("font-size")).toBe(false);
 });
 
-test("LocalMcpProvider: proxy error page detection skips bad proxy", async () => {
+it("LocalMcpProvider: proxy error page detection skips bad proxy", async () => {
   const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
 
   const fetchMock = createFetchMock();
@@ -288,16 +288,16 @@ test("LocalMcpProvider: proxy error page detection skips bad proxy", async () =>
   });
 
   const out = await provider.callTool("fetch_content", { url: "https://site.example/page" });
-  assert.equal(out.success, true);
-  assert.equal(fetchMock.calls.length, 2);
-  assert.ok(fetchMock.calls[0].url.startsWith("https://p1/?"));
-  assert.ok(fetchMock.calls[1].url.startsWith("https://p2/?"));
+  expect(out.success).toBe(true);
+  expect(fetchMock.calls.length).toBe(2);
+  expect(fetchMock.calls[0].url.startsWith("https://p1/?")).toBeTruthy();
+  expect(fetchMock.calls[1].url.startsWith("https://p2/?")).toBeTruthy();
 
   const json = out.content.find((c) => c.type === "json")?.data;
-  assert.equal(json.metadata.proxy, "https://p2/?");
+  expect(json.metadata.proxy).toBe("https://p2/?");
 });
 
-test("LocalMcpProvider: corsProxies injection + in-order attempts", async () => {
+it("LocalMcpProvider: corsProxies injection + in-order attempts", async () => {
   const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
 
   const fetchMock = createFetchMock();
@@ -312,13 +312,13 @@ test("LocalMcpProvider: corsProxies injection + in-order attempts", async () => 
   });
 
   const out = await provider._fetchWithCorsFallback("https://target.example/page", { timeoutMs: 1234, tryDirect: false });
-  assert.equal(out.proxy, "https://p2/?");
-  assert.equal(fetchMock.calls.length, 2);
-  assert.ok(fetchMock.calls[0].url.startsWith("https://p1/?"));
-  assert.ok(fetchMock.calls[1].url.startsWith("https://p2/?"));
+  expect(out.proxy).toBe("https://p2/?");
+  expect(fetchMock.calls.length).toBe(2);
+  expect(fetchMock.calls[0].url.startsWith("https://p1/?")).toBeTruthy();
+  expect(fetchMock.calls[1].url.startsWith("https://p2/?")).toBeTruthy();
 });
 
-test("LocalMcpProvider: all proxies fail -> AggregateError includes all reasons", async () => {
+it("LocalMcpProvider: all proxies fail -> AggregateError includes all reasons", async () => {
   const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
 
   const fetchMock = createFetchMock();
@@ -334,19 +334,18 @@ test("LocalMcpProvider: all proxies fail -> AggregateError includes all reasons"
     fetchImpl: fetchMock,
   });
 
-  await assert.rejects(
-    () => provider._fetchWithCorsFallback("https://target.example/fail", { tryDirect: false }),
+  await expect(() => provider._fetchWithCorsFallback("https://target.example/fail", { tryDirect: false }),
     (err) => {
-      assert.ok(err instanceof AggregateError);
-      assert.equal(err.errors.length, 2);
-      assert.ok(err.errors[0].message.includes("e1"));
-      assert.ok(err.errors[1].message.includes("e2"));
+      expect(err instanceof AggregateError).toBeTruthy();
+      expect(err.errors.length).toBe(2);
+      expect(err.errors[0].message.includes("e1")).toBeTruthy();
+      expect(err.errors[1].message.includes("e2")).toBeTruthy();
       return true;
     }
   );
 });
 
-test("LocalMcpProvider: Node search parsing falls back to linkedom when DOMParser is unavailable", async () => {
+it("LocalMcpProvider: Node search parsing falls back to linkedom when DOMParser is unavailable", async () => {
   const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
 
   const hadDomParser = Object.prototype.hasOwnProperty.call(globalThis, "DOMParser");
@@ -374,18 +373,18 @@ test("LocalMcpProvider: Node search parsing falls back to linkedom when DOMParse
     });
 
     const out = await provider.callTool("search", { query: "hello", limit: 1 });
-    assert.equal(out.success, true);
+    expect(out.success).toBe(true);
 
     const json = out.content.find((c) => c.type === "json")?.data;
-    assert.ok(json?.results?.length >= 1);
-    assert.equal(json.results[0].title, "Example Title");
+    expect(json?.results?.length >= 1).toBeTruthy();
+    expect(json.results[0].title).toBe("Example Title");
   } finally {
     if (!hadDomParser) delete globalThis.DOMParser;
     else globalThis.DOMParser = prevDomParser;
   }
 });
 
-test("LocalMcpProvider: DOMParser fallback extracts nested anchor titles", async () => {
+it("LocalMcpProvider: DOMParser fallback extracts nested anchor titles", async () => {
   const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
   const { DOMParser } = await import("linkedom");
 
@@ -412,18 +411,18 @@ test("LocalMcpProvider: DOMParser fallback extracts nested anchor titles", async
     });
 
     const out = await provider.callTool("search", { query: "hello", limit: 1 });
-    assert.equal(out.success, true);
+    expect(out.success).toBe(true);
 
     const json = out.content.find((c) => c.type === "json")?.data;
-    assert.ok(json?.results?.length >= 1);
-    assert.equal(json.results[0].title, "Example Title");
+    expect(json?.results?.length >= 1).toBeTruthy();
+    expect(json.results[0].title).toBe("Example Title");
   } finally {
     if (prevDomParser === undefined) delete globalThis.DOMParser;
     else globalThis.DOMParser = prevDomParser;
   }
 });
 
-test("LocalMcpProvider: proxy failure redacts sensitive query params in error message", async () => {
+it("LocalMcpProvider: proxy failure redacts sensitive query params in error message", async () => {
   const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
 
   const fetchMock = createFetchMock();
@@ -440,18 +439,17 @@ test("LocalMcpProvider: proxy failure redacts sensitive query params in error me
     proxyCooldownMs: 0,
   });
 
-  await assert.rejects(
-    () => provider._fetchWithCorsFallback("https://target.example/page?token=abc&x=1", { timeoutMs: 50, tryDirect: false }),
+  await expect(() => provider._fetchWithCorsFallback("https://target.example/page?token=abc&x=1", { timeoutMs: 50, tryDirect: false }),
     (err) => {
-      assert.ok(err instanceof AggregateError);
-      assert.equal(String(err.message).includes("token=abc"), false);
-      assert.ok(String(err.message).includes("token=REDACTED"));
+      expect(err instanceof AggregateError).toBeTruthy();
+      expect(String(err.message).includes("token=abc")).toBe(false);
+      expect(String(err.message).toBeTruthy().includes("token=REDACTED"));
       return true;
     }
   );
 });
 
-test("LocalMcpProvider: proxy failure redacts basic auth and hash fragments in error message", async () => {
+it("LocalMcpProvider: proxy failure redacts basic auth and hash fragments in error message", async () => {
   const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
 
   const fetchMock = createFetchMock();
@@ -468,25 +466,24 @@ test("LocalMcpProvider: proxy failure redacts basic auth and hash fragments in e
     proxyCooldownMs: 0,
   });
 
-  await assert.rejects(
-    () =>
+  await expect(() =>
       provider._fetchWithCorsFallback("https://user:pass@target.example/page?token=abc#access_token=xyz", {
         timeoutMs: 50,
         tryDirect: false,
       }),
     (err) => {
-      assert.ok(err instanceof AggregateError);
+      expect(err instanceof AggregateError).toBeTruthy();
       const msg = String(err.message);
-      assert.equal(msg.includes("user:pass"), false);
-      assert.equal(msg.includes("token=abc"), false);
-      assert.ok(msg.includes("token=REDACTED"));
-      assert.ok(msg.includes("#REDACTED"));
+      expect(msg.includes("user:pass")).toBe(false);
+      expect(msg.includes("token=abc")).toBe(false);
+      expect(msg.includes("token=REDACTED")).toBeTruthy();
+      expect(msg.includes("#REDACTED")).toBeTruthy();
       return true;
     }
   );
 });
 
-test("LocalMcpProvider: proxy request strips basic auth + hash fragments", async () => {
+it("LocalMcpProvider: proxy request strips basic auth + hash fragments", async () => {
   const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
 
   const fetchMock = createFetchMock();
@@ -500,8 +497,7 @@ test("LocalMcpProvider: proxy request strips basic auth + hash fragments", async
     proxyCooldownMs: 0,
   });
 
-  await assert.rejects(
-    () =>
+  await expect(() =>
       provider._fetchWithCorsFallback("https://user:pass@target.example/page?x=1#access_token=xyz", {
         timeoutMs: 50,
         tryDirect: false,
@@ -509,14 +505,14 @@ test("LocalMcpProvider: proxy request strips basic auth + hash fragments", async
     () => true
   );
 
-  assert.equal(fetchMock.calls.length, 1);
+  expect(fetchMock.calls.length).toBe(1);
   const called = String(fetchMock.calls[0].url);
-  assert.equal(called.includes("user:pass"), false);
-  assert.equal(called.includes("#"), false);
-  assert.equal(called.includes("access_token"), false);
+  expect(called.includes("user:pass")).toBe(false);
+  expect(called.includes("#")).toBe(false);
+  expect(called.includes("access_token")).toBe(false);
 });
 
-test("LocalMcpProvider: refuses to proxy URLs with sensitive query params by default", async () => {
+it("LocalMcpProvider: refuses to proxy URLs with sensitive query params by default", async () => {
   const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
 
   const fetchMock = createFetchMock();
@@ -530,18 +526,17 @@ test("LocalMcpProvider: refuses to proxy URLs with sensitive query params by def
     proxyCooldownMs: 0,
   });
 
-  await assert.rejects(
-    () => provider._fetchWithCorsFallback("https://target.example/page?token=abc&x=1", { timeoutMs: 50, tryDirect: false }),
+  await expect(() => provider._fetchWithCorsFallback("https://target.example/page?token=abc&x=1", { timeoutMs: 50, tryDirect: false }),
     (err) => {
-      assert.ok(err instanceof AggregateError);
+      expect(err instanceof AggregateError).toBeTruthy();
       return true;
     }
   );
 
-  assert.equal(fetchMock.calls.length, 0);
+  expect(fetchMock.calls.length).toBe(0);
 });
 
-test("LocalMcpProvider: last-good proxy is preferred on next request", async () => {
+it("LocalMcpProvider: last-good proxy is preferred on next request", async () => {
   const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
 
   const fetchMock = createFetchMock();
@@ -561,17 +556,17 @@ test("LocalMcpProvider: last-good proxy is preferred on next request", async () 
   });
 
   await provider._fetchWithCorsFallback("https://target.example/1", { tryDirect: false });
-  assert.equal(p2Count, 1);
+  expect(p2Count).toBe(1);
 
   const before = fetchMock.calls.length;
   await provider._fetchWithCorsFallback("https://target.example/2", { tryDirect: false });
   const afterCalls = fetchMock.calls.slice(before);
 
-  assert.equal(afterCalls.length, 1);
-  assert.ok(afterCalls[0].url.startsWith("https://p2/?"));
+  expect(afterCalls.length).toBe(1);
+  expect(afterCalls[0].url.startsWith("https://p2/?")).toBeTruthy();
 });
 
-test("LocalMcpProvider: failed proxy cooldown skips within window", async () => {
+it("LocalMcpProvider: failed proxy cooldown skips within window", async () => {
   const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
 
   await withFakeNow(0, async (time) => {
@@ -599,13 +594,13 @@ test("LocalMcpProvider: failed proxy cooldown skips within window", async () => 
     await provider._fetchWithCorsFallback("https://target.example/b", { tryDirect: false });
 
     const secondAttemptUrls = fetchMock.calls.slice(2).map((c) => c.url);
-    assert.ok(secondAttemptUrls[0].startsWith("https://p2/?"));
-    assert.ok(secondAttemptUrls[1].startsWith("https://p3/?"));
-    assert.equal(secondAttemptUrls.some((u) => u.startsWith("https://p1/?")), false);
+    expect(secondAttemptUrls[0].startsWith("https://p2/?")).toBeTruthy();
+    expect(secondAttemptUrls[1].startsWith("https://p3/?")).toBeTruthy();
+    expect(secondAttemptUrls.some((u) => u.startsWith("https://p1/?"))).toBe(false);
   });
 });
 
-test("LocalMcpProvider: proxyCooldownMs configurable + proxy re-enters after cooldown", async () => {
+it("LocalMcpProvider: proxyCooldownMs configurable + proxy re-enters after cooldown", async () => {
   const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
 
   await withFakeNow(0, async (time) => {
@@ -641,18 +636,18 @@ test("LocalMcpProvider: proxyCooldownMs configurable + proxy re-enters after coo
     time.set(500);
     await provider._fetchWithCorsFallback("https://target.example/2", { tryDirect: false });
     const secondUrls = fetchMock.calls.slice(2).map((c) => c.url);
-    assert.equal(secondUrls.some((u) => u.startsWith("https://p1/?")), false);
+    expect(secondUrls.some((u) => u.startsWith("https://p1/?"))).toBe(false);
 
     time.set(1001);
     await provider._fetchWithCorsFallback("https://target.example/3", { tryDirect: false });
     const thirdUrls = fetchMock.calls.slice(4).map((c) => c.url);
-    assert.ok(thirdUrls[0].startsWith("https://p3/?"), "last-good should be tried first");
-    assert.ok(thirdUrls[1].startsWith("https://p1/?"), "p1 should re-enter after cooldown");
-    assert.equal(thirdUrls.some((u) => u.startsWith("https://p2/?")), false, "p2 should still be in cooldown");
+    expect(thirdUrls[0].startsWith("https://p3/?").toBeTruthy(), "last-good should be tried first");
+    expect(thirdUrls[1].startsWith("https://p1/?").toBeTruthy(), "p1 should re-enter after cooldown");
+    expect(thirdUrls.some((u) => u.startsWith("https://p2/?"))).toBe(false, "p2 should still be in cooldown");
   });
 });
 
-test("LocalMcpProvider: direct fetch uses mode:cors (no 'no-cors')", async () => {
+it("LocalMcpProvider: direct fetch uses mode:cors (no 'no-cors')", async () => {
   const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
 
   const fetchMock = createFetchMock();
@@ -664,29 +659,29 @@ test("LocalMcpProvider: direct fetch uses mode:cors (no 'no-cors')", async () =>
   });
 
   await provider._fetchWithCorsFallback("https://site.example/page", { tryDirect: true });
-  assert.equal(fetchMock.calls.length, 1);
-  assert.equal(fetchMock.calls[0].options.mode, "cors");
+  expect(fetchMock.calls.length).toBe(1);
+  expect(fetchMock.calls[0].options.mode).toBe("cors");
 });
 
-test("LocalMcpProvider: returns tool errors for invalid inputs and unknown tools", async () => {
+it("LocalMcpProvider: returns tool errors for invalid inputs and unknown tools", async () => {
   const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
 
   const provider = new LocalMcpProvider({ fetchImpl: async () => makeTextResponse(longHtml("<title>x</title>")) });
 
   const badSearch = await provider.callTool("search", {});
-  assert.equal(badSearch.success, false);
-  assert.match(badSearch.error, /query is required/);
+  expect(badSearch.success).toBe(false);
+  expect(badSearch.error).toMatch(/query is required/);
 
   const badFetch = await provider.callTool("fetch_content", {});
-  assert.equal(badFetch.success, false);
-  assert.match(badFetch.error, /url is required/);
+  expect(badFetch.success).toBe(false);
+  expect(badFetch.error).toMatch(/url is required/);
 
   const unknown = await provider.callTool("unknown_tool", {});
-  assert.equal(unknown.success, false);
-  assert.match(unknown.error, /Unknown tool/);
+  expect(unknown.success).toBe(false);
+  expect(unknown.error).toMatch(/Unknown tool/);
 });
 
-test("LocalMcpProvider: proxy fetch schedules timeout using provided timeoutMs", async () => {
+it("LocalMcpProvider: proxy fetch schedules timeout using provided timeoutMs", async () => {
   const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
 
   const fetchMock = createFetchMock();
@@ -716,11 +711,11 @@ test("LocalMcpProvider: proxy fetch schedules timeout using provided timeoutMs",
     globalThis.clearTimeout = realClearTimeout;
   }
 
-  assert.deepEqual(timeouts, [4321]);
-  assert.deepEqual(cleared, [123]);
+  expect(timeouts).toEqual([4321]);
+  expect(cleared).toEqual([123]);
 });
 
-test("LocalMcpProvider: proxy fetch enforces maxBodyBytes (best-effort)", async () => {
+it("LocalMcpProvider: proxy fetch enforces maxBodyBytes (best-effort)", async () => {
   const { LocalMcpProvider } = await import("../../js/agents/mcp/local-mcp-provider.js");
 
   const fetchMock = createFetchMock();
@@ -736,24 +731,22 @@ test("LocalMcpProvider: proxy fetch enforces maxBodyBytes (best-effort)", async 
     fetchImpl: fetchMock,
   });
 
-  await assert.rejects(
-    () => provider._fetchWithCorsFallback("https://target.example/huge", { tryDirect: false, maxBodyBytes: 50 }),
+  await expect(() => provider._fetchWithCorsFallback("https://target.example/huge", { tryDirect: false, maxBodyBytes: 50 }),
     (err) => {
-      assert.ok(err instanceof AggregateError);
-      assert.ok(err.errors?.some((e) => String(e?.message || "").includes("Response body exceeds limit")));
+      expect(err instanceof AggregateError).toBeTruthy();
+      expect(err.errors?.some(e => String(e?.message || "").includes("Response body exceeds limit")));
       return true;
     }
   );
 });
 
-test("validateFetchUrl: blocks IPv4-mapped IPv6 private hosts by default", async () => {
+it("validateFetchUrl: blocks IPv4-mapped IPv6 private hosts by default", async () => {
   const { validateFetchUrl } = await import("../../js/agents/mcp/http-proxy.js");
 
-  assert.throws(() => validateFetchUrl("http://[::ffff:127.0.0.1]/"), /private network/i);
-  assert.throws(() => validateFetchUrl("http://[::ffff:7f00:1]/"), /private network/i);
+  expect(() => validateFetchUrl("http://[::ffff:127.0.0.1]/")).toThrow(/private network/i);
+  expect(() => validateFetchUrl("http://[::ffff:7f00:1]/")).toThrow(/private network/i);
 
-  assert.equal(
-    validateFetchUrl("http://[::ffff:127.0.0.1]/", { allowPrivateNetwork: true }),
+  expect(validateFetchUrl("http://[::ffff:127.0.0.1]/").toBe({ allowPrivateNetwork: true }),
     "http://[::ffff:7f00:1]/"
   );
 });

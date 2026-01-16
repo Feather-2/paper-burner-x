@@ -1,5 +1,5 @@
-import { describe, it, beforeEach } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import { StorageVfs } from "../../js/agents/vfs/vfs.storage.js";
 
@@ -32,38 +32,38 @@ function createMockStorageAdapter() {
 
 describe("StorageVfs - constructor", () => {
   it("throws if adapter is missing required methods", () => {
-    assert.throws(() => new StorageVfs(null), /storageAdapter with get\/set\/delete\/keys is required/);
-    assert.throws(() => new StorageVfs({}), /storageAdapter/);
-    assert.throws(() => new StorageVfs({ get: () => {} }), /storageAdapter/);
-    assert.throws(() => new StorageVfs({ get: () => {}, set: () => {} }), /storageAdapter/);
-    assert.throws(() => new StorageVfs({ get: () => {}, set: () => {}, delete: () => {} }), /storageAdapter/);
+    expect(() => new StorageVfs(null)).toThrow(/storageAdapter with get\/set\/delete\/keys is required/);
+    expect(() => new StorageVfs({})).toThrow(/storageAdapter/);
+    expect(() => new StorageVfs({ get: () => {} })).toThrow(/storageAdapter/);
+    expect(() => new StorageVfs({ get: () => {}, set: () => {} })).toThrow(/storageAdapter/);
+    expect(() => new StorageVfs({ get: () => {}, set: () => {}, delete: () => {} })).toThrow(/storageAdapter/);
   });
 
   it("creates instance with valid adapter", () => {
     const adapter = createMockStorageAdapter();
     const vfs = new StorageVfs(adapter);
-    assert.ok(vfs instanceof StorageVfs);
-    assert.strictEqual(vfs.storageAdapter, adapter);
+    expect(vfs instanceof StorageVfs).toBeTruthy();
+    expect(vfs.storageAdapter).toBe(adapter);
   });
 
   it("uses default keyPrefix when not provided", () => {
     const adapter = createMockStorageAdapter();
     const vfs = new StorageVfs(adapter);
-    assert.strictEqual(vfs._filePrefix, "pb_vfs:file:");
-    assert.strictEqual(vfs._dirPrefix, "pb_vfs:dir:");
+    expect(vfs._filePrefix).toBe("pb_vfs:file:");
+    expect(vfs._dirPrefix).toBe("pb_vfs:dir:");
   });
 
   it("uses custom keyPrefix when provided", () => {
     const adapter = createMockStorageAdapter();
     const vfs = new StorageVfs(adapter, { keyPrefix: "custom:" });
-    assert.strictEqual(vfs._filePrefix, "custom:file:");
-    assert.strictEqual(vfs._dirPrefix, "custom:dir:");
+    expect(vfs._filePrefix).toBe("custom:file:");
+    expect(vfs._dirPrefix).toBe("custom:dir:");
   });
 
   it("falls back to default keyPrefix for empty string", () => {
     const adapter = createMockStorageAdapter();
     const vfs = new StorageVfs(adapter, { keyPrefix: "" });
-    assert.strictEqual(vfs._filePrefix, "pb_vfs:file:");
+    expect(vfs._filePrefix).toBe("pb_vfs:file:");
   });
 });
 
@@ -80,14 +80,14 @@ describe("StorageVfs - writeFile and readFile", () => {
     const data = new Uint8Array([1, 2, 3, 4, 5]);
     await vfs.writeFile("test.bin", data);
     const result = await vfs.readFile("test.bin");
-    assert.deepEqual(result, data);
+    expect(result).toEqual(data);
   });
 
   it("writes and reads string data", async () => {
     await vfs.writeFile("test.txt", "hello world");
     const result = await vfs.readFile("test.txt");
     const text = new TextDecoder().decode(result);
-    assert.equal(text, "hello world");
+    expect(text).toBe("hello world");
   });
 
   it("writes and reads JSON objects", async () => {
@@ -95,7 +95,7 @@ describe("StorageVfs - writeFile and readFile", () => {
     await vfs.writeFile("data.json", obj);
     const result = await vfs.readFile("data.json");
     const parsed = JSON.parse(new TextDecoder().decode(result));
-    assert.deepEqual(parsed, obj);
+    expect(parsed).toEqual(obj);
   });
 
   it("writes and reads arrays", async () => {
@@ -103,17 +103,17 @@ describe("StorageVfs - writeFile and readFile", () => {
     await vfs.writeFile("arr.json", arr);
     const result = await vfs.readFile("arr.json");
     const parsed = JSON.parse(new TextDecoder().decode(result));
-    assert.deepEqual(parsed, arr);
+    expect(parsed).toEqual(arr);
   });
 
   it("handles null and undefined data", async () => {
     await vfs.writeFile("null.bin", null);
     const result1 = await vfs.readFile("null.bin");
-    assert.equal(result1.length, 0);
+    expect(result1.length).toBe(0);
 
     await vfs.writeFile("undef.bin", undefined);
     const result2 = await vfs.readFile("undef.bin");
-    assert.equal(result2.length, 0);
+    expect(result2.length).toBe(0);
   });
 
   it("handles ArrayBuffer data", async () => {
@@ -122,7 +122,7 @@ describe("StorageVfs - writeFile and readFile", () => {
     view.set([10, 20, 30, 40]);
     await vfs.writeFile("buffer.bin", buffer);
     const result = await vfs.readFile("buffer.bin");
-    assert.deepEqual(result, new Uint8Array([10, 20, 30, 40]));
+    expect(result).toEqual(new Uint8Array([10, 20, 30, 40]));
   });
 
   it("handles DataView data", async () => {
@@ -132,32 +132,32 @@ describe("StorageVfs - writeFile and readFile", () => {
     view.setUint8(1, 2);
     await vfs.writeFile("view.bin", new Uint8Array(buffer));
     const result = await vfs.readFile("view.bin");
-    assert.equal(result[0], 1);
-    assert.equal(result[1], 2);
+    expect(result[0]).toBe(1);
+    expect(result[1]).toBe(2);
   });
 
   it("throws EISDIR for root path on writeFile", async () => {
-    await assert.rejects(vfs.writeFile("", "data"), /EISDIR/);
-    await assert.rejects(vfs.writeFile("/", "data"), /EISDIR/);
+    await expect(vfs.writeFile("", "data")).rejects.toThrow(/EISDIR/);
+    await expect(vfs.writeFile("/", "data")).rejects.toThrow(/EISDIR/);
   });
 
   it("throws EISDIR for root path on readFile", async () => {
-    await assert.rejects(vfs.readFile(""), /EISDIR/);
-    await assert.rejects(vfs.readFile("/"), /EISDIR/);
+    await expect(vfs.readFile("")).rejects.toThrow(/EISDIR/);
+    await expect(vfs.readFile("/")).rejects.toThrow(/EISDIR/);
   });
 
   it("throws ENOENT for non-existent file", async () => {
-    await assert.rejects(vfs.readFile("nonexistent.txt"), /ENOENT/);
+    await expect(vfs.readFile("nonexistent.txt")).rejects.toThrow(/ENOENT/);
   });
 
   it("creates parent directories automatically", async () => {
     await vfs.writeFile("a/b/c/file.txt", "nested");
     const result = await vfs.readFile("a/b/c/file.txt");
-    assert.equal(new TextDecoder().decode(result), "nested");
+    expect(new TextDecoder().decode(result)).toBe("nested");
 
     // Check directories were created
     const stat = await vfs.stat("a/b/c");
-    assert.equal(stat.isDirectory(), true);
+    expect(stat.isDirectory()).toBe(true);
   });
 });
 
@@ -171,22 +171,22 @@ describe("StorageVfs - writeText and readText", () => {
   it("writes and reads text", async () => {
     await vfs.writeText("file.txt", "hello");
     const text = await vfs.readText("file.txt");
-    assert.equal(text, "hello");
+    expect(text).toBe("hello");
   });
 
   it("handles non-string values in writeText", async () => {
     await vfs.writeText("num.txt", 123);
-    assert.equal(await vfs.readText("num.txt"), "123");
+    expect(await vfs.readText("num.txt")).toBe("123");
 
     await vfs.writeText("null.txt", null);
-    assert.equal(await vfs.readText("null.txt"), "");
+    expect(await vfs.readText("null.txt")).toBe("");
 
     await vfs.writeText("undef.txt", undefined);
-    assert.equal(await vfs.readText("undef.txt"), "");
+    expect(await vfs.readText("undef.txt")).toBe("");
   });
 
   it("throws EISDIR for root path on writeText", async () => {
-    await assert.rejects(vfs.writeText("", "data"), /EISDIR/);
+    await expect(vfs.writeText("", "data")).rejects.toThrow(/EISDIR/);
   });
 
   it("stores text with utf8 encoding", async () => {
@@ -194,8 +194,8 @@ describe("StorageVfs - writeText and readText", () => {
     const vfs2 = new StorageVfs(adapter);
     await vfs2.writeText("text.txt", "hello");
     const record = adapter.get("pb_vfs:file:text.txt");
-    assert.equal(record.encoding, "utf8");
-    assert.equal(record.data, "hello");
+    expect(record.encoding).toBe("utf8");
+    expect(record.data).toBe("hello");
   });
 });
 
@@ -209,23 +209,23 @@ describe("StorageVfs - mkdir", () => {
   it("creates directory recursively by default", async () => {
     await vfs.mkdir("a/b/c");
     const stat = await vfs.stat("a/b/c");
-    assert.equal(stat.isDirectory(), true);
+    expect(stat.isDirectory()).toBe(true);
   });
 
   it("returns true for root path", async () => {
     const result = await vfs.mkdir("");
-    assert.equal(result, true);
+    expect(result).toBe(true);
   });
 
   it("throws ENOENT for non-recursive when parent missing", async () => {
-    await assert.rejects(vfs.mkdir("missing/dir", { recursive: false }), /ENOENT/);
+    await expect(vfs.mkdir("missing/dir", { recursive: false })).rejects.toThrow(/ENOENT/);
   });
 
   it("succeeds non-recursive when parent exists", async () => {
     await vfs.mkdir("parent");
     await vfs.mkdir("parent/child", { recursive: false });
     const stat = await vfs.stat("parent/child");
-    assert.equal(stat.isDirectory(), true);
+    expect(stat.isDirectory()).toBe(true);
   });
 });
 
@@ -237,28 +237,28 @@ describe("StorageVfs - rmdir", () => {
   });
 
   it("throws EPERM when removing root", async () => {
-    await assert.rejects(vfs.rmdir(""), /EPERM/);
-    await assert.rejects(vfs.rmdir("/"), /EPERM/);
+    await expect(vfs.rmdir("")).rejects.toThrow(/EPERM/);
+    await expect(vfs.rmdir("/")).rejects.toThrow(/EPERM/);
   });
 
   it("throws ENOTEMPTY for non-empty dir without recursive", async () => {
     await vfs.writeText("dir/file.txt", "content");
-    await assert.rejects(vfs.rmdir("dir", { recursive: false }), /ENOTEMPTY/);
+    await expect(vfs.rmdir("dir", { recursive: false })).rejects.toThrow(/ENOTEMPTY/);
   });
 
   it("removes empty directory", async () => {
     await vfs.mkdir("emptydir");
     await vfs.rmdir("emptydir");
-    assert.equal(await vfs.exists("emptydir"), false);
+    expect(await vfs.exists("emptydir")).toBe(false);
   });
 
   it("removes directory recursively", async () => {
     await vfs.writeText("dir/a.txt", "a");
     await vfs.writeText("dir/sub/b.txt", "b");
     await vfs.rmdir("dir", { recursive: true });
-    assert.equal(await vfs.exists("dir"), false);
-    assert.equal(await vfs.exists("dir/a.txt"), false);
-    assert.equal(await vfs.exists("dir/sub/b.txt"), false);
+    expect(await vfs.exists("dir")).toBe(false);
+    expect(await vfs.exists("dir/a.txt")).toBe(false);
+    expect(await vfs.exists("dir/sub/b.txt")).toBe(false);
   });
 });
 
@@ -272,15 +272,15 @@ describe("StorageVfs - unlink", () => {
   it("deletes existing file", async () => {
     await vfs.writeText("file.txt", "content");
     await vfs.unlink("file.txt");
-    assert.equal(await vfs.exists("file.txt"), false);
+    expect(await vfs.exists("file.txt")).toBe(false);
   });
 
   it("throws EISDIR for root path", async () => {
-    await assert.rejects(vfs.unlink(""), /EISDIR/);
+    await expect(vfs.unlink("")).rejects.toThrow(/EISDIR/);
   });
 
   it("throws ENOENT for non-existent file", async () => {
-    await assert.rejects(vfs.unlink("missing.txt"), /ENOENT/);
+    await expect(vfs.unlink("missing.txt")).rejects.toThrow(/ENOENT/);
   });
 });
 
@@ -293,35 +293,35 @@ describe("StorageVfs - stat", () => {
 
   it("returns directory stat for root", async () => {
     const stat = await vfs.stat("");
-    assert.equal(stat.isDirectory(), true);
-    assert.equal(stat.isFile(), false);
-    assert.equal(stat.size, 0);
+    expect(stat.isDirectory()).toBe(true);
+    expect(stat.isFile()).toBe(false);
+    expect(stat.size).toBe(0);
   });
 
   it("returns file stat with size and mtime", async () => {
     await vfs.writeText("file.txt", "hello");
     const stat = await vfs.stat("file.txt");
-    assert.equal(stat.isFile(), true);
-    assert.equal(stat.isDirectory(), false);
-    assert.ok(stat.size > 0);
-    assert.ok(stat.mtimeMs > 0);
+    expect(stat.isFile()).toBe(true);
+    expect(stat.isDirectory()).toBe(false);
+    expect(stat.size > 0).toBeTruthy();
+    expect(stat.mtimeMs > 0).toBeTruthy();
   });
 
   it("returns directory stat", async () => {
     await vfs.mkdir("mydir");
     const stat = await vfs.stat("mydir");
-    assert.equal(stat.isDirectory(), true);
-    assert.equal(stat.isFile(), false);
+    expect(stat.isDirectory()).toBe(true);
+    expect(stat.isFile()).toBe(false);
   });
 
   it("infers directory from children", async () => {
     await vfs.writeText("implicit/file.txt", "content");
     const stat = await vfs.stat("implicit");
-    assert.equal(stat.isDirectory(), true);
+    expect(stat.isDirectory()).toBe(true);
   });
 
   it("throws ENOENT for non-existent path", async () => {
-    await assert.rejects(vfs.stat("nonexistent"), /ENOENT/);
+    await expect(vfs.stat("nonexistent")).rejects.toThrow(/ENOENT/);
   });
 });
 
@@ -333,16 +333,16 @@ describe("StorageVfs - exists", () => {
   });
 
   it("returns true for root", async () => {
-    assert.equal(await vfs.exists(""), true);
+    expect(await vfs.exists("")).toBe(true);
   });
 
   it("returns true for existing file", async () => {
     await vfs.writeText("file.txt", "content");
-    assert.equal(await vfs.exists("file.txt"), true);
+    expect(await vfs.exists("file.txt")).toBe(true);
   });
 
   it("returns false for non-existent path", async () => {
-    assert.equal(await vfs.exists("missing.txt"), false);
+    expect(await vfs.exists("missing.txt")).toBe(false);
   });
 });
 
@@ -357,42 +357,42 @@ describe("StorageVfs - readdir", () => {
     await vfs.writeText("dir/a.txt", "a");
     await vfs.writeText("dir/b.txt", "b");
     const names = await vfs.readdir("dir");
-    assert.deepEqual(names, ["a.txt", "b.txt"]);
+    expect(names).toEqual(["a.txt", "b.txt"]);
   });
 
   it("lists with file types", async () => {
     await vfs.writeText("dir/file.txt", "content");
     await vfs.mkdir("dir/subdir");
     const entries = await vfs.readdir("dir", { withFileTypes: true });
-    assert.equal(entries.length, 2);
+    expect(entries.length).toBe(2);
 
     const fileEntry = entries.find((e) => e.name === "file.txt");
-    assert.equal(fileEntry.isFile(), true);
-    assert.equal(fileEntry.isDirectory(), false);
+    expect(fileEntry.isFile()).toBe(true);
+    expect(fileEntry.isDirectory()).toBe(false);
 
     const dirEntry = entries.find((e) => e.name === "subdir");
-    assert.equal(dirEntry.isDirectory(), true);
-    assert.equal(dirEntry.isFile(), false);
+    expect(dirEntry.isDirectory()).toBe(true);
+    expect(dirEntry.isFile()).toBe(false);
   });
 
   it("lists root directory", async () => {
     await vfs.writeText("root.txt", "root");
     await vfs.writeText("dir/nested.txt", "nested");
     const names = await vfs.readdir("");
-    assert.ok(names.includes("root.txt"));
-    assert.ok(names.includes("dir"));
+    expect(names.includes("root.txt")).toBeTruthy();
+    expect(names.includes("dir")).toBeTruthy();
   });
 
   it("infers directory from nested files", async () => {
     await vfs.writeText("parent/child/file.txt", "content");
     const entries = await vfs.readdir("parent", { withFileTypes: true });
     const childEntry = entries.find((e) => e.name === "child");
-    assert.ok(childEntry);
-    assert.equal(childEntry.isDirectory(), true);
+    expect(childEntry).toBeTruthy();
+    expect(childEntry.isDirectory()).toBe(true);
   });
 
   it("throws ENOENT for non-existent directory", async () => {
-    await assert.rejects(vfs.readdir("nonexistent"), /ENOENT/);
+    await expect(vfs.readdir("nonexistent")).rejects.toThrow(/ENOENT/);
   });
 });
 
@@ -407,13 +407,13 @@ describe("StorageVfs - list (legacy)", () => {
     await vfs.writeText("dir/file.txt", "content");
     await vfs.mkdir("dir/sub");
     const items = await vfs.list("dir");
-    assert.ok(Array.isArray(items));
+    expect(Array.isArray(items)).toBeTruthy();
 
     const fileItem = items.find((i) => i.name === "file.txt");
-    assert.equal(fileItem.kind, "file");
+    expect(fileItem.kind).toBe("file");
 
     const dirItem = items.find((i) => i.name === "sub");
-    assert.equal(dirItem.kind, "dir");
+    expect(dirItem.kind).toBe("dir");
   });
 });
 
@@ -427,17 +427,17 @@ describe("StorageVfs - copy", () => {
   it("copies file content", async () => {
     await vfs.writeText("src.txt", "content");
     await vfs.copy("src.txt", "dst.txt");
-    assert.equal(await vfs.readText("dst.txt"), "content");
-    assert.equal(await vfs.exists("src.txt"), true);
+    expect(await vfs.readText("dst.txt")).toBe("content");
+    expect(await vfs.exists("src.txt")).toBe(true);
   });
 
   it("throws EISDIR for root as source", async () => {
-    await assert.rejects(vfs.copy("", "dst.txt"), /EISDIR/);
+    await expect(vfs.copy("", "dst.txt")).rejects.toThrow(/EISDIR/);
   });
 
   it("throws EISDIR for root as destination", async () => {
     await vfs.writeText("src.txt", "content");
-    await assert.rejects(vfs.copy("src.txt", ""), /EISDIR/);
+    await expect(vfs.copy("src.txt", "")).rejects.toThrow(/EISDIR/);
   });
 });
 
@@ -451,8 +451,8 @@ describe("StorageVfs - move", () => {
   it("moves file (copy + unlink)", async () => {
     await vfs.writeText("src.txt", "content");
     await vfs.move("src.txt", "dst.txt");
-    assert.equal(await vfs.readText("dst.txt"), "content");
-    assert.equal(await vfs.exists("src.txt"), false);
+    expect(await vfs.readText("dst.txt")).toBe("content");
+    expect(await vfs.exists("src.txt")).toBe(false);
   });
 });
 
@@ -466,21 +466,21 @@ describe("StorageVfs - rename", () => {
   it("renames file", async () => {
     await vfs.writeText("old.txt", "content");
     await vfs.rename("old.txt", "new.txt");
-    assert.equal(await vfs.readText("new.txt"), "content");
-    assert.equal(await vfs.exists("old.txt"), false);
+    expect(await vfs.readText("new.txt")).toBe("content");
+    expect(await vfs.exists("old.txt")).toBe(false);
   });
 
   it("throws EISDIR for root as source", async () => {
-    await assert.rejects(vfs.rename("", "dst.txt"), /EISDIR/);
+    await expect(vfs.rename("", "dst.txt")).rejects.toThrow(/EISDIR/);
   });
 
   it("throws EISDIR for root as destination", async () => {
     await vfs.writeText("src.txt", "content");
-    await assert.rejects(vfs.rename("src.txt", ""), /EISDIR/);
+    await expect(vfs.rename("src.txt", "")).rejects.toThrow(/EISDIR/);
   });
 
   it("throws ENOENT for non-existent source", async () => {
-    await assert.rejects(vfs.rename("missing.txt", "dst.txt"), /ENOENT/);
+    await expect(vfs.rename("missing.txt", "dst.txt")).rejects.toThrow(/ENOENT/);
   });
 });
 
@@ -492,24 +492,24 @@ describe("StorageVfs - rm", () => {
   });
 
   it("throws EPERM when removing root", async () => {
-    await assert.rejects(vfs.rm(""), /EPERM/);
+    await expect(vfs.rm("")).rejects.toThrow(/EPERM/);
   });
 
   it("removes file", async () => {
     await vfs.writeText("file.txt", "content");
     await vfs.rm("file.txt");
-    assert.equal(await vfs.exists("file.txt"), false);
+    expect(await vfs.exists("file.txt")).toBe(false);
   });
 
   it("removes directory recursively", async () => {
     await vfs.writeText("dir/file.txt", "content");
     await vfs.rm("dir", { recursive: true });
-    assert.equal(await vfs.exists("dir"), false);
+    expect(await vfs.exists("dir")).toBe(false);
   });
 
   it("throws ENOTEMPTY for non-recursive on non-empty dir", async () => {
     await vfs.writeText("dir/file.txt", "content");
-    await assert.rejects(vfs.rm("dir", { recursive: false }), /ENOTEMPTY/);
+    await expect(vfs.rm("dir", { recursive: false })).rejects.toThrow(/ENOTEMPTY/);
   });
 });
 
@@ -525,27 +525,27 @@ describe("StorageVfs - listFiles", () => {
     await vfs.writeText("dir/b.txt", "b");
     await vfs.writeText("dir/sub/c.txt", "c");
     const files = await vfs.listFiles({});
-    assert.deepEqual(files.sort(), ["a.txt", "dir/b.txt", "dir/sub/c.txt"]);
+    expect(files.sort()).toEqual(["a.txt", "dir/b.txt", "dir/sub/c.txt"]);
   });
 
   it("lists files with prefix", async () => {
     await vfs.writeText("a.txt", "a");
     await vfs.writeText("dir/b.txt", "b");
     const files = await vfs.listFiles({ prefix: "dir" });
-    assert.deepEqual(files, ["dir/b.txt"]);
+    expect(files).toEqual(["dir/b.txt"]);
   });
 
   it("lists files non-recursively", async () => {
     await vfs.writeText("dir/a.txt", "a");
     await vfs.writeText("dir/sub/b.txt", "b");
     const files = await vfs.listFiles({ prefix: "dir", recursive: false });
-    assert.deepEqual(files, ["dir/a.txt"]);
+    expect(files).toEqual(["dir/a.txt"]);
   });
 
   it("returns single file when prefix is a file path", async () => {
     await vfs.writeText("file.txt", "content");
     const files = await vfs.listFiles({ prefix: "file.txt" });
-    assert.deepEqual(files, ["file.txt"]);
+    expect(files).toEqual(["file.txt"]);
   });
 });
 
@@ -563,7 +563,7 @@ describe("StorageVfs - walkFiles", () => {
     for await (const f of vfs.walkFiles({})) {
       files.push(f);
     }
-    assert.deepEqual(files.sort(), ["a.txt", "b.txt"]);
+    expect(files.sort()).toEqual(["a.txt", "b.txt"]);
   });
 });
 
@@ -587,7 +587,7 @@ describe("StorageVfs - encoding edge cases", () => {
       mtimeMs: Date.now(),
     });
     const bytes = await vfs.readFile("manual.txt");
-    assert.equal(new TextDecoder().decode(bytes), "manual content");
+    expect(new TextDecoder().decode(bytes)).toBe("manual content");
   });
 
   it("reads base64 encoded record", async () => {
@@ -601,7 +601,7 @@ describe("StorageVfs - encoding edge cases", () => {
       mtimeMs: Date.now(),
     });
     const bytes = await vfs.readFile("b64.txt");
-    assert.equal(new TextDecoder().decode(bytes), "hello");
+    expect(new TextDecoder().decode(bytes)).toBe("hello");
   });
 
   it("reads record without encoding (falls back to base64)", async () => {
@@ -613,7 +613,7 @@ describe("StorageVfs - encoding edge cases", () => {
       mtimeMs: Date.now(),
     });
     const bytes = await vfs.readFile("noenc.txt");
-    assert.equal(new TextDecoder().decode(bytes), "hello");
+    expect(new TextDecoder().decode(bytes)).toBe("hello");
   });
 
   it("throws EISDIR when record has directory kind", async () => {
@@ -621,7 +621,7 @@ describe("StorageVfs - encoding edge cases", () => {
       kind: "directory",
       path: "fakedir",
     });
-    await assert.rejects(vfs.readFile("fakedir"), /EISDIR/);
+    await expect(vfs.readFile("fakedir")).rejects.toThrow(/EISDIR/);
   });
 });
 
@@ -642,8 +642,8 @@ describe("StorageVfs - stat edge cases", () => {
       data: "test",
     });
     const stat = await vfs.stat("nosize.txt");
-    assert.equal(stat.isFile(), true);
-    assert.equal(stat.size, 0); // fallback
+    expect(stat.isFile()).toBe(true);
+    expect(stat.size).toBe(0); // fallback
   });
 
   it("handles missing mtimeMs in directory record", async () => {
@@ -652,8 +652,8 @@ describe("StorageVfs - stat edge cases", () => {
       path: "nomtime",
     });
     const stat = await vfs.stat("nomtime");
-    assert.equal(stat.isDirectory(), true);
-    assert.equal(stat.size, 0);
+    expect(stat.isDirectory()).toBe(true);
+    expect(stat.size).toBe(0);
   });
 
   it("handles non-finite size/mtimeMs values", async () => {
@@ -666,8 +666,8 @@ describe("StorageVfs - stat edge cases", () => {
       mtimeMs: Infinity,
     });
     const stat = await vfs.stat("badnums.txt");
-    assert.equal(stat.size, 0);
-    assert.ok(!("mtimeMs" in stat) || stat.mtimeMs === undefined);
+    expect(stat.size).toBe(0);
+    expect(!("mtimeMs" in stat) || stat.mtimeMs === undefined).toBeTruthy();
   });
 });
 
@@ -693,7 +693,7 @@ describe("StorageVfs - adapter without has method", () => {
     };
     const vfs = new StorageVfs(adapter);
     await vfs.writeText("file.txt", "content");
-    assert.equal(await vfs.readText("file.txt"), "content");
+    expect(await vfs.readText("file.txt")).toBe("content");
   });
 });
 
@@ -721,10 +721,10 @@ describe("StorageVfs - keys iteration edge cases", () => {
 
     // These should not throw despite malformed keys
     const files = await vfs.listFiles({});
-    assert.ok(files.includes("file.txt"));
+    expect(files.includes("file.txt")).toBeTruthy();
 
     const entries = await vfs.readdir("");
-    assert.ok(entries.includes("file.txt"));
+    expect(entries.includes("file.txt")).toBeTruthy();
   });
 });
 
@@ -733,6 +733,6 @@ describe("StorageVfs - _getFileRecord edge cases", () => {
     const adapter = createMockStorageAdapter();
     adapter.set("pb_vfs:file:bad", "not an object");
     const vfs = new StorageVfs(adapter);
-    await assert.rejects(vfs.readFile("bad"), /ENOENT/);
+    await expect(vfs.readFile("bad")).rejects.toThrow(/ENOENT/);
   });
 });

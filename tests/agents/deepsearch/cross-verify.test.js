@@ -1,7 +1,8 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
-test("cross-verify: starts subtask and writes verdict back", async () => {
+it("cross-verify: starts subtask and writes verdict back", async () => {
   const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
   const { SharedContext } = await import("../../../js/agents/stages/deepsearch/runtime/shared-context.js");
   const { DiscoveryManager, DiscoveryStatus } = await import("../../../js/agents/sdk/DiscoveryManager.js");
@@ -69,28 +70,28 @@ test("cross-verify: starts subtask and writes verdict back", async () => {
     }
   );
 
-  assert.equal(result.success, true);
-  assert.equal(result.factId, "gap_revenue");
-  assert.ok(typeof result.taskId === "string" && result.taskId.startsWith("task_"));
-  assert.equal(result.discoveryStatus, DiscoveryStatus.SATISFIED);
-  assert.equal(result.verification.factId, "gap_revenue");
-  assert.equal(result.verification.discoveryStatus, DiscoveryStatus.SATISFIED);
-  assert.equal(result.verification.verdict.status, "satisfied");
+  expect(result.success).toBe(true);
+  expect(result.factId).toBe("gap_revenue");
+  expect(typeof result.taskId === "string" && result.taskId.startsWith("task_")).toBeTruthy();
+  expect(result.discoveryStatus).toBe(DiscoveryStatus.SATISFIED);
+  expect(result.verification.factId).toBe("gap_revenue");
+  expect(result.verification.discoveryStatus).toBe(DiscoveryStatus.SATISFIED);
+  expect(result.verification.verdict.status).toBe("satisfied");
 
   const scratch = state.getScratchpad("crossVerify");
-  assert.ok(scratch && typeof scratch === "object");
-  assert.ok(scratch.gap_revenue);
-  assert.equal(scratch.gap_revenue.status, "completed");
-  assert.equal(scratch.gap_revenue.taskId, result.taskId);
-  assert.equal(scratch.gap_revenue.discoveryStatus, DiscoveryStatus.SATISFIED);
+  expect(scratch && typeof scratch === "object").toBeTruthy();
+  expect(scratch.gap_revenue).toBeTruthy();
+  expect(scratch.gap_revenue.status).toBe("completed");
+  expect(scratch.gap_revenue.taskId).toBe(result.taskId);
+  expect(scratch.gap_revenue.discoveryStatus).toBe(DiscoveryStatus.SATISFIED);
 
   const pointer = sharedContext.getDetail("cross_verify:gap_revenue");
-  assert.ok(pointer);
-  assert.equal(pointer.taskId, result.taskId);
-  assert.equal(pointer.discoveryStatus, DiscoveryStatus.SATISFIED);
+  expect(pointer).toBeTruthy();
+  expect(pointer.taskId).toBe(result.taskId);
+  expect(pointer.discoveryStatus).toBe(DiscoveryStatus.SATISFIED);
 
   const discovery = discoveryManager.getDiscovery("gap_revenue");
-  assert.ok(discovery);
-  assert.equal(discovery.status, DiscoveryStatus.SATISFIED);
+  expect(discovery).toBeTruthy();
+  expect(discovery.status).toBe(DiscoveryStatus.SATISFIED);
 });
 

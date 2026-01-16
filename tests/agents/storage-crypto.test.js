@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import {
   PB_ENCRYPTED_PREFIX,
@@ -12,48 +12,48 @@ import {
 describe("shared/utils/storage-crypto", () => {
   describe("PB_ENCRYPTED_PREFIX", () => {
     it("is a string constant", () => {
-      assert.equal(typeof PB_ENCRYPTED_PREFIX, "string");
-      assert.ok(PB_ENCRYPTED_PREFIX.length > 0);
+      expect(typeof PB_ENCRYPTED_PREFIX).toBe("string");
+      expect(PB_ENCRYPTED_PREFIX.length > 0).toBeTruthy();
     });
 
     it("has expected format", () => {
-      assert.ok(PB_ENCRYPTED_PREFIX.startsWith("pbenc:"));
+      expect(PB_ENCRYPTED_PREFIX.startsWith("pbenc:")).toBeTruthy();
     });
   });
 
   describe("isEncryptedString", () => {
     it("returns true for encrypted format", () => {
-      assert.ok(isEncryptedString(`${PB_ENCRYPTED_PREFIX}{"data":"test"}`));
+      expect(isEncryptedString(`${PB_ENCRYPTED_PREFIX}{"data":"test"}`)).toBeTruthy();
     });
 
     it("returns false for non-string", () => {
-      assert.equal(isEncryptedString(null), false);
-      assert.equal(isEncryptedString(undefined), false);
-      assert.equal(isEncryptedString(123), false);
-      assert.equal(isEncryptedString({}), false);
+      expect(isEncryptedString(null)).toBe(false);
+      expect(isEncryptedString(undefined)).toBe(false);
+      expect(isEncryptedString(123)).toBe(false);
+      expect(isEncryptedString({})).toBe(false);
     });
 
     it("returns false for plain text", () => {
-      assert.equal(isEncryptedString("plain text"), false);
-      assert.equal(isEncryptedString(""), false);
+      expect(isEncryptedString("plain text")).toBe(false);
+      expect(isEncryptedString("")).toBe(false);
     });
 
     it("returns false for partial prefix", () => {
-      assert.equal(isEncryptedString("pbenc:"), false);
-      assert.equal(isEncryptedString("pbenc"), false);
+      expect(isEncryptedString("pbenc:")).toBe(false);
+      expect(isEncryptedString("pbenc")).toBe(false);
     });
   });
 
   describe("canUseStorageEncryption", () => {
     it("returns boolean", () => {
       const result = canUseStorageEncryption();
-      assert.equal(typeof result, "boolean");
+      expect(typeof result).toBe("boolean");
     });
 
     it("returns true in Node.js with WebCrypto", () => {
       // Node.js 15+ has WebCrypto
       const hasCrypto = typeof globalThis.crypto?.subtle === "object";
-      assert.equal(canUseStorageEncryption(), hasCrypto);
+      expect(canUseStorageEncryption()).toBe(hasCrypto);
     });
   });
 
@@ -69,10 +69,10 @@ describe("shared/utils/storage-crypto", () => {
       const passphrase = "test-password-123";
 
       const encrypted = await encryptString(plaintext, { passphrase });
-      assert.ok(isEncryptedString(encrypted));
+      expect(isEncryptedString(encrypted)).toBeTruthy();
 
       const decrypted = await decryptString(encrypted, { passphrase });
-      assert.equal(decrypted, plaintext);
+      expect(decrypted).toBe(plaintext);
     });
 
     it("encrypts non-string values", async () => {
@@ -80,10 +80,10 @@ describe("shared/utils/storage-crypto", () => {
 
       const passphrase = "test-password";
       const encrypted = await encryptString(12345, { passphrase });
-      assert.ok(isEncryptedString(encrypted));
+      expect(isEncryptedString(encrypted)).toBeTruthy();
 
       const decrypted = await decryptString(encrypted, { passphrase });
-      assert.equal(decrypted, "12345");
+      expect(decrypted).toBe("12345");
     });
 
     it("encrypts null/undefined as empty string", async () => {
@@ -92,7 +92,7 @@ describe("shared/utils/storage-crypto", () => {
       const passphrase = "test-password";
       const encrypted = await encryptString(null, { passphrase });
       const decrypted = await decryptString(encrypted, { passphrase });
-      assert.equal(decrypted, "");
+      expect(decrypted).toBe("");
     });
 
     it("supports AAD (additional authenticated data)", async () => {
@@ -104,7 +104,7 @@ describe("shared/utils/storage-crypto", () => {
 
       const encrypted = await encryptString(plaintext, { passphrase, aad });
       const decrypted = await decryptString(encrypted, { passphrase, aad });
-      assert.equal(decrypted, plaintext);
+      expect(decrypted).toBe(plaintext);
     });
 
     it("fails with wrong AAD", async () => {
@@ -118,8 +118,7 @@ describe("shared/utils/storage-crypto", () => {
         aad: "correct-aad",
       });
 
-      await assert.rejects(
-        () => decryptString(encrypted, { passphrase, aad: "wrong-aad" }),
+      await expect(() => decryptString(encrypted, { passphrase, aad: "wrong-aad" }),
         /decrypt|operation/i
       );
     });
@@ -136,14 +135,13 @@ describe("shared/utils/storage-crypto", () => {
         iterations,
       });
       const decrypted = await decryptString(encrypted, { passphrase });
-      assert.equal(decrypted, plaintext);
+      expect(decrypted).toBe(plaintext);
     });
 
     it("throws without passphrase", async () => {
       if (!hasWebCrypto) return;
 
-      await assert.rejects(
-        () => encryptString("test", {}),
+      await expect(() => encryptString("test", {}),
         /passphrase/i
       );
     });
@@ -151,8 +149,7 @@ describe("shared/utils/storage-crypto", () => {
     it("throws for non-encrypted payload", async () => {
       if (!hasWebCrypto) return;
 
-      await assert.rejects(
-        () => decryptString("plain text", { passphrase: "test" }),
+      await expect(() => decryptString("plain text", { passphrase: "test" }),
         /not encrypted/i
       );
     });
@@ -160,8 +157,7 @@ describe("shared/utils/storage-crypto", () => {
     it("throws for invalid JSON payload", async () => {
       if (!hasWebCrypto) return;
 
-      await assert.rejects(
-        () => decryptString(`${PB_ENCRYPTED_PREFIX}not-json`, { passphrase: "test" }),
+      await expect(() => decryptString(`${PB_ENCRYPTED_PREFIX}not-json`, { passphrase: "test" }),
         /invalid.*JSON/i
       );
     });
@@ -170,8 +166,7 @@ describe("shared/utils/storage-crypto", () => {
       if (!hasWebCrypto) return;
 
       const invalidPayload = `${PB_ENCRYPTED_PREFIX}{"saltB64":"","ivB64":"","ctB64":""}`;
-      await assert.rejects(
-        () => decryptString(invalidPayload, { passphrase: "test" }),
+      await expect(() => decryptString(invalidPayload, { passphrase: "test" }),
         /invalid.*fields/i
       );
     });
@@ -180,8 +175,7 @@ describe("shared/utils/storage-crypto", () => {
       if (!hasWebCrypto) return;
 
       const encrypted = await encryptString("secret", { passphrase: "correct" });
-      await assert.rejects(
-        () => decryptString(encrypted, { passphrase: "wrong" }),
+      await expect(() => decryptString(encrypted, { passphrase: "wrong" }),
         /decrypt|operation/i
       );
     });
@@ -196,7 +190,7 @@ describe("shared/utils/storage-crypto", () => {
       const enc2 = await encryptString(plaintext, { passphrase });
 
       // Random salt/IV should produce different ciphertext
-      assert.notEqual(enc1, enc2);
+      expect(enc1).not.toBe(enc2);
     });
 
     it("handles unicode text", async () => {
@@ -207,7 +201,7 @@ describe("shared/utils/storage-crypto", () => {
 
       const encrypted = await encryptString(plaintext, { passphrase });
       const decrypted = await decryptString(encrypted, { passphrase });
-      assert.equal(decrypted, plaintext);
+      expect(decrypted).toBe(plaintext);
     });
 
     it("handles large text", async () => {
@@ -218,7 +212,7 @@ describe("shared/utils/storage-crypto", () => {
 
       const encrypted = await encryptString(plaintext, { passphrase });
       const decrypted = await decryptString(encrypted, { passphrase });
-      assert.equal(decrypted, plaintext);
+      expect(decrypted).toBe(plaintext);
     });
   });
 });

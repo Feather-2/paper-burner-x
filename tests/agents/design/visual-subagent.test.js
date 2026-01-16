@@ -1,4 +1,5 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
 const baseDesignSystem = { designTokens: { colors: { primary: "#111111", text: "#000000", textMuted: "#666666" } } };
@@ -30,7 +31,7 @@ function makeSvgGenerator(capture) {
   };
 }
 
-test("VisualSubAgent: generates image/svg/asset and updates statuses", async () => {
+it("VisualSubAgent: generates image/svg/asset and updates statuses", async () => {
   const { VisualSubAgent } = await import("../../../js/agents/stages/design/subagents/visual-agent.js");
   const { AssetRegistry } = await import("../../../js/agents/stages/design/subagents/asset-registry.js");
   const { VisualSlotStatus } = await import("../../../js/agents/stages/design/states.js");
@@ -52,18 +53,18 @@ test("VisualSubAgent: generates image/svg/asset and updates statuses", async () 
 
   const out = await agent.run(visualSlots, baseDesignSystem, { runId: "run_visual" });
 
-  assert.equal(out.imageResults.filledSlots.length, 1);
-  assert.equal(out.svgResults.results.length, 1);
-  assert.equal(out.assetResults.length, 1);
-  assert.ok(out.assetResults[0].assetUri.startsWith("data:image/png;base64,"));
+  expect(out.imageResults.filledSlots.length).toBe(1);
+  expect(out.svgResults.results.length).toBe(1);
+  expect(out.assetResults.length).toBe(1);
+  expect(out.assetResults[0].assetUri.startsWith("data:image/png;base64,")).toBeTruthy();
 
   const statusById = new Map(out.slots.map((s) => [s.slotId, s.status]));
-  assert.equal(statusById.get("img_1"), VisualSlotStatus.FILLED);
-  assert.equal(statusById.get("svg_1"), VisualSlotStatus.FILLED);
-  assert.equal(statusById.get("asset_1"), VisualSlotStatus.FILLED);
+  expect(statusById.get("img_1")).toBe(VisualSlotStatus.FILLED);
+  expect(statusById.get("svg_1")).toBe(VisualSlotStatus.FILLED);
+  expect(statusById.get("asset_1")).toBe(VisualSlotStatus.FILLED);
 });
 
-test("VisualSubAgent: falls back ai-image to svg and marks missing assets failed", async () => {
+it("VisualSubAgent: falls back ai-image to svg and marks missing assets failed", async () => {
   const { VisualSubAgent } = await import("../../../js/agents/stages/design/subagents/visual-agent.js");
   const { AssetRegistry } = await import("../../../js/agents/stages/design/subagents/asset-registry.js");
   const { VisualSlotStatus } = await import("../../../js/agents/stages/design/states.js");
@@ -81,14 +82,14 @@ test("VisualSubAgent: falls back ai-image to svg and marks missing assets failed
 
   const out = await agent.run(visualSlots, baseDesignSystem, { runId: "run_visual_2" });
 
-  assert.deepEqual(captured, ["img_fallback"]);
+  expect(captured).toEqual(["img_fallback"]);
 
   const statusById = new Map(out.slots.map((s) => [s.slotId, s.status]));
-  assert.equal(statusById.get("img_fallback"), VisualSlotStatus.FILLED);
-  assert.equal(statusById.get("missing_asset"), VisualSlotStatus.FAILED);
+  expect(statusById.get("img_fallback")).toBe(VisualSlotStatus.FILLED);
+  expect(statusById.get("missing_asset")).toBe(VisualSlotStatus.FAILED);
 });
 
-test("VisualSubAgent: reports generator errors and marks slots failed", async () => {
+it("VisualSubAgent: reports generator errors and marks slots failed", async () => {
   const { VisualSubAgent } = await import("../../../js/agents/stages/design/subagents/visual-agent.js");
   const { VisualSlotStatus } = await import("../../../js/agents/stages/design/states.js");
 
@@ -112,16 +113,16 @@ test("VisualSubAgent: reports generator errors and marks slots failed", async ()
 
   const out = await agent.run(visualSlots, baseDesignSystem, { runId: "run_errors" });
 
-  assert.equal(out.report.errors.length, 2);
-  assert.ok(out.report.errors.some((err) => err.type === "ai-image"));
-  assert.ok(out.report.errors.some((err) => err.type === "svg"));
+  expect(out.report.errors.length).toBe(2);
+  expect(out.report.errors.some(err => err.type === "ai-image")).toBeTruthy();
+  expect(out.report.errors.some(err => err.type === "svg")).toBeTruthy();
 
   const statusById = new Map(out.slots.map((s) => [s.slotId, s.status]));
-  assert.equal(statusById.get("img_err"), VisualSlotStatus.FAILED);
-  assert.equal(statusById.get("svg_err"), VisualSlotStatus.FAILED);
+  expect(statusById.get("img_err")).toBe(VisualSlotStatus.FAILED);
+  expect(statusById.get("svg_err")).toBe(VisualSlotStatus.FAILED);
 });
 
-test("VisualSubAgent: resolves assets by registry when renderType is missing", async () => {
+it("VisualSubAgent: resolves assets by registry when renderType is missing", async () => {
   const { VisualSubAgent } = await import("../../../js/agents/stages/design/subagents/visual-agent.js");
   const { AssetRegistry } = await import("../../../js/agents/stages/design/subagents/asset-registry.js");
   const { VisualSlotStatus } = await import("../../../js/agents/stages/design/states.js");
@@ -132,14 +133,14 @@ test("VisualSubAgent: resolves assets by registry when renderType is missing", a
   const agent = new VisualSubAgent({ assetRegistry: registry });
   const out = await agent.run([{ slotId: "slot_asset", assetId: "asset_x" }], baseDesignSystem, { runId: "run_asset" });
 
-  assert.equal(out.assetResults.length, 1);
-  assert.equal(out.assetResults[0].width, 20);
-  assert.ok(out.assetResults[0].assetUri.startsWith("data:image/png;base64,"));
-  assert.equal(out.slots[0].renderType, "asset");
-  assert.equal(out.slots[0].status, VisualSlotStatus.FILLED);
+  expect(out.assetResults.length).toBe(1);
+  expect(out.assetResults[0].width).toBe(20);
+  expect(out.assetResults[0].assetUri.startsWith("data:image/png;base64,")).toBeTruthy();
+  expect(out.slots[0].renderType).toBe("asset");
+  expect(out.slots[0].status).toBe(VisualSlotStatus.FILLED);
 });
 
-test("VisualSubAgent: infers render types and aspect ratios", async () => {
+it("VisualSubAgent: infers render types and aspect ratios", async () => {
   const { VisualSubAgent } = await import("../../../js/agents/stages/design/subagents/visual-agent.js");
   const { VisualSlotStatus } = await import("../../../js/agents/stages/design/states.js");
 
@@ -151,17 +152,17 @@ test("VisualSubAgent: infers render types and aspect ratios", async () => {
   const visualSlots = [
     { slotId: "hero_slot", renderType: "ai-image", position: { w: "80%", h: "50%" }, slideIndex: 0 },
     { slotId: "svg_slot", svgSpec: { description: "Diagram" }, slideIndex: 1 },
-    { slotId: "chart_slot", visualType: "chart", slideIndex: 2 },
+    { slotId: "chart_slot"sualType: "chart", slideIndex: 2 },
     { slotId: "default_slot", slideIndex: 3 },
   ];
 
   const out = await agent.run(visualSlots, baseDesignSystem, { runId: "run_infer" });
 
   const imageSlot = out.imageResults.filledSlots.find((s) => s.slotId === "hero_slot");
-  assert.equal(imageSlot.aspectRatio, "16:9");
+  expect(imageSlot.aspectRatio).toBe("16:9");
 
   const statusById = new Map(out.slots.map((s) => [s.slotId, s.status]));
-  assert.equal(statusById.get("svg_slot"), VisualSlotStatus.FILLED);
-  assert.equal(statusById.get("chart_slot"), VisualSlotStatus.FILLED);
-  assert.equal(statusById.get("default_slot"), VisualSlotStatus.FILLED);
+  expect(statusById.get("svg_slot")).toBe(VisualSlotStatus.FILLED);
+  expect(statusById.get("chart_slot")).toBe(VisualSlotStatus.FILLED);
+  expect(statusById.get("default_slot")).toBe(VisualSlotStatus.FILLED);
 });

@@ -1,5 +1,5 @@
-import { describe, it, beforeEach } from "node:test";
-import assert from "node:assert";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import { MemoryStore } from "../../../js/agents/runtime/memory/memory-store.js";
 
 describe("MemoryStore", () => {
@@ -12,26 +12,26 @@ describe("MemoryStore", () => {
   describe("L0: Immutable", () => {
     it("should set and get system prompt", () => {
       store.setSystemPrompt("You are a helpful assistant.");
-      assert.strictEqual(store.L0.systemPrompt, "You are a helpful assistant.");
+      expect(store.L0.systemPrompt).toBe("You are a helpful assistant.");
     });
 
     it("should set and get task goal", () => {
       store.setTaskGoal("Analyze documents");
-      assert.strictEqual(store.L0.taskGoal, "Analyze documents");
+      expect(store.L0.taskGoal).toBe("Analyze documents");
     });
 
     it("should add, update, and remove todos", () => {
       const todo = store.addTodo({ content: "Read doc A" });
-      assert.ok(todo.id);
-      assert.strictEqual(todo.content, "Read doc A");
-      assert.strictEqual(todo.status, "pending");
+      expect(todo.id).toBeTruthy();
+      expect(todo.content).toBe("Read doc A");
+      expect(todo.status).toBe("pending");
 
       store.updateTodo(todo.id, { status: "done" });
-      assert.strictEqual(store.L0.todos[0].status, "completed");
+      expect(store.L0.todos[0].status).toBe("completed");
 
       const removed = store.removeTodo(todo.id);
-      assert.strictEqual(removed.id, todo.id);
-      assert.strictEqual(store.L0.todos.length, 0);
+      expect(removed.id).toBe(todo.id);
+      expect(store.L0.todos.length).toBe(0);
     });
 
     it("should filter todos by status", () => {
@@ -40,10 +40,10 @@ describe("MemoryStore", () => {
       store.addTodo({ content: "Task 3", status: "pending" });
 
       const pending = store.getTodos("pending");
-      assert.strictEqual(pending.length, 2);
+      expect(pending.length).toBe(2);
 
       const done = store.getTodos("done");
-      assert.strictEqual(done.length, 1);
+      expect(done.length).toBe(1);
     });
   });
 
@@ -53,20 +53,20 @@ describe("MemoryStore", () => {
       store.addMessage({ role: "assistant", content: "Hi there" });
 
       const messages = store.getMessages();
-      assert.strictEqual(messages.length, 2);
-      assert.strictEqual(messages[0].content, "Hello");
+      expect(messages.length).toBe(2);
+      expect(messages[0].content).toBe("Hello");
     });
 
     it("should add and acknowledge signals", () => {
       const sig = store.addSignal({ type: "discovery", message: "Found conflict" });
-      assert.ok(sig.id);
-      assert.strictEqual(sig.acknowledged, false);
+      expect(sig.id).toBeTruthy();
+      expect(sig.acknowledged).toBe(false);
 
       store.acknowledgeSignal(sig.id);
-      assert.strictEqual(store.L1.signals[0].acknowledged, true);
+      expect(store.L1.signals[0].acknowledged).toBe(true);
 
       const pending = store.getSignals("pending");
-      assert.strictEqual(pending.length, 0);
+      expect(pending.length).toBe(0);
     });
 
     it("should record decisions", () => {
@@ -74,8 +74,8 @@ describe("MemoryStore", () => {
       store.recordDecision({ action: "search", reason: "Find Q3 data" });
 
       const decisions = store.getDecisions(2);
-      assert.strictEqual(decisions.length, 2);
-      assert.strictEqual(decisions[1].action, "search");
+      expect(decisions.length).toBe(2);
+      expect(decisions[1].action).toBe("search");
     });
   });
 
@@ -88,8 +88,8 @@ describe("MemoryStore", () => {
       });
 
       const discovery = store.getDiscovery("gap_001");
-      assert.strictEqual(discovery.status, "open");
-      assert.deepStrictEqual(discovery.keywords, ["Q3", "revenue"]);
+      expect(discovery.status).toBe("open");
+      expect(discovery.keywords).toEqual(["Q3", "revenue"]);
 
       // Update from another subagent
       store.syncDiscovery("gap_001", {
@@ -98,19 +98,19 @@ describe("MemoryStore", () => {
       });
 
       const updated = store.getDiscovery("gap_001");
-      assert.strictEqual(updated.status, "satisfied");
-      assert.strictEqual(updated.by, "subagent_B");
+      expect(updated.status).toBe("satisfied");
+      expect(updated.by).toBe("subagent_B");
     });
 
     it("should sync subagent status", () => {
       store.syncSubagent("sub_001", { status: "running", progress: 50 });
 
       const sub = store.getSubagent("sub_001");
-      assert.strictEqual(sub.status, "running");
-      assert.strictEqual(sub.progress, 50);
+      expect(sub.status).toBe("running");
+      expect(sub.progress).toBe(50);
 
       store.syncSubagent("sub_001", { status: "completed", progress: 100 });
-      assert.strictEqual(store.getSubagent("sub_001").status, "completed");
+      expect(store.getSubagent("sub_001").status).toBe("completed");
     });
 
     it("should list all discoveries and subagents", () => {
@@ -118,8 +118,8 @@ describe("MemoryStore", () => {
       store.syncDiscovery("gap_002", { status: "satisfied" });
       store.syncSubagent("sub_001", { status: "running" });
 
-      assert.strictEqual(store.getAllDiscoveries().length, 2);
-      assert.strictEqual(store.getAllSubagents().length, 1);
+      expect(store.getAllDiscoveries().length).toBe(2);
+      expect(store.getAllSubagents().length).toBe(1);
     });
   });
 
@@ -128,10 +128,10 @@ describe("MemoryStore", () => {
       store.setStageSummary("scan", "Found 8 documents");
       store.setStageSummary("analyze", "Q3 revenue is 120B");
 
-      assert.strictEqual(store.getStageSummary("scan"), "Found 8 documents");
+      expect(store.getStageSummary("scan")).toBe("Found 8 documents");
 
       const all = store.getAllStageSummaries();
-      assert.strictEqual(Object.keys(all).length, 2);
+      expect(Object.keys(all).length).toBe(2);
     });
 
     it("should add and filter claims", () => {
@@ -139,7 +139,7 @@ describe("MemoryStore", () => {
       store.addClaim({ content: "Market share increased", verified: true });
 
       const verified = store.getClaims(c => c.verified);
-      assert.strictEqual(verified.length, 1);
+      expect(verified.length).toBe(1);
     });
   });
 
@@ -149,8 +149,8 @@ describe("MemoryStore", () => {
       await store.archive("read_reportB", { content: "Market share data" }, ["market", "share"]);
 
       const results = store.recall("Q3 revenue");
-      assert.strictEqual(results.length, 1);
-      assert.ok(results[0].data.content.includes("Q3"));
+      expect(results.length).toBe(1);
+      expect(results[0].data.content.includes("Q3")).toBeTruthy();
     });
 
     it("should list archives", async () => {
@@ -158,7 +158,7 @@ describe("MemoryStore", () => {
       await store.archive("stage2", { data: "test2" });
 
       const list = store.listArchives();
-      assert.strictEqual(list.length, 2);
+      expect(list.length).toBe(2);
     });
   });
 
@@ -169,32 +169,32 @@ describe("MemoryStore", () => {
 	      store.addMessage({ role: "user", content: "Hello" });
 	
 	      const ckptId = await store.checkpoint();
-	      assert.ok(ckptId);
+	      expect(ckptId).toBeTruthy();
 	      const snapshot = store.L3.checkpoints.find((c) => c.id === ckptId);
-	      assert.ok(snapshot);
-	      assert.strictEqual(snapshot.L0.taskGoal, "Original goal");
-	      assert.strictEqual(snapshot.L0.todos.length, 1);
-	      assert.strictEqual(snapshot.L1.messages.length, 1);
+	      expect(snapshot).toBeTruthy();
+	      expect(snapshot.L0.taskGoal).toBe("Original goal");
+	      expect(snapshot.L0.todos.length).toBe(1);
+	      expect(snapshot.L1.messages.length).toBe(1);
 	
 	      // Modify state
 	      store.setTaskGoal("Modified goal");
 	      store.addTodo({ content: "Task 2" });
 	      store.addMessage({ role: "user", content: "World" });
 	      // Snapshot stays immutable.
-	      assert.strictEqual(snapshot.L0.taskGoal, "Original goal");
-	      assert.strictEqual(snapshot.L0.todos.length, 1);
-	      assert.strictEqual(snapshot.L1.messages.length, 1);
+	      expect(snapshot.L0.taskGoal).toBe("Original goal");
+	      expect(snapshot.L0.todos.length).toBe(1);
+	      expect(snapshot.L1.messages.length).toBe(1);
 	
-	      assert.strictEqual(store.L0.taskGoal, "Modified goal");
-	      assert.strictEqual(store.L0.todos.length, 2);
-	      assert.strictEqual(store.L1.messages.length, 2);
+	      expect(store.L0.taskGoal).toBe("Modified goal");
+	      expect(store.L0.todos.length).toBe(2);
+	      expect(store.L1.messages.length).toBe(2);
 
       // Restore
       const restored = await store.restore(ckptId);
-      assert.strictEqual(restored, true);
-      assert.strictEqual(store.L0.taskGoal, "Original goal");
-      assert.strictEqual(store.L0.todos.length, 1);
-      assert.strictEqual(store.L1.messages.length, 1);
+      expect(restored).toBe(true);
+      expect(store.L0.taskGoal).toBe("Original goal");
+      expect(store.L0.todos.length).toBe(1);
+      expect(store.L1.messages.length).toBe(1);
     });
   });
 
@@ -210,8 +210,8 @@ describe("MemoryStore", () => {
       store.compress();
       const afterCount = store.L1.messages.length;
 
-      assert.ok(afterCount < beforeCount);
-      assert.ok(store.L2.historySummary.length > 0);
+      expect(afterCount < beforeCount).toBeTruthy();
+      expect(store.L2.historySummary.length > 0).toBeTruthy();
     });
   });
 
@@ -227,13 +227,13 @@ describe("MemoryStore", () => {
 
       const context = store.buildPromptContext();
 
-      assert.ok(context.includes("目标"));
-      assert.ok(context.includes("Analyze Q3 reports"));
-      assert.ok(context.includes("待办"));
-      assert.ok(context.includes("阶段发现"));
-      assert.ok(context.includes("待验证"));
-      assert.ok(context.includes("待处理信号"));
-      assert.ok(context.includes("最近决策"));
+      expect(context.includes("目标")).toBeTruthy();
+      expect(context.includes("Analyze Q3 reports")).toBeTruthy();
+      expect(context.includes("待办")).toBeTruthy();
+      expect(context.includes("阶段发现")).toBeTruthy();
+      expect(context.includes("待验证")).toBeTruthy();
+      expect(context.includes("待处理信号")).toBeTruthy();
+      expect(context.includes("最近决策")).toBeTruthy();
     });
   });
 
@@ -247,12 +247,12 @@ describe("MemoryStore", () => {
       await store.archive("test", {});
 
       const stats = store.getStats();
-      assert.strictEqual(stats.messageCount, 1);
-      assert.strictEqual(stats.todoCount, 1);
-      assert.strictEqual(stats.signalCount, 1);
-      assert.strictEqual(stats.decisionCount, 1);
-      assert.strictEqual(stats.discoveryCount, 1);
-      assert.strictEqual(stats.archiveCount, 1);
+      expect(stats.messageCount).toBe(1);
+      expect(stats.todoCount).toBe(1);
+      expect(stats.signalCount).toBe(1);
+      expect(stats.decisionCount).toBe(1);
+      expect(stats.discoveryCount).toBe(1);
+      expect(stats.archiveCount).toBe(1);
     });
   });
 
@@ -260,13 +260,13 @@ describe("MemoryStore", () => {
     it("should bind and expose sharedContext", () => {
       const mockSharedContext = { name: "mock" };
       store.bind({ sharedContext: mockSharedContext });
-      assert.strictEqual(store.sharedContext, mockSharedContext);
+      expect(store.sharedContext).toBe(mockSharedContext);
     });
 
     it("should bind and expose discoveryManager", () => {
       const mockDiscoveryManager = { name: "mock" };
       store.bind({ discoveryManager: mockDiscoveryManager });
-      assert.strictEqual(store.discoveryManager, mockDiscoveryManager);
+      expect(store.discoveryManager).toBe(mockDiscoveryManager);
     });
 
     it("should sync from sharedContext", () => {
@@ -278,9 +278,9 @@ describe("MemoryStore", () => {
       store.bind({ sharedContext: mockSharedContext });
       store.syncFromSharedContext();
 
-      assert.strictEqual(store.L1.signals.length, 1);
-      assert.strictEqual(store.L2.stageSummaries.get("scan"), "Found 5 docs");
-      assert.strictEqual(store.L1.decisions.length, 1);
+      expect(store.L1.signals.length).toBe(1);
+      expect(store.L2.stageSummaries.get("scan")).toBe("Found 5 docs");
+      expect(store.L1.decisions.length).toBe(1);
     });
 
     it("should sync from discoveryManager", () => {
@@ -293,8 +293,8 @@ describe("MemoryStore", () => {
       store.bind({ discoveryManager: mockDiscoveryManager });
       store.syncFromDiscoveryManager();
 
-      assert.strictEqual(store.L1.syncTable.discoveries.size, 2);
-      assert.strictEqual(store.getDiscovery("gap_1").status, "open");
+      expect(store.L1.syncTable.discoveries.size).toBe(2);
+      expect(store.getDiscovery("gap_1").status).toBe("open");
     });
 
     it("should syncAll from both components", () => {
@@ -309,8 +309,8 @@ describe("MemoryStore", () => {
       store.bind({ sharedContext: mockSharedContext, discoveryManager: mockDiscoveryManager });
       store.syncAll();
 
-      assert.strictEqual(store.L1.signals.length, 1);
-      assert.strictEqual(store.L1.syncTable.discoveries.size, 1);
+      expect(store.L1.signals.length).toBe(1);
+      expect(store.L1.syncTable.discoveries.size).toBe(1);
     });
   });
 });

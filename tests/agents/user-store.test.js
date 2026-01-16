@@ -1,16 +1,16 @@
-import test from "node:test";
-import assert from "node:assert/strict";
 
-test("configureUserSkillStoreEncryption: returns config with available flag", async () => {
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
+it("configureUserSkillStoreEncryption: returns config with available flag", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   const result = mod.configureUserSkillStoreEncryption({ enabled: false });
 
-  assert.equal(typeof result.available, "boolean");
-  assert.equal(result.enabled, false);
+  expect(typeof result.available).toBe("boolean");
+  expect(result.enabled).toBe(false);
 });
 
-test("configureUserSkillStoreEncryption: enabled without passphrase -> disabled", async () => {
+it("configureUserSkillStoreEncryption: enabled without passphrase -> disabled", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   const result = mod.configureUserSkillStoreEncryption({
@@ -18,24 +18,22 @@ test("configureUserSkillStoreEncryption: enabled without passphrase -> disabled"
     passphrase: "",
   });
 
-  assert.equal(result.enabled, false);
+  expect(result.enabled).toBe(false);
 });
 
-test("configureUserSkillStoreEncryption: required without passphrase -> throws", async () => {
+it("configureUserSkillStoreEncryption: required without passphrase -> throws", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
-  assert.throws(
-    () =>
+  expect(() =>
       mod.configureUserSkillStoreEncryption({
         enabled: true,
         required: true,
         passphrase: "",
-      }),
-    /passphrase is missing/
-  );
+      })
+  ).toThrow(/passphrase is missing/);
 });
 
-test("configureUserSkillStoreEncryption: normalizes iterations", async () => {
+it("configureUserSkillStoreEncryption: normalizes iterations", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   // Too low -> clamped to 10_000
@@ -44,10 +42,10 @@ test("configureUserSkillStoreEncryption: normalizes iterations", async () => {
     iterations: 100,
   });
 
-  assert.equal(result.iterations, 10_000);
+  expect(result.iterations).toBe(10_000);
 });
 
-test("configureUserSkillStoreEncryption: custom aad", async () => {
+it("configureUserSkillStoreEncryption: custom aad", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   const result = mod.configureUserSkillStoreEncryption({
@@ -55,19 +53,19 @@ test("configureUserSkillStoreEncryption: custom aad", async () => {
     aad: "custom:aad:v1",
   });
 
-  assert.equal(result.aad, "custom:aad:v1");
+  expect(result.aad).toBe("custom:aad:v1");
 });
 
-test("initUserSkillStore: returns ok with mode", async () => {
+it("initUserSkillStore: returns ok with mode", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   const result = await mod.initUserSkillStore({ forceReload: true });
 
-  assert.equal(result.ok, true);
-  assert.ok(["memory", "localstorage", "indexeddb"].includes(result.mode));
+  expect(result.ok).toBe(true);
+  expect(["memory", "localstorage", "indexeddb"].includes(result.mode)).toBeTruthy();
 });
 
-test("initUserSkillStore: accepts encryption option", async () => {
+it("initUserSkillStore: accepts encryption option", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   // Should not throw
@@ -76,29 +74,29 @@ test("initUserSkillStore: accepts encryption option", async () => {
     encryption: { enabled: false },
   });
 
-  assert.equal(result.ok, true);
+  expect(result.ok).toBe(true);
 });
 
-test("listUserSkills: returns empty array initially", async () => {
+it("listUserSkills: returns empty array initially", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
   const skills = mod.listUserSkills();
 
-  assert.ok(Array.isArray(skills));
+  expect(Array.isArray(skills)).toBeTruthy();
 });
 
-test("loadUserSkillsIndex: returns normalized index", async () => {
+it("loadUserSkillsIndex: returns normalized index", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
   const index = mod.loadUserSkillsIndex();
 
-  assert.equal(index.schemaVersion, "0.1");
-  assert.ok(Array.isArray(index.skills));
+  expect(index.schemaVersion).toBe("0.1");
+  expect(Array.isArray(index.skills)).toBeTruthy();
 });
 
-test("saveUserSkillsIndex: normalizes and saves index", async () => {
+it("saveUserSkillsIndex: normalizes and saves index", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -108,14 +106,14 @@ test("saveUserSkillsIndex: normalizes and saves index", async () => {
     skills: [{ name: "test-skill", description: "A test skill" }],
   });
 
-  assert.equal(saved, true);
+  expect(saved).toBe(true);
 
   const loaded = mod.loadUserSkillsIndex();
-  assert.equal(loaded.skills.length, 1);
-  assert.equal(loaded.skills[0].name, "test-skill");
+  expect(loaded.skills.length).toBe(1);
+  expect(loaded.skills[0].name).toBe("test-skill");
 });
 
-test("saveUserSkillsIndex: filters invalid skills", async () => {
+it("saveUserSkillsIndex: filters invalid skills", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -131,59 +129,59 @@ test("saveUserSkillsIndex: filters invalid skills", async () => {
   });
 
   const loaded = mod.loadUserSkillsIndex();
-  assert.equal(loaded.skills.length, 1);
-  assert.equal(loaded.skills[0].name, "valid");
+  expect(loaded.skills.length).toBe(1);
+  expect(loaded.skills[0].name).toBe("valid");
 });
 
-test("getUserSkillBody: returns empty string for missing skill", async () => {
+it("getUserSkillBody: returns empty string for missing skill", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
   const body = mod.getUserSkillBody("nonexistent");
 
-  assert.equal(body, "");
+  expect(body).toBe("");
 });
 
-test("getUserSkillBody: returns empty for empty/invalid name", async () => {
+it("getUserSkillBody: returns empty for empty/invalid name", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
-  assert.equal(mod.getUserSkillBody(""), "");
-  assert.equal(mod.getUserSkillBody(null), "");
-  assert.equal(mod.getUserSkillBody(undefined), "");
+  expect(mod.getUserSkillBody("")).toBe("");
+  expect(mod.getUserSkillBody(null)).toBe("");
+  expect(mod.getUserSkillBody(undefined)).toBe("");
 });
 
-test("setUserSkillBody: stores and retrieves body", async () => {
+it("setUserSkillBody: stores and retrieves body", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
 
   const result = mod.setUserSkillBody("my-skill", "# My Skill\nContent here");
-  assert.equal(result, true);
+  expect(result).toBe(true);
 
   const body = mod.getUserSkillBody("my-skill");
-  assert.equal(body, "# My Skill\nContent here");
+  expect(body).toBe("# My Skill\nContent here");
 });
 
-test("setUserSkillBody: returns false for empty name", async () => {
+it("setUserSkillBody: returns false for empty name", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
-  assert.equal(mod.setUserSkillBody("", "body"), false);
-  assert.equal(mod.setUserSkillBody(null, "body"), false);
+  expect(mod.setUserSkillBody("").toBe("body"), false);
+  expect(mod.setUserSkillBody(null).toBe("body"), false);
 });
 
-test("setUserSkillBody: converts non-string body", async () => {
+it("setUserSkillBody: converts non-string body", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
 
   mod.setUserSkillBody("num-skill", 123);
-  assert.equal(mod.getUserSkillBody("num-skill"), "123");
+  expect(mod.getUserSkillBody("num-skill")).toBe("123");
 
   mod.setUserSkillBody("null-skill", null);
-  assert.equal(mod.getUserSkillBody("null-skill"), "");
+  expect(mod.getUserSkillBody("null-skill")).toBe("");
 });
 
-test("upsertUserSkill: creates new skill with metadata", async () => {
+it("upsertUserSkill: creates new skill with metadata", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -199,24 +197,24 @@ test("upsertUserSkill: creates new skill with metadata", async () => {
     body: "# New Skill Body",
   });
 
-  assert.deepEqual(result, { ok: true, name: "new-skill" });
+  expect(result).toEqual({ ok: true, name: "new-skill" });
 
   const skills = mod.listUserSkills();
-  assert.equal(skills.length, 1);
-  assert.equal(skills[0].name, "new-skill");
-  assert.equal(skills[0].description, "A brand new skill");
-  assert.equal(skills[0].shortDescription, "New");
-  assert.deepEqual(skills[0].keywords, ["test", "new"]);
-  assert.equal(skills[0].priority, 50);
-  assert.equal(skills[0].scope, "user");
-  assert.ok(skills[0].createdAt);
-  assert.ok(skills[0].updatedAt);
+  expect(skills.length).toBe(1);
+  expect(skills[0].name).toBe("new-skill");
+  expect(skills[0].description).toBe("A brand new skill");
+  expect(skills[0].shortDescription).toBe("New");
+  expect(skills[0].keywords).toEqual(["test", "new"]);
+  expect(skills[0].priority).toBe(50);
+  expect(skills[0].scope).toBe("user");
+  expect(skills[0].createdAt).toBeTruthy();
+  expect(skills[0].updatedAt).toBeTruthy();
 
   const body = mod.getUserSkillBody("new-skill");
-  assert.equal(body, "# New Skill Body");
+  expect(body).toBe("# New Skill Body");
 });
 
-test("upsertUserSkill: updates existing skill", async () => {
+it("upsertUserSkill: updates existing skill", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -238,20 +236,19 @@ test("upsertUserSkill: updates existing skill", async () => {
   });
 
   const skills = mod.listUserSkills();
-  assert.equal(skills.length, 1);
-  assert.equal(skills[0].description, "Updated");
+  expect(skills.length).toBe(1);
+  expect(skills[0].description).toBe("Updated");
   // createdAt should be preserved from original
-  assert.equal(skills[0].createdAt, originalCreatedAt);
+  expect(skills[0].createdAt).toBe(originalCreatedAt);
 
   const body = mod.getUserSkillBody("update-test");
-  assert.equal(body, "Updated body");
+  expect(body).toBe("Updated body");
 });
 
-test("upsertUserSkill: throws without name", async () => {
+it("upsertUserSkill: throws without name", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
-  assert.throws(
-    () =>
+  expect(() =>
       mod.upsertUserSkill({
         metadata: { description: "No name" },
       }),
@@ -259,11 +256,10 @@ test("upsertUserSkill: throws without name", async () => {
   );
 });
 
-test("upsertUserSkill: throws without description", async () => {
+it("upsertUserSkill: throws without description", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
-  assert.throws(
-    () =>
+  expect(() =>
       mod.upsertUserSkill({
         metadata: { name: "has-name" },
       }),
@@ -271,7 +267,7 @@ test("upsertUserSkill: throws without description", async () => {
   );
 });
 
-test("upsertUserSkill: handles optional fields gracefully", async () => {
+it("upsertUserSkill: handles optional fields gracefully", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -285,16 +281,16 @@ test("upsertUserSkill: handles optional fields gracefully", async () => {
   });
 
   const skills = mod.listUserSkills();
-  assert.equal(skills[0].shortDescription, null);
-  assert.deepEqual(skills[0].keywords, []);
-  assert.deepEqual(skills[0].keywordsAll, []);
-  assert.equal(skills[0].allowedTools, null);
-  assert.equal(skills[0].tags, null);
-  assert.equal(skills[0].traits, null);
-  assert.equal(skills[0].priority, 100);
+  expect(skills[0].shortDescription).toBe(null);
+  expect(skills[0].keywords).toEqual([]);
+  expect(skills[0].keywordsAll).toEqual([]);
+  expect(skills[0].allowedTools).toBe(null);
+  expect(skills[0].tags).toBe(null);
+  expect(skills[0].traits).toBe(null);
+  expect(skills[0].priority).toBe(100);
 });
 
-test("upsertUserSkill: accepts tags and traits", async () => {
+it("upsertUserSkill: accepts tags and traits", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -309,11 +305,11 @@ test("upsertUserSkill: accepts tags and traits", async () => {
   });
 
   const skills = mod.listUserSkills();
-  assert.deepEqual(skills[0].tags, { category: "utility", level: "advanced" });
-  assert.deepEqual(skills[0].traits, ["fast", "reliable"]);
+  expect(skills[0].tags).toEqual({ category: "utility", level: "advanced" });
+  expect(skills[0].traits).toEqual(["fast", "reliable"]);
 });
 
-test("deleteUserSkill: removes skill and body", async () => {
+it("deleteUserSkill: removes skill and body", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -323,34 +319,34 @@ test("deleteUserSkill: removes skill and body", async () => {
     body: "Delete me",
   });
 
-  assert.equal(mod.listUserSkills().length, 1);
-  assert.equal(mod.getUserSkillBody("to-delete"), "Delete me");
+  expect(mod.listUserSkills().length).toBe(1);
+  expect(mod.getUserSkillBody("to-delete")).toBe("Delete me");
 
   const result = mod.deleteUserSkill("to-delete");
-  assert.equal(result, true);
+  expect(result).toBe(true);
 
-  assert.equal(mod.listUserSkills().length, 0);
-  assert.equal(mod.getUserSkillBody("to-delete"), "");
+  expect(mod.listUserSkills().length).toBe(0);
+  expect(mod.getUserSkillBody("to-delete")).toBe("");
 });
 
-test("deleteUserSkill: returns false for empty name", async () => {
+it("deleteUserSkill: returns false for empty name", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
-  assert.equal(mod.deleteUserSkill(""), false);
-  assert.equal(mod.deleteUserSkill(null), false);
+  expect(mod.deleteUserSkill("")).toBe(false);
+  expect(mod.deleteUserSkill(null)).toBe(false);
 });
 
-test("deleteUserSkill: handles nonexistent skill gracefully", async () => {
+it("deleteUserSkill: handles nonexistent skill gracefully", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
 
   // Should not throw, returns true (no-op)
   const result = mod.deleteUserSkill("never-existed");
-  assert.equal(result, true);
+  expect(result).toBe(true);
 });
 
-test("clearUserSkills: removes all skills", async () => {
+it("clearUserSkills: removes all skills", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.upsertUserSkill({
@@ -362,34 +358,34 @@ test("clearUserSkills: removes all skills", async () => {
     body: "Body 2",
   });
 
-  assert.ok(mod.listUserSkills().length >= 2);
+  expect(mod.listUserSkills().toBeTruthy().length >= 2);
 
   const result = mod.clearUserSkills();
-  assert.equal(result, true);
+  expect(result).toBe(true);
 
-  assert.equal(mod.listUserSkills().length, 0);
-  assert.equal(mod.getUserSkillBody("skill-1"), "");
-  assert.equal(mod.getUserSkillBody("skill-2"), "");
+  expect(mod.listUserSkills().length).toBe(0);
+  expect(mod.getUserSkillBody("skill-1")).toBe("");
+  expect(mod.getUserSkillBody("skill-2")).toBe("");
 });
 
-test("default export: contains all public methods", async () => {
+it("default export: contains all public methods", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   const defaultExport = mod.default;
 
-  assert.equal(typeof defaultExport.configureUserSkillStoreEncryption, "function");
-  assert.equal(typeof defaultExport.initUserSkillStore, "function");
-  assert.equal(typeof defaultExport.listUserSkills, "function");
-  assert.equal(typeof defaultExport.loadUserSkillsIndex, "function");
-  assert.equal(typeof defaultExport.saveUserSkillsIndex, "function");
-  assert.equal(typeof defaultExport.getUserSkillBody, "function");
-  assert.equal(typeof defaultExport.setUserSkillBody, "function");
-  assert.equal(typeof defaultExport.upsertUserSkill, "function");
-  assert.equal(typeof defaultExport.deleteUserSkill, "function");
-  assert.equal(typeof defaultExport.clearUserSkills, "function");
+  expect(typeof defaultExport.configureUserSkillStoreEncryption).toBe("function");
+  expect(typeof defaultExport.initUserSkillStore).toBe("function");
+  expect(typeof defaultExport.listUserSkills).toBe("function");
+  expect(typeof defaultExport.loadUserSkillsIndex).toBe("function");
+  expect(typeof defaultExport.saveUserSkillsIndex).toBe("function");
+  expect(typeof defaultExport.getUserSkillBody).toBe("function");
+  expect(typeof defaultExport.setUserSkillBody).toBe("function");
+  expect(typeof defaultExport.upsertUserSkill).toBe("function");
+  expect(typeof defaultExport.deleteUserSkill).toBe("function");
+  expect(typeof defaultExport.clearUserSkills).toBe("function");
 });
 
-test("multiple skills: maintains separate bodies", async () => {
+it("multiple skills: maintains separate bodies", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -407,13 +403,13 @@ test("multiple skills: maintains separate bodies", async () => {
     body: "Gamma content",
   });
 
-  assert.equal(mod.listUserSkills().length, 3);
-  assert.equal(mod.getUserSkillBody("alpha"), "Alpha content");
-  assert.equal(mod.getUserSkillBody("beta"), "Beta content");
-  assert.equal(mod.getUserSkillBody("gamma"), "Gamma content");
+  expect(mod.listUserSkills().length).toBe(3);
+  expect(mod.getUserSkillBody("alpha")).toBe("Alpha content");
+  expect(mod.getUserSkillBody("beta")).toBe("Beta content");
+  expect(mod.getUserSkillBody("gamma")).toBe("Gamma content");
 });
 
-test("skill ordering: preserves insertion order", async () => {
+it("skill ordering: preserves insertion order", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -429,10 +425,10 @@ test("skill ordering: preserves insertion order", async () => {
   });
 
   const names = mod.listUserSkills().map((s) => s.name);
-  assert.deepEqual(names, ["first", "second", "third"]);
+  expect(names).toEqual(["first", "second", "third"]);
 });
 
-test("saveUserSkillsIndex: handles malformed input", async () => {
+it("saveUserSkillsIndex: handles malformed input", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -440,35 +436,33 @@ test("saveUserSkillsIndex: handles malformed input", async () => {
   // null input
   mod.saveUserSkillsIndex(null);
   let index = mod.loadUserSkillsIndex();
-  assert.equal(index.schemaVersion, "0.1");
-  assert.deepEqual(index.skills, []);
+  expect(index.schemaVersion).toBe("0.1");
+  expect(index.skills).toEqual([]);
 
   // undefined input
   mod.saveUserSkillsIndex(undefined);
   index = mod.loadUserSkillsIndex();
-  assert.deepEqual(index.skills, []);
+  expect(index.skills).toEqual([]);
 
   // skills not array
   mod.saveUserSkillsIndex({ skills: "not-array" });
   index = mod.loadUserSkillsIndex();
-  assert.deepEqual(index.skills, []);
+  expect(index.skills).toEqual([]);
 });
 
-test("upsertUserSkill: handles non-object metadata", async () => {
+it("upsertUserSkill: handles non-object metadata", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
-  assert.throws(
-    () => mod.upsertUserSkill({ metadata: "string" }),
+  expect(() => mod.upsertUserSkill({ metadata: "string" })).toThrow(
     /name\/description are required/
   );
 
-  assert.throws(
-    () => mod.upsertUserSkill({ metadata: null }),
+  expect(() => mod.upsertUserSkill({ metadata: null })).toThrow(
     /name\/description are required/
   );
 });
 
-test("upsertUserSkill: priority normalization", async () => {
+it("upsertUserSkill: priority normalization", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -477,7 +471,7 @@ test("upsertUserSkill: priority normalization", async () => {
   mod.upsertUserSkill({
     metadata: { name: "str-priority", description: "test", priority: "75" },
   });
-  assert.equal(mod.listUserSkills()[0].priority, 75);
+  expect(mod.listUserSkills()[0].priority).toBe(75);
 
   mod.clearUserSkills();
 
@@ -485,10 +479,10 @@ test("upsertUserSkill: priority normalization", async () => {
   mod.upsertUserSkill({
     metadata: { name: "bad-priority", description: "test", priority: "not-a-number" },
   });
-  assert.equal(mod.listUserSkills()[0].priority, 100);
+  expect(mod.listUserSkills()[0].priority).toBe(100);
 });
 
-test("setUserSkillBody: handles unicode content", async () => {
+it("setUserSkillBody: handles unicode content", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -496,19 +490,19 @@ test("setUserSkillBody: handles unicode content", async () => {
   const unicodeContent = "# Chinese\n\n## Japanese\n\n## Korean\n\n## Emoji ";
   mod.setUserSkillBody("unicode-skill", unicodeContent);
 
-  assert.equal(mod.getUserSkillBody("unicode-skill"), unicodeContent);
+  expect(mod.getUserSkillBody("unicode-skill")).toBe(unicodeContent);
 });
 
-test("setUserSkillBody: handles empty body", async () => {
+it("setUserSkillBody: handles empty body", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
 
   mod.setUserSkillBody("empty-body", "");
-  assert.equal(mod.getUserSkillBody("empty-body"), "");
+  expect(mod.getUserSkillBody("empty-body")).toBe("");
 });
 
-test("deleteUserSkill: only removes specified skill", async () => {
+it("deleteUserSkill: only removes specified skill", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -520,10 +514,10 @@ test("deleteUserSkill: only removes specified skill", async () => {
   mod.deleteUserSkill("delete-me");
 
   const names = mod.listUserSkills().map((s) => s.name);
-  assert.deepEqual(names, ["keep-1", "keep-2"]);
+  expect(names).toEqual(["keep-1", "keep-2"]);
 });
 
-test("upsertUserSkill: allowedTools as string", async () => {
+it("upsertUserSkill: allowedTools as string", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -537,10 +531,10 @@ test("upsertUserSkill: allowedTools as string", async () => {
   });
 
   const skill = mod.listUserSkills()[0];
-  assert.equal(skill.allowedTools, "search,read,write");
+  expect(skill.allowedTools).toBe("search,read,write");
 });
 
-test("upsertUserSkill: keywordsAll array", async () => {
+it("upsertUserSkill: keywordsAll array", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -555,18 +549,18 @@ test("upsertUserSkill: keywordsAll array", async () => {
   });
 
   const skill = mod.listUserSkills()[0];
-  assert.deepEqual(skill.keywords, ["primary"]);
-  assert.deepEqual(skill.keywordsAll, ["primary", "secondary", "tertiary"]);
+  expect(skill.keywords).toEqual(["primary"]);
+  expect(skill.keywordsAll).toEqual(["primary", "secondary", "tertiary"]);
 });
 
-test("upsertUserSkill: empty input object", async () => {
+it("upsertUserSkill: empty input object", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
-  assert.throws(() => mod.upsertUserSkill({}), /name\/description are required/);
-  assert.throws(() => mod.upsertUserSkill(), /name\/description are required/);
+  expect(() => mod.upsertUserSkill({})).toThrow(/name\/description are required/);
+  expect(() => mod.upsertUserSkill()).toThrow(/name\/description are required/);
 });
 
-test("upsertUserSkill: non-array keywords defaults to empty", async () => {
+it("upsertUserSkill: non-array keywords defaults to empty", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -581,11 +575,11 @@ test("upsertUserSkill: non-array keywords defaults to empty", async () => {
   });
 
   const skill = mod.listUserSkills()[0];
-  assert.deepEqual(skill.keywords, []);
-  assert.deepEqual(skill.keywordsAll, []);
+  expect(skill.keywords).toEqual([]);
+  expect(skill.keywordsAll).toEqual([]);
 });
 
-test("upsertUserSkill: non-array traits defaults to null", async () => {
+it("upsertUserSkill: non-array traits defaults to null", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -599,10 +593,10 @@ test("upsertUserSkill: non-array traits defaults to null", async () => {
   });
 
   const skill = mod.listUserSkills()[0];
-  assert.equal(skill.traits, null);
+  expect(skill.traits).toBe(null);
 });
 
-test("upsertUserSkill: non-object tags defaults to null", async () => {
+it("upsertUserSkill: non-object tags defaults to null", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -617,21 +611,21 @@ test("upsertUserSkill: non-object tags defaults to null", async () => {
 
   const skill = mod.listUserSkills()[0];
   // Arrays are not plain objects
-  assert.equal(skill.tags, null);
+  expect(skill.tags).toBe(null);
 });
 
-test("initUserSkillStore: repeated calls return cached result", async () => {
+it("initUserSkillStore: repeated calls return cached result", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   const result1 = await mod.initUserSkillStore();
   const result2 = await mod.initUserSkillStore();
 
-  assert.equal(result1.ok, true);
-  assert.equal(result2.ok, true);
-  assert.equal(result1.mode, result2.mode);
+  expect(result1.ok).toBe(true);
+  expect(result2.ok).toBe(true);
+  expect(result1.mode).toBe(result2.mode);
 });
 
-test("listUserSkills: returns skills from index", async () => {
+it("listUserSkills: returns skills from index", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -645,12 +639,12 @@ test("listUserSkills: returns skills from index", async () => {
   });
 
   const skills = mod.listUserSkills();
-  assert.equal(skills.length, 2);
-  assert.equal(skills[0].name, "skill-a");
-  assert.equal(skills[1].name, "skill-b");
+  expect(skills.length).toBe(2);
+  expect(skills[0].name).toBe("skill-a");
+  expect(skills[1].name).toBe("skill-b");
 });
 
-test("saveUserSkillsIndex: preserves skill properties", async () => {
+it("saveUserSkillsIndex: preserves skill properties", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -668,22 +662,22 @@ test("saveUserSkillsIndex: preserves skill properties", async () => {
   });
 
   const loaded = mod.loadUserSkillsIndex();
-  assert.equal(loaded.skills[0].name, "full-skill");
-  assert.equal(loaded.skills[0].customProp, "custom");
-  assert.deepEqual(loaded.skills[0].nested, { deep: true });
+  expect(loaded.skills[0].name).toBe("full-skill");
+  expect(loaded.skills[0].customProp).toBe("custom");
+  expect(loaded.skills[0].nested).toEqual({ deep: true });
 });
 
-test("clearUserSkills: works on empty store", async () => {
+it("clearUserSkills: works on empty store", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
   const result = mod.clearUserSkills();
 
-  assert.equal(result, true);
-  assert.equal(mod.listUserSkills().length, 0);
+  expect(result).toBe(true);
+  expect(mod.listUserSkills().length).toBe(0);
 });
 
-test("upsertUserSkill: body defaults to undefined when not provided", async () => {
+it("upsertUserSkill: body defaults to undefined when not provided", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -693,22 +687,22 @@ test("upsertUserSkill: body defaults to undefined when not provided", async () =
   });
 
   const body = mod.getUserSkillBody("no-body");
-  assert.equal(body, "");
+  expect(body).toBe("");
 });
 
-test("setUserSkillBody: overwrites existing body", async () => {
+it("setUserSkillBody: overwrites existing body", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
 
   mod.setUserSkillBody("overwrite-test", "original");
-  assert.equal(mod.getUserSkillBody("overwrite-test"), "original");
+  expect(mod.getUserSkillBody("overwrite-test")).toBe("original");
 
   mod.setUserSkillBody("overwrite-test", "updated");
-  assert.equal(mod.getUserSkillBody("overwrite-test"), "updated");
+  expect(mod.getUserSkillBody("overwrite-test")).toBe("updated");
 });
 
-test("configureUserSkillStoreEncryption: default aad when empty", async () => {
+it("configureUserSkillStoreEncryption: default aad when empty", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   const result = mod.configureUserSkillStoreEncryption({
@@ -716,10 +710,10 @@ test("configureUserSkillStoreEncryption: default aad when empty", async () => {
     aad: "",
   });
 
-  assert.equal(result.aad, "paperburner:user-skills:v1");
+  expect(result.aad).toBe("paperburner:user-skills:v1");
 });
 
-test("configureUserSkillStoreEncryption: non-finite iterations", async () => {
+it("configureUserSkillStoreEncryption: non-finite iterations", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   const result = mod.configureUserSkillStoreEncryption({
@@ -727,10 +721,10 @@ test("configureUserSkillStoreEncryption: non-finite iterations", async () => {
     iterations: Infinity,
   });
 
-  assert.equal(result.iterations, 100_000);
+  expect(result.iterations).toBe(100_000);
 });
 
-test("configureUserSkillStoreEncryption: NaN iterations", async () => {
+it("configureUserSkillStoreEncryption: NaN iterations", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   const result = mod.configureUserSkillStoreEncryption({
@@ -738,35 +732,35 @@ test("configureUserSkillStoreEncryption: NaN iterations", async () => {
     iterations: NaN,
   });
 
-  assert.equal(result.iterations, 100_000);
+  expect(result.iterations).toBe(100_000);
 });
 
-test("configureUserSkillStoreEncryption: null input", async () => {
+it("configureUserSkillStoreEncryption: null input", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   const result = mod.configureUserSkillStoreEncryption(null);
 
-  assert.equal(result.enabled, false);
+  expect(result.enabled).toBe(false);
   // passphrase becomes undefined when input has no passphrase field
-  assert.ok(result.passphrase === "" || result.passphrase === undefined);
+  expect(result.passphrase === "" || result.passphrase === undefined).toBeTruthy();
 });
 
-test("configureUserSkillStoreEncryption: non-object input", async () => {
+it("configureUserSkillStoreEncryption: non-object input", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   const result = mod.configureUserSkillStoreEncryption("string");
 
-  assert.equal(result.enabled, false);
+  expect(result.enabled).toBe(false);
 });
 
-test("saveUserSkillsIndex: returns true in memory mode", async () => {
+it("saveUserSkillsIndex: returns true in memory mode", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   const result = mod.saveUserSkillsIndex({ schemaVersion: "0.1", skills: [] });
-  assert.equal(result, true);
+  expect(result).toBe(true);
 });
 
-test("upsertUserSkill: multiple updates preserve order", async () => {
+it("upsertUserSkill: multiple updates preserve order", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -780,11 +774,11 @@ test("upsertUserSkill: multiple updates preserve order", async () => {
 
   const names = mod.listUserSkills().map((s) => s.name);
   // Order should be preserved with 'b' in its original position
-  assert.deepEqual(names, ["a", "b", "c"]);
-  assert.equal(mod.listUserSkills()[1].description, "B updated");
+  expect(names).toEqual(["a", "b", "c"]);
+  expect(mod.listUserSkills()[1].description).toBe("B updated");
 });
 
-test("deleteUserSkill: deleting first skill", async () => {
+it("deleteUserSkill: deleting first skill", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -795,10 +789,10 @@ test("deleteUserSkill: deleting first skill", async () => {
   mod.deleteUserSkill("first");
 
   const names = mod.listUserSkills().map((s) => s.name);
-  assert.deepEqual(names, ["second"]);
+  expect(names).toEqual(["second"]);
 });
 
-test("deleteUserSkill: deleting last skill", async () => {
+it("deleteUserSkill: deleting last skill", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -809,10 +803,10 @@ test("deleteUserSkill: deleting last skill", async () => {
   mod.deleteUserSkill("last");
 
   const names = mod.listUserSkills().map((s) => s.name);
-  assert.deepEqual(names, ["first"]);
+  expect(names).toEqual(["first"]);
 });
 
-test("setUserSkillBody: special characters in name", async () => {
+it("setUserSkillBody: special characters in name", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -820,14 +814,13 @@ test("setUserSkillBody: special characters in name", async () => {
   const specialName = "skill:with/special@chars#123";
   mod.setUserSkillBody(specialName, "content");
 
-  assert.equal(mod.getUserSkillBody(specialName), "content");
+  expect(mod.getUserSkillBody(specialName)).toBe("content");
 });
 
-test("upsertUserSkill: whitespace-only name throws", async () => {
+it("upsertUserSkill: whitespace-only name throws", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
-  assert.throws(
-    () =>
+  expect(() =>
       mod.upsertUserSkill({
         metadata: { name: "   ", description: "test" },
       }),
@@ -835,11 +828,10 @@ test("upsertUserSkill: whitespace-only name throws", async () => {
   );
 });
 
-test("upsertUserSkill: whitespace-only description throws", async () => {
+it("upsertUserSkill: whitespace-only description throws", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
-  assert.throws(
-    () =>
+  expect(() =>
       mod.upsertUserSkill({
         metadata: { name: "valid", description: "   " },
       }),
@@ -847,25 +839,25 @@ test("upsertUserSkill: whitespace-only description throws", async () => {
   );
 });
 
-test("loadUserSkillsIndex: always returns schemaVersion", async () => {
+it("loadUserSkillsIndex: always returns schemaVersion", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
   const index = mod.loadUserSkillsIndex();
 
-  assert.equal(index.schemaVersion, "0.1");
+  expect(index.schemaVersion).toBe("0.1");
 });
 
-test("setUserSkillBody: undefined body converts to empty string", async () => {
+it("setUserSkillBody: undefined body converts to empty string", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
 
   mod.setUserSkillBody("undef-body", undefined);
-  assert.equal(mod.getUserSkillBody("undef-body"), "");
+  expect(mod.getUserSkillBody("undef-body")).toBe("");
 });
 
-test("upsertUserSkill: float priority is converted to number", async () => {
+it("upsertUserSkill: float priority is converted to number", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -874,10 +866,10 @@ test("upsertUserSkill: float priority is converted to number", async () => {
     metadata: { name: "float-priority", description: "test", priority: 75.5 },
   });
 
-  assert.equal(mod.listUserSkills()[0].priority, 75.5);
+  expect(mod.listUserSkills()[0].priority).toBe(75.5);
 });
 
-test("upsertUserSkill: negative priority is accepted", async () => {
+it("upsertUserSkill: negative priority is accepted", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -886,10 +878,10 @@ test("upsertUserSkill: negative priority is accepted", async () => {
     metadata: { name: "neg-priority", description: "test", priority: -10 },
   });
 
-  assert.equal(mod.listUserSkills()[0].priority, -10);
+  expect(mod.listUserSkills()[0].priority).toBe(-10);
 });
 
-test("saveUserSkillsIndex: empty skills array", async () => {
+it("saveUserSkillsIndex: empty skills array", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.upsertUserSkill({ metadata: { name: "temp", description: "temp" } });
@@ -897,10 +889,10 @@ test("saveUserSkillsIndex: empty skills array", async () => {
   mod.saveUserSkillsIndex({ schemaVersion: "0.1", skills: [] });
 
   const index = mod.loadUserSkillsIndex();
-  assert.equal(index.skills.length, 0);
+  expect(index.skills.length).toBe(0);
 });
 
-test("configureUserSkillStoreEncryption: enabled with passphrase", async () => {
+it("configureUserSkillStoreEncryption: enabled with passphrase", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   const result = mod.configureUserSkillStoreEncryption({
@@ -909,11 +901,11 @@ test("configureUserSkillStoreEncryption: enabled with passphrase", async () => {
   });
 
   // Should be enabled if WebCrypto is available
-  assert.equal(typeof result.enabled, "boolean");
-  assert.equal(typeof result.available, "boolean");
+  expect(typeof result.enabled).toBe("boolean");
+  expect(typeof result.available).toBe("boolean");
 });
 
-test("configureUserSkillStoreEncryption: passphrase without enabled flag", async () => {
+it("configureUserSkillStoreEncryption: passphrase without enabled flag", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   // passphrase alone should enable encryption (cfg.enabled ?? passphrase)
@@ -921,10 +913,10 @@ test("configureUserSkillStoreEncryption: passphrase without enabled flag", async
     passphrase: "secret123",
   });
 
-  assert.equal(typeof result.enabled, "boolean");
+  expect(typeof result.enabled).toBe("boolean");
 });
 
-test("configureUserSkillStoreEncryption: explicitly disabled with passphrase", async () => {
+it("configureUserSkillStoreEncryption: explicitly disabled with passphrase", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   const result = mod.configureUserSkillStoreEncryption({
@@ -933,32 +925,32 @@ test("configureUserSkillStoreEncryption: explicitly disabled with passphrase", a
   });
 
   // Should respect explicit enabled: false
-  assert.equal(result.enabled, false);
+  expect(result.enabled).toBe(false);
 });
 
-test("getUserSkillBody: number name is converted", async () => {
+it("getUserSkillBody: number name is converted", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
 
   mod.setUserSkillBody(123, "numeric name content");
-  assert.equal(mod.getUserSkillBody(123), "numeric name content");
-  assert.equal(mod.getUserSkillBody("123"), "numeric name content");
+  expect(mod.getUserSkillBody(123)).toBe("numeric name content");
+  expect(mod.getUserSkillBody("123")).toBe("numeric name content");
 });
 
-test("deleteUserSkill: number name is converted", async () => {
+it("deleteUserSkill: number name is converted", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
 
   mod.setUserSkillBody(456, "to delete");
-  assert.equal(mod.getUserSkillBody(456), "to delete");
+  expect(mod.getUserSkillBody(456)).toBe("to delete");
 
   mod.deleteUserSkill(456);
-  assert.equal(mod.getUserSkillBody(456), "");
+  expect(mod.getUserSkillBody(456)).toBe("");
 });
 
-test("upsertUserSkill: createdAt is set only on first insert", async () => {
+it("upsertUserSkill: createdAt is set only on first insert", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -971,8 +963,8 @@ test("upsertUserSkill: createdAt is set only on first insert", async () => {
   const createdAt = firstSkill.createdAt;
   const updatedAt = firstSkill.updatedAt;
 
-  assert.ok(createdAt);
-  assert.ok(updatedAt);
+  expect(createdAt).toBeTruthy();
+  expect(updatedAt).toBeTruthy();
 
   await new Promise((r) => setTimeout(r, 5));
 
@@ -982,10 +974,10 @@ test("upsertUserSkill: createdAt is set only on first insert", async () => {
 
   const secondSkill = mod.listUserSkills()[0];
   // createdAt should be the same, updatedAt should change
-  assert.equal(secondSkill.createdAt, createdAt);
+  expect(secondSkill.createdAt).toBe(createdAt);
 });
 
-test("normalizeIndex: filters skills with object but no name property", async () => {
+it("normalizeIndex: filters skills with object but no name property", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -1000,17 +992,17 @@ test("normalizeIndex: filters skills with object but no name property", async ()
   });
 
   const loaded = mod.loadUserSkillsIndex();
-  assert.equal(loaded.skills.length, 2);
+  expect(loaded.skills.length).toBe(2);
 });
 
-test("clearUserSkills: removes bodies stored separately", async () => {
+it("clearUserSkills: removes bodies stored separately", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
 
   // Add body without skill in index
   mod.setUserSkillBody("orphan-body", "orphan content");
-  assert.equal(mod.getUserSkillBody("orphan-body"), "orphan content");
+  expect(mod.getUserSkillBody("orphan-body")).toBe("orphan content");
 
   // Now add a proper skill and body
   mod.upsertUserSkill({
@@ -1022,10 +1014,10 @@ test("clearUserSkills: removes bodies stored separately", async () => {
 
   // Orphan body should still be accessible (it wasn't in the index)
   // proper body should be cleared
-  assert.equal(mod.getUserSkillBody("proper"), "");
+  expect(mod.getUserSkillBody("proper")).toBe("");
 });
 
-test("upsertUserSkill: scope is always 'user'", async () => {
+it("upsertUserSkill: scope is always 'user'", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -1039,19 +1031,19 @@ test("upsertUserSkill: scope is always 'user'", async () => {
   });
 
   const skill = mod.listUserSkills()[0];
-  assert.equal(skill.scope, "user");
+  expect(skill.scope).toBe("user");
 });
 
-test("setUserSkillBody: object body is stringified", async () => {
+it("setUserSkillBody: object body is stringified", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
 
   mod.setUserSkillBody("obj-body", { key: "value" });
-  assert.equal(mod.getUserSkillBody("obj-body"), "[object Object]");
+  expect(mod.getUserSkillBody("obj-body")).toBe("[object Object]");
 });
 
-test("setUserSkillBody: boolean body is stringified", async () => {
+it("setUserSkillBody: boolean body is stringified", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -1059,21 +1051,21 @@ test("setUserSkillBody: boolean body is stringified", async () => {
   mod.setUserSkillBody("bool-true", true);
   mod.setUserSkillBody("bool-false", false);
 
-  assert.equal(mod.getUserSkillBody("bool-true"), "true");
-  assert.equal(mod.getUserSkillBody("bool-false"), "false");
+  expect(mod.getUserSkillBody("bool-true")).toBe("true");
+  expect(mod.getUserSkillBody("bool-false")).toBe("false");
 });
 
-test("initUserSkillStore: forceReload refreshes state", async () => {
+it("initUserSkillStore: forceReload refreshes state", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   const result1 = await mod.initUserSkillStore();
   const result2 = await mod.initUserSkillStore({ forceReload: true });
 
-  assert.equal(result1.ok, true);
-  assert.equal(result2.ok, true);
+  expect(result1.ok).toBe(true);
+  expect(result2.ok).toBe(true);
 });
 
-test("upsertUserSkill: very long skill name", async () => {
+it("upsertUserSkill: very long skill name", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -1084,12 +1076,12 @@ test("upsertUserSkill: very long skill name", async () => {
     body: "content",
   });
 
-  assert.equal(mod.listUserSkills().length, 1);
-  assert.equal(mod.listUserSkills()[0].name, longName);
-  assert.equal(mod.getUserSkillBody(longName), "content");
+  expect(mod.listUserSkills().length).toBe(1);
+  expect(mod.listUserSkills()[0].name).toBe(longName);
+  expect(mod.getUserSkillBody(longName)).toBe("content");
 });
 
-test("upsertUserSkill: very long body", async () => {
+it("upsertUserSkill: very long body", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -1100,10 +1092,10 @@ test("upsertUserSkill: very long body", async () => {
     body: longBody,
   });
 
-  assert.equal(mod.getUserSkillBody("long-body"), longBody);
+  expect(mod.getUserSkillBody("long-body")).toBe(longBody);
 });
 
-test("saveUserSkillsIndex: non-object skills in array are filtered", async () => {
+it("saveUserSkillsIndex: non-object skills in array are filtered", async () => {
   const mod = await import("../../js/agents/skills/user-store.js");
 
   mod.clearUserSkills();
@@ -1121,5 +1113,5 @@ test("saveUserSkillsIndex: non-object skills in array are filtered", async () =>
   });
 
   const loaded = mod.loadUserSkillsIndex();
-  assert.equal(loaded.skills.length, 1);
+  expect(loaded.skills.length).toBe(1);
 });

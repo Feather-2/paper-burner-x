@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import {
   isPotentiallyDangerous,
@@ -11,147 +11,143 @@ import {
 describe("shared/utils/safe-regex", () => {
   describe("isPotentiallyDangerous", () => {
     it("returns false for simple pattern", () => {
-      assert.equal(isPotentiallyDangerous("hello"), false);
+      expect(isPotentiallyDangerous("hello")).toBe(false);
     });
 
     it("returns false for null", () => {
-      assert.equal(isPotentiallyDangerous(null), false);
+      expect(isPotentiallyDangerous(null)).toBe(false);
     });
 
     it("returns false for non-string", () => {
-      assert.equal(isPotentiallyDangerous(123), false);
+      expect(isPotentiallyDangerous(123)).toBe(false);
     });
 
     it("returns true for very long pattern", () => {
       const longPattern = "a".repeat(1001);
-      assert.ok(isPotentiallyDangerous(longPattern));
+      expect(isPotentiallyDangerous(longPattern)).toBeTruthy();
     });
 
     it("returns true for nested quantifiers (a+)+", () => {
-      assert.ok(isPotentiallyDangerous("(a+)+"));
+      expect(isPotentiallyDangerous("(a+).toBeTruthy()+"));
     });
 
     it("returns true for nested quantifiers (a*)*", () => {
-      assert.ok(isPotentiallyDangerous("(a*)*"));
+      expect(isPotentiallyDangerous("(a*).toBeTruthy()*"));
     });
 
     it("returns true for repeated alternation (a|ab)+", () => {
-      assert.ok(isPotentiallyDangerous("(a|ab)+"));
+      expect(isPotentiallyDangerous("(a|ab).toBeTruthy()+"));
     });
 
     it("returns true for many alternations in groups", () => {
-      assert.ok(isPotentiallyDangerous("(a|b)(c|d)(e|f)(g|h)"));
+      expect(isPotentiallyDangerous("(a|b).toBeTruthy()(c|d)(e|f)(g|h)"));
     });
 
     it("returns true for nested ranges", () => {
-      assert.ok(isPotentiallyDangerous("a{1,2}{3,4}"));
+      expect(isPotentiallyDangerous("a{1,2}{3,4}")).toBeTruthy();
     });
 
     it("returns false for safe alternation", () => {
-      assert.equal(isPotentiallyDangerous("(foo|bar)"), false);
+      expect(isPotentiallyDangerous("(foo|bar)")).toBe(false);
     });
 
     it("returns false for simple character class", () => {
-      assert.equal(isPotentiallyDangerous("[a-z]+"), false);
+      expect(isPotentiallyDangerous("[a-z]+")).toBe(false);
     });
   });
 
   describe("createSafeRegex", () => {
     it("creates regex for safe pattern", () => {
       const regex = createSafeRegex("hello\\s+world");
-      assert.ok(regex instanceof RegExp);
+      expect(regex instanceof RegExp).toBeTruthy();
     });
 
     it("uses provided flags", () => {
       const regex = createSafeRegex("test", "i");
-      assert.equal(regex.flags, "i");
+      expect(regex.flags).toBe("i");
     });
 
     it("uses default gu flags", () => {
       const regex = createSafeRegex("test");
-      assert.ok(regex.flags.includes("g"));
-      assert.ok(regex.flags.includes("u"));
+      expect(regex.flags.includes("g")).toBeTruthy();
+      expect(regex.flags.includes("u")).toBeTruthy();
     });
 
     it("throws for dangerous pattern", () => {
-      assert.throws(
-        () => createSafeRegex("(a+)+"),
+      expect(() => createSafeRegex("(a+).toThrow()+"),
         /ReDoS/
       );
     });
 
     it("throws for invalid regex syntax", () => {
-      assert.throws(
-        () => createSafeRegex("[unclosed"),
-        /Invalid RegExp/
-      );
+      expect(() => createSafeRegex("[unclosed")).toThrow(/Invalid RegExp/);
     });
   });
 
   describe("safeMatch", () => {
     it("matches text with regex", () => {
       const result = safeMatch("hello world", /world/);
-      assert.ok(result);
-      assert.equal(result[0], "world");
+      expect(result).toBeTruthy();
+      expect(result[0]).toBe("world");
     });
 
     it("returns null for no match", () => {
       const result = safeMatch("hello", /world/);
-      assert.equal(result, null);
+      expect(result).toBe(null);
     });
 
     it("handles null text", () => {
       const result = safeMatch(null, /test/);
-      assert.equal(result, null);
+      expect(result).toBe(null);
     });
 
     it("handles undefined text", () => {
       const result = safeMatch(undefined, /test/);
-      assert.equal(result, null);
+      expect(result).toBe(null);
     });
 
     it("accepts timeout parameter (no-op)", () => {
       const result = safeMatch("test", /test/, 1000);
-      assert.ok(result);
+      expect(result).toBeTruthy();
     });
   });
 
   describe("globToRegex", () => {
     it("converts simple glob", () => {
       const regex = globToRegex("*.js");
-      assert.ok(regex.test("file.js"));
+      expect(regex.it("file.js")).toBeTruthy();
       // Note: globToRegex does partial matching, not anchored
     });
 
     it("handles ** for directory matching", () => {
       const regex = globToRegex("**/*.js");
-      assert.ok(regex.test("src/components/file.js"));
+      expect(regex.it("src/components/file.js")).toBeTruthy();
     });
 
     it("handles ? for single character", () => {
       const regex = globToRegex("file?.txt");
-      assert.ok(regex.test("file1.txt"));
-      assert.ok(regex.test("fileA.txt"));
+      expect(regex.it("file1.txt")).toBeTruthy();
+      expect(regex.it("fileA.txt")).toBeTruthy();
     });
 
     it("escapes regex special characters", () => {
       const regex = globToRegex("file.name+test");
-      assert.ok(regex.test("file.name+test"));
+      expect(regex.it("file.name+test")).toBeTruthy();
     });
 
     it("handles null input", () => {
       const regex = globToRegex(null);
-      assert.ok(regex instanceof RegExp);
+      expect(regex instanceof RegExp).toBeTruthy();
     });
 
     it("handles non-string input", () => {
       const regex = globToRegex(123);
-      assert.ok(regex instanceof RegExp);
+      expect(regex instanceof RegExp).toBeTruthy();
     });
 
     it("matches exact pattern", () => {
       const regex = globToRegex("exact");
-      assert.ok(regex.test("exact"));
+      expect(regex.it("exact")).toBeTruthy();
     });
   });
 });

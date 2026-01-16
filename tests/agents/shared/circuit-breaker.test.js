@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import { CircuitBreaker, CircuitState } from "../../../js/agents/shared/utils/circuit-breaker.js";
 
@@ -25,8 +25,8 @@ describe("CircuitBreaker", () => {
       time,
     });
 
-    await assert.rejects(() => breaker.execute(async () => { throw new Error("boom"); }), /boom/);
-    assert.equal(breaker.state, CircuitState.OPEN);
+    await expect(() => breaker.execute(async () => { throw new Error("boom"); })).rejects.toThrow(/boom/);
+    expect(breaker.state).toBe(CircuitState.OPEN);
 
     let blockedErr = null;
     try {
@@ -34,11 +34,11 @@ describe("CircuitBreaker", () => {
     } catch (err) {
       blockedErr = err;
     }
-    assert.ok(blockedErr);
-    assert.equal(blockedErr.name, "CircuitBreakerOpenError");
+    expect(blockedErr).toBeTruthy();
+    expect(blockedErr.name).toBe("CircuitBreakerOpenError");
 
     time.advance(100);
-    assert.equal(breaker.state, CircuitState.HALF_OPEN);
+    expect(breaker.state).toBe(CircuitState.HALF_OPEN);
   });
 
   it("enforces halfOpenMaxCalls and recovers after successThreshold", async () => {
@@ -52,11 +52,11 @@ describe("CircuitBreaker", () => {
       time,
     });
 
-    await assert.rejects(() => breaker.execute(async () => { throw new Error("fail"); }), /fail/);
-    assert.equal(breaker.state, CircuitState.OPEN);
+    await expect(() => breaker.execute(async () => { throw new Error("fail"); })).rejects.toThrow(/fail/);
+    expect(breaker.state).toBe(CircuitState.OPEN);
 
     time.advance(1);
-    assert.equal(breaker.state, CircuitState.HALF_OPEN);
+    expect(breaker.state).toBe(CircuitState.HALF_OPEN);
 
     let release;
     const pending = new Promise((resolve) => {
@@ -70,12 +70,12 @@ describe("CircuitBreaker", () => {
     } catch (err) {
       secondErr = err;
     }
-    assert.ok(secondErr);
-    assert.equal(secondErr.name, "CircuitBreakerOpenError");
+    expect(secondErr).toBeTruthy();
+    expect(secondErr.name).toBe("CircuitBreakerOpenError");
 
     release();
     const out = await first;
-    assert.equal(out, "ok");
-    assert.equal(breaker.state, CircuitState.CLOSED);
+    expect(out).toBe("ok");
+    expect(breaker.state).toBe(CircuitState.CLOSED);
   });
 });

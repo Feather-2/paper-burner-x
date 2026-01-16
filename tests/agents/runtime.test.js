@@ -1,3 +1,5 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
@@ -6,7 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // 以下测试引用了已删除的 run-context.js，已移除
 
-test("Runtime Constants: report enums + quality mode normalization", async () => {
+it("Runtime Constants: report enums + quality mode normalization", async () => {
   const {
     ReportTone,
     ReportAudience,
@@ -20,35 +22,35 @@ test("Runtime Constants: report enums + quality mode normalization", async () =>
     normalizeQualityMode,
   } = await import("../../js/agents/runtime/core/constants.js");
 
-  assert.equal(normalizeReportTone("Business"), ReportTone.BUSINESS);
-  assert.equal(normalizeReportTone("ACADEMIC"), ReportTone.ACADEMIC);
-  assert.equal(normalizeReportTone("neutral"), undefined);
+  expect(normalizeReportTone("Business")).toBe(ReportTone.BUSINESS);
+  expect(normalizeReportTone("ACADEMIC")).toBe(ReportTone.ACADEMIC);
+  expect(normalizeReportTone("neutral")).toBe(undefined);
 
-  assert.equal(normalizeReportAudience("EXECUTIVE"), ReportAudience.EXECUTIVE);
-  assert.equal(normalizeReportAudience("expert"), ReportAudience.EXPERT);
-  assert.equal(normalizeReportAudience("student"), undefined);
+  expect(normalizeReportAudience("EXECUTIVE")).toBe(ReportAudience.EXECUTIVE);
+  expect(normalizeReportAudience("expert")).toBe(ReportAudience.EXPERT);
+  expect(normalizeReportAudience("student")).toBe(undefined);
 
-  assert.equal(normalizeReportLanguage("zh"), ReportLanguage.ZH);
-  assert.equal(normalizeReportLanguage("AUTO"), ReportLanguage.AUTO);
-  assert.equal(normalizeReportLanguage("fr"), undefined);
+  expect(normalizeReportLanguage("zh")).toBe(ReportLanguage.ZH);
+  expect(normalizeReportLanguage("AUTO")).toBe(ReportLanguage.AUTO);
+  expect(normalizeReportLanguage("fr")).toBe(undefined);
 
-  assert.equal(normalizeReportLength("detailed"), ReportLength.DETAILED);
-  assert.equal(normalizeReportLength("COMPREHENSIVE"), ReportLength.COMPREHENSIVE);
-  assert.equal(normalizeReportLength("long"), undefined);
+  expect(normalizeReportLength("detailed")).toBe(ReportLength.DETAILED);
+  expect(normalizeReportLength("COMPREHENSIVE")).toBe(ReportLength.COMPREHENSIVE);
+  expect(normalizeReportLength("long")).toBe(undefined);
 
-  assert.equal(normalizeQualityMode("HIGH"), QualityMode.HIGH);
-  assert.equal(normalizeQualityMode("standard"), QualityMode.STANDARD);
-  assert.equal(normalizeQualityMode("extreme"), undefined);
+  expect(normalizeQualityMode("HIGH")).toBe(QualityMode.HIGH);
+  expect(normalizeQualityMode("standard")).toBe(QualityMode.STANDARD);
+  expect(normalizeQualityMode("extreme")).toBe(undefined);
 });
 
-test("Runtime Core: EventBus on/off/once/emit + EventRecord fields", async () => {
+it("Runtime Core: EventBus on/off/once/emit + EventRecord fields", async () => {
   const { EventBus, isValidEventName } = await import("../../js/agents/core/event-bus.js");
 
-  assert.ok(isValidEventName("run.started"));
-  assert.ok(isValidEventName("textprep.chunk.completed"));
-  assert.equal(isValidEventName("Run.Started"), false);
-  assert.equal(isValidEventName("bad..name"), false);  // 连续点号不合法
-  assert.ok(isValidEventName("bad_name"));  // 下划线现在合法
+  expect(isValidEventName("run.started")).toBeTruthy();
+  expect(isValidEventName("textprep.chunk.completed")).toBeTruthy();
+  expect(isValidEventName("Run.Started")).toBe(false);
+  expect(isValidEventName("bad..name")).toBe(false);  // 连续点号不合法
+  expect(isValidEventName("bad_name")).toBeTruthy();  // 下划线现在合法
 
   const bus = new EventBus({ runId: "run_2025-12-12_22-30-01_a3f9f" });
 
@@ -63,19 +65,19 @@ test("Runtime Core: EventBus on/off/once/emit + EventRecord fields", async () =>
   const evt1 = bus.emit("run.started", { actor: "system", status: "started", payload: { mode: "textprep" } });
   const evt2 = bus.emit("run.started", { actor: "system", status: "started", payload: { mode: "textprep" } });
 
-  assert.equal(onceCount, 1);
-  assert.equal(evt1.schemaVersion, "0.1");
-  assert.equal(evt1.runId, bus.runId);
-  assert.equal(evt1.name, "run.started");
-  assert.equal(evt1.actor, "system");
-  assert.equal(evt1.status, "started");
-  assert.deepEqual(evt1.payload, { mode: "textprep" });
-  assert.ok(typeof evt1.eventId === "string" && evt1.eventId.startsWith("evt_"));
-  assert.ok(typeof evt1.ts === "string" && evt1.ts.includes("T"));
+  expect(onceCount).toBe(1);
+  expect(evt1.schemaVersion).toBe("0.1");
+  expect(evt1.runId).toBe(bus.runId);
+  expect(evt1.name).toBe("run.started");
+  expect(evt1.actor).toBe("system");
+  expect(evt1.status).toBe("started");
+  expect(evt1.payload).toEqual({ mode: "textprep" });
+  expect(typeof evt1.eventId === "string" && evt1.eventId.startsWith("evt_")).toBeTruthy();
+  expect(typeof evt1.ts === "string" && evt1.ts.includes("T")).toBeTruthy();
 
   offAny();
   bus.emit("run.ended", { actor: "system", status: "ended" });
-  assert.equal(seen.filter((e) => e.name === "run.ended").length, 0);
+  expect(seen.filter((e) => e.name === "run.ended").length).toBe(0);
 
   // off(name, fn)
   let hits = 0;
@@ -85,14 +87,14 @@ test("Runtime Core: EventBus on/off/once/emit + EventRecord fields", async () =>
   bus.on("run.ended", fn);
   bus.off("run.ended", fn);
   bus.emit("run.ended", { actor: "system", status: "ended" });
-  assert.equal(hits, 0);
+  expect(hits).toBe(0);
 
   // emit(name, payloadObject) convenience
   const evt3 = bus.emit("run.progress", { pct: 50 });
-  assert.deepEqual(evt3.payload, { pct: 50 });
+  expect(evt3.payload).toEqual({ pct: 50 });
 });
 
-test("Core: KernelBuilder applies config for string plugins", async () => {
+it("Core: KernelBuilder applies config for string plugins", async () => {
   const { KernelBuilder } = await import("../../js/agents/core/index.js");
 
   const kernel = await KernelBuilder.create()
@@ -102,43 +104,43 @@ test("Core: KernelBuilder applies config for string plugins", async () => {
 
   try {
     const plugin = kernel._getPlugin("resilience/retry");
-    assert.equal(plugin?._config?.maxRetries, 7);
+    expect(plugin?._config?.maxRetries).toBe(7);
   } finally {
     await kernel.stop();
   }
 });
 
-test("Runtime: JSRuntimeAdapter blocks main-thread fallback unless trusted", async () => {
+it("Runtime: JSRuntimeAdapter blocks main-thread fallback unless trusted", async () => {
   const { JSRuntimeAdapter } = await import("../../js/agents/runtime/core/js-adapter.js");
 
   const js = new JSRuntimeAdapter({ useWorkerSandbox: false });
   const res = await js.execute("return 1 + 1;", { vfs: {}, state: {} });
 
-  assert.equal(res.success, false);
-  assert.match(String(res.error || ""), /Main-thread fallback blocked/);
+  expect(res.success).toBe(false);
+  expect(String(res.error || "")).toMatch(/Main-thread fallback blocked/);
 });
 
-test("Runtime: JSRuntimeAdapter allows main-thread fallback when trusted=true", async () => {
+it("Runtime: JSRuntimeAdapter allows main-thread fallback when trusted=true", async () => {
   const { JSRuntimeAdapter } = await import("../../js/agents/runtime/core/js-adapter.js");
 
   const js = new JSRuntimeAdapter({ useWorkerSandbox: false });
   const res = await js.execute("return 40 + 2;", { vfs: {}, state: {}, trusted: true });
 
-  assert.equal(res.success, true);
-  assert.equal(res.data, 42);
+  expect(res.success).toBe(true);
+  expect(res.data).toBe(42);
 });
 
-test("Runtime: JSRuntimeAdapter main-thread fallback can be forced allow", async () => {
+it("Runtime: JSRuntimeAdapter main-thread fallback can be forced allow", async () => {
   const { JSRuntimeAdapter } = await import("../../js/agents/runtime/core/js-adapter.js");
 
   const js = new JSRuntimeAdapter({ useWorkerSandbox: false, mainThreadFallback: "allow" });
   const res = await js.execute("return 6 * 7;", { vfs: {}, state: {} });
 
-  assert.equal(res.success, true);
-  assert.equal(res.data, 42);
+  expect(res.success).toBe(true);
+  expect(res.data).toBe(42);
 });
 
-test("Runtime: JSRuntimeAdapter reports aborted when signal already aborted", async () => {
+it("Runtime: JSRuntimeAdapter reports aborted when signal already aborted", async () => {
   const { JSRuntimeAdapter } = await import("../../js/agents/runtime/core/js-adapter.js");
 
   const controller = new AbortController();
@@ -147,12 +149,12 @@ test("Runtime: JSRuntimeAdapter reports aborted when signal already aborted", as
   const js = new JSRuntimeAdapter({ useWorkerSandbox: false, mainThreadFallback: "allow" });
   const res = await js.execute("return 1;", { vfs: {}, state: {}, signal: controller.signal });
 
-  assert.equal(res.success, false);
-  assert.match(String(res.error || ""), /Aborted/);
-  assert.equal(res.metrics?.aborted, true);
+  expect(res.success).toBe(false);
+  expect(String(res.error || "")).toMatch(/Aborted/);
+  expect(res.metrics?.aborted).toBe(true);
 });
 
-test("Runtime: WorkerRpcClient dispose rejects pending calls and detaches listeners", async () => {
+it("Runtime: WorkerRpcClient dispose rejects pending calls and detaches listeners", async () => {
   const { WorkerRpcClient } = await import("../../js/agents/runtime/core/worker-rpc.js");
 
   class SpyWorker {
@@ -185,18 +187,18 @@ test("Runtime: WorkerRpcClient dispose rejects pending calls and detaches listen
   const pending = client.call("hang", null, { timeoutMs: 1_000 });
   client.dispose();
 
-  await assert.rejects(async () => pending, /disposed/i);
-  assert.equal(client.worker, null);
-  assert.equal(client._pending.size, 0);
-  assert.equal(worker.terminateCalls, 1);
-  assert.equal(worker.listeners.message.size, 0);
-  assert.equal(worker.listeners.error.size, 0);
+  await expect(async () => pending, /disposed/i);
+  expect(client.worker).toBe(null);
+  expect(client._pending.size).toBe(0);
+  expect(worker.terminateCalls).toBe(1);
+  expect(worker.listeners.message.size).toBe(0);
+  expect(worker.listeners.error.size).toBe(0);
 
-  await assert.rejects(async () => client.call("ping", {}), /disposed/i);
-  assert.equal(worker.postMessageCalls.length, 1);
+  await expect(async () => client.call("ping", {}), /disposed/i);
+  expect(worker.postMessageCalls.length).toBe(1);
 });
 
-test("Runtime: WorkerRpcClient dispose clears onmessage/onerror fallback path", async () => {
+it("Runtime: WorkerRpcClient dispose clears onmessage/onerror fallback path", async () => {
   const { WorkerRpcClient } = await import("../../js/agents/runtime/core/worker-rpc.js");
 
   const worker = {
@@ -207,15 +209,15 @@ test("Runtime: WorkerRpcClient dispose clears onmessage/onerror fallback path", 
   };
 
   const client = new WorkerRpcClient({ worker, timeoutMs: 100 });
-  assert.equal(typeof worker.onmessage, "function");
-  assert.equal(typeof worker.onerror, "function");
+  expect(typeof worker.onmessage).toBe("function");
+  expect(typeof worker.onerror).toBe("function");
 
   client.dispose();
-  assert.equal(worker.onmessage, null);
-  assert.equal(worker.onerror, null);
+  expect(worker.onmessage).toBe(null);
+  expect(worker.onerror).toBe(null);
 });
 
-test("Runtime: WorkerRpcClient call rejects after dispose without creating worker", async () => {
+it("Runtime: WorkerRpcClient call rejects after dispose without creating worker", async () => {
   const { WorkerRpcClient } = await import("../../js/agents/runtime/core/worker-rpc.js");
 
   let created = 0;
@@ -232,11 +234,11 @@ test("Runtime: WorkerRpcClient call rejects after dispose without creating worke
   });
 
   client.dispose();
-  await assert.rejects(async () => client.call("ping", {}), /disposed/i);
-  assert.equal(created, 0);
+  await expect(async () => client.call("ping", {}), /disposed/i);
+  expect(created).toBe(0);
 });
 
-test("MCP: parseSseStream enforces default size limits", async () => {
+it("MCP: parseSseStream enforces default size limits", async () => {
   const { parseSseStream } = await import("../../js/agents/mcp/sse.js");
 
   const text = `data: ${"a".repeat(300 * 1024)}\n\n`;
@@ -248,8 +250,7 @@ test("MCP: parseSseStream enforces default size limits", async () => {
     },
   });
 
-  await assert.rejects(
-    async () => {
+  await expect(async () => {
       for await (const _evt of parseSseStream(stream)) {
         // drain
       }
@@ -258,73 +259,67 @@ test("MCP: parseSseStream enforces default size limits", async () => {
   );
 });
 
-test("VFS: MemoryVfs directory tree + mkdir/rmdir/unlink", async () => {
+it("VFS: MemoryVfs directory tree + mkdir/rmdir/unlink", async () => {
   const { MemoryVfs } = await import("../../js/agents/vfs/vfs.memory.js");
 
   const vfs = new MemoryVfs();
 
   await vfs.mkdir("empty");
   await vfs.writeText("a/b.txt", "hi");
-  assert.equal(await vfs.exists("a/b.txt"), true);
-  assert.equal(await vfs.exists("a/missing.txt"), false);
+  expect(await vfs.exists("a/b.txt")).toBe(true);
+  expect(await vfs.exists("a/missing.txt")).toBe(false);
 
   const rootEntries = await vfs.readdir("", { withFileTypes: true });
-  assert.deepEqual(
-    rootEntries.map((e) => e.name),
-    ["a", "empty"]
+  expect(rootEntries.map((e) => e.name)).toEqual(["a", "empty"]
   );
-  assert.equal(
-    rootEntries.find((e) => e.name === "a")?.isDirectory(),
-    true
+  expect(rootEntries.find((e) => e.name === "a")?.isDirectory()).toBe(true
   );
-  assert.equal(
-    rootEntries.find((e) => e.name === "empty")?.isDirectory(),
-    true
+  expect(rootEntries.find((e) => e.name === "empty")?.isDirectory()).toBe(true
   );
 
   const aStat = await vfs.stat("a");
-  assert.equal(aStat.isDirectory(), true);
+  expect(aStat.isDirectory()).toBe(true);
 
-  assert.deepEqual(await vfs.readdir("a"), ["b.txt"]);
-  assert.deepEqual(await vfs.listFiles({ prefix: "a", recursive: true }), ["a/b.txt"]);
-  assert.deepEqual(await vfs.listFiles({ prefix: "a/b.txt" }), ["a/b.txt"]);
+  expect(await vfs.readdir("a")).toEqual(["b.txt"]);
+  expect(await vfs.listFiles({ prefix: "a").toEqual(recursive: true }), ["a/b.txt"]);
+  expect(await vfs.listFiles({ prefix: "a/b.txt" })).toEqual(["a/b.txt"]);
 
   await vfs.copy("a/b.txt", "a/c.txt");
-  assert.equal(await vfs.readText("a/c.txt"), "hi");
+  expect(await vfs.readText("a/c.txt")).toBe("hi");
 
   await vfs.move("a/c.txt", "a/d.txt");
-  assert.equal(await vfs.exists("a/c.txt"), false);
-  assert.equal(await vfs.readText("a/d.txt"), "hi");
+  expect(await vfs.exists("a/c.txt")).toBe(false);
+  expect(await vfs.readText("a/d.txt")).toBe("hi");
 
   await vfs.appendText("a/d.txt", "!");
-  assert.equal(await vfs.readText("a/d.txt"), "hi!");
+  expect(await vfs.readText("a/d.txt")).toBe("hi!");
 
-  await assert.rejects(async () => vfs.rmdir("a"), /ENOTEMPTY/);
+  await expect(async () => vfs.rmdir("a"), /ENOTEMPTY/);
 
   await vfs.unlink("a/b.txt");
   await vfs.unlink("a/d.txt");
-  assert.deepEqual(await vfs.readdir("a"), []);
+  expect(await vfs.readdir("a")).toEqual([]);
   await vfs.rmdir("a");
 
-  await assert.rejects(async () => vfs.stat("a"), /ENOENT/);
-  await assert.rejects(async () => vfs.rmdir(""), /cannot remove root/);
+  await expect(async () => vfs.stat("a"), /ENOENT/);
+  await expect(async () => vfs.rmdir(""), /cannot remove root/);
 });
 
-test("VFS: MemoryVfs mkdir recursive=false semantics", async () => {
+it("VFS: MemoryVfs mkdir recursive=false semantics", async () => {
   const { MemoryVfs } = await import("../../js/agents/vfs/vfs.memory.js");
   const vfs = new MemoryVfs();
 
   await vfs.mkdir("dir");
-  await assert.rejects(async () => vfs.mkdir("dir", { recursive: false }), /EEXIST/);
+  await expect(async () => vfs.mkdir("dir", { recursive: false }), /EEXIST/);
 
   await vfs.writeText("file.txt", "x");
-  await assert.rejects(async () => vfs.mkdir("file.txt", { recursive: true }), /EEXIST/);
-  await assert.rejects(async () => vfs.mkdir("file.txt", { recursive: false }), /EEXIST/);
+  await expect(async () => vfs.mkdir("file.txt", { recursive: true }), /EEXIST/);
+  await expect(async () => vfs.mkdir("file.txt", { recursive: false }), /EEXIST/);
 
-  await assert.rejects(async () => vfs.mkdir("missing/child", { recursive: false }), /ENOENT/);
+  await expect(async () => vfs.mkdir("missing/child", { recursive: false }), /ENOENT/);
 });
 
-test("VFS glob: createVfsGlobFn uses walkFiles + static dir prefix", async () => {
+it("VFS glob: createVfsGlobFn uses walkFiles + static dir prefix", async () => {
   const { MemoryVfs } = await import("../../js/agents/vfs/vfs.memory.js");
   const { createVfsGlobFn } = await import("../../js/agents/vfs/glob.js");
 
@@ -342,11 +337,11 @@ test("VFS glob: createVfsGlobFn uses walkFiles + static dir prefix", async () =>
 
   const globFn = createVfsGlobFn(vfs, { maxScanFiles: 100 });
   const files = await globFn({ pattern: "src/**/*.js", path: "" });
-  assert.deepEqual(files, ["src/a.js"]);
-  assert.equal(seenPrefixes[0], "src");
+  expect(files).toEqual(["src/a.js"]);
+  expect(seenPrefixes[0]).toBe("src");
 });
 
-test("VFS operations: writeTextFileWithPolicy serializes concurrent writes", async () => {
+it("VFS operations: writeTextFileWithPolicy serializes concurrent writes", async () => {
   const { writeTextFileWithPolicy } = await import("../../js/agents/vfs/operations.js");
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -372,10 +367,10 @@ test("VFS operations: writeTextFileWithPolicy serializes concurrent writes", asy
     writeTextFileWithPolicy({ vfs, path: "x.txt", text: "second", checkpoint: false }),
   ]);
 
-  assert.equal(vfs.text, "second");
+  expect(vfs.text).toBe("second");
 });
 
-test("VFS operations: multiEditTextFileWithPolicy supports indentation-normalized fallback", async () => {
+it("VFS operations: multiEditTextFileWithPolicy supports indentation-normalized fallback", async () => {
   const { MemoryVfs } = await import("../../js/agents/vfs/vfs.memory.js");
   const { multiEditTextFileWithPolicy } = await import("../../js/agents/vfs/operations.js");
 
@@ -394,11 +389,11 @@ test("VFS operations: multiEditTextFileWithPolicy supports indentation-normalize
   });
 
   const after = await vfs.readText("code.js");
-  assert.ok(after.includes("return 2;"));
-  assert.equal(after.includes("return 1;"), false);
+  expect(after.includes("return 2;")).toBeTruthy();
+  expect(after.includes("return 1;")).toBe(false);
 });
 
-test("Runtime Core: EventBus backpressure default stays synchronous", async () => {
+it("Runtime Core: EventBus backpressure default stays synchronous", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const bus = new EventBus({ runId: "run_test" });
@@ -408,10 +403,10 @@ test("Runtime Core: EventBus backpressure default stays synchronous", async () =
   });
 
   bus.emit("run.log", { msg: "a" });
-  assert.equal(hits, 1);
+  expect(hits).toBe(1);
 });
 
-test("Runtime Core: EventBus backpressure batching + coalesce + order + seq", async () => {
+it("Runtime Core: EventBus backpressure batching + coalesce + order + seq", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -431,33 +426,31 @@ test("Runtime Core: EventBus backpressure batching + coalesce + order + seq", as
   bus.emit("run.progress", { i: 4 });
   bus.emit("run.progress", { i: 5 });
 
-  assert.equal(events.length, 0);
+  expect(events.length).toBe(0);
 
   await sleep(60);
 
-  assert.deepEqual(
-    events.map((e) => e.name),
-    ["run.log", "run.log", "run.progress"]
+  expect(events.map((e) => e.name)).toEqual(["run.log", "run.log", "run.progress"]
   );
 
   const progress = events.filter((e) => e.name === "run.progress");
-  assert.equal(progress.length, 1);
-  assert.deepEqual(progress[0].payload, { i: 5 });
+  expect(progress.length).toBe(1);
+  expect(progress[0].payload).toEqual({ i: 5 });
 
   const logs = events.filter((e) => e.name === "run.log");
-  assert.equal(logs.length, 2);
-  assert.deepEqual(logs.map((e) => e.payload), [{ msg: "a" }, { msg: "b" }]);
+  expect(logs.length).toBe(2);
+  expect(logs.map((e) => e.payload)).toEqual([{ msg: "a" }, { msg: "b" }]);
 
   const seqs = events.map(seqOf);
-  assert.ok(seqs[0] < seqs[1] && seqs[1] < seqs[2]);
+  expect(seqs[0] < seqs[1] && seqs[1] < seqs[2]).toBeTruthy();
 
   bus.emit("run.log", { msg: "c" });
   await sleep(60);
-  assert.equal(events.filter((e) => e.payload?.msg === "c").length, 1);
-  assert.ok(seqOf(events.at(-1)) > seqs.at(-1));
+  expect(events.filter((e) => e.payload?.msg === "c").length).toBe(1);
+  expect(seqOf(events.at(-1)).toBeTruthy() > seqs.at(-1));
 });
 
-test("Runtime Core: EventBus backpressure custom coalescePattern + disable restores sync", async () => {
+it("Runtime Core: EventBus backpressure custom coalescePattern + disable restores sync", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -480,11 +473,11 @@ test("Runtime Core: EventBus backpressure custom coalescePattern + disable resto
 
   await sleep(50);
 
-  assert.equal(progress.length, 3);
-  assert.deepEqual(progress.map((e) => e.payload), [{ i: 1 }, { i: 2 }, { i: 3 }]);
+  expect(progress.length).toBe(3);
+  expect(progress.map((e) => e.payload)).toEqual([{ i: 1 }, { i: 2 }, { i: 3 }]);
 
-  assert.equal(logs.length, 1);
-  assert.deepEqual(logs[0].payload, { msg: "c" });
+  expect(logs.length).toBe(1);
+  expect(logs[0].payload).toEqual({ msg: "c" });
 
   bus.disableBackpressure();
 
@@ -493,10 +486,10 @@ test("Runtime Core: EventBus backpressure custom coalescePattern + disable resto
     sync = true;
   });
   bus.emit("run.log", { msg: "sync" });
-  assert.equal(sync, true);
+  expect(sync).toBe(true);
 });
 
-test("Runtime Core: EventBus backpressure batchWindowMs controls flush timing", async () => {
+it("Runtime Core: EventBus backpressure batchWindowMs controls flush timing", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -511,13 +504,13 @@ test("Runtime Core: EventBus backpressure batchWindowMs controls flush timing", 
 
   bus.emit("run.log", { msg: "delayed" });
   await sleep(10);
-  assert.equal(hits, 0);
+  expect(hits).toBe(0);
 
   await sleep(60);
-  assert.equal(hits, 1);
+  expect(hits).toBe(1);
 });
 
-test("Runtime Core: EventBus backpressure rAF scheduling branch", async () => {
+it("Runtime Core: EventBus backpressure rAF scheduling branch", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const originalRaf = globalThis.requestAnimationFrame;
@@ -537,7 +530,7 @@ test("Runtime Core: EventBus backpressure rAF scheduling branch", async () => {
 
     bus.emit("run.log", { msg: "x" });
     bus.disableBackpressure();
-    assert.equal(hits, 1);
+    expect(hits).toBe(1);
 
     // Exercise the empty-queue flush path.
     bus.enableBackpressure();
@@ -548,7 +541,7 @@ test("Runtime Core: EventBus backpressure rAF scheduling branch", async () => {
   }
 });
 
-test("Runtime Core: EventBus backpressure ignores stale scheduled flush callbacks", async () => {
+it("Runtime Core: EventBus backpressure ignores stale scheduled flush callbacks", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const originalRaf = globalThis.requestAnimationFrame;
@@ -577,39 +570,39 @@ test("Runtime Core: EventBus backpressure ignores stale scheduled flush callback
     const oldId = bus._backpressure?.rafId;
 
     bus.disableBackpressure();
-    assert.equal(hits, 1);
+    expect(hits).toBe(1);
 
     bus.enableBackpressure({ batchWindowMs: 0 });
     bus.emit("run.log", { msg: "new" });
     const newId = bus._backpressure?.rafId;
-    assert.equal(hits, 1);
+    expect(hits).toBe(1);
 
     callbacks.get(oldId)?.(Date.now());
-    assert.equal(hits, 1);
+    expect(hits).toBe(1);
 
     callbacks.get(newId)?.(Date.now());
-    assert.equal(hits, 2);
+    expect(hits).toBe(2);
   } finally {
     globalThis.requestAnimationFrame = originalRaf;
     globalThis.cancelAnimationFrame = originalCancel;
   }
 });
 
-test("Runtime Core: EventBus validation errors", async () => {
+it("Runtime Core: EventBus validation errors", async () => {
   const { EventBus, createEventRecord } = await import("../../js/agents/core/event-bus.js");
 
-  assert.throws(() => createEventRecord({ name: "Bad.Name" }), /Invalid event name/);
+  expect(() => createEventRecord({ name: "Bad.Name" })).toThrow(/Invalid event name/);
 
   const bus = new EventBus({ runId: "run_test" });
-  assert.throws(() => bus.on("run.log", "nope"), /handler must be a function/);
-  assert.throws(() => bus.on("Bad.Name", () => {}), /Invalid event name/);
+  expect(() => bus.on("run.log", "nope")).toThrow(/handler must be a function/);
+  expect(() => bus.on("Bad.Name", () => {}), /Invalid event name/);
 
-  assert.throws(() => bus.enableBackpressure(123), /options must be an object/);
-  assert.throws(() => bus.enableBackpressure({ batchWindowMs: -1 }), /batchWindowMs/);
-  assert.throws(() => bus.enableBackpressure({ coalescePattern: "x" }), /coalescePattern/);
+  expect(() => bus.enableBackpressure(123)).toThrow(/options must be an object/);
+  expect(() => bus.enableBackpressure({ batchWindowMs: -1 })).toThrow(/batchWindowMs/);
+  expect(() => bus.enableBackpressure({ coalescePattern: "x" })).toThrow(/coalescePattern/);
 });
 
-test("Runtime Core: EventBus backpressure re-enable flushes queued and cancels timer", async () => {
+it("Runtime Core: EventBus backpressure re-enable flushes queued and cancels timer", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -623,8 +616,8 @@ test("Runtime Core: EventBus backpressure re-enable flushes queued and cancels t
 
   // Re-enabling should cancel the pending timer and flush queued events immediately.
   bus.enableBackpressure({ batchWindowMs: 1, coalescePattern: /\.progress$/g });
-  assert.equal(seen.length, 1);
-  assert.deepEqual(seen[0].payload, { msg: "queued" });
+  expect(seen.length).toBe(1);
+  expect(seen[0].payload).toEqual({ msg: "queued" });
 
   // Also exercise global-regexp coalescing behavior.
   const progress = [];
@@ -632,11 +625,11 @@ test("Runtime Core: EventBus backpressure re-enable flushes queued and cancels t
   bus.emit("run.progress", { i: 1 });
   bus.emit("run.progress", { i: 2 });
   await sleep(20);
-  assert.equal(progress.length, 1);
-  assert.deepEqual(progress[0].payload, { i: 2 });
+  expect(progress.length).toBe(1);
+  expect(progress[0].payload).toEqual({ i: 2 });
 });
 
-test("Runtime Core: EventBus persistence adapter best-effort appendEvents", async () => {
+it("Runtime Core: EventBus persistence adapter best-effort appendEvents", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -660,9 +653,9 @@ test("Runtime Core: EventBus persistence adapter best-effort appendEvents", asyn
     bus.emit("run.log", { msg: "a" });
     await sleep(0);
 
-    assert.equal(calls, 1);
-    assert.equal(appended.length, 1);
-    assert.equal(appended[0].name, "run.log");
+    expect(calls).toBe(1);
+    expect(appended.length).toBe(1);
+    expect(appended[0].name).toBe("run.log");
   }
 
   // Throwing appendEvents should be swallowed.
@@ -682,15 +675,14 @@ test("Runtime Core: EventBus persistence adapter best-effort appendEvents", asyn
   }
 });
 
-test("Runtime Core: EventBus replay loads events and marks meta.replay", async () => {
+it("Runtime Core: EventBus replay loads events and marks meta.replay", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   // No adapter -> clear error.
-  await assert.rejects(() => new EventBus().replay("run_test"), /persistenceAdapter is required/);
+  await expect(() => new EventBus().replay("run_test")).rejects.toThrow(/persistenceAdapter is required/);
 
   // Bad runId.
-  await assert.rejects(
-    () =>
+  await expect(() =>
       new EventBus({
         persistenceAdapter: { appendEvents: async () => {}, getEvents: async () => [] },
       }).replay(123),
@@ -698,8 +690,7 @@ test("Runtime Core: EventBus replay loads events and marks meta.replay", async (
   );
 
   // getEvents throws -> wrapped error.
-  await assert.rejects(
-    () =>
+  await expect(() =>
       new EventBus({
         persistenceAdapter: {
           appendEvents: async () => {},
@@ -728,20 +719,20 @@ test("Runtime Core: EventBus replay loads events and marks meta.replay", async (
   bus.on("*", (e) => replayed.push(e));
 
   const out = await bus.replay("run_test");
-  assert.equal(out.length, 1);
-  assert.equal(out[0].meta.replay, true);
-  assert.equal(out[0].meta.foo, "bar");
-  assert.equal(replayed.length, 1);
+  expect(out.length).toBe(1);
+  expect(out[0].meta.replay).toBe(true);
+  expect(out[0].meta.foo).toBe("bar");
+  expect(replayed.length).toBe(1);
 
   // replay should not persist events.
-  assert.equal(appendCalls, 0);
+  expect(appendCalls).toBe(0);
 });
 
-test("Runtime Core: RunStoreAdapter validation + appendEvents branches", async () => {
+it("Runtime Core: RunStoreAdapter validation + appendEvents branches", async () => {
   const { RunStoreAdapter } = await import("../../js/agents/core/event-bus.js");
 
-  assert.throws(() => new RunStoreAdapter(null), /runStore.getEvents must be a function/);
-  assert.throws(() => new RunStoreAdapter({ getEvents: async () => [] }), /appendEvents\/appendEvent/);
+  expect(() => new RunStoreAdapter(null)).toThrow(/runStore.getEvents must be a function/);
+  expect(() => new RunStoreAdapter({ getEvents: async () => [] }), /appendEvents\/appendEvent/);
 
   // appendEvents path
   {
@@ -754,20 +745,20 @@ test("Runtime Core: RunStoreAdapter validation + appendEvents branches", async (
     };
     const adapter = new RunStoreAdapter(runStore);
 
-    await assert.rejects(() => adapter.appendEvents("nope"), /events must be an array/);
-    assert.equal(await adapter.appendEvents([]), 0);
+    await expect(() => adapter.appendEvents("nope")).rejects.toThrow(/events must be an array/);
+    expect(await adapter.appendEvents([])).toBe(0);
 
     const n = await adapter.appendEvents([
       { runId: "run_a", name: "run.log" },
       { runId: "run_a", name: "run.log" },
     ]);
-    assert.equal(n, 2);
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0].runId, "run_a");
-    assert.equal(calls[0].events.length, 2);
+    expect(n).toBe(2);
+    expect(calls.length).toBe(1);
+    expect(calls[0].runId).toBe("run_a");
+    expect(calls[0].events.length).toBe(2);
 
     const got = await adapter.getEvents("run_a");
-    assert.equal(got[0].runId, "run_a");
+    expect(got[0].runId).toBe("run_a");
   }
 
   // appendEvent (per-event) path + missing runId error
@@ -782,23 +773,23 @@ test("Runtime Core: RunStoreAdapter validation + appendEvents branches", async (
     const adapter = new RunStoreAdapter(runStore);
 
     // Invalid events are skipped (best-effort) rather than rejected.
-    assert.equal(await adapter.appendEvents([{ name: "run.log" }]), 1);
-    assert.equal(calls.length, 0);
+    expect(await adapter.appendEvents([{ name: "run.log" }])).toBe(1);
+    expect(calls.length).toBe(0);
 
     const n = await adapter.appendEvents([
       { runId: "run_b", name: "run.log", payload: { i: 1 } },
       { runId: "run_b", name: "run.log", payload: { i: 2 } },
     ]);
-    assert.equal(n, 2);
-    assert.equal(calls.length, 2);
-    assert.equal(calls[0].runId, "run_b");
-    assert.equal(calls[1].evt.payload.i, 2);
+    expect(n).toBe(2);
+    expect(calls.length).toBe(2);
+    expect(calls[0].runId).toBe("run_b");
+    expect(calls[1].evt.payload.i).toBe(2);
   }
 });
 
 // 以下测试引用了已删除的 run-context.js 和 orchestrator.js，已移除
 
-test("Runtime Core: EventBus subscribe with wildcard pattern", async () => {
+it("Runtime Core: EventBus subscribe with wildcard pattern", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const bus = new EventBus({ runId: "run_test" });
@@ -813,12 +804,12 @@ test("Runtime Core: EventBus subscribe with wildcard pattern", async () => {
 	  bus.emit("design.started", { status: "started" });
 	  bus.emit("run.started", { status: "started" });
 
-  assert.equal(deepSearchEvents.length, 2);
-  assert.equal(designEvents.length, 1);
-  assert.ok(deepSearchEvents.every((e) => e.name.startsWith("deepsearch.")));
+  expect(deepSearchEvents.length).toBe(2);
+  expect(designEvents.length).toBe(1);
+  expect(deepSearchEvents.every((e).toBeTruthy() => e.name.startsWith("deepsearch.")));
 });
 
-test("Runtime Core: EventBus subscribe returns unsubscribe function", async () => {
+it("Runtime Core: EventBus subscribe returns unsubscribe function", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const bus = new EventBus({ runId: "run_test" });
@@ -827,15 +818,15 @@ test("Runtime Core: EventBus subscribe returns unsubscribe function", async () =
   const unsubscribe = bus.subscribe("deepsearch.*", (e) => events.push(e));
 
   bus.emit("deepsearch.scan.started", {});
-  assert.equal(events.length, 1);
+  expect(events.length).toBe(1);
 
   unsubscribe();
 
   bus.emit("deepsearch.scan.completed", {});
-  assert.equal(events.length, 1); // no new events after unsubscribe
+  expect(events.length).toBe(1); // no new events after unsubscribe
 });
 
-test("Runtime Core: EventBus subscribe with priority executes in order", async () => {
+it("Runtime Core: EventBus subscribe with priority executes in order", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const bus = new EventBus({ runId: "run_test" });
@@ -850,10 +841,10 @@ test("Runtime Core: EventBus subscribe with priority executes in order", async (
   bus.emit("test.event", {});
 
   // 高优先级先执行
-  assert.deepEqual(execution, ["critical", "high", "normal", "low"]);
+  expect(execution).toEqual(["critical", "high", "normal", "low"]);
 });
 
-test("Runtime Core: EventBus subscribe with priority + wildcard", async () => {
+it("Runtime Core: EventBus subscribe with priority + wildcard", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const bus = new EventBus({ runId: "run_test" });
@@ -867,10 +858,10 @@ test("Runtime Core: EventBus subscribe with priority + wildcard", async () => {
 
   bus.emit("test.event", {});
 
-  assert.deepEqual(execution, ["wildcard-high", "exact-high", "wildcard-normal", "exact-low"]);
+  expect(execution).toEqual(["wildcard-high", "exact-high", "wildcard-normal", "exact-low"]);
 });
 
-test("Runtime Core: EventBus subscribe priority unsubscribe cleanup", async () => {
+it("Runtime Core: EventBus subscribe priority unsubscribe cleanup", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const bus = new EventBus({ runId: "run_test" });
@@ -880,26 +871,26 @@ test("Runtime Core: EventBus subscribe priority unsubscribe cleanup", async () =
   const unsub2 = bus.subscribe("test.*", () => execution.push("b"), { priority: 20 });
 
   bus.emit("test.event", {});
-  assert.deepEqual(execution, ["b", "a"]);
+  expect(execution).toEqual(["b", "a"]);
 
   unsub1();
   unsub2();
 
   execution.length = 0;
   bus.emit("test.event", {});
-  assert.deepEqual(execution, []);  // all unsubscribed
+  expect(execution).toEqual([]);  // all unsubscribed
 });
 
-test("Runtime Core: EventBus subscribe priority validation", async () => {
+it("Runtime Core: EventBus subscribe priority validation", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const bus = new EventBus({ runId: "run_test" });
 
-  assert.throws(() => bus.subscribe("test.event", () => {}, { priority: "high" }), /priority must be a finite number/);
-  assert.throws(() => bus.subscribe("test.event", () => {}, { priority: Infinity }), /priority must be a finite number/);
+  expect(() => bus.subscribe("test.event", () => {}, { priority: "high" }), /priority must be a finite number/);
+  expect(() => bus.subscribe("test.event", () => {}, { priority: Infinity }), /priority must be a finite number/);
 });
 
-test("Runtime Core: EventBus listener errors are isolated (sync + async)", async () => {
+it("Runtime Core: EventBus listener errors are isolated (sync + async)", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const errors = [];
@@ -923,16 +914,16 @@ test("Runtime Core: EventBus listener errors are isolated (sync + async)", async
     order.push("c");
   });
 
-  assert.doesNotThrow(() => bus.emit("run.log", { msg: "x" }));
-  assert.deepEqual(order, ["a", "b", "c"]);
+  expect(() => bus.emit("run.log", { msg: "x" })).not.toThrow();
+  expect(order).toEqual(["a", "b", "c"]);
 
   await new Promise((r) => setImmediate(r));
-  assert.equal(errors.length, 2);
-  assert.ok(errors.some((e) => e.message.includes("boom_sync") && e.name === "run.log"));
-  assert.ok(errors.some((e) => e.message.includes("boom_async") && e.name === "run.log"));
+  expect(errors.length).toBe(2);
+  expect(errors.some(e => e.message.includes("boom_sync") && e.name === "run.log"));
+  expect(errors.some(e => e.message.includes("boom_async") && e.name === "run.log"));
 });
 
-test("Runtime Telemetry: subscribeTelemetry keeps bounded in-memory timeline", async () => {
+it("Runtime Telemetry: subscribeTelemetry keeps bounded in-memory timeline", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
   const { subscribeTelemetry } = await import("../../js/agents/runtime/telemetry/runstore-telemetry.js");
 
@@ -948,17 +939,15 @@ test("Runtime Telemetry: subscribeTelemetry keeps bounded in-memory timeline", a
   for (let i = 0; i < 5; i++) bus.emit("run.progress", { i });
   await sub.flush();
 
-  assert.equal(stored.length, 5);
-  assert.equal(sub.timeline.length, 3);
-  assert.deepEqual(
-    sub.timeline.map((r) => r.payload?.i),
-    [2, 3, 4]
+  expect(stored.length).toBe(5);
+  expect(sub.timeline.length).toBe(3);
+  expect(sub.timeline.map((r) => r.payload?.i)).toEqual([2, 3, 4]
   );
-  assert.equal(sub.snapshot().timeline.length, 3);
+  expect(sub.snapshot().timeline.length).toBe(3);
   sub.unsubscribe();
 });
 
-test("Runtime Tools: ToolExecutor worker isolation enforces hard timeout for sync work", async () => {
+it("Runtime Tools: ToolExecutor worker isolation enforces hard timeout for sync work", async () => {
   const path = require("node:path");
   const { pathToFileURL } = require("node:url");
   const { ToolExecutor } = await import("../../js/agents/runtime/tools/tool-executor.js");
@@ -981,15 +970,15 @@ test("Runtime Tools: ToolExecutor worker isolation enforces hard timeout for syn
   const result = await executor.execute("busy", { durationMs: 500 }, {}, { isolation: "worker" });
   const elapsedMs = Date.now() - started;
 
-  assert.equal(result.success, false);
-  assert.ok(String(result.error || "").includes("timed out"));
-  assert.ok(elapsedMs < 300);
+  expect(result.success).toBe(false);
+  expect(String(result.error || "").toBeTruthy().includes("timed out"));
+  expect(elapsedMs < 300).toBeTruthy();
 });
 
-test("Runtime Tools: WorkerPool caps concurrent worker creation", async () => {
+it("Runtime Tools: WorkerPool caps concurrent worker creation", async () => {
   const { __test } = await import("../../js/agents/runtime/tools/tool-executor.js");
   const WorkerPool = __test?.WorkerPool;
-  assert.ok(typeof WorkerPool === "function");
+  expect(typeof WorkerPool === "function").toBeTruthy();
 
   let created = 0;
   const pool = new WorkerPool({
@@ -1007,7 +996,7 @@ test("Runtime Tools: WorkerPool caps concurrent worker creation", async () => {
 
   const w1 = await p1;
   const w2 = await p2;
-  assert.equal(created, 2);
+  expect(created).toBe(2);
 
   let p3Resolved = false;
   void p3.then(() => {
@@ -1015,18 +1004,18 @@ test("Runtime Tools: WorkerPool caps concurrent worker creation", async () => {
   });
 
   await new Promise((r) => setImmediate(r));
-  assert.equal(p3Resolved, false);
+  expect(p3Resolved).toBe(false);
 
   pool.release(w1);
   const w3 = await p3;
-  assert.ok(w3);
-  assert.equal(created, 2);
+  expect(w3).toBeTruthy();
+  expect(created).toBe(2);
 
   pool.release(w2);
   pool.release(w3);
 });
 
-test("Runtime Compression: anchors preserve initial system prompts across repeated compression", async () => {
+it("Runtime Compression: anchors preserve initial system prompts across repeated compression", async () => {
   const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
 
   const loop = new BaseAgentLoop({
@@ -1048,11 +1037,11 @@ test("Runtime Compression: anchors preserve initial system prompts across repeat
 
   await loop._compressMessages();
 
-  assert.equal(loop.messages[0].content, anchor1);
-  assert.equal(loop.messages[1].content, anchor2);
+  expect(loop.messages[0].content).toBe(anchor1);
+  expect(loop.messages[1].content).toBe(anchor2);
   const summaryIdx1 = loop.messages.findIndex((m) => m?.role === "system" && String(m.content || "").startsWith("[Context Summary]"));
-  assert.equal(summaryIdx1, loop.messages.length - 1);
-  assert.equal(loop.messages.filter((m) => m?.role === "system" && String(m.content || "").startsWith("[Context Summary]")).length, 1);
+  expect(summaryIdx1).toBe(loop.messages.length - 1);
+  expect(loop.messages.filter((m) => m?.role === "system" && String(m.content || "").startsWith("[Context Summary]")).length).toBe(1);
 
   for (let i = 12; i < 24; i++) {
     loop.addMessage({ role: "user", content: `u${i}` });
@@ -1061,14 +1050,14 @@ test("Runtime Compression: anchors preserve initial system prompts across repeat
 
   await loop._compressMessages();
 
-  assert.equal(loop.messages[0].content, anchor1);
-  assert.equal(loop.messages[1].content, anchor2);
+  expect(loop.messages[0].content).toBe(anchor1);
+  expect(loop.messages[1].content).toBe(anchor2);
   const summaryIdx2 = loop.messages.findIndex((m) => m?.role === "system" && String(m.content || "").startsWith("[Context Summary]"));
-  assert.equal(summaryIdx2, loop.messages.length - 1);
-  assert.equal(loop.messages.filter((m) => m?.role === "system" && String(m.content || "").startsWith("[Context Summary]")).length, 1);
+  expect(summaryIdx2).toBe(loop.messages.length - 1);
+  expect(loop.messages.filter((m) => m?.role === "system" && String(m.content || "").startsWith("[Context Summary]")).length).toBe(1);
 });
 
-test("Runtime Compression: title-only mode trims old messages aggressively", async () => {
+it("Runtime Compression: title-only mode trims old messages aggressively", async () => {
   const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
 
   const loop = new BaseAgentLoop({
@@ -1096,14 +1085,14 @@ test("Runtime Compression: title-only mode trims old messages aggressively", asy
   await loop._compressMessages();
 
   const summaryMsg = loop.messages.find((m) => m?.role === "system" && String(m.content || "").startsWith("[Context Summary]"));
-  assert.ok(summaryMsg);
+  expect(summaryMsg).toBeTruthy();
   const body = String(summaryMsg.content || "").split("\n").slice(1).join("\n");
 
   // When title-only is enabled, we should not include words beyond the first 10.
-  assert.equal(body.includes("w11"), false);
+  expect(body.includes("w11")).toBe(false);
 });
 
-test("Runtime Compression: _scheduleCompression is idempotent and flushCompression resolves", async () => {
+it("Runtime Compression: _scheduleCompression is idempotent and flushCompression resolves", async () => {
   const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
 
   const loop = new BaseAgentLoop({
@@ -1114,20 +1103,20 @@ test("Runtime Compression: _scheduleCompression is idempotent and flushCompressi
 
   loop.addMessage({ role: "user", content: "x".repeat(8000) });
   loop.addMessage({ role: "assistant", content: "ok" });
-  assert.equal(loop.getContextStatus().needsCompression, true);
-  assert.equal(loop.getContextStatus().compressionPending, true);
+  expect(loop.getContextStatus().needsCompression).toBe(true);
+  expect(loop.getContextStatus().compressionPending).toBe(true);
 
   const p1 = loop._compressionPromise;
-  assert.ok(p1);
+  expect(p1).toBeTruthy();
   loop._scheduleCompression();
-  assert.equal(loop._compressionPromise, p1);
+  expect(loop._compressionPromise).toBe(p1);
 
   await loop.flushCompression();
-  assert.equal(loop.getContextStatus().compressionPending, false);
-  assert.equal(loop.getContextStatus().needsCompression, false);
+  expect(loop.getContextStatus().compressionPending).toBe(false);
+  expect(loop.getContextStatus().needsCompression).toBe(false);
 });
 
-test("AgentOrchestrator: stage timeout timer is cleaned up on success", async () => {
+it("AgentOrchestrator: stage timeout timer is cleaned up on success", async () => {
   const { AgentOrchestrator } = await import("../../js/agents/runtime/orchestrator.js");
 
   const originalSetTimeout = globalThis.setTimeout;
@@ -1161,16 +1150,16 @@ test("AgentOrchestrator: stage timeout timer is cleaned up on success", async ()
   );
 
   await orch.runStage("deepsearch.stage.timer_test", { ok: true });
-  assert.equal(stageAborted, false);
-  assert.equal(scheduled.length, 1);
-  assert.equal(cleared.has(scheduled[0]), true);
+  expect(stageAborted).toBe(false);
+  expect(scheduled.length).toBe(1);
+  expect(cleared.has(scheduled[0])).toBe(true);
   } finally {
     globalThis.setTimeout = originalSetTimeout;
     globalThis.clearTimeout = originalClearTimeout;
   }
 });
 
-test("PromptLoader: LRU cache evicts oldest prompts", async () => {
+it("PromptLoader: LRU cache evicts oldest prompts", async () => {
   const {
     loadPrompt,
     clearPromptCache,
@@ -1194,17 +1183,17 @@ test("PromptLoader: LRU cache evicts oldest prompts", async () => {
     await loadPrompt("design/batch-generator-system");
 
     const cached = getCachedPromptNames();
-    assert.equal(cached.length, 2);
-    assert.equal(cached.includes("deepsearch/system"), true);
-    assert.equal(cached.includes("design/batch-generator-system"), true);
-    assert.equal(cached.includes("codesearch/system"), false);
+    expect(cached.length).toBe(2);
+    expect(cached.includes("deepsearch/system")).toBe(true);
+    expect(cached.includes("design/batch-generator-system")).toBe(true);
+    expect(cached.includes("codesearch/system")).toBe(false);
   } finally {
     configurePromptCache({ maxEntries: original.maxEntries });
     clearPromptCache();
   }
 });
 
-test("PromptLoader: browser manifest resolves prompt URLs (best-effort)", async () => {
+it("PromptLoader: browser manifest resolves prompt URLs (best-effort)", async () => {
   const { loadPrompt, clearPromptCache } = await import("../../js/agents/prompts/prompt-loader.js");
 
   const originalProcess = globalThis.process;
@@ -1256,14 +1245,14 @@ test("PromptLoader: browser manifest resolves prompt URLs (best-effort)", async 
     };
 
     const first = await loadPrompt("deepsearch/system", { cache: false, manifestUrl });
-    assert.equal(first, "# system");
+    expect(first).toBe("# system");
 
     // Second call should reuse the cached manifest (no second manifest fetch).
     const second = await loadPrompt("deepsearch/system", { cache: false, manifestUrl });
-    assert.equal(second, "# system");
+    expect(second).toBe("# system");
 
-    assert.equal(manifestFetches, 1);
-    assert.equal(promptFetches, 2);
+    expect(manifestFetches).toBe(1);
+    expect(promptFetches).toBe(2);
   } finally {
     globalThis.fetch = originalFetch;
     globalThis.process = originalProcess;
@@ -1271,7 +1260,7 @@ test("PromptLoader: browser manifest resolves prompt URLs (best-effort)", async 
   }
 });
 
-test("PromptLoader: maxPromptBytes blocks oversized prompt fetch (browser)", async () => {
+it("PromptLoader: maxPromptBytes blocks oversized prompt fetch (browser)", async () => {
   const { PromptLoader } = await import("../../js/agents/prompts/prompt-loader.js");
 
   const originalProcess = globalThis.process;
@@ -1312,18 +1301,17 @@ test("PromptLoader: maxPromptBytes blocks oversized prompt fetch (browser)", asy
       },
     });
 
-    await assert.rejects(
-      () => loader.loadPrompt("deepsearch/system", { cache: false, manifestUrl }),
+    await expect(() => loader.loadPrompt("deepsearch/system", { cache: false, manifestUrl }),
       /exceeds limit/i
     );
-    assert.equal(manifestFetches, 1);
-    assert.equal(promptFetches, 1);
+    expect(manifestFetches).toBe(1);
+    expect(promptFetches).toBe(1);
   } finally {
     globalThis.process = originalProcess;
   }
 });
 
-test("PromptLoader: maxManifestBytes rejects oversized manifest then falls back to basePath fetch", async () => {
+it("PromptLoader: maxManifestBytes rejects oversized manifest then falls back to basePath fetch", async () => {
   const { PromptLoader } = await import("../../js/agents/prompts/prompt-loader.js");
 
   const originalProcess = globalThis.process;
@@ -1365,15 +1353,15 @@ test("PromptLoader: maxManifestBytes rejects oversized manifest then falls back 
     });
 
     const out = await loader.loadPrompt("deepsearch/system", { cache: false, manifestUrl });
-    assert.equal(out, "# system");
-    assert.equal(manifestFetches, 2);
-    assert.equal(promptFetches, 1);
+    expect(out).toBe("# system");
+    expect(manifestFetches).toBe(2);
+    expect(promptFetches).toBe(1);
   } finally {
     globalThis.process = originalProcess;
   }
 });
 
-test("ConfigLoader: loadAgentConfig loads .agent/agent.md in Node", async () => {
+it("ConfigLoader: loadAgentConfig loads .agent/agent.md in Node", async () => {
   const { loadAgentConfig } = await import("../../js/agents/sdk/config-loader.js");
   const fs = require("node:fs/promises");
   const path = require("node:path");
@@ -1398,33 +1386,33 @@ test("ConfigLoader: loadAgentConfig loads .agent/agent.md in Node", async () => 
     );
 
     const cfg = await loadAgentConfig(tmp);
-    assert.equal(cfg._loaded, true);
-    assert.equal(cfg._path, path.join(tmp, ".agent", "agent.md"));
-    assert.equal(cfg.instructions, "Hello");
-    assert.deepEqual(cfg.skills, ["search-docs", "write-report"]);
-    assert.equal(cfg.model, "gpt-4");
-    assert.deepEqual(cfg.hooks, ["./hooks/audit.js"]);
+    expect(cfg._loaded).toBe(true);
+    expect(cfg._path).toBe(path.join(tmp, ".agent", "agent.md"));
+    expect(cfg.instructions).toBe("Hello");
+    expect(cfg.skills).toEqual(["search-docs", "write-report"]);
+    expect(cfg.model).toBe("gpt-4");
+    expect(cfg.hooks).toEqual(["./hooks/audit.js"]);
   } finally {
     await fs.rm(tmp, { recursive: true, force: true });
   }
 });
 
-test("ConfigLoader: loadAgentConfig degrades gracefully without Node APIs", async () => {
+it("ConfigLoader: loadAgentConfig degrades gracefully without Node APIs", async () => {
   const { loadAgentConfig } = await import("../../js/agents/sdk/config-loader.js");
 
   const originalProcess = globalThis.process;
   try {
     globalThis.process = undefined;
     const cfg = await loadAgentConfig("/repo-root/");
-    assert.equal(cfg._loaded, false);
-    assert.equal(cfg.instructions, "");
-    assert.equal(cfg._path, "/repo-root/.agent/agent.md");
+    expect(cfg._loaded).toBe(false);
+    expect(cfg.instructions).toBe("");
+    expect(cfg._path).toBe("/repo-root/.agent/agent.md");
   } finally {
     globalThis.process = originalProcess;
   }
 });
 
-test("BaseAgentLoop: strict loopStatus transitions reject illegal jumps", async () => {
+it("BaseAgentLoop: strict loopStatus transitions reject illegal jumps", async () => {
   const { BaseAgentLoop } = await import("../../js/agents/runtime/core/agent-loop.js");
   const { AgentStatus } = await import("../../js/agents/runtime/core/agent-status.js");
 
@@ -1433,14 +1421,11 @@ test("BaseAgentLoop: strict loopStatus transitions reject illegal jumps", async 
   strictLoop._transitionLoopStatus(AgentStatus.RUNNING, { runId: "run_test" });
   strictLoop._transitionLoopStatus(AgentStatus.COMPLETED, { runId: "run_test" });
 
-  assert.throws(
-    () => strictLoop._transitionLoopStatus(AgentStatus.RUNNING, { runId: "run_test" }),
-    /loopStatus transition rejected/
-  );
+  expect(() => strictLoop._transitionLoopStatus(AgentStatus.RUNNING, { runId: "run_test" })).toThrow(/loopStatus transition rejected/);
 
   // Explicit reset is allowed even in strict mode.
   strictLoop._transitionLoopStatus(AgentStatus.IDLE, { runId: "run_test", allowReset: true });
-  assert.equal(strictLoop.loopStatus, AgentStatus.IDLE);
+  expect(strictLoop.loopStatus).toBe(AgentStatus.IDLE);
 
   const originalWarn = console.warn;
   console.warn = () => {};
@@ -1448,13 +1433,13 @@ test("BaseAgentLoop: strict loopStatus transitions reject illegal jumps", async 
     const warnOnlyLoop = new BaseAgentLoop({ actor: "test", stageName: "test", strictLoopStatus: false });
     warnOnlyLoop.initLoopStatus({ status: AgentStatus.COMPLETED });
     warnOnlyLoop._transitionLoopStatus(AgentStatus.RUNNING, { runId: "run_test" });
-    assert.equal(warnOnlyLoop.loopStatus, AgentStatus.RUNNING);
+    expect(warnOnlyLoop.loopStatus).toBe(AgentStatus.RUNNING);
   } finally {
     console.warn = originalWarn;
   }
 });
 
-test("PlanStore: lifecycle transitions enforce draft→approved→in_progress", async () => {
+it("PlanStore: lifecycle transitions enforce draft→approved→in_progress", async () => {
   const {
     PlanLifecycleStatus,
     createPlan,
@@ -1463,29 +1448,26 @@ test("PlanStore: lifecycle transitions enforce draft→approved→in_progress", 
   } = await import("../../js/agents/runtime/plan/plan-store.js");
 
   const plan = createPlan({ runId: "run_test", title: "T", steps: [] });
-  assert.equal(plan.lifecycleStatus, PlanLifecycleStatus.DRAFT);
+  expect(plan.lifecycleStatus).toBe(PlanLifecycleStatus.DRAFT);
 
-  assert.equal(canTransitionPlanLifecycle(PlanLifecycleStatus.DRAFT, PlanLifecycleStatus.IN_PROGRESS), false);
+  expect(canTransitionPlanLifecycle(PlanLifecycleStatus.DRAFT).toBe(PlanLifecycleStatus.IN_PROGRESS), false);
 
   const approved = setPlanLifecycleStatus(plan, PlanLifecycleStatus.APPROVED);
-  assert.equal(approved.lifecycleStatus, PlanLifecycleStatus.APPROVED);
+  expect(approved.lifecycleStatus).toBe(PlanLifecycleStatus.APPROVED);
 
   const inProgress = setPlanLifecycleStatus(approved, PlanLifecycleStatus.IN_PROGRESS);
-  assert.equal(inProgress.lifecycleStatus, PlanLifecycleStatus.IN_PROGRESS);
+  expect(inProgress.lifecycleStatus).toBe(PlanLifecycleStatus.IN_PROGRESS);
 
   const completed = setPlanLifecycleStatus(inProgress, PlanLifecycleStatus.COMPLETED);
-  assert.equal(completed.lifecycleStatus, PlanLifecycleStatus.COMPLETED);
+  expect(completed.lifecycleStatus).toBe(PlanLifecycleStatus.COMPLETED);
 
-  assert.throws(
-    () => setPlanLifecycleStatus(completed, PlanLifecycleStatus.IN_PROGRESS),
-    /invalid transition/
-  );
+  expect(() => setPlanLifecycleStatus(completed, PlanLifecycleStatus.IN_PROGRESS)).toThrow(/invalid transition/);
 
   const forced = setPlanLifecycleStatus(completed, PlanLifecycleStatus.IN_PROGRESS, { force: true });
-  assert.equal(forced.lifecycleStatus, PlanLifecycleStatus.IN_PROGRESS);
+  expect(forced.lifecycleStatus).toBe(PlanLifecycleStatus.IN_PROGRESS);
 });
 
-test("PolicyEngine: domain suffix + all/any/not + timeRange matching", async () => {
+it("PolicyEngine: domain suffix + all/any/not + timeRange matching", async () => {
   const { PolicyEngine } = await import("../../js/agents/runtime/policy/engine.js");
 
   const engine = new PolicyEngine({
@@ -1543,10 +1525,10 @@ test("PolicyEngine: domain suffix + all/any/not + timeRange matching", async () 
     tool: "http.get",
     resource: "https://api.github.com/repos/openai",
   });
-  assert.equal(denyGithub.allowed, false);
-  assert.equal(denyGithub.requiresApproval, false);
-  assert.equal(denyGithub.effect, "deny");
-  assert.equal(denyGithub.ruleId, "deny_github");
+  expect(denyGithub.allowed).toBe(false);
+  expect(denyGithub.requiresApproval).toBe(false);
+  expect(denyGithub.effect).toBe("deny");
+  expect(denyGithub.ruleId).toBe("deny_github");
 
   const denyOffHours = engine.evaluate({
     type: "tool.call",
@@ -1554,9 +1536,9 @@ test("PolicyEngine: domain suffix + all/any/not + timeRange matching", async () 
     resource: "https://example.com",
     ts: "2025-01-01T00:05:00Z",
   });
-  assert.equal(denyOffHours.allowed, false);
-  assert.equal(denyOffHours.requiresApproval, false);
-  assert.equal(denyOffHours.ruleId, "deny_off_hours");
+  expect(denyOffHours.allowed).toBe(false);
+  expect(denyOffHours.requiresApproval).toBe(false);
+  expect(denyOffHours.ruleId).toBe("deny_off_hours");
 
   const engineInvalidTime = new PolicyEngine({
     defaultEffect: "prompt",
@@ -1580,28 +1562,28 @@ test("PolicyEngine: domain suffix + all/any/not + timeRange matching", async () 
     resource: "https://example.com",
     ts: "2025-01-01T00:05:00Z",
   });
-  assert.equal(invalidTimeDoesNotMatch.allowed, false);
-  assert.equal(invalidTimeDoesNotMatch.requiresApproval, true);
-  assert.equal(invalidTimeDoesNotMatch.reason, "no_matching_rule");
+  expect(invalidTimeDoesNotMatch.allowed).toBe(false);
+  expect(invalidTimeDoesNotMatch.requiresApproval).toBe(true);
+  expect(invalidTimeDoesNotMatch.reason).toBe("no_matching_rule");
 
   const allowDocs = engine.evaluate({
     type: "vfs.write",
     tool: "vfs.writeText",
     resource: "docs/readme.md",
   });
-  assert.equal(allowDocs.allowed, true);
-  assert.equal(allowDocs.requiresApproval, false);
-  assert.equal(allowDocs.effect, "allow");
-  assert.equal(allowDocs.ruleId, "allow_docs_path");
+  expect(allowDocs.allowed).toBe(true);
+  expect(allowDocs.requiresApproval).toBe(false);
+  expect(allowDocs.effect).toBe("allow");
+  expect(allowDocs.ruleId).toBe("allow_docs_path");
 
   const secretsRequireApproval = engine.evaluate({
     type: "vfs.write",
     tool: "vfs.writeText",
     resource: "secrets/token.txt",
   });
-  assert.equal(secretsRequireApproval.allowed, false);
-  assert.equal(secretsRequireApproval.requiresApproval, true);
-  assert.equal(secretsRequireApproval.reason, "no_matching_rule");
+  expect(secretsRequireApproval.allowed).toBe(false);
+  expect(secretsRequireApproval.requiresApproval).toBe(true);
+  expect(secretsRequireApproval.reason).toBe("no_matching_rule");
 });
 
 function createFakeTime(startMs = 0) {
@@ -1614,7 +1596,7 @@ function createFakeTime(startMs = 0) {
   };
 }
 
-test("RuntimeScheduler: health status transitions (failures + latency)", async () => {
+it("RuntimeScheduler: health status transitions (failures + latency)", async () => {
   const { RuntimeScheduler, RuntimeHealthStatus } = await import("../../js/agents/runtime/core/scheduler.js");
 
   const time = createFakeTime(0);
@@ -1655,33 +1637,33 @@ test("RuntimeScheduler: health status transitions (failures + latency)", async (
   };
 
   scheduler.registerRuntime("js", runtime);
-  assert.equal(scheduler.getHealthStatus("js"), RuntimeHealthStatus.HEALTHY);
+  expect(scheduler.getHealthStatus("js")).toBe(RuntimeHealthStatus.HEALTHY);
 
   await scheduler.dispatch("js", "return 1;", {}, {});
-  assert.equal(scheduler.getHealthStatus("js"), RuntimeHealthStatus.HEALTHY);
-  assert.equal(scheduler.getHealthMetrics("js").averageLatencyMs, 10);
+  expect(scheduler.getHealthStatus("js")).toBe(RuntimeHealthStatus.HEALTHY);
+  expect(scheduler.getHealthMetrics("js").averageLatencyMs).toBe(10);
 
   mode = "slow_ok";
   await scheduler.dispatch("js", "return 1;", {}, {});
-  assert.equal(scheduler.getHealthStatus("js"), RuntimeHealthStatus.DEGRADED);
-  assert.equal(scheduler.getHealthMetrics("js").averageLatencyMs, 60);
+  expect(scheduler.getHealthStatus("js")).toBe(RuntimeHealthStatus.DEGRADED);
+  expect(scheduler.getHealthMetrics("js").averageLatencyMs).toBe(60);
 
   mode = "fast_ok";
   await scheduler.dispatch("js", "return 1;", {}, {});
-  assert.equal(scheduler.getHealthStatus("js"), RuntimeHealthStatus.HEALTHY);
+  expect(scheduler.getHealthStatus("js")).toBe(RuntimeHealthStatus.HEALTHY);
 
   mode = "fail_1";
   await scheduler.dispatch("js", "return 1;", {}, {});
-  assert.equal(scheduler.getHealthStatus("js"), RuntimeHealthStatus.DEGRADED);
+  expect(scheduler.getHealthStatus("js")).toBe(RuntimeHealthStatus.DEGRADED);
 
   mode = "fail_2";
   const out = await scheduler.dispatch("js", "return 1;", {}, {});
-  assert.equal(out.success, false);
-  assert.equal(scheduler.getHealthStatus("js"), RuntimeHealthStatus.UNHEALTHY);
-  assert.equal(scheduler.getHealthMetrics("js").isolated, true);
+  expect(out.success).toBe(false);
+  expect(scheduler.getHealthStatus("js")).toBe(RuntimeHealthStatus.UNHEALTHY);
+  expect(scheduler.getHealthMetrics("js").isolated).toBe(true);
 });
 
-test("RuntimeScheduler: isolation blocks dispatch and recoveryCheck restores runtime", async () => {
+it("RuntimeScheduler: isolation blocks dispatch and recoveryCheck restores runtime", async () => {
   const { RuntimeScheduler, RuntimeHealthStatus } = await import("../../js/agents/runtime/core/scheduler.js");
 
   const time = createFakeTime(0);
@@ -1716,29 +1698,29 @@ test("RuntimeScheduler: isolation blocks dispatch and recoveryCheck restores run
   scheduler.registerRuntime("js", runtime);
 
   const first = await scheduler.dispatch("js", "return 1;", {}, {});
-  assert.equal(first.success, false);
-  assert.equal(scheduler.getHealthStatus("js"), RuntimeHealthStatus.UNHEALTHY);
-  assert.equal(scheduler.getHealthMetrics("js").isolated, true);
+  expect(first.success).toBe(false);
+  expect(scheduler.getHealthStatus("js")).toBe(RuntimeHealthStatus.UNHEALTHY);
+  expect(scheduler.getHealthMetrics("js").isolated).toBe(true);
 
   const beforeCalls = executeCalls;
   const blocked = await scheduler.dispatch("js", "return 1;", {}, {});
-  assert.equal(blocked.success, false);
-  assert.match(blocked.error, /isolated/i);
-  assert.equal(executeCalls, beforeCalls);
-  assert.equal(scheduler.getHealthMetrics("js").blockedCount, 1);
+  expect(blocked.success).toBe(false);
+  expect(blocked.error).toMatch(/isolated/i);
+  expect(executeCalls).toBe(beforeCalls);
+  expect(scheduler.getHealthMetrics("js").blockedCount).toBe(1);
 
   shouldFail = false;
   const recovered = await scheduler.recoveryCheck();
-  assert.equal(recovered.js.ok, true);
-  assert.equal(scheduler.getHealthMetrics("js").isolated, false);
-  assert.equal(scheduler.getHealthStatus("js"), RuntimeHealthStatus.DEGRADED);
+  expect(recovered.js.ok).toBe(true);
+  expect(scheduler.getHealthMetrics("js").isolated).toBe(false);
+  expect(scheduler.getHealthStatus("js")).toBe(RuntimeHealthStatus.DEGRADED);
 
   const after = await scheduler.dispatch("js", "return 1;", {}, {});
-  assert.equal(after.success, true);
-  assert.equal(scheduler.getHealthStatus("js"), RuntimeHealthStatus.HEALTHY);
+  expect(after.success).toBe(true);
+  expect(scheduler.getHealthStatus("js")).toBe(RuntimeHealthStatus.HEALTHY);
 });
 
-test("Runtime: TaskGraph layered topo sort + cycle/missing detection", async () => {
+it("Runtime: TaskGraph layered topo sort + cycle/missing detection", async () => {
   const { TaskGraph } = await import("../../js/agents/runtime/parallel/task-graph.js");
 
   const g = new TaskGraph();
@@ -1748,44 +1730,44 @@ test("Runtime: TaskGraph layered topo sort + cycle/missing detection", async () 
   g.addTask("D", ["B", "C"]);
 
   const levels = g.getLevels();
-  assert.deepEqual(levels, [["A"], ["B", "C"], ["D"]]);
+  expect(levels).toEqual([["A"], ["B", "C"], ["D"]]);
 
   const cycle = new TaskGraph();
   cycle.addTask("A", ["B"]);
   cycle.addTask("B", ["A"]);
-  assert.throws(() => cycle.getLevels(), /cycle detected/i);
+  expect(() => cycle.getLevels()).toThrow(/cycle detected/i);
 
   const missing = new TaskGraph();
   missing.addTask("A", ["NOPE"]);
-  assert.throws(() => missing.getLevels(), /missing dependency/i);
+  expect(() => missing.getLevels()).toThrow(/missing dependency/i);
 });
 
-test("Runtime: command classifier parses compound commands and flags danger", async () => {
+it("Runtime: command classifier parses compound commands and flags danger", async () => {
   const { classifyCommand, parseCompoundCommand } = await import("../../js/agents/runtime/safety/command-classifier.js");
 
-  assert.deepEqual(parseCompoundCommand("echo hi && ls"), [["echo", "hi"], ["ls"]]);
-  assert.equal(classifyCommand(["ls", "-la"]).level, "safe");
-  assert.equal(classifyCommand("unknowncmd").level, "unknown");
+  expect(parseCompoundCommand("echo hi && ls")).toEqual([["echo", "hi"], ["ls"]]);
+  expect(classifyCommand(["ls").toBe("-la"]).level, "safe");
+  expect(classifyCommand("unknowncmd").level).toBe("unknown");
 
   const dangerous = classifyCommand("rm -rf /");
-  assert.equal(dangerous.level, "dangerous");
-  assert.equal(dangerous.requiresApproval, true);
+  expect(dangerous.level).toBe("dangerous");
+  expect(dangerous.requiresApproval).toBe(true);
 
   const forkBomb = classifyCommand("bash -c ':(){ :|:& };:'");
-  assert.equal(forkBomb.level, "dangerous");
-  assert.equal(forkBomb.requiresApproval, true);
-  assert.deepEqual(forkBomb.reasons, ["fork_bomb"]);
+  expect(forkBomb.level).toBe("dangerous");
+  expect(forkBomb.requiresApproval).toBe(true);
+  expect(forkBomb.reasons).toEqual(["fork_bomb"]);
 
   const sensitive = classifyCommand("cat /etc/shadow");
-  assert.equal(sensitive.level, "dangerous");
-  assert.equal(sensitive.requiresApproval, true);
-  assert.deepEqual(sensitive.reasons, ["sensitive_path"]);
+  expect(sensitive.level).toBe("dangerous");
+  expect(sensitive.requiresApproval).toBe(true);
+  expect(sensitive.reasons).toEqual(["sensitive_path"]);
 
   const nested = classifyCommand(["bash", "-c", "ls && rm -rf /"]);
-  assert.equal(nested.level, "dangerous");
+  expect(nested.level).toBe("dangerous");
 });
 
-test("Runtime: AgentCheckpointStore persists and restores checkpoints", async () => {
+it("Runtime: AgentCheckpointStore persists and restores checkpoints", async () => {
   const { AgentCheckpointStore } = await import("../../js/agents/runtime/checkpoints/agent-checkpoint-store.js");
   const { MemoryVfs } = await import("../../js/agents/vfs/vfs.memory.js");
 
@@ -1800,24 +1782,24 @@ test("Runtime: AgentCheckpointStore persists and restores checkpoints", async ()
     iteration: 1,
   });
 
-  assert.ok(saved.checkpointId);
+  expect(saved.checkpointId).toBeTruthy();
 
   const list = await store.listCheckpoints();
-  assert.equal(list.length, 1);
-  assert.equal(list[0].checkpointId, saved.checkpointId);
+  expect(list.length).toBe(1);
+  expect(list[0].checkpointId).toBe(saved.checkpointId);
 
   const last = await store.loadCheckpoint({ mode: "last" });
-  assert.equal(last.checkpointId, saved.checkpointId);
-  assert.deepEqual(last.messages, [{ role: "user", content: "hello" }]);
+  expect(last.checkpointId).toBe(saved.checkpointId);
+  expect(last.messages).toEqual([{ role: "user", content: "hello" }]);
 
   const byStep = await store.loadCheckpoint({ mode: "step", step: 1 });
-  assert.equal(byStep.checkpointId, saved.checkpointId);
+  expect(byStep.checkpointId).toBe(saved.checkpointId);
 
   const byId = await store.loadCheckpoint({ checkpointId: saved.checkpointId });
-  assert.equal(byId.checkpointId, saved.checkpointId);
+  expect(byId.checkpointId).toBe(saved.checkpointId);
 });
 
-test("Runtime: EventBus hook registry attaches and PreToolUse hook can block", async () => {
+it("Runtime: EventBus hook registry attaches and PreToolUse hook can block", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
   const { enhanceEventBusWithHooks } = await import("../../js/agents/runtime/hooks/event-bus-hooks.js");
   const { createPreToolUseHook } = await import("../../js/agents/runtime/hooks/hook-runner.js");
@@ -1833,18 +1815,18 @@ test("Runtime: EventBus hook registry attaches and PreToolUse hook can block", a
     params: { command: "rm -rf /" },
     context: { eventBus: bus },
   });
-  assert.equal(blocked?.skip, true);
-  assert.match(String(blocked?.value?.error || ""), /requires approval/i);
+  expect(blocked?.skip).toBe(true);
+  expect(String(blocked?.value?.error || "")).toMatch(/requires approval/i);
 
   const allowed = await pre({
     tool: "shell.run",
     params: { command: "ls -la" },
     context: { eventBus: bus },
   });
-  assert.equal(allowed, null);
+  expect(allowed).toBe(null);
 });
 
-test("Runtime: PreToolUse prompt hook allows/denies based on model output", async () => {
+it("Runtime: PreToolUse prompt hook allows/denies based on model output", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
   const { enhanceEventBusWithHooks } = await import("../../js/agents/runtime/hooks/event-bus-hooks.js");
   const { createPreToolUseHook } = await import("../../js/agents/runtime/hooks/hook-runner.js");
@@ -1871,7 +1853,7 @@ test("Runtime: PreToolUse prompt hook allows/denies based on model output", asyn
       },
     },
   });
-  assert.equal(allow, null);
+  expect(allow).toBe(null);
 
   const deny = await pre({
     tool: "write_file",
@@ -1883,11 +1865,11 @@ test("Runtime: PreToolUse prompt hook allows/denies based on model output", asyn
       },
     },
   });
-  assert.equal(deny?.skip, true);
-  assert.match(String(deny?.value?.error || ""), /no/i);
+  expect(deny?.skip).toBe(true);
+  expect(String(deny?.value?.error || "")).toMatch(/no/i);
 });
 
-test("Runtime: PreToolUse prompt hook blocks on unparseable decision when blocking=true", async () => {
+it("Runtime: PreToolUse prompt hook blocks on unparseable decision when blocking=true", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
   const { enhanceEventBusWithHooks } = await import("../../js/agents/runtime/hooks/event-bus-hooks.js");
   const { createPreToolUseHook } = await import("../../js/agents/runtime/hooks/hook-runner.js");
@@ -1912,11 +1894,11 @@ test("Runtime: PreToolUse prompt hook blocks on unparseable decision when blocki
     },
   });
 
-  assert.equal(out?.skip, true);
-  assert.match(String(out?.value?.error || ""), /unparseable/i);
+  expect(out?.skip).toBe(true);
+  expect(String(out?.value?.error || "")).toMatch(/unparseable/i);
 });
 
-test("Runtime: PreToolUse agent hook can block and can be cleared", async () => {
+it("Runtime: PreToolUse agent hook can block and can be cleared", async () => {
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
   const { enhanceEventBusWithHooks } = await import("../../js/agents/runtime/hooks/event-bus-hooks.js");
   const { createPreToolUseHook } = await import("../../js/agents/runtime/hooks/hook-runner.js");
@@ -1938,8 +1920,8 @@ test("Runtime: PreToolUse agent hook can block and can be cleared", async () => 
     params: { path: "a.txt" },
     context: { eventBus: bus, subagentRegistry: makeRegistry(false) },
   });
-  assert.equal(denied?.skip, true);
-  assert.match(String(denied?.value?.error || ""), /nope/i);
+  expect(denied?.skip).toBe(true);
+  expect(String(denied?.value?.error || "")).toMatch(/nope/i);
 
   bus.clearHooks("PreToolUse");
   bus.registerHook("PreToolUse", { type: "agent", agentType: "Guard", blocking: true, prompt: "Tool={{tool}}" });
@@ -1949,25 +1931,25 @@ test("Runtime: PreToolUse agent hook can block and can be cleared", async () => 
     params: { path: "a.txt" },
     context: { eventBus: bus, subagentRegistry: makeRegistry(true) },
   });
-  assert.equal(allowed, null);
+  expect(allowed).toBe(null);
 });
 
-test("LLM: parseContextOverflowError handles OpenAI-style messages", async () => {
+it("LLM: parseContextOverflowError handles OpenAI-style messages", async () => {
   const { parseContextOverflowError, computeOverflowRetryMaxTokens } = await import("../../js/agents/llm/overflow-recovery.js");
 
   const err = new Error(
     "This model's maximum context length is 8192 tokens. However, you requested 9000 tokens (8000 in the messages, 1000 in the completion)."
   );
   const info = parseContextOverflowError(err);
-  assert.equal(info?.contextLimit, 8192);
-  assert.equal(info?.inputLength, 8000);
-  assert.equal(info?.maxTokens, 1000);
+  expect(info?.contextLimit).toBe(8192);
+  expect(info?.inputLength).toBe(8000);
+  expect(info?.maxTokens).toBe(1000);
 
   const next = computeOverflowRetryMaxTokens(info, { minTokens: 256, bufferTokens: 128 });
-  assert.equal(next, 256);
+  expect(next).toBe(256);
 });
 
-test("LLM: overflow recovery parses and retries with reduced max_tokens", async () => {
+it("LLM: overflow recovery parses and retries with reduced max_tokens", async () => {
   const { CliModelClient } = await import("../../js/agents/cli/model-client.js");
 
   const originalFetch = globalThis.fetch;
@@ -2016,20 +1998,20 @@ test("LLM: overflow recovery parses and retries with reduced max_tokens", async 
     ];
 
     const out = await client.chat({ messages, maxTokens: 900 });
-    assert.equal(out.content, "ok");
-    assert.equal(calls.length, 2);
-    assert.ok(calls[1].max_tokens < calls[0].max_tokens);
+    expect(out.content).toBe("ok");
+    expect(calls.length).toBe(2);
+    expect(calls[1].max_tokens < calls[0].max_tokens).toBeTruthy();
 
     // Truncation should not leave a dangling tool output without its call.
     const sent = calls[0].messages;
     const lastRole = sent[sent.length - 1]?.role;
-    assert.notEqual(lastRole, "tool");
+    expect(lastRole).not.toBe("tool");
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test("Runtime: AgentOrchestrator.runStagesGraph executes by dependency levels", async () => {
+it("Runtime: AgentOrchestrator.runStagesGraph executes by dependency levels", async () => {
   const { AgentOrchestrator } = await import("../../js/agents/runtime/orchestrator.js");
 
   const orch = new AgentOrchestrator({ scheduling: { mode: "parallel", maxConcurrency: 10 } });
@@ -2043,12 +2025,12 @@ test("Runtime: AgentOrchestrator.runStagesGraph executes by dependency levels", 
     { name: "c", dependsOn: ["a"] },
   ]);
 
-  assert.equal(results.get("a").success, true);
-  assert.equal(results.get("b").success, true);
-  assert.equal(results.get("c").success, true);
+  expect(results.get("a").success).toBe(true);
+  expect(results.get("b").success).toBe(true);
+  expect(results.get("c").success).toBe(true);
 });
 
-test("Runtime: AgentOrchestrator.runStagesGraph skips dependents after failure when continueOnError=true", async () => {
+it("Runtime: AgentOrchestrator.runStagesGraph skips dependents after failure when continueOnError=true", async () => {
   const { AgentOrchestrator } = await import("../../js/agents/runtime/orchestrator.js");
 
   const orch = new AgentOrchestrator({ scheduling: { mode: "parallel", maxConcurrency: 10 } });
@@ -2065,13 +2047,13 @@ test("Runtime: AgentOrchestrator.runStagesGraph skips dependents after failure w
     { continueOnError: true }
   );
 
-  assert.equal(results.get("a").success, false);
-  assert.equal(results.get("b").success, false);
-  assert.equal(results.get("b").skipped, true);
-  assert.match(String(results.get("b").error || ""), /dependency_failed:a/);
+  expect(results.get("a").success).toBe(false);
+  expect(results.get("b").success).toBe(false);
+  expect(results.get("b").skipped).toBe(true);
+  expect(String(results.get("b").error || "")).toMatch(/dependency_failed:a/);
 });
 
-test("Runtime: concurrent agent loops keep isolated sessions", async () => {
+it("Runtime: concurrent agent loops keep isolated sessions", async () => {
   const { DefaultAgentLoop } = await import("../../js/agents/sdk/DefaultAgentLoop.js");
 
   const makeCallModel = (label, delayMs) => async () => {
@@ -2087,14 +2069,14 @@ test("Runtime: concurrent agent loops keep isolated sessions", async () => {
     loopB.run("hello B", { callModel: makeCallModel("B", 5) }),
   ]);
 
-  assert.equal(resA.success, true);
-  assert.equal(resB.success, true);
-  assert.equal(resA.output, "done:A");
-  assert.equal(resB.output, "done:B");
-  assert.equal(resA.toolCalls.length, 0);
-  assert.equal(resB.toolCalls.length, 0);
+  expect(resA.success).toBe(true);
+  expect(resB.success).toBe(true);
+  expect(resA.output).toBe("done:A");
+  expect(resB.output).toBe("done:B");
+  expect(resA.toolCalls.length).toBe(0);
+  expect(resB.toolCalls.length).toBe(0);
 
-  assert.notStrictEqual(loopA.messages, loopB.messages);
+  expect(loopA.messages).not.toBe(loopB.messages);
 
   const aUserMessages = loopA.messages
     .filter((m) => m.role === "user")
@@ -2105,8 +2087,8 @@ test("Runtime: concurrent agent loops keep isolated sessions", async () => {
     .map((m) => m.content)
     .join(" ");
 
-  assert.match(aUserMessages, /hello A/);
-  assert.match(bUserMessages, /hello B/);
-  assert.equal(/hello B/.test(aUserMessages), false);
-  assert.equal(/hello A/.test(bUserMessages), false);
+  expect(aUserMessages).toMatch(/hello A/);
+  expect(bUserMessages).toMatch(/hello B/);
+  expect(/hello B/.test(aUserMessages)).toBe(false);
+  expect(/hello A/.test(bUserMessages)).toBe(false);
 });

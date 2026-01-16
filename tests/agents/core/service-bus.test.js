@@ -3,8 +3,8 @@
  * 使用 node:test + node:assert/strict
  */
 
-import { describe, it, beforeEach, afterEach, mock } from 'node:test';
-import assert from 'node:assert/strict';
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import {
   ServiceBus,
   EventBus,
@@ -34,24 +34,24 @@ describe('ServiceBus', () => {
       bus.register('myService', service);
 
       const retrieved = await bus.get('myService');
-      assert.strictEqual(retrieved, service);
+      expect(retrieved).toBe(service);
     });
 
     it('should throw on duplicate registration', () => {
       bus.register('dup', {});
-      assert.throws(() => bus.register('dup', {}), /already registered/i);
+      expect(() => bus.register('dup', {})).toThrow(/already registered/i);
     });
 
     it('should allow override with option', () => {
       bus.register('override', { v: 1 });
       bus.register('override', { v: 2 }, { override: true });
 
-      assert.strictEqual(bus.has('override'), true);
+      expect(bus.has('override')).toBe(true);
     });
 
     it('should return this for chaining', () => {
       const result = bus.register('chain', {});
-      assert.strictEqual(result, bus);
+      expect(result).toBe(bus);
     });
   });
 
@@ -64,28 +64,28 @@ describe('ServiceBus', () => {
       };
       bus.registerFactory('lazySvc', factory);
 
-      assert.strictEqual(called, false);
+      expect(called).toBe(false);
 
       const service = await bus.get('lazySvc');
-      assert.strictEqual(called, true);
-      assert.strictEqual(service.lazy, true);
+      expect(called).toBe(true);
+      expect(service.lazy).toBe(true);
     });
 
     it('should throw on duplicate factory registration', () => {
       bus.registerFactory('dupFactory', () => ({}));
-      assert.throws(() => bus.registerFactory('dupFactory', () => ({})), /already registered/i);
+      expect(() => bus.registerFactory('dupFactory', () => ({}))).toThrow(/already registered/i);
     });
 
     it('should allow override existing factory', () => {
       bus.registerFactory('overrideFactory', () => ({ v: 1 }));
       bus.registerFactory('overrideFactory', () => ({ v: 2 }), { override: true });
 
-      assert.strictEqual(bus.has('overrideFactory'), true);
+      expect(bus.has('overrideFactory')).toBe(true);
     });
 
     it('should throw if service already registered without override', () => {
       bus.register('svc', {});
-      assert.throws(() => bus.registerFactory('svc', () => ({})), /already registered/i);
+      expect(() => bus.registerFactory('svc', () => ({}))).toThrow(/already registered/i);
     });
 
     it('should cache after first load', async () => {
@@ -99,8 +99,8 @@ describe('ServiceBus', () => {
       const first = await bus.get('cached');
       const second = await bus.get('cached');
 
-      assert.strictEqual(callCount, 1);
-      assert.strictEqual(first, second);
+      expect(callCount).toBe(1);
+      expect(first).toBe(second);
     });
 
     it('should support async factory', async () => {
@@ -110,67 +110,67 @@ describe('ServiceBus', () => {
       });
 
       const service = await bus.get('async');
-      assert.strictEqual(service.async, true);
+      expect(service.async).toBe(true);
     });
 
     it('should return this for chaining', () => {
       const result = bus.registerFactory('chainFactory', () => ({}));
-      assert.strictEqual(result, bus);
+      expect(result).toBe(bus);
     });
   });
 
   describe('get', () => {
     it('should return null for unknown service', async () => {
       const result = await bus.get('missing');
-      assert.strictEqual(result, null);
+      expect(result).toBe(null);
     });
 
     it('should move factory to services after resolve', async () => {
       bus.registerFactory('fromFactory', () => ({ ok: true }));
 
-      assert.strictEqual(bus.list().some(s => s.name === 'fromFactory'), false);
+      expect(bus.list().some(s => s.name === 'fromFactory')).toBe(false);
 
       const resolved = await bus.get('fromFactory');
-      assert.deepStrictEqual(resolved, { ok: true });
-      assert.strictEqual(bus.list().some(s => s.name === 'fromFactory'), true);
+      expect(resolved).toEqual({ ok: true });
+      expect(bus.list().some(s => s.name === 'fromFactory')).toBe(true);
     });
   });
 
   describe('has', () => {
     it('should return true for registered services', () => {
       bus.register('exists', {});
-      assert.strictEqual(bus.has('exists'), true);
+      expect(bus.has('exists')).toBe(true);
     });
 
     it('should return true for registered factories', () => {
       bus.registerFactory('factory', () => ({}));
-      assert.strictEqual(bus.has('factory'), true);
+      expect(bus.has('factory')).toBe(true);
     });
 
     it('should return false for unknown services', () => {
-      assert.strictEqual(bus.has('unknown'), false);
+      expect(bus.has('unknown')).toBe(false);
     });
   });
 
   describe('unregister', () => {
     it('should remove service', () => {
       bus.register('toRemove', {});
-      assert.strictEqual(bus.has('toRemove'), true);
+      expect(bus.has('toRemove')).toBe(true);
 
       const result = bus.unregister('toRemove');
-      assert.strictEqual(result, true);
-      assert.strictEqual(bus.has('toRemove'), false);
+      expect(result).toBe(true);
+      expect(bus.has('toRemove')).toBe(false);
     });
 
     it('should return false for unknown service', () => {
       const result = bus.unregister('nope');
-      assert.strictEqual(result, false);
+      expect(result).toBe(false);
     });
 
     it('should also remove factory', () => {
       bus.registerFactory('factoryToRemove', () => ({}));
       bus.unregister('factoryToRemove');
-      assert.strictEqual(bus.has('factoryToRemove'), false);
+      expect(bus.has('factoryToRemove')).toBe(false);
     });
   });
 
@@ -181,7 +181,7 @@ describe('ServiceBus', () => {
       });
 
       const result = await bus.call('calc', 'add', [2, 3]);
-      assert.strictEqual(result, 5);
+      expect(result).toBe(5);
     });
 
     it('should handle async methods', async () => {
@@ -193,20 +193,18 @@ describe('ServiceBus', () => {
       });
 
       const result = await bus.call('asyncSvc', 'fetch', [42]);
-      assert.deepStrictEqual(result, { id: 42, data: 'fetched' });
+      expect(result).toEqual({ id: 42, data: 'fetched' });
     });
 
     it('should throw for unknown service', async () => {
-      await assert.rejects(
-        bus.call('unknown', 'method', []),
+      await expect(bus.call('unknown').rejects.toThrow('method', []),
         /not found/i
       );
     });
 
     it('should throw for unknown method', async () => {
       bus.register('svc', { known: () => {} });
-      await assert.rejects(
-        bus.call('svc', 'unknown', []),
+      await expect(bus.call('svc').rejects.toThrow('unknown', []),
         /not found/i
       );
     });
@@ -235,14 +233,14 @@ describe('ServiceBus', () => {
       bus.useProxy(proxy2);
 
       const result = await bus.call('svc', 'fn', []);
-      assert.strictEqual(result, 'ok');
-      assert.deepStrictEqual(calls, ['p2-before', 'p1-before', 'p1-after', 'p2-after']);
+      expect(result).toBe('ok');
+      expect(calls).toEqual(['p2-before', 'p1-before', 'p1-after', 'p2-after']);
     });
 
     it('should work with default empty args', async () => {
       bus.register('svc', { fn: () => 'ok' });
       const result = await bus.call('svc', 'fn');
-      assert.strictEqual(result, 'ok');
+      expect(result).toBe('ok');
     });
   });
 
@@ -253,14 +251,11 @@ describe('ServiceBus', () => {
       });
 
       const result = await bus.invoke('math.multiply', 4, 5);
-      assert.strictEqual(result, 20);
+      expect(result).toBe(20);
     });
 
     it('should throw on invalid path', async () => {
-      await assert.rejects(
-        bus.invoke('invalid'),
-        /expected 'service\.method'/i
-      );
+      await expect(bus.invoke('invalid').rejects).toThrow(/expected 'service\.method'/i);
     });
   });
 
@@ -271,9 +266,9 @@ describe('ServiceBus', () => {
       bus.registerFactory('svc3', () => ({}));
 
       const list = bus.list();
-      assert.strictEqual(list.length, 2);
-      assert.strictEqual(list.some(e => e.name === 'svc1'), true);
-      assert.strictEqual(list.some(e => e.name === 'svc2'), true);
+      expect(list.length).toBe(2);
+      expect(list.some(e => e.name === 'svc1')).toBe(true);
+      expect(list.some(e => e.name === 'svc2')).toBe(true);
     });
 
     it('should include registeredAt and options', () => {
@@ -281,8 +276,8 @@ describe('ServiceBus', () => {
 
       const list = bus.list();
       const entry = list.find(e => e.name === 'svc');
-      assert.ok(entry.registeredAt > 0);
-      assert.deepStrictEqual(entry.options, { override: true });
+      expect(entry.registeredAt > 0).toBeTruthy();
+      expect(entry.options).toEqual({ override: true });
     });
   });
 
@@ -296,8 +291,8 @@ describe('ServiceBus', () => {
       const stats = bus.getStats();
       const tracked = stats.find(s => s.name === 'tracked');
 
-      assert.strictEqual(tracked.calls, 2);
-      assert.strictEqual(tracked.errors, 0);
+      expect(tracked.calls).toBe(2);
+      expect(tracked.errors).toBe(0);
     });
 
     it('should track errors', async () => {
@@ -305,12 +300,12 @@ describe('ServiceBus', () => {
         fail: () => { throw new Error('oops'); },
       });
 
-      await assert.rejects(bus.call('failing', 'fail', []));
+      await expect(bus.call('failing').rejects.toThrow('fail', []));
 
       const stats = bus.getStats();
       const failing = stats.find(s => s.name === 'failing');
 
-      assert.strictEqual(failing.errors, 1);
+      expect(failing.errors).toBe(1);
     });
 
     it('should get stats for specific service', async () => {
@@ -318,13 +313,13 @@ describe('ServiceBus', () => {
       await bus.call('specific', 'fn', []);
 
       const stats = bus.getStats('specific');
-      assert.ok(stats !== null);
-      assert.strictEqual(stats.calls, 1);
+      expect(stats !== null).toBeTruthy();
+      expect(stats.calls).toBe(1);
     });
 
     it('should return null for unknown service stats', () => {
       const stats = bus.getStats('unknown');
-      assert.strictEqual(stats, null);
+      expect(stats).toBe(null);
     });
 
     it('should reset stats', async () => {
@@ -332,13 +327,13 @@ describe('ServiceBus', () => {
 
       await bus.call('resettable', 'fn', []);
       const before = bus.getStats('resettable');
-      assert.strictEqual(before.calls, 1);
+      expect(before.calls).toBe(1);
 
       bus.resetStats();
       const after = bus.getStats('resettable');
-      assert.strictEqual(after.calls, 0);
-      assert.strictEqual(after.errors, 0);
-      assert.strictEqual(after.totalTime, 0);
+      expect(after.calls).toBe(0);
+      expect(after.errors).toBe(0);
+      expect(after.totalTime).toBe(0);
     });
 
     it('should track totalTime', async () => {
@@ -352,15 +347,15 @@ describe('ServiceBus', () => {
       await bus.call('timed', 'slow', []);
 
       const stats = bus.getStats('timed');
-      assert.ok(stats.totalTime >= 5);
+      expect(stats.totalTime >= 5).toBeTruthy();
     });
   });
 
   describe('health check', () => {
     it('should report not found', async () => {
       const result = await bus.healthCheck('missing');
-      assert.strictEqual(result.healthy, false);
-      assert.strictEqual(result.error, 'not found');
+      expect(result.healthy).toBe(false);
+      expect(result.error).toBe('not found');
     });
 
     it('should check service health with options.healthCheck', async () => {
@@ -369,7 +364,7 @@ describe('ServiceBus', () => {
       });
 
       const result = await bus.healthCheck('healthy');
-      assert.strictEqual(result.healthy, true);
+      expect(result.healthy).toBe(true);
     });
 
     it('should use instance healthCheck when option not provided', async () => {
@@ -378,8 +373,8 @@ describe('ServiceBus', () => {
       bus.register('instanceCheck', instance);
 
       const result = await bus.healthCheck('instanceCheck');
-      assert.strictEqual(result.healthy, true);
-      assert.strictEqual(called, true);
+      expect(result.healthy).toBe(true);
+      expect(called).toBe(true);
     });
 
     it('should handle health check throwing', async () => {
@@ -388,15 +383,15 @@ describe('ServiceBus', () => {
       });
 
       const result = await bus.healthCheck('throws');
-      assert.strictEqual(result.healthy, false);
-      assert.match(result.error, /boom/);
+      expect(result.healthy).toBe(false);
+      expect(result.error).toMatch(/boom/);
     });
 
     it('should default to healthy when no check defined', async () => {
       bus.register('noCheck', { fn: () => {} });
 
       const result = await bus.healthCheck('noCheck');
-      assert.strictEqual(result.healthy, true);
+      expect(result.healthy).toBe(true);
     });
 
     it('should report unhealthy', async () => {
@@ -405,7 +400,7 @@ describe('ServiceBus', () => {
       });
 
       const result = await bus.healthCheck('sick');
-      assert.strictEqual(result.healthy, false);
+      expect(result.healthy).toBe(false);
     });
 
     it('should check all services', async () => {
@@ -413,7 +408,7 @@ describe('ServiceBus', () => {
       bus.register('ok2', {}, { healthCheck: () => true });
 
       const results = await bus.healthCheckAll();
-      assert.strictEqual(results.every(r => r.healthy), true);
+      expect(results.every(r => r.healthy)).toBe(true);
     });
 
     it('should handle async healthCheck', async () => {
@@ -425,7 +420,7 @@ describe('ServiceBus', () => {
       });
 
       const result = await bus.healthCheck('asyncHealth');
-      assert.strictEqual(result.healthy, true);
+      expect(result.healthy).toBe(true);
     });
 
     it('should handle error without message', async () => {
@@ -434,8 +429,8 @@ describe('ServiceBus', () => {
       });
 
       const result = await bus.healthCheck('errorNoMsg');
-      assert.strictEqual(result.healthy, false);
-      assert.ok(result.error);
+      expect(result.healthy).toBe(false);
+      expect(result.error).toBeTruthy();
     });
   });
 
@@ -453,11 +448,11 @@ describe('ServiceBus', () => {
       bus.useProxy(orderProxy);
 
       const result = await bus.call('svc', 'fn', []);
-      assert.strictEqual(result, 'ok');
-      assert.deepStrictEqual(calls, ['before:svc.fn', 'after:svc.fn']);
+      expect(result).toBe('ok');
+      expect(calls).toEqual(['before:svc.fn', 'after:svc.fn']);
 
-      assert.strictEqual(bus.removeProxy('orderProxy'), true);
-      assert.strictEqual(bus.removeProxy('orderProxy'), false);
+      expect(bus.removeProxy('orderProxy')).toBe(true);
+      expect(bus.removeProxy('orderProxy')).toBe(false);
     });
 
     it('should support object proxies with invoke()', async () => {
@@ -474,9 +469,9 @@ describe('ServiceBus', () => {
       bus.useProxy(proxy);
 
       const result = await bus.call('svc', 'fn', []);
-      assert.strictEqual(result, 'ok');
-      assert.strictEqual(invoked, true);
-      assert.strictEqual(bus.removeProxy('objectProxy'), true);
+      expect(result).toBe('ok');
+      expect(invoked).toBe(true);
+      expect(bus.removeProxy('objectProxy')).toBe(true);
     });
 
     it('should allow unnamed object proxies (proxyName undefined)', async () => {
@@ -488,18 +483,18 @@ describe('ServiceBus', () => {
       bus.useProxy(proxy);
 
       const result = await bus.call('svc', 'fn', []);
-      assert.strictEqual(result, 'ok');
-      assert.strictEqual(bus._proxies[0].proxyName, undefined);
+      expect(result).toBe('ok');
+      expect(bus._proxies[0].proxyName).toBe(undefined);
     });
 
     it('should throw for invalid proxy inputs', () => {
-      assert.throws(() => bus.useProxy({}), /invoke/i);
+      expect(() => bus.useProxy({})).toThrow(/invoke/i);
     });
 
     it('should return this for chaining', () => {
       const proxy = async (ctx, next) => next();
       const result = bus.useProxy(proxy);
-      assert.strictEqual(result, bus);
+      expect(result).toBe(bus);
     });
   });
 
@@ -510,14 +505,14 @@ describe('ServiceBus', () => {
       bus.useProxy(createTimeoutProxy({ timeout: 1000 }));
 
       await bus.call('svc', 'fn', []);
-      assert.ok(bus.getStats('svc') !== null);
+      expect(bus.getStats('svc').toBeTruthy() !== null);
 
       bus.clear();
 
-      assert.strictEqual(bus.has('svc'), false);
-      assert.strictEqual(bus.has('lazy'), false);
-      assert.strictEqual(bus.getStats('svc'), null);
-      assert.deepStrictEqual(bus.list(), []);
+      expect(bus.has('svc')).toBe(false);
+      expect(bus.has('lazy')).toBe(false);
+      expect(bus.getStats('svc')).toBe(null);
+      expect(bus.list()).toEqual([]);
     });
   });
 
@@ -529,8 +524,8 @@ describe('ServiceBus', () => {
       bus.register('eventSvc', {});
 
       await new Promise(r => setTimeout(r, 0));
-      assert.ok(emitted);
-      assert.strictEqual(emitted.payload.name, 'eventSvc');
+      expect(emitted).toBeTruthy();
+      expect(emitted.payload.name).toBe('eventSvc');
     });
 
     it('should emit service.call.start and service.call.success', async () => {
@@ -541,8 +536,8 @@ describe('ServiceBus', () => {
       bus.register('eventSvc', { fn: () => 'ok' });
       await bus.call('eventSvc', 'fn', []);
 
-      assert.ok(emittedEvents.includes('service.call.start'));
-      assert.ok(emittedEvents.includes('service.call.success'));
+      expect(emittedEvents.includes('service.call.start')).toBeTruthy();
+      expect(emittedEvents.includes('service.call.success')).toBeTruthy();
     });
 
     it('should emit service.call.error', async () => {
@@ -550,9 +545,9 @@ describe('ServiceBus', () => {
       events.on('service.call.error', (e) => { emitted = e; });
 
       bus.register('errorSvc', { fn: () => { throw new Error('fail'); } });
-      await assert.rejects(bus.call('errorSvc', 'fn', []));
+      await expect(bus.call('errorSvc').rejects.toThrow('fn', []));
 
-      assert.ok(emitted);
+      expect(emitted).toBeTruthy();
     });
 
     it('should emit service.unregistered event', async () => {
@@ -563,8 +558,8 @@ describe('ServiceBus', () => {
       bus.unregister('toUnregister');
 
       await new Promise(r => setTimeout(r, 0));
-      assert.ok(emitted);
-      assert.strictEqual(emitted.payload.name, 'toUnregister');
+      expect(emitted).toBeTruthy();
+      expect(emitted.payload.name).toBe('toUnregister');
     });
 
     it('should emit service.factory.registered event', async () => {
@@ -574,8 +569,8 @@ describe('ServiceBus', () => {
       bus.registerFactory('factoryEventSvc', () => ({}));
 
       await new Promise(r => setTimeout(r, 0));
-      assert.ok(emitted);
-      assert.strictEqual(emitted.payload.name, 'factoryEventSvc');
+      expect(emitted).toBeTruthy();
+      expect(emitted.payload.name).toBe('factoryEventSvc');
     });
 
     it('should work without events', async () => {
@@ -583,7 +578,7 @@ describe('ServiceBus', () => {
       busNoEvents.register('svc', { fn: () => 'ok' });
 
       const result = await busNoEvents.call('svc', 'fn', []);
-      assert.strictEqual(result, 'ok');
+      expect(result).toBe('ok');
     });
   });
 });
@@ -605,8 +600,8 @@ describe('Service Proxies', () => {
       bus.useProxy(createRetryProxy({ maxRetries: 3, delay: 1 }));
 
       const result = await bus.call('flaky', 'method', []);
-      assert.strictEqual(result, 'success');
-      assert.strictEqual(attempts, 3);
+      expect(result).toBe('success');
+      expect(attempts).toBe(3);
     });
 
     it('should use backoff when delay not provided', async () => {
@@ -623,8 +618,8 @@ describe('Service Proxies', () => {
       bus.useProxy(createRetryProxy({ maxRetries: 1, backoff: 5 }));
 
       const result = await bus.call('svc', 'method', []);
-      assert.strictEqual(result, 'ok');
-      assert.strictEqual(attempts, 2);
+      expect(result).toBe('ok');
+      expect(attempts).toBe(2);
     });
 
     it('should stop retrying when shouldRetry returns false', async () => {
@@ -637,9 +632,9 @@ describe('Service Proxies', () => {
       bus.register('svc', { method });
       bus.useProxy(createRetryProxy({ maxRetries: 5, delay: 1, shouldRetry }));
 
-      await assert.rejects(bus.call('svc', 'method', []), /nope/);
-      assert.strictEqual(methodCalls, 1);
-      assert.strictEqual(retryChecks, 1);
+      await expect(bus.call('svc').rejects.toThrow('method', []), /nope/);
+      expect(methodCalls).toBe(1);
+      expect(retryChecks).toBe(1);
     });
 
     it('should throw last error after exhausting retries', async () => {
@@ -651,8 +646,8 @@ describe('Service Proxies', () => {
       bus.register('svc', { method });
       bus.useProxy(createRetryProxy({ maxRetries: 2, delay: 1 }));
 
-      await assert.rejects(bus.call('svc', 'method', []), (err) => err === error);
-      assert.strictEqual(methodCalls, 3);
+      await expect(bus.call('svc').rejects.toThrow('method', []), (err) => err === error);
+      expect(methodCalls).toBe(3);
     });
 
     it('should be callable as a function (delegates to invoke)', async () => {
@@ -662,13 +657,13 @@ describe('Service Proxies', () => {
       const ctx = { service: 'svc', method: 'm', args: [], options: {}, startTime: Date.now() };
 
       const result = await proxy(ctx, next);
-      assert.strictEqual(result, 'ok');
-      assert.strictEqual(nextCalled, true);
+      expect(result).toBe('ok');
+      expect(nextCalled).toBe(true);
     });
 
     it('should have proxyName set to "retry"', () => {
       const proxy = createRetryProxy();
-      assert.strictEqual(proxy.proxyName, 'retry');
+      expect(proxy.proxyName).toBe('retry');
     });
 
     it('should use exponential backoff', async () => {
@@ -694,8 +689,8 @@ describe('Service Proxies', () => {
         bus.useProxy(createRetryProxy({ maxRetries: 3, delay: 100 }));
 
         const result = await bus.call('svc', 'method', []);
-        assert.strictEqual(result, 'ok');
-        assert.deepStrictEqual(delays, [100, 200, 400]);
+        expect(result).toBe('ok');
+        expect(delays).toEqual([100, 200, 400]);
       } finally {
         globalThis.setTimeout = originalSetTimeout;
       }
@@ -712,8 +707,7 @@ describe('Service Proxies', () => {
 
       bus.useProxy(createTimeoutProxy({ timeout: 10 }));
 
-      await assert.rejects(
-        bus.call('slow', 'method', []),
+      await expect(bus.call('slow').rejects.toThrow('method', []),
         /timeout/i
       );
     });
@@ -727,8 +721,7 @@ describe('Service Proxies', () => {
 
       bus.useProxy(createTimeoutProxy({ timeout: 1000 }));
 
-      await assert.rejects(
-        bus.call('slow', 'method', [], { timeout: 10 }),
+      await expect(bus.call('slow').rejects.toThrow('method', [], { timeout: 10 }),
         /slow\.method/i
       );
     });
@@ -743,12 +736,12 @@ describe('Service Proxies', () => {
       bus.useProxy(createTimeoutProxy({ timeout: 1000 }));
 
       const result = await bus.call('fast', 'method', []);
-      assert.strictEqual(result, 'quick');
+      expect(result).toBe('quick');
     });
 
     it('should have proxyName set to "timeout"', () => {
       const proxy = createTimeoutProxy();
-      assert.strictEqual(proxy.proxyName, 'timeout');
+      expect(proxy.proxyName).toBe('timeout');
     });
 
     it('should use default timeout of 30000', async () => {
@@ -762,8 +755,8 @@ describe('Service Proxies', () => {
       };
 
       const result = await proxy(ctx, next);
-      assert.strictEqual(result, 'ok');
-      assert.strictEqual(started, true);
+      expect(result).toBe('ok');
+      expect(started).toBe(true);
     });
   });
 
@@ -777,14 +770,14 @@ describe('Service Proxies', () => {
 
       const r1 = await bus.call('svc', 'method', [1]);
       const r2 = await bus.call('svc', 'method', [1]);
-      assert.strictEqual(r1, 'v1');
-      assert.strictEqual(r2, 'v1');
-      assert.strictEqual(callCount, 1);
+      expect(r1).toBe('v1');
+      expect(r2).toBe('v1');
+      expect(callCount).toBe(1);
 
       await new Promise(r => setTimeout(r, 60));
       const r3 = await bus.call('svc', 'method', [1]);
-      assert.strictEqual(r3, 'v2');
-      assert.strictEqual(callCount, 2);
+      expect(r3).toBe('v2');
+      expect(callCount).toBe(2);
     });
 
     it('should bypass cache when disabled', async () => {
@@ -797,9 +790,9 @@ describe('Service Proxies', () => {
       const r1 = await bus.call('svc', 'method', [1], { cache: false });
       const r2 = await bus.call('svc', 'method', [1], { cache: false });
 
-      assert.strictEqual(r1, 'v1');
-      assert.strictEqual(r2, 'v2');
-      assert.strictEqual(callCount, 2);
+      expect(r1).toBe('v1');
+      expect(r2).toBe('v2');
+      expect(callCount).toBe(2);
     });
 
     it('should bypass cache when ttl <= 0', async () => {
@@ -812,9 +805,9 @@ describe('Service Proxies', () => {
       const r1 = await bus.call('svc', 'method', [1], { cache: 0 });
       const r2 = await bus.call('svc', 'method', [1], { cache: -1 });
 
-      assert.strictEqual(r1, 'v1');
-      assert.strictEqual(r2, 'v2');
-      assert.strictEqual(callCount, 2);
+      expect(r1).toBe('v1');
+      expect(r2).toBe('v2');
+      expect(callCount).toBe(2);
     });
 
     it('should not store entries when maxSize is 0', async () => {
@@ -826,9 +819,9 @@ describe('Service Proxies', () => {
 
       const r1 = await bus.call('svc', 'method', [1]);
       const r2 = await bus.call('svc', 'method', [1]);
-      assert.strictEqual(r1, 'v1');
-      assert.strictEqual(r2, 'v2');
-      assert.strictEqual(callCount, 2);
+      expect(r1).toBe('v1');
+      expect(r2).toBe('v2');
+      expect(callCount).toBe(2);
     });
 
     it('should evict oldest entry when maxSize is reached', async () => {
@@ -842,10 +835,10 @@ describe('Service Proxies', () => {
       const r2 = await bus.call('svc', 'method', [2]);
       const r3 = await bus.call('svc', 'method', [1]);
 
-      assert.strictEqual(r1, 'v1-1');
-      assert.strictEqual(r2, 'v2-2');
-      assert.strictEqual(r3, 'v1-3');
-      assert.strictEqual(callCount, 3);
+      expect(r1).toBe('v1-1');
+      expect(r2).toBe('v2-2');
+      expect(r3).toBe('v1-3');
+      expect(callCount).toBe(3);
     });
 
     it('should support custom keyFn', async () => {
@@ -860,14 +853,14 @@ describe('Service Proxies', () => {
 
       const r1 = await bus.call('svc', 'method', [1]);
       const r2 = await bus.call('svc', 'method', [2]);
-      assert.strictEqual(r1, 'v1-1');
-      assert.strictEqual(r2, 'v1-1');
-      assert.strictEqual(callCount, 1);
+      expect(r1).toBe('v1-1');
+      expect(r2).toBe('v1-1');
+      expect(callCount).toBe(1);
     });
 
     it('should have proxyName set to "cache"', () => {
       const proxy = createCacheProxy();
-      assert.strictEqual(proxy.proxyName, 'cache');
+      expect(proxy.proxyName).toBe('cache');
     });
 
     it('should use per-call cache ttl override', async () => {
@@ -879,18 +872,18 @@ describe('Service Proxies', () => {
 
       // First call caches with default 1000ms ttl
       const r1 = await bus.call('svc', 'method', [1]);
-      assert.strictEqual(r1, 'v1');
+      expect(r1).toBe('v1');
 
       await new Promise(r => setTimeout(r, 30));
 
       // Second call with short ttl (20ms) - cache entry is 30ms old, so expired for this call
       const r2 = await bus.call('svc', 'method', [1], { cache: 20 });
-      assert.strictEqual(r2, 'v2');
+      expect(r2).toBe('v2');
 
       // Third call with default 1000ms - cache entry is fresh (just set)
       const r3 = await bus.call('svc', 'method', [1]);
-      assert.strictEqual(r3, 'v2');
-      assert.strictEqual(callCount, 2);
+      expect(r3).toBe('v2');
+      expect(callCount).toBe(2);
     });
 
     it('should handle maxSize with negative or non-finite values', async () => {
@@ -902,8 +895,8 @@ describe('Service Proxies', () => {
 
       const r1 = await bus.call('svc', 'method', [1]);
       const r2 = await bus.call('svc', 'method', [1]);
-      assert.strictEqual(r1, 'v1');
-      assert.strictEqual(r2, 'v2');
+      expect(r1).toBe('v1');
+      expect(r2).toBe('v2');
     });
 
     it('should handle maxSize with Infinity', async () => {
@@ -915,9 +908,9 @@ describe('Service Proxies', () => {
 
       const r1 = await bus.call('svc', 'method', [1]);
       const r2 = await bus.call('svc', 'method', [1]);
-      assert.strictEqual(r1, 'v1');
-      assert.strictEqual(r2, 'v1');
-      assert.strictEqual(callCount, 1);
+      expect(r1).toBe('v1');
+      expect(r2).toBe('v1');
+      expect(callCount).toBe(1);
     });
   });
 });
@@ -946,7 +939,7 @@ describe('Service Dependencies', () => {
     const userService = await bus.get('userService');
     const result = userService.getUser(123);
 
-    assert.strictEqual(result, 'GET https://api.example.com/users/123');
+    expect(result).toBe('GET https://api.example.com/users/123');
   });
 
   it('should handle circular dependency detection', async () => {
@@ -985,6 +978,6 @@ describe('Service Dependencies', () => {
     const decorator = await bus.get('decorator');
     const result = decorator.logWithTime('test');
 
-    assert.match(result, /\[LOG\].*test/);
+    expect(result).toMatch(/\[LOG\].*test/);
   });
 });

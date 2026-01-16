@@ -3,8 +3,8 @@
  * 使用 node:test + node:assert/strict
  */
 
-import { describe, it, beforeEach, afterEach, mock } from 'node:test';
-import assert from 'node:assert/strict';
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import { StateBus, EventBus } from '../../../js/agents/core/index.js';
 
 describe('StateBus', () => {
@@ -25,30 +25,30 @@ describe('StateBus', () => {
   describe('get/set', () => {
     it('should return full state when no path provided', () => {
       const root = state.get();
-      assert.ok(root.meta !== undefined);
-      assert.ok(root.runtime !== undefined);
+      expect(root.meta !== undefined).toBeTruthy();
+      expect(root.runtime !== undefined).toBeTruthy();
     });
 
     it('should set and get values', () => {
       state.set('user.name', 'Alice');
-      assert.equal(state.get('user.name'), 'Alice');
+      expect(state.get('user.name')).toBe('Alice');
     });
 
     it('should support nested paths', () => {
       state.set('deep.nested.value', 42);
-      assert.equal(state.get('deep.nested.value'), 42);
-      assert.deepEqual(state.get('deep.nested'), { value: 42 });
-      assert.deepEqual(state.get('deep'), { nested: { value: 42 } });
+      expect(state.get('deep.nested.value')).toBe(42);
+      expect(state.get('deep.nested')).toEqual({ value: 42 });
+      expect(state.get('deep')).toEqual({ nested: { value: 42 } });
     });
 
     it('should return undefined for missing paths', () => {
-      assert.equal(state.get('nonexistent.path'), undefined);
+      expect(state.get('nonexistent.path')).toBe(undefined);
     });
 
     it('should overwrite existing values', () => {
       state.set('counter', 1);
       state.set('counter', 2);
-      assert.equal(state.get('counter'), 2);
+      expect(state.get('counter')).toBe(2);
     });
 
     it('should not notify or update timestamp when value unchanged', () => {
@@ -61,19 +61,19 @@ describe('StateBus', () => {
       state.set('same', 1);
       const updatedAt2 = state.get('meta.updatedAt');
 
-      assert.equal(callCount, 1);
-      assert.equal(updatedAt1, updatedAt2);
+      expect(callCount).toBe(1);
+      expect(updatedAt1).toBe(updatedAt2);
     });
 
     it('should ignore empty paths', () => {
       state.set('', 123);
       const result = state.get('');
-      assert.ok(result.meta !== undefined); // still root state
+      expect(result.meta !== undefined).toBeTruthy(); // still root state
     });
 
     it('should return undefined when traversing through non-object', () => {
       state.set('primitive', 42);
-      assert.equal(state.get('primitive.nested'), undefined);
+      expect(state.get('primitive.nested')).toBe(undefined);
     });
   });
 
@@ -81,64 +81,64 @@ describe('StateBus', () => {
     it('should merge objects', () => {
       state.set('config', { a: 1, b: 2 });
       state.merge('config', { b: 3, c: 4 });
-      assert.deepEqual(state.get('config'), { a: 1, b: 3, c: 4 });
+      expect(state.get('config')).toEqual({ a: 1, b: 3, c: 4 });
     });
 
     it('should create path if not exists', () => {
       state.merge('new.path', { x: 1 });
-      assert.deepEqual(state.get('new.path'), { x: 1 });
+      expect(state.get('new.path')).toEqual({ x: 1 });
     });
 
     it('should replace non-object values', () => {
       state.set('config', 123);
       state.merge('config', { ok: true });
-      assert.deepEqual(state.get('config'), { ok: true });
+      expect(state.get('config')).toEqual({ ok: true });
     });
 
     it('should set non-object updates directly', () => {
       state.merge('config', null);
-      assert.equal(state.get('config'), null);
+      expect(state.get('config')).toBe(null);
     });
 
     it('should pass meta to set', () => {
       let received = null;
       state.subscribe('merged', (change) => { received = change; });
       state.merge('merged', { x: 1 }, { source: 'merge' });
-      assert.equal(received.meta.source, 'merge');
+      expect(received.meta.source).toBe('merge');
     });
   });
 
   describe('delete', () => {
     it('should delete values', () => {
       state.set('toDelete', 'value');
-      assert.equal(state.get('toDelete'), 'value');
+      expect(state.get('toDelete')).toBe('value');
 
       const result = state.delete('toDelete');
-      assert.equal(result, true);
-      assert.equal(state.get('toDelete'), undefined);
+      expect(result).toBe(true);
+      expect(state.get('toDelete')).toBe(undefined);
     });
 
     it('should return false for non-existent paths', () => {
       const result = state.delete('nonexistent');
-      assert.equal(result, false);
+      expect(result).toBe(false);
     });
 
     it('should delete nested values', () => {
       state.set('deep.nested.value', 42);
-      assert.equal(state.delete('deep.nested.value'), true);
-      assert.equal(state.get('deep.nested.value'), undefined);
+      expect(state.delete('deep.nested.value')).toBe(true);
+      expect(state.get('deep.nested.value')).toBe(undefined);
     });
 
     it('should return false when deleting with an empty path', () => {
-      assert.equal(state.delete(''), false);
+      expect(state.delete('')).toBe(false);
     });
 
     it('should not delete inherited properties', () => {
       state._state.protoTest = Object.create({ value: 123 });
 
-      assert.equal(state.get('protoTest.value'), 123);
-      assert.equal(state.delete('protoTest.value'), false);
-      assert.equal(state.get('protoTest.value'), 123);
+      expect(state.get('protoTest.value')).toBe(123);
+      expect(state.delete('protoTest.value')).toBe(false);
+      expect(state.get('protoTest.value')).toBe(123);
     });
 
     it('should notify change on delete with op:delete meta', () => {
@@ -146,40 +146,40 @@ describe('StateBus', () => {
       let received = null;
       state.subscribe('toNotify', (change) => { received = change; });
       state.delete('toNotify');
-      assert.equal(received.meta.op, 'delete');
-      assert.equal(received.oldValue, 'value');
-      assert.equal(received.newValue, undefined);
+      expect(received.meta.op).toBe('delete');
+      expect(received.oldValue).toBe('value');
+      expect(received.newValue).toBe(undefined);
     });
 
     it('should return false when parent path is non-object', () => {
       state.set('primitive', 42);
-      assert.equal(state.delete('primitive.nested'), false);
+      expect(state.delete('primitive.nested')).toBe(false);
     });
   });
 
   describe('push', () => {
     it('should create array when missing', () => {
       state.push('items', 'a');
-      assert.deepEqual(state.get('items'), ['a']);
+      expect(state.get('items')).toEqual(['a']);
     });
 
     it('should append to existing array', () => {
       state.set('items', ['a']);
       state.push('items', 'b');
-      assert.deepEqual(state.get('items'), ['a', 'b']);
+      expect(state.get('items')).toEqual(['a', 'b']);
     });
 
     it('should pass meta to set', () => {
       let received = null;
       state.subscribe('pushed', (change) => { received = change; });
       state.push('pushed', 'item', { source: 'push' });
-      assert.equal(received.meta.source, 'push');
+      expect(received.meta.source).toBe('push');
     });
 
     it('should replace non-array with new array', () => {
       state.set('notArray', 'string');
       state.push('notArray', 'item');
-      assert.deepEqual(state.get('notArray'), ['item']);
+      expect(state.get('notArray')).toEqual(['item']);
     });
   });
 
@@ -190,8 +190,8 @@ describe('StateBus', () => {
 
       state.set('watched.value', 'new');
 
-      assert.equal(received.path, 'watched.value');
-      assert.equal(received.newValue, 'new');
+      expect(received.path).toBe('watched.value');
+      expect(received.newValue).toBe('new');
     });
 
     it('should support wildcard subscriptions', () => {
@@ -202,7 +202,7 @@ describe('StateBus', () => {
       state.set('user.age', 30);
       state.set('system.status', 'ok'); // should not trigger
 
-      assert.equal(callCount, 2);
+      expect(callCount).toBe(2);
     });
 
     it('should unsubscribe correctly', () => {
@@ -210,11 +210,11 @@ describe('StateBus', () => {
       const unsub = state.subscribe('path', () => { callCount += 1; });
 
       state.set('path', 1);
-      assert.equal(callCount, 1);
+      expect(callCount).toBe(1);
 
       unsub();
       state.set('path', 2);
-      assert.equal(callCount, 1); // still 1
+      expect(callCount).toBe(1); // still 1
     });
 
     it('should include old and new values', () => {
@@ -225,8 +225,8 @@ describe('StateBus', () => {
 
       state.set('value', 'new');
 
-      assert.equal(received.oldValue, 'old');
-      assert.equal(received.newValue, 'new');
+      expect(received.oldValue).toBe('old');
+      expect(received.newValue).toBe('new');
     });
 
     it('should support legacy subscriber signature (newValue, oldValue, path)', () => {
@@ -239,10 +239,10 @@ describe('StateBus', () => {
       state.subscribe('legacy', legacy);
       state.set('legacy', 'new');
 
-      assert.equal(calls.length, 1);
-      assert.equal(calls[0].path, 'legacy');
-      assert.equal(calls[0].oldValue, 'old');
-      assert.equal(calls[0].newValue, 'new');
+      expect(calls.length).toBe(1);
+      expect(calls[0].path).toBe('legacy');
+      expect(calls[0].oldValue).toBe('old');
+      expect(calls[0].newValue).toBe('new');
     });
 
     it('should isolate scopes via prefix matching', () => {
@@ -253,7 +253,7 @@ describe('StateBus', () => {
       state.set('runtime', { iteration: 1 });
       state.set('runtimeX.tokens.input', 2);
 
-      assert.equal(callCount, 2);
+      expect(callCount).toBe(2);
     });
 
     it('should support global wildcard *', () => {
@@ -263,7 +263,7 @@ describe('StateBus', () => {
       state.set('a.b', 1);
       state.set('c', 2);
 
-      assert.equal(callCount, 2);
+      expect(callCount).toBe(2);
     });
 
     it('should support wildcard matching within a pattern', () => {
@@ -274,8 +274,8 @@ describe('StateBus', () => {
       state.set('plugins.alpha.disabled', true);
       state.set('plugins.alpha.beta.enabled', true);
 
-      assert.equal(calls.length, 1);
-      assert.equal(calls[0], 'plugins.alpha.enabled');
+      expect(calls.length).toBe(1);
+      expect(calls[0]).toBe('plugins.alpha.enabled');
     });
 
     it('should continue notifying other subscribers when one throws', () => {
@@ -291,8 +291,8 @@ describe('StateBus', () => {
 
       console.error = originalError;
 
-      assert.equal(okCalls, 1);
-      assert.equal(errorCalls, 1);
+      expect(okCalls).toBe(1);
+      expect(errorCalls).toBe(1);
     });
 
     it('should support single-character wildcard ?', () => {
@@ -304,9 +304,9 @@ describe('StateBus', () => {
       state.set('item.abc', 3); // should not match
       state.set('item.a', 4);   // should not match
 
-      assert.equal(calls.length, 2);
-      assert.ok(calls.includes('item.a1'));
-      assert.ok(calls.includes('item.ab'));
+      expect(calls.length).toBe(2);
+      expect(calls.includes('item.a1')).toBeTruthy();
+      expect(calls.includes('item.ab')).toBeTruthy();
     });
 
     it('should match prefix itself when pattern ends with .*', () => {
@@ -315,7 +315,7 @@ describe('StateBus', () => {
 
       state.set('config', { key: 'value' });
 
-      assert.equal(callCount, 1);
+      expect(callCount).toBe(1);
     });
   });
 
@@ -326,9 +326,9 @@ describe('StateBus', () => {
       state.set('a', 3);
 
       const log = state.getChangeLog();
-      assert.equal(log.length, 3);
-      assert.equal(log[0].path, 'a');
-      assert.equal(log[2].path, 'a');
+      expect(log.length).toBe(3);
+      expect(log[0].path).toBe('a');
+      expect(log[2].path).toBe('a');
     });
 
     it('should respect maxLog trimming', () => {
@@ -338,9 +338,9 @@ describe('StateBus', () => {
       limited.set('c', 3);
 
       const log = limited.getChangeLog();
-      assert.equal(log.length, 2);
-      assert.equal(log[0].path, 'b');
-      assert.equal(log[1].path, 'c');
+      expect(log.length).toBe(2);
+      expect(log[0].path).toBe('b');
+      expect(log[1].path).toBe('c');
     });
 
     it('should return last N changes', () => {
@@ -349,34 +349,34 @@ describe('StateBus', () => {
       state.set('c', 3);
 
       const log = state.getChangeLog(2);
-      assert.equal(log.length, 2);
-      assert.equal(log[0].path, 'b');
-      assert.equal(log[1].path, 'c');
+      expect(log.length).toBe(2);
+      expect(log[0].path).toBe('b');
+      expect(log[1].path).toBe('c');
     });
 
     it('should return empty log when disabled', () => {
       const noLogState = new StateBus({ events, keepLog: false });
       noLogState.set('a', 1);
-      assert.deepEqual(noLogState.getChangeLog(), []);
+      expect(noLogState.getChangeLog()).toEqual([]);
     });
 
     it('should include timestamp in change record', () => {
       state.set('timed', 1);
       const log = state.getChangeLog();
-      assert.ok(typeof log[0].timestamp === 'number');
-      assert.ok(log[0].timestamp > 0);
+      expect(typeof log[0].timestamp === 'number').toBeTruthy();
+      expect(log[0].timestamp > 0).toBeTruthy();
     });
 
     it('should include meta when provided', () => {
       state.set('withMeta', 1, { source: 'test' });
       const log = state.getChangeLog();
-      assert.equal(log[0].meta.source, 'test');
+      expect(log[0].meta.source).toBe('test');
     });
 
     it('should not include meta when empty', () => {
       state.set('noMeta', 1);
       const log = state.getChangeLog();
-      assert.equal(log[0].meta, undefined);
+      expect(log[0].meta).toBe(undefined);
     });
   });
 
@@ -388,8 +388,8 @@ describe('StateBus', () => {
 
       const json = state.toJSON();
 
-      assert.deepEqual(json.user, { name: 'Alice', age: 25 });
-      assert.deepEqual(json.config, { theme: 'dark' });
+      expect(json.user).toEqual({ name: 'Alice', age: 25 });
+      expect(json.config).toEqual({ theme: 'dark' });
     });
 
     it('should export a deep clone (mutating export does not affect state)', () => {
@@ -399,8 +399,8 @@ describe('StateBus', () => {
       json.user.name = 'Bob';
       json.user.nested.a = 2;
 
-      assert.equal(state.get('user.name'), 'Alice');
-      assert.equal(state.get('user.nested.a'), 1);
+      expect(state.get('user.name')).toBe('Alice');
+      expect(state.get('user.nested.a')).toBe(1);
     });
   });
 
@@ -411,11 +411,11 @@ describe('StateBus', () => {
       events.on('state.imported', () => { emitted = true; });
 
       state.fromJSON(imported);
-      assert.equal(state.get('nested.a'), 1);
+      expect(state.get('nested.a')).toBe(1);
 
       imported.nested.a = 2;
-      assert.equal(state.get('nested.a'), 1);
-      assert.ok(emitted);
+      expect(state.get('nested.a')).toBe(1);
+      expect(emitted).toBeTruthy();
     });
 
     it('should ignore non-object imports', () => {
@@ -425,14 +425,14 @@ describe('StateBus', () => {
       state.set('value', 1);
       state.fromJSON(null);
 
-      assert.equal(state.get('value'), 1);
-      assert.ok(!emitted);
+      expect(state.get('value')).toBe(1);
+      expect(!emitted).toBeTruthy();
     });
 
     it('should ignore undefined imports', () => {
       state.set('value', 1);
       state.fromJSON(undefined);
-      assert.equal(state.get('value'), 1);
+      expect(state.get('value')).toBe(1);
     });
   });
 
@@ -444,7 +444,7 @@ describe('StateBus', () => {
       try {
         state.set('when', new Date('2020-01-01T00:00:00.000Z'));
         const json = state.toJSON();
-        assert.equal(json.when, '2020-01-01T00:00:00.000Z');
+        expect(json.when).toBe('2020-01-01T00:00:00.000Z');
       } finally {
         globalThis.structuredClone = originalClone;
       }
@@ -457,7 +457,7 @@ describe('StateBus', () => {
       try {
         state.set('when', new Date('2020-01-01T00:00:00.000Z'));
         const json = state.toJSON();
-        assert.equal(json.when, '2020-01-01T00:00:00.000Z');
+        expect(json.when).toBe('2020-01-01T00:00:00.000Z');
       } finally {
         globalThis.structuredClone = originalClone;
       }
@@ -467,8 +467,8 @@ describe('StateBus', () => {
   describe('snapshot/rollback', () => {
     it('should generate snapshot id when not provided', () => {
       const id = state.snapshot();
-      assert.match(id, /^snap_/);
-      assert.ok(state.listSnapshots().includes(id));
+      expect(id).toMatch(/^snap_/);
+      expect(state.listSnapshots().toBeTruthy().includes(id));
     });
 
     it('should snapshot and rollback state', () => {
@@ -477,28 +477,28 @@ describe('StateBus', () => {
 
       state.set('value', 1);
       const snapId = state.snapshot('mySnap');
-      assert.equal(snapId, 'mySnap');
-      assert.deepEqual(state.listSnapshots(), ['mySnap']);
+      expect(snapId).toBe('mySnap');
+      expect(state.listSnapshots()).toEqual(['mySnap']);
 
       state.set('value', 2);
-      assert.equal(state.get('value'), 2);
+      expect(state.get('value')).toBe(2);
 
       const ok = state.rollback('mySnap');
-      assert.equal(ok, true);
-      assert.equal(state.get('value'), 1);
+      expect(ok).toBe(true);
+      expect(state.get('value')).toBe(1);
 
       const rollbackChange = changes.find(c => c.meta?.rollback);
-      assert.equal(rollbackChange.path, '*');
+      expect(rollbackChange.path).toBe('*');
     });
 
     it('should throw when rolling back missing snapshot', () => {
-      assert.throws(() => state.rollback('missing'), /snapshot not found/i);
+      expect(() => state.rollback('missing')).toThrow(/snapshot not found/i);
     });
 
     it('should delete snapshot', () => {
       state.snapshot('toDelete');
-      assert.equal(state.deleteSnapshot('toDelete'), true);
-      assert.equal(state.deleteSnapshot('toDelete'), false);
+      expect(state.deleteSnapshot('toDelete')).toBe(true);
+      expect(state.deleteSnapshot('toDelete')).toBe(false);
     });
 
     it('should evict oldest snapshots when maxSnapshots exceeded (LRU)', () => {
@@ -511,26 +511,26 @@ describe('StateBus', () => {
       limitedState.set('v', 3);
       limitedState.snapshot('snap3');
 
-      assert.deepEqual(limitedState.listSnapshots(), ['snap1', 'snap2', 'snap3']);
+      expect(limitedState.listSnapshots()).toEqual(['snap1', 'snap2', 'snap3']);
 
       // Adding 4th should evict oldest (snap1)
       limitedState.set('v', 4);
       limitedState.snapshot('snap4');
 
-      assert.deepEqual(limitedState.listSnapshots(), ['snap2', 'snap3', 'snap4']);
-      assert.ok(!limitedState.listSnapshots().includes('snap1'));
+      expect(limitedState.listSnapshots()).toEqual(['snap2', 'snap3', 'snap4']);
+      expect(limitedState.listSnapshots().includes('snap1')).toBe(false);
 
       // Reusing existing id should not evict (updates in place)
       limitedState.set('v', 5);
       limitedState.snapshot('snap2');
-      assert.deepEqual(limitedState.listSnapshots(), ['snap3', 'snap4', 'snap2']); // snap2 moved to end
+      expect(limitedState.listSnapshots()).toEqual(['snap3', 'snap4', 'snap2']); // snap2 moved to end
     });
 
     it('should emit state.snapshot event', () => {
       let emitted = null;
       events.on('state.snapshot', (e) => { emitted = e.payload; });
       state.snapshot('testSnap');
-      assert.equal(emitted.id, 'testSnap');
+      expect(emitted.id).toBe('testSnap');
     });
 
     it('should emit state.rollback event', () => {
@@ -542,8 +542,8 @@ describe('StateBus', () => {
       events.on('state.rollback', (e) => { emitted = e.payload; });
       state.rollback('rollbackTest');
 
-      assert.equal(emitted.id, 'rollbackTest');
-      assert.ok(emitted.oldState !== undefined);
+      expect(emitted.id).toBe('rollbackTest');
+      expect(emitted.oldState !== undefined).toBeTruthy();
     });
 
     it('should deep clone snapshot data', () => {
@@ -552,7 +552,7 @@ describe('StateBus', () => {
       state.set('nested.a', 2);
 
       state.rollback('cloneTest');
-      assert.equal(state.get('nested.a'), 1);
+      expect(state.get('nested.a')).toBe(1);
     });
   });
 
@@ -564,20 +564,20 @@ describe('StateBus', () => {
       state.set('user.name', 'Alice');
       state.reset();
 
-      assert.equal(state.get('user'), undefined);
-      assert.equal(state.get('runtime.iteration'), 0);
-      assert.ok(emitted);
+      expect(state.get('user')).toBe(undefined);
+      expect(state.get('runtime.iteration')).toBe(0);
+      expect(emitted).toBeTruthy();
     });
 
     it('should preserve default structure after reset', () => {
       state.reset();
       const root = state.get();
-      assert.ok(root.meta !== undefined);
-      assert.ok(root.runtime !== undefined);
-      assert.ok(root.input !== undefined);
-      assert.ok(root.context !== undefined);
-      assert.ok(root.stages !== undefined);
-      assert.ok(root.plugins !== undefined);
+      expect(root.meta !== undefined).toBeTruthy();
+      expect(root.runtime !== undefined).toBeTruthy();
+      expect(root.input !== undefined).toBeTruthy();
+      expect(root.context !== undefined).toBeTruthy();
+      expect(root.stages !== undefined).toBeTruthy();
+      expect(root.plugins !== undefined).toBeTruthy();
     });
   });
 
@@ -585,7 +585,7 @@ describe('StateBus', () => {
     it('should work without EventBus', () => {
       const noEvents = new StateBus({ keepLog: true });
       noEvents.set('value', 1);
-      assert.equal(noEvents.get('value'), 1);
+      expect(noEvents.get('value')).toBe(1);
     });
 
     it('should not throw when emitting without EventBus', () => {
@@ -594,7 +594,7 @@ describe('StateBus', () => {
       noEvents.snapshot('test');
       noEvents.rollback('test');
       noEvents.reset();
-      assert.ok(true); // no errors thrown
+      expect(true).toBeTruthy(); // no errors thrown
     });
   });
 
@@ -605,8 +605,8 @@ describe('StateBus', () => {
 
       state.set('tracked', 'value');
 
-      assert.equal(received.path, 'tracked');
-      assert.equal(received.newValue, 'value');
+      expect(received.path).toBe('tracked');
+      expect(received.newValue).toBe('value');
     });
 
     it('should emit legacy alias state.change with meta spread', () => {
@@ -615,8 +615,8 @@ describe('StateBus', () => {
 
       state.set('tracked', 'value', { source: 'test' });
 
-      assert.equal(received.path, 'tracked');
-      assert.equal(received.source, 'test');
+      expect(received.path).toBe('tracked');
+      expect(received.source).toBe('test');
     });
 
     it('should emit state.change even when meta is not provided', () => {
@@ -625,7 +625,7 @@ describe('StateBus', () => {
 
       state._notifyChange('manual', 1, 0);
 
-      assert.deepEqual(received, {
+      expect(received).toEqual({
         path: 'manual',
         newValue: 1,
         oldValue: 0,
@@ -642,7 +642,7 @@ describe('StateBus', () => {
       state.set('a.b.c.d', 2);   // 4 segments - no match
       state.set('a.c', 3);       // 2 segments - no match
 
-      assert.equal(callCount, 1);
+      expect(callCount).toBe(1);
     });
 
     it('should match complex wildcards in prefix', () => {
@@ -652,7 +652,7 @@ describe('StateBus', () => {
       state.set('a.bx.c', 1);
       state.set('a.by.d.e', 2);  // 4 segments, prefix matches 2 segments
 
-      assert.equal(callCount, 2);
+      expect(callCount).toBe(2);
     });
 
     it('should handle patterns without wildcards', () => {
@@ -663,7 +663,7 @@ describe('StateBus', () => {
       state.set('exact.path.nested', 2);
       state.set('exact', 3);
 
-      assert.equal(callCount, 1);
+      expect(callCount).toBe(1);
     });
 
     it('should handle asterisk in middle segment', () => {
@@ -674,7 +674,7 @@ describe('StateBus', () => {
       state.set('a.y.c', 2);
       state.set('a.z.d', 3);
 
-      assert.equal(callCount, 2);
+      expect(callCount).toBe(2);
     });
   });
 
@@ -685,7 +685,7 @@ describe('StateBus', () => {
       for (let i = 0; i < 55; i++) {
         bus.snapshot(`snap${i}`);
       }
-      assert.equal(bus.listSnapshots().length, 50);
+      expect(bus.listSnapshots().length).toBe(50);
     });
 
     it('should use default maxLog when not provided', () => {
@@ -694,7 +694,7 @@ describe('StateBus', () => {
       for (let i = 0; i < 510; i++) {
         bus.set('counter', i);
       }
-      assert.equal(bus.getChangeLog(1000).length, 500);
+      expect(bus.getChangeLog(1000).length).toBe(500);
     });
   });
 });

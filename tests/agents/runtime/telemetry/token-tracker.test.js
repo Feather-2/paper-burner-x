@@ -1,5 +1,5 @@
-import { describe, it, beforeEach, afterEach } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import {
   TokenTracker,
@@ -32,38 +32,38 @@ describe("TokenTracker", () => {
   describe("constructor", () => {
     it("initializes with default maxRecords", () => {
       const tracker = new TokenTracker();
-      assert.equal(tracker.maxRecords, 500);
-      assert.equal(tracker._size, 0);
+      expect(tracker.maxRecords).toBe(500);
+      expect(tracker._size).toBe(0);
     });
 
     it("respects custom maxRecords (clamped to MAX_RECORDS)", () => {
       const tracker = new TokenTracker({ maxRecords: 100 });
-      assert.equal(tracker.maxRecords, 100);
+      expect(tracker.maxRecords).toBe(100);
 
       // Should clamp to 500
       const tracker2 = new TokenTracker({ maxRecords: 1000 });
-      assert.equal(tracker2.maxRecords, 500);
+      expect(tracker2.maxRecords).toBe(500);
     });
 
     it("handles zero maxRecords", () => {
       const tracker = new TokenTracker({ maxRecords: 0 });
-      assert.equal(tracker.maxRecords, 0);
+      expect(tracker.maxRecords).toBe(0);
       // Records should still work but not be stored
       tracker.record(sampleRecordParams());
-      assert.equal(tracker._size, 0);
+      expect(tracker._size).toBe(0);
     });
 
     it("accepts onRecord callback", () => {
       const records = [];
       const tracker = new TokenTracker({ onRecord: (r) => records.push(r) });
       tracker.record(sampleRecordParams());
-      assert.equal(records.length, 1);
-      assert.equal(records[0].model, "gpt-4o");
+      expect(records.length).toBe(1);
+      expect(records[0].model).toBe("gpt-4o");
     });
 
     it("ignores non-function onRecord", () => {
       const tracker = new TokenTracker({ onRecord: "invalid" });
-      assert.equal(tracker.onRecord, null);
+      expect(tracker.onRecord).toBe(null);
     });
   });
 
@@ -72,17 +72,17 @@ describe("TokenTracker", () => {
       const tracker = new TokenTracker();
       const record = tracker.record(sampleRecordParams());
 
-      assert.ok(record.id.startsWith("tok_"));
-      assert.ok(typeof record.timestamp === "number");
-      assert.equal(record.model, "gpt-4o");
-      assert.equal(record.provider, "openai");
-      assert.equal(record.usage, "worker");
-      assert.equal(record.promptTokens, 100);
-      assert.equal(record.completionTokens, 50);
-      assert.equal(record.totalTokens, 150);
-      assert.equal(record.latencyMs, 200);
-      assert.equal(record.success, true);
-      assert.equal(record.error, undefined);
+      expect(record.id.startsWith("tok_")).toBeTruthy();
+      expect(typeof record.timestamp === "number").toBeTruthy();
+      expect(record.model).toBe("gpt-4o");
+      expect(record.provider).toBe("openai");
+      expect(record.usage).toBe("worker");
+      expect(record.promptTokens).toBe(100);
+      expect(record.completionTokens).toBe(50);
+      expect(record.totalTokens).toBe(150);
+      expect(record.latencyMs).toBe(200);
+      expect(record.success).toBe(true);
+      expect(record.error).toBe(undefined);
     });
 
     it("handles failure with error message", () => {
@@ -94,8 +94,8 @@ describe("TokenTracker", () => {
         })
       );
 
-      assert.equal(record.success, false);
-      assert.equal(record.error, "Rate limit exceeded");
+      expect(record.success).toBe(false);
+      expect(record.error).toBe("Rate limit exceeded");
     });
 
     it("normalizes invalid token values to zero", () => {
@@ -109,10 +109,10 @@ describe("TokenTracker", () => {
         latencyMs: NaN,
       });
 
-      assert.equal(record.promptTokens, 0);
-      assert.equal(record.completionTokens, 0);
-      assert.equal(record.totalTokens, 0);
-      assert.equal(record.latencyMs, 0);
+      expect(record.promptTokens).toBe(0);
+      expect(record.completionTokens).toBe(0);
+      expect(record.totalTokens).toBe(0);
+      expect(record.latencyMs).toBe(0);
     });
 
     it("defaults model/provider/usage to 'unknown'", () => {
@@ -123,9 +123,9 @@ describe("TokenTracker", () => {
         latencyMs: 100,
       });
 
-      assert.equal(record.model, "unknown");
-      assert.equal(record.provider, "unknown");
-      assert.equal(record.usage, "unknown");
+      expect(record.model).toBe("unknown");
+      expect(record.provider).toBe("unknown");
+      expect(record.usage).toBe("unknown");
     });
 
     it("triggers onRecord callback", () => {
@@ -133,7 +133,7 @@ describe("TokenTracker", () => {
       const tracker = new TokenTracker({ onRecord: (r) => (captured = r) });
       const record = tracker.record(sampleRecordParams());
 
-      assert.deepEqual(captured, record);
+      expect(captured).toEqual(record);
     });
   });
 
@@ -145,12 +145,10 @@ describe("TokenTracker", () => {
       tracker.record(sampleRecordParams({ model: "m2" }));
       tracker.record(sampleRecordParams({ model: "m3" }));
 
-      assert.equal(tracker._size, 3);
+      expect(tracker._size).toBe(3);
       const records = tracker.getAllRecords();
-      assert.equal(records.length, 3);
-      assert.deepEqual(
-        records.map((r) => r.model),
-        ["m1", "m2", "m3"]
+      expect(records.length).toBe(3);
+      expect(records.map((r) => r.model)).toEqual(["m1", "m2", "m3"]
       );
     });
 
@@ -162,11 +160,9 @@ describe("TokenTracker", () => {
       tracker.record(sampleRecordParams({ model: "m3" }));
       tracker.record(sampleRecordParams({ model: "m4" }));
 
-      assert.equal(tracker._size, 3);
+      expect(tracker._size).toBe(3);
       const records = tracker.getAllRecords();
-      assert.deepEqual(
-        records.map((r) => r.model),
-        ["m2", "m3", "m4"]
+      expect(records.map((r) => r.model)).toEqual(["m2", "m3", "m4"]
       );
     });
 
@@ -178,9 +174,7 @@ describe("TokenTracker", () => {
       }
 
       const records = tracker.getAllRecords();
-      assert.deepEqual(
-        records.map((r) => r.model),
-        ["m3", "m4", "m5"]
+      expect(records.map((r) => r.model)).toEqual(["m3", "m4", "m5"]
       );
     });
   });
@@ -193,13 +187,13 @@ describe("TokenTracker", () => {
       tracker.record(sampleRecordParams({ promptTokens: 200, completionTokens: 100, latencyMs: 300 }));
 
       const stats = tracker._stats;
-      assert.equal(stats.totalCalls, 2);
-      assert.equal(stats.successCalls, 2);
-      assert.equal(stats.failedCalls, 0);
-      assert.equal(stats.totalPromptTokens, 300);
-      assert.equal(stats.totalCompletionTokens, 150);
-      assert.equal(stats.totalTokens, 450);
-      assert.equal(stats.totalLatencyMs, 500);
+      expect(stats.totalCalls).toBe(2);
+      expect(stats.successCalls).toBe(2);
+      expect(stats.failedCalls).toBe(0);
+      expect(stats.totalPromptTokens).toBe(300);
+      expect(stats.totalCompletionTokens).toBe(150);
+      expect(stats.totalTokens).toBe(450);
+      expect(stats.totalLatencyMs).toBe(500);
     });
 
     it("tracks failed calls", () => {
@@ -208,8 +202,8 @@ describe("TokenTracker", () => {
       tracker.record(sampleRecordParams({ success: true }));
       tracker.record(sampleRecordParams({ success: false }));
 
-      assert.equal(tracker._stats.successCalls, 1);
-      assert.equal(tracker._stats.failedCalls, 1);
+      expect(tracker._stats.successCalls).toBe(1);
+      expect(tracker._stats.failedCalls).toBe(1);
     });
 
     it("aggregates by model", () => {
@@ -220,10 +214,10 @@ describe("TokenTracker", () => {
       tracker.record(sampleRecordParams({ model: "claude-3", promptTokens: 150 }));
 
       const byModel = tracker._stats.byModel;
-      assert.equal(byModel.get("gpt-4o").calls, 2);
-      assert.equal(byModel.get("gpt-4o").promptTokens, 300);
-      assert.equal(byModel.get("claude-3").calls, 1);
-      assert.equal(byModel.get("claude-3").promptTokens, 150);
+      expect(byModel.get("gpt-4o").calls).toBe(2);
+      expect(byModel.get("gpt-4o").promptTokens).toBe(300);
+      expect(byModel.get("claude-3").calls).toBe(1);
+      expect(byModel.get("claude-3").promptTokens).toBe(150);
     });
 
     it("aggregates by usage", () => {
@@ -234,8 +228,8 @@ describe("TokenTracker", () => {
       tracker.record(sampleRecordParams({ usage: "planner" }));
 
       const byUsage = tracker._stats.byUsage;
-      assert.equal(byUsage.get("worker").calls, 2);
-      assert.equal(byUsage.get("planner").calls, 1);
+      expect(byUsage.get("worker").calls).toBe(2);
+      expect(byUsage.get("planner").calls).toBe(1);
     });
 
     it("aggregates by provider", () => {
@@ -245,8 +239,8 @@ describe("TokenTracker", () => {
       tracker.record(sampleRecordParams({ provider: "anthropic" }));
 
       const byProvider = tracker._stats.byProvider;
-      assert.equal(byProvider.get("openai").calls, 1);
-      assert.equal(byProvider.get("anthropic").calls, 1);
+      expect(byProvider.get("openai").calls).toBe(1);
+      expect(byProvider.get("anthropic").calls).toBe(1);
     });
   });
 
@@ -259,29 +253,29 @@ describe("TokenTracker", () => {
 
       const summary = tracker.getSummary();
 
-      assert.equal(summary.totalCalls, 2);
-      assert.equal(summary.successCalls, 1);
-      assert.equal(summary.failedCalls, 1);
-      assert.equal(summary.successRate, 0.5);
-      assert.equal(summary.totalPromptTokens, 300);
-      assert.equal(summary.totalCompletionTokens, 150);
-      assert.equal(summary.totalTokens, 450);
-      assert.equal(summary.totalLatencyMs, 500);
-      assert.equal(summary.avgLatencyMs, 250);
-      assert.equal(summary.avgTokensPerCall, 225);
-      assert.ok(typeof summary.byModel === "object");
-      assert.ok(typeof summary.byUsage === "object");
-      assert.ok(typeof summary.byProvider === "object");
+      expect(summary.totalCalls).toBe(2);
+      expect(summary.successCalls).toBe(1);
+      expect(summary.failedCalls).toBe(1);
+      expect(summary.successRate).toBe(0.5);
+      expect(summary.totalPromptTokens).toBe(300);
+      expect(summary.totalCompletionTokens).toBe(150);
+      expect(summary.totalTokens).toBe(450);
+      expect(summary.totalLatencyMs).toBe(500);
+      expect(summary.avgLatencyMs).toBe(250);
+      expect(summary.avgTokensPerCall).toBe(225);
+      expect(typeof summary.byModel === "object").toBeTruthy();
+      expect(typeof summary.byUsage === "object").toBeTruthy();
+      expect(typeof summary.byProvider === "object").toBeTruthy();
     });
 
     it("handles zero calls gracefully", () => {
       const tracker = new TokenTracker();
       const summary = tracker.getSummary();
 
-      assert.equal(summary.totalCalls, 0);
-      assert.equal(summary.successRate, 0);
-      assert.equal(summary.avgLatencyMs, 0);
-      assert.equal(summary.avgTokensPerCall, 0);
+      expect(summary.totalCalls).toBe(0);
+      expect(summary.successRate).toBe(0);
+      expect(summary.avgLatencyMs).toBe(0);
+      expect(summary.avgTokensPerCall).toBe(0);
     });
   });
 
@@ -294,10 +288,8 @@ describe("TokenTracker", () => {
       }
 
       const recent = tracker.getRecentRecords(3);
-      assert.equal(recent.length, 3);
-      assert.deepEqual(
-        recent.map((r) => r.model),
-        ["m3", "m4", "m5"]
+      expect(recent.length).toBe(3);
+      expect(recent.map((r) => r.model)).toEqual(["m3", "m4", "m5"]
       );
     });
 
@@ -308,18 +300,18 @@ describe("TokenTracker", () => {
       tracker.record(sampleRecordParams({ model: "m2" }));
 
       const recent = tracker.getRecentRecords(100);
-      assert.equal(recent.length, 2);
+      expect(recent.length).toBe(2);
     });
 
     it("handles empty tracker", () => {
       const tracker = new TokenTracker();
-      assert.deepEqual(tracker.getRecentRecords(10), []);
+      expect(tracker.getRecentRecords(10)).toEqual([]);
     });
 
     it("handles zero maxRecords", () => {
       const tracker = new TokenTracker({ maxRecords: 0 });
       tracker.record(sampleRecordParams());
-      assert.deepEqual(tracker.getRecentRecords(10), []);
+      expect(tracker.getRecentRecords(10)).toEqual([]);
     });
   });
 
@@ -332,10 +324,8 @@ describe("TokenTracker", () => {
       }
 
       const all = tracker.getAllRecords();
-      assert.equal(all.length, 5);
-      assert.deepEqual(
-        all.map((r) => r.model),
-        ["m1", "m2", "m3", "m4", "m5"]
+      expect(all.length).toBe(5);
+      expect(all.map((r) => r.model)).toEqual(["m1", "m2", "m3", "m4", "m5"]
       );
     });
 
@@ -343,7 +333,7 @@ describe("TokenTracker", () => {
       const tracker = new TokenTracker({ maxRecords: 10 });
       tracker.record(sampleRecordParams());
 
-      assert.deepEqual(tracker.getRecords(), tracker.getAllRecords());
+      expect(tracker.getRecords()).toEqual(tracker.getAllRecords());
     });
   });
 
@@ -354,7 +344,7 @@ describe("TokenTracker", () => {
       tracker.record(sampleRecordParams({ promptTokens: 100, completionTokens: 50 }));
       tracker.record(sampleRecordParams({ promptTokens: 200, completionTokens: 100 }));
 
-      assert.equal(tracker.getTotalTokens(), 450);
+      expect(tracker.getTotalTokens()).toBe(450);
     });
   });
 
@@ -366,10 +356,10 @@ describe("TokenTracker", () => {
       const json = tracker.exportJson();
       const parsed = JSON.parse(json);
 
-      assert.ok(parsed.exportedAt);
-      assert.ok(parsed.summary);
-      assert.ok(Array.isArray(parsed.records));
-      assert.equal(parsed.records.length, 1);
+      expect(parsed.exportedAt).toBeTruthy();
+      expect(parsed.summary).toBeTruthy();
+      expect(Array.isArray(parsed.records)).toBeTruthy();
+      expect(parsed.records.length).toBe(1);
     });
 
     it("includes all records and summary", () => {
@@ -379,8 +369,8 @@ describe("TokenTracker", () => {
 
       const parsed = JSON.parse(tracker.exportJson());
 
-      assert.equal(parsed.records.length, 2);
-      assert.equal(parsed.summary.totalCalls, 2);
+      expect(parsed.records.length).toBe(2);
+      expect(parsed.summary.totalCalls).toBe(2);
     });
   });
 
@@ -392,8 +382,8 @@ describe("TokenTracker", () => {
       const csv = tracker.exportCsv();
       const lines = csv.split("\n");
 
-      assert.equal(lines[0], "id,timestamp,model,provider,usage,promptTokens,completionTokens,totalTokens,latencyMs,success,error");
-      assert.equal(lines.length, 2);
+      expect(lines[0]).toBe("id,timestamp,model,provider,usage,promptTokens,completionTokens,totalTokens,latencyMs,success,error");
+      expect(lines.length).toBe(2);
     });
 
     it("escapes quotes in error messages", () => {
@@ -406,7 +396,7 @@ describe("TokenTracker", () => {
       );
 
       const csv = tracker.exportCsv();
-      assert.ok(csv.includes('"""'));
+      expect(csv.includes('"""')).toBeTruthy();
     });
 
     it("handles empty records", () => {
@@ -414,7 +404,7 @@ describe("TokenTracker", () => {
       const csv = tracker.exportCsv();
       const lines = csv.split("\n");
 
-      assert.equal(lines.length, 1); // Only headers
+      expect(lines.length).toBe(1); // Only headers
     });
   });
 
@@ -425,16 +415,16 @@ describe("TokenTracker", () => {
       tracker.record(sampleRecordParams());
       tracker.record(sampleRecordParams());
 
-      assert.equal(tracker._size, 2);
-      assert.equal(tracker._stats.totalCalls, 2);
+      expect(tracker._size).toBe(2);
+      expect(tracker._stats.totalCalls).toBe(2);
 
       tracker.clear();
 
-      assert.equal(tracker._size, 0);
-      assert.equal(tracker._head, 0);
-      assert.equal(tracker._stats.totalCalls, 0);
-      assert.equal(tracker._stats.byModel.size, 0);
-      assert.deepEqual(tracker.getAllRecords(), []);
+      expect(tracker._size).toBe(0);
+      expect(tracker._head).toBe(0);
+      expect(tracker._stats.totalCalls).toBe(0);
+      expect(tracker._stats.byModel.size).toBe(0);
+      expect(tracker.getAllRecords()).toEqual([]);
     });
   });
 
@@ -450,10 +440,10 @@ describe("TokenTracker", () => {
       const ts = records[0].timestamp;
 
       const inRange = tracker.getRecordsInRange(ts - 100, ts + 100);
-      assert.equal(inRange.length, 1);
+      expect(inRange.length).toBe(1);
 
       const outOfRange = tracker.getRecordsInRange(ts + 1000, ts + 2000);
-      assert.equal(outOfRange.length, 0);
+      expect(outOfRange.length).toBe(0);
     });
   });
 
@@ -466,7 +456,7 @@ describe("TokenTracker", () => {
       tracker.record(sampleRecordParams({ model: "claude-3" }));
 
       const gptRecords = tracker.getRecordsByModel("gpt-4o");
-      assert.equal(gptRecords.length, 2);
+      expect(gptRecords.length).toBe(2);
     });
   });
 
@@ -479,7 +469,7 @@ describe("TokenTracker", () => {
       tracker.record(sampleRecordParams({ usage: "planner" }));
 
       const workerRecords = tracker.getRecordsByUsage("worker");
-      assert.equal(workerRecords.length, 2);
+      expect(workerRecords.length).toBe(2);
     });
   });
 });
@@ -499,8 +489,8 @@ describe("Global TokenTracker utilities", () => {
       const tracker1 = getGlobalTokenTracker();
       const tracker2 = getGlobalTokenTracker();
 
-      assert.ok(tracker1 instanceof TokenTracker);
-      assert.strictEqual(tracker1, tracker2);
+      expect(tracker1 instanceof TokenTracker).toBeTruthy();
+      expect(tracker1).toBe(tracker2);
     });
   });
 
@@ -508,11 +498,11 @@ describe("Global TokenTracker utilities", () => {
     it("records to global tracker", () => {
       const record = trackTokenUsage(sampleRecordParams());
 
-      assert.ok(record.id.startsWith("tok_"));
-      assert.equal(record.model, "gpt-4o");
+      expect(record.id.startsWith("tok_")).toBeTruthy();
+      expect(record.model).toBe("gpt-4o");
 
       const tracker = getGlobalTokenTracker();
-      assert.equal(tracker.getTotalTokens(), 150);
+      expect(tracker.getTotalTokens()).toBe(150);
     });
   });
 
@@ -521,8 +511,8 @@ describe("Global TokenTracker utilities", () => {
       trackTokenUsage(sampleRecordParams());
       const summary = getTokenUsageSummary();
 
-      assert.equal(summary.totalCalls, 1);
-      assert.equal(summary.totalTokens, 150);
+      expect(summary.totalCalls).toBe(1);
+      expect(summary.totalTokens).toBe(150);
     });
   });
 
@@ -532,7 +522,7 @@ describe("Global TokenTracker utilities", () => {
       const json = exportTokenUsageJson();
 
       const parsed = JSON.parse(json);
-      assert.equal(parsed.records.length, 1);
+      expect(parsed.records.length).toBe(1);
     });
   });
 
@@ -542,7 +532,7 @@ describe("Global TokenTracker utilities", () => {
       const csv = exportTokenUsageCsv();
 
       const lines = csv.split("\n");
-      assert.equal(lines.length, 2);
+      expect(lines.length).toBe(2);
     });
   });
 });

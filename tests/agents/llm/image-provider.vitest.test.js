@@ -4,6 +4,7 @@ import {
   GeminiImageAdapter,
   ImageProvider,
   OpenAIImageAdapter,
+  IMAGE_PROVIDER_STORAGE_KEY,
   createImageProvider,
   createImageProviderFromConfig,
 } from "../../../js/agents/llm/image-provider.js";
@@ -24,6 +25,16 @@ function makeResponse({ ok = true, status = 200, jsonData, textData, headers } =
     headers: hdrs,
     json: async () => jsonData,
     text: async () => (textData !== undefined ? String(textData) : jsonData !== undefined ? JSON.stringify(jsonData) : ""),
+  };
+}
+
+function makeLocalStorage(seed = {}) {
+  const store = new Map(Object.entries(seed));
+  return {
+    getItem: (k) => (store.has(String(k)) ? store.get(String(k)) : null),
+    setItem: (k, v) => store.set(String(k), String(v)),
+    removeItem: (k) => store.delete(String(k)),
+    _dump: () => Object.fromEntries(store.entries()),
   };
 }
 
@@ -158,6 +169,17 @@ describe("agents/llm/image-provider", () => {
     });
   });
 
+  it("GeminiImageAdapter: HTTP 429 includes status for rate limit handling", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      makeResponse({ ok: false, status: 429, textData: "rate limited", headers: makeHeaders({}) })
+    );
+
+    await expect(GeminiImageAdapter({ prompt: "x" }, "k")).rejects.toMatchObject({
+      status: 429,
+      message: expect.stringMatching(/rate limited|429/i),
+    });
+  });
+
   it("GeminiImageAdapter: missing image data throws a helpful error with response attached", async () => {
     globalThis.fetch = vi.fn(async () =>
       makeResponse({
@@ -274,6 +296,31 @@ describe("agents/llm/image-provider", () => {
     expect(calls[0].init.headers.Authorization).toContain("Bearer");
   });
 
+  it("OpenAIImageAdapter: success (b64_json) returns normalized result and honors size/quality", async () => {
+    const calls = [];
+    globalThis.fetch = vi.fn(async (url, init) => {
+      calls.push({ url: String(url), init });
+      return makeResponse({ jsonData: { data: [{ b64_json: "BASE64_OPENAI" }] } });
+    });
+
+    const out = await OpenAIImageAdapter({ prompt: "x", size: "1792x1024", quality: "hd" }, "OPENAI_KEY", { timeoutMs: 999 });
+    expect(out).toMatchObject({
+      provider: "openai-image",
+      model: "gpt-image-1",
+      base64: "BASE64_OPENAI",
+      url: null,
+      width: 1792,
+      height: 1024,
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toContain("/v1/images/generations");
+    const payload = JSON.parse(calls[0].init.body);
+    expect(payload.size).toBe("1792x1024");
+    expect(payload.quality).toBe("hd");
+    expect(payload.response_format).toBe("b64_json");
+  });
+
   it("OpenAIImageAdapter: rejects invalid enums and missing image data", async () => {
     globalThis.fetch = vi.fn(async () => makeResponse({ jsonData: { data: [{}] } }));
 
@@ -314,6 +361,22 @@ describe("agents/llm/image-provider", () => {
     });
   });
 
+  it("OpenAIImageAdapter: HTTP 401/403 surfaces invalid key errors with status", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      makeResponse({
+        ok: false,
+        status: 403,
+        jsonData: { error: { message: "invalid_api_key" } },
+        headers: makeHeaders({ "content-type": "application/json" }),
+      })
+    );
+
+    await expect(OpenAIImageAdapter({ prompt: "x" }, "BAD")).rejects.toMatchObject({
+      status: 403,
+      message: expect.stringMatching(/invalid_api_key/i),
+    });
+  });
+
   it("ImageProvider.generate()/call(): validates apiKey/provider/type and forwards to adapter", async () => {
     globalThis.fetch = vi.fn(async () =>
       makeResponse({
@@ -335,6 +398,52 @@ describe("agents/llm/image-provider", () => {
     expect(out2.provider).toBe("gemini-image");
 
     await expect(p.call({ type: "nope" })).rejects.toThrow(/unsupported type/i);
+  });
+
+  it("ImageProvider: provider switching routes to correct adapter", async () => {
+    globalThis.fetch = vi.fn(async (url) => {
+      const asString = String(url);
+      if (asString.includes("generativelanguage.googleapis.com")) {
+        return makeResponse({
+          jsonData: {
+            candidates: [{ content: { parts: [{ inlineData: { mimeType: "image/png", data: "G" } }] } }],
+          },
+        });
+      }
+      if (asString.includes("/v1/images/generations")) {
+        return makeResponse({ jsonData: { data: [{ b64_json: "O" }] } });
+      }
+      throw new Error(`unexpected url: ${url}`);
+    });
+
+    const gem = new ImageProvider({ provider: "gemini-image", apiKey: "K1" });
+    const out1 = await gem.generate({ prompt: "p1" });
+    expect(out1.base64).toBe("G");
+
+    const oa = new ImageProvider({ provider: "openai-image", apiKey: "K2" });
+    const out2 = await oa.generate({ prompt: "p2" });
+    expect(out2.base64).toBe("O");
+  });
+
+  it("ImageProvider: timeout converts AbortError into TimeoutError with ETIMEDOUT", async () => {
+    vi.useFakeTimers();
+
+    globalThis.fetch = vi.fn((url, init) => {
+      return new Promise((resolve, reject) => {
+        const onAbort = () => {
+          const err = new Error("aborted");
+          err.name = "AbortError";
+          reject(err);
+        };
+        init?.signal?.addEventListener?.("abort", onAbort, { once: true });
+      });
+    });
+
+    const p = new ImageProvider({ provider: "openai-image", apiKey: "K" });
+    const pending = p.generate({ prompt: "x" }, { timeoutMs: 10 });
+    const assertion = expect(pending).rejects.toMatchObject({ name: "TimeoutError", code: "ETIMEDOUT", timeoutMs: 10 });
+    await vi.advanceTimersByTimeAsync(10);
+    await assertion;
   });
 
   it("ImageProvider.isAvailable(): checks credentials via provider-specific endpoints", async () => {
@@ -360,6 +469,29 @@ describe("agents/llm/image-provider", () => {
     expect(await gem.isAvailable()).toBe(false);
   });
 
+  it("ImageProvider.isAvailable(): returns false without key and handles HTTP status codes", async () => {
+    const p0 = new ImageProvider({ provider: "gemini-image", apiKey: "" });
+    expect(await p0.isAvailable()).toBe(false);
+
+    const calls = [];
+    globalThis.fetch = vi.fn(async (url) => {
+      const asString = String(url);
+      calls.push(asString);
+      if (asString.includes("/v1beta/models?key=")) return makeResponse({ ok: true, status: 200, jsonData: { models: [] } });
+      if (asString.includes("/v1/models")) return makeResponse({ ok: false, status: 401, jsonData: { error: { message: "bad" } } });
+      return makeResponse({ ok: false, status: 500, textData: "oops" });
+    });
+
+    const pg = new ImageProvider({ provider: "gemini-image", apiKey: "G" });
+    expect(await pg.isAvailable()).toBe(true);
+
+    const po = new ImageProvider({ provider: "openai-image", apiKey: "O" });
+    expect(await po.isAvailable()).toBe(false);
+
+    expect(calls.some((u) => u.includes("/v1beta/models?key=G"))).toBe(true);
+    expect(calls.some((u) => u.includes("/v1/models"))).toBe(true);
+  });
+
   it("ImageProvider.isAvailable(): returns true for unknown providers (best-effort)", async () => {
     globalThis.fetch = vi.fn(async () => {
       throw new Error("should not be called");
@@ -372,6 +504,32 @@ describe("agents/llm/image-provider", () => {
   it("createImageProvider(): returns an ImageProvider instance", () => {
     const p = createImageProvider({ provider: "gemini-image", apiKey: "k" });
     expect(p).toBeInstanceOf(ImageProvider);
+  });
+
+  it("createImageProviderFromConfig(): default provider is gemini-image; can load apiKey from model manager", () => {
+    const prevLocalStorage = globalThis.localStorage;
+    const prevLoadModelKeys = globalThis.loadModelKeys;
+
+    globalThis.localStorage = makeLocalStorage({});
+    globalThis.loadModelKeys = vi.fn(() => [{ id: "k1", value: "KEY_FROM_STORE", status: "ok" }]);
+
+    try {
+      const p1 = createImageProviderFromConfig();
+      expect(p1.provider).toBe("gemini-image");
+      expect(p1.apiKey).toBe("KEY_FROM_STORE");
+
+      globalThis.localStorage.setItem(
+        IMAGE_PROVIDER_STORAGE_KEY,
+        JSON.stringify({ provider: "openai-image", model: "gpt-image-1", apiKey: "" })
+      );
+      const p2 = createImageProviderFromConfig();
+      expect(p2.provider).toBe("openai-image");
+      expect(p2.apiKey).toBe("KEY_FROM_STORE");
+      expect(p2.model).toBe("gpt-image-1");
+    } finally {
+      globalThis.localStorage = prevLocalStorage;
+      globalThis.loadModelKeys = prevLoadModelKeys;
+    }
   });
 
   it("createImageProviderFromConfig(): loads config from storage and falls back to keyLoader", () => {

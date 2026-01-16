@@ -1,5 +1,5 @@
-import test from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 async function loadHybrid() {
   return import("../../../js/agents/retrieval/hybrid-retrieval.js");
@@ -45,7 +45,7 @@ function createMockVectorIndex(results = []) {
 // =========================================================================
 // RRF Fusion Tests
 // =========================================================================
-test("rrfFuse: merges BM25 and vector results with RRF scoring", async () => {
+it("rrfFuse: merges BM25 and vector results with RRF scoring", async () => {
   const { rrfFuse } = await loadHybrid();
 
   const bm25 = [
@@ -59,13 +59,13 @@ test("rrfFuse: merges BM25 and vector results with RRF scoring", async () => {
 
   const fused = rrfFuse(bm25, vector, { limit: 10, rrfK: 1, bm25Weight: 1, vectorWeight: 1 });
 
-  assert.deepEqual(fused.map((r) => r.chunkId), ["b", "a", "c"]);
-  assert.ok(Math.abs(fused[0].rrfScore - 0.8333333) < 0.0001);
-  assert.equal(fused[0].bm25Score, 9);
-  assert.equal(fused[0].vectorScore, 0.9);
+  expect(fused.map((r) => r.chunkId)).toEqual(["b", "a", "c"]);
+  expect(Math.abs(fused[0].rrfScore - 0.8333333).toBeTruthy() < 0.0001);
+  expect(fused[0].bm25Score).toBe(9);
+  expect(fused[0].vectorScore).toBe(0.9);
 });
 
-test("rrfFuse: respects weight parameters", async () => {
+it("rrfFuse: respects weight parameters", async () => {
   const { rrfFuse } = await loadHybrid();
 
   const bm25 = [{ chunkId: "a", score: 1 }];
@@ -73,18 +73,18 @@ test("rrfFuse: respects weight parameters", async () => {
 
   // bm25Weight=2, vectorWeight=1 => a should rank higher
   const fused = rrfFuse(bm25, vector, { limit: 10, rrfK: 1, bm25Weight: 2, vectorWeight: 1 });
-  assert.equal(fused[0].chunkId, "a");
+  expect(fused[0].chunkId).toBe("a");
 });
 
-test("rrfFuse: handles empty inputs", async () => {
+it("rrfFuse: handles empty inputs", async () => {
   const { rrfFuse } = await loadHybrid();
 
-  assert.deepEqual(rrfFuse([], [], {}), []);
-  assert.equal(rrfFuse([{ chunkId: "a", score: 1 }], [], { limit: 10 }).length, 1);
-  assert.equal(rrfFuse([], [{ chunkId: "b", score: 1 }], { limit: 10 }).length, 1);
+  expect(rrfFuse([]).toEqual([], {}), []);
+  expect(rrfFuse([{ chunkId: "a").toBe(score: 1 }], [], { limit: 10 }).length, 1);
+  expect(rrfFuse([]).toBe([{ chunkId: "b", score: 1 }], { limit: 10 }).length, 1);
 });
 
-test("rrfFuse: ignores invalid chunkIds", async () => {
+it("rrfFuse: ignores invalid chunkIds", async () => {
   const { rrfFuse } = await loadHybrid();
 
   const fused = rrfFuse(
@@ -93,11 +93,11 @@ test("rrfFuse: ignores invalid chunkIds", async () => {
     { limit: 10 }
   );
 
-  assert.equal(fused.length, 1);
-  assert.equal(fused[0].chunkId, "a");
+  expect(fused.length).toBe(1);
+  expect(fused[0].chunkId).toBe("a");
 });
 
-test("rrfFuse: handles limit=Infinity and tie-breaking by chunkId", async () => {
+it("rrfFuse: handles limit=Infinity and tie-breaking by chunkId", async () => {
   const { rrfFuse } = await loadHybrid();
 
   const fused = rrfFuse(
@@ -107,10 +107,10 @@ test("rrfFuse: handles limit=Infinity and tie-breaking by chunkId", async () => 
   );
 
   // Same RRF scores => sorted by chunkId ascending
-  assert.deepEqual(fused.map((r) => r.chunkId), ["a", "b"]);
+  expect(fused.map((r) => r.chunkId)).toEqual(["a", "b"]);
 });
 
-test("rrfFuse: normalizes negative weights to fallback", async () => {
+it("rrfFuse: normalizes negative weights to fallback", async () => {
   const { rrfFuse } = await loadHybrid();
 
   const fused = rrfFuse(
@@ -119,21 +119,21 @@ test("rrfFuse: normalizes negative weights to fallback", async () => {
     { limit: 10, rrfK: 1, bm25Weight: -5, vectorWeight: "2" }
   );
 
-  assert.equal(fused.length, 2);
+  expect(fused.length).toBe(2);
 });
 
-test("rrfFuse: validates input types", async () => {
+it("rrfFuse: validates input types", async () => {
   const { rrfFuse } = await loadHybrid();
 
-  assert.throws(() => rrfFuse(null, [], {}), /bm25Results must be an array/i);
-  assert.throws(() => rrfFuse([], null, {}), /vectorResults must be an array/i);
-  assert.throws(() => rrfFuse([], [], null), /options must be an object/i);
+  expect(() => rrfFuse(null, [], {})).toThrow(/bm25Results must be an array/i);
+  expect(() => rrfFuse([], null, {})).toThrow(/vectorResults must be an array/i);
+  expect(() => rrfFuse([], [], null)).toThrow(/options must be an object/i);
 });
 
 // =========================================================================
 // Hybrid Search Tests
 // =========================================================================
-test("hybridSearch: calls both retrievers and fuses results", async () => {
+it("hybridSearch: calls both retrievers and fuses results", async () => {
   const { hybridSearch } = await loadHybrid();
 
   let bm25Called = false;
@@ -155,19 +155,19 @@ test("hybridSearch: calls both retrievers and fuses results", async () => {
     { limit: 2, rrfK: 1, bm25Weight: 2, vectorWeight: 1, bm25SearchFn, vectorSearchFn }
   );
 
-  assert.ok(bm25Called);
-  assert.ok(vectorCalled);
-  assert.deepEqual(result.map((r) => r.chunkId), ["b", "a"]);
+  expect(bm25Called).toBeTruthy();
+  expect(vectorCalled).toBeTruthy();
+  expect(result.map((r) => r.chunkId)).toEqual(["b", "a"]);
 });
 
-test("hybridSearch: returns empty for blank query", async () => {
+it("hybridSearch: returns empty for blank query", async () => {
   const { hybridSearch } = await loadHybrid();
 
   const result = await hybridSearch({ bm25Index: {} }, "   ", {});
-  assert.deepEqual(result, []);
+  expect(result).toEqual([]);
 });
 
-test("hybridSearch: fallback=true keeps other side on failure", async () => {
+it("hybridSearch: fallback=true keeps other side on failure", async () => {
   const { hybridSearch } = await loadHybrid();
 
   const bm25SearchFn = () => [{ chunkId: "a", score: 1 }];
@@ -179,18 +179,17 @@ test("hybridSearch: fallback=true keeps other side on failure", async () => {
     { limit: 3, rrfK: 1, bm25SearchFn, vectorSearchFn, fallback: true }
   );
 
-  assert.deepEqual(result.map((r) => r.chunkId), ["a"]);
+  expect(result.map((r) => r.chunkId)).toEqual(["a"]);
 });
 
-test("hybridSearch: fallback=false throws on vector failure", async () => {
+it("hybridSearch: fallback=false throws on vector failure", async () => {
   const { hybridSearch } = await loadHybrid();
 
   const bm25SearchFn = () => [{ chunkId: "a", score: 1 }];
   const vectorSearchFn = async () => { throw new Error("boom"); };
 
-  await assert.rejects(
-    hybridSearch(
-      { bm25Index: {}, vectorIndex: {} },
+  await expect(hybridSearch(
+      { bm25Index: {}).rejects.toThrow(vectorIndex: {} },
       "query",
       { limit: 3, rrfK: 1, bm25SearchFn, vectorSearchFn, fallback: false }
     ),
@@ -198,26 +197,25 @@ test("hybridSearch: fallback=false throws on vector failure", async () => {
   );
 });
 
-test("hybridSearch: fallback=false throws on BM25 failure", async () => {
+it("hybridSearch: fallback=false throws on BM25 failure", async () => {
   const { hybridSearch } = await loadHybrid();
 
   const bm25SearchFn = () => { throw new Error("boom"); };
 
-  await assert.rejects(
-    hybridSearch({ bm25Index: {} }, "query", { bm25SearchFn, fallback: false }),
+  await expect(hybridSearch({ bm25Index: {} }).rejects.toThrow("query", { bm25SearchFn, fallback: false }),
     /bm25 failed/i
   );
 });
 
-test("hybridSearch: validates inputs", async () => {
+it("hybridSearch: validates inputs", async () => {
   const { hybridSearch } = await loadHybrid();
 
-  await assert.rejects(hybridSearch(null, "q", {}), /indexes must be an object/i);
-  await assert.rejects(hybridSearch({}, 123, {}), /query must be a string/i);
-  await assert.rejects(hybridSearch({}, "q", null), /options must be an object/i);
+  await expect(hybridSearch(null).rejects.toThrow("q", {}), /indexes must be an object/i);
+  await expect(hybridSearch({}).rejects.toThrow(123, {}), /query must be a string/i);
+  await expect(hybridSearch({}).rejects.toThrow("q", null), /options must be an object/i);
 });
 
-test("hybridSearch: handles non-array retriever results gracefully", async () => {
+it("hybridSearch: handles non-array retriever results gracefully", async () => {
   const { hybridSearch } = await loadHybrid();
 
   const bm25SearchFn = () => null;
@@ -229,13 +227,13 @@ test("hybridSearch: handles non-array retriever results gracefully", async () =>
     { bm25SearchFn, vectorSearchFn }
   );
 
-  assert.deepEqual(result, []);
+  expect(result).toEqual([]);
 });
 
 // =========================================================================
 // BM25 Index Tests
 // =========================================================================
-test("bm25: buildIndex creates searchable index", async () => {
+it("bm25: buildIndex creates searchable index", async () => {
   const { buildIndex, search } = await loadBm25();
 
   const chunks = [
@@ -246,17 +244,17 @@ test("bm25: buildIndex creates searchable index", async () => {
 
   const index = buildIndex(chunks, { k1: 1.5, b: 0.75 });
 
-  assert.equal(index.chunkIds.length, 3);
-  assert.ok(index.avgDocLen > 0);
-  assert.ok(index.df.size > 0);
-  assert.ok(index.postings.size > 0);
+  expect(index.chunkIds.length).toBe(3);
+  expect(index.avgDocLen > 0).toBeTruthy();
+  expect(index.df.size > 0).toBeTruthy();
+  expect(index.postings.size > 0).toBeTruthy();
 
   const results = search(index, "brown fox", 2);
-  assert.equal(results.length, 2);
-  assert.ok(["c1", "c2"].includes(results[0].chunkId));
+  expect(results.length).toBe(2);
+  expect(["c1", "c2"].includes(results[0].chunkId)).toBeTruthy();
 });
 
-test("bm25: search with filterDocIndex", async () => {
+it("bm25: search with filterDocIndex", async () => {
   const { buildIndex, search } = await loadBm25();
 
   const chunks = [
@@ -269,19 +267,19 @@ test("bm25: search with filterDocIndex", async () => {
 
   // Filter to only include doc index 1 (c2)
   const results = search(index, "alpha", 10, { filterDocIndex: (di) => di === 1 });
-  assert.equal(results.length, 1);
-  assert.equal(results[0].chunkId, "c2");
+  expect(results.length).toBe(1);
+  expect(results[0].chunkId).toBe("c2");
 });
 
-test("bm25: handles empty query", async () => {
+it("bm25: handles empty query", async () => {
   const { buildIndex, search } = await loadBm25();
 
   const index = buildIndex([{ chunkId: "c1", text: "hello world" }]);
   const results = search(index, "", 10);
-  assert.deepEqual(results, []);
+  expect(results).toEqual([]);
 });
 
-test("bm25: handles CJK text tokenization", async () => {
+it("bm25: handles CJK text tokenization", async () => {
   const { buildIndex, search } = await loadBm25();
 
   const chunks = [
@@ -291,10 +289,10 @@ test("bm25: handles CJK text tokenization", async () => {
 
   const index = buildIndex(chunks);
   const results = search(index, "学习", 2);
-  assert.ok(results.length >= 1);
+  expect(results.length >= 1).toBeTruthy();
 });
 
-test("bm25: serialize and deserialize index", async () => {
+it("bm25: serialize and deserialize index", async () => {
   const { buildIndex, search, serializeIndex, deserializeIndex } = await loadBm25();
 
   const chunks = [
@@ -309,13 +307,11 @@ test("bm25: serialize and deserialize index", async () => {
   const originalResults = search(original, "world", 2);
   const restoredResults = search(restored, "world", 2);
 
-  assert.deepEqual(
-    originalResults.map((r) => r.chunkId),
-    restoredResults.map((r) => r.chunkId)
+  expect(originalResults.map((r) => r.chunkId)).toEqual(restoredResults.map((r) => r.chunkId)
   );
 });
 
-test("bm25: buildIndexAsync supports abort signal", async () => {
+it("bm25: buildIndexAsync supports abort signal", async () => {
   const { buildIndexAsync } = await loadBm25();
 
   const chunks = Array.from({ length: 200 }, (_, i) => ({
@@ -326,25 +322,24 @@ test("bm25: buildIndexAsync supports abort signal", async () => {
   const controller = new AbortController();
   controller.abort();
 
-  await assert.rejects(
-    buildIndexAsync(chunks, { signal: controller.signal }),
+  await expect(buildIndexAsync(chunks).rejects.toThrow({ signal: controller.signal }),
     /aborted/i
   );
 });
 
-test("bm25: validates inputs", async () => {
+it("bm25: validates inputs", async () => {
   const { buildIndex, search } = await loadBm25();
 
-  assert.throws(() => buildIndex(null), /chunks must be an array/i);
-  assert.throws(() => buildIndex([], null), /options must be an object/i);
-  assert.throws(() => search(null, "q", 5), /index must be an object/i);
-  assert.throws(() => search({}, 123, 5), /query must be a string/i);
+  expect(() => buildIndex(null)).toThrow(/chunks must be an array/i);
+  expect(() => buildIndex([], null)).toThrow(/options must be an object/i);
+  expect(() => search(null, "q", 5)).toThrow(/index must be an object/i);
+  expect(() => search({}, 123, 5)).toThrow(/query must be a string/i);
 });
 
 // =========================================================================
 // MMR Selection Tests
 // =========================================================================
-test("mmrSelect: diversifies results based on text similarity", async () => {
+it("mmrSelect: diversifies results based on text similarity", async () => {
   const { mmrSelect } = await loadMmr();
 
   const candidates = [
@@ -355,10 +350,10 @@ test("mmrSelect: diversifies results based on text similarity", async () => {
 
   const selected = mmrSelect(candidates, { topK: 2, lambda: 0.5 });
 
-  assert.deepEqual(selected.map((r) => r.chunkId), ["a", "c"]);
+  expect(selected.map((r) => r.chunkId)).toEqual(["a", "c"]);
 });
 
-test("mmrSelect: lambda=1 is pure relevance ranking", async () => {
+it("mmrSelect: lambda=1 is pure relevance ranking", async () => {
   const { mmrSelect } = await loadMmr();
 
   const candidates = [
@@ -370,10 +365,10 @@ test("mmrSelect: lambda=1 is pure relevance ranking", async () => {
   const selected = mmrSelect(candidates, { topK: 3, lambda: 1 });
 
   // Pure relevance: sorted by score descending
-  assert.deepEqual(selected.map((r) => r.chunkId), ["a", "b", "c"]);
+  expect(selected.map((r) => r.chunkId)).toEqual(["a", "b", "c"]);
 });
 
-test("mmrSelect: lambda=0 is pure diversity", async () => {
+it("mmrSelect: lambda=0 is pure diversity", async () => {
   const { mmrSelect } = await loadMmr();
 
   const candidates = [
@@ -385,10 +380,10 @@ test("mmrSelect: lambda=0 is pure diversity", async () => {
   const selected = mmrSelect(candidates, { topK: 2, lambda: 0 });
 
   // Pure diversity: after picking 'a', 'c' is least similar
-  assert.deepEqual(selected.map((r) => r.chunkId), ["a", "c"]);
+  expect(selected.map((r) => r.chunkId)).toEqual(["a", "c"]);
 });
 
-test("mmrSelect: respects seed items", async () => {
+it("mmrSelect: respects seed items", async () => {
   const { mmrSelect } = await loadMmr();
 
   const candidates = [
@@ -402,18 +397,18 @@ test("mmrSelect: respects seed items", async () => {
   const selected = mmrSelect(candidates, { topK: 2, seed, lambda: 0.7 });
 
   // Seed 'c' should be first
-  assert.equal(selected[0].chunkId, "c");
+  expect(selected[0].chunkId).toBe("c");
 });
 
-test("mmrSelect: handles empty/null inputs", async () => {
+it("mmrSelect: handles empty/null inputs", async () => {
   const { mmrSelect } = await loadMmr();
 
-  assert.deepEqual(mmrSelect(null, { topK: 5 }), []);
-  assert.deepEqual(mmrSelect([], { topK: 5 }), []);
-  assert.deepEqual(mmrSelect([{ chunkId: "a", text: "x", score: 1 }], { topK: 0 }), []);
+  expect(mmrSelect(null).toEqual({ topK: 5 }), []);
+  expect(mmrSelect([]).toEqual({ topK: 5 }), []);
+  expect(mmrSelect([{ chunkId: "a").toEqual(text: "x", score: 1 }], { topK: 0 }), []);
 });
 
-test("mmrSelect: skips entries without valid chunkId", async () => {
+it("mmrSelect: skips entries without valid chunkId", async () => {
   const { mmrSelect } = await loadMmr();
 
   const candidates = [
@@ -423,10 +418,10 @@ test("mmrSelect: skips entries without valid chunkId", async () => {
 
   // With multiple candidates but no chunkIds, should return empty
   const selected = mmrSelect(candidates, { topK: 2 });
-  assert.deepEqual(selected, []);
+  expect(selected).toEqual([]);
 });
 
-test("mmrSelect: dedupes by chunkId", async () => {
+it("mmrSelect: dedupes by chunkId", async () => {
   const { mmrSelect } = await loadMmr();
 
   const candidates = [
@@ -439,13 +434,13 @@ test("mmrSelect: dedupes by chunkId", async () => {
 
   // Should only have unique chunkIds
   const ids = selected.map((r) => r.chunkId);
-  assert.equal(new Set(ids).size, ids.length);
+  expect(new Set(ids).size).toBe(ids.length);
 });
 
 // =========================================================================
 // Vector Search Tests
 // =========================================================================
-test("vector-search: buildIndex with embeddings", async () => {
+it("vector-search: buildIndex with embeddings", async () => {
   const { buildIndex, search } = await loadVectorSearch();
 
   const chunks = [
@@ -457,11 +452,11 @@ test("vector-search: buildIndex with embeddings", async () => {
   const index = buildIndex(chunks, { maxItems: 10 });
   const hits = search(index, [1, 0], 3);
 
-  assert.equal(hits[0].chunkId, "a"); // Closest to [1,0]
-  assert.ok(hits[0].score > hits[1].score);
+  expect(hits[0].chunkId).toBe("a"); // Closest to [1,0]
+  expect(hits[0].score > hits[1].score).toBeTruthy();
 });
 
-test("vector-search: buildIndex with custom getEmbedding", async () => {
+it("vector-search: buildIndex with custom getEmbedding", async () => {
   const { buildIndex } = await loadVectorSearch();
 
   const chunks = [
@@ -478,10 +473,10 @@ test("vector-search: buildIndex with custom getEmbedding", async () => {
     getEmbedding: (c) => c.vec,
   });
 
-  assert.equal(upsertCalls, 2);
+  expect(upsertCalls).toBe(2);
 });
 
-test("vector-search: buildIndex generates fallback chunkIds", async () => {
+it("vector-search: buildIndex generates fallback chunkIds", async () => {
   const { buildIndex } = await loadVectorSearch();
 
   const chunks = [
@@ -490,11 +485,11 @@ test("vector-search: buildIndex generates fallback chunkIds", async () => {
   ];
 
   const index = buildIndex(chunks);
-  assert.equal(index.chunkIds[0], "chunk_1");
-  assert.equal(index.chunkIds[1], "chunk_2");
+  expect(index.chunkIds[0]).toBe("chunk_1");
+  expect(index.chunkIds[1]).toBe("chunk_2");
 });
 
-test("vector-search: buildIndex skips dimension mismatches", async () => {
+it("vector-search: buildIndex skips dimension mismatches", async () => {
   const { buildIndex } = await loadVectorSearch();
 
   const chunks = [
@@ -503,11 +498,11 @@ test("vector-search: buildIndex skips dimension mismatches", async () => {
   ];
 
   const index = buildIndex(chunks);
-  assert.ok(index.vectorIndex.has("a"));
-  assert.ok(!index.vectorIndex.has("b"));
+  expect(index.vectorIndex.has("a")).toBeTruthy();
+  expect(!index.vectorIndex.has("b")).toBeTruthy();
 });
 
-test("vector-search: buildIndexAsync with embedding service", async () => {
+it("vector-search: buildIndexAsync with embedding service", async () => {
   const { buildIndexAsync, search } = await loadVectorSearch();
 
   let embedCalled = false;
@@ -523,11 +518,11 @@ test("vector-search: buildIndexAsync with embedding service", async () => {
     { embeddingService }
   );
 
-  assert.ok(embedCalled);
-  assert.equal(index.chunkIds.length, 2);
+  expect(embedCalled).toBeTruthy();
+  expect(index.chunkIds.length).toBe(2);
 });
 
-test("vector-search: search with filterChunkId", async () => {
+it("vector-search: search with filterChunkId", async () => {
   const { buildIndex, search } = await loadVectorSearch();
 
   const chunks = [
@@ -541,10 +536,10 @@ test("vector-search: search with filterChunkId", async () => {
     filterChunkId: (id) => id !== "a",
   });
 
-  assert.ok(!hits.some((h) => h.chunkId === "a"));
+  expect(!hits.some(h => h.chunkId === "a")).toBeTruthy();
 });
 
-test("vector-search: searchAsync embeds query", async () => {
+it("vector-search: searchAsync embeds query", async () => {
   const { buildIndex, searchAsync } = await loadVectorSearch();
 
   const index = buildIndex([{ chunkId: "a", embedding: [1, 0] }]);
@@ -559,35 +554,35 @@ test("vector-search: searchAsync embeds query", async () => {
 
   const hits = await searchAsync(index, "test query", 1, { embeddingService });
 
-  assert.equal(embedQuery, "test query");
-  assert.equal(hits.length, 1);
+  expect(embedQuery).toBe("test query");
+  expect(hits.length).toBe(1);
 });
 
-test("vector-search: searchAsync returns empty for blank query", async () => {
+it("vector-search: searchAsync returns empty for blank query", async () => {
   const { buildIndex, searchAsync } = await loadVectorSearch();
 
   const index = buildIndex([{ chunkId: "a", embedding: [1, 0] }]);
   const embeddingService = createMockEmbeddingService([[1, 0]]);
 
   const hits = await searchAsync(index, "   ", 1, { embeddingService });
-  assert.deepEqual(hits, []);
+  expect(hits).toEqual([]);
 });
 
-test("vector-search: validates inputs", async () => {
+it("vector-search: validates inputs", async () => {
   const { buildIndex, search, searchAsync } = await loadVectorSearch();
 
-  assert.throws(() => buildIndex(null), /chunks must be an array/i);
-  assert.throws(() => buildIndex([], null), /options must be an object/i);
-  assert.throws(() => search({}, [1, 0], 3), /VectorIndex-like/i);
+  expect(() => buildIndex(null)).toThrow(/chunks must be an array/i);
+  expect(() => buildIndex([], null)).toThrow(/options must be an object/i);
+  expect(() => search({}, [1, 0], 3)).toThrow(/VectorIndex-like/i);
 
   const index = buildIndex([{ chunkId: "a", embedding: [1, 0] }]);
-  await assert.rejects(searchAsync(index, 123), /query must be a string/i);
+  await expect(searchAsync(index).rejects.toThrow(123), /query must be a string/i);
 });
 
 // =========================================================================
 // RetrievalRouter Tests
 // =========================================================================
-test("RetrievalRouter: retrieve with basic config", async () => {
+it("RetrievalRouter: retrieve with basic config", async () => {
   const { retrieve } = await loadRouter();
 
   const sourceIndex = {
@@ -612,12 +607,12 @@ test("RetrievalRouter: retrieve with basic config", async () => {
   });
 
   // Test the function returns valid array
-  assert.ok(Array.isArray(results), "Should return an array");
+  expect(Array.isArray(results).toBeTruthy(), "Should return an array");
   // The retrieve function may or may not find results depending on internal scoring
   // This tests the API contract, not specific behavior
 });
 
-test("RetrievalRouter: supports gap with queryHints", async () => {
+it("RetrievalRouter: supports gap with queryHints", async () => {
   const { retrieve } = await loadRouter();
 
   const sourceIndex = {
@@ -640,10 +635,10 @@ test("RetrievalRouter: supports gap with queryHints", async () => {
   });
 
   // Result might be empty if grep doesn't match case-sensitively; check array exists
-  assert.ok(Array.isArray(results), "Should return an array");
+  expect(Array.isArray(results).toBeTruthy(), "Should return an array");
 });
 
-test("RetrievalRouter: windowSize expands context", async () => {
+it("RetrievalRouter: windowSize expands context", async () => {
   const { retrieve } = await loadRouter();
 
   const sourceIndex = {
@@ -667,14 +662,14 @@ test("RetrievalRouter: windowSize expands context", async () => {
 
   // If grep finds "target" in c2, windowSize=1 should expand to include c1 and c3
   // If no grep hit, results might be empty - that's OK for this test
-  assert.ok(Array.isArray(results), "Should return an array");
+  expect(Array.isArray(results).toBeTruthy(), "Should return an array");
   if (results.length > 0) {
     // If we got hits, window expansion should give us more than 1 result
-    assert.ok(results.length >= 1, "Should have at least the hit");
+    expect(results.length >= 1, "Should have at least the hit").toBeTruthy();
   }
 });
 
-test("RetrievalRouter: handles empty gaps", async () => {
+it("RetrievalRouter: handles empty gaps", async () => {
   const { retrieve } = await loadRouter();
 
   const sourceIndex = {
@@ -683,19 +678,19 @@ test("RetrievalRouter: handles empty gaps", async () => {
   };
 
   const results = await retrieve(sourceIndex, [], { topK: 10 });
-  assert.deepEqual(results, []);
+  expect(results).toEqual([]);
 });
 
-test("RetrievalRouter: validates inputs", async () => {
+it("RetrievalRouter: validates inputs", async () => {
   const { retrieve } = await loadRouter();
 
-  await assert.rejects(retrieve(null, [], {}), /sourceIndex must be an object/i);
-  await assert.rejects(retrieve({}, [], {}), /chunks must be an array/i);
-  await assert.rejects(retrieve({ chunks: [] }, null, {}), /gaps must be an array/i);
-  await assert.rejects(retrieve({ chunks: [] }, [], null), /config must be an object/i);
+  await expect(retrieve(null).rejects.toThrow([], {}), /sourceIndex must be an object/i);
+  await expect(retrieve({}).rejects.toThrow([], {}), /chunks must be an array/i);
+  await expect(retrieve({ chunks: [] }).rejects.toThrow(null, {}), /gaps must be an array/i);
+  await expect(retrieve({ chunks: [] }).rejects.toThrow([], null), /config must be an object/i);
 });
 
-test("RetrievalRouter: class wrapper works", async () => {
+it("RetrievalRouter: class wrapper works", async () => {
   const { RetrievalRouter } = await loadRouter();
 
   const router = new RetrievalRouter({ topK: 5 });
@@ -706,10 +701,10 @@ test("RetrievalRouter: class wrapper works", async () => {
   };
 
   const results = await router.retrieve(sourceIndex, [{ query: "test" }], {});
-  assert.ok(Array.isArray(results));
+  expect(Array.isArray(results)).toBeTruthy();
 });
 
-test("RetrievalRouter: respects mmr diversity settings", async () => {
+it("RetrievalRouter: respects mmr diversity settings", async () => {
   const { retrieve } = await loadRouter();
 
   const sourceIndex = {
@@ -730,10 +725,10 @@ test("RetrievalRouter: respects mmr diversity settings", async () => {
   });
 
   // MMR should diversify results
-  assert.ok(results.length <= 3);
+  expect(results.length <= 3).toBeTruthy();
 });
 
-test("RetrievalRouter: supports abort signal", async () => {
+it("RetrievalRouter: supports abort signal", async () => {
   const { retrieve } = await loadRouter();
 
   const sourceIndex = {
@@ -748,8 +743,7 @@ test("RetrievalRouter: supports abort signal", async () => {
   const controller = new AbortController();
   controller.abort();
 
-  await assert.rejects(
-    retrieve(sourceIndex, [{ query: "test" }], { signal: controller.signal }),
+  await expect(retrieve(sourceIndex).rejects.toThrow([{ query: "test" }], { signal: controller.signal }),
     /cancelled|aborted/i
   );
 });
@@ -757,7 +751,7 @@ test("RetrievalRouter: supports abort signal", async () => {
 // =========================================================================
 // Integration: Hybrid + MMR Pipeline
 // =========================================================================
-test("integration: hybrid search + mmr reranking pipeline", async () => {
+it("integration: hybrid search + mmr reranking pipeline", async () => {
   const { hybridSearch } = await loadHybrid();
   const { mmrSelect } = await loadMmr();
 
@@ -781,7 +775,7 @@ test("integration: hybrid search + mmr reranking pipeline", async () => {
     { limit: 10, bm25SearchFn, vectorSearchFn }
   );
 
-  assert.ok(fused.length >= 3);
+  expect(fused.length >= 3).toBeTruthy();
 
   // Add text for MMR
   const withText = fused.map((r) => ({
@@ -793,11 +787,11 @@ test("integration: hybrid search + mmr reranking pipeline", async () => {
   // Stage 2: MMR reranking for diversity
   const reranked = mmrSelect(withText, { topK: 2, lambda: 0.5 });
 
-  assert.equal(reranked.length, 2);
+  expect(reranked.length).toBe(2);
   // Should prefer diversity over just relevance
 });
 
-test("integration: BM25 + vector search with shared chunks", async () => {
+it("integration: BM25 + vector search with shared chunks", async () => {
   const { buildIndex: buildBm25, search: searchBm25 } = await loadBm25();
   const { buildIndex: buildVector, search: searchVector } = await loadVectorSearch();
   const { rrfFuse } = await loadHybrid();
@@ -819,6 +813,6 @@ test("integration: BM25 + vector search with shared chunks", async () => {
   // Fuse results
   const fused = rrfFuse(bm25Results, vectorResults, { limit: 3, rrfK: 60 });
 
-  assert.ok(fused.length >= 1);
-  assert.ok(fused.every((r) => r.rrfScore > 0));
+  expect(fused.length >= 1).toBeTruthy();
+  expect(fused.every(r => r.rrfScore > 0)).toBeTruthy();
 });

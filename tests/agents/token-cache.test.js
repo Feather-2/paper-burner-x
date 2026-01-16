@@ -1,5 +1,5 @@
-import { describe, it, beforeEach } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import {
   estimateTokensCached,
@@ -14,24 +14,24 @@ describe("shared/utils/token-cache", () => {
 
   describe("estimateTokensCached", () => {
     it("returns 0 for empty string", () => {
-      assert.equal(estimateTokensCached(""), 0);
+      expect(estimateTokensCached("")).toBe(0);
     });
 
     it("returns 0 for null", () => {
-      assert.equal(estimateTokensCached(null), 0);
+      expect(estimateTokensCached(null)).toBe(0);
     });
 
     it("returns 0 for undefined", () => {
-      assert.equal(estimateTokensCached(undefined), 0);
+      expect(estimateTokensCached(undefined)).toBe(0);
     });
 
     it("returns 0 for non-string", () => {
-      assert.equal(estimateTokensCached(123), 0);
+      expect(estimateTokensCached(123)).toBe(0);
     });
 
     it("estimates tokens for simple text", () => {
       const count = estimateTokensCached("Hello world");
-      assert.ok(count > 0);
+      expect(count > 0).toBeTruthy();
     });
 
     it("caches repeated calls", () => {
@@ -39,11 +39,11 @@ describe("shared/utils/token-cache", () => {
       const first = estimateTokensCached(text);
       const second = estimateTokensCached(text);
 
-      assert.equal(first, second);
+      expect(first).toBe(second);
 
       const stats = getTokenCacheStats();
-      assert.equal(stats.hits, 1);
-      assert.equal(stats.misses, 1);
+      expect(stats.hits).toBe(1);
+      expect(stats.misses).toBe(1);
     });
 
     it("uses custom tokenCounter when provided", () => {
@@ -52,7 +52,7 @@ describe("shared/utils/token-cache", () => {
       };
 
       const count = estimateTokensCached("one two three", mockCounter);
-      assert.equal(count, 3);
+      expect(count).toBe(3);
     });
 
     it("falls back when tokenCounter throws", () => {
@@ -61,7 +61,7 @@ describe("shared/utils/token-cache", () => {
       };
 
       const count = estimateTokensCached("test text", badCounter);
-      assert.ok(count > 0);
+      expect(count > 0).toBeTruthy();
     });
 
     it("falls back when tokenCounter returns invalid", () => {
@@ -70,7 +70,7 @@ describe("shared/utils/token-cache", () => {
       };
 
       const count = estimateTokensCached("test text", badCounter);
-      assert.ok(count > 0);
+      expect(count > 0).toBeTruthy();
     });
 
     it("falls back when tokenCounter returns negative", () => {
@@ -79,17 +79,17 @@ describe("shared/utils/token-cache", () => {
       };
 
       const count = estimateTokensCached("test text", badCounter);
-      assert.ok(count > 0);
+      expect(count > 0).toBeTruthy();
     });
 
     it("handles long strings with hash key", () => {
       const longText = "x".repeat(200);
       const count = estimateTokensCached(longText);
-      assert.ok(count > 0);
+      expect(count > 0).toBeTruthy();
 
       // Second call should hit cache
       const count2 = estimateTokensCached(longText);
-      assert.equal(count, count2);
+      expect(count).toBe(count2);
     });
 
     it("evicts oldest entry when cache is full", () => {
@@ -100,7 +100,7 @@ describe("shared/utils/token-cache", () => {
       }
 
       const stats = getTokenCacheStats();
-      assert.ok(stats.size > 0);
+      expect(stats.size > 0).toBeTruthy();
     });
   });
 
@@ -112,24 +112,24 @@ describe("shared/utils/token-cache", () => {
       clearTokenCache();
 
       const stats = getTokenCacheStats();
-      assert.equal(stats.size, 0);
-      assert.equal(stats.hits, 0);
-      assert.equal(stats.misses, 0);
+      expect(stats.size).toBe(0);
+      expect(stats.hits).toBe(0);
+      expect(stats.misses).toBe(0);
     });
   });
 
   describe("getTokenCacheStats", () => {
     it("returns initial stats", () => {
       const stats = getTokenCacheStats();
-      assert.equal(stats.size, 0);
-      assert.equal(stats.hits, 0);
-      assert.equal(stats.misses, 0);
-      assert.equal(stats.hitRate, 0);
+      expect(stats.size).toBe(0);
+      expect(stats.hits).toBe(0);
+      expect(stats.misses).toBe(0);
+      expect(stats.hitRate).toBe(0);
     });
 
     it("includes maxSize", () => {
       const stats = getTokenCacheStats();
-      assert.ok(stats.maxSize > 0);
+      expect(stats.maxSize > 0).toBeTruthy();
     });
 
     it("tracks hit rate", () => {
@@ -139,7 +139,7 @@ describe("shared/utils/token-cache", () => {
 
       const stats = getTokenCacheStats();
       // 1 miss, 2 hits = 66.67% hit rate
-      assert.ok(stats.hitRate > 0.5);
+      expect(stats.hitRate > 0.5).toBeTruthy();
     });
   });
 });

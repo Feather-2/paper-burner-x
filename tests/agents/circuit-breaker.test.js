@@ -1,5 +1,5 @@
-import { describe, it, beforeEach } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import {
   CircuitBreaker,
@@ -10,13 +10,13 @@ import {
 describe("shared/utils/circuit-breaker", () => {
   describe("CircuitState", () => {
     it("has expected values", () => {
-      assert.equal(CircuitState.CLOSED, "closed");
-      assert.equal(CircuitState.OPEN, "open");
-      assert.equal(CircuitState.HALF_OPEN, "half_open");
+      expect(CircuitState.CLOSED).toBe("closed");
+      expect(CircuitState.OPEN).toBe("open");
+      expect(CircuitState.HALF_OPEN).toBe("half_open");
     });
 
     it("is frozen", () => {
-      assert.ok(Object.isFrozen(CircuitState));
+      expect(Object.isFrozen(CircuitState)).toBeTruthy();
     });
   });
 
@@ -40,67 +40,65 @@ describe("shared/utils/circuit-breaker", () => {
     describe("constructor", () => {
       it("creates with default options", () => {
         const b = new CircuitBreaker();
-        assert.equal(b.state, CircuitState.CLOSED);
+        expect(b.state).toBe(CircuitState.CLOSED);
       });
 
       it("accepts custom options", () => {
-        assert.equal(breaker.name, "test");
-        assert.equal(breaker.failureThreshold, 3);
-        assert.equal(breaker.successThreshold, 2);
+        expect(breaker.name).toBe("test");
+        expect(breaker.failureThreshold).toBe(3);
+        expect(breaker.successThreshold).toBe(2);
       });
     });
 
     describe("state", () => {
       it("starts in CLOSED state", () => {
-        assert.equal(breaker.state, CircuitState.CLOSED);
+        expect(breaker.state).toBe(CircuitState.CLOSED);
       });
     });
 
     describe("getStats", () => {
       it("returns initial stats", () => {
         const stats = breaker.getStats();
-        assert.equal(stats.state, CircuitState.CLOSED);
-        assert.equal(stats.failureCount, 0);
-        assert.equal(stats.successCount, 0);
-        assert.equal(stats.totalCalls, 0);
+        expect(stats.state).toBe(CircuitState.CLOSED);
+        expect(stats.failureCount).toBe(0);
+        expect(stats.successCount).toBe(0);
+        expect(stats.totalCalls).toBe(0);
       });
 
       it("tracks calls", async () => {
         await breaker.execute(async () => "ok");
         const stats = breaker.getStats();
-        assert.equal(stats.totalCalls, 1);
-        assert.equal(stats.totalSuccesses, 1);
+        expect(stats.totalCalls).toBe(1);
+        expect(stats.totalSuccesses).toBe(1);
       });
     });
 
     describe("canExecute", () => {
       it("returns true when CLOSED", () => {
-        assert.ok(breaker.canExecute());
+        expect(breaker.canExecute()).toBeTruthy();
       });
 
       it("returns false when OPEN", () => {
         breaker.trip("test");
-        assert.equal(breaker.canExecute(), false);
+        expect(breaker.canExecute()).toBe(false);
       });
 
       it("returns true in HALF_OPEN within limit", () => {
         // Trip and transition to half-open
         breaker.trip("test");
         mockTime.now = () => 2000; // Past openDurationMs
-        assert.ok(breaker.canExecute());
+        expect(breaker.canExecute()).toBeTruthy();
       });
     });
 
     describe("execute", () => {
       it("executes function on success", async () => {
         const result = await breaker.execute(async () => 42);
-        assert.equal(result, 42);
+        expect(result).toBe(42);
       });
 
       it("propagates errors", async () => {
-        await assert.rejects(
-          () => breaker.execute(async () => { throw new Error("fail"); }),
-          /fail/
+        await expect(() => breaker.execute(async () => { throw new Error("fail"); })).rejects.toThrow(/fail/
         );
       });
 
@@ -112,32 +110,30 @@ describe("shared/utils/circuit-breaker", () => {
             // expected
           }
         }
-        assert.equal(breaker.state, CircuitState.OPEN);
+        expect(breaker.state).toBe(CircuitState.OPEN);
       });
 
       it("throws when OPEN", async () => {
         breaker.trip("manual");
-        await assert.rejects(
-          () => breaker.execute(async () => "ok"),
-          /Circuit breaker is open/
+        await expect(() => breaker.execute(async () => "ok")).rejects.toThrow(/Circuit breaker is open/
         );
       });
 
       it("recovers after successful probes in HALF_OPEN", async () => {
         // Trip
         breaker.trip("test");
-        assert.equal(breaker.state, CircuitState.OPEN);
+        expect(breaker.state).toBe(CircuitState.OPEN);
 
         // Advance time past openDurationMs
         mockTime.now = () => 2000;
 
         // First probe - success
         await breaker.execute(async () => "ok");
-        assert.equal(breaker.state, CircuitState.HALF_OPEN);
+        expect(breaker.state).toBe(CircuitState.HALF_OPEN);
 
         // Second probe - success (successThreshold = 2)
         await breaker.execute(async () => "ok");
-        assert.equal(breaker.state, CircuitState.CLOSED);
+        expect(breaker.state).toBe(CircuitState.CLOSED);
       });
 
       it("returns to OPEN on failure in HALF_OPEN", async () => {
@@ -150,7 +146,7 @@ describe("shared/utils/circuit-breaker", () => {
           // expected
         }
 
-        assert.equal(breaker.state, CircuitState.OPEN);
+        expect(breaker.state).toBe(CircuitState.OPEN);
       });
 
       it("resets failure count on success in CLOSED", async () => {
@@ -171,7 +167,7 @@ describe("shared/utils/circuit-breaker", () => {
           } catch {}
         }
 
-        assert.equal(breaker.state, CircuitState.CLOSED);
+        expect(breaker.state).toBe(CircuitState.CLOSED);
       });
 
       it("respects custom isFailure function", async () => {
@@ -185,12 +181,12 @@ describe("shared/utils/circuit-breaker", () => {
         try {
           await b.execute(async () => { throw new Error("fatal error 1"); });
         } catch {}
-        assert.equal(b.state, CircuitState.CLOSED); // 1 failure, threshold is 2
+        expect(b.state).toBe(CircuitState.CLOSED); // 1 failure, threshold is 2
 
         try {
           await b.execute(async () => { throw new Error("fatal error 2"); });
         } catch {}
-        assert.equal(b.state, CircuitState.OPEN); // 2 failures, trips
+        expect(b.state).toBe(CircuitState.OPEN); // 2 failures, trips
       });
     });
 
@@ -198,7 +194,7 @@ describe("shared/utils/circuit-breaker", () => {
       it("resets to CLOSED state", () => {
         breaker.trip("test");
         breaker.reset();
-        assert.equal(breaker.state, CircuitState.CLOSED);
+        expect(breaker.state).toBe(CircuitState.CLOSED);
       });
 
       it("clears failure count", async () => {
@@ -210,7 +206,7 @@ describe("shared/utils/circuit-breaker", () => {
 
         breaker.reset();
         const stats = breaker.getStats();
-        assert.equal(stats.failureCount, 0);
+        expect(stats.failureCount).toBe(0);
       });
 
       it("calls onStateChange", () => {
@@ -223,14 +219,14 @@ describe("shared/utils/circuit-breaker", () => {
         b.trip("test");
         b.reset();
 
-        assert.ok(events.some((e) => e.reason === "manual_reset"));
+        expect(events.some(e => e.reason === "manual_reset"));
       });
     });
 
     describe("trip", () => {
       it("manually opens the breaker", () => {
         breaker.trip("manual");
-        assert.equal(breaker.state, CircuitState.OPEN);
+        expect(breaker.state).toBe(CircuitState.OPEN);
       });
 
       it("calls onStateChange with reason", () => {
@@ -243,21 +239,21 @@ describe("shared/utils/circuit-breaker", () => {
         b.trip("test_reason");
 
         const tripEvent = events.find((e) => e.to === CircuitState.OPEN);
-        assert.ok(tripEvent);
-        assert.equal(tripEvent.reason, "test_reason");
+        expect(tripEvent).toBeTruthy();
+        expect(tripEvent.reason).toBe("test_reason");
       });
     });
 
     describe("state transitions", () => {
       it("OPEN -> HALF_OPEN after timeout", () => {
         breaker.trip("test");
-        assert.equal(breaker.state, CircuitState.OPEN);
+        expect(breaker.state).toBe(CircuitState.OPEN);
 
         // Advance time
         mockTime.now = () => 2000;
 
         // Access state triggers transition check
-        assert.equal(breaker.state, CircuitState.HALF_OPEN);
+        expect(breaker.state).toBe(CircuitState.HALF_OPEN);
       });
     });
 
@@ -280,9 +276,7 @@ describe("shared/utils/circuit-breaker", () => {
         await b.execute(async () => "ok"); // halfOpenCalls = 2
 
         // Third should fail (max = 2)
-        await assert.rejects(
-          () => b.execute(async () => "ok"),
-          /Circuit breaker is half_open/
+        await expect(() => b.execute(async () => "ok")).rejects.toThrow(/Circuit breaker is half_open/
         );
       });
     });
@@ -299,41 +293,41 @@ describe("shared/utils/circuit-breaker", () => {
     describe("get", () => {
       it("creates new breaker", () => {
         const breaker = registry.get("test");
-        assert.ok(breaker instanceof CircuitBreaker);
+        expect(breaker instanceof CircuitBreaker).toBeTruthy();
       });
 
       it("returns same breaker for same name", () => {
         const b1 = registry.get("test");
         const b2 = registry.get("test");
-        assert.equal(b1, b2);
+        expect(b1).toBe(b2);
       });
 
       it("applies options on creation", () => {
         const breaker = registry.get("test", { failureThreshold: 10 });
-        assert.equal(breaker.failureThreshold, 10);
+        expect(breaker.failureThreshold).toBe(10);
       });
     });
 
     describe("has", () => {
       it("returns false for unknown", () => {
-        assert.equal(registry.has("unknown"), false);
+        expect(registry.has("unknown")).toBe(false);
       });
 
       it("returns true for registered", () => {
         registry.get("test");
-        assert.ok(registry.has("test"));
+        expect(registry.has("test")).toBeTruthy();
       });
     });
 
     describe("remove", () => {
       it("removes breaker", () => {
         registry.get("test");
-        assert.ok(registry.remove("test"));
-        assert.equal(registry.has("test"), false);
+        expect(registry.remove("test")).toBeTruthy();
+        expect(registry.has("test")).toBe(false);
       });
 
       it("returns false for unknown", () => {
-        assert.equal(registry.remove("unknown"), false);
+        expect(registry.remove("unknown")).toBe(false);
       });
     });
 
@@ -343,13 +337,13 @@ describe("shared/utils/circuit-breaker", () => {
         registry.get("b");
 
         const stats = registry.getAllStats();
-        assert.ok("a" in stats);
-        assert.ok("b" in stats);
+        expect("a" in stats).toBeTruthy();
+        expect("b" in stats).toBeTruthy();
       });
 
       it("returns empty object when empty", () => {
         const stats = registry.getAllStats();
-        assert.deepEqual(stats, {});
+        expect(stats).toEqual({});
       });
     });
 
@@ -363,8 +357,8 @@ describe("shared/utils/circuit-breaker", () => {
 
         registry.resetAll();
 
-        assert.equal(a.state, CircuitState.CLOSED);
-        assert.equal(b.state, CircuitState.CLOSED);
+        expect(a.state).toBe(CircuitState.CLOSED);
+        expect(b.state).toBe(CircuitState.CLOSED);
       });
     });
   });

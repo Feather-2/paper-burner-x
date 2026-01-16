@@ -33,4 +33,10 @@ describe("agents/llm/constants", () => {
     // Non-string inputs should normalize to empty string and fall back.
     expect(normalizeRouterStrategy(123, RouterStrategy.PRIORITY)).toBe(RouterStrategy.PRIORITY);
   });
+
+  it("covers additional enum values and fallbacks", () => {
+    expect(isValidModelUsage(ModelUsage.ANALYST)).toBe(true);
+    expect(isValidMessageRole(MessageRole.SYSTEM)).toBe(true);
+    expect(normalizeRouterStrategy("unknown", RouterStrategy.PRIORITY)).toBe(RouterStrategy.PRIORITY);
+  });
 });

@@ -1,4 +1,5 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
 const fs = require("node:fs/promises");
@@ -14,7 +15,7 @@ async function withTempDir(fn) {
   }
 }
 
-test("AssetManager: dedup by hash + per-doc refs", async () => {
+it("AssetManager: dedup by hash + per-doc refs", async () => {
   const { AssetManager } = await import("../../../js/agents/ingest/asset-manager.js");
   const m = new AssetManager();
 
@@ -23,17 +24,17 @@ test("AssetManager: dedup by hash + per-doc refs", async () => {
   const id1 = m.addAsset(a1);
   const id2 = m.addAsset(a2);
 
-  assert.equal(id1, id2);
-  assert.equal(m.count(), 1);
-  assert.ok(m.getAsset(id1));
-  assert.deepEqual(m.getAssetIdsForDoc("d1"), [id1]);
+  expect(id1).toBe(id2);
+  expect(m.count()).toBe(1);
+  expect(m.getAsset(id1)).toBeTruthy();
+  expect(m.getAssetIdsForDoc("d1")).toEqual([id1]);
 
   const id3 = m.addAsset({ ...a1, docId: "d2" });
-  assert.equal(id3, id1);
-  assert.deepEqual(m.getAssetIdsForDoc("d2"), [id1]);
+  expect(id3).toBe(id1);
+  expect(m.getAssetIdsForDoc("d2")).toEqual([id1]);
 });
 
-test("AssetManager: hash collision stores distinct assets", async () => {
+it("AssetManager: hash collision stores distinct assets", async () => {
   const { AssetManager } = await import("../../../js/agents/ingest/asset-manager.js");
   const m = new AssetManager();
 
@@ -47,13 +48,13 @@ test("AssetManager: hash collision stores distinct assets", async () => {
   const id1 = m.addAsset({ docId: "d1", type: "image", data: data1, mimeType: "image/png", source: "extracted", reusable: true });
   const id2 = m.addAsset({ docId: "d1", type: "image", data: data2, mimeType: "image/png", source: "extracted", reusable: true });
 
-  assert.notEqual(id1, id2);
-  assert.equal(m.count(), 2);
-  assert.ok(m.getAsset(id1));
-  assert.ok(m.getAsset(id2));
+  expect(id1).not.toBe(id2);
+  expect(m.count()).toBe(2);
+  expect(m.getAsset(id1)).toBeTruthy();
+  expect(m.getAsset(id2)).toBeTruthy();
 });
 
-test("MarkdownAdapter: parses path string + file-like object", async () => {
+it("MarkdownAdapter: parses path string + file-like object", async () => {
   const { MarkdownAdapter } = await import("../../../js/agents/ingest/adapters/markdown.js");
 
   await withTempDir(async (dir) => {
@@ -63,13 +64,13 @@ test("MarkdownAdapter: parses path string + file-like object", async () => {
     const adapter = new MarkdownAdapter({ defaultChunkOptions: { chunkSize: 8, overlap: 0, includeLineNumbers: true } });
     const parsed = await adapter.parse(mdPath);
 
-    assert.equal(parsed.sourceType, "markdown");
-    assert.ok(parsed.docId.startsWith("markdown_"));
-    assert.equal(parsed.markdown.includes("Hello world"), true);
-    assert.equal(parsed.textHash.startsWith("sha256:"), true);
-    assert.ok(Array.isArray(parsed.chunks) && parsed.chunks.length >= 2);
-    assert.ok(Array.isArray(parsed.toc) && parsed.toc.length >= 1);
-    assert.equal(parsed.origin.filename, "note.md");
+    expect(parsed.sourceType).toBe("markdown");
+    expect(parsed.docId.startsWith("markdown_")).toBeTruthy();
+    expect(parsed.markdown.includes("Hello world")).toBe(true);
+    expect(parsed.textHash.startsWith("sha256:")).toBe(true);
+    expect(Array.isArray(parsed.chunks ) && parsed.chunks.length >= 2).toBeTruthy();
+    expect(Array.isArray(parsed.toc ) && parsed.toc.length >= 1).toBeTruthy();
+    expect(parsed.origin.filename).toBe("note.md");
 
     const parsed2 = await adapter.parse({
       name: "inline.txt",
@@ -78,27 +79,27 @@ test("MarkdownAdapter: parses path string + file-like object", async () => {
         return "LINE1\nLINE2\n";
       },
     });
-    assert.equal(parsed2.sourceType, "markdown");
-    assert.equal(parsed2.origin.filename, "inline.txt");
-    assert.equal(parsed2.origin.mimeType, "text/plain");
-    assert.ok(parsed2.textNormalized.includes("LINE2"));
+    expect(parsed2.sourceType).toBe("markdown");
+    expect(parsed2.origin.filename).toBe("inline.txt");
+    expect(parsed2.origin.mimeType).toBe("text/plain");
+    expect(parsed2.textNormalized.includes("LINE2")).toBeTruthy();
   });
 });
 
-test("RawTextAdapter: validates input + produces ParsedDocument", async () => {
+it("RawTextAdapter: validates input + produces ParsedDocument", async () => {
   const { RawTextAdapter } = await import("../../../js/agents/ingest/adapters/raw-text.js");
   const a = new RawTextAdapter({ defaultChunkOptions: { chunkSize: 10, overlap: 0, includeLineNumbers: false } });
 
-  await assert.rejects(() => a.parse({ text: "   " }), /input\.text is required/);
+  await expect(() => a.parse({ text: "   " })).rejects.toThrow(/input\.text is required/);
 
   const parsed = await a.parse({ text: "Alpha\nBeta\nGamma\n", title: "My Notes" });
-  assert.equal(parsed.sourceType, "user_text");
-  assert.equal(parsed.metadata.title, "My Notes");
-  assert.ok(parsed.textNormalized.includes("Beta"));
-  assert.ok(Array.isArray(parsed.chunks) && parsed.chunks.length >= 2);
+  expect(parsed.sourceType).toBe("user_text");
+  expect(parsed.metadata.title).toBe("My Notes");
+  expect(parsed.textNormalized.includes("Beta")).toBeTruthy();
+  expect(Array.isArray(parsed.chunks ) && parsed.chunks.length >= 2).toBeTruthy();
 });
 
-test("HistoryAdapter: loads record via injected storageAdapter + maps images to assets", async () => {
+it("HistoryAdapter: loads record via injected storageAdapter + maps images to assets", async () => {
   const { HistoryAdapter } = await import("../../../js/agents/ingest/adapters/history.js");
 
   const storageAdapter = {
@@ -117,17 +118,17 @@ test("HistoryAdapter: loads record via injected storageAdapter + maps images to 
   const a = new HistoryAdapter(storageAdapter, { defaultChunkOptions: { chunkSize: 50, overlap: 0, includeLineNumbers: false } });
   const parsed = await a.parse("h1");
 
-  assert.equal(parsed.origin.historyId, "h1");
-  assert.equal(parsed.sourceType, "pdf");
-  assert.ok(parsed.docId.startsWith("pdf_"));
-  assert.ok(Array.isArray(parsed.assets) && parsed.assets.length === 1);
-  assert.equal(parsed.assets[0].docId, parsed.docId);
-  assert.equal(parsed.assets[0].mimeType, "image/png");
+  expect(parsed.origin.historyId).toBe("h1");
+  expect(parsed.sourceType).toBe("pdf");
+  expect(parsed.docId.startsWith("pdf_")).toBeTruthy();
+  expect(Array.isArray(parsed.assets ) && parsed.assets.length === 1).toBeTruthy();
+  expect(parsed.assets[0].docId).toBe(parsed.docId);
+  expect(parsed.assets[0].mimeType).toBe("image/png");
 
-  await assert.rejects(() => a.parse("missing"), /history record not found/);
+  await expect(() => a.parse("missing")).rejects.toThrow(/history record not found/);
 });
 
-test("IngestStage: dispatches rawTexts/historyIds/files + aggregates assets/errors/events", async () => {
+it("IngestStage: dispatches rawTexts/historyIds/files + aggregates assets/errors/events", async () => {
   const { IngestStage } = await import("../../../js/agents/ingest/ingest-stage.js");
 
   await withTempDir(async (dir) => {
@@ -155,24 +156,24 @@ test("IngestStage: dispatches rawTexts/historyIds/files + aggregates assets/erro
       { emit, storageAdapter }
     );
 
-    assert.equal(out.metrics.totalDocs, 5);
-    assert.equal(out.metrics.successDocs, 3);
-    assert.equal(out.metrics.failedDocs, 2);
-    assert.equal(out.sources.length, 3);
-    assert.equal(out.assets.length, 1);
-    assert.equal(out.parseErrors.length, 2);
+    expect(out.metrics.totalDocs).toBe(5);
+    expect(out.metrics.successDocs).toBe(3);
+    expect(out.metrics.failedDocs).toBe(2);
+    expect(out.sources.length).toBe(3);
+    expect(out.assets.length).toBe(1);
+    expect(out.parseErrors.length).toBe(2);
 
     const kinds = new Set(out.sources.map((s) => s.kind));
-    assert.ok(kinds.has("user_text"));
-    assert.ok(kinds.has("markdown"));
+    expect(kinds.has("user_text")).toBeTruthy();
+    expect(kinds.has("markdown")).toBeTruthy();
 
     const historySource = out.sources.find((s) => s.title === "FromHistory.txt");
-    assert.ok(historySource && Array.isArray(historySource.assetIds) && historySource.assetIds.length === 1);
+    expect(historySource && Array.isArray(historySource.assetIds) && historySource.assetIds.length === 1).toBeTruthy();
 
     const names = events.map((e) => e.name);
-    assert.ok(names.includes("ingest.started"));
-    assert.ok(names.includes("ingest.completed"));
-    assert.equal(names.filter((n) => n === "ingest.doc.completed").length, 3);
-    assert.equal(names.filter((n) => n === "ingest.doc.failed").length, 2);
+    expect(names.includes("ingest.started")).toBeTruthy();
+    expect(names.includes("ingest.completed")).toBeTruthy();
+    expect(names.filter((n) => n === "ingest.doc.completed").length).toBe(3);
+    expect(names.filter((n) => n === "ingest.doc.failed").length).toBe(2);
   });
 });

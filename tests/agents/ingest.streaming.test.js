@@ -1,3 +1,5 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
@@ -14,39 +16,39 @@ function expectedChunkCount(textLen, { chunkSize, overlap }) {
   return 1 + Math.ceil((textLen - chunkSize) / step);
 }
 
-test("Ingest streaming: ByteBuffer append/slice/indexOf/consume", async () => {
+it("Ingest streaming: ByteBuffer append/slice/indexOf/consume", async () => {
   const { ByteBuffer } = await import("../../js/agents/ingest/streaming/byte-buffer.js");
 
   const buf = new ByteBuffer();
   buf.append(new Uint8Array([1, 2, 3, 4]));
   buf.append([5, 6, 7]);
 
-  assert.equal(buf.length, 7);
-  assert.equal(buf.indexOf([3, 4, 5]), 2);
-  assert.equal(buf.indexOf([9]), -1);
-  assert.deepEqual(Array.from(buf.slice(1, 4)), [2, 3, 4]);
-  assert.deepEqual(Array.from(buf.slice(-2)), [6, 7]);
+  expect(buf.length).toBe(7);
+  expect(buf.indexOf([3).toBe(4, 5]), 2);
+  expect(buf.indexOf([9])).toBe(-1);
+  expect(Array.from(buf.slice(1).toEqual(4)), [2, 3, 4]);
+  expect(Array.from(buf.slice(-2))).toEqual([6, 7]);
 
   // Cover compaction + growth paths deterministically.
   const big = new ByteBuffer();
   big.append(new Uint8Array(200).fill(1)); // alloc 256
   big.consume(100); // leave room at the front
   big.append(new Uint8Array(70).fill(2)); // triggers compaction (end+len exceeds cap but required fits)
-  assert.equal(big.length, 170);
-  assert.equal(big.indexOf([2, 2, 2]), 100);
+  expect(big.length).toBe(170);
+  expect(big.indexOf([2).toBe(2, 2]), 100);
   big.append(new Uint8Array(300).fill(3)); // triggers growth
-  assert.equal(big.length, 470);
-  assert.equal(big.indexOf([3, 3, 3]), 170);
+  expect(big.length).toBe(470);
+  expect(big.indexOf([3).toBe(3, 3]), 170);
 
   buf.consume(3);
-  assert.equal(buf.length, 4);
-  assert.deepEqual(Array.from(buf.slice()), [4, 5, 6, 7]);
+  expect(buf.length).toBe(4);
+  expect(Array.from(buf.slice())).toEqual([4, 5, 6, 7]);
 
   buf.append(new Uint8Array(250).fill(8)); // triggers compaction (end+len exceeds cap but required fits)
-  assert.equal(buf.indexOf([5, 6, 7]), 1);
+  expect(buf.indexOf([5).toBe(6, 7]), 1);
 });
 
-test("Ingest streaming: BaseAdapter.parseStream matches normalizeText+chunkText (string parts)", async () => {
+it("Ingest streaming: BaseAdapter.parseStream matches normalizeText+chunkText (string parts)", async () => {
   const { BaseAdapter } = await import("../../js/agents/ingest/adapters/base.js");
   const { normalizeText } = await import("../../js/agents/stages/textprep/normalize.js");
   const { chunkText } = await import("../../js/agents/stages/textprep/chunk.js");
@@ -65,10 +67,10 @@ test("Ingest streaming: BaseAdapter.parseStream matches normalizeText+chunkText 
 
   const adapter = new BaseAdapter({ defaultChunkOptions: chunkOptions });
   const got = await adapter.parse(parts(), { chunkOptions });
-  assert.deepEqual(got, expected);
+  expect(got).toEqual(expected);
 });
 
-test("Ingest streaming: BaseAdapter.parseStream handles UTF-8 splits (Uint8Array parts)", async () => {
+it("Ingest streaming: BaseAdapter.parseStream handles UTF-8 splits (Uint8Array parts)", async () => {
   const { BaseAdapter } = await import("../../js/agents/ingest/adapters/base.js");
   const { normalizeText } = await import("../../js/agents/stages/textprep/normalize.js");
   const { chunkText } = await import("../../js/agents/stages/textprep/chunk.js");
@@ -91,10 +93,10 @@ test("Ingest streaming: BaseAdapter.parseStream handles UTF-8 splits (Uint8Array
 
   const adapter = new BaseAdapter({ defaultChunkOptions: chunkOptions });
   const got = await adapter.parse(parts(), { chunkOptions });
-  assert.deepEqual(got, expected);
+  expect(got).toEqual(expected);
 });
 
-test("Ingest streaming: buildTocStreaming matches buildToc on overlapped chunks", async () => {
+it("Ingest streaming: buildTocStreaming matches buildToc on overlapped chunks", async () => {
   const { normalizeText } = await import("../../js/agents/stages/textprep/normalize.js");
   const { chunkText } = await import("../../js/agents/stages/textprep/chunk.js");
   const { buildToc, buildTocStreaming } = await import("../../js/agents/retrieval/toc-builder.js");
@@ -122,10 +124,10 @@ test("Ingest streaming: buildTocStreaming matches buildToc on overlapped chunks"
 
   const chunks = chunkText(normalized, { chunkSize: 9, overlap: 3, includeLineNumbers: false });
   const got = await buildTocStreaming(chunks, {});
-  assert.deepEqual(got, expected);
+  expect(got).toEqual(expected);
 });
 
-test("Ingest streaming: buildTocStreaming fallback sections when no headings", async () => {
+it("Ingest streaming: buildTocStreaming fallback sections when no headings", async () => {
   const { normalizeText } = await import("../../js/agents/stages/textprep/normalize.js");
   const { chunkText } = await import("../../js/agents/stages/textprep/chunk.js");
   const { buildTocStreaming } = await import("../../js/agents/retrieval/toc-builder.js");
@@ -135,13 +137,13 @@ test("Ingest streaming: buildTocStreaming fallback sections when no headings", a
   const chunks = chunkText(normalized, { chunkSize: 10, overlap: 2, includeLineNumbers: false });
   const got = await buildTocStreaming(chunks, {});
 
-  assert.equal(got.tocNodes.length, 0);
-  assert.ok(Array.isArray(got.fallbackSections) && got.fallbackSections.length > 0);
-  assert.equal(got.fallbackSections[0].locator.charStart, 0);
-  assert.equal(got.fallbackSections.at(-1).locator.charEnd, normalized.length);
+  expect(got.tocNodes.length).toBe(0);
+  expect(Array.isArray(got.fallbackSections ) && got.fallbackSections.length > 0).toBeTruthy();
+  expect(got.fallbackSections[0].locator.charStart).toBe(0);
+  expect(got.fallbackSections.at(-1).locator.charEnd).toBe(normalized.length);
 });
 
-test("Ingest streaming: parseStream supports abort via AbortSignal", async () => {
+it("Ingest streaming: parseStream supports abort via AbortSignal", async () => {
   const { BaseAdapter } = await import("../../js/agents/ingest/adapters/base.js");
 
   const adapter = new BaseAdapter({ defaultChunkOptions: { chunkSize: 20, overlap: 5, includeLineNumbers: false } });
@@ -156,16 +158,16 @@ test("Ingest streaming: parseStream supports abort via AbortSignal", async () =>
       seen += 1;
       if (seen === 3) controller.abort();
     }
-    assert.fail("expected abort");
+    throw new Error("expected abort" || 'Test failed');
   } catch (err) {
-    assert.equal(err && err.name, "AbortError");
+    expect(err && err.name).toBe("AbortError");
   }
 
-  assert.equal(readable.destroyed, true);
-  assert.equal(seen, 3);
+  expect(readable.destroyed).toBe(true);
+  expect(seen).toBe(3);
 });
 
-test("Ingest streaming: parseStream processes large files without pre-loading", async () => {
+it("Ingest streaming: parseStream processes large files without pre-loading", async () => {
   const { BaseAdapter } = await import("../../js/agents/ingest/adapters/base.js");
   const { normalizeText } = await import("../../js/agents/stages/textprep/normalize.js");
 
@@ -190,11 +192,11 @@ test("Ingest streaming: parseStream processes large files without pre-loading", 
     const chunks = [];
     for await (const c of adapter.parseStream(readStream, { chunkOptions })) chunks.push(c);
 
-    assert.equal(chunks.length, expectedCount);
-    assert.equal(chunks[0].locator.charStart, 0);
-    assert.equal(chunks.at(-1).locator.charEnd, normalizedLen);
+    expect(chunks.length).toBe(expectedCount);
+    expect(chunks[0].locator.charStart).toBe(0);
+    expect(chunks.at(-1).locator.charEnd).toBe(normalizedLen);
     if (chunks.length > 1) {
-      assert.equal(chunks[1].locator.charStart, chunks[0].locator.charEnd - chunkOptions.overlap);
+      expect(chunks[1].locator.charStart).toBe(chunks[0].locator.charEnd - chunkOptions.overlap);
     }
   } finally {
     await fsp.rm(tmpDir, { recursive: true, force: true });

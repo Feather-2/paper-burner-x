@@ -1,7 +1,8 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
-test("CodeSearch todos: planner generates todos and completion stats", async () => {
+it("CodeSearch todos: planner generates todos and completion stats", async () => {
   const { CodeSearchStage } = await import("../../../js/agents/stages/codesearch/codesearch-stage.js");
   const { readFile, readdir, stat } = await import("node:fs/promises");
 
@@ -44,27 +45,26 @@ test("CodeSearch todos: planner generates todos and completion stats", async () 
     { modelRouter, fs: { readFile, readdir, stat } }
   );
 
-  assert.equal(result.todos.length, 1);
-  assert.equal(result.todos[0].status, "completed");
-  assert.deepEqual(result.todoCompletionStats, { total: 1, completed: 1, cancelled: 0, open: 0 });
+  expect(result.todos.length).toBe(1);
+  expect(result.todos[0].status).toBe("completed");
+  expect(result.todoCompletionStats).toEqual({ total: 1, completed: 1, cancelled: 0, open: 0 });
 });
 
-test("CodeSearch todos: LLM unavailable triggers awaitUserFeedback pause", async () => {
+it("CodeSearch todos: LLM unavailable triggers awaitUserFeedback pause", async () => {
   const { CodeSearchStage } = await import("../../../js/agents/stages/codesearch/codesearch-stage.js");
   const { StagePausedError } = await import("../../../js/agents/runtime/core/stage-errors.js");
 
   const stage = new CodeSearchStage({ maxSteps: 1 });
 
-  await assert.rejects(
-    stage.execute({ runId: "run_codesearch_pause" }, { query: "Inspect repo" }, {}),
+  await expect(stage.execute({ runId: "run_codesearch_pause" }).rejects.toThrow({ query: "Inspect repo" }, {}),
     (err) => err instanceof StagePausedError
   );
 
-  assert.equal(stage.loopState?.awaitUserFeedback, true);
-  assert.equal(stage.loopState?.pauseReason, "LLM unavailable, awaiting user input");
+  expect(stage.loopState?.awaitUserFeedback).toBe(true);
+  expect(stage.loopState?.pauseReason).toBe("LLM unavailable, awaiting user input");
 });
 
-test("CodeSearch todos: transitions open -> pending -> completed", async () => {
+it("CodeSearch todos: transitions open -> pending -> completed", async () => {
   const { CodeSearchStage } = await import("../../../js/agents/stages/codesearch/codesearch-stage.js");
   const { readFile, readdir, stat } = await import("node:fs/promises");
 
@@ -104,6 +104,6 @@ test("CodeSearch todos: transitions open -> pending -> completed", async () => {
 
   const todo = result.todos[0];
   const transitions = todo.history.map((row) => `${row.from}->${row.to}`);
-  assert.ok(transitions.includes("open->pending"));
-  assert.ok(transitions.includes("pending->completed"));
+  expect(transitions.includes("open->pending")).toBeTruthy();
+  expect(transitions.includes("pending->completed")).toBeTruthy();
 });

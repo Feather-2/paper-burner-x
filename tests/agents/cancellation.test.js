@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import {
   checkCancelled,
@@ -11,26 +11,23 @@ import {
 describe("shared/utils/cancellation", () => {
   describe("checkCancelled", () => {
     it("does nothing for null signal", () => {
-      assert.doesNotThrow(() => checkCancelled(null));
+      expect(() => checkCancelled(null)).not.toThrow();
     });
 
     it("does nothing for undefined signal", () => {
-      assert.doesNotThrow(() => checkCancelled(undefined));
+      expect(() => checkCancelled(undefined)).not.toThrow();
     });
 
     it("does nothing for non-aborted signal", () => {
       const controller = new AbortController();
-      assert.doesNotThrow(() => checkCancelled(controller.signal));
+      expect(() => checkCancelled(controller.signal)).not.toThrow();
     });
 
     it("throws AbortError for aborted signal", () => {
       const controller = new AbortController();
       controller.abort();
 
-      assert.throws(
-        () => checkCancelled(controller.signal),
-        (err) => err.name === "AbortError"
-      );
+      expect(() => checkCancelled(controller.signal)).toThrow();
     });
 
     it("uses reason message when string", () => {
@@ -39,9 +36,9 @@ describe("shared/utils/cancellation", () => {
 
       try {
         checkCancelled(controller.signal);
-        assert.fail("Should have thrown");
+        throw new Error("Should have thrown" || 'Test failed');
       } catch (err) {
-        assert.ok(err.message.includes("Custom reason"));
+        expect(err.message.includes("Custom reason")).toBeTruthy();
       }
     });
 
@@ -51,9 +48,9 @@ describe("shared/utils/cancellation", () => {
 
       try {
         checkCancelled(controller.signal);
-        assert.fail("Should have thrown");
+        throw new Error("Should have thrown" || 'Test failed');
       } catch (err) {
-        assert.ok(err.message.includes("Error reason"));
+        expect(err.message.includes("Error reason")).toBeTruthy();
       }
     });
 
@@ -63,9 +60,9 @@ describe("shared/utils/cancellation", () => {
 
       try {
         checkCancelled(controller.signal);
-        assert.fail("Should have thrown");
+        throw new Error("Should have thrown" || 'Test failed');
       } catch (err) {
-        assert.ok(err.message.includes("cancelled"));
+        expect(err.message.includes("cancelled")).toBeTruthy();
       }
     });
 
@@ -76,19 +73,16 @@ describe("shared/utils/cancellation", () => {
 
       try {
         checkCancelled(controller.signal);
-        assert.fail("Should have thrown");
+        throw new Error("Should have thrown" || 'Test failed');
       } catch (err) {
-        assert.equal(err.cause, reason);
+        expect(err.cause).toBe(reason);
       }
     });
 
     it("handles signal-like object", () => {
       const signalLike = { aborted: true, reason: "Custom" };
 
-      assert.throws(
-        () => checkCancelled(signalLike),
-        (err) => err.name === "AbortError"
-      );
+      expect(() => checkCancelled(signalLike)).toThrow();
     });
   });
 
@@ -96,23 +90,23 @@ describe("shared/utils/cancellation", () => {
     it("returns true for AbortError", () => {
       const err = new Error("abort");
       err.name = "AbortError";
-      assert.ok(isAbortError(err));
+      expect(isAbortError(err)).toBeTruthy();
     });
 
     it("returns false for regular Error", () => {
-      assert.equal(isAbortError(new Error("test")), false);
+      expect(isAbortError(new Error("test"))).toBe(false);
     });
 
     it("returns false for null", () => {
-      assert.equal(isAbortError(null), false);
+      expect(isAbortError(null)).toBe(false);
     });
 
     it("returns false for undefined", () => {
-      assert.equal(isAbortError(undefined), false);
+      expect(isAbortError(undefined)).toBe(false);
     });
 
     it("returns false for non-Error objects", () => {
-      assert.equal(isAbortError({ name: "AbortError" }), false);
+      expect(isAbortError({ name: "AbortError" })).toBe(false);
     });
   });
 
@@ -122,7 +116,7 @@ describe("shared/utils/cancellation", () => {
       const wrapped = withCancellation(fn, "test");
 
       const result = await wrapped(5, {});
-      assert.equal(result, 10);
+      expect(result).toBe(10);
     });
 
     it("throws when signal already aborted", async () => {
@@ -132,8 +126,7 @@ describe("shared/utils/cancellation", () => {
       const controller = new AbortController();
       controller.abort();
 
-      await assert.rejects(
-        () => wrapped({}, { signal: controller.signal }),
+      await expect(() => wrapped({}, { signal: controller.signal }),
         (err) => err.name === "AbortError"
       );
     });
@@ -149,15 +142,12 @@ describe("shared/utils/cancellation", () => {
       const controller = new AbortController();
       const result = await wrapped({ signal: controller.signal });
 
-      assert.ok(called);
-      assert.equal(result, "done");
+      expect(called).toBeTruthy();
+      expect(result).toBe("done");
     });
 
     it("throws TypeError for non-function", () => {
-      assert.throws(
-        () => withCancellation("not a function", "test"),
-        /must be a function/
-      );
+      expect(() => withCancellation("not a function", "test")).toThrow(/must be a function/);
     });
 
     it("preserves this context", async () => {
@@ -170,21 +160,21 @@ describe("shared/utils/cancellation", () => {
 
       const wrapped = withCancellation(obj.method, "test");
       const result = await wrapped.call(obj, {});
-      assert.equal(result, 42);
+      expect(result).toBe(42);
     });
   });
 
   describe("createLinkedSignal", () => {
     it("creates signal from null parent", () => {
       const signal = createLinkedSignal(null);
-      assert.ok(signal instanceof AbortSignal);
-      assert.equal(signal.aborted, false);
+      expect(signal instanceof AbortSignal).toBeTruthy();
+      expect(signal.aborted).toBe(false);
     });
 
     it("creates signal from undefined parent", () => {
       const signal = createLinkedSignal(undefined);
-      assert.ok(signal instanceof AbortSignal);
-      assert.equal(signal.aborted, false);
+      expect(signal instanceof AbortSignal).toBeTruthy();
+      expect(signal.aborted).toBe(false);
     });
 
     it("creates pre-aborted signal when parent already aborted", () => {
@@ -192,29 +182,29 @@ describe("shared/utils/cancellation", () => {
       parent.abort("parent aborted");
 
       const signal = createLinkedSignal(parent.signal);
-      assert.ok(signal.aborted);
+      expect(signal.aborted).toBeTruthy();
     });
 
     it("aborts when parent aborts", async () => {
       const parent = new AbortController();
       const signal = createLinkedSignal(parent.signal);
 
-      assert.equal(signal.aborted, false);
+      expect(signal.aborted).toBe(false);
       parent.abort();
 
       // Give time for abort to propagate
       await new Promise((r) => setTimeout(r, 10));
-      assert.ok(signal.aborted);
+      expect(signal.aborted).toBeTruthy();
     });
 
     it("aborts after timeout", async () => {
       const signal = createLinkedSignal(null, 50);
 
-      assert.equal(signal.aborted, false);
+      expect(signal.aborted).toBe(false);
 
       // Wait for timeout
       await new Promise((r) => setTimeout(r, 100));
-      assert.ok(signal.aborted);
+      expect(signal.aborted).toBeTruthy();
     });
 
     it("respects parent with timeout", async () => {
@@ -225,17 +215,17 @@ describe("shared/utils/cancellation", () => {
       parent.abort("early");
       await new Promise((r) => setTimeout(r, 10));
 
-      assert.ok(signal.aborted);
+      expect(signal.aborted).toBeTruthy();
     });
 
     it("handles invalid timeout", () => {
       const signal = createLinkedSignal(null, -100);
-      assert.equal(signal.aborted, false);
+      expect(signal.aborted).toBe(false);
     });
 
     it("handles NaN timeout", () => {
       const signal = createLinkedSignal(null, NaN);
-      assert.equal(signal.aborted, false);
+      expect(signal.aborted).toBe(false);
     });
 
     it("handles signal-like parent", async () => {
@@ -250,7 +240,7 @@ describe("shared/utils/cancellation", () => {
       };
 
       const linked = createLinkedSignal(signalLike);
-      assert.equal(linked.aborted, false);
+      expect(linked.aborted).toBe(false);
     });
   });
 });

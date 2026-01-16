@@ -1,16 +1,17 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
-test("understandAsset(): returns null when missing requirements", async () => {
+it("understandAsset(): returns null when missing requirements", async () => {
   const { understandAsset } = await import("../../../js/agents/ingest/asset-understanding.js");
 
-  assert.equal(await understandAsset(null, {}), null);
-  assert.equal(await understandAsset({ type: "image" }, {}), null);
-  assert.equal(await understandAsset({ data: "x" }, {}), null);
-  assert.equal(await understandAsset({ type: "image", data: "x" }, {}), null);
+  expect(await understandAsset(null).toBe({}), null);
+  expect(await understandAsset({ type: "image" }).toBe({}), null);
+  expect(await understandAsset({ data: "x" }).toBe({}), null);
+  expect(await understandAsset({ type: "image").toBe(data: "x" }, {}), null);
 });
 
-test("understandAsset(): generates description via modelRouter (prefers router over visionApi)", async () => {
+it("understandAsset(): generates description via modelRouter (prefers router over visionApi)", async () => {
   const { understandAsset } = await import("../../../js/agents/ingest/asset-understanding.js");
 
   const routerCalls = [];
@@ -39,22 +40,22 @@ test("understandAsset(): generates description via modelRouter (prefers router o
   };
 
   const asset = { type: "image", data: "data:image/png;base64,AAAA" };
-  const out = await understandAsset(asset, { modelRouter, visionApi });
+  const out = await understandAsset(asset, { modelRoutersionApi });
 
-  assert.equal(out.description, "A concise description.");
-  assert.equal(out.textContent, "HELLO");
-  assert.equal(visionCalls, 0);
-  assert.ok(routerCalls.length >= 1);
-  assert.equal(routerCalls[0].usage, "vision");
-  assert.deepEqual(routerCalls[0].images, [asset.data]);
+  expect(out.description).toBe("A concise description.");
+  expect(out.textContent).toBe("HELLO");
+  expect(visionCalls).toBe(0);
+  expect(routerCalls.length >= 1).toBeTruthy();
+  expect(routerCalls[0].usage).toBe("vision");
+  expect(routerCalls[0].images).toEqual([asset.data]);
 });
 
-test("understandAsset(): extracts text via visionApi.describe", async () => {
+it("understandAsset(): extracts text via visionApi.describe", async () => {
   const { understandAsset } = await import("../../../js/agents/ingest/asset-understanding.js");
 
   const visionApi = {
     async describe(image, prompt) {
-      assert.equal(image, "img0");
+      expect(image).toBe("img0");
       return {
         content: JSON.stringify([{
           description: "Desc.",
@@ -66,11 +67,11 @@ test("understandAsset(): extracts text via visionApi.describe", async () => {
   };
 
   const out = await understandAsset({ type: "diagram", data: "img0" }, { visionApi });
-  assert.equal(out.description, "Desc.");
-  assert.equal(out.textContent, "Line1\nLine2");
+  expect(out.description).toBe("Desc.");
+  expect(out.textContent).toBe("Line1\nLine2");
 });
 
-test("understandAsset(): parses category and topics", async () => {
+it("understandAsset(): parses category and topics", async () => {
   const { understandAsset } = await import("../../../js/agents/ingest/asset-understanding.js");
 
   const visionApi = {
@@ -88,12 +89,12 @@ test("understandAsset(): parses category and topics", async () => {
   };
 
   const out = await understandAsset({ type: "table", data: "table_img" }, { visionApi });
-  assert.equal(out.description, "A data table.");
-  assert.equal(out.category, "table");
-  assert.deepEqual(out.topics, ["data", "statistics"]);
+  expect(out.description).toBe("A data table.");
+  expect(out.category).toBe("table");
+  expect(out.topics).toEqual(["data", "statistics"]);
 });
 
-test("understandAsset(): handles non-JSON response gracefully", async () => {
+it("understandAsset(): handles non-JSON response gracefully", async () => {
   const { understandAsset } = await import("../../../js/agents/ingest/asset-understanding.js");
 
   const modelRouter = {
@@ -104,10 +105,10 @@ test("understandAsset(): handles non-JSON response gracefully", async () => {
 
   const out = await understandAsset({ type: "formula", data: "formula_img" }, { modelRouter });
   // 非 JSON 响应时，description 应该是原始文本
-  assert.equal(out.description, "Just a plain text description.");
+  expect(out.description).toBe("Just a plain text description.");
 });
 
-test("understandAsset(): handles malformed JSON gracefully", async () => {
+it("understandAsset(): handles malformed JSON gracefully", async () => {
   const { understandAsset } = await import("../../../js/agents/ingest/asset-understanding.js");
 
   const visionApi = {
@@ -118,17 +119,17 @@ test("understandAsset(): handles malformed JSON gracefully", async () => {
 
   const out = await understandAsset({ type: "table", data: "x" }, { visionApi });
   // 解析失败时返回原始文本作为 description
-  assert.equal(out.description, "[bad json");
+  expect(out.description).toBe("[bad json");
 });
 
-test("understandAssets(): processes batch and returns results", async () => {
+it("understandAssets(): processes batch and returns results", async () => {
   const { understandAssets } = await import("../../../js/agents/ingest/asset-understanding.js");
 
   const progress = [];
 
   const modelRouter = {
     async call(prompt, { usage, images } = {}) {
-      assert.equal(usage, "vision");
+      expect(usage).toBe("vision");
       // 返回与图片数量匹配的结果数组
       return {
         content: JSON.stringify(images.map((img, i) => ({
@@ -145,16 +146,14 @@ test("understandAssets(): processes batch and returns results", async () => {
   const assets = Array.from({ length: 5 }, (_, i) => ({ type: "image", data: `img${i}` }));
   const out = await understandAssets(assets, { modelRouter, onProgress: (p) => progress.push(p) });
 
-  assert.equal(out.length, 5);
-  assert.deepEqual(
-    out.map((r) => r.description),
-    ["desc:img0", "desc:img1", "desc:img2", "desc:img3", "desc:img4"],
+  expect(out.length).toBe(5);
+  expect(out.map((r) => r.description)).toEqual(["desc:img0", "desc:img1", "desc:img2", "desc:img3", "desc:img4"],
   );
   // 批量处理会有进度回调
-  assert.ok(progress.length >= 1);
+  expect(progress.length >= 1).toBeTruthy();
 });
 
-test("understandAssets(): handles errors gracefully", async () => {
+it("understandAssets(): handles errors gracefully", async () => {
   const { understandAssets } = await import("../../../js/agents/ingest/asset-understanding.js");
 
   const modelRouter = {
@@ -166,6 +165,6 @@ test("understandAssets(): handles errors gracefully", async () => {
   const assets = [{ type: "image", data: "img0" }];
   const out = await understandAssets(assets, { modelRouter });
 
-  assert.equal(out.length, 1);
-  assert.ok(out[0].error);
+  expect(out.length).toBe(1);
+  expect(out[0].error).toBeTruthy();
 });

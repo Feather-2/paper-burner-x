@@ -1,11 +1,11 @@
-import { test } from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import os from "node:os";
 import path from "node:path";
 import { promises as fs } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-test("SDK: AgentBuilder builds an agent and runs capabilities with hooks", async () => {
+it("SDK: AgentBuilder builds an agent and runs capabilities with hooks", async () => {
   const { AgentBuilder } = await import("../../js/agents/sdk/AgentBuilder.js");
 
   const builder = new AgentBuilder({ actor: "test" });
@@ -21,12 +21,12 @@ test("SDK: AgentBuilder builds an agent and runs capabilities with hooks", async
 
   const agent = builder.build();
   const out = await agent.toolExecutor("Echo", { text: "hello" }, { state: {}, signal: null });
-  assert.equal(out.success, true);
-  assert.equal(out.data.echo, "HELLO");
-  assert.equal(out.data.after, true);
+  expect(out.success).toBe(true);
+  expect(out.data.echo).toBe("HELLO");
+  expect(out.data.after).toBe(true);
 });
 
-test("SDK: AgentBuilder lazily imports module-backed capabilities", async () => {
+it("SDK: AgentBuilder lazily imports module-backed capabilities", async () => {
   const { AgentBuilder } = await import("../../js/agents/sdk/AgentBuilder.js");
 
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "paperburner-sdk-"));
@@ -52,25 +52,25 @@ test("SDK: AgentBuilder lazily imports module-backed capabilities", async () => 
 
     const agent = builder.build();
     const out = await agent.toolExecutor("Lazy", { value: 123 }, { state: {}, signal: null });
-    assert.equal(out.success, true);
-    assert.equal(out.data.ok, true);
-    assert.equal(out.data.value, 123);
+    expect(out.success).toBe(true);
+    expect(out.data.ok).toBe(true);
+    expect(out.data.value).toBe(123);
   } finally {
     await fs.rm(tmp, { recursive: true, force: true });
   }
 });
 
-test("SDK: registering subagents adds the Task tool automatically", async () => {
+it("SDK: registering subagents adds the Task tool automatically", async () => {
   const { AgentBuilder } = await import("../../js/agents/sdk/AgentBuilder.js");
 
   const builder = new AgentBuilder({ actor: "test" });
   builder.useSubagent("Explore", () => ({ run: async () => ({ ok: true }) }), "desc");
 
   const agent = builder.build();
-  assert.equal(agent.capabilities.has("Task"), true);
+  expect(agent.capabilities.has("Task")).toBe(true);
 });
 
-test("SDK: AgentInstance.dispose unsubscribes + rejects further use", async () => {
+it("SDK: AgentInstance.dispose unsubscribes + rejects further use", async () => {
   const { AgentBuilder } = await import("../../js/agents/sdk/AgentBuilder.js");
 
   let cfgHandlerCalls = 0;
@@ -88,25 +88,25 @@ test("SDK: AgentInstance.dispose unsubscribes + rejects further use", async () =
   });
 
   agent.eventBus.emitSync("sdk.dispose.test", { ok: true });
-  assert.equal(cfgHandlerCalls, 1);
-  assert.equal(manualHandlerCalls, 1);
+  expect(cfgHandlerCalls).toBe(1);
+  expect(manualHandlerCalls).toBe(1);
 
   // Ensure loop exists so loop cleanup can be validated.
   await agent.run({ tool: "Echo", args: { text: "hi" } }, { state: {}, signal: null });
-  assert.ok(agent._loop);
+  expect(agent._loop).toBeTruthy();
 
   await agent.dispose();
   agent.eventBus.emitSync("sdk.dispose.test", { ok: true });
 
-  assert.equal(cfgHandlerCalls, 1);
-  assert.equal(manualHandlerCalls, 1);
-  assert.equal(agent._loop, null);
+  expect(cfgHandlerCalls).toBe(1);
+  expect(manualHandlerCalls).toBe(1);
+  expect(agent._loop).toBe(null);
 
   // Returned unsubscribe should be safe to call after dispose.
   unsubscribe();
 
-  assert.throws(() => agent.run({ tool: "Echo", args: { text: "hi" } }, { state: {}, signal: null }), /disposed/i);
-  assert.throws(() => agent.on("x", () => {}), /disposed/i);
-  assert.throws(() => agent.getCapabilityDefinitions(), /disposed/i);
-  assert.throws(() => agent.toolExecutor, /disposed/i);
+  expect(() => agent.run({ tool: "Echo", args: { text: "hi" } }, { state: {}, signal: null })).toThrow(/disposed/i);
+  expect(() => agent.on("x", () => {}), /disposed/i);
+  expect(() => agent.getCapabilityDefinitions()).toThrow(/disposed/i);
+  expect(() => agent.toolExecutor, /disposed/i).toThrow();
 });

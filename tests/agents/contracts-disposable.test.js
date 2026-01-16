@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import {
   isDisposable,
@@ -13,41 +13,41 @@ describe("shared/contracts/disposable", () => {
   describe("isDisposable", () => {
     it("returns true for object with dispose method", () => {
       const obj = { dispose: () => {} };
-      assert.ok(isDisposable(obj));
+      expect(isDisposable(obj)).toBeTruthy();
     });
 
     it("returns false for null", () => {
-      assert.equal(isDisposable(null), false);
+      expect(isDisposable(null)).toBe(false);
     });
 
     it("returns false for undefined", () => {
-      assert.equal(isDisposable(undefined), false);
+      expect(isDisposable(undefined)).toBe(false);
     });
 
     it("returns false for primitive", () => {
-      assert.equal(isDisposable("string"), false);
-      assert.equal(isDisposable(123), false);
+      expect(isDisposable("string")).toBe(false);
+      expect(isDisposable(123)).toBe(false);
     });
 
     it("returns false for object without dispose", () => {
-      assert.equal(isDisposable({}), false);
+      expect(isDisposable({})).toBe(false);
     });
 
     it("returns false for object with non-function dispose", () => {
-      assert.equal(isDisposable({ dispose: "not a function" }), false);
+      expect(isDisposable({ dispose: "not a function" })).toBe(false);
     });
   });
 
   describe("safeDispose", () => {
     it("returns false for non-disposable", async () => {
       const result = await safeDispose({});
-      assert.equal(result, false);
+      expect(result).toBe(false);
     });
 
     it("returns true for already disposed", async () => {
       const obj = { dispose: () => {}, disposed: true };
       const result = await safeDispose(obj);
-      assert.equal(result, true);
+      expect(result).toBe(true);
     });
 
     it("disposes and returns true", async () => {
@@ -56,8 +56,8 @@ describe("shared/contracts/disposable", () => {
         dispose: () => { disposed = true; },
       };
       const result = await safeDispose(obj);
-      assert.equal(result, true);
-      assert.ok(disposed);
+      expect(result).toBe(true);
+      expect(disposed).toBeTruthy();
     });
 
     it("handles async dispose", async () => {
@@ -69,8 +69,8 @@ describe("shared/contracts/disposable", () => {
         },
       };
       const result = await safeDispose(obj);
-      assert.equal(result, true);
-      assert.ok(disposed);
+      expect(result).toBe(true);
+      expect(disposed).toBeTruthy();
     });
 
     it("catches error and returns false", async () => {
@@ -78,7 +78,7 @@ describe("shared/contracts/disposable", () => {
         dispose: () => { throw new Error("dispose error"); },
       };
       const result = await safeDispose(obj);
-      assert.equal(result, false);
+      expect(result).toBe(false);
     });
 
     it("calls onError callback", async () => {
@@ -89,8 +89,8 @@ describe("shared/contracts/disposable", () => {
       await safeDispose(obj, {
         onError: (e) => { capturedError = e; },
       });
-      assert.ok(capturedError);
-      assert.equal(capturedError.message, "test error");
+      expect(capturedError).toBeTruthy();
+      expect(capturedError.message).toBe("test error");
     });
 
     it("handles non-Error thrown", async () => {
@@ -101,7 +101,7 @@ describe("shared/contracts/disposable", () => {
       await safeDispose(obj, {
         onError: (e) => { capturedError = e; },
       });
-      assert.ok(capturedError instanceof Error);
+      expect(capturedError instanceof Error).toBeTruthy();
     });
   });
 
@@ -113,10 +113,10 @@ describe("shared/contracts/disposable", () => {
         { dispose: () => disposed.push(2) },
       ];
       const result = await disposeAll(items);
-      assert.equal(result.total, 2);
-      assert.equal(result.success, 2);
-      assert.equal(result.failed, 0);
-      assert.deepEqual(disposed, [1, 2]);
+      expect(result.total).toBe(2);
+      expect(result.success).toBe(2);
+      expect(result.failed).toBe(0);
+      expect(disposed).toEqual([1, 2]);
     });
 
     it("handles mixed success and failure", async () => {
@@ -126,9 +126,9 @@ describe("shared/contracts/disposable", () => {
         { dispose: () => {} },
       ];
       const result = await disposeAll(items);
-      assert.equal(result.total, 3);
-      assert.equal(result.success, 2);
-      assert.equal(result.failed, 1);
+      expect(result.total).toBe(3);
+      expect(result.success).toBe(2);
+      expect(result.failed).toBe(1);
     });
 
     it("calls onError for failed items", async () => {
@@ -139,14 +139,14 @@ describe("shared/contracts/disposable", () => {
       await disposeAll(items, {
         onError: (e, item) => errors.push({ e, item }),
       });
-      assert.equal(errors.length, 1);
+      expect(errors.length).toBe(1);
     });
 
     it("handles non-disposable items", async () => {
       const items = ["not disposable", { dispose: () => {} }];
       const result = await disposeAll(items);
-      assert.equal(result.total, 2);
-      assert.equal(result.failed, 1); // non-disposable counts as failed
+      expect(result.total).toBe(2);
+      expect(result.failed).toBe(1); // non-disposable counts as failed
     });
   });
 
@@ -158,8 +158,8 @@ describe("shared/contracts/disposable", () => {
         dispose: () => { disposed = true; },
       };
       const result = await using(resource, async (r) => r.value * 2);
-      assert.equal(result, 84);
-      assert.ok(disposed);
+      expect(result).toBe(84);
+      expect(disposed).toBeTruthy();
     });
 
     it("disposes even on error", async () => {
@@ -172,15 +172,15 @@ describe("shared/contracts/disposable", () => {
       } catch {
         // Expected
       }
-      assert.ok(disposed);
+      expect(disposed).toBeTruthy();
     });
   });
 
   describe("createCompositeDisposable", () => {
     it("creates composite disposable", () => {
       const composite = createCompositeDisposable([]);
-      assert.ok(isDisposable(composite));
-      assert.equal(composite.disposed, false);
+      expect(isDisposable(composite)).toBeTruthy();
+      expect(composite.disposed).toBe(false);
     });
 
     it("disposes all in reverse order", async () => {
@@ -191,7 +191,7 @@ describe("shared/contracts/disposable", () => {
         () => order.push(3),
       ]);
       await composite.dispose();
-      assert.deepEqual(order, [3, 2, 1]);
+      expect(order).toEqual([3, 2, 1]);
     });
 
     it("handles mixed functions and disposables", async () => {
@@ -202,13 +202,13 @@ describe("shared/contracts/disposable", () => {
         () => disposed.push("fn2"),
       ]);
       await composite.dispose();
-      assert.deepEqual(disposed, ["fn2", "obj1", "fn1"]);
+      expect(disposed).toEqual(["fn2", "obj1", "fn1"]);
     });
 
     it("sets disposed to true after dispose", async () => {
       const composite = createCompositeDisposable([]);
       await composite.dispose();
-      assert.equal(composite.disposed, true);
+      expect(composite.disposed).toBe(true);
     });
 
     it("does not dispose twice", async () => {
@@ -216,7 +216,7 @@ describe("shared/contracts/disposable", () => {
       const composite = createCompositeDisposable([() => count++]);
       await composite.dispose();
       await composite.dispose();
-      assert.equal(count, 1);
+      expect(count).toBe(1);
     });
 
     it("add() adds new disposable", async () => {
@@ -225,7 +225,7 @@ describe("shared/contracts/disposable", () => {
       composite.add(() => disposed.push(1));
       composite.add({ dispose: () => disposed.push(2) });
       await composite.dispose();
-      assert.deepEqual(disposed, [2, 1]);
+      expect(disposed).toEqual([2, 1]);
     });
 
     it("add() is ignored after disposed", async () => {
@@ -233,7 +233,7 @@ describe("shared/contracts/disposable", () => {
       const composite = createCompositeDisposable([]);
       await composite.dispose();
       composite.add(() => disposed.push(1));
-      assert.equal(disposed.length, 0);
+      expect(disposed.length).toBe(0);
     });
 
     it("handles error in disposable", async () => {
@@ -242,7 +242,7 @@ describe("shared/contracts/disposable", () => {
         () => {}, // Should still run
       ]);
       await composite.dispose(); // Should not throw
-      assert.ok(composite.disposed);
+      expect(composite.disposed).toBeTruthy();
     });
   });
 });

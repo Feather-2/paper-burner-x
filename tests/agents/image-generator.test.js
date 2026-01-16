@@ -1,3 +1,5 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
@@ -18,7 +20,7 @@ function makeSlot({ slotId, slideIndex, priority }) {
   };
 }
 
-test("ImageGenerator: concurrency=2 limits concurrent provider calls", async () => {
+it("ImageGenerator: concurrency=2 limits concurrent provider calls", async () => {
   const { ImageGenerator } = await import("../../js/agents/stages/design/image-generator.js");
 
   let active = 0;
@@ -46,13 +48,13 @@ test("ImageGenerator: concurrency=2 limits concurrent provider calls", async () 
   const gen = new ImageGenerator({ imageProvider: provider, concurrency: 2, budget: { maxImages: 10, maxCostUSD: 10, candidatesPerSlot: 1 } });
   const { report } = await gen.generate(slots, { runId: "run_conc", constraints: {} }, { imageStyle: "Test style" }, { concurrency: 2 });
 
-  assert.ok(maxActive <= 2);
-  assert.equal(report.summary.succeeded, 5);
-  assert.equal(report.summary.failed, 0);
-  assert.equal(report.summary.skipped, 0);
+  expect(maxActive <= 2).toBeTruthy();
+  expect(report.summary.succeeded).toBe(5);
+  expect(report.summary.failed).toBe(0);
+  expect(report.summary.skipped).toBe(0);
 });
 
-test("ImageGenerator: retries once after failure, then succeeds", async () => {
+it("ImageGenerator: retries once after failure, then succeeds", async () => {
   const { ImageGenerator } = await import("../../js/agents/stages/design/image-generator.js");
 
   let calls = 0;
@@ -70,13 +72,13 @@ test("ImageGenerator: retries once after failure, then succeeds", async () => {
   const gen = new ImageGenerator({ imageProvider: provider, budget: { maxRetries: 2, timeoutMs: 200, maxImages: 5, maxCostUSD: 10, candidatesPerSlot: 1 } });
   const { report } = await gen.generate(slots, { runId: "run_retry", constraints: {} }, { imageStyle: "Test style" }, {});
 
-  assert.equal(calls, 2);
-  assert.equal(report.tasks.length, 1);
-  assert.equal(report.tasks[0].status, "success");
-  assert.equal(report.tasks[0].retryCount, 1);
+  expect(calls).toBe(2);
+  expect(report.tasks.length).toBe(1);
+  expect(report.tasks[0].status).toBe("success");
+  expect(report.tasks[0].retryCount).toBe(1);
 });
 
-test("ImageGenerator: retry stops when maxCostUSD is exhausted during retries", async () => {
+it("ImageGenerator: retry stops when maxCostUSD is exhausted during retries", async () => {
   const { ImageGenerator } = await import("../../js/agents/stages/design/image-generator.js");
 
   let calls = 0;
@@ -96,12 +98,12 @@ test("ImageGenerator: retry stops when maxCostUSD is exhausted during retries", 
   });
   const { report } = await gen.generate(slots, { runId: "run_cost_retry", constraints: {} }, { imageStyle: "Test style" }, {});
 
-  assert.equal(calls, 1); // second attempt is blocked by budget reserve
-  assert.equal(report.tasks[0].status, "failed");
-  assert.match(report.tasks[0].error, /budget exhausted/i);
+  expect(calls).toBe(1); // second attempt is blocked by budget reserve
+  expect(report.tasks[0].status).toBe("failed");
+  expect(report.tasks[0].error).toMatch(/budget exhausted/i);
 });
 
-test("ImageGenerator: maxImages budget causes later tasks to be skipped", async () => {
+it("ImageGenerator: maxImages budget causes later tasks to be skipped", async () => {
   const { ImageGenerator } = await import("../../js/agents/stages/design/image-generator.js");
 
   let calls = 0;
@@ -123,13 +125,13 @@ test("ImageGenerator: maxImages budget causes later tasks to be skipped", async 
   const gen = new ImageGenerator({ imageProvider: provider, concurrency: 2, budget: { maxImages: 2, maxCostUSD: 10, candidatesPerSlot: 1 } });
   const { report } = await gen.generate(slots, { runId: "run_max_images", constraints: {} }, { imageStyle: "Test style" }, {});
 
-  assert.equal(calls, 2);
-  assert.equal(report.summary.attempted, 2);
-  assert.equal(report.summary.skipped, 1);
-  assert.ok(report.tasks.some((t) => t.status === "skipped"));
+  expect(calls).toBe(2);
+  expect(report.summary.attempted).toBe(2);
+  expect(report.summary.skipped).toBe(1);
+  expect(report.tasks.some(t => t.status === "skipped"));
 });
 
-test("ImageGenerator: maxCostUSD prevents later tasks from starting (provider-based estimate)", async () => {
+it("ImageGenerator: maxCostUSD prevents later tasks from starting (provider-based estimate)", async () => {
   const { ImageGenerator } = await import("../../js/agents/stages/design/image-generator.js");
 
   let calls = 0;
@@ -150,12 +152,12 @@ test("ImageGenerator: maxCostUSD prevents later tasks from starting (provider-ba
   const gen = new ImageGenerator({ imageProvider: provider, budget: { maxImages: 10, maxCostUSD: 0.05, candidatesPerSlot: 1 } });
   const { report } = await gen.generate(slots, { runId: "run_cost", constraints: {} }, { imageStyle: "Test style" }, {});
 
-  assert.equal(calls, 1);
-  assert.equal(report.summary.skipped, 1);
-  assert.equal(report.summary.totalCostUSD, 0.04);
+  expect(calls).toBe(1);
+  expect(report.summary.skipped).toBe(1);
+  expect(report.summary.totalCostUSD).toBe(0.04);
 });
 
-test("ImageGenerator: priority sorting runs critical before important before optional (concurrency=1)", async () => {
+it("ImageGenerator: priority sorting runs critical before important before optional (concurrency=1)", async () => {
   const { ImageGenerator } = await import("../../js/agents/stages/design/image-generator.js");
 
   const started = [];
@@ -178,10 +180,10 @@ test("ImageGenerator: priority sorting runs critical before important before opt
   const gen = new ImageGenerator({ imageProvider: provider, concurrency: 1, budget: { maxImages: 10, maxCostUSD: 10, candidatesPerSlot: 1 } });
   await gen.generate(slots, { runId: "run_pri", constraints: {} }, { imageStyle: "Test style" }, { emit, concurrency: 1 });
 
-  assert.deepEqual(started, ["img_critical", "img_important", "img_optional"]);
+  expect(started).toEqual(["img_critical", "img_important", "img_optional"]);
 });
 
-test("ImageGenerator: timeout produces a failed task and does not hang", async () => {
+it("ImageGenerator: timeout produces a failed task and does not hang", async () => {
   const { ImageGenerator } = await import("../../js/agents/stages/design/image-generator.js");
 
   const provider = {
@@ -194,11 +196,11 @@ test("ImageGenerator: timeout produces a failed task and does not hang", async (
   const gen = new ImageGenerator({ imageProvider: provider, concurrency: 1, budget: { maxRetries: 0, timeoutMs: 20, maxImages: 5, maxCostUSD: 10, candidatesPerSlot: 1 } });
   const { report } = await gen.generate(slots, { runId: "run_timeout", constraints: {} }, { imageStyle: "Test style" }, {});
 
-  assert.equal(report.tasks[0].status, "failed");
-  assert.match(report.tasks[0].error, /timed out/i);
+  expect(report.tasks[0].status).toBe("failed");
+  expect(report.tasks[0].error).toMatch(/timed out/i);
 });
 
-test("ImageGenerator: report summary fields are correct (success + failed + skipped)", async () => {
+it("ImageGenerator: report summary fields are correct (success + failed + skipped)", async () => {
   const { ImageGenerator } = await import("../../js/agents/stages/design/image-generator.js");
 
   const provider = {
@@ -220,19 +222,19 @@ test("ImageGenerator: report summary fields are correct (success + failed + skip
   const gen = new ImageGenerator({ imageProvider: provider, concurrency: 1, budget: { maxImages: 2, maxCostUSD: 10, maxRetries: 0, candidatesPerSlot: 1 } });
   const { report } = await gen.generate(slots, { runId: "run_report", constraints: { imagePolicy: "balanced" } }, { imageStyle: "Test style" }, {});
 
-  assert.equal(report.schemaVersion, "0.1");
-  assert.equal(report.runId, "run_report");
-  assert.equal(report.policy, "balanced");
-  assert.equal(report.summary.planned, 3);
-  assert.equal(report.summary.attempted, 2);
-  assert.equal(report.summary.succeeded, 1);
-  assert.equal(report.summary.failed, 1);
-  assert.equal(report.summary.skipped, 1);
-  assert.equal(report.summary.totalCostUSD, 0);
-  assert.ok(report.summary.totalDurationMs > 0);
+  expect(report.schemaVersion).toBe("0.1");
+  expect(report.runId).toBe("run_report");
+  expect(report.policy).toBe("balanced");
+  expect(report.summary.planned).toBe(3);
+  expect(report.summary.attempted).toBe(2);
+  expect(report.summary.succeeded).toBe(1);
+  expect(report.summary.failed).toBe(1);
+  expect(report.summary.skipped).toBe(1);
+  expect(report.summary.totalCostUSD).toBe(0);
+  expect(report.summary.totalDurationMs > 0).toBeTruthy();
 });
 
-test("ImageGenerator: fills slot candidates and auto-selects first success (candidatesPerSlot=2)", async () => {
+it("ImageGenerator: fills slot candidates and auto-selects first success (candidatesPerSlot=2)", async () => {
   const { ImageGenerator } = await import("../../js/agents/stages/design/image-generator.js");
 
   let calls = 0;
@@ -249,15 +251,15 @@ test("ImageGenerator: fills slot candidates and auto-selects first success (cand
   const gen = new ImageGenerator({ imageProvider: provider, concurrency: 2, budget: { maxImages: 10, maxCostUSD: 10, candidatesPerSlot: 2 } });
   const { filledSlots, report } = await gen.generate(slots, { runId: "run_multi", constraints: {} }, { imageStyle: "Test style" }, {});
 
-  assert.equal(calls, 2);
-  assert.equal(report.tasks.length, 2);
-  assert.equal(filledSlots.length, 1);
-  assert.equal(filledSlots[0].candidates.length, 2);
-  assert.equal(filledSlots[0].selectedId, "img_multi_c1");
-  assert.equal(filledSlots[0].selectionStatus, "auto_selected");
+  expect(calls).toBe(2);
+  expect(report.tasks.length).toBe(2);
+  expect(filledSlots.length).toBe(1);
+  expect(filledSlots[0].candidates.length).toBe(2);
+  expect(filledSlots[0].selectedId).toBe("img_multi_c1");
+  expect(filledSlots[0].selectionStatus).toBe("auto_selected");
 });
 
-test("ImageGenerator: emits per-task events and ends with design.image.fill.completed", async () => {
+it("ImageGenerator: emits per-task events and ends with design.image.fill.completed", async () => {
   const { createImageGenerator, generateImages } = await import("../../js/agents/stages/design/image-generator.js");
 
   const events = [];
@@ -281,7 +283,7 @@ test("ImageGenerator: emits per-task events and ends with design.image.fill.comp
   await gen.generate(slots, { runId: "run_events", constraints: {} }, { imageStyle: "Test style" }, { emit, concurrency: 1 });
 
   const names = events.map((e) => e.name);
-  assert.deepEqual(names, [
+  expect(names).toEqual([
     "design.image.generate.started",
     "design.image.generate.succeeded",
     "design.image.generate.started",
@@ -291,5 +293,5 @@ test("ImageGenerator: emits per-task events and ends with design.image.fill.comp
 
   // Convenience function should be usable too.
   const out = await generateImages([makeSlot({ slotId: "img_2", slideIndex: 0, priority: "critical" })], { runId: "run_events2", constraints: {} }, { imageStyle: "Test style" }, { imageProvider: provider });
-  assert.equal(out.report.runId, "run_events2");
+  expect(out.report.runId).toBe("run_events2");
 });

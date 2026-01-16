@@ -1,7 +1,9 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-test("McpClient: search/fetch prefer standard tool names with fallback", async () => {
+it("McpClient: search/fetch prefer standard tool names with fallback", async () => {
   const { McpClient, McpProvider, McpToolResult } = await import("../../js/agents/mcp/mcp-client.js");
 
   class OnlyStandardToolsProvider extends McpProvider {
@@ -22,19 +24,17 @@ test("McpClient: search/fetch prefer standard tool names with fallback", async (
 
   const client = new McpClient({ providers: [new OnlyStandardToolsProvider()], defaultProvider: "p1" });
   const sr = await client.search({ query: "x" }, { providerId: "p1" });
-  assert.equal(sr.success, true);
+  expect(sr.success).toBe(true);
 
   const fr = await client.fetch({ url: "https://example.com" }, { providerId: "p1" });
-  assert.equal(fr.success, true);
+  expect(fr.success).toBe(true);
 
   const p = client.getProvider("p1");
-  assert.deepEqual(
-    p.calls.map((c) => c.toolName),
-    ["search.query", "search.fetch"]
+  expect(p.calls.map((c) => c.toolName)).toEqual(["search.query", "search.fetch"]
   );
 });
 
-test("McpClient: listAllTools captures provider failures (non-fatal)", async () => {
+it("McpClient: listAllTools captures provider failures (non-fatal)", async () => {
   const { McpClient, McpProvider } = await import("../../js/agents/mcp/mcp-client.js");
 
   class GoodProvider extends McpProvider {
@@ -63,17 +63,17 @@ test("McpClient: listAllTools captures provider failures (non-fatal)", async () 
 
   const client = new McpClient({ providers: [new GoodProvider(), new BadProvider()], defaultProvider: "good" });
   const tools = await client.listAllTools();
-  assert.equal(Array.isArray(tools), true);
-  assert.equal(tools.length, 1);
-  assert.equal(tools[0].providerId, "good");
+  expect(Array.isArray(tools)).toBe(true);
+  expect(tools.length).toBe(1);
+  expect(tools[0].providerId).toBe("good");
 
-  assert.ok(Array.isArray(tools.errors));
-  assert.equal(tools.errors.length, 1);
-  assert.equal(tools.errors[0].providerId, "bad");
-  assert.ok(String(tools.errors[0].error).includes("boom"));
+  expect(Array.isArray(tools.errors)).toBeTruthy();
+  expect(tools.errors.length).toBe(1);
+  expect(tools.errors[0].providerId).toBe("bad");
+  expect(String(tools.errors[0].error).toBeTruthy().includes("boom"));
 });
 
-test("McpClient: circuit breaker opens after repeated provider failures", async () => {
+it("McpClient: circuit breaker opens after repeated provider failures", async () => {
   const { McpClient, McpProvider, McpToolResult } = await import("../../js/agents/mcp/mcp-client.js");
 
   class FailingProvider extends McpProvider {
@@ -95,16 +95,16 @@ test("McpClient: circuit breaker opens after repeated provider failures", async 
 
   for (let i = 0; i < 3; i++) {
     const r = await client.callTool("x", {});
-    assert.equal(r.success, false);
+    expect(r.success).toBe(false);
   }
 
   const blocked = await client.callTool("x", {});
-  assert.equal(blocked.success, false);
-  assert.ok(String(blocked.error).toLowerCase().includes("circuit open"));
-  assert.equal(provider.calls, 3);
+  expect(blocked.success).toBe(false);
+  expect(String(blocked.error).toBeTruthy().toLowerCase().includes("circuit open"));
+  expect(provider.calls).toBe(3);
 });
 
-test("McpClient: circuit breaker ignores unknown tool errors", async () => {
+it("McpClient: circuit breaker ignores unknown tool errors", async () => {
   const { McpClient, McpProvider, McpToolResult } = await import("../../js/agents/mcp/mcp-client.js");
 
   class UnknownToolProvider extends McpProvider {
@@ -126,29 +126,29 @@ test("McpClient: circuit breaker ignores unknown tool errors", async () => {
 
   for (let i = 0; i < 6; i++) {
     const r = await client.callTool("nope", {});
-    assert.equal(r.success, false);
-    assert.ok(String(r.error).includes("unknown tool"));
+    expect(r.success).toBe(false);
+    expect(String(r.error).toBeTruthy().includes("unknown tool"));
   }
-  assert.equal(provider.calls, 6);
+  expect(provider.calls).toBe(6);
 });
 
-test("SSE: NewlineDecoder handles CRLF across chunks and lone CR", async () => {
+it("SSE: NewlineDecoder handles CRLF across chunks and lone CR", async () => {
   const { NewlineDecoder } = await import("../../js/agents/mcp/sse.js");
   const enc = new TextEncoder();
 
   const d1 = new NewlineDecoder();
-  assert.deepEqual(d1.decode(enc.encode("a\r")), []);
-  assert.deepEqual(d1.decode(enc.encode("\nb\n")), ["a", "b"]);
+  expect(d1.decode(enc.encode("a\r"))).toEqual([]);
+  expect(d1.decode(enc.encode("\nb\n"))).toEqual(["a", "b"]);
 
   const d2 = new NewlineDecoder();
-  assert.deepEqual(d2.decode(enc.encode("x\ry\n")), ["x", "y"]);
+  expect(d2.decode(enc.encode("x\ry\n"))).toEqual(["x", "y"]);
 
   const d3 = new NewlineDecoder();
-  assert.deepEqual(d3.decode(enc.encode("x\r")), []);
-  assert.deepEqual(d3.decode(enc.encode("y\n")), ["x", "y"]);
+  expect(d3.decode(enc.encode("x\r"))).toEqual([]);
+  expect(d3.decode(enc.encode("y\n"))).toEqual(["x", "y"]);
 });
 
-test("McpNexusProvider: JSON-RPC tools/list + tools/call happy path", async () => {
+it("McpNexusProvider: JSON-RPC tools/list + tools/call happy path", async () => {
   const { McpNexusProvider } = await import("../../js/agents/mcp/mcp-nexus-provider.js");
 
   const calls = [];
@@ -204,19 +204,19 @@ test("McpNexusProvider: JSON-RPC tools/list + tools/call happy path", async () =
 
   const p = new McpNexusProvider({ endpoint: "http://nexus.local", fetchImpl, timeoutMs: 2000, discoveryTimeoutMs: 2000 });
   const tools = await p.listTools();
-  assert.equal(tools.length, 2);
-  assert.equal(tools[0].name, "search.query");
+  expect(tools.length).toBe(2);
+  expect(tools[0].name).toBe("search.query");
 
   const out = await p.callTool("search.query", { query: "x" });
-  assert.equal(out.success, true);
-  assert.equal(out.content[0].type, "json");
-  assert.equal(out.content[0].data.name, "search.query");
+  expect(out.success).toBe(true);
+  expect(out.content[0].type).toBe("json");
+  expect(out.content[0].data.name).toBe("search.query");
 
   // Sanity: discovery didn't try REST in this happy path.
-  assert.ok(calls.some((c) => c.url.endsWith("/mcp") && c.body?.method === "tools/list"));
+  expect(calls.some(c => c.url.endsWith("/mcp") && c.body?.method === "tools/list"));
 });
 
-test("McpNexusProvider: Tool API (/api/tools + /api/tools/execute) happy path", async () => {
+it("McpNexusProvider: Tool API (/api/tools + /api/tools/execute) happy path", async () => {
   const { McpNexusProvider } = await import("../../js/agents/mcp/mcp-nexus-provider.js");
 
   const calls = [];
@@ -278,19 +278,19 @@ test("McpNexusProvider: Tool API (/api/tools + /api/tools/execute) happy path", 
 
   const p = new McpNexusProvider({ endpoint: "http://gateway.local", fetchImpl, timeoutMs: 2000, discoveryTimeoutMs: 2000 });
   const tools = await p.listTools();
-  assert.equal(tools.length, 2);
-  assert.equal(tools[0].name, "search.query");
+  expect(tools.length).toBe(2);
+  expect(tools[0].name).toBe("search.query");
 
   const out = await p.callTool("search.query", { query: "x" });
-  assert.equal(out.success, true);
-  assert.equal(out.content[0].type, "json");
-  assert.deepEqual(out.content[0].data, { ok: true, toolId: "search.query", params: { query: "x" } });
+  expect(out.success).toBe(true);
+  expect(out.content[0].type).toBe("json");
+  expect(out.content[0].data).toEqual({ ok: true, toolId: "search.query", params: { query: "x" } });
 
-  assert.ok(calls.some((c) => c.url.endsWith("/api/tools") && c.method === "GET"));
-  assert.ok(calls.some((c) => c.url.endsWith("/api/tools/execute") && c.method === "POST"));
+  expect(calls.some(c => c.url.endsWith("/api/tools") && c.method === "GET"));
+  expect(calls.some(c => c.url.endsWith("/api/tools/execute") && c.method === "POST"));
 });
 
-test("SmartContentExtractor: works without DOMParser (fallback)", async () => {
+it("SmartContentExtractor: works without DOMParser (fallback)", async () => {
   const { extractSmartContent } = await import("../../js/agents/mcp/smart-content-extractor.js");
 
   const html = [
@@ -304,17 +304,17 @@ test("SmartContentExtractor: works without DOMParser (fallback)", async () => {
   ].join("");
 
   const out = extractSmartContent(html, { maxLength: 1000 });
-  assert.equal(typeof out.plainText, "string");
-  assert.ok(out.plainText.includes("Hello"));
-  assert.ok(out.plainText.includes("World"));
-  assert.equal(out.plainText.includes("bad()"), false);
+  expect(typeof out.plainText).toBe("string");
+  expect(out.plainText.includes("Hello")).toBeTruthy();
+  expect(out.plainText.includes("World")).toBeTruthy();
+  expect(out.plainText.includes("bad()")).toBe(false);
 
   if (typeof globalThis.DOMParser === "undefined") {
-    assert.equal(out.structure.mainContentSelector, "fallback(no-dom)");
+    expect(out.structure.mainContentSelector).toBe("fallback(no-dom)");
   }
 });
 
-test("McpNexusProvider: seedToolsCache primes listTools without network", async () => {
+it("McpNexusProvider: seedToolsCache primes listTools without network", async () => {
   const { McpNexusProvider } = await import("../../js/agents/mcp/mcp-nexus-provider.js");
 
   let called = 0;
@@ -328,15 +328,15 @@ test("McpNexusProvider: seedToolsCache primes listTools without network", async 
     { name: "search.query", description: "q", inputSchema: { type: "object", properties: { query: { type: "string" } } } },
     { name: "search.fetch", description: "f", inputSchema: { type: "object", properties: { url: { type: "string" } } } },
   ]);
-  assert.equal(seeded, true);
+  expect(seeded).toBe(true);
 
   const tools = await provider.listTools();
-  assert.equal(called, 0);
-  assert.equal(tools.length, 2);
-  assert.equal(tools[0].name, "search.query");
+  expect(called).toBe(0);
+  expect(tools.length).toBe(2);
+  expect(tools[0].name).toBe("search.query");
 });
 
-test("McpNexusProvider: healthCheck(refreshTools) hits network even when tools are seeded", async () => {
+it("McpNexusProvider: healthCheck(refreshTools) hits network even when tools are seeded", async () => {
   const { McpNexusProvider } = await import("../../js/agents/mcp/mcp-nexus-provider.js");
 
   const calls = [];
@@ -379,15 +379,15 @@ test("McpNexusProvider: healthCheck(refreshTools) hits network even when tools a
   ]);
 
   const tools = await provider.listTools();
-  assert.equal(tools.length, 2);
-  assert.equal(calls.length, 0);
+  expect(tools.length).toBe(2);
+  expect(calls.length).toBe(0);
 
   const health = await provider.healthCheck({ refreshTools: true, timeoutMs: 5_000 });
-  assert.equal(health.ok, true);
-  assert.ok(calls.some((c) => c.url.endsWith("/mcp") && c.body?.method === "tools/list"));
+  expect(health.ok).toBe(true);
+  expect(calls.some(c => c.url.endsWith("/mcp") && c.body?.method === "tools/list"));
 });
 
-test("SSE parser: handles chunk boundaries and multi-line data", async () => {
+it("SSE parser: handles chunk boundaries and multi-line data", async () => {
   const { createSseParser } = await import("../../js/agents/mcp/sse.js");
 
   const events = [];
@@ -401,14 +401,14 @@ test("SSE parser: handles chunk boundaries and multi-line data", async () => {
   parser.feed("data: y\n\n");
   parser.flush();
 
-  assert.equal(events.length, 2);
-  assert.equal(events[0].event, "message");
-  assert.equal(events[0].data, "{\"a\":1}");
-  assert.equal(events[1].event, "custom");
-  assert.equal(events[1].data, "x\ny");
+  expect(events.length).toBe(2);
+  expect(events[0].event).toBe("message");
+  expect(events[0].data).toBe("{\"a\":1}");
+  expect(events[1].event).toBe("custom");
+  expect(events[1].data).toBe("x\ny");
 });
 
-test("McpNexusProvider: subscribeNotifications consumes SSE and invalidates tools cache", async () => {
+it("McpNexusProvider: subscribeNotifications consumes SSE and invalidates tools cache", async () => {
   const { McpNexusProvider } = await import("../../js/agents/mcp/mcp-nexus-provider.js");
 
   const encoder = new TextEncoder();
@@ -472,8 +472,8 @@ test("McpNexusProvider: subscribeNotifications consumes SSE and invalidates tool
   });
 
   const t1 = await p.listTools();
-  assert.equal(t1.length, 2);
-  assert.equal(listCalls, 1);
+  expect(t1.length).toBe(2);
+  expect(listCalls).toBe(1);
 
   let off = null;
   await new Promise((resolve) => {
@@ -489,11 +489,11 @@ test("McpNexusProvider: subscribeNotifications consumes SSE and invalidates tool
   });
 
   const t2 = await p.listTools();
-  assert.equal(t2.length, 2);
-  assert.equal(listCalls, 2);
+  expect(t2.length).toBe(2);
+  expect(listCalls).toBe(2);
 });
 
-test("McpResourceManager: subscribeResource triggers read on notifications/resources/updated", async () => {
+it("McpResourceManager: subscribeResource triggers read on notifications/resources/updated", async () => {
   const { McpClient } = await import("../../js/agents/mcp/mcp-client.js");
   const { McpNexusProvider } = await import("../../js/agents/mcp/mcp-nexus-provider.js");
   const { McpResourceManager } = await import("../../js/agents/mcp/resource-manager.js");
@@ -595,10 +595,10 @@ test("McpResourceManager: subscribeResource triggers read on notifications/resou
   const rm = new McpResourceManager({ client, storage: null, defaultTtlMs: 60_000 });
 
   const resources = await rm.listResources({ providerId: "mcp-nexus" });
-  assert.equal(resources.length, 1);
+  expect(resources.length).toBe(1);
 
   const r0 = await rm.readResource({ providerId: "mcp-nexus", uri: "file:///a.txt" });
-  assert.equal(r0.text, "v1");
+  expect(r0.text).toBe("v1");
 
   let resolveDone = null;
   const done = new Promise((resolve) => {
@@ -609,9 +609,9 @@ test("McpResourceManager: subscribeResource triggers read on notifications/resou
     providerId: "mcp-nexus",
     uri: "file:///a.txt",
     callback: (evt) => {
-      assert.equal(evt.providerId, "mcp-nexus");
-      assert.equal(evt.uri, "file:///a.txt");
-      assert.equal(evt.content?.text, "v2");
+      expect(evt.providerId).toBe("mcp-nexus");
+      expect(evt.uri).toBe("file:///a.txt");
+      expect(evt.content?.text).toBe("v2");
       resolveDone?.();
     },
   });
@@ -619,11 +619,11 @@ test("McpResourceManager: subscribeResource triggers read on notifications/resou
   await done;
   await sub.unsubscribe();
 
-  assert.equal(subscribeCalls, 1);
-  assert.equal(unsubscribeCalls, 1);
+  expect(subscribeCalls).toBe(1);
+  expect(unsubscribeCalls).toBe(1);
 });
 
-test("McpResourceManager: prunes content cache by maxContentCacheEntries (LRU)", async () => {
+it("McpResourceManager: prunes content cache by maxContentCacheEntries (LRU)", async () => {
   const { McpClient, McpProvider } = await import("../../js/agents/mcp/mcp-client.js");
   const { McpResourceManager } = await import("../../js/agents/mcp/resource-manager.js");
 
@@ -649,22 +649,22 @@ test("McpResourceManager: prunes content cache by maxContentCacheEntries (LRU)",
   await rm.readResource({ providerId: "p1", uri: "file:///b.txt" });
   await rm.readResource({ providerId: "p1", uri: "file:///c.txt" });
 
-  assert.equal(rm._contentCache.size, 2);
-  assert.equal(rm._contentCache.has("p1:file:///a.txt"), false);
-  assert.equal(rm._contentCache.has("p1:file:///b.txt"), true);
-  assert.equal(rm._contentCache.has("p1:file:///c.txt"), true);
+  expect(rm._contentCache.size).toBe(2);
+  expect(rm._contentCache.has("p1:file:///a.txt")).toBe(false);
+  expect(rm._contentCache.has("p1:file:///b.txt")).toBe(true);
+  expect(rm._contentCache.has("p1:file:///c.txt")).toBe(true);
 
   // Touch b; adding d should evict c (LRU).
   await rm.readResource({ providerId: "p1", uri: "file:///b.txt" });
   await rm.readResource({ providerId: "p1", uri: "file:///d.txt" });
 
-  assert.equal(rm._contentCache.size, 2);
-  assert.equal(rm._contentCache.has("p1:file:///b.txt"), true);
-  assert.equal(rm._contentCache.has("p1:file:///d.txt"), true);
-  assert.equal(rm._contentCache.has("p1:file:///c.txt"), false);
+  expect(rm._contentCache.size).toBe(2);
+  expect(rm._contentCache.has("p1:file:///b.txt")).toBe(true);
+  expect(rm._contentCache.has("p1:file:///d.txt")).toBe(true);
+  expect(rm._contentCache.has("p1:file:///c.txt")).toBe(false);
 });
 
-test("McpResourceManager: refreshes notification wiring when provider instance is replaced", async () => {
+it("McpResourceManager: refreshes notification wiring when provider instance is replaced", async () => {
   const { McpClient, McpProvider } = await import("../../js/agents/mcp/mcp-client.js");
   const { McpResourceManager } = await import("../../js/agents/mcp/resource-manager.js");
 
@@ -727,17 +727,17 @@ test("McpResourceManager: refreshes notification wiring when provider instance i
     },
   });
 
-  assert.equal(p1.subscribeNotificationsCalls, 1);
-  assert.equal(p1.subscribeResourceCalls, 1);
+  expect(p1.subscribeNotificationsCalls).toBe(1);
+  expect(p1.subscribeResourceCalls).toBe(1);
 
   const p2 = new NotifyingProvider({ id: "p1", version: 2 });
   client.addProvider(p2);
 
   await rm.readResource({ providerId: "p1", uri: "file:///a.txt", forceRefresh: true });
-  assert.equal(p2.subscribeNotificationsCalls, 1);
+  expect(p2.subscribeNotificationsCalls).toBe(1);
 
-  assert.equal(await waitFor(() => p2.subscribeResourceCalls >= 1), true);
+  expect(await waitFor(() => p2.subscribeResourceCalls >= 1)).toBe(true);
 
   p2.emit({ method: "notifications/resources/updated", params: { uri: "file:///a.txt" } });
-  assert.equal(await waitFor(() => seen.includes("v2")), true);
+  expect(await waitFor(() => seen.includes("v2"))).toBe(true);
 });

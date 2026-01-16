@@ -1,7 +1,8 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
-test("WorkerPool: basic lifecycle", async (t) => {
+it("WorkerPool: basic lifecycle", async (t) => {
   const { WorkerPool, TaskPriority } = await import("../../../js/agents/runtime/core/worker-pool.js");
 
   let workerCount = 0;
@@ -12,134 +13,134 @@ test("WorkerPool: basic lifecycle", async (t) => {
     terminate: () => { workerCount--; },
   });
 
-  await t.test("constructor requires createWorker", () => {
-    assert.throws(() => new WorkerPool(), /requires createWorker/);
-    assert.throws(() => new WorkerPool({}), /requires createWorker/);
+  await t.it("constructor requires createWorker", () => {
+    expect(() => new WorkerPool()).toThrow(/requires createWorker/);
+    expect(() => new WorkerPool({})).toThrow(/requires createWorker/);
   });
 
-  await t.test("stats reports pool state", () => {
+  await t.it("stats reports pool state", () => {
     const pool = new WorkerPool({ createWorker: mockWorker });
     const stats = pool.stats;
-    assert.equal(stats.total, 0);
-    assert.equal(stats.busy, 0);
-    assert.equal(stats.idle, 0);
-    assert.equal(stats.queued, 0);
-    assert.equal(stats.maxWorkers, 4);
+    expect(stats.total).toBe(0);
+    expect(stats.busy).toBe(0);
+    expect(stats.idle).toBe(0);
+    expect(stats.queued).toBe(0);
+    expect(stats.maxWorkers).toBe(4);
     pool.close();
   });
 
-  await t.test("warmup creates workers", () => {
+  await t.it("warmup creates workers", () => {
     const pool = new WorkerPool({ createWorker: mockWorker, maxWorkers: 3 });
     pool.warmup(2);
-    assert.equal(pool.stats.total, 2);
-    assert.equal(pool.stats.idle, 2);
+    expect(pool.stats.total).toBe(2);
+    expect(pool.stats.idle).toBe(2);
     pool.close();
   });
 
-  await t.test("close rejects pending tasks", async () => {
+  await t.it("close rejects pending tasks", async () => {
     const pool = new WorkerPool({ createWorker: mockWorker });
     const pending = pool.exec("test", {});
     pool.close();
-    await assert.rejects(pending, /closed/);
+    await expect(pending).rejects.toThrow(/closed/);
   });
 
-  await t.test("exec rejects after close", async () => {
+  await t.it("exec rejects after close", async () => {
     const pool = new WorkerPool({ createWorker: mockWorker });
     pool.close();
-    await assert.rejects(pool.exec("test", {}), /closed/);
+    await expect(pool.exec("test").rejects.toThrow({}), /closed/);
   });
 
-  await t.test("exec respects abort signal", async () => {
+  await t.it("exec respects abort signal", async () => {
     const pool = new WorkerPool({ createWorker: mockWorker });
     const ac = new AbortController();
     ac.abort();
-    await assert.rejects(pool.exec("test", {}, { signal: ac.signal }), /Aborted/);
+    await expect(pool.exec("test").rejects.toThrow({}, { signal: ac.signal }), /Aborted/);
     pool.close();
   });
 
-  await t.test("TaskPriority constants exist", () => {
-    assert.equal(TaskPriority.HIGH, 0);
-    assert.equal(TaskPriority.NORMAL, 1);
-    assert.equal(TaskPriority.LOW, 2);
+  await t.it("TaskPriority constants exist", () => {
+    expect(TaskPriority.HIGH).toBe(0);
+    expect(TaskPriority.NORMAL).toBe(1);
+    expect(TaskPriority.LOW).toBe(2);
   });
 });
 
-test("ResourceGuard: quota management", async (t) => {
+it("ResourceGuard: quota management", async (t) => {
   const { ResourceGuard } = await import("../../../js/agents/runtime/core/resource-guard.js");
 
-  await t.test("stats reports current state", () => {
+  await t.it("stats reports current state", () => {
     const guard = new ResourceGuard({ maxConcurrent: 4 });
     const stats = guard.stats;
-    assert.equal(stats.concurrent, 0);
-    assert.equal(stats.maxConcurrent, 4);
-    assert.equal(stats.paused, false);
+    expect(stats.concurrent).toBe(0);
+    expect(stats.maxConcurrent).toBe(4);
+    expect(stats.paused).toBe(false);
   });
 
-  await t.test("acquire/release manages concurrency", () => {
+  await t.it("acquire/release manages concurrency", () => {
     const guard = new ResourceGuard({ maxConcurrent: 2 });
 
-    assert.equal(guard.acquire(), true);
-    assert.equal(guard.stats.concurrent, 1);
+    expect(guard.acquire()).toBe(true);
+    expect(guard.stats.concurrent).toBe(1);
 
-    assert.equal(guard.acquire(), true);
-    assert.equal(guard.stats.concurrent, 2);
+    expect(guard.acquire()).toBe(true);
+    expect(guard.stats.concurrent).toBe(2);
 
     // Should fail - at max
-    assert.equal(guard.acquire(), false);
-    assert.equal(guard.stats.concurrent, 2);
+    expect(guard.acquire()).toBe(false);
+    expect(guard.stats.concurrent).toBe(2);
 
     guard.release();
-    assert.equal(guard.stats.concurrent, 1);
+    expect(guard.stats.concurrent).toBe(1);
 
-    assert.equal(guard.acquire(), true);
-    assert.equal(guard.stats.concurrent, 2);
+    expect(guard.acquire()).toBe(true);
+    expect(guard.stats.concurrent).toBe(2);
   });
 
-  await t.test("pause/resume controls acquisition", () => {
+  await t.it("pause/resume controls acquisition", () => {
     const guard = new ResourceGuard({ maxConcurrent: 4 });
 
-    assert.equal(guard.acquire(), true);
+    expect(guard.acquire()).toBe(true);
     guard.release();
 
     guard.pause();
-    assert.equal(guard.stats.paused, true);
-    assert.equal(guard.acquire(), false);
+    expect(guard.stats.paused).toBe(true);
+    expect(guard.acquire()).toBe(false);
 
     guard.resume();
-    assert.equal(guard.stats.paused, false);
-    assert.equal(guard.acquire(), true);
+    expect(guard.stats.paused).toBe(false);
+    expect(guard.acquire()).toBe(true);
   });
 
-  await t.test("canAcquire checks without modifying state", () => {
+  await t.it("canAcquire checks without modifying state", () => {
     const guard = new ResourceGuard({ maxConcurrent: 1 });
 
     const check1 = guard.canAcquire();
-    assert.equal(check1.allowed, true);
-    assert.equal(guard.stats.concurrent, 0);
+    expect(check1.allowed).toBe(true);
+    expect(guard.stats.concurrent).toBe(0);
 
     guard.acquire();
 
     const check2 = guard.canAcquire();
-    assert.equal(check2.allowed, false);
-    assert.equal(check2.reason, "max_concurrent");
+    expect(check2.allowed).toBe(false);
+    expect(check2.reason).toBe("max_concurrent");
   });
 
-  await t.test("run() executes with guard", async () => {
+  await t.it("run() executes with guard", async () => {
     const guard = new ResourceGuard({ maxConcurrent: 1 });
 
     let executed = false;
     const result = await guard.run(async () => {
       executed = true;
-      assert.equal(guard.stats.concurrent, 1);
+      expect(guard.stats.concurrent).toBe(1);
       return 42;
     });
 
-    assert.equal(executed, true);
-    assert.equal(result, 42);
-    assert.equal(guard.stats.concurrent, 0);
+    expect(executed).toBe(true);
+    expect(result).toBe(42);
+    expect(guard.stats.concurrent).toBe(0);
   });
 
-  await t.test("onQuotaExceeded callback fires", () => {
+  await t.it("onQuotaExceeded callback fires", () => {
     let callbackData = null;
     const guard = new ResourceGuard({
       maxConcurrent: 1,
@@ -149,45 +150,45 @@ test("ResourceGuard: quota management", async (t) => {
     guard.acquire();
     guard.acquire(); // Should trigger callback
 
-    assert.ok(callbackData);
-    assert.equal(callbackData.reason, "max_concurrent");
+    expect(callbackData).toBeTruthy();
+    expect(callbackData.reason).toBe("max_concurrent");
   });
 });
 
-test("RetryStrategy: retry behavior", async (t) => {
+it("RetryStrategy: retry behavior", async (t) => {
   const { RetryStrategy, isRetryableError, withRetry } = await import("../../../js/agents/runtime/core/retry-strategy.js");
 
-  await t.test("isRetryableError detects retryable errors", () => {
-    assert.equal(isRetryableError(null), false);
-    assert.equal(isRetryableError(new Error("generic")), false);
+  await t.it("isRetryableError detects retryable errors", () => {
+    expect(isRetryableError(null)).toBe(false);
+    expect(isRetryableError(new Error("generic"))).toBe(false);
 
     const timeout = new Error("timeout");
     timeout.name = "TimeoutError";
-    assert.equal(isRetryableError(timeout), true);
+    expect(isRetryableError(timeout)).toBe(true);
 
     const rateLimit = new Error("rate limit exceeded");
-    assert.equal(isRetryableError(rateLimit), true);
+    expect(isRetryableError(rateLimit)).toBe(true);
 
     const networkError = new Error("network");
     networkError.code = "ECONNRESET";
-    assert.equal(isRetryableError(networkError), true);
+    expect(isRetryableError(networkError)).toBe(true);
 
     const httpError = new Error("server error");
     httpError.status = 503;
-    assert.equal(isRetryableError(httpError), true);
+    expect(isRetryableError(httpError)).toBe(true);
   });
 
-  await t.test("calculateDelay uses exponential backoff", () => {
+  await t.it("calculateDelay uses exponential backoff", () => {
     const strategy = new RetryStrategy({ baseDelayMs: 1000, maxDelayMs: 30000, jitterFactor: 0 });
 
-    assert.equal(strategy.calculateDelay(0), 1000);
-    assert.equal(strategy.calculateDelay(1), 2000);
-    assert.equal(strategy.calculateDelay(2), 4000);
-    assert.equal(strategy.calculateDelay(3), 8000);
-    assert.equal(strategy.calculateDelay(10), 30000); // Capped
+    expect(strategy.calculateDelay(0)).toBe(1000);
+    expect(strategy.calculateDelay(1)).toBe(2000);
+    expect(strategy.calculateDelay(2)).toBe(4000);
+    expect(strategy.calculateDelay(3)).toBe(8000);
+    expect(strategy.calculateDelay(10)).toBe(30000); // Capped
   });
 
-  await t.test("execute succeeds without retry", async () => {
+  await t.it("execute succeeds without retry", async () => {
     const strategy = new RetryStrategy();
     let attempts = 0;
 
@@ -196,11 +197,11 @@ test("RetryStrategy: retry behavior", async (t) => {
       return "success";
     });
 
-    assert.equal(result, "success");
-    assert.equal(attempts, 1);
+    expect(result).toBe("success");
+    expect(attempts).toBe(1);
   });
 
-  await t.test("execute retries on retryable error", async () => {
+  await t.it("execute retries on retryable error", async () => {
     const strategy = new RetryStrategy({ baseDelayMs: 10, maxRetries: 2 });
     let attempts = 0;
 
@@ -214,39 +215,37 @@ test("RetryStrategy: retry behavior", async (t) => {
       return "success";
     });
 
-    assert.equal(result, "success");
-    assert.equal(attempts, 3);
+    expect(result).toBe("success");
+    expect(attempts).toBe(3);
   });
 
-  await t.test("execute throws after max retries", async () => {
+  await t.it("execute throws after max retries", async () => {
     const strategy = new RetryStrategy({ baseDelayMs: 10, maxRetries: 2 });
     let attempts = 0;
 
-    await assert.rejects(
+    await expect(
       strategy.execute(async () => {
         attempts++;
         const err = new Error("timeout");
         err.name = "TimeoutError";
         throw err;
-      }),
-      /timeout/
-    );
+      })
+    ).rejects.toThrow(/timeout/);
 
-    assert.equal(attempts, 3); // 1 initial + 2 retries
+    expect(attempts).toBe(3); // 1 initial + 2 retries
   });
 
-  await t.test("execute respects abort signal", async () => {
+  await t.it("execute respects abort signal", async () => {
     const strategy = new RetryStrategy({ baseDelayMs: 100 });
     const ac = new AbortController();
     ac.abort();
 
-    await assert.rejects(
-      strategy.execute(async () => "success", { signal: ac.signal }),
-      /Aborted/
-    );
+    await expect(
+      strategy.execute(async () => "success", { signal: ac.signal })
+    ).rejects.toThrow(/Aborted/);
   });
 
-  await t.test("withRetry convenience function works", async () => {
+  await t.it("withRetry convenience function works", async () => {
     let attempts = 0;
     const result = await withRetry(async () => {
       attempts++;
@@ -258,101 +257,101 @@ test("RetryStrategy: retry behavior", async (t) => {
       return "done";
     }, { baseDelayMs: 10 });
 
-    assert.equal(result, "done");
-    assert.equal(attempts, 2);
+    expect(result).toBe("done");
+    expect(attempts).toBe(2);
   });
 
-  await t.test("stats tracks retry budget", () => {
+  await t.it("stats tracks retry budget", () => {
     const strategy = new RetryStrategy({ globalBudgetPerMinute: 10 });
     const stats = strategy.stats;
 
-    assert.equal(stats.retriesLastMinute, 0);
-    assert.equal(stats.budgetPerMinute, 10);
-    assert.equal(stats.budgetRemaining, 10);
+    expect(stats.retriesLastMinute).toBe(0);
+    expect(stats.budgetPerMinute).toBe(10);
+    expect(stats.budgetRemaining).toBe(10);
 
     strategy.recordRetry();
     strategy.recordRetry();
 
     const stats2 = strategy.stats;
-    assert.equal(stats2.retriesLastMinute, 2);
-    assert.equal(stats2.budgetRemaining, 8);
+    expect(stats2.retriesLastMinute).toBe(2);
+    expect(stats2.budgetRemaining).toBe(8);
   });
 });
 
-test("FileLock: read/write locking", async (t) => {
+it("FileLock: read/write locking", async (t) => {
   const { FileLock, LockType, getFileLock, acquireLock, withLock } = await import("../../../js/agents/vfs/file-lock.js");
 
-  await t.test("acquire/release basic flow", async () => {
+  await t.it("acquire/release basic flow", async () => {
     const lock = new FileLock();
 
     const { release, holder } = await lock.acquire("/test/file.txt");
-    assert.ok(holder.startsWith("lock_"));
+    expect(holder.startsWith("lock_")).toBeTruthy();
 
     const status = lock.isLocked("/test/file.txt");
-    assert.equal(status.locked, true);
-    assert.equal(status.type, "write");
+    expect(status.locked).toBe(true);
+    expect(status.type).toBe("write");
 
     release();
 
     const status2 = lock.isLocked("/test/file.txt");
-    assert.equal(status2.locked, false);
+    expect(status2.locked).toBe(false);
   });
 
-  await t.test("tryAcquire returns immediately", () => {
+  await t.it("tryAcquire returns immediately", () => {
     const lock = new FileLock();
 
     const result1 = lock.tryAcquire("/test/file.txt");
-    assert.equal(result1.acquired, true);
-    assert.ok(result1.release);
+    expect(result1.acquired).toBe(true);
+    expect(result1.release).toBeTruthy();
 
     const result2 = lock.tryAcquire("/test/file.txt");
-    assert.equal(result2.acquired, false);
+    expect(result2.acquired).toBe(false);
 
     result1.release();
 
     const result3 = lock.tryAcquire("/test/file.txt");
-    assert.equal(result3.acquired, true);
+    expect(result3.acquired).toBe(true);
     result3.release();
   });
 
-  await t.test("multiple read locks allowed", async () => {
+  await t.it("multiple read locks allowed", async () => {
     const lock = new FileLock();
 
     const r1 = await lock.acquire("/test/file.txt", { type: LockType.READ });
     const r2 = await lock.acquire("/test/file.txt", { type: LockType.READ });
 
     const status = lock.isLocked("/test/file.txt");
-    assert.equal(status.locked, true);
-    assert.equal(status.type, "read");
-    assert.equal(status.holders.length, 2);
+    expect(status.locked).toBe(true);
+    expect(status.type).toBe("read");
+    expect(status.holders.length).toBe(2);
 
     r1.release();
     r2.release();
   });
 
-  await t.test("write lock blocks other locks", async () => {
+  await t.it("write lock blocks other locks", async () => {
     const lock = new FileLock();
 
     const w = await lock.acquire("/test/file.txt", { type: LockType.WRITE });
 
     const result = lock.tryAcquire("/test/file.txt", { type: LockType.READ });
-    assert.equal(result.acquired, false);
+    expect(result.acquired).toBe(false);
 
     w.release();
   });
 
-  await t.test("read lock blocks write lock", async () => {
+  await t.it("read lock blocks write lock", async () => {
     const lock = new FileLock();
 
     const r = await lock.acquire("/test/file.txt", { type: LockType.READ });
 
     const result = lock.tryAcquire("/test/file.txt", { type: LockType.WRITE });
-    assert.equal(result.acquired, false);
+    expect(result.acquired).toBe(false);
 
     r.release();
   });
 
-  await t.test("acquire waits for lock release", async () => {
+  await t.it("acquire waits for lock release", async () => {
     const lock = new FileLock({ acquireTimeoutMs: 1000 });
 
     const w1 = await lock.acquire("/test/file.txt");
@@ -363,24 +362,21 @@ test("FileLock: read/write locking", async (t) => {
     setTimeout(() => w1.release(), 50);
 
     const w2 = await acquirePromise;
-    assert.ok(w2.holder);
+    expect(w2.holder).toBeTruthy();
     w2.release();
   });
 
-  await t.test("acquire timeout", async () => {
+  await t.it("acquire timeout", async () => {
     const lock = new FileLock({ acquireTimeoutMs: 50 });
 
     const w = await lock.acquire("/test/file.txt");
 
-    await assert.rejects(
-      lock.acquire("/test/file.txt"),
-      /timeout/
-    );
+    await expect(lock.acquire("/test/file.txt").rejects).toThrow(/timeout/);
 
     w.release();
   });
 
-  await t.test("acquire respects abort signal", async () => {
+  await t.it("acquire respects abort signal", async () => {
     const lock = new FileLock();
     const ac = new AbortController();
 
@@ -389,12 +385,12 @@ test("FileLock: read/write locking", async (t) => {
     const acquirePromise = lock.acquire("/test/file.txt", { signal: ac.signal });
     ac.abort();
 
-    await assert.rejects(acquirePromise, /Aborted/);
+    await expect(acquirePromise).rejects.toThrow(/Aborted/);
 
     w.release();
   });
 
-  await t.test("releaseAllForHolder releases all locks", async () => {
+  await t.it("releaseAllForHolder releases all locks", async () => {
     const lock = new FileLock();
 
     const holder = "test_holder_123";
@@ -403,35 +399,35 @@ test("FileLock: read/write locking", async (t) => {
     await lock.acquire("/c.txt", { holder: "other" });
 
     const count = lock.releaseAllForHolder(holder);
-    assert.equal(count, 2);
+    expect(count).toBe(2);
 
-    assert.equal(lock.isLocked("/a.txt").locked, false);
-    assert.equal(lock.isLocked("/b.txt").locked, false);
-    assert.equal(lock.isLocked("/c.txt").locked, true);
+    expect(lock.isLocked("/a.txt").locked).toBe(false);
+    expect(lock.isLocked("/b.txt").locked).toBe(false);
+    expect(lock.isLocked("/c.txt").locked).toBe(true);
 
     lock.release("/c.txt", "other");
   });
 
-  await t.test("expired locks are cleaned up", async () => {
+  await t.it("expired locks are cleaned up", async () => {
     const lock = new FileLock({ lockTimeoutMs: 50 });
 
     await lock.acquire("/test/file.txt");
-    assert.equal(lock.isLocked("/test/file.txt").locked, true);
+    expect(lock.isLocked("/test/file.txt").locked).toBe(true);
 
     // Wait for expiry
     await new Promise(r => setTimeout(r, 60));
 
     // Should be cleaned on next check
-    assert.equal(lock.isLocked("/test/file.txt").locked, false);
+    expect(lock.isLocked("/test/file.txt").locked).toBe(false);
   });
 
-  await t.test("getFileLock returns singleton", () => {
+  await t.it("getFileLock returns singleton", () => {
     const lock1 = getFileLock();
     const lock2 = getFileLock();
-    assert.equal(lock1, lock2);
+    expect(lock1).toBe(lock2);
   });
 
-  await t.test("withLock executes with automatic release", async () => {
+  await t.it("withLock executes with automatic release", async () => {
     const lock = new FileLock();
 
     let executed = false;
@@ -442,22 +438,22 @@ test("FileLock: read/write locking", async (t) => {
 
     // Note: withLock uses global, so we can't easily test isolation here
     // Just verify the function exists and is callable
-    assert.ok(typeof withLock === "function");
+    expect(typeof withLock === "function").toBeTruthy();
   });
 
-  await t.test("LockType constants", () => {
-    assert.equal(LockType.READ, "read");
-    assert.equal(LockType.WRITE, "write");
+  await t.it("LockType constants", () => {
+    expect(LockType.READ).toBe("read");
+    expect(LockType.WRITE).toBe("write");
   });
 
-  await t.test("getAllLocks returns map", async () => {
+  await t.it("getAllLocks returns map", async () => {
     const lock = new FileLock();
 
     const w = await lock.acquire("/test/file.txt");
 
     const all = lock.getAllLocks();
-    assert.ok(all instanceof Map);
-    assert.ok(all.has("/test/file.txt"));
+    expect(all instanceof Map).toBeTruthy();
+    expect(all.has("/test/file.txt")).toBeTruthy();
 
     w.release();
   });

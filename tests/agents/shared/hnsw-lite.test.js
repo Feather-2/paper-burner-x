@@ -1,5 +1,5 @@
-import { describe, it, beforeEach } from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import { HnswLiteIndex } from "../../../js/agents/shared/embeddings/hnsw-lite.js";
 
 describe("HnswLiteIndex", () => {
@@ -19,35 +19,32 @@ describe("HnswLiteIndex", () => {
       index.upsert("b", v2, { label: "second" });
       index.upsert("c", v3, { label: "third" });
 
-      assert.strictEqual(index.size, 3);
+      expect(index.size).toBe(3);
 
       const results = index.search(v1, { topK: 2 });
-      assert.strictEqual(results.length, 2);
+      expect(results.length).toBe(2);
       // v1 should be most similar to itself, then v2
-      assert.strictEqual(results[0].id, "a");
-      assert.ok(results[0].score > 0.99);
+      expect(results[0].id).toBe("a");
+      expect(results[0].score > 0.99).toBeTruthy();
     });
 
     it("should handle dimension mismatch", () => {
       index.upsert("a", [1, 0, 0]);
-      assert.throws(
-        () => index.upsert("b", [1, 0, 0, 0]),
-        { message: /dimension mismatch/ }
-      );
+      expect(() => index.upsert("b", [1, 0, 0, 0])).toThrow(/dimension mismatch/);
     });
 
     it("should delete vectors", () => {
       index.upsert("a", [1, 0, 0]);
       index.upsert("b", [0, 1, 0]);
 
-      assert.strictEqual(index.size, 2);
-      assert.ok(index.has("a"));
+      expect(index.size).toBe(2);
+      expect(index.has("a")).toBeTruthy();
 
       index.delete("a");
 
-      assert.strictEqual(index.size, 1);
-      assert.ok(!index.has("a"));
-      assert.ok(index.has("b"));
+      expect(index.size).toBe(1);
+      expect(!index.has("a")).toBeTruthy();
+      expect(index.has("b")).toBeTruthy();
     });
 
     it("should clear all vectors", () => {
@@ -56,8 +53,8 @@ describe("HnswLiteIndex", () => {
 
       index.clear();
 
-      assert.strictEqual(index.size, 0);
-      assert.strictEqual(index.dimension, null);
+      expect(index.size).toBe(0);
+      expect(index.dimension).toBe(null);
     });
 
     it("should respect maxItems limit", () => {
@@ -65,7 +62,7 @@ describe("HnswLiteIndex", () => {
       for (let i = 0; i < 10; i++) {
         smallIndex.upsert(`id_${i}`, [Math.random(), Math.random(), Math.random()]);
       }
-      assert.strictEqual(smallIndex.size, 3);
+      expect(smallIndex.size).toBe(3);
     });
   });
 
@@ -81,22 +78,22 @@ describe("HnswLiteIndex", () => {
 
     it("should find exact match with highest score", () => {
       const results = index.search([0, 1, 0], { topK: 1 });
-      assert.strictEqual(results.length, 1);
-      assert.strictEqual(results[0].id, "north");
-      assert.ok(results[0].score > 0.99);
+      expect(results.length).toBe(1);
+      expect(results[0].id).toBe("north");
+      expect(results[0].score > 0.99).toBeTruthy();
     });
 
     it("should respect topK parameter", () => {
       const results = index.search([0.5, 0.5, 0], { topK: 3 });
-      assert.strictEqual(results.length, 3);
+      expect(results.length).toBe(3);
     });
 
     it("should respect minScore filter", () => {
       const results = index.search([0, 1, 0], { topK: 10, minScore: 0.5 });
       // Only north and northeast should have score > 0.5
-      assert.ok(results.length <= 3);
+      expect(results.length <= 3).toBeTruthy();
       for (const r of results) {
-        assert.ok(r.score >= 0.5);
+        expect(r.score >= 0.5).toBeTruthy();
       }
     });
 
@@ -106,7 +103,7 @@ describe("HnswLiteIndex", () => {
         filter: (meta) => meta.direction.includes("east"),
       });
       for (const r of results) {
-        assert.ok(r.meta.direction.includes("east"));
+        expect(r.meta.direction.includes("east")).toBeTruthy();
       }
     });
   });
@@ -119,16 +116,16 @@ describe("HnswLiteIndex", () => {
       index.upsert("cold1", [0.8, 0.2, 0], { ts: now - 48 * 60 * 60 * 1000 }); // 48 hours ago (cold)
 
       const hotResults = index.search([1, 0, 0], { topK: 10, partitions: "hot" });
-      assert.strictEqual(hotResults.length, 1);
-      assert.strictEqual(hotResults[0].id, "hot1");
+      expect(hotResults.length).toBe(1);
+      expect(hotResults[0].id).toBe("hot1");
 
       const warmResults = index.search([1, 0, 0], { topK: 10, partitions: ["warm"] });
-      assert.strictEqual(warmResults.length, 1);
-      assert.strictEqual(warmResults[0].id, "warm1");
+      expect(warmResults.length).toBe(1);
+      expect(warmResults[0].id).toBe("warm1");
 
       const coldResults = index.search([1, 0, 0], { topK: 10, partitions: "cold" });
-      assert.strictEqual(coldResults.length, 1);
-      assert.strictEqual(coldResults[0].id, "cold1");
+      expect(coldResults.length).toBe(1);
+      expect(coldResults[0].id).toBe("cold1");
     });
 
     it("should get partition stats", () => {
@@ -138,10 +135,10 @@ describe("HnswLiteIndex", () => {
       index.upsert("warm1", [0, 0, 1], { ts: now - 2 * 60 * 60 * 1000 });
 
       const stats = index.getPartitionStats();
-      assert.strictEqual(stats.hot, 2);
-      assert.strictEqual(stats.warm, 1);
-      assert.strictEqual(stats.cold, 0);
-      assert.strictEqual(stats.total, 3);
+      expect(stats.hot).toBe(2);
+      expect(stats.warm).toBe(1);
+      expect(stats.cold).toBe(0);
+      expect(stats.total).toBe(3);
     });
   });
 
@@ -159,14 +156,14 @@ describe("HnswLiteIndex", () => {
 
       // HNSW-Lite is approximate, so results may differ
       // But the top result should often be the same
-      assert.strictEqual(hnswResults.length, bruteResults.length);
+      expect(hnswResults.length).toBe(bruteResults.length);
 
       // At least one of the top results should match
       const hnswIds = new Set(hnswResults.map((r) => r.id));
       const bruteIds = new Set(bruteResults.map((r) => r.id));
       const overlap = [...hnswIds].filter((id) => bruteIds.has(id));
       // Allow some tolerance for approximate search
-      assert.ok(overlap.length >= 2, `Expected at least 2 overlap, got ${overlap.length}`);
+      expect(overlap.length >= 2, `Expected at least 2 overlap, got ${overlap.length}`).toBeTruthy();
     });
   });
 
@@ -178,20 +175,17 @@ describe("HnswLiteIndex", () => {
       const json = index.toJSON();
       const restored = HnswLiteIndex.fromJSON(json);
 
-      assert.strictEqual(restored.size, 2);
-      assert.ok(restored.has("a"));
-      assert.ok(restored.has("b"));
+      expect(restored.size).toBe(2);
+      expect(restored.has("a")).toBeTruthy();
+      expect(restored.has("b")).toBeTruthy();
 
       // Search should work on restored index
       const results = restored.search([1, 0, 0], { topK: 1 });
-      assert.strictEqual(results[0].id, "a");
+      expect(results[0].id).toBe("a");
     });
 
     it("should reject invalid JSON", () => {
-      assert.throws(
-        () => HnswLiteIndex.fromJSON({ version: 999 }),
-        { message: /Invalid/ }
-      );
+      expect(() => HnswLiteIndex.fromJSON({ version: 999 })).toThrow(/Invalid/);
     });
   });
 
@@ -203,37 +197,37 @@ describe("HnswLiteIndex", () => {
       index.delete("a");
 
       const stats = index.getStats();
-      assert.strictEqual(stats.inserts, 2);
-      assert.strictEqual(stats.deletes, 1);
-      assert.strictEqual(stats.searches, 1);
-      assert.strictEqual(stats.size, 1);
+      expect(stats.inserts).toBe(2);
+      expect(stats.deletes).toBe(1);
+      expect(stats.searches).toBe(1);
+      expect(stats.size).toBe(1);
     });
   });
 
   describe("edge cases", () => {
     it("should handle empty index search", () => {
       const results = index.search([1, 0, 0], { topK: 5 });
-      assert.strictEqual(results.length, 0);
+      expect(results.length).toBe(0);
     });
 
     it("should handle invalid vectors", () => {
-      assert.strictEqual(index.upsert("a", null), false);
-      assert.strictEqual(index.upsert("a", []), false);
-      assert.strictEqual(index.upsert("", [1, 0]), false);
+      expect(index.upsert("a", null)).toBe(false);
+      expect(index.upsert("a", [])).toBe(false);
+      expect(index.upsert("", [1, 0])).toBe(false);
     });
 
     it("should handle zero vector", () => {
-      assert.strictEqual(index.upsert("a", [0, 0, 0]), false);
+      expect(index.upsert("a", [0, 0, 0])).toBe(false);
     });
 
     it("should handle NaN values by converting to 0", () => {
       // NaN gets converted to 0 by defensive Number(x || 0)
       // This is acceptable behavior - the vector [0, 1, 0] is valid
-      assert.strictEqual(index.upsert("a", [NaN, 1, 0]), true);
+      expect(index.upsert("a", [NaN, 1, 0])).toBe(true);
     });
 
     it("should handle delete non-existent", () => {
-      assert.strictEqual(index.delete("nonexistent"), false);
+      expect(index.delete("nonexistent")).toBe(false);
     });
   });
 });

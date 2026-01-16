@@ -1,7 +1,8 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
-test("Ingest Constants: SourceKind + AssetMimeType validation/normalization", async () => {
+it("Ingest Constants: SourceKind + AssetMimeType validation/normalization", async () => {
   const {
     SourceKind,
     AssetMimeType,
@@ -11,22 +12,22 @@ test("Ingest Constants: SourceKind + AssetMimeType validation/normalization", as
     normalizeAssetMimeType,
   } = await import("../../../js/agents/ingest/constants.js");
 
-  assert.equal(isValidSourceKind(SourceKind.PDF), true);
-  assert.equal(isValidSourceKind(SourceKind.USER_TEXT), true);
-  assert.equal(isValidSourceKind(SourceKind.DIRECT_MERGED), true);
-  assert.equal(isValidSourceKind(SourceKind.URL), true);
-  assert.equal(isValidSourceKind(SourceKind.FILE), true);
-  assert.equal(isValidSourceKind("unknown"), false);
+  expect(isValidSourceKind(SourceKind.PDF)).toBe(true);
+  expect(isValidSourceKind(SourceKind.USER_TEXT)).toBe(true);
+  expect(isValidSourceKind(SourceKind.DIRECT_MERGED)).toBe(true);
+  expect(isValidSourceKind(SourceKind.URL)).toBe(true);
+  expect(isValidSourceKind(SourceKind.FILE)).toBe(true);
+  expect(isValidSourceKind("unknown")).toBe(false);
 
-  assert.equal(normalizeSourceKind("PDF"), SourceKind.PDF);
-  assert.equal(normalizeSourceKind("  user_text "), SourceKind.USER_TEXT);
-  assert.equal(normalizeSourceKind("unknown"), SourceKind.MARKDOWN);
+  expect(normalizeSourceKind("PDF")).toBe(SourceKind.PDF);
+  expect(normalizeSourceKind("  user_text ")).toBe(SourceKind.USER_TEXT);
+  expect(normalizeSourceKind("unknown")).toBe(SourceKind.MARKDOWN);
 
-  assert.equal(isValidAssetMimeType(AssetMimeType.PNG), true);
-  assert.equal(isValidAssetMimeType(AssetMimeType.JPEG), true);
-  assert.equal(isValidAssetMimeType("image/jpg"), false);
+  expect(isValidAssetMimeType(AssetMimeType.PNG)).toBe(true);
+  expect(isValidAssetMimeType(AssetMimeType.JPEG)).toBe(true);
+  expect(isValidAssetMimeType("image/jpg")).toBe(false);
 
-  assert.equal(normalizeAssetMimeType("image/jpg"), AssetMimeType.JPEG);
-  assert.equal(normalizeAssetMimeType("image/png; charset=utf-8"), AssetMimeType.PNG);
-  assert.equal(normalizeAssetMimeType("unknown/type"), AssetMimeType.OCTET_STREAM);
+  expect(normalizeAssetMimeType("image/jpg")).toBe(AssetMimeType.JPEG);
+  expect(normalizeAssetMimeType("image/png; charset=utf-8")).toBe(AssetMimeType.PNG);
+  expect(normalizeAssetMimeType("unknown/type")).toBe(AssetMimeType.OCTET_STREAM);
 });

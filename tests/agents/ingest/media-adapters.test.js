@@ -1,13 +1,14 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
-test("AudioAdapter: transcribes via whisperApi and outputs LRC + chunkable markdown", async () => {
+it("AudioAdapter: transcribes via whisperApi and outputs LRC + chunkable markdown", async () => {
   const { AudioAdapter } = await import("../../../js/agents/ingest/adapters/audio.js");
 
   const whisperApi = {
     async transcribe(file, opts) {
-      assert.ok(file && typeof file.arrayBuffer === "function");
-      assert.equal(opts.kind, "audio");
+      expect(file && typeof file.arrayBuffer === "function").toBeTruthy();
+      expect(opts.kind).toBe("audio");
       return {
         language: "en",
         durationSec: 7.2,
@@ -32,24 +33,21 @@ test("AudioAdapter: transcribes via whisperApi and outputs LRC + chunkable markd
     { whisperApi }
   );
 
-  assert.equal(parsed.sourceType, "audio");
-  assert.ok(parsed.markdown.includes("# clip.mp3"));
-  assert.ok(parsed.markdown.includes("Welcome to the presentation."));
-  assert.ok(parsed.markdown.includes("Today we will discuss Alpha and Beta."));
-  assert.equal(
-    parsed.lrc,
-    ["[00:00.00]Welcome to the presentation.", "[00:03.50]Today we will discuss Alpha and Beta."].join("\n")
+  expect(parsed.sourceType).toBe("audio");
+  expect(parsed.markdown.includes("# clip.mp3")).toBeTruthy();
+  expect(parsed.markdown.includes("Welcome to the presentation.")).toBeTruthy();
+  expect(parsed.markdown.includes("Today we will discuss Alpha and Beta.")).toBeTruthy();
+  expect(parsed.lrc).toBe(["[00:00.00]Welcome to the presentation.", "[00:03.50]Today we will discuss Alpha and Beta."].join("\n")
   );
-  assert.ok(parsed.textNormalized.includes("Welcome"));
-  assert.ok(String(parsed.textHash || "").startsWith("sha256:"));
-  assert.ok(Array.isArray(parsed.chunks) && parsed.chunks.length >= 1);
+  expect(parsed.textNormalized.includes("Welcome")).toBeTruthy();
+  expect(String(parsed.textHash || "").toBeTruthy().startsWith("sha256:"));
+  expect(Array.isArray(parsed.chunks ) && parsed.chunks.length >= 1).toBeTruthy();
 });
 
-test("AudioAdapter: throws if whisperApi is missing", async () => {
+it("AudioAdapter: throws if whisperApi is missing", async () => {
   const { AudioAdapter } = await import("../../../js/agents/ingest/adapters/audio.js");
   const adapter = new AudioAdapter({ defaultChunkOptions: { chunkSize: 50, overlap: 0, includeLineNumbers: false } });
-  await assert.rejects(
-    () =>
+  await expect(() =>
       adapter.parse({
         name: "clip.mp3",
         type: "audio/mpeg",
@@ -61,12 +59,12 @@ test("AudioAdapter: throws if whisperApi is missing", async () => {
   );
 });
 
-test("VideoAdapter: transcribes and attaches extracted keyframes as assets", async () => {
+it("VideoAdapter: transcribes and attaches extracted keyframes as assets", async () => {
   const { VideoAdapter } = await import("../../../js/agents/ingest/adapters/video.js");
 
   const whisperApi = {
     async transcribe(_file, opts) {
-      assert.equal(opts.kind, "video");
+      expect(opts.kind).toBe("video");
       return {
         durationSec: 3,
         segments: [
@@ -102,24 +100,23 @@ test("VideoAdapter: transcribes and attaches extracted keyframes as assets", asy
     { whisperApi }
   );
 
-  assert.equal(parsed.sourceType, "video");
-  assert.equal(parsed.lrc, ["[00:00.00]A", "[00:01.00]B"].join("\n"));
-  assert.ok(Array.isArray(parsed.assets) && parsed.assets.length === 3);
-  assert.equal(parsed.assets[0].mimeType, "image/jpeg");
-  assert.equal(parsed.assets[0].data, "AAAA");
-  assert.equal(parsed.assets[0].docId, parsed.docId);
-  assert.equal(parsed.metadata.frameCount, 3);
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].startSec, 0);
-  assert.equal(calls[0].endSec, 3);
-  assert.equal(calls[0].count, 3);
+  expect(parsed.sourceType).toBe("video");
+  expect(parsed.lrc).toBe(["[00:00.00]A", "[00:01.00]B"].join("\n"));
+  expect(Array.isArray(parsed.assets ) && parsed.assets.length === 3).toBeTruthy();
+  expect(parsed.assets[0].mimeType).toBe("image/jpeg");
+  expect(parsed.assets[0].data).toBe("AAAA");
+  expect(parsed.assets[0].docId).toBe(parsed.docId);
+  expect(parsed.metadata.frameCount).toBe(3);
+  expect(calls.length).toBe(1);
+  expect(calls[0].startSec).toBe(0);
+  expect(calls[0].endSec).toBe(3);
+  expect(calls[0].count).toBe(3);
 });
 
-test("VideoAdapter: throws if whisperApi is missing", async () => {
+it("VideoAdapter: throws if whisperApi is missing", async () => {
   const { VideoAdapter } = await import("../../../js/agents/ingest/adapters/video.js");
   const adapter = new VideoAdapter({ defaultChunkOptions: { chunkSize: 50, overlap: 0, includeLineNumbers: false } });
-  await assert.rejects(
-    () =>
+  await expect(() =>
       adapter.parse({
         name: "video.mp4",
         type: "video/mp4",
@@ -131,7 +128,7 @@ test("VideoAdapter: throws if whisperApi is missing", async () => {
   );
 });
 
-test("getVideoFrames: uses mediabunny if provided and samples evenly by time", async () => {
+it("getVideoFrames: uses mediabunny if provided and samples evenly by time", async () => {
   const { getVideoFrames } = await import("../../../js/agents/ingest/tools/video-frames.js");
 
   let openCount = 0;
@@ -177,15 +174,15 @@ test("getVideoFrames: uses mediabunny if provided and samples evenly by time", a
     },
   });
 
-  assert.deepEqual(frames, ["frame_1000000", "frame_2000000", "frame_3000000"]);
-  assert.deepEqual(seenUs, [1000000, 2000000, 3000000]);
-  assert.equal(openCount, 0);
-  assert.equal(closeCount, 3);
+  expect(frames).toEqual(["frame_1000000", "frame_2000000", "frame_3000000"]);
+  expect(seenUs).toEqual([1000000, 2000000, 3000000]);
+  expect(openCount).toBe(0);
+  expect(closeCount).toBe(3);
 });
 
-test("getVideoFrames: returns [] when disabled or unavailable", async () => {
+it("getVideoFrames: returns [] when disabled or unavailable", async () => {
   const { getVideoFrames } = await import("../../../js/agents/ingest/tools/video-frames.js");
-  assert.deepEqual(await getVideoFrames(new Blob(["x"]), 0, 1, 0), []);
-  assert.deepEqual(await getVideoFrames(new Blob(["x"]), 0, 1, 2, { mediabunny: null }), []);
+  expect(await getVideoFrames(new Blob(["x"])).toEqual(0, 1, 0), []);
+  expect(await getVideoFrames(new Blob(["x"])).toEqual(0, 1, 2, { mediabunny: null }), []);
 });
 

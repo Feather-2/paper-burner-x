@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import {
   validateToolResult,
@@ -13,10 +13,10 @@ describe("shared/contracts/tool-result", () => {
         ok: true,
         data: { value: 42 },
       });
-      assert.ok(result.ok);
-      assert.equal(result.value.ok, true);
-      assert.equal(result.value.success, true);
-      assert.deepEqual(result.value.data, { value: 42 });
+      expect(result.ok).toBeTruthy();
+      expect(result.value.ok).toBe(true);
+      expect(result.value.success).toBe(true);
+      expect(result.value.data).toEqual({ value: 42 });
     });
 
     it("validates successful result with success", () => {
@@ -24,9 +24,9 @@ describe("shared/contracts/tool-result", () => {
         success: true,
         data: "result",
       });
-      assert.ok(result.ok);
-      assert.equal(result.value.ok, true);
-      assert.equal(result.value.success, true);
+      expect(result.ok).toBeTruthy();
+      expect(result.value.ok).toBe(true);
+      expect(result.value.success).toBe(true);
     });
 
     it("validates failure result with ok=false", () => {
@@ -34,10 +34,10 @@ describe("shared/contracts/tool-result", () => {
         ok: false,
         error: "Something failed",
       });
-      assert.ok(result.ok);
-      assert.equal(result.value.ok, false);
-      assert.equal(result.value.success, false);
-      assert.equal(result.value.error, "Something failed");
+      expect(result.ok).toBeTruthy();
+      expect(result.value.ok).toBe(false);
+      expect(result.value.success).toBe(false);
+      expect(result.value.error).toBe("Something failed");
     });
 
     it("validates failure result with success=false", () => {
@@ -45,31 +45,31 @@ describe("shared/contracts/tool-result", () => {
         success: false,
         error: "Failed",
       });
-      assert.ok(result.ok);
-      assert.equal(result.value.ok, false);
+      expect(result.ok).toBeTruthy();
+      expect(result.value.ok).toBe(false);
     });
 
     it("rejects null", () => {
       const result = validateToolResult(null);
-      assert.equal(result.ok, false);
+      expect(result.ok).toBe(false);
     });
 
     it("rejects non-object", () => {
       const result = validateToolResult("string");
-      assert.equal(result.ok, false);
+      expect(result.ok).toBe(false);
     });
 
     it("handles missing ok and success", () => {
       const result = validateToolResult({ data: "test" });
-      assert.ok(result.ok);
+      expect(result.ok).toBeTruthy();
       // Without explicit ok/success, defaults to false
-      assert.equal(result.value.ok, false);
+      expect(result.value.ok).toBe(false);
     });
 
     it("handles non-string error", () => {
       const result = validateToolResult({ ok: false, error: 123 });
-      assert.ok(result.ok);
-      assert.equal(result.value.error, undefined);
+      expect(result.ok).toBeTruthy();
+      expect(result.value.error).toBe(undefined);
     });
 
     it("handles meta object", () => {
@@ -77,20 +77,20 @@ describe("shared/contracts/tool-result", () => {
         ok: true,
         meta: { duration: 100 },
       });
-      assert.ok(result.ok);
-      assert.deepEqual(result.value.meta, { duration: 100 });
+      expect(result.ok).toBeTruthy();
+      expect(result.value.meta).toEqual({ duration: 100 });
     });
 
     it("handles null meta", () => {
       const result = validateToolResult({ ok: true, meta: null });
-      assert.ok(result.ok);
-      assert.equal(result.value.meta, undefined);
+      expect(result.ok).toBeTruthy();
+      expect(result.value.meta).toBe(undefined);
     });
 
     it("handles non-object meta", () => {
       const result = validateToolResult({ ok: true, meta: "string" });
-      assert.ok(result.ok);
-      assert.equal(result.value.meta, undefined);
+      expect(result.ok).toBeTruthy();
+      expect(result.value.meta).toBe(undefined);
     });
   });
 
@@ -98,63 +98,63 @@ describe("shared/contracts/tool-result", () => {
     it("passes through valid ToolResult", () => {
       const input = { ok: true, data: "test" };
       const result = normalizeToolResult(input);
-      assert.equal(result.ok, true);
-      assert.equal(result.data, "test");
+      expect(result.ok).toBe(true);
+      expect(result.data).toBe("test");
     });
 
     it("passes through result with success", () => {
       const input = { success: true, data: "test" };
       const result = normalizeToolResult(input);
-      assert.equal(result.success, true);
+      expect(result.success).toBe(true);
     });
 
     it("converts Error to failed result", () => {
       const error = new Error("Test error");
       const result = normalizeToolResult(error);
-      assert.equal(result.ok, false);
-      assert.equal(result.success, false);
-      assert.equal(result.error, "Test error");
-      assert.ok(result.meta?.stack);
+      expect(result.ok).toBe(false);
+      expect(result.success).toBe(false);
+      expect(result.error).toBe("Test error");
+      expect(result.meta?.stack).toBeTruthy();
     });
 
     it("handles null", () => {
       const result = normalizeToolResult(null);
-      assert.equal(result.ok, true);
-      assert.equal(result.success, true);
-      assert.equal(result.data, null);
+      expect(result.ok).toBe(true);
+      expect(result.success).toBe(true);
+      expect(result.data).toBe(null);
     });
 
     it("handles undefined", () => {
       const result = normalizeToolResult(undefined);
-      assert.equal(result.ok, true);
-      assert.equal(result.success, true);
-      assert.equal(result.data, null);
+      expect(result.ok).toBe(true);
+      expect(result.success).toBe(true);
+      expect(result.data).toBe(null);
     });
 
     it("wraps primitive value", () => {
       const result = normalizeToolResult("string value");
-      assert.equal(result.ok, true);
-      assert.equal(result.data, "string value");
+      expect(result.ok).toBe(true);
+      expect(result.data).toBe("string value");
     });
 
     it("wraps number value", () => {
       const result = normalizeToolResult(42);
-      assert.equal(result.ok, true);
-      assert.equal(result.data, 42);
+      expect(result.ok).toBe(true);
+      expect(result.data).toBe(42);
     });
 
     it("wraps unknown object as data", () => {
       const obj = { custom: "data", nested: { value: 1 } };
       const result = normalizeToolResult(obj);
-      assert.equal(result.ok, true);
-      assert.deepEqual(result.data, obj);
+      expect(result.ok).toBe(true);
+      expect(result.data).toEqual(obj);
     });
 
     it("wraps array as data", () => {
       const arr = [1, 2, 3];
       const result = normalizeToolResult(arr);
-      assert.equal(result.ok, true);
-      assert.deepEqual(result.data, arr);
+      expect(result.ok).toBe(true);
+      expect(result.data).toEqual(arr);
     });
   });
 });

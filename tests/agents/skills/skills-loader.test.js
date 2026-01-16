@@ -5,8 +5,8 @@
  * Focus: SkillLoader class, skill parsing, three-tier loading priority
  */
 
-import { describe, it, beforeEach, afterEach, mock } from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -67,14 +67,14 @@ describe("loader.node.js - loadSkills", async () => {
 
   it("returns empty outcome when no roots provided", async () => {
     const out = await mod.loadSkills();
-    assert.deepEqual(out, { skills: [], errors: [] });
+    expect(out).toEqual({ skills: [], errors: [] });
   });
 
   it("returns empty outcome for missing .paper-burner/skills directory", async () => {
     const cwd = await createTempDir("missing");
     try {
       const out = await mod.loadSkills({ cwd, homeDir: null });
-      assert.deepEqual(out, { skills: [], errors: [] });
+      expect(out).toEqual({ skills: [], errors: [] });
     } finally {
       await cleanupDir(cwd);
     }
@@ -86,11 +86,11 @@ describe("loader.node.js - loadSkills", async () => {
       await writeSkillFile(cwd, "TestSkill", "Skill body content");
       const out = await mod.loadSkills({ cwd, homeDir: null });
 
-      assert.equal(out.errors.length, 0);
-      assert.equal(out.skills.length, 1);
-      assert.equal(out.skills[0].metadata.name, "TestSkill");
-      assert.equal(out.skills[0].metadata.scope, "repo");
-      assert.ok(out.skills[0].body.includes("Skill body content"));
+      expect(out.errors.length).toBe(0);
+      expect(out.skills.length).toBe(1);
+      expect(out.skills[0].metadata.name).toBe("TestSkill");
+      expect(out.skills[0].metadata.scope).toBe("repo");
+      expect(out.skills[0].body.includes("Skill body content")).toBeTruthy();
     } finally {
       await cleanupDir(cwd);
     }
@@ -102,10 +102,10 @@ describe("loader.node.js - loadSkills", async () => {
       await writeSkillFile(home, "UserSkill", "User skill body");
       const out = await mod.loadSkills({ cwd: null, homeDir: home });
 
-      assert.equal(out.errors.length, 0);
-      assert.equal(out.skills.length, 1);
-      assert.equal(out.skills[0].metadata.name, "UserSkill");
-      assert.equal(out.skills[0].metadata.scope, "user");
+      expect(out.errors.length).toBe(0);
+      expect(out.skills.length).toBe(1);
+      expect(out.skills[0].metadata.name).toBe("UserSkill");
+      expect(out.skills[0].metadata.scope).toBe("user");
     } finally {
       await cleanupDir(home);
     }
@@ -126,11 +126,11 @@ describe("loader.node.js - loadSkills", async () => {
 
       const out = await mod.loadSkills({ cwd, homeDir: home });
 
-      assert.equal(out.skills.length, 1);
-      assert.equal(out.skills[0].metadata.name, "SharedSkill");
-      assert.equal(out.skills[0].metadata.scope, "repo");
-      assert.equal(out.skills[0].metadata.description, "repo version");
-      assert.ok(out.skills[0].body.includes("from repo"));
+      expect(out.skills.length).toBe(1);
+      expect(out.skills[0].metadata.name).toBe("SharedSkill");
+      expect(out.skills[0].metadata.scope).toBe("repo");
+      expect(out.skills[0].metadata.description).toBe("repo version");
+      expect(out.skills[0].body.includes("from repo")).toBeTruthy();
     } finally {
       await cleanupDir(cwd);
       await cleanupDir(home);
@@ -156,10 +156,8 @@ describe("loader.node.js - loadSkills", async () => {
 
       const out = await mod.loadSkills({ cwd, homeDir: home });
 
-      assert.equal(out.skills.length, 3);
-      assert.deepEqual(
-        out.skills.map((s) => s.metadata.name),
-        ["AlphaSkill", "BetaSkill", "ZetaSkill"]
+      expect(out.skills.length).toBe(3);
+      expect(out.skills.map((s) => s.metadata.name)).toEqual(["AlphaSkill", "BetaSkill", "ZetaSkill"]
       );
     } finally {
       await cleanupDir(cwd);
@@ -181,8 +179,8 @@ describe("loader.node.js - loadSkills", async () => {
 
       const out = await mod.loadSkills({ cwd, homeDir: null });
 
-      assert.equal(out.skills.length, 1);
-      assert.equal(out.skills[0].metadata.name, "VisibleSkill");
+      expect(out.skills.length).toBe(1);
+      expect(out.skills[0].metadata.name).toBe("VisibleSkill");
     } finally {
       await cleanupDir(cwd);
     }
@@ -197,9 +195,9 @@ describe("loader.node.js - loadSkills", async () => {
 
       const out = await mod.loadSkills({ cwd, homeDir: null });
 
-      assert.equal(out.skills.length, 0);
-      assert.equal(out.errors.length, 1);
-      assert.ok(out.errors[0].message.toLowerCase().includes("frontmatter"));
+      expect(out.skills.length).toBe(0);
+      expect(out.errors.length).toBe(1);
+      expect(out.errors[0].message.toLowerCase().toBeTruthy().includes("frontmatter"));
     } finally {
       await cleanupDir(cwd);
     }
@@ -216,8 +214,8 @@ describe("loader.node.js - loadSkills", async () => {
       const out = await mod.loadSkills({ cwd, homeDir: null });
 
       // Should not throw, just return empty or with errors
-      assert.ok(Array.isArray(out.skills));
-      assert.ok(Array.isArray(out.errors));
+      expect(Array.isArray(out.skills)).toBeTruthy();
+      expect(Array.isArray(out.errors)).toBeTruthy();
     } finally {
       await cleanupDir(cwd);
     }
@@ -243,10 +241,10 @@ describe("loader.node.js - YAML parsing", async () => {
 
       const skill = await mod.loadSkillFromPath(filePath, "user");
 
-      assert.equal(skill.metadata.name, "BasicSkill");
-      assert.equal(skill.metadata.description, "A basic skill");
-      assert.deepEqual(skill.metadata.keywords, ["a", "b", "c"]);
-      assert.equal(skill.metadata.priority, 42);
+      expect(skill.metadata.name).toBe("BasicSkill");
+      expect(skill.metadata.description).toBe("A basic skill");
+      expect(skill.metadata.keywords).toEqual(["a", "b", "c"]);
+      expect(skill.metadata.priority).toBe(42);
     } finally {
       await cleanupDir(cwd);
     }
@@ -262,8 +260,8 @@ describe("loader.node.js - YAML parsing", async () => {
 
       const skill = await mod.loadSkillFromPath(filePath, "user");
 
-      assert.equal(skill.metadata.name, "MultilineSkill");
-      assert.equal(skill.metadata.description, "line1 line2");
+      expect(skill.metadata.name).toBe("MultilineSkill");
+      expect(skill.metadata.description).toBe("line1 line2");
     } finally {
       await cleanupDir(cwd);
     }
@@ -282,9 +280,9 @@ describe("loader.node.js - YAML parsing", async () => {
 
       const skill = await mod.loadSkillFromPath(filePath, "user");
 
-      assert.equal(skill.metadata.shortDescription, "short");
-      assert.deepEqual(skill.metadata.keywordsAll, ["x", "y"]);
-      assert.equal(skill.metadata.allowedTools, "tool1,tool2");
+      expect(skill.metadata.shortDescription).toBe("short");
+      expect(skill.metadata.keywordsAll).toEqual(["x", "y"]);
+      expect(skill.metadata.allowedTools).toBe("tool1,tool2");
     } finally {
       await cleanupDir(cwd);
     }
@@ -301,7 +299,7 @@ describe("loader.node.js - YAML parsing", async () => {
 
       const skill = await mod.loadSkillFromPath(filePath, "user");
 
-      assert.deepEqual(skill.metadata.tags, { env: "prod", tier: "premium" });
+      expect(skill.metadata.tags).toEqual({ env: "prod", tier: "premium" });
     } finally {
       await cleanupDir(cwd);
     }
@@ -318,7 +316,7 @@ describe("loader.node.js - YAML parsing", async () => {
 
       const skill = await mod.loadSkillFromPath(filePath, "user");
 
-      assert.deepEqual(skill.metadata.traits, ["fast", "reliable", "secure"]);
+      expect(skill.metadata.traits).toEqual(["fast", "reliable", "secure"]);
     } finally {
       await cleanupDir(cwd);
     }
@@ -334,8 +332,8 @@ describe("loader.node.js - YAML parsing", async () => {
 
       const skill = await mod.loadSkillFromPath(filePath, "user");
 
-      assert.equal(skill.metadata.name, "Quoted Name");
-      assert.equal(skill.metadata.description, "Single quoted");
+      expect(skill.metadata.name).toBe("Quoted Name");
+      expect(skill.metadata.description).toBe("Single quoted");
     } finally {
       await cleanupDir(cwd);
     }
@@ -351,8 +349,8 @@ describe("loader.node.js - YAML parsing", async () => {
 
       const skill = await mod.loadSkillFromPath(filePath, "user");
 
-      assert.equal(skill.metadata.name, "Spacy Skill");
-      assert.equal(skill.metadata.description, "Multiple spaces");
+      expect(skill.metadata.name).toBe("Spacy Skill");
+      expect(skill.metadata.description).toBe("Multiple spaces");
     } finally {
       await cleanupDir(cwd);
     }
@@ -369,8 +367,8 @@ describe("loader.node.js - YAML parsing", async () => {
 
       const skill = await mod.loadSkillFromPath(filePath, "user");
 
-      assert.ok(skill.body.includes("# Instructions"));
-      assert.ok(skill.body.includes("code()"));
+      expect(skill.body.includes("# Instructions")).toBeTruthy();
+      expect(skill.body.includes("code().toBeTruthy()"));
     } finally {
       await cleanupDir(cwd);
     }
@@ -387,8 +385,8 @@ describe("loader.node.js - YAML parsing", async () => {
 
       const skill = await mod.loadSkillFromPath(filePath, "user");
 
-      assert.equal(skill.metadata.name, "CrlfSkill");
-      assert.equal(skill.metadata.description, "test");
+      expect(skill.metadata.name).toBe("CrlfSkill");
+      expect(skill.metadata.description).toBe("test");
     } finally {
       await cleanupDir(cwd);
     }
@@ -410,8 +408,7 @@ describe("loader.node.js - validation", async () => {
       const filePath = path.join(skillsDir, "SKILL.md");
       await fs.writeFile(filePath, "Just plain text, no frontmatter", "utf8");
 
-      await assert.rejects(
-        () => mod.loadSkillFromPath(filePath, "user"),
+      await expect(() => mod.loadSkillFromPath(filePath, "user"),
         /frontmatter/i
       );
     } finally {
@@ -427,8 +424,7 @@ describe("loader.node.js - validation", async () => {
       const filePath = path.join(skillsDir, "SKILL.md");
       await fs.writeFile(filePath, "---\ndescription: has desc\n---\nBody", "utf8");
 
-      await assert.rejects(
-        () => mod.loadSkillFromPath(filePath, "user"),
+      await expect(() => mod.loadSkillFromPath(filePath, "user"),
         /missing field.*name/i
       );
     } finally {
@@ -444,8 +440,7 @@ describe("loader.node.js - validation", async () => {
       const filePath = path.join(skillsDir, "SKILL.md");
       await fs.writeFile(filePath, "---\nname: HasName\n---\nBody", "utf8");
 
-      await assert.rejects(
-        () => mod.loadSkillFromPath(filePath, "user"),
+      await expect(() => mod.loadSkillFromPath(filePath, "user"),
         /missing field.*description/i
       );
     } finally {
@@ -466,8 +461,7 @@ describe("loader.node.js - validation", async () => {
         "utf8"
       );
 
-      await assert.rejects(
-        () => mod.loadSkillFromPath(filePath, "user"),
+      await expect(() => mod.loadSkillFromPath(filePath, "user"),
         /name exceeds maximum length/i
       );
     } finally {
@@ -488,8 +482,7 @@ describe("loader.node.js - validation", async () => {
         "utf8"
       );
 
-      await assert.rejects(
-        () => mod.loadSkillFromPath(filePath, "user"),
+      await expect(() => mod.loadSkillFromPath(filePath, "user"),
         /description exceeds maximum length/i
       );
     } finally {
@@ -506,7 +499,7 @@ describe("loader.node.js - validation", async () => {
       });
 
       const skill = await mod.loadSkillFromPath(filePath, "user");
-      assert.equal(skill.metadata.name.length, 64);
+      expect(skill.metadata.name.length).toBe(64);
     } finally {
       await cleanupDir(cwd);
     }
@@ -521,7 +514,7 @@ describe("loader.node.js - validation", async () => {
       });
 
       const skill = await mod.loadSkillFromPath(filePath, "user");
-      assert.equal(skill.metadata.description.length, 1024);
+      expect(skill.metadata.description.length).toBe(1024);
     } finally {
       await cleanupDir(cwd);
     }
@@ -547,7 +540,7 @@ describe("loader.node.js - fingerprint caching", async () => {
       const second = await mod.loadSkillFromPath(filePath, "user");
 
       // Same object reference due to cache
-      assert.strictEqual(first, second);
+      expect(first).toBe(second);
     } finally {
       await cleanupDir(cwd);
     }
@@ -562,7 +555,7 @@ describe("loader.node.js - fingerprint caching", async () => {
       });
 
       const first = await mod.loadSkillFromPath(filePath, "user");
-      assert.ok(first.body.includes("body v1"));
+      expect(first.body.includes("body v1")).toBeTruthy();
 
       // Modify the file
       await fs.writeFile(
@@ -573,9 +566,9 @@ describe("loader.node.js - fingerprint caching", async () => {
 
       const second = await mod.loadSkillFromPath(filePath, "user");
 
-      assert.notStrictEqual(first, second);
-      assert.ok(second.body.includes("body v2"));
-      assert.equal(second.metadata.description, "version2");
+      expect(first).not.toBe(second);
+      expect(second.body.includes("body v2")).toBeTruthy();
+      expect(second.metadata.description).toBe("version2");
     } finally {
       await cleanupDir(cwd);
     }
@@ -591,7 +584,7 @@ describe("loader.node.js - loadSkillsFromNexus", async () => {
 
   it("returns empty outcome when provider is null", async () => {
     const out = await mod.loadSkillsFromNexus(null);
-    assert.deepEqual(out, { skills: [], errors: [] });
+    expect(out).toEqual({ skills: [], errors: [] });
   });
 
   it("returns empty outcome when provider is unavailable", async () => {
@@ -599,7 +592,7 @@ describe("loader.node.js - loadSkillsFromNexus", async () => {
       isAvailable: async () => false,
     };
     const out = await mod.loadSkillsFromNexus(provider);
-    assert.deepEqual(out, { skills: [], errors: [] });
+    expect(out).toEqual({ skills: [], errors: [] });
   });
 
   it("loads skills from available Nexus provider", async () => {
@@ -616,15 +609,15 @@ describe("loader.node.js - loadSkillsFromNexus", async () => {
 
     const out = await mod.loadSkillsFromNexus(provider);
 
-    assert.equal(out.errors.length, 0);
-    assert.equal(out.skills.length, 1);
-    assert.equal(out.skills[0].metadata.name, "RemoteSkill");
-    assert.equal(out.skills[0].metadata.scope, "remote");
-    assert.equal(out.skills[0].metadata.path, "nexus://RemoteSkill");
-    assert.equal(out.skills[0].metadata.allowedTools, "t1,t2");
-    assert.equal(out.skills[0].metadata.priority, 150);
-    assert.equal(out.skills[0].body, "return 42;");
-    assert.deepEqual(out.skills[0].supportFiles, { "helper.js": "export const x = 1;" });
+    expect(out.errors.length).toBe(0);
+    expect(out.skills.length).toBe(1);
+    expect(out.skills[0].metadata.name).toBe("RemoteSkill");
+    expect(out.skills[0].metadata.scope).toBe("remote");
+    expect(out.skills[0].metadata.path).toBe("nexus://RemoteSkill");
+    expect(out.skills[0].metadata.allowedTools).toBe("t1,t2");
+    expect(out.skills[0].metadata.priority).toBe(150);
+    expect(out.skills[0].body).toBe("return 42;");
+    expect(out.skills[0].supportFiles).toEqual({ "helper.js": "export const x = 1;" });
   });
 
   it("records per-skill errors from Nexus", async () => {
@@ -642,11 +635,11 @@ describe("loader.node.js - loadSkillsFromNexus", async () => {
 
     const out = await mod.loadSkillsFromNexus(provider);
 
-    assert.equal(out.skills.length, 1);
-    assert.equal(out.skills[0].metadata.name, "GoodSkill");
-    assert.equal(out.errors.length, 1);
-    assert.equal(out.errors[0].path, "nexus://BadSkill");
-    assert.ok(out.errors[0].message.includes("content unavailable"));
+    expect(out.skills.length).toBe(1);
+    expect(out.skills[0].metadata.name).toBe("GoodSkill");
+    expect(out.errors.length).toBe(1);
+    expect(out.errors[0].path).toBe("nexus://BadSkill");
+    expect(out.errors[0].message.includes("content unavailable")).toBeTruthy();
   });
 
   it("records connection error when isAvailable throws", async () => {
@@ -658,10 +651,10 @@ describe("loader.node.js - loadSkillsFromNexus", async () => {
 
     const out = await mod.loadSkillsFromNexus(provider);
 
-    assert.equal(out.skills.length, 0);
-    assert.equal(out.errors.length, 1);
-    assert.equal(out.errors[0].path, "nexus://");
-    assert.ok(out.errors[0].message.includes("Failed to connect to Nexus"));
+    expect(out.skills.length).toBe(0);
+    expect(out.errors.length).toBe(1);
+    expect(out.errors[0].path).toBe("nexus://");
+    expect(out.errors[0].message.includes("Failed to connect to Nexus")).toBeTruthy();
   });
 
   it("uses default priority 200 for remote skills without priority", async () => {
@@ -673,7 +666,7 @@ describe("loader.node.js - loadSkillsFromNexus", async () => {
 
     const out = await mod.loadSkillsFromNexus(provider);
 
-    assert.equal(out.skills[0].metadata.priority, 200);
+    expect(out.skills[0].metadata.priority).toBe(200);
   });
 });
 
@@ -700,9 +693,9 @@ describe("loader.node.js - loadAllSkills", async () => {
 
       const out = await mod.loadAllSkills({ cwd, homeDir: null, nexusProvider: provider });
 
-      assert.equal(out.skills.length, 2);
+      expect(out.skills.length).toBe(2);
       const names = out.skills.map((s) => s.metadata.name).sort();
-      assert.deepEqual(names, ["LocalSkill", "RemoteSkill"]);
+      expect(names).toEqual(["LocalSkill", "RemoteSkill"]);
     } finally {
       await cleanupDir(cwd);
     }
@@ -724,10 +717,10 @@ describe("loader.node.js - loadAllSkills", async () => {
 
       const out = await mod.loadAllSkills({ cwd, homeDir: null, nexusProvider: provider });
 
-      assert.equal(out.skills.length, 1);
-      assert.equal(out.skills[0].metadata.name, "SharedSkill");
-      assert.equal(out.skills[0].metadata.scope, "repo");
-      assert.ok(out.skills[0].body.includes("local version"));
+      expect(out.skills.length).toBe(1);
+      expect(out.skills[0].metadata.name).toBe("SharedSkill");
+      expect(out.skills[0].metadata.scope).toBe("repo");
+      expect(out.skills[0].body.includes("local version")).toBeTruthy();
     } finally {
       await cleanupDir(cwd);
     }
@@ -750,10 +743,10 @@ describe("loader.node.js - loadAllSkills", async () => {
 
       const out = await mod.loadAllSkills({ cwd, homeDir: null, nexusProvider: provider });
 
-      assert.equal(out.skills.length, 0);
-      assert.equal(out.errors.length, 2);
-      assert.ok(out.errors.some((e) => e.message.includes("frontmatter")));
-      assert.ok(out.errors.some((e) => e.message.includes("remote error")));
+      expect(out.skills.length).toBe(0);
+      expect(out.errors.length).toBe(2);
+      expect(out.errors.some(e => e.message.includes("frontmatter")).toBeTruthy());
+      expect(out.errors.some(e => e.message.includes("remote error")).toBeTruthy());
     } finally {
       await cleanupDir(cwd);
     }
@@ -769,8 +762,8 @@ describe("loader.node.js - loadAllSkills", async () => {
 
       const out = await mod.loadAllSkills({ cwd, homeDir: null });
 
-      assert.equal(out.skills.length, 1);
-      assert.equal(out.skills[0].metadata.name, "OnlyLocal");
+      expect(out.skills.length).toBe(1);
+      expect(out.skills[0].metadata.name).toBe("OnlyLocal");
     } finally {
       await cleanupDir(cwd);
     }
@@ -794,9 +787,9 @@ describe("loader.node.js - loadSkillFromPath", async () => {
 
       const skill = await mod.loadSkillFromPath(filePath, "user");
 
-      assert.equal(skill.metadata.name, "AbsSkill");
-      assert.equal(skill.metadata.scope, "user");
-      assert.equal(skill.metadata.path, filePath);
+      expect(skill.metadata.name).toBe("AbsSkill");
+      expect(skill.metadata.scope).toBe("user");
+      expect(skill.metadata.path).toBe(filePath);
     } finally {
       await cleanupDir(cwd);
     }
@@ -814,7 +807,7 @@ describe("loader.node.js - loadSkillFromPath", async () => {
       // Note: The cache returns the same object, but scope is set on first load
       // To properly test scope, we need different file paths or clear cache
 
-      assert.equal(asRepo.metadata.scope, "repo");
+      expect(asRepo.metadata.scope).toBe("repo");
     } finally {
       await cleanupDir(cwd);
     }
@@ -835,7 +828,7 @@ describe("loader.node.js - loadSkillFromPath", async () => {
 
       const skill = await mod.loadSkillFromPath(filePath);
 
-      assert.equal(skill.metadata.scope, "user");
+      expect(skill.metadata.scope).toBe("user");
     } finally {
       await cleanupDir(cwd);
     }
@@ -864,9 +857,9 @@ describe("loader.node.js - three-tier priority", async () => {
 
       const out = await mod.loadSkills({ cwd, homeDir: home });
 
-      assert.equal(out.skills.length, 1);
-      assert.equal(out.skills[0].metadata.scope, "repo");
-      assert.ok(out.skills[0].body.includes("repo wins"));
+      expect(out.skills.length).toBe(1);
+      expect(out.skills[0].metadata.scope).toBe("repo");
+      expect(out.skills[0].body.includes("repo wins")).toBeTruthy();
     } finally {
       await cleanupDir(cwd);
       await cleanupDir(home);
@@ -890,8 +883,8 @@ describe("loader.node.js - three-tier priority", async () => {
       const out = await mod.loadAllSkills({ cwd: null, homeDir: home, nexusProvider: provider });
 
       const skill = out.skills.find((s) => s.metadata.name === "UserRemoteSkill");
-      assert.equal(skill.metadata.scope, "user");
-      assert.ok(skill.body.includes("user wins"));
+      expect(skill.metadata.scope).toBe("user");
+      expect(skill.body.includes("user wins")).toBeTruthy();
     } finally {
       await cleanupDir(home);
     }
@@ -920,8 +913,8 @@ describe("loader.node.js - three-tier priority", async () => {
       const out = await mod.loadAllSkills({ cwd, homeDir: home, nexusProvider: provider });
 
       const skill = out.skills.find((s) => s.metadata.name === "ChainSkill");
-      assert.equal(skill.metadata.scope, "repo");
-      assert.ok(skill.body.includes("repo body"));
+      expect(skill.metadata.scope).toBe("repo");
+      expect(skill.body.includes("repo body")).toBeTruthy();
     } finally {
       await cleanupDir(cwd);
       await cleanupDir(home);
@@ -944,7 +937,7 @@ describe("loader.node.js - edge cases", async () => {
 
       const out = await mod.loadSkills({ cwd, homeDir: null });
 
-      assert.deepEqual(out, { skills: [], errors: [] });
+      expect(out).toEqual({ skills: [], errors: [] });
     } finally {
       await cleanupDir(cwd);
     }
@@ -963,8 +956,8 @@ describe("loader.node.js - edge cases", async () => {
 
       const out = await mod.loadSkills({ cwd, homeDir: null });
 
-      assert.equal(out.skills.length, 1);
-      assert.equal(out.skills[0].metadata.name, "DeepSkill");
+      expect(out.skills.length).toBe(1);
+      expect(out.skills[0].metadata.name).toBe("DeepSkill");
     } finally {
       await cleanupDir(cwd);
     }
@@ -980,8 +973,8 @@ describe("loader.node.js - edge cases", async () => {
 
       const skill = await mod.loadSkillFromPath(filePath, "user");
 
-      assert.deepEqual(skill.metadata.keywords, []);
-      assert.deepEqual(skill.metadata.keywordsAll, []);
+      expect(skill.metadata.keywords).toEqual([]);
+      expect(skill.metadata.keywordsAll).toEqual([]);
     } finally {
       await cleanupDir(cwd);
     }
@@ -997,8 +990,8 @@ describe("loader.node.js - edge cases", async () => {
 
       const skill = await mod.loadSkillFromPath(filePath, "user");
 
-      assert.equal(skill.metadata.name, "EmptyBodySkill");
-      assert.equal(skill.body, "");
+      expect(skill.metadata.name).toBe("EmptyBodySkill");
+      expect(skill.body).toBe("");
     } finally {
       await cleanupDir(cwd);
     }
@@ -1012,8 +1005,7 @@ describe("loader.node.js - edge cases", async () => {
       const filePath = path.join(skillsDir, "SKILL.md");
       await fs.writeFile(filePath, "---\nname: Test\ndescription: test\nNo closing", "utf8");
 
-      await assert.rejects(
-        () => mod.loadSkillFromPath(filePath, "user"),
+      await expect(() => mod.loadSkillFromPath(filePath, "user"),
         /frontmatter/i
       );
     } finally {
@@ -1032,7 +1024,7 @@ describe("loader.node.js - edge cases", async () => {
 
       const skill = await mod.loadSkillFromPath(filePath, "user");
 
-      assert.equal(skill.metadata.priority, 100);
+      expect(skill.metadata.priority).toBe(100);
     } finally {
       await cleanupDir(cwd);
     }
@@ -1049,7 +1041,7 @@ describe("loader.node.js - edge cases", async () => {
 
       const skill = await mod.loadSkillFromPath(filePath, "user");
 
-      assert.deepEqual(skill.metadata.tags, { key1: "", key2: "value" });
+      expect(skill.metadata.tags).toEqual({ key1: "", key2: "value" });
     } finally {
       await cleanupDir(cwd);
     }

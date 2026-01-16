@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import {
   SkillScope,
@@ -9,37 +9,37 @@ import {
 describe("skills/model", () => {
   describe("SkillScope", () => {
     it("exports frozen object", () => {
-      assert.ok(Object.isFrozen(SkillScope));
+      expect(Object.isFrozen(SkillScope)).toBeTruthy();
     });
 
     it("has SYSTEM scope", () => {
-      assert.equal(SkillScope.SYSTEM, "system");
+      expect(SkillScope.SYSTEM).toBe("system");
     });
 
     it("has USER scope", () => {
-      assert.equal(SkillScope.USER, "user");
+      expect(SkillScope.USER).toBe("user");
     });
 
     it("has REPO scope", () => {
-      assert.equal(SkillScope.REPO, "repo");
+      expect(SkillScope.REPO).toBe("repo");
     });
 
     it("has REMOTE scope", () => {
-      assert.equal(SkillScope.REMOTE, "remote");
+      expect(SkillScope.REMOTE).toBe("remote");
     });
   });
 
   describe("SkillRuntime", () => {
     it("exports frozen object", () => {
-      assert.ok(Object.isFrozen(SkillRuntime));
+      expect(Object.isFrozen(SkillRuntime)).toBeTruthy();
     });
 
     it("has JS runtime", () => {
-      assert.equal(SkillRuntime.JS, "js");
+      expect(SkillRuntime.JS).toBe("js");
     });
 
     it("has PYTHON runtime", () => {
-      assert.equal(SkillRuntime.PYTHON, "python");
+      expect(SkillRuntime.PYTHON).toBe("python");
     });
   });
 });

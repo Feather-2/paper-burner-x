@@ -1,8 +1,8 @@
 /**
  * Middleware Chain 单元测试
  */
-import { describe, it, beforeEach } from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import {
   Stage,
   MiddlewareChain,
@@ -21,13 +21,13 @@ describe("middleware-chain", () => {
   // ===== Stage 常量 =====
   describe("Stage constants", () => {
     it("should export frozen Stage object with lifecycle phases", () => {
-      assert.ok(Object.isFrozen(Stage));
-      assert.strictEqual(Stage.BEFORE_AGENT, "beforeAgent");
-      assert.strictEqual(Stage.BEFORE_MODEL, "beforeModel");
-      assert.strictEqual(Stage.AFTER_MODEL, "afterModel");
-      assert.strictEqual(Stage.BEFORE_TOOL, "beforeTool");
-      assert.strictEqual(Stage.AFTER_TOOL, "afterTool");
-      assert.strictEqual(Stage.AFTER_AGENT, "afterAgent");
+      expect(Object.isFrozen(Stage)).toBeTruthy();
+      expect(Stage.BEFORE_AGENT).toBe("beforeAgent");
+      expect(Stage.BEFORE_MODEL).toBe("beforeModel");
+      expect(Stage.AFTER_MODEL).toBe("afterModel");
+      expect(Stage.BEFORE_TOOL).toBe("beforeTool");
+      expect(Stage.AFTER_TOOL).toBe("afterTool");
+      expect(Stage.AFTER_AGENT).toBe("afterAgent");
     });
   });
 
@@ -36,18 +36,18 @@ describe("middleware-chain", () => {
       const module = await import("../../../js/agents/runtime/middleware/middleware-chain.js");
       const defaults = module.default;
 
-      assert.ok(defaults);
-      assert.strictEqual(defaults.Stage, Stage);
-      assert.strictEqual(defaults.MiddlewareChain, MiddlewareChain);
-      assert.strictEqual(defaults.createLoggingMiddleware, createLoggingMiddleware);
-      assert.strictEqual(defaults.createTelemetryMiddleware, createTelemetryMiddleware);
-      assert.strictEqual(defaults.createCancellationMiddleware, createCancellationMiddleware);
-      assert.strictEqual(defaults.createTimeoutMiddleware, createTimeoutMiddleware);
-      assert.strictEqual(defaults.createRetryMiddleware, createRetryMiddleware);
-      assert.strictEqual(defaults.createSnapshotMiddleware, createSnapshotMiddleware);
-      assert.strictEqual(defaults.createShadowSystemMiddleware, createShadowSystemMiddleware);
-      assert.strictEqual(defaults.createBlackboardMiddleware, createBlackboardMiddleware);
-      assert.strictEqual(defaults.createDefaultMiddlewareChain, createDefaultMiddlewareChain);
+      expect(defaults).toBeTruthy();
+      expect(defaults.Stage).toBe(Stage);
+      expect(defaults.MiddlewareChain).toBe(MiddlewareChain);
+      expect(defaults.createLoggingMiddleware).toBe(createLoggingMiddleware);
+      expect(defaults.createTelemetryMiddleware).toBe(createTelemetryMiddleware);
+      expect(defaults.createCancellationMiddleware).toBe(createCancellationMiddleware);
+      expect(defaults.createTimeoutMiddleware).toBe(createTimeoutMiddleware);
+      expect(defaults.createRetryMiddleware).toBe(createRetryMiddleware);
+      expect(defaults.createSnapshotMiddleware).toBe(createSnapshotMiddleware);
+      expect(defaults.createShadowSystemMiddleware).toBe(createShadowSystemMiddleware);
+      expect(defaults.createBlackboardMiddleware).toBe(createBlackboardMiddleware);
+      expect(defaults.createDefaultMiddlewareChain).toBe(createDefaultMiddlewareChain);
     });
   });
 
@@ -72,21 +72,21 @@ describe("middleware-chain", () => {
 
         await chain.execute({});
 
-        assert.deepStrictEqual(order, ["A-before", "B-before", "B-after", "A-after"]);
+        expect(order).toEqual(["A-before", "B-before", "B-after", "A-after"]);
       });
 
       it("should throw TypeError when middleware is not a function", () => {
         const chain = new MiddlewareChain();
-        assert.throws(() => chain.use("not a function"), TypeError);
-        assert.throws(() => chain.use(null), TypeError);
-        assert.throws(() => chain.use(123), TypeError);
-        assert.throws(() => chain.use({}), TypeError);
+        expect(() => chain.use("not a function")).toThrow(TypeError);
+        expect(() => chain.use(null)).toThrow(TypeError);
+        expect(() => chain.use(123)).toThrow(TypeError);
+        expect(() => chain.use({})).toThrow(TypeError);
       });
 
       it("should return chain for fluent chaining", () => {
         const chain = new MiddlewareChain();
         const result = chain.use(async (ctx, next) => next());
-        assert.strictEqual(result, chain);
+        expect(result).toBe(chain);
       });
 
       it("should pass context through chain", async () => {
@@ -105,7 +105,7 @@ describe("middleware-chain", () => {
         const ctx = {};
         await chain.execute(ctx);
 
-        assert.strictEqual(ctx.value, 11);
+        expect(ctx.value).toBe(11);
       });
     });
 
@@ -121,19 +121,18 @@ describe("middleware-chain", () => {
         ]);
 
         await chain.execute({});
-        assert.deepStrictEqual(order, [1, 2, 3]);
+        expect(order).toEqual([1, 2, 3]);
       });
 
       it("should return chain for fluent chaining", () => {
         const chain = new MiddlewareChain();
         const result = chain.useAll([async (ctx, next) => next()]);
-        assert.strictEqual(result, chain);
+        expect(result).toBe(chain);
       });
 
       it("should throw TypeError for invalid middleware in array", () => {
         const chain = new MiddlewareChain();
-        assert.throws(
-          () => chain.useAll([async (ctx, next) => next(), "invalid"]),
+        expect(() => chain.useAll([async (ctx, next).toThrow() => next(), "invalid"]),
           TypeError
         );
       });
@@ -149,7 +148,7 @@ describe("middleware-chain", () => {
         chain.insertAt(1, async (ctx, next) => { order.push(2); return next(); });
 
         await chain.execute({});
-        assert.deepStrictEqual(order, [1, 2, 3]);
+        expect(order).toEqual([1, 2, 3]);
       });
 
       it("should insert at beginning when index is 0", async () => {
@@ -160,19 +159,19 @@ describe("middleware-chain", () => {
         chain.insertAt(0, async (ctx, next) => { order.push(1); return next(); });
 
         await chain.execute({});
-        assert.deepStrictEqual(order, [1, 2]);
+        expect(order).toEqual([1, 2]);
       });
 
       it("should throw TypeError when middleware is not a function", () => {
         const chain = new MiddlewareChain();
-        assert.throws(() => chain.insertAt(0, "not a function"), TypeError);
-        assert.throws(() => chain.insertAt(0, null), TypeError);
+        expect(() => chain.insertAt(0, "not a function")).toThrow(TypeError);
+        expect(() => chain.insertAt(0, null)).toThrow(TypeError);
       });
 
       it("should return chain for fluent chaining", () => {
         const chain = new MiddlewareChain();
         const result = chain.insertAt(0, async (ctx, next) => next());
-        assert.strictEqual(result, chain);
+        expect(result).toBe(chain);
       });
     });
 
@@ -188,10 +187,10 @@ describe("middleware-chain", () => {
         chain.use(async (ctx, next) => { order.push(3); return next(); });
 
         const removed = chain.remove(mw2);
-        assert.strictEqual(removed, true);
+        expect(removed).toBe(true);
 
         await chain.execute({});
-        assert.deepStrictEqual(order, [1, 3]);
+        expect(order).toEqual([1, 3]);
       });
 
       it("should return false when middleware not found", () => {
@@ -200,13 +199,13 @@ describe("middleware-chain", () => {
 
         const notAdded = async (ctx, next) => next();
         const removed = chain.remove(notAdded);
-        assert.strictEqual(removed, false);
+        expect(removed).toBe(false);
       });
 
       it("should return false when chain is empty", () => {
         const chain = new MiddlewareChain();
         const removed = chain.remove(async (ctx, next) => next());
-        assert.strictEqual(removed, false);
+        expect(removed).toBe(false);
       });
     });
 
@@ -225,8 +224,8 @@ describe("middleware-chain", () => {
           return "final-result";
         });
 
-        assert.strictEqual(finalCalled, true);
-        assert.strictEqual(result, "final-result");
+        expect(finalCalled).toBe(true);
+        expect(result).toBe("final-result");
       });
 
       it("should return ctx when no final handler", async () => {
@@ -239,21 +238,21 @@ describe("middleware-chain", () => {
         const ctx = { original: true };
         const result = await chain.execute(ctx);
 
-        assert.strictEqual(result, ctx);
-        assert.strictEqual(result.modified, true);
+        expect(result).toBe(ctx);
+        expect(result.modified).toBe(true);
       });
 
       it("should execute empty chain and return ctx", async () => {
         const chain = new MiddlewareChain();
         const ctx = { test: "value" };
         const result = await chain.execute(ctx);
-        assert.strictEqual(result, ctx);
+        expect(result).toBe(ctx);
       });
 
       it("should execute empty chain with final handler", async () => {
         const chain = new MiddlewareChain();
         const result = await chain.execute({}, () => "handler-result");
-        assert.strictEqual(result, "handler-result");
+        expect(result).toBe("handler-result");
       });
 
       it("should propagate errors from middleware", async () => {
@@ -263,9 +262,7 @@ describe("middleware-chain", () => {
           throw new Error("Test error");
         });
 
-        await assert.rejects(
-          () => chain.execute({}),
-          { message: "Test error" }
+        await expect(() => chain.execute({})).rejects.toThrow({ message: "Test error" }
         );
       });
 
@@ -273,8 +270,7 @@ describe("middleware-chain", () => {
         const chain = new MiddlewareChain();
         chain.use(async (ctx, next) => next());
 
-        await assert.rejects(
-          () => chain.execute({}, () => { throw new Error("Handler error"); }),
+        await expect(() => chain.execute({}, () => { throw new Error("Handler error"); }),
           { message: "Handler error" }
         );
       });
@@ -294,8 +290,8 @@ describe("middleware-chain", () => {
         });
 
         const result = await chain.execute({});
-        assert.deepStrictEqual(order, ["first"]);
-        assert.strictEqual(result, "short-circuited");
+        expect(order).toEqual(["first"]);
+        expect(result).toBe("short-circuited");
       });
 
       it("should allow middleware to modify result", async () => {
@@ -307,18 +303,18 @@ describe("middleware-chain", () => {
         });
 
         const result = await chain.execute({}, () => "original");
-        assert.strictEqual(result, "original-modified");
+        expect(result).toBe("original-modified");
       });
     });
 
     describe("length", () => {
       it("should report correct middleware count", () => {
         const chain = new MiddlewareChain();
-        assert.strictEqual(chain.length, 0);
+        expect(chain.length).toBe(0);
 
         chain.use(async (ctx, next) => next());
         chain.use(async (ctx, next) => next());
-        assert.strictEqual(chain.length, 2);
+        expect(chain.length).toBe(2);
       });
     });
 
@@ -327,16 +323,16 @@ describe("middleware-chain", () => {
         const chain = new MiddlewareChain();
         chain.use(async (ctx, next) => next());
         chain.use(async (ctx, next) => next());
-        assert.strictEqual(chain.length, 2);
+        expect(chain.length).toBe(2);
 
         chain.clear();
-        assert.strictEqual(chain.length, 0);
+        expect(chain.length).toBe(0);
       });
 
       it("should work on empty chain", () => {
         const chain = new MiddlewareChain();
         chain.clear();
-        assert.strictEqual(chain.length, 0);
+        expect(chain.length).toBe(0);
       });
     });
   });
@@ -355,9 +351,9 @@ describe("middleware-chain", () => {
 
       await chain.execute({ stepName: "test-step" });
 
-      assert.ok(logs.some(l => l.level === "debug" && l.msg.includes("test-step started")));
-      assert.ok(logs.some(l => l.level === "debug" && l.msg.includes("test-step completed")));
-      assert.ok(logs.some(l => l.msg.includes("ms")));
+      expect(logs.some(l => l.level === "debug" && l.msg.includes("test-step started"))).toBeTruthy();
+      expect(logs.some(l => l.level === "debug" && l.msg.includes("test-step completed"))).toBeTruthy();
+      expect(logs.some(l => l.msg.includes("ms"))).toBeTruthy();
     });
 
     it("should use custom prefix", async () => {
@@ -369,7 +365,7 @@ describe("middleware-chain", () => {
 
       await chain.execute({ stepName: "step" });
 
-      assert.ok(logs.some(l => l.includes("[Custom]")));
+      expect(logs.some(l => l.includes("[Custom]"))).toBeTruthy();
     });
 
     it("should use phase as fallback for stepName", async () => {
@@ -381,7 +377,7 @@ describe("middleware-chain", () => {
 
       await chain.execute({ phase: "model-call" });
 
-      assert.ok(logs.some(l => l.includes("model-call")));
+      expect(logs.some(l => l.includes("model-call"))).toBeTruthy();
     });
 
     it("should default to 'step' when no stepName or phase", async () => {
@@ -393,7 +389,7 @@ describe("middleware-chain", () => {
 
       await chain.execute({});
 
-      assert.ok(logs.some(l => l.includes("step started")));
+      expect(logs.some(l => l.includes("step started"))).toBeTruthy();
     });
 
     it("should log errors with duration", async () => {
@@ -407,10 +403,10 @@ describe("middleware-chain", () => {
       chain.use(createLoggingMiddleware({ logger }));
       chain.use(async () => { throw new Error("Test failure"); });
 
-      await assert.rejects(() => chain.execute({ stepName: "failing-step" }));
+      await expect(() => chain.execute({ stepName: "failing-step" }));
 
-      assert.ok(logs.some(l => l.level === "error" && l.msg.includes("failing-step failed")));
-      assert.ok(logs.some(l => l.msg.includes("Test failure")));
+      expect(logs.some(l => l.level === "error" && l.msg.includes("failing-step failed"))).toBeTruthy();
+      expect(logs.some(l => l.msg.includes("Test failure"))).toBeTruthy();
     });
 
     it("should work without logger", async () => {
@@ -431,9 +427,9 @@ describe("middleware-chain", () => {
 
       await chain.execute({ stepName: "my-step" });
 
-      assert.ok(events.some(e => e.name === "test.middleware.my-step.started"));
-      assert.ok(events.some(e => e.name === "test.middleware.my-step.completed"));
-      assert.ok(events.some(e => e.payload.status === "success"));
+      expect(events.some(e => e.name === "test.middleware.my-step.started")).toBeTruthy();
+      expect(events.some(e => e.name === "test.middleware.my-step.completed")).toBeTruthy();
+      expect(events.some(e => e.payload.status === "success")).toBeTruthy();
     });
 
     it("should use ctx.emit if provided", async () => {
@@ -445,7 +441,7 @@ describe("middleware-chain", () => {
 
       await chain.execute({ stepName: "step", emit: ctxEmit });
 
-      assert.ok(events.some(e => e.name === "agent.middleware.step.started"));
+      expect(events.some(e => e.name === "agent.middleware.step.started")).toBeTruthy();
     });
 
     it("should emit failed event on error", async () => {
@@ -456,13 +452,13 @@ describe("middleware-chain", () => {
       chain.use(createTelemetryMiddleware({ emit, stageName: "test", actor: "agent" }));
       chain.use(async () => { throw new Error("Telemetry test error"); });
 
-      await assert.rejects(() => chain.execute({ stepName: "failing" }));
+      await expect(() => chain.execute({ stepName: "failing" }));
 
       const failedEvent = events.find(e => e.name === "test.middleware.failing.failed");
-      assert.ok(failedEvent);
-      assert.strictEqual(failedEvent.payload.status, "error");
-      assert.ok(failedEvent.payload.payload.error.includes("Telemetry test error"));
-      assert.ok(failedEvent.payload.payload.duration >= 0);
+      expect(failedEvent).toBeTruthy();
+      expect(failedEvent.payload.status).toBe("error");
+      expect(failedEvent.payload.payload.error.includes("Telemetry test error")).toBeTruthy();
+      expect(failedEvent.payload.payload.duration >= 0).toBeTruthy();
     });
 
     it("should include duration in events", async () => {
@@ -475,7 +471,7 @@ describe("middleware-chain", () => {
       await chain.execute({ stepName: "step" });
 
       const completedEvent = events.find(e => e.name.includes("completed"));
-      assert.ok(typeof completedEvent.payload.payload.duration === "number");
+      expect(typeof completedEvent.payload.payload.duration === "number").toBeTruthy();
     });
   });
 
@@ -502,9 +498,7 @@ describe("middleware-chain", () => {
       const controller = new AbortController();
       controller.abort("User cancelled");
 
-      await assert.rejects(
-        () => chain.execute({ signal: controller.signal }),
-        { message: "User cancelled" }
+      await expect(() => chain.execute({ signal: controller.signal })).rejects.toThrow({ message: "User cancelled" }
       );
     });
 
@@ -515,9 +509,7 @@ describe("middleware-chain", () => {
       const controller = new AbortController();
       controller.abort();
 
-      await assert.rejects(
-        () => chain.execute({ signal: controller.signal }),
-        { message: "Run cancelled" }
+      await expect(() => chain.execute({ signal: controller.signal })).rejects.toThrow({ message: "Run cancelled" }
       );
     });
 
@@ -528,9 +520,7 @@ describe("middleware-chain", () => {
       const controller = new AbortController();
       controller.abort({ code: "TIMEOUT" });
 
-      await assert.rejects(
-        () => chain.execute({ signal: controller.signal }),
-        { message: "Run cancelled" }
+      await expect(() => chain.execute({ signal: controller.signal })).rejects.toThrow({ message: "Run cancelled" }
       );
     });
   });
@@ -567,8 +557,7 @@ describe("middleware-chain", () => {
         await new Promise(() => {});
       });
 
-      await assert.rejects(
-        () => chain.execute({}),
+      await expect(() => chain.execute({}),
         (err) => err.code === "TIMEOUT" && err.message.includes("timeout")
       );
     });
@@ -591,11 +580,11 @@ describe("middleware-chain", () => {
         await new Promise(() => {});
       });
 
-      await assert.rejects(() => chain.execute({ testValue: 123 }));
+      await expect(() => chain.execute({ testValue: 123 }));
 
-      assert.strictEqual(callbackCalled, true);
-      assert.strictEqual(callbackCtx.testValue, 123);
-      assert.strictEqual(callbackErr.code, "TIMEOUT");
+      expect(callbackCalled).toBe(true);
+      expect(callbackCtx.testValue).toBe(123);
+      expect(callbackErr.code).toBe("TIMEOUT");
     });
 
     it("should clear timeout when next completes before timeout", async () => {
@@ -603,7 +592,7 @@ describe("middleware-chain", () => {
       chain.use(createTimeoutMiddleware({ timeout: 100 }));
 
       const result = await chain.execute({}, () => "completed");
-      assert.strictEqual(result, "completed");
+      expect(result).toBe("completed");
     });
 
     it("should clear timeout when next throws", async () => {
@@ -611,9 +600,7 @@ describe("middleware-chain", () => {
       chain.use(createTimeoutMiddleware({ timeout: 100 }));
       chain.use(async () => { throw new Error("Inner error"); });
 
-      await assert.rejects(
-        () => chain.execute({}),
-        { message: "Inner error" }
+      await expect(() => chain.execute({})).rejects.toThrow({ message: "Inner error" }
       );
     });
   });
@@ -631,8 +618,8 @@ describe("middleware-chain", () => {
 
       const ctx = {};
       await chain.execute(ctx);
-      assert.strictEqual(ctx.result, "success");
-      assert.strictEqual(ctx._retryAttempt, 2);
+      expect(ctx.result).toBe("success");
+      expect(ctx._retryAttempt).toBe(2);
     });
 
     it("should throw after max retries exhausted", async () => {
@@ -644,11 +631,9 @@ describe("middleware-chain", () => {
         throw new Error("Always fails");
       });
 
-      await assert.rejects(
-        () => chain.execute({}),
-        { message: "Always fails" }
+      await expect(() => chain.execute({})).rejects.toThrow({ message: "Always fails" }
       );
-      assert.strictEqual(attempts, 3); // 1 initial + 2 retries
+      expect(attempts).toBe(3); // 1 initial + 2 retries
     });
 
     it("should respect shouldRetry returning false", async () => {
@@ -665,8 +650,8 @@ describe("middleware-chain", () => {
         throw new Error("permanent failure");
       });
 
-      await assert.rejects(() => chain.execute({}));
-      assert.strictEqual(attempts, 1);
+      await expect(() => chain.execute({}));
+      expect(attempts).toBe(1);
     });
 
     it("should retry when shouldRetry is undefined", async () => {
@@ -686,10 +671,10 @@ describe("middleware-chain", () => {
       const ctx = {};
       const result = await chain.execute(ctx);
 
-      assert.strictEqual(result, "ok");
-      assert.strictEqual(ctx.result, "ok");
-      assert.strictEqual(attempts, 2);
-      assert.strictEqual(ctx._retryAttempt, 1);
+      expect(result).toBe("ok");
+      expect(ctx.result).toBe("ok");
+      expect(attempts).toBe(2);
+      expect(ctx._retryAttempt).toBe(1);
     });
 
     it("should pass attempt number to shouldRetry", async () => {
@@ -708,8 +693,8 @@ describe("middleware-chain", () => {
         throw new Error("failure");
       });
 
-      await assert.rejects(() => chain.execute({}));
-      assert.deepStrictEqual(attemptsSeen, [0, 1, 2]);
+      await expect(() => chain.execute({}));
+      expect(attemptsSeen).toEqual([0).rejects.toThrow(1, 2]);
     });
 
     it("should increase delay with each retry", async () => {
@@ -727,7 +712,7 @@ describe("middleware-chain", () => {
       await chain.execute({});
       const elapsed = Date.now() - startTime;
       // Should have delays: 10ms (attempt 1) + 20ms (attempt 2) = 30ms minimum
-      assert.ok(elapsed >= 25, `Expected >=25ms, got ${elapsed}ms`);
+      expect(elapsed >= 25, `Expected >=25ms, got ${elapsed}ms`).toBeTruthy();
     });
 
     it("should not retry when maxRetries is 0", async () => {
@@ -740,8 +725,8 @@ describe("middleware-chain", () => {
         throw new Error("failure");
       });
 
-      await assert.rejects(() => chain.execute({}));
-      assert.strictEqual(attempts, 1);
+      await expect(() => chain.execute({}));
+      expect(attempts).toBe(1);
     });
 
     it("should succeed on first attempt without retry", async () => {
@@ -754,8 +739,8 @@ describe("middleware-chain", () => {
 
       const ctx = {};
       await chain.execute(ctx);
-      assert.strictEqual(ctx.value, "immediate");
-      assert.strictEqual(ctx._retryAttempt, 0);
+      expect(ctx.value).toBe("immediate");
+      expect(ctx._retryAttempt).toBe(0);
     });
   });
 
@@ -775,8 +760,8 @@ describe("middleware-chain", () => {
       const ctx = { value: 0 };
       await chain.execute(ctx, () => "done");
 
-      assert.deepStrictEqual(ctx._beforeSnapshot, { value: 0 });
-      assert.deepStrictEqual(ctx._afterSnapshot, { value: 42, result: "done" });
+      expect(ctx._beforeSnapshot).toEqual({ value: 0 });
+      expect(ctx._afterSnapshot).toEqual({ value: 42, result: "done" });
     });
 
     it("should work with only onBeforeSnapshot", async () => {
@@ -788,8 +773,8 @@ describe("middleware-chain", () => {
       const ctx = { data: "test" };
       await chain.execute(ctx);
 
-      assert.deepStrictEqual(ctx._beforeSnapshot, { captured: "test" });
-      assert.strictEqual(ctx._afterSnapshot, undefined);
+      expect(ctx._beforeSnapshot).toEqual({ captured: "test" });
+      expect(ctx._afterSnapshot).toBe(undefined);
     });
 
     it("should work with only onAfterSnapshot", async () => {
@@ -801,8 +786,8 @@ describe("middleware-chain", () => {
       const ctx = {};
       await chain.execute(ctx, () => "final");
 
-      assert.strictEqual(ctx._beforeSnapshot, undefined);
-      assert.deepStrictEqual(ctx._afterSnapshot, { result: "final" });
+      expect(ctx._beforeSnapshot).toBe(undefined);
+      expect(ctx._afterSnapshot).toEqual({ result: "final" });
     });
 
     it("should work with no snapshot functions", async () => {
@@ -811,7 +796,7 @@ describe("middleware-chain", () => {
 
       const ctx = {};
       const result = await chain.execute(ctx, () => "pass-through");
-      assert.strictEqual(result, "pass-through");
+      expect(result).toBe("pass-through");
     });
 
     it("should handle async snapshot functions", async () => {
@@ -830,8 +815,8 @@ describe("middleware-chain", () => {
       const ctx = {};
       await chain.execute(ctx, () => "async-done");
 
-      assert.deepStrictEqual(ctx._beforeSnapshot, { async: true });
-      assert.deepStrictEqual(ctx._afterSnapshot, { asyncResult: "async-done" });
+      expect(ctx._beforeSnapshot).toEqual({ async: true });
+      expect(ctx._afterSnapshot).toEqual({ asyncResult: "async-done" });
     });
   });
 
@@ -849,7 +834,7 @@ describe("middleware-chain", () => {
       const ctx = {};
       await chain.execute(ctx);
 
-      assert.deepStrictEqual(ctx.shadowHints, {
+      expect(ctx.shadowHints).toEqual({
         system: "You are a helpful assistant.",
         memory: { key: "value" },
       });
@@ -869,12 +854,12 @@ describe("middleware-chain", () => {
       };
       await chain.execute(ctx);
 
-      assert.strictEqual(ctx.messages.length, 3);
+      expect(ctx.messages.length).toBe(3);
       const shadowMsg = ctx.messages.find(m =>
         m.role === "system" && m.content.includes("[Shadow System]")
       );
-      assert.ok(shadowMsg);
-      assert.ok(shadowMsg.content.includes("Shadow hint content"));
+      expect(shadowMsg).toBeTruthy();
+      expect(shadowMsg.content.includes("Shadow hint content")).toBeTruthy();
     });
 
     it("should insert shadow message before last user/tool message", async () => {
@@ -897,7 +882,7 @@ describe("middleware-chain", () => {
       const shadowIdx = ctx.messages.findIndex(m =>
         m.content.includes("[Shadow System]")
       );
-      assert.ok(shadowIdx < userIdx);
+      expect(shadowIdx < userIdx).toBeTruthy();
     });
 
     it("should handle non-object entries in messages", async () => {
@@ -919,9 +904,9 @@ describe("middleware-chain", () => {
       const shadowMsg = ctx.messages.find(m =>
         m && typeof m === "object" && m.role === "system" && m.content.includes("[Shadow System]")
       );
-      assert.ok(shadowMsg);
-      assert.ok(ctx.messages.includes("raw"));
-      assert.ok(ctx.messages.includes(123));
+      expect(shadowMsg).toBeTruthy();
+      expect(ctx.messages.includes("raw")).toBeTruthy();
+      expect(ctx.messages.includes(123)).toBeTruthy();
     });
 
     it("should inject even when no system role messages exist", async () => {
@@ -942,8 +927,8 @@ describe("middleware-chain", () => {
         m && typeof m === "object" && m.role === "system" && m.content.includes("[Shadow System]")
       );
       const userIdx = ctx.messages.findIndex(m => m.content === "Ping");
-      assert.ok(shadowIdx >= 0);
-      assert.ok(shadowIdx < userIdx);
+      expect(shadowIdx >= 0).toBeTruthy();
+      expect(shadowIdx < userIdx).toBeTruthy();
     });
 
     it("should skip injection when same shadow block already exists", async () => {
@@ -964,8 +949,8 @@ describe("middleware-chain", () => {
       const shadowMsgs = ctx.messages.filter(m =>
         m && typeof m === "object" && m.role === "system" && m.content.includes(existingBlock)
       );
-      assert.strictEqual(shadowMsgs.length, 1);
-      assert.strictEqual(ctx.messages.length, 2);
+      expect(shadowMsgs.length).toBe(1);
+      expect(ctx.messages.length).toBe(2);
     });
 
     it("should not duplicate shadow injection", async () => {
@@ -987,7 +972,7 @@ describe("middleware-chain", () => {
       const shadowMsgs = ctx.messages.filter(m =>
         m.content && m.content.includes("[Shadow System]")
       );
-      assert.strictEqual(shadowMsgs.length, 1);
+      expect(shadowMsgs.length).toBe(1);
     });
 
     it("should skip injection when hints.system is empty", async () => {
@@ -1004,7 +989,7 @@ describe("middleware-chain", () => {
       };
       await chain.execute(ctx);
 
-      assert.strictEqual(ctx.messages.length, 2);
+      expect(ctx.messages.length).toBe(2);
     });
 
     it("should work without getShadowHints", async () => {
@@ -1014,7 +999,7 @@ describe("middleware-chain", () => {
       const ctx = { messages: [{ role: "user", content: "Hi" }] };
       await chain.execute(ctx);
 
-      assert.strictEqual(ctx.messages.length, 1);
+      expect(ctx.messages.length).toBe(1);
     });
 
     it("should work when hints is null", async () => {
@@ -1026,7 +1011,7 @@ describe("middleware-chain", () => {
       const ctx = {};
       await chain.execute(ctx);
 
-      assert.strictEqual(ctx.shadowHints, undefined);
+      expect(ctx.shadowHints).toBe(undefined);
     });
   });
 
@@ -1053,10 +1038,10 @@ describe("middleware-chain", () => {
 
       await chain.execute({}, () => "result");
 
-      assert.strictEqual(blackboard.get("status"), "running");
-      assert.strictEqual(blackboard.get("progress"), 50);
-      assert.strictEqual(blackboard.get("internal"), undefined);
-      assert.strictEqual(blackboard.get("lastResult"), "result");
+      expect(blackboard.get("status")).toBe("running");
+      expect(blackboard.get("progress")).toBe(50);
+      expect(blackboard.get("internal")).toBe(undefined);
+      expect(blackboard.get("lastResult")).toBe("result");
     });
 
     it("should sync lastResult from final handler", async () => {
@@ -1071,7 +1056,7 @@ describe("middleware-chain", () => {
 
       await chain.execute({}, () => ({ data: "important" }));
 
-      assert.deepStrictEqual(blackboard.get("lastResult"), { data: "important" });
+      expect(blackboard.get("lastResult")).toEqual({ data: "important" });
     });
 
     it("should not sync undefined keys", async () => {
@@ -1086,7 +1071,7 @@ describe("middleware-chain", () => {
 
       await chain.execute({});
 
-      assert.strictEqual(blackboard.has("missing"), false);
+      expect(blackboard.has("missing")).toBe(false);
     });
 
     it("should work without blackboard", async () => {
@@ -1112,7 +1097,7 @@ describe("middleware-chain", () => {
     it("should create chain with cancellation middleware", async () => {
       const chain = createDefaultMiddlewareChain({});
 
-      assert.ok(chain.length >= 1);
+      expect(chain.length >= 1).toBeTruthy();
 
       const controller = new AbortController();
       await chain.execute({ signal: controller.signal });
@@ -1123,7 +1108,7 @@ describe("middleware-chain", () => {
         logger: { debug: () => {}, error: () => {} },
       });
 
-      assert.ok(chain.length >= 2);
+      expect(chain.length >= 2).toBeTruthy();
     });
 
     it("should add telemetry middleware when emit provided", () => {
@@ -1133,7 +1118,7 @@ describe("middleware-chain", () => {
         stageName: "test-stage",
       });
 
-      assert.ok(chain.length >= 2);
+      expect(chain.length >= 2).toBeTruthy();
     });
 
     it("should add timeout middleware when timeout provided", () => {
@@ -1141,7 +1126,7 @@ describe("middleware-chain", () => {
         timeout: 5000,
       });
 
-      assert.ok(chain.length >= 2);
+      expect(chain.length >= 2).toBeTruthy();
     });
 
     it("should add retry middleware when maxRetries provided", () => {
@@ -1150,7 +1135,7 @@ describe("middleware-chain", () => {
         retryDelay: 100,
       });
 
-      assert.ok(chain.length >= 2);
+      expect(chain.length >= 2).toBeTruthy();
     });
 
     it("should include all optional middlewares when fully configured", () => {
@@ -1161,7 +1146,7 @@ describe("middleware-chain", () => {
         maxRetries: 2,
       });
 
-      assert.ok(chain.length >= 5);
+      expect(chain.length >= 5).toBeTruthy();
     });
 
     it("should execute cancellation check first", async () => {
@@ -1173,9 +1158,7 @@ describe("middleware-chain", () => {
         timeout: 10000,
       });
 
-      await assert.rejects(
-        () => chain.execute({ signal: controller.signal }),
-        { message: "Early cancel" }
+      await expect(() => chain.execute({ signal: controller.signal })).rejects.toThrow({ message: "Early cancel" }
       );
     });
   });

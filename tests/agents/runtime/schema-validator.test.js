@@ -6,8 +6,8 @@
  * - normalizeSchema: JSON Schema 透传、简化格式转换、类型推断
  * - createValidationHook: strict 模式、onError 回调、context 路径
  */
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import {
   validateArgs,
   normalizeSchema,
@@ -28,8 +28,8 @@ describe("schema-validator", () => {
         };
 
         const { valid, errors } = validateArgs({ name: "test", age: 25 }, schema);
-        assert.equal(valid, true);
-        assert.equal(errors.length, 0);
+        expect(valid).toBe(true);
+        expect(errors.length).toBe(0);
       });
 
       it("should pass with empty args when no required fields", () => {
@@ -41,8 +41,8 @@ describe("schema-validator", () => {
         };
 
         const { valid, errors } = validateArgs({}, schema);
-        assert.equal(valid, true);
-        assert.equal(errors.length, 0);
+        expect(valid).toBe(true);
+        expect(errors.length).toBe(0);
       });
 
       it("should skip undefined values in type checking", () => {
@@ -55,33 +55,33 @@ describe("schema-validator", () => {
         };
 
         const { valid, errors } = validateArgs({ name: "test" }, schema);
-        assert.equal(valid, true);
-        assert.equal(errors.length, 0);
+        expect(valid).toBe(true);
+        expect(errors.length).toBe(0);
       });
     });
 
     describe("null/undefined schema handling", () => {
       it("should handle null schema gracefully", () => {
         const { valid, errors } = validateArgs({ any: "value" }, null);
-        assert.equal(valid, true);
-        assert.equal(errors.length, 0);
+        expect(valid).toBe(true);
+        expect(errors.length).toBe(0);
       });
 
       it("should handle undefined schema gracefully", () => {
         const { valid, errors } = validateArgs({ any: "value" }, undefined);
-        assert.equal(valid, true);
-        assert.equal(errors.length, 0);
+        expect(valid).toBe(true);
+        expect(errors.length).toBe(0);
       });
 
       it("should handle non-object schema gracefully", () => {
         const { valid: v1 } = validateArgs({}, "string");
-        assert.equal(v1, true);
+        expect(v1).toBe(true);
 
         const { valid: v2 } = validateArgs({}, 123);
-        assert.equal(v2, true);
+        expect(v2).toBe(true);
 
         const { valid: v3 } = validateArgs({}, true);
-        assert.equal(v3, true);
+        expect(v3).toBe(true);
       });
     });
 
@@ -96,8 +96,8 @@ describe("schema-validator", () => {
         };
 
         const { valid, errors } = validateArgs({}, schema);
-        assert.equal(valid, false);
-        assert.ok(errors.some((e) => e.includes("Missing required field: name")));
+        expect(valid).toBe(false);
+        expect(errors.some(e => e.includes("Missing required field: name")).toBeTruthy());
       });
 
       it("should fail when required field is null", () => {
@@ -110,8 +110,8 @@ describe("schema-validator", () => {
         };
 
         const { valid, errors } = validateArgs({ name: null }, schema);
-        assert.equal(valid, false);
-        assert.ok(errors.some((e) => e.includes("Missing required field: name")));
+        expect(valid).toBe(false);
+        expect(errors.some(e => e.includes("Missing required field: name")).toBeTruthy());
       });
 
       it("should fail when required field is undefined", () => {
@@ -124,8 +124,8 @@ describe("schema-validator", () => {
         };
 
         const { valid, errors } = validateArgs({ name: undefined }, schema);
-        assert.equal(valid, false);
-        assert.ok(errors.some((e) => e.includes("Missing required field: name")));
+        expect(valid).toBe(false);
+        expect(errors.some(e => e.includes("Missing required field: name")).toBeTruthy());
       });
 
       it("should pass when required field has falsy but valid value", () => {
@@ -140,8 +140,8 @@ describe("schema-validator", () => {
         };
 
         const { valid, errors } = validateArgs({ count: 0, flag: false, text: "" }, schema);
-        assert.equal(valid, true);
-        assert.equal(errors.length, 0);
+        expect(valid).toBe(true);
+        expect(errors.length).toBe(0);
       });
 
       it("should check multiple required fields", () => {
@@ -155,10 +155,10 @@ describe("schema-validator", () => {
         };
 
         const { valid, errors } = validateArgs({}, schema);
-        assert.equal(valid, false);
-        assert.equal(errors.length, 2);
-        assert.ok(errors.some((e) => e.includes("name")));
-        assert.ok(errors.some((e) => e.includes("age")));
+        expect(valid).toBe(false);
+        expect(errors.length).toBe(2);
+        expect(errors.some(e => e.includes("name")).toBeTruthy());
+        expect(errors.some(e => e.includes("age")).toBeTruthy());
       });
     });
 
@@ -172,8 +172,8 @@ describe("schema-validator", () => {
         };
 
         const { valid, errors } = validateArgs({ age: "not a number" }, schema);
-        assert.equal(valid, false);
-        assert.ok(errors.some((e) => e.includes("expected number")));
+        expect(valid).toBe(false);
+        expect(errors.some(e => e.includes("expected number")).toBeTruthy());
       });
 
       it("should accept integer as number type when integer is expected", () => {
@@ -185,11 +185,11 @@ describe("schema-validator", () => {
         };
 
         const { valid: valid1, errors: e1 } = validateArgs({ count: 5 }, schema);
-        assert.equal(valid1, true);
-        assert.equal(e1.length, 0);
+        expect(valid1).toBe(true);
+        expect(e1.length).toBe(0);
 
         const { valid: valid2 } = validateArgs({ count: 5.5 }, schema);
-        assert.equal(valid2, false);
+        expect(valid2).toBe(false);
       });
 
       it("should support multi-type fields", () => {
@@ -201,13 +201,13 @@ describe("schema-validator", () => {
         };
 
         const { valid: valid1 } = validateArgs({ value: "test" }, schema);
-        assert.equal(valid1, true);
+        expect(valid1).toBe(true);
 
         const { valid: valid2 } = validateArgs({ value: null }, schema);
-        assert.equal(valid2, true);
+        expect(valid2).toBe(true);
 
         const { valid: valid3 } = validateArgs({ value: 123 }, schema);
-        assert.equal(valid3, false);
+        expect(valid3).toBe(false);
       });
 
       it("should validate null type correctly", () => {
@@ -219,10 +219,10 @@ describe("schema-validator", () => {
         };
 
         const { valid: v1 } = validateArgs({ nullable: null }, schema);
-        assert.equal(v1, true);
+        expect(v1).toBe(true);
 
         const { valid: v2 } = validateArgs({ nullable: "not null" }, schema);
-        assert.equal(v2, false);
+        expect(v2).toBe(false);
       });
 
       it("should validate array type correctly", () => {
@@ -234,10 +234,10 @@ describe("schema-validator", () => {
         };
 
         const { valid: v1 } = validateArgs({ items: [1, 2, 3] }, schema);
-        assert.equal(v1, true);
+        expect(v1).toBe(true);
 
         const { valid: v2 } = validateArgs({ items: "not an array" }, schema);
-        assert.equal(v2, false);
+        expect(v2).toBe(false);
       });
 
       it("should validate object type correctly", () => {
@@ -249,10 +249,10 @@ describe("schema-validator", () => {
         };
 
         const { valid: v1 } = validateArgs({ config: { key: "value" } }, schema);
-        assert.equal(v1, true);
+        expect(v1).toBe(true);
 
         const { valid: v2 } = validateArgs({ config: "not an object" }, schema);
-        assert.equal(v2, false);
+        expect(v2).toBe(false);
       });
 
       it("should validate boolean type correctly", () => {
@@ -264,13 +264,13 @@ describe("schema-validator", () => {
         };
 
         const { valid: v1 } = validateArgs({ flag: true }, schema);
-        assert.equal(v1, true);
+        expect(v1).toBe(true);
 
         const { valid: v2 } = validateArgs({ flag: false }, schema);
-        assert.equal(v2, true);
+        expect(v2).toBe(true);
 
         const { valid: v3 } = validateArgs({ flag: "true" }, schema);
-        assert.equal(v3, false);
+        expect(v3).toBe(false);
       });
 
       it("should skip type validation when type is not defined", () => {
@@ -282,13 +282,13 @@ describe("schema-validator", () => {
         };
 
         const { valid: v1 } = validateArgs({ anything: "string" }, schema);
-        assert.equal(v1, true);
+        expect(v1).toBe(true);
 
         const { valid: v2 } = validateArgs({ anything: 123 }, schema);
-        assert.equal(v2, true);
+        expect(v2).toBe(true);
 
         const { valid: v3 } = validateArgs({ anything: null }, schema);
-        assert.equal(v3, true);
+        expect(v3).toBe(true);
       });
 
       it("should handle integer type with multi-type array", () => {
@@ -300,13 +300,13 @@ describe("schema-validator", () => {
         };
 
         const { valid: v1 } = validateArgs({ value: 5 }, schema);
-        assert.equal(v1, true);
+        expect(v1).toBe(true);
 
         const { valid: v2 } = validateArgs({ value: null }, schema);
-        assert.equal(v2, true);
+        expect(v2).toBe(true);
 
         const { valid: v3 } = validateArgs({ value: 5.5 }, schema);
-        assert.equal(v3, false);
+        expect(v3).toBe(false);
       });
     });
 
@@ -320,11 +320,11 @@ describe("schema-validator", () => {
         };
 
         const { valid: valid1 } = validateArgs({ status: "active" }, schema);
-        assert.equal(valid1, true);
+        expect(valid1).toBe(true);
 
         const { valid: valid2, errors } = validateArgs({ status: "unknown" }, schema);
-        assert.equal(valid2, false);
-        assert.ok(errors.some((e) => e.includes("must be one of")));
+        expect(valid2).toBe(false);
+        expect(errors.some(e => e.includes("must be one of")).toBeTruthy());
       });
 
       it("should validate enum with different types", () => {
@@ -336,10 +336,10 @@ describe("schema-validator", () => {
         };
 
         const { valid: v1 } = validateArgs({ level: 2 }, schema);
-        assert.equal(v1, true);
+        expect(v1).toBe(true);
 
         const { valid: v2 } = validateArgs({ level: 4 }, schema);
-        assert.equal(v2, false);
+        expect(v2).toBe(false);
       });
 
       it("should include enum values in error message", () => {
@@ -351,9 +351,9 @@ describe("schema-validator", () => {
         };
 
         const { errors } = validateArgs({ color: "yellow" }, schema);
-        assert.ok(errors[0].includes("red"));
-        assert.ok(errors[0].includes("green"));
-        assert.ok(errors[0].includes("blue"));
+        expect(errors[0].includes("red")).toBeTruthy();
+        expect(errors[0].includes("green")).toBeTruthy();
+        expect(errors[0].includes("blue")).toBeTruthy();
       });
     });
 
@@ -367,15 +367,15 @@ describe("schema-validator", () => {
         };
 
         const { valid: valid1 } = validateArgs({ count: 50 }, schema);
-        assert.equal(valid1, true);
+        expect(valid1).toBe(true);
 
         const { valid: valid2, errors: e2 } = validateArgs({ count: -1 }, schema);
-        assert.equal(valid2, false);
-        assert.ok(e2.some((e) => e.includes(">= 0")));
+        expect(valid2).toBe(false);
+        expect(e2.some(e => e.includes(">= 0")).toBeTruthy());
 
         const { valid: valid3, errors: e3 } = validateArgs({ count: 101 }, schema);
-        assert.equal(valid3, false);
-        assert.ok(e3.some((e) => e.includes("<= 100")));
+        expect(valid3).toBe(false);
+        expect(e3.some(e => e.includes("<= 100")).toBeTruthy());
       });
 
       it("should allow boundary values", () => {
@@ -387,10 +387,10 @@ describe("schema-validator", () => {
         };
 
         const { valid: v1 } = validateArgs({ count: 0 }, schema);
-        assert.equal(v1, true);
+        expect(v1).toBe(true);
 
         const { valid: v2 } = validateArgs({ count: 100 }, schema);
-        assert.equal(v2, true);
+        expect(v2).toBe(true);
       });
 
       it("should validate only minimum", () => {
@@ -402,10 +402,10 @@ describe("schema-validator", () => {
         };
 
         const { valid: v1 } = validateArgs({ count: 1000 }, schema);
-        assert.equal(v1, true);
+        expect(v1).toBe(true);
 
         const { valid: v2 } = validateArgs({ count: -1 }, schema);
-        assert.equal(v2, false);
+        expect(v2).toBe(false);
       });
 
       it("should validate only maximum", () => {
@@ -417,10 +417,10 @@ describe("schema-validator", () => {
         };
 
         const { valid: v1 } = validateArgs({ count: -1000 }, schema);
-        assert.equal(v1, true);
+        expect(v1).toBe(true);
 
         const { valid: v2 } = validateArgs({ count: 101 }, schema);
-        assert.equal(v2, false);
+        expect(v2).toBe(false);
       });
     });
 
@@ -434,15 +434,15 @@ describe("schema-validator", () => {
         };
 
         const { valid: valid1 } = validateArgs({ name: "test" }, schema);
-        assert.equal(valid1, true);
+        expect(valid1).toBe(true);
 
         const { valid: valid2, errors: e2 } = validateArgs({ name: "a" }, schema);
-        assert.equal(valid2, false);
-        assert.ok(e2.some((e) => e.includes(">= 2")));
+        expect(valid2).toBe(false);
+        expect(e2.some(e => e.includes(">= 2")).toBeTruthy());
 
         const { valid: valid3, errors: e3 } = validateArgs({ name: "verylongname" }, schema);
-        assert.equal(valid3, false);
-        assert.ok(e3.some((e) => e.includes("<= 10")));
+        expect(valid3).toBe(false);
+        expect(e3.some(e => e.includes("<= 10")).toBeTruthy());
       });
 
       it("should allow boundary lengths", () => {
@@ -454,10 +454,10 @@ describe("schema-validator", () => {
         };
 
         const { valid: v1 } = validateArgs({ name: "ab" }, schema);
-        assert.equal(v1, true);
+        expect(v1).toBe(true);
 
         const { valid: v2 } = validateArgs({ name: "abcde" }, schema);
-        assert.equal(v2, true);
+        expect(v2).toBe(true);
       });
 
       it("should skip length check for non-string values", () => {
@@ -469,7 +469,7 @@ describe("schema-validator", () => {
         };
 
         const { valid: v1 } = validateArgs({ value: 12345 }, schema);
-        assert.equal(v1, true);
+        expect(v1).toBe(true);
       });
     });
 
@@ -483,15 +483,15 @@ describe("schema-validator", () => {
         };
 
         const { valid: valid1 } = validateArgs({ items: [1, 2] }, schema);
-        assert.equal(valid1, true);
+        expect(valid1).toBe(true);
 
         const { valid: valid2, errors: e2 } = validateArgs({ items: [] }, schema);
-        assert.equal(valid2, false);
-        assert.ok(e2.some((e) => e.includes(">= 1")));
+        expect(valid2).toBe(false);
+        expect(e2.some(e => e.includes(">= 1")).toBeTruthy());
 
         const { valid: valid3, errors: e3 } = validateArgs({ items: [1, 2, 3, 4] }, schema);
-        assert.equal(valid3, false);
-        assert.ok(e3.some((e) => e.includes("<= 3")));
+        expect(valid3).toBe(false);
+        expect(e3.some(e => e.includes("<= 3")).toBeTruthy());
       });
 
       it("should allow boundary items count", () => {
@@ -503,10 +503,10 @@ describe("schema-validator", () => {
         };
 
         const { valid: v1 } = validateArgs({ items: [1] }, schema);
-        assert.equal(v1, true);
+        expect(v1).toBe(true);
 
         const { valid: v2 } = validateArgs({ items: [1, 2, 3] }, schema);
-        assert.equal(v2, true);
+        expect(v2).toBe(true);
       });
 
       it("should skip items check for non-array values", () => {
@@ -518,7 +518,7 @@ describe("schema-validator", () => {
         };
 
         const { valid } = validateArgs({ value: "not an array" }, schema);
-        assert.equal(valid, true);
+        expect(valid).toBe(true);
       });
     });
 
@@ -532,11 +532,11 @@ describe("schema-validator", () => {
         };
 
         const { valid: valid1 } = validateArgs({ email: "test@example.com" }, schema);
-        assert.equal(valid1, true);
+        expect(valid1).toBe(true);
 
         const { valid: valid2, errors } = validateArgs({ email: "invalid" }, schema);
-        assert.equal(valid2, false);
-        assert.ok(errors.some((e) => e.includes("does not match pattern")));
+        expect(valid2).toBe(false);
+        expect(errors.some(e => e.includes("does not match pattern")).toBeTruthy());
       });
 
       it("should handle invalid pattern gracefully", () => {
@@ -548,8 +548,8 @@ describe("schema-validator", () => {
         };
 
         const { valid, errors } = validateArgs({ value: "test" }, schema);
-        assert.equal(valid, false);
-        assert.ok(errors.some((e) => e.includes("invalid pattern")));
+        expect(valid).toBe(false);
+        expect(errors.some(e => e.includes("invalid pattern")).toBeTruthy());
       });
 
       it("should skip pattern check for non-string values", () => {
@@ -561,7 +561,7 @@ describe("schema-validator", () => {
         };
 
         const { valid } = validateArgs({ value: 12345 }, schema);
-        assert.equal(valid, true);
+        expect(valid).toBe(true);
       });
 
       it("should handle complex patterns", () => {
@@ -573,10 +573,10 @@ describe("schema-validator", () => {
         };
 
         const { valid: v1 } = validateArgs({ uuid: "550e8400-e29b-41d4-a716-446655440000" }, schema);
-        assert.equal(v1, true);
+        expect(v1).toBe(true);
 
         const { valid: v2 } = validateArgs({ uuid: "not-a-uuid" }, schema);
-        assert.equal(v2, false);
+        expect(v2).toBe(false);
       });
     });
 
@@ -591,8 +591,8 @@ describe("schema-validator", () => {
         };
 
         const { valid, errors } = validateArgs({ name: "test", extra: "field" }, schema);
-        assert.equal(valid, false);
-        assert.ok(errors.some((e) => e.includes("Unknown field: extra")));
+        expect(valid).toBe(false);
+        expect(errors.some(e => e.includes("Unknown field: extra")).toBeTruthy());
       });
 
       it("should allow additional properties by default", () => {
@@ -604,8 +604,8 @@ describe("schema-validator", () => {
         };
 
         const { valid, errors } = validateArgs({ name: "test", extra: "field" }, schema);
-        assert.equal(valid, true);
-        assert.equal(errors.length, 0);
+        expect(valid).toBe(true);
+        expect(errors.length).toBe(0);
       });
 
       it("should allow additional properties when additionalProperties is true", () => {
@@ -618,8 +618,8 @@ describe("schema-validator", () => {
         };
 
         const { valid, errors } = validateArgs({ name: "test", extra: "field" }, schema);
-        assert.equal(valid, true);
-        assert.equal(errors.length, 0);
+        expect(valid).toBe(true);
+        expect(errors.length).toBe(0);
       });
 
       it("should detect multiple unknown fields", () => {
@@ -632,8 +632,8 @@ describe("schema-validator", () => {
         };
 
         const { valid, errors } = validateArgs({ name: "test", extra1: "a", extra2: "b" }, schema);
-        assert.equal(valid, false);
-        assert.equal(errors.length, 2);
+        expect(valid).toBe(false);
+        expect(errors.length).toBe(2);
       });
     });
 
@@ -649,8 +649,8 @@ describe("schema-validator", () => {
         };
 
         const { valid, errors } = validateArgs({ name: "a", age: -1 }, schema);
-        assert.equal(valid, false);
-        assert.equal(errors.length, 2);
+        expect(valid).toBe(false);
+        expect(errors.length).toBe(2);
       });
 
       it("should validate complex schema", () => {
@@ -670,15 +670,15 @@ describe("schema-validator", () => {
           { id: "AB1234", status: "active", priority: 3, tags: ["test"] },
           schema
         );
-        assert.equal(v1, true);
-        assert.equal(e1.length, 0);
+        expect(v1).toBe(true);
+        expect(e1.length).toBe(0);
 
         const { valid: v2, errors: e2 } = validateArgs(
           { id: "invalid", status: "unknown", priority: 10, tags: [], extra: "field" },
           schema
         );
-        assert.equal(v2, false);
-        assert.ok(e2.length >= 5);
+        expect(v2).toBe(false);
+        expect(e2.length >= 5).toBeTruthy();
       });
     });
   });
@@ -692,7 +692,7 @@ describe("schema-validator", () => {
         };
 
         const normalized = normalizeSchema(schema);
-        assert.deepEqual(normalized, schema);
+        expect(normalized).toEqual(schema);
       });
 
       it("should pass through JSON Schema format with properties", () => {
@@ -702,7 +702,7 @@ describe("schema-validator", () => {
         };
 
         const normalized = normalizeSchema(schema);
-        assert.deepEqual(normalized, schema);
+        expect(normalized).toEqual(schema);
       });
     });
 
@@ -714,10 +714,10 @@ describe("schema-validator", () => {
         };
 
         const normalized = normalizeSchema(schema);
-        assert.equal(normalized.type, "object");
-        assert.ok(normalized.properties.sourceId);
-        assert.ok(normalized.required.includes("sourceId"));
-        assert.ok(!normalized.required.includes("maxLength"));
+        expect(normalized.type).toBe("object");
+        expect(normalized.properties.sourceId).toBeTruthy();
+        expect(normalized.required.includes("sourceId")).toBeTruthy();
+        expect(!normalized.required.includes("maxLength")).toBeTruthy();
       });
 
       it("should detect required from English keyword", () => {
@@ -727,8 +727,8 @@ describe("schema-validator", () => {
         };
 
         const normalized = normalizeSchema(schema);
-        assert.ok(normalized.required.includes("docId"));
-        assert.ok(!normalized.required.includes("optional"));
+        expect(normalized.required.includes("docId")).toBeTruthy();
+        expect(!normalized.required.includes("optional")).toBeTruthy();
       });
 
       it("should convert object format with required property", () => {
@@ -738,8 +738,8 @@ describe("schema-validator", () => {
         };
 
         const normalized = normalizeSchema(schema);
-        assert.ok(normalized.required.includes("name"));
-        assert.ok(!normalized.required.includes("age"));
+        expect(normalized.required.includes("name")).toBeTruthy();
+        expect(!normalized.required.includes("age")).toBeTruthy();
       });
 
       it("should preserve property definitions in object format", () => {
@@ -748,9 +748,9 @@ describe("schema-validator", () => {
         };
 
         const normalized = normalizeSchema(schema);
-        assert.equal(normalized.properties.count.type, "integer");
-        assert.equal(normalized.properties.count.minimum, 0);
-        assert.equal(normalized.properties.count.maximum, 100);
+        expect(normalized.properties.count.type).toBe("integer");
+        expect(normalized.properties.count.minimum).toBe(0);
+        expect(normalized.properties.count.maximum).toBe(100);
       });
 
       it("should not add required array when no required fields", () => {
@@ -760,7 +760,7 @@ describe("schema-validator", () => {
         };
 
         const normalized = normalizeSchema(schema);
-        assert.equal(normalized.required, undefined);
+        expect(normalized.required).toBe(undefined);
       });
     });
 
@@ -775,11 +775,11 @@ describe("schema-validator", () => {
         };
 
         const normalized = normalizeSchema(schema);
-        assert.equal(normalized.properties.count.type, "number");
-        assert.equal(normalized.properties.items.type, "array");
-        assert.equal(normalized.properties.isActive.type, "boolean");
-        assert.equal(normalized.properties.config.type, "object");
-        assert.equal(normalized.properties.name.type, "string");
+        expect(normalized.properties.count.type).toBe("number");
+        expect(normalized.properties.items.type).toBe("array");
+        expect(normalized.properties.isActive.type).toBe("boolean");
+        expect(normalized.properties.config.type).toBe("object");
+        expect(normalized.properties.name.type).toBe("string");
       });
 
       it("should infer array type from English description", () => {
@@ -789,8 +789,8 @@ describe("schema-validator", () => {
         };
 
         const normalized = normalizeSchema(schema);
-        assert.equal(normalized.properties.tags.type, "array");
-        assert.equal(normalized.properties.items.type, "array");
+        expect(normalized.properties.tags.type).toBe("array");
+        expect(normalized.properties.items.type).toBe("array");
       });
 
       it("should infer number type from English description", () => {
@@ -802,10 +802,10 @@ describe("schema-validator", () => {
         };
 
         const normalized = normalizeSchema(schema);
-        assert.equal(normalized.properties.count.type, "number");
-        assert.equal(normalized.properties.position.type, "number");
-        assert.equal(normalized.properties.lineNo.type, "number");
-        assert.equal(normalized.properties.length.type, "number");
+        expect(normalized.properties.count.type).toBe("number");
+        expect(normalized.properties.position.type).toBe("number");
+        expect(normalized.properties.lineNo.type).toBe("number");
+        expect(normalized.properties.length.type).toBe("number");
       });
 
       it("should infer boolean type from English description", () => {
@@ -816,9 +816,9 @@ describe("schema-validator", () => {
         };
 
         const normalized = normalizeSchema(schema);
-        assert.equal(normalized.properties.enabled.type, "boolean");
-        assert.equal(normalized.properties.active.type, "boolean");
-        assert.equal(normalized.properties.disabled.type, "boolean");
+        expect(normalized.properties.enabled.type).toBe("boolean");
+        expect(normalized.properties.active.type).toBe("boolean");
+        expect(normalized.properties.disabled.type).toBe("boolean");
       });
 
       it("should infer object type from English description", () => {
@@ -828,8 +828,8 @@ describe("schema-validator", () => {
         };
 
         const normalized = normalizeSchema(schema);
-        assert.equal(normalized.properties.config.type, "object");
-        assert.equal(normalized.properties.setting.type, "object");
+        expect(normalized.properties.config.type).toBe("object");
+        expect(normalized.properties.setting.type).toBe("object");
       });
 
       it("should infer array type from key name ending with 's'", () => {
@@ -839,8 +839,8 @@ describe("schema-validator", () => {
         };
 
         const normalized = normalizeSchema(schema);
-        assert.equal(normalized.properties.users.type, "array");
-        assert.equal(normalized.properties.documents.type, "array");
+        expect(normalized.properties.users.type).toBe("array");
+        expect(normalized.properties.documents.type).toBe("array");
       });
 
       it("should infer array type from key name ending with 'ids'", () => {
@@ -850,8 +850,8 @@ describe("schema-validator", () => {
         };
 
         const normalized = normalizeSchema(schema);
-        assert.equal(normalized.properties.userIds.type, "array");
-        assert.equal(normalized.properties.documentIds.type, "array");
+        expect(normalized.properties.userIds.type).toBe("array");
+        expect(normalized.properties.documentIds.type).toBe("array");
       });
 
       it("should infer boolean type from key name starting with 'is'", () => {
@@ -861,8 +861,8 @@ describe("schema-validator", () => {
         };
 
         const normalized = normalizeSchema(schema);
-        assert.equal(normalized.properties.isEnabled.type, "boolean");
-        assert.equal(normalized.properties.isActive.type, "boolean");
+        expect(normalized.properties.isEnabled.type).toBe("boolean");
+        expect(normalized.properties.isActive.type).toBe("boolean");
       });
 
       it("should infer boolean type from key name starting with 'has'", () => {
@@ -872,8 +872,8 @@ describe("schema-validator", () => {
         };
 
         const normalized = normalizeSchema(schema);
-        assert.equal(normalized.properties.hasPermission.type, "boolean");
-        assert.equal(normalized.properties.hasToken.type, "boolean");
+        expect(normalized.properties.hasPermission.type).toBe("boolean");
+        expect(normalized.properties.hasToken.type).toBe("boolean");
       });
 
       it("should default to string type when no hints", () => {
@@ -883,8 +883,8 @@ describe("schema-validator", () => {
         };
 
         const normalized = normalizeSchema(schema);
-        assert.equal(normalized.properties.title.type, "string");
-        assert.equal(normalized.properties.description.type, "string");
+        expect(normalized.properties.title.type).toBe("string");
+        expect(normalized.properties.description.type).toBe("string");
       });
     });
 
@@ -892,8 +892,8 @@ describe("schema-validator", () => {
       it("should handle empty schema", () => {
         const schema = {};
         const normalized = normalizeSchema(schema);
-        assert.equal(normalized.type, "object");
-        assert.deepEqual(normalized.properties, {});
+        expect(normalized.type).toBe("object");
+        expect(normalized.properties).toEqual({});
       });
 
       it("should handle mixed format", () => {
@@ -903,9 +903,9 @@ describe("schema-validator", () => {
         };
 
         const normalized = normalizeSchema(schema);
-        assert.equal(normalized.properties.name.type, "string");
-        assert.equal(normalized.properties.count.type, "number");
-        assert.ok(normalized.required.includes("name"));
+        expect(normalized.properties.name.type).toBe("string");
+        expect(normalized.properties.count.type).toBe("number");
+        expect(normalized.required.includes("name")).toBeTruthy();
       });
     });
   });
@@ -920,8 +920,8 @@ describe("schema-validator", () => {
           context: {},
         });
 
-        assert.ok(result.params);
-        assert.deepEqual(result.params, { name: "test" });
+        expect(result.params).toBeTruthy();
+        expect(result.params).toEqual({ name: "test" });
       });
 
       it("should pass through when no schema is available", async () => {
@@ -932,8 +932,8 @@ describe("schema-validator", () => {
           context: {},
         });
 
-        assert.ok(result.params);
-        assert.equal(result.skip, undefined);
+        expect(result.params).toBeTruthy();
+        expect(result.skip).toBe(undefined);
       });
     });
 
@@ -954,8 +954,8 @@ describe("schema-validator", () => {
           },
         });
 
-        assert.equal(result.skip, true);
-        assert.ok(result.value.validationErrors.length > 0);
+        expect(result.skip).toBe(true);
+        expect(result.value.validationErrors.length > 0).toBeTruthy();
       });
 
       it("should resolve schema from context.tools[tool]", async () => {
@@ -975,7 +975,7 @@ describe("schema-validator", () => {
           },
         });
 
-        assert.equal(result.skip, true);
+        expect(result.skip).toBe(true);
       });
 
       it("should resolve schema from toolDefinition.definition.parameters", async () => {
@@ -995,7 +995,7 @@ describe("schema-validator", () => {
           },
         });
 
-        assert.equal(result.skip, true);
+        expect(result.skip).toBe(true);
       });
 
       it("should resolve schema from context.tools[tool].definition.parameters", async () => {
@@ -1017,7 +1017,7 @@ describe("schema-validator", () => {
           },
         });
 
-        assert.equal(result.skip, true);
+        expect(result.skip).toBe(true);
       });
     });
 
@@ -1038,10 +1038,10 @@ describe("schema-validator", () => {
           },
         });
 
-        assert.equal(result.skip, true);
-        assert.equal(result.value.success, false);
-        assert.ok(result.value.error.includes("Validation failed"));
-        assert.ok(result.value.validationErrors.length > 0);
+        expect(result.skip).toBe(true);
+        expect(result.value.success).toBe(false);
+        expect(result.value.error.includes("Validation failed")).toBeTruthy();
+        expect(result.value.validationErrors.length > 0).toBeTruthy();
       });
 
       it("should not skip execution when validation passes", async () => {
@@ -1060,8 +1060,8 @@ describe("schema-validator", () => {
           },
         });
 
-        assert.equal(result.skip, undefined);
-        assert.deepEqual(result.params, { name: "valid" });
+        expect(result.skip).toBe(undefined);
+        expect(result.params).toEqual({ name: "valid" });
       });
 
       it("should not skip execution in non-strict mode on validation failure", async () => {
@@ -1079,8 +1079,8 @@ describe("schema-validator", () => {
           },
         });
 
-        assert.equal(result.skip, undefined);
-        assert.ok(result.params);
+        expect(result.skip).toBe(undefined);
+        expect(result.params).toBeTruthy();
       });
     });
 
@@ -1107,10 +1107,10 @@ describe("schema-validator", () => {
           },
         });
 
-        assert.ok(errorData);
-        assert.equal(errorData.tool, "testTool");
-        assert.deepEqual(errorData.params, { count: "not a number" });
-        assert.ok(errorData.errors.length > 0);
+        expect(errorData).toBeTruthy();
+        expect(errorData.tool).toBe("testTool");
+        expect(errorData.params).toEqual({ count: "not a number" });
+        expect(errorData.errors.length > 0).toBeTruthy();
       });
 
       it("should not call onError callback when validation passes", async () => {
@@ -1135,7 +1135,7 @@ describe("schema-validator", () => {
           },
         });
 
-        assert.equal(errorCalled, false);
+        expect(errorCalled).toBe(false);
       });
 
       it("should call onError even in non-strict mode", async () => {
@@ -1160,7 +1160,7 @@ describe("schema-validator", () => {
           },
         });
 
-        assert.equal(errorCalled, true);
+        expect(errorCalled).toBe(true);
       });
     });
 
@@ -1187,9 +1187,9 @@ describe("schema-validator", () => {
           },
         });
 
-        assert.equal(result.skip, true);
-        assert.ok(errorData);
-        assert.ok(errorData.errors.length > 0);
+        expect(result.skip).toBe(true);
+        expect(errorData).toBeTruthy();
+        expect(errorData.errors.length > 0).toBeTruthy();
       });
     });
   });

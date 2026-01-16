@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import {
   SubagentBudgetManager,
@@ -14,30 +14,30 @@ describe("SubagentBudgetManager", () => {
       const mgr = new SubagentBudgetManager();
       const stats = mgr.getStats();
 
-      assert.equal(stats.parentBudget, 100000);
-      assert.equal(stats.reserveRatio, 0.2);
-      assert.equal(stats.distributableBudget, 80000);
-      assert.equal(stats.available, 80000);
+      expect(stats.parentBudget).toBe(100000);
+      expect(stats.reserveRatio).toBe(0.2);
+      expect(stats.distributableBudget).toBe(80000);
+      expect(stats.available).toBe(80000);
     });
 
     it("should accept custom parentBudget", () => {
       const mgr = new SubagentBudgetManager({ parentBudget: 50000 });
-      assert.equal(mgr.getStats().parentBudget, 50000);
-      assert.equal(mgr.getStats().distributableBudget, 40000);
+      expect(mgr.getStats().parentBudget).toBe(50000);
+      expect(mgr.getStats().distributableBudget).toBe(40000);
     });
 
     it("should accept custom reserveRatio", () => {
       const mgr = new SubagentBudgetManager({ parentBudget: 100000, reserveRatio: 0.3 });
-      assert.equal(mgr.getStats().reserveRatio, 0.3);
-      assert.equal(mgr.getStats().distributableBudget, 70000);
+      expect(mgr.getStats().reserveRatio).toBe(0.3);
+      expect(mgr.getStats().distributableBudget).toBe(70000);
     });
 
     it("should clamp reserveRatio to valid range", () => {
       const mgrLow = new SubagentBudgetManager({ reserveRatio: 0.05 });
-      assert.equal(mgrLow.getStats().reserveRatio, 0.1);
+      expect(mgrLow.getStats().reserveRatio).toBe(0.1);
 
       const mgrHigh = new SubagentBudgetManager({ reserveRatio: 0.9 });
-      assert.equal(mgrHigh.getStats().reserveRatio, 0.5);
+      expect(mgrHigh.getStats().reserveRatio).toBe(0.5);
     });
   });
 
@@ -46,46 +46,46 @@ describe("SubagentBudgetManager", () => {
       const mgr = new SubagentBudgetManager({ parentBudget: 100000 });
       const result = mgr.allocate("sub1", { mode: "isolated" });
 
-      assert.ok(!("error" in result));
-      assert.equal(result.mode, "isolated");
-      assert.equal(result.budget, 12000); // 80000 * 0.15
-      assert.equal(result.priority, 3);
+      expect(!("error" in result).toBeTruthy());
+      expect(result.mode).toBe("isolated");
+      expect(result.budget).toBe(12000); // 80000 * 0.15
+      expect(result.priority).toBe(3);
     });
 
     it("should allocate budget for shared mode", () => {
       const mgr = new SubagentBudgetManager({ parentBudget: 100000 });
       const result = mgr.allocate("sub1", { mode: "shared" });
 
-      assert.ok(!("error" in result));
-      assert.equal(result.mode, "shared");
-      assert.equal(result.budget, 20000); // 80000 * 0.25
-      assert.equal(result.priority, 2);
+      expect(!("error" in result).toBeTruthy());
+      expect(result.mode).toBe("shared");
+      expect(result.budget).toBe(20000); // 80000 * 0.25
+      expect(result.priority).toBe(2);
     });
 
     it("should allocate budget for handoff mode", () => {
       const mgr = new SubagentBudgetManager({ parentBudget: 100000 });
       const result = mgr.allocate("sub1", { mode: "handoff" });
 
-      assert.ok(!("error" in result));
-      assert.equal(result.mode, "handoff");
-      assert.equal(result.budget, 28000); // 80000 * 0.35
-      assert.equal(result.priority, 1);
+      expect(!("error" in result).toBeTruthy());
+      expect(result.mode).toBe("handoff");
+      expect(result.budget).toBe(28000); // 80000 * 0.35
+      expect(result.priority).toBe(1);
     });
 
     it("should respect requestedBudget when smaller than mode limit", () => {
       const mgr = new SubagentBudgetManager({ parentBudget: 100000 });
       const result = mgr.allocate("sub1", { mode: "handoff", requestedBudget: 5000 });
 
-      assert.ok(!("error" in result));
-      assert.equal(result.budget, 5000);
+      expect(!("error" in result).toBeTruthy());
+      expect(result.budget).toBe(5000);
     });
 
     it("should cap at mode limit when requestedBudget is larger", () => {
       const mgr = new SubagentBudgetManager({ parentBudget: 100000 });
       const result = mgr.allocate("sub1", { mode: "isolated", requestedBudget: 50000 });
 
-      assert.ok(!("error" in result));
-      assert.equal(result.budget, 12000); // capped at 80000 * 0.15
+      expect(!("error" in result).toBeTruthy());
+      expect(result.budget).toBe(12000); // capped at 80000 * 0.15
     });
 
     it("should track allocation and reduce available budget", () => {
@@ -94,8 +94,8 @@ describe("SubagentBudgetManager", () => {
 
       mgr.allocate("sub1", { mode: "isolated" });
 
-      assert.equal(mgr.getAvailable(), beforeAvailable - 12000);
-      assert.equal(mgr.getActiveCount(), 1);
+      expect(mgr.getAvailable()).toBe(beforeAvailable - 12000);
+      expect(mgr.getActiveCount()).toBe(1);
     });
 
     it("should prevent allocation to already active subagent", () => {
@@ -103,8 +103,8 @@ describe("SubagentBudgetManager", () => {
       mgr.allocate("sub1", { mode: "isolated" });
       const result = mgr.allocate("sub1", { mode: "shared" });
 
-      assert.ok("error" in result);
-      assert.ok(result.error.includes("already has active allocation"));
+      expect("error" in result).toBeTruthy();
+      expect(result.error.includes("already has active allocation")).toBeTruthy();
     });
 
     it("should respect maxConcurrent limit", () => {
@@ -113,8 +113,8 @@ describe("SubagentBudgetManager", () => {
       mgr.allocate("sub2", { mode: "isolated" });
       const result = mgr.allocate("sub3", { mode: "isolated" });
 
-      assert.ok("error" in result);
-      assert.ok(result.error.includes("Max concurrent limit"));
+      expect("error" in result).toBeTruthy();
+      expect(result.error.includes("Max concurrent limit")).toBeTruthy();
     });
 
     it("should error when budget exhausted", () => {
@@ -125,23 +125,23 @@ describe("SubagentBudgetManager", () => {
 
       const result = mgr.allocate("sub4", { mode: "handoff" });
       // Should fail due to insufficient budget
-      assert.ok("error" in result);
+      expect("error" in result).toBeTruthy();
     });
 
     it("should normalize mode to lowercase", () => {
       const mgr = new SubagentBudgetManager({ parentBudget: 100000 });
       const result = mgr.allocate("sub1", { mode: "SHARED" });
 
-      assert.ok(!("error" in result));
-      assert.equal(result.mode, "shared");
+      expect(!("error" in result).toBeTruthy());
+      expect(result.mode).toBe("shared");
     });
 
     it("should default unknown mode to isolated", () => {
       const mgr = new SubagentBudgetManager({ parentBudget: 100000 });
       const result = mgr.allocate("sub1", { mode: "unknown" });
 
-      assert.ok(!("error" in result));
-      assert.equal(result.mode, "isolated");
+      expect(!("error" in result).toBeTruthy());
+      expect(result.mode).toBe("isolated");
     });
   });
 
@@ -152,9 +152,9 @@ describe("SubagentBudgetManager", () => {
 
       const result = mgr.recordUsage("sub1", 1000);
 
-      assert.equal(result.ok, true);
-      assert.equal(result.remaining, 11000);
-      assert.equal(result.exceeded, false);
+      expect(result.ok).toBe(true);
+      expect(result.remaining).toBe(11000);
+      expect(result.exceeded).toBe(false);
     });
 
     it("should detect exceeded budget", () => {
@@ -163,17 +163,17 @@ describe("SubagentBudgetManager", () => {
 
       const result = mgr.recordUsage("sub1", 15000);
 
-      assert.equal(result.ok, true);
-      assert.equal(result.remaining, 0);
-      assert.equal(result.exceeded, true);
+      expect(result.ok).toBe(true);
+      expect(result.remaining).toBe(0);
+      expect(result.exceeded).toBe(true);
     });
 
     it("should error for unknown subagent", () => {
       const mgr = new SubagentBudgetManager({ parentBudget: 100000 });
       const result = mgr.recordUsage("unknown", 1000);
 
-      assert.equal(result.ok, false);
-      assert.ok(result.error.includes("No allocation found"));
+      expect(result.ok).toBe(false);
+      expect(result.error.includes("No allocation found")).toBeTruthy();
     });
 
     it("should accumulate usage over multiple calls", () => {
@@ -184,7 +184,7 @@ describe("SubagentBudgetManager", () => {
       mgr.recordUsage("sub1", 4000);
       const result = mgr.recordUsage("sub1", 2000);
 
-      assert.equal(result.remaining, 3000);
+      expect(result.remaining).toBe(3000);
     });
   });
 
@@ -197,10 +197,10 @@ describe("SubagentBudgetManager", () => {
       const beforeRelease = mgr.getAvailable();
       const result = mgr.release("sub1");
 
-      assert.equal(result.ok, true);
-      assert.equal(result.refunded, 7000);
-      assert.equal(mgr.getAvailable(), beforeRelease + 7000);
-      assert.equal(mgr.getActiveCount(), 0);
+      expect(result.ok).toBe(true);
+      expect(result.refunded).toBe(7000);
+      expect(mgr.getAvailable()).toBe(beforeRelease + 7000);
+      expect(mgr.getActiveCount()).toBe(0);
     });
 
     it("should update usage with actualUsed parameter", () => {
@@ -210,8 +210,8 @@ describe("SubagentBudgetManager", () => {
 
       const result = mgr.release("sub1", 8000); // actualUsed is more than recorded
 
-      assert.equal(result.ok, true);
-      assert.equal(result.refunded, 4000); // 12000 - 8000
+      expect(result.ok).toBe(true);
+      expect(result.refunded).toBe(4000); // 12000 - 8000
     });
 
     it("should mark allocation as completed", () => {
@@ -220,8 +220,8 @@ describe("SubagentBudgetManager", () => {
       mgr.release("sub1");
 
       const allocation = mgr.getAllocation("sub1");
-      assert.equal(allocation.status, "completed");
-      assert.ok(allocation.endTime > 0);
+      expect(allocation.status).toBe("completed");
+      expect(allocation.endTime > 0).toBeTruthy();
     });
 
     it("should allow new allocation after release", () => {
@@ -231,7 +231,7 @@ describe("SubagentBudgetManager", () => {
 
       // Same ID can be reused after release
       const result = mgr.allocate("sub1", { mode: "shared" });
-      assert.ok(!("error" in result));
+      expect(!("error" in result).toBeTruthy());
     });
   });
 
@@ -244,8 +244,8 @@ describe("SubagentBudgetManager", () => {
       const beforeAbort = mgr.getAvailable();
       const result = mgr.abort("sub1");
 
-      assert.equal(result.ok, true);
-      assert.equal(mgr.getAvailable(), beforeAbort + 9000); // 12000 - 3000 unused
+      expect(result.ok).toBe(true);
+      expect(mgr.getAvailable()).toBe(beforeAbort + 9000); // 12000 - 3000 unused
     });
 
     it("should mark allocation as aborted", () => {
@@ -254,7 +254,7 @@ describe("SubagentBudgetManager", () => {
       mgr.abort("sub1");
 
       const allocation = mgr.getAllocation("sub1");
-      assert.equal(allocation.status, "aborted");
+      expect(allocation.status).toBe("aborted");
     });
   });
 
@@ -268,11 +268,11 @@ describe("SubagentBudgetManager", () => {
 
       const active = mgr.getActiveAllocations();
 
-      assert.equal(active.length, 2);
+      expect(active.length).toBe(2);
       const ids = active.map((a) => a.subagentId);
-      assert.ok(ids.includes("sub1"));
-      assert.ok(ids.includes("sub3"));
-      assert.ok(!ids.includes("sub2"));
+      expect(ids.includes("sub1")).toBeTruthy();
+      expect(ids.includes("sub3")).toBeTruthy();
+      expect(!ids.includes("sub2")).toBeTruthy();
     });
   });
 
@@ -286,13 +286,13 @@ describe("SubagentBudgetManager", () => {
 
       const stats = mgr.getStats();
 
-      assert.equal(stats.parentBudget, 100000);
-      assert.equal(stats.distributableBudget, 80000);
+      expect(stats.parentBudget).toBe(100000);
+      expect(stats.distributableBudget).toBe(80000);
       // totalAllocated = 12000 (sub1 active) + 20000 (sub2) - 10000 (refunded) = 22000
-      assert.equal(stats.totalAllocated, 22000);
-      assert.equal(stats.totalUsed, 15000); // 5000 + 10000
-      assert.equal(stats.activeCount, 1);
-      assert.equal(stats.completedCount, 1);
+      expect(stats.totalAllocated).toBe(22000);
+      expect(stats.totalUsed).toBe(15000); // 5000 + 10000
+      expect(stats.activeCount).toBe(1);
+      expect(stats.completedCount).toBe(1);
     });
   });
 
@@ -304,10 +304,10 @@ describe("SubagentBudgetManager", () => {
 
       mgr.reset();
 
-      assert.equal(mgr.getActiveCount(), 0);
-      assert.equal(mgr.getAvailable(), 80000);
-      assert.equal(mgr.getStats().totalAllocated, 0);
-      assert.equal(mgr.getStats().totalUsed, 0);
+      expect(mgr.getActiveCount()).toBe(0);
+      expect(mgr.getAvailable()).toBe(80000);
+      expect(mgr.getStats().totalAllocated).toBe(0);
+      expect(mgr.getStats().totalUsed).toBe(0);
     });
   });
 
@@ -318,9 +318,9 @@ describe("SubagentBudgetManager", () => {
 
       const result = mgr.adjustParentBudget(50000);
 
-      assert.equal(result.oldBudget, 100000);
-      assert.equal(result.newBudget, 50000);
-      assert.equal(result.distributableBudget, 40000);
+      expect(result.oldBudget).toBe(100000);
+      expect(result.newBudget).toBe(50000);
+      expect(result.distributableBudget).toBe(40000);
     });
   });
 
@@ -329,8 +329,8 @@ describe("SubagentBudgetManager", () => {
       const mgr = new SubagentBudgetManager({ parentBudget: 100000 });
       const result = mgr.canAllocate();
 
-      assert.equal(result.canAllocate, true);
-      assert.equal(result.reason, undefined);
+      expect(result.canAllocate).toBe(true);
+      expect(result.reason).toBe(undefined);
     });
 
     it("should return false when max concurrent reached", () => {
@@ -339,8 +339,8 @@ describe("SubagentBudgetManager", () => {
 
       const result = mgr.canAllocate();
 
-      assert.equal(result.canAllocate, false);
-      assert.ok(result.reason.includes("Max concurrent"));
+      expect(result.canAllocate).toBe(false);
+      expect(result.reason.includes("Max concurrent")).toBeTruthy();
     });
   });
 });
@@ -349,23 +349,23 @@ describe("createSubagentBudgetManager", () => {
   it("should create manager with factory function", () => {
     const mgr = createSubagentBudgetManager({ parentBudget: 50000 });
 
-    assert.ok(mgr instanceof SubagentBudgetManager);
-    assert.equal(mgr.getStats().parentBudget, 50000);
+    expect(mgr instanceof SubagentBudgetManager).toBeTruthy();
+    expect(mgr.getStats().parentBudget).toBe(50000);
   });
 });
 
 describe("MODE_ALLOCATION_RATIOS", () => {
   it("should have expected values", () => {
-    assert.equal(MODE_ALLOCATION_RATIOS.isolated, 0.15);
-    assert.equal(MODE_ALLOCATION_RATIOS.shared, 0.25);
-    assert.equal(MODE_ALLOCATION_RATIOS.handoff, 0.35);
+    expect(MODE_ALLOCATION_RATIOS.isolated).toBe(0.15);
+    expect(MODE_ALLOCATION_RATIOS.shared).toBe(0.25);
+    expect(MODE_ALLOCATION_RATIOS.handoff).toBe(0.35);
   });
 });
 
 describe("MODE_PRIORITY", () => {
   it("should have expected values", () => {
-    assert.equal(MODE_PRIORITY.isolated, 3);
-    assert.equal(MODE_PRIORITY.shared, 2);
-    assert.equal(MODE_PRIORITY.handoff, 1);
+    expect(MODE_PRIORITY.isolated).toBe(3);
+    expect(MODE_PRIORITY.shared).toBe(2);
+    expect(MODE_PRIORITY.handoff).toBe(1);
   });
 });

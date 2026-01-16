@@ -1,5 +1,5 @@
-import { describe, it, mock, beforeEach, afterEach } from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -30,12 +30,12 @@ function createMockSkill(name, options = {}) {
  */
 function createMockRemoteProvider(skills = [], options = {}) {
   return {
-    isAvailable: mock.fn(async () => options.available ?? true),
-    listSkills: mock.fn(async () => {
+    isAvailable: vi.fn(async () => options.available ?? true),
+    listSkills: vi.fn(async () => {
       if (options.listError) throw options.listError;
       return skills;
     }),
-    getSkillContent: mock.fn(async (name) => {
+    getSkillContent: vi.fn(async (name) => {
       if (options.contentError) throw options.contentError;
       const skill = skills.find((s) => s.name === name);
       return skill ? { body: skill.body || `Remote body for ${name}` } : null;
@@ -66,106 +66,106 @@ describe("SkillsManager", () => {
     it("should create instance with default options", () => {
       const manager = new SkillsManager();
 
-      assert.ok(manager.cacheByDir instanceof Map);
-      assert.equal(manager.cacheTtlMs, 5 * 60_000);
-      assert.equal(manager.cacheMaxEntries, 32);
-      assert.equal(manager.remoteProvider, null);
-      assert.equal(manager.manifestUrl, null);
+      expect(manager.cacheByDir instanceof Map).toBeTruthy();
+      expect(manager.cacheTtlMs).toBe(5 * 60_000);
+      expect(manager.cacheMaxEntries).toBe(32);
+      expect(manager.remoteProvider).toBe(null);
+      expect(manager.manifestUrl).toBe(null);
     });
 
     it("should accept custom homeDir", () => {
       const manager = new SkillsManager({ homeDir: "/custom/home" });
 
-      assert.equal(manager.homeDir, "/custom/home");
+      expect(manager.homeDir).toBe("/custom/home");
     });
 
     it("should accept custom manifestUrl", () => {
       const manager = new SkillsManager({ manifestUrl: "/skills/manifest.json" });
 
-      assert.equal(manager.manifestUrl, "/skills/manifest.json");
+      expect(manager.manifestUrl).toBe("/skills/manifest.json");
     });
 
     it("should trim manifestUrl whitespace", () => {
       const manager = new SkillsManager({ manifestUrl: "  /skills/manifest.json  " });
 
-      assert.equal(manager.manifestUrl, "/skills/manifest.json");
+      expect(manager.manifestUrl).toBe("/skills/manifest.json");
     });
 
     it("should set manifestUrl to null for empty string", () => {
       const manager = new SkillsManager({ manifestUrl: "   " });
 
-      assert.equal(manager.manifestUrl, null);
+      expect(manager.manifestUrl).toBe(null);
     });
 
     it("should accept custom remoteProvider", () => {
       const provider = createMockRemoteProvider([]);
       const manager = new SkillsManager({ remoteProvider: provider });
 
-      assert.equal(manager.remoteProvider, provider);
+      expect(manager.remoteProvider).toBe(provider);
     });
 
     it("should accept custom cacheTtlMs", () => {
       const manager = new SkillsManager({ cacheTtlMs: 10_000 });
 
-      assert.equal(manager.cacheTtlMs, 10_000);
+      expect(manager.cacheTtlMs).toBe(10_000);
     });
 
     it("should handle negative cacheTtlMs by setting to 0", () => {
       const manager = new SkillsManager({ cacheTtlMs: -1000 });
 
-      assert.equal(manager.cacheTtlMs, 0);
+      expect(manager.cacheTtlMs).toBe(0);
     });
 
     it("should handle non-finite cacheTtlMs with default", () => {
       const manager = new SkillsManager({ cacheTtlMs: NaN });
 
-      assert.equal(manager.cacheTtlMs, 5 * 60_000);
+      expect(manager.cacheTtlMs).toBe(5 * 60_000);
     });
 
     it("should accept custom cacheMaxEntries", () => {
       const manager = new SkillsManager({ cacheMaxEntries: 10 });
 
-      assert.equal(manager.cacheMaxEntries, 10);
+      expect(manager.cacheMaxEntries).toBe(10);
     });
 
     it("should enforce minimum cacheMaxEntries of 1", () => {
       const manager = new SkillsManager({ cacheMaxEntries: 0 });
 
-      assert.equal(manager.cacheMaxEntries, 1);
+      expect(manager.cacheMaxEntries).toBe(1);
     });
 
     it("should handle non-finite cacheMaxEntries with default", () => {
       const manager = new SkillsManager({ cacheMaxEntries: Infinity });
 
-      assert.equal(manager.cacheMaxEntries, 32);
+      expect(manager.cacheMaxEntries).toBe(32);
     });
 
     it("should detect homeDir from process.env if not provided", () => {
       const manager = new SkillsManager();
       // homeDir should be set from environment or null
-      assert.ok(manager.homeDir === null || typeof manager.homeDir === "string");
+      expect(manager.homeDir === null || typeof manager.homeDir === "string").toBeTruthy();
     });
 
     it("should use envHome as fallback when homeDir not provided", () => {
       const manager = new SkillsManager({});
       if (process.env.HOME) {
-        assert.equal(manager.homeDir, process.env.HOME);
+        expect(manager.homeDir).toBe(process.env.HOME);
       }
     });
 
     it("should prefer provided homeDir over env", () => {
       const manager = new SkillsManager({ homeDir: "/override/path" });
-      assert.equal(manager.homeDir, "/override/path");
+      expect(manager.homeDir).toBe("/override/path");
     });
 
     it("should handle string cacheTtlMs", () => {
       const manager = new SkillsManager({ cacheTtlMs: "10000" });
-      assert.equal(manager.cacheTtlMs, 10_000);
+      expect(manager.cacheTtlMs).toBe(10_000);
     });
 
     it("should handle string cacheMaxEntries", () => {
       const manager = new SkillsManager({ cacheMaxEntries: "5" });
-      assert.equal(manager.cacheMaxEntries, 5);
+      expect(manager.cacheMaxEntries).toBe(5);
     });
   });
 
@@ -191,9 +191,9 @@ describe("SkillsManager", () => {
       const manager = new SkillsManager({ homeDir: null });
       const result = await manager.getSkillsForCwd(tmpDir);
 
-      assert.equal(result.skills.length, 1);
-      assert.equal(result.skills[0].metadata.name, "TestSkill");
-      assert.equal(result.skills[0].metadata.description, "A test skill");
+      expect(result.skills.length).toBe(1);
+      expect(result.skills[0].metadata.name).toBe("TestSkill");
+      expect(result.skills[0].metadata.description).toBe("A test skill");
     });
 
     it("should cache results by cwd", async () => {
@@ -204,14 +204,14 @@ describe("SkillsManager", () => {
       const result1 = await manager.getSkillsForCwd(tmpDir);
       const result2 = await manager.getSkillsForCwd(tmpDir);
 
-      assert.equal(result1, result2);
+      expect(result1).toBe(result2);
     });
 
     it("should use __default__ as cache key for empty cwd", async () => {
       const manager = new SkillsManager({ homeDir: null });
       await manager.getSkillsForCwd("");
 
-      assert.ok(manager.cacheByDir.has("__default__"));
+      expect(manager.cacheByDir.has("__default__")).toBeTruthy();
     });
 
     it("should force reload when forceReload is true", async () => {
@@ -227,7 +227,7 @@ describe("SkillsManager", () => {
       const result2 = await manager.getSkillsForCwd(tmpDir, true);
 
       // After force reload, should get new content
-      assert.notEqual(result1, result2);
+      expect(result1).not.toBe(result2);
     });
 
     it("should reload when cache TTL expires", async () => {
@@ -244,7 +244,7 @@ describe("SkillsManager", () => {
       const result2 = await manager.getSkillsForCwd(tmpDir);
 
       // After TTL expires, should reload
-      assert.notEqual(result1, result2);
+      expect(result1).not.toBe(result2);
     });
 
     it("should not reload when cacheTtlMs is 0 (infinite cache)", async () => {
@@ -256,7 +256,7 @@ describe("SkillsManager", () => {
       await new Promise((r) => setTimeout(r, 10));
       const result2 = await manager.getSkillsForCwd(tmpDir);
 
-      assert.equal(result1, result2);
+      expect(result1).toBe(result2);
     });
 
     it("should evict oldest cache entries when max entries exceeded", async () => {
@@ -271,10 +271,10 @@ describe("SkillsManager", () => {
         await manager.getSkillsForCwd(dir2);
         await manager.getSkillsForCwd(dir3);
 
-        assert.equal(manager.cacheByDir.size, 2);
-        assert.ok(!manager.cacheByDir.has(dir1));
-        assert.ok(manager.cacheByDir.has(dir2));
-        assert.ok(manager.cacheByDir.has(dir3));
+        expect(manager.cacheByDir.size).toBe(2);
+        expect(!manager.cacheByDir.has(dir1)).toBeTruthy();
+        expect(manager.cacheByDir.has(dir2)).toBeTruthy();
+        expect(manager.cacheByDir.has(dir3)).toBeTruthy();
       } finally {
         await fs.rm(dir1, { recursive: true, force: true });
         await fs.rm(dir2, { recursive: true, force: true });
@@ -292,15 +292,15 @@ describe("SkillsManager", () => {
       const manager = new SkillsManager({ homeDir: null, remoteProvider });
       const result = await manager.getSkillsForCwd(tmpDir);
 
-      assert.equal(result.skills.length, 2);
+      expect(result.skills.length).toBe(2);
       const localSkill = result.skills.find((s) => s.metadata.name === "LocalSkill");
       const remoteSkill = result.skills.find((s) => s.metadata.name === "RemoteSkill");
 
-      assert.ok(localSkill);
-      assert.ok(remoteSkill);
-      assert.equal(remoteSkill.metadata.scope, "remote");
-      assert.equal(remoteSkill.metadata.path, "remote:RemoteSkill");
-      assert.equal(remoteSkill.body, null);
+      expect(localSkill).toBeTruthy();
+      expect(remoteSkill).toBeTruthy();
+      expect(remoteSkill.metadata.scope).toBe("remote");
+      expect(remoteSkill.metadata.path).toBe("remote:RemoteSkill");
+      expect(remoteSkill.body).toBe(null);
     });
 
     it("should not override local skills with remote duplicates", async () => {
@@ -316,8 +316,8 @@ describe("SkillsManager", () => {
       const manager = new SkillsManager({ homeDir: null, remoteProvider });
       const result = await manager.getSkillsForCwd(tmpDir);
 
-      assert.equal(result.skills.length, 1);
-      assert.equal(result.skills[0].metadata.description, "Local description");
+      expect(result.skills.length).toBe(1);
+      expect(result.skills[0].metadata.description).toBe("Local description");
     });
 
     it("should handle remote provider errors silently", async () => {
@@ -330,8 +330,8 @@ describe("SkillsManager", () => {
       const manager = new SkillsManager({ homeDir: null, remoteProvider });
       const result = await manager.getSkillsForCwd(tmpDir);
 
-      assert.equal(result.skills.length, 1);
-      assert.equal(result.skills[0].metadata.name, "LocalSkill");
+      expect(result.skills.length).toBe(1);
+      expect(result.skills[0].metadata.name).toBe("LocalSkill");
     });
 
     it("should use default priority 200 for remote skills without priority", async () => {
@@ -342,21 +342,21 @@ describe("SkillsManager", () => {
       const manager = new SkillsManager({ homeDir: null, remoteProvider });
       const result = await manager.getSkillsForCwd(tmpDir);
 
-      assert.equal(result.skills[0].metadata.priority, 200);
+      expect(result.skills[0].metadata.priority).toBe(200);
     });
 
     it("should handle null cwd", async () => {
       const manager = new SkillsManager({ homeDir: null });
       await manager.getSkillsForCwd(null);
 
-      assert.ok(manager.cacheByDir.has("__default__"));
+      expect(manager.cacheByDir.has("__default__")).toBeTruthy();
     });
 
     it("should handle undefined cwd", async () => {
       const manager = new SkillsManager({ homeDir: null });
       await manager.getSkillsForCwd(undefined);
 
-      assert.ok(manager.cacheByDir.has("__default__"));
+      expect(manager.cacheByDir.has("__default__")).toBeTruthy();
     });
 
     it("should handle cache entry with missing ts field", async () => {
@@ -368,7 +368,7 @@ describe("SkillsManager", () => {
       const result = await manager.getSkillsForCwd("/test");
 
       // Should reload because ts is missing/invalid (ts=0 means expired)
-      assert.ok(result);
+      expect(result).toBeTruthy();
     });
 
     it("should handle skills with empty keywords array from remote", async () => {
@@ -379,7 +379,7 @@ describe("SkillsManager", () => {
       const manager = new SkillsManager({ homeDir: null, remoteProvider });
       const result = await manager.getSkillsForCwd(tmpDir);
 
-      assert.deepEqual(result.skills[0].metadata.keywords, []);
+      expect(result.skills[0].metadata.keywords).toEqual([]);
     });
 
     it("should preserve remote skill keywords when provided", async () => {
@@ -390,15 +390,15 @@ describe("SkillsManager", () => {
       const manager = new SkillsManager({ homeDir: null, remoteProvider });
       const result = await manager.getSkillsForCwd(tmpDir);
 
-      assert.deepEqual(result.skills[0].metadata.keywords, ["key1", "key2"]);
+      expect(result.skills[0].metadata.keywords).toEqual(["key1", "key2"]);
     });
 
     it("should return empty skills for non-existent directory", async () => {
       const manager = new SkillsManager({ homeDir: null });
       const result = await manager.getSkillsForCwd("/non/existent/path");
 
-      assert.ok(Array.isArray(result.skills));
-      assert.ok(Array.isArray(result.errors));
+      expect(Array.isArray(result.skills)).toBeTruthy();
+      expect(Array.isArray(result.errors)).toBeTruthy();
     });
 
     it("should handle multiple remote skills", async () => {
@@ -411,10 +411,10 @@ describe("SkillsManager", () => {
       const manager = new SkillsManager({ homeDir: null, remoteProvider });
       const result = await manager.getSkillsForCwd(tmpDir);
 
-      assert.equal(result.skills.length, 3);
-      assert.equal(result.skills[0].metadata.priority, 100);
-      assert.equal(result.skills[1].metadata.priority, 150);
-      assert.equal(result.skills[2].metadata.priority, 200); // default
+      expect(result.skills.length).toBe(3);
+      expect(result.skills[0].metadata.priority).toBe(100);
+      expect(result.skills[1].metadata.priority).toBe(150);
+      expect(result.skills[2].metadata.priority).toBe(200); // default
     });
 
     it("should pass manifestUrl to loader when set", async () => {
@@ -424,10 +424,10 @@ describe("SkillsManager", () => {
       });
 
       // This tests that manifestUrl is stored and would be passed
-      assert.equal(manager.manifestUrl, "/skills/manifest.json");
+      expect(manager.manifestUrl).toBe("/skills/manifest.json");
 
       const result = await manager.getSkillsForCwd(tmpDir);
-      assert.ok(Array.isArray(result.skills));
+      expect(Array.isArray(result.skills)).toBeTruthy();
     });
   });
 
@@ -453,8 +453,8 @@ describe("SkillsManager", () => {
       const manager = new SkillsManager({ homeDir: null });
       const result = await manager.getCatalogPrompt(tmpDir);
 
-      assert.ok(result.startsWith("## Skills Catalog"));
-      assert.ok(result.includes("$TestSkill"));
+      expect(result.startsWith("## Skills Catalog")).toBeTruthy();
+      expect(result.includes("$TestSkill")).toBeTruthy();
     });
 
     it("should return catalog without header when header=false", async () => {
@@ -466,15 +466,15 @@ describe("SkillsManager", () => {
       const manager = new SkillsManager({ homeDir: null });
       const result = await manager.getCatalogPrompt(tmpDir, { header: false });
 
-      assert.ok(!result.startsWith("## Skills Catalog"));
-      assert.ok(result.includes("$TestSkill"));
+      expect(!result.startsWith("## Skills Catalog")).toBeTruthy();
+      expect(result.includes("$TestSkill")).toBeTruthy();
     });
 
     it("should return empty string when no skills", async () => {
       const manager = new SkillsManager({ homeDir: null });
       const result = await manager.getCatalogPrompt(tmpDir);
 
-      assert.equal(result, "");
+      expect(result).toBe("");
     });
 
     it("should use cached skills for catalog", async () => {
@@ -485,7 +485,7 @@ describe("SkillsManager", () => {
       await manager.getSkillsForCwd(tmpDir);
       const catalog = await manager.getCatalogPrompt(tmpDir);
 
-      assert.ok(catalog.includes("$CachedSkill"));
+      expect(catalog.includes("$CachedSkill")).toBeTruthy();
     });
   });
 
@@ -513,8 +513,8 @@ describe("SkillsManager", () => {
 
         manager.clearCache(dir1);
 
-        assert.ok(!manager.cacheByDir.has(dir1));
-        assert.ok(manager.cacheByDir.has(dir2));
+        expect(!manager.cacheByDir.has(dir1)).toBeTruthy();
+        expect(manager.cacheByDir.has(dir2)).toBeTruthy();
       } finally {
         await fs.rm(dir1, { recursive: true, force: true });
         await fs.rm(dir2, { recursive: true, force: true });
@@ -532,7 +532,7 @@ describe("SkillsManager", () => {
 
         manager.clearCache(null);
 
-        assert.equal(manager.cacheByDir.size, 0);
+        expect(manager.cacheByDir.size).toBe(0);
       } finally {
         await fs.rm(dir1, { recursive: true, force: true });
         await fs.rm(dir2, { recursive: true, force: true });
@@ -545,7 +545,7 @@ describe("SkillsManager", () => {
 
       manager.clearCache(undefined);
 
-      assert.equal(manager.cacheByDir.size, 0);
+      expect(manager.cacheByDir.size).toBe(0);
     });
 
     it("should clear all cache when called with no arguments", async () => {
@@ -559,7 +559,7 @@ describe("SkillsManager", () => {
 
         manager.clearCache();
 
-        assert.equal(manager.cacheByDir.size, 0);
+        expect(manager.cacheByDir.size).toBe(0);
       } finally {
         await fs.rm(dir1, { recursive: true, force: true });
         await fs.rm(dir2, { recursive: true, force: true });
@@ -572,7 +572,7 @@ describe("SkillsManager", () => {
       // Should not throw
       manager.clearCache("/non-existent");
 
-      assert.equal(manager.cacheByDir.size, 0);
+      expect(manager.cacheByDir.size).toBe(0);
     });
   });
 
@@ -602,16 +602,16 @@ describe("SkillsManager", () => {
       const manager = new SkillsManager({ homeDir: null });
       const metadata = await manager.getAllSkillMetadata(tmpDir);
 
-      assert.equal(metadata.length, 2);
+      expect(metadata.length).toBe(2);
       const names = metadata.map((m) => m.name).sort();
-      assert.deepEqual(names, ["Skill1", "Skill2"]);
+      expect(names).toEqual(["Skill1", "Skill2"]);
     });
 
     it("should return empty array when no skills", async () => {
       const manager = new SkillsManager({ homeDir: null });
       const metadata = await manager.getAllSkillMetadata(tmpDir);
 
-      assert.deepEqual(metadata, []);
+      expect(metadata).toEqual([]);
     });
 
     it("should use cached skills for metadata", async () => {
@@ -622,8 +622,8 @@ describe("SkillsManager", () => {
       await manager.getSkillsForCwd(tmpDir);
       const metadata = await manager.getAllSkillMetadata(tmpDir);
 
-      assert.equal(metadata.length, 1);
-      assert.equal(metadata[0].name, "CachedSkill");
+      expect(metadata.length).toBe(1);
+      expect(metadata[0].name).toBe("CachedSkill");
     });
 
     it("should return metadata with expected properties", async () => {
@@ -637,10 +637,10 @@ describe("SkillsManager", () => {
       const manager = new SkillsManager({ homeDir: null });
       const metadata = await manager.getAllSkillMetadata(tmpDir);
 
-      assert.equal(metadata[0].name, "TestSkill");
-      assert.equal(metadata[0].description, "Test description");
-      assert.ok(metadata[0].path);
-      assert.ok(metadata[0].scope);
+      expect(metadata[0].name).toBe("TestSkill");
+      expect(metadata[0].description).toBe("Test description");
+      expect(metadata[0].path).toBeTruthy();
+      expect(metadata[0].scope).toBeTruthy();
     });
   });
 
@@ -672,11 +672,11 @@ describe("SkillsManager", () => {
       const manager = new SkillsManager({ homeDir: null });
       const result = await manager.getSkillsForCwd(tmpDir);
 
-      assert.equal(result.skills.length, 2);
+      expect(result.skills.length).toBe(2);
       const critical = result.skills.find((s) => s.metadata.name === "CriticalSkill");
       const normal = result.skills.find((s) => s.metadata.name === "NormalSkill");
-      assert.equal(critical.metadata.priority, 0);
-      assert.equal(normal.metadata.priority, 100);
+      expect(critical.metadata.priority).toBe(0);
+      expect(normal.metadata.priority).toBe(100);
     });
 
     it("should handle skills with numeric priority from remote", async () => {
@@ -687,7 +687,7 @@ describe("SkillsManager", () => {
       const manager = new SkillsManager({ homeDir: null, remoteProvider });
       const result = await manager.getSkillsForCwd(tmpDir);
 
-      assert.equal(result.skills[0].metadata.priority, 50);
+      expect(result.skills[0].metadata.priority).toBe(50);
     });
   });
 
@@ -717,7 +717,7 @@ describe("SkillsManager", () => {
 
       const results = await Promise.all(promises);
 
-      assert.ok(results.every((r) => r.skills.length === 1));
+      expect(results.every((r).toBeTruthy() => r.skills.length === 1));
     });
 
     it("should handle concurrent calls to different cwds", async () => {
@@ -735,8 +735,8 @@ describe("SkillsManager", () => {
           manager.getSkillsForCwd(dir2),
         ]);
 
-        assert.equal(result1.skills[0].metadata.name, "Skill1");
-        assert.equal(result2.skills[0].metadata.name, "Skill2");
+        expect(result1.skills[0].metadata.name).toBe("Skill1");
+        expect(result2.skills[0].metadata.name).toBe("Skill2");
       } finally {
         await fs.rm(dir1, { recursive: true, force: true });
         await fs.rm(dir2, { recursive: true, force: true });
@@ -769,8 +769,8 @@ describe("SkillsManager", () => {
       const manager = new SkillsManager({ homeDir: null });
       const result = await manager.getSkillsForCwd(tmpDir);
 
-      assert.equal(result.skills.length, 1);
-      assert.equal(result.errors.length, 1);
+      expect(result.skills.length).toBe(1);
+      expect(result.errors.length).toBe(1);
     });
   });
 });

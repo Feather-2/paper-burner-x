@@ -1,7 +1,8 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
-test("ToolChain: grep-only strategy", async () => {
+it("ToolChain: grep-only strategy", async () => {
   const { search, clearGlobCache } = await import("../../../js/agents/retrieval/tool-chain.js");
   clearGlobCache();
 
@@ -17,22 +18,22 @@ test("ToolChain: grep-only strategy", async () => {
     { caseSensitive: false }
   );
 
-  assert.equal(result.strategy, "grep-only");
-  assert.equal(result.results.length, 3); // hello 在 c1, c3; API_KEY 在 c2
-  assert.ok(result.stats.grepCalls >= 2);
-  assert.ok(result.stats.hits >= 3);
+  expect(result.strategy).toBe("grep-only");
+  expect(result.results.length).toBe(3); // hello 在 c1, c3; API_KEY 在 c2
+  expect(result.stats.grepCalls >= 2).toBeTruthy();
+  expect(result.stats.hits >= 3).toBeTruthy();
 });
 
-test("ToolChain: normalizeToolChainStrategy", async () => {
+it("ToolChain: normalizeToolChainStrategy", async () => {
   const { ToolChainStrategy, normalizeToolChainStrategy } = await import("../../../js/agents/retrieval/tool-chain.js");
 
-  assert.equal(normalizeToolChainStrategy("GLOB-THEN-GREP"), ToolChainStrategy.GLOB_THEN_GREP);
-  assert.equal(normalizeToolChainStrategy("grep-only"), ToolChainStrategy.GREP_ONLY);
-  assert.equal(normalizeToolChainStrategy("auto"), ToolChainStrategy.AUTO);
-  assert.equal(normalizeToolChainStrategy("unknown"), undefined);
+  expect(normalizeToolChainStrategy("GLOB-THEN-GREP")).toBe(ToolChainStrategy.GLOB_THEN_GREP);
+  expect(normalizeToolChainStrategy("grep-only")).toBe(ToolChainStrategy.GREP_ONLY);
+  expect(normalizeToolChainStrategy("auto")).toBe(ToolChainStrategy.AUTO);
+  expect(normalizeToolChainStrategy("unknown")).toBe(undefined);
 });
 
-test("ToolChain: glob-then-grep with cache", async () => {
+it("ToolChain: glob-then-grep with cache", async () => {
   const { search, clearGlobCache, getGlobCacheStats } = await import("../../../js/agents/retrieval/tool-chain.js");
   clearGlobCache();
 
@@ -54,10 +55,10 @@ test("ToolChain: glob-then-grep with cache", async () => {
     { globTool: mockGlobTool, caseSensitive: false }
   );
 
-  assert.equal(result1.strategy, "glob-then-grep");
-  assert.ok(result1.results.length >= 2); // React 和 export 都在 App.js 中
-  assert.equal(result1.stats.globCalls, 1);
-  assert.equal(result1.stats.cached, 0); // 第一次没有缓存
+  expect(result1.strategy).toBe("glob-then-grep");
+  expect(result1.results.length >= 2).toBeTruthy(); // React 和 export 都在 App.js 中
+  expect(result1.stats.globCalls).toBe(1);
+  expect(result1.stats.cached).toBe(0); // 第一次没有缓存
 
   // 第二次调用：应该使用缓存
   const result2 = await search(
@@ -66,16 +67,16 @@ test("ToolChain: glob-then-grep with cache", async () => {
     { globTool: mockGlobTool, caseSensitive: false }
   );
 
-  assert.equal(result2.stats.globCalls, 1);
-  assert.equal(result2.stats.cached, 1); // 第二次使用缓存
+  expect(result2.stats.globCalls).toBe(1);
+  expect(result2.stats.cached).toBe(1); // 第二次使用缓存
 
   const cacheStats = getGlobCacheStats();
-  assert.ok(cacheStats.size >= 1);
+  expect(cacheStats.size >= 1).toBeTruthy();
 
   clearGlobCache();
 });
 
-test("ToolChain: glob file filter uses normalized exact match (no substring)", async () => {
+it("ToolChain: glob file filter uses normalized exact match (no substring)", async () => {
   const { search, clearGlobCache } = await import("../../../js/agents/retrieval/tool-chain.js");
   clearGlobCache();
 
@@ -96,12 +97,12 @@ test("ToolChain: glob file filter uses normalized exact match (no substring)", a
     { globTool: mockGlobTool, caseSensitive: false }
   );
 
-  assert.equal(result.strategy, "glob-then-grep");
-  assert.equal(result.results.length, 1);
-  assert.equal(result.results[0].chunkId, "c1");
+  expect(result.strategy).toBe("glob-then-grep");
+  expect(result.results.length).toBe(1);
+  expect(result.results[0].chunkId).toBe("c1");
 });
 
-test("ToolChain: auto strategy with patterns falls back to glob-then-grep", async () => {
+it("ToolChain: auto strategy with patterns falls back to glob-then-grep", async () => {
   const { search, clearGlobCache } = await import("../../../js/agents/retrieval/tool-chain.js");
   clearGlobCache();
 
@@ -122,13 +123,13 @@ test("ToolChain: auto strategy with patterns falls back to glob-then-grep", asyn
   );
 
   // auto + patterns 应该选择 glob-then-grep
-  assert.equal(result.strategy, "glob-then-grep");
-  assert.ok(result.results.length >= 2);
+  expect(result.strategy).toBe("glob-then-grep");
+  expect(result.results.length >= 2).toBeTruthy();
 
   clearGlobCache();
 });
 
-test("ToolChain: fallback to grep-only when glob fails", async () => {
+it("ToolChain: fallback to grep-only when glob fails", async () => {
   const { search, clearGlobCache } = await import("../../../js/agents/retrieval/tool-chain.js");
   clearGlobCache();
 
@@ -148,15 +149,15 @@ test("ToolChain: fallback to grep-only when glob fails", async () => {
   );
 
   // 应该降级到 grep-only
-  assert.equal(result.strategy, "grep-only");
-  assert.ok(result.fallbackReason);
-  assert.ok(result.fallbackReason.includes("glob_failed"));
-  assert.equal(result.results.length, 2); // grep-only 能找到两个 world
+  expect(result.strategy).toBe("grep-only");
+  expect(result.fallbackReason).toBeTruthy();
+  expect(result.fallbackReason.includes("glob_failed")).toBeTruthy();
+  expect(result.results.length).toBe(2); // grep-only 能找到两个 world
 
   clearGlobCache();
 });
 
-test("ToolChain: no keywords returns empty results", async () => {
+it("ToolChain: no keywords returns empty results", async () => {
   const { search, clearGlobCache } = await import("../../../js/agents/retrieval/tool-chain.js");
   clearGlobCache();
 
@@ -165,12 +166,12 @@ test("ToolChain: no keywords returns empty results", async () => {
   const result = await search(chunks, { strategy: "grep-only", keywords: [] }, {});
 
   // New structure: fail-fast validation error
-  assert.equal(result.ok, false);
-  assert.equal(result.error?.code, "NO_KEYWORDS");
-  assert.equal(result.results.length, 0);
+  expect(result.ok).toBe(false);
+  expect(result.error?.code).toBe("NO_KEYWORDS");
+  expect(result.results.length).toBe(0);
 });
 
-test("ToolChain: regex support", async () => {
+it("ToolChain: regex support", async () => {
   const { search, clearGlobCache } = await import("../../../js/agents/retrieval/tool-chain.js");
   clearGlobCache();
 
@@ -186,14 +187,14 @@ test("ToolChain: regex support", async () => {
     { regex: true, caseSensitive: false }
   );
 
-  assert.equal(result.strategy, "grep-only");
-  assert.ok(result.results.length >= 2); // 匹配 test123 和 test456
-  assert.ok(result.results.every((r) => ["c1", "c2"].includes(r.chunkId)));
+  expect(result.strategy).toBe("grep-only");
+  expect(result.results.length >= 2).toBeTruthy(); // 匹配 test123 和 test456
+  expect(result.results.every(r => ["c1", "c2"].includes(r.chunkId)));
 
   clearGlobCache();
 });
 
-test("ToolChain: case sensitive search", async () => {
+it("ToolChain: case sensitive search", async () => {
   const { search, clearGlobCache } = await import("../../../js/agents/retrieval/tool-chain.js");
   clearGlobCache();
 
@@ -209,8 +210,8 @@ test("ToolChain: case sensitive search", async () => {
     { caseSensitive: true }
   );
 
-  assert.equal(result1.results.length, 1);
-  assert.equal(result1.results[0].chunkId, "c1");
+  expect(result1.results.length).toBe(1);
+  expect(result1.results[0].chunkId).toBe("c1");
 
   // 大小写不敏感
   const result2 = await search(
@@ -219,12 +220,12 @@ test("ToolChain: case sensitive search", async () => {
     { caseSensitive: false }
   );
 
-  assert.equal(result2.results.length, 2);
+  expect(result2.results.length).toBe(2);
 
   clearGlobCache();
 });
 
-test("ToolChain: glob timeout fallback", async () => {
+it("ToolChain: glob timeout fallback", async () => {
   const { search, clearGlobCache } = await import("../../../js/agents/retrieval/tool-chain.js");
   clearGlobCache();
 
@@ -241,24 +242,24 @@ test("ToolChain: glob timeout fallback", async () => {
   );
 
   // 应该降级到 grep-only（因为 glob 超时）
-  assert.equal(result.strategy, "grep-only");
-  assert.ok(result.fallbackReason);
-  assert.ok(result.fallbackReason.includes("timeout") || result.fallbackReason.includes("glob_failed"));
-  assert.equal(result.results.length, 1);
+  expect(result.strategy).toBe("grep-only");
+  expect(result.fallbackReason).toBeTruthy();
+  expect(result.fallbackReason.includes("timeout")).toBeTruthy() || result.fallbackReason.includes("glob_failed"));
+  expect(result.results.length).toBe(1);
 
   clearGlobCache();
 });
 
-test("ToolChain: empty chunks returns empty results", async () => {
+it("ToolChain: empty chunks returns empty results", async () => {
   const { search, clearGlobCache } = await import("../../../js/agents/retrieval/tool-chain.js");
   clearGlobCache();
 
   const result = await search([], { strategy: "grep-only", keywords: ["test"] }, {});
 
-  assert.equal(result.results.length, 0);
+  expect(result.results.length).toBe(0);
 });
 
-test("ToolChain: glob filters chunks correctly", async () => {
+it("ToolChain: glob filters chunks correctly", async () => {
   const { search, clearGlobCache } = await import("../../../js/agents/retrieval/tool-chain.js");
   clearGlobCache();
 
@@ -281,15 +282,15 @@ test("ToolChain: glob filters chunks correctly", async () => {
     { globTool: mockGlobTool }
   );
 
-  assert.equal(result.strategy, "glob-then-grep");
+  expect(result.strategy).toBe("glob-then-grep");
   // 应该只匹配 c1 和 c3（JS 文件）
-  assert.ok(result.results.length >= 2);
-  assert.ok(result.results.every((r) => ["c1", "c3"].includes(r.chunkId)));
+  expect(result.results.length >= 2).toBeTruthy();
+  expect(result.results.every(r => ["c1", "c3"].includes(r.chunkId)));
 
   clearGlobCache();
 });
 
-test("ToolChain: multiple keywords accumulate results", async () => {
+it("ToolChain: multiple keywords accumulate results", async () => {
   const { search, clearGlobCache } = await import("../../../js/agents/retrieval/tool-chain.js");
   clearGlobCache();
 
@@ -305,14 +306,14 @@ test("ToolChain: multiple keywords accumulate results", async () => {
     {}
   );
 
-  assert.equal(result.strategy, "grep-only");
-  assert.ok(result.results.length >= 3); // 每个 keyword 至少匹配一个 chunk
-  assert.ok(result.stats.grepCalls >= 3);
+  expect(result.strategy).toBe("grep-only");
+  expect(result.results.length >= 3).toBeTruthy(); // 每个 keyword 至少匹配一个 chunk
+  expect(result.stats.grepCalls >= 3).toBeTruthy();
 
   clearGlobCache();
 });
 
-test("ToolChain: matchCount scoring", async () => {
+it("ToolChain: matchCount scoring", async () => {
   const { search, clearGlobCache } = await import("../../../js/agents/retrieval/tool-chain.js");
   clearGlobCache();
 
@@ -330,10 +331,10 @@ test("ToolChain: matchCount scoring", async () => {
   const c1Result = result.results.find((r) => r.chunkId === "c1");
   const c2Result = result.results.find((r) => r.chunkId === "c2");
 
-  assert.ok(c1Result);
-  assert.ok(c2Result);
-  assert.equal(c1Result.matchCount, 3);
-  assert.equal(c2Result.matchCount, 1);
+  expect(c1Result).toBeTruthy();
+  expect(c2Result).toBeTruthy();
+  expect(c1Result.matchCount).toBe(3);
+  expect(c2Result.matchCount).toBe(1);
 
   clearGlobCache();
 });

@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import {
   ToolPermissions,
@@ -11,10 +11,10 @@ import {
 describe("runtime/safety/tool-permissions", () => {
   describe("PermissionLevel enum", () => {
     it("exports all expected levels", () => {
-      assert.equal(PermissionLevel.READONLY, "readonly");
-      assert.equal(PermissionLevel.STANDARD, "standard");
-      assert.equal(PermissionLevel.ELEVATED, "elevated");
-      assert.equal(PermissionLevel.CUSTOM, "custom");
+      expect(PermissionLevel.READONLY).toBe("readonly");
+      expect(PermissionLevel.STANDARD).toBe("standard");
+      expect(PermissionLevel.ELEVATED).toBe("elevated");
+      expect(PermissionLevel.CUSTOM).toBe("custom");
     });
   });
 
@@ -22,30 +22,30 @@ describe("runtime/safety/tool-permissions", () => {
     it("returns restrictions for readonly level", () => {
       const restrictions = getPresetRestrictions("readonly");
 
-      assert.ok(Array.isArray(restrictions.blockedTools));
-      assert.ok(restrictions.blockedTools.includes("write"));
-      assert.ok(restrictions.blockedTools.includes("edit"));
-      assert.ok(Array.isArray(restrictions.bash.allowedCommands));
+      expect(Array.isArray(restrictions.blockedTools)).toBeTruthy();
+      expect(restrictions.blockedTools.includes("write")).toBeTruthy();
+      expect(restrictions.blockedTools.includes("edit")).toBeTruthy();
+      expect(Array.isArray(restrictions.bash.allowedCommands)).toBeTruthy();
     });
 
     it("returns restrictions for standard level", () => {
       const restrictions = getPresetRestrictions("standard");
 
-      assert.ok(Array.isArray(restrictions.bash.blockedCommands));
-      assert.ok(restrictions.bash.blockedCommands.some((cmd) => cmd.includes("rm -rf")));
+      expect(Array.isArray(restrictions.bash.blockedCommands)).toBeTruthy();
+      expect(restrictions.bash.blockedCommands.some(cmd => cmd.includes("rm -rf")));
     });
 
     it("returns restrictions for elevated level", () => {
       const restrictions = getPresetRestrictions("elevated");
 
-      assert.ok(Array.isArray(restrictions.bash.blockedCommands));
+      expect(Array.isArray(restrictions.bash.blockedCommands)).toBeTruthy();
       // Elevated has fewer restrictions
-      assert.ok(restrictions.bash.blockedCommands.length <= 5);
+      expect(restrictions.bash.blockedCommands.length <= 5).toBeTruthy();
     });
 
     it("returns null for custom level", () => {
       const restrictions = getPresetRestrictions("custom");
-      assert.equal(restrictions, null);
+      expect(restrictions).toBe(null);
     });
   });
 
@@ -56,8 +56,8 @@ describe("runtime/safety/tool-permissions", () => {
 
       const merged = mergeRestrictions(base, override);
 
-      assert.ok(merged.blockedTools.includes("tool1"));
-      assert.ok(merged.blockedTools.includes("tool2"));
+      expect(merged.blockedTools.includes("tool1")).toBeTruthy();
+      expect(merged.blockedTools.includes("tool2")).toBeTruthy();
     });
 
     it("override allowedCommands replaces base", () => {
@@ -66,7 +66,7 @@ describe("runtime/safety/tool-permissions", () => {
 
       const merged = mergeRestrictions(base, override);
 
-      assert.deepEqual(merged.bash.allowedCommands, ["pwd"]);
+      expect(merged.bash.allowedCommands).toEqual(["pwd"]);
     });
   });
 
@@ -74,22 +74,22 @@ describe("runtime/safety/tool-permissions", () => {
     describe("static factory methods", () => {
       it("readonly() creates readonly permissions", () => {
         const perm = ToolPermissions.readonly();
-        assert.equal(perm.getLevel(), "readonly");
+        expect(perm.getLevel()).toBe("readonly");
       });
 
       it("standard() creates standard permissions", () => {
         const perm = ToolPermissions.standard();
-        assert.equal(perm.getLevel(), "standard");
+        expect(perm.getLevel()).toBe("standard");
       });
 
       it("elevated() creates elevated permissions", () => {
         const perm = ToolPermissions.elevated();
-        assert.equal(perm.getLevel(), "elevated");
+        expect(perm.getLevel()).toBe("elevated");
       });
 
       it("custom() creates custom permissions", () => {
         const perm = ToolPermissions.custom({ blockedTools: ["foo"] });
-        assert.equal(perm.getLevel(), "custom");
+        expect(perm.getLevel()).toBe("custom");
       });
     });
 
@@ -98,43 +98,43 @@ describe("runtime/safety/tool-permissions", () => {
         const perm = ToolPermissions.readonly();
         const result = perm.check("write", null);
 
-        assert.equal(result.allowed, false);
-        assert.ok(result.reason?.includes("blocked"));
+        expect(result.allowed).toBe(false);
+        expect(result.reason?.includes("blocked")).toBeTruthy();
       });
 
       it("readonly allows read tools", () => {
         const perm = ToolPermissions.readonly();
         const result = perm.check("read", null);
 
-        assert.equal(result.allowed, true);
+        expect(result.allowed).toBe(true);
       });
 
       it("readonly allows safe bash commands", () => {
         const perm = ToolPermissions.readonly();
         const result = perm.check("bash", "ls -la");
 
-        assert.equal(result.allowed, true);
+        expect(result.allowed).toBe(true);
       });
 
       it("readonly blocks write bash commands", () => {
         const perm = ToolPermissions.readonly();
         const result = perm.check("bash", "rm -rf /tmp/test");
 
-        assert.equal(result.allowed, false);
+        expect(result.allowed).toBe(false);
       });
 
       it("standard allows most tools", () => {
         const perm = ToolPermissions.standard();
         const result = perm.check("write", null);
 
-        assert.equal(result.allowed, true);
+        expect(result.allowed).toBe(true);
       });
 
       it("standard blocks dangerous bash", () => {
         const perm = ToolPermissions.standard();
         const result = perm.check("bash", "rm -rf /");
 
-        assert.equal(result.allowed, false);
+        expect(result.allowed).toBe(false);
       });
     });
 
@@ -143,28 +143,28 @@ describe("runtime/safety/tool-permissions", () => {
         const perm = ToolPermissions.standard().block(["custom_tool"]);
         const result = perm.check("custom_tool", null);
 
-        assert.equal(result.allowed, false);
+        expect(result.allowed).toBe(false);
       });
 
       it("allow() adds tools to allowlist", () => {
         const perm = ToolPermissions.custom({ allowedTools: [] }).allow(["my_tool"]);
         const restrictions = perm.getRestrictions();
 
-        assert.ok(restrictions.allowedTools.includes("my_tool"));
+        expect(restrictions.allowedTools.includes("my_tool")).toBeTruthy();
       });
 
       it("blockBash() adds commands to blocklist", () => {
         const perm = ToolPermissions.standard().blockBash(["npm publish"]);
         const result = perm.check("bash", "npm publish");
 
-        assert.equal(result.allowed, false);
+        expect(result.allowed).toBe(false);
       });
 
       it("allowBash() adds commands to allowlist", () => {
         const perm = ToolPermissions.readonly().allowBash(["npm test"]);
         const restrictions = perm.getRestrictions();
 
-        assert.ok(restrictions.bash.allowedCommands.includes("npm test"));
+        expect(restrictions.bash.allowedCommands.includes("npm test")).toBeTruthy();
       });
 
       it("methods are chainable", () => {
@@ -172,8 +172,8 @@ describe("runtime/safety/tool-permissions", () => {
           .block(["tool1", "tool2"])
           .blockBash(["cmd1"]);
 
-        assert.ok(perm.check("tool1", null).allowed === false);
-        assert.ok(perm.check("tool2", null).allowed === false);
+        expect(perm.check("tool1", null).toBeTruthy().allowed === false);
+        expect(perm.check("tool2", null).toBeTruthy().allowed === false);
       });
     });
 
@@ -186,9 +186,9 @@ describe("runtime/safety/tool-permissions", () => {
         });
 
         const result = perm.check("write", null);
-        assert.equal(result.allowed, false);
+        expect(result.allowed).toBe(false);
         // Reason can be 'tool_not_in_allowlist' (strict mode) or 'tool_not_allowed' (blocklist)
-        assert.ok(["tool_not_in_allowlist", "tool_not_allowed"].includes(result.reason));
+        expect(["tool_not_in_allowlist", "tool_not_allowed"].includes(result.reason)).toBeTruthy();
       });
 
       it("allows listed tools", () => {
@@ -199,7 +199,7 @@ describe("runtime/safety/tool-permissions", () => {
         });
 
         const result = perm.check("read", null);
-        assert.equal(result.allowed, true);
+        expect(result.allowed).toBe(true);
       });
     });
 
@@ -208,7 +208,7 @@ describe("runtime/safety/tool-permissions", () => {
         const perm = ToolPermissions.readonly();
         const hook = perm.createHook();
 
-        assert.equal(typeof hook, "function");
+        expect(typeof hook).toBe("function");
       });
 
       it("hook blocks disallowed tools", () => {
@@ -217,8 +217,8 @@ describe("runtime/safety/tool-permissions", () => {
 
         const result = hook({ tool: "write", params: {} });
 
-        assert.equal(result.skip, true);
-        assert.equal(result.value.ok, false);
+        expect(result.skip).toBe(true);
+        expect(result.value.ok).toBe(false);
       });
 
       it("hook allows permitted tools", () => {
@@ -227,7 +227,7 @@ describe("runtime/safety/tool-permissions", () => {
 
         const result = hook({ tool: "read", params: {} });
 
-        assert.equal(result, null);
+        expect(result).toBe(null);
       });
 
       it("hook extracts command from params", () => {
@@ -236,7 +236,7 @@ describe("runtime/safety/tool-permissions", () => {
 
         const result = hook({ tool: "bash", params: { command: "rm -rf /" } });
 
-        assert.equal(result.skip, true);
+        expect(result.skip).toBe(true);
       });
     });
 
@@ -245,9 +245,9 @@ describe("runtime/safety/tool-permissions", () => {
         const perm = ToolPermissions.standard();
         const json = perm.toJSON();
 
-        assert.equal(json.level, "standard");
-        assert.equal(typeof json.restrictions, "object");
-        assert.equal(json.strict, false);
+        expect(json.level).toBe("standard");
+        expect(typeof json.restrictions).toBe("object");
+        expect(json.strict).toBe(false);
       });
 
       it("fromJSON restores permissions", () => {
@@ -255,13 +255,13 @@ describe("runtime/safety/tool-permissions", () => {
         const json = original.toJSON();
         const restored = ToolPermissions.fromJSON(json);
 
-        assert.equal(restored.getLevel(), "readonly");
-        assert.equal(restored.check("extra", null).allowed, false);
+        expect(restored.getLevel()).toBe("readonly");
+        expect(restored.check("extra").toBe(null).allowed, false);
       });
 
       it("fromJSON handles invalid input", () => {
         const perm = ToolPermissions.fromJSON(null);
-        assert.equal(perm.getLevel(), "standard");
+        expect(perm.getLevel()).toBe("standard");
       });
     });
   });

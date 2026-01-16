@@ -1,10 +1,11 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
-test("batch-generator module exports generateBatch and generateSingleSlide", async () => {
+it("batch-generator module exports generateBatch and generateSingleSlide", async () => {
   const module = await import("../../../js/agents/stages/design/generators/batch-generator.js");
-  assert.ok(typeof module.generateBatch === "function", "generateBatch should be exported as a function");
-  assert.ok(typeof module.generateSingleSlide === "function", "generateSingleSlide should be exported as a function");
+  expect(typeof module.generateBatch === "function", "generateBatch should be exported as a function").toBeTruthy();
+  expect(typeof module.generateSingleSlide === "function", "generateSingleSlide should be exported as a function").toBeTruthy();
 });
 
 function makeSlideIntent(id, title = "Test Slide", pageType = "overview") {
@@ -47,7 +48,7 @@ function makeContentPackage(slideIntents) {
   };
 }
 
-test("design.slide.started event payload includes complete slideIntent fields", async () => {
+it("design.slide.started event payload includes complete slideIntent fields", async () => {
   const { generateBatch } = await import("../../../js/agents/stages/design/generators/batch-generator.js");
 
   const events = [];
@@ -71,35 +72,35 @@ test("design.slide.started event payload includes complete slideIntent fields", 
   });
 
   const startedEvents = events.filter((e) => e.name === "design.slide.started");
-  assert.equal(startedEvents.length, 2, "should emit design.slide.started for each slide");
+  expect(startedEvents.length).toBe(2, "should emit design.slide.started for each slide");
 
   for (let i = 0; i < startedEvents.length; i++) {
     const evt = startedEvents[i];
-    assert.equal(evt.record?.actor, "design", `event ${i}: actor should be "design"`);
-    assert.equal(evt.record?.status, "started", `event ${i}: status should be "started"`);
-    assert.ok(evt.record?.payload, `event ${i}: should have payload`);
+    expect(evt.record?.actor).toBe("design", `event ${i}: actor should be "design"`);
+    expect(evt.record?.status).toBe("started", `event ${i}: status should be "started"`);
+    expect(evt.record?.payload, `event ${i}: should have payload`).toBeTruthy();
 
     const slideIntent = evt.record.payload.slideIntent;
-    assert.ok(slideIntent, `event ${i}: payload should have slideIntent`);
-    assert.ok(slideIntent.id, `event ${i}: slideIntent should have id`);
-    assert.ok(slideIntent.title, `event ${i}: slideIntent should have title`);
-    assert.ok(slideIntent.pageType, `event ${i}: slideIntent should have pageType`);
-    assert.ok(slideIntent.objective, `event ${i}: slideIntent should have objective`);
-    assert.ok(Array.isArray(slideIntent.keyPoints), `event ${i}: slideIntent should have keyPoints array`);
-    assert.ok(Array.isArray(slideIntent.claimIds), `event ${i}: slideIntent should have claimIds array`);
-    assert.ok(Array.isArray(slideIntent.dataTableIds), `event ${i}: slideIntent should have dataTableIds array`);
+    expect(slideIntent, `event ${i}: payload should have slideIntent`).toBeTruthy();
+    expect(slideIntent.id, `event ${i}: slideIntent should have id`).toBeTruthy();
+    expect(slideIntent.title, `event ${i}: slideIntent should have title`).toBeTruthy();
+    expect(slideIntent.pageType, `event ${i}: slideIntent should have pageType`).toBeTruthy();
+    expect(slideIntent.objective, `event ${i}: slideIntent should have objective`).toBeTruthy();
+    expect(Array.isArray(slideIntent.keyPoints).toBeTruthy(), `event ${i}: slideIntent should have keyPoints array`);
+    expect(Array.isArray(slideIntent.claimIds).toBeTruthy(), `event ${i}: slideIntent should have claimIds array`);
+    expect(Array.isArray(slideIntent.dataTableIds).toBeTruthy(), `event ${i}: slideIntent should have dataTableIds array`);
   }
 
   const s1Event = startedEvents.find((e) => e.record?.payload?.slideIntent?.id === "s1");
-  assert.equal(s1Event?.record?.payload?.slideIntent?.title, "Introduction");
-  assert.equal(s1Event?.record?.payload?.slideIntent?.pageType, "cover");
+  expect(s1Event?.record?.payload?.slideIntent?.title).toBe("Introduction");
+  expect(s1Event?.record?.payload?.slideIntent?.pageType).toBe("cover");
 
   const s2Event = startedEvents.find((e) => e.record?.payload?.slideIntent?.id === "s2");
-  assert.equal(s2Event?.record?.payload?.slideIntent?.title, "Overview");
-  assert.equal(s2Event?.record?.payload?.slideIntent?.pageType, "overview");
+  expect(s2Event?.record?.payload?.slideIntent?.title).toBe("Overview");
+  expect(s2Event?.record?.payload?.slideIntent?.pageType).toBe("overview");
 });
 
-test("design.slide.failed event payload contains error object with message and stack", async () => {
+it("design.slide.failed event payload contains error object with message and stack", async () => {
   const { generateBatch } = await import("../../../js/agents/stages/design/generators/batch-generator.js");
 
   const events = [];
@@ -123,30 +124,30 @@ test("design.slide.failed event payload contains error object with message and s
     batchSize: 1,
   });
 
-  assert.equal(callCount, 2, "should retry once before falling back");
+  expect(callCount).toBe(2, "should retry once before falling back");
 
   const failedEvents = events.filter((e) => e.name === "design.slide.failed");
-  assert.equal(failedEvents.length, 1, "should emit design.slide.failed once");
+  expect(failedEvents.length).toBe(1, "should emit design.slide.failed once");
 
   const failedEvt = failedEvents[0];
-  assert.equal(failedEvt.record?.actor, "design", "actor should be design");
-  assert.equal(failedEvt.record?.status, "failed", "status should be failed");
-  assert.ok(failedEvt.record?.payload, "should have payload");
-  assert.ok(failedEvt.record?.payload?.error, "payload should have error field");
+  expect(failedEvt.record?.actor).toBe("design", "actor should be design");
+  expect(failedEvt.record?.status).toBe("failed", "status should be failed");
+  expect(failedEvt.record?.payload, "should have payload").toBeTruthy();
+  expect(failedEvt.record?.payload?.error, "payload should have error field").toBeTruthy();
 
   const error = failedEvt.record.payload.error;
-  assert.equal(typeof error, "object", "error should be an object");
-  assert.ok(error.message, "error should have message property");
-  assert.equal(typeof error.message, "string", "error.message should be a string");
-  assert.ok(error.message.includes("Simulated LLM failure"), "error.message should contain failure details");
-  assert.ok(error.stack !== undefined, "error should have stack property (may be undefined)");
+  expect(typeof error).toBe("object", "error should be an object");
+  expect(error.message, "error should have message property").toBeTruthy();
+  expect(typeof error.message).toBe("string", "error.message should be a string");
+  expect(error.message.includes("Simulated LLM failure")).toBeTruthy();
+  expect(error.stack !== undefined, "error should have stack property (may be undefined).toBeTruthy()");
 
   if (error.stack) {
-    assert.equal(typeof error.stack, "string", "error.stack should be a string when present");
+    expect(typeof error.stack).toBe("string", "error.stack should be a string when present");
   }
 });
 
-test("design.slide.completed event is emitted with correct payload after successful generation", async () => {
+it("design.slide.completed event is emitted with correct payload after successful generation", async () => {
   const { generateBatch } = await import("../../../js/agents/stages/design/generators/batch-generator.js");
 
   const events = [];
@@ -167,19 +168,19 @@ test("design.slide.completed event is emitted with correct payload after success
   });
 
   const completedEvents = events.filter((e) => e.name === "design.slide.completed");
-  assert.equal(completedEvents.length, 1, "should emit design.slide.completed once");
+  expect(completedEvents.length).toBe(1, "should emit design.slide.completed once");
 
   const completedEvt = completedEvents[0];
-  assert.equal(completedEvt.record?.actor, "design");
-  assert.equal(completedEvt.record?.status, "completed");
-  assert.ok(completedEvt.record?.payload);
-  assert.equal(typeof completedEvt.record.payload.slideIndex, "number");
-  assert.ok(completedEvt.record.payload.html);
-  assert.equal(typeof completedEvt.record.payload.duration, "number");
-  assert.ok(["llm", "fallback"].includes(completedEvt.record.payload.source));
+  expect(completedEvt.record?.actor).toBe("design");
+  expect(completedEvt.record?.status).toBe("completed");
+  expect(completedEvt.record?.payload).toBeTruthy();
+  expect(typeof completedEvt.record.payload.slideIndex).toBe("number");
+  expect(completedEvt.record.payload.html).toBeTruthy();
+  expect(typeof completedEvt.record.payload.duration).toBe("number");
+  expect(["llm", "fallback"].includes(completedEvt.record.payload.source)).toBeTruthy();
 });
 
-test("design.batch.started and design.batch.completed events are emitted with correct structure", async () => {
+it("design.batch.started and design.batch.completed events are emitted with correct structure", async () => {
   const { generateBatch } = await import("../../../js/agents/stages/design/generators/batch-generator.js");
 
   const events = [];
@@ -202,26 +203,26 @@ test("design.batch.started and design.batch.completed events are emitted with co
   const batchStartedEvents = events.filter((e) => e.name === "design.batch.started");
   const batchCompletedEvents = events.filter((e) => e.name === "design.batch.completed");
 
-  assert.ok(batchStartedEvents.length >= 1, "should emit at least one design.batch.started");
-  assert.ok(batchCompletedEvents.length >= 1, "should emit at least one design.batch.completed");
+  expect(batchStartedEvents.length >= 1, "should emit at least one design.batch.started").toBeTruthy();
+  expect(batchCompletedEvents.length >= 1, "should emit at least one design.batch.completed").toBeTruthy();
 
   for (const evt of batchStartedEvents) {
-    assert.equal(evt.record?.actor, "design");
-    assert.equal(evt.record?.status, "started");
-    assert.ok(typeof evt.record?.payload?.batchIndex === "number");
-    assert.ok(Array.isArray(evt.record?.payload?.slideIndexes));
+    expect(evt.record?.actor).toBe("design");
+    expect(evt.record?.status).toBe("started");
+    expect(typeof evt.record?.payload?.batchIndex === "number").toBeTruthy();
+    expect(Array.isArray(evt.record?.payload?.slideIndexes)).toBeTruthy();
   }
 
   for (const evt of batchCompletedEvents) {
-    assert.equal(evt.record?.actor, "design");
-    assert.equal(evt.record?.status, "completed");
-    assert.ok(typeof evt.record?.payload?.batchIndex === "number");
-    assert.ok(Array.isArray(evt.record?.payload?.slideIndexes));
-    assert.ok(typeof evt.record?.payload?.duration === "number");
+    expect(evt.record?.actor).toBe("design");
+    expect(evt.record?.status).toBe("completed");
+    expect(typeof evt.record?.payload?.batchIndex === "number").toBeTruthy();
+    expect(Array.isArray(evt.record?.payload?.slideIndexes)).toBeTruthy();
+    expect(typeof evt.record?.payload?.duration === "number").toBeTruthy();
   }
 });
 
-test("generateBatch handles image slots and applies visual slot hints", async () => {
+it("generateBatch handles image slots and applies visual slot hints", async () => {
   const { generateBatch } = await import("../../../js/agents/stages/design/generators/batch-generator.js");
 
   const events = [];
@@ -246,7 +247,7 @@ test("generateBatch handles image slots and applies visual slot hints", async ()
   const selectedIdeas = [
     {
       slideIntentId: "s1",
-      atmosphere: { mood: "Professional", colorScheme: "Blue", visualWeight: "Balanced" },
+      atmosphere: { mood: "Professional", colorScheme: "Blue"sualWeight: "Balanced" },
       elementsMarkdown: "- Hero image\n- Title",
       visualSlots: [
         {
@@ -276,12 +277,12 @@ test("generateBatch handles image slots and applies visual slot hints", async ()
     batchSize: 1,
   });
 
-  assert.equal(results.length, 1);
-  assert.ok(results[0].slideHtml.includes('data-el="image-placeholder"'));
-  assert.ok(results[0].slideHtml.includes('id="img_s1_hero"'));
+  expect(results.length).toBe(1);
+  expect(results[0].slideHtml.includes('data-el="image-placeholder"')).toBeTruthy();
+  expect(results[0].slideHtml.includes('id="img_s1_hero"')).toBeTruthy();
 });
 
-test("fallback generation creates valid slide HTML when model fails", async () => {
+it("fallback generation creates valid slide HTML when model fails", async () => {
   const { generateSingleSlide } = await import("../../../js/agents/stages/design/generators/batch-generator.js");
 
   const slideIntent = makeSlideIntent("s_fallback", "Fallback Slide", "overview");
@@ -294,10 +295,10 @@ test("fallback generation creates valid slide HTML when model fails", async () =
     slideNo: 1,
   });
 
-  assert.equal(result.slideIntentId, "s_fallback");
-  assert.equal(result.source, "fallback");
-  assert.ok(result.slideHtml);
-  assert.ok(result.slideHtml.includes('<section'));
-  assert.ok(result.slideHtml.includes('data-type="freeform"'));
-  assert.ok(result.slideHtml.includes('data-el='));
+  expect(result.slideIntentId).toBe("s_fallback");
+  expect(result.source).toBe("fallback");
+  expect(result.slideHtml).toBeTruthy();
+  expect(result.slideHtml.includes('<section')).toBeTruthy();
+  expect(result.slideHtml.includes('data-type="freeform"')).toBeTruthy();
+  expect(result.slideHtml.includes('data-el=')).toBeTruthy();
 });

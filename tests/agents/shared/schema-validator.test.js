@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import {
   validateChunk,
   validateChunks,
@@ -15,33 +15,33 @@ describe("schema-validator", () => {
   describe("validateChunk", () => {
     it("should accept valid chunk", () => {
       const r = validateChunk({ chunkId: "c1", text: "hello world" });
-      assert.strictEqual(r.ok, true);
-      assert.strictEqual(r.value.chunkId, "c1");
-      assert.strictEqual(r.value.text, "hello world");
+      expect(r.ok).toBe(true);
+      expect(r.value.chunkId).toBe("c1");
+      expect(r.value.text).toBe("hello world");
     });
 
     it("should reject non-object", () => {
       const r = validateChunk("not an object");
-      assert.strictEqual(r.ok, false);
-      assert.ok(r.errors[0].includes("expected object"));
+      expect(r.ok).toBe(false);
+      expect(r.errors[0].includes("expected object")).toBeTruthy();
     });
 
     it("should reject missing chunkId", () => {
       const r = validateChunk({ text: "hello" });
-      assert.strictEqual(r.ok, false);
-      assert.ok(r.errors.some(e => e.includes("chunkId")));
+      expect(r.ok).toBe(false);
+      expect(r.errors.some(e => e.includes("chunkId"))).toBeTruthy();
     });
 
     it("should reject missing text", () => {
       const r = validateChunk({ chunkId: "c1" });
-      assert.strictEqual(r.ok, false);
-      assert.ok(r.errors.some(e => e.includes("text")));
+      expect(r.ok).toBe(false);
+      expect(r.errors.some(e => e.includes("text"))).toBeTruthy();
     });
 
     it("should include index in error message", () => {
       const r = validateChunk({ chunkId: "" }, 5);
-      assert.strictEqual(r.ok, false);
-      assert.ok(r.errors[0].includes("chunk[5]"));
+      expect(r.ok).toBe(false);
+      expect(r.errors[0].includes("chunk[5]")).toBeTruthy();
     });
   });
 
@@ -52,36 +52,36 @@ describe("schema-validator", () => {
         { chunkId: "c2", text: "world" },
       ];
       const r = validateChunks(chunks);
-      assert.strictEqual(r.ok, true);
-      assert.strictEqual(r.value.length, 2);
+      expect(r.ok).toBe(true);
+      expect(r.value.length).toBe(2);
     });
 
     it("should reject non-array", () => {
       const r = validateChunks("not an array");
-      assert.strictEqual(r.ok, false);
-      assert.ok(r.errors[0].includes("expected array"));
+      expect(r.ok).toBe(false);
+      expect(r.errors[0].includes("expected array")).toBeTruthy();
     });
 
     it("should reject empty array by default", () => {
       const r = validateChunks([]);
-      assert.strictEqual(r.ok, false);
-      assert.ok(r.errors[0].includes("empty"));
+      expect(r.ok).toBe(false);
+      expect(r.errors[0].includes("empty")).toBeTruthy();
     });
 
     it("should allow empty array with option", () => {
       const r = validateChunks([], { allowEmpty: true });
-      assert.strictEqual(r.ok, true);
-      assert.strictEqual(r.value.length, 0);
+      expect(r.ok).toBe(true);
+      expect(r.value.length).toBe(0);
     });
 
     it("should limit error count", () => {
       const chunks = Array(20).fill({ invalid: true });
       const r = validateChunks(chunks, { maxErrors: 3 });
-      assert.strictEqual(r.ok, false);
+      expect(r.ok).toBe(false);
       // maxErrors limits individual error messages, not chunk count
       // Each invalid chunk may generate multiple errors
-      assert.ok(r.errors.length > 0);
-      assert.ok(r.errors.length <= 10); // reasonable upper bound
+      expect(r.errors.length > 0).toBeTruthy();
+      expect(r.errors.length <= 10).toBeTruthy(); // reasonable upper bound
     });
 
     it("should return validated chunks even with some invalid", () => {
@@ -91,66 +91,66 @@ describe("schema-validator", () => {
         { chunkId: "c2", text: "also valid" },
       ];
       const r = validateChunks(chunks);
-      assert.strictEqual(r.ok, false);
-      assert.strictEqual(r.value.length, 2);
+      expect(r.ok).toBe(false);
+      expect(r.value.length).toBe(2);
     });
   });
 
   describe("validateGlobResult", () => {
     it("should accept valid glob result", () => {
       const r = validateGlobResult({ files: ["a.txt", "b.txt"], fromCache: true });
-      assert.strictEqual(r.ok, true);
-      assert.deepStrictEqual(r.value.files, ["a.txt", "b.txt"]);
-      assert.strictEqual(r.value.fromCache, true);
+      expect(r.ok).toBe(true);
+      expect(r.value.files).toEqual(["a.txt", "b.txt"]);
+      expect(r.value.fromCache).toBe(true);
     });
 
     it("should reject non-object", () => {
       const r = validateGlobResult(null);
-      assert.strictEqual(r.ok, false);
+      expect(r.ok).toBe(false);
     });
 
     it("should reject missing files array", () => {
       const r = validateGlobResult({ fromCache: true });
-      assert.strictEqual(r.ok, false);
-      assert.ok(r.errors.some(e => e.includes("files")));
+      expect(r.ok).toBe(false);
+      expect(r.errors.some(e => e.includes("files"))).toBeTruthy();
     });
 
     it("should filter non-string files", () => {
       const r = validateGlobResult({ files: ["a.txt", 123, null, "b.txt"] });
-      assert.strictEqual(r.ok, true);
-      assert.deepStrictEqual(r.value.files, ["a.txt", "b.txt"]);
+      expect(r.ok).toBe(true);
+      expect(r.value.files).toEqual(["a.txt", "b.txt"]);
     });
 
     it("should preserve error field", () => {
       const r = validateGlobResult({ files: [], error: "timeout" });
-      assert.strictEqual(r.ok, true);
-      assert.strictEqual(r.value.error, "timeout");
+      expect(r.ok).toBe(true);
+      expect(r.value.error).toBe("timeout");
     });
   });
 
   describe("validateGrepMatch", () => {
     it("should accept valid match", () => {
       const r = validateGrepMatch({ chunkId: "c1", matchCount: 3, spans: [[0, 5]] });
-      assert.strictEqual(r.ok, true);
-      assert.strictEqual(r.value.chunkId, "c1");
-      assert.strictEqual(r.value.matchCount, 3);
+      expect(r.ok).toBe(true);
+      expect(r.value.chunkId).toBe("c1");
+      expect(r.value.matchCount).toBe(3);
     });
 
     it("should default matchCount to 1", () => {
       const r = validateGrepMatch({ chunkId: "c1" });
-      assert.strictEqual(r.ok, true);
-      assert.strictEqual(r.value.matchCount, 1);
+      expect(r.ok).toBe(true);
+      expect(r.value.matchCount).toBe(1);
     });
 
     it("should default spans to empty array", () => {
       const r = validateGrepMatch({ chunkId: "c1" });
-      assert.strictEqual(r.ok, true);
-      assert.deepStrictEqual(r.value.spans, []);
+      expect(r.ok).toBe(true);
+      expect(r.value.spans).toEqual([]);
     });
 
     it("should reject missing chunkId", () => {
       const r = validateGrepMatch({ matchCount: 1 });
-      assert.strictEqual(r.ok, false);
+      expect(r.ok).toBe(false);
     });
   });
 
@@ -159,13 +159,13 @@ describe("schema-validator", () => {
       const r = validateGrepResults({
         matches: [{ chunkId: "c1", matchCount: 2 }],
       });
-      assert.strictEqual(r.ok, true);
-      assert.strictEqual(r.value.matches.length, 1);
+      expect(r.ok).toBe(true);
+      expect(r.value.matches.length).toBe(1);
     });
 
     it("should reject non-object", () => {
       const r = validateGrepResults([]);
-      assert.strictEqual(r.ok, false);
+      expect(r.ok).toBe(false);
     });
 
     it("should skip invalid matches silently", () => {
@@ -176,8 +176,8 @@ describe("schema-validator", () => {
           { chunkId: "c2" },
         ],
       });
-      assert.strictEqual(r.ok, true);
-      assert.strictEqual(r.value.matches.length, 2);
+      expect(r.ok).toBe(true);
+      expect(r.value.matches.length).toBe(2);
     });
   });
 
@@ -188,40 +188,40 @@ describe("schema-validator", () => {
         keywords: ["hello", "world"],
         patterns: ["*.md"],
       });
-      assert.strictEqual(r.ok, true);
-      assert.strictEqual(r.value.strategy, "grep-only");
+      expect(r.ok).toBe(true);
+      expect(r.value.strategy).toBe("grep-only");
     });
 
     it("should normalize strategy to lowercase", () => {
       const r = validateSearchQuery({ strategy: "GREP-ONLY" });
-      assert.strictEqual(r.ok, true);
-      assert.strictEqual(r.value.strategy, "grep-only");
+      expect(r.ok).toBe(true);
+      expect(r.value.strategy).toBe("grep-only");
     });
 
     it("should reject invalid strategy", () => {
       const r = validateSearchQuery({ strategy: "invalid-strategy" });
-      assert.strictEqual(r.ok, false);
-      assert.ok(r.errors.some(e => e.includes("strategy")));
+      expect(r.ok).toBe(false);
+      expect(r.errors.some(e => e.includes("strategy"))).toBeTruthy();
     });
 
     it("should default patterns to empty array", () => {
       const r = validateSearchQuery({});
-      assert.strictEqual(r.ok, true);
-      assert.deepStrictEqual(r.value.patterns, []);
+      expect(r.ok).toBe(true);
+      expect(r.value.patterns).toEqual([]);
     });
 
     it("should default keywords to empty array", () => {
       const r = validateSearchQuery({});
-      assert.strictEqual(r.ok, true);
-      assert.deepStrictEqual(r.value.keywords, []);
+      expect(r.ok).toBe(true);
+      expect(r.value.keywords).toEqual([]);
     });
   });
 
   describe("ValidationErrorCode", () => {
     it("should have expected error codes", () => {
-      assert.strictEqual(ValidationErrorCode.INVALID_CHUNKS, "INVALID_CHUNKS");
-      assert.strictEqual(ValidationErrorCode.INVALID_QUERY, "INVALID_QUERY");
-      assert.strictEqual(ValidationErrorCode.NO_KEYWORDS, "NO_KEYWORDS");
+      expect(ValidationErrorCode.INVALID_CHUNKS).toBe("INVALID_CHUNKS");
+      expect(ValidationErrorCode.INVALID_QUERY).toBe("INVALID_QUERY");
+      expect(ValidationErrorCode.NO_KEYWORDS).toBe("NO_KEYWORDS");
     });
   });
 
@@ -232,11 +232,11 @@ describe("schema-validator", () => {
         "Chunks are invalid",
         { count: 5 }
       );
-      assert.strictEqual(err.ok, false);
-      assert.strictEqual(err.error.code, "INVALID_CHUNKS");
-      assert.strictEqual(err.error.message, "Chunks are invalid");
-      assert.strictEqual(err.error.count, 5);
-      assert.deepStrictEqual(err.results, []);
+      expect(err.ok).toBe(false);
+      expect(err.error.code).toBe("INVALID_CHUNKS");
+      expect(err.error.message).toBe("Chunks are invalid");
+      expect(err.error.count).toBe(5);
+      expect(err.results).toEqual([]);
     });
   });
 });

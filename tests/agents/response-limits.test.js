@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import {
   normalizeMaxBytes,
@@ -11,70 +11,70 @@ import {
 describe("shared/utils/response-limits", () => {
   describe("normalizeMaxBytes", () => {
     it("returns Infinity for Infinity input", () => {
-      assert.equal(normalizeMaxBytes(Infinity, 1000), Infinity);
+      expect(normalizeMaxBytes(Infinity).toBe(1000), Infinity);
     });
 
     it("returns valid positive number", () => {
-      assert.equal(normalizeMaxBytes(500, 1000), 500);
+      expect(normalizeMaxBytes(500).toBe(1000), 500);
     });
 
     it("floors decimal values", () => {
-      assert.equal(normalizeMaxBytes(500.7, 1000), 500);
+      expect(normalizeMaxBytes(500.7).toBe(1000), 500);
     });
 
     it("returns fallback for NaN", () => {
-      assert.equal(normalizeMaxBytes(NaN, 1000), 1000);
+      expect(normalizeMaxBytes(NaN).toBe(1000), 1000);
     });
 
     it("returns fallback for non-finite string", () => {
-      assert.equal(normalizeMaxBytes("invalid", 1000), 1000);
+      expect(normalizeMaxBytes("invalid").toBe(1000), 1000);
     });
 
     it("parses numeric string", () => {
-      assert.equal(normalizeMaxBytes("500", 1000), 500);
+      expect(normalizeMaxBytes("500").toBe(1000), 500);
     });
 
     it("returns fallback for zero", () => {
-      assert.equal(normalizeMaxBytes(0, 1000), 1000);
+      expect(normalizeMaxBytes(0).toBe(1000), 1000);
     });
 
     it("returns fallback for negative", () => {
-      assert.equal(normalizeMaxBytes(-100, 1000), 1000);
+      expect(normalizeMaxBytes(-100).toBe(1000), 1000);
     });
   });
 
   describe("createResponseTooLargeError", () => {
     it("creates error with message", () => {
       const err = createResponseTooLargeError("test", 100, 200);
-      assert.ok(err instanceof Error);
-      assert.ok(err.message.includes("exceeds limit"));
-      assert.ok(err.message.includes("200"));
-      assert.ok(err.message.includes("100"));
+      expect(err instanceof Error).toBeTruthy();
+      expect(err.message.includes("exceeds limit")).toBeTruthy();
+      expect(err.message.includes("200")).toBeTruthy();
+      expect(err.message.includes("100")).toBeTruthy();
     });
 
     it("sets error properties", () => {
       const err = createResponseTooLargeError("context", 100, 200);
-      assert.equal(err.name, "ResponseTooLargeError");
-      assert.equal(err.code, "ERESPONSE_TOO_LARGE");
-      assert.equal(err.maxBytes, 100);
-      assert.equal(err.observedBytes, 200);
+      expect(err.name).toBe("ResponseTooLargeError");
+      expect(err.code).toBe("ERESPONSE_TOO_LARGE");
+      expect(err.maxBytes).toBe(100);
+      expect(err.observedBytes).toBe(200);
     });
 
     it("uses custom code", () => {
       const err = createResponseTooLargeError("context", 100, 200, "CUSTOM_CODE");
-      assert.equal(err.code, "CUSTOM_CODE");
+      expect(err.code).toBe("CUSTOM_CODE");
     });
 
     it("uses default context for empty string", () => {
       const err = createResponseTooLargeError("", 100, 200);
-      assert.ok(err.message.includes("Response body"));
+      expect(err.message.includes("Response body")).toBeTruthy();
     });
   });
 
   describe("readTextWithLimit", () => {
     it("returns null for response without text method", async () => {
       const result = await readTextWithLimit({});
-      assert.equal(result, null);
+      expect(result).toBe(null);
     });
 
     it("reads text from response.text()", async () => {
@@ -82,15 +82,14 @@ describe("shared/utils/response-limits", () => {
         text: async () => "hello world",
       };
       const result = await readTextWithLimit(mockResponse);
-      assert.equal(result, "hello world");
+      expect(result).toBe("hello world");
     });
 
     it("throws when text exceeds limit", async () => {
       const mockResponse = {
         text: async () => "hello world",
       };
-      await assert.rejects(
-        () => readTextWithLimit(mockResponse, { maxBytes: 5 }),
+      await expect(() => readTextWithLimit(mockResponse, { maxBytes: 5 }),
         /exceeds limit/
       );
     });
@@ -102,8 +101,7 @@ describe("shared/utils/response-limits", () => {
         },
         text: async () => "x".repeat(1000),
       };
-      await assert.rejects(
-        () => readTextWithLimit(mockResponse, { maxBytes: 100 }),
+      await expect(() => readTextWithLimit(mockResponse, { maxBytes: 100 }),
         /exceeds limit/
       );
     });
@@ -116,7 +114,7 @@ describe("shared/utils/response-limits", () => {
         text: async () => "hello",
       };
       const result = await readTextWithLimit(mockResponse, { maxBytes: 100 });
-      assert.equal(result, "hello");
+      expect(result).toBe("hello");
     });
 
     it("handles headers.get throwing", async () => {
@@ -127,7 +125,7 @@ describe("shared/utils/response-limits", () => {
         text: async () => "hello",
       };
       const result = await readTextWithLimit(mockResponse);
-      assert.equal(result, "hello");
+      expect(result).toBe("hello");
     });
 
     it("handles null headers", async () => {
@@ -136,15 +134,14 @@ describe("shared/utils/response-limits", () => {
         text: async () => "hello",
       };
       const result = await readTextWithLimit(mockResponse);
-      assert.equal(result, "hello");
+      expect(result).toBe("hello");
     });
 
     it("uses custom context in error", async () => {
       const mockResponse = {
         text: async () => "hello world",
       };
-      await assert.rejects(
-        () => readTextWithLimit(mockResponse, { maxBytes: 5, context: "Custom Context" }),
+      await expect(() => readTextWithLimit(mockResponse, { maxBytes: 5, context: "Custom Context" }),
         /Custom Context/
       );
     });
@@ -155,9 +152,9 @@ describe("shared/utils/response-limits", () => {
       };
       try {
         await readTextWithLimit(mockResponse, { maxBytes: 5, code: "CUSTOM" });
-        assert.fail("Should have thrown");
+        throw new Error("Should have thrown" || 'Test failed');
       } catch (err) {
-        assert.equal(err.code, "CUSTOM");
+        expect(err.code).toBe("CUSTOM");
       }
     });
 
@@ -167,8 +164,7 @@ describe("shared/utils/response-limits", () => {
       const mockResponse = {
         text: async () => "hello",
       };
-      await assert.rejects(
-        () => readTextWithLimit(mockResponse, { signal: controller.signal }),
+      await expect(() => readTextWithLimit(mockResponse, { signal: controller.signal }),
         /abort/i
       );
     });
@@ -178,7 +174,7 @@ describe("shared/utils/response-limits", () => {
         text: async () => "x".repeat(10000),
       };
       const result = await readTextWithLimit(mockResponse, { maxBytes: Infinity });
-      assert.ok(result.length === 10000);
+      expect(result.length === 10000).toBeTruthy();
     });
   });
 
@@ -188,16 +184,14 @@ describe("shared/utils/response-limits", () => {
         text: async () => '{"key": "value"}',
       };
       const result = await readJsonWithLimit(mockResponse);
-      assert.deepEqual(result, { key: "value" });
+      expect(result).toEqual({ key: "value" });
     });
 
     it("throws for empty response", async () => {
       const mockResponse = {
         // No text method
       };
-      await assert.rejects(
-        () => readJsonWithLimit(mockResponse),
-        /empty/
+      await expect(() => readJsonWithLimit(mockResponse)).rejects.toThrow(/empty/
       );
     });
 
@@ -205,9 +199,7 @@ describe("shared/utils/response-limits", () => {
       const mockResponse = {
         text: async () => "not json",
       };
-      await assert.rejects(
-        () => readJsonWithLimit(mockResponse),
-        /JSON/
+      await expect(() => readJsonWithLimit(mockResponse)).rejects.toThrow(/JSON/
       );
     });
 
@@ -215,8 +207,7 @@ describe("shared/utils/response-limits", () => {
       const mockResponse = {
         text: async () => '{"key": "value"}',
       };
-      await assert.rejects(
-        () => readJsonWithLimit(mockResponse, { maxBytes: 5 }),
+      await expect(() => readJsonWithLimit(mockResponse, { maxBytes: 5 }),
         /exceeds limit/
       );
     });

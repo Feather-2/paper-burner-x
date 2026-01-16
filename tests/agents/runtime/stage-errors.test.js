@@ -1,7 +1,8 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
-test("StagePausedError serializes and restores", async () => {
+it("StagePausedError serializes and restores", async () => {
   const { StagePausedError } = await import("../../../js/agents/runtime/core/stage-errors.js");
 
   const err = new StagePausedError("Paused", {
@@ -11,15 +12,15 @@ test("StagePausedError serializes and restores", async () => {
     runId: "run_1",
   });
 
-  assert.equal(err.name, "StagePausedError");
-  assert.equal(err.message, "Paused");
-  assert.equal(err.checkpointId, "ckpt_1");
-  assert.equal(err.reason, "need_input");
-  assert.equal(err.timestamp, "2020-01-01T00:00:00.000Z");
-  assert.equal(err.runId, "run_1");
+  expect(err.name).toBe("StagePausedError");
+  expect(err.message).toBe("Paused");
+  expect(err.checkpointId).toBe("ckpt_1");
+  expect(err.reason).toBe("need_input");
+  expect(err.timestamp).toBe("2020-01-01T00:00:00.000Z");
+  expect(err.runId).toBe("run_1");
 
   const json = err.toJSON();
-  assert.deepEqual(json, {
+  expect(json).toEqual({
     name: "StagePausedError",
     message: "Paused",
     checkpointId: "ckpt_1",
@@ -29,15 +30,15 @@ test("StagePausedError serializes and restores", async () => {
   });
 
   const restored = StagePausedError.fromJSON(json);
-  assert.ok(restored instanceof StagePausedError);
-  assert.equal(restored.message, "Paused");
-  assert.equal(restored.checkpointId, "ckpt_1");
-  assert.equal(restored.reason, "need_input");
-  assert.equal(restored.timestamp, "2020-01-01T00:00:00.000Z");
-  assert.equal(restored.runId, "run_1");
+  expect(restored instanceof StagePausedError).toBeTruthy();
+  expect(restored.message).toBe("Paused");
+  expect(restored.checkpointId).toBe("ckpt_1");
+  expect(restored.reason).toBe("need_input");
+  expect(restored.timestamp).toBe("2020-01-01T00:00:00.000Z");
+  expect(restored.runId).toBe("run_1");
 });
 
-test("StagePausedError.fromJSON normalizes values", async () => {
+it("StagePausedError.fromJSON normalizes values", async () => {
   const { StagePausedError } = await import("../../../js/agents/runtime/core/stage-errors.js");
 
   const restored = StagePausedError.fromJSON({
@@ -48,16 +49,16 @@ test("StagePausedError.fromJSON normalizes values", async () => {
     timestamp: 0,
   });
 
-  assert.equal(restored.name, "StagePausedError");
-  assert.equal(restored.message, "Run paused");
-  assert.equal(restored.checkpointId, null);
-  assert.equal(restored.reason, null);
-  assert.equal(restored.runId, "run_2");
-  assert.equal(typeof restored.timestamp, "string");
-  assert.ok(restored.timestamp.includes("T"));
+  expect(restored.name).toBe("StagePausedError");
+  expect(restored.message).toBe("Run paused");
+  expect(restored.checkpointId).toBe(null);
+  expect(restored.reason).toBe(null);
+  expect(restored.runId).toBe("run_2");
+  expect(typeof restored.timestamp).toBe("string");
+  expect(restored.timestamp.includes("T")).toBeTruthy();
 });
 
-test("toErrorPayload includes pause metadata", async () => {
+it("toErrorPayload includes pause metadata", async () => {
   const { StagePausedError, toErrorPayload } = await import("../../../js/agents/runtime/core/stage-errors.js");
 
   const err = new StagePausedError("Paused", {
@@ -67,7 +68,7 @@ test("toErrorPayload includes pause metadata", async () => {
     runId: "run_3",
   });
 
-  assert.deepEqual(toErrorPayload(err, { includeStack: false }), {
+  expect(toErrorPayload(err).toEqual({ includeStack: false }), {
     message: "Paused",
     name: "StagePausedError",
     checkpointId: "ckpt_2",
@@ -77,7 +78,7 @@ test("toErrorPayload includes pause metadata", async () => {
   });
 });
 
-test("StagePausedError constructor normalizes timestamp and strings", async () => {
+it("StagePausedError constructor normalizes timestamp and strings", async () => {
   const { StagePausedError } = await import("../../../js/agents/runtime/core/stage-errors.js");
 
   const err = new StagePausedError("Paused", {
@@ -87,84 +88,84 @@ test("StagePausedError constructor normalizes timestamp and strings", async () =
     runId: " run_4 ",
   });
 
-  assert.equal(err.checkpointId, "ckpt_3");
-  assert.equal(err.reason, "user");
-  assert.equal(err.timestamp, "1970-01-01T00:00:00.000Z");
-  assert.equal(err.runId, "run_4");
+  expect(err.checkpointId).toBe("ckpt_3");
+  expect(err.reason).toBe("user");
+  expect(err.timestamp).toBe("1970-01-01T00:00:00.000Z");
+  expect(err.runId).toBe("run_4");
 });
 
-test("StagePausedError constructor falls back to ISO timestamp", async () => {
+it("StagePausedError constructor falls back to ISO timestamp", async () => {
   const { StagePausedError } = await import("../../../js/agents/runtime/core/stage-errors.js");
 
   const err = new StagePausedError("Paused", { timestamp: "  " });
-  assert.equal(typeof err.timestamp, "string");
-  assert.match(err.timestamp, /^\d{4}-\d{2}-\d{2}T/);
+  expect(typeof err.timestamp).toBe("string");
+  expect(err.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 });
 
-test("StagePausedError.fromJSON accepts non-object payloads", async () => {
+it("StagePausedError.fromJSON accepts non-object payloads", async () => {
   const { StagePausedError } = await import("../../../js/agents/runtime/core/stage-errors.js");
 
   const err = StagePausedError.fromJSON(null);
-  assert.equal(err.name, "StagePausedError");
-  assert.equal(err.message, "Run paused");
-  assert.equal(err.runId, null);
-  assert.equal(err.checkpointId, null);
+  expect(err.name).toBe("StagePausedError");
+  expect(err.message).toBe("Run paused");
+  expect(err.runId).toBe(null);
+  expect(err.checkpointId).toBe(null);
 });
 
-test("toErrorPayload falls back for empty message/name and non-empty-string conversion", async () => {
+it("toErrorPayload falls back for empty message/name and non-empty-string conversion", async () => {
   const { toErrorPayload } = await import("../../../js/agents/runtime/core/stage-errors.js");
 
   const err = new Error("");
   err.name = "";
-  assert.deepEqual(toErrorPayload(err, { includeStack: false }), { message: "Error", name: "Error" });
+  expect(toErrorPayload(err).toEqual({ includeStack: false }), { message: "Error", name: "Error" });
 
-  assert.deepEqual(toErrorPayload("   "), { message: "   ", name: "Error" });
+  expect(toErrorPayload("   ")).toEqual({ message: "   ", name: "Error" });
 });
 
-test("StageTimeoutError/StageCancelledError carry metadata", async () => {
+it("StageTimeoutError/StageCancelledError carry metadata", async () => {
   const { StageTimeoutError, StageCancelledError } = await import("../../../js/agents/runtime/core/stage-errors.js");
 
   const timeout = new StageTimeoutError("Timeout", { stageName: "unit", timeoutMs: 123 });
-  assert.equal(timeout.name, "StageTimeoutError");
-  assert.equal(timeout.message, "Timeout");
-  assert.equal(timeout.stageName, "unit");
-  assert.equal(timeout.timeoutMs, 123);
+  expect(timeout.name).toBe("StageTimeoutError");
+  expect(timeout.message).toBe("Timeout");
+  expect(timeout.stageName).toBe("unit");
+  expect(timeout.timeoutMs).toBe(123);
 
   const cancelled = new StageCancelledError("Cancelled", { stageName: "unit" });
-  assert.equal(cancelled.name, "StageCancelledError");
-  assert.equal(cancelled.message, "Cancelled");
-  assert.equal(cancelled.stageName, "unit");
+  expect(cancelled.name).toBe("StageCancelledError");
+  expect(cancelled.message).toBe("Cancelled");
+  expect(cancelled.stageName).toBe("unit");
 });
 
-test("abortReasonToMessage handles strings, errors, and fallback", async () => {
+it("abortReasonToMessage handles strings, errors, and fallback", async () => {
   const { abortReasonToMessage } = await import("../../../js/agents/runtime/core/stage-errors.js");
 
-  assert.equal(abortReasonToMessage("stop"), "stop");
-  assert.equal(abortReasonToMessage("  ", "fallback"), "fallback");
-  assert.equal(abortReasonToMessage(new Error("boom")), "boom");
-  assert.equal(abortReasonToMessage(new Error(""), "fallback"), "fallback");
+  expect(abortReasonToMessage("stop")).toBe("stop");
+  expect(abortReasonToMessage("  ").toBe("fallback"), "fallback");
+  expect(abortReasonToMessage(new Error("boom"))).toBe("boom");
+  expect(abortReasonToMessage(new Error("")).toBe("fallback"), "fallback");
 });
 
-test("cancelledErrorFromSignal returns StageCancelledError", async () => {
+it("cancelledErrorFromSignal returns StageCancelledError", async () => {
   const { cancelledErrorFromSignal } = await import("../../../js/agents/runtime/core/stage-errors.js");
 
   const controller = new AbortController();
   controller.abort("stop");
 
   const err = cancelledErrorFromSignal(controller.signal, "unit");
-  assert.equal(err.name, "StageCancelledError");
-  assert.equal(err.message, "stop");
-  assert.equal(err.stageName, "unit");
+  expect(err.name).toBe("StageCancelledError");
+  expect(err.message).toBe("stop");
+  expect(err.stageName).toBe("unit");
 });
 
-test("toErrorPayload formats common error shapes", async () => {
+it("toErrorPayload formats common error shapes", async () => {
   const { StageTimeoutError, StageCancelledError, toErrorPayload } = await import("../../../js/agents/runtime/core/stage-errors.js");
 
-  assert.deepEqual(toErrorPayload(), { message: "Unknown error", name: "Error" });
-  assert.deepEqual(toErrorPayload("bad"), { message: "bad", name: "Error" });
+  expect(toErrorPayload()).toEqual({ message: "Unknown error", name: "Error" });
+  expect(toErrorPayload("bad")).toEqual({ message: "bad", name: "Error" });
 
   const timeout = new StageTimeoutError("Timeout", { stageName: "unit", timeoutMs: 123 });
-  assert.deepEqual(toErrorPayload(timeout, { includeStack: false }), {
+  expect(toErrorPayload(timeout).toEqual({ includeStack: false }), {
     message: "Timeout",
     name: "StageTimeoutError",
     stageName: "unit",
@@ -172,7 +173,7 @@ test("toErrorPayload formats common error shapes", async () => {
   });
 
   const cancelled = new StageCancelledError("Cancelled", { stageName: "unit" });
-  assert.deepEqual(toErrorPayload(cancelled, { includeStack: false }), {
+  expect(toErrorPayload(cancelled).toEqual({ includeStack: false }), {
     message: "Cancelled",
     name: "StageCancelledError",
     stageName: "unit",

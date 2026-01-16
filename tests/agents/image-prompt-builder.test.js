@@ -1,7 +1,9 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-test("PromptBuilder: assembles promptHint + style + designSystem.imageStyle and includes no-text instruction", async () => {
+it("PromptBuilder: assembles promptHint + style + designSystem.imageStyle and includes no-text instruction", async () => {
   const { buildPrompt } = await import("../../js/agents/stages/design/image-prompt-builder.js");
 
   const slot = {
@@ -18,15 +20,15 @@ test("PromptBuilder: assembles promptHint + style + designSystem.imageStyle and 
   const designSystem = { imageStyle: "Minimal, modern, brand-consistent. Use clean gradients and simple forms." };
   const prompt = buildPrompt(slot, designSystem, {});
 
-  assert.ok(prompt.includes("AI-powered presentation generation workflow"));
-  assert.ok(prompt.includes("Create a 3d illustration"));
-  assert.ok(prompt.includes(designSystem.imageStyle));
-  assert.ok(prompt.includes("Do not include any text in the image."));
-  assert.ok(prompt.includes("Purpose: hero."));
-  assert.ok(prompt.includes("Aspect ratio: 16:9"));
+  expect(prompt.includes("AI-powered presentation generation workflow")).toBeTruthy();
+  expect(prompt.includes("Create a 3d illustration")).toBeTruthy();
+  expect(prompt.includes(designSystem.imageStyle)).toBeTruthy();
+  expect(prompt.includes("Do not include any text in the image.")).toBeTruthy();
+  expect(prompt.includes("Purpose: hero.")).toBeTruthy();
+  expect(prompt.includes("Aspect ratio: 16:9")).toBeTruthy();
 });
 
-test("PromptBuilder: purpose=chart_fallback adjusts guidance", async () => {
+it("PromptBuilder: purpose=chart_fallback adjusts guidance", async () => {
   const { buildPrompt } = await import("../../js/agents/stages/design/image-prompt-builder.js");
 
   const slot = {
@@ -41,10 +43,10 @@ test("PromptBuilder: purpose=chart_fallback adjusts guidance", async () => {
   };
 
   const prompt = buildPrompt(slot, { imageStyle: "Flat vector, clear shapes." }, {});
-  assert.ok(prompt.toLowerCase().includes("avoid literal charts"));
+  expect(prompt.toLowerCase().toBeTruthy().includes("avoid literal charts"));
 });
 
-test("PromptBuilder: extracts keywords from claims when claimIds are present", async () => {
+it("PromptBuilder: extracts keywords from claims when claimIds are present", async () => {
   const { buildPrompt } = await import("../../js/agents/stages/design/image-prompt-builder.js");
 
   const slot = {
@@ -68,13 +70,13 @@ test("PromptBuilder: extracts keywords from claims when claimIds are present", a
 
   const prompt = buildPrompt(slot, { imageStyle: "Modern, high clarity." }, contentPackage);
 
-  assert.ok(prompt.includes("Key concepts:"));
-  assert.ok(prompt.toLowerCase().includes("evidence"));
-  assert.ok(prompt.toLowerCase().includes("citation"));
-  assert.ok(prompt.toLowerCase().includes("tracking"));
+  expect(prompt.includes("Key concepts:")).toBeTruthy();
+  expect(prompt.toLowerCase().toBeTruthy().includes("evidence"));
+  expect(prompt.toLowerCase().toBeTruthy().includes("citation"));
+  expect(prompt.toLowerCase().toBeTruthy().includes("tracking"));
 });
 
-test("PromptBuilder: handles missing designSystem.imageStyle and missing claims gracefully", async () => {
+it("PromptBuilder: handles missing designSystem.imageStyle and missing claims gracefully", async () => {
   const { buildPrompt } = await import("../../js/agents/stages/design/image-prompt-builder.js");
 
   const slot = {
@@ -90,7 +92,7 @@ test("PromptBuilder: handles missing designSystem.imageStyle and missing claims 
   };
 
   const prompt = buildPrompt(slot, { theme: "dark", designTokens: { colors: { primary: "#38bdf8", bg: "#0b1220" } } }, { claims: [] });
-  assert.ok(prompt.includes("Style guidelines:"));
-  assert.ok(!prompt.includes("Key concepts:"));
+  expect(prompt.includes("Style guidelines:")).toBeTruthy();
+  expect(!prompt.includes("Key concepts:")).toBeTruthy();
 });
 

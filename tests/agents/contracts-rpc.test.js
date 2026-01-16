@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import {
   validateRpcRequest,
@@ -14,56 +14,56 @@ describe("shared/contracts/rpc-message", () => {
         payload: { data: 1 },
         requestId: "abc123",
       });
-      assert.ok(result.ok);
-      assert.equal(result.value.type, "test");
-      assert.deepEqual(result.value.payload, { data: 1 });
-      assert.equal(result.value.requestId, "abc123");
+      expect(result.ok).toBeTruthy();
+      expect(result.value.type).toBe("test");
+      expect(result.value.payload).toEqual({ data: 1 });
+      expect(result.value.requestId).toBe("abc123");
     });
 
     it("trims type", () => {
       const result = validateRpcRequest({ type: "  test  ", payload: null });
-      assert.ok(result.ok);
-      assert.equal(result.value.type, "test");
+      expect(result.ok).toBeTruthy();
+      expect(result.value.type).toBe("test");
     });
 
     it("rejects null", () => {
       const result = validateRpcRequest(null);
-      assert.equal(result.ok, false);
-      assert.ok(result.error.includes("expected object"));
+      expect(result.ok).toBe(false);
+      expect(result.error.includes("expected object")).toBeTruthy();
     });
 
     it("rejects non-object", () => {
       const result = validateRpcRequest("string");
-      assert.equal(result.ok, false);
+      expect(result.ok).toBe(false);
     });
 
     it("rejects missing type", () => {
       const result = validateRpcRequest({ payload: {} });
-      assert.equal(result.ok, false);
-      assert.ok(result.error.includes("type"));
+      expect(result.ok).toBe(false);
+      expect(result.error.includes("type")).toBeTruthy();
     });
 
     it("rejects empty type", () => {
       const result = validateRpcRequest({ type: "   ", payload: {} });
-      assert.equal(result.ok, false);
-      assert.ok(result.error.includes("type"));
+      expect(result.ok).toBe(false);
+      expect(result.error.includes("type")).toBeTruthy();
     });
 
     it("rejects non-string type", () => {
       const result = validateRpcRequest({ type: 123, payload: {} });
-      assert.equal(result.ok, false);
+      expect(result.ok).toBe(false);
     });
 
     it("handles undefined requestId", () => {
       const result = validateRpcRequest({ type: "test", payload: {} });
-      assert.ok(result.ok);
-      assert.equal(result.value.requestId, undefined);
+      expect(result.ok).toBeTruthy();
+      expect(result.value.requestId).toBe(undefined);
     });
 
     it("handles non-string requestId", () => {
       const result = validateRpcRequest({ type: "test", payload: {}, requestId: 123 });
-      assert.ok(result.ok);
-      assert.equal(result.value.requestId, undefined);
+      expect(result.ok).toBeTruthy();
+      expect(result.value.requestId).toBe(undefined);
     });
   });
 
@@ -74,9 +74,9 @@ describe("shared/contracts/rpc-message", () => {
         data: { result: "success" },
         requestId: "abc123",
       });
-      assert.ok(result.ok);
-      assert.equal(result.value.ok, true);
-      assert.deepEqual(result.value.data, { result: "success" });
+      expect(result.ok).toBeTruthy();
+      expect(result.value.ok).toBe(true);
+      expect(result.value.data).toEqual({ result: "success" });
     });
 
     it("validates failure response", () => {
@@ -84,37 +84,37 @@ describe("shared/contracts/rpc-message", () => {
         ok: false,
         error: "Something went wrong",
       });
-      assert.ok(result.ok);
-      assert.equal(result.value.ok, false);
-      assert.equal(result.value.error, "Something went wrong");
+      expect(result.ok).toBeTruthy();
+      expect(result.value.ok).toBe(false);
+      expect(result.value.error).toBe("Something went wrong");
     });
 
     it("defaults ok to true when missing", () => {
       const result = validateRpcResponse({ data: "test" });
-      assert.ok(result.ok);
-      assert.equal(result.value.ok, true);
+      expect(result.ok).toBeTruthy();
+      expect(result.value.ok).toBe(true);
     });
 
     it("rejects null", () => {
       const result = validateRpcResponse(null);
-      assert.equal(result.ok, false);
+      expect(result.ok).toBe(false);
     });
 
     it("rejects non-object", () => {
       const result = validateRpcResponse("string");
-      assert.equal(result.ok, false);
+      expect(result.ok).toBe(false);
     });
 
     it("handles non-string error", () => {
       const result = validateRpcResponse({ ok: false, error: 123 });
-      assert.ok(result.ok);
-      assert.equal(result.value.error, undefined);
+      expect(result.ok).toBeTruthy();
+      expect(result.value.error).toBe(undefined);
     });
 
     it("handles non-string requestId", () => {
       const result = validateRpcResponse({ ok: true, requestId: 123 });
-      assert.ok(result.ok);
-      assert.equal(result.value.requestId, undefined);
+      expect(result.ok).toBeTruthy();
+      expect(result.value.requestId).toBe(undefined);
     });
   });
 });

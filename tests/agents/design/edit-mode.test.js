@@ -1,4 +1,5 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
 function makeState() {
@@ -33,7 +34,7 @@ function makeState() {
   };
 }
 
-test("EditHistoryManager supports undo/redo and transactions", async () => {
+it("EditHistoryManager supports undo/redo and transactions", async () => {
   const { EditHistoryManager } = await import("../../../js/agents/stages/design/edit-mode/history.js");
 
   const history = new EditHistoryManager(2);
@@ -57,11 +58,11 @@ test("EditHistoryManager supports undo/redo and transactions", async () => {
   apply(3);
   history.push(op(3));
 
-  assert.equal(history.history.length, 2, "history should respect maxHistory");
+  expect(history.history.length).toBe(2, "history should respect maxHistory");
   history.undo();
-  assert.equal(state.count, 3, "undo should revert last op");
+  expect(state.count).toBe(3, "undo should revert last op");
   history.redo();
-  assert.equal(state.count, 6, "redo should reapply last op");
+  expect(state.count).toBe(6, "redo should reapply last op");
 
   const txHistory = new EditHistoryManager();
   const txState = { count: 0 };
@@ -73,18 +74,18 @@ test("EditHistoryManager supports undo/redo and transactions", async () => {
   txHistory.push({ undo: () => (txState.count -= 1), redo: () => (txState.count += 1) });
   txHistory.commit();
 
-  assert.equal(txHistory.history.length, 1, "transaction should batch operations");
+  expect(txHistory.history.length).toBe(1, "transaction should batch operations");
   txHistory.undo();
-  assert.equal(txState.count, 0, "undo should revert transaction");
+  expect(txState.count).toBe(0, "undo should revert transaction");
 
   txHistory.beginTransaction();
   txState.count += 5;
   txHistory.push({ undo: () => (txState.count -= 5), redo: () => (txState.count += 5) });
   txHistory.rollback();
-  assert.equal(txState.count, 0, "rollback should revert transaction");
+  expect(txState.count).toBe(0, "rollback should revert transaction");
 });
 
-test("edit tools execute and integrate with history", async () => {
+it("edit tools execute and integrate with history", async () => {
   const { createEditToolExecutor } = await import("../../../js/agents/stages/design/edit-mode/tools.js");
   const { EditHistoryManager } = await import("../../../js/agents/stages/design/edit-mode/history.js");
 
@@ -114,54 +115,54 @@ test("edit tools execute and integrate with history", async () => {
 
   const shot = await executor("screenshot_current", {});
   const parsed = await executor("parse_canvas_state", {});
-  assert.equal(shot.success, true);
-  assert.equal(parsed.success, true);
-  assert.equal(screenshotCalls, 1);
-  assert.equal(dslCalls, 1);
-  assert.equal(state.currentDsl, "<section>canvas</section>");
+  expect(shot.success).toBe(true);
+  expect(parsed.success).toBe(true);
+  expect(screenshotCalls).toBe(1);
+  expect(dslCalls).toBe(1);
+  expect(state.currentDsl).toBe("<section>canvas</section>");
 
   await executor("add_slide", { afterIndex: 0, slideId: "slide-3" });
-  assert.equal(state.slides.length, 3);
-  assert.equal(state.slides[1].id, "slide-3");
+  expect(state.slides.length).toBe(3);
+  expect(state.slides[1].id).toBe("slide-3");
 
   await executor("edit_element", { elementId: "el-1", changes: { text: "Updated" } });
-  assert.equal(state.slides[0].elements[0].text, "Updated");
+  expect(state.slides[0].elements[0].text).toBe("Updated");
 
   await executor("undo", {});
-  assert.equal(state.slides[0].elements[0].text, "Title");
+  expect(state.slides[0].elements[0].text).toBe("Title");
   await executor("redo", {});
-  assert.equal(state.slides[0].elements[0].text, "Updated");
+  expect(state.slides[0].elements[0].text).toBe("Updated");
 
   await executor("move_element", { elementId: "el-1", x: 10, y: 20 });
-  assert.equal(state.slides[0].elements[0].x, 10);
+  expect(state.slides[0].elements[0].x).toBe(10);
   await executor("resize_element", { elementId: "el-1", width: 200, height: 50 });
-  assert.equal(state.slides[0].elements[0].width, 200);
+  expect(state.slides[0].elements[0].width).toBe(200);
 
   await executor("add_element", { slideIndex: 0, elementType: "Shape", elementId: "el-new" });
-  assert.equal(state.slides[0].elements.some((el) => el.id === "el-new"), true);
+  expect(state.slides[0].elements.some((el) => el.id === "el-new")).toBe(true);
   await executor("delete_element", { elementId: "el-new" });
-  assert.equal(state.slides[0].elements.some((el) => el.id === "el-new"), false);
+  expect(state.slides[0].elements.some((el) => el.id === "el-new")).toBe(false);
 
   await executor("duplicate_slide", { slideIndex: 0, newSlideId: "slide-dup" });
-  assert.equal(state.slides[1].id, "slide-dup");
+  expect(state.slides[1].id).toBe("slide-dup");
 
   await executor("reorder_slides", { fromIndex: 0, toIndex: 1 });
-  assert.equal(state.slides[0].id, "slide-dup");
+  expect(state.slides[0].id).toBe("slide-dup");
 
   await executor("change_color_scheme", { primary: "#123", accent: "#456" });
-  assert.equal(state.designSystem.designTokens.colors.primary, "#123");
+  expect(state.designSystem.designTokens.colors.primary).toBe("#123");
 
   await executor("change_font", { headingFont: "Oswald" });
-  assert.equal(state.designSystem.designTokens.typography.headingFont, "Oswald");
+  expect(state.designSystem.designTokens.typography.headingFont).toBe("Oswald");
 
   await executor("apply_theme", { themeName: "dark" });
-  assert.equal(state.designSystem.theme, "dark");
+  expect(state.designSystem.theme).toBe("dark");
 
   const invalid = await executor("delete_slide", { slideIndex: 99 });
-  assert.equal(invalid.success, false);
+  expect(invalid.success).toBe(false);
 });
 
-test("edit loop handles actions, intent parsing, and transitions", async () => {
+it("edit loop handles actions, intent parsing, and transitions", async () => {
   const { EditModeAgentLoop } = await import("../../../js/agents/stages/design/edit-mode/edit-loop.js");
   const { EditHistoryManager } = await import("../../../js/agents/stages/design/edit-mode/history.js");
   const { EditSessionStatus } = await import("../../../js/agents/stages/design/states.js");
@@ -212,18 +213,18 @@ test("edit loop handles actions, intent parsing, and transitions", async () => {
     onSessionTransition: (from, to) => transitions.push(`${from}->${to}`),
   });
 
-  assert.equal(messages.length >= 2, true, "chat should send prompts and responses");
-  assert.equal(capturedVision, true);
-  assert.equal(capturedPrompt.includes("edit_element"), true);
-  assert.equal(state.slides[0].elements[0].color, "#000", "undo should revert edit");
-  assert.equal(dslToCanvasCalls >= 2, true, "canvas sync should run");
-  assert.equal(state.editSession.status, EditSessionStatus.IDLE);
-  assert.equal(transitions.includes("idle->awaiting_input"), true);
-  assert.equal(transitions.includes("awaiting_input->processing"), true);
-  assert.equal(transitions.includes("processing->executing"), true);
+  expect(messages.length >= 2).toBe(true, "chat should send prompts and responses");
+  expect(capturedVision).toBe(true);
+  expect(capturedPrompt.includes("edit_element")).toBe(true);
+  expect(state.slides[0].elements[0].color).toBe("#000", "undo should revert edit");
+  expect(dslToCanvasCalls >= 2).toBe(true, "canvas sync should run");
+  expect(state.editSession.status).toBe(EditSessionStatus.IDLE);
+  expect(transitions.includes("idle->awaiting_input")).toBe(true);
+  expect(transitions.includes("awaiting_input->processing")).toBe(true);
+  expect(transitions.includes("processing->executing")).toBe(true);
 });
 
-test("EditHistoryManager handles edge cases and callbacks", async () => {
+it("EditHistoryManager handles edge cases and callbacks", async () => {
   const { EditHistoryManager } = await import("../../../js/agents/stages/design/edit-mode/history.js");
 
   const undoCalls = [];
@@ -233,36 +234,36 @@ test("EditHistoryManager handles edge cases and callbacks", async () => {
     onRedo: (op) => redoCalls.push(op.id),
   });
 
-  assert.equal(history.push(null), false);
-  assert.equal(history.undo(), null);
-  assert.equal(history.redo(), null);
+  expect(history.push(null)).toBe(false);
+  expect(history.undo()).toBe(null);
+  expect(history.redo()).toBe(null);
 
-  assert.equal(history.beginTransaction(), true);
-  assert.equal(history.beginTransaction(), false);
-  assert.equal(history.commit(), true);
-  assert.equal(history.history.length, 0);
+  expect(history.beginTransaction()).toBe(true);
+  expect(history.beginTransaction()).toBe(false);
+  expect(history.commit()).toBe(true);
+  expect(history.history.length).toBe(0);
 
   history.beginTransaction();
   history.push({ id: "op_1" });
   history.commit();
-  assert.equal(history.history.length, 1);
+  expect(history.history.length).toBe(1);
   history.undo();
   history.redo();
 
-  assert.deepEqual(undoCalls, ["op_1"]);
-  assert.deepEqual(redoCalls, ["op_1"]);
-  assert.equal(history.rollback(), false);
+  expect(undoCalls).toEqual(["op_1"]);
+  expect(redoCalls).toEqual(["op_1"]);
+  expect(history.rollback()).toBe(false);
 });
 
-test("EditHistoryManager returns undefined when no undo/redo handlers exist", async () => {
+it("EditHistoryManager returns undefined when no undo/redo handlers exist", async () => {
   const { EditHistoryManager } = await import("../../../js/agents/stages/design/edit-mode/history.js");
 
   const history = new EditHistoryManager();
-  assert.equal(history._executeUndo({}), undefined);
-  assert.equal(history._executeRedo({}), undefined);
+  expect(history._executeUndo({})).toBe(undefined);
+  expect(history._executeRedo({})).toBe(undefined);
 });
 
-test("edit tools cover edge cases and undo/redo paths", async () => {
+it("edit tools cover edge cases and undo/redo paths", async () => {
   const { createEditToolExecutor } = await import("../../../js/agents/stages/design/edit-mode/tools.js");
   const { EditHistoryManager } = await import("../../../js/agents/stages/design/edit-mode/history.js");
 
@@ -283,8 +284,8 @@ test("edit tools cover edge cases and undo/redo paths", async () => {
 
   try {
     const addRes = await executor("add_slide", { afterIndex: "bad" });
-    assert.equal(addRes.success, true);
-    assert.ok(state.slides[state.slides.length - 1].id.startsWith("slide_"));
+    expect(addRes.success).toBe(true);
+    expect(state.slides[state.slides.length - 1].id.startsWith("slide_")).toBeTruthy();
     historyManager.undo();
     historyManager.redo();
 
@@ -299,13 +300,13 @@ test("edit tools cover edge cases and undo/redo paths", async () => {
     historyManager.redo();
 
     const invalidReorder = await executor("reorder_slides", { fromIndex: "bad", toIndex: 1 });
-    assert.equal(invalidReorder.success, false);
+    expect(invalidReorder.success).toBe(false);
 
     const invalidDup = await executor("duplicate_slide", { slideIndex: 99 });
-    assert.equal(invalidDup.success, false);
+    expect(invalidDup.success).toBe(false);
 
     const dup = await executor("duplicate_slide", { slideIndex: 0 });
-    assert.equal(dup.success, true);
+    expect(dup.success).toBe(true);
     historyManager.undo();
     historyManager.redo();
 
@@ -320,7 +321,7 @@ test("edit tools cover edge cases and undo/redo paths", async () => {
     historyManager.redo();
 
     const addEl = await executor("add_element", { slideIndex: 0, elementType: "Shape" });
-    assert.ok(addEl.data.element.id.startsWith("el_"));
+    expect(addEl.data.element.id.startsWith("el_")).toBeTruthy();
     historyManager.undo();
     historyManager.redo();
 
@@ -349,13 +350,13 @@ test("edit tools cover edge cases and undo/redo paths", async () => {
     historyManager.redo();
 
     const invalidAddEl = await executor("add_element", { slideIndex: 99, elementType: "Shape" });
-    assert.equal(invalidAddEl.success, false);
+    expect(invalidAddEl.success).toBe(false);
   } finally {
     globalThis.structuredClone = originalClone;
   }
 });
 
-test("edit loop handles clarification, quick actions, and parsing errors", async () => {
+it("edit loop handles clarification, quick actions, and parsing errors", async () => {
   const { EditModeAgentLoop } = await import("../../../js/agents/stages/design/edit-mode/edit-loop.js");
   const { EditHistoryManager } = await import("../../../js/agents/stages/design/edit-mode/history.js");
 
@@ -380,11 +381,11 @@ test("edit loop handles clarification, quick actions, and parsing errors", async
     chat: { send: async ({ message }) => chatMessages.push(message) },
   });
 
-  assert.ok(chatMessages.some((msg) => msg.includes("clarify")));
-  assert.ok(emits.some((evt) => evt.name === "edit.session.transition"));
+  expect(chatMessages.some(msg => msg.includes("clarify")).toBeTruthy());
+  expect(emits.some(evt => evt.name === "edit.session.transition")).toBeTruthy();
 });
 
-test("EditModeAgentLoop intent parsing fallback and JSON errors", async () => {
+it("EditModeAgentLoop intent parsing fallback and JSON errors", async () => {
   const { EditModeAgentLoop } = await import("../../../js/agents/stages/design/edit-mode/edit-loop.js");
 
   const loop = new EditModeAgentLoop();
@@ -397,12 +398,10 @@ test("EditModeAgentLoop intent parsing fallback and JSON errors", async () => {
     modelRouter: null,
     intentParser: null,
   });
-  assert.equal(fallback.operations.length, 0);
+  expect(fallback.operations.length).toBe(0);
 
-  await assert.rejects(
-    loop._interpretIntent({
-      userMessage: "bad",
-      currentDsl: "",
+  await expect(loop._interpretIntent({
+      userMessage: "bad").rejects.toThrow(currentDsl: "",
       screenshot: null,
       state: makeState(),
       selectedElement: null,
@@ -413,7 +412,7 @@ test("EditModeAgentLoop intent parsing fallback and JSON errors", async () => {
   );
 });
 
-test("EditModeAgentLoop captures canvas context from canvasBridge", async () => {
+it("EditModeAgentLoop captures canvas context from canvasBridge", async () => {
   const { EditModeAgentLoop } = await import("../../../js/agents/stages/design/edit-mode/edit-loop.js");
 
   const loop = new EditModeAgentLoop();
@@ -427,11 +426,11 @@ test("EditModeAgentLoop captures canvas context from canvasBridge", async () => 
     toolExecutor: null,
   });
 
-  assert.equal(context.currentDsl, "<section>bridge</section>");
-  assert.equal(context.screenshot, "data:image/bridge");
+  expect(context.currentDsl).toBe("<section>bridge</section>");
+  expect(context.screenshot).toBe("data:image/bridge");
 });
 
-test("edit loop rolls back transaction when a tool fails", async () => {
+it("edit loop rolls back transaction when a tool fails", async () => {
   const { EditModeAgentLoop } = await import("../../../js/agents/stages/design/edit-mode/edit-loop.js");
   const { EditHistoryManager } = await import("../../../js/agents/stages/design/edit-mode/history.js");
 
@@ -454,13 +453,13 @@ test("edit loop rolls back transaction when a tool fails", async () => {
   const loop = new EditModeAgentLoop({ intentParser, historyManager });
   await loop.run(state, { actions: [{ type: "chat_message", message: "change" }, { type: "exit" }], chat });
 
-  assert.equal(state.slides[0].elements[0].text, "Title");
-  assert.ok(messages.some((msg) => msg.includes("操作失败")));
+  expect(state.slides[0].elements[0].text).toBe("Title");
+  expect(messages.some(msg => msg.includes("操作失败")).toBeTruthy());
 });
 
-test("edit loop requires a waitForUserAction or actions queue", async () => {
+it("edit loop requires a waitForUserAction or actions queue", async () => {
   const { EditModeAgentLoop } = await import("../../../js/agents/stages/design/edit-mode/edit-loop.js");
 
   const loop = new EditModeAgentLoop();
-  await assert.rejects(loop.run(makeState(), {}), /waitForUserAction/);
+  await expect(loop.run(makeState(), {})).rejects.toThrow(/waitForUserAction/);
 });

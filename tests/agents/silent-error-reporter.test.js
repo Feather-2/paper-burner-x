@@ -1,5 +1,5 @@
-import { describe, it, beforeEach } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import {
   ErrorCategory,
@@ -12,15 +12,15 @@ import {
 describe("runtime/errors/silent-error-reporter", () => {
   describe("ErrorCategory", () => {
     it("has RECOVERABLE category", () => {
-      assert.equal(ErrorCategory.RECOVERABLE, "recoverable");
+      expect(ErrorCategory.RECOVERABLE).toBe("recoverable");
     });
 
     it("has DEGRADED category", () => {
-      assert.equal(ErrorCategory.DEGRADED, "degraded");
+      expect(ErrorCategory.DEGRADED).toBe("degraded");
     });
 
     it("has CRITICAL category", () => {
-      assert.equal(ErrorCategory.CRITICAL, "critical");
+      expect(ErrorCategory.CRITICAL).toBe("critical");
     });
   });
 
@@ -34,13 +34,13 @@ describe("runtime/errors/silent-error-reporter", () => {
 
     describe("constructor", () => {
       it("creates with default options", () => {
-        assert.ok(reporter.isEnabled());
-        assert.equal(reporter.size, 0);
+        expect(reporter.isEnabled()).toBeTruthy();
+        expect(reporter.size).toBe(0);
       });
 
       it("respects enabled option", () => {
         const disabled = new SilentErrorReporter({ enabled: false });
-        assert.ok(!disabled.isEnabled());
+        expect(!disabled.isEnabled()).toBeTruthy();
       });
 
       it("respects maxSamples option", () => {
@@ -48,7 +48,7 @@ describe("runtime/errors/silent-error-reporter", () => {
         for (let i = 0; i < 10; i++) {
           small.report(new Error(`Error ${i}`), { location: "test" });
         }
-        assert.equal(small.size, 5);
+        expect(small.size).toBe(5);
       });
 
       it("calls onError callback", () => {
@@ -57,7 +57,7 @@ describe("runtime/errors/silent-error-reporter", () => {
           onError: () => { called = true; },
         });
         withCallback.report(new Error("test"), { location: "test" });
-        assert.ok(called);
+        expect(called).toBeTruthy();
       });
 
       it("ignores callback errors", () => {
@@ -66,22 +66,22 @@ describe("runtime/errors/silent-error-reporter", () => {
         });
         // Should not throw
         withBadCallback.report(new Error("test"), { location: "test" });
-        assert.equal(withBadCallback.size, 1);
+        expect(withBadCallback.size).toBe(1);
       });
     });
 
     describe("setEnabled/isEnabled", () => {
       it("enables and disables reporting", () => {
         reporter.setEnabled(false);
-        assert.ok(!reporter.isEnabled());
+        expect(!reporter.isEnabled()).toBeTruthy();
         reporter.setEnabled(true);
-        assert.ok(reporter.isEnabled());
+        expect(reporter.isEnabled()).toBeTruthy();
       });
 
       it("does not collect when disabled", () => {
         reporter.setEnabled(false);
         reporter.report(new Error("test"), { location: "test" });
-        assert.equal(reporter.size, 0);
+        expect(reporter.size).toBe(0);
       });
     });
 
@@ -89,22 +89,22 @@ describe("runtime/errors/silent-error-reporter", () => {
       it("reports Error object", () => {
         const error = new Error("Test error");
         reporter.report(error, { location: "TestModule.method" });
-        assert.equal(reporter.size, 1);
+        expect(reporter.size).toBe(1);
         const samples = reporter.export();
-        assert.equal(samples[0].message, "Test error");
-        assert.equal(samples[0].location, "TestModule.method");
+        expect(samples[0].message).toBe("Test error");
+        expect(samples[0].location).toBe("TestModule.method");
       });
 
       it("reports non-Error value", () => {
         reporter.report("string error", { location: "test" });
         const samples = reporter.export();
-        assert.equal(samples[0].message, "string error");
+        expect(samples[0].message).toBe("string error");
       });
 
       it("uses default category", () => {
         reporter.report(new Error("test"), { location: "test" });
         const samples = reporter.export();
-        assert.equal(samples[0].category, ErrorCategory.RECOVERABLE);
+        expect(samples[0].category).toBe(ErrorCategory.RECOVERABLE);
       });
 
       it("respects custom category", () => {
@@ -113,7 +113,7 @@ describe("runtime/errors/silent-error-reporter", () => {
           category: ErrorCategory.CRITICAL,
         });
         const samples = reporter.export();
-        assert.equal(samples[0].category, ErrorCategory.CRITICAL);
+        expect(samples[0].category).toBe(ErrorCategory.CRITICAL);
       });
 
       it("includes operation", () => {
@@ -122,7 +122,7 @@ describe("runtime/errors/silent-error-reporter", () => {
           operation: "readFile",
         });
         const samples = reporter.export();
-        assert.equal(samples[0].operation, "readFile");
+        expect(samples[0].operation).toBe("readFile");
       });
 
       it("includes timestamp", () => {
@@ -130,8 +130,8 @@ describe("runtime/errors/silent-error-reporter", () => {
         reporter.report(new Error("test"), { location: "test" });
         const after = Date.now();
         const samples = reporter.export();
-        assert.ok(samples[0].ts >= before);
-        assert.ok(samples[0].ts <= after);
+        expect(samples[0].ts >= before).toBeTruthy();
+        expect(samples[0].ts <= after).toBeTruthy();
       });
 
       it("truncates stack to 3 lines", () => {
@@ -140,7 +140,7 @@ describe("runtime/errors/silent-error-reporter", () => {
         const samples = reporter.export();
         if (samples[0].stack) {
           const lines = samples[0].stack.split("\n");
-          assert.ok(lines.length <= 3);
+          expect(lines.length <= 3).toBeTruthy();
         }
       });
 
@@ -151,8 +151,8 @@ describe("runtime/errors/silent-error-reporter", () => {
         small.report(new Error("3"), { location: "test" });
         small.report(new Error("4"), { location: "test" });
         const samples = small.export();
-        assert.equal(samples.length, 3);
-        assert.equal(samples[0].message, "2");
+        expect(samples.length).toBe(3);
+        expect(samples[0].message).toBe("2");
       });
     });
 
@@ -174,20 +174,20 @@ describe("runtime/errors/silent-error-reporter", () => {
 
       it("returns total count", () => {
         const stats = reporter.getStats();
-        assert.equal(stats.total, 3);
+        expect(stats.total).toBe(3);
       });
 
       it("groups by category", () => {
         const stats = reporter.getStats();
-        assert.equal(stats.byCategory[ErrorCategory.RECOVERABLE], 2);
-        assert.equal(stats.byCategory[ErrorCategory.CRITICAL], 1);
+        expect(stats.byCategory[ErrorCategory.RECOVERABLE]).toBe(2);
+        expect(stats.byCategory[ErrorCategory.CRITICAL]).toBe(1);
       });
 
       it("groups by location", () => {
         const stats = reporter.getStats();
-        assert.equal(stats.byLocation["ModuleA.methodA"], 1);
-        assert.equal(stats.byLocation["ModuleA.methodB"], 1);
-        assert.equal(stats.byLocation["ModuleB.methodA"], 1);
+        expect(stats.byLocation["ModuleA.methodA"]).toBe(1);
+        expect(stats.byLocation["ModuleA.methodB"]).toBe(1);
+        expect(stats.byLocation["ModuleB.methodA"]).toBe(1);
       });
     });
 
@@ -196,12 +196,12 @@ describe("runtime/errors/silent-error-reporter", () => {
         reporter.report(new Error("test"), { location: "test" });
         const samples = reporter.export();
         samples.push({ message: "fake" });
-        assert.equal(reporter.size, 1);
+        expect(reporter.size).toBe(1);
       });
 
       it("returns empty array when no samples", () => {
         const samples = reporter.export();
-        assert.deepEqual(samples, []);
+        expect(samples).toEqual([]);
       });
     });
 
@@ -214,14 +214,14 @@ describe("runtime/errors/silent-error-reporter", () => {
 
       it("returns most recent errors first", () => {
         const recent = reporter.getRecent(5);
-        assert.equal(recent.length, 5);
-        assert.equal(recent[0].message, "Error 14");
-        assert.equal(recent[4].message, "Error 10");
+        expect(recent.length).toBe(5);
+        expect(recent[0].message).toBe("Error 14");
+        expect(recent[4].message).toBe("Error 10");
       });
 
       it("uses default limit of 10", () => {
         const recent = reporter.getRecent();
-        assert.equal(recent.length, 10);
+        expect(recent.length).toBe(10);
       });
 
       it("returns all if fewer than limit", () => {
@@ -229,7 +229,7 @@ describe("runtime/errors/silent-error-reporter", () => {
         small.report(new Error("a"), { location: "test" });
         small.report(new Error("b"), { location: "test" });
         const recent = small.getRecent(10);
-        assert.equal(recent.length, 2);
+        expect(recent.length).toBe(2);
       });
     });
 
@@ -237,22 +237,22 @@ describe("runtime/errors/silent-error-reporter", () => {
       it("removes all samples", () => {
         reporter.report(new Error("test"), { location: "test" });
         reporter.clear();
-        assert.equal(reporter.size, 0);
+        expect(reporter.size).toBe(0);
       });
     });
 
     describe("size", () => {
       it("returns sample count", () => {
-        assert.equal(reporter.size, 0);
+        expect(reporter.size).toBe(0);
         reporter.report(new Error("test"), { location: "test" });
-        assert.equal(reporter.size, 1);
+        expect(reporter.size).toBe(1);
       });
     });
   });
 
   describe("silentErrors singleton", () => {
     it("is a SilentErrorReporter instance", () => {
-      assert.ok(silentErrors instanceof SilentErrorReporter);
+      expect(silentErrors instanceof SilentErrorReporter).toBeTruthy();
     });
   });
 
@@ -263,19 +263,19 @@ describe("runtime/errors/silent-error-reporter", () => {
 
     it("reports error to singleton", () => {
       reportSilentError(new Error("test"), "MyModule.method");
-      assert.ok(silentErrors.size > 0);
+      expect(silentErrors.size > 0).toBeTruthy();
     });
 
     it("uses default category", () => {
       reportSilentError(new Error("test"), "test");
       const samples = silentErrors.export();
-      assert.equal(samples[samples.length - 1].category, ErrorCategory.RECOVERABLE);
+      expect(samples[samples.length - 1].category).toBe(ErrorCategory.RECOVERABLE);
     });
 
     it("accepts custom category", () => {
       reportSilentError(new Error("test"), "test", ErrorCategory.CRITICAL);
       const samples = silentErrors.export();
-      assert.equal(samples[samples.length - 1].category, ErrorCategory.CRITICAL);
+      expect(samples[samples.length - 1].category).toBe(ErrorCategory.CRITICAL);
     });
   });
 
@@ -286,22 +286,22 @@ describe("runtime/errors/silent-error-reporter", () => {
 
     it("creates scoped reporter", () => {
       const scoped = createScopedReporter("MyModule");
-      assert.ok(scoped);
-      assert.equal(typeof scoped.report, "function");
+      expect(scoped).toBeTruthy();
+      expect(typeof scoped.report).toBe("function");
     });
 
     it("prefixes location with module name", () => {
       const scoped = createScopedReporter("MyModule");
       scoped.report(new Error("test"), "doSomething");
       const samples = silentErrors.export();
-      assert.ok(samples[samples.length - 1].location.includes("MyModule.doSomething"));
+      expect(samples[samples.length - 1].location.includes("MyModule.doSomething")).toBeTruthy();
     });
 
     it("accepts category parameter", () => {
       const scoped = createScopedReporter("MyModule");
       scoped.report(new Error("test"), "method", ErrorCategory.DEGRADED);
       const samples = silentErrors.export();
-      assert.equal(samples[samples.length - 1].category, ErrorCategory.DEGRADED);
+      expect(samples[samples.length - 1].category).toBe(ErrorCategory.DEGRADED);
     });
   });
 });

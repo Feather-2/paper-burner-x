@@ -1,3 +1,5 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
@@ -57,7 +59,7 @@ function makeContentPackage({ runId = "run_test", slideCount = 6 } = {}) {
   };
 }
 
-test("Design: DesignStage generates design tokens + emits design.* events", async () => {
+it("Design: DesignStage generates design tokens + emits design.* events", async () => {
   const { DesignStage } = await import("../../js/agents/stages/design/design-agent.js");
 
   const events = [];
@@ -67,22 +69,22 @@ test("Design: DesignStage generates design tokens + emits design.* events", asyn
   const stage = new DesignStage({ batchSize: 4 });
   const deck = await stage.run(contentPackage, { runContext: { runId: "run_test", constraints: contentPackage.constraints }, emit });
 
-  assert.equal(deck.schemaVersion, "0.1");
-  assert.equal(deck.runId, "run_test");
-  assert.ok(deck.designSystem?.designTokens?.colors?.primary);
-  assert.ok(deck.designSystem?.designTokens?.typography?.fontFamily);
-  assert.ok(Array.isArray(deck.slidesMeta) && deck.slidesMeta.length === contentPackage.slideIntents.length);
-  assert.ok(typeof deck.deckHtmlDsl === "string" && deck.deckHtmlDsl.includes('data-type="freeform"'));
+  expect(deck.schemaVersion).toBe("0.1");
+  expect(deck.runId).toBe("run_test");
+  expect(deck.designSystem?.designTokens?.colors?.primary).toBeTruthy();
+  expect(deck.designSystem?.designTokens?.typography?.fontFamily).toBeTruthy();
+  expect(Array.isArray(deck.slidesMeta ) && deck.slidesMeta.length === contentPackage.slideIntents.length).toBeTruthy();
+  expect(typeof deck.deckHtmlDsl === "string" && deck.deckHtmlDsl.includes('data-type="freeform"')).toBeTruthy();
 
-  assert.ok(events.some((e) => e.name === "design.started"));
-  assert.ok(events.some((e) => e.name === "design.tokens.ended"));
-  assert.ok(events.some((e) => e.name === "design.generate.ended"));
-  assert.ok(events.some((e) => e.name === "design.qa.ended"));
-  assert.ok(events.some((e) => e.name === "design.ended"));
-  assert.ok(events.every((e) => e.name !== "design.image.planning.completed"));
+  expect(events.some(e => e.name === "design.started"));
+  expect(events.some(e => e.name === "design.tokens.ended"));
+  expect(events.some(e => e.name === "design.generate.ended"));
+  expect(events.some(e => e.name === "design.qa.ended"));
+  expect(events.some(e => e.name === "design.ended"));
+  expect(events.every(e => e.name !== "design.image.planning.completed")).toBeTruthy();
 });
 
-test("Design: ReactRefiner tool executor sanitizes injected HTML (no javascript: urls)", async () => {
+it("Design: ReactRefiner tool executor sanitizes injected HTML (no javascript: urls)", async () => {
   const { createToolExecutor } = await import("../../js/agents/stages/design/refiner/react-refiner-tools.js");
 
   const context = {
@@ -100,11 +102,11 @@ test("Design: ReactRefiner tool executor sanitizes injected HTML (no javascript:
     changes: { html: `<form action="javascript:alert(1)"><button>go</button></form>` },
   });
 
-  assert.equal(res.success, true);
-  assert.equal(String(context.deckPackage.deckHtmlDsl).includes("javascript:"), false);
+  expect(res.success).toBe(true);
+  expect(String(context.deckPackage.deckHtmlDsl).includes("javascript:")).toBe(false);
 });
 
-test("Design: dsl-builder supports core page types and passes QA in safe mode", async () => {
+it("Design: dsl-builder supports core page types and passes QA in safe mode", async () => {
   const { buildSlideHtml } = await import("../../js/agents/stages/design/dsl-builder.js");
   const { validateSlide } = await import("../../js/agents/stages/design/qa-validator.js");
 
@@ -120,13 +122,13 @@ test("Design: dsl-builder supports core page types and passes QA in safe mode", 
   for (const pageType of pageTypes) {
     const si = { slideIntentId: `s_${pageType}`, pageType, title: `T_${pageType}`, keyPoints: ["A", "B", "C"] };
     const html = buildSlideHtml(si, designSystem, contentPackage, { safeMode: true, slideNo: 1 });
-    assert.ok(html.includes("<section") && html.includes('data-type="freeform"'));
+    expect(html.includes("<section") && html.includes('data-type="freeform"')).toBeTruthy();
     const qa = validateSlide(html);
-    assert.equal(qa.pass, true);
+    expect(qa.pass).toBe(true);
   }
 });
 
-test("Design: dsl-builder prefers slideIntent.content (string) over keyPoints/objective", async () => {
+it("Design: dsl-builder prefers slideIntent.content (string) over keyPoints/objective", async () => {
   const { buildSlideHtml } = await import("../../js/agents/stages/design/dsl-builder.js");
 
   const contentPackage = makeContentPackage({ slideCount: 1 });
@@ -147,12 +149,12 @@ test("Design: dsl-builder prefers slideIntent.content (string) over keyPoints/ob
   };
 
   const html = buildSlideHtml(si, designSystem, contentPackage, { safeMode: true, slideNo: 1 });
-  assert.ok(html.includes("This should render from content."));
-  assert.ok(!html.includes("SHOULD_NOT_RENDER"));
-  assert.ok(!html.includes("OBJ_SHOULD_NOT_RENDER"));
+  expect(html.includes("This should render from content.")).toBeTruthy();
+  expect(!html.includes("SHOULD_NOT_RENDER")).toBeTruthy();
+  expect(!html.includes("OBJ_SHOULD_NOT_RENDER")).toBeTruthy();
 });
 
-test("Design: dsl-builder supports slideIntent.content.markdown (object) and falls back when missing", async () => {
+it("Design: dsl-builder supports slideIntent.content.markdown (object) and falls back when missing", async () => {
   const { buildSlideHtml } = await import("../../js/agents/stages/design/dsl-builder.js");
 
   const contentPackage = makeContentPackage({ slideCount: 1 });
@@ -170,8 +172,8 @@ test("Design: dsl-builder supports slideIntent.content.markdown (object) and fal
     content: { markdown: "- Alpha\n- Beta", citations: [{ id: "c1" }] },
   };
   const htmlObj = buildSlideHtml(siObj, designSystem, contentPackage, { safeMode: true, slideNo: 1 });
-  assert.ok(htmlObj.includes("Alpha"));
-  assert.ok(htmlObj.includes("Beta"));
+  expect(htmlObj.includes("Alpha")).toBeTruthy();
+  expect(htmlObj.includes("Beta")).toBeTruthy();
 
   const siFallbackKeyPoints = {
     slideIntentId: "s_kp",
@@ -180,7 +182,7 @@ test("Design: dsl-builder supports slideIntent.content.markdown (object) and fal
     keyPoints: ["KP_1"],
   };
   const htmlKp = buildSlideHtml(siFallbackKeyPoints, designSystem, contentPackage, { safeMode: true, slideNo: 1 });
-  assert.ok(htmlKp.includes("KP_1"));
+  expect(htmlKp.includes("KP_1")).toBeTruthy();
 
   const siFallbackObjective = {
     slideIntentId: "s_obj2",
@@ -189,22 +191,22 @@ test("Design: dsl-builder supports slideIntent.content.markdown (object) and fal
     objective: "OBJ_1",
   };
   const htmlObjective = buildSlideHtml(siFallbackObjective, designSystem, contentPackage, { safeMode: true, slideNo: 1 });
-  assert.ok(htmlObjective.includes("OBJ_1"));
+  expect(htmlObjective.includes("OBJ_1")).toBeTruthy();
 });
 
-test("Design: generateSingleSlide returns valid HTML", async () => {
+it("Design: generateSingleSlide returns valid HTML", async () => {
   const { generateSingleSlide } = await import("../../js/agents/stages/design/batch-generator.js");
 
   const designSystem = { designTokens: { colors: { bg: "#fff", text: "#111" } } };
   const slideIntent = { slideIntentId: "s1", pageType: "overview", title: "Hello", keyPoints: ["A", "B"] };
 
   const res = await generateSingleSlide(slideIntent, designSystem, "Use percent positions only.");
-  assert.equal(res.slideIntentId, "s1");
-  assert.ok(typeof res.slideHtml === "string" && res.slideHtml.includes('data-type="freeform"'));
-  assert.ok(res.slideHtml.includes('data-el="'));
+  expect(res.slideIntentId).toBe("s1");
+  expect(typeof res.slideHtml === "string" && res.slideHtml.includes('data-type="freeform"')).toBeTruthy();
+  expect(res.slideHtml.includes('data-el="')).toBeTruthy();
 });
 
-test("Design: generateSingleSlide repairs invalid DSL via reflection before falling back", async () => {
+it("Design: generateSingleSlide repairs invalid DSL via reflection before falling back", async () => {
   const { generateSingleSlide } = await import("../../js/agents/stages/design/batch-generator.js");
 
   const contentPackage = makeContentPackage({ slideCount: 1 });
@@ -233,13 +235,13 @@ test("Design: generateSingleSlide repairs invalid DSL via reflection before fall
     modelCaller,
   });
 
-  assert.equal(sawRepairPrompt, true);
-  assert.equal(res.source, "llm");
-  assert.ok(typeof res.slideHtml === "string" && res.slideHtml.includes('data-type="freeform"'));
-  assert.ok(res.slideHtml.includes('data-el="'));
+  expect(sawRepairPrompt).toBe(true);
+  expect(res.source).toBe("llm");
+  expect(typeof res.slideHtml === "string" && res.slideHtml.includes('data-type="freeform"')).toBeTruthy();
+  expect(res.slideHtml.includes('data-el="')).toBeTruthy();
 });
 
-test("Design: batch-generator respects concurrency, emits events, and retries once on failure", async () => {
+it("Design: batch-generator respects concurrency, emits events, and retries once on failure", async () => {
   const { generateBatch } = await import("../../js/agents/stages/design/batch-generator.js");
 
   const contentPackage = makeContentPackage({ slideCount: 1 });
@@ -295,27 +297,27 @@ test("Design: batch-generator respects concurrency, emits events, and retries on
   const emit = (name, record) => events.push({ name, record });
 
   const slides = await generateBatch(slideIntents, contentPackage, designSystem, { aiApiService, emit, batchSize: 2 });
-  assert.equal(slides.length, 5);
-  assert.ok(slides.every((s) => s.source === "llm"));
+  expect(slides.length).toBe(5);
+  expect(slides.every(s => s.source === "llm"));
 
   // batchConcurrency=2 (default), batchSize=2, so max 2 batches * 2 slides = 4 concurrent
-  assert.equal(maxActive <= 4, true);
+  expect(maxActive <= 4).toBe(true);
 
   const idxBatch0Start = events.findIndex((e) => e.name === "design.batch.started" && e.record?.payload?.batchIndex === 0);
   const idxBatch0End = events.findIndex((e) => e.name === "design.batch.completed" && e.record?.payload?.batchIndex === 0);
-  assert.ok(idxBatch0Start >= 0 && idxBatch0End >= 0 && idxBatch0Start < idxBatch0End);
+  expect(idxBatch0Start >= 0 && idxBatch0End >= 0 && idxBatch0Start < idxBatch0End).toBeTruthy();
 
   for (let i = 0; i < slideIntents.length; i++) {
     const idxStarted = events.findIndex((e) => e.name === "design.slide.started" && e.record?.payload?.slideIndex === i);
     const idxCompleted = events.findIndex((e) => e.name === "design.slide.completed" && e.record?.payload?.slideIndex === i);
-    assert.ok(idxStarted >= 0 && idxCompleted >= 0 && idxStarted < idxCompleted);
+    expect(idxStarted >= 0 && idxCompleted >= 0 && idxStarted < idxCompleted).toBeTruthy();
   }
 
-  assert.ok(events.some((e) => e.name === "design.slide.retrying" && e.record?.payload?.slideIndex === 2));
-  assert.ok(!events.some((e) => e.name === "design.slide.failed" && e.record?.payload?.slideIndex === 2));
+  expect(events.some(e => e.name === "design.slide.retrying" && e.record?.payload?.slideIndex === 2));
+  expect(!events.some(e => e.name === "design.slide.failed" && e.record?.payload?.slideIndex === 2));
 });
 
-test("Design: DesignStage calls ImagePlanner between tokens and batch, emits planning event, and inserts placeholders", async () => {
+it("Design: DesignStage calls ImagePlanner between tokens and batch, emits planning event, and inserts placeholders", async () => {
   const { DesignStage } = await import("../../js/agents/stages/design/design-agent.js");
 
   const events = [];
@@ -334,23 +336,23 @@ test("Design: DesignStage calls ImagePlanner between tokens and batch, emits pla
   const idxTokens = events.findIndex((e) => e.name === "design.tokens.ended");
   const idxPlanning = events.findIndex((e) => e.name === "design.image.planning.completed");
   const idxBatchStarted = events.findIndex((e) => e.name === "design.batch.started");
-  assert.ok(idxTokens >= 0 && idxPlanning >= 0 && idxBatchStarted >= 0);
-  assert.ok(idxTokens < idxPlanning && idxPlanning < idxBatchStarted);
+  expect(idxTokens >= 0 && idxPlanning >= 0 && idxBatchStarted >= 0).toBeTruthy();
+  expect(idxTokens < idxPlanning && idxPlanning < idxBatchStarted).toBeTruthy();
 
-  assert.ok(Array.isArray(deck.imageSlots));
-  assert.ok(deck.imageSlots.length >= 1);
-  assert.ok(deck.imageReport === null);
-  assert.ok(Array.isArray(deck.pendingImages) && deck.pendingImages.length === deck.imageSlots.length);
+  expect(Array.isArray(deck.imageSlots)).toBeTruthy();
+  expect(deck.imageSlots.length >= 1).toBeTruthy();
+  expect(deck.imageReport === null).toBeTruthy();
+  expect(Array.isArray(deck.pendingImages ) && deck.pendingImages.length === deck.imageSlots.length).toBeTruthy();
 
-  assert.ok(typeof deck.deckHtmlDsl === "string");
-  assert.ok(deck.deckHtmlDsl.includes('data-el="image-placeholder"'));
-  assert.ok(deck.deckHtmlDsl.includes('data-status="pending"'));
-  assert.ok(deck.deckHtmlDsl.includes('data-fallback="gradient"'));
-  assert.ok(deck.deckHtmlDsl.includes('data-slot-id="img_s0_hero"'));
-  assert.ok(deck.deckHtmlDsl.includes('id="img_s0_hero"'));
+  expect(typeof deck.deckHtmlDsl === "string").toBeTruthy();
+  expect(deck.deckHtmlDsl.includes('data-el="image-placeholder"')).toBeTruthy();
+  expect(deck.deckHtmlDsl.includes('data-status="pending"')).toBeTruthy();
+  expect(deck.deckHtmlDsl.includes('data-fallback="gradient"')).toBeTruthy();
+  expect(deck.deckHtmlDsl.includes('data-slot-id="img_s0_hero"')).toBeTruthy();
+  expect(deck.deckHtmlDsl.includes('id="img_s0_hero"')).toBeTruthy();
 });
 
-test("Design: batch-generator makePrompt includes image slot placeholder instructions when provided", async () => {
+it("Design: batch-generator makePrompt includes image slot placeholder instructions when provided", async () => {
   const { generateBatch } = await import("../../js/agents/stages/design/batch-generator.js");
 
   const contentPackage = makeContentPackage({ slideCount: 1 });
@@ -380,14 +382,14 @@ test("Design: batch-generator makePrompt includes image slot placeholder instruc
   ];
 
   await generateBatch(slideIntents, contentPackage, designSystem, { aiApiService, imageSlots, batchSize: 4 });
-  assert.equal(calls.length, 2);
+  expect(calls.length).toBe(2);
   const prompts = calls.map((c) => c.messages.map((m) => m.content).join("\n"));
-  assert.ok(prompts.some((p) => p.includes("Requested image slots") || p.includes("Image slots")));
-  assert.ok(prompts.some((p) => p.includes('data-el="image"') || p.includes('data-el="image-placeholder"')));
-  assert.ok(prompts.some((p) => p.includes("img_s0_hero")));
+  expect(prompts.some(p => p.includes("Requested image slots") || p.includes("Image slots")));
+  expect(prompts.some(p => p.includes('data-el="image"') || p.includes('data-el="image-placeholder"')));
+  expect(prompts.some(p => p.includes("img_s0_hero")));
 });
 
-test("Design: generateBatch injects brainstorm outputs and patches placeholder data-* attrs", async () => {
+it("Design: generateBatch injects brainstorm outputs and patches placeholder data-* attrs", async () => {
   const { generateBatch } = await import("../../js/agents/stages/design/batch-generator.js");
 
   const contentPackage = makeContentPackage({ slideCount: 1 });
@@ -398,7 +400,7 @@ test("Design: generateBatch injects brainstorm outputs and patches placeholder d
   const selectedIdeas = [
     {
       slideIntentId: "s1",
-      atmosphere: { mood: "Neo noir", colorScheme: "Indigo + cyan accents", visualWeight: "Heavy" },
+      atmosphere: { mood: "Neo noir", colorScheme: "Indigo + cyan accents"sualWeight: "Heavy" },
       elementsMarkdown: "- Strong title hierarchy\n- Full-bleed hero image\n- Subtle grid texture",
       visualSlots: [
         {
@@ -428,24 +430,24 @@ test("Design: generateBatch injects brainstorm outputs and patches placeholder d
   };
 
   const out = await generateBatch(slideIntents, contentPackage, designSystem, { aiApiService, imageSlots, selectedIdeas, batchSize: 4 });
-  assert.equal(out.length, 1);
+  expect(out.length).toBe(1);
 
   const promptIntents = extractSlideIntentsFromPrompt(prompts[0]);
-  assert.equal(promptIntents[0].slideIntentId, "s1");
-  assert.equal(promptIntents[0].brainstorm.atmosphere.mood, "Neo noir");
-  assert.ok(promptIntents[0].brainstorm.elementsMarkdown.includes("Full-bleed"));
-  assert.equal(promptIntents[0].brainstorm.visualSlots[0].position.x, "11%");
+  expect(promptIntents[0].slideIntentId).toBe("s1");
+  expect(promptIntents[0].brainstorm.atmosphere.mood).toBe("Neo noir");
+  expect(promptIntents[0].brainstorm.elementsMarkdown.includes("Full-bleed")).toBeTruthy();
+  expect(promptIntents[0].brainstorm.visualSlots[0].position.x).toBe("11%");
 
   const html = out[0].slideHtml;
-  assert.ok(html.includes('data-render-type="ai-image"'));
-  assert.ok(html.includes('data-x="11%"'));
-  assert.ok(html.includes('data-y="22%"'));
-  assert.ok(html.includes('data-w="33%"'));
-  assert.ok(html.includes('data-h="44%"'));
-  assert.ok(/data-effects="[^"]*blend[^"]*multiply/i.test(html));
+  expect(html.includes('data-render-type="ai-image"')).toBeTruthy();
+  expect(html.includes('data-x="11%"')).toBeTruthy();
+  expect(html.includes('data-y="22%"')).toBeTruthy();
+  expect(html.includes('data-w="33%"')).toBeTruthy();
+  expect(html.includes('data-h="44%"')).toBeTruthy();
+  expect(/data-effects="[^"]*blend[^"]*multiply/i.test(html)).toBeTruthy();
 });
 
-test("Design: batch-generator prompt serializes content and exposes contentMarkdown", async () => {
+it("Design: batch-generator prompt serializes content and exposes contentMarkdown", async () => {
   const { generateBatch } = await import("../../js/agents/stages/design/batch-generator.js");
 
   const contentPackage = makeContentPackage({ slideCount: 1 });
@@ -475,23 +477,23 @@ test("Design: batch-generator prompt serializes content and exposes contentMarkd
   };
 
   await generateBatch(slideIntents, contentPackage, designSystem, { aiApiService, batchSize: 4 });
-  assert.equal(captured.length, 3);
+  expect(captured.length).toBe(3);
 
   const c1 = captured.find((c) => c.slideIntentId === "s1");
-  assert.equal(typeof c1.content, "string");
-  assert.equal(c1.contentMarkdown, "## H\nHello");
+  expect(typeof c1.content).toBe("string");
+  expect(c1.contentMarkdown).toBe("## H\nHello");
 
   const c2 = captured.find((c) => c.slideIntentId === "s2");
-  assert.equal(typeof c2.content, "object");
-  assert.equal(c2.content.markdown, "- A\n- B");
-  assert.equal(c2.contentMarkdown, "- A\n- B");
+  expect(typeof c2.content).toBe("object");
+  expect(c2.content.markdown).toBe("- A\n- B");
+  expect(c2.contentMarkdown).toBe("- A\n- B");
 
   const c3 = captured.find((c) => c.slideIntentId === "s3");
-  assert.equal(c3.content, null);
-  assert.equal(c3.contentMarkdown, "");
+  expect(c3.content).toBe(null);
+  expect(c3.contentMarkdown).toBe("");
 });
 
-test("Design: imagePolicy=none yields no placeholders and no pending images", async () => {
+it("Design: imagePolicy=none yields no placeholders and no pending images", async () => {
   const { DesignStage } = await import("../../js/agents/stages/design/design-agent.js");
 
   const events = [];
@@ -507,13 +509,13 @@ test("Design: imagePolicy=none yields no placeholders and no pending images", as
   const stage = new DesignStage({ batchSize: 4 });
   const deck = await stage.run(contentPackage, { runContext: { runId: "run_test", constraints: contentPackage.constraints }, emit });
 
-  assert.ok(events.some((e) => e.name === "design.image.planning.completed"));
-  assert.ok(Array.isArray(deck.imageSlots) && deck.imageSlots.length === 0);
-  assert.ok(Array.isArray(deck.pendingImages) && deck.pendingImages.length === 0);
-  assert.ok(typeof deck.deckHtmlDsl === "string" && !deck.deckHtmlDsl.includes('data-el="image-placeholder"'));
+  expect(events.some(e => e.name === "design.image.planning.completed"));
+  expect(Array.isArray(deck.imageSlots ) && deck.imageSlots.length === 0).toBeTruthy();
+  expect(Array.isArray(deck.pendingImages ) && deck.pendingImages.length === 0).toBeTruthy();
+  expect(typeof deck.deckHtmlDsl === "string" && !deck.deckHtmlDsl.includes('data-el="image-placeholder"')).toBeTruthy();
 });
 
-test("Design: DesignStage calls ImageGenerator when provider exists and fills placeholders", async () => {
+it("Design: DesignStage calls ImageGenerator when provider exists and fills placeholders", async () => {
   const { DesignStage } = await import("../../js/agents/stages/design/design-agent.js");
 
   const events = [];
@@ -535,17 +537,17 @@ test("Design: DesignStage calls ImageGenerator when provider exists and fills pl
   const stage = new DesignStage({ batchSize: 2 });
   const deck = await stage.run(contentPackage, { runContext: { runId: "run_test", constraints: contentPackage.constraints }, emit, imageService });
 
-  assert.ok(events.some((e) => e.name === "design.image.generate.started"));
-  assert.ok(events.some((e) => e.name === "design.image.generate.succeeded"));
-  assert.ok(events.some((e) => e.name === "design.image.fill.completed"));
+  expect(events.some(e => e.name === "design.image.generate.started"));
+  expect(events.some(e => e.name === "design.image.generate.succeeded"));
+  expect(events.some(e => e.name === "design.image.fill.completed"));
 
-  assert.ok(typeof deck.deckHtmlDsl === "string" && deck.deckHtmlDsl.includes('data-el="image"'));
-  assert.ok(deck.deckHtmlDsl.includes('data-status="filled"'));
-  assert.ok(Array.isArray(deck.pendingImages) && deck.pendingImages.length < deck.imageSlots.length);
-  assert.ok(deck.imageReport && deck.imageReport.summary);
+  expect(typeof deck.deckHtmlDsl === "string" && deck.deckHtmlDsl.includes('data-el="image"')).toBeTruthy();
+  expect(deck.deckHtmlDsl.includes('data-status="filled"')).toBeTruthy();
+  expect(Array.isArray(deck.pendingImages ) && deck.pendingImages.length < deck.imageSlots.length).toBeTruthy();
+  expect(deck.imageReport && deck.imageReport.summary).toBeTruthy();
 });
 
-test("Design: qa-validator catches min font, overflow, and low contrast", async () => {
+it("Design: qa-validator catches min font, overflow, and low contrast", async () => {
   const { validateSlide } = await import("../../js/agents/stages/design/qa-validator.js");
 
   const bad = `
@@ -555,14 +557,14 @@ test("Design: qa-validator catches min font, overflow, and low contrast", async 
   `.trim();
 
   const qa = validateSlide(bad);
-  assert.equal(qa.pass, false);
+  expect(qa.pass).toBe(false);
   const codes = new Set(qa.issues.map((i) => i.code));
-  assert.ok(codes.has("min_font"));
-  assert.ok(codes.has("overflow_x"));
-  assert.ok(codes.has("contrast"));
+  expect(codes.has("min_font")).toBeTruthy();
+  expect(codes.has("overflow_x")).toBeTruthy();
+  expect(codes.has("contrast")).toBeTruthy();
 });
 
-test("Design: DesignStage triggers last-resort downgrade and deckHtmlDsl is parseable by SlideParser", async () => {
+it("Design: DesignStage triggers last-resort downgrade and deckHtmlDsl is parseable by SlideParser", async () => {
   const { DesignStage } = await import("../../js/agents/stages/design/design-agent.js");
   const { parseHTML } = await import("linkedom");
 
@@ -573,7 +575,7 @@ test("Design: DesignStage triggers last-resort downgrade and deckHtmlDsl is pars
 
   // Load SlideParser as ESM and use the global it installs.
   await import("../../js/ppt/core/slide-parser.js");
-  assert.ok(globalThis.SlideParser && typeof globalThis.SlideParser.parse === "function");
+  expect(globalThis.SlideParser && typeof globalThis.SlideParser.parse === "function").toBeTruthy();
 
   const events = [];
   const emit = (name, record) => events.push({ name, record });
@@ -599,36 +601,36 @@ test("Design: DesignStage triggers last-resort downgrade and deckHtmlDsl is pars
   const stage = new DesignStage({ batchSize: 4 });
   const deck = await stage.run(contentPackage, { runContext: { runId: "run_test", constraints: contentPackage.constraints }, emit, aiApiService });
 
-  assert.ok(deck.slidesMeta.some((m) => m.degraded === true));
-  assert.ok(deck.slidesMeta.every((m) => m.qa?.pass === true));
-  assert.ok(events.some((e) => e.name === "design.degraded"));
+  expect(deck.slidesMeta.some(m => m.degraded === true));
+  expect(deck.slidesMeta.every(m => m.qa?.pass === true));
+  expect(events.some(e => e.name === "design.degraded"));
 
   const slides = globalThis.SlideParser.parse(deck.deckHtmlDsl);
-  assert.equal(slides.length, contentPackage.slideIntents.length);
-  assert.ok(slides.every((s) => Array.isArray(s.elements)));
+  expect(slides.length).toBe(contentPackage.slideIntents.length);
+  expect(slides.every(s => Array.isArray(s.elements)));
 });
 
-test("Design: image-prompt-builder exports buildPrompt and includes no-text guidance", async () => {
+it("Design: image-prompt-builder exports buildPrompt and includes no-text guidance", async () => {
   const { buildPrompt } = await import("../../js/agents/stages/design/image-prompt-builder.js");
   const prompt = buildPrompt(
     { slotId: "img_s0_hero", purpose: "hero", promptHint: "A demo", style: "flat", aspectRatio: "16:9" },
     { theme: "modern", designTokens: { colors: { primary: "#0ea5e9", bg: "#ffffff" } } },
     makeContentPackage({ slideCount: 1 })
   );
-  assert.ok(typeof prompt === "string" && prompt.includes("Do not include any text in the image."));
+  expect(typeof prompt === "string" && prompt.includes("Do not include any text in the image.")).toBeTruthy();
 });
 
-test("Design: design/index.js re-exports stage surface", async () => {
+it("Design: design/index.js re-exports stage surface", async () => {
   const design = await import("../../js/agents/stages/design/index.js");
-  assert.ok(typeof design.generateDesignTokens === "function");
-  assert.ok(typeof design.buildSlideHtml === "function");
-  assert.ok(typeof design.generateBatch === "function");
-  assert.ok(typeof design.validateSlide === "function");
-  assert.ok(typeof design.DesignStage === "function");
-  assert.ok(typeof design.runDesignStage === "function");
+  expect(typeof design.generateDesignTokens === "function").toBeTruthy();
+  expect(typeof design.buildSlideHtml === "function").toBeTruthy();
+  expect(typeof design.generateBatch === "function").toBeTruthy();
+  expect(typeof design.validateSlide === "function").toBeTruthy();
+  expect(typeof design.DesignStage === "function").toBeTruthy();
+  expect(typeof design.runDesignStage === "function").toBeTruthy();
 });
 
-test("Design: validateDesignSystem passes for fallback generator output", async () => {
+it("Design: validateDesignSystem passes for fallback generator output", async () => {
   const { generateDesignSystem } = await import("../../js/agents/stages/design/design-system-generator.js");
   const { validateDesignSystem } = await import("../../js/agents/stages/design/design-tokens.js");
 
@@ -638,11 +640,11 @@ test("Design: validateDesignSystem passes for fallback generator output", async 
   );
 
   const res = validateDesignSystem(system);
-  assert.equal(res.ok, true);
-  assert.ok(system?.designTokens?.colors?.primary);
+  expect(res.ok).toBe(true);
+  expect(system?.designTokens?.colors?.primary).toBeTruthy();
 });
 
-test("Design: design-system-generator uses aiApiService and returns validated DesignSystem", async () => {
+it("Design: design-system-generator uses aiApiService and returns validated DesignSystem", async () => {
   const { generateDesignSystem } = await import("../../js/agents/stages/design/design-system-generator.js");
   const { validateDesignSystem } = await import("../../js/agents/stages/design/design-tokens.js");
 
@@ -677,21 +679,21 @@ test("Design: design-system-generator uses aiApiService and returns validated De
     { aiApiService, constraints: { theme: "light" } }
   );
 
-  assert.equal(calls.length, 1);
-  assert.ok(out?.colors?.background?.slide);
-  assert.ok(out?.designTokens?.colors?.primary);
-  assert.equal(validateDesignSystem(out).ok, true);
+  expect(calls.length).toBe(1);
+  expect(out?.colors?.background?.slide).toBeTruthy();
+  expect(out?.designTokens?.colors?.primary).toBeTruthy();
+  expect(validateDesignSystem(out).ok).toBe(true);
 });
 
-test("Design: design-system-generator falls back on invalid AI output", async () => {
+it("Design: design-system-generator falls back on invalid AI output", async () => {
   const { generateDesignSystem } = await import("../../js/agents/stages/design/design-system-generator.js");
   const { validateDesignSystem } = await import("../../js/agents/stages/design/design-tokens.js");
 
   const aiApiService = { chat: async () => ({ content: JSON.stringify({ nope: true }) }) };
   const out = await generateDesignSystem({ contentSummary: "Demo" }, { aiApiService, constraints: { theme: "dark" } });
 
-  assert.ok(out?.designTokens?.colors?.primary);
-  assert.equal(validateDesignSystem(out).ok, true);
+  expect(out?.designTokens?.colors?.primary).toBeTruthy();
+  expect(validateDesignSystem(out).ok).toBe(true);
 });
 
 function makeValidDynamicDesignSystem() {
@@ -716,7 +718,7 @@ function makeValidDynamicDesignSystem() {
   };
 }
 
-test("Design: generateDesignSystem applies no overrides (explicit empty overrides)", async () => {
+it("Design: generateDesignSystem applies no overrides (explicit empty overrides)", async () => {
   const { generateDesignSystem } = await import("../../js/agents/stages/design/design-system-generator.js");
 
   const aiApiService = {
@@ -728,11 +730,11 @@ test("Design: generateDesignSystem applies no overrides (explicit empty override
     { aiApiService, constraints: { theme: "light" } }
   );
 
-  assert.equal(out.colors.accent.primary, "#0ea5e9");
-  assert.ok(out.designTokens?.colors?.primary);
+  expect(out.colors.accent.primary).toBe("#0ea5e9");
+  expect(out.designTokens?.colors?.primary).toBeTruthy();
 });
 
-test("Design: generateDesignSystem applies partial overrides and re-syncs legacy designTokens", async () => {
+it("Design: generateDesignSystem applies partial overrides and re-syncs legacy designTokens", async () => {
   const { generateDesignSystem } = await import("../../js/agents/stages/design/design-system-generator.js");
 
   const aiApiService = {
@@ -753,17 +755,17 @@ test("Design: generateDesignSystem applies partial overrides and re-syncs legacy
     { aiApiService, constraints: { theme: "light" } }
   );
 
-  assert.equal(out.colors.accent.primary, "#ff0000");
-  assert.equal(out.typography.fontFamily, "Comic Sans MS, cursive");
-  assert.equal(out.spacing.page.marginX, 10);
+  expect(out.colors.accent.primary).toBe("#ff0000");
+  expect(out.typography.fontFamily).toBe("Comic Sans MS, cursive");
+  expect(out.spacing.page.marginX).toBe(10);
 
-  assert.equal(out.designTokens.colors.primary, "#ff0000");
-  assert.equal(out.designTokens.typography.fontFamily, "Comic Sans MS, cursive");
-  assert.equal(out.designTokens.spacing.safeMarginPct, 10);
-  assert.equal(out.designTokens.grid.safe.x, "10%");
+  expect(out.designTokens.colors.primary).toBe("#ff0000");
+  expect(out.designTokens.typography.fontFamily).toBe("Comic Sans MS, cursive");
+  expect(out.designTokens.spacing.safeMarginPct).toBe(10);
+  expect(out.designTokens.grid.safe.x).toBe("10%");
 });
 
-test("Design: generateDesignSystem applies complete overrides (colors/typography/spacing/effects)", async () => {
+it("Design: generateDesignSystem applies complete overrides (colors/typography/spacing/effects)", async () => {
   const { generateDesignSystem } = await import("../../js/agents/stages/design/design-system-generator.js");
 
   const aiApiService = {
@@ -790,14 +792,14 @@ test("Design: generateDesignSystem applies complete overrides (colors/typography
     { aiApiService, constraints: { theme: "dark" } }
   );
 
-  assert.equal(out.colors.background.slide, "#0b1220");
-  assert.equal(out.typography.scale.h1, 48);
-  assert.equal(out.spacing.element.gapX, 10);
-  assert.equal(out.effects.blur, 2);
-  assert.equal(out.designTokens.colors.bg, "#0b1220");
+  expect(out.colors.background.slide).toBe("#0b1220");
+  expect(out.typography.scale.h1).toBe(48);
+  expect(out.spacing.element.gapX).toBe(10);
+  expect(out.effects.blur).toBe(2);
+  expect(out.designTokens.colors.bg).toBe("#0b1220");
 });
 
-test("Design: generateDesignSystem applies visualPreference override and syncs to legacy designTokens", async () => {
+it("Design: generateDesignSystem applies visualPreference override and syncs to legacy designTokens", async () => {
   const { generateDesignSystem } = await import("../../js/agents/stages/design/design-system-generator.js");
 
   const aiApiService = {
@@ -809,11 +811,11 @@ test("Design: generateDesignSystem applies visualPreference override and syncs t
     { aiApiService, constraints: { theme: "light" } }
   );
 
-  assert.equal(out.visualPreference.mode, "svg-first");
-  assert.equal(out.designTokens.visualPreference.mode, "svg-first");
+  expect(out.visualPreference.mode).toBe("svg-first");
+  expect(out.designTokens.visualPreference.mode).toBe("svg-first");
 });
 
-test("Design: validateDesignSystem fails on broken schema + DSL violations", async () => {
+it("Design: validateDesignSystem fails on broken schema + DSL violations", async () => {
   const { validateDesignSystem } = await import("../../js/agents/stages/design/design-tokens.js");
 
   const bad = {
@@ -827,13 +829,13 @@ test("Design: validateDesignSystem fails on broken schema + DSL violations", asy
   };
 
   const res = validateDesignSystem(bad);
-  assert.equal(res.ok, false);
-  assert.ok(res.errors.some((e) => e.includes("minFontSize")));
-  assert.ok(res.errors.some((e) => e.includes("marginX")));
-  assert.ok(res.errors.some((e) => e.includes("invalid_color")));
+  expect(res.ok).toBe(false);
+  expect(res.errors.some(e => e.includes("minFontSize")));
+  expect(res.errors.some(e => e.includes("marginX")));
+  expect(res.errors.some(e => e.includes("invalid_color")));
  });
 
-test("Design: DesignStage prefers dynamic design system generation when AI is available", async () => {
+it("Design: DesignStage prefers dynamic design system generation when AI is available", async () => {
   const { DesignStage } = await import("../../js/agents/stages/design/design-agent.js");
 
   const calls = [];
@@ -879,13 +881,13 @@ test("Design: DesignStage prefers dynamic design system generation when AI is av
   const stage = new DesignStage({ batchSize: 4 });
   const deck = await stage.run(contentPackage, { runContext: { runId: "run_test", constraints: contentPackage.constraints }, aiApiService });
 
-  assert.equal(calls[0], "designSystem");
-  assert.ok(!calls.some((c) => c.startsWith("brainstorm.")));
-  assert.equal(calls[calls.length - 1], "slides");
-  assert.equal(deck.designSystem?.colors?.accent?.primary, "#7c3aed");
-  assert.ok(deck.designSystem?.designTokens?.colors?.primary);
+  expect(calls[0]).toBe("designSystem");
+  expect(!calls.some(c => c.startsWith("brainstorm.")));
+  expect(calls[calls.length - 1]).toBe("slides");
+  expect(deck.designSystem?.colors?.accent?.primary).toBe("#7c3aed");
+  expect(deck.designSystem?.designTokens?.colors?.primary).toBeTruthy();
 
   // Just verify batch-generator received the slide intent
   const promptIntents = extractSlideIntentsFromPrompt(prompts[0]);
-  assert.equal(promptIntents[0].slideIntentId, "s_cover");
+  expect(promptIntents[0].slideIntentId).toBe("s_cover");
 });

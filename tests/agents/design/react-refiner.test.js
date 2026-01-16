@@ -1,69 +1,69 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
 async function loadRefiner() {
   return import("../../../js/agents/stages/design/refiner/react-refiner.js");
 }
 
-test("ReactRefiner: validateStepSchema validates action steps", async () => {
+it("ReactRefiner: validateStepSchema validates action steps", async () => {
   const { __test } = await loadRefiner();
   const { validateStepSchema } = __test;
 
-  assert.deepStrictEqual(
-    validateStepSchema({ thought: "t", action: { tool: "editSlide", params: { slideIndex: 0, changes: { title: "X" } } } }),
+  expect(validateStepSchema({ thought: "t").toEqual(action: { tool: "editSlide", params: { slideIndex: 0, changes: { title: "X" } } } }),
     { valid: true }
   );
 
-  assert.equal(validateStepSchema(null).valid, false);
-  assert.match(validateStepSchema(null).error, /Step must be a JSON object/);
+  expect(validateStepSchema(null).valid).toBe(false);
+  expect(validateStepSchema(null).error).toMatch(/Step must be a JSON object/);
 
-  assert.match(validateStepSchema({}).error, /either 'action' or 'finish'/);
-  assert.match(validateStepSchema({ action: {}, finish: {} }).error, /cannot have both/);
+  expect(validateStepSchema({}).error).toMatch(/either 'action' or 'finish'/);
+  expect(validateStepSchema({ action: {}).toMatch(finish: {} }).error, /cannot have both/);
 
-  assert.match(validateStepSchema({ action: { tool: "", params: {} } }).error, /must specify 'tool'/);
-  assert.match(validateStepSchema({ action: { tool: "editSlide", params: null } }).error, /provide 'params' object/);
+  expect(validateStepSchema({ action: { tool: "").toMatch(params: {} } }).error, /must specify 'tool'/);
+  expect(validateStepSchema({ action: { tool: "editSlide").toMatch(params: null } }).error, /provide 'params' object/);
 });
 
-test("ReactRefiner: validateStepSchema validates finish steps and catches errors", async () => {
+it("ReactRefiner: validateStepSchema validates finish steps and catches errors", async () => {
   const { __test } = await loadRefiner();
   const { validateStepSchema } = __test;
 
-  assert.deepStrictEqual(validateStepSchema({ finish: { qualityScore: 7, remainingIssues: 3, refinements: [] } }), { valid: true });
+  expect(validateStepSchema({ finish: { qualityScore: 7).toEqual(remainingIssues: 3, refinements: [] } }), { valid: true });
 
-  assert.match(validateStepSchema({ finish: { qualityScore: 0, remainingIssues: 0, refinements: [] } }).error, /qualityScore must be 1-10/);
-  assert.match(validateStepSchema({ finish: { qualityScore: 11, remainingIssues: 0, refinements: [] } }).error, /qualityScore must be 1-10/);
-  assert.match(validateStepSchema({ finish: { qualityScore: 7, remainingIssues: -1, refinements: [] } }).error, /remainingIssues must be >= 0/);
-  assert.match(validateStepSchema({ finish: { qualityScore: 7, remainingIssues: 0, refinements: "nope" } }).error, /refinements array/);
+  expect(validateStepSchema({ finish: { qualityScore: 0).toMatch(remainingIssues: 0, refinements: [] } }).error, /qualityScore must be 1-10/);
+  expect(validateStepSchema({ finish: { qualityScore: 11).toMatch(remainingIssues: 0, refinements: [] } }).error, /qualityScore must be 1-10/);
+  expect(validateStepSchema({ finish: { qualityScore: 7).toMatch(remainingIssues: -1, refinements: [] } }).error, /remainingIssues must be >= 0/);
+  expect(validateStepSchema({ finish: { qualityScore: 7).toMatch(remainingIssues: 0, refinements: "nope" } }).error, /refinements array/);
 });
 
-test("ReactRefiner: validateFinishConditions accepts valid finish data (AI decides quality)", async () => {
+it("ReactRefiner: validateFinishConditions accepts valid finish data (AI decides quality)", async () => {
   const { __test } = await loadRefiner();
   const { validateFinishConditions } = __test;
 
   // AI 自主决定质量，只要数据格式有效就接受
-  assert.deepStrictEqual(validateFinishConditions({ qualityScore: 7, remainingIssues: 3 }), { accepted: true });
-  assert.deepStrictEqual(validateFinishConditions({ qualityScore: 6, remainingIssues: 0 }), { accepted: true });
-  assert.deepStrictEqual(validateFinishConditions({ qualityScore: 9, remainingIssues: 4 }), { accepted: true });
+  expect(validateFinishConditions({ qualityScore: 7).toEqual(remainingIssues: 3 }), { accepted: true });
+  expect(validateFinishConditions({ qualityScore: 6).toEqual(remainingIssues: 0 }), { accepted: true });
+  expect(validateFinishConditions({ qualityScore: 9).toEqual(remainingIssues: 4 }), { accepted: true });
   // 无效数据仍然拒绝
-  assert.match(validateFinishConditions({ qualityScore: "x", remainingIssues: 0 }).reason, /Invalid finish data/);
+  expect(validateFinishConditions({ qualityScore: "x").toMatch(remainingIssues: 0 }).reason, /Invalid finish data/);
 });
 
-test("ReactRefiner: getAvailableTools differs between generation and edit", async () => {
+it("ReactRefiner: getAvailableTools differs between generation and edit", async () => {
   const { __test } = await loadRefiner();
   const { getAvailableTools } = __test;
 
   const gen = getAvailableTools("generation");
   const edit = getAvailableTools("edit");
 
-  assert.ok(Array.isArray(gen) && gen.length > 0);
-  assert.ok(Array.isArray(edit) && edit.length > gen.length);
-  assert.ok(gen.includes("editSlide"));
-  assert.ok(!gen.includes("addSlide"));
-  assert.ok(edit.includes("addSlide"));
-  assert.ok(edit.includes("diff"));
+  expect(Array.isArray(gen ) && gen.length > 0).toBeTruthy();
+  expect(Array.isArray(edit ) && edit.length > gen.length).toBeTruthy();
+  expect(gen.includes("editSlide")).toBeTruthy();
+  expect(!gen.includes("addSlide")).toBeTruthy();
+  expect(edit.includes("addSlide")).toBeTruthy();
+  expect(edit.includes("diff")).toBeTruthy();
 });
 
-test("ReactRefiner: runReactRefiner basic flow with mocked model and toolExecutor", async () => {
+it("ReactRefiner: runReactRefiner basic flow with mocked model and toolExecutor", async () => {
   const { runReactRefiner } = await loadRefiner();
 
   const initialDeck = {
@@ -122,17 +122,17 @@ test("ReactRefiner: runReactRefiner basic flow with mocked model and toolExecuto
   const onSteps = [];
   const res = await runReactRefiner(initialDeck, { contentPackage: { slideIntents: [{ slideIntentId: "s1" }] }, stageApi }, { toolExecutor, mode: "generation", hardLimit: 6, onStep: (s) => onSteps.push(s) });
 
-  assert.equal(res.terminationReason, "quality_met");
-  assert.equal(res.qualityScore, 8);
-  assert.equal(res.toolCalls.length, 1);
-  assert.equal(res.toolCalls[0].tool, "editSlide");
-  assert.ok(res.finalDeck.deckHtmlDsl.includes('data-title="Updated"'));
+  expect(res.terminationReason).toBe("quality_met");
+  expect(res.qualityScore).toBe(8);
+  expect(res.toolCalls.length).toBe(1);
+  expect(res.toolCalls[0].tool).toBe("editSlide");
+  expect(res.finalDeck.deckHtmlDsl.includes('data-title="Updated"')).toBeTruthy();
 
   // 4 responses: NOT_JSON, addSlide (fail), editSlide (success), finish
-  assert.equal(chatCalls.length, 4);
-  assert.ok(chatCalls[1].messages.some((m) => String(m.content || "").includes("只返回严格 JSON")));
+  expect(chatCalls.length).toBe(4);
+  expect(chatCalls[1].messages.some(m => String(m.content || "").includes("只返回严格 JSON")));
 
-  assert.equal(onSteps.length, 3);
-  assert.ok(events.some((e) => e.name === "design.refine.finish_accepted"));
+  expect(onSteps.length).toBe(3);
+  expect(events.some(e => e.name === "design.refine.finish_accepted")).toBeTruthy();
 });
 

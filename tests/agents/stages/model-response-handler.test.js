@@ -1,5 +1,5 @@
-import { describe, it, mock } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import { ModelResponseHandler } from "../../../js/agents/stages/deepsearch/runtime/model-response-handler.js";
 
@@ -30,10 +30,10 @@ describe("ModelResponseHandler", () => {
       { stageApi: {}, addMessage: (m) => messages.push(m), budget: null }
     );
 
-    assert.equal(result.status, "success");
-    assert.deepEqual(result.decision, { thought: "test", action: "search" });
-    assert.equal(messages.length, 1);
-    assert.equal(messages[0].role, "assistant");
+    expect(result.status).toBe("success");
+    expect(result.decision).toEqual({ thought: "test", action: "search" });
+    expect(messages.length).toBe(1);
+    expect(messages[0].role).toBe("assistant");
   });
 
   it("should retry on empty response", async () => {
@@ -45,10 +45,10 @@ describe("ModelResponseHandler", () => {
       { stageApi: {}, addMessage: (m) => messages.push(m), budget: null }
     );
 
-    assert.equal(result.status, "retry");
-    assert.equal(handler.retryCount, 1);
-    assert.equal(messages.length, 1);
-    assert.ok(messages[0].content.includes("JSON"));
+    expect(result.status).toBe("retry");
+    expect(handler.retryCount).toBe(1);
+    expect(messages.length).toBe(1);
+    expect(messages[0].content.includes("JSON")).toBeTruthy();
   });
 
   it("should retry on parse failure", async () => {
@@ -60,10 +60,10 @@ describe("ModelResponseHandler", () => {
       { stageApi: {}, addMessage: (m) => messages.push(m), budget: null }
     );
 
-    assert.equal(result.status, "retry");
-    assert.equal(handler.retryCount, 1);
+    expect(result.status).toBe("retry");
+    expect(handler.retryCount).toBe(1);
     // assistant message + retry prompt
-    assert.equal(messages.length, 2);
+    expect(messages.length).toBe(2);
   });
 
   it("should stop after max retries (empty response)", async () => {
@@ -73,11 +73,11 @@ describe("ModelResponseHandler", () => {
 
     // First retry
     await handler.handleResponse({ content: "" }, ctx);
-    assert.equal(handler.retryCount, 1);
+    expect(handler.retryCount).toBe(1);
 
     // Second retry - should stop
     const result = await handler.handleResponse({ content: "" }, ctx);
-    assert.equal(result.status, "stop");
+    expect(result.status).toBe("stop");
   });
 
   it("should ask user and continue on user choice", async () => {
@@ -92,8 +92,8 @@ describe("ModelResponseHandler", () => {
       { stageApi, addMessage: (m) => messages.push(m), budget: null }
     );
 
-    assert.equal(result.status, "retry");
-    assert.equal(handler.retryCount, 0); // reset after user choice
+    expect(result.status).toBe("retry");
+    expect(handler.retryCount).toBe(0); // reset after user choice
   });
 
   it("should skip on user choice", async () => {
@@ -107,8 +107,8 @@ describe("ModelResponseHandler", () => {
       { stageApi, addMessage: () => {}, budget: null }
     );
 
-    assert.equal(result.status, "skip");
-    assert.equal(handler.retryCount, 0);
+    expect(result.status).toBe("skip");
+    expect(handler.retryCount).toBe(0);
   });
 
   it("should record budget usage", async () => {
@@ -123,7 +123,7 @@ describe("ModelResponseHandler", () => {
       { stageApi: {}, addMessage: () => {}, budget }
     );
 
-    assert.deepEqual(recorded, { total: 500 });
+    expect(recorded).toEqual({ total: 500 });
   });
 
   it("should emit events", async () => {
@@ -137,13 +137,13 @@ describe("ModelResponseHandler", () => {
       { stageApi: {}, addMessage: () => {}, budget: null }
     );
 
-    assert.ok(events.some((e) => e.name === "deepsearch.model.responded"));
+    expect(events.some(e => e.name === "deepsearch.model.responded")).toBeTruthy();
   });
 
   it("should reset retry count", () => {
     const handler = createHandler();
     handler.retryCount = 5;
     handler.reset();
-    assert.equal(handler.retryCount, 0);
+    expect(handler.retryCount).toBe(0);
   });
 });

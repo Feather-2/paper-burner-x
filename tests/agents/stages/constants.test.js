@@ -1,7 +1,8 @@
-const test = require("node:test");
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 const assert = require("node:assert/strict");
 
-test("DeepSearch constants: AGENT_LOOP_CONFIG exports all fields with correct types", async () => {
+it("DeepSearch constants: AGENT_LOOP_CONFIG exports all fields with correct types", async () => {
   const { AGENT_LOOP_CONFIG } = await import("../../../js/agents/stages/deepsearch/constants.js");
 
   const expectedTypes = {
@@ -15,18 +16,18 @@ test("DeepSearch constants: AGENT_LOOP_CONFIG exports all fields with correct ty
   };
 
   for (const [key, type] of Object.entries(expectedTypes)) {
-    assert.ok(Object.prototype.hasOwnProperty.call(AGENT_LOOP_CONFIG, key));
-    assert.equal(typeof AGENT_LOOP_CONFIG[key], type);
+    expect(Object.prototype.hasOwnProperty.call(AGENT_LOOP_CONFIG, key)).toBeTruthy();
+    expect(typeof AGENT_LOOP_CONFIG[key]).toBe(type);
   }
 });
 
-test("DeepSearch constants: AGENT_LOOP_CONFIG is frozen", async () => {
+it("DeepSearch constants: AGENT_LOOP_CONFIG is frozen", async () => {
   const { AGENT_LOOP_CONFIG } = await import("../../../js/agents/stages/deepsearch/constants.js");
 
-  assert.equal(Object.isFrozen(AGENT_LOOP_CONFIG), true);
+  expect(Object.isFrozen(AGENT_LOOP_CONFIG)).toBe(true);
 });
 
-test("DeepSearch constants: AGENT_LOOP_CONFIG thresholds are in valid ranges", async () => {
+it("DeepSearch constants: AGENT_LOOP_CONFIG thresholds are in valid ranges", async () => {
   const { AGENT_LOOP_CONFIG } = await import("../../../js/agents/stages/deepsearch/constants.js");
 
   const ratios = [
@@ -42,12 +43,12 @@ test("DeepSearch constants: AGENT_LOOP_CONFIG thresholds are in valid ranges", a
   ];
 
   for (const ratio of ratios) {
-    assert.ok(Number.isFinite(ratio));
-    assert.ok(ratio > 0 && ratio < 1);
+    expect(Number.isFinite(ratio)).toBeTruthy();
+    expect(ratio > 0 && ratio < 1).toBeTruthy();
   }
 
   for (const count of counts) {
-    assert.ok(Number.isFinite(count));
-    assert.ok(count > 0);
+    expect(Number.isFinite(count)).toBeTruthy();
+    expect(count > 0).toBeTruthy();
   }
 });

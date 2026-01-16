@@ -3,10 +3,9 @@
  * @description CodeSearch Stage 测试 - 使用 node:test
  */
 
-import { describe, it, beforeEach, mock } from "node:test";
-import assert from "node:assert/strict";
-
 // Source imports
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
 import { CodeSearchStage } from "../../../js/agents/stages/codesearch/codesearch-stage.js";
 import { CodeSearchState } from "../../../js/agents/stages/codesearch/state.js";
 import {
@@ -35,11 +34,11 @@ import { createToolExecutor } from "../../../js/agents/stages/codesearch/code-to
 function createMockEventBus() {
   const listeners = new Map();
   return {
-    emit: mock.fn((event, data) => {
+    emit: vi.fn((event, data) => {
       const handlers = listeners.get(event) || [];
       handlers.forEach((h) => h(data));
     }),
-    on: mock.fn((event, handler) => {
+    on: vi.fn((event, handler) => {
       if (!listeners.has(event)) listeners.set(event, []);
       listeners.get(event).push(handler);
       return () => {
@@ -48,7 +47,7 @@ function createMockEventBus() {
         if (idx >= 0) arr.splice(idx, 1);
       };
     }),
-    off: mock.fn(),
+    off: vi.fn(),
   };
 }
 
@@ -56,17 +55,17 @@ function createMockVfs() {
   const files = new Map();
   return {
     files,
-    readText: mock.fn(async (path) => {
+    readText: vi.fn(async (path) => {
       if (files.has(path)) return files.get(path);
       throw new Error(`ENOENT: ${path}`);
     }),
-    writeText: mock.fn(async (path, content) => {
+    writeText: vi.fn(async (path, content) => {
       files.set(path, content);
     }),
-    exists: mock.fn(async (path) => files.has(path)),
-    mkdir: mock.fn(async () => {}),
-    readdir: mock.fn(async () => []),
-    stat: mock.fn(async (path) => ({
+    exists: vi.fn(async (path) => files.has(path)),
+    mkdir: vi.fn(async () => {}),
+    readdir: vi.fn(async () => []),
+    stat: vi.fn(async (path) => ({
       isFile: () => files.has(path),
       isDirectory: () => false,
       size: files.get(path)?.length || 0,
@@ -78,12 +77,12 @@ function createMockFs() {
   const files = new Map();
   return {
     files,
-    readFile: mock.fn(async (path) => {
+    readFile: vi.fn(async (path) => {
       if (files.has(path)) return files.get(path);
       throw new Error(`ENOENT: ${path}`);
     }),
-    readdir: mock.fn(async () => []),
-    stat: mock.fn(async (path) => ({
+    readdir: vi.fn(async () => []),
+    stat: vi.fn(async (path) => ({
       isFile: () => files.has(path),
       isDirectory: () => false,
     })),
@@ -93,7 +92,7 @@ function createMockFs() {
 function createMockModelRouter(responses = []) {
   let callIndex = 0;
   return {
-    call: mock.fn(async () => {
+    call: vi.fn(async () => {
       if (callIndex < responses.length) {
         return responses[callIndex++];
       }
@@ -105,10 +104,10 @@ function createMockModelRouter(responses = []) {
 
 function createMockBudgetManager() {
   return {
-    remaining: mock.fn(() => 10000),
-    consume: mock.fn(() => {}),
-    isExhausted: mock.fn(() => false),
-    getUsage: mock.fn(() => ({ tokens: 100, cost: 0.01 })),
+    remaining: vi.fn(() => 10000),
+    consume: vi.fn(() => {}),
+    isExhausted: vi.fn(() => false),
+    getUsage: vi.fn(() => ({ tokens: 100, cost: 0.01 })),
   };
 }
 
@@ -125,19 +124,19 @@ describe("CodeSearchState", () => {
 
   describe("constructor and basic properties", () => {
     it("should initialize with default values", () => {
-      assert.equal(state.phase, CodeSearchPhase.PLANNING);
-      assert.equal(state.query, "");
-      assert.equal(state.taskGoal, "");
-      assert.deepEqual(state.todos, []);
-      assert.deepEqual(state.observations, []);
-      assert.deepEqual(state.steps, []);
+      expect(state.phase).toBe(CodeSearchPhase.PLANNING);
+      expect(state.query).toBe("");
+      expect(state.taskGoal).toBe("");
+      expect(state.todos).toEqual([]);
+      expect(state.observations).toEqual([]);
+      expect(state.steps).toEqual([]);
     });
 
     it("should set query and taskGoal", () => {
       state.query = "find authentication";
       state.taskGoal = "Locate auth middleware";
-      assert.equal(state.query, "find authentication");
-      assert.equal(state.taskGoal, "Locate auth middleware");
+      expect(state.query).toBe("find authentication");
+      expect(state.taskGoal).toBe("Locate auth middleware");
     });
   });
 
@@ -148,18 +147,18 @@ describe("CodeSearchState", () => {
         text: "Search for auth",
         status: TodoStatus.OPEN,
       });
-      assert.ok(todo);
-      assert.equal(todo.todoId, "todo-1");
-      assert.equal(todo.text, "Search for auth");
-      assert.equal(todo.status, TodoStatus.OPEN);
-      assert.equal(state.todos.length, 1);
+      expect(todo).toBeTruthy();
+      expect(todo.todoId).toBe("todo-1");
+      expect(todo.text).toBe("Search for auth");
+      expect(todo.status).toBe(TodoStatus.OPEN);
+      expect(state.todos.length).toBe(1);
     });
 
     it("should update todo status", () => {
       state.addTodo({ todoId: "t1", text: "Task 1", status: TodoStatus.OPEN });
       state.updateTodo("t1", { status: TodoStatus.COMPLETED });
       const updated = state.todos.find((t) => t.todoId === "t1");
-      assert.equal(updated.status, TodoStatus.COMPLETED);
+      expect(updated.status).toBe(TodoStatus.COMPLETED);
     });
 
     it("should update todo with result", () => {
@@ -169,12 +168,12 @@ describe("CodeSearchState", () => {
         result: "Found 5 files",
       });
       const updated = state.todos.find((t) => t.todoId === "t2");
-      assert.equal(updated.result, "Found 5 files");
+      expect(updated.result).toBe("Found 5 files");
     });
 
     it("should return null for non-object todo", () => {
       const result = state.addTodo("not an object");
-      assert.equal(result, null);
+      expect(result).toBe(null);
     });
 
     it("should track status history", () => {
@@ -182,21 +181,21 @@ describe("CodeSearchState", () => {
       state.updateTodo("t3", { status: TodoStatus.PENDING });
       state.updateTodo("t3", { status: TodoStatus.COMPLETED });
       const todo = state.todos.find((t) => t.todoId === "t3");
-      assert.equal(todo.history.length, 2);
-      assert.equal(todo.history[0].from, TodoStatus.OPEN);
-      assert.equal(todo.history[0].to, TodoStatus.PENDING);
+      expect(todo.history.length).toBe(2);
+      expect(todo.history[0].from).toBe(TodoStatus.OPEN);
+      expect(todo.history[0].to).toBe(TodoStatus.PENDING);
     });
   });
 
   describe("phase transitions", () => {
     it("should transition through phases", () => {
-      assert.equal(state.phase, CodeSearchPhase.PLANNING);
+      expect(state.phase).toBe(CodeSearchPhase.PLANNING);
       state.phase = CodeSearchPhase.EXECUTING;
-      assert.equal(state.phase, CodeSearchPhase.EXECUTING);
+      expect(state.phase).toBe(CodeSearchPhase.EXECUTING);
       state.phase = CodeSearchPhase.SUMMARIZING;
-      assert.equal(state.phase, CodeSearchPhase.SUMMARIZING);
+      expect(state.phase).toBe(CodeSearchPhase.SUMMARIZING);
       state.phase = CodeSearchPhase.COMPLETED;
-      assert.equal(state.phase, CodeSearchPhase.COMPLETED);
+      expect(state.phase).toBe(CodeSearchPhase.COMPLETED);
     });
   });
 
@@ -204,16 +203,16 @@ describe("CodeSearchState", () => {
     it("should add observations", () => {
       state.addObservation("Found auth.js");
       state.addObservation("Contains middleware");
-      assert.equal(state.observations.length, 2);
-      assert.equal(state.observations[0], "Found auth.js");
+      expect(state.observations.length).toBe(2);
+      expect(state.observations[0]).toBe("Found auth.js");
     });
   });
 
   describe("steps", () => {
     it("should add steps", () => {
       state.addStep({ action: "grep", result: "3 matches" });
-      assert.equal(state.steps.length, 1);
-      assert.equal(state.steps[0].action, "grep");
+      expect(state.steps.length).toBe(1);
+      expect(state.steps[0].action).toBe("grep");
     });
   });
 
@@ -223,15 +222,15 @@ describe("CodeSearchState", () => {
       state.addTodo({ title: "T1" });
       state.addObservation("Obs1");
       const snapshot = state.buildStateSnapshot();
-      assert.ok(snapshot.includes("auth") || state.query === "auth");
+      expect(snapshot.includes("auth") || state.query === "auth").toBeTruthy();
     });
 
     it("should serialize to JSON", () => {
       state.query = "test";
       state.taskGoal = "goal";
       const json = state.toJSON();
-      assert.equal(json.query, "test");
-      assert.equal(json.taskGoal, "goal");
+      expect(json.query).toBe("test");
+      expect(json.taskGoal).toBe("goal");
     });
 
     it("should restore from snapshot", () => {
@@ -244,9 +243,9 @@ describe("CodeSearchState", () => {
         steps: [],
       };
       const restored = CodeSearchState.fromSnapshot(data);
-      assert.equal(restored.query, "restored");
-      assert.equal(restored.phase, CodeSearchPhase.EXECUTING);
-      assert.equal(restored.todos.length, 1);
+      expect(restored.query).toBe("restored");
+      expect(restored.phase).toBe(CodeSearchPhase.EXECUTING);
+      expect(restored.todos.length).toBe(1);
     });
   });
 });
@@ -257,27 +256,27 @@ describe("CodeSearchState", () => {
 
 describe("CodeSearchPhase enum", () => {
   it("should have all required phases", () => {
-    assert.equal(CodeSearchPhase.PLANNING, "planning");
-    assert.equal(CodeSearchPhase.EXECUTING, "executing");
-    assert.equal(CodeSearchPhase.SUMMARIZING, "summarizing");
-    assert.equal(CodeSearchPhase.COMPLETED, "completed");
+    expect(CodeSearchPhase.PLANNING).toBe("planning");
+    expect(CodeSearchPhase.EXECUTING).toBe("executing");
+    expect(CodeSearchPhase.SUMMARIZING).toBe("summarizing");
+    expect(CodeSearchPhase.COMPLETED).toBe("completed");
   });
 
   it("should be frozen", () => {
-    assert.ok(Object.isFrozen(CodeSearchPhase));
+    expect(Object.isFrozen(CodeSearchPhase)).toBeTruthy();
   });
 });
 
 describe("TodoStatus enum", () => {
   it("should have all required statuses", () => {
-    assert.equal(TodoStatus.OPEN, "open");
-    assert.equal(TodoStatus.PENDING, "pending");
-    assert.equal(TodoStatus.COMPLETED, "completed");
-    assert.equal(TodoStatus.CANCELLED, "cancelled");
+    expect(TodoStatus.OPEN).toBe("open");
+    expect(TodoStatus.PENDING).toBe("pending");
+    expect(TodoStatus.COMPLETED).toBe("completed");
+    expect(TodoStatus.CANCELLED).toBe("cancelled");
   });
 
   it("should be frozen", () => {
-    assert.ok(Object.isFrozen(TodoStatus));
+    expect(Object.isFrozen(TodoStatus)).toBeTruthy();
   });
 });
 
@@ -288,19 +287,19 @@ describe("TodoStatus enum", () => {
 describe("Planning Phase", () => {
   describe("isTodoOpen", () => {
     it("should return true for open status", () => {
-      assert.ok(isTodoOpen({ status: TodoStatus.OPEN }));
+      expect(isTodoOpen({ status: TodoStatus.OPEN })).toBeTruthy();
     });
 
     it("should return true for pending status", () => {
-      assert.ok(isTodoOpen({ status: TodoStatus.PENDING }));
+      expect(isTodoOpen({ status: TodoStatus.PENDING })).toBeTruthy();
     });
 
     it("should return false for completed status", () => {
-      assert.ok(!isTodoOpen({ status: TodoStatus.COMPLETED }));
+      expect(!isTodoOpen({ status: TodoStatus.COMPLETED }).toBeTruthy());
     });
 
     it("should return false for cancelled status", () => {
-      assert.ok(!isTodoOpen({ status: TodoStatus.CANCELLED }));
+      expect(!isTodoOpen({ status: TodoStatus.CANCELLED }).toBeTruthy());
     });
   });
 
@@ -312,27 +311,27 @@ describe("Planning Phase", () => {
         { id: "3", title: "Done", status: TodoStatus.COMPLETED },
       ];
       const formatted = formatOpenTodos(todos);
-      assert.ok(formatted.includes("First"));
-      assert.ok(formatted.includes("Second"));
-      assert.ok(!formatted.includes("Done"));
+      expect(formatted.includes("First")).toBeTruthy();
+      expect(formatted.includes("Second")).toBeTruthy();
+      expect(!formatted.includes("Done")).toBeTruthy();
     });
 
     it("should return empty indicator for no open todos", () => {
       const todos = [{ id: "1", title: "Done", status: TodoStatus.COMPLETED }];
       const formatted = formatOpenTodos(todos);
-      assert.ok(
+      expect(
         formatted.includes("none") ||
-          formatted.includes("None") ||
-          formatted === ""
-      );
+        formatted.includes("None") ||
+        formatted === ""
+      ).toBeTruthy();
     });
   });
 
   describe("buildSystemPrompt", () => {
     it("should build a system prompt string", () => {
       const prompt = buildSystemPrompt();
-      assert.equal(typeof prompt, "string");
-      assert.ok(prompt.length > 0);
+      expect(typeof prompt).toBe("string");
+      expect(prompt.length > 0).toBeTruthy();
     });
   });
 
@@ -359,7 +358,7 @@ describe("Planning Phase", () => {
         signal: null,
       });
 
-      assert.ok(result.success || result.todos);
+      expect(result.success || result.todos).toBeTruthy();
     });
 
     it("should handle model errors gracefully", async () => {
@@ -376,7 +375,7 @@ describe("Planning Phase", () => {
         signal: null,
       });
 
-      assert.ok(result.error || !result.success);
+      expect(result.error || !result.success).toBeTruthy();
     });
   });
 });
@@ -401,9 +400,9 @@ describe("Execution Phase", () => {
       };
 
       const mockTools = {
-        glob: mock.fn(async () => ["file1.js", "file2.js"]),
-        grep: mock.fn(async () => []),
-        read_file: mock.fn(async () => "content"),
+        glob: vi.fn(async () => ["file1.js", "file2.js"]),
+        grep: vi.fn(async () => []),
+        read_file: vi.fn(async () => "content"),
       };
 
       const result = await runExecutionStep({
@@ -418,7 +417,7 @@ describe("Execution Phase", () => {
         signal: null,
       });
 
-      assert.ok(result !== undefined);
+      expect(result !== undefined).toBeTruthy();
     });
 
     it("should handle tool calls", async () => {
@@ -446,7 +445,7 @@ describe("Execution Phase", () => {
       };
 
       const mockTools = {
-        glob: mock.fn(async () => ["a.js", "b.js"]),
+        glob: vi.fn(async () => ["a.js", "b.js"]),
       };
 
       const result = await runExecutionStep({
@@ -461,7 +460,7 @@ describe("Execution Phase", () => {
         signal: null,
       });
 
-      assert.ok(result !== undefined);
+      expect(result !== undefined).toBeTruthy();
     });
   });
 });
@@ -480,16 +479,16 @@ describe("Summarizing Phase", () => {
         { status: TodoStatus.OPEN },
       ];
       const stats = buildTodoCompletionStats(todos);
-      assert.equal(stats.total, 4);
-      assert.equal(stats.completed, 2);
-      assert.equal(stats.cancelled, 1);
-      assert.equal(stats.open, 1);
+      expect(stats.total).toBe(4);
+      expect(stats.completed).toBe(2);
+      expect(stats.cancelled).toBe(1);
+      expect(stats.open).toBe(1);
     });
 
     it("should handle empty todos", () => {
       const stats = buildTodoCompletionStats([]);
-      assert.equal(stats.total, 0);
-      assert.equal(stats.completed, 0);
+      expect(stats.total).toBe(0);
+      expect(stats.completed).toBe(0);
     });
   });
 
@@ -516,7 +515,7 @@ describe("Summarizing Phase", () => {
         signal: null,
       });
 
-      assert.ok(result.summary || result.todoStats);
+      expect(result.summary || result.todoStats).toBeTruthy();
     });
   });
 });
@@ -542,13 +541,13 @@ describe("SymbolIndexer", () => {
         const validate = (input) => input.length > 0;
       `;
       const symbols = indexer.extractSymbols(code, "auth.js");
-      assert.ok(Array.isArray(symbols));
+      expect(Array.isArray(symbols)).toBeTruthy();
       // Regex fallback should find function
       const funcSymbol = symbols.find(
         (s) => s.name === "authenticate" || s.type === "function"
       );
       if (funcSymbol) {
-        assert.equal(funcSymbol.type, "function");
+        expect(funcSymbol.type).toBe("function");
       }
     });
 
@@ -560,26 +559,25 @@ describe("SymbolIndexer", () => {
         }
       `;
       const symbols = indexer.extractSymbols(code, "user-service.js");
-      assert.ok(Array.isArray(symbols));
+      expect(Array.isArray(symbols)).toBeTruthy();
       const classSymbol = symbols.find((s) => s.name === "UserService");
       if (classSymbol) {
-        assert.equal(classSymbol.type, "class");
+        expect(classSymbol.type).toBe("class");
       }
     });
 
     it("should handle empty code", () => {
       const symbols = indexer.extractSymbols("", "empty.js");
-      assert.ok(Array.isArray(symbols));
-      assert.equal(symbols.length, 0);
+      expect(Array.isArray(symbols)).toBeTruthy();
+      expect(symbols.length).toBe(0);
     });
 
     it("should include file path in symbols", () => {
       const code = "function test() {}";
       const symbols = indexer.extractSymbols(code, "path/to/file.js");
       if (symbols.length > 0) {
-        assert.ok(
-          symbols[0].file === "path/to/file.js" || symbols[0].path !== undefined
-        );
+        expect(symbols[0].file === "path/to/file.js" || symbols[0].path !== undefined
+        ).toBeTruthy();
       }
     });
   });
@@ -591,7 +589,7 @@ describe("SymbolIndexer", () => {
       indexer.extractSymbols("class AuthService {}", "auth-service.js");
 
       const results = await indexer.query({ query: "auth" });
-      assert.ok(Array.isArray(results));
+      expect(Array.isArray(results)).toBeTruthy();
     });
 
     it("should filter by path prefix", async () => {
@@ -602,7 +600,7 @@ describe("SymbolIndexer", () => {
         query: "function",
         pathPrefix: "src",
       });
-      assert.ok(Array.isArray(results));
+      expect(Array.isArray(results)).toBeTruthy();
     });
 
     it("should respect limit", async () => {
@@ -611,7 +609,7 @@ describe("SymbolIndexer", () => {
       indexer.extractSymbols("function c() {}", "c.js");
 
       const results = await indexer.query({ query: "function", limit: 2 });
-      assert.ok(results.length <= 2);
+      expect(results.length <= 2).toBeTruthy();
     });
   });
 });
@@ -638,14 +636,14 @@ describe("CodeSearchIndexStore", () => {
       await store.putSymbolRecord("auth.js", record);
       const retrieved = await store.getSymbolRecord("auth.js");
 
-      assert.ok(retrieved);
-      assert.equal(retrieved.path, "auth.js");
-      assert.equal(retrieved.symbols.length, 1);
+      expect(retrieved).toBeTruthy();
+      expect(retrieved.path).toBe("auth.js");
+      expect(retrieved.symbols.length).toBe(1);
     });
 
     it("should return null for non-existent record", async () => {
       const result = await store.getSymbolRecord("nonexistent.js");
-      assert.equal(result, null);
+      expect(result).toBe(null);
     });
 
     it("should overwrite existing record", async () => {
@@ -653,7 +651,7 @@ describe("CodeSearchIndexStore", () => {
       await store.putSymbolRecord("file.js", { symbols: [{ name: "b" }] });
 
       const retrieved = await store.getSymbolRecord("file.js");
-      assert.equal(retrieved.symbols[0].name, "b");
+      expect(retrieved.symbols[0].name).toBe("b");
     });
   });
 
@@ -663,13 +661,13 @@ describe("CodeSearchIndexStore", () => {
       await store.putSymbolRecord("b.js", { symbols: [] });
 
       const records = await store.listSymbolRecords();
-      assert.ok(Array.isArray(records));
-      assert.ok(records.length >= 2);
+      expect(Array.isArray(records)).toBeTruthy();
+      expect(records.length >= 2).toBeTruthy();
     });
 
     it("should return empty array when no records", async () => {
       const records = await store.listSymbolRecords();
-      assert.ok(Array.isArray(records));
+      expect(Array.isArray(records)).toBeTruthy();
     });
   });
 });
@@ -706,30 +704,30 @@ describe("createToolExecutor", () => {
   describe("glob tool", () => {
     it("should return matching files", async () => {
       const result = await tools.glob({ pattern: "**/*.js" });
-      assert.ok(Array.isArray(result));
+      expect(Array.isArray(result)).toBeTruthy();
     });
   });
 
   describe("read_file tool", () => {
     it("should read file content", async () => {
       const result = await tools.read_file({ path: "/project/src/auth.js" });
-      assert.ok(result.includes("function") || typeof result === "string");
+      expect(result.includes("function") || typeof result === "string").toBeTruthy();
     });
 
     it("should handle file not found", async () => {
       try {
         await tools.read_file({ path: "/project/nonexistent.js" });
       } catch (e) {
-        assert.ok(e.message.includes("ENOENT") || e.message.includes("not"));
+        expect(e.message.includes("ENOENT") || e.message.includes("not")).toBeTruthy();
       }
     });
   });
 
   describe("list_dir tool", () => {
     it("should list directory contents", async () => {
-      mockFs.readdir = mock.fn(async () => ["auth.js", "user.js"]);
+      mockFs.readdir = vi.fn(async () => ["auth.js", "user.js"]);
       const result = await tools.list_dir({ path: "/project/src" });
-      assert.ok(Array.isArray(result) || typeof result === "string");
+      expect(Array.isArray(result) || typeof result === "string").toBeTruthy();
     });
   });
 });
@@ -754,7 +752,7 @@ describe("CodeSearchStage", () => {
   describe("constructor", () => {
     it("should create stage with default options", () => {
       const s = new CodeSearchStage({ eventBus });
-      assert.ok(s);
+      expect(s).toBeTruthy();
     });
 
     it("should accept custom options", () => {
@@ -764,7 +762,7 @@ describe("CodeSearchStage", () => {
         timeoutMs: 60000,
         maxBacktracks: 3,
       });
-      assert.ok(s);
+      expect(s).toBeTruthy();
     });
   });
 
@@ -810,10 +808,10 @@ describe("CodeSearchStage", () => {
 
       try {
         const result = await stage.run(input, context);
-        assert.ok(result);
+        expect(result).toBeTruthy();
       } catch (e) {
         // Stage may throw if internal requirements not met
-        assert.ok(true);
+        expect(true).toBeTruthy();
       }
     });
 
@@ -829,11 +827,9 @@ describe("CodeSearchStage", () => {
 
       try {
         await stage.run({ query: "test" }, context);
-        assert.fail("Should have thrown");
+        throw new Error("Should have thrown");
       } catch (e) {
-        assert.ok(
-          e.name === "AbortError" || e.message.includes("abort") || true
-        );
+        expect(e.name === "AbortError" || e.message.includes("abort") || true).toBeTruthy();
       }
     });
   });
@@ -862,7 +858,7 @@ describe("CodeSearchStage", () => {
       }
 
       // Events may or may not be emitted depending on implementation
-      assert.ok(Array.isArray(events));
+      expect(Array.isArray(events)).toBeTruthy();
     });
   });
 });
@@ -877,7 +873,7 @@ describe("Edge Cases", () => {
       const state = new CodeSearchState();
       // Should not throw
       state.updateTodo("nonexistent", { status: TodoStatus.COMPLETED });
-      assert.equal(state.todos.length, 0);
+      expect(state.todos.length).toBe(0);
     });
 
     it("should handle multiple rapid todo additions", () => {
@@ -885,7 +881,7 @@ describe("Edge Cases", () => {
       for (let i = 0; i < 100; i++) {
         state.addTodo({ title: `Task ${i}` });
       }
-      assert.equal(state.todos.length, 100);
+      expect(state.todos.length).toBe(100);
     });
   });
 
@@ -896,7 +892,7 @@ describe("Edge Cases", () => {
         "function {{{ broken",
         "broken.js"
       );
-      assert.ok(Array.isArray(symbols));
+      expect(Array.isArray(symbols)).toBeTruthy();
     });
 
     it("should handle very long files", () => {
@@ -904,7 +900,7 @@ describe("Edge Cases", () => {
       const longCode =
         "function test() {}\n".repeat(1000) + "function final() {}";
       const symbols = indexer.extractSymbols(longCode, "long.js");
-      assert.ok(Array.isArray(symbols));
+      expect(Array.isArray(symbols)).toBeTruthy();
     });
   });
 
@@ -912,19 +908,19 @@ describe("Edge Cases", () => {
     it("buildTodoCompletionStats should handle undefined todos", () => {
       try {
         const stats = buildTodoCompletionStats(undefined);
-        assert.ok(stats.total === 0 || stats === undefined);
+        expect(stats.total === 0 || stats === undefined).toBeTruthy();
       } catch (e) {
         // Expected behavior for undefined input
-        assert.ok(true);
+        expect(true).toBeTruthy();
       }
     });
 
     it("formatOpenTodos should handle undefined", () => {
       try {
         const formatted = formatOpenTodos(undefined);
-        assert.ok(typeof formatted === "string" || formatted === undefined);
+        expect(typeof formatted === "string" || formatted === undefined).toBeTruthy();
       } catch (e) {
-        assert.ok(true);
+        expect(true).toBeTruthy();
       }
     });
   });
@@ -949,7 +945,7 @@ describe("Performance", () => {
     }
 
     const elapsed = Date.now() - start;
-    assert.ok(elapsed < 5000, `Should complete in <5s, took ${elapsed}ms`);
+    expect(elapsed < 5000, `Should complete in <5s, took ${elapsed}ms`).toBeTruthy();
   });
 
   it("should handle large state efficiently", () => {
@@ -964,7 +960,7 @@ describe("Performance", () => {
     const snapshot = state.buildStateSnapshot();
     const elapsed = Date.now() - start;
 
-    assert.ok(elapsed < 1000, `Should complete in <1s, took ${elapsed}ms`);
-    assert.ok(snapshot.length > 0);
+    expect(elapsed < 1000, `Should complete in <1s, took ${elapsed}ms`).toBeTruthy();
+    expect(snapshot.length > 0).toBeTruthy();
   });
 });

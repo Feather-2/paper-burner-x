@@ -1,5 +1,5 @@
-import { describe, it, beforeEach, mock } from "node:test";
-import assert from "node:assert/strict";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import MessageManager from "../../../../js/agents/runtime/core/message-manager.js";
 
@@ -7,33 +7,33 @@ describe("runtime/core/message-manager", () => {
   describe("constructor", () => {
     it("initializes with default values", () => {
       const m = new MessageManager();
-      assert.deepEqual(m.messages, []);
-      assert.deepEqual(m.tokenUsage, { input: 0, output: 0, total: 0 });
-      assert.ok(m.contextConfig.contextWindow > 0);
+      expect(m.messages).toEqual([]);
+      expect(m.tokenUsage).toEqual({ input: 0, output: 0, total: 0 });
+      expect(m.contextConfig.contextWindow > 0).toBeTruthy();
     });
 
     it("accepts custom contextConfig", () => {
       const m = new MessageManager({
         contextConfig: { contextWindow: 50000 },
       });
-      assert.equal(m.contextConfig.contextWindow, 50000);
+      expect(m.contextConfig.contextWindow).toBe(50000);
     });
 
     it("accepts null tokenCounter", () => {
       const m = new MessageManager({ tokenCounter: null });
-      assert.deepEqual(m.messages, []);
+      expect(m.messages).toEqual([]);
     });
 
     it("sets asyncSummaryEnabled based on option", () => {
       const m1 = new MessageManager({ asyncSummaryEnabled: false });
-      assert.equal(m1._asyncSummaryEnabled, false);
+      expect(m1._asyncSummaryEnabled).toBe(false);
 
       const m2 = new MessageManager({ asyncSummaryEnabled: true });
-      assert.equal(m2._asyncSummaryEnabled, true);
+      expect(m2._asyncSummaryEnabled).toBe(true);
 
       // default is true when not explicitly set to false
       const m3 = new MessageManager({});
-      assert.equal(m3._asyncSummaryEnabled, true);
+      expect(m3._asyncSummaryEnabled).toBe(true);
     });
   });
 
@@ -49,9 +49,9 @@ describe("runtime/core/message-manager", () => {
       const msg = { role: "user", content: "Hello" };
       const returned = manager.addMessage(msg);
 
-      assert.equal(manager.messages.length, 1);
-      assert.equal(manager.messages[0], msg);
-      assert.equal(returned, msg);
+      expect(manager.messages.length).toBe(1);
+      expect(manager.messages[0]).toBe(msg);
+      expect(returned).toBe(msg);
     });
 
     it("updates token usage", () => {
@@ -65,9 +65,9 @@ describe("runtime/core/message-manager", () => {
       manager.addMessage({ role: "user", content: "Hello world" });
 
       const usage = manager.tokenUsage;
-      assert.ok(usage.input > 0);
-      assert.ok(usage.total > 0);
-      assert.equal(usage.input, 11); // "Hello world".length
+      expect(usage.input > 0).toBeTruthy();
+      expect(usage.total > 0).toBeTruthy();
+      expect(usage.input).toBe(11); // "Hello world".length
     });
 
     it("caches token count on message", () => {
@@ -81,9 +81,9 @@ describe("runtime/core/message-manager", () => {
       const msg = { role: "user", content: "Test message" };
       manager.addMessage(msg);
 
-      assert.ok(typeof msg._tokens === "number");
-      assert.ok(msg._tokens > 0);
-      assert.ok(typeof msg._contentHash === "number");
+      expect(typeof msg._tokens === "number").toBeTruthy();
+      expect(msg._tokens > 0).toBeTruthy();
+      expect(typeof msg._contentHash === "number").toBeTruthy();
     });
 
     it("handles null content gracefully", () => {
@@ -97,8 +97,8 @@ describe("runtime/core/message-manager", () => {
       const msg = { role: "user", content: null };
       manager.addMessage(msg);
 
-      assert.equal(manager.messages.length, 1);
-      assert.equal(msg._tokens, 0);
+      expect(manager.messages.length).toBe(1);
+      expect(msg._tokens).toBe(0);
     });
 
     it("handles object content", () => {
@@ -112,7 +112,7 @@ describe("runtime/core/message-manager", () => {
       const msg = { role: "user", content: { key: "value", nested: { a: 1 } } };
       manager.addMessage(msg);
 
-      assert.ok(msg._tokens > 0);
+      expect(msg._tokens > 0).toBeTruthy();
     });
   });
 
@@ -131,7 +131,7 @@ describe("runtime/core/message-manager", () => {
       ];
       manager.addMessages(msgs);
 
-      assert.equal(manager.messages.length, 2);
+      expect(manager.messages.length).toBe(2);
     });
 
     it("updates token usage for all messages", () => {
@@ -148,7 +148,7 @@ describe("runtime/core/message-manager", () => {
       ]);
 
       const usage = manager.tokenUsage;
-      assert.equal(usage.input, 10); // "Hello".length + "World".length
+      expect(usage.input).toBe(10); // "Hello".length + "World".length
     });
 
     it("does nothing when disposed", () => {
@@ -161,7 +161,7 @@ describe("runtime/core/message-manager", () => {
       manager.dispose();
       manager.addMessages([{ role: "user", content: "Test" }]);
 
-      assert.equal(manager.messages.length, 0);
+      expect(manager.messages.length).toBe(0);
     });
   });
 
@@ -178,8 +178,8 @@ describe("runtime/core/message-manager", () => {
       manager.addMessage({ role: "user", content: "hello" });
       manager.addMessages([{ role: "user", content: "world" }]);
 
-      assert.deepEqual(manager.messages, []);
-      assert.deepEqual(manager.tokenUsage, { input: 0, output: 0, total: 0 });
+      expect(manager.messages).toEqual([]);
+      expect(manager.tokenUsage).toEqual({ input: 0, output: 0, total: 0 });
     });
 
     it("is idempotent", () => {
@@ -189,7 +189,7 @@ describe("runtime/core/message-manager", () => {
       manager.dispose();
       manager.dispose();
 
-      assert.equal(manager._disposed, true);
+      expect(manager._disposed).toBe(true);
     });
   });
 
@@ -210,12 +210,12 @@ describe("runtime/core/message-manager", () => {
         afterTokens: 10,
       });
       manager.addMessage({ role: "user", content: "hello" });
-      assert.equal(manager.getStatus().compressionCount, 1);
+      expect(manager.getStatus().compressionCount).toBe(1);
 
       await manager.reset();
-      assert.deepEqual(manager.messages, []);
-      assert.deepEqual(manager.tokenUsage, { input: 0, output: 0, total: 0 });
-      assert.equal(manager.getStatus().compressionCount, 0);
+      expect(manager.messages).toEqual([]);
+      expect(manager.tokenUsage).toEqual({ input: 0, output: 0, total: 0 });
+      expect(manager.getStatus().compressionCount).toBe(0);
     });
 
     it("preserves compression history when requested", async () => {
@@ -228,7 +228,7 @@ describe("runtime/core/message-manager", () => {
       manager._compressionHistory.push({ timestamp: Date.now() });
       await manager.reset({ clearCompressionHistory: false });
 
-      assert.equal(manager.getStatus().compressionCount, 1);
+      expect(manager.getStatus().compressionCount).toBe(1);
     });
 
     it("reset() clears pending summary tracking", async () => {
@@ -243,12 +243,12 @@ describe("runtime/core/message-manager", () => {
       const msg = { role: "assistant", content: "x".repeat(300), _tokens: 300 };
       manager.addMessage(msg);
 
-      assert.ok(manager._pendingSummaryPromises.size > 0);
+      expect(manager._pendingSummaryPromises.size > 0).toBeTruthy();
 
       await manager.reset();
 
-      assert.equal(manager._pendingSummaryPromises.size, 0);
-      assert.equal(manager._summaryAbortController, null);
+      expect(manager._pendingSummaryPromises.size).toBe(0);
+      expect(manager._summaryAbortController).toBe(null);
     });
   });
 
@@ -263,9 +263,9 @@ describe("runtime/core/message-manager", () => {
       // Force fallback path (no coordinator / shouldCompress method).
       manager._compressionCoordinator = null;
       manager._tokenUsage.total = 4;
-      assert.equal(manager._shouldCompress(), false);
+      expect(manager._shouldCompress()).toBe(false);
       manager._tokenUsage.total = 5;
-      assert.equal(manager._shouldCompress(), true);
+      expect(manager._shouldCompress()).toBe(true);
     });
 
     it("returns true when threshold exceeded", () => {
@@ -279,7 +279,7 @@ describe("runtime/core/message-manager", () => {
       manager._compressionCoordinator = null;
       manager.addMessage({ role: "user", content: "x".repeat(60) });
 
-      assert.equal(manager._shouldCompress(), true);
+      expect(manager._shouldCompress()).toBe(true);
     });
 
     it("returns false below threshold", () => {
@@ -293,7 +293,7 @@ describe("runtime/core/message-manager", () => {
       manager._compressionCoordinator = null;
       manager.addMessage({ role: "user", content: "short" });
 
-      assert.equal(manager._shouldCompress(), false);
+      expect(manager._shouldCompress()).toBe(false);
     });
   });
 
@@ -308,7 +308,7 @@ describe("runtime/core/message-manager", () => {
       // Getter returns a copy (defensive).
       const cfg = manager.contextConfig;
       cfg.contextWindow = 999;
-      assert.equal(manager.contextConfig.contextWindow, 10);
+      expect(manager.contextConfig.contextWindow).toBe(10);
     });
 
     it("setContextConfig merges with existing config", () => {
@@ -321,8 +321,8 @@ describe("runtime/core/message-manager", () => {
       const original = manager.contextConfig.compressThreshold;
       manager.setContextConfig({ contextWindow: 200000 });
 
-      assert.equal(manager.contextConfig.contextWindow, 200000);
-      assert.equal(manager.contextConfig.compressThreshold, original);
+      expect(manager.contextConfig.contextWindow).toBe(200000);
+      expect(manager.contextConfig.compressThreshold).toBe(original);
     });
 
     it("setContextConfig(tokenCounter: null) disables custom token counting", () => {
@@ -330,11 +330,11 @@ describe("runtime/core/message-manager", () => {
       const manager = new MessageManager({ tokenCounter });
 
       manager.setContextConfig({ tokenCounter: null });
-      assert.equal(manager._tokenCounter, null);
+      expect(manager._tokenCounter).toBe(null);
 
       // Unrelated updates should not re-enable tokenCounter implicitly.
       manager.setContextConfig({ contextWindow: 42 });
-      assert.equal(manager._tokenCounter, null);
+      expect(manager._tokenCounter).toBe(null);
     });
   });
 
@@ -350,14 +350,14 @@ describe("runtime/core/message-manager", () => {
       manager.addMessage({ role: "user", content: "Hello" });
       const status = manager.getStatus();
 
-      assert.ok("messageCount" in status);
-      assert.ok("tokenUsage" in status);
-      assert.ok("contextWindow" in status);
-      assert.ok("fillRatio" in status);
-      assert.ok("compressThreshold" in status);
-      assert.ok("needsCompression" in status);
-      assert.ok("compressionPending" in status);
-      assert.ok("compressionCount" in status);
+      expect("messageCount" in status).toBeTruthy();
+      expect("tokenUsage" in status).toBeTruthy();
+      expect("contextWindow" in status).toBeTruthy();
+      expect("fillRatio" in status).toBeTruthy();
+      expect("compressThreshold" in status).toBeTruthy();
+      expect("needsCompression" in status).toBeTruthy();
+      expect("compressionPending" in status).toBeTruthy();
+      expect("compressionCount" in status).toBeTruthy();
     });
 
     it("calculates fillRatio correctly", () => {
@@ -371,7 +371,7 @@ describe("runtime/core/message-manager", () => {
       manager.addMessage({ role: "user", content: "x".repeat(100) });
       const status = manager.getStatus();
 
-      assert.equal(status.fillRatio, 0.1); // 100/1000
+      expect(status.fillRatio).toBe(0.1); // 100/1000
     });
   });
 
@@ -392,24 +392,24 @@ describe("runtime/core/message-manager", () => {
       };
       manager._compressionAbortController = controller;
 
-      assert.doesNotThrow(() => manager._abortActiveCompression("why"));
-      assert.equal(callCount, 2);
-      assert.equal(manager._compressionAbortController, null);
+      expect(() => manager._abortActiveCompression("why")).not.toThrow();
+      expect(callCount).toBe(2);
+      expect(manager._compressionAbortController).toBe(null);
     });
 
     it("_isAbortError detects various abort patterns", () => {
       const tokenCounter = { count: (text) => text.length };
       const manager = new MessageManager({ tokenCounter });
 
-      assert.equal(manager._isAbortError({ name: "AbortError" }), true);
-      assert.equal(manager._isAbortError({ name: "CanceledError" }), true);
-      assert.equal(manager._isAbortError({ name: "CancelledError" }), true);
-      assert.equal(manager._isAbortError(new Error("operation was aborted")), true);
-      assert.equal(manager._isAbortError(new Error("request canceled")), true);
-      assert.equal(manager._isAbortError(new Error("was cancelled")), true);
-      assert.equal(manager._isAbortError(new Error("network error")), false);
-      assert.equal(manager._isAbortError(null), false);
-      assert.equal(manager._isAbortError(undefined), false);
+      expect(manager._isAbortError({ name: "AbortError" })).toBe(true);
+      expect(manager._isAbortError({ name: "CanceledError" })).toBe(true);
+      expect(manager._isAbortError({ name: "CancelledError" })).toBe(true);
+      expect(manager._isAbortError(new Error("operation was aborted"))).toBe(true);
+      expect(manager._isAbortError(new Error("request canceled"))).toBe(true);
+      expect(manager._isAbortError(new Error("was cancelled"))).toBe(true);
+      expect(manager._isAbortError(new Error("network error"))).toBe(false);
+      expect(manager._isAbortError(null)).toBe(false);
+      expect(manager._isAbortError(undefined)).toBe(false);
     });
   });
 
@@ -428,8 +428,8 @@ describe("runtime/core/message-manager", () => {
 
       try {
         manager._compressionCooldownTimer = 123;
-        assert.doesNotThrow(() => manager._clearCooldownTimer());
-        assert.equal(manager._compressionCooldownTimer, null);
+        expect(() => manager._clearCooldownTimer()).not.toThrow();
+        expect(manager._compressionCooldownTimer).toBe(null);
       } finally {
         globalThis.clearTimeout = original;
       }
@@ -440,7 +440,7 @@ describe("runtime/core/message-manager", () => {
       const manager = new MessageManager({ tokenCounter });
 
       manager._compressionCooldownTimer = null;
-      assert.doesNotThrow(() => manager._clearCooldownTimer());
+      expect(() => manager._clearCooldownTimer()).not.toThrow();
     });
   });
 
@@ -464,12 +464,12 @@ describe("runtime/core/message-manager", () => {
       manager._scheduleCompression({ force: true });
 
       const pending = manager._compressionPromise;
-      assert.notEqual(pending, null);
+      expect(pending).not.toBe(null);
       await pending;
 
-      assert.equal(warnCalls.length, 1);
-      assert.equal(warnCalls[0][0], "Message compression error");
-      assert.equal(warnCalls[0][1].error, "boom");
+      expect(warnCalls.length).toBe(1);
+      expect(warnCalls[0][0]).toBe("Message compression error");
+      expect(warnCalls[0][1].error).toBe("boom");
 
       manager._compress = originalCompress;
     });
@@ -484,7 +484,7 @@ describe("runtime/core/message-manager", () => {
       manager.dispose();
       manager._scheduleCompression({ force: true });
 
-      assert.equal(manager._compressionPending, false);
+      expect(manager._compressionPending).toBe(false);
     });
 
     it("_scheduleCompression returns early when already pending", () => {
@@ -498,7 +498,7 @@ describe("runtime/core/message-manager", () => {
       manager._scheduleCompression({ force: true });
 
       // Should not create new promise
-      assert.equal(manager._compressionPromise, null);
+      expect(manager._compressionPromise).toBe(null);
     });
 
     it("_scheduleCompression honors compressCooldownMs and defers compression", async () => {
@@ -517,16 +517,16 @@ describe("runtime/core/message-manager", () => {
       manager._lastCompressionAtMs = Date.now();
       manager._scheduleCompression();
 
-      assert.equal(manager._compressionPending, false);
-      assert.ok(manager._compressionCooldownTimer);
+      expect(manager._compressionPending).toBe(false);
+      expect(manager._compressionCooldownTimer).toBeTruthy();
 
       await new Promise((resolve) => setTimeout(resolve, 40));
       if (manager._compressionPromise) {
         await manager._compressionPromise;
       }
 
-      assert.equal(compressCalls, 1);
-      assert.equal(manager._compressionCooldownTimer, null);
+      expect(compressCalls).toBe(1);
+      expect(manager._compressionCooldownTimer).toBe(null);
     });
   });
 
@@ -562,19 +562,19 @@ describe("runtime/core/message-manager", () => {
 
       await manager._compress();
 
-      assert.equal(manager.messages.length, 2);
-      assert.equal(manager.messages[1].content, "summary");
-      assert.ok(manager.tokenUsage.total < beforeTokens);
-      assert.equal(manager._compressionHistory.length, 1);
+      expect(manager.messages.length).toBe(2);
+      expect(manager.messages[1].content).toBe("summary");
+      expect(manager.tokenUsage.total < beforeTokens).toBeTruthy();
+      expect(manager._compressionHistory.length).toBe(1);
       const record = manager._compressionHistory[0];
-      assert.equal(record.beforeCount, beforeCount);
-      assert.equal(record.afterCount, 2);
-      assert.equal(record.beforeTokens, beforeTokens);
-      assert.equal(record.afterTokens, manager.tokenUsage.total);
-      assert.ok(capturedSignal && typeof capturedSignal.aborted === "boolean");
-      assert.equal(manager._compressionAbortController, null);
-      assert.equal(emitCalls.length, 1);
-      assert.equal(emitCalls[0].name, "demo.context.compressed");
+      expect(record.beforeCount).toBe(beforeCount);
+      expect(record.afterCount).toBe(2);
+      expect(record.beforeTokens).toBe(beforeTokens);
+      expect(record.afterTokens).toBe(manager.tokenUsage.total);
+      expect(capturedSignal && typeof capturedSignal.aborted === "boolean").toBeTruthy();
+      expect(manager._compressionAbortController).toBe(null);
+      expect(emitCalls.length).toBe(1);
+      expect(emitCalls[0].name).toBe("demo.context.compressed");
     });
 
     it("_compress() keeps messages when maybeCompress returns null", async () => {
@@ -597,12 +597,12 @@ describe("runtime/core/message-manager", () => {
 
       await manager._compress();
 
-      assert.deepEqual(manager.messages, beforeMessages);
-      assert.equal(manager.tokenUsage.total, beforeTokens);
-      assert.equal(manager._compressionHistory.length, 1);
+      expect(manager.messages).toEqual(beforeMessages);
+      expect(manager.tokenUsage.total).toBe(beforeTokens);
+      expect(manager._compressionHistory.length).toBe(1);
       const record = manager._compressionHistory[0];
-      assert.equal(record.beforeCount, beforeMessages.length);
-      assert.equal(record.afterCount, beforeMessages.length);
+      expect(record.beforeCount).toBe(beforeMessages.length);
+      expect(record.afterCount).toBe(beforeMessages.length);
     });
 
     it("_compress() aborts without recording when compression is canceled", async () => {
@@ -631,11 +631,11 @@ describe("runtime/core/message-manager", () => {
 
       await manager._compress();
 
-      assert.equal(sawAbort, true);
-      assert.deepEqual(manager.messages, beforeMessages);
-      assert.equal(manager.tokenUsage.total, beforeTokens);
-      assert.equal(manager._compressionHistory.length, 0);
-      assert.equal(manager._compressionAbortController, null);
+      expect(sawAbort).toBe(true);
+      expect(manager.messages).toEqual(beforeMessages);
+      expect(manager.tokenUsage.total).toBe(beforeTokens);
+      expect(manager._compressionHistory.length).toBe(0);
+      expect(manager._compressionAbortController).toBe(null);
     });
   });
 
@@ -658,18 +658,18 @@ describe("runtime/core/message-manager", () => {
 
       manager._recordCompression(3, 9);
 
-      assert.equal(manager._compressionHistory.length, 1);
+      expect(manager._compressionHistory.length).toBe(1);
       const record = manager._compressionHistory[0];
-      assert.equal(record.beforeCount, 3);
-      assert.equal(record.afterCount, 2);
-      assert.equal(record.beforeTokens, 9);
-      assert.equal(record.afterTokens, manager.tokenUsage.total);
-      assert.ok(typeof record.timestamp === "number");
-      assert.equal(emitCalls.length, 1);
-      assert.equal(emitCalls[0].name, "demo.context.compressed");
-      assert.equal(emitCalls[0].payload.actor, "tester");
-      assert.equal(emitCalls[0].payload.status, "info");
-      assert.equal(emitCalls[0].payload.payload, record);
+      expect(record.beforeCount).toBe(3);
+      expect(record.afterCount).toBe(2);
+      expect(record.beforeTokens).toBe(9);
+      expect(record.afterTokens).toBe(manager.tokenUsage.total);
+      expect(typeof record.timestamp === "number").toBeTruthy();
+      expect(emitCalls.length).toBe(1);
+      expect(emitCalls[0].name).toBe("demo.context.compressed");
+      expect(emitCalls[0].payload.actor).toBe("tester");
+      expect(emitCalls[0].payload.status).toBe("info");
+      expect(emitCalls[0].payload.payload).toBe(record);
     });
   });
 
@@ -696,9 +696,9 @@ describe("runtime/core/message-manager", () => {
       ]);
 
       await manager.flushCompression({ maxRounds: 2 });
-      assert.equal(manager.messages.length, 1);
-      assert.equal(manager.getStatus().compressionCount, 2);
-      assert.ok(emitCalls.some(e => e.name === "demo.context.compressed"));
+      expect(manager.messages.length).toBe(1);
+      expect(manager.getStatus().compressionCount).toBe(2);
+      expect(emitCalls.some(e => e.name === "demo.context.compressed")).toBeTruthy();
     });
 
     it("flushCompression() logs non-abort errors and suppresses abort-like errors", async () => {
@@ -717,8 +717,8 @@ describe("runtime/core/message-manager", () => {
       };
 
       await manager.flushCompression({ maxRounds: 1 });
-      assert.equal(warnCalls.length, 1);
-      assert.equal(warnCalls[0][1].error, "boom");
+      expect(warnCalls.length).toBe(1);
+      expect(warnCalls[0][1].error).toBe("boom");
 
       warnCalls.length = 0;
       manager._compressionCoordinator.maybeCompress = async () => {
@@ -727,7 +727,7 @@ describe("runtime/core/message-manager", () => {
         throw err;
       };
       await manager.flushCompression({ maxRounds: 1 });
-      assert.equal(warnCalls.length, 0);
+      expect(warnCalls.length).toBe(0);
     });
 
     it("_compress() no-ops when maybeCompress is missing, and flushCompression() tolerates previous failures", async () => {
@@ -745,7 +745,7 @@ describe("runtime/core/message-manager", () => {
       manager._compressionCoordinator.maybeCompress = null;
       manager.addMessages([{ role: "user", content: "hello" }]);
       await manager._compress();
-      assert.equal(manager._compressionAbortController, null);
+      expect(manager._compressionAbortController).toBe(null);
     });
 
     it("flushCompression does nothing when disposed", async () => {
@@ -781,9 +781,9 @@ describe("runtime/core/message-manager", () => {
 
       await manager.flushCompression({ maxRounds: 2 });
 
-      assert.equal(compressCalls, 2);
-      assert.equal(manager.messages.length, 2);
-      assert.equal(manager.getStatus().compressionCount, 2);
+      expect(compressCalls).toBe(2);
+      expect(manager.messages.length).toBe(2);
+      expect(manager.getStatus().compressionCount).toBe(2);
     });
   });
 
@@ -796,12 +796,12 @@ describe("runtime/core/message-manager", () => {
       });
 
       const small = manager.wrapToolOutput("small", { threshold: 1000 });
-      assert.equal(small, "small");
+      expect(small).toBe("small");
 
       const large = manager.wrapToolOutput("x".repeat(50), { threshold: 10, previewSize: 5 });
-      assert.ok(large.includes("<persisted-output>"));
-      assert.ok(large.includes("</persisted-output>"));
-      assert.ok(large.includes("xxxxx"));
+      expect(large.includes("<persisted-output>")).toBeTruthy();
+      expect(large.includes("</persisted-output>")).toBeTruthy();
+      expect(large.includes("xxxxx")).toBeTruthy();
 
       const p1 = "<persisted-output>one</persisted-output>";
       const p2 = "<persisted-output>two</persisted-output>";
@@ -815,15 +815,15 @@ describe("runtime/core/message-manager", () => {
 
       const before = manager.tokenUsage.total;
       manager.cleanOldOutputs(1);
-      assert.equal(manager.messages[0].content, "[Old large output cleared to save context space]");
-      assert.equal(manager.messages[1].content, "[Old large output cleared to save context space]");
-      assert.equal(manager.messages[2].content, p3);
-      assert.equal(manager.messages[3].content, "hi");
+      expect(manager.messages[0].content).toBe("[Old large output cleared to save context space]");
+      expect(manager.messages[1].content).toBe("[Old large output cleared to save context space]");
+      expect(manager.messages[2].content).toBe(p3);
+      expect(manager.messages[3].content).toBe("hi");
 
       const clearedLen = "[Old large output cleared to save context space]".length;
       const expected = clearedLen + clearedLen + p3.length + "hi".length;
-      assert.equal(manager.tokenUsage.total, expected);
-      assert.notEqual(manager.tokenUsage.total, before);
+      expect(manager.tokenUsage.total).toBe(expected);
+      expect(manager.tokenUsage.total).not.toBe(before);
     });
   });
 
@@ -854,14 +854,14 @@ describe("runtime/core/message-manager", () => {
       manager.addMessage(msg);
 
       // 此时摘要尚未完成
-      assert.equal(msg._summary, undefined);
-      assert.equal(manager._pendingSummaryPromises.size, 1);
+      expect(msg._summary).toBe(undefined);
+      expect(manager._pendingSummaryPromises.size).toBe(1);
 
       // 启动压缩（会等待摘要）
       const compressPromise = manager._compress();
 
       // 摘要仍未完成
-      assert.equal(msg._summary, undefined);
+      expect(msg._summary).toBe(undefined);
 
       // 完成摘要生成
       summaryResolve();
@@ -870,7 +870,7 @@ describe("runtime/core/message-manager", () => {
       await compressPromise;
 
       // 摘要应该已生成
-      assert.equal(msg._summary, "Summary of: " + "x".repeat(300));
+      expect(msg._summary).toBe("Summary of: " + "x".repeat(300));
     });
 
     it("dispose() cancels pending summaries via AbortController", async () => {
@@ -897,8 +897,8 @@ describe("runtime/core/message-manager", () => {
       // dispose 应该取消摘要
       manager.dispose();
 
-      assert.equal(manager._summaryAbortController, null);
-      assert.equal(manager._pendingSummaryPromises.size, 0);
+      expect(manager._summaryAbortController).toBe(null);
+      expect(manager._pendingSummaryPromises.size).toBe(0);
     });
 
     it("_abortPendingSummaries() tolerates abort() failures", () => {
@@ -918,10 +918,10 @@ describe("runtime/core/message-manager", () => {
       manager._summaryAbortController = controller;
       manager._pendingSummaryPromises.set("test", Promise.resolve());
 
-      assert.doesNotThrow(() => manager._abortPendingSummaries("test"));
-      assert.equal(callCount, 2);
-      assert.equal(manager._summaryAbortController, null);
-      assert.equal(manager._pendingSummaryPromises.size, 0);
+      expect(() => manager._abortPendingSummaries("test")).not.toThrow();
+      expect(callCount).toBe(2);
+      expect(manager._summaryAbortController).toBe(null);
+      expect(manager._pendingSummaryPromises.size).toBe(0);
     });
 
     it("_generateSummaryAsync respects abort signal", async () => {
@@ -945,8 +945,8 @@ describe("runtime/core/message-manager", () => {
       await manager._generateSummaryAsync(msg, abortController.signal);
 
       // 因为 signal 已经 aborted，不应该调用生成器
-      assert.equal(generatorCalled, false);
-      assert.equal(msg._summary, undefined);
+      expect(generatorCalled).toBe(false);
+      expect(msg._summary).toBe(undefined);
     });
 
     it("_waitForPendingSummaries resolves immediately when no pending summaries", async () => {
@@ -960,7 +960,7 @@ describe("runtime/core/message-manager", () => {
       await manager._waitForPendingSummaries();
       const elapsed = Date.now() - start;
 
-      assert.ok(elapsed < 50);
+      expect(elapsed < 50).toBeTruthy();
     });
 
     it("_waitForPendingSummaries waits for all pending summaries", async () => {
@@ -988,8 +988,8 @@ describe("runtime/core/message-manager", () => {
 
       await manager._waitForPendingSummaries();
 
-      assert.equal(resolved1, true);
-      assert.equal(resolved2, true);
+      expect(resolved1).toBe(true);
+      expect(resolved2).toBe(true);
     });
 
     it("_waitForPendingSummaries tolerates errors in pending summaries", async () => {
@@ -1026,13 +1026,13 @@ describe("runtime/core/message-manager", () => {
       const msg = { role: "assistant", content: "x".repeat(300), _tokens: 300 };
       manager.addMessage(msg);
 
-      assert.equal(manager._pendingSummaryPromises.size, 1);
+      expect(manager._pendingSummaryPromises.size).toBe(1);
 
       summaryResolve();
       // 等待摘要完成
       await new Promise((resolve) => setTimeout(resolve, 10));
 
-      assert.equal(manager._pendingSummaryPromises.size, 0);
+      expect(manager._pendingSummaryPromises.size).toBe(0);
     });
   });
 
@@ -1049,8 +1049,8 @@ describe("runtime/core/message-manager", () => {
       const hash1 = manager._computeContentHash(content);
       const hash2 = manager._computeContentHash(content);
 
-      assert.equal(hash1, hash2);
-      assert.equal(typeof hash1, "number");
+      expect(hash1).toBe(hash2);
+      expect(typeof hash1).toBe("number");
     });
 
     it("_computeContentHash() returns different hash for different content", () => {
@@ -1060,19 +1060,19 @@ describe("runtime/core/message-manager", () => {
       const hash1 = manager._computeContentHash("hello");
       const hash2 = manager._computeContentHash("world");
 
-      assert.notEqual(hash1, hash2);
+      expect(hash1).not.toBe(hash2);
     });
 
     it("_computeContentHash() handles null, undefined, and objects", () => {
       const tokenCounter = { count: (text) => text.length };
       const manager = new MessageManager({ tokenCounter });
 
-      assert.equal(manager._computeContentHash(null), 0);
-      assert.equal(manager._computeContentHash(undefined), 0);
+      expect(manager._computeContentHash(null)).toBe(0);
+      expect(manager._computeContentHash(undefined)).toBe(0);
 
       const objHash = manager._computeContentHash({ key: "value" });
-      assert.equal(typeof objHash, "number");
-      assert.notEqual(objHash, 0);
+      expect(typeof objHash).toBe("number");
+      expect(objHash).not.toBe(0);
     });
 
     it("_cacheTokenCount() stores token count with content hash", () => {
@@ -1082,8 +1082,8 @@ describe("runtime/core/message-manager", () => {
       const msg = { role: "user", content: "hello" };
       manager._cacheTokenCount(msg, 5);
 
-      assert.equal(msg._tokens, 5);
-      assert.equal(msg._contentHash, manager._computeContentHash("hello"));
+      expect(msg._tokens).toBe(5);
+      expect(msg._contentHash).toBe(manager._computeContentHash("hello"));
     });
 
     it("_getCachedTokenCount() returns cached value when content unchanged", () => {
@@ -1094,7 +1094,7 @@ describe("runtime/core/message-manager", () => {
       manager._cacheTokenCount(msg, 5);
 
       const cached = manager._getCachedTokenCount(msg);
-      assert.equal(cached, 5);
+      expect(cached).toBe(5);
     });
 
     it("_getCachedTokenCount() returns undefined when content changed", () => {
@@ -1108,7 +1108,7 @@ describe("runtime/core/message-manager", () => {
       msg.content = "hello world";
 
       const cached = manager._getCachedTokenCount(msg);
-      assert.equal(cached, undefined);
+      expect(cached).toBe(undefined);
     });
 
     it("_getCachedTokenCount() returns undefined when hash is missing", () => {
@@ -1119,7 +1119,7 @@ describe("runtime/core/message-manager", () => {
       // 没有 _contentHash
 
       const cached = manager._getCachedTokenCount(msg);
-      assert.equal(cached, undefined);
+      expect(cached).toBe(undefined);
     });
 
     it("addMessage() caches token count with hash", () => {
@@ -1133,8 +1133,8 @@ describe("runtime/core/message-manager", () => {
       const msg = { role: "user", content: "hello" };
       manager.addMessage(msg);
 
-      assert.equal(msg._tokens, 5);
-      assert.equal(msg._contentHash, manager._computeContentHash("hello"));
+      expect(msg._tokens).toBe(5);
+      expect(msg._contentHash).toBe(manager._computeContentHash("hello"));
     });
 
     it("_recalculateTokenUsage() uses cached tokens when content unchanged", () => {
@@ -1154,8 +1154,8 @@ describe("runtime/core/message-manager", () => {
       // 重算应使用缓存，不再调用 count
       manager._recalculateTokenUsage();
 
-      assert.equal(callCount, callsAfterAdd);
-      assert.equal(manager.tokenUsage.total, 5);
+      expect(callCount).toBe(callsAfterAdd);
+      expect(manager.tokenUsage.total).toBe(5);
     });
 
     it("_recalculateTokenUsage() recounts tokens when content changed", () => {
@@ -1170,7 +1170,7 @@ describe("runtime/core/message-manager", () => {
       const msg = { role: "user", content: "hello" };
       manager.addMessage(msg);
 
-      assert.equal(manager.tokenUsage.total, 5);
+      expect(manager.tokenUsage.total).toBe(5);
 
       const callsAfterAdd = callCount;
 
@@ -1180,10 +1180,10 @@ describe("runtime/core/message-manager", () => {
       // 重算应检测到 hash 不匹配，重新计数
       manager._recalculateTokenUsage();
 
-      assert.ok(callCount > callsAfterAdd);
-      assert.equal(manager.tokenUsage.total, 11); // "hello world".length
-      assert.equal(msg._tokens, 11);
-      assert.equal(msg._contentHash, manager._computeContentHash("hello world"));
+      expect(callCount > callsAfterAdd).toBeTruthy();
+      expect(manager.tokenUsage.total).toBe(11); // "hello world".length
+      expect(msg._tokens).toBe(11);
+      expect(msg._contentHash).toBe(manager._computeContentHash("hello world"));
     });
 
     it("token cache correctly handles object content modification", () => {
@@ -1206,12 +1206,12 @@ describe("runtime/core/message-manager", () => {
 
       // 缓存应失效
       const cached = manager._getCachedTokenCount(msg);
-      assert.equal(cached, undefined);
+      expect(cached).toBe(undefined);
 
       // 重算应更新
       manager._recalculateTokenUsage();
-      assert.notEqual(msg._tokens, originalTokens);
-      assert.notEqual(msg._contentHash, originalHash);
+      expect(msg._tokens).not.toBe(originalTokens);
+      expect(msg._contentHash).not.toBe(originalHash);
     });
   });
 
@@ -1224,16 +1224,16 @@ describe("runtime/core/message-manager", () => {
       const tokenCounter = { count: (text) => text.length };
       const manager = new MessageManager({ tokenCounter });
 
-      assert.equal(manager._isThinkingMessage({ thinking: true }), true);
-      assert.equal(manager._isThinkingMessage({ internal: true }), true);
-      assert.equal(manager._isThinkingMessage({ type: "thinking" }), true);
-      assert.equal(manager._isThinkingMessage({ content: "<think>foo</think>" }), true);
-      assert.equal(manager._isThinkingMessage({ content: "<analysis>bar</analysis>" }), true);
-      assert.equal(manager._isThinkingMessage({ content: "thoughts: something" }), true);
-      assert.equal(manager._isThinkingMessage({ content: "internal: note" }), true);
-      assert.equal(manager._isThinkingMessage({ content: "normal message" }), false);
-      assert.equal(manager._isThinkingMessage(null), false);
-      assert.equal(manager._isThinkingMessage({}), false);
+      expect(manager._isThinkingMessage({ thinking: true })).toBe(true);
+      expect(manager._isThinkingMessage({ internal: true })).toBe(true);
+      expect(manager._isThinkingMessage({ type: "thinking" })).toBe(true);
+      expect(manager._isThinkingMessage({ content: "<think>foo</think>" })).toBe(true);
+      expect(manager._isThinkingMessage({ content: "<analysis>bar</analysis>" })).toBe(true);
+      expect(manager._isThinkingMessage({ content: "thoughts: something" })).toBe(true);
+      expect(manager._isThinkingMessage({ content: "internal: note" })).toBe(true);
+      expect(manager._isThinkingMessage({ content: "normal message" })).toBe(false);
+      expect(manager._isThinkingMessage(null)).toBe(false);
+      expect(manager._isThinkingMessage({})).toBe(false);
     });
 
     it("_shouldGenerateSummary returns false for short messages", () => {
@@ -1241,7 +1241,7 @@ describe("runtime/core/message-manager", () => {
       const manager = new MessageManager({ tokenCounter });
 
       const msg = { role: "assistant", content: "short", _tokens: 10 };
-      assert.equal(manager._shouldGenerateSummary(msg), false);
+      expect(manager._shouldGenerateSummary(msg)).toBe(false);
     });
 
     it("_shouldGenerateSummary returns true for long messages", () => {
@@ -1249,7 +1249,7 @@ describe("runtime/core/message-manager", () => {
       const manager = new MessageManager({ tokenCounter });
 
       const msg = { role: "assistant", content: "x".repeat(500), _tokens: 250 };
-      assert.equal(manager._shouldGenerateSummary(msg), true);
+      expect(manager._shouldGenerateSummary(msg)).toBe(true);
     });
 
     it("_shouldGenerateSummary returns false for messages with existing summary", () => {
@@ -1257,16 +1257,16 @@ describe("runtime/core/message-manager", () => {
       const manager = new MessageManager({ tokenCounter });
 
       const msg = { role: "assistant", content: "x".repeat(500), _tokens: 250, _summary: "existing" };
-      assert.equal(manager._shouldGenerateSummary(msg), false);
+      expect(manager._shouldGenerateSummary(msg)).toBe(false);
     });
 
     it("_shouldGenerateSummary returns false for null/invalid messages", () => {
       const tokenCounter = { count: (text) => text.length };
       const manager = new MessageManager({ tokenCounter });
 
-      assert.equal(manager._shouldGenerateSummary(null), false);
-      assert.equal(manager._shouldGenerateSummary(undefined), false);
-      assert.equal(manager._shouldGenerateSummary("string"), false);
+      expect(manager._shouldGenerateSummary(null)).toBe(false);
+      expect(manager._shouldGenerateSummary(undefined)).toBe(false);
+      expect(manager._shouldGenerateSummary("string")).toBe(false);
     });
 
     it("_shouldGenerateSummary returns false for messages without content", () => {
@@ -1274,7 +1274,7 @@ describe("runtime/core/message-manager", () => {
       const manager = new MessageManager({ tokenCounter });
 
       const msg = { role: "assistant", _tokens: 250 };
-      assert.equal(manager._shouldGenerateSummary(msg), false);
+      expect(manager._shouldGenerateSummary(msg)).toBe(false);
     });
 
     it("_generateBuiltinSummary generates summary for thinking messages with decisions", () => {
@@ -1286,7 +1286,7 @@ describe("runtime/core/message-manager", () => {
         content: "决定使用方案A\n分析完成\n确定采用这个方法",
       };
       const summary = manager._generateBuiltinSummary(msg);
-      assert.ok(summary.includes("[决策]"));
+      expect(summary.includes("[决策]")).toBeTruthy();
     });
 
     it("_generateBuiltinSummary generates summary for thinking messages without decisions", () => {
@@ -1298,7 +1298,7 @@ describe("runtime/core/message-manager", () => {
         content: "This is a thinking message without clear decisions",
       };
       const summary = manager._generateBuiltinSummary(msg);
-      assert.ok(summary.includes("[Thinking]"));
+      expect(summary.includes("[Thinking]")).toBeTruthy();
     });
 
     it("_generateBuiltinSummary generates summary for long content", () => {
@@ -1307,8 +1307,8 @@ describe("runtime/core/message-manager", () => {
 
       const msg = { content: "x".repeat(300) };
       const summary = manager._generateBuiltinSummary(msg);
-      assert.ok(summary.includes("..."));
-      assert.ok(summary.length < 200);
+      expect(summary.includes("...")).toBeTruthy();
+      expect(summary.length < 200).toBeTruthy();
     });
 
     it("_generateBuiltinSummary returns null for short content", () => {
@@ -1317,7 +1317,7 @@ describe("runtime/core/message-manager", () => {
 
       const msg = { content: "short" };
       const summary = manager._generateBuiltinSummary(msg);
-      assert.equal(summary, null);
+      expect(summary).toBe(null);
     });
 
     it("_generateBuiltinSummary returns null for empty content", () => {
@@ -1326,7 +1326,7 @@ describe("runtime/core/message-manager", () => {
 
       const msg = { content: "" };
       const summary = manager._generateBuiltinSummary(msg);
-      assert.equal(summary, null);
+      expect(summary).toBe(null);
     });
 
     it("setSummaryGenerator updates custom generator", () => {
@@ -1335,7 +1335,7 @@ describe("runtime/core/message-manager", () => {
 
       const generator = async (msg) => "custom summary";
       manager.setSummaryGenerator(generator);
-      assert.equal(manager._summaryGenerator, generator);
+      expect(manager._summaryGenerator).toBe(generator);
     });
 
     it("setAsyncSummaryEnabled toggles async summary", () => {
@@ -1343,10 +1343,10 @@ describe("runtime/core/message-manager", () => {
       const manager = new MessageManager({ tokenCounter });
 
       manager.setAsyncSummaryEnabled(true);
-      assert.equal(manager._asyncSummaryEnabled, true);
+      expect(manager._asyncSummaryEnabled).toBe(true);
 
       manager.setAsyncSummaryEnabled(false);
-      assert.equal(manager._asyncSummaryEnabled, false);
+      expect(manager._asyncSummaryEnabled).toBe(false);
     });
 
     it("_generateSummaryAsync swallows summaryGenerator errors", async () => {
@@ -1363,8 +1363,8 @@ describe("runtime/core/message-manager", () => {
       const msg = { role: "assistant", content: "x".repeat(300), _tokens: 300 };
       await manager._generateSummaryAsync(msg);
 
-      assert.equal(msg._summary, undefined);
-      assert.equal(msg._summaryTokens, undefined);
+      expect(msg._summary).toBe(undefined);
+      expect(msg._summaryTokens).toBe(undefined);
     });
 
     it("_scheduleAsyncSummary cleans up after summaryGenerator rejection", async () => {
@@ -1380,12 +1380,12 @@ describe("runtime/core/message-manager", () => {
 
       const msg = { role: "assistant", content: "x".repeat(300), _tokens: 300 };
       manager.addMessage(msg);
-      assert.equal(manager._pendingSummaryPromises.size, 1);
+      expect(manager._pendingSummaryPromises.size).toBe(1);
 
       await new Promise((resolve) => setTimeout(resolve, 10));
 
-      assert.equal(manager._pendingSummaryPromises.size, 0);
-      assert.equal(msg._summary, undefined);
+      expect(manager._pendingSummaryPromises.size).toBe(0);
+      expect(msg._summary).toBe(undefined);
     });
   });
 
@@ -1399,7 +1399,7 @@ describe("runtime/core/message-manager", () => {
       const manager = new MessageManager({ tokenCounter, asyncSummaryEnabled: false });
 
       manager.addMessages([]);
-      assert.equal(manager.messages.length, 0);
+      expect(manager.messages.length).toBe(0);
     });
 
     it("handles message without content property", () => {
@@ -1408,7 +1408,7 @@ describe("runtime/core/message-manager", () => {
 
       const msg = { role: "user" };
       manager.addMessage(msg);
-      assert.equal(manager.messages.length, 1);
+      expect(manager.messages.length).toBe(1);
     });
 
     it("handles message with undefined content", () => {
@@ -1417,8 +1417,8 @@ describe("runtime/core/message-manager", () => {
 
       const msg = { role: "user", content: undefined };
       manager.addMessage(msg);
-      assert.equal(manager.messages.length, 1);
-      assert.equal(msg._tokens, 0);
+      expect(manager.messages.length).toBe(1);
+      expect(msg._tokens).toBe(0);
     });
 
     it("tokenUsage getter returns a copy", () => {
@@ -1429,7 +1429,7 @@ describe("runtime/core/message-manager", () => {
       const usage = manager.tokenUsage;
       usage.total = 9999;
 
-      assert.notEqual(manager.tokenUsage.total, 9999);
+      expect(manager.tokenUsage.total).not.toBe(9999);
     });
   });
 });

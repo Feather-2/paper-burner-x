@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ModelRouter } from "../../../js/agents/llm/model-router.js";
+import { TokenBucketRateLimiter, loadRateLimitConfig, normalizeRateLimitConfig } from "../../../js/agents/llm/rate-limit.js";
 import { ModelTier } from "../../../js/agents/runtime/routing/performance-router.js";
 
 import { createCaptureLogger, createFakeTime, createMockProvider, createMockStorage, withPatchedConsole } from "./vitest-utils.js";
@@ -1302,5 +1303,538 @@ describe("agents/llm/model-router", () => {
     await expect(breaker.execute(async () => Promise.reject(authErr))).rejects.toBe(authErr);
 
     expect(breaker.getStats().failureCount).toBe(0);
+  });
+
+  it("legacy cooldownMs keeps constant cooldown across failures", async () => {
+    const time = createFakeTime(0);
+    const { provider } = createMockProvider({ time, defaultOutcome: new Error("down") });
+
+    const router = new ModelRouter({
+      models: [{ id: "m1", provider: "mock", tags: ["text"], limits: {} }],
+      usageConfig: { worker: ["m1"] },
+      providers: { mock: provider },
+      cooldownMs: 1000,
+      time,
+      strategy: "priority",
+    });
+
+    const unhealthy = [];
+    router.on("model.unhealthy", (e) => unhealthy.push(e));
+
+    for (let i = 0; i < 3; i++) {
+      await expect(router.call({ usage: "worker", messages: [{ role: "user", content: `x-${i}` }] })).rejects.toThrow(
+        /All models failed/
+      );
+      const evt = unhealthy[i];
+      expect(evt.backoffLevel).toBe(i);
+      expect(evt.cooldownMs).toBe(1000);
+      time.advance(1001);
+    }
+  });
+
+  it("markHealthy resets failures on successful call", async () => {
+    const time = createFakeTime(0);
+    const { provider } = createMockProvider({
+      time,
+      behaviors: {
+        m1: [{ throw: new Error("down") }, { content: "ok" }, { throw: new Error("down-again") }],
+      },
+    });
+
+    const router = new ModelRouter({
+      models: [{ id: "m1", provider: "mock", tags: ["text"], limits: {} }],
+      usageConfig: { worker: ["m1"] },
+      providers: { mock: provider },
+      baseCooldownMs: 1000,
+      maxCooldownMs: 5000,
+      backoffMultiplier: 2,
+      time,
+      strategy: "priority",
+    });
+
+    const unhealthy = [];
+    router.on("model.unhealthy", (e) => unhealthy.push(e));
+
+    await expect(router.call({ usage: "worker", messages: [{ role: "user", content: "a" }] })).rejects.toThrow(/All models failed/);
+    expect(unhealthy[0].cooldownMs).toBe(1000);
+    expect(unhealthy[0].backoffLevel).toBe(0);
+    expect(router.getHealth("m1")?.failures).toBe(1);
+
+    time.advance(1001);
+    const out = await router.call({ usage: "worker", messages: [{ role: "user", content: "b" }] });
+    expect(out.model).toBe("m1");
+    expect(out.content).toBe("ok");
+    expect(router.getHealth("m1")?.failures).toBe(0);
+
+    await expect(router.call({ usage: "worker", messages: [{ role: "user", content: "c" }] })).rejects.toThrow(/All models failed/);
+    expect(unhealthy[1].cooldownMs).toBe(1000);
+    expect(unhealthy[1].backoffLevel).toBe(0);
+  });
+
+  it("unhealthy cooldown recovery retries model after time passes", async () => {
+    const time = createFakeTime(0);
+    const { provider } = createMockProvider({
+      time,
+      behaviors: {
+        m1: [{ throw: new Error("down") }, { content: "m1-back" }],
+        m2: [{ content: "m2-ok" }, { content: "m2-ok2" }],
+      },
+    });
+
+    const router = new ModelRouter({
+      models: [
+        { id: "m1", provider: "mock", tags: ["text", "fast"], limits: {} },
+        { id: "m2", provider: "mock", tags: ["text"], limits: {} },
+      ],
+      usageConfig: { worker: ["m1", "m2"] },
+      providers: { mock: provider },
+      cooldownMs: 60_000,
+      time,
+      strategy: "priority",
+    });
+
+    const out1 = await router.call({ usage: "worker", messages: [{ role: "user", content: "x" }] });
+    expect(out1.model).toBe("m2");
+    expect(router.isAvailable("m1")).toBe(false);
+
+    time.advance(60_001);
+    expect(router.isAvailable("m1")).toBe(true);
+
+    const out2 = await router.call({ usage: "worker", messages: [{ role: "user", content: "y" }] });
+    expect(out2.model).toBe("m1");
+    expect(out2.content).toBe("m1-back");
+  });
+
+  it("defaultTime.sleep is callable and toErrorInfo handles non-Error", async () => {
+    const { provider } = createMockProvider({ behaviors: { m1: [{ content: "ok" }] } });
+    const router = new ModelRouter({
+      models: [{ id: "m1", provider: "mock", tags: ["text"], limits: {} }],
+      usageConfig: { worker: ["m1"] },
+      providers: { mock: provider },
+    });
+
+    await router._time.sleep(0);
+    router.markUnhealthy("m1", "not-an-error");
+    expect(router.getHealth("m1")?.lastError?.message).toBeTruthy();
+  });
+
+  it("cooldown object config overrides individual params", async () => {
+    const time = createFakeTime(0);
+    const { provider } = createMockProvider({ time, defaultOutcome: new Error("down") });
+
+    const router = new ModelRouter({
+      models: [{ id: "m1", provider: "mock", tags: ["text"], limits: {} }],
+      usageConfig: { worker: ["m1"] },
+      providers: { mock: provider },
+      cooldown: { baseMs: 5000, maxMs: 20000, multiplier: 3 },
+      time,
+      strategy: "priority",
+    });
+
+    const unhealthy = [];
+    router.on("model.unhealthy", (e) => unhealthy.push(e));
+
+    await expect(router.call({ usage: "worker", messages: [{ role: "user", content: "x" }] })).rejects.toThrow(/All models failed/);
+    expect(unhealthy[0].cooldownMs).toBe(5000);
+
+    time.advance(5001);
+    await expect(router.call({ usage: "worker", messages: [{ role: "user", content: "y" }] })).rejects.toThrow(/All models failed/);
+    expect(unhealthy[1].cooldownMs).toBe(15000);
+  });
+
+  it("custom tierResolver overrides default tier detection", async () => {
+    const { provider } = createMockProvider({
+      behaviors: { m1: [{ content: "ok" }] },
+    });
+
+    const tierCalls = [];
+    const router = new ModelRouter({
+      models: [{ id: "m1", provider: "mock", tags: ["text"], limits: {} }],
+      usageConfig: { worker: ["m1"] },
+      providers: { mock: provider },
+      strategy: "latency_optimized",
+      tierResolver: ({ modelId, usage, images }) => {
+        tierCalls.push({ modelId, usage, hasImages: !!images?.length });
+        return "fast";
+      },
+    });
+
+    await router.call({ usage: "worker", messages: [{ role: "user", content: "hi" }] });
+    expect(tierCalls.length).toBeGreaterThan(0);
+    expect(tierCalls[0].modelId).toBe("m1");
+    expect(tierCalls[0].usage).toBe("worker");
+  });
+
+  it("retry config retries transient failures", async () => {
+    const time = createFakeTime(0);
+    let callCount = 0;
+    const provider = {
+      id: "mock",
+      chat: vi.fn(async () => {
+        callCount++;
+        if (callCount < 3) {
+          const err = new Error("transient");
+          err.status = 503;
+          throw err;
+        }
+        return { content: "ok" };
+      }),
+    };
+
+    const router = new ModelRouter({
+      models: [{ id: "m1", provider: "mock", tags: ["text"], limits: {} }],
+      usageConfig: { worker: ["m1"] },
+      providers: { mock: provider },
+      retry: { maxRetries: 3, baseDelayMs: 10, maxDelayMs: 50 },
+      time,
+      strategy: "priority",
+    });
+
+    const out = await router.call({ usage: "worker", messages: [{ role: "user", content: "hi" }] });
+    expect(out.content).toBe("ok");
+    expect(callCount).toBeGreaterThanOrEqual(3);
+  });
+
+  it("handles complex message content structures", async () => {
+    const { provider } = createMockProvider({
+      behaviors: { m1: [{ content: "ok" }] },
+    });
+
+    const router = new ModelRouter({
+      models: [{ id: "m1", provider: "mock", tags: ["text"], limits: {} }],
+      usageConfig: { worker: ["m1"] },
+      providers: { mock: provider },
+      strategy: "latency_optimized",
+    });
+
+    const out = await router.call({
+      usage: "worker",
+      messages: [
+        { role: "system", content: "You are helpful." },
+        { role: "user", content: [{ type: "text", text: "Hello" }, { type: "text", text: "World" }] },
+        { role: "assistant", content: "" },
+        { role: "user", content: [{ type: "image_url", image_url: { url: "data:image/png;base64,abc" } }] },
+        { role: "user", content: "Final question" },
+      ],
+    });
+    expect(out.content).toBe("ok");
+  });
+
+  it("disableModel permanently disables until reset", async () => {
+    const time = createFakeTime(0);
+    const { provider } = createMockProvider({
+      time,
+      behaviors: { m1: [{ content: "ok" }] },
+    });
+
+    const router = new ModelRouter({
+      models: [{ id: "m1", provider: "mock", tags: ["text"], limits: {} }],
+      usageConfig: { worker: ["m1"] },
+      providers: { mock: provider },
+      time,
+    });
+
+    router.disableModel("m1", new Error("manual disable"), { reason: "test" });
+    const h = router.getHealth("m1");
+    expect(h?.disabled).toBe(true);
+    expect(h?.disabledReason).toBe("test");
+    expect(h?.unhealthyUntilMs).toBe(0);
+    expect(router.isAvailable("m1")).toBe(false);
+
+    time.advance(1_000_000);
+    expect(router.isAvailable("m1")).toBe(false);
+
+    router.resetUnhealthy("m1");
+    expect(router.isAvailable("m1")).toBe(true);
+  });
+
+  it("markHealthy returns null for unknown model", () => {
+    const router = new ModelRouter({ models: [], usageConfig: {}, providers: {} });
+    expect(router.markHealthy("ghost")).toBe(null);
+    expect(router.markHealthy("")).toBe(null);
+  });
+
+  it("cost_optimized strategy works like priority", async () => {
+    const { provider } = createMockProvider({
+      behaviors: {
+        m1: [{ content: "m1-ok" }, { content: "m1-ok2" }],
+        m2: [{ content: "m2-ok" }],
+      },
+    });
+
+    const router = new ModelRouter({
+      models: [
+        { id: "m1", provider: "mock", tags: ["text"], limits: {} },
+        { id: "m2", provider: "mock", tags: ["text"], limits: {} },
+      ],
+      usageConfig: { worker: ["m1", "m2"] },
+      providers: { mock: provider },
+      strategy: "cost_optimized",
+    });
+
+    const out1 = await router.call({ usage: "worker", messages: [{ role: "user", content: "a" }] });
+    const out2 = await router.call({ usage: "worker", messages: [{ role: "user", content: "b" }] });
+    expect(out1.model).toBe("m1");
+    expect(out2.model).toBe("m1");
+  });
+
+  it("images param requires vision tag for worker usage", async () => {
+    const { provider } = createMockProvider({
+      behaviors: {
+        textOnly: [{ content: "text" }],
+        visionModel: [{ content: "vision" }],
+      },
+    });
+
+    const router = new ModelRouter({
+      models: [
+        { id: "textOnly", provider: "mock", tags: ["text"], limits: {} },
+        { id: "visionModel", provider: "mock", tags: ["text", "vision"], limits: {} },
+      ],
+      usageConfig: { worker: ["textOnly", "visionModel"] },
+      providers: { mock: provider },
+    });
+
+    const out = await router.call({
+      usage: "worker",
+      messages: [{ role: "user", content: "describe this" }],
+      images: [{ data: "base64" }],
+    });
+    expect(out.model).toBe("visionModel");
+  });
+
+  it("rejects invalid provider without chat method", () => {
+    expect(
+      () =>
+        new ModelRouter({
+          models: [{ id: "m1", provider: "bad", tags: ["text"], limits: {} }],
+          usageConfig: { worker: ["m1"] },
+          providers: { bad: { id: "bad" } },
+        })
+    ).toThrow(/ModelProvider must implement chat/);
+  });
+
+  it("accepts unknown tags in model configs", () => {
+    const { provider } = createMockProvider({ behaviors: { ok: [{ content: "ok" }] } });
+
+    const router = new ModelRouter({
+      models: [{ id: "ok", provider: "mock", tags: ["unknown-tag"], limits: {} }],
+      usageConfig: { worker: ["ok"] },
+      providers: { mock: provider },
+    });
+
+    expect(router).toBeTruthy();
+  });
+
+  it("getCircuitBreakerState returns null for unknown model", () => {
+    const router = new ModelRouter({
+      models: [],
+      usageConfig: {},
+      providers: {},
+    });
+
+    expect(router.getCircuitBreakerState("ghost")).toBe(null);
+    expect(router.getCircuitBreakerState("")).toBe(null);
+    expect(router.getCircuitBreakerState("   ")).toBe(null);
+  });
+
+  it("resetCircuitBreaker clears breaker state", async () => {
+    const time = createFakeTime(0);
+    const { provider } = createMockProvider({
+      time,
+      behaviors: { m1: [{ content: "ok" }] },
+    });
+
+    const router = new ModelRouter({
+      models: [{ id: "m1", provider: "mock", tags: ["text"], limits: {} }],
+      usageConfig: { worker: ["m1"] },
+      providers: { mock: provider },
+      time,
+    });
+
+    await router.call({ usage: "worker", messages: [{ role: "user", content: "hi" }] });
+    const before = router.getCircuitBreakerState("m1");
+    expect(before).toBeTruthy();
+
+    router.resetCircuitBreaker("m1");
+    const after = router.getCircuitBreakerState("m1");
+    expect(after?.state).toBe("closed");
+
+    router.resetCircuitBreaker("");
+    router.resetCircuitBreaker("   ");
+    router.resetCircuitBreaker("unknown");
+  });
+
+  it("TokenBucketRateLimiter: normalize + load defaults", async () => {
+    expect(normalizeRateLimitConfig({ enabled: false, rps: 5, burst: 3, concurrency: 2, maxQueue: 0 })).toStrictEqual({
+      enabled: false,
+      rps: 5,
+      burst: 3,
+      concurrency: 2,
+      maxQueue: 0,
+    });
+
+    expect(normalizeRateLimitConfig({ rps: 0, burst: 0, concurrency: 0, maxQueue: -1 })).toStrictEqual({
+      enabled: true,
+      rps: Infinity,
+      burst: 1,
+      concurrency: 1,
+      maxQueue: 500,
+    });
+
+    const cfg = loadRateLimitConfig();
+    expect(cfg.enabled).toBe(true);
+    expect(typeof cfg.rps).toBe("number");
+    expect(cfg.burst).toBeGreaterThanOrEqual(1);
+    expect(cfg.concurrency).toBeGreaterThanOrEqual(1);
+
+    const { storage } = createMockStorage();
+    storage.setItem("k", JSON.stringify({ enabled: false, rps: 10, burst: 2, concurrency: 3, maxQueue: 4 }));
+    expect(loadRateLimitConfig({ storageKey: "k", storage })).toStrictEqual({
+      enabled: false,
+      rps: 10,
+      burst: 2,
+      concurrency: 3,
+      maxQueue: 4,
+    });
+  });
+
+  it("TokenBucketRateLimiter: respects token bucket pacing", async () => {
+    const time = createFakeTime(0);
+    const limiter = new TokenBucketRateLimiter({ rps: 2, burst: 2, concurrency: 1, time });
+
+    const starts = [];
+    const mk = (id) =>
+      limiter.schedule(async () => {
+        starts.push({ id, t: time.now() });
+        return id;
+      });
+
+    const out = await Promise.all([mk("a"), mk("b"), mk("c")]);
+    expect(out).toStrictEqual(["a", "b", "c"]);
+    expect(starts.map((s) => s.t)).toStrictEqual([0, 0, 500]);
+  });
+
+  it("TokenBucketRateLimiter: enforces concurrency and starts next after release", async () => {
+    const time = createFakeTime(0);
+    const limiter = new TokenBucketRateLimiter({ rps: Infinity, burst: 1, concurrency: 2, time });
+
+    const started = [];
+    const gates = new Map();
+    const gate = (id) =>
+      new Promise((resolve) => {
+        gates.set(id, resolve);
+      });
+
+    const p1 = limiter.schedule(async () => {
+      started.push("a");
+      await gate("a");
+      return "a";
+    });
+    const p2 = limiter.schedule(async () => {
+      started.push("b");
+      await gate("b");
+      return "b";
+    });
+    const p3 = limiter.schedule(async () => {
+      started.push("c");
+      return "c";
+    });
+
+    await Promise.resolve();
+    expect(started).toStrictEqual(["a", "b"]);
+
+    gates.get("a")?.();
+    await p1;
+    await Promise.resolve();
+
+    expect(started).toStrictEqual(["a", "b", "c"]);
+    await expect(p3).resolves.toBe("c");
+
+    gates.get("b")?.();
+    await expect(p2).resolves.toBe("b");
+  });
+
+  it("TokenBucketRateLimiter: queued task abort rejects without running", async () => {
+    const time = createFakeTime(0);
+    const limiter = new TokenBucketRateLimiter({ rps: Infinity, burst: 1, concurrency: 1, time });
+
+    let release = null;
+    const hold = new Promise((resolve) => {
+      release = resolve;
+    });
+
+    const p1 = limiter.schedule(async () => {
+      await hold;
+      return "a";
+    });
+
+    const ac = new AbortController();
+    let ran = false;
+    const p2 = limiter.schedule(
+      async () => {
+        ran = true;
+        return "b";
+      },
+      { signal: ac.signal, label: "b" }
+    );
+
+    ac.abort();
+    await expect(p2).rejects.toMatchObject({ name: "AbortError" });
+    expect(ran).toBe(false);
+
+    release?.();
+    await expect(p1).resolves.toBe("a");
+  });
+
+  it("TokenBucketRateLimiter: blockFor delays execution", async () => {
+    const time = createFakeTime(0);
+    const limiter = new TokenBucketRateLimiter({ rps: Infinity, burst: 1, concurrency: 1, time });
+    limiter.blockFor(1000);
+
+    const startedAt = [];
+    const out = await limiter.schedule(() => {
+      startedAt.push(time.now());
+      return "ok";
+    });
+
+    expect(out).toBe("ok");
+    expect(startedAt).toStrictEqual([1000]);
+  });
+
+  it("TokenBucketRateLimiter: rejects when queue full (maxQueue=0)", async () => {
+    const time = createFakeTime(0);
+    const limiter = new TokenBucketRateLimiter({ rps: Infinity, burst: 1, concurrency: 1, maxQueue: 0, time });
+
+    let release = null;
+    const hold = new Promise((resolve) => {
+      release = resolve;
+    });
+
+    const p1 = limiter.schedule(async () => {
+      await hold;
+      return "a";
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+
+    await expect(limiter.schedule(() => "b")).rejects.toThrow(/queue full/i);
+
+    release?.();
+    await expect(p1).resolves.toBe("a");
+  });
+
+  it("TokenBucketRateLimiter: getState returns current state", async () => {
+    const time = createFakeTime(1000);
+    const limiter = new TokenBucketRateLimiter({ rps: 5, burst: 3, concurrency: 2, maxQueue: 100, time });
+
+    const state = limiter.getState();
+    expect(state.rps).toBe(5);
+    expect(state.burst).toBe(3);
+    expect(state.concurrency).toBe(2);
+    expect(state.maxQueue).toBe(100);
+    expect(state.queueSize).toBe(0);
+    expect(state.inFlight).toBe(0);
+    expect(state.nowMs).toBe(1000);
   });
 });
