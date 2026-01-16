@@ -56,7 +56,7 @@ const agent = await createAgent({ model: 'gpt-4o', skills: ['search'] });
 
 ### core/
 - `crdt/CLAUDE.md` - CRDT 共识层
-- `sandbox/CLAUDE.md` - WASM 沙箱
+- `sandbox/CLAUDE.md` - 沙箱隔离 (WASM + System)
 
 ### runtime/
 - `core/CLAUDE.md` - 核心组件

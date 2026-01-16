@@ -29,7 +29,7 @@
 | 子模块 | 路径 | 职责 |
 |--------|------|------|
 | **crdt** | `crdt/` | CRDT 共识：LWWRegister, GCounter, PNCounter, LWWMap, ORSet, CRDTDocument |
-| **sandbox** | `sandbox/` | WASM 沙箱：WasmSandbox, SandboxPool, SkillExecutor |
+| **sandbox** | `sandbox/` | 沙箱隔离：WASM (QuickJS) + System (Bubblewrap/Seatbelt/Docker) |
 
 ## 常用模式
 

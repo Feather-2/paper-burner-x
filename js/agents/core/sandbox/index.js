@@ -1,22 +1,60 @@
 /**
- * WASM Sandbox - 基于 QuickJS 的安全沙箱
+ * Sandbox 模块
  *
- * 提供真正的指令级隔离，用于执行不可信的 Skill 代码。
+ * 提供两层沙箱机制：
  *
- * 架构：
- * - QuickJS 编译到 WASM，运行在独立的内存空间
- * - 资源配额：内存上限、执行时间、递归深度
- * - 宿主通信：通过消息传递，无直接引用
- * - 能力注入：按需注入 API（fetch、state、emit 等）
+ * 1. WASM Sandbox (浏览器 / 跨平台)
+ *    - 基于 QuickJS WASM
+ *    - 指令级隔离，用于执行不可信 Skill 代码
+ *    - 资源配额：内存上限、执行时间、递归深度
+ *
+ * 2. System Sandbox (Node / Bun / Deno)
+ *    - Bubblewrap (Linux namespace)
+ *    - Seatbelt (macOS sandbox-exec)
+ *    - Docker (跨平台容器)
+ *    - Permission-only (fallback)
  */
 
+// WASM Sandbox
 export { WasmSandbox, createSandbox } from './wasm-sandbox.js';
 export { SandboxPool } from './pool.js';
 export { createSandboxPlugin } from './plugin.js';
 export { SkillExecutor, createSkillExecutor, isWasmSupported } from './skill-executor.js';
-
-import { SandboxCapability, SandboxPreset, ResourceLimits } from './constants.js';
-
 export { SandboxCapability, SandboxPreset, ResourceLimits } from './constants.js';
 
-export default { SandboxCapability, SandboxPreset, ResourceLimits };
+// System Sandbox
+export {
+  // 常量
+  SandboxBackend,
+  SandboxPolicy,
+  DefaultSandboxConfig,
+  Platform,
+  // 检测
+  detectAllBackends,
+  detectBestBackend,
+  getPlatform,
+  // 执行器
+  SystemSandboxExecutor,
+  createSystemSandbox,
+  execInSandbox,
+  shellInSandbox,
+  // 后端
+  createBubblewrapExecutor,
+  createSeatbeltExecutor,
+  createDockerExecutor,
+  createPermissionExecutor,
+  createInteractivePermissionHandler,
+} from './system/index.js';
+
+import { SandboxCapability, SandboxPreset, ResourceLimits } from './constants.js';
+import { SandboxBackend, createSystemSandbox } from './system/index.js';
+
+export default {
+  // WASM 沙箱常量
+  SandboxCapability,
+  SandboxPreset,
+  ResourceLimits,
+  // 系统沙箱
+  SandboxBackend,
+  createSystemSandbox,
+};
