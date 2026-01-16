@@ -71,6 +71,17 @@ describe('HooksConfigLoader - constructor', () => {
     expect(loader._configPath).toBe('.agents/hooks.json');
     expect(loader._pollIntervalMs).toBe(2000);
   });
+
+  it('accepts registry-like objects with clear/register', () => {
+    const registry = { clear: vi.fn(), register: vi.fn() };
+    const loader = new HooksConfigLoader({ vfs: new MockVfs(), registry });
+    expect(loader._registry).toBe(registry);
+  });
+
+  it('clamps pollIntervalMs to minimum 250ms', () => {
+    const loader = new HooksConfigLoader({ vfs: new MockVfs(), registry: new HookRegistry(), pollIntervalMs: 10 });
+    expect(loader._pollIntervalMs).toBe(250);
+  });
 });
 
 describe('HooksConfigLoader - loadConfig() / init()', () => {
@@ -109,6 +120,17 @@ describe('HooksConfigLoader - loadConfig() / init()', () => {
     await expect(loader.loadConfig()).resolves.toBeNull();
     expect(warnSpy).toHaveBeenCalled();
     expect(warnSpy.mock.calls.some((c) => String(c[0]).includes('Failed to parse hooks config JSON'))).toBe(true);
+  });
+
+  it('loadConfig() falls back to readFile when readText is missing', async () => {
+    const text = JSON.stringify({ hooks: [] });
+    const bytes = typeof TextEncoder === 'undefined' ? Buffer.from(text, 'utf8') : new TextEncoder().encode(text);
+    const vfs = { readFile: vi.fn(async () => bytes) };
+
+    const loader = new HooksConfigLoader({ vfs, registry: new HookRegistry() });
+    await expect(loader.loadConfig()).resolves.toEqual({ hooks: [] });
+    expect(vfs.readFile).toHaveBeenCalledTimes(1);
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 
   it('init() loads + applies valid config', async () => {
@@ -213,6 +235,43 @@ describe('HooksConfigLoader - applyConfig()', () => {
     expect(registry.list(HookEvent.PRE_TOOL_USE)).toHaveLength(1);
     expect(warnSpy).toHaveBeenCalled();
   });
+
+  it('warns and ignores when config is not a plain object', async () => {
+    const registry = new HookRegistry();
+    registry.register(HookEvent.PRE_TOOL_USE, { type: HookType.COMMAND, command: 'old' });
+
+    const loader = new HooksConfigLoader({ vfs: new MockVfs(), registry });
+    const registerSpy = vi.spyOn(registry, 'register');
+
+    await loader.applyConfig(['not-an-object']);
+
+    expect(registerSpy).not.toHaveBeenCalled();
+    expect(registry.list(HookEvent.PRE_TOOL_USE)).toEqual([]);
+    expect(warnSpy.mock.calls.some((c) => String(c[0]).includes('hooks.json root must be an object'))).toBe(true);
+  });
+
+  it('warns and ignores when hooks is not an array', async () => {
+    const registry = new HookRegistry();
+    registry.register(HookEvent.PRE_TOOL_USE, { type: HookType.COMMAND, command: 'old' });
+
+    const loader = new HooksConfigLoader({ vfs: new MockVfs(), registry });
+    const registerSpy = vi.spyOn(registry, 'register');
+
+    await loader.applyConfig({ hooks: 'nope' });
+
+    expect(registerSpy).not.toHaveBeenCalled();
+    expect(registry.list(HookEvent.PRE_TOOL_USE)).toEqual([]);
+    expect(warnSpy.mock.calls.some((c) => String(c[0]).includes("'hooks' must be an array"))).toBe(true);
+  });
+});
+
+describe('HooksConfigLoader - _hashContent()', () => {
+  it('returns stable 8-character hex FNV-1a hash', () => {
+    const loader = new HooksConfigLoader({ vfs: new MockVfs(), registry: new HookRegistry() });
+    const hash = loader._hashContent('hello');
+    expect(hash).toBe('4f9f2cab');
+    expect(hash).toMatch(/^[0-9a-f]{8}$/);
+  });
 });
 
 describe('HooksConfigLoader - hot reload (reload())', () => {
@@ -263,6 +322,56 @@ describe('HooksConfigLoader - hot reload (reload())', () => {
     await loader.reload();
 
     expect(applySpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('coalesces concurrent reload calls', async () => {
+    const loader = new HooksConfigLoader({ vfs: new MockVfs(), registry: new HookRegistry() });
+    let resolveRead;
+    const readPromise = new Promise((resolve) => {
+      resolveRead = resolve;
+    });
+    const readSpy = vi.spyOn(loader, '_readConfigFile').mockReturnValue(readPromise);
+
+    const first = loader.reload();
+    const second = loader.reload();
+
+    expect(readSpy).toHaveBeenCalledTimes(1);
+
+    resolveRead({ exists: false, content: '', mtimeMs: 0 });
+    await Promise.all([first, second]);
+
+    expect(loader._reloadPromise).toBeNull();
+  });
+
+  it('continues when stat fails with non-ENOENT error and uses hash detection', async () => {
+    const vfs = new MockVfs();
+    const configPath = '.agents/hooks.json';
+    await vfs.writeText(
+      configPath,
+      JSON.stringify({ hooks: [{ event: HookEvent.PRE_TOOL_USE, type: 'command', command: 'v1' }] })
+    );
+
+    const statSpy = vi.spyOn(vfs, 'stat').mockImplementation(async () => {
+      const err = new Error('EACCES: permission denied');
+      err.code = 'EACCES';
+      throw err;
+    });
+
+    const registry = new HookRegistry();
+    const loader = new HooksConfigLoader({ vfs, registry, configPath });
+
+    await loader.reload();
+    expect(registry.list(HookEvent.PRE_TOOL_USE).map((h) => h.command)).toEqual(['v1']);
+
+    await vfs.writeText(
+      configPath,
+      JSON.stringify({ hooks: [{ event: HookEvent.PRE_TOOL_USE, type: 'command', command: 'v2' }] })
+    );
+    await loader.reload();
+
+    expect(registry.list(HookEvent.PRE_TOOL_USE).map((h) => h.command)).toEqual(['v2']);
+    expect(statSpy).toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 
   it('handles config deletion (clears hooks)', async () => {
@@ -364,5 +473,14 @@ describe('HooksConfigLoader - startWatching() / stopWatching() / dispose()', () 
     expect(loader._watchTimer).toBeNull();
     expect(registry.list(HookEvent.PRE_TOOL_USE)).toEqual([]);
   });
-});
 
+  it('throws when methods are called after dispose()', async () => {
+    const loader = new HooksConfigLoader({ vfs: new MockVfs(), registry: new HookRegistry(), pollIntervalMs: 250 });
+    await loader.dispose();
+
+    await expect(loader.init()).rejects.toThrow(/disposed/i);
+    await expect(loader.loadConfig()).rejects.toThrow(/disposed/i);
+    await expect(loader.reload()).rejects.toThrow(/disposed/i);
+    await expect(loader.startWatching()).rejects.toThrow(/disposed/i);
+  });
+});
