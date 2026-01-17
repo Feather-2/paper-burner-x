@@ -1687,7 +1687,7 @@ export const runtimeMixin = {
             const selectedStep = steps[selected];
             if (selectedStep && selectedStep.status !== StepStatus.COMPLETED) return selectedStep.stepId;
             const firstOpen = steps.find((s) => s?.status !== StepStatus.COMPLETED);
-            return firstOpen?.stepId || steps.at(-1)?.stepId || null;
+            return firstOpen?.stepId || steps[steps.length - 1]?.stepId || null;
         };
 
         const stepId = pickStepId();

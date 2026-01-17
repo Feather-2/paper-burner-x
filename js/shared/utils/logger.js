@@ -8,7 +8,7 @@ const LEVEL_PRIORITY = Object.freeze({
 
 function normalizeLevel(level) {
   const raw = typeof level === "string" ? level.trim().toLowerCase() : "";
-  if (raw && Object.hasOwn(LEVEL_PRIORITY, raw)) return raw;
+  if (raw && Object.prototype.hasOwnProperty.call(LEVEL_PRIORITY, raw)) return raw;
   return "info";
 }
 
