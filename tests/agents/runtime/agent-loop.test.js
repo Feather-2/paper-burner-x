@@ -114,7 +114,7 @@ it("BaseAgentLoop flushCompression waits for scheduled compression", async () =>
   expect(loop.messages.length).toBe(2);
   expect(loop.messages[0].content).toBe("ok");
   expect(loop.messages[1].role).toBe("system");
-  expect(loop.messages[1].content.startsWith("[Context Summary]")).toBeTruthy();
+  expect(loop.messages[1].content).toMatch(/^\[Context Summary\]/);
 });
 
 it("BaseAgentLoop clears cooldown timers during flushCompression", async () => {
@@ -129,7 +129,7 @@ it("BaseAgentLoop clears cooldown timers during flushCompression", async () => {
   loop.addMessage({ role: "user", content: "x".repeat(8000) });
   loop.addMessage({ role: "assistant", content: "ok" });
   // Timer is now in _messageManager
-  expect(loop._messageManager._compressionCooldownTimer).toBeTruthy();
+  expect(loop._messageManager._compressionCooldownTimer).not.toBeNull();
 
   await loop.flushCompression();
   expect(loop._messageManager._compressionCooldownTimer).toBe(null);
@@ -330,5 +330,5 @@ it("BaseStage execute emits failed when cancelled during run", async () => {
 
   const stage = new TestStage();
   await expect(stage.execute({ runId: "run_cancel" }, { value: 1 }, { emit, signal: controller.signal })).rejects.toThrow(/stop|cancel/i);
-  expect(calls.some(e => e.name === "cancel.failed")).toBeTruthy();
+  expect(calls.map(e => e.name)).toContain("cancel.failed");
 });

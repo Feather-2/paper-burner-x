@@ -54,8 +54,8 @@ it("ReactRefiner Tools: getSlideContent normal and out-of-range", async () => {
   const ok = await exec("getSlideContent", { slideIndex: 0 });
   expect(ok.success).toBe(true);
   expect(ok.data.slideIndex).toBe(0);
-  expect(ok.data.html.includes('data-title="A"')).toBeTruthy();
-  expect(ok.data.elementCount >= 2).toBeTruthy();
+  expect(ok.data.html).toContain('data-title="A"');
+  expect(ok.data.elementCount).toBeGreaterThanOrEqual(2);
 
   const bad = await exec("getSlideContent", { slideIndex: 99 });
   expect(bad.success).toBe(false);
@@ -103,8 +103,8 @@ it("ReactRefiner Tools: editSlide replaces section HTML", async () => {
 
   const res = await exec("editSlide", { slideIndex: 0, changes: { html: `<section data-title="NEW"><div data-el="t1">X</div></section>` } });
   expect(res.success).toBe(true);
-  expect(context.deckPackage.deckHtmlDsl.includes('data-title="NEW"')).toBeTruthy();
-  expect(res.data.updatedSectionHtml.includes('data-title="NEW"')).toBeTruthy();
+  expect(context.deckPackage.deckHtmlDsl).toContain('data-title="NEW"');
+  expect(res.data.updatedSectionHtml).toContain('data-title="NEW"');
 });
 
 it("ReactRefiner Tools: editElement updates matched elements", async () => {
@@ -117,10 +117,10 @@ it("ReactRefiner Tools: editElement updates matched elements", async () => {
   const res = await exec("editElement", { slideIndex: 0, elementId: "t1", changes: { text: "New", style: "color:red", attrs: { "data-x": "1" }, foo: "bar" } });
   expect(res.success).toBe(true);
   expect(res.data.matchCount).toBe(1);
-  expect(res.data.updatedSectionHtml.includes(">New<")).toBeTruthy();
-  expect(res.data.updatedSectionHtml.includes('style="color:red"')).toBeTruthy();
-  expect(res.data.updatedSectionHtml.includes('data-x="1"')).toBeTruthy();
-  expect(res.data.updatedSectionHtml.includes('data-foo="bar"')).toBeTruthy();
+  expect(res.data.updatedSectionHtml).toContain(">New<");
+  expect(res.data.updatedSectionHtml).toContain('style="color:red"');
+  expect(res.data.updatedSectionHtml).toContain('data-x="1"');
+  expect(res.data.updatedSectionHtml).toContain('data-foo="bar"');
 });
 
 it("ReactRefiner Tools: screenshot returns base64 in mock Node environment", async () => {
@@ -131,7 +131,7 @@ it("ReactRefiner Tools: screenshot returns base64 in mock Node environment", asy
 
   const res = await exec("screenshot", { slideIndex: 0 });
   expect(res.success).toBe(true);
-  expect(res.data.base64.startsWith("data:image/png;base64,")).toBeTruthy();
+  expect(res.data.base64).toMatch(/^data:image\/png;base64,/);
   expect(res.data.mock).toBe(true);
 });
 
@@ -162,8 +162,8 @@ it("ReactRefiner Tools: XSS payloads are sanitized (Node/linkedom fallback)", as
 
   const res = await exec("editSlide", { slideIndex: 0, changes: { html: xss } });
   expect(res.success).toBe(true);
-  expect(res.data.updatedSectionHtml.includes('data-title="XSS"')).toBeTruthy();
-  expect(res.data.updatedSectionHtml.includes('data-el="p1"')).toBeTruthy();
+  expect(res.data.updatedSectionHtml).toContain('data-title="XSS"');
+  expect(res.data.updatedSectionHtml).toContain('data-el="p1"');
   expect(res.data.updatedSectionHtml).not.toMatch(/<script\b/i);
   expect(res.data.updatedSectionHtml).not.toMatch(/\sonerror=/i);
   expect(res.data.updatedSectionHtml).not.toMatch(/javascript:/i);
@@ -179,9 +179,9 @@ it("ReactRefiner Tools: valid HTML is preserved while sanitizing innerHTML", asy
   const html = `<div class="ok"><span>Hi</span> <a href="https://example.com">link</a></div>`;
   const res = await exec("editElement", { slideIndex: 0, elementId: "t1", changes: { html } });
   expect(res.success).toBe(true);
-  expect(res.data.updatedSectionHtml.includes('class="ok"')).toBeTruthy();
-  expect(res.data.updatedSectionHtml.includes("<span>Hi</span>")).toBeTruthy();
-  expect(res.data.updatedSectionHtml.includes('href="https://example.com"')).toBeTruthy();
+  expect(res.data.updatedSectionHtml).toContain('class="ok"');
+  expect(res.data.updatedSectionHtml).toContain("<span>Hi</span>");
+  expect(res.data.updatedSectionHtml).toContain('href="https://example.com"');
 });
 
 it("ReactRefiner Tools: uses DOMPurify when available (environment detection)", async () => {
@@ -201,7 +201,7 @@ it("ReactRefiner Tools: uses DOMPurify when available (environment detection)", 
     const input = `<section data-title="ORIG"><img src="x" onerror="alert(1)"></section>`;
     const res = await exec("editSlide", { slideIndex: 0, changes: { html: input } });
     expect(res.success).toBe(true);
-    expect(res.data.updatedSectionHtml.includes('data-title="PURIFIED"')).toBeTruthy();
+    expect(res.data.updatedSectionHtml).toContain('data-title="PURIFIED"');
 
     expect(calls.length).toBe(1);
     expect(calls[0].html).toBe(input);

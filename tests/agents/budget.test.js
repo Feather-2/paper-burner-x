@@ -15,7 +15,7 @@ describe("shared/utils/budget", () => {
       expect(BudgetAction.CONTINUE).toBe("continue");
       expect(BudgetAction.DEGRADE).toBe("degrade");
       expect(BudgetAction.STOP).toBe("stop");
-      expect(Object.isFrozen(BudgetAction)).toBeTruthy();
+      expect(Object.isFrozen(BudgetAction)).toBe(true);
     });
   });
 
@@ -25,7 +25,7 @@ describe("shared/utils/budget", () => {
       expect(AllocationStrategy.PROPORTIONAL).toBe("proportional");
       expect(AllocationStrategy.FIXED).toBe("fixed");
       expect(AllocationStrategy.REMAINING).toBe("remaining");
-      expect(Object.isFrozen(AllocationStrategy)).toBeTruthy();
+      expect(Object.isFrozen(AllocationStrategy)).toBe(true);
     });
   });
 
@@ -45,9 +45,9 @@ describe("shared/utils/budget", () => {
     describe("constructor", () => {
       it("creates with default options", () => {
         const m = new BudgetManager();
-        expect(m.limits.input > 0).toBeTruthy();
-        expect(m.limits.output > 0).toBeTruthy();
-        expect(m.limits.total > 0).toBeTruthy();
+        expect(m.limits.input).toBeGreaterThan(0);
+        expect(m.limits.output).toBeGreaterThan(0);
+        expect(m.limits.total).toBeGreaterThan(0);
       });
 
       it("enforces minimum limits", () => {
@@ -55,16 +55,16 @@ describe("shared/utils/budget", () => {
           maxInputTokens: 0,
           maxOutputTokens: -100,
         });
-        expect(m.limits.input >= 1).toBeTruthy();
-        expect(m.limits.output >= 1).toBeTruthy();
+        expect(m.limits.input).toBeGreaterThanOrEqual(1);
+        expect(m.limits.output).toBeGreaterThanOrEqual(1);
       });
 
       it("clamps degradeThreshold", () => {
         const low = new BudgetManager({ degradeThreshold: 0.01 });
-        expect(low.degradeThreshold >= 0.1).toBeTruthy();
+        expect(low.degradeThreshold).toBeGreaterThanOrEqual(0.1);
 
         const high = new BudgetManager({ degradeThreshold: 1.5 });
-        expect(high.degradeThreshold <= 0.99).toBeTruthy();
+        expect(high.degradeThreshold).toBeLessThanOrEqual(0.99);
       });
     });
 
@@ -77,14 +77,14 @@ describe("shared/utils/budget", () => {
         manager.usage.input = 850; // 85% of 1000
         const result = manager.checkBudget();
         expect(result).toBe(BudgetAction.DEGRADE);
-        expect(manager.degraded).toBeTruthy();
+        expect(manager.degraded).toBe(true);
       });
 
       it("returns STOP when over limit", () => {
         manager.usage.input = 1100;
         const result = manager.checkBudget();
         expect(result).toBe(BudgetAction.STOP);
-        expect(manager.stopped).toBeTruthy();
+        expect(manager.stopped).toBe(true);
       });
 
       it("returns STOP if already stopped", () => {
@@ -106,7 +106,7 @@ describe("shared/utils/budget", () => {
         };
         manager.usage.input = 850;
         manager.checkBudget();
-        expect(called).toBeTruthy();
+        expect(called).toBe(true);
       });
 
       it("calls onThresholdReached for STOP", () => {
@@ -117,7 +117,7 @@ describe("shared/utils/budget", () => {
         };
         manager.usage.input = 1100;
         manager.checkBudget();
-        expect(called).toBeTruthy();
+        expect(called).toBe(true);
       });
 
       it("does not call onThresholdReached twice for DEGRADE", () => {
@@ -200,8 +200,8 @@ describe("shared/utils/budget", () => {
         const stats = manager.getStats();
         expect(stats.usage).toEqual(manager.usage);
         expect(stats.limits).toEqual(manager.limits);
-        expect(stats.remaining).toBeTruthy();
-        expect(stats.ratio).toBeTruthy();
+        expect(stats.remaining).toEqual(manager.getRemaining());
+        expect(stats.ratio).toEqual(manager.getUsageRatio());
         expect(stats.degraded).toBe(true);
         expect(stats.stopped).toBe(false);
       });
@@ -236,12 +236,12 @@ describe("shared/utils/budget", () => {
 
     it("creates manager with default config", () => {
       const manager = createBudgetManager();
-      expect(manager instanceof BudgetManager).toBeTruthy();
+      expect(manager).toBeInstanceOf(BudgetManager);
     });
 
     it("handles empty budget config", () => {
       const manager = createBudgetManager({});
-      expect(manager instanceof BudgetManager).toBeTruthy();
+      expect(manager).toBeInstanceOf(BudgetManager);
     });
   });
 
@@ -251,7 +251,7 @@ describe("shared/utils/budget", () => {
         const manager = new RecursiveBudgetManager({
           maxInputTokens: 1000,
         });
-        expect(manager).toBeTruthy();
+        expect(manager).toBeInstanceOf(RecursiveBudgetManager);
         expect(manager._depth).toBe(0);
       });
 
@@ -275,7 +275,7 @@ describe("shared/utils/budget", () => {
           parent,
           inheritRatio: 1.5,
         });
-        expect(child.limits.input <= 1000).toBeTruthy();
+        expect(child.limits.input).toBeLessThanOrEqual(1000);
       });
     });
 
@@ -285,7 +285,7 @@ describe("shared/utils/budget", () => {
           maxInputTokens: 1000,
         });
         const child = parent.createChildBudget();
-        expect(child instanceof RecursiveBudgetManager).toBeTruthy();
+        expect(child).toBeInstanceOf(RecursiveBudgetManager);
         expect(child._depth).toBe(1);
       });
 

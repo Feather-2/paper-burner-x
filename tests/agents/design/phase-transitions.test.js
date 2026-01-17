@@ -129,7 +129,7 @@ it("runGeneratingPhase is pure (no phase transitions) and emits design.qa.ended"
   });
 
   const qaEnded = events.find((evt) => evt.name === "design.qa.ended");
-  expect(qaEnded, "Expected design.qa.ended event to be emitted").toBeTruthy();
+  expect(qaEnded, "Expected design.qa.ended event to be emitted").toBeDefined();
   expect(qaEnded.record).toEqual({
     actor: "design",
     status: "ended",
@@ -185,7 +185,7 @@ it("runVisualPhase supports deferredVisuals fast-path", async () => {
   expect(phase.status).toBe(DesignPhase.VISUAL_FILLING);
   expect(result.imageReport.deferred).toBe(true);
   expect(result.pendingImages).toEqual(["img1", "img2"]);
-  expect(events.some(evt => evt.name === "design.visual.deferred")).toBeTruthy();
+  expect(events.some(evt => evt.name === "design.visual.deferred")).toBe(true);
 });
 
 it("DesignAgentLoop skips final review when skipReview is true", async () => {
@@ -251,15 +251,15 @@ it("DesignAgentLoop skips final review when skipReview is true", async () => {
   });
 
   expect(deck.runId).toBe("run_skip_review");
-  expect(events.some(evt => evt.name === "design.qa.ended")).toBeTruthy();
+  expect(events.some(evt => evt.name === "design.qa.ended")).toBe(true);
 
   const transitions = events
     .filter((evt) => evt.name === "design.phase.transition")
     .map((evt) => evt.record.payload.to);
 
-  expect(transitions.includes(DesignPhase.VISUAL_FILLING)).toBeTruthy();
-  expect(transitions.includes(DesignPhase.COMPLETED)).toBeTruthy();
-  expect(!transitions.includes(DesignPhase.REVIEWING)).toBeTruthy();
+  expect(transitions).toContain(DesignPhase.VISUAL_FILLING);
+  expect(transitions).toContain(DesignPhase.COMPLETED);
+  expect(transitions).not.toContain(DesignPhase.REVIEWING);
   expect(!events.some(evt => evt.name === "design.review.started"), "Expected no review events when skipReview is true");
 });
 
@@ -323,7 +323,7 @@ it("DesignAgentLoop runs repair + final review when enabled", async () => {
     .filter((evt) => evt.name === "design.phase.transition")
     .map((evt) => evt.record.payload.to);
 
-  expect(transitions.includes(DesignPhase.REPAIR)).toBeTruthy();
-  expect(transitions.includes(DesignPhase.REVIEWING)).toBeTruthy();
+  expect(transitions).toContain(DesignPhase.REPAIR);
+  expect(transitions).toContain(DesignPhase.REVIEWING);
   expect(transitions.at(-1)).toBe(DesignPhase.COMPLETED);
 });

@@ -10,7 +10,7 @@ import {
 describe("runtime/hooks/hook-registry", () => {
   describe("HookType", () => {
     it("is frozen", () => {
-      expect(Object.isFrozen(HookType)).toBeTruthy();
+      expect(Object.isFrozen(HookType)).toBe(true);
     });
 
     it("has COMMAND type", () => {
@@ -28,7 +28,7 @@ describe("runtime/hooks/hook-registry", () => {
 
   describe("HookEvent", () => {
     it("is frozen", () => {
-      expect(Object.isFrozen(HookEvent)).toBeTruthy();
+      expect(Object.isFrozen(HookEvent)).toBe(true);
     });
 
     it("has PRE_AGENT event", () => {
@@ -66,7 +66,7 @@ describe("runtime/hooks/hook-registry", () => {
 
     describe("constructor", () => {
       it("creates empty registry", () => {
-        expect(registry).toBeTruthy();
+        expect(registry).toBeInstanceOf(HookRegistry);
         expect(registry.list("PreToolUse")).toEqual([]);
       });
     });
@@ -264,17 +264,17 @@ describe("runtime/hooks/hook-registry", () => {
         try {
           const matches = registry.match("PreToolUse", "");
           // If it returns, should only match hooks without tool filter
-          expect(Array.isArray(matches)).toBeTruthy();
+          expect(Array.isArray(matches)).toBe(true);
         } catch (e) {
           // Implementation may not support empty tool names
-          expect(e instanceof Error).toBeTruthy();
+          expect(e instanceof Error).toBe(true);
         }
       });
 
       it("matches multiple wildcards", () => {
         registry.register("PreToolUse", { type: "command", tools: ["*bash*"] });
         const matches = registry.match("PreToolUse", "run_bash_script");
-        expect(matches.length >= 2).toBeTruthy();
+        expect(matches.length).toBeGreaterThanOrEqual(2);
       });
     });
   });

@@ -346,7 +346,7 @@ describe("deepsearch/model caller adapter", () => {
     expect(state.addTokenUsage.mock.calls[0][0]).toMatchObject({ estimatedCostUSD: 3 });
 
     const tokenEvt = emitted.find((e) => e.name === "deepsearch.token.usage");
-    expect(tokenEvt).toBeTruthy();
+    expect(tokenEvt).toMatchObject({ name: "deepsearch.token.usage" });
     expect(tokenEvt.record.payload.model).toBeUndefined();
     expect(tokenEvt.record.payload.provider).toBe("mock");
   });

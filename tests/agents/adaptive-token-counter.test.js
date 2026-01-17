@@ -6,14 +6,19 @@ import {
 } from "../../js/agents/shared/tokenizers/adaptive-token-counter.js";
 
 describe("shared/tokenizers/adaptive-token-counter", () => {
+  const expectTokenCounter = (counter) => {
+    expect(counter).toMatchObject({
+      count: expect.any(Function),
+      init: expect.any(Function),
+      dispose: expect.any(Function),
+      getStatus: expect.any(Function),
+    });
+  };
+
   describe("createAdaptiveTokenCounter", () => {
     it("creates token counter", () => {
       const counter = createAdaptiveTokenCounter({ warmup: false });
-      expect(counter).toBeTruthy();
-      expect(typeof counter.count).toBe("function");
-      expect(typeof counter.init).toBe("function");
-      expect(typeof counter.dispose).toBe("function");
-      expect(typeof counter.getStatus).toBe("function");
+      expectTokenCounter(counter);
       counter.dispose();
     });
 
@@ -24,7 +29,7 @@ describe("shared/tokenizers/adaptive-token-counter", () => {
     it("counts tokens for string", () => {
       const counter = createAdaptiveTokenCounter({ warmup: false });
       const count = counter.count("Hello world");
-      expect(count > 0).toBeTruthy();
+      expect(count).toBeGreaterThan(0);
       counter.dispose();
     });
 
@@ -52,21 +57,21 @@ describe("shared/tokenizers/adaptive-token-counter", () => {
     it("counts tokens for object (stringified)", () => {
       const counter = createAdaptiveTokenCounter({ warmup: false });
       const count = counter.count({ key: "value" });
-      expect(count > 0).toBeTruthy();
+      expect(count).toBeGreaterThan(0);
       counter.dispose();
     });
 
     it("counts tokens for array", () => {
       const counter = createAdaptiveTokenCounter({ warmup: false });
       const count = counter.count([1, 2, 3]);
-      expect(count > 0).toBeTruthy();
+      expect(count).toBeGreaterThan(0);
       counter.dispose();
     });
 
     it("counts tokens for number", () => {
       const counter = createAdaptiveTokenCounter({ warmup: false });
       const count = counter.count(12345);
-      expect(count > 0).toBeTruthy();
+      expect(count).toBeGreaterThan(0);
       counter.dispose();
     });
 
@@ -106,7 +111,7 @@ describe("shared/tokenizers/adaptive-token-counter", () => {
         // Will fail because tiktoken is not installed
         const status = counter.getStatus();
         // Either ready or failed
-        expect(status.ready || status.failed).toBeTruthy();
+        expect(status.ready || status.failed).toBe(true);
         counter.dispose();
       });
 
@@ -128,7 +133,7 @@ describe("shared/tokenizers/adaptive-token-counter", () => {
           model: "gpt-4",
           warmup: false,
         });
-        expect(counter).toBeTruthy();
+        expectTokenCounter(counter);
         counter.dispose();
       });
 
@@ -137,7 +142,7 @@ describe("shared/tokenizers/adaptive-token-counter", () => {
           encoding: "cl100k_base",
           warmup: false,
         });
-        expect(counter).toBeTruthy();
+        expectTokenCounter(counter);
         counter.dispose();
       });
 

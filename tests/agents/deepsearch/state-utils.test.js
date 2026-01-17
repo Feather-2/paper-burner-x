@@ -45,7 +45,7 @@ Let me analyze this step by step:
 
   const result = extractJsonCandidate(r1Output);
   const parsed = JSON.parse(result);
-  expect(Array.isArray(parsed.gaps)).toBeTruthy();
+  expect(parsed.gaps).toBeInstanceOf(Array);
   expect(parsed.gaps[0].question).toBe("What is X?");
 });
 
@@ -69,7 +69,7 @@ it("extractJsonCandidate: supports top-level JSON arrays", async () => {
   const input = 'prefix [{"a":1},{"b":2}] suffix';
   const result = extractJsonCandidate(input);
   const parsed = JSON.parse(result);
-  expect(Array.isArray(parsed)).toBeTruthy();
+  expect(parsed).toBeInstanceOf(Array);
   expect(parsed[0].a).toBe(1);
   expect(parsed[1].b).toBe(2);
 });
@@ -344,7 +344,7 @@ it("SharedContext: action stream rehydrates state and preserves version", async 
     expect(ctx1.getVersion()).toBeGreaterThan(0);
 
     const actions = ctx1.getActions({ sinceVersion: 0, limit: 500 });
-    expect(actions.length >= 6).toBeTruthy();
+    expect(actions.length).toBeGreaterThanOrEqual(6);
     expect(actions.every((a) => typeof a?.kind === "string" && a.kind.length > 0)).toBe(true);
     expect(actions.every((a) => Number.isFinite(Number(a?.version)))).toBe(true);
 
@@ -392,19 +392,19 @@ it("SharedContext: filters signals by targetTaskId (keeps broadcast signals)", a
   ctx.signal("notice", { type: "notice", message: "broadcast" });
 
   const scopedPrompt = ctx.buildBlackboardPrompt({ maxSignals: 10, targetTaskId: "task_a" });
-  expect(scopedPrompt.includes("for A")).toBeTruthy();
-  expect(scopedPrompt.includes("broadcast")).toBeTruthy();
+  expect(scopedPrompt).toContain("for A");
+  expect(scopedPrompt).toContain("broadcast");
   expect(scopedPrompt.includes("for B")).toBe(false);
 
   const allPrompt = ctx.buildBlackboardPrompt({ maxSignals: 10 });
-  expect(allPrompt.includes("for A")).toBeTruthy();
-  expect(allPrompt.includes("for B")).toBeTruthy();
-  expect(allPrompt.includes("broadcast")).toBeTruthy();
+  expect(allPrompt).toContain("for A");
+  expect(allPrompt).toContain("for B");
+  expect(allPrompt).toContain("broadcast");
 
   const scopedSignals = ctx.getSignals({ targetTaskId: "task_a" });
   const scopedMsgs = scopedSignals.map((s) => s?.payload?.message).filter(Boolean);
-  expect(scopedMsgs.includes("for A")).toBeTruthy();
-  expect(scopedMsgs.includes("broadcast")).toBeTruthy();
+  expect(scopedMsgs).toContain("for A");
+  expect(scopedMsgs).toContain("broadcast");
   expect(scopedMsgs.includes("for B")).toBe(false);
 });
 
@@ -443,7 +443,7 @@ it("DeepSearchState.restoreCheckpoint: warns on unknown checkpoint schema versio
     console.warn = originalWarn;
   }
 
-  expect(warnCount >= 1).toBeTruthy();
+  expect(warnCount).toBeGreaterThanOrEqual(1);
 });
 
 it("Checkpoint E2E: 保存完整状态并恢复", async () => {
@@ -482,7 +482,8 @@ it("Checkpoint E2E: 保存完整状态并恢复", async () => {
   expect(cp.schemaVersion).toBe("1.0");
   expect(cp.strategy).toBe("full");
   // 优化后快照是普通对象而非 DeepSearchState 实例（restoreCheckpoint 时重建）
-  expect(typeof cp.stateSnapshot === "object" && cp.stateSnapshot !== null).toBeTruthy();
+  expect(cp.stateSnapshot).not.toBeNull();
+  expect(typeof cp.stateSnapshot).toBe("object");
 
   expect(cp.stateSnapshot).not.toBe(state);
   expect(cp.stateSnapshot.L1).not.toBe(state.L1);
@@ -603,17 +604,17 @@ it("SourceManager: reads docs with consistent modes and caches line indexes", as
   const preview = manager.read("doc_1", { preview: true, maxLength: 10000 });
   expect(preview.success).toBe(true);
   expect(preview.readMode).toBe("preview");
-  expect(preview.content.includes("## 文档结构")).toBeTruthy();
-  expect(preview.content.includes("## 内容预览")).toBeTruthy();
+  expect(preview.content).toContain("## 文档结构");
+  expect(preview.content).toContain("## 内容预览");
   expect(typeof preview.headingCount).toBe("number");
 
   const section = manager.read("doc_1", { section: "## A", maxLength: 10000 });
   expect(section.success).toBe(true);
   expect(section.readMode).toBe("section");
-  expect(section.content.includes("## A")).toBeTruthy();
-  expect(section.content.includes("A1")).toBeTruthy();
-  expect(section.lineStart >= 1).toBeTruthy();
-  expect(section.lineEnd >= section.lineStart).toBeTruthy();
+  expect(section.content).toContain("## A");
+  expect(section.content).toContain("A1");
+  expect(section.lineStart).toBeGreaterThanOrEqual(1);
+  expect(section.lineEnd).toBeGreaterThanOrEqual(section.lineStart);
 
   const lines = manager.read("doc_2", { startLine: 2, endLine: 2, maxLength: 10000 });
   expect(lines.success).toBe(true);
@@ -665,7 +666,7 @@ it("read-doc/search-docs tools: share SourceManager and keep outputs stable", as
   expect(readRes.readMode).toBe("lines");
   expect(readRes.content.trim()).toBe("beta");
   expect(state.L1.readDocIds).toEqual(["s1"]);
-  expect(events.some(e => e.name === "deepsearch.doc.read")).toBeTruthy();
+  expect(events.map((e) => e.name)).toContain("deepsearch.doc.read");
 
   const searchRes = await searchDocs(
     { query: "alpha", limit: 10 },

@@ -13,7 +13,7 @@ describe("vfs/vfs.memory", () => {
 
   describe("constructor", () => {
     it("creates empty vfs", () => {
-      expect(vfs).toBeTruthy();
+      expect(vfs).toBeInstanceOf(MemoryVfs);
     });
   });
 
@@ -28,13 +28,14 @@ describe("vfs/vfs.memory", () => {
     it("writes and reads string as bytes", async () => {
       await vfs.writeFile("/test.txt", "hello");
       const read = await vfs.readFile("/test.txt");
-      expect(read instanceof Uint8Array).toBeTruthy();
+      expect(read).toBeInstanceOf(Uint8Array);
     });
 
     it("creates parent directories automatically", async () => {
       await vfs.writeFile("/a/b/c/file.txt", "content");
       const read = await vfs.readFile("/a/b/c/file.txt");
-      expect(read).toBeTruthy();
+      expect(read).toBeInstanceOf(Uint8Array);
+      expect(new TextDecoder().decode(read)).toBe("content");
     });
 
     it("throws ENOENT for non-existent file", async () => {
@@ -72,22 +73,22 @@ describe("vfs/vfs.memory", () => {
   describe("stat", () => {
     it("stats root directory", async () => {
       const stat = await vfs.stat("/");
-      expect(stat.isDirectory()).toBeTruthy();
+      expect(stat.isDirectory()).toBe(true);
       expect(stat.isFile()).toBe(false);
     });
 
     it("stats file", async () => {
       await vfs.writeFile("/file.txt", "content");
       const stat = await vfs.stat("/file.txt");
-      expect(stat.isFile()).toBeTruthy();
+      expect(stat.isFile()).toBe(true);
       expect(stat.isDirectory()).toBe(false);
-      expect(stat.size > 0).toBeTruthy();
+      expect(stat.size).toBeGreaterThan(0);
     });
 
     it("stats directory", async () => {
       await vfs.mkdir("/mydir");
       const stat = await vfs.stat("/mydir");
-      expect(stat.isDirectory()).toBeTruthy();
+      expect(stat.isDirectory()).toBe(true);
       expect(stat.isFile()).toBe(false);
     });
 
@@ -99,7 +100,7 @@ describe("vfs/vfs.memory", () => {
     it("includes mtimeMs", async () => {
       await vfs.writeFile("/file.txt", "test");
       const stat = await vfs.stat("/file.txt");
-      expect(stat.mtimeMs > 0).toBeTruthy();
+      expect(stat.mtimeMs).toBeGreaterThan(0);
     });
   });
 
@@ -107,20 +108,20 @@ describe("vfs/vfs.memory", () => {
     it("creates directory", async () => {
       await vfs.mkdir("/newdir");
       const stat = await vfs.stat("/newdir");
-      expect(stat.isDirectory()).toBeTruthy();
+      expect(stat.isDirectory()).toBe(true);
     });
 
     it("creates nested directories with recursive", async () => {
       await vfs.mkdir("/a/b/c", { recursive: true });
       const stat = await vfs.stat("/a/b/c");
-      expect(stat.isDirectory()).toBeTruthy();
+      expect(stat.isDirectory()).toBe(true);
     });
 
     it("succeeds if directory already exists with recursive", async () => {
       await vfs.mkdir("/existing");
       await vfs.mkdir("/existing", { recursive: true });
       const stat = await vfs.stat("/existing");
-      expect(stat.isDirectory()).toBeTruthy();
+      expect(stat.isDirectory()).toBe(true);
     });
 
     it("throws EEXIST without recursive if exists", async () => {
@@ -143,9 +144,9 @@ describe("vfs/vfs.memory", () => {
       await vfs.mkdir("/dir/subdir");
 
       const entries = await vfs.readdir("/dir");
-      expect(entries.includes("a.txt")).toBeTruthy();
-      expect(entries.includes("b.txt")).toBeTruthy();
-      expect(entries.includes("subdir")).toBeTruthy();
+      expect(entries).toContain("a.txt");
+      expect(entries).toContain("b.txt");
+      expect(entries).toContain("subdir");
     });
 
     it("returns empty array for empty directory", async () => {
@@ -162,8 +163,10 @@ describe("vfs/vfs.memory", () => {
       const file = entries.find((e) => e.name === "file.txt");
       const dir = entries.find((e) => e.name === "subdir");
 
-      expect(file.isFile()).toBeTruthy();
-      expect(dir.isDirectory()).toBeTruthy();
+      expect(file).toBeDefined();
+      expect(file.isFile()).toBe(true);
+      expect(dir).toBeDefined();
+      expect(dir.isDirectory()).toBe(true);
     });
 
     it("throws ENOENT for non-existent directory", async () => {
@@ -184,8 +187,12 @@ describe("vfs/vfs.memory", () => {
       await vfs.mkdir("/dir/subdir");
 
       const entries = await vfs.list("/dir");
-      expect(entries.some(e => e.name === "file.txt" && e.kind === "file")).toBeTruthy();
-      expect(entries.some(e => e.name === "subdir" && e.kind === "dir")).toBeTruthy();
+      expect(entries).toEqual(
+        expect.arrayContaining([{ name: "file.txt", kind: "file" }])
+      );
+      expect(entries).toEqual(
+        expect.arrayContaining([{ name: "subdir", kind: "dir" }])
+      );
     });
   });
 
@@ -193,13 +200,13 @@ describe("vfs/vfs.memory", () => {
     it("returns true for existing file", async () => {
       await vfs.writeFile("/file.txt", "x");
       const exists = await vfs.exists("/file.txt");
-      expect(exists).toBeTruthy();
+      expect(exists).toBe(true);
     });
 
     it("returns true for existing directory", async () => {
       await vfs.mkdir("/dir");
       const exists = await vfs.exists("/dir");
-      expect(exists).toBeTruthy();
+      expect(exists).toBe(true);
     });
 
     it("returns false for non-existent path", async () => {
@@ -278,7 +285,7 @@ describe("vfs/vfs.memory", () => {
       await vfs.writeFile("/a/d.txt", "y");
 
       const files = await vfs.listFiles({ prefix: "/a", recursive: true });
-      expect(files.length >= 2).toBeTruthy();
+      expect(files.length).toBeGreaterThanOrEqual(2);
     });
   });
 });

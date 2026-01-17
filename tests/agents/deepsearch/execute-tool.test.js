@@ -17,7 +17,7 @@ it("executeTool: returns success:false when tool handler throws", async () => {
     expect(result.success).toBe(false);
     expect(result.error).toBe("boom");
     expect(result.errorName).toBe("Error");
-    expect(typeof result.stack === "string").toBeTruthy();
+    expect(result.stack).toEqual(expect.stringContaining("Error: boom"));
   } finally {
     delete tools[name];
   }

@@ -35,15 +35,15 @@ describe("DependencyManager", () => {
 
   describe("PYODIDE_BUILTIN", () => {
     it("should include common scientific packages", () => {
-      expect(PYODIDE_BUILTIN.has("numpy")).toBeTruthy();
-      expect(PYODIDE_BUILTIN.has("pandas")).toBeTruthy();
-      expect(PYODIDE_BUILTIN.has("scipy")).toBeTruthy();
-      expect(PYODIDE_BUILTIN.has("matplotlib")).toBeTruthy();
+      expect(PYODIDE_BUILTIN.has("numpy")).toBe(true);
+      expect(PYODIDE_BUILTIN.has("pandas")).toBe(true);
+      expect(PYODIDE_BUILTIN.has("scipy")).toBe(true);
+      expect(PYODIDE_BUILTIN.has("matplotlib")).toBe(true);
     });
 
     it("should not include non-builtin packages", () => {
-      expect(!PYODIDE_BUILTIN.has("transformers")).toBeTruthy();
-      expect(!PYODIDE_BUILTIN.has("torch")).toBeTruthy();
+      expect(PYODIDE_BUILTIN.has("transformers")).toBe(false);
+      expect(PYODIDE_BUILTIN.has("torch")).toBe(false);
     });
   });
 
@@ -160,8 +160,8 @@ describe("DependencyManager", () => {
         wheels: [],
       });
 
-      expect(script.includes('__pb_builtin = ["numpy","pandas"]')).toBeTruthy();
-      expect(script.includes("pyodide.loadPackage(__pb_builtin)")).toBeTruthy();
+      expect(script).toContain('__pb_builtin = ["numpy","pandas"]');
+      expect(script).toContain("pyodide.loadPackage(__pb_builtin)");
     });
 
     it("should generate micropip install script", () => {
@@ -172,8 +172,8 @@ describe("DependencyManager", () => {
         wheels: [],
       });
 
-      expect(script.includes("pyodide.loadPackage('micropip')")).toBeTruthy();
-      expect(script.includes('__pb_micropip = ["tabulate"]')).toBeTruthy();
+      expect(script).toContain("pyodide.loadPackage('micropip')");
+      expect(script).toContain('__pb_micropip = ["tabulate"]');
     });
 
     it("should generate wheel install script", () => {
@@ -184,7 +184,7 @@ describe("DependencyManager", () => {
         wheels: [{ url: "https://example.com/pkg.whl" }],
       });
 
-      expect(script.includes('__pb_wheels = ["https://example.com/pkg.whl"]')).toBeTruthy();
+      expect(script).toContain('__pb_wheels = ["https://example.com/pkg.whl"]');
     });
 
     it("should use local path for cached wheels", () => {
@@ -195,7 +195,7 @@ describe("DependencyManager", () => {
         wheels: [{ url: "https://example.com/pkg.whl", cached: true, localPath: "/cache/pkg.whl" }],
       });
 
-      expect(script.includes("emfs:/cache/pkg.whl")).toBeTruthy();
+      expect(script).toContain("emfs:/cache/pkg.whl");
     });
 
     it("should return empty string for no dependencies", () => {
@@ -207,8 +207,8 @@ describe("DependencyManager", () => {
       });
 
       // New implementation always generates template script (safe by design)
-      expect(typeof script === "string").toBeTruthy();
-      expect(script.includes("__pb_builtin = []")).toBeTruthy();
+      expect(typeof script).toBe("string");
+      expect(script).toContain("__pb_builtin = []");
     });
   });
 

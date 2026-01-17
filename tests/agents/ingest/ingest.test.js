@@ -26,7 +26,15 @@ it("AssetManager: dedup by hash + per-doc refs", async () => {
 
   expect(id1).toBe(id2);
   expect(m.count()).toBe(1);
-  expect(m.getAsset(id1)).toBeTruthy();
+  expect(m.getAsset(id1)).toMatchObject({
+    assetId: id1,
+    docId: "d1",
+    type: "image",
+    data: "data:image/png;base64,AAAA",
+    mimeType: "image/png",
+    source: "extracted",
+    reusable: true,
+  });
   expect(m.getAssetIdsForDoc("d1")).toEqual([id1]);
 
   const id3 = m.addAsset({ ...a1, docId: "d2" });
@@ -50,8 +58,8 @@ it("AssetManager: hash collision stores distinct assets", async () => {
 
   expect(id1).not.toBe(id2);
   expect(m.count()).toBe(2);
-  expect(m.getAsset(id1)).toBeTruthy();
-  expect(m.getAsset(id2)).toBeTruthy();
+  expect(m.getAsset(id1)).toMatchObject({ assetId: id1, docId: "d1", data: data1 });
+  expect(m.getAsset(id2)).toMatchObject({ assetId: id2, docId: "d1", data: data2 });
 });
 
 it("MarkdownAdapter: parses path string + file-like object", async () => {
@@ -65,11 +73,13 @@ it("MarkdownAdapter: parses path string + file-like object", async () => {
     const parsed = await adapter.parse(mdPath);
 
     expect(parsed.sourceType).toBe("markdown");
-    expect(parsed.docId.startsWith("markdown_")).toBeTruthy();
+    expect(parsed.docId).toMatch(/^markdown_/);
     expect(parsed.markdown.includes("Hello world")).toBe(true);
     expect(parsed.textHash.startsWith("sha256:")).toBe(true);
-    expect(Array.isArray(parsed.chunks ) && parsed.chunks.length >= 2).toBeTruthy();
-    expect(Array.isArray(parsed.toc ) && parsed.toc.length >= 1).toBeTruthy();
+    expect(parsed.chunks).toBeInstanceOf(Array);
+    expect(parsed.chunks.length).toBeGreaterThanOrEqual(2);
+    expect(parsed.toc).toBeInstanceOf(Array);
+    expect(parsed.toc.length).toBeGreaterThanOrEqual(1);
     expect(parsed.origin.filename).toBe("note.md");
 
     const parsed2 = await adapter.parse({
@@ -82,7 +92,7 @@ it("MarkdownAdapter: parses path string + file-like object", async () => {
     expect(parsed2.sourceType).toBe("markdown");
     expect(parsed2.origin.filename).toBe("inline.txt");
     expect(parsed2.origin.mimeType).toBe("text/plain");
-    expect(parsed2.textNormalized.includes("LINE2")).toBeTruthy();
+    expect(parsed2.textNormalized).toContain("LINE2");
   });
 });
 
@@ -95,8 +105,9 @@ it("RawTextAdapter: validates input + produces ParsedDocument", async () => {
   const parsed = await a.parse({ text: "Alpha\nBeta\nGamma\n", title: "My Notes" });
   expect(parsed.sourceType).toBe("user_text");
   expect(parsed.metadata.title).toBe("My Notes");
-  expect(parsed.textNormalized.includes("Beta")).toBeTruthy();
-  expect(Array.isArray(parsed.chunks ) && parsed.chunks.length >= 2).toBeTruthy();
+  expect(parsed.textNormalized).toContain("Beta");
+  expect(parsed.chunks).toBeInstanceOf(Array);
+  expect(parsed.chunks.length).toBeGreaterThanOrEqual(2);
 });
 
 it("HistoryAdapter: loads record via injected storageAdapter + maps images to assets", async () => {
@@ -120,8 +131,9 @@ it("HistoryAdapter: loads record via injected storageAdapter + maps images to as
 
   expect(parsed.origin.historyId).toBe("h1");
   expect(parsed.sourceType).toBe("pdf");
-  expect(parsed.docId.startsWith("pdf_")).toBeTruthy();
-  expect(Array.isArray(parsed.assets ) && parsed.assets.length === 1).toBeTruthy();
+  expect(parsed.docId).toMatch(/^pdf_/);
+  expect(parsed.assets).toBeInstanceOf(Array);
+  expect(parsed.assets).toHaveLength(1);
   expect(parsed.assets[0].docId).toBe(parsed.docId);
   expect(parsed.assets[0].mimeType).toBe("image/png");
 
@@ -164,15 +176,17 @@ it("IngestStage: dispatches rawTexts/historyIds/files + aggregates assets/errors
     expect(out.parseErrors.length).toBe(2);
 
     const kinds = new Set(out.sources.map((s) => s.kind));
-    expect(kinds.has("user_text")).toBeTruthy();
-    expect(kinds.has("markdown")).toBeTruthy();
+    expect(kinds.has("user_text")).toBe(true);
+    expect(kinds.has("markdown")).toBe(true);
 
     const historySource = out.sources.find((s) => s.title === "FromHistory.txt");
-    expect(historySource && Array.isArray(historySource.assetIds) && historySource.assetIds.length === 1).toBeTruthy();
+    expect(historySource).toBeDefined();
+    expect(historySource.assetIds).toBeInstanceOf(Array);
+    expect(historySource.assetIds).toHaveLength(1);
 
     const names = events.map((e) => e.name);
-    expect(names.includes("ingest.started")).toBeTruthy();
-    expect(names.includes("ingest.completed")).toBeTruthy();
+    expect(names).toContain("ingest.started");
+    expect(names).toContain("ingest.completed");
     expect(names.filter((n) => n === "ingest.doc.completed").length).toBe(3);
     expect(names.filter((n) => n === "ingest.doc.failed").length).toBe(2);
   });

@@ -54,17 +54,19 @@ it("SlideSubAgent: generates HTML, extracts visual slots, uses linked context", 
 
     const result = await agent.run({ contentPackage: { runId: "run_slide" } });
 
-    expect(capturedMessages, "modelCaller should be invoked").toBeTruthy();
+    expect(capturedMessages, "modelCaller should be invoked").toHaveLength(2);
     const prompt = capturedMessages[1]?.content || "";
-    expect(prompt.includes("linked.txt")).toBeTruthy();
-    expect(prompt.includes("Company logo")).toBeTruthy();
+    expect(prompt).toContain("linked.txt");
+    expect(prompt).toContain("Company logo");
 
-    expect(result.htmlDsl.includes("data-el=\"image-placeholder\"")).toBeTruthy();
+    expect(result.htmlDsl).toContain("data-el=\"image-placeholder\"");
     expect(result.visualSlots.length).toBe(1);
     expect(result.visualSlots[0].slotId).toBe("slot_1");
     expect(result.visualSlots[0].renderType).toBe("svg");
     expect(result.status).toBe(SlideStatus.VISUAL_PENDING);
-    expect(agent.statusLog.some(row => row.to === SlideStatus.GENERATING)).toBeTruthy();
+    expect(agent.statusLog).toEqual(
+      expect.arrayContaining([expect.objectContaining({ to: SlideStatus.GENERATING })])
+    );
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -132,10 +134,10 @@ it("SlideSubAgent: appends supplemental content and handles missing linked files
   const result = await agent.run({ contentPackage: { runId: "run_supplemental" } });
   const prompt = capturedMessages?.[1]?.content || "";
 
-  expect(prompt.includes("Base content")).toBeTruthy();
-  expect(prompt.includes("Linked files:")).toBeTruthy();
-  expect(prompt.includes("read failed")).toBeTruthy();
-  expect(prompt.includes("tags:alpha, beta")).toBeTruthy();
+  expect(prompt).toContain("Base content");
+  expect(prompt).toContain("Linked files:");
+  expect(prompt).toContain("read failed");
+  expect(prompt).toContain("tags:alpha, beta");
   expect(result.status).toBe(agent.status);
 });
 
@@ -164,8 +166,8 @@ it("SlideSubAgent: merges supplemental content into markdown objects", async () 
 
   await agent.run({ contentPackage: { runId: "run_markdown" } });
   const prompt = capturedMessages?.[1]?.content || "";
-  expect(prompt.includes("Base markdown")).toBeTruthy();
-  expect(prompt.includes("User notes")).toBeTruthy();
+  expect(prompt).toContain("Base markdown");
+  expect(prompt).toContain("User notes");
 });
 
 it("SlideSubAgent: returns failed when run is cancelled", async () => {
@@ -184,7 +186,9 @@ it("SlideSubAgent: returns failed when run is cancelled", async () => {
   const result = await agent.run({ signal: controller.signal });
   expect(result.status).toBe(SlideStatus.FAILED);
   expect(result.error).toBe("Stop");
-  expect(agent.statusLog.some(row => row.to === SlideStatus.FAILED)).toBeTruthy();
+  expect(agent.statusLog).toEqual(
+    expect.arrayContaining([expect.objectContaining({ to: SlideStatus.FAILED })])
+  );
 });
 
 it("SlideSubAgent: throws when required inputs are missing", async () => {
@@ -212,8 +216,8 @@ it("AssetRegistry normalizes categories and links assets", async () => {
   expect(registry.getAssetsForSlide("slide_1").length).toBe(2);
 
   const exported = registry.export();
-  expect(exported.slideAssetMapping.slide_1.includes("asset_1")).toBeTruthy();
-  expect(exported.slideAssetMapping.slide_1.includes("asset_2")).toBeTruthy();
+  expect(exported.slideAssetMapping.slide_1).toContain("asset_1");
+  expect(exported.slideAssetMapping.slide_1).toContain("asset_2");
 });
 
 it("AssetRegistry generates ids and infers categories", async () => {
@@ -223,7 +227,7 @@ it("AssetRegistry generates ids and infers categories", async () => {
   const assetId = registry.addAsset({ source: "custom_source", description: "Unknown asset" });
   const fallbackId = registry.addAsset({ description: "No source asset" });
 
-  expect(assetId.startsWith("asset_")).toBeTruthy();
-  expect(fallbackId.startsWith("asset_")).toBeTruthy();
+  expect(assetId).toMatch(/^asset_/);
+  expect(fallbackId).toMatch(/^asset_/);
   expect(registry.generated.length).toBe(2);
 });

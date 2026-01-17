@@ -28,10 +28,10 @@ describe("vfs/glob", () => {
     it("expands nested braces", () => {
       const result = expandBraces("{a,b}.{x,y}");
       // Should expand to: a.x, a.y, b.x, b.y
-      expect(result.includes("a.x")).toBeTruthy();
-      expect(result.includes("a.y")).toBeTruthy();
-      expect(result.includes("b.x")).toBeTruthy();
-      expect(result.includes("b.y")).toBeTruthy();
+      expect(result).toContain("a.x");
+      expect(result).toContain("a.y");
+      expect(result).toContain("b.x");
+      expect(result).toContain("b.y");
     });
 
     it("handles empty braces", () => {
@@ -51,7 +51,7 @@ describe("vfs/glob", () => {
 
     it("normalizes backslashes", () => {
       const result = expandBraces("src\\*.{js,ts}");
-      expect(result[0].includes("/")).toBeTruthy();
+      expect(result[0]).toContain("/");
       expect(result[0].includes("\\")).toBe(false);
     });
 
@@ -69,74 +69,74 @@ describe("vfs/glob", () => {
   describe("globToRegExp", () => {
     it("matches literal path", () => {
       const re = globToRegExp("src/index.js");
-      expect(re.test("src/index.js")).toBeTruthy();
+      expect(re.test("src/index.js")).toBe(true);
       expect(re.test("src/other.js")).toBe(false);
     });
 
     it("matches single star wildcard", () => {
       const re = globToRegExp("src/*.js");
-      expect(re.test("src/index.js")).toBeTruthy();
-      expect(re.test("src/utils.js")).toBeTruthy();
+      expect(re.test("src/index.js")).toBe(true);
+      expect(re.test("src/utils.js")).toBe(true);
       expect(re.test("src/sub/index.js")).toBe(false);
     });
 
     it("matches double star for any path", () => {
       const re = globToRegExp("src/**/*.js");
-      expect(re.test("src/index.js")).toBeTruthy();
-      expect(re.test("src/sub/index.js")).toBeTruthy();
-      expect(re.test("src/a/b/c/d.js")).toBeTruthy();
+      expect(re.test("src/index.js")).toBe(true);
+      expect(re.test("src/sub/index.js")).toBe(true);
+      expect(re.test("src/a/b/c/d.js")).toBe(true);
     });
 
     it("matches question mark for single char", () => {
       const re = globToRegExp("src/?.js");
-      expect(re.test("src/a.js")).toBeTruthy();
-      expect(re.test("src/b.js")).toBeTruthy();
+      expect(re.test("src/a.js")).toBe(true);
+      expect(re.test("src/b.js")).toBe(true);
       expect(re.test("src/ab.js")).toBe(false);
     });
 
     it("escapes regex special chars", () => {
       const re = globToRegExp("src/file.test.js");
-      expect(re.test("src/file.test.js")).toBeTruthy();
+      expect(re.test("src/file.test.js")).toBe(true);
       expect(re.test("src/fileXtest.js")).toBe(false);
     });
 
     it("handles double star at start", () => {
       const re = globToRegExp("**/*.md");
-      expect(re.test("README.md")).toBeTruthy();
-      expect(re.test("docs/guide.md")).toBeTruthy();
-      expect(re.test("a/b/c/file.md")).toBeTruthy();
+      expect(re.test("README.md")).toBe(true);
+      expect(re.test("docs/guide.md")).toBe(true);
+      expect(re.test("a/b/c/file.md")).toBe(true);
     });
 
     it("handles double star at end", () => {
       const re = globToRegExp("src/**");
-      expect(re.test("src/index.js")).toBeTruthy();
-      expect(re.test("src/sub/file.ts")).toBeTruthy();
+      expect(re.test("src/index.js")).toBe(true);
+      expect(re.test("src/sub/file.ts")).toBe(true);
     });
   });
 
   describe("matchGlob", () => {
     it("matches exact path", () => {
-      expect(matchGlob("src/index.js", "src/index.js")).toBeTruthy();
+      expect(matchGlob("src/index.js", "src/index.js")).toBe(true);
     });
 
     it("matches with wildcard", () => {
-      expect(matchGlob("src/*.js", "src/index.js")).toBeTruthy();
+      expect(matchGlob("src/*.js", "src/index.js")).toBe(true);
       expect(matchGlob("src/*.js", "src/sub/index.js")).toBe(false);
     });
 
     it("matches with double wildcard", () => {
-      expect(matchGlob("**/*.js", "src/sub/index.js")).toBeTruthy();
+      expect(matchGlob("**/*.js", "src/sub/index.js")).toBe(true);
     });
 
     it("matches with brace expansion", () => {
-      expect(matchGlob("src/*.{js,ts}", "src/file.js")).toBeTruthy();
-      expect(matchGlob("src/*.{js,ts}", "src/file.ts")).toBeTruthy();
+      expect(matchGlob("src/*.{js,ts}", "src/file.js")).toBe(true);
+      expect(matchGlob("src/*.{js,ts}", "src/file.ts")).toBe(true);
       expect(matchGlob("src/*.{js,ts}", "src/file.jsx")).toBe(false);
     });
 
     it("normalizes path", () => {
-      expect(matchGlob("src/*.js", "/src/index.js")).toBeTruthy();
-      expect(matchGlob("src/*.js", "src//index.js")).toBeTruthy();
+      expect(matchGlob("src/*.js", "/src/index.js")).toBe(true);
+      expect(matchGlob("src/*.js", "src//index.js")).toBe(true);
     });
 
     it("returns false for non-matching", () => {
@@ -188,7 +188,7 @@ describe("vfs/glob", () => {
       };
       const glob = createVfsGlobFn(vfs, { maxScanFiles: 10 });
       const result = await glob({ pattern: "*.js" });
-      expect(result.length <= 10).toBeTruthy();
+      expect(result.length).toBeLessThanOrEqual(10);
     });
 
     it("glob function handles abort signal", async () => {

@@ -177,9 +177,11 @@ describe("deepsearch/tools index", () => {
   });
 
   it("createDeepSearchToolExecutor(): constructs a ToolExecutor instance", async () => {
-    const { createDeepSearchToolExecutor } = await import("../../../../js/agents/stages/deepsearch/tools/index.js");
+    const { createDeepSearchToolExecutor, ToolExecutor } = await import(
+      "../../../../js/agents/stages/deepsearch/tools/index.js"
+    );
     const exec = createDeepSearchToolExecutor();
-    expect(exec).toBeTruthy();
+    expect(exec).toBeInstanceOf(ToolExecutor);
     expect(typeof exec.execute).toBe("function");
   });
 

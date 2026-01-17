@@ -19,8 +19,10 @@ describe("js/processing/reference-detector.esm.js", () => {
   });
 
   it("exports a default API and named helpers", () => {
-    expect(api).toBeTruthy();
-    expect(api.default).toBeTruthy();
+    expect(api).not.toBeNull();
+    expect(api).toBeTypeOf("object");
+    expect(api.default).not.toBeNull();
+    expect(api.default).toBeTypeOf("object");
     expect(api.default).toBe(globalThis.ReferenceDetector);
 
     expect(typeof api.detectReferenceSection).toBe("function");
@@ -99,7 +101,8 @@ describe("js/processing/reference-detector.esm.js", () => {
 
     const result = api.detectReferenceSection(markdown);
 
-    expect(result).toBeTruthy();
+    expect(result).not.toBeNull();
+    expect(result).toBeTypeOf("object");
     expect(result.title).toBe("## References");
     expect(result.startLine).toBe(3);
     expect(result.endLine).toBe(5);
@@ -124,7 +127,8 @@ describe("js/processing/reference-detector.esm.js", () => {
 
     const result = api.detectReferenceSection(markdown);
 
-    expect(result).toBeTruthy();
+    expect(result).not.toBeNull();
+    expect(result).toBeTypeOf("object");
     expect(result.title).toBe("References (auto-detected)");
     expect(result.startLine).toBe(3);
     expect(result.endLine).toBe(7);

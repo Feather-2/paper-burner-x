@@ -21,7 +21,7 @@ describe("middleware-chain", () => {
   // ===== Stage 常量 =====
   describe("Stage constants", () => {
     it("should export frozen Stage object with lifecycle phases", () => {
-      expect(Object.isFrozen(Stage)).toBeTruthy();
+      expect(Object.isFrozen(Stage)).toBe(true);
       expect(Stage.BEFORE_AGENT).toBe("beforeAgent");
       expect(Stage.BEFORE_MODEL).toBe("beforeModel");
       expect(Stage.AFTER_MODEL).toBe("afterModel");
@@ -36,7 +36,8 @@ describe("middleware-chain", () => {
       const module = await import("../../../js/agents/runtime/middleware/middleware-chain.js");
       const defaults = module.default;
 
-      expect(defaults).toBeTruthy();
+      expect(defaults).not.toBeNull();
+      expect(typeof defaults).toBe("object");
       expect(defaults.Stage).toBe(Stage);
       expect(defaults.MiddlewareChain).toBe(MiddlewareChain);
       expect(defaults.createLoggingMiddleware).toBe(createLoggingMiddleware);
@@ -352,9 +353,15 @@ describe("middleware-chain", () => {
 
       await chain.execute({ stepName: "test-step" });
 
-      expect(logs.some(l => l.level === "debug" && l.msg.includes("test-step started"))).toBeTruthy();
-      expect(logs.some(l => l.level === "debug" && l.msg.includes("test-step completed"))).toBeTruthy();
-      expect(logs.some(l => l.msg.includes("ms"))).toBeTruthy();
+      expect(logs).toEqual(expect.arrayContaining([
+        expect.objectContaining({ level: "debug", msg: expect.stringContaining("test-step started") }),
+      ]));
+      expect(logs).toEqual(expect.arrayContaining([
+        expect.objectContaining({ level: "debug", msg: expect.stringContaining("test-step completed") }),
+      ]));
+      expect(logs).toEqual(expect.arrayContaining([
+        expect.objectContaining({ msg: expect.stringMatching(/ms/) }),
+      ]));
     });
 
     it("should use custom prefix", async () => {
@@ -366,7 +373,9 @@ describe("middleware-chain", () => {
 
       await chain.execute({ stepName: "step" });
 
-      expect(logs.some(l => l.includes("[Custom]"))).toBeTruthy();
+      expect(logs).toEqual(expect.arrayContaining([
+        expect.stringContaining("[Custom]"),
+      ]));
     });
 
     it("should use phase as fallback for stepName", async () => {
@@ -378,7 +387,9 @@ describe("middleware-chain", () => {
 
       await chain.execute({ phase: "model-call" });
 
-      expect(logs.some(l => l.includes("model-call"))).toBeTruthy();
+      expect(logs).toEqual(expect.arrayContaining([
+        expect.stringContaining("model-call"),
+      ]));
     });
 
     it("should default to 'step' when no stepName or phase", async () => {
@@ -390,7 +401,9 @@ describe("middleware-chain", () => {
 
       await chain.execute({});
 
-      expect(logs.some(l => l.includes("step started"))).toBeTruthy();
+      expect(logs).toEqual(expect.arrayContaining([
+        expect.stringContaining("step started"),
+      ]));
     });
 
     it("should log errors with duration", async () => {
@@ -406,8 +419,12 @@ describe("middleware-chain", () => {
 
       await expect(chain.execute({ stepName: "failing-step" })).rejects.toThrow(/Test failure/);
 
-      expect(logs.some(l => l.level === "error" && l.msg.includes("failing-step failed"))).toBeTruthy();
-      expect(logs.some(l => l.msg.includes("Test failure"))).toBeTruthy();
+      expect(logs).toEqual(expect.arrayContaining([
+        expect.objectContaining({ level: "error", msg: expect.stringContaining("failing-step failed") }),
+      ]));
+      expect(logs).toEqual(expect.arrayContaining([
+        expect.objectContaining({ msg: expect.stringContaining("Test failure") }),
+      ]));
     });
 
     it("should work without logger", async () => {
@@ -428,9 +445,13 @@ describe("middleware-chain", () => {
 
       await chain.execute({ stepName: "my-step" });
 
-      expect(events.some(e => e.name === "test.middleware.my-step.started")).toBeTruthy();
-      expect(events.some(e => e.name === "test.middleware.my-step.completed")).toBeTruthy();
-      expect(events.some(e => e.payload.status === "success")).toBeTruthy();
+      expect(events).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: "test.middleware.my-step.started" }),
+        expect.objectContaining({
+          name: "test.middleware.my-step.completed",
+          payload: expect.objectContaining({ status: "success" }),
+        }),
+      ]));
     });
 
     it("should use ctx.emit if provided", async () => {
@@ -442,7 +463,9 @@ describe("middleware-chain", () => {
 
       await chain.execute({ stepName: "step", emit: ctxEmit });
 
-      expect(events.some(e => e.name === "agent.middleware.step.started")).toBeTruthy();
+      expect(events).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: "agent.middleware.step.started" }),
+      ]));
     });
 
     it("should emit failed event on error", async () => {
@@ -456,10 +479,10 @@ describe("middleware-chain", () => {
       await expect(chain.execute({ stepName: "failing" })).rejects.toThrow(/Telemetry test error/);
 
       const failedEvent = events.find(e => e.name === "test.middleware.failing.failed");
-      expect(failedEvent).toBeTruthy();
+      expect(failedEvent).toBeDefined();
       expect(failedEvent.payload.status).toBe("error");
-      expect(failedEvent.payload.payload.error.includes("Telemetry test error")).toBeTruthy();
-      expect(failedEvent.payload.payload.duration >= 0).toBeTruthy();
+      expect(failedEvent.payload.payload.error).toContain("Telemetry test error");
+      expect(failedEvent.payload.payload.duration).toBeGreaterThanOrEqual(0);
     });
 
     it("should include duration in events", async () => {
@@ -472,7 +495,8 @@ describe("middleware-chain", () => {
       await chain.execute({ stepName: "step" });
 
       const completedEvent = events.find(e => e.name.includes("completed"));
-      expect(typeof completedEvent.payload.payload.duration === "number").toBeTruthy();
+      expect(completedEvent).toBeDefined();
+      expect(completedEvent.payload.payload.duration).toEqual(expect.any(Number));
     });
   });
 
@@ -711,7 +735,7 @@ describe("middleware-chain", () => {
       await chain.execute({});
       const elapsed = Date.now() - startTime;
       // Should have delays: 10ms (attempt 1) + 20ms (attempt 2) = 30ms minimum
-      expect(elapsed >= 25, `Expected >=25ms, got ${elapsed}ms`).toBeTruthy();
+      expect(elapsed, `Expected >=25ms, got ${elapsed}ms`).toBeGreaterThanOrEqual(25);
     });
 
     it("should not retry when maxRetries is 0", async () => {
@@ -857,8 +881,8 @@ describe("middleware-chain", () => {
       const shadowMsg = ctx.messages.find(m =>
         m.role === "system" && m.content.includes("[Shadow System]")
       );
-      expect(shadowMsg).toBeTruthy();
-      expect(shadowMsg.content.includes("Shadow hint content")).toBeTruthy();
+      expect(shadowMsg).toBeDefined();
+      expect(shadowMsg.content).toContain("Shadow hint content");
     });
 
     it("should insert shadow message before last user/tool message", async () => {
@@ -881,7 +905,7 @@ describe("middleware-chain", () => {
       const shadowIdx = ctx.messages.findIndex(m =>
         m.content.includes("[Shadow System]")
       );
-      expect(shadowIdx < userIdx).toBeTruthy();
+      expect(shadowIdx).toBeLessThan(userIdx);
     });
 
     it("should handle non-object entries in messages", async () => {
@@ -903,9 +927,9 @@ describe("middleware-chain", () => {
       const shadowMsg = ctx.messages.find(m =>
         m && typeof m === "object" && m.role === "system" && m.content.includes("[Shadow System]")
       );
-      expect(shadowMsg).toBeTruthy();
-      expect(ctx.messages.includes("raw")).toBeTruthy();
-      expect(ctx.messages.includes(123)).toBeTruthy();
+      expect(shadowMsg).toBeDefined();
+      expect(ctx.messages).toContain("raw");
+      expect(ctx.messages).toContain(123);
     });
 
     it("should inject even when no system role messages exist", async () => {
@@ -926,8 +950,8 @@ describe("middleware-chain", () => {
         m && typeof m === "object" && m.role === "system" && m.content.includes("[Shadow System]")
       );
       const userIdx = ctx.messages.findIndex(m => m.content === "Ping");
-      expect(shadowIdx >= 0).toBeTruthy();
-      expect(shadowIdx < userIdx).toBeTruthy();
+      expect(shadowIdx).toBeGreaterThanOrEqual(0);
+      expect(shadowIdx).toBeLessThan(userIdx);
     });
 
     it("should skip injection when same shadow block already exists", async () => {
@@ -1096,7 +1120,7 @@ describe("middleware-chain", () => {
     it("should create chain with cancellation middleware", async () => {
       const chain = createDefaultMiddlewareChain({});
 
-      expect(chain.length >= 1).toBeTruthy();
+      expect(chain.length).toBeGreaterThanOrEqual(1);
 
       const controller = new AbortController();
       await chain.execute({ signal: controller.signal });
@@ -1107,7 +1131,7 @@ describe("middleware-chain", () => {
         logger: { debug: () => {}, error: () => {} },
       });
 
-      expect(chain.length >= 2).toBeTruthy();
+      expect(chain.length).toBeGreaterThanOrEqual(2);
     });
 
     it("should add telemetry middleware when emit provided", () => {
@@ -1117,7 +1141,7 @@ describe("middleware-chain", () => {
         stageName: "test-stage",
       });
 
-      expect(chain.length >= 2).toBeTruthy();
+      expect(chain.length).toBeGreaterThanOrEqual(2);
     });
 
     it("should add timeout middleware when timeout provided", () => {
@@ -1125,7 +1149,7 @@ describe("middleware-chain", () => {
         timeout: 5000,
       });
 
-      expect(chain.length >= 2).toBeTruthy();
+      expect(chain.length).toBeGreaterThanOrEqual(2);
     });
 
     it("should add retry middleware when maxRetries provided", () => {
@@ -1134,7 +1158,7 @@ describe("middleware-chain", () => {
         retryDelay: 100,
       });
 
-      expect(chain.length >= 2).toBeTruthy();
+      expect(chain.length).toBeGreaterThanOrEqual(2);
     });
 
     it("should include all optional middlewares when fully configured", () => {
@@ -1145,7 +1169,7 @@ describe("middleware-chain", () => {
         maxRetries: 2,
       });
 
-      expect(chain.length >= 5).toBeTruthy();
+      expect(chain.length).toBeGreaterThanOrEqual(5);
     });
 
     it("should execute cancellation check first", async () => {

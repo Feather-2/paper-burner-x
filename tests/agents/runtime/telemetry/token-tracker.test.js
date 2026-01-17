@@ -72,8 +72,8 @@ describe("TokenTracker", () => {
       const tracker = new TokenTracker();
       const record = tracker.record(sampleRecordParams());
 
-      expect(record.id.startsWith("tok_")).toBeTruthy();
-      expect(typeof record.timestamp === "number").toBeTruthy();
+      expect(record.id).toMatch(/^tok_/);
+      expect(record.timestamp).toEqual(expect.any(Number));
       expect(record.model).toBe("gpt-4o");
       expect(record.provider).toBe("openai");
       expect(record.usage).toBe("worker");
@@ -263,9 +263,9 @@ describe("TokenTracker", () => {
       expect(summary.totalLatencyMs).toBe(500);
       expect(summary.avgLatencyMs).toBe(250);
       expect(summary.avgTokensPerCall).toBe(225);
-      expect(typeof summary.byModel === "object").toBeTruthy();
-      expect(typeof summary.byUsage === "object").toBeTruthy();
-      expect(typeof summary.byProvider === "object").toBeTruthy();
+      expect(summary.byModel).toMatchObject({ "gpt-4o": expect.any(Object) });
+      expect(summary.byUsage).toMatchObject({ worker: expect.any(Object) });
+      expect(summary.byProvider).toMatchObject({ openai: expect.any(Object) });
     });
 
     it("handles zero calls gracefully", () => {
@@ -356,9 +356,9 @@ describe("TokenTracker", () => {
       const json = tracker.exportJson();
       const parsed = JSON.parse(json);
 
-      expect(parsed.exportedAt).toBeTruthy();
-      expect(parsed.summary).toBeTruthy();
-      expect(Array.isArray(parsed.records)).toBeTruthy();
+      expect(parsed.exportedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+      expect(parsed.summary).toMatchObject({ totalCalls: 1 });
+      expect(parsed.records).toBeInstanceOf(Array);
       expect(parsed.records.length).toBe(1);
     });
 
@@ -396,7 +396,7 @@ describe("TokenTracker", () => {
       );
 
       const csv = tracker.exportCsv();
-      expect(csv.includes('"""')).toBeTruthy();
+      expect(csv).toContain('"""');
     });
 
     it("handles empty records", () => {
@@ -489,7 +489,7 @@ describe("Global TokenTracker utilities", () => {
       const tracker1 = getGlobalTokenTracker();
       const tracker2 = getGlobalTokenTracker();
 
-      expect(tracker1 instanceof TokenTracker).toBeTruthy();
+      expect(tracker1).toBeInstanceOf(TokenTracker);
       expect(tracker1).toBe(tracker2);
     });
   });
@@ -498,7 +498,7 @@ describe("Global TokenTracker utilities", () => {
     it("records to global tracker", () => {
       const record = trackTokenUsage(sampleRecordParams());
 
-      expect(record.id.startsWith("tok_")).toBeTruthy();
+      expect(record.id).toMatch(/^tok_/);
       expect(record.model).toBe("gpt-4o");
 
       const tracker = getGlobalTokenTracker();

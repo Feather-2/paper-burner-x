@@ -31,8 +31,8 @@ it("BaseAdapter: parseStream yields chunks with locators", async () => {
     chunks.push(c);
   }
 
-  expect(chunks.length >= 2, "should produce multiple chunks").toBeTruthy();
-  expect(chunks[0].chunkId.startsWith("chunk_")).toBeTruthy();
+  expect(chunks.length, "should produce multiple chunks").toBeGreaterThanOrEqual(2);
+  expect(chunks[0].chunkId).toMatch(/^chunk_/);
   expect(typeof chunks[0].locator.charStart).toBe("number");
   expect(typeof chunks[0].locator.charEnd).toBe("number");
   expect(chunks[0].locator.charStart).toBe(0);
@@ -49,8 +49,9 @@ it("BaseAdapter: parseStream handles Uint8Array input", async () => {
   }
 
   const chunks = await adapter.parse(bytesSource());
-  expect(Array.isArray(chunks ) && chunks.length >= 1).toBeTruthy();
-  expect(chunks[0].text.includes("Line 1")).toBeTruthy();
+  expect(Array.isArray(chunks)).toBe(true);
+  expect(chunks.length).toBeGreaterThanOrEqual(1);
+  expect(chunks[0].text).toContain("Line 1");
 });
 
 it("BaseAdapter: parseStream respects AbortSignal", async () => {
@@ -107,7 +108,8 @@ it("BaseAdapter: parse collects parseStream into array", async () => {
   const adapter = new BaseAdapter({ defaultChunkOptions: { chunkSize: 10, overlap: 0 } });
 
   const result = await adapter.parse(["0123456789", "abcdefghij"]);
-  expect(Array.isArray(result ) && result.length >= 2).toBeTruthy();
+  expect(Array.isArray(result)).toBe(true);
+  expect(result.length).toBeGreaterThanOrEqual(2);
 });
 
 it("BaseAdapter: buildParsedDocument produces valid structure", async () => {
@@ -122,11 +124,12 @@ it("BaseAdapter: buildParsedDocument produces valid structure", async () => {
     metadata: { title: "Test" },
   });
 
-  expect(doc.docId.startsWith("markdown_")).toBeTruthy();
+  expect(doc.docId).toMatch(/^markdown_/);
   expect(doc.sourceType).toBe("markdown");
-  expect(doc.textHash.startsWith("sha256:")).toBeTruthy();
-  expect(Array.isArray(doc.chunks ) && doc.chunks.length >= 1).toBeTruthy();
-  expect(Array.isArray(doc.toc)).toBeTruthy();
+  expect(doc.textHash).toMatch(/^sha256:/);
+  expect(Array.isArray(doc.chunks)).toBe(true);
+  expect(doc.chunks.length).toBeGreaterThanOrEqual(1);
+  expect(Array.isArray(doc.toc)).toBe(true);
   expect(doc.parseInfo.adapter).toBe("test");
 });
 
@@ -175,7 +178,7 @@ it("PdfAdapter: uses OCR when available", async () => {
   );
 
   expect(parsed.sourceType).toBe("pdf");
-  expect(parsed.markdown.includes("OCR Title")).toBeTruthy();
+  expect(parsed.markdown).toContain("OCR Title");
   expect(parsed.metadata.engine).toBe("test-ocr");
 });
 
@@ -196,7 +199,7 @@ it("PdfAdapter: fallback extracts ASCII when OCR unavailable", async () => {
   });
 
   expect(parsed.sourceType).toBe("pdf");
-  expect(parsed.markdown.includes("doc.pdf")).toBeTruthy();
+  expect(parsed.markdown).toContain("doc.pdf");
   expect(parsed.metadata.engine).toBe("fallback");
 });
 
@@ -244,7 +247,7 @@ it("MarkdownAdapter: parses file-like with text() method", async () => {
 
   expect(parsed.sourceType).toBe("markdown");
   expect(parsed.origin.filename).toBe("readme.md");
-  expect(parsed.markdown.includes("Readme")).toBeTruthy();
+  expect(parsed.markdown).toContain("Readme");
 });
 
 it("MarkdownAdapter: parses file-like with arrayBuffer() method", async () => {
@@ -262,7 +265,7 @@ it("MarkdownAdapter: parses file-like with arrayBuffer() method", async () => {
   });
 
   expect(parsed.sourceType).toBe("markdown");
-  expect(parsed.markdown.includes("From Buffer")).toBeTruthy();
+  expect(parsed.markdown).toContain("From Buffer");
 });
 
 it("MarkdownAdapter: parses object with content property", async () => {
@@ -275,7 +278,7 @@ it("MarkdownAdapter: parses object with content property", async () => {
   });
 
   expect(parsed.origin.filename).toBe("inline.md");
-  expect(parsed.markdown.includes("Direct Content")).toBeTruthy();
+  expect(parsed.markdown).toContain("Direct Content");
 });
 
 it("MarkdownAdapter: rejects unsupported input", async () => {
@@ -317,7 +320,7 @@ it("HtmlAdapter: parses with arrayBuffer input", async () => {
   });
 
   expect(parsed.sourceType).toBe("html");
-  expect(parsed.markdown.includes("Buffer HTML")).toBeTruthy();
+  expect(parsed.markdown).toContain("Buffer HTML");
 });
 
 it("HtmlAdapter: parses with content property", async () => {
@@ -329,7 +332,7 @@ it("HtmlAdapter: parses with content property", async () => {
     content: "<h2>Inline</h2><p>Text</p>",
   });
 
-  expect(parsed.markdown.includes("Inline")).toBeTruthy();
+  expect(parsed.markdown).toContain("Inline");
 });
 
 it("HtmlAdapter: rejects unsupported input", async () => {
@@ -354,7 +357,7 @@ it("HtmlAdapter: __internal helpers work correctly", async () => {
   expect(__internal.parseDataUri("invalid")).toBe(null);
 
   const extracted = __internal.extractDataUriImagesFromHtml('<img src="data:image/png;base64,XXXX">');
-  expect(extracted.images.length === 1).toBeTruthy();
+  expect(extracted.images).toHaveLength(1);
   expect(extracted.images[0].data).toBe("XXXX");
 });
 
@@ -401,13 +404,14 @@ it("DocxAdapter: converts via mammoth + turndown and extracts images as assets",
   );
 
   expect(parsed.sourceType).toBe("docx");
-  expect(parsed.markdown.includes("Hello")).toBeTruthy();
-  expect(Array.isArray(parsed.assets ) && parsed.assets.length === 1).toBeTruthy();
+  expect(parsed.markdown).toContain("Hello");
+  expect(Array.isArray(parsed.assets)).toBe(true);
+  expect(parsed.assets).toHaveLength(1);
   expect(parsed.assets[0].mimeType).toBe("image/png");
   expect(parsed.assets[0].data).toBe("AAAA");
   expect(parsed.assets[0].source).toBe("extracted");
   expect(parsed.assets[0].docId).toBe(parsed.docId);
-  expect(Array.isArray(parsed.parseInfo.warnings) && parsed.parseInfo.warnings.some((w) => w.includes("mammoth"))).toBeTruthy();
+  expect(parsed.parseInfo.warnings).toEqual(expect.arrayContaining([expect.stringContaining("mammoth")]));
 });
 
 it("DocxAdapter: rejects oversized inputs before invoking mammoth", async () => {
@@ -479,9 +483,10 @@ it("PptxAdapter: extracts slide text + images as assets", async () => {
 
   expect(parsed.sourceType).toBe("pptx");
   expect(parsed.metadata.slideCount).toBe(1);
-  expect(parsed.markdown.includes("Slide 1: Deck Title")).toBeTruthy();
-  expect(parsed.markdown.includes("Point A")).toBeTruthy();
-  expect(Array.isArray(parsed.assets ) && parsed.assets.length === 1).toBeTruthy();
+  expect(parsed.markdown).toContain("Slide 1: Deck Title");
+  expect(parsed.markdown).toContain("Point A");
+  expect(Array.isArray(parsed.assets)).toBe(true);
+  expect(parsed.assets).toHaveLength(1);
   expect(parsed.assets[0].mimeType).toBe("image/png");
   expect(parsed.assets[0].data).toBe("BBBB");
   expect(parsed.assets[0].source).toBe("extracted");
@@ -501,10 +506,11 @@ it("HtmlAdapter: converts HTML to markdown and extracts base64 images", async ()
   });
 
   expect(parsed.sourceType).toBe("html");
-  expect(parsed.markdown.includes("# Hi")).toBeTruthy();
-  expect(parsed.markdown.includes("Body")).toBeTruthy();
-  expect(!parsed.markdown.includes("data:image/")).toBeTruthy();
-  expect(Array.isArray(parsed.assets ) && parsed.assets.length === 1).toBeTruthy();
+  expect(parsed.markdown).toContain("# Hi");
+  expect(parsed.markdown).toContain("Body");
+  expect(parsed.markdown).not.toContain("data:image/");
+  expect(Array.isArray(parsed.assets)).toBe(true);
+  expect(parsed.assets).toHaveLength(1);
   expect(parsed.assets[0].data).toBe("CCCC");
   expect(parsed.assets[0].mimeType).toBe("image/png");
 });
@@ -566,11 +572,13 @@ it("EpubAdapter: parses OPF+spine, converts chapters, extracts images as assets"
 
   expect(parsed.sourceType).toBe("epub");
   expect(parsed.metadata.chapterCount).toBe(1);
-  expect(Array.isArray(parsed.chapters ) && parsed.chapters.length === 1).toBeTruthy();
+  expect(Array.isArray(parsed.chapters)).toBe(true);
+  expect(parsed.chapters).toHaveLength(1);
   expect(parsed.chapters[0].title).toBe("Chapter One");
-  expect(parsed.markdown.includes("## Chapter One")).toBeTruthy();
-  expect(parsed.markdown.includes("Text")).toBeTruthy();
-  expect(Array.isArray(parsed.assets ) && parsed.assets.length === 1).toBeTruthy();
+  expect(parsed.markdown).toContain("## Chapter One");
+  expect(parsed.markdown).toContain("Text");
+  expect(Array.isArray(parsed.assets)).toBe(true);
+  expect(parsed.assets).toHaveLength(1);
   expect(parsed.assets[0].data).toBe(expectedBase64);
   expect(parsed.assets[0].mimeType).toBe("image/png");
   expect(parsed.assets[0].source).toBe("extracted");
@@ -611,7 +619,7 @@ it("PptxAdapter: handles empty slides array", async () => {
 
   expect(parsed.sourceType).toBe("pptx");
   expect(parsed.metadata.slideCount).toBe(0);
-  expect(parsed.markdown.includes("empty.pptx")).toBeTruthy();
+  expect(parsed.markdown).toContain("empty.pptx");
 });
 
 it("PptxAdapter: handles slides without title", async () => {
@@ -642,9 +650,9 @@ it("PptxAdapter: handles slides without title", async () => {
     { pptxParser }
   );
 
-  expect(parsed.markdown.includes("## Slide 1")).toBeTruthy();
-  expect(!parsed.markdown.includes("Slide 1:")).toBeTruthy();
-  expect(parsed.markdown.includes("Bullet point only")).toBeTruthy();
+  expect(parsed.markdown).toContain("## Slide 1");
+  expect(parsed.markdown).not.toContain("Slide 1:");
+  expect(parsed.markdown).toContain("Bullet point only");
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -696,9 +704,9 @@ it("DocxAdapter: handles image read failure gracefully", async () => {
   );
 
   expect(parsed.sourceType).toBe("docx");
-  expect(parsed.markdown.includes("Doc")).toBeTruthy();
-  expect(parsed.assets.length >= 1).toBeTruthy();
-  expect(parsed.parseInfo.warnings?.some(w => w.includes("Image read failed"))).toBeTruthy();
+  expect(parsed.markdown).toContain("Doc");
+  expect(parsed.assets.length).toBeGreaterThanOrEqual(1);
+  expect(parsed.parseInfo.warnings).toEqual(expect.arrayContaining([expect.stringContaining("Image read failed")]));
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -711,10 +719,10 @@ it("BaseAdapter: parseStream handles CRLF line endings", async () => {
 
   const chunks = await adapter.parse(["Line1\r\nLine2\rLine3\n"]);
   const combined = chunks.map((c) => c.text).join("");
-  expect(combined.includes("Line1")).toBeTruthy();
-  expect(combined.includes("Line2")).toBeTruthy();
-  expect(combined.includes("Line3")).toBeTruthy();
-  expect(!combined.includes("\r")).toBeTruthy();
+  expect(combined).toContain("Line1");
+  expect(combined).toContain("Line2");
+  expect(combined).toContain("Line3");
+  expect(combined).not.toContain("\r");
 });
 
 it("BaseAdapter: parseStream handles NBSP normalization", async () => {
@@ -723,7 +731,7 @@ it("BaseAdapter: parseStream handles NBSP normalization", async () => {
 
   const chunks = await adapter.parse(["Hello\u00A0World"]);
   const combined = chunks.map((c) => c.text).join("");
-  expect(combined.includes("Hello World")).toBeTruthy();
+  expect(combined).toContain("Hello World");
 });
 
 it("BaseAdapter: parseStream handles empty input", async () => {
@@ -747,9 +755,10 @@ it("BaseAdapter: buildParsedDocument with smartChunk enabled", async () => {
     useSmartChunk: true,
   });
 
-  expect(Array.isArray(doc.chunks)).toBeTruthy();
-  expect(doc.chunkStrategy).toBeTruthy();
-  expect(doc.chunkMeta).toBeTruthy();
+  expect(Array.isArray(doc.chunks)).toBe(true);
+  expect(doc.chunks.length).toBeGreaterThan(0);
+  expect(doc.chunkStrategy).toBeTypeOf("string");
+  expect(doc.chunkMeta).toEqual(expect.objectContaining({ totalLength: expect.any(Number), chunkCount: expect.any(Number) }));
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -770,7 +779,7 @@ it("PdfAdapter: handles empty PDF gracefully", async () => {
   });
 
   expect(parsed.sourceType).toBe("pdf");
-  expect(parsed.markdown.includes("empty.pdf")).toBeTruthy();
+  expect(parsed.markdown).toContain("empty.pdf");
 });
 
 it("PdfAdapter: calls onProgress when provided", async () => {

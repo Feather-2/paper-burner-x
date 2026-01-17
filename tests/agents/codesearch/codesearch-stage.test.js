@@ -102,6 +102,6 @@ it("CodeSearch todos: transitions open -> pending -> completed", async () => {
 
   const todo = result.todos[0];
   const transitions = todo.history.map((row) => `${row.from}->${row.to}`);
-  expect(transitions.includes("open->pending")).toBeTruthy();
-  expect(transitions.includes("pending->completed")).toBeTruthy();
+  expect(transitions).toContain("open->pending");
+  expect(transitions).toContain("pending->completed");
 });

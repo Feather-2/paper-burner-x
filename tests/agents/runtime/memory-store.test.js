@@ -22,7 +22,7 @@ describe("MemoryStore", () => {
 
     it("should add, update, and remove todos", () => {
       const todo = store.addTodo({ content: "Read doc A" });
-      expect(todo.id).toBeTruthy();
+      expect(todo.id).toMatch(/^todo_/);
       expect(todo.content).toBe("Read doc A");
       expect(todo.status).toBe("pending");
 
@@ -59,7 +59,7 @@ describe("MemoryStore", () => {
 
     it("should add and acknowledge signals", () => {
       const sig = store.addSignal({ type: "discovery", message: "Found conflict" });
-      expect(sig.id).toBeTruthy();
+      expect(sig.id).toMatch(/^sig_/);
       expect(sig.acknowledged).toBe(false);
 
       store.acknowledgeSignal(sig.id);
@@ -150,7 +150,7 @@ describe("MemoryStore", () => {
 
       const results = store.recall("Q3 revenue");
       expect(results.length).toBe(1);
-      expect(results[0].data.content.includes("Q3")).toBeTruthy();
+      expect(results[0].data.content).toContain("Q3");
     });
 
     it("should list archives", async () => {
@@ -169,9 +169,9 @@ describe("MemoryStore", () => {
 	      store.addMessage({ role: "user", content: "Hello" });
 	
 	      const ckptId = await store.checkpoint();
-	      expect(ckptId).toBeTruthy();
+	      expect(ckptId).toMatch(/^ckpt_/);
 	      const snapshot = store.L3.checkpoints.find((c) => c.id === ckptId);
-	      expect(snapshot).toBeTruthy();
+	      expect(snapshot).toMatchObject({ id: ckptId });
 	      expect(snapshot.L0.taskGoal).toBe("Original goal");
 	      expect(snapshot.L0.todos.length).toBe(1);
 	      expect(snapshot.L1.messages.length).toBe(1);
@@ -210,8 +210,8 @@ describe("MemoryStore", () => {
       store.compress();
       const afterCount = store.L1.messages.length;
 
-      expect(afterCount < beforeCount).toBeTruthy();
-      expect(store.L2.historySummary.length > 0).toBeTruthy();
+      expect(afterCount).toBeLessThan(beforeCount);
+      expect(store.L2.historySummary.length).toBeGreaterThan(0);
     });
   });
 
@@ -227,13 +227,13 @@ describe("MemoryStore", () => {
 
       const context = store.buildPromptContext();
 
-      expect(context.includes("目标")).toBeTruthy();
-      expect(context.includes("Analyze Q3 reports")).toBeTruthy();
-      expect(context.includes("待办")).toBeTruthy();
-      expect(context.includes("阶段发现")).toBeTruthy();
-      expect(context.includes("待验证")).toBeTruthy();
-      expect(context.includes("待处理信号")).toBeTruthy();
-      expect(context.includes("最近决策")).toBeTruthy();
+      expect(context).toContain("目标");
+      expect(context).toContain("Analyze Q3 reports");
+      expect(context).toContain("待办");
+      expect(context).toContain("阶段发现");
+      expect(context).toContain("待验证");
+      expect(context).toContain("待处理信号");
+      expect(context).toContain("最近决策");
     });
   });
 

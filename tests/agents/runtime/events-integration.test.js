@@ -68,9 +68,9 @@ it("Runtime Events: exports new event groups", async () => {
     CHECKPOINT_DELETED: "archive.checkpoint.deleted",
   });
 
-  expect(Object.isFrozen(ReviewEvents)).toBeTruthy();
-  expect(Object.isFrozen(CompressionEvents)).toBeTruthy();
-  expect(Object.isFrozen(ArchiveEvents)).toBeTruthy();
+  expect(Object.isFrozen(ReviewEvents)).toBe(true);
+  expect(Object.isFrozen(CompressionEvents)).toBe(true);
+  expect(Object.isFrozen(ArchiveEvents)).toBe(true);
 });
 
 it("Runtime Events: matchEventPattern matches archive.* and nested patterns", async () => {

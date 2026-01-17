@@ -38,7 +38,7 @@ it("BacktrackManager backtrack without extra params behaves as before", async ()
 
   expect(result.success).toBe(true);
   expect(result.reason).toBe("restored");
-  expect(result.state instanceof DeepSearchState).toBeTruthy();
+  expect(result.state).toBeInstanceOf(DeepSearchState);
 
   expect(events.length).toBe(1);
   expect(events[0].name).toBe("deepsearch.agent.backtracked");
@@ -335,6 +335,6 @@ it("createBacktrackManager returns a BacktrackManager instance", async () => {
   const { createBacktrackManager, BacktrackManager } = await import("../../../js/agents/stages/deepsearch/runtime/backtrack-manager.js");
   const manager = createBacktrackManager({ maxBacktracks: 4, logger: makeLogger() });
 
-  expect(manager instanceof BacktrackManager).toBeTruthy();
+  expect(manager).toBeInstanceOf(BacktrackManager);
   expect(manager.maxBacktracks).toBe(4);
 });

@@ -11,9 +11,13 @@ describe("retrieval/hybrid-retrieval", () => {
 
       const fused = rrfFuse(bm25, vector);
 
-      expect(fused.length >= 2).toBeTruthy();
-      expect(fused.every(r => typeof r.chunkId === "string")).toBeTruthy();
-      expect(fused.every(r => typeof r.rrfScore === "number")).toBeTruthy();
+      expect(fused).toHaveLength(3);
+      for (const item of fused) {
+        expect(typeof item.chunkId).toBe("string");
+        expect(item.chunkId.length).toBeGreaterThan(0);
+        expect(typeof item.rrfScore).toBe("number");
+        expect(Number.isFinite(item.rrfScore)).toBe(true);
+      }
     });
 
     it("ranks overlapping documents higher", () => {
@@ -25,7 +29,9 @@ describe("retrieval/hybrid-retrieval", () => {
       // Overlapping doc should have higher score
       const overlap = fused.find((r) => r.chunkId === "overlap");
       const bm25only = fused.find((r) => r.chunkId === "bm25only");
-      expect(overlap.rrfScore > bm25only.rrfScore).toBeTruthy();
+      expect(overlap).toBeDefined();
+      expect(bm25only).toBeDefined();
+      expect(overlap.rrfScore).toBeGreaterThan(bm25only.rrfScore);
     });
 
     it("respects limit option", () => {
@@ -59,7 +65,7 @@ describe("retrieval/hybrid-retrieval", () => {
 
       const scoreA1 = fusedEqual.find((r) => r.chunkId === "a").rrfScore;
       const scoreA2 = fusedBm25Heavy.find((r) => r.chunkId === "a").rrfScore;
-      expect(scoreA2 > scoreA1).toBeTruthy();
+      expect(scoreA2).toBeGreaterThan(scoreA1);
     });
 
     it("handles empty arrays", () => {
@@ -114,7 +120,7 @@ describe("retrieval/hybrid-retrieval", () => {
         vectorSearchFn: async () => [{ chunkId: "vectorresult", score: 0.9 }],
       });
 
-      expect(result.length >= 1).toBeTruthy();
+      expect(result.length).toBeGreaterThan(0);
     });
 
     it("returns empty for empty query", async () => {
@@ -144,7 +150,7 @@ describe("retrieval/hybrid-retrieval", () => {
         vectorSearchFn: async () => [{ chunkId: "vector" }],
       });
 
-      expect(result.length >= 1).toBeTruthy();
+      expect(result.length).toBeGreaterThan(0);
     });
 
     it("continues on vector failure when fallback=true", async () => {
@@ -161,7 +167,7 @@ describe("retrieval/hybrid-retrieval", () => {
         },
       });
 
-      expect(result.length >= 1).toBeTruthy();
+      expect(result.length).toBeGreaterThan(0);
     });
 
     it("throws on failure when fallback=false", async () => {

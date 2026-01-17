@@ -25,8 +25,8 @@ describe('StateBus', () => {
   describe('get/set', () => {
     it('should return full state when no path provided', () => {
       const root = state.get();
-      expect(root.meta !== undefined).toBeTruthy();
-      expect(root.runtime !== undefined).toBeTruthy();
+      expect(root.meta).toBeDefined();
+      expect(root.runtime).toBeDefined();
     });
 
     it('should set and get values', () => {
@@ -68,7 +68,7 @@ describe('StateBus', () => {
     it('should ignore empty paths', () => {
       state.set('', 123);
       const result = state.get('');
-      expect(result.meta !== undefined).toBeTruthy(); // still root state
+      expect(result.meta).toBeDefined(); // still root state
     });
 
     it('should return undefined when traversing through non-object', () => {
@@ -305,8 +305,8 @@ describe('StateBus', () => {
       state.set('item.a', 4);   // should not match
 
       expect(calls.length).toBe(2);
-      expect(calls.includes('item.a1')).toBeTruthy();
-      expect(calls.includes('item.ab')).toBeTruthy();
+      expect(calls).toContain('item.a1');
+      expect(calls).toContain('item.ab');
     });
 
     it('should match prefix itself when pattern ends with .*', () => {
@@ -363,8 +363,8 @@ describe('StateBus', () => {
     it('should include timestamp in change record', () => {
       state.set('timed', 1);
       const log = state.getChangeLog();
-      expect(typeof log[0].timestamp === 'number').toBeTruthy();
-      expect(log[0].timestamp > 0).toBeTruthy();
+      expect(typeof log[0].timestamp).toBe('number');
+      expect(log[0].timestamp).toBeGreaterThan(0);
     });
 
     it('should include meta when provided', () => {
@@ -415,7 +415,7 @@ describe('StateBus', () => {
 
       imported.nested.a = 2;
       expect(state.get('nested.a')).toBe(1);
-      expect(emitted).toBeTruthy();
+      expect(emitted).toBe(true);
     });
 
     it('should ignore non-object imports', () => {
@@ -426,7 +426,7 @@ describe('StateBus', () => {
       state.fromJSON(null);
 
       expect(state.get('value')).toBe(1);
-      expect(!emitted).toBeTruthy();
+      expect(emitted).toBe(false);
     });
 
     it('should ignore undefined imports', () => {
@@ -543,7 +543,7 @@ describe('StateBus', () => {
       state.rollback('rollbackTest');
 
       expect(emitted.id).toBe('rollbackTest');
-      expect(emitted.oldState !== undefined).toBeTruthy();
+      expect(emitted.oldState).toBeDefined();
     });
 
     it('should deep clone snapshot data', () => {
@@ -566,18 +566,18 @@ describe('StateBus', () => {
 
       expect(state.get('user')).toBe(undefined);
       expect(state.get('runtime.iteration')).toBe(0);
-      expect(emitted).toBeTruthy();
+      expect(emitted).toBe(true);
     });
 
     it('should preserve default structure after reset', () => {
       state.reset();
       const root = state.get();
-      expect(root.meta !== undefined).toBeTruthy();
-      expect(root.runtime !== undefined).toBeTruthy();
-      expect(root.input !== undefined).toBeTruthy();
-      expect(root.context !== undefined).toBeTruthy();
-      expect(root.stages !== undefined).toBeTruthy();
-      expect(root.plugins !== undefined).toBeTruthy();
+      expect(root.meta).toBeDefined();
+      expect(root.runtime).toBeDefined();
+      expect(root.input).toBeDefined();
+      expect(root.context).toBeDefined();
+      expect(root.stages).toBeDefined();
+      expect(root.plugins).toBeDefined();
     });
   });
 
@@ -589,12 +589,13 @@ describe('StateBus', () => {
     });
 
     it('should not throw when emitting without EventBus', () => {
-      const noEvents = new StateBus();
-      noEvents.set('value', 1);
-      noEvents.snapshot('test');
-      noEvents.rollback('test');
-      noEvents.reset();
-      expect(true).toBeTruthy(); // no errors thrown
+      expect(() => {
+        const noEvents = new StateBus();
+        noEvents.set('value', 1);
+        noEvents.snapshot('test');
+        noEvents.rollback('test');
+        noEvents.reset();
+      }).not.toThrow();
     });
   });
 

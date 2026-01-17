@@ -14,7 +14,7 @@ describe("shared/contracts/rpc-message", () => {
         payload: { data: 1 },
         requestId: "abc123",
       });
-      expect(result.ok).toBeTruthy();
+      expect(result.ok).toBe(true);
       expect(result.value.type).toBe("test");
       expect(result.value.payload).toEqual({ data: 1 });
       expect(result.value.requestId).toBe("abc123");
@@ -22,14 +22,14 @@ describe("shared/contracts/rpc-message", () => {
 
     it("trims type", () => {
       const result = validateRpcRequest({ type: "  test  ", payload: null });
-      expect(result.ok).toBeTruthy();
+      expect(result.ok).toBe(true);
       expect(result.value.type).toBe("test");
     });
 
     it("rejects null", () => {
       const result = validateRpcRequest(null);
       expect(result.ok).toBe(false);
-      expect(result.error.includes("expected object")).toBeTruthy();
+      expect(result.error).toContain("expected object");
     });
 
     it("rejects non-object", () => {
@@ -40,13 +40,13 @@ describe("shared/contracts/rpc-message", () => {
     it("rejects missing type", () => {
       const result = validateRpcRequest({ payload: {} });
       expect(result.ok).toBe(false);
-      expect(result.error.includes("type")).toBeTruthy();
+      expect(result.error).toContain("type");
     });
 
     it("rejects empty type", () => {
       const result = validateRpcRequest({ type: "   ", payload: {} });
       expect(result.ok).toBe(false);
-      expect(result.error.includes("type")).toBeTruthy();
+      expect(result.error).toContain("type");
     });
 
     it("rejects non-string type", () => {
@@ -56,14 +56,14 @@ describe("shared/contracts/rpc-message", () => {
 
     it("handles undefined requestId", () => {
       const result = validateRpcRequest({ type: "test", payload: {} });
-      expect(result.ok).toBeTruthy();
-      expect(result.value.requestId).toBe(undefined);
+      expect(result.ok).toBe(true);
+      expect(result.value.requestId).toBeUndefined();
     });
 
     it("handles non-string requestId", () => {
       const result = validateRpcRequest({ type: "test", payload: {}, requestId: 123 });
-      expect(result.ok).toBeTruthy();
-      expect(result.value.requestId).toBe(undefined);
+      expect(result.ok).toBe(true);
+      expect(result.value.requestId).toBeUndefined();
     });
   });
 
@@ -74,7 +74,7 @@ describe("shared/contracts/rpc-message", () => {
         data: { result: "success" },
         requestId: "abc123",
       });
-      expect(result.ok).toBeTruthy();
+      expect(result.ok).toBe(true);
       expect(result.value.ok).toBe(true);
       expect(result.value.data).toEqual({ result: "success" });
     });
@@ -84,14 +84,14 @@ describe("shared/contracts/rpc-message", () => {
         ok: false,
         error: "Something went wrong",
       });
-      expect(result.ok).toBeTruthy();
+      expect(result.ok).toBe(true);
       expect(result.value.ok).toBe(false);
       expect(result.value.error).toBe("Something went wrong");
     });
 
     it("defaults ok to true when missing", () => {
       const result = validateRpcResponse({ data: "test" });
-      expect(result.ok).toBeTruthy();
+      expect(result.ok).toBe(true);
       expect(result.value.ok).toBe(true);
     });
 
@@ -107,14 +107,14 @@ describe("shared/contracts/rpc-message", () => {
 
     it("handles non-string error", () => {
       const result = validateRpcResponse({ ok: false, error: 123 });
-      expect(result.ok).toBeTruthy();
-      expect(result.value.error).toBe(undefined);
+      expect(result.ok).toBe(true);
+      expect(result.value.error).toBeUndefined();
     });
 
     it("handles non-string requestId", () => {
       const result = validateRpcResponse({ ok: true, requestId: 123 });
-      expect(result.ok).toBeTruthy();
-      expect(result.value.requestId).toBe(undefined);
+      expect(result.ok).toBe(true);
+      expect(result.value.requestId).toBeUndefined();
     });
   });
 });

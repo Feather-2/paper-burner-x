@@ -233,16 +233,16 @@ describe('PPTHealthCheck', () => {
       expect(normalizeRolePriorityConfig).toHaveBeenCalledTimes(1);
 
       const rolePriorityCall = saveConfig.mock.calls.find(([key]) => key === 'rolePriority');
-      expect(rolePriorityCall).toBeTruthy();
-      expect(rolePriorityCall[1]).toEqual(
+      expect(rolePriorityCall).toEqual([
+        'rolePriority',
         expect.objectContaining({
           analyst: ['new-model'],
           designer: ['new-model'],
           copywriter: ['new-model'],
           reviewer: ['new-model'],
           keep: ['x'],
-        })
-      );
+        }),
+      ]);
 
       expect(performCheck).toHaveBeenCalledWith(true);
       expect(showSaveSuccess).toHaveBeenCalledWith('已一键应用到所有角色');
@@ -264,4 +264,3 @@ describe('PPTHealthCheck', () => {
     });
   });
 });
-

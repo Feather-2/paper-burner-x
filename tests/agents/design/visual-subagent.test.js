@@ -56,7 +56,7 @@ it("VisualSubAgent: generates image/svg/asset and updates statuses", async () =>
   expect(out.imageResults.filledSlots.length).toBe(1);
   expect(out.svgResults.results.length).toBe(1);
   expect(out.assetResults.length).toBe(1);
-  expect(out.assetResults[0].assetUri.startsWith("data:image/png;base64,")).toBeTruthy();
+  expect(out.assetResults[0].assetUri).toMatch(/^data:image\/png;base64,/);
 
   const statusById = new Map(out.slots.map((s) => [s.slotId, s.status]));
   expect(statusById.get("img_1")).toBe(VisualSlotStatus.FILLED);
@@ -114,8 +114,8 @@ it("VisualSubAgent: reports generator errors and marks slots failed", async () =
   const out = await agent.run(visualSlots, baseDesignSystem, { runId: "run_errors" });
 
   expect(out.report.errors.length).toBe(2);
-  expect(out.report.errors.some(err => err.type === "ai-image")).toBeTruthy();
-  expect(out.report.errors.some(err => err.type === "svg")).toBeTruthy();
+  expect(out.report.errors).toEqual(expect.arrayContaining([expect.objectContaining({ type: "ai-image" })]));
+  expect(out.report.errors).toEqual(expect.arrayContaining([expect.objectContaining({ type: "svg" })]));
 
   const statusById = new Map(out.slots.map((s) => [s.slotId, s.status]));
   expect(statusById.get("img_err")).toBe(VisualSlotStatus.FAILED);
@@ -135,7 +135,7 @@ it("VisualSubAgent: resolves assets by registry when renderType is missing", asy
 
   expect(out.assetResults.length).toBe(1);
   expect(out.assetResults[0].width).toBe(20);
-  expect(out.assetResults[0].assetUri.startsWith("data:image/png;base64,")).toBeTruthy();
+  expect(out.assetResults[0].assetUri).toMatch(/^data:image\/png;base64,/);
   expect(out.slots[0].renderType).toBe("asset");
   expect(out.slots[0].status).toBe(VisualSlotStatus.FILLED);
 });

@@ -138,7 +138,8 @@ it("Ingest streaming: buildTocStreaming fallback sections when no headings", asy
   const got = await buildTocStreaming(chunks, {});
 
   expect(got.tocNodes.length).toBe(0);
-  expect(Array.isArray(got.fallbackSections ) && got.fallbackSections.length > 0).toBeTruthy();
+  expect(Array.isArray(got.fallbackSections)).toBe(true);
+  expect(got.fallbackSections.length).toBeGreaterThan(0);
   expect(got.fallbackSections[0].locator.charStart).toBe(0);
   expect(got.fallbackSections.at(-1).locator.charEnd).toBe(normalized.length);
 });

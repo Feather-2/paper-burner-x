@@ -775,7 +775,8 @@ describe('runtime/core worker-rpc', () => {
     const errPromise = client.call('fail', {});
     const errExpectation = expect(errPromise).rejects.toMatchObject({ name: 'RemoteError', message: 'bad', code: 'E_BAD', stack: 'stack' });
     const request2 = worker.postMessage.mock.calls.find((c) => c[0]?.method === 'fail')?.[0];
-    expect(request2).toBeTruthy();
+    expect(request2).toMatchObject({ type: 'rpc:request', method: 'fail', params: {} });
+    expect(request2.id).toEqual(expect.any(String));
 
     client._onMessage({
       data: {
@@ -813,7 +814,8 @@ describe('runtime/core worker-rpc', () => {
         const timeoutPromise = client.call('slow', {});
         const timeoutExpectation = expect(timeoutPromise).rejects.toMatchObject({ name: 'TimeoutError' });
         const request = worker.postMessage.mock.calls.find((c) => c[0]?.method === 'slow')?.[0];
-        expect(request).toBeTruthy();
+        expect(request).toMatchObject({ type: 'rpc:request', method: 'slow', params: {} });
+        expect(request.id).toEqual(expect.any(String));
 
         await vi.advanceTimersByTimeAsync(10);
         await timeoutExpectation;

@@ -43,7 +43,7 @@ it("extractAssetsFromMarkdown(): maps placeholders to locators + image data", as
   expect(a0.data).toBe("data:image/png;base64,AAAA");
 
   const start = markdown.indexOf(placeholder);
-  expect(start >= 0).toBeTruthy();
+  expect(start).toBeGreaterThanOrEqual(0);
   expect(a0.locator).toEqual({ charStart: start, charEnd: start + placeholder.length });
   expect(String(a0.assetId)).toMatch(/^asset_/);
 });
@@ -73,14 +73,17 @@ it("PdfAdapter: calls injected OCR + builds ParsedDocument + extracts assets", a
   expect(parsed.origin.filename).toBe("paper.pdf");
   expect(parsed.metadata.pageCount).toBe(2);
   expect(parsed.metadata.engine).toBe("mock");
-  expect(parsed.docId.startsWith("pdf_")).toBeTruthy();
+  expect(parsed.docId).toMatch(/^pdf_/);
 
   expect(parsed.markdown.includes("Paper")).toBe(true);
   expect(parsed.textHash.startsWith("sha256:")).toBe(true);
-  expect(Array.isArray(parsed.toc ) && parsed.toc.length >= 1).toBeTruthy();
-  expect(Array.isArray(parsed.chunks ) && parsed.chunks.length >= 1).toBeTruthy();
+  expect(parsed.toc).toBeInstanceOf(Array);
+  expect(parsed.toc?.length ?? 0).toBeGreaterThanOrEqual(1);
+  expect(parsed.chunks).toBeInstanceOf(Array);
+  expect(parsed.chunks?.length ?? 0).toBeGreaterThanOrEqual(1);
 
-  expect(Array.isArray(parsed.assets ) && parsed.assets.length === 1).toBeTruthy();
+  expect(parsed.assets).toBeInstanceOf(Array);
+  expect(parsed.assets?.length ?? 0).toBe(1);
   expect(parsed.assets[0].docId).toBe(parsed.docId);
   expect(parsed.assets[0].locator.charStart).toBe(parsed.markdown.indexOf(placeholder));
 });
@@ -197,7 +200,8 @@ it("PdfAdapter: handles empty markdown, missing images, and malformed image path
   const parsed = await adapter.parse(makePdfFile({ name: "edge.PDF", type: "" }), { ocr: mockOcr });
   expect(parsed.origin.mimeType).toBe("application/pdf");
   expect(parsed.markdown).toBe("![Broken](images/img-1.png\n\n");
-  expect(Array.isArray(parsed.assets ) && parsed.assets.length === 0).toBeTruthy();
+  expect(parsed.assets).toBeInstanceOf(Array);
+  expect(parsed.assets?.length ?? -1).toBe(0);
 });
 
 it("PdfAdapter: supports string path input (reads file) and forwards onProgress", async () => {
@@ -213,7 +217,7 @@ it("PdfAdapter: supports string path input (reads file) and forwards onProgress"
       async processFile(file, onProgress) {
         onProgress?.(1, 2, "starting");
         const ab = await file.arrayBuffer();
-        expect(ab instanceof ArrayBuffer).toBeTruthy();
+        expect(ab).toBeInstanceOf(ArrayBuffer);
         expect(ab.byteLength).toBe(bytes.length);
         onProgress?.(2, 2, "done");
         return { markdown: "# OK\n", images: [] };
@@ -231,7 +235,7 @@ it("PdfAdapter: supports string path input (reads file) and forwards onProgress"
 
     expect(parsed.origin.filename).toBe("X.PDF");
     expect(parsed.origin.mimeType).toBe("application/pdf");
-    expect(stageProgress.length >= 2).toBeTruthy();
+    expect(stageProgress.length).toBeGreaterThanOrEqual(2);
   });
 });
 

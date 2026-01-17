@@ -287,16 +287,32 @@ describe('Chatbot UI exports (ESM)', () => {
   it('should export UI entry and be re-exported by chatbot/index.js', async () => {
     const ui = await import('../../js/chatbot/ui/index.js');
 
-    expect(ui.ChatbotUI).toBeTruthy();
+    expect(ui.ChatbotUI).toMatchObject({
+      updateChatbotUI: expect.any(Function),
+      initChatbotUI: expect.any(Function)
+    });
     expect(typeof ui.updateChatbotUI).toBe('function');
     expect(typeof ui.initChatbotUI).toBe('function');
     expect(typeof ui.showModelSelectorForChatbot).toBe('function');
-    expect(ui.ChatbotMessageRenderer).toBeTruthy();
-    expect(ui.ChatbotPresetQuestionsUI).toBeTruthy();
-    expect(ui.ChatbotModelSelectorUI).toBeTruthy();
+    expect(ui.ChatbotMessageRenderer).toMatchObject({
+      renderUserMessage: expect.any(Function),
+      renderAssistantMessage: expect.any(Function)
+    });
+    expect(ui.ChatbotPresetQuestionsUI).toMatchObject({
+      render: expect.any(Function)
+    });
+    expect(ui.ChatbotModelSelectorUI).toMatchObject({
+      render: expect.any(Function)
+    });
 
     const chatbot = await import('../../js/chatbot/index.js');
-    expect(chatbot.ChatbotUI).toBeTruthy();
-    expect(chatbot.ChatbotMessageRenderer).toBeTruthy();
+    expect(chatbot.ChatbotUI).toMatchObject({
+      updateChatbotUI: expect.any(Function),
+      initChatbotUI: expect.any(Function)
+    });
+    expect(chatbot.ChatbotMessageRenderer).toMatchObject({
+      renderUserMessage: expect.any(Function),
+      renderAssistantMessage: expect.any(Function)
+    });
   });
 });

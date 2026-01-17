@@ -146,7 +146,8 @@ describe("WritingPhaseHandler", () => {
         signal: null,
       });
 
-      expect(messages.length >= 2).toBeTruthy();
+      const assistantMessages = messages.filter(m => m.role === "assistant");
+      expect(assistantMessages).toHaveLength(2);
     });
 
     it("should stop on max parse failures", async () => {
@@ -165,7 +166,7 @@ describe("WritingPhaseHandler", () => {
 
       // Should have stopped after 2 parse failures
       const parseFailureMessages = messages.filter(m => m.content?.includes("JSON 解析失败"));
-      expect(parseFailureMessages.length <= 2).toBeTruthy();
+      expect(parseFailureMessages).toHaveLength(1);
     });
 
     it("should respect abort signal", async () => {

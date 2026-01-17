@@ -12,7 +12,7 @@ describe("CicadaCompressor", () => {
       expect(CompressionLayer.TOOL_OUTPUT).toBe("tool_output");
       expect(CompressionLayer.SESSION_HISTORY).toBe("session_history");
       expect(CompressionLayer.LLM_SUMMARY).toBe("llm_summary");
-      expect(Object.isFrozen(CompressionLayer)).toBeTruthy();
+      expect(Object.isFrozen(CompressionLayer)).toBe(true);
     });
   });
 
@@ -62,13 +62,13 @@ describe("CicadaCompressor", () => {
 
       const { context, metadata } = await compressor.compress(input);
 
-      expect(context.toolOutputs).toBeTruthy();
+      expect(context.toolOutputs).toBeInstanceOf(Array);
       expect(context.toolOutputs.length).toBe(1);
       // status is an important key, should be preserved
       expect(context.toolOutputs[0].status).toBe("ok");
       // result is truncated
-      expect(context.toolOutputs[0].result.length < longOutput.length).toBeTruthy();
-      expect(metadata.stats.toolOutput.truncatedFields > 0).toBeTruthy();
+      expect(context.toolOutputs[0].result.length).toBeLessThan(longOutput.length);
+      expect(metadata.stats.toolOutput.truncatedFields).toBeGreaterThan(0);
     });
 
     it("compresses tool role messages in messages array", async () => {
@@ -86,8 +86,8 @@ describe("CicadaCompressor", () => {
 
       expect(context.messages.length).toBe(2);
       expect(context.messages[0].content).toBe("hello");
-      expect(context.messages[1].content.length < longContent.length).toBeTruthy();
-      expect(metadata.layersApplied.includes("tool_output")).toBeTruthy();
+      expect(context.messages[1].content.length).toBeLessThan(longContent.length);
+      expect(metadata.layersApplied).toContain("tool_output");
     });
 
     it("handles tool_outputs key variant", async () => {
@@ -97,7 +97,7 @@ describe("CicadaCompressor", () => {
       };
 
       const { context } = await compressor.compress(input);
-      expect(context.tool_outputs).toBeTruthy();
+      expect(context.tool_outputs).toBeInstanceOf(Array);
       expect(context.tool_outputs.length).toBe(1);
     });
 
@@ -111,7 +111,7 @@ describe("CicadaCompressor", () => {
         maxToolOutputChars: 100,
       });
 
-      expect(context.toolOutputs[0].output.length <= 103).toBeTruthy(); // 100 + "..."
+      expect(context.toolOutputs[0].output.length).toBeLessThanOrEqual(103); // 100 + "..."
     });
 
     it("trims arrays in VERBOSE_KEYS exceeding maxToolOutputItems", async () => {
@@ -126,7 +126,7 @@ describe("CicadaCompressor", () => {
       });
 
       expect(context.toolOutputs[0].data.length).toBe(3);
-      expect(metadata.stats.toolOutput.trimmedArrays > 0).toBeTruthy();
+      expect(metadata.stats.toolOutput.trimmedArrays).toBeGreaterThan(0);
     });
   });
 
@@ -148,8 +148,8 @@ describe("CicadaCompressor", () => {
         keepLastTurns: 10,
       });
 
-      expect(context).toBeTruthy();
-      expect(Array.isArray(context.messages)).toBeTruthy();
+      expect(context).toEqual(expect.any(Object));
+      expect(context.messages).toBeInstanceOf(Array);
       expect(context.messages.length).toBe(3);
       expect(context.messages[0].content).toBe("a\nb");
       expect(context.messages[1].id).toBe("m3");
@@ -195,7 +195,7 @@ describe("CicadaCompressor", () => {
       });
 
       expect(context.messages.length).toBe(3);
-      expect(context.messages[1].content.startsWith("[")).toBeTruthy();
+      expect(context.messages[1].content).toMatch(/^\[/);
       expect(context.messages[1]._thinkingSummarized).toBe(true);
       expect(metadata.stats.sessionHistory.summarizedThinking).toBe(1);
       expect(metadata.stats.sessionHistory.removedThinking).toBe(0);
@@ -221,7 +221,7 @@ describe("CicadaCompressor", () => {
       expect(context.messages.length).toBe(2);
       expect(metadata.stats.sessionHistory.keptMessages).toBe(2);
       expect(metadata.stats.sessionHistory.summarizedMessages).toBe(4);
-      expect(context.sessionSummary).toBeTruthy();
+      expect(context.sessionSummary.length).toBeGreaterThan(0);
     });
 
     it("preserves system messages as anchors", async () => {
@@ -265,7 +265,7 @@ describe("CicadaCompressor", () => {
       const hasToolCall = context.messages.some((m) => m.tool_calls);
       const hasToolResult = context.messages.some((m) => m.role === "tool");
       if (hasToolResult) {
-        expect(hasToolCall, "Tool result should have matching tool call").toBeTruthy();
+        expect(hasToolCall, "Tool result should have matching tool call").toBe(true);
       }
     });
 
@@ -284,10 +284,11 @@ describe("CicadaCompressor", () => {
       });
 
       // Orphaned tool message at start should be removed
-      expect(!context.messages.some(
+      expect(
+        context.messages.some(
           (m) => m.role === "tool" && m.tool_call_id === "missing"
         )
-      ).toBeTruthy();
+      ).toBe(false);
     });
 
     it("uses titleOnly mode when enabled", async () => {
@@ -308,9 +309,9 @@ describe("CicadaCompressor", () => {
       });
 
       // Summary should exist and be truncated
-      expect(context.sessionSummary).toBeTruthy();
+      expect(context.sessionSummary.length).toBeGreaterThan(0);
       const lines = context.sessionSummary.split("\n");
-      expect(lines.every(l => l.length <= 60)).toBeTruthy(); // role: + title
+      expect(lines.every((l) => l.length <= 60)).toBe(true); // role: + title
     });
   });
 
@@ -324,7 +325,7 @@ describe("CicadaCompressor", () => {
 
       const { metadata } = await compressor.compress(input);
 
-      expect(!metadata.layersApplied.includes("llm_summary")).toBeTruthy();
+      expect(metadata.layersApplied).not.toContain("llm_summary");
       expect(metadata.llmSummary).toBe(null);
     });
 
@@ -348,10 +349,10 @@ describe("CicadaCompressor", () => {
       const input = { data: "some context" };
       const { context, metadata } = await compressor.compress(input);
 
-      expect(metadata.layersApplied.includes("llm_summary")).toBeTruthy();
+      expect(metadata.layersApplied).toContain("llm_summary");
       expect(metadata.llmSummary.summary).toBe("Test summary");
       expect(metadata.llmSummary.keyPoints).toEqual(["point1"]);
-      expect(context.llmSummary).toBeTruthy();
+      expect(context.llmSummary).toEqual(expect.any(Object));
       expect(mockRouter.call.mock.calls.length).toBe(1);
     });
 
@@ -368,8 +369,8 @@ describe("CicadaCompressor", () => {
       const input = { data: "some context with error mentions" };
       const { metadata } = await compressor.compress(input);
 
-      expect(metadata.llmSummary).toBeTruthy();
-      expect(typeof metadata.llmSummary.summary === "string").toBeTruthy();
+      expect(metadata.llmSummary).toEqual(expect.any(Object));
+      expect(metadata.llmSummary.summary).toBeTypeOf("string");
     });
 
     it("handles modelRouter.chat fallback", async () => {
@@ -410,8 +411,8 @@ describe("CicadaCompressor", () => {
       const { metadata } = await compressor.compress({ data: "test" });
 
       // Should still produce a fallback summary
-      expect(metadata.llmSummary).toBeTruthy();
-      expect(typeof metadata.llmSummary.summary === "string").toBeTruthy();
+      expect(metadata.llmSummary).toEqual(expect.any(Object));
+      expect(metadata.llmSummary.summary).toBeTypeOf("string");
     });
   });
 
@@ -423,9 +424,9 @@ describe("CicadaCompressor", () => {
       expect(archiveId).toBe("test-key");
 
       const restored = await compressor.restore("test-key");
-      expect(restored).toBeTruthy();
+      expect(restored).toEqual(expect.any(Object));
       expect(restored.data).toBe("value");
-      expect(restored.timestamp).toBeTruthy();
+      expect(restored.timestamp).toBeGreaterThan(0);
       expect(restored.schemaVersion).toBe("1.0");
     });
 
@@ -433,8 +434,8 @@ describe("CicadaCompressor", () => {
       const compressor = new CicadaCompressor();
       const archiveId = await compressor.archive("", { data: "test" });
 
-      expect(archiveId).toBeTruthy();
-      expect(archiveId.startsWith("archive_")).toBeTruthy();
+      expect(archiveId).toBeTypeOf("string");
+      expect(archiveId).toMatch(/^archive_/);
     });
 
     it("uses external adapter.store when available", async () => {
@@ -454,7 +455,7 @@ describe("CicadaCompressor", () => {
       expect(adapter.store.mock.calls.length).toBe(1);
 
       const restored = await compressor.restore("ext-key");
-      expect(restored).toBeTruthy();
+      expect(restored).toEqual(expect.any(Object));
       expect(restored.data).toBe("ext");
     });
 
@@ -471,7 +472,7 @@ describe("CicadaCompressor", () => {
       expect(adapter.set.mock.calls.length).toBe(1);
 
       const restored = await compressor.restore("set-key");
-      expect(restored).toBeTruthy();
+      expect(restored).toEqual(expect.any(Object));
     });
 
     it("returns null when restoring non-existent key", async () => {
@@ -490,8 +491,8 @@ describe("CicadaCompressor", () => {
 
       // k1 should be pruned (oldest)
       expect(compressor._archiveStore.size).toBe(3);
-      expect(!compressor._archiveStore.has("k1")).toBeTruthy();
-      expect(compressor._archiveStore.has("k4")).toBeTruthy();
+      expect(compressor._archiveStore.has("k1")).toBe(false);
+      expect(compressor._archiveStore.has("k4")).toBe(true);
     });
 
     it("prunes archives by retention days on subsequent archive calls", async () => {
@@ -505,13 +506,13 @@ describe("CicadaCompressor", () => {
       // Archive old entry first - it gets immediately pruned due to retention policy
       await compressor.archive("old", { timestamp: twoDaysAgo });
       // Old entry is pruned immediately because it's older than retention cutoff
-      expect(!compressor._archiveStore.has("old")).toBeTruthy();
+      expect(compressor._archiveStore.has("old")).toBe(false);
 
       // Archive new entry
       await compressor.archive("new", { timestamp: now });
 
       // New entry should be kept
-      expect(compressor._archiveStore.has("new")).toBeTruthy();
+      expect(compressor._archiveStore.has("new")).toBe(true);
       expect(compressor._archiveStore.size).toBe(1);
     });
   });
@@ -583,7 +584,7 @@ describe("CicadaCompressor", () => {
       expect(metadata.archiveId).toBe("my-archive");
 
       const restored = await compressor.restore("my-archive");
-      expect(restored).toBeTruthy();
+      expect(restored).toEqual(expect.any(Object));
       expect(restored.context.data).toBe("test");
     });
 
@@ -641,10 +642,10 @@ describe("CicadaCompressor", () => {
       const layerEvent = events.find(
         (e) => e.name === "cicada.layer.completed"
       );
-      expect(layerEvent).toBeTruthy();
+      expect(layerEvent).toEqual(expect.any(Object));
       expect(layerEvent.payload.actor).toBe("cicada");
-      expect(layerEvent.payload.payload.layer).toBeTruthy();
-      expect(layerEvent.payload.payload.stats).toBeTruthy();
+      expect(layerEvent.payload.payload.layer).toBeTypeOf("string");
+      expect(layerEvent.payload.payload.stats).toEqual(expect.any(Object));
     });
   });
 
@@ -675,7 +676,7 @@ describe("CicadaCompressor", () => {
       const handoff = compressor.buildHandoff(state, null);
 
       expect(handoff.runId).toBe("run-123");
-      expect(handoff.timestamp).toBeTruthy();
+      expect(handoff.timestamp).toBeTypeOf("string");
       expect(handoff.accomplished.summary).toBe("Progress summary");
       expect(handoff.accomplished.completedTodos).toEqual(["Done task"]);
       expect(handoff.accomplished.claimCount).toBe(3);
@@ -709,7 +710,7 @@ describe("CicadaCompressor", () => {
       const compressor = new CicadaCompressor();
       const handoff = compressor.buildHandoff({}, null);
 
-      expect(handoff.timestamp).toBeTruthy();
+      expect(handoff.timestamp).toBeTypeOf("string");
       expect(handoff.accomplished.summary).toBe("");
       expect(handoff.accomplished.completedTodos).toEqual([]);
       expect(handoff.pending.todos).toEqual([]);
@@ -720,7 +721,7 @@ describe("CicadaCompressor", () => {
       const compressor = new CicadaCompressor();
       const handoff = compressor.buildHandoff(null, null);
 
-      expect(handoff.timestamp).toBeTruthy();
+      expect(handoff.timestamp).toBeTypeOf("string");
       expect(handoff.accomplished.completedTodos).toEqual([]);
     });
   });
@@ -786,7 +787,7 @@ describe("CicadaCompressor", () => {
         keepLastTurns: 10,
       });
 
-      expect(Array.isArray(context.messages)).toBeTruthy();
+      expect(context.messages).toBeInstanceOf(Array);
       context.messages.forEach((m) => {
         expect(typeof m.content).toBe("string");
       });
@@ -807,10 +808,10 @@ describe("CicadaCompressor", () => {
 
       const { metadata } = await compressor.compress(input);
 
-      expect(metadata.layersApplied.includes("tool_output")).toBeTruthy();
-      expect(metadata.layersApplied.includes("session_history")).toBeTruthy();
-      expect(metadata.stats.toolOutput).toBeTruthy();
-      expect(metadata.stats.sessionHistory).toBeTruthy();
+      expect(metadata.layersApplied).toContain("tool_output");
+      expect(metadata.layersApplied).toContain("session_history");
+      expect(metadata.stats.toolOutput).toEqual(expect.any(Object));
+      expect(metadata.stats.sessionHistory).toEqual(expect.any(Object));
     });
 
     it("handles restore with schema warning for unsupported version", async () => {
@@ -823,9 +824,9 @@ describe("CicadaCompressor", () => {
 
       const restored = await compressor.restore("bad-version");
 
-      expect(restored).toBeTruthy();
-      expect(restored._schemaWarning).toBeTruthy();
-      expect(restored._schemaWarning.includes("99.0")).toBeTruthy();
+      expect(restored).toEqual(expect.any(Object));
+      expect(restored._schemaWarning).toBeTypeOf("string");
+      expect(restored._schemaWarning).toContain("99.0");
     });
   });
 });

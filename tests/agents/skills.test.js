@@ -96,8 +96,8 @@ describe("skills/manager", () => {
       expect(a).toBe(b);
 
       const catalog = await manager.getCatalogPrompt(cwd);
-      expect(catalog.includes("## Skills Catalog")).toBeTruthy();
-      expect(catalog.includes("$AlphaSkill")).toBeTruthy();
+      expect(catalog).toContain("## Skills Catalog");
+      expect(catalog).toContain("$AlphaSkill");
       expect(catalog.includes(cwd.replaceAll("\\", "/"))).toBe(false);
     } finally {
       await fs.rm(cwd, { recursive: true, force: true });
@@ -239,6 +239,6 @@ describe("core/sandbox/skill-executor fallback", () => {
     expect(result.data).toBe("undefined");
     // Node 环境下优先使用 worker_threads，mode 为 'node-worker'
     // 浏览器环境下使用 Web Worker 或 main-thread eval
-    expect(["eval", "node-worker", "worker"].includes(result.metrics.mode)).toBeTruthy();
+    expect(["eval", "node-worker", "worker"]).toContain(result.metrics.mode);
   });
 });

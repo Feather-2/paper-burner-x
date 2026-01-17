@@ -54,7 +54,7 @@ it("VisualRenderer: dispatches by renderType + emits unified events", async () =
   expect(calls.asset.slots.map((s) => s.slotId).join(").toBe("), "asset_1");
   expect(calls.image.slots.map((s) => s.slotId).sort()).toEqual(["img_1", "unknown_1"].sort()
   );
-  expect(calls.image.opts && calls.image.opts.runId === "run_vr").toBeTruthy();
+  expect(calls.image?.opts?.runId).toBe("run_vr");
 
   const names = events.map((e) => e.name);
   expect(names).toEqual(["design.visual.render.started", "design.visual.render.completed"]);
@@ -88,14 +88,15 @@ it("SVGGenerator: generates deterministic SVG and fillSvgPlaceholders patches HT
 
   expect(res.length).toBe(1);
   expect(res[0].slotId).toBe("data_flow");
-  expect(res[0].svgContent.includes("<svg")).toBeTruthy();
-  expect(Number.isFinite(res[0].width) && res[0].width > 0).toBeTruthy();
+  expect(res[0].svgContent).toContain("<svg");
+  expect(res[0].width).toBeTypeOf("number");
+  expect(res[0].width).toBeGreaterThan(0);
 
   const html = `<section><div data-el="image-placeholder" id="data_flow" data-slot-id="data_flow" data-render-type="svg"></div></section>`;
   const patched = fillSvgPlaceholders(html, res);
-  expect(patched.html.includes('data-el="svg"')).toBeTruthy();
-  expect(patched.html.includes("<svg")).toBeTruthy();
-  expect(!patched.html.includes('data-el="image-placeholder" id="data_flow"')).toBeTruthy();
+  expect(patched.html).toContain('data-el="svg"');
+  expect(patched.html).toContain("<svg");
+  expect(patched.html).not.toContain('data-el="image-placeholder" id="data_flow"');
 });
 
 it("AssetResolver: resolves assetId and fillAssetPlaceholders patches HTML", async () => {
@@ -106,13 +107,13 @@ it("AssetResolver: resolves assetId and fillAssetPlaceholders patches HTML", asy
   const resolved = resolver.resolve([{ slotId: "fig_1", renderType: "asset", assetSpec: { assetId: "asset_001" } }]);
 
   expect(resolved.length).toBe(1);
-  expect(resolved[0].assetUri.startsWith("data:image/png;base64,")).toBeTruthy();
+  expect(resolved[0].assetUri).toMatch(/^data:image\/png;base64,/);
 
   const html = `<section><div data-el="image-placeholder" id="fig_1" data-slot-id="fig_1" data-render-type="asset"></div></section>`;
   const patched = fillAssetPlaceholders(html, resolved);
-  expect(patched.html.includes('data-el="image"')).toBeTruthy();
-  expect(patched.html.includes('data-src="data:image/png;base64,QUJD"')).toBeTruthy();
-  expect(!patched.html.includes('data-el="image-placeholder" id="fig_1"')).toBeTruthy();
+  expect(patched.html).toContain('data-el="image"');
+  expect(patched.html).toContain('data-src="data:image/png;base64,QUJD"');
+  expect(patched.html).not.toContain('data-el="image-placeholder" id="fig_1"');
 });
 
 it("AssetResolver: fillAssetPlaceholders handles unquoted attrs + self-closing placeholder", async () => {
@@ -121,9 +122,9 @@ it("AssetResolver: fillAssetPlaceholders handles unquoted attrs + self-closing p
   const html = `<section><div id=fig_1 data-slot-id=fig_1 data-render-type=asset data-el=image-placeholder/></section>`;
   const patched = fillAssetPlaceholders(html, [{ slotId: "fig_1", assetUri: "data:image/png;base64,QUJD", width: 10, height: 10 }]);
 
-  expect(patched.html.includes('data-el="image"')).toBeTruthy();
-  expect(patched.html.includes('data-render-type="asset"')).toBeTruthy();
-  expect(patched.html.includes('data-src="data:image/png;base64,QUJD"')).toBeTruthy();
+  expect(patched.html).toContain('data-el="image"');
+  expect(patched.html).toContain('data-render-type="asset"');
+  expect(patched.html).toContain('data-src="data:image/png;base64,QUJD"');
   expect(patched.html.includes("image-placeholder")).toBe(false);
 });
 
@@ -143,15 +144,15 @@ it("SVGGenerator: classifySvgError categorizes errors correctly", async () => {
 
   expect(results.length).toBe(1);
   expect(results[0].source).toBe("fallback");
-  expect(results[0].error).toBeTruthy();
+  expect(results[0].error).toEqual(expect.any(Object));
   expect(results[0].error.level).toBe("fatal");
   expect(results[0].error.code).toBe("CONFIG_OR_AUTH");
 
   // 验证 report 结构
-  expect(report).toBeTruthy();
+  expect(report).toEqual(expect.any(Object));
   expect(report.llmGenerated).toBe(0);
   expect(report.fallback).toBe(1);
-  expect(report.errors.length > 0).toBeTruthy();
+  expect(report.errors.length).toBeGreaterThan(0);
 });
 
 it("SVGGenerator: emits design.svg.batch.failed on error", async () => {
@@ -168,8 +169,8 @@ it("SVGGenerator: emits design.svg.batch.failed on error", async () => {
   );
 
   const failedEvents = events.filter((e) => e.name === "design.svg.batch.failed");
-  expect(failedEvents.length > 0, "Should emit batch.failed event").toBeTruthy();
-  expect(failedEvents[0].record.payload.error).toBeTruthy();
+  expect(failedEvents.length, "Should emit batch.failed event").toBeGreaterThan(0);
+  expect(failedEvents[0].record.payload).toHaveProperty("error", expect.anything());
 });
 
 it("SVGGenerator: returns structured report with errors array", async () => {
@@ -185,9 +186,9 @@ it("SVGGenerator: returns structured report with errors array", async () => {
     { emit: () => {} }
   );
 
-  expect(report).toBeTruthy();
+  expect(report).toEqual(expect.any(Object));
   expect(typeof report.planned).toBe("number");
   expect(typeof report.llmGenerated).toBe("number");
   expect(typeof report.fallback).toBe("number");
-  expect(Array.isArray(report.errors)).toBeTruthy();
+  expect(report.errors).toBeInstanceOf(Array);
 });

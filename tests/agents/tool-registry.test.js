@@ -45,8 +45,8 @@ describe("ToolRegistry", () => {
         },
       });
       // 内部 _hooks 包含传入的 hook + 内置 PreToolUseHook
-      expect(registry._hooks.before.length >= 2).toBeTruthy();
-      expect(registry._hooks.after.includes(afterHook)).toBeTruthy();
+      expect(registry._hooks.before.length).toBeGreaterThanOrEqual(2);
+      expect(registry._hooks.after).toContain(afterHook);
     });
 
     it("should accept logger via options", async () => {
@@ -64,7 +64,9 @@ describe("ToolRegistry", () => {
         logger,
       });
       await registry.callTool("test", {}, {});
-      expect(warnings.some(w => w.includes("BeforeHook failed"))).toBeTruthy();
+      expect(warnings).toEqual(
+        expect.arrayContaining([expect.stringContaining("BeforeHook failed")])
+      );
     });
   });
 
@@ -72,7 +74,7 @@ describe("ToolRegistry", () => {
     it("should register a tool", () => {
       const registry = new ToolRegistry();
       registry.registerTool("greet", (params) => `Hello ${params.name}`);
-      expect(registry.hasTool("greet")).toBeTruthy();
+      expect(registry.hasTool("greet")).toBe(true);
     });
 
     it("should throw if name is empty", () => {
@@ -94,7 +96,7 @@ describe("ToolRegistry", () => {
       const registry = new ToolRegistry();
       registry.registerTool("test", () => "v1");
       registry.registerTool("test", () => "v2");
-      expect(registry.hasTool("test")).toBeTruthy();
+      expect(registry.hasTool("test")).toBe(true);
     });
   });
 
@@ -172,14 +174,14 @@ describe("ToolRegistry", () => {
       const hook = () => null;
       const result = registry.useHook("before", hook);
       expect(result).toBe(registry); // chainable
-      expect(registry._hooks.before.includes(hook)).toBeTruthy();
+      expect(registry._hooks.before).toContain(hook);
     });
 
     it("should register after hook", () => {
       const registry = new ToolRegistry();
       const hook = () => undefined;
       registry.useHook("after", hook);
-      expect(registry._hooks.after.includes(hook)).toBeTruthy();
+      expect(registry._hooks.after).toContain(hook);
     });
 
     it("should throw for invalid phase", () => {
@@ -209,7 +211,7 @@ describe("ToolRegistry", () => {
       const registry = new ToolRegistry();
       const result = await registry.callTool("unknown", {}, {});
       expect(result.ok).toBe(false);
-      expect(result.error.includes("Unknown tool")).toBeTruthy();
+      expect(result.error).toContain("Unknown tool");
     });
 
     it("should catch tool errors", async () => {
@@ -222,7 +224,7 @@ describe("ToolRegistry", () => {
       });
       const result = await registry.callTool("fail", {}, {});
       expect(result.ok).toBe(false);
-      expect(result.error.includes("Intentional failure")).toBeTruthy();
+      expect(result.error).toContain("Intentional failure");
     });
 
     it("should handle async tools", async () => {
@@ -343,7 +345,9 @@ describe("ToolRegistry", () => {
       const result = await registry.callTool("test", {}, {});
       expect(result.ok).toBe(true);
       expect(result.data).toBe("ok");
-      expect(warnings.some(w => w.includes("BeforeHook failed"))).toBeTruthy();
+      expect(warnings).toEqual(
+        expect.arrayContaining([expect.stringContaining("BeforeHook failed")])
+      );
     });
 
     it("should catch after hook errors", async () => {
@@ -361,7 +365,9 @@ describe("ToolRegistry", () => {
       });
       const result = await registry.callTool("test", {}, {});
       expect(result.ok).toBe(true);
-      expect(warnings.some(w => w.includes("AfterHook failed"))).toBeTruthy();
+      expect(warnings).toEqual(
+        expect.arrayContaining([expect.stringContaining("AfterHook failed")])
+      );
     });
   });
 
@@ -413,8 +419,8 @@ describe("ToolRegistry", () => {
       };
       const result = await registry.callTool("test", {}, context);
       expect(result.ok).toBe(false);
-      expect(result.error.includes("quota exceeded")).toBeTruthy();
-      expect(result.quota).toBeTruthy();
+      expect(result.error).toContain("quota exceeded");
+      expect(result.quota).toEqual({ calls: 10, limit: 5 });
     });
 
     it("should emit quota exceeded event", async () => {
@@ -430,7 +436,9 @@ describe("ToolRegistry", () => {
         emit: (name, data) => events.push({ name, data }),
       };
       await registry.callTool("test", {}, context);
-      expect(events.some(e => e.name === "tool.quota.exceeded")).toBeTruthy();
+      expect(events).toEqual(
+        expect.arrayContaining([expect.objectContaining({ name: "tool.quota.exceeded" })])
+      );
     });
 
     it("should warn but continue in warn mode", async () => {
@@ -448,7 +456,7 @@ describe("ToolRegistry", () => {
       const result = await registry.callTool("test", {}, context);
       expect(result.ok).toBe(true);
       expect(result.data).toBe("ok");
-      expect(recordedCalls.includes("test")).toBeTruthy();
+      expect(recordedCalls).toContain("test");
     });
 
     it("should skip quota check when mode is off", async () => {
@@ -576,7 +584,7 @@ describe("ToolRegistry", () => {
 
       const callResult = await registry.callTool("test", {}, {});
       expect(callResult.ok).toBe(false);
-      expect(callResult.error.includes("policy denied")).toBeTruthy();
+      expect(callResult.error).toContain("policy denied");
       // policy 字段被 normalizeToolResult 丢弃，这是设计行为
     });
 
@@ -605,7 +613,9 @@ describe("ToolRegistry", () => {
       });
       const result = await registry.callTool("test", {}, {});
       expect(result.ok).toBe(true); // fail-open
-      expect(warnings.some(w => w.includes("PolicyManager.check failed"))).toBeTruthy();
+      expect(warnings).toEqual(
+        expect.arrayContaining([expect.stringContaining("PolicyManager.check failed")])
+      );
     });
 
     it("should ignore invalid policy manager", () => {

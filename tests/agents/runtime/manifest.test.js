@@ -33,8 +33,11 @@ describe("manifest", () => {
       expect(manifest.name).toBe("read-doc");
       expect(manifest.type).toBe(PluginType.TOOL);
       expect(manifest.manifestVersion).toBe(MANIFEST_VERSION);
-      expect(manifest.parameters.properties.sourceId).toBeTruthy();
-      expect(manifest.parameters.required.includes("sourceId")).toBeTruthy();
+      expect(manifest.parameters.properties.sourceId).toEqual({
+        type: "string",
+        description: "文档 ID（必需）",
+      });
+      expect(manifest.parameters.required).toEqual(["sourceId"]);
     });
 
     it("should throw on missing name", () => {
@@ -119,7 +122,7 @@ describe("manifest", () => {
       });
 
       expect(valid).toBe(false);
-      expect(errors.some(e => e.includes("name"))).toBeTruthy();
+      expect(errors).toContain("Missing required field: name");
     });
 
     it("should fail on invalid type", () => {
@@ -130,7 +133,7 @@ describe("manifest", () => {
       });
 
       expect(valid).toBe(false);
-      expect(errors.some(e => e.includes("Invalid type"))).toBeTruthy();
+      expect(errors).toContain("Invalid type: invalid");
     });
 
     it("should fail on unknown permission", () => {
@@ -142,7 +145,7 @@ describe("manifest", () => {
       });
 
       expect(valid).toBe(false);
-      expect(errors.some(e => e.includes("Unknown permission"))).toBeTruthy();
+      expect(errors).toContain("Unknown permission: unknown_permission");
     });
 
     it("should fail on invalid version format", () => {
@@ -154,13 +157,13 @@ describe("manifest", () => {
       });
 
       expect(valid).toBe(false);
-      expect(errors.some(e => e.includes("Invalid version"))).toBeTruthy();
+      expect(errors).toContain("Invalid version format: invalid");
     });
 
     it("should handle null manifest", () => {
       const { valid, errors } = validateManifest(null);
       expect(valid).toBe(false);
-      expect(errors.some(e => e.includes("null"))).toBeTruthy();
+      expect(errors).toContain("Manifest is null or undefined");
     });
   });
 
@@ -180,7 +183,7 @@ describe("manifest", () => {
 
       expect(manifest.name).toBe("read-doc");
       expect(manifest.type).toBe(PluginType.TOOL);
-      expect(manifest.permissions.includes(PermissionType.READ_FILE)).toBeTruthy();
+      expect(manifest.permissions).toContain(PermissionType.READ_FILE);
     });
 
     it("should return null for null definition", () => {
@@ -203,7 +206,7 @@ describe("manifest", () => {
 
       expect(manifest.name).toBe("code-review");
       expect(manifest.type).toBe(PluginType.SKILL);
-      expect(manifest.permissions.includes(PermissionType.READ_FILE)).toBeTruthy();
+      expect(manifest.permissions).toContain(PermissionType.READ_FILE);
     });
 
     it("should return null for null metadata", () => {
@@ -275,8 +278,14 @@ describe("manifest", () => {
 
       const imported = ManifestRegistry.fromJSON(json);
       expect(imported.size).toBe(2);
-      expect(imported.get("tool1")).toBeTruthy();
-      expect(imported.get("skill1")).toBeTruthy();
+      expect(imported.get("tool1")).toMatchObject({
+        name: "tool1",
+        type: PluginType.TOOL,
+      });
+      expect(imported.get("skill1")).toMatchObject({
+        name: "skill1",
+        type: PluginType.SKILL,
+      });
     });
 
     it("should clear registry", () => {

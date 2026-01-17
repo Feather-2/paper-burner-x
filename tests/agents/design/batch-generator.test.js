@@ -4,8 +4,8 @@ const assert = require("node:assert/strict");
 
 it("batch-generator module exports generateBatch and generateSingleSlide", async () => {
   const module = await import("../../../js/agents/stages/design/generators/batch-generator.js");
-  expect(typeof module.generateBatch === "function", "generateBatch should be exported as a function").toBeTruthy();
-  expect(typeof module.generateSingleSlide === "function", "generateSingleSlide should be exported as a function").toBeTruthy();
+  expect(module.generateBatch, "generateBatch should be exported as a function").toBeTypeOf("function");
+  expect(module.generateSingleSlide, "generateSingleSlide should be exported as a function").toBeTypeOf("function");
 });
 
 function makeSlideIntent(id, title = "Test Slide", pageType = "overview") {
@@ -78,17 +78,21 @@ it("design.slide.started event payload includes complete slideIntent fields", as
     const evt = startedEvents[i];
     expect(evt.record?.actor).toBe("design", `event ${i}: actor should be "design"`);
     expect(evt.record?.status).toBe("started", `event ${i}: status should be "started"`);
-    expect(evt.record?.payload, `event ${i}: should have payload`).toBeTruthy();
+    expect(evt.record?.payload, `event ${i}: should have payload`).toEqual(expect.any(Object));
 
     const slideIntent = evt.record.payload.slideIntent;
-    expect(slideIntent, `event ${i}: payload should have slideIntent`).toBeTruthy();
-    expect(slideIntent.id, `event ${i}: slideIntent should have id`).toBeTruthy();
-    expect(slideIntent.title, `event ${i}: slideIntent should have title`).toBeTruthy();
-    expect(slideIntent.pageType, `event ${i}: slideIntent should have pageType`).toBeTruthy();
-    expect(slideIntent.objective, `event ${i}: slideIntent should have objective`).toBeTruthy();
-    expect(Array.isArray(slideIntent.keyPoints)).toBeTruthy();
-    expect(Array.isArray(slideIntent.claimIds)).toBeTruthy();
-    expect(Array.isArray(slideIntent.dataTableIds)).toBeTruthy();
+    expect(slideIntent, `event ${i}: payload should have slideIntent`).toEqual(expect.any(Object));
+    expect(slideIntent.id, `event ${i}: slideIntent should have id`).toBeTypeOf("string");
+    expect(slideIntent.id.length, `event ${i}: slideIntent id should not be empty`).toBeGreaterThan(0);
+    expect(slideIntent.title, `event ${i}: slideIntent should have title`).toBeTypeOf("string");
+    expect(slideIntent.title.length, `event ${i}: slideIntent title should not be empty`).toBeGreaterThan(0);
+    expect(slideIntent.pageType, `event ${i}: slideIntent should have pageType`).toBeTypeOf("string");
+    expect(slideIntent.pageType.length, `event ${i}: slideIntent pageType should not be empty`).toBeGreaterThan(0);
+    expect(slideIntent.objective, `event ${i}: slideIntent should have objective`).toBeTypeOf("string");
+    expect(slideIntent.objective.length, `event ${i}: slideIntent objective should not be empty`).toBeGreaterThan(0);
+    expect(Array.isArray(slideIntent.keyPoints)).toBe(true);
+    expect(Array.isArray(slideIntent.claimIds)).toBe(true);
+    expect(Array.isArray(slideIntent.dataTableIds)).toBe(true);
   }
 
   const s1Event = startedEvents.find((e) => e.record?.payload?.slideIntent?.id === "s1");
@@ -132,15 +136,15 @@ it("design.slide.failed event payload contains error object with message and sta
   const failedEvt = failedEvents[0];
   expect(failedEvt.record?.actor).toBe("design", "actor should be design");
   expect(failedEvt.record?.status).toBe("failed", "status should be failed");
-  expect(failedEvt.record?.payload, "should have payload").toBeTruthy();
-  expect(failedEvt.record?.payload?.error, "payload should have error field").toBeTruthy();
+  expect(failedEvt.record?.payload, "should have payload").toEqual(expect.any(Object));
+  expect(failedEvt.record?.payload?.error, "payload should have error field").toEqual(expect.any(Object));
 
   const error = failedEvt.record.payload.error;
-  expect(typeof error).toBe("object", "error should be an object");
-  expect(error.message, "error should have message property").toBeTruthy();
-  expect(typeof error.message).toBe("string", "error.message should be a string");
-  expect(error.message.includes("Simulated LLM failure")).toBeTruthy();
-  expect(error.stack !== undefined, "error should have stack property (may be undefined).toBeTruthy()");
+  expect(error).toEqual(expect.any(Object));
+  expect(error.message, "error should have message property").toBeTypeOf("string");
+  expect(error.message.length, "error.message should not be empty").toBeGreaterThan(0);
+  expect(error.message.includes("Simulated LLM failure")).toBe(true);
+  expect("stack" in error).toBe(true);
 
   if (error.stack) {
     expect(typeof error.stack).toBe("string", "error.stack should be a string when present");
@@ -173,11 +177,12 @@ it("design.slide.completed event is emitted with correct payload after successfu
   const completedEvt = completedEvents[0];
   expect(completedEvt.record?.actor).toBe("design");
   expect(completedEvt.record?.status).toBe("completed");
-  expect(completedEvt.record?.payload).toBeTruthy();
-  expect(typeof completedEvt.record.payload.slideIndex).toBe("number");
-  expect(completedEvt.record.payload.html).toBeTruthy();
-  expect(typeof completedEvt.record.payload.duration).toBe("number");
-  expect(["llm", "fallback"].includes(completedEvt.record.payload.source)).toBeTruthy();
+  expect(completedEvt.record?.payload).toEqual(expect.any(Object));
+  expect(completedEvt.record.payload.slideIndex).toBeTypeOf("number");
+  expect(completedEvt.record.payload.html).toBeTypeOf("string");
+  expect(completedEvt.record.payload.html.length).toBeGreaterThan(0);
+  expect(completedEvt.record.payload.duration).toBeTypeOf("number");
+  expect(["llm", "fallback"].includes(completedEvt.record.payload.source)).toBe(true);
 });
 
 it("design.batch.started and design.batch.completed events are emitted with correct structure", async () => {
@@ -203,22 +208,22 @@ it("design.batch.started and design.batch.completed events are emitted with corr
   const batchStartedEvents = events.filter((e) => e.name === "design.batch.started");
   const batchCompletedEvents = events.filter((e) => e.name === "design.batch.completed");
 
-  expect(batchStartedEvents.length >= 1, "should emit at least one design.batch.started").toBeTruthy();
-  expect(batchCompletedEvents.length >= 1, "should emit at least one design.batch.completed").toBeTruthy();
+  expect(batchStartedEvents.length, "should emit at least one design.batch.started").toBeGreaterThan(0);
+  expect(batchCompletedEvents.length, "should emit at least one design.batch.completed").toBeGreaterThan(0);
 
   for (const evt of batchStartedEvents) {
     expect(evt.record?.actor).toBe("design");
     expect(evt.record?.status).toBe("started");
-    expect(typeof evt.record?.payload?.batchIndex === "number").toBeTruthy();
-    expect(Array.isArray(evt.record?.payload?.slideIndexes)).toBeTruthy();
+    expect(evt.record?.payload?.batchIndex).toBeTypeOf("number");
+    expect(Array.isArray(evt.record?.payload?.slideIndexes)).toBe(true);
   }
 
   for (const evt of batchCompletedEvents) {
     expect(evt.record?.actor).toBe("design");
     expect(evt.record?.status).toBe("completed");
-    expect(typeof evt.record?.payload?.batchIndex === "number").toBeTruthy();
-    expect(Array.isArray(evt.record?.payload?.slideIndexes)).toBeTruthy();
-    expect(typeof evt.record?.payload?.duration === "number").toBeTruthy();
+    expect(evt.record?.payload?.batchIndex).toBeTypeOf("number");
+    expect(Array.isArray(evt.record?.payload?.slideIndexes)).toBe(true);
+    expect(evt.record?.payload?.duration).toBeTypeOf("number");
   }
 });
 
@@ -278,8 +283,8 @@ it("generateBatch handles image slots and applies visual slot hints", async () =
   });
 
   expect(results.length).toBe(1);
-  expect(results[0].slideHtml.includes('data-el="image-placeholder"')).toBeTruthy();
-  expect(results[0].slideHtml.includes('id="img_s1_hero"')).toBeTruthy();
+  expect(results[0].slideHtml.includes('data-el="image-placeholder"')).toBe(true);
+  expect(results[0].slideHtml.includes('id="img_s1_hero"')).toBe(true);
 });
 
 it("fallback generation creates valid slide HTML when model fails", async () => {
@@ -297,8 +302,9 @@ it("fallback generation creates valid slide HTML when model fails", async () => 
 
   expect(result.slideIntentId).toBe("s_fallback");
   expect(result.source).toBe("fallback");
-  expect(result.slideHtml).toBeTruthy();
-  expect(result.slideHtml.includes('<section')).toBeTruthy();
-  expect(result.slideHtml.includes('data-type="freeform"')).toBeTruthy();
-  expect(result.slideHtml.includes('data-el=')).toBeTruthy();
+  expect(result.slideHtml).toBeTypeOf("string");
+  expect(result.slideHtml.length).toBeGreaterThan(0);
+  expect(result.slideHtml.includes("<section")).toBe(true);
+  expect(result.slideHtml.includes('data-type="freeform"')).toBe(true);
+  expect(result.slideHtml.includes("data-el=")).toBe(true);
 });

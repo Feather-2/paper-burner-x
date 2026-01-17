@@ -69,7 +69,7 @@ describe("plugins/compression/watchdog.js", () => {
     await watchdogPlugin.install(ctx);
 
     expect(ctx.registerService).toHaveBeenCalledWith("watchdog", expect.any(Object));
-    expect(ctx._services.watchdog).toBeTruthy();
+    expect(ctx._services.watchdog).toEqual(expect.any(Object));
     expect(typeof ctx._services.watchdog.check).toBe("function");
     expect(typeof ctx._services.watchdog.getHealth).toBe("function");
 
@@ -83,7 +83,12 @@ describe("plugins/compression/watchdog.js", () => {
     expect(ctx.events.emit).not.toHaveBeenCalled();
 
     const intervalId = ctx._watchdogInterval;
-    expect(intervalId).toBeTruthy();
+    expect(intervalId).toEqual(
+      expect.objectContaining({
+        ref: expect.any(Function),
+        unref: expect.any(Function),
+      }),
+    );
 
     await watchdogPlugin.uninstall(ctx);
 

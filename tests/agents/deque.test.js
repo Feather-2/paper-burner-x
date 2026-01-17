@@ -8,7 +8,7 @@ describe("shared/utils/deque", () => {
     it("creates empty deque", () => {
       const d = new Deque();
       expect(d.size).toBe(0);
-      expect(d.isEmpty()).toBeTruthy();
+      expect(d.isEmpty()).toBe(true);
     });
 
     it("creates deque from iterable", () => {
@@ -138,17 +138,17 @@ describe("shared/utils/deque", () => {
 
   describe("isEmpty", () => {
     it("returns true for empty deque", () => {
-      expect(new Deque().isEmpty()).toBeTruthy();
+      expect(new Deque().isEmpty()).toBe(true);
     });
 
     it("returns false for non-empty deque", () => {
-      expect(new Deque([1]).isEmpty()).toBeFalsy();
+      expect(new Deque([1]).isEmpty()).toBe(false);
     });
 
     it("returns true after all elements removed", () => {
       const d = new Deque([1]);
       d.pop();
-      expect(d.isEmpty()).toBeTruthy();
+      expect(d.isEmpty()).toBe(true);
     });
   });
 
@@ -199,7 +199,7 @@ describe("shared/utils/deque", () => {
       const d = new Deque([1, 2, 3]);
       d.clear();
       expect(d.size).toBe(0);
-      expect(d.isEmpty()).toBeTruthy();
+      expect(d.isEmpty()).toBe(true);
     });
 
     it("allows reuse after clear", () => {
@@ -260,7 +260,7 @@ describe("shared/utils/deque", () => {
       d.push(3);
       expect(d.shift()).toBe(2);
       expect(d.shift()).toBe(3);
-      expect(d.isEmpty()).toBeTruthy();
+      expect(d.isEmpty()).toBe(true);
     });
 
     it("handles alternating push/pop (stack behavior)", () => {
@@ -271,7 +271,7 @@ describe("shared/utils/deque", () => {
       d.push(3);
       expect(d.pop()).toBe(3);
       expect(d.pop()).toBe(1);
-      expect(d.isEmpty()).toBeTruthy();
+      expect(d.isEmpty()).toBe(true);
     });
 
     it("handles unshift/pop combination", () => {
@@ -296,7 +296,7 @@ describe("shared/utils/deque", () => {
       for (let i = 0; i < n; i++) {
         expect(d.shift()).toBe(i);
       }
-      expect(d.isEmpty()).toBeTruthy();
+      expect(d.isEmpty()).toBe(true);
     });
   });
 });

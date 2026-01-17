@@ -42,7 +42,7 @@ describe("StorageVfs - constructor", () => {
   it("creates instance with valid adapter", () => {
     const adapter = createMockStorageAdapter();
     const vfs = new StorageVfs(adapter);
-    expect(vfs instanceof StorageVfs).toBeTruthy();
+    expect(vfs).toBeInstanceOf(StorageVfs);
     expect(vfs.storageAdapter).toBe(adapter);
   });
 
@@ -303,8 +303,8 @@ describe("StorageVfs - stat", () => {
     const stat = await vfs.stat("file.txt");
     expect(stat.isFile()).toBe(true);
     expect(stat.isDirectory()).toBe(false);
-    expect(stat.size > 0).toBeTruthy();
-    expect(stat.mtimeMs > 0).toBeTruthy();
+    expect(stat.size).toBeGreaterThan(0);
+    expect(stat.mtimeMs).toBeGreaterThan(0);
   });
 
   it("returns directory stat", async () => {
@@ -379,15 +379,15 @@ describe("StorageVfs - readdir", () => {
     await vfs.writeText("root.txt", "root");
     await vfs.writeText("dir/nested.txt", "nested");
     const names = await vfs.readdir("");
-    expect(names.includes("root.txt")).toBeTruthy();
-    expect(names.includes("dir")).toBeTruthy();
+    expect(names).toContain("root.txt");
+    expect(names).toContain("dir");
   });
 
   it("infers directory from nested files", async () => {
     await vfs.writeText("parent/child/file.txt", "content");
     const entries = await vfs.readdir("parent", { withFileTypes: true });
     const childEntry = entries.find((e) => e.name === "child");
-    expect(childEntry).toBeTruthy();
+    expect(childEntry).toBeDefined();
     expect(childEntry.isDirectory()).toBe(true);
   });
 
@@ -407,7 +407,7 @@ describe("StorageVfs - list (legacy)", () => {
     await vfs.writeText("dir/file.txt", "content");
     await vfs.mkdir("dir/sub");
     const items = await vfs.list("dir");
-    expect(Array.isArray(items)).toBeTruthy();
+    expect(items).toBeInstanceOf(Array);
 
     const fileItem = items.find((i) => i.name === "file.txt");
     expect(fileItem.kind).toBe("file");
@@ -667,7 +667,7 @@ describe("StorageVfs - stat edge cases", () => {
     });
     const stat = await vfs.stat("badnums.txt");
     expect(stat.size).toBe(0);
-    expect(!("mtimeMs" in stat) || stat.mtimeMs === undefined).toBeTruthy();
+    expect(stat.mtimeMs).toBeUndefined();
   });
 });
 
@@ -721,10 +721,10 @@ describe("StorageVfs - keys iteration edge cases", () => {
 
     // These should not throw despite malformed keys
     const files = await vfs.listFiles({});
-    expect(files.includes("file.txt")).toBeTruthy();
+    expect(files).toContain("file.txt");
 
     const entries = await vfs.readdir("");
-    expect(entries.includes("file.txt")).toBeTruthy();
+    expect(entries).toContain("file.txt");
   });
 });
 

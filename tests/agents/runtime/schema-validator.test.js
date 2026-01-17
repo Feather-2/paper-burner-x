@@ -97,7 +97,7 @@ describe("schema-validator", () => {
 
         const { valid, errors } = validateArgs({}, schema);
         expect(valid).toBe(false);
-        expect(errors.some(e => e.includes("Missing required field: name"))).toBeTruthy();
+        expect(errors).toContain("Missing required field: name");
       });
 
       it("should fail when required field is null", () => {
@@ -111,7 +111,7 @@ describe("schema-validator", () => {
 
         const { valid, errors } = validateArgs({ name: null }, schema);
         expect(valid).toBe(false);
-        expect(errors.some(e => e.includes("Missing required field: name"))).toBeTruthy();
+        expect(errors).toContain("Missing required field: name");
       });
 
       it("should fail when required field is undefined", () => {
@@ -125,7 +125,7 @@ describe("schema-validator", () => {
 
         const { valid, errors } = validateArgs({ name: undefined }, schema);
         expect(valid).toBe(false);
-        expect(errors.some(e => e.includes("Missing required field: name"))).toBeTruthy();
+        expect(errors).toContain("Missing required field: name");
       });
 
       it("should pass when required field has falsy but valid value", () => {
@@ -157,8 +157,8 @@ describe("schema-validator", () => {
         const { valid, errors } = validateArgs({}, schema);
         expect(valid).toBe(false);
         expect(errors.length).toBe(2);
-        expect(errors.some(e => e.includes("name"))).toBeTruthy();
-        expect(errors.some(e => e.includes("age"))).toBeTruthy();
+        expect(errors).toContain("Missing required field: name");
+        expect(errors).toContain("Missing required field: age");
       });
     });
 
@@ -173,7 +173,7 @@ describe("schema-validator", () => {
 
         const { valid, errors } = validateArgs({ age: "not a number" }, schema);
         expect(valid).toBe(false);
-        expect(errors.some(e => e.includes("expected number"))).toBeTruthy();
+        expect(errors).toContain("age: expected number, got string");
       });
 
       it("should accept integer as number type when integer is expected", () => {
@@ -324,7 +324,7 @@ describe("schema-validator", () => {
 
         const { valid: valid2, errors } = validateArgs({ status: "unknown" }, schema);
         expect(valid2).toBe(false);
-        expect(errors.some(e => e.includes("must be one of"))).toBeTruthy();
+        expect(errors).toContain("status: must be one of [active, inactive]");
       });
 
       it("should validate enum with different types", () => {
@@ -351,9 +351,9 @@ describe("schema-validator", () => {
         };
 
         const { errors } = validateArgs({ color: "yellow" }, schema);
-        expect(errors[0].includes("red")).toBeTruthy();
-        expect(errors[0].includes("green")).toBeTruthy();
-        expect(errors[0].includes("blue")).toBeTruthy();
+        expect(errors[0]).toContain("red");
+        expect(errors[0]).toContain("green");
+        expect(errors[0]).toContain("blue");
       });
     });
 
@@ -371,11 +371,11 @@ describe("schema-validator", () => {
 
         const { valid: valid2, errors: e2 } = validateArgs({ count: -1 }, schema);
         expect(valid2).toBe(false);
-        expect(e2.some(e => e.includes(">= 0"))).toBeTruthy();
+        expect(e2).toContain("count: must be >= 0");
 
         const { valid: valid3, errors: e3 } = validateArgs({ count: 101 }, schema);
         expect(valid3).toBe(false);
-        expect(e3.some(e => e.includes("<= 100"))).toBeTruthy();
+        expect(e3).toContain("count: must be <= 100");
       });
 
       it("should allow boundary values", () => {
@@ -438,11 +438,11 @@ describe("schema-validator", () => {
 
         const { valid: valid2, errors: e2 } = validateArgs({ name: "a" }, schema);
         expect(valid2).toBe(false);
-        expect(e2.some(e => e.includes(">= 2"))).toBeTruthy();
+        expect(e2).toContain("name: length must be >= 2");
 
         const { valid: valid3, errors: e3 } = validateArgs({ name: "verylongname" }, schema);
         expect(valid3).toBe(false);
-        expect(e3.some(e => e.includes("<= 10"))).toBeTruthy();
+        expect(e3).toContain("name: length must be <= 10");
       });
 
       it("should allow boundary lengths", () => {
@@ -487,11 +487,11 @@ describe("schema-validator", () => {
 
         const { valid: valid2, errors: e2 } = validateArgs({ items: [] }, schema);
         expect(valid2).toBe(false);
-        expect(e2.some(e => e.includes(">= 1"))).toBeTruthy();
+        expect(e2).toContain("items: must have >= 1 items");
 
         const { valid: valid3, errors: e3 } = validateArgs({ items: [1, 2, 3, 4] }, schema);
         expect(valid3).toBe(false);
-        expect(e3.some(e => e.includes("<= 3"))).toBeTruthy();
+        expect(e3).toContain("items: must have <= 3 items");
       });
 
       it("should allow boundary items count", () => {
@@ -536,7 +536,7 @@ describe("schema-validator", () => {
 
         const { valid: valid2, errors } = validateArgs({ email: "invalid" }, schema);
         expect(valid2).toBe(false);
-        expect(errors.some(e => e.includes("does not match pattern"))).toBeTruthy();
+        expect(errors).toContain("email: does not match pattern ^[^@]+@[^@]+$");
       });
 
       it("should handle invalid pattern gracefully", () => {
@@ -549,7 +549,7 @@ describe("schema-validator", () => {
 
         const { valid, errors } = validateArgs({ value: "test" }, schema);
         expect(valid).toBe(false);
-        expect(errors.some(e => e.includes("invalid pattern"))).toBeTruthy();
+        expect(errors[0]).toContain("value: invalid pattern [invalid");
       });
 
       it("should skip pattern check for non-string values", () => {
@@ -592,7 +592,7 @@ describe("schema-validator", () => {
 
         const { valid, errors } = validateArgs({ name: "test", extra: "field" }, schema);
         expect(valid).toBe(false);
-        expect(errors.some(e => e.includes("Unknown field: extra"))).toBeTruthy();
+        expect(errors).toContain("Unknown field: extra");
       });
 
       it("should allow additional properties by default", () => {
@@ -678,7 +678,7 @@ describe("schema-validator", () => {
           schema
         );
         expect(v2).toBe(false);
-        expect(e2.length >= 5).toBeTruthy();
+        expect(e2.length).toBeGreaterThanOrEqual(5);
       });
     });
   });
@@ -715,9 +715,12 @@ describe("schema-validator", () => {
 
         const normalized = normalizeSchema(schema);
         expect(normalized.type).toBe("object");
-        expect(normalized.properties.sourceId).toBeTruthy();
-        expect(normalized.required.includes("sourceId")).toBeTruthy();
-        expect(!normalized.required.includes("maxLength")).toBeTruthy();
+        expect(normalized.properties.sourceId).toEqual({
+          type: "string",
+          description: "文档 ID（必需）",
+        });
+        expect(normalized.required).toContain("sourceId");
+        expect(normalized.required).not.toContain("maxLength");
       });
 
       it("should detect required from English keyword", () => {
@@ -727,8 +730,8 @@ describe("schema-validator", () => {
         };
 
         const normalized = normalizeSchema(schema);
-        expect(normalized.required.includes("docId")).toBeTruthy();
-        expect(!normalized.required.includes("optional")).toBeTruthy();
+        expect(normalized.required).toContain("docId");
+        expect(normalized.required).not.toContain("optional");
       });
 
       it("should convert object format with required property", () => {
@@ -738,8 +741,8 @@ describe("schema-validator", () => {
         };
 
         const normalized = normalizeSchema(schema);
-        expect(normalized.required.includes("name")).toBeTruthy();
-        expect(!normalized.required.includes("age")).toBeTruthy();
+        expect(normalized.required).toContain("name");
+        expect(normalized.required).not.toContain("age");
       });
 
       it("should preserve property definitions in object format", () => {
@@ -905,7 +908,7 @@ describe("schema-validator", () => {
         const normalized = normalizeSchema(schema);
         expect(normalized.properties.name.type).toBe("string");
         expect(normalized.properties.count.type).toBe("number");
-        expect(normalized.required.includes("name")).toBeTruthy();
+        expect(normalized.required).toContain("name");
       });
     });
   });
@@ -920,7 +923,6 @@ describe("schema-validator", () => {
           context: {},
         });
 
-        expect(result.params).toBeTruthy();
         expect(result.params).toEqual({ name: "test" });
       });
 
@@ -932,7 +934,7 @@ describe("schema-validator", () => {
           context: {},
         });
 
-        expect(result.params).toBeTruthy();
+        expect(result.params).toEqual({ any: "value" });
         expect(result.skip).toBe(undefined);
       });
     });
@@ -955,7 +957,7 @@ describe("schema-validator", () => {
         });
 
         expect(result.skip).toBe(true);
-        expect(result.value.validationErrors.length > 0).toBeTruthy();
+        expect(result.value.validationErrors).toEqual(["Missing required field: name"]);
       });
 
       it("should resolve schema from context.tools[tool]", async () => {
@@ -1040,8 +1042,8 @@ describe("schema-validator", () => {
 
         expect(result.skip).toBe(true);
         expect(result.value.success).toBe(false);
-        expect(result.value.error.includes("Validation failed")).toBeTruthy();
-        expect(result.value.validationErrors.length > 0).toBeTruthy();
+        expect(result.value.error).toBe("Validation failed: Missing required field: name");
+        expect(result.value.validationErrors).toEqual(["Missing required field: name"]);
       });
 
       it("should not skip execution when validation passes", async () => {
@@ -1080,7 +1082,7 @@ describe("schema-validator", () => {
         });
 
         expect(result.skip).toBe(undefined);
-        expect(result.params).toBeTruthy();
+        expect(result.params).toEqual({});
       });
     });
 
@@ -1107,10 +1109,11 @@ describe("schema-validator", () => {
           },
         });
 
-        expect(errorData).toBeTruthy();
-        expect(errorData.tool).toBe("testTool");
-        expect(errorData.params).toEqual({ count: "not a number" });
-        expect(errorData.errors.length > 0).toBeTruthy();
+        expect(errorData).toMatchObject({
+          tool: "testTool",
+          params: { count: "not a number" },
+        });
+        expect(errorData.errors).toEqual(["count: expected number, got string"]);
       });
 
       it("should not call onError callback when validation passes", async () => {
@@ -1188,8 +1191,8 @@ describe("schema-validator", () => {
         });
 
         expect(result.skip).toBe(true);
-        expect(errorData).toBeTruthy();
-        expect(errorData.errors.length > 0).toBeTruthy();
+        expect(errorData).toMatchObject({ tool: "test", params: {} });
+        expect(errorData.errors).toEqual(["Missing required field: name"]);
       });
     });
   });

@@ -38,7 +38,7 @@ describe("shared/utils/cancellation", () => {
         checkCancelled(controller.signal);
         throw new Error("Should have thrown" || 'Test failed');
       } catch (err) {
-        expect(err.message.includes("Custom reason")).toBeTruthy();
+        expect(err.message).toContain("Custom reason");
       }
     });
 
@@ -50,7 +50,7 @@ describe("shared/utils/cancellation", () => {
         checkCancelled(controller.signal);
         throw new Error("Should have thrown" || 'Test failed');
       } catch (err) {
-        expect(err.message.includes("Error reason")).toBeTruthy();
+        expect(err.message).toContain("Error reason");
       }
     });
 
@@ -62,7 +62,7 @@ describe("shared/utils/cancellation", () => {
         checkCancelled(controller.signal);
         throw new Error("Should have thrown" || 'Test failed');
       } catch (err) {
-        expect(err.message.includes("cancelled")).toBeTruthy();
+        expect(err.message).toContain("cancelled");
       }
     });
 
@@ -90,7 +90,7 @@ describe("shared/utils/cancellation", () => {
     it("returns true for AbortError", () => {
       const err = new Error("abort");
       err.name = "AbortError";
-      expect(isAbortError(err)).toBeTruthy();
+      expect(isAbortError(err)).toBe(true);
     });
 
     it("returns false for regular Error", () => {
@@ -142,7 +142,7 @@ describe("shared/utils/cancellation", () => {
       const controller = new AbortController();
       const result = await wrapped({ signal: controller.signal });
 
-      expect(called).toBeTruthy();
+      expect(called).toBe(true);
       expect(result).toBe("done");
     });
 
@@ -167,13 +167,13 @@ describe("shared/utils/cancellation", () => {
   describe("createLinkedSignal", () => {
     it("creates signal from null parent", () => {
       const signal = createLinkedSignal(null);
-      expect(signal instanceof AbortSignal).toBeTruthy();
+      expect(signal).toBeInstanceOf(AbortSignal);
       expect(signal.aborted).toBe(false);
     });
 
     it("creates signal from undefined parent", () => {
       const signal = createLinkedSignal(undefined);
-      expect(signal instanceof AbortSignal).toBeTruthy();
+      expect(signal).toBeInstanceOf(AbortSignal);
       expect(signal.aborted).toBe(false);
     });
 
@@ -182,7 +182,7 @@ describe("shared/utils/cancellation", () => {
       parent.abort("parent aborted");
 
       const signal = createLinkedSignal(parent.signal);
-      expect(signal.aborted).toBeTruthy();
+      expect(signal.aborted).toBe(true);
     });
 
     it("aborts when parent aborts", async () => {
@@ -194,7 +194,7 @@ describe("shared/utils/cancellation", () => {
 
       // Give time for abort to propagate
       await new Promise((r) => setTimeout(r, 10));
-      expect(signal.aborted).toBeTruthy();
+      expect(signal.aborted).toBe(true);
     });
 
     it("aborts after timeout", async () => {
@@ -204,7 +204,7 @@ describe("shared/utils/cancellation", () => {
 
       // Wait for timeout
       await new Promise((r) => setTimeout(r, 100));
-      expect(signal.aborted).toBeTruthy();
+      expect(signal.aborted).toBe(true);
     });
 
     it("respects parent with timeout", async () => {
@@ -215,7 +215,7 @@ describe("shared/utils/cancellation", () => {
       parent.abort("early");
       await new Promise((r) => setTimeout(r, 10));
 
-      expect(signal.aborted).toBeTruthy();
+      expect(signal.aborted).toBe(true);
     });
 
     it("handles invalid timeout", () => {

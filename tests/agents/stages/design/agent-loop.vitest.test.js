@@ -438,7 +438,7 @@ describe("design/agent-loop (DesignAgentLoop)", () => {
     loop.state.deckHtmlDsl = "<section/>"; // stored via deepClone snapshot
     const v = loop.saveVersion("v1");
     expect(v.label).toBe("v1");
-    expect(loop.getVersion("v1")).toBeTruthy();
+    expect(loop.getVersion("v1")).toEqual(v);
     expect(loop.listVersions()).toEqual([{ label: "v1" }]);
   });
 
@@ -671,7 +671,15 @@ describe("design/agent-loop (DesignAgentLoop)", () => {
 
     const [, ctx] = runSpy.mock.calls[0];
     expect(ctx.resumed).toBe(true);
-    expect(ctx.resumeState).toBeTruthy();
+    expect(ctx.resumeState).toMatchObject({
+      phase: DesignPhase.STYLE_CONFIRMING,
+      loopStatus: AgentStatus.PAUSED,
+      contentPackage: { runId: "r3" },
+      slideIntents: [{ slideIntentId: "s1" }],
+      designSystem: { theme: "dark" },
+      slideHtmls: ["<section>h</section>"],
+      slidesMeta: [{ source: "resume" }],
+    });
 
     const parseOutline = await ctx.toolExecutor("parse_outline", {});
     expect(parseOutline.slideIntents).toEqual([{ slideIntentId: "s1" }]);

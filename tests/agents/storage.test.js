@@ -115,7 +115,8 @@ it("RunStore: events.jsonl append + readback (1000+ events)", async () => {
   expect(events[1199].eventId).toBe(`evt_${runId}_1200`);
 
   const jsonl = await store.getArtifact(runId, "events.jsonl");
-  expect(typeof jsonl === "string" && jsonl.includes(`"eventId":"evt_${runId}_1"`)).toBeTruthy();
+  expect(typeof jsonl).toBe("string");
+  expect(jsonl).toContain(`"eventId":"evt_${runId}_1"`);
   expect(jsonl.split("\n").filter(Boolean).length).toBe(1200);
 
   await store.close();
@@ -135,7 +136,8 @@ it("ArtifactManager: manifest integrity + sha256", async () => {
 
   const content = { a: 1, b: { c: 2 } };
   const sha = await computeSha256(content);
-  expect(typeof sha === "string" && sha.length === 64).toBeTruthy();
+  expect(typeof sha).toBe("string");
+  expect(sha).toHaveLength(64);
 
   const manifest = createManifest(runId);
   const contentId = generateArtifactId(runId, "content_package.json", 1);
@@ -161,9 +163,12 @@ it("ArtifactManager: manifest integrity + sha256", async () => {
 
   expect(back.schemaVersion).toBe("0.1");
   expect(back.runId).toBe(runId);
-  expect(typeof back.createdAt === "string" && back.createdAt.includes("T")).toBeTruthy();
+  expect(typeof back.createdAt).toBe("string");
+  expect(back.createdAt).toContain("T");
   expect(back.artifacts.length).toBe(2);
-  expect(back.artifacts.some(a => a.type === "content_package.json" && a.sha256 === sha)).toBeTruthy();
+  expect(back.artifacts.find(a => a.type === "content_package.json")).toEqual(
+    expect.objectContaining({ type: "content_package.json", sha256: sha })
+  );
 
   await store.close();
   await RunStore.deleteDatabase({ dbName });
@@ -235,7 +240,11 @@ it("RunExporter: zip export/import roundtrip", async () => {
   await store1.updateManifest(runId, manifest);
 
   const zipBlob = await exportRunAsZip(runId, { runStore: store1 });
-  expect(zipBlob).toBeTruthy();
+  if (typeof Blob !== "undefined") {
+    expect(zipBlob).toBeInstanceOf(Blob);
+  } else {
+    expect(zipBlob).toBeInstanceOf(Uint8Array);
+  }
 
   await store1.close();
 
@@ -254,8 +263,8 @@ it("RunExporter: zip export/import roundtrip", async () => {
 
   const backManifest = await store2.getManifest(runId);
   expect(backManifest.runId).toBe(runId);
-  expect(backManifest.artifacts.some(a => a.type === "events.jsonl")).toBeTruthy();
-  expect(backManifest.artifacts.some(a => a.type === "plan.json")).toBeTruthy();
+  expect(backManifest.artifacts.map((a) => a.type)).toContain("events.jsonl");
+  expect(backManifest.artifacts.map((a) => a.type)).toContain("plan.json");
 
   const importedPlans = (await store2.listArtifacts(runId)).filter((a) => a && a.type === "plan.json");
   expect(importedPlans.length).toBe(2);
@@ -273,7 +282,9 @@ it("RunStore: storage quota detection does not throw", async () => {
   const store = new RunStore({ dbName });
 
   const est = await store.estimateQuota();
-  expect(est && typeof est === "object" && "supported" in est).toBeTruthy();
+  expect(est).not.toBeNull();
+  expect(typeof est).toBe("object");
+  expect(est).toHaveProperty("supported");
 
   await store.close();
   await RunStore.deleteDatabase({ dbName });
@@ -308,10 +319,10 @@ it("RunStore: cleanupRuns respects maxRuns + pinned", async () => {
   expect(result.deletedRunIds).toEqual([ids[0], ids[2]]);
 
   expect(await store.getRun(ids[0])).toBe(null);
-  expect(await store.getRun(ids[1])).toBeTruthy();
+  expect((await store.getRun(ids[1]))?.runId).toBe(ids[1]);
   expect(await store.getRun(ids[2])).toBe(null);
-  expect(await store.getRun(ids[3])).toBeTruthy();
-  expect(await store.getRun(ids[4])).toBeTruthy();
+  expect((await store.getRun(ids[3]))?.runId).toBe(ids[3]);
+  expect((await store.getRun(ids[4]))?.runId).toBe(ids[4]);
 
   await store.close();
   await RunStore.deleteDatabase({ dbName });
@@ -339,7 +350,7 @@ it("RunStore: cleanupRuns respects maxAgeDays", async () => {
   const result = await store.cleanupRuns({ retention: { maxAgeDays: 3 }, reason: "test_maxAgeDays" });
   expect(result.deletedRunIds).toEqual([oldId]);
   expect(await store.getRun(oldId)).toBe(null);
-  expect(await store.getRun(newId)).toBeTruthy();
+  expect((await store.getRun(newId))?.runId).toBe(newId);
 
   await store.close();
   await RunStore.deleteDatabase({ dbName });
@@ -371,12 +382,14 @@ it("RunStore: cleanupRuns respects maxTotalBytes", async () => {
 
   const result = await store.cleanupRuns({ retention: { maxTotalBytes: 300 }, reason: "test_maxTotalBytes" });
   expect(result.deletedRunIds).toEqual([ids[0]]);
-  expect(typeof result.bytesBefore === "number" && result.bytesBefore >= 500).toBeTruthy();
-  expect(typeof result.bytesAfter === "number" && result.bytesAfter <= 300).toBeTruthy();
+  expect(typeof result.bytesBefore).toBe("number");
+  expect(result.bytesBefore).toBeGreaterThanOrEqual(500);
+  expect(typeof result.bytesAfter).toBe("number");
+  expect(result.bytesAfter).toBeLessThanOrEqual(300);
 
   expect(await store.getRun(ids[0])).toBe(null);
-  expect(await store.getRun(ids[1])).toBeTruthy();
-  expect(await store.getRun(ids[2])).toBeTruthy();
+  expect((await store.getRun(ids[1]))?.runId).toBe(ids[1]);
+  expect((await store.getRun(ids[2]))?.runId).toBe(ids[2]);
 
   await store.close();
   await RunStore.deleteDatabase({ dbName });
@@ -405,8 +418,8 @@ it("RunStore: cleanupRuns dryRun + keepRunIds", async () => {
   expect(result.deletedRunIds).toEqual([]);
   expect(result.plannedDeleteRunIds).toEqual([]);
 
-  expect(await store.getRun(keepId)).toBeTruthy();
-  expect(await store.getRun(otherId)).toBeTruthy();
+  expect((await store.getRun(keepId))?.runId).toBe(keepId);
+  expect((await store.getRun(otherId))?.runId).toBe(otherId);
 
   await store.close();
   await RunStore.deleteDatabase({ dbName });
@@ -454,7 +467,9 @@ it("PlanStore: create/save/update plan artifacts", async () => {
   expect(normalized.status).toBe("pending");
 
   const art1 = await savePlan({ runStore: store, runId, plan, type: PLAN_ARTIFACT_TYPE });
-  expect(typeof art1 === "string" && art1.startsWith(`art_${runId}_${PLAN_ARTIFACT_TYPE.replaceAll("/", "_")}_`)).toBeTruthy();
+  const artPrefix = `art_${runId}_${PLAN_ARTIFACT_TYPE.replaceAll("/", "_")}_`;
+  expect(typeof art1).toBe("string");
+  expect(art1.startsWith(artPrefix)).toBe(true);
 
   const updated1 = setPlanStepStatus(plan, "ingest", "in_progress");
   const updated2 = setPlanStepStatus(updated1, 1, "completed", { select: false });

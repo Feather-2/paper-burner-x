@@ -25,7 +25,7 @@ describe("HnswLiteIndex", () => {
       expect(results.length).toBe(2);
       // v1 should be most similar to itself, then v2
       expect(results[0].id).toBe("a");
-      expect(results[0].score > 0.99).toBeTruthy();
+      expect(results[0].score).toBeGreaterThan(0.99);
     });
 
     it("should handle dimension mismatch", () => {
@@ -38,13 +38,13 @@ describe("HnswLiteIndex", () => {
       index.upsert("b", [0, 1, 0]);
 
       expect(index.size).toBe(2);
-      expect(index.has("a")).toBeTruthy();
+      expect(index.has("a")).toBe(true);
 
       index.delete("a");
 
       expect(index.size).toBe(1);
-      expect(!index.has("a")).toBeTruthy();
-      expect(index.has("b")).toBeTruthy();
+      expect(index.has("a")).toBe(false);
+      expect(index.has("b")).toBe(true);
     });
 
     it("should clear all vectors", () => {
@@ -80,7 +80,7 @@ describe("HnswLiteIndex", () => {
       const results = index.search([0, 1, 0], { topK: 1 });
       expect(results.length).toBe(1);
       expect(results[0].id).toBe("north");
-      expect(results[0].score > 0.99).toBeTruthy();
+      expect(results[0].score).toBeGreaterThan(0.99);
     });
 
     it("should respect topK parameter", () => {
@@ -91,9 +91,9 @@ describe("HnswLiteIndex", () => {
     it("should respect minScore filter", () => {
       const results = index.search([0, 1, 0], { topK: 10, minScore: 0.5 });
       // Only north and northeast should have score > 0.5
-      expect(results.length <= 3).toBeTruthy();
+      expect(results.length).toBeLessThanOrEqual(3);
       for (const r of results) {
-        expect(r.score >= 0.5).toBeTruthy();
+        expect(r.score).toBeGreaterThanOrEqual(0.5);
       }
     });
 
@@ -103,7 +103,7 @@ describe("HnswLiteIndex", () => {
         filter: (meta) => meta.direction.includes("east"),
       });
       for (const r of results) {
-        expect(r.meta.direction.includes("east")).toBeTruthy();
+        expect(r.meta.direction).toContain("east");
       }
     });
   });
@@ -163,7 +163,7 @@ describe("HnswLiteIndex", () => {
       const bruteIds = new Set(bruteResults.map((r) => r.id));
       const overlap = [...hnswIds].filter((id) => bruteIds.has(id));
       // Allow some tolerance for approximate search
-      expect(overlap.length >= 2, `Expected at least 2 overlap, got ${overlap.length}`).toBeTruthy();
+      expect(overlap.length, `Expected at least 2 overlap, got ${overlap.length}`).toBeGreaterThanOrEqual(2);
     });
   });
 
@@ -176,8 +176,8 @@ describe("HnswLiteIndex", () => {
       const restored = HnswLiteIndex.fromJSON(json);
 
       expect(restored.size).toBe(2);
-      expect(restored.has("a")).toBeTruthy();
-      expect(restored.has("b")).toBeTruthy();
+      expect(restored.has("a")).toBe(true);
+      expect(restored.has("b")).toBe(true);
 
       // Search should work on restored index
       const results = restored.search([1, 0, 0], { topK: 1 });

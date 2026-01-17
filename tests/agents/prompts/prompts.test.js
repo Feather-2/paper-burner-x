@@ -26,10 +26,10 @@ it("escapeTemplateDelimiters: escapes {{ and }} with zero-width break", async ()
   );
 
   const result = escapeTemplateDelimiters("Hello {{name}}!");
-  expect(result.includes("{\u200B{")).toBeTruthy();
-  expect(result.includes("}\u200B}")).toBeTruthy();
-  expect(!result.includes("{{")).toBeTruthy();
-  expect(!result.includes("}}")).toBeTruthy();
+  expect(result).toContain("{\u200B{");
+  expect(result).toContain("}\u200B}");
+  expect(result).not.toContain("{{");
+  expect(result).not.toContain("}}");
 });
 
 it("escapeTemplateDelimiters: returns empty string for null/undefined", async () => {
@@ -309,7 +309,7 @@ it("renderPromptTemplate: replaces {{var}} placeholders", async () => {
 
   const result = renderPromptTemplate("Hello {{name}}!", { vars: { name: "World" } });
   // Escaped delimiters are not present in output since name does not contain {{ or }}
-  expect(result.includes("World")).toBeTruthy();
+  expect(result).toContain("World");
 });
 
 it("renderPromptTemplate: case-insensitive matching", async () => {
@@ -318,7 +318,7 @@ it("renderPromptTemplate: case-insensitive matching", async () => {
   );
 
   const result = renderPromptTemplate("Hello {{NAME}}!", { vars: { name: "Test" } });
-  expect(result.includes("Test")).toBeTruthy();
+  expect(result).toContain("Test");
 });
 
 it("renderPromptTemplate: dotted key support", async () => {
@@ -329,7 +329,7 @@ it("renderPromptTemplate: dotted key support", async () => {
   const result = renderPromptTemplate("Config: {{config.value}}", {
     vars: { config: { value: 42 } },
   });
-  expect(result.includes("42")).toBeTruthy();
+  expect(result).toContain("42");
 });
 
 it("renderPromptTemplate: keeps unresolved by default", async () => {
@@ -338,7 +338,7 @@ it("renderPromptTemplate: keeps unresolved by default", async () => {
   );
 
   const result = renderPromptTemplate("Hello {{unknown}}!", { vars: {} });
-  expect(result.includes("{{unknown}}")).toBeTruthy();
+  expect(result).toContain("{{unknown}}");
 });
 
 it("renderPromptTemplate: removes unresolved when keepUnresolved=false", async () => {
@@ -377,8 +377,8 @@ it("renderPromptTemplate: onUnresolved callback", async () => {
     onUnresolved: (names) => unresolved.push(...names),
   });
 
-  expect(unresolved.includes("a")).toBeTruthy();
-  expect(unresolved.includes("b")).toBeTruthy();
+  expect(unresolved).toContain("a");
+  expect(unresolved).toContain("b");
 });
 
 it("renderPromptTemplate: formatter pipeline |json", async () => {
@@ -389,7 +389,7 @@ it("renderPromptTemplate: formatter pipeline |json", async () => {
   const result = renderPromptTemplate("Data: {{data|json}}", {
     vars: { data: { x: 1 } },
   });
-  expect(result.includes('"x": 1')).toBeTruthy();
+  expect(result).toContain('"x": 1');
 });
 
 it("renderPromptTemplate: formatter pipeline |upper", async () => {
@@ -425,8 +425,8 @@ it("renderPromptTemplate: formatter pipeline |code(lang)", async () => {
     vars: { src: "print(1)" },
     escapeVars: false,
   });
-  expect(result.includes("```python")).toBeTruthy();
-  expect(result.includes("print(1)")).toBeTruthy();
+  expect(result).toContain("```python");
+  expect(result).toContain("print(1)");
 });
 
 it("renderPromptTemplate: unknown formatter marks as unresolved", async () => {
@@ -465,8 +465,8 @@ it("renderPromptTemplate: appendIfMissing adds content", async () => {
   const result = renderPromptTemplate("Main content", {
     appendIfMissing: { extra: "Extra section" },
   });
-  expect(result.includes("Main content")).toBeTruthy();
-  expect(result.includes("Extra section")).toBeTruthy();
+  expect(result).toContain("Main content");
+  expect(result).toContain("Extra section");
 });
 
 it("renderPromptTemplate: appendIfMissing skips if placeholder exists", async () => {
@@ -478,7 +478,7 @@ it("renderPromptTemplate: appendIfMissing skips if placeholder exists", async ()
     vars: { extra: "value" },
     appendIfMissing: { extra: "Should not appear" },
   });
-  expect(!result.includes("Should not appear")).toBeTruthy();
+  expect(result).not.toContain("Should not appear");
 });
 
 it("renderPromptTemplate: escapeVars prevents injection", async () => {
@@ -491,8 +491,8 @@ it("renderPromptTemplate: escapeVars prevents injection", async () => {
     escapeVars: true,
   });
   // Should contain escaped braces
-  expect(result.includes("\u200B")).toBeTruthy();
-  expect(!result.includes("{{secret}}")).toBeTruthy();
+  expect(result).toContain("\u200B");
+  expect(result).not.toContain("{{secret}}");
 });
 
 it("renderPromptTemplate: Map vars support", async () => {
@@ -514,9 +514,9 @@ it("renderPromptTemplate: handles number/boolean/bigint", async () => {
     vars: { n: 42, b: true, bi: BigInt(100) },
     escapeVars: false,
   });
-  expect(result.includes("42")).toBeTruthy();
-  expect(result.includes("true")).toBeTruthy();
-  expect(result.includes("100")).toBeTruthy();
+  expect(result).toContain("42");
+  expect(result).toContain("true");
+  expect(result).toContain("100");
 });
 
 it("renderPromptTemplate: null/undefined var becomes empty", async () => {
@@ -567,7 +567,7 @@ it("PromptRegistry: register and get", async () => {
   registry.register("test", "Hello {{name}}");
 
   const tpl = registry.get("test");
-  expect(tpl !== null).toBeTruthy();
+  expect(tpl).not.toBeNull();
   expect(tpl.template).toBe("Hello {{name}}");
 });
 
@@ -604,8 +604,8 @@ it("PromptRegistry: list method", async () => {
   registry.register("b", "B");
 
   const list = registry.list();
-  expect(list.includes("a")).toBeTruthy();
-  expect(list.includes("b")).toBeTruthy();
+  expect(list).toContain("a");
+  expect(list).toContain("b");
 });
 
 it("PromptRegistry: clear specific and all", async () => {
@@ -798,7 +798,7 @@ it("PromptLoader: loadPrompt loads .md file", async () => {
   const loader = new PromptLoader({ basePath: PROMPTS_DIR });
   const content = await loader.loadPrompt("deepsearch/system");
 
-  expect(content.length > 0).toBeTruthy();
+  expect(content.length).toBeGreaterThan(0);
   expect(typeof content).toBe("string");
 });
 
@@ -810,7 +810,7 @@ it("PromptLoader: loadPrompt with .md suffix works", async () => {
   const loader = new PromptLoader({ basePath: PROMPTS_DIR });
   const content = await loader.loadPrompt("deepsearch/system.md");
 
-  expect(content.length > 0).toBeTruthy();
+  expect(content.length).toBeGreaterThan(0);
 });
 
 it("PromptLoader: loadPrompt caches result", async () => {
@@ -822,7 +822,7 @@ it("PromptLoader: loadPrompt caches result", async () => {
   await loader.loadPrompt("deepsearch/quick");
 
   const names = loader.getCachedPromptNames();
-  expect(names.includes("deepsearch/quick")).toBeTruthy();
+  expect(names).toContain("deepsearch/quick");
 });
 
 it("PromptLoader: loadPrompt cache=false skips cache", async () => {
@@ -836,7 +836,7 @@ it("PromptLoader: loadPrompt cache=false skips cache", async () => {
   await loader.loadPrompt("deepsearch/quick", { cache: false });
 
   const names = loader.getCachedPromptNames();
-  expect(!names.includes("deepsearch/quick")).toBeTruthy();
+  expect(names).not.toContain("deepsearch/quick");
 });
 
 it("PromptLoader: loadPrompt rejects path traversal", async () => {
@@ -882,10 +882,14 @@ it("PromptLoader: loadPromptSync loads file synchronously", async () => {
   // In native ESM without require shim, this may throw
   try {
     const content = loader.loadPromptSync("deepsearch/system");
-    expect(content.length > 0).toBeTruthy();
+    expect(content.length).toBeGreaterThan(0);
   } catch (e) {
     // Expected in pure ESM environment
-    expect(e.message.includes("Sync file access is unavailable") || e.message.includes("Failed to load")).toBeTruthy();
+    if (e.message.includes("Sync file access is unavailable")) {
+      expect(e.message).toContain("Sync file access is unavailable");
+    } else {
+      expect(e.message).toContain("Failed to load");
+    }
   }
 });
 
@@ -925,8 +929,8 @@ it("PromptLoader: clearPromptCache clears specific", async () => {
   loader.clearPromptCache("deepsearch/quick");
 
   const names = loader.getCachedPromptNames();
-  expect(!names.includes("deepsearch/quick")).toBeTruthy();
-  expect(names.includes("deepsearch/deeper")).toBeTruthy();
+  expect(names).not.toContain("deepsearch/quick");
+  expect(names).toContain("deepsearch/deeper");
 });
 
 it("PromptLoader: preloadPrompts loads multiple", async () => {
@@ -943,10 +947,10 @@ it("PromptLoader: preloadPrompts loads multiple", async () => {
     "nonexistent/file",
   ]);
 
-  expect(results instanceof Map).toBeTruthy();
-  expect(results.has("deepsearch/quick")).toBeTruthy();
-  expect(results.has("deepsearch/deeper")).toBeTruthy();
-  expect(!results.has("nonexistent/file")).toBeTruthy();
+  expect(results).toBeInstanceOf(Map);
+  expect(results.has("deepsearch/quick")).toBe(true);
+  expect(results.has("deepsearch/deeper")).toBe(true);
+  expect(results.has("nonexistent/file")).toBe(false);
 });
 
 it("PromptLoader: preloadPrompts with non-array returns empty map", async () => {
@@ -957,7 +961,7 @@ it("PromptLoader: preloadPrompts with non-array returns empty map", async () => 
   const loader = new PromptLoader({ basePath: PROMPTS_DIR });
   const results = await loader.preloadPrompts(null);
 
-  expect(results instanceof Map).toBeTruthy();
+  expect(results).toBeInstanceOf(Map);
   expect(results.size).toBe(0);
 });
 
@@ -1059,7 +1063,7 @@ it("prompt-loader renderPromptTemplate: warnOnUnresolved logs warning", async ()
     vars: {},
     warnOnUnresolved: true,
   });
-  expect(result.includes("{{missing}}")).toBeTruthy();
+  expect(result).toContain("{{missing}}");
 });
 
 // ============================================================================
@@ -1076,8 +1080,8 @@ it("prompt-template: supports unicode variable values", async () => {
     escapeVars: false,
   });
 
-  expect(result.includes("Hello")).toBeTruthy();
-  expect(result.includes("Alice")).toBeTruthy();
+  expect(result).toContain("Hello");
+  expect(result).toContain("Alice");
 });
 
 it("prompt-template: handles Chinese characters", async () => {
@@ -1103,8 +1107,8 @@ it("prompt-template: handles mixed language content", async () => {
     escapeVars: false,
   });
 
-  expect(result.includes("Hello")).toBeTruthy();
-  expect(result.includes("Konnichiwa")).toBeTruthy();
+  expect(result).toContain("Hello");
+  expect(result).toContain("Konnichiwa");
 });
 
 it("prompt-template: emoji in variables", async () => {
@@ -1117,7 +1121,7 @@ it("prompt-template: emoji in variables", async () => {
     escapeVars: false,
   });
 
-  expect(result.includes("Done!")).toBeTruthy();
+  expect(result).toContain("Done!");
 });
 
 // ============================================================================
@@ -1177,8 +1181,8 @@ it("renderPromptTemplate: object value without formatter", async () => {
     escapeVars: false,
   });
   // Should be JSON stringified
-  expect(result.includes('"x"')).toBeTruthy();
-  expect(result.includes("1")).toBeTruthy();
+  expect(result).toContain('"x"');
+  expect(result).toContain("1");
 });
 
 it("formatters: chained formatters |trim|upper", async () => {
@@ -1212,7 +1216,7 @@ it("PromptLoader: LRU cache eviction", async () => {
   // Only 2 should remain due to LRU eviction
   expect(names.length).toBe(2);
   // First loaded should be evicted
-  expect(!names.includes("deepsearch/quick")).toBeTruthy();
+  expect(names).not.toContain("deepsearch/quick");
 });
 
 it("PromptLoader: maxPromptBytes limit", async () => {
@@ -1241,8 +1245,8 @@ it("prompt-loader renderPromptTemplate: appendIfMissing with empty placeholder n
   const result = renderPromptTemplate("Main", {
     appendIfMissing: { "": "should skip", valid: "added" },
   });
-  expect(!result.includes("should skip")).toBeTruthy();
-  expect(result.includes("added")).toBeTruthy();
+  expect(result).not.toContain("should skip");
+  expect(result).toContain("added");
 });
 
 it("prompt-loader renderPromptTemplate: appendIfMissing with empty content", async () => {
@@ -1253,7 +1257,7 @@ it("prompt-loader renderPromptTemplate: appendIfMissing with empty content", asy
   const result = renderPromptTemplate("Main", {
     appendIfMissing: { empty: "", valid: "added" },
   });
-  expect(result.includes("added")).toBeTruthy();
+  expect(result).toContain("added");
 });
 
 it("prompt-loader renderPromptTemplate: onUnresolved callback that throws", async () => {
@@ -1268,7 +1272,7 @@ it("prompt-loader renderPromptTemplate: onUnresolved callback that throws", asyn
       throw new Error("callback error");
     },
   });
-  expect(result.includes("{{missing}}")).toBeTruthy();
+  expect(result).toContain("{{missing}}");
 });
 
 it("prompt-loader renderPromptTemplate: more than 20 unresolved truncated", async () => {
@@ -1331,7 +1335,8 @@ it("prompt-loader renderPromptTemplate: object/array values kept as placeholder"
     vars: { arr: [1, 2, 3], obj: { x: 1 } },
   });
   // Should keep as unresolved since arrays/objects not handled
-  expect(result.includes("{{arr}}") || result.includes("{{obj}}")).toBeTruthy();
+  expect(result).toContain("{{arr}}");
+  expect(result).toContain("{{obj}}");
 });
 
 // ============================================================================
@@ -1349,7 +1354,7 @@ it("PromptLoader: constructor with Infinity maxManifestBytes", async () => {
   });
 
   // Should not throw
-  expect(loader).toBeTruthy();
+  expect(loader).toBeInstanceOf(PromptLoader);
 });
 
 it("PromptLoader: constructor with invalid maxManifestBytes uses default", async () => {
@@ -1363,7 +1368,7 @@ it("PromptLoader: constructor with invalid maxManifestBytes uses default", async
   });
 
   // Should not throw, uses default
-  expect(loader).toBeTruthy();
+  expect(loader).toBeInstanceOf(PromptLoader);
 });
 
 it("PromptLoader: constructor with negative maxPromptBytes uses default", async () => {
@@ -1377,7 +1382,7 @@ it("PromptLoader: constructor with negative maxPromptBytes uses default", async 
   });
 
   // Should not throw
-  expect(loader).toBeTruthy();
+  expect(loader).toBeInstanceOf(PromptLoader);
 });
 
 it("PromptLoader: constructor with custom fetchImpl", async () => {
@@ -1391,7 +1396,7 @@ it("PromptLoader: constructor with custom fetchImpl", async () => {
     fetchImpl: customFetch,
   });
 
-  expect(loader).toBeTruthy();
+  expect(loader).toBeInstanceOf(PromptLoader);
 });
 
 // ============================================================================
@@ -1408,7 +1413,7 @@ it("prompt-template: formatter with args context", async () => {
     vars: { data: { a: 1 } },
     escapeVars: false,
   });
-  expect(result.includes("    ")).toBeTruthy(); // 4-space indent
+  expect(result).toContain("    "); // 4-space indent
 });
 
 it("prompt-template: nested object flattening depth limit", async () => {
@@ -1422,7 +1427,7 @@ it("prompt-template: nested object flattening depth limit", async () => {
     vars: deep,
   });
   // l5 should not be accessible due to depth limit
-  expect(result.includes("{{l1.l2.l3.l4.l5}}")).toBeTruthy();
+  expect(result).toContain("{{l1.l2.l3.l4.l5}}");
 });
 
 it("prompt-template: array in vars not flattened", async () => {
@@ -1447,7 +1452,7 @@ it("prompt-template: warnOnUnresolved with multiple placeholders", async () => {
     vars: {},
     warnOnUnresolved: true,
   });
-  expect(result.includes("{{a}}")).toBeTruthy();
+  expect(result).toContain("{{a}}");
 });
 
 it("prompt-template: object at intermediate key also stored", async () => {
@@ -1460,8 +1465,8 @@ it("prompt-template: object at intermediate key also stored", async () => {
     vars: { config: { value: 42 } },
     escapeVars: false,
   });
-  expect(result.includes('"value"')).toBeTruthy();
-  expect(result.includes("42")).toBeTruthy();
+  expect(result).toContain('"value"');
+  expect(result).toContain("42");
 });
 
 it("prompt-template: empty formatter name in pipeline", async () => {
@@ -1475,7 +1480,7 @@ it("prompt-template: empty formatter name in pipeline", async () => {
     failOnUnresolved: true,
   });
   // Empty formatter is skipped
-  expect(result.includes("val")).toBeTruthy();
+  expect(result).toContain("val");
 });
 
 it("prompt-template: formatter with multiple args", async () => {
@@ -1504,7 +1509,7 @@ it("DEFAULT_FORMATTERS.code: uses lang from args", async () => {
   );
 
   const result = DEFAULT_FORMATTERS.code("content", { args: ["typescript"] });
-  expect(result.includes("```typescript")).toBeTruthy();
+  expect(result).toContain("```typescript");
 });
 
 it("DEFAULT_FORMATTERS.json: uses space from args", async () => {
@@ -1513,7 +1518,7 @@ it("DEFAULT_FORMATTERS.json: uses space from args", async () => {
   );
 
   const result = DEFAULT_FORMATTERS.json({ x: 1 }, { args: ["4"] });
-  expect(result.includes("    ")).toBeTruthy(); // 4-space indent
+  expect(result).toContain("    "); // 4-space indent
 });
 
 it("DEFAULT_FORMATTERS.bullets: called without ctx", async () => {
@@ -1538,8 +1543,8 @@ it("PromptRegistry: chain register calls", async () => {
   const result = registry.register("a", "A").register("b", "B");
 
   expect(result).toBe(registry);
-  expect(registry.has("a")).toBeTruthy();
-  expect(registry.has("b")).toBeTruthy();
+  expect(registry.has("a")).toBe(true);
+  expect(registry.has("b")).toBe(true);
 });
 
 it("PromptRegistry: whitespace-only name in get returns null", async () => {

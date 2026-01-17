@@ -60,7 +60,7 @@ it("rrfFuse: merges BM25 and vector results with RRF scoring", async () => {
   const fused = rrfFuse(bm25, vector, { limit: 10, rrfK: 1, bm25Weight: 1, vectorWeight: 1 });
 
   expect(fused.map((r) => r.chunkId)).toEqual(["b", "a", "c"]);
-  expect(Math.abs(fused[0].rrfScore - 0.8333333) < 0.0001).toBeTruthy();
+  expect(fused[0].rrfScore).toBeCloseTo(0.8333333, 4);
   expect(fused[0].bm25Score).toBe(9);
   expect(fused[0].vectorScore).toBe(0.9);
 });
@@ -155,8 +155,8 @@ it("hybridSearch: calls both retrievers and fuses results", async () => {
     { limit: 2, rrfK: 1, bm25Weight: 2, vectorWeight: 1, bm25SearchFn, vectorSearchFn }
   );
 
-  expect(bm25Called).toBeTruthy();
-  expect(vectorCalled).toBeTruthy();
+  expect(bm25Called).toBe(true);
+  expect(vectorCalled).toBe(true);
   expect(result.map((r) => r.chunkId)).toEqual(["b", "a"]);
 });
 
@@ -243,13 +243,13 @@ it("bm25: buildIndex creates searchable index", async () => {
   const index = buildIndex(chunks, { k1: 1.5, b: 0.75 });
 
   expect(index.chunkIds.length).toBe(3);
-  expect(index.avgDocLen > 0).toBeTruthy();
-  expect(index.df.size > 0).toBeTruthy();
-  expect(index.postings.size > 0).toBeTruthy();
+  expect(index.avgDocLen).toBeGreaterThan(0);
+  expect(index.df.size).toBeGreaterThan(0);
+  expect(index.postings.size).toBeGreaterThan(0);
 
   const results = search(index, "brown fox", 2);
   expect(results.length).toBe(2);
-  expect(["c1", "c2"].includes(results[0].chunkId)).toBeTruthy();
+  expect(["c1", "c2"]).toContain(results[0].chunkId);
 });
 
 it("bm25: search with filterDocIndex", async () => {
@@ -287,7 +287,7 @@ it("bm25: handles CJK text tokenization", async () => {
 
   const index = buildIndex(chunks);
   const results = search(index, "学习", 2);
-  expect(results.length >= 1).toBeTruthy();
+  expect(results.length).toBeGreaterThanOrEqual(1);
 });
 
 it("bm25: serialize and deserialize index", async () => {
@@ -449,7 +449,7 @@ it("vector-search: buildIndex with embeddings", async () => {
   const hits = search(index, [1, 0], 3);
 
   expect(hits[0].chunkId).toBe("a"); // Closest to [1,0]
-  expect(hits[0].score > hits[1].score).toBeTruthy();
+  expect(hits[0].score).toBeGreaterThan(hits[1].score);
 });
 
 it("vector-search: buildIndex with custom getEmbedding", async () => {
@@ -494,8 +494,8 @@ it("vector-search: buildIndex skips dimension mismatches", async () => {
   ];
 
   const index = buildIndex(chunks);
-  expect(index.vectorIndex.has("a")).toBeTruthy();
-  expect(!index.vectorIndex.has("b")).toBeTruthy();
+  expect(index.vectorIndex.has("a")).toBe(true);
+  expect(index.vectorIndex.has("b")).toBe(false);
 });
 
 it("vector-search: buildIndexAsync with embedding service", async () => {
@@ -514,7 +514,7 @@ it("vector-search: buildIndexAsync with embedding service", async () => {
     { embeddingService }
   );
 
-  expect(embedCalled).toBeTruthy();
+  expect(embedCalled).toBe(true);
   expect(index.chunkIds.length).toBe(2);
 });
 
@@ -532,7 +532,7 @@ it("vector-search: search with filterChunkId", async () => {
     filterChunkId: (id) => id !== "a",
   });
 
-  expect(!hits.some(h => h.chunkId === "a")).toBeTruthy();
+  expect(hits.some((h) => h.chunkId === "a")).toBe(false);
 });
 
 it("vector-search: searchAsync embeds query", async () => {
@@ -603,7 +603,7 @@ it("RetrievalRouter: retrieve with basic config", async () => {
   });
 
   // Test the function returns valid array
-  expect(Array.isArray(results)).toBeTruthy();
+  expect(results).toBeInstanceOf(Array);
   // The retrieve function may or may not find results depending on internal scoring
   // This tests the API contract, not specific behavior
 });
@@ -631,7 +631,7 @@ it("RetrievalRouter: supports gap with queryHints", async () => {
   });
 
   // Result might be empty if grep doesn't match case-sensitively; check array exists
-  expect(Array.isArray(results)).toBeTruthy();
+  expect(results).toBeInstanceOf(Array);
 });
 
 it("RetrievalRouter: windowSize expands context", async () => {
@@ -658,10 +658,10 @@ it("RetrievalRouter: windowSize expands context", async () => {
 
   // If grep finds "target" in c2, windowSize=1 should expand to include c1 and c3
   // If no grep hit, results might be empty - that's OK for this test
-  expect(Array.isArray(results)).toBeTruthy();
+  expect(results).toBeInstanceOf(Array);
   if (results.length > 0) {
     // If we got hits, window expansion should give us more than 1 result
-    expect(results.length >= 1, "Should have at least the hit").toBeTruthy();
+    expect(results.length, "Should have at least the hit").toBeGreaterThanOrEqual(1);
   }
 });
 
@@ -697,7 +697,7 @@ it("RetrievalRouter: class wrapper works", async () => {
   };
 
   const results = await router.retrieve(sourceIndex, [{ query: "test" }], {});
-  expect(Array.isArray(results)).toBeTruthy();
+  expect(results).toBeInstanceOf(Array);
 });
 
 it("RetrievalRouter: respects mmr diversity settings", async () => {
@@ -721,7 +721,7 @@ it("RetrievalRouter: respects mmr diversity settings", async () => {
   });
 
   // MMR should diversify results
-  expect(results.length <= 3).toBeTruthy();
+  expect(results.length).toBeLessThanOrEqual(3);
 });
 
 it("RetrievalRouter: supports abort signal", async () => {
@@ -769,7 +769,7 @@ it("integration: hybrid search + mmr reranking pipeline", async () => {
     { limit: 10, bm25SearchFn, vectorSearchFn }
   );
 
-  expect(fused.length >= 3).toBeTruthy();
+  expect(fused.length).toBeGreaterThanOrEqual(3);
 
   // Add text for MMR
   const withText = fused.map((r) => ({
@@ -807,6 +807,6 @@ it("integration: BM25 + vector search with shared chunks", async () => {
   // Fuse results
   const fused = rrfFuse(bm25Results, vectorResults, { limit: 3, rrfK: 60 });
 
-  expect(fused.length >= 1).toBeTruthy();
-  expect(fused.every(r => r.rrfScore > 0)).toBeTruthy();
+  expect(fused.length).toBeGreaterThanOrEqual(1);
+  expect(fused.every((r) => r.rrfScore > 0)).toBe(true);
 });

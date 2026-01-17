@@ -42,7 +42,7 @@ describe("DesignRepair", () => {
 
       expect(task.issues[0]).toBe("Error 1");
       expect(task.issues[1]).toBe("Error 2");
-      expect(task.issues[2].includes("other")).toBeTruthy();
+      expect(task.issues[2]).toBe('{"other":"data"}');
     });
 
     it("should handle missing data gracefully", () => {

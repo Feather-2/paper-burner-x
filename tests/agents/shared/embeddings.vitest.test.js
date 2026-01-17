@@ -868,19 +868,17 @@ describe("EmbeddingService", () => {
 
       const result = await svc.embed(["hello", "world"]);
       expect(result.length).toBe(2);
-      expect(result[0] instanceof Float32Array).toBeTruthy();
-      expect(result[1] instanceof Float32Array).toBeTruthy();
+      expect(result[0]).toBeInstanceOf(Float32Array);
+      expect(result[1]).toBeInstanceOf(Float32Array);
       expect(result[0].length).toBe(3);
-      expect(Math.abs(result[0][0] - 0.1) < 0.001).toBeTruthy();
-      expect(Math.abs(result[1][0] - 0.4) < 0.001).toBeTruthy();
+      expect(Math.abs(result[0][0] - 0.1)).toBeLessThan(0.001);
+      expect(Math.abs(result[1][0] - 0.4)).toBeLessThan(0.001);
 
       expect(fetchCalls.length).toBe(1);
       const body = JSON.parse(fetchCalls[0].options.body);
       expect(body.model).toBe("text-3");
       expect(body.input).toStrictEqual(["hello", "world"]);
-      expect(
-        fetchCalls[0].options.headers.Authorization.includes("sk-test")
-      ).toBeTruthy();
+      expect(fetchCalls[0].options.headers.Authorization).toContain("sk-test");
     });
 
     it("should handle unordered index in response", async () => {
@@ -900,8 +898,8 @@ describe("EmbeddingService", () => {
       );
 
       const result = await svc.embed(["a", "b"]);
-      expect(Math.abs(result[0][0] - 0.1) < 0.001).toBeTruthy();
-      expect(Math.abs(result[1][0] - 0.4) < 0.001).toBeTruthy();
+      expect(Math.abs(result[0][0] - 0.1)).toBeLessThan(0.001);
+      expect(Math.abs(result[1][0] - 0.4)).toBeLessThan(0.001);
     });
 
     it("should handle embeddings array format", async () => {
@@ -1181,7 +1179,7 @@ describe("EmbeddingService", () => {
         { endpoint: "http://test" },
         { fetchImpl: () => {} }
       );
-      expect(svc instanceof EmbeddingService).toBeTruthy();
+      expect(svc).toBeInstanceOf(EmbeddingService);
     });
   });
 });
@@ -1203,14 +1201,14 @@ describe("VectorIndex", () => {
       const v1 = [1, 0, 0];
       const v2 = [0, 1, 0];
 
-      expect(index.upsert("a", v1, { label: "first" })).toBeTruthy();
-      expect(index.upsert("b", v2, { label: "second" })).toBeTruthy();
+      expect(index.upsert("a", v1, { label: "first" })).toBe(true);
+      expect(index.upsert("b", v2, { label: "second" })).toBe(true);
 
       expect(index.size).toBe(2);
       expect(index.dimension).toBe(3);
-      expect(index.has("a")).toBeTruthy();
-      expect(index.has("b")).toBeTruthy();
-      expect(!index.has("c")).toBeTruthy();
+      expect(index.has("a")).toBe(true);
+      expect(index.has("b")).toBe(true);
+      expect(index.has("c")).toBe(false);
     });
 
     it("should update existing vector", () => {
@@ -1220,19 +1218,19 @@ describe("VectorIndex", () => {
       expect(index.size).toBe(1);
       const results = index.search([0, 1, 0], { topK: 1 });
       expect(results[0].id).toBe("a");
-      expect(results[0].score > 0.99).toBeTruthy();
+      expect(results[0].score).toBeGreaterThan(0.99);
     });
 
     it("should delete vectors", () => {
       index.upsert("a", [1, 0, 0]);
       index.upsert("b", [0, 1, 0]);
 
-      expect(index.delete("a")).toBeTruthy();
+      expect(index.delete("a")).toBe(true);
       expect(index.size).toBe(1);
-      expect(!index.has("a")).toBeTruthy();
-      expect(index.has("b")).toBeTruthy();
+      expect(index.has("a")).toBe(false);
+      expect(index.has("b")).toBe(true);
 
-      expect(!index.delete("nonexistent")).toBeTruthy();
+      expect(index.delete("nonexistent")).toBe(false);
     });
 
     it("should clear all vectors", () => {
@@ -1261,10 +1259,10 @@ describe("VectorIndex", () => {
       smallIndex.upsert("d", [0.5, 0.5]);
 
       expect(smallIndex.size).toBe(3);
-      expect(!smallIndex.has("a")).toBeTruthy();
-      expect(smallIndex.has("b")).toBeTruthy();
-      expect(smallIndex.has("c")).toBeTruthy();
-      expect(smallIndex.has("d")).toBeTruthy();
+      expect(smallIndex.has("a")).toBe(false);
+      expect(smallIndex.has("b")).toBe(true);
+      expect(smallIndex.has("c")).toBe(true);
+      expect(smallIndex.has("d")).toBe(true);
     });
 
     it("should refresh LRU order on update", () => {
@@ -1276,30 +1274,30 @@ describe("VectorIndex", () => {
       smallIndex.upsert("d", [0.5, 0.5]);
 
       expect(smallIndex.size).toBe(3);
-      expect(smallIndex.has("a")).toBeTruthy();
-      expect(!smallIndex.has("b")).toBeTruthy();
+      expect(smallIndex.has("a")).toBe(true);
+      expect(smallIndex.has("b")).toBe(false);
     });
   });
 
   describe("vector normalization", () => {
     it("should accept Float32Array", () => {
       const vec = new Float32Array([1, 0, 0]);
-      expect(index.upsert("a", vec)).toBeTruthy();
+      expect(index.upsert("a", vec)).toBe(true);
     });
 
     it("should accept regular array", () => {
-      expect(index.upsert("a", [1, 0, 0])).toBeTruthy();
+      expect(index.upsert("a", [1, 0, 0])).toBe(true);
     });
 
     it("should accept ArrayBuffer", () => {
       const arr = new Float32Array([1, 0, 0]);
-      expect(index.upsert("a", arr.buffer)).toBeTruthy();
+      expect(index.upsert("a", arr.buffer)).toBe(true);
     });
 
     it("should accept Uint8Array view", () => {
       const f32 = new Float32Array([1, 0, 0]);
       const u8 = new Uint8Array(f32.buffer);
-      expect(index.upsert("a", u8)).toBeTruthy();
+      expect(index.upsert("a", u8)).toBe(true);
     });
 
     it("should reject null/undefined vectors", () => {
@@ -1321,7 +1319,7 @@ describe("VectorIndex", () => {
     });
 
     it("should handle NaN by converting to 0", () => {
-      expect(index.upsert("a", [NaN, 1, 0])).toBeTruthy();
+      expect(index.upsert("a", [NaN, 1, 0])).toBe(true);
     });
 
     it("should reject vector with all NaN", () => {
@@ -1350,7 +1348,7 @@ describe("VectorIndex", () => {
       const results = index.search([0, 1, 0], { topK: 1 });
       expect(results.length).toBe(1);
       expect(results[0].id).toBe("north");
-      expect(results[0].score > 0.99).toBeTruthy();
+      expect(results[0].score).toBeGreaterThan(0.99);
     });
 
     it("should respect topK parameter", () => {
@@ -1366,14 +1364,14 @@ describe("VectorIndex", () => {
     it("should sort by descending score", () => {
       const results = index.search([0, 1, 0], { topK: 5 });
       for (let i = 1; i < results.length; i++) {
-        expect(results[i - 1].score >= results[i].score).toBeTruthy();
+        expect(results[i - 1].score).toBeGreaterThanOrEqual(results[i].score);
       }
     });
 
     it("should apply minScore filter", () => {
       const results = index.search([0, 1, 0], { topK: 10, minScore: 0.5 });
       for (const r of results) {
-        expect(r.score >= 0.5).toBeTruthy();
+        expect(r.score).toBeGreaterThanOrEqual(0.5);
       }
     });
 
@@ -1383,7 +1381,7 @@ describe("VectorIndex", () => {
         filter: (meta) => meta.direction.includes("east"),
       });
       for (const r of results) {
-        expect(r.meta.direction.includes("east")).toBeTruthy();
+        expect(r.meta.direction).toContain("east");
       }
     });
 
@@ -1396,8 +1394,8 @@ describe("VectorIndex", () => {
           return true;
         },
       });
-      expect(ids.includes("north")).toBeTruthy();
-      expect(ids.includes("east")).toBeTruthy();
+      expect(ids).toContain("north");
+      expect(ids).toContain("east");
     });
 
     it("should return empty for invalid query vector", () => {
@@ -1553,7 +1551,7 @@ describe("Multi-provider embedding support", () => {
 
     const result = await svc.embed("test");
     expect(result.length).toBe(1);
-    expect(result[0] instanceof Float32Array).toBeTruthy();
+    expect(result[0]).toBeInstanceOf(Float32Array);
   });
 
   it("should work with Ollama response format", async () => {
@@ -1612,7 +1610,7 @@ describe("Multi-provider embedding support", () => {
 
     await svc.embed("test");
     expect(capturedHeaders["X-Api-Version"]).toBe("2024-01");
-    expect(capturedHeaders["Authorization"].includes("test-key")).toBeTruthy();
+    expect(capturedHeaders["Authorization"]).toContain("test-key");
   });
 
   it("should omit model when not provided", async () => {
@@ -1671,6 +1669,6 @@ describe("EmbeddingService integration", () => {
     const results = vectorIndex.search(queryEmbedding[0], { topK: 2 });
 
     expect(results[0].id).toBe("doc-0");
-    expect(results[0].meta.text.includes("revenue")).toBeTruthy();
+    expect(results[0].meta.text).toContain("revenue");
   });
 });

@@ -178,7 +178,7 @@ describe("AlertMonitor", () => {
             monitor._checkPlanningDrift("search", {});
 
             expect(monitor._pendingAlerts.length).toBe(1);
-            expect(monitor._pendingAlerts[0].message.includes("重复调用")).toBeTruthy();
+            expect(monitor._pendingAlerts[0].message).toContain("重复调用");
         });
 
         it("should not trigger for varied tool calls", () => {
@@ -204,7 +204,7 @@ describe("AlertMonitor", () => {
             });
 
             expect(monitor._pendingAlerts.length).toBe(1);
-            expect(monitor._pendingAlerts[0].message.includes("gap-123")).toBeTruthy();
+            expect(monitor._pendingAlerts[0].message).toContain("gap-123");
             expect(monitor._pendingAlerts[0].severity).toBe("high");
         });
 
@@ -233,7 +233,7 @@ describe("AlertMonitor", () => {
 
             monitor._learnFromFeedback(messages);
 
-            expect(monitor._suppressedIds.has("gap-abc")).toBeTruthy();
+            expect(monitor._suppressedIds.has("gap-abc")).toBe(true);
         });
 
         it("should handle empty messages", () => {
@@ -326,9 +326,9 @@ describe("AlertMonitor", () => {
 
             const prompt = monitor.getInjectedPrompt([]);
 
-            expect(prompt.includes("### 提醒")).toBeTruthy();
-            expect(prompt.includes("- Alert 1")).toBeTruthy();
-            expect(prompt.includes("- Alert 2")).toBeTruthy();
+            expect(prompt).toContain("### 提醒");
+            expect(prompt).toContain("- Alert 1");
+            expect(prompt).toContain("- Alert 2");
         });
 
         it("should only return high/critical in flow mode", () => {
@@ -340,8 +340,8 @@ describe("AlertMonitor", () => {
 
             const prompt = monitor.getInjectedPrompt([]);
 
-            expect(prompt.includes("High")).toBeTruthy();
-            expect(!prompt.includes("Low")).toBeTruthy();
+            expect(prompt).toContain("High");
+            expect(prompt).not.toContain("Low");
 
             // low severity should remain in pending
             expect(monitor._pendingAlerts.length).toBe(1);
@@ -373,7 +373,11 @@ describe("AlertMonitor", () => {
             const monitor = new AlertMonitor({ agent, logger });
             monitor._auditGlobalState();
 
-            expect(monitor._pendingAlerts.some(a => a.message.includes("冲突证据"))).toBeTruthy();
+            expect(monitor._pendingAlerts).toEqual(expect.arrayContaining([
+                expect.objectContaining({
+                    message: expect.stringContaining("冲突证据"),
+                }),
+            ]));
         });
 
         it("should not duplicate conflict notification if alerts pending", () => {
@@ -407,7 +411,11 @@ describe("AlertMonitor", () => {
             const monitor = new AlertMonitor({ agent, logger });
             monitor._auditResearchHealth([]);
 
-            expect(monitor._pendingAlerts.some(a => a.message.includes("Recall"))).toBeTruthy();
+            expect(monitor._pendingAlerts).toEqual(expect.arrayContaining([
+                expect.objectContaining({
+                    message: expect.stringContaining("Recall"),
+                }),
+            ]));
         });
 
         it("should suggest Task for many gaps when not in flow mode", () => {
@@ -421,7 +429,11 @@ describe("AlertMonitor", () => {
 
             monitor._auditResearchHealth(manyGaps);
 
-            expect(monitor._pendingAlerts.some(a => a.message.includes("Task"))).toBeTruthy();
+            expect(monitor._pendingAlerts).toEqual(expect.arrayContaining([
+                expect.objectContaining({
+                    message: expect.stringContaining("Task"),
+                }),
+            ]));
         });
 
         it("should not suggest Task in flow mode", () => {
@@ -436,7 +448,11 @@ describe("AlertMonitor", () => {
 
             monitor._auditResearchHealth(manyGaps);
 
-            expect(!monitor._pendingAlerts.some(a => a.message.includes("Task"))).toBeTruthy();
+            expect(monitor._pendingAlerts).not.toEqual(expect.arrayContaining([
+                expect.objectContaining({
+                    message: expect.stringContaining("Task"),
+                }),
+            ]));
         });
 
         it("should suggest focus when progress is low", () => {
@@ -453,7 +469,11 @@ describe("AlertMonitor", () => {
 
             monitor._auditResearchHealth(gaps);
 
-            expect(monitor._pendingAlerts.some(a => a.message.includes("聚焦核心路径"))).toBeTruthy();
+            expect(monitor._pendingAlerts).toEqual(expect.arrayContaining([
+                expect.objectContaining({
+                    message: expect.stringContaining("聚焦核心路径"),
+                }),
+            ]));
         });
     });
 
@@ -485,7 +505,11 @@ describe("AlertMonitor", () => {
             // 等待异步处理
             await new Promise(r => setTimeout(r, 10));
 
-            expect(monitor._pendingAlerts.some(a => a.message.includes("test-gap"))).toBeTruthy();
+            expect(monitor._pendingAlerts).toEqual(expect.arrayContaining([
+                expect.objectContaining({
+                    message: expect.stringContaining("test-gap"),
+                }),
+            ]));
         });
     });
 

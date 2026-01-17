@@ -48,7 +48,7 @@ it("ImageGenerator: concurrency=2 limits concurrent provider calls", async () =>
   const gen = new ImageGenerator({ imageProvider: provider, concurrency: 2, budget: { maxImages: 10, maxCostUSD: 10, candidatesPerSlot: 1 } });
   const { report } = await gen.generate(slots, { runId: "run_conc", constraints: {} }, { imageStyle: "Test style" }, { concurrency: 2 });
 
-  expect(maxActive <= 2).toBeTruthy();
+  expect(maxActive).toBeLessThanOrEqual(2);
   expect(report.summary.succeeded).toBe(5);
   expect(report.summary.failed).toBe(0);
   expect(report.summary.skipped).toBe(0);
@@ -128,7 +128,7 @@ it("ImageGenerator: maxImages budget causes later tasks to be skipped", async ()
   expect(calls).toBe(2);
   expect(report.summary.attempted).toBe(2);
   expect(report.summary.skipped).toBe(1);
-  expect(report.tasks.some(t => t.status === "skipped")).toBeTruthy();
+  expect(report.tasks).toEqual(expect.arrayContaining([expect.objectContaining({ status: "skipped" })]));
 });
 
 it("ImageGenerator: maxCostUSD prevents later tasks from starting (provider-based estimate)", async () => {
@@ -231,7 +231,7 @@ it("ImageGenerator: report summary fields are correct (success + failed + skippe
   expect(report.summary.failed).toBe(1);
   expect(report.summary.skipped).toBe(1);
   expect(report.summary.totalCostUSD).toBe(0);
-  expect(report.summary.totalDurationMs > 0).toBeTruthy();
+  expect(report.summary.totalDurationMs).toBeGreaterThan(0);
 });
 
 it("ImageGenerator: fills slot candidates and auto-selects first success (candidatesPerSlot=2)", async () => {

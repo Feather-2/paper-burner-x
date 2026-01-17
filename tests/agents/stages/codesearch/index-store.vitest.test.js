@@ -64,7 +64,7 @@ describe("codesearch/indexing/index-store", () => {
 
     const db1 = await store.open();
     const db2 = await store.open();
-    expect(db1).toBeTruthy();
+    expect(db1).toEqual(expect.objectContaining({ name: store.dbName, version: store.dbVersion }));
     expect(db1).toBe(db2); // cached promise
 
     await store.putSymbolRecord("ws1", "a.js", { sha256: "1", symbols: [{ name: "A" }] });
@@ -92,6 +92,6 @@ describe("codesearch/indexing/index-store", () => {
 
     // After close(), open() should create a new connection/promise.
     const db3 = await store.open();
-    expect(db3).toBeTruthy();
+    expect(db3).toEqual(expect.objectContaining({ name: store.dbName, version: store.dbVersion }));
   });
 });

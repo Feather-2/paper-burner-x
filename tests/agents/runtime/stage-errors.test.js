@@ -30,7 +30,7 @@ it("StagePausedError serializes and restores", async () => {
   });
 
   const restored = StagePausedError.fromJSON(json);
-  expect(restored instanceof StagePausedError).toBeTruthy();
+  expect(restored).toBeInstanceOf(StagePausedError);
   expect(restored.message).toBe("Paused");
   expect(restored.checkpointId).toBe("ckpt_1");
   expect(restored.reason).toBe("need_input");
@@ -55,7 +55,7 @@ it("StagePausedError.fromJSON normalizes values", async () => {
   expect(restored.reason).toBe(null);
   expect(restored.runId).toBe("run_2");
   expect(typeof restored.timestamp).toBe("string");
-  expect(restored.timestamp.includes("T")).toBeTruthy();
+  expect(restored.timestamp).toContain("T");
 });
 
 it("toErrorPayload includes pause metadata", async () => {

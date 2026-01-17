@@ -61,9 +61,9 @@ describe('Kernel', () => {
 
     it('should initialize three buses', () => {
       kernel = new Kernel();
-      expect(kernel.events instanceof EventBus).toBeTruthy();
-      expect(kernel.state instanceof StateBus).toBeTruthy();
-      expect(kernel.services instanceof ServiceBus).toBeTruthy();
+      expect(kernel.events).toBeInstanceOf(EventBus);
+      expect(kernel.state).toBeInstanceOf(StateBus);
+      expect(kernel.services).toBeInstanceOf(ServiceBus);
     });
 
     it('should set initial meta state', () => {
@@ -94,8 +94,8 @@ describe('Kernel', () => {
 
       const history = kernel.events.getHistory();
       const types = history.map(e => e.type);
-      expect(types.includes('kernel.started')).toBeTruthy();
-      expect(types.includes('kernel.stopped')).toBeTruthy();
+      expect(types).toContain('kernel.started');
+      expect(types).toContain('kernel.stopped');
     });
 
     it('start() should be idempotent when already RUNNING', async () => {
@@ -184,7 +184,7 @@ describe('Kernel', () => {
       expect(kernel.status).toBe(KernelStatus.ERROR);
 
       const types = kernel.events.getHistory().map(e => e.type);
-      expect(types.includes('kernel.error')).toBeTruthy();
+      expect(types).toContain('kernel.error');
     });
 
     it('should enter ERROR state when onStop throws', async () => {
@@ -205,8 +205,8 @@ describe('Kernel', () => {
       kernel = new Kernel();
       await kernel.start();
       const startedAt = kernel.state.get('meta.startedAt');
-      expect(typeof startedAt === 'number').toBeTruthy();
-      expect(startedAt > 0).toBeTruthy();
+      expect(startedAt).toBeTypeOf('number');
+      expect(startedAt).toBeGreaterThan(0);
     });
 
     it('should set meta.stoppedAt on stop', async () => {
@@ -214,8 +214,8 @@ describe('Kernel', () => {
       await kernel.start();
       await kernel.stop();
       const stoppedAt = kernel.state.get('meta.stoppedAt');
-      expect(typeof stoppedAt === 'number').toBeTruthy();
-      expect(stoppedAt > 0).toBeTruthy();
+      expect(stoppedAt).toBeTypeOf('number');
+      expect(stoppedAt).toBeGreaterThan(0);
     });
   });
 
@@ -289,15 +289,15 @@ describe('Kernel', () => {
       kernel.registerService('svc2', {});
 
       const services = kernel.getServices();
-      expect(services.some(s => s.name === 'svc1')).toBeTruthy();
-      expect(services.some(s => s.name === 'svc2')).toBeTruthy();
+      expect(services).toContainEqual(expect.objectContaining({ name: 'svc1' }));
+      expect(services).toContainEqual(expect.objectContaining({ name: 'svc2' }));
     });
 
     it('getServices() should include lazy factories', () => {
       kernel.registerServiceFactory('lazy-service', () => ({ ok: true }));
 
       const services = kernel.getServices();
-      expect(services.some(s => s.name === 'lazy-service' && s.registeredAt === 0)).toBeTruthy();
+      expect(services).toContainEqual(expect.objectContaining({ name: 'lazy-service', registeredAt: 0 }));
     });
   });
 
@@ -327,10 +327,10 @@ describe('Kernel', () => {
       await kernel.use(plugin);
       await kernel.start();
 
-      expect(capturedCtx !== undefined).toBeTruthy();
-      expect(capturedCtx.events instanceof EventBus).toBeTruthy();
-      expect(capturedCtx.services instanceof ServiceBus).toBeTruthy();
-      expect(capturedCtx.log !== undefined).toBeTruthy();
+      expect(capturedCtx).toBeDefined();
+      expect(capturedCtx.events).toBeInstanceOf(EventBus);
+      expect(capturedCtx.services).toBeInstanceOf(ServiceBus);
+      expect(capturedCtx.log).toBeDefined();
     });
 
     it('should respect plugin dependencies', async () => {
@@ -438,7 +438,7 @@ describe('Kernel', () => {
       await kernel.start();
 
       const plugins = kernel.getPlugins();
-      expect(plugins.some(p => p.name === 'list-test')).toBeTruthy();
+      expect(plugins).toContainEqual(expect.objectContaining({ name: 'list-test' }));
     });
   });
 
@@ -507,7 +507,7 @@ describe('Kernel', () => {
 
       const history = kernel.events.getHistory();
       const loadedEvent = history.find(e => e.type === 'kernel.preset.loaded');
-      expect(loadedEvent).toBeTruthy();
+      expect(loadedEvent).toBeDefined();
       expect(loadedEvent.payload.preset).toBe('minimal');
     });
 
@@ -521,7 +521,7 @@ describe('Kernel', () => {
       await kernel.start();
 
       const plugin = kernel._getPlugin('compression/cicada');
-      expect(plugin).toBeTruthy();
+      expect(plugin).not.toBeNull();
       expect(plugin._config?.aggressive).toBe(true);
     });
 
@@ -537,7 +537,7 @@ describe('Kernel', () => {
 
       console.warn = originalWarn;
       // Should have warned about failed plugin load
-      expect(warnCount >= 1).toBeTruthy();
+      expect(warnCount).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -548,17 +548,17 @@ describe('Kernel', () => {
 
       expect(health.kernelId).toBe(kernel.id);
       expect(health.status).toBe(KernelStatus.RUNNING);
-      expect(health.uptime >= 0).toBeTruthy();
-      expect(health.plugins !== undefined).toBeTruthy();
-      expect(health.services !== undefined).toBeTruthy();
+      expect(health.uptime).toBeGreaterThanOrEqual(0);
+      expect(health.plugins).toBeDefined();
+      expect(health.services).toBeDefined();
     });
 
     it('should count active plugins', async () => {
       kernel = await Kernel.create('minimal');
       const health = await kernel.healthCheck();
 
-      expect(health.plugins.total >= 1).toBeTruthy();
-      expect(health.plugins.active >= 1).toBeTruthy();
+      expect(health.plugins.total).toBeGreaterThanOrEqual(1);
+      expect(health.plugins.active).toBeGreaterThanOrEqual(1);
       expect(health.plugins.errors).toBe(0);
     });
 
@@ -576,10 +576,10 @@ describe('Kernel', () => {
 
       expect(snapshot.kernelId).toBe(kernel.id);
       expect(snapshot.status).toBe(KernelStatus.RUNNING);
-      expect(snapshot.state !== undefined).toBeTruthy();
-      expect(Array.isArray(snapshot.plugins)).toBeTruthy();
-      expect(Array.isArray(snapshot.services)).toBeTruthy();
-      expect(snapshot.timestamp > 0).toBeTruthy();
+      expect(snapshot.state).toBeDefined();
+      expect(snapshot.plugins).toBeInstanceOf(Array);
+      expect(snapshot.services).toBeInstanceOf(Array);
+      expect(snapshot.timestamp).toBeGreaterThan(0);
     });
   });
 
@@ -595,9 +595,9 @@ describe('Kernel', () => {
       const info = kernel.inspect();
       expect(info.id).toBe(kernel.id);
       expect(info.status).toBe(KernelStatus.RUNNING);
-      expect(Array.isArray(info.eventHistory)).toBeTruthy();
-      expect(Array.isArray(info.stateChangeLog)).toBeTruthy();
-      expect(Array.isArray(info.serviceStats)).toBeTruthy();
+      expect(info.eventHistory).toBeInstanceOf(Array);
+      expect(info.stateChangeLog).toBeInstanceOf(Array);
+      expect(info.serviceStats).toBeInstanceOf(Array);
     });
   });
 
@@ -613,7 +613,7 @@ describe('Kernel', () => {
       await kernel.use(plugin);
       await kernel.start();
 
-      expect(kernel._getPlugin('test')).toBeTruthy();
+      expect(kernel._getPlugin('test')).not.toBeNull();
     });
   });
 
@@ -622,26 +622,26 @@ describe('Kernel', () => {
       kernel = new Kernel();
       await kernel.start();
       // Retry proxy should be applied
-      expect(kernel.services._proxies.some(p => p.proxyName === 'retry')).toBeTruthy();
+      expect(kernel.services._proxies).toContainEqual(expect.objectContaining({ proxyName: 'retry' }));
     });
 
     it('should enable timeout proxy by default', async () => {
       kernel = new Kernel();
       await kernel.start();
       // Timeout proxy should be applied
-      expect(kernel.services._proxies.some(p => p.proxyName === 'timeout')).toBeTruthy();
+      expect(kernel.services._proxies).toContainEqual(expect.objectContaining({ proxyName: 'timeout' }));
     });
 
     it('should disable retry proxy when enableRetry is false', async () => {
       kernel = new Kernel({ enableRetry: false });
       await kernel.start();
-      expect(!kernel.services._proxies.some(p => p.proxyName === 'retry')).toBeTruthy();
+      expect(kernel.services._proxies).not.toContainEqual(expect.objectContaining({ proxyName: 'retry' }));
     });
 
     it('should disable timeout proxy when enableTimeout is false', async () => {
       kernel = new Kernel({ enableTimeout: false });
       await kernel.start();
-      expect(!kernel.services._proxies.some(p => p.proxyName === 'timeout')).toBeTruthy();
+      expect(kernel.services._proxies).not.toContainEqual(expect.objectContaining({ proxyName: 'timeout' }));
     });
   });
 });
@@ -677,7 +677,7 @@ describe('KernelBuilder', () => {
       .build();
 
     const plugins = kernel.getPlugins();
-    expect(plugins.some(p => p.name === 'builder-plugin')).toBeTruthy();
+    expect(plugins).toContainEqual(expect.objectContaining({ name: 'builder-plugin' }));
   });
 
   it('should add services via builder', async () => {
@@ -686,7 +686,7 @@ describe('KernelBuilder', () => {
       .withService('my-service', { hello: 'world' })
       .build();
 
-    expect(kernel.services.has('my-service')).toBeTruthy();
+    expect(kernel.services.has('my-service')).toBe(true);
   });
 
   it('should merge config via builder', async () => {
@@ -705,7 +705,7 @@ describe('KernelBuilder', () => {
       .build();
 
     const plugin = kernel._getPlugin('resilience/retry');
-    expect(plugin?._config?.maxRetries === 7).toBeTruthy();
+    expect(plugin?._config?.maxRetries).toBe(7);
   });
 });
 
@@ -847,8 +847,8 @@ describe('PluginManager', () => {
 
       const list = pm.list();
       expect(list.length).toBe(2);
-      expect(list.some(p => p.name === 'a' && p.version === '1.0.0')).toBeTruthy();
-      expect(list.some(p => p.name === 'b' && p.version === '2.0.0')).toBeTruthy();
+      expect(list).toContainEqual(expect.objectContaining({ name: 'a', version: '1.0.0' }));
+      expect(list).toContainEqual(expect.objectContaining({ name: 'b', version: '2.0.0' }));
     });
   });
 });
@@ -974,10 +974,10 @@ describe('PluginContext', () => {
       ctx.log.warn('w');
       ctx.log.error('e');
 
-      expect(debugCalls.length > 0).toBeTruthy();
-      expect(infoCalls.length > 0).toBeTruthy();
-      expect(warnCalls.length > 0).toBeTruthy();
-      expect(errorCalls.length > 0).toBeTruthy();
+      expect(debugCalls.length).toBeGreaterThan(0);
+      expect(infoCalls.length).toBeGreaterThan(0);
+      expect(warnCalls.length).toBeGreaterThan(0);
+      expect(errorCalls.length).toBeGreaterThan(0);
     } finally {
       console.debug = originalDebug;
       console.info = originalInfo;
@@ -997,7 +997,7 @@ describe('PluginContext', () => {
 
     pm.register(plugin);
     await pm.install('svc-test');
-    expect(k.services.has('tmp')).toBeTruthy();
+    expect(k.services.has('tmp')).toBe(true);
 
     await pm.uninstall('svc-test');
     expect(k.services.has('tmp')).toBe(false);

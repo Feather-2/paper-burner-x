@@ -44,7 +44,7 @@ it("Logger: createLogger emits structured events", async () => {
     expect(emitted[0].payload.iteration).toBe(2);
     expect(emitted[0].payload.stage).toBe("scan");
     expect(emitted[0].payload.data).toEqual({ sourceCount: 3 });
-    expect(typeof emitted[0].payload.timestamp === "string").toBeTruthy();
+    expect(emitted[0].payload.timestamp).toBeTypeOf("string");
 
     expect(calls.log.length).toBe(1);
     expect(calls.log[0][0]).toBe("[deepsearch:scan]");
@@ -147,13 +147,17 @@ it("Logger: multiple instances concurrent do not conflict", async () => {
     for (const e of aEvents) {
       expect(e.payload.runId).toBe("run_A");
       expect(e.payload.stage).toBe("scan");
-      expect(typeof e.payload.iteration === "number" && e.payload.iteration >= 0 && e.payload.iteration < 20).toBeTruthy();
+      expect(e.payload.iteration).toBeTypeOf("number");
+      expect(e.payload.iteration).toBeGreaterThanOrEqual(0);
+      expect(e.payload.iteration).toBeLessThan(20);
     }
 
     for (const e of bEvents) {
       expect(e.payload.runId).toBe("run_B");
       expect(e.payload.stage).toBe("gaps");
-      expect(typeof e.payload.iteration === "number" && e.payload.iteration >= 100 && e.payload.iteration < 120).toBeTruthy();
+      expect(e.payload.iteration).toBeTypeOf("number");
+      expect(e.payload.iteration).toBeGreaterThanOrEqual(100);
+      expect(e.payload.iteration).toBeLessThan(120);
     }
   });
 });
@@ -175,7 +179,7 @@ it("Logger: trackToolCall success + failure", async () => {
     ).rejects.toThrow(/boom/);
 
     const toolEvents = emitted.filter((e) => e.payload.stage === "tool");
-    expect(toolEvents.length >= 4).toBeTruthy();
+    expect(toolEvents.length).toBeGreaterThanOrEqual(4);
     expect(toolEvents[0].payload.message).toBe("Tool call: grep");
     expect(toolEvents[1].payload.message).toBe("Tool completed: grep");
     expect(toolEvents[2].payload.message).toBe("Tool call: glob");

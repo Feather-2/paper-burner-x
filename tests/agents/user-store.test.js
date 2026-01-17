@@ -62,7 +62,7 @@ it("initUserSkillStore: returns ok with mode", async () => {
   const result = await mod.initUserSkillStore({ forceReload: true });
 
   expect(result.ok).toBe(true);
-  expect(["memory", "localstorage", "indexeddb"].includes(result.mode)).toBeTruthy();
+  expect(["memory", "localstorage", "indexeddb"]).toContain(result.mode);
 });
 
 it("initUserSkillStore: accepts encryption option", async () => {
@@ -83,7 +83,7 @@ it("listUserSkills: returns empty array initially", async () => {
   mod.clearUserSkills();
   const skills = mod.listUserSkills();
 
-  expect(Array.isArray(skills)).toBeTruthy();
+  expect(skills).toEqual([]);
 });
 
 it("loadUserSkillsIndex: returns normalized index", async () => {
@@ -93,7 +93,7 @@ it("loadUserSkillsIndex: returns normalized index", async () => {
   const index = mod.loadUserSkillsIndex();
 
   expect(index.schemaVersion).toBe("0.1");
-  expect(Array.isArray(index.skills)).toBeTruthy();
+  expect(index.skills).toEqual([]);
 });
 
 it("saveUserSkillsIndex: normalizes and saves index", async () => {
@@ -207,8 +207,8 @@ it("upsertUserSkill: creates new skill with metadata", async () => {
   expect(skills[0].keywords).toEqual(["test", "new"]);
   expect(skills[0].priority).toBe(50);
   expect(skills[0].scope).toBe("user");
-  expect(skills[0].createdAt).toBeTruthy();
-  expect(skills[0].updatedAt).toBeTruthy();
+  expect(skills[0].createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  expect(skills[0].updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 
   const body = mod.getUserSkillBody("new-skill");
   expect(body).toBe("# New Skill Body");
@@ -742,7 +742,7 @@ it("configureUserSkillStoreEncryption: null input", async () => {
 
   expect(result.enabled).toBe(false);
   // passphrase becomes undefined when input has no passphrase field
-  expect(result.passphrase === "" || result.passphrase === undefined).toBeTruthy();
+  expect(result.passphrase).toBeUndefined();
 });
 
 it("configureUserSkillStoreEncryption: non-object input", async () => {
@@ -963,8 +963,8 @@ it("upsertUserSkill: createdAt is set only on first insert", async () => {
   const createdAt = firstSkill.createdAt;
   const updatedAt = firstSkill.updatedAt;
 
-  expect(createdAt).toBeTruthy();
-  expect(updatedAt).toBeTruthy();
+  expect(createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  expect(updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 
   await new Promise((r) => setTimeout(r, 5));
 

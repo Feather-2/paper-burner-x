@@ -79,7 +79,7 @@ describe("vfs/nodefs + createVfs", () => {
       const st = await vfs.stat("dir/file.txt");
       expect(st.isFile()).toBe(true);
       expect(st.isDirectory()).toBe(false);
-      expect(st.size > 0).toBeTruthy();
+      expect(st.size).toBeGreaterThan(0);
 
       const files = await vfs.listFiles({ prefix: "dir" });
       expect(files).toEqual(["dir/file.txt"]);
@@ -90,7 +90,7 @@ describe("vfs/nodefs + createVfs", () => {
 
   it("defaults to MemoryVfs in node", async () => {
     const vfs = await createVfs();
-    expect(vfs instanceof MemoryVfs).toBeTruthy();
+    expect(vfs).toBeInstanceOf(MemoryVfs);
   });
 });
 
@@ -122,4 +122,3 @@ describe("vfs/glob", () => {
     expect(out).toEqual(["a.md", "dir/c.md"]);
   });
 });
-

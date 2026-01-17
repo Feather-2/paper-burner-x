@@ -20,8 +20,8 @@ it("ToolChain: grep-only strategy", async () => {
 
   expect(result.strategy).toBe("grep-only");
   expect(result.results.length).toBe(3); // hello 在 c1, c3; API_KEY 在 c2
-  expect(result.stats.grepCalls >= 2).toBeTruthy();
-  expect(result.stats.hits >= 3).toBeTruthy();
+  expect(result.stats.grepCalls).toBeGreaterThanOrEqual(2);
+  expect(result.stats.hits).toBeGreaterThanOrEqual(3);
 });
 
 it("ToolChain: normalizeToolChainStrategy", async () => {
@@ -56,7 +56,7 @@ it("ToolChain: glob-then-grep with cache", async () => {
   );
 
   expect(result1.strategy).toBe("glob-then-grep");
-  expect(result1.results.length >= 2).toBeTruthy(); // React 和 export 都在 App.js 中
+  expect(result1.results.length).toBeGreaterThanOrEqual(2); // React 和 export 都在 App.js 中
   expect(result1.stats.globCalls).toBe(1);
   expect(result1.stats.cached).toBe(0); // 第一次没有缓存
 
@@ -71,7 +71,7 @@ it("ToolChain: glob-then-grep with cache", async () => {
   expect(result2.stats.cached).toBe(1); // 第二次使用缓存
 
   const cacheStats = getGlobCacheStats();
-  expect(cacheStats.size >= 1).toBeTruthy();
+  expect(cacheStats.size).toBeGreaterThanOrEqual(1);
 
   clearGlobCache();
 });
@@ -124,7 +124,7 @@ it("ToolChain: auto strategy with patterns falls back to glob-then-grep", async 
 
   // auto + patterns 应该选择 glob-then-grep
   expect(result.strategy).toBe("glob-then-grep");
-  expect(result.results.length >= 2).toBeTruthy();
+  expect(result.results.length).toBeGreaterThanOrEqual(2);
 
   clearGlobCache();
 });
@@ -150,8 +150,7 @@ it("ToolChain: fallback to grep-only when glob fails", async () => {
 
   // 应该降级到 grep-only
   expect(result.strategy).toBe("grep-only");
-  expect(result.fallbackReason).toBeTruthy();
-  expect(result.fallbackReason.includes("glob_failed")).toBeTruthy();
+  expect(result.fallbackReason).toContain("glob_failed");
   expect(result.results.length).toBe(2); // grep-only 能找到两个 world
 
   clearGlobCache();
@@ -188,7 +187,7 @@ it("ToolChain: regex support", async () => {
   );
 
   expect(result.strategy).toBe("grep-only");
-  expect(result.results.length >= 2).toBeTruthy(); // 匹配 test123 和 test456
+  expect(result.results.length).toBeGreaterThanOrEqual(2); // 匹配 test123 和 test456
   expect(result.results.every(r => ["c1", "c2"].includes(r.chunkId)));
 
   clearGlobCache();
@@ -243,10 +242,7 @@ it("ToolChain: glob timeout fallback", async () => {
 
   // 应该降级到 grep-only（因为 glob 超时）
   expect(result.strategy).toBe("grep-only");
-  expect(result.fallbackReason).toBeTruthy();
-  expect(
-    result.fallbackReason.includes("timeout") || result.fallbackReason.includes("glob_failed")
-  ).toBeTruthy();
+  expect(result.fallbackReason).toMatch(/timeout|glob_failed/);
   expect(result.results.length).toBe(1);
 
   clearGlobCache();
@@ -286,7 +282,7 @@ it("ToolChain: glob filters chunks correctly", async () => {
 
   expect(result.strategy).toBe("glob-then-grep");
   // 应该只匹配 c1 和 c3（JS 文件）
-  expect(result.results.length >= 2).toBeTruthy();
+  expect(result.results.length).toBeGreaterThanOrEqual(2);
   expect(result.results.every(r => ["c1", "c3"].includes(r.chunkId)));
 
   clearGlobCache();
@@ -309,8 +305,8 @@ it("ToolChain: multiple keywords accumulate results", async () => {
   );
 
   expect(result.strategy).toBe("grep-only");
-  expect(result.results.length >= 3).toBeTruthy(); // 每个 keyword 至少匹配一个 chunk
-  expect(result.stats.grepCalls >= 3).toBeTruthy();
+  expect(result.results.length).toBeGreaterThanOrEqual(3); // 每个 keyword 至少匹配一个 chunk
+  expect(result.stats.grepCalls).toBeGreaterThanOrEqual(3);
 
   clearGlobCache();
 });
@@ -333,8 +329,8 @@ it("ToolChain: matchCount scoring", async () => {
   const c1Result = result.results.find((r) => r.chunkId === "c1");
   const c2Result = result.results.find((r) => r.chunkId === "c2");
 
-  expect(c1Result).toBeTruthy();
-  expect(c2Result).toBeTruthy();
+  expect(c1Result).toBeDefined();
+  expect(c2Result).toBeDefined();
   expect(c1Result.matchCount).toBe(3);
   expect(c2Result.matchCount).toBe(1);
 

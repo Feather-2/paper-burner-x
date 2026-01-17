@@ -111,7 +111,7 @@ describe("design-phases helpers", () => {
       ];
       const totalCost = slots.reduce((sum, s) => sum + estimateSlotCostUSD(s), 0);
       // 0.003 + 0.04 + 0.04 + 0.003 = 0.086
-      expect(Math.abs(totalCost - 0.086) < 0.0001).toBeTruthy();
+      expect(totalCost).toBeCloseTo(0.086, 4);
     });
 
     it("should handle empty slots array", () => {

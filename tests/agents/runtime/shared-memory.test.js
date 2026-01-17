@@ -44,7 +44,7 @@ describe("SharedMemoryBridge: support detection + SAB path", () => {
     expect(typeof baseline.crossOriginIsolatedKnown).toBe("boolean");
     expect(typeof baseline.crossOriginIsolated).toBe("boolean");
     expect(typeof baseline.sharedArrayBufferEnabled).toBe("boolean");
-    expect(baseline.mode === "sab" || baseline.mode === "messageport").toBeTruthy();
+    expect(["sab", "messageport"]).toContain(baseline.mode);
 
     withGlobal("crossOriginIsolated", false, () => {
       const s = SharedMemoryBridge.getSupport();
@@ -81,13 +81,13 @@ describe("SharedMemoryBridge: support detection + SAB path", () => {
     expect(() => SharedMemoryBridge.allocate(0)).toThrow(/byteLength must be positive/);
     const buf = SharedMemoryBridge.allocate(16);
     expect(buf.byteLength).toBe(16);
-    expect(buf instanceof SharedArrayBuffer).toBeTruthy();
+    expect(buf).toBeInstanceOf(SharedArrayBuffer);
   });
 
   it("copyToShared() copies TypedArray + ArrayBuffer", () => {
     const input = new Uint8Array([1, 2, 3, 4]);
     const sab = SharedMemoryBridge.copyToShared(input);
-    expect(sab instanceof SharedArrayBuffer).toBeTruthy();
+    expect(sab).toBeInstanceOf(SharedArrayBuffer);
     expect(new Uint8Array(sab)).toEqual(input);
 
     const u16 = new Uint16Array([0x1234, 0xabcd]);
@@ -116,15 +116,15 @@ describe("SharedMemoryBridge: support detection + SAB path", () => {
 
   it("createView() accepts ArrayBufferLike", () => {
     const buf = new ArrayBuffer(16);
-    expect(SharedMemoryBridge.createView(buf, "u1") instanceof Uint8Array).toBeTruthy();
-    expect(SharedMemoryBridge.createView(buf, "i1") instanceof Int8Array).toBeTruthy();
-    expect(SharedMemoryBridge.createView(buf, "u2") instanceof Uint16Array).toBeTruthy();
-    expect(SharedMemoryBridge.createView(buf, "i2") instanceof Int16Array).toBeTruthy();
-    expect(SharedMemoryBridge.createView(buf, "u4") instanceof Uint32Array).toBeTruthy();
-    expect(SharedMemoryBridge.createView(buf, "i4") instanceof Int32Array).toBeTruthy();
-    expect(SharedMemoryBridge.createView(buf, "f4") instanceof Float32Array).toBeTruthy();
-    expect(SharedMemoryBridge.createView(buf, "f8") instanceof Float64Array).toBeTruthy();
-    expect(SharedMemoryBridge.createView(buf, "unknown") instanceof Uint8Array).toBeTruthy();
+    expect(SharedMemoryBridge.createView(buf, "u1")).toBeInstanceOf(Uint8Array);
+    expect(SharedMemoryBridge.createView(buf, "i1")).toBeInstanceOf(Int8Array);
+    expect(SharedMemoryBridge.createView(buf, "u2")).toBeInstanceOf(Uint16Array);
+    expect(SharedMemoryBridge.createView(buf, "i2")).toBeInstanceOf(Int16Array);
+    expect(SharedMemoryBridge.createView(buf, "u4")).toBeInstanceOf(Uint32Array);
+    expect(SharedMemoryBridge.createView(buf, "i4")).toBeInstanceOf(Int32Array);
+    expect(SharedMemoryBridge.createView(buf, "f4")).toBeInstanceOf(Float32Array);
+    expect(SharedMemoryBridge.createView(buf, "f8")).toBeInstanceOf(Float64Array);
+    expect(SharedMemoryBridge.createView(buf, "unknown")).toBeInstanceOf(Uint8Array);
     expect(() => SharedMemoryBridge.createView(null)).toThrow(/must be SharedArrayBuffer or ArrayBuffer/);
   });
 
@@ -146,7 +146,7 @@ describe("SharedMemoryBridge: support detection + SAB path", () => {
     const sab = SharedMemoryBridge.copyToShared(new Uint8Array([5, 6, 7]));
     const out = await SharedMemoryBridge.toPython(pyodide, sab, "uint8");
     expect(out).toEqual({ pyMemory: { __py__: true, v: seen.view }, dtype: "uint8" });
-    expect(seen.view instanceof Uint8Array).toBeTruthy();
+    expect(seen.view).toBeInstanceOf(Uint8Array);
     expect(Array.from(seen.view)).toEqual([5, 6, 7]);
 
     await expect(async () => SharedMemoryBridge.toPython(pyodide, null), /must be SharedArrayBuffer or ArrayBuffer/);
@@ -161,7 +161,7 @@ describe("SharedMemoryBridge: support detection + SAB path", () => {
       const packed = pack(bytes); // default mode=auto
       expect(packed.kind).toBe("sab");
       const buf = await unpack(packed);
-      expect(buf instanceof SharedArrayBuffer).toBeTruthy();
+      expect(buf).toBeInstanceOf(SharedArrayBuffer);
       expect(new Uint8Array(buf)).toEqual(bytes);
     } finally {
       if (had) globalThis.crossOriginIsolated = prev;
@@ -173,7 +173,7 @@ describe("SharedMemoryBridge: support detection + SAB path", () => {
 
   it("wrap() aliases copyToShared()", () => {
     const buf = SharedMemoryBridge.wrap(new Uint8Array([1, 2]));
-    expect(buf instanceof SharedArrayBuffer).toBeTruthy();
+    expect(buf).toBeInstanceOf(SharedArrayBuffer);
   });
 
   it("pack(mode='sab') throws when SAB not enabled", () => {
@@ -223,7 +223,7 @@ it("SharedMemoryBridge: MessagePort fallback chunking (256KB)", async () => {
   expect(packet.byteLength).toBe(total);
 
   const out = await SharedMemoryBridge.unpack(packet, { port: port2 });
-  expect(out instanceof ArrayBuffer).toBeTruthy();
+  expect(out).toBeInstanceOf(ArrayBuffer);
   expect(new Uint8Array(out)).toEqual(bytes);
 
   expect(seenChunkSizes).toEqual([chunkBytes, chunkBytes, 123]);
@@ -276,7 +276,7 @@ it("MessagePortFallback: edge cases + internal branches", async () => {
     const packet = sender.pack(new Uint8Array([]));
     await new Promise((r) => setTimeout(r, 0));
     const out = await receiver.unpack(packet);
-    expect(out instanceof ArrayBuffer).toBeTruthy();
+    expect(out).toBeInstanceOf(ArrayBuffer);
     expect(out.byteLength).toBe(0);
     sender.close();
     receiver.close();
@@ -335,7 +335,7 @@ it("MessagePortFallback: edge cases + internal branches", async () => {
     withProperty("crypto", { value: { getRandomValues: () => { throw new Error("no"); } } }, () => {
       const packet = sender.pack(new Int16Array([1, 2, 3])); // ArrayBuffer.isView branch
       expect(packet.kind).toBe("messageport");
-      expect(typeof packet.id === "string" && packet.id.startsWith("sm_")).toBeTruthy();
+      expect(packet.id).toMatch(/^sm_/);
     });
 
     const packet2 = sender.pack(new Uint8Array([9, 8, 7]).buffer); // ArrayBufferLike branch

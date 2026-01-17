@@ -61,8 +61,8 @@ describe("PerformanceRouter: EWMA and routing", () => {
     router.registerEndpoint("gpt-3.5", { tier: ModelTier.FAST });
 
     const stats = router.getAllStats();
-    expect(stats["gpt-4"]).toBeTruthy();
-    expect(stats["gpt-3.5"]).toBeTruthy();
+    expect(stats).toHaveProperty("gpt-4", expect.any(Object));
+    expect(stats).toHaveProperty("gpt-3.5", expect.any(Object));
     expect(stats["gpt-4"].tier).toBe(ModelTier.POWER);
     expect(stats["gpt-3.5"].tier).toBe(ModelTier.FAST);
   });
@@ -78,7 +78,7 @@ describe("PerformanceRouter: EWMA and routing", () => {
     const stats = router.getEndpointStats("test");
     expect(stats.successCount).toBe(2);
     expect(stats.errorCount).toBe(1);
-    expect(stats.latency.ewma > 0).toBeTruthy();
+    expect(stats.latency.ewma).toBeGreaterThan(0);
   });
 
   it("selectEndpoint chooses best endpoint", () => {
@@ -190,7 +190,7 @@ describe("ToolQuotaManager: quota management", () => {
     const result = manager.tryCall("search");
 
     expect(result.allowed).toBe(false);
-    expect(result.reason.includes("Quota exceeded")).toBeTruthy();
+    expect(result.reason).toContain("Quota exceeded");
   });
 
   it("canCall checks without counting", () => {
@@ -230,7 +230,7 @@ describe("ToolQuotaManager: quota management", () => {
     manager.tryCall("test");
     manager.tryCall("test");
 
-    expect(exceeded).toBeTruthy();
+    expect(exceeded).toEqual(expect.any(Object));
     expect(exceeded.toolName).toBe("test");
   });
 
@@ -260,7 +260,7 @@ describe("ToolQuotaManager: quota management", () => {
     expect(summary.totalTools).toBe(2);
     expect(summary.blockedTools).toBe(1);
     // totalCalls only counts successful calls that were allowed
-    expect(summary.totalCalls >= 2).toBeTruthy();
+    expect(summary.totalCalls).toBeGreaterThanOrEqual(2);
     expect(summary.totalBlocked).toBe(1);
   });
 
@@ -319,13 +319,13 @@ describe("TraceContext: distributed tracing", () => {
   it("generateTraceId creates 32-char hex", () => {
     const id = generateTraceId();
     expect(id.length).toBe(32);
-    expect(/^[0-9a-f]+$/.test(id)).toBeTruthy();
+    expect(id).toMatch(/^[0-9a-f]+$/);
   });
 
   it("generateSpanId creates 16-char hex", () => {
     const id = generateSpanId();
     expect(id.length).toBe(16);
-    expect(/^[0-9a-f]+$/.test(id)).toBeTruthy();
+    expect(id).toMatch(/^[0-9a-f]+$/);
   });
 
   it("startSpan creates new span", () => {
@@ -335,7 +335,7 @@ describe("TraceContext: distributed tracing", () => {
 
     expect(span.name).toBe("test-operation");
     expect(span.traceId).toBe(ctx.traceId);
-    expect(span.spanId).toBeTruthy();
+    expect(span.spanId).toMatch(/^[0-9a-f]{16}$/);
     expect(span.isEnded).toBe(false);
   });
 
@@ -373,7 +373,9 @@ describe("TraceContext: distributed tracing", () => {
     span.recordException(new Error("test error"));
 
     expect(span.status).toBe(SpanStatus.ERROR);
-    expect(span.events.some(e => e.name === "exception")).toBeTruthy();
+    expect(span.events).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "exception" })])
+    );
   });
 
   it("span.end finalizes span", () => {
@@ -383,8 +385,8 @@ describe("TraceContext: distributed tracing", () => {
     span.end();
 
     expect(span.isEnded).toBe(true);
-    expect(span.endTime).toBeTruthy();
-    expect(span.duration >= 0).toBeTruthy();
+    expect(span.endTime).toBeTypeOf("number");
+    expect(span.duration).toBeGreaterThanOrEqual(0);
   });
 
   it("withSpan executes and ends span", async () => {
@@ -431,7 +433,7 @@ describe("TraceContext: distributed tracing", () => {
   it("parseTraceparent extracts components", () => {
     const parsed = TraceContext.parseTraceparent("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01");
 
-    expect(parsed).toBeTruthy();
+    expect(parsed).toEqual(expect.any(Object));
     expect(parsed.traceId).toBe("0af7651916cd43dd8448eb211c80319c");
     expect(parsed.spanId).toBe("b7ad6b7169203331");
     expect(parsed.sampled).toBe(true);
@@ -543,7 +545,7 @@ describe("DegradationMatrix: resilience management", () => {
 
     matrix.setManualOverride(OperationLevel.DEGRADED);
 
-    expect(change).toBeTruthy();
+    expect(change).toEqual(expect.any(Object));
     expect(change.from).toBe(OperationLevel.NORMAL);
     expect(change.to).toBe(OperationLevel.DEGRADED);
   });
@@ -552,8 +554,8 @@ describe("DegradationMatrix: resilience management", () => {
     const matrix = new DegradationMatrix();
 
     const features = matrix.getEnabledFeatures();
-    expect(Array.isArray(features)).toBeTruthy();
-    expect(features.includes("caching")).toBeTruthy();
+    expect(features).toBeInstanceOf(Array);
+    expect(features).toContain("caching");
   });
 
   it("getRecommendations provides actionable advice", () => {
@@ -565,7 +567,7 @@ describe("DegradationMatrix: resilience management", () => {
     }
 
     const recommendations = matrix.getRecommendations();
-    expect(Array.isArray(recommendations)).toBeTruthy();
+    expect(recommendations).toBeInstanceOf(Array);
   });
 
   it("reset returns to normal", () => {

@@ -71,8 +71,8 @@ describe("shared/utils/safe-json", () => {
     it("handles Infinity maxChars", () => {
       const longJson = '{"data": "' + "x".repeat(1000) + '"}';
       const result = safeJsonParse(longJson, { maxChars: Infinity });
-      expect(result).toBeTruthy();
-      expect(result.data.length === 1000).toBeTruthy();
+      const expectedData = "x".repeat(1000);
+      expect(result).toEqual({ data: expectedData });
     });
 
     it("uses default maxChars when not specified", () => {

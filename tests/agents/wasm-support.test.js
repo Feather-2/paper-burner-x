@@ -15,7 +15,7 @@ describe("shared/utils/wasm-support", () => {
 
     it("returns true in Node.js (which supports WASM)", () => {
       // Node.js has WebAssembly support
-      expect(isWasmSupported()).toBeTruthy();
+      expect(isWasmSupported()).toBe(true);
     });
 
     it("caches result on subsequent calls", () => {

@@ -72,6 +72,7 @@ it("SDK: registering subagents adds the Task tool automatically", async () => {
 
 it("SDK: AgentInstance.dispose unsubscribes + rejects further use", async () => {
   const { AgentBuilder } = await import("../../js/agents/sdk/AgentBuilder.js");
+  const { DefaultAgentLoop } = await import("../../js/agents/sdk/DefaultAgentLoop.js");
 
   let cfgHandlerCalls = 0;
   let manualHandlerCalls = 0;
@@ -93,7 +94,7 @@ it("SDK: AgentInstance.dispose unsubscribes + rejects further use", async () => 
 
   // Ensure loop exists so loop cleanup can be validated.
   await agent.run({ tool: "Echo", args: { text: "hi" } }, { state: {}, signal: null });
-  expect(agent._loop).toBeTruthy();
+  expect(agent._loop).toBeInstanceOf(DefaultAgentLoop);
 
   await agent.dispose();
   agent.eventBus.emitSync("sdk.dispose.test", { ok: true });

@@ -313,7 +313,7 @@ describe("EventBus", () => {
       bus.emit("tick", {});
       const clock2 = bus.getClock();
 
-      expect(clock2.seq > clock1.seq).toBeTruthy();
+      expect(clock2.seq).toBeGreaterThan(clock1.seq);
     });
 
     it("events should have monotonically increasing seq", () => {
@@ -321,8 +321,8 @@ describe("EventBus", () => {
       const e2 = bus.emit("b", {});
       const e3 = bus.emit("c", {});
 
-      expect(e1.seq < e2.seq).toBeTruthy();
-      expect(e2.seq < e3.seq).toBeTruthy();
+      expect(e1.seq).toBeLessThan(e2.seq);
+      expect(e2.seq).toBeLessThan(e3.seq);
     });
   });
 
@@ -339,7 +339,7 @@ describe("EventBus", () => {
 
       expect(appendEvents.mock.calls.length).toBe(1);
       const [events] = appendEvents.mock.calls[0];
-      expect(Array.isArray(events)).toBeTruthy();
+      expect(Array.isArray(events)).toBe(true);
       expect(events[0].runId).toBe("run_persist");
       expect(events[0].name).toBe("run.started");
       persistBus.dispose();
@@ -629,7 +629,7 @@ describe("EventBus", () => {
     it("getClock() should return a snapshot object", () => {
       const clock = bus.getClock();
       expect(typeof clock.seq).toBe("number");
-      expect(clock.id.startsWith("eventbus_")).toBeTruthy();
+      expect(clock.id).toMatch(/^eventbus_/);
       expect(typeof clock.ts).toBe("number");
     });
 
@@ -719,8 +719,8 @@ describe("createEventRecord", () => {
   it("should fall back to Date.now() when ts is invalid and timestamp missing", () => {
     const now = Date.now();
     const record = createEventRecord({ name: "bad.ts", ts: "not-a-date" });
-    expect(record.timestamp >= now - 1000).toBeTruthy();
-    expect(record.timestamp <= now + 1000).toBeTruthy();
+    expect(record.timestamp).toBeGreaterThanOrEqual(now - 1000);
+    expect(record.timestamp).toBeLessThanOrEqual(now + 1000);
   });
 
   it("should generate default values for minimal input", () => {
@@ -730,7 +730,7 @@ describe("createEventRecord", () => {
     expect(record.schemaVersion).toBe("0.1");
     expect(record.actor).toBe("system");
     expect(typeof record.seq).toBe("number");
-    expect(record.eventId.startsWith("evt_")).toBeTruthy();
+    expect(record.eventId).toMatch(/^evt_/);
   });
 
   it("should default name to 'unknown' when missing", () => {
@@ -858,12 +858,12 @@ describe("LamportClock class", () => {
   it("should include node id", () => {
     const clock = new LamportClock("my-node");
     const state = clock.tick();
-    expect(state.id.includes("my-node")).toBeTruthy();
+    expect(state.id).toContain("my-node");
   });
 
   it("should generate random nodeId when not provided", () => {
     const clock = new LamportClock();
     const state = clock.tick();
-    expect(state.id.match(/^[0-9a-f]+_1$/i)).toBeTruthy();
+    expect(state.id).toMatch(/^[0-9a-f]+_1$/i);
   });
 });

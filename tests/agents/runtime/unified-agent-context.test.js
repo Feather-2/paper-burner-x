@@ -7,7 +7,7 @@ describe("UnifiedAgentContext", () => {
   describe("constructor", () => {
     it("should create with default runId", () => {
       const ctx = new UnifiedAgentContext();
-      expect(ctx.runId.startsWith("ctx_")).toBeTruthy();
+      expect(ctx.runId).toMatch(/^ctx_/);
     });
 
     it("should accept custom runId", () => {
@@ -197,15 +197,20 @@ describe("UnifiedAgentContext", () => {
       const ctx = new UnifiedAgentContext();
       let stateClaim = null;
       let sharedFinding = null;
+      const claim = { text: "test claim", source: "doc1" };
 
       ctx._state = { addClaim: (c) => { stateClaim = c; } };
       ctx._sharedContext = { addFinding: (f) => { sharedFinding = f; } };
 
-      ctx.addClaim({ text: "test claim", source: "doc1" });
+      ctx.addClaim(claim);
 
-      expect(stateClaim).toBeTruthy();
-      expect(sharedFinding).toBeTruthy();
-      expect(sharedFinding.type).toBe("claim");
+      expect(stateClaim).toBe(claim);
+      expect(sharedFinding).toEqual({
+        type: "claim",
+        content: "test claim",
+        source: "doc1",
+        confidence: undefined,
+      });
     });
   });
 
@@ -277,7 +282,7 @@ describe("UnifiedAgentContext", () => {
       const checkpoint = await ctx.saveCheckpoint();
 
       expect(checkpoint.runId).toBe("test_run");
-      expect(checkpoint.timestamp).toBeTruthy();
+      expect(checkpoint.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
       expect(checkpoint.state).toEqual({ iteration: 5 });
       expect(checkpoint.memory.L0.taskGoal).toBe("test");
       expect(checkpoint.sharedContext).toEqual({ signals: [] });
@@ -344,8 +349,7 @@ describe("UnifiedAgentContext", () => {
 
       await ctx.saveCheckpoint({ incremental: true });
 
-      expect(toSnapshotOptions).toBeTruthy();
-      expect(toSnapshotOptions.incremental).toBe(true);
+      expect(toSnapshotOptions).toEqual({ includeL3: false, incremental: true });
     });
   });
 

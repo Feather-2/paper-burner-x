@@ -61,7 +61,7 @@ describe("ToolExecutor", () => {
 
       expect(result.success).toBe(false);
       expect(result.ok).toBe(false);
-      expect(result.error.includes("Unknown tool")).toBeTruthy();
+      expect(result.error).toContain("Unknown tool");
     });
 
     it("should handle tool errors", async () => {
@@ -75,7 +75,7 @@ describe("ToolExecutor", () => {
       const result = await executor.execute("fail", {}, {});
 
       expect(result.success).toBe(false);
-      expect(result.error.includes("Intentional failure")).toBeTruthy();
+      expect(result.error).toContain("Intentional failure");
     });
 
     it("should retry on failure", async () => {
@@ -111,7 +111,7 @@ describe("ToolExecutor", () => {
       const result = await executor.execute("slow", {}, {});
 
       expect(result.success).toBe(false);
-      expect(result.error.includes("timed out")).toBeTruthy();
+      expect(result.error).toContain("timed out");
     });
 
     it("should support function-style tools", async () => {
@@ -137,7 +137,7 @@ describe("ToolExecutor", () => {
       const result = await executor.execute("noHandler", {}, {});
 
       expect(result.success).toBe(false);
-      expect(result.error.includes("no handler")).toBeTruthy();
+      expect(result.error).toContain("no handler");
     });
 
     it("should use per-call timeoutMs option", async () => {
@@ -152,7 +152,7 @@ describe("ToolExecutor", () => {
       const result = await executor.execute("slow", {}, {}, { timeoutMs: 30 });
 
       expect(result.success).toBe(false);
-      expect(result.error.includes("timed out")).toBeTruthy();
+      expect(result.error).toContain("timed out");
     });
 
     it("should use per-call retries option", async () => {
@@ -200,7 +200,7 @@ describe("ToolExecutor", () => {
       const result = await executor.execute("search", {}, {});
 
       expect(result.success).toBe(true);
-      expect(emitted.some(e => e.name === "tool.validation.failed")).toBeTruthy();
+      expect(emitted).toEqual(expect.arrayContaining([expect.objectContaining({ name: "tool.validation.failed" })]));
     });
 
     it("should fail in strict validation mode when schema invalid", async () => {
@@ -224,7 +224,7 @@ describe("ToolExecutor", () => {
       const result = await executor.execute("search", {}, {});
 
       expect(result.success).toBe(false);
-      expect(result.error.includes("Validation failed")).toBeTruthy();
+      expect(result.error).toContain("Validation failed");
     });
 
     it("should skip validation when validateSchema is false", async () => {
@@ -246,7 +246,7 @@ describe("ToolExecutor", () => {
       const result = await executor.execute("search", {}, {});
 
       expect(result.success).toBe(true);
-      expect(!emitted.some(e => e.name === "tool.validation.failed")).toBeTruthy();
+      expect(emitted.some(e => e.name === "tool.validation.failed")).toBe(false);
     });
 
     it("should allow per-call validation override", async () => {
@@ -267,7 +267,7 @@ describe("ToolExecutor", () => {
       });
 
       expect(result.success).toBe(false);
-      expect(result.error.includes("Validation failed")).toBeTruthy();
+      expect(result.error).toContain("Validation failed");
     });
 
     it("should use definition.parameters as fallback", async () => {
@@ -351,7 +351,9 @@ describe("ToolExecutor", () => {
 
       expect(result.success).toBe(true);
       expect(result.data).toBe("executed");
-      expect(logged.some(l => l.msg.includes("Before hook failed"))).toBeTruthy();
+      expect(logged).toEqual(expect.arrayContaining([expect.objectContaining({
+        msg: expect.stringContaining("Before hook failed"),
+      })]));
     });
   });
 
@@ -397,7 +399,9 @@ describe("ToolExecutor", () => {
 
       expect(result.success).toBe(true);
       expect(result.data).toBe("value");
-      expect(logged.some(l => l.msg.includes("After hook failed"))).toBeTruthy();
+      expect(logged).toEqual(expect.arrayContaining([expect.objectContaining({
+        msg: expect.stringContaining("After hook failed"),
+      })]));
     });
 
     it("should accept per-call hooks override", async () => {
@@ -441,8 +445,8 @@ describe("ToolExecutor", () => {
       const result = await executor.execute("dangerous", {}, {});
 
       expect(result.success).toBe(false);
-      expect(result.error.includes("Policy denied")).toBeTruthy();
-      expect(emitted.some(e => e.name === "tool.denied")).toBeTruthy();
+      expect(result.error).toContain("Policy denied");
+      expect(emitted).toEqual(expect.arrayContaining([expect.objectContaining({ name: "tool.denied" })]));
     });
 
     it("should allow execution when policy returns allowed=true", async () => {
@@ -509,8 +513,11 @@ describe("ToolExecutor", () => {
       const result = await executor.execute("test", {}, {});
 
       expect(result.success).toBe(false);
-      expect(result.error.includes("Policy error")).toBeTruthy();
-      expect(emitted.some(e => e.name === "tool.denied" && e.payload.reason === "policy_error")).toBeTruthy();
+      expect(result.error).toContain("Policy error");
+      expect(emitted).toEqual(expect.arrayContaining([expect.objectContaining({
+        name: "tool.denied",
+        payload: expect.objectContaining({ reason: "policy_error" }),
+      })]));
     });
 
     it("should use per-call policy override", async () => {
@@ -547,9 +554,9 @@ describe("ToolExecutor", () => {
       await executor.execute("ping", {}, {});
 
       const completed = emitted.find(e => e.name === "tool.completed");
-      expect(completed).toBeTruthy();
+      expect(completed).toEqual(expect.objectContaining({ name: "tool.completed" }));
       expect(completed.payload.tool).toBe("ping");
-      expect(typeof completed.payload.duration === "number").toBeTruthy();
+      expect(completed.payload.duration).toEqual(expect.any(Number));
     });
 
     it("should emit tool.failed event on all retries exhausted", async () => {
@@ -565,9 +572,9 @@ describe("ToolExecutor", () => {
       await executor.execute("fail", {}, {});
 
       const failed = emitted.find(e => e.name === "tool.failed");
-      expect(failed).toBeTruthy();
+      expect(failed).toEqual(expect.objectContaining({ name: "tool.failed" }));
       expect(failed.payload.tool).toBe("fail");
-      expect(failed.payload.error.includes("Always fails")).toBeTruthy();
+      expect(failed.payload.error).toContain("Always fails");
     });
 
     it("should call logger.debug on success", async () => {
@@ -583,7 +590,10 @@ describe("ToolExecutor", () => {
 
       await executor.execute("ping", {}, {});
 
-      expect(logged.some(l => l.level === "debug" && l.msg.includes("completed"))).toBeTruthy();
+      expect(logged).toEqual(expect.arrayContaining([expect.objectContaining({
+        level: "debug",
+        msg: expect.stringContaining("completed"),
+      })]));
     });
 
     it("should call logger.warn on retry", async () => {
@@ -608,7 +618,10 @@ describe("ToolExecutor", () => {
 
       await executor.execute("flaky", {}, {});
 
-      expect(logged.some(l => l.level === "warn" && l.msg.includes("failed"))).toBeTruthy();
+      expect(logged).toEqual(expect.arrayContaining([expect.objectContaining({
+        level: "warn",
+        msg: expect.stringContaining("failed"),
+      })]));
     });
   });
 
@@ -892,9 +905,9 @@ describe("ToolExecutor", () => {
 
     it("should initialize hooks arrays", () => {
       const executor = new ToolExecutor({});
-      expect(Array.isArray(executor.hooks.before)).toBeTruthy();
-      expect(Array.isArray(executor.hooks.after)).toBeTruthy();
-      expect(executor.hooks.before.length > 0).toBeTruthy(); // createPreToolUseHook added
+      expect(executor.hooks.before).toBeInstanceOf(Array);
+      expect(executor.hooks.after).toBeInstanceOf(Array);
+      expect(executor.hooks.before.length).toBeGreaterThan(0); // createPreToolUseHook added
     });
 
     it("should copy provided hooks arrays", () => {
@@ -1447,7 +1460,7 @@ describe("ToolExecutor", () => {
       const w2 = await acquirePromise;
 
       expect(createCount).toBe(2);
-      expect(w2).toBeTruthy();
+      expect(w2).toBeDefined();
     });
   });
 });

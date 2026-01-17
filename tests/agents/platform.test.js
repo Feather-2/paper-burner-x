@@ -6,12 +6,18 @@ import { Platform, isNodeLike } from "../../js/agents/shared/platform.js";
 describe("shared/platform", () => {
   describe("Platform", () => {
     it("exports Platform object", () => {
-      expect(Platform).toBeTruthy();
-      expect(typeof Platform.runtime === "string").toBeTruthy();
+      expect(Platform).toMatchObject({
+        runtime: expect.any(String),
+        isNode: expect.any(Boolean),
+        isBun: expect.any(Boolean),
+        isDeno: expect.any(Boolean),
+        isBrowser: expect.any(Boolean),
+      });
+      expect(Platform.runtime).toBeTypeOf("string");
     });
 
     it("has runtime property", () => {
-      expect(["node", "bun", "deno", "browser", "unknown"].includes(Platform.runtime)).toBeTruthy();
+      expect(["node", "bun", "deno", "browser", "unknown"]).toContain(Platform.runtime);
     });
 
     it("has boolean flags", () => {
@@ -23,7 +29,7 @@ describe("shared/platform", () => {
 
     it("detects Node.js in test environment", () => {
       // In Node.js test environment, should detect as node
-      expect(Platform.isNode || Platform.isBun).toBeTruthy();
+      expect(Platform.isNode || Platform.isBun).toBe(true);
       expect(Platform.isBrowser).toBe(false);
     });
   });
@@ -36,7 +42,7 @@ describe("shared/platform", () => {
 
     it("returns true in Node.js test environment", () => {
       // Running in Node.js, should return true
-      expect(isNodeLike()).toBeTruthy();
+      expect(isNodeLike()).toBe(true);
     });
   });
 });

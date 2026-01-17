@@ -16,7 +16,7 @@ describe("shared/utils/circuit-breaker", () => {
     });
 
     it("is frozen", () => {
-      expect(Object.isFrozen(CircuitState)).toBeTruthy();
+      expect(Object.isFrozen(CircuitState)).toBe(true);
     });
   });
 
@@ -75,7 +75,7 @@ describe("shared/utils/circuit-breaker", () => {
 
     describe("canExecute", () => {
       it("returns true when CLOSED", () => {
-        expect(breaker.canExecute()).toBeTruthy();
+        expect(breaker.canExecute()).toBe(true);
       });
 
       it("returns false when OPEN", () => {
@@ -87,7 +87,7 @@ describe("shared/utils/circuit-breaker", () => {
         // Trip and transition to half-open
         breaker.trip("test");
         mockTime.now = () => 2000; // Past openDurationMs
-        expect(breaker.canExecute()).toBeTruthy();
+        expect(breaker.canExecute()).toBe(true);
       });
     });
 
@@ -219,7 +219,12 @@ describe("shared/utils/circuit-breaker", () => {
         b.trip("test");
         b.reset();
 
-        expect(events.some(e => e.reason === "manual_reset")).toBeTruthy();
+        const manualResetEvent = events.find((e) => e.reason === "manual_reset");
+        expect(manualResetEvent).toMatchObject({
+          from: CircuitState.OPEN,
+          to: CircuitState.CLOSED,
+          reason: "manual_reset",
+        });
       });
     });
 
@@ -239,8 +244,11 @@ describe("shared/utils/circuit-breaker", () => {
         b.trip("test_reason");
 
         const tripEvent = events.find((e) => e.to === CircuitState.OPEN);
-        expect(tripEvent).toBeTruthy();
-        expect(tripEvent.reason).toBe("test_reason");
+        expect(tripEvent).toMatchObject({
+          from: CircuitState.CLOSED,
+          to: CircuitState.OPEN,
+          reason: "test_reason",
+        });
       });
     });
 
@@ -293,7 +301,7 @@ describe("shared/utils/circuit-breaker", () => {
     describe("get", () => {
       it("creates new breaker", () => {
         const breaker = registry.get("test");
-        expect(breaker instanceof CircuitBreaker).toBeTruthy();
+        expect(breaker).toBeInstanceOf(CircuitBreaker);
       });
 
       it("returns same breaker for same name", () => {
@@ -315,14 +323,14 @@ describe("shared/utils/circuit-breaker", () => {
 
       it("returns true for registered", () => {
         registry.get("test");
-        expect(registry.has("test")).toBeTruthy();
+        expect(registry.has("test")).toBe(true);
       });
     });
 
     describe("remove", () => {
       it("removes breaker", () => {
         registry.get("test");
-        expect(registry.remove("test")).toBeTruthy();
+        expect(registry.remove("test")).toBe(true);
         expect(registry.has("test")).toBe(false);
       });
 
@@ -337,8 +345,8 @@ describe("shared/utils/circuit-breaker", () => {
         registry.get("b");
 
         const stats = registry.getAllStats();
-        expect("a" in stats).toBeTruthy();
-        expect("b" in stats).toBeTruthy();
+        expect(stats).toHaveProperty("a");
+        expect(stats).toHaveProperty("b");
       });
 
       it("returns empty object when empty", () => {

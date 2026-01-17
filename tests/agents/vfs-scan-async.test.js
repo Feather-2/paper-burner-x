@@ -371,9 +371,9 @@ describe("vfs-scan-async", () => {
 
       expect(fallback.mock.calls.length).toBe(3);
       // 结果应该都是独立的
-      expect(result1[0].startsWith("a/")).toBeTruthy();
-      expect(result2[0].startsWith("b/")).toBeTruthy();
-      expect(result3[0].startsWith("c/")).toBeTruthy();
+      expect(result1[0]).toMatch(/^a\//);
+      expect(result2[0]).toMatch(/^b\//);
+      expect(result3[0]).toMatch(/^c\//);
     });
 
     it("handles fallback throwing non-Error", async () => {

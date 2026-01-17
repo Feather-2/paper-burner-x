@@ -15,7 +15,7 @@ describe("runtime/tools/platform", () => {
   describe("platform detection", () => {
     it("getPlatformType returns valid type", () => {
       const type = getPlatformType();
-      expect(["browser", "node", "bun", "deno", "unknown"].includes(type)).toBeTruthy();
+      expect(["browser", "node", "bun", "deno", "unknown"]).toContain(type);
     });
 
     it("isNodeLike returns true in Node environment", () => {
@@ -62,7 +62,7 @@ describe("runtime/tools/platform", () => {
       expect(typeof tools.write).toBe("function");
       expect(typeof tools.list).toBe("function");
       expect(typeof tools.bash).toBe("function");
-      expect(["node", "bun", "deno"].includes(tools.platform)).toBeTruthy();
+      expect(["node", "bun", "deno"]).toContain(tools.platform);
     });
 
     it("glob finds files matching pattern", async () => {
@@ -84,7 +84,7 @@ describe("runtime/tools/platform", () => {
       const tools = await createPlatformTools({ basePath: testDir });
       const { matches } = await tools.grep({ pattern: "hello", path: testDir });
 
-      expect(matches.length >= 1).toBeTruthy();
+      expect(matches.length).toBeGreaterThan(0);
     });
 
     it("read returns file content", async () => {
@@ -115,8 +115,8 @@ describe("runtime/tools/platform", () => {
       const tools = await createPlatformTools({ basePath: testDir });
       const { entries } = await tools.list({ path: testDir });
 
-      expect(entries.includes("file1.txt")).toBeTruthy();
-      expect(entries.includes("subdir")).toBeTruthy();
+      expect(entries).toContain("file1.txt");
+      expect(entries).toContain("subdir");
     });
 
     it("bash executes commands", async () => {
@@ -124,7 +124,7 @@ describe("runtime/tools/platform", () => {
       const result = await tools.bash({ command: "echo hello" });
 
       expect(result.exitCode).toBe(0);
-      expect(result.stdout.includes("hello")).toBeTruthy();
+      expect(result.stdout).toContain("hello");
     });
 
     it("bash respects timeout", async () => {
@@ -132,7 +132,7 @@ describe("runtime/tools/platform", () => {
       const result = await tools.bash({ command: "sleep 10", timeout: 100 });
 
       expect(result.exitCode).toBe(-1);
-      expect(result.error?.includes("timeout") || result.stderr?.length >= 0).toBeTruthy();
+      expect(result.error).toMatch(/timed out/i);
     });
   });
 });

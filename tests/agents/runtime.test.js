@@ -46,11 +46,11 @@ it("Runtime Constants: report enums + quality mode normalization", async () => {
 it("Runtime Core: EventBus on/off/once/emit + EventRecord fields", async () => {
   const { EventBus, isValidEventName } = await import("../../js/agents/core/event-bus.js");
 
-  expect(isValidEventName("run.started")).toBeTruthy();
-  expect(isValidEventName("textprep.chunk.completed")).toBeTruthy();
+  expect(isValidEventName("run.started")).toBe(true);
+  expect(isValidEventName("textprep.chunk.completed")).toBe(true);
   expect(isValidEventName("Run.Started")).toBe(false);
   expect(isValidEventName("bad..name")).toBe(false);  // 连续点号不合法
-  expect(isValidEventName("bad_name")).toBeTruthy();  // 下划线现在合法
+  expect(isValidEventName("bad_name")).toBe(true);  // 下划线现在合法
 
   const bus = new EventBus({ runId: "run_2025-12-12_22-30-01_a3f9f" });
 
@@ -72,8 +72,10 @@ it("Runtime Core: EventBus on/off/once/emit + EventRecord fields", async () => {
   expect(evt1.actor).toBe("system");
   expect(evt1.status).toBe("started");
   expect(evt1.payload).toEqual({ mode: "textprep" });
-  expect(typeof evt1.eventId === "string" && evt1.eventId.startsWith("evt_")).toBeTruthy();
-  expect(typeof evt1.ts === "string" && evt1.ts.includes("T")).toBeTruthy();
+  expect(typeof evt1.eventId).toBe("string");
+  expect(evt1.eventId.startsWith("evt_")).toBe(true);
+  expect(typeof evt1.ts).toBe("string");
+  expect(evt1.ts.includes("T")).toBe(true);
 
   offAny();
   bus.emit("run.ended", { actor: "system", status: "ended" });
@@ -387,7 +389,7 @@ it("VFS operations: multiEditTextFileWithPolicy supports indentation-normalized 
   });
 
   const after = await vfs.readText("code.js");
-  expect(after.includes("return 2;")).toBeTruthy();
+  expect(after).toContain("return 2;");
   expect(after.includes("return 1;")).toBe(false);
 });
 
@@ -440,7 +442,8 @@ it("Runtime Core: EventBus backpressure batching + coalesce + order + seq", asyn
   expect(logs.map((e) => e.payload)).toEqual([{ msg: "a" }, { msg: "b" }]);
 
   const seqs = events.map(seqOf);
-  expect(seqs[0] < seqs[1] && seqs[1] < seqs[2]).toBeTruthy();
+  expect(seqs[0]).toBeLessThan(seqs[1]);
+  expect(seqs[1]).toBeLessThan(seqs[2]);
 
   bus.emit("run.log", { msg: "c" });
   await sleep(60);
@@ -801,7 +804,9 @@ it("Runtime Core: EventBus subscribe with wildcard pattern", async () => {
 
   expect(deepSearchEvents.length).toBe(2);
   expect(designEvents.length).toBe(1);
-  expect(deepSearchEvents.every((e) => e.name.startsWith("deepsearch."))).toBeTruthy();
+  deepSearchEvents.forEach((event) => {
+    expect(event.name).toMatch(/^deepsearch\./);
+  });
 });
 
 it("Runtime Core: EventBus subscribe returns unsubscribe function", async () => {
@@ -967,13 +972,13 @@ it("Runtime Tools: ToolExecutor worker isolation enforces hard timeout for sync 
 
   expect(result.success).toBe(false);
   expect(String(result.error || "")).toContain("timed out");
-  expect(elapsedMs < 300).toBeTruthy();
+  expect(elapsedMs).toBeLessThan(300);
 });
 
 it("Runtime Tools: WorkerPool caps concurrent worker creation", async () => {
   const { __test } = await import("../../js/agents/runtime/tools/tool-executor.js");
   const WorkerPool = __test?.WorkerPool;
-  expect(typeof WorkerPool === "function").toBeTruthy();
+  expect(typeof WorkerPool).toBe("function");
 
   let created = 0;
   const pool = new WorkerPool({
@@ -1003,7 +1008,7 @@ it("Runtime Tools: WorkerPool caps concurrent worker creation", async () => {
 
   pool.release(w1);
   const w3 = await p3;
-  expect(w3).toBeTruthy();
+  expect(w3).toBe(w1);
   expect(created).toBe(2);
 
   pool.release(w2);
@@ -1080,7 +1085,7 @@ it("Runtime Compression: title-only mode trims old messages aggressively", async
   await loop._compressMessages();
 
   const summaryMsg = loop.messages.find((m) => m?.role === "system" && String(m.content || "").startsWith("[Context Summary]"));
-  expect(summaryMsg).toBeTruthy();
+  expect(summaryMsg).toBeDefined();
   const body = String(summaryMsg.content || "").split("\n").slice(1).join("\n");
 
   // When title-only is enabled, we should not include words beyond the first 10.
@@ -1102,7 +1107,7 @@ it("Runtime Compression: _scheduleCompression is idempotent and flushCompression
   expect(loop.getContextStatus().compressionPending).toBe(true);
 
   const p1 = loop._compressionPromise;
-  expect(p1).toBeTruthy();
+  expect(p1).toBeInstanceOf(Promise);
   loop._scheduleCompression();
   expect(loop._compressionPromise).toBe(p1);
 
@@ -1777,7 +1782,7 @@ it("Runtime: AgentCheckpointStore persists and restores checkpoints", async () =
     iteration: 1,
   });
 
-  expect(saved.checkpointId).toBeTruthy();
+  expect(saved.checkpointId).toMatch(/^ckpt_/);
 
   const list = await store.listCheckpoints();
   expect(list.length).toBe(1);
@@ -1995,7 +2000,7 @@ it("LLM: overflow recovery parses and retries with reduced max_tokens", async ()
     const out = await client.chat({ messages, maxTokens: 900 });
     expect(out.content).toBe("ok");
     expect(calls.length).toBe(2);
-    expect(calls[1].max_tokens < calls[0].max_tokens).toBeTruthy();
+    expect(calls[1].max_tokens).toBeLessThan(calls[0].max_tokens);
 
     // Truncation should not leave a dangling tool output without its call.
     const sent = calls[0].messages;

@@ -236,13 +236,13 @@ describe("DesignContext", () => {
   describe("createDesignContext factory", () => {
     it("should create DesignContext instance", () => {
       const ctx = createDesignContext({ slideIntents: [{ slideIntentId: "s1" }] });
-      expect(ctx instanceof DesignContext).toBeTruthy();
+      expect(ctx).toBeInstanceOf(DesignContext);
       expect(ctx.slideIntents).toEqual([{ slideIntentId: "s1" }]);
     });
 
     it("should create empty context with no options", () => {
       const ctx = createDesignContext();
-      expect(ctx instanceof DesignContext).toBeTruthy();
+      expect(ctx).toBeInstanceOf(DesignContext);
       expect(ctx.slideIntents).toEqual([]);
     });
   });

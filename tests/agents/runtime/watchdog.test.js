@@ -29,7 +29,12 @@ it("Watchdog.checkHealth detects max iterations exceeded", async () => {
 
   const result = watchdog.checkHealth({ maxIterations: 3 });
   expect(result.healthy).toBe(false);
-  expect(result.issues.some(i => i.type === "max_iterations")).toBeTruthy();
+  const maxIterationsIssue = result.issues.find(issue => issue.type === "max_iterations");
+  expect(maxIterationsIssue).toEqual({
+    type: "max_iterations",
+    value: 5,
+    threshold: 3,
+  });
 });
 
 it("Watchdog.observe and intervene notify handlers", async () => {
@@ -98,5 +103,5 @@ it("Watchdog emits events via eventBus", async () => {
   for (let i = 0; i < 10; i++) watchdog.tick();
   watchdog.checkHealth({ maxIterations: 5 });
 
-  expect(bus.events.length > 0).toBeTruthy();
+  expect(bus.events.length).toBeGreaterThan(0);
 });

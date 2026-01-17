@@ -98,7 +98,7 @@ describe('DI defaults', () => {
       EventBus.prototype.enableBackpressure = undefined;
       const container = createAgentContainer();
       const eventBus = await container.get(ServiceId.EVENT_BUS);
-      expect(eventBus).toBeTruthy();
+      expect(eventBus).toBeInstanceOf(EventBus);
     } finally {
       EventBus.prototype.enableBackpressure = originalEnable;
     }

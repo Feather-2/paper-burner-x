@@ -216,7 +216,12 @@ describe('Service/proxy plugins (PLUG-02)', () => {
     await kernel.start();
 
     const scheduler = await kernel.services.get('scheduler');
-    expect(scheduler).toBeTruthy();
+    expect(scheduler).toEqual(expect.objectContaining({
+      schedule: expect.any(Function),
+      cancel: expect.any(Function),
+      getStatus: expect.any(Function),
+      getQueueLength: expect.any(Function),
+    }));
 
     const starts = [];
     kernel.events.on('scheduler.task.start', (evt) => starts.push({ id: evt.payload.id, priority: evt.payload.priority }));
@@ -304,7 +309,15 @@ describe('Service/proxy plugins (PLUG-02)', () => {
     await kernel.start();
 
     const vfs = await kernel.services.get('vfs');
-    expect(vfs).toBeTruthy();
+    expect(vfs).toEqual(expect.objectContaining({
+      readFile: expect.any(Function),
+      writeFile: expect.any(Function),
+      exists: expect.any(Function),
+      stat: expect.any(Function),
+      readdir: expect.any(Function),
+      getType: expect.any(Function),
+      getInstance: expect.any(Function),
+    }));
     expect(typeof vfs.getType).toBe('function');
     expect(vfs.getType()).toBe('MemoryVfs');
 

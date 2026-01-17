@@ -162,7 +162,7 @@ describe("ResourceGuard: quota management", () => {
     guard.acquire();
     guard.acquire(); // Should trigger callback
 
-    expect(callbackData).toBeTruthy();
+    expect(callbackData).toEqual(expect.any(Object));
     expect(callbackData.reason).toBe("max_concurrent");
   });
 });
@@ -319,7 +319,7 @@ describe("FileLock: read/write locking", () => {
     const lock = new FileLock();
 
     const { release, holder } = await lock.acquire("/test/file.txt");
-    expect(holder.startsWith("lock_")).toBeTruthy();
+    expect(holder.startsWith("lock_")).toBe(true);
 
     const status = lock.isLocked("/test/file.txt");
     expect(status.locked).toBe(true);
@@ -336,7 +336,7 @@ describe("FileLock: read/write locking", () => {
 
     const result1 = lock.tryAcquire("/test/file.txt");
     expect(result1.acquired).toBe(true);
-    expect(result1.release).toBeTruthy();
+    expect(result1.release).toBeInstanceOf(Function);
 
     const result2 = lock.tryAcquire("/test/file.txt");
     expect(result2.acquired).toBe(false);
@@ -396,7 +396,7 @@ describe("FileLock: read/write locking", () => {
     setTimeout(() => w1.release(), 50);
 
     const w2 = await acquirePromise;
-    expect(w2.holder).toBeTruthy();
+    expect(w2.holder).toMatch(/^lock_/);
     w2.release();
   });
 
@@ -472,7 +472,7 @@ describe("FileLock: read/write locking", () => {
 
     // Note: withLock uses global, so we can't easily test isolation here
     // Just verify the function exists and is callable
-    expect(typeof withLock === "function").toBeTruthy();
+    expect(typeof withLock).toBe("function");
   });
 
   it("LockType constants", () => {
@@ -486,8 +486,8 @@ describe("FileLock: read/write locking", () => {
     const w = await lock.acquire("/test/file.txt");
 
     const all = lock.getAllLocks();
-    expect(all instanceof Map).toBeTruthy();
-    expect(all.has("/test/file.txt")).toBeTruthy();
+    expect(all).toBeInstanceOf(Map);
+    expect(all.has("/test/file.txt")).toBe(true);
 
     w.release();
   });

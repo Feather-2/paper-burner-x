@@ -99,7 +99,7 @@ describe("MockModelClient", () => {
       const start = Date.now();
       await client.chat({ messages: [] });
       const elapsed = Date.now() - start;
-      expect(elapsed >= 40, `Expected delay of ~50ms, got ${elapsed}ms`).toBeTruthy();
+      expect(elapsed, `Expected delay of ~50ms, got ${elapsed}ms`).toBeGreaterThanOrEqual(40);
     });
 
     it("normalizes object response", async () => {
@@ -223,14 +223,14 @@ describe("MockMcpProvider", () => {
 
     it("accepts initial tools", () => {
       const provider = new MockMcpProvider({ tools: { foo: () => "bar" } });
-      expect(typeof provider.tools.foo === "function").toBeTruthy();
+      expect(typeof provider.tools.foo).toBe("function");
     });
   });
 
   describe("registerTool()", () => {
     it("adds tool handler", () => {
       mcp.registerTool("myTool", () => "result");
-      expect(typeof mcp.tools.myTool === "function").toBeTruthy();
+      expect(typeof mcp.tools.myTool).toBe("function");
     });
   });
 
@@ -239,7 +239,7 @@ describe("MockMcpProvider", () => {
       const result = await mcp.search("test query");
       expect(result.success).toBe(true);
       expect(result.results.length).toBe(1);
-      expect(result.results[0].title.includes("test query")).toBeTruthy();
+      expect(result.results[0].title).toContain("test query");
     });
 
     it("uses custom search handler", async () => {
@@ -261,7 +261,7 @@ describe("MockMcpProvider", () => {
     it("returns default mock content", async () => {
       const result = await mcp.fetch("https://example.com");
       expect(result.success).toBe(true);
-      expect(result.content.includes("example.com")).toBeTruthy();
+      expect(result.content).toContain("example.com");
     });
 
     it("uses custom fetch handler", async () => {
@@ -281,7 +281,7 @@ describe("MockMcpProvider", () => {
     it("returns default result for unknown tool", async () => {
       const result = await mcp.callTool("unknownTool", { arg: 1 });
       expect(result.success).toBe(true);
-      expect(result.data.includes("unknownTool")).toBeTruthy();
+      expect(result.data).toContain("unknownTool");
     });
 
     it("invokes registered tool", async () => {
@@ -614,7 +614,7 @@ describe("MockServer", () => {
       server.setTextResponse("/bin", "hello");
       const resp = await server.fetch("/bin");
       const buf = await resp.arrayBuffer();
-      expect(buf instanceof ArrayBuffer).toBeTruthy();
+      expect(buf).toBeInstanceOf(ArrayBuffer);
       const text = new TextDecoder().decode(buf);
       expect(text).toBe("hello");
     });
@@ -625,7 +625,7 @@ describe("MockServer", () => {
       const resp = await server.fetch("/slow");
       await resp.text();
       const elapsed = Date.now() - start;
-      expect(elapsed >= 40, `Expected delay ~50ms, got ${elapsed}ms`).toBeTruthy();
+      expect(elapsed, `Expected delay ~50ms, got ${elapsed}ms`).toBeGreaterThanOrEqual(40);
     });
   });
 
@@ -653,9 +653,9 @@ describe("ScenarioRunner", () => {
 
   describe("constructor", () => {
     it("creates default mocks", () => {
-      expect(runner.modelClient instanceof MockModelClient).toBeTruthy();
-      expect(runner.mcpProvider instanceof MockMcpProvider).toBeTruthy();
-      expect(runner.eventBus instanceof MockEventBus).toBeTruthy();
+      expect(runner.modelClient).toBeInstanceOf(MockModelClient);
+      expect(runner.mcpProvider).toBeInstanceOf(MockMcpProvider);
+      expect(runner.eventBus).toBeInstanceOf(MockEventBus);
     });
 
     it("accepts custom mocks", () => {
@@ -684,7 +684,7 @@ describe("ScenarioRunner", () => {
         steps: [{ input: "test", expectedOutput: "expected" }],
       });
       expect(result.passed).toBe(false);
-      expect(result.errors[0].includes("Expected output")).toBeTruthy();
+      expect(result.errors[0]).toContain("Expected output");
     });
 
     it("runs scenario with tool call steps", async () => {
@@ -747,7 +747,7 @@ describe("ScenarioRunner", () => {
         teardown: () => { throw new Error("teardown boom"); },
       });
       expect(result.passed).toBe(false);
-      expect(result.errors.some(e => e.includes("Teardown failed"))).toBeTruthy();
+      expect(result.errors).toEqual(expect.arrayContaining([expect.stringContaining("Teardown failed")]));
     });
 
     it("supports regex in expectedResult", async () => {
@@ -811,10 +811,10 @@ describe("ScenarioRunner", () => {
 describe("createMockTestEnv()", () => {
   it("creates all mock components", () => {
     const env = createMockTestEnv();
-    expect(env.modelClient instanceof MockModelClient).toBeTruthy();
-    expect(env.mcpProvider instanceof MockMcpProvider).toBeTruthy();
-    expect(env.eventBus instanceof MockEventBus).toBeTruthy();
-    expect(env.runner instanceof ScenarioRunner).toBeTruthy();
+    expect(env.modelClient).toBeInstanceOf(MockModelClient);
+    expect(env.mcpProvider).toBeInstanceOf(MockMcpProvider);
+    expect(env.eventBus).toBeInstanceOf(MockEventBus);
+    expect(env.runner).toBeInstanceOf(ScenarioRunner);
   });
 
   it("accepts model options", () => {
@@ -824,18 +824,18 @@ describe("createMockTestEnv()", () => {
 
   it("accepts mcp options", () => {
     const env = createMockTestEnv({ mcp: { tools: { foo: () => "bar" } } });
-    expect(typeof env.mcpProvider.tools.foo === "function").toBeTruthy();
+    expect(typeof env.mcpProvider.tools.foo).toBe("function");
   });
 
   describe("createStageApi()", () => {
     it("creates stageApi compatible object", () => {
       const env = createMockTestEnv();
       const stageApi = env.createStageApi();
-      expect(stageApi.signal instanceof AbortSignal).toBeTruthy();
-      expect(typeof stageApi.emit === "function").toBeTruthy();
-      expect(stageApi.eventBus === env.eventBus).toBeTruthy();
-      expect(typeof stageApi.modelRouter.call === "function").toBeTruthy();
-      expect(typeof stageApi.aiApiService.chat === "function").toBeTruthy();
+      expect(stageApi.signal).toBeInstanceOf(AbortSignal);
+      expect(typeof stageApi.emit).toBe("function");
+      expect(stageApi.eventBus).toBe(env.eventBus);
+      expect(typeof stageApi.modelRouter.call).toBe("function");
+      expect(typeof stageApi.aiApiService.chat).toBe("function");
     });
 
     it("emit() forwards to eventBus", () => {

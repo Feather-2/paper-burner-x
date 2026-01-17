@@ -120,9 +120,9 @@ describe("ConvergenceDetector: semantic convergence", () => {
 
   it("tokenize handles various text", () => {
     const tokens = tokenize("Hello World! This is a test.");
-    expect(tokens.includes("hello")).toBeTruthy();
-    expect(tokens.includes("world")).toBeTruthy();
-    expect(tokens.includes("test")).toBeTruthy();
+    expect(tokens).toContain("hello");
+    expect(tokens).toContain("world");
+    expect(tokens).toContain("test");
   });
 
   it("tokenize handles empty input", () => {
@@ -156,7 +156,7 @@ describe("ConvergenceDetector: semantic convergence", () => {
     }
 
     const metrics = detector.getMetrics();
-    expect(metrics.avgSimilarity > 0.9).toBeTruthy();
+    expect(metrics.avgSimilarity).toBeGreaterThan(0.9);
   });
 
   it("does not converge with diverse outputs", () => {
@@ -186,8 +186,9 @@ describe("ConvergenceDetector: semantic convergence", () => {
     detector.addSample("Third sample text about development");
 
     const suggestion = detector.getSuggestion();
-    expect(["continue", "focus", "diversify", "stop"].includes(suggestion.action)).toBeTruthy();
-    expect(suggestion.reason).toBeTruthy();
+    expect(["continue", "focus", "diversify", "stop"]).toContain(suggestion.action);
+    expect(suggestion.reason).toBeTypeOf("string");
+    expect(suggestion.reason.length).toBeGreaterThan(0);
   });
 
   it("reset clears state", () => {
@@ -261,7 +262,7 @@ describe("BehaviorFingerprint: loop detection", () => {
     const patterns = findRepeatingPatterns(sequence, 2, 4);
 
     const abcPattern = patterns.find((p) => p.pattern.join(",") === "A,B,C");
-    expect(abcPattern).toBeTruthy();
+    expect(abcPattern).toMatchObject({ pattern: ["A", "B", "C"] });
     expect(abcPattern.count).toBe(2);
   });
 
@@ -270,7 +271,7 @@ describe("BehaviorFingerprint: loop detection", () => {
     const loops = findConsecutiveLoops(sequence, 2, 4);
 
     const abLoop = loops.find((l) => l.pattern.join(",") === "A,B");
-    expect(abLoop).toBeTruthy();
+    expect(abLoop).toMatchObject({ pattern: ["A", "B"] });
     expect(abLoop.consecutiveCount).toBe(3);
   });
 
@@ -323,15 +324,15 @@ describe("BehaviorFingerprint: loop detection", () => {
     fingerprint.recordAction({ type: "read" });
 
     const suggestion = fingerprint.getSuggestion();
-    expect(suggestion.action).toBeTruthy();
-    expect(suggestion.severity).toBeTruthy();
+    expect(["break_loop", "diversify", "review", "continue"]).toContain(suggestion.action);
+    expect(["high", "medium", "low", "none"]).toContain(suggestion.severity);
   });
 
   it("reset clears state", () => {
     const fingerprint = new BehaviorFingerprint();
 
     fingerprint.recordAction({ type: "test" });
-    expect(fingerprint.stats.historySize > 0).toBeTruthy();
+    expect(fingerprint.stats.historySize).toBeGreaterThan(0);
 
     fingerprint.reset();
     expect(fingerprint.stats.historySize).toBe(0);
@@ -373,16 +374,16 @@ describe("ContextDistiller: context extraction", () => {
 
     const distilled = distiller.distill(parentContext, "Implement user authentication endpoint");
 
-    expect(distilled.parentGoal).toBeTruthy();
+    expect(distilled.parentGoal).toBe(parentContext.taskGoal);
     // Authentication-related discoveries should be prioritized
-    expect(Array.isArray(distilled.relevantDiscoveries)).toBeTruthy();
+    expect(distilled.relevantDiscoveries).toBeInstanceOf(Array);
   });
 
   it("handles empty context", () => {
     const distiller = new ContextDistiller();
 
     const distilled = distiller.distill({}, "Some task");
-    expect(distilled.childTask === "Some task").toBeTruthy();
+    expect(distilled.childTask).toBe("Some task");
   });
 
   it("handles null input", () => {
@@ -398,7 +399,7 @@ describe("ContextDistiller: context extraction", () => {
     const longGoal = "A".repeat(500);
     const distilled = distiller.distill({ taskGoal: longGoal }, "Task");
 
-    expect(distilled.parentGoal.length <= 203).toBeTruthy(); // 200 + "..."
+    expect(distilled.parentGoal.length).toBeLessThanOrEqual(203); // 200 + "..."
   });
 
   it("summarizes tool history", () => {
@@ -424,6 +425,6 @@ describe("ContextDistiller: context extraction", () => {
   it("respects maxTokens option", () => {
     const distiller = new ContextDistiller({ maxTokens: 100 });
     // The distiller is created successfully
-    expect(distiller).toBeTruthy();
+    expect(distiller).toBeInstanceOf(ContextDistiller);
   });
 });

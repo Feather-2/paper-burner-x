@@ -90,7 +90,7 @@ describe("loader.node.js - loadSkills", async () => {
       expect(out.skills.length).toBe(1);
       expect(out.skills[0].metadata.name).toBe("TestSkill");
       expect(out.skills[0].metadata.scope).toBe("repo");
-      expect(out.skills[0].body.includes("Skill body content")).toBeTruthy();
+      expect(out.skills[0].body).toContain("Skill body content");
     } finally {
       await cleanupDir(cwd);
     }
@@ -130,7 +130,7 @@ describe("loader.node.js - loadSkills", async () => {
       expect(out.skills[0].metadata.name).toBe("SharedSkill");
       expect(out.skills[0].metadata.scope).toBe("repo");
       expect(out.skills[0].metadata.description).toBe("repo version");
-      expect(out.skills[0].body.includes("from repo")).toBeTruthy();
+      expect(out.skills[0].body).toContain("from repo");
     } finally {
       await cleanupDir(cwd);
       await cleanupDir(home);
@@ -197,7 +197,7 @@ describe("loader.node.js - loadSkills", async () => {
 
       expect(out.skills.length).toBe(0);
       expect(out.errors.length).toBe(1);
-      expect(out.errors[0].message.toLowerCase().includes("frontmatter")).toBeTruthy();
+      expect(out.errors[0].message.toLowerCase()).toContain("frontmatter");
     } finally {
       await cleanupDir(cwd);
     }
@@ -214,8 +214,8 @@ describe("loader.node.js - loadSkills", async () => {
       const out = await mod.loadSkills({ cwd, homeDir: null });
 
       // Should not throw, just return empty or with errors
-      expect(Array.isArray(out.skills)).toBeTruthy();
-      expect(Array.isArray(out.errors)).toBeTruthy();
+      expect(out.skills).toBeInstanceOf(Array);
+      expect(out.errors).toBeInstanceOf(Array);
     } finally {
       await cleanupDir(cwd);
     }
@@ -367,8 +367,8 @@ describe("loader.node.js - YAML parsing", async () => {
 
       const skill = await mod.loadSkillFromPath(filePath, "user");
 
-      expect(skill.body.includes("# Instructions")).toBeTruthy();
-      expect(skill.body.includes("code()")).toBeTruthy();
+      expect(skill.body).toContain("# Instructions");
+      expect(skill.body).toContain("code()");
     } finally {
       await cleanupDir(cwd);
     }
@@ -555,7 +555,7 @@ describe("loader.node.js - fingerprint caching", async () => {
       });
 
       const first = await mod.loadSkillFromPath(filePath, "user");
-      expect(first.body.includes("body v1")).toBeTruthy();
+      expect(first.body).toContain("body v1");
 
       // Modify the file
       await fs.writeFile(
@@ -567,7 +567,7 @@ describe("loader.node.js - fingerprint caching", async () => {
       const second = await mod.loadSkillFromPath(filePath, "user");
 
       expect(first).not.toBe(second);
-      expect(second.body.includes("body v2")).toBeTruthy();
+      expect(second.body).toContain("body v2");
       expect(second.metadata.description).toBe("version2");
     } finally {
       await cleanupDir(cwd);
@@ -639,7 +639,7 @@ describe("loader.node.js - loadSkillsFromNexus", async () => {
     expect(out.skills[0].metadata.name).toBe("GoodSkill");
     expect(out.errors.length).toBe(1);
     expect(out.errors[0].path).toBe("nexus://BadSkill");
-    expect(out.errors[0].message.includes("content unavailable")).toBeTruthy();
+    expect(out.errors[0].message).toContain("content unavailable");
   });
 
   it("records connection error when isAvailable throws", async () => {
@@ -654,7 +654,7 @@ describe("loader.node.js - loadSkillsFromNexus", async () => {
     expect(out.skills.length).toBe(0);
     expect(out.errors.length).toBe(1);
     expect(out.errors[0].path).toBe("nexus://");
-    expect(out.errors[0].message.includes("Failed to connect to Nexus")).toBeTruthy();
+    expect(out.errors[0].message).toContain("Failed to connect to Nexus");
   });
 
   it("uses default priority 200 for remote skills without priority", async () => {
@@ -720,7 +720,7 @@ describe("loader.node.js - loadAllSkills", async () => {
       expect(out.skills.length).toBe(1);
       expect(out.skills[0].metadata.name).toBe("SharedSkill");
       expect(out.skills[0].metadata.scope).toBe("repo");
-      expect(out.skills[0].body.includes("local version")).toBeTruthy();
+      expect(out.skills[0].body).toContain("local version");
     } finally {
       await cleanupDir(cwd);
     }
@@ -745,8 +745,12 @@ describe("loader.node.js - loadAllSkills", async () => {
 
       expect(out.skills.length).toBe(0);
       expect(out.errors.length).toBe(2);
-      expect(out.errors.some(e => e.message.includes("frontmatter"))).toBeTruthy();
-      expect(out.errors.some(e => e.message.includes("remote error"))).toBeTruthy();
+      expect(out.errors).toEqual(expect.arrayContaining([
+        expect.objectContaining({ message: expect.stringContaining("frontmatter") }),
+      ]));
+      expect(out.errors).toEqual(expect.arrayContaining([
+        expect.objectContaining({ message: expect.stringContaining("remote error") }),
+      ]));
     } finally {
       await cleanupDir(cwd);
     }
@@ -859,7 +863,7 @@ describe("loader.node.js - three-tier priority", async () => {
 
       expect(out.skills.length).toBe(1);
       expect(out.skills[0].metadata.scope).toBe("repo");
-      expect(out.skills[0].body.includes("repo wins")).toBeTruthy();
+      expect(out.skills[0].body).toContain("repo wins");
     } finally {
       await cleanupDir(cwd);
       await cleanupDir(home);
@@ -884,7 +888,7 @@ describe("loader.node.js - three-tier priority", async () => {
 
       const skill = out.skills.find((s) => s.metadata.name === "UserRemoteSkill");
       expect(skill.metadata.scope).toBe("user");
-      expect(skill.body.includes("user wins")).toBeTruthy();
+      expect(skill.body).toContain("user wins");
     } finally {
       await cleanupDir(home);
     }
@@ -914,7 +918,7 @@ describe("loader.node.js - three-tier priority", async () => {
 
       const skill = out.skills.find((s) => s.metadata.name === "ChainSkill");
       expect(skill.metadata.scope).toBe("repo");
-      expect(skill.body.includes("repo body")).toBeTruthy();
+      expect(skill.body).toContain("repo body");
     } finally {
       await cleanupDir(cwd);
       await cleanupDir(home);

@@ -178,7 +178,7 @@ describe("shared/utils/json-candidate", () => {
       const input = '{"key": [}]';
       const result = extractJsonCandidate(input);
       // Falls back to returning the string
-      expect(result).toBeTruthy();
+      expect(result).toBe(input);
     });
 
     it("normalizes prefer option case", () => {

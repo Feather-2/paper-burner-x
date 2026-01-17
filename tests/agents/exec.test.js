@@ -13,7 +13,7 @@ describe("runtime/exec", () => {
 
       expect(result.success).toBe(true);
       expect(result.exitCode).toBe(0);
-      expect(result.stdout.includes("hello")).toBeTruthy();
+      expect(result.stdout).toContain("hello");
       expect(result.timedOut).toBe(false);
     });
 
@@ -29,14 +29,14 @@ describe("runtime/exec", () => {
 
       expect(result.success).toBe(false);
       expect(result.timedOut).toBe(true);
-      expect(result.error?.includes("timed out")).toBeTruthy();
+      expect(result.error).toContain("timed out");
     });
 
     it("respects cwd option", async () => {
       const result = await exec("pwd", [], { cwd: "/tmp" });
 
       expect(result.success).toBe(true);
-      expect(result.stdout.includes("/tmp") || result.stdout.includes("\\tmp")).toBeTruthy();
+      expect(result.stdout).toMatch(/\/tmp|\\tmp/);
     });
 
     it("collects streaming output via callbacks", async () => {
@@ -46,7 +46,7 @@ describe("runtime/exec", () => {
       });
 
       expect(result.success).toBe(true);
-      expect(chunks.length >= 1).toBeTruthy();
+      expect(chunks.length).toBeGreaterThanOrEqual(1);
     });
 
     it("truncates output exceeding maxOutputBytes", async () => {
@@ -56,7 +56,7 @@ describe("runtime/exec", () => {
       });
 
       expect(result.truncated).toBe(true);
-      expect(result.stdout.length <= 100).toBeTruthy();
+      expect(result.stdout.length).toBeLessThanOrEqual(100);
     });
 
     it("respects AbortSignal", async () => {
@@ -68,14 +68,14 @@ describe("runtime/exec", () => {
       const result = await exec("sleep", ["10"], { signal: controller.signal });
 
       expect(result.success).toBe(false);
-      expect(result.error?.includes("abort")).toBeTruthy();
+      expect(result.error).toContain("abort");
     });
 
     it("writes to stdin when provided", async () => {
       const result = await exec("cat", [], { stdin: "stdin input" });
 
       expect(result.success).toBe(true);
-      expect(result.stdout.includes("stdin input")).toBeTruthy();
+      expect(result.stdout).toContain("stdin input");
     });
   });
 
@@ -84,15 +84,15 @@ describe("runtime/exec", () => {
       const result = await execShell("echo hello && echo world");
 
       expect(result.success).toBe(true);
-      expect(result.stdout.includes("hello")).toBeTruthy();
-      expect(result.stdout.includes("world")).toBeTruthy();
+      expect(result.stdout).toContain("hello");
+      expect(result.stdout).toContain("world");
     });
 
     it("handles pipes", async () => {
       const result = await execShell("echo 'line1\nline2\nline3' | wc -l");
 
       expect(result.success).toBe(true);
-      expect(result.stdout.includes("3")).toBeTruthy();
+      expect(result.stdout.trim()).toBe("3");
     });
   });
 
@@ -100,14 +100,14 @@ describe("runtime/exec", () => {
     it("returns stdout on success", async () => {
       const output = await execSimple("echo", ["simple output"]);
 
-      expect(output.includes("simple output")).toBeTruthy();
+      expect(output.trim()).toBe("simple output");
     });
 
     it("throws on failure", async () => {
       await expect(() => execSimple("ls", ["nonexistent_file_xyz_123"]),
         (err) => {
-          expect(err instanceof Error).toBeTruthy();
-          expect(typeof err.exitCode === "number").toBeTruthy();
+          expect(err).toBeInstanceOf(Error);
+          expect(err.exitCode).toEqual(expect.any(Number));
           return true;
         }
       );
@@ -136,7 +136,8 @@ describe("runtime/exec", () => {
       const result = await exec("/nonexistent/binary/xyz", []);
 
       expect(result.success).toBe(false);
-      expect(result.error?.length > 0).toBeTruthy();
+      expect(result.error).toEqual(expect.any(String));
+      expect(result.error.length).toBeGreaterThan(0);
     });
   });
 });

@@ -23,9 +23,9 @@ describe("buildIndex", () => {
 
     expect(idx.chunkIds).toEqual(["a", "b"]);
     expect(idx.docLens.length).toBe(2);
-    expect(idx.df instanceof Map).toBeTruthy();
-    expect(idx.postings instanceof Map).toBeTruthy();
-    expect(idx.df.get("hello") >= 2).toBeTruthy();
+    expect(idx.df).toBeInstanceOf(Map);
+    expect(idx.postings).toBeInstanceOf(Map);
+    expect(idx.df.get("hello")).toBeGreaterThanOrEqual(2);
     expect(idx.k1).toBe(1.2);
     expect(idx.b).toBe(0.75);
   });
@@ -50,27 +50,28 @@ describe("buildIndex", () => {
   it("respects maxTokensPerDoc limit", () => {
     const longText = "word ".repeat(20000);
     const idx = buildIndex([{ chunkId: "x", text: longText }], { maxTokensPerDoc: 100 });
-    expect(idx.docLens[0] <= 100).toBeTruthy();
+    expect(idx.docLens[0]).toBeLessThanOrEqual(100);
   });
 
   it("respects maxTermLength limit", () => {
     const longTerm = "a".repeat(100);
     const idx = buildIndex([{ chunkId: "x", text: `short ${longTerm}` }], { maxTermLength: 10 });
-    expect(!idx.df.has(longTerm)).toBeTruthy();
-    expect(idx.df.has("short")).toBeTruthy();
+    expect(idx.df.has(longTerm)).toBe(false);
+    expect(idx.df.has("short")).toBe(true);
   });
 
   it("respects maxUniqueTerms limit", () => {
     const terms = Array.from({ length: 100 }, (_, i) => `term${i}`).join(" ");
     const idx = buildIndex([{ chunkId: "x", text: terms }], { maxUniqueTerms: 10 });
-    expect(idx.df.size <= 10).toBeTruthy();
+    expect(idx.df.size).toBeLessThanOrEqual(10);
   });
 
   it("respects maxPostingsPerTerm limit", () => {
     const chunks = Array.from({ length: 100 }, (_, i) => ({ chunkId: `c${i}`, text: "common" }));
     const idx = buildIndex(chunks, { maxPostingsPerTerm: 5 });
     const postings = idx.postings.get("common");
-    expect(postings && postings.length <= 5).toBeTruthy();
+    expect(postings).toBeInstanceOf(Array);
+    expect(postings.length).toBeLessThanOrEqual(5);
   });
 
   it("throws on non-array chunks", () => {
@@ -84,36 +85,36 @@ describe("buildIndex", () => {
 
   it("filters stopwords", () => {
     const idx = buildIndex([{ chunkId: "x", text: "the quick brown fox" }]);
-    expect(!idx.df.has("the")).toBeTruthy();
-    expect(idx.df.has("quick")).toBeTruthy();
+    expect(idx.df.has("the")).toBe(false);
+    expect(idx.df.has("quick")).toBe(true);
   });
 
   it("handles CJK text with bigrams", () => {
     const idx = buildIndex([{ chunkId: "x", text: "这是中文测试" }]);
     // Should tokenize into bigrams when Intl.Segmenter unavailable or as fallback
-    expect(idx.df.size > 0).toBeTruthy();
-    expect(idx.docLens[0] > 0).toBeTruthy();
+    expect(idx.df.size).toBeGreaterThan(0);
+    expect(idx.docLens[0]).toBeGreaterThan(0);
   });
 
   it("handles mixed CJK and Latin text", () => {
     const idx = buildIndex([{ chunkId: "x", text: "hello 世界 world" }]);
-    expect(idx.df.has("hello")).toBeTruthy();
-    expect(idx.df.has("world")).toBeTruthy();
+    expect(idx.df.has("hello")).toBe(true);
+    expect(idx.df.has("world")).toBe(true);
     // CJK processed
-    expect(idx.docLens[0] >= 2).toBeTruthy();
+    expect(idx.docLens[0]).toBeGreaterThanOrEqual(2);
   });
 
   it("drops single Latin character tokens", () => {
     const idx = buildIndex([{ chunkId: "x", text: "a b c hello world" }]);
-    expect(!idx.df.has("a")).toBeTruthy();
-    expect(!idx.df.has("b")).toBeTruthy();
-    expect(!idx.df.has("c")).toBeTruthy();
-    expect(idx.df.has("hello")).toBeTruthy();
+    expect(idx.df.has("a")).toBe(false);
+    expect(idx.df.has("b")).toBe(false);
+    expect(idx.df.has("c")).toBe(false);
+    expect(idx.df.has("hello")).toBe(true);
   });
 
   it("keeps single digit tokens", () => {
     const idx = buildIndex([{ chunkId: "x", text: "1 2 3 hello" }]);
-    expect(idx.df.has("1") || idx.df.has("2") || idx.df.has("3") || idx.docLens[0] >= 1).toBeTruthy();
+    expect(idx.df.has("1") || idx.df.has("2") || idx.df.has("3") || idx.docLens[0] >= 1).toBe(true);
   });
 });
 
@@ -130,7 +131,7 @@ describe("buildIndexAsync", () => {
     const idx = await buildIndexAsync(chunks);
 
     expect(idx.chunkIds).toEqual(["a", "b"]);
-    expect(idx.df.has("async")).toBeTruthy();
+    expect(idx.df.has("async")).toBe(true);
   });
 
   it("handles empty array", async () => {
@@ -197,11 +198,11 @@ describe("search", () => {
 
   it("returns ranked results for matching query", () => {
     const results = search(idx, "machine learning");
-    expect(results.length > 0).toBeTruthy();
-    expect(results[0].score > 0).toBeTruthy();
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0].score).toBeGreaterThan(0);
     // doc1 should rank high (has both terms)
     const doc1Rank = results.findIndex((r) => r.chunkId === "doc1");
-    expect(doc1Rank >= 0).toBeTruthy();
+    expect(doc1Rank).toBeGreaterThanOrEqual(0);
   });
 
   it("returns empty for non-matching query", () => {
@@ -221,14 +222,14 @@ describe("search", () => {
 
   it("respects topK limit", () => {
     const results = search(idx, "learning", 2);
-    expect(results.length <= 2).toBeTruthy();
+    expect(results.length).toBeLessThanOrEqual(2);
   });
 
   it("defaults topK to 8", () => {
     const manyDocs = Array.from({ length: 20 }, (_, i) => ({ chunkId: `d${i}`, text: "common term" }));
     const largeIdx = buildIndex(manyDocs);
     const results = search(largeIdx, "common term");
-    expect(results.length <= 8).toBeTruthy();
+    expect(results.length).toBeLessThanOrEqual(8);
   });
 
   it("handles filterDocIndex option", () => {
@@ -237,8 +238,8 @@ describe("search", () => {
       filterDocIndex: (di) => di === 0 || di === 2,
     });
     const ids = results.map((r) => r.chunkId);
-    expect(!ids.includes("doc2")).toBeTruthy();
-    expect(!ids.includes("doc4")).toBeTruthy();
+    expect(ids).not.toContain("doc2");
+    expect(ids).not.toContain("doc4");
   });
 
   it("sorts by score descending, then chunkId ascending", () => {
@@ -276,7 +277,7 @@ describe("search", () => {
   it("handles duplicate query terms", () => {
     const results = search(idx, "learning learning learning");
     // Should still work, terms deduplicated
-    expect(results.length > 0).toBeTruthy();
+    expect(results.length).toBeGreaterThan(0);
   });
 });
 
@@ -294,15 +295,15 @@ describe("serializeIndex", () => {
 
     expect(snapshot.schemaVersion).toBe("0.1");
     expect(snapshot.chunkIds).toEqual(["a", "b"]);
-    expect(Array.isArray(snapshot.docLens)).toBeTruthy();
-    expect(Array.isArray(snapshot.df)).toBeTruthy();
-    expect(Array.isArray(snapshot.postings)).toBeTruthy();
+    expect(snapshot.docLens).toBeInstanceOf(Array);
+    expect(snapshot.df).toBeInstanceOf(Array);
+    expect(snapshot.postings).toBeInstanceOf(Array);
     expect(snapshot.k1).toBe(1.2);
     expect(snapshot.b).toBe(0.75);
 
     // Should be JSON-serializable
     const json = JSON.stringify(snapshot);
-    expect(json.length > 0).toBeTruthy();
+    expect(json.length).toBeGreaterThan(0);
   });
 
   it("handles index with custom k1/b", () => {
@@ -340,8 +341,8 @@ describe("deserializeIndex", () => {
     expect(restored.avgDocLen).toBe(original.avgDocLen);
     expect(restored.k1).toBe(original.k1);
     expect(restored.b).toBe(original.b);
-    expect(restored.df instanceof Map).toBeTruthy();
-    expect(restored.postings instanceof Map).toBeTruthy();
+    expect(restored.df).toBeInstanceOf(Map);
+    expect(restored.postings).toBeInstanceOf(Map);
     expect(restored.df.get("hello")).toBe(original.df.get("hello"));
   });
 
@@ -355,7 +356,7 @@ describe("deserializeIndex", () => {
     const restored = deserializeIndex(JSON.parse(json));
 
     const results = search(restored, "machine");
-    expect(results.length > 0).toBeTruthy();
+    expect(results.length).toBeGreaterThan(0);
     expect(results[0].chunkId).toBe("a");
   });
 
@@ -376,7 +377,7 @@ describe("deserializeIndex", () => {
     };
     const restored = deserializeIndex(snapshot);
     expect(restored.df.get("term1")).toBe(1);
-    expect(!restored.df.has("")).toBeTruthy();
+    expect(restored.df.has("")).toBe(false);
   });
 
   it("handles corrupted postings entries", () => {
@@ -391,7 +392,7 @@ describe("deserializeIndex", () => {
     };
     const restored = deserializeIndex(snapshot);
     const list = restored.postings.get("term1");
-    expect(Array.isArray(list)).toBeTruthy();
+    expect(list).toBeInstanceOf(Array);
     expect(list.length).toBe(2); // invalid entries filtered
   });
 
@@ -438,7 +439,7 @@ describe("round-trip integration", () => {
     expect(restoredResults.map((r) => r.chunkId)).toEqual(originalResults.map((r) => r.chunkId));
     // Scores should be equal
     for (let i = 0; i < originalResults.length; i++) {
-      expect(Math.abs(originalResults[i].score - restoredResults[i].score) < 1e-10).toBeTruthy();
+      expect(Math.abs(originalResults[i].score - restoredResults[i].score)).toBeLessThan(1e-10);
     }
   });
 });
@@ -457,44 +458,44 @@ describe("edge cases", () => {
     expect(idx.chunkIds).toEqual(["a", "b", "c"]);
     expect(idx.docLens[0]).toBe(0);
     expect(idx.docLens[1]).toBe(0);
-    expect(idx.docLens[2] > 0).toBeTruthy();
+    expect(idx.docLens[2]).toBeGreaterThan(0);
   });
 
   it("handles special characters and punctuation", () => {
     const idx = buildIndex([{ chunkId: "x", text: "hello! @world #test" }]);
-    expect(idx.df.has("hello")).toBeTruthy();
-    expect(idx.df.has("world")).toBeTruthy();
-    expect(idx.df.has("test")).toBeTruthy();
+    expect(idx.df.has("hello")).toBe(true);
+    expect(idx.df.has("world")).toBe(true);
+    expect(idx.df.has("test")).toBe(true);
   });
 
   it("handles numeric-only text", () => {
     const idx = buildIndex([{ chunkId: "x", text: "123 456 789" }]);
-    expect(idx.docLens[0] > 0).toBeTruthy();
+    expect(idx.docLens[0]).toBeGreaterThan(0);
   });
 
   it("handles very long single token", () => {
     const longWord = "a".repeat(1000);
     const idx = buildIndex([{ chunkId: "x", text: `${longWord} short` }]);
     // Long word should be filtered by default maxTermLength
-    expect(!idx.df.has(longWord)).toBeTruthy();
-    expect(idx.df.has("short")).toBeTruthy();
+    expect(idx.df.has(longWord)).toBe(false);
+    expect(idx.df.has("short")).toBe(true);
   });
 
   it("handles Japanese hiragana/katakana", () => {
     const idx = buildIndex([{ chunkId: "x", text: "こんにちは カタカナ" }]);
-    expect(idx.docLens[0] > 0).toBeTruthy();
+    expect(idx.docLens[0]).toBeGreaterThan(0);
   });
 
   it("handles Korean hangul", () => {
     const idx = buildIndex([{ chunkId: "x", text: "안녕하세요 테스트" }]);
-    expect(idx.docLens[0] > 0).toBeTruthy();
+    expect(idx.docLens[0]).toBeGreaterThan(0);
   });
 
   it("handles CJK stopwords", () => {
     const idx = buildIndex([{ chunkId: "x", text: "我们 是 好朋友" }]);
     // "我们" and "是" are stopwords
     // "好朋" should be indexed as bigram
-    expect(idx.docLens[0] < 3).toBeTruthy(); // Some filtered
+    expect(idx.docLens[0]).toBeLessThan(3); // Some filtered
   });
 
   it("handles Infinity for limit options", () => {
@@ -502,7 +503,7 @@ describe("edge cases", () => {
       [{ chunkId: "x", text: "test text here" }],
       { maxTokensPerDoc: Infinity, maxUniqueTerms: Infinity }
     );
-    expect(idx.docLens[0] > 0).toBeTruthy();
+    expect(idx.docLens[0]).toBeGreaterThan(0);
   });
 
   it("handles negative/zero limit values (falls back to defaults)", () => {
@@ -511,7 +512,7 @@ describe("edge cases", () => {
       { maxTokensPerDoc: -5, maxUniqueTerms: 0 }
     );
     // Should use fallback values
-    expect(idx.docLens[0] > 0).toBeTruthy();
+    expect(idx.docLens[0]).toBeGreaterThan(0);
   });
 
   it("handles NaN limit values (falls back to defaults)", () => {
@@ -519,7 +520,7 @@ describe("edge cases", () => {
       [{ chunkId: "x", text: "test content here" }],
       { maxTokensPerDoc: NaN, maxTermLength: NaN }
     );
-    expect(idx.docLens[0] > 0).toBeTruthy();
+    expect(idx.docLens[0]).toBeGreaterThan(0);
   });
 });
 

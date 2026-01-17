@@ -113,10 +113,11 @@ describe("codesearch/indexing/symbol-indexer", () => {
     const indexer = new SymbolIndexer();
     expect(await indexer._getLanguage("python")).toBeNull();
 
-    loadTreeSitterLanguage.mockResolvedValueOnce({ id: "jsLang" });
+    const mockLang = { id: "jsLang" };
+    loadTreeSitterLanguage.mockResolvedValueOnce(mockLang);
     const lang1 = await indexer._getLanguage("javascript");
     const lang2 = await indexer._getLanguage("javascript");
-    expect(lang1).toBeTruthy();
+    expect(lang1).toBe(mockLang);
     expect(lang2).toBe(lang1);
     expect(loadTreeSitterLanguage).toHaveBeenCalledTimes(1);
   });
@@ -152,7 +153,7 @@ describe("codesearch/indexing/symbol-indexer", () => {
 
     webTreeSitter.__setCtorShouldThrow(false);
     const parser = await indexer._getParser();
-    expect(parser).toBeTruthy();
+    expect(parser).toBeInstanceOf(webTreeSitter.Parser);
   });
 
   it("_emit forwards events when an emitter is provided (and is a no-op otherwise)", () => {

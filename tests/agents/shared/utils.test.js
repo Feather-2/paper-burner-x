@@ -661,12 +661,12 @@ describe("shared/utils/value-utils.js", () => {
 
     const mapObjectKey = [...cloned.map.keys()].find((k) => k && typeof k === "object" && "k" in k);
     const setObjectKey = [...cloned.set.values()].find((v) => v && typeof v === "object" && v.k === 1);
-    expect(mapObjectKey).toBeTruthy();
-    expect(setObjectKey).toBeTruthy();
+    expect(mapObjectKey).toEqual({ k: 1 });
+    expect(setObjectKey).toEqual({ k: 1 });
     expect(setObjectKey).toBe(mapObjectKey);
 
     const mapValue = [...cloned.map.values()].find((v) => v && typeof v === "object" && v.v === 2);
-    expect(mapValue).toBeTruthy();
+    expect(mapValue).toEqual({ v: 2 });
   });
 
   it("sanitizeForJson handles circulars, maps, sets, and unsafe keys", () => {

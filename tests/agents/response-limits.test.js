@@ -46,10 +46,10 @@ describe("shared/utils/response-limits", () => {
   describe("createResponseTooLargeError", () => {
     it("creates error with message", () => {
       const err = createResponseTooLargeError("test", 100, 200);
-      expect(err instanceof Error).toBeTruthy();
-      expect(err.message.includes("exceeds limit")).toBeTruthy();
-      expect(err.message.includes("200")).toBeTruthy();
-      expect(err.message.includes("100")).toBeTruthy();
+      expect(err).toBeInstanceOf(Error);
+      expect(err.message).toContain("exceeds limit");
+      expect(err.message).toContain("200");
+      expect(err.message).toContain("100");
     });
 
     it("sets error properties", () => {
@@ -67,7 +67,7 @@ describe("shared/utils/response-limits", () => {
 
     it("uses default context for empty string", () => {
       const err = createResponseTooLargeError("", 100, 200);
-      expect(err.message.includes("Response body")).toBeTruthy();
+      expect(err.message).toContain("Response body");
     });
   });
 
@@ -174,7 +174,7 @@ describe("shared/utils/response-limits", () => {
         text: async () => "x".repeat(10000),
       };
       const result = await readTextWithLimit(mockResponse, { maxBytes: Infinity });
-      expect(result.length === 10000).toBeTruthy();
+      expect(result).toHaveLength(10000);
     });
   });
 

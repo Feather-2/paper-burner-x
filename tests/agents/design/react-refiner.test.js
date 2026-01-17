@@ -55,12 +55,14 @@ it("ReactRefiner: getAvailableTools differs between generation and edit", async 
   const gen = getAvailableTools("generation");
   const edit = getAvailableTools("edit");
 
-  expect(Array.isArray(gen ) && gen.length > 0).toBeTruthy();
-  expect(Array.isArray(edit ) && edit.length > gen.length).toBeTruthy();
-  expect(gen.includes("editSlide")).toBeTruthy();
-  expect(!gen.includes("addSlide")).toBeTruthy();
-  expect(edit.includes("addSlide")).toBeTruthy();
-  expect(edit.includes("diff")).toBeTruthy();
+  expect(Array.isArray(gen)).toBe(true);
+  expect(gen.length).toBeGreaterThan(0);
+  expect(Array.isArray(edit)).toBe(true);
+  expect(edit.length).toBeGreaterThan(gen.length);
+  expect(gen).toContain("editSlide");
+  expect(gen).not.toContain("addSlide");
+  expect(edit).toContain("addSlide");
+  expect(edit).toContain("diff");
 });
 
 it("ReactRefiner: runReactRefiner basic flow with mocked model and toolExecutor", async () => {
@@ -126,13 +128,12 @@ it("ReactRefiner: runReactRefiner basic flow with mocked model and toolExecutor"
   expect(res.qualityScore).toBe(8);
   expect(res.toolCalls.length).toBe(1);
   expect(res.toolCalls[0].tool).toBe("editSlide");
-  expect(res.finalDeck.deckHtmlDsl.includes('data-title="Updated"')).toBeTruthy();
+  expect(res.finalDeck.deckHtmlDsl).toContain('data-title="Updated"');
 
   // 4 responses: NOT_JSON, addSlide (fail), editSlide (success), finish
   expect(chatCalls.length).toBe(4);
   expect(chatCalls[1].messages.some(m => String(m.content || "").includes("只返回严格 JSON")));
 
   expect(onSteps.length).toBe(3);
-  expect(events.some(e => e.name === "design.refine.finish_accepted")).toBeTruthy();
+  expect(events).toContainEqual(expect.objectContaining({ name: "design.refine.finish_accepted" }));
 });
-

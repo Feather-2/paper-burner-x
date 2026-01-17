@@ -355,7 +355,7 @@ describe("agents/sdk AgentFactory + AgentInstance", () => {
 
     // Lazy module is imported on first use and registered in ToolExecutor.
     const executor = mockedToolExecutor.instances[0];
-    expect(executor).toBeTruthy();
+    expect(executor).toBeInstanceOf(mockedToolExecutor.ToolExecutor);
 
     // Cover injected emit callbacks from AgentFactory.create().
     mockedDiscoveryManager.instances[0].options.emit("discovery.event", { ok: true });

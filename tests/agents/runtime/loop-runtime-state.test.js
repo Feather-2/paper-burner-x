@@ -23,7 +23,7 @@ it("LoopRuntimeState serializes and restores", async () => {
   });
 
   const restored = LoopRuntimeState.fromJSON(json);
-  expect(restored instanceof LoopRuntimeState).toBeTruthy();
+  expect(restored).toBeInstanceOf(LoopRuntimeState);
   expect(restored.toJSON()).toEqual(json);
 });
 
@@ -45,7 +45,7 @@ it("LoopRuntimeState normalizes statusHistory entries", async () => {
   expect(state.statusHistory[1].from).toBe("running");
   expect(state.statusHistory[1].to).toBe("paused");
   expect(typeof state.statusHistory[1].timestamp).toBe("string");
-  expect(state.statusHistory[1].timestamp.includes("T")).toBeTruthy();
+  expect(state.statusHistory[1].timestamp).toContain("T");
 });
 
 it("LoopRuntimeState normalizes cursor inputs", async () => {
@@ -128,7 +128,7 @@ it("getRuntimeState/setRuntimeState isolate per signal", async () => {
   expect(getRuntimeState(b.signal)).toBe(null);
 
   const stateA = setRuntimeState(a.signal, { status: LoopRuntimeStatuses.RUNNING, lastCheckpointId: "ckpt_a" });
-  expect(stateA instanceof LoopRuntimeState).toBeTruthy();
+  expect(stateA).toBeInstanceOf(LoopRuntimeState);
   expect(getRuntimeState(a.signal).lastCheckpointId).toBe("ckpt_a");
   expect(getRuntimeState(b.signal)).toBe(null);
 
@@ -143,6 +143,7 @@ it("setRuntimeState validates signal type and clearRuntimeState is safe", async 
     clearRuntimeState,
     getRuntimeState,
     LoopRuntimeStatuses,
+    LoopRuntimeState,
   } = await import("../../../js/agents/runtime/telemetry/loop-runtime-state.js");
 
   expect(() => setRuntimeState(null, { status: LoopRuntimeStatuses.RUNNING })).toThrow(/signal must be an object/);
@@ -152,7 +153,7 @@ it("setRuntimeState validates signal type and clearRuntimeState is safe", async 
 
   const controller = new AbortController();
   setRuntimeState(controller.signal, { status: LoopRuntimeStatuses.RUNNING });
-  expect(getRuntimeState(controller.signal)).toBeTruthy();
+  expect(getRuntimeState(controller.signal)).toBeInstanceOf(LoopRuntimeState);
   clearRuntimeState(controller.signal);
   expect(getRuntimeState(controller.signal)).toBe(null);
 });
