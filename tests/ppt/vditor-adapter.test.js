@@ -205,5 +205,5 @@ test('multiple mount/destroy cycles: stable', () => {
   }
 
   expect(ctorCalls.length).toBe(5);
-  expect(ctorCalls.every((c).toBeTruthy() => c.instance._destroyed === true));
+  expect(ctorCalls.every((c) => c.instance._destroyed === true)).toBeTruthy();
 });

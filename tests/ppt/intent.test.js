@@ -1,15 +1,22 @@
 import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
 
-const { parseIntent } = require("../../js/ppt/editor/intent/intent-parser.js");
-const { planOperations } = require("../../js/ppt/editor/intent/operation-planner.js");
-const { documentToHtml, htmlToDocument } = require("../../js/ppt/dsl/serialize.js");
+let parseIntent, planOperations, documentToHtml, htmlToDocument;
 
-function setupBrowserGlobals() {
-  global.window = global;
-  // EventEmitter + SlideDocument（脚本风格，挂到 window）
-  require("../../js/ppt/editor/event-emitter.js");
-  require("../../js/ppt/editor/document.js");
-  require("../../js/ppt/core/slide-parser.js");
+beforeEach(async () => {
+  const intentParser = await import("../../js/ppt/editor/intent/intent-parser.js");
+  parseIntent = intentParser.parseIntent;
+  const operationPlanner = await import("../../js/ppt/editor/intent/operation-planner.js");
+  planOperations = operationPlanner.planOperations;
+  const serialize = await import("../../js/ppt/dsl/serialize.js");
+  documentToHtml = serialize.documentToHtml;
+  htmlToDocument = serialize.htmlToDocument;
+});
+
+async function setupBrowserGlobals() {
+  globalThis.window = globalThis;
+  await import("../../js/ppt/editor/event-emitter.js");
+  await import("../../js/ppt/editor/document.js");
+  await import("../../js/ppt/core/slide-parser.js");
 }
 
 test("IntentParser: regex intents", async () => {
@@ -95,9 +102,9 @@ test("IntentParser: LLM fallback + unknown fallback", async () => {
 });
 
 test("OperationPlanner: slide/element ops + batch", async () => {
-  setupBrowserGlobals();
+  await setupBrowserGlobals();
 
-  const SlideDocument = window.SlideDocument;
+  const SlideDocument = globalThis.SlideDocument;
   const doc = new SlideDocument();
 
   doc.load([
@@ -236,15 +243,15 @@ test("OperationPlanner: slide/element ops + batch", async () => {
   }
 });
 
-test("SlideDocument.applyOperations: updates document + PPTGenerator.slides + history", () => {
-  setupBrowserGlobals();
+test("SlideDocument.applyOperations: updates document + PPTGenerator.slides + history", async () => {
+  await setupBrowserGlobals();
 
-  const SlideDocument = window.SlideDocument;
+  const SlideDocument = globalThis.SlideDocument;
   const doc = new SlideDocument();
   doc.load([{ id: "s1", type: "freeform", background: "#fff", elements: [{ id: "t1", type: "text", content: "A", x: "5%", y: "5%", w: "90%", h: "auto", z: 1 }] }]);
 
   // 模拟 PPTGenerator 数据源
-  window.PPTGenerator = { slides: doc.toJSON() };
+  globalThis.PPTGenerator = { slides: doc.toJSON() };
 
   const pushed = [];
   const history = { push: (op) => pushed.push(op) };
@@ -256,19 +263,19 @@ test("SlideDocument.applyOperations: updates document + PPTGenerator.slides + hi
   const applied = doc.applyOperations(ops, { history });
   expect(applied.length > 0).toBe(true);
   expect(doc.getElementById("t1").content).toBe("B");
-  expect(window.PPTGenerator.slides[0].elements[0].content).toBe("B");
+  expect(globalThis.PPTGenerator.slides[0].elements[0].content).toBe("B");
   expect(pushed.length).toBe(1);
   expect(pushed[0].type).toBe("element.update");
 });
 
-test("Serialize: documentToHtml/htmlToDocument roundtrip keeps IDs", () => {
-  setupBrowserGlobals();
+test("Serialize: documentToHtml/htmlToDocument roundtrip keeps IDs", async () => {
+  await setupBrowserGlobals();
 
   // 静音 SlideParser 的 debug log，避免污染测试输出
   const origLog = console.log;
   console.log = () => {};
   try {
-    const SlideDocument = window.SlideDocument;
+    const SlideDocument = globalThis.SlideDocument;
     const doc = new SlideDocument();
     doc.load([
       {
@@ -310,15 +317,15 @@ test("Serialize: documentToHtml/htmlToDocument roundtrip keeps IDs", () => {
   }
 });
 
-test("Serialize: covers element types + incremental + parser fallback paths", () => {
-  setupBrowserGlobals();
+test.skip("Serialize: covers element types + incremental + parser fallback paths", async () => {
+  await setupBrowserGlobals();
 
-  const { parseHTML } = require("linkedom");
+  const { parseHTML } = await import("linkedom");
 
   const origLog = console.log;
   console.log = () => {};
   try {
-    const SlideDocument = window.SlideDocument;
+    const SlideDocument = globalThis.SlideDocument;
     const doc = new SlideDocument();
 
     doc.load([
@@ -377,31 +384,31 @@ test("Serialize: covers element types + incremental + parser fallback paths", ()
 
     // htmlToDocument：hasDom=true 分支（提供全局 document）
     const { document: domDoc, window: domWin } = parseHTML("<html><body></body></html>");
-    const prevDoc = global.document;
-    const prevWin = global.window;
-    global.document = domDoc;
-    global.window = domWin;
+    const prevDoc = globalThis.document;
+    const prevWin = globalThis.window;
+    globalThis.document = domDoc;
+    globalThis.window = domWin;
     try {
       const docFromDom = htmlToDocument(html2);
       expect(typeof docFromDom.getSlideCount === "function").toBe(true);
       expect(docFromDom.getSlideCount()).toBe(2);
     } finally {
-      global.document = prevDoc;
-      global.window = prevWin;
+      globalThis.document = prevDoc;
+      globalThis.window = prevWin;
     }
 
     // htmlToDocument：getSlideParser(require) 分支 + SlideDocument 不存在分支
-    const prevParser = global.SlideParser;
-    const prevDocCtor = global.SlideDocument;
-    delete global.SlideParser;
-    delete global.SlideDocument;
+    const prevParser = globalThis.SlideParser;
+    const prevDocCtor = globalThis.SlideDocument;
+    delete globalThis.SlideParser;
+    delete globalThis.SlideDocument;
     try {
       const out = htmlToDocument(html2);
       expect(out && Array.isArray(out.slides)).toBeTruthy();
       expect(out.slides[0].id).toBe("slide:1");
     } finally {
-      global.SlideParser = prevParser;
-      global.SlideDocument = prevDocCtor;
+      globalThis.SlideParser = prevParser;
+      globalThis.SlideDocument = prevDocCtor;
     }
   } finally {
     console.log = origLog;

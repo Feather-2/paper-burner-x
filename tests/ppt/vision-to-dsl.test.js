@@ -1,8 +1,17 @@
 import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
 
-const { analyzeImage, _internal: fromInternal } = require("../../js/ppt/vision/layout-from-image.js");
-const { layoutToDsl, _internal: toInternal } = require("../../js/ppt/vision/layout-to-dsl.js");
-const { htmlToDocument } = require("../../js/ppt/dsl/serialize.js");
+let analyzeImage, fromInternal, layoutToDsl, toInternal, htmlToDocument;
+
+beforeEach(async () => {
+  const layoutFromImage = await import("../../js/ppt/vision/layout-from-image.js");
+  analyzeImage = layoutFromImage.analyzeImage;
+  fromInternal = layoutFromImage._internal;
+  const layoutToDslMod = await import("../../js/ppt/vision/layout-to-dsl.js");
+  layoutToDsl = layoutToDslMod.layoutToDsl;
+  toInternal = layoutToDslMod._internal;
+  const serialize = await import("../../js/ppt/dsl/serialize.js");
+  htmlToDocument = serialize.htmlToDocument;
+});
 
 function muteConsole(fn) {
   const prev = console.log;
