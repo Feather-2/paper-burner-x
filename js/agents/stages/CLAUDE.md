@@ -2,6 +2,8 @@
 
 预定义的 Agent 工作流阶段。
 
+> **文件统计**: 138 个 JS 文件 (deepsearch: 60, design: 57, codesearch: 14, textprep: 7)
+
 ## 子模块索引
 
 | 阶段 | 路径 | 职责 |

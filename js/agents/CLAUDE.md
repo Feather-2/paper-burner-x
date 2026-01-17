@@ -127,8 +127,27 @@ const myPlugin = createPlugin({
 
 ## 文件统计
 
-- 总文件数：393 个 JS 文件
-- 入口：`index.js`
+| 模块 | 文件数 | 入口 |
+|------|--------|------|
+| **core** | 33 | `core/index.js` |
+| **runtime** | 127 | `runtime/index.js` |
+| **stages** | 138 | - |
+| **shared** | 40 | `shared/index.js` |
+| **ingest** | 21 | `ingest/index.js` |
+| **mcp** | 20 | `mcp/index.js` |
+| **vfs** | 20 | `vfs/index.js` |
+| **sdk** | 17 | `sdk/index.js` |
+| **plugins** | 12 | `plugins/index.js` |
+| **llm** | 11 | `llm/index.js` |
+| **prompts** | 11 | - |
+| **retrieval** | 10 | - |
+| **skills** | 9 | `skills/index.js` |
+| **eval** | 9 | `eval/index.js` |
+| **cli** | 4 | - |
+| **storage** | 3 | - |
+| **testing** | 1 | - |
+| **合计** | **487** | `index.js` |
+
 - 类型定义：`events.d.ts`, `core/types.d.ts` (JSDoc 生成的 `.d.ts`)
 
 ## 约定

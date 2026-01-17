@@ -2,16 +2,23 @@
 
 模型路由、速率限制和多模态支持。
 
+> **文件统计**: 11 个 JS 文件
+
 ## 核心文件
 
 | 文件 | 职责 |
 |------|------|
-| `provider.js` | ModelEntry 类型定义，断言函数 |
-| `model-router.js` | 模型路由，按 tag 选择模型 |
-| `rate-limit.js` | 速率限制器 |
+| `index.js` | 模块入口与统一导出 |
+| `provider.js` | ModelEntry/UsageConfig 断言，MODEL_TAGS 与 BaseProvider |
+| `model-router.js` | 按 usage/tag/策略路由模型，支持熔断与性能路由 |
+| `rate-limit.js` | TokenBucketRateLimiter 与限流配置读取 |
 | `overflow-recovery.js` | Token 溢出恢复 |
-| `model-events.js` | LLM 事件类型 |
-| `constants.js` | 常量（MODEL_TAGS 等） |
+| `model-events.js` | 浏览器兼容事件发射器 |
+| `constants.js` | ModelUsage/RouterStrategy/ModelHealth/TransportKind 等常量 |
+
+## 最近变更
+
+- **TokenBucketRateLimiter**: `maxQueue=0` 语义调整 - 队列为空时允许新任务入队（即使有 in-flight），仅当队列已有 1 个待执行任务时拒绝
 
 ## 特殊提供者
 
@@ -25,7 +32,9 @@
 ## 模型标签
 
 ```javascript
-const MODEL_TAGS = ['text', 'vision', 'reasoning', 'long-context', 'fast', 'cheap'];
+import { MODEL_TAGS } from 'js/agents/llm/provider.js';
+
+// MODEL_TAGS = ['text', 'vision', 'reasoning', 'long-context', 'fast', 'cheap'];
 ```
 
 ## 使用示例
@@ -33,15 +42,23 @@ const MODEL_TAGS = ['text', 'vision', 'reasoning', 'long-context', 'fast', 'chea
 ```javascript
 import { ModelRouter } from 'js/agents/llm/model-router.js';
 
-const router = new ModelRouter(models);
-const model = router.select({ tags: ['vision', 'fast'] });
+const router = new ModelRouter({
+  models,
+  usageConfig,
+  providers,
+});
+
+const resp = await router.call({
+  usage: 'worker',
+  messages,
+});
 ```
 
 ## 速率限制
 
 ```javascript
-import { RateLimiter } from 'js/agents/llm/rate-limit.js';
+import { TokenBucketRateLimiter } from 'js/agents/llm/rate-limit.js';
 
-const limiter = new RateLimiter({ rpm: 60, tpm: 100000 });
-await limiter.acquire(estimatedTokens);
+const limiter = new TokenBucketRateLimiter({ rps: 2, burst: 4, concurrency: 1 });
+const resp = await limiter.schedule(() => provider.chat({ model, messages }));
 ```

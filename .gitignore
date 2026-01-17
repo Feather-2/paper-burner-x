@@ -46,6 +46,9 @@ NEXT_STEPS.md
 tatus
 todos.md
 
+# 自动生成的审计报告
+AUDIT.md
+
 # 项目特定
 js/agents/cli/config.json
 js/ppt/editor/vtracer-master
