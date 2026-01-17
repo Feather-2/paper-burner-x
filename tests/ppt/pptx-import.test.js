@@ -158,6 +158,6 @@ test('import PPTX as deck: parse failure falls back to manual flow', async () =>
   expect(res.ok).toBe(false);
   expect(gen.state).toBe('idle');
   expect(opened).toBe(1);
-  expect(messages.some((m).toBeTruthy() => m.role === 'ai' && m.content.includes('PPTX 导入失败')));
+  expect(messages.some((m) => m.role === 'ai' && m.content.includes('PPTX 导入失败'))).toBeTruthy();
 });
 

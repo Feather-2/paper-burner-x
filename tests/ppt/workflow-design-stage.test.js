@@ -343,10 +343,9 @@ test('_confirmScriptToPageLayout updates workflow plan steps', () => {
   gen._confirmScriptToPageLayout();
 
   expect(
-    calls.map((c) => ({ stepId: c.stepId).toEqual(status: c.status, reason: c.options?.reason || null, select: c.options?.select })),
-    [
-      { stepId: 'workflow.script_review', status: 'completed', reason: 'script_confirmed', select: false },
-      { stepId: 'textprep.align', status: 'in_progress', reason: 'script_confirmed.next', select: true },
-    ]
-  );
+    calls.map((c) => ({ stepId: c.stepId, status: c.status, reason: c.options?.reason || null, select: c.options?.select }))
+  ).toEqual([
+    { stepId: 'workflow.script_review', status: 'completed', reason: 'script_confirmed', select: false },
+    { stepId: 'textprep.align', status: 'in_progress', reason: 'script_confirmed.next', select: true },
+  ]);
 });

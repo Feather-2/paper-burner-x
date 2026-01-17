@@ -61,7 +61,7 @@ test('startFromPastedText(): empty content returns early', async () => {
   expect(calls.ensure).toBe(0);
   expect(calls.render).toBe(0);
   expect(gen.state).toBe('idle');
-  expect(calls.log.some((l).toBeTruthy() => l.msg.includes('粘贴内容为空')));
+  expect(calls.log.some((l) => l.msg.includes('粘贴内容为空'))).toBeTruthy();
 });
 
 test('startFromPastedText(): processes content and transitions to script_review', async () => {
@@ -109,10 +109,10 @@ Content B
   expect(gen.workflowData.reportMarkdown).toBe(md);
   expect(gen.workflowData.contentPackage.title).toBe('My Title');
   expect(gen.workflowData.contentPackage.report.markdown).toBe(md);
-  expect(Array.isArray(gen.workflowData.contentPackage.slideIntents).toBeTruthy());
+  expect(Array.isArray(gen.workflowData.contentPackage.slideIntents)).toBeTruthy();
   expect(gen.workflowData.contentPackage.slideIntents.length).toBe(3);
-  expect(seen.logs.some((l).toBeTruthy() => l.msg.includes('开始处理粘贴文档')));
-  expect(seen.logs.some((l).toBeTruthy() => l.msg.includes('文档已解析')));
+  expect(seen.logs.some((l) => l.msg.includes('开始处理粘贴文档'))).toBeTruthy();
+  expect(seen.logs.some((l) => l.msg.includes('文档已解析'))).toBeTruthy();
 
   expect(gen.workflowData.report.markdown).toBe(md);
   expect(gen.workflowData.slideIntents.length).toBe(3);
@@ -151,15 +151,14 @@ bbb
   const intents = gen._generateSlideIntentsFromMarkdown(md);
   expect(intents.length).toBe(3);
   expect(
-    intents.map((s) => ({ title: s.title).toEqual(pageType: s.pageType })),
-    [
-      { title: 'Cover', pageType: 'cover' },
-      { title: 'A', pageType: 'content' },
-      { title: 'B', pageType: 'content' }
-    ]
-  );
+    intents.map((s) => ({ title: s.title, pageType: s.pageType }))
+  ).toEqual([
+    { title: 'Cover', pageType: 'cover' },
+    { title: 'A', pageType: 'content' },
+    { title: 'B', pageType: 'content' }
+  ]);
   expect(intents[0].content.includes('# Cover')).toBeTruthy();
-  expect(intents[1].content.startsWith('## A').toBeTruthy());
+  expect(intents[1].content.startsWith('## A')).toBeTruthy();
 });
 
 test('_generateSlideIntentsFromMarkdown(): returns single page when no headers', () => {
