@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "Configuration for check-stale.js and module-analyzer.js",
+  "description": "Configuration for project-index skill (audit, test, doc analysis)",
 
   "ignore": [
     "tests/**",
@@ -26,7 +26,8 @@
   "features": {
     "doc": true,
     "audit": true,
-    "kanban": true
+    "kanban": true,
+    "testAnalysis": true
   },
 
   "notify": {
@@ -36,21 +37,281 @@
   },
 
   "conventions": {
-    "language": "JavaScript + JSDoc",
-    "noTypescript": true,
-    "rules": [
-      "使用 ES Modules (import/export)",
-      "JSDoc 类型注解 (@typedef/@param/@returns)",
-      "事件名: domain:action 格式",
-      "服务名: camelCase 格式",
-      "测试覆盖 >= 90%"
+    "language": "JavaScript + JSDoc (NO TypeScript)",
+    "runtime": "Browser-first, Node.js compatible",
+    "moduleSystem": "ES Modules (import/export)",
+
+    "codeStyle": [
+      "函数单一职责，不超过 50 行",
+      "嵌套层级 ≤ 3 层，超过则提取函数",
+      "命名：camelCase 变量/函数，PascalCase 类/类型",
+      "事件名格式: domain:action (如 agent:step)",
+      "服务名格式: camelCase (如 modelRouter)",
+      "避免魔法数字，使用命名常量",
+      "async 函数必须有 try-catch 或向上传播",
+      "禁止 any 类型（JSDoc 中使用具体类型）"
     ],
-    "auditFocus": [
-      "检查是否有 TypeScript 语法误入",
-      "验证 JSDoc 类型注解完整性",
-      "检查 async/await 错误处理",
-      "确保浏览器兼容性 (无 Node-only API)"
+
+    "jsDocRules": [
+      "@typedef 定义复杂类型，放在文件顶部",
+      "@param {Type} name - 描述（必须有描述）",
+      "@returns {Type} 描述返回值",
+      "@throws {Error} 描述可能的异常",
+      "public API 必须有完整 JSDoc",
+      "private 函数用 /** @private */ 标记"
+    ],
+
+    "errorHandling": [
+      "不要吞掉异常（空 catch 块）",
+      "异常需记录或重新抛出",
+      "使用自定义 Error 类区分错误类型",
+      "用户可见错误需提供友好消息"
     ]
+  },
+
+  "security": {
+    "severity": ["critical", "high", "medium", "low"],
+
+    "critical": [
+      "代码注入: eval(), new Function(), innerHTML 拼接用户输入",
+      "XSS: 未转义的用户输入直接插入 DOM",
+      "原型污染: obj[userInput] = value 形式的赋值",
+      "路径穿越: 未验证的文件路径拼接"
+    ],
+
+    "high": [
+      "不安全的反序列化: JSON.parse 未验证的外部数据",
+      "SSRF: fetch/axios 请求用户可控的 URL",
+      "敏感信息泄露: API key、token 硬编码或日志输出",
+      "沙箱逃逸: 插件/技能执行未隔离"
+    ],
+
+    "medium": [
+      "未验证的输入: 缺少类型/边界检查",
+      "竞态条件: 共享状态无锁/无原子操作",
+      "资源泄漏: 未关闭的文件句柄、未清理的定时器",
+      "错误信息泄露: 详细堆栈暴露给用户"
+    ],
+
+    "low": [
+      "console.log 残留: 生产代码中的调试输出",
+      "TODO/FIXME/HACK 注释: 未解决的技术债",
+      "魔法数字: 未命名的数字常量",
+      "过长函数: 超过 100 行的函数"
+    ],
+
+    "browserSpecific": [
+      "检查 Node-only API: fs, path, process, child_process",
+      "检查 require() 语法",
+      "检查 __dirname, __filename 使用",
+      "确保 fetch 替代 axios/node-fetch"
+    ]
+  },
+
+  "testing": {
+    "coverage": {
+      "target": 90,
+      "minimum": 70,
+      "focus": ["核心业务逻辑", "公共 API", "错误处理路径"]
+    },
+
+    "qualityRules": [
+      "一个测试一个断言（单一职责）",
+      "测试名描述行为: should_return_X_when_Y",
+      "Arrange-Act-Assert 结构清晰",
+      "避免测试实现细节，测试行为/契约"
+    ],
+
+    "antiPatterns": [
+      "伪测试: 只调用不断言，或断言 true === true",
+      "脆弱测试: 依赖执行顺序、时间、外部状态",
+      "过度 mock: mock 太多导致测试不反映真实行为",
+      "重复测试: 多个测试验证相同逻辑",
+      "注释掉的测试: 跳过或注释的测试用例"
+    ],
+
+    "boundaryConditions": [
+      "空值: null, undefined, 空字符串, 空数组, 空对象",
+      "边界值: 0, -1, MAX_SAFE_INTEGER, 空白字符串",
+      "类型边界: 字符串当数字传入, 对象当数组传入",
+      "并发边界: 同时调用, 快速连续调用",
+      "资源边界: 超大文件, 超长字符串, 深层嵌套"
+    ],
+
+    "mustTest": [
+      "公共 API 的正常路径",
+      "错误处理和异常路径",
+      "边界条件和极端情况",
+      "状态转换和副作用",
+      "异步操作的成功和失败"
+    ]
+  },
+
+  "directoryRules": {
+    "js/agents/core": {
+      "priority": "critical",
+      "focus": [
+        "微内核稳定性：Kernel/EventBus/StateBus 是全局单例",
+        "插件隔离：确保插件不能破坏内核状态",
+        "事件循环：检查是否有死锁或无限循环风险",
+        "内存泄漏：检查事件监听器是否正确移除"
+      ],
+      "testFocus": [
+        "状态机转换测试",
+        "并发安全测试",
+        "插件生命周期测试"
+      ]
+    },
+
+    "js/agents/runtime": {
+      "priority": "high",
+      "focus": [
+        "工具执行安全：ToolExecutor 需验证工具参数",
+        "Hook 链完整性：pre/post hooks 异常不应中断主流程",
+        "内存管理：L1/L2/L3 缓存正确回收",
+        "并发控制：Parallel 和 DI 容器的线程安全"
+      ],
+      "testFocus": [
+        "工具调用边界条件",
+        "Hook 异常处理",
+        "内存压力测试"
+      ]
+    },
+
+    "js/agents/stages": {
+      "priority": "high",
+      "focus": [
+        "业务逻辑正确性：DeepSearch/Design/CodeSearch 核心流程",
+        "状态回滚：支持 backtrack 的阶段需测试回滚",
+        "超时处理：长时间运行的阶段需有超时机制",
+        "用户输入验证：来自 UI 的输入需严格验证"
+      ],
+      "testFocus": [
+        "正常流程端到端测试",
+        "异常中断恢复测试",
+        "边界输入测试"
+      ]
+    },
+
+    "js/agents/mcp": {
+      "priority": "high",
+      "focus": [
+        "协议安全：MCP 消息需验证 schema",
+        "SSRF 风险：Nexus 远程调用需验证 URL 白名单",
+        "认证安全：API key 不应明文传输或日志输出",
+        "超时和重试：网络请求需有合理超时"
+      ],
+      "testFocus": [
+        "协议兼容性测试",
+        "网络异常测试",
+        "认证流程测试"
+      ]
+    },
+
+    "js/agents/ingest": {
+      "priority": "medium",
+      "focus": [
+        "文件解析安全：PDF/DOCX 解析需防止 zip bomb",
+        "内存控制：大文件需流式处理",
+        "编码处理：正确处理各种字符编码",
+        "错误恢复：单文件解析失败不应影响批量处理"
+      ],
+      "testFocus": [
+        "各格式解析测试",
+        "大文件处理测试",
+        "损坏文件测试"
+      ]
+    },
+
+    "js/agents/vfs": {
+      "priority": "high",
+      "focus": [
+        "路径安全：防止路径穿越攻击",
+        "跨平台兼容：Memory/OPFS/IndexedDB 行为一致",
+        "原子操作：写入需保证完整性",
+        "配额管理：存储空间不足时的优雅降级"
+      ],
+      "testFocus": [
+        "各后端一致性测试",
+        "并发读写测试",
+        "边界路径测试"
+      ]
+    },
+
+    "js/agents/llm": {
+      "priority": "high",
+      "focus": [
+        "API 密钥安全：不应硬编码或日志输出",
+        "速率限制：防止 API 超限",
+        "Token 计算：准确计算避免溢出",
+        "错误重试：区分可重试和不可重试错误"
+      ],
+      "testFocus": [
+        "路由策略测试",
+        "错误恢复测试",
+        "Token 边界测试"
+      ]
+    },
+
+    "js/agents/skills": {
+      "priority": "critical",
+      "focus": [
+        "沙箱隔离：技能执行不应访问宿主环境",
+        "权限控制：技能只能使用声明的工具",
+        "代码注入：技能内容需严格验证",
+        "资源限制：执行时间和内存需有上限"
+      ],
+      "testFocus": [
+        "沙箱逃逸测试",
+        "权限边界测试",
+        "恶意技能防护测试"
+      ]
+    },
+
+    "js/agents/sdk": {
+      "priority": "medium",
+      "focus": [
+        "API 稳定性：公共 API 不应随意变更",
+        "向后兼容：废弃 API 需提供迁移路径",
+        "类型安全：JSDoc 类型需完整准确",
+        "文档同步：代码变更需同步更新文档"
+      ],
+      "testFocus": [
+        "API 契约测试",
+        "向后兼容测试",
+        "示例代码测试"
+      ]
+    },
+
+    "js/ppt": {
+      "priority": "medium",
+      "focus": [
+        "用户输入验证：DSL 解析需防止注入",
+        "资源管理：图片/字体资源需正确释放",
+        "导出安全：pptxgenjs 输出需验证",
+        "性能优化：大幻灯片需分批处理"
+      ],
+      "testFocus": [
+        "DSL 解析边界测试",
+        "渲染一致性测试",
+        "导出格式测试"
+      ]
+    },
+
+    "js/chatbot": {
+      "priority": "medium",
+      "focus": [
+        "XSS 防护：用户消息渲染需转义",
+        "流式安全：SSE 连接需正确管理",
+        "状态一致性：多轮对话状态需同步",
+        "错误提示：用户可见错误需友好"
+      ],
+      "testFocus": [
+        "消息渲染测试",
+        "流式传输测试",
+        "状态恢复测试"
+      ]
+    }
   },
 
   "concurrency": 6,
