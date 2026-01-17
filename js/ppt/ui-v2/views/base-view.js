@@ -3,7 +3,7 @@
  * 视图基类，所有视图继承此类
  */
 
-import { getUIEventBus } from '../core/event-bus.js';
+import { getUIEventBus } from '../../../shared/core/event-bus.js';
 import { getStateStore } from '../core/state-store.js';
 import { bindActionEvents } from '../core/action-binder.js';
 

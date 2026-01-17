@@ -2,8 +2,7 @@
  * PPT Generator adapter (bridge UI V2 <-> legacy runtime)
  */
 
-import { getUIEventBus } from '../core/event-bus.js';
-import { getStateStore } from '../core/state-store.js';
+import { getUIEventBus, getStateStore } from '../../../shared/index.js';
 
 const DEFAULT_BRIEF = {
   taskGoal: '',
