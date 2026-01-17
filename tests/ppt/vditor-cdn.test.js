@@ -1,5 +1,4 @@
-import test from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,11 +19,11 @@ test("ppt.html: includes Vditor CDN CSS/JS (v3.10.7) before other CSS", () => {
   const cssHref = "https://gcore.jsdelivr.net/npm/vditor@3.10.7/dist/index.css";
   const jsSrc = "https://gcore.jsdelivr.net/npm/vditor@3.10.7/dist/index.min.js";
 
-  assert.ok(document.querySelector(`head link[rel="stylesheet"][href="${cssHref}"]`));
-  assert.ok(document.querySelector(`head script[src="${jsSrc}"]`));
+  expect(document.querySelector(`head link[rel="stylesheet"][href="${cssHref}"]`).toBeTruthy());
+  expect(document.querySelector(`head script[src="${jsSrc}"]`).toBeTruthy());
 
-  assert.ok(html.indexOf(cssHref) !== -1);
-  assert.ok(html.indexOf(cssHref) < html.indexOf("css/ppt/ppt_generation_variables.css"));
+  expect(html.indexOf(cssHref).toBeTruthy() !== -1);
+  expect(html.indexOf(cssHref).toBeTruthy() < html.indexOf("css/ppt/ppt_generation_variables.css"));
 });
 
 test("ppt.html: includes css/ppt/ppt_vditor.css after other ppt CSS", () => {
@@ -32,17 +31,17 @@ test("ppt.html: includes css/ppt/ppt_vditor.css after other ppt CSS", () => {
   const { document } = parseHTML(html);
 
   const href = "css/ppt/ppt_vditor.css";
-  assert.ok(document.querySelector(`head link[rel="stylesheet"][href="${href}"]`));
+  expect(document.querySelector(`head link[rel="stylesheet"][href="${href}"]`).toBeTruthy());
 
-  assert.ok(html.indexOf("css/slide-editor.css") !== -1);
-  assert.ok(html.indexOf("css/slide-editor.css") < html.indexOf(href));
+  expect(html.indexOf("css/slide-editor.css").toBeTruthy() !== -1);
+  expect(html.indexOf("css/slide-editor.css").toBeTruthy() < html.indexOf(href));
 });
 
 test("css/ppt/ppt_vditor.css: exists and uses --ppt- variables", () => {
   const absCssPath = path.resolve(__dirname, "..", "..", "css/ppt/ppt_vditor.css");
-  assert.ok(fs.existsSync(absCssPath));
+  expect(fs.existsSync(absCssPath).toBeTruthy());
 
   const css = fs.readFileSync(absCssPath, "utf8");
-  assert.ok(css.includes("#pptPreviewArea .vditor"));
-  assert.match(css, /var\(--ppt-/);
+  expect(css.includes("#pptPreviewArea .vditor").toBeTruthy());
+  expect(css).toMatch(/var\(--ppt-/);
 });

@@ -1,5 +1,4 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
+import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
 
 async function loadRegistryModule() {
   return await import("../../../js/ppt/workflow/event-handler-registry.js");
@@ -9,10 +8,7 @@ test("EventHandlerRegistry.register validates handler", async () => {
   const { EventHandlerRegistry } = await loadRegistryModule();
   const registry = new EventHandlerRegistry();
 
-  assert.throws(() => registry.register("run.started", null), {
-    name: "TypeError",
-    message: "handler must be a function",
-  });
+  expect(() => registry.register("run.started", null)).toThrow("handler must be a function");
 });
 
 test("EventHandlerRegistry dispatches exact + wildcard handlers", async () => {
@@ -24,19 +20,19 @@ test("EventHandlerRegistry dispatches exact + wildcard handlers", async () => {
   let wildcardCalls = 0;
 
   const exactHandler = function (eventName, payload, ctx) {
-    assert.equal(this, context);
-    assert.equal(ctx, context);
-    assert.equal(eventName, "run.started");
+    expect(this).toBe(context);
+    expect(ctx).toBe(context);
+    expect(eventName).toBe("run.started");
     exactCalls += 1;
     ctx.count += payload.delta;
   };
 
   const wildcardHandler = function (eventName, payload, ctx) {
     wildcardCalls += 1;
-    assert.equal(this, context);
-    assert.equal(ctx, context);
-    assert.equal(eventName, "run.started");
-    assert.equal(payload.delta, 3);
+    expect(this).toBe(context);
+    expect(ctx).toBe(context);
+    expect(eventName).toBe("run.started");
+    expect(payload.delta).toBe(3);
   };
 
   registry.register("run.started", exactHandler);
@@ -45,14 +41,14 @@ test("EventHandlerRegistry dispatches exact + wildcard handlers", async () => {
     wildcardCalls += 1;
   });
 
-  assert.equal(registry.dispatch("run.started", { delta: 3 }), true);
-  assert.equal(context.count, 3);
-  assert.equal(exactCalls, 1);
-  assert.equal(wildcardCalls, 1);
+  expect(registry.dispatch("run.started", { delta: 3 })).toBe(true);
+  expect(context.count).toBe(3);
+  expect(exactCalls).toBe(1);
+  expect(wildcardCalls).toBe(1);
 
-  assert.equal(registry.dispatch("designXv1.test", {}), false);
-  assert.equal(registry.dispatch("design.v1.test", {}), true);
-  assert.equal(wildcardCalls, 2);
+  expect(registry.dispatch("designXv1.test", {})).toBe(false);
+  expect(registry.dispatch("design.v1.test", {})).toBe(true);
+  expect(wildcardCalls).toBe(2);
 });
 
 test("EventHandlerRegistry catches handler errors", async () => {
@@ -79,13 +75,13 @@ test("EventHandlerRegistry catches handler errors", async () => {
     registry.register("task.done", okHandler);
     registry.register("task.*", boomHandler);
 
-    assert.equal(registry.dispatch("task.done", { id: 1 }), true);
+    expect(registry.dispatch("task.done", { id: 1 })).toBe(true);
   } finally {
     console.error = originalError;
   }
 
-  assert.equal(okCalls, 1);
-  assert.ok(errors.length >= 2);
+  expect(okCalls).toBe(1);
+  expect(errors.length >= 2).toBeTruthy();
 });
 
 test("EventHandlerRegistry unregisters handlers and clears", async () => {
@@ -97,22 +93,22 @@ test("EventHandlerRegistry unregisters handlers and clears", async () => {
   registry.register("alpha", handlerA);
   registry.register("alpha", handlerB);
   registry.unregister("alpha", handlerA);
-  assert.equal(registry.handlers.get("alpha").length, 1);
+  expect(registry.handlers.get("alpha").length).toBe(1);
   registry.unregister("alpha");
-  assert.equal(registry.handlers.has("alpha"), false);
+  expect(registry.handlers.has("alpha")).toBe(false);
 
   registry.register("beta.*", handlerA);
   registry.register("beta.*", handlerB);
   registry.unregister("beta.*", handlerA);
-  assert.equal(registry.wildcardHandlers.length, 1);
+  expect(registry.wildcardHandlers.length).toBe(1);
   registry.unregister("beta.*");
-  assert.equal(registry.wildcardHandlers.length, 0);
+  expect(registry.wildcardHandlers.length).toBe(0);
 
   registry.register("gamma", handlerA);
   registry.register("delta.*", handlerB);
   registry.clear();
-  assert.equal(registry.handlers.size, 0);
-  assert.equal(registry.wildcardHandlers.length, 0);
+  expect(registry.handlers.size).toBe(0);
+  expect(registry.wildcardHandlers.length).toBe(0);
 });
 
 test("createWorkflowEventRegistry wires predefined handlers", async () => {
@@ -149,19 +145,19 @@ test("createWorkflowEventRegistry wires predefined handlers", async () => {
   registry.dispatch("design.degraded", { slideNo: 4 });
   registry.dispatch("design.error", { message: "oops" });
 
-  assert.deepEqual(updates, [["t1"]]);
-  assert.deepEqual(runCompleted, { ok: true });
-  assert.deepEqual(runFailed, { error: "fail" });
-  assert.deepEqual(phaseChanges, [["draft", "final"]]);
+  expect(updates).toEqual([["t1"]]);
+  expect(runCompleted).toEqual({ ok: true });
+  expect(runFailed).toEqual({ error: "fail" });
+  expect(phaseChanges).toEqual([["draft", "final"]]);
 
-  assert.ok(logs.some((entry) => entry[0] === "system" && entry[1].includes("[DeepSearch] scan started")));
-  assert.ok(logs.some((entry) => entry[0] === "system" && entry[1].includes("[DeepSearch] scan completed")));
-  assert.ok(logs.some((entry) => entry[0] === "warning" && entry[1].includes("[DeepSearch] scan: careful")));
-  assert.ok(logs.some((entry) => entry[0] === "warning" && entry[1].includes("[Design] Slide degraded: 4")));
-  assert.ok(logs.some((entry) => entry[0] === "error" && entry[1].includes("[Error] run.failed: fail")));
-  assert.ok(logs.some((entry) => entry[0] === "error" && entry[1].includes("[Error] design.error: oops")));
+  expect(logs.some((entry) => entry[0] === "system" && entry[1].includes("[DeepSearch] scan started"))).toBeTruthy();
+  expect(logs.some((entry) => entry[0] === "system" && entry[1].includes("[DeepSearch] scan completed"))).toBeTruthy();
+  expect(logs.some((entry) => entry[0] === "warning" && entry[1].includes("[DeepSearch] scan: careful"))).toBeTruthy();
+  expect(logs.some((entry) => entry[0] === "warning" && entry[1].includes("[Design] Slide degraded: 4"))).toBeTruthy();
+  expect(logs.some((entry) => entry[0] === "error" && entry[1].includes("[Error] run.failed: fail"))).toBeTruthy();
+  expect(logs.some((entry) => entry[0] === "error" && entry[1].includes("[Error] design.error: oops"))).toBeTruthy();
 
-  assert.deepEqual(errors, [
+  expect(errors).toEqual([
     { eventName: "run.failed", error: "fail" },
     { eventName: "design.error", error: "oops" },
   ]);

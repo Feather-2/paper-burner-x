@@ -1,6 +1,4 @@
 import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
-import test from 'node:test';
-import assert from 'node:assert/strict';
 import { parseHTML } from 'linkedom';
 
 const { window, document } = parseHTML('<!doctype html><html><head></head><body></body></html>');

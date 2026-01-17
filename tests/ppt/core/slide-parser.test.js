@@ -69,7 +69,7 @@ test('SlideParser.parseBorderColor()/parseBorderWidth(): parses typical border s
   expect(SlideParser.parseBorderColor('1px solid #333')).toBe('#333');
   expect(SlideParser.parseBorderWidth('1px solid #333')).toBe(1);
 
-  expect(SlideParser.parseBorderColor('2px dashed rgba(0).toBe(0,0,0.5)'), 'rgba(0,0,0,0.5)');
+  expect(SlideParser.parseBorderColor('2px dashed rgba(0,0,0,0.5)')).toBe('rgba(0,0,0,0.5)');
   expect(SlideParser.parseBorderWidth('0.5px solid red')).toBe(0.5);
 
   expect(SlideParser.parseBorderColor('1px solid red')).toBe('red');

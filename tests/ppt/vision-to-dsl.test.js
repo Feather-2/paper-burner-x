@@ -1,5 +1,4 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
+import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const { analyzeImage, _internal: fromInternal } = require("../../js/ppt/vision/layout-from-image.js");
 const { layoutToDsl, _internal: toInternal } = require("../../js/ppt/vision/layout-to-dsl.js");
@@ -18,9 +17,9 @@ function muteConsole(fn) {
 test("vision->layout: parses fenced JSON and normalizes schema", async () => {
   const modelRouter = {
     call: async (prompt, { usage, images }) => {
-      assert.equal(usage, "vision");
-      assert.ok(String(prompt).includes("Return ONLY valid JSON"));
-      assert.equal(images.length, 1);
+      expect(usage).toBe("vision");
+      expect(String(prompt).includes("Return ONLY valid JSON")).toBeTruthy();
+      expect(images.length).toBe(1);
       return {
         content:
           "```json\n" +
@@ -41,11 +40,11 @@ test("vision->layout: parses fenced JSON and normalizes schema", async () => {
   };
 
   const out = await analyzeImage("data:image/png;base64,xxx", { modelRouter, intentHint: "content_extract" });
-  assert.equal(out.intent, "content_extract");
-  assert.ok(out.analysis.includes("Found"));
-  assert.equal(out.suggestedLayout, "content");
-  assert.deepEqual(out.elements.map((e) => e.type), ["text", "table"]);
-  assert.deepEqual(out.elements[0].bounds, { x: 3, y: 2, w: 98, h: 12 });
+  expect(out.intent).toBe("content_extract");
+  expect(out.analysis.includes("Found")).toBeTruthy();
+  expect(out.suggestedLayout).toBe("content");
+  expect(out.elements.map((e) => e.type)).toEqual(["text", "table"]);
+  expect(out.elements[0].bounds).toEqual({ x: 3, y: 2, w: 98, h: 12 });
 });
 
 test("vision->layout: parses embedded JSON with surrounding text", async () => {
@@ -62,16 +61,16 @@ test("vision->layout: parses embedded JSON with surrounding text", async () => {
     }),
   };
   const out = await analyzeImage("data:image/png;base64,xxx", { modelRouter, intentHint: "style_reference" });
-  assert.equal(out.intent, "style_reference");
-  assert.equal(out.elements.length, 1);
-  assert.deepEqual(out.elements[0].bounds, { x: 0, y: 100, w: 50, h: 10 });
+  expect(out.intent).toBe("style_reference");
+  expect(out.elements.length).toBe(1);
+  expect(out.elements[0].bounds).toEqual({ x: 0, y: 100, w: 50, h: 10 });
 });
 
 test("vision->layout: returns minimal fallback when no provider", async () => {
   const out = await analyzeImage("data:image/png;base64,xxx", { intentHint: "modify_element" });
-  assert.equal(out.intent, "modify_element");
-  assert.equal(out.elements[0].type, "text");
-  assert.ok(out.analysis.toLowerCase().includes("fallback"));
+  expect(out.intent).toBe("modify_element");
+  expect(out.elements[0].type).toBe("text");
+  expect(out.analysis.toLowerCase().includes("fallback")).toBeTruthy();
 });
 
 test("layout->dsl: clamps coords, margins, font sizes, and colors", () => {
@@ -87,31 +86,31 @@ test("layout->dsl: clamps coords, margins, font sizes, and colors", () => {
 
   const html = muteConsole(() => layoutToDsl(layoutJson, { designTokens: { colors: { bg: "#ffffff", text: "#0f172a", panel: "#ffffff", border: "#e2e8f0", primary: "#0ea5e9" } } }));
 
-  assert.ok(html.includes('data-type="freeform"'));
-  assert.ok(html.includes('data-x="5%"'));
-  assert.ok(html.includes('data-y="5%"'));
-  assert.ok(html.includes('data-w="90%"')); // 100 - margin(5) - x(5)
-  assert.ok(html.includes('data-font="80"')); // clamped
-  assert.ok(html.includes('data-color="#FF0000"'));
+  expect(html.includes('data-type="freeform"')).toBeTruthy();
+  expect(html.includes('data-x="5%"')).toBeTruthy();
+  expect(html.includes('data-y="5%"')).toBeTruthy();
+  expect(html.includes('data-w="90%"')).toBeTruthy(); // 100 - margin(5) - x(5)
+  expect(html.includes('data-font="80"')).toBeTruthy(); // clamped
+  expect(html.includes('data-color="#FF0000"')).toBeTruthy();
 
   const doc = muteConsole(() => htmlToDocument(html));
   const slides = doc.slides || doc.getSlides();
-  assert.equal(slides.length, 1);
-  assert.equal(slides[0].elements.length, 2);
-  assert.equal(slides[0].elements[0].x, "5%");
-  assert.equal(slides[0].elements[0].font, 80);
+  expect(slides.length).toBe(1);
+  expect(slides[0].elements.length).toBe(2);
+  expect(slides[0].elements[0].x).toBe("5%");
+  expect(slides[0].elements[0].font).toBe(80);
 });
 
 test("layout->dsl: generates safe slide when validation fails (empty elements)", () => {
   const html = muteConsole(() => layoutToDsl({ intent: "layout_reference", analysis: "x", elements: [] }, null));
-  assert.ok(html.includes('id="slide-safe"'));
-  assert.ok(html.includes('data-el="text"'));
-  assert.ok(html.includes('data-bold="true"'));
+  expect(html.includes('id="slide-safe"')).toBeTruthy();
+  expect(html.includes('data-el="text"')).toBeTruthy();
+  expect(html.includes('data-bold="true"')).toBeTruthy();
 
   const doc = muteConsole(() => htmlToDocument(html));
   const slides = doc.slides || doc.getSlides();
-  assert.equal(slides.length, 1);
-  assert.equal(slides[0].elements.length, 1);
+  expect(slides.length).toBe(1);
+  expect(slides[0].elements.length).toBe(1);
 });
 
 test("layout->dsl: supports all intents", () => {
@@ -125,23 +124,22 @@ test("layout->dsl: supports all intents", () => {
     );
     const doc = muteConsole(() => htmlToDocument(html));
     const slides = doc.slides || doc.getSlides();
-    assert.equal(slides.length, 1);
-    assert.equal(slides[0].elements[0].content.trim(), intent);
+    expect(slides.length).toBe(1);
+    expect(slides[0].elements[0].content.trim()).toBe(intent);
   }
 });
 
 test("layout->dsl: normalizeColor accepts hex3, hex8, rgb and falls back", () => {
-  assert.equal(toInternal.normalizeColor("#abc", "#000000"), "#AABBCC");
-  assert.equal(toInternal.normalizeColor("#11223344", "#000000"), "#112233".toUpperCase());
-  assert.equal(toInternal.normalizeColor("rgb(255, 0, 16)", "#000000"), "#FF0010");
-  assert.equal(toInternal.normalizeColor("not-a-color", "#010203"), "#010203");
+  expect(toInternal.normalizeColor("#abc", "#000000")).toBe("#AABBCC");
+  expect(toInternal.normalizeColor("#11223344", "#000000")).toBe("#112233".toUpperCase());
+  expect(toInternal.normalizeColor("rgb(255, 0, 16)", "#000000")).toBe("#FF0010");
+  expect(toInternal.normalizeColor("not-a-color", "#010203")).toBe("#010203");
 });
 
 test("layout->dsl: enforceMargins ensures 5% padding", () => {
-  assert.deepEqual(toInternal.enforceMargins({ x: 0, y: 0, w: 100, h: 100 }, 5), { x: 5, y: 5, w: 90, h: 90 });
+  expect(toInternal.enforceMargins({ x: 0, y: 0, w: 100, h: 100 }, 5)).toEqual({ x: 5, y: 5, w: 90, h: 90 });
 });
 
 test("vision->layout: parseJsonFromModelText returns null for non-JSON", () => {
-  assert.equal(fromInternal.parseJsonFromModelText("nope"), null);
+  expect(fromInternal.parseJsonFromModelText("nope")).toBe(null);
 });
-

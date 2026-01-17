@@ -1,6 +1,4 @@
 import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
-import test from 'node:test';
-import assert from 'node:assert/strict';
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));

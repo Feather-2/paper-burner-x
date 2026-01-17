@@ -1,5 +1,4 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
+import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const { parseIntent } = require("../../js/ppt/editor/intent/intent-parser.js");
 const { planOperations } = require("../../js/ppt/editor/intent/operation-planner.js");
@@ -15,57 +14,57 @@ function setupBrowserGlobals() {
 
 test("IntentParser: regex intents", async () => {
   const i1 = await parseIntent("在第2页后新增一页");
-  assert.equal(i1.type, "INSERT_SLIDE");
-  assert.equal(i1.target.slideIndex, 1);
-  assert.equal(i1.target.position, "after");
+  expect(i1.type).toBe("INSERT_SLIDE");
+  expect(i1.target.slideIndex).toBe(1);
+  expect(i1.target.position).toBe("after");
 
   const i1b = await parseIntent("在第2页前新增一页");
-  assert.equal(i1b.type, "INSERT_SLIDE");
-  assert.equal(i1b.target.slideIndex, 1);
-  assert.equal(i1b.target.position, "before");
+  expect(i1b.type).toBe("INSERT_SLIDE");
+  expect(i1b.target.slideIndex).toBe(1);
+  expect(i1b.target.position).toBe("before");
 
   const i2 = await parseIntent("删除第3页");
-  assert.equal(i2.type, "DELETE_SLIDE");
-  assert.equal(i2.target.slideIndex, 2);
+  expect(i2.type).toBe("DELETE_SLIDE");
+  expect(i2.target.slideIndex).toBe(2);
 
   const i3 = await parseIntent("修改第1页的标题为 Hello World");
-  assert.equal(i3.type, "MODIFY_ELEMENT");
-  assert.equal(i3.target.slideIndex, 0);
-  assert.equal(i3.target.elementSelector, "title");
-  assert.equal(i3.content, "Hello World");
+  expect(i3.type).toBe("MODIFY_ELEMENT");
+  expect(i3.target.slideIndex).toBe(0);
+  expect(i3.target.elementSelector).toBe("title");
+  expect(i3.content).toBe("Hello World");
 
   const i4 = await parseIntent("重做第2-4页");
-  assert.equal(i4.type, "REDO_RANGE");
-  assert.deepEqual(i4.target.slideRange, [1, 3]);
+  expect(i4.type).toBe("REDO_RANGE");
+  expect(i4.target.slideRange).toEqual([1, 3]);
 
   const i5 = await parseIntent("重做第5页");
-  assert.equal(i5.type, "REDO_SLIDE");
-  assert.equal(i5.target.slideIndex, 4);
+  expect(i5.type).toBe("REDO_SLIDE");
+  expect(i5.target.slideIndex).toBe(4);
 
   const i5b = await parseIntent("不喜欢第2页，重做一下");
-  assert.equal(i5b.type, "REDO_SLIDE");
-  assert.equal(i5b.target.slideIndex, 1);
+  expect(i5b.type).toBe("REDO_SLIDE");
+  expect(i5b.target.slideIndex).toBe(1);
 
   const i6 = await parseIntent("补充关于人工智能的内容");
-  assert.equal(i6.type, "RESEARCH_MORE");
-  assert.equal(i6.content, "人工智能");
+  expect(i6.type).toBe("RESEARCH_MORE");
+  expect(i6.content).toBe("人工智能");
 
   const i6b = await parseIntent("再找找人工智能资料");
-  assert.equal(i6b.type, "RESEARCH_MORE");
-  assert.equal(i6b.content, "人工智能");
+  expect(i6b.type).toBe("RESEARCH_MORE");
+  expect(i6b.content).toBe("人工智能");
 
   const i7 = await parseIntent("新加入文件");
-  assert.equal(i7.type, "ADD_FILE");
+  expect(i7.type).toBe("ADD_FILE");
 });
 
 test("IntentParser: chinese numerals", async () => {
   const i = await parseIntent("删除第十页");
-  assert.equal(i.type, "DELETE_SLIDE");
-  assert.equal(i.target.slideIndex, 9);
+  expect(i.type).toBe("DELETE_SLIDE");
+  expect(i.target.slideIndex).toBe(9);
 
   const i2 = await parseIntent("删除第十一页");
-  assert.equal(i2.type, "DELETE_SLIDE");
-  assert.equal(i2.target.slideIndex, 10);
+  expect(i2.type).toBe("DELETE_SLIDE");
+  expect(i2.target.slideIndex).toBe(10);
 });
 
 test("IntentParser: LLM fallback + unknown fallback", async () => {
@@ -75,9 +74,9 @@ test("IntentParser: LLM fallback + unknown fallback", async () => {
       parseIntent: async () => ({ type: "MODIFY_ELEMENT", target: { slideIndex: 1, elementSelector: "title" }, content: "更有冲击力的标题" }),
     },
   });
-  assert.equal(i1.type, "MODIFY_ELEMENT");
-  assert.equal(i1.target.slideIndex, 1);
-  assert.equal(i1.content, "更有冲击力的标题");
+  expect(i1.type).toBe("MODIFY_ELEMENT");
+  expect(i1.target.slideIndex).toBe(1);
+  expect(i1.content).toBe("更有冲击力的标题");
 
   // regex 不命中 → llm.chat(JSON)
   const i2 = await parseIntent("把第1页标题改得更短一些", {
@@ -86,13 +85,13 @@ test("IntentParser: LLM fallback + unknown fallback", async () => {
         JSON.stringify({ type: "MODIFY_ELEMENT", target: { slideIndex: 0, elementSelector: "title" }, content: "短标题" }),
     },
   });
-  assert.equal(i2.type, "MODIFY_ELEMENT");
-  assert.equal(i2.content, "短标题");
+  expect(i2.type).toBe("MODIFY_ELEMENT");
+  expect(i2.content).toBe("短标题");
 
   // llm.chat 返回非 JSON → 返回 fallback
   const i3 = await parseIntent("这是一条完全无法识别的指令", { llm: { chat: async () => "not json" } });
-  assert.equal(i3.type, "RESEARCH_MORE");
-  assert.equal(i3.constraints.fallback, true);
+  expect(i3.type).toBe("RESEARCH_MORE");
+  expect(i3.constraints.fallback).toBe(true);
 });
 
 test("OperationPlanner: slide/element ops + batch", async () => {
@@ -119,95 +118,95 @@ test("OperationPlanner: slide/element ops + batch", async () => {
   {
     const intent = { type: "INSERT_SLIDE", target: { slideIndex: 0 } };
     const ops = planOperations(intent, doc);
-    assert.equal(ops.length, 1);
-    assert.equal(ops[0].type, "slide.add");
-    assert.equal(ops[0].index, 1);
-    assert.ok(ops[0].slide && ops[0].slide.id);
+    expect(ops.length).toBe(1);
+    expect(ops[0].type).toBe("slide.add");
+    expect(ops[0].index).toBe(1);
+    expect(ops[0].slide && ops[0].slide.id).toBeTruthy();
   }
 
   {
     const intent = { type: "INSERT_SLIDE", target: { slideIndex: 1, position: "before" } };
     const ops = planOperations(intent, doc);
-    assert.equal(ops.length, 1);
-    assert.equal(ops[0].type, "slide.add");
-    assert.equal(ops[0].index, 1);
+    expect(ops.length).toBe(1);
+    expect(ops[0].type).toBe("slide.add");
+    expect(ops[0].index).toBe(1);
   }
 
   {
     const intent = { type: "DELETE_SLIDE", target: { slideIndex: 1 } };
     const ops = planOperations(intent, doc);
-    assert.equal(ops.length, 1);
-    assert.equal(ops[0].type, "slide.delete");
-    assert.equal(ops[0].index, 1);
-    assert.equal(ops[0].slide.id, "s2");
+    expect(ops.length).toBe(1);
+    expect(ops[0].type).toBe("slide.delete");
+    expect(ops[0].index).toBe(1);
+    expect(ops[0].slide.id).toBe("s2");
   }
 
   {
     const intent = { type: "MODIFY_ELEMENT", target: { slideIndex: 0, elementSelector: "title" }, content: "New Title" };
     const ops = planOperations(intent, doc);
-    assert.equal(ops.length, 1);
-    assert.equal(ops[0].type, "element.update");
-    assert.equal(ops[0].slideIndex, 0);
-    assert.equal(ops[0].elementId, "t1");
-    assert.deepEqual(ops[0].changes, [{ path: "content", oldValue: "Old Title", newValue: "New Title" }]);
+    expect(ops.length).toBe(1);
+    expect(ops[0].type).toBe("element.update");
+    expect(ops[0].slideIndex).toBe(0);
+    expect(ops[0].elementId).toBe("t1");
+    expect(ops[0].changes).toEqual([{ path: "content", oldValue: "Old Title", newValue: "New Title" }]);
   }
 
   {
     // #id 选择器
     const intent = { type: "MODIFY_ELEMENT", target: { slideIndex: 0, elementSelector: "#t2" }, content: "Body2" };
     const ops = planOperations(intent, doc);
-    assert.equal(ops.length, 1);
-    assert.equal(ops[0].elementId, "t2");
+    expect(ops.length).toBe(1);
+    expect(ops[0].elementId).toBe("t2");
   }
 
   {
     // 未提供 content → noop
     const intent = { type: "MODIFY_ELEMENT", target: { slideIndex: 0, elementSelector: "title" } };
     const ops = planOperations(intent, doc);
-    assert.deepEqual(ops, []);
+    expect(ops).toEqual([]);
   }
 
   {
     // 单页 redo（覆盖 REDO_SLIDE 分支）
     const intent = { type: "REDO_SLIDE", target: { slideIndex: 2 } };
     const ops = planOperations(intent, doc);
-    assert.equal(ops.length, 1);
-    assert.equal(ops[0].type, "slide.update");
-    assert.equal(ops[0].slideIndex, 2);
+    expect(ops.length).toBe(1);
+    expect(ops[0].type).toBe("slide.update");
+    expect(ops[0].slideIndex).toBe(2);
   }
 
   {
     const intent = { type: "REDO_RANGE", target: { slideRange: [1, 3] } };
     const ops = planOperations(intent, doc);
-    assert.equal(ops.length, 1);
-    assert.equal(ops[0].type, "batch");
-    assert.equal(ops[0].operations.length, 3);
-    assert.ok(ops[0].operations.every((x) => x.type === "slide.update"));
+    expect(ops.length).toBe(1);
+    expect(ops[0].type).toBe("batch");
+    expect(ops[0].operations.length).toBe(3);
+    expect(ops[0].operations.every((x) => x.type === "slide.update")).toBeTruthy();
   }
 
   {
     const intent = { type: "RESEARCH_MORE", target: {}, content: "市场规模" };
     const ops = planOperations(intent, doc);
-    assert.equal(ops.length, 1);
-    assert.equal(ops[0].type, "slide.add");
-    assert.ok(ops[0].slide.elements?.[0]?.content?.includes("市场规模"));
+    expect(ops.length).toBe(1);
+    expect(ops[0].type).toBe("slide.add");
+    expect(ops[0].slide.elements?.[0]?.content?.includes("市场规模")).toBeTruthy();
   }
 
   {
     const intent = { type: "ADD_FILE", target: { slideIndex: 0 }, content: "文件" };
     const ops = planOperations(intent, doc);
-    assert.equal(ops.length, 1);
-    assert.equal(ops[0].type, "element.add");
-    assert.equal(ops[0].slideIndex, 0);
-    assert.equal(ops[0].element._filePlaceholder, true);
+    expect(ops.length).toBe(1);
+    expect(ops[0].type).toBe("element.add");
+    expect(ops[0].slideIndex).toBe(0);
+    expect(ops[0].element._filePlaceholder).toBe(true);
   }
 
   {
     // 触发 insert slide 的 clampIndex=null 分支（越界 index）
     const intent = { type: "INSERT_SLIDE", target: { slideIndex: 999 } };
     const ops = planOperations(intent, doc);
-    assert.equal(ops.length, 1);
-    assert.equal(ops[0].index, doc.getSlideCount());
+    expect(ops.length).toBe(1);
+    expect(ops[0].index).toBe(doc.getSlideCount());
   }
 
   {
@@ -215,7 +214,7 @@ test("OperationPlanner: slide/element ops + batch", async () => {
     const doc2 = new SlideDocument();
     doc2.load([{ id: "only", type: "freeform", background: "#fff", elements: [] }]);
     const ops = planOperations({ type: "DELETE_SLIDE", target: { slideIndex: 0 } }, doc2);
-    assert.deepEqual(ops, []);
+    expect(ops).toEqual([]);
   }
 
   {
@@ -224,16 +223,16 @@ test("OperationPlanner: slide/element ops + batch", async () => {
       slides: [{ id: "p1", type: "freeform", background: "#fff", elements: [] }],
     };
     const ops = planOperations({ type: "ADD_FILE", target: { slideIndex: 0 } }, plainDoc);
-    assert.equal(ops.length, 1);
-    assert.ok(String(ops[0].element.id).startsWith("el_"));
+    expect(ops.length).toBe(1);
+    expect(String(ops[0].element.id).startsWith("el_")).toBeTruthy();
   }
 
   {
     // 触发 getSlides(Array) 分支
     const plainSlides = [{ id: "a1", type: "freeform", background: "#fff", elements: [] }];
     const ops = planOperations({ type: "INSERT_SLIDE", target: { slideIndex: 0 } }, plainSlides);
-    assert.equal(ops.length, 1);
-    assert.equal(ops[0].type, "slide.add");
+    expect(ops.length).toBe(1);
+    expect(ops[0].type).toBe("slide.add");
   }
 });
 
@@ -255,11 +254,11 @@ test("SlideDocument.applyOperations: updates document + PPTGenerator.slides + hi
   ];
 
   const applied = doc.applyOperations(ops, { history });
-  assert.equal(applied.length > 0, true);
-  assert.equal(doc.getElementById("t1").content, "B");
-  assert.equal(window.PPTGenerator.slides[0].elements[0].content, "B");
-  assert.equal(pushed.length, 1);
-  assert.equal(pushed[0].type, "element.update");
+  expect(applied.length > 0).toBe(true);
+  expect(doc.getElementById("t1").content).toBe("B");
+  expect(window.PPTGenerator.slides[0].elements[0].content).toBe("B");
+  expect(pushed.length).toBe(1);
+  expect(pushed[0].type).toBe("element.update");
 });
 
 test("Serialize: documentToHtml/htmlToDocument roundtrip keeps IDs", () => {
@@ -293,19 +292,19 @@ test("Serialize: documentToHtml/htmlToDocument roundtrip keeps IDs", () => {
     ]);
 
     const html = documentToHtml(doc);
-    assert.ok(html.includes('id="slide-keep-id"'));
-    assert.ok(html.includes('id="title-id"'));
-    assert.ok(html.includes('id="group-id"'));
-    assert.ok(html.includes('id="child-id"'));
+    expect(html.includes('id="slide-keep-id"')).toBeTruthy();
+    expect(html.includes('id="title-id"')).toBeTruthy();
+    expect(html.includes('id="group-id"')).toBeTruthy();
+    expect(html.includes('id="child-id"')).toBeTruthy();
 
     const doc2 = htmlToDocument(html);
     const slides = typeof doc2.getSlides === "function" ? doc2.getSlides() : doc2.slides;
-    assert.equal(slides[0].id, "slide-keep-id");
-    assert.equal(slides[0].elements[0].id, "title-id");
+    expect(slides[0].id).toBe("slide-keep-id");
+    expect(slides[0].elements[0].id).toBe("title-id");
 
     const html2 = documentToHtml(doc2);
-    assert.ok(html2.includes('id="slide-keep-id"'));
-    assert.ok(html2.includes('id="title-id"'));
+    expect(html2.includes('id="slide-keep-id"')).toBeTruthy();
+    expect(html2.includes('id="title-id"')).toBeTruthy();
   } finally {
     console.log = origLog;
   }
@@ -360,21 +359,21 @@ test("Serialize: covers element types + incremental + parser fallback paths", ()
     ]);
 
     const html1 = documentToHtml(doc);
-    assert.ok(html1.includes('section data-type="freeform"'));
-    assert.ok(html1.includes('data-gradient="linear-gradient'));
-    assert.ok(html1.includes('data-bg-image="asset://bg"'));
-    assert.ok(html1.includes('data-el="table"'));
-    assert.ok(html1.includes('data-el="list"'));
-    assert.ok(html1.includes('data-el="card"'));
-    assert.ok(html1.includes('data-el="group"'));
-    assert.ok(html1.includes('id="u1"'));
-    assert.ok(html1.includes('data-x="10%"')); // number → %
+    expect(html1.includes('section data-type="freeform"')).toBeTruthy();
+    expect(html1.includes('data-gradient="linear-gradient')).toBeTruthy();
+    expect(html1.includes('data-bg-image="asset://bg"')).toBeTruthy();
+    expect(html1.includes('data-el="table"')).toBeTruthy();
+    expect(html1.includes('data-el="list"')).toBeTruthy();
+    expect(html1.includes('data-el="card"')).toBeTruthy();
+    expect(html1.includes('data-el="group"')).toBeTruthy();
+    expect(html1.includes('id="u1"')).toBeTruthy();
+    expect(html1.includes('data-x="10%"')).toBeTruthy(); // number → %
 
     // 只改第二页背景，走增量替换 + cssEscape fallback（slide:1 含特殊字符）
     doc.updateSlide(1, { background: "#eeeeee", backgroundImage: null });
     const html2 = documentToHtml(doc, { baseHtml: html1, onlySlideIndexes: [1] });
-    assert.ok(html2.includes('id="slide-2"'));
-    assert.ok(html2.includes('data-bg="#eeeeee"'));
+    expect(html2.includes('id="slide-2"')).toBeTruthy();
+    expect(html2.includes('data-bg="#eeeeee"')).toBeTruthy();
 
     // htmlToDocument：hasDom=true 分支（提供全局 document）
     const { document: domDoc, window: domWin } = parseHTML("<html><body></body></html>");
@@ -384,8 +383,8 @@ test("Serialize: covers element types + incremental + parser fallback paths", ()
     global.window = domWin;
     try {
       const docFromDom = htmlToDocument(html2);
-      assert.equal(typeof docFromDom.getSlideCount === "function", true);
-      assert.equal(docFromDom.getSlideCount(), 2);
+      expect(typeof docFromDom.getSlideCount === "function").toBe(true);
+      expect(docFromDom.getSlideCount()).toBe(2);
     } finally {
       global.document = prevDoc;
       global.window = prevWin;
@@ -398,8 +397,8 @@ test("Serialize: covers element types + incremental + parser fallback paths", ()
     delete global.SlideDocument;
     try {
       const out = htmlToDocument(html2);
-      assert.ok(out && Array.isArray(out.slides));
-      assert.equal(out.slides[0].id, "slide:1");
+      expect(out && Array.isArray(out.slides)).toBeTruthy();
+      expect(out.slides[0].id).toBe("slide:1");
     } finally {
       global.SlideParser = prevParser;
       global.SlideDocument = prevDocCtor;

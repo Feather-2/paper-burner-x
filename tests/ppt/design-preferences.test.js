@@ -1,5 +1,4 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
+import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
 
 test("Design Preferences: enums + normalization", async () => {
   const {
@@ -11,12 +10,12 @@ test("Design Preferences: enums + normalization", async () => {
     normalizeStyleReferenceStatus,
   } = await import("../../js/ppt/design/design-preferences.js");
 
-  assert.equal(normalizeDesignVisualMode("SVG-FIRST"), DesignVisualMode.SVG_FIRST);
-  assert.equal(normalizeDesignVisualMode("unknown", DesignVisualMode.AI_FIRST), DesignVisualMode.AI_FIRST);
+  expect(normalizeDesignVisualMode("SVG-FIRST")).toBe(DesignVisualMode.SVG_FIRST);
+  expect(normalizeDesignVisualMode("unknown", DesignVisualMode.AI_FIRST)).toBe(DesignVisualMode.AI_FIRST);
 
-  assert.equal(normalizeDesignDensity("compact"), DesignDensity.COMPACT);
-  assert.equal(normalizeDesignDensity("wide", DesignDensity.BALANCED), DesignDensity.BALANCED);
+  expect(normalizeDesignDensity("compact")).toBe(DesignDensity.COMPACT);
+  expect(normalizeDesignDensity("wide", DesignDensity.BALANCED)).toBe(DesignDensity.BALANCED);
 
-  assert.equal(normalizeStyleReferenceStatus("DONE"), StyleReferenceStatus.DONE);
-  assert.equal(normalizeStyleReferenceStatus("bad", StyleReferenceStatus.ERROR), StyleReferenceStatus.ERROR);
+  expect(normalizeStyleReferenceStatus("DONE")).toBe(StyleReferenceStatus.DONE);
+  expect(normalizeStyleReferenceStatus("bad", StyleReferenceStatus.ERROR)).toBe(StyleReferenceStatus.ERROR);
 });

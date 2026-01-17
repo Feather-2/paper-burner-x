@@ -1,14 +1,13 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
+import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
 
 test("Slide Constants: element type validation + normalization", async () => {
   const { SlideElementType, isValidSlideElementType, normalizeSlideElementType } = await import("../../js/ppt/core/slide-constants.js");
 
-  assert.equal(isValidSlideElementType(SlideElementType.TEXT), true);
-  assert.equal(isValidSlideElementType(SlideElementType.BAKED_ELEMENT), true);
-  assert.equal(isValidSlideElementType("unknown"), false);
+  expect(isValidSlideElementType(SlideElementType.TEXT)).toBe(true);
+  expect(isValidSlideElementType(SlideElementType.BAKED_ELEMENT)).toBe(true);
+  expect(isValidSlideElementType("unknown")).toBe(false);
 
-  assert.equal(normalizeSlideElementType("SVG"), SlideElementType.SVG);
-  assert.equal(normalizeSlideElementType(" image "), SlideElementType.IMAGE);
-  assert.equal(normalizeSlideElementType("unknown"), undefined);
+  expect(normalizeSlideElementType("SVG")).toBe(SlideElementType.SVG);
+  expect(normalizeSlideElementType(" image ")).toBe(SlideElementType.IMAGE);
+  expect(normalizeSlideElementType("unknown")).toBe(undefined);
 });
