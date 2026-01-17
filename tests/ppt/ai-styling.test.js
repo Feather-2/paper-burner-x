@@ -1,6 +1,6 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const { parseHTML } = require('linkedom');
+// TODO: Manual fix needed for dynamic require() calls
+import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
+import { parseHTML } from 'linkedom';
 
 function setupDom(html = '<!doctype html><html><head></head><body></body></html>') {
   const { window, document } = parseHTML(html);
@@ -33,7 +33,7 @@ class Emitter {
   }
 }
 
-test.afterEach(() => {
+afterEach(() => {
   teardownDom();
   delete require.cache[require.resolve('../../js/ppt/editor/panels/property-panel.js')];
   delete require.cache[require.resolve('../../js/ppt/generator/ppt_generator_editor.js')];
@@ -86,18 +86,18 @@ test('AI 微调: property-panel button triggers ImagePlanner → editor.updateEl
     selection.emit('change', { elements: [{ id: 't1', type: 'text', content: 'Hello' }] });
 
     const btn = document.querySelector('button[data-action="ai-style-element"]');
-    assert.ok(btn, 'AI 微调 button exists');
+    expect(btn).toBeTruthy();
     btn.click();
 
     // applyAIStyling is async; wait for microtasks.
     await new Promise((r) => setTimeout(r, 0));
 
-    assert.equal(calls.update.length, 1);
-    assert.equal(calls.update[0].id, 't1');
-    assert.deepEqual(calls.update[0].patch, { opacity: 0.5, blend: 'multiply' });
+    expect(calls.update.length).toBe(1);
+    expect(calls.update[0].id).toBe('t1');
+    expect(calls.update[0].patch).toEqual({ opacity: 0.5, blend: 'multiply' });
 
-    assert.equal(calls.sync.length, 1);
-    assert.deepEqual(calls.sync[0], { onlySlideIndexes: [0], reason: 'ai_style_element' });
+    expect(calls.sync.length).toBe(1);
+    expect(calls.sync[0]).toEqual({ onlySlideIndexes: [0], reason: 'ai_style_element' });
   } finally {
     mod.ImagePlanner.suggestElementPatch = original;
   }
@@ -144,9 +144,9 @@ test('AI 微调: blend/opacity/mask patches applied for image elements', async (
     document.querySelector('button[data-action="ai-style-element"]').click();
     await new Promise((r) => setTimeout(r, 0));
 
-    assert.equal(calls.update.length, 1);
-    assert.deepEqual(calls.update[0], { id: 'img1', patch: { opacity: 0.92, blend: 'multiply', mask: 'rounded:12' } });
-    assert.equal(calls.sync.length, 1);
+    expect(calls.update.length).toBe(1);
+    expect(calls.update[0]).toEqual({ id: 'img1', patch: { opacity: 0.92, blend: 'multiply', mask: 'rounded:12' } });
+    expect(calls.sync.length).toBe(1);
   } finally {
     mod.ImagePlanner.suggestElementPatch = original;
   }

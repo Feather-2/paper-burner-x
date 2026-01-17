@@ -8,8 +8,19 @@
     "docs/**",
     "examples/**",
     "scripts/**",
+    "ref/**",
     "*.test.js",
     "*.spec.js"
+  ],
+
+  "include": [
+    "js/agents/**",
+    "js/ppt/**",
+    "js/chatbot/**",
+    "js/core/**",
+    "js/storage/**",
+    "js/processing/**",
+    "js/ui/**"
   ],
 
   "features": {

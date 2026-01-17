@@ -1,3 +1,4 @@
+import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseHTML } from 'linkedom';
@@ -49,7 +50,7 @@ test.before(async () => {
   if (ready && typeof ready.then === 'function') await ready;
 });
 
-test.afterEach(() => {
+afterEach(() => {
   teardownDom();
 });
 
@@ -104,12 +105,12 @@ test('design.batch calls DesignAgentLoop and populates deckHtmlDsl + slides', as
   try {
     const deckPackage = await gen._orchestrator.runStage('design.batch');
 
-    assert.equal(runCalls, 1);
-    assert.ok(deckPackage && typeof deckPackage === 'object');
-    assert.ok(typeof gen.workflowData.deckHtmlDsl === 'string' && gen.workflowData.deckHtmlDsl.includes('<section'));
-    assert.ok(typeof gen.sampleHTML === 'string' && gen.sampleHTML.includes('<section'));
-    assert.ok(Array.isArray(gen.slides) && gen.slides.length > 0);
-    assert.ok(gen.workflowData.deckHtmlDsl.includes('data-type="freeform"'));
+    expect(runCalls).toBe(1);
+    expect(deckPackage && typeof deckPackage === 'object').toBeTruthy();
+    expect(typeof gen.workflowData.deckHtmlDsl === 'string' && gen.workflowData.deckHtmlDsl.includes('<section')).toBeTruthy();
+    expect(typeof gen.sampleHTML === 'string' && gen.sampleHTML.includes('<section')).toBeTruthy();
+    expect(Array.isArray(gen.slides).toBeTruthy() && gen.slides.length > 0);
+    expect(gen.workflowData.deckHtmlDsl.includes('data-type="freeform"')).toBeTruthy();
   } finally {
     design.DesignAgentLoop.prototype.execute = originalExecute;
   }
@@ -138,14 +139,14 @@ test('design.batch falls back to mock deck when DesignAgentLoop throws', async (
 
   try {
     const deckPackage = await gen._orchestrator.runStage('design.batch');
-    assert.ok(deckPackage && typeof deckPackage === 'object');
-    assert.equal(deckPackage.degraded, true);
-    assert.equal(deckPackage.degradedReason, 'design_failed');
-    assert.equal(deckPackage.degradedError, 'boom');
-    assert.equal(typeof deckPackage.degradedAt, 'number');
-    assert.ok(typeof gen.workflowData.deckHtmlDsl === 'string' && gen.workflowData.deckHtmlDsl.includes('<section'));
-    assert.ok(gen.workflowData.deckHtmlDsl.includes('mock-slide-'));
-    assert.ok(Array.isArray(gen.slides) && gen.slides.length > 0);
+    expect(deckPackage && typeof deckPackage === 'object').toBeTruthy();
+    expect(deckPackage.degraded).toBe(true);
+    expect(deckPackage.degradedReason).toBe('design_failed');
+    expect(deckPackage.degradedError).toBe('boom');
+    expect(typeof deckPackage.degradedAt).toBe('number');
+    expect(typeof gen.workflowData.deckHtmlDsl === 'string' && gen.workflowData.deckHtmlDsl.includes('<section')).toBeTruthy();
+    expect(gen.workflowData.deckHtmlDsl.includes('mock-slide-')).toBeTruthy();
+    expect(Array.isArray(gen.slides).toBeTruthy() && gen.slides.length > 0);
   } finally {
     design.DesignAgentLoop.prototype.execute = originalExecute;
   }
@@ -181,8 +182,8 @@ test('design.batch emits design.phase.transition and persists designPhase', asyn
 
   try {
     const deckPackage = await gen._orchestrator.runStage('design.batch');
-    assert.ok(deckPackage && typeof deckPackage.deckHtmlDsl === 'string');
-    assert.equal(gen.workflowData.designPhase?.status, 'generating');
+    expect(deckPackage && typeof deckPackage.deckHtmlDsl === 'string').toBeTruthy();
+    expect(gen.workflowData.designPhase?.status).toBe('generating');
   } finally {
     design.DesignAgentLoop.prototype.execute = originalExecute;
   }
@@ -195,9 +196,9 @@ test('_pushToProcessPanel derives slideRange from slideIndexes', () => {
 
   gen._pushToProcessPanel('design.batch.started', { slideIndexes: [0, 3] });
 
-  assert.equal(steps.length, 1);
-  assert.equal(steps[0].text, '正在生成页面 1-4');
-  assert.deepEqual(steps[0].details, { slides: '1-4' });
+  expect(steps.length).toBe(1);
+  expect(steps[0].text).toBe('正在生成页面 1-4');
+  expect(steps[0].details).toEqual({ slides: '1-4' });
 });
 
 test('_pushToProcessPanel shows design phase transitions', () => {
@@ -207,9 +208,9 @@ test('_pushToProcessPanel shows design phase transitions', () => {
 
   gen._pushToProcessPanel('design.phase.transition', { to: 'generating' });
 
-  assert.equal(steps.length, 1);
-  assert.equal(steps[0].text, '设计阶段：生成页面');
-  assert.deepEqual(steps[0].details, { phase: '生成页面' });
+  expect(steps.length).toBe(1);
+  expect(steps[0].text).toBe('设计阶段：生成页面');
+  expect(steps[0].details).toEqual({ phase: '生成页面' });
 });
 
 test('_handleRuntimeEvent updates designer activity for design sub-stages', () => {
@@ -238,12 +239,12 @@ test('_handleRuntimeEvent updates designer activity for design sub-stages', () =
 
   gen._handleRuntimeEvent({ name: 'design.degraded', payload: { slideNo: 2 } });
 
-  assert.deepEqual(agentCalls[0], { id: 'designer', status: 'active', activity: '视觉渲染' });
-  assert.deepEqual(agentCalls[1], { id: 'designer', status: 'active', activity: '视觉渲染完成' });
-  assert.deepEqual(agentCalls[2], { id: 'designer', status: 'idle', activity: '视觉渲染失败' });
-  assert.deepEqual(agentCalls[3], { id: 'designer', status: 'active', activity: '质量精炼' });
-  assert.deepEqual(agentCalls[4], { id: 'designer', status: 'active', activity: '质量精炼完成' });
-  assert.deepEqual(agentCalls[5], { id: 'designer', status: 'active', activity: '降级渲染 (第 2 页)' });
+  expect(agentCalls[0]).toEqual({ id: 'designer', status: 'active', activity: '视觉渲染' });
+  expect(agentCalls[1]).toEqual({ id: 'designer', status: 'active', activity: '视觉渲染完成' });
+  expect(agentCalls[2]).toEqual({ id: 'designer', status: 'idle', activity: '视觉渲染失败' });
+  expect(agentCalls[3]).toEqual({ id: 'designer', status: 'active', activity: '质量精炼' });
+  expect(agentCalls[4]).toEqual({ id: 'designer', status: 'active', activity: '质量精炼完成' });
+  expect(agentCalls[5]).toEqual({ id: 'designer', status: 'active', activity: '降级渲染 (第 2 页)' });
 });
 
 test('_handleRuntimeEvent updates slideStatuses for design.slide events', () => {
@@ -255,20 +256,20 @@ test('_handleRuntimeEvent updates slideStatuses for design.slide events', () => 
     name: 'design.slide.started',
     payload: { slideIndex: 0, slideIntent: { id: 'si_1' } }
   });
-  assert.equal(gen.workflowData.slideStatuses.bySlideIntentId.si_1.status, 'generating');
+  expect(gen.workflowData.slideStatuses.bySlideIntentId.si_1.status).toBe('generating');
 
   gen._handleRuntimeEvent({
     name: 'design.slide.completed',
     payload: { slideIndex: 0, source: 'llm', duration: 1200 }
   });
-  assert.equal(gen.workflowData.slideStatuses.byIndex[0].status, 'completed');
-  assert.equal(gen.workflowData.slideStatuses.byIndex[0].duration, 1200);
+  expect(gen.workflowData.slideStatuses.byIndex[0].status).toBe('completed');
+  expect(gen.workflowData.slideStatuses.byIndex[0].duration).toBe(1200);
 
   gen._handleRuntimeEvent({
     name: 'design.degraded',
     payload: { slideIndex: 0, reason: 'qa_failed' }
   });
-  assert.equal(gen.workflowData.slideStatuses.byIndex[0].degraded, true);
+  expect(gen.workflowData.slideStatuses.byIndex[0].degraded).toBe(true);
 });
 
 test('_ensureRuntime populates _runtimeDesignSubStageUi mapping', async () => {
@@ -281,9 +282,9 @@ test('_ensureRuntime populates _runtimeDesignSubStageUi mapping', async () => {
 
   await gen._ensureRuntime({ mode: 'textprep' });
 
-  assert.ok(gen._runtimeDesignSubStageUi && typeof gen._runtimeDesignSubStageUi === 'object');
-  assert.deepEqual(gen._runtimeDesignSubStageUi['design.image.planning'], { label: '图片规划', agentId: 'designer' });
-  assert.equal(gen._runtimeDesignSubStageUi['design.brainstorm'], undefined);
+  expect(gen._runtimeDesignSubStageUi && typeof gen._runtimeDesignSubStageUi === 'object').toBeTruthy();
+  expect(gen._runtimeDesignSubStageUi['design.image.planning']).toEqual({ label: '图片规划', agentId: 'designer' });
+  expect(gen._runtimeDesignSubStageUi['design.brainstorm']).toBe(undefined);
 });
 
 test('AgentEventBridge forwards plan.* events', async () => {
@@ -299,9 +300,9 @@ test('AgentEventBridge forwards plan.* events', async () => {
 
   source.emit('plan.created', { hello: 'world' });
 
-  assert.equal(seen.length, 1);
-  assert.equal(seen[0].name, 'plan.created');
-  assert.deepEqual(seen[0].payload, { hello: 'world' });
+  expect(seen.length).toBe(1);
+  expect(seen[0].name).toBe('plan.created');
+  expect(seen[0].payload).toEqual({ hello: 'world' });
 
   off();
   bridge.stop();
@@ -321,11 +322,11 @@ test('_updateWorkflowPlanFromStageLifecycle starts script review after deepsearc
   await gen._updateWorkflowPlanFromStageLifecycle('deepsearch.pipeline', 'ended', { runId: gen._currentRunId }, { name: 'deepsearch.pipeline.ended' });
 
   const plan = gen._workflowPlan;
-  assert.ok(plan && typeof plan === 'object');
+  expect(plan && typeof plan === 'object').toBeTruthy();
   const statuses = Object.fromEntries(plan.steps.map((s) => [s.stepId, s.status]));
-  assert.equal(statuses['deepsearch.ingest'], 'completed');
-  assert.equal(statuses['deepsearch.pipeline'], 'completed');
-  assert.equal(statuses['workflow.script_review'], 'in_progress');
+  expect(statuses['deepsearch.ingest']).toBe('completed');
+  expect(statuses['deepsearch.pipeline']).toBe('completed');
+  expect(statuses['workflow.script_review']).toBe('in_progress');
 });
 
 test('_confirmScriptToPageLayout updates workflow plan steps', () => {
@@ -343,8 +344,8 @@ test('_confirmScriptToPageLayout updates workflow plan steps', () => {
 
   gen._confirmScriptToPageLayout();
 
-  assert.deepEqual(
-    calls.map((c) => ({ stepId: c.stepId, status: c.status, reason: c.options?.reason || null, select: c.options?.select })),
+  expect(
+    calls.map((c) => ({ stepId: c.stepId).toEqual(status: c.status, reason: c.options?.reason || null, select: c.options?.select })),
     [
       { stepId: 'workflow.script_review', status: 'completed', reason: 'script_confirmed', select: false },
       { stepId: 'textprep.align', status: 'in_progress', reason: 'script_confirmed.next', select: true },

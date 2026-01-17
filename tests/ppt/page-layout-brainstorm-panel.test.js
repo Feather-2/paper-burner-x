@@ -1,3 +1,4 @@
+import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseHTML } from 'linkedom';
@@ -44,7 +45,7 @@ await import('../../js/ppt/dashboard/ppt_dashboard_page_layout.js');
 
 Object.assign(globalThis.PPTGenerator.prototype, window.PPTDashboard.utils, window.PPTDashboard.pageLayout);
 
-test.afterEach(() => {
+afterEach(() => {
   teardownDom();
 });
 
@@ -79,11 +80,11 @@ test('_setPageLayoutTab clamps max tab to 2', () => {
   };
 
   gen._setPageLayoutTab(3);
-  assert.equal(gen._pageLayoutTab, 2);
+  expect(gen._pageLayoutTab).toBe(2);
 
   gen._setPageLayoutTab(1);
-  assert.equal(gen._pageLayoutTab, 1);
-  assert.equal(renders >= 2, true);
+  expect(gen._pageLayoutTab).toBe(1);
+  expect(renders >= 2).toBe(true);
 });
 
 test('_renderPageLayoutReview shows design phase progress', () => {
@@ -97,8 +98,8 @@ test('_renderPageLayoutReview shows design phase progress', () => {
   gen.workflowData.contentPackage = makeContentPackage(2);
   gen.workflowData.designPhase = { status: 'generating' };
   document.body.innerHTML = gen._renderPageLayoutReview();
-  assert.ok(document.body.textContent.includes('设计阶段进度'));
-  assert.ok(document.body.textContent.includes('生成页面'));
+  expect(document.body.textContent.includes('设计阶段进度')).toBeTruthy();
+  expect(document.body.textContent.includes('生成页面')).toBeTruthy();
 });
 
 test('_renderPagePlanTab shows slide status badges', () => {
@@ -111,15 +112,15 @@ test('_renderPagePlanTab shows slide status badges', () => {
   };
 
   const html = gen._renderPagePlanTab();
-  assert.ok(html.includes('已完成'));
+  expect(html.includes('已完成')).toBeTruthy();
 });
 
 test('_getEditableContentPackage initializes workflowData.contentPackage and slideIntents', () => {
   const gen = makeGenerator();
   gen.workflowData = {};
   const pkg = gen._getEditableContentPackage();
-  assert.ok(pkg && typeof pkg === 'object');
-  assert.ok(Array.isArray(pkg.slideIntents));
+  expect(pkg && typeof pkg === 'object').toBeTruthy();
+  expect(Array.isArray(pkg.slideIntents).toBeTruthy());
 });
 
 test('slide intent CRUD: add, duplicate, delete', () => {
@@ -133,17 +134,17 @@ test('slide intent CRUD: add, duplicate, delete', () => {
     return true;
   };
   gen.addSlideIntent(1);
-  assert.equal(gen.workflowData.slideIntents.length, 2);
-  assert.equal(gen._selectedSlideIntentId, 'si_new');
+  expect(gen.workflowData.slideIntents.length).toBe(2);
+  expect(gen._selectedSlideIntentId).toBe('si_new');
 
   gen.duplicateSlideIntent('si_new');
-  assert.equal(gen.workflowData.slideIntents.length, 3);
+  expect(gen.workflowData.slideIntents.length).toBe(3);
 
   window.confirm = () => true;
   gen._selectedSlideIntentId = 'si_new';
   gen.deleteSlideIntent('si_new');
-  assert.equal(gen.workflowData.slideIntents.length, 2);
-  assert.notEqual(gen._selectedSlideIntentId, 'si_new');
+  expect(gen.workflowData.slideIntents.length).toBe(2);
+  expect(gen._selectedSlideIntentId).not.toBe('si_new');
 });
 
 test('_commitSlideIntentOrder reorders contentPackage.slideIntents based on DOM', () => {
@@ -161,8 +162,8 @@ test('_commitSlideIntentOrder reorders contentPackage.slideIntents based on DOM'
 
   gen._commitSlideIntentOrder();
   const ids = gen.workflowData.slideIntents.map((s) => s.slideIntentId);
-  assert.deepEqual(ids, ['si_2', 'si_1', 'si_3']);
-  assert.deepEqual(gen.workflowData.slideIntents.map((s) => s.index), [0, 1, 2]);
+  expect(ids).toEqual(['si_2', 'si_1', 'si_3']);
+  expect(gen.workflowData.slideIntents.map((s) => s.index)).toEqual([0, 1, 2]);
 });
 
 test('_setupSlideIntentDrag wires events and commits order on dragend', () => {
@@ -182,7 +183,7 @@ test('_setupSlideIntentDrag wires events and commits order on dragend', () => {
   card2.getBoundingClientRect = () => ({ top: 0, height: 100 });
 
   gen._setupSlideIntentDrag();
-  assert.equal(list.dataset.dndBound, '1');
+  expect(list.dataset.dndBound).toBe('1');
 
   const dt = { setData: () => {}, setDragImage: () => {} };
   const dragStart = new window.Event('dragstart', { bubbles: true, cancelable: true });
@@ -196,7 +197,7 @@ test('_setupSlideIntentDrag wires events and commits order on dragend', () => {
   const dragEnd = new window.Event('dragend', { bubbles: true, cancelable: true });
   card1.dispatchEvent(dragEnd);
 
-  assert.deepEqual(gen.workflowData.slideIntents.map((s) => s.slideIntentId), ['si_2', 'si_1']);
+  expect(gen.workflowData.slideIntents.map((s) => s.slideIntentId)).toEqual(['si_2', 'si_1']);
 });
 
 test('_renderPageDetailTab renders empty state when no selection and form when selected', () => {
@@ -205,13 +206,13 @@ test('_renderPageDetailTab renders empty state when no selection and form when s
   gen.workflowData.contentPackage = makeContentPackage(2);
 
   gen._selectedSlideIntentId = '';
-  assert.ok(gen._renderPageDetailTab().includes('未选择页面'));
+  expect(gen._renderPageDetailTab().toBeTruthy().includes('未选择页面'));
 
   gen._selectedSlideIntentId = 'si_1';
   const html = gen._renderPageDetailTab();
-  assert.ok(html.includes('标题'));
-  assert.ok(html.includes('页面类型'));
-  assert.ok(html.includes('要点（KeyPoints）'));
+  expect(html.includes('标题')).toBeTruthy();
+  expect(html.includes('页面类型')).toBeTruthy();
+  expect(html.includes('要点（KeyPoints）')).toBeTruthy();
 });
 
 test('edit helpers update slide intents: updateSlideIntent, keypoints, merge, split', () => {
@@ -222,30 +223,30 @@ test('edit helpers update slide intents: updateSlideIntent, keypoints, merge, sp
 
   gen.updateSlideIntent('si_1', { title: 'T1', pageType: 'summary', objective: 'O', keyPoints: ['A', 'B'], claimIds: ['c1'] });
   const s1 = gen.workflowData.slideIntents.find((s) => s.slideIntentId === 'si_1');
-  assert.equal(s1.title, 'T1');
-  assert.equal(s1.pageType, 'summary');
-  assert.equal(s1.objective, 'O');
-  assert.deepEqual(s1.keyPoints, ['A', 'B']);
+  expect(s1.title).toBe('T1');
+  expect(s1.pageType).toBe('summary');
+  expect(s1.objective).toBe('O');
+  expect(s1.keyPoints).toEqual(['A', 'B']);
 
   gen.updateSlideIntentKeyPoint('si_1', 0, 'A1');
-  assert.equal(s1.keyPoints[0], 'A1');
+  expect(s1.keyPoints[0]).toBe('A1');
 
   gen.addSlideIntentKeyPoint('si_1');
-  assert.equal(s1.keyPoints.length, 3);
+  expect(s1.keyPoints.length).toBe(3);
   gen.removeSlideIntentKeyPoint('si_1', 2);
-  assert.equal(s1.keyPoints.length, 2);
+  expect(s1.keyPoints.length).toBe(2);
 
   // Merge slide 2 into slide 1
   gen.workflowData.slideIntents.find((s) => s.slideIntentId === 'si_2').objective = 'O2';
   gen.workflowData.slideIntents.find((s) => s.slideIntentId === 'si_2').keyPoints = ['B', 'C'];
   gen.mergeSlideIntents('si_1', 'si_2');
-  assert.equal(gen.workflowData.slideIntents.length, 1);
-  assert.ok(gen.workflowData.slideIntents[0].objective.includes('O2'));
-  assert.deepEqual(gen.workflowData.slideIntents[0].keyPoints, ['A1', 'B', 'C']);
+  expect(gen.workflowData.slideIntents.length).toBe(1);
+  expect(gen.workflowData.slideIntents[0].objective.includes('O2')).toBeTruthy();
+  expect(gen.workflowData.slideIntents[0].keyPoints).toEqual(['A1', 'B', 'C']);
 
   // Split requires >=2 keyPoints
   gen.workflowData.slideIntents[0].keyPoints = ['K1', 'K2'];
   gen.splitSlideIntent('si_1');
-  assert.equal(gen.workflowData.slideIntents.length, 2);
-  assert.equal(gen.workflowData.slideIntents[0].keyPoints.length, 1);
+  expect(gen.workflowData.slideIntents.length).toBe(2);
+  expect(gen.workflowData.slideIntents[0].keyPoints.length).toBe(1);
 });

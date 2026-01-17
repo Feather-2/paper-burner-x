@@ -1,13 +1,14 @@
+import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { SlideDocument } from '../../../js/ppt/editor/document.js';
 
-test.beforeEach(() => {
+beforeEach(() => {
   globalThis.window = globalThis;
 });
 
-test.afterEach(() => {
+afterEach(() => {
   delete globalThis.window;
   delete globalThis.PPTGenerator;
 });
@@ -25,14 +26,14 @@ test('SlideDocument.load(): deep copies input and ensures ids', () => {
 
   doc.load(input);
 
-  assert.equal(doc.getSlideCount(), 1);
-  assert.ok(typeof doc.getSlide(0).id === 'string' && doc.getSlide(0).id);
-  assert.ok(typeof doc.getSlide(0).elements[0].id === 'string' && doc.getSlide(0).elements[0].id);
+  expect(doc.getSlideCount()).toBe(1);
+  expect(typeof doc.getSlide(0).toBeTruthy().id === 'string' && doc.getSlide(0).id);
+  expect(typeof doc.getSlide(0).toBeTruthy().elements[0].id === 'string' && doc.getSlide(0).elements[0].id);
 
   input[0].background = '#000';
   input[0].elements[0].content = 'HACK';
-  assert.equal(doc.getSlide(0).background, '#fff');
-  assert.equal(doc.getSlide(0).elements[0].content, 'A');
+  expect(doc.getSlide(0).background).toBe('#fff');
+  expect(doc.getSlide(0).elements[0].content).toBe('A');
 });
 
 test('SlideDocument: addSlide/removeSlide/moveSlide', () => {
@@ -45,14 +46,14 @@ test('SlideDocument: addSlide/removeSlide/moveSlide', () => {
   ]);
 
   doc.addSlide({ id: 'sX', type: 'freeform', background: '#000', elements: [] }, 1);
-  assert.deepEqual(doc.getSlides().map((s) => s.id), ['s1', 'sX', 's2', 's3']);
+  expect(doc.getSlides().map((s) => s.id)).toEqual(['s1', 'sX', 's2', 's3']);
 
   const removed = doc.removeSlide(1);
-  assert.equal(removed.id, 'sX');
-  assert.deepEqual(doc.getSlides().map((s) => s.id), ['s1', 's2', 's3']);
+  expect(removed.id).toBe('sX');
+  expect(doc.getSlides().map((s) => s.id)).toEqual(['s1', 's2', 's3']);
 
   doc.moveSlide(0, 2);
-  assert.deepEqual(doc.getSlides().map((s) => s.id), ['s2', 's3', 's1']);
+  expect(doc.getSlides().map((s) => s.id)).toEqual(['s2', 's3', 's1']);
 });
 
 test('SlideDocument.getElementById(): supports group children via index', () => {
@@ -74,12 +75,12 @@ test('SlideDocument.getElementById(): supports group children via index', () => 
   ]);
 
   const child = doc.getElementById('c1');
-  assert.ok(child);
-  assert.equal(child.id, 'c1');
-  assert.equal(child.content, 'Child');
+  expect(child).toBeTruthy();
+  expect(child.id).toBe('c1');
+  expect(child.content).toBe('Child');
 
   const loc = doc.getElementLocation('c1');
-  assert.deepEqual(loc, { slideIndex: 0, elementIndex: 0, parentPath: [0] });
+  expect(loc).toEqual({ slideIndex: 0, elementIndex: 0, parentPath: [0] });
 });
 
 test('SlideDocument.applyOperations(): updates document + PPTGenerator.slides + history', () => {
@@ -115,16 +116,16 @@ test('SlideDocument.applyOperations(): updates document + PPTGenerator.slides + 
 
   const applied = doc.applyOperations(ops, { history });
 
-  assert.equal(applied.length, ops.length);
-  assert.equal(history.pushed.length, ops.length);
+  expect(applied.length).toBe(ops.length);
+  expect(history.pushed.length).toBe(ops.length);
 
-  assert.equal(doc.getSlide(0).background, '#000');
-  assert.equal(doc.getElementById('t1').content, 'New');
-  assert.equal(doc.getElementById('t2'), null);
-  assert.equal(doc.getSlideCount(), 1);
+  expect(doc.getSlide(0).background).toBe('#000');
+  expect(doc.getElementById('t1').content).toBe('New');
+  expect(doc.getElementById('t2')).toBe(null);
+  expect(doc.getSlideCount()).toBe(1);
 
-  assert.equal(globalThis.PPTGenerator.slides[0].background, '#000');
-  assert.equal(globalThis.PPTGenerator.slides[0].elements[0].content, 'New');
-  assert.equal(globalThis.PPTGenerator.slides[0].elements.some((el) => el.id === 't2'), false);
-  assert.equal(globalThis.PPTGenerator.slides.length, 1);
+  expect(globalThis.PPTGenerator.slides[0].background).toBe('#000');
+  expect(globalThis.PPTGenerator.slides[0].elements[0].content).toBe('New');
+  expect(globalThis.PPTGenerator.slides[0].elements.some((el) => el.id === 't2')).toBe(false);
+  expect(globalThis.PPTGenerator.slides.length).toBe(1);
 });

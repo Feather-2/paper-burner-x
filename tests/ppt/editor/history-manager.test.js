@@ -1,14 +1,15 @@
+import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { SlideDocument } from '../../../js/ppt/editor/document.js';
 import { HistoryManager } from '../../../js/ppt/editor/history-manager.js';
 
-test.beforeEach(() => {
+beforeEach(() => {
   globalThis.window = globalThis;
 });
 
-test.afterEach(() => {
+afterEach(() => {
   delete globalThis.window;
 });
 
@@ -26,8 +27,8 @@ test('HistoryManager: push/undo/redo + canUndo/canRedo', () => {
   const editor = { document: doc, currentProject: null };
   const history = new HistoryManager(editor);
 
-  assert.equal(history.canUndo(), false);
-  assert.equal(history.canRedo(), false);
+  expect(history.canUndo()).toBe(false);
+  expect(history.canRedo()).toBe(false);
 
   // simulate forward apply then push history entry
   doc.updateElement('t1', { content: 'B' });
@@ -38,19 +39,19 @@ test('HistoryManager: push/undo/redo + canUndo/canRedo', () => {
     changes: [{ path: 'content', oldValue: 'A', newValue: 'B' }],
   });
 
-  assert.equal(doc.getElementById('t1').content, 'B');
-  assert.equal(history.canUndo(), true);
-  assert.equal(history.canRedo(), false);
+  expect(doc.getElementById('t1').content).toBe('B');
+  expect(history.canUndo()).toBe(true);
+  expect(history.canRedo()).toBe(false);
 
-  assert.equal(history.undo(), true);
-  assert.equal(doc.getElementById('t1').content, 'A');
-  assert.equal(history.canUndo(), false);
-  assert.equal(history.canRedo(), true);
+  expect(history.undo()).toBe(true);
+  expect(doc.getElementById('t1').content).toBe('A');
+  expect(history.canUndo()).toBe(false);
+  expect(history.canRedo()).toBe(true);
 
-  assert.equal(history.redo(), true);
-  assert.equal(doc.getElementById('t1').content, 'B');
-  assert.equal(history.canUndo(), true);
-  assert.equal(history.canRedo(), false);
+  expect(history.redo()).toBe(true);
+  expect(doc.getElementById('t1').content).toBe('B');
+  expect(history.canUndo()).toBe(true);
+  expect(history.canRedo()).toBe(false);
 });
 
 test('HistoryManager: startAutoSave()/stopAutoSave() manages timer lifecycle', () => {
@@ -62,13 +63,13 @@ test('HistoryManager: startAutoSave()/stopAutoSave() manages timer lifecycle', (
 
   history.startAutoSave();
   const t1 = history._autoSaveTimer;
-  assert.ok(t1);
+  expect(t1).toBeTruthy();
 
   history.startAutoSave();
   const t2 = history._autoSaveTimer;
-  assert.ok(t2);
-  assert.notEqual(t2, t1);
+  expect(t2).toBeTruthy();
+  expect(t2).not.toBe(t1);
 
   history.stopAutoSave();
-  assert.equal(history._autoSaveTimer, null);
+  expect(history._autoSaveTimer).toBe(null);
 });

@@ -1,17 +1,17 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
+// TODO: Manual fix needed for dynamic require() calls
+import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
 
 // Import FlowBuilder class
 const { FlowBuilder } = require('../../js/ppt/dashboard/deepsearch-flow-visualizer.js');
 
 test('FlowBuilder initializes with empty state', () => {
   const builder = new FlowBuilder();
-  assert.equal(builder.nodes.length, 0);
-  assert.equal(builder.edges.length, 0);
-  assert.equal(builder.nodeMap.size, 0);
-  assert.equal(builder.idCounter, 0);
-  assert.equal(builder.lastUpdatedNodeId, null);
-  assert.equal(builder._refineStepNodeId, null);
+  expect(builder.nodes.length).toBe(0);
+  expect(builder.edges.length).toBe(0);
+  expect(builder.nodeMap.size).toBe(0);
+  expect(builder.idCounter).toBe(0);
+  expect(builder.lastUpdatedNodeId).toBe(null);
+  expect(builder._refineStepNodeId).toBe(null);
 });
 
 // Test 1: design.phase.transition creates phase nodes
@@ -25,10 +25,10 @@ test('design.phase.transition creates phase node with status', () => {
   });
 
   const node = builder.nodes.find(n => n.data.label === 'Generate Slides');
-  assert.ok(node, 'phase node should be created');
-  assert.equal(node.data.status, 'running');
-  assert.equal(node.data.metrics.from, 'style_confirming');
-  assert.equal(node.data.metrics.to, 'generating');
+  expect(node).toBeTruthy();
+  expect(node.data.status).toBe('running');
+  expect(node.data.metrics.from).toBe('style_confirming');
+  expect(node.data.metrics.to).toBe('generating');
 });
 
 // Test 2: design.image.generate.started creates image generation node
@@ -48,13 +48,13 @@ test('design.image.generate.started creates image generation node', () => {
   });
 
   const nodeId = builder.designImageNodes.get('img_001');
-  assert.ok(nodeId, 'image node should be tracked');
+  expect(nodeId).toBeTruthy();
 
   const node = builder.nodeMap.get(nodeId);
-  assert.ok(node, 'image node should exist');
-  assert.equal(node.data.label, 'Image S3');
-  assert.equal(node.data.status, 'running');
-  assert.equal(node.data.metrics.provider, 'flux-1.1-pro');
+  expect(node).toBeTruthy();
+  expect(node.data.label).toBe('Image S3');
+  expect(node.data.status).toBe('running');
+  expect(node.data.metrics.provider).toBe('flux-1.1-pro');
 });
 
 test('design.image.generate.started handles missing slideIndex', () => {
@@ -68,8 +68,8 @@ test('design.image.generate.started handles missing slideIndex', () => {
 
   const nodeId = builder.designImageNodes.get('img_002');
   const node = builder.nodeMap.get(nodeId);
-  assert.ok(node);
-  assert.equal(node.data.label, 'Image img_002');
+  expect(node).toBeTruthy();
+  expect(node.data.label).toBe('Image img_002');
 });
 
 // Test 3: design.image.generate.succeeded updates image node status
@@ -85,7 +85,7 @@ test('design.image.generate.succeeded updates image node to completed', () => {
 
   const nodeId = builder.designImageNodes.get('img_003');
   let node = builder.nodeMap.get(nodeId);
-  assert.equal(node.data.status, 'running');
+  expect(node.data.status).toBe('running');
 
   // Complete generation
   builder.processEvent({
@@ -94,8 +94,8 @@ test('design.image.generate.succeeded updates image node to completed', () => {
   });
 
   node = builder.nodeMap.get(nodeId);
-  assert.equal(node.data.status, 'completed');
-  assert.equal(node.data.metrics.duration, 2500);
+  expect(node.data.status).toBe('completed');
+  expect(node.data.metrics.duration).toBe(2500);
 });
 
 test('design.image.generate.succeeded handles unknown imageId', () => {
@@ -108,7 +108,7 @@ test('design.image.generate.succeeded handles unknown imageId', () => {
   });
 
   // Should not crash
-  assert.equal(builder.nodes.length, 0);
+  expect(builder.nodes.length).toBe(0);
 });
 
 // Test 4: design.generate.ended creates checkpoint node
@@ -122,11 +122,11 @@ test('design.generate.ended creates checkpoint node', () => {
   });
 
   const checkpointNode = builder.nodes.find(n => n.data.label === 'Generation Done');
-  assert.ok(checkpointNode, 'checkpoint node should be created');
-  assert.equal(checkpointNode.data.nodeType, 'checkpoint');
-  assert.equal(checkpointNode.data.status, 'completed');
-  assert.equal(checkpointNode.data.metrics.slides, 8);
-  assert.equal(checkpointNode.data.metrics.batches, 2);
+  expect(checkpointNode).toBeTruthy();
+  expect(checkpointNode.data.nodeType).toBe('checkpoint');
+  expect(checkpointNode.data.status).toBe('completed');
+  expect(checkpointNode.data.metrics.slides).toBe(8);
+  expect(checkpointNode.data.metrics.batches).toBe(2);
 });
 
 // Test 5: design.degraded creates error node
@@ -143,10 +143,10 @@ test('design.degraded creates error node with slideIndex', () => {
   });
 
   const errorNode = builder.nodes.find(n => n.data.nodeType === 'error');
-  assert.ok(errorNode, 'error node should be created');
-  assert.equal(errorNode.data.label, 'S5 Degraded');
-  assert.equal(errorNode.data.status, 'failed');
-  assert.equal(errorNode.data.details[0].text, 'Failed to apply theme colors');
+  expect(errorNode).toBeTruthy();
+  expect(errorNode.data.label).toBe('S5 Degraded');
+  expect(errorNode.data.status).toBe('failed');
+  expect(errorNode.data.details[0].text).toBe('Failed to apply theme colors');
 });
 
 test('design.degraded creates error node without slideIndex', () => {
@@ -159,8 +159,8 @@ test('design.degraded creates error node without slideIndex', () => {
   });
 
   const errorNode = builder.nodes.find(n => n.data.nodeType === 'error');
-  assert.ok(errorNode);
-  assert.equal(errorNode.data.label, 'Degraded');
+  expect(errorNode).toBeTruthy();
+  expect(errorNode.data.label).toBe('Degraded');
 });
 
 test('design.degraded uses default reason if missing', () => {
@@ -173,7 +173,7 @@ test('design.degraded uses default reason if missing', () => {
   });
 
   const errorNode = builder.nodes.find(n => n.data.nodeType === 'error');
-  assert.equal(errorNode.data.details[0].text, 'Quality degradation detected');
+  expect(errorNode.data.details[0].text).toBe('Quality degradation detected');
 });
 
 // Test 6: design.refine.step creates iteration node
@@ -191,13 +191,13 @@ test('design.refine.step creates iteration node', () => {
   });
 
   const refineNode = builder.nodes.find(n => n.data.label?.startsWith('Refine'));
-  assert.ok(refineNode, 'refine step node should be created');
-  assert.equal(refineNode.data.nodeType, 'iteration');
-  assert.equal(refineNode.data.status, 'running');
-  assert.equal(refineNode.data.label, 'Refine color-harmony');
-  assert.equal(refineNode.data.metrics.iteration, 1);
-  assert.equal(refineNode.data.metrics.target, 'slide_2');
-  assert.ok(builder._refineStepNodeId, 'should track refine step node id');
+  expect(refineNode).toBeTruthy();
+  expect(refineNode.data.nodeType).toBe('iteration');
+  expect(refineNode.data.status).toBe('running');
+  expect(refineNode.data.label).toBe('Refine color-harmony');
+  expect(refineNode.data.metrics.iteration).toBe(1);
+  expect(refineNode.data.metrics.target).toBe('slide_2');
+  expect(builder._refineStepNodeId).toBeTruthy();
 });
 
 test('design.refine.step handles missing step name', () => {
@@ -210,8 +210,8 @@ test('design.refine.step handles missing step name', () => {
   });
 
   const refineNode = builder.nodes.find(n => n.data.label?.startsWith('Refine'));
-  assert.ok(refineNode);
-  assert.equal(refineNode.data.label, 'Refine Step');
+  expect(refineNode).toBeTruthy();
+  expect(refineNode.data.label).toBe('Refine Step');
 });
 
 // Test 7: design.refine.ended updates or creates node
@@ -226,7 +226,7 @@ test('design.refine.ended updates existing refine step node', () => {
   });
 
   const refineId = builder._refineStepNodeId;
-  assert.ok(refineId);
+  expect(refineId).toBeTruthy();
 
   // End refine
   builder.processEvent({
@@ -235,9 +235,9 @@ test('design.refine.ended updates existing refine step node', () => {
   });
 
   const node = builder.nodeMap.get(refineId);
-  assert.equal(node.data.status, 'completed');
-  assert.equal(node.data.metrics.improvements, 3);
-  assert.equal(builder._refineStepNodeId, null, 'should clear refine step node id');
+  expect(node.data.status).toBe('completed');
+  expect(node.data.metrics.improvements).toBe(3);
+  expect(builder._refineStepNodeId).toBe(null, 'should clear refine step node id');
 });
 
 test('design.refine.ended creates checkpoint if no active refine step', () => {
@@ -251,10 +251,10 @@ test('design.refine.ended creates checkpoint if no active refine step', () => {
   });
 
   const checkpointNode = builder.nodes.find(n => n.data.label === 'Refine Done');
-  assert.ok(checkpointNode, 'checkpoint node should be created');
-  assert.equal(checkpointNode.data.nodeType, 'checkpoint');
-  assert.equal(checkpointNode.data.status, 'completed');
-  assert.equal(checkpointNode.data.metrics.improvements, 2);
+  expect(checkpointNode).toBeTruthy();
+  expect(checkpointNode.data.nodeType).toBe('checkpoint');
+  expect(checkpointNode.data.status).toBe('completed');
+  expect(checkpointNode.data.metrics.improvements).toBe(2);
 });
 
 // Test 8: design.slide.failed handles error object and string formats
@@ -279,8 +279,8 @@ test('design.slide.failed handles error object', () => {
 
   const node = builder.designSlideNodes.get(1);
   const slideNode = builder.nodeMap.get(node);
-  assert.equal(slideNode.data.status, 'failed');
-  assert.equal(slideNode.data.details[0].text, 'Failed: Network timeout');
+  expect(slideNode.data.status).toBe('failed');
+  expect(slideNode.data.details[0].text).toBe('Failed: Network timeout');
 });
 
 test('design.slide.failed handles error string', () => {
@@ -303,8 +303,8 @@ test('design.slide.failed handles error string', () => {
 
   const node = builder.designSlideNodes.get(2);
   const slideNode = builder.nodeMap.get(node);
-  assert.equal(slideNode.data.status, 'failed');
-  assert.equal(slideNode.data.details[0].text, 'Failed: LLM rate limit exceeded');
+  expect(slideNode.data.status).toBe('failed');
+  expect(slideNode.data.details[0].text).toBe('Failed: LLM rate limit exceeded');
 });
 
 test('design.slide.failed handles missing error', () => {
@@ -323,8 +323,8 @@ test('design.slide.failed handles missing error', () => {
 
   const node = builder.designSlideNodes.get(0);
   const slideNode = builder.nodeMap.get(node);
-  assert.equal(slideNode.data.status, 'failed');
-  assert.equal(slideNode.data.details[0].text, 'Failed: unknown error');
+  expect(slideNode.data.status).toBe('failed');
+  expect(slideNode.data.details[0].text).toBe('Failed: unknown error');
 });
 
 // Test 9: reset() clears all design-related state
@@ -339,27 +339,27 @@ test('reset() clears all design flow state', () => {
   builder.processEvent({ name: 'design.image.generate.started', payload: { imageId: 'img1' } });
   builder.processEvent({ name: 'design.refine.step', payload: { step: 'test' } });
 
-  assert.ok(builder.nodes.length > 0);
-  assert.ok(builder._refineStepNodeId);
-  assert.ok(builder.designBatchNodes.size > 0);
-  assert.ok(builder.designSlideNodes.size > 0);
-  assert.ok(builder.designImageNodes.size > 0);
-  assert.ok(builder.designPhaseNodes.size > 0);
+  expect(builder.nodes.length > 0).toBeTruthy();
+  expect(builder._refineStepNodeId).toBeTruthy();
+  expect(builder.designBatchNodes.size > 0).toBeTruthy();
+  expect(builder.designSlideNodes.size > 0).toBeTruthy();
+  expect(builder.designImageNodes.size > 0).toBeTruthy();
+  expect(builder.designPhaseNodes.size > 0).toBeTruthy();
 
   // Reset
   builder.reset();
 
   // Verify all cleared
-  assert.equal(builder.nodes.length, 0);
-  assert.equal(builder.edges.length, 0);
-  assert.equal(builder.nodeMap.size, 0);
-  assert.equal(builder.lastUpdatedNodeId, null);
-  assert.equal(builder.designBatchNodes.size, 0);
-  assert.equal(builder.designSlideNodes.size, 0);
-  assert.equal(builder.designImageNodes.size, 0);
-  assert.equal(builder.designPhaseNodes.size, 0);
-  assert.equal(builder._activeDesignPhaseId, null);
-  assert.equal(builder._refineStepNodeId, null);
+  expect(builder.nodes.length).toBe(0);
+  expect(builder.edges.length).toBe(0);
+  expect(builder.nodeMap.size).toBe(0);
+  expect(builder.lastUpdatedNodeId).toBe(null);
+  expect(builder.designBatchNodes.size).toBe(0);
+  expect(builder.designSlideNodes.size).toBe(0);
+  expect(builder.designImageNodes.size).toBe(0);
+  expect(builder.designPhaseNodes.size).toBe(0);
+  expect(builder._activeDesignPhaseId).toBe(null);
+  expect(builder._refineStepNodeId).toBe(null);
 });
 
 // Test 10: Complete design flow integration
@@ -385,23 +385,23 @@ test('complete design flow creates correct node hierarchy', () => {
   builder.processEvent({ name: 'design.ended', payload: { slides: 3, degradedCount: 0 } });
 
   // Verify key nodes exist
-  assert.ok(builder.nodes.find(n => n.data.label === 'Design Started'));
-  assert.ok(builder.nodes.find(n => n.data.label === 'Theme'));
-  assert.ok(builder.nodes.find(n => n.data.label === 'Generate Slides'));
-  assert.ok(builder.nodes.find(n => n.data.label === 'Review'));
-  assert.ok(builder.nodes.find(n => n.data.label === 'Image Plan'));
-  assert.ok(builder.nodes.find(n => n.data.label === 'Batch #1'));
-  assert.ok(builder.nodes.find(n => n.data.label === 'S1 Cover'));
-  assert.ok(builder.nodes.find(n => n.data.label === 'Generation Done'));
-  assert.ok(builder.nodes.find(n => n.data.label === 'Refine final-polish'));
-  assert.ok(builder.nodes.find(n => n.data.label === 'QA Complete'));
-  assert.ok(builder.nodes.find(n => n.data.label === 'Design Done'));
+  expect(builder.nodes.find(n => n.data.label === 'Design Started').toBeTruthy());
+  expect(builder.nodes.find(n => n.data.label === 'Theme').toBeTruthy());
+  expect(builder.nodes.find(n => n.data.label === 'Generate Slides').toBeTruthy());
+  expect(builder.nodes.find(n => n.data.label === 'Review').toBeTruthy());
+  expect(builder.nodes.find(n => n.data.label === 'Image Plan').toBeTruthy());
+  expect(builder.nodes.find(n => n.data.label === 'Batch #1').toBeTruthy());
+  expect(builder.nodes.find(n => n.data.label === 'S1 Cover').toBeTruthy());
+  expect(builder.nodes.find(n => n.data.label === 'Generation Done').toBeTruthy());
+  expect(builder.nodes.find(n => n.data.label === 'Refine final-polish').toBeTruthy());
+  expect(builder.nodes.find(n => n.data.label === 'QA Complete').toBeTruthy());
+  expect(builder.nodes.find(n => n.data.label === 'Design Done').toBeTruthy());
 
   // Verify edges connect properly
-  assert.ok(builder.edges.length > 0, 'should have edges connecting nodes');
+  expect(builder.edges.length > 0).toBeTruthy();
 
   // Verify final counts
-  assert.ok(builder.nodes.length >= 10, 'should have at least 10 nodes');
+  expect(builder.nodes.length >= 10).toBeTruthy();
 });
 
 // Test 11: lastUpdatedNodeId tracking
@@ -410,16 +410,16 @@ test('lastUpdatedNodeId tracks most recent update', () => {
 
   builder.processEvent({ name: 'design.started', payload: {} });
   const startId = builder.lastUpdatedNodeId;
-  assert.ok(startId);
+  expect(startId).toBeTruthy();
 
   builder.processEvent({ name: 'design.phase.transition', payload: { from: 'style_confirming', to: 'generating' } });
   const phaseId = builder.lastUpdatedNodeId;
-  assert.ok(phaseId);
-  assert.notEqual(phaseId, startId);
+  expect(phaseId).toBeTruthy();
+  expect(phaseId).not.toBe(startId);
 
   builder.processEvent({ name: 'design.phase.transition', payload: { from: 'style_confirming', to: 'generating' } });
   // Should update to same phase node id
-  assert.equal(builder.lastUpdatedNodeId, phaseId);
+  expect(builder.lastUpdatedNodeId).toBe(phaseId);
 });
 
 // Test 12: Parent-child relationships
@@ -435,16 +435,16 @@ test('design events create correct parent-child relationships', () => {
 
   // Batch should be child of design_start
   const batchEdge = builder.edges.find(e => e.target === batchId);
-  assert.ok(batchEdge, 'batch should have incoming edge');
-  assert.equal(batchEdge.source, designStartId);
+  expect(batchEdge).toBeTruthy();
+  expect(batchEdge.source).toBe(designStartId);
 
   builder.processEvent({ name: 'design.slide.started', payload: { slideIndex: 0 } });
   const slideId = builder.designSlideNodes.get(0);
 
   // Slide should be child of batch (since batch is on parent stack)
   const slideEdge = builder.edges.find(e => e.target === slideId);
-  assert.ok(slideEdge, 'slide should have incoming edge');
-  assert.equal(slideEdge.source, batchId);
+  expect(slideEdge).toBeTruthy();
+  expect(slideEdge.source).toBe(batchId);
 });
 
 // Test 13: Metrics preservation across updates
@@ -459,7 +459,7 @@ test('_updateNode preserves existing metrics', () => {
 
   const nodeId = builder.designImageNodes.get('img_10');
   let node = builder.nodeMap.get(nodeId);
-  assert.equal(node.data.metrics.provider, 'flux');
+  expect(node.data.metrics.provider).toBe('flux');
 
   builder.processEvent({
     name: 'design.image.generate.succeeded',
@@ -467,8 +467,8 @@ test('_updateNode preserves existing metrics', () => {
   });
 
   node = builder.nodeMap.get(nodeId);
-  assert.equal(node.data.metrics.provider, 'flux', 'should preserve original metrics');
-  assert.equal(node.data.metrics.duration, 1200);
+  expect(node.data.metrics.provider).toBe('flux', 'should preserve original metrics');
+  expect(node.data.metrics.duration).toBe(1200);
 });
 
 // Test 14: Details array handling
@@ -483,14 +483,14 @@ test('_updateNode appends details correctly', () => {
   // Add first detail
   builder.processEvent({ name: 'design.slide.progress', payload: { slideIndex: 0, step: 'layout', msg: 'arranging' } });
   let node = builder.nodeMap.get(slideId);
-  assert.equal(node.data.details.length, 1);
+  expect(node.data.details.length).toBe(1);
 
   // Add second detail
   builder.processEvent({ name: 'design.slide.progress', payload: { slideIndex: 0, step: 'render', msg: 'finalizing' } });
   node = builder.nodeMap.get(slideId);
-  assert.equal(node.data.details.length, 2);
-  assert.equal(node.data.details[0].text, 'layout: arranging');
-  assert.equal(node.data.details[1].text, 'render: finalizing');
+  expect(node.data.details.length).toBe(2);
+  expect(node.data.details[0].text).toBe('layout: arranging');
+  expect(node.data.details[1].text).toBe('render: finalizing');
 });
 
 // Test 15: Edge cases and error handling
@@ -502,7 +502,7 @@ test('handles empty payload gracefully', () => {
   builder.processEvent({ name: 'design.image.generate.succeeded', payload: {} });
   builder.processEvent({ name: 'design.refine.ended', payload: {} });
 
-  assert.ok(true, 'should handle empty payloads without crashing');
+  expect(true).toBeTruthy();
 });
 
 test('handles missing event name', () => {
@@ -512,7 +512,7 @@ test('handles missing event name', () => {
   builder.processEvent(null);
   builder.processEvent(undefined);
 
-  assert.equal(builder.nodes.length, 0, 'should ignore invalid events');
+  expect(builder.nodes.length).toBe(0, 'should ignore invalid events');
 });
 
 test('getFlowData returns immutable snapshots', () => {
@@ -524,9 +524,9 @@ test('getFlowData returns immutable snapshots', () => {
   const data2 = builder.getFlowData();
 
   // Should return different snapshots
-  assert.notEqual(data1.nodes.length, data2.nodes.length);
-  assert.equal(data1.nodes.length, 1);
-  assert.equal(data2.nodes.length, 2);
+  expect(data1.nodes.length).not.toBe(data2.nodes.length);
+  expect(data1.nodes.length).toBe(1);
+  expect(data2.nodes.length).toBe(2);
 });
 
 // === Additional event handler tests ===
@@ -541,9 +541,9 @@ test('design.visual.errors creates error node', () => {
   });
 
   const node = builder.nodes.find(n => n.data.label === 'Visual Errors');
-  assert.ok(node, 'visual error node should be created');
-  assert.equal(node.data.status, 'failed');
-  assert.equal(node.data.details[0].text, 'ai-image: timeout');
+  expect(node).toBeTruthy();
+  expect(node.data.status).toBe('failed');
+  expect(node.data.details[0].text).toBe('ai-image: timeout');
 });
 
 test('design.image.generate.failed updates image node to failed', () => {
@@ -555,8 +555,8 @@ test('design.image.generate.failed updates image node to failed', () => {
   builder.processEvent({ name: 'design.image.generate.failed', payload: { imageId: 'img_fail', error: 'API timeout' } });
 
   const node = builder.nodeMap.get(nodeId);
-  assert.equal(node.data.status, 'failed');
-  assert.equal(node.data.details[0].text, 'Failed: API timeout');
+  expect(node.data.status).toBe('failed');
+  expect(node.data.details[0].text).toBe('Failed: API timeout');
 });
 
 test('design.image.generate.skipped creates checkpoint node', () => {
@@ -565,9 +565,9 @@ test('design.image.generate.skipped creates checkpoint node', () => {
   builder.processEvent({ name: 'design.image.generate.skipped', payload: { slotId: 'slot_1', reason: 'budget_exceeded' } });
 
   const node = builder.nodes.find(n => n.data.label === 'Image Skipped');
-  assert.ok(node, 'skipped node should be created');
-  assert.equal(node.data.nodeType, 'checkpoint');
-  assert.equal(node.data.metrics.reason, 'budget_exceeded');
+  expect(node).toBeTruthy();
+  expect(node.data.nodeType).toBe('checkpoint');
+  expect(node.data.metrics.reason).toBe('budget_exceeded');
 });
 
 test('design.image.fill.completed creates checkpoint node', () => {
@@ -576,9 +576,9 @@ test('design.image.fill.completed creates checkpoint node', () => {
   builder.processEvent({ name: 'design.image.fill.completed', payload: { filledCount: 5, pendingCount: 2 } });
 
   const node = builder.nodes.find(n => n.data.label === 'Images Filled');
-  assert.ok(node, 'fill completed node should be created');
-  assert.equal(node.data.metrics.filled, 5);
-  assert.equal(node.data.metrics.pending, 2);
+  expect(node).toBeTruthy();
+  expect(node.data.metrics.filled).toBe(5);
+  expect(node.data.metrics.pending).toBe(2);
 });
 
 test('design.svg.generate.completed creates checkpoint node', () => {
@@ -587,8 +587,8 @@ test('design.svg.generate.completed creates checkpoint node', () => {
   builder.processEvent({ name: 'design.svg.generate.completed', payload: { slots: 3 } });
 
   const node = builder.nodes.find(n => n.data.label === 'SVG Generated');
-  assert.ok(node, 'svg completed node should be created');
-  assert.equal(node.data.metrics.slots, 3);
+  expect(node).toBeTruthy();
+  expect(node.data.metrics.slots).toBe(3);
 });
 
 test('design.visual.render.started creates visual render node', () => {
@@ -599,13 +599,13 @@ test('design.visual.render.started creates visual render node', () => {
     payload: { planned: { total: 10, 'ai-image': 6, svg: 4 } }
   });
 
-  assert.ok(builder._visualRenderNodeId, 'should track visual render node id');
+  expect(builder._visualRenderNodeId).toBeTruthy();
   const node = builder.nodeMap.get(builder._visualRenderNodeId);
-  assert.equal(node.data.label, 'Visual Render');
-  assert.equal(node.data.status, 'running');
-  assert.equal(node.data.metrics.total, 10);
-  assert.equal(node.data.metrics.images, 6);
-  assert.equal(node.data.metrics.svg, 4);
+  expect(node.data.label).toBe('Visual Render');
+  expect(node.data.status).toBe('running');
+  expect(node.data.metrics.total).toBe(10);
+  expect(node.data.metrics.images).toBe(6);
+  expect(node.data.metrics.svg).toBe(4);
 });
 
 test('design.visual.render.completed updates visual render node', () => {
@@ -620,11 +620,11 @@ test('design.visual.render.completed updates visual render node', () => {
   });
 
   const node = builder.nodeMap.get(nodeId);
-  assert.equal(node.data.status, 'completed');
-  assert.equal(node.data.metrics.images, 3);
-  assert.equal(node.data.metrics.svg, 2);
-  assert.equal(node.data.metrics.duration, 5000);
-  assert.equal(builder._visualRenderNodeId, null, 'should clear node id after completion');
+  expect(node.data.status).toBe('completed');
+  expect(node.data.metrics.images).toBe(3);
+  expect(node.data.metrics.svg).toBe(2);
+  expect(node.data.metrics.duration).toBe(5000);
+  expect(builder._visualRenderNodeId).toBe(null, 'should clear node id after completion');
 });
 
 test('design.visual.render.failed updates visual render node to failed', () => {
@@ -639,9 +639,9 @@ test('design.visual.render.failed updates visual render node to failed', () => {
   });
 
   const node = builder.nodeMap.get(nodeId);
-  assert.equal(node.data.status, 'failed');
-  assert.equal(node.data.details[0].text, 'ai-image: Provider down');
-  assert.equal(builder._visualRenderNodeId, null, 'should clear node id after failure');
+  expect(node.data.status).toBe('failed');
+  expect(node.data.details[0].text).toBe('ai-image: Provider down');
+  expect(builder._visualRenderNodeId).toBe(null, 'should clear node id after failure');
 });
 
 test('reset clears _visualRenderNodeId', () => {
@@ -649,7 +649,7 @@ test('reset clears _visualRenderNodeId', () => {
   builder.processEvent({ name: 'design.started', payload: {} });
   builder.processEvent({ name: 'design.visual.render.started', payload: { planned: { total: 5 } } });
 
-  assert.ok(builder._visualRenderNodeId);
+  expect(builder._visualRenderNodeId).toBeTruthy();
   builder.reset();
-  assert.equal(builder._visualRenderNodeId, null);
+  expect(builder._visualRenderNodeId).toBe(null);
 });

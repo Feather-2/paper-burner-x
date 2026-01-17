@@ -1,6 +1,6 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const { parseHTML } = require('linkedom');
+// TODO: Manual fix needed for dynamic require() calls
+import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
+import { parseHTML } from 'linkedom';
 
 function setupDom(html = '<!doctype html><html><head></head><body></body></html>') {
   const { window, document } = parseHTML(html);
@@ -15,7 +15,7 @@ function teardownDom() {
   delete globalThis.PPTGenerator;
 }
 
-test.afterEach(() => {
+afterEach(() => {
   teardownDom();
   delete require.cache[require.resolve('../../js/ppt/vision/layout-from-image.js')];
 });
@@ -56,14 +56,14 @@ test('layout-from-image: buildPrompt includes styleDescription schema for style_
 
   const normalized = _internal.normalizeLayoutJson(input, { intentHint: 'style_reference' });
 
-  assert.equal(normalized.intent, 'style_reference');
-  assert.deepEqual(normalized.extractedPalette, ['#FF0000', '#00FF00']);
-  assert.ok(normalized.styleDescription);
-  assert.equal(normalized.styleDescription.colorTone, '深蓝渐变');
-  assert.equal(normalized.styleDescription.mood, '专业简洁');
-  assert.equal(normalized.styleDescription.layoutStyle, '大留白');
-  assert.equal(normalized.styleDescription.typography, '无衬线粗体');
-  assert.equal(normalized.styleDescription.effects, '圆角卡片');
+  expect(normalized.intent).toBe('style_reference');
+  expect(normalized.extractedPalette).toEqual(['#FF0000', '#00FF00']);
+  expect(normalized.styleDescription).toBeTruthy();
+  expect(normalized.styleDescription.colorTone).toBe('深蓝渐变');
+  expect(normalized.styleDescription.mood).toBe('专业简洁');
+  expect(normalized.styleDescription.layoutStyle).toBe('大留白');
+  expect(normalized.styleDescription.typography).toBe('无衬线粗体');
+  expect(normalized.styleDescription.effects).toBe('圆角卡片');
 });
 
 // Test 2: normalizeLayoutJson handles missing styleDescription gracefully
@@ -77,8 +77,8 @@ test('layout-from-image: normalizeLayoutJson handles missing styleDescription', 
 
   const normalized = _internal.normalizeLayoutJson(input);
 
-  assert.equal(normalized.intent, 'style_reference');
-  assert.equal(normalized.styleDescription, undefined);
+  expect(normalized.intent).toBe('style_reference');
+  expect(normalized.styleDescription).toBe(undefined);
 });
 
 // Test 3: dashboard initializes styleReference
@@ -102,11 +102,11 @@ test('dashboard: _ensureDesignSpecInitialized creates styleReference', () => {
   const gen = new globalThis.PPTGenerator();
   gen.renderPreviewArea();
 
-  assert.ok(gen.workflowData.designSystem);
-  assert.ok(gen.workflowData.designSystem.styleReference);
-  assert.deepEqual(gen.workflowData.designSystem.styleReference.images, []);
-  assert.equal(gen.workflowData.designSystem.styleReference.extracted, null);
-  assert.equal(gen.workflowData.designSystem.styleReference.userNotes, '');
+  expect(gen.workflowData.designSystem).toBeTruthy();
+  expect(gen.workflowData.designSystem.styleReference).toBeTruthy();
+  expect(gen.workflowData.designSystem.styleReference.images).toEqual([]);
+  expect(gen.workflowData.designSystem.styleReference.extracted).toBe(null);
+  expect(gen.workflowData.designSystem.styleReference.userNotes).toBe('');
 });
 
 // Test 4: removeStyleReference removes image and clears extracted if empty
@@ -134,8 +134,8 @@ test('dashboard: removeStyleReference clears extracted when no images left', () 
 
   gen.removeStyleReference('ref_123');
 
-  assert.equal(gen.workflowData.designSystem.styleReference.images.length, 0);
-  assert.equal(gen.workflowData.designSystem.styleReference.extracted, null);
+  expect(gen.workflowData.designSystem.styleReference.images.length).toBe(0);
+  expect(gen.workflowData.designSystem.styleReference.extracted).toBe(null);
 });
 
 // Test 5: updateStyleReferenceNotes updates userNotes
@@ -157,7 +157,7 @@ test('dashboard: updateStyleReferenceNotes updates userNotes', () => {
   gen._ensureDesignSpecInitialized();
   gen.updateStyleReferenceNotes('参考 Apple 风格');
 
-  assert.equal(gen.workflowData.designSystem.styleReference.userNotes, '参考 Apple 风格');
+  expect(gen.workflowData.designSystem.styleReference.userNotes).toBe('参考 Apple 风格');
 });
 
 // Test 6: batch-generator makePrompt includes styleReference in output
@@ -167,8 +167,8 @@ test('batch-generator: makePrompt includes styleReference lines when present', a
   // Access makePrompt through generateSingleSlide behavior
   // Since makePrompt is not exported, we test indirectly via the module behavior
   // For now, we test that the module loads without error and exports expected functions
-  assert.ok(typeof mod.generateSingleSlide === 'function');
-  assert.ok(typeof mod.generateBatch === 'function');
+  expect(typeof mod.generateSingleSlide === 'function').toBeTruthy();
+  expect(typeof mod.generateBatch === 'function').toBeTruthy();
 });
 
 // Test 7: UI renders style reference section
@@ -190,11 +190,11 @@ test('dashboard: _renderStyleReferenceSection renders upload area', () => {
   gen.renderPreviewArea();
 
   const uploadArea = document.querySelector('.ppt-style-ref-upload');
-  assert.ok(uploadArea, 'Upload area should exist');
+  expect(uploadArea).toBeTruthy();
 
   const title = document.querySelector('.ppt-style-ref-title');
-  assert.ok(title, 'Title should exist');
-  assert.ok(title.textContent.includes('风格参考'));
+  expect(title).toBeTruthy();
+  expect(title.textContent.includes('风格参考')).toBeTruthy();
 });
 
 // Test 8: UI renders extracted style fields when present
@@ -228,8 +228,8 @@ test('dashboard: _renderStyleReferenceSection renders extracted fields', () => {
   gen.renderPreviewArea();
 
   const extracted = document.querySelector('.ppt-style-ref-extracted');
-  assert.ok(extracted, 'Extracted section should exist');
+  expect(extracted).toBeTruthy();
 
   const colorToneField = extracted.querySelector('.ppt-style-ref-field');
-  assert.ok(colorToneField, 'At least one field should exist');
+  expect(colorToneField).toBeTruthy();
 });

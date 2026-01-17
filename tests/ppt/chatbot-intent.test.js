@@ -1,3 +1,4 @@
+import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseHTML } from 'linkedom';
@@ -18,11 +19,11 @@ function teardownDom() {
   delete globalThis.document;
 }
 
-test.beforeEach(() => {
+beforeEach(() => {
   setupDom();
 });
 
-test.afterEach(() => {
+afterEach(() => {
   teardownDom();
   delete globalThis.IntentParser;
   delete globalThis.PPTGenerator;
@@ -81,9 +82,9 @@ test('chatbot: "把标题改成xxx" routes to edit (OperationPlanner via execute
 
   await gen.handleUserMessage('把标题改成 你好');
 
-  assert.equal(execCalls.length, 1);
-  assert.equal(planCalls.length, 1);
-  assert.equal(execCalls[0].context.currentSlideIndex, 1);
+  expect(execCalls.length).toBe(1);
+  expect(planCalls.length).toBe(1);
+  expect(execCalls[0].context.currentSlideIndex).toBe(1);
 });
 
 test('chatbot: "重新设计第3页" routes to generation (Design Agent)', async () => {
@@ -110,15 +111,15 @@ test('chatbot: "重新设计第3页" routes to generation (Design Agent)', async
     ensureCalls += 1;
     gen._orchestrator = {
       runStage: async (name, input) => {
-        assert.equal(name, 'design.batch');
-        assert.ok(input && typeof input === 'object');
+        expect(name).toBe('design.batch');
+        expect(input && typeof input === 'object').toBeTruthy();
       }
     };
   };
 
   await gen.handleUserMessage('重新设计第3页');
 
-  assert.equal(ensureCalls, 1);
+  expect(ensureCalls).toBe(1);
 });
 
 test('chatbot: IntentParser failure returns friendly message', async () => {
@@ -145,7 +146,7 @@ test('chatbot: IntentParser failure returns friendly message', async () => {
 
   await gen.handleUserMessage('hello');
 
-  assert.ok(messages.some((m) => m.role === 'ai' && m.content.includes('抱歉')));
+  expect(messages.some((m) => m.role === 'ai' && m.content.includes('抱歉'))).toBeTruthy();
 });
 
 test('chatbot: concurrent intents are queued (no overlap)', async () => {
@@ -180,6 +181,6 @@ test('chatbot: concurrent intents are queued (no overlap)', async () => {
 
   await Promise.all([gen.handleUserMessage('重新设计第1页'), gen.handleUserMessage('重新设计第2页')]);
 
-  assert.equal(gen._orchestrator.calls, 2);
-  assert.equal(gen._orchestrator.overlaps, 0);
+  expect(gen._orchestrator.calls).toBe(2);
+  expect(gen._orchestrator.overlaps).toBe(0);
 });

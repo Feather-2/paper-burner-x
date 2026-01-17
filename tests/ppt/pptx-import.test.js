@@ -1,6 +1,6 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const { parseHTML } = require('linkedom');
+// TODO: Manual fix needed for dynamic require() calls
+import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
+import { parseHTML } from 'linkedom';
 
 function setupDom(html = '<!doctype html><html><head></head><body></body></html>') {
   const { window, document } = parseHTML(html);
@@ -17,7 +17,7 @@ function teardownDom() {
   delete globalThis.PPTGenerator;
 }
 
-test.afterEach(() => {
+afterEach(() => {
   teardownDom();
   delete require.cache[require.resolve('../../js/ppt/generator/ppt_generator_workflow.js')];
 });
@@ -97,17 +97,17 @@ test('import PPTX as deck: parsed → slideIntents set → design.batch template
 
   await gen.__pptWorkflowMixinsReady;
   const res = await gen.importPptxAsDeck(fakeFile);
-  assert.equal(res.ok, true);
-  assert.equal(Array.isArray(gen.workflowData.slideIntents), true);
-  assert.equal(gen.workflowData.slideIntents.length, 1);
+  expect(res.ok).toBe(true);
+  expect(Array.isArray(gen.workflowData.slideIntents)).toBe(true);
+  expect(gen.workflowData.slideIntents.length).toBe(1);
 
-  assert.ok(typeof gen.workflowData.deckHtmlDsl === 'string' && gen.workflowData.deckHtmlDsl.includes('<section'));
-  assert.ok(gen.workflowData.deckHtmlDsl.includes('data-el="image"'));
-  assert.ok(gen.workflowData.deckHtmlDsl.includes('data-x="12%"'));
-  assert.ok(gen.workflowData.deckHtmlDsl.includes('data-y="34%"'));
+  expect(typeof gen.workflowData.deckHtmlDsl === 'string' && gen.workflowData.deckHtmlDsl.includes('<section')).toBeTruthy();
+  expect(gen.workflowData.deckHtmlDsl.includes('data-el="image"')).toBeTruthy();
+  expect(gen.workflowData.deckHtmlDsl.includes('data-x="12%"')).toBeTruthy();
+  expect(gen.workflowData.deckHtmlDsl.includes('data-y="34%"')).toBeTruthy();
 
-  assert.ok(gen.workflowData.deckPackage);
-  assert.equal(gen.workflowData.deckPackage.slidesMeta?.[0]?.source, 'pptx_template');
+  expect(gen.workflowData.deckPackage).toBeTruthy();
+  expect(gen.workflowData.deckPackage.slidesMeta?.[0]?.source).toBe('pptx_template');
 });
 
 test('import PPTX as deck: parse failure falls back to manual flow', async () => {
@@ -155,9 +155,9 @@ test('import PPTX as deck: parse failure falls back to manual flow', async () =>
 
   await gen.__pptWorkflowMixinsReady;
   const res = await gen.importPptxAsDeck(fakeFile);
-  assert.equal(res.ok, false);
-  assert.equal(gen.state, 'idle');
-  assert.equal(opened, 1);
-  assert.ok(messages.some((m) => m.role === 'ai' && m.content.includes('PPTX 导入失败')));
+  expect(res.ok).toBe(false);
+  expect(gen.state).toBe('idle');
+  expect(opened).toBe(1);
+  expect(messages.some((m).toBeTruthy() => m.role === 'ai' && m.content.includes('PPTX 导入失败')));
 });
 

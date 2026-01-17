@@ -1,3 +1,4 @@
+import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseHTML } from 'linkedom';
@@ -46,27 +47,27 @@ function mockVditor() {
   return { ctorCalls };
 }
 
-test.beforeEach(() => {
+beforeEach(() => {
   resetAdapter();
   delete globalThis.Vditor;
 });
 
-test.afterEach(() => {
+afterEach(() => {
   resetAdapter();
   delete globalThis.Vditor;
   teardownDom();
 });
 
 test('isAvailable(): reflects globalThis.Vditor presence', () => {
-  assert.equal(VditorAdapter.isAvailable(), false);
+  expect(VditorAdapter.isAvailable()).toBe(false);
   globalThis.Vditor = function () {};
-  assert.equal(VditorAdapter.isAvailable(), true);
+  expect(VditorAdapter.isAvailable()).toBe(true);
 });
 
 test('load(): returns false when no document', async () => {
   delete globalThis.document;
   delete globalThis.window;
-  assert.equal(await VditorAdapter.load(), false);
+  expect(await VditorAdapter.load()).toBe(false);
 });
 
 test('load(): injects CSS+JS and resolves when Vditor becomes available', async () => {
@@ -79,19 +80,19 @@ test('load(): injects CSS+JS and resolves when Vditor becomes available', async 
   const jsSrc = 'https://gcore.jsdelivr.net/npm/vditor@3.10.7/dist/index.min.js';
 
   const link = document.querySelector(`head link[rel="stylesheet"][href="${cssHref}"]`);
-  assert.ok(link);
-  assert.equal(document.querySelectorAll(`head link[rel="stylesheet"][href="${cssHref}"]`).length, 1);
+  expect(link).toBeTruthy();
+  expect(document.querySelectorAll(`head link[rel="stylesheet"][href="${cssHref}"]`).length).toBe(1);
 
   const script = document.querySelector(`head script[src="${jsSrc}"]`);
-  assert.ok(script);
-  assert.equal(document.querySelectorAll(`head script[src="${jsSrc}"]`).length, 1);
+  expect(script).toBeTruthy();
+  expect(document.querySelectorAll(`head script[src="${jsSrc}"]`).length).toBe(1);
 
   globalThis.Vditor = function () {};
   script.onload?.();
   const [r1, r2] = await Promise.all([promise1, promise2]);
-  assert.equal(r1, true);
-  assert.equal(r2, true);
-  assert.equal(VditorAdapter._loaded, true);
+  expect(r1).toBe(true);
+  expect(r2).toBe(true);
+  expect(VditorAdapter._loaded).toBe(true);
 });
 
 test('mount()/getValue()/setValue()/destroy(): basic lifecycle with onInput', () => {
@@ -106,11 +107,11 @@ test('mount()/getValue()/setValue()/destroy(): basic lifecycle with onInput', ()
     mode: 'ir'
   });
 
-  assert.ok(instance);
-  assert.equal(ctorCalls.length, 1);
-  assert.equal(ctorCalls[0].id, 'vditorScriptEditor');
-  assert.equal(ctorCalls[0].options.mode, 'ir');
-  assert.deepEqual(ctorCalls[0].options.toolbar, [
+  expect(instance).toBeTruthy();
+  expect(ctorCalls.length).toBe(1);
+  expect(ctorCalls[0].id).toBe('vditorScriptEditor');
+  expect(ctorCalls[0].options.mode).toBe('ir');
+  expect(ctorCalls[0].options.toolbar).toEqual([
     'headings',
     'bold',
     'italic',
@@ -127,16 +128,16 @@ test('mount()/getValue()/setValue()/destroy(): basic lifecycle with onInput', ()
     'redo'
   ]);
 
-  assert.equal(VditorAdapter.getValue(), 'hello');
+  expect(VditorAdapter.getValue()).toBe('hello');
   VditorAdapter.setValue('world');
-  assert.equal(VditorAdapter.getValue(), 'world');
+  expect(VditorAdapter.getValue()).toBe('world');
 
   ctorCalls[0].options.input('typed');
-  assert.deepEqual(seenInputs, ['typed']);
+  expect(seenInputs).toEqual(['typed']);
 
   VditorAdapter.destroy();
-  assert.equal(VditorAdapter._instance, null);
-  assert.equal(ctorCalls[0].instance._destroyed, true);
+  expect(VditorAdapter._instance).toBe(null);
+  expect(ctorCalls[0].instance._destroyed).toBe(true);
 });
 
 test('mount(): reuses instance for same container and updates value', () => {
@@ -146,9 +147,9 @@ test('mount(): reuses instance for same container and updates value', () => {
   const a = VditorAdapter.mount({ container: 'vditorScriptEditor', value: 'a', mode: 'ir' });
   const b = VditorAdapter.mount({ container: 'vditorScriptEditor', value: 'b', mode: 'ir' });
 
-  assert.equal(a, b);
-  assert.equal(ctorCalls.length, 1);
-  assert.equal(VditorAdapter.getValue(), 'b');
+  expect(a).toBe(b);
+  expect(ctorCalls.length).toBe(1);
+  expect(VditorAdapter.getValue()).toBe('b');
 });
 
 test('mount(): destroys and remounts when container changes', () => {
@@ -158,12 +159,12 @@ test('mount(): destroys and remounts when container changes', () => {
   const first = VditorAdapter.mount({ container: 'a', value: 'x', mode: 'ir' });
   const second = VditorAdapter.mount({ container: 'b', value: 'y', mode: 'ir' });
 
-  assert.ok(first);
-  assert.ok(second);
-  assert.notEqual(first, second);
-  assert.equal(ctorCalls.length, 2);
-  assert.equal(ctorCalls[0].instance._destroyed, true);
-  assert.equal(VditorAdapter.getValue(), 'y');
+  expect(first).toBeTruthy();
+  expect(second).toBeTruthy();
+  expect(first).not.toBe(second);
+  expect(ctorCalls.length).toBe(2);
+  expect(ctorCalls[0].instance._destroyed).toBe(true);
+  expect(VditorAdapter.getValue()).toBe('y');
 });
 
 test('renderFallbackTextarea(): matches existing textarea style and escapes value', () => {
@@ -172,25 +173,25 @@ test('renderFallbackTextarea(): matches existing textarea style and escapes valu
     onInput: 'window.PPTGenerator.updateReportMarkdown(this.value)'
   });
 
-  assert.ok(html.includes('class="ppt-input-field"'));
-  assert.ok(html.includes('min-height: 360px'));
-  assert.ok(html.includes('font-family: ui-monospace'));
-  assert.ok(html.includes('line-height: 1.5'));
-  assert.ok(html.includes('oninput="window.PPTGenerator.updateReportMarkdown(this.value)"'));
-  assert.ok(html.includes('&lt;b&gt;hi&lt;/b&gt;'));
+  expect(html.includes('class="ppt-input-field"')).toBeTruthy();
+  expect(html.includes('min-height: 360px')).toBeTruthy();
+  expect(html.includes('font-family: ui-monospace')).toBeTruthy();
+  expect(html.includes('line-height: 1.5')).toBeTruthy();
+  expect(html.includes('oninput="window.PPTGenerator.updateReportMarkdown(this.value).toBeTruthy()"'));
+  expect(html.includes('&lt;b&gt;hi&lt;/b&gt;')).toBeTruthy();
 
   const { document } = parseHTML(`<!doctype html><html><body>${html}</body></html>`);
   const textarea = document.querySelector('textarea');
-  assert.ok(textarea);
+  expect(textarea).toBeTruthy();
 });
 
 test('mount(): returns null when Vditor missing or container missing', () => {
   setupDom('<!doctype html><html><head></head><body><div id="exists"></div></body></html>');
   delete globalThis.Vditor;
-  assert.equal(VditorAdapter.mount({ container: 'exists', value: 'x', mode: 'ir' }), null);
+  expect(VditorAdapter.mount({ container: 'exists', value: 'x', mode: 'ir' })).toBe(null);
 
   mockVditor();
-  assert.equal(VditorAdapter.mount({ container: 'missing', value: 'x', mode: 'ir' }), null);
+  expect(VditorAdapter.mount({ container: 'missing', value: 'x', mode: 'ir' })).toBe(null);
 });
 
 test('multiple mount/destroy cycles: stable', () => {
@@ -199,12 +200,12 @@ test('multiple mount/destroy cycles: stable', () => {
 
   for (let i = 0; i < 5; i++) {
     const instance = VditorAdapter.mount({ container: 'vditorScriptEditor', value: String(i), mode: 'ir' });
-    assert.ok(instance);
-    assert.equal(VditorAdapter.getValue(), String(i));
+    expect(instance).toBeTruthy();
+    expect(VditorAdapter.getValue()).toBe(String(i));
     VditorAdapter.destroy();
-    assert.equal(VditorAdapter._instance, null);
+    expect(VditorAdapter._instance).toBe(null);
   }
 
-  assert.equal(ctorCalls.length, 5);
-  assert.ok(ctorCalls.every((c) => c.instance._destroyed === true));
+  expect(ctorCalls.length).toBe(5);
+  expect(ctorCalls.every((c).toBeTruthy() => c.instance._destroyed === true));
 });

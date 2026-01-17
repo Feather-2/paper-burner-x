@@ -24,12 +24,8 @@ export default defineConfig({
       'tests/processing/**/*.test.js',
       // All agents tests are now vitest
       'tests/agents/**/*.test.js',
-      'tests/ppt/ui-v2/event-bus.test.js',
-      'tests/ppt/ui-v2/state-store.test.js',
-      'tests/ppt/dsl/serialize.test.js',
-      'tests/ppt/workflow/workflow-states.test.js',
-      'tests/ppt/core/math-converter.test.js',
-      'tests/ppt/core/health-check.test.js',
+      // All ppt tests are now vitest
+      'tests/ppt/**/*.test.js',
       'tests/ui/**/*.test.js',
       'tests/storage/**/*.test.js',
       'tests/annotations/**/*.test.js',

@@ -1,6 +1,6 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const { parseHTML } = require('linkedom');
+// TODO: Manual fix needed for dynamic require() calls
+import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
+import { parseHTML } from 'linkedom';
 
 function setupDom(html = '<!doctype html><html><head></head><body></body></html>') {
   const { window, document } = parseHTML(html);
@@ -15,7 +15,7 @@ function teardownDom() {
   delete globalThis.SlideParser;
 }
 
-test.afterEach(() => {
+afterEach(() => {
   teardownDom();
   delete require.cache[require.resolve('../../../js/ppt/core/slide-parser.js')];
 });
@@ -24,58 +24,56 @@ test('SlideParser.parseStyleString(): basic parsing + kebab→camel + values wit
   setupDom();
   const { SlideParser } = require('../../../js/ppt/core/slide-parser.js');
 
-  assert.deepEqual(
-    SlideParser.parseStyleString('color: red; font-size: 16px;'),
-    { color: 'red', fontSize: '16px' }
+  expect(
+    SlideParser.parseStyleString('color: red; font-size: 16px;')).toEqual({ color: 'red', fontSize: '16px' }
   );
 
-  assert.deepEqual(
-    SlideParser.parseStyleString('background-image: url(http://example.com/a:b.png);'),
-    { backgroundImage: 'url(http://example.com/a:b.png)' }
+  expect(
+    SlideParser.parseStyleString('background-image: url(http://example.com/a:b.png);')).toEqual({ backgroundImage: 'url(http://example.com/a:b.png)' }
   );
 
-  assert.deepEqual(SlideParser.parseStyleString(''), {});
-  assert.deepEqual(SlideParser.parseStyleString(null), {});
+  expect(SlideParser.parseStyleString('')).toEqual({});
+  expect(SlideParser.parseStyleString(null)).toEqual({});
 });
 
 test('SlideParser.parseCSSNumber(): boundary cases', () => {
   setupDom();
   const { SlideParser } = require('../../../js/ppt/core/slide-parser.js');
 
-  assert.equal(SlideParser.parseCSSNumber(undefined, 7), 7);
-  assert.equal(SlideParser.parseCSSNumber(null, 7), 7);
-  assert.equal(SlideParser.parseCSSNumber('', 7), 7);
-  assert.equal(SlideParser.parseCSSNumber('abc', 7), 7);
+  expect(SlideParser.parseCSSNumber(undefined, 7)).toBe(7);
+  expect(SlideParser.parseCSSNumber(null, 7)).toBe(7);
+  expect(SlideParser.parseCSSNumber('', 7)).toBe(7);
+  expect(SlideParser.parseCSSNumber('abc', 7)).toBe(7);
 
-  assert.equal(SlideParser.parseCSSNumber('12px'), 12);
-  assert.equal(SlideParser.parseCSSNumber('12.5%'), 12.5);
-  assert.equal(SlideParser.parseCSSNumber('-3.2em'), -3.2);
-  assert.equal(SlideParser.parseCSSNumber(0), 0);
+  expect(SlideParser.parseCSSNumber('12px')).toBe(12);
+  expect(SlideParser.parseCSSNumber('12.5%')).toBe(12.5);
+  expect(SlideParser.parseCSSNumber('-3.2em')).toBe(-3.2);
+  expect(SlideParser.parseCSSNumber(0)).toBe(0);
 });
 
 test('SlideParser.parseRotateFromTransform(): extracts rotate() degrees', () => {
   setupDom();
   const { SlideParser } = require('../../../js/ppt/core/slide-parser.js');
 
-  assert.equal(SlideParser.parseRotateFromTransform(null), null);
-  assert.equal(SlideParser.parseRotateFromTransform('scale(2)'), null);
-  assert.equal(SlideParser.parseRotateFromTransform('rotate(45deg)'), 45);
-  assert.equal(SlideParser.parseRotateFromTransform('translate(1px) rotate(-30deg)'), -30);
-  assert.equal(SlideParser.parseRotateFromTransform('rotate(bad)'), 0);
+  expect(SlideParser.parseRotateFromTransform(null)).toBe(null);
+  expect(SlideParser.parseRotateFromTransform('scale(2)')).toBe(null);
+  expect(SlideParser.parseRotateFromTransform('rotate(45deg)')).toBe(45);
+  expect(SlideParser.parseRotateFromTransform('translate(1px) rotate(-30deg)')).toBe(-30);
+  expect(SlideParser.parseRotateFromTransform('rotate(bad)')).toBe(0);
 });
 
 test('SlideParser.parseBorderColor()/parseBorderWidth(): parses typical border strings', () => {
   setupDom();
   const { SlideParser } = require('../../../js/ppt/core/slide-parser.js');
 
-  assert.equal(SlideParser.parseBorderColor('1px solid #333'), '#333');
-  assert.equal(SlideParser.parseBorderWidth('1px solid #333'), 1);
+  expect(SlideParser.parseBorderColor('1px solid #333')).toBe('#333');
+  expect(SlideParser.parseBorderWidth('1px solid #333')).toBe(1);
 
-  assert.equal(SlideParser.parseBorderColor('2px dashed rgba(0,0,0,0.5)'), 'rgba(0,0,0,0.5)');
-  assert.equal(SlideParser.parseBorderWidth('0.5px solid red'), 0.5);
+  expect(SlideParser.parseBorderColor('2px dashed rgba(0).toBe(0,0,0.5)'), 'rgba(0,0,0,0.5)');
+  expect(SlideParser.parseBorderWidth('0.5px solid red')).toBe(0.5);
 
-  assert.equal(SlideParser.parseBorderColor('1px solid red'), 'red');
-  assert.equal(SlideParser.parseBorderWidth('thin solid #000'), 0);
+  expect(SlideParser.parseBorderColor('1px solid red')).toBe('red');
+  expect(SlideParser.parseBorderWidth('thin solid #000')).toBe(0);
 });
 
 test('SlideParser.parse(): parses sections + elements (linkedom DOM)', () => {
@@ -100,50 +98,50 @@ test('SlideParser.parse(): parses sections + elements (linkedom DOM)', () => {
       <section data-type="slide" id="s2" data-bg="#ffffff"></section>
     `);
 
-    assert.equal(Array.isArray(slides), true);
-    assert.equal(slides.length, 2);
+    expect(Array.isArray(slides)).toBe(true);
+    expect(slides.length).toBe(2);
 
     const s1 = slides[0];
-    assert.equal(s1.id, 's1');
-    assert.equal(s1.type, 'freeform');
-    assert.equal(s1.background, '#111111');
-    assert.equal(s1.elements.length, 3);
+    expect(s1.id).toBe('s1');
+    expect(s1.type).toBe('freeform');
+    expect(s1.background).toBe('#111111');
+    expect(s1.elements.length).toBe(3);
 
     const t1 = s1.elements.find((el) => el.id === 't1');
-    assert.ok(t1);
-    assert.equal(t1.type, 'text');
-    assert.equal(t1.x, '10%');
-    assert.equal(t1.y, '20%');
-    assert.equal(t1.w, '30%');
-    assert.equal(t1.h, '40%');
-    assert.equal(t1.z, 5);
-    assert.equal(t1.rotate, 45);
-    assert.equal(t1.opacity, 0.5);
-    assert.equal(t1.font, 24);
-    assert.equal(t1.color, '#112233');
-    assert.equal(t1.bold, true);
-    assert.equal(t1.align, 'center');
-    assert.ok(typeof t1.content === 'string' && t1.content.includes('Hello'));
+    expect(t1).toBeTruthy();
+    expect(t1.type).toBe('text');
+    expect(t1.x).toBe('10%');
+    expect(t1.y).toBe('20%');
+    expect(t1.w).toBe('30%');
+    expect(t1.h).toBe('40%');
+    expect(t1.z).toBe(5);
+    expect(t1.rotate).toBe(45);
+    expect(t1.opacity).toBe(0.5);
+    expect(t1.font).toBe(24);
+    expect(t1.color).toBe('#112233');
+    expect(t1.bold).toBe(true);
+    expect(t1.align).toBe('center');
+    expect(typeof t1.content === 'string' && t1.content.includes('Hello')).toBeTruthy();
 
     const sh1 = s1.elements.find((el) => el.id === 'sh1');
-    assert.ok(sh1);
-    assert.equal(sh1.type, 'shape');
-    assert.equal(sh1.fill, '#ff0000');
-    assert.equal(sh1.stroke, '#333');
-    assert.equal(sh1.strokeWidth, 2);
-    assert.equal(sh1.radius, 8);
+    expect(sh1).toBeTruthy();
+    expect(sh1.type).toBe('shape');
+    expect(sh1.fill).toBe('#ff0000');
+    expect(sh1.stroke).toBe('#333');
+    expect(sh1.strokeWidth).toBe(2);
+    expect(sh1.radius).toBe(8);
 
     const g1 = s1.elements.find((el) => el.id === 'g1');
-    assert.ok(g1);
-    assert.equal(g1.type, 'group');
-    assert.equal(Array.isArray(g1.children), true);
-    assert.equal(g1.children.length, 1);
-    assert.equal(g1.children[0].id, 't2');
-    assert.equal(g1.children[0].type, 'text');
-    assert.equal(g1.children[0].content, 'Child');
+    expect(g1).toBeTruthy();
+    expect(g1.type).toBe('group');
+    expect(Array.isArray(g1.children)).toBe(true);
+    expect(g1.children.length).toBe(1);
+    expect(g1.children[0].id).toBe('t2');
+    expect(g1.children[0].type).toBe('text');
+    expect(g1.children[0].content).toBe('Child');
 
     // child should not also appear as a top-level element
-    assert.equal(s1.elements.some((el) => el.id === 't2'), false);
+    expect(s1.elements.some((el) => el.id === 't2')).toBe(false);
   } finally {
     console.log = prevLog;
   }
@@ -167,16 +165,16 @@ test('SlideParser.parse(): XSS payloads are not executed and event handlers are 
       </section>
     `);
 
-    assert.equal(globalThis.__xss, undefined);
+    expect(globalThis.__xss).toBe(undefined);
 
     const s1 = slides[0];
-    assert.equal(s1.elements.length, 2);
+    expect(s1.elements.length).toBe(2);
 
     const img = s1.elements.find((el) => el.id === 'img1');
-    assert.ok(img);
-    assert.equal(img.type, 'image');
-    assert.equal(img.src, 'x');
-    assert.equal(Object.prototype.hasOwnProperty.call(img, 'onerror'), false);
+    expect(img).toBeTruthy();
+    expect(img.type).toBe('image');
+    expect(img.src).toBe('x');
+    expect(Object.prototype.hasOwnProperty.call(img, 'onerror')).toBe(false);
   } finally {
     console.log = prevLog;
   }

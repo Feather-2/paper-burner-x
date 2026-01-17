@@ -1,3 +1,4 @@
+import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -21,11 +22,11 @@ class Emitter {
   }
 }
 
-test.beforeEach(() => {
+beforeEach(() => {
   globalThis.window = globalThis;
 });
 
-test.afterEach(() => {
+afterEach(() => {
   delete globalThis.window;
   delete globalThis.PPTDSLSerialize;
   delete globalThis.PPTGenerator;
@@ -69,10 +70,10 @@ test('editor mutation triggers documentToHtml() and updates deckHtmlDsl + sample
 
   await sleep(80);
 
-  assert.equal(calls.length, 1);
-  assert.deepEqual(calls[0].opts.onlySlideIndexes, [0]);
-  assert.ok(typeof gen.workflowData.deckHtmlDsl === 'string' && gen.workflowData.deckHtmlDsl.includes('<section'));
-  assert.equal(gen.sampleHTML, gen.workflowData.deckHtmlDsl);
+  expect(calls.length).toBe(1);
+  expect(calls[0].opts.onlySlideIndexes).toEqual([0]);
+  expect(typeof gen.workflowData.deckHtmlDsl === 'string' && gen.workflowData.deckHtmlDsl.includes('<section')).toBeTruthy();
+  expect(gen.sampleHTML).toBe(gen.workflowData.deckHtmlDsl);
 });
 
 test('structural editor mutation triggers full DSL sync (no onlySlideIndexes)', async () => {
@@ -105,6 +106,6 @@ test('structural editor mutation triggers full DSL sync (no onlySlideIndexes)', 
   doc.emit('slide.add', { index: 1 });
   await sleep(80);
 
-  assert.equal(calls.length, 1);
-  assert.equal('onlySlideIndexes' in (calls[0].opts || {}), false);
+  expect(calls.length).toBe(1);
+  expect('onlySlideIndexes' in (calls[0].opts || {})).toBe(false);
 });

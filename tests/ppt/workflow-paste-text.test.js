@@ -1,3 +1,4 @@
+import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseHTML } from 'linkedom';
@@ -37,7 +38,7 @@ if (!globalThis.PPTGenerator) {
 
 await import('../../js/ppt/generator/ppt_generator_workflow.js');
 
-test.afterEach(() => {
+afterEach(() => {
   teardownDom();
 });
 
@@ -59,10 +60,10 @@ test('startFromPastedText(): empty content returns early', async () => {
 
   await gen.startFromPastedText('   \n\t  ');
 
-  assert.equal(calls.ensure, 0);
-  assert.equal(calls.render, 0);
-  assert.equal(gen.state, 'idle');
-  assert.ok(calls.log.some((l) => l.msg.includes('粘贴内容为空')));
+  expect(calls.ensure).toBe(0);
+  expect(calls.render).toBe(0);
+  expect(gen.state).toBe('idle');
+  expect(calls.log.some((l).toBeTruthy() => l.msg.includes('粘贴内容为空')));
 });
 
 test('startFromPastedText(): processes content and transitions to script_review', async () => {
@@ -103,24 +104,24 @@ Content B
 
   await gen.startFromPastedText(md);
 
-  assert.deepEqual(seen.ensureArgs, [{ mode: 'textprep' }]);
-  assert.equal(gen.state, 'script_review');
-  assert.deepEqual(seen.renderStates, ['reading', 'script_review']);
+  expect(seen.ensureArgs).toEqual([{ mode: 'textprep' }]);
+  expect(gen.state).toBe('script_review');
+  expect(seen.renderStates).toEqual(['reading', 'script_review']);
 
-  assert.equal(gen.workflowData.reportMarkdown, md);
-  assert.equal(gen.workflowData.contentPackage.title, 'My Title');
-  assert.equal(gen.workflowData.contentPackage.report.markdown, md);
-  assert.ok(Array.isArray(gen.workflowData.contentPackage.slideIntents));
-  assert.equal(gen.workflowData.contentPackage.slideIntents.length, 3);
-  assert.ok(seen.logs.some((l) => l.msg.includes('开始处理粘贴文档')));
-  assert.ok(seen.logs.some((l) => l.msg.includes('文档已解析')));
+  expect(gen.workflowData.reportMarkdown).toBe(md);
+  expect(gen.workflowData.contentPackage.title).toBe('My Title');
+  expect(gen.workflowData.contentPackage.report.markdown).toBe(md);
+  expect(Array.isArray(gen.workflowData.contentPackage.slideIntents).toBeTruthy());
+  expect(gen.workflowData.contentPackage.slideIntents.length).toBe(3);
+  expect(seen.logs.some((l).toBeTruthy() => l.msg.includes('开始处理粘贴文档')));
+  expect(seen.logs.some((l).toBeTruthy() => l.msg.includes('文档已解析')));
 
-  assert.equal(gen.workflowData.report.markdown, md);
-  assert.equal(gen.workflowData.slideIntents.length, 3);
+  expect(gen.workflowData.report.markdown).toBe(md);
+  expect(gen.workflowData.slideIntents.length).toBe(3);
 
-  assert.equal(seen.todos.length, 2);
-  assert.equal(seen.todos[0][0].status, 'active');
-  assert.equal(seen.todos[1][2].status, 'active');
+  expect(seen.todos.length).toBe(2);
+  expect(seen.todos[0][0].status).toBe('active');
+  expect(seen.todos[1][2].status).toBe('active');
 });
 
 test('_extractTitleFromText(): extracts H1 title', () => {
@@ -128,14 +129,14 @@ test('_extractTitleFromText(): extracts H1 title', () => {
   const out = gen._extractTitleFromText(`# Hello World
 More text here.
 `);
-  assert.equal(out, 'Hello World');
+  expect(out).toBe('Hello World');
 });
 
 test('_extractTitleFromText(): falls back to first 50 chars when no title', () => {
   const gen = new globalThis.PPTGenerator();
   const text = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   const expected = text.slice(0, 50);
-  assert.equal(gen._extractTitleFromText(text), expected);
+  expect(gen._extractTitleFromText(text)).toBe(expected);
 });
 
 test('_generateSlideIntentsFromMarkdown(): splits by H1/H2', () => {
@@ -150,17 +151,17 @@ aaa
 bbb
 `;
   const intents = gen._generateSlideIntentsFromMarkdown(md);
-  assert.equal(intents.length, 3);
-  assert.deepEqual(
-    intents.map((s) => ({ title: s.title, pageType: s.pageType })),
+  expect(intents.length).toBe(3);
+  expect(
+    intents.map((s) => ({ title: s.title).toEqual(pageType: s.pageType })),
     [
       { title: 'Cover', pageType: 'cover' },
       { title: 'A', pageType: 'content' },
       { title: 'B', pageType: 'content' }
     ]
   );
-  assert.ok(intents[0].content.includes('# Cover'));
-  assert.ok(intents[1].content.startsWith('## A'));
+  expect(intents[0].content.includes('# Cover')).toBeTruthy();
+  expect(intents[1].content.startsWith('## A').toBeTruthy());
 });
 
 test('_generateSlideIntentsFromMarkdown(): returns single page when no headers', () => {
@@ -168,8 +169,8 @@ test('_generateSlideIntentsFromMarkdown(): returns single page when no headers',
   const md = `Plain text only
 Second line`;
   const intents = gen._generateSlideIntentsFromMarkdown(md);
-  assert.equal(intents.length, 1);
-  assert.equal(intents[0].title, '内容');
-  assert.equal(intents[0].pageType, 'content');
-  assert.equal(intents[0].content, md);
+  expect(intents.length).toBe(1);
+  expect(intents[0].title).toBe('内容');
+  expect(intents[0].pageType).toBe('content');
+  expect(intents[0].content).toBe(md);
 });

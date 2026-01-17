@@ -1,3 +1,4 @@
+import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseHTML } from 'linkedom';
@@ -43,7 +44,7 @@ await import('../../js/ppt/dashboard/ppt_dashboard_design_spec.js');
 await import('../../js/ppt/dashboard/ppt_dashboard_outline.js');
 await import('../../js/ppt/dashboard/ppt_dashboard_core.js');
 
-test.afterEach(() => {
+afterEach(() => {
   delete globalThis.VditorAdapter;
   resetDom();
 });
@@ -51,9 +52,9 @@ test.afterEach(() => {
 test('upload view: renders "直接粘贴文档" button', () => {
   const gen = new globalThis.PPTGenerator();
   const html = gen._renderUploadView();
-  assert.ok(html.includes('data-action="openPasteDocumentModal"'));
-  assert.ok(html.includes('carbon:paste'));
-  assert.ok(html.includes('直接粘贴文档'));
+  expect(html.includes('data-action="openPasteDocumentModal"')).toBeTruthy();
+  expect(html.includes('carbon:paste')).toBeTruthy();
+  expect(html.includes('直接粘贴文档')).toBeTruthy();
 });
 
 test('openPasteDocumentModal(): creates modal and mounts Vditor when available', async () => {
@@ -73,12 +74,12 @@ test('openPasteDocumentModal(): creates modal and mounts Vditor when available',
   gen.elements.overlay = document.getElementById('pptGeneratorOverlay');
 
   gen.openPasteDocumentModal();
-  assert.ok(document.getElementById('pptPasteDocumentModal'));
+  expect(document.getElementById('pptPasteDocumentModal').toBeTruthy());
 
   await sleep(130);
-  assert.equal(mountCalls.length, 1);
-  assert.equal(mountCalls[0].container, 'pasteDocumentEditor');
-  assert.equal(mountCalls[0].mode, 'ir');
+  expect(mountCalls.length).toBe(1);
+  expect(mountCalls[0].container).toBe('pasteDocumentEditor');
+  expect(mountCalls[0].mode).toBe('ir');
 });
 
 test('closePasteDocumentModal(): clears timer, destroys adapter, and removes modal', async () => {
@@ -104,11 +105,11 @@ test('closePasteDocumentModal(): clears timer, destroys adapter, and removes mod
   gen.closePasteDocumentModal();
 
   await sleep(130);
-  assert.equal(mountCalls, 0);
-  assert.equal(destroyCalls, 1);
+  expect(mountCalls).toBe(0);
+  expect(destroyCalls).toBe(1);
 
   await sleep(320);
-  assert.equal(document.getElementById('pptPasteDocumentModal'), null);
+  expect(document.getElementById('pptPasteDocumentModal')).toBe(null);
 });
 
 test('confirmPasteDocument(): reads from VditorAdapter and calls startFromPastedText()', async () => {
@@ -131,10 +132,10 @@ test('confirmPasteDocument(): reads from VditorAdapter and calls startFromPasted
   await sleep(130);
 
   gen.confirmPasteDocument();
-  assert.deepEqual(seen, ['from-vditor']);
+  expect(seen).toEqual(['from-vditor']);
 
   await sleep(320);
-  assert.equal(document.getElementById('pptPasteDocumentModal'), null);
+  expect(document.getElementById('pptPasteDocumentModal')).toBe(null);
 });
 
 test('confirmPasteDocument(): falls back to textarea when Vditor unavailable', async () => {
@@ -155,14 +156,14 @@ test('confirmPasteDocument(): falls back to textarea when Vditor unavailable', a
   await sleep(130);
 
   const textarea = document.getElementById('pasteDocumentTextarea');
-  assert.ok(textarea);
+  expect(textarea).toBeTruthy();
   textarea.value = 'from-textarea';
 
   gen.confirmPasteDocument();
-  assert.deepEqual(seen, ['from-textarea']);
+  expect(seen).toEqual(['from-textarea']);
 
   await sleep(320);
-  assert.equal(document.getElementById('pptPasteDocumentModal'), null);
+  expect(document.getElementById('pptPasteDocumentModal')).toBe(null);
 });
 
 test('esm entrypoints: dashboard/generator/model-config/renderers import and expose APIs', async () => {
@@ -172,16 +173,16 @@ test('esm entrypoints: dashboard/generator/model-config/renderers import and exp
   const renderers = await import('../../js/ppt/renderers/index.js');
   const unified = await import('../../js/ppt/index.js');
 
-  assert.ok(dashboard.PPTDashboard);
-  assert.ok(dashboard.VditorAdapter);
-  assert.ok(typeof generator.ensurePptGenerator === 'function');
-  assert.ok(modelConfig.PPTModelConfig);
-  assert.ok(modelConfig.PPTModelConfigModal);
-  assert.ok(renderers.HTMLSlideRenderer);
-  assert.ok(renderers.PPTXSlideRenderer);
+  expect(dashboard.PPTDashboard).toBeTruthy();
+  expect(dashboard.VditorAdapter).toBeTruthy();
+  expect(typeof generator.ensurePptGenerator === 'function').toBeTruthy();
+  expect(modelConfig.PPTModelConfig).toBeTruthy();
+  expect(modelConfig.PPTModelConfigModal).toBeTruthy();
+  expect(renderers.HTMLSlideRenderer).toBeTruthy();
+  expect(renderers.PPTXSlideRenderer).toBeTruthy();
 
-  assert.ok(unified.Core);
-  assert.ok(unified.Generator);
-  assert.ok(window.PPT);
-  assert.ok(window.PPTDashboard);
+  expect(unified.Core).toBeTruthy();
+  expect(unified.Generator).toBeTruthy();
+  expect(window.PPT).toBeTruthy();
+  expect(window.PPTDashboard).toBeTruthy();
 });

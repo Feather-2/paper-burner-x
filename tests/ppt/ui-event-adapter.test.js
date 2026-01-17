@@ -1,5 +1,4 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
+import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
 
 function createEventBus() {
   const listeners = new Set();
@@ -37,13 +36,13 @@ test('UIEventAdapter: deepsearch events update state + progress', async () => {
   bus.emit({ name: 'deepsearch.gaps.completed', payload: { gaps: ['gap-1'] } });
   bus.emit({ name: 'deepsearch.completed', payload: {} });
 
-  assert.equal(calls.length, 5);
+  expect(calls.length).toBe(5);
   const last = calls[calls.length - 1].state;
-  assert.equal(last.deepsearch.status, 'completed');
-  assert.equal(last.deepsearch.phase, 'gaps');
-  assert.equal(last.deepsearch.iteration, 1);
-  assert.deepEqual(last.deepsearch.gaps, ['gap-1']);
-  assert.equal(last.deepsearchProgress, 40);
+  expect(last.deepsearch.status).toBe('completed');
+  expect(last.deepsearch.phase).toBe('gaps');
+  expect(last.deepsearch.iteration).toBe(1);
+  expect(last.deepsearch.gaps).toEqual(['gap-1']);
+  expect(last.deepsearchProgress).toBe(40);
 });
 
 test('UIEventAdapter: wildcard patterns route design events + compute progress', async () => {
@@ -70,16 +69,16 @@ test('UIEventAdapter: wildcard patterns route design events + compute progress',
   bus.emit({ name: 'design.phase.transition', payload: { to: 'generating' } });
   bus.emit({ name: 'design.batch.progress', payload: { doneSlides: 2 } });
 
-  assert.equal(counts.phase, 1);
-  assert.equal(counts.prefix, 3);
-  assert.equal(counts.all, 3);
+  expect(counts.phase).toBe(1);
+  expect(counts.prefix).toBe(3);
+  expect(counts.all).toBe(3);
 
-  assert.ok(lastState);
-  assert.equal(lastState.design.phase, 'generating');
-  assert.equal(lastState.design.currentSlide, 2);
-  assert.equal(lastState.design.totalSlides, 4);
-  assert.equal(lastState.designProgress, 45);
-  assert.equal(lastState.designPhaseLabel, '生成页面');
+  expect(lastState).toBeTruthy();
+  expect(lastState.design.phase).toBe('generating');
+  expect(lastState.design.currentSlide).toBe(2);
+  expect(lastState.design.totalSlides).toBe(4);
+  expect(lastState.designProgress).toBe(45);
+  expect(lastState.designPhaseLabel).toBe('生成页面');
 });
 
 test('UIEventAdapter: stop halts event forwarding', async () => {
@@ -94,9 +93,9 @@ test('UIEventAdapter: stop halts event forwarding', async () => {
   });
 
   bus.emit({ name: 'design.started', payload: {} });
-  assert.equal(calls, 1);
+  expect(calls).toBe(1);
 
   adapter.stop();
   bus.emit({ name: 'design.started', payload: {} });
-  assert.equal(calls, 1);
+  expect(calls).toBe(1);
 });

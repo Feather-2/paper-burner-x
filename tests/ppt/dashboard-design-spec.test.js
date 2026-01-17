@@ -1,6 +1,6 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const { parseHTML } = require('linkedom');
+// TODO: Manual fix needed for dynamic require() calls
+import { describe, it, test, expect, beforeEach, afterEach, vi } from 'vitest';
+import { parseHTML } from 'linkedom';
 
 function setupDom(html = '<!doctype html><html><head></head><body></body></html>') {
   const { window, document } = parseHTML(html);
@@ -55,7 +55,7 @@ require('../../js/ppt/dashboard/ppt_dashboard_outline.js');
 require('../../js/ppt/dashboard/ppt_dashboard_core.js');
 require('../../js/ppt/generator/ppt_generator_workflow.js');
 
-test.afterEach(() => {
+afterEach(() => {
   teardownDom();
 });
 
@@ -66,24 +66,24 @@ test('design spec: renders with defaults and current values', () => {
   gen.renderPreviewArea();
 
   const spec = document.querySelector('.ppt-design-spec');
-  assert.ok(spec);
+  expect(spec).toBeTruthy();
 
   // Defaults are initialized on render
-  assert.equal(gen.workflowData.batchSize, 4);
-  assert.equal(gen.workflowData.designSystem.designSystemOverrides.colors.primary, '#0ea5e9');
-  assert.equal(gen.workflowData.designSystem.designSystemOverrides.visualPreference.mode, 'balanced');
+  expect(gen.workflowData.batchSize).toBe(4);
+  expect(gen.workflowData.designSystem.designSystemOverrides.colors.primary).toBe('#0ea5e9');
+  expect(gen.workflowData.designSystem.designSystemOverrides.visualPreference.mode).toBe('balanced');
 
   const primaryInput = document.getElementById('pptDesignColor-primary');
-  assert.ok(primaryInput);
-  assert.equal(primaryInput.value.toLowerCase(), '#0ea5e9');
+  expect(primaryInput).toBeTruthy();
+  expect(primaryInput.value.toLowerCase()).toBe('#0ea5e9');
 
   const modeBalanced = document.querySelector("button[onclick*=\"updateVisualPreferenceMode('balanced')\"]");
-  assert.ok(modeBalanced);
-  assert.ok(modeBalanced.classList.contains('active'));
+  expect(modeBalanced).toBeTruthy();
+  expect(modeBalanced.classList.contains('active').toBeTruthy());
 
   const modelButton = document.querySelector('[data-action="openModelConfig"]');
-  assert.ok(modelButton);
-  assert.match(modelButton.textContent || '', /模型配置/);
+  expect(modelButton).toBeTruthy();
+  expect(modelButton.textContent || '').toMatch(/模型配置/);
 });
 
 test('color edit updates workflowData.designSystem.colors.primary', () => {
@@ -93,15 +93,15 @@ test('color edit updates workflowData.designSystem.colors.primary', () => {
   gen.renderPreviewArea();
 
   gen.updateDesignSystemColor('primary', '#ff0000');
-  assert.equal(gen.workflowData.designSystem.designSystemOverrides.colors.primary, '#ff0000');
+  expect(gen.workflowData.designSystem.designSystemOverrides.colors.primary).toBe('#ff0000');
 
   const primaryRow = document.querySelector('[data-design-color="primary"] .ppt-design-spec-swatch');
-  assert.ok(primaryRow);
-  assert.match(primaryRow.getAttribute('style'), /#ff0000/i);
+  expect(primaryRow).toBeTruthy();
+  expect(primaryRow.getAttribute('style')).toMatch(/#ff0000/i);
 
   const primaryInput = document.getElementById('pptDesignColor-primary');
-  assert.ok(primaryInput);
-  assert.equal(primaryInput.value.toLowerCase(), '#ff0000');
+  expect(primaryInput).toBeTruthy();
+  expect(primaryInput.value.toLowerCase()).toBe('#ff0000');
 });
 
 test('font change refreshes preview', () => {
@@ -111,11 +111,11 @@ test('font change refreshes preview', () => {
   gen.renderPreviewArea();
 
   gen.updateDesignSystemFont('titleFont', 'Georgia');
-  assert.equal(gen.workflowData.designSystem.designSystemOverrides.typography.titleFont, 'Georgia');
+  expect(gen.workflowData.designSystem.designSystemOverrides.typography.titleFont).toBe('Georgia');
 
   const title = document.querySelector('.ppt-design-spec-preview-title');
-  assert.ok(title);
-  assert.match(title.getAttribute('style') || '', /font-family:Georgia/i);
+  expect(title).toBeTruthy();
+  expect(title.getAttribute('style') || '').toMatch(/font-family:Georgia/i);
 });
 
 test('batch size change updates workflowData.batchSize', () => {
@@ -125,11 +125,11 @@ test('batch size change updates workflowData.batchSize', () => {
   gen.renderPreviewArea();
 
   gen.updateBatchSize(2);
-  assert.equal(gen.workflowData.batchSize, 2);
+  expect(gen.workflowData.batchSize).toBe(2);
 
   const btn = document.querySelector("button[onclick*='updateBatchSize(2)']");
-  assert.ok(btn);
-  assert.ok(btn.classList.contains('active'));
+  expect(btn).toBeTruthy();
+  expect(btn.classList.contains('active').toBeTruthy());
 });
 
 test('visualPreference.mode change updates UI + userConfig', () => {
@@ -139,11 +139,11 @@ test('visualPreference.mode change updates UI + userConfig', () => {
   gen.renderPreviewArea();
 
   gen.updateVisualPreferenceMode('svg-first');
-  assert.equal(gen.workflowData.designSystem.designSystemOverrides.visualPreference.mode, 'svg-first');
+  expect(gen.workflowData.designSystem.designSystemOverrides.visualPreference.mode).toBe('svg-first');
 
   const btn = document.querySelector("button[onclick*=\"updateVisualPreferenceMode('svg-first')\"]");
-  assert.ok(btn);
-  assert.ok(btn.classList.contains('active'));
+  expect(btn).toBeTruthy();
+  expect(btn.classList.contains('active').toBeTruthy());
 });
 
 test('visualPreference is passed into DesignAgentLoop via runContext.userConfig', async () => {
@@ -185,8 +185,8 @@ test('visualPreference is passed into DesignAgentLoop via runContext.userConfig'
 
   try {
     await gen._orchestrator.runStage('design.batch');
-    assert.ok(seenUserConfig && typeof seenUserConfig === 'object');
-    assert.equal(seenUserConfig.designSystemOverrides.visualPreference.mode, 'ai-first');
+    expect(seenUserConfig && typeof seenUserConfig === 'object').toBeTruthy();
+    expect(seenUserConfig.designSystemOverrides.visualPreference.mode).toBe('ai-first');
   } finally {
     design.DesignAgentLoop.prototype.execute = originalExecute;
   }
