@@ -6,43 +6,83 @@ Agent 记忆存储、状态引擎和检索。
 
 | 文件 | 职责 |
 |------|------|
-| `memory-store.js` | MemoryStore - 记忆存储 |
+| `memory-store.js` | MemoryStore - 记忆存储 (兼容入口) |
+| `memory-store.impl.js` | MemoryStore 实现 (分层存储/压缩/快照) |
+| `unified-memory-store.js` | UnifiedMemoryStore - StateEngine SSOT + MemoryStore 风格 API |
 | `state-engine.js` | StateEngine - 状态管理引擎 |
 | `retrieval-engine.js` | RetrievalEngine - 记忆检索 |
 | `l3-storage.js` | L3Storage - 冷存储 (LRU 淘汰 + 去重) |
+| `action-types.js` | Action Types + Action Creators |
+| `state-diff.js` | 状态 diff/patch 工具 |
+| `todo-normalize.js` | Todo 规范化 |
 
 ## MemoryStore
 
 ```javascript
 import { MemoryStore } from 'js/agents/runtime/memory';
 
-const store = new MemoryStore({ vfs });
+const store = new MemoryStore({ vfs, eventBus });
 
-// 存储记忆
-await store.save({
-  type: 'conversation',
-  content: 'User asked about...',
-  embedding: [...],
-  metadata: { timestamp: Date.now() },
-});
+store.setTaskGoal('Ship v1');
+store.addMessage({ role: 'user', content: 'Hello' });
 
-// 检索
-const memories = await store.search(queryEmbedding, { topK: 5 });
+// 归档
+await store.archive('stage1', { summary: '...' }, ['keyword1']);
+
+// 查看最近归档
+const archives = store.listArchives(5);
+```
+
+## UnifiedMemoryStore
+
+基于 StateEngine 的统一记忆存储，保留 MemoryStore 风格 API：
+
+```javascript
+import { UnifiedMemoryStore } from 'js/agents/runtime/memory';
+
+const store = new UnifiedMemoryStore({ vfs, eventBus });
+
+store.setTaskGoal('Ship v1');
+store.addMessage({ role: 'user', content: 'Hello' });
+
+// 归档
+await store.archive('stage1', { summary: '...' }, ['keyword1']);
 ```
 
 ## StateEngine
 
 ```javascript
-import { StateEngine } from 'js/agents/runtime/memory';
+import { StateEngine, createInitialState, addMessage, setFlag } from 'js/agents/runtime/memory';
 
-const engine = new StateEngine();
-
-engine.set('task.status', 'running');
-engine.set('task.progress', 0.5);
-
-engine.subscribe('task.*', (path, value) => {
-  console.log(`${path} changed to ${value}`);
+const engine = new StateEngine({
+  initialState: createInitialState({ runId: 'session_123' }),
 });
+
+engine.subscribe((action, prevState, nextState) => {
+  // 监听所有状态变更
+});
+
+await engine.dispatch(addMessage({ role: 'user', content: 'Hi' }));
+await engine.dispatch(setFlag('awaitUserFeedback', true));
+```
+
+## Action Types
+
+```javascript
+import { StateEngine, createInitialState, createAction, L1_ADD_MESSAGE, batch } from 'js/agents/runtime/memory';
+
+const engine = new StateEngine({ initialState: createInitialState() });
+
+const action = createAction(L1_ADD_MESSAGE, {
+  message: { role: 'user', content: 'Hello' },
+});
+
+await engine.dispatch(action);
+
+// 或使用 BATCH Action 聚合
+await engine.dispatch(batch([
+  createAction(L1_ADD_MESSAGE, { message: { role: 'assistant', content: '...' } }),
+]));
 ```
 
 ## RetrievalEngine

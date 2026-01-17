@@ -2,14 +2,17 @@
 
 AI 驱动的幻灯片设计和生成。
 
+> **文件统计**: 57 个 JS 文件
+
 ## 核心文件
 
 | 文件 | 职责 |
 |------|------|
 | `index.js` | 模块入口 |
-| `agent-loop.js` | DesignAgentLoop |
+| `agent-loop.js` | DesignAgentLoop (新增 `getPhase()`/`getStatus()` 访问器) |
 | `design-agent.js` | DesignStage, runDesignStage |
 | `design-tools.js` | 设计工具定义 |
+| `image-planner.js` | **新增** ImagePlanner 入口 (re-export from image/) |
 | `states.js` | 状态机定义 |
 | `constants.js` | 常量 |
 

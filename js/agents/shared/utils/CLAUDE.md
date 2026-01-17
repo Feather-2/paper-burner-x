@@ -15,6 +15,7 @@
 | 文件 | 函数 | 用途 |
 |------|------|------|
 | `error-utils.js` | safeExec, catchAndLog, makeSafe | 安全执行 |
+| `error-utils-extended.js` | toErrorMessage, safeExecAsync, withRetry | 扩展错误处理 |
 | `error-classifier.js` | 错误分类 |
 
 ## 数据结构
@@ -46,6 +47,19 @@
 | `schema-validator.js` | 输入验证 |
 | `value-utils.js` | isPlainObject, toNonEmptyString |
 | `safe-regex.js` | 安全正则 |
+
+## 事件与监控
+
+| 文件 | 类/函数 | 用途 |
+|------|---------|------|
+| `event-emitter.js` | EventEmitter | 事件发射器 |
+| `file-watcher.js` | FileWatcher, createFileWatcher | 文件监听（原生/轮询） |
+
+## 响应限制
+
+| 文件 | 函数 | 用途 |
+|------|------|------|
+| `response-limits.js` | readTextWithLimit, readJsonWithLimit | 响应体大小限制 |
 
 ## 其他
 

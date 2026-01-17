@@ -7,46 +7,62 @@
 | 文件 | 职责 |
 |------|------|
 | `index.js` | 入口 |
-| `slide-subagent.js` | SlideSubAgent - 单页生成 |
-| `visual-subagent.js` | VisualSubAgent - 视觉元素生成 |
-| `asset-registry.js` | AssetRegistry - 资产注册 |
+| `slide-agent.js` | SlideSubAgent - 单页生成 |
+| `visual-agent.js` | VisualSubAgent - 视觉元素生成 |
+| `asset-registry.js` | AssetRegistry - 资产注册与映射 |
 
 ## SlideSubAgent
 
-负责单页幻灯片内容生成：
+负责单页幻灯片内容生成，支持读取 linkedFiles/linkedAssets 作为补充上下文，并解析 HTML 产出 visual slots。
 
 ```javascript
 import { SlideSubAgent } from 'js/agents/stages/design/subagents';
 
-const agent = new SlideSubAgent({ llm, designTokens });
-const slide = await agent.generate({
-  title: '第一章：概述',
-  outline: '...',
-  style: 'corporate',
+const agent = new SlideSubAgent({ designSystem, assetRegistry, dslRules });
+
+const result = await agent.run({
+  slideIntent,
+  slideIndex: 0,
+  slideNo: 1,
+  emit,
 });
+
+const { htmlDsl, visualSlots, status } = result;
 ```
 
 ## VisualSubAgent
 
-负责视觉元素（图表、图像）：
+负责视觉元素（图表、图像、资产）填充，自动决定 renderType（ai-image/svg/asset）并返回统计报告。
 
 ```javascript
 import { VisualSubAgent } from 'js/agents/stages/design/subagents';
 
-const visual = new VisualSubAgent({ imageGen, svgGen });
-await visual.fill(slide.visuals);
+const visual = new VisualSubAgent({ assetRegistry, imageProvider, svgGenerator });
+
+const result = await visual.run(visualSlots, designSystem, contentPackage, {
+  emit,
+  svgConcurrency: 2,
+  imageConcurrency: 4,
+});
+
+const { assetResults, report } = result;
 ```
 
 ## AssetRegistry
 
-管理设计资产：
+管理设计资产、分类与 slide 关联。
 
 ```javascript
 import { AssetRegistry } from 'js/agents/stages/design/subagents';
 
 const registry = new AssetRegistry();
-registry.register('logo', logoBuffer, 'image/png');
-registry.register('chart-1', chartSvg, 'image/svg+xml');
 
-const asset = registry.get('logo');
+const assetId = registry.addAsset({ data: logoBase64, mimeType: 'image/png', source: 'uploaded' });
+const asset = registry.getAsset(assetId);
+
+registry.linkToSlide('slide-1', [assetId]);
+const slideAssets = registry.getAssetsForSlide('slide-1');
+
+const snapshot = registry.export();
+const restored = AssetRegistry.fromJSON(snapshot);
 ```

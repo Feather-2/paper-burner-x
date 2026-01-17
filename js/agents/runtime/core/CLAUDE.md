@@ -70,11 +70,20 @@ mm.dispose();           // 不再使用时清理定时器/压缩任务
 
 | 文件 | 职责 |
 |------|------|
+| `runtime-adapter.js` | RuntimeAdapter 基类 |
 | `js-adapter.js` | JSRuntimeAdapter |
 | `python-adapter.js` | PythonRuntimeAdapter |
 | `scheduler.js` | RuntimeScheduler |
 | `worker-pool.js` | Worker 池 |
 | `worker-rpc.js` | Worker RPC |
+
+## Worker 与沙箱
+
+| 文件 | 职责 |
+|------|------|
+| `worker-factory.js` | 跨平台 Worker 创建/终止 |
+| `js-sandbox-worker.js` | 浏览器 Worker 沙箱 |
+| `js-sandbox-worker.node.js` | Node.js Worker 沙箱 |
 
 ## 错误和安全
 
@@ -93,6 +102,14 @@ mm.dispose();           // 不再使用时清理定时器/压缩任务
 | `config-validator.js` | 配置验证 |
 | `context-config.js` | 上下文配置 |
 | `persisted-output.js` | 大输出持久化处理 |
-| `vfs-proxy.js` | VFS 代理 |
 | `shared-memory.js` | 共享内存 |
 | `mechanisms.js` | 核心机制 |
+
+## VFS 代理
+
+| 文件 | 职责 |
+|------|------|
+| `vfs-proxy.js` | VFS 代理入口 |
+| `vfs-proxy-client.js` | Worker 侧 VFS 客户端 |
+| `vfs-proxy-host.js` | Host 侧 VFS 处理 |
+| `vfs-proxy-protocol.js` | 协议/消息常量 |

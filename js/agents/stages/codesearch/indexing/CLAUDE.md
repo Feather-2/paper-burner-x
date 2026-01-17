@@ -7,37 +7,43 @@
 | 文件 | 职责 |
 |------|------|
 | `symbol-indexer.js` | SymbolIndexer - 符号提取 |
-| `index-store.js` | IndexStore - 索引存储 |
+| `index-store.js` | CodeSearchIndexStore - 索引存储 |
 
 ## SymbolIndexer
 
 ```javascript
-import { SymbolIndexer } from 'js/agents/stages/codesearch/indexing';
+import { SymbolIndexer } from 'js/agents/stages/codesearch/indexing/symbol-indexer.js';
 
 const indexer = new SymbolIndexer({
-  languages: ['javascript', 'typescript', 'python'],
+  vfs: { readText: async (path) => await readText(path) },
+  workspaceId: 'default',
 });
 
-const symbols = await indexer.index('/path/to/project');
-// → [{ name, type, file, line, signature, doc }]
+// 索引单个文件
+const result = await indexer.indexFile('src/auth.js');
+// → { ok, path, skipped, symbols }
+
+// 批量索引
+await indexer.indexFiles(['src/auth.js', 'src/user.js']);
+
+// 查询符号
+const matches = await indexer.query({ query: 'handle', pathPrefix: 'src/' });
+// → [{ name, kind, type, file, startLine, endLine, signature, doc, parser }]
 ```
 
-## IndexStore
+## CodeSearchIndexStore
 
 ```javascript
-import { IndexStore } from 'js/agents/stages/codesearch/indexing';
+import CodeSearchIndexStore from 'js/agents/stages/codesearch/indexing/index-store.js';
 
-const store = new IndexStore('/path/to/index');
+const store = new CodeSearchIndexStore();
 
 // 写入
-await store.save(symbols);
+await store.putSymbolRecord('default', 'src/auth.js', { sha256, symbols });
 
-// 查询
-const matches = await store.query({
-  type: 'function',
-  name: /^handle/,
-});
+// 读取
+const record = await store.getSymbolRecord('default', 'src/auth.js');
 
-// 按文件查询
-const fileSymbols = await store.getByFile('src/auth.js');
+// 列表
+const rows = await store.listSymbolRecords('default');
 ```

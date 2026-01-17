@@ -15,6 +15,7 @@ Agent 边界的轻量级结构验证，防止类型欺骗。
 | `rpc-message.js` | 跨 Agent RPC 消息契约 |
 | `llm-response.js` | LLM 响应结构契约 |
 | `tool-result.js` | 工具执行结果契约 |
+| `disposable.js` | 资源生命周期 Disposable 契约 |
 
 ## 使用示例
 
@@ -42,6 +43,21 @@ if (!llmResult.ok) {
 // 标准化工具结果
 const normalized = normalizeToolResult(rawResult);
 // 保证有 { ok, success, data, error?, meta? }
+```
+
+```javascript
+import { disposeAll, safeDispose, using } from 'js/agents/shared/contracts/disposable.js';
+
+// 安全释放单个资源
+await safeDispose(resource, {
+  onError: (error) => reportError(error),
+});
+
+// 批量释放
+const results = await disposeAll(resources);
+
+// 使用资源后自动释放
+const value = await using(resource, async (r) => r.read());
 ```
 
 ## 验证边界
