@@ -326,15 +326,18 @@ export class RunStoreAdapter {
     const hasBatch = typeof runStore.appendEvents === 'function';
     const total = events.length;
 
-    // 过滤有效事件（跳过无效 runId）
     const isValidEvent = (evt) => isObject(evt) && typeof evt.runId === 'string' && evt.runId;
+    for (const evt of events) {
+      if (!isValidEvent(evt)) {
+        throw new TypeError('RunStoreAdapter.appendEvents(events): events must include a string runId');
+      }
+    }
 
     // 批量写入路径（优先）
     if (hasBatch) {
       /** @type {Map<string, any[]>} */
       const byRunId = new Map();
       for (const evt of events) {
-        if (!isValidEvent(evt)) continue;
         const runId = evt.runId;
         const bucket = byRunId.get(runId);
         if (bucket) bucket.push(evt);
@@ -353,7 +356,6 @@ export class RunStoreAdapter {
     // 单条写入路径（appendEvent-only）
     const tasks = [];
     for (const evt of events) {
-      if (!isValidEvent(evt)) continue;
       const runId = evt.runId;
       tasks.push(runStore.appendEvent(runId, evt));
     }
@@ -398,7 +400,19 @@ export class EventBus {
     this._backpressureGen = 0;
 
     // 持久化
-    this._persistenceAdapter = options.persistenceAdapter || null;
+    const adapter = options.persistenceAdapter ?? null;
+    if (adapter !== null) {
+      if (!isObject(adapter)) {
+        throw new TypeError('EventBus: persistenceAdapter must be an object');
+      }
+      if (typeof adapter.appendEvents !== 'function') {
+        throw new TypeError('EventBus: persistenceAdapter.appendEvents is required');
+      }
+      if (typeof adapter.getEvents !== 'function') {
+        throw new TypeError('EventBus: persistenceAdapter.getEvents is required');
+      }
+    }
+    this._persistenceAdapter = adapter;
     this._onListenerError = options.onListenerError || null;
 
     // 等待队列 (用于 waitFor)
@@ -838,7 +852,12 @@ export class EventBus {
     } catch (err) {
       throw new Error(`EventBus.replay: failed to load events (${err?.message || String(err)})`);
     }
-    if (!Array.isArray(events)) return [];
+    if (!Array.isArray(events)) {
+      if (events == null) {
+        throw new Error(`EventBus.replay: no events found (runId=${runId})`);
+      }
+      throw new TypeError("EventBus.replay: persistenceAdapter.getEvents must return an array");
+    }
 
     const result = [];
     for (const raw of events) {
@@ -846,8 +865,16 @@ export class EventBus {
       const rawRunId = typeof raw.runId === 'string' ? raw.runId : undefined;
       const rawMeta = isObject(raw.meta) ? raw.meta : undefined;
       try {
+        const clock =
+          (isObject(raw._clock) && typeof raw._clock.seq === "number")
+            ? raw._clock
+            : (isObject(raw.clock) && typeof raw.clock.seq === "number")
+              ? raw.clock
+              : (typeof raw.seq === "number" ? { seq: raw.seq } : undefined);
+
         const evt = createEventRecord({
           ...raw,
+          _clock: clock,
           runId: rawRunId ?? runId,
           meta: { ...(rawMeta || {}), replay: true },
         });

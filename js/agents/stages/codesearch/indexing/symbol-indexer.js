@@ -139,6 +139,7 @@ function extractWithRegex(text, path) {
     out.push({
       name,
       kind,
+      type: kind,
       file: path,
       startLine: lineNo,
       endLine: lineNo,
@@ -207,6 +208,7 @@ function extractJsTsSymbolsFromTree(rootNode, path, lines) {
         out.push({
           name,
           kind: "function",
+          type: "function",
           file: path,
           startLine,
           endLine,
@@ -226,6 +228,7 @@ function extractJsTsSymbolsFromTree(rootNode, path, lines) {
         out.push({
           name,
           kind: "class",
+          type: "class",
           file: path,
           startLine,
           endLine,
@@ -245,6 +248,7 @@ function extractJsTsSymbolsFromTree(rootNode, path, lines) {
         out.push({
           name,
           kind: "interface",
+          type: "interface",
           file: path,
           startLine,
           endLine,
@@ -264,6 +268,7 @@ function extractJsTsSymbolsFromTree(rootNode, path, lines) {
         out.push({
           name,
           kind: "type",
+          type: "type",
           file: path,
           startLine,
           endLine,
@@ -283,6 +288,7 @@ function extractJsTsSymbolsFromTree(rootNode, path, lines) {
         out.push({
           name,
           kind: "enum",
+          type: "enum",
           file: path,
           startLine,
           endLine,
@@ -343,6 +349,28 @@ export class SymbolIndexer {
    */
   _emit(name, payload) {
     if (typeof this.emit === "function") this.emit(name, payload);
+  }
+
+  /**
+   * @param {any} parser
+   * @param {any} lang
+   * @param {string} sourceText
+   * @param {string} file
+   * @returns {any[]|null}
+   */
+  _extractWithTreeSitter(parser, lang, sourceText, file) {
+    try {
+      parser.setLanguage(lang);
+      const tree = parser.parse(sourceText);
+      const root = tree?.rootNode;
+      if (!root) return null;
+      const lines = sourceText.split("\n");
+      return extractJsTsSymbolsFromTree(root, file, lines);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this._log("warn", "Tree-sitter parse failed; falling back to regex", { file, error: msg });
+      return null;
+    }
   }
 
   /**
@@ -452,25 +480,30 @@ export class SymbolIndexer {
   async extractSymbols(text, path) {
     const file = toNonEmptyString(path);
     const langId = detectLanguageForPath(file);
-    if (!langId) return extractWithRegex(text, file);
+    const sourceText = String(text || "");
+    if (!langId) return extractWithRegex(sourceText, file);
 
     const lang = await this._getLanguage(langId);
-    if (!lang) return extractWithRegex(text, file);
+    if (!lang) return extractWithRegex(sourceText, file);
 
     try {
       const parser = await this._getParser();
-      parser.setLanguage(lang);
-      const sourceText = String(text || "");
-      const tree = parser.parse(sourceText);
-      const root = tree?.rootNode;
-      if (!root) return extractWithRegex(text, file);
-      const lines = sourceText.split("\n");
-      return extractJsTsSymbolsFromTree(root, file, lines);
+      const result = this._extractWithTreeSitter(parser, lang, sourceText, file);
+      return Array.isArray(result) ? result : extractWithRegex(sourceText, file);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this._log("warn", "Tree-sitter parse failed; falling back to regex", { file, error: msg });
-      return extractWithRegex(text, file);
+      return extractWithRegex(sourceText, file);
     }
+  }
+
+  /**
+   * @param {string} text
+   * @param {string} path
+   * @returns {Promise<any[]>}
+   */
+  async extractSymbolsAsync(text, path) {
+    return this.extractSymbols(text, path);
   }
 
   /**

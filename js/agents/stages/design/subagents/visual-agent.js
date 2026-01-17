@@ -73,8 +73,9 @@ function parsePercent(value) {
 }
 
 function inferRenderTypeFromVisualType(type) {
-  const t = toNonEmptyString(type).toLowerCase();
-  if (!t) return "";
+  const raw = toNonEmptyString(type);
+  if (!raw) return "";
+  const t = raw.toLowerCase();
   if (SVG_VISUAL_TYPES.has(t)) return "svg";
   if (AI_IMAGE_VISUAL_TYPES.has(t)) return "ai-image";
   return "";

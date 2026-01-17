@@ -68,6 +68,28 @@ export function normalizeToolResult(raw) {
       const validated = validateToolResult(raw);
       if (validated.ok) return validated.value;
     }
+    if (typeof obj.error === "string") {
+      return {
+        ok: false,
+        success: false,
+        data: obj.data,
+        error: obj.error,
+        meta: typeof obj.meta === "object" && obj.meta !== null
+          ? /** @type {Record<string, unknown>} */ (obj.meta)
+          : undefined,
+      };
+    }
+    if ("data" in obj) {
+      return {
+        ok: true,
+        success: true,
+        data: obj.data,
+        error: undefined,
+        meta: typeof obj.meta === "object" && obj.meta !== null
+          ? /** @type {Record<string, unknown>} */ (obj.meta)
+          : undefined,
+      };
+    }
   }
 
   // Error 对象

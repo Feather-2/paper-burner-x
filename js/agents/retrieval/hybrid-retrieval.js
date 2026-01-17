@@ -33,7 +33,7 @@ function normalizeLimit(value, fallback) {
  * @param {number=} options.vectorWeight
  * @returns {Array<{chunkId:string,rrfScore:number,bm25Score?:number,vectorScore?:number}>}
  */
-export function rrfFuse(bm25Results, vectorResults, options = {}) {
+export function rrfFuse(bm25Results = [], vectorResults = [], options = {}) {
   if (!Array.isArray(bm25Results)) throw new TypeError("rrfFuse(bm25Results, vectorResults): bm25Results must be an array");
   if (!Array.isArray(vectorResults)) throw new TypeError("rrfFuse(bm25Results, vectorResults): vectorResults must be an array");
   if (!isPlainObject(options)) throw new TypeError("rrfFuse(bm25Results, vectorResults, options): options must be an object");
@@ -152,4 +152,3 @@ export default {
   rrfFuse,
   hybridSearch,
 };
-

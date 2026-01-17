@@ -27,6 +27,11 @@ export { AlertMonitor } from "./AlertMonitor.js";
 export { createTaskTool, ContextMode, TASK_TOOL_DEFINITION } from "../runtime/tools/TaskTool.js";
 export { createRecallTool, RECALL_TOOL_DEFINITION } from "../runtime/tools/RecallTool.js";
 export { createBacktrackTool, BACKTRACK_TOOL_DEFINITION } from "../runtime/tools/BacktrackTool.js";
+export { createDMailTool, DMAIL_TOOL_DEFINITION } from "../runtime/tools/DMailTool.js";
+
+// Backtrack Managers
+export { BacktrackManager } from "./BacktrackManager.js";
+export { SoftBacktrackManager } from "./SoftBacktrackManager.js";
 
 // Shared 工具
 export { createLogger, trackToolCall } from "../shared/utils/logger.js";

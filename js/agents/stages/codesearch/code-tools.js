@@ -221,6 +221,12 @@ export function createToolExecutor(options = {}) {
     watchdog,
   } = options;
 
+  const basePathValue = String(basePath || "").trim();
+  const normalizedBasePath =
+    basePathValue && basePathValue.length > 1 && basePathValue.endsWith("/")
+      ? basePathValue.slice(0, -1)
+      : basePathValue;
+
   // 路径安全检查
   /**
    * @param {any} inputPath
@@ -228,11 +234,17 @@ export function createToolExecutor(options = {}) {
    */
   function safePath(inputPath) {
     const path = String(inputPath || "").trim();
+    if (!path) return ".";
     // 防止路径遍历
-    if (path.includes("..") || path.startsWith("/")) {
+    if (path.includes("..")) {
       throw new Error(`Invalid path: ${path}`);
     }
-    return path || ".";
+    if (path.startsWith("/")) {
+      if (!normalizedBasePath || normalizedBasePath === "/") return path;
+      if (path === normalizedBasePath || path.startsWith(`${normalizedBasePath}/`)) return path;
+      throw new Error(`Invalid path: ${path}`);
+    }
+    return path;
   }
 
   /**
@@ -295,19 +307,29 @@ export function createToolExecutor(options = {}) {
     const searchPath = safePath(path);
 
     if (!globFn) {
-      return { error: "glob function not available", files: [] };
+      const empty = [];
+      empty.files = empty;
+      empty.total = 0;
+      empty.truncated = false;
+      empty.error = "glob function not available";
+      return empty;
     }
 
     try {
       const files = await globFn({ pattern, path: searchPath });
       const limited = Array.isArray(files) ? files.slice(0, maxResults) : [];
-      return {
-        files: limited,
-        total: Array.isArray(files) ? files.length : 0,
-        truncated: Array.isArray(files) && files.length > maxResults,
-      };
+      const result = limited.slice();
+      result.files = result;
+      result.total = Array.isArray(files) ? files.length : 0;
+      result.truncated = Array.isArray(files) && files.length > maxResults;
+      return result;
     } catch (err) {
-      return { error: String(err?.message || err), files: [] };
+      const empty = [];
+      empty.files = empty;
+      empty.total = 0;
+      empty.truncated = false;
+      empty.error = String(err?.message || err);
+      return empty;
     }
   }
 
@@ -369,7 +391,7 @@ export function createToolExecutor(options = {}) {
     const filePath = safePath(path);
 
     if (!fs?.readFile) {
-      return { error: "fs.readFile not available", content: null };
+      throw new Error("fs.readFile not available");
     }
 
     try {
@@ -377,11 +399,7 @@ export function createToolExecutor(options = {}) {
       if (fs.stat) {
         const stats = await fs.stat(filePath);
         if (stats.size > maxFileSize) {
-          return {
-            error: `File too large: ${stats.size} bytes (max ${maxFileSize})`,
-            content: null,
-            size: stats.size,
-          };
+          throw new Error(`File too large: ${stats.size} bytes (max ${maxFileSize})`);
         }
       }
 
@@ -416,15 +434,16 @@ export function createToolExecutor(options = {}) {
         })
         .join("\n");
 
-      return {
-        content: numberedContent,
-        path: filePath,
-        totalLines: lines.length,
-        range: { start, end },
-        truncated: end < lines.length || start > 1,
-      };
+      const output = new String(numberedContent);
+      output.content = numberedContent;
+      output.path = filePath;
+      output.totalLines = lines.length;
+      output.range = { start, end };
+      output.truncated = end < lines.length || start > 1;
+      return output;
     } catch (err) {
-      return { error: String(err?.message || err), content: null };
+      const message = String(err?.message || err);
+      throw new Error(message);
     }
   }
 
@@ -499,19 +518,32 @@ export function createToolExecutor(options = {}) {
     const dirPath = safePath(path);
 
     if (!fs?.readdir) {
-      return { error: "fs.readdir not available", entries: [] };
+      const empty = [];
+      empty.entries = empty;
+      empty.path = dirPath;
+      empty.total = 0;
+      empty.truncated = false;
+      empty.error = "fs.readdir not available";
+      return empty;
     }
 
     try {
       const entries = await fs.readdir(dirPath, { withFileTypes: true });
-      const filtered = showHidden
-        ? entries
-        : entries.filter(e => !e.name.startsWith("."));
+      const normalized = (Array.isArray(entries) ? entries : [])
+        .map((entry) => {
+          if (typeof entry === "string") {
+            return { name: entry, type: "file" };
+          }
+          if (entry && typeof entry.name === "string") {
+            return { name: entry.name, type: entry.isDirectory?.() ? "dir" : "file" };
+          }
+          return null;
+        })
+        .filter(Boolean);
 
-      const result = filtered.slice(0, maxResults).map(e => ({
-        name: e.name,
-        type: e.isDirectory() ? "dir" : "file",
-      }));
+      const filtered = showHidden ? normalized : normalized.filter((e) => !e.name.startsWith("."));
+
+      const result = filtered.slice(0, maxResults).map((e) => ({ name: e.name, type: e.type }));
 
       // 排序：目录在前，文件在后
       result.sort((a, b) => {
@@ -519,14 +551,20 @@ export function createToolExecutor(options = {}) {
         return a.name.localeCompare(b.name);
       });
 
-      return {
-        entries: result,
-        path: dirPath,
-        total: filtered.length,
-        truncated: filtered.length > maxResults,
-      };
+      const output = result.slice();
+      output.entries = output;
+      output.path = dirPath;
+      output.total = filtered.length;
+      output.truncated = filtered.length > maxResults;
+      return output;
     } catch (err) {
-      return { error: String(err?.message || err), entries: [] };
+      const empty = [];
+      empty.entries = empty;
+      empty.path = dirPath;
+      empty.total = 0;
+      empty.truncated = false;
+      empty.error = String(err?.message || err);
+      return empty;
     }
   }
 
@@ -659,7 +697,7 @@ export function createToolExecutor(options = {}) {
 
         if (force) {
           const text = await readTextForIndexing(file);
-          const symbols = await symbolIndexer.extractSymbols(text, file);
+          const symbols = await symbolIndexer.extractSymbolsAsync(text, file);
           const sha256 = await computeSha256(text);
           await symbolIndexer.store.putSymbolRecord(ws, file, { sha256, symbols });
           symbolIndexer.invalidateCaches?.();

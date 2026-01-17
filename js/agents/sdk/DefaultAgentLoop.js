@@ -195,6 +195,7 @@ function resolveCheckpointStore(api, { runId, logger, fallbackStore } = {}) {
  * @property {any} [toolRestrictions]
  * @property {any} [checkpointStore]
  * @property {any} [checkpoint]
+ * @property {any} [softBacktrackManager]
  * @property {'sequential'|'parallel'} [actionExecution] - Action execution mode (default: 'sequential')
  * @property {number} [maxParallelActions] - Max concurrent actions in parallel mode (default: 5)
  *
@@ -242,6 +243,7 @@ export class DefaultAgentLoop extends BaseAgentLoop {
     this.toolRestrictions = opts.toolRestrictions ?? null;
     this.checkpointStore = opts.checkpointStore || null;
     this.checkpointOptions = opts.checkpoint || null;
+    this.softBacktrackManager = opts.softBacktrackManager || null;
     this.actionExecution = opts.actionExecution === 'parallel' ? 'parallel' : 'sequential';
     this.maxParallelActions = Math.max(1, safeInt(opts.maxParallelActions) ?? 5);
 
@@ -523,6 +525,29 @@ export class DefaultAgentLoop extends BaseAgentLoop {
           const action = toNonEmptyString(step.action) || "complete";
           const args = isPlainObject(step.args) ? step.args : {};
           const result = await runWithMiddleware(`tool:${action}`, (ctx) => toolExecutor(action, args, ctx), { tool: action, args });
+          if (result?.ok && result?.dmail) {
+            const logger = baseCtx.logger ?? this.logger;
+            const manager = this.softBacktrackManager;
+            let dmailResult = null;
+            if (manager && typeof manager.processDMailSignal === "function") {
+              try {
+                dmailResult = await manager.processDMailSignal(result.dmail);
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                dmailResult = { success: false, reason: msg };
+                logger?.warn?.(`[DefaultAgentLoop] D-Mail processing failed: ${msg}`);
+              }
+            } else {
+              dmailResult = { success: false, reason: "soft_backtrack_manager_unavailable" };
+              logger?.warn?.("[DefaultAgentLoop] D-Mail signal received without softBacktrackManager", { action, dmail: result.dmail });
+            }
+            if (typeof emit === "function") {
+              emit("agent.dmail_processed", { action, dmail: result.dmail, result: dmailResult });
+            }
+            if (!dmailResult || dmailResult.success !== false) {
+              logger?.info?.("[DefaultAgentLoop] D-Mail processed", { action, dmail: result.dmail, result: dmailResult });
+            }
+          }
           return { action, args, result };
         };
 

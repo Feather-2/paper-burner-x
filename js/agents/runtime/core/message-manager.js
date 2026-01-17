@@ -34,7 +34,28 @@ const silentReporter = createScopedReporter("MessageManager");
  * @property {number} [compressCooldownMs]
  * @property {TokenCounterLike | null} [tokenCounter]
  *
- * @typedef {{ role?: string, content?: any, [key: string]: any }} ChatMessage
+ * @typedef {"minor"|"major"|"critical"} DMailSeverity
+ *
+ * @typedef {object} DMailSupersedeRange
+ * @property {number|null} from
+ * @property {number|null} to
+ *
+ * @typedef {object} DMailSignal
+ * @property {string} correction
+ * @property {DMailSupersedeRange|null} supersedeRange
+ * @property {DMailSeverity} severity
+ * @property {number} timestamp
+ *
+ * @typedef {{ role?: string, content?: any, type?: string, _dmail?: DMailSignal, _superseded?: boolean, _supersededBy?: string, [key: string]: any }} ChatMessage
+ *
+ * @typedef {object} DMailCorrectionMessage
+ * @property {"system"} role
+ * @property {"dmail_correction"} type
+ * @property {string} content
+ * @property {DMailSignal} _dmail
+ *
+ * @typedef {object} ActiveMessageOptions
+ * @property {boolean} [includeSuperseded]
  *
  * @typedef {{ input: number, output: number, total: number }} TokenUsage
  *
@@ -114,11 +135,18 @@ export class MessageManager {
     this._summaryAbortController = null;
     /** @type {number} 摘要 ID 计数器 */
     this._summaryIdCounter = 0;
+    /** @type {number} superseded message count */
+    this._supersededCount = 0;
   }
 
   /** @returns {ChatMessage[]} */
   get messages() {
     return this._messages;
+  }
+
+  /** @returns {number} */
+  get supersededCount() {
+    return this._supersededCount;
   }
 
   /** @returns {TokenUsage} */
@@ -144,6 +172,9 @@ export class MessageManager {
   addMessage(message) {
     if (this._disposed) return message;
     this._messages.push(message);
+    if (message && typeof message === "object" && message._superseded === true) {
+      this._supersededCount += 1;
+    }
     const messageTokens = estimateTokens(message.content, this._tokenCounter);
     this._cacheTokenCount(message, messageTokens); // 缓存 token 数 + hash
     this._tokenUsage.input += messageTokens;
@@ -165,16 +196,98 @@ export class MessageManager {
   addMessages(messages) {
     if (this._disposed) return;
     let addedTokens = 0;
+    let addedSuperseded = 0;
     for (const msg of messages) {
       this._messages.push(msg);
+      if (msg && typeof msg === "object" && msg._superseded === true) {
+        addedSuperseded += 1;
+      }
       addedTokens += estimateTokens(msg.content, this._tokenCounter);
     }
     this._tokenUsage.input += addedTokens;
     this._tokenUsage.total += addedTokens;
+    this._supersededCount += addedSuperseded;
 
     if (this._shouldCompress()) {
       this._scheduleCompression();
     }
+  }
+
+  /**
+   * Mark a range of messages as superseded (inclusive).
+   * @param {number} fromIndex
+   * @param {number} toIndex
+   * @param {string} correction
+   * @returns {number} count of newly superseded messages
+   */
+  markAsSuperseded(fromIndex, toIndex, correction) {
+    if (this._disposed) return 0;
+    const correctionText = typeof correction === "string" ? correction : "";
+    if (correctionText.trim().length === 0) {
+      const logger = this._logger && typeof this._logger.warn === "function" ? this._logger : fallbackLogger;
+      logger.warn("markAsSuperseded called with empty correction");
+      return 0;
+    }
+
+    const total = this._messages.length;
+    if (total === 0) return 0;
+
+    const startRaw = Number.isFinite(fromIndex) ? Math.floor(fromIndex) : null;
+    const endRaw = Number.isFinite(toIndex) ? Math.floor(toIndex) : startRaw;
+    if (startRaw === null || endRaw === null) return 0;
+
+    let start = Math.min(startRaw, endRaw);
+    let end = Math.max(startRaw, endRaw);
+
+    if (end < 0 || start >= total) return 0;
+    if (start < 0) start = 0;
+    if (end >= total) end = total - 1;
+
+    let marked = 0;
+    for (let i = start; i <= end; i += 1) {
+      const msg = this._messages[i];
+      if (!msg || typeof msg !== "object") continue;
+      if (msg._superseded === true) {
+        if (msg._supersededBy === undefined) msg._supersededBy = correctionText;
+        continue;
+      }
+      msg._superseded = true;
+      msg._supersededBy = correctionText;
+      marked += 1;
+    }
+
+    this._supersededCount += marked;
+    return marked;
+  }
+
+  /**
+   * Insert a D-Mail correction message into history.
+   * @param {DMailSignal} dmailSignal
+   * @returns {ChatMessage}
+   */
+  insertCorrectionMessage(dmailSignal) {
+    const correction = dmailSignal && typeof dmailSignal.correction === "string"
+      ? dmailSignal.correction
+      : String(dmailSignal?.correction ?? "");
+    /** @type {DMailCorrectionMessage} */
+    const message = {
+      role: "system",
+      type: "dmail_correction",
+      content: correction,
+      _dmail: dmailSignal,
+    };
+    return this.addMessage(message);
+  }
+
+  /**
+   * Get messages for prompt building, optionally including superseded ones.
+   * @param {ActiveMessageOptions} [options]
+   * @returns {ChatMessage[]}
+   */
+  getActiveMessages(options = {}) {
+    const includeSuperseded = options?.includeSuperseded === true;
+    if (includeSuperseded) return this._messages.slice();
+    return this._messages.filter((msg) => !(msg && typeof msg === "object" && msg._superseded === true));
   }
 
   /** @param {{ clearCompressionHistory?: boolean } | null | undefined} [options] */
@@ -190,6 +303,7 @@ export class MessageManager {
     this._clearCooldownTimer();
     this._messages = [];
     this._tokenUsage = { input: 0, output: 0, total: 0 };
+    this._supersededCount = 0;
     this._compressionPending = false;
     this._compressionPromise = null;
     this._lastCompressionAtMs = 0;
@@ -216,6 +330,17 @@ export class MessageManager {
     }
     this._tokenUsage.input = total;
     this._tokenUsage.total = total;
+  }
+
+  /** @returns {void} */
+  _recalculateSupersededCount() {
+    let count = 0;
+    for (const msg of this._messages) {
+      if (msg && typeof msg === "object" && msg._superseded === true) {
+        count += 1;
+      }
+    }
+    this._supersededCount = count;
   }
 
   // ==========================================================================
@@ -447,6 +572,7 @@ export class MessageManager {
       }
 
       this._recalculateTokenUsage();
+      this._recalculateSupersededCount();
       this._recordCompression(beforeCount, beforeTokens);
     } finally {
       if (this._compressionAbortController === controller) {
@@ -527,6 +653,7 @@ export class MessageManager {
   cleanOldOutputs(keepRecent = KEEP_RECENT_OUTPUTS) {
     this._messages = cleanOldPersistedOutputs(this._messages, keepRecent);
     this._recalculateTokenUsage();
+    this._recalculateSupersededCount();
   }
 
   // ==========================================================================

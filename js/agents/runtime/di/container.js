@@ -107,16 +107,16 @@ export class Container {
   }
 
   /**
-   * Try to get a service, return null if not registered.
+   * Try to get a service, return undefined if not registered.
    *
    * @param {string} id - Service identifier
-   * @returns {*|null}
+   * @returns {*|undefined}
    */
   tryGet(id) {
     try {
-      return this.has(id) ? this.get(id) : null;
+      return this.has(id) ? this.get(id) : undefined;
     } catch {
-      return null;
+      return undefined;
     }
   }
 

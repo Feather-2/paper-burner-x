@@ -11,7 +11,8 @@ function normalizeCategory(category) {
 }
 
 function inferCategoryFromAsset(asset) {
-  const source = toNonEmptyString(asset?.source).toLowerCase();
+  const raw = toNonEmptyString(asset?.source);
+  const source = raw ? raw.toLowerCase() : "";
   if (source === "upload" || source === "uploaded") return "uploaded";
   if (source === "pdf" || source === "extracted") return "extracted";
   if (source === "video" || source === "video_frame" || source === "video-frame") return "videoFrames";

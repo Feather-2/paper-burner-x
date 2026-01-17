@@ -132,12 +132,20 @@ export async function runPlanningPhase({
     { role: "user", content: query },
   ];
 
-  const response = await callModel(messages, {
-    model: "auto",
-    temperature: 0.3,
-    maxTokens: 700,
-    signal,
-  });
+  let response;
+  try {
+    response = await callModel(messages, {
+      model: "auto",
+      temperature: 0.3,
+      maxTokens: 700,
+      signal,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.warn("Todo planning failed: model error", { error: message });
+    emit?.("codesearch.planning.failed", { error: message });
+    return { success: false, todos: [], error: message };
+  }
 
   // 记录 token 消耗
   if (response?.usage && budgetManager) {
@@ -203,7 +211,13 @@ export function formatOpenTodos(todos) {
         : "";
       const priority = toNonEmptyString(todo.priority) || "medium";
       const todoId = toNonEmptyString(todo.todoId) || `todo_${idx + 1}`;
-      return `${idx + 1}. [${todoId}] (${priority}) ${todo.text}${hints}`;
+      const text =
+        toNonEmptyString(todo.text) ||
+        toNonEmptyString(todo.title) ||
+        toNonEmptyString(todo.todo) ||
+        toNonEmptyString(todo.name) ||
+        "Untitled";
+      return `${idx + 1}. [${todoId}] (${priority}) ${text}${hints}`;
     })
     .join("\n");
 }

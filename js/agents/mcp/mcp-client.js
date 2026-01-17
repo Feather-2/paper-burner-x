@@ -328,7 +328,7 @@ export class McpClient {
   /**
    * 调用工具（自动路由到正确的 provider）
    */
-  async callTool(toolName, args = {}, { providerId } = /** @type {McpCallOptions} */ ({})) {
+  async callTool(toolName, args = {}, { providerId, skipCircuit = false } = /** @type {{ providerId?: string, skipCircuit?: boolean }} */ ({})) {
     const id = toNonEmptyString(providerId) || this._defaultProviderId;
     const provider = id ? this._providers.get(id) : null;
 
@@ -342,7 +342,7 @@ export class McpClient {
     }
 
     try {
-      const breaker = this._getProviderCircuitBreaker(id);
+      const breaker = skipCircuit ? null : this._getProviderCircuitBreaker(id);
       const execute = async () => {
         const r = await provider.callTool(toolName, args);
         if (r && typeof r === "object" && r.success === false) {
@@ -392,7 +392,10 @@ export class McpClient {
     const preferred = ["search.query", "search"];
     let last = null;
     for (const name of preferred) {
-      const r = await this.callTool(name, args, { providerId });
+      let r = await this.callTool(name, args, { providerId });
+      if (r && r.error && String(r.error).toLowerCase().includes("circuit open")) {
+        r = await this.callTool(name, args, { providerId, skipCircuit: true });
+      }
       last = r;
       if (r && r.success) return r;
     }
@@ -408,7 +411,10 @@ export class McpClient {
     const preferred = ["search.fetch", "fetch_content", "fetch"];
     let last = null;
     for (const name of preferred) {
-      const r = await this.callTool(name, args, { providerId });
+      let r = await this.callTool(name, args, { providerId });
+      if (r && r.error && String(r.error).toLowerCase().includes("circuit open")) {
+        r = await this.callTool(name, args, { providerId, skipCircuit: true });
+      }
       last = r;
       if (r && r.success) return r;
     }

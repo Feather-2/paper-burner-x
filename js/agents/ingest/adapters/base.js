@@ -236,7 +236,7 @@ export class BaseAdapter {
     return out;
   }
 
-  _validateChunks(chunks, { maxSize, totalLength }) {
+  _validateChunks(chunks, { maxSize, totalLength } = {}) {
     const list = Array.isArray(chunks) ? chunks : null;
     if (!list || list.length === 0) return { ok: true, reason: "empty" };
 

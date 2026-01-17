@@ -139,8 +139,8 @@ export class TokenBucketRateLimiter {
   async schedule(execute, { signal, label } = {}) {
     if (typeof execute !== "function") throw new TypeError("TokenBucketRateLimiter.schedule(): execute must be a function");
     if (isAbortSignal(signal) && signal.aborted) throw createAbortError(`Aborted${label ? `: ${label}` : ""}`);
-    // maxQueue=0 means no queuing allowed - reject if anything is already queued or in-flight
-    if (this._maxQueue === 0 && (this._queue.length > 0 || this._inFlight > 0)) throw new Error("TokenBucketRateLimiter: queue full");
+    // maxQueue=0 means allow at most one queued item (in-flight does not count).
+    if (this._maxQueue === 0 && this._queue.length > 0) throw new Error("TokenBucketRateLimiter: queue full");
     if (this._maxQueue > 0 && this._queue.length >= this._maxQueue) throw new Error("TokenBucketRateLimiter: queue full");
 
     return new Promise((resolve, reject) => {

@@ -1,4 +1,4 @@
-import { toNonEmptyString } from "../../../shared/utils/value-utils.js";
+import { isPlainObject, toNonEmptyString } from "../../../shared/utils/value-utils.js";
 
 const DB_NAME = "CodeSearchIndexDB";
 const DB_VERSION = 1;
@@ -113,7 +113,13 @@ export class CodeSearchIndexStore {
    * @returns {Promise<SymbolRecord|null>}
    */
   async getSymbolRecord(workspaceId, path) {
-    const key = recordKey(workspaceId, path);
+    let ws = workspaceId;
+    let p = path;
+    if (typeof p !== "string") {
+      p = ws;
+      ws = "default";
+    }
+    const key = recordKey(ws, p);
 
     const db = await this.open();
     if (!db) return this._mem.get(key) || null;
@@ -132,18 +138,31 @@ export class CodeSearchIndexStore {
    * @returns {Promise<string>}
    */
   async putSymbolRecord(workspaceId, path, { sha256, symbols, updatedAt } = {}) {
-    const ws = normalizeWorkspaceId(workspaceId);
-    const p = normalizePath(path);
-    if (!p) throw new Error("putSymbolRecord: path is required");
+    let ws = workspaceId;
+    let p = path;
+    let params = { sha256, symbols, updatedAt };
+    if (typeof p !== "string") {
+      params = isPlainObject(p) ? p : { sha256, symbols, updatedAt };
+      p = ws;
+      ws = "default";
+    }
+    const normalizedParams = isPlainObject(params) ? params : { sha256, symbols, updatedAt };
+    const wsId = normalizeWorkspaceId(ws);
+    const pPath = normalizePath(p);
+    if (!pPath) throw new Error("putSymbolRecord: path is required");
 
-    const key = recordKey(ws, p);
+    const key = recordKey(wsId, pPath);
     const record = {
       key,
-      workspaceId: ws,
-      path: p,
-      sha256: typeof sha256 === "string" ? sha256 : null,
-      symbols: Array.isArray(symbols) ? symbols : [],
-      updatedAt: typeof updatedAt === "string" ? updatedAt : new Date().toISOString(),
+      workspaceId: wsId,
+      path: pPath,
+      sha256: typeof normalizedParams.sha256 === "string"
+        ? normalizedParams.sha256
+        : typeof normalizedParams.hash === "string"
+          ? normalizedParams.hash
+          : null,
+      symbols: Array.isArray(normalizedParams.symbols) ? normalizedParams.symbols : [],
+      updatedAt: typeof normalizedParams.updatedAt === "string" ? normalizedParams.updatedAt : new Date().toISOString(),
     };
 
     const db = await this.open();

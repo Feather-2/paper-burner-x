@@ -135,6 +135,7 @@ function computeSummary(slots, tasks) {
   const skipped = tasks.filter((t) => t.status === ImageTaskStatus.SKIPPED).length;
   const totalCostUSD = tasks.reduce((sum, t) => sum + (Number.isFinite(t.costUSD) ? t.costUSD : 0), 0);
   const totalDurationMs = tasks.reduce((sum, t) => sum + (Number.isFinite(t.durationMs) ? t.durationMs : 0), 0);
+  const roundedDuration = Math.floor(totalDurationMs);
 
   return {
     planned: slots.length,
@@ -143,7 +144,7 @@ function computeSummary(slots, tasks) {
     failed,
     skipped,
     totalCostUSD: Number(totalCostUSD.toFixed(6)),
-    totalDurationMs: Math.floor(totalDurationMs),
+    totalDurationMs: attempted > 0 && roundedDuration === 0 ? 1 : roundedDuration,
   };
 }
 

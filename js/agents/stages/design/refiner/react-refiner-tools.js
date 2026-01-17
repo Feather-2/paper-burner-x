@@ -169,18 +169,21 @@ let _domPurifyPromise = null;
 let _domPurify = null;
 
 async function getDomPurify() {
+  const globalPurifier = /** @type {any} */ (globalThis).DOMPurify;
+  if (globalPurifier && typeof globalPurifier.sanitize === "function") {
+    _domPurify = globalPurifier;
+    return _domPurify;
+  }
+
   // DOMPurify is primarily needed for browser rendering safety.
-  // In Node.js, prefer our element-tree sanitizer (linkedom) to avoid relying on
-  // partial DOM implementations that may not enforce URL sanitization correctly.
+  // In Node.js, prefer our element-tree sanitizer (linkedom) unless a global
+  // DOMPurify has been explicitly provided (handled above).
   if (!isBrowserEnv()) return null;
 
   if (_domPurify && typeof _domPurify.sanitize === "function") return _domPurify;
   if (_domPurifyPromise) return _domPurifyPromise;
 
   _domPurifyPromise = (async () => {
-    const globalPurifier = /** @type {any} */ (globalThis).DOMPurify;
-    if (globalPurifier && typeof globalPurifier.sanitize === "function") return globalPurifier;
-
     try {
       const mod = await import("dompurify");
       const maybeFactory = /** @type {any} */ (mod).default || mod;

@@ -318,7 +318,11 @@ function resolveMessageBus({ messageBus, eventBus, container } = {}) {
   if (fromContainer) return fromContainer;
   // 如果有 eventBus，创建新的 MessageBus
   if (eventBus && typeof eventBus.emit === "function") {
-    return new MessageBus(eventBus);
+    try {
+      return new MessageBus(eventBus);
+    } catch {
+      return null;
+    }
   }
   return null;
 }

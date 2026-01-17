@@ -110,14 +110,27 @@ export class WorkerPool {
       return Promise.reject(new Error("WorkerPool is closed"));
     }
 
-    const { priority = TaskPriority.NORMAL, signal, timeoutMs } = options;
+    let execParams = params;
+    let execOptions = options;
+    if (arguments.length === 2 && params && typeof params === "object" && !Array.isArray(params)) {
+      const optionKeys = ["priority", "signal", "timeoutMs"];
+      const keys = Object.keys(params);
+      const hasOptionKey = keys.some((key) => optionKeys.includes(key));
+      const hasNonOptionKey = keys.some((key) => !optionKeys.includes(key));
+      if (hasOptionKey && !hasNonOptionKey) {
+        execOptions = params;
+        execParams = undefined;
+      }
+    }
+
+    const { priority = TaskPriority.NORMAL, signal, timeoutMs } = execOptions ?? {};
 
     if (signal?.aborted) {
       return Promise.reject(new Error("Aborted"));
     }
 
     return new Promise((resolve, reject) => {
-      const task = { method, params, priority, resolve, reject, signal, timeoutMs, abortListener: null };
+      const task = { method, params: execParams, priority, resolve, reject, signal, timeoutMs, abortListener: null };
 
       // Insert by priority (lower = higher priority)
       let inserted = false;

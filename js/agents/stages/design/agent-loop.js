@@ -206,6 +206,20 @@ export class DesignAgentLoop extends BaseAgentLoop {
   }
 
   /**
+   * @returns {string}
+   */
+  getPhase() {
+    return this.phase?.status || DesignPhase.IDLE;
+  }
+
+  /**
+   * @returns {string}
+   */
+  getStatus() {
+    return this._loopStatus || AgentStatus.IDLE;
+  }
+
+  /**
    * 从容器或 context 解析依赖
    * @private
    * @param {string} serviceId

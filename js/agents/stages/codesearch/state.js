@@ -373,7 +373,7 @@ export class CodeSearchState {
    * @returns {CodeSearchStateSnapshot}
    */
   buildStateSnapshot() {
-    return {
+    const snapshot = {
       schemaVersion: this.schemaVersion,
       runId: this.runId,
       createdAt: this.createdAt,
@@ -388,6 +388,8 @@ export class CodeSearchState {
       finalThought: this.finalThought,
       budgetUsage: this.budgetUsage ? cloneValue(this.budgetUsage) : null,
     };
+    snapshot.length = JSON.stringify(snapshot).length;
+    return snapshot;
   }
 
   /**
