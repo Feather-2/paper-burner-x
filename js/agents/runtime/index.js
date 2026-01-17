@@ -83,6 +83,10 @@ export {
 } from "./compression/proactive-compressor.js";
 export { CompressionQualityMonitor } from "./compression/quality-monitor.js";
 
+// Coordination
+export { TabCoordinator } from "./coordination/tab-coordinator.js";
+export { ProcessCoordinator, isClusterSupported } from "./coordination/process-coordinator.js";
+
 // Telemetry
 export { getRuntimeState, setRuntimeState } from "./telemetry/loop-runtime-state.js";
 export { RunReplayController } from "./telemetry/replay-controller.js";

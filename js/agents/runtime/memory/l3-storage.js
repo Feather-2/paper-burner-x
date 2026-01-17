@@ -3,6 +3,23 @@ import DisposableBase from "../../shared/base/disposable-base.js";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+const TAB_COORDINATOR_HOOKS_KEY = "__l3StorageHooks";
+
+/**
+ * @typedef {object} L3TimelineEntry
+ * @property {string} id
+ * @property {number} ts
+ * @property {number} [accessedAt]
+ * @property {string} [summary]
+ * @property {string} [stageKey]
+ * @property {boolean} [superseded]
+ * @property {string} [supersededBy]
+ *
+ * @typedef {object} L3TimelineOptions
+ * @property {boolean} [includeSuperseded]
+ */
+
+/** @typedef {import("../coordination/tab-coordinator.js").TabCoordinator} TabCoordinator */
 
 /**
  * cyrb53 - fast, high-quality 53-bit hash.
@@ -44,6 +61,87 @@ function computeContentHash(data) {
 function toNonEmptyString(value) {
   const s = typeof value === "string" ? value.trim() : "";
   return s ? s : null;
+}
+
+function encodeTabCoordinatorSession(runId, snapshotId) {
+  const resolvedRunId = toNonEmptyString(runId);
+  const resolvedSnapshotId = toNonEmptyString(snapshotId);
+  if (!resolvedRunId || !resolvedSnapshotId) return null;
+  return JSON.stringify({ runId: resolvedRunId, snapshotId: resolvedSnapshotId });
+}
+
+function decodeTabCoordinatorSession(sessionId) {
+  const raw = toNonEmptyString(sessionId);
+  if (!raw) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const runId = toNonEmptyString(parsed.runId);
+  const snapshotId = toNonEmptyString(parsed.snapshotId);
+  if (!runId || !snapshotId) return null;
+  return { runId, snapshotId };
+}
+
+function callTabCoordinatorHandler(handler, sessionId, label) {
+  if (typeof handler !== "function") return;
+  try {
+    handler(sessionId);
+  } catch (err) {
+    console.warn(`[L3Storage] tabCoordinator ${label} handler error:`, err);
+  }
+}
+
+function callTabCoordinatorHandlers(handlers, sessionId, label) {
+  for (const handler of handlers) {
+    callTabCoordinatorHandler(handler, sessionId, label);
+  }
+}
+
+function ensureTabCoordinatorHooks(tabCoordinator) {
+  const coordinator = tabCoordinator && typeof tabCoordinator === "object" ? tabCoordinator : null;
+  if (!coordinator) return null;
+
+  const existing = coordinator[TAB_COORDINATOR_HOOKS_KEY];
+  if (existing && existing.eviction && existing.access) {
+    return existing;
+  }
+
+  const hooks = {
+    eviction: new Set(),
+    access: new Set(),
+    originalEviction: typeof coordinator._onEviction === "function" ? coordinator._onEviction : null,
+    originalAccess: typeof coordinator._onAccess === "function" ? coordinator._onAccess : null,
+  };
+
+  coordinator[TAB_COORDINATOR_HOOKS_KEY] = hooks;
+
+  coordinator._onEviction = (sessionId) => {
+    callTabCoordinatorHandler(hooks.originalEviction, sessionId, "onEviction");
+    callTabCoordinatorHandlers(hooks.eviction, sessionId, "onEviction");
+  };
+
+  coordinator._onAccess = (sessionId) => {
+    callTabCoordinatorHandler(hooks.originalAccess, sessionId, "onAccess");
+    callTabCoordinatorHandlers(hooks.access, sessionId, "onAccess");
+  };
+
+  return hooks;
+}
+
+function releaseTabCoordinatorHooks(tabCoordinator, hooks) {
+  const coordinator = tabCoordinator && typeof tabCoordinator === "object" ? tabCoordinator : null;
+  if (!coordinator || !hooks) return;
+  if (coordinator[TAB_COORDINATOR_HOOKS_KEY] !== hooks) return;
+
+  if (hooks.eviction.size === 0 && hooks.access.size === 0) {
+    coordinator._onEviction = hooks.originalEviction || null;
+    coordinator._onAccess = hooks.originalAccess || null;
+    delete coordinator[TAB_COORDINATOR_HOOKS_KEY];
+  }
 }
 
 function normalizeKeywords(keywords) {
@@ -109,6 +207,7 @@ export class L3Storage extends DisposableBase {
    * @param {boolean} [options.deduplicateByDefault=true] - Default deduplication behavior
    * @param {number} [options.maxSnapshots=1000] - Max snapshot count before eviction
    * @param {number} [options.maxStorageBytes=104857600] - Max storage bytes before eviction (100MB)
+   * @param {TabCoordinator} [options.tabCoordinator] - Optional TabCoordinator for cross-tab LRU sync
    * @param {object} [options.eventBus] - Optional EventBus for emitting l3:evicted events
    */
   constructor(options) {
@@ -146,6 +245,10 @@ export class L3Storage extends DisposableBase {
         ? Math.floor(maxStorageBytesRaw)
         : DEFAULT_MAX_STORAGE_BYTES;
 
+    /** @private */
+    this._tabCoordinator = o.tabCoordinator && typeof o.tabCoordinator === "object" ? o.tabCoordinator : null;
+    /** @private */
+    this._tabCoordinatorListeners = null;
     /** @private */
     this._eventBus = o.eventBus && typeof o.eventBus === "object" ? o.eventBus : null;
 
@@ -261,7 +364,157 @@ export class L3Storage extends DisposableBase {
 
     await this._ensureDirs();
     await this.restoreIndex();
+    await this._attachTabCoordinator();
     this._initialized = true;
+  }
+
+  /**
+   * Attach tabCoordinator listeners for cross-tab LRU updates.
+   * @private
+   * @returns {Promise<void>}
+   */
+  async _attachTabCoordinator() {
+    if (this._tabCoordinatorListeners) return;
+    const coordinator = this._tabCoordinator;
+    if (!coordinator || typeof coordinator !== "object") return;
+
+    if (typeof coordinator.init === "function") {
+      try {
+        await coordinator.init();
+      } catch (err) {
+        console.warn("[L3Storage] tabCoordinator init failed:", err);
+      }
+    }
+
+    const hooks = ensureTabCoordinatorHooks(coordinator);
+    if (!hooks) return;
+
+    const evictionHandler = (sessionId) => {
+      const snapshotId = this._parseTabCoordinatorSessionId(sessionId);
+      if (!snapshotId) return;
+      this._handleRemoteEviction(snapshotId);
+    };
+
+    const accessHandler = (sessionId) => {
+      const snapshotId = this._parseTabCoordinatorSessionId(sessionId);
+      if (!snapshotId) return;
+      this._handleRemoteAccess(snapshotId);
+    };
+
+    hooks.eviction.add(evictionHandler);
+    hooks.access.add(accessHandler);
+    this._tabCoordinatorListeners = { coordinator, hooks, evictionHandler, accessHandler };
+  }
+
+  /**
+   * Detach tabCoordinator listeners.
+   * @private
+   * @returns {void}
+   */
+  _detachTabCoordinator() {
+    const listeners = this._tabCoordinatorListeners;
+    if (!listeners) return;
+    const { coordinator, hooks, evictionHandler, accessHandler } = listeners;
+    if (hooks?.eviction) hooks.eviction.delete(evictionHandler);
+    if (hooks?.access) hooks.access.delete(accessHandler);
+    releaseTabCoordinatorHooks(coordinator, hooks);
+    this._tabCoordinatorListeners = null;
+  }
+
+  /**
+   * @private
+   * @param {string} snapshotId
+   * @returns {string | null}
+   */
+  _buildTabCoordinatorSessionId(snapshotId) {
+    return encodeTabCoordinatorSession(this._runId, snapshotId);
+  }
+
+  /**
+   * @private
+   * @param {string} sessionId
+   * @returns {string | null}
+   */
+  _parseTabCoordinatorSessionId(sessionId) {
+    const parsed = decodeTabCoordinatorSession(sessionId);
+    if (!parsed || parsed.runId !== this._runId) return null;
+    return parsed.snapshotId;
+  }
+
+  /**
+   * @private
+   * @param {string} snapshotId
+   * @returns {void}
+   */
+  _broadcastEviction(snapshotId) {
+    const coordinator = this._tabCoordinator;
+    if (!coordinator || typeof coordinator.broadcastEviction !== "function") return;
+    const sessionId = this._buildTabCoordinatorSessionId(snapshotId);
+    if (!sessionId) return;
+    coordinator.broadcastEviction(sessionId);
+  }
+
+  /**
+   * @private
+   * @param {string} snapshotId
+   * @returns {void}
+   */
+  _broadcastAccess(snapshotId) {
+    const coordinator = this._tabCoordinator;
+    if (!coordinator || typeof coordinator.broadcastAccess !== "function") return;
+    const sessionId = this._buildTabCoordinatorSessionId(snapshotId);
+    if (!sessionId) return;
+    coordinator.broadcastAccess(sessionId);
+  }
+
+  /**
+   * Remove locally cached data for snapshots evicted by another tab.
+   * @private
+   * @param {string} snapshotId
+   * @returns {void}
+   */
+  _handleRemoteEviction(snapshotId) {
+    if (this.disposed) return;
+    const id = toNonEmptyString(snapshotId);
+    if (!id) return;
+
+    this._snapshotCache.delete(id);
+
+    const timeline = Array.isArray(this._index.timeline) ? this._index.timeline : [];
+    this._index.timeline = timeline.filter((e) => e?.id !== id);
+
+    for (const [, idSet] of this._index.keywords) {
+      idSet.delete(id);
+    }
+
+    for (const [stage, snapId] of this._index.stages) {
+      if (snapId === id) {
+        this._index.stages.delete(stage);
+      }
+    }
+
+    for (const [hash, snapId] of this._index.hashIndex) {
+      if (snapId === id) {
+        this._index.hashIndex.delete(hash);
+      }
+    }
+  }
+
+  /**
+   * Update local LRU access timestamp for snapshots touched by another tab.
+   * @private
+   * @param {string} snapshotId
+   * @returns {void}
+   */
+  _handleRemoteAccess(snapshotId) {
+    if (this.disposed) return;
+    const id = toNonEmptyString(snapshotId);
+    if (!id) return;
+
+    const timelineEntry = this._index.timeline.find((e) => e?.id === id);
+    if (timelineEntry) {
+      timelineEntry.accessedAt = Date.now();
+    }
   }
 
   /**
@@ -353,12 +606,16 @@ export class L3Storage extends DisposableBase {
     }
 
     const cached = this._snapshotCache.get(snapId);
-    if (cached) return cached;
+    if (cached) {
+      this._broadcastAccess(snapId);
+      return cached;
+    }
 
     const entry = await this._readJson(this._snapshotPath(snapId));
     if (!entry) return null;
 
     this._snapshotCache.set(snapId, entry);
+    this._broadcastAccess(snapId);
     return entry;
   }
 
@@ -665,6 +922,10 @@ export class L3Storage extends DisposableBase {
       if (this._eventBus && typeof this._eventBus.emit === "function") {
         this._eventBus.emit("l3:evicted", { runId: this._runId, evictedIds: evicted, count: evicted.length });
       }
+
+      for (const id of evicted) {
+        this._broadcastEviction(id);
+      }
     }
   }
 
@@ -682,6 +943,18 @@ export class L3Storage extends DisposableBase {
     };
   }
 
+  /** @returns {number} */
+  get supersededSnapshotCount() {
+    const timeline = Array.isArray(this._index.timeline) ? this._index.timeline : [];
+    let count = 0;
+    for (const entry of timeline) {
+      if (entry && typeof entry === "object" && entry.superseded === true) {
+        count += 1;
+      }
+    }
+    return count;
+  }
+
   /**
    * Wait for any pending eviction to complete.
    * Useful for testing to ensure eviction finishes before assertions.
@@ -694,25 +967,134 @@ export class L3Storage extends DisposableBase {
   }
 
   /**
-   * Return the current timeline (metadata only).
-   * @returns {Array<{id: string, ts: number, summary?: string, stageKey?: string}>}
+   * Mark a snapshot as superseded in the timeline and index.
+   * @param {string} snapshotId
+   * @param {string} correction
+   * @returns {Promise<boolean>} true if newly superseded
    */
-  getTimeline() {
+  async markSnapshotSuperseded(snapshotId, correction) {
+    this._ensureNotDisposed();
+    await this.init();
+
+    const id = toNonEmptyString(snapshotId);
+    if (!id) return false;
+
     const timeline = Array.isArray(this._index.timeline) ? this._index.timeline : [];
-    return timeline.map((e) => (e && typeof e === "object" ? { ...e } : e));
+    const entry = timeline.find((e) => e?.id === id);
+    if (!entry) return false;
+
+    const correctionText = typeof correction === "string" ? correction : String(correction ?? "");
+    const wasSuperseded = entry.superseded === true;
+    entry.superseded = true;
+    entry.supersededBy = correctionText;
+
+    const cached = this._snapshotCache.get(id);
+    if (cached && typeof cached === "object") {
+      cached.superseded = true;
+      cached.supersededBy = correctionText;
+      await this._writeJson(this._snapshotPath(id), cached);
+    }
+
+    await this.persistIndex();
+    return !wasSuperseded;
+  }
+
+  /**
+   * Mark multiple snapshots as superseded.
+   * @param {string[]} ids
+   * @param {string} correction
+   * @returns {Promise<number>} count of newly superseded snapshots
+   */
+  async markSnapshotsSuperseded(ids, correction) {
+    this._ensureNotDisposed();
+    await this.init();
+
+    const list = Array.isArray(ids) ? ids : [];
+    if (list.length === 0) return 0;
+
+    const correctionText = typeof correction === "string" ? correction : String(correction ?? "");
+    const timeline = Array.isArray(this._index.timeline) ? this._index.timeline : [];
+    let marked = 0;
+    let touched = false;
+
+    for (const rawId of list) {
+      const id = toNonEmptyString(rawId);
+      if (!id) continue;
+      const entry = timeline.find((e) => e?.id === id);
+      if (!entry) continue;
+      const wasSuperseded = entry.superseded === true;
+      entry.superseded = true;
+      entry.supersededBy = correctionText;
+      if (!wasSuperseded) marked += 1;
+      touched = true;
+
+      const cached = this._snapshotCache.get(id);
+      if (cached && typeof cached === "object") {
+        cached.superseded = true;
+        cached.supersededBy = correctionText;
+        await this._writeJson(this._snapshotPath(id), cached);
+      }
+    }
+
+    if (touched) {
+      await this.persistIndex();
+    }
+
+    return marked;
+  }
+
+  /**
+   * Return the current timeline (metadata only).
+   * @param {L3TimelineOptions} [options]
+   * @returns {L3TimelineEntry[]}
+   */
+  getTimeline(options = {}) {
+    const includeSuperseded = options?.includeSuperseded === true;
+    const timeline = Array.isArray(this._index.timeline) ? this._index.timeline : [];
+    const filtered = includeSuperseded
+      ? timeline
+      : timeline.filter((e) => !(e && typeof e === "object" && e.superseded === true));
+    return filtered.map((e) => (e && typeof e === "object" ? { ...e } : e));
+  }
+
+  /**
+   * Return only superseded timeline entries (metadata only).
+   * @returns {L3TimelineEntry[]}
+   */
+  getSupersededTimeline() {
+    const timeline = Array.isArray(this._index.timeline) ? this._index.timeline : [];
+    return timeline
+      .filter((e) => e && typeof e === "object" && e.superseded === true)
+      .map((e) => ({ ...e }));
   }
 
   /**
    * Search archived snapshot IDs by keyword (index-only, sync).
    * @param {string} keyword
+   * @param {L3TimelineOptions} [options]
    * @returns {string[]} Snapshot IDs
    */
-  searchByKeyword(keyword) {
+  searchByKeyword(keyword, options = {}) {
     const k = typeof keyword === "string" ? keyword.trim().toLowerCase() : "";
     if (!k) return [];
     const ids = this._index.keywords.get(k);
     if (!ids) return [];
-    return Array.from(ids || []);
+    const list = Array.from(ids || []);
+    const includeSuperseded = options?.includeSuperseded === true;
+    if (includeSuperseded) return list;
+
+    const timeline = Array.isArray(this._index.timeline) ? this._index.timeline : [];
+    if (timeline.length === 0) return list;
+
+    const supersededIds = new Set();
+    for (const entry of timeline) {
+      const id = typeof entry?.id === "string" ? entry.id : null;
+      if (id && entry && typeof entry === "object" && entry.superseded === true) {
+        supersededIds.add(id);
+      }
+    }
+
+    return list.filter((id) => !supersededIds.has(id));
   }
 
   /**
@@ -742,6 +1124,7 @@ export class L3Storage extends DisposableBase {
    */
   async dispose() {
     if (this.disposed) return;
+    this._detachTabCoordinator();
     try {
       await this.persistIndex();
     } catch (err) {
@@ -765,4 +1148,3 @@ export class L3Storage extends DisposableBase {
 export function createL3Storage(options) {
   return new L3Storage(options);
 }
-

@@ -37,6 +37,7 @@ Agent Loop 基础设施，包括生命周期、工具执行、压缩、遥测和
 | **safety** | `safety/` | 命令分类器 |
 | **analysis** | `analysis/` | 行为分析 |
 | **transports** | `transports/CLAUDE.md` | 外部二进制通信 (ProcessTransport, BinarySkillProvider) |
+| **coordination** | `coordination/` | 跨环境协调 (TabCoordinator, ProcessCoordinator) |
 
 ## 状态机
 
@@ -94,3 +95,35 @@ if (tools.bash) {
   await tools.bash({ command: 'npm test' });
 }
 ```
+
+## Coordination (跨环境协调)
+
+浏览器和 Node 环境的跨实例协调：
+
+```javascript
+// 浏览器：跨标签页 LRU 同步
+import { TabCoordinator } from 'js/agents/runtime';
+
+const coordinator = new TabCoordinator({
+  onEviction: (sessionId) => console.log(`Session ${sessionId} evicted`),
+  onAccess: (sessionId) => console.log(`Session ${sessionId} accessed`),
+});
+
+coordinator.broadcastEviction('session_123');
+coordinator.broadcastAccess('session_123');
+coordinator.dispose();
+```
+
+```javascript
+// Node：跨进程 LRU 同步 (cluster 环境)
+import { ProcessCoordinator, isClusterSupported } from 'js/agents/runtime';
+
+if (isClusterSupported()) {
+  const coordinator = new ProcessCoordinator({
+    onEviction: (sessionId) => evictLocal(sessionId),
+    onAccess: (sessionId) => touchLocal(sessionId),
+  });
+  await coordinator.init();
+}
+```
+

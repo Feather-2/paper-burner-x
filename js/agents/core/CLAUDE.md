@@ -23,6 +23,7 @@
 | `plugin.js` | createPlugin, PluginManager, PluginContext |
 | `presets.js` | 预设配置 (minimal/standard/deepsearch/production) |
 | `compat.js` | 旧 API 兼容层 |
+| `secure-plugin-loader.js` | SecurePluginLoader - 远程插件 SRI 验证加载 |
 
 ## 子模块索引
 
@@ -58,4 +59,25 @@ const robustService = createRetryProxy(
 ```javascript
 eventBus.on('agent:*', handler);      // 通配符
 eventBus.on('llm:complete', handler); // 精确匹配
+```
+
+## 安全插件加载
+
+```javascript
+import { SecurePluginLoader } from 'js/agents/core';
+
+const loader = new SecurePluginLoader({ baseUrl: 'https://cdn.example.com' });
+
+// 加载远程插件 (SRI 验证)
+const plugin = await loader.loadPlugin('/plugins/analytics.js', {
+  integrity: 'sha256-abc123...',
+});
+
+// 批量加载
+const { loaded, failed } = await loader.loadPlugins({
+  plugins: [
+    { url: '/plugins/a.js', integrity: 'sha256-...' },
+    { url: '/plugins/b.js', integrity: 'sha256-...' },
+  ],
+});
 ```

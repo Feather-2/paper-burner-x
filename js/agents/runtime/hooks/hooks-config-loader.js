@@ -1,6 +1,7 @@
 import DisposableBase from "../../shared/base/disposable-base.js";
 import HookRegistry, { HookEvent, HookType } from "./hook-registry.js";
 import { isPlainObject, toNonEmptyString } from "../../shared/utils/value-utils.js";
+import { FileWatcher, isNativeWatchSupported } from "../../shared/utils/file-watcher.js";
 
 /** @type {Set<string>} */
 const VALID_HOOK_EVENTS = new Set(Object.values(HookEvent));
@@ -53,6 +54,7 @@ export class HooksConfigLoader extends DisposableBase {
    * @param {HookRegistry} options.registry - HookRegistry instance (required)
    * @param {string} [options.configPath='.agents/hooks.json'] - Config path in VFS
    * @param {number} [options.pollIntervalMs=2000] - Poll interval for hot reload
+   * @param {boolean} [options.useNativeWatch=true] - Prefer native fs.watch when available
    */
   constructor(options) {
     super();
@@ -83,6 +85,9 @@ export class HooksConfigLoader extends DisposableBase {
     /** @type {number} */
     this._pollIntervalMs = intervalMs;
 
+    /** @type {boolean} */
+    this._useNativeWatch = o.useNativeWatch !== false;
+
     /** @type {number} */
     this._lastModified = 0;
 
@@ -91,6 +96,9 @@ export class HooksConfigLoader extends DisposableBase {
 
     /** @type {ReturnType<typeof setInterval> | null} */
     this._watchTimer = null;
+
+    /** @type {FileWatcher | null} */
+    this._fileWatcher = null;
 
     /** @type {Promise<void> | null} */
     this._reloadPromise = null;
@@ -246,9 +254,22 @@ export class HooksConfigLoader extends DisposableBase {
   async startWatching() {
     this._ensureNotDisposed();
 
-    if (this._watchTimer) return;
-    if (!this._pollIntervalMs) return;
+    if (this._watchTimer || this._fileWatcher) return;
 
+    if (this._useNativeWatch && await isNativeWatchSupported()) {
+      this._fileWatcher = new FileWatcher({
+        path: this._configPath,
+        vfs: this._vfs,
+        pollIntervalMs: this._pollIntervalMs,
+        onChange: () => {
+          this.reload().catch((err) => console.warn("[HooksConfigLoader] reload failed", err));
+        },
+      });
+      await this._fileWatcher.start();
+      return;
+    }
+
+    if (!this._pollIntervalMs) return;
     this._watchTimer = setInterval(() => {
       // Ensure errors do not surface as unhandled promise rejections.
       this.reload().catch((err) => console.warn("[HooksConfigLoader] reload failed", err));
@@ -260,6 +281,10 @@ export class HooksConfigLoader extends DisposableBase {
    * @returns {void}
    */
   stopWatching() {
+    if (this._fileWatcher) {
+      this._fileWatcher.stop();
+      this._fileWatcher = null;
+    }
     if (!this._watchTimer) return;
     try {
       clearInterval(this._watchTimer);
@@ -348,4 +373,3 @@ export function createHooksConfigLoader(options) {
 }
 
 export default HooksConfigLoader;
-

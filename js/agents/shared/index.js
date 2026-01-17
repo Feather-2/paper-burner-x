@@ -17,6 +17,7 @@ export { safeExec, catchAndLog, makeSafe, isAbortError, isTimeoutError, wrapErro
 export { Deque } from "./utils/deque.js";
 export { safeJsonParse } from "./utils/safe-json.js";
 export { extractJsonCandidate, stripThinkingTags } from "./utils/json-candidate.js";
+export { FileWatcher } from "./utils/file-watcher.js";
 export {
   validateChunk,
   validateChunks,

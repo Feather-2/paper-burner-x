@@ -11,6 +11,7 @@
 | `TaskTool.js` | 子任务分发工具 |
 | `RecallTool.js` | 记忆检索工具 |
 | `BacktrackTool.js` | 状态回溯工具 |
+| `DMailTool.js` | D-Mail 软回溯工具 (Steins;Gate 梗) |
 | `schema-validator.js` | 工具参数 Schema 验证 |
 | `tool-quotas.js` | 工具配额管理 |
 
@@ -80,6 +81,27 @@ BACKTRACK_TOOL_DEFINITION = {
   name: 'backtrack',
   description: 'Revert to a previous state',
   parameters: { checkpoint: 'string' },
+};
+```
+
+### DMailTool
+
+```javascript
+import { createDMailTool, DMAIL_TOOL_DEFINITION } from 'js/agents/runtime/tools';
+
+const dmailTool = createDMailTool();
+
+// 调用 (发送 D-Mail 软回溯)
+const result = await dmailTool(
+  { correction: '前面的 API 调用应该用 POST 而不是 GET', severity: 'major' },
+  { emit: (event, payload) => eventBus.emit(event, payload) }
+);
+
+// 定义
+DMAIL_TOOL_DEFINITION = {
+  name: 'DMail',
+  description: 'Soft backtrack: send correction to past self without deleting history',
+  parameters: { correction: 'string', supersede_from: 'number?', supersede_to: 'number?', severity: 'minor|major|critical' },
 };
 ```
 

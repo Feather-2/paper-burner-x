@@ -14,6 +14,7 @@ export {
 export { createTaskTool, TASK_TOOL_DEFINITION, ContextMode } from './TaskTool.js';
 export { createRecallTool, RECALL_TOOL_DEFINITION } from './RecallTool.js';
 export { createBacktrackTool, BACKTRACK_TOOL_DEFINITION } from './BacktrackTool.js';
+export { createDMailTool, DMAIL_TOOL_DEFINITION } from './DMailTool.js';
 
 // Schema Validator
 export { validateToolSchema } from './schema-validator.js';

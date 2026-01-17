@@ -33,6 +33,7 @@ export {
   PluginManager,
   PluginStatus,
 } from './plugin.js';
+export { SecurePluginLoader } from './secure-plugin-loader.js';
 export {
   presets,
   resolvePreset,

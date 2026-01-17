@@ -30,6 +30,7 @@
 | `utils/cancellation.js` | 取消令牌 |
 | `utils/secure-id.js` | 安全 ID 生成 |
 | `utils/storage-crypto.js` | 存储加密 |
+| `utils/file-watcher.js` | FileWatcher - 跨平台文件监听 (Node: fs.watch, 浏览器: 轮询) |
 
 ### Platform (平台检测)
 
@@ -100,4 +101,19 @@ if (!req.ok) return console.warn(req.error);
 
 const toolResult = normalizeToolResult(rawOutput);
 // { ok, success, data, error?, meta? }
+```
+
+```javascript
+// 文件监听 (Node 端自动使用 fs.watch，浏览器降级轮询)
+import { FileWatcher, createFileWatcher, isNativeWatchSupported } from 'js/agents/shared';
+
+const watcher = createFileWatcher({
+  path: '/path/to/config.json',
+  onChange: (event) => console.log('File changed:', event.type),
+  pollIntervalMs: 2000,  // 仅浏览器端轮询使用
+});
+
+await watcher.start();
+// ... 使用
+watcher.dispose();
 ```
