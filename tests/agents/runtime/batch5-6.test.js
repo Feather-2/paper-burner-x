@@ -2,14 +2,21 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 const assert = require("node:assert/strict");
 
-it("PerformanceRouter: EWMA and routing", async (t) => {
-  const {
-    PerformanceRouter,
-    EwmaTracker,
-    ModelTier,
-    TaskComplexity,
-    estimateComplexity,
-  } = await import("../../../js/agents/runtime/routing/performance-router.js");
+describe("PerformanceRouter: EWMA and routing", () => {
+  let PerformanceRouter;
+  let EwmaTracker;
+  let ModelTier;
+  let TaskComplexity;
+  let estimateComplexity;
+
+  beforeEach(async () => {
+    const mod = await import("../../../js/agents/runtime/routing/performance-router.js");
+    PerformanceRouter = mod.PerformanceRouter;
+    EwmaTracker = mod.EwmaTracker;
+    ModelTier = mod.ModelTier;
+    TaskComplexity = mod.TaskComplexity;
+    estimateComplexity = mod.estimateComplexity;
+  });
 
   it("EwmaTracker computes EWMA", () => {
     const tracker = new EwmaTracker({ alpha: 0.5 });
@@ -141,12 +148,17 @@ it("PerformanceRouter: EWMA and routing", async (t) => {
   });
 });
 
-it("ToolQuotaManager: quota management", async (t) => {
-  const {
-    ToolQuotaManager,
-    ContractValidator,
-    createToolContract,
-  } = await import("../../../js/agents/runtime/tools/tool-quotas.js");
+describe("ToolQuotaManager: quota management", () => {
+  let ToolQuotaManager;
+  let ContractValidator;
+  let createToolContract;
+
+  beforeEach(async () => {
+    const mod = await import("../../../js/agents/runtime/tools/tool-quotas.js");
+    ToolQuotaManager = mod.ToolQuotaManager;
+    ContractValidator = mod.ContractValidator;
+    createToolContract = mod.createToolContract;
+  });
 
   it("setQuota configures tool quotas", () => {
     const manager = new ToolQuotaManager();
@@ -286,15 +298,23 @@ it("ToolQuotaManager: quota management", async (t) => {
   });
 });
 
-it("TraceContext: distributed tracing", async (t) => {
-  const {
-    TraceContext,
-    Span,
-    SpanStatus,
-    SpanKind,
-    generateTraceId,
-    generateSpanId,
-  } = await import("../../../js/agents/runtime/telemetry/trace-context.js");
+describe("TraceContext: distributed tracing", () => {
+  let TraceContext;
+  let Span;
+  let SpanStatus;
+  let SpanKind;
+  let generateTraceId;
+  let generateSpanId;
+
+  beforeEach(async () => {
+    const mod = await import("../../../js/agents/runtime/telemetry/trace-context.js");
+    TraceContext = mod.TraceContext;
+    Span = mod.Span;
+    SpanStatus = mod.SpanStatus;
+    SpanKind = mod.SpanKind;
+    generateTraceId = mod.generateTraceId;
+    generateSpanId = mod.generateSpanId;
+  });
 
   it("generateTraceId creates 32-char hex", () => {
     const id = generateTraceId();
@@ -385,11 +405,11 @@ it("TraceContext: distributed tracing", async (t) => {
   it("withSpan captures exceptions", async () => {
     const ctx = new TraceContext();
 
-    await expect(ctx.withSpan("failing").rejects.toThrow(async () => {
+    await expect(
+      ctx.withSpan("failing", async () => {
         throw new Error("fail");
-      }),
-      /fail/
-    );
+      })
+    ).rejects.toThrow(/fail/);
 
     const spans = ctx.getSpans();
     expect(spans[0].status).toBe(SpanStatus.ERROR);
@@ -435,13 +455,19 @@ it("TraceContext: distributed tracing", async (t) => {
   });
 });
 
-it("DegradationMatrix: resilience management", async (t) => {
-  const {
-    DegradationMatrix,
-    DegradationPolicy,
-    OperationLevel,
-    DegradationTrigger,
-  } = await import("../../../js/agents/runtime/resilience/degradation-matrix.js");
+describe("DegradationMatrix: resilience management", () => {
+  let DegradationMatrix;
+  let DegradationPolicy;
+  let OperationLevel;
+  let DegradationTrigger;
+
+  beforeEach(async () => {
+    const mod = await import("../../../js/agents/runtime/resilience/degradation-matrix.js");
+    DegradationMatrix = mod.DegradationMatrix;
+    DegradationPolicy = mod.DegradationPolicy;
+    OperationLevel = mod.OperationLevel;
+    DegradationTrigger = mod.DegradationTrigger;
+  });
 
   it("starts at NORMAL level", () => {
     const matrix = new DegradationMatrix();

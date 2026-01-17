@@ -553,8 +553,7 @@ describe("AgentOrchestrator", () => {
       orchestrator.registerStage("test", () => "result");
       orchestrator.stop();
 
-      await expect(() => orchestrator.runStage("test")).rejects.toThrow(/Run cancelled/
-      );
+      await expect(orchestrator.runStage("test")).rejects.toThrow(/Run cancelled/);
     });
   });
 
@@ -572,7 +571,7 @@ describe("AgentOrchestrator", () => {
         throw new Error("stage-error");
       });
 
-      await expect(() => orchestrator.runStage("fail"));
+      await expect(orchestrator.runStage("fail")).rejects.toThrow(/stage-error/);
       expect(orchestrator.state).toBe(OrchestratorState.FAILED);
     });
 
@@ -584,7 +583,7 @@ describe("AgentOrchestrator", () => {
         throw new Error("boom");
       });
 
-      await expect(() => orchestrator.runStage("fail"));
+      await expect(orchestrator.runStage("fail")).rejects.toThrow(/boom/);
       expect(events.length).toBe(1);
       expect(events[0].payload.error.includes("boom")).toBeTruthy();
     });

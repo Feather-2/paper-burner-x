@@ -161,11 +161,11 @@ describe("shared/utils/logger", () => {
         error: (msg, data) => logs.push({ level: "error", msg, data }),
       };
 
-      await expect(() => trackToolCall(logger, "failTool", {}, async () => {
+      await expect(
+        trackToolCall(logger, "failTool", {}, async () => {
           throw new Error("tool failed");
-        }),
-        /tool failed/
-      );
+        })
+      ).rejects.toThrow(/tool failed/);
 
       const errorLog = logs.find((l) => l.level === "error");
       expect(errorLog).toBeTruthy();

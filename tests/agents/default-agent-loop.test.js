@@ -72,7 +72,7 @@ it("BaseStage.execute emits failed event on error", async () => {
 
   const stage = new FailStage({ name: "fail", eventBus: { emit } });
 
-  await expect(() => stage.execute({}, {}, { emit }), /boom/);
+  await expect(stage.execute({}, {}, { emit })).rejects.toThrow(/boom/);
 
   expect(events.length).toBe(2);
   expect(events[0].name).toBe("fail.started");
@@ -95,7 +95,7 @@ it("BaseStage.execute respects cancellation before start", async () => {
   controller.abort("stop");
 
   const stage = new CancelStage({ name: "cancel", eventBus: { emit } });
-  await expect(() => stage.execute({}, {}, { emit, signal: controller.signal }),
+  await expect(stage.execute({}, {}, { emit, signal: controller.signal })).rejects.toSatisfy(
     (err) => err?.name === "AbortError"
   );
 
@@ -758,7 +758,7 @@ it("execute calls PostAgent hook with error on failure", async () => {
   }
 
   const loop = new FailLoop({ eventBus, stageName: "failure", actor: "failure" });
-  await expect(() => loop.execute({ sessionId: "s3" }, { text: "x" }, { eventBus }), /boom/);
+  await expect(loop.execute({ sessionId: "s3" }, { text: "x" }, { eventBus })).rejects.toThrow(/boom/);
 
   expect(postCalls.length).toBe(1);
   expect(postCalls[0].error.message).toBe("boom");

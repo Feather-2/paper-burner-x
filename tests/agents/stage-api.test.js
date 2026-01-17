@@ -360,9 +360,9 @@ describe("shared/utils/stage-api", () => {
         call: async () => { throw new Error("API error"); },
       };
       const runTool = createRunTool({ modelRouter, logger });
-      await expect(() => runTool("synthesize_claims", { claims: [] }),
-        /API error/
-      );
+      await expect(
+        runTool("synthesize_claims", { claims: [] })
+      ).rejects.toThrow(/API error/);
       expect(warned).toBeTruthy();
     });
 

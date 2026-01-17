@@ -621,13 +621,15 @@ it("DesignAgentLoop._transitionTo throws StagePausedError when pause requested",
   loop.pause("manual_pause");
 
   // Pause is checked when transitioning to RUNNING
-  await expect(() => loop._transitionTo(AgentStatus.RUNNING, { runId: "run_pause", checkpointId: "cp_pause" }),
-    (err) => {
-      expect(err instanceof StagePausedError).toBeTruthy();
-      expect(err.reason).toBe("manual_pause");
-      return true;
-    }
-  );
+  let pauseError = null;
+  try {
+    await loop._transitionTo(AgentStatus.RUNNING, { runId: "run_pause", checkpointId: "cp_pause" });
+  } catch (err) {
+    pauseError = err;
+  }
+
+  expect(pauseError instanceof StagePausedError).toBeTruthy();
+  expect(pauseError.reason).toBe("manual_pause");
 
   expect(loop.loopStatus).toBe(AgentStatus.PAUSED);
 });
@@ -1009,18 +1011,16 @@ it("resumeDesignAgentLoop continues after pause checkpoint", async () => {
   loop.pause("manual_pause");
 
   let checkpointId;
-  await expect(() =>
-      loop.run(contentPackage, {
-        runContext: { runId: contentPackage.runId, constraints: contentPackage.constraints },
-        toolExecutor,
-      }),
-    (err) => {
-      expect(err instanceof StagePausedError).toBeTruthy();
-      checkpointId = err.checkpointId;
-      expect(typeof checkpointId === "string" && checkpointId.includes(":")).toBeTruthy();
-      return true;
-    }
-  );
+  try {
+    await loop.run(contentPackage, {
+      runContext: { runId: contentPackage.runId, constraints: contentPackage.constraints },
+      toolExecutor,
+    });
+  } catch (err) {
+    expect(err instanceof StagePausedError).toBeTruthy();
+    checkpointId = err.checkpointId;
+    expect(typeof checkpointId === "string" && checkpointId.includes(":")).toBeTruthy();
+  }
 
   const calls = [];
   const resumedExecutor = async (name, params) => {

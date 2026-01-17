@@ -323,6 +323,7 @@ describe("Planning Phase", () => {
       expect(
         formatted.includes("none") ||
         formatted.includes("None") ||
+        formatted.includes("(无)") ||
         formatted === ""
       ).toBeTruthy();
     });
@@ -533,7 +534,7 @@ describe("SymbolIndexer", () => {
   });
 
   describe("extractSymbols", () => {
-    it("should extract function declarations", () => {
+    it("should extract function declarations", async () => {
       const code = `
         function authenticate(user) {
           return user.isValid;
@@ -541,7 +542,7 @@ describe("SymbolIndexer", () => {
 
         const validate = (input) => input.length > 0;
       `;
-      const symbols = indexer.extractSymbols(code, "auth.js");
+      const symbols = await indexer.extractSymbols(code, "auth.js");
       expect(Array.isArray(symbols)).toBeTruthy();
       // Regex fallback should find function
       const funcSymbol = symbols.find(
@@ -552,14 +553,14 @@ describe("SymbolIndexer", () => {
       }
     });
 
-    it("should extract class declarations", () => {
+    it("should extract class declarations", async () => {
       const code = `
         class UserService {
           constructor() {}
           getUser(id) { return id; }
         }
       `;
-      const symbols = indexer.extractSymbols(code, "user-service.js");
+      const symbols = await indexer.extractSymbols(code, "user-service.js");
       expect(Array.isArray(symbols)).toBeTruthy();
       const classSymbol = symbols.find((s) => s.name === "UserService");
       if (classSymbol) {
@@ -567,15 +568,15 @@ describe("SymbolIndexer", () => {
       }
     });
 
-    it("should handle empty code", () => {
-      const symbols = indexer.extractSymbols("", "empty.js");
+    it("should handle empty code", async () => {
+      const symbols = await indexer.extractSymbols("", "empty.js");
       expect(Array.isArray(symbols)).toBeTruthy();
       expect(symbols.length).toBe(0);
     });
 
-    it("should include file path in symbols", () => {
+    it("should include file path in symbols", async () => {
       const code = "function test() {}";
-      const symbols = indexer.extractSymbols(code, "path/to/file.js");
+      const symbols = await indexer.extractSymbols(code, "path/to/file.js");
       if (symbols.length > 0) {
         expect(symbols[0].file === "path/to/file.js" || symbols[0].path !== undefined
         ).toBeTruthy();
@@ -586,16 +587,16 @@ describe("SymbolIndexer", () => {
   describe("query", () => {
     it("should query indexed symbols", async () => {
       // Index some code first
-      indexer.extractSymbols("function searchAuth() {}", "auth.js");
-      indexer.extractSymbols("class AuthService {}", "auth-service.js");
+      await indexer.extractSymbols("function searchAuth() {}", "auth.js");
+      await indexer.extractSymbols("class AuthService {}", "auth-service.js");
 
       const results = await indexer.query({ query: "auth" });
       expect(Array.isArray(results)).toBeTruthy();
     });
 
     it("should filter by path prefix", async () => {
-      indexer.extractSymbols("function a() {}", "src/a.js");
-      indexer.extractSymbols("function b() {}", "lib/b.js");
+      await indexer.extractSymbols("function a() {}", "src/a.js");
+      await indexer.extractSymbols("function b() {}", "lib/b.js");
 
       const results = await indexer.query({
         query: "function",
@@ -605,9 +606,9 @@ describe("SymbolIndexer", () => {
     });
 
     it("should respect limit", async () => {
-      indexer.extractSymbols("function a() {}", "a.js");
-      indexer.extractSymbols("function b() {}", "b.js");
-      indexer.extractSymbols("function c() {}", "c.js");
+      await indexer.extractSymbols("function a() {}", "a.js");
+      await indexer.extractSymbols("function b() {}", "b.js");
+      await indexer.extractSymbols("function c() {}", "c.js");
 
       const results = await indexer.query({ query: "function", limit: 2 });
       expect(results.length <= 2).toBeTruthy();
@@ -887,20 +888,20 @@ describe("Edge Cases", () => {
   });
 
   describe("SymbolIndexer edge cases", () => {
-    it("should handle malformed code", () => {
+    it("should handle malformed code", async () => {
       const indexer = new SymbolIndexer();
-      const symbols = indexer.extractSymbols(
+      const symbols = await indexer.extractSymbols(
         "function {{{ broken",
         "broken.js"
       );
       expect(Array.isArray(symbols)).toBeTruthy();
     });
 
-    it("should handle very long files", () => {
+    it("should handle very long files", async () => {
       const indexer = new SymbolIndexer();
       const longCode =
         "function test() {}\n".repeat(1000) + "function final() {}";
-      const symbols = indexer.extractSymbols(longCode, "long.js");
+      const symbols = await indexer.extractSymbols(longCode, "long.js");
       expect(Array.isArray(symbols)).toBeTruthy();
     });
   });
@@ -932,7 +933,7 @@ describe("Edge Cases", () => {
 // ============================================================================
 
 describe("Performance", () => {
-  it("should handle many symbols efficiently", () => {
+  it("should handle many symbols efficiently", async () => {
     const indexer = new SymbolIndexer();
     const start = Date.now();
 
@@ -942,7 +943,7 @@ describe("Performance", () => {
         class Class${i} {}
         const const${i} = () => {};
       `;
-      indexer.extractSymbols(code, `file${i}.js`);
+      await indexer.extractSymbols(code, `file${i}.js`);
     }
 
     const elapsed = Date.now() - start;

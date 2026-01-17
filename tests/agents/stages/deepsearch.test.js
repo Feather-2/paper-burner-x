@@ -332,7 +332,9 @@ it("DeepSearchAgentLoop: run() with mocked phases completes successfully", async
   } catch (err) {
     // Expected to fail due to missing model caller in this mocked scenario
     // The test verifies the structure is correct
-    expect(err.message.includes("No model available")).toBeTruthy() || err.message.includes("model"));
+    expect(
+      err.message.includes("No model available") || err.message.includes("model")
+    ).toBeTruthy();
   }
 });
 
@@ -346,7 +348,9 @@ it("DeepSearch tools: getToolCatalogPrompt returns non-empty string", async () =
   const catalog = getToolCatalogPrompt();
   expect(typeof catalog).toBe("string");
   expect(catalog.length > 0).toBeTruthy();
-  expect(catalog.includes("list-docs")).toBeTruthy() || catalog.includes("read-doc"));
+  expect(
+    catalog.includes("list-docs") || catalog.includes("read-doc")
+  ).toBeTruthy();
 });
 
 it("DeepSearch tools: tools object contains expected tools", async () => {

@@ -1816,12 +1816,12 @@ describe("agents/llm/model-router", () => {
       return "a";
     });
 
-    await new Promise((resolve) => setImmediate(resolve));
-
-    await expect(limiter.schedule(() => "b")).rejects.toThrow(/queue full/i);
+    const p2 = limiter.schedule(() => "b");
+    await expect(limiter.schedule(() => "c")).rejects.toThrow(/queue full/i);
 
     release?.();
     await expect(p1).resolves.toBe("a");
+    await expect(p2).resolves.toBe("b");
   });
 
   it("TokenBucketRateLimiter: getState returns current state", async () => {

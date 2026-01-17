@@ -33,10 +33,10 @@ it("BaseAgentLoop helpers normalize and resolve", async () => {
   expect(() => checkPaused(null)).not.toThrow();
   expect(() => checkPaused(undefined)).not.toThrow();
 
-  expect(normalizeToolResult({ ok: false, error: "bad" })).toEqual({ ok: false, error: "bad" });
-  expect(normalizeToolResult({ error: "bad", data: 3 })).toEqual({ ok: false, data: 3, error: "bad" });
-  expect(normalizeToolResult({ data: 3 })).toEqual({ ok: true, data: 3, error: undefined });
-  expect(normalizeToolResult("value")).toEqual({ ok: true, data: "value" });
+  expect(normalizeToolResult({ ok: false, error: "bad" })).toEqual({ ok: false, success: false, data: undefined, error: "bad", meta: undefined });
+  expect(normalizeToolResult({ error: "bad", data: 3 })).toEqual({ ok: false, success: false, data: 3, error: "bad", meta: undefined });
+  expect(normalizeToolResult({ data: 3 })).toEqual({ ok: true, success: true, data: 3, error: undefined, meta: undefined });
+  expect(normalizeToolResult("value")).toEqual({ ok: true, success: true, data: "value" });
 
   const fn = () => {};
   expect(resolveToolExecutor({ toolExecutor: fn })).toBe(fn);
@@ -140,7 +140,7 @@ it("BaseAgentLoop uses tool executor when provided", async () => {
 
   const toolExecutor = async () => ({ data: "from-executor" });
   const result = await loop._callTool("external", { value: 1 }, { toolExecutor });
-  expect(result).toEqual({ ok: true, data: "from-executor", error: undefined });
+  expect(result).toEqual({ ok: true, success: true, data: "from-executor", error: undefined, meta: undefined });
 
   const executorObj = {
     execute: async () => ({ ok: false, error: "nope" }),
@@ -329,6 +329,6 @@ it("BaseStage execute emits failed when cancelled during run", async () => {
   }
 
   const stage = new TestStage();
-  await expect(() => stage.execute({ runId: "run_cancel" }, { value: 1 }, { emit, signal: controller.signal }), /stop|cancel/i);
+  await expect(stage.execute({ runId: "run_cancel" }, { value: 1 }, { emit, signal: controller.signal })).rejects.toThrow(/stop|cancel/i);
   expect(calls.some(e => e.name === "cancel.failed")).toBeTruthy();
 });

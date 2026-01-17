@@ -254,13 +254,13 @@ describe("RetrievalEngine prewarm", () => {
 
       const emitCalls = store.eventBus.emit.mock.calls;
       const progressEvents = emitCalls.filter(
-        (call) => call.arguments[0] === "retrieval:indexProgress"
+        (call) => call[0] === "retrieval:indexProgress"
       );
 
       expect(progressEvents.length > 0).toBeTruthy();
       const lastEvent = progressEvents[progressEvents.length - 1];
-      expect(lastEvent.arguments[0]).toBe("retrieval:indexProgress");
-      expect(lastEvent.arguments[1].coverage > 0).toBeTruthy();
+      expect(lastEvent[0]).toBe("retrieval:indexProgress");
+      expect(lastEvent[1].coverage > 0).toBeTruthy();
     });
 
     it("should handle embedding service errors gracefully", async () => {
@@ -335,7 +335,7 @@ describe("RetrievalEngine prewarm", () => {
 
       const emitCalls = store.eventBus.emit.mock.calls;
       const progressEvents = emitCalls.filter(
-        (call) => call.arguments[0] === "retrieval:indexProgress"
+        (call) => call[0] === "retrieval:indexProgress"
       );
 
       expect(progressEvents.length > 0).toBeTruthy();

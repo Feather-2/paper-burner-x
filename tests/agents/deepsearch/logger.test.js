@@ -168,12 +168,11 @@ it("Logger: trackToolCall success + failure", async () => {
     const ok = await trackToolCall(logger, "grep", { pattern: "x" }, async () => ["a", "b"]);
     expect(ok).toEqual(["a", "b"]);
 
-    await expect(() =>
-        trackToolCall(logger, "glob", { pattern: "*.js" }, async () => {
-          throw new Error("boom");
-        }),
-      /boom/
-    );
+    await expect(
+      trackToolCall(logger, "glob", { pattern: "*.js" }, async () => {
+        throw new Error("boom");
+      })
+    ).rejects.toThrow(/boom/);
 
     const toolEvents = emitted.filter((e) => e.payload.stage === "tool");
     expect(toolEvents.length >= 4).toBeTruthy();

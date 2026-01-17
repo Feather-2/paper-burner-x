@@ -30,7 +30,7 @@ it("ToolChain: normalizeToolChainStrategy", async () => {
   expect(normalizeToolChainStrategy("GLOB-THEN-GREP")).toBe(ToolChainStrategy.GLOB_THEN_GREP);
   expect(normalizeToolChainStrategy("grep-only")).toBe(ToolChainStrategy.GREP_ONLY);
   expect(normalizeToolChainStrategy("auto")).toBe(ToolChainStrategy.AUTO);
-  expect(normalizeToolChainStrategy("unknown")).toBe(undefined);
+  expect(normalizeToolChainStrategy("unknown")).toBe(null);
 });
 
 it("ToolChain: glob-then-grep with cache", async () => {
@@ -244,7 +244,9 @@ it("ToolChain: glob timeout fallback", async () => {
   // 应该降级到 grep-only（因为 glob 超时）
   expect(result.strategy).toBe("grep-only");
   expect(result.fallbackReason).toBeTruthy();
-  expect(result.fallbackReason.includes("timeout")).toBeTruthy() || result.fallbackReason.includes("glob_failed"));
+  expect(
+    result.fallbackReason.includes("timeout") || result.fallbackReason.includes("glob_failed")
+  ).toBeTruthy();
   expect(result.results.length).toBe(1);
 
   clearGlobCache();

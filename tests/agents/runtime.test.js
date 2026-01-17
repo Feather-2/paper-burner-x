@@ -187,14 +187,14 @@ it("Runtime: WorkerRpcClient dispose rejects pending calls and detaches listener
   const pending = client.call("hang", null, { timeoutMs: 1_000 });
   client.dispose();
 
-  await expect(async () => pending, /disposed/i);
+  await expect(pending).rejects.toThrow(/disposed/i);
   expect(client.worker).toBe(null);
   expect(client._pending.size).toBe(0);
   expect(worker.terminateCalls).toBe(1);
   expect(worker.listeners.message.size).toBe(0);
   expect(worker.listeners.error.size).toBe(0);
 
-  await expect(async () => client.call("ping", {}), /disposed/i);
+  await expect(client.call("ping", {})).rejects.toThrow(/disposed/i);
   expect(worker.postMessageCalls.length).toBe(1);
 });
 
@@ -234,7 +234,7 @@ it("Runtime: WorkerRpcClient call rejects after dispose without creating worker"
   });
 
   client.dispose();
-  await expect(async () => client.call("ping", {}), /disposed/i);
+  await expect(client.call("ping", {})).rejects.toThrow(/disposed/i);
   expect(created).toBe(0);
 });
 
@@ -250,13 +250,11 @@ it("MCP: parseSseStream enforces default size limits", async () => {
     },
   });
 
-  await expect(async () => {
-      for await (const _evt of parseSseStream(stream)) {
-        // drain
-      }
-    },
-    /SSE: line exceeds maxLineBytes/
-  );
+  await expect((async () => {
+    for await (const _evt of parseSseStream(stream)) {
+      // drain
+    }
+  })()).rejects.toThrow(/SSE: line exceeds maxLineBytes/);
 });
 
 it("VFS: MemoryVfs directory tree + mkdir/rmdir/unlink", async () => {
@@ -294,15 +292,15 @@ it("VFS: MemoryVfs directory tree + mkdir/rmdir/unlink", async () => {
   await vfs.appendText("a/d.txt", "!");
   expect(await vfs.readText("a/d.txt")).toBe("hi!");
 
-  await expect(async () => vfs.rmdir("a"), /ENOTEMPTY/);
+  await expect(vfs.rmdir("a")).rejects.toThrow(/ENOTEMPTY/);
 
   await vfs.unlink("a/b.txt");
   await vfs.unlink("a/d.txt");
   expect(await vfs.readdir("a")).toEqual([]);
   await vfs.rmdir("a");
 
-  await expect(async () => vfs.stat("a"), /ENOENT/);
-  await expect(async () => vfs.rmdir(""), /cannot remove root/);
+  await expect(vfs.stat("a")).rejects.toThrow(/ENOENT/);
+  await expect(vfs.rmdir("")).rejects.toThrow(/cannot remove root/);
 });
 
 it("VFS: MemoryVfs mkdir recursive=false semantics", async () => {
@@ -310,13 +308,13 @@ it("VFS: MemoryVfs mkdir recursive=false semantics", async () => {
   const vfs = new MemoryVfs();
 
   await vfs.mkdir("dir");
-  await expect(async () => vfs.mkdir("dir", { recursive: false }), /EEXIST/);
+  await expect(vfs.mkdir("dir", { recursive: false })).rejects.toThrow(/EEXIST/);
 
   await vfs.writeText("file.txt", "x");
-  await expect(async () => vfs.mkdir("file.txt", { recursive: true }), /EEXIST/);
-  await expect(async () => vfs.mkdir("file.txt", { recursive: false }), /EEXIST/);
+  await expect(vfs.mkdir("file.txt", { recursive: true })).rejects.toThrow(/EEXIST/);
+  await expect(vfs.mkdir("file.txt", { recursive: false })).rejects.toThrow(/EEXIST/);
 
-  await expect(async () => vfs.mkdir("missing/child", { recursive: false }), /ENOENT/);
+  await expect(vfs.mkdir("missing/child", { recursive: false })).rejects.toThrow(/ENOENT/);
 });
 
 it("VFS glob: createVfsGlobFn uses walkFiles + static dir prefix", async () => {
@@ -682,25 +680,23 @@ it("Runtime Core: EventBus replay loads events and marks meta.replay", async () 
   await expect(() => new EventBus().replay("run_test")).rejects.toThrow(/persistenceAdapter is required/);
 
   // Bad runId.
-  await expect(() =>
-      new EventBus({
-        persistenceAdapter: { appendEvents: async () => {}, getEvents: async () => [] },
-      }).replay(123),
-    /runId must be a string/
-  );
+  await expect(
+    new EventBus({
+      persistenceAdapter: { appendEvents: async () => {}, getEvents: async () => [] },
+    }).replay(123)
+  ).rejects.toThrow(/runId must be a string/);
 
   // getEvents throws -> wrapped error.
-  await expect(() =>
-      new EventBus({
-        persistenceAdapter: {
-          appendEvents: async () => {},
-          getEvents: async () => {
-            throw new Error("boom");
-          },
+  await expect(
+    new EventBus({
+      persistenceAdapter: {
+        appendEvents: async () => {},
+        getEvents: async () => {
+          throw new Error("boom");
         },
-      }).replay("run_test"),
-    /failed to load events/
-  );
+      },
+    }).replay("run_test")
+  ).rejects.toThrow(/failed to load events/);
 
   // Successful replay.
   const replayed = [];
@@ -745,7 +741,7 @@ it("Runtime Core: RunStoreAdapter validation + appendEvents branches", async () 
     };
     const adapter = new RunStoreAdapter(runStore);
 
-    await expect(() => adapter.appendEvents("nope")).rejects.toThrow(/events must be an array/);
+    await expect(adapter.appendEvents("nope")).rejects.toThrow(/events must be an array/);
     expect(await adapter.appendEvents([])).toBe(0);
 
     const n = await adapter.appendEvents([
@@ -772,8 +768,7 @@ it("Runtime Core: RunStoreAdapter validation + appendEvents branches", async () 
     };
     const adapter = new RunStoreAdapter(runStore);
 
-    // Invalid events are skipped (best-effort) rather than rejected.
-    expect(await adapter.appendEvents([{ name: "run.log" }])).toBe(1);
+    await expect(adapter.appendEvents([{ name: "run.log" }])).rejects.toThrow(/must include a string runId/);
     expect(calls.length).toBe(0);
 
     const n = await adapter.appendEvents([
@@ -1301,9 +1296,9 @@ it("PromptLoader: maxPromptBytes blocks oversized prompt fetch (browser)", async
       },
     });
 
-    await expect(() => loader.loadPrompt("deepsearch/system", { cache: false, manifestUrl }),
-      /exceeds limit/i
-    );
+    await expect(
+      loader.loadPrompt("deepsearch/system", { cache: false, manifestUrl })
+    ).rejects.toThrow(/exceeds limit/i);
     expect(manifestFetches).toBe(1);
     expect(promptFetches).toBe(1);
   } finally {

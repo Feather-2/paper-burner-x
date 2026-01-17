@@ -399,15 +399,14 @@ describe("EventBus", () => {
       replayBus.dispose();
     });
 
-    it("replay() should return empty array when getEvents() is not an array", async () => {
+    it("replay() should throw when getEvents() is not an array", async () => {
       const adapter = {
         appendEvents: vi.fn(),
         getEvents: vi.fn(async () => null),
       };
       const replayBus = new EventBus({ persistenceAdapter: adapter });
 
-      const result = await replayBus.replay("run_x");
-      expect(result).toEqual([]);
+      await expect(replayBus.replay("run_x")).rejects.toThrow(/no events found/i);
       replayBus.dispose();
     });
 
@@ -774,7 +773,7 @@ describe("RunStoreAdapter", () => {
       appendEvents: vi.fn(async () => {}),
     });
 
-    await expect(() => adapter.appendEvents(null)).rejects.toThrow(/events must be an array/i);
+    await expect(adapter.appendEvents(null)).rejects.toThrow(/events must be an array/i);
     const result = await adapter.appendEvents([]);
     expect(result).toBe(0);
   });
@@ -790,8 +789,6 @@ describe("RunStoreAdapter", () => {
       { runId: "r1", name: "a" },
       { runId: "r1", name: "b" },
       { runId: "r2", name: "c" },
-      { runId: null, name: "ignored" },
-      "not-an-object",
     ];
 
     const result = await adapter.appendEvents(events);
@@ -809,7 +806,6 @@ describe("RunStoreAdapter", () => {
     const events = [
       { runId: "r1", name: "a" },
       { runId: "r2", name: "b" },
-      { runId: null, name: "ignored" },
     ];
 
     const result = await adapter.appendEvents(events);

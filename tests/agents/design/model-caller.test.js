@@ -170,9 +170,9 @@ it("Design model-caller: logger injection, debug gating, hard timeout, and clean
     };
 
     const callModel = getDesignModelCaller(stageApi);
-    await expect(() => callModel([{ role: "user", content: "hi" }], { signal: outerSignal }),
-      (err) => err && err.code === 124 && err.name === "TimeoutError"
-    );
+    await expect(
+      callModel([{ role: "user", content: "hi" }], { signal: outerSignal })
+    ).rejects.toMatchObject({ code: 124, name: "TimeoutError" });
 
     expect(capturedHardSignal && capturedHardSignal.aborted === true).toBeTruthy();
     expect(outerSignal._listeners.size).toBe(0);
@@ -201,15 +201,21 @@ it("Design model-caller: logger injection, debug gating, hard timeout, and clean
 
     const abortedString = createFakeSignal();
     abortedString.abort("stop-now");
-    await expect(() => callModel([{ role: "user", content: "hi" }], { signal: abortedString }), /stop-now/);
+    await expect(
+      callModel([{ role: "user", content: "hi" }], { signal: abortedString })
+    ).rejects.toThrow(/stop-now/);
 
     const abortedError = createFakeSignal();
     abortedError.abort(new Error("stop-error"));
-    await expect(() => callModel([{ role: "user", content: "hi" }], { signal: abortedError }), /stop-error/);
+    await expect(
+      callModel([{ role: "user", content: "hi" }], { signal: abortedError })
+    ).rejects.toThrow(/stop-error/);
 
     const abortedUnknown = createFakeSignal();
     abortedUnknown.abort({ any: "thing" });
-    await expect(() => callModel([{ role: "user", content: "hi" }], { signal: abortedUnknown }), /Run cancelled/);
+    await expect(
+      callModel([{ role: "user", content: "hi" }], { signal: abortedUnknown })
+    ).rejects.toThrow(/Run cancelled/);
   });
 
   // aiApiService.chat fallback path
@@ -249,4 +255,3 @@ it("Design model-caller: logger injection, debug gating, hard timeout, and clean
     expect(seen[0].opts.signal && typeof seen[0].opts.signal.addEventListener === "function").toBeTruthy();
   });
 });
-

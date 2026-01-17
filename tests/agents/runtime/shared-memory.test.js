@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
 
 const assert = require("node:assert/strict");
 
@@ -26,9 +26,17 @@ function withProperty(name, descriptor, fn) {
   }
 }
 
-it("SharedMemoryBridge: support detection + SAB path", async (t) => {
-  const mod = await import("../../../js/agents/runtime/core/shared-memory.js");
-  const { SharedMemoryBridge, pack, unpack } = mod;
+describe("SharedMemoryBridge: support detection + SAB path", () => {
+  let SharedMemoryBridge;
+  let pack;
+  let unpack;
+
+  beforeAll(async () => {
+    const mod = await import("../../../js/agents/runtime/core/shared-memory.js");
+    SharedMemoryBridge = mod.SharedMemoryBridge;
+    pack = mod.pack;
+    unpack = mod.unpack;
+  });
 
   it("getSupport() reports SAB + COI gating", () => {
     const baseline = SharedMemoryBridge.getSupport();
@@ -96,7 +104,7 @@ it("SharedMemoryBridge: support detection + SAB path", async (t) => {
   it("copyToShared() respects COI gating when known=false/true", () => {
     // When COI is explicitly false, treat SAB as disabled and require fallback.
     withGlobal("crossOriginIsolated", false, () => {
-      expect(() => SharedMemoryBridge.copyToShared(new Uint8Array([1]).toThrow()), /not enabled/);
+      expect(() => SharedMemoryBridge.copyToShared(new Uint8Array([1]))).toThrow(/not enabled/);
     });
 
     // Passing an existing SAB should still be a no-op.
@@ -108,15 +116,15 @@ it("SharedMemoryBridge: support detection + SAB path", async (t) => {
 
   it("createView() accepts ArrayBufferLike", () => {
     const buf = new ArrayBuffer(16);
-    expect(SharedMemoryBridge.createView(buf, "u1").toBeTruthy() instanceof Uint8Array);
-    expect(SharedMemoryBridge.createView(buf, "i1").toBeTruthy() instanceof Int8Array);
-    expect(SharedMemoryBridge.createView(buf, "u2").toBeTruthy() instanceof Uint16Array);
-    expect(SharedMemoryBridge.createView(buf, "i2").toBeTruthy() instanceof Int16Array);
-    expect(SharedMemoryBridge.createView(buf, "u4").toBeTruthy() instanceof Uint32Array);
-    expect(SharedMemoryBridge.createView(buf, "i4").toBeTruthy() instanceof Int32Array);
-    expect(SharedMemoryBridge.createView(buf, "f4").toBeTruthy() instanceof Float32Array);
-    expect(SharedMemoryBridge.createView(buf, "f8").toBeTruthy() instanceof Float64Array);
-    expect(SharedMemoryBridge.createView(buf, "unknown").toBeTruthy() instanceof Uint8Array);
+    expect(SharedMemoryBridge.createView(buf, "u1") instanceof Uint8Array).toBeTruthy();
+    expect(SharedMemoryBridge.createView(buf, "i1") instanceof Int8Array).toBeTruthy();
+    expect(SharedMemoryBridge.createView(buf, "u2") instanceof Uint16Array).toBeTruthy();
+    expect(SharedMemoryBridge.createView(buf, "i2") instanceof Int16Array).toBeTruthy();
+    expect(SharedMemoryBridge.createView(buf, "u4") instanceof Uint32Array).toBeTruthy();
+    expect(SharedMemoryBridge.createView(buf, "i4") instanceof Int32Array).toBeTruthy();
+    expect(SharedMemoryBridge.createView(buf, "f4") instanceof Float32Array).toBeTruthy();
+    expect(SharedMemoryBridge.createView(buf, "f8") instanceof Float64Array).toBeTruthy();
+    expect(SharedMemoryBridge.createView(buf, "unknown") instanceof Uint8Array).toBeTruthy();
     expect(() => SharedMemoryBridge.createView(null)).toThrow(/must be SharedArrayBuffer or ArrayBuffer/);
   });
 
@@ -350,9 +358,13 @@ it("SharedMemoryBridge: fallback errors when port missing", async () => {
   await expect(async () => SharedMemoryBridge.unpack({ kind: "bogus" })).rejects.toThrow(/unsupported packet kind/);
 });
 
-it("SharedMemoryBridge: behaves when SharedArrayBuffer is absent", async (t) => {
-  const mod = await import("../../../js/agents/runtime/core/shared-memory.js");
-  const { SharedMemoryBridge } = mod;
+describe("SharedMemoryBridge: behaves when SharedArrayBuffer is absent", () => {
+  let SharedMemoryBridge;
+
+  beforeAll(async () => {
+    const mod = await import("../../../js/agents/runtime/core/shared-memory.js");
+    SharedMemoryBridge = mod.SharedMemoryBridge;
+  });
 
   it("getSupport() reflects missing SAB", () =>
     withGlobal("SharedArrayBuffer", undefined, () => {
@@ -365,6 +377,6 @@ it("SharedMemoryBridge: behaves when SharedArrayBuffer is absent", async (t) => 
   it("allocate()/copyToShared() throw clean errors", () =>
     withGlobal("SharedArrayBuffer", undefined, () => {
       expect(() => SharedMemoryBridge.allocate(8)).toThrow(/not available/);
-      expect(() => SharedMemoryBridge.copyToShared(new Uint8Array([1]).toThrow()), /not enabled/);
+      expect(() => SharedMemoryBridge.copyToShared(new Uint8Array([1]))).toThrow(/not enabled/);
     }));
 });

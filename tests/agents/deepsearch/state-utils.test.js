@@ -888,19 +888,18 @@ it("DeepSearchAgentLoop: fail-fast on non-recoverable model errors", async () =>
     config: { report: { quick: { minWords: 0 } }, agent: { quick: { writeIterations: 1 } } },
   });
 
-  await expect(() =>
-      agent.run(
-        {
-          runId: "run_fail_fast_auth",
-          taskGoal: "t",
-          userConfig: {},
-          L0: { sources: [] },
-          L1: { report: { markdown: "x".repeat(5000) } },
-        },
-        { stageApi }
-      ),
-    /Unauthorized/
-  );
+  await expect(
+    agent.run(
+      {
+        runId: "run_fail_fast_auth",
+        taskGoal: "t",
+        userConfig: {},
+        L0: { sources: [] },
+        L1: { report: { markdown: "x".repeat(5000) } },
+      },
+      { stageApi }
+    )
+  ).rejects.toThrow(/Unauthorized/);
 
   expect(calls).toBe(1);
   expect(agent.status).toBe(AgentStatus.FAILED);

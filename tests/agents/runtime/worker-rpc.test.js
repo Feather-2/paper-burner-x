@@ -175,7 +175,7 @@ describe('WorkerRpcClient', () => {
   it('rejects when method is missing', async () => {
     const worker = new FakeWorker({ handlers: {} });
     const client = new WorkerRpcClient({ worker, timeoutMs: 200 });
-    await expect(() => client.call('', {}), /method is required/i);
+    await expect(client.call('', {})).rejects.toThrow(/method is required/i);
   });
 
   it('throws when no worker factory is provided', () => {
@@ -193,14 +193,11 @@ describe('WorkerRpcClient', () => {
     });
     const client = new WorkerRpcClient({ worker, timeoutMs: 200 });
 
-    await expect(async () => client.call('fail', {}),
-      (err) => {
-        expect(err.message).toBe('nope');
-        expect(err.name).toBe('RemoteError');
-        expect(err.code).toBe('E_NOPE');
-        return true;
-      }
-    );
+    await expect(client.call('fail', {})).rejects.toMatchObject({
+      message: 'nope',
+      name: 'RemoteError',
+      code: 'E_NOPE',
+    });
   });
 
   it('rejects with normalized remote error (string)', async () => {
@@ -212,7 +209,7 @@ describe('WorkerRpcClient', () => {
       },
     });
     const client = new WorkerRpcClient({ worker, timeoutMs: 200 });
-    await expect(() => client.call('fail', {}), /bad/);
+    await expect(client.call('fail', {})).rejects.toThrow(/bad/);
   });
 
   it('supports timeout and sends cancel message', async () => {
@@ -223,7 +220,7 @@ describe('WorkerRpcClient', () => {
     });
     const client = new WorkerRpcClient({ worker, timeoutMs: 50 });
 
-    await expect(() => client.call('hang', null, { timeoutMs: 30 }), /timeout/i);
+    await expect(client.call('hang', null, { timeoutMs: 30 })).rejects.toThrow(/timeout/i);
 
     expect(worker.cancelCalls.length).toBe(1);
     expect(worker.cancelCalls[0].reason).toBe('timeout');
@@ -243,12 +240,9 @@ describe('WorkerRpcClient', () => {
     const controller = new AbortController();
     controller.abort('nope');
 
-    await expect(async () => client.call('sum', { a: 1, b: 2 }, { signal: controller.signal }),
-      (err) => {
-        expect(err.name).toBe('AbortError');
-        return true;
-      }
-    );
+    await expect(client.call('sum', { a: 1, b: 2 }, { signal: controller.signal })).rejects.toMatchObject({
+      name: 'AbortError',
+    });
     expect(created).toBe(0);
   });
 
@@ -268,13 +262,10 @@ describe('WorkerRpcClient', () => {
     const promise = client.call('delayed', null, { signal: controller.signal });
     setTimeout(() => controller.abort('stop'), 10);
 
-    await expect(async () => promise,
-      (err) => {
-        expect(err.name).toBe('AbortError');
-        expect(err.message).toMatch(/stop|aborted/i);
-        return true;
-      }
-    );
+    await expect(promise).rejects.toMatchObject({
+      name: 'AbortError',
+      message: expect.stringMatching(/stop|aborted/i),
+    });
 
     expect(worker.cancelCalls.length).toBe(1);
     expect(worker.cancelCalls[0].reason).toBe('aborted');
@@ -320,7 +311,7 @@ describe('WorkerRpcClient', () => {
     await sleep(10);
     current.crash(new Error('crash!'));
 
-    await expect(() => hanging).rejects.toThrow(/crash!/i);
+    await expect(hanging).rejects.toThrow(/crash!/i);
     expect(client.worker).toBe(null);
     expect(created).toBe(1);
 
@@ -342,7 +333,7 @@ describe('WorkerRpcClient', () => {
     await sleep(10);
     client.terminate('bye');
 
-    await expect(() => p).rejects.toThrow(/bye/i);
+    await expect(p).rejects.toThrow(/bye/i);
 
     const out = await client.call('ok', null);
     expect(out).toBe('ok');
@@ -353,7 +344,6 @@ describe('WorkerRpcClient', () => {
     const worker = new FakeWorker({ handlers: {} });
     worker.throwOnPostMessage = true;
     const client = new WorkerRpcClient({ worker, timeoutMs: 200 });
-    await expect(() => client.call('x', {}), /postMessage boom/);
+    await expect(client.call('x', {})).rejects.toThrow(/postMessage boom/);
   });
 });
-

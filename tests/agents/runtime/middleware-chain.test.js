@@ -262,17 +262,18 @@ describe("middleware-chain", () => {
           throw new Error("Test error");
         });
 
-        await expect(() => chain.execute({})).rejects.toThrow({ message: "Test error" }
-        );
+        await expect(chain.execute({})).rejects.toThrow(/Test error/);
       });
 
       it("should propagate errors from final handler", async () => {
         const chain = new MiddlewareChain();
         chain.use(async (ctx, next) => next());
 
-        await expect(() => chain.execute({}, () => { throw new Error("Handler error"); }),
-          { message: "Handler error" }
-        );
+        await expect(
+          chain.execute({}, () => {
+            throw new Error("Handler error");
+          })
+        ).rejects.toThrow(/Handler error/);
       });
 
       it("should short-circuit when next is not called", async () => {
@@ -403,7 +404,7 @@ describe("middleware-chain", () => {
       chain.use(createLoggingMiddleware({ logger }));
       chain.use(async () => { throw new Error("Test failure"); });
 
-      await expect(() => chain.execute({ stepName: "failing-step" }));
+      await expect(chain.execute({ stepName: "failing-step" })).rejects.toThrow(/Test failure/);
 
       expect(logs.some(l => l.level === "error" && l.msg.includes("failing-step failed"))).toBeTruthy();
       expect(logs.some(l => l.msg.includes("Test failure"))).toBeTruthy();
@@ -452,7 +453,7 @@ describe("middleware-chain", () => {
       chain.use(createTelemetryMiddleware({ emit, stageName: "test", actor: "agent" }));
       chain.use(async () => { throw new Error("Telemetry test error"); });
 
-      await expect(() => chain.execute({ stepName: "failing" }));
+      await expect(chain.execute({ stepName: "failing" })).rejects.toThrow(/Telemetry test error/);
 
       const failedEvent = events.find(e => e.name === "test.middleware.failing.failed");
       expect(failedEvent).toBeTruthy();
@@ -498,8 +499,7 @@ describe("middleware-chain", () => {
       const controller = new AbortController();
       controller.abort("User cancelled");
 
-      await expect(() => chain.execute({ signal: controller.signal })).rejects.toThrow({ message: "User cancelled" }
-      );
+      await expect(chain.execute({ signal: controller.signal })).rejects.toThrow(/User cancelled/);
     });
 
     it("should throw default message when aborted without reason", async () => {
@@ -509,8 +509,7 @@ describe("middleware-chain", () => {
       const controller = new AbortController();
       controller.abort();
 
-      await expect(() => chain.execute({ signal: controller.signal })).rejects.toThrow({ message: "Run cancelled" }
-      );
+      await expect(chain.execute({ signal: controller.signal })).rejects.toThrow(/Run cancelled/);
     });
 
     it("should throw default message when aborted with non-string reason", async () => {
@@ -520,8 +519,7 @@ describe("middleware-chain", () => {
       const controller = new AbortController();
       controller.abort({ code: "TIMEOUT" });
 
-      await expect(() => chain.execute({ signal: controller.signal })).rejects.toThrow({ message: "Run cancelled" }
-      );
+      await expect(chain.execute({ signal: controller.signal })).rejects.toThrow(/Run cancelled/);
     });
   });
 
@@ -557,9 +555,10 @@ describe("middleware-chain", () => {
         await new Promise(() => {});
       });
 
-      await expect(() => chain.execute({}),
-        (err) => err.code === "TIMEOUT" && err.message.includes("timeout")
-      );
+      await expect(chain.execute({})).rejects.toMatchObject({
+        code: "TIMEOUT",
+        message: expect.stringMatching(/timeout/i),
+      });
     });
 
     it("should call onTimeout callback", async () => {
@@ -580,7 +579,9 @@ describe("middleware-chain", () => {
         await new Promise(() => {});
       });
 
-      await expect(() => chain.execute({ testValue: 123 }));
+      await expect(chain.execute({ testValue: 123 })).rejects.toMatchObject({
+        code: "TIMEOUT",
+      });
 
       expect(callbackCalled).toBe(true);
       expect(callbackCtx.testValue).toBe(123);
@@ -600,8 +601,7 @@ describe("middleware-chain", () => {
       chain.use(createTimeoutMiddleware({ timeout: 100 }));
       chain.use(async () => { throw new Error("Inner error"); });
 
-      await expect(() => chain.execute({})).rejects.toThrow({ message: "Inner error" }
-      );
+      await expect(chain.execute({})).rejects.toThrow(/Inner error/);
     });
   });
 
@@ -631,8 +631,7 @@ describe("middleware-chain", () => {
         throw new Error("Always fails");
       });
 
-      await expect(() => chain.execute({})).rejects.toThrow({ message: "Always fails" }
-      );
+      await expect(chain.execute({})).rejects.toThrow(/Always fails/);
       expect(attempts).toBe(3); // 1 initial + 2 retries
     });
 
@@ -650,7 +649,7 @@ describe("middleware-chain", () => {
         throw new Error("permanent failure");
       });
 
-      await expect(() => chain.execute({}));
+      await expect(chain.execute({})).rejects.toThrow(/permanent failure/);
       expect(attempts).toBe(1);
     });
 
@@ -693,7 +692,7 @@ describe("middleware-chain", () => {
         throw new Error("failure");
       });
 
-      await expect(() => chain.execute({})).rejects.toThrow();
+      await expect(chain.execute({})).rejects.toThrow();
       expect(attemptsSeen).toEqual([0, 1, 2]);
     });
 
@@ -725,7 +724,7 @@ describe("middleware-chain", () => {
         throw new Error("failure");
       });
 
-      await expect(() => chain.execute({}));
+      await expect(chain.execute({})).rejects.toThrow(/failure/);
       expect(attempts).toBe(1);
     });
 
@@ -1158,8 +1157,7 @@ describe("middleware-chain", () => {
         timeout: 10000,
       });
 
-      await expect(() => chain.execute({ signal: controller.signal })).rejects.toThrow({ message: "Early cancel" }
-      );
+      await expect(chain.execute({ signal: controller.signal })).rejects.toThrow(/Early cancel/);
     });
   });
 });

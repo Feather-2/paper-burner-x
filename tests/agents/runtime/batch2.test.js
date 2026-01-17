@@ -1,9 +1,16 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
 
 const assert = require("node:assert/strict");
 
-it("WorkerPool: basic lifecycle", async (t) => {
-  const { WorkerPool, TaskPriority } = await import("../../../js/agents/runtime/core/worker-pool.js");
+describe("WorkerPool: basic lifecycle", () => {
+  let WorkerPool;
+  let TaskPriority;
+
+  beforeAll(async () => {
+    const mod = await import("../../../js/agents/runtime/core/worker-pool.js");
+    WorkerPool = mod.WorkerPool;
+    TaskPriority = mod.TaskPriority;
+  });
 
   let workerCount = 0;
   const mockWorker = () => ({
@@ -65,8 +72,13 @@ it("WorkerPool: basic lifecycle", async (t) => {
   });
 });
 
-it("ResourceGuard: quota management", async (t) => {
-  const { ResourceGuard } = await import("../../../js/agents/runtime/core/resource-guard.js");
+describe("ResourceGuard: quota management", () => {
+  let ResourceGuard;
+
+  beforeAll(async () => {
+    const mod = await import("../../../js/agents/runtime/core/resource-guard.js");
+    ResourceGuard = mod.ResourceGuard;
+  });
 
   it("stats reports current state", () => {
     const guard = new ResourceGuard({ maxConcurrent: 4 });
@@ -155,8 +167,17 @@ it("ResourceGuard: quota management", async (t) => {
   });
 });
 
-it("RetryStrategy: retry behavior", async (t) => {
-  const { RetryStrategy, isRetryableError, withRetry } = await import("../../../js/agents/runtime/core/retry-strategy.js");
+describe("RetryStrategy: retry behavior", () => {
+  let RetryStrategy;
+  let isRetryableError;
+  let withRetry;
+
+  beforeAll(async () => {
+    const mod = await import("../../../js/agents/runtime/core/retry-strategy.js");
+    RetryStrategy = mod.RetryStrategy;
+    isRetryableError = mod.isRetryableError;
+    withRetry = mod.withRetry;
+  });
 
   it("isRetryableError detects retryable errors", () => {
     expect(isRetryableError(null)).toBe(false);
@@ -278,8 +299,21 @@ it("RetryStrategy: retry behavior", async (t) => {
   });
 });
 
-it("FileLock: read/write locking", async (t) => {
-  const { FileLock, LockType, getFileLock, acquireLock, withLock } = await import("../../../js/agents/vfs/file-lock.js");
+describe("FileLock: read/write locking", () => {
+  let FileLock;
+  let LockType;
+  let getFileLock;
+  let acquireLock;
+  let withLock;
+
+  beforeAll(async () => {
+    const mod = await import("../../../js/agents/vfs/file-lock.js");
+    FileLock = mod.FileLock;
+    LockType = mod.LockType;
+    getFileLock = mod.getFileLock;
+    acquireLock = mod.acquireLock;
+    withLock = mod.withLock;
+  });
 
   it("acquire/release basic flow", async () => {
     const lock = new FileLock();

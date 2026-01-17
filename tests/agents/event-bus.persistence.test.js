@@ -168,7 +168,7 @@ it("EventBus replay(runId): missing runId throws clear error", async () => {
   };
 
   const bus = new EventBus({ runId: "run_x", persistenceAdapter: adapter });
-  await expect(() => bus.replay("run_missing")).rejects.toThrow(/no events found.*runId=run_missing/i);
+  await expect(bus.replay("run_missing")).rejects.toThrow(/no events found.*runId=run_missing/i);
 });
 
 it("EventBus persistenceAdapter validation: missing methods throws", async () => {
@@ -397,25 +397,25 @@ it("EventBus.replay(runId): argument and adapter return validation", async () =>
   const { EventBus } = await import("../../js/agents/core/event-bus.js");
 
   const busNoAdapter = new EventBus({ runId: "run_no_adapter_2" });
-  await expect(() => busNoAdapter.replay("run_no_adapter_2")).rejects.toThrow(/persistenceAdapter is required/i);
+  await expect(busNoAdapter.replay("run_no_adapter_2")).rejects.toThrow(/persistenceAdapter is required/i);
 
   const busBadRunId = new EventBus({
     runId: "run_bad_runid",
     persistenceAdapter: { appendEvents() {}, async getEvents() { return []; } },
   });
-  await expect(() => busBadRunId.replay(null)).rejects.toThrow(/runId must be a string/i);
+  await expect(busBadRunId.replay(null)).rejects.toThrow(/runId must be a string/i);
 
   const busNonArray = new EventBus({
     runId: "run_nonarray",
     persistenceAdapter: { appendEvents() {}, async getEvents() { return "nope"; } },
   });
-  await expect(() => busNonArray.replay("run_nonarray")).rejects.toThrow(/must return an array/i);
+  await expect(busNonArray.replay("run_nonarray")).rejects.toThrow(/must return an array/i);
 
   const busThrows = new EventBus({
     runId: "run_throws",
     persistenceAdapter: { appendEvents() {}, async getEvents() { throw new Error("db down"); } },
   });
-  await expect(() => busThrows.replay("run_throws")).rejects.toThrow(/failed to load events.*db down/i);
+  await expect(busThrows.replay("run_throws")).rejects.toThrow(/failed to load events.*db down/i);
 });
 
 it("RunStoreAdapter: supports appendEvent-only runStore and validates inputs", async () => {
@@ -436,8 +436,8 @@ it("RunStoreAdapter: supports appendEvent-only runStore and validates inputs", a
 
   expect(() => new RunStoreAdapter({ appendEvents() {} })).toThrow(/getEvents/i);
   expect(() => new RunStoreAdapter({ getEvents() {} })).toThrow(/appendEvents\/appendEvent/i);
-  await expect(() => adapter.appendEvents("nope")).rejects.toThrow(/events must be an array/i);
-  await expect(() => adapter.appendEvents([{ eventId: "evt_x" }])).rejects.toThrow(/must include a string runId/i);
+  await expect(adapter.appendEvents("nope")).rejects.toThrow(/events must be an array/i);
+  await expect(adapter.appendEvents([{ eventId: "evt_x" }])).rejects.toThrow(/must include a string runId/i);
 
   const count = await adapter.appendEvents([
     { runId: "run_a", eventId: "evt_a_1", name: "run.started" },

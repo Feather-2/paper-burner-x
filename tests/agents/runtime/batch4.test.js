@@ -2,13 +2,19 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 const assert = require("node:assert/strict");
 
-it("RecursiveBudgetManager: budget inheritance", async (t) => {
-  const {
-    BudgetManager,
-    BudgetAction,
-    RecursiveBudgetManager,
-    AllocationStrategy,
-  } = await import("../../../js/agents/shared/utils/budget.js");
+describe("RecursiveBudgetManager: budget inheritance", () => {
+  let BudgetManager;
+  let BudgetAction;
+  let RecursiveBudgetManager;
+  let AllocationStrategy;
+
+  beforeEach(async () => {
+    const mod = await import("../../../js/agents/shared/utils/budget.js");
+    BudgetManager = mod.BudgetManager;
+    BudgetAction = mod.BudgetAction;
+    RecursiveBudgetManager = mod.RecursiveBudgetManager;
+    AllocationStrategy = mod.AllocationStrategy;
+  });
 
   it("creates child with inherited budget", () => {
     const parent = new RecursiveBudgetManager({
@@ -98,13 +104,19 @@ it("RecursiveBudgetManager: budget inheritance", async (t) => {
   });
 });
 
-it("ConvergenceDetector: semantic convergence", async (t) => {
-  const {
-    ConvergenceDetector,
-    tokenize,
-    entropy,
-    jaccardSimilarity,
-  } = await import("../../../js/agents/runtime/analysis/convergence-detector.js");
+describe("ConvergenceDetector: semantic convergence", () => {
+  let ConvergenceDetector;
+  let tokenize;
+  let entropy;
+  let jaccardSimilarity;
+
+  beforeEach(async () => {
+    const mod = await import("../../../js/agents/runtime/analysis/convergence-detector.js");
+    ConvergenceDetector = mod.ConvergenceDetector;
+    tokenize = mod.tokenize;
+    entropy = mod.entropy;
+    jaccardSimilarity = mod.jaccardSimilarity;
+  });
 
   it("tokenize handles various text", () => {
     const tokens = tokenize("Hello World! This is a test.");
@@ -212,14 +224,21 @@ it("ConvergenceDetector: semantic convergence", async (t) => {
   });
 });
 
-it("BehaviorFingerprint: loop detection", async (t) => {
-  const {
-    BehaviorFingerprint,
-    ContextDistiller,
-    createActionSignature,
-    findRepeatingPatterns,
-    findConsecutiveLoops,
-  } = await import("../../../js/agents/runtime/analysis/behavior-fingerprint.js");
+describe("BehaviorFingerprint: loop detection", () => {
+  let BehaviorFingerprint;
+  let ContextDistiller;
+  let createActionSignature;
+  let findRepeatingPatterns;
+  let findConsecutiveLoops;
+
+  beforeEach(async () => {
+    const mod = await import("../../../js/agents/runtime/analysis/behavior-fingerprint.js");
+    BehaviorFingerprint = mod.BehaviorFingerprint;
+    ContextDistiller = mod.ContextDistiller;
+    createActionSignature = mod.createActionSignature;
+    findRepeatingPatterns = mod.findRepeatingPatterns;
+    findConsecutiveLoops = mod.findConsecutiveLoops;
+  });
 
   it("createActionSignature creates consistent signatures", () => {
     const sig1 = createActionSignature({ type: "search", params: { query: "test" } });
@@ -331,8 +350,13 @@ it("BehaviorFingerprint: loop detection", async (t) => {
   });
 });
 
-it("ContextDistiller: context extraction", async (t) => {
-  const { ContextDistiller } = await import("../../../js/agents/runtime/analysis/behavior-fingerprint.js");
+describe("ContextDistiller: context extraction", () => {
+  let ContextDistiller;
+
+  beforeEach(async () => {
+    const mod = await import("../../../js/agents/runtime/analysis/behavior-fingerprint.js");
+    ContextDistiller = mod.ContextDistiller;
+  });
 
   it("distills relevant discoveries", () => {
     const distiller = new ContextDistiller();

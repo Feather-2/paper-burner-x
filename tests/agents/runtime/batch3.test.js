@@ -2,16 +2,25 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 const assert = require("node:assert/strict");
 
-it("DeltaSync: hash and manifest", async (t) => {
-  const {
-    computeHash,
-    buildManifest,
-    computeDelta,
-    detectConflicts,
-    resolveConflicts,
-    ConflictStrategy,
-    DeltaSyncSession,
-  } = await import("../../../js/agents/vfs/delta-sync.js");
+describe("DeltaSync: hash and manifest", () => {
+  let computeHash;
+  let buildManifest;
+  let computeDelta;
+  let detectConflicts;
+  let resolveConflicts;
+  let ConflictStrategy;
+  let DeltaSyncSession;
+
+  beforeEach(async () => {
+    const mod = await import("../../../js/agents/vfs/delta-sync.js");
+    computeHash = mod.computeHash;
+    buildManifest = mod.buildManifest;
+    computeDelta = mod.computeDelta;
+    detectConflicts = mod.detectConflicts;
+    resolveConflicts = mod.resolveConflicts;
+    ConflictStrategy = mod.ConflictStrategy;
+    DeltaSyncSession = mod.DeltaSyncSession;
+  });
 
   it("computeHash produces consistent hash", async () => {
     const h1 = await computeHash("hello world");
@@ -162,8 +171,17 @@ it("DeltaSync: hash and manifest", async (t) => {
   });
 });
 
-it("ConfigValidator: schema validation", async (t) => {
-  const { ConfigValidator, validateConfig, CommonSchemas } = await import("../../../js/agents/runtime/core/config-validator.js");
+describe("ConfigValidator: schema validation", () => {
+  let ConfigValidator;
+  let validateConfig;
+  let CommonSchemas;
+
+  beforeEach(async () => {
+    const mod = await import("../../../js/agents/runtime/core/config-validator.js");
+    ConfigValidator = mod.ConfigValidator;
+    validateConfig = mod.validateConfig;
+    CommonSchemas = mod.CommonSchemas;
+  });
 
   it("validates required fields", () => {
     const validator = new ConfigValidator({
@@ -332,15 +350,23 @@ it("ConfigValidator: schema validation", async (t) => {
   });
 });
 
-it("ErrorBoundary: error handling", async (t) => {
-  const {
-    ErrorBoundary,
-    ErrorCategory,
-    categorizeError,
-    createErrorInfo,
-    getErrorBoundary,
-    withErrorBoundary,
-  } = await import("../../../js/agents/runtime/core/error-boundary.js");
+describe("ErrorBoundary: error handling", () => {
+  let ErrorBoundary;
+  let ErrorCategory;
+  let categorizeError;
+  let createErrorInfo;
+  let getErrorBoundary;
+  let withErrorBoundary;
+
+  beforeEach(async () => {
+    const mod = await import("../../../js/agents/runtime/core/error-boundary.js");
+    ErrorBoundary = mod.ErrorBoundary;
+    ErrorCategory = mod.ErrorCategory;
+    categorizeError = mod.categorizeError;
+    createErrorInfo = mod.createErrorInfo;
+    getErrorBoundary = mod.getErrorBoundary;
+    withErrorBoundary = mod.withErrorBoundary;
+  });
 
   it("categorizeError identifies categories", () => {
     const networkErr = new Error("fetch failed");

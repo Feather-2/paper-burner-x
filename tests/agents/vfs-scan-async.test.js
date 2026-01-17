@@ -76,7 +76,7 @@ describe("vfs-scan-async", () => {
         });
 
         expect(fallback.mock.calls.length).toBe(1);
-        expect(fallback.mock.calls[0].arguments).toEqual(["dir", true]);
+        expect(fallback.mock.calls[0]).toEqual(["dir", true]);
         expect(result).toEqual(["dir/file2.txt", "dir/sub/file3.txt"]);
       });
 
@@ -125,13 +125,12 @@ describe("vfs-scan-async", () => {
           throw new Error("scan: aborted");
         });
 
-        await expect(() =>
-            scanOpfsAsync({
-              useWorker: false,
-              fallbackListFiles: fallback,
-            }),
-          { message: "scan: aborted" }
-        );
+        await expect(
+          scanOpfsAsync({
+            useWorker: false,
+            fallbackListFiles: fallback,
+          })
+        ).rejects.toThrow(/scan: aborted/);
       });
 
       it("handles non-array fallback result gracefully", async () => {
@@ -151,13 +150,12 @@ describe("vfs-scan-async", () => {
         const controller = new AbortController();
         controller.abort();
 
-        await expect(() =>
-            scanOpfsAsync({
-              signal: controller.signal,
-              useWorker: false,
-            }),
-          { message: "scan: aborted" }
-        );
+        await expect(
+          scanOpfsAsync({
+            signal: controller.signal,
+            useWorker: false,
+          })
+        ).rejects.toThrow(/scan: aborted/);
       });
 
       it("throws if signal aborts during fallback execution", async () => {
@@ -168,14 +166,13 @@ describe("vfs-scan-async", () => {
           return ["file.txt"];
         });
 
-        await expect(() =>
-            scanOpfsAsync({
-              signal: controller.signal,
-              useWorker: false,
-              fallbackListFiles: fallback,
-            }),
-          { message: "scan: aborted" }
-        );
+        await expect(
+          scanOpfsAsync({
+            signal: controller.signal,
+            useWorker: false,
+            fallbackListFiles: fallback,
+          })
+        ).rejects.toThrow(/scan: aborted/);
       });
 
       it("does not throw if signal not aborted", async () => {
@@ -215,7 +212,7 @@ describe("vfs-scan-async", () => {
           fallbackListFiles: fallback,
         });
 
-        expect(fallback.mock.calls[0].arguments).toEqual(["myprefix", false]);
+        expect(fallback.mock.calls[0]).toEqual(["myprefix", false]);
       });
 
       it("uses default values for optional params", async () => {
@@ -274,9 +271,7 @@ describe("vfs-scan-async", () => {
       const controller = new AbortController();
       controller.abort();
 
-      await expect(() => listFiles({ signal: controller.signal })).rejects.toThrow({
-        message: "scan: aborted",
-      });
+      await expect(listFiles({ signal: controller.signal })).rejects.toThrow(/scan: aborted/);
     });
   });
 

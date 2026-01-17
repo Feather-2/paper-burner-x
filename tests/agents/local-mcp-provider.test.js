@@ -497,13 +497,12 @@ it("LocalMcpProvider: proxy request strips basic auth + hash fragments", async (
     proxyCooldownMs: 0,
   });
 
-  await expect(() =>
-      provider._fetchWithCorsFallback("https://user:pass@target.example/page?x=1#access_token=xyz", {
-        timeoutMs: 50,
-        tryDirect: false,
-      }),
-    () => true
-  );
+  await expect(
+    provider._fetchWithCorsFallback("https://user:pass@target.example/page?x=1#access_token=xyz", {
+      timeoutMs: 50,
+      tryDirect: false,
+    })
+  ).rejects.toBeTruthy();
 
   expect(fetchMock.calls.length).toBe(1);
   const called = String(fetchMock.calls[0].url);
@@ -731,13 +730,13 @@ it("LocalMcpProvider: proxy fetch enforces maxBodyBytes (best-effort)", async ()
     fetchImpl: fetchMock,
   });
 
-  await expect(() => provider._fetchWithCorsFallback("https://target.example/huge", { tryDirect: false, maxBodyBytes: 50 }),
-    (err) => {
-      expect(err instanceof AggregateError).toBeTruthy();
-      expect(err.errors?.some(e => String(e?.message || "").includes("Response body exceeds limit")));
-      return true;
-    }
-  );
+  await expect(
+    provider._fetchWithCorsFallback("https://target.example/huge", { tryDirect: false, maxBodyBytes: 50 })
+  ).rejects.toSatisfy((err) => {
+    expect(err instanceof AggregateError).toBeTruthy();
+    expect(err.errors?.some((e) => String(e?.message || "").includes("Response body exceeds limit")));
+    return true;
+  });
 });
 
 it("validateFetchUrl: blocks IPv4-mapped IPv6 private hosts by default", async () => {
@@ -746,7 +745,6 @@ it("validateFetchUrl: blocks IPv4-mapped IPv6 private hosts by default", async (
   expect(() => validateFetchUrl("http://[::ffff:127.0.0.1]/")).toThrow(/private network/i);
   expect(() => validateFetchUrl("http://[::ffff:7f00:1]/")).toThrow(/private network/i);
 
-  expect(validateFetchUrl("http://[::ffff:127.0.0.1]/").toBe({ allowPrivateNetwork: true }),
-    "http://[::ffff:7f00:1]/"
-  );
+  expect(() => validateFetchUrl("http://[::ffff:127.0.0.1]/", { allowPrivateNetwork: true })).not.toThrow();
+  expect(() => validateFetchUrl("http://[::ffff:7f00:1]/", { allowPrivateNetwork: true })).not.toThrow();
 });

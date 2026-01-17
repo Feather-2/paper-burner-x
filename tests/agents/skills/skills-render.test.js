@@ -221,7 +221,9 @@ describe("skills/render", () => {
       const importantLine = lines.find(l => l.includes("$Important"));
       expect(criticalLine.includes("\u{1F534}")).toBeTruthy(); // red circle
       expect(optionalLine.includes("\u26AA")).toBeTruthy(); // white circle
-      expect(!importantLine.includes("\u{1F534}")).toBeTruthy() && !importantLine.includes("\u26AA"));
+      expect(
+        !importantLine.includes("\u{1F534}") && !importantLine.includes("\u26AA")
+      ).toBeTruthy();
     });
 
     it("uses shortDescription when available", () => {
