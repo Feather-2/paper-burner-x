@@ -18,6 +18,7 @@ import { AgentEventBridge } from './agent-event-bridge.js';
 import { EventHandlerRegistry, createWorkflowEventRegistry } from './event-handler-registry.js';
 import { StateSynchronizer, inferWorkflowStateFromEvent } from './unified-state-mapping.js';
 import { PLAN_ARTIFACT_TYPE, PlanLifecycleStatus, createPlan, savePlan, setPlanLifecycleStatus, setPlanStepStatus } from '../../agents/runtime/plan/plan-store.js';
+import { getUIEventBus } from '../ui-v2/core/event-bus.js';
 
 let _TextPrepStage = null;
 async function getTextPrepStage() {
@@ -79,8 +80,7 @@ const WORKFLOW_PLAN_STAGE_MAP = Object.freeze({
 });
 
 function emitUiV2Event(name, payload) {
-    if (typeof window === 'undefined') return;
-    const bus = window.PPTUIV2?.instance?.eventBus;
+    const bus = getUIEventBus();
     if (!bus || typeof bus.emit !== 'function') return;
     try {
         bus.emit(name, payload);
