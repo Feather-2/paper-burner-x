@@ -720,9 +720,19 @@ export class CicadaCompressor {
       ? options.maxInputChars
       : DEFAULT_MAX_INPUT_CHARS;
     const contextText = safeStringify(context).slice(0, maxInputChars);
+    const currentTime = new Date().toISOString();
     const prompt = [
       "Summarize the agent context into JSON with keys: summary, keyPoints, decisions, errors.",
       "Preserve key decisions, findings, and errors.",
+      "",
+      "IMPORTANT - Atomization rules for self-contained facts:",
+      "1. Coreference Resolution: Replace all pronouns with concrete entities.",
+      '   - "他/她/它" → actual name, "那个文件" → actual filename, "这个函数" → actual function name',
+      "2. Temporal Normalization: Convert ALL relative time to ISO-8601 absolute timestamps.",
+      '   - "明天" → specific date, "刚才" → specific timestamp, "上次" → specific date/time',
+      "3. Each fact in keyPoints/decisions MUST be understandable in isolation without context.",
+      "",
+      `Current time: ${currentTime}`,
       `Max tokens: ${this.maxTokens}.`,
       "Context:",
       contextText,
